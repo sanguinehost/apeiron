@@ -129,6 +129,21 @@ unsafe fn prefix_masks_avx2(base: *const u64, coord: u64) -> (u32, u32) {
     (hits, empties)
 }
 
+/// The [`Overflow::upsert`] merge guard: armed after the value is moved out, forgotten after the
+/// merged value is written back. Its `Drop` runs only on an unwind out of the merge and deletes the
+/// entry, the overflow twin of [`MergeGuard`](super::side::MergeGuard).
+struct UpsertGuard<'a, K: Coord, V> {
+    o: &'a mut Overflow<K, V>,
+    n: u32,
+    e: u32,
+}
+
+impl<K: Coord, V> Drop for UpsertGuard<'_, K, V> {
+    fn drop(&mut self) {
+        self.o.discard_entry(self.n, self.e);
+    }
+}
+
 /// The `NIL` child index — no node. `u32::MAX` is not a valid arena index (the arena would need
 /// `2^32` live nodes).
 const NIL: u32 = u32::MAX;
@@ -138,8 +153,8 @@ const NIL: u32 = u32::MAX;
 pub(super) struct Node<K, V> {
     pub(super) key: u64,
     /// The entries at this coordinate. The `Option` is `None` only for the duration of a merge that
-    /// has moved the value out (panic safety, exactly as the primary slot blanks its coordinate);
-    /// every steady-state entry is `Some`.
+    /// has moved the value out; a merge that unwinds deletes the entry ([`Overflow::discard_entry`]),
+    /// so every entry outside a merge is `Some`.
     pub(super) entries: Vec<(K, Option<V>)>,
     pub(super) left: u32,
     pub(super) right: u32,
@@ -395,21 +410,33 @@ impl<K: Coord, V> Overflow<K, V> {
         (node, e)
     }
 
-    /// Upsert: merge `new` into the running value at `(coord, k)` when present, else insert.
+    /// Upsert: merge `new` into the running value at `(coord, k)` when present, else insert. A merge
+    /// that unwinds deletes the entry ([`UpsertGuard`]): the key reads absent and is not counted.
     pub(super) fn upsert(&mut self, coord: u64, k: K, new: V, f: impl FnOnce(V, V) -> V) -> &mut V
     where
         K: Eq,
     {
         if let Some((n, e)) = self.find_entry(coord, &k) {
-            let old = self.nodes[n as usize].entries[e as usize]
-                .1
-                .take()
-                .expect("overflow: live entry");
+            drop(k); // the stored key is kept
+            let old = self.take_value(n, e);
+            let guard = UpsertGuard { o: self, n, e };
             let merged = f(new, old);
-            self.nodes[n as usize].entries[e as usize].1 = Some(merged);
+            std::mem::forget(guard);
+            self.write_back(n, e, merged);
             return self.nodes[n as usize].entries[e as usize].1.as_mut().unwrap();
         }
         self.insert_new(coord, k, new)
+    }
+
+    /// Delete the entry at `(n, e)` whose value an unwinding merge consumed (it is `None`): drop its
+    /// key, and its node when the node empties. O(log n): the node removal rebalances one path.
+    pub(super) fn discard_entry(&mut self, n: u32, e: u32) {
+        let (k, _consumed) = self.nodes[n as usize].entries.remove(e as usize);
+        self.len -= 1;
+        if self.nodes[n as usize].entries.is_empty() {
+            self.delete_node(n);
+        }
+        drop(k);
     }
 
     /// Move the value out of an existing entry, leaving it `None` for the duration of a merge.
@@ -805,5 +832,13 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     #[doc(hidden)]
     pub fn overflow_len(&self) -> usize {
         self.overflow.as_ref().map_or(0, Overflow::len)
+    }
+
+    /// The number of `TOMB` slots not yet reclaimed. Only a rebuild lowers it (every `remove` adds
+    /// one and no insert reuses one), so it is the observable a rebuild count is read from.
+    /// Diagnostic.
+    #[doc(hidden)]
+    pub fn tombstones(&self) -> usize {
+        self.tombs
     }
 }

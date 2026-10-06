@@ -6,7 +6,7 @@ import Count.FreqRep
 import Count.FreqAdd
 import Count.Aggregate
 import Map.PrefixMasks
-import Map.ExecutedInsertSide
+import Map.ExecutedRead
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -120,9 +120,3 @@ import Map.ExecutedInsertSide
 #audit Apeiron.MapExecuted.get_coord_spec
 #audit Apeiron.MapExecuted.get_refines
 #audit Apeiron.MapExecuted.coord_get_refines
-#audit Apeiron.MapExecuted.not_inOv_of_sent
-#audit Apeiron.MapExecuted.rep_side_update
-#audit Apeiron.MapExecuted.push_spec
-#audit Apeiron.MapExecuted.insert_sent_rep
-#audit Apeiron.MapExecuted.insert_side_refines
-#audit Apeiron.MapExecuted.coord_insert_side_refines

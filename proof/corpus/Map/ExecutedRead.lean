@@ -247,7 +247,7 @@ theorem get_coord_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true
       have := (Result.ok_injective h).symm
       subst this
       have hci := hsome i rfl
-      obtain ⟨_, hl, hv, _⟩ := hR.side_val i.val k hci
+      obtain ⟨_, hl, hv⟩ := hR.side_val i.val k hci
       have hmu' := get_unchecked_ok _ _ _ hmu
       have hmu'' : s.side.vals.val[i.val]? = some mu := by
         simpa [alloc.vec.Vec.deref] using hmu'

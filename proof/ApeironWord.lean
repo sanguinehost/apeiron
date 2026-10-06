@@ -17240,7 +17240,7 @@ def packing.Packing.decode_block
       residual
 
 /-- [apeiron_word::hashtrinity::algebra::alloc_uninit_boxed]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 34:0-40:1
+    Source: '../../src/hashtrinity/algebra.rs', lines 32:0-38:1
     Visibility: public -/
 def hashtrinity.algebra.alloc_uninit_boxed
   (T : Type) (n : Std.Usize) :
@@ -17251,33 +17251,33 @@ def hashtrinity.algebra.alloc_uninit_boxed
   alloc.vec.Vec.into_boxed_slice Global v1
 
 /-- Trait declaration: [apeiron_word::hashtrinity::algebra::Coord]
-    Source: '../../src/hashtrinity/algebra.rs', lines 46:0-60:1
+    Source: '../../src/hashtrinity/algebra.rs', lines 44:0-58:1
     Visibility: public -/
 structure hashtrinity.algebra.Coord (Self : Type) where
   INJECTIVE : Result Bool
   coord : Self → Result Std.U64
 
 /-- [apeiron_word::hashtrinity::algebra::Coord::INJECTIVE]
-    Source: '../../src/hashtrinity/algebra.rs', lines 57:4-57:34
+    Source: '../../src/hashtrinity/algebra.rs', lines 55:4-55:34
     Visibility: public -/
 @[global_simps, irreducible, trait_default]
 def hashtrinity.algebra.Coord.INJECTIVE.default (Self : Type) : Bool := false
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::Coord for u64}::coord]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 65:18-65:57
+    Source: '../../src/hashtrinity/algebra.rs', lines 63:18-63:57
     Visibility: public -/
 def U64.Insts.Apeiron_wordHashtrinityAlgebraCoord.coord
   (self : Std.U64) : Result Std.U64 := do
   ok self
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::Coord for u64}::INJECTIVE]
-    Source: '../../src/hashtrinity/algebra.rs', lines 64:8-64:37
+    Source: '../../src/hashtrinity/algebra.rs', lines 62:8-62:37
     Visibility: public -/
 @[global_simps, irreducible]
 def U64.Insts.Apeiron_wordHashtrinityAlgebraCoord.INJECTIVE : Bool := true
 
 /-- Trait implementation: [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::Coord for u64}]
-    Source: '../../src/hashtrinity/algebra.rs', lines 63:24-66:5 -/
+    Source: '../../src/hashtrinity/algebra.rs', lines 61:24-64:5 -/
 @[reducible]
 def U64.Insts.Apeiron_wordHashtrinityAlgebraCoord : hashtrinity.algebra.Coord
   Std.U64 := {
@@ -17286,21 +17286,21 @@ def U64.Insts.Apeiron_wordHashtrinityAlgebraCoord : hashtrinity.algebra.Coord
 }
 
 /-- Trait declaration: [apeiron_word::hashtrinity::algebra::CoordInv]
-    Source: '../../src/hashtrinity/algebra.rs', lines 74:0-77:1
+    Source: '../../src/hashtrinity/algebra.rs', lines 72:0-75:1
     Visibility: public -/
 structure hashtrinity.algebra.CoordInv (Self : Type) where
   CoordInst : hashtrinity.algebra.Coord Self
   from_coord : Std.U64 → Result Self
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::CoordInv for u64}::from_coord]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 80:18-80:61
+    Source: '../../src/hashtrinity/algebra.rs', lines 78:18-78:61
     Visibility: public -/
 def U64.Insts.Apeiron_wordHashtrinityAlgebraCoordInv.from_coord
   (c : Std.U64) : Result Std.U64 := do
   ok c
 
 /-- Trait implementation: [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::CoordInv for u64}]
-    Source: '../../src/hashtrinity/algebra.rs', lines 79:24-81:5 -/
+    Source: '../../src/hashtrinity/algebra.rs', lines 77:24-79:5 -/
 @[reducible]
 def U64.Insts.Apeiron_wordHashtrinityAlgebraCoordInv :
   hashtrinity.algebra.CoordInv Std.U64 := {
@@ -17309,7 +17309,7 @@ def U64.Insts.Apeiron_wordHashtrinityAlgebraCoordInv :
 }
 
 /-- Trait declaration: [apeiron_word::hashtrinity::algebra::KeyStore]
-    Source: '../../src/hashtrinity/algebra.rs', lines 95:0-120:1
+    Source: '../../src/hashtrinity/algebra.rs', lines 93:0-118:1
     Visibility: public -/
 structure hashtrinity.algebra.KeyStore (Self : Type) (K : Type) where
   REGEN : Result Bool
@@ -17324,7 +17324,7 @@ structure hashtrinity.algebra.KeyStore (Self : Type) (K : Type) where
   drop_live : Self → Slice Std.U64 → Result Self
 
 /-- [apeiron_word::hashtrinity::algebra::KeyStore::REGEN]
-    Source: '../../src/hashtrinity/algebra.rs', lines 99:4-99:30
+    Source: '../../src/hashtrinity/algebra.rs', lines 97:4-97:30
     Visibility: public -/
 @[global_simps, irreducible, trait_default]
 def hashtrinity.algebra.KeyStore.REGEN.default (Self : Type) (K : Type)
@@ -17332,7 +17332,7 @@ def hashtrinity.algebra.KeyStore.REGEN.default (Self : Type) (K : Type)
   false
 
 /-- [apeiron_word::hashtrinity::algebra::Stored]
-    Source: '../../src/hashtrinity/algebra.rs', lines 167:0-167:44
+    Source: '../../src/hashtrinity/algebra.rs', lines 164:0-164:44
     Visibility: public -/
 @[reducible]
 def hashtrinity.algebra.Stored (K : Type) :=
@@ -17344,12 +17344,12 @@ def hashtrinity.algebra.Stored (K : Type) :=
 def hashtrinity.EMPTY : Std.U64 := core.num.U64.MAX
 
 /-- [apeiron_word::hashtrinity::TOMB]
-    Source: '../../src/hashtrinity/mod.rs', lines 285:0-285:28 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 286:0-286:28 -/
 @[global_simps, irreducible]
 def hashtrinity.TOMB : Result Std.U64 := hashtrinity.EMPTY - 1#u64
 
 /-- [apeiron_word::hashtrinity::is_live]:
-    Source: '../../src/hashtrinity/mod.rs', lines 290:0-292:1 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 291:0-293:1 -/
 def hashtrinity.is_live (c : Std.U64) : Result Bool := do
   if c != hashtrinity.EMPTY
   then let i ← hashtrinity.TOMB
@@ -17357,7 +17357,7 @@ def hashtrinity.is_live (c : Std.U64) : Result Bool := do
   else ok false
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Stored<K>}::drop_live]: loop body 0:
-    Source: '../../src/hashtrinity/algebra.rs', lines 229:12-236:13
+    Source: '../../src/hashtrinity/algebra.rs', lines 226:12-233:13
     Visibility: public -/
 @[rust_loop_body]
 def
@@ -17389,7 +17389,7 @@ def
     else ok (cont (iter1, self))
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Stored<K>}::drop_live]: loop 0:
-    Source: '../../src/hashtrinity/algebra.rs', lines 229:12-236:13
+    Source: '../../src/hashtrinity/algebra.rs', lines 226:12-233:13
     Visibility: public -/
 @[rust_loop]
 def
@@ -17406,7 +17406,7 @@ def
     (iter, self)
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Stored<K>}::drop_live]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 227:4-238:5
+    Source: '../../src/hashtrinity/algebra.rs', lines 224:4-235:5
     Visibility: public -/
 def
   hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.drop_live
@@ -17427,7 +17427,7 @@ def
   else ok self
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Stored<K>}::alloc]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 177:4-180:5
+    Source: '../../src/hashtrinity/algebra.rs', lines 174:4-177:5
     Visibility: public -/
 def
   hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.alloc
@@ -17439,7 +17439,7 @@ def
   ok s
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Stored<K>}::clone_live]: loop body 0:
-    Source: '../../src/hashtrinity/algebra.rs', lines 215:8-224:9
+    Source: '../../src/hashtrinity/algebra.rs', lines 212:8-221:9
     Visibility: public -/
 @[rust_loop_body]
 def
@@ -17477,7 +17477,7 @@ def
     else ok (cont (iter1, self, out))
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Stored<K>}::clone_live]: loop 0:
-    Source: '../../src/hashtrinity/algebra.rs', lines 215:8-224:9
+    Source: '../../src/hashtrinity/algebra.rs', lines 212:8-221:9
     Visibility: public -/
 @[rust_loop]
 def
@@ -17495,7 +17495,7 @@ def
     (iter, self, out)
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Stored<K>}::clone_live]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 210:4-226:5
+    Source: '../../src/hashtrinity/algebra.rs', lines 207:4-223:5
     Visibility: public -/
 def
   hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.clone_live
@@ -17516,7 +17516,7 @@ def
     corecloneCloneInst iter self out
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Stored<K>}::take_key]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 206:4-209:5
+    Source: '../../src/hashtrinity/algebra.rs', lines 203:4-206:5
     Visibility: public -/
 def
   hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.take_key
@@ -17533,7 +17533,7 @@ def
   ok (t, s)
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Stored<K>}::migrate]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 198:4-204:5
+    Source: '../../src/hashtrinity/algebra.rs', lines 195:4-201:5
     Visibility: public -/
 def
   hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.migrate
@@ -17554,7 +17554,7 @@ def
   ok (self, s)
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Stored<K>}::matches]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 187:4-196:5
+    Source: '../../src/hashtrinity/algebra.rs', lines 184:4-193:5
     Visibility: public -/
 def
   hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.matches
@@ -17574,7 +17574,7 @@ def
     core.cmp.impls.PartialEqShared.eq corecmpEqInst.partialEqInst t q
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Stored<K>}::set]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 182:4-185:5
+    Source: '../../src/hashtrinity/algebra.rs', lines 179:4-182:5
     Visibility: public -/
 def hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.set
   {K : Type} (CoordInst : hashtrinity.algebra.Coord K) (corecmpEqInst :
@@ -17590,7 +17590,7 @@ def hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.set
   ok s
 
 /-- Trait implementation: [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Stored<K>}]
-    Source: '../../src/hashtrinity/algebra.rs', lines 175:0-239:1 -/
+    Source: '../../src/hashtrinity/algebra.rs', lines 172:0-236:1 -/
 @[reducible]
 def hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore {K
   : Type} (CoordInst1 : hashtrinity.algebra.Coord K) (corecmpEqInst :
@@ -17623,13 +17623,13 @@ def hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore {K
 }
 
 /-- [apeiron_word::hashtrinity::algebra::Regen]
-    Source: '../../src/hashtrinity/algebra.rs', lines 268:0-268:49
+    Source: '../../src/hashtrinity/algebra.rs', lines 265:0-265:49
     Visibility: public -/
 @[reducible]
 def hashtrinity.algebra.Regen (K : Type) := core.marker.PhantomData K
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Regen<K>}::drop_live]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 302:4-302:47
+    Source: '../../src/hashtrinity/algebra.rs', lines 299:4-299:47
     Visibility: public -/
 def
   hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.drop_live
@@ -17641,7 +17641,7 @@ def
   ok self
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Regen<K>}::clone_live]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 295:4-300:5
+    Source: '../../src/hashtrinity/algebra.rs', lines 292:4-297:5
     Visibility: public -/
 def
   hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.clone_live
@@ -17653,7 +17653,7 @@ def
   ok ()
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Regen<K>}::take_key]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 291:4-293:5
+    Source: '../../src/hashtrinity/algebra.rs', lines 288:4-290:5
     Visibility: public -/
 def
   hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.take_key
@@ -17666,7 +17666,7 @@ def
   ok (t, self)
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Regen<K>}::migrate]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 289:4-289:67
+    Source: '../../src/hashtrinity/algebra.rs', lines 286:4-286:67
     Visibility: public -/
 def
   hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.migrate
@@ -17678,7 +17678,7 @@ def
   ok (self, _dst)
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Regen<K>}::matches]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 279:4-287:5
+    Source: '../../src/hashtrinity/algebra.rs', lines 276:4-284:5
     Visibility: public -/
 def
   hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.matches
@@ -17690,7 +17690,7 @@ def
   ok true
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Regen<K>}::set]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 277:4-277:42
+    Source: '../../src/hashtrinity/algebra.rs', lines 274:4-274:42
     Visibility: public -/
 def hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.set
   {K : Type} (CoordInvInst : hashtrinity.algebra.CoordInv K) (corecmpEqInst :
@@ -17701,7 +17701,7 @@ def hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.set
   ok self
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Regen<K>}::alloc]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 273:4-275:5
+    Source: '../../src/hashtrinity/algebra.rs', lines 270:4-272:5
     Visibility: public -/
 def
   hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.alloc
@@ -17712,7 +17712,7 @@ def
   ok ()
 
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Regen<K>}::REGEN]
-    Source: '../../src/hashtrinity/algebra.rs', lines 271:4-271:29
+    Source: '../../src/hashtrinity/algebra.rs', lines 268:4-268:29
     Visibility: public -/
 @[global_simps, irreducible]
 def
@@ -17722,7 +17722,7 @@ def
   true
 
 /-- Trait implementation: [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::KeyStore<K> for apeiron_word::hashtrinity::algebra::Regen<K>}]
-    Source: '../../src/hashtrinity/algebra.rs', lines 270:0-303:1 -/
+    Source: '../../src/hashtrinity/algebra.rs', lines 267:0-300:1 -/
 @[reducible]
 def hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore {K :
   Type} (CoordInvInst : hashtrinity.algebra.CoordInv K) (corecmpEqInst :
@@ -18565,7 +18565,7 @@ def hashtrinity.freq.FreqMapKI64.add
   ok { self with inner := fl }
 
 /-- [apeiron_word::hashtrinity::bits_for_slots]:
-    Source: '../../src/hashtrinity/mod.rs', lines 488:0-490:1 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 467:0-469:1 -/
 def hashtrinity.bits_for_slots (slots : Std.Usize) : Result Std.U32 := do
   let i ← core.cmp.Ord.max.default core.cmp.OrdUsize slots 8#usize
   let i1 ← core.num.Usize.next_power_of_two i
@@ -18649,15 +18649,15 @@ def hashtrinity.freq.FreqMapKI64.count_aggregate
 @[global_simps, irreducible] def hashtrinity.PROBE_CAP : Std.U32 := 16#u32
 
 /-- [apeiron_word::hashtrinity::LOAD_NUM]
-    Source: '../../src/hashtrinity/mod.rs', lines 252:0-252:26 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 253:0-253:26 -/
 @[global_simps, irreducible] def hashtrinity.LOAD_NUM : Std.Usize := 3#usize
 
 /-- [apeiron_word::hashtrinity::LOAD_DEN]
-    Source: '../../src/hashtrinity/mod.rs', lines 253:0-253:26 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 254:0-254:26 -/
 @[global_simps, irreducible] def hashtrinity.LOAD_DEN : Std.Usize := 4#usize
 
 /-- [apeiron_word::hashtrinity::Capped]
-    Source: '../../src/hashtrinity/mod.rs', lines 258:0-265:1 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 259:0-266:1 -/
 @[discriminant isize]
 inductive hashtrinity.Capped where
 | Hit : Std.Usize → hashtrinity.Capped
@@ -18665,7 +18665,7 @@ inductive hashtrinity.Capped where
 | Blocked : hashtrinity.Capped
 
 /-- [apeiron_word::hashtrinity::Store]
-    Source: '../../src/hashtrinity/mod.rs', lines 270:0-277:1 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 271:0-278:1 -/
 @[discriminant isize]
 inductive hashtrinity.Store where
 | Main : hashtrinity.Store
@@ -18673,7 +18673,7 @@ inductive hashtrinity.Store where
 | Overflow : hashtrinity.Store
 
 /-- [apeiron_word::hashtrinity::is_sentinel]:
-    Source: '../../src/hashtrinity/mod.rs', lines 297:0-299:1 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 298:0-300:1 -/
 def hashtrinity.is_sentinel (c : Std.U64) : Result Bool := do
   if c = hashtrinity.EMPTY
   then ok true
@@ -18681,17 +18681,16 @@ def hashtrinity.is_sentinel (c : Std.U64) : Result Bool := do
        ok (c = i)
 
 /-- [apeiron_word::hashtrinity::side::SideStore]
-    Source: '../../src/hashtrinity/side.rs', lines 15:0-22:1 -/
+    Source: '../../src/hashtrinity/side.rs', lines 18:0-24:1 -/
 structure hashtrinity.side.SideStore (K : Type) (V : Type) (KS : Type) where
   coords : alloc.vec.Vec Std.U64
   vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V)
-  live : alloc.vec.Vec Bool
   keys : KS
   cap : Std.Usize
   _k : core.marker.PhantomData K
 
 /-- [apeiron_word::hashtrinity::overflow::Node]
-    Source: '../../src/hashtrinity/overflow.rs', lines 138:0-150:1 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 153:0-165:1 -/
 structure hashtrinity.overflow.Node (K : Type) (V : Type) where
   key : Std.U64
   entries : alloc.vec.Vec (K × (Option V))
@@ -18701,7 +18700,7 @@ structure hashtrinity.overflow.Node (K : Type) (V : Type) where
   alive : Bool
 
 /-- [apeiron_word::hashtrinity::overflow::Overflow]
-    Source: '../../src/hashtrinity/overflow.rs', lines 156:0-161:1 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 171:0-176:1 -/
 structure hashtrinity.overflow.Overflow (K : Type) (V : Type) where
   nodes : alloc.vec.Vec (hashtrinity.overflow.Node K V)
   free : alloc.vec.Vec Std.U32
@@ -18709,7 +18708,7 @@ structure hashtrinity.overflow.Overflow (K : Type) (V : Type) where
   len : Std.Usize
 
 /-- [apeiron_word::hashtrinity::Table]
-    Source: '../../src/hashtrinity/mod.rs', lines 339:0-353:1
+    Source: '../../src/hashtrinity/mod.rs', lines 341:0-355:1
     Visibility: public -/
 structure hashtrinity.Table (K : Type) (V : Type) (KS : Type) where
   coords : Slice Std.U64
@@ -18722,11 +18721,146 @@ structure hashtrinity.Table (K : Type) (V : Type) (KS : Type) where
   tombs : Std.Usize
   _k : core.marker.PhantomData K
 
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 0:
+    Source: '../../src/hashtrinity/side.rs', lines 114:12-118:13 -/
+@[rust_loop_body]
+def hashtrinity.side.SideStore.clear_loop0.body
+  {K : Type} {V : Type} {KS : Type} (self : hashtrinity.side.SideStore K V KS)
+  (i : Std.Usize) :
+  Result (ControlFlow ((hashtrinity.side.SideStore K V KS) × Std.Usize)
+    ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec
+    (core.mem.maybe_uninit.MaybeUninit V)) × KS × Std.Usize ×
+    (core.marker.PhantomData K)))
+  := do
+  let i1 := alloc.vec.Vec.len self.vals
+  if i < i1
+  then
+    let (mu, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+        (core.mem.maybe_uninit.MaybeUninit V)) self.vals i
+    let mu1 ← core.mem.maybe_uninit.MaybeUninit.assume_init_drop mu
+    let i2 ← i + 1#usize
+    let v := index_mut_back mu1
+    ok (cont ({ self with vals := v }, i2))
+  else ok (done (self.coords, self.vals, self.keys, self.cap, self._k))
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 0:
+    Source: '../../src/hashtrinity/side.rs', lines 114:12-118:13 -/
+@[rust_loop]
+def hashtrinity.side.SideStore.clear_loop0
+  {K : Type} {V : Type} {KS : Type} (self : hashtrinity.side.SideStore K V KS)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec
+    (core.mem.maybe_uninit.MaybeUninit V)) × KS × Std.Usize ×
+    (core.marker.PhantomData K))
+  := do
+  loop
+    (fun (self1, i1) => hashtrinity.side.SideStore.clear_loop0.body self1 i1)
+    (self, i)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 1:
+    Source: '../../src/hashtrinity/side.rs', lines 121:8-125:9 -/
+@[rust_loop_body]
+def hashtrinity.side.SideStore.clear_loop1.body
+  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
+  K) (v : alloc.vec.Vec Std.U64) (t : KS) (i : Std.Usize) :
+  Result (ControlFlow (KS × Std.Usize) KS)
+  := do
+  let i1 := alloc.vec.Vec.len v
+  if i < i1
+  then
+    let c ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64) v i
+    let (t1, t2) ← algebraKeyStoreInst.take_key t i c
+    core.mem.drop t1
+    let i2 ← i + 1#usize
+    ok (cont (t2, i2))
+  else ok (done t)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 1:
+    Source: '../../src/hashtrinity/side.rs', lines 121:8-125:9 -/
+@[rust_loop]
+def hashtrinity.side.SideStore.clear_loop1
+  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
+  K) (v : alloc.vec.Vec Std.U64) (t : KS) (i : Std.Usize) :
+  Result KS
+  := do
+  loop
+    (fun (t1, i1) => hashtrinity.side.SideStore.clear_loop1.body
+      algebraKeyStoreInst v t1 i1)
+    (t, i)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 2:
+    Source: '../../src/hashtrinity/side.rs', lines 121:8-125:9 -/
+@[rust_loop_body]
+def hashtrinity.side.SideStore.clear_loop2.body
+  {K : Type} {V : Type} {KS : Type} (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
+  (i : Std.Usize) :
+  Result (ControlFlow ((hashtrinity.side.SideStore K V KS) × Std.Usize)
+    ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec
+    (core.mem.maybe_uninit.MaybeUninit V)) × KS × Std.Usize ×
+    (core.marker.PhantomData K)))
+  := do
+  let i1 := alloc.vec.Vec.len self.coords
+  if i < i1
+  then
+    let c ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
+        self.coords i
+    let (t, t1) ← algebraKeyStoreInst.take_key self.keys i c
+    core.mem.drop t
+    let i2 ← i + 1#usize
+    ok (cont ({ self with keys := t1 }, i2))
+  else ok (done (self.coords, self.vals, self.keys, self.cap, self._k))
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 2:
+    Source: '../../src/hashtrinity/side.rs', lines 121:8-125:9 -/
+@[rust_loop]
+def hashtrinity.side.SideStore.clear_loop2
+  {K : Type} {V : Type} {KS : Type} (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec
+    (core.mem.maybe_uninit.MaybeUninit V)) × KS × Std.Usize ×
+    (core.marker.PhantomData K))
+  := do
+  loop
+    (fun (self1, i1) => hashtrinity.side.SideStore.clear_loop2.body
+      algebraKeyStoreInst self1 i1)
+    (self, i)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]:
+    Source: '../../src/hashtrinity/side.rs', lines 111:4-128:5 -/
+def hashtrinity.side.SideStore.clear
+  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
+  :
+  Result (hashtrinity.side.SideStore K V KS)
+  := do
+  let b ← core.mem.needs_drop V
+  if b
+  then
+    let (v, v1, t, i, pd) ←
+      hashtrinity.side.SideStore.clear_loop0 self 0#usize
+    let t1 ←
+      hashtrinity.side.SideStore.clear_loop1 algebraKeyStoreInst v t 0#usize
+    let v2 ← alloc.vec.Vec.clear Global v
+    let v3 ← alloc.vec.Vec.clear Global v1
+    ok { coords := v2, vals := v3, keys := t1, cap := i, _k := pd }
+  else
+    let (v, v1, t, i, pd) ←
+      hashtrinity.side.SideStore.clear_loop2 algebraKeyStoreInst self 0#usize
+    let v2 ← alloc.vec.Vec.clear Global v
+    let v3 ← alloc.vec.Vec.clear Global v1
+    ok { coords := v2, vals := v3, keys := t, cap := i, _k := pd }
+
 /-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop body 0:
-    Source: '../../src/hashtrinity/mod.rs', lines 361:12-367:13
+    Source: '../../src/hashtrinity/mod.rs', lines 363:12-369:13
     Visibility: public -/
 @[rust_loop_body]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop0.body
+def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop.body
   {K : Type} {V : Type} {KS : Type} (self : hashtrinity.Table K V KS)
   (i : Std.Usize) :
   Result (ControlFlow ((hashtrinity.Table K V KS) × Std.Usize) ((Slice
@@ -18755,10 +18889,10 @@ def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop0.body
       self.bits, self.len, self.tombs, self._k))
 
 /-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop 0:
-    Source: '../../src/hashtrinity/mod.rs', lines 361:12-367:13
+    Source: '../../src/hashtrinity/mod.rs', lines 363:12-369:13
     Visibility: public -/
 @[rust_loop]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop0
+def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop
   {K : Type} {V : Type} {KS : Type} (self : hashtrinity.Table K V KS)
   (i : Std.Usize) :
   Result ((Slice Std.U64) × (Slice (core.mem.maybe_uninit.MaybeUninit V)) ×
@@ -18767,260 +18901,12 @@ def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop0
     × (core.marker.PhantomData K))
   := do
   loop
-    (fun (self1, i1) => hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop0.body
+    (fun (self1, i1) => hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop.body
       self1 i1)
     (self, i)
 
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop body 1:
-    Source: '../../src/hashtrinity/mod.rs', lines 376:12-382:13
-    Visibility: public -/
-@[rust_loop_body]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop1.body
-  {K : Type} {V : Type} {KS : Type} (ss : hashtrinity.side.SideStore K V KS)
-  (i : Std.Usize) :
-  Result (ControlFlow ((hashtrinity.side.SideStore K V KS) × Std.Usize)
-    ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec
-    (core.mem.maybe_uninit.MaybeUninit V)) × (alloc.vec.Vec Bool) × KS ×
-    Std.Usize × (core.marker.PhantomData K)))
-  := do
-  let i1 := alloc.vec.Vec.len ss.vals
-  if i < i1
-  then
-    let b ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Bool)
-        ss.live i
-    let v ←
-      if b
-      then
-        do
-        let (mu, index_mut_back) ←
-          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-            (core.mem.maybe_uninit.MaybeUninit V)) ss.vals i
-        let mu1 ← core.mem.maybe_uninit.MaybeUninit.assume_init_drop mu
-        ok (index_mut_back mu1)
-      else ok ss.vals
-    let i2 ← i + 1#usize
-    ok (cont ({ ss with vals := v }, i2))
-  else ok (done (ss.coords, ss.vals, ss.live, ss.keys, ss.cap, ss._k))
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop 1:
-    Source: '../../src/hashtrinity/mod.rs', lines 376:12-382:13
-    Visibility: public -/
-@[rust_loop]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop1
-  {K : Type} {V : Type} {KS : Type} (ss : hashtrinity.side.SideStore K V KS)
-  (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec
-    (core.mem.maybe_uninit.MaybeUninit V)) × (alloc.vec.Vec Bool) × KS ×
-    Std.Usize × (core.marker.PhantomData K))
-  := do
-  loop
-    (fun (ss1, i1) => hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop1.body
-      ss1 i1)
-    (ss, i)
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop body 2:
-    Source: '../../src/hashtrinity/mod.rs', lines 385:8-389:9
-    Visibility: public -/
-@[rust_loop_body]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop2.body
-  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
-  K) (v : alloc.vec.Vec Std.U64) (t : KS) (i : Std.Usize) :
-  Result (ControlFlow (KS × Std.Usize) KS)
-  := do
-  let i1 := alloc.vec.Vec.len v
-  if i < i1
-  then
-    let c ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64) v i
-    let (t1, t2) ← algebraKeyStoreInst.take_key t i c
-    core.mem.drop t1
-    let i2 ← i + 1#usize
-    ok (cont (t2, i2))
-  else ok (done t)
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop 2:
-    Source: '../../src/hashtrinity/mod.rs', lines 385:8-389:9
-    Visibility: public -/
-@[rust_loop]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop2
-  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
-  K) (v : alloc.vec.Vec Std.U64) (t : KS) (i : Std.Usize) :
-  Result KS
-  := do
-  loop
-    (fun (t1, i1) => hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop2.body
-      algebraKeyStoreInst v t1 i1)
-    (t, i)
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop body 3:
-    Source: '../../src/hashtrinity/mod.rs', lines 385:8-389:9
-    Visibility: public -/
-@[rust_loop_body]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop3.body
-  {K : Type} {V : Type} {KS : Type} (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ss : hashtrinity.side.SideStore K V KS)
-  (i : Std.Usize) :
-  Result (ControlFlow ((hashtrinity.side.SideStore K V KS) × Std.Usize)
-    ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec
-    (core.mem.maybe_uninit.MaybeUninit V)) × (alloc.vec.Vec Bool) × KS ×
-    Std.Usize × (core.marker.PhantomData K)))
-  := do
-  let i1 := alloc.vec.Vec.len ss.coords
-  if i < i1
-  then
-    let c ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        ss.coords i
-    let (t, t1) ← algebraKeyStoreInst.take_key ss.keys i c
-    core.mem.drop t
-    let i2 ← i + 1#usize
-    ok (cont ({ ss with keys := t1 }, i2))
-  else ok (done (ss.coords, ss.vals, ss.live, ss.keys, ss.cap, ss._k))
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop 3:
-    Source: '../../src/hashtrinity/mod.rs', lines 385:8-389:9
-    Visibility: public -/
-@[rust_loop]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop3
-  {K : Type} {V : Type} {KS : Type} (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ss : hashtrinity.side.SideStore K V KS)
-  (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec
-    (core.mem.maybe_uninit.MaybeUninit V)) × (alloc.vec.Vec Bool) × KS ×
-    Std.Usize × (core.marker.PhantomData K))
-  := do
-  loop
-    (fun (ss1, i1) => hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop3.body
-      algebraKeyStoreInst ss1 i1)
-    (ss, i)
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop body 4:
-    Source: '../../src/hashtrinity/mod.rs', lines 376:12-382:13
-    Visibility: public -/
-@[rust_loop_body]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop4.body
-  {K : Type} {V : Type} {KS : Type} (ss : hashtrinity.side.SideStore K V KS)
-  (i : Std.Usize) :
-  Result (ControlFlow ((hashtrinity.side.SideStore K V KS) × Std.Usize)
-    ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec
-    (core.mem.maybe_uninit.MaybeUninit V)) × (alloc.vec.Vec Bool) × KS ×
-    Std.Usize × (core.marker.PhantomData K)))
-  := do
-  let i1 := alloc.vec.Vec.len ss.vals
-  if i < i1
-  then
-    let b ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Bool)
-        ss.live i
-    let v ←
-      if b
-      then
-        do
-        let (mu, index_mut_back) ←
-          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-            (core.mem.maybe_uninit.MaybeUninit V)) ss.vals i
-        let mu1 ← core.mem.maybe_uninit.MaybeUninit.assume_init_drop mu
-        ok (index_mut_back mu1)
-      else ok ss.vals
-    let i2 ← i + 1#usize
-    ok (cont ({ ss with vals := v }, i2))
-  else ok (done (ss.coords, ss.vals, ss.live, ss.keys, ss.cap, ss._k))
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop 4:
-    Source: '../../src/hashtrinity/mod.rs', lines 376:12-382:13
-    Visibility: public -/
-@[rust_loop]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop4
-  {K : Type} {V : Type} {KS : Type} (ss : hashtrinity.side.SideStore K V KS)
-  (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec
-    (core.mem.maybe_uninit.MaybeUninit V)) × (alloc.vec.Vec Bool) × KS ×
-    Std.Usize × (core.marker.PhantomData K))
-  := do
-  loop
-    (fun (ss1, i1) => hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop4.body
-      ss1 i1)
-    (ss, i)
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop body 5:
-    Source: '../../src/hashtrinity/mod.rs', lines 385:8-389:9
-    Visibility: public -/
-@[rust_loop_body]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop5.body
-  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
-  K) (v : alloc.vec.Vec Std.U64) (t : KS) (i : Std.Usize) :
-  Result (ControlFlow (KS × Std.Usize) KS)
-  := do
-  let i1 := alloc.vec.Vec.len v
-  if i < i1
-  then
-    let c ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64) v i
-    let (t1, t2) ← algebraKeyStoreInst.take_key t i c
-    core.mem.drop t1
-    let i2 ← i + 1#usize
-    ok (cont (t2, i2))
-  else ok (done t)
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop 5:
-    Source: '../../src/hashtrinity/mod.rs', lines 385:8-389:9
-    Visibility: public -/
-@[rust_loop]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop5
-  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
-  K) (v : alloc.vec.Vec Std.U64) (t : KS) (i : Std.Usize) :
-  Result KS
-  := do
-  loop
-    (fun (t1, i1) => hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop5.body
-      algebraKeyStoreInst v t1 i1)
-    (t, i)
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop body 6:
-    Source: '../../src/hashtrinity/mod.rs', lines 385:8-389:9
-    Visibility: public -/
-@[rust_loop_body]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop6.body
-  {K : Type} {V : Type} {KS : Type} (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ss : hashtrinity.side.SideStore K V KS)
-  (i : Std.Usize) :
-  Result (ControlFlow ((hashtrinity.side.SideStore K V KS) × Std.Usize)
-    ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec
-    (core.mem.maybe_uninit.MaybeUninit V)) × (alloc.vec.Vec Bool) × KS ×
-    Std.Usize × (core.marker.PhantomData K)))
-  := do
-  let i1 := alloc.vec.Vec.len ss.coords
-  if i < i1
-  then
-    let c ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        ss.coords i
-    let (t, t1) ← algebraKeyStoreInst.take_key ss.keys i c
-    core.mem.drop t
-    let i2 ← i + 1#usize
-    ok (cont ({ ss with keys := t1 }, i2))
-  else ok (done (ss.coords, ss.vals, ss.live, ss.keys, ss.cap, ss._k))
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop 6:
-    Source: '../../src/hashtrinity/mod.rs', lines 385:8-389:9
-    Visibility: public -/
-@[rust_loop]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop6
-  {K : Type} {V : Type} {KS : Type} (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ss : hashtrinity.side.SideStore K V KS)
-  (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec
-    (core.mem.maybe_uninit.MaybeUninit V)) × (alloc.vec.Vec Bool) × KS ×
-    Std.Usize × (core.marker.PhantomData K))
-  := do
-  loop
-    (fun (ss1, i1) => hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop6.body
-      algebraKeyStoreInst ss1 i1)
-    (ss, i)
-
 /-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]:
-    Source: '../../src/hashtrinity/mod.rs', lines 358:4-390:5
+    Source: '../../src/hashtrinity/mod.rs', lines 360:4-377:5
     Visibility: public -/
 def hashtrinity.Table.Insts.CoreOpsDropDrop.drop
   {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
@@ -19032,111 +18918,35 @@ def hashtrinity.Table.Insts.CoreOpsDropDrop.drop
   if b
   then
     let (s, s1, t, ss, o, i, i1, i2, pd) ←
-      hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop0 self 0#usize
+      hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop self 0#usize
     let (coords, s2) ←
       core.mem.take (BoxSlice.Insts.CoreDefaultDefault Std.U64) s
     let t1 ← algebraKeyStoreInst.drop_live t coords
-    if b
-    then
-      let (v, v1, v2, t2, i3, pd1) ←
-        hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop1 ss 0#usize
-      let t3 ←
-        hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop2 algebraKeyStoreInst
-          v t2 0#usize
-      ok
-        {
-          coords := s2,
-          vals := s1,
-          keys := t1,
-          side :=
-            {
-              coords := v,
-              vals := v1,
-              live := v2,
-              keys := t3,
-              cap := i3,
-              _k := pd1
-            },
-          overflow := o,
-          bits := i,
-          len := i1,
-          tombs := i2,
-          _k := pd
-        }
-    else
-      let (v, v1, v2, t2, i3, pd1) ←
-        hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop3 algebraKeyStoreInst
-          ss 0#usize
-      ok
-        {
-          coords := s2,
-          vals := s1,
-          keys := t1,
-          side :=
-            {
-              coords := v,
-              vals := v1,
-              live := v2,
-              keys := t2,
-              cap := i3,
-              _k := pd1
-            },
-          overflow := o,
-          bits := i,
-          len := i1,
-          tombs := i2,
-          _k := pd
-        }
+    let ss1 ←
+      hashtrinity.side.SideStore.clear algebraCoordInst algebraKeyStoreInst ss
+    ok
+      {
+        coords := s2,
+        vals := s1,
+        keys := t1,
+        side := ss1,
+        overflow := o,
+        bits := i,
+        len := i1,
+        tombs := i2,
+        _k := pd
+      }
   else
     let (coords, s) ←
       core.mem.take (BoxSlice.Insts.CoreDefaultDefault Std.U64) self.coords
     let t ← algebraKeyStoreInst.drop_live self.keys coords
-    if b
-    then
-      let (v, v1, v2, t1, i, pd) ←
-        hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop4 self.side 0#usize
-      let t2 ←
-        hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop5 algebraKeyStoreInst
-          v t1 0#usize
-      ok
-        {
-          self
-            with
-            coords := s,
-            keys := t,
-            side :=
-              {
-                coords := v,
-                vals := v1,
-                live := v2,
-                keys := t2,
-                cap := i,
-                _k := pd
-              }
-        }
-    else
-      let (v, v1, v2, t1, i, pd) ←
-        hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop6 algebraKeyStoreInst
-          self.side 0#usize
-      ok
-        {
-          self
-            with
-            coords := s,
-            keys := t,
-            side :=
-              {
-                coords := v,
-                vals := v1,
-                live := v2,
-                keys := t1,
-                cap := i,
-                _k := pd
-              }
-        }
+    let ss ←
+      hashtrinity.side.SideStore.clear algebraCoordInst algebraKeyStoreInst
+        self.side
+    ok { self with coords := s, keys := t, side := ss }
 
 /-- [apeiron_word::hashtrinity::bits_for]:
-    Source: '../../src/hashtrinity/mod.rs', lines 480:0-483:1 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 459:0-462:1 -/
 def hashtrinity.bits_for (cap : Std.Usize) : Result Std.U32 := do
   let i ← core.num.Usize.saturating_mul cap hashtrinity.LOAD_DEN
   let i1 ← i / hashtrinity.LOAD_NUM
@@ -19149,7 +18959,7 @@ def hashtrinity.bits_for (cap : Std.Usize) : Result Std.U32 := do
   core.cmp.Ord.max.default core.cmp.OrdU32 i6 3#u32
 
 /-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::empty]:
-    Source: '../../src/hashtrinity/side.rs', lines 25:4-34:5 -/
+    Source: '../../src/hashtrinity/side.rs', lines 27:4-35:5 -/
 def hashtrinity.side.SideStore.empty
   {K : Type} (V : Type) {KS : Type} (algebraCoordInst :
   hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -19161,14 +18971,13 @@ def hashtrinity.side.SideStore.empty
     {
       coords := (alloc.vec.Vec.new Std.U64),
       vals := (alloc.vec.Vec.new (core.mem.maybe_uninit.MaybeUninit V)),
-      live := (alloc.vec.Vec.new Bool),
       keys := t,
       cap := 0#usize,
       _k := ()
     }
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::with_bits]:
-    Source: '../../src/hashtrinity/mod.rs', lines 519:4-532:5 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 498:4-511:5 -/
 def hashtrinity.Table.with_bits
   {K : Type} (V : Type) {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -19196,7 +19005,7 @@ def hashtrinity.Table.with_bits
     }
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, apeiron_word::hashtrinity::algebra::Stored<K>>}::new]:
-    Source: '../../src/hashtrinity/mod.rs', lines 496:4-498:5
+    Source: '../../src/hashtrinity/mod.rs', lines 475:4-477:5
     Visibility: public -/
 def hashtrinity.TableKVStored.new
   {K : Type} (V : Type) (corecmpEqInst : core.cmp.Eq K) (algebraCoordInst :
@@ -19208,7 +19017,7 @@ def hashtrinity.TableKVStored.new
     algebraCoordInst corecmpEqInst) 3#u32
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, apeiron_word::hashtrinity::algebra::Stored<K>>}::with_capacity]:
-    Source: '../../src/hashtrinity/mod.rs', lines 501:4-503:5
+    Source: '../../src/hashtrinity/mod.rs', lines 480:4-482:5
     Visibility: public -/
 def hashtrinity.TableKVStored.with_capacity
   {K : Type} (V : Type) (corecmpEqInst : core.cmp.Eq K) (algebraCoordInst :
@@ -19221,7 +19030,7 @@ def hashtrinity.TableKVStored.with_capacity
     algebraCoordInst corecmpEqInst) i
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, apeiron_word::hashtrinity::algebra::Regen<K>>}::coordinate_with_capacity]:
-    Source: '../../src/hashtrinity/mod.rs', lines 513:4-515:5
+    Source: '../../src/hashtrinity/mod.rs', lines 492:4-494:5
     Visibility: public -/
 def hashtrinity.TableKVRegen.coordinate_with_capacity
   {K : Type} (V : Type) (algebraCoordInvInst : hashtrinity.algebra.CoordInv K)
@@ -19234,7 +19043,7 @@ def hashtrinity.TableKVRegen.coordinate_with_capacity
     algebraCoordInvInst corecmpEqInst) i
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::coord_of]:
-    Source: '../../src/hashtrinity/mod.rs', lines 538:4-540:5 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 517:4-519:5 -/
 def hashtrinity.Table.coord_of
   {K : Type} (V : Type) {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -19244,7 +19053,7 @@ def hashtrinity.Table.coord_of
   algebraCoordInst.coord k
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::home]:
-    Source: '../../src/hashtrinity/mod.rs', lines 545:4-552:5 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 524:4-531:5 -/
 def hashtrinity.Table.home
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -19263,7 +19072,7 @@ def hashtrinity.Table.home
     ok (UScalar.cast .Usize i3)
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::descend]:
-    Source: '../../src/hashtrinity/mod.rs', lines 571:4-598:5 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 550:4-577:5 -/
 def hashtrinity.Table.descend
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -19366,7 +19175,7 @@ structure hashtrinity.overflow.Confirm (Self : Type) (K : Type) (KS : Type)
   confirm : Self → KS → Std.Usize → Result Bool
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]: loop body 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 647:8-660:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 674:8-687:5 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Table.probe_rest_with_loop.body
   {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
@@ -19402,7 +19211,7 @@ def hashtrinity.overflow.Table.probe_rest_with_loop.body
   else ok (done hashtrinity.Capped.Blocked)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]: loop 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 647:8-660:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 674:8-687:5 -/
 @[rust_loop]
 def hashtrinity.overflow.Table.probe_rest_with_loop
   {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
@@ -19419,7 +19228,7 @@ def hashtrinity.overflow.Table.probe_rest_with_loop
     j
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 640:4-660:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 667:4-687:5 -/
 @[reducible]
 def hashtrinity.overflow.Table.probe_rest_with
   {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
@@ -19433,7 +19242,7 @@ def hashtrinity.overflow.Table.probe_rest_with
     algebraCoordInst algebraKeyStoreInst ConfirmInst self coord j limit confirm
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::window_steps]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 625:4-627:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 652:4-654:5 -/
 def hashtrinity.overflow.Table.window_steps
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -19445,7 +19254,7 @@ def hashtrinity.overflow.Table.window_steps
   i1 - 1#u32
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_limit]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 632:4-634:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 659:4-661:5 -/
 def hashtrinity.overflow.Table.probe_limit
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -19549,7 +19358,7 @@ def hashtrinity.overflow.prefix_masks
       0#usize
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]: loop body 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 682:12-699:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 709:12-726:5 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Table.probe_capped_with_loop.body
   {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
@@ -19601,7 +19410,7 @@ def hashtrinity.overflow.Table.probe_capped_with_loop.body
       ok (done c)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]: loop 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 682:12-699:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 709:12-726:5 -/
 @[rust_loop]
 def hashtrinity.overflow.Table.probe_capped_with_loop
   {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
@@ -19623,7 +19432,7 @@ def hashtrinity.overflow.Table.probe_capped_with_loop
     hits
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 669:4-699:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 696:4-726:5 -/
 def hashtrinity.overflow.Table.probe_capped_with
   {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -19656,12 +19465,12 @@ def hashtrinity.overflow.Table.probe_capped_with
       algebraKeyStoreInst ConfirmInst self coord 0#u32 limit confirm
 
 /-- [apeiron_word::hashtrinity::overflow::NIL]
-    Source: '../../src/hashtrinity/overflow.rs', lines 134:0-134:26 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 149:0-149:26 -/
 @[global_simps, irreducible]
 def hashtrinity.overflow.NIL : Std.U32 := core.num.U32.MAX
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_node]: loop body 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 307:8-319:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 322:8-334:5 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.find_node_loop.body
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -19693,7 +19502,7 @@ def hashtrinity.overflow.Overflow.find_node_loop.body
   else ok (done hashtrinity.overflow.NIL)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_node]: loop 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 307:8-319:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 322:8-334:5 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.find_node_loop
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -19706,7 +19515,7 @@ def hashtrinity.overflow.Overflow.find_node_loop
     cur
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_node]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 305:4-319:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 320:4-334:5 -/
 @[reducible]
 def hashtrinity.overflow.Overflow.find_node
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -19716,7 +19525,7 @@ def hashtrinity.overflow.Overflow.find_node
   hashtrinity.overflow.Overflow.find_node_loop self.nodes coord self.root
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_entry]: loop body 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 333:8-340:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 348:8-355:5 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.find_entry_loop.body
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -19739,7 +19548,7 @@ def hashtrinity.overflow.Overflow.find_entry_loop.body
   else ok (done none)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_entry]: loop 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 333:8-340:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 348:8-355:5 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.find_entry_loop
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -19753,7 +19562,7 @@ def hashtrinity.overflow.Overflow.find_entry_loop
     e
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_entry]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 323:4-340:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 338:4-355:5 -/
 def hashtrinity.overflow.Overflow.find_entry
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (corecmpEqInst : core.cmp.Eq K) (self : hashtrinity.overflow.Overflow K V)
@@ -19772,7 +19581,7 @@ def hashtrinity.overflow.Overflow.find_entry
       corecmpEqInst k n n1.entries 0#usize
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::get]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 358:4-364:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 373:4-379:5 -/
 def hashtrinity.overflow.Overflow.get
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (corecmpEqInst : core.cmp.Eq K) (self : hashtrinity.overflow.Overflow K V)
@@ -19833,7 +19642,7 @@ def hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm {K
 }
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::get_coord]:
-    Source: '../../src/hashtrinity/mod.rs', lines 622:4-649:5 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 601:4-628:5 -/
 def hashtrinity.Table.get_coord
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -19933,7 +19742,7 @@ def hashtrinity.Table.get_coord
               coord k
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::get]:
-    Source: '../../src/hashtrinity/mod.rs', lines 610:4-612:5
+    Source: '../../src/hashtrinity/mod.rs', lines 589:4-591:5
     Visibility: public -/
 def hashtrinity.Table.get
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
@@ -19946,7 +19755,7 @@ def hashtrinity.Table.get
     algebraKeyStoreInst self k
 
 /-- [apeiron_word::hashtrinity::InsertHit]
-    Source: '../../src/hashtrinity/mod.rs', lines 981:0-996:1 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 955:0-970:1 -/
 structure hashtrinity.InsertHit (V : Type) where
   slot : Std.Usize
   node : Std.U32
@@ -19957,7 +19766,7 @@ structure hashtrinity.InsertHit (V : Type) where
   old : V
 
 /-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::push]: loop body 0:
-    Source: '../../src/hashtrinity/side.rs', lines 44:12-49:13 -/
+    Source: '../../src/hashtrinity/side.rs', lines 45:12-50:13 -/
 @[rust_loop_body]
 def hashtrinity.side.SideStore.push_loop.body
   {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
@@ -19976,7 +19785,7 @@ def hashtrinity.side.SideStore.push_loop.body
   else ok (done grown1)
 
 /-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::push]: loop 0:
-    Source: '../../src/hashtrinity/side.rs', lines 44:12-49:13 -/
+    Source: '../../src/hashtrinity/side.rs', lines 45:12-50:13 -/
 @[rust_loop]
 def hashtrinity.side.SideStore.push_loop
   {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
@@ -19989,7 +19798,7 @@ def hashtrinity.side.SideStore.push_loop
     (grown, grown1, i)
 
 /-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::push]:
-    Source: '../../src/hashtrinity/side.rs', lines 38:4-58:5 -/
+    Source: '../../src/hashtrinity/side.rs', lines 39:4-58:5 -/
 def hashtrinity.side.SideStore.push
   {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
   hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -20013,24 +19822,17 @@ def hashtrinity.side.SideStore.push
     let v1 ← alloc.vec.Vec.push self.coords coord
     let mu ← core.mem.maybe_uninit.MaybeUninit.new v
     let v2 ← alloc.vec.Vec.push self.vals mu
-    let v3 ← alloc.vec.Vec.push self.live true
-    ok
-      {
-        self
-          with
-          coords := v1, vals := v2, live := v3, keys := grown2, cap := new_cap
-      }
+    ok { self with coords := v1, vals := v2, keys := grown2, cap := new_cap }
   else
     let i1 := alloc.vec.Vec.len self.coords
     let grown ← algebraKeyStoreInst.set self.keys i1 k
     let v1 ← alloc.vec.Vec.push self.coords coord
     let mu ← core.mem.maybe_uninit.MaybeUninit.new v
     let v2 ← alloc.vec.Vec.push self.vals mu
-    let v3 ← alloc.vec.Vec.push self.live true
-    ok { self with coords := v1, vals := v2, live := v3, keys := grown }
+    ok { self with coords := v1, vals := v2, keys := grown }
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_keyed]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 709:4-720:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 736:4-747:5 -/
 def hashtrinity.overflow.Table.probe_capped_keyed
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -20068,8 +19870,28 @@ def hashtrinity.overflow.Table.probe_capped_keyed
         corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord home
         { coord, k }
 
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::write_back]:
+    Source: '../../src/hashtrinity/overflow.rs', lines 451:4-453:5 -/
+def hashtrinity.overflow.Overflow.write_back
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (n : Std.U32) (e : Std.U32)
+  (v : V) :
+  Result (hashtrinity.overflow.Overflow K V)
+  := do
+  let i ← lift (UScalar.cast .Usize n)
+  let (n1, index_mut_back) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self.nodes i
+  let i1 ← lift (UScalar.cast .Usize e)
+  let ((t, _), index_mut_back1) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice (K ×
+      (Option V))) n1.entries i1
+  let v1 := index_mut_back1 (t, some v)
+  let v2 := index_mut_back { n1 with entries := v1 }
+  ok { self with nodes := v2 }
+
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::take_value]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 416:4-421:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 443:4-448:5 -/
 def hashtrinity.overflow.Overflow.take_value
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) (n : Std.U32) (e : Std.U32) :
@@ -20090,7 +19912,7 @@ def hashtrinity.overflow.Overflow.take_value
   ok (t1, { self with nodes := v1 })
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::h]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 189:4-195:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 204:4-210:5 -/
 def hashtrinity.overflow.Overflow.h
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) (i : Std.U32) :
@@ -20106,7 +19928,7 @@ def hashtrinity.overflow.Overflow.h
     ok n.height
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::update]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 197:4-205:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 212:4-220:5 -/
 def hashtrinity.overflow.Overflow.update
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) (i : Std.U32) :
@@ -20134,7 +19956,7 @@ def hashtrinity.overflow.Overflow.update
   ok { self with nodes := v }
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rotate_left]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 217:4-225:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 232:4-240:5 -/
 def hashtrinity.overflow.Overflow.rotate_left
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) (x : Std.U32) :
@@ -20166,7 +19988,7 @@ def hashtrinity.overflow.Overflow.rotate_left
   ok (n.right, self2)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rotate_right]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 207:4-215:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 222:4-230:5 -/
 def hashtrinity.overflow.Overflow.rotate_right
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) (y : Std.U32) :
@@ -20198,7 +20020,7 @@ def hashtrinity.overflow.Overflow.rotate_right
   ok (n.left, self2)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rebalance]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 229:4-254:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 244:4-269:5 -/
 def hashtrinity.overflow.Overflow.rebalance
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) (i : Std.U32) :
@@ -20278,7 +20100,7 @@ def hashtrinity.overflow.Overflow.rebalance
     else ok (i, self1)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rebalance_chain]: loop body 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 260:8-274:9 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 275:8-289:9 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.rebalance_chain_loop.body
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -20320,7 +20142,7 @@ def hashtrinity.overflow.Overflow.rebalance_chain_loop.body
   else ok (done self)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rebalance_chain]: loop 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 260:8-274:9 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 275:8-289:9 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.rebalance_chain_loop
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -20335,7 +20157,7 @@ def hashtrinity.overflow.Overflow.rebalance_chain_loop
     (self, idx)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rebalance_chain]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 258:4-275:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 273:4-290:5 -/
 def hashtrinity.overflow.Overflow.rebalance_chain
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) (chain : Slice Std.U32) :
@@ -20346,7 +20168,7 @@ def hashtrinity.overflow.Overflow.rebalance_chain
     chain idx
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_node]: loop body 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 529:8-547:9 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 556:8-574:9 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.insert_node_loop.body
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -20391,7 +20213,7 @@ def hashtrinity.overflow.Overflow.insert_node_loop.body
     else ok (cont (chain1, n1.right))
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_node]: loop 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 529:8-547:9 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 556:8-574:9 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.insert_node_loop
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -20406,7 +20228,7 @@ def hashtrinity.overflow.Overflow.insert_node_loop
     (chain, cur)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_node]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 521:4-549:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 548:4-576:5 -/
 def hashtrinity.overflow.Overflow.insert_node
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) (i : Std.U32) :
@@ -20428,7 +20250,7 @@ def hashtrinity.overflow.Overflow.insert_node
       { self with nodes := v } s
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::alloc]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 277:4-293:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 292:4-308:5 -/
 def hashtrinity.overflow.Overflow.alloc
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) (key : Std.U64) (k : K)
@@ -20474,7 +20296,7 @@ def hashtrinity.overflow.Overflow.alloc
     ok (i, { self with nodes := v2, free := v1 })
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_new_at]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 383:4-396:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 398:4-411:5 -/
 def hashtrinity.overflow.Overflow.insert_new_at
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) (coord : Std.U64) (k : K)
@@ -20513,7 +20335,7 @@ def hashtrinity.overflow.Overflow.insert_new_at
   ok ((node, e), self1)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::new]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 170:4-177:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 185:4-192:5 -/
 def hashtrinity.overflow.Overflow.new
   {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K) :
   Result (hashtrinity.overflow.Overflow K V)
@@ -20527,7 +20349,7 @@ def hashtrinity.overflow.Overflow.new
     }
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 1:
-    Source: '../../src/hashtrinity/overflow.rs', lines 507:12-510:13 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 534:12-537:13 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.in_order_loop0_loop0.body
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -20546,7 +20368,7 @@ def hashtrinity.overflow.Overflow.in_order_loop0_loop0.body
   else ok (done stack)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 1:
-    Source: '../../src/hashtrinity/overflow.rs', lines 507:12-510:13 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 534:12-537:13 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.in_order_loop0_loop0
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -20559,7 +20381,7 @@ def hashtrinity.overflow.Overflow.in_order_loop0_loop0
     (stack, cur)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 2:
-    Source: '../../src/hashtrinity/overflow.rs', lines 507:12-510:13 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 534:12-537:13 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.in_order_loop0_loop1.body
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -20578,7 +20400,7 @@ def hashtrinity.overflow.Overflow.in_order_loop0_loop1.body
   else ok (done stack)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 2:
-    Source: '../../src/hashtrinity/overflow.rs', lines 507:12-510:13 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 534:12-537:13 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.in_order_loop0_loop1
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -20591,7 +20413,7 @@ def hashtrinity.overflow.Overflow.in_order_loop0_loop1
     (stack, cur)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 506:8-516:9 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 533:8-543:9 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.in_order_loop0.body
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -20641,7 +20463,7 @@ def hashtrinity.overflow.Overflow.in_order_loop0.body
       ok (cont (out1, stack2, n2.right))
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 506:8-516:9 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 533:8-543:9 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.in_order_loop0
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -20655,7 +20477,7 @@ def hashtrinity.overflow.Overflow.in_order_loop0
     (out, stack, cur)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 503:4-517:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 530:4-544:5 -/
 @[reducible]
 def hashtrinity.overflow.Overflow.in_order
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -20666,7 +20488,7 @@ def hashtrinity.overflow.Overflow.in_order
     (alloc.vec.Vec.new Std.U32) self.root
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop body 1:
-    Source: '../../src/hashtrinity/overflow.rs', lines 483:12-487:13 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 510:12-514:13 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.into_entries_loop0_loop0.body
   {K : Type} {V : Type} (key : Std.U64)
@@ -20687,7 +20509,7 @@ def hashtrinity.overflow.Overflow.into_entries_loop0_loop0.body
       ok (cont (iter1, out1))
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop 1:
-    Source: '../../src/hashtrinity/overflow.rs', lines 483:12-487:13 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 510:12-514:13 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.into_entries_loop0_loop0
   {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter (K × (Option V)))
@@ -20701,7 +20523,7 @@ def hashtrinity.overflow.Overflow.into_entries_loop0_loop0
     (iter, out)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop body 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 479:8-488:9 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 506:8-515:9 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.into_entries_loop0.body
   {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter Std.U32)
@@ -20729,7 +20551,7 @@ def hashtrinity.overflow.Overflow.into_entries_loop0.body
     ok (cont (iter1, v2, out1))
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 479:8-488:9 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 506:8-515:9 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.into_entries_loop0
   {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter Std.U32)
@@ -20743,7 +20565,7 @@ def hashtrinity.overflow.Overflow.into_entries_loop0
     (iter, v, out)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 475:4-490:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 502:4-517:5 -/
 def hashtrinity.overflow.Overflow.into_entries
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) :
@@ -20757,7 +20579,7 @@ def hashtrinity.overflow.Overflow.into_entries
   hashtrinity.overflow.Overflow.into_entries_loop0 iter self.nodes out
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::place_capped]:
-    Source: '../../src/hashtrinity/mod.rs', lines 1226:4-1254:5 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 1164:4-1192:5 -/
 def hashtrinity.Table.place_capped
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -20815,7 +20637,7 @@ def hashtrinity.Table.place_capped
       ok { self with overflow := o2 }
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop body 0:
-    Source: '../../src/hashtrinity/mod.rs', lines 1266:8-1279:9 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 1232:8-1245:9 -/
 @[rust_loop_body]
 def hashtrinity.Table.resize_loop0.body
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
@@ -20851,7 +20673,7 @@ def hashtrinity.Table.resize_loop0.body
   else ok (done (self.side, self.overflow, bigger))
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop 0:
-    Source: '../../src/hashtrinity/mod.rs', lines 1266:8-1279:9 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 1232:8-1245:9 -/
 @[rust_loop]
 def hashtrinity.Table.resize_loop0
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
@@ -20867,7 +20689,7 @@ def hashtrinity.Table.resize_loop0
     (self, bigger, i)
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop body 1:
-    Source: '../../src/hashtrinity/mod.rs', lines 1285:12-1287:13 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 1251:12-1253:13 -/
 @[rust_loop_body]
 def hashtrinity.Table.resize_loop1.body
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
@@ -20889,7 +20711,7 @@ def hashtrinity.Table.resize_loop1.body
     ok (cont (iter1, bigger1))
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop 1:
-    Source: '../../src/hashtrinity/mod.rs', lines 1285:12-1287:13 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 1251:12-1253:13 -/
 @[rust_loop]
 def hashtrinity.Table.resize_loop1
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
@@ -20905,7 +20727,7 @@ def hashtrinity.Table.resize_loop1
     (iter, bigger)
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]:
-    Source: '../../src/hashtrinity/mod.rs', lines 1263:4-1290:5 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 1229:4-1256:5 -/
 def hashtrinity.Table.resize
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -20931,8 +20753,31 @@ def hashtrinity.Table.resize
     hashtrinity.Table.resize_loop1 corecmpEqInst algebraCoordInst
       algebraKeyStoreInst iter { bigger1 with side := ss2 }
 
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::grow_for_one]:
+    Source: '../../src/hashtrinity/mod.rs', lines 1209:4-1220:5 -/
+def hashtrinity.Table.grow_for_one
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  let cap := Slice.len self.coords
+  let i ← self.len + self.tombs
+  let i1 ← i + 1#usize
+  let i2 ← i1 * hashtrinity.LOAD_DEN
+  let i3 ← cap * hashtrinity.LOAD_NUM
+  if i2 >= i3
+  then
+    let i4 ← cap / 2#usize
+    let new_bits ← if self.len < i4
+                     then ok self.bits
+                     else self.bits + 1#u32
+    hashtrinity.Table.resize corecmpEqInst algebraCoordInst algebraKeyStoreInst
+      self new_bits
+  else ok self
+
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::insert_core]:
-    Source: '../../src/hashtrinity/mod.rs', lines 1055:4-1152:5 -/
+    Source: '../../src/hashtrinity/mod.rs', lines 1027:4-1120:5 -/
 def hashtrinity.Table.insert_core
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -20956,57 +20801,54 @@ def hashtrinity.Table.insert_core
           self.side coord k new
       ok (none, { self with side := ss })
     | some i =>
+      core.mem.drop k
       let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut self.side.vals)
       let (mu, get_unchecked_mut_back) ←
         core.slice.Slice.get_unchecked_mut
           (core.slice.index.SliceIndexUsizeSlice
           (core.mem.maybe_uninit.MaybeUninit V)) s i
       let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
-      let (_, index_mut_back) ←
-        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Bool)
-          self.side.live i
-      let s1 := get_unchecked_mut_back mu
-      let v := deref_mut_back s1
-      let v1 := index_mut_back false
-      ok (some
-        {
-          slot := i,
-          node := 0#u32,
-          entry := 0#u32,
-          coord,
-          store := hashtrinity.Store.Side,
-          new,
-          old
-        }, { self with side := { self.side with vals := v, live := v1 } })
-  else
-    let i ← self.len + self.tombs
-    let i1 ← i + 1#usize
-    let i2 ← i1 * hashtrinity.LOAD_DEN
-    let i3 := Slice.len self.coords
-    let i4 ← i3 * hashtrinity.LOAD_NUM
-    let self1 ←
-      if i2 >= i4
+      if last_write
       then
-        do
-        let i5 ← self.len + 1#usize
-        let i6 ← i5 * hashtrinity.LOAD_DEN
-        let i7 := Slice.len self.coords
-        let i8 ← i7 * hashtrinity.LOAD_NUM
-        let new_bits ← if i6 >= i8
-                         then self.bits + 1#u32
-                         else ok self.bits
-        hashtrinity.Table.resize corecmpEqInst algebraCoordInst
-          algebraKeyStoreInst self new_bits
-      else ok self
+        let mu1 ← core.mem.maybe_uninit.MaybeUninit.new new
+        let s1 := get_unchecked_mut_back mu
+        let v := deref_mut_back s1
+        let (s2, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut v)
+        let (_, get_unchecked_mut_back1) ←
+          core.slice.Slice.get_unchecked_mut
+            (core.slice.index.SliceIndexUsizeSlice
+            (core.mem.maybe_uninit.MaybeUninit V)) s2 i
+        core.mem.drop old
+        let s3 := get_unchecked_mut_back1 mu1
+        let v1 := deref_mut_back1 s3
+        ok (none, { self with side := { self.side with vals := v1 } })
+      else
+        let s1 := get_unchecked_mut_back mu
+        let v := deref_mut_back s1
+        ok (some
+          {
+            slot := i,
+            node := 0#u32,
+            entry := 0#u32,
+            coord,
+            store := hashtrinity.Store.Side,
+            new,
+            old
+          }, { self with side := { self.side with vals := v } })
+  else
+    let self1 ←
+      hashtrinity.Table.grow_for_one corecmpEqInst algebraCoordInst
+        algebraKeyStoreInst self
     let c ←
       hashtrinity.overflow.Table.probe_capped_keyed corecmpEqInst
         algebraCoordInst algebraKeyStoreInst self1 coord k
     match c with
-    | hashtrinity.Capped.Hit i5 =>
+    | hashtrinity.Capped.Hit i =>
+      core.mem.drop k
       let (mu, get_unchecked_mut_back) ←
         core.slice.Slice.get_unchecked_mut
           (core.slice.index.SliceIndexUsizeSlice
-          (core.mem.maybe_uninit.MaybeUninit V)) self1.vals i5
+          (core.mem.maybe_uninit.MaybeUninit V)) self1.vals i
       let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
       if last_write
       then
@@ -21015,19 +20857,20 @@ def hashtrinity.Table.insert_core
         let (_, get_unchecked_mut_back1) ←
           core.slice.Slice.get_unchecked_mut
             (core.slice.index.SliceIndexUsizeSlice
-            (core.mem.maybe_uninit.MaybeUninit V)) s i5
+            (core.mem.maybe_uninit.MaybeUninit V)) s i
         core.mem.drop old
         let s1 := get_unchecked_mut_back1 mu1
         ok (none, { self1 with vals := s1 })
       else
         let (_, get_unchecked_mut_back1) ←
           core.slice.Slice.get_unchecked_mut
-            (core.slice.index.SliceIndexUsizeSlice Std.U64) self1.coords i5
-        let s := get_unchecked_mut_back1 hashtrinity.EMPTY
+            (core.slice.index.SliceIndexUsizeSlice Std.U64) self1.coords i
+        let i1 ← hashtrinity.TOMB
+        let s := get_unchecked_mut_back1 i1
         let s1 := get_unchecked_mut_back mu
         ok (some
           {
-            slot := i5,
+            slot := i,
             node := 0#u32,
             entry := 0#u32,
             coord,
@@ -21035,20 +20878,20 @@ def hashtrinity.Table.insert_core
             new,
             old
           }, { self1 with coords := s, vals := s1 })
-    | hashtrinity.Capped.Vacant i5 =>
+    | hashtrinity.Capped.Vacant i =>
       let (_, get_unchecked_mut_back) ←
         core.slice.Slice.get_unchecked_mut
-          (core.slice.index.SliceIndexUsizeSlice Std.U64) self1.coords i5
+          (core.slice.index.SliceIndexUsizeSlice Std.U64) self1.coords i
       let mu ← core.mem.maybe_uninit.MaybeUninit.new new
       let (_, get_unchecked_mut_back1) ←
         core.slice.Slice.get_unchecked_mut
           (core.slice.index.SliceIndexUsizeSlice
-          (core.mem.maybe_uninit.MaybeUninit V)) self1.vals i5
-      let t ← algebraKeyStoreInst.set self1.keys i5 k
-      let i6 ← self1.len + 1#usize
+          (core.mem.maybe_uninit.MaybeUninit V)) self1.vals i
+      let t ← algebraKeyStoreInst.set self1.keys i k
+      let i1 ← self1.len + 1#usize
       let s := get_unchecked_mut_back coord
       let s1 := get_unchecked_mut_back1 mu
-      ok (none, { self1 with coords := s, vals := s1, keys := t, len := i6 })
+      ok (none, { self1 with coords := s, vals := s1, keys := t, len := i1 })
     | hashtrinity.Capped.Blocked =>
       let b1 := core.option.Option.is_none self1.overflow
       let o ←
@@ -21074,43 +20917,33 @@ def hashtrinity.Table.insert_core
           ok (none, { self1 with overflow := o3 })
         | some p =>
           let (node, entry) := p
+          core.mem.drop k
           let (old, ov1) ←
             hashtrinity.overflow.Overflow.take_value algebraCoordInst ov node
               entry
-          let o3 := as_mut_back (some ov1)
-          ok (some
-            {
-              slot := 0#usize,
-              node,
-              entry,
-              coord,
-              store := hashtrinity.Store.Overflow,
-              new,
-              old
-            }, { self1 with overflow := o3 })
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::write_back]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 424:4-426:5 -/
-def hashtrinity.overflow.Overflow.write_back
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (n : Std.U32) (e : Std.U32)
-  (v : V) :
-  Result (hashtrinity.overflow.Overflow K V)
-  := do
-  let i ← lift (UScalar.cast .Usize n)
-  let (n1, index_mut_back) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self.nodes i
-  let i1 ← lift (UScalar.cast .Usize e)
-  let ((t, _), index_mut_back1) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice (K ×
-      (Option V))) n1.entries i1
-  let v1 := index_mut_back1 (t, some v)
-  let v2 := index_mut_back { n1 with entries := v1 }
-  ok { self with nodes := v2 }
+          if last_write
+          then
+            let ov2 ←
+              hashtrinity.overflow.Overflow.write_back algebraCoordInst ov1
+                node entry new
+            core.mem.drop old
+            let o3 := as_mut_back (some ov2)
+            ok (none, { self1 with overflow := o3 })
+          else
+            let o3 := as_mut_back (some ov1)
+            ok (some
+              {
+                slot := 0#usize,
+                node,
+                entry,
+                coord,
+                store := hashtrinity.Store.Overflow,
+                new,
+                old
+              }, { self1 with overflow := o3 })
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::insert_merge_last_write]:
-    Source: '../../src/hashtrinity/mod.rs', lines 1199:4-1221:5
+    Source: '../../src/hashtrinity/mod.rs', lines 1154:4-1159:5
     Visibility: public -/
 def hashtrinity.Table.insert_merge_last_write
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
@@ -21124,47 +20957,7 @@ def hashtrinity.Table.insert_merge_last_write
       algebraKeyStoreInst self k new true
   match o with
   | none => ok self1
-  | some hit =>
-    core.mem.drop hit.old
-    match hit.store with
-    | hashtrinity.Store.Main =>
-      let mu ← core.mem.maybe_uninit.MaybeUninit.new hit.new
-      let (_, get_unchecked_mut_back) ←
-        core.slice.Slice.get_unchecked_mut
-          (core.slice.index.SliceIndexUsizeSlice
-          (core.mem.maybe_uninit.MaybeUninit V)) self1.vals hit.slot
-      let (_, get_unchecked_mut_back1) ←
-        core.slice.Slice.get_unchecked_mut
-          (core.slice.index.SliceIndexUsizeSlice Std.U64) self1.coords
-          hit.slot
-      let s := get_unchecked_mut_back1 hit.coord
-      let s1 := get_unchecked_mut_back mu
-      ok { self1 with coords := s, vals := s1 }
-    | hashtrinity.Store.Side =>
-      let mu ← core.mem.maybe_uninit.MaybeUninit.new hit.new
-      let (s, deref_mut_back) ←
-        lift (alloc.vec.Vec.deref_mut self1.side.vals)
-      let (_, get_unchecked_mut_back) ←
-        core.slice.Slice.get_unchecked_mut
-          (core.slice.index.SliceIndexUsizeSlice
-          (core.mem.maybe_uninit.MaybeUninit V)) s hit.slot
-      let (_, index_mut_back) ←
-        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Bool)
-          self1.side.live hit.slot
-      let s1 := get_unchecked_mut_back mu
-      let v := deref_mut_back s1
-      let v1 := index_mut_back true
-      ok { self1 with side := { self1.side with vals := v, live := v1 } }
-    | hashtrinity.Store.Overflow =>
-      let (o1, as_mut_back) ← core.option.Option.as_mut self1.overflow
-      match o1 with
-      | none => fail panic
-      | some o2 =>
-        let o3 ←
-          hashtrinity.overflow.Overflow.write_back algebraCoordInst o2
-            hit.node hit.entry hit.new
-        let o4 := as_mut_back (some o3)
-        ok { self1 with overflow := o4 }
+  | some _ => fail panic
 
 /-- [apeiron_word::policy::decide::Op]
     Source: '../../src/policy/decide.rs', lines 18:0-29:1

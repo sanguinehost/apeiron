@@ -1,12 +1,15 @@
-//! The side store for reserved-coordinate keys (`EMPTY`/`TOMB`), moved out of `mod.rs` to keep it
-//! under the 1500-line bound. Row: `apeiron-ht-identity-BvOqNvKHHfxZS7sswjc6j6` (APEIRON-HT-IDENTITY).
+//! The side store for reserved-coordinate keys (`EMPTY`/`TOMB`), and the merge guard every merge
+//! face runs under, moved out of `mod.rs` to keep it under the 1500-line bound.
+//! Rows: `apeiron-ht-identity-BvOqNvKHHfxZS7sswjc6j6` (APEIRON-HT-IDENTITY),
+//! `apeiron-ht-sound-HuFJWskE6qumuLwAlSJ0xi` (APEIRON-HT-SOUND).
 
 use super::*;
 
 /// The side store for keys whose own coordinate is a reserved marker (`EMPTY` or `TOMB`). Such a key
 /// cannot live in `coords` — its coordinate would alias the occupancy flag — so its identity is held
 /// here, outside the slot arrays. `coords[i]` is the reserved coordinate, `vals[i]` the value
-/// (initialized iff `live[i]`; `live[i]` is false only while a merge owns the value), and `keys` the
+/// (initialized for every entry `i < coords.len()`; a merge moves it out only while a
+/// [`MergeGuard`] holds the table, and a panicking merge swap-removes the entry), and `keys` the
 /// identity exactly as the main store carries it: the full key for `Stored`, nothing for `Regen`
 /// (which regenerates the key from `coords[i]`, and is admitted only under an injective coordinate —
 /// [`CoordInv`]). The store is packed and scanned linearly; it holds only the keys that literally ask
@@ -15,7 +18,6 @@ use super::*;
 pub(super) struct SideStore<K: Coord, V, KS: KeyStore<K>> {
     pub(super) coords: Vec<u64>,
     pub(super) vals: Vec<MaybeUninit<V>>,
-    pub(super) live: Vec<bool>,
     pub(super) keys: KS, // allocated to `cap`; entries `0..coords.len()` initialized
     pub(super) cap: usize,
     pub(super) _k: std::marker::PhantomData<K>,
@@ -26,7 +28,6 @@ impl<K: Coord, V, KS: KeyStore<K>> SideStore<K, V, KS> {
         SideStore {
             coords: Vec::new(),
             vals: Vec::new(),
-            live: Vec::new(),
             keys: KS::alloc(0),
             cap: 0,
             _k: std::marker::PhantomData,
@@ -54,7 +55,6 @@ impl<K: Coord, V, KS: KeyStore<K>> SideStore<K, V, KS> {
         self.keys.set(i, k);
         self.coords.push(coord);
         self.vals.push(MaybeUninit::new(v));
-        self.live.push(true);
     }
 
     /// The entry holding key `k`: coordinate equality plus the key compare (`matches` is the
@@ -80,11 +80,9 @@ impl<K: Coord, V, KS: KeyStore<K>> SideStore<K, V, KS> {
             let moved = self.keys.take_key(last, self.coords[last]);
             self.keys.set(i, moved);
             self.coords.swap(i, last);
-            self.live.swap(i, last);
             self.vals.swap(i, last);
         }
         self.coords.pop();
-        self.live.pop();
         self.vals.pop();
         drop(gone);
     }
@@ -103,10 +101,8 @@ impl<K: Coord, V, KS: KeyStore<K>> SideStore<K, V, KS> {
             self.keys.set(i, moved);
         }
         self.coords.swap(i, last);
-        self.live.swap(i, last);
         self.vals.swap(i, last);
         self.coords.pop();
-        self.live.pop();
         self.vals.pop();
         (c, key, val)
     }
@@ -114,19 +110,95 @@ impl<K: Coord, V, KS: KeyStore<K>> SideStore<K, V, KS> {
     /// Drop every entry, keeping the key store's allocation — the side twin of `Table::clear`.
     pub(super) fn clear(&mut self) {
         if std::mem::needs_drop::<V>() {
-            for (v, live) in self.vals.iter_mut().zip(self.live.iter()) {
-                if *live {
-                    // SAFETY: `live[i]` ⇒ value initialized.
-                    unsafe { v.assume_init_drop() };
+            let mut i = 0;
+            while i < self.vals.len() {
+                // SAFETY: every entry's value is initialized.
+                unsafe { self.vals[i].assume_init_drop() };
+                i += 1;
+            }
+        }
+        let mut i = 0;
+        while i < self.coords.len() {
+            let c = self.coords[i];
+            drop(self.keys.take_key(i, c));
+            i += 1;
+        }
+        self.coords.clear();
+        self.vals.clear();
+    }
+}
+
+/// A merge in flight on one entry of a [`Table`]. A merge face moves the entry's old value out,
+/// marks a main slot `TOMB`, arms this guard, runs the caller's merge, and hands the result to
+/// [`finish`](Self::finish), which writes it back and disarms. If the merge unwinds instead, `Drop`
+/// removes the key, so a panicking merge leaves a consistent map:
+///
+/// - main slot: the slot stays `TOMB` (never `EMPTY`, so the `EMPTY` → occupied invariant the capped
+///   probe and the [`Overflow`] rest on holds across the unwind), its key is dropped, `len` falls by
+///   one and `tombs` rises by one;
+/// - side entry: swap-removed with its key ([`SideStore::remove_entry`]);
+/// - overflow entry: deleted with its key, and its node when it empties
+///   ([`Overflow::discard_entry`]).
+///
+/// The old and new values belong to the merge's arguments, so the unwind drops each once; the guard
+/// drops only the key. While the guard lives it holds the table's only borrow, so no read can see
+/// the moved-out value. Cost: O(1) on the main and side paths; the overflow removal is O(log n) node
+/// rebalances, paid only on the unwind.
+pub(super) struct MergeGuard<'a, K: Coord, V, KS: KeyStore<K>> {
+    pub(super) t: &'a mut Table<K, V, KS>,
+    pub(super) store: Store,
+    /// The main slot or the side entry.
+    pub(super) slot: usize,
+    /// The overflow node and entry.
+    pub(super) node: u32,
+    pub(super) entry: u32,
+    /// The entry's coordinate, restored on a main slot by `finish`.
+    pub(super) coord: u64,
+}
+
+impl<K: Coord, V, KS: KeyStore<K>> MergeGuard<'_, K, V, KS> {
+    /// Write `merged` into the held entry, re-occupy a main slot with its coordinate, and disarm.
+    pub(super) fn finish(self, merged: V) {
+        let t = &mut *self.t;
+        match self.store {
+            // SAFETY: the slot index is in bounds (it came from the probe) and its value was moved
+            // out when the guard was armed, so the write initializes it; restoring the coordinate
+            // makes the slot live again over an initialized value and key.
+            Store::Main => unsafe {
+                *t.vals.get_unchecked_mut(self.slot) = MaybeUninit::new(merged);
+                *t.coords.get_unchecked_mut(self.slot) = self.coord;
+            },
+            // SAFETY: as above, for the side entry.
+            Store::Side => unsafe {
+                *t.side.vals.get_unchecked_mut(self.slot) = MaybeUninit::new(merged);
+            },
+            Store::Overflow => t
+                .overflow
+                .as_mut()
+                .expect("overflow merge ⇒ store present")
+                .write_back(self.node, self.entry, merged),
+        }
+        std::mem::forget(self);
+    }
+}
+
+/// Runs only on an unwind out of the merge (`finish` forgets the guard): remove the key.
+impl<K: Coord, V, KS: KeyStore<K>> Drop for MergeGuard<'_, K, V, KS> {
+    fn drop(&mut self) {
+        let t = &mut *self.t;
+        match self.store {
+            Store::Main => {
+                // The slot is already `TOMB` and its value is gone; drop the key it still holds.
+                drop(t.keys.take_key(self.slot, self.coord));
+                t.len -= 1;
+                t.tombs += 1;
+            }
+            Store::Side => t.side.remove_entry(self.slot),
+            Store::Overflow => {
+                if let Some(o) = t.overflow.as_mut() {
+                    o.discard_entry(self.node, self.entry);
                 }
             }
         }
-        for i in 0..self.coords.len() {
-            let c = self.coords[i];
-            drop(self.keys.take_key(i, c));
-        }
-        self.coords.clear();
-        self.live.clear();
-        self.vals.clear();
     }
 }

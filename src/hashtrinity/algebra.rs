@@ -4,9 +4,7 @@
 //! (`Coord`/`CoordInv`/`KeyStore`/`Stored`/`Regen`, and the golden-128 byte fold underneath), and
 //! how two VALUES merge (`Face`/`Species`/the four merges/`Monoid`/`FoldExt`).
 
-use crate::hashtrinity::{
-    is_live, is_sentinel, Capped, Locate, Overflow, Table, EMPTY, LOAD_DEN, LOAD_NUM, PHI,
-};
+use crate::hashtrinity::{is_live, is_sentinel, Capped, Locate, Overflow, Table, EMPTY, PHI};
 use std::mem::MaybeUninit;
 
 /// `n` uninitialized [`MaybeUninit<T>`] slots as a boxed slice — RESERVE, never initialize.
@@ -160,10 +158,9 @@ pub trait KeyReadout<K: Coord>: KeyStore<K> {
 /// cost; this is the move that removed the `Option<V>` discriminant, applied to `K`). Liveness
 /// lives in the coordinate line, so `clone_live`/`drop_live` take it from the caller.
 ///
-/// One documented tradeoff: if a user merge `f` panics inside `insert_with`, the slot's coord is
-/// blanked for the duration (so the VALUE cannot double-drop) and the stored key is skipped by
-/// `drop_live` — the key LEAKS on that panic path. Memory-safe, never UB; the price of carrying
-/// no discriminant.
+/// A merge in flight marks its slot `TOMB` while the key stays initialized; the merge guard
+/// (`MergeGuard` in `side.rs`) restores the coordinate on success and drops the key on an unwind,
+/// so the invariant holds again before any other operation can observe the table.
 pub struct Stored<K>(Box<[MaybeUninit<K>]>);
 
 impl<K> std::fmt::Debug for Stored<K> {
@@ -616,14 +613,7 @@ impl<K: Eq + Coord, KS: KeyStore<K>> Table<K, i64, KS> {
             self.insert_with(k, v, count::<i64>);
             return;
         }
-        if (self.len + self.tombs + 1) * LOAD_DEN >= self.coords.len() * LOAD_NUM {
-            let new_bits = if (self.len + 1) * LOAD_DEN >= self.coords.len() * LOAD_NUM {
-                self.bits + 1
-            } else {
-                self.bits
-            };
-            self.resize(new_bits);
-        }
+        self.grow_for_one();
         match self.probe_capped_keyed(coord, &k) {
             Capped::Hit(i) => {
                 // SAFETY: found ⇒ value initialized; i64 add in place — no move, no panic, no drop.
