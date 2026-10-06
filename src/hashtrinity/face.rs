@@ -723,10 +723,14 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 unsafe { self.vals.get_unchecked(i).assume_init_ref() }
             }
             Capped::Vacant(i) => {
+                // Materialize the key BEFORE any slot is marked live: `q.absorb()` can run user code
+                // and panic, and a live `coords[i]` over an uninitialized `keys[i]` would make
+                // `Drop` drop uninitialized memory.
+                let key = q.absorb();
                 // SAFETY: `grow_for_one` ran, so `i` is an EMPTY slot in the current arrays.
                 unsafe { *self.coords.get_unchecked_mut(i) = coord };
                 unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(new) };
-                self.keys.set(i, q.absorb()); // the ONLY allocation, and only for a genuinely new key
+                self.keys.set(i, key);
                 self.len += 1;
                 // SAFETY: just written ⇒ initialized.
                 unsafe { self.vals.get_unchecked(i).assume_init_ref() }
@@ -765,11 +769,13 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             }
             Located::Main(i) => {
                 // SAFETY: found ⇒ value initialized; see `Table::remove` for the tombstone argument.
+                // Commit the slot's state before the key is dropped: a panicking `K::drop` must not
+                // leave a live slot whose value was moved out.
                 let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
-                drop(self.keys.take_key(i, coord));
                 unsafe { *self.coords.get_unchecked_mut(i) = TOMB };
                 self.len -= 1;
                 self.tombs += 1;
+                drop(self.keys.take_key(i, coord));
                 Some(old)
             }
         }

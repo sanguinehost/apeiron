@@ -989,14 +989,15 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         }
         match self.probe_capped_keyed(coord, k) {
             Capped::Hit(i) => {
-                // SAFETY: found ⇒ value initialized. Read it out and drop the key, then tombstone the
-                // slot: its value is now uninitialized, and `TOMB` (like `EMPTY`) fails the liveness
-                // test, so `Drop`/`Clone`/iteration skip it — no double free, no chain break.
+                // SAFETY: found ⇒ value initialized. Commit the slot's state (`TOMB`, `len`,
+                // `tombs`) BEFORE the key is moved out and dropped: a panicking `K::drop` then
+                // finds the slot already non-live, so `Drop`/iteration skip its moved-out value
+                // and no read sees the tombstone's gone value. `old` is dropped on the unwind.
                 let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
-                self.keys.take_key(i, coord);
                 unsafe { *self.coords.get_unchecked_mut(i) = TOMB };
                 self.len -= 1;
                 self.tombs += 1;
+                drop(self.keys.take_key(i, coord));
                 Some(old)
             }
             Capped::Vacant(_) => None,

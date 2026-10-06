@@ -108,23 +108,30 @@ impl<K: Coord, V, KS: KeyStore<K>> SideStore<K, V, KS> {
     }
 
     /// Drop every entry, keeping the key store's allocation — the side twin of `Table::clear`.
+    ///
+    /// The entry tables are detached before any destructor runs: `self`'s live-entry length is zero
+    /// from the first line on, so a panicking `V::drop` or `K::drop` cannot leave `coords`/`vals`
+    /// marking an entry whose value or key is already gone. On the unwind the entries not yet
+    /// dropped leak with the local `Vec`s; a later `clear` (from `Drop for Table`) sees an empty
+    /// store and drops nothing. Without the detach, the lengths stay long through the panicking
+    /// drop, and the later `clear` reads a moved-out value or drops entry 0 twice.
     pub(super) fn clear(&mut self) {
+        let coords = std::mem::take(&mut self.coords);
+        let mut vals = std::mem::take(&mut self.vals);
         if std::mem::needs_drop::<V>() {
             let mut i = 0;
-            while i < self.vals.len() {
+            while i < vals.len() {
                 // SAFETY: every entry's value is initialized.
-                unsafe { self.vals[i].assume_init_drop() };
+                unsafe { vals[i].assume_init_drop() };
                 i += 1;
             }
         }
         let mut i = 0;
-        while i < self.coords.len() {
-            let c = self.coords[i];
+        while i < coords.len() {
+            let c = coords[i];
             drop(self.keys.take_key(i, c));
             i += 1;
         }
-        self.coords.clear();
-        self.vals.clear();
     }
 }
 
