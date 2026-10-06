@@ -56,6 +56,38 @@ impl<K: Coord> FreqMap<K, i64> {
         (c.wrapping_mul(PHI) >> Self::COUNT_BUCKET_SHIFT) as usize & (Self::COUNT_BUCKETS - 1)
     }
 
+    /// The fused count-face read: [`count_home`](Self::count_home)'s bucket select and
+    /// [`FreqMap::get`]'s probe formed from ONE `p = k·PHI`. The three windows of `p` are disjoint —
+    /// bucket `[COUNT_BUCKET_SHIFT, COUNT_BUCKET_SHIFT + COUNT_BBITS)` = `[40, 48)`, tag
+    /// `[TAG_SHIFT, 40)` = `[33, 40)`, home group the top `gbits` bits below the tag — so the single
+    /// product feeds all three and the probe's second `k·PHI` is removed. `maps` holds the
+    /// `COUNT_BUCKETS` shards of one [`count_par`](Self::count_par) (any `len`; the bucket index is
+    /// masked to `[0, COUNT_BUCKETS)` and the slice bound is checked). The single-map serial shape
+    /// (`maps.len() == 1`) has no bucket to select and uses `maps[0].get`. O(1).
+    #[inline]
+    pub fn count_get<'a>(maps: &'a [Self], k: &K) -> Option<&'a i64> {
+        let f = Self::freq(k);
+        let p = f.wrapping_mul(PHI);
+        let b = (p >> Self::COUNT_BUCKET_SHIFT) as usize & (Self::COUNT_BUCKETS - 1);
+        maps[b].inner.get_p(p, f)
+    }
+
+    /// [`count_get`](Self::count_get) with the shard count in the type (`maps.len()` is
+    /// `COUNT_BUCKETS`), so the masked bucket index `[0, COUNT_BUCKETS)` needs no bounds check: the
+    /// compiler proves it in range. `maps` MUST be the full `COUNT_BUCKETS` shards of one
+    /// [`count_par`](Self::count_par); the single-map serial shape does not fit this type and uses
+    /// `maps[0].get`. O(1).
+    #[inline]
+    pub fn count_get_arr<'a>(
+        maps: &'a [Self; FreqMap::<u64, i64>::COUNT_BUCKETS],
+        k: &K,
+    ) -> Option<&'a i64> {
+        let f = Self::freq(k);
+        let p = f.wrapping_mul(PHI);
+        let b = (p >> Self::COUNT_BUCKET_SHIFT) as usize & (Self::COUNT_BUCKETS - 1);
+        maps[b].inner.get_p(p, f)
+    }
+
     /// Admission of an `n`-key count: every per-key count is at most `n`, so `n <= count_max`
     /// (production: `i64::MAX`) keeps every `i64` total in range. O(1).
     pub fn count_admit(n: usize, count_max: u64) -> bool {
@@ -828,6 +860,17 @@ impl<V> FreqLine<V> {
 
     #[inline]
     fn get(&self, f: u64) -> Option<&V> {
+        self.get_p(f.wrapping_mul(PHI), f)
+    }
+
+    /// [`get`](Self::get) with the fold `p = f·PHI` already formed. The count face's bucket-select
+    /// read forms `p` once and feeds it to both the bucket window ([`FreqMap::count_home`]) and this
+    /// probe; the home group and tag are disjoint windows of that same `p`, so the second multiply
+    /// is not needed. `p` MUST equal `f.wrapping_mul(PHI)` — otherwise the home group and tag are
+    /// read from the wrong windows and a present key is reported absent. The reserved-frequency
+    /// check is here so a sentinel frequency resolves in the side store before any group probe. O(1).
+    #[inline(always)]
+    fn get_p(&self, p: u64, f: u64) -> Option<&V> {
         if is_sentinel(f) {
             return self.side.get(f);
         }
@@ -838,7 +881,6 @@ impl<V> FreqLine<V> {
         // the key beyond an empty one — and a blocked key's prefix is still full, so the
         // overflow cannot hold it either. Only a full home group with no identity falls
         // through to `probe_tagged`, which owns the descent and overflow.
-        let p = f.wrapping_mul(PHI);
         let tag = ((p >> TAG_SHIFT) & 0x7F) as u8;
         let g = self.home_group(p);
         let base = g * GROUP;

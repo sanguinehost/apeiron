@@ -339,13 +339,16 @@ impl<S: BuildHasher> CountRead for HashMap<u64, i64, S> {
     }
 }
 
-/// The O(1) read of `count_par`'s result: buckets hold disjoint keys, so a key's count lives in
-/// exactly its home-bucket shard. The serial fallback below the crossover returns one map.
+/// The O(1) fused read of `count_par`'s result: `FreqMap::count_get` forms `p = k·PHI` once and
+/// feeds the bucket window `[40,48)` and the probe's home/tag windows from the same product (they
+/// are disjoint bits of `p`). Buckets hold disjoint keys, so a key's count lives in exactly its
+/// home-bucket shard. The serial fallback below the crossover returns one map (`maps.len() == 1`),
+/// which has no bucket to select and is read directly.
 fn ap_par_count(maps: &[ApFreq], k: u64) -> i64 {
     if maps.len() == 1 {
         return maps[0].get(&k).copied().unwrap_or(0);
     }
-    maps[ApFreq::count_home(k)].get(&k).copied().unwrap_or(0)
+    ApFreq::count_get(maps, &k).copied().unwrap_or(0)
 }
 
 /// The literal collapse `∑ maps[b].get(k)` — the oracle's independent read of the same result.
@@ -450,8 +453,17 @@ fn run_arm(arm: Arm, keys: &[u64], pool: &[u64]) -> (Duration, Duration) {
             let count_d = start.elapsed();
             let start = Instant::now();
             let mut acc = 0i64;
-            for &k in pool {
-                acc = acc.wrapping_add(ap_par_count(&maps, k));
+            // Full-bucket shape: `maps.len() == COUNT_BUCKETS` is in the type, so the masked bucket
+            // index needs no per-lookup bounds check (the length test is once per batch). The
+            // sub-crossover serial shape (`maps.len() == 1`) reads the single map.
+            if let Ok(arr) = <&[ApFreq; ApFreq::COUNT_BUCKETS]>::try_from(maps.as_slice()) {
+                for &k in pool {
+                    acc = acc.wrapping_add(ApFreq::count_get_arr(arr, &k).copied().unwrap_or(0));
+                }
+            } else {
+                for &k in pool {
+                    acc = acc.wrapping_add(maps[0].get(&k).copied().unwrap_or(0));
+                }
             }
             let lookup_d = start.elapsed();
             black_box(acc);
