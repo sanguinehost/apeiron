@@ -7,6 +7,8 @@ import Count.FreqAdd
 import Count.Aggregate
 import Map.PrefixMasks
 import Map.ExecutedRead
+import Map.ExecutedReadUncond
+import Map.ExecutedOverflowInsert
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -120,3 +122,27 @@ import Map.ExecutedRead
 #audit Apeiron.MapExecuted.get_coord_spec
 #audit Apeiron.MapExecuted.get_refines
 #audit Apeiron.MapExecuted.coord_get_refines
+
+-- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe` (APEIRON-HT-READ), wave 2: the AVX2 premise of the read discharged
+-- (`Map/ExecutedReadUncond.lean`) and the executed AVL write path (`Map/ExecutedOverflow{AvlBase,Avl,Chain,Descend,Insert}.lean`).
+#audit Apeiron.MapExecuted.avx2_spec_holds
+#audit Apeiron.MapExecuted.get_refines_uncond
+#audit Apeiron.MapExecuted.coord_get_refines_uncond
+#audit Apeiron.MapExecuted.h_spec
+#audit Apeiron.MapExecuted.update_spec
+#audit Apeiron.MapExecuted.rotate_right_spec
+#audit Apeiron.MapExecuted.rotate_left_spec
+#audit Apeiron.MapExecuted.rebalance_spec
+#audit Apeiron.MapExecuted.rebalance_frT
+#audit Apeiron.MapExecuted.chain_relink
+#audit Apeiron.MapExecuted.rebalance_chain_loop_spec
+#audit Apeiron.MapExecuted.ancOld_of_valid
+#audit Apeiron.MapExecuted.insert_node_loop_spec
+#audit Apeiron.MapExecuted.find_entry_loop_spec
+#audit Apeiron.MapExecuted.find_entry_core
+#audit Apeiron.MapExecuted.find_entry_none_iff
+#audit Apeiron.MapExecuted.find_entry_spec
+#audit Apeiron.MapExecuted.alloc_spec
+#audit Apeiron.MapExecuted.insert_node_spec
+#audit Apeiron.MapExecuted.insert_new_at_spec
+#audit Apeiron.MapExecuted.insert_new_at_spec_fe
