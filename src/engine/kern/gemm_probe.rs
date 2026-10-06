@@ -236,8 +236,8 @@ use std::collections::BTreeMap;
 use std::hint::black_box;
 use std::time::Instant;
 
-pub(super) const MODEL: &str = "~/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf";
-pub(super) const IDS: &str = "~/q35-t5/prompt2.ids";
+pub(super) const MODEL: &str = "models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf";
+pub(super) const IDS: &str = "scratch/q35-t5/prompt2.ids";
 const MODEL_SHA_PREFIX: &str = "37ae482d";
 
 // ---- host -------------------------------------------------------------------------------------
@@ -800,7 +800,7 @@ pub(super) fn take_k(base: &[(Vec<i64>, Vec<i8>)], k: usize) -> Vec<(Vec<i64>, V
 }
 
 pub(super) fn read_ids() -> Vec<u32> {
-    std::fs::read_to_string(IDS)
+    std::fs::read_to_string(crate::engine::testdata::model_path(IDS).expect("prompt ids"))
         .expect("ids")
         .split_whitespace()
         .filter_map(|x| x.parse().ok())
@@ -853,12 +853,16 @@ fn gemm_probe_real_inputs() {
         },
         crate::engine::step::prefill_block()
     );
-    let sha = sha256(MODEL);
-    println!("model {MODEL} sha256 {sha}");
+    let Some(model) = crate::engine::testdata::model_path(MODEL) else {
+        println!("gemm_probe: model absent; nothing to measure");
+        return;
+    };
+    let sha = sha256(&model);
+    println!("model {model} sha256 {sha}");
     assert!(sha.starts_with(MODEL_SHA_PREFIX), "model sha256 {sha}");
     let ids = read_ids();
     println!("prompt ids {IDS}: {} ids", ids.len());
-    let e = Engine::open(MODEL).expect("open model");
+    let e = Engine::open(&model).expect("open model");
     let names = tensor_names(&e);
     let mode = KernelMode::Q8Act;
     let prefill = |e: &Engine| {

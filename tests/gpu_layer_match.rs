@@ -13,6 +13,7 @@
     reason = "faithful port of fold's modelfold::gpu Vulkan runtime; lint profile is fold's, not apeiron's"
 )]
 
+use apeiron::engine::testdata::model_path;
 use apeiron::engine::{Engine, KernelMode};
 use apeiron::format::gguf::Gguf;
 use apeiron::gpu::decode::layer::{embed_step, final_norm_step, rec_nodes, record_layer};
@@ -21,9 +22,8 @@ use apeiron::gpu::decode::state::{dequant_rows, LayerCfg, LayerW, Scratch, Strea
 use apeiron::gpu::decode::{rec_step, GpuCtx};
 use apeiron::gpu::vulkan::*;
 use apeiron::simt::Carrier;
-use std::path::Path;
 
-const MODEL: &str = "~/models/gguf/qwen05b-Q4_K_M.gguf";
+const MODEL: &str = "models/gguf/qwen05b-Q4_K_M.gguf";
 /// Token ids fed at positions 0 and 1.
 const TOKENS: [u32; 2] = [9707, 11];
 const TMAX: u32 = 128;
@@ -44,12 +44,12 @@ fn test_gpu_layer_match() {
             return;
         }
     };
-    if !Path::new(MODEL).exists() {
+    let Some(model) = model_path(MODEL) else {
         println!("SKIP: Model file {MODEL} not found");
         return;
-    }
-    let gguf = Gguf::open(MODEL).expect("gguf open");
-    let mut engine = Engine::open(MODEL).expect("engine open");
+    };
+    let gguf = Gguf::open(&model).expect("gguf open");
+    let mut engine = Engine::open(&model).expect("engine open");
     let ec = engine.config.clone();
     let cfg = LayerCfg {
         hidden: ec.n_embd as u32,

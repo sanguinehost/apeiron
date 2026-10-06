@@ -913,20 +913,19 @@ mod tests {
     #[ignore = "benchmark"]
     #[allow(clippy::cast_precision_loss, reason = "diagnostic calculation")]
     fn bench_qwen35_head_64_steps() {
-        const QWEN35_08B_PATH: &str = "~/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf";
-        const PROMPT_IDS: &str = "~/q35-t5/prompt2.ids";
-        if !std::path::Path::new(QWEN35_08B_PATH).exists()
-            || !std::path::Path::new(PROMPT_IDS).exists()
-        {
+        let (Some(model), Some(ids)) = (
+            crate::engine::testdata::model_path("models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf"),
+            crate::engine::testdata::model_path("scratch/q35-t5/prompt2.ids"),
+        ) else {
             eprintln!("skip bench_qwen35_head_64_steps: model or prompt ids absent");
             return;
-        }
-        let prompt: Vec<u32> = std::fs::read_to_string(PROMPT_IDS)
+        };
+        let prompt: Vec<u32> = std::fs::read_to_string(&ids)
             .expect("prompt ids")
             .split_whitespace()
             .map(|t| t.parse().expect("id"))
             .collect();
-        let engine = crate::engine::Engine::open(QWEN35_08B_PATH).expect("load qwen35");
+        let engine = crate::engine::Engine::open(&model).expect("load qwen35");
         let bp = engine.bitplane_head().expect("planes");
         let mut st = engine.state(prompt.len() + 65).expect("state");
         let mut next = 0u32;

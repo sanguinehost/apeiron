@@ -17,6 +17,7 @@
     reason = "GPU integration test; the lint profile of the other gpu_* tests"
 )]
 
+use apeiron::engine::testdata::model_path;
 use apeiron::format::gguf::Gguf;
 use apeiron::format::quant::GGML_TYPE_Q4_K;
 use apeiron::gpu::decode::pack::{pack_proj_f32, pack_q4_k_raw, Proj};
@@ -31,7 +32,7 @@ use std::sync::Mutex;
 
 static VK_LOAD_LOCK: Mutex<()> = Mutex::new(());
 
-const MODEL: &str = "~/models/gguf/qwen05b-Q4_K_M.gguf";
+const MODEL: &str = "models/gguf/qwen05b-Q4_K_M.gguf";
 const TOKENS: u32 = 512;
 const ROW_SAMPLES: usize = 48;
 
@@ -214,12 +215,12 @@ fn coopmat_gemm_matches_dp4a_on_qwen_layer0() {
         println!("SKIP: no cooperative matrix");
         return;
     }
-    if !Path::new(MODEL).exists() {
+    let Some(model) = model_path(MODEL) else {
         println!("SKIP: Model file {MODEL} not found");
         return;
-    }
+    };
     assert_eq!(TOKENS % TILE_BN, 0, "the block is padded to the token tile");
-    let gguf = Gguf::open(MODEL).expect("gguf open");
+    let gguf = Gguf::open(&model).expect("gguf open");
     let (g, _stage) = GpuCtx::new(&vk).expect("GpuCtx::new");
     let lw = local_wg();
     let n = TOKENS as usize;

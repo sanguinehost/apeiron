@@ -18,16 +18,16 @@
     reason = "measurement test; lint profile follows the gpu_decode_step test"
 )]
 
+use apeiron::engine::testdata::model_path;
 use apeiron::engine::{Engine, KernelMode};
 use apeiron::format::bpe::Bpe;
 use apeiron::format::gguf::Gguf;
 use apeiron::gpu::decode::GpuDecode;
 use apeiron::gpu::vulkan::Vk;
 use apeiron::simt::Carrier;
-use std::path::Path;
 
-const MODEL: &str = "~/models/gguf/qwen05b-Q4_K_M.gguf";
-const TOKENIZER: &str = "~/models/qwen2.5-0.5b/tokenizer.json";
+const MODEL: &str = "models/gguf/qwen05b-Q4_K_M.gguf";
+const TOKENIZER: &str = "models/qwen2.5-0.5b/tokenizer.json";
 const PROMPTS: [&str; 5] = [
     "The capital of France is",
     "The largest planet in the solar system is",
@@ -68,13 +68,13 @@ fn run(carrier: Carrier) {
         println!("SKIP: No Vulkan device present");
         return;
     }
-    if !Path::new(MODEL).exists() || !Path::new(TOKENIZER).exists() {
+    let (Some(model), Some(tokenizer)) = (model_path(MODEL), model_path(TOKENIZER)) else {
         println!("SKIP: model or tokenizer not found");
         return;
-    }
-    let gguf = Gguf::open(MODEL).expect("gguf open");
-    let engine = Engine::open(MODEL).expect("engine open");
-    let bpe = Bpe::from_tokenizer_json(TOKENIZER).expect("tokenizer");
+    };
+    let gguf = Gguf::open(&model).expect("gguf open");
+    let engine = Engine::open(&model).expect("engine open");
+    let bpe = Bpe::from_tokenizer_json(&tokenizer).expect("tokenizer");
     let mut gpu = GpuDecode::new_with_prefill(&gguf, &engine.config, TMAX, carrier, MAXB)
         .expect("GpuDecode::new_with_prefill");
 
