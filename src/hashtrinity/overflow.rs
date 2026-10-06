@@ -29,6 +29,19 @@ use super::{
     is_sentinel, Capped, Coord, KeyStore, Locate, Table, EMPTY, LINEAR_G, PROBE_CAP,
 };
 
+/// `LINEAR_G + 64 / bits - 1` for `bits ∈ [0, 64]`, precomputed so the radix-walk width on the
+/// hot capped probe is an indexed load, not a `divl`. `bits` is fixed at construction and never
+/// `0` (the smallest table is `1 << 3`), so index `0` is a typed placeholder.
+const WINDOW_STEPS_BY_BITS: [u32; 65] = {
+    let mut t = [0u32; 65];
+    let mut b = 1usize;
+    while b < 65 {
+        t[b] = LINEAR_G + 64 / b as u32 - 1;
+        b += 1;
+    }
+    t
+};
+
 /// Whether primary slot `i` holds the probed identity, once its coordinate matched. A trait with two
 /// first-order implementors instead of a closure argument: the extraction does not translate arrow
 /// types, and the capped probe stays one body.
@@ -648,9 +661,14 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// the `LINEAR_G` linear-prefix slots, then the fresh radix windows of `coord·PHI`. Steps at or
     /// past this index are the removed terminal sweep — `descend`'s last arm — and the capped probe
     /// never takes them; such a key is either placed within the walk or routed to the overflow.
+    ///
+    /// `bits` is fixed per table, so the width is one indexed load from
+    /// [`WINDOW_STEPS_BY_BITS`] rather than a `divl` (`64 / self.bits`) on every capped probe.
+    /// The value feeds the `limit >= LINEAR_G` branch and the scalar tail's bound on the hot
+    /// miss path, where the hardware divide's latency is exposed. The table is 256 bytes.
     #[inline]
     fn window_steps(&self) -> u32 {
-        LINEAR_G + 64 / self.bits - 1
+        WINDOW_STEPS_BY_BITS[self.bits as usize]
     }
 
     /// The primary probe limit in slot examinations: [`PROBE_CAP`], or the whole radix walk when the

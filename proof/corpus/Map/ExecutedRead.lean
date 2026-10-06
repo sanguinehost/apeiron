@@ -215,6 +215,15 @@ theorem read_tail_tac_hit {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} {live : 
   rw [htv]
   exact res_some hl
 
+/-- The guarded early-out of `get_coord` (`home == coord && sc == EMPTY`) collapses to the unguarded
+branch off the guard: both arms of the nested `if` are the probe. -/
+theorem ite_ite_of_not_and {α : Type} (p q : Prop) [Decidable p] [Decidable q] (x y : α)
+    (h : ¬ (p ∧ q)) : (if p then (if q then y else x) else x) = x := by
+  by_cases hp : p
+  · have hq : ¬ q := fun hq => h ⟨hp, hq⟩
+    simp [hp, hq]
+  · simp [hp]
+
 /-- **The executed read, over any key store whose `matches` is `true` on `u64`.** -/
 theorem get_coord_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
     (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
@@ -287,14 +296,15 @@ theorem get_coord_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true
       rw [htv]
       exact res_some hl
     · rw [if_neg hc] at h
-      by_cases he : sc = hashtrinity.EMPTY
-      · rw [if_pos he] at h
+      obtain ⟨i0, _, h⟩ := bind_inv h
+      by_cases hcond : home = i0 ∧ sc = hashtrinity.EMPTY
+      · rw [if_pos hcond.1, if_pos hcond.2] at h
         have := (Result.ok_injective h).symm
         subst this
-        exact res_none (vacant_not_live ks hR hs home (hvac he))
-      · rw [if_neg he] at h
+        exact res_none (vacant_not_live ks hR hs home (hvac hcond.2))
+      · rw [ite_ite_of_not_and _ _ _ _ hcond] at h
         obtain ⟨c, hcp, h⟩ := bind_inv h
-        have hcok := pcw_spec ks hm hA s k home _ hhome hR.len_pow c hcp
+        have hcok := pcw_spec ks hm hA s k home _ hR.bits_pos hhome hR.len_pow c hcp
         cases c with
         | Hit i => exact read_tail_tac_hit ks hR hs i hcok r h
         | Vacant i =>
