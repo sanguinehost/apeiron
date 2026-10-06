@@ -59,7 +59,7 @@ from [`templates/epic.md`](templates/epic.md).
 | [qwen35-hybrid](epics/qwen35-hybrid.md) | exact path = llama.cpp ids; speed next |
 | [one-executor](epics/one-executor.md) | S1–S3 landed: Qwen2.5, Bonsai, Qwen3.5 on one executor |
 | [ternary-hadamard](epics/ternary-hadamard.md) | W1–W4 proved/tested; W5 measurement open |
-| [unified-quant-kernel](epics/unified-quant-kernel.md) | dispatched (byte-identical unification): one accumulation kernel parameterized by a block decoder |
+| [unified-quant-kernel](epics/unified-quant-kernel.md) | approved: quantisation level as one parameter across GPU, CPU and proof; CPU chart face dispatched (W2c) |
 
 The policy-engine epic's prior-art study is [`study/policy-engines.md`](study/policy-engines.md).
 
