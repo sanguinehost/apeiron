@@ -16,6 +16,7 @@ import Map.ExecutedOverflowInsert
 import Map.ExecutedResize
 import Map.ExecutedBuild
 import Map.ExecutedBuildWitness
+import Spirv.Carrier
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -260,3 +261,9 @@ import Map.ExecutedBuildWitness
 #audit Apeiron.MapExecuted.coord_build_get_refines
 #audit Apeiron.MapExecuted.build_witness_exec
 #audit Apeiron.MapExecuted.build_refines_witness
+
+-- Row: `unified-carrier-level-as-Bi4NM1lt3LKJy0qsUykdBZ` (UNIFIED-CARRIER): one decode and one
+-- split lemma indexed by the bit width b (`Spirv/Carrier.lean`).
+#audit Spirv.carrier_decode
+#audit Spirv.carrier_split
+#audit Spirv.carrier_split_cells
