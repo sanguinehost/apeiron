@@ -520,8 +520,8 @@ The Claude subscription has a rolling session limit as well as a weekly cap, and
 
 - **Claude concurrency cap:** at most **one Opus** and **two Sonnet** subagents at a time per lead session, beside
   the lead itself. A Claude lane is reserved for work whose artifact is at risk: unsafe Rust, proofs past a
-  worker's cycle cap, contract or architecture decisions. Everything bounded goes to DeepSeek Flash (≤ 3
-  concurrent opencode workers) and agy (≤ 2).
+  worker's cycle cap, contract or architecture decisions. Everything bounded goes to DeepSeek Flash (about 6
+  concurrent opencode workers per lead session; the box has run 50–90) and agy.
 - **Claude lanes keep context lean:** they pipe output through `tail`/`rg`, never `cat` a log, and spawn no
   subagents.
 - **Every dispatch carries an estimate**, wall-clock minutes and, for Claude lanes, tokens, recorded in
