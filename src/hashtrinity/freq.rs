@@ -831,6 +831,30 @@ impl<V> FreqLine<V> {
         if is_sentinel(f) {
             return self.side.get(f);
         }
+        // Home-group fast path (j = 0): the common case for a present key. One tag glance;
+        // a confirmed lane returns WITHOUT the general capped probe's call, tuple and
+        // descent setup. A home group with an empty lane proves absence (first-fit
+        // placement + monotone occupancy, `stop_not_before_placement`) — no lane can hold
+        // the key beyond an empty one — and a blocked key's prefix is still full, so the
+        // overflow cannot hold it either. Only a full home group with no identity falls
+        // through to `probe_tagged`, which owns the descent and overflow.
+        let p = f.wrapping_mul(PHI);
+        let tag = ((p >> TAG_SHIFT) & 0x7F) as u8;
+        let g = self.home_group(p);
+        let base = g * GROUP;
+        let mut matches = self.match_tag(g, tag);
+        while matches != 0 {
+            let i = base + matches.trailing_zeros() as usize;
+            // SAFETY: base + lane < ctrl.len() = slots.len().
+            if unsafe { self.slots.get_unchecked(i).0 } == f {
+                // SAFETY: found ⇒ slot i is live ⇒ its value is initialized.
+                return Some(unsafe { self.slots.get_unchecked(i).1.assume_init_ref() });
+            }
+            matches &= matches - 1;
+        }
+        if self.match_empty(g) != 0 {
+            return None;
+        }
         let (i, found, blocked, _tag) = self.probe_tagged(f);
         if found {
             Some(unsafe { self.slots.get_unchecked(i).1.assume_init_ref() })
