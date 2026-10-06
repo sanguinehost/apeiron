@@ -51,6 +51,7 @@
 mod attn_dp4a;
 mod batch;
 mod coop;
+mod coopmat_gemm;
 mod deltanet;
 mod glue;
 mod gridsync;
@@ -66,6 +67,7 @@ mod tests;
 
 pub use batch::*;
 pub use coop::*;
+pub use coopmat_gemm::*;
 pub use deltanet::*;
 pub use glue::*;
 pub use gridsync::*;

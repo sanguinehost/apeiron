@@ -92,6 +92,11 @@ name = "gpu_decode_bench"
 path = "examples/gpu_decode_bench.rs"
 required-features = ["gpu"]
 
+[[example]]
+name = "gemm_bench"
+path = "examples/gemm_bench.rs"
+required-features = ["gpu"]
+
 [workspace]
 members = ["derive", "fold-abi"]
 # `fuzz` builds under a sanitizer with its own flags and its own lockfile; it is a sibling
