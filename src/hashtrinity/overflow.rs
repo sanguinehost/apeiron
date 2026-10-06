@@ -383,6 +383,10 @@ impl<K: Coord, V> Overflow<K, V> {
             .map(|e| (n, e as u32))
     }
 
+    // Kept out of line: `get_coord`'s inlined hot window check otherwise pulls the whole AVL
+    // search into `face_get`, doubling the read body and regressing the cache-resident read cells
+    // (measured: present-hit 1e3 +25% without this). The overflow walk is cold on these tables.
+    #[inline(never)]
     pub(super) fn get(&self, coord: u64, k: &K) -> Option<&V>
     where
         K: Eq,
@@ -704,14 +708,67 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         Capped::Blocked
     }
 
-    /// The capped primary probe from the caller-probed `home` slot: the linear prefix is scanned in
-    /// one branchless glance (`prefix_masks`), then the radix windows walk scalar up to
+    /// The capped primary probe from the caller-probed `home` slot — an inlined hot window check
+    /// plus a cold out-of-line continuation.
+    ///
+    /// **Hot, no stack frame.** Given `home + LINEAR_G ≤ len` (the window does not wrap), one
+    /// branchless glance (`prefix_masks`) decides the two common outcomes and returns them without a
+    /// call: (a) a confirmed hit lane — including a hit lane before any `EMPTY` — is
+    /// [`Capped::Hit`](super::Capped::Hit); (b) an `EMPTY` lane reached with no hit before it is
+    /// [`Capped::Vacant`](super::Capped::Vacant). Everything else — the window wrap, a hit confirm
+    /// rejected (no hit at all), and a full window with no `EMPTY` — is
+    /// [`probe_capped_cold`](Self::probe_capped_cold).
+    ///
+    /// **The dispatch invariant.** The old body gated the prefix glance on `limit >= LINEAR_G`; here
+    /// the hot path checks only `home + LINEAR_G ≤ len`. `limit >= LINEAR_G` always holds —
+    /// `probe_limit = min PROBE_CAP (LINEAR_G + 64/bits - 1)` and `WINDOW_STEPS_BY_BITS[b] =
+    /// 8 + 64/b - 1 ≥ 8` for `1 ≤ b ≤ 64`, `bits ∈ [3, 63]` — so the cold continuation re-derives it
+    /// from the same field and reaches the identical branch. This is the invariant `pcw_spec`
+    /// re-establishes from `bits > 0`. Indexing is unchecked (`home`/`descend` mask to the array); a
+    /// reserved coordinate never reaches here.
+    #[inline(always)]
+    pub(super) fn probe_capped_with(
+        &self,
+        coord: u64,
+        home: usize,
+        confirm: &impl Confirm<K, KS>,
+    ) -> Capped {
+        if home + LINEAR_G as usize <= self.coords.len() {
+            // `home + LINEAR_G ≤ len`, so the `LINEAR_G`-lane read stays in bounds. Lane 0 is
+            // `home`, already probed by the caller; a match there cannot confirm, but scanning it
+            // is free.
+            let (mut hits, empties) = prefix_masks(&self.coords, home, coord);
+            while hits != 0 {
+                let slot = home + hits.trailing_zeros() as usize;
+                if confirm.confirm(&self.keys, slot) {
+                    return Capped::Hit(slot);
+                }
+                hits &= hits - 1;
+            }
+            if empties != 0 {
+                return Capped::Vacant(home + empties.trailing_zeros() as usize);
+            }
+        }
+        self.probe_capped_cold(coord, home, confirm)
+    }
+
+    /// The out-of-line continuation of [`probe_capped_with`](Self::probe_capped_with) — and the whole
+    /// probe for [`probe_capped_keyed`](Self::probe_capped_keyed) (the insert path), which has not
+    /// scanned the window. It is the original full body: the linear prefix is scanned in one
+    /// branchless glance (`prefix_masks`), then the radix windows walk scalar up to
     /// [`probe_limit`](Self::probe_limit). No `EMPTY` within the cap and no identity ⇒
     /// [`Capped::Blocked`](super::Capped::Blocked), and the caller consults the overflow. Indexing is
     /// unchecked (`home`/`descend` mask to the array); a reserved coordinate never reaches here.
+    ///
+    /// `#[cold] #[inline(never)]` so this frame is not carried on the read path; the hot path in
+    /// [`probe_capped_with`](Self::probe_capped_with) returns the hit and vacant verdicts itself and
+    /// only reaches here for the wrapped window or a full window with no hit. On those inputs this
+    /// body re-derives the identical masks and returns the identical verdict (`hits == 0` ⇒ the same
+    /// `empties` vacancy; every hit lane re-confirmed in the same ascending order), which is what
+    /// lets the hot return and this body agree — the statement `pcw_spec`/`pcw_loop_spec` carry.
     #[cold]
     #[inline(never)]
-    pub(super) fn probe_capped_with(
+    fn probe_capped_cold(
         &self,
         coord: u64,
         home: usize,
@@ -743,13 +800,15 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         }
     }
 
-    /// [`probe_capped_with`](Self::probe_capped_with) with full-key confirmation: a coordinate match
+    /// [`probe_capped_cold`](Self::probe_capped_cold) preceded by a home check: a coordinate match
     /// is a hit only when the stored key equals `k`, so two distinct keys with equal coordinates are
     /// two entries. For `Regen`, `matches` is the coordinate round-trip.
     ///
     /// The home slot is probed with one scalar compare first — the near-certain case for every
     /// insert and a home hit — so the `#[cold]` SIMD prefix glance is paid only on a collision. The
-    /// cold body re-examines `home` in its lane 0; that redundant read is on the cold path.
+    /// cold body re-examines `home` in its lane 0; that redundant read is on the cold path. This
+    /// entry keeps the whole probe out of line (the inlined read fast path is not duplicated into
+    /// every insert loop).
     #[inline]
     pub(super) fn probe_capped_keyed(&self, coord: u64, k: &K) -> Capped {
         let home = self.home(coord);
@@ -761,7 +820,9 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         if sc == EMPTY {
             return Capped::Vacant(home);
         }
-        self.probe_capped_with(coord, home, &ByKey { coord, k })
+        // The insert path keeps the out-of-line full probe: it has not scanned the window, and the
+        // inlined read fast path must not be duplicated into every insert loop.
+        self.probe_capped_cold(coord, home, &ByKey { coord, k })
     }
 
     /// Whether this table holds `value` at `coord`, by coordinate: a live primary slot with

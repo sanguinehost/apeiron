@@ -574,18 +574,158 @@ theorem testBit_zero_of_val (m : U32) (h : m.val = 0) (k : Nat) : m.val.testBit 
 section
 variable {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
 
-/-- The masked prefix scan of `probe_capped_with`: a set hit bit is a hit, else the lowest empty
-lane is the vacancy, else the scalar tail from step 8. -/
-theorem pcw_loop_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
+/-- The masked prefix scan of the cold `probe_capped_cold`: a set hit bit is a hit, else the lowest
+empty lane is the vacancy, else the scalar tail from step 8.  This is the original full-body scan,
+reached by the hot `probe_capped_with` only on the wrapped window or a full window with no hit. -/
+theorem pcc_loop_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
     (s : Tbl KS) (c : U64) (home : Usize) (q : hashtrinity.overflow.ByKey U64) (lim : U32)
     (hlim : lim.val = limN s.bits.val) (h8 : 8 ≤ lim.val)
     (hb : home.val + 8 ≤ s.coords.length)
     (hlanes : ∀ k : U32, k.val < 8 → ∃ i, Desc ks s c k i ∧ i.val = home.val + k.val)
     (hits empties : U32) (hmask : MaskSpec s.coords home c hits empties) (r : hashtrinity.Capped)
-    (h : hashtrinity.overflow.Table.probe_capped_with_loop core.cmp.EqU64 CI ks (ConfI ks)
+    (h : hashtrinity.overflow.Table.probe_capped_cold_loop core.cmp.EqU64 CI ks (ConfI ks)
       s.coords s.vals s.keys s.side s.overflow s.bits s.len s.tombs s._k c home q lim hits empties
       = ok r) :
     CappedOK ks s c r := by
+  have hlane_some : ∀ k : Nat, k < 8 → ∃ x, s.coords.val[home.val + k]? = some x := by
+    intro k hk
+    exact ⟨_, List.getElem?_eq_getElem (by simp only [Slice.length] at hb; omega)⟩
+  have hpass : ∀ j' : U32, j'.val < 8 → hits.val.testBit j'.val = false →
+      empties.val.testBit j'.val = false → Pass ks s c j' := by
+    intro j' hj' hh he
+    obtain ⟨i, hd, hiv⟩ := hlanes j' hj'
+    obtain ⟨x, hx⟩ := hlane_some j'.val hj'
+    refine ⟨i, hd, x, by rw [hiv]; exact hx, ?_, ?_⟩
+    · intro hxc
+      have := ((hmask j'.val).1).mpr ⟨hj', by rw [hx, hxc]⟩
+      rw [hh] at this; exact absurd this (by simp)
+    · intro hxe
+      have := ((hmask j'.val).2).mpr ⟨hj', x, hx, hxe⟩
+      rw [he] at this; exact absurd this (by simp)
+  unfold hashtrinity.overflow.Table.probe_capped_cold_loop at h
+  refine loop_pc (fun (h1 : U32) => h1 = hits) (fun r => CappedOK ks s c r) _ ?_ hits rfl r h
+  intro h1 hh1 cf hcf
+  subst hh1
+  unfold hashtrinity.overflow.Table.probe_capped_cold_loop.body at hcf
+  by_cases hnz : (h1 != 0#u32) = true
+  · rw [if_pos hnz] at hcf
+    obtain ⟨t, ht, hcf⟩ := bind_inv hcf
+    simp only [lift, bind_tc_ok] at hcf
+    obtain ⟨slot, hslot, hcf⟩ := bind_inv hcf
+    obtain ⟨b, hbb, hcf⟩ := bind_inv hcf
+    rw [confirm_ok' ks hm] at hbb
+    have hb' : b = true := (Result.ok_injective hbb).symm
+    subst hb'
+    rw [if_pos rfl] at hcf
+    have := (Result.ok_injective hcf).symm
+    subst this
+    obtain ⟨_, htb, _⟩ := u32_tz_spec h1 (ne_zero_of_bne h1 hnz) t ht
+    have hsv := (uadd_ok hslot).1
+    rw [cast_usize_u32] at hsv
+    obtain ⟨_, hcoord⟩ := ((hmask t.val).1).mp htb
+    show s.coords.val[slot.val]? = some c
+    rw [hsv]; exact hcoord
+  · rw [if_neg hnz] at hcf
+    have hz := zero_of_not_bne h1 hnz
+    by_cases hne : (empties != 0#u32) = true
+    · rw [if_pos hne] at hcf
+      obtain ⟨t, ht, hcf⟩ := bind_inv hcf
+      simp only [lift, bind_tc_ok] at hcf
+      obtain ⟨i5, hi5, hcf⟩ := bind_inv hcf
+      have := (Result.ok_injective hcf).symm
+      subst this
+      obtain ⟨_, htb, htlow⟩ := u32_tz_spec empties (ne_zero_of_bne empties hne) t ht
+      have hiv := (uadd_ok hi5).1
+      rw [cast_usize_u32] at hiv
+      obtain ⟨ht8, x, hx, hxe⟩ := ((hmask t.val).2).mp htb
+      refine ⟨⟨x, by rw [hiv]; exact hx, hxe⟩, t, by omega, ?_, ?_⟩
+      · obtain ⟨i, hd, hv⟩ := hlanes t ht8
+        have : i = i5 := UScalar.eq_of_val_eq (by rw [hv, hiv])
+        rw [← this]; exact hd
+      · intro j' hj'
+        exact hpass j' (by omega) (testBit_zero_of_val h1 hz _) (htlow _ hj')
+    · rw [if_neg hne] at hcf
+      have hez := zero_of_not_bne empties hne
+      obtain ⟨c', hc', hcf⟩ := bind_inv hcf
+      have := (Result.ok_injective hcf).symm
+      subst this
+      refine probe_rest_spec ks hm s c lim hlim q hashtrinity.LINEAR_G ?_ c' hc'
+      intro j' hj'
+      rw [LINEAR_G_val] at hj'
+      exact hpass j' hj' (testBit_zero_of_val h1 hz _) (testBit_zero_of_val empties hez _)
+
+/-- The cold `probe_capped_cold` meets `CappedOK`, on both `prefix_masks` branches.  This is the
+original full-body specification; the hot `probe_capped_with` reaches it on the wrapped window or a
+full window with no hit, and `probe_capped_keyed` calls it directly on the insert path. -/
+theorem pcc_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
+    (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
+    (s : Tbl KS) (c : U64) (home : Usize) (q : hashtrinity.overflow.ByKey U64)
+    (hbits : 0 < s.bits.val)
+    (hhome : hashtrinity.Table.home core.cmp.EqU64 CI ks s c = ok home)
+    (hlen : s.coords.length = 2 ^ s.bits.val) (r : hashtrinity.Capped)
+    (h : hashtrinity.overflow.Table.probe_capped_cold core.cmp.EqU64 CI ks (ConfI ks) s c home q
+      = ok r) :
+    CappedOK ks s c r := by
+  unfold hashtrinity.overflow.Table.probe_capped_cold at h
+  obtain ⟨lim, hl, h⟩ := bind_inv h
+  have hlim := probe_limit_val ks s lim hbits hl
+  dsimp only at h
+  have hnone : ∀ j' : U32, j'.val < (0#u32).val → Pass ks s c j' := by
+    intro j' hj'; exact absurd hj' (by simp)
+  by_cases h8 : lim >= hashtrinity.LINEAR_G
+  · rw [if_pos h8] at h
+    simp only [lift, bind_tc_ok] at h
+    obtain ⟨i1, hi1, h⟩ := bind_inv h
+    have hi1v := (uadd_ok hi1).1
+    rw [LG_usize] at hi1v
+    by_cases hle : i1 <= Slice.len s.coords
+    · rw [if_pos hle] at h
+      have hle' : home.val + 8 ≤ s.coords.length := by
+        rw [UScalar.le_equiv, Slice.len_val] at hle; omega
+      obtain ⟨⟨hits, empties⟩, hpm, h⟩ := bind_inv h
+      have hmask := prefix_masks_spec hA s.coords home c (hits, empties) hle' hpm
+      have h8' : 8 ≤ lim.val := by rw [GE.ge, UScalar.le_equiv, LINEAR_G_val] at h8; exact h8
+      exact pcc_loop_spec ks hm s c home q lim hlim h8' hle'
+        (fun k hk => desc_lin ks s c k home hk hhome hlen (by omega)) hits empties hmask r h
+    · rw [if_neg hle] at h
+      exact probe_rest_spec ks hm s c lim hlim q 0#u32 hnone r h
+  · rw [if_neg h8] at h
+    exact probe_rest_spec ks hm s c lim hlim q 0#u32 hnone r h
+
+/-- The masked prefix scan of the hot `probe_capped_with`: a set hit bit is a hit, else the lowest
+empty lane is the vacancy, else the cold continuation `probe_capped_cold`.  It carries the same
+`hmask` contract and the same `CappedOK` verdict as the cold scan (`pcc_loop_spec`); only the
+no-hit, no-empty tail differs, deferring to `probe_capped_cold`. -/
+theorem pcw_loop_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
+    (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
+    (s : Tbl KS) (c : U64) (home : Usize) (q : hashtrinity.overflow.ByKey U64)
+    (hbits : 0 < s.bits.val)
+    (hhome : hashtrinity.Table.home core.cmp.EqU64 CI ks s c = ok home)
+    (hlen : s.coords.length = 2 ^ s.bits.val)
+    (hb : home.val + 8 ≤ s.coords.length)
+    (hlanes : ∀ k : U32, k.val < 8 → ∃ i, Desc ks s c k i ∧ i.val = home.val + k.val)
+    (hits empties : U32) (hmask : MaskSpec s.coords home c hits empties) (r : hashtrinity.Capped)
+    (h : hashtrinity.overflow.Table.probe_capped_with_loop core.cmp.EqU64 CI ks (ConfI ks)
+      s.coords s.vals s.keys s.side s.overflow s.bits s.len s.tombs s._k c home q hits empties
+      = ok r) :
+    CappedOK ks s c r := by
+  -- `s.coords.length = 2 ^ bits` and a slice length below `2 ^ numBits` bound `bits` by 64, so
+  -- `64 / bits ≥ 1` and `limN bits = min 16 (8 + 64 / bits - 1) ≥ 8`: the hot path skips the cold
+  -- body's `limit >= LINEAR_G` gate, and this is the invariant that gate supplied.
+  have hlim8 : 8 ≤ limN s.bits.val := by
+    have hlt := slice_len_lt s.coords
+    rw [hlen] at hlt
+    have hb64 : s.bits.val ≤ 64 := by
+      rcases System.Platform.numBits_eq with h | h
+      · rw [h] at hlt
+        have : s.bits.val < 32 := (Nat.pow_lt_pow_iff_right (by norm_num : 1 < 2)).mp hlt
+        omega
+      · rw [h] at hlt
+        have : s.bits.val < 64 := (Nat.pow_lt_pow_iff_right (by norm_num : 1 < 2)).mp hlt
+        omega
+    unfold limN
+    have hd : 1 ≤ 64 / s.bits.val := Nat.div_pos hb64 hbits
+    omega
   have hlane_some : ∀ k : Nat, k < 8 → ∃ x, s.coords.val[home.val + k]? = some x := by
     intro k hk
     exact ⟨_, List.getElem?_eq_getElem (by simp only [Slice.length] at hb; omega)⟩
@@ -648,12 +788,11 @@ theorem pcw_loop_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
       obtain ⟨c', hc', hcf⟩ := bind_inv hcf
       have := (Result.ok_injective hcf).symm
       subst this
-      refine probe_rest_spec ks hm s c lim hlim q hashtrinity.LINEAR_G ?_ c' hc'
-      intro j' hj'
-      rw [LINEAR_G_val] at hj'
-      exact hpass j' hj' (testBit_zero_of_val h1 hz _) (testBit_zero_of_val empties hez _)
+      exact pcc_spec ks hm hA s c home q hbits hhome hlen c' hc'
 
-/-- `probe_capped_with` meets `CappedOK`, on both `prefix_masks` branches. -/
+/-- The hot inline `probe_capped_with` meets `CappedOK`: on `home + 8 ≤ len` the branchless prefix
+glance and the hit scan decide the hit/vacant verdict, and every other input defers to the cold
+`probe_capped_cold`, whose `CappedOK` is `pcc_spec`. -/
 theorem pcw_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
     (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
     (s : Tbl KS) (c : U64) (home : Usize) (q : hashtrinity.overflow.ByKey U64)
@@ -664,32 +803,22 @@ theorem pcw_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
       = ok r) :
     CappedOK ks s c r := by
   unfold hashtrinity.overflow.Table.probe_capped_with at h
-  obtain ⟨lim, hl, h⟩ := bind_inv h
-  have hlim := probe_limit_val ks s lim hbits hl
-  dsimp only at h
-  have hnone : ∀ j' : U32, j'.val < (0#u32).val → Pass ks s c j' := by
-    intro j' hj'; exact absurd hj' (by simp)
-  by_cases h8 : lim >= hashtrinity.LINEAR_G
-  · rw [if_pos h8] at h
-    simp only [lift, bind_tc_ok] at h
-    obtain ⟨i1, hi1, h⟩ := bind_inv h
-    have hi1v := (uadd_ok hi1).1
-    rw [LG_usize] at hi1v
-    by_cases hle : i1 <= Slice.len s.coords
-    · rw [if_pos hle] at h
-      have hle' : home.val + 8 ≤ s.coords.length := by
-        rw [UScalar.le_equiv, Slice.len_val] at hle; omega
-      obtain ⟨⟨hits, empties⟩, hpm, h⟩ := bind_inv h
-      have hmask := prefix_masks_spec hA s.coords home c (hits, empties) hle' hpm
-      have h8' : 8 ≤ lim.val := by rw [GE.ge, UScalar.le_equiv, LINEAR_G_val] at h8; exact h8
-      exact pcw_loop_spec ks hm s c home q lim hlim h8' hle'
-        (fun k hk => desc_lin ks s c k home hk hhome hlen (by omega)) hits empties hmask r h
-    · rw [if_neg hle] at h
-      exact probe_rest_spec ks hm s c lim hlim q 0#u32 hnone r h
-  · rw [if_neg h8] at h
-    exact probe_rest_spec ks hm s c lim hlim q 0#u32 hnone r h
+  simp only [lift, bind_tc_ok] at h
+  obtain ⟨i1, hi1, h⟩ := bind_inv h
+  have hi1v := (uadd_ok hi1).1
+  rw [LG_usize] at hi1v
+  by_cases hle : i1 <= Slice.len s.coords
+  · rw [if_pos hle] at h
+    have hle' : home.val + 8 ≤ s.coords.length := by
+      rw [UScalar.le_equiv, Slice.len_val] at hle; omega
+    obtain ⟨⟨hits, empties⟩, hpm, h⟩ := bind_inv h
+    have hmask := prefix_masks_spec hA s.coords home c (hits, empties) hle' hpm
+    exact pcw_loop_spec ks hm hA s c home q hbits hhome hlen hle'
+      (fun k hk => desc_lin ks s c k home hk hhome hlen (by omega)) hits empties hmask r h
+  · rw [if_neg hle] at h
+    exact pcc_spec ks hm hA s c home q hbits hhome hlen r h
 
-/-- The keyed capped probe (`probe_capped_keyed`): home slot first, then `probe_capped_with`. -/
+/-- The keyed capped probe (`probe_capped_keyed`): home slot first, then `probe_capped_cold`. -/
 theorem pck_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
     (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
     (s : Tbl KS) (c k : U64) (hbits : 0 < s.bits.val) (hlen : s.coords.length = 2 ^ s.bits.val) (r : hashtrinity.Capped)
@@ -726,7 +855,7 @@ theorem pck_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
       subst this
       exact hvac he
     · rw [if_neg he] at h
-      exact pcw_spec ks hm hA s c home _ hbits hhome hlen r h
+      exact pcc_spec ks hm hA s c home _ hbits hhome hlen r h
 
 end
 
