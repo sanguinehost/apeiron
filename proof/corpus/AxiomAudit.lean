@@ -10,6 +10,7 @@ import Map.ExecutedRead
 import Map.ExecutedReadUncond
 import Map.ExecutedOverflowInsert
 import Map.ExecutedResize
+import Map.ExecutedBuild
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -192,3 +193,20 @@ import Map.ExecutedResize
 #audit Apeiron.MapExecuted.new_wf
 #audit Apeiron.MapExecuted.with_capacity_wf
 #audit Apeiron.MapExecuted.coordinate_with_capacity_wf
+
+-- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (APEIRON-HT-INSERT, HT-BUILD): the executed build refines
+-- `Apeiron.Table.build` (`Map/ExecutedBuild.lean`).
+#audit Apeiron.MapExecuted.countP_set_le
+#audit Apeiron.MapExecuted.map_get_refines
+#audit Apeiron.MapExecuted.coord_map_get_refines
+#audit Apeiron.MapExecuted.map_insert_refines
+#audit Apeiron.MapExecuted.coord_map_insert_refines
+#audit Apeiron.MapExecuted.new_mapRep
+#audit Apeiron.MapExecuted.with_capacity_mapRep
+#audit Apeiron.MapExecuted.coordinate_with_capacity_mapRep
+#audit Apeiron.MapExecuted.fold_refines
+#audit Apeiron.MapExecuted.coord_fold_refines
+#audit Apeiron.MapExecuted.build_refines
+#audit Apeiron.MapExecuted.coord_build_refines
+#audit Apeiron.MapExecuted.build_get_refines
+#audit Apeiron.MapExecuted.coord_build_get_refines

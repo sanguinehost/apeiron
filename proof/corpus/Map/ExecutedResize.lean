@@ -14,7 +14,7 @@ every overflow entry (`into_entries`, then `resize_loop1`).
   value `m c`, represents `m` on `live ∪ {c}`; the arena plus the main count grows by at most one.
 * `resize_rep`: at a key store whose key column `KC` is set by `KeyStore::set`, read by
   `KeyStore::take_key` and established by `with_bits`, `resize` to a positive bit count preserves
-  `RepW` and `KC`, and keeps the arena plus the main count below `NIL` (`ResizeOK`).
+  `RepW` and `KC`, and does not raise the arena plus the main count (`ResizeOK`).
 * `resizeOK_stored`, `resizeOK_regen`: `ResizeOK` at `Stored<u64>` and `Regen<u64>`.
 
 No load bound is used: `place_capped` falls through to the overflow whenever the capped prefix is
@@ -411,8 +411,8 @@ theorem attach_side {s b : Tbl KS} {m : Apeiron.Table.HMap U64 I64} {live : U64 
   · exact ⟨fun h => h.elim (fun ⟨hh, _⟩ => absurd hc hh) id, fun h => Or.inr h⟩
   · exact ⟨fun h => h.elim id (fun ⟨i, hi⟩ => absurd (hR.side_val i c hi).1 hc), Or.inl⟩
 
-/-- **`resize_rep`.**  `resize` to a positive bit count preserves `RepW` and the key column, and
-keeps the arena plus the main count below `NIL`. -/
+/-- **`resize_rep`.**  `resize` to a positive bit count preserves `RepW` and the key column, and does
+not raise the arena plus the main count. -/
 theorem resize_rep (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
     (KC : Slice U64 → KS → Prop)
     (hKC : ∀ (coords coords' : Slice U64) (keys keys' : KS) (i : Usize) (k : U64),
@@ -453,7 +453,7 @@ theorem resize_rep (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
     · rw [hR.1.live_iff c]
       have : ¬ InOv s c := fun ⟨o', ho', _⟩ => by rw [hso] at ho'; exact absurd ho' (by simp)
       tauto
-    · show arenaLen b1 + mainCount b1 < nilN
+    · show arenaLen b1 + mainCount b1 ≤ arenaLen s + mainCount s
       omega
   | some ov =>
     rw [hso] at h
