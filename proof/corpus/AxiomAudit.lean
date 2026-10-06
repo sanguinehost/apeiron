@@ -15,6 +15,7 @@ import Map.ExecutedReadUncond
 import Map.ExecutedOverflowInsert
 import Map.ExecutedResize
 import Map.ExecutedBuild
+import Map.ExecutedBuildWitness
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -255,3 +256,5 @@ import Map.ExecutedBuild
 #audit Apeiron.MapExecuted.coord_build_refines
 #audit Apeiron.MapExecuted.build_get_refines
 #audit Apeiron.MapExecuted.coord_build_get_refines
+#audit Apeiron.MapExecuted.build_witness_exec
+#audit Apeiron.MapExecuted.build_refines_witness
