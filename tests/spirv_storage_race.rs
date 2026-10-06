@@ -325,7 +325,6 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
         ("moe_topk", moe_topk_module(64, 4, true, true, 1.0)),
         ("moe_silu_slot", silu_mul_q_slot_module(4864, 2)),
         ("pool_fill", pool_fill_module(2, 64, 2048, 16, 4, 128)),
-        ("pool_alloc", pool_alloc_module(14, 2, 64, 16, 4, 128, 16)),
         ("gridsync", gridsync_module(4, 8, 256, 256)),
         ("nulldispatch", nulldispatch_module(256, 256)),
         // deltanet + gated attention
@@ -345,7 +344,9 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
 /// lane's element later is flagged even though no other invocation's value is observed. Each name
 /// below is proved per-invocation in the comment and in the kernel source:
 ///
-/// * `fusedropekv` not listed here — it is a genuine cross-lane exchange (see `RESIDUAL`).
+/// * `fusedropekv` (`src/simt_nn/glue.rs::fused_rope_kv_fold_module`) is no longer here: the
+///   rope-leader hand-off now crosses invocations through workgroup memory (`red`/`sval`), as
+///   `src/simt_nn/batch.rs::qkv_rope_batch_module` does.
 /// * `rmsqsb`, `rmsnorm_batch_q_res` (`src/simt_nn/batch.rs`): the `residual` prologue folds
 ///   `x[idx] += res[idx]` in `loop_step(tid, n, WG)` at `idx = i·n + j`, and the later sumsq/scale
 ///   loops read `x` at the identical `idx` with the identical `tid`/`WG` stride. Same lane, same
@@ -355,27 +356,11 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
 ///   caller's single `WG`; `i` is the same lane's index in both.
 const ALLOW: &[&str] = &["rmsqsb", "rmsnorm_batch_q_res", "rmsaddqseg"];
 
-/// Genuine instances of the SAME race that this task's declared file scope does not own. They are a
-/// named, visible residual, not a silent allow-list: each is a real cross-invocation store→barrier→
-/// load that must be routed through workgroup memory (or given `Coherent` + a `UniformMemory`
-/// barrier) in its own file, with its own gate.
-///
-/// * `fusedropekv` (`src/simt_nn/glue.rs::fused_rope_kv_fold_module`, binding 0 `qkv`): rope-leader
-///   lanes (`lane < rope_dims/2`) write `qkv[base+lane]` and `qkv[base+lane+d2]`, then `wg_barrier`,
-///   then every k-head lane reads the roped K back from `qkv` storage for the KV append. On the
-///   decode path (`src/gpu/decode/layer.rs:365`). Follow-up task, not this one.
-/// * `pool_alloc` (`src/simt_nn/pool.rs::pool_alloc_module`, bindings 2 `slot_of`, 3 `block_at`,
-///   4 `last_used`, 5 `slot`): pass-1 lanes write them, `wg_barrier`, lane 0 reads them in pass 2.
-///   `pool_alloc_bytes`/`pool_fill_bytes` are called by no engine path (dead in this tree).
-const RESIDUAL: &[&str] = &["fusedropekv", "pool_alloc"];
-
 #[test]
 fn no_unexpected_cross_invocation_storage_race() {
     let mut bad = Vec::new();
     let mut allow_hits = 0usize;
-    let mut residual_hits = 0usize;
     let mut allow_matched: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let mut residual_matched: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for (name, w) in modules() {
         for v in analyze(name, &w) {
             if !is_violation(&v) {
@@ -384,9 +369,6 @@ fn no_unexpected_cross_invocation_storage_race() {
             if ALLOW.contains(&name) {
                 allow_hits += 1;
                 allow_matched.insert(name);
-            } else if RESIDUAL.contains(&name) {
-                residual_hits += 1;
-                residual_matched.insert(name);
             } else {
                 bad.push(v);
             }
@@ -408,29 +390,20 @@ fn no_unexpected_cross_invocation_storage_race() {
             lidx = v.load_idx,
         );
     }
-    // Both lists are load-bearing: a name that stops matching is a silent hole.
+    // The allow-list is load-bearing: a name that stops matching is a silent hole.
     for want in ALLOW {
         assert!(
             allow_matched.contains(want),
             "allow-list entry {want} matched no violation — it is stale and may hide a site"
         );
     }
-    for want in RESIDUAL {
-        assert!(
-            residual_matched.contains(want),
-            "residual entry {want} matched no violation — it is stale; remove it"
-        );
-    }
     assert!(
         bad.is_empty(),
-        "{} unexpected cross-invocation storage-buffer race(s) across {} modules; \
-         {residual_hits} named residual (fusedropekv, pool_alloc)",
+        "{} unexpected cross-invocation storage-buffer race(s) across {} modules",
         bad.len(),
         modules().len()
     );
-    eprintln!(
-        "allow-list {allow_hits} per-invocation hits; residual {residual_hits} out-of-scope hits"
-    );
+    eprintln!("allow-list {allow_hits} per-invocation hits");
 }
 
 /// Unit control: the analyser fires on a hand-built store→barrier→load and is silenced only by

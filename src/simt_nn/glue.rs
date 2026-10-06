@@ -5,6 +5,46 @@
 
 use super::*;
 
+impl Kb {
+    /// `max(|v|, 1e-12)` tree-reduced into `red[0]` (Workgroup memory), the absmax of a value
+    /// already held in the register `v`. `absmax_reduce_global` walks a strided slice of an SSBO;
+    /// here `n == wg == hd`, so each lane folds exactly its own element and the two are the same
+    /// reduce — this one re-reads no storage buffer, which is the point.
+    fn absmax_reduce_reg(&mut self, v: u32, red: u32, redp: u32, wg: u32, tid: u32) {
+        let f = self.float;
+        let g = self.glsl;
+        let av = self.e(OP_EXT_INST, f, &[g, GLSL_FABS, v]);
+        let tiny = self.cf(1.0e-12);
+        let am = self.ext2(GLSL_FMAX, av, tiny);
+        self.shared_store(red, redp, tid, am);
+        self.wg_barrier();
+        self.tree_reduce(red, redp, wg, tid, true);
+    }
+
+    /// Pack 4 f32 values `buf[base..base+4]` from a WORKGROUP array into one int8 word (4 codes)
+    /// with `scale` — `pack_int8_global`'s twin, reading workgroup memory instead of an SSBO.
+    fn pack_int8_shared(&mut self, buf: u32, bufp: u32, base: u32, scale: u32) -> u32 {
+        let word = self.fvar_u();
+        let z = self.cu(0);
+        self.store_var(word, z);
+        let c0 = self.cu(0);
+        let four = self.cu(4);
+        self.loop_u(c0, four, |k, b| {
+            let idx = k.iadd(base, b);
+            let v = k.shared_load(buf, bufp, idx);
+            let byte = k.int8_code(v, scale);
+            let u = k.uint;
+            let c8 = k.cu(8);
+            let sh = k.imul(b, c8);
+            let shifted = k.e(OP_SHIFT_LEFT_LOGICAL, u, &[byte, sh]);
+            let w0 = k.load_var_u(word);
+            let w1 = k.e(OP_BITWISE_OR, u, &[w0, shifted]);
+            k.store_var(word, w1);
+        });
+        self.load_var_u(word)
+    }
+}
+
 // ═══════════════ the kernels ═══════════════
 
 /// **Embed gather (f16 store)** — `x[i] = E[i·(vocab/2) + tok/2].lane(tok%2)`; E is the SAME
@@ -159,6 +199,13 @@ pub fn fused_rope_kv_fold_module(
     };
     let vsc = v8.then(|| k.ssbo_f(vsc_bind)); // per-token V absmax scale vsc[kvh·tmax + pos]
     let (red, redp) = k.shared_f32(hd); // the per-token absmax tree-reduce scratch
+
+    // The roped head values, read back by the int8 pack. Every leader→lane hand-off in this kernel
+    // travels through WORKGROUP memory, never the qkv storage buffer: under the GLSL450 memory
+    // model a barrier whose semantics carry only WorkgroupMemory does not order one invocation's
+    // SSBO store against another's load — the landed decode RoPE/KV race. `qkv_rope_batch_module`
+    // is this hand-off's fixed twin; the pattern is copied from there, not invented.
+    let (sval, svalp) = k.shared_f32(hd);
     let chd = k.cu(hd);
     let gid = k.gid_comp(0);
     let slot = k.udiv(gid, chd); // one WG per head-slot (q heads 0..nh, k heads nh..nh+nkv)
@@ -178,27 +225,53 @@ pub fn fused_rope_kv_fold_module(
         let kbase = k.iadd(cqn, kvbase0);
         let f = k.uint;
         let base = k.e(OP_SELECT, f, &[is_k, kbase, qbase]);
+        // The lane's head value lives in the register `vf` from here to the single qkv store; the
+        // (unroped) V value in `vv`. Each cross-lane read below takes the register or a workgroup
+        // array — none re-reads this invocation's SSBO word.
+        let vf = k.fvar_f();
+        let vv = k.fvar_f();
+        let ckn = k.cu(kn);
+        let vbase = k.iadd(cqn, ckn); // V region: qn + kn + kvh·hd + lane
+
         // ── the folded/biased prologue: this WG materializes its OWN qkv region, nothing else's ──
         if let Some(src) = qkvp {
             let iq = k.iadd(base, lane);
             k.fold_bias_store(src, qkvb, qkv, iq, qkvm, segs);
+            // this lane's OWN folded word, read back before any barrier: a same-invocation
+            // read-after-write is ordered by program order alone, so it carries into `vf`.
+            let xq = k.load_f(qkv, iq);
+            k.store_var(vf, xq);
             k.iff(is_k, |k| {
-                let ckn0 = k.cu(kn);
-                let v0 = k.iadd(cqn, ckn0);
-                let v1 = k.iadd(v0, kvbase0);
+                let v1 = k.iadd(vbase, kvbase0);
                 let vi = k.iadd(v1, lane);
                 k.fold_bias_store(src, qkvb, qkv, vi, qkvm, segs);
+                let xv = k.load_f(qkv, vi);
+                k.store_var(vv, xv);
             });
             k.wg_barrier();
-        }
-        // rope: pair-leader lanes (lane < d2) rotate (base+lane, base+lane+d2)
-        let cd2 = k.cu(d2);
-        let is_leader = k.ult(lane, cd2);
-        k.iff(is_leader, |k| {
+        } else {
             let i0 = k.iadd(base, lane);
-            let cd2b = k.cu(d2);
-            let i1 = k.iadd(i0, cd2b);
-            let jf = k.utof(lane);
+            let xq = k.load_f(qkv, i0);
+            k.store_var(vf, xq);
+            k.iff(is_k, |k| {
+                let v1 = k.iadd(vbase, kvbase0);
+                let vsrc = k.iadd(v1, lane);
+                let xv = k.load_f(qkv, vsrc);
+                k.store_var(vv, xv);
+            });
+        }
+        // ── RoPE, pair lanes; partners exchange through WORKGROUP memory (`red`), never the qkv
+        //    storage buffer. Only `lane < rope_dims` rotates; the tail passes through untouched.
+        let cd2 = k.cu(d2);
+        let crot = k.cu(rope_dims);
+        let is_rot = k.ult(lane, crot);
+        let vcur = k.load_var_f(vf);
+        k.shared_store(red, redp, lane, vcur);
+        k.wg_barrier();
+        k.iff(is_rot, |k| {
+            let jl = k.umod(lane, cd2);
+            let is_hi = k.e(OP_UGE, k.bool_t, &[lane, cd2]);
+            let jf = k.utof(jl);
             // `-2·j/rope_dims·ln(theta)`, dividing by the ROTATED width — the reference's
             // `rope_partial` uses `dims`, not the head width, so a partial rope is a full rope over
             // a shorter head and not a truncated one over a long head. Dividing by `hd` here would
@@ -225,39 +298,40 @@ pub fn fused_rope_kv_fold_module(
             let ang = k.fsub(a1, nc2);
             let c = k.ext1(GLSL_COS, ang);
             let sn = k.ext1(GLSL_SIN, ang);
-            let x0 = k.load_f(qkv, i0);
-            let x1 = k.load_f(qkv, i1);
+            let j2 = k.iadd(jl, cd2);
+            let x0 = k.shared_load(red, redp, jl);
+            let x1 = k.shared_load(red, redp, j2);
             let a = k.fmul(x0, c);
             let b = k.fmul(x1, sn);
-            let r0 = k.fsub(a, b);
+            let r_lo = k.fsub(a, b);
             let cc = k.fmul(x1, c);
             let dd = k.fmul(x0, sn);
-            let r1 = k.fadd(cc, dd);
-            k.store_f(qkv, i0, r0);
-            k.store_f(qkv, i1, r1);
+            let r_hi = k.fadd(cc, dd);
+            let fl = k.float;
+            let r = k.e(OP_SELECT, fl, &[is_hi, r_hi, r_lo]);
+            k.store_var(vf, r);
         });
-        // the rope writes of THIS head are read below by the SAME workgroup → a workgroup barrier
-        // (cheap) suffices; no cross-workgroup drain.
-        k.wg_barrier();
+        k.wg_barrier(); // every lane has read `red`
+
+        // the roped value returns to qkv ONCE (the next dispatch reads q from it); the k-head below
+        // takes the register `vf` and workgroup memory, not this storage word.
+        let vfin = k.load_var_f(vf);
+        let roped_i = k.iadd(base, lane);
+        k.store_f(qkv, roped_i, vfin);
         // k-head workgroups append the roped k + the (unroped) v to the caches
         k.iff(is_k, |k| {
             let ct = k.cu(tmax);
-            let ki = k.iadd(kbase, lane);
-            let kval = k.load_f(qkv, ki); // roped k at this lane (for the key box below)
-                                          // V[(kvh·tmax + pos)·hd + lane] = qkv[qn + kn + kvh·hd + lane]
-            let ckn = k.cu(kn);
-            let vsrc0 = k.iadd(cqn, ckn);
-            let vsrc1 = k.iadd(vsrc0, kvbase0);
-            let vsrc = k.iadd(vsrc1, lane);
+            let kval = vfin; // roped k at this lane (for the key box below)
+                             // V[(kvh·tmax + pos)·hd + lane], carried unroped in the register `vv`
             let v1 = k.imul(kvh, ct);
             let v2 = k.iadd(v1, pos);
             if let Some(vsc) = vsc {
-                // ── int8 V, the same two steps K takes, on the same shared scratch ──────────────
+                // ── int8 V, the same two steps K takes, on the register source ──────────────────
                 // Placed FIRST in the k-head block, and closed with a barrier, because `red` is
                 // then handed to the centroid fold and to the K absmax in turn; every one of those
                 // hand-offs in this kernel is already barrier-separated for the same WAR reason
                 // (all lanes read `red[0]`, then all lanes overwrite `red[lane]`).
-                k.absmax_reduce_global(qkv, vsrc1, red, redp, hd, hd, lane);
+                k.absmax_reduce_reg(vv, red, redp, hd, lane);
                 let c0v = k.cu(0);
                 let vamax = k.shared_load(red, redp, c0v);
                 let inv127v = k.cf(1.0 / 127.0);
@@ -267,24 +341,26 @@ pub fn fused_rope_kv_fold_module(
                     let vsi = k.iadd(v1, pos);
                     k.store_f(vsc, vsi, vs);
                 });
-                // V is POSITION-major, so lanes 4w..4w+3 are contiguous in the source and land in
-                // one word: Vq[(kvh·tmax + pos)·(hd/4) + w]. (K is word-i-major and packs the same
-                // four source lanes into a word at a strided destination — different address, same
-                // pack.)
+                // V is POSITION-major, so lanes 4w..4w+3 are contiguous and land in one word:
+                // Vq[(kvh·tmax + pos)·(hd/4) + w]. The four codes are packed from the
+                // workgroup-memory copy of `vv`, not from the storage buffer. (K is word-i-major
+                // and packs the same four source lanes into a word at a strided destination —
+                // different address, same pack.)
                 let chd4v = k.cu(hd / 4);
                 let inpack = k.ult(lane, chd4v);
+                k.shared_store(sval, svalp, lane, vv);
+                k.wg_barrier();
                 k.iff(inpack, |k| {
                     let c4 = k.cu(4);
                     let l4 = k.imul(lane, c4);
-                    let vb4 = k.iadd(vsrc1, l4);
-                    let word = k.pack_int8_global(qkv, vb4, vs);
+                    let word = k.pack_int8_shared(sval, svalp, l4, vs);
                     let vr = k.imul(v2, chd4v);
                     let vidx = k.iadd(vr, lane);
                     k.store_u(vc, vidx, word);
                 });
-                k.wg_barrier(); // `red` is the centroid fold's next, and the K absmax's after that
+                k.wg_barrier(); // `red` and `sval` are the centroid fold's / K pack's next
             } else {
-                let vval = k.load_f(qkv, vsrc);
+                let vval = k.load_var_f(vv);
                 let v3 = k.imul(v2, chd);
                 let vidx = k.iadd(v3, lane);
                 k.store_f16(vc, vidx, vval);
@@ -346,10 +422,10 @@ pub fn fused_rope_kv_fold_module(
                 k.wg_barrier(); // centroid/ρ writes done before the int8 pack (below) re-reads bx
             }
             // int8 K chart: the whole k-head WG reduces the roped-k absmax → per-token scale sk,
-            // then lanes lane<hd/4 pack 4 codes/word into the DP4A K cache (word-i-major). The dim
-            // is already in qkv (roped, synced by the wg_barrier above), so no extra shared copy.
-            let _ = kval; // kval consumed by the box; the pack re-reads qkv (roped)
-            k.absmax_reduce_global(qkv, kbase, red, redp, hd, hd, lane);
+            // then lanes lane<hd/4 pack 4 codes/word into the DP4A K cache (word-i-major). The
+            // roped k is the register `kval` (workgroup memory carries it to the pack), not a fresh
+            // read of the storage word.
+            k.absmax_reduce_reg(kval, red, redp, hd, lane);
             let c0b = k.cu(0);
             let amax = k.shared_load(red, redp, c0b);
             let inv127 = k.cf(1.0 / 127.0);
@@ -362,11 +438,12 @@ pub fn fused_rope_kv_fold_module(
             });
             let chd4 = k.cu(hd / 4);
             let inpack = k.ult(lane, chd4);
+            k.shared_store(sval, svalp, lane, kval);
+            k.wg_barrier();
             k.iff(inpack, |k| {
                 let c4 = k.cu(4);
                 let l4 = k.imul(lane, c4);
-                let base4 = k.iadd(kbase, l4);
-                let word = k.pack_int8_global(qkv, base4, sc);
+                let word = k.pack_int8_shared(sval, svalp, l4, sc);
                 let wrow0 = k.imul(kvh, chd4);
                 let wrow = k.iadd(wrow0, lane);
                 let w1 = k.imul(wrow, ct);
