@@ -54,17 +54,80 @@ fn continue_greedy(d: &mut GpuDecode, first: usize, mut pos: usize) -> Vec<usize
 #[test]
 #[ignore = "whole-model GPU run with a CPU reference: release, `--ignored`"]
 fn test_gpu_prefill_match_q8() {
-    run(Carrier::Q8);
+    arms("test_gpu_prefill_match_q8", Carrier::Q8);
 }
 
 #[test]
 #[ignore = "whole-model GPU run with a CPU reference: release, `--ignored`"]
 fn test_gpu_prefill_match_q4() {
-    run(Carrier::Q4);
+    arms("test_gpu_prefill_match_q4", Carrier::Q4);
 }
 
-fn run(carrier: Carrier) {
-    if unsafe { Vk::load() }.is_err() {
+/// Runs both coopmat arms of one carrier. `Vk` has no `Drop`, so every load leaves a live device
+/// until process exit, and a process holding four whole-model devices crashes (SIGSEGV) or hangs in
+/// the driver's exit teardown about half the time (7 of 15 runs; 0 of 8 with the old two devices,
+/// 0 of 7 with one arm per process). The off arm therefore re-runs this test in a child process
+/// (`PM_ARM=off`), so no process holds more than two devices. `PM_ARM=on|off` selects one arm.
+fn arms(name: &str, carrier: Carrier) {
+    match std::env::var("PM_ARM").as_deref() {
+        Ok("on") => run(carrier, true),
+        Ok("off") => run(carrier, false),
+        _ => {
+            run(carrier, true);
+            let status = std::process::Command::new(std::env::current_exe().expect("current_exe"))
+                .args([
+                    name,
+                    "--exact",
+                    "--ignored",
+                    "--test-threads=1",
+                    "--nocapture",
+                ])
+                .env("PM_ARM", "off")
+                .status()
+                .expect("spawn the off-arm child");
+            assert!(status.success(), "off arm child failed: {status}");
+        }
+    }
+}
+
+static PROBED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Restores `APEIRON_COOPMAT` when an arm unwinds, so one arm's override cannot leak into the next
+/// test in the same process (the harness runs the two carrier tests serially under
+/// `--test-threads=1`).
+struct CoopmatEnv(Option<String>);
+
+impl Drop for CoopmatEnv {
+    fn drop(&mut self) {
+        unsafe {
+            match &self.0 {
+                Some(v) => std::env::set_var("APEIRON_COOPMAT", v),
+                None => std::env::remove_var("APEIRON_COOPMAT"),
+            }
+        }
+    }
+}
+
+/// `coopmat` selects the arm: `Vk::load` reads `APEIRON_COOPMAT` to decide `has_coopmat`, so each
+/// arm takes its own device load. The `false` arm (`APEIRON_COOPMAT=0`) forces the DP4A floor and
+/// must reach the same first token; a device without the tensor-core extension runs both arms on
+/// DP4A.
+fn run(carrier: Carrier, coopmat: bool) {
+    let _env = CoopmatEnv(std::env::var("APEIRON_COOPMAT").ok());
+    unsafe {
+        std::env::set_var("APEIRON_COOPMAT", if coopmat { "1" } else { "0" });
+    }
+    println!(
+        "== carrier {carrier:?}, coopmat arm {}",
+        if coopmat {
+            "on"
+        } else {
+            "off (APEIRON_COOPMAT=0)"
+        }
+    );
+    // `Vk` has no `Drop`, so every load leaves a live instance until process exit and the driver's
+    // teardown of many instances crashes or hangs intermittently; the probe runs once per process.
+    if !PROBED.swap(true, std::sync::atomic::Ordering::Relaxed) && unsafe { Vk::load() }.is_err() {
         println!("SKIP: No Vulkan device present");
         return;
     }
