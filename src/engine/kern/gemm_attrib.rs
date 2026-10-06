@@ -358,7 +358,9 @@ fn gemm_attrib_real_inputs() {
         println!("gemm_attrib: host lacks AVX-VNNI");
         return;
     }
-    let e = Engine::open(crate::engine::kern::gemm_probe::MODEL).expect("open model");
+    let rel = crate::engine::kern::gemm_probe::MODEL;
+    let model = crate::engine::testdata::model_path(rel).expect("model present");
+    let e = Engine::open(&model).expect("open model");
     let ids = crate::engine::kern::gemm_probe::read_ids();
     let mut st = e.state(ids.len() + 1).expect("state");
     e.prefill_state(&mut st, &ids, KernelMode::Q8Act)
@@ -559,7 +561,9 @@ fn gemm_attrib_inengine() {
         println!("gemm_attrib_inengine: host lacks AVX-VNNI");
         return;
     }
-    let e = Engine::open(crate::engine::kern::gemm_probe::MODEL).expect("open model");
+    let rel = crate::engine::kern::gemm_probe::MODEL;
+    let model = crate::engine::testdata::model_path(rel).expect("model present");
+    let e = Engine::open(&model).expect("open model");
     let ids = crate::engine::kern::gemm_probe::read_ids();
     let names = tensor_names(&e);
     let prefill = |e: &Engine| {
@@ -790,7 +794,9 @@ fn gemm_attrib_shapes() {
         libc::mallopt(libc::M_TRIM_THRESHOLD, 1 << 30);
         libc::mallopt(libc::M_TOP_PAD, 64 << 20);
     }
-    let e = Engine::open(crate::engine::kern::gemm_probe::MODEL).expect("open model");
+    let rel = crate::engine::kern::gemm_probe::MODEL;
+    let model = crate::engine::testdata::model_path(rel).expect("model present");
+    let e = Engine::open(&model).expect("open model");
     let ids = crate::engine::kern::gemm_probe::read_ids();
     let names = tensor_names(&e);
     let mut st = e.state(ids.len() + 1).expect("state");

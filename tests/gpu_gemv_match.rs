@@ -9,6 +9,7 @@
 )]
 
 use apeiron::engine::dequant_row_fixed;
+use apeiron::engine::testdata::model_path;
 use apeiron::format::gguf::Gguf;
 use apeiron::format::quant::block_geom;
 use apeiron::gpu::decode::pack::pack_tensor_desc;
@@ -16,7 +17,8 @@ use apeiron::gpu::decode::{make_gemv, make_step_named, rec_gemv, rec_step, segs,
 use apeiron::gpu::vulkan::*;
 use apeiron::simt::Carrier;
 use apeiron::simt_nn::{quantize_vec_bytes, ScaleFace};
-use std::path::Path;
+
+const MODEL: &str = "models/gguf/qwen05b-Q4_K_M.gguf";
 
 #[test]
 fn test_gpu_gemv_match() {
@@ -28,13 +30,12 @@ fn test_gpu_gemv_match() {
         }
     };
 
-    let model_path = "/home/socol/models/gguf/qwen05b-Q4_K_M.gguf";
-    if !Path::new(model_path).exists() {
-        println!("SKIP: Model file {model_path} not found");
+    let Some(model) = model_path(MODEL) else {
+        println!("SKIP: Model file {MODEL} not found");
         return;
-    }
+    };
 
-    let gguf = match Gguf::open(model_path) {
+    let gguf = match Gguf::open(&model) {
         Ok(g) => g,
         Err(e) => {
             println!("SKIP: Failed to open GGUF: {e}");

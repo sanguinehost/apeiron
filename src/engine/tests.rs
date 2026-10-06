@@ -1,5 +1,6 @@
 use super::dequant::dequant_row_fixed;
 use super::*;
+use crate::engine::testdata::model_path;
 use crate::format::quant::{
     self, Q2_K_BLOCK_BYTES, Q3_K_BLOCK_BYTES, Q4_K_BLOCK_BYTES, Q5_0_BLOCK_BYTES, Q6_K_BLOCK_BYTES,
     Q8_0_BLOCK_BYTES,
@@ -378,15 +379,15 @@ fn row_dot_fixed_rounds_ties_and_refuses_out_of_range() {
 }
 
 /// Default model named by the task; the real-table test skips only when it is absent.
-const QWEN05B_PATH: &str = "/home/socol/models/gguf/qwen05b-Q4_K_M.gguf";
+const QWEN05B_PATH: &str = "models/gguf/qwen05b-Q4_K_M.gguf";
 
 #[test]
 fn token_embd_row_dot_through_the_real_tensor_table() {
-    if !std::path::Path::new(QWEN05B_PATH).exists() {
+    let Some(path) = model_path(QWEN05B_PATH) else {
         eprintln!("skip token_embd_row_dot_through_the_real_tensor_table: {QWEN05B_PATH} absent");
         return;
-    }
-    let engine = Engine::open(QWEN05B_PATH).expect("load qwen05b");
+    };
+    let engine = Engine::open(&path).expect("load qwen05b");
     let tensor = engine.token_embd();
     let n_in = engine.config.n_embd;
     let act = engine.token_embedding(0).expect("token 0 embedding");
@@ -420,7 +421,7 @@ fn token_embd_row_dot_through_the_real_tensor_table() {
         "dot {} left the Q8_0 embedding band",
         dot[0]
     );
-    let second = Engine::open(QWEN05B_PATH).expect("second load");
+    let second = Engine::open(&path).expect("second load");
     let act_reload = second
         .token_embedding(0)
         .expect("token 0 embedding (second)");
@@ -997,11 +998,11 @@ fn top_p_fixed_selects_the_nucleus_prefix_and_refuses_windows() {
 
 #[test]
 fn lm_head_and_argmax_through_the_real_tensor_table() {
-    if !std::path::Path::new(QWEN05B_PATH).exists() {
+    let Some(path) = model_path(QWEN05B_PATH) else {
         eprintln!("skip lm_head_and_argmax_through_the_real_tensor_table: {QWEN05B_PATH} absent");
         return;
-    }
-    let engine = Engine::open(QWEN05B_PATH).expect("load qwen05b");
+    };
+    let engine = Engine::open(&path).expect("load qwen05b");
     // The model has no `output.weight`; the head is tied to the embedding.
     let head = engine.lm_head();
     assert_eq!(head.name, "token_embd.weight");
@@ -1025,7 +1026,7 @@ fn lm_head_and_argmax_through_the_real_tensor_table() {
     );
 
     // Determinism across an independent load.
-    let second = Engine::open(QWEN05B_PATH).expect("second load");
+    let second = Engine::open(&path).expect("second load");
     let x2 = second
         .token_embedding(0)
         .expect("token 0 embedding (second)");
@@ -1482,23 +1483,23 @@ fn engine_step_refuses_bad_token_capacity_and_shapes() {
     }
 }
 
-const QWEN35_08B_PATH: &str = "/home/socol/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf";
+const QWEN35_08B_PATH: &str = "models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf";
 
 #[test]
 fn schedule_is_read_from_metadata_not_architecture_name() {
-    if !std::path::Path::new(QWEN05B_PATH).exists()
-        || !std::path::Path::new(QWEN35_08B_PATH).exists()
-    {
+    let (Some(dense_path), Some(hybrid_path)) =
+        (model_path(QWEN05B_PATH), model_path(QWEN35_08B_PATH))
+    else {
         eprintln!("skip schedule test: a model file is absent");
         return;
-    }
-    let dense = Engine::open(QWEN05B_PATH).expect("load qwen05b");
+    };
+    let dense = Engine::open(&dense_path).expect("load qwen05b");
     let c = &dense.config;
     assert!(c.mixers.iter().all(|m| *m == MixerKind::Softmax));
     assert_eq!((c.rot_dims, c.head_dim, c.attn_gate), (64, 64, false));
     assert!(c.affine.is_none());
 
-    let hybrid = Engine::open(QWEN35_08B_PATH).expect("load qwen35");
+    let hybrid = Engine::open(&hybrid_path).expect("load qwen35");
     let c = &hybrid.config;
     assert_eq!(c.n_layer, 24, "the MTP block is not a trunk layer");
     for (l, m) in c.mixers.iter().enumerate() {
@@ -1549,11 +1550,11 @@ fn greedy_state(engine: &Engine, prompt: &[u32], n: usize, mode: KernelMode) -> 
 
 #[test]
 fn qwen35_on_the_one_executor_decodes_llama_cpp_ids() {
-    if !std::path::Path::new(QWEN35_08B_PATH).exists() {
+    let Some(path) = model_path(QWEN35_08B_PATH) else {
         eprintln!("skip qwen35 executor test: {QWEN35_08B_PATH} absent");
         return;
-    }
-    let engine = Engine::open(QWEN35_08B_PATH).expect("load qwen35");
+    };
+    let engine = Engine::open(&path).expect("load qwen35");
     // "The capital of France is"; llama.cpp ece963f41 greedy ids (docs/evidence/qwen35-reference.md).
     let prompt = [760u32, 6511, 314, 9338, 369];
     let llama = [11751u32, 13, 198, 760, 6511, 314, 9338, 369];
@@ -1569,13 +1570,12 @@ fn qwen35_on_the_one_executor_decodes_llama_cpp_ids() {
 #[test]
 #[ignore = "release-only: cargo test --release -- --ignored qwen35_long_prompt"]
 fn qwen35_long_prompt_on_the_one_executor() {
-    const PROMPT_IDS: &str = "/home/socol/oc-tmp/q35-t5/prompt2.ids";
-    if !std::path::Path::new(QWEN35_08B_PATH).exists() || !std::path::Path::new(PROMPT_IDS).exists()
-    {
+    const PROMPT_IDS: &str = "oc-tmp/q35-t5/prompt2.ids";
+    let (Some(model), Some(ids)) = (model_path(QWEN35_08B_PATH), model_path(PROMPT_IDS)) else {
         eprintln!("skip qwen35_long_prompt: model or prompt ids absent");
         return;
-    }
-    let prompt: Vec<u32> = std::fs::read_to_string(PROMPT_IDS)
+    };
+    let prompt: Vec<u32> = std::fs::read_to_string(&ids)
         .expect("prompt ids")
         .split_whitespace()
         .map(|t| t.parse().expect("id"))
@@ -1585,7 +1585,7 @@ fn qwen35_long_prompt_on_the_one_executor() {
         12182u32, 9251, 2349, 1074, 5039, 877, 14, 1825, 42427, 14, 1825, 42427, 33673, 14905, 14,
         52838, 20668, 553, 271, 760, 1510, 49, 8065, 9477, 7, 87, 61, 17, 471, 19638, 44646, 17189,
     ];
-    let engine = Engine::open(QWEN35_08B_PATH).expect("load qwen35");
+    let engine = Engine::open(&model).expect("load qwen35");
     assert_eq!(greedy_state(&engine, &prompt, 32, KernelMode::Q8Act), llama);
 }
 
@@ -1593,11 +1593,11 @@ fn qwen35_long_prompt_on_the_one_executor() {
 /// decode, and both decode llama.cpp's ids.
 #[test]
 fn qwen35_bitplane_head_equals_dense_head_in_lockstep() {
-    if !std::path::Path::new(QWEN35_08B_PATH).exists() {
+    let Some(path) = model_path(QWEN35_08B_PATH) else {
         eprintln!("skip bitplane lockstep: {QWEN35_08B_PATH} absent");
         return;
-    }
-    let engine = Engine::open(QWEN35_08B_PATH).expect("load qwen35");
+    };
+    let engine = Engine::open(&path).expect("load qwen35");
     assert!(
         engine.bitplane_head().is_some(),
         "Q8_0 head gets bit planes"
@@ -1652,10 +1652,10 @@ fn qwen35_bitplane_head_equals_dense_head_in_lockstep() {
 #[ignore = "benchmark"]
 #[allow(clippy::cast_precision_loss, reason = "a 24-sample count")]
 fn bench_qwen35_head() {
-    if !std::path::Path::new(QWEN35_08B_PATH).exists() {
+    let Some(path) = model_path(QWEN35_08B_PATH) else {
         return;
-    }
-    let engine = Engine::open(QWEN35_08B_PATH).expect("load qwen35");
+    };
+    let engine = Engine::open(&path).expect("load qwen35");
     let bp = engine.bitplane_head().expect("planes");
     let mut st = engine.state(64).expect("state");
     let mut states = Vec::new();
@@ -1753,12 +1753,12 @@ fn cols_equal_singles(path: &str, tokens: &[u32]) {
 
 #[test]
 fn qwen35_two_columns_equal_two_single_steps() {
-    if std::path::Path::new(QWEN35_08B_PATH).exists() {
-        cols_equal_singles(QWEN35_08B_PATH, &[760, 6511]);
-        cols_equal_singles(QWEN35_08B_PATH, &[11751, 13, 198]);
+    if let Some(path) = model_path(QWEN35_08B_PATH) {
+        cols_equal_singles(&path, &[760, 6511]);
+        cols_equal_singles(&path, &[11751, 13, 198]);
         // A 40-column block: five GEMM column groups and the block attention stages.
         let block: Vec<u32> = (0..40u32).map(|i| 100 + 37 * i).collect();
-        cols_equal_singles(QWEN35_08B_PATH, &block);
+        cols_equal_singles(&path, &block);
     }
 }
 
@@ -1811,11 +1811,11 @@ fn bitplane_greedy(engine: &Engine, state: &[i64]) -> u32 {
 /// is measured on sampled columns (the full 40 dense reads exceed the test's wall-clock budget).
 #[test]
 fn qwen35_exact_scan_attention_block_matches_baseline_within_bound() {
-    if !std::path::Path::new(QWEN35_08B_PATH).exists() {
+    let Some(path) = model_path(QWEN35_08B_PATH) else {
         eprintln!("skip exact-scan attention block: {QWEN35_08B_PATH} absent");
         return;
-    }
-    let engine = Engine::open(QWEN35_08B_PATH).expect("load qwen35");
+    };
+    let engine = Engine::open(&path).expect("load qwen35");
     assert!(
         engine.bitplane_head().is_some(),
         "Q8_0 head gets bit planes"
@@ -1852,8 +1852,8 @@ fn qwen35_exact_scan_attention_block_matches_baseline_within_bound() {
 
 #[test]
 fn qwen25_two_columns_equal_two_single_steps() {
-    if std::path::Path::new(QWEN05B_PATH).exists() {
-        cols_equal_singles(QWEN05B_PATH, &[785, 6722]);
+    if let Some(path) = model_path(QWEN05B_PATH) {
+        cols_equal_singles(&path, &[785, 6722]);
     }
 }
 
@@ -1862,10 +1862,10 @@ fn qwen25_two_columns_equal_two_single_steps() {
 /// llama.cpp's ids.
 #[test]
 fn qwen35_speculative_equals_greedy() {
-    if !std::path::Path::new(QWEN35_08B_PATH).exists() {
+    let Some(path) = model_path(QWEN35_08B_PATH) else {
         return;
-    }
-    let engine = Engine::open(QWEN35_08B_PATH).expect("load");
+    };
+    let engine = Engine::open(&path).expect("load");
     let prompt = [760u32, 6511, 314, 9338, 369];
     let llama = [
         11751u32, 13, 198, 760, 6511, 314, 9338, 369, 11751, 13, 198, 760, 6511, 314, 9338, 369,
@@ -1884,12 +1884,11 @@ fn qwen35_speculative_equals_greedy() {
 #[test]
 #[ignore = "release-only: cargo test --release -- --ignored qwen35_speculative_long"]
 fn qwen35_speculative_long_prompt() {
-    const PROMPT_IDS: &str = "/home/socol/oc-tmp/q35-t5/prompt2.ids";
-    if !std::path::Path::new(QWEN35_08B_PATH).exists() || !std::path::Path::new(PROMPT_IDS).exists()
-    {
+    const PROMPT_IDS: &str = "oc-tmp/q35-t5/prompt2.ids";
+    let (Some(model), Some(ids)) = (model_path(QWEN35_08B_PATH), model_path(PROMPT_IDS)) else {
         return;
-    }
-    let prompt: Vec<u32> = std::fs::read_to_string(PROMPT_IDS)
+    };
+    let prompt: Vec<u32> = std::fs::read_to_string(&ids)
         .expect("prompt ids")
         .split_whitespace()
         .map(|t| t.parse().expect("id"))
@@ -1898,7 +1897,7 @@ fn qwen35_speculative_long_prompt() {
         12182u32, 9251, 2349, 1074, 5039, 877, 14, 1825, 42427, 14, 1825, 42427, 33673, 14905, 14,
         52838, 20668, 553, 271, 760, 1510, 49, 8065, 9477, 7, 87, 61, 17, 471, 19638, 44646, 17189,
     ];
-    let engine = Engine::open(QWEN35_08B_PATH).expect("load");
+    let engine = Engine::open(&model).expect("load");
     let (ids, stats) = engine
         .generate_speculative(&prompt, 32, 32_768)
         .expect("speculative");

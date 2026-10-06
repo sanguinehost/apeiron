@@ -1218,11 +1218,11 @@ mod tests {
     /// round-tripped every string. Skipped when the checkpoint is not on this box.
     #[test]
     fn qwen2_5_0_5b_matches_fold_reference() {
-        let path = "/home/socol/models/qwen2.5-0.5b/tokenizer.json";
-        if !std::path::Path::new(path).exists() {
+        let Some(path) = crate::engine::testdata::model_path("models/qwen2.5-0.5b/tokenizer.json")
+        else {
             return;
-        }
-        let bpe = Bpe::from_tokenizer_json(path).expect("load Qwen2.5-0.5B");
+        };
+        let bpe = Bpe::from_tokenizer_json(&path).expect("load Qwen2.5-0.5B");
         let vectors: [(&str, &[u32]); 10] = [
             ("Hello world", &[9707, 1879]),
             ("Hello, world!", &[9707, 11, 1879, 0]),

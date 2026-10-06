@@ -1721,12 +1721,12 @@ mod tests {
 
     #[test]
     fn conversion_matches_the_exact_integer_reference_on_the_real_model() {
-        const PATH: &str = "/home/socol/models/gguf/qwen05b-Q4_K_M.gguf";
-        if !std::path::Path::new(PATH).exists() {
-            eprintln!("skip conversion_matches_the_exact_integer_reference_on_the_real_model: {PATH} absent");
+        let Some(path) = crate::engine::testdata::model_path("models/gguf/qwen05b-Q4_K_M.gguf")
+        else {
+            eprintln!("skip conversion_matches_the_exact_integer_reference_on_the_real_model: model absent");
             return;
-        }
-        let g = crate::format::gguf::Gguf::open(PATH).expect("open model");
+        };
+        let g = crate::format::gguf::Gguf::open(&path).expect("open model");
         let mut seen = 0usize;
         let mut t = 0usize;
         while t < g.header.tensors.len() && seen < 4 {
@@ -1746,6 +1746,6 @@ mod tests {
             }
             t += 1;
         }
-        assert!(seen > 0, "no packed tensor found in {PATH}");
+        assert!(seen > 0, "no packed tensor found in {path}");
     }
 }

@@ -184,6 +184,9 @@
 
 pub mod loader;
 pub mod prefix;
+/// Fixture-path resolution shared by the unit and integration tests; not part of the public API.
+#[doc(hidden)]
+pub mod testdata;
 pub mod trace;
 
 /// Fractional bits of the executing fixed-point representation (Q32.32).

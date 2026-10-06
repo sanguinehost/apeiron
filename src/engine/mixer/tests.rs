@@ -523,8 +523,7 @@ fn test_renormalisation_preserves_state_within_bound() {
     reason = "8-step test with realistic model activation ranges"
 )]
 fn test_delta_head_step_8_real_steps_drift() {
-    const QWEN35_08B_PATH: &str = "/home/socol/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf";
-    if !std::path::Path::new(QWEN35_08B_PATH).exists() {
+    if crate::engine::testdata::model_path("models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf").is_none() {
         eprintln!("skip 8-step test: model not found");
         return;
     }
