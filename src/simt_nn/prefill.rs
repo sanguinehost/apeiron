@@ -286,6 +286,46 @@ pub fn attn_prefill_tiled_module(
     ct: u32,
     fuse: bool,
 ) -> Vec<u32> {
+    attn_prefill_tiled_module_m(nh, nkv, hd, qkvm, tmax, scale, rows, rts, ct, fuse, 0)
+}
+
+/// Bit 0 of the `mode` of [`attn_prefill_tiled_module_m`]: launch the heaviest query tile first.
+pub const ATTN_MODE_REVERSE: u32 = 1;
+/// Bit 1 of the `mode`: ONE walk of K — online softmax (running per-row max `M`, rescale
+/// `α = exp(M_old − M_new)` of the denominator partials and of the value accumulator once per
+/// slab). Needs `hd / ct` = 32 key lanes = one subgroup per row slot (the slab max is a
+/// `subgroupMax`). The result equals the three-walk form in ℝ; in f32 it reassociates.
+pub const ATTN_MODE_ONLINE: u32 = 2;
+/// The default `mode`: heaviest tile first, one walk of K. The online bit additionally needs a
+/// 32-lane subgroup (see [`ATTN_MODE_ONLINE`]); the prefill planner clears it where that is not
+/// established.
+pub const ATTN_TILE_MODE: u32 = ATTN_MODE_REVERSE | ATTN_MODE_ONLINE;
+
+/// `subgroupMax(v)` — OpGroupNonUniformFMax over the whole subgroup, every lane receives it.
+fn sg_fmax(k: &mut Kb, v: u32) -> u32 {
+    const OP_GROUP_NON_UNIFORM_FMAX: u32 = 358;
+    k.sg_arith = true;
+    let f = k.float;
+    let sc = k.cu(3);
+    k.e(OP_GROUP_NON_UNIFORM_FMAX, f, &[sc, 0, v])
+}
+
+/// [`attn_prefill_tiled_module`] with a `mode` bitmask of the scheduling and arithmetic variants
+/// priced in `docs/evidence/gpu-prefill/`: [`ATTN_MODE_REVERSE`].
+#[allow(clippy::too_many_arguments)]
+pub fn attn_prefill_tiled_module_m(
+    nh: u32,
+    nkv: u32,
+    hd: u32,
+    qkvm: u32,
+    tmax: u32,
+    scale: f32,
+    rows: u32,
+    rts: u32,
+    ct: u32,
+    fuse: bool,
+    mode: u32,
+) -> Vec<u32> {
     assert!(
         hd.is_power_of_two(),
         "the reduction tree needs a power-of-two head width"
@@ -310,6 +350,13 @@ pub fn attn_prefill_tiled_module(
         tsz <= 1024,
         "workgroup {tsz} over the Vulkan invocation limit"
     );
+    let online = mode & ATTN_MODE_ONLINE != 0;
+    assert!(
+        !online || kl == 32,
+        "the online form reduces the slab max over one 32-lane subgroup per row slot"
+    );
+    // the online form normalizes in the epilogue exactly as the fused two-walk form does
+    let fuse = fuse || online;
     let group = nh / nkv.max(1);
     let qn = nh * hd;
 
@@ -334,6 +381,8 @@ pub fn attn_prefill_tiled_module(
     let (qs, qsp) = k.shared_f32(rows * hd);
     let (kst, kstp) = k.shared_f32(hd * kt);
     let (sst, sstp) = k.shared_f32(rows * kt);
+    // per-row slab rescale factors α, published by the score mapping for the fold mapping
+    let (als, alsp) = if online { k.shared_f32(rows) } else { (0, 0) };
 
     let uid = k.uint;
     let fid = k.float;
@@ -378,6 +427,17 @@ pub fn attn_prefill_tiled_module(
     let nn = k.load_u(parb, c1);
     let nm1 = k.e(OP_ISUB, uid, &[nn, c1]);
     let c_rows = k.cu(rows);
+    // a query tile's work grows with its index (the causal prefix), so launching the LAST tile
+    // first lets the heavy workgroups claim SMs before the light ones fill the machine
+    let ti = if mode & ATTN_MODE_REVERSE != 0 {
+        let cr1 = k.cu(rows - 1);
+        let nr = k.iadd(nn, cr1);
+        let nt = k.udiv(nr, c_rows);
+        let nt1 = k.e(OP_ISUB, uid, &[nt, c1]);
+        k.e(OP_ISUB, uid, &[nt1, ti])
+    } else {
+        ti
+    };
     let i0 = k.imul(ti, c_rows);
     let hb = k.imul(h, c_hd);
 
@@ -559,50 +619,55 @@ pub fn attn_prefill_tiled_module(
         }
     };
 
-    // ── pass 1: the global max ──────────────────────────────────────────────────────────────────
-    let mx: Vec<u32> = (0..rts * ct)
-        .map(|_| {
-            let v = k.fvar_f();
-            k.store_var(v, neg);
-            v
-        })
-        .collect();
-    k.loop_step(c0, maxlen, c_kt, |k, t0| {
+    // ── pass 1: the global max (the online form has no such walk) ────────────────────────────────
+    let mrow: Vec<u32> = if online {
+        Vec::new()
+    } else {
+        let mx: Vec<u32> = (0..rts * ct)
+            .map(|_| {
+                let v = k.fvar_f();
+                k.store_var(v, neg);
+                v
+            })
+            .collect();
+        k.loop_step(c0, maxlen, c_kt, |k, t0| {
+            k.wg_barrier();
+            load_ktile(k, t0);
+            k.wg_barrier();
+            let sc = scores(k, t0);
+            for j in 0..rts as usize {
+                for c in 0..ct as usize {
+                    let s = keyof(k, t0, c as u32);
+                    let inr = k.ult(s, lenv[j]);
+                    let v = k.e(OP_SELECT, fid, &[inr, sc[j * ct as usize + c], neg]);
+                    let m0 = k.load_var_f(mx[j * ct as usize + c]);
+                    let m1 = k.ext2(GLSL_FMAX, m0, v);
+                    k.store_var(mx[j * ct as usize + c], m1);
+                }
+            }
+        });
         k.wg_barrier();
-        load_ktile(k, t0);
-        k.wg_barrier();
-        let sc = scores(k, t0);
         for j in 0..rts as usize {
             for c in 0..ct as usize {
-                let s = keyof(k, t0, c as u32);
-                let inr = k.ult(s, lenv[j]);
-                let v = k.e(OP_SELECT, fid, &[inr, sc[j * ct as usize + c], neg]);
-                let m0 = k.load_var_f(mx[j * ct as usize + c]);
-                let m1 = k.ext2(GLSL_FMAX, m0, v);
-                k.store_var(mx[j * ct as usize + c], m1);
+                let base = k.imul(lrow[j], c_kt);
+                let cc = k.cu(c as u32);
+                let p0 = k.iadd(base, kcol);
+                let p = k.iadd(p0, cc);
+                let v = k.load_var_f(mx[j * ct as usize + c]);
+                k.shared_store(sst, sstp, p, v);
             }
         }
-    });
-    k.wg_barrier();
-    for j in 0..rts as usize {
-        for c in 0..ct as usize {
-            let base = k.imul(lrow[j], c_kt);
-            let cc = k.cu(c as u32);
-            let p0 = k.iadd(base, kcol);
-            let p = k.iadd(p0, cc);
-            let v = k.load_var_f(mx[j * ct as usize + c]);
-            k.shared_store(sst, sstp, p, v);
-        }
-    }
-    k.wg_barrier();
-    reduce_rows(&mut k, true);
-    let mrow: Vec<u32> = (0..rts as usize)
-        .map(|j| {
-            let base = k.imul(lrow[j], c_kt);
-            k.shared_load(sst, sstp, base)
-        })
-        .collect();
-    k.wg_barrier();
+        k.wg_barrier();
+        reduce_rows(&mut k, true);
+        let mrow: Vec<u32> = (0..rts as usize)
+            .map(|j| {
+                let base = k.imul(lrow[j], c_kt);
+                k.shared_load(sst, sstp, base)
+            })
+            .collect();
+        k.wg_barrier();
+        mrow
+    };
 
     // ── pass 2: the partition function (and, when `fuse`, the value fold with it) ───────────────
     let sums: Vec<u32> = (0..rts * ct)
@@ -648,44 +713,122 @@ pub fn attn_prefill_tiled_module(
             }
         });
     };
-    k.loop_step(c0, maxlen, c_kt, |k, t0| {
-        k.wg_barrier();
-        load_ktile(k, t0);
-        k.wg_barrier();
-        let sc = scores(k, t0);
-        for j in 0..rts as usize {
-            for c in 0..ct as usize {
-                let s = keyof(k, t0, c as u32);
-                let inr = k.ult(s, lenv[j]);
-                let dd = k.fsub(sc[j * ct as usize + c], mrow[j]);
-                let e = k.ext1(GLSL_EXP, dd);
-                // `+0.0` is the exact identity, so a masked key leaves the partial untouched
-                let ee = k.e(OP_SELECT, fid, &[inr, e, zf]);
-                let s0 = k.load_var_f(sums[j * ct as usize + c]);
-                let s1 = k.fadd(s0, ee);
-                k.store_var(sums[j * ct as usize + c], s1);
-                if fuse {
-                    // the UNNORMALIZED weight `e·vs[s]` — the fold's `1/Σe` is factored out to the
-                    // epilogue, which is the whole (and only) arithmetic difference `fuse` makes
+    if online {
+        let mrun: Vec<u32> = (0..rts)
+            .map(|_| {
+                let v = k.fvar_f();
+                k.store_var(v, neg);
+                v
+            })
+            .collect();
+        let lane0 = k.ult(kli, c1);
+        k.loop_step(c0, maxlen, c_kt, |k, t0| {
+            k.wg_barrier();
+            load_ktile(k, t0);
+            k.wg_barrier();
+            let sc = scores(k, t0);
+            let cts = ct as usize;
+            let inr: Vec<u32> = (0..rts as usize * cts)
+                .map(|jc| {
+                    let s = keyof(k, t0, (jc % cts) as u32);
+                    k.ult(s, lenv[jc / cts])
+                })
+                .collect();
+            // the slab max of each row: this thread's `ct` masked keys, then the subgroup's 32 lanes
+            let mut alpha = Vec::with_capacity(rts as usize);
+            let mut mnew = Vec::with_capacity(rts as usize);
+            for j in 0..rts as usize {
+                let mut mj = k.e(OP_SELECT, fid, &[inr[j * cts], sc[j * cts], neg]);
+                for c in 1..cts {
+                    let v = k.e(OP_SELECT, fid, &[inr[j * cts + c], sc[j * cts + c], neg]);
+                    mj = k.ext2(GLSL_FMAX, mj, v);
+                }
+                let sm = sg_fmax(k, mj);
+                let mo = k.load_var_f(mrun[j]);
+                let mn = k.ext2(GLSL_FMAX, mo, sm);
+                let dm = k.fsub(mo, mn);
+                alpha.push(k.ext1(GLSL_EXP, dm));
+                k.store_var(mrun[j], mn);
+                mnew.push(mn);
+            }
+            for j in 0..rts as usize {
+                for c in 0..cts {
+                    let s = keyof(k, t0, c as u32);
+                    let dd = k.fsub(sc[j * cts + c], mnew[j]);
+                    let e = k.ext1(GLSL_EXP, dd);
+                    let ee = k.e(OP_SELECT, fid, &[inr[j * cts + c], e, zf]);
+                    let s0 = k.load_var_f(sums[j * cts + c]);
+                    let s1a = k.fmul(s0, alpha[j]);
+                    let s1 = k.fadd(s1a, ee);
+                    k.store_var(sums[j * cts + c], s1);
                     let sm = clampk(k, s);
                     let r = k.imul(sm, c_nkv);
                     let vi = k.iadd(r, kvh);
                     let vsv = k.load_f(vsb, vi);
                     let p0 = k.fmul(e, vsv);
-                    let p = k.e(OP_SELECT, fid, &[inr, p0, zf]);
+                    let p = k.e(OP_SELECT, fid, &[inr[j * cts + c], p0, zf]);
                     let base = k.imul(lrow[j], c_kt);
                     let cc = k.cu(c as u32);
                     let q0 = k.iadd(base, kcol);
                     let q = k.iadd(q0, cc);
                     k.shared_store(sst, sstp, q, p);
                 }
+                // one lane per subgroup publishes the row's α for the fold mapping
+                k.iff(lane0, |k| {
+                    k.shared_store(als, alsp, lrow[j], alpha[j]);
+                });
             }
-        }
-        if fuse {
             k.wg_barrier();
+            for rt in 0..rtf {
+                let crt = k.cu(rt);
+                let lr = k.iadd(fbase, crt);
+                let a = k.shared_load(als, alsp, lr);
+                let o0 = k.load_var_f(oacc[rt as usize]);
+                let o1 = k.fmul(o0, a);
+                k.store_var(oacc[rt as usize], o1);
+            }
             fold_slab(k, t0);
-        }
-    });
+        });
+    } else {
+        k.loop_step(c0, maxlen, c_kt, |k, t0| {
+            k.wg_barrier();
+            load_ktile(k, t0);
+            k.wg_barrier();
+            let sc = scores(k, t0);
+            for j in 0..rts as usize {
+                for c in 0..ct as usize {
+                    let s = keyof(k, t0, c as u32);
+                    let inr = k.ult(s, lenv[j]);
+                    let dd = k.fsub(sc[j * ct as usize + c], mrow[j]);
+                    let e = k.ext1(GLSL_EXP, dd);
+                    // `+0.0` is the exact identity, so a masked key leaves the partial untouched
+                    let ee = k.e(OP_SELECT, fid, &[inr, e, zf]);
+                    let s0 = k.load_var_f(sums[j * ct as usize + c]);
+                    let s1 = k.fadd(s0, ee);
+                    k.store_var(sums[j * ct as usize + c], s1);
+                    if fuse {
+                        // the UNNORMALIZED weight `e·vs[s]` — the fold's `1/Σe` is factored out to the
+                        // epilogue, which is the whole (and only) arithmetic difference `fuse` makes
+                        let sm = clampk(k, s);
+                        let r = k.imul(sm, c_nkv);
+                        let vi = k.iadd(r, kvh);
+                        let vsv = k.load_f(vsb, vi);
+                        let p0 = k.fmul(e, vsv);
+                        let p = k.e(OP_SELECT, fid, &[inr, p0, zf]);
+                        let base = k.imul(lrow[j], c_kt);
+                        let cc = k.cu(c as u32);
+                        let q0 = k.iadd(base, kcol);
+                        let q = k.iadd(q0, cc);
+                        k.shared_store(sst, sstp, q, p);
+                    }
+                }
+            }
+            if fuse {
+                k.wg_barrier();
+                fold_slab(k, t0);
+            }
+        });
+    }
     k.wg_barrier();
     for j in 0..rts as usize {
         for c in 0..ct as usize {
@@ -778,6 +921,26 @@ pub fn attn_prefill_tiled_module(
         });
     }
     k.finish(tsz)
+}
+
+/// [`attn_prefill_tiled_module_m`] as bytes.
+#[allow(clippy::too_many_arguments)]
+pub fn attn_prefill_tiled_bytes_m(
+    nh: u32,
+    nkv: u32,
+    hd: u32,
+    qkvm: u32,
+    tmax: u32,
+    scale: f32,
+    rows: u32,
+    rts: u32,
+    ct: u32,
+    fuse: bool,
+    mode: u32,
+) -> Vec<u8> {
+    bytes(attn_prefill_tiled_module_m(
+        nh, nkv, hd, qkvm, tmax, scale, rows, rts, ct, fuse, mode,
+    ))
 }
 
 /// [`attn_prefill_tiled_module`] as bytes.
