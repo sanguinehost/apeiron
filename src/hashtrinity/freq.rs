@@ -23,17 +23,37 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Refusal (`false` / `None`) replaces every overflow: a `u32` histogram entry, a `usize` offset
 /// and an `i64` count each fail closed.
 impl<K: Coord> FreqMap<K, i64> {
-    /// Home buckets are the top `COUNT_BBITS` bits of `c·PHI`.
+    /// Bucket-index width: the `COUNT_BBITS` bits of `c·PHI` the partition reads.
     pub const COUNT_BBITS: u32 = 8;
     /// `2^COUNT_BBITS` home buckets.
     pub const COUNT_BUCKETS: usize = 1 << Self::COUNT_BBITS;
 
-    /// The home bucket of coordinate `c` (`home_balanced` spread). BOUND: `(c·PHI) >> (64 - BBITS)`
-    /// lies in `[0, 2^BBITS)`; the mask is the identity there and states the bound to the optimiser.
-    /// O(1).
+    /// The window above the bucket window reserved for the probe's own `p = f·PHI` reads: the top
+    /// `gbits` bits are the home/descent window (`FreqLine::home_group`) and the 7 bits below those
+    /// are the tag (`FreqLine::tag`). A phase-3 map holds at most `2^COUNT_HOME_GAP` slots in the
+    /// counted population (`gbits ≤ COUNT_HOME_GAP − 4`), so the bucket and tag windows stay
+    /// **disjoint** from the home window. That disjointness is the lever: disjoint bits vary freely
+    /// inside a bucket, so its keys start in up to `2^gbits` distinct home groups instead of only
+    /// `2^(gbits−8)` when the bucket reused the top of the home window.
+    pub const COUNT_HOME_GAP: u32 = 16;
+
+    /// The bucket window shift: bits `[COUNT_BUCKET_SHIFT, COUNT_BUCKET_SHIFT + COUNT_BBITS)` of
+    /// `c·PHI`. Budget `COUNT_BBITS + COUNT_HOME_GAP + 7 = 31 ≤ 64` (the `+7` is the tag window).
+    pub const COUNT_BUCKET_SHIFT: u32 = 64 - Self::COUNT_BBITS - Self::COUNT_HOME_GAP;
+
+    /// L3: the capped start capacity, in keys, of one phase-3 bucket's map
+    /// ([`count_aggregate_start`](Self::count_aggregate_start)). Occurrences bound the insertions
+    /// but not the distinct keys, so the start is capped here and the final capacity is set by the
+    /// map's own growth from the bucket's DISTINCT count. `with_capacity(8)` opens a 16-slot line
+    /// (one group). O(1).
+    pub const COUNT_AGGREGATE_START: usize = 8;
+
+    /// The home bucket of coordinate `c`: the `COUNT_BBITS` bits of `c·PHI` just below the probe's
+    /// home window (bits `[40, 48)`), disjoint from `FreqLine::home_group`'s top `gbits` and from
+    /// `FreqLine::tag`'s window. BOUND: the mask states `[0, 2^COUNT_BBITS)` to the optimiser. O(1).
     #[inline]
     pub fn count_home(c: u64) -> usize {
-        (c.wrapping_mul(PHI) >> (64 - Self::COUNT_BBITS)) as usize & (Self::COUNT_BUCKETS - 1)
+        (c.wrapping_mul(PHI) >> Self::COUNT_BUCKET_SHIFT) as usize & (Self::COUNT_BUCKETS - 1)
     }
 
     /// Admission of an `n`-key count: every per-key count is at most `n`, so `n <= count_max`
@@ -115,12 +135,35 @@ impl<K: Coord> FreqMap<K, i64> {
         s
     }
 
+    /// The start capacity passed to [`Self::with_capacity`] for a phase-3 bucket holding `hi - lo`
+    /// routed occurrences: `min(hi - lo, COUNT_AGGREGATE_START)`. Taking both bounds in one call
+    /// keeps the Aeneas extraction of [`count_aggregate`](Self::count_aggregate) at ONE capacity
+    /// bind, so the canonical `Count.Aggregate.count_aggregate_refines_win` — which binds that
+    /// capacity generically and feeds it to `with_capacity_rep`/`pot_with_capacity`, never reading
+    /// its value — still type-checks without a corpus edit. O(1).
+    fn count_aggregate_start(lo: usize, hi: usize) -> usize {
+        hi.saturating_sub(lo).min(Self::COUNT_AGGREGATE_START)
+    }
+
     /// Phase 3, one bucket: the count map of `routed[lo..hi]` (`m.add(k, 1)` per key; `Build (+) 0`
     /// over the bucket). A range outside `routed` is clipped to it. Time `Θ(hi - lo)` map
     /// insertions (each amortised O(1) at the group probe's bounded probe length — a hypothesis,
-    /// `AggregationBound`), space `Θ(hi - lo)` slots.
+    /// `AggregationBound`), space `Θ(distinct)` slots.
+    ///
+    /// **Sizing by distinct keys (L3): grow-from-small.** The line opens at the capped start
+    /// ([`count_aggregate_start`](Self::count_aggregate_start), 16 slots) and reaches its final
+    /// capacity only through [`FreqLine::grow`]'s load-factor doubling: `c₀ = 2⁴`,
+    /// `c_{k+1} = 2·c_k` when `len` reaches `(7/8)·c_k`. The final capacity is therefore
+    /// `next_pow2((8/7)·distinct)` — a function of the bucket's DISTINCT keys, not its routed
+    /// occurrences — with **no second pass** over `routed` and no distinct-count pre-pass. Cost
+    /// recurrence: the keys re-placed over all grows total `Σ_k (7/8)·2^k < (7/8)·c_final`, i.e.
+    /// **≤ ~1 extra key move per distinct key** (O(1) amortised per insert). Peak extra space: at
+    /// one grow the old and new lines are live together, `c_k + 2·c_k = 1.5·c_{k+1}` — 1.5× the
+    /// bucket's final line, transient for that grow. A 1%-distinct bucket that routes ~100× its
+    /// distinct count therefore holds a distinct-sized (cache-resident) map instead of a ~100×
+    /// over-allocated one.
     pub fn count_aggregate(routed: &[K], lo: usize, hi: usize) -> Self {
-        let mut m = Self::with_capacity(hi.saturating_sub(lo));
+        let mut m = Self::with_capacity(Self::count_aggregate_start(lo, hi));
         let mut i = lo;
         while i < hi && i < routed.len() {
             m.add(&routed[i], 1);
@@ -201,8 +244,8 @@ fn count_route<K: Coord + Copy + Sync>(
 impl<K: Coord + Eq + Copy + Sync> FreqMap<K, i64> {
     /// **The parallel two-level GROUP BY count**, on the group-probe (NB) engine (`GroupProbe.lean`:
     /// uniform golden fold ⇒ no identity-home block, 16-wide tag glance ⇒ miss filter, bounded
-    /// terminal sweep). Partition `keys` by home bucket (top bits of `k·PHI` — balanced, no hot
-    /// bucket, `RadixDescent.home_balanced`), then aggregate each bucket into its own `FreqMap`
+    /// terminal sweep). Partition `keys` by home bucket (bits `[40,48)` of `k·PHI`, disjoint from
+    /// the probe's home window — balanced, no hot bucket, `RadixDescent.home_balanced`), then aggregate each bucket into its own `FreqMap`
     /// across the pool. Buckets hold disjoint keys ⇒ **no merge**: a key is in exactly one returned
     /// map and `∑ maps[b].get(k)` is its count — the disjoint-fold case of
     /// `SharedFold.interleave_exact` (independent per-bucket folds, any schedule, exact).
@@ -261,8 +304,8 @@ impl<K: Coord + Eq + Copy + Sync> FreqMap<K, i64> {
 impl<K: CoordInv + Eq + Copy + Sync> Table<K, i64, Regen<K>> {
     /// **The parallel two-level GROUP BY count, KEYS RETAINED** (the Regen face), on the group-probe (NB) engine (`GroupProbe.lean`:
     /// uniform golden fold ⇒ no identity-home block, 16-wide tag glance ⇒ miss filter, bounded
-    /// terminal sweep). Partition `keys` by home bucket (top bits of `k·PHI` — balanced, no hot
-    /// bucket, `RadixDescent.home_balanced`), then aggregate each bucket into its own `FreqMap`
+    /// terminal sweep). Partition `keys` by home bucket (bits `[40,48)` of `k·PHI`, disjoint from
+    /// the probe's home window — balanced, no hot bucket, `RadixDescent.home_balanced`), then aggregate each bucket into its own `FreqMap`
     /// across the pool. Buckets hold disjoint keys ⇒ **no merge**: a key is in exactly one returned
     /// map and `∑ maps[b].get(k)` is its count — the disjoint-fold case of
     /// `SharedFold.interleave_exact` (independent per-bucket folds, any schedule, exact).
@@ -445,11 +488,11 @@ impl<V: Clone> Clone for FreqSide<V> {
 ///   placement is first-fit and occupancy is monotone — `FreqMap` never deletes
 ///   (`GroupProbe.stop_not_before_placement`; one deletion voids the licence,
 ///   `deletion_breaks_the_stop` — SwissTable's DELETED≠EMPTY tombstone, forced);
-/// * **the tag** — each lane is `{0 = empty, else the fold's low byte, 0 remapped to 1}`. The tag
-///   must be a window DISJOINT from the address windows: a top-window tag is a function of the
+/// * **the tag** — each lane is `{0 = empty, else a 7-bit window of the fold, 0 remapped to 1}`. The
+///   tag must be a window DISJOINT from the address windows: a top-window tag is a function of the
 ///   home address and rejects nothing exactly where the probe starts
 ///   (`GroupProbe.top_window_is_home_determined` — the bug the earlier top-bits band carried);
-///   the low window has exact false-positive mass `2⁻ᵗ` globally and within every home fiber
+///   the deployed window ([`FreqLine::tag`], `TAG_SHIFT`) has exact false-positive mass `2⁻ᵗ` globally and within every home fiber
 ///   (`low_window_balanced`, `home_and_tag_jointly_balanced`). Its width is the `F = D + λR` rate
 ///   dial, and a full byte is the point that MATCHES SwissTable's h2: the earlier 4-bit nibble
 ///   was measured slower on misses (its `2⁻⁴` false-positive mass forced a cold coord read on
@@ -502,6 +545,14 @@ struct FreqLine<V> {
 /// `GroupProbe.winnow_exact` licence is `∀ w`, so the width is a free efficiency knob; 16 is the
 /// SSE register, and the byte tag makes the scan one `_mm_cmpeq_epi8` + `_mm_movemask_epi8`.
 pub(crate) const GROUP: usize = 16;
+
+/// The tag window of `p = f·PHI`: the 7 bits just below the bucket window, `[TAG_SHIFT, 40)` with
+/// the current [`FreqMap::COUNT_HOME_GAP`]/[`FreqMap::COUNT_BBITS`]. Disjoint from
+/// [`FreqLine::home_group`]'s top `gbits` window and from [`FreqMap::count_home`]. The low 7 bits
+/// the tag used to read are all zero on an `i · 2³²` key family (`(i·2³²)·PHI` has its low 32 bits
+/// zero), so that tag was blind exactly there; this window is inside the varying high half of every
+/// counted key family. Budget: folded into `COUNT_BBITS + COUNT_HOME_GAP + 7 ≤ 64`.
+const TAG_SHIFT: u32 = 64 - FreqMap::<u64, i64>::COUNT_HOME_GAP - FreqMap::<u64, i64>::COUNT_BBITS - 7;
 
 /// **The glance** — 16 tag lanes compared to `tag` in one movemask (`SimtSelect.movemask`,
 /// `GroupProbe.winnow_exact`): the exact SwissTable move (`_mm_cmpeq_epi8` + `_mm_movemask_epi8`,
@@ -566,14 +617,15 @@ impl<V> FreqLine<V> {
         }
     }
 
-    /// The lane tag of a frequency: the fold's low **7 bits** (high bit clear, so it never aliases
-    /// the `EMPTY_CTRL` sentinel). 128 states = 7 bits — exactly SwissTable's h2 width, the point on
-    /// the `F = D + λR` dial with false-positive mass `2⁻⁷`. The LOW window,
-    /// disjoint from the address windows the descent consumes (`GroupProbe.tagWindow`; a top window
-    /// would be home-determined and blind, `top_window_is_home_determined`).
+    /// The lane tag of a frequency: 7 bits of `f·PHI` below the home window and the bucket window
+    /// (`TAG_SHIFT`), high bit clear so it never aliases the `EMPTY_CTRL` sentinel. 128 states = 7
+    /// bits — exactly SwissTable's h2 width, false-positive mass `2⁻⁷`. The window is disjoint from
+    /// the address windows the descent consumes (`GroupProbe.tagWindow`; a top window would be
+    /// home-determined and blind, `top_window_is_home_determined`, and the old LOW window was
+    /// identically 0 on the `i·2³²` family).
     #[inline]
     fn tag(f: u64) -> u8 {
-        (f.wrapping_mul(PHI) & 0x7F) as u8
+        ((f.wrapping_mul(PHI) >> TAG_SHIFT) & 0x7F) as u8
     }
 
     #[inline]
@@ -684,7 +736,7 @@ impl<V> FreqLine<V> {
     /// in the prefix; only an exhausted prefix consults the overflow.
     ///
     /// R2: the tag is returned, not recomputed. `insert_with`'s fresh-lane path wrote
-    /// `Self::tag(f) = (f·PHI) & 0x7F`, a second application of the multiply `probe` had already
+    /// `Self::tag(f) = ((f·PHI) >> TAG_SHIFT) & 0x7F`, a second application of the multiply `probe` had already
     /// done; returning the value removes the `lea;lea;and` triple the multiplier constant folds to
     /// from every fresh insert, on the serial `add` path and on `count_par`'s phase 3 alike.
     /// Callers that do not place a lane (`get`, `grow`'s re-place probe) drop it.
@@ -693,7 +745,7 @@ impl<V> FreqLine<V> {
     /// on.
     fn probe_tagged(&self, f: u64) -> (usize, bool, bool, u8) {
         let p = f.wrapping_mul(PHI);
-        let tag = (p & 0x7F) as u8; // = tag(f), reusing p
+        let tag = ((p >> TAG_SHIFT) & 0x7F) as u8; // = tag(f), reusing p
         let limit = self.probe_limit();
         let mut g = self.home_group(p); // j = 0, the common case: one shift + and
         let mut j = 0u32;
@@ -748,7 +800,7 @@ impl<V> FreqLine<V> {
             return 0;
         }
         let p = f.wrapping_mul(PHI);
-        let tag = (p & 0x7F) as u8;
+        let tag = ((p >> TAG_SHIFT) & 0x7F) as u8;
         let limit = self.probe_limit();
         let mut g = self.home_group(p);
         let mut j = 0u32;

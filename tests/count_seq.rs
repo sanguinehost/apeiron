@@ -11,9 +11,10 @@ type F = FreqMap<u64, i64>;
 const B: usize = F::COUNT_BUCKETS;
 const PHI: u64 = 0x9E37_79B9_7F4A_7C15;
 
-/// Independent statement of the home bucket: the top 8 bits of `c * PHI`.
+/// Independent statement of the home bucket: the 8 bits of `c * PHI` just below the probe's home
+/// window (bits `[40, 48)`), disjoint from `FreqLine::home_group`'s top window and the tag window.
 fn home(c: u64) -> usize {
-    (c.wrapping_mul(PHI) >> 56) as usize
+    ((c.wrapping_mul(PHI) >> 40) & 0xFF) as usize
 }
 
 struct Rng(u64);
@@ -79,7 +80,7 @@ fn count_par_equals_hashmap_oracle() {
 }
 
 #[test]
-fn home_matches_the_fibonacci_top_byte() {
+fn home_matches_the_below_home_window() {
     for c in [0u64, 1, 2, 255, 1 << 40, u64::MAX, 0xDEAD_BEEF_CAFE_F00D] {
         assert_eq!(F::count_home(c), home(c));
     }
