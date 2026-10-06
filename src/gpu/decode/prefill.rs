@@ -87,10 +87,17 @@ fn coopmat_ok(vk: &Vk, m: u32, k: u32, cr: Carrier) -> bool {
         && matches!(cr, Carrier::Q8 | Carrier::Q4 | Carrier::Q2)
 }
 
-/// The attention query tile (`rows`, `rts`, `ct`, `fuse`); `DEC_ATTN_TILE=0|off` pins the untiled
-/// kernel, `rows:rts:ct[:fuse]` pins a tile (fold `attn_tile`, `gpu.rs:4466-4483`).
-fn attn_tile() -> Option<(u32, u32, u32, bool)> {
-    let d = (ATTN_TILE_ROWS, ATTN_TILE_RTS, ATTN_TILE_CT, ATTN_TILE_FUSE);
+/// The attention query tile (`rows`, `rts`, `ct`, `fuse`, `mode`); `DEC_ATTN_TILE=0|off` pins the
+/// untiled kernel, `rows:rts:ct[:fuse[:mode]]` pins a tile (fold `attn_tile`, `gpu.rs:4466-4483`;
+/// `mode` is [`attn_prefill_tiled_module_m`]'s bitmask, `0` = the three-walk bit-exact kernel).
+fn attn_tile(default_mode: u32) -> Option<(u32, u32, u32, bool, u32)> {
+    let d = (
+        ATTN_TILE_ROWS,
+        ATTN_TILE_RTS,
+        ATTN_TILE_CT,
+        ATTN_TILE_FUSE,
+        default_mode,
+    );
     match std::env::var("DEC_ATTN_TILE") {
         Err(_) => Some(d),
         Ok(v) if v == "0" || v == "off" => None,
@@ -101,6 +108,7 @@ fn attn_tile() -> Option<(u32, u32, u32, bool)> {
                 *p.get(1).unwrap_or(&d.1),
                 *p.get(2).unwrap_or(&d.2),
                 p.get(3).map_or(d.3, |&f| f != 0),
+                *p.get(4).unwrap_or(&d.4),
             ))
         }
     }
@@ -302,7 +310,16 @@ impl PrefillStack {
         };
         let dpw = |cr: Carrier| cr.pack() / 4;
         let scale = c.scale();
-        let tile = attn_tile().filter(|&(rows, rts, ct, _)| {
+        // The one-walk (online) form reduces the slab max with `subgroupMax` over 32 lanes, so it
+        // is selected by default only where a 32-wide subgroup is established. `Vk` carries no
+        // subgroup-size query; the cooperative-matrix int8 shape (NVIDIA Turing+, warp 32) stands
+        // in for it, and `DEC_ATTN_TILE=…:<mode>` pins a mode explicitly.
+        let default_mode = if vk.has_coopmat {
+            ATTN_TILE_MODE
+        } else {
+            ATTN_TILE_MODE & !ATTN_MODE_ONLINE
+        };
+        let tile = attn_tile(default_mode).filter(|&(rows, rts, ct, _, mode)| {
             let (tsz, shared) = attn_tile_shape(hd, rows, rts, ct);
             let ok = rows as usize <= PREFILL_BT_MAX
                 && rows % rts == 0
@@ -313,18 +330,20 @@ impl PrefillStack {
                 && (tsz / hd) > 0
                 && hd % (tsz / hd) == 0
                 && tsz <= 1024
-                && shared <= WG_SHARED_MAX;
+                // the online form adds `rows` f32 of per-row rescale factors
+                && shared + if mode & ATTN_MODE_ONLINE != 0 { rows * 4 } else { 0 } <= WG_SHARED_MAX
+                && (mode & ATTN_MODE_ONLINE == 0 || hd / ct == 32);
             if !ok {
                 eprintln!("PrefillStack: attn tile {rows}:{rts}:{ct} outside this cut at hd={hd}; untiled kernel");
             }
             ok
         });
         let attn_gy = match tile {
-            Some((rows, _, _, _)) => Gy::Tiles(rows),
+            Some((rows, _, _, _, _)) => Gy::Tiles(rows),
             None => Gy::Batch,
         };
         let attn_key = match tile {
-            Some((r, s, t, f)) => format!("attn_tiled_{r}_{s}_{t}_{f}"),
+            Some((r, s, t, f, m)) => format!("attn_tiled_{r}_{s}_{t}_{f}_m{m}"),
             None => "attn_untiled".to_string(),
         };
         let mut plan: Vec<PNode> = Vec::with_capacity(layers.len() * 12 + 4);
@@ -422,8 +441,8 @@ impl PrefillStack {
             plan.push(pl.node(
                 attn_key.clone(),
                 || match tile {
-                    Some((rows, rts, ct, fuse)) => attn_prefill_tiled_bytes(
-                        nh, nkv, hd, qkvm, tmax, scale, rows, rts, ct, fuse,
+                    Some((rows, rts, ct, fuse, mode)) => attn_prefill_tiled_bytes_m(
+                        nh, nkv, hd, qkvm, tmax, scale, rows, rts, ct, fuse, mode,
                     ),
                     None => attn_prefill_bytes(nh, nkv, hd, qkvm, tmax, scale),
                 },

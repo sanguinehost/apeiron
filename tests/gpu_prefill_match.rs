@@ -28,15 +28,24 @@ use apeiron::simt::Carrier;
 
 const MODEL: &str = "models/gguf/qwen05b-Q4_K_M.gguf";
 const TOKENIZER: &str = "models/qwen2.5-0.5b/tokenizer.json";
-const PROMPTS: [&str; 5] = [
+const PROMPTS: [&str; 6] = [
     "The capital of France is",
     "The largest planet in the solar system is",
     "Water boils at a temperature of",
     "The author of Hamlet is",
     "Two plus two equals",
+    // >= 3 key slabs of 64 and >= 4 row tiles of 32: the online-softmax rescale (slab maxima that
+    // move between slabs) and the row-tile launch order are exercised only past one slab
+    "In the early years of the nineteenth century the town grew slowly along the river, first as a \
+     market for grain and wool, then as a place where merchants kept warehouses and boatmen found \
+     work. The mill, built in 1823 by a family from the north, employed forty people at its \
+     height, and the church bell rang the hours for the whole valley. When the railway arrived \
+     forty years later it bypassed the old quay entirely, and within a generation the warehouses \
+     stood empty. Visitors today walk the towpath past the ruined mill, read the plaques on the \
+     bridge, and ask the same question the first settlers asked: the name of the river is",
 ];
-const TMAX: u32 = 256;
-const MAXB: usize = 64;
+const TMAX: u32 = 512;
+const MAXB: usize = 256;
 const N_CONT: usize = 8;
 
 fn continue_greedy(d: &mut GpuDecode, first: usize, mut pos: usize) -> Vec<usize> {
@@ -147,6 +156,9 @@ fn run(carrier: Carrier, coopmat: bool) {
         let ids = bpe.encode(prompt).expect("encode");
         let toks: Vec<usize> = ids.iter().map(|&t| t as usize).collect();
         let n = toks.len();
+        if prompt.len() > 400 {
+            assert!(n >= 130, "long prompt must span >= 3 key slabs, got {n}");
+        }
 
         // token-by-token GPU path
         for (pos, &t) in toks.iter().enumerate() {
@@ -198,16 +210,25 @@ fn run(carrier: Carrier, coopmat: bool) {
         let hidden_again: Vec<f64> = gpu.last_hidden().to_vec();
         let repeat_exact = logits_again == logits_head && hidden_again == pf_hidden;
 
+        // the long prompt is checked against token-by-token and for stale state only: the
+        // token-serial CPU reference over it costs more than the gate budget
+        let long = prompt.len() > 400;
         let mut st = engine.state(n + 1).expect("cpu state");
-        // CPU logits at the last prompt position (token-serial exact engine) as the accuracy reference
         let mut st2 = engine.state(n + 1).expect("cpu state");
         let mut cl = Vec::new();
-        for &t in &ids {
-            cl = engine
-                .step_logits_state(&mut st2, t, KernelMode::Exact)
-                .expect("cpu step");
+        if !long {
+            // CPU logits at the last prompt position (token-serial exact engine) as the accuracy reference
+            for &t in &ids {
+                cl = engine
+                    .step_logits_state(&mut st2, t, KernelMode::Exact)
+                    .expect("cpu step");
+            }
         }
-        let cpu_logits: Vec<f64> = cl.iter().map(|&v| v as f64 / 4294967296.0).collect();
+        let cpu_logits: Vec<f64> = if long {
+            tbt_logits.iter().map(|&v| v as f64).collect()
+        } else {
+            cl.iter().map(|&v| v as f64 / 4294967296.0).collect()
+        };
         let l2f = |a: &[f64], b: &[f64]| {
             a.iter()
                 .zip(b)
@@ -223,9 +244,13 @@ fn run(carrier: Carrier, coopmat: bool) {
             l2f(&pf_l, &cpu_logits),
             l2f(&tb_l, &cpu_logits)
         );
-        let cpu_first = engine
-            .prefill_state(&mut st, &ids, KernelMode::Exact)
-            .expect("cpu prefill") as usize;
+        let cpu_first = if long {
+            tbt_first
+        } else {
+            engine
+                .prefill_state(&mut st, &ids, KernelMode::Exact)
+                .expect("cpu prefill") as usize
+        };
 
         let refmax = tbt_hidden.iter().fold(0f64, |m, v| m.max(v.abs()));
         let dmax = tbt_hidden

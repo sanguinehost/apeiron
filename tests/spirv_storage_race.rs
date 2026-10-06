@@ -340,6 +340,24 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
             "attn_prefill_tiled",
             attn_prefill_tiled_module(14, 2, 64, 1152, 2048, 0.125, 128, 4, 4, false),
         ),
+        // the production tile (`ATTN_TILE_*`) in each scheduling/arithmetic mode: three-walk,
+        // reverse-tile, one-walk online softmax, and both
+        (
+            "attn_tiled_m0",
+            attn_prefill_tiled_module_m(14, 2, 64, 1152, 2048, 0.125, 32, 4, 2, false, 0),
+        ),
+        (
+            "attn_tiled_m1",
+            attn_prefill_tiled_module_m(14, 2, 64, 1152, 2048, 0.125, 32, 4, 2, false, 1),
+        ),
+        (
+            "attn_tiled_m2",
+            attn_prefill_tiled_module_m(14, 2, 64, 1152, 2048, 0.125, 32, 4, 2, false, 2),
+        ),
+        (
+            "attn_tiled_m3",
+            attn_prefill_tiled_module_m(14, 2, 64, 1152, 2048, 0.125, 32, 4, 2, false, 3),
+        ),
         (
             "embed_chart_batch",
             embed_chart_batch_module(896, 151_936, 256, Carrier::Q4),
