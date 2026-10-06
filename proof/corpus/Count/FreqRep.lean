@@ -493,7 +493,7 @@ theorem match_tag_spec {V : Type} (self : hashtrinity.freq.FreqLine V) (g : Usiz
 def PHIN : Nat := 11400714819323198485
 def EMPTYN : Nat := 2^64 - 1
 def pN (f : Nat) : Nat := f * PHIN % 2^64
-def tagN (f : Nat) : Nat := pN f % 128
+def tagN (f : Nat) : Nat := pN f / 2^33 % 128
 
 /-- The group visited at probe step `j`: the PHI-descent read at group granularity
 (`FreqLine::home_group` for `j = 0`, `FreqLine::descend_group` after), `gb = bits - 4`. -/
@@ -1075,15 +1075,15 @@ theorem probe_outer_spec {V : Type} (l : hashtrinity.freq.FreqLine V) (hG : Line
     exact ⟨js, hjs0, hjs1, hjs2, by simp⟩
 
 
-theorem tag_of_p (p : U64) (fv : Nat) (hp : p.val = pN fv) :
-    (UScalar.cast .U8 (p &&& 127#u64)).val = tagN fv := by
+theorem tag_of_p (i1 : U64) (fv : Nat) (hp : i1.val = pN fv / 2^33) :
+    (UScalar.cast .U8 (i1 &&& 127#u64)).val = tagN fv := by
   rw [UScalar.cast_val_eq, UScalar.val_and, hp]
   have h127 : (127#u64).val = 127 := rfl
   have e7 : (127 : Nat) = 2^7 - 1 := by norm_num
   rw [h127, e7, Nat.and_two_pow_sub_one_eq_mod]
   simp only [tagN, UScalarTy.numBits]
   apply Nat.mod_eq_of_lt
-  have := Nat.mod_lt (pN fv) (show 0 < 2^7 by norm_num)
+  have := Nat.mod_lt (pN fv / 2^33) (show 0 < 2^7 by norm_num)
   omega
 
 theorem pN_of_wrapping (f : U64) : (core.num.U64.wrapping_mul f hashtrinity.PHI).val = pN f.val := by
@@ -1096,6 +1096,8 @@ theorem probe_tagged_spec {V : Type} (l : hashtrinity.freq.FreqLine V) (hG : Lin
     tag.val = tagN f.val ∧ ProbePost l f.val found blocked slot.val := by
   unfold hashtrinity.freq.FreqLine.probe_tagged at h
   obtain ⟨p, hp, h⟩ := bind_inv h
+  obtain ⟨sh, hsh, h⟩ := bind_inv h
+  obtain ⟨i1, hi1, h⟩ := bind_inv h
   obtain ⟨i, hi, h⟩ := bind_inv h
   obtain ⟨tag', htag, h⟩ := bind_inv h
   obtain ⟨limit, hlimit, h⟩ := bind_inv h
@@ -1104,9 +1106,19 @@ theorem probe_tagged_spec {V : Type} (l : hashtrinity.freq.FreqLine V) (hG : Lin
   have hpv : p.val = pN f.val := by
     have : p = core.num.U64.wrapping_mul f hashtrinity.PHI := (Result.ok_injective hp).symm
     rw [this]; exact pN_of_wrapping f
-  have hi' : i = p &&& 127#u64 := (Result.ok_injective hi).symm
+  have hshv : sh = 33#u32 := by
+    rw [Apeiron.CountHelpers.tag_shift_ok] at hsh; exact (Result.ok_injective hsh).symm
+  have hi1v : i1.val = pN f.val / 2^33 := by
+    rw [hshv] at hi1
+    have hsp : (p >>> (33#u32)) ⦃ r => r.val = p.val >>> 33 ⦄ := by
+      step*
+    obtain ⟨r, hr, hrv⟩ := WP.spec_imp_exists hsp
+    rw [hr] at hi1
+    have : i1 = r := (Result.ok_injective hi1).symm
+    rw [this, hrv, Nat.shiftRight_eq_div_pow, hpv]
+  have hi' : i = i1 &&& 127#u64 := (Result.ok_injective hi).symm
   have htag' : tag' = UScalar.cast .U8 i := (Result.ok_injective htag).symm
-  have htagv : tag'.val = tagN f.val := by rw [htag', hi']; exact tag_of_p p f.val hpv
+  have htagv : tag'.val = tagN f.val := by rw [htag', hi']; exact tag_of_p i1 f.val hi1v
   have hlimv : limit.val = 16 := by
     have : limit = hashtrinity.PROBE_CAP := by
       unfold hashtrinity.freq.FreqLine.probe_limit at hlimit

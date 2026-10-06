@@ -12,7 +12,8 @@ import Mathlib.Algebra.BigOperators.Group.Finset.Basic
 that `FreqMap::count_par` composes.  This module proves each body's functional contract on the
 extracted Lean (`U64` coordinate instance, `COUNT_BBITS = 8`, 256 buckets):
 
-* `word_count_home_lt`: `home(c) = ((c·PHI) mod 2^64) / 2^56 < 256`.
+* `word_count_home_lt`: `home(c) = (((c·PHI) mod 2^64) / 2^40) mod 256 < 256` (bits `[40, 48)`,
+  `COUNT_BUCKET_SHIFT = 64 - COUNT_BBITS - COUNT_HOME_GAP = 40`).
 * `word_count_admit_spec`: returns `n ≤ count_max`.
 * `word_count_slot_spec`: returns `off[h]`, sets `off[h] := off[h] + 1`, other cursors unchanged;
   fails exactly when `h` is out of range or the cursor is `usize::MAX`.
@@ -47,6 +48,27 @@ theorem usize_size_ge : 2^32 ≤ Usize.size := by
   rw [this]
   exact Nat.pow_le_pow_right (by norm_num) nb_ge
 
+theorem gap_def :
+    hashtrinity.freq.FreqMapKI64.COUNT_HOME_GAP U64.Insts.Apeiron_wordHashtrinityAlgebraCoord = 16#u32 := by
+  unfold hashtrinity.freq.FreqMapKI64.COUNT_HOME_GAP
+  rfl
+
+theorem bucket_shift_ok :
+    hashtrinity.freq.FreqMapKI64.COUNT_BUCKET_SHIFT U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
+      = ok 40#u32 := by
+  unfold hashtrinity.freq.FreqMapKI64.COUNT_BUCKET_SHIFT
+  rw [bbits_def, gap_def]
+  have h : (do let i ← 64#u32 - 8#u32; i - 16#u32) ⦃ r => r.val = 40 ⦄ := by step*
+  obtain ⟨r, hr, hv⟩ := WP.spec_imp_exists h
+  rw [hr]; congr 1; exact UScalar.eq_of_val_eq (by simpa using hv)
+
+theorem tag_shift_ok : hashtrinity.freq.TAG_SHIFT = ok 33#u32 := by
+  unfold hashtrinity.freq.TAG_SHIFT
+  rw [bbits_def, gap_def]
+  have h : (do let i ← 64#u32 - 16#u32; let i1 ← i - 8#u32; i1 - 7#u32) ⦃ r => r.val = 33 ⦄ := by step*
+  obtain ⟨r, hr, hv⟩ := WP.spec_imp_exists h
+  rw [hr]; congr 1; exact UScalar.eq_of_val_eq (by simpa using hv)
+
 theorem phi_def : hashtrinity.PHI = 11400714819323198485#u64 := by
   unfold hashtrinity.PHI
   rfl
@@ -76,19 +98,15 @@ theorem buckets_ok :
   exact UScalar.eq_of_val_eq (by simpa using hv)
 
 theorem home_spec (c : U64) :
-    word_count_home c ⦃ r => r.val < 256 ∧ r.val = (c.val * 11400714819323198485 % 2^64) / 2^56 ⦄ := by
+    word_count_home c ⦃ r => r.val < 256 ∧
+      r.val = ((c.val * 11400714819323198485 % 2^64) / 2^40) % 256 ⦄ := by
   unfold word_count_home hashtrinity.freq.FreqMapKI64.count_home
-  rw [buckets_ok]
+  rw [buckets_ok, bucket_shift_ok]
   step*
-  · simp [bbits_val]
-  · rw [bbits_val] at i1_post
-    omega
-  · rw [bbits_val] at i1_post
-    have hwm : i.val = c.val * 11400714819323198485 % 2^64 := by rw [i_post, wm_val]
-    have hi2 : i2.val = (c.val * 11400714819323198485 % 2^64) / 2^56 := by
+  · have hwm : i.val = c.val * 11400714819323198485 % 2^64 := by rw [i_post, wm_val]
+    have hi2 : i2.val = (c.val * 11400714819323198485 % 2^64) / 2^40 := by
       rw [i2_post, Nat.shiftRight_eq_div_pow, hwm]
-      congr 2
-    have hi2lt : i2.val < 256 := by
+    have hi2lt : i2.val < 2^24 := by
       rw [hi2]
       have : c.val * 11400714819323198485 % 2^64 < 2^64 := Nat.mod_lt _ (by norm_num)
       omega
@@ -102,14 +120,13 @@ theorem home_spec (c : U64) :
         _ ≤ _ := Nat.pow_le_pow_right (by norm_num) hnb
     have hand : (i3 &&& i5).val = i3.val &&& i5.val := UScalar.val_and _ _
     have h5 : i5.val = 255 := by omega
-    have hmask : (i3 &&& i5).val = i2.val := by
+    have hmask : (i3 &&& i5).val = i2.val % 256 := by
       rw [hand, hi3, h5]
       have := Nat.and_two_pow_sub_one_eq_mod i2.val 8
       simp only [show (2:Nat)^8 = 256 by norm_num] at this
-      rw [this]
-      exact Nat.mod_eq_of_lt hi2lt
-    rw [hmask]
-    exact ⟨hi2lt, hi2⟩
+      exact this
+    rw [hmask, hi2]
+    exact ⟨Nat.mod_lt _ (by norm_num), rfl⟩
 
 theorem word_count_home_lt (c : U64) :
     ∃ r, word_count_home c = ok r ∧ r.val < 256 := by
@@ -205,8 +222,8 @@ theorem word_count_slot_spec (off : Slice Usize) (h : U8) :
 
 /-! ### Histogram -/
 
-/-- Home bucket of a coordinate, as a natural number: `(c·PHI mod 2^64) / 2^56`. -/
-def homeNat (c : Nat) : Nat := c * 11400714819323198485 % 2^64 / 2^56
+/-- Home bucket of a coordinate, as a natural number: `((c·PHI mod 2^64) / 2^40) mod 256`. -/
+def homeNat (c : Nat) : Nat := c * 11400714819323198485 % 2^64 / 2^40 % 256
 
 /-- Number of keys of `l` whose home bucket is `k`. -/
 def cntBucket (l : List U64) (k : Nat) : Nat := (l.map (fun x => homeNat x.val)).count k

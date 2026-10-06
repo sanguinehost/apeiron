@@ -17771,6 +17771,32 @@ def hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS {K : Type} (algebraCoordInst :
   hashtrinity.algebra.Coord K) : Result Std.Usize :=
   1#usize <<< (hashtrinity.freq.FreqMapKI64.COUNT_BBITS algebraCoordInst)
 
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_HOME_GAP]
+    Source: '../../src/hashtrinity/freq.rs', lines 38:4-38:39
+    Visibility: public -/
+@[global_simps, irreducible]
+def hashtrinity.freq.FreqMapKI64.COUNT_HOME_GAP {K : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) : Std.U32 :=
+  16#u32
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_BUCKET_SHIFT]
+    Source: '../../src/hashtrinity/freq.rs', lines 42:4-42:86
+    Visibility: public -/
+@[global_simps, irreducible]
+def hashtrinity.freq.FreqMapKI64.COUNT_BUCKET_SHIFT {K : Type}
+  (algebraCoordInst : hashtrinity.algebra.Coord K) : Result Std.U32 := do
+  let i ←
+    64#u32 - (hashtrinity.freq.FreqMapKI64.COUNT_BBITS algebraCoordInst)
+  i - (hashtrinity.freq.FreqMapKI64.COUNT_HOME_GAP algebraCoordInst)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_AGGREGATE_START]
+    Source: '../../src/hashtrinity/freq.rs', lines 49:4-49:47
+    Visibility: public -/
+@[global_simps, irreducible]
+def hashtrinity.freq.FreqMapKI64.COUNT_AGGREGATE_START {K : Type}
+  (algebraCoordInst : hashtrinity.algebra.Coord K) : Std.Usize :=
+  8#usize
+
 /-- [apeiron_word::hashtrinity::PHI]
     Source: '../../src/hashtrinity/mod.rs', lines 222:0-222:43
     Visibility: public -/
@@ -17778,15 +17804,14 @@ def hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS {K : Type} (algebraCoordInst :
 def hashtrinity.PHI : Std.U64 := 11400714819323198485#u64
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_home]:
-    Source: '../../src/hashtrinity/freq.rs', lines 35:4-37:5
+    Source: '../../src/hashtrinity/freq.rs', lines 55:4-57:5
     Visibility: public -/
 def hashtrinity.freq.FreqMapKI64.count_home
   {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (c : Std.U64) :
   Result Std.Usize
   := do
   let i ← lift (core.num.U64.wrapping_mul c hashtrinity.PHI)
-  let i1 ←
-    64#u32 - (hashtrinity.freq.FreqMapKI64.COUNT_BBITS algebraCoordInst)
+  let i1 ← hashtrinity.freq.FreqMapKI64.COUNT_BUCKET_SHIFT algebraCoordInst
   let i2 ← i >>> i1
   let i3 ← lift (UScalar.cast .Usize i2)
   let i4 ← hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS algebraCoordInst
@@ -17794,7 +17819,7 @@ def hashtrinity.freq.FreqMapKI64.count_home
   ok (i3 &&& i5)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_admit]:
-    Source: '../../src/hashtrinity/freq.rs', lines 41:4-43:5
+    Source: '../../src/hashtrinity/freq.rs', lines 61:4-63:5
     Visibility: public -/
 def hashtrinity.freq.FreqMapKI64.count_admit
   {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (n : Std.Usize)
@@ -17805,7 +17830,7 @@ def hashtrinity.freq.FreqMapKI64.count_admit
   ok (i <= count_max)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_histogram]: loop body 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 54:8-62:9
+    Source: '../../src/hashtrinity/freq.rs', lines 74:8-82:9
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqMapKI64.count_histogram_loop.body
@@ -17840,7 +17865,7 @@ def hashtrinity.freq.FreqMapKI64.count_histogram_loop.body
   else ok (done (false, homes, hist))
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_histogram]: loop 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 54:8-62:9
+    Source: '../../src/hashtrinity/freq.rs', lines 74:8-82:9
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.freq.FreqMapKI64.count_histogram_loop
@@ -17856,7 +17881,7 @@ def hashtrinity.freq.FreqMapKI64.count_histogram_loop
     (homes, hist, ok1, i)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_histogram]:
-    Source: '../../src/hashtrinity/freq.rs', lines 50:4-64:5
+    Source: '../../src/hashtrinity/freq.rs', lines 70:4-84:5
     Visibility: public -/
 def hashtrinity.freq.FreqMapKI64.count_histogram
   {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (keys : Slice K)
@@ -17877,7 +17902,7 @@ def hashtrinity.freq.FreqMapKI64.count_histogram
     hist n ok1 0#usize
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop body 1:
-    Source: '../../src/hashtrinity/freq.rs', lines 90:12-97:13
+    Source: '../../src/hashtrinity/freq.rs', lines 110:12-117:13
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0.body
@@ -17907,7 +17932,7 @@ def hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0.body
   else ok (done (woff, false, acc))
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop 1:
-    Source: '../../src/hashtrinity/freq.rs', lines 90:12-97:13
+    Source: '../../src/hashtrinity/freq.rs', lines 110:12-117:13
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0
@@ -17923,7 +17948,7 @@ def hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0
     (woff, ok1, acc, t)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop body 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 87:8-99:9
+    Source: '../../src/hashtrinity/freq.rs', lines 107:8-119:9
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqMapKI64.count_offsets_loop0.body
@@ -17948,7 +17973,7 @@ def hashtrinity.freq.FreqMapKI64.count_offsets_loop0.body
   else ok (done (bstart, woff, false, acc))
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 87:8-99:9
+    Source: '../../src/hashtrinity/freq.rs', lines 107:8-119:9
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.freq.FreqMapKI64.count_offsets_loop0
@@ -17964,7 +17989,7 @@ def hashtrinity.freq.FreqMapKI64.count_offsets_loop0
     (bstart, woff, ok1, acc, j)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]:
-    Source: '../../src/hashtrinity/freq.rs', lines 72:4-104:5
+    Source: '../../src/hashtrinity/freq.rs', lines 92:4-124:5
     Visibility: public -/
 def hashtrinity.freq.FreqMapKI64.count_offsets
   {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -18000,7 +18025,7 @@ def hashtrinity.freq.FreqMapKI64.count_offsets
     else ok (false, bstart2, woff1)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_slot]:
-    Source: '../../src/hashtrinity/freq.rs', lines 111:4-116:5
+    Source: '../../src/hashtrinity/freq.rs', lines 131:4-136:5
     Visibility: public -/
 def hashtrinity.freq.FreqMapKI64.count_slot
   {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -18013,13 +18038,24 @@ def hashtrinity.freq.FreqMapKI64.count_slot
   let off1 ← Slice.update off j i
   ok (s, off1)
 
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_aggregate_start]:
+    Source: '../../src/hashtrinity/freq.rs', lines 144:4-146:5 -/
+def hashtrinity.freq.FreqMapKI64.count_aggregate_start
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (lo : Std.Usize)
+  (hi : Std.Usize) :
+  Result Std.Usize
+  := do
+  let i ← lift (core.num.Usize.saturating_sub hi lo)
+  core.cmp.Ord.min.trait_default core.cmp.OrdUsize i
+    (hashtrinity.freq.FreqMapKI64.COUNT_AGGREGATE_START algebraCoordInst)
+
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}]
-    Source: '../../src/hashtrinity/freq.rs', lines 1361:43-1361:63 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 1413:43-1413:63 -/
 @[reducible]
 def hashtrinity.freq.FreqMapKI64.add.closure (K : Type) := Unit
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{impl core::ops::function::FnOnce<(i64, i64), i64> for apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}<K>}::call_once]:
-    Source: '../../src/hashtrinity/freq.rs', lines 1361:43-1361:63 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 1413:43-1413:63 -/
 def
   hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64.call_once
   {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -18031,7 +18067,7 @@ def
   new + old
 
 /-- Trait implementation: [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{impl core::ops::function::FnOnce<(i64, i64), i64> for apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}<K>}]
-    Source: '../../src/hashtrinity/freq.rs', lines 1361:43-1361:63 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 1413:43-1413:63 -/
 @[reducible]
 def
   hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64
@@ -18044,7 +18080,7 @@ def
 }
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::freq]:
-    Source: '../../src/hashtrinity/freq.rs', lines 1139:4-1141:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 1191:4-1193:5 -/
 def hashtrinity.freq.FreqMap.freq
   {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K)
   (k : K) :
@@ -18071,14 +18107,14 @@ structure hashtrinity.overflow.Overflow (K : Type) (V : Type) where
   len : Std.Usize
 
 /-- [apeiron_word::hashtrinity::freq::FreqSide]
-    Source: '../../src/hashtrinity/freq.rs', lines 328:0-334:1 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 371:0-377:1 -/
 structure hashtrinity.freq.FreqSide (V : Type) where
   coords : alloc.vec.Vec Std.U64
   vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V)
   live : alloc.vec.Vec Bool
 
 /-- [apeiron_word::hashtrinity::freq::FreqLine]
-    Source: '../../src/hashtrinity/freq.rs', lines 482:0-499:1 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 525:0-542:1 -/
 structure hashtrinity.freq.FreqLine (V : Type) where
   ctrl : Slice Std.U8
   slots : Slice (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V))
@@ -18090,7 +18126,7 @@ structure hashtrinity.freq.FreqLine (V : Type) where
   overflow : Option (hashtrinity.overflow.Overflow Std.U64 V)
 
 /-- [apeiron_word::hashtrinity::freq::FreqMap]
-    Source: '../../src/hashtrinity/freq.rs', lines 1114:0-1117:1
+    Source: '../../src/hashtrinity/freq.rs', lines 1166:0-1169:1
     Visibility: public -/
 structure hashtrinity.freq.FreqMap (K : Type) (V : Type) where
   inner : hashtrinity.freq.FreqLine V
@@ -18934,13 +18970,13 @@ def hashtrinity.overflow.Overflow.into_entries
 @[global_simps, irreducible] def hashtrinity.PROBE_CAP : Std.U32 := 16#u32
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_limit]:
-    Source: '../../src/hashtrinity/freq.rs', lines 663:4-665:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 715:4-717:5 -/
 def hashtrinity.freq.FreqLine.probe_limit
   {V : Type} (self : hashtrinity.freq.FreqLine V) : Result Std.U32 := do
   ok hashtrinity.PROBE_CAP
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::descend_group]:
-    Source: '../../src/hashtrinity/freq.rs', lines 642:4-654:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 694:4-706:5 -/
 def hashtrinity.freq.FreqLine.descend_group
   {V : Type} (self : hashtrinity.freq.FreqLine V) (p : Std.U64) (j : Std.U32) :
   Result Std.Usize
@@ -18970,7 +19006,7 @@ def hashtrinity.freq.FreqLine.descend_group
       ok (i8 &&& self.gmask)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::home_group]:
-    Source: '../../src/hashtrinity/freq.rs', lines 627:4-629:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 679:4-681:5 -/
 def hashtrinity.freq.FreqLine.home_group
   {V : Type} (self : hashtrinity.freq.FreqLine V) (p : Std.U64) :
   Result Std.Usize
@@ -18980,11 +19016,11 @@ def hashtrinity.freq.FreqLine.home_group
   ok (i1 &&& self.gmask)
 
 /-- [apeiron_word::hashtrinity::freq::GROUP]
-    Source: '../../src/hashtrinity/freq.rs', lines 504:0-504:35 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 547:0-547:35 -/
 @[global_simps, irreducible] def hashtrinity.freq.GROUP : Std.Usize := 16#usize
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::match_empty]:
-    Source: '../../src/hashtrinity/freq.rs', lines 602:4-622:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 654:4-674:5 -/
 def hashtrinity.freq.FreqLine.match_empty
   {V : Type} (self : hashtrinity.freq.FreqLine V) (g : Std.Usize) :
   Result Std.U16
@@ -18999,7 +19035,7 @@ def hashtrinity.freq.FreqLine.match_empty
   ok (IScalar.hcast .U16 i)
 
 /-- [apeiron_word::hashtrinity::freq::group_tag_mask]:
-    Source: '../../src/hashtrinity/freq.rs', lines 513:0-533:1 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 564:0-584:1 -/
 def hashtrinity.freq.group_tag_mask
   (ctrl : Slice Std.U8) (base : Std.Usize) (tag : Std.U8) :
   Result Std.U16
@@ -19019,7 +19055,7 @@ def hashtrinity.freq.group_tag_mask
   ok (IScalar.hcast .U16 i3)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::match_tag]:
-    Source: '../../src/hashtrinity/freq.rs', lines 592:4-595:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 644:4-647:5 -/
 def hashtrinity.freq.FreqLine.match_tag
   {V : Type} (self : hashtrinity.freq.FreqLine V) (g : Std.Usize)
   (tag : Std.U8) :
@@ -19028,8 +19064,22 @@ def hashtrinity.freq.FreqLine.match_tag
   let i ← g * hashtrinity.freq.GROUP
   hashtrinity.freq.group_tag_mask self.ctrl i tag
 
+/-- [apeiron_word::hashtrinity::freq::TAG_SHIFT]
+    Source: '../../src/hashtrinity/freq.rs', lines 555:0-555:103 -/
+@[global_simps, irreducible]
+def hashtrinity.freq.TAG_SHIFT : Result Std.U32 := do
+  let i ←
+    64#u32 -
+      (hashtrinity.freq.FreqMapKI64.COUNT_HOME_GAP
+        U64.Insts.Apeiron_wordHashtrinityAlgebraCoord)
+  let i1 ←
+    i -
+      (hashtrinity.freq.FreqMapKI64.COUNT_BBITS
+        U64.Insts.Apeiron_wordHashtrinityAlgebraCoord)
+  i1 - 7#u32
+
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_tagged]: loop body 1:
-    Source: '../../src/hashtrinity/freq.rs', lines 707:12-717:13 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 759:12-769:13 -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqLine.probe_tagged_loop0_loop0.body
   {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64)
@@ -19055,7 +19105,7 @@ def hashtrinity.freq.FreqLine.probe_tagged_loop0_loop0.body
   else ok (done (self, found, slot))
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_tagged]: loop 1:
-    Source: '../../src/hashtrinity/freq.rs', lines 707:12-717:13 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 759:12-769:13 -/
 @[rust_loop]
 def hashtrinity.freq.FreqLine.probe_tagged_loop0_loop0
   {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64) (found : Bool)
@@ -19069,7 +19119,7 @@ def hashtrinity.freq.FreqLine.probe_tagged_loop0_loop0
     (found, slot, «matches»)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_tagged]: loop body 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 704:8-739:9 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 756:8-791:9 -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqLine.probe_tagged_loop0.body
   {V : Type} (f : Std.U64) (p : Std.U64) (tag : Std.U8) (limit : Std.U32)
@@ -19105,7 +19155,7 @@ def hashtrinity.freq.FreqLine.probe_tagged_loop0.body
           ok (cont (self1, g1, j1, false, false, blocked, slot1))
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_tagged]: loop 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 704:8-739:9 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 756:8-791:9 -/
 @[rust_loop]
 def hashtrinity.freq.FreqLine.probe_tagged_loop0
   {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64) (p : Std.U64)
@@ -19120,14 +19170,16 @@ def hashtrinity.freq.FreqLine.probe_tagged_loop0
     (self, g, j, done1, found, blocked, slot)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_tagged]:
-    Source: '../../src/hashtrinity/freq.rs', lines 694:4-741:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 746:4-793:5 -/
 def hashtrinity.freq.FreqLine.probe_tagged
   {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64) :
   Result (Std.Usize × Bool × Bool × Std.U8)
   := do
   let p ← lift (core.num.U64.wrapping_mul f hashtrinity.PHI)
-  let i ← lift (p &&& 127#u64)
-  let tag ← lift (UScalar.cast .U8 i)
+  let i ← hashtrinity.freq.TAG_SHIFT
+  let i1 ← p >>> i
+  let i2 ← lift (i1 &&& 127#u64)
+  let tag ← lift (UScalar.cast .U8 i2)
   let limit ← hashtrinity.freq.FreqLine.probe_limit self
   let g ← hashtrinity.freq.FreqLine.home_group self p
   let (found, blocked, slot) ←
@@ -19136,7 +19188,7 @@ def hashtrinity.freq.FreqLine.probe_tagged
   ok (slot, found, blocked, tag)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::set_lane]:
-    Source: '../../src/hashtrinity/freq.rs', lines 580:4-583:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 632:4-635:5 -/
 def hashtrinity.freq.FreqLine.set_lane
   {V : Type} (self : hashtrinity.freq.FreqLine V) (i : Std.Usize) (s : Std.U8)
   :
@@ -19149,7 +19201,7 @@ def hashtrinity.freq.FreqLine.set_lane
   ok { self with ctrl := s1 }
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqSide<V>}::find]: loop body 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 351:8-358:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 394:8-401:5 -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqSide.find_loop.body
   {V : Type} (self : hashtrinity.freq.FreqSide V) (coord : Std.U64)
@@ -19169,7 +19221,7 @@ def hashtrinity.freq.FreqSide.find_loop.body
   else ok (done none)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqSide<V>}::find]: loop 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 351:8-358:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 394:8-401:5 -/
 @[rust_loop]
 def hashtrinity.freq.FreqSide.find_loop
   {V : Type} (self : hashtrinity.freq.FreqSide V) (coord : Std.U64)
@@ -19181,7 +19233,7 @@ def hashtrinity.freq.FreqSide.find_loop
     i
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqSide<V>}::find]:
-    Source: '../../src/hashtrinity/freq.rs', lines 349:4-358:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 392:4-401:5 -/
 @[reducible]
 def hashtrinity.freq.FreqSide.find
   {V : Type} (self : hashtrinity.freq.FreqSide V) (coord : Std.U64) :
@@ -19190,7 +19242,7 @@ def hashtrinity.freq.FreqSide.find
   hashtrinity.freq.FreqSide.find_loop self coord 0#usize
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::place_capped]:
-    Source: '../../src/hashtrinity/freq.rs', lines 964:4-1001:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 1016:4-1053:5 -/
 def hashtrinity.freq.FreqLine.place_capped
   {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64) (v : V) :
   Result (hashtrinity.freq.FreqLine V)
@@ -19268,11 +19320,11 @@ def hashtrinity.freq.FreqLine.place_capped
         ok { self1 with len := i1 }
 
 /-- [apeiron_word::hashtrinity::freq::EMPTY_CTRL]
-    Source: '../../src/hashtrinity/freq.rs', lines 541:0-541:28 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 592:0-592:28 -/
 @[global_simps, irreducible] def hashtrinity.freq.EMPTY_CTRL : Std.U8 := 128#u8
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqSide<V>}::empty]:
-    Source: '../../src/hashtrinity/freq.rs', lines 337:4-343:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 380:4-386:5 -/
 def hashtrinity.freq.FreqSide.empty
   (V : Type) : Result (hashtrinity.freq.FreqSide V) := do
   ok
@@ -19283,7 +19335,7 @@ def hashtrinity.freq.FreqSide.empty
     }
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::with_bits]: loop body 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 553:8-556:9 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 604:8-607:9 -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqLine.with_bits_loop.body
   {V : Type} (n : Std.Usize)
@@ -19302,7 +19354,7 @@ def hashtrinity.freq.FreqLine.with_bits_loop.body
   else ok (done slots)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::with_bits]: loop 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 553:8-556:9 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 604:8-607:9 -/
 @[rust_loop]
 def hashtrinity.freq.FreqLine.with_bits_loop
   {V : Type} (n : Std.Usize)
@@ -19316,7 +19368,7 @@ def hashtrinity.freq.FreqLine.with_bits_loop
     (slots, i)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::with_bits]:
-    Source: '../../src/hashtrinity/freq.rs', lines 547:4-567:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 598:4-618:5 -/
 def hashtrinity.freq.FreqLine.with_bits
   (V : Type) (bits : Std.U32) : Result (hashtrinity.freq.FreqLine V) := do
   let bits1 ← core.cmp.Ord.max.default core.cmp.OrdU32 bits 4#u32
@@ -19349,7 +19401,7 @@ def hashtrinity.freq.FreqLine.with_bits
     }
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqSide<V>}::drop_live]: loop body 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 405:12-411:13 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 448:12-454:13 -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqSide.drop_live_loop.body
   {V : Type} (self : hashtrinity.freq.FreqSide V) (i : Std.Usize) :
@@ -19381,7 +19433,7 @@ def hashtrinity.freq.FreqSide.drop_live_loop.body
   else ok (done (self.coords, self.vals, self.live))
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqSide<V>}::drop_live]: loop 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 405:12-411:13 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 448:12-454:13 -/
 @[rust_loop]
 def hashtrinity.freq.FreqSide.drop_live_loop
   {V : Type} (self : hashtrinity.freq.FreqSide V) (i : Std.Usize) :
@@ -19393,7 +19445,7 @@ def hashtrinity.freq.FreqSide.drop_live_loop
     (self, i)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqSide<V>}::drop_live]:
-    Source: '../../src/hashtrinity/freq.rs', lines 402:4-413:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 445:4-456:5 -/
 def hashtrinity.freq.FreqSide.drop_live
   {V : Type} (self : hashtrinity.freq.FreqSide V) :
   Result (hashtrinity.freq.FreqSide V)
@@ -19406,7 +19458,7 @@ def hashtrinity.freq.FreqSide.drop_live
   else ok self
 
 /-- [apeiron_word::hashtrinity::freq::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::freq::FreqLine<V>}::drop]: loop body 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 1051:12-1056:13
+    Source: '../../src/hashtrinity/freq.rs', lines 1103:12-1108:13
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop_loop.body
@@ -19439,7 +19491,7 @@ def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop_loop.body
                                     back im1))
 
 /-- [apeiron_word::hashtrinity::freq::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::freq::FreqLine<V>}::drop]: loop 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 1051:12-1056:13
+    Source: '../../src/hashtrinity/freq.rs', lines 1103:12-1108:13
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop_loop
@@ -19459,7 +19511,7 @@ def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop_loop
     (iter, back)
 
 /-- [apeiron_word::hashtrinity::freq::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::freq::FreqLine<V>}::drop]:
-    Source: '../../src/hashtrinity/freq.rs', lines 1049:4-1061:5
+    Source: '../../src/hashtrinity/freq.rs', lines 1101:4-1113:5
     Visibility: public -/
 def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop
   {V : Type} (self : hashtrinity.freq.FreqLine V) :
@@ -19478,7 +19530,7 @@ def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop
   else ok self
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::grow]: loop body 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 1008:8-1018:9 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 1060:8-1070:9 -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqLine.grow_loop0.body
   {V : Type} (n : Std.Usize)
@@ -19509,7 +19561,7 @@ def hashtrinity.freq.FreqLine.grow_loop0.body
   else ok (done bigger)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::grow]: loop 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 1008:8-1018:9 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 1060:8-1070:9 -/
 @[rust_loop]
 def hashtrinity.freq.FreqLine.grow_loop0
   {V : Type} (s : Slice (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V)))
@@ -19522,7 +19574,7 @@ def hashtrinity.freq.FreqLine.grow_loop0
     (s, bigger, i)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::grow]: loop body 1:
-    Source: '../../src/hashtrinity/freq.rs', lines 1024:12-1026:13 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 1076:12-1078:13 -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqLine.grow_loop1.body
   {V : Type} (iter : alloc.vec.into_iter.IntoIter (Std.U64 × Std.U64 × V))
@@ -19539,7 +19591,7 @@ def hashtrinity.freq.FreqLine.grow_loop1.body
     ok (cont (iter1, bigger1))
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::grow]: loop 1:
-    Source: '../../src/hashtrinity/freq.rs', lines 1024:12-1026:13 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 1076:12-1078:13 -/
 @[rust_loop]
 def hashtrinity.freq.FreqLine.grow_loop1
   {V : Type} (iter : alloc.vec.into_iter.IntoIter (Std.U64 × Std.U64 × V))
@@ -19552,7 +19604,7 @@ def hashtrinity.freq.FreqLine.grow_loop1
     (iter, bigger)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::grow]:
-    Source: '../../src/hashtrinity/freq.rs', lines 1004:4-1029:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 1056:4-1081:5 -/
 def hashtrinity.freq.FreqLine.grow
   {V : Type} (self : hashtrinity.freq.FreqLine V) :
   Result (hashtrinity.freq.FreqLine V)
@@ -19575,7 +19627,7 @@ def hashtrinity.freq.FreqLine.grow
     hashtrinity.freq.FreqLine.grow_loop1 iter { bigger1 with side := fs1 }
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::insert_with]:
-    Source: '../../src/hashtrinity/freq.rs', lines 884:4-958:5 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 936:4-1010:5 -/
 def hashtrinity.freq.FreqLine.insert_with
   {V : Type} {T1 : Type} (coreopsfunctionFnOnceT1PairVInst :
   core.ops.function.FnOnce T1 (V × V) V) (self : hashtrinity.freq.FreqLine V)
@@ -19712,7 +19764,7 @@ def hashtrinity.freq.FreqLine.insert_with
         ok { self2 with len := i5 }
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add]:
-    Source: '../../src/hashtrinity/freq.rs', lines 1359:4-1362:5
+    Source: '../../src/hashtrinity/freq.rs', lines 1411:4-1414:5
     Visibility: public -/
 def hashtrinity.freq.FreqMapKI64.add
   {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -19737,7 +19789,7 @@ def hashtrinity.bits_for_slots (slots : Std.Usize) : Result Std.U32 := do
   core.cmp.Ord.max.default core.cmp.OrdU32 i4 3#u32
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::with_capacity]:
-    Source: '../../src/hashtrinity/freq.rs', lines 1153:4-1158:5
+    Source: '../../src/hashtrinity/freq.rs', lines 1205:4-1210:5
     Visibility: public -/
 def hashtrinity.freq.FreqMap.with_capacity
   {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -19751,7 +19803,7 @@ def hashtrinity.freq.FreqMap.with_capacity
   ok { inner := fl, _k := () }
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_aggregate]: loop body 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 125:8-128:9
+    Source: '../../src/hashtrinity/freq.rs', lines 168:8-171:9
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqMapKI64.count_aggregate_loop.body
@@ -19774,7 +19826,7 @@ def hashtrinity.freq.FreqMapKI64.count_aggregate_loop.body
   else ok (done m)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_aggregate]: loop 0:
-    Source: '../../src/hashtrinity/freq.rs', lines 125:8-128:9
+    Source: '../../src/hashtrinity/freq.rs', lines 168:8-171:9
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.freq.FreqMapKI64.count_aggregate_loop
@@ -19789,14 +19841,15 @@ def hashtrinity.freq.FreqMapKI64.count_aggregate_loop
     (m, i)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_aggregate]:
-    Source: '../../src/hashtrinity/freq.rs', lines 122:4-130:5
+    Source: '../../src/hashtrinity/freq.rs', lines 165:4-173:5
     Visibility: public -/
 def hashtrinity.freq.FreqMapKI64.count_aggregate
   {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (routed : Slice K) (lo : Std.Usize) (hi : Std.Usize) :
   Result (hashtrinity.freq.FreqMap K Std.I64)
   := do
-  let i ← lift (core.num.Usize.saturating_sub hi lo)
+  let i ←
+    hashtrinity.freq.FreqMapKI64.count_aggregate_start algebraCoordInst lo hi
   let m ← hashtrinity.freq.FreqMap.with_capacity Std.I64 algebraCoordInst i
   hashtrinity.freq.FreqMapKI64.count_aggregate_loop algebraCoordInst routed hi
     m lo
