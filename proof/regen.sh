@@ -18,6 +18,16 @@ EXTRACT_DIR="$PROOF_DIR/extract"
 
 AENEAS_HOME=${AENEAS_HOME:-"$REPO_DIR/target/aeneas"}
 LINK="$REPO_DIR/target/aeneas"
+# `target/` is gitignored, so a fresh clone has no `target/` and the `ln -s` below would fail on an
+# absent parent before any tool runs. Create it; a real `target/aeneas` is left untouched.
+mkdir -p "$REPO_DIR/target"
+# An ambient `AENEAS_HOME` that names no translator (for example a source checkout, not an install)
+# is not an installation and would fail the tool check below. Fall back to the repo's `target/aeneas`
+# when that is an installation; an explicit AENEAS_HOME that ships `aeneas` is still authoritative.
+if [ "$AENEAS_HOME" != "$LINK" ] && [ ! -x "$AENEAS_HOME/aeneas" ] && [ -x "$LINK/aeneas" ]; then
+    echo "regen: AENEAS_HOME=$AENEAS_HOME has no aeneas; using $LINK (set AENEAS_HOME to an installation to override)" >&2
+    AENEAS_HOME="$LINK"
+fi
 if [ "$AENEAS_HOME" != "$LINK" ]; then
     # A stale link is removed and recreated. `-e` follows the link, so a self-referential
     # `target/aeneas -> .../target/aeneas` reads as absent and the `ln` below then aborts the run

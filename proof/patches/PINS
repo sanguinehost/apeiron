@@ -16,16 +16,21 @@
 #
 # *_PATCH_SHA256 pin the patch files themselves, so an edit to a hunk that is not a deliberate
 # rebase is caught rather than silently changing the translator.
-# AENEAS_TRANSLATOR_SHA256 is the `dune build` product of the pinned Aeneas sources with
-# `aeneas-array-repeat.patch` applied: src/_build/default/main.exe, copied verbatim to
-# `$AENEAS_HOME/aeneas`. It is the identity that translates this repository's `src/`, and
-# `regen.sh` now asserts it (fail-closed) rather than only printing it.
-# REPINNED 2026-10-05: the previous value 84f9c1d2… is a lost build (its closure and build path
-# are not recoverable on this box; four digests name one artefact). 6fde1a4d… is the reproducible
-# `dune build` of the same pinned source (OCaml 5.2.1 / dune 3.24.2) at
-# /home/socol/oc-tmp/aeneas-build/aeneas; a rebuild of the same source at another path yields a
-# different digest, so the reproduction is not vacuous. Receipt:
-# docs/evidence/aeneas-tool-identity.md.
+# AENEAS_TRANSLATOR_SHA256 / CHARON_SHA256 / CHARON_DRIVER_SHA256 pin the installed
+# `$AENEAS_HOME/{aeneas,charon,charon-driver}`. Each is the digest of the pinned build after
+# `strip -R .note.gnu.build-id`: `strip` removes the symbol table and the debug sections, in which
+# OCaml records the build directory, and removing the note drops the content-derived build-id, so
+# the pinned digest is a function of the source and toolchain and not of the build root.
+# AENEAS_TRANSLATOR_SHA256 is the identity that translates this repository's `src/`; `regen.sh`
+# asserts it (fail-closed) and `bootstrap.sh` asserts all three before installing.
+#
+# REPINNED 2026-10-06 (path-independent): the three roots /home/socol/oc-tmp/aeneas-build,
+# /home/socol/oc-tmp/ti-rootB and /home/socol/oc-tmp/aeneas-build-ctl build the pinned sources to
+# three different raw `main.exe` digests (6fde1a4d…, acbfb9fa…, b8188aac…) that strip to one
+# 7b698238…; the earlier 6fde1a4d… pin named the raw product and reproduced only at its build path.
+# The same strip makes charon (a96627e9…) and charon-driver (3e1ae2c1…) equal across roots. Receipt:
+# proof/README.md ("Pinned toolchain"); the earlier path-bound finding and its b8188aac control build
+# are in docs/evidence/aeneas-tool-identity.md.
 
 CHARON_COMMIT=b104e24fea7d721b71e6c39fd70f26ff20bc0980
 CHARON_TREE=784a177101bbfd956047ac2ee1b7335d4c057b7b
@@ -43,4 +48,6 @@ AENEAS_BASE_SHA256="fb2f04f57b99b85cf6963912f0e0ee07ff47711d3b89757e6fcd514bc2ec
 a9006c2f3c7a4ac222a49d5d5c5828a5cccc5af0e6612f3fbce857b4ea5a1d70 src/interp/InterpStatements.ml
 ef66c299ccf1a87ae15af712484f86955b9d957a188f62c263fec752276b3fd7 src/llbc/FunsAnalysis.ml"
 AENEAS_PATCH_SHA256="35bc103b490d7f38609c70e202eed365ab4a67a31634c14aa06186032ea1fcb1 aeneas-array-repeat.patch"
-AENEAS_TRANSLATOR_SHA256=6fde1a4dc7708d2f71d66da782bc9c21cfa6193a1d16900fddabfb59240d19de
+AENEAS_TRANSLATOR_SHA256=7b6982382aee623b3e02965031bcce3736bf58222ed822b11a94599fef82b1df
+CHARON_SHA256=a96627e90aac379f70edd093d7dabdee5fa79dca77012a94029bad5bdef2a232
+CHARON_DRIVER_SHA256=3e1ae2c1e444c2f3d0a80bfb312cc650d5993198d5e9ea174f7f8677b1cc75a1

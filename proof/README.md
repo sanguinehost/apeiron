@@ -570,26 +570,52 @@ working file is not modified for the control.
 - Charon Rust toolchain `nightly-2026-08-18`.
 - Mathlib pinned in each package's `lake-manifest.json`.
 
-The tools are not vendored. Unpack the pinned archive into `target/aeneas/` (gitignored):
+The tools are not vendored. `proof/bootstrap.sh` materialises them into `target/aeneas/` (gitignored)
+from the pinned public artifacts and applies the two source patches:
 
-<https://github.com/AeneasVerif/aeneas/releases/download/nightly-2026.09.09-505b6ca/aeneas-linux-x86_64.tar.gz>,
-SHA-256 `d5ba53b1370d30866bcd86de5e34abfbadf09e76b3689a7f70f458cd0c133591`.
+| artifact | identity | sha256 |
+| --- | --- | --- |
+| Aeneas release `nightly-2026.09.09-505b6ca` | `aeneas-linux-x86_64.tar.gz`; source commit `505b6ca35217e7be5c96c3e2f8045edfbdf47291`, tree `af23d5d9d866050c2158700cedab07501443bcdd`; the tag `nightly-2026.09.09-505b6ca` resolves to exactly this commit | `d5ba53b1370d30866bcd86de5e34abfbadf09e76b3689a7f70f458cd0c133591` |
+| Aeneas source | `https://github.com/AeneasVerif/aeneas.git` @ `505b6ca3…` | commit, tree and per-file base digests in `patches/PINS` |
+| Charon source | `https://github.com/AeneasVerif/charon.git` @ `b104e24fea7d721b71e6c39fd70f26ff20bc0980`, tree `784a177101bbfd956047ac2ee1b7335d4c057b7b`; `b104e24f` is an ancestor of the `nightly-2026.09.09` tag (`604ffdc746db0fc008a3401c4d412c8578eee104`) but **is not** that tag's tip, so no Charon release archive carries this revision | commit, tree and per-file base digests in `patches/PINS` |
 
-The fixed-shard table constructor extraction requires the patched Charon/Aeneas at `target/aeneas/`:
-Charon's `Repeat` carries an `Option<TraitRef>` so a `const` element operand needs no `Copy` clause,
-and Aeneas lowers native `Repeat` to `Array.repeat`. Patched binary SHA-256:
-`charon` `747e165bc62bb963f8d741e8c193c721a4b94555bcb1f9f86c79090fd7a59d0e`, `charon-driver`
-`207b223af35cf9a05227b329819b73532e94f655ccdefd64e77b755a15fdf297`, `aeneas`
-`33d0ce1a1cc2f1d3935c0cd2ab34f283797da61c531ed6d4e09d5c97b0d0228a`. These hashes identify the
-patched binaries the evidence was taken with; a binary hash alone does not establish durable
-reproducibility of a patched tool build.
+A fresh clone `git clone`d from the published repository, with the changed `proof/` files added, ran
+`proof/bootstrap.sh && proof/regen.sh --check` to `extraction is fresh` (exit 0, 89 s wall clock)
+against `ApeironWord.lean`, with `APEIRON_AENEAS_BUILD_ROOT` set to a build root other than the one
+step 1 recorded. `bootstrap.sh` fetches the archive above, verifies its sha256 and refuses on
+mismatch, materialises both pinned revisions (local object databases when present, otherwise the
+public upstream repositories by commit), runs `proof/install-patches.sh` (which checks the commit,
+the git tree and every base file digest in `PINS`), builds `charon`/`charon-driver` (Rust) and
+`aeneas` (OCaml `dune`) when the pinned products are absent, strips each binary with
+`strip -R .note.gnu.build-id` before installing it, installs `target/aeneas`, and asserts the three
+stripped digests equal `PINS:AENEAS_TRANSLATOR_SHA256`, `PINS:CHARON_SHA256` and
+`PINS:CHARON_DRIVER_SHA256`. `--check` re-verifies an existing install without building.
 
-A rebuild from the same pinned bases with the corrected patch (the redundant `FunsAnalysis` pass
-removed) produces an Aeneas binary `sha256
-2a0d782768722366be2abbc4dbbaa19ec527264718fda264717b38acbb03e48c`: clone the pinned commits, `install-patches.sh`,
-`make build-bin` (38 s). It clears the prepass assert — the older binary still trips it — and the
-pipeline then stops on the 20 binary32 functions the translator cannot evaluate (no float case in
-`InterpExpressions.ml`), which is the open boundary decision, not a tool defect.
+The fixed-shard table constructor extraction requires the patched Charon/Aeneas: Charon's `Repeat`
+carries an `Option<TraitRef>` so a `const` element operand needs no `Copy` clause, and Aeneas lowers
+native `Repeat` to `Array.repeat`. The installed binaries are pinned in `PINS` after the strip below:
+`aeneas` `7b6982382aee623b3e02965031bcce3736bf58222ed822b11a94599fef82b1df`, `charon`
+`a96627e90aac379f70edd093d7dabdee5fa79dca77012a94029bad5bdef2a232`, `charon-driver`
+`3e1ae2c1e444c2f3d0a80bfb312cc650d5993198d5e9ea174f7f8677b1cc75a1`. `regen.sh` asserts the
+translator digest; `bootstrap.sh` asserts all three before installing.
+
+The identity is **path-independent**. `aeneas/src/dune` keeps `-g` in every OCaml profile, so the raw
+`dune build` records the compilation directory in debug info and the linker derives
+`.note.gnu.build-id` from the linked content; the raw product therefore differs at each build root.
+`bootstrap.sh` removes the symbol table, the debug sections and that note with
+`strip -R .note.gnu.build-id`, so the installed digest depends on source and toolchain only. Measured
+across three roots under `/home/socol/oc-tmp` — `aeneas-build`, `ti-rootB`, `aeneas-build-ctl` — the
+raw products give three digests (`6fde1a4dc7708d2f71d66da782bc9c21cfa6193a1d16900fddabfb59240d19de`,
+`acbfb9fada0bb5c1624675f72a1eff3e441c2dafe989cddec806c7f5af88bc2c`,
+`b8188aac4a63482a863b30f6b7408698b6b0c869e6abdaf7d36cf5dd9b231463`) and strip to the one pinned
+`7b6982382aee623b3e02965031bcce3736bf58222ed822b11a94599fef82b1df`. The two Charon binaries are
+already path-independent (Rust records crate paths relative to the workspace root and the release
+profile carries no debug sections): a build at `ti-rootB` equals the `aeneas-build` build at
+`a96627e9…` / `3e1ae2c1…`.
+
+A rebuild from the same pinned bases with the current patch (`patches/aeneas-array-repeat.patch`,
+`cd src && dune build -j 16`, ≈42 s from an empty `_build`) plus the strip reproduces the pinned
+translator at any build root; without the strip it reproduces only at the root that built it.
 
 ### Patched tool sources
 
@@ -646,10 +672,10 @@ order is fixed:
 
 | step | command | what performs it |
 | --- | --- | --- |
-| 1. install the pinned tools | unpack the archive above into `target/aeneas/`, or point `AENEAS_HOME` at an installation | manual unpack; `regen.sh:18` defaults `AENEAS_HOME` to `target/aeneas` and, when it is set elsewhere, `regen.sh:19-24` symlinks `target/aeneas` to it |
-| 2. materialise the patched Lean model | `proof/model-patches.sh` | copies `${AENEAS_HOME:-$REPO_DIR/target/aeneas}/backends/lean` to `target/aeneas-model/lean` and applies `patches/aeneas-lean-model.patch` with `patch -p1 --forward` |
-| 3. extract, audit and build `proof/` | `proof/regen.sh`, or `proof/regen.sh --check` | extraction reads `LEAN_BACKEND="$AENEAS_HOME/backends/lean"` (`regen.sh:29`), the unpatched installed backend; its `lake build` (`regen.sh:270`) resolves the `aeneas` path dependency from step 2 |
-| 4. build the bridge | `cd proof/corpus && lake build` | `proof/corpus/lakefile.lean` |
+| 1. install the pinned tools | `proof/bootstrap.sh` | fetches the sha256-pinned Aeneas archive, materialises the pinned Aeneas/Charon revisions, applies `patches/*`, builds when the pinned products are absent, strips each binary (`strip -R .note.gnu.build-id`), installs `target/aeneas`, runs `model-patches.sh` and asserts `PINS:AENEAS_TRANSLATOR_SHA256` plus `CHARON_SHA256` and `CHARON_DRIVER_SHA256`; `regen.sh` defaults `AENEAS_HOME` to `target/aeneas` and symlinks `target/aeneas` to an installation named elsewhere |
+| 2. materialise the patched Lean model | `proof/model-patches.sh` | copies `${AENEAS_HOME:-$REPO_DIR/target/aeneas}/backends/lean` to `target/aeneas-model/lean` and applies `patches/aeneas-lean-model.patch` with `patch -p1 --forward` (step 1 runs it) |
+| 3. extract, audit and build `proof/` | `proof/regen.sh`, or `proof/regen.sh --check` | extraction reads `LEAN_BACKEND="$AENEAS_HOME/backends/lean"`, the unpatched installed backend; its `lake build` resolves the `aeneas` path dependency from step 2 |
+| 4. build the bridge | `cd proof/corpus && lake build` | `proof/corpus/lakefile.lean`; still requires the private corpus below |
 
 Step 2 precedes step 3 because `lake` resolves `../target/aeneas-model/lean` before any module is
 built, and `regen.sh` does not create it. `model-patches.sh` parses no arguments: it has no `--help`
@@ -667,6 +693,29 @@ removes the axiom stubs the model now supplies.
 
 Run Lean from the package directory, as `cd proof/corpus && lake build`; never `lake -d` from a
 directory without that package's `lean-toolchain` (`AGENTS.md` §10).
+
+### Fresh-clone route (verified) and open items
+
+```sh
+git clone <published-repo> fresh && cd fresh
+proof/bootstrap.sh
+proof/regen.sh --check          # prints: extraction is fresh
+```
+
+- Verified against a fresh local clone of the published repository at HEAD `65e4693` with `target/`
+  absent, `APEIRON_AENEAS_BUILD_ROOT` set to `/home/socol/oc-tmp/ti-rootB` (not the step-1 root): the
+  chain exits 0 and `regen.sh --check` prints `extraction is fresh` (89 s wall clock; bootstrap 49 s,
+  of which the aeneas `dune build` from an empty `_build` is ≈42 s, and regen 40 s). `bootstrap.sh`
+  reuses pinned products already present at `--build-root`, so a machine that already holds the
+  toolchain does not rebuild it; a machine that does not needs `opam` with the pinned OCaml closure,
+  the `nightly-2026-08-18` Rust toolchain carrying `rustc-dev` and `miri`, and binutils `strip`.
+- An exported `AENEAS_HOME` that names no installation (for example a source checkout) is ignored:
+  `regen.sh` falls back to `target/aeneas` and says so. An `AENEAS_HOME` that contains `aeneas` is
+  still authoritative.
+- Open: `proof/corpus/lakefile.lean` still requires the private corpus
+  `git@gitlab.tas.twn.network:lucas/sanguine.git` at revision
+  `880aa57e47e782ed7a9d9ee1974cfc87360b446b` (`proof` subdir), so `cd proof/corpus && lake build`
+  does not run from a public clone. The `proof/` package (steps 1–3) does not depend on it.
 
 ## What this does not establish
 
