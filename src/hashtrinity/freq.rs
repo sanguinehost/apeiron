@@ -2,7 +2,10 @@
 //! re-exported from it, so every path is unchanged. A separate structure from `Table`: SwissTable
 //! control bytes, no key column, no deletions.
 
-use crate::hashtrinity::{bits_for_slots, par, Coord, CoordInv, Regen, Table, EMPTY, PHI};
+use crate::hashtrinity::overflow::Overflow;
+use crate::hashtrinity::{
+    bits_for_slots, is_sentinel, par, Coord, CoordInv, Regen, Table, EMPTY, PHI, PROBE_CAP,
+};
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -316,6 +319,115 @@ impl<K: CoordInv + Eq + Copy + Sync> Table<K, i64, Regen<K>> {
 // THE NB FACE — the frequency map, on a control-filtered frequency line.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 
+/// The side store for reserved-frequency keys (`EMPTY`/`TOMB`) in the count face, the [`FreqLine`]
+/// twin of the map face's [`SideStore`](super::SideStore). A frequency equal to a reserved marker
+/// cannot live in a primary lane — `slots[i].0 == EMPTY` is the occupancy flag — so the count for
+/// the keys that literally own those frequencies is held here, outside the slot arrays. At most the
+/// two reserved coordinates can appear, so the store is a packed linear scan that is empty on every
+/// ordinary map.
+struct FreqSide<V> {
+    coords: Vec<u64>,
+    vals: Vec<MaybeUninit<V>>,
+    // `live[i]` is false only while a merge owns the value (panic safety, exactly as the primary
+    // slot blanks its coordinate before the merge and restores it after).
+    live: Vec<bool>,
+}
+
+impl<V> FreqSide<V> {
+    fn empty() -> Self {
+        FreqSide {
+            coords: Vec::new(),
+            vals: Vec::new(),
+            live: Vec::new(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.coords.len()
+    }
+
+    fn find(&self, coord: u64) -> Option<usize> {
+        let mut i = 0;
+        while i < self.coords.len() {
+            if self.coords[i] == coord {
+                return Some(i);
+            }
+            i += 1;
+        }
+        None
+    }
+
+    fn get(&self, coord: u64) -> Option<&V> {
+        let i = self.find(coord)?;
+        // SAFETY: `find` only returns an entry whose `live` marker is set.
+        Some(unsafe { self.vals.get_unchecked(i).assume_init_ref() })
+    }
+
+    /// Set `coord → merge(new, old)`; a fresh coordinate stores `new` unmerged.
+    fn insert_with(&mut self, coord: u64, new: V, merge: impl FnOnce(V, V) -> V) {
+        if let Some(i) = self.find(coord) {
+            // SAFETY: `live[i]` ⇒ value initialized. Blank the marker first so a panicking merge
+            // leaves the entry skipped by `Drop` (the primary slot's blank/restore dance).
+            let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
+            self.live[i] = false;
+            let merged = merge(new, old);
+            // SAFETY: the value was moved out; re-writing and re-marking restores the invariant.
+            unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(merged) };
+            self.live[i] = true;
+        } else {
+            self.coords.push(coord);
+            self.vals.push(MaybeUninit::new(new));
+            self.live.push(true);
+        }
+    }
+
+    fn iter_live(&self) -> impl Iterator<Item = (u64, &V)> {
+        self.coords
+            .iter()
+            .copied()
+            .zip(self.vals.iter())
+            .zip(self.live.iter())
+            .filter_map(|((c, v), live)| {
+                if *live {
+                    // SAFETY: `live[i]` ⇒ value initialized.
+                    Some((c, unsafe { v.assume_init_ref() }))
+                } else {
+                    None
+                }
+            })
+    }
+
+    /// Drop every live value (the side twin of the primary slot walk). An indexed `while`, not an
+    /// iterator adapter, so the extracted count face reaches it.
+    fn drop_live(&mut self) {
+        if std::mem::needs_drop::<V>() {
+            let mut i = 0;
+            while i < self.vals.len() {
+                if self.live[i] {
+                    // SAFETY: `live[i]` ⇒ value initialized.
+                    unsafe { self.vals.get_unchecked_mut(i).assume_init_drop() };
+                }
+                i += 1;
+            }
+        }
+    }
+}
+
+impl<V: Clone> Clone for FreqSide<V> {
+    fn clone(&self) -> Self {
+        FreqSide {
+            coords: self.coords.clone(),
+            // Every steady-state entry is initialized (`live` is false only during a merge).
+            vals: self
+                .vals
+                .iter()
+                .map(|v| MaybeUninit::new(unsafe { v.assume_init_ref() }.clone()))
+                .collect(),
+            live: self.live.clone(),
+        }
+    }
+}
+
 /// The frequency line: coords (frequencies) + values + a **packed byte control**, group probe.
 ///
 /// The control is the first of the two flaw readings the Null cell forces on any lookup of opaque
@@ -382,6 +494,8 @@ struct FreqLine<V> {
     gmask: usize, // = (#groups) − 1 = (2^bits / 16) − 1
     bits: u32,
     len: usize,
+    side: FreqSide<V>, // reserved-frequency keys (`EMPTY`/`TOMB`) held out of band
+    overflow: Option<Overflow<u64, V>>, // keys blocked past the probe cap, one AVL tree by frequency
 }
 
 /// The group width — 16 control bytes scanned in one glance, exactly SwissTable's SSE group. The
@@ -447,6 +561,8 @@ impl<V> FreqLine<V> {
             gmask: (n / GROUP) - 1,
             bits,
             len: 0,
+            side: FreqSide::empty(),
+            overflow: None,
         }
     }
 
@@ -537,25 +653,53 @@ impl<V> FreqLine<V> {
         }
     }
 
-    /// The group probe. Per group: one SSE glance winnows all 16 lanes against the tag, then
-    /// confirm candidates on the coord (the exact flaw); stop at the first group with an empty
-    /// lane (sound: first-fit placement + monotone occupancy, `stop_not_before_placement`).
-    /// Returns the slot and whether the frequency is present; on a miss the slot is the first
-    /// empty lane in probe order — exactly where an insert must place (first-fit).
+    /// The primary group-probe cap: a lookup, insert, update or grow examines at most this many
+    /// groups (the home group, then the fresh PHI-descent windows) before the frequency routes to
+    /// the [`Overflow`] tree. One constant, mirroring
+    /// [`PROBE_CAP`](crate::hashtrinity::PROBE_CAP) in the map face. The cap also removes
+    /// [`descend_group`](Self::descend_group)'s unbounded index growth: `j < PROBE_CAP` keeps
+    /// `gbits * (j + 1)` and the sweep offset inside `u32`/`usize`.
     #[inline]
+    fn probe_limit(&self) -> u32 {
+        PROBE_CAP
+    }
+
+    /// **The capped group probe.** Per group: one SSE glance winnows all 16 lanes against the tag,
+    /// then confirm candidates on the coordinate (the exact flaw); stop at the first group with an
+    /// empty lane (sound: first-fit placement + monotone occupancy, `stop_not_before_placement`).
+    ///
+    /// Returns `(slot, found, blocked, tag)`: a hit (`found`) at `slot`; a vacant insert point
+    /// (`!found && !blocked`) at `slot` — the first empty lane in probe order, exactly where an
+    /// insert must place (first-fit); or `blocked` — the whole prefix of
+    /// [`probe_limit`](Self::probe_limit) groups held no empty lane and no identity, so the
+    /// frequency lives (or must be placed) in the [`Overflow`].
+    ///
+    /// **The overflow invariant (HashDOS cap), the count-face twin of [`Table`]'s.** A frequency is
+    /// in `overflow` only if, when it was placed, its `PROBE_CAP` primary groups held no empty lane
+    /// and no lane with its identity. It is preserved because a lane only ever changes from empty
+    /// to occupied — `FreqLine` never deletes ([`Table`](super::Table) keeps `TOMB` for that), and
+    /// [`grow`](Self::grow) re-places every primary and overflow frequency through this same capped
+    /// placement — so the absence of an empty lane in the prefix is stable. Hence a lookup that
+    /// finds an empty lane within the cap is absent without consulting the overflow; a hit is found
+    /// in the prefix; only an exhausted prefix consults the overflow.
     ///
     /// R2: the tag is returned, not recomputed. `insert_with`'s fresh-lane path wrote
     /// `Self::tag(f) = (f·PHI) & 0x7F`, a second application of the multiply `probe` had already
     /// done; returning the value removes the `lea;lea;and` triple the multiplier constant folds to
     /// from every fresh insert, on the serial `add` path and on `count_par`'s phase 3 alike.
     /// Callers that do not place a lane (`get`, `grow`'s re-place probe) drop it.
-    fn probe_tagged(&self, f: u64) -> (usize, bool, u8) {
+    /// Structured with flags and a single exit (no `return` inside the nested scan loop), the form
+    /// the Aeneas fragment translates — the flag discipline `count_aggregate`'s extraction depends
+    /// on.
+    fn probe_tagged(&self, f: u64) -> (usize, bool, bool, u8) {
         let p = f.wrapping_mul(PHI);
         let tag = (p & 0x7F) as u8; // = tag(f), reusing p
+        let limit = self.probe_limit();
         let mut g = self.home_group(p); // j = 0, the common case: one shift + and
         let mut j = 0u32;
         let mut done = false;
         let mut found = false;
+        let mut blocked = false;
         let mut slot = 0usize;
         while !done {
             let base = g * GROUP;
@@ -566,43 +710,80 @@ impl<V> FreqLine<V> {
                 if unsafe { self.slots.get_unchecked(i).0 } == f {
                     slot = i;
                     found = true;
-                    done = true;
                     matches = 0;
                 } else {
                     matches &= matches - 1;
                 }
             }
-            if !done {
-                // No tag candidate here — only NOW read the empty mask (the stop): an empty lane means
-                // the key, had it been inserted, would sit at or before this group ⇒ absent, and the
-                // first empty lane is the insert point. The group's line is already resident from the
-                // tag load, so this reload is an L1 hit; the hit path above never runs it.
+            if found {
+                done = true;
+            } else {
+                // No tag candidate here — only NOW read the empty mask (the stop): an empty lane
+                // means the key, had it been inserted, would sit at or before this group ⇒ absent,
+                // and the first empty lane is the insert point. The group's line is already resident
+                // from the tag load, so this reload is an L1 hit; the hit path never runs it.
                 let empties = self.match_empty(g);
                 if empties != 0 {
                     slot = base + empties.trailing_zeros() as usize;
-                    found = false;
                     done = true;
                 } else {
                     j += 1;
-                    g = self.descend_group(p, j);
+                    if j >= limit {
+                        blocked = true;
+                        done = true;
+                    } else {
+                        g = self.descend_group(p, j);
+                    }
                 }
             }
         }
-        (slot, found, tag)
+        (slot, found, blocked, tag)
     }
 
-    /// [`probe_tagged`](Self::probe_tagged) without the tag.
-    #[inline]
-    fn probe(&self, f: u64) -> (usize, bool) {
-        let (i, found, _tag) = self.probe_tagged(f);
-        (i, found)
+    /// The number of primary group probes a lookup of frequency `f` makes (at most
+    /// [`probe_limit`](Self::probe_limit)); `0` for a reserved frequency (resolved in the side
+    /// store). Diagnostic — not part of the stable surface.
+    fn probe_examinations(&self, f: u64) -> u32 {
+        if is_sentinel(f) {
+            return 0;
+        }
+        let p = f.wrapping_mul(PHI);
+        let tag = (p & 0x7F) as u8;
+        let limit = self.probe_limit();
+        let mut g = self.home_group(p);
+        let mut j = 0u32;
+        loop {
+            let base = g * GROUP;
+            let mut matches = self.match_tag(g, tag);
+            while matches != 0 {
+                let i = base + matches.trailing_zeros() as usize;
+                // SAFETY: base + lane < ctrl.len() = slots.len().
+                if unsafe { self.slots.get_unchecked(i).0 } == f {
+                    return j + 1;
+                }
+                matches &= matches - 1;
+            }
+            if self.match_empty(g) != 0 {
+                return j + 1;
+            }
+            j += 1;
+            if j >= limit {
+                return j;
+            }
+            g = self.descend_group(p, j);
+        }
     }
 
     #[inline]
     fn get(&self, f: u64) -> Option<&V> {
-        let (i, found) = self.probe(f);
+        if is_sentinel(f) {
+            return self.side.get(f);
+        }
+        let (i, found, blocked, _tag) = self.probe_tagged(f);
         if found {
             Some(unsafe { self.slots.get_unchecked(i).1.assume_init_ref() })
+        } else if blocked {
+            self.overflow.as_ref().and_then(|o| o.get(f, &f))
         } else {
             None
         }
@@ -621,16 +802,23 @@ impl<V> FreqLine<V> {
         let _ = p;
     }
 
-    /// Iterate live `(coord, &value)` slots — a live slot is `slots[i].0 != EMPTY`.
+    /// Iterate live `(coord, &value)` entries — a live primary slot is `slots[i].0 != EMPTY`;
+    /// the side store and the overflow contribute their own entries. Arbitrary order.
     fn iter_live(&self) -> impl Iterator<Item = (u64, &V)> {
-        self.slots.iter().filter_map(|(c, v)| {
+        let main = self.slots.iter().filter_map(|(c, v)| {
             if *c == EMPTY {
                 None
             } else {
                 // SAFETY: coord ≠ EMPTY ⇒ the value was initialized on insert.
                 Some((*c, unsafe { v.assume_init_ref() }))
             }
-        })
+        });
+        let side = self.side.iter_live();
+        let overflow = self
+            .overflow
+            .iter()
+            .flat_map(|o| o.iter().map(|(c, _k, v)| (c, v)));
+        main.chain(side).chain(overflow)
     }
 
     /// Reduce the whole table in parallel over live values — `encircle` on the group-probe engine
@@ -657,30 +845,69 @@ impl<V> FreqLine<V> {
         };
         let n = self.slots.len();
         let pool = par::Pool::global();
-        if pool.width() <= 1 || n < 1 << 14 {
-            return fold_range(0, n);
-        }
-        let tasks = (pool.width() * 4).min(n);
-        let chunk = n.div_ceil(tasks);
-        let mut partials: Vec<M> = (0..tasks).map(|_| id.clone()).collect();
-        let pptr = par::SendPtr(partials.as_mut_ptr());
-        pool.dispatch(tasks, |t| {
-            let start = t * chunk;
-            if start >= n {
-                return;
+        let main = if pool.width() <= 1 || n < 1 << 14 {
+            fold_range(0, n)
+        } else {
+            let tasks = (pool.width() * 4).min(n);
+            let chunk = n.div_ceil(tasks);
+            let mut partials: Vec<M> = (0..tasks).map(|_| id.clone()).collect();
+            let pptr = par::SendPtr(partials.as_mut_ptr());
+            pool.dispatch(tasks, |t| {
+                let start = t * chunk;
+                if start >= n {
+                    return;
+                }
+                let end = (start + chunk).min(n);
+                // SAFETY: task t writes only partials[t]; disjoint by t; barrier orders before merge.
+                unsafe { *pptr.add(t) = fold_range(start, end) };
+            });
+            partials.into_iter().fold(id, &combine)
+        };
+        let mut acc = main;
+        // Side entries (reserved frequencies) and overflow entries are O(1) on ordinary maps.
+        for (i, live) in self.side.live.iter().enumerate() {
+            if *live {
+                // SAFETY: `live[i]` ⇒ value initialized.
+                acc = combine(acc, residual(unsafe {
+                    self.side.vals.get_unchecked(i).assume_init_ref()
+                }));
             }
-            let end = (start + chunk).min(n);
-            // SAFETY: task t writes only partials[t]; disjoint by t; barrier orders before merge.
-            unsafe { *pptr.add(t) = fold_range(start, end) };
-        });
-        partials.into_iter().fold(id, &combine)
+        }
+        if let Some(o) = &self.overflow {
+            for (_c, _k, v) in o.iter() {
+                acc = combine(acc, residual(v));
+            }
+        }
+        acc
     }
 
     fn insert_with(&mut self, f: u64, new: V, merge: impl FnOnce(V, V) -> V) {
+        // A reserved frequency cannot live in a primary lane (`slots[i].0 == EMPTY` is the
+        // occupancy flag); its count is held in the side store, exactly as the map face holds a
+        // reserved-coordinate key in its `SideStore`.
+        if is_sentinel(f) {
+            // Inline the side merge rather than passing `merge` across a call boundary: an
+            // `impl FnOnce` argument is an arrow type the Aeneas fragment refuses, and this body is
+            // reached from the extracted `count_aggregate`.
+            if let Some(i) = self.side.find(f) {
+                // SAFETY: `find` only returns an entry whose `live` marker is set.
+                let old = unsafe { self.side.vals.get_unchecked_mut(i).assume_init_read() };
+                self.side.live[i] = false;
+                let merged = merge(new, old);
+                // SAFETY: the value was moved out; re-writing restores the invariant.
+                unsafe { *self.side.vals.get_unchecked_mut(i) = MaybeUninit::new(merged) };
+                self.side.live[i] = true;
+            } else {
+                self.side.coords.push(f);
+                self.side.vals.push(MaybeUninit::new(new));
+                self.side.live.push(true);
+            }
+            return;
+        }
         if (self.len + 1) * 8 >= self.slots.len() * 7 {
             self.grow();
         }
-        let (i, found, tag) = self.probe_tagged(f); // R2: the tag `probe` already computed
+        let (i, found, blocked, tag) = self.probe_tagged(f); // R2: the tag `probe` already computed
         if found {
             // SAFETY: found ⇒ slot i is live ⇒ its value is initialized.
             let slot = unsafe { self.slots.get_unchecked_mut(i) };
@@ -701,12 +928,74 @@ impl<V> FreqLine<V> {
             } else {
                 slot.1 = MaybeUninit::new(merge(new, old));
             }
+        } else if blocked {
+            // The whole capped prefix was occupied: the frequency lives here (merge) or is new
+            // here (insert), keyed by the frequency itself. The merge runs in THIS body — `merge`
+            // is not passed into the overflow, where the arrow type would be refused.
+            if self.overflow.is_none() {
+                self.overflow = Some(Overflow::new());
+            }
+            if let Some(ov) = self.overflow.as_mut() {
+                match ov.find_entry(f, &f) {
+                    Some((node, entry)) => {
+                        let old = ov.take_value(node, entry);
+                        let merged = merge(new, old);
+                        ov.write_back(node, entry, merged);
+                    }
+                    None => {
+                        ov.insert_new_at(f, f, new);
+                    }
+                }
+            }
         } else {
             // SAFETY: i < slots.len() (probe returns an in-range empty slot).
             let slot = unsafe { self.slots.get_unchecked_mut(i) };
             slot.0 = f;
             slot.1 = MaybeUninit::new(new);
             self.set_lane(i, tag); // R2: not `Self::tag(f)`, which refolds f·PHI
+            self.len += 1;
+        }
+    }
+
+    /// Re-place one distinct frequency through the capped placement every insert uses: a vacant
+    /// lane within the cap, or the overflow. Used only by [`grow`](Self::grow), where frequencies
+    /// are distinct, so a `found` (identity already present) verdict is impossible; it is handled
+    /// defensively.
+    fn place_capped(&mut self, f: u64, v: V) {
+        if is_sentinel(f) {
+            // The side store is carried over separately; a primary lane never holds a sentinel.
+            if let Some(i) = self.side.find(f) {
+                let slot = unsafe { self.side.vals.get_unchecked_mut(i) };
+                let old = unsafe { slot.assume_init_read() };
+                drop(old);
+                *slot = MaybeUninit::new(v);
+            } else {
+                self.side.coords.push(f);
+                self.side.vals.push(MaybeUninit::new(v));
+                self.side.live.push(true);
+            }
+            return;
+        }
+        let (i, found, blocked, tag) = self.probe_tagged(f);
+        if blocked {
+            if self.overflow.is_none() {
+                self.overflow = Some(Overflow::new());
+            }
+            if let Some(ov) = self.overflow.as_mut() {
+                ov.insert_new_at(f, f, v);
+            }
+        } else if found {
+            // Defensive: the rebuild carries distinct frequencies. Overwrite and drop the old.
+            // SAFETY: a live lane ⇒ value initialized; `assume_init_read` moves it out.
+            let slot = unsafe { self.slots.get_unchecked_mut(i) };
+            let old = unsafe { slot.1.assume_init_read() };
+            drop(old);
+            slot.1 = MaybeUninit::new(v);
+        } else {
+            let slot = unsafe { self.slots.get_unchecked_mut(i) };
+            slot.0 = f;
+            slot.1 = MaybeUninit::new(v);
+            self.set_lane(i, tag);
             self.len += 1;
         }
     }
@@ -719,23 +1008,29 @@ impl<V> FreqLine<V> {
         while i < n {
             let c = self.slots[i].0;
             if c != EMPTY {
-                let (j, _) = bigger.probe(c); // re-place along the same probe sequence
+                // Move the value out and blank the source so the old line's Drop skips it; re-place
+                // through the SAME capped placement (a grown table may hold it, or route it on).
                 let v = unsafe { self.slots.get_unchecked_mut(i).1.assume_init_read() };
-                self.slots[i].0 = EMPTY; // blank the source so the old line's Drop skips it
-                let dst = unsafe { bigger.slots.get_unchecked_mut(j) };
-                dst.0 = c;
-                dst.1 = MaybeUninit::new(v);
-                bigger.set_lane(j, Self::tag(c));
-                bigger.len += 1;
+                self.slots[i].0 = EMPTY;
+                bigger.place_capped(c, v);
             }
             i += 1;
+        }
+        // Carry the side store over; the rebuilt line is fresh (empty side store).
+        bigger.side = std::mem::replace(&mut self.side, FreqSide::empty());
+        // Re-place every overflow frequency through the capped placement too: a grown line may now
+        // hold it in the primary array, and the invariant is re-established for the new generation.
+        if let Some(ov) = self.overflow.take() {
+            for (c, _k, v) in ov.into_entries() {
+                bigger.place_capped(c, v);
+            }
         }
         *self = bigger;
     }
 
-    /// Test-only: the worst probe length (in group steps) over all present keys — the flood bound.
-    /// A flood clusters keys at one home group; the descent must still separate them within a few
-    /// group steps, so this stays tiny (`G` linear + radix depth), never `O(n)`.
+    /// Test-only: the worst probe length (in group steps) over all present primary keys — the flood
+    /// bound. A flood clusters keys at one home group; the capped probe holds every present primary
+    /// key within [`PROBE_CAP`] groups, and blocked keys live in the overflow.
     #[cfg(test)]
     fn max_probe_groups(&self) -> u32 {
         let mut worst = 0;
@@ -744,34 +1039,7 @@ impl<V> FreqLine<V> {
             if f == EMPTY {
                 continue;
             }
-            let p = f.wrapping_mul(PHI);
-            let tag = (p & 0x7F) as u8;
-            let mut g = self.home_group(p);
-            let mut j = 0u32;
-            let mut groups = 1u32;
-            loop {
-                let base = g * GROUP;
-                let mut m = self.match_tag(g, tag);
-                let mut hit = false;
-                while m != 0 {
-                    if self.slots[base + m.trailing_zeros() as usize].0 == f {
-                        hit = true;
-                        break;
-                    }
-                    m &= m - 1;
-                }
-                if hit || self.match_empty(g) != 0 {
-                    break;
-                }
-                j += 1;
-                groups += 1;
-                g = self.descend_group(p, j);
-                assert!(
-                    groups < 100_000,
-                    "probe did not terminate — flood unbounded"
-                );
-            }
-            worst = worst.max(groups);
+            worst = worst.max(self.probe_examinations(f));
         }
         worst
     }
@@ -786,6 +1054,9 @@ impl<V> Drop for FreqLine<V> {
                     unsafe { v.assume_init_drop() };
                 }
             }
+            // Side entries: reserved frequencies, held in `side`; the overflow tree's `Vec` drops
+            // its own `Option<V>` values.
+            self.side.drop_live();
         }
     }
 }
@@ -811,6 +1082,8 @@ impl<V: Clone> Clone for FreqLine<V> {
             gmask: self.gmask,
             bits: self.bits,
             len: self.len,
+            side: self.side.clone(),
+            overflow: self.overflow.clone(),
         }
     }
 }
@@ -858,15 +1131,13 @@ impl<V> Default for FreqLine<V> {
 }
 
 impl<K: Coord, V> FreqMap<K, V> {
-    /// The key's frequency (its fold), dodging the two reserved coordinate sentinels `EMPTY` and
-    /// `EMPTY-1`. Branchless: `min(c, EMPTY-2)` folds exactly those two top values to `EMPTY-2`
-    /// and leaves every other frequency untouched (one `cmp`+`cmov`, no branch on the hot path).
-    /// Proven: the clamp never emits a sentinel (`GroupProbe.clamp_avoids_sentinels`), is the
-    /// identity below the top (`clamp_injective_below`), and its whole distortion is one 3-point
-    /// fiber — added collision mass `2/2^64` (`clamp_top_fiber`), the price of the in-band Null.
+    /// The key's frequency (its fold): the raw coordinate, with no clamp. A key whose coordinate is
+    /// a reserved marker (`EMPTY`/`TOMB`) is held out of band in the [`FreqSide`] store — the
+    /// count-face twin of the map face's [`SideStore`](super::SideStore) — so distinct top-value
+    /// keys no longer fold onto one count and every `u64` key has an exact count. O(1).
     #[inline]
     fn freq(k: &K) -> u64 {
-        k.coord().min(EMPTY - 2)
+        k.coord()
     }
 
     /// A frequency map sized for the **group probe's optimum — dense** (`≈ 1.5·cap` slots, load
@@ -911,17 +1182,54 @@ impl<K: Coord, V> FreqMap<K, V> {
         self.inner.insert_with(Self::freq(k), v, |new, _| new);
     }
 
-    /// The number of live frequencies.
+    /// The number of live frequencies: primary lanes, reserved-frequency side entries and overflow
+    /// entries.
     pub fn len(&self) -> usize {
         self.inner.len
+            + self.inner.side.len()
+            + self.inner.overflow.as_ref().map_or(0, Overflow::len)
     }
     /// Whether the map is empty.
     pub fn is_empty(&self) -> bool {
-        self.inner.len == 0
+        self.len() == 0
     }
     /// The slot capacity (the frequency line length).
     pub fn capacity(&self) -> usize {
         self.inner.slots.len()
+    }
+
+    /// The number of primary group probes a lookup of `k` makes (at most
+    /// [`PROBE_CAP`](crate::hashtrinity::PROBE_CAP)); `0` for a key whose frequency is a reserved
+    /// marker, which is resolved in the side store. Diagnostic — the `tests/hashdos_count.rs`
+    /// HashDOS bound reads it.
+    #[doc(hidden)]
+    pub fn primary_examinations(&self, k: &K) -> u32 {
+        self.inner.probe_examinations(Self::freq(k))
+    }
+
+    /// The worst primary group-probe over the primary lane entries. Diagnostic.
+    #[doc(hidden)]
+    pub fn longest_probe(&self) -> usize {
+        let mut worst = 0u32;
+        for i in 0..self.inner.slots.len() {
+            let f = self.inner.slots[i].0;
+            if f != EMPTY {
+                worst = worst.max(self.inner.probe_examinations(f));
+            }
+        }
+        worst as usize
+    }
+
+    /// The number of frequencies held in the overflow tree (blocked past the probe cap). Diagnostic.
+    #[doc(hidden)]
+    pub fn overflow_len(&self) -> usize {
+        self.inner.overflow.as_ref().map_or(0, Overflow::len)
+    }
+
+    /// The overflow tree's height (`0` when no frequency was blocked). Diagnostic.
+    #[doc(hidden)]
+    pub fn overflow_height(&self) -> u32 {
+        self.inner.overflow.as_ref().map_or(0, Overflow::height)
     }
 
     /// Iterate the live values (arbitrary order). The key is not recoverable from the NB fold —

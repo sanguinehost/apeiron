@@ -2,6 +2,8 @@
 import ApeironWord
 import Count.Helpers
 import Count.FreqAdd
+import Count.FreqGrow
+import Count.FreqInsert
 import Apeiron.Table.Basic
 import Mathlib.Data.BitVec
 import Mathlib.Tactic.IntervalCases
@@ -14,7 +16,7 @@ open Aeneas Aeneas.Std Result apeiron_word
 This module proves that `apeiron_word.hashtrinity.freq.FreqMapKI64.count_aggregate`:
 * Refines window fold counts: `count_aggregate_refines_win`.
 * Refines the count function on folds: `count_aggregate_refines`.
-* Preserves exact key counts for keys below `2^64 - 3`: `cntI_key`.
+* Preserves exact key counts for every `u64` key: `cntI_key`.
 * Refines the canonical `Apeiron.Table.build` and `Apeiron.Table.get`: `build_count` and `count_aggregate_canonical`.
 -/
 
@@ -23,39 +25,41 @@ set_option linter.apeiron.citation false
 
 namespace Apeiron.CountAggregate
 open Lean.Order Aeneas.Data.Coinductive
+open Apeiron.MapExecuted (nilN)
 
 /-! ## `count_aggregate` -/
 
-/-- The fold counts of a window of keys: `#{x ∈ w | fold x = f}`. -/
-def cntW (w : List U64) (f : Nat) : Nat := (w.filter (fun x => foldN x.val = f)).length
+/-- The counts of a window of keys: `#{x ∈ w | x = f}`.  `FreqMap::freq` is the key itself (no
+clamp), so every `u64` key, `EMPTY` and `TOMB` included, counts exactly. -/
+def cntW (w : List U64) (f : Nat) : Nat := (w.filter (fun x => x.val = f)).length
 
 /-- The window `routed[lo..min(hi, len))`. -/
 def win (routed : Slice U64) (lo hi : Nat) : List U64 :=
   (routed.val.take (min hi routed.length)).drop lo
 
 theorem cntW_snoc (w : List U64) (x : U64) (f : Nat) :
-    cntW (w ++ [x]) f = if foldN x.val = f then cntW w f + 1 else cntW w f := by
+    cntW (w ++ [x]) f = if x.val = f then cntW w f + 1 else cntW w f := by
   unfold cntW
   rw [List.filter_append]
-  by_cases h : foldN x.val = f
+  by_cases h : x.val = f
   · simp [h]
   · simp [h]
 
 theorem count_body_spec (routed : Slice U64) (lo hi : Usize) (M : Nat)
-    (hM : M = max lo.val (min hi.val routed.length))
+    (hM : M = max lo.val (min hi.val routed.length)) (hN : M - lo.val ≤ nilN)
     (st : hashtrinity.freq.FreqMap U64 Std.I64 × Usize)
     (hI : LineRep st.1.inner (cntW ((routed.val.take st.2.val).drop lo.val)) ∧
-      lo.val ≤ st.2.val ∧ st.2.val ≤ M)
+      lo.val ≤ st.2.val ∧ st.2.val ≤ M ∧ Pot st.1.inner ≤ st.2.val - lo.val)
     (cf : ControlFlow (hashtrinity.freq.FreqMap U64 Std.I64 × Usize) (hashtrinity.freq.FreqMap U64 Std.I64))
     (h : hashtrinity.freq.FreqMapKI64.count_aggregate_loop.body
       U64.Insts.Apeiron_wordHashtrinityAlgebraCoord routed hi st.1 st.2 = ok cf) :
     match cf with
     | .done m' => LineRep m'.inner (cntW ((routed.val.take M).drop lo.val))
     | .cont st' => LineRep st'.1.inner (cntW ((routed.val.take st'.2.val).drop lo.val)) ∧
-        lo.val ≤ st'.2.val ∧ st'.2.val ≤ M := by
+        lo.val ≤ st'.2.val ∧ st'.2.val ≤ M ∧ Pot st'.1.inner ≤ st'.2.val - lo.val := by
   obtain ⟨m, i⟩ := st
-  obtain ⟨hR, hlo, hiM⟩ := hI
-  dsimp only at hR hlo hiM h
+  obtain ⟨hR, hlo, hiM, hpot⟩ := hI
+  dsimp only at hR hlo hiM hpot h
   have e1 : (↑routed : List U64).length = routed.length := rfl
   unfold hashtrinity.freq.FreqMapKI64.count_aggregate_loop.body at h
   have hdone : ¬ (i.val < hi.val ∧ i.val < routed.length) → i.val = M := by
@@ -81,24 +85,26 @@ theorem count_body_spec (routed : Slice U64) (lo hi : Usize) (M : Nat)
         have e : (1#usize).val = 1 := rfl
         rw [e] at this; exact this
       have hts := slice_index_ok _ _ _ ht
-      have hadd := add_spec m m1 _ hR t hm1
+      have hPm : Pot m.inner < nilN := by omega
+      obtain ⟨hadd, hpot1⟩ := add_spec m m1 _ hR hPm t hm1
       have hwin : (routed.val.take (i.val + 1)).drop lo.val
           = (routed.val.take i.val).drop lo.val ++ [t] := by
         rw [List.take_add_one, hts]
         simp only [Option.toList_some]
         rw [List.drop_append_of_le_length]
         rw [List.length_take]; omega
-      have hfun : (fun x => if x = foldN t.val then cntW ((routed.val.take i.val).drop lo.val) x + 1
+      have hfun : (fun x => if x = t.val then cntW ((routed.val.take i.val).drop lo.val) x + 1
           else cntW ((routed.val.take i.val).drop lo.val) x)
           = cntW ((routed.val.take (i.val + 1)).drop lo.val) := by
         funext x
         rw [hwin, cntW_snoc]
-        by_cases hx : x = foldN t.val
+        by_cases hx : x = t.val
         · simp [hx]
-        · have : ¬ foldN t.val = x := fun hh => hx hh.symm
+        · have : ¬ t.val = x := fun hh => hx hh.symm
           simp [hx, this]
       rw [hfun] at hadd
-      refine ⟨?_, show lo.val ≤ i2.val by omega, show i2.val ≤ M by omega⟩
+      refine ⟨?_, show lo.val ≤ i2.val by omega, show i2.val ≤ M by omega,
+        show Pot m1.inner ≤ i2.val - lo.val by omega⟩
       show LineRep m1.inner (cntW ((routed.val.take i2.val).drop lo.val))
       rw [hi2v]; exact hadd
     · rw [if_neg hlt2] at h
@@ -132,6 +138,7 @@ theorem win_eq (routed : Slice U64) (lo hi : Nat) :
 
 theorem count_aggregate_refines_win (routed : Slice U64) (lo hi : Usize)
     (m : hashtrinity.freq.FreqMap U64 Std.I64)
+    (hN : min hi.val routed.length - lo.val ≤ nilN)
     (h : hashtrinity.freq.FreqMapKI64.count_aggregate U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
       routed lo hi = ok m) :
     LineRep m.inner (cntW (win routed lo.val hi.val)) := by
@@ -139,9 +146,12 @@ theorem count_aggregate_refines_win (routed : Slice U64) (lo hi : Usize)
   obtain ⟨i, hi', h⟩ := bind_inv h
   obtain ⟨m0, hm0, h⟩ := bind_inv h
   have hrep0 := with_capacity_rep _ _ _ hm0
+  have hpot0 := pot_with_capacity _ _ hm0
+  have hN' : max lo.val (min hi.val routed.length) - lo.val ≤ nilN := by omega
   have key := loop_pc (fun (st : hashtrinity.freq.FreqMap U64 Std.I64 × Usize) =>
       LineRep st.1.inner (cntW ((routed.val.take st.2.val).drop lo.val)) ∧
-      lo.val ≤ st.2.val ∧ st.2.val ≤ max lo.val (min hi.val routed.length))
+      lo.val ≤ st.2.val ∧ st.2.val ≤ max lo.val (min hi.val routed.length) ∧
+      Pot st.1.inner ≤ st.2.val - lo.val)
     (fun (y : hashtrinity.freq.FreqMap U64 Std.I64) =>
       LineRep y.inner (cntW ((routed.val.take (max lo.val (min hi.val routed.length))).drop lo.val)))
     _ ?_ (m0, lo) ?_ m (by
@@ -152,9 +162,10 @@ theorem count_aggregate_refines_win (routed : Slice U64) (lo hi : Usize)
     obtain ⟨m', k⟩ := st
     dsimp only at hcf
     cases cf with
-    | done y => exact count_body_spec routed lo hi _ rfl (m', k) hst (.done y) hcf
-    | cont x => exact count_body_spec routed lo hi _ rfl (m', k) hst (.cont x) hcf
-  · refine ⟨?_, le_refl _, show lo.val ≤ max lo.val (min hi.val routed.length) by omega⟩
+    | done y => exact count_body_spec routed lo hi _ rfl hN' (m', k) hst (.done y) hcf
+    | cont x => exact count_body_spec routed lo hi _ rfl hN' (m', k) hst (.cont x) hcf
+  · refine ⟨?_, le_refl _, show lo.val ≤ max lo.val (min hi.val routed.length) by omega,
+      show Pot m0.inner ≤ lo.val - lo.val by rw [hpot0]; omega⟩
     have : cntW ((routed.val.take lo.val).drop lo.val) = fun _ => 0 := by
       funext f
       unfold cntW
@@ -170,12 +181,12 @@ open Classical in
 fold `f`. -/
 noncomputable def cntI (routed : Slice U64) (lo hi : Nat) (f : Nat) : Nat :=
   ((Finset.Ico lo (min hi routed.length)).filter
-    (fun j => ∃ x, routed.val[j]? = some x ∧ foldN x.val = f)).card
+    (fun j => ∃ x, routed.val[j]? = some x ∧ x.val = f)).card
 
 theorem cntW_eq_card (l : List U64) (lo : Nat) (f : Nat) :
     ∀ n, lo ≤ n → n ≤ l.length →
       cntW ((l.take n).drop lo) f
-        = ((Finset.Ico lo n).filter (fun j => ∃ x, l[j]? = some x ∧ foldN x.val = f)).card := by
+        = ((Finset.Ico lo n).filter (fun j => ∃ x, l[j]? = some x ∧ x.val = f)).card := by
   classical
   intro n hlo
   induction n, hlo using Nat.le_induction with
@@ -194,11 +205,11 @@ theorem cntW_eq_card (l : List U64) (lo : Nat) (f : Nat) :
       rw [List.drop_append_of_le_length]
       rw [List.length_take]; omega
     rw [hwin, cntW_snoc, ih (by omega), Nat.Ico_succ_right_eq_insert_Ico hlo, Finset.filter_insert]
-    by_cases hx : foldN l[n].val = f
-    · have hp : ∃ x, l[n]? = some x ∧ foldN x.val = f := ⟨l[n], hts, hx⟩
+    by_cases hx : l[n].val = f
+    · have hp : ∃ x, l[n]? = some x ∧ x.val = f := ⟨l[n], hts, hx⟩
       rw [if_pos hx, if_pos hp, Finset.card_insert_of_notMem]
       simp
-    · have hp : ¬ ∃ x, l[n]? = some x ∧ foldN x.val = f := by
+    · have hp : ¬ ∃ x, l[n]? = some x ∧ x.val = f := by
         rintro ⟨x, hx1, hx2⟩
         rw [hts] at hx1
         have := Option.some_injective _ hx1
@@ -220,24 +231,22 @@ theorem cntW_win (routed : Slice U64) (lo hi : Nat) :
     simp [Finset.Ico_eq_empty_of_le (show min hi routed.length ≤ lo by omega)]
 
 /-- **`count_aggregate` refines the count function.**  If `count_aggregate routed lo hi` returns
-`ok m`, then `m` represents the function sending a fold `f` to the number of positions
-`j ∈ [lo, min hi len)` whose key has fold `f`. -/
+`ok m`, then `m` represents the function sending a frequency `f` (a key's own value, for every
+`u64` key) to the number of positions `j ∈ [lo, min hi len)` whose key is `f`.  The premise `hN`
+(the window holds at most `2^32 - 1` keys) keeps the overflow arena's `u32` index from wrapping
+(`Overflow::alloc` casts the arena length to `u32`). -/
 theorem count_aggregate_refines (routed : Slice U64) (lo hi : Usize)
     (m : hashtrinity.freq.FreqMap U64 Std.I64)
+    (hN : min hi.val routed.length - lo.val ≤ nilN)
     (h : hashtrinity.freq.FreqMapKI64.count_aggregate U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
       routed lo hi = ok m) :
     FreqRep m (cntI routed lo.val hi.val) := by
-  have := count_aggregate_refines_win routed lo hi m h
+  have := count_aggregate_refines_win routed lo hi m hN h
   rw [cntW_win] at this
   exact this
 
-/-- For a key below `2^64 - 3` the fold is the identity (`freq(k) = min(k, EMPTY - 2)`), so the count
-at the fold is the exact count of that key. -/
-theorem foldN_eq_iff (x k : Nat) (hk : k < 2^64 - 3) : foldN x = k ↔ x = k := by
-  unfold foldN
-  omega
-
-theorem cntI_key (routed : Slice U64) (lo hi : Nat) (k : U64) (hk : k.val < 2^64 - 3) :
+/-- The count at a key's frequency is the exact count of that key, for every `u64` key. -/
+theorem cntI_key (routed : Slice U64) (lo hi : Nat) (k : U64) :
     cntI routed lo hi k.val
       = ((Finset.Ico lo (min hi routed.length)).filter (fun j => routed.val[j]? = some k)).card := by
   classical
@@ -247,21 +256,20 @@ theorem cntI_key (routed : Slice U64) (lo hi : Nat) (k : U64) (hk : k.val < 2^64
   intro j _
   constructor
   · rintro ⟨x, hx1, hx2⟩
-    rw [foldN_eq_iff _ _ hk] at hx2
     rw [hx1]
     have : x = k := UScalar.eq_of_val_eq hx2
     rw [this]
   · intro hj
-    exact ⟨k, hj, by rw [foldN_eq_iff _ _ hk]⟩
+    exact ⟨k, hj, rfl⟩
 
-/-- The canonical object: `Apeiron.Table.build (· + ·) 0` over the stream of `1`s at each key's fold,
+/-- The canonical object: `Apeiron.Table.build (· + ·) 0` over the stream of `1`s at each key,
 read with `Apeiron.Table.get`, is the count `cntW` of the window. -/
 theorem build_count (w : List U64) (f : Nat) :
     Apeiron.Table.get (Apeiron.Table.build (fun (a b : Int) => a + b) (0 : Int)
-      (w.map (fun x => (foldN x.val, (1 : Int))))) f = (cntW w f : Int) := by
+      (w.map (fun x => (x.val, (1 : Int))))) f = (cntW w f : Int) := by
   classical
   have key : ∀ (w : List U64) (m0 : Apeiron.Table.HMap Nat Int),
-      Apeiron.Table.get ((w.map (fun x => (foldN x.val, (1 : Int)))).foldl
+      Apeiron.Table.get ((w.map (fun x => (x.val, (1 : Int)))).foldl
         (fun m kv => Apeiron.Table.insertWith (fun (a b : Int) => a + b) kv.1 kv.2 m) m0) f
         = Apeiron.Table.get m0 f + (cntW w f : Int) := by
     intro w
@@ -270,13 +278,13 @@ theorem build_count (w : List U64) (f : Nat) :
     | cons x rest ih =>
       intro m0
       rw [List.map_cons, List.foldl_cons, ih]
-      have hc : cntW (x :: rest) f = cntW rest f + (if foldN x.val = f then 1 else 0) := by
+      have hc : cntW (x :: rest) f = cntW rest f + (if x.val = f then 1 else 0) := by
         unfold cntW
-        by_cases hx : foldN x.val = f
+        by_cases hx : x.val = f
         · simp [hx]
         · simp [hx]
       rw [hc]
-      by_cases hx : foldN x.val = f
+      by_cases hx : x.val = f
       · subst hx
         dsimp only
         rw [Apeiron.Table.get_insertWith_self]
@@ -291,16 +299,17 @@ theorem build_count (w : List U64) (f : Nat) :
   simpa [Apeiron.Table.get] using this
 
 /-- **`count_aggregate` against the canonical `build`/`get`.**  Reading the canonical table built from
-the stream of `1`s over the window `routed[lo..min(hi, len))` (keyed by fold) at a fold `f` is the
-count `c f` the returned map represents. -/
+the stream of `1`s over the window `routed[lo..min(hi, len))` (keyed by the key's own value) at a
+frequency `f` is the count `c f` the returned map represents. -/
 theorem count_aggregate_canonical (routed : Slice U64) (lo hi : Usize)
     (m : hashtrinity.freq.FreqMap U64 Std.I64)
+    (hN : min hi.val routed.length - lo.val ≤ nilN)
     (h : hashtrinity.freq.FreqMapKI64.count_aggregate U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
       routed lo hi = ok m) :
     ∃ c, FreqRep m c ∧ ∀ f,
       Apeiron.Table.get (Apeiron.Table.build (fun (a b : Int) => a + b) (0 : Int)
-        ((win routed lo.val hi.val).map (fun x => (foldN x.val, (1 : Int))))) f = (c f : Int) :=
-  ⟨cntW (win routed lo.val hi.val), count_aggregate_refines_win routed lo hi m h,
+        ((win routed lo.val hi.val).map (fun x => (x.val, (1 : Int))))) f = (c f : Int) :=
+  ⟨cntW (win routed lo.val hi.val), count_aggregate_refines_win routed lo hi m hN h,
     fun f => build_count _ f⟩
 
 end Apeiron.CountAggregate
