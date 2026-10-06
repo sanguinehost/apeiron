@@ -383,7 +383,7 @@ theorem blocked_new_full_abs {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} (ov :
     obtain ⟨a, ha, _, hent, _⟩ := hall j hj
     have hak : a.key = k := UScalar.eq_of_val_eq (by rw [← keyAt_get ha]; exact hk)
     exact habs ⟨j, hj, a, ha, hak, 0, (a.key, some (m a.key)), by rw [hent]; rfl, hak⟩
-  obtain ⟨T', hI', _, hlenA, hndT, ⟨nde, hnde, hkey, _, _⟩, _, hfr⟩ :=
+  obtain ⟨T', hI', _, hlenA, hndT, ⟨nde, hnde, hkey, _, _⟩, _, hfr, _⟩ :=
     insert_new_at_spec ov o' T k k v nd e hI hcap habs h
   obtain ⟨hperm, ⟨nde', hnde', hent', hal'⟩, hframe⟩ := hfr hfresh
   rw [hnde] at hnde'

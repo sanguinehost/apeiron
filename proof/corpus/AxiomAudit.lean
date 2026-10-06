@@ -3,7 +3,11 @@ import Numeric.Pow2Refinement
 import Flux.Discrete
 import Count.Helpers
 import Count.FreqRep
+import Count.OverflowOps
 import Count.FreqAdd
+import Count.FreqSideOv
+import Count.FreqGrow
+import Count.FreqInsert
 import Count.Aggregate
 import Map.PrefixMasks
 import Map.ExecutedRead
@@ -64,6 +68,47 @@ import Map.ExecutedBuild
 #audit Apeiron.CountAggregate.movemask_spec
 #audit Apeiron.CountAggregate.with_capacity_rep
 #audit Apeiron.CountAggregate.freq_spec
+
+-- Count face, capped and identity-exact (Count/{OverflowOps,FreqSideOv,FreqGrow,FreqInsert}.lean):
+-- the overflow store under the count face, the side store, `place_capped`/`grow`, `insert_with`.
+#audit Apeiron.CountAggregate.nd_nodup
+#audit Apeiron.CountAggregate.in_order_descend
+#audit Apeiron.CountAggregate.in_order_tail
+#audit Apeiron.CountAggregate.in_order_spec
+#audit Apeiron.CountAggregate.next_spec
+#audit Apeiron.CountAggregate.into_entries_inner
+#audit Apeiron.CountAggregate.into_entries_loop_spec
+#audit Apeiron.CountAggregate.into_entries_spec
+#audit Apeiron.CountAggregate.new_spec
+#audit Apeiron.CountAggregate.oinv_node_update
+#audit Apeiron.CountAggregate.nodeok_node_update
+#audit Apeiron.CountAggregate.update_spec
+#audit Apeiron.CountAggregate.keys_absent_of
+#audit Apeiron.CountAggregate.keys_absent
+#audit Apeiron.CountAggregate.insert_ovok
+#audit Apeiron.CountAggregate.not_blocked_of_vacant
+#audit Apeiron.CountAggregate.blocked_insert
+#audit Apeiron.CountAggregate.empty_rep
+#audit Apeiron.CountAggregate.find_spec
+#audit Apeiron.CountAggregate.side_push_rep
+#audit Apeiron.CountAggregate.side_update_rep
+#audit Apeiron.CountAggregate.body_side_change
+#audit Apeiron.CountAggregate.inOv_iff_keys
+#audit Apeiron.CountAggregate.ov_start
+#audit Apeiron.CountAggregate.body_ov_change
+#audit Apeiron.CountAggregate.body_ov_insert
+#audit Apeiron.CountAggregate.body_ov_update
+#audit Apeiron.CountAggregate.place_blocked_tail
+#audit Apeiron.CountAggregate.place_capped_spec
+#audit Apeiron.CountAggregate.body_attach_side
+#audit Apeiron.CountAggregate.entries_aux
+#audit Apeiron.CountAggregate.grow_loop1_spec
+#audit Apeiron.CountAggregate.side_upd_exec
+#audit Apeiron.CountAggregate.side_live_exec
+#audit Apeiron.CountAggregate.side_new_spec
+#audit Apeiron.CountAggregate.side_upd_spec
+#audit Apeiron.CountAggregate.pot_with_capacity
+#audit Apeiron.CountAggregate.probe_outer_spec
 
 -- Map face `prefix_masks` (Map/PrefixMasks.lean): the AVX2 branch equals the scalar branch.
 #audit Apeiron.PrefixMasks.u64_ne_u8

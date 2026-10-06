@@ -523,24 +523,6 @@ theorem home_group_spec {V : Type} (self : hashtrinity.freq.FreqLine V) (p : U64
   rw [hg, UScalar.val_and, hm, hi1', usize_cast_val, e1]
   exact cast_and_mask _ _ _ hgb
 
-theorem tag_spec (V : Type) (f : U64) (t : U8)
-    (h : hashtrinity.freq.FreqLine.tag V f = ok t) : t.val = tagN f.val := by
-  unfold hashtrinity.freq.FreqLine.tag at h
-  obtain ⟨i, hi, h⟩ := bind_inv h
-  obtain ⟨i1, hi1, h⟩ := bind_inv h
-  have ht : t = UScalar.cast .U8 i1 := (Result.ok_injective h).symm
-  have hi' : i = core.num.U64.wrapping_mul f hashtrinity.PHI := (Result.ok_injective hi).symm
-  have hi1' : i1 = i &&& 127#u64 := (Result.ok_injective hi1).symm
-  rw [ht, UScalar.cast_val_eq, hi1', UScalar.val_and, hi', Apeiron.CountHelpers.wm_val]
-  have h127 : (127#u64).val = 127 := rfl
-  have e7 : (127 : Nat) = 2^7 - 1 := by norm_num
-  rw [h127, e7, Nat.and_two_pow_sub_one_eq_mod]
-  simp only [tagN, pN, PHIN, UScalarTy.numBits]
-  apply Nat.mod_eq_of_lt
-  have := Nat.mod_lt (f.val * 11400714819323198485 % 2^64) (show 0 < 2^7 by norm_num)
-  omega
-
-
 theorem nb_ge_aux : 32 ≤ System.Platform.numBits := Apeiron.CountHelpers.nb_ge
 
 theorem one_u32 : (1#u32).val = 1 := rfl
@@ -689,33 +671,33 @@ theorem get_unchecked_ok {α : Type} (s : Slice α) (i : Usize) (x : α)
 /-! ## The inner (tag-confirm) loop -/
 
 theorem probe_inner_spec {V : Type} (self : hashtrinity.freq.FreqLine V) (f : U64) (base : Usize)
-    (M : U16) (d0 f0 : Bool) (s0 : Usize)
-    (r : hashtrinity.freq.FreqLine V × Bool × Bool × Usize)
-    (h : hashtrinity.freq.FreqLine.probe_tagged_loop0_loop0 self f d0 f0 s0 base M = ok r) :
+    (M : U16) (f0 : Bool) (s0 : Usize)
+    (r : hashtrinity.freq.FreqLine V × Bool × Usize)
+    (h : hashtrinity.freq.FreqLine.probe_tagged_loop0_loop0 self f f0 s0 base M = ok r) :
     r.1 = self ∧
-    ((r.2.1 = d0 ∧ r.2.2.1 = f0 ∧ r.2.2.2 = s0 ∧
+    ((r.2.1 = f0 ∧ r.2.2 = s0 ∧
         ∀ k, k < 16 → M.val.testBit k = true → foN self (base.val + k) ≠ f.val) ∨
-     (r.2.1 = true ∧ r.2.2.1 = true ∧
+     (r.2.1 = true ∧
         ∃ k, k < 16 ∧ M.val.testBit k = true ∧ foN self (base.val + k) = f.val ∧
-          r.2.2.2.val = base.val + k)) := by
+          r.2.2.val = base.val + k)) := by
   unfold hashtrinity.freq.FreqLine.probe_tagged_loop0_loop0 at h
   have hM : M.val < 2^16 := by have := M.hBounds; simpa [UScalarTy.numBits] using this
-  refine loop_pc (fun (st : Bool × Bool × Usize × U16) =>
-      (st.1 = d0 ∧ st.2.1 = f0 ∧ st.2.2.1 = s0 ∧
-        (∀ k, st.2.2.2.val.testBit k = true → M.val.testBit k = true) ∧
-        (∀ k, k < 16 → M.val.testBit k = true → st.2.2.2.val.testBit k = false →
+  refine loop_pc (fun (st : Bool × Usize × U16) =>
+      (st.1 = f0 ∧ st.2.1 = s0 ∧
+        (∀ k, st.2.2.val.testBit k = true → M.val.testBit k = true) ∧
+        (∀ k, k < 16 → M.val.testBit k = true → st.2.2.val.testBit k = false →
           foN self (base.val + k) ≠ f.val)) ∨
-      (st.1 = true ∧ st.2.1 = true ∧ st.2.2.2.val = 0 ∧
+      (st.1 = true ∧ st.2.2.val = 0 ∧
         ∃ k, k < 16 ∧ M.val.testBit k = true ∧ foN self (base.val + k) = f.val ∧
-          st.2.2.1.val = base.val + k))
-    (fun (y : hashtrinity.freq.FreqLine V × Bool × Bool × Usize) => y.1 = self ∧
-    ((y.2.1 = d0 ∧ y.2.2.1 = f0 ∧ y.2.2.2 = s0 ∧
+          st.2.1.val = base.val + k))
+    (fun (y : hashtrinity.freq.FreqLine V × Bool × Usize) => y.1 = self ∧
+    ((y.2.1 = f0 ∧ y.2.2 = s0 ∧
         ∀ k, k < 16 → M.val.testBit k = true → foN self (base.val + k) ≠ f.val) ∨
-     (y.2.1 = true ∧ y.2.2.1 = true ∧
+     (y.2.1 = true ∧
         ∃ k, k < 16 ∧ M.val.testBit k = true ∧ foN self (base.val + k) = f.val ∧
-          y.2.2.2.val = base.val + k))) _ ?_ (d0, f0, s0, M) (Or.inl ⟨rfl, rfl, rfl, fun k hk => hk, fun k _ hk => by simp [hk]⟩) r h
+          y.2.2.val = base.val + k))) _ ?_ (f0, s0, M) (Or.inl ⟨rfl, rfl, fun k hk => hk, fun k _ hk => by simp [hk]⟩) r h
   intro st hst cf hcf
-  obtain ⟨d, fo, sl, m⟩ := st
+  obtain ⟨fo, sl, m⟩ := st
   simp only [] at hst
   unfold hashtrinity.freq.FreqLine.probe_tagged_loop0_loop0.body at hcf
   dsimp only at hcf
@@ -753,20 +735,20 @@ theorem probe_inner_spec {V : Type} (self : hashtrinity.freq.FreqLine V) (f : U6
     have hfo : foN self i2.val = i3.val := foN_of_get _ _ _ hget
     have hi2' : i2.val = base.val + tz.val := by omega
     have hfo' : foN self (base.val + tz.val) = i3.val := by rw [← hi2']; exact hfo
-    rcases hst with ⟨e1, e2, e3, hsub, hproc⟩ | ⟨e1, e2, e3, _⟩
+    rcases hst with ⟨e1, e3, hsub, hproc⟩ | ⟨e1, e3, _⟩
     · by_cases hf : i3 = f
       · change (if i3 = f then _ else _) = _ at hcf
         rw [if_pos hf] at hcf
-        have hcf' : cf = ControlFlow.cont (true, true, i2, 0#u16) := (Result.ok_injective hcf).symm
+        have hcf' : cf = ControlFlow.cont (true, i2, 0#u16) := (Result.ok_injective hcf).symm
         subst hcf'
-        refine Or.inr ⟨rfl, rfl, by simp, tz.val, hz16, hsub _ hzbit, ?_, ?_⟩
+        refine Or.inr ⟨rfl, by simp, tz.val, hz16, hsub _ hzbit, ?_, ?_⟩
         · rw [hfo', hf]
         · simp; omega
       · change (if i3 = f then _ else _) = _ at hcf
         rw [if_neg hf] at hcf
         obtain ⟨i4, hi4, hcf⟩ := bind_inv hcf
         simp only [lift, bind_tc_ok] at hcf
-        have hcf' : cf = ControlFlow.cont (d, fo, sl, (m &&& i4)) := by
+        have hcf' : cf = ControlFlow.cont (fo, sl, (m &&& i4)) := by
           have := Result.ok_injective hcf
           exact this.symm
         subst hcf'
@@ -775,7 +757,7 @@ theorem probe_inner_spec {V : Type} (self : hashtrinity.freq.FreqLine V) (f : U6
         rw [hone] at hi4v
         have hand : (m &&& i4).val = m.val &&& (m.val - 1) := by
           rw [UScalar.val_and]; congr 1; omega
-        refine Or.inl ⟨e1, e2, e3, ?_, ?_⟩
+        refine Or.inl ⟨e1, e3, ?_, ?_⟩
         · intro k hk
           rw [hand, clear_lowest m.val tz.val hzbit hzlow k] at hk
           simp at hk
@@ -797,13 +779,13 @@ theorem probe_inner_spec {V : Type} (self : hashtrinity.freq.FreqLine V) (f : U6
     · exfalso
       simp [e3] at hmne
   · rw [if_neg hm0] at hcf
-    have hcf' : cf = ControlFlow.done (self, d, fo, sl) := (Result.ok_injective hcf).symm
+    have hcf' : cf = ControlFlow.done (self, fo, sl) := (Result.ok_injective hcf).symm
     subst hcf'
     have hm0' : m.val = 0 := by simpa using hm0
     refine ⟨rfl, ?_⟩
-    rcases hst with ⟨e1, e2, e3, hsub, hproc⟩ | ⟨e1, e2, e3, k, hk1, hk2, hk3, hk4⟩
-    · refine Or.inl ⟨e1, e2, e3, fun k hk hMk => hproc k hk hMk (by rw [hm0']; simp)⟩
-    · exact Or.inr ⟨e1, e2, k, hk1, hk2, hk3, hk4⟩
+    rcases hst with ⟨e1, e3, hsub, hproc⟩ | ⟨e1, e3, k, hk1, hk2, hk3, hk4⟩
+    · refine Or.inl ⟨e1, e3, fun k hk hMk => hproc k hk hMk (by rw [hm0']; simp)⟩
+    · exact Or.inr ⟨e1, k, hk1, hk2, hk3, hk4⟩
 
 
 /-! ## Geometry of a line and the probe -/
@@ -822,7 +804,7 @@ structure LineGeom {V : Type} (l : hashtrinity.freq.FreqLine V) : Prop where
   empty_ctrl : ∀ i, foN l i = EMPTYN → ctN l i = 128
   full_ctrl : ∀ i, foN l i ≠ EMPTYN → ctN l i = tagN (foN l i)
   distinct : ∀ i j, foN l i ≠ EMPTYN → foN l i = foN l j → i = j
-  placed : ∀ i, foN l i ≠ EMPTYN → ∃ j, gseq (l.bits.val - 4) (pN (foN l i)) j = i / 16 ∧
+  placed : ∀ i, foN l i ≠ EMPTYN → ∃ j, j < 16 ∧ gseq (l.bits.val - 4) (pN (foN l i)) j = i / 16 ∧
     ∀ j', j' < j → fullG l (gseq (l.bits.val - 4) (pN (foN l i)) j')
 
 theorem LineGeom.gb_le {V : Type} {l : hashtrinity.freq.FreqLine V} (h : LineGeom l) :
@@ -837,13 +819,20 @@ theorem LineGeom.gb_le {V : Type} {l : hashtrinity.freq.FreqLine V} (h : LineGeo
     scalar_tac
   omega
 
-/-- What the probe returns, in terms of the line. -/
-def ProbePost {V : Type} (l : hashtrinity.freq.FreqLine V) (f : Nat) (fnd : Bool) (slot : Nat) : Prop :=
-  (fnd = true → foN l slot = f ∧ foN l slot ≠ EMPTYN) ∧
-  (fnd = false → 128 ≤ ctN l slot ∧ slot < l.slots.length ∧
-    (∃ j, slot / 16 = gseq (l.bits.val - 4) (pN f) j ∧
+/-- What the capped probe returns, in terms of the line: a hit; a vacant first-fit lane within the
+`PROBE_CAP = 16` groups; or `blocked` (the whole capped prefix is full and holds no lane of `f`). -/
+def ProbePost {V : Type} (l : hashtrinity.freq.FreqLine V) (f : Nat) (fnd blk : Bool) (slot : Nat) : Prop :=
+  (fnd = true → blk = false ∧ foN l slot = f ∧ foN l slot ≠ EMPTYN) ∧
+  (fnd = false → blk = false → 128 ≤ ctN l slot ∧ slot < l.slots.length ∧
+    (∃ j, j < 16 ∧ slot / 16 = gseq (l.bits.val - 4) (pN f) j ∧
       ∀ j', j' < j → fullG l (gseq (l.bits.val - 4) (pN f) j')) ∧
+    ∀ i, foN l i ≠ EMPTYN → foN l i ≠ f) ∧
+  (blk = true → fnd = false ∧
+    (∀ j', j' < 16 → fullG l (gseq (l.bits.val - 4) (pN f) j')) ∧
     ∀ i, foN l i ≠ EMPTYN → foN l i ≠ f)
+
+theorem PROBE_CAP_val : hashtrinity.PROBE_CAP.val = 16 := by
+  unfold hashtrinity.PROBE_CAP; rfl
 
 
 theorem tz_cast_spec (m : U16) (hm : m.val ≠ 0) (tz : U32) (i1 : Usize)
@@ -875,24 +864,29 @@ theorem tagN_lt (f : Nat) : tagN f < 128 := by
 
 theorem lane_group (i : Nat) : i = 16 * (i / 16) + i % 16 ∧ i % 16 < 16 := by omega
 
+theorem ge_val {ty} (x y : UScalar ty) : (x >= y) ↔ y.val ≤ x.val := by
+  exact UScalar.le_equiv y x
+
 theorem probe_outer_spec {V : Type} (l : hashtrinity.freq.FreqLine V) (hG : LineGeom l)
-    (f p : U64) (tag : U8) (hp : p.val = pN f.val) (htag : tag.val = tagN f.val)
+    (f p : U64) (tag : U8) (limit : U32) (hlim : limit.val = 16)
+    (hp : p.val = pN f.val) (htag : tag.val = tagN f.val)
     (g0 : Usize) (hg0 : g0.val = gseq (l.bits.val - 4) (pN f.val) 0)
-    (r : Bool × Usize)
-    (h : hashtrinity.freq.FreqLine.probe_tagged_loop0 l f p tag g0 0#u32 false false 0#usize = ok r) :
-    ProbePost l f.val r.1 r.2.val := by
+    (r : Bool × Bool × Usize)
+    (h : hashtrinity.freq.FreqLine.probe_tagged_loop0 l f p tag limit g0 0#u32 false false false 0#usize = ok r) :
+    ProbePost l f.val r.1 r.2.1 r.2.2.val := by
   unfold hashtrinity.freq.FreqLine.probe_tagged_loop0 at h
-  refine loop_pc (fun (st : hashtrinity.freq.FreqLine V × Usize × U32 × Bool × Bool × Usize) =>
+  refine loop_pc (fun (st : hashtrinity.freq.FreqLine V × Usize × U32 × Bool × Bool × Bool × Usize) =>
       st.1 = l ∧
-      ((st.2.2.2.1 = true ∧ ProbePost l f.val st.2.2.2.2.1 st.2.2.2.2.2.val) ∨
-       (st.2.2.2.1 = false ∧ st.2.1.val = gseq (l.bits.val - 4) (pN f.val) st.2.2.1.val ∧
+      ((st.2.2.2.1 = true ∧ ProbePost l f.val st.2.2.2.2.1 st.2.2.2.2.2.1 st.2.2.2.2.2.2.val) ∨
+       (st.2.2.2.1 = false ∧ st.2.2.2.2.1 = false ∧ st.2.2.2.2.2.1 = false ∧
+        st.2.1.val = gseq (l.bits.val - 4) (pN f.val) st.2.2.1.val ∧ st.2.2.1.val < 16 ∧
         (∀ j', j' < st.2.2.1.val → fullG l (gseq (l.bits.val - 4) (pN f.val) j')) ∧
         (∀ i, foN l i ≠ EMPTYN → foN l i = f.val →
-          ∃ js, gseq (l.bits.val - 4) (pN f.val) js = i / 16 ∧
+          ∃ js, js < 16 ∧ gseq (l.bits.val - 4) (pN f.val) js = i / 16 ∧
             (∀ j', j' < js → fullG l (gseq (l.bits.val - 4) (pN f.val) j')) ∧ st.2.2.1.val ≤ js))))
-    (fun (y : Bool × Usize) => ProbePost l f.val y.1 y.2.val) _ ?_ _ ?_ r h
+    (fun (y : Bool × Bool × Usize) => ProbePost l f.val y.1 y.2.1 y.2.2.val) _ ?_ _ ?_ r h
   · intro st hst cf hcf
-    obtain ⟨self0, g, j, d, fnd, sl⟩ := st
+    obtain ⟨self0, g, j, d, fnd, blk, sl⟩ := st
     obtain ⟨hs1, hst⟩ := hst
     simp only at hs1
     have hs1' := hs1.symm
@@ -902,23 +896,25 @@ theorem probe_outer_spec {V : Type} (l : hashtrinity.freq.FreqLine V) (hG : Line
     cases d with
     | true =>
       simp only [if_true] at hcf
-      have hcf' : cf = ControlFlow.done (fnd, sl) := (Result.ok_injective hcf).symm
+      have hcf' : cf = ControlFlow.done (fnd, blk, sl) := (Result.ok_injective hcf).symm
       subst hcf'
       rcases hst with ⟨_, hpost⟩ | ⟨hd, _⟩
       · exact hpost
       · simp at hd
     | false =>
       simp only [Bool.false_eq_true, if_false] at hcf
-      rcases hst with ⟨hd, _⟩ | ⟨_, hgj, hfull, hpres⟩
+      rcases hst with ⟨hd, _⟩ | ⟨_, hfnd0, hblk0, hgj, hj16, hfull, hpres⟩
       · simp at hd
-      dsimp only at hgj hfull hpres
+      dsimp only at hgj hj16 hfull hpres hfnd0 hblk0
+      subst hfnd0
+      subst hblk0
       obtain ⟨base, hbase, hcf⟩ := bind_inv hcf
       obtain ⟨M, hM, hcf⟩ := bind_inv hcf
-      obtain ⟨⟨self2, done2, found1, slot1⟩, hin, hcf⟩ := bind_inv hcf
+      obtain ⟨⟨self2, found1, slot1⟩, hin, hcf⟩ := bind_inv hcf
       have hbv := (umul_ok hbase).1
       rw [group_val] at hbv
       obtain ⟨hb1, hb2, hb3⟩ := match_tag_spec _ _ _ _ hM
-      obtain ⟨hin1, hin2⟩ := probe_inner_spec _ _ _ _ _ _ _ _ hin
+      obtain ⟨hin1, hin2⟩ := probe_inner_spec _ _ _ _ _ _ _ hin
       simp only at hin1
       have hin1' := hin1.symm
       subst hin1'
@@ -929,11 +925,11 @@ theorem probe_outer_spec {V : Type} (l : hashtrinity.freq.FreqLine V) (hG : Line
           have e : 16 * g.val + k = g.val * 16 + k := by omega
           rw [e]; exact ctN_of_get _ _ _ hb
         rw [this]; exact hiff
-      rcases hin2 with ⟨hd2, hf2, hs2, hnomatch⟩ | ⟨hd2, hf2, k, hk16, hMkb, hfok, hslk⟩
+      rcases hin2 with ⟨hf2, hs2, hnomatch⟩ | ⟨hf2, k, hk16, hMkb, hfok, hslk⟩
       · -- no tag candidate confirmed in this group
-        simp only at hd2 hf2 hs2
-        change (if done2 = true then _ else _) = _ at hcf
-        rw [if_neg (by simp [hd2])] at hcf
+        simp only at hf2 hs2
+        change (if found1 = true then _ else _) = _ at hcf
+        rw [if_neg (by simp [hf2])] at hcf
         obtain ⟨E, hE, hcf⟩ := bind_inv hcf
         obtain ⟨he1, he2, he3⟩ := match_empty_spec _ _ _ hE
         have hEk : ∀ k, k < 16 → (E.val.testBit k = true ↔ 128 ≤ ctN l (16 * g.val + k)) := by
@@ -965,7 +961,7 @@ theorem probe_outer_spec {V : Type} (l : hashtrinity.freq.FreqLine V) (hG : Line
           obtain ⟨tz, htz, hcf⟩ := bind_inv hcf
           obtain ⟨i1, hi1, hcf⟩ := bind_inv hcf
           obtain ⟨slot2, hslot2, hcf⟩ := bind_inv hcf
-          have hcf' : cf = ControlFlow.cont (l, g, j, true, false, slot2) := (Result.ok_injective hcf).symm
+          have hcf' : cf = ControlFlow.cont (l, g, j, true, false, false, slot2) := (Result.ok_injective hcf).symm
           subst hcf'
           obtain ⟨hi1lt, hi1bit⟩ := tz_cast_spec E hEne tz i1 htz hi1
           have hs2v := (uadd_ok hslot2).1
@@ -978,62 +974,86 @@ theorem probe_outer_spec {V : Type} (l : hashtrinity.freq.FreqLine V) (hG : Line
             have := hG.len_eq
             omega
           have e : slot2.val = 16 * g.val + i1.val := by rw [hs2v, hbv]; omega
-          refine ⟨rfl, Or.inl ⟨rfl, ?_, ?_⟩⟩
-          · intro htr; simp at htr
-          · intro _
-            refine ⟨?_, hslt, ⟨j.val, ?_, hfull⟩, ?_⟩
-            · rw [e]; exact hemp
-            · rw [← hgj, e]; omega
-            · intro i hi hfi
-              obtain ⟨js, hjs1, hjs2, hjs3⟩ := hpres i hi hfi
-              by_cases hjj : js = j.val
-              · subst hjj
-                have hig : i / 16 = g.val := by rw [← hjs1, ← hgj]
-                exact absurd hig (hnotin i hi hfi)
-              · have hfg := hjs2 j.val (by omega)
-                rw [← hgj] at hfg
-                have := hfg i1.val hi1lt
-                omega
+          refine ⟨rfl, Or.inl ⟨rfl, ?_⟩⟩
+          refine ⟨fun htr => by simp at htr, fun _ _ => ?_, fun htr => by simp at htr⟩
+          refine ⟨?_, hslt, ⟨j.val, hj16, ?_, hfull⟩, ?_⟩
+          · rw [e]; exact hemp
+          · rw [← hgj, e]; omega
+          · intro i hi hfi
+            obtain ⟨js, hjs0, hjs1, hjs2, hjs3⟩ := hpres i hi hfi
+            by_cases hjj : js = j.val
+            · subst hjj
+              have hig : i / 16 = g.val := by rw [← hjs1, ← hgj]
+              exact absurd hig (hnotin i hi hfi)
+            · have hfg := hjs2 j.val (by omega)
+              rw [← hgj] at hfg
+              have := hfg i1.val hi1lt
+              omega
         · rw [if_neg hE0] at hcf
           have hE0' : E.val = 0 := by simpa using hE0
           obtain ⟨j1, hj1, hcf⟩ := bind_inv hcf
-          obtain ⟨g1, hg1, hcf⟩ := bind_inv hcf
-          have hcf' : cf = ControlFlow.cont (l, g1, j1, false, found1, slot1) :=
-            (Result.ok_injective hcf).symm
-          subst hcf'
           have hj1v : j1.val = j.val + 1 := by
             have := (uadd_ok hj1).1
             rw [one_u32] at this
             exact this
-          have hg1v : g1.val = gseq (l.bits.val - 4) (pN f.val) j1.val := by
-            have := descend_group_spec l p j1 g1 hg1 hG.gmask hG.gb_le
-            rwa [hp] at this
           have hfg : fullG l g.val := by
             intro k hk
             by_contra hc
             have h1 := (hEk k hk).mpr (by omega)
             rw [hE0'] at h1
             simp at h1
-          refine ⟨rfl, Or.inr ⟨rfl, hg1v, ?_, ?_⟩⟩
-          · intro j' hj'
-            rw [hj1v] at hj'
-            by_cases hjj : j' = j.val
-            · subst hjj; rw [← hgj]; exact hfg
-            · exact hfull j' (by omega)
-          · intro i hi hfi
-            obtain ⟨js, hjs1, hjs2, hjs3⟩ := hpres i hi hfi
-            refine ⟨js, hjs1, hjs2, ?_⟩
-            rw [hj1v]
+          by_cases hge : j1 >= limit
+          · rw [if_pos hge] at hcf
+            have hcf' : cf = ControlFlow.cont (l, g, j1, true, false, true, slot1) :=
+              (Result.ok_injective hcf).symm
+            subst hcf'
+            have hge' : limit.val ≤ j1.val := (ge_val j1 limit).mp hge
+            have hj16' : j.val + 1 = 16 := by omega
+            have hall : ∀ j', j' < 16 → fullG l (gseq (l.bits.val - 4) (pN f.val) j') := by
+              intro j' hj'
+              by_cases hjj : j' = j.val
+              · subst hjj; rw [← hgj]; exact hfg
+              · exact hfull j' (by omega)
+            refine ⟨rfl, Or.inl ⟨rfl, ?_⟩⟩
+            refine ⟨fun htr => by simp at htr, fun _ hb => by simp at hb, fun _ => ⟨rfl, hall, ?_⟩⟩
+            intro i hi hfi
+            obtain ⟨js, hjs0, hjs1, hjs2, hjs3⟩ := hpres i hi hfi
             by_cases hjj : js = j.val
             · subst hjj
               have hig : i / 16 = g.val := by rw [← hjs1, ← hgj]
               exact absurd hig (hnotin i hi hfi)
             · omega
+          · rw [if_neg hge] at hcf
+            obtain ⟨g1, hg1, hcf⟩ := bind_inv hcf
+            have hcf' : cf = ControlFlow.cont (l, g1, j1, false, false, false, slot1) :=
+              (Result.ok_injective hcf).symm
+            subst hcf'
+            have hlt16 : j1.val < 16 := by
+              have : ¬ limit.val ≤ j1.val := fun hh => hge ((ge_val j1 limit).mpr hh)
+              omega
+            have hg1v : g1.val = gseq (l.bits.val - 4) (pN f.val) j1.val := by
+              have := descend_group_spec l p j1 g1 hg1 hG.gmask hG.gb_le
+              rwa [hp] at this
+            refine ⟨rfl, Or.inr ⟨rfl, rfl, rfl, hg1v, hlt16, ?_, ?_⟩⟩
+            · intro j' hj'
+              rw [hj1v] at hj'
+              by_cases hjj : j' = j.val
+              · subst hjj; rw [← hgj]; exact hfg
+              · exact hfull j' (by omega)
+            · intro i hi hfi
+              obtain ⟨js, hjs0, hjs1, hjs2, hjs3⟩ := hpres i hi hfi
+              refine ⟨js, hjs0, hjs1, hjs2, ?_⟩
+              rw [hj1v]
+              by_cases hjj : js = j.val
+              · subst hjj
+                have hig : i / 16 = g.val := by rw [← hjs1, ← hgj]
+                exact absurd hig (hnotin i hi hfi)
+              · omega
       · -- the confirm loop found the fold
-        simp only at hd2 hf2
-        change (if done2 = true then _ else _) = _ at hcf
-        rw [if_pos hd2] at hcf
-        have hcf' : cf = ControlFlow.cont (l, g, j, true, found1, slot1) := (Result.ok_injective hcf).symm
+        simp only at hf2
+        change (if found1 = true then _ else _) = _ at hcf
+        rw [if_pos hf2] at hcf
+        have hcf' : cf = ControlFlow.cont (l, g, j, true, true, false, slot1) := (Result.ok_injective hcf).symm
         subst hcf'
         have e : base.val + k = 16 * g.val + k := by omega
         have hnotE : foN l (base.val + k) ≠ EMPTYN := by
@@ -1043,19 +1063,16 @@ theorem probe_outer_spec {V : Type} (l : hashtrinity.freq.FreqLine V) (hG : Line
           rw [e] at h1
           have := tagN_lt f.val
           omega
-        refine ⟨rfl, Or.inl ⟨rfl, ?_, ?_⟩⟩
-        · intro _
-          rw [hslk]
-          exact ⟨hfok, hnotE⟩
-        · intro hh
-          rw [hf2] at hh
-          simp at hh
+        refine ⟨rfl, Or.inl ⟨rfl, ?_⟩⟩
+        refine ⟨fun _ => ⟨rfl, ?_, ?_⟩, fun hh => by simp at hh, fun hh => by simp at hh⟩
+        · rw [hslk]; exact hfok
+        · rw [hslk]; exact hnotE
   · dsimp only
-    refine ⟨rfl, Or.inr ⟨rfl, hg0, fun j' hj => absurd hj (by simp), ?_⟩⟩
+    refine ⟨rfl, Or.inr ⟨rfl, rfl, rfl, hg0, by norm_num, fun j' hj => absurd hj (by simp), ?_⟩⟩
     intro i hi hfi
-    obtain ⟨js, hjs1, hjs2⟩ := hG.placed i hi
+    obtain ⟨js, hjs0, hjs1, hjs2⟩ := hG.placed i hi
     rw [hfi] at hjs1 hjs2
-    exact ⟨js, hjs1, hjs2, by simp⟩
+    exact ⟨js, hjs0, hjs1, hjs2, by simp⟩
 
 
 theorem tag_of_p (p : U64) (fv : Nat) (hp : p.val = pN fv) :
@@ -1074,25 +1091,31 @@ theorem pN_of_wrapping (f : U64) : (core.num.U64.wrapping_mul f hashtrinity.PHI)
   rfl
 
 theorem probe_tagged_spec {V : Type} (l : hashtrinity.freq.FreqLine V) (hG : LineGeom l)
-    (f : U64) (slot : Usize) (found : Bool) (tag : U8)
-    (h : hashtrinity.freq.FreqLine.probe_tagged l f = ok (slot, found, tag)) :
-    tag.val = tagN f.val ∧ ProbePost l f.val found slot.val := by
+    (f : U64) (slot : Usize) (found blocked : Bool) (tag : U8)
+    (h : hashtrinity.freq.FreqLine.probe_tagged l f = ok (slot, found, blocked, tag)) :
+    tag.val = tagN f.val ∧ ProbePost l f.val found blocked slot.val := by
   unfold hashtrinity.freq.FreqLine.probe_tagged at h
   obtain ⟨p, hp, h⟩ := bind_inv h
   obtain ⟨i, hi, h⟩ := bind_inv h
   obtain ⟨tag', htag, h⟩ := bind_inv h
+  obtain ⟨limit, hlimit, h⟩ := bind_inv h
   obtain ⟨g, hg, h⟩ := bind_inv h
-  obtain ⟨⟨found', slot'⟩, hloop, h⟩ := bind_inv h
+  obtain ⟨⟨found', blocked', slot'⟩, hloop, h⟩ := bind_inv h
   have hpv : p.val = pN f.val := by
     have : p = core.num.U64.wrapping_mul f hashtrinity.PHI := (Result.ok_injective hp).symm
     rw [this]; exact pN_of_wrapping f
   have hi' : i = p &&& 127#u64 := (Result.ok_injective hi).symm
   have htag' : tag' = UScalar.cast .U8 i := (Result.ok_injective htag).symm
   have htagv : tag'.val = tagN f.val := by rw [htag', hi']; exact tag_of_p p f.val hpv
-  have hres : (slot', found', tag') = (slot, found, tag) := Result.ok_injective h
+  have hlimv : limit.val = 16 := by
+    have : limit = hashtrinity.PROBE_CAP := by
+      unfold hashtrinity.freq.FreqLine.probe_limit at hlimit
+      exact (Result.ok_injective hlimit).symm
+    rw [this]; exact PROBE_CAP_val
+  have hres : (slot', found', blocked', tag') = (slot, found, blocked, tag) := Result.ok_injective h
   simp only [Prod.mk.injEq] at hres
-  obtain ⟨hs, hf, ht⟩ := hres
-  subst hs; subst hf; subst ht
+  obtain ⟨hs, hf, hb, ht⟩ := hres
+  subst hs; subst hf; subst hb; subst ht
   have hg0 : g.val = gseq (l.bits.val - 4) (pN f.val) 0 := by
     have := home_group_spec l p g hg (l.bits.val - 4) hG.gmask hG.gb_le
     rw [this, hpv]
@@ -1107,21 +1130,7 @@ theorem probe_tagged_spec {V : Type} (l : hashtrinity.freq.FreqLine V) (hG : Lin
       rw [if_neg hz, if_pos (by omega), hgs, if_neg hne]
       congr 2
       omega
-  have := probe_outer_spec l hG f p tag' hpv htagv g hg0 _ hloop
+  have := probe_outer_spec l hG f p tag' limit hlimv hpv htagv g hg0 _ hloop
   exact ⟨htagv, this⟩
-
-
-
-theorem probe_spec {V : Type} (l : hashtrinity.freq.FreqLine V) (hG : LineGeom l) (f : U64)
-    (slot : Usize) (found : Bool)
-    (h : hashtrinity.freq.FreqLine.probe l f = ok (slot, found)) :
-    ProbePost l f.val found slot.val := by
-  unfold hashtrinity.freq.FreqLine.probe at h
-  obtain ⟨⟨slot', found', tag'⟩, hp, h⟩ := bind_inv h
-  have := Result.ok_injective h
-  simp only [Prod.mk.injEq] at this
-  obtain ⟨h1, h2⟩ := this
-  subst h1; subst h2
-  exact (probe_tagged_spec l hG f slot' found' tag' hp).2
 
 end Apeiron.CountAggregate

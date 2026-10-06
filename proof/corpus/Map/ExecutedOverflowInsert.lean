@@ -589,7 +589,13 @@ theorem insert_new_at_spec (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd
         (idxs T').Perm (nd.val :: idxs T) ∧
         (∃ nde, o'.nodes.val[nd.val]? = some nde ∧ nde.entries.val = [(k, some v)] ∧
           nde.alive = true) ∧
-        ∀ j ∈ idxs T, ∀ a, o.nodes.val[j]? = some a → ∃ b, o'.nodes.val[j]? = some b ∧ sameD a b) := by
+        ∀ j ∈ idxs T, ∀ a, o.nodes.val[j]? = some a → ∃ b, o'.nodes.val[j]? = some b ∧ sameD a b) ∧
+      ((∃ nd0, nd.val ∈ idxs T ∧ o.nodes.val[nd.val]? = some nd0 ∧ nd0.key = coord) ∨
+       (nd.val ∉ idxs T ∧
+        ∀ j ∈ idxs T', ∃ nd', o'.nodes.val[j]? = some nd' ∧
+          ((j ∈ idxs T ∧ ∃ nd0, o.nodes.val[j]? = some nd0 ∧ nd'.key = nd0.key ∧
+              nd'.alive = nd0.alive ∧ nd'.entries.val = nd0.entries.val) ∨
+           (j = nd.val ∧ nd'.key = coord ∧ nd'.alive = true ∧ nd'.entries.val = [(k, some v)])))) := by
   obtain ⟨hE, hB, hND, hH, hBal, hfn, hfl⟩ := hI
   unfold hashtrinity.overflow.Overflow.insert_new_at at h
   simp only [lift, bind_tc_ok] at h
@@ -658,7 +664,7 @@ theorem insert_new_at_spec (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd
       obtain ⟨ndo, hndo, _⟩ := emb_mem hE j hj
       obtain ⟨nd'', hnd'', hs'', _⟩ := hrel3.2 j ndo (by rw [hagree j hj]; exact hndo)
       exact ⟨ndo, nd'', hndo, hnd'', hs''.1.symm, hs''.2.1.symm⟩
-    refine ⟨T', ⟨hE3, hB3, hND3, hH3, hBal3, ?_, ?_⟩, ?_, ?_, ?_, ⟨nd', hnd', hnkey, ?_, ?_⟩, ?_, ?_⟩
+    refine ⟨T', ⟨hE3, hB3, hND3, hH3, hBal3, ?_, ?_⟩, ?_, ?_, ?_, ⟨nd', hnd', hnkey, ?_, ?_⟩, ?_, ?_, ?_⟩
     · rw [hf3]; exact hfn2
     · intro j hj
       rw [hf3] at hj
@@ -678,6 +684,14 @@ theorem insert_new_at_spec (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd
       refine ⟨hperm, ⟨nd', hnd', hnent, by rw [← hsd.2.2]; exact hnia⟩, fun j hj a ha => ?_⟩
       obtain ⟨b, hb, hsb, _⟩ := hrel3.2 j a (by rw [hagree j hj]; exact ha)
       exact ⟨b, hb, hsb⟩
+    · refine Or.inr ⟨hnT, fun j hj => ?_⟩
+      rcases List.mem_cons.mp (hperm.mem_iff.mp hj) with e | e
+      · refine ⟨nd', ?_, Or.inr ⟨e, hnkey, ?_, hnent⟩⟩
+        · rw [e]; exact hnd'
+        · rw [← hsd.2.2]; exact hnia
+      · obtain ⟨ndo, hndo, _⟩ := emb_mem hE j e
+        obtain ⟨nd'', hnd'', hs'', _⟩ := hrel3.2 j ndo (by rw [hagree j e]; exact hndo)
+        exact ⟨nd'', hnd'', Or.inl ⟨e, ndo, hndo, hs''.1.symm, hs''.2.2.symm, by rw [hs''.2.1]⟩⟩
   · rw [if_neg hnil] at hif
     obtain ⟨⟨n1, back⟩, hn1, hif⟩ := bind_inv hif
     obtain ⟨hn1', hback⟩ := idxm_ok hn1
@@ -749,7 +763,7 @@ theorem insert_new_at_spec (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd
       · exact ⟨nd0, by rw [hne j hjj]; exact hnd0, rfl⟩
     have hlast : v1.val[e1.val]? = some (k, some v) := by
       rw [hent, he]; exact List.getElem?_concat_length
-    refine ⟨T, ⟨?_, ?_, hND, ?_, hBal, hfn, ?_⟩, ?_, ?_, hm, ⟨{n1 with entries := v1}, ?_, hkey, ?_, ?_⟩, ?_, ?_⟩
+    refine ⟨T, ⟨?_, ?_, hND, ?_, hBal, hfn, ?_⟩, ?_, ?_, hm, ⟨{n1 with entries := v1}, ?_, hkey, ?_, ?_⟩, ?_, ?_, ?_⟩
     · show Emb (back {n1 with entries := v1}).val o.root T
       rw [hnodes]; exact emb_ptr_congr hE hptr
     · show BST (back {n1 with entries := v1}).val T
@@ -778,6 +792,7 @@ theorem insert_new_at_spec (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd
         ⟨n1, {n1 with entries := v1}, hn1o, List.getElem?_set_self hlt, hkey, hkey, hent⟩ c k' w
     · intro hno
       exact absurd hk (hno n.val hm)
+    · exact Or.inl ⟨n1, hm, hn1o, hkey⟩
 
 /-- `insert_new_at_spec` with the absence hypothesis stated as `find_entry = none`. -/
 theorem insert_new_at_spec_fe (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd : U32)
@@ -794,7 +809,13 @@ theorem insert_new_at_spec_fe (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) 
         (idxs T').Perm (nd.val :: idxs T) ∧
         (∃ nde, o'.nodes.val[nd.val]? = some nde ∧ nde.entries.val = [(k, some v)] ∧
           nde.alive = true) ∧
-        ∀ j ∈ idxs T, ∀ a, o.nodes.val[j]? = some a → ∃ b, o'.nodes.val[j]? = some b ∧ sameD a b) :=
+        ∀ j ∈ idxs T, ∀ a, o.nodes.val[j]? = some a → ∃ b, o'.nodes.val[j]? = some b ∧ sameD a b) ∧
+      ((∃ nd0, nd.val ∈ idxs T ∧ o.nodes.val[nd.val]? = some nd0 ∧ nd0.key = coord) ∨
+       (nd.val ∉ idxs T ∧
+        ∀ j ∈ idxs T', ∃ nd', o'.nodes.val[j]? = some nd' ∧
+          ((j ∈ idxs T ∧ ∃ nd0, o.nodes.val[j]? = some nd0 ∧ nd'.key = nd0.key ∧
+              nd'.alive = nd0.alive ∧ nd'.entries.val = nd0.entries.val) ∨
+           (j = nd.val ∧ nd'.key = coord ∧ nd'.alive = true ∧ nd'.entries.val = [(k, some v)])))) :=
   insert_new_at_spec o o' T coord k v nd e hI hcap
     ((find_entry_none_iff o T hI.1 hI.2.1 coord k none hfe).mp rfl) h
 
