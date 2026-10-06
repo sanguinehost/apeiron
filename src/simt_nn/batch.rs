@@ -64,6 +64,9 @@ impl Kb {
         wg: u32,
     ) {
         let sint = self.sint_ty();
+        // the per-block scales cross threads (written by block owners, read by every word lane):
+        // they travel through workgroup memory, which the barrier below orders.
+        let (ssc, sscp) = self.shared_f32(n / 32);
         let cwg = self.cu(wg);
         let cblk = self.cu(n / 32);
         self.loop_step(tid, cblk, cwg, |k, b| {
@@ -95,6 +98,7 @@ impl Kb {
             let sc = k.fmul(mx, inv127);
             let si = k.iadd(boff, b);
             k.store_f(scales, si, sc);
+            k.shared_store(ssc, sscp, b, sc);
             let sm = k.load_var_f(sumv);
             k.store_f(xs, si, sm);
         });
@@ -109,8 +113,7 @@ impl Kb {
             let base = k.iadd(base0, ll);
             let c32 = k.cu(32);
             let kb = k.udiv(base0, c32);
-            let kbo = k.iadd(boff, kb);
-            let sx = k.load_f(scales, kbo);
+            let sx = k.shared_load(ssc, sscp, kb);
             let word = k.fvar_u();
             let z = k.cu(0);
             k.store_var(word, z);
@@ -209,6 +212,11 @@ impl Kb {
         let cblk = self.cu(nblk);
         let cnsb = self.cu(nsb);
         let cnblk = self.cu(nblk);
+        // the per-superblock scale crosses threads (written by the superblock owner in phase B,
+        // read by every block lane in phase C): it travels through workgroup memory. Reaching it
+        // through the `xs` SSBO is the cross-invocation storage race — under GLSL450 a
+        // WorkgroupMemory barrier does not make a storage-buffer write visible cross-invocation.
+        let (sxs, sxsp) = self.shared_f32(nsb);
         // ── phase A: absmax over each 32-block, one thread per block
         self.loop_step(tid, cblk, cwg, |k, b| {
             let c32 = k.cu(32);
@@ -257,14 +265,14 @@ impl Kb {
             let sc = k.e(OP_SELECT, f, &[pos, sc0, one]);
             let si = k.iadd(boff, sb);
             k.store_f(xs, si, sc);
+            k.shared_store(sxs, sxsp, sb, sc);
         });
         self.wg_barrier();
         // ── phase C: pack the 8 natural-order words of each 32-block, and its partial Σq
         self.loop_step(tid, cblk, cwg, |k, b| {
             let c8 = k.cu(8);
             let sbi0 = k.udiv(b, c8);
-            let sbi = k.iadd(boff, sbi0);
-            let sx = k.load_f(xs, sbi);
+            let sx = k.shared_load(sxs, sxsp, sbi0);
             let c32 = k.cu(32);
             let base = k.imul(b, c32);
             let wbase0 = k.imul(b, c8);
@@ -824,15 +832,18 @@ pub fn qkv_rope_batch_module(
     let slotb = k.imul(slot, chd);
     let base = k.iadd(rowb, slotb);
     let idx = k.iadd(base, lane);
-    // ── bias over the WHOLE qkv row (Q, K and V slots alike)
-    if bias {
+    // The lane's value lives in a register (`vf`) until the final store: RoPE partners and the
+    // KV absmax exchange through workgroup memory, never through the storage buffer.
+    let vf = k.fvar_f();
+    let v0 = k.load_f(qkv, idx);
+    let v0 = if bias {
         let bi = k.iadd(slotb, lane);
         let bv = k.load_f(bias_b, bi);
-        let v0 = k.load_f(qkv, idx);
-        let v1 = k.fadd(v0, bv);
-        k.store_f(qkv, idx, v1);
-    }
-    k.wg_barrier();
+        k.fadd(v0, bv)
+    } else {
+        v0
+    };
+    k.store_var(vf, v0);
     let cnh = k.cu(nh);
     let cnhk = k.cu(nh + nkv);
     let is_k = k.e(OP_UGE, k.bool_t, &[slot, cnh]);
@@ -842,7 +853,7 @@ pub fn qkv_rope_batch_module(
                                      //    ONE workgroup-uniform block covers both and the barriers stay uniform.
     if qknorm {
         k.iff(rotates, |k| {
-            let v = k.load_f(qkv, idx);
+            let v = k.load_var_f(vf);
             let sq = k.fmul(v, v);
             k.shared_store(red, redp, lane, sq);
             k.wg_barrier();
@@ -860,54 +871,57 @@ pub fn qkv_rope_batch_module(
             let gv = k.e(OP_SELECT, f, &[is_k, gk, gq]);
             let sc = k.fmul(v, inv);
             let o = k.fmul(sc, gv);
-            k.wg_barrier(); // every lane has read `red`; safe to overwrite qkv now
-            k.store_f(qkv, idx, o);
+            k.wg_barrier(); // every lane has read `red`
+            k.store_var(vf, o);
         });
         k.wg_barrier();
     }
     // ── RoPE, pair-leader lanes; the range reduction is `fused_rope_kv_module`'s (GPU sin/cos lose
     //    all range past ~2¹² rad, which is why >4k context collapsed before it existed).
+    let vcur = k.load_var_f(vf);
+    k.shared_store(red, redp, lane, vcur);
+    k.wg_barrier();
     k.iff(rotates, |k| {
         let cd2 = k.cu(d2);
-        let is_leader = k.ult(lane, cd2);
-        k.iff(is_leader, |k| {
-            let i0 = k.iadd(base, lane);
-            let cd2b = k.cu(d2);
-            let i1 = k.iadd(i0, cd2b);
-            let jf = k.utof(lane);
-            let two_over_hd = k.cf(-2.0 / hd as f32 * theta.ln());
-            let expo = k.fmul(jf, two_over_hd);
-            let invf = k.ext1(GLSL_EXP, expo);
-            let posf = k.utof(pos);
-            let ang0 = k.fmul(posf, invf);
-            let inv2pi = k.cf(1.0 / (2.0 * std::f32::consts::PI));
-            let nr0 = k.fmul(ang0, inv2pi);
-            let nrd = k.ext1(GLSL_ROUND, nr0);
-            let cc1 = k.cf(6.283203125_f32);
-            let cc2 = k.cf(2.0 * std::f32::consts::PI - 6.283203125_f32);
-            let nc1 = k.fmul(nrd, cc1);
-            let a1 = k.fsub(ang0, nc1);
-            let nc2 = k.fmul(nrd, cc2);
-            let ang = k.fsub(a1, nc2);
-            let cs = k.ext1(GLSL_COS, ang);
-            let sn = k.ext1(GLSL_SIN, ang);
-            let x0 = k.load_f(qkv, i0);
-            let x1 = k.load_f(qkv, i1);
-            let a = k.fmul(x0, cs);
-            let b = k.fmul(x1, sn);
-            let r0 = k.fsub(a, b);
-            let cc = k.fmul(x1, cs);
-            let dd = k.fmul(x0, sn);
-            let r1 = k.fadd(cc, dd);
-            k.store_f(qkv, i0, r0);
-            k.store_f(qkv, i1, r1);
-        });
+        let jl = k.umod(lane, cd2);
+        let is_hi = k.e(OP_UGE, k.bool_t, &[lane, cd2]);
+        let jf = k.utof(jl);
+        let two_over_hd = k.cf(-2.0 / hd as f32 * theta.ln());
+        let expo = k.fmul(jf, two_over_hd);
+        let invf = k.ext1(GLSL_EXP, expo);
+        let posf = k.utof(pos);
+        let ang0 = k.fmul(posf, invf);
+        let inv2pi = k.cf(1.0 / (2.0 * std::f32::consts::PI));
+        let nr0 = k.fmul(ang0, inv2pi);
+        let nrd = k.ext1(GLSL_ROUND, nr0);
+        let cc1 = k.cf(6.283203125_f32);
+        let cc2 = k.cf(2.0 * std::f32::consts::PI - 6.283203125_f32);
+        let nc1 = k.fmul(nrd, cc1);
+        let a1 = k.fsub(ang0, nc1);
+        let nc2 = k.fmul(nrd, cc2);
+        let ang = k.fsub(a1, nc2);
+        let cs = k.ext1(GLSL_COS, ang);
+        let sn = k.ext1(GLSL_SIN, ang);
+        let j2 = k.iadd(jl, cd2);
+        let x0 = k.shared_load(red, redp, jl);
+        let x1 = k.shared_load(red, redp, j2);
+        let a = k.fmul(x0, cs);
+        let b = k.fmul(x1, sn);
+        let r_lo = k.fsub(a, b);
+        let cc = k.fmul(x1, cs);
+        let dd = k.fmul(x0, sn);
+        let r_hi = k.fadd(cc, dd);
+        let f = k.float;
+        let r = k.e(OP_SELECT, f, &[is_hi, r_hi, r_lo]);
+        k.store_var(vf, r);
     });
-    k.wg_barrier();
+    k.wg_barrier(); // every lane has read `red`
+    let vfin = k.load_var_f(vf);
+    k.store_f(qkv, idx, vfin);
     // ── KV append: absmax/127 per (head, position), the code map of `CpuState::kv_write`
     let does_kv = k.e(OP_UGE, k.bool_t, &[slot, cnh]);
     k.iff(does_kv, |k| {
-        let v = k.load_f(qkv, idx);
+        let v = k.load_var_f(vf);
         let f = k.float;
         let gl = k.glsl;
         let av = k.e(OP_EXT_INST, f, &[gl, GLSL_FABS, v]);

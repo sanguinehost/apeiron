@@ -97,6 +97,12 @@ name = "gemm_bench"
 path = "examples/gemm_bench.rs"
 required-features = ["gpu"]
 
+# Whole-model GPU perplexity measurement (the llama-perplexity comparator).
+[[example]]
+name = "gpu_ppl"
+path = "examples/gpu_ppl.rs"
+required-features = ["gpu"]
+
 [workspace]
 members = ["derive", "fold-abi"]
 # `fuzz` builds under a sanitizer with its own flags and its own lockfile; it is a sibling

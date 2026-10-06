@@ -928,6 +928,11 @@ impl Kb {
         slot_base: Option<(u32, u32)>,
     ) {
         let cwg = self.cu(wg);
+        // the per-block scale crosses threads (written by block owners, read by every word lane):
+        // it travels through workgroup memory, which `wg_barrier` orders. Reaching it through the
+        // `scales` SSBO is the cross-invocation storage race (GLSL450: a WorkgroupMemory barrier
+        // does not make a storage-buffer write visible to another invocation).
+        let (ssc, sscp) = self.shared_f32(n / 32);
         // per-block absmax → scale + block sum
         let cblk = self.cu(n / 32);
         self.loop_step(tid, cblk, cwg, |k, b| {
@@ -962,6 +967,7 @@ impl Kb {
                 None => b,
             };
             k.store_f(scales, bo, sc);
+            k.shared_store(ssc, sscp, b, sc);
             let sm = k.load_var_f(sumv);
             k.store_f(xs, bo, sm);
         });
@@ -977,11 +983,7 @@ impl Kb {
             let base = k.iadd(base0, ll);
             let c32 = k.cu(32);
             let kb0 = k.udiv(base0, c32);
-            let kb = match slot_base {
-                Some((_, bb)) => k.iadd(bb, kb0),
-                None => kb0,
-            };
-            let sx = k.load_f(scales, kb);
+            let sx = k.shared_load(ssc, sscp, kb0);
             let word = k.fvar_u();
             let z = k.cu(0);
             k.store_var(word, z);
