@@ -170,6 +170,11 @@ lean_lib Numeric where
 lean_lib Spirv where
   globs := #[.submodules `Spirv]
 
+-- Performance theory: the resource carrier `Perf.Res`,
+-- the roofline lower bound, the move theorem and the fusion results. Module discovery under Perf/.
+lean_lib Perf where
+  globs := #[.submodules `Perf]
+
 -- Bounded authorization decision core: the canonical definition staged
 -- here until the corpus migration, its laws, and (W2) the analysis layer over Apeiron.Decider.
 lean_lib Policy where

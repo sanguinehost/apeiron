@@ -17,6 +17,7 @@ import Map.ExecutedResize
 import Map.ExecutedBuild
 import Map.ExecutedBuildWitness
 import Spirv.Carrier
+import Perf.Roofline
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -267,3 +268,13 @@ import Spirv.Carrier
 #audit Spirv.carrier_decode
 #audit Spirv.carrier_split
 #audit Spirv.carrier_split_cells
+
+-- Row: `perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX` (PERF-THEORY, W1): the roofline lower
+-- bound, the move speedup bound and the two fusion results over the resource carrier
+-- (`Perf/Roofline.lean`).
+#audit Perf.timeLB_mono
+#audit Perf.move_speedup_le
+#audit Perf.move_speedup_le_binding
+#audit Perf.fusion_reduces_latency
+#audit Perf.fanout_forces_cost
+#audit Perf.scalar_not_sufficient
