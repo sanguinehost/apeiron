@@ -518,7 +518,7 @@ The Claude subscription has a rolling session limit as well as a weekly cap, and
 (apeiron and intent). The target is to spend the weekly cap fully without stopping on the session limit
 (a 10–20 minute wait is acceptable; a two-hour stop is not).
 
-- **Claude concurrency cap:** at most **one Opus** and **one Sonnet** subagent at a time per lead session, beside
+- **Claude concurrency cap:** at most **one Opus** and **two Sonnet** subagents at a time per lead session, beside
   the lead itself. A Claude lane is reserved for work whose artifact is at risk: unsafe Rust, proofs past a
   worker's cycle cap, contract or architecture decisions. Everything bounded goes to DeepSeek Flash (≤ 3
   concurrent opencode workers) and agy (≤ 2).
