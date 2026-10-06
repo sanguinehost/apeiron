@@ -514,14 +514,18 @@ disk are historical records.
 
 ### Pacing and estimates (owner, 2026-10-06)
 
-The Claude subscription has a rolling session limit as well as a weekly cap, and two lead sessions share it
-(apeiron and intent). The target is to spend the weekly cap fully without stopping on the session limit
-(a 10–20 minute wait is acceptable; a two-hour stop is not).
+The rules are in the owner layer, [`../AGENTS.md`](../AGENTS.md) §Capacity, "Rules: the weekly cap lasts
+5–7 days" (owner, 2026-10-06). They bind this repository; this file holds no copy of the figures.
+`python3 ~/Workspace/lrw.com/drafts/agent-cost/tools/rules.py` prints them. In short: one day budget shared
+by every lead on the machine; auto-compact at 200k on every Claude model, by the session's own model; a lead
+plus at most one Sonnet subagent by default, with the 1 Opus + 2 Sonnet burst as a few hours a day; nights
+run a lone lead with the work on agy (Gemini 3.8 Flash high), then DeepSeek; no timer polling; delegation by
+size, and every dispatch logs its estimate and actual.
 
-- **Claude concurrency cap:** at most **one Opus** and **two Sonnet** subagents at a time per lead session, beside
-  the lead itself. A Claude lane is reserved for work whose artifact is at risk: unsafe Rust, proofs past a
-  worker's cycle cap, contract or architecture decisions. Everything bounded goes to DeepSeek Flash (about 6
-  concurrent opencode workers per lead session; the box has run 50–90) and agy.
+- **Claude concurrency:** a lead plus at most one Sonnet subagent by default; the burst (one Opus and two
+  Sonnet beside the lead) is a per-day allowance of a few hours under the owner-layer day budget, not a
+  standing shape. A Claude lane is reserved for work whose artifact is at risk: unsafe Rust, proofs past a
+  worker's cycle cap, contract or architecture decisions. Everything bounded goes to agy and DeepSeek Flash.
 - **Claude lanes keep context lean:** they pipe output through `tail`/`rg`, never `cat` a log, and spawn no
   subagents.
 - **Every dispatch carries an estimate**, wall-clock minutes and, for Claude lanes, tokens, recorded in
