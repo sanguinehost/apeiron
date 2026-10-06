@@ -1,0 +1,93 @@
+-- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe` (APEIRON-HT-READ): `SelectedFace` rebased onto the executed body.
+import Map.ExecutedRead
+import Map.Selected
+
+/-!
+# `SelectedFace` on the executed body
+
+`Map/Selected.lean` states the executed map face's read contract `SelectedReadRep F s live map default`
+over an abstract `F : SelectedFace State`, and derives it (`selectedReadRep_of_mapRep`) from the
+growable table's `RepR` plus the premise `hbridge`, because the executed body had no extraction.
+
+`executedFace enc` is `SelectedFace` instantiated at the extracted state
+`hashtrinity.Table U64 I64 (Stored U64)` with the extracted bodies: `read` is `word_hashtrinity_get`,
+`home` is `hashtrinity.Table.home`, `slots` is the slot count, and `insert` is
+`word_hashtrinity_insert` (the last-write face; the merge argument is not read, as in the executed
+wrapper).  Map-face keys reach the `u64` face through an arbitrary encoding `enc : MapKey → U64`.  A
+body that does not return `ok` reads as `none`/the unchanged state; the theorem below assumes the
+read returns `ok` (`hok`), because this tree proves partial correctness only.
+
+`selectedReadRep_of_tableRep` is the one lemma that replaces `hbridge`: under `TableRep s m live` the
+executed face satisfies `SelectedReadRep` with live set `live ∘ enc`, the canonical map that reads
+`m ∘ enc` on that set and `default` off it, and the given default.  Its only premises are the
+representation, `hok`, and the AVX2-branch contract `avx2_probe = true → Avx2Spec`.
+-/
+
+set_option linter.apeiron.notation false
+set_option linter.apeiron.citation false
+
+namespace Apeiron.MapExecuted
+open Aeneas Aeneas.Std Result
+open apeiron_word Apeiron.MapFace
+
+open Classical in
+/-- `SelectedFace` at the extracted `Stored<u64>` state, through a key encoding `enc`. -/
+noncomputable def executedFace (enc : MapKey → U64) :
+    SelectedFace (Tbl (hashtrinity.algebra.Stored U64)) where
+  read s key := if h : ∃ r, word_hashtrinity_get s (enc key) = ok r then Classical.choose h else none
+  home s key :=
+    if h : ∃ i, hashtrinity.Table.home core.cmp.EqU64 CI SKS s (enc key) = ok i then
+      (Classical.choose h).val else 0
+  slots s := s.coords.length
+  insert s key v _ :=
+    if h : ∃ s', word_hashtrinity_insert s (enc key) v = ok s' then Classical.choose h else s
+
+theorem executedFace_read (enc : MapKey → U64) (s : Tbl (hashtrinity.algebra.Stored U64))
+    (key : MapKey) (r : Option I64) (h : word_hashtrinity_get s (enc key) = ok r) :
+    (executedFace enc).read s key = r := by
+  have hex : ∃ r, word_hashtrinity_get s (enc key) = ok r := ⟨r, h⟩
+  unfold executedFace
+  dsimp only
+  rw [dif_pos hex]
+  have := Classical.choose_spec hex
+  exact (Result.ok_injective (this.symm.trans h))
+
+open Classical in
+/-- **`SelectedReadRep` from the executed read, with no bridge premise.**  Under `TableRep s m live`,
+the executed face `executedFace enc` satisfies the read contract of `Map/Selected.lean` at live set
+`live ∘ enc` and canonical map `key ↦ if live (enc key) then m (enc key) else default`. -/
+theorem selectedReadRep_of_tableRep
+    (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
+    (enc : MapKey → U64) (s : Tbl (hashtrinity.algebra.Stored U64))
+    (m : Apeiron.Table.HMap U64 I64) (live : U64 → Prop) (hR : TableRep s m live)
+    (default : I64) (hok : ∀ key, ∃ r, word_hashtrinity_get s (enc key) = ok r) :
+    SelectedReadRep (executedFace enc) s (fun key => live (enc key))
+      (fun key => if live (enc key) then m (enc key) else default) default := by
+  have hread : ∀ key, ∃ r, (executedFace enc).read s key = r ∧
+      (∀ v, r = some v ↔ live (enc key) ∧ v = Apeiron.Table.get m (enc key)) ∧
+      (¬ live (enc key) → r = none) := by
+    intro key
+    obtain ⟨r, hr⟩ := hok key
+    exact ⟨r, executedFace_read enc s key r hr, get_refines hA s m live hR (enc key) r hr⟩
+  refine ⟨?_, ?_, ?_⟩
+  · intro key
+    obtain ⟨r, hrd, hsome, _⟩ := hread key
+    rw [hrd]
+    constructor
+    · intro hl
+      exact Option.isSome_iff_exists.mpr ⟨_, (hsome _).mpr ⟨hl, rfl⟩⟩
+    · intro hs
+      obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp hs
+      exact ((hsome v).mp hv).1
+  · intro key hl
+    obtain ⟨r, hrd, hsome, _⟩ := hread key
+    rw [hrd, (hsome _).mpr ⟨hl, rfl⟩]
+    simp [Apeiron.Table.get, hl]
+  · intro key hnl
+    obtain ⟨r, hrd, _, hnone⟩ := hread key
+    refine ⟨by rw [hrd]; exact hnone hnl, ?_⟩
+    simp [Apeiron.Table.get, hnl]
+
+end Apeiron.MapExecuted
+
+#audit Apeiron.MapExecuted.selectedReadRep_of_tableRep

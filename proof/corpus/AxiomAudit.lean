@@ -6,6 +6,7 @@ import Count.FreqRep
 import Count.FreqAdd
 import Count.Aggregate
 import Map.PrefixMasks
+import Map.ExecutedInsertSide
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -85,3 +86,43 @@ import Map.PrefixMasks
 #audit apeiron_word.word_f16_split_exact
 #audit apeiron_word.word_f16_split_finite_witness
 #audit apeiron_word.word_f16_split_nonfinite_witness
+
+-- The executed map face (Map/Executed*.lean; `selectedReadRep_of_tableRep` is audited in Map/ExecutedSelected.lean, which imports `Apeiron.AuditClosed` through Map.Selected and cannot be imported here): `hashtrinity::Table<u64, i64, KS>`.
+-- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe` (APEIRON-HT-READ).
+#audit Apeiron.MapExecuted.loop_pc
+#audit Apeiron.MapExecuted.is_sentinel_ok
+#audit Apeiron.MapExecuted.is_live_ok
+#audit Apeiron.MapExecuted.stored_matches_ok
+#audit Apeiron.MapExecuted.regen_matches_ok
+#audit Apeiron.MapExecuted.probe_limit_val
+#audit Apeiron.MapExecuted.desc_lin
+#audit Apeiron.MapExecuted.desc_frame
+#audit Apeiron.MapExecuted.probe_rest_spec
+#audit Apeiron.MapExecuted.prefix_masks_loop_spec
+#audit Apeiron.MapExecuted.prefix_masks_spec
+#audit Apeiron.MapExecuted.u32_tz_spec
+#audit Apeiron.MapExecuted.pcw_loop_spec
+#audit Apeiron.MapExecuted.pcw_spec
+#audit Apeiron.MapExecuted.pck_spec
+#audit Apeiron.MapExecuted.emb_unique
+#audit Apeiron.MapExecuted.find_node_spec
+#audit Apeiron.MapExecuted.bst_key_inj
+#audit Apeiron.MapExecuted.ov_get_spec
+#audit Apeiron.MapExecuted.side_find_spec
+#audit Apeiron.MapExecuted.with_bits_rep
+#audit Apeiron.MapExecuted.stored_with_bits_rep
+#audit Apeiron.MapExecuted.new_rep
+#audit Apeiron.MapExecuted.with_capacity_rep
+#audit Apeiron.MapExecuted.coordinate_with_capacity_rep
+#audit Apeiron.MapExecuted.vacant_not_live
+#audit Apeiron.MapExecuted.blocked_not_main
+#audit Apeiron.MapExecuted.blocked_some_spec
+#audit Apeiron.MapExecuted.get_coord_spec
+#audit Apeiron.MapExecuted.get_refines
+#audit Apeiron.MapExecuted.coord_get_refines
+#audit Apeiron.MapExecuted.not_inOv_of_sent
+#audit Apeiron.MapExecuted.rep_side_update
+#audit Apeiron.MapExecuted.push_spec
+#audit Apeiron.MapExecuted.insert_sent_rep
+#audit Apeiron.MapExecuted.insert_side_refines
+#audit Apeiron.MapExecuted.coord_insert_side_refines
