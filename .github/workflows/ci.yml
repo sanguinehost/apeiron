@@ -1,0 +1,136 @@
+# GitHub Actions CI workflow for the public release of apeiron.
+# Repository: github.com/sanguinehost/apeiron
+#
+# NOT in CI yet:
+#   `proof/regen.sh --check` and the Lean builds are not yet run in CI because they
+#   depend on the pinned Aeneas/Charon toolchain build and the patched backend, whose
+#   fresh-clone bootstrap is tracked as open work on row P0 · TOOL-IDENTITY.
+#
+# Toolchain pinning rationale:
+#   Pinned to `nightly-2026-04-14`, which provides `rustc 1.97.0-nightly (17584a181 2026-04-13)`
+#   and `cargo 1.97.0-nightly (eb94155a9 2026-04-09)`. This matches the exact compiler identity
+#   recorded across all perf ledgers, epics, and benchmark baselines in the repository.
+#   While `Cargo.toml` sets `rust-version = "1.87"` as the language MSRV floor, apeiron uses
+#   nightly compiler features, inline assembly, AVX2 intrinsics, and pedantic clippy lints
+#   (`-D warnings`), requiring an exact compiler pin to prevent CI drift from newer lints.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  fmt:
+    name: Format Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (nightly-2026-04-14)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-04-14
+          components: rustfmt
+
+      - name: Check code formatting
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy Linter
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (nightly-2026-04-14)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-04-14
+          components: clippy
+
+      - name: Cache Cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-clippy-
+            ${{ runner.os }}-cargo-
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-features --all-targets --locked -- -D warnings
+
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Without a physical GPU / Vulkan ICD, all GPU tests in apeiron::gpu must skip cleanly.
+      VK_ICD_FILENAMES: /nonexistent
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (nightly-2026-04-14)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-04-14
+
+      - name: Cache Cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-test-
+            ${{ runner.os }}-cargo-
+
+      - name: Run tests
+        run: cargo test --workspace --all-features --locked
+
+  gates:
+    name: Rooting & Document Gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Read gate check (§1 reading order)
+        run: python3 tools/rooting/read_gate.py (unpublished) --check
+
+      - name: Doc reachability check (§10 doc reachability)
+        run: python3 tools/rooting/doc_reach.py (unpublished) --check
+
+      - name: Retire check (§10 retired routes)
+        run: python3 tools/rooting/retire_check.py (unpublished) --check
+
+      - name: Check claims self-test (11/11 controls)
+        run: python3 tools/check-claims.py --self-test
+
+      # The full `tools/check-claims.py` resolves claims against the Lean corpus under
+      # proof/corpus/.lake, which a fresh clone does not have until the TOOL-IDENTITY bootstrap
+      # lands. It is NOT run here rather than run with continue-on-error: a step that cannot fail
+      # is not a gate (AGENTS.md §10). The pre-commit hook runs it on every local commit.
