@@ -9,7 +9,7 @@
 //! The reproductions are the independent review's (F1–F5), turned into assertions. A counting
 //! global allocator (per thread) observes leaks; a counting value type observes double drops.
 
-use apeiron::freq::Table;
+use apeiron::freq::{Coord, Table};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -417,4 +417,189 @@ fn f5_into_iter_frees_side_store() {
             "bytes left allocated after into_iter (take {take})"
         );
     }
+}
+
+// ── G1–G3: unwind ordering (independent review round 2) ─────────────────────────────────────────
+
+/// A value that counts its drops into its own counter and panics on the second drop of its test's
+/// shared `total`. The panic cuts an unwinding `SideStore::clear` short mid-loop; a later `clear`
+/// that re-drops entry 0 is then visible as `entry 0 dropped twice`.
+struct Pv {
+    drops: &'static AtomicUsize,
+    total: &'static AtomicUsize,
+}
+
+impl Drop for Pv {
+    fn drop(&mut self) {
+        let n = self.total.fetch_add(1, Ordering::SeqCst) + 1;
+        self.drops.fetch_add(1, Ordering::SeqCst);
+        assert!(n != 2, "side-drop");
+    }
+}
+
+/// T1: `clear` on a table with two side-store entries whose `V::drop` panics on the second drop. The
+/// entry tables are detached before any destructor runs, so the later `Drop for Table` reaches
+/// neither entry: each value is dropped at most once.
+#[test]
+fn g1_side_clear_panic_no_double_drop() {
+    static A: AtomicUsize = AtomicUsize::new(0);
+    static B: AtomicUsize = AtomicUsize::new(0);
+    static TOTAL: AtomicUsize = AtomicUsize::new(0);
+    // `u64::MAX` is `EMPTY`'s coordinate, `u64::MAX - 1` is `TOMB`'s: both live in the side store.
+    let mut t: Table<u64, Pv> = Table::new();
+    t.put(
+        u64::MAX,
+        Pv {
+            drops: &A,
+            total: &TOTAL,
+        },
+    );
+    t.put(
+        u64::MAX - 1,
+        Pv {
+            drops: &B,
+            total: &TOTAL,
+        },
+    );
+    assert_eq!(t.len(), 2);
+    let r = catch_unwind(AssertUnwindSafe(|| t.clear()));
+    assert!(r.is_err(), "the second value drop must panic");
+    drop(t);
+    assert!(A.load(Ordering::SeqCst) <= 1, "entry 0 dropped twice");
+    assert!(B.load(Ordering::SeqCst) <= 1, "entry 1 dropped twice");
+}
+
+/// A key whose `Drop` panics when its own `panic` flag is set, so the main-slot removal faces can be
+/// interrupted between moving the value out and tombstoning the slot. The flag rides the key, so the
+/// reproduction is independent of other tests running beside it.
+struct Pk {
+    c: u64,
+    panic: bool,
+}
+
+impl PartialEq for Pk {
+    fn eq(&self, other: &Self) -> bool {
+        self.c == other.c
+    }
+}
+impl Eq for Pk {}
+impl Coord for Pk {
+    const INJECTIVE: bool = true; // `coord` is the field itself
+    #[inline]
+    fn coord(&self) -> u64 {
+        self.c
+    }
+}
+
+impl Drop for Pk {
+    fn drop(&mut self) {
+        assert!(!self.panic, "key-drop");
+    }
+}
+
+/// T2 body: one main-slot key removed through the given face with a panicking `K::drop`. The fix
+/// commits `TOMB`/`len`/`tombs` first, so the caught panic leaves the slot absent, `len`
+/// decremented, and the value dropped exactly once.
+fn g2_remove_face(
+    made: &'static AtomicUsize,
+    dropped: &'static AtomicUsize,
+    remove: impl Fn(&mut Table<Pk, D>, &Pk) -> Option<D>,
+) {
+    let mut t: Table<Pk, D> = Table::new();
+    let probe = Pk { c: 1, panic: false };
+    t.put(Pk { c: 1, panic: true }, D::new(made, dropped));
+    assert_eq!(t.len(), 1);
+    let r = catch_unwind(AssertUnwindSafe(|| {
+        let _ = remove(&mut t, &probe);
+    }));
+    assert!(r.is_err(), "the key drop must panic");
+    assert!(t.get(&probe).is_none(), "a removed slot reads as absent");
+    assert_eq!(t.len(), 0, "the removal is counted before the key drop");
+    drop(t);
+    assert_eq!(
+        dropped.load(Ordering::SeqCst),
+        made.load(Ordering::SeqCst),
+        "the value is dropped exactly once"
+    );
+}
+
+/// The two removal faces as named callbacks: a fn item carries the exact monomorphic type (a
+/// closure over the generic `remove_at::<&Pk>` is not higher-ranked enough for `Fn`).
+fn remove_face(t: &mut Table<Pk, D>, k: &Pk) -> Option<D> {
+    t.remove(k)
+}
+
+fn remove_at_face(t: &mut Table<Pk, D>, k: &Pk) -> Option<D> {
+    t.remove_at(k)
+}
+
+#[test]
+fn g2_remove_panic_commits_slot_first() {
+    static MADE: AtomicUsize = AtomicUsize::new(0);
+    static DROPPED: AtomicUsize = AtomicUsize::new(0);
+    g2_remove_face(&MADE, &DROPPED, remove_face);
+}
+
+#[test]
+fn g2_remove_at_panic_commits_slot_first() {
+    static MADE: AtomicUsize = AtomicUsize::new(0);
+    static DROPPED: AtomicUsize = AtomicUsize::new(0);
+    g2_remove_face(&MADE, &DROPPED, remove_at_face);
+}
+
+/// A key whose `Clone` panics when its own flag is set: the `Absorb` impl for `&K` calls it on the
+/// vacant path, so it panics exactly where `insert_fetch_at` materializes the owned key.
+struct Ck {
+    c: u64,
+    clone_panics: bool,
+}
+
+impl PartialEq for Ck {
+    fn eq(&self, other: &Self) -> bool {
+        self.c == other.c
+    }
+}
+impl Eq for Ck {}
+impl Coord for Ck {
+    const INJECTIVE: bool = true;
+    #[inline]
+    fn coord(&self) -> u64 {
+        self.c
+    }
+}
+
+impl Clone for Ck {
+    fn clone(&self) -> Self {
+        assert!(!self.clone_panics, "absorb");
+        Ck {
+            c: self.c,
+            clone_panics: self.clone_panics,
+        }
+    }
+}
+
+/// T3: a panicking `Absorb` on the vacant path. The key is materialized before any slot is marked
+/// live, so the caught panic leaves the slot `EMPTY` — `len` unchanged, `get` absent, and the value
+/// dropped exactly once.
+#[test]
+fn g3_insert_fetch_vacant_absorb_panic_leaves_slot_empty() {
+    static MADE: AtomicUsize = AtomicUsize::new(0);
+    static DROPPED: AtomicUsize = AtomicUsize::new(0);
+    let mut t: Table<Ck, D> = Table::new();
+    let key = Ck {
+        c: 1,
+        clone_panics: true,
+    };
+    let r = catch_unwind(AssertUnwindSafe(|| {
+        t.insert_fetch_at(&key, D::new(&MADE, &DROPPED), |n, _o| n);
+    }));
+    assert!(r.is_err(), "absorb must panic");
+    assert_eq!(t.len(), 0, "no slot is committed before the key exists");
+    assert!(t.get(&key).is_none(), "the vacant slot was left live");
+    drop(t);
+    assert_eq!(
+        DROPPED.load(Ordering::SeqCst),
+        MADE.load(Ordering::SeqCst),
+        "the value is dropped exactly once"
+    );
 }
