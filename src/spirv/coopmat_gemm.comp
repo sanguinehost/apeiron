@@ -1,0 +1,279 @@
+#version 460
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#extension GL_EXT_control_flow_attributes : require
+
+// Cooperative-matrix (tensor-core) chart GEMM for prefill: the drop-in for
+// `simt::gemv_dp4a_batch_rt_module` (src/simt/superblock.rs), same six bindings, same chart, same
+// per-32-block f32 epilogue `acc += ((d*q)*sx + lo*xs)` in block order. Only the per-block integer dot
+// `q` changes engine: the rt x bt grid of OpSUDot becomes signed-int8 M16N16K32 MMAs, K32 == one chart
+// block, so no two blocks with unequal scales ever share an integer accumulator.
+//
+// Signedness. The device lists s8*s8->s32 and u8*u8->u32 only (no mixed entry), while OpSUDot is
+// signed(x) * unsigned(w). Q4/Q2 codes (<= 15) are already valid s8. Q8 codes are recentred
+// s = q - 128 (byte XOR 0x80) and the exact correction  sum_k q*x = sum_k s*x + 128*sum_k x  is added
+// in the integer ring before the f32 conversion, so q is the same i32 the DP4A kernel forms.
+//
+// Tile: one workgroup owns BM rows x BN tokens; SGM x SGN subgroups, each WM x WN 16x16 fragments.
+// Per stage of KB blocks: stage each BMx32 weight tile (chart words -> s8, k order = the activation
+// byte order) and 32xBN activation tile in shared memory, then MMA + epilogue per fragment, block by
+// block. The next stage's global words are fetched into registers before this stage's MMAs, so their
+// latency overlaps them. Defaults (128 x 64, 2 x 2 subgroups, KB 2) are the measured choice of
+// examples/gemm_bench.rs --variants on the RTX 5080.
+//
+// Preconditions (the Rust builder asserts the static ones): M % 16 == 0; K % (32*KB) == 0; the activation,
+// XS and SX buffers hold ceil(tokens/BN)*BN rows (zero padded, as the DP4A path pads to its bt) and
+// OUT holds as many rows of M floats. Dispatch (ceil(M/BM), ceil(tokens/BN), 1).
+
+#ifndef BM
+#define BM 128
+#endif
+#ifndef BN
+#define BN 64
+#endif
+#ifndef SGM
+#define SGM 2
+#endif
+#ifndef SGN
+#define SGN 2
+#endif
+// chart blocks staged per barrier pair
+#ifndef KB
+#define KB 2
+#endif
+#ifndef EPI
+#define EPI 1
+#endif
+
+#define NSG (SGM * SGN)
+#define NT (32 * NSG)
+#define WM (BM / 16 / SGM)
+#define WN (BN / 16 / SGN)
+// work items per thread per block: A = BM rows x 2 halves, B = BN tokens x 2 halves
+#define IA ((BM * 2 + NT - 1) / NT)
+#define IB ((BN * 2 + NT - 1) / NT)
+#define IR ((BM + NT - 1) / NT)
+#define IT ((BN + NT - 1) / NT)
+// shared row stride in uvec4 units: 32 data bytes + 16 pad -> conflict-free 16-byte stores
+#define AS4 3u
+
+layout(local_size_x = NT, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint M = 16;
+layout(constant_id = 1) const uint BLOCKS = 1; // a multiple of KB (the Rust builder asserts it)
+layout(constant_id = 2) const uint PACK = 4;   // codes per chart word: Q8 4, Q4 8, Q2 16
+const uint DPW = PACK / 4u;                    // activation words per chart word
+const uint WBITS = 32u / PACK;                 // bits per code
+const uint QMASK = (1u << WBITS) - 1u;
+const uint BMASK = 0x01010101u * QMASK;
+const uint CPB = 32u / PACK;                   // chart words per row per block
+const uint CPH = CPB / 2u;                     // chart words per half row (16 k positions)
+const uint XW4 = BLOCKS * 2u;                  // uvec4 activation words per token row
+
+layout(set = 0, binding = 0, std430) readonly buffer W_ { uint w[]; };
+layout(set = 0, binding = 1, std430) readonly buffer X_ { uvec4 xq[]; };
+layout(set = 0, binding = 2, std430) writeonly buffer O_ { float o[]; };
+layout(set = 0, binding = 3, std430) readonly buffer D_ { uint dm[]; };
+layout(set = 0, binding = 4, std430) readonly buffer XS_ { float xs[]; };
+layout(set = 0, binding = 5, std430) readonly buffer SX_ { float sx[]; };
+
+shared uvec4 sA[KB * BM * AS4];
+shared uvec4 sB[KB * BN * AS4];
+shared float sD[KB * BM];
+shared float sLo[KB * BM];
+shared float sSx[KB * BN];
+shared float sXs[KB * BN];
+// 128 * sum_k x per token (Q8 recentring) plus the bias of the exact int -> f32 conversion below
+shared int sBias[KB * BN];
+
+#define FRAG_F coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
+#define FRAG_I coopmat<int32_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
+
+// float(q) for |q| < 2^22 without I2F: the bits of 1.5*2^23 plus q are the float 1.5*2^23 + q,
+// exactly, and subtracting 1.5*2^23 is exact. |q| <= 32*255*127 < 2^22 for every chart carrier.
+const int MAGIC_BITS = 0x4B400000;
+const float MAGIC_F = 12582912.0;
+
+// registers holding the next stage while this one computes
+uint pa[KB][IA][4];
+uvec4 pb[KB][IB];
+uint pd[KB][IR];
+float pxs[KB][IT];
+float psx[KB][IT];
+
+int bsum(uint v) {
+    return bitfieldExtract(int(v), 0, 8) + bitfieldExtract(int(v), 8, 8) +
+           bitfieldExtract(int(v), 16, 8) + bitfieldExtract(int(v), 24, 8);
+}
+
+// Global loads of blocks b0 .. b0+KB-1 into registers.
+void fetch(uint b0, uint lid, uint row0, uint tok0) {
+    [[unroll]] for (uint kb = 0u; kb < KB; ++kb) {
+        uint b = b0 + kb;
+        [[unroll]] for (uint it = 0u; it < IA; ++it) {
+            uint idx = lid + it * NT;
+            if (idx < BM * 2u) {
+                uint r = idx % BM;
+                uint h = idx / BM;
+                uint row = min(row0 + r, M - 1u);
+                [[unroll]] for (uint c = 0u; c < CPH; ++c) {
+                    pa[kb][it][c] = w[(b * CPB + h * CPH + c) * M + row];
+                }
+            }
+        }
+        [[unroll]] for (uint it = 0u; it < IB; ++it) {
+            uint idx = lid + it * NT;
+            if (idx < BN * 2u) {
+                pb[kb][it] = xq[(tok0 + (idx >> 1)) * XW4 + b * 2u + (idx & 1u)];
+            }
+        }
+        [[unroll]] for (uint it = 0u; it < IR; ++it) {
+            uint r = lid + it * NT;
+            if (r < BM) {
+                pd[kb][it] = dm[b * M + min(row0 + r, M - 1u)];
+            }
+        }
+        [[unroll]] for (uint it = 0u; it < IT; ++it) {
+            uint j = lid + it * NT;
+            if (j < BN) {
+                uint t = (tok0 + j) * BLOCKS + b;
+                pxs[kb][it] = xs[t];
+                psx[kb][it] = sx[t];
+            }
+        }
+    }
+}
+
+// Registers -> shared: chart words to s8 k-words, activation sums, scales.
+void commit(uint lid) {
+    [[unroll]] for (uint kb = 0u; kb < KB; ++kb) {
+        [[unroll]] for (uint it = 0u; it < IA; ++it) {
+            uint idx = lid + it * NT;
+            if (idx < BM * 2u) {
+                uint r = idx % BM;
+                uint h = idx / BM;
+                uvec4 v;
+                [[unroll]] for (uint q = 0u; q < 4u; ++q) {
+                    // k-word q of this half: chart word q / DPW, phase q % DPW
+                    uint word = pa[kb][it][q / DPW];
+                    v[q] = PACK == 4u ? word ^ 0x80808080u : (word >> (WBITS * (q % DPW))) & BMASK;
+                }
+                sA[(kb * BM + r) * AS4 + h] = v;
+            }
+        }
+        [[unroll]] for (uint it = 0u; it < IB; ++it) {
+            uint idx = lid + it * NT;
+            // BN * 2 is a multiple of 32: a subgroup is all-in or all-out, the shuffle is uniform
+            if (idx < BN * 2u) {
+                uint j = idx >> 1;
+                uvec4 v = pb[kb][it];
+                sB[(kb * BN + j) * AS4 + (idx & 1u)] = v;
+                int s = 0;
+                if (PACK == 4u) {
+                    s = bsum(v.x) + bsum(v.y) + bsum(v.z) + bsum(v.w);
+                    s += subgroupShuffleXor(s, 1u);
+                }
+                if ((idx & 1u) == 0u) {
+                    sBias[kb * BN + j] = s * 128 + MAGIC_BITS;
+                }
+            }
+        }
+        [[unroll]] for (uint it = 0u; it < IR; ++it) {
+            uint r = lid + it * NT;
+            if (r < BM) {
+                vec2 p = unpackHalf2x16(pd[kb][it]);
+                sD[kb * BM + r] = p.x;
+                sLo[kb * BM + r] = p.y;
+            }
+        }
+        [[unroll]] for (uint it = 0u; it < IT; ++it) {
+            uint j = lid + it * NT;
+            if (j < BN) {
+                sXs[kb * BN + j] = pxs[kb][it];
+                sSx[kb * BN + j] = psx[kb][it];
+            }
+        }
+    }
+}
+
+void main() {
+    const uint lid = gl_LocalInvocationIndex;
+    const uint sg = gl_SubgroupID;
+    const uint row0 = gl_WorkGroupID.x * BM;
+    const uint tok0 = gl_WorkGroupID.y * BN;
+    const uint rbase = (sg % SGM) * (WM * 16u);
+    const uint tbase = (sg / SGM) * (WN * 16u);
+
+    FRAG_F acc[WM * WN];
+    [[unroll]] for (uint f = 0u; f < WM * WN; ++f) {
+        acc[f] = FRAG_F(0.0);
+    }
+
+    fetch(0u, lid, row0, tok0);
+    for (uint b0 = 0u; b0 < BLOCKS; b0 += KB) {
+        commit(lid);
+        barrier();
+        if (b0 + KB < BLOCKS) {
+            fetch(b0 + KB, lid, row0, tok0);
+        }
+        [[unroll]] for (uint kb = 0u; kb < KB; ++kb) {
+            coopmat<int8_t, gl_ScopeSubgroup, 32, 16, gl_MatrixUseB> bm[WN];
+            FRAG_F fsx[WN];
+            FRAG_F fxs[WN];
+            FRAG_I fbias[WN];
+            [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                uint t = kb * BN + tbase + 16u * j;
+                coopMatLoad(bm[j], sB, t * AS4, AS4, gl_CooperativeMatrixLayoutColumnMajor);
+                coopMatLoad(fsx[j], sSx, t, 0u, gl_CooperativeMatrixLayoutRowMajor);
+                coopMatLoad(fxs[j], sXs, t, 0u, gl_CooperativeMatrixLayoutRowMajor);
+                coopMatLoad(fbias[j], sBias, t, 0u, gl_CooperativeMatrixLayoutRowMajor);
+            }
+            [[unroll]] for (uint i = 0u; i < WM; ++i) {
+                uint r = kb * BM + rbase + 16u * i;
+                coopmat<int8_t, gl_ScopeSubgroup, 16, 32, gl_MatrixUseA> am;
+                coopMatLoad(am, sA, r * AS4, AS4, gl_CooperativeMatrixLayoutRowMajor);
+                FRAG_F fd;
+                FRAG_F flo;
+                coopMatLoad(fd, sD, r, 0u, gl_CooperativeMatrixLayoutColumnMajor);
+                coopMatLoad(flo, sLo, r, 0u, gl_CooperativeMatrixLayoutColumnMajor);
+                [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                    // seeded with the bias: q + 128*sum x + MAGIC_BITS, one integer add for both
+                    FRAG_I q = coopMatMulAdd(am, bm[j], fbias[j]);
+                    FRAG_F a = acc[i * WN + j];
+#if EPI
+                    // The DP4A kernel's association, contraction pinned: its SPIR-V is
+                    // FMul,FMul,FMul,FAdd,FAdd and the driver fuses it to acc + fma(lo, xs, (d*q)*sx)
+                    // (tests/gpu_coopmat_gemm.rs checks every cell bit for bit). Element e of every
+                    // fragment here is the same (row, token): all are one accumulator type.
+                    [[unroll]] for (uint e = 0u; e < q.length(); ++e) {
+                        precise float qf = intBitsToFloat(q[e]) - MAGIC_F;
+                        precise float dqs = (fd[e] * qf) * fsx[j][e];
+                        precise float s2 = fma(flo[e], fxs[j][e], dqs);
+                        a[e] = a[e] + s2;
+                    }
+#else
+                    [[unroll]] for (uint e = 0u; e < q.length(); ++e) {
+                        a[e] = a[e] + intBitsToFloat(q[e]);
+                    }
+#endif
+                    acc[i * WN + j] = a;
+                }
+            }
+        }
+        barrier();
+    }
+
+    [[unroll]] for (uint i = 0u; i < WM; ++i) {
+        uint r = row0 + rbase + 16u * i;
+        if (r < M) {
+            [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                uint t = tok0 + tbase + 16u * j;
+                coopMatStore(acc[i * WN + j], o, t * M + r, M, gl_CooperativeMatrixLayoutColumnMajor);
+            }
+        }
+    }
+}
