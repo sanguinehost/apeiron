@@ -866,6 +866,15 @@ pub fn swiglu_quant_batch_module(dff: u32, dpw: u32) -> Vec<u32> {
     k.finish(WG)
 }
 
+/// `subgroupMax(v)` — `OpGroupNonUniformFMax` over the whole subgroup, every lane receives it.
+fn sg_fmax(k: &mut Kb, v: u32) -> u32 {
+    const OP_GROUP_NON_UNIFORM_FMAX: u32 = 358;
+    k.sg_arith = true;
+    let f = k.float;
+    let sc = k.cu(3);
+    k.e(OP_GROUP_NON_UNIFORM_FMAX, f, &[sc, 0, v])
+}
+
 /// **Batched QKV epilogue — bias, QK-norm, RoPE and the KV append, one workgroup per (head-slot,
 /// position).** The whole per-position tail of the attention block that used to sit on the host
 /// between the QKV projection and the o-projection.
@@ -898,7 +907,9 @@ pub fn swiglu_quant_batch_module(dff: u32, dpw: u32) -> Vec<u32> {
 /// `params[1]`) and the input is their left fold `((p0 + p1) + …)` in plane order
 /// (`splitk_reduce.comp`'s order), taken before the bias; binding 0 is then only written (the
 /// rotated Q the attention reads).
-/// Dispatch `(nh + 2·nkv, B)` at LocalSize `hd`.
+/// `rows` positions share one workgroup (lane `r·hd + d` is dim `d` of row `r`; arithmetic per row
+/// unchanged): dispatch `(nh + 2·nkv, ceil(B/rows))` at LocalSize `hd·rows`; a row past `params[1]`
+/// computes on row 0's data and stores nothing.
 #[allow(clippy::too_many_arguments)]
 pub fn qkv_rope_batch_module(
     nh: u32,
@@ -911,10 +922,17 @@ pub fn qkv_rope_batch_module(
     bias: bool,
     qknorm: bool,
     nplanes: u32,
+    rows: u32,
 ) -> Vec<u32> {
     const SPLITK_BN: u32 = 64; // `coopmat_gemm.comp` BN: the split kernel pads tokens to this
     assert!(nplanes >= 1, "at least one plane");
-    let d2 = hd / 2;
+    assert!(rows >= 1, "at least one row per workgroup");
+    assert!(
+        hd % 64 == 0,
+        "a lane owns the RoPE pair (d, d + hd/2); hd/2 is a whole number of 32-lane subgroups"
+    );
+    let half = hd / 2;
+    let nsg = half / 32; // subgroups per row
     let mut k = Kb::new();
     let qkv = k.ssbo_f(0);
     let bias_b = k.ssbo_f(1);
@@ -933,95 +951,126 @@ pub fn qkv_rope_batch_module(
     let sk = k.ssbo_f(14);
     let vdec = k.ssbo_f16(15);
     let planes = (nplanes > 1).then(|| k.ssbo_f(16));
-    let (red, redp) = k.shared_f32(hd);
+    let (red, redp) = k.shared_f32(hd * rows);
+    let (smax, smaxp) = k.shared_f32(rows * nsg); // per-(row, subgroup) |v| maxima, nsg > 1 only
     let chd = k.cu(hd);
+    let chalf = k.cu(half);
+    let cloc = k.cu(half * rows);
     let gid = k.gid_comp(0);
-    let i = k.gid_comp(1);
-    let slot = k.udiv(gid, chd); // WG-uniform: LocalSize == hd
-    let lane = k.umod(gid, chd);
+    let iy = k.gid_comp(1);
+    let slot = k.udiv(gid, cloc); // WG-uniform: LocalSize == (hd/2)·rows
+    let local = k.umod(gid, cloc);
+    let r = k.udiv(local, chalf); // the row of this lane within the workgroup
+    let lane = k.umod(local, chalf); // the RoPE pair (lane, lane + hd/2) this lane owns
+    let rbase = k.imul(r, chd); // the row's slice of `red`
+    let crows = k.cu(rows);
+    let iyr = k.imul(iy, crows);
+    let i = k.iadd(iyr, r);
     let c0 = k.cu(0);
+    let c1t = k.cu(1);
+    let tokens = k.load_u(params, c1t);
+    let active = k.ult(i, tokens); // the last tile may hold rows past the chunk
     let pos0 = k.load_u(params, c0);
     let pos = k.iadd(pos0, i);
     let cqkvm = k.cu(qkvm);
-    let rowb = k.imul(i, cqkvm);
+    let iload = k.e(OP_SELECT, k.uint, &[active, i, c0]); // an inactive row reads row 0
+    let rowb = k.imul(iload, cqkvm);
     let slotb = k.imul(slot, chd);
     let base = k.iadd(rowb, slotb);
-    let idx = k.iadd(base, lane);
-    // The lane's value lives in a register (`vf`) until the final store: RoPE partners and the
-    // KV absmax exchange through workgroup memory, never through the storage buffer.
-    let vf = k.fvar_f();
-    let v0 = if let Some(pl) = planes {
+    let idx = k.iadd(base, lane); // element `lane`; element `lane + hd/2` is `idx + hd/2`
+                                  // The lane's pair lives in registers (`vlo`, `vhi`) until the stores: the RoPE partner of
+                                  // element `d` is `d ± hd/2`, which this lane also owns, so rotation needs no shared memory.
+    let vlo = k.fvar_f();
+    let vhi = k.fvar_f();
+    let plane = planes.map(|_| {
         // plane stride in floats `ceil(B/64)*64 * qkvm`, `B` from `params[1]` (as the norm fold)
-        let c1 = k.cu(1);
-        let tokens = k.load_u(params, c1);
         let cbn = k.cu(SPLITK_BN);
         let cbn1 = k.cu(SPLITK_BN - 1);
         let up = k.iadd(tokens, cbn1);
         let tiles = k.udiv(up, cbn);
         let padded = k.imul(tiles, cbn);
-        let plane = k.imul(padded, cqkvm);
-        let mut acc = k.load_f(pl, idx);
-        for sp in 1..nplanes {
-            let cs = k.cu(sp);
-            let po = k.imul(cs, plane);
-            let pidx = k.iadd(po, idx);
-            let pv = k.load_f(pl, pidx);
-            acc = k.fadd(acc, pv);
+        k.imul(padded, cqkvm)
+    });
+    for (h, var) in [vlo, vhi].into_iter().enumerate() {
+        let off = k.cu(h as u32 * half);
+        let ix = k.iadd(idx, off);
+        let mut v = if let (Some(pl), Some(plane)) = (planes, plane) {
+            let mut acc = k.load_f(pl, ix);
+            for sp in 1..nplanes {
+                let cs = k.cu(sp);
+                let po = k.imul(cs, plane);
+                let pidx = k.iadd(po, ix);
+                let pv = k.load_f(pl, pidx);
+                acc = k.fadd(acc, pv);
+            }
+            acc
+        } else {
+            k.load_f(qkv, ix)
+        };
+        if bias {
+            let bl = k.iadd(slotb, lane);
+            let bi = k.iadd(bl, off);
+            let bv = k.load_f(bias_b, bi);
+            v = k.fadd(v, bv);
         }
-        acc
-    } else {
-        k.load_f(qkv, idx)
-    };
-    let v0 = if bias {
-        let bi = k.iadd(slotb, lane);
-        let bv = k.load_f(bias_b, bi);
-        k.fadd(v0, bv)
-    } else {
-        v0
-    };
-    k.store_var(vf, v0);
+        k.store_var(var, v);
+    }
     let cnh = k.cu(nh);
     let cnhk = k.cu(nh + nkv);
     let is_k = k.e(OP_UGE, k.bool_t, &[slot, cnh]);
     let is_v = k.e(OP_UGE, k.bool_t, &[slot, cnhk]);
     let rotates = k.ult(slot, cnhk); // Q and K heads rotate; V does not
-                                     // ── QK-norm (Q heads against `qg`, K heads against `kg`) — the gain is the only difference, so
-                                     //    ONE workgroup-uniform block covers both and the barriers stay uniform.
+                                     // ── QK-norm (Q heads against `qg`, K heads against `kg`): the sum of squares is a per-lane
+                                     //    pair sum, then a `log2(hd/2)` shared tree per row. The grouping differs from a `hd`-lane
+                                     //    tree; the prefill planner passes `qknorm = false`.
     if qknorm {
         k.iff(rotates, |k| {
-            let v = k.load_var_f(vf);
-            let sq = k.fmul(v, v);
-            k.shared_store(red, redp, lane, sq);
+            let a = k.load_var_f(vlo);
+            let b = k.load_var_f(vhi);
+            let sa = k.fmul(a, a);
+            let sb = k.fmul(b, b);
+            let sq = k.fadd(sa, sb);
+            let rl = k.iadd(rbase, lane);
+            k.shared_store(red, redp, rl, sq);
             k.wg_barrier();
-            k.tree_reduce(red, redp, hd, lane, false);
-            let c0b = k.cu(0);
-            let ss = k.shared_load(red, redp, c0b);
+            let mut stride = half / 2;
+            while stride >= 1 {
+                let cs = k.cu(stride);
+                let lt = k.ult(lane, cs);
+                k.iff(lt, |k| {
+                    let x = k.shared_load(red, redp, rl);
+                    let ti = k.iadd(rl, cs);
+                    let y = k.shared_load(red, redp, ti);
+                    let z = k.fadd(x, y);
+                    k.shared_store(red, redp, rl, z);
+                });
+                k.wg_barrier();
+                stride /= 2;
+            }
+            let ss = k.shared_load(red, redp, rbase);
             let invhd = k.cf(1.0 / hd as f32);
             let mean = k.fmul(ss, invhd);
             let ce = k.cf(eps);
             let me = k.fadd(mean, ce);
             let inv = k.ext1(GLSL_INVERSE_SQRT, me);
-            let gq = k.load_f(qg, lane);
-            let gk = k.load_f(kg, lane);
             let f = k.float;
-            let gv = k.e(OP_SELECT, f, &[is_k, gk, gq]);
-            let sc = k.fmul(v, inv);
-            let o = k.fmul(sc, gv);
+            for (v, var, h) in [(a, vlo, 0u32), (b, vhi, 1u32)] {
+                let go = k.cu(h * half);
+                let gi = k.iadd(lane, go);
+                let gq_v = k.load_f(qg, gi);
+                let gk_v = k.load_f(kg, gi);
+                let gv = k.e(OP_SELECT, f, &[is_k, gk_v, gq_v]);
+                let sc = k.fmul(v, inv);
+                let o = k.fmul(sc, gv);
+                k.store_var(var, o);
+            }
             k.wg_barrier(); // every lane has read `red`
-            k.store_var(vf, o);
         });
-        k.wg_barrier();
     }
-    // ── RoPE, pair-leader lanes; the range reduction is `fused_rope_kv_module`'s (GPU sin/cos lose
-    //    all range past ~2¹² rad, which is why >4k context collapsed before it existed).
-    let vcur = k.load_var_f(vf);
-    k.shared_store(red, redp, lane, vcur);
-    k.wg_barrier();
+    // ── RoPE: the pair is `(vlo, vhi)`; the range reduction is `fused_rope_kv_module`'s (GPU
+    //    sin/cos lose all range past ~2¹² rad, which is why >4k context collapsed before it existed).
     k.iff(rotates, |k| {
-        let cd2 = k.cu(d2);
-        let jl = k.umod(lane, cd2);
-        let is_hi = k.e(OP_UGE, k.bool_t, &[lane, cd2]);
-        let jf = k.utof(jl);
+        let jf = k.utof(lane);
         let two_over_hd = k.cf(-2.0 / hd as f32 * theta.ln());
         let expo = k.fmul(jf, two_over_hd);
         let invf = k.ext1(GLSL_EXP, expo);
@@ -1038,34 +1087,57 @@ pub fn qkv_rope_batch_module(
         let ang = k.fsub(a1, nc2);
         let cs = k.ext1(GLSL_COS, ang);
         let sn = k.ext1(GLSL_SIN, ang);
-        let j2 = k.iadd(jl, cd2);
-        let x0 = k.shared_load(red, redp, jl);
-        let x1 = k.shared_load(red, redp, j2);
+        let x0 = k.load_var_f(vlo);
+        let x1 = k.load_var_f(vhi);
         let a = k.fmul(x0, cs);
         let b = k.fmul(x1, sn);
         let r_lo = k.fsub(a, b);
         let cc = k.fmul(x1, cs);
         let dd = k.fmul(x0, sn);
         let r_hi = k.fadd(cc, dd);
-        let f = k.float;
-        let r = k.e(OP_SELECT, f, &[is_hi, r_hi, r_lo]);
-        k.store_var(vf, r);
+        k.store_var(vlo, r_lo);
+        k.store_var(vhi, r_hi);
     });
-    k.wg_barrier(); // every lane has read `red`
-    let vfin = k.load_var_f(vf);
-    k.store_f(qkv, idx, vfin);
+    let lo_f = k.load_var_f(vlo);
+    let hi_f = k.load_var_f(vhi);
+    let chalf_off = k.cu(half);
+    let idx_hi = k.iadd(idx, chalf_off);
+    k.iff(active, |k| {
+        k.store_f(qkv, idx, lo_f);
+        k.store_f(qkv, idx_hi, hi_f);
+    });
     // ── KV append: absmax/127 per (head, position), the code map of `CpuState::kv_write`
     let does_kv = k.e(OP_UGE, k.bool_t, &[slot, cnh]);
     k.iff(does_kv, |k| {
-        let v = k.load_var_f(vf);
         let f = k.float;
         let gl = k.glsl;
-        let av = k.e(OP_EXT_INST, f, &[gl, GLSL_FABS, v]);
-        k.shared_store(red, redp, lane, av);
-        k.wg_barrier();
-        k.tree_reduce(red, redp, hd, lane, true);
         let c0b = k.cu(0);
-        let amax = k.shared_load(red, redp, c0b);
+        // absmax: |lo|, |hi| in the lane, then `subgroupMax` over the row's 32-lane subgroups.
+        // `fmax` is exactly associative and commutative, so the value is the shared tree's.
+        let al = k.e(OP_EXT_INST, f, &[gl, GLSL_FABS, lo_f]);
+        let ah = k.e(OP_EXT_INST, f, &[gl, GLSL_FABS, hi_f]);
+        let am = k.ext2(GLSL_FMAX, al, ah);
+        let sgm = sg_fmax(k, am);
+        let amax = if nsg == 1 {
+            sgm
+        } else {
+            let c32 = k.cu(32);
+            let sgi = k.udiv(local, c32);
+            let sgl = k.umod(local, c32);
+            let lead = k.e(OP_IEQ, k.bool_t, &[sgl, c0b]);
+            k.iff(lead, |k| k.shared_store(smax, smaxp, sgi, sgm));
+            k.wg_barrier();
+            let csg = k.cu(nsg);
+            let sgr = k.imul(r, csg); // this row's first subgroup slot
+            let mut m = k.shared_load(smax, smaxp, sgr);
+            for g in 1..nsg {
+                let cg = k.cu(g);
+                let sgg = k.iadd(sgr, cg);
+                let o = k.shared_load(smax, smaxp, sgg);
+                m = k.ext2(GLSL_FMAX, m, o);
+            }
+            m
+        };
         let inv127 = k.cf(1.0 / 127.0);
         let sc0 = k.fmul(amax, inv127);
         let zf = k.cf(0.0);
@@ -1073,7 +1145,8 @@ pub fn qkv_rope_batch_module(
         let bt = k.bool_t;
         let posv = k.e(OP_FORD_GREATER_THAN, bt, &[sc0, zf]);
         let sc = k.e(OP_SELECT, f, &[posv, sc0, one]);
-        let code = k.int8_code_f(v, sc);
+        let code_lo = k.int8_code_f(lo_f, sc);
+        let code_hi = k.int8_code_f(hi_f, sc);
         let kvh_k = k.e(OP_ISUB, k.uint, &[slot, cnh]);
         let kvh_v = k.e(OP_ISUB, k.uint, &[slot, cnhk]);
         let u = k.uint;
@@ -1086,71 +1159,92 @@ pub fn qkv_rope_batch_module(
         let orow0 = k.imul(i, cnkv);
         let orow = k.iadd(orow0, kvh);
         let ocidx0 = k.imul(orow, chd);
-        let ocidx = k.iadd(ocidx0, lane); // compact mirror slot [(i·nkv+kvh)·hd + d]
+        let ocidx = k.iadd(ocidx0, lane); // compact mirror slot [(i·nkv+kvh)·hd + d], d = lane
+        let ocidx_hi = k.iadd(ocidx, chalf_off); // d = lane + hd/2
         let is0 = k.e(OP_IEQ, k.bool_t, &[lane, c0b]);
         let notv = k.e(OP_LOGICAL_NOT, bt, &[is_v]);
         k.iff(notv, |k| {
             let kb0 = k.imul(kvh, chd);
             let kb1 = k.iadd(kb0, lane);
             let kb2 = k.imul(kb1, ct);
-            let kidx = k.iadd(kb2, pos); // K cache [(kvh·hd+d)·tmax + s]
-            k.store_f(kc, kidx, code);
-            k.store_f(kout, ocidx, code);
-            k.iff(is0, |k| {
-                k.store_f(ks, sidx, sc);
-                k.store_f(ksout, orow, sc);
+            let kidx = k.iadd(kb2, pos); // K cache [(kvh·hd+d)·tmax + s], d = lane
+            let kb1h = k.iadd(kb1, chalf_off);
+            let kb2h = k.imul(kb1h, ct);
+            let kidx_hi = k.iadd(kb2h, pos); // d = lane + hd/2
+            k.iff(active, |k| {
+                k.store_f(kc, kidx, code_lo);
+                k.store_f(kout, ocidx, code_lo);
+                k.store_f(kc, kidx_hi, code_hi);
+                k.store_f(kout, ocidx_hi, code_hi);
+                k.iff(is0, |k| {
+                    k.store_f(ks, sidx, sc);
+                    k.store_f(ksout, orow, sc);
+                });
             });
             // ── decode K: pack 4 int8 codes/word along the dim axis — `kv_seed_module`'s map, with
-            //    this lane's `code` staged in `red` for the cross-lane gather. The branch is
+            //    this lane's two `code`s staged in `red` for the cross-lane gather. The branch is
             //    workgroup-uniform (`slot` is), so the barrier is uniform.
-            k.shared_store(red, redp, lane, code);
+            let rl = k.iadd(rbase, lane);
+            let rh = k.iadd(rl, chalf_off);
+            k.shared_store(red, redp, rl, code_lo);
+            k.shared_store(red, redp, rh, code_hi);
             k.wg_barrier();
             let chd4 = k.cu(hd / 4);
             let packer = k.ult(lane, chd4);
-            k.iff(packer, |k| {
-                let u = k.uint;
-                let one = k.cf(1.0);
-                let mut word = k.cu(0);
-                for j in 0..4u32 {
-                    let c4 = k.cu(4);
-                    let l4 = k.imul(lane, c4);
-                    let cj = k.cu(j);
-                    let d = k.iadd(l4, cj);
-                    let cv = k.shared_load(red, redp, d);
-                    let byte = k.int8_code(cv, one);
-                    let csh = k.cu(8 * j);
-                    let sh = k.e(OP_SHIFT_LEFT_LOGICAL, u, &[byte, csh]);
-                    word = k.e(OP_BITWISE_OR, u, &[word, sh]);
-                }
-                let wr0 = k.imul(kvh, chd4);
-                let wr1 = k.iadd(wr0, lane);
-                let wr2 = k.imul(wr1, ct);
-                let dst = k.iadd(wr2, pos);
-                k.store_u(kcq, dst, word);
-            });
-            // decode K scale, transposed `[kvh·tmax + s]` (lane 0; `sc` is uniform)
-            k.iff(is0, |k| {
-                let di = k.iadd(kvt, pos);
-                k.store_f(sk, di, sc);
+            k.iff(active, |k| {
+                k.iff(packer, |k| {
+                    let u = k.uint;
+                    let one = k.cf(1.0);
+                    let mut word = k.cu(0);
+                    for j in 0..4u32 {
+                        let c4 = k.cu(4);
+                        let l4 = k.imul(lane, c4);
+                        let cj = k.cu(j);
+                        let d0 = k.iadd(l4, cj);
+                        let d = k.iadd(rbase, d0);
+                        let cv = k.shared_load(red, redp, d);
+                        let byte = k.int8_code(cv, one);
+                        let csh = k.cu(8 * j);
+                        let sh = k.e(OP_SHIFT_LEFT_LOGICAL, u, &[byte, csh]);
+                        word = k.e(OP_BITWISE_OR, u, &[word, sh]);
+                    }
+                    let wr0 = k.imul(kvh, chd4);
+                    let wr1 = k.iadd(wr0, lane);
+                    let wr2 = k.imul(wr1, ct);
+                    let dst = k.iadd(wr2, pos);
+                    k.store_u(kcq, dst, word);
+                });
+                // decode K scale, transposed `[kvh·tmax + s]` (lane 0; `sc` is uniform)
+                k.iff(is0, |k| {
+                    let di = k.iadd(kvt, pos);
+                    k.store_f(sk, di, sc);
+                });
             });
         });
         k.iff(is_v, |k| {
-            let vb0 = k.imul(kvh, ct);
-            let vb1 = k.iadd(vb0, pos);
-            let vb2 = k.imul(vb1, chd);
-            let vidx = k.iadd(vb2, lane); // V cache [(kvh·tmax+s)·hd + d]
-            k.store_f(vc, vidx, code);
-            k.store_f(vout, ocidx, code);
-            k.iff(is0, |k| {
-                k.store_f(vs, sidx, sc);
-                k.store_f(vsout, orow, sc);
+            k.iff(active, |k| {
+                let vb0 = k.imul(kvh, ct);
+                let vb1 = k.iadd(vb0, pos);
+                let vb2 = k.imul(vb1, chd);
+                let vidx = k.iadd(vb2, lane); // V cache [(kvh·tmax+s)·hd + d], d = lane
+                let vidx_hi = k.iadd(vidx, chalf_off); // d = lane + hd/2
+                k.store_f(vc, vidx, code_lo);
+                k.store_f(vout, ocidx, code_lo);
+                k.store_f(vc, vidx_hi, code_hi);
+                k.store_f(vout, ocidx_hi, code_hi);
+                k.iff(is0, |k| {
+                    k.store_f(vs, sidx, sc);
+                    k.store_f(vsout, orow, sc);
+                });
+                // ── decode V: f16(code·scale), bit-identical to `kv_seed_module`'s read of `vc`/`vs`
+                let val_lo = k.fmul(code_lo, sc);
+                k.store_f16(vdec, vidx, val_lo);
+                let val_hi = k.fmul(code_hi, sc);
+                k.store_f16(vdec, vidx_hi, val_hi);
             });
-            // ── decode V: f16(code·scale), bit-identical to `kv_seed_module`'s read of `vc`/`vs`
-            let val = k.fmul(code, sc);
-            k.store_f16(vdec, vidx, val);
         });
     });
-    k.finish(hd)
+    k.finish(half * rows)
 }
 
 /// [`rmsnorm_batch_q_module`] as bytes.
@@ -1183,8 +1277,9 @@ pub fn qkv_rope_batch_bytes(
     bias: bool,
     qknorm: bool,
     ks: u32,
+    rows: u32,
 ) -> Vec<u8> {
     bytes(qkv_rope_batch_module(
-        nh, nkv, hd, qkvm, tmax, theta, eps, bias, qknorm, ks,
+        nh, nkv, hd, qkvm, tmax, theta, eps, bias, qknorm, ks, rows,
     ))
 }
