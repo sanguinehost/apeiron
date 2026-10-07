@@ -1,0 +1,225 @@
+#version 460
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#extension GL_EXT_control_flow_attributes : require
+
+// Cooperative-matrix (tensor-core) causal prefill attention, drop-in for
+// `simt_nn::attn_prefill_tiled_module_m` (same seven bindings, same cache layouts, same dispatch
+// `(nh, ceil(n / BR))`), hd == 64, GQA, one-walk online softmax.
+//
+// One workgroup = one head x BR = 16*NSG query rows; subgroup `sg` owns rows 16*sg .. 16*sg+15 and
+// walks the key slabs of BK = 64 keys:
+//     S = Q K^T         fp16 x fp16 -> f32, M16N16K16, Q fragments held in registers for the whole walk
+//     m, alpha, P       f32 softmax on the S tile through shared memory (two lanes per row)
+//     O = alpha O + P V' fp16 x fp16 -> f32, P = exp(S - m) rounded to fp16, V' = vs[s] * vcode
+// The KV cache holds int8 codes as f32 (`qkv_rope_batch_module`) with a per-(key, kv head) scale: K
+// codes are exact in fp16, the K scale (times 1/sqrt(hd)) is applied to S in f32, and the V scale is
+// folded into V' so P stays in [0, 1] (no fp16 underflow of exp * vs).
+//
+// Constants: NH, NKV, QKVM, TMAX, SCALE are specialization constants (patched in the binary by
+// `simt_nn::attn_prefill_coopmat_module`). QKVM and TMAX must be multiples of 4.
+
+#ifndef NSG
+#define NSG 4
+#endif
+#define HD 64
+#define BK 64
+#define BR (16 * NSG)
+#define NT (32 * NSG)
+// row strides of the fp16 tiles in f16vec4 units (72 halves = 144 B: 16-byte multiple, bank-skewed)
+#define ST4 18u
+#define SSTR 68u
+
+layout(local_size_x = NT, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint NH = 14;
+layout(constant_id = 1) const uint NKV = 2;
+layout(constant_id = 2) const uint QKVM = 1152;
+layout(constant_id = 3) const uint TMAX = 2048;
+layout(constant_id = 4) const float SCALE = 0.125;
+
+layout(set = 0, binding = 0, std430) readonly buffer QKV_ { vec4 qkv4[]; };
+layout(set = 0, binding = 1, std430) readonly buffer KC_ { vec4 kc4[]; };
+layout(set = 0, binding = 2, std430) readonly buffer KS_ { float ks[]; };
+layout(set = 0, binding = 3, std430) readonly buffer VC_ { vec4 vc4[]; };
+layout(set = 0, binding = 4, std430) readonly buffer VS_ { float vs[]; };
+layout(set = 0, binding = 5, std430) writeonly buffer ATT_ { float att[]; };
+layout(set = 0, binding = 6, std430) readonly buffer PAR_ { uint params[]; };
+
+// sP doubles as the query stage (BR rows x HD halves, the same stride) before the walk starts
+shared f16vec4 sP[BR * ST4];
+shared f16vec4 sK[HD * ST4]; // [d][key]
+shared f16vec4 sV[BK * ST4]; // [key][d]
+shared float sS[BR * SSTR];  // S tile, then the O tile for the epilogue
+shared float sAl[BR];        // per-row alpha, then per-row denominator
+shared float sKs[BK];        // ks[key] * SCALE of the slab
+
+#define FRAG_F coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
+#define FRAG_A coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA>
+#define FRAG_B coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB>
+
+const float NEG = -1.0e30;
+
+void main() {
+    const uint tid = gl_LocalInvocationIndex;
+    const uint sg = tid >> 5;
+    const uint lane = tid & 31u;
+    const uint h = gl_WorkGroupID.x;
+    const uint kvh = h / (NH / NKV);
+    const uint pos0 = params[0];
+    const uint nn = params[1];
+    const uint ntile = (nn + BR - 1u) / BR;
+    if (gl_WorkGroupID.y >= ntile) {
+        return;
+    }
+    // heaviest query tile first: it claims an SM before the light ones fill the machine
+    const uint tile = ntile - 1u - gl_WorkGroupID.y;
+    const uint i0 = tile * BR;
+    const uint hb = h * HD;
+    const uint qn = NH * HD;
+
+    // the query tile into shared as fp16; a row past n is folded onto n-1 and its store is dropped
+    [[unroll]] for (uint it = 0u; it < (BR * HD / 4u) / NT; ++it) {
+        uint idx = tid + it * NT;
+        uint r = idx >> 4;
+        uint q = idx & 15u;
+        uint ir = min(i0 + r, nn - 1u);
+        sP[r * ST4 + q] = f16vec4(qkv4[(ir * QKVM + hb) / 4u + q]);
+    }
+    barrier();
+    FRAG_A qa[HD / 16];
+    [[unroll]] for (uint kk = 0u; kk < HD / 16u; ++kk) {
+        coopMatLoad(qa[kk], sP, sg * 16u * ST4 + kk * 4u, ST4, gl_CooperativeMatrixLayoutRowMajor);
+    }
+
+    // this lane's softmax row: two lanes per row, 32 keys of each slab apiece
+    const uint lr = sg * 16u + (lane >> 1);
+    const uint hf = lane & 1u;
+    const uint lrow = min(i0 + lr, nn - 1u);
+    const uint len = pos0 + lrow + 1u;
+    // the causal bounds of this subgroup's rows and of the whole workgroup (slab loop bound)
+    const uint sub_len = pos0 + min(i0 + sg * 16u + 15u, nn - 1u) + 1u;
+    const uint maxlen = pos0 + min(i0 + BR - 1u, nn - 1u) + 1u;
+
+    FRAG_F o[HD / 16];
+    [[unroll]] for (uint f = 0u; f < HD / 16u; ++f) {
+        o[f] = FRAG_F(0.0);
+    }
+    float mrun = NEG;
+    float lsum = 0.0;
+
+    for (uint t0 = 0u; t0 < maxlen; t0 += BK) {
+        barrier();
+        // K slab: dim-major cache, four consecutive keys per load, f32 code -> fp16
+        [[unroll]] for (uint it = 0u; it < (HD * BK / 4u) / NT; ++it) {
+            uint idx = tid + it * NT;
+            uint d = idx >> 4;
+            uint q = idx & 15u;
+            uint s4 = min(t0 + 4u * q, TMAX - 4u);
+            sK[d * ST4 + q] = f16vec4(kc4[((kvh * HD + d) * TMAX + s4) / 4u]);
+        }
+        // V' slab: code * vs[s], zero past the written window (0 * NaN would poison the row)
+        [[unroll]] for (uint it = 0u; it < (BK * HD / 4u) / NT; ++it) {
+            uint idx = tid + it * NT;
+            uint j = idx >> 4;
+            uint q = idx & 15u;
+            uint s = t0 + j;
+            uint sm = min(s, TMAX - 1u);
+            vec4 v = vc4[((kvh * TMAX + sm) * HD) / 4u + q] * vs[sm * NKV + kvh];
+            sV[j * ST4 + q] = f16vec4(s < maxlen ? v : vec4(0.0));
+        }
+        if (tid < BK) {
+            sKs[tid] = ks[min(t0 + tid, TMAX - 1u) * NKV + kvh] * SCALE;
+        }
+        barrier();
+
+        if (t0 < sub_len) {
+            // S = Q K^T
+            FRAG_F sc[BK / 16];
+            [[unroll]] for (uint nb = 0u; nb < BK / 16u; ++nb) {
+                sc[nb] = FRAG_F(0.0);
+                [[unroll]] for (uint kk = 0u; kk < HD / 16u; ++kk) {
+                    FRAG_B kb;
+                    coopMatLoad(kb, sK, kk * 16u * ST4 + nb * 4u, ST4, gl_CooperativeMatrixLayoutRowMajor);
+                    sc[nb] = coopMatMulAdd(qa[kk], kb, sc[nb]);
+                }
+                coopMatStore(sc[nb], sS, sg * 16u * SSTR + nb * 16u, SSTR, gl_CooperativeMatrixLayoutRowMajor);
+            }
+            subgroupMemoryBarrierShared();
+            subgroupBarrier();
+
+            // online softmax of this lane's row over its 32 keys of the slab
+            float v[32];
+            float mx = NEG;
+            [[unroll]] for (uint j = 0u; j < 32u; ++j) {
+                uint c = hf * 32u + j;
+                float x = sS[lr * SSTR + c] * sKs[c];
+                x = (t0 + c < len) ? x : NEG;
+                v[j] = x;
+                mx = max(mx, x);
+            }
+            mx = max(mx, subgroupShuffleXor(mx, 1u));
+            float mn = max(mrun, mx);
+            float alpha = exp(mrun - mn);
+            mrun = mn;
+            float ssum = 0.0;
+            [[unroll]] for (uint j4 = 0u; j4 < 8u; ++j4) {
+                f16vec4 pv;
+                [[unroll]] for (uint u = 0u; u < 4u; ++u) {
+                    uint j = j4 * 4u + u;
+                    float e = (t0 + hf * 32u + j < len) ? exp(v[j] - mn) : 0.0;
+                    float16_t pe = float16_t(e);
+                    ssum += float(pe);
+                    pv[u] = pe;
+                }
+                sP[lr * ST4 + hf * 8u + j4] = pv;
+            }
+            lsum = lsum * alpha + ssum;
+            if (hf == 0u) {
+                sAl[lr] = alpha;
+            }
+            subgroupMemoryBarrierShared();
+            subgroupBarrier();
+
+            // O = alpha O + P V'
+            FRAG_F fal;
+            coopMatLoad(fal, sAl, sg * 16u, 0u, gl_CooperativeMatrixLayoutColumnMajor);
+            FRAG_A pa[BK / 16];
+            [[unroll]] for (uint kk = 0u; kk < BK / 16u; ++kk) {
+                coopMatLoad(pa[kk], sP, sg * 16u * ST4 + kk * 4u, ST4, gl_CooperativeMatrixLayoutRowMajor);
+            }
+            [[unroll]] for (uint nb = 0u; nb < HD / 16u; ++nb) {
+                FRAG_F acc = o[nb] * fal;
+                [[unroll]] for (uint kk = 0u; kk < BK / 16u; ++kk) {
+                    FRAG_B vb;
+                    coopMatLoad(vb, sV, kk * 16u * ST4 + nb * 4u, ST4, gl_CooperativeMatrixLayoutRowMajor);
+                    acc = coopMatMulAdd(pa[kk], vb, acc);
+                }
+                o[nb] = acc;
+            }
+        }
+    }
+
+    // epilogue: O / denominator, stored coalesced one row at a time
+    const float ltot = lsum + subgroupShuffleXor(lsum, 1u);
+    [[unroll]] for (uint f = 0u; f < HD / 16u; ++f) {
+        coopMatStore(o[f], sS, sg * 16u * SSTR + f * 16u, SSTR, gl_CooperativeMatrixLayoutRowMajor);
+    }
+    if (hf == 0u) {
+        sAl[lr] = ltot;
+    }
+    subgroupMemoryBarrierShared();
+    subgroupBarrier();
+    [[unroll]] for (uint r = 0u; r < 16u; ++r) {
+        uint ir = i0 + sg * 16u + r;
+        if (ir < nn) {
+            float inv = sAl[sg * 16u + r];
+            uint base = ir * qn + hb;
+            att[base + lane] = sS[(sg * 16u + r) * SSTR + lane] / inv;
+            att[base + lane + 32u] = sS[(sg * 16u + r) * SSTR + lane + 32u] / inv;
+        }
+    }
+}
