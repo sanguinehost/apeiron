@@ -325,15 +325,19 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
         ("swiglu_quant_batch", swiglu_quant_batch_module(4864, 2)),
         (
             "qkv_rope_batch",
-            qkv_rope_batch_module(14, 2, 64, 1152, 2048, 1e6, 1e-6, false, false),
+            qkv_rope_batch_module(14, 2, 64, 1152, 2048, 1e6, 1e-6, false, false, 1),
         ),
         (
             "qkv_rope_batch_bias",
-            qkv_rope_batch_module(14, 2, 64, 1152, 2048, 1e6, 1e-6, true, false),
+            qkv_rope_batch_module(14, 2, 64, 1152, 2048, 1e6, 1e-6, true, false, 1),
+        ),
+        (
+            "qkv_rope_batch_bias_ks2",
+            qkv_rope_batch_module(14, 2, 64, 1152, 2048, 1e6, 1e-6, true, false, 2),
         ),
         (
             "qkv_rope_batch_qkn",
-            qkv_rope_batch_module(14, 2, 64, 1152, 2048, 1e6, 1e-6, false, true),
+            qkv_rope_batch_module(14, 2, 64, 1152, 2048, 1e6, 1e-6, false, true, 1),
         ),
         // prefill attention + glue
         (
