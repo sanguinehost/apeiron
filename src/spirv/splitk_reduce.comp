@@ -1,0 +1,29 @@
+#version 460
+
+// Split-K reduction: O[i] = (P[0][i] + P[1][i]) + ... + P[KSPLIT-1][i], the partial tiles of
+// `coopmat_gemm.comp` (KSPLIT > 1) summed in split order, one f32 add per partial after the first,
+// left to right. P is [KSPLIT][ceil(tokens/BN)*BN][M] floats and O one [ceil(tokens/BN)*BN][M] output;
+// a workgroup row y is one BN-token tile (BN * M floats), the x workgroups stride over it.
+// Dispatch (any x, ceil(tokens/BN), 1); with `M * BN % 4 == 0` every access is a whole vec4.
+
+#define BN 64
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint M = 16;
+layout(constant_id = 1) const uint KSPLIT = 3;
+
+layout(set = 0, binding = 0, std430) readonly buffer P_ { vec4 p[]; };
+layout(set = 0, binding = 1, std430) writeonly buffer O_ { vec4 o[]; };
+
+void main() {
+    const uint tile4 = BN * M / 4u;
+    const uint plane4 = gl_NumWorkGroups.y * tile4;
+    for (uint i = gl_WorkGroupID.x * 256u + gl_LocalInvocationIndex; i < tile4; i += gl_NumWorkGroups.x * 256u) {
+        const uint idx = gl_WorkGroupID.y * tile4 + i;
+        vec4 a = p[idx];
+        for (uint s = 1u; s < KSPLIT; ++s) {
+            a = a + p[s * plane4 + idx];
+        }
+        o[idx] = a;
+    }
+}

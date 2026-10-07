@@ -439,6 +439,23 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
                 512 * 4864 / 4 + 512 * 4864 / 32,
             ),
         ),
+        // split-K down GEMM (`prefill.rs` default `DEC_DOWN_SPLITK=3`) and its reduction, at the Q4 and Q8 pp512 down shapes
+        (
+            "coopmat_gemm_dn_split3",
+            coopmat_gemm_split_module(896, 4864, Carrier::Q4, 0, 0, 3),
+        ),
+        (
+            "coopmat_gemm_dn_chart_split3",
+            coopmat_gemm_split_module(
+                896,
+                4864,
+                Carrier::Q8,
+                512 * 4864 / 4,
+                512 * 4864 / 4 + 512 * 4864 / 32,
+                3,
+            ),
+        ),
+        ("splitk_reduce", splitk_reduce_module(896, 3)),
         // MoE / pool / gridsync
         ("moe_topk", moe_topk_module(64, 4, true, true, 1.0)),
         ("moe_silu_slot", silu_mul_q_slot_module(4864, 2)),
@@ -593,5 +610,27 @@ fn attn_coopmat_spirv_is_the_glsl() {
     assert!(
         fresh == committed,
         "src/spirv/attn_coopmat.spv is stale: recompile with glslc {GLSLC_ARGS:?}"
+    );
+}
+
+/// The committed `splitk_reduce.spv` is what `glslc` makes of the committed `splitk_reduce.comp`.
+#[test]
+fn splitk_reduce_spirv_is_the_glsl() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/spirv");
+    let out = std::env::temp_dir().join(format!("splitk_reduce_{}.spv", std::process::id()));
+    let st = std::process::Command::new("glslc")
+        .args(GLSLC_ARGS)
+        .arg(dir.join("splitk_reduce.comp"))
+        .arg("-o")
+        .arg(&out)
+        .status()
+        .expect("glslc must be on PATH");
+    assert!(st.success(), "glslc failed: {st}");
+    let fresh = std::fs::read(&out).expect("glslc output");
+    let _ = std::fs::remove_file(&out);
+    let committed = std::fs::read(dir.join("splitk_reduce.spv")).expect("committed spv");
+    assert!(
+        fresh == committed,
+        "src/spirv/splitk_reduce.spv is stale: recompile with glslc {GLSLC_ARGS:?}"
     );
 }

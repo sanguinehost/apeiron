@@ -301,9 +301,12 @@ fn run(carrier: Carrier, coopmat: bool) {
     // The continuation decodes from the decode-layout KV (`kcq`, `sk`, `vdec`) the rope node
     // writes; a wrong store there leaves the first token intact and collapses this sum. Floors are
     // the measured totals of the committed kernels (bit-identical across runs and across the
-    // `kv_seed` fusion), so a drop is a regression in the decode-layout KV.
+    // `kv_seed` fusion), so a drop is a regression in the decode-layout KV. The Q4 coopmat floor is
+    // re-pinned 43 -> 29 for the down GEMM's split-K (`DEC_DOWN_SPLITK=3`, f32 sum order
+    // (p0+p1)+p2; first tokens agree on every prompt, PF PPL moves -0.019); `DEC_DOWN_SPLITK=1`
+    // restores the serial order, where the old floor of 43 held.
     let floor = match (carrier, coopmat) {
-        (Carrier::Q4, true) => 43,
+        (Carrier::Q4, true) => 29,
         (Carrier::Q4, false) => 36,
         (Carrier::Q8, true) => 16,
         (Carrier::Q8, false) => 26,
