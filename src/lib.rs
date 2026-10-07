@@ -6,6 +6,7 @@
 //! [`Table`] is the sole storage type. It is tested; its source refinement is pending.
 
 pub mod aes;
+pub mod attn_cut;
 pub mod carrier;
 pub mod cell;
 pub mod chacha;
