@@ -123,8 +123,9 @@ The board mirror: every open row below names its board row; `board.py check` rec
 ### Inference track (parallel; release by 2026-10-31)
 
 Outcome: a practical llama.cpp replacement on Vulkan/SPIR-V — load a GGUF, prefill, decode, sample,
-serve. Acceptance bar (owner, 2026-09-30): ≥2.0× llama.cpp on the same model, prefill and decode
-each, on SPIR-V, against llama.cpp's Vulkan backend; CUDA is out of scope.
+serve. Comparator (owner, 2026-10-07): the fastest llama.cpp backend, which is CUDA; Vulkan is a
+secondary column. Acceptance bar (owner, 2026-09-30): ≥2.0× the comparator on the same model, prefill
+and decode each, on SPIR-V. Fresh pp512/tg128 against both backends: `/home/socol/oc-tmp/sota-bench/run.sh`.
 
 State, from the receipts:
 
