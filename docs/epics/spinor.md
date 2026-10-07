@@ -877,6 +877,27 @@ was a convention error. Not covered: whether any checkpoint's heads use these fo
 shipped rotation code and a trained model), and the line comparing `softmax(l−s·d)` with a
 renormalised decay in the script is an identity by construction and carries no weight.
 
+#### FACES-R1 H1/H2 bridge: RoPE pairs on the parabolic face (row `faces-r1-do-the-three-on-HCnA8ZlHN3emV1nzkVH7V0`)
+
+Command: `python3 /home/socol/oc-tmp/escalation/FACES-R1-rope-contraction.py` (schedule `theta_j = theta^(-2j/hd)` read from
+`src/engine/rope.rs` `RopeTable::new`; `theta = 1e6`, `hd = 64`, 32 pairs; prediction in the script header, written before the run).
+Statement: a pair with `theta_j·L < sqrt(2ε)` stays within `ε` of the `σ=0` orbit `(1, θd)` for every `d ≤ L`
+(`sup|cos θd − 1| = (θL)²/2`, `sup|sin θd − θd| = (θL)³/6`; direct grid check passed for every counted pair).
+
+| context `L` | pairs within ε=1e-2 of parabolic | pairs with period `< L` (wrapped) | intermediate | prediction |
+|---|---|---|---|---|
+| 512 | 13 (j ≥ 19) | 11 | 8 | 13 / 11, matched |
+| 2048 | 9 (j ≥ 23) | 14 | 9 | 9, matched |
+| 32768 | 3 (j ≥ 29) | 20 | 9 | 3, matched |
+| 131072 | 0 | 24 | 8 | 0, matched |
+
+Grade `tested` (numeric, the shipped schedule; no checkpoint weights read). Reading (`model`): inside its training context RoPE
+is not one face; high-frequency pairs are elliptic and aliased, low-frequency pairs are the ALiBi (parabolic) face, and the
+parabolic share shrinks from 13 of 32 pairs at `L=512` to 0 at `L=131072`: the elliptic-to-parabolic limit `θ→0` is
+the Inönü–Wigner contraction (Inönü and Wigner 1953; Yaglom's treatment of the three Cayley–Klein geometries; pointers, not
+retrieved by the lead, not claimed new). Not covered: whether trained Q,K put energy in the low-frequency pairs (needs a
+checkpoint's rotated Q,K); a `docs/` search for `inonu|yaglom|contraction` hit only unrelated uses of "contraction" (files not opened).
+
 ### FACES-R3 results (prior-art search)
 
 Row: `faces-r3-searched-list-of-HFjIFdmrgQqByikqw7ayoE`. Digest `/home/socol/oc-tmp/escalation/FACES-R3-DIGEST.md`
