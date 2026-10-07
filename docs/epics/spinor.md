@@ -874,3 +874,22 @@ convention for `x`, which put the shear on the wrong coordinate and reported a n
 was a convention error. Not covered: whether any checkpoint's heads use these forms (needs the
 shipped rotation code and a trained model), and the line comparing `softmax(l−s·d)` with a
 renormalised decay in the script is an identity by construction and carries no weight.
+
+### FACES-R3 results (prior-art search)
+
+Row: `faces-r3-searched-list-of-HFjIFdmrgQqByikqw7ayoE`. Digest `/home/socol/oc-tmp/escalation/FACES-R3-DIGEST.md`
+(agy, Gemini 3.8 Flash; control passed: it re-found 2104.09864 and 2108.12409). Lead check: the abstract
+pages of two cited papers were fetched; nothing else was retrieved. A digest item the lead did not
+open is a pointer.
+
+| candidate | result | status |
+|---|---|---|
+| RoPE and ALiBi as one group family | **Known in part.** GRAPE, arXiv 2512.07805: multiplicative rotations in `SO(d)` plus additive logit biases from unipotent actions in `GL`, recovering RoPE and ALiBi as special cases (abstract fetched). The abstract names no hyperbolic orbit, no `SO(1,1)`, no decay and no `R[x]/(x²−σ)`; the full text is not read | elliptic + parabolic known; the hyperbolic third face and the one-ring statement: not found in four queries |
+| ALiBi equals a fixed exponential forget gate | Digest cites Forgetting Transformer, arXiv 2503.02130, §3, with a quoted sentence. Title and authors confirmed from the abstract page; the sentence itself is not verified | known (citation unverified at section level) |
+| dual or split-complex numbers in position encoding | not found in five queries | not found; not a novelty claim |
+| real SSM diagonal as a two-idempotent split | not found in four queries; S4D (2206.11893) and LRU (2303.06349) contrast real decay with complex rotation without the idempotent reading | not found; not a novelty claim |
+| dependent dispatch chain as nilpotent/Jordan | not found in four queries. Latency-sum framing is known: Event Tensor, arXiv 2604.13327, §1 (5–10 µs launch against 2 µs kernels), not retrieved by the lead | Jordan reading not found; latency sum known |
+
+Consequence for the series: H1+H2 are known as a pair, so the open content is H3 (the hyperbolic
+orbit as the third face with the idempotent split), H4 and H5/H6. A "not found" row shows a search
+that found the two seeded papers; it does not show absence from the literature.
