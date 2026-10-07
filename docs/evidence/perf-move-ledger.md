@@ -88,3 +88,11 @@ Rows GPU-04 to GPU-07 are pre-coopmat resident-prefill and early decode figures;
 ## Unattributed
 
 Rows whose receipt names no binding resource, and so are the model's first work: MAP-03, MAP-04, MAP-05, MAP-09, MAP-10, MAP-11, MAP-12, COUNT-05, GPU-04, GPU-05, GPU-06, GPU-07, GPU-08 (gap named as `mma`, mechanism not isolated per row), CPU-28.
+
+## Formalisation receipts
+
+| Row | Board | Commit | Gate | Control | Grade | Not covered |
+|---|---|---|---|---|---|---|
+| PERF-FORMAL-ISSUE | `perf-formal-issue-lean-p8-CeYHuxkxjW6WGENGfsJa2S` | 28c8890 | `cd proof/corpus && lake build Perf.Issue`; `lake build AxiomAudit` exit 0 | slot count perturbed in a copy, instance red | proved over `model` slot counts and port width | hardware issue behaviour |
+| PERF-FORMAL-OCC | `perf-formal-occ-lean-and-CbhOJrD0u57zJpIUtEEMrv` | 9e9fde4 | `cd proof/corpus && lake build Perf.Occupancy`; `lake build AxiomAudit` exit 0 (9123 jobs) | `regBoundary` division to product, type mismatch at Occupancy.lean:75 | proved over `model` register counts | driver residency; P9 overlap model open |
+| PERF-FORMAL-MOVES | `perf-formal-moves-lean-p3-CFHAhNveAHMC5ksEYMa7JD` | 90ac094 | `cd proof/corpus && lake build Perf.Moves`; `lake build AxiomAudit` exit 0 (9124 jobs) | `dp4aMacs` 4*32 to 4*31 and `hd128Tensors` 3 to 1 in a copy, three declarations red | proved over `model` constants copied from the named rows | hardware speed; CPU-* dispatch rows (PERF-FORMAL-MAP) |
