@@ -22,6 +22,7 @@ import Perf.Concurrency
 import Perf.Instances
 import Perf.Chain
 import Perf.Issue
+import Perf.Occupancy
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -320,3 +321,17 @@ import Perf.Issue
 #audit Perf.lever_ceiling
 #audit Perf.loopRes_sharedLB
 #audit Perf.loopRes_issue_strict
+
+-- Row: `perf-formal-occ-lean-and-CbhOJrD0u57zJpIUtEEMrv` (PERF-FORMAL-OCC): resident workgroups from
+-- the register file and shared memory, the occupancy gain bound and ceiling (`Perf/Occupancy.lean`).
+#audit Perf.residentWG_antitone
+#audit Perf.residentWG_step
+#audit Perf.residentWG_const
+#audit Perf.residentWG_default
+#audit Perf.residentWG_t128x32
+#audit Perf.residentMin_le_left
+#audit Perf.residentMin_le_right
+#audit Perf.occupancy_gain_le
+#audit Perf.occupancy_ceiling
+#audit Perf.residentMin_occ48k
+#audit Perf.residentMin_committed
