@@ -893,3 +893,39 @@ open is a pointer.
 Consequence for the series: H1+H2 are known as a pair, so the open content is H3 (the hyperbolic
 orbit as the third face with the idempotent split), H4 and H5/H6. A "not found" row shows a search
 that found the two seeded papers; it does not show absence from the literature.
+
+### FACES-R2 results (per component; model unless a command is named)
+
+Row: `faces-r2-each-on-the-and-BegLX7J1BhlO8MfCu6nnZd`. Shared fact (tested in R1): a score that
+depends on relative position through a one-parameter group obeys `f''(d) = σθ² f(d)`, so its
+solution space is `{cos θd, sin θd}` (`σ<0`), `{1, d}` (`σ=0`), `{e^{θd}, e^{−θd}}` (`σ>0`). What
+each face can express follows from that space.
+
+| component | elliptic `σ<0` | parabolic `σ=0` | hyperbolic `σ>0` | what differs |
+|---|---|---|---|---|
+| position code (score vs `d`) | RoPE: periodic, bounded; can peak at a nonzero offset (`cos(θd−φ)`) | ALiBi: affine in `d`, no period, no peak | two exponentials; one idempotent lane kept (`|λ|<1`) for stability | only the elliptic face expresses "attend at fixed offset k" in one pair; parabolic extrapolates in length because nothing wraps; hyperbolic overflows (`e^{θd}`: 1.8e6 at `d=59`, `θ=0.31`) |
+| decay / state (`h←Ah+Bx`) | complex diagonal `A`: oscillator, phase memory, counts mod k | Jordan block `1+Nε`: state grows linearly, an integrator/counter | real diagonal `A`: exponential forgetting (RetNet, real-`A` Mamba) | memory length is `∞` (elliptic, `|λ|=1`), unbounded growth (parabolic), `1/(1−λ)` (hyperbolic) |
+| norm (RMSNorm) | `x²+y²`, positive definite: the normaliser RMSNorm uses | `x²`, degenerate: kills the second coordinate | `x²−y²`, indefinite: zero on the null cone `x=±y`, where the idempotent lanes lie | RMSNorm presupposes the elliptic face. Toy: normalising 448 Gaussian pairs by the hyperbolic form gives inverse-rms gain median 5.6, p99 41.6, max 725.9 (elliptic ≈ 1.00) and a random sign (P(Q<0)=0.502) |
+| hash-table probe | address ring `Z/2⁶⁴`, address determines key (regenerated); ring wraps | key carried beside the address; no wrap into the flat region (spill) | `Z/m` with CRT idempotent channels; address does not determine the key | already decided per face in `docs/epics/algebra-native-addressing.md` (lines 62–67, 127); the CRT split of `Z/m` is the discrete idempotent decomposition `(1±x)/2` |
+| decode chain (cost) | the token loop: output token re-enters as input, period one token | dependent dispatches inside a token: strictly forward, nothing returns (nilpotent), cost adds: `chainLB = Σ dispLB` | independent lanes (heads, split-K, DP4A bytes): cost is the max, combined once | the chain model is sum for a dependent composition and max for a parallel one; the face names which composition applies |
+
+Command for the norm row: `python3 /home/socol/oc-tmp/escalation/FACES-R2-norm.py` (numpy, seed 0,
+`N=200000` samples, `P=448` pairs). Grade `tested` for the toy numbers; the reading of RMSNorm as an
+elliptic-norm normaliser is `model` (it is the standard definition read on the face); nothing here
+says a trained network would work better or worse with another form.
+
+One cheap experiment per row (none run yet; grade `model` until run):
+
+| component | experiment | refuted if |
+|---|---|---|
+| position code | one head, fixed random `q,k`, three position codes; train on offset-retrieval at length `L`, test at `4L` | parabolic does not extrapolate better than elliptic, or elliptic cannot peak at offset |
+| decay / state | 2-state linear recurrence on parity (mod-2 count), unbounded count, and moving average; one face per state | a face solves a task outside its solution space above chance |
+| norm | replace RMSNorm in a small trained block by the `|x²−y²|` form with the same eps; compare loss and gain tail | the hyperbolic normaliser trains to the elliptic loss within noise, so the null cone does not bind |
+| hash probe | read the existing per-face address decision against `Coord` measurements | none new: row defers to the addressing epic |
+| decode chain | two independent GEMVs in one submission, with and without a barrier, against the dependent pair (`decattr_probe chain`) | independent pair time is not near the max of the two (overlap fails), refuting H6 on this driver |
+
+Consequence: the faces are not interchangeable per component. Each row lists a capability one face
+has and the others lack (peak at offset, extrapolation, forgetting, definite normaliser, key
+recovery from address, overlap), so a variant that kept all invariants on every base would be flagged
+not face-dependent; none did. The decode-chain experiment needs the GPU and waits for the running
+lane.
