@@ -374,6 +374,8 @@ impl PrefillStack {
             && qkvm % 4 == 0
             && tmax % 4 == 0
             && nh % nkv == 0
+            // the kernel writes the o-projection's activation chart itself, in natural word order
+            && layers.iter().all(|l| dpw(l.o_c) == 1)
             && std::env::var("DEC_ATTN_COOP").map_or(true, |v| v != "0")
             && std::env::var("DEC_ATTN_TILE").is_err();
         let attn_gy = if attn_coop {
@@ -484,6 +486,12 @@ impl PrefillStack {
                 nkv,
                 Gy::Batch,
             ));
+            // the coopmat kernel's epilogue is the chart: xq, xsc (scales), xsm (sums)
+            let attn_bufs: Vec<_> = if attn_coop {
+                vec![qkv_buf, kc_p, ks_p, vc_p, vs_p, xq, params, xsc, xsm]
+            } else {
+                vec![qkv_buf, kc_p, ks_p, vc_p, vs_p, att_buf, params]
+            };
             plan.push(pl.node(
                 attn_key.clone(),
                 || match tile {
@@ -493,18 +501,20 @@ impl PrefillStack {
                     ),
                     None => attn_prefill_bytes(nh, nkv, hd, qkvm, tmax, scale),
                 },
-                &[qkv_buf, kc_p, ks_p, vc_p, vs_p, att_buf, params],
+                &attn_bufs,
                 nh,
                 attn_gy,
             ));
-            let dqo = dpw(l.o_c);
-            plan.push(pl.node(
-                format!("quant_{qn}_{dqo}"),
-                || quantize_batch_bytes(qn as u32, dqo),
-                &[att_buf, xq, xsc, xsm],
-                1,
-                Gy::Batch,
-            ));
+            if !attn_coop {
+                let dqo = dpw(l.o_c);
+                plan.push(pl.node(
+                    format!("quant_{qn}_{dqo}"),
+                    || quantize_batch_bytes(qn as u32, dqo),
+                    &[att_buf, xq, xsc, xsm],
+                    1,
+                    Gy::Batch,
+                ));
+            }
             gemm_node!(
                 hidden,
                 qn as u32,
