@@ -25,6 +25,7 @@ import Perf.Issue
 import Perf.Occupancy
 import Perf.Moves
 import Perf.MapMoves
+import Perf.Identity
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -360,3 +361,14 @@ import Perf.MapMoves
 #audit Perf.MapMoves.count01_bucketTagDisjoint
 #audit Perf.MapMoves.count02_homeGroupFastPath
 #audit Perf.MapMoves.count03_readPathProduct
+
+-- Row: `perf-formal-residual-the-GN58EBVOKETdWwQ9hShVHE` (RESIDUAL-IDENTITY): the fixed-grid
+-- rounding model, the node-deletion family and its identity floor (`Perf/Identity.lean`).
+#audit Perf.rnd_idem
+#audit Perf.rnd_mono
+#audit Perf.drop1_changes
+#audit Perf.drop4_changes
+#audit Perf.drop5_changes
+#audit Perf.redundant_two
+#audit Perf.redundant_three
+#audit Perf.identity_floor
