@@ -27,6 +27,7 @@ import Perf.Moves
 import Perf.MapMoves
 import Perf.Identity
 import Perf.AttnCoop
+import Perf.IdentityFloat
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -371,6 +372,18 @@ import Perf.AttnCoop
 #audit Perf.coop_stage_halves
 #audit Perf.coop_node_below_simt
 #audit Perf.attn_node_gain
+
+-- Row: `perf-formal-residual-the-GN58EBVOKETdWwQ9hShVHE` (identity floor under a relative-precision
+-- rounding, `Perf/IdentityFloat.lean`): every one of the five roundings is deletion-necessary.
+#audit Perf.Float.rne_mono
+#audit Perf.Float.fl_mono
+#audit Perf.Float.fl_idem
+#audit Perf.Float.drop1_changes
+#audit Perf.Float.drop2_changes
+#audit Perf.Float.drop3_changes
+#audit Perf.Float.drop4_changes
+#audit Perf.Float.drop5_changes
+#audit Perf.Float.identity_floor
 
 -- Row: `perf-formal-residual-the-GN58EBVOKETdWwQ9hShVHE` (RESIDUAL-IDENTITY): the fixed-grid
 -- rounding model, the node-deletion family and its identity floor (`Perf/Identity.lean`).
