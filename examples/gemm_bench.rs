@@ -4,17 +4,31 @@
 //! at 512 tokens, both chart carriers (Q8, Q4), real layer-0 weights packed with `pack_proj_f32`.
 //!
 //! Timing: GPU timestamps around `INNER` back-to-back dispatches (compute barrier between), per
-//! dispatch = span / `INNER`; `--reps` rounds, the two arms and all shapes interleaved inside each
-//! round (arm order alternates per round). Reports mean and min–max µs, GMAC/s and int8 TOPS
-//! (2 ops per MAC), and the pp512 implied by scaling the GEMM node times of the receipt
-//! `docs/evidence/gpu-prefill-vs-llamacpp.md` by the measured ratios.
+//! dispatch = span / `INNER`; `--reps` rounds, arms and shapes interleaved with the arm order rotated
+//! per round. Reports mean and min–max µs, GMAC/s and int8 TOPS (2 ops per MAC), the paired
+//! per-round dp4a/arm and coopmat/arm ratios, and (without `--shape`) the pp512 implied by scaling
+//! the GEMM node times of `docs/evidence/gpu-prefill-vs-llamacpp.md` by the measured ratios.
+//!
+//! Board row `inf-resident-prefill-GEB633UfORCK7XSmzJifHd`.
+//!
+//! **Instrument.** `--grid FILE` compiles one arm per line (`NAME [src=PATH] [-DK=V ...]`) with
+//! `glslc` (`simt_nn::GLSLC_ARGS` plus the `-D`s) into `--spv-cache DIR`, keyed by the sha256 of the
+//! source bytes and flags; the dispatch BM/BN come from `-DBM`/`-DBN` or the shader's own `#ifndef`
+//! default. Two names compiling to the same SPIR-V are one arm (`NAME == OTHER`). Every arm writes
+//! its own output buffer and is checked cell by cell against the dp4a arm (arm 0) in the same run:
+//! `OK` or `REJECTED n_cells first_index`. Rejected arms stay in the table and are excluded from
+//! every ratio. An arm whose name starts `ctl_` must be REJECTED (`CONTROL ACCEPTED` and exit 2
+//! otherwise); the committed `coopmat` arm must be OK (exit 3 otherwise). One TSV provenance row per
+//! arm and shape is appended to `--ledger FILE`; the ledger is never read back (a baseline is an arm
+//! in the same invocation).
 //!
 //! `cargo run --release --locked --features gpu --example gemm_bench -- [--reps N] [--model PATH]
-//! [--shape NAME] [--stats] [--ir DIR] [--variants DIR]` — `--shape` keeps one shape (the implied
-//! pp512 then needs all four and is skipped), `--stats` prints the driver's pipeline statistics
-//! (registers, spills), `--blob DIR` writes each kernel's one-pipeline cache blob (the SM120 SASS:
-//! `fold/scripts/nvuc_sass.py`),
-//! `--variants DIR` adds one arm per `NAME.bm<BM>.bn<BN>.spv` compile of the GLSL in DIR.
+//! [--shape NAME] [--stats] [--ir DIR] [--blob DIR] [--variants DIR] [--grid FILE]
+//! [--spv-cache DIR] [--ledger FILE]` — `--shape` keeps one shape (the implied pp512 then needs all
+//! four and is skipped), `--stats` prints the driver's pipeline statistics (registers, spills),
+//! `--blob DIR` writes each kernel's one-pipeline cache blob (the SM120 SASS:
+//! `fold/scripts/nvuc_sass.py`), `--variants DIR` adds one arm per `NAME.bm<BM>.bn<BN>.spv` compile
+//! of the GLSL in DIR.
 #![allow(
     clippy::pedantic,
     missing_docs,
@@ -25,13 +39,20 @@ use apeiron::format::gguf::Gguf;
 use apeiron::gpu::decode::pack::pack_proj_f32;
 use apeiron::gpu::decode::prefill::prefill_tile;
 use apeiron::gpu::decode::state::dequant_rows;
-use apeiron::gpu::decode::{local_wg, make_step_named, step_barrier, GpuCtx, Step};
+use apeiron::gpu::decode::{local_wg, make_step_named, rec_step, step_barrier, GpuCtx, Step};
 use apeiron::gpu::vulkan::*;
 use apeiron::simt::{gemv_dp4a_batch_rt_bytes, Carrier};
-use apeiron::simt_nn::{coopmat_gemm_module_from, COOPMAT_GEMM_SPV, TILE_BM, TILE_BN};
+use apeiron::simt_nn::{coopmat_gemm_module_from, COOPMAT_GEMM_SPV, GLSLC_ARGS, TILE_BM, TILE_BN};
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 const TOKENS: u32 = 512;
 const INNER: u32 = 10;
+const DEFAULT_SRC: &str = "src/spirv/coopmat_gemm.comp";
+const DEFAULT_SPV_CACHE: &str = "/home/socol/oc-tmp/bench/spv";
+const DEFAULT_LEDGER: &str = "/home/socol/oc-tmp/bench/ledger.tsv";
 
 /// The receipt's pp512 profile (`docs/evidence/gpu-prefill-vs-llamacpp.md`, `PREFILL_PROFILE=1`,
 /// q4): GPU-active µs per call summed over 24 layers, and the whole call.
@@ -59,14 +80,43 @@ impl Rng {
     }
 }
 
+/// One arm's oracle verdict against the dp4a reference.
+enum Verdict {
+    Ok,
+    Rejected { cells: usize, first: usize },
+    BuildFail(String),
+}
+
+/// One timed arm of one case: its own output buffer, dispatched module, verdict and rounds.
+struct Arm {
+    name: String,
+    /// Provenance: sha256 of the compile the arm's SPIR-V comes from (dp4a: of the generated module).
+    sha: String,
+    /// The dispatched SPIR-V bytes (also the `--blob` / `--stats` object).
+    code: Vec<u8>,
+    /// The six bindings, binding 2 this arm's own output.
+    bufs: [Handle; 6],
+    out: Handle,
+    st: Option<Step>,
+    verdict: Verdict,
+    us: Vec<f64>,
+}
+
+/// One compiled variant, before it is built per shape.
+struct Kernel {
+    name: String,
+    spv: Vec<u8>,
+    bm: u32,
+    bn: u32,
+    sha: String,
+}
+
 struct Case {
     name: &'static str,
     carrier: Carrier,
     m: u32,
     k: u32,
-    /// arm 0 is dp4a, arm 1 the committed coopmat kernel, then the `--variants`
-    arms: Vec<(String, Step)>,
-    us: Vec<Vec<f64>>,
+    arms: Vec<Arm>,
 }
 
 /// Mean, min, max.
@@ -75,6 +125,27 @@ fn stats(v: &[f64]) -> (f64, f64, f64) {
     let min = v.iter().copied().fold(f64::INFINITY, f64::min);
     let max = v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     (mean, min, max)
+}
+
+/// Median of `v` (mean of the two middle values on an even length).
+fn median(v: &[f64]) -> f64 {
+    let mut s = v.to_vec();
+    s.sort_by(|a, b| a.partial_cmp(b).expect("finite ratios"));
+    let m = s.len() / 2;
+    if s.is_empty() {
+        f64::NAN
+    } else if s.len().is_multiple_of(2) {
+        (s[m - 1] + s[m]) / 2.0
+    } else {
+        s[m]
+    }
+}
+
+/// Paired per-round ratios `num[i] / den[i]`; mean, median, min, max.
+fn ratio_stats(num: &[f64], den: &[f64]) -> (f64, f64, f64, f64) {
+    let r: Vec<f64> = num.iter().zip(den).map(|(n, d)| n / d).collect();
+    let (mean, lo, hi) = stats(&r);
+    (mean, median(&r), lo, hi)
 }
 
 /// GPU-active µs per dispatch of `s`, over `INNER` back-to-back dispatches.
@@ -106,6 +177,223 @@ unsafe fn time(vk: &Vk, s: &Step) -> f64 {
     ts[1].wrapping_sub(ts[0]) as f64 * f64::from(vk.timestamp_period) / 1000.0 / f64::from(INNER)
 }
 
+/// One dispatch of `s` and a full wait — the oracle's single-shot run.
+unsafe fn run_once(vk: &Vk, s: &Step) {
+    let cb = vk.command_buffer();
+    vk.begin(cb);
+    rec_step(vk, cb, s);
+    check((vk.end_cb)(cb), "vkEndCommandBuffer");
+    vk.submit_wait(cb);
+}
+
+/// Copy `n` f32 out of `src` (`tests/gpu_coopmat_gemm.rs:67`'s readback pattern).
+unsafe fn readback(vk: &Vk, src: Handle, n: usize) -> Vec<f32> {
+    let (rb, mem) = vk
+        .buffer(
+            n as u64 * 4,
+            BUFFER_USAGE_TRANSFER_DST,
+            MEMORY_HOST_VISIBLE | MEMORY_HOST_COHERENT,
+        )
+        .expect("readback buffer");
+    let cb = vk.command_buffer();
+    vk.begin(cb);
+    let region = BufferCopy {
+        src_offset: 0,
+        dst_offset: 0,
+        size: n as u64 * 4,
+    };
+    (vk.copy_buffer)(cb, src, rb, 1, &region);
+    vk.barrier(
+        cb,
+        STAGE_TRANSFER,
+        STAGE_HOST,
+        ACCESS_TRANSFER_WRITE,
+        ACCESS_HOST_READ,
+    );
+    check((vk.end_cb)(cb), "vkEndCommandBuffer");
+    vk.submit_wait(cb);
+    std::slice::from_raw_parts(vk.map(mem).cast::<f32>(), n).to_vec()
+}
+
+/// Count of bit-differing cells and the first differing index.
+fn compare(reference: &[f32], other: &[f32]) -> (usize, usize) {
+    let mut cells = 0usize;
+    let mut first = 0usize;
+    for (i, (x, y)) in reference.iter().zip(other).enumerate() {
+        if x.to_bits() != y.to_bits() {
+            if cells == 0 {
+                first = i;
+            }
+            cells += 1;
+        }
+    }
+    (cells, first)
+}
+
+fn verdict_str(v: &Verdict) -> String {
+    match v {
+        Verdict::Ok => "OK".to_string(),
+        Verdict::Rejected { cells, first } => format!("REJECTED {cells} cells @{first}"),
+        Verdict::BuildFail(m) => format!("BUILD-FAIL {m}"),
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut h = Sha256::new();
+    h.update(bytes);
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Civil date from days since 1970-01-01 (Howard Hinnant's `civil_from_days`).
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+fn utc_now() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0) as i64;
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    let (y, m, d) = civil_from_days(days);
+    let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    format!("{y:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}Z")
+}
+
+/// The `#ifndef NAME` / `#define NAME <n>` default the shader states.
+fn shader_default(src: &str, name: &str) -> u32 {
+    let ifndef = format!("#ifndef {name}");
+    let define = format!("#define {name} ");
+    let mut lines = src.lines().map(str::trim);
+    while let Some(l) = lines.next() {
+        if l == ifndef {
+            let d = lines.next().unwrap_or("");
+            return d
+                .strip_prefix(&define)
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or_else(|| panic!("{name}: no default after `{ifndef}`"));
+        }
+    }
+    panic!("{name}: no `{ifndef}` in the shader");
+}
+
+/// `-DBM=64` (or `-DBM 64`) as a number, if the grid line carries it.
+fn flag_u32(flags: &[String], name: &str) -> Option<u32> {
+    let joined = format!("-D{name}=");
+    let spaced = format!("-D{name}");
+    for (i, f) in flags.iter().enumerate() {
+        if let Some(v) = f.strip_prefix(&joined) {
+            return v.parse().ok();
+        }
+        if *f == spaced {
+            return flags.get(i + 1).and_then(|v| v.parse().ok());
+        }
+    }
+    None
+}
+
+struct GridArm {
+    name: String,
+    src: PathBuf,
+    flags: Vec<String>,
+}
+
+/// `NAME [src=PATH] [-DK=V ...]`, `#` comments, blanks skipped.
+fn read_grid(file: &str, default_src: &Path) -> Vec<GridArm> {
+    let text = std::fs::read_to_string(file).unwrap_or_else(|e| panic!("--grid {file}: {e}"));
+    let mut out = Vec::new();
+    for (ln, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut it = line.split_whitespace();
+        let name = it.next().expect("token").to_string();
+        let mut src = default_src.to_path_buf();
+        let mut flags: Vec<String> = Vec::new();
+        let mut want_define = false;
+        for tok in it {
+            if want_define {
+                flags.push(tok.to_string());
+                want_define = false;
+                continue;
+            }
+            if let Some(s) = tok.strip_prefix("src=") {
+                src = PathBuf::from(s);
+            } else if tok == "-D" {
+                flags.push("-D".to_string());
+                want_define = true;
+            } else if tok.starts_with("-D") {
+                flags.push(tok.to_string());
+            } else {
+                panic!("--grid {file}:{}: unknown token {tok:?}", ln + 1);
+            }
+        }
+        out.push(GridArm { name, src, flags });
+    }
+    out
+}
+
+/// Compile `src` with `GLSLC_ARGS` + `flags` into the sha256-keyed `cache`; returns the SPIR-V.
+fn compile(src: &Path, flags: &[String], cache: &Path) -> Result<Vec<u8>, String> {
+    let bytes = std::fs::read(src).map_err(|e| format!("read {}: {e}", src.display()))?;
+    let mut key = Sha256::new();
+    key.update(&bytes);
+    for f in flags {
+        key.update([0u8]);
+        key.update(f.as_bytes());
+    }
+    let hex = key
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    let out = cache.join(format!("{hex}.spv"));
+    if !out.exists() {
+        std::fs::create_dir_all(cache)
+            .map_err(|e| format!("spv-cache {}: {e}", cache.display()))?;
+        let tmp = cache.join(format!("{hex}.tmp"));
+        let st = std::process::Command::new("glslc")
+            .args(GLSLC_ARGS)
+            .args(flags)
+            .arg(src)
+            .arg("-o")
+            .arg(&tmp)
+            .output()
+            .map_err(|e| format!("glslc spawn: {e}"))?;
+        if !st.status.success() {
+            let msg = String::from_utf8_lossy(&st.stderr);
+            return Err(msg
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("glslc failed")
+                .to_string());
+        }
+        std::fs::rename(&tmp, &out).map_err(|e| format!("rename: {e}"))?;
+    }
+    std::fs::read(&out).map_err(|e| format!("read {}: {e}", out.display()))
+}
+
+fn panic_msg(e: &(dyn std::any::Any + Send)) -> String {
+    let s = if let Some(s) = e.downcast_ref::<String>() {
+        s.clone()
+    } else if let Some(s) = e.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else {
+        "panic".to_string()
+    };
+    s.lines().next().unwrap_or("panic").to_string()
+}
+
 fn main() {
     let mut args = std::env::args().skip(1);
     let mut reps = 5usize;
@@ -114,6 +402,9 @@ fn main() {
     let mut stats_on = false;
     let mut blob_dir: Option<String> = None;
     let mut variants_dir: Option<String> = None;
+    let mut grid_file: Option<String> = None;
+    let mut spv_cache = PathBuf::from(DEFAULT_SPV_CACHE);
+    let mut ledger = PathBuf::from(DEFAULT_LEDGER);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--reps" => reps = args.next().and_then(|v| v.parse().ok()).expect("--reps N"),
@@ -122,34 +413,52 @@ fn main() {
             "--stats" => stats_on = true,
             "--blob" => blob_dir = Some(args.next().expect("--blob DIR")),
             "--variants" => variants_dir = Some(args.next().expect("--variants DIR")),
+            "--grid" => grid_file = Some(args.next().expect("--grid FILE")),
+            "--spv-cache" => spv_cache = PathBuf::from(args.next().expect("--spv-cache DIR")),
+            "--ledger" => ledger = PathBuf::from(args.next().expect("--ledger FILE")),
             _ => panic!("unknown argument {a}"),
         }
     }
-    let vk = unsafe { Vk::load() }.expect("Vulkan device");
-    let gguf = Gguf::open(&model).expect("gguf open");
-    let (g, _stage) = GpuCtx::new(&vk).expect("GpuCtx::new");
-    let lw = local_wg();
-    let n = TOKENS as usize;
-    let mut rng = Rng(0x6e66_b3a7_c0de_0005);
-    println!(
-        "device {} | model {model} | tokens {TOKENS} | reps {reps} x {INNER} dispatches | dp4a local {lw}",
-        vk.device_name
-    );
+    let default_src = Path::new(env!("CARGO_MANIFEST_DIR")).join(DEFAULT_SRC);
 
-    let l0 = |s: &str| format!("blk.0.{s}.weight");
-    let groups: [(&'static str, Vec<String>); 4] = [
-        ("qkv", vec![l0("attn_q"), l0("attn_k"), l0("attn_v")]),
-        ("o", vec![l0("attn_output")]),
-        ("gate_up", vec![l0("ffn_gate"), l0("ffn_up")]),
-        ("down", vec![l0("ffn_down")]),
-    ];
-    // (label, spv, bm, bn): the committed kernel, then each variant
-    let mut kernels: Vec<(String, Vec<u8>, u32, u32)> = vec![(
-        "coopmat".into(),
-        COOPMAT_GEMM_SPV.to_vec(),
-        TILE_BM,
-        TILE_BN,
-    )];
+    // The committed kernel is always arm 1, so the compiled `same`/`selfcheck` lines dedupe to it.
+    let mut kernels: Vec<Kernel> = vec![Kernel {
+        name: "coopmat".to_string(),
+        spv: COOPMAT_GEMM_SPV.to_vec(),
+        bm: TILE_BM,
+        bn: TILE_BN,
+        sha: sha256_hex(COOPMAT_GEMM_SPV),
+    }];
+    let mut seen: HashMap<String, String> = HashMap::new();
+    seen.insert(kernels[0].sha.clone(), "coopmat".to_string());
+
+    if let Some(file) = &grid_file {
+        for a in read_grid(file, &default_src) {
+            match compile(&a.src, &a.flags, &spv_cache) {
+                Ok(spv) => {
+                    let sha = sha256_hex(&spv);
+                    if let Some(other) = seen.get(&sha) {
+                        println!("{} == {other} (spv {sha})", a.name);
+                        continue;
+                    }
+                    let text = std::fs::read_to_string(&a.src).unwrap_or_default();
+                    let bm =
+                        flag_u32(&a.flags, "BM").unwrap_or_else(|| shader_default(&text, "BM"));
+                    let bn =
+                        flag_u32(&a.flags, "BN").unwrap_or_else(|| shader_default(&text, "BN"));
+                    seen.insert(sha.clone(), a.name.clone());
+                    kernels.push(Kernel {
+                        name: a.name,
+                        spv,
+                        bm,
+                        bn,
+                        sha,
+                    });
+                }
+                Err(e) => println!("BUILD-FAIL {}: {e}", a.name),
+            }
+        }
+    }
     if let Some(dir) = &variants_dir {
         let mut files: Vec<_> = std::fs::read_dir(dir)
             .expect("variants dir")
@@ -165,15 +474,48 @@ fn main() {
                     .and_then(|v| v.parse().ok())
                     .unwrap_or_else(|| panic!("{stem}: no .{key}<n> in the name"))
             };
+            let spv = std::fs::read(&f).expect("variant spv");
+            let sha = sha256_hex(&spv);
+            if let Some(other) = seen.get(&sha) {
+                println!("{stem} == {other} (spv {sha})");
+                continue;
+            }
             let (bm, bn) = (tile("bm"), tile("bn"));
-            kernels.push((
-                stem.clone(),
-                std::fs::read(&f).expect("variant spv"),
+            seen.insert(sha.clone(), stem.clone());
+            kernels.push(Kernel {
+                name: stem,
+                spv,
                 bm,
                 bn,
-            ));
+                sha,
+            });
         }
     }
+
+    let vk = unsafe { Vk::load() }.expect("Vulkan device");
+    let gguf = Gguf::open(&model).expect("gguf open");
+    let (g, _stage) = GpuCtx::new(&vk).expect("GpuCtx::new");
+    let lw = local_wg();
+    let n = TOKENS as usize;
+    let mut rng = Rng(0x6e66_b3a7_c0de_0005);
+    println!(
+        "device {} | model {model} | tokens {TOKENS} | reps {reps} x {INNER} dispatches | dp4a local {lw}",
+        vk.device_name
+    );
+    println!(
+        "arms: dp4a + coopmat + {} variants | spv-cache {} | ledger {} (driver version not exposed by Vk: column omitted)",
+        kernels.len() - 1,
+        spv_cache.display(),
+        ledger.display()
+    );
+
+    let l0 = |s: &str| format!("blk.0.{s}.weight");
+    let groups: [(&'static str, Vec<String>); 4] = [
+        ("qkv", vec![l0("attn_q"), l0("attn_k"), l0("attn_v")]),
+        ("o", vec![l0("attn_output")]),
+        ("gate_up", vec![l0("ffn_gate"), l0("ffn_up")]),
+        ("down", vec![l0("ffn_down")]),
+    ];
     let mut cases: Vec<Case> = Vec::new();
     for (name, names) in &groups {
         if only.as_deref().is_some_and(|o| o != *name) {
@@ -201,113 +543,313 @@ fn main() {
             let p = pack_proj_f32(carrier, &refs, k, false);
             let (m, k) = (p.m as u32, p.k as u32);
             let (wb, dmb) = unsafe { (g.up_u32(&p.words), g.up_u32(&p.dm)) };
-            let out = unsafe { g.dev(n * p.m * 4) };
-            let bufs = [wb, bxq, out, dmb, bxs, bsx];
+            let out_bytes = n * p.m * 4;
             let (bt, rt) = prefill_tile(m, k, carrier, lw);
+            let mut arms: Vec<Arm> = Vec::new();
+
+            // arm 0: the dp4a reference, its own output buffer.
+            let out0 = unsafe { g.dev(out_bytes) };
+            let bufs0 = [wb, bxq, out0, dmb, bxs, bsx];
+            let dp_code = gemv_dp4a_batch_rt_bytes(m, k, lw, carrier, bt, rt);
             let dp = unsafe {
                 make_step_named(
                     &g,
-                    &gemv_dp4a_batch_rt_bytes(m, k, lw, carrier, bt, rt),
-                    &bufs,
+                    &dp_code,
+                    &bufs0,
                     m.div_ceil(lw * rt),
                     TOKENS / bt,
                     "dp4a",
                 )
             };
-            let mut arms = vec![("dp4a".to_string(), dp)];
-            for (label, spv, bm, bn) in &kernels {
-                assert!(
-                    TOKENS.is_multiple_of(*bn),
-                    "{label}: tokens must fill the token tile"
-                );
-                let code: Vec<u8> = coopmat_gemm_module_from(spv, m, k, carrier)
-                    .iter()
-                    .flat_map(|w| w.to_le_bytes())
-                    .collect();
-                let (gx, gy) = (m.div_ceil(*bm), TOKENS / bn);
-                let st = unsafe { make_step_named(&g, &code, &bufs, gx, gy, "coopmat") };
-                arms.push((label.clone(), st));
-            }
-            println!("shape {name:8} {carrier:?} m={m} k={k}: dp4a bt={bt} rt={rt}");
-            for (arm, s) in &arms {
-                if stats_on {
-                    let st = unsafe { vk.stats(s.pipe) };
-                    let line: Vec<String> = st
+            arms.push(Arm {
+                name: "dp4a".to_string(),
+                sha: sha256_hex(&dp_code),
+                code: dp_code,
+                bufs: bufs0,
+                out: out0,
+                st: Some(dp),
+                verdict: Verdict::Ok,
+                us: Vec::new(),
+            });
+
+            for ker in &kernels {
+                let out = unsafe { g.dev(out_bytes) };
+                let bufs = [wb, bxq, out, dmb, bxs, bsx];
+                let name = ker.name.clone();
+                if !TOKENS.is_multiple_of(ker.bn) {
+                    println!(
+                        "BUILD-FAIL {name}: tokens {TOKENS} not a multiple of BN {}",
+                        ker.bn
+                    );
+                    arms.push(Arm {
+                        name,
+                        sha: ker.sha.clone(),
+                        code: Vec::new(),
+                        bufs,
+                        out,
+                        st: None,
+                        verdict: Verdict::BuildFail(format!(
+                            "BN {} does not tile {TOKENS}",
+                            ker.bn
+                        )),
+                        us: Vec::new(),
+                    });
+                    continue;
+                }
+                let hook = std::panic::take_hook();
+                std::panic::set_hook(Box::new(|_| {}));
+                let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let code: Vec<u8> = coopmat_gemm_module_from(&ker.spv, m, k, carrier)
                         .iter()
-                        .map(|x| format!("{}={}", x.name, x.value))
+                        .flat_map(|w| w.to_le_bytes())
                         .collect();
-                    println!("  stats {arm}: {}", line.join(", "));
+                    let (gx, gy) = (m.div_ceil(ker.bm), TOKENS / ker.bn);
+                    let st = unsafe { make_step_named(&g, &code, &bufs, gx, gy, "coopmat") };
+                    (code, st)
+                }));
+                std::panic::set_hook(hook);
+                match built {
+                    Ok((code, st)) => arms.push(Arm {
+                        name,
+                        sha: ker.sha.clone(),
+                        code,
+                        bufs,
+                        out,
+                        st: Some(st),
+                        verdict: Verdict::Ok,
+                        us: Vec::new(),
+                    }),
+                    Err(e) => {
+                        let msg = panic_msg(&*e);
+                        println!("BUILD-FAIL {name}: {msg}");
+                        arms.push(Arm {
+                            name,
+                            sha: ker.sha.clone(),
+                            code: Vec::new(),
+                            bufs,
+                            out,
+                            st: None,
+                            verdict: Verdict::BuildFail(msg),
+                            us: Vec::new(),
+                        });
+                    }
+                }
+            }
+
+            // oracle: one dispatch per arm, every cell against the dp4a arm.
+            let cells = n * p.m;
+            unsafe { run_once(&vk, arms[0].st.as_ref().expect("dp4a step")) };
+            let reference = unsafe { readback(&vk, arms[0].out, cells) };
+            for arm in arms.iter_mut().skip(1) {
+                let Some(s) = arm.st.as_ref() else {
+                    continue;
+                };
+                unsafe { run_once(&vk, s) };
+                let v = unsafe { readback(&vk, arm.out, cells) };
+                arm.verdict = match compare(&reference, &v) {
+                    (0, _) => Verdict::Ok,
+                    (c, first) => Verdict::Rejected { cells: c, first },
+                };
+            }
+
+            println!("shape {name:8} {carrier:?} m={m} k={k}: dp4a bt={bt} rt={rt}");
+            for arm in &arms {
+                if stats_on {
+                    if let Some(s) = &arm.st {
+                        let st = unsafe { vk.stats(s.pipe) };
+                        let line: Vec<String> = st
+                            .iter()
+                            .map(|x| format!("{}={}", x.name, x.value))
+                            .collect();
+                        println!("  stats {}: {}", arm.name, line.join(", "));
+                    }
                 }
                 if let Some(dir) = &blob_dir {
-                    let code: Vec<u8> = if arm == "dp4a" {
-                        gemv_dp4a_batch_rt_bytes(m, k, lw, carrier, bt, rt)
-                    } else {
-                        let spv = &kernels.iter().find(|x| &x.0 == arm).expect("kernel").1;
-                        coopmat_gemm_module_from(spv, m, k, carrier)
-                            .iter()
-                            .flat_map(|w| w.to_le_bytes())
-                            .collect()
-                    };
-                    let (layout, _) = unsafe { vk.ssbo_set(&bufs) };
-                    let (_, blob) = unsafe { vk.isolated_cache_blob(&code, layout) };
-                    let f = format!("{dir}/{name}_{carrier:?}_{arm}.pcache");
-                    std::fs::write(&f, &blob).expect("write blob");
+                    if !arm.code.is_empty() {
+                        let (layout, _) = unsafe { vk.ssbo_set(&arm.bufs) };
+                        let (_, blob) = unsafe { vk.isolated_cache_blob(&arm.code, layout) };
+                        let f = format!("{dir}/{name}_{carrier:?}_{}.pcache", arm.name);
+                        std::fs::write(&f, &blob).expect("write blob");
+                    }
                 }
             }
-            let narms = arms.len();
             cases.push(Case {
                 name,
                 carrier,
                 m,
                 k,
                 arms,
-                us: vec![Vec::new(); narms],
             });
         }
     }
-    // warm-up, then interleaved rounds
+
+    // warm-up, then interleaved rounds with the timable arm order rotated every round
     for c in &cases {
-        for (_, s) in &c.arms {
-            unsafe { time(&vk, s) };
+        for a in &c.arms {
+            if let Some(s) = &a.st {
+                unsafe { time(&vk, s) };
+            }
         }
     }
     for rep in 0..reps {
         for c in cases.iter_mut() {
-            let n = c.arms.len();
-            for i in 0..n {
-                // rotate the arm order every round
-                let a = (i + rep) % n;
-                let t = unsafe { time(&vk, &c.arms[a].1) };
-                c.us[a].push(t);
+            let order: Vec<usize> = c
+                .arms
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| a.st.is_some())
+                .map(|(i, _)| i)
+                .collect();
+            let n_arms = order.len();
+            for i in 0..n_arms {
+                let at = order[(i + rep) % n_arms];
+                let t = unsafe { time(&vk, c.arms[at].st.as_ref().expect("timable")) };
+                c.arms[at].us.push(t);
             }
         }
     }
 
     println!();
     println!(
-        "| shape | carrier | m | k | arm | µs mean (min-max) | GMAC/s | TOPS | dp4a/arm mean (min-max) |"
+        "| shape | carrier | m | k | arm | verdict | µs mean (min-max) | GMAC/s | TOPS | dp4a/arm mean (min-max) | coopmat/arm mean med (min-max) |"
     );
-    println!("|---|---|---:|---:|---|---|---:|---:|---:|");
+    println!("|---|---|---:|---:|---|---|---|---:|---:|---|---|");
     let mut ratio_of = Vec::new();
     for c in &cases {
         let macs = f64::from(c.m) * f64::from(c.k) * f64::from(TOKENS);
-        for (a, (label, _)) in c.arms.iter().enumerate() {
-            let (mean, lo, hi) = stats(&c.us[a]);
+        let dp_ok = matches!(c.arms[0].verdict, Verdict::Ok);
+        let cm_at = c.arms.iter().position(|a| a.name == "coopmat");
+        let cm_ok = cm_at.is_some_and(|i| matches!(c.arms[i].verdict, Verdict::Ok));
+        for (ai, a) in c.arms.iter().enumerate() {
+            let verdict = verdict_str(&a.verdict);
+            let Some(_) = a.st.as_ref() else {
+                println!(
+                    "| {} | {:?} | {} | {} | {} | {} | - | - | - | - | - |",
+                    c.name, c.carrier, c.m, c.k, a.name, verdict
+                );
+                continue;
+            };
+            let (mean, lo, hi) = stats(&a.us);
             let gmac = macs / mean / 1e3;
-            let rs: Vec<f64> = c.us[0].iter().zip(&c.us[a]).map(|(d, x)| d / x).collect();
-            let (rm, rlo, rhi) = stats(&rs);
+            let dp_col = if ai == 0 || !matches!(a.verdict, Verdict::Ok) || !dp_ok {
+                "-".to_string()
+            } else {
+                let (rm, _, rlo, rhi) = ratio_stats(&c.arms[0].us, &a.us);
+                format!("{rm:.2} ({rlo:.2}-{rhi:.2})")
+            };
+            let cm_col = match cm_at {
+                Some(ci) if ci != ai && cm_ok && matches!(a.verdict, Verdict::Ok) => {
+                    let (rm, rmed, rlo, rhi) = ratio_stats(&c.arms[ci].us, &a.us);
+                    format!("{rm:.2} {rmed:.2} ({rlo:.2}-{rhi:.2})")
+                }
+                _ => "-".to_string(),
+            };
             println!(
-                "| {} | {:?} | {} | {} | {label} | {mean:.1} ({lo:.1}-{hi:.1}) | {gmac:.0} | {:.1} | {rm:.2} ({rlo:.2}-{rhi:.2}) |",
+                "| {} | {:?} | {} | {} | {} | {} | {mean:.1} ({lo:.1}-{hi:.1}) | {gmac:.0} | {:.1} | {dp_col} | {cm_col} |",
                 c.name,
                 c.carrier,
                 c.m,
                 c.k,
+                a.name,
+                verdict,
                 2.0 * gmac / 1e3,
             );
-            if a == 1 {
+            if a.name == "coopmat" && cm_ok && dp_ok {
+                let (rm, _, _, _) = ratio_stats(&c.arms[0].us, &a.us);
                 ratio_of.push((c.name, c.carrier, rm));
             }
         }
+    }
+
+    // noise floor: the committed arm's own round-to-round spread
+    println!();
+    println!(
+        "noise floor (round-to-round spread of the committed coopmat arm over {reps} rounds):"
+    );
+    for c in &cases {
+        if let Some(i) = c
+            .arms
+            .iter()
+            .position(|a| a.name == "coopmat" && a.st.is_some())
+        {
+            let (mean, lo, hi) = stats(&c.arms[i].us);
+            println!(
+                "  {} {:?}: mean {mean:.1} µs, (max-min)/mean {:.1}%, max/min {:.2}",
+                c.name,
+                c.carrier,
+                (hi - lo) / mean * 100.0,
+                hi / lo,
+            );
+        }
+    }
+
+    // ledger: provenance only, one row per arm and shape
+    let head = std::process::Command::new("git")
+        .arg("-C")
+        .arg(env!("CARGO_MANIFEST_DIR"))
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let utc = utc_now();
+    let mut lf = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&ledger)
+        .unwrap_or_else(|e| panic!("--ledger {}: {e}", ledger.display()));
+    if lf.metadata().map(|m| m.len()).unwrap_or(1) == 0 {
+        writeln!(
+            lf,
+            "utc\thead\tspv_sha256\tshape\tcarrier\tdevice\treps\tmean_us\tmin_us\tmax_us\tverdict"
+        )
+        .expect("ledger header");
+    }
+    for c in &cases {
+        for a in &c.arms {
+            let num = if a.st.is_some() {
+                let (mean, lo, hi) = stats(&a.us);
+                format!("{mean:.3}\t{lo:.3}\t{hi:.3}")
+            } else {
+                "-\t-\t-".to_string()
+            };
+            writeln!(
+                lf,
+                "{utc}\t{head}\t{}\t{}\t{:?}\t{}\t{reps}\t{num}\t{}",
+                a.sha,
+                c.name,
+                c.carrier,
+                vk.device_name,
+                verdict_str(&a.verdict)
+            )
+            .expect("ledger row");
+        }
+    }
+
+    // controls: a `ctl_` arm accepted, or a bad committed arm, is an instrument failure
+    let mut control_accepted: Option<String> = None;
+    let mut coopmat_bad = false;
+    for c in &cases {
+        for a in &c.arms {
+            if a.name.starts_with("ctl_") && matches!(a.verdict, Verdict::Ok) {
+                control_accepted = Some(a.name.clone());
+            }
+        }
+        if !c
+            .arms
+            .iter()
+            .any(|a| a.name == "coopmat" && matches!(a.verdict, Verdict::Ok))
+        {
+            coopmat_bad = true;
+        }
+    }
+    if let Some(nm) = control_accepted {
+        println!("CONTROL ACCEPTED {nm}");
+        std::process::exit(2);
+    }
+    if coopmat_bad {
+        println!("COOPMAT NOT OK");
+        std::process::exit(3);
     }
     if only.is_some() {
         return;
