@@ -66,6 +66,17 @@ assertions). A sentence under a plan/modal marker (``next``, ``will``,
 ``must``, ``open``, ``obligation``, ...) before its predicate is an intention,
 not a claim, and is not reported.
 
+Perf prediction rows
+====================
+The P-table of `the perf-predictions note` carries a ``Lean`` column
+(the formalisation audit of
+`the resource-guided-evolution note`). Every row whose outcome cell --
+the column headed ``outcome``/``verdict``/``result``/``status`` -- does not lead
+with ``pending``, ``untestable`` or ``invalid`` must carry a ``Lean`` cell that
+is a dotted declaration resolving under ``proof/corpus/`` or an obligation that
+starts with ``open:``. A settled outcome row with no theorem and no stated open
+obligation is a finding (``row Pn: outcome without theorem or open obligation``).
+
 Exit status: 0 when every claim names a resolvable artifact; 1 on any finding;
 2 on a missing governing document, a missing covered section, a missing Lean
 source population, or an I/O error. ``--json`` emits the machine-readable
@@ -113,6 +124,15 @@ COVERED_SECTIONS = {
 
 GRADES = ("proved", "tested", "measured", "model", "anchor")
 CLOSED_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}
+
+# The performance-prediction table and its settled-outcome rule. The outcome
+# column is named by the table (the committed file heads it ``verdict``); the
+# brief that installed the ``Lean`` column also calls it ``outcome``.
+PERF_PREDICTIONS = "the perf-predictions note"
+PERF_LEAN_COLUMN = "lean"
+PERF_OUTCOME_COLUMNS = ("outcome", "verdict", "result", "status")
+PERF_ROW_ID_RE = re.compile(r"^P\d+$")
+PERF_OUTCOME_EXEMPT_RE = re.compile(r"^(?:pending|untestable|invalid)\b", re.I)
 
 PINNED_CORPUS = Path("proof/corpus/.lake/packages/apeiron")
 FILE_EXTENSIONS = (
@@ -225,6 +245,38 @@ def lean_resolves(name, declarations, namespaces, audits):
         return True
     short = name.split(".")[-1]
     return name in declarations or short in declarations or short in namespaces or short in audits
+
+
+def iter_corpus_lean_sources(root):
+    """First-party Lean sources under ``proof/corpus/`` (dependency-free)."""
+    corpus = root / "proof" / "corpus"
+    sources = []
+    if corpus.is_dir():
+        for dirpath, dirnames, filenames in os.walk(corpus):
+            dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIR_NAMES]
+            for name in filenames:
+                if name.endswith(".lean"):
+                    sources.append(Path(dirpath) / name)
+    return sources
+
+
+def build_corpus_declaration_index(root):
+    """Declarations and namespaces under ``proof/corpus/`` only.
+
+    The perf-prediction ``Lean`` cell must name a theorem that lives in the
+    refinement corpus, not a declaration anywhere under ``proof/``; this index is
+    the resolution set for that rule.
+    """
+    declarations = set()
+    namespaces = set()
+    for path in iter_corpus_lean_sources(root):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        declarations.update(DECL_RE.findall(text))
+        namespaces.update(NAMESPACE_RE.findall(text))
+    return declarations, namespaces
 
 
 # --------------------------------------------------------------------------
@@ -573,6 +625,69 @@ def evaluate_claim(root, claim, declarations, namespaces, audits):
     return findings
 
 
+def perf_table_findings(root, declarations, namespaces):
+    """Findings for the perf-predictions P-table's settled-outcome rows.
+
+    The table's outcome cell (column headed ``outcome``/``verdict``/``result``/
+    ``status``) exempts a row when it leads with ``pending``, ``untestable`` or
+    ``invalid``; every other P-row must carry a ``Lean`` cell that is a dotted
+    declaration resolving under ``proof/corpus/`` or starts with ``open:``. A
+    missing ``perf-predictions.md`` contributes nothing.
+    """
+    path = root / PERF_PREDICTIONS
+    if not path.is_file():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    findings = []
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if not (stripped.startswith("|") and stripped.count("|") >= 2):
+            index += 1
+            continue
+        header = [cell.strip().lower() for cell in stripped.strip("|").split("|")]
+        if header[0] != "id" or PERF_LEAN_COLUMN not in header:
+            index += 1
+            continue
+        lean_column = header.index(PERF_LEAN_COLUMN)
+        outcome_column = None
+        for candidate in PERF_OUTCOME_COLUMNS:
+            if candidate in header:
+                outcome_column = header.index(candidate)
+                break
+        index += 1
+        while index < len(lines):
+            row = lines[index].strip()
+            if not (row.startswith("|") and row.count("|") >= 2):
+                break
+            index += 1
+            if TABLE_SEP_RE.match(row):
+                continue
+            cells = [cell.strip() for cell in row.strip("|").split("|")]
+            if len(cells) <= max(lean_column, outcome_column or 0):
+                continue
+            if not PERF_ROW_ID_RE.match(cells[0]):
+                continue
+            if outcome_column is not None:
+                outcome = cells[outcome_column].replace("*", "").strip()
+                if PERF_OUTCOME_EXEMPT_RE.match(outcome):
+                    continue
+            lean = cells[lean_column].replace("`", "").strip()
+            if lean.startswith("open:"):
+                continue
+            if "." in lean and lean_resolves(lean, declarations, namespaces, set()):
+                continue
+            findings.append(
+                f"{PERF_PREDICTIONS}: row {cells[0]}: "
+                "outcome without theorem or open obligation"
+            )
+        break
+    return findings
+
+
 def build_report(root):
     root = Path(root).resolve()
     findings = []
@@ -612,6 +727,8 @@ def build_report(root):
             "error": True,
         }
 
+    corpus_declarations, corpus_namespaces = build_corpus_declaration_index(root)
+
     claims = []
     sections = []
     missing_sections = []
@@ -637,6 +754,7 @@ def build_report(root):
                 claims.append(claim)
                 findings.extend(claim_findings)
 
+    findings.extend(perf_table_findings(root, corpus_declarations, corpus_namespaces))
     findings.extend(missing_sections)
     return {
         "root": str(root),
@@ -740,6 +858,17 @@ def _synthetic_tree(base):
     _write(base / "README.md", "# readme\n")
     _write(base / "proof" / "README.md", "# proof\n")
     _write(base / "docs" / "epics" / "storage-refinement.md", EPIC_CONTRACT_SECTION)
+    _write(base / "docs" / "evidence" / "perf-predictions.md", SYNTH_PERF_TABLE)
+
+
+SYNTH_PERF_TABLE = """# Performance predictions
+
+| id | case | prediction | verdict | Lean |
+|---|---|---|---|---|
+| P1 | one-walk attention | ratio 1.8 | untestable as stated | n/a: no hd=128 baseline |
+| P2 | split-K occupancy | qkv 4.6 us | refuted | `Apeiron.TableRefinement.word_table_new_rep` |
+| P3 | pipeline overlap | node 1570 us | pending | open: overlap model absent |
+"""
 
 
 def self_test():
@@ -829,6 +958,15 @@ def self_test():
                 ),
             )
 
+        def perf_blank_cell(tree):
+            path = tree / "docs" / "evidence" / "perf-predictions.md"
+            _write(
+                path,
+                path.read_text(encoding="utf-8").replace(
+                    "`Apeiron.TableRefinement.word_table_new_rep`", ""
+                ),
+            )
+
         for name, mutate, expected, contains, excludes in (
             (
                 "negative: unbacked proved claim rejected",
@@ -877,6 +1015,13 @@ def self_test():
                 missing_document,
                 2,
                 ("the design notes",),
+                (),
+            ),
+            (
+                "negative: perf row with blank Lean cell rejected",
+                perf_blank_cell,
+                1,
+                ("row P2: outcome without theorem or open obligation",),
                 (),
             ),
         ):
