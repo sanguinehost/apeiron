@@ -238,6 +238,52 @@ fn rope_turn_phase_is_additive_mod_2_to_64() {
     }
 }
 
+#[test]
+fn rope_score_depends_on_the_relative_offset_only() {
+    // faces R1 H1 falsifier on the shipped rotation: <R(m)q, R(n)k> = g(n - m). Prediction written
+    // before the run: the shifted score differs from the base score by fixed-point rounding only
+    // (<= 2^-20 of |q||k|), while moving q alone changes the score by more than 2^-6 of |q||k|.
+    let t = RopeTable::new(1.0e6, 64).expect("qwen rotary table");
+    let mut state = 0x9E37_79B9_7F4A_7C15u64;
+    let mut draw = || {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        i64::try_from(state >> 40).expect("24 bits") - (1 << 23)
+    };
+    let q0: Vec<i64> = (0..64).map(|_| draw() << 8).collect();
+    let k0: Vec<i64> = (0..64).map(|_| draw() << 8).collect();
+    let dot = |a: &[i64], b: &[i64]| -> i128 {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| i128::from(*x) * i128::from(*y))
+            .sum()
+    };
+    let scale = dot(&q0, &q0).isqrt() * dot(&k0, &k0).isqrt();
+    let score = |m: u32, n: u32| {
+        let (mut q, mut k) = (q0.clone(), k0.clone());
+        t.rotate_one(&mut q, m).expect("q in window");
+        t.rotate_one(&mut k, n).expect("k in window");
+        dot(&q, &k)
+    };
+    let (mut worst_shift, mut worst_move) = (0i128, 0i128);
+    for (m, n) in [(0u32, 5u32), (3, 100), (17, 17), (200, 1), (1000, 4096)] {
+        for s in [1u32, 7, 513, 20_000] {
+            worst_shift = worst_shift.max((score(m + s, n + s) - score(m, n)).abs());
+            worst_move = worst_move.max((score(m + s, n) - score(m, n)).abs());
+        }
+    }
+    eprintln!("rope relative: scale {scale} worst_shift {worst_shift} worst_move {worst_move}");
+    assert!(
+        worst_shift <= scale >> 20,
+        "relative-offset identity fails: {worst_shift} vs {scale}"
+    );
+    assert!(
+        worst_move > scale >> 6,
+        "control: moving q alone must change the score"
+    );
+}
+
 #[allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
