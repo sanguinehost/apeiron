@@ -162,6 +162,9 @@ const GLSL_LOG: u32 = 28; // natural log (GLSL.std.450) — the heavy-cut score 
 const GLSL_SQRT: u32 = 31;
 const GLSL_INVERSE_SQRT: u32 = 32;
 const GLSL_FMAX: u32 = 40;
+// GLSL.std.450 enumerant 50 `Fma` (enumerant 46 is `FMix`; the two differ by 4 — `spirv-dis`
+// named the mistaken 46 to catch it).
+const GLSL_FMA: u32 = 50;
 const GLSL_UNPACK_HALF2X16: u32 = 62;
 
 /// A NUL-terminated LE-packed literal string (the SPIR-V string encoding).
@@ -513,6 +516,13 @@ impl Kb {
         let f = self.float;
         self.e(OP_FMUL, f, &[a, b])
     }
+    /// `fma(a, b, c) = a·b + c` with a single rounding (`GLSL.std.450 Fma`, enumerant 50). Emitted
+    /// where the driver would otherwise contract the multiply into the add on one arm but not
+    /// another; the explicit form pins the f32 value on both.
+    fn fma(&mut self, a: u32, b: u32, c: u32) -> u32 {
+        let (f, g) = (self.float, self.glsl);
+        self.e(OP_EXT_INST, f, &[g, GLSL_FMA, a, b, c])
+    }
     fn fdiv(&mut self, a: u32, b: u32) -> u32 {
         let f = self.float;
         self.e(OP_FDIV, f, &[a, b])
@@ -744,6 +754,7 @@ const SEM_WG_ACQREL: u32 = 0x108;
 
 /// Where `Kb::rmsnorm_wg` writes its normalized·gain output: a shared array (`buf, bufp`, the
 /// fused-norm-into-gemv shape) or a global SSBO (the standalone `rmsnorm_module` shape).
+#[derive(Clone, Copy)]
 enum NormOut {
     Shared(u32, u32),
     Global(u32),
@@ -775,6 +786,14 @@ impl Kb {
         let sc = self.cu(SCOPE_WORKGROUP);
         let sem = self.cu(SEM_WG_ACQREL);
         self.ins(OP_CONTROL_BARRIER, &[sc, sc, sem]);
+    }
+    /// `tid + t·wg` as an id (`t == 0` is `tid`).
+    fn strided_idx(&mut self, tid: u32, t: u32, wg: u32) -> u32 {
+        if t == 0 {
+            return tid;
+        }
+        let off = self.cu(t * wg);
+        self.iadd(tid, off)
     }
     /// Reduce `red[0..wg]` (a power-of-two shared f32 array) into `red[0]` by `+` (`is_max=false`)
     /// or `max` (`is_max=true`): the log₂(wg) tree, a barrier between levels. `tid` is the lane id.
@@ -817,6 +836,12 @@ impl Kb {
     /// Does NOT emit a trailing `wg_barrier()`: call sites differ on whether one is needed before
     /// the next stage reads `out`. Literal extraction of the shape shared by `rmsnorm_module` and
     /// `gemv_dp4a_norm_module`'s norm section — same emission order, bit-identical results.
+    ///
+    /// Complexity: each lane issues `u = ⌈n/wg⌉` guarded strided x loads and `u` guarded gain
+    /// loads, and `u` `Fma(x, x, acc)` plus `u` `fmul`/`fmul` on the scale pass — `O(⌈n/wg⌉)`
+    /// global loads and ops per lane, counted in global loads and arithmetic ops. The reduction
+    /// adds the `O(log₂ wg)` shared tree with one barrier per level. The bodies are unrolled
+    /// (arm (a)) so a lane's loads issue before its dependent adds.
     fn rmsnorm_wg(
         &mut self,
         src: u32,
@@ -829,18 +854,40 @@ impl Kb {
         wg: u32,
         out: NormOut,
     ) {
-        let cwg = self.cu(wg);
         let cn = self.cu(n);
+        let u = n.div_ceil(wg);
         let acc = self.fvar_f();
         let zero = self.cf(0.0);
         self.store_var(acc, zero);
-        self.loop_step(tid, cn, cwg, |k, i| {
-            let v = k.load_f(src, i);
-            let sq = k.fmul(v, v);
-            let a0 = k.load_var_f(acc);
-            let a1 = k.fadd(a0, sq);
-            k.store_var(acc, a1);
-        });
+        // Arm (a): every lane issues all of its `⌈n/wg⌉` x loads before the first dependent
+        // square/add, keeping each in a function register for the scale loop (no second load).
+        // The per-lane add order is the strided loop's ascending `i`, and the accumulation is the
+        // explicit `Fma(x, x, acc)` the driver contracts the naive loop into. The driver does not
+        // contract this unrolled body: a bare `fmul`+`fadd` is the naive serial sum, one ULP off
+        // (measured: it moved `SEQHASH` to `27ee7624bee91cf8`), so the fma is emitted explicitly to
+        // keep the HEAD value `414708724a03be6e`.
+        let mut xv: Vec<u32> = Vec::new();
+        for t in 0..u {
+            xv.push(self.fvar_f());
+            let ti = self.strided_idx(tid, t, wg);
+            let inb = self.ult(ti, cn);
+            let var = xv[t as usize];
+            self.iff(inb, |k| {
+                let v = k.load_f(src, ti);
+                k.store_var(var, v);
+            });
+        }
+        for t in 0..u {
+            let ti = self.strided_idx(tid, t, wg);
+            let inb = self.ult(ti, cn);
+            let var = xv[t as usize];
+            self.iff(inb, |k| {
+                let v = k.load_var_f(var);
+                let a0 = k.load_var_f(acc);
+                let a1 = k.fma(v, v, a0);
+                k.store_var(acc, a1);
+            });
+        }
         let af = self.load_var_f(acc);
         self.shared_store(red, redp, tid, af);
         self.wg_barrier();
@@ -853,16 +900,34 @@ impl Kb {
         let me = self.fadd(mean, ce);
         let inv = self.ext1(GLSL_INVERSE_SQRT, me);
         let cn2 = self.cu(n);
-        self.loop_step(tid, cn2, cwg, |k, j| {
-            let xv = k.load_f(src, j);
-            let gv = k.load_f(gain, j);
-            let t = k.fmul(xv, inv);
-            let ov = k.fmul(t, gv);
-            match out {
-                NormOut::Shared(buf, bufp) => k.shared_store(buf, bufp, j, ov),
-                NormOut::Global(buf) => k.store_f(buf, j, ov),
-            }
-        });
+        // gamma issued early — all `⌈n/wg⌉` gain loads before the first dependent multiply.
+        let mut gv: Vec<u32> = Vec::new();
+        for t in 0..u {
+            gv.push(self.fvar_f());
+            let ji = self.strided_idx(tid, t, wg);
+            let inb = self.ult(ji, cn2);
+            let var = gv[t as usize];
+            self.iff(inb, |k| {
+                let v = k.load_f(gain, ji);
+                k.store_var(var, v);
+            });
+        }
+        for t in 0..u {
+            let ji = self.strided_idx(tid, t, wg);
+            let inb = self.ult(ji, cn2);
+            let xvar = xv[t as usize];
+            let gvar = gv[t as usize];
+            self.iff(inb, |k| {
+                let xj = k.load_var_f(xvar);
+                let gj = k.load_var_f(gvar);
+                let tt = k.fmul(xj, inv);
+                let ov = k.fmul(tt, gj);
+                match out {
+                    NormOut::Shared(buf, bufp) => k.shared_store(buf, bufp, ji, ov),
+                    NormOut::Global(buf) => k.store_f(buf, ji, ov),
+                }
+            });
+        }
     }
     /// `rmsnorm_wg` into a shared scratch array, then quantize that into the DP4A activation
     /// chart (`emit_quantize_to_shared`) — the fused-norm gemv's whole phase-1a in one call,
@@ -1105,11 +1170,18 @@ impl Kb {
             k.store_var(mxv, tiny);
             let z = k.cf(0.0);
             k.store_var(sumv, z);
-            let c0u = k.cu(0);
-            let c32b = k.cu(32);
-            k.loop_u(c0u, c32b, |k, j| {
-                let idx = k.iadd(base, j);
-                let v = k.shared_load(nrm, nrmp, idx);
+            // Arm (b): the 32 shared loads issue back to back, then the max/add chain runs in the
+            // same element order with the same single load per element as the naive loop.
+            // Complexity: 32 shared loads + 32 fabs/32 fmax/32 fadd per block; `loop_step` covers
+            // `⌈blocks/wg⌉` blocks per lane → `O(32·⌈blocks/wg⌉)` shared loads per lane.
+            let mut vs: Vec<u32> = Vec::with_capacity(32);
+            for j in 0..32u32 {
+                let cj = k.cu(j);
+                let idx = k.iadd(base, cj);
+                vs.push(k.shared_load(nrm, nrmp, idx));
+            }
+            for j in 0..32u32 {
+                let v = vs[j as usize];
                 let f = k.float;
                 let gl = k.glsl;
                 let av = k.e(OP_EXT_INST, f, &[gl, GLSL_FABS, v]);
@@ -1119,7 +1191,7 @@ impl Kb {
                 let s0 = k.load_var_f(sumv);
                 let s1 = k.fadd(s0, v);
                 k.store_var(sumv, s1);
-            });
+            }
             let mx = k.load_var_f(mxv);
             let inv127 = k.cf(1.0 / 127.0);
             let sc = k.fmul(mx, inv127);
