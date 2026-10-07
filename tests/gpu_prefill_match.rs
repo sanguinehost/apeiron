@@ -152,6 +152,7 @@ fn run(carrier: Carrier, coopmat: bool) {
 
     let mut worst_rel = 0f64;
     let mut results = Vec::new();
+    let mut cont_total = 0usize;
     for prompt in PROMPTS {
         let ids = bpe.encode(prompt).expect("encode");
         let toks: Vec<usize> = ids.iter().map(|&t| t as usize).collect();
@@ -287,6 +288,7 @@ fn run(carrier: Carrier, coopmat: bool) {
             "prompt {prompt:?} n={n}\n  next token: prefill={pf_first} token-by-token={tbt_first} cpu={cpu_first} host-scan={host_arg}\n  hidden(last pos) max|d|={dmax:.3e} max|ref|={refmax:.3e} max rel err={rel:.3e}, rel L2 err={rel_l2:.3e}; n=1 rel L2 err={rel_l2_n1:.3e}\n  continuation agreement {cont_agree}/{N_CONT}: prefill {pf_cont:?} vs tbt {tbt_cont:?}"
         );
         println!("  repeat after a longer unrelated prefill bit-identical: {repeat_exact}");
+        cont_total += cont_agree;
         results.push((
             prompt,
             pf_first,
@@ -296,6 +298,21 @@ fn run(carrier: Carrier, coopmat: bool) {
             repeat_exact,
         ));
     }
+    // The continuation decodes from the decode-layout KV (`kcq`, `sk`, `vdec`) the rope node
+    // writes; a wrong store there leaves the first token intact and collapses this sum. Floors are
+    // the measured totals of the committed kernels (bit-identical across runs and across the
+    // `kv_seed` fusion), so a drop is a regression in the decode-layout KV.
+    let floor = match (carrier, coopmat) {
+        (Carrier::Q4, true) => 43,
+        (Carrier::Q4, false) => 36,
+        (Carrier::Q8, true) => 16,
+        (Carrier::Q8, false) => 26,
+        _ => 0,
+    };
+    assert!(
+        cont_total >= floor,
+        "continuation agreement {cont_total} below the pinned floor {floor} for {carrier:?} (coopmat {coopmat})"
+    );
     println!("carrier {carrier:?}: worst hidden max rel err {worst_rel:.3e}");
     for (prompt, pf, tbt, cpu, host, repeat_exact) in results {
         assert!(

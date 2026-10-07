@@ -828,7 +828,12 @@ pub fn swiglu_quant_batch_module(dff: u32, dpw: u32) -> Vec<u32> {
 /// `bias = false`), 2 = qg, 3 = kg (f32 `hd` QK-norm gains; unread when `qknorm = false`),
 /// 4 = kc (f32 `[(kvh·hd+d)·tmax + s]`), 5 = ks (f32 `[s·nkv + kvh]`), 6 = vc (f32
 /// `[(kvh·tmax+s)·hd + d]`), 7 = vs (f32 `[s·nkv + kvh]`), 8 = params (`params[0]` = `pos0`),
-/// 9 = kout (f32 `[(i·nkv+kvh)·hd + d]`), 10 = ksout (f32 `[i·nkv+kvh]`), 11 = vout, 12 = vsout.
+/// 9 = kout (f32 `[(i·nkv+kvh)·hd + d]`), 10 = ksout (f32 `[i·nkv+kvh]`), 11 = vout, 12 = vsout,
+/// 13 = kcq (u32 decode K `[(kvh·(hd/4)+w)·tmax + s]`, 4 int8 codes/word),
+/// 14 = sk (f32 decode K scale `[kvh·tmax + s]`), 15 = vdec (f16 decode V `[(kvh·tmax+s)·hd + d]`,
+/// `code·scale`). 13–15 are the [`super::prefill_glue::kv_seed_module`] decode layout, written here
+/// from the same `code`/`sc` arithmetic so the standalone seed node is not needed; the K packing
+/// gathers codes through the workgroup `red` array.
 /// Dispatch `(nh + 2·nkv, B)` at LocalSize `hd`.
 #[allow(clippy::too_many_arguments)]
 pub fn qkv_rope_batch_module(
@@ -857,6 +862,9 @@ pub fn qkv_rope_batch_module(
     let ksout = k.ssbo_f(10);
     let vout = k.ssbo_f(11);
     let vsout = k.ssbo_f(12);
+    let kcq = k.ssbo_u(13);
+    let sk = k.ssbo_f(14);
+    let vdec = k.ssbo_f16(15);
     let (red, redp) = k.shared_f32(hd);
     let chd = k.cu(hd);
     let gid = k.gid_comp(0);
@@ -983,6 +991,7 @@ pub fn qkv_rope_batch_module(
         let kvh = k.e(OP_SELECT, u, &[is_v, kvh_v, kvh_k]);
         let cnkv = k.cu(nkv);
         let ct = k.cu(tmax);
+        let kvt = k.imul(kvh, ct); // decode K/V head row base [kvh·tmax]
         let srow = k.imul(pos, cnkv);
         let sidx = k.iadd(srow, kvh); // scale slot [pos·nkv + kvh]
         let orow0 = k.imul(i, cnkv);
@@ -1002,6 +1011,39 @@ pub fn qkv_rope_batch_module(
                 k.store_f(ks, sidx, sc);
                 k.store_f(ksout, orow, sc);
             });
+            // ── decode K: pack 4 int8 codes/word along the dim axis — `kv_seed_module`'s map, with
+            //    this lane's `code` staged in `red` for the cross-lane gather. The branch is
+            //    workgroup-uniform (`slot` is), so the barrier is uniform.
+            k.shared_store(red, redp, lane, code);
+            k.wg_barrier();
+            let chd4 = k.cu(hd / 4);
+            let packer = k.ult(lane, chd4);
+            k.iff(packer, |k| {
+                let u = k.uint;
+                let one = k.cf(1.0);
+                let mut word = k.cu(0);
+                for j in 0..4u32 {
+                    let c4 = k.cu(4);
+                    let l4 = k.imul(lane, c4);
+                    let cj = k.cu(j);
+                    let d = k.iadd(l4, cj);
+                    let cv = k.shared_load(red, redp, d);
+                    let byte = k.int8_code(cv, one);
+                    let csh = k.cu(8 * j);
+                    let sh = k.e(OP_SHIFT_LEFT_LOGICAL, u, &[byte, csh]);
+                    word = k.e(OP_BITWISE_OR, u, &[word, sh]);
+                }
+                let wr0 = k.imul(kvh, chd4);
+                let wr1 = k.iadd(wr0, lane);
+                let wr2 = k.imul(wr1, ct);
+                let dst = k.iadd(wr2, pos);
+                k.store_u(kcq, dst, word);
+            });
+            // decode K scale, transposed `[kvh·tmax + s]` (lane 0; `sc` is uniform)
+            k.iff(is0, |k| {
+                let di = k.iadd(kvt, pos);
+                k.store_f(sk, di, sc);
+            });
         });
         k.iff(is_v, |k| {
             let vb0 = k.imul(kvh, ct);
@@ -1014,6 +1056,9 @@ pub fn qkv_rope_batch_module(
                 k.store_f(vs, sidx, sc);
                 k.store_f(vsout, orow, sc);
             });
+            // ── decode V: f16(code·scale), bit-identical to `kv_seed_module`'s read of `vc`/`vs`
+            let val = k.fmul(code, sc);
+            k.store_f16(vdec, vidx, val);
         });
     });
     k.finish(hd)

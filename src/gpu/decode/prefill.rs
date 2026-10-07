@@ -475,15 +475,11 @@ impl PrefillStack {
                     ksout,
                     vout,
                     vsout,
+                    l.kcq,
+                    l.sk,
+                    l.vc,
                 ],
                 nh + 2 * nkv,
-                Gy::Batch,
-            ));
-            plan.push(pl.node(
-                "kv_seed".to_string(),
-                || kv_seed_bytes(nkv, hd, tmax),
-                &[kc_p, ks_p, vc_p, vs_p, params, l.kcq, l.sk, l.vc],
-                nkv,
                 Gy::Batch,
             ));
             // the coopmat kernel's epilogue is the chart: xq, xsc (scales), xsm (sums)
