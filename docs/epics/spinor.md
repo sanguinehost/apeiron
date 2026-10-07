@@ -807,3 +807,46 @@ script.
 Documentation-task gate: `git diff --no-index --check /dev/null docs/epics/spinor.md` (cwd
 `/home/socol/Workspace/apeiron`; expected exit 1 for an untracked new file with no whitespace error;
 exit 3 means a whitespace error) plus verification that every cited path resolves at its revision.
+
+## Faces review series (FACES-R1 to FACES-R3)
+
+Owner direction 2026-10-07: study LLM mathematics from the topological root (first cause, spinor,
+torus), find where it is identical to other things, and say what each implementation is on the
+elliptic, parabolic and hyperbolic base. Every statement below is grade `model` until its row's
+test runs; none is `proved` by this section.
+
+### First cause
+
+- A point (the fingertip placed in an unbounded plane): no structure.
+- A second placement gives a displacement `x`: one axis, an origin and a direction.
+- Compounding a displacement with itself is the one new law, `x² = σ`. The sign of `σ` is the whole
+  classification: `σ<0` the displacement returns (a rotation, period), `σ=0` it never turns (a
+  shear: `x²=0`, nilpotent), `σ>0` it splits into two independent directions (idempotents
+  `(1±x/√σ)/2`, a boost). The one-parameter orbit `exp(θx)` is `cos/sin`, `1+θε`, `cosh/sinh`.
+- Consequence tested in R1: any model component that is a one-parameter group acting on positions
+  or states has exactly these three orbit shapes.
+
+### Hypotheses (each carries its falsifier)
+
+| id | claim | face | falsifier | row |
+|---|---|---|---|---|
+| H1 | RoPE (RoFormer, Su et al. 2104.09864) is `exp(θx)` at `σ=-1` acting per frequency pair; relative position falls out because `exp(a)exp(b)=exp(a+b)` | elliptic | the relative-position identity fails numerically on a real checkpoint's rotated Q,K | R1 |
+| H2 | ALiBi (Press et al., 2108.12409) is the `σ=0` orbit: a linear bias `m·(j−i)` is the dual-number translation `1+θε` read in log space | parabolic | a head's bias is not linear in distance in the shipped code | R1 |
+| H3 | RetNet/SSM decay (`λ^(n−m)`, Mamba's `exp(Δ·A)` with real `A`) is the `σ>0` orbit with the two idempotent lanes as the growing and decaying modes | hyperbolic | a real-`A` decay cannot be written as `cosh/sinh` of one generator on a two-lane split | R1 |
+| H4 | xPos (Sun et al., 2212.10554) is the product of H1 and H3: a rotation with a decay, i.e. a point of the complexified group, not a new object | elliptic × hyperbolic | the xPos operator is not `exp(z·x)` for complex `z` | R1 |
+| H5 | The dependent dispatch chain (150 per token) is a nilpotent chain: each stage consumes the previous output and nothing else; `Perf.Chain.chainLB` is a sum for that reason | parabolic | a measured overlap between two dependent dispatches | R1 |
+| H6 | Splitting into independent lanes (DP4A-packed bytes, split-K partials, the two idempotent modes of H3) is the hyperbolic idempotent decomposition: independent components, combined once | hyperbolic | a split whose lanes interact before the combine | R1 |
+| H7 | Ring addressing, the all-reduce ring and RoPE's period are one circle: wraparound is the elliptic orbit's closure | elliptic | a ring address with no period | R2 |
+
+### Reviews
+
+| row | question | deliverable | home |
+|---|---|---|---|
+| FACES-R1 | For H1–H6, does the claimed identity hold on the shipped code? | a table row per hypothesis with the command, the number and the verdict; a refuted row stays | this section |
+| FACES-R2 | What is each implementation on the other two bases? (position code, attention score, decay/state, hash-table probe, decode chain) | per component: its orbit on `σ<0`, `σ=0`, `σ>0`, what stays invariant, what breaks (range, period, definiteness of the norm `x²−σy²`), and one cheap experiment | this section |
+| FACES-R3 | Which connections are in no source we hold? | a searched list: each candidate, the search command and result, `known (citation)` or `not found`; absence is stated with its search | this section |
+
+Reading rules: a hypothesis is graded by its falsifier alone. The split-complex face is
+`j²=+1`, `j≠±1`, not the complex numbers; no identity is imported from the complex case without
+its own check. `docs/evidence/torus-spinor-sources.md` and `docs/evidence/atlas-lens-corpus.md`
+hold the sources retrieved so far; a source not retrieved is a pointer, not evidence.
