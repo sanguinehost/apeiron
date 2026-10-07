@@ -308,7 +308,15 @@ impl PrefillStack {
         let hout = src_dev(bp * hidden_u * 4)?;
 
         // ── the LM-head tail's scratch ─────────────────────────────────────────────────────────
-        let (bt_lm, rt_lm) = prefill_tile(vocab, hidden, hc, lw);
+        // The head emits the FINAL position's logits only (fold's `LogitRows::Last`): `gather`
+        // copies the last chunk row into slot 0, `argmax_partial` walks row 0 alone, and the
+        // readback copies `logits1` row 0. `prefill_tile(vocab, hidden, hc, lw)` is a 32-slot token
+        // tile on this chart (169 MB > 32 MB) and runs the `rt·bt` outer product for 31 slots whose
+        // activations are zero and whose logits are never read: the head's token tile is 1.
+        // `rt_lm = 2` keeps `ceil(vocab/(lw·2))` workgroups (594 at vocab 151936, lw 128) and two
+        // independent weight-word streams per lane for latency hiding; the measured lm-node time
+        // is 181 us against 383 us for the 32-token tile at the same GPU clock (see the receipt).
+        let (bt_lm, rt_lm) = (1u32, 2u32);
         let qrow = hidden_u / 4;
         let brow = hidden_u / 32;
         let xq1 = z(bt_lm as usize * qrow);
