@@ -277,8 +277,17 @@ impl PrefillStack {
             .unwrap_or(3)
             .max(1);
         let down_ks = down_ks_env.min(dff / 32 / TILE_KB).max(1);
-        let spk = z(if down_ks > 1 {
-            down_ks as usize * bp * hidden_u
+        // The o GEMM splits the same way (`DEC_O_SPLITK`, default 3, 1 = unsplit); its partial planes
+        // reuse `spk`, which norm2 folds before the down GEMM rewrites it, so `spk` holds the larger.
+        let o_ks_env: u32 = std::env::var("DEC_O_SPLITK")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(3)
+            .max(1);
+        let o_ks = o_ks_env.min((qn as u32) / 32 / TILE_KB).max(1);
+        let spk_ks = down_ks.max(o_ks);
+        let spk = z(if spk_ks > 1 {
+            spk_ks as usize * bp * hidden_u
         } else {
             1
         });
@@ -550,18 +559,45 @@ impl PrefillStack {
                     Gy::Batch,
                 ));
             }
-            gemm_node!(
-                hidden,
-                qn as u32,
-                l.o_c,
-                &[l.o_w, xq, proj_h, l.o_dm, xsm, xsc]
-            );
-            // norm2: residual (+= o) then the gate/up activation chart
+            // norm2: residual (+= o) then the gate/up activation chart; a split o GEMM leaves its
+            // `o_ks` partial planes in `spk`, which norm2 folds in plane order (no reduce node)
             let dqg = dpw(l.gu_c);
+            let o_split = o_ks > 1 && coopmat_ok(vk, hidden, qn as u32, l.o_c);
+            let ks = if o_split { o_ks } else { 1 };
+            if o_split {
+                let cr = l.o_c;
+                let mut n = pl.node(
+                    format!("gemm_{hidden}_{qn}_{cr:?}_cm_ks{ks}"),
+                    move || coopmat_gemm_split_bytes(hidden, qn as u32, cr, 0, 0, ks),
+                    &[l.o_w, xq, spk, l.o_dm, xsm, xsc],
+                    coopmat_gemm_groups(hidden, TILE_BN).0,
+                    Gy::Tiles(TILE_BN),
+                );
+                n.gz = ks;
+                plan.push(n);
+            } else {
+                gemm_node!(
+                    hidden,
+                    qn as u32,
+                    l.o_c,
+                    &[l.o_w, xq, proj_h, l.o_dm, xsm, xsc]
+                );
+            }
+            let (res, rb) = if ks > 1 {
+                (spk, vec![params])
+            } else {
+                (proj_h, vec![])
+            };
+            let mut bufs = vec![x_dev, l.ln2, res, xq, xsc, xsm, hbuf];
+            bufs.extend(rb);
             plan.push(pl.node(
-                format!("rms_{dqg}"),
-                || rmsnorm_batch_q_noh_bytes(hidden, c.eps, dqg, true, 1),
-                &[x_dev, l.ln2, proj_h, xq, xsc, xsm, hbuf],
+                if ks > 1 {
+                    format!("rms_{dqg}_ks{ks}")
+                } else {
+                    format!("rms_{dqg}")
+                },
+                move || rmsnorm_batch_q_noh_bytes(hidden, c.eps, dqg, true, ks),
+                &bufs,
                 1,
                 Gy::Batch,
             ));
