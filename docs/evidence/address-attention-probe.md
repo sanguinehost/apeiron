@@ -238,3 +238,27 @@ sed -i 's/11.67%/11.68%/g' /home/socol/oc-tmp/addr-t0/control_copy.md
 /home/socol/oc-tmp/qcache-t0/.venv/bin/python /home/socol/oc-tmp/addr-t0/check.py /home/socol/oc-tmp/addr-t0/control_copy.md
 # Exit status: 1 (Error: Flip rate 11.67% for Scheme A (s=2.0) not found in markdown)
 ```
+
+## Certified dropped-mass cut on qwen05b (INF-ATTN-CUT-MEASURE)
+
+Grade `tested`. Refines the use of `Apeiron.Numeric.AttentionCut.dropped_mass_bound` (sanguine-apeiron, uncommitted at 30b7bce6, sha256 3bbd73592d6ec51f…): for kept set K and dropped set D with scores at most m − Δ, the output moves by at most 2·V·|D|·e^{−Δ}.
+
+- Command: `cargo run --release --locked --features gpu --example attn_cut_probe` (exit 0, 26 s; prints `bound holds: 100.00%`).
+- Population: qwen05b Q4_K_M, 5 prompts × 512 tokens, 24 layers × 14 heads × 512 queries × 12 cuts = 10,321,920 checks; max realised/bound 0.899. f32 forward over the engine's dequantised weights, K/V relative L2 vs the engine `Exact` mode 1.2e-6 / 2.8e-6 (16 tokens); vs `Q8Act` 2.0e-2 / 4.7e-2 (512 tokens).
+- Fixed Δ, mean over layer×head pairs, `|K|/t` (keys still read):
+
+| Δ | all | t ≤ 64 | t ≤ 512 | bound / V | realised / V |
+|---|---|---|---|---|---|
+| 2 | 0.049 | 0.188 | 0.019 | 68 | 8.6e-2 |
+| 4 | 0.150 | 0.411 | 0.082 | 8.5 | 2.7e-2 |
+| 6 | 0.313 | 0.644 | 0.210 | 0.97 | 6.6e-3 |
+| 8 | 0.506 | 0.805 | 0.398 | 9.8e-2 | 1.2e-3 |
+| 10 | 0.676 | 0.891 | 0.591 | 8.9e-3 | 1.5e-4 |
+| 12 | 0.798 | 0.933 | 0.741 | 7.6e-4 | 1.5e-5 |
+
+- Certified per-query cut at tolerance ε·V, mean `|K|/t`: 0.781 (ε = 1e-3), 0.868 (1e-4), 0.918 (1e-5); queries certifying below 25%: 5.6%, 3.6%, 2.6%. The uncertifiable oracle (smallest score-ordered prefix with realised error ≤ ε·V) reads 0.489, 0.694, 0.823.
+- Mass split, t > 64, per layer: top-8 keys 0.40–0.93, sink key 0.003–0.72, window 64 0.19–0.79; union 0.62–0.98, so 2–38% of mass lies outside it (layers 22–23 flattest).
+- Block-box certificate (block 16, per-dimension min/max, read key 0 and the last 64 keys): prunes 0.1% or less of the value side; key-side reads including box metadata are 1.065× the keys.
+- Verdict: a score-based certified cut reads 78–92% of keys. Removing K reads needs a certificate that avoids them, and the box certificate loses. The prefill attention node (450.8 µs of 5.44 ms) saves at most 450.8·(1 − 0.78) ≈ 99 µs before K reads, and less after. Contextual activations at quality-preserving precision stay unique, as in the rows above.
+- Control: the brief's "halve Δ" loosens the bound and stays green (a defect of the control, reported); the mutation `(-2.0 * DELTAS[j]).exp()` at the bound line (example line 360) tightens it and goes red (`bound holds: 74.17%`, exit 1); restored, `cmp` identical.
+- Not covered: layers beyond qwen05b, `Q8Act` q/k/v, perplexity at the cut, GPU timing, per-head static cuts (some heads read 1.3–47% at Δ = 2).
