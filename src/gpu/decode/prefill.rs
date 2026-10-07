@@ -32,8 +32,7 @@ use super::*;
 use crate::simt::gemv_dp4a_batch_rt_bytes;
 use crate::simt_nn::{
     attn_prefill_coopmat_bytes, coopmat_gemm_bytes, coopmat_gemm_chart_bytes, coopmat_gemm_groups,
-    coopmat_gemm_split_bytes, coopmat_gemm_swiglu_bytes, splitk_reduce_bytes, ATTN_COOP_ROWS,
-    REDUCE_GX, TILE_BM, TILE_BN, TILE_KB,
+    coopmat_gemm_split_bytes, coopmat_gemm_swiglu_bytes, ATTN_COOP_ROWS, TILE_BM, TILE_BN, TILE_KB,
 };
 
 /// Largest batch tile any node picks; activation scratch is padded to a multiple of it so every
@@ -457,22 +456,37 @@ impl PrefillStack {
             hidden.div_ceil(lw),
             Gy::Batch,
         ));
+        // Split-K plane count of the previous layer's down output, which the next norm folds as its
+        // residual straight from `spk` (1 = the output is `proj_h`).
+        let mut prev_ks = 1u32;
         for (li, l) in layers.iter().enumerate() {
             // norm1 (+ the previous layer's down output as residual from layer 1)
             let dq = dpw(l.qkv_c);
             if li == 0 {
                 plan.push(pl.node(
                     format!("rms0_{dq}"),
-                    || rmsnorm_batch_q_noh_bytes(hidden, c.eps, dq, false),
+                    || rmsnorm_batch_q_noh_bytes(hidden, c.eps, dq, false, 1),
                     &[x_dev, l.ln1, x_dev, xq, xsc, xsm, hbuf],
                     1,
                     Gy::Batch,
                 ));
             } else {
+                let ks = prev_ks;
+                let (res, rb) = if ks > 1 {
+                    (spk, vec![params])
+                } else {
+                    (proj_h, vec![])
+                };
+                let mut bufs = vec![x_dev, l.ln1, res, xq, xsc, xsm, hbuf];
+                bufs.extend(rb);
                 plan.push(pl.node(
-                    format!("rms_{dq}"),
-                    || rmsnorm_batch_q_noh_bytes(hidden, c.eps, dq, true),
-                    &[x_dev, l.ln1, proj_h, xq, xsc, xsm, hbuf],
+                    if ks > 1 {
+                        format!("rms_{dq}_ks{ks}")
+                    } else {
+                        format!("rms_{dq}")
+                    },
+                    move || rmsnorm_batch_q_noh_bytes(hidden, c.eps, dq, true, ks),
+                    &bufs,
                     1,
                     Gy::Batch,
                 ));
@@ -546,7 +560,7 @@ impl PrefillStack {
             let dqg = dpw(l.gu_c);
             plan.push(pl.node(
                 format!("rms_{dqg}"),
-                || rmsnorm_batch_q_noh_bytes(hidden, c.eps, dqg, true),
+                || rmsnorm_batch_q_noh_bytes(hidden, c.eps, dqg, true, 1),
                 &[x_dev, l.ln2, proj_h, xq, xsc, xsm, hbuf],
                 1,
                 Gy::Batch,
@@ -579,13 +593,7 @@ impl PrefillStack {
                     );
                     n.gz = ks;
                     plan.push(n);
-                    plan.push(pl.node(
-                        format!("splitk_reduce_{hidden}_{ks}"),
-                        move || splitk_reduce_bytes(hidden, ks),
-                        &[spk, proj_h],
-                        REDUCE_GX,
-                        Gy::Tiles(TILE_BN),
-                    ));
+                    prev_ks = ks;
                     continue;
                 }
                 plan.push(pl.node(
@@ -595,6 +603,7 @@ impl PrefillStack {
                     coopmat_gemm_groups(hidden, TILE_BN).0,
                     Gy::Tiles(TILE_BN),
                 ));
+                prev_ks = 1;
                 continue;
             }
             gemm_node!(
@@ -621,13 +630,7 @@ impl PrefillStack {
                 );
                 n.gz = ks;
                 plan.push(n);
-                plan.push(pl.node(
-                    format!("splitk_reduce_{hidden}_{ks}"),
-                    move || splitk_reduce_bytes(hidden, ks),
-                    &[spk, proj_h],
-                    REDUCE_GX,
-                    Gy::Tiles(TILE_BN),
-                ));
+                prev_ks = ks;
                 continue;
             }
             gemm_node!(
@@ -636,13 +639,26 @@ impl PrefillStack {
                 l.dn_c,
                 &[l.dn_w, xq, proj_h, l.dn_dm, xsm, xsc]
             );
+            prev_ks = 1;
         }
         // final norm: folds the last down output, emits the head's activation chart and f32 hidden
         let dh = dpw(hc);
+        let ks = prev_ks;
+        let (res, rb) = if ks > 1 {
+            (spk, vec![params])
+        } else {
+            (proj_h, vec![])
+        };
+        let mut bufs = vec![x_dev, final_norm, res, xq, xsc, xsm, hout];
+        bufs.extend(rb);
         plan.push(pl.node(
-            format!("rms_{dh}"),
-            || rmsnorm_batch_q_bytes(hidden, c.eps, dh, true),
-            &[x_dev, final_norm, proj_h, xq, xsc, xsm, hout],
+            if ks > 1 {
+                format!("rms_{dh}_ks{ks}")
+            } else {
+                format!("rms_{dh}")
+            },
+            move || rmsnorm_batch_q_bytes(hidden, c.eps, dh, true, ks),
+            &bufs,
             1,
             Gy::Batch,
         ));

@@ -381,8 +381,13 @@ impl Kb {
 /// `n` per position; bound but unread when `residual = false`), 3 = xq (u32 chart words),
 /// 4 = scales (f32 per 32-block), 5 = xs (f32 `Σx` per 32-block), 6 = h (f32 normalized out).
 /// Dispatch `(1, B)` at LocalSize 256; `gl_GlobalInvocationId.y` is the position.
-pub fn rmsnorm_batch_q_module(n: u32, eps: f32, dpw: u32, residual: bool) -> Vec<u32> {
-    rmsnorm_batch_q_impl(n, eps, dpw, residual, true)
+///
+/// `ks > 1` (requires `residual`): binding 2 holds the `ks` split-K partial planes of the down GEMM,
+/// `[ks][ceil(B/64)*64][n]` floats, and binding 7 is the prefill `params` (`params[1]` = `B`). The
+/// residual prologue forms `res[idx] = (p0 + p1) + ... + p(ks-1)` in registers, a left fold of f32
+/// adds in plane order (`splitk_reduce.comp`'s order), then `x += res` as for `ks = 1`.
+pub fn rmsnorm_batch_q_module(n: u32, eps: f32, dpw: u32, residual: bool, ks: u32) -> Vec<u32> {
+    rmsnorm_batch_q_impl(n, eps, dpw, residual, true, ks)
 }
 
 /// [`rmsnorm_batch_q_module`] with binding 6 (`h`) **not written**. The resident prefill path binds
@@ -391,15 +396,27 @@ pub fn rmsnorm_batch_q_module(n: u32, eps: f32, dpw: u32, residual: bool) -> Vec
 /// Skipping the dead store removes `n·4` bytes of L2 write traffic per node with the chart
 /// (`xq`/`scales`/`xs`) and the shared `nrm` path arithmetically untouched. The caller must not read
 /// binding 6 when it uses this entry.
-pub fn rmsnorm_batch_q_noh_module(n: u32, eps: f32, dpw: u32, residual: bool) -> Vec<u32> {
-    rmsnorm_batch_q_impl(n, eps, dpw, residual, false)
+pub fn rmsnorm_batch_q_noh_module(n: u32, eps: f32, dpw: u32, residual: bool, ks: u32) -> Vec<u32> {
+    rmsnorm_batch_q_impl(n, eps, dpw, residual, false, ks)
 }
 
 /// Shared body of [`rmsnorm_batch_q_module`] / [`rmsnorm_batch_q_noh_module`]. `emit_h` selects
-/// whether binding 6 is written.
-fn rmsnorm_batch_q_impl(n: u32, eps: f32, dpw: u32, residual: bool, emit_h: bool) -> Vec<u32> {
+/// whether binding 6 is written; `ks` is the split-K plane count of the residual (1 = one plane).
+fn rmsnorm_batch_q_impl(
+    n: u32,
+    eps: f32,
+    dpw: u32,
+    residual: bool,
+    emit_h: bool,
+    ks: u32,
+) -> Vec<u32> {
     const WG: u32 = 256;
+    const SPLITK_BN: u32 = 64; // `coopmat_gemm.comp` BN: the split kernel pads tokens to this
     assert!(n % 32 == 0, "the activation chart is per-32-block");
+    assert!(
+        ks >= 1 && (ks == 1 || residual),
+        "split planes feed the residual"
+    );
     let mut k = Kb::new();
     let x = k.ssbo_f(0);
     let gain = k.ssbo_f(1);
@@ -408,6 +425,7 @@ fn rmsnorm_batch_q_impl(n: u32, eps: f32, dpw: u32, residual: bool, emit_h: bool
     let scales = k.ssbo_f(4);
     let xs = k.ssbo_f(5);
     let hout = k.ssbo_f(6);
+    let params = (ks > 1).then(|| k.ssbo_u(7));
     let (red, redp) = k.shared_f32(WG);
     let (nrm, nrmp) = k.shared_f32(n);
     let tid = k.gid_comp(0);
@@ -415,6 +433,18 @@ fn rmsnorm_batch_q_impl(n: u32, eps: f32, dpw: u32, residual: bool, emit_h: bool
     let cn = k.cu(n);
     let cwg = k.cu(WG);
     let xoff = k.imul(i, cn);
+    // plane stride in floats: `ceil(B/64)*64 * n` (the split kernel's padded token count, as
+    // `gl_NumWorkGroups.y * BN` is in `splitk_reduce.comp`), `B` read from `params[1]`
+    let plane = params.map(|pb| {
+        let c1 = k.cu(1);
+        let tokens = k.load_u(pb, c1);
+        let cbn = k.cu(SPLITK_BN);
+        let cbn1 = k.cu(SPLITK_BN - 1);
+        let up = k.iadd(tokens, cbn1);
+        let tiles = k.udiv(up, cbn);
+        let padded = k.imul(tiles, cbn);
+        k.imul(padded, cn)
+    });
     let cq = k.cu(n / 4);
     let qoff = k.imul(i, cq);
     let cb = k.cu(n / 32);
@@ -424,7 +454,16 @@ fn rmsnorm_batch_q_impl(n: u32, eps: f32, dpw: u32, residual: bool, emit_h: bool
         k.loop_step(tid, cn, cwg, |k, j| {
             let idx = k.iadd(xoff, j);
             let xv = k.load_f(x, idx);
-            let rv = k.load_f(res, idx);
+            let mut rv = k.load_f(res, idx);
+            if let Some(plane) = plane {
+                for sp in 1..ks {
+                    let cs = k.cu(sp);
+                    let po = k.imul(cs, plane);
+                    let pidx = k.iadd(po, idx);
+                    let pv = k.load_f(res, pidx);
+                    rv = k.fadd(rv, pv);
+                }
+            }
             let s = k.fadd(xv, rv);
             k.store_f(x, idx, s);
         });
@@ -1085,13 +1124,13 @@ pub fn qkv_rope_batch_module(
 }
 
 /// [`rmsnorm_batch_q_module`] as bytes.
-pub fn rmsnorm_batch_q_bytes(n: u32, eps: f32, dpw: u32, residual: bool) -> Vec<u8> {
-    bytes(rmsnorm_batch_q_module(n, eps, dpw, residual))
+pub fn rmsnorm_batch_q_bytes(n: u32, eps: f32, dpw: u32, residual: bool, ks: u32) -> Vec<u8> {
+    bytes(rmsnorm_batch_q_module(n, eps, dpw, residual, ks))
 }
 /// [`rmsnorm_batch_q_noh_module`] as bytes — the resident prefill's intermediate-norm module
 /// (`h`/binding 6 unread; writes only the chart and, conditionally, the residual stream).
-pub fn rmsnorm_batch_q_noh_bytes(n: u32, eps: f32, dpw: u32, residual: bool) -> Vec<u8> {
-    bytes(rmsnorm_batch_q_noh_module(n, eps, dpw, residual))
+pub fn rmsnorm_batch_q_noh_bytes(n: u32, eps: f32, dpw: u32, residual: bool, ks: u32) -> Vec<u8> {
+    bytes(rmsnorm_batch_q_noh_module(n, eps, dpw, residual, ks))
 }
 /// [`quantize_batch_module`] as bytes.
 pub fn quantize_batch_bytes(n: u32, dpw: u32) -> Vec<u8> {
