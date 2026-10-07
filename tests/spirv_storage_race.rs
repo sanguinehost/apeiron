@@ -406,6 +406,39 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
             "coopmat_gemm_dn",
             coopmat_gemm_module(896, 4864, Carrier::Q4),
         ),
+        // the same GEMM with the SwiGLU epilogue (gate/up node, `swiglu_fuse`), at both down-carrier dpw
+        (
+            "coopmat_gemm_gu_swiglu1",
+            coopmat_gemm_swiglu_module(
+                9728,
+                896,
+                Carrier::Q8,
+                1,
+                512 * 4864 / 4,
+                512 * 4864 / 4 + 512 * 4864 / 32,
+            ),
+        ),
+        (
+            "coopmat_gemm_gu_swiglu2",
+            coopmat_gemm_swiglu_module(
+                9728,
+                896,
+                Carrier::Q8,
+                2,
+                512 * 4864 / 4,
+                512 * 4864 / 4 + 512 * 4864 / 32,
+            ),
+        ),
+        (
+            "coopmat_gemm_dn_chart",
+            coopmat_gemm_chart_module(
+                896,
+                4864,
+                Carrier::Q4,
+                512 * 4864 / 4,
+                512 * 4864 / 4 + 512 * 4864 / 32,
+            ),
+        ),
         // MoE / pool / gridsync
         ("moe_topk", moe_topk_module(64, 4, true, true, 1.0)),
         ("moe_silu_slot", silu_mul_q_slot_module(4864, 2)),

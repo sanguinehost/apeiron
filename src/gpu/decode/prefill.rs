@@ -31,8 +31,8 @@ use super::state::{LayerCfg, LayerW};
 use super::*;
 use crate::simt::gemv_dp4a_batch_rt_bytes;
 use crate::simt_nn::{
-    attn_prefill_coopmat_bytes, coopmat_gemm_bytes, coopmat_gemm_groups, ATTN_COOP_ROWS, TILE_BN,
-    TILE_KB,
+    attn_prefill_coopmat_bytes, coopmat_gemm_bytes, coopmat_gemm_chart_bytes, coopmat_gemm_groups,
+    coopmat_gemm_swiglu_bytes, ATTN_COOP_ROWS, TILE_BM, TILE_BN, TILE_KB,
 };
 
 /// Largest batch tile any node picks; activation scratch is padded to a multiple of it so every
@@ -425,6 +425,13 @@ impl PrefillStack {
                 }
             }};
         }
+        // Chart of the fused gate/up GEMM inside `gu_buf`: words at 0, then the per-32-block scales,
+        // then the sums (floats). `gu_buf` holds `bp * 2 * dff` floats; the chart takes `bp * dff * 9/32`.
+        let sc_off = (bp * dff_u / 4) as u32;
+        let sm_off = sc_off + (bp * dff_u / 32) as u32;
+        let swiglu_fuse = vk.has_coopmat
+            && dff % 64 == 0
+            && std::env::var("DEC_SWIGLU_FUSE").map_or(true, |v| v != "0");
         plan.push(pl.node(
             format!("embed_batch_{:?}", hc),
             || embed_chart_batch_bytes(hidden, vocab, lw, hc),
@@ -526,13 +533,38 @@ impl PrefillStack {
                 1,
                 Gy::Batch,
             ));
+            let dqd = dpw(l.dn_c);
+            // The gate/up GEMM's epilogue writes the down projection's chart itself (into `gu_buf`,
+            // which then holds no gate/up row); the down GEMM reads it at the chart offsets. Both
+            // GEMMs must be the coopmat kernel, and the tile pairs 64 gate rows with 64 up rows.
+            let swiglu_fused = swiglu_fuse
+                && coopmat_ok(vk, 2 * dff, hidden, l.gu_c)
+                && coopmat_ok(vk, hidden, dff, l.dn_c)
+                && (2 * dff) % TILE_BM == 0
+                && matches!(dqd, 1 | 2 | 4);
+            if swiglu_fused {
+                plan.push(pl.node(
+                    format!("gemm_{}_{hidden}_{:?}_cm_swiglu{dqd}", 2 * dff, l.gu_c),
+                    || coopmat_gemm_swiglu_bytes(2 * dff, hidden, l.gu_c, dqd, sc_off, sm_off),
+                    &[l.gu_w, xq, gu_buf, l.gu_dm, xsm, xsc],
+                    coopmat_gemm_groups(2 * dff, TILE_BN).0,
+                    Gy::Tiles(TILE_BN),
+                ));
+                plan.push(pl.node(
+                    format!("gemm_{hidden}_{dff}_{:?}_cm_chart", l.dn_c),
+                    || coopmat_gemm_chart_bytes(hidden, dff, l.dn_c, sc_off, sm_off),
+                    &[l.dn_w, gu_buf, proj_h, l.dn_dm, gu_buf, gu_buf],
+                    coopmat_gemm_groups(hidden, TILE_BN).0,
+                    Gy::Tiles(TILE_BN),
+                ));
+                continue;
+            }
             gemm_node!(
                 2 * dff,
                 hidden,
                 l.gu_c,
                 &[l.gu_w, xq, gu_buf, l.gu_dm, xsm, xsc]
             );
-            let dqd = dpw(l.dn_c);
             plan.push(pl.node(
                 format!("swiglu_quant_{dff}_{dqd}"),
                 || swiglu_quant_batch_bytes(dff, dqd),

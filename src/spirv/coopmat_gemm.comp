@@ -26,6 +26,17 @@
 // latency overlaps them. Defaults (128 x 64, 2 x 2 subgroups, KB 2) are the measured choice of
 // examples/gemm_bench.rs --variants on the RTX 5080.
 //
+// Fused SwiGLU epilogue (`FUSE != 0`, the gate/up projection only; precedent `attn_coopmat.comp`). The tile's
+// 128 rows are remapped in-kernel: rows 0..63 are gate rows `64x + r`, rows 64..127 the matching up rows
+// `M/2 + 64x + r - 64` (accumulation per element is unchanged, so the pre-activations are the bits the
+// unfused kernel stores). Subgroups with `sg % 2 == 0` then hold gate and `sg % 2 == 1` up fragments of the
+// same 32 tokens; per 32-feature block the gate tile is staged in `sA`, the up subgroup forms
+// `silu(g) * u` in the fragment (the expression of `simt_nn::swiglu_quant_batch_module`, operation for
+// operation), and the per-32-block activation chart (absmax/127 scale, serial f32 sum, round-half-away codes
+// in the down projection's `dpw = FUSE` word order) is written into the buffer bound at O, which no longer
+// holds the gate/up row. The down GEMM reads that chart through its X, XS and SX bindings with `SMOFF` and
+// `SCOFF` as the sum and scale offsets (zero for every other GEMM).
+//
 // Preconditions (the Rust builder asserts the static ones): M % 16 == 0; K % (32*KB) == 0; the activation,
 // XS and SX buffers hold ceil(tokens/BN)*BN rows (zero padded, as the DP4A path pads to its bt) and
 // OUT holds as many rows of M floats. Dispatch (ceil(M/BM), ceil(tokens/BN), 1).
@@ -50,6 +61,9 @@
 #define EPI 1
 #endif
 
+// the fused epilogue assumes the committed tile: gate = subgroup row 0, up = subgroup row 1, 32 tokens a subgroup
+#define SWIGLU_TILE (BM == 128 && BN == 64 && SGM == 2 && SGN == 2 && KB == 2)
+
 #define NSG (SGM * SGN)
 #define NT (32 * NSG)
 #define WM (BM / 16 / SGM)
@@ -70,6 +84,14 @@ layout(local_size_x = NT, local_size_y = 1, local_size_z = 1) in;
 layout(constant_id = 0) const uint M = 16;
 layout(constant_id = 1) const uint BLOCKS = 1; // a multiple of KB (the Rust builder asserts it)
 layout(constant_id = 2) const uint PACK = 4;   // codes per chart word: Q8 4, Q4 8, Q2 16
+// SwiGLU fusion (gate/up node only): FUSE = the down chart's dpw (0 = off); SCOFF/SMOFF = float offsets of the
+// scale and sum streams in the buffer bound at SX/XS (reading GEMM) or O (the fused writer)
+layout(constant_id = 3) const uint FUSE = 0;
+layout(constant_id = 4) const uint SCOFF = 0;
+layout(constant_id = 5) const uint SMOFF = 0;
+// the fused writer reads its own input chart at offset 0; SCOFF/SMOFF address its output
+const uint RDSC = FUSE == 0u ? SCOFF : 0u;
+const uint RDSM = FUSE == 0u ? SMOFF : 0u;
 const uint DPW = PACK / 4u;                    // activation words per chart word
 const uint WBITS = 32u / PACK;                 // bits per code
 const uint QMASK = (1u << WBITS) - 1u;
@@ -81,6 +103,7 @@ const uint XW4 = BLOCKS * 2u;                  // uvec4 activation words per tok
 layout(set = 0, binding = 0, std430) readonly buffer W_ { uint w[]; };
 layout(set = 0, binding = 1, std430) readonly buffer X_ { uvec4 xq[]; };
 layout(set = 0, binding = 2, std430) writeonly buffer O_ { float o[]; };
+layout(set = 0, binding = 2, std430) writeonly buffer OQ_ { uint oq[]; };
 layout(set = 0, binding = 3, std430) readonly buffer D_ { uint dm[]; };
 layout(set = 0, binding = 4, std430) readonly buffer XS_ { float xs[]; };
 layout(set = 0, binding = 5, std430) readonly buffer SX_ { float sx[]; };
@@ -101,6 +124,7 @@ shared int sBias[KB * BN];
 // exactly, and subtracting 1.5*2^23 is exact. |q| <= 32*255*127 < 2^22 for every chart carrier.
 const int MAGIC_BITS = 0x4B400000;
 const float MAGIC_F = 12582912.0;
+const float INV127 = 1.0 / 127.0;
 
 // registers holding the next stage while this one computes
 uint pa[KB][IA][4];
@@ -113,6 +137,16 @@ int bsum(uint v) {
     // Signed byte sum of the four lanes: dotPacked4x8EXT with an all-ones operand is
     // exactly sum of the four signed-8-bit lanes. One SPIR-V OpSDot, one IDP.4A on SM120.
     return dotPacked4x8EXT(int(v), 0x01010101);
+}
+
+// Weight row of tile row r (0 <= r < BM) of workgroup column gx: the tile itself, or with FUSE the gate half
+// then the matching up half.
+uint tile_row(uint gx, uint r) {
+    if (FUSE == 0u) {
+        return min(gx * BM + r, M - 1u);
+    }
+    const uint hb = BM / 2u;
+    return r < hb ? gx * hb + r : M / 2u + gx * hb + (r - hb);
 }
 
 // Global loads of blocks b0 .. b0+KB-1 into registers.
@@ -140,8 +174,8 @@ void fetch(uint b0, uint lid, uint row0, uint tok0,
             uint j = lid + it * NT;
             if (j < BN) {
                 uint t = (tok0 + j) * BLOCKS + b;
-                pxs[kb][it] = xs[t];
-                psx[kb][it] = sx[t];
+                pxs[kb][it] = xs[RDSM + t];
+                psx[kb][it] = sx[RDSC + t];
             }
         }
     }
@@ -196,6 +230,96 @@ void commit(uint lid, uint ar[IA], uint ah[IA]) {
     }
 }
 
+#if SWIGLU_TILE
+// Per-token chart scale of the block being quantized, handed from the scale walk to the code lanes.
+shared float sQs[BN];
+
+float tile_f(uint i) {
+    return uintBitsToFloat(sA[i >> 2][i & 3u]);
+}
+
+// The FUSE epilogue: `acc` holds gate fragments (sg % 2 == 0) or the matching up fragments (sg % 2 == 1) of
+// the 32 tokens `tbase ..`; frag i = features 16 i .. 16 i + 15 of the workgroup's 64.
+// Per 32-feature block b: stage the gate tile (32 features x 32 tokens, f32, `sA`, row stride 8 uvec4), the up
+// subgroup forms silu(g) * u in the fragment and stores it back, 64 lanes walk one token's 32 features
+// serially (max, sum: the order of `quantize_at`), then all 128 lanes pack 8 code words per token.
+// Cost per workgroup: 2 blocks x (4 barriers, 16 fragment stores + 8 loads, 32-iteration walk, 4 words a
+// lane), plus 64 exp + div per up lane; shared reuses `sA`.
+void swiglu_epilogue(FRAG_F acc[WM * WN], uint lid, uint sg) {
+    const uint gx = gl_WorkGroupID.x;
+    const uint tok0 = gl_WorkGroupID.y * BN;
+    const uint dff = M / 2u;
+    const uint side = sg % SGM;
+    const uint th = sg / SGM;
+    [[unroll]] for (uint b = 0u; b < 2u; ++b) {
+        if (side == 0u) {
+            [[unroll]] for (uint fi = 0u; fi < 2u; ++fi) {
+                [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                    coopMatStore(acc[(2u * b + fi) * WN + j], sA, th * 256u + fi * 128u + j * 4u, 8u,
+                                 gl_CooperativeMatrixLayoutRowMajor);
+                }
+            }
+        }
+        barrier();
+        if (side == 1u) {
+            [[unroll]] for (uint fi = 0u; fi < 2u; ++fi) {
+                [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                    const uint at = th * 256u + fi * 128u + j * 4u;
+                    FRAG_F g;
+                    coopMatLoad(g, sA, at, 8u, gl_CooperativeMatrixLayoutRowMajor);
+                    FRAG_F a = acc[(2u * b + fi) * WN + j];
+                    [[unroll]] for (uint e = 0u; e < a.length(); ++e) {
+                        precise float ge = g[e];
+                        precise float ng = -ge;
+                        precise float ex = exp(ng);
+                        precise float den = 1.0 + ex;
+                        precise float sil = ge / den;
+                        precise float v = sil * a[e];
+                        a[e] = v;
+                    }
+                    coopMatStore(a, sA, at, 8u, gl_CooperativeMatrixLayoutRowMajor);
+                }
+            }
+        }
+        barrier();
+        if (lid < BN) {
+            const uint tb = (lid >> 5) * 1024u + (lid & 31u);
+            float mx = 1.0e-12;
+            float sm = 0.0;
+            for (uint j = 0u; j < 32u; ++j) {
+                float v = tile_f(tb + j * 32u);
+                mx = max(mx, abs(v));
+                sm = sm + v;
+            }
+            const float sc = mx * INV127;
+            sQs[lid] = sc;
+            const uint gi = (tok0 + lid) * (dff / 32u) + gx * 2u + b;
+            o[SCOFF + gi] = sc;
+            o[SMOFF + gi] = sm;
+        }
+        barrier();
+        [[unroll]] for (uint it = 0u; it < 4u; ++it) {
+            const uint idx = lid + it * NT;
+            const uint tl = idx & 63u;
+            const uint w = idx >> 6;
+            const uint cc = w / FUSE;
+            const uint base = cc * 4u * FUSE + (w % FUSE);
+            const float sx = sQs[tl];
+            const uint tb = (tl >> 5) * 1024u + (tl & 31u);
+            uint word = 0u;
+            [[unroll]] for (uint k = 0u; k < 4u; ++k) {
+                float q = tile_f(tb + (base + k * FUSE) * 32u) / sx;
+                q = q + (q > 0.0 ? 0.5 : -0.5);
+                q = max(min(q, 127.0), -127.0);
+                word |= (uint(int(q)) & 0xFFu) << (8u * k);
+            }
+            oq[(tok0 + tl) * (dff / 4u) + gx * 16u + b * 8u + w] = word;
+        }
+        barrier();
+    }
+}
+#endif
+
 void main() {
     const uint lid = gl_LocalInvocationIndex;
     const uint sg = gl_SubgroupID;
@@ -218,10 +342,10 @@ void main() {
         uint idx = lid + it * NT;
         ar[it] = idx % BM;
         ah[it] = idx / BM;
-        arow[it] = min(row0 + ar[it], M - 1u);
+        arow[it] = tile_row(gl_WorkGroupID.x, ar[it]);
     }
     [[unroll]] for (uint it = 0u; it < IR; ++it) {
-        drow[it] = min(row0 + lid + it * NT, M - 1u);
+        drow[it] = tile_row(gl_WorkGroupID.x, lid + it * NT);
     }
 
     fetch(0u, lid, row0, tok0, ah, arow, drow);
@@ -278,6 +402,12 @@ void main() {
         barrier();
     }
 
+#if SWIGLU_TILE
+    if (FUSE != 0u) {
+        swiglu_epilogue(acc, lid, sg);
+        return;
+    }
+#endif
     [[unroll]] for (uint i = 0u; i < WM; ++i) {
         uint r = row0 + rbase + 16u * i;
         if (r < M) {

@@ -19,6 +19,12 @@
 //! `VkSpecializationInfo` and no push constants. Tile shape is fixed at compile time: [`TILE_BM`]
 //! rows × [`TILE_BN`] tokens per workgroup of 4 subgroups, [`TILE_KB`] blocks per shared stage.
 //!
+//! **SwiGLU fusion.** With `FUSE = dpw` (spec id 3) the gate/up projection's epilogue also forms
+//! `silu(gate) * up` and writes the down projection's activation chart (words, scales, sums) into the
+//! buffer bound at O, so `swiglu_quant_batch_module` and the `gu` round trip drop out; the down GEMM
+//! reads that chart with `SMOFF`/`SCOFF` (spec ids 5, 4) as the sum/scale offsets.
+//! See [`coopmat_gemm_swiglu_bytes`] and [`coopmat_gemm_chart_bytes`].
+//!
 //! **Dispatch** `(m / TILE_BM rounded up, tokens / TILE_BN rounded up)`. The caller pads the
 //! activation chart (XQ, XS, SX) and OUT to a multiple of [`TILE_BN`] rows, as the DP4A path pads to
 //! its `bt`; the kernel carries no token guard. `m % 16 == 0`; rows past `m` in the last row tile are
@@ -51,6 +57,9 @@ const DEC_SPEC_ID: u32 = 1;
 const SPEC_M: u32 = 0;
 const SPEC_BLOCKS: u32 = 1;
 const SPEC_PACK: u32 = 2;
+const SPEC_FUSE: u32 = 3;
+const SPEC_SCOFF: u32 = 4;
+const SPEC_SMOFF: u32 = 5;
 
 /// Rewrite the default value of every 32-bit `OpSpecConstant` whose `SpecId` is a key of `vals`.
 /// Panics when a requested `SpecId` is absent: a constant left at its default is a different kernel.
@@ -103,6 +112,81 @@ pub fn coopmat_gemm_module(m: u32, k: u32, carrier: Carrier) -> Vec<u32> {
 /// built with `-DBM= -DBN= -DSGM= -DSGN= -DKB=`; `examples/gemm_bench.rs --variants` sweeps them).
 /// The `k` check here is the committed `TILE_KB`'s; a variant with a larger `KB` needs its own.
 pub fn coopmat_gemm_module_from(spv: &[u8], m: u32, k: u32, carrier: Carrier) -> Vec<u32> {
+    coopmat_gemm_specialized(spv, m, k, carrier, 0, 0, 0)
+}
+
+/// The kernel as [`coopmat_gemm_module`] with the chart's sum stream at float offset `smoff` and its
+/// scale stream at `scoff` of the buffers bound at XS and SX: the reader of a chart written by
+/// [`coopmat_gemm_swiglu_module`] into one buffer.
+pub fn coopmat_gemm_chart_module(
+    m: u32,
+    k: u32,
+    carrier: Carrier,
+    scoff: u32,
+    smoff: u32,
+) -> Vec<u32> {
+    coopmat_gemm_specialized(COOPMAT_GEMM_SPV, m, k, carrier, 0, scoff, smoff)
+}
+
+/// [`coopmat_gemm_chart_module`] as bytes.
+pub fn coopmat_gemm_chart_bytes(
+    m: u32,
+    k: u32,
+    carrier: Carrier,
+    scoff: u32,
+    smoff: u32,
+) -> Vec<u8> {
+    to_bytes(&coopmat_gemm_chart_module(m, k, carrier, scoff, smoff))
+}
+
+/// The gate/up GEMM (`m = 2·dff` rows, gate then up) with the SwiGLU epilogue: instead of the `m`-row
+/// output it writes the down projection's activation chart at `dpw_out` (the down carrier's
+/// `pack / 4`) into the buffer bound at O (words at word 0, scales at float `scoff`, sums at float
+/// `smoff`, token-major, `dff/4` words and `dff/32` blocks a token). Bit-identical to the unfused pair
+/// GEMM + `swiglu_quant_batch_module`. Requires `m % 128 == 0` and `dpw_out` in {1, 2, 4}; dispatch
+/// `(m / 128, ceil(tokens / TILE_BN))` ([`coopmat_gemm_groups`]).
+pub fn coopmat_gemm_swiglu_module(
+    m: u32,
+    k: u32,
+    carrier: Carrier,
+    dpw_out: u32,
+    scoff: u32,
+    smoff: u32,
+) -> Vec<u32> {
+    assert!(
+        m % TILE_BM == 0,
+        "the fused epilogue pairs 64 gate rows with 64 up rows: m % {TILE_BM} == 0"
+    );
+    assert!(
+        matches!(dpw_out, 1 | 2 | 4),
+        "the down chart's dpw is 1, 2 or 4, not {dpw_out}"
+    );
+    coopmat_gemm_specialized(COOPMAT_GEMM_SPV, m, k, carrier, dpw_out, scoff, smoff)
+}
+
+/// [`coopmat_gemm_swiglu_module`] as bytes.
+pub fn coopmat_gemm_swiglu_bytes(
+    m: u32,
+    k: u32,
+    carrier: Carrier,
+    dpw_out: u32,
+    scoff: u32,
+    smoff: u32,
+) -> Vec<u8> {
+    to_bytes(&coopmat_gemm_swiglu_module(
+        m, k, carrier, dpw_out, scoff, smoff,
+    ))
+}
+
+fn coopmat_gemm_specialized(
+    spv: &[u8],
+    m: u32,
+    k: u32,
+    carrier: Carrier,
+    fuse: u32,
+    scoff: u32,
+    smoff: u32,
+) -> Vec<u32> {
     assert!(
         matches!(carrier, Carrier::Q8 | Carrier::Q4 | Carrier::Q2),
         "coopmat GEMM serves the single-plane chart carriers Q8/Q4/Q2, not {carrier:?}"
@@ -125,16 +209,20 @@ pub fn coopmat_gemm_module_from(spv: &[u8], m: u32, k: u32, carrier: Carrier) ->
             (SPEC_M, m),
             (SPEC_BLOCKS, k / 32),
             (SPEC_PACK, carrier.pack()),
+            (SPEC_FUSE, fuse),
+            (SPEC_SCOFF, scoff),
+            (SPEC_SMOFF, smoff),
         ],
     )
 }
 
+fn to_bytes(module: &[u32]) -> Vec<u8> {
+    module.iter().flat_map(|w| w.to_le_bytes()).collect()
+}
+
 /// [`coopmat_gemm_module`] as bytes.
 pub fn coopmat_gemm_bytes(m: u32, k: u32, carrier: Carrier) -> Vec<u8> {
-    coopmat_gemm_module(m, k, carrier)
-        .iter()
-        .flat_map(|w| w.to_le_bytes())
-        .collect()
+    to_bytes(&coopmat_gemm_module(m, k, carrier))
 }
 
 /// Workgroup grid `(x, y)` for `m` rows and `tokens` tokens.
