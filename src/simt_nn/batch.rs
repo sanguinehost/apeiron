@@ -449,39 +449,101 @@ fn rmsnorm_batch_q_impl(
     let qoff = k.imul(i, cq);
     let cb = k.cu(n / 32);
     let boff = k.imul(i, cb);
-    // ── residual add, in place, same-lane (no barrier: the sumsq below walks the identical stride)
-    if residual {
-        k.loop_step(tid, cn, cwg, |k, j| {
-            let idx = k.iadd(xoff, j);
-            let xv = k.load_f(x, idx);
-            let mut rv = k.load_f(res, idx);
-            if let Some(plane) = plane {
-                for sp in 1..ks {
-                    let cs = k.cu(sp);
-                    let po = k.imul(cs, plane);
-                    let pidx = k.iadd(po, idx);
-                    let pv = k.load_f(res, pidx);
-                    rv = k.fadd(rv, pv);
+    // ── one pass over the row: every global load (gain, x, residual planes) of every strided trip is
+    // issued before any is consumed, and the row stays in registers (`sv`) through the sumsq and the
+    // normalise. Each lane still owns elements `tid + t·WG` and adds their squares in ascending `t`,
+    // so Σx² (and with it every value the chart is built from) is bit-identical to the loop form.
+    // A trip with `tid + t·WG ≥ n` (only the last, when `n % WG != 0`) loads under a guard into a
+    // variable preset to 0.0, which adds exactly 0.0 to the accumulator and is never stored.
+    let trips = n.div_ceil(WG);
+    let tail = n % WG != 0;
+    let mut gvs = Vec::new();
+    let mut xvs = Vec::new();
+    let mut rvs: Vec<Vec<u32>> = Vec::new();
+    for t in 0..trips {
+        let j = k.strided_idx(tid, t, WG);
+        let idx = k.iadd(xoff, j);
+        let guarded = tail && t == trips - 1;
+        if !guarded {
+            gvs.push(k.load_f(gain, j));
+            xvs.push(k.load_f(x, idx));
+            let mut planes = Vec::new();
+            if residual {
+                planes.push(k.load_f(res, idx));
+                if let Some(plane) = plane {
+                    for sp in 1..ks {
+                        let cs = k.cu(sp);
+                        let po = k.imul(cs, plane);
+                        let pidx = k.iadd(po, idx);
+                        planes.push(k.load_f(res, pidx));
+                    }
                 }
             }
-            let s = k.fadd(xv, rv);
-            k.store_f(x, idx, s);
-        });
+            rvs.push(planes);
+        } else {
+            let gvar = k.fvar_f();
+            let xvar = k.fvar_f();
+            let z = k.cf(0.0);
+            k.store_var(gvar, z);
+            k.store_var(xvar, z);
+            let rvars: Vec<u32> = (0..if residual { ks } else { 0 })
+                .map(|_| {
+                    let v = k.fvar_f();
+                    k.store_var(v, z);
+                    v
+                })
+                .collect();
+            let ok = k.ult(j, cn);
+            k.iff(ok, |k| {
+                let g = k.load_f(gain, j);
+                k.store_var(gvar, g);
+                let xv = k.load_f(x, idx);
+                k.store_var(xvar, xv);
+                for (sp, rvar) in rvars.iter().enumerate() {
+                    let pidx = match plane {
+                        Some(plane) if sp > 0 => {
+                            let cs = k.cu(sp as u32);
+                            let po = k.imul(cs, plane);
+                            k.iadd(po, idx)
+                        }
+                        _ => idx,
+                    };
+                    let pv = k.load_f(res, pidx);
+                    k.store_var(*rvar, pv);
+                }
+            });
+            gvs.push(k.load_var_f(gvar));
+            xvs.push(k.load_var_f(xvar));
+            rvs.push(rvars.iter().map(|v| k.load_var_f(*v)).collect());
+        }
     }
-    // ── strided sumsq → shared tree reduce → rsqrt → scale into shared `nrm`
-    // The fmul/fadd accumulation order is the strided loop's ascending `j`, unchanged from the
-    // committed kernel, so Σx² and every value the chart is built from stay bit-identical.
     let acc = k.fvar_f();
     let zero = k.cf(0.0);
     k.store_var(acc, zero);
-    k.loop_step(tid, cn, cwg, |k, j| {
-        let idx = k.iadd(xoff, j);
-        let v = k.load_f(x, idx);
-        let sq = k.fmul(v, v);
+    let mut svs = Vec::new();
+    for t in 0..trips as usize {
+        let mut sv = xvs[t];
+        if residual {
+            let mut rv = rvs[t][0];
+            for pv in &rvs[t][1..] {
+                rv = k.fadd(rv, *pv);
+            }
+            sv = k.fadd(sv, rv);
+            let j = k.strided_idx(tid, t as u32, WG);
+            let idx = k.iadd(xoff, j);
+            if tail && t as u32 == trips - 1 {
+                let ok = k.ult(j, cn);
+                k.iff(ok, |k| k.store_f(x, idx, sv));
+            } else {
+                k.store_f(x, idx, sv);
+            }
+        }
+        svs.push(sv);
+        let sq = k.fmul(sv, sv);
         let a0 = k.load_var_f(acc);
         let a1 = k.fadd(a0, sq);
         k.store_var(acc, a1);
-    });
+    }
     let af = k.load_var_f(acc);
     k.shared_store(red, redp, tid, af);
     k.wg_barrier();
@@ -493,17 +555,26 @@ fn rmsnorm_batch_q_impl(
     let ce = k.cf(eps);
     let me = k.fadd(mean, ce);
     let inv = k.ext1(GLSL_INVERSE_SQRT, me);
-    k.loop_step(tid, cn, cwg, |k, j| {
+    for t in 0..trips as usize {
+        let j = k.strided_idx(tid, t as u32, WG);
+        let sc = k.fmul(svs[t], inv);
+        let v = k.fmul(sc, gvs[t]);
         let idx = k.iadd(xoff, j);
-        let xv = k.load_f(x, idx);
-        let gv = k.load_f(gain, j);
-        let sc = k.fmul(xv, inv);
-        let v = k.fmul(sc, gv);
-        k.shared_store(nrm, nrmp, j, v);
-        if emit_h {
-            k.store_f(hout, idx, v);
+        if tail && t as u32 == trips - 1 {
+            let ok = k.ult(j, cn);
+            k.iff(ok, |k| {
+                k.shared_store(nrm, nrmp, j, v);
+                if emit_h {
+                    k.store_f(hout, idx, v);
+                }
+            });
+        } else {
+            k.shared_store(nrm, nrmp, j, v);
+            if emit_h {
+                k.store_f(hout, idx, v);
+            }
         }
-    });
+    }
     k.wg_barrier();
     k.quantize_at(
         QSrc::Shared(nrm, nrmp),

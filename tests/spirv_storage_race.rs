@@ -322,6 +322,15 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
             "rmsnorm_batch_q_res_ks3",
             rmsnorm_batch_q_module(896, 1e-6, 2, true, 3),
         ),
+        // n = 1024 is a whole number of 256-lane trips (no guarded tail); n = 896 above has one
+        (
+            "rmsnorm_batch_q_res_ks3_n1024",
+            rmsnorm_batch_q_module(1024, 1e-6, 2, true, 3),
+        ),
+        (
+            "rmsnorm_batch_q_noh_res_ks3",
+            rmsnorm_batch_q_noh_module(896, 1e-6, 2, true, 3),
+        ),
         ("swiglu_quant_batch", swiglu_quant_batch_module(4864, 2)),
         (
             "qkv_rope_batch",
@@ -490,11 +499,13 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
 /// * `fusedropekv` (`src/simt_nn/glue.rs::fused_rope_kv_fold_module`) is no longer here: the
 ///   rope-leader hand-off now crosses invocations through workgroup memory (`red`/`sval`), as
 ///   `src/simt_nn/batch.rs::qkv_rope_batch_module` does.
-/// * `rmsqsb`, `rmsnorm_batch_q_res`, `rmsnorm_batch_q_res_ks3` (`src/simt_nn/batch.rs`): the `residual` prologue folds
-///   `x[idx] += res[idx]` in `loop_step(tid, n, WG)` at `idx = i·n + j`, and the later sumsq/scale
-///   loops read `x` at the identical `idx` with the identical `tid`/`WG` stride. Same lane, same
-///   element; the separating barriers order the shared reduction, not this read.
-const ALLOW: &[&str] = &["rmsqsb", "rmsnorm_batch_q_res", "rmsnorm_batch_q_res_ks3"];
+/// * `rmsqsb` (`src/simt_nn/batch.rs`): the `residual` prologue folds `x[idx] += res[idx]` in
+///   `loop_step(tid, n, WG)` at `idx = i·n + j`, and the later sumsq/scale loops read `x` at the
+///   identical `idx` with the identical `tid`/`WG` stride. Same lane, same element; the separating
+///   barriers order the shared reduction, not this read.
+/// * `rmsnorm_batch_q*` (`rmsnorm_batch_q_impl`) is no longer here: the row stays in registers
+///   between the residual store and the normalise, so no storage vector is stored then re-loaded.
+const ALLOW: &[&str] = &["rmsqsb"];
 
 #[test]
 fn no_unexpected_cross_invocation_storage_race() {
