@@ -23,6 +23,7 @@ import Perf.Instances
 import Perf.Chain
 import Perf.Issue
 import Perf.Occupancy
+import Perf.Moves
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -335,3 +336,20 @@ import Perf.Occupancy
 #audit Perf.occupancy_ceiling
 #audit Perf.residentMin_occ48k
 #audit Perf.residentMin_committed
+#audit Perf.Moves.p15_saves_L
+#audit Perf.Moves.p15_measured
+#audit Perf.Moves.p3_unfuse_adds_L
+#audit Perf.Moves.p3_ratio_below_one
+#audit Perf.Moves.prologue_depth_gain
+#audit Perf.Moves.prologue_gain_cap
+#audit Perf.Moves.prologue_depth_gain_p4
+#audit Perf.Moves.p10_mma_floor
+#audit Perf.Moves.p10_mma_rate_ratio
+#audit Perf.Moves.p10_mma_floor_p8
+#audit Perf.Moves.fieldMax_singleField
+#audit Perf.Moves.timeLB_singleField
+#audit Perf.Moves.non_mma_move_ceiling
+#audit Perf.Moves.mma_issue_ratio
+#audit Perf.Moves.ceilDiv_le_mul_ceilDiv
+#audit Perf.Moves.mma_issue_bound
+#audit Perf.Moves.hd128_tile_exceeds
