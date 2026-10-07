@@ -24,6 +24,7 @@ import Perf.Chain
 import Perf.Issue
 import Perf.Occupancy
 import Perf.Moves
+import Perf.MapMoves
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -353,3 +354,9 @@ import Perf.Moves
 #audit Perf.Moves.ceilDiv_le_mul_ceilDiv
 #audit Perf.Moves.mma_issue_bound
 #audit Perf.Moves.hd128_tile_exceeds
+#audit Perf.MapMoves.map08_flatSpillRead
+#audit Perf.MapMoves.map02_hashedGetCoord
+#audit Perf.MapMoves.map07_subsumedParity
+#audit Perf.MapMoves.count01_bucketTagDisjoint
+#audit Perf.MapMoves.count02_homeGroupFastPath
+#audit Perf.MapMoves.count03_readPathProduct
