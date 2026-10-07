@@ -431,10 +431,7 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
 ///   `x[idx] += res[idx]` in `loop_step(tid, n, WG)` at `idx = i·n + j`, and the later sumsq/scale
 ///   loops read `x` at the identical `idx` with the identical `tid`/`WG` stride. Same lane, same
 ///   element; the separating barriers order the shared reduction, not this read.
-/// * `rmsaddqseg` (`src/simt_nn/norm.rs::rmsnorm_module` with `residual = Some(8)`): the same
-///   in-place residual fold, `store_f(x, i, s)` then `rmsnorm_wg`'s strided `load_f(x, i)` with the
-///   caller's single `WG`; `i` is the same lane's index in both.
-const ALLOW: &[&str] = &["rmsqsb", "rmsnorm_batch_q_res", "rmsaddqseg"];
+const ALLOW: &[&str] = &["rmsqsb", "rmsnorm_batch_q_res"];
 
 #[test]
 fn no_unexpected_cross_invocation_storage_race() {
