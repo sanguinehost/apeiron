@@ -16,6 +16,14 @@
 //! Per (layer, head, query t, causal keys 0..t): `s_i = scale q.k_i`, `m = max s`, `D = {s_i <= m - delta}`,
 //! `V = max |v|_inf` over the causal prefix of the kv head. All attention arithmetic is f64 over the
 //! f32 q/k/v (the f32 values are taken as exact reals).
+//!
+//! B4 arm (after the sections above, which are unchanged): one 16,384-token prompt through the same
+//! forward; queries are the last 4 positions of the prefixes t in {512, 2048, 4096, 8192},
+//! every layer and head. Non-kept keys are grouped (positional blocks, static PCA tree per
+//! (layer, kv head), per-query score-sorted oracle runs, 8..64 keys) and a node is summarised by its
+//! p-term Taylor value about the mean key's score when `B <= 1` and the certified bound
+//! (`apeiron::attn_cut::certified_read`) stays within `eps V`. Reports `read_equiv/t` with nodes
+//! costed at their stored moments, a spread-only reference (node = 1 key), and growth exponents.
 
 #![allow(
     clippy::pedantic,
@@ -34,6 +42,7 @@ use std::error::Error;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
+use apeiron::attn_cut::{certified_read, Part};
 use apeiron::engine::loader::Engine;
 use apeiron::engine::{dequant_row_fixed, KernelMode};
 use apeiron::format::bpe::Bpe;
@@ -180,6 +189,36 @@ fn dot32(a: &[f32], b: &[f32]) -> f32 {
     acc.iter().sum()
 }
 
+#[inline(always)]
+fn gemm_tile(ych: &mut [f32], ld: usize, t: usize, o0: usize, w: &[f32], n_in: usize, x: &[f32]) {
+    let mut tb = 0;
+    while tb < t {
+        let te = (tb + 128).min(t);
+        for (ri, yrow) in ych.chunks_mut(ld).enumerate() {
+            let o = o0 + ri;
+            let wr = &w[o * n_in..(o + 1) * n_in];
+            for tt in tb..te {
+                yrow[tt] = dot32(wr, &x[tt * n_in..(tt + 1) * n_in]);
+            }
+        }
+        tb = te;
+    }
+}
+
+/// `gemm_tile` compiled for AVX2+FMA; the arithmetic is the same (no contraction of mul and add).
+#[target_feature(enable = "avx2,fma")]
+unsafe fn gemm_tile_avx(
+    ych: &mut [f32],
+    ld: usize,
+    t: usize,
+    o0: usize,
+    w: &[f32],
+    n_in: usize,
+    x: &[f32],
+) {
+    gemm_tile(ych, ld, t, o0, w, n_in, x);
+}
+
 /// `y[t][o] = sum_i w[o][i] x[t][i] (+ bias[o])`; `w` is `n_out x n_in` row-major, `x` is `t x n_in`.
 fn gemm(
     w: &[f32],
@@ -190,33 +229,39 @@ fn gemm(
     bias: Option<&[f32]>,
     nth: usize,
 ) -> Vec<f32> {
-    let mut yt = vec![0f32; n_out * t];
+    // row stride `ld` is not a power of two: a stride of 2^k floats makes every row of a tile map to
+    // the same cache sets
+    let ld = t + 17;
+    let mut yt = vec![0f32; n_out * ld];
     let rows = n_out.div_ceil(nth);
+    let avx = std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma");
     std::thread::scope(|s| {
-        for (ci, ych) in yt.chunks_mut(rows * t).enumerate() {
+        for (ci, ych) in yt.chunks_mut(rows * ld).enumerate() {
             s.spawn(move || {
-                let mut tb = 0;
-                while tb < t {
-                    let te = (tb + 128).min(t);
-                    for (ri, yrow) in ych.chunks_mut(t).enumerate() {
-                        let o = ci * rows + ri;
-                        let wr = &w[o * n_in..(o + 1) * n_in];
-                        for tt in tb..te {
-                            yrow[tt] = dot32(wr, &x[tt * n_in..(tt + 1) * n_in]);
-                        }
-                    }
-                    tb = te;
+                if avx {
+                    // SAFETY: avx2 and fma were detected above.
+                    unsafe { gemm_tile_avx(ych, ld, t, rows * ci, w, n_in, x) }
+                } else {
+                    gemm_tile(ych, ld, t, rows * ci, w, n_in, x);
                 }
             });
         }
     });
     let mut y = vec![0f32; n_out * t];
-    for o in 0..n_out {
-        let b = bias.map_or(0.0, |b| b[o]);
-        for tt in 0..t {
-            y[tt * n_out + o] = yt[o * t + tt] + b;
+    let per = t.div_ceil(nth);
+    std::thread::scope(|s| {
+        for (ci, ych) in y.chunks_mut(per * n_out).enumerate() {
+            let yt = &yt;
+            s.spawn(move || {
+                for (ri, yrow) in ych.chunks_mut(n_out).enumerate() {
+                    let tt = ci * per + ri;
+                    for o in 0..n_out {
+                        yrow[o] = yt[o * ld + tt] + bias.map_or(0.0, |b| b[o]);
+                    }
+                }
+            });
         }
-    }
+    });
     y
 }
 
@@ -624,6 +669,8 @@ fn run(path: &str) -> Result<bool, Box<dyn Error>> {
     let bpe = Bpe::from_tokenizer_json(TOKENIZER)?;
     let ps = prompts(&bpe)?;
     let np = ps.len();
+    let (lc, lb, lw) = lemma_selftest(100_000);
+    println!("lemma self-test (moment_remainder on f64): {lc} node-moment cases, {lb} violations, worst realised/bound {lw:.4}");
     println!("model {path}\nlayers {nl} heads {nh} kv {nkv} hd {HD} n_embd {d}; prompts {np} x {T} tokens");
     for (i, ids) in ps.iter().enumerate() {
         let bytes: Vec<u8> = ids.iter().flat_map(|x| x.to_le_bytes()).collect();
@@ -968,7 +1015,1493 @@ fn run(path: &str) -> Result<bool, Box<dyn Error>> {
         println!("COUNTEREXAMPLE (first): {v}");
     }
     println!("bound holds: {pct:.2}%");
-    Ok(tot.holds == tot.checks)
+    drop(x);
+    let b4 = run_b4(&eng, &bpe, &ps[0], &kcap, &vcap)?;
+    Ok(tot.holds == tot.checks && lb == 0 && b4)
+}
+
+// ---- B4: moment nodes carrying the diffuse mass, 16k context ------------------------------
+//
+// Lemma refined (grade `tested`, f64 over f32 data): `Apeiron.Numeric.AttentionCut.moment_remainder`
+// (read-only source `wt-ringreturn/proof/Apeiron/Numeric/AttentionCut.lean` l.312): for a node S
+// with `|s_i - c| <= B <= 1` and `p >= 1`,
+// `|num S - e^c sum_{r<p} (sum_i (s_i-c)^r v_i)/r!| <= e^c (sum_i |v_i|) B^p (p+1)/(p! p)`.
+// `moment_one_stored` / `moment_two_stored` are the identities that let a node store the first and
+// second moments once; here the moments are summed directly, the stored-table cost is counted.
+
+const T16: usize = 8_192;
+const QT: [usize; 4] = [512, 2048, 4096, 8192];
+const NQ: usize = 4;
+const LS: [usize; 4] = [8, 16, 32, 64];
+const NG: usize = 12;
+const GKIND: [&str; 3] = ["pos", "pca", "orc"];
+const PS: [usize; 3] = [1, 2, 3];
+const KEYF: f64 = 128.0;
+const NBIN: usize = 400;
+const NTH4: usize = 24;
+const DV: usize = HD;
+
+/// Lemma constant `(p+1)/(p! p)`.
+fn rp(p: usize) -> f64 {
+    let f = [1.0, 1.0, 2.0, 6.0][p];
+    (p as f64 + 1.0) / (f * p as f64)
+}
+
+/// Floats a node stores for order `p`: denominator moments `sum_{r<p} d^r`, numerator moments
+/// `dv sum_{r<p} d^r`, and the centre key (`d`).
+fn node_cost(p: usize) -> f64 {
+    let (mut mom, mut dp) = (0.0, 1.0);
+    for _ in 0..p {
+        mom += dp;
+        dp *= HD as f64;
+    }
+    (1.0 + DV as f64) * mom + HD as f64
+}
+
+/// `R_p^{-1}(eps)`: the owner's simple threshold on the projected spread.
+fn bmax(eps: f64, p: usize) -> f64 {
+    (eps / rp(p)).powf(1.0 / p as f64)
+}
+
+struct Rng(u64);
+impl Rng {
+    fn next(&mut self) -> f64 {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        (self.0.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 11) as f64 / (1u64 << 53) as f64
+    }
+}
+
+/// The lemma on `f64`: `p`-term node value plus remainder bound dominates the realised node error,
+/// for `count` random nodes of 8..64 keys (three score/value families, including the adversarial
+/// two-point family with the values on the high-score keys). Returns (cases, violations, worst
+/// realised/bound).
+fn lemma_selftest(count: usize) -> (usize, usize, f64) {
+    let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+    let (mut cases, mut bad, mut worst) = (0usize, 0usize, 0f64);
+    for _ in 0..count {
+        let nsz = 8 + (rng.next() * 57.0) as usize;
+        let b0 = 10f64.powf(-3.0 * rng.next());
+        let kind = (rng.next() * 3.0) as usize;
+        let c0 = 4.0 * rng.next() - 2.0;
+        let mut s = vec![0f64; nsz];
+        let mut v = vec![[0f64; 5]; nsz];
+        let f = 0.1 + 0.8 * rng.next();
+        for i in 0..nsz {
+            let u = rng.next();
+            s[i] = match kind {
+                0 => c0 + b0 * (2.0 * u - 1.0),
+                1 => c0 + if u < f { b0 } else { -b0 },
+                _ => c0 + b0 * u * u,
+            };
+            for j in 0..4 {
+                let r = rng.next();
+                v[i][j] = match kind {
+                    0 => 2.0 * r - 1.0,
+                    1 => {
+                        if s[i] > c0 {
+                            1.0 + r
+                        } else {
+                            0.01 * r
+                        }
+                    }
+                    _ => (2.0 * r - 1.0) * u,
+                };
+            }
+            v[i][4] = 1.0;
+        }
+        let mut c = s.iter().sum::<f64>() / nsz as f64;
+        let mut bb = s.iter().map(|x| (x - c).abs()).fold(0.0, f64::max);
+        if bb > 0.999_999 {
+            let k = 0.999_999 / bb;
+            for x in &mut s {
+                *x = c + (*x - c) * k;
+            }
+            c = s.iter().sum::<f64>() / nsz as f64;
+            bb = s.iter().map(|x| (x - c).abs()).fold(0.0, f64::max);
+        }
+        let m = c + 6.0 * rng.next();
+        let ec = (c - m).exp();
+        for p in PS {
+            for j in 0..5 {
+                let num: f64 = (0..nsz).map(|i| (s[i] - m).exp() * v[i][j]).sum();
+                let mut tay = 0f64;
+                let mut fact = 1.0;
+                for r in 0..p {
+                    if r > 0 {
+                        fact *= r as f64;
+                    }
+                    let mom: f64 = (0..nsz).map(|i| (s[i] - c).powi(r as i32) * v[i][j]).sum();
+                    tay += mom / fact;
+                }
+                let real = (num - ec * tay).abs();
+                let bound =
+                    ec * (0..nsz).map(|i| v[i][j].abs()).sum::<f64>() * bb.powi(p as i32) * rp(p);
+                // f64 summation rounding of `num`: a bound below it is not resolvable
+                let round = 1e-14
+                    * (0..nsz)
+                        .map(|i| (s[i] - m).exp() * v[i][j].abs())
+                        .sum::<f64>();
+                let (real, bound) = (real, bound + round);
+                cases += 1;
+                if bound > 0.0 {
+                    worst = worst.max(real / bound);
+                }
+                if real > bound {
+                    bad += 1;
+                }
+            }
+        }
+    }
+    (cases, bad, worst)
+}
+
+/// Disjoint key groups: node `k` is `idx[off[k]..off[k+1]]`.
+#[derive(Clone, Default)]
+struct Grp {
+    off: Vec<usize>,
+    idx: Vec<u32>,
+}
+
+impl Grp {
+    fn nodes(&self) -> usize {
+        self.off.len().saturating_sub(1)
+    }
+    fn from_ranges(arr: &[u32], ranges: &[(usize, usize)]) -> Grp {
+        let mut g = Grp {
+            off: vec![0],
+            idx: Vec::new(),
+        };
+        for &(lo, hi) in ranges {
+            g.idx.extend_from_slice(&arr[lo..hi]);
+            g.off.push(g.idx.len());
+        }
+        g
+    }
+}
+
+/// Positional blocks of `L` over `[0, region)`; a short tail is left out (read exactly).
+fn pos_groups(region: usize) -> Vec<Grp> {
+    let arr: Vec<u32> = (0..region as u32).collect();
+    LS.iter()
+        .map(|&l| {
+            let r: Vec<(usize, usize)> = (0..region / l).map(|k| (k * l, (k + 1) * l)).collect();
+            Grp::from_ranges(&arr, &r)
+        })
+        .collect()
+}
+
+/// Top principal direction of the keys `arr` by 6 power iterations on the centred covariance.
+fn top_pc(arr: &[u32], keys: &[f64]) -> [f64; HD] {
+    let n = arr.len() as f64;
+    let mut mu = [0f64; HD];
+    for &i in arr {
+        let r = &keys[i as usize * HD..(i as usize + 1) * HD];
+        for d in 0..HD {
+            mu[d] += r[d] / n;
+        }
+    }
+    let mut v = [0f64; HD];
+    for d in 0..HD {
+        v[d] = ((d + 1) as f64).sin();
+    }
+    for _ in 0..6 {
+        let mut w = [0f64; HD];
+        for &i in arr {
+            let r = &keys[i as usize * HD..(i as usize + 1) * HD];
+            let mut a = 0f64;
+            for d in 0..HD {
+                a += (r[d] - mu[d]) * v[d];
+            }
+            for d in 0..HD {
+                w[d] += a * (r[d] - mu[d]);
+            }
+        }
+        let nr = w.iter().map(|x| x * x).sum::<f64>().sqrt();
+        if nr == 0.0 {
+            return [0.0; HD];
+        }
+        for d in 0..HD {
+            v[d] = w[d] / nr;
+        }
+    }
+    v
+}
+
+/// Static PCA tree over the keys `[0, region)` of one (layer, kv head): a cell of `n >= 2L` keys
+/// splits at the median of its projection on the top principal direction, so leaves hold `L..2L-1`
+/// keys. One recursion yields the four leaf sets (same splits, different stop size).
+///
+/// Complexity: time `O(region * HD * 14 * log2(region/8))` multiply-adds, space `O(region)`.
+fn pca_groups(keys: &[f64], region: usize) -> Vec<Grp> {
+    let mut arr: Vec<u32> = (0..region as u32).collect();
+    let mut leaves: Vec<Vec<(usize, usize)>> = vec![Vec::new(); 4];
+    let mut stack = vec![(0usize, region, 0b1111u8)];
+    while let Some((lo, hi, mask)) = stack.pop() {
+        let n = hi - lo;
+        let mut mk = mask;
+        for li in 0..4 {
+            if (mk >> li) & 1 == 1 && n < 2 * LS[li] {
+                leaves[li].push((lo, hi));
+                mk &= !(1 << li);
+            }
+        }
+        if mk == 0 {
+            continue;
+        }
+        let dir = top_pc(&arr[lo..hi], keys);
+        let mut pr: Vec<(f64, u32)> = arr[lo..hi]
+            .iter()
+            .map(|&i| {
+                let r = &keys[i as usize * HD..(i as usize + 1) * HD];
+                (r.iter().zip(&dir).map(|(a, b)| a * b).sum::<f64>(), i)
+            })
+            .collect();
+        let mid = n / 2;
+        pr.select_nth_unstable_by(mid, |a, b| a.0.total_cmp(&b.0));
+        for (t, (_, i)) in pr.iter().enumerate() {
+            arr[lo + t] = *i;
+        }
+        stack.push((lo, lo + mid, mk));
+        stack.push((lo + mid, hi, mk));
+    }
+    leaves
+        .iter_mut()
+        .map(|r| {
+            r.sort_unstable();
+            Grp::from_ranges(&arr, r)
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+struct Cell {
+    n: f64,
+    rsum: f64,
+    rmin: f64,
+    rmax: f64,
+    abs: f64,
+    nk: f64,
+    used: f64,
+}
+impl Default for Cell {
+    fn default() -> Self {
+        Cell {
+            n: 0.0,
+            rsum: 0.0,
+            rmin: f64::INFINITY,
+            rmax: f64::NEG_INFINITY,
+            abs: 0.0,
+            nk: 0.0,
+            used: 0.0,
+        }
+    }
+}
+impl Cell {
+    fn add(&mut self, r: f64, abs: f64, nk: f64, used: f64) {
+        self.n += 1.0;
+        self.rsum += r;
+        self.rmin = self.rmin.min(r);
+        self.rmax = self.rmax.max(r);
+        self.abs += abs;
+        self.nk += nk;
+        self.used += used;
+    }
+    fn merge(&mut self, o: &Cell) {
+        self.n += o.n;
+        self.rsum += o.rsum;
+        self.rmin = self.rmin.min(o.rmin);
+        self.rmax = self.rmax.max(o.rmax);
+        self.abs += o.abs;
+        self.nk += o.nk;
+        self.used += o.used;
+    }
+    fn fmt(&self) -> String {
+        if self.n == 0.0 {
+            return "-".into();
+        }
+        format!(
+            "{:.3} [{:.3},{:.3}]",
+            self.rsum / self.n,
+            self.rmin,
+            self.rmax
+        )
+    }
+}
+
+fn ci(ti: usize, g: usize, mode: usize, ei: usize, pi: usize) -> usize {
+    (((ti * NG + g) * 2 + mode) * 3 + ei) * 3 + pi
+}
+
+#[derive(Clone)]
+struct Acc4 {
+    cell: Vec<Cell>,
+    cut: Vec<Cell>,
+    hist: Vec<f64>,
+    bcnt: Vec<f64>,
+    checks: f64,
+    holds: f64,
+    worst: f64,
+    errs: f64,
+    first_violation: Option<String>,
+}
+
+impl Acc4 {
+    fn new() -> Self {
+        Acc4 {
+            cell: vec![Cell::default(); 5 * NG * 2 * 3 * 3],
+            cut: vec![Cell::default(); 5 * 3 * 2],
+            hist: vec![0.0; 5 * NG * NBIN],
+            bcnt: vec![0.0; 5 * NG * 11],
+            checks: 0.0,
+            holds: 0.0,
+            worst: 0.0,
+            errs: 0.0,
+            first_violation: None,
+        }
+    }
+    fn check(&mut self, real: f64, bound: f64, what: impl FnOnce() -> String) {
+        self.checks += 1.0;
+        if real <= bound {
+            self.holds += 1.0;
+        } else if self.first_violation.is_none() {
+            self.first_violation = Some(what());
+        }
+        if bound > 0.0 {
+            self.worst = self.worst.max(real / bound);
+        }
+    }
+    fn merge(&mut self, o: &Acc4) {
+        for (a, b) in self.cell.iter_mut().zip(&o.cell) {
+            a.merge(b);
+        }
+        for (a, b) in self.cut.iter_mut().zip(&o.cut) {
+            a.merge(b);
+        }
+        for (a, b) in self.hist.iter_mut().zip(&o.hist) {
+            *a += b;
+        }
+        for (a, b) in self.bcnt.iter_mut().zip(&o.bcnt) {
+            *a += b;
+        }
+        self.checks += o.checks;
+        self.holds += o.holds;
+        self.worst = self.worst.max(o.worst);
+        self.errs += o.errs;
+        if self.first_violation.is_none() {
+            self.first_violation.clone_from(&o.first_violation);
+        }
+    }
+}
+
+/// Per-node quantities of one query: centre `c`, spread `B`, moments in frame `m`.
+struct NodeSt {
+    size: Vec<usize>,
+    b: Vec<f64>,
+    ec: Vec<f64>,
+    z1: Vec<f64>,
+    z2: Vec<f64>,
+    amax: Vec<f64>,
+    a0: Vec<f64>,
+    a1: Vec<f64>,
+    a2: Vec<f64>,
+}
+
+/// Complexity: time `O(|keys in grp| * DV)` multiply-adds (four DV-wide accumulations per key),
+/// space `O(nodes * DV)` words.
+fn node_stats(grp: &Grp, s: &[f64], vv: &[f64], m: f64) -> NodeSt {
+    let nn = grp.nodes();
+    let mut st = NodeSt {
+        size: Vec::with_capacity(nn),
+        b: Vec::with_capacity(nn),
+        ec: Vec::with_capacity(nn),
+        z1: Vec::with_capacity(nn),
+        z2: Vec::with_capacity(nn),
+        amax: Vec::with_capacity(nn),
+        a0: vec![0.0; nn * DV],
+        a1: vec![0.0; nn * DV],
+        a2: vec![0.0; nn * DV],
+    };
+    for k in 0..nn {
+        let mem = &grp.idx[grp.off[k]..grp.off[k + 1]];
+        let sz = mem.len();
+        let c = mem.iter().map(|&i| s[i as usize]).sum::<f64>() / sz as f64;
+        let (mut bb, mut z1, mut z2) = (0f64, 0f64, 0f64);
+        let mut ab = [0f64; DV];
+        let (a0, a1, a2) = (
+            &mut st.a0[k * DV..(k + 1) * DV],
+            &mut st.a1[k * DV..(k + 1) * DV],
+            &mut st.a2[k * DV..(k + 1) * DV],
+        );
+        for &i in mem {
+            let i = i as usize;
+            let ds = s[i] - c;
+            let d2 = ds * ds;
+            bb = bb.max(ds.abs());
+            z1 += ds;
+            z2 += d2;
+            let vr = &vv[i * DV..(i + 1) * DV];
+            for j in 0..DV {
+                a0[j] += vr[j];
+                a1[j] += ds * vr[j];
+                a2[j] += d2 * vr[j];
+                ab[j] += vr[j].abs();
+            }
+        }
+        st.size.push(sz);
+        st.b.push(bb);
+        st.ec.push((c - m).exp());
+        st.z1.push(z1);
+        st.z2.push(z2);
+        st.amax.push(ab.iter().copied().fold(0.0, f64::max));
+    }
+    st
+}
+
+/// Order-`p` node errors and stand-in denominators, nodes with `B <= 1` sorted by `eps_Z`.
+struct PNode {
+    ez: Vec<f64>,
+    en: Vec<f64>,
+    zt: Vec<f64>,
+    ord: Vec<u32>,
+}
+
+fn pnode(st: &NodeSt, p: usize) -> PNode {
+    let nn = st.b.len();
+    let (mut ez, mut en, mut zt) = (vec![0.0; nn], vec![0.0; nn], vec![0.0; nn]);
+    let mut ord: Vec<u32> = Vec::new();
+    for k in 0..nn {
+        let bp = st.b[k].powi(p as i32);
+        ez[k] = st.ec[k] * st.size[k] as f64 * rp(p) * bp;
+        en[k] = st.ec[k] * st.amax[k] * rp(p) * bp;
+        let mut z = st.size[k] as f64;
+        if p >= 2 {
+            z += st.z1[k];
+        }
+        if p >= 3 {
+            z += st.z2[k] / 2.0;
+        }
+        zt[k] = st.ec[k] * z;
+        if st.b[k] <= 1.0 && st.size[k] >= 8 {
+            ord.push(k as u32);
+        }
+    }
+    ord.sort_unstable_by(|&a, &b| ez[a as usize].total_cmp(&ez[b as usize]));
+    PNode { ez, en, zt, ord }
+}
+
+struct Tot {
+    z: f64,
+    k: usize,
+    dcnt: usize,
+    nv: [f64; DV],
+}
+
+struct Cn {
+    ze: Vec<f64>,
+    ke: Vec<u32>,
+    kd: Vec<u32>,
+}
+
+/// Greedy node selection, smallest `eps_Z` first: a node is summarised iff its nondropped keys
+/// outnumber its cost in key-equivalents and the total certified bound stays `<= tol`.
+///
+/// Complexity: time `O(|eligible nodes|)` per call, space `O(1)` beyond the returned list.
+fn greedy(
+    pn: &PNode,
+    cn: &Cn,
+    tot: &Tot,
+    delta: f64,
+    v: f64,
+    tol: f64,
+    cost_keys: f64,
+) -> Vec<u32> {
+    let ed = (-delta).exp();
+    let (mut zp, mut dc, mut sen, mut sez) = (tot.z, tot.dcnt as f64, 0f64, 0f64);
+    let mut sel = Vec::new();
+    for &k in &pn.ord {
+        let k = k as usize;
+        if f64::from(cn.ke[k]) <= cost_keys {
+            continue;
+        }
+        let zp2 = zp - cn.ze[k] + pn.zt[k];
+        if zp2 <= 0.0 {
+            continue;
+        }
+        let dc2 = dc - f64::from(cn.kd[k]);
+        let (sen2, sez2) = (sen + pn.en[k], sez + pn.ez[k]);
+        let b = (sen2 + v * sez2 + 2.0 * v * dc2 * ed) / zp2;
+        if b <= tol {
+            zp = zp2;
+            dc = dc2;
+            sen = sen2;
+            sez = sez2;
+            sel.push(k as u32);
+        }
+    }
+    sel
+}
+
+#[derive(Clone, Copy)]
+struct Best {
+    read: f64,
+    nsel: usize,
+    inn: usize,
+    kexf: usize,
+}
+
+struct LayerCtx<'a> {
+    kk: &'a [f64],
+    vv: &'a [f64],
+    vpm: &'a [f64],
+    posg: &'a [Grp],
+    pca: &'a [Grp],
+}
+
+/// One query (position `pos`, causal keys `0..=pos`) against every grouping, delta, tolerance,
+/// order and cost mode.
+///
+/// Per (grouping, delta, eps, p, mode) the greedy selection of summarised nodes is built, its parts
+/// are merged through `apeiron::attn_cut::certified_read`, and the realised f64 error over all keys
+/// is checked against the bound. Dropped keys cost nothing to identify (as in the earlier
+/// sections); a summarised node costs `node_cost(p)/128` key-equivalents (mode 0) or one
+/// key-equivalent (mode 1, spread-only reference).
+///
+/// Complexity: time `O(n * HD)` for scores and the full read, `O(n * HD)` per grouping for the node
+/// moments (12 groupings), `O(n)` per (grouping, delta) for the counts, and `O(|eligible nodes|)`
+/// per greedy call (at most 12 * 9 * 3 * 3 * 2 calls); space `O(n + nodes * HD)` words.
+#[allow(clippy::too_many_lines)]
+fn analyze_query(cx: &LayerCtx, qv: &[f64], pos: usize, ti: usize, acc: &mut Acc4) {
+    let n = pos + 1;
+    let scale = 1.0 / (HD as f64).sqrt();
+    let (kk, vv) = (cx.kk, cx.vv);
+    let mut s = vec![0f64; n];
+    let mut m = f64::NEG_INFINITY;
+    for i in 0..n {
+        let kr = &kk[i * HD..(i + 1) * HD];
+        let mut a = 0f64;
+        for d in 0..HD {
+            a += qv[d] * kr[d];
+        }
+        s[i] = scale * a;
+        m = m.max(s[i]);
+    }
+    let v = cx.vpm[pos];
+    if v <= 0.0 {
+        return;
+    }
+    let (mut gp, mut w) = (vec![0f64; n], vec![0f64; n]);
+    let mut fnum = [0f64; DV];
+    let mut zf = 0f64;
+    for i in 0..n {
+        gp[i] = m - s[i];
+        w[i] = (-gp[i]).exp();
+        zf += w[i];
+        for j in 0..DV {
+            fnum[j] += w[i] * vv[i * DV + j];
+        }
+    }
+    let mut full = [0f64; DV];
+    for j in 0..DV {
+        full[j] = fnum[j] / zf;
+    }
+    let mut order: Vec<u32> = (0..n as u32).collect();
+    order.sort_unstable_by(|&a, &b| gp[a as usize].total_cmp(&gp[b as usize]));
+    // delta candidates: the grid, plus per eps the gap rule of the earlier section
+    let mut dl: Vec<f64> = DELTAS.to_vec();
+    let mut cand: Vec<Vec<usize>> = vec![(0..DELTAS.len()).collect(); 3];
+    for (ei, &eps) in EPS.iter().enumerate() {
+        let tol = eps * v;
+        for c in 1..n {
+            let (gc, gq) = (gp[order[c] as usize], gp[order[c - 1] as usize]);
+            if gc > gq && 2.0 * v * (n - c) as f64 * (-gc).exp() <= tol {
+                dl.push(gc);
+                cand[ei].push(dl.len() - 1);
+                break;
+            }
+        }
+    }
+    let nd = dl.len();
+    let ed: Vec<f64> = dl.iter().map(|d| (-d).exp()).collect();
+    let tots: Vec<Tot> = dl
+        .iter()
+        .map(|&dd| {
+            let mut t = Tot {
+                z: 0.0,
+                k: 0,
+                dcnt: 0,
+                nv: [0.0; DV],
+            };
+            for i in 0..n {
+                if gp[i] < dd {
+                    t.z += w[i];
+                    t.k += 1;
+                    for j in 0..DV {
+                        t.nv[j] += w[i] * vv[i * DV + j];
+                    }
+                } else {
+                    t.dcnt += 1;
+                }
+            }
+            t
+        })
+        .collect();
+    // cut only (no nodes): realised vs bound for every delta, then the per-eps best
+    let cutb: Vec<f64> = (0..nd)
+        .map(|di| {
+            let t = &tots[di];
+            if t.dcnt == 0 {
+                0.0
+            } else {
+                2.0 * v * t.dcnt as f64 * ed[di] / t.z
+            }
+        })
+        .collect();
+    for di in 0..nd {
+        let t = &tots[di];
+        if t.dcnt > 0 {
+            let mut real = 0f64;
+            for j in 0..DV {
+                real = real.max((t.nv[j] / t.z - full[j]).abs());
+            }
+            let (dd, bound) = (dl[di], cutb[di]);
+            acc.check(real, bound, || {
+                format!(
+                    "B4 cut-only delta={dd} n={n} real={real:e} bound={bound:e} |D|={}",
+                    t.dcnt
+                )
+            });
+        }
+    }
+    let mut best0 = [n as f64; 3];
+    let mut best0g = [n as f64; 3];
+    for (ei, &eps) in EPS.iter().enumerate() {
+        for &di in &cand[ei] {
+            if cutb[di] <= eps * v {
+                best0[ei] = best0[ei].min(tots[di].k as f64);
+                if di < DELTAS.len() {
+                    best0g[ei] = best0g[ei].min(tots[di].k as f64);
+                }
+            }
+        }
+        acc.cut[(ti * 3 + ei) * 2].add(best0[ei] / n as f64, best0[ei], 0.0, 0.0);
+        acc.cut[(ti * 3 + ei) * 2 + 1].add(best0g[ei] / n as f64, best0g[ei], 0.0, 0.0);
+    }
+    let kexf0: Vec<usize> = best0.iter().map(|&x| x as usize).collect();
+    let thr: Vec<f64> = (0..9).map(|x| bmax(EPS[x % 3], PS[x / 3])).collect();
+    for g in 0..NG {
+        let (kind, li) = (g / 4, g % 4);
+        let owned;
+        let grp: &Grp = match kind {
+            0 => &cx.posg[li],
+            1 => &cx.pca[li],
+            _ => {
+                let nb = n / LS[li];
+                owned = Grp {
+                    off: (0..=nb).map(|k| k * LS[li]).collect(),
+                    idx: order[..nb * LS[li]].to_vec(),
+                };
+                &owned
+            }
+        };
+        let nn = grp.nodes();
+        let st = node_stats(grp, &s, vv, m);
+        for k in 0..nn {
+            let b = st.b[k];
+            let bin = if b <= 0.0 {
+                0
+            } else {
+                (((b.log10() + 4.0) / 0.02).floor().max(0.0) as usize).min(NBIN - 1)
+            };
+            acc.hist[(ti * NG + g) * NBIN + bin] += 1.0;
+            let r = (ti * NG + g) * 11;
+            acc.bcnt[r] += 1.0;
+            if b <= 1.0 {
+                acc.bcnt[r + 1] += 1.0;
+            }
+            for x in 0..9 {
+                if b <= thr[x] {
+                    acc.bcnt[r + 2 + x] += 1.0;
+                }
+            }
+        }
+        let pns: Vec<PNode> = PS.iter().map(|&p| pnode(&st, p)).collect();
+        let mut best = vec![
+            Best {
+                read: 0.0,
+                nsel: 0,
+                inn: 0,
+                kexf: 0
+            };
+            2 * 3 * 3
+        ];
+        for mode in 0..2 {
+            for ei in 0..3 {
+                for pi in 0..3 {
+                    best[(mode * 3 + ei) * 3 + pi] = Best {
+                        read: best0[ei],
+                        nsel: 0,
+                        inn: 0,
+                        kexf: kexf0[ei],
+                    };
+                }
+            }
+        }
+        let mut ne = vec![0f64; nn * DV];
+        let mut done = vec![false; nn];
+        for di in 0..nd {
+            let users: Vec<usize> = (0..3).filter(|&ei| cand[ei].contains(&di)).collect();
+            if users.is_empty() {
+                continue;
+            }
+            let delta = dl[di];
+            let tot = &tots[di];
+            let mut cn = Cn {
+                ze: vec![0.0; nn],
+                ke: vec![0; nn],
+                kd: vec![0; nn],
+            };
+            for k in 0..nn {
+                for &i in &grp.idx[grp.off[k]..grp.off[k + 1]] {
+                    let i = i as usize;
+                    if gp[i] < delta {
+                        cn.ze[k] += w[i];
+                        cn.ke[k] += 1;
+                    } else {
+                        cn.kd[k] += 1;
+                    }
+                }
+            }
+            done.fill(false);
+            for &ei in &users {
+                let tol = EPS[ei] * v;
+                for pi in 0..3 {
+                    let p = PS[pi];
+                    let pn = &pns[pi];
+                    for mode in 0..2 {
+                        let cost_keys = if mode == 0 { node_cost(p) / KEYF } else { 1.0 };
+                        let sel = greedy(pn, &cn, tot, delta, v, tol, cost_keys);
+                        if sel.is_empty() {
+                            continue;
+                        }
+                        let (mut nsum, mut ne_sum) = ([0f64; DV], [0f64; DV]);
+                        let (mut zts, mut sen, mut sez, mut ze_sum) = (0f64, 0f64, 0f64, 0f64);
+                        let (mut ke_sum, mut kd_sum, mut inn) = (0usize, 0usize, 0usize);
+                        for &k in &sel {
+                            let k = k as usize;
+                            if !done[k] {
+                                let row = &mut ne[k * DV..(k + 1) * DV];
+                                row.fill(0.0);
+                                for &i in &grp.idx[grp.off[k]..grp.off[k + 1]] {
+                                    let i = i as usize;
+                                    if gp[i] < delta {
+                                        for j in 0..DV {
+                                            row[j] += w[i] * vv[i * DV + j];
+                                        }
+                                    }
+                                }
+                                done[k] = true;
+                            }
+                            for j in 0..DV {
+                                ne_sum[j] += ne[k * DV + j];
+                                let mut t = st.a0[k * DV + j];
+                                if p >= 2 {
+                                    t += st.a1[k * DV + j];
+                                }
+                                if p >= 3 {
+                                    t += st.a2[k * DV + j] / 2.0;
+                                }
+                                nsum[j] += st.ec[k] * t;
+                            }
+                            zts += pn.zt[k];
+                            sen += pn.en[k];
+                            sez += pn.ez[k];
+                            ze_sum += cn.ze[k];
+                            ke_sum += cn.ke[k] as usize;
+                            kd_sum += cn.kd[k] as usize;
+                            inn += st.size[k];
+                        }
+                        let exact = Part {
+                            n: (0..DV).map(|j| tot.nv[j] - ne_sum[j]).collect(),
+                            z: tot.z - ze_sum,
+                            en: 0.0,
+                            ez: 0.0,
+                            m,
+                        };
+                        let nodep = Part {
+                            n: nsum.to_vec(),
+                            z: zts,
+                            en: sen,
+                            ez: sez,
+                            m,
+                        };
+                        let dropp = Part::dropped(DV, tot.dcnt - kd_sum, delta, v, m);
+                        let Ok((out, bound)) = certified_read(&[exact, nodep, dropp], v) else {
+                            acc.errs += 1.0;
+                            continue;
+                        };
+                        let mut real = 0f64;
+                        for j in 0..DV {
+                            real = real.max((out[j] - full[j]).abs());
+                        }
+                        acc.check(real, bound, || {
+                            format!(
+                                "B4 {}{} p={p} mode={mode} eps={:e} delta={delta} t={} n={n} nsel={} real={real:e} bound={bound:e}",
+                                GKIND[kind], LS[li], EPS[ei], QT[ti], sel.len()
+                            )
+                        });
+                        if bound <= tol {
+                            let kexf = tot.k - ke_sum;
+                            let read = kexf as f64 + sel.len() as f64 * cost_keys;
+                            let b = &mut best[(mode * 3 + ei) * 3 + pi];
+                            if read < b.read {
+                                *b = Best {
+                                    read,
+                                    nsel: sel.len(),
+                                    inn,
+                                    kexf,
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for mode in 0..2 {
+            for ei in 0..3 {
+                for pi in 0..3 {
+                    let b = best[(mode * 3 + ei) * 3 + pi];
+                    let nonkept = (n - b.kexf) as f64;
+                    let nk = if nonkept > 0.0 {
+                        b.inn as f64 / nonkept
+                    } else {
+                        0.0
+                    };
+                    acc.cell[ci(ti, g, mode, ei, pi)].add(
+                        b.read / n as f64,
+                        b.read,
+                        nk,
+                        f64::from(u8::from(b.nsel > 0)),
+                    );
+                }
+            }
+        }
+    }
+}
+
+const ACH: usize = 64;
+const AKB: usize = 256;
+
+/// One job of `attend_all`: queries `ch*64..ch*64+64` of head `h`.
+#[inline(always)]
+fn attend_job(
+    q: &[f32],
+    k: &[f32],
+    v: &[f32],
+    (nh, nkv): (usize, usize),
+    (ch, h): (usize, usize),
+    scr: &mut [f32],
+) -> Vec<f32> {
+    let kvh = h / (nh / nkv);
+    let q0 = ch * ACH;
+    let nk = q0 + ACH;
+    let ld = nk + 17;
+    let krow = |i: usize| &k[(i * nkv + kvh) * HD..(i * nkv + kvh) * HD + HD];
+    let vrow = |i: usize| &v[(i * nkv + kvh) * HD..(i * nkv + kvh) * HD + HD];
+    for kb in (0..nk).step_by(AKB) {
+        let kend = (kb + AKB).min(nk);
+        for qi in 0..ACH {
+            let lim = kend.min(q0 + qi + 1);
+            if kb >= lim {
+                continue;
+            }
+            let pos = q0 + qi;
+            let qh = &q[(pos * nh + h) * HD..(pos * nh + h) * HD + HD];
+            for i in kb..lim {
+                scr[qi * ld + i] = dot32(qh, krow(i)) * 0.125;
+            }
+        }
+    }
+    let mut mx = [f32::NEG_INFINITY; ACH];
+    for qi in 0..ACH {
+        for i in 0..=q0 + qi {
+            mx[qi] = mx[qi].max(scr[qi * ld + i]);
+        }
+    }
+    let mut accv = vec![0f32; ACH * HD];
+    let mut z = [0f64; ACH];
+    for kb in (0..nk).step_by(AKB) {
+        let kend = (kb + AKB).min(nk);
+        for qi in 0..ACH {
+            let lim = kend.min(q0 + qi + 1);
+            let ac = &mut accv[qi * HD..(qi + 1) * HD];
+            for i in kb..lim {
+                let gap = scr[qi * ld + i] - mx[qi];
+                if gap < -30.0 {
+                    continue;
+                }
+                let wg = gap.exp();
+                z[qi] += f64::from(wg);
+                let vr = vrow(i);
+                for d in 0..HD {
+                    ac[d] += wg * vr[d];
+                }
+            }
+        }
+    }
+    let mut out = vec![0f32; ACH * HD];
+    for qi in 0..ACH {
+        for d in 0..HD {
+            out[qi * HD + d] = (f64::from(accv[qi * HD + d]) / z[qi]) as f32;
+        }
+    }
+    out
+}
+
+/// `attend_job` compiled for AVX2+FMA (same arithmetic: no mul/add contraction).
+#[target_feature(enable = "avx2,fma")]
+unsafe fn attend_job_avx(
+    q: &[f32],
+    k: &[f32],
+    v: &[f32],
+    dims: (usize, usize),
+    job: (usize, usize),
+    scr: &mut [f32],
+) -> Vec<f32> {
+    attend_job(q, k, v, dims, job, scr)
+}
+
+/// Causal attention for all `t` positions of one layer (f32 scores and weights, f64 normaliser),
+/// the forward pass of the 16k arm. A job is 64 consecutive queries of one head; keys are visited
+/// in blocks of 256 so a K or V block is read once per 64 queries instead of once per query. Keys
+/// whose score is more than 30 below the row maximum (weight < 1e-13) are skipped.
+///
+/// Complexity: time `O(nh * t^2/2 * HD)` multiply-adds for scores and again for values, space
+/// `O(t * nh * HD)` words for the output plus `64 * t` words of scores per thread.
+fn attend_all(
+    q: &[f32],
+    k: &[f32],
+    v: &[f32],
+    t: usize,
+    nh: usize,
+    nkv: usize,
+    nth: usize,
+) -> Vec<f32> {
+    let nch = t / ACH;
+    let next = AtomicUsize::new(0);
+    let avx = std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma");
+    let results: Mutex<Vec<(usize, usize, Vec<f32>)>> = Mutex::new(Vec::new());
+    std::thread::scope(|sc| {
+        for _ in 0..nth {
+            sc.spawn(|| {
+                let mut scr = vec![0f32; ACH * (t + 17)];
+                loop {
+                    let job = next.fetch_add(1, Ordering::Relaxed);
+                    if job >= nch * nh {
+                        break;
+                    }
+                    let (ch, h) = (nch - 1 - job / nh, job % nh);
+                    let out = if avx {
+                        // SAFETY: avx2 and fma were detected above.
+                        unsafe { attend_job_avx(q, k, v, (nh, nkv), (ch, h), &mut scr) }
+                    } else {
+                        attend_job(q, k, v, (nh, nkv), (ch, h), &mut scr)
+                    };
+                    results.lock().unwrap().push((h, ch, out));
+                }
+            });
+        }
+    });
+    let mut att = vec![0f32; t * nh * HD];
+    for (h, ch, out) in results.into_inner().unwrap() {
+        for qi in 0..ACH {
+            let dst = ((ch * ACH + qi) * nh + h) * HD;
+            att[dst..dst + HD].copy_from_slice(&out[qi * HD..(qi + 1) * HD]);
+        }
+    }
+    att
+}
+
+/// B4 analysis of one layer: all heads, the last `NQ` positions of each prefix in `QT`.
+fn analyze_layer(
+    q: &[f32],
+    k: &[f32],
+    v: &[f32],
+    nh: usize,
+    nkv: usize,
+    posg: &[Vec<Grp>],
+    total: &Mutex<Acc4>,
+) {
+    let mut kk = vec![vec![0f64; T16 * HD]; nkv];
+    let mut vv = vec![vec![0f64; T16 * HD]; nkv];
+    let mut vpm = vec![vec![0f64; T16]; nkv];
+    for kvh in 0..nkv {
+        let mut run = 0f64;
+        for p in 0..T16 {
+            let src = (p * nkv + kvh) * HD;
+            for d in 0..HD {
+                kk[kvh][p * HD + d] = f64::from(k[src + d]);
+                let x = f64::from(v[src + d]);
+                vv[kvh][p * HD + d] = x;
+                run = run.max(x.abs());
+            }
+            vpm[kvh][p] = run;
+        }
+    }
+    let tree_jobs: Vec<(usize, usize)> = (0..nkv)
+        .flat_map(|a| (0..QT.len()).map(move |b| (a, b)))
+        .collect();
+    let trees: Mutex<Vec<((usize, usize), Vec<Grp>)>> = Mutex::new(Vec::new());
+    let next = AtomicUsize::new(0);
+    std::thread::scope(|sc| {
+        for _ in 0..NTH4.min(tree_jobs.len()) {
+            sc.spawn(|| loop {
+                let j = next.fetch_add(1, Ordering::Relaxed);
+                if j >= tree_jobs.len() {
+                    break;
+                }
+                let (kvh, ti) = tree_jobs[j];
+                let g = pca_groups(&kk[kvh], QT[ti] - NQ);
+                trees.lock().unwrap().push(((kvh, ti), g));
+            });
+        }
+    });
+    let mut pca: Vec<Vec<Grp>> = vec![Vec::new(); nkv * QT.len()];
+    for ((kvh, ti), g) in trees.into_inner().unwrap() {
+        pca[kvh * QT.len() + ti] = g;
+    }
+    let mut jobs: Vec<(usize, usize, usize)> = Vec::new();
+    for ti in (0..QT.len()).rev() {
+        for h in 0..nh {
+            for qi in 0..NQ {
+                jobs.push((h, ti, qi));
+            }
+        }
+    }
+    let next = AtomicUsize::new(0);
+    std::thread::scope(|sc| {
+        for _ in 0..NTH4 {
+            sc.spawn(|| {
+                let mut local = Acc4::new();
+                loop {
+                    let j = next.fetch_add(1, Ordering::Relaxed);
+                    if j >= jobs.len() {
+                        break;
+                    }
+                    let (h, ti, qi) = jobs[j];
+                    let kvh = h / (nh / nkv);
+                    let pos = QT[ti] - NQ + qi;
+                    let cx = LayerCtx {
+                        kk: &kk[kvh],
+                        vv: &vv[kvh],
+                        vpm: &vpm[kvh],
+                        posg: &posg[ti],
+                        pca: &pca[kvh * QT.len() + ti],
+                    };
+                    let mut qv = [0f64; HD];
+                    for d in 0..HD {
+                        qv[d] = f64::from(q[(pos * nh + h) * HD + d]);
+                    }
+                    analyze_query(&cx, &qv, pos, ti, &mut local);
+                }
+                total.lock().unwrap().merge(&local);
+            });
+        }
+    });
+}
+
+fn long_ids(bpe: &Bpe) -> Result<Vec<u32>, Box<dyn Error>> {
+    let mut ids: Vec<u32> = Vec::new();
+    for (path, off, len) in [
+        (PROSE, 0usize, 80_000usize),
+        (PROSE, 2_000_000, 80_000),
+        (PROSE, 5_000_000, 80_000),
+    ] {
+        if ids.len() >= T16 {
+            break;
+        }
+        let raw = std::fs::read(path)?;
+        let mut a = off;
+        if a > 0 {
+            while a < raw.len() && raw[a - 1] != b'\n' {
+                a += 1;
+            }
+        }
+        let b = (a + len).min(raw.len());
+        let text = String::from_utf8_lossy(&raw[a..b]).into_owned();
+        ids.extend(bpe.encode(&text)?);
+    }
+    if ids.len() < T16 {
+        return Err(format!("long context: {} tokens < {T16}", ids.len()).into());
+    }
+    ids.truncate(T16);
+    Ok(ids)
+}
+
+fn median_b(hist: &[f64]) -> f64 {
+    let tot: f64 = hist.iter().sum();
+    if tot == 0.0 {
+        return f64::NAN;
+    }
+    let mut c = 0f64;
+    for (i, h) in hist.iter().enumerate() {
+        c += h;
+        if c >= tot / 2.0 {
+            return if i == 0 {
+                0.0
+            } else {
+                10f64.powf(i as f64 * 0.02 - 4.0 + 0.01)
+            };
+        }
+    }
+    f64::NAN
+}
+
+fn grp_name(g: usize) -> String {
+    format!("{}{}", GKIND[g / 4], LS[g % 4])
+}
+
+/// Least-squares slope of `ln y` on `ln t` over the positive points.
+fn slope(ys: &[f64]) -> f64 {
+    let pts: Vec<(f64, f64)> = QT
+        .iter()
+        .zip(ys)
+        .filter(|(_, &y)| y > 0.0)
+        .map(|(&t, &y)| ((t as f64).ln(), y.ln()))
+        .collect();
+    let n = pts.len() as f64;
+    if pts.len() < 2 {
+        return f64::NAN;
+    }
+    let (mx, my) = (
+        pts.iter().map(|p| p.0).sum::<f64>() / n,
+        pts.iter().map(|p| p.1).sum::<f64>() / n,
+    );
+    let sxy: f64 = pts.iter().map(|p| (p.0 - mx) * (p.1 - my)).sum();
+    let sxx: f64 = pts.iter().map(|p| (p.0 - mx) * (p.0 - mx)).sum();
+    sxy / sxx
+}
+
+/// The 16k arm: one 16,384-token prompt through the f32 forward, the B4 analysis of every layer
+/// at its prefixes in `QT`, then the tables. Returns whether every certified bound dominated its
+/// realised error.
+#[allow(clippy::too_many_lines)]
+fn run_b4(
+    eng: &Engine,
+    bpe: &Bpe,
+    ids0: &[u32],
+    kcap: &[Vec<f32>],
+    vcap: &[Vec<f32>],
+) -> Result<bool, Box<dyn Error>> {
+    let nth = 16usize;
+    let cfg = &eng.config;
+    let (nl, nh, nkv, d) = (cfg.n_layer, cfg.n_head, cfg.n_head_kv, cfg.n_embd);
+    let tt0 = std::time::Instant::now();
+    let ids = long_ids(bpe)?;
+    let same = ids[..T] == *ids0;
+    let bytes: Vec<u8> = ids.iter().flat_map(|x| x.to_le_bytes()).collect();
+    let hex: String = apeiron::sha256::sha256(&bytes)
+        .iter()
+        .take(8)
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    println!("\n== B4: 16k context, moment nodes ==");
+    println!(
+        "long prompt: {} tokens, ids sha256[..16] {hex}; first {T} ids equal prompt 0: {same}; queries: last {NQ} positions of prefixes {QT:?}, all {nl} layers x {nh} heads (no stride)",
+        ids.len()
+    );
+    println!(
+        "node cost (floats) = (1+dv) sum_(r<p) d^r + d, d=dv={HD}; key = {KEYF} floats; break-even = cost/128 key-equivalents"
+    );
+    for p in PS {
+        println!(
+            "  p={p}: cost {:.0} floats, break-even {:.1} keys, C_p={:.4}, B_max(eps=1e-3,1e-4,1e-5) = {:.4}, {:.4}, {:.4}",
+            node_cost(p),
+            node_cost(p) / KEYF,
+            rp(p),
+            bmax(EPS[0], p),
+            bmax(EPS[1], p),
+            bmax(EPS[2], p)
+        );
+    }
+    let rope = eng.rope_table().map_err(|e| format!("{e:?}"))?;
+    let half = HD / 2;
+    let mut cs = vec![(0f64, 0f64); T16 * half];
+    for p in 0..T16 {
+        let mut x = vec![0i64; HD];
+        for xj in x.iter_mut().take(half) {
+            *xj = ONE as i64;
+        }
+        rope.rotate_one(&mut x, p as u32)
+            .map_err(|e| format!("rope position {p}: {e:?}"))?;
+        for j in 0..half {
+            cs[p * half + j] = (x[j] as f64 / ONE, x[j + half] as f64 / ONE);
+        }
+    }
+    let rot = |x: &mut [f32], heads: usize, p: usize| {
+        for hh in 0..heads {
+            let b = hh * HD;
+            for j in 0..half {
+                let (c, s) = cs[p * half + j];
+                let (x0, x1) = (f64::from(x[b + j]), f64::from(x[b + j + half]));
+                x[b + j] = (x0 * c - x1 * s) as f32;
+                x[b + j + half] = (x1 * c + x0 * s) as f32;
+            }
+        }
+    };
+    let mut x: Vec<f32> = Vec::with_capacity(T16 * d);
+    for &id in &ids {
+        x.extend(q32_vec(&eng.token_embedding(id)?));
+    }
+    let vecs = eng.decode_vectors();
+    let eps = cfg.rms_eps;
+    let posg: Vec<Vec<Grp>> = QT.iter().map(|&t| pos_groups(t - NQ)).collect();
+    let total = Mutex::new(Acc4::new());
+    let (mut wk, mut wv) = (0f64, 0f64);
+    let (mut t_fwd, mut t_an) = (0f64, 0f64);
+    for l in 0..nl {
+        let tl = std::time::Instant::now();
+        let g1 = q32_vec(
+            vecs.norms_of(l)
+                .and_then(|n| n[0].as_deref())
+                .ok_or("attn_norm")?,
+        );
+        let g2 = q32_vec(
+            vecs.norms_of(l)
+                .and_then(|n| n[1].as_deref())
+                .ok_or("ffn_norm")?,
+        );
+        let bias = |i: usize| vecs.biases_of(l).and_then(|b| b[i].as_deref()).map(q32_vec);
+        let (bq, bkk, bv) = (bias(0), bias(1), bias(2));
+        let xn = rmsnorm(&x, &g1, eps, d);
+        let (wq, ni, no) = weight(eng, &format!("blk.{l}.attn_q.weight"))?;
+        let mut q = gemm(&wq, no, ni, &xn, T16, bq.as_deref(), nth);
+        drop(wq);
+        let (wkm, ni, no) = weight(eng, &format!("blk.{l}.attn_k.weight"))?;
+        let mut k = gemm(&wkm, no, ni, &xn, T16, bkk.as_deref(), nth);
+        drop(wkm);
+        let (wvm, ni, no) = weight(eng, &format!("blk.{l}.attn_v.weight"))?;
+        let v = gemm(&wvm, no, ni, &xn, T16, bv.as_deref(), nth);
+        drop(wvm);
+        for pp in 0..T16 {
+            rot(&mut q[pp * nh * HD..(pp + 1) * nh * HD], nh, pp);
+            rot(&mut k[pp * nkv * HD..(pp + 1) * nkv * HD], nkv, pp);
+        }
+        if same {
+            let a: Vec<f64> = kcap[l].iter().map(|&y| f64::from(y)).collect();
+            let b: Vec<f64> = vcap[l].iter().map(|&y| f64::from(y)).collect();
+            wk = wk.max(rel_l2(&k[..T * nkv * HD], &a).0);
+            wv = wv.max(rel_l2(&v[..T * nkv * HD], &b).0);
+        }
+        let ta = std::time::Instant::now();
+        let tproj = tl.elapsed().as_secs_f64();
+        analyze_layer(&q, &k, &v, nh, nkv, &posg, &total);
+        t_an += ta.elapsed().as_secs_f64();
+        let tan = tl.elapsed().as_secs_f64();
+        let att = attend_all(&q, &k, &v, T16, nh, nkv, nth);
+        let tat = tl.elapsed().as_secs_f64();
+        let (wo, ni, no) = weight(eng, &format!("blk.{l}.attn_output.weight"))?;
+        let o = gemm(&wo, no, ni, &att, T16, None, nth);
+        drop(wo);
+        for (xi, oi) in x.iter_mut().zip(&o) {
+            *xi += oi;
+        }
+        let xn2 = rmsnorm(&x, &g2, eps, d);
+        let (wg, ni, no) = weight(eng, &format!("blk.{l}.ffn_gate.weight"))?;
+        let mut gate = gemm(&wg, no, ni, &xn2, T16, None, nth);
+        drop(wg);
+        let (wu, ni, no) = weight(eng, &format!("blk.{l}.ffn_up.weight"))?;
+        let up = gemm(&wu, no, ni, &xn2, T16, None, nth);
+        drop(wu);
+        let per = gate.len().div_ceil(nth);
+        std::thread::scope(|sc| {
+            for (gc, uc) in gate.chunks_mut(per).zip(up.chunks(per)) {
+                sc.spawn(move || {
+                    for (gi, ui) in gc.iter_mut().zip(uc) {
+                        let gv = f64::from(*gi);
+                        *gi = (gv / (1.0 + (-gv).exp()) * f64::from(*ui)) as f32;
+                    }
+                });
+            }
+        });
+        let (wd, ni, no) = weight(eng, &format!("blk.{l}.ffn_down.weight"))?;
+        let dn = gemm(&wd, no, ni, &gate, T16, None, nth);
+        drop(wd);
+        for (xi, di) in x.iter_mut().zip(&dn) {
+            *xi += di;
+        }
+        t_fwd += tl.elapsed().as_secs_f64();
+        eprintln!(
+            "  layer {l}: qkv {tproj:.1}s, analysis {:.1}s, attention {:.1}s, rest {:.1}s",
+            tan - tproj,
+            tat - tan,
+            tl.elapsed().as_secs_f64() - tat
+        );
+        eprintln!(
+            "B4 layer {l} done, {:.0}s (analysis so far {t_an:.0}s)",
+            tt0.elapsed().as_secs_f64()
+        );
+    }
+    println!(
+        "forward+analysis {:.0}s (analysis {t_an:.0}s, layers total {t_fwd:.0}s); first-{T}-token K/V of this run vs the pp512 arm (prompt 0): K rel-L2 max {wk:.2e}, V rel-L2 max {wv:.2e}",
+        tt0.elapsed().as_secs_f64()
+    );
+    let a = total.into_inner().unwrap();
+    let ratio = |c: &Cell| {
+        if c.n == 0.0 {
+            f64::NAN
+        } else {
+            c.rsum / c.n
+        }
+    };
+    println!("\ncut only (no nodes), read/t mean [min,max] over (layer,head,query); rows adaptive delta / grid delta");
+    for ei in 0..3 {
+        for (nm, w) in [("adapt", 0), ("grid", 1)] {
+            print!("eps {:e} {nm:<5}", EPS[ei]);
+            for ti in 0..QT.len() {
+                print!(
+                    " t={:<5} {:<22}",
+                    QT[ti],
+                    a.cut[(ti * 3 + ei) * 2 + w].fmt()
+                );
+            }
+            println!();
+        }
+    }
+    let mut cells_le_half: Vec<String> = Vec::new();
+    let mut min_c = (f64::INFINITY, String::new());
+    let mut min_f = (f64::INFINITY, String::new());
+    for (mode, mname) in [
+        (0usize, "C (nodes cost node_cost(p)/128)"),
+        (1, "F (node cost = 1 key-equivalent; spread-only)"),
+    ] {
+        println!("\n== mode {mname}: read_equiv/t, mean [min,max]; exp = growth exponent of mean read_equiv in t ==");
+        for ei in 0..3 {
+            for pi in 0..3 {
+                println!("-- eps {:e}, p={}", EPS[ei], PS[pi]);
+                print!("{:<7}", "group");
+                for t in QT {
+                    print!(" {:<24}", format!("t={t}"));
+                }
+                println!(" exp");
+                for g in 0..NG {
+                    print!("{:<7}", grp_name(g));
+                    let mut ys = Vec::new();
+                    for ti in 0..QT.len() {
+                        let c = &a.cell[ci(ti, g, mode, ei, pi)];
+                        print!(" {:<24}", c.fmt());
+                        ys.push(if c.n > 0.0 { c.abs / c.n } else { 0.0 });
+                        let r = ratio(c);
+                        if QT[ti] >= 4096 && r.is_finite() {
+                            let tag = format!(
+                                "mode{mode} {} eps={:e} p={} t={}: {r:.3}",
+                                grp_name(g),
+                                EPS[ei],
+                                PS[pi],
+                                QT[ti]
+                            );
+                            let mn = if mode == 0 { &mut min_c } else { &mut min_f };
+                            if r < mn.0 {
+                                *mn = (r, tag.clone());
+                            }
+                            if r <= 0.5 {
+                                cells_le_half.push(tag);
+                            }
+                        }
+                    }
+                    println!(" {:.2}", slope(&ys));
+                }
+            }
+        }
+    }
+    println!("\n== summarised share (nodes' keys / non-kept keys) and share of queries using >= 1 node, mode C, eps 1e-3, p=2 and p=3, mean over (layer,head,query) ==");
+    for pi in [1usize, 2] {
+        println!("-- p={}", PS[pi]);
+        for g in 0..NG {
+            print!("{:<7}", grp_name(g));
+            for ti in 0..QT.len() {
+                let c = &a.cell[ci(ti, g, 0, 0, pi)];
+                print!(
+                    " t={:<5} {:.4}/{:.4}  ",
+                    QT[ti],
+                    c.nk / c.n.max(1.0),
+                    c.used / c.n.max(1.0)
+                );
+            }
+            println!();
+        }
+    }
+    println!("\n== summarised share, mode F, eps 1e-3, p=3 (spread-only upper reference) ==");
+    for g in 0..NG {
+        print!("{:<7}", grp_name(g));
+        for ti in 0..QT.len() {
+            let c = &a.cell[ci(ti, g, 1, 0, 2)];
+            print!(
+                " t={:<5} {:.4}/{:.4}  ",
+                QT[ti],
+                c.nk / c.n.max(1.0),
+                c.used / c.n.max(1.0)
+            );
+        }
+        println!();
+    }
+    println!("\n== node spread over all nodes of the grouping: share with B<=1 / median B ==");
+    print!("{:<7}", "group");
+    for t in QT {
+        print!(" {:<22}", format!("t={t}"));
+    }
+    println!();
+    for g in 0..NG {
+        print!("{:<7}", grp_name(g));
+        for ti in 0..QT.len() {
+            let r = (ti * NG + g) * 11;
+            let nn = a.bcnt[r].max(1.0);
+            let med = median_b(&a.hist[(ti * NG + g) * NBIN..(ti * NG + g + 1) * NBIN]);
+            print!(" {:<22}", format!("{:.4} / {med:.3}", a.bcnt[r + 1] / nn));
+        }
+        println!();
+    }
+    for ti in [2usize, 3] {
+        println!(
+            "\n== share of nodes with B <= B_max(eps,p), t={} (columns: p=1 eps 1e-3,1e-4,1e-5 | p=2 ... | p=3 ...) ==",
+            QT[ti]
+        );
+        for g in 0..NG {
+            print!("{:<7}", grp_name(g));
+            let r = (ti * NG + g) * 11;
+            let nn = a.bcnt[r].max(1.0);
+            for x in 0..9 {
+                print!(" {:.4}", a.bcnt[r + 2 + x] / nn);
+            }
+            println!();
+        }
+    }
+    println!(
+        "\nmin read/t over (mode C, t>=4096): {:.3} at {}",
+        min_c.0, min_c.1
+    );
+    println!(
+        "min read/t over (mode F, t>=4096): {:.3} at {}",
+        min_f.0, min_f.1
+    );
+    println!(
+        "cells (t>=4096) with read/t <= 0.5: {}",
+        cells_le_half.len()
+    );
+    for c in cells_le_half.iter().take(20) {
+        println!("  {c}");
+    }
+    println!(
+        "\nB4 checks {} (cut-only and node reads, every candidate delta); errors {}; max realised/bound {:.4}",
+        a.checks, a.errs, a.worst
+    );
+    if let Some(v) = &a.first_violation {
+        println!("COUNTEREXAMPLE (first): {v}");
+    }
+    let pct = 100.0 * a.holds / a.checks.max(1.0);
+    println!("B4 bound holds: {pct:.2}%");
+    Ok(a.holds == a.checks && a.errs == 0.0)
 }
 
 fn main() -> std::process::ExitCode {
