@@ -553,6 +553,9 @@ impl PrefillStack {
             if qkv_split {
                 rope_bufs.push(spk);
             }
+            // rope workgroup = ROPE_ROWS token rows of one head (LocalSize (hd/2)*ROPE_ROWS)
+            const ROPE_ROWS: u32 = 2;
+            let rope_rows = ROPE_ROWS;
             plan.push(pl.node(
                 if qkv_split {
                     format!("rope_{bias}_ks{rks}")
@@ -560,11 +563,13 @@ impl PrefillStack {
                     format!("rope_{bias}")
                 },
                 move || {
-                    qkv_rope_batch_bytes(nh, nkv, hd, qkvm, tmax, c.theta, c.eps, bias, false, rks)
+                    qkv_rope_batch_bytes(
+                        nh, nkv, hd, qkvm, tmax, c.theta, c.eps, bias, false, rks, rope_rows,
+                    )
                 },
                 &rope_bufs,
                 nh + 2 * nkv,
-                Gy::Batch,
+                Gy::Tiles(rope_rows),
             ));
             // the coopmat kernel's epilogue is the chart: xq, xsc (scales), xsm (sums)
             let attn_bufs: Vec<_> = if attn_coop {
