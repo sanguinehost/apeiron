@@ -1,0 +1,282 @@
+import Perf.Chain
+import Perf.Instances
+
+/-!
+# The measured moves as instances of the resource theorems
+
+`Perf.Chain`, `Perf.Instances`, `Perf.Concurrency` and `Perf.Roofline` prove the resource theorems.
+This module instantiates them at the numbers of the perf-predictions note and
+the perf-move-ledger note (P3, P4/P5/P6, P10, P15, GPU-01, GPU-03), so each prediction row
+of the formalisation audit carries a theorem that builds.
+
+Every numeric constant below is a **`model`** input copied from the named prediction row, not a
+measurement: `c`, `L`, the per-phase latency, the MMA peak and rate, and the P15 pair sum. The units
+are stated at each definition. No theorem here produces a byte, a cycle or a microsecond; `Machine`
+capacities and latencies are declared parameters (obligation 11).
+
+## What is proved here, and by which theorem
+
+* **P15 / P3 (dispatch fusion).** `p15_saves_L` (fusing a below-knee pair lowers the bound by exactly
+  the floor `L`, `Chain.fuse_saves_L`) and `p3_unfuse_adds_L` (the reverse: splitting adds exactly
+  `L`). `p15_measured` is the P15 pair sum and `p3_ratio_below_one` the measured direction.
+* **P4/P5/P6 (prologue depth).** `prologue_depth_gain`: depth `4 -> 1` lowers the depth term by
+  exactly `3 * latency` while `fieldMax` is unchanged; `prologue_gain_cap` caps the gain by the depth
+  term share; `prologue_depth_gain_p4` is the P4 instance.
+* **P10 (MMA ceiling).** `p10_mma_floor`: the node bound is at least the MMA term;
+  `non_mma_move_ceiling`: while the MMA term binds, relieving any other field cannot lower the bound;
+  `p10_mma_rate_ratio` states the measured `0.72` as a `Nat` ratio.
+* **GPU-01 (DP4A -> int8 coopmat).** `mma_issue_ratio`: one `M16N16K32` MMA retires `64` times the
+  MACs of one DP4A issue; `mma_issue_bound` is the issue-slot ratio bound on the unit machine.
+* **GPU-03 (hd=128 tile refusal).** `hd128_tile_exceeds`: the tile is `98304 B > 49152 B`.
+
+## What is not covered
+
+No hardware speed follows from any theorem here. The counts are `model` inputs; rustc/LLVM codegen,
+the GPU driver, cache replacement, clock behaviour and the pipeline's real issue scheduling are
+outside every statement.
+-/
+
+namespace Perf
+
+namespace Moves
+
+/-! ## 1 · Dispatch fusion: P15 and P3 -/
+
+/-- The unfused bound of a pair of dependent dispatches: the sum of the two per-dispatch floors. -/
+def unfusedPair (c L a b : Nat) : Nat := Chain.dispLB c L a + Chain.dispLB c L b
+
+/-- The fused bound of the pair: one dispatch carrying the summed demand. -/
+def fusedPair (c L a b : Nat) : Nat := Chain.dispLB c L (a + b)
+
+/-- The P15 pair sum of medians, unfused, in units of 0.1 us (P15 row: `638.6 us`). `model`. -/
+def p15Unfused : Nat := 6386
+
+/-- The P15 fused node, in units of 0.1 us (P15 row: `258.6 us`). `model`. -/
+def p15Fused : Nat := 2586
+
+/-- The prefill-side per-fused-pair floor the P15 saving removes, in units of 0.1 us. It is a stated
+`model` constant, not the decode-side `Chain.decL`: the saving is over 24 fused pairs per prefill and
+is dominated by the `478 MB` intermediate round trip, so `decL = 4 us` does not apply. -/
+def p15L : Nat := 3800
+
+/-- **P15 (swiglu + quant fused).** Fusing a below-knee pair of dependent dispatches lowers the bound
+by exactly the floor `L`. Instance of `Chain.fuse_saves_L`; the physical reading is that a dispatch
+boundary drains the machine and writes then re-reads the intermediate. -/
+theorem p15_saves_L (c L a b : Nat) (hc : 0 < c) (h : a + b ≤ c * L) :
+    fusedPair c L a b = unfusedPair c L a b - L := by
+  unfold fusedPair unfusedPair
+  have hf := Chain.fuse_saves_L c L a b hc h
+  omega
+
+/-- The P15 measured pair (`638.6 us -> 258.6 us`, units 0.1 us) saves `380.0 us`, the stated floor. -/
+theorem p15_measured : p15Fused = p15Unfused - p15L := by decide
+
+/-- **P3 (unfuse, refuted).** Splitting a below-knee pair into two dispatches raises the bound by
+exactly `L`: the reverse of `Chain.fuse_saves_L`. The measured tg128 ratio `0.984` (after/before,
+`p3MeasuredRatio`) is below one, the sign the model predicts; the prediction's `>1` is refuted. -/
+theorem p3_unfuse_adds_L (c L a b : Nat) (hc : 0 < c) (h : a + b ≤ c * L) :
+    unfusedPair c L a b = fusedPair c L a b + L := by
+  unfold unfusedPair fusedPair
+  exact Chain.fuse_saves_L c L a b hc h
+
+/-- The P3 measured tg128 ratio after/before, in thousandths (P3 row: `0.984`). `model`. -/
+def p3MeasuredRatio : Nat := 984
+
+/-- The P3 measured direction: the unfused arm is slower (`0.984 < 1`), consistent with the sign. -/
+theorem p3_ratio_below_one : p3MeasuredRatio < 1000 := by decide
+
+#guard p15Unfused - p15Fused = p15L
+#guard Chain.dispLB 2 1 1 + Chain.dispLB 2 1 1 = Chain.dispLB 2 1 2 + 1
+
+/-! ## 2 · Prologue depth: P4/P5/P6 -/
+
+/-- A demand record with field demand `dem` and serial chain depth `d`. -/
+def prologueRes (dem : ResField → Nat) (d : Nat) : Res := ⟨dem, d⟩
+
+/-- The depth axis does not enter `fieldMax`: only the field demand does. -/
+theorem fieldMax_prologueRes (m : Machine) (dem : ResField → Nat) (d d' : Nat) :
+    fieldMax m (prologueRes dem d) = fieldMax m (prologueRes dem d') := rfl
+
+/-- `timeLB` of a `prologueRes` is the field maximum against the depth term. -/
+theorem timeLB_prologueRes (m : Machine) (dem : ResField → Nat) (d : Nat) :
+    timeLB m (prologueRes dem d) = max (fieldMax m (prologueRes dem d)) (d * m.latency) := rfl
+
+/-- **P4/P5/P6 (prologue depth).** Shortening a serial prologue from depth `d` to `d'` (`d' ≤ d`)
+lowers the depth term by exactly `(d - d') * latency` while `fieldMax` is unchanged, when the depth
+term binds at `d'`. The physical reading: a dependent load chain inside a workgroup costs one latency
+per iteration until the loads issue together. -/
+theorem prologue_depth_gain (m : Machine) (dem : ResField → Nat) (d d' : Nat) (h : d' ≤ d)
+    (hbind : fieldMax m (prologueRes dem d') ≤ d' * m.latency) :
+    fieldMax m (prologueRes dem d) = fieldMax m (prologueRes dem d') ∧
+    timeLB m (prologueRes dem d) = timeLB m (prologueRes dem d') + (d - d') * m.latency := by
+  refine ⟨rfl, ?_⟩
+  rw [timeLB_prologueRes, timeLB_prologueRes]
+  have hF := fieldMax_prologueRes m dem d d'
+  rw [hF]
+  have hle : fieldMax m (prologueRes dem d') ≤ d * m.latency :=
+    le_trans hbind (Nat.mul_le_mul_right m.latency h)
+  rw [Nat.max_eq_right hle, Nat.max_eq_right hbind]
+  calc d * m.latency = (d' + (d - d')) * m.latency := by rw [Nat.add_sub_of_le h]
+    _ = d' * m.latency + (d - d') * m.latency := Nat.add_mul _ _ _
+
+/-- **The depth gain is capped by the depth term share.** If the field term dominates, shortening the
+prologue gains nothing beyond `(d - d') * latency`; the gain is never larger. -/
+theorem prologue_gain_cap (m : Machine) (dem : ResField → Nat) (d d' : Nat) (h : d' ≤ d) :
+    timeLB m (prologueRes dem d) ≤ timeLB m (prologueRes dem d') + (d - d') * m.latency := by
+  rw [timeLB_prologueRes, timeLB_prologueRes]
+  have hF := fieldMax_prologueRes m dem d d'
+  rw [hF]
+  apply Nat.max_le.mpr
+  constructor
+  · exact le_trans (Nat.le_max_left _ _) (Nat.le_add_right _ _)
+  · have h1 : d' * m.latency ≤ max (fieldMax m (prologueRes dem d')) (d' * m.latency) :=
+      Nat.le_max_right _ _
+    calc d * m.latency = (d' + (d - d')) * m.latency := by rw [Nat.add_sub_of_le h]
+      _ = d' * m.latency + (d - d') * m.latency := Nat.add_mul _ _ _
+      _ ≤ max (fieldMax m (prologueRes dem d')) (d' * m.latency) + (d - d') * m.latency :=
+          Nat.add_le_add_right h1 _
+
+/-- The P4 model machine: one unit per field per step, per-step chain latency `150 ns`, the P4 row's
+`4x0.15 us` dependent-load latency. `model`. -/
+def p4Machine : Machine where
+  cap := fun _ => 1
+  capPos := fun _ => by omega
+  latency := 150
+
+/-- The P4 warm prologue, in ns (P4 row: `3.81 us = 3810 ns`). `model`. -/
+def p4PrologueNs : Nat := 3810
+
+/-- **The P4 instance.** Depth `4 -> 1` removes `3 * 150 ns = 450 ns` of the depth term. -/
+theorem prologue_depth_gain_p4 :
+    timeLB p4Machine (prologueRes (fun _ => 0) 4)
+      = timeLB p4Machine (prologueRes (fun _ => 0) 1) + 3 * p4Machine.latency := by
+  have h := (prologue_depth_gain p4Machine (fun _ => 0) 4 1 (by decide) (by decide)).2
+  simpa using h
+
+#guard timeLB p4Machine (prologueRes (fun _ => 0) 4) = 600
+#guard timeLB p4Machine (prologueRes (fun _ => 0) 1) = 150
+
+/-! ## 3 · The MMA ceiling: P10 -/
+
+/-- **P10 (MMA floor).** The node time bound is at least the MMA term, for every record and machine:
+`ceilDiv (demand fMma) (cap fMma) <= timeLB`. The tensor pipe's floor cannot be escaped. -/
+theorem p10_mma_floor (m : Machine) (r : Res) :
+    ceilDiv (r.demand fMma) (m.cap fMma) ≤ timeLB m r :=
+  fieldLB_le_timeLB m r fMma
+
+/-- The P10 MMA peak, in units of 0.1 TOPS (P10 row: `433.5 TOPS`). `model`. -/
+def p10Peak : Nat := 4335
+
+/-- The committed kernel's MMA-term rate, in units of 0.1 TOPS (P10 row: P8's `315 TOPS`). `model`. -/
+def p10MmaRate : Nat := 3152
+
+/-- **The measured `0.72` as a `Nat` ratio.** The MMA term runs at no less than `72/100` of the peak;
+`72 * peak <= 100 * rate`. This bounds any MMA-rate lever, not a speed. -/
+theorem p10_mma_rate_ratio : 72 * p10Peak ≤ 100 * p10MmaRate := by decide
+
+/-- The P8 MMA term, in units of 0.1 us (P8 row: `680.6 us`). `model`. -/
+def p8MmaTerm : Nat := 6806
+
+/-- The P8 gate_up node, in units of 0.1 us (P8 row: `1860.6 us`). `model`. -/
+def p8Node : Nat := 18606
+
+/-- **The P10 floor at the P8 numbers.** The node is at least its MMA term (`680.6 <= 1860.6 us`). -/
+theorem p10_mma_floor_p8 : p8MmaTerm ≤ p8Node := by decide
+
+/-- The field maximum of a one-field record is that field's floor. -/
+theorem fieldMax_singleField (m : Machine) (f : ResField) (n : Nat) :
+    fieldMax m (singleField f n) = ceilDiv n (m.cap f) := by
+  apply le_antisymm
+  · unfold fieldMax
+    refine maxVec_le (fun i => ?_)
+    rw [fieldLB]
+    by_cases hi : i = f
+    · subst hi; rw [singleField_self]
+    · rw [singleField_ne hi, Chain.ceilDiv_zero]
+      exact Nat.zero_le _
+  · have h := le_maxVec 9 (fun i => fieldLB m (singleField f n) i) f
+    simpa [fieldMax, fieldLB, singleField_self] using h
+
+/-- The lower bound of a one-field, zero-depth record is that field's floor. -/
+theorem timeLB_singleField (m : Machine) (f : ResField) (n : Nat) :
+    timeLB m (singleField f n) = ceilDiv n (m.cap f) := by
+  unfold timeLB
+  rw [fieldMax_singleField, singleField_depth, Nat.zero_mul, Nat.max_eq_left (Nat.zero_le _)]
+
+/-- **The non-MMA move ceiling (P10).** While the MMA term binds, relieving any other field cannot
+lower the bound: any record keeping `M` on `fMma` has a bound at least that of the MMA-only record.
+Physical reading: one warp scheduler issues the shared port, so a move on a non-binding field leaves
+the tensor-pipe floor in place. -/
+theorem non_mma_move_ceiling (m : Machine) (M : Nat) (r' : Res)
+    (hM : r'.demand fMma = M) :
+    timeLB m (singleField fMma M) ≤ timeLB m r' := by
+  rw [timeLB_singleField]
+  calc ceilDiv M (m.cap fMma) = ceilDiv (r'.demand fMma) (m.cap fMma) := by rw [hM]
+    _ = fieldLB m r' fMma := rfl
+    _ ≤ timeLB m r' := fieldLB_le_timeLB m r' fMma
+
+/-! ## 4 · Instruction width: GPU-01 -/
+
+/-- MACs retired per `M16N16K32` int8 cooperative-matrix instruction: `16 * 16 * 32 = 8192`. -/
+def mmaMacs : Nat := 16 * 16 * 32
+
+/-- MACs retired per DP4A issue: `4` per lane-op times a `32`-lane warp = `128`. -/
+def dp4aMacs : Nat := 4 * 32
+
+/-- **GPU-01 (issue-slot ratio).** One MMA issue retires `64` times the MACs of one DP4A issue. This
+is a ratio of per-instruction MACs, not a speedup claim. -/
+theorem mma_issue_ratio : mmaMacs = 64 * dp4aMacs := by decide
+
+/-- `ceilDiv a c <= K * ceilDiv a (K * c)` for `c, K > 0`: enlarging the divisor by `K` divides the
+ceiling, so the instruction demand of the wider engine is at most `1/K` of the narrower one. -/
+theorem ceilDiv_le_mul_ceilDiv (a c K : Nat) (hc : 0 < c) (hK : 0 < K) :
+    ceilDiv a c ≤ K * ceilDiv a (K * c) := by
+  have hc' : 0 < K * c := Nat.mul_pos hK hc
+  apply Chain.ceilDiv_le_of_le_mul hc
+  calc a ≤ ceilDiv a (K * c) * (K * c) := le_ceilDiv_mul hc'
+    _ = (K * ceilDiv a (K * c)) * c := by ring
+
+/-- The DP4A schedule for `W` MACs: `ceilDiv W 128` dot-product issues. -/
+def dp4aIssueRes (W : Nat) : Res := singleField fDp4a (ceilDiv W dp4aMacs)
+
+/-- The MMA schedule for the same `W` MACs: `ceilDiv W 8192` matrix issues. -/
+def mmaIssueRes (W : Nat) : Res := singleField fMma (ceilDiv W mmaMacs)
+
+/-- **GPU-01 (issue-slot bound).** For MAC-equal work the DP4A instruction demand is at most `64`
+times the MMA instruction demand on the unit machine. The measured `2.1x` (`27.5k -> 57.0k tok/s`,
+GPU-01 ledger) is far below `64x`, so the node was not issue-bound on MACs; the bound is on the
+issue-slot ratio, not a speedup. -/
+theorem mma_issue_bound (W : Nat) :
+    timeLB unitMachine (dp4aIssueRes W) ≤ 64 * timeLB unitMachine (mmaIssueRes W) := by
+  rw [dp4aIssueRes, mmaIssueRes, timeLB_unit_single, timeLB_unit_single]
+  rw [mma_issue_ratio]
+  exact ceilDiv_le_mul_ceilDiv W dp4aMacs 64 (by decide) (by decide)
+
+/-! ## 5 · The hd=128 tile refusal: GPU-03 -/
+
+/-- The hd=128 tile's key count (P1 row). `model`. -/
+def hd128Keys : Nat := 64
+
+/-- The head dimension at hd=128 (P1 row). `model`. -/
+def hd128Dim : Nat := 128
+
+/-- Bytes per f32 element. -/
+def f32Bytes : Nat := 4
+
+/-- The staged tensors of the attention tile (P1 row's `* 3`). `model`. -/
+def hd128Tensors : Nat := 3
+
+/-- The device shared-memory maximum, in bytes (P1 row: `WG_SHARED_MAX = 49152`). `model`. -/
+def wgSharedMax : Nat := 49152
+
+/-- **GPU-03 (tile refusal).** The hd=128 tile is `64 * 128 * 4 * 3 = 98304 B`, above the `49152 B`
+shared maximum, so the tile is refused and the P1 one-walk gain does not transfer. `decide`-free. -/
+theorem hd128_tile_exceeds :
+    hd128Keys * hd128Dim * f32Bytes * hd128Tensors > wgSharedMax := by
+  norm_num [hd128Keys, hd128Dim, f32Bytes, hd128Tensors, wgSharedMax]
+
+#guard hd128Keys * hd128Dim * f32Bytes * hd128Tensors = 98304
+
+end Moves
+
+end Perf
