@@ -32,7 +32,8 @@ use super::*;
 use crate::simt::gemv_dp4a_batch_rt_bytes;
 use crate::simt_nn::{
     attn_prefill_coopmat_bytes, coopmat_gemm_bytes, coopmat_gemm_chart_bytes, coopmat_gemm_groups,
-    coopmat_gemm_swiglu_bytes, ATTN_COOP_ROWS, TILE_BM, TILE_BN, TILE_KB,
+    coopmat_gemm_split_bytes, coopmat_gemm_swiglu_bytes, splitk_reduce_bytes, ATTN_COOP_ROWS,
+    REDUCE_GX, TILE_BM, TILE_BN, TILE_KB,
 };
 
 /// Largest batch tile any node picks; activation scratch is padded to a multiple of it so every
@@ -151,6 +152,8 @@ struct PNode {
     dset: Handle,
     gx: u32,
     gy: Gy,
+    /// workgroup z-extent (the split-K splits; 1 elsewhere)
+    gz: u32,
 }
 
 /// Pipelines are compiled once per kernel key and shared by every layer's node (the descriptor
@@ -185,6 +188,7 @@ impl Planner<'_, '_> {
             dset,
             gx,
             gy,
+            gz: 1,
         }
     }
 }
@@ -265,6 +269,20 @@ impl PrefillStack {
         let qkv_buf = z(bp * qkvm as usize);
         let att_buf = z(bp * qn);
         let gu_buf = z(bp * 2 * dff_u);
+        // Split-K partial tiles of the down GEMM, `[down_ks][bp][hidden]` floats: the split kernel
+        // writes rows `z*bp' + t` with `bp' = ceil(n/64)*64 <= bp`, so `down_ks * bp * hidden` bounds it.
+        // `DEC_DOWN_SPLITK=<S>` (default 3, 1 = the unsplit kernel); S is clamped to the stage count.
+        let down_ks_env: u32 = std::env::var("DEC_DOWN_SPLITK")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(3)
+            .max(1);
+        let down_ks = down_ks_env.min(dff / 32 / TILE_KB).max(1);
+        let spk = z(if down_ks > 1 {
+            down_ks as usize * bp * hidden_u
+        } else {
+            1
+        });
         // power-of-two chart capacities: the last-row gather closes its source index with one `and`
         let qcap = (bp * kmax / 4).next_power_of_two();
         let bcap = (bp * kmax / 32).next_power_of_two();
@@ -550,6 +568,26 @@ impl PrefillStack {
                     coopmat_gemm_groups(2 * dff, TILE_BN).0,
                     Gy::Tiles(TILE_BN),
                 ));
+                if down_ks > 1 {
+                    let (cr, ks) = (l.dn_c, down_ks);
+                    let mut n = pl.node(
+                        format!("gemm_{hidden}_{dff}_{cr:?}_cm_chart_ks{ks}"),
+                        move || coopmat_gemm_split_bytes(hidden, dff, cr, sc_off, sm_off, ks),
+                        &[l.dn_w, gu_buf, spk, l.dn_dm, gu_buf, gu_buf],
+                        coopmat_gemm_groups(hidden, TILE_BN).0,
+                        Gy::Tiles(TILE_BN),
+                    );
+                    n.gz = ks;
+                    plan.push(n);
+                    plan.push(pl.node(
+                        format!("splitk_reduce_{hidden}_{ks}"),
+                        move || splitk_reduce_bytes(hidden, ks),
+                        &[spk, proj_h],
+                        REDUCE_GX,
+                        Gy::Tiles(TILE_BN),
+                    ));
+                    continue;
+                }
                 plan.push(pl.node(
                     format!("gemm_{hidden}_{dff}_{:?}_cm_chart", l.dn_c),
                     || coopmat_gemm_chart_bytes(hidden, dff, l.dn_c, sc_off, sm_off),
@@ -572,6 +610,26 @@ impl PrefillStack {
                 1,
                 Gy::Batch,
             ));
+            if down_ks > 1 && coopmat_ok(vk, hidden, dff, l.dn_c) {
+                let (cr, ks) = (l.dn_c, down_ks);
+                let mut n = pl.node(
+                    format!("gemm_{hidden}_{dff}_{cr:?}_cm_ks{ks}"),
+                    move || coopmat_gemm_split_bytes(hidden, dff, cr, 0, 0, ks),
+                    &[l.dn_w, xq, spk, l.dn_dm, xsm, xsc],
+                    coopmat_gemm_groups(hidden, TILE_BN).0,
+                    Gy::Tiles(TILE_BN),
+                );
+                n.gz = ks;
+                plan.push(n);
+                plan.push(pl.node(
+                    format!("splitk_reduce_{hidden}_{ks}"),
+                    move || splitk_reduce_bytes(hidden, ks),
+                    &[spk, proj_h],
+                    REDUCE_GX,
+                    Gy::Tiles(TILE_BN),
+                ));
+                continue;
+            }
             gemm_node!(
                 hidden,
                 dff,
@@ -697,7 +755,7 @@ impl PrefillStack {
                     0,
                     std::ptr::null(),
                 );
-                (vk.dispatch)(cb, p.gx, gy, 1);
+                (vk.dispatch)(cb, p.gx, gy, p.gz);
                 step_barrier(vk, cb);
             }
             vk.barrier(
@@ -762,7 +820,7 @@ impl PrefillStack {
                     0,
                     std::ptr::null(),
                 );
-                (vk.dispatch)(cb, p.gx, gy, 1);
+                (vk.dispatch)(cb, p.gx, gy, p.gz);
                 step_barrier(vk, cb);
             }
             vk.cmd_write_timestamp(cb, &pool, STAGE_ALL_COMMANDS, nodes as u32);

@@ -60,6 +60,7 @@ const SPEC_PACK: u32 = 2;
 const SPEC_FUSE: u32 = 3;
 const SPEC_SCOFF: u32 = 4;
 const SPEC_SMOFF: u32 = 5;
+const SPEC_KSPLIT: u32 = 6;
 
 /// Rewrite the default value of every 32-bit `OpSpecConstant` whose `SpecId` is a key of `vals`.
 /// Panics when a requested `SpecId` is absent: a constant left at its default is a different kernel.
@@ -112,7 +113,7 @@ pub fn coopmat_gemm_module(m: u32, k: u32, carrier: Carrier) -> Vec<u32> {
 /// built with `-DBM= -DBN= -DSGM= -DSGN= -DKB=`; `examples/gemm_bench.rs --variants` sweeps them).
 /// The `k` check here is the committed `TILE_KB`'s; a variant with a larger `KB` needs its own.
 pub fn coopmat_gemm_module_from(spv: &[u8], m: u32, k: u32, carrier: Carrier) -> Vec<u32> {
-    coopmat_gemm_specialized(spv, m, k, carrier, 0, 0, 0)
+    coopmat_gemm_specialized(spv, m, k, carrier, 0, 0, 0, 1)
 }
 
 /// The kernel as [`coopmat_gemm_module`] with the chart's sum stream at float offset `smoff` and its
@@ -125,7 +126,7 @@ pub fn coopmat_gemm_chart_module(
     scoff: u32,
     smoff: u32,
 ) -> Vec<u32> {
-    coopmat_gemm_specialized(COOPMAT_GEMM_SPV, m, k, carrier, 0, scoff, smoff)
+    coopmat_gemm_specialized(COOPMAT_GEMM_SPV, m, k, carrier, 0, scoff, smoff, 1)
 }
 
 /// [`coopmat_gemm_chart_module`] as bytes.
@@ -161,7 +162,7 @@ pub fn coopmat_gemm_swiglu_module(
         matches!(dpw_out, 1 | 2 | 4),
         "the down chart's dpw is 1, 2 or 4, not {dpw_out}"
     );
-    coopmat_gemm_specialized(COOPMAT_GEMM_SPV, m, k, carrier, dpw_out, scoff, smoff)
+    coopmat_gemm_specialized(COOPMAT_GEMM_SPV, m, k, carrier, dpw_out, scoff, smoff, 1)
 }
 
 /// [`coopmat_gemm_swiglu_module`] as bytes.
@@ -186,7 +187,16 @@ fn coopmat_gemm_specialized(
     fuse: u32,
     scoff: u32,
     smoff: u32,
+    ksplit: u32,
 ) -> Vec<u32> {
+    assert!(
+        ksplit >= 1 && (fuse == 0 || ksplit == 1),
+        "ksplit is at least 1 and the SwiGLU epilogue does not split"
+    );
+    assert!(
+        k % (32 * TILE_KB) == 0 && (k / 32 / TILE_KB) >= ksplit,
+        "split-K needs at least one {TILE_KB}-block stage per split: k = {k}, ksplit = {ksplit}"
+    );
     assert!(
         matches!(carrier, Carrier::Q8 | Carrier::Q4 | Carrier::Q2),
         "coopmat GEMM serves the single-plane chart carriers Q8/Q4/Q2, not {carrier:?}"
@@ -212,8 +222,72 @@ fn coopmat_gemm_specialized(
             (SPEC_FUSE, fuse),
             (SPEC_SCOFF, scoff),
             (SPEC_SMOFF, smoff),
+            (SPEC_KSPLIT, ksplit),
         ],
     )
+}
+
+/// The coopmat chart GEMM split along k into `ksplit` partial products: the grid is
+/// `(coopmat_gemm_groups(m, tokens).0, .1, ksplit)`, split `z` sums the `TILE_KB`-block stages
+/// `[z*U/ksplit, (z+1)*U/ksplit)`, `U = k/(32*TILE_KB)`, in block order, and stores its
+/// `[ceil(tokens/TILE_BN)*TILE_BN][m]` partial tile at row `z * ceil(tokens/TILE_BN)*TILE_BN`
+/// of the buffer bound at O, which holds `ksplit * rows * m` floats. [`splitk_reduce_module`] sums the
+/// partials. `scoff`/`smoff` are the chart offsets of [`coopmat_gemm_chart_module`] (0 for a plain chart).
+/// `ksplit == 1` is [`coopmat_gemm_chart_module`] bit for bit. The sum order differs from the unsplit
+/// kernel's single serial f32 chain by reassociation of the `ksplit` partial chains.
+pub fn coopmat_gemm_split_module(
+    m: u32,
+    k: u32,
+    carrier: Carrier,
+    scoff: u32,
+    smoff: u32,
+    ksplit: u32,
+) -> Vec<u32> {
+    coopmat_gemm_specialized(COOPMAT_GEMM_SPV, m, k, carrier, 0, scoff, smoff, ksplit)
+}
+
+/// [`coopmat_gemm_split_module`] as bytes.
+pub fn coopmat_gemm_split_bytes(
+    m: u32,
+    k: u32,
+    carrier: Carrier,
+    scoff: u32,
+    smoff: u32,
+    ksplit: u32,
+) -> Vec<u8> {
+    to_bytes(&coopmat_gemm_split_module(
+        m, k, carrier, scoff, smoff, ksplit,
+    ))
+}
+
+/// The reduction kernel `src/spirv/splitk_reduce.comp` (same [`GLSLC_ARGS`]), specialization defaults unpatched.
+pub static SPLITK_REDUCE_SPV: &[u8] = include_bytes!("../spirv/splitk_reduce.spv");
+
+/// Workgroups x of the reduction: each of its `ceil(tokens/TILE_BN)` rows strides a `TILE_BN * m` float
+/// tile over `REDUCE_GX * 256` lanes.
+pub const REDUCE_GX: u32 = 28;
+
+/// The reduction of `ksplit` partials `[ksplit][rows][m]` into `[rows][m]`, `(p0 + p1) + p2 ...` in order.
+/// Dispatch `(REDUCE_GX, ceil(tokens/TILE_BN), 1)`. Requires `(TILE_BN * m) % 4 == 0`.
+///
+/// Cost: `ksplit * rows * m` reads and `rows * m` writes of f32, `(ksplit - 1) * rows * m` adds; one
+/// vec4 a lane per iteration, so a workgroup row of `TILE_BN * m / 4` vec4 takes
+/// `ceil(TILE_BN * m / 4 / (REDUCE_GX * 256))` iterations a lane.
+pub fn splitk_reduce_module(m: u32, ksplit: u32) -> Vec<u32> {
+    assert!(ksplit >= 2, "a reduction has at least two partials");
+    assert!((TILE_BN * m) % 4 == 0, "the reduction moves whole vec4");
+    assert!(SPLITK_REDUCE_SPV.len() % 4 == 0, "SPIR-V is a word stream");
+    let words: Vec<u32> = SPLITK_REDUCE_SPV
+        .chunks_exact(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    assert_eq!(words[0], crate::simt::SPV_MAGIC, "not a SPIR-V module");
+    specialize(&words, &[(0, m), (1, ksplit)])
+}
+
+/// [`splitk_reduce_module`] as bytes.
+pub fn splitk_reduce_bytes(m: u32, ksplit: u32) -> Vec<u8> {
+    to_bytes(&splitk_reduce_module(m, ksplit))
 }
 
 fn to_bytes(module: &[u32]) -> Vec<u8> {
