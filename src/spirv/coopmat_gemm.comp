@@ -6,6 +6,7 @@
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_shuffle : require
 #extension GL_EXT_control_flow_attributes : require
+#extension GL_EXT_integer_dot_product : require
 
 // Cooperative-matrix (tensor-core) chart GEMM for prefill: the drop-in for
 // `simt::gemv_dp4a_batch_rt_module` (src/simt/superblock.rs), same six bindings, same chart, same
@@ -57,6 +58,9 @@
 #define IA ((BM * 2 + NT - 1) / NT)
 #define IB ((BN * 2 + NT - 1) / NT)
 #define IR ((BM + NT - 1) / NT)
+#if (BM * 2) % NT != 0 || BM % NT != 0
+#error fetch/commit carry no bound check: BM*2 and BM must be multiples of NT
+#endif
 #define IT ((BN + NT - 1) / NT)
 // shared row stride in uvec4 units: 32 data bytes + 16 pad -> conflict-free 16-byte stores
 #define AS4 3u
@@ -106,23 +110,21 @@ float pxs[KB][IT];
 float psx[KB][IT];
 
 int bsum(uint v) {
-    return bitfieldExtract(int(v), 0, 8) + bitfieldExtract(int(v), 8, 8) +
-           bitfieldExtract(int(v), 16, 8) + bitfieldExtract(int(v), 24, 8);
+    // Signed byte sum of the four lanes: dotPacked4x8EXT with an all-ones operand is
+    // exactly sum of the four signed-8-bit lanes. One SPIR-V OpSDot, one IDP.4A on SM120.
+    return dotPacked4x8EXT(int(v), 0x01010101);
 }
 
 // Global loads of blocks b0 .. b0+KB-1 into registers.
-void fetch(uint b0, uint lid, uint row0, uint tok0) {
+void fetch(uint b0, uint lid, uint row0, uint tok0,
+           uint ah[IA], uint arow[IA], uint drow[IR]) {
     [[unroll]] for (uint kb = 0u; kb < KB; ++kb) {
         uint b = b0 + kb;
         [[unroll]] for (uint it = 0u; it < IA; ++it) {
-            uint idx = lid + it * NT;
-            if (idx < BM * 2u) {
-                uint r = idx % BM;
-                uint h = idx / BM;
-                uint row = min(row0 + r, M - 1u);
-                [[unroll]] for (uint c = 0u; c < CPH; ++c) {
-                    pa[kb][it][c] = w[(b * CPB + h * CPH + c) * M + row];
-                }
+            uint h = ah[it];
+            uint row = arow[it];
+            [[unroll]] for (uint c = 0u; c < CPH; ++c) {
+                pa[kb][it][c] = w[(b * CPB + h * CPH + c) * M + row];
             }
         }
         [[unroll]] for (uint it = 0u; it < IB; ++it) {
@@ -132,10 +134,7 @@ void fetch(uint b0, uint lid, uint row0, uint tok0) {
             }
         }
         [[unroll]] for (uint it = 0u; it < IR; ++it) {
-            uint r = lid + it * NT;
-            if (r < BM) {
-                pd[kb][it] = dm[b * M + min(row0 + r, M - 1u)];
-            }
+            pd[kb][it] = dm[b * M + drow[it]];
         }
         [[unroll]] for (uint it = 0u; it < IT; ++it) {
             uint j = lid + it * NT;
@@ -149,21 +148,18 @@ void fetch(uint b0, uint lid, uint row0, uint tok0) {
 }
 
 // Registers -> shared: chart words to s8 k-words, activation sums, scales.
-void commit(uint lid) {
+void commit(uint lid, uint ar[IA], uint ah[IA]) {
     [[unroll]] for (uint kb = 0u; kb < KB; ++kb) {
         [[unroll]] for (uint it = 0u; it < IA; ++it) {
-            uint idx = lid + it * NT;
-            if (idx < BM * 2u) {
-                uint r = idx % BM;
-                uint h = idx / BM;
-                uvec4 v;
-                [[unroll]] for (uint q = 0u; q < 4u; ++q) {
-                    // k-word q of this half: chart word q / DPW, phase q % DPW
-                    uint word = pa[kb][it][q / DPW];
-                    v[q] = PACK == 4u ? word ^ 0x80808080u : (word >> (WBITS * (q % DPW))) & BMASK;
-                }
-                sA[(kb * BM + r) * AS4 + h] = v;
+            uint r = ar[it];
+            uint h = ah[it];
+            uvec4 v;
+            [[unroll]] for (uint q = 0u; q < 4u; ++q) {
+                // k-word q of this half: chart word q / DPW, phase q % DPW
+                uint word = pa[kb][it][q / DPW];
+                v[q] = PACK == 4u ? word ^ 0x80808080u : (word >> (WBITS * (q % DPW))) & BMASK;
             }
+            sA[(kb * BM + r) * AS4 + h] = v;
         }
         [[unroll]] for (uint it = 0u; it < IB; ++it) {
             uint idx = lid + it * NT;
@@ -213,12 +209,27 @@ void main() {
         acc[f] = FRAG_F(0.0);
     }
 
-    fetch(0u, lid, row0, tok0);
+    // b0-invariant per-thread row/half/row-clamp, computed once a workgroup instead of per stage.
+    uint ar[IA];
+    uint ah[IA];
+    uint arow[IA];
+    uint drow[IR];
+    [[unroll]] for (uint it = 0u; it < IA; ++it) {
+        uint idx = lid + it * NT;
+        ar[it] = idx % BM;
+        ah[it] = idx / BM;
+        arow[it] = min(row0 + ar[it], M - 1u);
+    }
+    [[unroll]] for (uint it = 0u; it < IR; ++it) {
+        drow[it] = min(row0 + lid + it * NT, M - 1u);
+    }
+
+    fetch(0u, lid, row0, tok0, ah, arow, drow);
     for (uint b0 = 0u; b0 < BLOCKS; b0 += KB) {
-        commit(lid);
+        commit(lid, ar, ah);
         barrier();
         if (b0 + KB < BLOCKS) {
-            fetch(b0 + KB, lid, row0, tok0);
+            fetch(b0 + KB, lid, row0, tok0, ah, arow, drow);
         }
         [[unroll]] for (uint kb = 0u; kb < KB; ++kb) {
             coopmat<int8_t, gl_ScopeSubgroup, 32, 16, gl_MatrixUseB> bm[WN];
