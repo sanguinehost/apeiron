@@ -438,7 +438,7 @@ impl PrefillStack {
             if li == 0 {
                 plan.push(pl.node(
                     format!("rms0_{dq}"),
-                    || rmsnorm_batch_q_bytes(hidden, c.eps, dq, false),
+                    || rmsnorm_batch_q_noh_bytes(hidden, c.eps, dq, false),
                     &[x_dev, l.ln1, x_dev, xq, xsc, xsm, hbuf],
                     1,
                     Gy::Batch,
@@ -446,7 +446,7 @@ impl PrefillStack {
             } else {
                 plan.push(pl.node(
                     format!("rms_{dq}"),
-                    || rmsnorm_batch_q_bytes(hidden, c.eps, dq, true),
+                    || rmsnorm_batch_q_noh_bytes(hidden, c.eps, dq, true),
                     &[x_dev, l.ln1, proj_h, xq, xsc, xsm, hbuf],
                     1,
                     Gy::Batch,
@@ -521,7 +521,7 @@ impl PrefillStack {
             let dqg = dpw(l.gu_c);
             plan.push(pl.node(
                 format!("rms_{dqg}"),
-                || rmsnorm_batch_q_bytes(hidden, c.eps, dqg, true),
+                || rmsnorm_batch_q_noh_bytes(hidden, c.eps, dqg, true),
                 &[x_dev, l.ln2, proj_h, xq, xsc, xsm, hbuf],
                 1,
                 Gy::Batch,
