@@ -719,6 +719,8 @@ fn run(path: &str) -> Result<bool, Box<dyn Error>> {
     let accs: Vec<Vec<Mutex<Acc>>> = (0..nl)
         .map(|_| (0..nh).map(|_| Mutex::new(Acc::default())).collect())
         .collect();
+    let qk_energy = std::env::var_os("QK_ENERGY").is_some();
+    let mut qke: Vec<(Vec<f64>, Vec<f64>, Vec<f64>)> = Vec::new();
     let mut kcap: Vec<Vec<f32>> = Vec::new(); // prompt 0, roped K per layer (validation)
     let mut vcap: Vec<Vec<f32>> = Vec::new();
     let t0 = std::time::Instant::now();
@@ -749,6 +751,9 @@ fn run(path: &str) -> Result<bool, Box<dyn Error>> {
             let pos = pp % T;
             rot(&mut q[pp * nh * HD..(pp + 1) * nh * HD], nh, pos);
             rot(&mut k[pp * nkv * HD..(pp + 1) * nkv * HD], nkv, pos);
+        }
+        if qk_energy {
+            qk_energy_layer(l, &q[..T * nh * HD], &k[..T * nkv * HD], nh, nkv, &mut qke);
         }
         kcap.push(k[..T * nkv * HD].to_vec());
         vcap.push(v[..T * nkv * HD].to_vec());
@@ -809,6 +814,11 @@ fn run(path: &str) -> Result<bool, Box<dyn Error>> {
             *xi += di;
         }
         eprintln!("layer {l} done, {:.0}s", t0.elapsed().as_secs_f64());
+    }
+
+    if qk_energy {
+        qk_energy_report(&qke, nh);
+        return Ok(true);
     }
 
     // ---- validation against the engine's own KvState (prompt 0) ----
@@ -2502,6 +2512,110 @@ fn run_b4(
     let pct = 100.0 * a.holds / a.checks.max(1.0);
     println!("B4 bound holds: {pct:.2}%");
     Ok(a.holds == a.checks && a.errs == 0.0)
+}
+
+/// Per (layer, q head, RoPE pair j): prompt 0, all causal (t, s <= t). `.0[h*half+j]` is
+/// sum |q_j(t)||k_j(s)| (bound product), `.1[h*half+j]` is sum (q_j(t) . k_j(s))^2 (score-contribution
+/// second moment); the pair is the 2-vector (x[j], x[j+half]). O(T nh half) per layer via prefix sums.
+fn qk_energy_layer(
+    _l: usize,
+    q: &[f32],
+    k: &[f32],
+    nh: usize,
+    nkv: usize,
+    out: &mut Vec<(Vec<f64>, Vec<f64>, Vec<f64>)>,
+) {
+    let half = HD / 2;
+    let mut a = vec![0f64; nh * half];
+    let mut v = vec![0f64; nh * half];
+    let mut c = vec![0f64; nh * half];
+    for h in 0..nh {
+        let kvh = h / (nh / nkv);
+        for j in 0..half {
+            let (mut sk, mut sxx, mut sxy, mut syy) = (0f64, 0f64, 0f64, 0f64);
+            let (mut mx, mut my) = (0f64, 0f64);
+            for t in 0..T {
+                let kb = (t * nkv + kvh) * HD;
+                let (kx, ky) = (f64::from(k[kb + j]), f64::from(k[kb + j + half]));
+                sk += kx.hypot(ky);
+                sxx += kx * kx;
+                sxy += kx * ky;
+                syy += ky * ky;
+                mx += kx;
+                my += ky;
+                let qb = (t * nh + h) * HD;
+                let (qx, qy) = (f64::from(q[qb + j]), f64::from(q[qb + j + half]));
+                a[h * half + j] += qx.hypot(qy) * sk;
+                let m2 = qx * qx * sxx + 2.0 * qx * qy * sxy + qy * qy * syy;
+                v[h * half + j] += m2;
+                let sum = qx * mx + qy * my;
+                c[h * half + j] += m2 - sum * sum / (t + 1) as f64;
+            }
+        }
+    }
+    out.push((a, v, c));
+}
+
+fn qk_energy_report(qke: &[(Vec<f64>, Vec<f64>, Vec<f64>)], nh: usize) {
+    let half = HD / 2;
+    let j0 = 19usize; // parabolic pairs at L = 512 (docs/epics/spinor.md, FACES-R1)
+    let uniform = (half - j0) as f64 / half as f64;
+    println!(
+        "\n== QK_ENERGY: share of pairs j >= {j0} (uniform {uniform:.4}), prompt 0, T = {T} =="
+    );
+    println!("layer  bound  second-moment  centred(per-query)  heads(centred>uniform)/{nh}");
+    let mut sh = [Vec::new(), Vec::new(), Vec::new()];
+    let mut pair = [vec![0f64; half], vec![0f64; half], vec![0f64; half]];
+    for (l, (a, v, c)) in qke.iter().enumerate() {
+        let mut hi = [0f64; 3];
+        let mut all = [0f64; 3];
+        let mut nover = 0usize;
+        for h in 0..nh {
+            let (mut hc, mut htc) = (0f64, 0f64);
+            for j in 0..half {
+                let x = [a[h * half + j], v[h * half + j], c[h * half + j]];
+                for m in 0..3 {
+                    all[m] += x[m];
+                    pair[m][j] += x[m];
+                    if j >= j0 {
+                        hi[m] += x[m];
+                    }
+                }
+                htc += x[2];
+                if j >= j0 {
+                    hc += x[2];
+                }
+            }
+            if hc / htc > uniform {
+                nover += 1;
+            }
+        }
+        for m in 0..3 {
+            sh[m].push(hi[m] / all[m]);
+        }
+        println!(
+            "{l:5}  {:.4}  {:.4}  {:.4}  {nover}",
+            hi[0] / all[0],
+            hi[1] / all[1],
+            hi[2] / all[2]
+        );
+    }
+    println!(
+        "layer mean [min,max]: bound {}  second-moment {}  centred {}",
+        mean_min_max(&sh[0]),
+        mean_min_max(&sh[1]),
+        mean_min_max(&sh[2])
+    );
+    let tot: Vec<f64> = pair.iter().map(|p| p.iter().sum()).collect();
+    println!("per-pair share over all layers/heads (j: bound, second-moment, centred):");
+    for j in 0..half {
+        println!(
+            "  j={j:2} {:.4} {:.4} {:.4}",
+            pair[0][j] / tot[0],
+            pair[1][j] / tot[1],
+            pair[2][j] / tot[2]
+        );
+    }
 }
 
 fn main() -> std::process::ExitCode {

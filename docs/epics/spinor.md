@@ -895,8 +895,29 @@ Grade `tested` (numeric, the shipped schedule; no checkpoint weights read). Read
 is not one face; high-frequency pairs are elliptic and aliased, low-frequency pairs are the ALiBi (parabolic) face, and the
 parabolic share shrinks from 13 of 32 pairs at `L=512` to 0 at `L=131072`: the elliptic-to-parabolic limit `θ→0` is
 the Inönü–Wigner contraction (Inönü and Wigner 1953; Yaglom's treatment of the three Cayley–Klein geometries; pointers, not
-retrieved by the lead, not claimed new). Not covered: whether trained Q,K put energy in the low-frequency pairs (needs a
-checkpoint's rotated Q,K); a `docs/` search for `inonu|yaglom|contraction` hit only unrelated uses of "contraction" (files not opened).
+retrieved by the lead, not claimed new). Trained Q,K energy in the low-frequency pairs: see the next paragraph. A `docs/` search for `inonu|yaglom|contraction` hit only unrelated uses of "contraction" (files not opened).
+
+**Trained Q,K energy in the parabolic pairs (row `faces-r1-do-the-three-on-HCnA8ZlHN3emV1nzkVH7V0`).** Command:
+`QK_ENERGY=1 /home/socol/oc-tmp/shared-target/release/examples/attn_cut_probe` (`examples/attn_cut_probe.rs`, hook `qk_energy_layer`),
+qwen05b Q4_K_M, prompt 0, `T=512`, 24 layers × 14 q heads × 32 pairs, all causal `(t,s)`; log
+`/home/socol/oc-tmp/escalation/FACES-R1-QKENERGY.out`. Pair `j` is `(x[j], x[j+32])` of the roped vector; the share is that of
+`j ≥ 19` (13 of 32 pairs, uniform `0.4062`). Prediction (`FACES-R1-QKENERGY-PREDICTION.md`, written before each run): share of
+the squared pair contribution `(q_j·k_j)²` at least 0.55, refuted at or below 0.4062; after the first run, the per-query-centred form
+at least 0.5.
+
+| measure (layer mean [min, max]) | share of `j ≥ 19` |
+|---|---|
+| bound `Σ|q_j||k_j|` | 0.7389 [0.6126, 0.9054] |
+| second moment `Σ(q_j·k_j)²` | 0.9463 [0.8132, 0.9982] |
+| per-query centred second moment (`Σ_s c² − (Σ_s c)²/n`, the part softmax can see) | 0.5278 [0.0497, 0.9188]; pooled 0.4552 |
+
+Reading: trained Q,K do put energy in the parabolic pairs, but 0.85 of the total second moment sits in `j = 29, 30, 31`
+(0.14, 0.25, 0.46) and mostly as a per-query constant in `s` (a softmax-invariant offset; centring drops `j = 31` from 0.46 to 0.10). With that removed the excess over uniform is small
+and layer-dependent: 16 of 24 layers exceed 0.4062; layers 0, 1, 2, 4, 7, 8, 12, 19 do not (layer 0: 0.05); layers 9, 11, 16, 20, 21, 22 exceed 0.80.
+Prediction: held on the second moment and on the centred layer mean (0.5278 against 0.5, a margin inside the layer spread). The
+claim that attention logits are mostly shaped by the parabolic (ALiBi-like) face is not supported: the centred pooled share is 0.455. Grade `tested`.
+Not covered: other checkpoints and prompts, `T>512` (the parabolic set shrinks with `L`), the `d`-dependence inside those pairs
+(affine in `d` is not measured), the Q4_K_M dequantised weights rather than the f16 checkpoint.
 
 ### FACES-R3 results (prior-art search)
 
