@@ -20,6 +20,7 @@ import Spirv.Carrier
 import Perf.Roofline
 import Perf.Concurrency
 import Perf.Instances
+import Perf.Chain
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -296,3 +297,15 @@ import Perf.Instances
 #audit Perf.walk_mix
 #audit Perf.map01_line_control
 #audit Perf.map01_move_speedup
+-- row perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX: dependent dispatch chain and its knee (Perf/Chain.lean)
+#audit Perf.Chain.chain_ge_bytes
+#audit Perf.Chain.knee
+#audit Perf.Chain.dispLB_of_le_knee
+#audit Perf.Chain.chain_tax
+#audit Perf.Chain.chain_tax_zero_of_knee
+#audit Perf.Chain.fuse_le
+#audit Perf.Chain.fuse_saves_L
+#audit Perf.Chain.merge_independent
+#audit Perf.Chain.merge_saves
+#audit Perf.Chain.chain_fuse_ratio
+#audit Perf.Chain.chain_fuse_pair_saving
