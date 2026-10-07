@@ -71,6 +71,12 @@ Lean sources of the lineage contain `Real` and Mathlib imports; the port decides
 | W4 | PERF-EXTRACT: cost over extracted bodies and emitted SPIR-V module structure for one GPU family | `proof/corpus/Perf/`, `proof/extract/lib.rs` | `AENEAS_HOME=/home/socol/oc-tmp/aeneas-pinned proof/regen.sh --check` and `cd proof/corpus && lake build` | mutate the emitter's shift constant: the counted field changes and the theorem goes red |
 | W5 | PERF-RED-CELLS: apply the model to CUDA decode, 1.5B pp512, map columns; one dispatch per named next move | per dispatched row | per row | per row |
 
+W2 findings, row `perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX` (`Perf/Concurrency.lean`, `Perf/Instances.lean`, grade `proved`; capacities and counts `model`):
+
+- The chain term sits inside the max: a chain with `depth * latency <= conc * fieldMax` contributes zero (`latency_hidden`).
+- A move takes one of two forms. Same-field demand reduction (walk count, cache lines) is an instance of `move_speedup_le`. A field switch (DP4A to MMA instruction width) cannot satisfy its hypothesis (`width_no_DemandRatioBound`); its bound is `instrWidth_speedup_le`.
+- The unchanged FMA term bounds a walk-count reduction below the demand ratio: walk 3 to 1 gives a ratio strictly between 1 and 3 (`walk_mix`), consistent with the measured 1.91x.
+
 Stop and rollback: three failed approaches on one theorem or five patch-and-rebuild cycles stops the lane. A refuted prediction is recorded and refines the model; it does not close the row.
 
 ---
