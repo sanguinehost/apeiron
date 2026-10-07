@@ -21,6 +21,7 @@ import Perf.Roofline
 import Perf.Concurrency
 import Perf.Instances
 import Perf.Chain
+import Perf.Issue
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -309,3 +310,13 @@ import Perf.Chain
 #audit Perf.Chain.merge_saves
 #audit Perf.Chain.chain_fuse_ratio
 #audit Perf.Chain.chain_fuse_pair_saving
+
+-- Row: `perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX` (PERF-THEORY, W2d): the shared issue-port
+-- cut, the slot move gain and the lever ceiling (`Perf/Issue.lean`).
+#audit Perf.shared_ge_timeLB
+#audit Perf.shared_strict
+#audit Perf.slot_move_gain
+#audit Perf.slot_move_gain_sub
+#audit Perf.lever_ceiling
+#audit Perf.loopRes_sharedLB
+#audit Perf.loopRes_issue_strict
