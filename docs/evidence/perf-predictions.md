@@ -5,7 +5,8 @@ Row `perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX` (W3). A prediction is commi
 | id | case | cost equation | prediction | refuted if | measured | verdict |
 |---|---|---|---|---|---|---|
 | P1 | ATTN-HD128: online softmax with one K/V walk at hd=128, node ratio old/new | binding field is shared-slab bytes; walks 3 to 1; the FMA term is unchanged and bounds the ratio below 3 (`walk_mix`); hd=128 forces a smaller tile, which lowers reuse per staged slab | point 1.8, band [1.5, 1.95] | outside [1.4, 2.05] over at least 5 interleaved rounds | none: the old arm does not exist at hd=128 (exact tile K slab 65536 B > `WG_SHARED_MAX` 49152 B) | untestable as stated |
-| P2 | DECODE-SPLITK: qwen05b Q4_K_M tg128, raise split-K / workgroup occupancy of the fused `qkv` and `gu` GEMVs (`src/gpu/decode/layer.rs`, `spec.rs`); `o`, `rope`, `flash`, `dn` untouched | per dispatch `t_i >= max(W_i/865 GB/s, floor_i)` with `floor_i = 1.14 us` (empty dependent dispatch) plus the dependent memory phases inside the kernel; the in-tree small kernel `o` (0.9 MB) already runs at 4.06 us, which sets the observed floor for a one-pass small GEMV at about 4 us; the serialized chain sum (1344 us at conc 1) binds | qkv 9.66 to 4.6 us each [3.5, 6.5]; gu 17.85 to 13.3 us each [12.0, 15.5]; `o` unchanged [3.5, 4.1]; token 1348 to 1118 us; tg128 steady 741.7 to 890 tok/s, band [800, 930] | tg128 steady mean outside [770, 960], or qkv below 3.0 us each, or `o` changed by more than 10% | open | open |
+| P2 | DECODE-SPLITK: qwen05b Q4_K_M tg128, raise split-K / workgroup occupancy of the fused `qkv` and `gu` GEMVs (`src/gpu/decode/layer.rs`, `spec.rs`); `o`, `rope`, `flash`, `dn` untouched | per dispatch `t_i >= max(W_i/865 GB/s, floor_i)` with `floor_i = 1.14 us` (empty dependent dispatch) plus the dependent memory phases inside the kernel; the in-tree small kernel `o` (0.9 MB) already runs at 4.06 us, which sets the observed floor for a one-pass small GEMV at about 4 us; the serialized chain sum (1344 us at conc 1) binds | qkv 9.66 to 4.6 us each [3.5, 6.5]; gu 17.85 to 13.3 us each [12.0, 15.5]; `o` unchanged [3.5, 4.1]; token 1348 to 1118 us; tg128 steady 741.7 to 890 tok/s, band [800, 930] | tg128 steady mean outside [770, 960], or qkv below 3.0 us each, or `o` changed by more than 10% | qkv best 7.56 us (8192; outside); gu 16.3 to 17.8 us (outside); `o` 4.03 to 4.33 us (inside); tg128 shipped default 710.7 [706.6, 712.9], best arm 721.2 [701.5, 734.6] against 709.8 [687.5, 721.7] at HEAD dials (outside) | refuted |
+| P3 | DECODE-UNFUSE: qwen05b Q4_K_M tg128, replace the fused RMSNorm+quant+GEMV (`make_fused_gemv`, one 256-thread WG recomputes the norm over x before streaming weights) for `attn_qkv` only by a norm+quant dispatch followed by the bare DP4A GEMV (`make_gemv`); `gu`, `o`, `dn`, `rope`, `flash` untouched | in-WG serial prologue (x load, sumsq and absmax reductions, quantize, barriers) is a dependent chain inside each WG that hides behind weight transport only when other WGs are resident to overlap it; a 1.16 MB `qkv` has about one wave, so the prologue is paid once in series; CUDA's separate `quantize_q8_1` (median 0.8 us) plus a Q5_0/Q8_0 GEMV (median 2.0 us) is the reference for the unfused pair (kernel-to-tensor mapping inferred from ggml type ids) | unfused `qkv` pair 5.5 us total [4.0, 8.0] against 9.57 fused; token 1348 to 1250 us; tg128 ratio after/before 1.078 [1.03, 1.12] (same-session interleaved) | ratio below 1.02 or above 1.15, or unfused pair outside [3.5, 9.0] us | open | open |
 
 ## P1 provenance
 
@@ -35,7 +36,29 @@ Board row `inf-decode-measure-E3CPdJamkoVAQSrj96zC6o`. Basis: DECODE-ATTRIB rece
 
 - Baseline (steady, n=20): apeiron q4 741.7 tok/s [693.6, 766.9]; llama.cpp CUDA `ece963f41` 856.0 [845.6, 864.8]; gap 15.4%. Closing it needs about -176 us per token.
 - The lane's own estimate for the same lever took `qkv` to the `lm_head` streaming rate (874 GB/s, 1.4 us each, -253 us, 917 tok/s). P2 rejects that rate for a 1.16 MB kernel: it is below the 4.06 us the 0.9 MB `o` kernel already takes, so the dependent-phase floor binds before bandwidth. Both figures are recorded; the measurement decides between them.
-- P2 predicts the lever alone passes CUDA only at the top of its band (930 against 856 is within the band; the point 890 is 1.04x). It does not predict the other candidates (rope into flash, gate/up carrier).
+- P2's point 890 is 1.04x CUDA (856.0) and the top of the band, 930, is 1.09x. It makes no prediction for the other candidates (rope into flash, gate/up carrier).
+
+## P2 outcome
+
+Lane DECODE-SPLITK (receipt `/home/socol/oc-tmp/escalation/DECODE-SPLITK-RECEIPT.md`, diff `DECODE-SPLITK.diff` not installed). `DEC_SPLITK` swept over {4096 .. 131072}, then per-projection dials; host shared with the desktop (about 30% device utilisation), spreads as reported.
+
+| class | predicted us | measured us | inside |
+|---|---|---|---|
+| qkv | 4.6 [3.5, 6.5] | 9.57 at HEAD; 7.56 best (`DEC_SPLITK_QKV=8192`, segs 8) | no |
+| gu | 13.3 [12.0, 15.5] | 17.52 at HEAD; 16.3 best | no |
+| o | unchanged [3.5, 4.1] | 4.03 to 4.33 | yes |
+| tg128 steady | 890 [800, 930] | 710.7 shipped; 721.2 best arm | no |
+
+- Verdict: refuted. Split-K occupancy moves `qkv` by at most 2 us per dispatch and `gu` by about 1 us; both stay above the band. The ~4 us floor for a one-pass 1.16 MB GEMV is not what binds: `qkv` at 7.56 us is 154 GB/s, 18% of the measured streaming rate.
+- The lever that is faster is gated by fidelity: `qkv` at segs 8 turns `gpu_decode_step_q4` red (first token for "The author of Hamlet is": gpu 32671, cpu 264). Whether that is f32 reassociation or a constraint of `fused_rope_kv_fold` at segs 8 is unresolved.
+- Model consequence: `Perf/Chain.lean` bounds a below-knee dispatch by `L` and says nothing about which field sets `L`; P2 assumed one (dependent phases at about 4 us) and the measurement rejects it for `qkv`. `L` per kernel class is a fitted parameter, not a constant.
+
+## P3 provenance
+
+Board row `inf-decode-measure-E3CPdJamkoVAQSrj96zC6o`. Basis: P2 refuted (`qkv` stays at 7.56 to 9.57 us whatever the split); CUDA census `DECATTR-kern.csv` (llama.cpp CUDA `ece963f41`, 8 generated tokens, medians: `quantize_q8_1` 0.8 us, `mul_mat_vec_q` type 6 and 8 about 2.0 us).
+
+- Direction check against the proved model: `Perf.Chain.fuse_saves_L` says fusing a below-knee pair lowers the dependent-chain bound by `L`. P3 predicts the opposite measured direction (unfusing is faster), so a confirmed P3 means the chain bound is slack for the fused kernel by a term the model lacks: the serial phases inside one workgroup (an intra-WG chain, hidden only by occupancy). A refuted P3 leaves the chain model's direction intact and the `qkv` cost unexplained.
+- The CUDA kernel-to-tensor mapping is inferred from type ids (6 = Q5_0, 8 = Q8_0, 12 = Q4_K, 14 = Q6_K); a short run of 8 tokens, so the figures are census medians, not steady state.
 
 ## Held-out cases still to predict
 
