@@ -77,6 +77,13 @@ W2 findings, row `perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX` (`Perf/Concurr
 - A move takes one of two forms. Same-field demand reduction (walk count, cache lines) is an instance of `move_speedup_le`. A field switch (DP4A to MMA instruction width) cannot satisfy its hypothesis (`width_no_DemandRatioBound`); its bound is `instrWidth_speedup_le`.
 - The unchanged FMA term bounds a walk-count reduction below the demand ratio: walk 3 to 1 gives a ratio strictly between 1 and 3 (`walk_mix`), consistent with the measured 1.91x.
 
+W2c findings, row `perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX` (`Perf/Chain.lean`, grade `proved`; `c`, `L` and the dispatch sizes `model`):
+
+- A chain of dependent dispatches costs a sum, not a max: `chainLB = sum max(ceil(W/c), L)`; it is at least `#dispatches * L` and at least the byte roofline (`chain_ge_bytes`, `chain_tax`).
+- Knee: `dispLB = L` iff `W <= c * L` (`knee`). Reducing bytes of a dispatch at or below the knee leaves the bound unmoved. At c=865 B/ns and L=4000 ns the knee is 3.46 MB: decode `qkv` (1.16 MB) and `o` (0.9 MB) are below it; `gu`, `dn`, `lm_head` above.
+- Below the knee the move is fewer dispatches: fusing a below-knee pair saves exactly `L` (`fuse_saves_L`), identical below-knee groups divide the bound by `g` (`chain_fuse_ratio`). Above the knee fusion saves at most `L` per pair (`fuse_le`).
+- `L` is a parameter, not derived. The instance counts only the 4 weight dispatches per layer plus `lm_head` (bound 746 us per token); the measured token is 1344 us over 150 dispatches. 150 dispatches at L=4 us bound 600 us, so the remaining gap is unattributed by this model; fitting `L` per kernel class is the next measurement, and P2 tests the lever the chain model implies.
+
 Stop and rollback: three failed approaches on one theorem or five patch-and-rebuild cycles stops the lane. A refuted prediction is recorded and refines the model; it does not close the row.
 
 ---
