@@ -7,8 +7,11 @@
 #extension GL_EXT_control_flow_attributes : require
 
 // Cooperative-matrix (tensor-core) causal prefill attention, drop-in for
-// `simt_nn::attn_prefill_tiled_module_m` (same seven bindings, same cache layouts, same dispatch
-// `(nh, ceil(n / BR))`), hd == 64, GQA, one-walk online softmax.
+// `simt_nn::attn_prefill_tiled_module_m` (same cache layouts, same dispatch `(nh, ceil(n / BR))`),
+// hd == 64, GQA, one-walk online softmax. The output is not the f32 attention row but its per-32-block
+// activation chart (`simt_nn::batch::quantize_batch_module`, `dpw = 1`: absmax/127 scale, serial f32
+// sum, round-half-away codes in natural word order), which is all the o-projection reads: the
+// quantize dispatch and the f32 round trip through global memory are folded into the epilogue.
 //
 // One workgroup = one head x BR = 16*NSG query rows; subgroup `sg` owns rows 16*sg .. 16*sg+15 and
 // walks the key slabs of BK = 64 keys:
@@ -46,8 +49,10 @@ layout(set = 0, binding = 1, std430) readonly buffer KC_ { vec4 kc4[]; };
 layout(set = 0, binding = 2, std430) readonly buffer KS_ { float ks[]; };
 layout(set = 0, binding = 3, std430) readonly buffer VC_ { vec4 vc4[]; };
 layout(set = 0, binding = 4, std430) readonly buffer VS_ { float vs[]; };
-layout(set = 0, binding = 5, std430) writeonly buffer ATT_ { float att[]; };
+layout(set = 0, binding = 5, std430) writeonly buffer XQ_ { uint xq[]; };
 layout(set = 0, binding = 6, std430) readonly buffer PAR_ { uint params[]; };
+layout(set = 0, binding = 7, std430) writeonly buffer XSC_ { float xsc[]; };
+layout(set = 0, binding = 8, std430) writeonly buffer XSM_ { float xsm[]; };
 
 // sP doubles as the query stage (BR rows x HD halves, the same stride) before the walk starts
 shared f16vec4 sP[BR * ST4];
@@ -56,12 +61,14 @@ shared f16vec4 sV[BK * ST4]; // [key][d]
 shared float sS[BR * SSTR];  // S tile, then the O tile for the epilogue
 shared float sAl[BR];        // per-row alpha, then per-row denominator
 shared float sKs[BK];        // ks[key] * SCALE of the slab
+shared float sQs[BR * 2];    // per-(row, 32-block) chart scale of the epilogue
 
 #define FRAG_F coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
 #define FRAG_A coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA>
 #define FRAG_B coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB>
 
 const float NEG = -1.0e30;
+const float INV127 = 1.0 / 127.0;
 
 void main() {
     const uint tid = gl_LocalInvocationIndex;
@@ -213,13 +220,55 @@ void main() {
     }
     subgroupMemoryBarrierShared();
     subgroupBarrier();
+    // normalized rows back into this subgroup's own rows of sS (the f32 values the unfused kernel
+    // stored to global memory: same division)
     [[unroll]] for (uint r = 0u; r < 16u; ++r) {
-        uint ir = i0 + sg * 16u + r;
+        float inv = sAl[sg * 16u + r];
+        uint so = (sg * 16u + r) * SSTR;
+        sS[so + lane] = sS[so + lane] / inv;
+        sS[so + lane + 32u] = sS[so + lane + 32u] / inv;
+    }
+    subgroupMemoryBarrierShared();
+    subgroupBarrier();
+    // chart scale and sum: lane = (row, block), the serial order of `quantize_batch_module`
+    {
+        const uint r = lane >> 1;
+        const uint blk = lane & 1u;
+        const uint so = (sg * 16u + r) * SSTR + blk * 32u;
+        float mx = 1.0e-12;
+        float sm = 0.0;
+        for (uint j = 0u; j < 32u; ++j) {
+            float v = sS[so + j];
+            mx = max(mx, abs(v));
+            sm = sm + v;
+        }
+        const float sc = mx * INV127;
+        sQs[(sg * 16u + r) * 2u + blk] = sc;
+        const uint ir = i0 + sg * 16u + r;
         if (ir < nn) {
-            float inv = sAl[sg * 16u + r];
-            uint base = ir * qn + hb;
-            att[base + lane] = sS[(sg * 16u + r) * SSTR + lane] / inv;
-            att[base + lane + 32u] = sS[(sg * 16u + r) * SSTR + lane + 32u] / inv;
+            xsc[ir * (qn / 32u) + hb / 32u + blk] = sc;
+            xsm[ir * (qn / 32u) + hb / 32u + blk] = sm;
+        }
+    }
+    subgroupMemoryBarrierShared();
+    subgroupBarrier();
+    // codes: 16 rows x 16 words per subgroup, four consecutive values per word
+    [[unroll]] for (uint it = 0u; it < 8u; ++it) {
+        const uint idx = lane + it * 32u;
+        const uint r = idx >> 4;
+        const uint w = idx & 15u;
+        const uint ir = i0 + sg * 16u + r;
+        const float sx = sQs[(sg * 16u + r) * 2u + (w >> 3)];
+        const uint so = (sg * 16u + r) * SSTR + w * 4u;
+        uint word = 0u;
+        [[unroll]] for (uint b = 0u; b < 4u; ++b) {
+            float q = sS[so + b] / sx;
+            q = q + (q > 0.0 ? 0.5 : -0.5);
+            q = max(min(q, 127.0), -127.0);
+            word |= (uint(int(q)) & 0xFFu) << (8u * b);
+        }
+        if (ir < nn) {
+            xq[ir * (qn / 4u) + hb / 4u + w] = word;
         }
     }
 }
