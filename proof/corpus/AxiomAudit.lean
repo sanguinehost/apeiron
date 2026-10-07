@@ -28,6 +28,7 @@ import Perf.MapMoves
 import Perf.Identity
 import Perf.AttnCoop
 import Perf.IdentityFloat
+import Perf.Overlap
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -384,6 +385,21 @@ import Perf.IdentityFloat
 #audit Perf.Float.drop4_changes
 #audit Perf.Float.drop5_changes
 #audit Perf.Float.identity_floor
+
+-- Row: `perf-formal-residual-the-GN58EBVOKETdWwQ9hShVHE` (FORMAL-OVERLAP, debt P9): the two-phase
+-- overlap model and the P8/P9 instance (`Perf/Overlap.lean`).
+#audit Perf.ceilDiv_add_of_dvd
+#audit Perf.maxVec_add_le
+#audit Perf.fieldMax_add
+#audit Perf.overlap_le_seq
+#audit Perf.overlap_ge_max
+#audit Perf.overlap_no_gain_of_shared_binding
+#audit Perf.overlap_full_of_disjoint
+#audit Perf.p8_disjoint
+#audit Perf.p8_overlap_full
+#audit Perf.p8_seq
+#audit Perf.p8_overlap_predicted_gain
+#audit Perf.residual_not_in_fields
 
 -- Row: `perf-formal-residual-the-GN58EBVOKETdWwQ9hShVHE` (RESIDUAL-IDENTITY): the fixed-grid
 -- rounding model, the node-deletion family and its identity floor (`Perf/Identity.lean`).

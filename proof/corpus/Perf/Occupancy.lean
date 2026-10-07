@@ -244,19 +244,22 @@ theorem residentMin_committed :
   norm_num [residentMin, residentWG, sharedWG]
 
 /-!
-## 5 · P9 (pipeline depth) as an open obligation
+## 5 · P9 (pipeline depth): the overlap model lives in `Perf/Overlap.lean`
 
-OPEN: pipeline-depth overlap needs a second-phase overlap model. `docs/evidence/perf-predictions.md`
-P9 (outcome) issued the MMAs of a `K32` block before the previous block's epilogues and measured the
-node no faster (node ratio `0.947`, pp512 `-4.6%`), so the dependency reading of the P8 residual is
-refuted for those two schedules and no theorem here decides it. The formalisation audit of
-`docs/epics/resource-guided-evolution.md` records P9 as "a second resident phase overlaps only if
-its resource is idle during the first" and marks it OPEN: overlap model, BACKFILL-OCC. The model
-this repository still lacks is a schedule of two phases whose second phase is admitted into the
-first phase's interval exactly when the second phase's resource field is idle (unloaded by the
-first) during that interval. `Perf.timeLBc` amortizes one chain over `conc` independent chains but
-does not carry which resource a concurrent phase uses, so it can neither state nor refute the P9
-overlap. No theorem is fabricated for it here.
+`docs/evidence/perf-predictions.md` P9 (outcome) issued the MMAs of a `K32` block before the previous
+block's epilogues and measured the node no faster (node ratio `0.947`, pp512 `-4.6%`), so the
+dependency reading of the P8 residual is refuted for those two schedules. The overlap schedule the
+audit records as missing is stated and decided in `Perf/Overlap.lean`: `Res.add` sums the per-field
+demands and takes the maximum chain depth, `overlapLB m A B = timeLB m (A.add B)` is the overlapped
+bound against `seqLB m A B = timeLB m A + timeLB m B`, and `overlap_le_seq`, `overlap_ge_max`,
+`overlap_no_gain_of_shared_binding` (a shared binding field with exact step demands gains nothing)
+and `overlap_full_of_disjoint` (disjoint phases overlap fully) decide the two-phase case. The P8 MMA
+phase (`fMma`) and epilogue (`fFma`/`fAlu`) carry disjoint fields, so `overlap_full_of_disjoint`
+predicts the full overlap `max 680.7 469.8 us` — a gain the P9 measurement did not show, so disjoint resource fields are not sufficient for overlap
+(`p8_overlap_predicted_gain` is the model prediction, refuted by the measurement). The `385.0 us`
+residual is the remainder of the arm decomposition (`residual_not_in_fields`, an arithmetic identity
+over the arm means) and no field carries it.
+No hardware speed follows; the model is over `Nat` field demands with declared machine parameters.
 -/
 
 end Perf
