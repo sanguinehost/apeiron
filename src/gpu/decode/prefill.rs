@@ -37,7 +37,7 @@ use crate::simt_nn::{coopmat_gemm_bytes, coopmat_gemm_groups, TILE_BN, TILE_KB};
 /// cooperative-matrix kernel's token tile [`TILE_BN`] (64), not the DP4A tiles' 32: the coopmat
 /// kernel carries no token guard, so `bp = ceil(maxb/PREFILL_BT_MAX)·PREFILL_BT_MAX` must be a
 /// multiple of 64 and every scratch buffer it writes (`xq`, `xsc`, `xsm`, `qkv_buf`, `proj_h`,
-/// `gu_buf`, `att_buf`, `acts_buf`, `hout`) is sized in `bp`. For maxb 512 (pp512) and the match
+/// `gu_buf`, `att_buf`, `hout`) is sized in `bp`. For maxb 512 (pp512) and the match
 /// test's maxb 64 that adds no rows; for other maxb it adds up to `32·kmax/4` u32 words per
 /// activation chart and up to `32·m` f32 per output.
 pub const PREFILL_BT_MAX: usize = TILE_BN as usize;
@@ -262,7 +262,6 @@ impl PrefillStack {
         let qkv_buf = z(bp * qkvm as usize);
         let att_buf = z(bp * qn);
         let gu_buf = z(bp * 2 * dff_u);
-        let acts_buf = z(bp * dff_u);
         // power-of-two chart capacities: the last-row gather closes its source index with one `and`
         let qcap = (bp * kmax / 4).next_power_of_two();
         let bcap = (bp * kmax / 32).next_power_of_two();
@@ -497,18 +496,11 @@ impl PrefillStack {
                 l.gu_c,
                 &[l.gu_w, xq, gu_buf, l.gu_dm, xsm, xsc]
             );
-            plan.push(pl.node(
-                "swiglu".to_string(),
-                || swiglu_batch_bytes(dff),
-                &[gu_buf, acts_buf],
-                1,
-                Gy::Batch,
-            ));
             let dqd = dpw(l.dn_c);
             plan.push(pl.node(
-                format!("quant_{dff}_{dqd}"),
-                || quantize_batch_bytes(dff, dqd),
-                &[acts_buf, xq, xsc, xsm],
+                format!("swiglu_quant_{dff}_{dqd}"),
+                || swiglu_quant_batch_bytes(dff, dqd),
+                &[gu_buf, xq, xsc, xsm],
                 1,
                 Gy::Batch,
             ));
