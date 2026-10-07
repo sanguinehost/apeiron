@@ -998,6 +998,32 @@ eigenvalue) for parity, the elliptic face has it at `θ=π`. Prior art not retri
 tracking in linear recurrences (arXiv 2411.12537, title from memory; a pointer, not evidence). Not covered:
 input-dependent `θ` per token, trained gates, more than two states, readout beyond a threshold.
 
+#### FACES-R2 position-code experiment (row `faces-r2-each-on-the-and-BegLX7J1BhlO8MfCu6nnZd`)
+
+Command: `python3 /home/socol/oc-tmp/escalation/FACES-R2-poscode.py` (numpy; output `FACES-R2-poscode.out`; prediction in the
+script header, written before the run). Score as a function of offset `d` is a linear combination of a 16-pair bank of one
+face's orbit (`cos/sin`, `1/d`, `cosh/sinh` of `θ_j d`); minimum-norm least squares (SVD, rank cut `1e-9`) fits a target on
+`d<L=64`; the test takes the argmax over `d<4L`. Peak task: Gaussian bump (width 2) at offset `k`, 10 values of `k` in 5..59.
+Recency task: target `−d/L`, success is argmax at `d=0`. Grade `tested` (toy; a least-squares fit, not a trained network).
+
+| face | peak argmax=k at `L` | peak at `4L` | recency (`L`, `4L`) | numerical rank |
+|---|---|---|---|---|
+| elliptic | 1.00 | 0.00 | (1, 0) | 23 |
+| parabolic | 0.00 | 0.00 | (1, 1) | 2 |
+| hyperbolic | 0.60 | 0.30 | (1, 1) | 10 |
+
+Against the prediction: held for parabolic (0.00 peak, recency 1/1: an affine score has its argmax at an edge) and for elliptic
+peak at `L` (1.00) and elliptic recency at `4L` (0 against the predicted ≤0.5). Missed: elliptic peak at `4L` is 0.00 against
+the predicted ≥0.7, and hyperbolic peak at `L` is 0.60 against the predicted ≤0.5 (a bank of ten effective exponentials can
+form a bump; the claim that exponentials cannot peak holds for one pair only). The refutation conditions as written
+(parabolic peak >0.1; elliptic peak at `L` <0.9; parabolic recency at `4L` <1.0 while elliptic is 1.0) did not fire, so the
+row stands; the extrapolation prediction for the elliptic bank is refuted. Reading (`model`): on this task only the elliptic bank
+fits a peak exactly in range, the parabolic bank cannot peak and is the only one whose recency survives `4L` together with
+the hyperbolic bank; the elliptic bank's failure at `4L` follows from a fit with rank 23 and no constraint outside `d<L`, so the
+out-of-range score is whatever the bank does there. Not covered: gradient training, a constrained fit (e.g. only pairs with
+period above `4L`, which is the Inönü–Wigner limit of the contraction table above), other `N`, other bump widths, softmax
+normalisation over the keys, any trained checkpoint. The decode-chain experiment still waits for a quiet GPU.
+
 Consequence: the faces are not interchangeable per component. Each row lists a capability one face
 has and the others lack (peak at offset, extrapolation, forgetting, definite normaliser, key
 recovery from address, overlap), so a variant that kept all invariants on every base would be flagged
