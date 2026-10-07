@@ -23,7 +23,7 @@
 //! in the same invocation).
 //!
 //! `cargo run --release --locked --features gpu --example gemm_bench -- [--reps N] [--model PATH]
-//! [--shape NAME] [--stats] [--ir DIR] [--blob DIR] [--variants DIR] [--grid FILE]
+//! [--shape NAME] [--synth M K] [--stats] [--ir DIR] [--blob DIR] [--variants DIR] [--grid FILE]
 //! [--spv-cache DIR] [--ledger FILE]` — `--shape` keeps one shape (the implied pp512 then needs all
 //! four and is skipped), `--stats` prints the driver's pipeline statistics (registers, spills),
 //! `--blob DIR` writes each kernel's one-pipeline cache blob (the SM120 SASS:
@@ -405,12 +405,26 @@ fn main() {
     let mut grid_file: Option<String> = None;
     let mut spv_cache = PathBuf::from(DEFAULT_SPV_CACHE);
     let mut ledger = PathBuf::from(DEFAULT_LEDGER);
+    let mut synth: Option<(usize, usize)> = None;
     while let Some(a) = args.next() {
         match a.as_str() {
             "--reps" => reps = args.next().and_then(|v| v.parse().ok()).expect("--reps N"),
             "--model" => model = args.next().expect("--model PATH"),
             "--shape" => only = Some(args.next().expect("--shape NAME")),
             "--stats" => stats_on = true,
+            "--synth" => {
+                let mut dim = |w: &str| -> usize {
+                    args.next()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or_else(|| panic!("--synth M K: {w}"))
+                };
+                let (m, k) = (dim("M"), dim("K"));
+                assert!(
+                    m % 16 == 0 && k % 64 == 0,
+                    "--synth needs M % 16 == 0 and K % 64 == 0"
+                );
+                synth = Some((m, k));
+            }
             "--blob" => blob_dir = Some(args.next().expect("--blob DIR")),
             "--variants" => variants_dir = Some(args.next().expect("--variants DIR")),
             "--grid" => grid_file = Some(args.next().expect("--grid FILE")),
@@ -493,7 +507,11 @@ fn main() {
     }
 
     let vk = unsafe { Vk::load() }.expect("Vulkan device");
-    let gguf = Gguf::open(&model).expect("gguf open");
+    let gguf = if synth.is_none() {
+        Some(Gguf::open(&model).expect("gguf open"))
+    } else {
+        None
+    };
     let (g, _stage) = GpuCtx::new(&vk).expect("GpuCtx::new");
     let lw = local_wg();
     let n = TOKENS as usize;
@@ -510,25 +528,42 @@ fn main() {
     );
 
     let l0 = |s: &str| format!("blk.0.{s}.weight");
-    let groups: [(&'static str, Vec<String>); 4] = [
+    let mut groups: Vec<(&'static str, Vec<String>)> = vec![
         ("qkv", vec![l0("attn_q"), l0("attn_k"), l0("attn_v")]),
         ("o", vec![l0("attn_output")]),
         ("gate_up", vec![l0("ffn_gate"), l0("ffn_up")]),
         ("down", vec![l0("ffn_down")]),
     ];
+    if let Some((sm, sk)) = synth {
+        // synthetic shape: one group of random weights at (m, k); the model is not read
+        let label: &'static str = Box::leak(format!("synth{sm}x{sk}").into_boxed_str());
+        groups = vec![(label, vec![String::new()])];
+    }
     let mut cases: Vec<Case> = Vec::new();
     for (name, names) in &groups {
         if only.as_deref().is_some_and(|o| o != *name) {
             continue;
         }
-        let rows: Vec<Vec<f32>> = names
-            .iter()
-            .map(|nm| {
-                let t = gguf.header.tensor(nm).expect("tensor");
-                dequant_rows(&gguf, nm, 0, t.dims[1] as usize).expect("dequant")
-            })
-            .collect();
-        let k = gguf.header.tensor(&names[0]).expect("tensor").dims[0] as usize;
+        let (rows, k): (Vec<Vec<f32>>, usize) = match (&gguf, synth) {
+            (Some(gguf), _) => {
+                let rows = names
+                    .iter()
+                    .map(|nm| {
+                        let t = gguf.header.tensor(nm).expect("tensor");
+                        dequant_rows(gguf, nm, 0, t.dims[1] as usize).expect("dequant")
+                    })
+                    .collect();
+                let k = gguf.header.tensor(&names[0]).expect("tensor").dims[0] as usize;
+                (rows, k)
+            }
+            (None, Some((sm, sk))) => {
+                let w = (0..sm * sk)
+                    .map(|_| (rng.next() % 2001) as f32 * 1e-3 - 1.0)
+                    .collect();
+                (vec![w], sk)
+            }
+            (None, None) => unreachable!("synth is set when the model is not opened"),
+        };
         let refs: Vec<&[f32]> = rows.iter().map(Vec::as_slice).collect();
         let (ku, blocks) = (k, k / 32);
         let xq: Vec<u32> = (0..n * ku / 4).map(|_| rng.next()).collect();
@@ -851,7 +886,7 @@ fn main() {
         println!("COOPMAT NOT OK");
         std::process::exit(3);
     }
-    if only.is_some() {
+    if only.is_some() || synth.is_some() {
         return;
     }
     // implied pp512: replace each receipt GEMM node by node · (coopmat/dp4a) of its shape
