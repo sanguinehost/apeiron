@@ -28,6 +28,9 @@ use super::*;
 #[derive(Clone, Copy)]
 enum QSrc {
     Shared(u32, u32),
+    /// Shared with one pad float per 32 (`idx + idx/32`): the per-block walk reads stride 32, which
+    /// on an unpadded array lands every lane on one bank.
+    SharedPad(u32, u32),
     Global(u32, u32),
 }
 
@@ -35,6 +38,12 @@ impl QSrc {
     fn load(self, k: &mut Kb, idx: u32) -> u32 {
         match self {
             QSrc::Shared(v, p) => k.shared_load(v, p, idx),
+            QSrc::SharedPad(v, p) => {
+                let c32 = k.cu(32);
+                let q = k.udiv(idx, c32);
+                let pi = k.iadd(idx, q);
+                k.shared_load(v, p, pi)
+            }
             QSrc::Global(b, off) => {
                 let i = k.iadd(off, idx);
                 k.load_f(b, i)
@@ -736,20 +745,31 @@ pub fn last_row_gather_bytes(qwords: u32, blocks: u32, qmask: u32, bmask: u32) -
     bytes(last_row_gather_module(qwords, blocks, qmask, bmask))
 }
 
-/// **Batched SwiGLU** — `a[j] = silu(gate[j])·up[j]` over a whole chunk. Bindings: 0 = gu (f32,
-/// `2·dff` per position: gate then up), 1 = acts (f32, `dff` per position). Dispatch `(1, B)` at
-/// LocalSize 256.
-pub fn swiglu_batch_module(dff: u32) -> Vec<u32> {
+/// **Batched SwiGLU + activation-quantize, one workgroup per position** — `a[j] = silu(gate[j])·up[j]`
+/// staged in workgroup memory, then the DP4A chart of [`Kb::quantize_at`] built from it. Replaces
+/// the pair (SwiGLU to a global `acts` buffer, then [`quantize_batch_module`] over it): `a` is
+/// bit-identical (it still passes through memory, so no multiply-add contraction reaches the
+/// quantizer's `Σx`), and never crosses global memory.
+///
+/// Bindings: 0 = gu (f32, `2·dff` per position: gate then up), 1 = xq, 2 = scales, 3 = xs.
+/// Dispatch `(1, B)` at LocalSize 256.
+///
+/// Cost per workgroup: `dff/256` iterations of 2 loads + 1 exp + 1 div, `dff/32` serial 32-element
+/// block walks, `dff/4` words; shared `4·(dff + dff/32 + dff/32)` bytes (20.2 KB at `dff = 4864`).
+pub fn swiglu_quant_batch_module(dff: u32, dpw: u32) -> Vec<u32> {
     const WG: u32 = 256;
+    assert!(dff % 32 == 0, "the activation chart is per-32-block");
     let mut k = Kb::new();
     let gu = k.ssbo_f(0);
-    let acts = k.ssbo_f(1);
+    let xq = k.ssbo_u(1);
+    let scales = k.ssbo_f(2);
+    let xs = k.ssbo_f(3);
+    let (act, actp) = k.shared_f32(dff + dff / 32);
     let tid = k.gid_comp(0);
     let i = k.gid_comp(1);
     let cd = k.cu(dff);
     let c2d = k.cu(2 * dff);
     let gbase = k.imul(i, c2d);
-    let abase = k.imul(i, cd);
     let cwg = k.cu(WG);
     k.loop_step(tid, cd, cwg, |k, j| {
         let gi = k.iadd(gbase, j);
@@ -762,9 +782,28 @@ pub fn swiglu_batch_module(dff: u32) -> Vec<u32> {
         let den = k.fadd(one, ex);
         let sil = k.fdiv(g, den);
         let v = k.fmul(sil, u);
-        let ai = k.iadd(abase, j);
-        k.store_f(acts, ai, v);
+        let c32 = k.cu(32);
+        let q = k.udiv(j, c32);
+        let pj = k.iadd(j, q);
+        k.shared_store(act, actp, pj, v);
     });
+    k.wg_barrier();
+    let cq = k.cu(dff / 4);
+    let qoff = k.imul(i, cq);
+    let cb = k.cu(dff / 32);
+    let boff = k.imul(i, cb);
+    k.quantize_at(
+        QSrc::SharedPad(act, actp),
+        xq,
+        qoff,
+        scales,
+        xs,
+        boff,
+        dff,
+        dpw,
+        tid,
+        WG,
+    );
     k.finish(WG)
 }
 
@@ -988,9 +1027,9 @@ pub fn rmsnorm_batch_q_bytes(n: u32, eps: f32, dpw: u32, residual: bool) -> Vec<
 pub fn quantize_batch_bytes(n: u32, dpw: u32) -> Vec<u8> {
     bytes(quantize_batch_module(n, dpw))
 }
-/// [`swiglu_batch_module`] as bytes.
-pub fn swiglu_batch_bytes(dff: u32) -> Vec<u8> {
-    bytes(swiglu_batch_module(dff))
+/// [`swiglu_quant_batch_module`] as bytes.
+pub fn swiglu_quant_batch_bytes(dff: u32, dpw: u32) -> Vec<u8> {
+    bytes(swiglu_quant_batch_module(dff, dpw))
 }
 /// [`qkv_rope_batch_module`] as bytes.
 #[allow(clippy::too_many_arguments)]
