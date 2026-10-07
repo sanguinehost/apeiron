@@ -382,6 +382,22 @@ impl Kb {
 /// 4 = scales (f32 per 32-block), 5 = xs (f32 `Σx` per 32-block), 6 = h (f32 normalized out).
 /// Dispatch `(1, B)` at LocalSize 256; `gl_GlobalInvocationId.y` is the position.
 pub fn rmsnorm_batch_q_module(n: u32, eps: f32, dpw: u32, residual: bool) -> Vec<u32> {
+    rmsnorm_batch_q_impl(n, eps, dpw, residual, true)
+}
+
+/// [`rmsnorm_batch_q_module`] with binding 6 (`h`) **not written**. The resident prefill path binds
+/// `hbuf` to every intermediate norm (norm1/norm2 of each layer) and reads it from no later node;
+/// only the final norm's `hout` is read back to the host (`prefill.rs`, the last-row hidden copy).
+/// Skipping the dead store removes `n·4` bytes of L2 write traffic per node with the chart
+/// (`xq`/`scales`/`xs`) and the shared `nrm` path arithmetically untouched. The caller must not read
+/// binding 6 when it uses this entry.
+pub fn rmsnorm_batch_q_noh_module(n: u32, eps: f32, dpw: u32, residual: bool) -> Vec<u32> {
+    rmsnorm_batch_q_impl(n, eps, dpw, residual, false)
+}
+
+/// Shared body of [`rmsnorm_batch_q_module`] / [`rmsnorm_batch_q_noh_module`]. `emit_h` selects
+/// whether binding 6 is written.
+fn rmsnorm_batch_q_impl(n: u32, eps: f32, dpw: u32, residual: bool, emit_h: bool) -> Vec<u32> {
     const WG: u32 = 256;
     assert!(n % 32 == 0, "the activation chart is per-32-block");
     let mut k = Kb::new();
@@ -414,6 +430,8 @@ pub fn rmsnorm_batch_q_module(n: u32, eps: f32, dpw: u32, residual: bool) -> Vec
         });
     }
     // ── strided sumsq → shared tree reduce → rsqrt → scale into shared `nrm`
+    // The fmul/fadd accumulation order is the strided loop's ascending `j`, unchanged from the
+    // committed kernel, so Σx² and every value the chart is built from stay bit-identical.
     let acc = k.fvar_f();
     let zero = k.cf(0.0);
     k.store_var(acc, zero);
@@ -443,7 +461,9 @@ pub fn rmsnorm_batch_q_module(n: u32, eps: f32, dpw: u32, residual: bool) -> Vec
         let sc = k.fmul(xv, inv);
         let v = k.fmul(sc, gv);
         k.shared_store(nrm, nrmp, j, v);
-        k.store_f(hout, idx, v);
+        if emit_h {
+            k.store_f(hout, idx, v);
+        }
     });
     k.wg_barrier();
     k.quantize_at(
@@ -1067,6 +1087,11 @@ pub fn qkv_rope_batch_module(
 /// [`rmsnorm_batch_q_module`] as bytes.
 pub fn rmsnorm_batch_q_bytes(n: u32, eps: f32, dpw: u32, residual: bool) -> Vec<u8> {
     bytes(rmsnorm_batch_q_module(n, eps, dpw, residual))
+}
+/// [`rmsnorm_batch_q_noh_module`] as bytes — the resident prefill's intermediate-norm module
+/// (`h`/binding 6 unread; writes only the chart and, conditionally, the residual stream).
+pub fn rmsnorm_batch_q_noh_bytes(n: u32, eps: f32, dpw: u32, residual: bool) -> Vec<u8> {
+    bytes(rmsnorm_batch_q_noh_module(n, eps, dpw, residual))
 }
 /// [`quantize_batch_module`] as bytes.
 pub fn quantize_batch_bytes(n: u32, dpw: u32) -> Vec<u8> {
