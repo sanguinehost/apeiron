@@ -312,11 +312,15 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
         ("quantize_batch", quantize_batch_module(896, 2)),
         (
             "rmsnorm_batch_q",
-            rmsnorm_batch_q_module(896, 1e-6, 2, false),
+            rmsnorm_batch_q_module(896, 1e-6, 2, false, 1),
         ),
         (
             "rmsnorm_batch_q_res",
-            rmsnorm_batch_q_module(896, 1e-6, 2, true),
+            rmsnorm_batch_q_module(896, 1e-6, 2, true, 1),
+        ),
+        (
+            "rmsnorm_batch_q_res_ks3",
+            rmsnorm_batch_q_module(896, 1e-6, 2, true, 3),
         ),
         ("swiglu_quant_batch", swiglu_quant_batch_module(4864, 2)),
         (
@@ -482,11 +486,11 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
 /// * `fusedropekv` (`src/simt_nn/glue.rs::fused_rope_kv_fold_module`) is no longer here: the
 ///   rope-leader hand-off now crosses invocations through workgroup memory (`red`/`sval`), as
 ///   `src/simt_nn/batch.rs::qkv_rope_batch_module` does.
-/// * `rmsqsb`, `rmsnorm_batch_q_res` (`src/simt_nn/batch.rs`): the `residual` prologue folds
+/// * `rmsqsb`, `rmsnorm_batch_q_res`, `rmsnorm_batch_q_res_ks3` (`src/simt_nn/batch.rs`): the `residual` prologue folds
 ///   `x[idx] += res[idx]` in `loop_step(tid, n, WG)` at `idx = i·n + j`, and the later sumsq/scale
 ///   loops read `x` at the identical `idx` with the identical `tid`/`WG` stride. Same lane, same
 ///   element; the separating barriers order the shared reduction, not this read.
-const ALLOW: &[&str] = &["rmsqsb", "rmsnorm_batch_q_res"];
+const ALLOW: &[&str] = &["rmsqsb", "rmsnorm_batch_q_res", "rmsnorm_batch_q_res_ks3"];
 
 #[test]
 fn no_unexpected_cross_invocation_storage_race() {
