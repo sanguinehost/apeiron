@@ -18,6 +18,8 @@ import Map.ExecutedBuild
 import Map.ExecutedBuildWitness
 import Spirv.Carrier
 import Perf.Roofline
+import Perf.Concurrency
+import Perf.Instances
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -278,3 +280,19 @@ import Perf.Roofline
 #audit Perf.fusion_reduces_latency
 #audit Perf.fanout_forces_cost
 #audit Perf.scalar_not_sufficient
+
+-- Row: `perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX` (PERF-THEORY, W2): latency hiding on the
+-- carrier (`Perf/Concurrency.lean`) and the width, walk-count and cache-line moves as instances of
+-- the move bound (`Perf/Instances.lean`).
+#audit Perf.timeLBc_mono_conc
+#audit Perf.latency_hidden
+#audit Perf.latency_bound_below_hidden
+#audit Perf.fusion_hides_the_coreduction
+#audit Perf.fused_strictly_beats_isolated
+#audit Perf.instrWidth_speedup_le
+#audit Perf.width_no_DemandRatioBound
+#audit Perf.walk_demandRatio
+#audit Perf.walk_speedup
+#audit Perf.walk_mix
+#audit Perf.map01_line_control
+#audit Perf.map01_move_speedup
