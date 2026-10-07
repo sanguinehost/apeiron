@@ -344,19 +344,25 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
         // reverse-tile, one-walk online softmax, and both
         (
             "attn_tiled_m0",
-            attn_prefill_tiled_module_m(14, 2, 64, 1152, 2048, 0.125, 32, 4, 2, false, 0),
+            attn_prefill_tiled_module_m(14, 2, 64, 1152, 2048, 0.125, 32, 4, 2, 1, false, 0),
         ),
         (
             "attn_tiled_m1",
-            attn_prefill_tiled_module_m(14, 2, 64, 1152, 2048, 0.125, 32, 4, 2, false, 1),
+            attn_prefill_tiled_module_m(14, 2, 64, 1152, 2048, 0.125, 32, 4, 2, 1, false, 1),
         ),
         (
             "attn_tiled_m2",
-            attn_prefill_tiled_module_m(14, 2, 64, 1152, 2048, 0.125, 32, 4, 2, false, 2),
+            attn_prefill_tiled_module_m(14, 2, 64, 1152, 2048, 0.125, 32, 4, 2, 1, false, 2),
         ),
         (
             "attn_tiled_m3",
-            attn_prefill_tiled_module_m(14, 2, 64, 1152, 2048, 0.125, 32, 4, 2, false, 3),
+            attn_prefill_tiled_module_m(14, 2, 64, 1152, 2048, 0.125, 32, 4, 2, 1, false, 3),
+        ),
+        // the hd=128 dim-split tile `prefill.rs` selects (16 rows, ct=4 so hd/ct=32, kp=4): the K
+        // slab is staged and scored in four 32-dim chunks through the same workgroup buffers
+        (
+            "attn_tiled_hd128",
+            attn_prefill_tiled_module_m(12, 2, 128, 2048, 528, 0.08839, 16, 4, 4, 4, false, 3),
         ),
         (
             "embed_chart_batch",
