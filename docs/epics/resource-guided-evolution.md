@@ -94,6 +94,33 @@ W2d spec, row `perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX` (`Perf/Issue.lean
 - Hypothesis, not a result: composition of times is `max` across parallel cuts and `+` along a chain, the (max,+) semiring; whether it is the Maslov dequantisation of the `sigma > 0` face of `R[x]/(x^2 - sigma)` (idempotents `(1 +- x)/2` as the two extremal paths) is to be tested on `Chain.lean`'s `dispLB` before it is claimed.
 - Gate: `cd proof/corpus && lake build` (Perf). Control: change `p` capacity positivity or drop the `sum` in `timeLB_shared` in a copy; `shared_strict` must go red.
 
+Board: `perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX`.
+
+Formalisation audit (owner, 2026-10-07: every prior and future result carries a Lean theorem or a stated open obligation, and a physical reading). Rule: a prediction row is not recorded with an outcome unless its `Lean` cell names a theorem that builds, or states the open obligation and its lane; its lever ceiling (`W2d spec`) is computed before dispatch. Physical reading = what the machine does to the flow, in terms of ports, latency and occupancy.
+
+| result | Lean | physical reading | open obligation / lane |
+|---|---|---|---|
+| P1, P7, GPU-02 one-walk attention | `Perf.walk_mix`, `walk_speedup`, `walk_demandRatio` (`Instances.lean`) | each walk re-reads the staged slab; bytes per output scale with walks, the FMA term does not, so the gain is bounded below 3 | covered; hd=128 tile refusal (`GPU-03`) has no theorem: BACKFILL-MOVES |
+| P2 split-K / occupancy (refuted) | `Perf.latency_hidden`, `latency_bound_below_hidden`, `timeLBc_mono_conc` (`Concurrency.lean`) | extra workgroups hide latency only while latency, not bytes, binds; a 0.9 MB kernel sits at the dispatch floor | resident-workgroup count not derived from register file: BACKFILL-OCC |
+| P3 unfuse (refuted) | `Perf.fuse_saves_L`, `chain_tax` (`Chain.lean`), direction reversed | splitting adds a dispatch latency `L` per cut while the pair stays below the knee `c*L` | instance with the P3 numbers: BACKFILL-MOVES |
+| P4, P5, P6 prologue chain | `Perf.timeLB` depth term `r.depth * m.latency` (`Roofline.lean`) | a dependent load chain inside a workgroup costs iterations x latency until loads issue together | instance (depth 4 to 1, 32 serial shared loads) absent: BACKFILL-MOVES |
+| P8 max-model refutation | `Perf/Issue.lean` `shared_strict` (LEAN-ISSUE, in flight) | pipes share one issue port, so their slot loads add | residual 385 us unnamed: W2d spec |
+| P9 pipeline depth (refuted) | none | a second resident phase overlaps only if its resource is idle during the first | OPEN: overlap model, BACKFILL-OCC |
+| P10 MMA ceiling | `Perf.timeLB_unit_single` shape only | the tensor pipe has a peak (433.5 TOPS measured); the MMA term / peak = 0.72 bounds any non-MMA move while MMA binds | instance with measured cap: BACKFILL-MOVES |
+| P11, P12 occupancy | none (`timeLBc_mono_conc` is monotonic only) | registers per thread fix resident workgroups per SM: `floor(65536 / (threads x regs))`; 224 regs gives 2, 154 regs gives 3 | OPEN: `residentWG`, quantisation step, BACKFILL-OCC |
+| P13, P14 issue slots | `Perf/Issue.lean` `slot_move_gain`, P13/P14 instance (LEAN-ISSUE, in flight) | one warp scheduler issues one instruction per cycle across all pipes; the loop is 1104 slots, 32 of them tensor | identity floor (rounding count per dropped op) open |
+| P15 swiglu+quant fusion | `Perf.fuse_saves_L`, `merge_saves`, `fusion_hides_the_coreduction` | removing a dispatch removes one drain and one global round trip of the intermediate | instance (638.6 to 258.6 us) absent: BACKFILL-MOVES |
+| P16 padded rms layout (refuted) | `Perf.latency_bound_below_hidden` | the quantize phase is a dependent chain, so bank layout does not change its bound | covered by P4 instance |
+| P17, P18 | pending | pending | prediction rows record the lever ceiling before dispatch |
+| GPU-01 DP4A to int8 coopmat | `Perf.instrWidth_speedup_le` shape only | one MMA does 16x16x32 multiply-adds per issue slot where DP4A does 4 | instance with fDp4a to fMma: BACKFILL-MOVES |
+| GPU-11, GPU-12 gap not dispatch, not bandwidth | `Perf.timeLB_unit_single` | the binding field is the largest ratio; an unloaded field cannot be the gap | covered |
+| CPU-02, 03, 05, 08, 11, 12 dispatch removal | `Perf.chain_tax`, `chain_fuse_ratio`, `fusion_reduces_latency` | a pool dispatch costs a fixed latency; fewer dispatches below the knee save exactly that | per-row instances absent: BACKFILL-MOVES |
+| CPU-06, 09, 10, 13, 14 instruction width | `Perf.instrWidth_speedup_le`, `width_no_DemandRatioBound` | fewer instructions per weight move the ALU field only | covered |
+| CPU-19, 22 to 26 null moves | `Perf.timeLB_unit_single`, `singleField_ne` | relieving a field that does not bind leaves the max unchanged | covered |
+| MAP-01 | `Perf.map01_line_control`, `map01_move_speedup` | one cache line per probe window | covered |
+| MAP-02, 08; COUNT-01 to 03 | none | cache lines touched per lookup | OPEN: per-row `lineInstrRes` instances, BACKFILL-MAP |
+| MAP-09 to 13, COUNT-04 refuted levers | none | no receipt names a binding field | OPEN: receipts carry no numbers; attribute or leave unattributed |
+
 Stop and rollback: three failed approaches on one theorem or five patch-and-rebuild cycles stops the lane. A refuted prediction is recorded and refines the model; it does not close the row.
 
 ---
