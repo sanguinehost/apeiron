@@ -850,3 +850,27 @@ Reading rules: a hypothesis is graded by its falsifier alone. The split-complex 
 `j²=+1`, `j≠±1`, not the complex numbers; no identity is imported from the complex case without
 its own check. `docs/evidence/torus-spinor-sources.md` and `docs/evidence/atlas-lens-corpus.md`
 hold the sources retrieved so far; a source not retrieved is a pointer, not evidence.
+
+### FACES-R1 results (toy representation; shipped code not yet read)
+
+Row: `faces-r1-do-the-three-on-HCnA8ZlHN3emV1nzkVH7V0`.
+
+Command: `python3 /home/socol/oc-tmp/escalation/FACES-R1-orbits.py` (regular representation of
+`R[x]/(x²−σ)` on `(a,b)`, `x·(a+bx)=σb+ax`; matrix exponential by scaling and squaring). Grade
+`tested` for the toy identities; `model` for every statement about a shipped model.
+
+| id | result | grade |
+|---|---|---|
+| H1–H3 | With the `SL₂`-invariant form `J` (every orbit has det 1, so `S(m)ᵀJS(n)=J·S(n−m)`), the score depends on `d=n−m` only, on all three faces: `ω(q,S(d)k)=a·g₀(d)+b·g₁(d)` with `(g₀,g₁)=(cos θd, sin θd)` at `σ=−1`, `(1, θd)` at `σ=0`, `(cosh θd, sinh θd)` at `σ=1`. Least-squares fit exact on `d<60` for each | tested |
+| H1 | elliptic score is periodic in `d` (period `2π/θ`), bounded by `‖q‖‖k‖`: RoPE's aliasing and boundedness | tested (toy) |
+| H2 | parabolic score is affine in `d` (`a + bθd`): the ALiBi form. The shear acts on logits; `exp` carries the additive group to the multiplicative one, so the same bias is a decay on weights. That `ALiBi ≈ exponential decay` is not claimed new | tested (toy) |
+| H3 | hyperbolic score grows as `e^{θd}` (1.8e6 at `d=59`, `θ=0.31`); the orbit is `e^{θ}e₊ + e^{−θ}e₋` with `e₊e₋=0`. A stable hyperbolic position code keeps one idempotent lane (`|λ|<1`): this is the form RetNet and SSM decay take | tested (toy); the reading of RetNet/SSM is `model` |
+| H4 | rotation × scalar decay is a one-parameter group (`R(2)D(2)R(3)D(3)=R(5)D(5)`), a point of the product of the elliptic and hyperbolic orbits | tested (toy) |
+| H5, H6, H7 | not yet run | model |
+
+Caveat: the norm form of `σ=0` is degenerate (`a²`), so the norm-form relative-position check is
+trivial there and `J` is the form that carries position; the first script draft used the transpose
+convention for `x`, which put the shear on the wrong coordinate and reported a norm violation that
+was a convention error. Not covered: whether any checkpoint's heads use these forms (needs the
+shipped rotation code and a trained model), and the line comparing `softmax(l−s·d)` with a
+renormalised decay in the script is an identity by construction and carries no weight.
