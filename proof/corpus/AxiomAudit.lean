@@ -26,6 +26,7 @@ import Perf.Occupancy
 import Perf.Moves
 import Perf.MapMoves
 import Perf.Identity
+import Perf.AttnCoop
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -361,6 +362,15 @@ import Perf.Identity
 #audit Perf.MapMoves.count01_bucketTagDisjoint
 #audit Perf.MapMoves.count02_homeGroupFastPath
 #audit Perf.MapMoves.count03_readPathProduct
+
+-- Row: `inf-resident-prefill-GEB633UfORCK7XSmzJifHd` (ATTN-COOP, P18): the SIMT shared-load
+-- dominance, the staging halving rule, the coopmat node comparison and the pp512 gain
+-- (`Perf/AttnCoop.lean`).
+#audit Perf.simt_issue_bound_dominates
+#audit Perf.staging_halves
+#audit Perf.coop_stage_halves
+#audit Perf.coop_node_below_simt
+#audit Perf.attn_node_gain
 
 -- Row: `perf-formal-residual-the-GN58EBVOKETdWwQ9hShVHE` (RESIDUAL-IDENTITY): the fixed-grid
 -- rounding model, the node-deletion family and its identity floor (`Perf/Identity.lean`).
