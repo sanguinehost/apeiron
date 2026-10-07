@@ -1024,6 +1024,28 @@ out-of-range score is whatever the bank does there. Not covered: gradient traini
 period above `4L`, which is the Inönü–Wigner limit of the contraction table above), other `N`, other bump widths, softmax
 normalisation over the keys, any trained checkpoint. The decode-chain experiment still waits for a quiet GPU.
 
+#### FACES-R2 position code, Inönü–Wigner restriction (row `faces-r2-each-on-the-and-BegLX7J1BhlO8MfCu6nnZd`)
+
+Command: `python3 /home/socol/oc-tmp/escalation/FACES-R2-poscode-IW.py` (output `FACES-R2-poscode-IW.out`; prediction in the script
+header, written before the run). Same fit as above (`L=64`, 16 pairs, minimum-norm least squares, rank cut `1e-9`); the restricted bank keeps only
+elliptic pairs with period `≥ 4L` (`θ ∈ [2π/(8·4L), 2π/(4L)]`), where `cos θd → 1`, `sin θd → θd` and the bank contracts toward the parabolic
+face. Grade `tested` (toy).
+
+| bank | bump width | peak@`L` | peak@`4L` | recency (`L`, `4L`) | rank |
+|---|---|---|---|---|---|
+| elliptic, full | 2 | 1.00 | 0.00 | (1, 0) | 23 |
+| elliptic, full | 16 | 1.00 | 1.00 | | 23 |
+| elliptic, period `≥ 4L` | 2 | 0.40 | 0.20 | (1, 1) | 8 |
+| elliptic, period `≥ 4L` | 16 | 1.00 | 0.40 | | 8 |
+
+Against the prediction: held on every line (restricted width 2: peak@`L` 0.40 ≤ 0.5, peak@`4L` 0.20 ≤ 0.40, recency `(1,1)`; width 16: peak@`4L` 0.40 ≤ 0.5; the full
+bank reproduces the committed 1.00 / 0.00). The refutation conditions (restricted peak@`4L` > 0.5 at width 2; restricted recency@`4L` < 1) did not fire.
+Reading (`model`): restricting the periods removes the elliptic bank's out-of-range failure on recency (`(1,0)` to `(1,1)`) and costs the narrow
+peak (1.00 to 0.40), which is the contraction table's direction; it is not a collapse to the parabolic face, since the restricted bank has rank 8 against the
+parabolic bank's 2 and a width-16 bump is still fitted exactly in range. The full bank's width-16 peak@`4L` of 1.00 against 0.00 at width 2 shows the
+`4L` failure above is a narrow-bump property of the fit, not of the elliptic face as such. Not covered: gradient training, softmax normalisation, a trained
+checkpoint, other `N`. Prior art for the contraction: not searched in this slice; FACES-R3 holds the search record.
+
 Consequence: the faces are not interchangeable per component. Each row lists a capability one face
 has and the others lack (peak at offset, extrapolation, forgetting, definite normaliser, key
 recovery from address, overlap), so a variant that kept all invariants on every base would be flagged
