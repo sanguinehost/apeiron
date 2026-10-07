@@ -1022,3 +1022,96 @@ pub fn attn_tile_shape(hd: u32, rows: u32, rts: u32, ct: u32, kp: u32) -> (u32, 
 pub fn attn_prefill_bytes(nh: u32, nkv: u32, hd: u32, qkvm: u32, tmax: u32, scale: f32) -> Vec<u8> {
     bytes(attn_prefill_module(nh, nkv, hd, qkvm, tmax, scale))
 }
+
+/// Query rows per workgroup of the cooperative-matrix attention kernel (`BR = 16·NSG` in
+/// `src/spirv/attn_coopmat.comp`, committed at `NSG = 4`): the `Gy::Tiles` unit.
+pub const ATTN_COOP_ROWS: u32 = 64;
+
+/// The compiled cooperative-matrix attention kernel (`glslc` [`GLSLC_ARGS`] over
+/// `src/spirv/attn_coopmat.comp`), specialization defaults unpatched.
+pub static ATTN_COOPMAT_SPV: &[u8] = include_bytes!("../spirv/attn_coopmat.spv");
+
+/// Rewrite the default of every 32-bit `OpSpecConstant` whose `SpecId` is a key of `vals` (the
+/// value is the constant's raw word; an `f32` goes in as `to_bits`). Panics when a `SpecId` is
+/// absent: an unpatched constant is a different kernel. Same walk as `coopmat_gemm`'s private
+/// `specialize`, kept local because that file is not this task's.
+///
+/// Cost: two linear passes over the module, O(words) time, O(1) extra space beyond the copy.
+fn attn_coop_specialize(module: &[u32], vals: &[(u32, u32)]) -> Vec<u32> {
+    const OP_DECORATE: u32 = 71;
+    const OP_SPEC_CONSTANT: u32 = 50;
+    const DEC_SPEC_ID: u32 = 1;
+    let mut out = module.to_vec();
+    let mut ids: Vec<(u32, u32)> = Vec::new();
+    let mut i = 5;
+    while i < out.len() {
+        let (len, op) = ((out[i] >> 16) as usize, out[i] & 0xffff);
+        assert!(
+            len > 0 && i + len <= out.len(),
+            "malformed SPIR-V at word {i}"
+        );
+        if op == OP_DECORATE && len == 4 && out[i + 2] == DEC_SPEC_ID {
+            if let Some(&(_, v)) = vals.iter().find(|(s, _)| *s == out[i + 3]) {
+                ids.push((out[i + 1], v));
+            }
+        }
+        i += len;
+    }
+    assert_eq!(ids.len(), vals.len(), "a SpecId is missing from the module");
+    let mut patched = 0;
+    i = 5;
+    while i < out.len() {
+        let (len, op) = ((out[i] >> 16) as usize, out[i] & 0xffff);
+        if op == OP_SPEC_CONSTANT && len == 4 {
+            if let Some(&(_, v)) = ids.iter().find(|(id, _)| *id == out[i + 2]) {
+                out[i + 3] = v;
+                patched += 1;
+            }
+        }
+        i += len;
+    }
+    assert_eq!(
+        patched,
+        vals.len(),
+        "a SpecId names no 32-bit OpSpecConstant"
+    );
+    out
+}
+
+/// **Cooperative-matrix causal prefill attention** (fp16 operands, f32 accumulate): the drop-in
+/// for [`attn_prefill_tiled_module_m`] at `hd == 64` (same seven bindings, same caches, dispatch
+/// `(nh, ceil(n / ATTN_COOP_ROWS))`). `qkvm` and `tmax` must be multiples of 4.
+pub fn attn_prefill_coopmat_module(
+    nh: u32,
+    nkv: u32,
+    qkvm: u32,
+    tmax: u32,
+    scale: f32,
+) -> Vec<u32> {
+    assert!(nkv > 0 && nh % nkv == 0, "GQA needs nkv | nh");
+    assert!(
+        qkvm % 4 == 0 && tmax % 4 == 0 && tmax >= 4,
+        "qkvm and tmax must be multiples of 4"
+    );
+    assert!(ATTN_COOPMAT_SPV.len() % 4 == 0, "SPIR-V is a word stream");
+    let words: Vec<u32> = ATTN_COOPMAT_SPV
+        .chunks_exact(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    assert_eq!(words[0], crate::simt::SPV_MAGIC, "not a SPIR-V module");
+    attn_coop_specialize(
+        &words,
+        &[
+            (0, nh),
+            (1, nkv),
+            (2, qkvm),
+            (3, tmax),
+            (4, scale.to_bits()),
+        ],
+    )
+}
+
+/// [`attn_prefill_coopmat_module`] as bytes.
+pub fn attn_prefill_coopmat_bytes(nh: u32, nkv: u32, qkvm: u32, tmax: u32, scale: f32) -> Vec<u8> {
+    bytes(attn_prefill_coopmat_module(nh, nkv, qkvm, tmax, scale))
+}

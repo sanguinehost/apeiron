@@ -30,7 +30,10 @@
 use super::state::{LayerCfg, LayerW};
 use super::*;
 use crate::simt::gemv_dp4a_batch_rt_bytes;
-use crate::simt_nn::{coopmat_gemm_bytes, coopmat_gemm_groups, TILE_BN, TILE_KB};
+use crate::simt_nn::{
+    attn_prefill_coopmat_bytes, coopmat_gemm_bytes, coopmat_gemm_groups, ATTN_COOP_ROWS, TILE_BN,
+    TILE_KB,
+};
 
 /// Largest batch tile any node picks; activation scratch is padded to a multiple of it so every
 /// node's `ceil(n/bt)*bt` rows stay inside zeroed memory (fold `PREFILL_BT_MAX`). It is the
@@ -363,13 +366,31 @@ impl PrefillStack {
             }
             ok
         });
-        let attn_gy = match tile {
-            Some((rows, _, _, _, _, _)) => Gy::Tiles(rows),
-            None => Gy::Batch,
+        // The cooperative-matrix attention (fp16 operands, f32 accumulate, `attn_coopmat.comp`) is
+        // the default where the device exposes the tensor-core shape and the cut holds; `DEC_ATTN_COOP=0`
+        // pins the SIMT tile (`DEC_ATTN_TILE` set also pins it).
+        let attn_coop = vk.has_coopmat
+            && hd == 64
+            && qkvm % 4 == 0
+            && tmax % 4 == 0
+            && nh % nkv == 0
+            && std::env::var("DEC_ATTN_COOP").map_or(true, |v| v != "0")
+            && std::env::var("DEC_ATTN_TILE").is_err();
+        let attn_gy = if attn_coop {
+            Gy::Tiles(ATTN_COOP_ROWS)
+        } else {
+            match tile {
+                Some((rows, _, _, _, _, _)) => Gy::Tiles(rows),
+                None => Gy::Batch,
+            }
         };
-        let attn_key = match tile {
-            Some((r, s, t, k, f, m)) => format!("attn_tiled_{r}_{s}_{t}_kp{k}_{f}_m{m}"),
-            None => "attn_untiled".to_string(),
+        let attn_key = if attn_coop {
+            format!("attn_coopmat_{ATTN_COOP_ROWS}")
+        } else {
+            match tile {
+                Some((r, s, t, k, f, m)) => format!("attn_tiled_{r}_{s}_{t}_kp{k}_{f}_m{m}"),
+                None => "attn_untiled".to_string(),
+            }
         };
         let mut plan: Vec<PNode> = Vec::with_capacity(layers.len() * 12 + 4);
         // One projection GEMM node: the cooperative-matrix chart kernel when [`coopmat_ok`] holds
@@ -466,6 +487,7 @@ impl PrefillStack {
             plan.push(pl.node(
                 attn_key.clone(),
                 || match tile {
+                    _ if attn_coop => attn_prefill_coopmat_bytes(nh, nkv, qkvm, tmax, scale),
                     Some((rows, rts, ct, kp, fuse, mode)) => attn_prefill_tiled_bytes_m(
                         nh, nkv, hd, qkvm, tmax, scale, rows, rts, ct, kp, fuse, mode,
                     ),

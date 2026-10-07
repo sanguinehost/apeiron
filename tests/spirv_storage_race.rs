@@ -358,6 +358,11 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
             "attn_tiled_m3",
             attn_prefill_tiled_module_m(14, 2, 64, 1152, 2048, 0.125, 32, 4, 2, 1, false, 3),
         ),
+        // the cooperative-matrix attention `prefill.rs` selects at `has_coopmat`, hd = 64
+        (
+            "attn_coopmat",
+            attn_prefill_coopmat_module(14, 2, 1152, 2048, 0.125),
+        ),
         // the hd=128 dim-split tile `prefill.rs` selects (16 rows, ct=4 so hd/ct=32, kp=4): the K
         // slab is staged and scored in four 32-dim chunks through the same workgroup buffers
         (
@@ -534,4 +539,26 @@ fn detector_flags_the_known_race() {
     local.extend(load);
     local.extend(fn_end);
     assert!(analyze("synthetic-local", &local).is_empty());
+}
+
+/// The committed `attn_coopmat.spv` is what `glslc` makes of the committed `attn_coopmat.comp`.
+#[test]
+fn attn_coopmat_spirv_is_the_glsl() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/spirv");
+    let out = std::env::temp_dir().join(format!("attn_coopmat_{}.spv", std::process::id()));
+    let st = std::process::Command::new("glslc")
+        .args(GLSLC_ARGS)
+        .arg(dir.join("attn_coopmat.comp"))
+        .arg("-o")
+        .arg(&out)
+        .status()
+        .expect("glslc must be on PATH: the committed SPIR-V is checked against it");
+    assert!(st.success(), "glslc failed: {st}");
+    let fresh = std::fs::read(&out).expect("glslc output");
+    let _ = std::fs::remove_file(&out);
+    let committed = std::fs::read(dir.join("attn_coopmat.spv")).expect("committed spv");
+    assert!(
+        fresh == committed,
+        "src/spirv/attn_coopmat.spv is stale: recompile with glslc {GLSLC_ARGS:?}"
+    );
 }
