@@ -285,9 +285,18 @@ impl PrefillStack {
             .unwrap_or(3)
             .max(1);
         let o_ks = o_ks_env.min((qn as u32) / 32 / TILE_KB).max(1);
+        // The qkv GEMM splits too (`DEC_QKV_SPLITK`, default 2, 1 = unsplit; S=3 is slower than the
+        // unsplit node); `qkv_rope` folds its planes, which die before the o GEMM rewrites `spk`.
+        let qkv_ks_env: u32 = std::env::var("DEC_QKV_SPLITK")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2)
+            .max(1);
+        let qkv_ks = qkv_ks_env.min(hidden / 32 / TILE_KB).max(1);
         let spk_ks = down_ks.max(o_ks);
-        let spk = z(if spk_ks > 1 {
-            spk_ks as usize * bp * hidden_u
+        let spk_elems = (spk_ks as usize * bp * hidden_u).max(qkv_ks as usize * bp * qkvm as usize);
+        let spk = z(if spk_ks > 1 || qkv_ks > 1 {
+            spk_elems
         } else {
             1
         });
@@ -500,33 +509,60 @@ impl PrefillStack {
                     Gy::Batch,
                 ));
             }
-            gemm_node!(
-                qkvm,
-                hidden,
-                l.qkv_c,
-                &[l.qkv_w, xq, qkv_buf, l.qkv_dm, xsm, xsc]
-            );
+            // a split qkv GEMM leaves its `qkv_ks` partial planes in `spk`; rope folds them in plane
+            // order (no reduce node) and still writes the rotated q/k/v row to `qkv_buf`
+            let qkv_split = qkv_ks > 1 && coopmat_ok(vk, qkvm, hidden, l.qkv_c);
+            let rks = if qkv_split { qkv_ks } else { 1 };
+            if qkv_split {
+                let cr = l.qkv_c;
+                let mut n = pl.node(
+                    format!("gemm_{qkvm}_{hidden}_{cr:?}_cm_ks{rks}"),
+                    move || coopmat_gemm_split_bytes(qkvm, hidden, cr, 0, 0, rks),
+                    &[l.qkv_w, xq, spk, l.qkv_dm, xsm, xsc],
+                    coopmat_gemm_groups(qkvm, TILE_BN).0,
+                    Gy::Tiles(TILE_BN),
+                );
+                n.gz = rks;
+                plan.push(n);
+            } else {
+                gemm_node!(
+                    qkvm,
+                    hidden,
+                    l.qkv_c,
+                    &[l.qkv_w, xq, qkv_buf, l.qkv_dm, xsm, xsc]
+                );
+            }
+            let mut rope_bufs = vec![
+                qkv_buf,
+                l.qkv_b.unwrap_or(dummy),
+                dummy,
+                dummy,
+                kc_p,
+                ks_p,
+                vc_p,
+                vs_p,
+                params,
+                kout,
+                ksout,
+                vout,
+                vsout,
+                l.kcq,
+                l.sk,
+                l.vc,
+            ];
+            if qkv_split {
+                rope_bufs.push(spk);
+            }
             plan.push(pl.node(
-                format!("rope_{bias}"),
-                || qkv_rope_batch_bytes(nh, nkv, hd, qkvm, tmax, c.theta, c.eps, bias, false),
-                &[
-                    qkv_buf,
-                    l.qkv_b.unwrap_or(dummy),
-                    dummy,
-                    dummy,
-                    kc_p,
-                    ks_p,
-                    vc_p,
-                    vs_p,
-                    params,
-                    kout,
-                    ksout,
-                    vout,
-                    vsout,
-                    l.kcq,
-                    l.sk,
-                    l.vc,
-                ],
+                if qkv_split {
+                    format!("rope_{bias}_ks{rks}")
+                } else {
+                    format!("rope_{bias}")
+                },
+                move || {
+                    qkv_rope_batch_bytes(nh, nkv, hd, qkvm, tmax, c.theta, c.eps, bias, false, rks)
+                },
+                &rope_bufs,
                 nh + 2 * nkv,
                 Gy::Batch,
             ));

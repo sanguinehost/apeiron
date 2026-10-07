@@ -893,6 +893,11 @@ pub fn swiglu_quant_batch_module(dff: u32, dpw: u32) -> Vec<u32> {
 /// `code·scale`). 13–15 are the [`super::prefill_glue::kv_seed_module`] decode layout, written here
 /// from the same `code`/`sc` arithmetic so the standalone seed node is not needed; the K packing
 /// gathers codes through the workgroup `red` array.
+/// `nplanes` is the split-K plane count of the qkv GEMM (1 = one plane, read from binding 0). For
+/// `nplanes > 1` binding 16 holds the partial planes `[nplanes][ceil(B/64)*64][qkvm]` (`B` =
+/// `params[1]`) and the input is their left fold `((p0 + p1) + …)` in plane order
+/// (`splitk_reduce.comp`'s order), taken before the bias; binding 0 is then only written (the
+/// rotated Q the attention reads).
 /// Dispatch `(nh + 2·nkv, B)` at LocalSize `hd`.
 #[allow(clippy::too_many_arguments)]
 pub fn qkv_rope_batch_module(
@@ -905,7 +910,10 @@ pub fn qkv_rope_batch_module(
     eps: f32,
     bias: bool,
     qknorm: bool,
+    nplanes: u32,
 ) -> Vec<u32> {
+    const SPLITK_BN: u32 = 64; // `coopmat_gemm.comp` BN: the split kernel pads tokens to this
+    assert!(nplanes >= 1, "at least one plane");
     let d2 = hd / 2;
     let mut k = Kb::new();
     let qkv = k.ssbo_f(0);
@@ -924,6 +932,7 @@ pub fn qkv_rope_batch_module(
     let kcq = k.ssbo_u(13);
     let sk = k.ssbo_f(14);
     let vdec = k.ssbo_f16(15);
+    let planes = (nplanes > 1).then(|| k.ssbo_f(16));
     let (red, redp) = k.shared_f32(hd);
     let chd = k.cu(hd);
     let gid = k.gid_comp(0);
@@ -941,7 +950,28 @@ pub fn qkv_rope_batch_module(
     // The lane's value lives in a register (`vf`) until the final store: RoPE partners and the
     // KV absmax exchange through workgroup memory, never through the storage buffer.
     let vf = k.fvar_f();
-    let v0 = k.load_f(qkv, idx);
+    let v0 = if let Some(pl) = planes {
+        // plane stride in floats `ceil(B/64)*64 * qkvm`, `B` from `params[1]` (as the norm fold)
+        let c1 = k.cu(1);
+        let tokens = k.load_u(params, c1);
+        let cbn = k.cu(SPLITK_BN);
+        let cbn1 = k.cu(SPLITK_BN - 1);
+        let up = k.iadd(tokens, cbn1);
+        let tiles = k.udiv(up, cbn);
+        let padded = k.imul(tiles, cbn);
+        let plane = k.imul(padded, cqkvm);
+        let mut acc = k.load_f(pl, idx);
+        for sp in 1..nplanes {
+            let cs = k.cu(sp);
+            let po = k.imul(cs, plane);
+            let pidx = k.iadd(po, idx);
+            let pv = k.load_f(pl, pidx);
+            acc = k.fadd(acc, pv);
+        }
+        acc
+    } else {
+        k.load_f(qkv, idx)
+    };
     let v0 = if bias {
         let bi = k.iadd(slotb, lane);
         let bv = k.load_f(bias_b, bi);
@@ -1152,8 +1182,9 @@ pub fn qkv_rope_batch_bytes(
     eps: f32,
     bias: bool,
     qknorm: bool,
+    ks: u32,
 ) -> Vec<u8> {
     bytes(qkv_rope_batch_module(
-        nh, nkv, hd, qkvm, tmax, theta, eps, bias, qknorm,
+        nh, nkv, hd, qkvm, tmax, theta, eps, bias, qknorm, ks,
     ))
 }
