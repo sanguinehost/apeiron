@@ -234,6 +234,19 @@ pub const ATTN_TILE_CT: u32 = 2;
 /// [`attn_prefill_tiled_module`]'s `fuse`). OFF: the default read is bit-identical to
 /// [`attn_prefill_module`], and the dial is what prices the alternative.
 pub const ATTN_TILE_FUSE: bool = false;
+/// The hd ≥ 128 query tile. At hd=128 the K slab `hd·hd·4` = 64 KiB alone exceeds the planner's
+/// 48 KiB workgroup budget, so the slab is walked in [`ATTN_TILE_KP_HD128`] dim chunks and the
+/// query tile drops to 16 positions. Only the PEAK footprint changes: every `(dim, key)` pair is
+/// staged exactly once across the chunks, so the FMAs per staged byte (`rows/4`, the score GEMM's
+/// `rows·kt·hd` MACs over `hd·kt·4` staged bytes) and the denominator's width-`hd` reduction tree
+/// are the hd=64 tile's. `kt` stays `hd` because the tree needs slot `s &&& (hd−1)`.
+pub const ATTN_TILE_ROWS_HD128: u32 = 16;
+/// Key-dim chunks the hd ≥ 128 K slab is walked in; `dchunk = hd/kp = 32` at hd=128, so the peak
+/// K-slab footprint is `32·128·4` = 16 KiB.
+pub const ATTN_TILE_KP_HD128: u32 = 4;
+/// The hd ≥ 128 tile's keys per thread in the score GEMM; `hd/ct == 32` keeps the online slab max
+/// a single 32-lane `subgroupMax`.
+pub const ATTN_TILE_CT_HD128: u32 = 4;
 
 /// **Query-tiled causal attention — the same read, with K read once for `rows` queries.**
 ///
@@ -286,7 +299,7 @@ pub fn attn_prefill_tiled_module(
     ct: u32,
     fuse: bool,
 ) -> Vec<u32> {
-    attn_prefill_tiled_module_m(nh, nkv, hd, qkvm, tmax, scale, rows, rts, ct, fuse, 0)
+    attn_prefill_tiled_module_m(nh, nkv, hd, qkvm, tmax, scale, rows, rts, ct, 1, fuse, 0)
 }
 
 /// Bit 0 of the `mode` of [`attn_prefill_tiled_module_m`]: launch the heaviest query tile first.
@@ -323,6 +336,7 @@ pub fn attn_prefill_tiled_module_m(
     rows: u32,
     rts: u32,
     ct: u32,
+    kp: u32,
     fuse: bool,
     mode: u32,
 ) -> Vec<u32> {
@@ -332,6 +346,8 @@ pub fn attn_prefill_tiled_module_m(
     );
     assert!(ct > 0 && hd % ct == 0, "ct must divide hd");
     assert!(rts > 0 && rows % rts == 0, "rts must divide rows");
+    assert!(kp > 0 && hd % kp == 0, "kp must divide hd");
+    let dchunk = hd / kp; // dims staged in one chunk of the K slab (kp == 1 is the whole head)
     let kt = hd; // key tile == hd, so lane p of the tile owns key t0+p and the stride-hd partials hold
     let kl = hd / ct; // key lanes in the score mapping
     let ss = rows / rts; // row slots in the score mapping
@@ -379,7 +395,7 @@ pub fn attn_prefill_tiled_module_m(
     // `OpCompositeConstruct` in the stage, and the driver evidently already coalesces the four
     // consecutive scalar shared reads it was meant to replace. The slab stays scalar.
     let (qs, qsp) = k.shared_f32(rows * hd);
-    let (kst, kstp) = k.shared_f32(hd * kt);
+    let (kst, kstp) = k.shared_f32(dchunk * kt);
     let (sst, sstp) = k.shared_f32(rows * kt);
     // per-row slab rescale factors α, published by the score mapping for the fold mapping
     let (als, alsp) = if online { k.shared_f32(rows) } else { (0, 0) };
@@ -508,21 +524,29 @@ pub fn attn_prefill_tiled_module_m(
     let d0 = k.udiv(tid, c_kt);
     let dstep = tsz / kt;
     assert!(
-        dstep > 0 && hd % dstep == 0,
-        "the K stage needs LocalSize/hd to divide hd"
+        dstep > 0 && dchunk % dstep == 0,
+        "the K stage needs LocalSize/hd to divide the dim chunk"
     );
     let c_dstep = k.cu(dstep);
+    let c_dchunk = k.cu(dchunk);
     let c_hdt = k.cu(hd * tmax);
     let kvbase = k.imul(kvh, c_hdt);
-    let load_ktile = move |k: &mut Kb, t0: u32| {
+
+    // ── the K slab stage (score mapping) ────────────────────────────────────────────────────────
+    // Stage chunk `p` — `dchunk` dims of every `kt` key — at `kst[dj·kt + j0]`. `d0`/`dstep` split
+    // the `dchunk` dims across the workgroup; the global dim is `p·dchunk + dj`. `kp == 1` is the
+    // whole-head stage (`dj` IS the global dim), verbatim the pre-split kernel.
+    let load_chunk = move |k: &mut Kb, t0: u32, p: u32| {
         let s = k.iadd(t0, j0);
         let sm = clampk(k, s);
         let b0 = k.iadd(kvbase, sm);
-        k.loop_step(d0, c_hd, c_dstep, |k, d| {
+        let pbase = k.cu(p * dchunk);
+        k.loop_step(d0, c_dchunk, c_dstep, |k, dj| {
+            let d = if kp == 1 { dj } else { k.iadd(pbase, dj) };
             let dt = k.imul(d, c_tmax);
             let gi = k.iadd(b0, dt);
             let v = k.load_f(kcb, gi);
-            let s0 = k.imul(d, c_kt);
+            let s0 = k.imul(dj, c_kt);
             let si = k.iadd(s0, j0);
             k.shared_store(kst, kstp, si, v);
         });
@@ -533,6 +557,12 @@ pub fn attn_prefill_tiled_module_m(
     // register tile that keeps this off the shared-memory roof (a scalar dot needs two shared reads
     // per MAC; this needs (rts+ct)/(rts·ct) = 0.75 at 2×4). The `d` loop is the SAME ascending chain
     // `attn_prefill_module::score` walks, one accumulator per (row, key).
+    //
+    // The `kp`-way dim split folds every chunk of K into the same `rts·ct` registers, so the peak
+    // slab is `dchunk·kt·4` instead of `hd·kt·4`. The staged bytes, the FMA count and the
+    // `d`-ascending accumulator chain are the whole-head kernel's — only the shared footprint
+    // falls. The CALLER stages chunk 0 (`barrier, load_chunk(·,0), barrier`) before this call; the
+    // remaining chunks are staged here, so `kp == 1` emits the one-chunk form verbatim.
     let scores = |k: &mut Kb, t0: u32| -> Vec<u32> {
         let accs: Vec<u32> = (0..rts * ct)
             .map(|_| {
@@ -541,27 +571,43 @@ pub fn attn_prefill_tiled_module_m(
                 v
             })
             .collect();
-        k.loop_u(c0, c_hd, |k, d| {
-            let dk = k.imul(d, c_kt);
-            let kb = k.iadd(dk, kcol);
-            let kvv: Vec<u32> = (0..ct)
-                .map(|c| {
-                    let cc = k.cu(c);
-                    let idx = k.iadd(kb, cc);
-                    k.shared_load(kst, kstp, idx)
-                })
-                .collect();
-            for j in 0..rts as usize {
-                let qb = k.iadd(qbase[j], d);
-                let qv = k.shared_load(qs, qsp, qb);
-                for c in 0..ct as usize {
-                    let pr = k.fmul(qv, kvv[c]);
-                    let a0 = k.load_var_f(accs[j * ct as usize + c]);
-                    let a1 = k.fadd(a0, pr);
-                    k.store_var(accs[j * ct as usize + c], a1);
+        let score_chunk = |k: &mut Kb, p: u32| {
+            let pbase = k.cu(p * dchunk);
+            let cend = k.cu((p + 1) * dchunk);
+            k.loop_u(pbase, cend, |k, d| {
+                let dl = if kp == 1 {
+                    d
+                } else {
+                    k.e(OP_ISUB, uid, &[d, pbase])
+                };
+                let dk = k.imul(dl, c_kt);
+                let kb = k.iadd(dk, kcol);
+                let kvv: Vec<u32> = (0..ct)
+                    .map(|c| {
+                        let cc = k.cu(c);
+                        let idx = k.iadd(kb, cc);
+                        k.shared_load(kst, kstp, idx)
+                    })
+                    .collect();
+                for j in 0..rts as usize {
+                    let qb = k.iadd(qbase[j], d);
+                    let qv = k.shared_load(qs, qsp, qb);
+                    for c in 0..ct as usize {
+                        let pr = k.fmul(qv, kvv[c]);
+                        let a0 = k.load_var_f(accs[j * ct as usize + c]);
+                        let a1 = k.fadd(a0, pr);
+                        k.store_var(accs[j * ct as usize + c], a1);
+                    }
                 }
-            }
-        });
+            });
+        };
+        score_chunk(k, 0);
+        for p in 1..kp {
+            k.wg_barrier();
+            load_chunk(k, t0, p);
+            k.wg_barrier();
+            score_chunk(k, p);
+        }
         // ×ks[s]·scale, in `attn_prefill_module`'s multiply order
         let ksv: Vec<u32> = (0..ct)
             .map(|c| {
@@ -632,7 +678,7 @@ pub fn attn_prefill_tiled_module_m(
             .collect();
         k.loop_step(c0, maxlen, c_kt, |k, t0| {
             k.wg_barrier();
-            load_ktile(k, t0);
+            load_chunk(k, t0, 0);
             k.wg_barrier();
             let sc = scores(k, t0);
             for j in 0..rts as usize {
@@ -724,7 +770,7 @@ pub fn attn_prefill_tiled_module_m(
         let lane0 = k.ult(kli, c1);
         k.loop_step(c0, maxlen, c_kt, |k, t0| {
             k.wg_barrier();
-            load_ktile(k, t0);
+            load_chunk(k, t0, 0);
             k.wg_barrier();
             let sc = scores(k, t0);
             let cts = ct as usize;
@@ -792,7 +838,7 @@ pub fn attn_prefill_tiled_module_m(
     } else {
         k.loop_step(c0, maxlen, c_kt, |k, t0| {
             k.wg_barrier();
-            load_ktile(k, t0);
+            load_chunk(k, t0, 0);
             k.wg_barrier();
             let sc = scores(k, t0);
             for j in 0..rts as usize {
@@ -867,7 +913,7 @@ pub fn attn_prefill_tiled_module_m(
     if !fuse {
         k.loop_step(c0, maxlen, c_kt, |k, t0| {
             k.wg_barrier();
-            load_ktile(k, t0);
+            load_chunk(k, t0, 0);
             k.wg_barrier();
             let sc = scores(k, t0);
             // the slab's softmax weights, formed by the thread that owns the key and published once
@@ -935,11 +981,12 @@ pub fn attn_prefill_tiled_bytes_m(
     rows: u32,
     rts: u32,
     ct: u32,
+    kp: u32,
     fuse: bool,
     mode: u32,
 ) -> Vec<u8> {
     bytes(attn_prefill_tiled_module_m(
-        nh, nkv, hd, qkvm, tmax, scale, rows, rts, ct, fuse, mode,
+        nh, nkv, hd, qkvm, tmax, scale, rows, rts, ct, kp, fuse, mode,
     ))
 }
 
@@ -963,11 +1010,12 @@ pub fn attn_prefill_tiled_bytes(
 }
 
 /// The LocalSize [`attn_prefill_tiled_module`] compiles to for a given tile — the driver needs it to
-/// size its dispatch, and the shared-memory footprint `(2·rows+hd)·hd·4` to refuse a tile the device
-/// cannot hold.
-pub fn attn_tile_shape(hd: u32, rows: u32, rts: u32, ct: u32) -> (u32, u32) {
+/// size its dispatch, and the peak shared-memory footprint `(2·rows + hd/kp)·hd·4` to refuse a tile
+/// the device cannot hold. `kp` is the K-slab dim-chunk count (1 = the whole head staged at once);
+/// the query tile and the score row are `rows·hd` f32 each, the slab is `(hd/kp)·hd` f32.
+pub fn attn_tile_shape(hd: u32, rows: u32, rts: u32, ct: u32, kp: u32) -> (u32, u32) {
     let tsz = (hd / ct) * (rows / rts);
-    let shared = (2 * rows + hd) * hd * 4;
+    let shared = (2 * rows * hd + (hd / kp) * hd) * 4;
     (tsz, shared)
 }
 /// [`attn_prefill_module`] as bytes.

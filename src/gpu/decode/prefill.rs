@@ -87,17 +87,32 @@ fn coopmat_ok(vk: &Vk, m: u32, k: u32, cr: Carrier) -> bool {
         && matches!(cr, Carrier::Q8 | Carrier::Q4 | Carrier::Q2)
 }
 
-/// The attention query tile (`rows`, `rts`, `ct`, `fuse`, `mode`); `DEC_ATTN_TILE=0|off` pins the
-/// untiled kernel, `rows:rts:ct[:fuse[:mode]]` pins a tile (fold `attn_tile`, `gpu.rs:4466-4483`;
-/// `mode` is [`attn_prefill_tiled_module_m`]'s bitmask, `0` = the three-walk bit-exact kernel).
-fn attn_tile(default_mode: u32) -> Option<(u32, u32, u32, bool, u32)> {
-    let d = (
-        ATTN_TILE_ROWS,
-        ATTN_TILE_RTS,
-        ATTN_TILE_CT,
-        ATTN_TILE_FUSE,
-        default_mode,
-    );
+/// The attention query tile (`rows`, `rts`, `ct`, `kp`, `fuse`, `mode`); `DEC_ATTN_TILE=0|off` pins
+/// the untiled kernel, `rows:rts:ct[:fuse[:mode[:kp]]]` pins a tile (fold `attn_tile`,
+/// `gpu.rs:4466-4483`; `mode` is [`attn_prefill_tiled_module_m`]'s bitmask, `0` = the three-walk
+/// bit-exact kernel). `kp` chunks the K slab over the head dim: `hd=64` defaults to the whole-head
+/// tile (`kp=1`), `hd>=128` to the 16-row, `ct=4`, `kp=4` split tile (its `hd·hd·4` slab is 64 KiB
+/// at hd=128, over the 48 KiB budget, and the split's peak is `(hd/kp)·hd·4` = 16 KiB).
+fn attn_tile(hd: u32, default_mode: u32) -> Option<(u32, u32, u32, u32, bool, u32)> {
+    let d = if hd >= 128 {
+        (
+            ATTN_TILE_ROWS_HD128,
+            ATTN_TILE_RTS,
+            ATTN_TILE_CT_HD128,
+            ATTN_TILE_KP_HD128,
+            ATTN_TILE_FUSE,
+            default_mode,
+        )
+    } else {
+        (
+            ATTN_TILE_ROWS,
+            ATTN_TILE_RTS,
+            ATTN_TILE_CT,
+            1,
+            ATTN_TILE_FUSE,
+            default_mode,
+        )
+    };
     match std::env::var("DEC_ATTN_TILE") {
         Err(_) => Some(d),
         Ok(v) if v == "0" || v == "off" => None,
@@ -107,8 +122,9 @@ fn attn_tile(default_mode: u32) -> Option<(u32, u32, u32, bool, u32)> {
                 *p.first().unwrap_or(&d.0),
                 *p.get(1).unwrap_or(&d.1),
                 *p.get(2).unwrap_or(&d.2),
-                p.get(3).map_or(d.3, |&f| f != 0),
-                *p.get(4).unwrap_or(&d.4),
+                *p.get(5).unwrap_or(&d.3),
+                p.get(3).map_or(d.4, |&f| f != 0),
+                *p.get(4).unwrap_or(&d.5),
             ))
         }
     }
@@ -319,31 +335,33 @@ impl PrefillStack {
         } else {
             ATTN_TILE_MODE & !ATTN_MODE_ONLINE
         };
-        let tile = attn_tile(default_mode).filter(|&(rows, rts, ct, _, mode)| {
-            let (tsz, shared) = attn_tile_shape(hd, rows, rts, ct);
+        let tile = attn_tile(hd, default_mode).filter(|&(rows, rts, ct, kp, _, mode)| {
+            let (tsz, shared) = attn_tile_shape(hd, rows, rts, ct, kp);
             let ok = rows as usize <= PREFILL_BT_MAX
                 && rows % rts == 0
                 && hd % ct == 0
+                && kp > 0
+                && hd % kp == 0
                 && rows.is_power_of_two()
                 && tsz % hd == 0
                 && rows % (tsz / hd) == 0
                 && (tsz / hd) > 0
-                && hd % (tsz / hd) == 0
+                && (hd / kp) % (tsz / hd) == 0
                 && tsz <= 1024
                 // the online form adds `rows` f32 of per-row rescale factors
                 && shared + if mode & ATTN_MODE_ONLINE != 0 { rows * 4 } else { 0 } <= WG_SHARED_MAX
                 && (mode & ATTN_MODE_ONLINE == 0 || hd / ct == 32);
             if !ok {
-                eprintln!("PrefillStack: attn tile {rows}:{rts}:{ct} outside this cut at hd={hd}; untiled kernel");
+                eprintln!("PrefillStack: attn tile {rows}:{rts}:{ct}:kp{kp} outside this cut at hd={hd}; untiled kernel");
             }
             ok
         });
         let attn_gy = match tile {
-            Some((rows, _, _, _, _)) => Gy::Tiles(rows),
+            Some((rows, _, _, _, _, _)) => Gy::Tiles(rows),
             None => Gy::Batch,
         };
         let attn_key = match tile {
-            Some((r, s, t, f, m)) => format!("attn_tiled_{r}_{s}_{t}_{f}_m{m}"),
+            Some((r, s, t, k, f, m)) => format!("attn_tiled_{r}_{s}_{t}_kp{k}_{f}_m{m}"),
             None => "attn_untiled".to_string(),
         };
         let mut plan: Vec<PNode> = Vec::with_capacity(layers.len() * 12 + 4);
@@ -441,8 +459,8 @@ impl PrefillStack {
             plan.push(pl.node(
                 attn_key.clone(),
                 || match tile {
-                    Some((rows, rts, ct, fuse, mode)) => attn_prefill_tiled_bytes_m(
-                        nh, nkv, hd, qkvm, tmax, scale, rows, rts, ct, fuse, mode,
+                    Some((rows, rts, ct, kp, fuse, mode)) => attn_prefill_tiled_bytes_m(
+                        nh, nkv, hd, qkvm, tmax, scale, rows, rts, ct, kp, fuse, mode,
                     ),
                     None => attn_prefill_bytes(nh, nkv, hd, qkvm, tmax, scale),
                 },
