@@ -1,0 +1,18 @@
+# perf-open-allowlist (board inf-resident-prefill-GEB633UfORCK7XSmzJifHd): the P-rows of docs/evidence/perf-predictions.md whose Lean
+# cell carried an `open:` obligation at the base commit. tools/check-claims.py
+# accepts an `open:` Lean cell only for an id listed here, so a new `open:` cannot
+# defer a theorem forever. P21-P31 are shipped moves with no cell at the base commit (debt, discharged by deleting the id). One id per line; blank lines and `#` comments ignored.
+P17
+P19
+P20
+P21
+P22
+P23
+P24
+P25
+P26
+P27
+P28
+P29
+P30
+P31

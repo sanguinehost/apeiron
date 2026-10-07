@@ -7,11 +7,12 @@
 #   2. board checkpoint    python3 tools/board/checkpoint.py check
 #   3. formatting          cargo fmt --all -- --check
 #   4. citation resolution python3 tools/check-claims.py
-#   5. digest recompute    python3 tools/rooting/digest_recheck.py
+#   5. perf cost-model     python3 tools/hooks/perf_gate_controls.py --staged
+#   6. digest recompute    python3 tools/rooting/digest_recheck.py
 #                          --registry docs/contracts/artifacts.toml
 #                          --registry docs/evidence/ledger.jsonl
 #                          --registry examples/reg1/coverage.json
-#   6. coverage census     cargo build --release --locked --example reg1, then
+#   7. coverage census     cargo build --release --locked --example reg1, then
 #                          target/release/examples/reg1 --check coverage --controls
 #
 # Step 1 checks a declaration the *staged change* carries; git does not give a
@@ -39,7 +40,21 @@
 # per commit. The per-commit requirement is the declaration: a dispatch names
 # its row (`board: <row-id>`) or declares `board: none -- housekeeping`.
 #
-# Step 5 is the digest recompute. The defect it closes was measured three times in
+# Step 5 is the perf cost-model gate (owner, 2026-10-08): it must not be possible
+# to land a performance improvement without formalising, in the cost model, how and
+# why it works. A staged path under `src/simt_nn/`, `src/gpu/`, `src/spirv/` or
+# `src/gpu/decode/` must carry, in the same commit, a new P-row in
+# `docs/evidence/perf-predictions.md` whose Lean cell names a dotted declaration
+# that resolves under `proof/corpus/Perf/` and is added or changed in the staged
+# diff under that directory. The gate is `tools/hooks/perf_gate_controls.py`,
+# which has no bypass flag and no environment override: it refuses, naming the
+# staged perf path and the missing piece. Its trigger is content, so it prints
+# SKIP with the reason when no perf path is staged. The claim checker
+# (`tools/check-claims.py`, step 4) reads the same P-rows statically, including
+# header-less tables, so a row the hook refuses cannot be added out of band and a
+# missing Lean cell is a finding there too.
+#
+# Step 6 is the digest recompute. The defect it closes was measured three times in
 # one night: a registry records a digest, nothing recomputes it, the registry
 # drifts, and every gate that trusts the row stays green. `docs/contracts/
 # artifacts.toml` carried `037dbd65…` for `tools/gate/` while the tree was already
@@ -61,7 +76,7 @@
 # tree that *has* `examples/reg1/` but no `coverage.json` is a refusal. The other
 # two registries have no such exemption.
 #
-# Step 6 is the coverage census. `examples/reg1/coverage.rs` records a sha256 for
+# Step 7 is the coverage census. `examples/reg1/coverage.rs` records a sha256 for
 # every source carrying a theorem or test attribution and recomputes each one at
 # gate time; `docs/plan.md:506,541` register it as a joint-acceptance gate and it
 # ran from no hook at all, so it stayed red. Two properties bind where it runs:
@@ -147,6 +162,12 @@ run_step board-declaration "$step_budget" python3 -B tools/hooks/lane.py staged
 # Row: `apeiron-purge-comparison-FHJYanehAPPFDz5O61a6P5` (APEIRON-PURGE-COMPARISON).
 run_step cargo-fmt "$step_budget" cargo fmt --all -- --check
 run_step check-claims "$step_budget" python3 -B tools/check-claims.py
+
+# Step 5, the perf cost-model gate. Its trigger is content, so it prints SKIP with
+# the reason when nothing under a performance source path is staged; otherwise it
+# refuses a perf change that carries no new P-row, or one whose Lean declaration
+# does not resolve under proof/corpus/Perf/ or is not added in the same commit.
+run_step perf-cost-model "$step_budget" python3 -B tools/hooks/perf_gate_controls.py --staged
 
 # The digest-recompute step, with its absence refusals named before anything runs.
 # Each entry is "<registry>:<surface that, if present, makes the registry required>":

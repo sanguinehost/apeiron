@@ -68,14 +68,28 @@ not a claim, and is not reported.
 
 Perf prediction rows
 ====================
-The P-table of ``docs/evidence/perf-predictions.md`` carries a ``Lean`` column
-(the formalisation audit of
-``docs/epics/resource-guided-evolution.md``). Every row whose outcome cell --
-the column headed ``outcome``/``verdict``/``result``/``status`` -- does not lead
-with ``pending``, ``untestable`` or ``invalid`` must carry a ``Lean`` cell that
-is a dotted declaration resolving under ``proof/corpus/`` or an obligation that
-starts with ``open:``. A settled outcome row with no theorem and no stated open
-obligation is a finding (``row Pn: outcome without theorem or open obligation``).
+Every row of ``docs/evidence/perf-predictions.md`` whose id cell matches
+``^P\\d+$`` -- in a table with an ``id`` header row and in a header-less table
+after a prose break alike -- is a perf prediction. The row's ``Lean`` cell names
+the formalisation of the prediction (the audit of
+``docs/epics/resource-guided-evolution.md``). A row whose outcome cell -- the
+column headed ``outcome``/``verdict``/``result``/``status``, or, for a
+header-less row, any cell that leads with one of those words -- does not lead
+with ``pending``, ``untestable`` or ``invalid`` is *settled* and must name a
+dotted declaration that resolves under ``proof/corpus/Perf/``.
+
+Where the ``Lean`` cell is found depends on the table:
+
+  * a table with an ``id`` header row and a ``Lean`` column uses that column;
+  * a header-less row defines its ``Lean`` cell as the field ``Lean: <decl>``
+    written inside the row.
+
+``open:`` is accepted only for the ids named in
+``docs/evidence/perf-open-allowlist.txt``, the frozen list of rows that carried
+an ``open:`` obligation at the base commit; a new ``open:`` is a finding, so a
+defect cannot be deferred forever. A settled row without a resolving Lean cell
+is a finding (``row Pn: ... without ...``); a header-less row's finding names
+the ``Lean: <decl>`` field so the missing piece is unambiguous.
 
 Exit status: 0 when every claim names a resolvable artifact; 1 on any finding;
 2 on a missing governing document, a missing covered section, a missing Lean
@@ -133,6 +147,12 @@ PERF_LEAN_COLUMN = "lean"
 PERF_OUTCOME_COLUMNS = ("outcome", "verdict", "result", "status")
 PERF_ROW_ID_RE = re.compile(r"^P\d+$")
 PERF_OUTCOME_EXEMPT_RE = re.compile(r"^(?:pending|untestable|invalid)\b", re.I)
+# The perf Lean cell must resolve against the refinement corpus's Perf/ tree, and
+# only the ids frozen into the allowlist at the base commit may defer with open:.
+PERF_CORPUS = Path("proof") / "corpus" / "Perf"
+PERF_OPEN_ALLOWLIST = "docs/evidence/perf-open-allowlist.txt"
+# A header-less row carries its Lean cell as a `Lean: <decl>` field inside the row.
+LEAN_FIELD_RE = re.compile(r"(?:^|\|)\s*Lean\s*:\s*([^|]+)")
 
 PINNED_CORPUS = Path("proof/corpus/.lake/packages/apeiron")
 FILE_EXTENSIONS = (
@@ -247,12 +267,12 @@ def lean_resolves(name, declarations, namespaces, audits):
     return name in declarations or short in declarations or short in namespaces or short in audits
 
 
-def iter_corpus_lean_sources(root):
-    """First-party Lean sources under ``proof/corpus/`` (dependency-free)."""
-    corpus = root / "proof" / "corpus"
+def iter_perf_lean_sources(root):
+    """First-party Lean sources under ``proof/corpus/Perf/`` (dependency-free)."""
+    perf = root / PERF_CORPUS
     sources = []
-    if corpus.is_dir():
-        for dirpath, dirnames, filenames in os.walk(corpus):
+    if perf.is_dir():
+        for dirpath, dirnames, filenames in os.walk(perf):
             dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIR_NAMES]
             for name in filenames:
                 if name.endswith(".lean"):
@@ -260,16 +280,16 @@ def iter_corpus_lean_sources(root):
     return sources
 
 
-def build_corpus_declaration_index(root):
-    """Declarations and namespaces under ``proof/corpus/`` only.
+def build_perf_declaration_index(root):
+    """Declarations and namespaces under ``proof/corpus/Perf/`` only.
 
-    The perf-prediction ``Lean`` cell must name a theorem that lives in the
-    refinement corpus, not a declaration anywhere under ``proof/``; this index is
+    A perf-prediction ``Lean`` cell must name a theorem that lives in the Perf
+    cost-model tree, not a declaration anywhere under ``proof/``; this index is
     the resolution set for that rule.
     """
     declarations = set()
     namespaces = set()
-    for path in iter_corpus_lean_sources(root):
+    for path in iter_perf_lean_sources(root):
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -277,6 +297,44 @@ def build_corpus_declaration_index(root):
         declarations.update(DECL_RE.findall(text))
         namespaces.update(NAMESPACE_RE.findall(text))
     return declarations, namespaces
+
+
+def perf_open_allowlist(root):
+    """The frozen ids that may carry an ``open:`` Lean obligation.
+
+    One id per line; blank lines and ``#`` comments are ignored. A missing file
+    is an empty allowlist, so every ``open:`` row is a finding until the base list
+    is committed.
+    """
+    path = root / PERF_OPEN_ALLOWLIST
+    if not path.is_file():
+        return set()
+    ids = set()
+    try:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                ids.add(line)
+    except OSError:
+        return set()
+    return ids
+
+
+def perf_row_exempt(cells):
+    """A header-less row is exempt when any of its cells leads with an exempt word."""
+    for cell in cells:
+        if PERF_OUTCOME_EXEMPT_RE.match(cell.replace("*", "").strip()):
+            return True
+    return False
+
+
+def perf_lean_field(raw):
+    """The ``Lean: <decl>`` field of a header-less row, or ``None`` when absent."""
+    match = LEAN_FIELD_RE.search(raw)
+    if not match:
+        return None
+    value = match.group(1).replace("`", "").strip()
+    return value or None
 
 
 # --------------------------------------------------------------------------
@@ -625,14 +683,62 @@ def evaluate_claim(root, claim, declarations, namespaces, audits):
     return findings
 
 
-def perf_table_findings(root, declarations, namespaces):
-    """Findings for the perf-predictions P-table's settled-outcome rows.
+def perf_row_lean(cells, raw, header, lean_column):
+    """The row's Lean cell: the named column when header-ful, else the field.
 
-    The table's outcome cell (column headed ``outcome``/``verdict``/``result``/
-    ``status``) exempts a row when it leads with ``pending``, ``untestable`` or
-    ``invalid``; every other P-row must carry a ``Lean`` cell that is a dotted
-    declaration resolving under ``proof/corpus/`` or starts with ``open:``. A
-    missing ``perf-predictions.md`` contributes nothing.
+    Returns ``(lean, header_less)``. ``lean`` is ``None`` only for a header-less
+    row with no ``Lean: <decl>`` field; a header-ful row with no such column
+    returns ``("", False)``.
+    """
+    if header is not None:
+        if lean_column is not None and len(cells) > lean_column:
+            return cells[lean_column].replace("`", "").strip(), False
+        return "", False
+    return perf_lean_field(raw), True
+
+
+def perf_row_finding(row_id, lean, header_less, allowlist, declarations, namespaces):
+    """The finding for one settled P-row, or ``None`` when its Lean cell is backed.
+
+    An id in the frozen allowlist is recorded debt (an ``open:`` cell, or a shipped
+    move whose cell was never written); the list only shrinks.
+    """
+    if row_id in allowlist:
+        return None
+    if header_less:
+        if lean is None:
+            return (
+                f"{PERF_PREDICTIONS}: row {row_id}: header-less row without the "
+                "`Lean: <decl>` field (the Lean cell of a header-less row is the "
+                "`Lean: <decl>` field inside the row)"
+            )
+        carrier = "header-less row"
+    else:
+        carrier = "outcome"
+    lean = lean or ""
+    if lean.startswith("open:"):
+        if row_id in allowlist:
+            return None
+        return (
+            f"{PERF_PREDICTIONS}: row {row_id}: open obligation not in "
+            f"{PERF_OPEN_ALLOWLIST} (a new `open:` may not defer the theorem)"
+        )
+    if "." in lean and lean_resolves(lean, declarations, namespaces, set()):
+        return None
+    return f"{PERF_PREDICTIONS}: row {row_id}: {carrier} without theorem or open obligation"
+
+
+def perf_table_findings(root):
+    """Findings for every perf-predictions P-row's settled Lean cell.
+
+    A P-row is any row whose id cell matches ``^P\\d+$``, whether it sits under an
+    ``id``/``Lean`` header row or in a header-less table after a prose break. The
+    outcome cell (the named column, or for a header-less row any cell leading with
+    an exempt word) exempts a row when it leads with ``pending``, ``untestable`` or
+    ``invalid``; every other P-row must carry a Lean cell that is a dotted
+    declaration resolving under ``proof/corpus/Perf/`` or, for an allowlisted id
+    only, an ``open:`` obligation. A missing ``perf-predictions.md`` contributes
+    nothing.
     """
     path = root / PERF_PREDICTIONS
     if not path.is_file():
@@ -641,50 +747,47 @@ def perf_table_findings(root, declarations, namespaces):
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return []
+    declarations, namespaces = build_perf_declaration_index(root)
+    allowlist = perf_open_allowlist(root)
     findings = []
-    index = 0
-    while index < len(lines):
-        stripped = lines[index].strip()
-        if not (stripped.startswith("|") and stripped.count("|") >= 2):
-            index += 1
+    for block in iter_blocks(lines):
+        if block["kind"] != "table":
             continue
-        header = [cell.strip().lower() for cell in stripped.strip("|").split("|")]
-        if header[0] != "id" or PERF_LEAN_COLUMN not in header:
-            index += 1
-            continue
-        lean_column = header.index(PERF_LEAN_COLUMN)
+        header = None
+        lean_column = None
         outcome_column = None
-        for candidate in PERF_OUTCOME_COLUMNS:
-            if candidate in header:
-                outcome_column = header.index(candidate)
-                break
-        index += 1
-        while index < len(lines):
-            row = lines[index].strip()
-            if not (row.startswith("|") and row.count("|") >= 2):
-                break
-            index += 1
-            if TABLE_SEP_RE.match(row):
+        for _, raw in block["lines"]:
+            stripped = raw.strip()
+            if TABLE_SEP_RE.match(stripped):
                 continue
-            cells = [cell.strip() for cell in row.strip("|").split("|")]
-            if len(cells) <= max(lean_column, outcome_column or 0):
-                continue
-            if not PERF_ROW_ID_RE.match(cells[0]):
-                continue
-            if outcome_column is not None:
-                outcome = cells[outcome_column].replace("*", "").strip()
-                if PERF_OUTCOME_EXEMPT_RE.match(outcome):
+            cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+            if header is None:
+                lowered = [cell.lower() for cell in cells]
+                if cells and cells[0].lower() == "id" and PERF_LEAN_COLUMN in lowered:
+                    header = cells
+                    lean_column = lowered.index(PERF_LEAN_COLUMN)
+                    for candidate in PERF_OUTCOME_COLUMNS:
+                        if candidate in lowered:
+                            outcome_column = lowered.index(candidate)
+                            break
                     continue
-            lean = cells[lean_column].replace("`", "").strip()
-            if lean.startswith("open:"):
+            if not cells or not PERF_ROW_ID_RE.match(cells[0]):
                 continue
-            if "." in lean and lean_resolves(lean, declarations, namespaces, set()):
+            row_id = cells[0]
+            if header is not None and outcome_column is not None and len(cells) > outcome_column:
+                exempt = PERF_OUTCOME_EXEMPT_RE.match(
+                    cells[outcome_column].replace("*", "").strip()
+                )
+            else:
+                exempt = perf_row_exempt(cells)
+            if exempt:
                 continue
-            findings.append(
-                f"{PERF_PREDICTIONS}: row {cells[0]}: "
-                "outcome without theorem or open obligation"
+            lean, header_less = perf_row_lean(cells, raw, header, lean_column)
+            finding = perf_row_finding(
+                row_id, lean, header_less, allowlist, declarations, namespaces
             )
-        break
+            if finding:
+                findings.append(finding)
     return findings
 
 
@@ -727,8 +830,6 @@ def build_report(root):
             "error": True,
         }
 
-    corpus_declarations, corpus_namespaces = build_corpus_declaration_index(root)
-
     claims = []
     sections = []
     missing_sections = []
@@ -754,7 +855,7 @@ def build_report(root):
                 claims.append(claim)
                 findings.extend(claim_findings)
 
-    findings.extend(perf_table_findings(root, corpus_declarations, corpus_namespaces))
+    findings.extend(perf_table_findings(root))
     findings.extend(missing_sections)
     return {
         "root": str(root),
@@ -841,8 +942,10 @@ def _synthetic_tree(base):
     _write(base / "Cargo.toml", "[workspace]\n")
     _write(base / "proof" / "regen.sh", "#!/bin/sh\nexit 0\n")
     _write(base / "proof" / "corpus" / "lakefile.lean", "import Lean\n")
+    # The perf-prediction table's Lean cell must resolve under proof/corpus/Perf/,
+    # so the synthetic witness lives there; the whole-proof index still finds it.
     _write(
-        base / "proof" / "corpus" / "TableRefinement.lean",
+        base / "proof" / "corpus" / "Perf" / "TableRefinement.lean",
         "namespace Apeiron.TableRefinement\n\ntheorem word_table_new_rep : True := trivial\n",
     )
     _write(
@@ -967,6 +1070,34 @@ def self_test():
                 ),
             )
 
+        def perf_headerless_no_lean(tree):
+            path = tree / "docs" / "evidence" / "perf-predictions.md"
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write("\n## Moves\n\n| P90 | headerless move | eq | held |\n")
+
+        def perf_headerless_lean(tree):
+            path = tree / "docs" / "evidence" / "perf-predictions.md"
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "\n## Moves\n\n| P91 | headerless move | eq | held | "
+                    "Lean: `Apeiron.TableRefinement.word_table_new_rep` |\n"
+                )
+
+        def perf_open_row(tree):
+            path = tree / "docs" / "evidence" / "perf-predictions.md"
+            _write(
+                path,
+                path.read_text(encoding="utf-8").replace(
+                    "| P3 | pipeline overlap | node 1570 us | pending | open: overlap model absent |\n",
+                    "| P3 | pipeline overlap | node 1570 us | pending | open: overlap model absent |\n"
+                    "| P92 | new lever | eq | held | open: deferred |\n",
+                ),
+            )
+
+        def perf_open_allowlisted(tree):
+            perf_open_row(tree)
+            _write(tree / "docs" / "evidence" / "perf-open-allowlist.txt", "P92\n")
+
         for name, mutate, expected, contains, excludes in (
             (
                 "negative: unbacked proved claim rejected",
@@ -1023,6 +1154,34 @@ def self_test():
                 1,
                 ("row P2: outcome without theorem or open obligation",),
                 (),
+            ),
+            (
+                "negative: header-less perf row without a Lean field rejected",
+                perf_headerless_no_lean,
+                1,
+                ("row P90: header-less row without the `Lean: <decl>` field",),
+                (),
+            ),
+            (
+                "positive: header-less perf row with a resolving Lean field accepted",
+                perf_headerless_lean,
+                0,
+                (),
+                ("row P91",),
+            ),
+            (
+                "negative: newly deferred open: perf row rejected",
+                perf_open_row,
+                1,
+                ("row P92: open obligation not in",),
+                (),
+            ),
+            (
+                "positive: allowlisted open: perf row accepted",
+                perf_open_allowlisted,
+                0,
+                (),
+                ("row P92",),
             ),
         ):
             slug = "".join(ch if ch.isalnum() else "-" for ch in name)
