@@ -62,7 +62,7 @@ lean_lib ApeironWordBridge where
     `Map.Rep, `Map.Read, `Map.Selected, `Map.PrefixMasks,
     -- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe`: the executed map face.
     `Map.ExecutedBase, `Map.ExecutedProbe, `Map.ExecutedOverflow, `Map.ExecutedRep,
-    `Map.ExecutedRead, `Map.ExecutedReadUncond, `Map.ExecutedSelected, `Map.Executed,
+    `Map.ExecutedRead, `Map.ExecutedReadTotal, `Map.ExecutedReadUncond, `Map.ExecutedSelected, `Map.Executed,
     `Map.ExecutedOverflowAvlBase, `Map.ExecutedOverflowAvl, `Map.ExecutedOverflowChain, `Map.ExecutedOverflowDescend, `Map.ExecutedOverflowInsert,
     `Map.ExecutedInsertSide, `Map.ExecutedInsertSlot, `Map.ExecutedInsert, `Map.ExecutedResizeOrder, `Map.ExecutedResize,
     -- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (HT-BUILD): the executed build.

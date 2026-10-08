@@ -2,6 +2,7 @@
 import Map.ExecutedRead
 import Map.ExecutedBuild
 import Map.ExecutedReadUncond
+import Map.ExecutedReadTotal
 import Map.Selected
 
 /-!
@@ -146,8 +147,48 @@ theorem executed_get_refines_canonical_get_reachable
   have hrep := selectedReadRep_reachable enc n xs hlen s h hok default
   exact selected_get_refines_canonical_get hrep key value
 
+/-! ## The read contract with the totality premise discharged
+
+`get_ok_of_mapRep` (`Map/ExecutedReadTotal.lean`) proves the executed read returns `ok` on every
+`MapRep` state, so on a reachable build state `hok` follows from `build_refines` and no partial
+premise remains. -/
+
+open Classical in
+/-- **`SelectedReadRep` on every reachable build state, no `hok`.**  The executed read's totality
+(`get_ok_of_mapRep`) discharges the partial-correctness premise of `selectedReadRep_reachable`. -/
+theorem selectedReadRep_total
+    (enc : MapKey → U64) (n : Usize) (xs : List (U64 × I64)) (hlen : xs.length < nilN)
+    (s : Tbl (hashtrinity.algebra.Stored U64)) (h : execBuild n xs = ok s)
+    (default : I64) :
+    SelectedReadRep (executedFace enc) s (fun key => enc key ∈ xs.map Prod.fst)
+      (fun key => if enc key ∈ xs.map Prod.fst then
+        Apeiron.Table.get (Apeiron.Table.build (fun new _ => new) 0#i64 xs) (enc key)
+        else default) default := by
+  obtain ⟨hR, _⟩ := build_refines n xs hlen s h
+  exact selectedReadRep_reachable enc n xs hlen s h
+    (fun key => get_ok_of_mapRep s (Apeiron.Table.build (fun new _ => new) 0#i64 xs)
+      (fun c => c ∈ xs.map Prod.fst) hR (enc key)) default
+
+open Classical in
+/-- **The executed read refines the canonical build read on every reachable state, no `hok`.**
+`executed_get_refines_canonical_get_reachable` with the read's totality discharged. -/
+theorem executed_get_refines_canonical_get_total
+    (enc : MapKey → U64) (n : Usize) (xs : List (U64 × I64)) (hlen : xs.length < nilN)
+    (s : Tbl (hashtrinity.algebra.Stored U64)) (h : execBuild n xs = ok s)
+    (default : I64) (key : MapKey) (value : I64) :
+    (executedFace enc).read s key = some value ↔
+      (enc key ∈ xs.map Prod.fst) ∧
+      (if enc key ∈ xs.map Prod.fst then
+        Apeiron.Table.get (Apeiron.Table.build (fun new _ => new) 0#i64 xs) (enc key)
+        else default) = value := by
+  have hrep := selectedReadRep_total enc n xs hlen s h default
+  exact selected_get_refines_canonical_get hrep key value
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.selectedReadRep_of_tableRep
 #audit Apeiron.MapExecuted.selectedReadRep_reachable
 #audit Apeiron.MapExecuted.executed_get_refines_canonical_get_reachable
+#audit Apeiron.MapExecuted.get_ok_of_mapRep
+#audit Apeiron.MapExecuted.selectedReadRep_total
+#audit Apeiron.MapExecuted.executed_get_refines_canonical_get_total
