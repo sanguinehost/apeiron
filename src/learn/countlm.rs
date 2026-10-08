@@ -1,7 +1,13 @@
 //! Kneser–Ney byte count language model (`CountLM`).
 //!
 //! Subsumed from `../fold/modelfold/src/countlm.rs` @ `d497161f` and `../spinor-ttl/src/spinor_ttl/countlm.py` @ `a05bb1b`.
-//! Count storage is the vendored counting face [`FreqMap`].
+//! Count storage is the vendored counting face [`FreqMap`], keyed by an **injective** `u64` word:
+//! `(order, packed-context, label)` is packed into disjoint bit fields ([`pack_key`]) so no two
+//! distinct n-gram keys share a coordinate. A structured tuple key would instead be addressed by the
+//! lossy tuple `Coord` fold (`src/hashtrinity/algebra.rs:465-476`), which merges distinct keys on a
+//! coordinate clash. `u64::coord` is the identity and `u64::INJECTIVE` is `true`
+//! (`src/hashtrinity/algebra.rs:60-66`), so `FreqMap<u64, …>` — whose `freq(k) = k.coord()`
+//! (`src/hashtrinity/freq.rs:1257-1259`) — is exact on the packed words.
 //!
 //! # Mathematical Foundations
 //!
@@ -38,12 +44,84 @@ use crate::freq::FreqMap;
 /// Maximum context order supported by the compact lossless representation ($k \le 4$).
 pub const MAX_ORDER: usize = 4;
 
-/// Flat count state: `(order, packed-context, byte) -> occurrence count`.
-/// Stored in the vendored Non-Being (NB) counting face [`FreqMap`].
-type Flat = FreqMap<(u8, u64, u16), i64>;
+/// Bit width of the order field. Orders `1..=MAX_ORDER` (`MAX_ORDER = 4`) fit in 3 bits.
+const ORDER_BITS: u32 = 3;
+/// Bit width of the packed-context field. `pack_canon` folds one byte per `(p << 8) | g[b]` step
+/// with `g[b] < 256`, and [`fold_range`](CountLM::fold_range) never packs more than `MAX_ORDER = 4`
+/// bytes, so a packed context occupies at most `4 bytes × 8 bits = 32` bits.
+const CTX_BITS: u32 = 32;
+/// Bit width of the byte-label field. A label in `0..256` needs 9 bits.
+const LABEL_BITS: u32 = 9;
+/// Shift of the packed-context field in the packed key.
+const CTX_SHIFT: u32 = ORDER_BITS;
+/// Shift of the byte-label field in the packed key. `3 + 32 + 9 = 44 ≤ 64`.
+const LABEL_SHIFT: u32 = ORDER_BITS + CTX_BITS;
+/// Mask of the packed-context field.
+const CTX_MASK: u64 = (1u64 << CTX_BITS) - 1;
+/// Mask of the byte-label field.
+const LABEL_MASK: u64 = (1u64 << LABEL_BITS) - 1;
+/// Mask of the order field.
+const ORDER_MASK: u64 = (1u64 << ORDER_BITS) - 1;
 
-/// Sparse distribution for reader inference: `(order, packed-context) -> [(byte, count)]`.
-type Dist = FreqMap<(u8, u64), Vec<(u16, i32)>>;
+/// Pack an n-gram key `(order, packed-context, label)` into one `u64` with disjoint bit fields, so
+/// the packing is injective on the used domain (`order ≤ 7`, `context < 2^32`, `label < 2^9`).
+///
+/// The 44-bit word is `< 2^44`, so it never equals a reserved occupancy marker (`EMPTY = u64::MAX`,
+/// `TOMB = u64::MAX - 1`, `src/hashtrinity/mod.rs:229,286`): every packed key lands in the primary
+/// lanes of [`FreqMap`] and its coordinate (the word itself, `u64::coord`) is exact.
+///
+/// # Panics
+///
+/// Panics if `order > 7`, `ctx ≥ 2^32` or `label ≥ 2^9`: an out-of-domain field would otherwise be
+/// truncated and alias another key.
+#[inline]
+#[must_use]
+pub fn pack_key(order: u8, ctx: u64, label: u16) -> u64 {
+    assert!(
+        u64::from(order) <= ORDER_MASK && ctx <= CTX_MASK && u64::from(label) <= LABEL_MASK,
+        "pack_key: field out of domain"
+    );
+    (u64::from(order) & ORDER_MASK)
+        | ((ctx & CTX_MASK) << CTX_SHIFT)
+        | ((u64::from(label) & LABEL_MASK) << LABEL_SHIFT)
+}
+
+/// Inverse of [`pack_key`]: recover `(order, packed-context, label)` exactly.
+#[inline]
+#[must_use]
+pub fn unpack_key(key: u64) -> (u8, u64, u16) {
+    (
+        (key & ORDER_MASK) as u8,
+        (key >> CTX_SHIFT) & CTX_MASK,
+        ((key >> LABEL_SHIFT) & LABEL_MASK) as u16,
+    )
+}
+
+/// Pack a `(order, packed-context)` distribution key into one `u64`, the low 35 bits of
+/// [`pack_key`]'s layout. Injective on the used domain by the same disjoint-field argument.
+///
+/// # Panics
+///
+/// Panics if `order > 7` or `ctx ≥ 2^32`.
+#[inline]
+#[must_use]
+pub fn pack_ctx(order: u8, ctx: u64) -> u64 {
+    assert!(
+        u64::from(order) <= ORDER_MASK && ctx <= CTX_MASK,
+        "pack_ctx: field out of domain"
+    );
+    (u64::from(order) & ORDER_MASK) | ((ctx & CTX_MASK) << CTX_SHIFT)
+}
+
+/// Flat count state: `pack_key(order, packed-context, byte) -> occurrence count`.
+///
+/// Keyed by an injective `u64` word rather than a `(u8, u64, u16)` tuple, whose tuple `Coord` fold is
+/// lossy and merges distinct keys on a coordinate clash.
+type Flat = FreqMap<u64, i64>;
+
+/// Sparse distribution for reader inference:
+/// `pack_ctx(order, packed-context) -> [(byte, count)]`.
+type Dist = FreqMap<u64, Vec<(u16, i32)>>;
 
 /// The identity canonicalizer mapping each byte to itself.
 pub const CANON_IDENTITY: [u8; 256] = {
@@ -58,6 +136,10 @@ pub const CANON_IDENTITY: [u8; 256] = {
 
 /// Pack up to 8 context bytes into a `u64`, oldest byte highest.
 /// Lossless bijection for contexts of length $\le 8$.
+///
+/// `CountLM` caps a context at `MAX_ORDER = 4` bytes ([`fold_range`](CountLM::fold_range)), so a
+/// packed context produced here occupies at most `4 × 8 = 32` bits (`CTX_BITS`), the width
+/// [`pack_key`] reserves for it.
 #[inline]
 fn pack_canon(ctx: &[u8], g: &[u8; 256]) -> u64 {
     ctx.iter()
@@ -164,7 +246,7 @@ fn kn_refine(d: (f64, f64, f64), p: &mut [f64; 256], t: &[(u16, i32)]) {
 #[derive(Clone)]
 pub struct CountLM {
     flat: Flat,
-    keys: Vec<(u8, u64, u16)>,
+    keys: Vec<u64>,
     order: usize,
     canon: [u8; 256],
 }
@@ -278,7 +360,7 @@ impl CountLM {
             let label = u16::from(bytes[i]);
             for o in 1..=k.min(i) {
                 let p = pack_canon(&bytes[i - o..i], &self.canon);
-                let key = (o as u8, p, label);
+                let key = pack_key(o as u8, p, label);
                 if self.flat.get(&key).is_none() {
                     self.keys.push(key);
                 }
@@ -374,6 +456,8 @@ impl CountLM {
 
     /// Exact non-zero count ledger sorted by key for bit-for-bit equivalence comparison.
     ///
+    /// Each packed key is unpacked back to its `(order, packed-context, byte)` triple.
+    ///
     /// # Domain
     ///
     /// Total.
@@ -390,7 +474,7 @@ impl CountLM {
             .filter_map(|&k| {
                 let c = self.flat.get(&k).copied().unwrap_or(0);
                 if c != 0 {
-                    Some((k, c))
+                    Some((unpack_key(k), c))
                 } else {
                     None
                 }
@@ -448,7 +532,7 @@ impl CountLM {
         let (mut n1, mut n2, mut n3, mut n4) = (0u64, 0u64, 0u64, 0u64);
 
         for &k in &self.keys {
-            let (o, p, b) = k;
+            let (o, p, b) = unpack_key(k);
             let c = match self.flat.get(&k) {
                 Some(&c_val) if c_val > 0 => c_val,
                 _ => continue,
@@ -462,13 +546,17 @@ impl CountLM {
                 _ => {}
             }
 
-            dist.insert_with(&(o, p), vec![(b, c as i32)], |new, old| bump(old, new));
+            dist.insert_with(&pack_ctx(o, p), vec![(b, c as i32)], |new, old| {
+                bump(old, new)
+            });
             if o == 1 {
                 uni[b as usize] += 1;
             } else if (o as usize) <= MAX_ORDER {
-                cont.insert_with(&(o - 1, drop_oldest(p, o)), vec![(b, 1)], |new, old| {
-                    bump(old, new)
-                });
+                cont.insert_with(
+                    &pack_ctx(o - 1, drop_oldest(p, o)),
+                    vec![(b, 1)],
+                    |new, old| bump(old, new),
+                );
             }
         }
 
@@ -575,7 +663,7 @@ impl Reader {
             if o <= n {
                 if let Some(t) = self
                     .cont
-                    .get(&(o as u8, pack_canon(&ctx[n - o..], &self.canon)))
+                    .get(&pack_ctx(o as u8, pack_canon(&ctx[n - o..], &self.canon)))
                 {
                     kn_refine(self.d, &mut p, t);
                 }
@@ -585,7 +673,7 @@ impl Reader {
         if kn <= n {
             if let Some(t) = self
                 .dist
-                .get(&(kn as u8, pack_canon(&ctx[n - kn..], &self.canon)))
+                .get(&pack_ctx(kn as u8, pack_canon(&ctx[n - kn..], &self.canon)))
             {
                 kn_refine(self.d, &mut p, t);
             }
