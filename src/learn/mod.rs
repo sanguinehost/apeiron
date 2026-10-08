@@ -9,3 +9,6 @@ pub mod gguf;
 /// Activation-weighted `Q4_K` block quantization: the seal core emitting bytes
 /// [`crate::format::quant::dequant_q4_k_block`] reads unchanged.
 pub mod seal;
+
+/// Kneser–Ney byte count language model over the vendored counting face [`crate::freq::FreqMap`].
+pub mod countlm;
