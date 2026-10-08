@@ -61,7 +61,20 @@ pub fn gemv_dp4a_batch_rt_module(
     rt: u32,
 ) -> Vec<u32> {
     assert!(k % 32 == 0, "chart carriers need k % 32 == 0");
-    assert!(carrier.is_chart(), "DP4A is a chart carrier (Q8/Q4/Q2)");
+    assert!(
+        carrier.is_chart(),
+        "DP4A folds a chart carrier (Q8/Q4/Q2 are one plane; Q3/Q5 are two and are refused below)"
+    );
+    // A two-plane chart (Q3/Q5) carries its high bit in a plane appended to `w`, one word per
+    // 32-block per row; this kernel walks ONE code plane and would read plane B as the next row's
+    // plane A, returning a plausible wrong number. Refuse by name, and point at the path that does
+    // decode both: the cooperative-matrix chart GEMM is a two-plane carrier's prefill GEMM.
+    assert!(
+        carrier.plane_b_off(m, k) == 0,
+        "the row-tiled DP4A batch GEMM reads one code plane: {carrier:?} is a two-plane chart \
+(Q3/Q5) whose plane B it cannot decode. The cooperative-matrix chart GEMM is the prefill path \
+for a two-plane carrier; this kernel refuses it rather than folding plane A alone."
+    );
     assert!(bt >= 1 && rt >= 1, "both tiles must be >= 1");
     let codes_per_word = carrier.pack(); //   Q8 → 4, Q4 → 8, Q2 → 16
     let dots_per_word = codes_per_word / 4; // Q8 → 1, Q4 → 2, Q2 → 4
@@ -522,6 +535,33 @@ pub fn gemv_dp4a_batch_rt_bytes(
         .iter()
         .flat_map(|w| w.to_le_bytes())
         .collect()
+}
+
+#[cfg(test)]
+mod batch_rt_plane_tests {
+    use super::gemv_dp4a_batch_rt_module;
+    use super::Carrier;
+
+    /// **A two-plane chart is REFUSED, not silently folded on plane A alone.**
+    ///
+    /// `gemv_dp4a_batch_rt_module` walks one code plane; `Carrier::Q5` (and `Carrier::Q3`) carry the
+    /// high bit in a second plane appended to `w`, so plane B would be read as the next row's plane A
+    /// and the kernel would emit a plausible wrong number. The cooperative-matrix chart GEMM is their
+    /// prefill path; this emitter must refuse and name them. CPU-only: it only builds SPIR-V words.
+    #[test]
+    #[should_panic(expected = "two-plane chart")]
+    fn q5_batch_rt_module_is_refused() {
+        let _ = gemv_dp4a_batch_rt_module(64, 128, 128, Carrier::Q5, 8, 4);
+    }
+
+    /// The control: a single-plane chart still emits a module, so the refusal above is specific to
+    /// the two-plane carriers rather than a blanket refusal of chart carriers.
+    #[test]
+    fn q4_batch_rt_module_still_emits() {
+        let b = gemv_dp4a_batch_rt_module(64, 128, 128, Carrier::Q4, 8, 4);
+        assert!(b.len() > 1024, "Q4 emitted nothing usable");
+        assert_eq!(b[0], 0x0723_0203, "Q4 must begin with the SPIR-V magic");
+    }
 }
 
 /// **The SUPERBLOCK integer-dot GEMM — the float epilogue collapsed 8×.**

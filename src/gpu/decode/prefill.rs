@@ -51,7 +51,10 @@ const WG_SHARED_MAX: u32 = 49_152;
 /// `rt*bt <= 64`; `bt = 32` when the chart exceeds 32 MB (no longer L2-resident), else 8; `rt` as
 /// large as that allows with at least two row slabs and at most 50 % tail waste.
 pub fn prefill_tile(m: u32, k: u32, carrier: Carrier, local: u32) -> (u32, u32) {
-    let chart_bytes = (k / carrier.pack()) as u64 * m as u64 * 4 + (k / 32) as u64 * m as u64 * 4;
+    // `chart_bytes` (and not `k/pack`): `Carrier::Q3`/`Q5` are TWO planes and plane B is appended
+    // to `w`, so `k/pack` counts only plane A and crosses the 32 MB threshold late. The canonical
+    // decoder byte accounting already uses `code_words_per_row`, which counts both planes.
+    let chart_bytes = super::chart_bytes(m, k, carrier);
     let bt = match std::env::var("DEC_PREFILL_BT") {
         Ok(v) => v.parse().unwrap_or(8u32).max(1).min(PREFILL_BT_MAX as u32),
         Err(_) if chart_bytes > 32 << 20 => 32,
@@ -947,6 +950,30 @@ impl PrefillStack {
                 .add(self.vocab + self.hidden)
                 .cast::<u32>()
                 .read() as usize
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::gpu::decode::chart_bytes;
+    use crate::simt::Carrier;
+
+    /// **The tile's byte figure counts BOTH planes of a two-plane chart.** `prefill_tile` picks the
+    /// 32-token tile once the chart exceeds 32 MB; under `k/pack` that threshold was crossed late for
+    /// `Carrier::Q3`/`Q5`, whose plane B is appended to `w` and is invisible to `pack()`. The figure
+    /// `prefill_tile` sizes against must be `4·m·(code_words_per_row(k) + k/32)` for every chart
+    /// carrier — this test pins the exact function `prefill_tile` now calls.
+    #[test]
+    fn prefill_tile_chart_bytes_counts_both_planes() {
+        for &(m, k) in &[(512u32, 4096u32), (151_936, 896), (4096, 5120)] {
+            for c in [Carrier::Q8, Carrier::Q4, Carrier::Q3, Carrier::Q5] {
+                assert_eq!(
+                    chart_bytes(m, k, c),
+                    4 * u64::from(m) * (u64::from(c.code_words_per_row(k)) + u64::from(k / 32)),
+                    "{c:?} at {m}x{k}"
+                );
+            }
         }
     }
 }

@@ -314,6 +314,16 @@ theorem q5_chart_gain_when_bytes_bind (m : Machine) (r r' : Res) (rows k : Nat) 
 
 #guard q5RowWords 896 = 168 ∧ q8RowWords 896 = 252
 
+/-- **P41 (two-plane tile bytes).** `prefill_tile` (`src/gpu/decode/prefill.rs`) picks the 32-token
+tile once a chart exceeds 32 MB; it now sizes against `chart_bytes = 4 m (code_words_per_row k + k/32)`,
+which for `Carrier::Q5` is `4 m · q5RowWords k`. Every qwen05b Q5_0 group has `k = 896` and
+`m ≤ 9728` (fused `gu`), so the corrected figure stays under the threshold: the tile is unchanged. -/
+theorem q5_chart_under_tile_threshold (m k : Nat) (hm : m ≤ 16384) (hk : k ≤ 896) :
+    4 * m * q5RowWords k ≤ 32 * 2 ^ 20 := by
+  have hw : q5RowWords k ≤ 168 := by unfold q5RowWords; omega
+  calc 4 * m * q5RowWords k ≤ 4 * 16384 * 168 := Nat.mul_le_mul (Nat.mul_le_mul_left 4 hm) hw
+    _ ≤ 32 * 2 ^ 20 := by decide
+
 end Moves
 
 end Perf
