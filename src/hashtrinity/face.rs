@@ -968,13 +968,16 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 keep(k, v)
             };
             if !alive {
-                // SAFETY: live coord ⇒ value initialized; dropped exactly once, then the slot is
-                // tombstoned so nothing reads it again.
-                unsafe { self.vals.get_unchecked_mut(i).assume_init_drop() };
-                drop(self.keys.take_key(i, c));
+                // Commit `TOMB`/`len`/`tombs` BEFORE any destructor runs: a panicking `V::drop`
+                // or `K::drop` then leaves the slot non-live, so nothing reads the moved-out value
+                // again and the table stays consistent.
+                // SAFETY: live coord ⇒ value initialized; the value is moved out exactly once.
+                let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
                 self.coords[i] = TOMB;
                 self.len -= 1;
                 self.tombs += 1;
+                drop(self.keys.take_key(i, c));
+                drop(old);
             }
         }
         // Side entries: a removal swap-removes the entry, so re-examine the index it swapped in.
@@ -1004,27 +1007,41 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         }
     }
 
-    /// Drop every entry, keeping the allocation.
+    /// Drop every entry, keeping the allocation. Each slot is committed non-live (`EMPTY`, with
+    /// `len`/`tombs` adjusted) BEFORE its value's or key's destructor runs, so a destructor that
+    /// panics mid-pass leaves a consistent table: the slots already visited are empty and are not
+    /// dropped again, the slots not yet reached are still live and are dropped once (by a later
+    /// `clear`, by `Drop`, or as the table is reused), and no value or key is dropped twice.
     pub fn clear(&mut self) {
         if self.len == 0 && self.tombs == 0 && self.side.coords.is_empty() && self.overflow.is_none()
         {
             return;
         }
-        if std::mem::needs_drop::<V>() {
-            for (c, v) in self.coords.iter().zip(self.vals.iter_mut()) {
-                if is_live(*c) {
-                    // SAFETY: live coord ⇒ value initialized.
-                    unsafe { v.assume_init_drop() };
+        let drop_v = std::mem::needs_drop::<V>();
+        let drop_k = std::mem::needs_drop::<K>();
+        let mut i = 0;
+        while i < self.coords.len() {
+            let c = self.coords[i];
+            if c != EMPTY {
+                // Commit the slot non-live first: a panicking destructor below then finds a slot
+                // that `Drop`/iteration skip, and the value it dropped is not reached again.
+                self.coords[i] = EMPTY;
+                if is_live(c) {
+                    self.len -= 1;
+                    if drop_v {
+                        // SAFETY: live coord ⇒ value initialized; dropped exactly once, here.
+                        unsafe { self.vals[i].assume_init_drop() };
+                    }
+                    if drop_k {
+                        // The key store rides the same liveness line; its destructor may panic.
+                        drop(self.keys.take_key(i, c));
+                    }
+                } else {
+                    self.tombs -= 1; // the slot was a `TOMB`, now `EMPTY`
                 }
             }
+            i += 1;
         }
-        // The key store rides the same liveness line, which it does not own — hand it over.
-        let mut coords = std::mem::take(&mut self.coords);
-        self.keys.drop_live(&coords);
-        coords.fill(EMPTY);
-        self.coords = coords;
-        self.len = 0;
-        self.tombs = 0;
         self.side.clear();
         self.overflow = None;
     }

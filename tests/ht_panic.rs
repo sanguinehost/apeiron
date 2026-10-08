@@ -603,3 +603,176 @@ fn g3_insert_fetch_vacant_absorb_panic_leaves_slot_empty() {
         "the value is dropped exactly once"
     );
 }
+
+// ── G4–G8: the five remaining same-class sites (independent review round 3) ─────────────────────
+
+/// G4 (site 1, `OccupiedEntry::remove_entry`, every `Store` arm): `remove_entry` moves the key and
+/// value out and RETURNS them; it runs no user destructor of its own, so there is no unwind to
+/// reorder against — this pins the invariant. A stored key whose `Drop` panics, dropped by the
+/// caller after the call returns, leaves the slot absent, `len` decremented and the value dropped
+/// exactly once. The main store and the reserved-coordinate side store are both exercised.
+#[test]
+fn g4_remove_entry_returns_before_any_key_drop() {
+    static MADE: AtomicUsize = AtomicUsize::new(0);
+    static DROPPED: AtomicUsize = AtomicUsize::new(0);
+    // `7` is a main slot; `u64::MAX` / `u64::MAX - 1` are the reserved (`EMPTY`/`TOMB`)
+    // coordinates held in the side store.
+    for coord in [7u64, u64::MAX, u64::MAX - 1] {
+        let mut t: Table<Pk, D> = Table::new();
+        t.put(
+            Pk {
+                c: coord,
+                panic: true,
+            },
+            D::new(&MADE, &DROPPED),
+        );
+        assert_eq!(t.len(), 1, "one entry at {coord:#x}");
+        let probe = Pk {
+            c: coord,
+            panic: false,
+        };
+        let (k, v) = t.remove_entry(&probe).expect("present");
+        // The structural commit happened before `remove_entry` returned.
+        assert!(t.get(&probe).is_none(), "the removed slot reads as absent");
+        assert_eq!(t.len(), 0, "the removal is counted");
+        // The key's destructor runs here, after the commit; its panic cannot corrupt the table.
+        let r = catch_unwind(AssertUnwindSafe(move || drop(k)));
+        assert!(r.is_err(), "the returned key's drop panics");
+        drop(v);
+        drop(t);
+    }
+    assert_eq!(
+        DROPPED.load(Ordering::SeqCst),
+        MADE.load(Ordering::SeqCst),
+        "every value is dropped exactly once"
+    );
+}
+
+/// G5 (site 2, `Table::clear`): a `V::drop` that panics mid-pass must leave a table that is empty
+/// or consistent, the values not yet dropped leaked rather than double-dropped on the next
+/// `clear`/`Drop`. The clearing loop commits each slot `EMPTY` (and its `len`/`tombs` share)
+/// before running that slot's destructor.
+#[test]
+fn g5_clear_panic_no_double_drop() {
+    static A: AtomicUsize = AtomicUsize::new(0);
+    static B: AtomicUsize = AtomicUsize::new(0);
+    static TOTAL: AtomicUsize = AtomicUsize::new(0);
+    let mut t: Table<u64, Pv> = Table::new();
+    t.put(
+        1,
+        Pv {
+            drops: &A,
+            total: &TOTAL,
+        },
+    );
+    t.put(
+        2,
+        Pv {
+            drops: &B,
+            total: &TOTAL,
+        },
+    );
+    assert_eq!(t.len(), 2);
+    let r = catch_unwind(AssertUnwindSafe(|| t.clear()));
+    assert!(r.is_err(), "the second value drop must panic");
+    drop(t);
+    assert!(A.load(Ordering::SeqCst) <= 1, "entry 0 dropped twice");
+    assert!(B.load(Ordering::SeqCst) <= 1, "entry 1 dropped twice");
+}
+
+/// G6 (site 3, `Table::retain`): a panicking drop of a removed value must not leave a live slot
+/// whose value was moved out. The main-slot removal commits `TOMB`/`len`/`tombs` before the value
+/// and the key are dropped.
+#[test]
+fn g6_retain_removal_panic_commits_slot_first() {
+    static A: AtomicUsize = AtomicUsize::new(0);
+    static B: AtomicUsize = AtomicUsize::new(0);
+    static TOTAL: AtomicUsize = AtomicUsize::new(0);
+    let mut t: Table<u64, Pv> = Table::new();
+    t.put(
+        1,
+        Pv {
+            drops: &A,
+            total: &TOTAL,
+        },
+    );
+    t.put(
+        2,
+        Pv {
+            drops: &B,
+            total: &TOTAL,
+        },
+    );
+    let r = catch_unwind(AssertUnwindSafe(|| t.retain(|_k, _v| false)));
+    assert!(r.is_err(), "the second removed value's drop must panic");
+    drop(t);
+    assert!(A.load(Ordering::SeqCst) <= 1, "entry 0 dropped twice");
+    assert!(B.load(Ordering::SeqCst) <= 1, "entry 1 dropped twice");
+}
+
+/// G7 (site 4, `IntoIter::next`): `next` moves the value and key out and blanks the lane before
+/// returning, so a consumer panic between calls — or a panicking drop of a yielded value — does not
+/// re-yield the slot or drop it again on `IntoIter`'s own `Drop`.
+#[test]
+fn g7_into_iter_drop_does_not_double_drop_a_yielded_item() {
+    static A: AtomicUsize = AtomicUsize::new(0);
+    static B: AtomicUsize = AtomicUsize::new(0);
+    static TOTAL: AtomicUsize = AtomicUsize::new(0);
+    let mut t: Table<u64, Pv> = Table::new();
+    t.put(
+        1,
+        Pv {
+            drops: &A,
+            total: &TOTAL,
+        },
+    );
+    t.put(
+        2,
+        Pv {
+            drops: &B,
+            total: &TOTAL,
+        },
+    );
+    let mut it = t.into_iter();
+    let (_k, v) = it.next().expect("one live lane");
+    drop(v); // total 1: the yielded value is consumed by the consumer
+             // The remaining live lane's drop panics; the iterator must not have re-dropped the yielded one.
+    let r = catch_unwind(AssertUnwindSafe(move || drop(it)));
+    assert!(r.is_err(), "the remaining value's drop must panic");
+    assert!(
+        A.load(Ordering::SeqCst) <= 1,
+        "the yielded value was dropped twice"
+    );
+    assert!(
+        B.load(Ordering::SeqCst) <= 1,
+        "the remaining value was dropped twice"
+    );
+}
+
+/// G8 (site 5, `place_capped`): a rebuild re-places every carried entry through the capped
+/// placement. `probe_capped_keyed` confirms a coordinate match against the stored key, so with an
+/// injective coordinate two distinct keys cannot share one and a rebuild never takes the defensive
+/// `Hit` arm (the one that drops the old value before writing the new); no reorder is needed there.
+/// The rebuild must still move every value exactly once — no double drop, no leak.
+#[test]
+fn g8_place_capped_rebuild_moves_each_value_once() {
+    let leaked = leaked_by(|| {
+        let mut t: Table<u64, String> = Table::with_capacity(4);
+        let cap0 = t.capacity();
+        for k in 0..2048u64 {
+            t.put(k, format!("v{k}"));
+        }
+        assert!(t.capacity() > cap0, "expected at least one rebuild");
+        assert_eq!(t.len(), 2048);
+        for k in [0u64, 1, 7, 100, 1000, 2047] {
+            let want = format!("v{k}");
+            assert_eq!(
+                t.get(&k).map(String::as_str),
+                Some(want.as_str()),
+                "key {k} lost across a rebuild"
+            );
+        }
+        drop(t);
+    });
+    assert_eq!(leaked, 0, "every value freed exactly once across rebuilds");
+}
