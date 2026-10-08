@@ -1086,6 +1086,26 @@ parabolic bank's 2 and a width-16 bump is still fitted exactly in range. The ful
 `4L` failure above is a narrow-bump property of the fit, not of the elliptic face as such. Not covered: gradient training, softmax normalisation, a trained
 checkpoint, other `N`. Prior art for the contraction: not searched in this slice; FACES-R3 holds the search record.
 
+#### FACES-R2 norm experiment (row `faces-r2-each-on-the-and-BegLX7J1BhlO8MfCu6nnZd`)
+
+Command: `python3 /home/socol/oc-tmp/escalation/FACES-R2-norm-train.py` (numpy; sha256 `130f2c0c478f23b3…`; output
+`FACES-R2-NORM-v2.out`). It trains a pre-norm residual MLP stack with manual backward passes, 2000 Adam steps at lr `1e-3`,
+batch 128, 5 seeds per normaliser. The task is an order-2 Markov chain over 64 symbols. Its entropy-rate floor is 3.6836 nats;
+predicting uniformly costs 4.1589 nats. The whole-model gradient check passed on all 24 tensors (max relative error ≤ `1e-5`).
+The run hit the 40-minute worker timeout after the first parabolic seed. Grade `tested` (toy).
+
+| normaliser | final loss, mean of 5 seeds | range |
+|---|---|---|
+| elliptic (RMS) | 4.1542 | 4.1527–4.1551 |
+| hyperbolic (`|x²−y²|`) | 4.2091 | 4.2003–4.2164 |
+| parabolic | 4.1543 (1 seed) | — |
+
+Verdict: **inconclusive**. The refutation condition did not fire: hyperbolic is 0.055 nats above elliptic, beyond both
+spreads. That gap does not test the norm, though. No arm learned the task: elliptic ends 0.005 nats below uniform, with
+0.47 nats still to the floor. Hyperbolic ends above uniform. The gap is a difference in failure to train, not in trained loss.
+Next falsifier: raise the steps or the learning rate until the elliptic arm closes most of the gap to the floor, then rerun
+all three arms.
+
 Consequence: the faces are not interchangeable per component. Each row lists a capability one face
 has and the others lack (peak at offset, extrapolation, forgetting, definite normaliser, key
 recovery from address, overlap), so a variant that kept all invariants on every base would be flagged
