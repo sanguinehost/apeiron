@@ -369,6 +369,7 @@ import Learn.GramExact
 #audit Perf.Moves.p56_upload_inventory
 #audit Perf.Moves.p57_dn_byte_difference
 #audit Perf.Moves.p58_refutation_arithmetic
+#audit Perf.Moves.p60_overhead_arithmetic
 #audit Perf.Moves.p10_mma_floor
 #audit Perf.Moves.p10_mma_rate_ratio
 #audit Perf.Moves.p10_mma_floor_p8
