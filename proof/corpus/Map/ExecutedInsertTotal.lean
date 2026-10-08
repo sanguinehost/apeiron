@@ -2343,6 +2343,449 @@ theorem place_capped_bigInit {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U
       rw [hb, slice_set_getElem, if_neg (by rintro ⟨h1, _⟩; exact hji h1)]
       exact hz
 
+/-! ### `insert_new_at` preserves the overflow domain with no absence premise
+
+`insert_new_at_spec` establishes `OInv o' T'` but requires `habs : ¬ Present …`, which the resize
+loop's weak `matches` context cannot supply.  The domain part of that proof does not use `habs`: it
+is the `Emb`/`BST`/`ND`/`HOK`/`Bal`/free-list transport through `alloc` + `insert_node` (fresh
+coordinate) or the entry push (existing coordinate).  This section restates it with `habs` dropped
+and adds the per-insert entry-vector slack the consuming loop needs. -/
+
+/-- **`ov_insert_new_at_domain`.**  `Overflow::insert_new_at` preserves `OInv` with no absence
+premise: it increments `len` by one, grows the arena by at most one node, and raises the maximum
+entry-vector length by at most one (`M → M + 1`).  `hentries` bounds the old entry-vector lengths. -/
+theorem ov_insert_new_at_domain (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd : U32)
+    (e : Usize) (M : Nat)
+    (hI : OInv o T) (hcap : o.nodes.val.length < nilN)
+    (hentries : ∀ j ∈ idxs T, ∀ nd, o.nodes.val[j]? = some nd → nd.entries.val.length ≤ M)
+    (h : hashtrinity.overflow.Overflow.insert_new_at CI o coord k v = ok ((nd, e), o')) :
+    ∃ T', OInv o' T' ∧ o'.len.val = o.len.val + 1 ∧ o'.nodes.val.length ≤ o.nodes.val.length + 1 ∧
+      (∀ j ∈ idxs T', ∀ nd', o'.nodes.val[j]? = some nd' → nd'.entries.val.length ≤ M + 1) := by
+  obtain ⟨hE, hB, hND, hH, hBal, hfn, hfl⟩ := hI
+  unfold hashtrinity.overflow.Overflow.insert_new_at at h
+  simp only [lift, bind_tc_ok] at h
+  obtain ⟨i, hi, h⟩ := bind_inv h
+  have hiv := uadd_ok hi
+  have hu1 : (1#usize).val = 1 := rfl
+  rw [hu1] at hiv
+  obtain ⟨n, hn, h⟩ := bind_inv h
+  have hspec := find_node_spec o.nodes coord T o.root hE hB n hn
+  obtain ⟨⟨self1, node⟩, hif, h⟩ := bind_inv h
+  by_cases hnil : n = hashtrinity.overflow.NIL
+  · rw [if_pos hnil] at hif
+    obtain ⟨⟨i1, o2⟩, halloc, hif⟩ := bind_inv hif
+    obtain ⟨ni, hni, hnik, hnie, hnia, hnl, hnr, hnh, hnii, hnT, hnlt, hother, hroot2, hlen2, hfn2, hfl2, hlenA⟩ :=
+      alloc_spec { o with len := i } o2 T i1 coord k v hE hfn hfl hcap halloc
+    have hroot2' : o2.root = o.root := hroot2
+    have hlen2' : o2.len = i := hlen2
+    obtain ⟨self3, hins, hif⟩ := bind_inv hif
+    have hneT : ∀ j ∈ idxs T, j ≠ i1.val := fun j hj e => hnT (by rw [← e]; exact hj)
+    have hagree : ∀ j ∈ idxs T, o2.nodes.val[j]? = o.nodes.val[j]? :=
+      fun j hj => hother j (hneT j hj)
+    have hE2 : Emb o2.nodes.val o2.root T := by
+      rw [hroot2']; exact emb_congr hE hagree
+    have hB2 : BST o2.nodes.val T :=
+      bst_congr' (fun j hj => by unfold keyAt; rw [hagree j hj]) hB
+    have hH2 : HOK o2.nodes.val T := hok_congr hH hagree
+    have hspecL : ∀ j ∈ idxs T, keyAt o.nodes.val j ≠ coord.val := by
+      rcases hspec with ⟨_, hno⟩ | ⟨hm, _⟩
+      · exact hno
+      · rw [(NIL_eq_iff n).mp hnil] at hm
+        obtain ⟨_, _, hne⟩ := emb_mem hE _ hm
+        exact absurd rfl hne
+    have hkey' : ∀ j ∈ idxs T, keyAt o2.nodes.val j ≠ ni.key.val := by
+      intro j hj
+      have h1 : keyAt o2.nodes.val j = keyAt o.nodes.val j := by
+        unfold keyAt; rw [hagree j hj]
+      rw [h1, hnik]; exact hspecL j hj
+    obtain ⟨T', hE3, hB3, hND3, hH3, hBal3, hperm, hrel3, hf3, hl3⟩ :=
+      insert_node_spec o2 self3 T i1 ni hE2 hB2 hND hH2 hBal hnT hnii hni hnl hnr hnh hkey' hins
+    have hs := Result.ok_injective hif
+    simp only [Prod.mk.injEq] at hs
+    obtain ⟨hs1, hs2⟩ := hs
+    subst hs1 hs2
+    obtain ⟨n1, hn1, h⟩ := bind_inv h
+    have hn1' := idx_ok hn1
+    obtain ⟨e1, he1, h⟩ := bind_inv h
+    have he1v := usub_ok he1
+    rw [hu1] at he1v
+    have hlenv : (alloc.vec.Vec.len n1.entries).val = n1.entries.val.length :=
+      alloc.vec.Vec.len_val _
+    have hfin := Result.ok_injective h
+    simp only [Prod.mk.injEq] at hfin
+    obtain ⟨⟨hnd1, he2⟩, ho'⟩ := hfin
+    subst hnd1 he2 ho'
+    obtain ⟨nd', hnd', hsd, _⟩ := hrel3.2 i1.val ni hni
+    rw [hnd'] at hn1'
+    have hnn : nd' = n1 := Option.some.inj hn1'
+    subst hnn
+    have hnent : nd'.entries.val = [(k, some v)] := by rw [← hsd.2.1]; exact hnie
+    have hnkey : nd'.key = coord := by rw [← hsd.1]; exact hnik
+    refine ⟨T', ⟨hE3, hB3, hND3, hH3, hBal3, ?_, ?_⟩, ?_, ?_, ?_⟩
+    · rw [hf3]; exact hfn2
+    · intro j hj
+      rw [hf3] at hj
+      obtain ⟨h1, h2, h3⟩ := hfl2 j hj
+      refine ⟨lt_of_lt_of_eq h1 hrel3.1, fun hm => ?_⟩
+      rcases List.mem_cons.mp (hperm.mem_iff.mp hm) with e | e
+      · exact h3 e
+      · exact h2 e
+    · rw [hl3, hlen2']; exact hiv.1
+    · rw [← hrel3.1]; exact hlenA
+    · intro j hjT' nde hnde
+      rcases List.mem_cons.mp (hperm.mem_iff.mp hjT') with e | hjT
+      · subst e
+        have hnde_eq : nde = nd' := Option.some.inj (hnde.symm.trans hnd')
+        subst hnde_eq
+        rw [hnent]
+        simp
+      · obtain ⟨ndo, hndo, _⟩ := emb_mem hE j hjT
+        have hndo2 : o2.nodes.val[j]? = some ndo := by rw [hagree j hjT]; exact hndo
+        obtain ⟨nds, hnds, hsd2, _⟩ := hrel3.2 j ndo hndo2
+        have hnde_eq : nde = nds := Option.some.inj (hnde.symm.trans hnds)
+        subst hnde_eq
+        have hlen := hentries j hjT ndo hndo
+        rw [← hsd2.2.1]
+        omega
+  · rw [if_neg hnil] at hif
+    obtain ⟨⟨n1, back⟩, hn1, hif⟩ := bind_inv hif
+    obtain ⟨hn1', hback⟩ := idxm_ok hn1
+    obtain ⟨v1, hpush, hif⟩ := bind_inv hif
+    have hv1 := vec_push_ok _ _ _ hpush
+    have hs := Result.ok_injective hif
+    simp only [Prod.mk.injEq] at hs
+    obtain ⟨hs1, hs2⟩ := hs
+    subst hs1 hs2
+    have hnv : n.val ≠ nilN := fun hh => hnil ((NIL_eq_iff n).mpr hh)
+    rcases hspec with ⟨hm, _⟩ | ⟨hm, hk⟩
+    · exact absurd hm hnv
+    have hn1o : o.nodes.val[n.val]? = some n1 := hn1'
+    have hkey : n1.key = coord := by
+      apply UScalar.eq_of_val_eq
+      rw [← keyAt_get hn1o]; exact hk
+    have hlt : n.val < o.nodes.val.length := (List.getElem?_eq_some_iff.mp hn1o).1
+    have hnodes : (back {n1 with entries := v1}).val =
+        o.nodes.val.set n.val {n1 with entries := v1} := by rw [hback]
+    obtain ⟨n1b, hn1b, h⟩ := bind_inv h
+    have hn1c := idx_ok hn1b
+    obtain ⟨e1, he1, h⟩ := bind_inv h
+    have he1v := usub_ok he1
+    rw [hu1] at he1v
+    have hfin := Result.ok_injective h
+    simp only [Prod.mk.injEq] at hfin
+    obtain ⟨⟨hnd1, he2⟩, ho'⟩ := hfin
+    subst hnd1 he2 ho'
+    have hset : (o.nodes.val.set n.val {n1 with entries := v1}).length = o.nodes.val.length :=
+      List.length_set
+    have hn1new : n1b = {n1 with entries := v1} := by
+      have : (back {n1 with entries := v1}).val[n.val]? = some n1b := hn1c
+      rw [hnodes, List.getElem?_set_self hlt] at this
+      exact (Option.some.inj this).symm
+    subst hn1new
+    have hent : v1.val = n1.entries.val ++ [(k, some v)] := hv1
+    have hl2 : v1.val.length = n1.entries.val.length + 1 := by rw [hent]; simp
+    have hne : ∀ j, j ≠ n.val → (o.nodes.val.set n.val {n1 with entries := v1})[j]? =
+        o.nodes.val[j]? := fun j hj => List.getElem?_set_ne (Ne.symm hj)
+    have hptr : ∀ j ∈ idxs T, ∀ nd0, o.nodes.val[j]? = some nd0 →
+        ∃ nd', (o.nodes.val.set n.val {n1 with entries := v1})[j]? = some nd' ∧
+          nd'.left = nd0.left ∧ nd'.right = nd0.right := by
+      intro j hj nd0 hnd0
+      by_cases hjj : j = n.val
+      · subst hjj
+        rw [hn1o] at hnd0
+        have := Option.some.inj hnd0
+        subst this
+        exact ⟨{n1 with entries := v1}, List.getElem?_set_self hlt, rfl, rfl⟩
+      · exact ⟨nd0, by rw [hne j hjj]; exact hnd0, rfl, rfl⟩
+    have hkeys : ∀ j, keyAt (o.nodes.val.set n.val {n1 with entries := v1}) j =
+        keyAt o.nodes.val j := by
+      intro j
+      by_cases hjj : j = n.val
+      · subst hjj
+        rw [keyAt_get (List.getElem?_set_self hlt), keyAt_get hn1o]
+      · unfold keyAt; rw [hne j hjj]
+    have hhag : ∀ j, HAg o.nodes.val (o.nodes.val.set n.val {n1 with entries := v1}) j := by
+      intro j nd0 hnd0
+      by_cases hjj : j = n.val
+      · subst hjj
+        rw [hn1o] at hnd0
+        have := Option.some.inj hnd0
+        subst this
+        exact ⟨{n1 with entries := v1}, List.getElem?_set_self hlt, rfl⟩
+      · exact ⟨nd0, by rw [hne j hjj]; exact hnd0, rfl⟩
+    refine ⟨T, ⟨?_, ?_, hND, ?_, hBal, hfn, ?_⟩, ?_, ?_, ?_⟩
+    · show Emb (back {n1 with entries := v1}).val o.root T
+      rw [hnodes]; exact emb_ptr_congr hE hptr
+    · show BST (back {n1 with entries := v1}).val T
+      rw [hnodes]; exact bst_congr' (fun j _ => hkeys j) hB
+    · show HOK (back {n1 with entries := v1}).val T
+      rw [hnodes]; exact hok_hcongr hH (fun j _ => hhag j)
+    · intro j hj
+      refine ⟨?_, (hfl j hj).2⟩
+      show j.val < (back {n1 with entries := v1}).val.length
+      rw [hnodes, hset]; exact (hfl j hj).1
+    · show i.val = o.len.val + 1
+      exact hiv.1
+    · show (back {n1 with entries := v1}).val.length ≤ _
+      rw [hnodes, hset]; omega
+    · intro j hjT nde hnde
+      by_cases hjj : j = n.val
+      · subst hjj
+        have hnde_eq : nde = {n1 with entries := v1} := by
+          have hself : (back {n1 with entries := v1}).val[n.val]? =
+              some ({n1 with entries := v1} : ONode) := by
+            rw [hnodes]; exact List.getElem?_set_self hlt
+          exact Option.some.inj (hnde.symm.trans hself)
+        subst hnde_eq
+        have hlen := hentries n.val hm n1 hn1o
+        show v1.val.length ≤ M + 1
+        rw [hl2]
+        omega
+      · have hnde' : o.nodes.val[j]? = some nde := by
+          rw [hnodes] at hnde
+          rw [hne j hjj] at hnde
+          exact hnde
+        have hlen := hentries j hjT nde hnde'
+        omega
+
+/-! ### `place_capped` advances the overflow domain by at most one
+
+`place_capped_ok`'s `hov` fixes the arena, `len` and entry-vector bounds at `place_capped`'s
+capacity constants.  Those constants are consumed one unit per overflowing `insert_new_at`, so the
+resize loops must carry the bounds as a counter.  `Hov t n` bounds a present overflow's arena,
+`len` and per-node entry-vector length by `n`; `place_capped_hov` advances the counter by one. -/
+
+/-- The overflow domain of `t` with a size counter `n`: a present overflow has an `OInv` shape whose
+arena length, `len` and per-node entry-vector length are each at most `n`. -/
+def Hov {KS : Type} (t : Tbl KS) (n : Nat) : Prop :=
+  ∀ ov, t.overflow = some ov →
+    ∃ T, OInv ov T ∧ ov.nodes.val.length ≤ n ∧ ov.len.val ≤ n ∧
+      (∀ j ∈ idxs T, ∀ nd, ov.nodes.val[j]? = some nd → nd.entries.val.length ≤ n)
+
+/-- **`place_capped_domain`.**  `Table::place_capped` returns a table whose overflow domain is
+`Hov … n` transported to `Hov … (n+1)`: the `Hit` and `Vacant` verdicts leave the overflow untouched;
+the `Blocked` verdict runs one `insert_new_at`, which `ov_insert_new_at_domain` grows by at most one
+in each of the three measures.  `hK` (`n + 4 ≤ 2^32 - 1`) supplies the arena capacity the `Blocked`
+verdict reads. -/
+theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
+    (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
+    (hset : ∀ (keys : KS) (i : Usize) (k : U64), ∃ keys', ks.set keys i k = ok keys')
+    (t : Tbl KS) (c : U64) (v : I64) (n : Nat)
+    (hbits : 0 < t.bits.val) (hlen : t.coords.length = 2 ^ t.bits.val)
+    (hsl : t.vals.length = t.coords.length)
+    (hinit : ∀ (i : Nat), t.coords.val[i]? = some c → ∃ z, t.vals.val[i]? = some (some z))
+    (hlenmax : t.len.val < Usize.max)
+    (hov : Hov t n) (hK : n + 4 ≤ 2 ^ 32 - 1) :
+    ∃ t', hashtrinity.Table.place_capped core.cmp.EqU64 CI ks t c c v = ok t' ∧
+      Hov t' (n + 1) := by
+  obtain ⟨r, hr⟩ := probe_capped_keyed_ok ks hm hA t c c hbits hlen
+  have hslot := probe_capped_keyed_slot_weak ks t c c r hr
+  unfold hashtrinity.Table.place_capped
+  rw [hr]
+  simp only [bind_tc_ok]
+  cases r with
+  | Hit i =>
+    have hcx : t.coords.val[i.val]? = some c := hslot
+    have hltc : i.val < t.coords.val.length := (List.getElem?_eq_some_iff.mp hcx).1
+    have hltv : i.val < t.vals.length := by rw [hsl]; exact hltc
+    obtain ⟨mu, back, hget⟩ := slice_get_unchecked_mut_ex t.vals i hltv
+    obtain ⟨hmu, hback⟩ := get_unchecked_mut_ok t.vals i mu back hget
+    obtain ⟨z, hz⟩ := hinit i.val hcx
+    have hmuz : mu = some z := Option.some.inj (hmu.symm.trans hz)
+    have hread : core.mem.maybe_uninit.MaybeUninit.assume_init_read (some z) = ok z := rfl
+    have hltv2 : i.val < (t.vals.set i (some z)).length := by rw [slice_set_length]; exact hltv
+    obtain ⟨_, back1, hget2⟩ := slice_get_unchecked_mut_ex (t.vals.set i (some z)) i hltv2
+    refine ⟨{t with vals := back1 (some v)}, ?_, ?_⟩
+    · simp only [hget, hmuz, hback, bind_tc_ok]
+      change (do
+        let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read (some z)
+        core.mem.drop old
+        let mu1 ← core.mem.maybe_uninit.MaybeUninit.new v
+        let back1' ← core.slice.Slice.get_unchecked_mut
+          (core.slice.index.SliceIndexUsizeSlice (core.mem.maybe_uninit.MaybeUninit I64))
+          (t.vals.set i (some z)) i
+        ok { t with vals := back1'.2 mu1 }) = ok { t with vals := back1 (some v) }
+      simp only [hread, hget2, core.mem.drop, core.mem.maybe_uninit.MaybeUninit.new, bind_tc_ok]
+    · intro ov hsome
+      have hsome' : t.overflow = some ov := hsome
+      obtain ⟨T, hI0, hnode0, hlenov, hentries0⟩ := hov ov hsome'
+      exact ⟨T, hI0, by omega, by omega, fun j hj nd hnd => by have := hentries0 j hj nd hnd; omega⟩
+  | Vacant i =>
+    obtain ⟨_, hcx, _⟩ := hslot
+    have hltc : i.val < t.coords.val.length := (List.getElem?_eq_some_iff.mp hcx).1
+    have hltv : i.val < t.vals.length := by rw [hsl]; exact hltc
+    obtain ⟨_, backc, hgetc⟩ := slice_get_unchecked_mut_ex t.coords i hltc
+    obtain ⟨_, backv, hgetv⟩ := slice_get_unchecked_mut_ex t.vals i hltv
+    obtain ⟨keys', hset'⟩ := hset t.keys i c
+    have hltmax : t.len.val + (1#usize).val < 2 ^ UScalarTy.Usize.numBits := by
+      rw [val_1_usize]
+      have hl := hlenmax
+      rw [Usize.max_def, Usize.numBits_def] at hl
+      have hp : 0 < 2 ^ UScalarTy.Usize.numBits := Nat.two_pow_pos _
+      omega
+    obtain ⟨i1, hi1, -⟩ := uadd_tot t.len 1#usize hltmax
+    refine ⟨{t with coords := backc c, vals := backv (some v), keys := keys', len := i1}, ?_, ?_⟩
+    · simp only [hgetc, hgetv, hset', hi1, core.mem.maybe_uninit.MaybeUninit.new, bind_tc_ok]
+      rfl
+    · intro ov hsome
+      have hsome' : t.overflow = some ov := hsome
+      obtain ⟨T, hI0, hnode0, hlenov, hentries0⟩ := hov ov hsome'
+      exact ⟨T, hI0, by omega, by omega, fun j hj nd hnd => by have := hentries0 j hj nd hnd; omega⟩
+  | Blocked =>
+    cases hto : t.overflow with
+    | none =>
+      let OV : Ov := { nodes := alloc.vec.Vec.new (hashtrinity.overflow.Node U64 I64),
+                       free := alloc.vec.Vec.new U32,
+                       root := hashtrinity.overflow.NIL,
+                       len := 0#usize }
+      have hnew : hashtrinity.overflow.Overflow.new I64 CI = ok OV := rfl
+      obtain ⟨hF, -, hl0⟩ := ov_full_new ks t (fun _ => 0#i64) OV hnew
+      have hlen0 : OV.len.val < Usize.max := by
+        have h0 : OV.len.val = 0 := rfl
+        rw [h0]
+        have hge := nilN_le_usize_max
+        unfold nilN at hge
+        omega
+      have hent0 : ∀ j ∈ idxs OTree.leaf, ∀ nd, OV.nodes.val[j]? = some nd →
+          nd.entries.val.length < Usize.max := by
+        intro j hj; simp [idxs] at hj
+      have hcap0 : OV.nodes.val.length + 4 ≤ 2 ^ 32 - 1 := by rw [hl0]; norm_num
+      obtain ⟨nd, e, ov1, hins⟩ := ov_insert_new_at_ok OV .leaf c c v hF.1 hlen0 hent0 hcap0
+      refine ⟨{t with overflow := some ov1}, ?_, ?_⟩
+      · simp only [core.option.Option.is_none, Option.isNone, hnew,
+          core.option.Option.as_mut, bind_tc_ok]
+        rw [if_pos trivial]
+        simp only [bind_tc_ok]
+        change (do
+          let (_, ov1') ← hashtrinity.overflow.Overflow.insert_new_at CI OV c c v
+          ok { t with overflow := some ov1' }) = ok { t with overflow := some ov1 }
+        rw [hins]
+        simp only [bind_tc_ok]
+        rfl
+      · intro ov hsome
+        have heq : ov = ov1 := (Option.some.inj hsome).symm
+        rw [heq]
+        obtain ⟨T', hI', hlen', hnodes', hent'⟩ :=
+          ov_insert_new_at_domain OV ov1 OTree.leaf c c v nd e 0 hF.1
+            (by rw [hl0]; unfold nilN; norm_num) (by intro j hj; simp [idxs] at hj) hins
+        have hl0len : OV.len.val = 0 := rfl
+        rw [hl0] at hnodes'
+        rw [hl0len] at hlen'
+        exact ⟨T', hI', by omega, by omega, fun j hj nd hnd => by have := hent' j hj nd hnd; omega⟩
+    | some ov0 =>
+      obtain ⟨T, hI0, hnode0, hlenov, hentries0⟩ := hov ov0 hto
+      have hUsize : n < Usize.max := by
+        have h := nilN_le_usize_max; unfold nilN at h; omega
+      have hcap : ov0.nodes.val.length + 4 ≤ 2 ^ 32 - 1 := by omega
+      obtain ⟨nd, e, ov1, hins⟩ := ov_insert_new_at_ok ov0 T c c v hI0
+        (by omega) (fun j hj nd hnd => by have := hentries0 j hj nd hnd; omega) hcap
+      refine ⟨{t with overflow := some ov1}, ?_, ?_⟩
+      · simp only [core.option.Option.is_none, Option.isNone,
+          core.option.Option.as_mut, bind_tc_ok]
+        rw [if_neg (by simp)]
+        simp only [bind_tc_ok]
+        change (do
+          let (_, ov1') ← hashtrinity.overflow.Overflow.insert_new_at CI ov0 c c v
+          ok { t with overflow := some ov1' }) = ok { t with overflow := some ov1 }
+        rw [hins]
+        simp only [bind_tc_ok]
+        rfl
+      · intro ov hsome
+        have heq : ov = ov1 := (Option.some.inj hsome).symm
+        rw [heq]
+        obtain ⟨T', hI', hlen', hnodes', hent'⟩ :=
+          ov_insert_new_at_domain ov0 ov1 T c c v nd e n hI0 (by unfold nilN; omega) hentries0 hins
+        refine ⟨T', hI', by omega, by omega, fun j hj nd hnd => by have := hent' j hj nd hnd; omega⟩
+
+/-- **`place_capped_hov`.**  One `place_capped` call carries `Hov`'s bounds across the call: the
+result's counter is `n + 1`, so the three bounds advance by at most one. -/
+theorem place_capped_hov {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
+    (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
+    (hset : ∀ (keys : KS) (i : Usize) (k : U64), ∃ keys', ks.set keys i k = ok keys')
+    (t t' : Tbl KS) (c : U64) (v : I64) (n : Nat)
+    (hbits : 0 < t.bits.val) (hlen : t.coords.length = 2 ^ t.bits.val)
+    (hsl : t.vals.length = t.coords.length)
+    (hinit : ∀ (i : Nat), t.coords.val[i]? = some c → ∃ z, t.vals.val[i]? = some (some z))
+    (hlenmax : t.len.val < Usize.max)
+    (hov : Hov t n) (hK : n + 4 ≤ 2 ^ 32 - 1)
+    (h : hashtrinity.Table.place_capped core.cmp.EqU64 CI ks t c c v = ok t') :
+    Hov t' (n + 1) := by
+  obtain ⟨t'', h'', hov''⟩ :=
+    place_capped_domain ks hm hA hset t c v n hbits hlen hsl hinit hlenmax hov hK
+  have heq : t' = t'' := Result.ok_injective (h.symm.trans h'')
+  subst heq
+  exact hov''
+
+/-- **`place_capped_frame`.**  `place_capped` preserves the table's shape fields (`bits`,
+`coords.length`, `vals.length`) and raises `len` by at most one (only the `Vacant` verdict writes it).
+This is the shape half of the resize-loop invariant, alongside `place_capped_bigInit` (`hinit`) and
+`place_capped_hov` (`hov`). -/
+theorem place_capped_frame {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (t t' : Tbl KS) (c : U64) (v : I64)
+    (h : hashtrinity.Table.place_capped core.cmp.EqU64 CI ks t c c v = ok t') :
+    t'.bits = t.bits ∧ t'.coords.length = t.coords.length ∧
+      t'.vals.length = t.vals.length ∧ t'.len.val ≤ t.len.val + 1 := by
+  unfold hashtrinity.Table.place_capped at h
+  obtain ⟨r, hr, h⟩ := bind_inv h
+  cases r with
+  | Blocked =>
+    obtain ⟨bo, -, h⟩ := bind_inv h
+    unfold core.option.Option.as_mut at h
+    obtain ⟨⟨o1, backo⟩, -, h⟩ := bind_inv h
+    cases o1 with
+    | none => exact absurd h (by intro hh; exact ok_not_fail hh.symm)
+    | some ov =>
+      change (do
+        let (_, ov1) ← hashtrinity.overflow.Overflow.insert_new_at CI ov c c v
+        ok ({ t with overflow := backo (some ov1) } : Tbl KS)) = ok t' at h
+      obtain ⟨a, hins, h⟩ := bind_inv h
+      rcases a with ⟨⟨nd, e⟩, ov1⟩
+      have ht'' : t' = {t with overflow := backo (some ov1)} := (Result.ok_injective h).symm
+      subst ht''
+      refine ⟨rfl, rfl, rfl, ?_⟩
+      show t.len.val ≤ t.len.val + 1
+      exact Nat.le_succ _
+  | Hit i =>
+    obtain ⟨⟨mu, back⟩, hg, h⟩ := bind_inv h
+    obtain ⟨hmu, hback⟩ := get_unchecked_mut_ok t.vals i mu back hg
+    obtain ⟨old, -, h⟩ := bind_inv h
+    obtain ⟨-, -, h⟩ := bind_inv h
+    obtain ⟨mu1, hnew, h⟩ := bind_inv h
+    obtain ⟨⟨x2, back1⟩, hg1, h⟩ := bind_inv h
+    obtain ⟨hx2, hback1⟩ := get_unchecked_mut_ok (back mu) i x2 back1 hg1
+    have ht' : t' = {t with vals := back1 mu1} := (Result.ok_injective h).symm
+    subst ht'
+    refine ⟨rfl, rfl, ?_, ?_⟩
+    · show (back1 mu1).length = t.vals.length
+      rw [hback1, hback]
+      rw [slice_set_length, slice_set_length]
+    · show t.len.val ≤ t.len.val + 1
+      exact Nat.le_succ _
+  | Vacant i =>
+    obtain ⟨⟨x0, backc⟩, hgc, h⟩ := bind_inv h
+    obtain ⟨mu, hnew, h⟩ := bind_inv h
+    obtain ⟨⟨y, backv⟩, hgv, h⟩ := bind_inv h
+    obtain ⟨tk, hset, h⟩ := bind_inv h
+    obtain ⟨i1, hi1, h⟩ := bind_inv h
+    obtain ⟨hx0, hbackc⟩ := get_unchecked_mut_ok t.coords i x0 backc hgc
+    obtain ⟨hy, hbackv⟩ := get_unchecked_mut_ok t.vals i y backv hgv
+    have ht' : t' = {t with coords := backc c, vals := backv mu, keys := tk, len := i1} :=
+      (Result.ok_injective h).symm
+    subst ht'
+    refine ⟨rfl, ?_, ?_, ?_⟩
+    · show (backc c).length = t.coords.length
+      rw [hbackc, slice_set_length]
+    · show (backv mu).length = t.vals.length
+      rw [hbackv, slice_set_length]
+    · show i1.val ≤ t.len.val + 1
+      have hi1v : i1.val = t.len.val + 1 := by
+        have := (uadd_ok hi1).1
+        rw [val_1_usize] at this
+        exact this
+      omega
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.ov_h_ok
@@ -2368,6 +2811,7 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.ov_insert_new_at_branch_nil
 #audit Apeiron.MapExecuted.ov_insert_new_at_branch_else
 #audit Apeiron.MapExecuted.ov_insert_new_at_ok
+#audit Apeiron.MapExecuted.ov_insert_new_at_domain
 #audit Apeiron.MapExecuted.confirm_ex_weak
 #audit Apeiron.MapExecuted.probe_rest_with_total_weak
 #audit Apeiron.MapExecuted.probe_capped_cold_loop_total_weak
@@ -2380,5 +2824,8 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.probe_capped_keyed_slot_weak
 #audit Apeiron.MapExecuted.place_capped_ok
 #audit Apeiron.MapExecuted.place_capped_bigInit
+#audit Apeiron.MapExecuted.place_capped_domain
+#audit Apeiron.MapExecuted.place_capped_hov
+#audit Apeiron.MapExecuted.place_capped_frame
 #audit Apeiron.MapExecuted.shl_1_1
 #audit Apeiron.MapExecuted.with_bits1_RKS_ex
