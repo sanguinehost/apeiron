@@ -561,6 +561,21 @@ theorem p61_stamp_bias_arithmetic :
     3231 < 55 * 108 := by
   decide
 
+/-- P62: attribution of the tg128 gap between apeiron and CUDA llama.cpp.
+Constants and bounds:
+(a) qkv deficit against CUDA ≥ 100 µs/token (refutation floor: 50 µs);
+    at ≥ 100 µs, qkv deficit is ≥ 25% of the 364 µs gap (1118 - 754 = 364);
+(b) CUDA kernel-sum per token ≥ 90% of wall (refutation floor: 80%);
+(c) apeiron idle fraction ≥ 10% of unprofiled wall.
+Decide on small literals only; timing verdicts stay `measured`. -/
+theorem p62_gap_attribution_bounds :
+    1118 - 754 = 364 ∧
+    50 < 100 ∧
+    4 * 100 > 364 ∧
+    80 < 90 ∧ 90 ≤ 100 ∧
+    10 ≤ 100 := by
+  decide
+
 end Moves
 
 end Perf
