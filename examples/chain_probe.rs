@@ -15,7 +15,8 @@
 //! buffers (1, 2 or 16 of them). `time` reports the device timestamp delta of the recorded graph,
 //! so the reset copy is outside the measured interval.
 //!
-//! Env: `CHAIN_REPS` (default 300), `PREFILL_BAR` (read once, by the runtime).
+//! Env: `CHAIN_REPS` (default 300), `CHAIN_LOG2N` (comma-separated `log2 n`, default `14,22`),
+//! `PREFILL_BAR` (read once, by the runtime).
 //!
 //! Run: `PREFILL_BAR=<b> cargo run --release --features gpu --example chain_probe`
 
@@ -320,7 +321,19 @@ fn main() {
         println!("NOTE: time(&[]) is non-finite; E is measured as one zero-group dispatch");
     }
 
-    for &n in &SIZES {
+    let sizes: Vec<u32> = match std::env::var("CHAIN_LOG2N") {
+        Ok(v) => v
+            .split(',')
+            .map(|e| {
+                1u32 << e
+                    .trim()
+                    .parse::<u32>()
+                    .expect("CHAIN_LOG2N: log2 n in 0..=24")
+            })
+            .collect(),
+        Err(_) => SIZES.to_vec(),
+    };
+    for &n in &sizes {
         run_size(&gpu, n, bar, reps, empty_ok);
     }
 }

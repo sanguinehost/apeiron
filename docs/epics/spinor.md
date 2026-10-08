@@ -1109,5 +1109,72 @@ all three arms.
 Consequence: the faces are not interchangeable per component. Each row lists a capability one face
 has and the others lack (peak at offset, extrapolation, forgetting, definite normaliser, key
 recovery from address, overlap), so a variant that kept all invariants on every base would be flagged
-not face-dependent; none did. The decode-chain experiment needs the GPU and waits for the running
-lane.
+not face-dependent; none did. The decode-chain experiment ran; its result is below.
+
+#### FACES-R2 decode-chain experiment (row `faces-r2-each-on-the-and-BegLX7J1BhlO8MfCu6nnZd`)
+
+**Command.**
+`PREFILL_BAR=<9|0> CHAIN_LOG2N=14,16,18,20,22 CHAIN_REPS=300 chain_probe`, where `examples/chain_probe.rs` (measured at sha256 `e2b2ba92240cdb2d`; committed as its rustfmt, `952e8723a3e7ac33`, whitespace only)
+gained a `CHAIN_LOG2N` size override.
+
+**Runs and outputs.**
+- 3 processes per barrier mode, RTX 5080, serialised on `/tmp/opencode/gpu-time.lock`.
+- Log: `/home/socol/oc-tmp/escalation/FACES-R2-chain-runs.log`. Prediction, written before the run:
+  `FACES-R2-CHAIN-PREDICTION.md`.
+
+**Statistic.** `r16 = I16/S`, where `I16` is 16 `add_inplace` dispatches on 16 distinct `x` buffers and `S` is one
+dispatch. The table gives the mean of the per-run medians, with min–max in brackets.
+
+| `log2 n` | `S` µs | `I16` µs, no barrier | `r16`, no barrier | `r16`, shipped barrier (control) | `I16` bytes / time |
+|---|---|---|---|---|---|
+| 14 | 1.50 | 2.40 | 1.60 [1.60, 1.60] | 11.44 | — (latency) |
+| 16 | 1.66 | 5.00 | 3.01 [3.00, 3.02] | 12.04 | 2.5 TB/s |
+| 18 | 2.72 | 14.71 | 5.50 [5.01, 6.43] | 10.92 | 3.4 TB/s |
+| 20 | 5.41 | 142.18 | 26.29 [26.28, 26.30] | 27.21 | 1.42 TB/s |
+| 22 | 14.92 | 737.45 | 49.44 [49.07, 49.65] | 48.53 | 1.09 TB/s |
+
+**Predictions.**
+- P1 (`r16 ≤ 2` at `2^14`): held.
+- P2 (`r16 ≥ 8` at `2^18`): **refuted**, at 5.50.
+- P3 (`r16 ≥ 16` at `2^22`): held.
+- P4 (monotone in `n`): held.
+- C1 (the barrier forces `r16 ≥ 8` at every size): held, so the probe sees serialisation.
+
+**Verdict.** The table row's claim, "independent lanes cost the max, combined once", is **refuted as stated**.
+- It holds only in the latency regime: at `2^14`, 16 lanes cost 1.60× one lane.
+- Past that, `r16` climbs to 49×, which is beyond the sum (16×).
+- At `2^20` and `2^22` the barrier no longer matters (the two `r16` columns agree within 4 %). Throughput, not
+  ordering, binds there.
+
+The lead's own alternative (a sum-like cost once one lane fills the SM slots) is refuted by P2: at `2^18`, `S` is
+still latency-dominated. The binding resource is L2 bandwidth (`16·12n` bytes in 14.7 µs = 3.4 TB/s), not
+occupancy.
+
+**Measured law.** On this device, the cost of independent lanes is
+`max(latency floor, Σ_lanes bytes / BW(level holding the working set))`.
+- Each lane moves `12n` bytes. Past `2^20`, the 16-buffer working set (≥ 68 MB) exceeds the 64 MB L2 (an anchor).
+- `S` stays L2-resident (3.4 TB/s at `2^22`), while `I16` runs near the DRAM rate (1.09 TB/s).
+- That residency gap is why `r16` exceeds 16.
+
+**Reading** (`model`).
+- The idempotent split is a property of the **data**: disjoint `x`, so `e_z e_w = 0` on the operands (H6 holds
+  for the shipped split-K at the bit level, R1).
+- Cost is a functional on the **device's resources**, and on a shared resource it adds. The lanes are therefore
+  coupled before the combine, through bandwidth and cache capacity.
+- The hyperbolic "max" is the cost law of the latency term only. The throughput term composes as a sum, the same
+  composition as the dependent chain (H5).
+- This is max across resources and sum within one resource, the max-plus form of a roofline.
+
+**Prior art.** Standard. Pointers, not retrieved: the roofline model (Williams, Waterman, Patterson, *CACM* 52(4),
+2009) and max-plus scheduling (Baccelli, Cohen, Olsder, Quadrat, *Synchronization and Linearity*, 1992). Novelty is
+not claimed; the content here is the measured regime boundary on this device and the face reading.
+
+**Consequence for decode.** Splitting decode work into independent lanes buys latency overlap only while the
+summed working set stays in the level that serves `S`. It does not turn bandwidth into a max.
+
+**Not covered.**
+- Other kernels (GEMV with Q4 weights).
+- The `D16` arm at bar 9, which is invalid: it shows 256–142752 mismatches, a race, so it is not a dependent chain.
+- Device specs, which are anchors (64 MB L2, 960 GB/s DRAM), not measured here.
+
+**Grade.** `measured` (RTX 5080, device timestamps, 3 runs, spread above); the reading is `model`.
