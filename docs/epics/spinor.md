@@ -1080,7 +1080,67 @@ Criterion: the orbit `d ↦ e^{gd}` stays within `ε` of the parabolic orbit `1 
   - layers past 0, which need a forward pass;
   - vocabulary ids weighted equally rather than by corpus frequency;
   - Q8_0 weights, not the BF16 release;
-  - the delta-rule update `I − βkkᵀ`, whose own face is not classified here.
+  - the delta-rule update `I − βkkᵀ`, classified in the next section.
+
+#### FACES-R2 delta-rule transition (row `faces-r2-each-on-the-and-BegLX7J1BhlO8MfCu6nnZd`)
+
+**Command.** `python3 /home/socol/oc-tmp/escalation/FACES-R2-deltarule.py`. Output: `FACES-R2-deltarule.out`. The prediction is in the script header, written before the run. The first run crashed on an embedding-shape defect in the instrument before reaching P3. It was fixed by a one-line `reshape`, and the predictions were not changed; the script was `3619a2b9c9c8bccc` before that fix and is sha256 `f6d76f95a56d06e7…` as run.
+
+**Object.** The key-side factor of Gated DeltaNet, `H_t = I − β_t k_t k_tᵀ`, with `‖k_t‖ = 1` and `β_t = sigmoid(·) ∈ (0,1)`. The scalar decay `α_t` is the object of the two sections above. It is positive, so it changes no eigenvalue argument.
+
+**Layer 0 of Qwen3.5-0.8B-Q8_0 from the weights.**
+- Input: `rmsnorm(embed)·attn_norm`, then `attn_qkv`.
+- A causal 4-tap depthwise conv, then silu.
+- `k` is L2-normalised per head (16 heads × 128).
+- `β = sigmoid(ssm_beta·x)`.
+- Text: the first 2048 tokens of `wiki.valid.raw`. They are produced by the `tokenizer.json` BPE merges, with an ASCII approximation of its pre-tokenizer regex (`regex` is not installed). The ids are real vocabulary ids; a few split boundaries may differ from the reference tokenizer.
+
+**Measured inputs.**
+- `β`: p50 0.470, p99 0.9955, max 0.9993.
+- `|k_t·k_{t−1}|`: p50 0.204, p90 0.544.
+
+**Single factor (analytic).** Eigenvalues are `1` (× 127) and `1−β` along `k`. It is symmetric positive definite: a scale along one axis, with no rotation and no `−1`.
+
+| check | result | prediction |
+|---|---|---|
+| P1: two factors, 2×10⁴ random draws each at `d = 128` and `d = 2`, `β ∈ (0,1)` | max `|Im λ|/|λ|` = 1.3e-15, min `Re λ` = 1.3e-6 > 0 | real and positive: held (a product of two SPD matrices is similar to an SPD matrix) |
+| P2: three factors, `d = 2`, keys at 0°, 60°, 120°, `β = 0.999` | eigenvalues `0`, `−0.1239` (the projection limit is `cos60·cos60·cos120 = −0.125`) | a negative eigenvalue: held |
+| P3, `T = 2` (checkpoint windows) | off-axis 0 / 32736 | 0: held |
+| P3, `T = 3` | off-axis 1026 / 32720 = 0.031; largest surviving rotation 0.668 rad | > 0: held |
+| P3, `T = 4` | 0.055; 1.081 rad | |
+| P3, `T = 8` | 0.435; 1.297 rad | |
+| P3, `T = 16` | 0.835; 1.255 rad | |
+| P3, `T = 64` | 0.994; 0.697 rad | |
+| control: `β → 2β` (range `(0,2)`) | `T = 1`: off-axis 0.446, surviving `|arg|` = π (a negative eigenvalue); `T = 3`: 0.611 | fires |
+
+How the P3 statistics are defined:
+- A window is *off-axis* when its product has some eigenvalue with `|λ| ≥ 1e-6` and `|arg λ| > 1e-6`.
+- The *surviving rotation* is the largest `|arg λ|` among eigenvalues with `|λ| ≥ 0.1`.
+
+**Verdict.** Held on every line.
+
+**Reading** (`model`).
+- One delta-rule step with `β < 1` sits on the scale face: real and positive, like the decay.
+- Two steps cannot leave the positive axis.
+- Three or more steps with non-collinear keys reach complex spectra. That is a rotation, the elliptic face, and in the projection limit a negative eigenvalue.
+- On this checkpoint that happens in 3% of 3-token windows and in 99% of 64-token windows, with rotations up to 1.30 rad on eigenvalues of magnitude ≥ 0.1.
+- So the H3 row's statement "no layer here carries the `−1` element" holds per step, not for the composed state map.
+- The elliptic face is generated from the hyperbolic one by non-commuting composition. One step lies in `R_{>0}` along `k`; the key directions supply the rotation.
+
+**Prior art.**
+- Grazzi, Siems, Zela, Franke, Hutter, Pontil, *Unlocking State-Tracking in Linear RNNs Through Negative Eigenvalues*, arXiv 2411.12537; abstract fetched by the lead. It attributes the parity failure to *diagonal* transitions restricted to `[0,1]`, and states that products of `I − vvᵀ`-type matrices with eigenvalues in `[−1,1]` reach every regular language.
+- The result above is consistent with that abstract. It does not show that `β < 1` solves parity: one symbol repeated gives powers of one SPD factor, which stay positive.
+- The classical fact (products of positive definite matrices, Ballantine 1967–68) is a pointer from memory, not retrieved.
+- No novelty is claimed. No search beyond the abstract was run.
+
+**Not covered.**
+- Layers past 0.
+- The value side and the readout.
+- Whether trained heads use the composed rotation.
+- Windows longer than 64.
+- Real-tokenizer boundary differences.
+
+**Grade.** `tested` (identities and the layer-0 checkpoint spectrum).
 
 #### FACES-R2 position-code experiment (row `faces-r2-each-on-the-and-BegLX7J1BhlO8MfCu6nnZd`)
 
