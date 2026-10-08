@@ -1196,19 +1196,52 @@ Command: `python3 /home/socol/oc-tmp/escalation/FACES-R2-norm-train.py` (numpy; 
 `FACES-R2-NORM-v2.out`). It trains a pre-norm residual MLP stack with manual backward passes, 2000 Adam steps at lr `1e-3`,
 batch 128, 5 seeds per normaliser. The task is an order-2 Markov chain over 64 symbols. Its entropy-rate floor is 3.6836 nats;
 predicting uniformly costs 4.1589 nats. The whole-model gradient check passed on all 24 tensors (max relative error ≤ `1e-5`).
-The run hit the 40-minute worker timeout after the first parabolic seed. Grade `tested` (toy).
+All five seeds of every arm completed (`FACES-R2-NORM-v2.out`, exit 2 from the learnability gate, not a timeout). Grade `tested` (toy).
 
 | normaliser | final loss, mean of 5 seeds | range |
 |---|---|---|
 | elliptic (RMS) | 4.1542 | 4.1527–4.1551 |
 | hyperbolic (`|x²−y²|`) | 4.2091 | 4.2003–4.2164 |
-| parabolic | 4.1543 (1 seed) | — |
+| parabolic | 4.1546 | 4.1525–4.1562 |
 
 Verdict: **inconclusive**. The refutation condition did not fire: hyperbolic is 0.055 nats above elliptic, beyond both
 spreads. That gap does not test the norm, though. No arm learned the task: elliptic ends 0.005 nats below uniform, with
 0.47 nats still to the floor. Hyperbolic ends above uniform. The gap is a difference in failure to train, not in trained loss.
 Next falsifier: raise the steps or the learning rate until the elliptic arm closes most of the gap to the floor, then rerun
-all three arms.
+all three arms. Run below as v3.
+
+**v3 (learnable task).**
+- Command: `timeout 570 python3 /home/socol/oc-tmp/escalation/FACES-R2-norm-train-v3.py`. Script sha256 `ccd8f640c7138723…`; output
+  `FACES-R2-NORM-v3.out`, sha256 `347d77705255aff8…`, exit 0.
+- Prediction written before the run: `FACES-R2-NORM-v3-PREDICTION.md`, sha256 `575eef24d5b70b00…`.
+- It is v2 with two changes, and the model, optimiser, steps, learning rate, batch and eps are unchanged:
+  - the task is order-1, `T(i,j,:) = softmax(2·L[j,:])`: 64 contexts, about 4000 visits each, instead of 4096 with about 62;
+  - 3 seeds per arm instead of 5, to fit the 570 s budget. The printed `0/5` divergence column reads `0/3`.
+- Floor 2.6457 nats; uniform 4.1589.
+
+| normaliser | final loss, mean ± sd (3 seeds) | inverse-rms gain at init, med / p99 / max | at end |
+|---|---|---|---|
+| elliptic (RMS) | 2.7518 ± 0.0016 | 1.00 / 1.25 / 1.32 | 0.93 / 1.25 / 1.34 |
+| hyperbolic (`|x²−y²|`) | 2.9993 ± 0.0670 (2.9531–3.0762) | 1.66 / 11.78 / 36.27 | 0.41 / 5.25 / 7.92 |
+| parabolic (`x²`) | 2.7531 ± 0.0017 | 0.97 / 1.45 / 1.52 | 0.88 / 1.32 / 1.39 |
+
+- G (instrument): **held**. Elliptic closes 93.0 % of the gap from uniform to the floor.
+- P1 (the null cone binds): **held**. Hyperbolic is 0.248 nats above elliptic, against the 2·sd threshold of 0.134. Its seed
+  spread is 40× elliptic's. The row's refutation condition, "the hyperbolic normaliser trains to the elliptic loss within noise",
+  did not fire.
+- P2 (init gain p99 ≥ 10× elliptic): **refuted**, at 9.40×.
+- P3 (parabolic within 2·sd of elliptic): **held**. The gap is 0.0013 nats against a threshold of 0.0035.
+- Control: an elliptic run under the hyperbolic label reads "within noise" (2.7535), so the P1 comparison can fail.
+
+Verdict: the norm row **holds** on this toy, graded `tested` (toy).
+- A normaliser built on the indefinite form `x²−y²` trains measurably worse and less reproducibly than the definite one.
+- The degenerate form `x²` (one coordinate per pair) is indistinguishable from the definite one.
+- So the face distinction that binds here is definiteness, not the count of coordinates that carry scale.
+
+Not covered: a trained transformer, other learning rates, and an `eps` sweep near the null cone. Nothing here says RMSNorm is
+optimal among definite forms. The norm-form reading of RMSNorm is the standard definition read on the face. That indefinite
+normalisers misbehave near their null cone is expected from the gain tail; novelty is not claimed, and no prior-art search was
+run for this row.
 
 Consequence: the faces are not interchangeable per component. Each row lists a capability one face
 has and the others lack (peak at offset, extrapolation, forgetting, definite normaliser, key
