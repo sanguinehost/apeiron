@@ -101,6 +101,13 @@ layout(constant_id = 6) const uint KSPLIT = 1;
 // `cj*8 + 4*l + i` (chart word cj, DP4A phase l, byte i), so the four codes of a phase are one 4-bit field.
 // 0 = single-plane chart.
 layout(constant_id = 7) const uint PLANEB = 0;
+// Two-plane Q6 chart (PACK == 8 with PLANEB != 0 and Q6 == 1): plane B is TWO u32 per (32-block, row) at
+// `PLANEB + (2b + wi)M + row`, `wi = p >> 2` the half of DP4A phase `p`. The code `u = code + 32` in 0..63
+// has its low 4 bits in plane A (Q4's nibble plane) and its high 2 at bit `i*8 + 2*(p&3)` of byte i of word
+// `wi`. A half h covers chart words `2h, 2h+1`, so it reads only word `wi = h`, its four k-words at shifts
+// `2q`. Codes are signed (`u - 32`), the MMA is `s8*s8 -> s32`, the per-16 scale split rides in `dm`, and
+// `sBias` is unused (A and B are both signed: no recentring). 0 = Q5's one-word plane B or a single plane.
+layout(constant_id = 8) const uint Q6 = 0;
 // the fused writer reads its own input chart at offset 0; SCOFF/SMOFF address its output
 const uint RDSC = FUSE == 0u ? SCOFF : 0u;
 const uint RDSM = FUSE == 0u ? SMOFF : 0u;
@@ -128,6 +135,8 @@ shared float sSx[KB * BN];
 shared float sXs[KB * BN];
 // 128 * sum_k x per token (Q8 recentring) plus the bias of the exact int -> f32 conversion below
 shared int sBias[KB * BN];
+shared int sScA[KB * BM]; // Q6: signed per-16 code scale sc_a of a row's half 0 (dm bits 16..23)
+shared int sScB[KB * BM]; // Q6: sc_b of half 1 (dm bits 24..31)
 
 #define FRAG_F coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
 #define FRAG_I coopmat<int32_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
@@ -173,9 +182,11 @@ void fetch(uint b0, uint lid, uint row0, uint tok0,
             [[unroll]] for (uint c = 0u; c < CPH; ++c) {
                 pa[kb][it][c] = w[(b * CPB + h * CPH + c) * M + row];
             }
-            // slot CPH (== 2 for PACK 8) is free: plane B of the same (block, physical row) as plane A
+            // slot CPH (== 2 for PACK 8) is free: plane B of the same (block, physical row) as plane A.
+            // Q6 has two plane-B words per (block, row); a half's four k-words read only its own word.
             if (PACK == 8u && PLANEB != 0u) {
-                pa[kb][it][CPH] = w[PLANEB + b * M + row];
+                pa[kb][it][CPH] = Q6 != 0u ? w[PLANEB + (2u * b + h) * M + row]
+                                           : w[PLANEB + b * M + row];
             }
         }
         [[unroll]] for (uint it = 0u; it < IB; ++it) {
@@ -210,14 +221,30 @@ void commit(uint lid, uint ar[IA], uint ah[IA]) {
                 uint word = pa[kb][it][q / DPW];
                 uint val = PACK == 4u ? word ^ 0x80808080u : (word >> (WBITS * (q % DPW))) & BMASK;
                 if (PACK == 8u && PLANEB != 0u) {
-                    // chart word cj of the block, phase l: byte i of val takes bit i of the 4-bit field at
-                    // cj*8 + 4*l, expanded into bit 4 of its byte (the Q5 code's fifth bit)
-                    uint nib = (pa[kb][it][CPH] >> ((h * CPH + q / DPW) * 8u + 4u * (q % DPW))) & 0xFu;
-                    val |= (nib * 0x02040810u) & 0x10101010u;
+                    if (Q6 != 0u) {
+                        // Q6 code u = code + 32: low 4 bits plane A, high 2 plane B word wi = h at shift 2q
+                        // (p & 3 == q for the half's four k-words), then the signed byte (u + 0x60) ^ 0x80
+                        uint hi2 = ((pa[kb][it][CPH] >> (2u * q)) & 0x03030303u) << 4;
+                        val = ((val | hi2) + 0x60606060u) ^ 0x80808080u;
+                    } else {
+                        // chart word cj of the block, phase l: byte i of val takes bit i of the 4-bit field at
+                        // cj*8 + 4*l, expanded into bit 4 of its byte (the Q5 code's fifth bit)
+                        uint nib = (pa[kb][it][CPH] >> ((h * CPH + q / DPW) * 8u + 4u * (q % DPW))) & 0xFu;
+                        val |= (nib * 0x02040810u) & 0x10101010u;
+                    }
                 }
                 v[q] = val;
             }
-            sA[(kb * BM + r) * AS4 + h] = v;
+            if (Q6 != 0u) {
+                // Q6 half h occupies slot 2h; slot 1 is zero so the 16-wide A fragment starting at slot 1 is
+                // the other half alone (the per-half scale split needs two MMAs, no cross-term)
+                sA[(kb * BM + r) * AS4 + 2u * h] = v;
+                if (h == 0u) {
+                    sA[(kb * BM + r) * AS4 + 1u] = uvec4(0u);
+                }
+            } else {
+                sA[(kb * BM + r) * AS4 + h] = v;
+            }
         }
         [[unroll]] for (uint it = 0u; it < IB; ++it) {
             uint idx = lid + it * NT;
@@ -241,7 +268,13 @@ void commit(uint lid, uint ar[IA], uint ah[IA]) {
             if (r < BM) {
                 vec2 p = unpackHalf2x16(pd[kb][it]);
                 sD[kb * BM + r] = p.x;
-                sLo[kb * BM + r] = p.y;
+                sLo[kb * BM + r] = Q6 != 0u ? 0.0 : p.y;
+                if (Q6 != 0u) {
+                    // dm = f16(d) | sc_a << 16 | sc_b << 24: signed per-16 code scales (lo is not used)
+                    int dp = int(pd[kb][it]);
+                    sScA[kb * BM + r] = bitfieldExtract(dp, 16, 8);
+                    sScB[kb * BM + r] = bitfieldExtract(dp, 24, 8);
+                }
             }
         }
         [[unroll]] for (uint it = 0u; it < IT; ++it) {
@@ -396,32 +429,64 @@ void main() {
             }
             [[unroll]] for (uint i = 0u; i < WM; ++i) {
                 uint r = kb * BM + rbase + 16u * i;
-                coopmat<int8_t, gl_ScopeSubgroup, 16, 32, gl_MatrixUseA> am;
-                coopMatLoad(am, sA, r * AS4, AS4, gl_CooperativeMatrixLayoutRowMajor);
                 FRAG_F fd;
                 FRAG_F flo;
                 coopMatLoad(fd, sD, r, 0u, gl_CooperativeMatrixLayoutColumnMajor);
                 coopMatLoad(flo, sLo, r, 0u, gl_CooperativeMatrixLayoutColumnMajor);
+                // non-Q6: one 16x32 A fragment holding both halves. Q6: two, the two 16-wide halves of the
+                // 32-block in separate K ranges so their per-16 scales never mix in one accumulator.
+                coopmat<int8_t, gl_ScopeSubgroup, 16, 32, gl_MatrixUseA> am;
+                coopmat<int8_t, gl_ScopeSubgroup, 16, 32, gl_MatrixUseA> am1;
+                FRAG_I fsa;
+                FRAG_I fsb;
+                coopMatLoad(am, sA, r * AS4, AS4, gl_CooperativeMatrixLayoutRowMajor);
+                if (Q6 != 0u) {
+                    coopMatLoad(am1, sA, r * AS4 + 1u, AS4, gl_CooperativeMatrixLayoutRowMajor);
+                    coopMatLoad(fsa, sScA, r, 0u, gl_CooperativeMatrixLayoutColumnMajor);
+                    coopMatLoad(fsb, sScB, r, 0u, gl_CooperativeMatrixLayoutColumnMajor);
+                }
                 [[unroll]] for (uint j = 0u; j < WN; ++j) {
-                    // seeded with the bias: q + 128*sum x + MAGIC_BITS, one integer add for both
-                    FRAG_I q = coopMatMulAdd(am, bm[j], fbias[j]);
                     FRAG_F a = acc[i * WN + j];
+                    if (Q6 != 0u) {
+                        // qa/qb are the signed half dots (s8*s8 -> s32); the exact per-half integer scales
+                        // combine in the integer ring: qi = sc_a*qa + sc_b*qb is the block's code dot, and
+                        // d*qi*sx matches `d*sc_h*(u-32)*x*sx` summed over the 32 positions.
+                        FRAG_I qa = coopMatMulAdd(am, bm[j], FRAG_I(0));
+                        FRAG_I qb = coopMatMulAdd(am1, bm[j], FRAG_I(0));
 #if EPI
-                    // The DP4A kernel's association, contraction pinned: its SPIR-V is
-                    // FMul,FMul,FMul,FAdd,FAdd and the driver fuses it to acc + fma(lo, xs, (d*q)*sx)
-                    // (tests/gpu_coopmat_gemm.rs checks every cell bit for bit). Element e of every
-                    // fragment here is the same (row, token): all are one accumulator type.
-                    [[unroll]] for (uint e = 0u; e < q.length(); ++e) {
-                        precise float qf = intBitsToFloat(q[e]) - MAGIC_F;
-                        precise float dqs = (fd[e] * qf) * fsx[j][e];
-                        precise float s2 = fma(flo[e], fxs[j][e], dqs);
-                        a[e] = a[e] + s2;
-                    }
+                        [[unroll]] for (uint e = 0u; e < qa.length(); ++e) {
+                            int qi = fsa[e] * qa[e] + fsb[e] * qb[e];
+                            // |qi| <= 2*128*(16*32*127) = 16,646,144 < 2^24 is exact in f32 but exceeds 2^22, so
+                            // MAGIC_BITS is unsound here: convert the integer directly, lo = 0.
+                            precise float qf = float(qi);
+                            precise float dqs = (fd[e] * qf) * fsx[j][e];
+                            a[e] = a[e] + dqs;
+                        }
 #else
-                    [[unroll]] for (uint e = 0u; e < q.length(); ++e) {
-                        a[e] = a[e] + intBitsToFloat(q[e]);
-                    }
+                        [[unroll]] for (uint e = 0u; e < qa.length(); ++e) {
+                            a[e] = a[e] + float(fsa[e] * qa[e] + fsb[e] * qb[e]);
+                        }
 #endif
+                    } else {
+                        // seeded with the bias: q + 128*sum x + MAGIC_BITS, one integer add for both
+                        FRAG_I q = coopMatMulAdd(am, bm[j], fbias[j]);
+#if EPI
+                        // The DP4A kernel's association, contraction pinned: its SPIR-V is
+                        // FMul,FMul,FMul,FAdd,FAdd and the driver fuses it to acc + fma(lo, xs, (d*q)*sx)
+                        // (tests/gpu_coopmat_gemm.rs checks every cell bit for bit). Element e of every
+                        // fragment here is the same (row, token): all are one accumulator type.
+                        [[unroll]] for (uint e = 0u; e < q.length(); ++e) {
+                            precise float qf = intBitsToFloat(q[e]) - MAGIC_F;
+                            precise float dqs = (fd[e] * qf) * fsx[j][e];
+                            precise float s2 = fma(flo[e], fxs[j][e], dqs);
+                            a[e] = a[e] + s2;
+                        }
+#else
+                        [[unroll]] for (uint e = 0u; e < q.length(); ++e) {
+                            a[e] = a[e] + intBitsToFloat(q[e]);
+                        }
+#endif
+                    }
                     acc[i * WN + j] = a;
                 }
             }

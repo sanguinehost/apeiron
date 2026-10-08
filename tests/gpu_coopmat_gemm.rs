@@ -20,8 +20,12 @@
 use apeiron::engine::dequant_row_fixed;
 use apeiron::engine::testdata::model_path;
 use apeiron::format::gguf::Gguf;
-use apeiron::format::quant::{block_geom, GGML_TYPE_Q4_K, GGML_TYPE_Q5_0};
-use apeiron::gpu::decode::pack::{pack_proj_f32, pack_q4_k_raw, pack_q5_0_raw, Proj};
+use apeiron::format::quant::{
+    block_geom, f16_to_f32, GGML_TYPE_Q4_K, GGML_TYPE_Q5_0, GGML_TYPE_Q6_K,
+};
+use apeiron::gpu::decode::pack::{
+    pack_proj_f32, pack_q4_k_raw, pack_q5_0_raw, pack_q6_k_raw, Proj,
+};
 use apeiron::gpu::decode::prefill::prefill_tile;
 use apeiron::gpu::decode::state::dequant_rows;
 use apeiron::gpu::decode::{local_wg, make_step_named, rec_step, GpuCtx, Step};
@@ -76,6 +80,31 @@ fn wcode(words: &[u32], m: usize, k: usize, carrier: Carrier, r: usize, p: usize
     let pos = (j >> 3) * 8 + (j & 1) * 4 + ((j >> 1) & 3);
     let hi_word = words[carrier.plane_b_off(m as u32, k as u32) as usize + b * m + r];
     nib | (i64::from((hi_word >> pos) & 1) << 4)
+}
+
+/// The Q6 chart's signed code `u - 32` for true k index `j` of 32-block `b` of row `r`, with the half
+/// (`0` = `dm`'s `sc_a`, `1` = `sc_b`) that scales it. Plane A is the Q4 nibble plane; plane B's 2-bit
+/// pair sits at `((j>>1)&3)*8 + 2*(phase&3)` of word `phase>>2` (`phase = (j>>3)*2 + (j&1)`), stated
+/// independently of the packer, as `pack_q6_k_raw`'s test does.
+fn q6_code(words: &[u32], m: usize, k: usize, r: usize, b: usize, j: usize) -> (i64, u8) {
+    let w = words[(b * 4 + j / 8) * m + r]; // plane A: 8 four-bit codes a word
+    let nib = (w >> ((j % 8) * 4)) & 0xF;
+    let phase = (j >> 3) * 2 + (j & 1);
+    let bit = ((j >> 1) & 3) * 8 + 2 * (phase & 3);
+    let hi_off = Carrier::Q6.plane_b_off(m as u32, k as u32) as usize;
+    let hi = (words[hi_off + (2 * b + (phase >> 2)) * m + r] >> bit) & 0x3;
+    let half = u8::from(j >= 16); // first 16 positions of the block scale by sc_a, the last 16 by sc_b
+    (i64::from(nib | (hi << 4)) - 32, half)
+}
+
+/// The activation byte (chart position within the 32-block) the Q6 kernel pairs with true k index `j`:
+/// k-word `q = 2u + (rem&1)`, byte `i = rem>>1` with `u = (j%16)>>3`, `rem = j%8`, so the chart
+/// position is `16*(j/16) + 4q + i`.
+fn q6_act(j: usize) -> usize {
+    let jr = j % 16;
+    let u = jr / 8;
+    let rem = jr % 8;
+    16 * (j / 16) + 4 * (2 * u + rem % 2) + rem / 2
 }
 
 unsafe fn readback(vk: &Vk, src: Handle, n: usize) -> Vec<f32> {
@@ -593,4 +622,169 @@ fn coopmat_gemm_q5_matches_cpu_on_qwen_layer0() {
         );
         assert!(rel <= 1e-2, "{name} Q5 f32: rel {rel:e} > 1e-2");
     }
+}
+
+/// `Carrier::Q6` (two-plane Q6_K chart) through the coopmat GEMM on the real Q6_K `ffn_down`
+/// (k = 4864), 512 random int8 tokens, at KSPLIT = 1, 2 and 3. The signed codes (`u - 32`), the
+/// per-half scale split and the two-MMA staged halves are all exercised. Reference: an f64 sum over
+/// blocks of `d*sc_h*(u-32)*x*sx` decoded from the chart words; the GPU output must match within
+/// 1e-5 relative.
+#[test]
+fn coopmat_gemm_q6_matches_cpu_on_qwen_ffn_down() {
+    let vk = {
+        let _guard = VK_LOAD_LOCK.lock().unwrap();
+        match unsafe { Vk::load() } {
+            Ok(vk) => vk,
+            Err(e) => {
+                println!("SKIP: No Vulkan device present: {e}");
+                return;
+            }
+        }
+    };
+    if !vk.has_coopmat {
+        println!("SKIP: no cooperative matrix");
+        return;
+    }
+    let Some(model) = model_path(MODEL) else {
+        println!("SKIP: Model file {MODEL} not found");
+        return;
+    };
+    let gguf = Gguf::open(&model).expect("gguf open");
+    let (g, _stage) = GpuCtx::new(&vk).expect("GpuCtx::new");
+    let n = TOKENS as usize;
+    let mut rng = Rng(0x00c0_0b4a_7e11_0006);
+    // The FIRST `blk.N.ffn_down.weight` stored as Q6_K.
+    let (name, t) = (0..64)
+        .find_map(|i| {
+            let name = format!("blk.{i}.ffn_down.weight");
+            gguf.header
+                .tensor(&name)
+                .filter(|t| t.ggml_type == GGML_TYPE_Q6_K)
+                .map(|t| (name, t.clone()))
+        })
+        .expect("a Q6_K ffn_down tensor");
+    let k = t.dims[0] as usize;
+    let m = t.dims[1] as usize;
+    let raw = gguf.tensor_bytes(&t).expect("ffn_down tensor bytes");
+    let proj = pack_q6_k_raw(&raw, m, k).expect("pack_q6_k_raw");
+    let (mu, ku, blocks) = (m as u32, k as u32, k / 32);
+    assert_eq!(ku, 4864, "the first Q6_K ffn_down has k = 4864");
+    assert_eq!(mu % 128, 0, "m is a multiple of the row tile");
+    let pc = Carrier::Q6;
+    let words = &proj.words;
+    let dm = &proj.dm;
+    let (wb, dmb) = unsafe { (g.up_u32(words), g.up_u32(dm)) };
+    let xq: Vec<u32> = (0..n * k / 4)
+        .map(|_| {
+            (0..4).fold(0u32, |a, i| {
+                let c = (rng.next() % 255) as i32 - 127;
+                a | (u32::from(c as i8 as u8) << (8 * i))
+            })
+        })
+        .collect();
+    let sx: Vec<f32> = (0..n * blocks)
+        .map(|_| 1e-3 + (rng.next() % 4096) as f32 * 4e-6)
+        .collect();
+    let xs: Vec<f32> = (0..n * blocks)
+        .map(|i| {
+            let (t, b) = (i / blocks, i % blocks);
+            let s: i64 = (0..32).map(|q| xcode(&xq, k, t, b * 32 + q)).sum();
+            s as f32 * sx[i]
+        })
+        .collect();
+    let (bxq, bsx, bxs) = unsafe { (g.up_u32(&xq), g.up_f32(&sx), g.up_f32(&xs)) };
+    let rows: Vec<usize> = (0..ROW_SAMPLES)
+        .map(|s| {
+            if s == 0 {
+                m - 1
+            } else {
+                rng.next() as usize % m
+            }
+        })
+        .collect();
+    let (cgx, cgy) = coopmat_gemm_groups(mu, TOKENS);
+    let cm_code = coopmat_gemm_bytes(mu, ku, pc);
+
+    // f64 reference from the chart: per block `d * (sc_a*acc_a + sc_b*acc_b) * sx`, the two half dots
+    // summed from the signed codes, over every block of the row and every token.
+    let reference = |b_out: &[f32]| -> (f64, f64) {
+        let (mut dmax, mut rmax) = (0f64, 0f64);
+        for &r in &rows {
+            let mut code = vec![0i64; k];
+            let mut half = vec![0u8; k];
+            for b in 0..blocks {
+                for j in 0..32 {
+                    let (c, h) = q6_code(words, m, k, r, b, j);
+                    code[b * 32 + j] = c;
+                    half[b * 32 + j] = h;
+                }
+            }
+            for t in 0..n {
+                let mut acc = 0f64;
+                for b in 0..blocks {
+                    let dmw = dm[b * m + r];
+                    let d = f16_to_f32((dmw & 0xffff) as u16);
+                    let sc_a = i64::from(((dmw >> 16) & 0xff) as u8 as i8);
+                    let sc_b = i64::from(((dmw >> 24) & 0xff) as u8 as i8);
+                    let (mut acc_a, mut acc_b) = (0i64, 0i64);
+                    for j in 0..32 {
+                        let xi = xcode(&xq, k, t, b * 32 + q6_act(j));
+                        if half[b * 32 + j] == 0 {
+                            acc_a += code[b * 32 + j] * xi;
+                        } else {
+                            acc_b += code[b * 32 + j] * xi;
+                        }
+                    }
+                    acc += f64::from(d)
+                        * (sc_a * acc_a + sc_b * acc_b) as f64
+                        * f64::from(sx[t * blocks + b]);
+                }
+                dmax = dmax.max((f64::from(b_out[t * m + r]) - acc).abs());
+                rmax = rmax.max(acc.abs());
+            }
+        }
+        (dmax, rmax)
+    };
+    let summary = |ks: u32, b: &[f32]| {
+        let (dmax, rmax) = reference(b);
+        let rel = dmax / rmax;
+        println!(
+            "{name} Q6 m={m} k={k} KSPLIT={ks} f32: {} rows x {n} tokens vs f64 chart reference: max|diff| {dmax:e}, max|ref| {rmax:e}, rel {rel:e}",
+            rows.len()
+        );
+        assert!(rel <= 1e-5, "{name} Q6 KSPLIT={ks}: rel {rel:e} > 1e-5");
+    };
+
+    let step = |code: &[u8], out, gx, gy| unsafe {
+        make_step_named(&g, code, &[wb, bxq, out, dmb, bxs, bsx], gx, gy, "gemm")
+    };
+    let o_cm = unsafe { out_buf(&vk, n * m * 4) };
+    unsafe { run(&vk, &step(&cm_code, o_cm, cgx, cgy)) };
+    let b = unsafe { readback(&vk, o_cm, n * m) };
+    summary(1, &b);
+
+    for ks in [2u32, 3] {
+        let o_part = unsafe { out_buf(&vk, ks as usize * n * m * 4) };
+        let o_sp = unsafe { out_buf(&vk, n * m * 4) };
+        let gemm = step(
+            &coopmat_gemm_split_bytes(mu, ku, pc, 0, 0, ks),
+            o_part,
+            cgx,
+            cgy,
+        );
+        let red = unsafe {
+            make_step_named(
+                &g,
+                &splitk_reduce_bytes(mu, ks),
+                &[o_part, o_sp],
+                REDUCE_GX,
+                cgy,
+                "reduce",
+            )
+        };
+        unsafe { run_split(&vk, &gemm, &red, ks) };
+        let bs = unsafe { readback(&vk, o_sp, n * m) };
+        summary(ks, &bs);
+    }
+    println!("{name} Q6 all splits within 1e-5");
 }

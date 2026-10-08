@@ -355,6 +355,7 @@ import Perf.Overlap
 #audit Perf.Moves.q6_row_words_seven_ninths
 #audit Perf.Moves.q5_spread_exact
 #audit Perf.Moves.q6_signed_byte_exact
+#audit Perf.Moves.q6_coopmat_half_split
 #audit Perf.Moves.p10_mma_floor
 #audit Perf.Moves.p10_mma_rate_ratio
 #audit Perf.Moves.p10_mma_floor_p8

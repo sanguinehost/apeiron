@@ -370,6 +370,39 @@ theorem q6_signed_byte_exact :
     32 * 128 * 32 * 127 < 2 ^ 24 := by
   decide
 
+/-- `Σ_{k < n} f k`, left-folded. -/
+def rsum (f : Nat → Int) : Nat → Int
+  | 0 => 0
+  | n + 1 => rsum f n + f n
+
+private theorem rsum_low (t : Nat → Int) (sa sb : Int) (m : Nat) :
+    ∀ j, j ≤ m → rsum (fun k => (if k < m then sa else sb) * t k) j = sa * rsum t j := by
+  intro j
+  induction j with
+  | zero => intro _; simp [rsum]
+  | succ j ih =>
+    intro h
+    have hj : j < m := by omega
+    simp only [rsum, ih (by omega), if_pos hj, Int.mul_add]
+
+/-- **The Q6 cooperative-matrix half split.** Q6_K scales the two 16-code halves of a 32-block by
+`sc_a` and `sc_b`; the GEMM stages a row as `[h0, 0, h1]` and runs one MMA on `[h0, 0]` and one on
+`[0, h1]`, combining `sc_a·qa + sc_b·qb` in the integer ring. That combination is the per-position
+scaled dot over the whole block: with `m = n = 16` the left side is `Σ_k sc(k)·v k·x k` and the
+right side is `sc_a·qa + sc_b·qb`. -/
+theorem q6_coopmat_half_split (t : Nat → Int) (sa sb : Int) (m n : Nat) :
+    rsum (fun k => (if k < m then sa else sb) * t k) (m + n) =
+      sa * rsum t m + sb * rsum (fun k => t (m + k)) n := by
+  induction n with
+  | zero =>
+    rw [Nat.add_zero, rsum_low t sa sb m m (Nat.le_refl m)]
+    simp [rsum]
+  | succ n ih =>
+    have hn : ¬ (m + n < m) := by omega
+    show rsum _ (m + n) + (if m + n < m then sa else sb) * t (m + n) =
+      sa * rsum t m + sb * (rsum (fun k => t (m + k)) n + t (m + n))
+    rw [ih, if_neg hn, Int.mul_add, Int.add_assoc]
+
 end Moves
 
 end Perf
