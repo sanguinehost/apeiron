@@ -135,14 +135,20 @@ fn main() {
         assert_eq!(y.len(), rows, "y length");
         assert_eq!(w_ref.len(), d, "w_ref length");
 
-        // The fold's per-thread accumulator is `d²` f64, allocated fresh (lazy zero pages). A large-`d`
-        // fold is memory/page-bound, not thread-starved, so cap the partial count to keep the
-        // aggregate footprint within a few L3-cache sizes; the solve is compute-bound and keeps all
-        // `threads`.
+        // The owner-partitioned fold allocates no per-worker partial, so the old partial-count cap
+        // (keep `T·d²` accumulator bytes within a few L3 sizes) no longer applies. The fold's
+        // redundant index re-scan is latency-bound and scales well past the solve's thread count, so
+        // it gets `7/4` the requested threads (capped at the machine's parallelism) — on the
+        // benchmark box `16 → 28`, which measured the lowest fold at every config; the solve keeps
+        // the requested count, where contention on the trailing update stops paying. `FOLD_THREADS`
+        // overrides for tuning; `serial` runs the single-threaded reference.
         let fold_threads = if serial {
             0
         } else {
-            threads.min(((100usize << 20) / (d * d * 8)).max(1))
+            std::env::var("FOLD_THREADS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or((threads * 7 / 4).min(avail))
         };
 
         // One untimed warmup (page-faults the fresh `d²` accumulator), then 5 timed runs. Fold and

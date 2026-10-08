@@ -403,12 +403,14 @@ fn refuses_bad_shapes_and_non_spd() {
 }
 
 /// `fold_sparse_par` equals the serial `fold_sparse` to ≤1e-9 relative — drag, cross term, count
-/// and solved head — at `T ∈ {1, 3, 8}` on a row count that leaves an uneven remainder in every
-/// chunking (37 rows: 13/12/12 at T=3, 5/5/5/5/5/4/4/4 at T=8), with and without the bias column.
+/// and solved head — on an input that selects the **row-partition-with-partials** path
+/// (`rows·nnz > 5·d²`), at `T ∈ {1, 3, 8}` on a row count that leaves an uneven remainder in every
+/// chunking (203 rows: 68/68/67 at T=3, 26/26/26/25/25/25/25/25 at T=8), with and without the bias
+/// column.
 #[test]
 fn fold_sparse_par_equals_serial_at_uneven_chunks() {
     for bias in [false, true] {
-        let (seed, rows, di, nnz, out) = (31u64, 37usize, 7usize, 4usize, 2usize);
+        let (seed, rows, di, nnz, out) = (31u64, 203usize, 11usize, 8usize, 2usize);
         let (idxs, vals, y, _x) = sparse_design(seed, rows, di, nnz, out);
         let lam = 0.7;
         let mut serial = FoldTrainer::new(di, out, lam, bias);
@@ -436,13 +438,43 @@ fn fold_sparse_par_equals_serial_at_uneven_chunks() {
     }
 }
 
+/// The **output-row-partitioned** `fold_sparse_par` (chosen when `rows·nnz ≤ 5·d²`) is
+/// **bit-identical** to the serial `fold_sparse` — the same sample-order additions, lower triangle
+/// only — at every thread count, from `T = 1` through `T = 16`, with and without the bias column.
+/// The output rows are split unevenly (`d = 40` into `3` workers is `14/13/13`), so a worker that
+/// skipped or double-counted its range would break the equality. Exact `assert_eq!` is stronger than
+/// the `1e-12` bound and is what the in-place, order-preserving partition guarantees.
+#[test]
+fn fold_sparse_par_owner_is_bit_identical_to_serial() {
+    for bias in [false, true] {
+        // `d = 40 + bias ∈ {40, 41}`; `rows·nnz = 257·6 = 1542 ≤ 5·d² = 8000/8405` → owner path.
+        let (seed, rows, di, nnz, out) = (41u64, 257usize, 40usize, 6usize, 2usize);
+        let (idxs, vals, y, _x) = sparse_design(seed, rows, di, nnz, out);
+        let lam = 0.7;
+        let mut serial = FoldTrainer::new(di, out, lam, bias);
+        serial.fold_sparse(&idxs, &vals, &y, rows, nnz).unwrap();
+        for t in [1usize, 2, 3, 4, 8, 16] {
+            let mut par = FoldTrainer::new(di, out, lam, bias);
+            par.fold_sparse_par(&idxs, &vals, &y, rows, nnz, t).unwrap();
+            assert_eq!(par.drag(), serial.drag(), "U differs (bias={bias}, T={t})");
+            assert_eq!(
+                par.cross_term(),
+                serial.cross_term(),
+                "C differs (bias={bias}, T={t})"
+            );
+            assert_eq!(par.count(), serial.count());
+        }
+    }
+}
+
 /// The blocked/parallel `Cholesky` solve equals the scalar [`solve_spd`] to ≤1e-9 relative for
-/// `d ∈ {1, 63, 64, 65, 300}` (straddling the 64-wide block boundary), single-threaded and at
-/// `T = 8`, on a well-conditioned SPD system (`A = MᵀM + d·I`).
+/// `d = 1024` (the packed-panel kernel's large-block path, checked first so a seeded panel defect is
+/// attributed to it) and for `d ∈ {1, 63, 64, 65, 300}` (straddling the 64-wide block boundary),
+/// single-threaded and at `T = 8`, on a well-conditioned SPD system (`A = MᵀM + d·I`).
 #[test]
 fn blocked_cholesky_solve_equals_scalar() {
     let out = 2usize;
-    for d in [1usize, 63, 64, 65, 300] {
+    for d in [1024usize, 1, 63, 64, 65, 300] {
         let mut rng = Rng::new(101);
         let mut m = vec![0.0f64; d * d];
         for v in &mut m {
