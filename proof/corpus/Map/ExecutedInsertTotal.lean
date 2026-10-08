@@ -6,6 +6,10 @@ import Map.ExecutedReadTotal
 import Map.ExecutedReadCoordTotal
 import Map.ExecutedOverflowAvl
 import Map.ExecutedOverflowChain
+-- Reuse the tested `with_bits` construction helpers (`from_elem_ok`, `alloc_uninit_ok`,
+-- `usize_max_ge`); `Map.ExecutedBuildWitness` imports `Map.ExecutedBuild` and does not depend on
+-- this module.
+import Map.ExecutedBuildWitness
 open Aeneas Aeneas.Std Result
 
 /-!
@@ -1431,13 +1435,13 @@ theorem ov_insert_new_at_branch_else (o : Ov) (T : OTree) (n : U32) (i : Usize) 
 /-- **`ov_insert_new_at_ok`.**  `Overflow::insert_new_at` returns `ok` under the stated domain: the
 `Usize` length room (`hlen`), `Usize` entry-vector room at every node of the tree (`hentries`), the
 arena bound `hcap'` (`length + 4 ≤ 2 ^ 32 - 1`; `+3` for the closing `insert_node` rebalance and one
-slot for the fresh node), and the absence of the key (`habs`).  These three are the lead-recorded
-smallest real bounds of the extracted body; `insert_new_at_spec`'s premises do not carry them. -/
+slot for the fresh node).  These are the lead-recorded smallest real bounds of the extracted body;
+`insert_new_at_spec`'s premises do not carry them.  No absence premise is required: the body's
+`find_node` result already splits the `alloc` branch, so the premise is vestigial (W14). -/
 theorem ov_insert_new_at_ok (o : Ov) (T : OTree) (coord k : U64) (v : I64)
     (hI : OInv o T) (hlen : o.len.val < Usize.max)
     (hentries : ∀ j ∈ idxs T, ∀ nd, o.nodes.val[j]? = some nd → nd.entries.val.length < Usize.max)
-    (hcap' : o.nodes.val.length + 4 ≤ 2 ^ 32 - 1)
-    (_habs : ¬ Present o.nodes.val T coord k) :
+    (hcap' : o.nodes.val.length + 4 ≤ 2 ^ 32 - 1) :
     ∃ nd e o', hashtrinity.overflow.Overflow.insert_new_at CI o coord k v = ok ((nd, e), o') := by
   have hlen_lt : o.len.val + (1#usize).val < 2 ^ UScalarTy.Usize.numBits := by
     rw [val_1_usize]
@@ -2029,6 +2033,204 @@ theorem probe_capped_keyed_slot_weak {KS : Type} (ks : hashtrinity.algebra.KeySt
     · rw [if_neg he] at h
       exact probe_capped_cold_slot_weak ks s c home _ r h
 
+/-! ### Stage 7c: `place_capped` is total under the weak `matches` premise
+
+`place_capped` runs the keyed capped probe and acts on its verdict.  The slot contract
+(`probe_capped_keyed_slot_weak`) supplies the index and the `EMPTY` fact the `.Hit`/`.Vacant`
+branches read; the domain premises (`hsl`, `hinit`, `hset`, `hlenmax`, `hov`) close every
+`get_unchecked_mut`, `assume_init_read`, `set`, `+ 1#usize` and overflow step. -/
+
+/-- **`place_capped_ok`.**  `Table::place_capped` returns `ok` under the weak `matches` premise and
+the table domain the three verdicts read.  `hov` states the overflow domain of a present store: an
+`OInv` shape `T`, the `+4` arena bound, the `Usize` length room and the entry-vector room at every
+node of `T`. -/
+theorem place_capped_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
+    (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
+    (hset : ∀ (keys : KS) (i : Usize) (k : U64), ∃ keys', ks.set keys i k = ok keys')
+    (t : Tbl KS) (c : U64) (v : I64)
+    (hbits : 0 < t.bits.val) (hlen : t.coords.length = 2 ^ t.bits.val)
+    (hsl : t.vals.length = t.coords.length)
+    (hinit : ∀ (i : Nat), t.coords.val[i]? = some c → ∃ z, t.vals.val[i]? = some (some z))
+    (hlenmax : t.len.val < Usize.max)
+    (hov : ∀ ov, t.overflow = some ov →
+      ∃ T, OInv ov T ∧ ov.nodes.val.length + 4 ≤ 2 ^ 32 - 1 ∧ ov.len.val < Usize.max ∧
+      (∀ j ∈ idxs T, ∀ nd, ov.nodes.val[j]? = some nd → nd.entries.val.length < Usize.max)) :
+    ∃ t', hashtrinity.Table.place_capped core.cmp.EqU64 CI ks t c c v = ok t' := by
+  obtain ⟨r, hr⟩ := probe_capped_keyed_ok ks hm hA t c c hbits hlen
+  have hslot := probe_capped_keyed_slot_weak ks t c c r hr
+  unfold hashtrinity.Table.place_capped
+  rw [hr]
+  simp only [bind_tc_ok]
+  cases r with
+  | Hit i =>
+    -- `.Hit i`: overwrite the live slot
+    have hcx : t.coords.val[i.val]? = some c := hslot
+    have hltc : i.val < t.coords.val.length := (List.getElem?_eq_some_iff.mp hcx).1
+    have hltv : i.val < t.vals.length := by rw [hsl]; exact hltc
+    obtain ⟨mu, back, hget⟩ := slice_get_unchecked_mut_ex t.vals i hltv
+    obtain ⟨hmu, hback⟩ := get_unchecked_mut_ok t.vals i mu back hget
+    obtain ⟨z, hz⟩ := hinit i.val hcx
+    have hmuz : mu = some z := Option.some.inj (hmu.symm.trans hz)
+    have hread : core.mem.maybe_uninit.MaybeUninit.assume_init_read (some z) = ok z := rfl
+    have hltv2 : i.val < (t.vals.set i (some z)).length := by rw [slice_set_length]; exact hltv
+    obtain ⟨_, back1, hget2⟩ := slice_get_unchecked_mut_ex (t.vals.set i (some z)) i hltv2
+    refine ⟨{t with vals := back1 (some v)}, ?_⟩
+    simp only [hget, hmuz, hback, bind_tc_ok]
+    change (do
+      let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read (some z)
+      core.mem.drop old
+      let mu1 ← core.mem.maybe_uninit.MaybeUninit.new v
+      let back1' ← core.slice.Slice.get_unchecked_mut
+        (core.slice.index.SliceIndexUsizeSlice (core.mem.maybe_uninit.MaybeUninit I64))
+        (t.vals.set i (some z)) i
+      ok { t with vals := back1'.2 mu1 }) = ok { t with vals := back1 (some v) }
+    simp only [hread, hget2, core.mem.drop, core.mem.maybe_uninit.MaybeUninit.new, bind_tc_ok]
+  | Vacant i =>
+    -- `.Vacant i`: fill the `EMPTY` slot
+    obtain ⟨_, hcx, _⟩ := hslot
+    have hltc : i.val < t.coords.val.length := (List.getElem?_eq_some_iff.mp hcx).1
+    have hltv : i.val < t.vals.length := by rw [hsl]; exact hltc
+    obtain ⟨_, backc, hgetc⟩ := slice_get_unchecked_mut_ex t.coords i hltc
+    obtain ⟨_, backv, hgetv⟩ := slice_get_unchecked_mut_ex t.vals i hltv
+    obtain ⟨keys', hset'⟩ := hset t.keys i c
+    have hltmax : t.len.val + (1#usize).val < 2 ^ UScalarTy.Usize.numBits := by
+      rw [val_1_usize]
+      have hl := hlenmax
+      rw [Usize.max_def, Usize.numBits_def] at hl
+      have hp : 0 < 2 ^ UScalarTy.Usize.numBits := Nat.two_pow_pos _
+      omega
+    obtain ⟨i1, hi1, -⟩ := uadd_tot t.len 1#usize hltmax
+    refine ⟨{t with coords := backc c, vals := backv (some v), keys := keys', len := i1}, ?_⟩
+    simp only [hgetc, hgetv, hset', hi1, core.mem.maybe_uninit.MaybeUninit.new, bind_tc_ok]
+    rfl
+  | Blocked =>
+    -- `.Blocked`: the overflow store
+    cases hto : t.overflow with
+    | none =>
+      let OV : Ov := { nodes := alloc.vec.Vec.new (hashtrinity.overflow.Node U64 I64),
+                       free := alloc.vec.Vec.new U32,
+                       root := hashtrinity.overflow.NIL,
+                       len := 0#usize }
+      have hnew : hashtrinity.overflow.Overflow.new I64 CI = ok OV := rfl
+      obtain ⟨hF, -, hl0⟩ := ov_full_new ks t (fun _ => 0#i64) OV hnew
+      have hlen0 : OV.len.val < Usize.max := by
+        have h0 : OV.len.val = 0 := rfl
+        rw [h0]
+        have hge := nilN_le_usize_max
+        unfold nilN at hge
+        omega
+      have hent0 : ∀ j ∈ idxs OTree.leaf, ∀ nd, OV.nodes.val[j]? = some nd →
+          nd.entries.val.length < Usize.max := by
+        intro j hj; simp [idxs] at hj
+      have hcap0 : OV.nodes.val.length + 4 ≤ 2 ^ 32 - 1 := by rw [hl0]; norm_num
+      obtain ⟨nd, e, ov1, hins⟩ := ov_insert_new_at_ok OV .leaf c c v hF.1 hlen0 hent0 hcap0
+      refine ⟨{t with overflow := some ov1}, ?_⟩
+      simp only [core.option.Option.is_none, Option.isNone, hnew,
+        core.option.Option.as_mut, bind_tc_ok]
+      rw [if_pos trivial]
+      simp only [bind_tc_ok]
+      change (do
+        let (_, ov1') ← hashtrinity.overflow.Overflow.insert_new_at CI OV c c v
+        ok { t with overflow := some ov1' }) = ok { t with overflow := some ov1 }
+      rw [hins]
+      simp only [bind_tc_ok]
+      rfl
+    | some ov0 =>
+      obtain ⟨T, hI, hcap, hlenov, hentries⟩ := hov ov0 hto
+      obtain ⟨nd, e, ov1, hins⟩ := ov_insert_new_at_ok ov0 T c c v hI hlenov hentries hcap
+      refine ⟨{t with overflow := some ov1}, ?_⟩
+      simp only [core.option.Option.is_none, Option.isNone,
+        core.option.Option.as_mut, bind_tc_ok]
+      rw [if_neg (by simp)]
+      simp only [bind_tc_ok]
+      change (do
+        let (_, ov1') ← hashtrinity.overflow.Overflow.insert_new_at CI ov0 c c v
+        ok { t with overflow := some ov1' }) = ok { t with overflow := some ov1 }
+      rw [hins]
+      simp only [bind_tc_ok]
+      rfl
+
+/-! ### Joint witness: the premises of `place_capped_ok` at one concrete instance
+
+The `Regen<u64>` key store has total `set` (`ok self`) and `matches` (`ok true`); `with_bits 1` gives
+a fresh table whose coordinates are all `EMPTY` and whose values are all uninitialised, with
+`overflow = none`; the non-reserved coordinate `0` is held by no slot.  Every premise of
+`place_capped_ok` therefore holds at this instance. -/
+
+/-- `1#usize <<< 1#u32 = ok 2#usize`. -/
+theorem shl_1_1 : (1#usize <<< 1#u32) = ok 2#usize := by
+  show UScalar.shiftLeft_UScalar 1#usize 1#u32 = _
+  unfold UScalar.shiftLeft_UScalar UScalar.shiftLeft
+  have h1 : (1#u32).val < UScalarTy.Usize.numBits := by
+    show 1 < System.Platform.numBits
+    rcases System.Platform.numBits_eq with h | h <;> rw [h] <;> decide
+  simp only [h1, if_true]
+  congr 1
+  apply UScalar.eq_of_val_eq
+  have := usize_max_ge
+  have hm := Usize.max_def
+  rw [Usize.numBits_def] at hm
+  have hp : 0 < 2 ^ UScalarTy.Usize.numBits := Nat.two_pow_pos _
+  show ((1#usize).bv.shiftLeft (1#u32).val).toNat = 2
+  rw [BitVec.shiftLeft_eq, BitVec.toNat_shiftLeft]
+  have h1v : (1#usize).bv.toNat = 1 := rfl
+  have h1w : (1#u32).val = 1 := rfl
+  rw [h1v, h1w, Nat.shiftLeft_eq, Nat.mod_eq_of_lt (by omega)]
+
+/-- `with_bits 1` at the `Regen<u64>` key store returns a table with `len = 0`. -/
+theorem with_bits1_RKS_ex :
+    ∃ t : Tbl (hashtrinity.algebra.Regen U64),
+      hashtrinity.Table.with_bits I64 core.cmp.EqU64 CI RKS 1#u32 = ok t ∧ t.len.val = 0 := by
+  unfold hashtrinity.Table.with_bits
+  rw [shl_1_1]
+  simp only [bind_tc_ok]
+  obtain ⟨v, hv⟩ := from_elem_ok 2#usize
+  rw [hv]; simp only [bind_tc_ok]
+  unfold alloc.vec.Vec.into_boxed_slice
+  simp only [bind_tc_ok]
+  obtain ⟨s1, hs1⟩ := alloc_uninit_ok I64 2#usize
+  rw [hs1]; simp only [bind_tc_ok]
+  simp only [hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.alloc,
+    bind_tc_ok]
+  unfold hashtrinity.side.SideStore.empty
+  simp only [hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.alloc,
+    bind_tc_ok]
+  exact ⟨_, rfl, rfl⟩
+
+/-- **Joint witness for `place_capped_ok`.**  Every hypothesis of `place_capped_ok` holds at one
+instance: the `Regen<u64>` key store, a fresh `with_bits 1` table (`overflow = none`), and the
+non-reserved coordinate `0` held by no slot. -/
+example : ∃ (t t' : Tbl (hashtrinity.algebra.Regen U64)),
+    hashtrinity.Table.with_bits I64 core.cmp.EqU64 CI RKS 1#u32 = ok t ∧
+    hashtrinity.Table.place_capped core.cmp.EqU64 CI RKS t 0#u64 0#u64 0#i64 = ok t' := by
+  obtain ⟨t, hwb, -⟩ := with_bits1_RKS_ex
+  have hR := with_bits_rep RKS 1#u32 (by decide) t hwb
+  have hovt := with_bits_overflow RKS 1#u32 t hwb
+  have hsum : arenaLen t + mainCount t = 0 := (with_bits_wf RKS 1#u32 (by decide) t hwb).2
+  have hmc : mainCount t = 0 := by omega
+  have hlenmax : t.len.val < Usize.max := by
+    rw [hR.len_count, hmc]
+    have h := nilN_le_usize_max
+    unfold nilN at h
+    omega
+  have hns0 : ¬ IsSent (0#u64) := by
+    intro h; rcases h with h | h
+    · have hv : (0#u64).val = 0 := rfl
+      rw [hv] at h; unfold EMPTYN at h; omega
+    · have hv : (0#u64).val = 0 := rfl
+      rw [hv] at h; unfold TOMBN at h; omega
+  obtain ⟨t', ht'⟩ := place_capped_ok RKS
+    (fun keys i c k => ⟨true, RKS_matches keys i c k⟩)
+    (fun _ => avx2_spec_holds)
+    (fun keys i k => ⟨keys, rfl⟩)
+    t 0#u64 0#i64
+    hR.bits_pos hR.len_pow hR.vals_len
+    (fun i hc => ⟨0#i64, (hR.main_val i 0#u64 hc hns0).2⟩)
+    hlenmax
+    (by intro ov hsome; rw [hovt] at hsome; exact absurd hsome (by simp))
+  exact ⟨t, t', hwb, ht'⟩
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.ov_h_ok
@@ -2064,3 +2266,6 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.probe_capped_cold_loop_slot_weak
 #audit Apeiron.MapExecuted.probe_capped_cold_slot_weak
 #audit Apeiron.MapExecuted.probe_capped_keyed_slot_weak
+#audit Apeiron.MapExecuted.place_capped_ok
+#audit Apeiron.MapExecuted.shl_1_1
+#audit Apeiron.MapExecuted.with_bits1_RKS_ex
