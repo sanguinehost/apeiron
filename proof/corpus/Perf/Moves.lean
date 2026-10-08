@@ -460,6 +460,12 @@ theorem p53_ropeflash_floor :
     150 - 24 = 126 ∧ 24 * 114 = 2736 ∧ 102 * (11546 - 274) ≤ 100 * 11546 := by
   decide
 
+/-- P54: the measured P53 means (tg128 867.8 → 888.7 tok/s, in tenths) sit inside P53's
+registered ratio band [1.02, 1.07]. Arithmetic over measured values; grade stays `measured`. -/
+theorem p54_ropeflash_install_band :
+    1020 * 8678 ≤ 1000 * 8887 ∧ 1000 * 8887 ≤ 1070 * 8678 := by
+  decide
+
 end Moves
 
 end Perf
