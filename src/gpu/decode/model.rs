@@ -144,11 +144,11 @@ impl GpuDecode {
                     false,
                     ScaleFace::Dm32,
                 ));
-                // `DEC_AMAXP` = the argmax partial count `P`. Default `AMAX_P` (256): the two
-                // shipped Steps, byte-unchanged. Otherwise `P` lanes scan the logits in
-                // `P / 256` workgroups and the ONE-workgroup tree finish reduces the `P`
-                // partials, so the stage-2 serial walk over `P` no longer grows with `P`.
-                let amax_p = envu("DEC_AMAXP", AMAX_P);
+                // `DEC_AMAXP` = the argmax partial count `P`. Default 2048 (P52/P55): `P` lanes
+                // scan the logits in `P / 256` workgroups and the ONE-workgroup tree finish
+                // reduces the `P` partials, so the stage-2 serial walk over `P` no longer grows
+                // with `P`. `DEC_AMAXP=256` (`AMAX_P`) records the two pre-P55 Steps.
+                let amax_p = envu("DEC_AMAXP", 2048);
                 assert!(
                     amax_p >= 256 && amax_p % 256 == 0,
                     "DEC_AMAXP={amax_p} must be a multiple of 256 at least 256"
