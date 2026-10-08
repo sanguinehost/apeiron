@@ -1038,6 +1038,50 @@ eigenvalue) for parity, the elliptic face has it at `θ=π`. Prior art not retri
 tracking in linear recurrences (arXiv 2411.12537, title from memory; a pointer, not evidence). Not covered:
 input-dependent `θ` per token, trained gates, more than two states, readout beyond a threshold.
 
+#### FACES-R2 decay contraction on a real checkpoint (row `faces-r2-each-on-the-and-BegLX7J1BhlO8MfCu6nnZd`)
+
+Command: `python3 /home/socol/oc-tmp/escalation/FACES-R2-gdn-contraction.py` (sha256 `93dfde6095e8c103…`, output
+`FACES-R2-gdn-contraction.out`; prediction in the script header and `FACES-R2-DECAY-CONTRACT-PREDICTION.md`, both written
+before the run). Object: the Gated DeltaNet decay `λ = e^g`, `g = ssm_a·softplus(x·W_α + dt_bias) < 0` of
+Qwen3.5-0.8B-Q8_0 layer 0, all 248320 vocabulary ids × 16 heads, from the weights alone (as `FACES-R1-H3-gdn.py`).
+Criterion: the orbit `d ↦ e^{gd}` stays within `ε` of the parabolic orbit `1 + gd` for every `d ≤ L` iff
+`(|g|L)²/2 ≤ ε`, because `0 ≤ e^x − 1 − x ≤ x²/2` for `x ≤ 0`; the lane is forgotten within `L` when `|g|L ≥ ln(1/ε)`.
+`ε = 10⁻²`, as in the RoPE contraction table above. This is the hyperbolic-side counterpart of that table. Grade `tested`.
+
+| L | parabolic | forgotten | between | head medians: parabolic / forgotten / between |
+|---|---|---|---|---|
+| 512 | 0.2148 | 0.3993 | 0.3859 | 2 / 6 / 8 |
+| 2048 | 0.1110 | 0.5276 | 0.3614 | 1 / 7 / 8 |
+| 32768 | 0.0645 | 0.8463 | 0.0892 | 1 / 14 / 1 |
+| 131072 | 0.0627 | 0.9127 | 0.0246 | 1 / 15 / 0 |
+
+- Controls:
+  - Grid check: at the largest counted parabolic `|g|` (2.762e-4), `max_{d≤512} |e^{gd} − 1 − gd| = 0.009545 ≤ ε`.
+  - Synthetic `|g| = 0.01`: parabolic fraction at `L = 512` is 0.
+- Head 8 is an integrator:
+  - `ssm_a = −0.00137`, `dt_bias = −13.1`;
+  - median `|g| = 2.19e-10`, so `|g|·131072 ≈ 3e-5`;
+  - its decay is the identity to `ε` at every tested length.
+  - The gate on that head is inert: the recurrence there is the ungated delta rule.
+- Heads 0, 3, 11 and 13 have `|g| ≥ 0.05` for every token (per-head minimum). They forget within about 90 tokens.
+- Verdicts against the prediction:
+  - P1 refuted: the `L = 512` fraction 0.2148 is inside [0.02, 0.40], but 0.0645 at `L = 32768` is above 0.05. The
+    residue is head 8 (1/16 = 0.0625) plus a tail.
+  - P2 held: 2 head medians are parabolic at 512.
+  - P3 held: 6 head medians are forgotten within 512.
+- Reading (`model`):
+  - One layer splits its heads across the faces' limits by length: a σ=0 lane (an integrator, the shear/translation orbit),
+    short-memory lanes, and lanes between.
+  - The contraction parameter is `|g|L`, as `θL` is for RoPE. The same quadratic bound decides both faces.
+  - Not shown: that the parabolic heads compute a count. That needs the state and the readout, not the decay alone.
+- Search: none run for this check. The decay formula is read from `ref/GatedDeltaNet` `lit_gpt/gated_delta_net.py:159`
+  (cited in the H3 script). No claim of novelty.
+- Not covered:
+  - layers past 0, which need a forward pass;
+  - vocabulary ids weighted equally rather than by corpus frequency;
+  - Q8_0 weights, not the BF16 release;
+  - the delta-rule update `I − βkkᵀ`, whose own face is not classified here.
+
 #### FACES-R2 position-code experiment (row `faces-r2-each-on-the-and-BegLX7J1BhlO8MfCu6nnZd`)
 
 Command: `python3 /home/socol/oc-tmp/escalation/FACES-R2-poscode.py` (numpy; output `FACES-R2-poscode.out`; prediction in the
