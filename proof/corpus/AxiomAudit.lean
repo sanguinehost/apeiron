@@ -348,6 +348,8 @@ import Perf.Overlap
 #audit Perf.Moves.prologue_depth_gain
 #audit Perf.Moves.prologue_gain_cap
 #audit Perf.Moves.prologue_depth_gain_p4
+#audit Perf.Moves.q5_row_words_two_thirds
+#audit Perf.Moves.q5_chart_gain_when_bytes_bind
 #audit Perf.Moves.p10_mma_floor
 #audit Perf.Moves.p10_mma_rate_ratio
 #audit Perf.Moves.p10_mma_floor_p8

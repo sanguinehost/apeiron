@@ -277,6 +277,43 @@ theorem hd128_tile_exceeds :
 
 #guard hd128Keys * hd128Dim * f32Bytes * hd128Tensors = 98304
 
+/-! ## DECODE-Q5 (P40): the two-plane Q5 chart against the Q8 re-chart -/
+
+/-- Global words per row of the Q8 re-chart at depth `k`: `k/4` code words plus `k/32` `dm` words,
+1.125 B/w. `model` input read from `Carrier::Q8.code_words_per_row` and the per-32-block `dm`. -/
+def q8RowWords (k : Nat) : Nat := k / 4 + k / 32
+
+/-- Global words per row of the `Carrier::Q5` chart: plane A `k/8`, plane B `k/32`, `dm` `k/32`,
+0.75 B/w. `model` input read from `Carrier::Q5.code_words_per_row` (`src/simt/mod.rs`). -/
+def q5RowWords (k : Nat) : Nat := k / 8 + k / 32 + k / 32
+
+/-- On every 32-aligned depth the Q5 chart streams exactly two thirds of the Q8 re-chart's words
+(`k = 32 j`: `6 j` against `9 j`). -/
+theorem q5_row_words_two_thirds (k : Nat) (h : 32 ∣ k) : 3 * q5RowWords k = 2 * q8RowWords k := by
+  obtain ⟨j, rfl⟩ := h
+  unfold q5RowWords q8RowWords
+  omega
+
+/-- **P40 (Q5 chart move).** The Q5 unpack adds ALU work, so the move is not componentwise
+dominance and `timeLB_mono` does not apply. When the global-byte field binds the Q5 kernel
+(`hbind`, the P38 arm A observation on gu, a measured premise), its bound is at most the Q8 kernel's
+whatever the other fields do: the binding field's demand falls by a third, and every field's bound is
+below the whole bound (`fieldLB_le_timeLB`). -/
+theorem q5_chart_gain_when_bytes_bind (m : Machine) (r r' : Res) (rows k : Nat) (h32 : 32 ∣ k)
+    (hg : r.demand fGlobal = 4 * (rows * q8RowWords k))
+    (hg' : r'.demand fGlobal = 4 * (rows * q5RowWords k))
+    (hbind : timeLB m r' = ceilDiv (r'.demand fGlobal) (m.cap fGlobal)) :
+    timeLB m r' ≤ timeLB m r := by
+  have h23 := q5_row_words_two_thirds k h32
+  have hw : q5RowWords k ≤ q8RowWords k := by omega
+  have hd : r'.demand fGlobal ≤ r.demand fGlobal := by
+    rw [hg, hg']
+    exact Nat.mul_le_mul_left 4 (Nat.mul_le_mul_left rows hw)
+  rw [hbind]
+  exact Nat.le_trans (ceilDiv_mono hd) (fieldLB_le_timeLB m r fGlobal)
+
+#guard q5RowWords 896 = 168 ∧ q8RowWords 896 = 252
+
 end Moves
 
 end Perf

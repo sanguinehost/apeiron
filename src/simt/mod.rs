@@ -538,6 +538,25 @@ pub enum Carrier {
     /// `16·cj + 4·l + i`, and the kernel reads four contiguous bits per phase. See
     /// [`q3_planes_gpu_chart`].
     Q3,
+    /// **5-bit unsigned codes as TWO PLANES**, affine per 32-block — the exact `block_q5_0` layout
+    /// (`w = d·q + lo` with `q ∈ 0..31`, `dm = f16(d) ‖ f16(−16·d)`, so `w = d·(q−16)`): Q4's nibble
+    /// plane plus one permuted high-bit plane.
+    ///
+    /// * **plane A** — the low 4 bits, 8 codes per u32, byte-identical in layout to [`Self::Q4`]
+    ///   (`A[(kk/8)·m + r]`), so the DP4A phase loop and the whole activation chart are unchanged.
+    /// * **plane B** — the high bit, one u32 per (32-block, row) (`B[(k/8)·m + b·m + r]`), appended
+    ///   AFTER plane A in the same `words` buffer at a compile-time offset, so no binding moves.
+    ///
+    /// `(k/8 + k/32)·m` words = **5.0 bits/weight** — 4.0 of plane-A codes plus 1.0 of plane B.
+    ///
+    /// **Plane B is bit-PERMUTED at pack time**, the same trick as [`Self::Q3`]. A DP4A phase wants
+    /// the high bits of codes `{4l + i}` — stride 4 — and the nibble-to-bytes expand
+    /// (`nib · 0x0204_0810 & 0x1010_1010`) only works on CONTIGUOUS bits; at stride 4 the partial
+    /// products collide. So the packer stores the bit for code `j` at
+    /// `pos(j) = (j>>3)·8 + (j&1)·4 + ((j>>1)&3)`, and the kernel reads four contiguous bits per
+    /// phase, moving each to bit 4 of its byte lane. See
+    /// llama.cpp CUDA `vecdotq.cuh:182-196` and `pack_q5_0_raw`.
+    Q5,
 }
 
 impl Carrier {
@@ -551,6 +570,8 @@ impl Carrier {
             Carrier::Q2 => 16,
             // plane A's width — Q3 rides Q2's phase loop and adds the high-bit plane per phase
             Carrier::Q3 => 16,
+            // plane A's width — Q5 rides Q4's phase loop and adds the high-bit plane per phase
+            Carrier::Q5 => 8,
         }
     }
 
@@ -560,6 +581,7 @@ impl Carrier {
     pub const fn code_words_per_row(self, k: u32) -> u32 {
         match self {
             Carrier::Q3 => k / 16 + k / 32,
+            Carrier::Q5 => k / 8 + k / 32,
             _ => k / self.pack(),
         }
     }
@@ -569,12 +591,16 @@ impl Carrier {
     pub const fn plane_b_off(self, m: u32, k: u32) -> u32 {
         match self {
             Carrier::Q3 => (k / 16) * m,
+            Carrier::Q5 => (k / 8) * m,
             _ => 0,
         }
     }
     /// Whether the fold runs in the (code, scale) chart (per-32-block d/m + XS).
     pub const fn is_chart(self) -> bool {
-        matches!(self, Carrier::Q8 | Carrier::Q4 | Carrier::Q2 | Carrier::Q3)
+        matches!(
+            self,
+            Carrier::Q8 | Carrier::Q4 | Carrier::Q2 | Carrier::Q3 | Carrier::Q5
+        )
     }
     /// The code mask for chart carriers.
     pub const fn qmask(self) -> u32 {
@@ -583,6 +609,7 @@ impl Carrier {
             Carrier::Q4 => 15,
             Carrier::Q2 => 3,
             Carrier::Q3 => 7,
+            Carrier::Q5 => 31,
             _ => 0,
         }
     }
@@ -595,6 +622,7 @@ impl Carrier {
             Carrier::Q4 => "q4",
             Carrier::Q2 => "q2",
             Carrier::Q3 => "q3",
+            Carrier::Q5 => "q5",
         }
     }
     /// Weight bytes per element (params excluded).
@@ -609,6 +637,9 @@ impl Carrier {
             // 3 bits = 1.5 quarter-bytes; this table is integral, so Q3 is not expressible here
             // and callers must use `code_words_per_row`. Returning 2 (Q4's) would OVERstate.
             Carrier::Q3 => 2,
+            // 5 bits = 2.5 quarter-bytes; not integral, so Q5 is not expressible here and callers
+            // must use `code_words_per_row`. 3 overstates, as Q3's 2 does.
+            Carrier::Q5 => 3,
         }
     }
 }
