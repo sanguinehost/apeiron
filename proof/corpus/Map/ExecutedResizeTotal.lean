@@ -1266,6 +1266,380 @@ theorem into_entries_total (o : Ov) (T : OTree)
     simp only [bind_tc_ok]
     exact hes
 
+/-! ## The `resize_loop0` exit domain
+
+`resize_loop0` returns the destination table `bigger1` after re-placing every live main slot of `s`;
+`resize_loop1_ok` consumes the overflow domain `Hov bigger1 (mainCount s)` through its `hHov0`
+premise.  `loop_tot_inv` only returns existence, so the exit domain is read off `loop_pc` on the same
+invariant `resize_loop0_ok` uses: the `done`-case invariant
+`Hov p.2.1 ((s.coords.val.take p.2.2.val).countP …)` becomes `Hov bigger1 (mainCount s)` because at
+exit `take i.val = take s.coords.val.length` (`List.take_of_length_le`). -/
+
+/-- **`resize_loop0_ok_hov` (strong form).**  `resize_loop0` returns `ok`; its destination table
+carries the shape (`0 < bits`, slot-count/pow, `vals.length`), `BigInit`, the length bound
+`len ≤ mainCount s` and the overflow domain `Hov · (mainCount s)`; the loop also leaves the source's
+side store and overflow untouched (`r.1 = s.side`, `r.2.1 = s.overflow`).  The first five conjuncts
+and `Hov` are the `done`-case invariant; the two frame equalities come from its `p.1.side` /
+`p.1.overflow` conjuncts, which the body never writes. -/
+theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
+    (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
+    (hset : ∀ (keys : KS) (i : Usize) (k : U64), ∃ keys', ks.set keys i k = ok keys')
+    (hTK : ∀ (keys : KS) (i : Usize) (c : U64), ¬ IsSent c →
+      ∃ keys', ks.take_key keys i c = ok (c, keys'))
+    {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop}
+    (hR : RepW ks s m live) (hcap : arenaLen s + mainCount s + 4 ≤ nilN)
+    (b0 : Tbl KS) (hb0 : RepW ks b0 m (LowMain s 0))
+    (hcb0 : arenaLen b0 + mainCount b0 = 0) (hb0o : b0.overflow = none) :
+    ∃ r, hashtrinity.Table.resize_loop0 core.cmp.EqU64 CI ks s b0 0#usize = ok r ∧
+      0 < r.2.2.bits.val ∧
+      r.2.2.coords.val.length = 2 ^ r.2.2.bits.val ∧
+      r.2.2.vals.val.length = r.2.2.coords.val.length ∧
+      BigInit r.2.2 ∧
+      r.2.2.len.val ≤ mainCount s ∧
+      Hov r.2.2 (mainCount s) ∧
+      r.1 = s.side ∧ r.2.1 = s.overflow := by
+  obtain ⟨r, hr⟩ := resize_loop0_ok ks hm hA hset hTK hR hcap b0 hb0 hcb0 hb0o
+  refine ⟨r, hr, ?_⟩
+  unfold hashtrinity.Table.resize_loop0 at hr
+  refine loop_pc
+    (fun p : Tbl KS × Tbl KS × Usize =>
+      p.1.coords.val.length = s.coords.val.length ∧
+      (∀ d, p.2.2.val ≤ d → p.1.coords.val[d]? = s.coords.val[d]?) ∧
+      p.1.vals.val = s.vals.val ∧
+      p.1.side = s.side ∧ p.1.overflow = s.overflow ∧
+      0 < p.2.1.bits.val ∧
+      p.2.1.coords.val.length = 2 ^ p.2.1.bits.val ∧
+      p.2.1.vals.val.length = p.2.1.coords.val.length ∧
+      BigInit p.2.1 ∧
+      p.2.1.len.val ≤ (s.coords.val.take p.2.2.val).countP (fun c => decide (¬ IsSent c)) ∧
+      Hov p.2.1 ((s.coords.val.take p.2.2.val).countP (fun c => decide (¬ IsSent c))) ∧
+      p.2.2.val ≤ s.coords.val.length)
+    (fun r => 0 < r.2.2.bits.val ∧
+      r.2.2.coords.val.length = 2 ^ r.2.2.bits.val ∧
+      r.2.2.vals.val.length = r.2.2.coords.val.length ∧
+      BigInit r.2.2 ∧
+      r.2.2.len.val ≤ mainCount s ∧
+      Hov r.2.2 (mainCount s) ∧
+      r.1 = s.side ∧ r.2.1 = s.overflow)
+    (fun p : Tbl KS × Tbl KS × Usize =>
+      hashtrinity.Table.resize_loop0.body core.cmp.EqU64 CI ks p.1 p.2.1 p.2.2)
+    ?_ (s, b0, 0#usize) ?_ r hr
+  · rintro ⟨t, b, i⟩ ⟨hA1, hB, hC, hE1, hE2, hbitsb, hlenb, hslb, hBig, hlenbnd, hHov, hib⟩ cf hcf
+    dsimp only at *
+    unfold hashtrinity.Table.resize_loop0.body at hcf
+    by_cases hlt : i < Slice.len t.coords
+    · rw [if_pos hlt] at hcf
+      have hltv : i.val < t.coords.val.length := by
+        have h := (UScalar.lt_equiv i (Slice.len t.coords)).mp hlt
+        rwa [Slice.len_val] at h
+      have hit : i.val < s.coords.val.length := by rw [← hA1]; exact hltv
+      obtain ⟨c, hc, hcf⟩ := bind_inv hcf
+      have htc : t.coords.val[i.val]? = some c := slice_index_ok t.coords i c hc
+      have hsc : s.coords.val[i.val]? = some c := by rw [← hB i.val le_rfl]; exact htc
+      rw [is_live_ok] at hcf; simp only [bind_tc_ok] at hcf
+      by_cases hsent : IsSent c
+      · rw [if_neg (by simpa using hsent)] at hcf
+        obtain ⟨i2, hi2, hcf⟩ := bind_inv hcf
+        have hh : cf = ControlFlow.cont (t, b, i2) := (Result.ok_injective hcf).symm
+        rw [hh]; dsimp only
+        have hi2v : i2.val = i.val + 1 := by
+          have := (uadd_ok hi2).1; rw [val_1_usize] at this; exact this
+        have hcnt : (s.coords.val.take i2.val).countP (fun c => decide (¬ IsSent c)) =
+            (s.coords.val.take i.val).countP (fun c => decide (¬ IsSent c)) := by
+          rw [hi2v, countP_take_succ (fun c => decide (¬ IsSent c)) s.coords.val i.val c hsc]
+          simp [hsent]
+        refine ⟨hA1, (fun d hd => hB d (by omega)), hC, hE1, hE2, hbitsb, hlenb, hslb, hBig,
+          ?_, ?_, ?_⟩
+        · rw [hcnt]; exact hlenbnd
+        · rw [hcnt]; exact hHov
+        · omega
+      · rw [if_pos (by simpa using hsent)] at hcf
+        obtain ⟨⟨key, keys'⟩, htk, hcf⟩ := bind_inv hcf
+        obtain ⟨kt, htk2⟩ := hTK t.keys i c hsent
+        have hkey : key = c := congrArg Prod.fst (Result.ok_injective (htk.symm.trans htk2))
+        obtain ⟨⟨mu, back⟩, hg, hcf⟩ := bind_inv hcf
+        obtain ⟨hmu, hback⟩ := get_unchecked_mut_ok t.vals i mu back hg
+        obtain ⟨v, hread, hcf⟩ := bind_inv hcf
+        obtain ⟨cs, hupd, hcf⟩ := bind_inv hcf
+        obtain ⟨big1, hpc, hcf⟩ := bind_inv hcf
+        rw [hkey] at hpc
+        obtain ⟨i2, hi2, hcf⟩ := bind_inv hcf
+        have hh : cf = ControlFlow.cont
+            ({ t with coords := cs, vals := back mu, keys := keys' }, big1, i2) :=
+          (Result.ok_injective hcf).symm
+        rw [hh]; dsimp only
+        have hi2v : i2.val = i.val + 1 := by
+          have := (uadd_ok hi2).1; rw [val_1_usize] at this; exact this
+        have hcnt : (s.coords.val.take i2.val).countP (fun c => decide (¬ IsSent c)) =
+            (s.coords.val.take i.val).countP (fun c => decide (¬ IsSent c)) + 1 := by
+          rw [hi2v, countP_take_succ (fun c => decide (¬ IsSent c)) s.coords.val i.val c hsc]
+          simp [hsent]
+        obtain ⟨hbitsf, hlenf, hslf, hlenf'⟩ := place_capped_frame ks b big1 c v hpc
+        have hlenf2 : big1.coords.val.length = b.coords.val.length := hlenf
+        have hslf2 : big1.vals.val.length = b.vals.val.length := hslf
+        have hK : (s.coords.val.take i.val).countP (fun c => decide (¬ IsSent c)) + 4 ≤
+            2 ^ 32 - 1 := by
+          have hn := mainCount_le s i.val
+          have h := hcap; unfold nilN at h; omega
+        have hlenmax : b.len.val < Usize.max := by
+          have h := nilN_le_usize_max; unfold nilN at h; omega
+        have hHov' : Hov big1 ((s.coords.val.take i2.val).countP (fun c => decide (¬ IsSent c))) := by
+          rw [hcnt]
+          exact place_capped_hov ks hm hA hset b big1 c v
+            ((s.coords.val.take i.val).countP (fun c => decide (¬ IsSent c)))
+            hbitsb hlenb hslb (fun j hcj => hBig j c hcj hsent) hlenmax hHov hK hpc
+        have hupd' : cs.val = t.coords.val.set i.val hashtrinity.EMPTY :=
+          slice_update_ok t.coords cs i hashtrinity.EMPTY hupd
+        have hvals : (back mu).val = s.vals.val := by
+          rw [hback, Slice.set_val_eq, list_set_self _ _ _ hmu, hC]
+        refine ⟨?_, ?_, hvals, hE1, hE2, ?_, ?_, ?_,
+          place_capped_bigInit ks b big1 c v hpc hBig, ?_, hHov', ?_⟩
+        · rw [hupd', List.length_set]; exact hA1
+        · intro d hd
+          rw [hupd', List.getElem?_set_ne (by omega)]
+          exact hB d (by omega)
+        · rw [hbitsf]; exact hbitsb
+        · rw [hlenf2, hbitsf]; exact hlenb
+        · rw [hslf2, hlenf2]; exact hslb
+        · rw [hcnt]; omega
+        · omega
+    · rw [if_neg hlt] at hcf
+      have hh : cf = ControlFlow.done (t.side, t.overflow, b) := (Result.ok_injective hcf).symm
+      rw [hh]; dsimp only
+      have hge : s.coords.val.length ≤ i.val := by
+        have h1 : ¬ i.val < t.coords.val.length := by
+          intro h
+          exact hlt ((UScalar.lt_equiv i (Slice.len t.coords)).mpr (by
+            rw [Slice.len_val]; simp only [Slice.length]; exact h))
+        rw [hA1] at h1
+        omega
+      have hmain : (s.coords.val.take i.val).countP (fun c => decide (¬ IsSent c)) = mainCount s := by
+        rw [List.take_of_length_le hge]; rfl
+      exact ⟨hbitsb, hlenb, hslb, hBig, by rw [← hmain]; exact hlenbnd,
+        by rw [← hmain]; exact hHov, hE1, hE2⟩
+  · refine ⟨rfl, (fun d _ => rfl), rfl, rfl, rfl, hb0.1.bits_pos, hb0.1.len_pow, hb0.1.vals_len,
+      ?_, ?_, ?_, Nat.zero_le _⟩
+    · exact fun j c' hc hns => ⟨m c', (hb0.1.main_val j c' hc hns).2⟩
+    · have hb0len : b0.len.val = 0 := by rw [hb0.1.len_count]; omega
+      rw [hb0len]; exact Nat.zero_le _
+    · intro ov h
+      rw [hb0o] at h
+      exact absurd h (by simp)
+
+/-- **`resize_loop0_ok_hov`.**  `resize_loop0` returns `ok` and its destination table satisfies the
+overflow domain `Hov · (mainCount s)` that `resize_loop1_ok` consumes through its `hHov0` premise.
+The statement is W20 §6's, computed as the projection of `resize_loop0_ok_hov_strong`. -/
+theorem resize_loop0_ok_hov {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
+    (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
+    (hset : ∀ (keys : KS) (i : Usize) (k : U64), ∃ keys', ks.set keys i k = ok keys')
+    (hTK : ∀ (keys : KS) (i : Usize) (c : U64), ¬ IsSent c →
+      ∃ keys', ks.take_key keys i c = ok (c, keys'))
+    {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop}
+    (hR : RepW ks s m live) (hcap : arenaLen s + mainCount s + 4 ≤ nilN)
+    (b0 : Tbl KS) (hb0 : RepW ks b0 m (LowMain s 0))
+    (hcb0 : arenaLen b0 + mainCount b0 = 0) (hb0o : b0.overflow = none) :
+    ∃ r, hashtrinity.Table.resize_loop0 core.cmp.EqU64 CI ks s b0 0#usize = ok r ∧
+      Hov r.2.2 (mainCount s) := by
+  obtain ⟨r, hr, -, -, -, -, -, hhov, -, -⟩ :=
+    resize_loop0_ok_hov_strong ks hm hA hset hTK hR hcap b0 hb0 hcb0 hb0o
+  exact ⟨r, hr, hhov⟩
+
+/-- `SideStore::empty` is total when the key store's `alloc` is. -/
+theorem side_empty_ex {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (halloc : ∀ n : Usize, ∃ ks', ks.alloc n = ok ks') :
+    ∃ ss1, hashtrinity.side.SideStore.empty I64 CI ks = ok ss1 := by
+  unfold hashtrinity.side.SideStore.empty
+  obtain ⟨g0, hg0⟩ := halloc 0#usize
+  rw [hg0]; simp only [bind_tc_ok]
+  exact ⟨_, rfl⟩
+
+/-- **`resize_ok`.**  `Table::resize` is total at a bit count below the word width, at a key store
+whose `alloc`/`set` are total and whose `matches` returns.  The four failure-prone steps of the body
+are composed in bind order: `with_bits_ex` (the fresh destination), `resize_loop0_ok_hov_strong` (the
+live-slot loop; the destination's shape, `BigInit`, `len` bound and `Hov` it supplies are exactly
+`resize_loop1_ok`'s premises), `into_entries_total` (the drained overflow) and `resize_loop1_ok`
+(re-placing the entries).  `RepW` supplies the drained tree's `Emb`/alive facts through `OvWF`, but
+carries no numeric bound on its entry count: `hov` bounds that count below `Usize.max` (the scan's
+`Vec::push` ceiling) and `hvcap` below `nilN − mainCount s − 4` (loop 1's counter cap); both are
+scoped to `s.overflow = some ov` so an `s` with no overflow satisfies them vacuously. -/
+theorem resize_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (halloc : ∀ n : Usize, ∃ ks', ks.alloc n = ok ks')
+    (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
+    (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
+    (hset : ∀ (keys : KS) (i : Usize) (k : U64), ∃ keys', ks.set keys i k = ok keys')
+    (hTK : ∀ (keys : KS) (i : Usize) (c : U64), ¬ IsSent c →
+      ∃ keys', ks.take_key keys i c = ok (c, keys'))
+    {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop}
+    (hR : RepW ks s m live) (hcap : arenaLen s + mainCount s + 4 ≤ nilN)
+    (new_bits : U32) (hbits : new_bits.val < UScalarTy.Usize.numBits)
+    (hpos : 0 < new_bits.val)
+    (hov : ∀ ov T, s.overflow = some ov → OInv ov T →
+      (idxs T).length + ((idxs T).map (remLen ov.nodes)).sum < Usize.max)
+    (hvcap : ∀ ov T, s.overflow = some ov → OInv ov T →
+      mainCount s + ((idxs T).map (remLen ov.nodes)).sum + 4 ≤ nilN) :
+    ∃ t, hashtrinity.Table.resize core.cmp.EqU64 CI ks s new_bits = ok t := by
+  unfold hashtrinity.Table.resize
+  obtain ⟨bigger, hwb, hbitsb, hlenbb, hslbb, hlenb0, hovnone, hBigb, hHov0b⟩ :=
+    with_bits_ex ks halloc new_bits hbits
+  rw [hwb]; simp only [bind_tc_ok]
+  have hb0C : CoreRep ks bigger m (fun _ => False) :=
+    rep_map_congr ks (m' := m) (with_bits_rep ks new_bits hpos bigger hwb) (fun _ h => h.elim)
+  have hb0 : RepW ks bigger m (LowMain s 0) := by
+    refine repW_live_congr ks ⟨hb0C, by unfold OvWF; rw [hovnone]; trivial⟩ (fun c => ?_)
+    exact ⟨False.elim, fun ⟨_, d, hd, _⟩ => absurd hd (Nat.not_lt_zero d)⟩
+  have hcb0 : arenaLen bigger + mainCount bigger = 0 := by
+    have h1 : arenaLen bigger = 0 := by unfold arenaLen; rw [hovnone]
+    rw [h1, mainCount_zero ks hb0C]
+  obtain ⟨r, hr, hbr, hcr, hvr, hBigr, hlenr, hHovr, hside, hovf⟩ :=
+    resize_loop0_ok_hov_strong ks hm hA hset hTK hR hcap bigger hb0 hcb0 hovnone
+  rw [hr]; simp only [bind_tc_ok]
+  obtain ⟨ss1, hss1⟩ := side_empty_ex ks halloc
+  rw [hss1]; simp only [bind_tc_ok]
+  rcases r with ⟨ss0, o, b1⟩
+  simp only [core.mem.replace, core.option.Option.take]
+  cases o with
+  | none => exact ⟨_, rfl⟩
+  | some ov =>
+    change ∃ t, (do
+      let v ← hashtrinity.overflow.Overflow.into_entries CI ov
+      let iter ← alloc.vec.IntoIteratorVec.into_iter v
+      hashtrinity.Table.resize_loop1 core.cmp.EqU64 CI ks iter
+        { b1 with side := ss0 }) = ok t
+    have hso : s.overflow = some ov := hovf.symm
+    obtain ⟨T, hF, -⟩ := ov_full_of_some ks hR hso
+    obtain ⟨hI, hall⟩ := hF
+    have hEmb : Emb ov.nodes.val ov.root T := hI.1
+    have hND : ND T := hI.2.2.1
+    have hal : ∀ i ∈ idxs T, ∃ nd, ov.nodes.val[i]? = some nd ∧ nd.alive = true :=
+      fun i hi => by obtain ⟨nd, hnd, ha, -, -, -⟩ := hall i hi; exact ⟨nd, hnd, ha⟩
+    have hspec : ∀ i ∈ idxs T, ∃ nd, ov.nodes.val[i]? = some nd ∧ nd.alive = true ∧
+        nd.entries.val = [(nd.key, some (m nd.key))] :=
+      fun i hi => by obtain ⟨nd, hnd, ha, he, -, -⟩ := hall i hi; exact ⟨nd, hnd, ha, he⟩
+    obtain ⟨es, hesIn, heslen⟩ := into_entries_total ov T hEmb hal (hov ov T hso hI)
+    have hesv := into_entries_spec m ov T hEmb hND hspec es hesIn
+    have hes : ∀ x ∈ es.val, x.2.1 = x.1 ∧ ¬ IsSent x.1 := by
+      intro x hx
+      have hx' : x ∈ (idxs T).map (entOf ov.nodes.val m) := by rw [← hesv]; exact hx
+      obtain ⟨j, hj, rfl⟩ := List.mem_map.mp hx'
+      obtain ⟨nd, hnd, -, hent, hns, -⟩ := hall j hj
+      exact ⟨by simp [entOf, hnd], by simpa [entOf, hnd] using hns⟩
+    rw [hesIn]; simp only [bind_tc_ok]
+    unfold alloc.vec.IntoIteratorVec.into_iter; simp only [bind_tc_ok]
+    have hcap1 : mainCount s + es.val.length + 4 ≤ nilN := by
+      have := hvcap ov T hso hI; omega
+    exact resize_loop1_ok ks hm hA hset es.val hes (t0 := { b1 with side := ss0 }) (mainCount s)
+      hbr hcr hvr hBigr hlenr hHovr hcap1 es rfl
+
+/-- A list's mapped sum is at most its length times a uniform per-element bound. -/
+theorem sum_map_le_mul {α : Type} (l : List α) (f : α → Nat) (n : Nat)
+    (h : ∀ x ∈ l, f x ≤ n) : (l.map f).sum ≤ l.length * n := by
+  induction l with
+  | nil => simp
+  | cons a l ih =>
+    have ha : f a ≤ n := h a (by simp)
+    have hl : ∀ x ∈ l, f x ≤ n := fun x hx => h x (by simp [hx])
+    simp only [List.map_cons, List.sum_cons, List.length_cons]
+    have := ih hl
+    nlinarith
+
+/-- **`resize_witness`.**  A reachable joint witness for `resize_ok`'s state hypotheses at a table
+that has run one placement step: `place_capped` at the (`Regen<u64>`) fresh `with_bits 1` table
+puts the non-reserved coordinate `0` in a live slot (`t0 → s`).  `s`'s overflow stays `none`-or-
+small: `place_capped_domain` gives `Hov s 1`, so any `OInv ov T` of `s`'s overflow has
+`|idxs T| ≤ 1` and a total entry count `≤ 1`, satisfying both bounds, and `resize` itself returns
+`ok r`.  Unlike `resize_loop0_witness`'s empty table, `s` has a live main slot. -/
+theorem resize_witness :
+    ∃ (t0 s : Tbl (hashtrinity.algebra.Regen U64)) (m : Apeiron.Table.HMap U64 I64)
+      (live : U64 → Prop) (r : Tbl (hashtrinity.algebra.Regen U64)),
+      hashtrinity.Table.place_capped core.cmp.EqU64 CI RKS t0 0#u64 0#u64 0#i64 = ok s ∧
+      RepW RKS s m live ∧
+      arenaLen s + mainCount s + 4 ≤ nilN ∧
+      (∀ ov T, s.overflow = some ov → OInv ov T →
+        (idxs T).length + ((idxs T).map (remLen ov.nodes)).sum < Usize.max) ∧
+      (∀ ov T, s.overflow = some ov → OInv ov T →
+        mainCount s + ((idxs T).map (remLen ov.nodes)).sum + 4 ≤ nilN) ∧
+      hashtrinity.Table.resize core.cmp.EqU64 CI RKS s 1#u32 = ok r := by
+  obtain ⟨t0, hwb, -⟩ := with_bits1_RKS_ex
+  have hR0 : RepW RKS t0 (fun _ => 0#i64) (fun _ => False) :=
+    ⟨with_bits_rep RKS 1#u32 (by decide) t0 hwb, by
+      unfold OvWF; rw [with_bits_overflow RKS 1#u32 t0 hwb]; trivial⟩
+  have hsum0 : arenaLen t0 + mainCount t0 = 0 := (with_bits_wf RKS 1#u32 (by decide) t0 hwb).2
+  have hmc0 : mainCount t0 = 0 := by omega
+  have hns0 : ¬ IsSent (0#u64) := by
+    intro h; rcases h with h | h
+    · have hv : (0#u64).val = 0 := rfl
+      rw [hv] at h; unfold EMPTYN at h; omega
+    · have hv : (0#u64).val = 0 := rfl
+      rw [hv] at h; unfold TOMBN at h; omega
+  have hlenmax : t0.len.val < Usize.max := by
+    rw [hR0.1.len_count, hmc0]
+    have h := nilN_le_usize_max; unfold nilN at h; omega
+  obtain ⟨t1, hpc, hHov1⟩ := place_capped_domain RKS
+    (fun keys i c k => ⟨true, RKS_matches keys i c k⟩)
+    (fun _ => avx2_spec_holds)
+    (fun keys i k => ⟨keys, rfl⟩)
+    t0 0#u64 0#i64 0
+    hR0.1.bits_pos hR0.1.len_pow hR0.1.vals_len
+    (fun i hc => ⟨0#i64, (hR0.1.main_val i 0#u64 hc hns0).2⟩)
+    hlenmax
+    (by intro ov hsome; rw [with_bits_overflow RKS 1#u32 t0 hwb] at hsome
+        exact absurd hsome (by simp))
+    (by norm_num)
+  obtain ⟨hR1, -, hbnd1⟩ := place_rep RKS RKS_matches (fun _ _ => True)
+    (fun _ _ _ _ _ _ _ _ _ => trivial) hR0 trivial
+    (by rw [hsum0]; unfold nilN; norm_num) hns0 (fun h => h) hpc
+  have hcap1 : arenaLen t1 + mainCount t1 + 4 ≤ nilN := by have := hbnd1; unfold nilN; omega
+  have hbounds : ∀ ov T, t1.overflow = some ov → OInv ov T →
+      (idxs T).length ≤ 1 ∧ ((idxs T).map (remLen ov.nodes)).sum ≤ 1 := by
+    intro ov T hso hI
+    obtain ⟨T', hI', hl1, -, hent⟩ := hHov1 ov hso
+    have hTT : T' = T := emb_unique hI'.1 hI.1
+    subst T'
+    have hnd : (idxs T).Nodup := nd_nodup T hI.2.2.1
+    have hlen : (idxs T).length ≤ ov.nodes.val.length :=
+      idxs_length_le hnd (fun j hj => by
+        obtain ⟨nd, hndj, -⟩ := emb_mem hI.1 j hj
+        exact (List.getElem?_eq_some_iff.mp hndj).1)
+    have hrem : ∀ j ∈ idxs T, remLen ov.nodes j ≤ 1 := by
+      intro j hj
+      obtain ⟨nd, hndj, -⟩ := emb_mem hI.1 j hj
+      have := hent j hj nd hndj
+      simpa [remLen, hndj] using this
+    have hsum : ((idxs T).map (remLen ov.nodes)).sum ≤ (idxs T).length * 1 :=
+      sum_map_le_mul _ _ 1 hrem
+    have hlen2 : (idxs T).length ≤ 1 := le_trans hlen hl1
+    exact ⟨hlen2, le_trans hsum (by rw [Nat.mul_one]; exact hlen2)⟩
+  have hov1 : ∀ ov T, t1.overflow = some ov → OInv ov T →
+      (idxs T).length + ((idxs T).map (remLen ov.nodes)).sum < Usize.max := by
+    intro ov T hso hI
+    obtain ⟨h1, h2⟩ := hbounds ov T hso hI
+    have h := nilN_le_usize_max; unfold nilN at h; omega
+  have hvcap1 : ∀ ov T, t1.overflow = some ov → OInv ov T →
+      mainCount t1 + ((idxs T).map (remLen ov.nodes)).sum + 4 ≤ nilN := by
+    intro ov T hso hI
+    obtain ⟨h1, h2⟩ := hbounds ov T hso hI
+    have hmain : mainCount t1 ≤ 1 := by have := hbnd1; omega
+    unfold nilN; omega
+  have hbits1 : (1#u32).val < UScalarTy.Usize.numBits := by
+    show 1 < System.Platform.numBits
+    rcases System.Platform.numBits_eq with h | h <;> rw [h] <;> decide
+  obtain ⟨r, hr⟩ := resize_ok RKS
+    (fun n => ⟨(), rfl⟩)
+    (fun keys i c k => ⟨true, RKS_matches keys i c k⟩)
+    (fun _ => avx2_spec_holds)
+    (fun keys i k => ⟨keys, rfl⟩)
+    (fun keys i c _ => ⟨keys, by
+      change hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.take_key
+        U64.Insts.Apeiron_wordHashtrinityAlgebraCoordInv core.cmp.EqU64 keys i c = ok (c, keys)
+      unfold hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.take_key
+      change (do let t ← (ok c : Result U64); ok (t, keys)) = ok (c, keys)
+      simp only [bind_tc_ok]⟩)
+    hR1 hcap1 1#u32 hbits1 (by decide) hov1 hvcap1
+  exact ⟨t0, t1, (fun _ => 0#i64), (fun x => False ∨ x = 0#u64), r,
+    hpc, hR1, hcap1, hov1, hvcap1, hr⟩
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.resize_loop0_ok
@@ -1291,3 +1665,9 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.into_entries_loop0_total
 #audit Apeiron.MapExecuted.into_entries_loop0_len
 #audit Apeiron.MapExecuted.into_entries_total
+#audit Apeiron.MapExecuted.resize_loop0_ok_hov_strong
+#audit Apeiron.MapExecuted.resize_loop0_ok_hov
+#audit Apeiron.MapExecuted.side_empty_ex
+#audit Apeiron.MapExecuted.resize_ok
+#audit Apeiron.MapExecuted.sum_map_le_mul
+#audit Apeiron.MapExecuted.resize_witness
