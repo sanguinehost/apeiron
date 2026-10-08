@@ -53,6 +53,8 @@
 pub enum RidgeError {
     /// A slice length disagrees with the declared shape (`rows * features`).
     ShapeMismatch,
+    /// A sparse feature index is `>= in_features`.
+    IndexOutOfRange,
     /// The drag `U + λI` is not positive-definite at some `Cholesky` pivot. Reachable only with
     /// `λ ≤ 0` on rank-deficient data.
     NotPositiveDefinite,
@@ -249,6 +251,87 @@ impl FoldTrainer {
     pub fn fold(&mut self, x: &[f32], y: &[f32], rows: usize) -> Result<(), RidgeError> {
         let dn = i64::try_from(rows).map_err(|_| RidgeError::ShapeMismatch)?;
         self.accumulate(x, y, rows, 1.0, dn)
+    }
+
+    /// Accumulate a **sparse** batch into the normal equations without densifying it — the same
+    /// `drag` and `cross_term` [`fold`](Self::fold) produces on the densified rows, in
+    /// `O(rows·nnz² + rows·nnz·out_features)` multiply-adds and `O(1)` extra space.
+    ///
+    /// Row `r` carries `nnz` active features: `idxs[r·nnz + k] : u32` is a column in
+    /// `0..in_features`, `vals[r·nnz + k] : f32` its value. The row's Gram contribution is the
+    /// outer product of its sparse support, `u[i,j] += Σ_{k,l} vals[k]·vals[l]` placed at
+    /// `(idxs[k], idxs[l])` — exactly `x_i·x_j` for the densified row when a row's indices are
+    /// distinct (the `make_data` convention). The bias column, when `bias` is set, gets
+    /// `u[i,bias] += x_i`, `u[bias,i] += x_i`, `u[bias,bias] += 1`, and `c[bias,o] += y[o]`, the
+    /// same additions `augment` makes. No dense `[rows, d]` row is materialized.
+    ///
+    /// The `rows·nnz²` term is independent of `d`; the `rows·nnz·out_features` term is the cross
+    /// term. Derivation: per row the `nnz×nnz` support outer product is `nnz²` products and the
+    /// `nnz·out_features` cross is `nnz·out_features`; the accumulators are the trainer's existing
+    /// `O(d² + d·out_features)` fields, so the extra space is one scalar.
+    ///
+    /// # Errors
+    /// [`RidgeError::ShapeMismatch`] if `idxs.len() != rows·nnz`, `vals.len() != rows·nnz`, or
+    /// `y.len() != rows·out_features`; [`RidgeError::IndexOutOfRange`] if some
+    /// `idxs[r·nnz + k] >= in_features`.
+    pub fn fold_sparse(
+        &mut self,
+        idxs: &[u32],
+        vals: &[f32],
+        y: &[f32],
+        rows: usize,
+        nnz: usize,
+    ) -> Result<(), RidgeError> {
+        let (d, out, di) = (self.d, self.out_features, self.in_features);
+        if idxs.len() != rows * nnz || vals.len() != rows * nnz || y.len() != rows * out {
+            return Err(RidgeError::ShapeMismatch);
+        }
+        let bias_row = d - usize::from(self.bias);
+        for r in 0..rows {
+            let irow = &idxs[r * nnz..r * nnz + nnz];
+            let vrow = &vals[r * nnz..r * nnz + nnz];
+            let yrow = &y[r * out..r * out + out];
+            for k in 0..nnz {
+                let ik = usize::try_from(irow[k]).map_err(|_| RidgeError::IndexOutOfRange)?;
+                if ik >= di {
+                    return Err(RidgeError::IndexOutOfRange);
+                }
+                let vk = f64::from(vrow[k]);
+                // Gram support outer product: `u[idx_k, idx_l] += v_k · v_l`.
+                let uk = &mut self.u[ik * d..ik * d + d];
+                for l in 0..nnz {
+                    let il = usize::try_from(irow[l]).map_err(|_| RidgeError::IndexOutOfRange)?;
+                    if il >= di {
+                        return Err(RidgeError::IndexOutOfRange);
+                    }
+                    uk[il] += vk * f64::from(vrow[l]);
+                }
+                if self.bias {
+                    uk[bias_row] += vk;
+                }
+                // Cross: `c[idx_k, o] += v_k · y_o`.
+                let ck = &mut self.c[ik * out..ik * out + out];
+                for o in 0..out {
+                    ck[o] += vk * f64::from(yrow[o]);
+                }
+            }
+            if self.bias {
+                // The bias row/column and bias-bias entry, mirroring `augment`.
+                let urow = &mut self.u[bias_row * d..bias_row * d + d];
+                for k in 0..nnz {
+                    let ik = usize::try_from(irow[k]).map_err(|_| RidgeError::IndexOutOfRange)?;
+                    urow[ik] += f64::from(vrow[k]);
+                }
+                urow[bias_row] += 1.0;
+                let crow = &mut self.c[bias_row * out..bias_row * out + out];
+                for o in 0..out {
+                    crow[o] += f64::from(yrow[o]);
+                }
+            }
+        }
+        let dn = i64::try_from(rows).map_err(|_| RidgeError::ShapeMismatch)?;
+        self.n += dn;
+        Ok(())
     }
 
     /// Exactly remove a batch — the group inverse of [`fold`](Self::fold). Exact unlearning:

@@ -6,6 +6,7 @@
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
     clippy::many_single_char_names,
     clippy::similar_names,
     clippy::needless_range_loop,
@@ -258,6 +259,106 @@ fn closed_form_loo_matches_refit() {
             );
         }
     }
+}
+
+/// A fixed-seed sparse design: distinct active features per row, plus the densified `[rows, di]`
+/// batch whose only nonzeros are `x[r·di + idxs[r,k]] = vals[r,k]`.
+fn sparse_design(
+    seed: u64,
+    rows: usize,
+    di: usize,
+    nnz: usize,
+    out: usize,
+) -> (Vec<u32>, Vec<f32>, Vec<f32>, Vec<f32>) {
+    let mut rng = Rng::new(seed);
+    let mut idxs = vec![0u32; rows * nnz];
+    let mut vals = vec![0.0f32; rows * nnz];
+    let mut x = vec![0.0f32; rows * di];
+    for r in 0..rows {
+        let mut cnt = 0;
+        while cnt < nnz {
+            let cand = (((rng.next_f32() + 1.0) * 0.5 * di as f32) as u32).min(di as u32 - 1);
+            if !idxs[r * nnz..r * nnz + cnt].contains(&cand) {
+                idxs[r * nnz + cnt] = cand;
+                cnt += 1;
+            }
+        }
+        for k in 0..nnz {
+            let v = rng.next_f32();
+            vals[r * nnz + k] = v;
+            x[r * di + idxs[r * nnz + k] as usize] = v;
+        }
+    }
+    let y: Vec<f32> = (0..rows * out).map(|_| rng.next_f32()).collect();
+    (idxs, vals, y, x)
+}
+
+/// `fold_sparse` on a sparse design equals `fold` on its densified rows: the same `drag`,
+/// `cross_term` and solved head, to ≤1e-9 relative, with and without the bias column.
+#[test]
+fn fold_sparse_equals_fold_on_densified_rows() {
+    for bias in [false, true] {
+        for (seed, rows, di, nnz, out) in
+            [(21u64, 64usize, 9usize, 4usize, 2usize), (22, 37, 6, 3, 1)]
+        {
+            let (idxs, vals, y, x) = sparse_design(seed, rows, di, nnz, out);
+            let lam = 0.7;
+            let mut sp = FoldTrainer::new(di, out, lam, bias);
+            sp.fold_sparse(&idxs, &vals, &y, rows, nnz).unwrap();
+            let mut dense = FoldTrainer::new(di, out, lam, bias);
+            dense.fold(&x, &y, rows).unwrap();
+
+            assert!(
+                max_rel_diff(sp.drag(), dense.drag()) <= 1e-9,
+                "drag differs (bias={bias})"
+            );
+            assert!(
+                max_rel_diff(sp.cross_term(), dense.cross_term()) <= 1e-9,
+                "cross differs (bias={bias})"
+            );
+            assert_eq!(sp.count(), dense.count());
+
+            let hs = sp.solve(None).unwrap();
+            let hd = dense.solve(None).unwrap();
+            assert!(
+                max_rel_diff(&hs.weight, &hd.weight) <= 1e-9,
+                "weight differs (bias={bias})"
+            );
+            assert!(
+                max_rel_diff(&hs.bias, &hd.bias) <= 1e-9,
+                "bias differs (bias={bias})"
+            );
+        }
+    }
+}
+
+/// `fold_sparse` refuses a wrong-length slice (`ShapeMismatch`) and an index at/over
+/// `in_features` (`IndexOutOfRange`).
+#[test]
+fn fold_sparse_refuses_bad_shape_and_index() {
+    let (di, out, rows, nnz) = (5usize, 2usize, 4usize, 3usize);
+    let (idxs, vals, y, _x) = sparse_design(23, rows, di, nnz, out);
+    let mut t = FoldTrainer::new(di, out, 1.0, true);
+
+    assert_eq!(
+        t.fold_sparse(&idxs[..idxs.len() - 1], &vals, &y, rows, nnz),
+        Err(RidgeError::ShapeMismatch)
+    );
+    assert_eq!(
+        t.fold_sparse(&idxs, &vals[..vals.len() - 1], &y, rows, nnz),
+        Err(RidgeError::ShapeMismatch)
+    );
+    assert_eq!(
+        t.fold_sparse(&idxs, &vals, &y[..y.len() - 1], rows, nnz),
+        Err(RidgeError::ShapeMismatch)
+    );
+
+    let mut bad = idxs.clone();
+    bad[0] = di as u32;
+    assert_eq!(
+        t.fold_sparse(&bad, &vals, &y, rows, nnz),
+        Err(RidgeError::IndexOutOfRange)
+    );
 }
 
 /// Bad shapes refuse with `ShapeMismatch`; a non-SPD pivot refuses with `NotPositiveDefinite`.
