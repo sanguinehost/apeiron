@@ -475,6 +475,13 @@ theorem p52_amax_tail :
       1000 * 11252 ≤ 1020 * (11252 - 144) := by
   decide
 
+/-- P55: the measured P52 means (tg128 872.0 → 890.1 tok/s, in tenths) clear P52's falsifier
+floor 1.005, and sit 0.001 above its registered band top 1.02 (ratio 1.021). Arithmetic over
+measured values; grade stays `measured`. -/
+theorem p55_amaxp_install_floor :
+    1005 * 8720 ≤ 1000 * 8901 ∧ 1020 * 8720 ≤ 1000 * 8901 ∧ 1000 * 8901 ≤ 1022 * 8720 := by
+  decide
+
 end Moves
 
 end Perf
