@@ -11,11 +11,13 @@
     reason = "the test setup mirrors modelfold tests/gptq.rs reference indexing and arithmetic."
 )]
 
+use apeiron::format::quant::{dequant_q4_k_block, Q4_K_BLOCK_BYTES, QK_K};
 use apeiron::learn::gptq::{
-    gptq_affine, gptq_ternary, gptq_ternary_absmean, output_error, round_ternary, ul_cholesky,
-    upper_tri_inverse, GptqError,
+    gptq_affine, gptq_q4k, gptq_q4k_damped, gptq_ternary, gptq_ternary_absmean, output_error,
+    round_ternary, ul_cholesky, upper_tri_inverse, GptqError,
 };
 use apeiron::learn::ridge::solve_spd;
+use apeiron::learn::seal::quantize_row_q4_k;
 
 /// The naive per-block asymmetric affine fit — bit-for-bit what `decode_common::pack_proj` does
 /// (min/max, no error-feedback). The baseline `gptq_affine` must beat.
@@ -260,6 +262,128 @@ fn refusals() {
     let mut bad_planes = q.trit_planes();
     bad_planes[0].code.pop();
     assert_eq!(q.dequant_planes(&bad_planes), Err(GptqError::ShapeMismatch));
+}
+
+/// Refusal paths for `gptq_q4k`: shape mismatch and non-positive definite Hessian.
+#[test]
+fn gptq_q4k_refusals() {
+    let (out, n) = (4usize, 8usize);
+    let w = vec![1.0f32; out * n];
+    let bad_w = vec![1.0f32; out * n - 1];
+    let gram = vec![1.0f64; n * n];
+    let bad_gram = vec![1.0f64; n * n - 1];
+
+    assert_eq!(
+        gptq_q4k(&bad_w, out, n, &gram, None),
+        Err(GptqError::ShapeMismatch)
+    );
+    assert_eq!(
+        gptq_q4k(&w, out, n, &bad_gram, None),
+        Err(GptqError::ShapeMismatch)
+    );
+    // n = 8 is not a multiple of 256
+    assert_eq!(
+        gptq_q4k(&w, out, n, &gram, None),
+        Err(GptqError::ShapeMismatch)
+    );
+    // n = 256 shape
+    let (n256, out256) = (256usize, 1usize);
+    let w256 = vec![1.0f32; out256 * n256];
+    let bad_tau = vec![1.0f32; n256 - 1];
+    let mut neg_gram256 = vec![0.0f64; n256 * n256];
+    for i in 0..n256 {
+        neg_gram256[i * n256 + i] = -100.0;
+    }
+    assert_eq!(
+        gptq_q4k(&w256, out256, n256, &neg_gram256, None),
+        Err(GptqError::NotPositiveDefinite)
+    );
+    let gram256 = vec![1.0f64; n256 * n256];
+    assert_eq!(
+        gptq_q4k(&w256, out256, n256, &gram256, Some(&bad_tau)),
+        Err(GptqError::ShapeMismatch)
+    );
+}
+
+/// The carrier-chart integration: GPTQ error-feedback into the `Q4_K` block format beats plain
+/// round-to-block (`quantize_row_q4_k`) on output distortion over the calibration Gram.
+#[test]
+fn gptq_q4k_beats_q4k_round() {
+    let (out, n, t) = (4usize, 512usize, 256usize);
+    let (w, gram) = setup(out, n, t, 0x5EED_0001);
+    let tau: Vec<f32> = (0..n)
+        .map(|j| (gram[j * n + j] / t as f64) as f32)
+        .collect();
+
+    let gptq_bytes = gptq_q4k(&w, out, n, &gram, Some(&tau)).expect("gptq_q4k failed");
+    let expected_len = out * (n / QK_K) * Q4_K_BLOCK_BYTES;
+    assert_eq!(
+        gptq_bytes.len(),
+        expected_len,
+        "byte length must equal out * (n / 256) * 144"
+    );
+
+    // Decode gptq output
+    let mut wq_gptq = vec![0f32; out * n];
+    for o in 0..out {
+        for b in 0..(n / QK_K) {
+            let blk_idx = (o * (n / QK_K) + b) * Q4_K_BLOCK_BYTES;
+            let mut out_blk = [0f32; QK_K];
+            dequant_q4_k_block(
+                &gptq_bytes[blk_idx..blk_idx + Q4_K_BLOCK_BYTES],
+                &mut out_blk,
+            )
+            .expect("dequant_q4_k_block");
+            wq_gptq[o * n + b * QK_K..o * n + (b + 1) * QK_K].copy_from_slice(&out_blk);
+        }
+    }
+
+    // Quantize with plain quantize_row_q4_k per row and decode
+    let mut plain_bytes = Vec::with_capacity(expected_len);
+    for o in 0..out {
+        let row = &w[o * n..(o + 1) * n];
+        let row_bytes = quantize_row_q4_k(row, Some(&tau)).expect("quantize_row_q4_k");
+        plain_bytes.extend_from_slice(&row_bytes);
+    }
+    assert_eq!(plain_bytes.len(), expected_len);
+
+    let mut wq_plain = vec![0f32; out * n];
+    for o in 0..out {
+        for b in 0..(n / QK_K) {
+            let blk_idx = (o * (n / QK_K) + b) * Q4_K_BLOCK_BYTES;
+            let mut out_blk = [0f32; QK_K];
+            dequant_q4_k_block(
+                &plain_bytes[blk_idx..blk_idx + Q4_K_BLOCK_BYTES],
+                &mut out_blk,
+            )
+            .expect("dequant_q4_k_block");
+            wq_plain[o * n + b * QK_K..o * n + (b + 1) * QK_K].copy_from_slice(&out_blk);
+        }
+    }
+
+    let e_gptq = output_error(&w, &wq_gptq, out, n, &gram).expect("output_error gptq");
+    let e_plain = output_error(&w, &wq_plain, out, n, &gram).expect("output_error plain");
+    println!(
+        "q4_k: gptq={e_gptq:.4e} plain={e_plain:.4e} ratio={:.2}x",
+        e_plain / e_gptq
+    );
+    assert!(
+        e_gptq < e_plain,
+        "gptq output_error {e_gptq:.4e} must beat plain {e_plain:.4e}"
+    );
+}
+
+/// `damping = 0.01` is the `gptq_q4k` path byte-for-byte; `damping = 1.0` (the `seal_model`
+/// default) changes the feedback factor and so the packed bytes.
+#[test]
+fn gptq_q4k_damped_matches_and_moves() {
+    let (out, n, t) = (2usize, 256usize, 128usize);
+    let (w, gram) = setup(out, n, t, 0x5EED_0002);
+    let base = gptq_q4k(&w, out, n, &gram, None).expect("gptq_q4k");
+    let same = gptq_q4k_damped(&w, out, n, &gram, None, 0.01).expect("damped 0.01");
+    let moved = gptq_q4k_damped(&w, out, n, &gram, None, 1.0).expect("damped 1.0");
+    assert_eq!(base, same, "damping 0.01 must reproduce gptq_q4k");
+    assert_ne!(base, moved, "damping 1.0 must change the packed bytes");
 }
 
 /// Deterministic f64 xorshift in `[0, 1)`.
