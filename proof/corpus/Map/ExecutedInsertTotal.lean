@@ -1496,6 +1496,539 @@ example (coord k : U64) (_v : I64) :
     norm_num
   · intro h; obtain ⟨j, hj, _⟩ := h; simp [idxs] at hj
 
+/-! ## Stage 7: the keyed capped probe is total under the weak `matches` premise
+
+W13's premise correction: W12's draft stated `hm : ∀ keys i c k, ks.«matches» keys i c k = ok true`,
+which forces the first confirmation and collapses the probe.  Totality needs only that `matches`
+returns *some* `Bool`.  The existing cold-probe totality lemmas
+(`probe_rest_with_total`, `probe_capped_cold_loop_total`, `probe_capped_cold_total`) are proved
+against `= ok true`; under the weak premise the loop can take its `cont` branch, so this module
+carries weak-premise twins.  The `cont` obligations become measure-decrease obligations: the rest
+loop increases its index, the cold loop clears the lowest set bit of `hits` (`hits &&& (hits - 1) ≤
+hits - 1 < hits`). -/
+
+/-- `Confirm::confirm` returns *some* `Bool` under the weak `matches` premise (cf. `confirm_ok'`,
+which needs `= ok true` to force the result). -/
+theorem confirm_ex_weak {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
+    (q : hashtrinity.overflow.ByKey U64) (keys : KS) (i : Usize) :
+    ∃ b, hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm.confirm
+      core.cmp.EqU64 CI ks q keys i = ok b := by
+  obtain ⟨b, hb⟩ := hm keys i q.coord q.k
+  exact ⟨b, by
+    unfold hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm.confirm
+    exact hb⟩
+
+/-- The scalar tail of the capped probe is total under the weak `matches` premise; the loop's
+`cont` branch is closed by the decreasing `limit - j` measure instead of the `= ok true`
+contradiction. -/
+theorem probe_rest_with_total_weak {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
+    (s : Tbl KS) (c : U64) (j limit : U32) (q : hashtrinity.overflow.ByKey U64)
+    (hb : 0 < s.bits.val) (hb64 : s.bits.val ≤ 64) (hlen : s.coords.length = 2 ^ s.bits.val)
+    (hjl : j.val ≤ limit.val) (hlim : limit.val ≤ limN s.bits.val) :
+    ∃ r, hashtrinity.overflow.Table.probe_rest_with core.cmp.EqU64 CI ks (ConfI ks) s c j limit q
+      = ok r := by
+  unfold hashtrinity.overflow.Table.probe_rest_with hashtrinity.overflow.Table.probe_rest_with_loop
+  refine loop_tot_inv
+    (fun j => hashtrinity.overflow.Table.probe_rest_with_loop.body core.cmp.EqU64 CI ks
+      (ConfI ks) s c limit q j)
+    (fun j => j.val ≤ limit.val) (fun j => limit.val - j.val) ?_ ?_ j hjl
+  · intro j hj
+    unfold hashtrinity.overflow.Table.probe_rest_with_loop.body
+    by_cases hjl' : j < limit
+    · rw [if_pos hjl']
+      have hjlt : j.val < limit.val := (UScalar.lt_equiv _ _).mp hjl'
+      obtain ⟨i, hid, hilt⟩ := descend_total ks s c j hb hb64 hlen (lt_of_lt_of_le hjlt hlim)
+      rw [hid]
+      simp only [bind_tc_ok]
+      obtain ⟨sc, hsc⟩ := get_unchecked_ex s.coords i hilt
+      rw [hsc]
+      simp only [bind_tc_ok]
+      by_cases hsce : sc = c
+      · rw [if_pos hsce]
+        obtain ⟨b, hb'⟩ := confirm_ex_weak ks hm q s.keys i
+        rw [hb']
+        simp only [bind_tc_ok]
+        by_cases hbt : b = true
+        · rw [if_pos hbt]; exact ⟨_, rfl⟩
+        · rw [if_neg hbt]
+          by_cases hse : sc = hashtrinity.EMPTY
+          · rw [if_pos hse]; exact ⟨_, rfl⟩
+          · rw [if_neg hse]
+            obtain ⟨j1, hj1, _⟩ := uadd_tot j 1#u32
+              (by rw [val_1_u32]; exact u32_sum_lt j.val 1 (by have := limN_le_16 s.bits.val; omega) (by norm_num))
+            rw [hj1]
+            simp only [bind_tc_ok]
+            exact ⟨_, rfl⟩
+      · rw [if_neg hsce]
+        by_cases hse : sc = hashtrinity.EMPTY
+        · rw [if_pos hse]; exact ⟨_, rfl⟩
+        · rw [if_neg hse]
+          obtain ⟨j1, hj1, _⟩ := uadd_tot j 1#u32
+            (by rw [val_1_u32]; exact u32_sum_lt j.val 1 (by have := limN_le_16 s.bits.val; omega) (by norm_num))
+          rw [hj1]
+          simp only [bind_tc_ok]
+          exact ⟨_, rfl⟩
+    · rw [if_neg hjl']
+      exact ⟨_, rfl⟩
+  · intro j j' hj hcf
+    unfold hashtrinity.overflow.Table.probe_rest_with_loop.body at hcf
+    by_cases hjl' : j < limit
+    · rw [if_pos hjl'] at hcf
+      obtain ⟨i, _, hcf⟩ := bind_inv hcf
+      obtain ⟨sc, _, hcf⟩ := bind_inv hcf
+      by_cases hsce : sc = c
+      · rw [if_pos hsce] at hcf
+        obtain ⟨b, hb, hcf⟩ := bind_inv hcf
+        by_cases hbt : b = true
+        · rw [if_pos hbt] at hcf
+          exact absurd (Result.ok_injective hcf) (by intro hh; cases hh)
+        · rw [if_neg hbt] at hcf
+          by_cases hse : sc = hashtrinity.EMPTY
+          · rw [if_pos hse] at hcf
+            exact absurd (Result.ok_injective hcf) (by intro hh; cases hh)
+          · rw [if_neg hse] at hcf
+            obtain ⟨j1, hj1, hcf⟩ := bind_inv hcf
+            have hh := Result.ok_injective hcf
+            simp only [ControlFlow.cont.injEq] at hh
+            subst hh
+            have hj1v := (uadd_ok hj1).1
+            rw [val_1_u32] at hj1v
+            have hjlt : j.val < limit.val := (UScalar.lt_equiv _ _).mp hjl'
+            exact ⟨by omega, by omega⟩
+      · rw [if_neg hsce] at hcf
+        by_cases hse : sc = hashtrinity.EMPTY
+        · rw [if_pos hse] at hcf
+          exact absurd (Result.ok_injective hcf) (by intro hh; cases hh)
+        · rw [if_neg hse] at hcf
+          obtain ⟨j1, hj1, hcf⟩ := bind_inv hcf
+          have hh := Result.ok_injective hcf
+          simp only [ControlFlow.cont.injEq] at hh
+          subst hh
+          have hj1v := (uadd_ok hj1).1
+          rw [val_1_u32] at hj1v
+          have hjlt : j.val < limit.val := (UScalar.lt_equiv _ _).mp hjl'
+          exact ⟨by omega, by omega⟩
+    · rw [if_neg hjl'] at hcf
+      exact absurd (Result.ok_injective hcf) (by intro hh; cases hh)
+
+/-- The cold capped-probe loop is total under the weak `matches` premise; its `cont` branch clears
+the lowest set bit of `hits`, so `hits` strictly decreases. -/
+theorem probe_capped_cold_loop_total_weak {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
+    (s : Slice U64) (s1 : Slice (core.mem.maybe_uninit.MaybeUninit I64)) (t : KS)
+    (ss : hashtrinity.side.SideStore U64 I64 KS) (o : Option Ov) (i : U32) (i1 i2 : Usize)
+    (pd : core.marker.PhantomData U64) (coord : U64) (home : Usize)
+    (q : hashtrinity.overflow.ByKey U64) (limit : U32)
+    (hbits : 0 < i.val) (hlen : s.length = 2 ^ i.val) (hhome8 : home.val + 8 ≤ s.length)
+    (hlim8 : 8 ≤ limit.val) (hlim : limit.val ≤ limN i.val)
+    (hits empties : U32) (hhits : hits.val < 256) (hemp : empties.val < 256) :
+    ∃ r, hashtrinity.overflow.Table.probe_capped_cold_loop core.cmp.EqU64 CI ks (ConfI ks)
+      s s1 t ss o i i1 i2 pd coord home q limit hits empties = ok r := by
+  unfold hashtrinity.overflow.Table.probe_capped_cold_loop
+  refine loop_tot_inv _ (fun h => h.val < 256) (fun h => h.val) ?_ ?_ hits hhits
+  · intro h1 hlt256
+    unfold hashtrinity.overflow.Table.probe_capped_cold_loop.body
+    simp only [lift, bind_tc_ok]
+    have hblt := bits_lt_numBits s i hlen
+    by_cases hnz : (h1 != 0#u32) = true
+    · rw [if_pos hnz]
+      obtain ⟨tz, htz⟩ := u32_tz_ex h1
+      rw [htz]
+      simp only [bind_tc_ok]
+      have htz7 : tz.val ≤ 7 := u32_tz_le7 h1 hlt256 (ne_zero_of_bne h1 hnz) tz htz
+      obtain ⟨slot, hslot, _⟩ := uadd_tot home (UScalar.cast .Usize tz)
+        (by rw [cast_usize_u32]; exact add_lt_numBits home.val tz.val s.length i.val hlen hblt (by omega) (by omega))
+      rw [hslot]
+      simp only [bind_tc_ok]
+      obtain ⟨b, hb⟩ := confirm_ex_weak ks hm q t slot
+      rw [hb]
+      simp only [bind_tc_ok]
+      by_cases hbt : b = true
+      · rw [if_pos hbt]; exact ⟨_, rfl⟩
+      · rw [if_neg hbt]
+        obtain ⟨i5, hi5, _⟩ := usub_tot h1 1#u32
+          (by rw [val_1_u32]; exact Nat.one_le_iff_ne_zero.mpr (ne_zero_of_bne h1 hnz))
+        rw [hi5]
+        simp only [bind_tc_ok]
+        exact ⟨_, rfl⟩
+    · rw [if_neg hnz]
+      by_cases hne : (empties != 0#u32) = true
+      · rw [if_pos hne]
+        obtain ⟨tz, htz⟩ := u32_tz_ex empties
+        rw [htz]
+        simp only [bind_tc_ok]
+        have htz7 : tz.val ≤ 7 := u32_tz_le7 empties hemp (ne_zero_of_bne empties hne) tz htz
+        obtain ⟨slot, hslot, _⟩ := uadd_tot home (UScalar.cast .Usize tz)
+          (by rw [cast_usize_u32]; exact add_lt_numBits home.val tz.val s.length i.val hlen hblt (by omega) (by omega))
+        rw [hslot]
+        simp only [bind_tc_ok]
+        exact ⟨_, rfl⟩
+      · rw [if_neg hne]
+        have hb64 : i.val ≤ 64 := by
+          have := slice_len_lt s
+          rw [hlen] at this
+          have := (Nat.pow_lt_pow_iff_right (by norm_num : 1 < 2)).mp this
+          rcases System.Platform.numBits_eq with h | h <;> omega
+        obtain ⟨r, hr⟩ := probe_rest_with_total_weak ks hm
+          { coords := s, vals := s1, keys := t, side := ss, overflow := o, bits := i,
+            len := i1, tombs := i2, _k := pd } coord hashtrinity.LINEAR_G limit q
+          hbits hb64 hlen (by rw [LINEAR_G_val]; exact hlim8) hlim
+        rw [hr]
+        simp only [bind_tc_ok]
+        exact ⟨_, rfl⟩
+  · intro h1 h1' hlt256 hcf
+    unfold hashtrinity.overflow.Table.probe_capped_cold_loop.body at hcf
+    simp only [lift, bind_tc_ok] at hcf
+    by_cases hnz : (h1 != 0#u32) = true
+    · rw [if_pos hnz] at hcf
+      obtain ⟨tz, htz, hcf⟩ := bind_inv hcf
+      obtain ⟨slot, hslot, hcf⟩ := bind_inv hcf
+      obtain ⟨b, hb, hcf⟩ := bind_inv hcf
+      by_cases hbt : b = true
+      · rw [if_pos hbt] at hcf
+        exact absurd (Result.ok_injective hcf) (by intro hh; cases hh)
+      · rw [if_neg hbt] at hcf
+        obtain ⟨i5, hi5, hcf⟩ := bind_inv hcf
+        have hh := Result.ok_injective hcf
+        simp only [ControlFlow.cont.injEq] at hh
+        subst hh
+        have hi5v : i5.val = h1.val - 1 := by
+          have := usub_ok hi5
+          rw [val_1_u32] at this
+          omega
+        have hval : (h1 &&& i5).val = h1.val &&& i5.val := UScalar.val_and h1 i5
+        refine ⟨?_, ?_⟩
+        · rw [hval, hi5v]
+          have hle : h1.val &&& (h1.val - 1) ≤ h1.val - 1 := Nat.and_le_right
+          omega
+        · rw [hval, hi5v]
+          have hne := ne_zero_of_bne h1 hnz
+          have hle : h1.val &&& (h1.val - 1) ≤ h1.val - 1 := Nat.and_le_right
+          omega
+    · rw [if_neg hnz] at hcf
+      by_cases hne : (empties != 0#u32) = true
+      · rw [if_pos hne] at hcf
+        obtain ⟨tz, htz, hcf⟩ := bind_inv hcf
+        obtain ⟨slot, hslot, hcf⟩ := bind_inv hcf
+        exact absurd (Result.ok_injective hcf) (by intro hh; cases hh)
+      · rw [if_neg hne] at hcf
+        obtain ⟨r, hr, hcf⟩ := bind_inv hcf
+        exact absurd (Result.ok_injective hcf) (by intro hh; cases hh)
+
+/-- The cold capped probe is total under the weak `matches` premise. -/
+theorem probe_capped_cold_total_weak {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
+    (s : Tbl KS) (c : U64) (home : Usize) (q : hashtrinity.overflow.ByKey U64)
+    (hbits : 0 < s.bits.val) (hb64 : s.bits.val ≤ 64) (hlen : s.coords.length = 2 ^ s.bits.val)
+    (hhome : home.val < s.coords.length) :
+    ∃ r, hashtrinity.overflow.Table.probe_capped_cold core.cmp.EqU64 CI ks (ConfI ks) s c home q
+      = ok r := by
+  unfold hashtrinity.overflow.Table.probe_capped_cold
+  simp only [lift, bind_tc_ok]
+  obtain ⟨lim, hlimok⟩ := probe_limit_total ks s hb64
+  rw [hlimok]
+  simp only [bind_tc_ok]
+  have hlimv : lim.val = limN s.bits.val := probe_limit_val ks s lim hbits hlimok
+  have hlim8 : 8 ≤ limN s.bits.val := by
+    unfold limN
+    have hd : 1 ≤ 64 / s.bits.val := Nat.div_pos hb64 hbits
+    omega
+  by_cases h8 : lim >= hashtrinity.LINEAR_G
+  · rw [if_pos h8]
+    have hblt := bits_lt_numBits s.coords s.bits hlen
+    obtain ⟨i, hi, _⟩ := uadd_tot home (UScalar.cast .Usize hashtrinity.LINEAR_G)
+      (by rw [cast_usize_u32, LINEAR_G_val]
+          exact add_lt_numBits home.val 8 s.coords.length s.bits.val hlen hblt hhome (by norm_num))
+    rw [hi]
+    simp only [bind_tc_ok]
+    by_cases hle : i <= Slice.len s.coords
+    · rw [if_pos hle]
+      have hivi : i.val = home.val + 8 := by
+        rw [(uadd_ok hi).1, cast_usize_u32, LINEAR_G_val]
+      have hle' : home.val + 8 ≤ s.coords.length := by
+        rw [UScalar.le_equiv, Slice.len_val] at hle
+        rw [hivi] at hle; exact hle
+      obtain ⟨hits, empties, hpm, hh256, he256, _⟩ :=
+        Apeiron.PrefixMasks.prefix_masks_spec s.coords home c hle'
+      rw [hpm]
+      simp only [bind_tc_ok]
+      obtain ⟨r, hr⟩ := probe_capped_cold_loop_total_weak ks hm s.coords s.vals s.keys s.side s.overflow
+        s.bits s.len s.tombs s._k c home q lim hbits hlen hle'
+        (by rw [hlimv]; exact hlim8) (by rw [hlimv]) hits empties hh256 he256
+      exact ⟨r, hr⟩
+    · rw [if_neg hle]
+      obtain ⟨r, hr⟩ := probe_rest_with_total_weak ks hm s c 0#u32 lim q hbits hb64 hlen
+        (by simp) (by rw [hlimv])
+      exact ⟨r, hr⟩
+  · rw [if_neg h8]
+    obtain ⟨r, hr⟩ := probe_rest_with_total_weak ks hm s c 0#u32 lim q hbits hb64 hlen
+      (by simp) (by rw [hlimv])
+    exact ⟨r, hr⟩
+
+/-- **`probe_capped_keyed_ok`.**  `hashtrinity.overflow.Table.probe_capped_keyed` returns `ok`
+under the weak `matches` premise: the `Table.home` and `Slice.get_unchecked` preamble are total
+(`home_total`, `get_unchecked_ex`), the home-slot confirmation is total (`confirm_ex_weak`), and
+every cold branch defers to `probe_capped_cold_total_weak`. -/
+theorem probe_capped_keyed_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
+    (_hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
+    (s : Tbl KS) (c k : U64) (hbits : 0 < s.bits.val) (hlen : s.coords.length = 2 ^ s.bits.val) :
+    ∃ r, hashtrinity.overflow.Table.probe_capped_keyed core.cmp.EqU64 CI ks s c k = ok r := by
+  unfold hashtrinity.overflow.Table.probe_capped_keyed
+  have hb64 : s.bits.val ≤ 64 := bits_le_64 ks s hlen
+  obtain ⟨home, hhome, hhomelt⟩ := home_total ks s c hbits hb64 hlen
+  rw [hhome]
+  simp only [bind_tc_ok]
+  obtain ⟨sc, hsc⟩ := get_unchecked_ex s.coords home hhomelt
+  rw [hsc]
+  simp only [bind_tc_ok]
+  by_cases hc : sc = c
+  · rw [if_pos hc]
+    obtain ⟨b, hb⟩ := hm s.keys home c k
+    rw [hb]
+    simp only [bind_tc_ok]
+    by_cases hbt : b = true
+    · rw [if_pos hbt]; exact ⟨_, rfl⟩
+    · rw [if_neg hbt]
+      by_cases he : sc = hashtrinity.EMPTY
+      · rw [if_pos he]; exact ⟨_, rfl⟩
+      · rw [if_neg he]
+        exact probe_capped_cold_total_weak ks hm s c home { coord := c, k := k }
+          hbits hb64 hlen hhomelt
+  · rw [if_neg hc]
+    by_cases he : sc = hashtrinity.EMPTY
+    · rw [if_pos he]; exact ⟨_, rfl⟩
+    · rw [if_neg he]
+      exact probe_capped_cold_total_weak ks hm s c home { coord := c, k := k }
+        hbits hb64 hlen hhomelt
+
+/-! ### Stage 7b: the weak `matches` slot contract
+
+`probe_capped_keyed` totality alone does not supply the slot index bound the `place_capped`
+`.Hit`/`.Vacant` branches need: `Capped.Hit i` must imply `t.coords[i] = c` (hence `i < vals.length`
+via `vals_len`) and `Capped.Vacant i` must imply `t.coords[i]` is `EMPTY`.  Under the weak premise
+the Pass clauses of `CappedOK` (`pcc_spec`) can fail, but these slot facts hold, because a `Hit`/cold
+`Vacant` is only emitted at a slot whose coordinate the prefix masks record. -/
+
+/-- The slot facts of a capped-probe verdict. -/
+def SlotBelow {KS : Type} (s : Tbl KS) (c : U64) : hashtrinity.Capped → Prop
+  | .Hit i => s.coords.val[i.val]? = some c
+  | .Vacant i => ∃ x, s.coords.val[i.val]? = some x ∧ x.val = EMPTYN
+  | .Blocked => True
+
+/-- Checked `Slice::get_unchecked_mut` returns `ok` on an in-range index (its model is the checked
+`index_mut`). -/
+theorem slice_get_unchecked_mut_ex {α : Type} (s : Slice α) (i : Usize) (h : i.val < s.length) :
+    ∃ x back, core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice α) s i
+      = ok (x, back) := by
+  unfold core.slice.Slice.get_unchecked_mut
+  simp only [core.slice.index.Usize.index_mut, Slice.index_mut_usize]
+  obtain ⟨y, hy⟩ := Apeiron.PrefixMasks.slice_index_ex s i h
+  rw [hy]
+  exact ⟨y, s.set i, by simp⟩
+
+/-- The scalar tail's slot facts, under the weak `matches` premise. -/
+theorem probe_rest_with_slot_weak {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (s : Tbl KS) (c : U64) (j limit : U32) (q : hashtrinity.overflow.ByKey U64)
+    (r : hashtrinity.Capped)
+    (h : hashtrinity.overflow.Table.probe_rest_with core.cmp.EqU64 CI ks (ConfI ks) s c j limit q
+      = ok r) :
+    SlotBelow s c r := by
+  unfold hashtrinity.overflow.Table.probe_rest_with hashtrinity.overflow.Table.probe_rest_with_loop at h
+  refine loop_pc (fun _ => True) (fun r => SlotBelow s c r) _ ?_ j trivial r h
+  intro j _ cf hcf
+  unfold hashtrinity.overflow.Table.probe_rest_with_loop.body at hcf
+  by_cases hjl' : j < limit
+  · rw [if_pos hjl'] at hcf
+    obtain ⟨i, _, hcf⟩ := bind_inv hcf
+    obtain ⟨sc, hsc, hcf⟩ := bind_inv hcf
+    have hsc' := get_unchecked_ok _ _ _ hsc
+    by_cases hsce : sc = c
+    · rw [if_pos hsce] at hcf
+      obtain ⟨b, _, hcf⟩ := bind_inv hcf
+      by_cases hbt : b = true
+      · rw [if_pos hbt] at hcf
+        have hh := (Result.ok_injective hcf).symm
+        subst hh
+        show s.coords.val[i.val]? = some c
+        rw [hsc', hsce]
+      · rw [if_neg hbt] at hcf
+        by_cases hse : sc = hashtrinity.EMPTY
+        · rw [if_pos hse] at hcf
+          have hh := (Result.ok_injective hcf).symm
+          subst hh
+          exact ⟨sc, hsc', (EMPTY_eq_iff sc).mp hse⟩
+        · rw [if_neg hse] at hcf
+          obtain ⟨j1, _, hcf⟩ := bind_inv hcf
+          have hh := (Result.ok_injective hcf).symm
+          subst hh
+          trivial
+    · rw [if_neg hsce] at hcf
+      by_cases hse : sc = hashtrinity.EMPTY
+      · rw [if_pos hse] at hcf
+        have hh := (Result.ok_injective hcf).symm
+        subst hh
+        exact ⟨sc, hsc', (EMPTY_eq_iff sc).mp hse⟩
+      · rw [if_neg hse] at hcf
+        obtain ⟨j1, _, hcf⟩ := bind_inv hcf
+        have hh := (Result.ok_injective hcf).symm
+        subst hh
+        trivial
+  · rw [if_neg hjl'] at hcf
+    have hh := (Result.ok_injective hcf).symm
+    subst hh
+    trivial
+
+/-- The cold capped-probe loop's slot facts, under the weak `matches` premise: `hits`-set slots
+hold `c` and `empties`-set slots hold `EMPTY`, and the `cont` step only clears a `hits` bit. -/
+theorem probe_capped_cold_loop_slot_weak {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (s : Tbl KS) (c : U64) (home : Usize) (q : hashtrinity.overflow.ByKey U64) (lim : U32)
+    (hits empties : U32) (hhits : hits.val < 256) (hemp256 : empties.val < 256)
+    (hhit : ∀ k : Nat, k < 8 → hits.val.testBit k = true → s.coords.val[home.val + k]? = some c)
+    (hemp : ∀ k : Nat, k < 8 → empties.val.testBit k = true →
+      ∃ x, s.coords.val[home.val + k]? = some x ∧ x.val = EMPTYN)
+    (r : hashtrinity.Capped)
+    (h : hashtrinity.overflow.Table.probe_capped_cold_loop core.cmp.EqU64 CI ks (ConfI ks)
+      s.coords s.vals s.keys s.side s.overflow s.bits s.len s.tombs s._k c home q lim hits empties
+      = ok r) :
+    SlotBelow s c r := by
+  unfold hashtrinity.overflow.Table.probe_capped_cold_loop at h
+  refine loop_pc
+    (fun (h1 : U32) => h1.val < 256 ∧
+      ∀ k : Nat, k < 8 → h1.val.testBit k = true → s.coords.val[home.val + k]? = some c)
+    (fun r => SlotBelow s c r) _ ?_ hits ⟨hhits, hhit⟩ r h
+  intro h1 hinv cf hcf
+  unfold hashtrinity.overflow.Table.probe_capped_cold_loop.body at hcf
+  simp only [lift, bind_tc_ok] at hcf
+  by_cases hnz : (h1 != 0#u32) = true
+  · rw [if_pos hnz] at hcf
+    obtain ⟨tz, htz, hcf⟩ := bind_inv hcf
+    obtain ⟨slot, hslot, hcf⟩ := bind_inv hcf
+    obtain ⟨b, _, hcf⟩ := bind_inv hcf
+    have hslotv : slot.val = home.val + tz.val := by
+      have hh := (uadd_ok hslot).1; rw [cast_usize_u32] at hh; exact hh
+    have htzbit : h1.val.testBit tz.val = true :=
+      (u32_tz_spec h1 (ne_zero_of_bne h1 hnz) tz htz).2.1
+    have htz7 : tz.val ≤ 7 := u32_tz_le7 h1 hinv.1 (ne_zero_of_bne h1 hnz) tz htz
+    by_cases hbt : b = true
+    · rw [if_pos hbt] at hcf
+      have hh := (Result.ok_injective hcf).symm
+      subst hh
+      show s.coords.val[slot.val]? = some c
+      rw [hslotv]
+      exact hinv.2 tz.val (by omega) htzbit
+    · rw [if_neg hbt] at hcf
+      obtain ⟨i5, hi5, hcf⟩ := bind_inv hcf
+      have hh := (Result.ok_injective hcf).symm
+      subst hh
+      refine ⟨?_, ?_⟩
+      · rw [UScalar.val_and]
+        have hi5v : i5.val = h1.val - 1 := by
+          have h5 := (usub_ok hi5); rw [val_1_u32] at h5; omega
+        have hle : h1.val &&& i5.val ≤ i5.val := Nat.and_le_right
+        omega
+      · intro k hk8 hbit
+        have hv : (h1 &&& i5).val.testBit k = (h1.val.testBit k && i5.val.testBit k) := by
+          rw [UScalar.val_and]
+          exact Nat.testBit_and h1.val i5.val k
+        rw [hv] at hbit
+        exact hinv.2 k hk8 (Bool.and_eq_true_iff.mp hbit).1
+  · rw [if_neg hnz] at hcf
+    by_cases hne : (empties != 0#u32) = true
+    · rw [if_pos hne] at hcf
+      obtain ⟨tz, htz, hcf⟩ := bind_inv hcf
+      obtain ⟨slot, hslot, hcf⟩ := bind_inv hcf
+      have hslotv : slot.val = home.val + tz.val := by
+        have hh := (uadd_ok hslot).1; rw [cast_usize_u32] at hh; exact hh
+      have htzbit : empties.val.testBit tz.val = true :=
+        (u32_tz_spec empties (ne_zero_of_bne empties hne) tz htz).2.1
+      have htz7 : tz.val ≤ 7 := u32_tz_le7 empties hemp256 (ne_zero_of_bne empties hne) tz htz
+      have hh := (Result.ok_injective hcf).symm
+      subst hh
+      obtain ⟨x, hx, hxe⟩ := hemp tz.val (by omega) htzbit
+      exact ⟨x, by rw [hslotv]; exact hx, hxe⟩
+    · rw [if_neg hne] at hcf
+      obtain ⟨r', hr', hcf⟩ := bind_inv hcf
+      have hh := (Result.ok_injective hcf).symm
+      subst hh
+      exact probe_rest_with_slot_weak ks s c hashtrinity.LINEAR_G lim q r' hr'
+
+/-- The cold capped probe's slot facts, under the weak `matches` premise. -/
+theorem probe_capped_cold_slot_weak {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (s : Tbl KS) (c : U64) (home : Usize) (q : hashtrinity.overflow.ByKey U64)
+    (r : hashtrinity.Capped)
+    (h : hashtrinity.overflow.Table.probe_capped_cold core.cmp.EqU64 CI ks (ConfI ks) s c home q
+      = ok r) :
+    SlotBelow s c r := by
+  unfold hashtrinity.overflow.Table.probe_capped_cold at h
+  simp only [lift, bind_tc_ok] at h
+  obtain ⟨lim, _, h⟩ := bind_inv h
+  by_cases h8 : lim >= hashtrinity.LINEAR_G
+  · rw [if_pos h8] at h
+    obtain ⟨i, hi, h⟩ := bind_inv h
+    have hiv : i.val = home.val + 8 := by rw [(uadd_ok hi).1, cast_usize_u32, LINEAR_G_val]
+    by_cases hle : i <= Slice.len s.coords
+    · rw [if_pos hle] at h
+      have hle' : home.val + 8 ≤ s.coords.length := by
+        rw [UScalar.le_equiv, Slice.len_val] at hle
+        rw [hiv] at hle; exact hle
+      obtain ⟨hits, empties, hpm, hh256, he256, hs3⟩ :=
+        Apeiron.PrefixMasks.prefix_masks_spec s.coords home c hle'
+      rw [hpm] at h
+      simp only [bind_tc_ok] at h
+      have hhit : ∀ k : Nat, k < 8 → hits.val.testBit k = true →
+          s.coords.val[home.val + k]? = some c := by
+        intro k hk hb
+        obtain ⟨x, hx, hb1, _⟩ := hs3 k hk
+        rw [hx, hb1.mp hb]
+      have hemp : ∀ k : Nat, k < 8 → empties.val.testBit k = true →
+          ∃ x, s.coords.val[home.val + k]? = some x ∧ x.val = EMPTYN := by
+        intro k hk hb
+        obtain ⟨x, hx, _, hb2⟩ := hs3 k hk
+        exact ⟨x, hx, (EMPTY_eq_iff x).mp (hb2.mp hb)⟩
+      exact probe_capped_cold_loop_slot_weak ks s c home q lim hits empties hh256 he256 hhit hemp r h
+    · rw [if_neg hle] at h
+      exact probe_rest_with_slot_weak ks s c 0#u32 lim q r h
+  · rw [if_neg h8] at h
+    exact probe_rest_with_slot_weak ks s c 0#u32 lim q r h
+
+/-- `probe_capped_keyed`'s slot facts, under the weak `matches` premise. -/
+theorem probe_capped_keyed_slot_weak {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (s : Tbl KS) (c k : U64) (r : hashtrinity.Capped)
+    (h : hashtrinity.overflow.Table.probe_capped_keyed core.cmp.EqU64 CI ks s c k = ok r) :
+    SlotBelow s c r := by
+  unfold hashtrinity.overflow.Table.probe_capped_keyed at h
+  obtain ⟨home, _, h⟩ := bind_inv h
+  obtain ⟨sc, hsc, h⟩ := bind_inv h
+  have hsc' := get_unchecked_ok _ _ _ hsc
+  by_cases hc : sc = c
+  · rw [if_pos hc] at h
+    obtain ⟨b, _, h⟩ := bind_inv h
+    by_cases hbt : b = true
+    · rw [if_pos hbt] at h
+      have hh := (Result.ok_injective h).symm
+      subst hh
+      show s.coords.val[home.val]? = some c
+      rw [hsc', hc]
+    · rw [if_neg hbt] at h
+      by_cases he : sc = hashtrinity.EMPTY
+      · rw [if_pos he] at h
+        have hh := (Result.ok_injective h).symm
+        subst hh
+        exact ⟨sc, hsc', (EMPTY_eq_iff sc).mp he⟩
+      · rw [if_neg he] at h
+        exact probe_capped_cold_slot_weak ks s c home _ r h
+  · rw [if_neg hc] at h
+    by_cases he : sc = hashtrinity.EMPTY
+    · rw [if_pos he] at h
+      have hh := (Result.ok_injective h).symm
+      subst hh
+      exact ⟨sc, hsc', (EMPTY_eq_iff sc).mp he⟩
+    · rw [if_neg he] at h
+      exact probe_capped_cold_slot_weak ks s c home _ r h
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.ov_h_ok
@@ -1521,3 +2054,13 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.ov_insert_new_at_branch_nil
 #audit Apeiron.MapExecuted.ov_insert_new_at_branch_else
 #audit Apeiron.MapExecuted.ov_insert_new_at_ok
+#audit Apeiron.MapExecuted.confirm_ex_weak
+#audit Apeiron.MapExecuted.probe_rest_with_total_weak
+#audit Apeiron.MapExecuted.probe_capped_cold_loop_total_weak
+#audit Apeiron.MapExecuted.probe_capped_cold_total_weak
+#audit Apeiron.MapExecuted.probe_capped_keyed_ok
+#audit Apeiron.MapExecuted.slice_get_unchecked_mut_ex
+#audit Apeiron.MapExecuted.probe_rest_with_slot_weak
+#audit Apeiron.MapExecuted.probe_capped_cold_loop_slot_weak
+#audit Apeiron.MapExecuted.probe_capped_cold_slot_weak
+#audit Apeiron.MapExecuted.probe_capped_keyed_slot_weak
