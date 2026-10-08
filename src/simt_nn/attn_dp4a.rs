@@ -233,9 +233,11 @@ impl Kb {
     ) -> u32 {
         self.dp4a = true;
         let q3 = carrier == crate::simt::Carrier::Q3;
+        let q5 = carrier == crate::simt::Carrier::Q5;
         assert!(
-            !q3 || plane_b_off != 0,
-            "Carrier::Q3 without a plane-B offset would decode the low 2 bits of every weight"
+            (!q3 && !q5) || plane_b_off != 0,
+            "a two-plane chart (Carrier::Q3/Q5) without a plane-B offset would decode only the low \
+bits of every weight"
         );
         let sint = self.sint_ty();
         let codes_per_word = carrier.pack();
@@ -347,9 +349,9 @@ impl Kb {
             } else {
                 kb.load_f(xs, b)
             };
-            // Q3: the high-bit plane, ONE word per (32-block, row) — loop-invariant across `cj`
+            // Q3/Q5: the high-bit plane, ONE word per (32-block, row) — loop-invariant across `cj`
             // and `l`, so it is fetched here rather than per phase.
-            let bword = if q3 {
+            let bword = if q3 || q5 {
                 let coff = kb.cu(plane_b_off);
                 let bm2 = kb.imul(b, cm);
                 let bi1 = kb.iadd(bm2, r);
@@ -408,6 +410,24 @@ impl Kb {
                         let bits = kb.e(OP_BITWISE_AND, u, &[mul, one]);
                         let c2 = kb.cu(2);
                         let hi = kb.e(OP_SHIFT_LEFT_LOGICAL, u, &[bits, c2]);
+                        kb.e(OP_BITWISE_OR, u, &[src, hi])
+                    } else if q5 {
+                        // Q5: the plane-B word holds, contiguously per phase, the fifth bit of this
+                        // phase's four codes (`pack_q5_0_raw` permutes them so they are adjacent —
+                        // at the natural nibble stride the `0x0204_0810` partial products collide).
+                        // `x · 0x0204_0810 & 0x1010_1010` scatters nibble bit `i` to bit 4 of byte
+                        // `i`, exactly the lane plane A placed the nibble's low four bits in.
+                        let cjsh = kb.cu(8);
+                        let sh1 = kb.imul(cj, cjsh);
+                        let cl4 = kb.cu(4 * l);
+                        let sh = kb.iadd(sh1, cl4);
+                        let shifted = kb.e(OP_SHIFT_RIGHT_LOGICAL2, u, &[bword, sh]);
+                        let cf = kb.cu(0xF);
+                        let nib = kb.e(OP_BITWISE_AND, u, &[shifted, cf]);
+                        let spread = kb.cu(0x0204_0810);
+                        let mul = kb.e(OP_IMUL, u, &[nib, spread]);
+                        let hi_mask = kb.cu(0x1010_1010);
+                        let hi = kb.e(OP_BITWISE_AND, u, &[mul, hi_mask]);
                         kb.e(OP_BITWISE_OR, u, &[src, hi])
                     } else {
                         src

@@ -222,6 +222,17 @@ pub enum SpecError {
     /// A *design* constraint that lived as an `assert!` at `simt/dp4a.rs:368`. Fourth rule the
     /// sweep pulled out of an emitter and into the relation.
     Q3NeedsTwoLevel,
+    /// **[`Carrier::Q5`] is a TWO-PLANE chart, and only the fused folds read plane B.** The bare row
+    /// (`gemv_dp4a_dyn_bytes_sc`), the cooperative and the superblock emitters never thread
+    /// `plane_b_off` into a decode that consumes it, and the MoE emitter has no plane-B at all — so
+    /// the fifth bit of every code would be dropped and the kernel would serve a plausible Q4. Only
+    /// [`Fusion::ActQ`]/[`Fusion::Norm`] pass `carrier.plane_b_off(m, k)` into
+    /// `Kb::dp4a_chart_fold`, and only on [`ScaleFace::Dm32`]: the two-level and superblock faces
+    /// store no plane-B word.
+    Q5NeedsFusedFold {
+        /// The axis that could not be honoured.
+        axis: &'static str,
+    },
 }
 
 impl std::fmt::Display for SpecError {
@@ -275,6 +286,12 @@ identity"
                 f,
                 "Carrier::Q3 is only wired against the two-level scale face — 3.0 bits of codes \
 plus 0.5 of scale is the 3.5 bpw that ties IQ3_XXS; the single-level face makes it 4.0"
+            ),
+            SpecError::Q5NeedsFusedFold { axis } => write!(
+                f,
+                "Carrier::Q5 is a two-plane chart and only the fused folds read plane B, so the \
+`{axis}` axis cannot be honoured — this emitter would drop the fifth bit of every code and serve \
+a plausible Q4. Q5 needs a Fusion::ActQ/Fusion::Norm fold on ScaleFace::Dm32, no experts."
             ),
         }
     }
@@ -527,6 +544,22 @@ impl GemvSpec {
         }
         if self.carrier == Carrier::Q3 && self.scale != ScaleFace::TwoLevel {
             return Err(SpecError::Q3NeedsTwoLevel);
+        }
+        // Q5's high bit lives in a plane only the fused folds read; every other emitter would serve
+        // the low four bits of every weight (a plausible Q4). Name the axis, as the MoE rule does.
+        if self.carrier == Carrier::Q5 {
+            let axis = if self.experts.is_some() {
+                Some("experts")
+            } else if self.scale != ScaleFace::Dm32 {
+                Some("scale")
+            } else if matches!(self.fusion, Fusion::None) {
+                Some("fusion")
+            } else {
+                None
+            };
+            if let Some(axis) = axis {
+                return Err(SpecError::Q5NeedsFusedFold { axis });
+            }
         }
         if !self.carrier.is_chart() {
             if matches!(self.fusion, Fusion::ActQ(_)) {
@@ -824,6 +857,44 @@ mod tests {
             Err(SpecError::SuperblockNeedsQ2 {
                 carrier: Carrier::Q4
             })
+        );
+    }
+
+    /// **[`Carrier::Q5`] is a two-plane chart: its fifth bit is read by the fused folds only.** Every
+    /// other emitter would serve a plausible Q4 (finite, wrong), so each dishonourable axis is
+    /// refused by name — and `ActQ`/`Norm` on `Dm32`, which thread `plane_b_off` into the fold, is
+    /// the point that legalizes.
+    #[test]
+    fn q5_needs_a_fused_fold_that_reads_plane_b() {
+        let ok = GemvSpec::decode(Carrier::Q5, true).fused(Fusion::ActQ(ActQ::Copy));
+        assert!(
+            ok.legalize(896).is_ok(),
+            "ActQ + Dm32 + Q5 is the served fold"
+        );
+        // the fused-norm emitter threads plane_b_off too (`gemv_norm_module_sc`)
+        let norm = GemvSpec::decode(Carrier::Q5, true).fused(Fusion::Norm {
+            eps: 1e-6,
+            residual: None,
+        });
+        assert!(norm.legalize(896).is_ok());
+        // the bare row — and the coop/sbtile emitters it shares `Fusion::None` with — drop plane B
+        let bare = GemvSpec::decode(Carrier::Q5, true);
+        assert_eq!(
+            bare.legalize(896),
+            Err(SpecError::Q5NeedsFusedFold { axis: "fusion" })
+        );
+        // the MoE emitter has no plane-B word at all
+        let moe = GemvSpec::moe(Carrier::Q5, 896 * 896 / 8, 896 * 896 / 32, false, false);
+        assert_eq!(
+            moe.legalize(896),
+            Err(SpecError::Q5NeedsFusedFold { axis: "experts" })
+        );
+        // any scale face but Dm32 stores no plane-B word
+        let mut tl = GemvSpec::decode(Carrier::Q5, true).fused(Fusion::ActQ(ActQ::Copy));
+        tl.scale = ScaleFace::TwoLevel;
+        assert_eq!(
+            tl.legalize(896),
+            Err(SpecError::Q5NeedsFusedFold { axis: "scale" })
         );
     }
 
