@@ -233,6 +233,14 @@ pub enum SpecError {
         /// The axis that could not be honoured.
         axis: &'static str,
     },
+    /// **[`Carrier::Q6`] is a TWO-PLANE chart (plane B: two words per 32-block) with a per-half
+    /// int8 scale pair in the `dm` word, and only the fused folds read either.** Every other
+    /// emitter would read the `dm` upper half as an f16 `lo` and drop the two high bits of every
+    /// code. Same axes and the same single legal fold as [`SpecError::Q5NeedsFusedFold`].
+    Q6NeedsFusedFold {
+        /// The axis that could not be honoured.
+        axis: &'static str,
+    },
 }
 
 impl std::fmt::Display for SpecError {
@@ -292,6 +300,13 @@ plus 0.5 of scale is the 3.5 bpw that ties IQ3_XXS; the single-level face makes 
                 "Carrier::Q5 is a two-plane chart and only the fused folds read plane B, so the \
 `{axis}` axis cannot be honoured — this emitter would drop the fifth bit of every code and serve \
 a plausible Q4. Q5 needs a Fusion::ActQ/Fusion::Norm fold on ScaleFace::Dm32, no experts."
+            ),
+            SpecError::Q6NeedsFusedFold { axis } => write!(
+                f,
+                "Carrier::Q6 is a two-plane chart with an (sc_a, sc_b) dm word and only the fused \
+folds read them, so the `{axis}` axis cannot be honoured — this emitter would drop the two high \
+bits of every code and misread the scales. Q6 needs a Fusion::ActQ/Fusion::Norm fold on \
+ScaleFace::Dm32, no experts."
             ),
         }
     }
@@ -547,7 +562,7 @@ impl GemvSpec {
         }
         // Q5's high bit lives in a plane only the fused folds read; every other emitter would serve
         // the low four bits of every weight (a plausible Q4). Name the axis, as the MoE rule does.
-        if self.carrier == Carrier::Q5 {
+        if matches!(self.carrier, Carrier::Q5 | Carrier::Q6) {
             let axis = if self.experts.is_some() {
                 Some("experts")
             } else if self.scale != ScaleFace::Dm32 {
@@ -558,7 +573,11 @@ impl GemvSpec {
                 None
             };
             if let Some(axis) = axis {
-                return Err(SpecError::Q5NeedsFusedFold { axis });
+                return Err(if self.carrier == Carrier::Q6 {
+                    SpecError::Q6NeedsFusedFold { axis }
+                } else {
+                    SpecError::Q5NeedsFusedFold { axis }
+                });
             }
         }
         if !self.carrier.is_chart() {
@@ -895,6 +914,35 @@ mod tests {
         assert_eq!(
             tl.legalize(896),
             Err(SpecError::Q5NeedsFusedFold { axis: "scale" })
+        );
+    }
+
+    /// **[`Carrier::Q6`] is refused on exactly the axes Q5 is**, under its own variant: only
+    /// `ActQ`/`Norm` on `Dm32` read plane B and the `(sc_a, sc_b)` dm word.
+    #[test]
+    fn q6_needs_a_fused_fold_that_reads_plane_b() {
+        let ok = GemvSpec::decode(Carrier::Q6, true).fused(Fusion::ActQ(ActQ::Copy));
+        assert!(ok.legalize(896).is_ok());
+        let norm = GemvSpec::decode(Carrier::Q6, true).fused(Fusion::Norm {
+            eps: 1e-6,
+            residual: None,
+        });
+        assert!(norm.legalize(896).is_ok());
+        let bare = GemvSpec::decode(Carrier::Q6, true);
+        assert_eq!(
+            bare.legalize(896),
+            Err(SpecError::Q6NeedsFusedFold { axis: "fusion" })
+        );
+        let moe = GemvSpec::moe(Carrier::Q6, 896 * 896 / 8, 896 * 896 / 32, false, false);
+        assert_eq!(
+            moe.legalize(896),
+            Err(SpecError::Q6NeedsFusedFold { axis: "experts" })
+        );
+        let mut tl = GemvSpec::decode(Carrier::Q6, true).fused(Fusion::ActQ(ActQ::Copy));
+        tl.scale = ScaleFace::TwoLevel;
+        assert_eq!(
+            tl.legalize(896),
+            Err(SpecError::Q6NeedsFusedFold { axis: "scale" })
         );
     }
 

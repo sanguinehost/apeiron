@@ -234,9 +234,10 @@ impl Kb {
         self.dp4a = true;
         let q3 = carrier == crate::simt::Carrier::Q3;
         let q5 = carrier == crate::simt::Carrier::Q5;
+        let q6 = carrier == crate::simt::Carrier::Q6;
         assert!(
-            (!q3 && !q5) || plane_b_off != 0,
-            "a two-plane chart (Carrier::Q3/Q5) without a plane-B offset would decode only the low \
+            (!q3 && !q5 && !q6) || plane_b_off != 0,
+            "a two-plane chart (Carrier::Q3/Q5/Q6) without a plane-B offset would decode only the low \
 bits of every weight"
         );
         let sint = self.sint_ty();
@@ -262,6 +263,11 @@ bits of every weight"
         // of — `two_level_gpu_chart_is_a_permutation_of_the_row_chart` pins the layout and
         // `gpu_proj_check` pins this arithmetic against the CPU row chart.
         let two_level = scale.sup_off != 0;
+        assert!(
+            !(q6 && two_level),
+            "Carrier::Q6 stores its block scales (sc_a, sc_b) in the single-level dm word; the \
+two-level face has no such word"
+        );
         let dm = scale.dm;
         let (dsup, losup, csh, rhalf, cmrow) = if two_level {
             let u = self.uint;
@@ -290,6 +296,7 @@ bits of every weight"
         self.store_var(accf, zf);
         self.loop_u(start_blk, bound_blk, |kb, b| {
             // block prelude: the block's (d, lo) off whichever scale face is bound, and its sx / Σx
+            let mut dmw_q6 = 0;
             let (dval, mval) = if two_level {
                 let u = kb.uint;
                 let bm = kb.imul(b, cmrow);
@@ -316,6 +323,7 @@ bits of every weight"
                 let bm = kb.imul(b, cm);
                 let dmidx = kb.iadd(bm, r);
                 let dmw = kb.load_u(dm, dmidx);
+                dmw_q6 = dmw;
                 let v2 = kb.vec2f;
                 let g = kb.glsl;
                 let unp = kb.e(OP_EXT_INST, v2, &[g, GLSL_UNPACK_HALF2X16, dmw]);
@@ -350,7 +358,8 @@ bits of every weight"
                 kb.load_f(xs, b)
             };
             // Q3/Q5: the high-bit plane, ONE word per (32-block, row) — loop-invariant across `cj`
-            // and `l`, so it is fetched here rather than per phase.
+            // and `l`, so it is fetched here rather than per phase. (Q6 has TWO words per block,
+            // selected by `cj >> 1`, fetched per `cj` below.)
             let bword = if q3 || q5 {
                 let coff = kb.cu(plane_b_off);
                 let bm2 = kb.imul(b, cm);
@@ -373,6 +382,37 @@ bits of every weight"
                 let widx1 = kb.imul(c, cm);
                 let widx = kb.iadd(widx1, r);
                 let wword = kb.load_u(w, widx);
+                // Q6: the block's two plane-B words sit at `plane_b_off + (2b + wi)·m + r`; chart
+                // word `cj` reads `wi = cj >> 1`. The int8 sub-block scale for this `cj` is
+                // `sc_a` (dm bits 16..23, cj 0..1) or `sc_b` (bits 24..31, cj 2..3), sign-extended
+                // by `(x ^ 0x80) - 0x80`.
+                let (bw6, sc6) = if q6 {
+                    let u = kb.uint;
+                    let c1 = kb.cu(1);
+                    let wi = kb.e(OP_SHIFT_RIGHT_LOGICAL2, u, &[cj, c1]);
+                    let c2 = kb.cu(2);
+                    let b2 = kb.imul(b, c2);
+                    let row = kb.iadd(b2, wi);
+                    let rm = kb.imul(row, cm);
+                    let coff = kb.cu(plane_b_off);
+                    let i1 = kb.iadd(rm, r);
+                    let bi = kb.iadd(i1, coff);
+                    let bw = kb.load_u(w, bi);
+                    let c8 = kb.cu(8);
+                    let sh8 = kb.imul(wi, c8);
+                    let c16 = kb.cu(16);
+                    let shs = kb.iadd(sh8, c16);
+                    let shifted = kb.e(OP_SHIFT_RIGHT_LOGICAL2, u, &[dmw_q6, shs]);
+                    let cff = kb.cu(0xff);
+                    let byte = kb.e(OP_BITWISE_AND, u, &[shifted, cff]);
+                    let c80 = kb.cu(0x80);
+                    let xr = kb.e(OP_BITWISE_XOR, u, &[byte, c80]);
+                    let sb = kb.e(OP_ISUB, u, &[xr, c80]);
+                    let s = kb.sint_ty();
+                    (bw, kb.e(OP_BITCAST, s, &[sb]))
+                } else {
+                    (0, 0)
+                };
                 let xbase = if split {
                     let cdp = kb.cu(dpw);
                     kb.imul(c, cdp)
@@ -429,6 +469,28 @@ bits of every weight"
                         let hi_mask = kb.cu(0x1010_1010);
                         let hi = kb.e(OP_BITWISE_AND, u, &[mul, hi_mask]);
                         kb.e(OP_BITWISE_OR, u, &[src, hi])
+                    } else if q6 {
+                        // Q6: U = low nibbles | (two high bits << 4), bytes 0..63. The high bits of
+                        // this phase's four codes are bits `s..s+1` of each byte of the plane-B word,
+                        // `s = 2·(p & 3)`, `p = 2cj + l`, i.e. `4·(cj & 1) + 2l` (`pack_q6_k_raw`).
+                        // `(U + 0x60606060) ^ 0x80808080` is the signed byte `u - 32` per lane (no
+                        // inter-byte carry: `u + 0x60 <= 0x9F`).
+                        let c1 = kb.cu(1);
+                        let par = kb.e(OP_BITWISE_AND, u, &[cj, c1]);
+                        let c4 = kb.cu(4);
+                        let s1 = kb.imul(par, c4);
+                        let cl2 = kb.cu(2 * l);
+                        let sh = kb.iadd(s1, cl2);
+                        let shifted = kb.e(OP_SHIFT_RIGHT_LOGICAL2, u, &[bw6, sh]);
+                        let m3 = kb.cu(0x0303_0303);
+                        let two = kb.e(OP_BITWISE_AND, u, &[shifted, m3]);
+                        let c4b = kb.cu(4);
+                        let hi = kb.e(OP_SHIFT_LEFT_LOGICAL, u, &[two, c4b]);
+                        let uu = kb.e(OP_BITWISE_OR, u, &[src, hi]);
+                        let bias = kb.cu(0x6060_6060);
+                        let ub = kb.e(OP_IADD, u, &[uu, bias]);
+                        let flip = kb.cu(0x8080_8080);
+                        kb.e(OP_BITWISE_XOR, u, &[ub, flip])
                     } else {
                         src
                     };
@@ -453,7 +515,14 @@ bits of every weight"
                     } else {
                         kb.load_u(xq, xqi)
                     };
-                    let d4 = kb.e(OP_SUDOT, sint, &[xw, src, PACKED_VEC_4X8]);
+                    let d4 = if q6 {
+                        // signed x signed; `sc6 · d4` summed over all eight phases equals
+                        // `sc_a · acc_a + sc_b · acc_b` exactly (|sum| < 2^24, so int32 is exact)
+                        let d = kb.e(OP_SDOT, sint, &[xw, src, PACKED_VEC_4X8]);
+                        kb.e(OP_IMUL, sint, &[d, sc6])
+                    } else {
+                        kb.e(OP_SUDOT, sint, &[xw, src, PACKED_VEC_4X8])
+                    };
                     let a0 = kb.load_var_s(accq);
                     let a1 = kb.e(OP_IADD, sint, &[a0, d4]);
                     kb.store_var(accq, a1);
@@ -465,8 +534,13 @@ bits of every weight"
             let accqf = kb.e(OP_CONVERT_S_TO_F, f2, &[accqi]);
             let dq = kb.fmul(dval, accqf);
             let dqs = kb.fmul(dq, sxv);
-            let mxs = kb.fmul(mval, xsv);
-            let s2 = kb.fadd(dqs, mxs);
+            // Q6 has no `lo` term: its dm word's upper half is (sc_a, sc_b), not an f16
+            let s2 = if q6 {
+                dqs
+            } else {
+                let mxs = kb.fmul(mval, xsv);
+                kb.fadd(dqs, mxs)
+            };
             let a0 = kb.load_var_f(accf);
             let a1 = kb.fadd(a0, s2);
             kb.store_var(accf, a1);

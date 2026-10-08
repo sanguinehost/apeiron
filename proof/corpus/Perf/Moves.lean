@@ -358,6 +358,18 @@ theorem q5_spread_exact :
     15 * 0x02040810 < 2 ^ 32 := by
   decide
 
+/-- **The Q6 DP4A fold's signed byte and its exact block sum.** `pack_q6_k_raw` stores `u = code + 32`
+in `0..63`; `(u + 0x60) ^ 0x80`, read as a two's-complement byte, is `u - 32` for every `u`, and
+`u + 0x60 ≤ 0x9F` never carries into the next byte of the word. A block's integer is
+`Σ_phases sc · SDot`, at most 32 codes of `|u - 32| ≤ 32` against `|x| ≤ 127` under `|sc| ≤ 128`,
+which stays below `2^24`, so the int32 accumulator and its I2F conversion are exact. -/
+theorem q6_signed_byte_exact :
+    (∀ u : Fin 64, u.val + 0x60 < 0x100 ∧
+      (((u.val + 0x60) ^^^ 0x80 : Nat) : Int) - (if (u.val + 0x60) ^^^ 0x80 < 0x80 then 0 else 0x100) =
+        (u.val : Int) - 32) ∧
+    32 * 128 * 32 * 127 < 2 ^ 24 := by
+  decide
+
 end Moves
 
 end Perf
