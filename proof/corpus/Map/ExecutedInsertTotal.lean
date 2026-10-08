@@ -4,6 +4,7 @@ import Map.ExecutedResize
 import Map.ExecutedBuild
 import Map.ExecutedReadTotal
 import Map.ExecutedReadCoordTotal
+import Map.ExecutedOverflowAvl
 open Aeneas Aeneas.Std Result
 
 /-!
@@ -452,6 +453,324 @@ theorem ov_rotate_left_ok (o : Ov) (L : List ONode) (hL : o.nodes.val = L) (x : 
   rw [hu1]; simp only [bind_tc_ok]
   rw [hu2]; simp only [bind_tc_ok]
 
+/-! ## `rebalance` totality -/
+
+/-- Reduce a `let (x,y) ← ok (a,b); k x y` monadic pair-bind left by the literal pair (the
+extraction's pair-bind redex that `bind_tc_ok` leaves behind). -/
+theorem bind_pair_ok {α β γ : Type} (a : α) (b : β) (k : α → β → Result γ) :
+    (do let (x, y) ← (ok (a, b) : Result (α × β)); k x y) = k a b := by
+  simp only [bind_tc_ok]
+  rfl
+
+/-- `Overflow::rebalance` is total: the totality twin of `rebalance_spec`.  It carries the spec's
+`Bal`/`HOK` premises — a double rotation relinks the parent to a subtree whose freshly stored height
+is read by the following `update`, and `Bal` is what makes that stored height current again — and the
+height fit `hroom` of the deepest intermediate tree (the parent after a double rotation reaches
+height `max (ht l) (ht r) + 2`), which the spec's partial-correctness conclusion excludes. -/
+theorem ov_rebalance_ok (o : Ov) (L : List ONode) (hL : o.nodes.val = L) (i : U32)
+    (l r : OTree) (ii : Nat)
+    (hE : Emb L i (.node l ii r)) (hND : ND (.node l ii r)) (hB : BST L (.node l ii r))
+    (hBl : Bal l) (hBr : Bal r) (hl : HOK L l) (hr : HOK L r)
+    (hroom : max (ht l) (ht r) + 2 ≤ 2 ^ 32 - 1) :
+    ∃ x' o', hashtrinity.overflow.Overflow.rebalance CI o i = ok (x', o') := by
+  have hE0 := hE
+  have hND0 := hND
+  obtain ⟨hiv, hii, nd, hnd, hEl, hEr⟩ := hE0
+  obtain ⟨hNDl, hNDr, hiil, hiir, hlr'⟩ := hND0
+  have hiiL : ii < L.length := (List.getElem?_eq_some_iff.mp hnd).1
+  have hmax1 : max (ht l) (ht r) + 1 ≤ 2 ^ 32 - 1 := by omega
+  unfold hashtrinity.overflow.Overflow.rebalance
+  simp only [lift, bind_tc_ok]
+  obtain ⟨o1, hu1⟩ := ov_update_ok_hmax o L hL i l r ii hE hl hr hmax1
+  rw [hu1]; simp only [bind_tc_ok]
+  obtain ⟨nd1, hh, hnd1, hhv, hnodes1, hf1, hr1, hl1⟩ :=
+    update_spec o o1 L hL i l r ii hE hl hr hu1
+  have hndeq : nd = nd1 := Option.some.inj (hnd.symm.trans hnd1)
+  subst hndeq
+  obtain ⟨L1, hL1def⟩ : ∃ L1, L1 = L.set ii {nd with height := hh} := ⟨_, rfl⟩
+  have hL1 : o1.nodes.val = L1 := by rw [hnodes1, hL1def]
+  have hL1ii : L1[ii]? = some {nd with height := hh} := by
+    rw [hL1def]; exact List.getElem?_set_self hiiL
+  have hL1o : ∀ j, j ≠ ii → L1[j]? = L[j]? := by
+    intro j hj; rw [hL1def, List.getElem?_set_ne (Ne.symm hj)]
+  have hrel1 : Rel [ii] L L1 := by rw [hL1def]; exact Rel_set hnd ⟨rfl, rfl, rfl⟩
+  have hnel : ∀ j ∈ idxs l, j ≠ ii := fun j hj e => hiil (e ▸ hj)
+  have hner : ∀ j ∈ idxs r, j ≠ ii := fun j hj e => hiir (e ▸ hj)
+  have hEl1 : Emb L1 nd.left l := emb_congr hEl (fun j hj => hL1o j (hnel j hj))
+  have hEr1 : Emb L1 nd.right r := emb_congr hEr (fun j hj => hL1o j (hner j hj))
+  have hHl1 : HOK L1 l := hok_congr hl (fun j hj => hL1o j (hnel j hj))
+  have hHr1 : HOK L1 r := hok_congr hr (fun j hj => hL1o j (hner j hj))
+  have hB1 : BST L1 (.node l ii r) := bst_rel hrel1 hB
+  have hEi1 : Emb L1 i (.node l ii r) := ⟨hiv, hii, {nd with height := hh}, hL1ii, hEl1, hEr1⟩
+  have hH1 : HOK L1 (.node l ii r) := ⟨hHl1, hHr1, {nd with height := hh}, hL1ii, hhv⟩
+  obtain ⟨n, hn⟩ := vec_index_ex o1.nodes (UScalar.cast .Usize i)
+    (by rw [cast_usize_u32, hiv, hL1, hL1def, List.length_set]; exact hiiL)
+  rw [hn]; simp only [bind_tc_ok]
+  have hn_eq : n = ({nd with height := hh} : ONode) := by
+    have h' := vec_index_ok o1.nodes (UScalar.cast .Usize i) n hn
+    rw [cast_usize_u32, hiv, hL1] at h'
+    exact Option.some.inj (h'.symm.trans hL1ii)
+  have hnL : n.left = nd.left := by rw [hn_eq]
+  have hnR : n.right = nd.right := by rw [hn_eq]
+  obtain ⟨a, ha⟩ := ov_h_ok o1 L1 hL1 n.left l (by rw [hnL]; exact hEl1)
+  rw [ha]; simp only [bind_tc_ok]
+  obtain ⟨b, hb⟩ := ov_h_ok o1 L1 hL1 n.right r (by rw [hnR]; exact hEr1)
+  rw [hb]; simp only [bind_tc_ok]
+  have hav : a.val = ht l := h_spec o1 L1 hL1 n.left l (by rw [hnL]; exact hEl1) hHl1 a ha
+  have hbv : b.val = ht r := h_spec o1 L1 hL1 n.right r (by rw [hnR]; exact hEr1) hHr1 b hb
+  have hb1 : b.val + 1 < 2 ^ UScalarTy.U32.numBits := by
+    rw [UScalarTy.U32_numBits_eq, hbv]; omega
+  obtain ⟨i3, hi3, hi3v⟩ := uadd_tot b 1#u32 hb1
+  rw [hi3]; simp only [bind_tc_ok]
+  by_cases hA : a > i3
+  · -- left-heavy
+    have hA' : ht r + 1 < ht l := by
+      have h := (UScalar.lt_equiv i3 a).mp hA
+      rw [hi3v, hbv, u32_one, hav] at h
+      exact h
+    rw [if_pos hA]
+    cases l with
+    | leaf => simp only [ht] at hA'; omega
+    | node ll li lr =>
+      have hEl1c := hEl1
+      have hHl1c := hHl1
+      obtain ⟨hlv, hli, nl, hnl, hEll, hElr⟩ := hEl1
+      obtain ⟨hHll, hHlr, _, _, _⟩ := hHl1
+      obtain ⟨n2, hn2⟩ := vec_index_ex o1.nodes (UScalar.cast .Usize n.left)
+        (by rw [cast_usize_u32, hnL, hlv, hL1]; exact (List.getElem?_eq_some_iff.mp hnl).1)
+      rw [hn2]; simp only [bind_tc_ok]
+      have hn2_eq : n2 = nl := by
+        have h' := vec_index_ok o1.nodes (UScalar.cast .Usize n.left) n2 hn2
+        rw [cast_usize_u32, hnL, hlv, hL1] at h'
+        exact Option.some.inj (h'.symm.trans hnl)
+      have hn2L : n2.left = nl.left := by rw [hn2_eq]
+      have hn2R : n2.right = nl.right := by rw [hn2_eq]
+      obtain ⟨c, hc⟩ := ov_h_ok o1 L1 hL1 n2.right lr (by rw [hn2R]; exact hElr)
+      rw [hc]; simp only [bind_tc_ok]
+      have hcv : c.val = ht lr :=
+        h_spec o1 L1 hL1 n2.right lr (by rw [hn2R]; exact hElr) hHlr c hc
+      obtain ⟨d, hd⟩ := ov_h_ok o1 L1 hL1 n2.left ll (by rw [hn2L]; exact hEll)
+      rw [hd]; simp only [bind_tc_ok]
+      have hdv : d.val = ht ll :=
+        h_spec o1 L1 hL1 n2.left ll (by rw [hn2L]; exact hEll) hHll d hd
+      by_cases hrot : c > d
+      · -- left-right double rotation
+        have hrot' : ht ll < ht lr := by
+          have h := (UScalar.lt_equiv d c).mp hrot
+          rw [hcv, hdv] at h
+          exact h
+        rw [if_pos hrot]
+        cases lr with
+        | leaf => simp only [ht] at hrot'; omega
+        | node lrl lri lrr =>
+          obtain ⟨hHlrl, hHlrr, _, _, _⟩ := hHlr
+          obtain ⟨-, hBlr, hb1', hb2'⟩ := hBl
+          obtain ⟨-, -, hb3', hb4'⟩ := hBlr
+          have hhlr : ht (.node (.node ll li lrl) lri lrr) = ht (.node ll li (.node lrl lri lrr)) := by
+            simp only [ht] at *; omega
+          have hroomL : ht (.node ll li (.node lrl lri lrr)) + 1 ≤ 2 ^ 32 - 1 := by
+            simp only [ht] at hroom ⊢; omega
+          obtain ⟨nl2, o2, hrot_left⟩ := ov_rotate_left_ok o1 L1 hL1 n.left ll lrl lrr li lri
+            (by rw [hnL]; exact hEl1c) hNDl hHl1c hroomL
+          rw [hrot_left]; rw [bind_pair_ok]
+          obtain ⟨A2, hA2, hnl2v, hEA2, hRel2, hB2, hH2, hf2, hr2, hl2⟩ :=
+            rotate_left_spec o1 o2 L1 hL1 n.left nl2 ll lrl lrr li lri
+              (by rw [hnL]; exact hEl1c) hNDl hB1.1 hHll hHlrl hHlrr hrot_left
+          have hA2ii : A2[ii]? = some {nd with height := hh} := by
+            rw [rel_out hRel2 hiil]; exact hL1ii
+          have hA2lt : ii < A2.length := (List.getElem?_eq_some_iff.mp hA2ii).1
+          obtain ⟨n4, back, hmut⟩ := vec_index_mut_ex o2.nodes (UScalar.cast .Usize i)
+            (by rw [cast_usize_u32, hiv, hA2]; exact hA2lt)
+          rw [hmut]; rw [bind_pair_ok]
+          obtain ⟨hn4h1, hback⟩ := idxm_ok hmut
+          rw [hA2, hiv] at hn4h1
+          have hn4eq : n4 = ({nd with height := hh} : ONode) :=
+            Option.some.inj (hn4h1.symm.trans hA2ii)
+          have hback' : ∀ x, (back x).val = A2.set ii x := by
+            intro x; rw [hback x, hA2, hiv]
+          obtain ⟨A3, hA3def⟩ : ∃ A3, A3 =
+              A2.set ii {({nd with height := hh} : ONode) with left := nl2} := ⟨_, rfl⟩
+          have hA3ii : A3[ii]? = some {({nd with height := hh} : ONode) with left := nl2} := by
+            rw [hA3def]; exact List.getElem?_set_self hA2lt
+          have hA3o : ∀ j, j ≠ ii → A3[j]? = A2[j]? := by
+            intro j hj; rw [hA3def, List.getElem?_set_ne (Ne.symm hj)]
+          have hne : ∀ j ∈ idxs (.node (.node ll li lrl) lri lrr), j ≠ ii := by
+            intro j hj e
+            rw [idxs_rotL] at hj
+            exact hiil (e ▸ hj)
+          have hEr3 : Emb A3 nd.right r :=
+            emb_congr (emb_rel hRel2 hEr1 (fun j hj hS => hlr' j hS hj))
+              (fun j hj => hA3o j (hner j hj))
+          have hE3 : Emb A3 i (.node (.node (.node ll li lrl) lri lrr) ii r) :=
+            ⟨hiv, hii, {({nd with height := hh} : ONode) with left := nl2}, hA3ii,
+              emb_congr hEA2 (fun j hj => hA3o j (hne j hj)), hEr3⟩
+          have hND3 : ND (.node (.node (.node ll li lrl) lri lrr) ii r) :=
+            nd_repl_l hND (nd_rotL hNDl) idxs_rotL
+          have hH3 : HOK A3 (.node (.node (.node ll li lrl) lri lrr) ii r) :=
+            ⟨hok_congr hH2 (fun j hj => hA3o j (hne j hj)),
+              hok_congr (hok_rel hRel2 hHr1 (fun j hj hS => hlr' j hS hj))
+                (fun j hj => hA3o j (hner j hj)),
+              {({nd with height := hh} : ONode) with left := nl2}, hA3ii,
+              by rw [hhlr]; exact hhv⟩
+          have hroom3 : ht (.node (.node (.node ll li lrl) lri lrr) ii r) + 1 ≤ 2 ^ 32 - 1 := by
+            have hh2 : ht (.node (.node ll li lrl) lri lrr) = ht (.node ll li (.node lrl lri lrr)) := hhlr
+            simp only [ht] at hroom hh2 ⊢; omega
+          have hA3 : (back {n4 with left := nl2}).val = A3 := by
+            rw [hn4eq, hback', hA3def]
+          obtain ⟨x', o', hrot2⟩ := ov_rotate_right_ok
+            { nodes := back {n4 with left := nl2}, free := o2.free, root := o2.root, len := o2.len }
+            A3 hA3 i (.node ll li lrl) lrr r lri ii hE3 hND3 hH3 hroom3
+          refine ⟨x', o', ?_⟩
+          simp only [bind_tc_ok]
+          change hashtrinity.overflow.Overflow.rotate_right CI
+            { nodes := back {n4 with left := nl2}, free := o2.free, root := o2.root, len := o2.len } i
+            = ok (x', o')
+          exact hrot2
+      · -- left-left single rotation
+        have hrot' : ht lr ≤ ht ll := by
+          have h := (not_congr (UScalar.lt_equiv d c)).mp hrot
+          rw [hcv, hdv] at h
+          omega
+        rw [if_neg hrot]; simp only [bind_tc_ok]
+        have hroomLL : ht (.node (.node ll li lr) ii r) + 1 ≤ 2 ^ 32 - 1 := by
+          simp only [ht] at hroom ⊢; omega
+        obtain ⟨x', o', hrot2⟩ :=
+          ov_rotate_right_ok o1 L1 hL1 i ll lr r li ii hEi1 hND hH1 hroomLL
+        refine ⟨x', o', ?_⟩
+        change hashtrinity.overflow.Overflow.rotate_right CI o1 i = ok (x', o')
+        exact hrot2
+  · -- not left-heavy
+    rw [if_neg hA]
+    have hA'' : ht l ≤ ht r + 1 := by
+      have h := (not_congr (UScalar.lt_equiv i3 a)).mp hA
+      rw [hi3v, hbv, u32_one, hav] at h
+      omega
+    have ha1 : a.val + 1 < 2 ^ UScalarTy.U32.numBits := by
+      rw [UScalarTy.U32_numBits_eq, hav]; omega
+    obtain ⟨i4, hi4, hi4v⟩ := uadd_tot a 1#u32 ha1
+    rw [hi4]; simp only [bind_tc_ok]
+    by_cases hB' : b > i4
+    · -- right-heavy
+      have hB'' : ht l + 1 < ht r := by
+        have h := (UScalar.lt_equiv i4 b).mp hB'
+        rw [hi4v, hav, u32_one, hbv] at h
+        exact h
+      rw [if_pos hB']
+      cases r with
+      | leaf => simp only [ht] at hB''; omega
+      | node rl ri rr =>
+        have hEr1c := hEr1
+        have hHr1c := hHr1
+        obtain ⟨hrv, hri, nr, hnr, hErl, hErr⟩ := hEr1
+        obtain ⟨hHrl, hHrr, _, _, _⟩ := hHr1
+        obtain ⟨n2, hn2⟩ := vec_index_ex o1.nodes (UScalar.cast .Usize n.right)
+          (by rw [cast_usize_u32, hnR, hrv, hL1]; exact (List.getElem?_eq_some_iff.mp hnr).1)
+        rw [hn2]; simp only [bind_tc_ok]
+        have hn2_eq : n2 = nr := by
+          have h' := vec_index_ok o1.nodes (UScalar.cast .Usize n.right) n2 hn2
+          rw [cast_usize_u32, hnR, hrv, hL1] at h'
+          exact Option.some.inj (h'.symm.trans hnr)
+        have hn2L : n2.left = nr.left := by rw [hn2_eq]
+        have hn2R : n2.right = nr.right := by rw [hn2_eq]
+        obtain ⟨c, hc⟩ := ov_h_ok o1 L1 hL1 n2.left rl (by rw [hn2L]; exact hErl)
+        rw [hc]; simp only [bind_tc_ok]
+        have hcv : c.val = ht rl :=
+          h_spec o1 L1 hL1 n2.left rl (by rw [hn2L]; exact hErl) hHrl c hc
+        obtain ⟨d, hd⟩ := ov_h_ok o1 L1 hL1 n2.right rr (by rw [hn2R]; exact hErr)
+        rw [hd]; simp only [bind_tc_ok]
+        have hdv : d.val = ht rr :=
+          h_spec o1 L1 hL1 n2.right rr (by rw [hn2R]; exact hErr) hHrr d hd
+        by_cases hrot : c > d
+        · -- right-left double rotation
+          have hrot' : ht rr < ht rl := by
+            have h := (UScalar.lt_equiv d c).mp hrot
+            rw [hcv, hdv] at h
+            exact h
+          rw [if_pos hrot]
+          cases rl with
+          | leaf => simp only [ht] at hrot'; omega
+          | node rll rli rlr =>
+            obtain ⟨hHrll, hHrlr, _, _, _⟩ := hHrl
+            obtain ⟨hBrl, -, hc1, hc2⟩ := hBr
+            obtain ⟨-, -, hc3, hc4⟩ := hBrl
+            have hhrl : ht (.node rll rli (.node rlr ri rr)) = ht (.node (.node rll rli rlr) ri rr) := by
+              simp only [ht] at *; omega
+            have hroomR : ht (.node (.node rll rli rlr) ri rr) + 1 ≤ 2 ^ 32 - 1 := by
+              simp only [ht] at hroom ⊢; omega
+            obtain ⟨nr2, o2, hrot_right⟩ :=
+              ov_rotate_right_ok o1 L1 hL1 n.right rll rlr rr rli ri
+                (by rw [hnR]; exact hEr1c) hNDr hHr1c hroomR
+            rw [hrot_right]; rw [bind_pair_ok]
+            obtain ⟨A2, hA2, hnr2v, hEA2, hRel2, hB2, hH2, hf2, hr2, hl2⟩ :=
+              rotate_right_spec o1 o2 L1 hL1 n.right nr2 rll rlr rr rli ri
+                (by rw [hnR]; exact hEr1c) hNDr hB1.2.1 hHrll hHrlr hHrr hrot_right
+            have hA2ii : A2[ii]? = some {nd with height := hh} := by
+              rw [rel_out hRel2 hiir]; exact hL1ii
+            have hA2lt : ii < A2.length := (List.getElem?_eq_some_iff.mp hA2ii).1
+            obtain ⟨n4, back, hmut⟩ := vec_index_mut_ex o2.nodes (UScalar.cast .Usize i)
+              (by rw [cast_usize_u32, hiv, hA2]; exact hA2lt)
+            rw [hmut]; rw [bind_pair_ok]
+            obtain ⟨hn4h1, hback⟩ := idxm_ok hmut
+            rw [hA2, hiv] at hn4h1
+            have hn4eq : n4 = ({nd with height := hh} : ONode) :=
+              Option.some.inj (hn4h1.symm.trans hA2ii)
+            have hback' : ∀ x, (back x).val = A2.set ii x := by
+              intro x; rw [hback x, hA2, hiv]
+            obtain ⟨A3, hA3def⟩ : ∃ A3, A3 =
+                A2.set ii {({nd with height := hh} : ONode) with right := nr2} := ⟨_, rfl⟩
+            have hA3ii : A3[ii]? = some {({nd with height := hh} : ONode) with right := nr2} := by
+              rw [hA3def]; exact List.getElem?_set_self hA2lt
+            have hA3o : ∀ j, j ≠ ii → A3[j]? = A2[j]? := by
+              intro j hj; rw [hA3def, List.getElem?_set_ne (Ne.symm hj)]
+            have hne : ∀ j ∈ idxs (.node rll rli (.node rlr ri rr)), j ≠ ii := by
+              intro j hj e
+              rw [idxs_rotR] at hj
+              exact hiir (e ▸ hj)
+            have hEl3 : Emb A3 nd.left l :=
+              emb_congr (emb_rel hRel2 hEl1 (fun j hj hS => hlr' j hj hS))
+                (fun j hj => hA3o j (hnel j hj))
+            have hE3 : Emb A3 i (.node l ii (.node rll rli (.node rlr ri rr))) :=
+              ⟨hiv, hii, {({nd with height := hh} : ONode) with right := nr2}, hA3ii, hEl3,
+                emb_congr hEA2 (fun j hj => hA3o j (hne j hj))⟩
+            have hND3 : ND (.node l ii (.node rll rli (.node rlr ri rr))) :=
+              nd_repl_r hND (nd_rotR hNDr) idxs_rotR
+            have hH3 : HOK A3 (.node l ii (.node rll rli (.node rlr ri rr))) :=
+              ⟨hok_congr (hok_rel hRel2 hHl1 (fun j hj hS => hlr' j hj hS))
+                 (fun j hj => hA3o j (hnel j hj)),
+               hok_congr hH2 (fun j hj => hA3o j (hne j hj)),
+               {({nd with height := hh} : ONode) with right := nr2}, hA3ii,
+               by rw [hhrl]; exact hhv⟩
+            have hroom3 : ht (.node l ii (.node rll rli (.node rlr ri rr))) + 1 ≤ 2 ^ 32 - 1 := by
+              have hh2 : ht (.node rll rli (.node rlr ri rr)) = ht (.node (.node rll rli rlr) ri rr) := hhrl
+              simp only [ht] at hroom hh2 ⊢; omega
+            have hA3 : (back {n4 with right := nr2}).val = A3 := by
+              rw [hn4eq, hback', hA3def]
+            obtain ⟨y', o', hrot2⟩ := ov_rotate_left_ok
+              { nodes := back {n4 with right := nr2}, free := o2.free, root := o2.root, len := o2.len }
+              A3 hA3 i l rll (.node rlr ri rr) ii rli hE3 hND3 hH3 hroom3
+            refine ⟨y', o', ?_⟩
+            simp only [bind_tc_ok]
+            change hashtrinity.overflow.Overflow.rotate_left CI
+              { nodes := back {n4 with right := nr2}, free := o2.free, root := o2.root, len := o2.len } i
+              = ok (y', o')
+            exact hrot2
+        · -- right-right single rotation
+          have hrot' : ht rl ≤ ht rr := by
+            have h := (not_congr (UScalar.lt_equiv d c)).mp hrot
+            rw [hcv, hdv] at h
+            omega
+          rw [if_neg hrot]; simp only [bind_tc_ok]
+          have hroomRR : ht (.node l ii (.node rl ri rr)) + 1 ≤ 2 ^ 32 - 1 := by
+            simp only [ht] at hroom ⊢; omega
+          obtain ⟨y', o', hrot2⟩ :=
+            ov_rotate_left_ok o1 L1 hL1 i l rl rr ii ri hEi1 hND hH1 hroomRR
+          refine ⟨y', o', ?_⟩
+          change hashtrinity.overflow.Overflow.rotate_left CI o1 i = ok (y', o')
+          exact hrot2
+    · -- balanced
+      rw [if_neg hB']
+      exact ⟨i, o1, rfl⟩
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.ov_h_ok
@@ -459,3 +778,5 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.ov_update_ok_hmax
 #audit Apeiron.MapExecuted.ov_rotate_right_ok
 #audit Apeiron.MapExecuted.ov_rotate_left_ok
+#audit Apeiron.MapExecuted.ov_rebalance_ok
+#audit Apeiron.MapExecuted.bind_pair_ok
