@@ -362,9 +362,10 @@ pub unsafe fn record_layer(
     if let Some(b) = l.qkv_b {
         bufs.push(b);
     }
-    if envu("DEC_ROPEFLASH", 0) == 1 {
-        // `DEC_ROPEFLASH`: the `fused_rope_kv_fold` Step and its pipeline barrier are folded into
-        // `flash_partial`'s prologue — one dispatch instead of two. `sc.qkv` is written by neither
+    if envu("DEC_ROPEFLASH", 1) == 1 {
+        // `DEC_ROPEFLASH` (default 1; 0 records the two-Step path): the `fused_rope_kv_fold` Step
+        // and its pipeline barrier are folded into `flash_partial`'s prologue — one dispatch
+        // instead of two. `sc.qkv` is written by neither
         // step on this path and nothing downstream reads it (only `flash_partial` did), so the
         // prologue computes q straight into workgroup memory.
         let mut bufs = vec![
