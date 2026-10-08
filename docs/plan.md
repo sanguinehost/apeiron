@@ -12,7 +12,9 @@ at `01aff6a:docs/plan.md` (`git show 01aff6a:docs/plan.md`). Its receipts stay w
 ## Outcome
 
 Two releases by **2026-10-31** come from this repository: the hash table below, and the
-[inference track](#inference-track-parallel-release-by-2026-10-31).
+[inference track](#inference-track-parallel-release-by-2026-10-31). The primary track since
+2026-10-08 is the [learning track](#learning-track-primary-owner-2026-10-08): spinor-ttl and fold
+training, finetuning and quantization, reimplemented here and verified, judged by bits/token.
 
 `apeiron` replaces `std::HashMap` in practice and in claims, published Apache-2.0 at
 `github.com/sanguinehost/apeiron` by **2026-10-31**:
@@ -40,6 +42,7 @@ Two releases by **2026-10-31** come from this repository: the hash table below, 
 | The inference stack ships inside the `apeiron` repository for now; it is expected to move to its own Nous repository later. | owner, 2026-10-06 |
 | Contract verdicts, drafted by Sol and adopted by the lead (grade `anchor`, `/home/socol/oc-tmp/escalation/hashdos-mechanism-verdict.md`): D1 restrict the refinement to merges with `f v d = v`, canonical `insertWith` unchanged; D2 refine the sequential `FreqLine` helpers, fan-out a named premise; D3 capped primary probing plus a deterministic AVL overflow, no secret seed. The lead ratifies the key-ordering boundary: the HashDOS claim covers keys with a total order agreeing with equality. | lead, 2026-10-06 |
 | Kani is retired ([contract](epics/kani-retirement.md)). | owner |
+| Inference goal: 1.5× llama.cpp CUDA, pp512 and tg128, same model, RTX 5080; it replaces the ≥2.0× bar. At measured parity, speed is secondary to bits/token, training and finetuning. No speed regression is accepted: a change that lowers tg128 or pp512 below the current receipt beyond the measured spread is refused. The primary goal is the reimplementation and formal verification of `../spinor-ttl` and the `../fold` training, finetuning and quantization work. | owner, 2026-10-08 |
 
 ## Measured state at `01aff6a`
 
@@ -124,8 +127,11 @@ The board mirror: every open row below names its board row; `board.py check` rec
 
 Outcome: a practical llama.cpp replacement on Vulkan/SPIR-V — load a GGUF, prefill, decode, sample,
 serve. Comparator (owner, 2026-10-07): the fastest llama.cpp backend, which is CUDA; Vulkan is a
-secondary column. Acceptance bar (owner, 2026-09-30): ≥2.0× the comparator on the same model, prefill
-and decode each, on SPIR-V. Fresh pp512/tg128 against both backends: `/home/socol/oc-tmp/sota-bench/run.sh`.
+secondary column. Goal (owner, 2026-10-08; replaces the 2026-09-30 ≥2.0× bar): 1.5× the comparator
+on the same model, prefill and decode each, on SPIR-V; secondary to the learning track; no speed
+regression accepted. Current receipt (Qwen2.5-0.5B Q4_K_M, RTX 5080): tg128 894.1 tok/s (CUDA 883.8,
+1.01×), pp512 109.7k (CUDA 65.4k, 1.68×), SEQHASH `9092dbbaff119a2e`, 126 dispatches/token. Fresh
+pp512/tg128 against both backends: `/home/socol/oc-tmp/sota-bench/run.sh`.
 
 State, from the receipts:
 
@@ -165,6 +171,35 @@ State, from the receipts:
 
 The Slang source binding, policy-engine rows P6–P9 and the Rust–Song correspondence keep their
 requirements in their epics and have no open board row.
+
+### Learning track (primary; owner 2026-10-08)
+
+Outcome: the training, finetuning and quantization results of `../spinor-ttl` (`a05bb1b`) and
+`../fold` (`main` `e117970f`, `modelfold/src/{countlm,foldtrain,train}.rs`) run in this crate, each
+refining the vendored Lean statement it claims, judged first by held-out bits/token at a stated
+bits/weight, then by training and finetuning cost. This is stage 3 of
+[neural-rebase](epics/neural-rebase.md): stage 2 vendored the Lean modules into
+`proof/corpus/Substrate/Algebra/Neural/` and `proof/corpus/Substrate/Algebra/NullCell/SpinorFold.lean`;
+stage 3 is the executing path. No row may regress the inference receipt above.
+
+State, from the sibling receipts (none re-run on this tree):
+
+| fact | source | grade |
+|---|---|---|
+| KN byte count-LM 2.205 b/B in 1.7 s against a 2-layer transformer 2.392 b/B in 20.9 s; the Lean `sang` binary agrees (2.239 vs 2.469) | `../spinor-ttl/bench/beats_transformer.py` | measured in spinor-ttl; not re-run |
+| Activation-calibrated quantizer (seal, error Σ τ_j r_j²) on Qwen2.5-0.5B: 4.2057 bits/token at 5.94 b/w against llama.cpp Q4_K_M 4.2121 at 6.34 (imatrix 4.2191); 4.2665 at 4.45 b/w against NF4 4.3032 at 4.50 | `../spinor-ttl/bench/vs_gguf.py`, `../spinor-ttl/bench/model_bits_token.py` | measured in spinor-ttl; not re-run |
+| FoldAdapter finetune 0.724 b/B in 2.9 s against LoRA r=16 0.850 at 30 s and 0.741 at 300 s; order-free merge and exact unlearning | `../spinor-ttl/bench/finetune_race.py` | measured in spinor-ttl; `../spinor-ttl/STATUS.md` says the head-to-head was not re-verified in its last session |
+| Direct-solve ridge fold (U = XᵀX + λI, one SPD solve) reaches the full-batch Adam optimum 16–71× faster; a constant factor, not asymptotic | `../spinor-ttl/bench/train_fold_vs_grad.py`; fold `db5397b2`, now `../fold/modelfold/tests/foldtrain.rs` | measured in spinor-ttl; not re-run |
+| The Lean statements these claim are vendored and build: `TrainingCollapse` (`ridgeHead_unique`, `gram_stack`), `KneserNey`, `MirasCountLM`, `MLPrimitivesBridge` (quant dual, `osFuse_is_add`), `SpinorFold` (`osFuse_grouping_free`) | [neural-rebase](epics/neural-rebase.md) exit table | proved at stage 2, standalone: no Rust body refines them |
+
+| task | board | scope | files | gate | control | state |
+|---|---|---|---|---|---|---|
+| `LEARN-SPEC` | `learn-spec-stage-3-intent-FMZqpfIrnEtwoScK1aMQXt` | Stage 3 intent, spec and plan, appended to the neural-rebase epic. Per mechanism (count-LM, seal, FoldAdapter, ridge fold, gptq 4→3-trit, foldnet): the subsumed source (repo, revision, sha256), the vendored theorem it must refine with its exact statement, the admissible domain (float vs exact integer/rational), the bits/token and cost baseline command, and the lineage search command and output (`AGENTS.md` §4 obligation 4). | `docs/epics/neural-rebase.md`, `docs/README.md` | `python3 tools/check-claims.py` | cite a non-resolving source path in a copy: `check-claims` fails by name | open |
+| `LEARN-SEAL` | `learn-seal-activation-vs-EBl8Fa6lnsYGjm7JmRua0P` | Hardest, primary metric. Port the seal quantizer: per-column calibration weights τ from activations, minimise Σ τ_j r_j² per block, write a GGUF the inference stack loads. bits/token on Qwen2.5-0.5B against Q4_K_M and NF4 at stated b/w; tg128/pp512 not below the receipt. Refines the `MLPrimitivesBridge` §6 quant statement. | per `LEARN-SPEC` | `cargo test --release --locked --test learn_seal` | drop the τ weighting in a copy: the calibrated-error ≤ uncalibrated-error test fails | design; waits on `LEARN-SPEC` |
+| `LEARN-FOLDADAPT` | `learn-foldadapt-forward-FC9XjzgbqIA3erKUQdtGew` | Port FoldAdapter: forward-only adapter state merged by addition; order-free merge and exact unlearning fold(A+B) − fold(B) = fold(A) over the exact carrier; b/B against LoRA r=16 on the spinor-ttl race corpus. Refines `SpinorFold.osFuse_is_add` and `osFuse_grouping_free`. | per `LEARN-SPEC` | `cargo test --release --locked --test learn_foldadapt` | weight each merge by its position in a copy: the grouping-free test fails | design; waits on `LEARN-SPEC` |
+| `LEARN-RIDGE` | `learn-ridge-direct-solve-FTcOmHFafixRjbpnupkVEh` | Subsume fold `modelfold/src/foldtrain.rs`: streaming Gram accumulation and the one SPD solve; exact-integer Gram extracted by Aeneas refining `gram_stack`, the solve tested against the direct normal-equation solution; time to the Adam optimum on the spinor-ttl bench. Refines `TrainingCollapse.ridgeHead_unique`. | per `LEARN-SPEC` | `cargo test --release --locked --test learn_ridge` | drop λ in a copy: the unique-optimum test fails on a rank-deficient X | design; waits on `LEARN-SPEC` |
+| `LEARN-COUNT` | `learn-count-kn-count-lm-WzjrV1jTHJWyh8ZZz41If` | Subsume fold `modelfold/src/countlm.rs` onto the vendored count face (`FreqMap`): KN-smoothed byte count-LM, held-out b/B parity with spinor-ttl `countlm.py`. Refines `KneserNey` normalisation and `MirasCountLM.countlm_is_exact_miras`. | per `LEARN-SPEC` | `cargo test --release --locked --test learn_count` | drop the KN discount in a copy: the normalisation test fails | design; waits on `LEARN-SPEC` |
+| `SPEED-GUARD` | `speed-guard-refuse-any-F2W2zLYaXOdgD8tD6VpEbv` | No speed regression (owner 2026-10-08): a gate that runs tg128 and pp512 on Qwen2.5-0.5B Q4_K_M, ≥5 interleaved runs, checks SEQHASH `9092dbbaff119a2e`, and fails when the mean is below the receipt minus its measured spread. Run before every commit to `src/gpu/`, `src/simt*/`, `src/spirv/`. | `tools/gpu/speed_guard.py` | `python3 tools/gpu/speed_guard.py` | insert a fixed spin in the decode loop in a copy: the gate fails by name | open |
 
 ## Open decisions
 
