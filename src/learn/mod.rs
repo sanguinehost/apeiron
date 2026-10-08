@@ -16,5 +16,8 @@ pub mod seal;
 /// Kneser–Ney byte count language model over the vendored counting face [`crate::freq::FreqMap`].
 pub mod countlm;
 
+/// Forward-only finetuning adapter over token contexts via Kneser–Ney count refinement.
+pub mod foldadapt;
+
 /// Streaming Gram accumulation and direct SPD ridge solve: the closed-form linear head.
 pub mod ridge;

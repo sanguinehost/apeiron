@@ -1,0 +1,652 @@
+//! Forward-only finetuning adapter (`FoldAdapter`).
+//!
+//! Subsumed from `../fold/modelfold/src/train.rs` @ `d497161f` (`pub mod finetune`)
+//! and `../spinor-ttl/src/spinor_ttl/finetune.py` @ `a05bb1b` (`FoldAdapter`).
+//! Count storage is the vendored counting face [`FreqMap`].
+//!
+//! # Mathematical Foundations and Citations
+//!
+//! - **Kneser–Ney Floor Refinement**:
+//!   One absolute-discount lane over an arbitrary base distribution conserves probability mass
+//!   exactly, remains nonnegative, and lands domain evidence regardless of base floor.
+//!   Refines `Sanguine.MLPrimitivesBridge.kn_floor_refinement`
+//!   (`proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:385`, grade: tested).
+//! - **Chart Addition and Grouping-Free Merge**:
+//!   Accumulation of observation counts (`fold`) and adapter merge (`merge`) form commutative
+//!   monoids over $\mathbb{Z}$, with exact unlearning (`unfold`) as the additive group inverse:
+//!   $(M + A) - A = M$.
+//!   Refines `Sanguine.MLPrimitivesBridge.osFuse_is_add`
+//!   (`proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:174`, grade: tested) and
+//!   `Sanguine.MLPrimitivesBridge.osFuse_grouping_free`
+//!   (`proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:182`, grade: tested).
+//! - **Doorway Participation-Ratio Cut**:
+//!   Context update fires only when continuation collapse satisfies $\text{PR} \le 2.0$
+//!   ($\text{PR} = (\sum c)^2 / \sum c^2$), preserving diffuse out-of-domain distributions.
+#![allow(
+    clippy::doc_markdown,
+    reason = "mathematical formulas, variable names and citations in doc comments"
+)]
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "context orders k <= 4 fit within u8 by construction"
+)]
+#![allow(
+    clippy::cast_precision_loss,
+    reason = "integer counts converted to f64 for probability normalisation"
+)]
+#![allow(
+    clippy::must_use_candidate,
+    reason = "idiomatic state querying and inference API"
+)]
+
+use crate::freq::FreqMap;
+use crate::learn::countlm::kn_discounts_cg;
+
+/// Maximum context order supported by the compact lossless representation ($k \le 4$).
+pub const MAX_ORDER: usize = 4;
+
+/// Default context order for finetuning adapter ($k = 3$).
+pub const DEFAULT_ORDER: usize = 3;
+
+/// Derived anti-degeneration budget: participation ratio threshold $\text{PR} \le 2.0$.
+pub const DOORWAY: f64 = 2.0;
+
+/// Error type for fold adapter construction, configuration, and inference operations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FoldAdaptError {
+    /// Context order must be in `1..=MAX_ORDER` (1..=4).
+    InvalidOrder(usize),
+    /// Base distribution must not be empty.
+    EmptyBase,
+    /// Context orders must match for adapter merge.
+    OrderMismatch {
+        /// Expected order (self).
+        expected: usize,
+        /// Actual order (other).
+        actual: usize,
+    },
+}
+
+impl std::fmt::Display for FoldAdaptError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidOrder(k) => {
+                write!(f, "invalid context order {k}: must be in 1..={MAX_ORDER}")
+            }
+            Self::EmptyBase => write!(f, "base distribution must not be empty"),
+            Self::OrderMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "context order mismatch: expected {expected}, got {actual}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for FoldAdaptError {}
+
+/// Context-order, packed-context, and next-token key: `(order, packed_context, token)`.
+pub type Key = (u8, u128, u32);
+
+/// Flat count state: `(order, packed-context, token) -> occurrence count`.
+/// Stored in the vendored Non-Being (NB) counting face [`FreqMap`].
+type Flat = FreqMap<Key, i64>;
+
+/// Context key: `(order, packed-context)`.
+type CtxKey = (u8, u128);
+
+/// Sparse continuation tracking: `(order, packed-context) -> [next-token]`.
+type CtxTokens = FreqMap<CtxKey, Vec<u32>>;
+
+/// Pack up to 4 token ids into a `u128`, oldest id highest.
+///
+/// # Domain
+///
+/// `ctx.len() <= MAX_ORDER` (up to 4 tokens).
+///
+/// # Complexity
+///
+/// Temporal: $O(1)$ operations ($\text{ctx.len()} \le 4$).
+/// Spatial: $O(1)$ words.
+#[inline]
+#[must_use]
+pub fn pack(ctx: &[u32]) -> u128 {
+    ctx.iter().fold(0u128, |p, &id| (p << 32) | u128::from(id))
+}
+
+/// Forward-only finetuning adapter over token contexts.
+///
+/// Holds n-gram occurrence counts over `u32` token contexts of order $1 \le k \le 4$.
+/// Modifies base model predictions using Kneser–Ney count refinement.
+#[derive(Clone)]
+pub struct FoldAdapter {
+    flat: Flat,
+    keys: Vec<Key>,
+    ctx_tokens: CtxTokens,
+    k: usize,
+}
+
+impl Default for FoldAdapter {
+    fn default() -> Self {
+        Self::new(DEFAULT_ORDER).expect("default order is within 1..=MAX_ORDER")
+    }
+}
+
+impl FoldAdapter {
+    /// Create a new fold adapter of context order $k$ ($1 \le k \le 4$).
+    ///
+    /// # Domain
+    ///
+    /// $1 \le k \le \text{MAX\_ORDER}$. Returns [`FoldAdaptError::InvalidOrder`] if out of domain.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FoldAdaptError::InvalidOrder`] if `k == 0` or `k > MAX_ORDER`.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $O(1)$ operations.
+    /// Spatial: $O(1)$ allocations.
+    pub fn new(k: usize) -> Result<Self, FoldAdaptError> {
+        if k == 0 || k > MAX_ORDER {
+            return Err(FoldAdaptError::InvalidOrder(k));
+        }
+        Ok(FoldAdapter {
+            flat: FreqMap::with_capacity(16),
+            keys: Vec::new(),
+            ctx_tokens: FreqMap::with_capacity(16),
+            k,
+        })
+    }
+
+    /// Pre-sized adapter for an estimated key capacity.
+    ///
+    /// # Domain
+    ///
+    /// $1 \le k \le \text{MAX\_ORDER}$. Returns [`FoldAdaptError::InvalidOrder`] if out of domain.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FoldAdaptError::InvalidOrder`] if `k == 0` or `k > MAX_ORDER`.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $O(1)$ table initialization.
+    /// Spatial: allocates table of capacity in [`FreqMap`].
+    pub fn with_capacity(k: usize, cap: usize) -> Result<Self, FoldAdaptError> {
+        if k == 0 || k > MAX_ORDER {
+            return Err(FoldAdaptError::InvalidOrder(k));
+        }
+        Ok(FoldAdapter {
+            flat: FreqMap::with_capacity(cap),
+            keys: Vec::new(),
+            ctx_tokens: FreqMap::with_capacity(cap),
+            k,
+        })
+    }
+
+    /// Context order $k$ of this adapter.
+    #[inline]
+    pub fn order(&self) -> usize {
+        self.k
+    }
+
+    /// Whether this adapter holds no live keys.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
+
+    /// Number of active distinct `(order, context, token)` entries.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.keys.len()
+    }
+
+    /// Slice of active `(order, packed_context, token)` keys.
+    #[inline]
+    pub fn keys(&self) -> &[Key] {
+        &self.keys
+    }
+
+    /// Finetune: fold the token stream into the count table in one pass.
+    ///
+    /// Accumulates occurrence counts across all context orders $1 \le o \le \min(k, i)$
+    /// for each position $i \in 1..\text{ids.len()}$.
+    ///
+    /// # Domain
+    ///
+    /// Any token slice `ids`.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $\Theta(N \cdot k)$ operations, where $N = \text{ids.len()}$ and $k = \text{self.k} \le 4$.
+    /// Derivation: outer loop iterates $i \in 1..N$; inner loop iterates $o \in 1..\min(k, i)$.
+    /// Each step performs $O(1)$ pack, $O(1)$ [`FreqMap::get`], $O(1)$ [`FreqMap::add`], and amortized $O(1)$ key tracking.
+    /// Spatial: $O(U)$ words where $U \le N \cdot k$ is the number of distinct n-grams observed.
+    pub fn fold(&mut self, ids: &[u32]) {
+        self.fold_signed(ids, 1);
+    }
+
+    /// Exact unlearning: subtract the same token stream (the group inverse over $\mathbb{Z}$).
+    ///
+    /// Leaves no trace behind: entries whose counts return to zero are completely removed
+    /// from key tracking and sparse context indices.
+    ///
+    /// # Domain
+    ///
+    /// Any token slice `ids`.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $\Theta(N \cdot k + K)$ operations, where $N = \text{ids.len()}$, $k = \text{self.k} \le 4$,
+    /// and $K = \text{self.keys.len()}$.
+    /// Derivation: loops over tokens in $\Theta(N \cdot k)$ subtracting counts, followed by $O(K)$ cleanup
+    /// removing zero-count keys and clearing empty context entries.
+    /// Spatial: $O(1)$ auxiliary space.
+    pub fn unfold(&mut self, ids: &[u32]) {
+        self.fold_signed(ids, -1);
+    }
+
+    fn fold_signed(&mut self, ids: &[u32], sign: i32) {
+        let k = self.k;
+        if ids.len() < 2 {
+            return;
+        }
+        for i in 1..ids.len() {
+            let next_id = ids[i];
+            for o in 1..=k.min(i) {
+                let p = pack(&ids[i - o..i]);
+                let key = (o as u8, p, next_id);
+                let ctx_key = (o as u8, p);
+                let prev = self.flat.get(&key).copied().unwrap_or(0);
+                if sign > 0 {
+                    if prev == 0 {
+                        self.keys.push(key);
+                        self.ctx_tokens
+                            .insert_with(&ctx_key, vec![next_id], |_, mut old| {
+                                if !old.contains(&next_id) {
+                                    old.push(next_id);
+                                }
+                                old
+                            });
+                    }
+                    self.flat.add(&key, i64::from(sign));
+                } else if sign < 0 && prev > 0 {
+                    self.flat.add(&key, i64::from(sign));
+                    let new_cnt = self.flat.get(&key).copied().unwrap_or(0);
+                    if new_cnt == 0 {
+                        if let Some(tokens) = self.ctx_tokens.get(&ctx_key) {
+                            let updated: Vec<u32> =
+                                tokens.iter().copied().filter(|&t| t != next_id).collect();
+                            self.ctx_tokens.insert(&ctx_key, updated);
+                        }
+                    }
+                }
+            }
+        }
+        if sign < 0 {
+            self.keys
+                .retain(|k| self.flat.get(k).copied().unwrap_or(0) != 0);
+        }
+    }
+
+    /// Merge counts from another adapter into `self` (exact, order-free addition over $\mathbb{Z}$).
+    ///
+    /// Refines `Sanguine.MLPrimitivesBridge.osFuse_is_add` and
+    /// `Sanguine.MLPrimitivesBridge.osFuse_grouping_free`.
+    ///
+    /// # Domain
+    ///
+    /// `self.k == other.k`. Returns [`FoldAdaptError::OrderMismatch`] if context orders differ.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FoldAdaptError::OrderMismatch`] if `self.k != other.k`.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $\Theta(K)$ operations where $K = \text{other.keys.len()}$.
+    /// Derivation: single pass over `other.keys`; each key is looked up in `other.flat` in $O(1)$ time and added to `self.flat` in $O(1)$ time.
+    /// Spatial: up to $K$ new key words in `self.keys` and `self.flat`.
+    pub fn merge(&mut self, other: &Self) -> Result<(), FoldAdaptError> {
+        if self.k != other.k {
+            return Err(FoldAdaptError::OrderMismatch {
+                expected: self.k,
+                actual: other.k,
+            });
+        }
+        for &k in &other.keys {
+            if let Some(&c) = other.flat.get(&k) {
+                if c != 0 {
+                    let prev = self.flat.get(&k).copied().unwrap_or(0);
+                    if prev == 0 {
+                        self.keys.push(k);
+                        let ctx_key = (k.0, k.1);
+                        let next_id = k.2;
+                        self.ctx_tokens
+                            .insert_with(&ctx_key, vec![next_id], |_, mut old| {
+                                if !old.contains(&next_id) {
+                                    old.push(next_id);
+                                }
+                                old
+                            });
+                    }
+                    self.flat.add(&k, c);
+                }
+            }
+        }
+        self.keys
+            .retain(|k| self.flat.get(k).copied().unwrap_or(0) != 0);
+        for &k in &other.keys {
+            let (o, p, next_id) = k;
+            let c = self.flat.get(&k).copied().unwrap_or(0);
+            if c == 0 {
+                let ctx_key = (o, p);
+                if let Some(tokens) = self.ctx_tokens.get(&ctx_key) {
+                    let updated: Vec<u32> =
+                        tokens.iter().copied().filter(|&t| t != next_id).collect();
+                    self.ctx_tokens.insert(&ctx_key, updated);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Return a new adapter with `other` merged into `self`.
+    ///
+    /// # Domain
+    ///
+    /// `self.k == other.k`. Returns [`FoldAdaptError::OrderMismatch`] if context orders differ.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FoldAdaptError::OrderMismatch`] if `self.k != other.k`.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $\Theta(K_1 + K_2)$ operations where $K_1 = \text{self.keys.len()}$ and $K_2 = \text{other.keys.len()}$.
+    /// Derivation: clones `self` ($O(K_1)$) and merges `other` ($O(K_2)$).
+    /// Spatial: $O(K_1 + K_2)$ words for the merged adapter.
+    pub fn merged(&self, other: &Self) -> Result<Self, FoldAdaptError> {
+        let mut res = self.clone();
+        res.merge(other)?;
+        Ok(res)
+    }
+
+    /// Modified-KN absolute discounts derived from top-order counts-of-counts.
+    ///
+    /// Calls [`crate::learn::countlm::kn_discounts_cg`].
+    ///
+    /// # Domain
+    ///
+    /// Total.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $\Theta(K)$ operations where $K = \text{self.keys.len()}$.
+    /// Derivation: single pass over `self.keys` counting occurrences at top order $k$.
+    /// Spatial: $O(1)$ words.
+    #[must_use]
+    pub fn discounts(&self) -> (f64, f64, f64) {
+        let (mut n1, mut n2, mut n3, mut n4) = (0u64, 0u64, 0u64, 0u64);
+        for &k in &self.keys {
+            if k.0 as usize == self.k {
+                let c = self.flat.get(&k).copied().unwrap_or(0);
+                match c {
+                    1 => n1 += 1,
+                    2 => n2 += 1,
+                    3 => n3 += 1,
+                    4 => n4 += 1,
+                    _ => {}
+                }
+            }
+        }
+        kn_discounts_cg(n1, n2, n3, n4)
+    }
+
+    /// Refine a base distribution `base` at `ctx` using default doorway gating ([`DOORWAY`]).
+    ///
+    /// Applies domain evidence only when participation ratio $\text{PR} \le 2.0$.
+    /// Refines `Sanguine.MLPrimitivesBridge.kn_floor_refinement`.
+    ///
+    /// # Domain
+    ///
+    /// Non-empty `base`. Returns [`FoldAdaptError::EmptyBase`] if `base.is_empty()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FoldAdaptError::EmptyBase`] if `base.is_empty()`.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $\Theta(V + k \cdot D)$ operations where $V = \text{base.len()}$, $k = \text{self.k} \le 4$,
+    /// and $D \le V$ is maximum continuation count per queried context order.
+    /// Derivation: clones `base` ($O(V)$), then queries at most $k$ orders. Each order evaluates $D$
+    /// continuation counts and scales/adds into $p$ in $O(V)$ operations.
+    /// Spatial: allocates vector of length $V$.
+    pub fn refine(&self, base: &[f64], ctx: &[u32]) -> Result<Vec<f64>, FoldAdaptError> {
+        let d = self.discounts();
+        self.refine_gated(base, ctx, d, DOORWAY)
+    }
+
+    /// Refine with pre-computed discounts and unconstrained participation ratio ($\text{PR} \le \infty$).
+    ///
+    /// # Domain
+    ///
+    /// Non-empty `base`. Returns [`FoldAdaptError::EmptyBase`] if `base.is_empty()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FoldAdaptError::EmptyBase`] if `base.is_empty()`.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $\Theta(V + k \cdot D)$ operations.
+    /// Spatial: allocates vector of length $V$.
+    pub fn refine_with(
+        &self,
+        base: &[f64],
+        ctx: &[u32],
+        d: (f64, f64, f64),
+    ) -> Result<Vec<f64>, FoldAdaptError> {
+        self.refine_gated(base, ctx, d, f64::INFINITY)
+    }
+
+    /// Sparse refinement with explicit participation ratio ceiling `pr_max`.
+    ///
+    /// # Domain
+    ///
+    /// Non-empty `base`. Returns [`FoldAdaptError::EmptyBase`] if `base.is_empty()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FoldAdaptError::EmptyBase`] if `base.is_empty()`.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $\Theta(V + k \cdot D)$ operations.
+    /// Spatial: allocates vector of length $V$.
+    pub fn refine_sparse(
+        &self,
+        base: &[f64],
+        ctx: &[u32],
+        d: (f64, f64, f64),
+        pr_max: f64,
+    ) -> Result<Vec<f64>, FoldAdaptError> {
+        self.refine_gated(base, ctx, d, pr_max)
+    }
+
+    fn refine_gated(
+        &self,
+        base: &[f64],
+        ctx: &[u32],
+        d: (f64, f64, f64),
+        pr_max: f64,
+    ) -> Result<Vec<f64>, FoldAdaptError> {
+        if base.is_empty() {
+            return Err(FoldAdaptError::EmptyBase);
+        }
+        let mut p = base.to_vec();
+        let n = ctx.len();
+        for o in 1..=self.k {
+            if o > n {
+                continue;
+            }
+            let p_ctx = pack(&ctx[n - o..n]);
+            let ctx_key = (o as u8, p_ctx);
+            let Some(tokens) = self.ctx_tokens.get(&ctx_key) else {
+                continue;
+            };
+            if tokens.is_empty() {
+                continue;
+            }
+            let mut cnts: Vec<(u32, i64)> = Vec::with_capacity(tokens.len());
+            for &next_id in tokens {
+                let key = (o as u8, p_ctx, next_id);
+                if let Some(&c) = self.flat.get(&key) {
+                    if c > 0 {
+                        cnts.push((next_id, c));
+                    }
+                }
+            }
+            if cnts.is_empty() {
+                continue;
+            }
+            let (mut tot, mut sumsq, mut nn1, mut nn2, mut nn3) =
+                (0i64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
+            for &(_, c) in &cnts {
+                tot += c;
+                let fc = c as f64;
+                sumsq += fc * fc;
+                match c {
+                    1 => nn1 += 1.0,
+                    2 => nn2 += 1.0,
+                    _ => nn3 += 1.0,
+                }
+            }
+            if tot <= 0 {
+                continue;
+            }
+            let ftot = tot as f64;
+            let pr = ftot * ftot / sumsq.max(1e-30);
+            if pr > pr_max {
+                continue;
+            }
+            let gamma = (d.0 * nn1 + d.1 * nn2 + d.2 * nn3) / ftot;
+            for pj in &mut p {
+                *pj *= gamma;
+            }
+            for &(j, c) in &cnts {
+                if (j as usize) < p.len() {
+                    let dc = match c {
+                        1 => d.0,
+                        2 => d.1,
+                        _ => d.2,
+                    };
+                    p[j as usize] += (c as f64 - dc).max(0.0) / ftot;
+                }
+            }
+        }
+        Ok(p)
+    }
+
+    /// Total count and number of non-zero entries: `(total_count, non_zero_entries)`.
+    ///
+    /// # Domain
+    ///
+    /// Total.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $\Theta(K)$ operations where $K = \text{self.keys.len()}$.
+    /// Derivation: single pass over `self.keys`.
+    /// Spatial: $O(1)$ words.
+    pub fn signature(&self) -> (i64, usize) {
+        let mut tot = 0i64;
+        let mut ne = 0usize;
+        for &k in &self.keys {
+            if let Some(&c) = self.flat.get(&k) {
+                if c != 0 {
+                    tot += c;
+                    ne += 1;
+                }
+            }
+        }
+        (tot, ne)
+    }
+
+    /// Exact non-zero count ledger sorted by key for bit-for-bit equivalence comparison.
+    ///
+    /// # Domain
+    ///
+    /// Total.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $O(M \log M)$ comparisons where $M \le \text{self.keys.len()}$ is the non-zero entry count.
+    /// Derivation: loops over `self.keys` ($O(K)$), then sorts $M$ tuples ($O(M \log M)$).
+    /// Spatial: allocates vector of $M$ `((order, packed_ctx, token), count)` tuples.
+    pub fn count_state(&self) -> Vec<(Key, i64)> {
+        let mut state: Vec<(Key, i64)> = self
+            .keys
+            .iter()
+            .filter_map(|&k| {
+                let c = self.flat.get(&k).copied().unwrap_or(0);
+                if c != 0 {
+                    Some((k, c))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        state.sort_unstable_by_key(|a| a.0);
+        state
+    }
+
+    /// Counts-of-counts $[N_1, N_2, N_3, N_4]$ across all context keys.
+    ///
+    /// # Domain
+    ///
+    /// Total.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $\Theta(K)$ operations where $K = \text{self.keys.len()}$.
+    /// Derivation: single pass over `self.keys`.
+    /// Spatial: $O(1)$ words.
+    #[must_use]
+    pub fn count_of_counts(&self) -> [u64; 4] {
+        let mut n = [0u64; 4];
+        for &k in &self.keys {
+            let c = self.flat.get(&k).copied().unwrap_or(0);
+            match c {
+                1 => n[0] += 1,
+                2 => n[1] += 1,
+                3 => n[2] += 1,
+                4 => n[3] += 1,
+                _ => {}
+            }
+        }
+        n
+    }
+}
+
+impl PartialEq for FoldAdapter {
+    fn eq(&self, other: &Self) -> bool {
+        self.k == other.k && self.count_state() == other.count_state()
+    }
+}
+
+impl Eq for FoldAdapter {}
+
+impl std::fmt::Debug for FoldAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FoldAdapter")
+            .field("order", &self.k)
+            .field("keys_count", &self.keys.len())
+            .field("signature", &self.signature())
+            .finish_non_exhaustive()
+    }
+}
