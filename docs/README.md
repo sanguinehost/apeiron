@@ -44,7 +44,7 @@ from [`templates/epic.md`](templates/epic.md).
 | [kernel-topology-optimizations](epics/kernel-topology-optimizations.md) | draft |
 | [moe-router](epics/moe-router.md) | W1 complete (tested + proved); W2 at barrier |
 | [model-algebra](epics/model-algebra.md) | draft; closing wave receipted |
-| [neural-rebase](epics/neural-rebase.md) | draft |
+| [neural-rebase](epics/neural-rebase.md) | draft (stage 2 vendoring complete; [stage 3 learning track](epics/neural-rebase.md#stage-3--learning-track-intent-spec-plan) intent, spec, plan) |
 | [open-areas](epics/open-areas.md) | plan |
 | [parallel-stable-scatter](epics/parallel-stable-scatter.md) | approved for bounded implementation |
 | [physical-computation-bounds](epics/physical-computation-bounds.md) | draft |

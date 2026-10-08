@@ -89,7 +89,7 @@ cd proof/corpus && lake build <module set fixed in the spec> && lake build Axiom
 ### Non-goals
 
 - New architectures or training runs; `AI-ARCH` is stage 6.
-- Re-running the spinor-ttl measurements.
+- Re-running the spinor-ttl measurements (stage 3 re-runs them).
 - The `NullCell` terrain/world modules and the physics, security and game rows.
 - Publication; pre-rebase artifacts stay private.
 - Editing the canonical corpus or the pinned package.
@@ -1241,3 +1241,592 @@ for p in <resolved path list, §6 evidence>; do test -e "$p" || echo "MISSING $p
 
 Both are logged verbatim at `/tmp/opencode/neural-inv-gate.log`; the required result is no
 whitespace diagnostic and no `MISSING` line.
+
+
+## Stage 3 — learning track (intent, spec, plan)
+
+### Intent — Learning track (verified-AI sequence, stage 3)
+
+- **Owner:** Apeiron lead
+- **Source revision:** `024ec32`
+- **Status:** draft
+- **Spec:** [`docs/epics/neural-rebase.md`](neural-rebase.md) (draft)
+- **Plan:** [`docs/epics/neural-rebase.md`](neural-rebase.md) (draft)
+
+```text
+SCOPE: docs/epics/neural-rebase.md only; planning, intent, spec and plan for learning track
+REGISTER: learning track refinement and implementation (docs/direction.md#programme-outcomes,
+          "Active test-time learning and lower-cost useful AI"); excludes execution and grade changes
+CORPUS: vendored neural statements proof/corpus/Substrate/Algebra/Neural/{MirasCountLM, KneserNey,
+        CountLMFloor, AttentionSpinor, MLPrimitivesBridge, TrainingCollapse}.lean and
+        proof/corpus/Substrate/Algebra/NullCell/SpinorFold.lean; canonical definitions
+        Apeiron.Table.{HMap, get, insertWith, build} and Apeiron.Trichotomy.AnyRing
+REFERENCE: ../spinor-ttl (a05bb1b); ../fold (d497161f, e037ba11 modelfold/);
+           original commits f875705d, eaeca005, 3c03ff38, db5397b2, d79460e8, 83d9cc8a;
+           docs/plan.md Learning track
+GATE: python3 tools/check-claims.py
+GRADE: anchor/planning
+```
+
+#### Problem
+
+The formal neural foundations and historical statements were vendored into `proof/corpus/Substrate/Algebra/Neural/` and audited under Lean `v4.31.0` in stage 2 (`APEIRON-NEURAL-W1`). However, these Lean theorems currently stand as standalone formal statements without executing Rust implementations in this repository. The empirical winners for training, finetuning, and quantization exist only in external checkouts (`../spinor-ttl` at HEAD `a05bb1b` and `../fold` at HEAD `d497161f`). Without implementing and verifying the executing carriers in this crate, the AI-track outcome ("Active test-time learning and lower-cost useful AI") lacks primary artifact backing, leaving open obligations between the formal theorems and executing binaries.
+
+#### Why the alternatives were rejected
+
+| Alternative | Why not |
+|---|---|
+| Retain `../spinor-ttl` Python/PyTorch modules as production | Violates primary artifact pillar (AGENTS.md §4 obligation 1): external Python runtimes with unverified dependencies cannot be extracted or linked to the Lean kernel. |
+| Rely on `../fold/modelfold` via runtime linkage | Cross-repo runtime linkage introduces circularity and unverified surface; apeiron requires in-tree verified primitives. |
+| Re-derive mechanisms from first principles without subsumption | Violates AGENTS.md §3a ("Subsume the empirical best before deriving"): re-deriving discards measured empirical advantages and verified baselines. |
+| Treat stage-2 standalone Lean proofs as DoD closure | Standalone theorems without an executing Rust correspondence do not establish end-to-end verified learning (AGENTS.md §4 obligation 3). |
+| Optimize training speed before verifying bits/token | Violates programme direction (owner 2026-10-08): primary criterion is held-out bits/token at a stated bits/weight; speed is secondary. |
+
+#### Completion condition
+
+All six learning track mechanisms ((a) seal quantizer, (b) FoldAdapter, (c) ridge fold, (d) KN count-LM, (e) gptq / 4→3-trit planes, (f) foldnet) are implemented under `src/learn/` (≤3 files per task), with passing focused test suites (`cargo test --release --locked --test learn_<x>`), explicit negative mutation controls, and formal Lean refinement links linking extracted Rust structures to `proof/corpus/Substrate/Algebra/Neural/`. Execution passes without inference speed regression on the pinned golden model (Qwen2.5-0.5B SEQHASH `9092dbbaff119a2e`).
+
+#### Invariants
+
+1. **No inference speed regression:** `tg128` and `pp512` token rates on Qwen2.5-0.5B Q4_K_M do not regress against the speed-guard baseline on the same hardware.
+2. **Metric precedence:** held-out bits/token (or bits/byte) at stated bits/weight is the primary acceptance criterion. Speedups are secondary.
+3. **Axiom cone:** refinements audit within `{propext, Classical.choice, Quot.sound}` without `sorry`/`admit`/`axiom`.
+4. **Exact/float factoring:** exact integer and rational arithmetic is extracted via Aeneas and formally refined; floating-point evaluation is tested against analytical references.
+5. **Task decomposition:** each implementation task touches ≤3 files, declares one focused gate and one negative control, and executes in isolated worktree lanes.
+
+#### Verification hypotheses
+
+| Claim | Grade | Evidence (command or theorem) |
+|---|---|---|
+| Seal activation-calibrated quantization reaches bits/token parity | tested | `cargo test --release --locked --test learn_seal` |
+| Seal output distortion minimizes function distortion $\sum \tau_j r_j^2$ | proved | `MLPrimitivesBridge.output_error_is_function_distortion` (`proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:304`) |
+| FoldAdapter forward-only finetuning achieves target b/B | tested | `cargo test --release --locked --test learn_foldadapt` |
+| FoldAdapter additive merge and unlearning commute | proved | `MLPrimitivesBridge.osFuse_is_add` (`proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:174`), `osFuse_grouping_free` (`:182`), `MirasCountLM.forget_hebb` (`proof/corpus/Substrate/Algebra/Neural/MirasCountLM.lean:101`) |
+| Ridge fold streaming Gram accumulation and SPD solve reach optimum | tested | `cargo test --release --locked --test learn_ridge` |
+| Ridge normal equations yield unique optimum | proved | `TrainingCollapse.ridgeHead_unique` (`proof/corpus/Substrate/Algebra/Neural/TrainingCollapse.lean:223`), `gram_stack` (`:245`) |
+| KN count-LM achieves $\le 2.205$ b/B | tested | `cargo test --release --locked --test learn_count` |
+| Kneser–Ney distribution normalizes | proved | `KneserNey.kn_normalizes` (`proof/corpus/Substrate/Algebra/Neural/KneserNey.lean:98`), `MirasCountLM.countlm_is_exact_miras` (`proof/corpus/Substrate/Algebra/Neural/MirasCountLM.lean:138`) |
+| GPTQ error-feedback produces lower output distortion than naive rounding | tested | `cargo test --release --locked --test learn_gptq` |
+| FoldNet nonlinear random feature expansion solves non-linear benchmarks | tested | `cargo test --release --locked --test learn_foldnet` |
+
+#### Non-goals
+
+- Large-scale distributed pre-training runs (deferred to stage 6).
+- New neural architectural searches or novel optimizer derivations.
+- Modifying the pinned canonical corpus at `../sanguine-apeiron/proof`.
+- Modifying the frozen stage-2 vendored Lean files in `proof/corpus/Substrate/`.
+
+#### Trust boundary
+
+The learning track claims cover in-tree Rust implementations in `src/learn/`, their unit and integration tests under `tests/`, their Aeneas extraction models, and Lean kernel-checked refinement links to the vendored Neural modules. They do not cover third-party host BLAS libraries, CUDA driver execution paths, external dataset tokenization pipelines, or LLVM target-specific codegen quirks.
+
+#### Open questions
+
+- **GGUF write target:** whether the seal quantizer GGUF export writes custom tensor types or standard Q4_K / Q8_0 blocks with sidecar scale tables.
+- **Counting face backing:** whether `CountLM` and `FoldAdapter` consume the refined `FreqMap` directly or utilize table-specialized storage arrays.
+
+---
+
+### Specification — Learning track (verified-AI sequence, stage 3)
+
+- **Owner:** Apeiron lead
+- **Intent:** [`docs/epics/neural-rebase.md`](neural-rebase.md)
+- **Status:** draft
+
+```text
+SCOPE: docs/epics/neural-rebase.md only; specification for learning track mechanisms
+REGISTER: learning track mechanism specification and refinement links
+CORPUS: proof/corpus/Substrate/Algebra/Neural/{MirasCountLM, KneserNey, CountLMFloor,
+        AttentionSpinor, MLPrimitivesBridge, TrainingCollapse}.lean;
+        proof/corpus/Substrate/Algebra/NullCell/SpinorFold.lean
+REFERENCE: ../spinor-ttl; ../fold/modelfold; commits f875705d, eaeca005, 3c03ff38, db5397b2,
+           d79460e8, 83d9cc8a
+GATE: python3 tools/check-claims.py
+GRADE: anchor/planning
+```
+
+#### Scope and admissible domain
+
+This specification covers six learning, finetuning, and quantization mechanisms reimplemented in Rust in this crate, with formal refinement to vendored Lean declarations in `proof/corpus/Substrate/Algebra/Neural/`.
+
+| Mechanism | Subsumed Base | Lean Reference | Primary Metric |
+|---|---|---|---|
+| (a) Seal quantizer | `../spinor-ttl/src/spinor_ttl/seal.py`, `../fold/modelfold/src/quant.rs` | `MLPrimitivesBridge.output_error_is_function_distortion` | bits/token @ stated bits/weight |
+| (b) FoldAdapter | `../spinor-ttl/src/spinor_ttl/finetune.py`, `../fold/modelfold/src/train.rs` | `MLPrimitivesBridge.osFuse_is_add`, `kn_floor_refinement` | bits/byte (b/B) on domain adaptation |
+| (c) Ridge fold | `../spinor-ttl/src/spinor_ttl/foldtrain.py`, `../fold/modelfold/src/foldtrain.rs` | `TrainingCollapse.ridgeHead_unique`, `gram_stack` | wall-clock time to Adam optimum |
+| (d) KN count-LM | `../spinor-ttl/src/spinor_ttl/countlm.py`, `../fold/modelfold/src/countlm.rs` | `KneserNey.kn_normalizes`, `MirasCountLM.countlm_is_exact_miras` | bits/byte (b/B) on byte prediction |
+| (e) GPTQ 4→3-trit | `../fold/modelfold/src/quant.rs`, `../fold` `d79460e8:hashtrinity/src/gptq.rs` | `MLPrimitivesBridge.output_error_is_function_distortion` (metric) | output distortion $\sum \tau_j r_j^2$ |
+| (f) FoldNet | `../fold/modelfold/src/arch.rs`, `../fold` `83d9cc8a:hashtrinity/src/foldnet.rs` | `TrainingCollapse.ridgeHead_unique`, `gram_stack` | classification accuracy on XOR / multimodal |
+
+#### Representation relation
+
+| Layer | Symbol | Representation |
+|---|---|---|
+| Rust carrier (exact) | `Cell<i64>`, integer counts, bit-packed trits | Discrete coordinate addressing, exact integer monoids $(\mathbb{Z}, +)$ |
+| Rust carrier (float) | `f32`, `f64`, vector buffers | Floating-point arrays evaluated against golden analytical references |
+| Lean object | Real matrix `Matrix (Fin n) (Fin d) ℝ`, `Memory K`, `pKN` | Continuous formal structures in Mathlib and `proof/corpus/Substrate/` |
+| Exact/Float boundary | Quantization grid, Gram accumulator, count updates | Integer kernels extracted via Aeneas; solve and loss evaluation in float |
+
+#### Contracts
+
+| Contract | Statement | Grade target | Evidence |
+|---|---|---|---|
+| `seal_calibrated_distortion` | At equal bits/weight, the seal grid's calibrated distortion $\sum \tau_j r_j^2$ is no larger than round-to-nearest's on the same calibration set | tested | `cargo test --release --locked --test learn_seal` |
+| `foldadapter_unlearning` | Exact unlearning holds: $\text{fold}(A + B) - \text{fold}(B) = \text{fold}(A)$ bit-for-bit | tested + proved | `tests/learn_foldadapt.rs`; `MirasCountLM.forget_hebb` |
+| `ridge_unique_optimum` | Regularized drag $U = X^T X + \lambda I$ is strictly positive definite for $\lambda > 0$ | proved | `TrainingCollapse.ridgeHead_unique` |
+| `countlm_normalization` | KN backoff distribution sums to 1: $\sum_w p_{KN}(w \mid \text{ctx}) = 1$ | proved | `KneserNey.kn_normalizes` |
+| `gptq_error_feedback` | Column error-feedback achieves lower output distortion than naive rounding | tested | `tests/learn_gptq.rs` |
+| `foldnet_nonlinearity` | Fixed random nonlinear expansion separates XOR benchmark (>99% accuracy) | tested | `tests/learn_foldnet.rs` |
+
+#### Failure semantics
+
+| Condition | Failure mode | Diagnostic |
+|---|---|---|
+| Non-positive regularization $\lambda \le 0$ | Refusal at solve entry | `RidgeError::NonPositiveRegularization` |
+| Singular / indefinite Gram matrix in Cholesky | Numerical refusal | `RidgeError::CholeskyIndefinite` |
+| Empty calibration activation stream $\tau$ | Invariant violation | `SealError::EmptyCalibration` |
+| Zero total counts in count table | Degenerate backoff | `CountLMError::EmptyContext` |
+| Invalid trit code (>2 in 2-bit field) | Parse / unpack error | `TritError::InvalidCode` |
+
+#### Evidence plan
+
+1. **Positive tests:** focused tests for each mechanism (`cargo test --release --locked --test learn_<x>`).
+2. **Negative controls:** per-task mutation controls executed in throwaway copies verifying test failure.
+3. **Lean proofs:** kernel check `cd proof/corpus && lake build` for refinement theorems linking extracted carriers.
+4. **Speed guard:** `python3 tools/gpu/speed_guard.py` verifying no inference throughput regression on golden model.
+
+---
+
+#### Mechanism specifications
+
+##### (a) Seal quantizer (activation-calibrated, error $\sum \tau_j r_j^2$)
+
+1. **Subsumed source:**
+   - **Measured winner:**
+     - Repository: `../spinor-ttl` (HEAD revision `a05bb1b`). File: `src/spinor_ttl/seal.py`, sha256 `bd012f144c6a584f1019e8d9e20ed756ddc6744063fa128130c2168cf998f996`. Functions: `aware_scale`, `function_distortion`, `hadamard`, `fit_blocks`, `quant_mag`, `_quant_blocks`, `fit_dials`, `quantize_tensor_song`, `seal_model`, `load_sealed`.
+     - Repository: `../fold` (HEAD revision `d497161f`). File: `modelfold/src/quant.rs` (lines 1399–1825, `modelfold::quant::seal`), sha256 `4042468783b41ccf6ac6dbf0d68966dbfa02c91c54ab8bd30f1e7e75a612cf62`. Functions: `aware_scale`, `function_distortion`, `Seal::new`, `Seal::quantize`, `Seal::quantize_blocks`, `Seal::pack`, `Seal::unpack`.
+   - **Predecessor:**
+     - Repository: `../fold` (revision `e037ba11` / pre-consolidation `c47012be^`). File: `modelfold/src/seal.rs`, sha256 `35d21291cf17259b5032eab6cdd89457df2ed832d1a4308fe9093dc1da0c564a`.
+2. **Baseline measurement:**
+   - Exact benchmark commands: `python3 bench/vs_gguf.py` and `python3 bench/model_bits_token.py` in `../spinor-ttl`.
+   - Measurement numbers recorded in `../spinor-ttl/PAPER.md` §3 (lines 114–128) and `../spinor-ttl/STATUS.md` (line 122):
+     - Qwen2.5-0.5B Linear projections, 1024 held-out tokens with disjoint calibration band:
+       - Seal reaches **4.2665 bits/token** at 4.45 bits/weight; `bitsandbytes` NF4 reaches 4.3032 bits/token at 4.50 bits/weight (`PAPER.md` lines 116–117).
+       - Seal reaches **4.2057 bits/token** at 5.94 bits/weight; llama.cpp Q4_K_M reaches 4.2121 (no imatrix) and 4.2191 (imatrix) at 6.34 bits/weight (`PAPER.md` lines 122–124).
+   - Grade: measured there, not re-run.
+3. **Theorem to refine:**
+   - `proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:304`:
+     ```lean
+     theorem output_error_is_function_distortion {T n : ℕ} (X : Fin T → Fin n → ℝ)
+         (r : Fin n → ℝ) (horth : ∀ j k, j ≠ k → ∑ t, X t j * X t k = 0) :
+         ∑ t, (∑ j, X t j * r j) ^ 2
+           = functionDistortion (fun j => ∑ t, X t j ^ 2) r
+     ```
+   - `proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:333`:
+     ```lean
+     theorem aware_scale_is_the_chart {n : ℕ} (τ r : Fin n → ℝ) (hτ : ∀ j, 0 ≤ τ j) :
+         functionDistortion τ r = ∑ j, (Real.sqrt (τ j) * r j) ^ 2
+     ```
+   - `proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:344`:
+     ```lean
+     theorem weight_only_is_dual_blind {n : ℕ} (r : Fin n → ℝ) :
+         (∀ τ τ' : Fin n → ℝ, functionDistortion τ r - functionDistortion τ' r
+             = ∑ j, (τ j - τ' j) * r j ^ 2)
+         ∧ (∀ j₀ : Fin n, r j₀ ≠ 0 → ∀ C : ℝ, ∃ τ : Fin n → ℝ,
+             (∀ j, 0 ≤ τ j) ∧ C < functionDistortion τ r)
+     ```
+4. **Admissible domain:**
+   - **Exact:** block length `blk = 32`, code bit width `bits = 4`, discrete quantized code values $q_j \in \{0, \dots, 2^B - 1\}$, integer bitstream packing / unpacking with format tag `HTSEAL1`. Aeneas-extractable integer domain.
+   - **Float:** per-channel calibration energy $\tau_j = \sum_t X_{tj}^2$, scale factor $s_j = \sqrt{\tau_j}$, min/max range $d, m \in \mathbb{R}$, function distortion loss evaluation. Float operations tested against exact analytical references, not proved.
+   - **Representation relation:** Rust `Seal` struct and packed tensor buffer mapped to Lean `functionDistortion τ r` over `Fin n → ℝ` in `MLPrimitivesBridge.lean`.
+5. **Lineage search:**
+   - Command: `rg -c "aware_scale" /home/socol/Workspace/{sanguine,sanguine-apeiron,fold,spinor-ttl,apeiron}`
+   - Summary: 16 matching files found across all 5 repositories:
+     - `spinor-ttl`: 6 files (`src/spinor_ttl/seal.py`, `PAPER.md`, `README.md`, `bench/seal_8b.py`, `bench/ternary_8b_vs_bnb.py`, `TERNARY_FINDINGS.md`).
+     - `sanguine-apeiron`: 3 files (`theory/HEADLINES.tsv`, `proof/Apeiron/Audit.lean`, `proof/Apeiron/Numeric/Accumulator.lean`).
+     - `sanguine`: 3 files (`proof/Substrate/Algebra/Neural/MLPrimitivesBridge.lean`, `release/paper1/Numerics.lean`, `release/paper1/INDEX.md`).
+     - `fold`: 1 file (`modelfold/src/quant.rs`).
+     - `apeiron`: 3 files (`docs/epics/neural-rebase.md`, `proof/corpus/AxiomAudit/Core.lean`, `proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean`).
+6. **Rust target:**
+   - Proposed module: `src/learn/seal.rs` (with `src/learn/mod.rs` and `src/lib.rs`).
+   - Test file: `tests/learn_seal.rs`.
+   - Gate: `cargo test --release --locked --test learn_seal`.
+   - Negative control (verbatim from `docs/plan.md`): drop the τ weighting in a copy: the calibrated-error ≤ uncalibrated-error test fails.
+   - Metric: bits/token on Qwen2.5-0.5B $\le 4.2057$ at 5.94 bits/weight and $\le 4.2665$ at 4.45 bits/weight; calibration: 512 tokens, held-out: 1024 disjoint tokens.
+
+---
+
+##### (b) FoldAdapter (forward-only adapter, additive merge, exact unlearning)
+
+1. **Subsumed source:**
+   - **Measured winner:**
+     - Repository: `../spinor-ttl` (HEAD revision `a05bb1b`). File: `src/spinor_ttl/finetune.py`, sha256 `02f2a669ab7b048561516b5829392d78bfc031fccc71839a09db4c90af73ce2b`. Functions: `FoldAdapter.__init__`, `FoldAdapter._fold`, `FoldAdapter.fold`, `FoldAdapter.unfold`, `FoldAdapter.discounts`, `FoldAdapter.refine`, `FoldAdapter._lane_tensors`, `FoldAdapter.refine_batch`, `FoldAdapter.bits_on`.
+     - Repository: `../fold` (HEAD revision `d497161f`). File: `modelfold/src/train.rs` (lines 768–1050), sha256 `d685f8b1c1f47e4271c132ba8cb1ab08b93cd8b904dfbe12abb85459cffa994c`. Functions: `FoldAdapter::new`, `FoldAdapter::fold`, `FoldAdapter::unfold`, `FoldAdapter::discounts`, `FoldAdapter::refine`, `FoldAdapter::refine_with`, `FoldAdapter::refine_sparse`, `FoldAdapter::signature`.
+   - **Predecessor:**
+     - Repository: `../fold` (revision `f875705d`). File: `hashtrinity/src/finetune.rs`, sha256 `a532233529a9302a9e89b1580b23bec34c406e0720c657b78e104af1ef7e3424`; pre-consolidation `c47012be^` `modelfold/src/finetune.rs`, sha256 `d4b2f48c157fc1311f64f52b4f5eda0b8685196764855c6436f8f73ffbeb04cd`.
+2. **Baseline measurement:**
+   - Exact benchmark command: `python3 bench/finetune_race.py` in `../spinor-ttl`.
+   - Measurement numbers recorded in `../spinor-ttl/PAPER.md` §4 (line 136) and `../spinor-ttl/STATUS.md` (lines 121–122):
+     - Finetune fold⊕base reaches **0.724 b/B** in 2.9 s against PEFT LoRA r=16 **0.850 b/B** at 30 s (0.741 b/B at 300 s); fold alone reaches 0.957 b/B; frozen base reaches 0.910 b/B. Exact unlearning: `fold(A+B) − fold(B) = fold(A)`.
+   - Grade: measured there, not re-run.
+3. **Theorem to refine:**
+   - `proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:174`:
+     ```lean
+     theorem osFuse_is_add (a b : ℝ × ℝ) : osVal (osFuse a b) = osVal a + osVal b
+     ```
+   - `proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:182`:
+     ```lean
+     theorem osFuse_grouping_free (a b c : ℝ × ℝ) :
+         osVal (osFuse (osFuse a b) c) = osVal a (osFuse b c)
+     ```
+     *(Historical citation note: cited as `SpinorFold.lean:osFuse_*` in older papers due to historical namespace migration; in-repo declarations live in `MLPrimitivesBridge.lean`).*
+   - `proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:385`:
+     ```lean
+     theorem kn_floor_refinement {V : ℕ} (p : Fin V → ℝ) (c : Fin V → ℕ) (D : ℕ → ℝ)
+         (hD0 : D 0 = 0) (hDb : ∀ n, 0 ≤ D n ∧ D n ≤ n) (hp0 : ∀ j, 0 ≤ p j)
+         (hp1 : ∑ j, p j = 1) (hc : 0 < ∑ j, (c j : ℝ)) :
+         (∀ j, 0 ≤ (∑ i, D (c i) / ∑ i, (c i : ℝ)) * p j + ((c j : ℝ) - D (c j)) / ∑ i, (c i : ℝ))
+         ∧ (∑ j, ((∑ i, D (c i) / ∑ i, (c i : ℝ)) * p j + ((c j : ℝ) - D (c j)) / ∑ i, (c i : ℝ)) = 1)
+     ```
+   - `proof/corpus/Substrate/Algebra/Neural/MirasCountLM.lean:101`:
+     ```lean
+     theorem forget_hebb (obs : K) (M : Memory K) : forget obs (hebb obs M) = M
+     ```
+4. **Admissible domain:**
+   - **Exact:** context token IDs (`u32`), context order $k \le 4$, packed context keys (`u128`), integer counts $c_j \in \mathbb{N}$, integer count additions (`hebb`) and exact unlearning via subtraction (`forget`). Aeneas-extractable.
+   - **Float:** absolute discounts $D_1, D_2, D_3 \in \mathbb{R}$, probability refinement blending mass $\gamma = \sum_i D(c_i)/\text{tot}$, and next-token distribution calculation $q_j = \gamma p_j + (c_j - D(c_j))/\text{tot}$. Tested in `tests/learn_foldadapt.rs`.
+   - **Representation relation:** Rust count table `FreqMap` / `Table` mapped to Lean `Memory K` (`K → ℤ`) in `MirasCountLM.lean`, and refined distribution mapped to `kn_floor_refinement` in `MLPrimitivesBridge.lean`.
+5. **Lineage search:**
+   - Command: `rg -c "FoldAdapter" /home/socol/Workspace/{sanguine,sanguine-apeiron,fold,spinor-ttl,apeiron}`
+   - Summary: 22 matching files found across repositories:
+     - `spinor-ttl`: 6 files (`STATUS.md`, `PAPER.md`, `README.md`, `src/spinor_ttl/finetune.py`, `src/spinor_ttl/__init__.py`, `tests/test_finetune_refine.py`).
+     - `fold`: 10 files (`modelfold/src/train.rs`, `modelfold/src/countlm.rs`, `modelfold/src/lib.rs`, `opsfold/src/flowops.rs`, `bedrock/examples/ttl_fact.rs`, `bedrock/examples/finetune_demo.rs`, `bedrock/examples/table_scaling.rs`, `modelfold/examples/cer_investigation.rs`, `modelfold/examples/gemma3_bench.rs`, `transcode/examples/codec_fidelity.rs`).
+     - `sanguine`: 1 file (`theory/THE_GPU_TRINITY.md`).
+     - `apeiron`: 5 files (`docs/plan.md`, `docs/epics/neural-rebase.md`, call-census tables).
+6. **Rust target:**
+   - Proposed module: `src/learn/foldadapt.rs`.
+   - Test file: `tests/learn_foldadapt.rs`.
+   - Gate: `cargo test --release --locked --test learn_foldadapt`.
+   - Negative control (verbatim from `docs/plan.md`): weight each merge by its position in a copy: the grouping-free test fails.
+   - Metric: b/B on finetune race corpus: $\le 0.724$ b/B against frozen base (0.910 b/B).
+
+---
+
+##### (c) Ridge fold (streaming Gram $X^T X$, one SPD solve, $U = X^T X + \lambda I$)
+
+1. **Subsumed source:**
+   - **Measured winner:**
+     - Repository: `../spinor-ttl` (HEAD revision `a05bb1b`). Files: `src/spinor_ttl/foldtrain.py`, sha256 `a8b53c848a1c1610230ea514e16236683140625b0b1c083b739631ae8b8df47e`; and `src/spinor_ttl/ridgefold.py`, sha256 `c616adf61276251f37f5ce12192a818a78400b9fc60ae4ac73530280aad6c526`. Functions: `fold_ridge`, `FoldTrainer`, `fold_logistic`, `RidgeFold.fold`, `RidgeFold.unfold`, `RidgeFold.solve`, `RidgeFold.logit_delta`.
+     - Repository: `../fold` (HEAD revision `d497161f`). File: `modelfold/src/foldtrain.rs`, sha256 `a5ff02895756a1373bcf7e5ade4725f1ebeece4b157293a8b40ed0c2b33c71a1`. Functions: `FoldTrainer::new`, `FoldTrainer::fit`, `FoldTrainer::fold`, `FoldTrainer::unfold`, `FoldTrainer::merge`, `FoldTrainer::solve`, `solve_spd`, `cholesky`, `chol_solve`, `fit_logistic`.
+   - **Predecessor:**
+     - Repository: `../fold` (commit `eaeca005`). File: `hashtrinity/src/ridgefold.rs`, sha256 `02a11e83ba5059ce466ded1dfcefd3a8963aeae7465b4d33f03e080594f3ec83`.
+     - Repository: `../fold` (commit `db5397b2`). File: `hashtrinity/src/foldtrain.rs`, sha256 `6edb2705125f5b44ab338d59b56c1103b8e01e8a4804771cec949be36db555a8`.
+2. **Baseline measurement:**
+   - Exact benchmark command: `python3 bench/train_fold_vs_grad.py` in `../spinor-ttl`.
+   - Measurement numbers recorded in `../spinor-ttl/STATUS.md` (lines 40–44):
+     - RTX 5080, fitting the same ridge head to the same data, both landing on the same optimum ($\max |\Delta W| \le 10^{-2}$):
+       - 200K rows, $d=512$: fold 24 ms (1 pass) vs Adam 418 ms (375 iters), **18× speedup**.
+       - 500K rows, $d=1024$: fold 28 ms (1 pass) vs Adam 1952 ms (425 iters), **71× speedup**.
+       - 1M rows, $d=256$: fold 59 ms (1 pass) vs Adam 928 ms (375 iters), **16× speedup**.
+   - Grade: measured there, not re-run.
+3. **Theorem to refine:**
+   - `proof/corpus/Substrate/Algebra/Neural/TrainingCollapse.lean:223`:
+     ```lean
+     theorem ridgeHead_unique (X : Matrix (Fin n) (Fin d) ℝ) (Y : Matrix (Fin n) (Fin e) ℝ)
+         {lam : ℝ} (hl : 0 < lam) (W' : Matrix (Fin d) (Fin e) ℝ)
+         (hW' : drag X lam * W' = Xᵀ * Y) :
+         W' = ridgeHead X Y lam
+     ```
+   - `proof/corpus/Substrate/Algebra/Neural/TrainingCollapse.lean:245`:
+     ```lean
+     theorem gram_stack (X₁ : Matrix (Fin n) (Fin d) ℝ) (X₂ : Matrix (Fin m) (Fin d) ℝ) :
+         (stack X₁ X₂)ᵀ * stack X₁ X₂ = X₁ᵀ * X₁ + X₂ᵀ * X₂
+     ```
+   - `proof/corpus/Substrate/Algebra/Neural/TrainingCollapse.lean:251`:
+     ```lean
+     theorem boundary_stack (X₁ : Matrix (Fin n) (Fin d) ℝ) (X₂ : Matrix (Fin m) (Fin d) ℝ)
+         (Y₁ : Matrix (Fin n) (Fin e) ℝ) (Y₂ : Matrix (Fin m) (Fin e) ℝ) :
+         (stack X₁ X₂)ᵀ * stack Y₁ Y₂ = X₁ᵀ * Y₁ + X₂ᵀ * Y₂
+     ```
+4. **Admissible domain:**
+   - **Exact:** integer/fixed-point Gram accumulation $(X_1 \oplus X_2)^T (X_1 \oplus X_2) = X_1^T X_1 + X_2^T X_2$, feature dimension $d$, sample counts $n$, shard accumulation monoid morphism. Aeneas-extractable.
+   - **Float:** Cholesky decomposition $L L^T = U$, forward/backward substitution solving $U W = B$, regularization damping $\lambda > 0$. Tested in `tests/learn_ridge.rs`.
+   - **Representation relation:** Rust Gram buffer `[f64; d*d]` and normal equations mapped to Lean `drag X lam` and `ridgeHead X Y lam` in `TrainingCollapse.lean`.
+5. **Lineage search:**
+   - Command: `rg -c "ridgeHead" /home/socol/Workspace/{sanguine,sanguine-apeiron,fold,spinor-ttl,apeiron}`
+   - Summary: 56 matching files across the 5 repositories:
+     - `spinor-ttl`: 4 files (`STATUS.md`, `src/spinor_ttl/foldtrain.py`, `bench/train_fold_vs_grad.py`, `bench/test_sparse_ridge_fold.py`).
+     - `sanguine`: 24 files (`TrainingCollapse.lean`, `MLPrimitivesBridge.lean`, `LocalSupportRidge.lean`, `Train.lean`, `Model.lean`, etc.).
+     - `fold`: 18 files (`modelfold/src/foldtrain.rs`, `modelfold/src/train.rs`, `modelfold/src/arch.rs`, `modelfold/tests/foldtrain.rs`, `bedrock/src/serve/ridge.rs`, etc.).
+     - `apeiron`: 10 files (`docs/plan.md`, `docs/epics/neural-rebase.md`, `proof/corpus/Substrate/Algebra/Neural/TrainingCollapse.lean`, etc.).
+6. **Rust target:**
+   - Proposed module: `src/learn/ridge.rs`.
+   - Test file: `tests/learn_ridge.rs`.
+   - Gate: `cargo test --release --locked --test learn_ridge`.
+   - Negative control (verbatim from `docs/plan.md`): drop λ in a copy: the unique-optimum test fails on a rank-deficient X.
+   - Metric: Training wall-clock time to Adam optimum on $n=200\text{K}, d=512$: $\ge 16\times$ speedup over gradient descent baseline; residual MSE.
+
+---
+
+##### (d) KN count-LM (Kneser–Ney byte count model)
+
+1. **Subsumed source:**
+   - **Measured winner:**
+     - Repository: `../spinor-ttl` (HEAD revision `a05bb1b`). File: `src/spinor_ttl/countlm.py`, sha256 `92b83507127b3c182dcc69c96569e917c05e2e31f966ea77cc0bec391551fe76`. Functions: `CountLM.__init__`, `CountLM.fit_stream`, `CountLM.bits_on`, `CountLM.predict`, `kn_discounts`.
+     - Repository: `../fold` (HEAD revision `d497161f`). File: `modelfold/src/countlm.rs`, sha256 `cb7c9b3d2681829f51d30eeda81f9f63a25e0a29aec9c1f62d814d71eea34407`. Functions: `CountLM::new`, `CountLM::with_capacity`, `CountLM::fold`, `CountLM::merge`, `CountLM::unfold`, `CountLM::save`, `CountLM::load`, `CountLM::reader`, `kn_discounts_cg`, `Reader::dist`, `Reader::bits_per_byte`.
+   - **Predecessor:**
+     - Repository: `../fold` (commit `3c03ff38`). File: `hashtrinity/src/countlm.rs`, sha256 `c74f27696954fa464b50360470fdf5761d34900e7acd51e411e685491312859b`.
+2. **Baseline measurement:**
+   - Exact benchmark command: `python3 bench/beats_transformer.py` in `../spinor-ttl`.
+   - Measurement numbers recorded in `../spinor-ttl/PAPER.md` §2 (lines 80–87) and `../spinor-ttl/STATUS.md` (line 120):
+     - KN byte count-LM reaches **2.205 b/B** in 1.7 s against a 2-layer byte transformer reaching **2.392 b/B** in 20.9 s; the Lean `sang` binary reference agrees (**2.239 b/B** vs **2.469 b/B**).
+   - Grade: measured there, not re-run.
+3. **Theorem to refine:**
+   - `proof/corpus/Substrate/Algebra/Neural/KneserNey.lean:98`:
+     ```lean
+     theorem kn_normalizes (c : Fin V → ℕ) (pLower : Fin V → ℝ) (D : ℝ)
+         (hD0 : 0 ≤ D) (hD1 : D ≤ 1) (hp : ∑ w, pLower w = 1) (hc : 0 < total c) :
+         ∑ w, pKN c pLower D w = 1
+     ```
+   - `proof/corpus/Substrate/Algebra/Neural/MirasCountLM.lean:138`:
+     ```lean
+     theorem countlm_is_exact_miras (a b : K) (obs : K) (M : Memory K) (z : CrossUniverse.NCell) :
+         (hebb a (hebb b M) = hebb b (hebb a M))
+         ∧ (forget obs (hebb obs M) = M)
+         ∧ (surprise (CrossUniverse.cellVolume z) = CrossUniverse.cellMass z)
+     ```
+   - `proof/corpus/Substrate/Algebra/Neural/MirasCountLM.lean:89`:
+     ```lean
+     theorem hebb_comm (a b : K) (M : Memory K) : hebb a (hebb b M) = hebb b (hebb a M)
+     ```
+   - `proof/corpus/Substrate/Algebra/Neural/MirasCountLM.lean:101`:
+     ```lean
+     theorem forget_hebb (obs : K) (M : Memory K) : forget obs (hebb obs M) = M
+     ```
+4. **Admissible domain:**
+   - **Exact:** Byte n-gram contexts, count table $c: \text{Fin } 256 \to \mathbb{N}$, order $k \le 4$, counts of counts $N_1, N_2, N_3, N_4 \in \mathbb{N}$, sovereign binary container `HTCLM01`. Aeneas-extractable.
+   - **Float:** absolute discounts $D_k = k - (k+1) \frac{N_{k+1}}{N_k} \frac{N_1}{N_1 + 2 N_2}$, continuation probabilities $p_{KN} \in [0, 1]$, log-loss / b/B evaluation $- \log_2 p$. Tested in `tests/learn_count.rs`.
+   - **Representation relation:** Rust `CountLM` state mapped to Lean `c : Fin V → ℕ` and `pKN c pLower D` in `KneserNey.lean`.
+5. **Lineage search:**
+   - Command: `rg -c "countlm_is_exact_miras|kn_normalizes" /home/socol/Workspace/{sanguine,sanguine-apeiron,fold,spinor-ttl,apeiron}`
+   - Summary: 10 matching files found across repositories:
+     - `sanguine`: 3 files (`proof/Substrate/Algebra/Neural/KneserNey.lean`, `MirasCountLM.lean`, `FrontierLadder.lean`).
+     - `fold`: 4 files (`docs/SYNTHESIS.md`, `docs/STATE-ARCHIVE.md`, `STATE.md`, `modelfold/src/countlm.rs`).
+     - `apeiron`: 3 files (`docs/plan.md`, `docs/epics/neural-rebase.md`, `proof/corpus/AxiomAudit/Core.lean`).
+6. **Rust target:**
+   - Proposed module: `src/learn/countlm.rs`.
+   - Test file: `tests/learn_count.rs`.
+   - Gate: `cargo test --release --locked --test learn_count`.
+   - Negative control (verbatim from `docs/plan.md`): drop the KN discount in a copy: the normalisation test fails.
+   - Metric: b/B on C4 / WikiText stream: $\le 2.205$ b/B; training 1M bytes, held-out 100K bytes.
+
+---
+
+##### (e) GPTQ / 4→3-trit planes
+
+1. **Subsumed source:**
+   - **Measured winner:**
+     - Repository: `../fold` (HEAD revision `d497161f`). File: `modelfold/src/quant.rs` (lines 7–350, `modelfold::quant::gptq`), sha256 `4042468783b41ccf6ac6dbf0d68966dbfa02c91c54ab8bd30f1e7e75a612cf62`. Functions: `gptq_ternary`, `gptq_ternary_absmean`, `round_ternary`, `Quant::trit_planes`, `Quant::dequant_planes`, `output_error`, `gptq_affine`.
+     - Repository: `../spinor-ttl` (HEAD revision `a05bb1b`). Files: `bench/ternary_8b_vs_bnb.py`, `bench/ternary_compute.py`, `bench/ternary_descent.py`.
+   - **Predecessor:**
+     - Repository: `../fold` (commit `d79460e8`). File: `hashtrinity/src/gptq.rs`, sha256 `8a02782deffd5a06ebfab16fc2b97b395c14efd52b02e976d60fe3f3f014c31b`; pre-consolidation `c47012be^` `modelfold/src/gptq.rs`, sha256 `17ad4d0b4cd1d418e60116964c765ffca56f823435bca9c3f78c0427999a1aad`.
+2. **Baseline measurement:**
+   - Exact benchmark commands: `cargo test --package hashtrinity --test gptq` (at `d79460e8`) and `cargo test --package modelfold --test gptq` (at `e037ba11`).
+   - Measurement numbers recorded in `../fold` commit `d79460e8` (`hashtrinity/tests/gptq.rs`):
+     - At $L=3$ (3 trits per weight, the 4-bit→ternary target), error-feedback reaches **$9.83 \times 10^{-4}$** output distortion vs naive rounding **$1.24 \times 10^{-3}$** (**$1.26\times$ distortion reduction**).
+     - Balanced-trit plane sum reconstructs the affine dequant bit-for-bit (`balanced_ternary_lossless`).
+   - Grade: measured there, not re-run.
+3. **Theorem to refine:**
+   - **NONE — stage-3 obligation.**
+   - Missing statements:
+     1. `gptq_error_feedback_distortion_le`: column-wise error feedback residual push under SPD Hessian $H = X^T X + \lambda I$ achieves strictly lower forward output distortion than naive rounding.
+     2. `balanced_trit_plane_sum`: exact linear representation of affine code $c \in \{-13, \dots, +13\}$ via $\sum_{k=0}^{L-1} 3^k t_k$ for balanced trits $t_k \in \{-1, 0, +1\}$.
+     *(Note: the distortion metric itself refines `proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:304`, `output_error_is_function_distortion`).*
+4. **Admissible domain:**
+   - **Exact:** Balanced ternary values $\{-1, 0, +1\}$, 2-bit packing (4 trits/byte), radix-3 place-value reconstruction $\{1, 3, 9\}$, plane index. Aeneas-extractable.
+   - **Float:** Hessian $H = X^T X + \lambda I$, Cholesky decomposition of $H^{-1}$, column error-feedback updates, output distortion metric. Tested in `tests/learn_gptq.rs`.
+   - **Representation relation:** Rust `Q2Plane` (`Vec<u8>`) and place values mapped to Lean balanced ternary vectors `Fin L → Fin n → {-1, 0, 1}`.
+5. **Lineage search:**
+   - Command: `rg -c "gptq_ternary" /home/socol/Workspace/{sanguine,sanguine-apeiron,fold,spinor-ttl,apeiron}`
+   - Summary: 6 matching files across repositories:
+     - `spinor-ttl`: 1 file (`bench/ternary_descent.py`).
+     - `fold`: 4 files (`modelfold/src/quant.rs`, `modelfold/src/arch.rs`, `modelfold/tests/gptq.rs`, `bedrock/src/serve/model/quant.rs`).
+     - `apeiron`: 1 file (`docs/call-census/models.md`).
+6. **Rust target:**
+   - Proposed module: `src/learn/gptq.rs`.
+   - Test file: `tests/learn_gptq.rs`.
+   - Gate: `cargo test --release --locked --test learn_gptq`.
+   - Negative control: zero the error-feedback residual push in a copy: the output-error < naive-round test fails.
+   - Metric: Output distortion $\| X(W - \hat{W}) \|_F^2 \le 9.83 \times 10^{-4}$ on calibration activations $T=128, N=96$.
+
+---
+
+##### (f) FoldNet (deep, streaming, multimodal network trained by the closed-form fold)
+
+1. **Subsumed source:**
+   - **Measured winner:**
+     - Repository: `../fold` (HEAD revision `d497161f`). File: `modelfold/src/arch.rs` (lines 14800+) and `modelfold/src/train.rs`, sha256 `d685f8b1c1f47e4271c132ba8cb1ab08b93cd8b904dfbe12abb85459cffa994c`.
+   - **Predecessor:**
+     - Repository: `../fold` (commit `83d9cc8a`). File: `hashtrinity/src/foldnet.rs`, sha256 `826bab489d685a47e54e5deba4e9af6ce59af277f721fa2d2bfdf34ee87c8984`; pre-consolidation `c47012be^` `modelfold/src/foldnet.rs`, sha256 `a1fd7171fa42dc3319ace820838ee48c46d29fc7ec140ee405920f0bc78d5089`. Functions: `RandomLayer::new`, `RandomLayer::forward`, `FoldNet::new`, `FoldNet::forward_features`, `FoldNet::fold`, `FoldNet::merge`, `FoldNet::solve`, `FoldNet::predict`, `FoldNet::quantize_head`.
+2. **Baseline measurement:**
+   - Exact benchmark commands: `cargo test --package hashtrinity --test foldnet` (at `83d9cc8a`) and `cargo run --package hashtrinity --example foldnet_demo`.
+   - Measurement numbers recorded in `../fold` commit `83d9cc8a` (`hashtrinity/src/foldnet.rs`):
+     - Rung 1 (Deep): XOR classification reaches **99.5% accuracy** (vs linear head 50.0%).
+     - Rung 2 (Streaming): 40 streamed batches and 2 merged shards both give predictions identical to one whole fold (1000/1000).
+     - Rung 3 (Multimodal): Two input widths (2-d, 5-d) into one head reach **98.4% accuracy**.
+     - Arbitrary precision: Readout served at fp16/q4/tern3 holds XOR at **99.2%–99.5%**.
+   - Grade: measured there, not re-run.
+3. **Theorem to refine:**
+   - Readout solve refines `proof/corpus/Substrate/Algebra/Neural/TrainingCollapse.lean:223` (`ridgeHead_unique`) and `:245` (`gram_stack`).
+   - Fixed random nonlinear layer composition: **NONE — stage-3 obligation** (missing statement: `random_feature_ridge_composition`: composition of fixed feature map $\phi(x) = \tanh(W x + b)$ with unique ridge readout $\hat{W} = (\Phi^T \Phi + \lambda I)^{-1} \Phi^T Y$).
+4. **Admissible domain:**
+   - **Exact:** Network layer dimensions, random seed initialization, batch accumulation state counters, integer feature indexing. Aeneas-extractable.
+   - **Float:** Pre-activation projection $W x + b$, nonlinear activation $\tanh$, floating-point Gram accumulation, Cholesky solve of the head. Tested in `tests/learn_foldnet.rs`.
+   - **Representation relation:** Rust `FoldNet` readout mapped to `TrainingCollapse.ridgeHead` over feature map $\Phi$.
+5. **Lineage search:**
+   - Command: `rg -c "FoldNet" /home/socol/Workspace/{sanguine,sanguine-apeiron,fold,spinor-ttl,apeiron}`
+   - Summary: 9 matching files across repositories:
+     - `fold`: 9 files (`modelfold/src/arch.rs`, `foldnet_demo.rs`, `cmapss_rul_net.rs`, `cnn_fold.rs`, `glyph_ocr.rs`, `msx_foldnet.rs`, etc.).
+6. **Rust target:**
+   - Proposed module: `src/learn/foldnet.rs`.
+   - Test file: `tests/learn_foldnet.rs`.
+   - Gate: `cargo test --release --locked --test learn_foldnet`.
+   - Negative control: zero the random layer bias or hidden dim in a copy: XOR classification accuracy drops to $\le 50\%$.
+   - Metric: Classification accuracy on XOR benchmark $\ge 99.0\%$, multimodal accuracy $\ge 98.0\%$.
+
+---
+
+### Plan — Learning track (verified-AI sequence, stage 3)
+
+- **Owner:** Apeiron lead
+- **Intent:** [`docs/epics/neural-rebase.md`](neural-rebase.md)
+- **Spec:** [`docs/epics/neural-rebase.md`](neural-rebase.md)
+- **Status:** draft
+
+```text
+SCOPE: docs/epics/neural-rebase.md only; wave map and task definitions for learning track
+REGISTER: learning track implementation and verification planning
+CORPUS: proof/corpus/Substrate/Algebra/Neural/{MirasCountLM, KneserNey, CountLMFloor,
+        AttentionSpinor, MLPrimitivesBridge, TrainingCollapse}.lean;
+        proof/corpus/Substrate/Algebra/NullCell/SpinorFold.lean
+REFERENCE: docs/plan.md Learning track; ../spinor-ttl; ../fold/modelfold
+GATE: python3 tools/check-claims.py
+GRADE: anchor/planning
+```
+
+#### 1. Goal and completion condition
+
+Reimplement and verify the six learning track mechanisms in this crate under `src/learn/`, ordered hardest-and-highest-contribution first: seal quantizer, FoldAdapter, ridge fold, KN count-LM, GPTQ / 4→3-trit planes, and FoldNet. Each mechanism carries its test suite `tests/learn_<x>.rs`, passes its focused gate `cargo test --release --locked --test learn_<x>`, runs its negative mutation control, and links to its vendored Lean declaration under `proof/corpus/Substrate/Algebra/Neural/`.
+
+#### 2. Non-goals and trust boundary
+
+- Non-goals: Full-scale distributed cluster pre-training; novel architecture search; modifying the pinned canonical corpus at `../sanguine-apeiron/proof`; regression of inference decode speeds (`tg128` and `pp512` on Qwen2.5-0.5B).
+- Trust boundary: Covers the in-tree Rust implementation, unit/integration test suites, Aeneas extraction models, and Lean kernel-checked refinement links. Does not cover host OS scheduling, GPU vendor drivers, or third-party python evaluation harnesses.
+
+#### 3. Lane map and serialization rules
+
+1. **Serialization on shared modules:** Shared root files `src/learn/mod.rs` and `src/lib.rs` are owned by the integrator lane. Worker tasks on disjoint mechanisms touch disjoint implementation files.
+2. **Worktree isolation:** Each task executes in an isolated `worktree-agent-<id>` worktree.
+3. **Execution bounds:** All Rust builds and tests run bounded: `systemd-run --user --scope -p MemoryMax=8G -p MemorySwapMax=0` with `timeout 600`.
+
+#### 4. Wave map
+
+| Wave | Task ID | Owner | Owned files (≤3) | One focused gate | Negative control |
+|---|---|---|---|---|---|
+| W0 | `APEIRON-LEARN-W0-T1` | integrator | `src/learn/gguf.rs`, `src/learn/mod.rs`, `tests/learn_gguf.rs` | `cargo test --release --locked --test learn_gguf` | Flip magic byte in copy: parser fails |
+| W0 | `APEIRON-LEARN-W0-T2` | integrator | `tools/gpu/speed_guard.py` | `python3 tools/gpu/speed_guard.py` | Add sleep in decode loop in copy: gate fails by name |
+| W1 | `APEIRON-LEARN-W1-T1` | worker | `src/learn/seal.rs`, `tests/learn_seal.rs` | `cargo test --release --locked --test learn_seal` | Drop τ weighting in copy: calibrated-error ≤ uncalibrated-error fails |
+| W2 | `APEIRON-LEARN-W2-T1` | worker | `src/learn/foldadapt.rs`, `tests/learn_foldadapt.rs` | `cargo test --release --locked --test learn_foldadapt` | Weight each merge by position in copy: grouping-free test fails |
+| W3 | `APEIRON-LEARN-W3-T1` | worker | `src/learn/ridge.rs`, `tests/learn_ridge.rs` | `cargo test --release --locked --test learn_ridge` | Drop λ in copy: unique-optimum fails on rank-deficient X |
+| W4 | `APEIRON-LEARN-W4-T1` | worker | `src/learn/countlm.rs`, `tests/learn_count.rs` | `cargo test --release --locked --test learn_count` | Drop the backoff term (keep the discount) in copy: normalisation test fails (mass < 1) |
+| W5 | `APEIRON-LEARN-W5-T1` | worker | `src/learn/gptq.rs`, `tests/learn_gptq.rs` | `cargo test --release --locked --test learn_gptq` | Zero error-feedback push in copy: output-error < naive-round fails |
+| W2 | `APEIRON-LEARN-W2-T2` | worker | `proof/extract/learn_merge.rs`, `proof/corpus/Learn/FoldMerge.lean`, `proof/corpus/AxiomAudit.lean` | `cd proof/corpus && lake build Learn.FoldMerge AxiomAudit` | Make the extracted merge non-commutative in copy: refinement to `osFuse_is_add` fails |
+| W4 | `APEIRON-LEARN-W4-T2` | worker | `proof/extract/learn_count.rs`, `proof/corpus/Learn/CountLM.lean`, `proof/corpus/AxiomAudit.lean` | `cd proof/corpus && lake build Learn.CountLM AxiomAudit` | Off-by-one in the extracted count update in copy: refinement to `countlm_is_exact_miras` fails |
+| W5 | `APEIRON-LEARN-W5-T2` | worker | `proof/extract/learn_trit.rs`, `proof/corpus/Learn/TritPlanes.lean`, `proof/corpus/AxiomAudit.lean` | `cd proof/corpus && lake build Learn.TritPlanes AxiomAudit` | Swap two trit planes in the extracted recombination in copy: exact-reconstruction theorem fails |
+| W6 | `APEIRON-LEARN-W6-T1` | worker | `src/learn/foldnet.rs`, `tests/learn_foldnet.rs` | `cargo test --release --locked --test learn_foldnet` | Zero random bias in copy: XOR accuracy drops to 50% |
+
+#### 5. Task blocks
+
+##### APEIRON-LEARN-W0-T1 · GGUF write path and tensor container
+- **Scope:** Implement GGUF container export in `src/learn/gguf.rs` capable of writing quantized tensor structures loaded by the inference engine.
+- **Owned files:** `src/learn/gguf.rs`, `src/learn/mod.rs`, `tests/learn_gguf.rs`
+- **Depends on:** none
+- **Grade:** `tested`
+- **Gate:** `cargo test --release --locked --test learn_gguf`
+- **Negative control:** Invert the GGUF header magic in a disposable copy; parser verification must fail. Restore and verify exit 0.
+
+##### APEIRON-LEARN-W0-T2 · Inference speed guard verification
+- **Scope:** Establish `tools/gpu/speed_guard.py` measuring `tg128` and `pp512` token rates on Qwen2.5-0.5B Q4_K_M, verifying SEQHASH `9092dbbaff119a2e`.
+- **Owned files:** `tools/gpu/speed_guard.py`
+- **Depends on:** none
+- **Grade:** `tested`
+- **Gate:** `python3 tools/gpu/speed_guard.py`
+- **Negative control:** Insert a 10 ms delay in the decode step in a disposable copy; speed guard must fail on threshold. Restore and verify exit 0.
+
+##### APEIRON-LEARN-W1-T1 · Port and verify seal activation-calibrated quantizer (`LEARN-SEAL`)
+- **Scope:** Port activation-calibrated quantizer minimizing $\sum \tau_j r_j^2$ from `../spinor-ttl/src/spinor_ttl/seal.py` and `../fold/modelfold/src/quant.rs`. Refines `MLPrimitivesBridge.output_error_is_function_distortion`.
+- **Owned files:** `src/learn/seal.rs`, `tests/learn_seal.rs`
+- **Depends on:** `APEIRON-LEARN-W0-T1`
+- **Grade:** `tested`
+- **Gate:** `cargo test --release --locked --test learn_seal`
+- **Negative control:** Drop the τ weighting in a disposable copy; the calibrated-error ≤ uncalibrated-error test must fail. Restore and verify exit 0.
+
+##### APEIRON-LEARN-W2-T1 · Port and verify FoldAdapter forward-only finetuning (`LEARN-FOLDADAPT`)
+- **Scope:** Port forward-only FoldAdapter with exact additive unlearning and Kneser–Ney distribution blending from `../spinor-ttl/src/spinor_ttl/finetune.py`. Refines `MLPrimitivesBridge.osFuse_is_add`, `osFuse_grouping_free`, and `MirasCountLM.forget_hebb`.
+- **Owned files:** `src/learn/foldadapt.rs`, `tests/learn_foldadapt.rs`
+- **Depends on:** none (no GGUF output)
+- **Grade:** `tested`
+- **Gate:** `cargo test --release --locked --test learn_foldadapt`
+- **Negative control:** Weight each merge by its position in a disposable copy; the grouping-free test must fail. Restore and verify exit 0.
+
+##### APEIRON-LEARN-W3-T1 · Port and verify ridge fold streaming Gram and SPD solve (`LEARN-RIDGE`)
+- **Scope:** Port streaming Gram accumulation $X^T X$ and direct Cholesky SPD solve from `../fold/modelfold/src/foldtrain.rs`. Refines `TrainingCollapse.ridgeHead_unique` and `gram_stack`.
+- **Owned files:** `src/learn/ridge.rs`, `tests/learn_ridge.rs`
+- **Depends on:** none (no GGUF output)
+- **Grade:** `tested`
+- **Gate:** `cargo test --release --locked --test learn_ridge`
+- **Negative control:** Drop λ regularization in a disposable copy; the unique-optimum test must fail on a rank-deficient matrix $X$. Restore and verify exit 0.
+
+##### APEIRON-LEARN-W4-T1 · Port and verify KN count-LM byte model (`LEARN-COUNT`)
+- **Scope:** Port KN-smoothed byte count language model over the coordinate-keyed counting face from `../fold/modelfold/src/countlm.rs`. Refines `KneserNey.kn_normalizes` and `MirasCountLM.countlm_is_exact_miras`.
+- **Owned files:** `src/learn/countlm.rs`, `tests/learn_count.rs`
+- **Depends on:** none (no GGUF output)
+- **Grade:** `tested`
+- **Gate:** `cargo test --release --locked --test learn_count`
+- **Negative control:** Drop the backoff term while keeping the discount in a disposable copy; the discounted mass is lost and the normalisation test must fail. (Dropping the discount alone leaves the maximum-likelihood estimate, which still normalises.) Restore and verify exit 0.
+
+##### APEIRON-LEARN-W5-T1 · Port and verify GPTQ error feedback and balanced-trit planes (`LEARN-GPTQ`)
+- **Scope:** Port 4-bit to 3-trit error-feedback post-hoc quantizer and balanced-trit plane decomposition from `../fold/modelfold/src/quant.rs`. Refines `MLPrimitivesBridge.output_error_is_function_distortion`.
+- **Owned files:** `src/learn/gptq.rs`, `tests/learn_gptq.rs`
+- **Depends on:** `APEIRON-LEARN-W3-T1`
+- **Grade:** `tested`
+- **Gate:** `cargo test --release --locked --test learn_gptq`
+- **Negative control:** Zero the error-feedback residual push in a disposable copy; the output-error < naive-round test must fail. Restore and verify exit 0.
+
+##### APEIRON-LEARN-W6-T1 · Port and verify FoldNet deep streaming multimodal learner (`LEARN-FOLDNET`)
+- **Scope:** Port FoldNet deep fixed random feature expansion and streaming multimodal learner from `../fold/hashtrinity/src/foldnet.rs` and `modelfold/src/arch.rs`. Refines `TrainingCollapse.ridgeHead_unique`.
+- **Owned files:** `src/learn/foldnet.rs`, `tests/learn_foldnet.rs`
+- **Depends on:** `APEIRON-LEARN-W3-T1`
+- **Grade:** `tested`
+- **Gate:** `cargo test --release --locked --test learn_foldnet`
+- **Negative control:** Zero the random layer bias in a disposable copy; XOR classification accuracy must collapse to $\le 50\%$. Restore and verify exit 0.
+
+#### 6. Exit table
+
+| Stage / Scope | Command | Target / Focus | Expected exit |
+|---|---|---|---|
+| W0 GGUF container | `cargo test --release --locked --test learn_gguf` | Serialization format | 0 |
+| W0 Speed guard | `python3 tools/gpu/speed_guard.py` | Non-regression check | 0 |
+| W1 Seal quantizer | `cargo test --release --locked --test learn_seal` | Activation-calibrated quantizer | 0 |
+| W2 FoldAdapter | `cargo test --release --locked --test learn_foldadapt` | Forward-only finetuning | 0 |
+| W3 Ridge fold | `cargo test --release --locked --test learn_ridge` | Streaming Gram and SPD solve | 0 |
+| W4 KN count-LM | `cargo test --release --locked --test learn_count` | Byte count model | 0 |
+| W5 GPTQ 4→3-trit | `cargo test --release --locked --test learn_gptq` | Error-feedback trit planes | 0 |
+| W6 FoldNet | `cargo test --release --locked --test learn_foldnet` | Deep streaming learner | 0 |
+| W2/W4/W5 refinements | `cd proof/corpus && lake build Learn.FoldMerge Learn.CountLM Learn.TritPlanes AxiomAudit` | Exact kernels extracted from the real Rust and refined, closed cone | 0 |
+| **Stage 3 Barrier** | `cargo test --release --locked --test 'learn_*'` | Full learning test suite | **0** |
+
+#### 7. Lead decisions
+
+1. **GGUF:** the seal quantizer and GPTQ write standard GGUF directly, readable by the inference runner and by llama.cpp. No private container. Reversal: replace `APEIRON-LEARN-W0-T1`.
+2. **Proof scope:** the exact integer kernels are extracted from the real Rust and refined. These are the FoldAdapter merge (`osFuse_is_add`), the integer Gram accumulator over quantized inputs (`gram_stack`), the count update (`countlm_is_exact_miras`) and the trit-plane decomposition (exact reconstruction): `APEIRON-LEARN-W{2,3,4,5}-T2`, grade `proved`. `W3-T2` takes the same shape as the other three: `proof/extract/learn_gram.rs`, `proof/corpus/Learn/Gram.lean`, gate `lake build Learn.Gram AxiomAudit`, control a dropped cross term in the extracted accumulator. The float paths (seal grid search, ridge solve, GPTQ column feedback, FoldNet) are `tested` against analytical references. The Lean theorems over ℝ that they instantiate are cited as `model` for the Rust, never as `proved`. A Lean statement of GPTQ column feedback stays an open obligation, not a task.
