@@ -360,6 +360,49 @@ fn fold_unfold_refold_round_trip() {
 }
 
 #[test]
+fn cache_invalidation_after_mutation() {
+    // The lazy per-context continuation cache binds the counts at build time. Every mutation must
+    // clear it: refine after unfold, and refine after a refold, must equal a fresh adapter's refine
+    // rather than the cached pre-mutation list. (A cache that is not invalidated on unfold is the
+    // negative control below: it reddens this test.)
+    let stream = &[1u32, 2, 3, 1, 2, 4, 1, 2, 3, 5, 2, 3, 1, 2, 3];
+    let base: Vec<f64> = vec![0.02, 0.08, 0.15, 0.20, 0.10, 0.05, 0.05, 0.10, 0.10, 0.15];
+    let ctxs: &[&[u32]] = &[&[1, 2], &[2, 3], &[1], &[3]];
+    let d = (0.5, 0.5, 0.5);
+
+    // fold, warm the cache with a refine, then unfold to empty.
+    let mut a = FoldAdapter::new(3).expect("order 3 valid");
+    a.fold(stream);
+    for &ctx in ctxs {
+        let _ = a.refine_with(&base, ctx, d).expect("refine succeeds");
+    }
+    a.unfold(stream);
+
+    let empty = FoldAdapter::new(3).expect("order 3 valid");
+    for &ctx in ctxs {
+        assert_eq!(
+            a.refine_with(&base, ctx, d).expect("refine succeeds"),
+            empty.refine_with(&base, ctx, d).expect("refine succeeds"),
+            "after unfold-to-empty the cache must not serve pre-unfold counts on ctx {ctx:?}"
+        );
+    }
+
+    // Refold: the cache must rebuild to the fresh counts, not the pre-unfold state.
+    a.fold(stream);
+    let mut fresh = FoldAdapter::new(3).expect("order 3 valid");
+    fresh.fold(stream);
+    let df = fresh.discounts();
+    for &ctx in ctxs {
+        let _ = a.refine_with(&base, ctx, df).expect("refine succeeds"); // warm a's cache again
+        assert_eq!(
+            a.refine_with(&base, ctx, df).expect("refine succeeds"),
+            fresh.refine_with(&base, ctx, df).expect("refine succeeds"),
+            "after refold the cache must rebuild to the fresh counts on ctx {ctx:?}"
+        );
+    }
+}
+
+#[test]
 fn merge_after_round_trip_refines_identically() {
     let stream_a = &[1u32, 2, 3, 1, 2, 4, 1, 2, 3, 5, 2, 3, 1, 2, 3];
     let stream_b = &[2u32, 3, 6, 2, 3, 7, 1, 2, 3, 2, 3, 6];
