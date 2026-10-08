@@ -12,8 +12,10 @@
 )]
 
 use apeiron::learn::gptq::{
-    gptq_affine, gptq_ternary, gptq_ternary_absmean, output_error, round_ternary, GptqError,
+    gptq_affine, gptq_ternary, gptq_ternary_absmean, output_error, round_ternary, ul_cholesky,
+    upper_tri_inverse, GptqError,
 };
+use apeiron::learn::ridge::solve_spd;
 
 /// The naive per-block asymmetric affine fit — bit-for-bit what `decode_common::pack_proj` does
 /// (min/max, no error-feedback). The baseline `gptq_affine` must beat.
@@ -258,4 +260,130 @@ fn refusals() {
     let mut bad_planes = q.trit_planes();
     bad_planes[0].code.pop();
     assert_eq!(q.dequant_planes(&bad_planes), Err(GptqError::ShapeMismatch));
+}
+
+/// Deterministic f64 xorshift in `[0, 1)`.
+fn rng_f64(state: &mut u64) -> f64 {
+    *state ^= *state << 13;
+    *state ^= *state >> 7;
+    *state ^= *state << 17;
+    (*state >> 11) as f64 / (1u64 << 53) as f64
+}
+
+/// The `cholesky_upper` factor this change replaced: upper Cholesky `U` (`UᵀU = a`) of symmetric PD
+/// `a`. Spelled inline so the test carries the prior `feedback_hi` path (`solve_spd` on the identity
+/// right-hand sides, then this upper Cholesky of `H⁻¹`) as its own reference.
+fn cholesky_upper_ref(a: &[f64], d: usize) -> Vec<f64> {
+    let mut u = vec![0f64; d * d];
+    for j in 0..d {
+        let mut s = a[j * d + j];
+        for k in 0..j {
+            s -= u[k * d + j] * u[k * d + j];
+        }
+        assert!(s > 0.0, "reference Cholesky hit a non-positive pivot");
+        let ujj = s.sqrt();
+        u[j * d + j] = ujj;
+        for i in (j + 1)..d {
+            let mut s2 = a[j * d + i];
+            for k in 0..j {
+                s2 -= u[k * d + j] * u[k * d + i];
+            }
+            u[j * d + i] = s2 / ujj;
+        }
+    }
+    u
+}
+
+/// The GPTQ feedback-factor identity: the new path `upper_tri_inverse(ul_cholesky(H))` computes
+/// `U = cholesky_upper(H⁻¹)`, satisfies `max|UᵀU·H − I| ≤ 1e-8`, and equals the prior path
+/// (`solve_spd(H, I)` then the old `cholesky_upper` of `H⁻¹`) to ≤ 1e-9 relative. `H = AᵀA + damping`
+/// on a random `A`.
+#[test]
+fn feedback_factor_identity() {
+    let (n, t) = (300usize, 1200usize);
+    let mut s = 0x9E37_79B9_7F4A_7C15u64;
+
+    // H = AᵀA + damping·I, A random [t, n].
+    let mut a = vec![0f64; t * n];
+    for x in &mut a {
+        *x = rng_f64(&mut s) - 0.5;
+    }
+    let mut h = vec![0f64; n * n];
+    for r in 0..t {
+        let row = &a[r * n..(r + 1) * n];
+        for i in 0..n {
+            let xi = row[i];
+            let hr = &mut h[i * n..(i + 1) * n];
+            for j in 0..n {
+                hr[j] += xi * row[j];
+            }
+        }
+    }
+    let mean_diag: f64 = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
+    let damping = 0.01 * mean_diag;
+    for i in 0..n {
+        h[i * n + i] += damping;
+    }
+
+    // New path: U = V⁻¹ with H = V Vᵀ.
+    let v = ul_cholesky(&h, n).expect("ul_cholesky");
+    let u_new = upper_tri_inverse(&v, n).expect("upper_tri_inverse");
+
+    // Identity Uᵀ U H = I via P = U·H, then M = Uᵀ·P.
+    let mut p = vec![0f64; n * n];
+    for i in 0..n {
+        for k in 0..n {
+            let uik = u_new[i * n + k];
+            if uik == 0.0 {
+                continue;
+            }
+            for j in 0..n {
+                p[i * n + j] += uik * h[k * n + j];
+            }
+        }
+    }
+    let mut m = vec![0f64; n * n];
+    for i in 0..n {
+        for k in 0..n {
+            let uki = u_new[k * n + i];
+            if uki == 0.0 {
+                continue;
+            }
+            for j in 0..n {
+                m[i * n + j] += uki * p[k * n + j];
+            }
+        }
+    }
+    let mut max_id_err = 0f64;
+    for i in 0..n {
+        for j in 0..n {
+            let target = if i == j { 1.0 } else { 0.0 };
+            max_id_err = max_id_err.max((m[i * n + j] - target).abs());
+        }
+    }
+    assert!(
+        max_id_err <= 1e-8,
+        "max|UᵀU·H − I| = {max_id_err:.3e} exceeds 1e-8"
+    );
+
+    // Prior path reference.
+    let mut ident = vec![0f64; n * n];
+    for i in 0..n {
+        ident[i * n + i] = 1.0;
+    }
+    let hinv = solve_spd(&h, &ident, n, n).expect("solve_spd on identity");
+    let u_old = cholesky_upper_ref(&hinv, n);
+
+    let mut max_diff = 0f64;
+    let mut scale = 0f64;
+    for i in 0..n * n {
+        max_diff = max_diff.max((u_new[i] - u_old[i]).abs());
+        scale = scale.max(u_old[i].abs());
+    }
+    let rel = max_diff / scale;
+    assert!(
+        rel <= 1e-9,
+        "new vs old relative difference {rel:.3e} exceeds 1e-9 (max|ΔU|={max_diff:.3e}, scale={scale:.3e})"
+    );
+    println!("feedback_factor_identity n={n}: max|UᵀU·H−I|={max_id_err:.3e} rel(ΔU)={rel:.3e}");
 }

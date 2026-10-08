@@ -74,7 +74,7 @@
 id       = "docs/plan.md"
 kind     = "doc"
 path     = "docs/plan.md"
-sha256   = "6858cd0cf779baf8f50cf1650f424c3277539768e53df1697b90ac7bb3d98a97"
+sha256   = "e5e24e10756b467c984d08821fd5845941de2d630404dd166ed7ca4543f08c7a"
 gate     = "python3 tools/check-claims.py"
 control  = "python3 tools/check-claims.py --self-test"
 budget_s = 540

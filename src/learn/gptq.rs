@@ -246,9 +246,10 @@ pub struct AffineChart {
 /// # Complexity
 /// - Temporal: $O(n^3 + \text{out} \cdot n^2)$ arithmetic operations (FLOPs).
 ///   Measure: floating-point operations. Derivation: $O(n^3)$ operations in `feedback_hi` for the
-///   Cholesky solve forming $H^{-1}$ and its upper Cholesky factor $U$; then for each of $\text{out}$
-///   rows, error residual push onto the remaining $(n - j)$ columns performs $\sum_{j=0}^{n-1}(n-j) =
-///   n(n+1)/2$ multiply-subtracts per row, closing in $O(\text{out} \cdot n^2)$ operations.
+///   damped `UL` Cholesky factor $V$ (`H = V Vᵀ`) and its inverse $U = V^{-1}$; then for each of
+///   $\text{out}$ rows, error residual push onto the remaining $(n - j)$ columns performs
+///   $\sum_{j=0}^{n-1}(n-j) = n(n+1)/2$ multiply-subtracts per row, closing in
+///   $O(\text{out} \cdot n^2)$ operations.
 /// - Spatial: $O(n^2 + \text{out} \cdot n + \text{out} \cdot \text{groups})$ words allocated.
 ///   Measure: heap bytes across Hessian buffers ($n \times n \times 8$ bytes), working float buffer
 ///   `wk` ($\text{out} \cdot n \times 8$ bytes), `wq` ($\text{out} \cdot n \times 4$ bytes), `codes`
@@ -632,20 +633,25 @@ fn balanced_trits(mut c: i32, l: usize) -> Vec<i8> {
 }
 
 /// The error-feedback factor `U` (`Uᵀ U = H⁻¹`, upper-triangular `[n, n]`) from the calibration
-/// Gram: `H = G + 0.01·mean(diag)·I` (damped, dead-column guarded), `H⁻¹` via [`crate::learn::ridge::solve_spd`],
-/// then its upper Cholesky factor via [`cholesky_upper`].
+/// Gram: `H = G + 0.01·mean(diag)·I` (damped, dead-column guarded). The damping and dead-column
+/// guard are unchanged; only the factor path is. `H` is factored as `H = V Vᵀ` by [`ul_cholesky`]
+/// (the `UL` factor, from the bottom-right corner), and `U := V⁻¹` by [`upper_tri_inverse`]. Since
+/// `Uᵀ U = V⁻ᵀ V⁻¹ = (V Vᵀ)⁻¹ = H⁻¹` and `U` is upper-triangular with a positive diagonal,
+/// `U = cholesky_upper(H⁻¹)` by the uniqueness of the positive-diagonal Cholesky factor. This
+/// removes the `n`-right-hand-side identity solve the prior path paid.
 ///
 /// Ported from `modelfold/src/quant.rs:358-374`.
 ///
 /// # Complexity
 /// - Temporal: $O(n^3)$ floating-point operations.
 ///   Measure: arithmetic operations. Derivation: regularizing $H$ takes $O(n^2)$ operations;
-///   solving $H \cdot X = I$ via `solve_spd` takes $O(n^3)$ ($n^3/3$ Cholesky factor plus $n$ solves
-///   each taking $n^2$ substitution steps); upper Cholesky decomposition of $H^{-1}$ takes $O(n^3/3)$
-///   operations via `cholesky_upper`. Total closes in $O(n^3)$.
+///   [`ul_cholesky`] takes $n^3/6$ operations (a dot product over the strict upper triangle per row
+///   pair); [`upper_tri_inverse`] takes $n^3/6$; the total closes at $\approx n^3/3$, against the
+///   prior $\approx 2.7\,n^3$ ($n^3/3$ Cholesky plus $n$ dense right-hand-side solves plus $n^3/3$
+///   upper Cholesky of the inverse).
 /// - Spatial: $O(n^2)$ f64 words allocated.
-///   Measure: heap buffers for regularized Hessian $H$ ($n^2 \times 8$ bytes), identity matrix ($n^2 \times 8$ bytes),
-///   $H^{-1}$ solution ($n^2 \times 8$ bytes), and resulting upper factor $U$ ($n^2 \times 8$ bytes).
+///   Measure: heap buffers for the regularized Hessian $H$ ($n^2 \times 8$ bytes), the upper factor
+///   $V$ ($n^2 \times 8$ bytes), and the resulting inverse factor $U$ ($n^2 \times 8$ bytes).
 fn feedback_hi(gram: &[f64], n: usize) -> Result<Vec<f64>, GptqError> {
     if gram.len() != n * n || n == 0 {
         return Err(GptqError::ShapeMismatch);
@@ -662,53 +668,141 @@ fn feedback_hi(gram: &[f64], n: usize) -> Result<Vec<f64>, GptqError> {
             h[i * n + i] = 1.0; // a dead input channel ⇒ pin its pivot (no column to feed)
         }
     }
-    let mut ident = vec![0.0f64; n * n];
-    for i in 0..n {
-        ident[i * n + i] = 1.0;
-    }
-    let hinv = crate::learn::ridge::solve_spd(&h, &ident, n, n)
-        .map_err(|_| GptqError::NotPositiveDefinite)?;
-    cholesky_upper(&hinv, n)
+    let v = ul_cholesky(&h, n)?;
+    upper_tri_inverse(&v, n)
 }
 
-/// Upper Cholesky `U` (`Uᵀ U = a`, `U` upper-triangular row-major `[d, d]`) of symmetric PD `a`.
-/// GPTQ-specific: the error-feedback needs the UPPER factor of `H⁻¹` (column-elimination order).
-///
-/// Ported from `modelfold/src/quant.rs:379-397`.
+/// The `UL` Cholesky factor `V` (`H = V Vᵀ`, `V` upper-triangular row-major `[n, n]`) of the
+/// symmetric positive-definite `h`, built from the bottom-right corner. Column `j` runs from
+/// `n-1` down to `0`: the pivot is `V[j,j] = sqrt(H[j,j] − Σ_{k>j} V[j,k]²)`, then each subdiagonal
+/// `V[i,j] = (H[i,j] − Σ_{k>j} V[i,k]·V[j,k]) / V[j,j]` for `i < j`. Both sums are dot products over
+/// the contiguous row slices `k > j`.
 ///
 /// # Complexity
-/// - Temporal: $O(d^3 / 3)$ arithmetic operations.
-///   Measure: floating-point operations. Derivation: outer loop $j \in [0, d)$ performs $j$
-///   multiply-accumulates to compute diagonal pivot $s = a[j,j] - \sum_{k<j} u_{k,j}^2$; inner loop
-///   over $i \in [j+1, d)$ performs $j$ multiply-accumulates per column. Summing over all $j$ yields
-///   $\sum_{j=0}^{d-1} [j + j(d - 1 - j)] = d^3 / 3$ operations.
-/// - Spatial: $O(d^2)$ f64 words allocated.
-///   Measure: single $d \times d$ buffer `u` of $d^2 \times 8$ bytes.
+/// - Temporal: $n^3/6$ floating-point operations.
+///   Measure: arithmetic operations. Derivation: column `j` costs `(n-1-j)` multiply-accumulates
+///   for the pivot plus `j` subdiagonal dot products of length `n-1-j`, i.e. `(j+1)(n-1-j)`; summing
+///   over `j` gives `Σ_j (j+1)(n-1-j) = n(n+1)(n+2)/6`.
+/// - Spatial: $O(n^2)$ f64 words allocated.
+///   Measure: single `n × n` output buffer `v` of $n^2 \times 8$ bytes.
 ///
 /// # Errors
-/// Returns [`GptqError::ShapeMismatch`] if `a.len() != d * d`.
-/// Returns [`GptqError::NotPositiveDefinite`] if any diagonal pivot is non-positive or NaN.
-fn cholesky_upper(a: &[f64], d: usize) -> Result<Vec<f64>, GptqError> {
-    if a.len() != d * d {
+/// Returns [`GptqError::ShapeMismatch`] if `h.len() != n * n`.
+/// Returns [`GptqError::NotPositiveDefinite`] if a diagonal pivot is non-positive or NaN.
+pub fn ul_cholesky(h: &[f64], n: usize) -> Result<Vec<f64>, GptqError> {
+    if h.len() != n * n {
         return Err(GptqError::ShapeMismatch);
     }
-    let mut u = vec![0.0f64; d * d];
-    for j in 0..d {
-        let mut s = a[j * d + j];
-        for k in 0..j {
-            s -= u[k * d + j] * u[k * d + j];
+    let mut v = vec![0.0f64; n * n];
+    for j in (0..n).rev() {
+        let mut s = h[j * n + j];
+        for k in (j + 1)..n {
+            let vjk = v[j * n + k];
+            s -= vjk * vjk;
         }
         if s.is_nan() || s <= 0.0 {
             return Err(GptqError::NotPositiveDefinite);
         }
-        let ujj = s.sqrt();
-        u[j * d + j] = ujj;
-        for i in (j + 1)..d {
-            let mut s = a[j * d + i];
-            for k in 0..j {
-                s -= u[k * d + j] * u[k * d + i];
+        let vjj = s.sqrt();
+        v[j * n + j] = vjj;
+        for i in 0..j {
+            // H is symmetric, so H[i,j] = H[j,i] is read contiguously along row j.
+            let mut t = h[j * n + i];
+            for k in (j + 1)..n {
+                t -= v[i * n + k] * v[j * n + k];
             }
-            u[j * d + i] = s / ujj;
+            v[i * n + j] = t / vjj;
+        }
+    }
+    Ok(v)
+}
+
+/// Inverse `U = V⁻¹` of an upper-triangular `v` (row-major `[n, n]`, positive diagonal), returned
+/// row-major upper-triangular. Computed by block back-substitution over `64 × 64` diagonal blocks,
+/// which is the GPTQ error-feedback's unit of work.
+///
+/// # Complexity
+/// - Temporal: $n^3/6$ floating-point operations.
+///   Measure: arithmetic operations. Derivation: the block back-substitution accumulates
+///   `Σ_{i} Σ_{l>i} Σ_{j>=l} 64·64·64` multiply-accumulates of the dense block products `V_il·U_lj`
+///   (the `n^3/6` of the triangular inverse), plus `O(n^2·64)` for the diagonal-block inverses and
+///   their triangular applications. Blocking keeps the working set of a block product (two `64 × 64`
+///   blocks, `64 KiB`) resident in L2 (2 MiB per P-core, i9-14900KF), instead of streaming a
+///   `94 MiB` triangle (`n = 4864`) per row sweep from memory.
+/// - Spatial: $O(n^2)$ f64 words allocated.
+///   Measure: single `n × n` output buffer of $n^2 \times 8$ bytes.
+///
+/// # Errors
+/// Returns [`GptqError::ShapeMismatch`] if `v.len() != n * n`.
+/// Returns [`GptqError::NotPositiveDefinite`] if a diagonal entry is non-positive or NaN.
+pub fn upper_tri_inverse(v: &[f64], n: usize) -> Result<Vec<f64>, GptqError> {
+    const B: usize = 64;
+    if v.len() != n * n {
+        return Err(GptqError::ShapeMismatch);
+    }
+    let mut u = vec![0.0f64; n * n];
+    let m = n.div_ceil(B);
+    for i in (0..m).rev() {
+        let i0 = i * B;
+        let si = (i0 + B).min(n) - i0;
+        // (1) Invert the diagonal block V[i0..i0+si, i0..i0+si] into U.
+        for jj in (0..si).rev() {
+            let diag = v[(i0 + jj) * n + i0 + jj];
+            if diag.is_nan() || diag <= 0.0 {
+                return Err(GptqError::NotPositiveDefinite);
+            }
+            u[(i0 + jj) * n + i0 + jj] = 1.0 / diag;
+            for rr in (0..jj).rev() {
+                let mut s = 0.0;
+                for k in (rr + 1)..=jj {
+                    s += v[(i0 + rr) * n + i0 + k] * u[(i0 + k) * n + i0 + jj];
+                }
+                let d = v[(i0 + rr) * n + i0 + rr];
+                if d.is_nan() || d <= 0.0 {
+                    return Err(GptqError::NotPositiveDefinite);
+                }
+                u[(i0 + rr) * n + i0 + jj] = -s / d;
+            }
+        }
+        // (2) Accumulate W_ij = Σ_{l=i+1}^{j} V_il·U_lj into the row block i, for every j > i.
+        for l in (i + 1)..m {
+            let l0 = l * B;
+            let sl = (l0 + B).min(n) - l0;
+            for j in l..m {
+                let j0 = j * B;
+                let sj = (j0 + B).min(n) - j0;
+                for a in 0..si {
+                    let urow = (i0 + a) * n + j0;
+                    let vrow = (i0 + a) * n + l0;
+                    for cc in 0..sl {
+                        let vv = v[vrow + cc];
+                        if vv == 0.0 {
+                            continue;
+                        }
+                        let xrow = (l0 + cc) * n + j0;
+                        for b in 0..sj {
+                            u[urow + b] += vv * u[xrow + b];
+                        }
+                    }
+                }
+            }
+        }
+        // (3) X_ij = −V_ii⁻¹·W_ij by one triangular back-substitution per column, for every j > i.
+        for j in (i + 1)..m {
+            let j0 = j * B;
+            let sj = (j0 + B).min(n) - j0;
+            for c in 0..sj {
+                let col = j0 + c;
+                let last = i0 + si - 1;
+                u[last * n + col] = -u[last * n + col] / v[last * n + last];
+                for rr in (0..si - 1).rev() {
+                    let mut acc = -u[(i0 + rr) * n + col];
+                    for k in (rr + 1)..si {
+                        acc -= v[(i0 + rr) * n + i0 + k] * u[(i0 + k) * n + col];
+                    }
+                    u[(i0 + rr) * n + col] = acc / v[(i0 + rr) * n + i0 + rr];
+                }
+            }
         }
     }
     Ok(u)
