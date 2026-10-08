@@ -452,6 +452,14 @@ theorem p51_sel_install_band :
     1100 * 7567 ≤ 1000 * 8661 ∧ 1000 * 8661 ≤ 1220 * 7567 := by
   decide
 
+/-- P53 (model): ROPEFLASH removes one dispatch per layer, 150 → 126 per token over 24 layers. At
+the P2 empty-dependent-dispatch floor (1.14 us, in hundredths) the floor alone is 27.36 us; on the
+P50 token (1154.6 us, in tenths) that floor reaches the predicted lower ratio 1.02. Arithmetic only;
+no hardware rate follows. -/
+theorem p53_ropeflash_floor :
+    150 - 24 = 126 ∧ 24 * 114 = 2736 ∧ 102 * (11546 - 274) ≤ 100 * 11546 := by
+  decide
+
 end Moves
 
 end Perf

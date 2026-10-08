@@ -361,6 +361,7 @@ import Perf.Overlap
 #audit Perf.Moves.p49_resid_once_floor
 #audit Perf.Moves.p50_selection_bytes
 #audit Perf.Moves.p51_sel_install_band
+#audit Perf.Moves.p53_ropeflash_floor
 #audit Perf.Moves.p10_mma_floor
 #audit Perf.Moves.p10_mma_rate_ratio
 #audit Perf.Moves.p10_mma_floor_p8
