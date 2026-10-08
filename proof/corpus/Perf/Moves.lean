@@ -576,6 +576,18 @@ theorem p62_gap_attribution_bounds :
     10 ≤ 100 := by
   decide
 
+/-- P63: the barrier drain as the lever to 1.5× CUDA tg128.
+The gap is 1118 − 754 = 364 µs/token. At ≥ 3 µs recovered per dispatch over 126 dispatches the
+drains carry ≥ 378 µs, which covers the gap; prediction (a) puts the `DEC_BAR=9` floor at ≤ 800 µs,
+so ≥ 290 µs of the 1093.6 µs token (written ×10 as 10936); refutation (a) at 950 µs leaves < 144 µs.
+Decide on small literals only; timing verdicts stay `measured`. -/
+theorem p63_drain_ceiling :
+    1118 - 754 = 364 ∧
+    364 < 126 * 3 ∧
+    10936 - 8000 ≥ 2900 ∧
+    10936 - 9500 < 1440 := by
+  decide
+
 end Moves
 
 end Perf
