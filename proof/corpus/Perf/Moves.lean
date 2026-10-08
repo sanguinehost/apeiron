@@ -347,6 +347,17 @@ theorem q6_row_words_seven_ninths (k : Nat) (h : 32 ∣ k) : 9 * q6RowWords k = 
 
 #guard q6RowWords 4864 = 1064 ∧ q8RowWords 4864 = 1368
 
+/-- **P44 (Q5 decode fold).** `Kb::dp4a_chart_fold` (`src/simt_nn/attn_dp4a.rs`) expands the four
+plane-B bits of one DP4A phase with one multiply and one mask: `(nib * 0x0204_0810) & 0x1010_1010`
+puts bit `i` of `nib` at bit 4 of byte `i`, with no partial-product collision, and the product never
+wraps a u32. Checked over all sixteen nibbles. -/
+theorem q5_spread_exact :
+    (∀ n : Fin 16, (n.val * 0x02040810) &&& 0x10101010 =
+      (n.val &&& 1) * 2 ^ 4 + (n.val >>> 1 &&& 1) * 2 ^ 12 + (n.val >>> 2 &&& 1) * 2 ^ 20 +
+        (n.val >>> 3 &&& 1) * 2 ^ 28) ∧
+    15 * 0x02040810 < 2 ^ 32 := by
+  decide
+
 end Moves
 
 end Perf
