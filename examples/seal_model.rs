@@ -25,7 +25,7 @@ use apeiron::format::gguf::{Gguf, GgufHeader};
 use apeiron::format::quant::{
     f16_to_f32, ggml_type_name, GGML_TYPE_Q4_K, GGML_TYPE_Q5_0, GGML_TYPE_Q6_K,
 };
-use apeiron::learn::gptq::gptq_q4k_damped;
+use apeiron::learn::gptq::{gptq_q4k_damped, gptq_q5_0_damped, gptq_q6k_damped};
 use apeiron::learn::imatrix::read_imatrix;
 use apeiron::learn::seal::{
     quantize_matrix_q4_k, quantize_matrix_q5_0, quantize_matrix_q6_k, SealError,
@@ -59,7 +59,18 @@ fn gram_file_for_tensor(name: &str) -> Option<String> {
     }
 }
 
-struct Q4kJob {
+/// Which Gram error-feedback kernel packs a Gram-routed tensor.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GramKind {
+    /// 256-weight super-blocks, `Q6_K` (the `ffn_down` tensors this typemap types `Q6_K`).
+    Q6K,
+    /// 32-weight blocks, `Q5_0` (attention and the FFN in-projections, input width 896).
+    Q5_0,
+    /// 256-weight super-blocks, `Q4_K` (the other `ffn_down` tensors).
+    Q4K,
+}
+
+struct GramJob {
     index: usize,
     name: String,
     start: usize,
@@ -68,6 +79,7 @@ struct Q4kJob {
     n_in: usize,
     tau: Option<Vec<f32>>,
     gram: Vec<f64>,
+    kind: GramKind,
 }
 
 /// A seal matrix quantizer: `(weights, n_out, n_in, τ) -> block bytes`.
@@ -100,7 +112,7 @@ fn main() {
         arg(&args, "--out"),
     ) else {
         eprintln!(
-            "usage: seal_model --f16 <f16.gguf> --typemap <Q4_K_M.gguf> --imatrix <imatrix.gguf> --out <out.gguf> [--gram <dir>] [--damping <f64>]"
+            "usage: seal_model --f16 <f16.gguf> --typemap <Q4_K_M.gguf> --imatrix <imatrix.gguf> --out <out.gguf> [--gram <dir>] [--damping <f64>] [--gram-types q4k|all]"
         );
         std::process::exit(2);
     };
@@ -113,10 +125,25 @@ fn main() {
                 .expect("--damping must be a floating-point number")
         })
         .unwrap_or(1.0);
+    // `--gram-types q4k` restricts Gram feedback to the Q4_K tensors (the W7 arm); `all` (the
+    // default) also routes Q6_K and Q5_0 through the matching `gptq_*_damped` kernel.
+    let gram_types_all = match arg(&args, "--gram-types").as_deref() {
+        None | Some("all") => true,
+        Some("q4k") => false,
+        Some(other) => {
+            eprintln!("--gram-types must be 'q4k' or 'all', got {other}");
+            std::process::exit(2);
+        }
+    };
     let gram_dir = arg(&args, "--gram");
     if let Some(ref d) = gram_dir {
         println!(
-            "Gram directory: {d} (GPTQ error feedback enabled for Q4_K tensors, damping {damping})"
+            "Gram directory: {d} (GPTQ error feedback enabled for {} tensors, damping {damping})",
+            if gram_types_all {
+                "Q4_K, Q6_K and Q5_0"
+            } else {
+                "Q4_K"
+            }
         );
     }
 
@@ -163,11 +190,17 @@ fn main() {
     // counts[type] = (weighted re-quantized, fallback-to-None, copied verbatim)
     let mut counts: std::collections::BTreeMap<u32, (usize, usize, usize)> =
         std::collections::BTreeMap::new();
-    let mut q4k_jobs: Vec<Q4kJob> = Vec::new();
+    let mut gram_jobs: Vec<GramJob> = Vec::new();
 
     for (i, t) in header.tensors.iter().enumerate() {
         let start = usize::try_from(t.offset).expect("offset fits usize");
-        if let (GGML_TYPE_Q4_K, Some(gdir)) = (t.ggml_type, &gram_dir) {
+        let gram_kind = match (t.ggml_type, gram_types_all) {
+            (GGML_TYPE_Q4_K, _) => Some(GramKind::Q4K),
+            (GGML_TYPE_Q6_K, true) => Some(GramKind::Q6K),
+            (GGML_TYPE_Q5_0, true) => Some(GramKind::Q5_0),
+            _ => None,
+        };
+        if let (Some(kind), Some(gdir)) = (gram_kind, &gram_dir) {
             let name = String::from_utf8_lossy(&t.name).into_owned();
             let Some(fd) = f16.header.tensor(&name) else {
                 panic!("f16 model is missing quantized tensor {name}");
@@ -209,7 +242,7 @@ fn main() {
                 gram[idx] = f64::from_le_bytes(chunk.try_into().unwrap());
             }
 
-            q4k_jobs.push(Q4kJob {
+            gram_jobs.push(GramJob {
                 index: i,
                 name,
                 start,
@@ -218,6 +251,7 @@ fn main() {
                 n_in,
                 tau,
                 gram,
+                kind,
             });
             continue;
         }
@@ -272,26 +306,46 @@ fn main() {
         }
     }
 
-    if !q4k_jobs.is_empty() {
+    if !gram_jobs.is_empty() {
         println!(
-            "parallel quantizing {} Q4_K tensors with gptq_q4k...",
-            q4k_jobs.len()
+            "parallel quantizing {} Gram-routed tensors (Q4_K/Q6_K/Q5_0) with GPTQ error feedback...",
+            gram_jobs.len()
         );
         let t_par = Instant::now();
         let results = std::thread::scope(|s| {
             let mut handles = Vec::new();
-            for job in &q4k_jobs {
+            for job in &gram_jobs {
                 handles.push(s.spawn(move || {
                     let t_job = Instant::now();
-                    let bytes = gptq_q4k_damped(
-                        &job.w,
-                        job.n_out,
-                        job.n_in,
-                        &job.gram,
-                        job.tau.as_deref(),
-                        damping,
-                    )
-                    .expect("gptq_q4k_damped failed");
+                    let bytes = match job.kind {
+                        GramKind::Q4K => gptq_q4k_damped(
+                            &job.w,
+                            job.n_out,
+                            job.n_in,
+                            &job.gram,
+                            job.tau.as_deref(),
+                            damping,
+                        )
+                        .expect("gptq_q4k_damped failed"),
+                        GramKind::Q6K => gptq_q6k_damped(
+                            &job.w,
+                            job.n_out,
+                            job.n_in,
+                            &job.gram,
+                            job.tau.as_deref(),
+                            damping,
+                        )
+                        .expect("gptq_q6k_damped failed"),
+                        GramKind::Q5_0 => gptq_q5_0_damped(
+                            &job.w,
+                            job.n_out,
+                            job.n_in,
+                            &job.gram,
+                            job.tau.as_deref(),
+                            damping,
+                        )
+                        .expect("gptq_q5_0_damped failed"),
+                    };
                     let elapsed = t_job.elapsed().as_secs_f64();
                     (
                         job.index,
@@ -299,6 +353,7 @@ fn main() {
                         job.start,
                         job.n_in,
                         job.n_out,
+                        job.kind,
                         bytes,
                         elapsed,
                     )
@@ -310,15 +365,20 @@ fn main() {
                 .collect::<Vec<_>>()
         });
         println!(
-            "completed all {} Q4_K tensors in parallel in {:.2} s",
+            "completed all {} Gram-routed tensors in parallel in {:.2} s",
             results.len(),
             t_par.elapsed().as_secs_f64()
         );
-        for (i, name, start, n_in, n_out, bytes, elapsed) in results {
+        for (i, name, start, n_in, n_out, kind, bytes, elapsed) in results {
             let end = start + bytes.len();
             data[start..end].copy_from_slice(&bytes);
+            let tname = match kind {
+                GramKind::Q4K => "Q4_K",
+                GramKind::Q6K => "Q6_K",
+                GramKind::Q5_0 => "Q5_0",
+            };
             println!(
-                "[{:>3}/{}] {name:<28} dims[{}, {}] Q4_K <- {} bytes in {:.2} s (gptq)",
+                "[{:>3}/{}] {name:<28} dims[{}, {}] {tname} <- {} bytes in {:.2} s (gptq)",
                 i + 1,
                 header.tensors.len(),
                 n_in,

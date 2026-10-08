@@ -42,8 +42,11 @@
               and doc formulas use mathematical indices matching modelfold quant.rs."
 )]
 
-use crate::format::quant::{f16_to_f32, q4_k_scale_min, Q4_K_BLOCK_BYTES, Q4_K_SCALE_SIZE, QK_K};
-use crate::learn::seal::quantize_row_q4_k;
+use crate::format::quant::{
+    f16_to_f32, q4_k_scale_min, Q4_K_BLOCK_BYTES, Q4_K_SCALE_SIZE, Q5_0_BLOCK_BYTES, Q5_0_QK,
+    Q6_K_BLOCK_BYTES, QK_K,
+};
+use crate::learn::seal::{quantize_row_q4_k, quantize_row_q5_0, quantize_row_q6_k};
 
 /// A refusal from a GPTQ operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -688,6 +691,216 @@ pub fn gptq_q4k_damped(
                     qs[32 * b + l] = codes[64 * b + l] | (codes[64 * b + 32 + l] << 4);
                 }
             }
+
+            g0 = g1;
+            bi += 1;
+        }
+    }
+    Ok(out_bytes)
+}
+
+/// [`gptq_q4k_damped`]-style GPTQ error feedback into the `ggml` `Q6_K` block format. For each
+/// 256-weight super-block the `f16` scale `d` and the sixteen signed group scales are fit from the
+/// CURRENT error-updated weights by [`quantize_row_q6_k`]; then, column by column in order, each
+/// weight is re-rounded to `q = clamp(round(w / (d·sc)), −32, 31)`, dequantized to `x̂ = d·sc·q`,
+/// and the residual `err = (w − x̂) / U[j,j]` is pushed onto the remaining columns through row `j`
+/// of the damped upper Cholesky factor `U`. The codes are packed in the same `ql[128] · qh[64] ·
+/// scales[16] · f16 d` layout [`quantize_row_q6_k`] emits.
+///
+/// # Complexity
+/// - Temporal: $O(n^3 + \text{out} \cdot n^2)$ arithmetic operations (FLOPs).
+///   Derivation: $O(n^3)$ in [`feedback_hi_damped`] for `U`; each row pays $n/256$ block fits
+///   (`quantize_row_q6_k`, $O(n)$ per row) plus $\sum_j (n-1-j) = n(n-1)/2$ multiply-subtracts.
+/// - Spatial: $O(n^2 + \text{out} \cdot n)$ words, plus the packed output
+///   ($210 \times \text{out} \cdot n / 256$ bytes).
+///
+/// # Errors
+/// Returns [`GptqError::ShapeMismatch`] if `out == 0`, `n == 0`, `w.len() != out * n`,
+/// `gram.len() != n * n`, `n % 256 != 0`, or if `tau` is supplied with `tau.len() != n`.
+/// Returns [`GptqError::NotPositiveDefinite`] if the damped Cholesky factorization encounters a
+/// non-positive pivot.
+pub fn gptq_q6k_damped(
+    w: &[f32],
+    out: usize,
+    n: usize,
+    gram: &[f64],
+    tau: Option<&[f32]>,
+    damping: f64,
+) -> Result<Vec<u8>, GptqError> {
+    if out == 0 || n == 0 || w.len() != out * n || gram.len() != n * n || !n.is_multiple_of(QK_K) {
+        return Err(GptqError::ShapeMismatch);
+    }
+    if let Some(t) = tau {
+        if t.len() != n {
+            return Err(GptqError::ShapeMismatch);
+        }
+    }
+    let hi = feedback_hi_damped(gram, n, damping)?;
+    let n_blocks = n / QK_K;
+    let mut out_bytes = vec![0u8; out * n_blocks * Q6_K_BLOCK_BYTES];
+    let mut wk: Vec<f64> = w.iter().map(|&x| f64::from(x)).collect();
+
+    // `scales[16]` sits at `QK_K/2 + QK_K/4`, `f16 d` immediately after (see `quantize_q6_k_block`).
+    let scales_off = QK_K / 2 + QK_K / 4;
+    let d_off = scales_off + QK_K / 16;
+    let mut cur_slice = [0f32; QK_K];
+    let mut codes = [0u8; QK_K];
+
+    for o in 0..out {
+        let row_base = o * n;
+        let mut g0 = 0;
+        let mut bi = 0;
+        while g0 < n {
+            let g1 = g0 + QK_K;
+            for (idx, slot) in cur_slice.iter_mut().enumerate() {
+                *slot = wk[row_base + g0 + idx] as f32;
+            }
+            let tau_slice = tau.map(|t| &t[g0..g1]);
+            let fit_block =
+                quantize_row_q6_k(&cur_slice, tau_slice).map_err(|_| GptqError::ShapeMismatch)?;
+
+            let d = f16_to_f32(u16::from_le_bytes([fit_block[d_off], fit_block[d_off + 1]]));
+            let mut lscales = [0f32; 16];
+            for (k, slot) in lscales.iter_mut().enumerate() {
+                *slot = f32::from(fit_block[scales_off + k] as i8);
+            }
+
+            for j in g0..g1 {
+                let col_in_blk = j - g0;
+                let d_sub = f64::from(d) * f64::from(lscales[col_in_blk / 16]);
+                let hijj = hi[j * n + j];
+                let wv = wk[row_base + j];
+                let q = if d_sub == 0.0 {
+                    0.0
+                } else {
+                    (wv / d_sub).round().clamp(-32.0, 31.0)
+                };
+                codes[col_in_blk] = (q as i32 + 32) as u8;
+                let x_hat = d_sub * q;
+                let err = (wv - x_hat) / hijj;
+                let hi_row = &hi[j * n + (j + 1)..j * n + n];
+                let wk_row = &mut wk[row_base + (j + 1)..row_base + n];
+                for (w_slot, &h_val) in wk_row.iter_mut().zip(hi_row) {
+                    *w_slot -= err * h_val;
+                }
+            }
+
+            let blk_out_idx = (o * n_blocks + bi) * Q6_K_BLOCK_BYTES;
+            let blk_out = &mut out_bytes[blk_out_idx..blk_out_idx + Q6_K_BLOCK_BYTES];
+            blk_out.copy_from_slice(&fit_block);
+            for nn in 0..2usize {
+                let base = 128 * nn;
+                let qlo = 64 * nn;
+                let qho = 32 * nn;
+                for ll in 0..32usize {
+                    let q1 = codes[base + ll] & 0xF;
+                    let q2 = codes[base + ll + 32] & 0xF;
+                    let q3 = codes[base + ll + 64] & 0xF;
+                    let q4 = codes[base + ll + 96] & 0xF;
+                    blk_out[qlo + ll] = q1 | (q3 << 4);
+                    blk_out[qlo + ll + 32] = q2 | (q4 << 4);
+                    blk_out[QK_K / 2 + qho + ll] = (codes[base + ll] >> 4)
+                        | ((codes[base + ll + 32] >> 4) << 2)
+                        | ((codes[base + ll + 64] >> 4) << 4)
+                        | ((codes[base + ll + 96] >> 4) << 6);
+                }
+            }
+
+            g0 = g1;
+            bi += 1;
+        }
+    }
+    Ok(out_bytes)
+}
+
+/// [`gptq_q4k_damped`]-style GPTQ error feedback into the `ggml` `Q5_0` block format. For each
+/// 32-weight block the `f16` scale `d` is fit from the CURRENT error-updated weights by
+/// [`quantize_row_q5_0`]; then, column by column in order, each weight is re-rounded to
+/// `q = clamp(round(w / d) + 16, 0, 31)`, dequantized to `x̂ = d·(q − 16)`, and the residual
+/// `err = (w − x̂) / U[j,j]` is pushed onto the remaining columns through row `j` of the damped
+/// upper Cholesky factor `U`. The codes are packed in the same `f16 d · qh[4] · qs[16]` layout
+/// [`quantize_row_q5_0`] emits.
+///
+/// # Complexity
+/// - Temporal: $O(n^3 + \text{out} \cdot n^2)$ arithmetic operations (FLOPs).
+/// - Spatial: $O(n^2 + \text{out} \cdot n)$ words, plus the packed output
+///   ($22 \times \text{out} \cdot n / 32$ bytes).
+///
+/// # Errors
+/// Returns [`GptqError::ShapeMismatch`] if `out == 0`, `n == 0`, `w.len() != out * n`,
+/// `gram.len() != n * n`, `n % 32 != 0`, or if `tau` is supplied with `tau.len() != n`.
+/// Returns [`GptqError::NotPositiveDefinite`] if the damped Cholesky factorization encounters a
+/// non-positive pivot.
+pub fn gptq_q5_0_damped(
+    w: &[f32],
+    out: usize,
+    n: usize,
+    gram: &[f64],
+    tau: Option<&[f32]>,
+    damping: f64,
+) -> Result<Vec<u8>, GptqError> {
+    if out == 0 || n == 0 || w.len() != out * n || gram.len() != n * n || !n.is_multiple_of(Q5_0_QK)
+    {
+        return Err(GptqError::ShapeMismatch);
+    }
+    if let Some(t) = tau {
+        if t.len() != n {
+            return Err(GptqError::ShapeMismatch);
+        }
+    }
+    let hi = feedback_hi_damped(gram, n, damping)?;
+    let n_blocks = n / Q5_0_QK;
+    let mut out_bytes = vec![0u8; out * n_blocks * Q5_0_BLOCK_BYTES];
+    let mut wk: Vec<f64> = w.iter().map(|&x| f64::from(x)).collect();
+
+    let mut cur_slice = [0f32; Q5_0_QK];
+    let mut codes = [0u8; Q5_0_QK];
+
+    for o in 0..out {
+        let row_base = o * n;
+        let mut g0 = 0;
+        let mut bi = 0;
+        while g0 < n {
+            let g1 = g0 + Q5_0_QK;
+            for (idx, slot) in cur_slice.iter_mut().enumerate() {
+                *slot = wk[row_base + g0 + idx] as f32;
+            }
+            let tau_slice = tau.map(|t| &t[g0..g1]);
+            let fit_block =
+                quantize_row_q5_0(&cur_slice, tau_slice).map_err(|_| GptqError::ShapeMismatch)?;
+
+            let d = f64::from(f16_to_f32(u16::from_le_bytes([fit_block[0], fit_block[1]])));
+            for j in g0..g1 {
+                let col_in_blk = j - g0;
+                let hijj = hi[j * n + j];
+                let wv = wk[row_base + j];
+                let q = if d == 0.0 {
+                    16.0
+                } else {
+                    (wv / d + 16.0).round().clamp(0.0, 31.0)
+                };
+                codes[col_in_blk] = q as u8;
+                let x_hat = d * (q - 16.0);
+                let err = (wv - x_hat) / hijj;
+                let hi_row = &hi[j * n + (j + 1)..j * n + n];
+                let wk_row = &mut wk[row_base + (j + 1)..row_base + n];
+                for (w_slot, &h_val) in wk_row.iter_mut().zip(hi_row) {
+                    *w_slot -= err * h_val;
+                }
+            }
+
+            let blk_out_idx = (o * n_blocks + bi) * Q5_0_BLOCK_BYTES;
+            let blk_out = &mut out_bytes[blk_out_idx..blk_out_idx + Q5_0_BLOCK_BYTES];
+            blk_out.copy_from_slice(&fit_block);
+            let mut qh = 0u32;
+            for j in 0..16usize {
+                let xi0 = codes[j];
+                let xi1 = codes[j + 16];
+                blk_out[6 + j] = (xi0 & 0x0F) | ((xi1 & 0x0F) << 4);
+                qh |= u32::from((xi0 & 0x10) >> 4) << j;
+                qh |= u32::from((xi1 & 0x10) >> 4) << (j + 16);
+            }
+            blk_out[2..6].copy_from_slice(&qh.to_le_bytes());
 
             g0 = g1;
             bi += 1;

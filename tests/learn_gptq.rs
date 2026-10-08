@@ -11,13 +11,16 @@
     reason = "the test setup mirrors modelfold tests/gptq.rs reference indexing and arithmetic."
 )]
 
-use apeiron::format::quant::{dequant_q4_k_block, Q4_K_BLOCK_BYTES, QK_K};
+use apeiron::format::quant::{
+    dequant_q4_k_block, dequant_q6_k_block, f16_to_f32, q5_0_codes, q5_0_scale, q6_k_d,
+    q6_k_scales, Q4_K_BLOCK_BYTES, Q5_0_BLOCK_BYTES, Q5_0_QK, Q6_K_BLOCK_BYTES, QK_K,
+};
 use apeiron::learn::gptq::{
-    gptq_affine, gptq_q4k, gptq_q4k_damped, gptq_ternary, gptq_ternary_absmean, output_error,
-    round_ternary, ul_cholesky, upper_tri_inverse, GptqError,
+    gptq_affine, gptq_q4k, gptq_q4k_damped, gptq_q5_0_damped, gptq_q6k_damped, gptq_ternary,
+    gptq_ternary_absmean, output_error, round_ternary, ul_cholesky, upper_tri_inverse, GptqError,
 };
 use apeiron::learn::ridge::solve_spd;
-use apeiron::learn::seal::quantize_row_q4_k;
+use apeiron::learn::seal::{quantize_row_q4_k, quantize_row_q5_0, quantize_row_q6_k};
 
 /// The naive per-block asymmetric affine fit — bit-for-bit what `decode_common::pack_proj` does
 /// (min/max, no error-feedback). The baseline `gptq_affine` must beat.
@@ -510,4 +513,233 @@ fn feedback_factor_identity() {
         "new vs old relative difference {rel:.3e} exceeds 1e-9 (max|ΔU|={max_diff:.3e}, scale={scale:.3e})"
     );
     println!("feedback_factor_identity n={n}: max|UᵀU·H−I|={max_id_err:.3e} rel(ΔU)={rel:.3e}");
+}
+
+/// Dequantize a packed `out × n` `Q6_K` matrix (`out·n/256` super-blocks) to row-major `f32`.
+fn dequant_q6_k_matrix(bytes: &[u8], out: usize, n: usize) -> Vec<f32> {
+    let nb = n / QK_K;
+    assert_eq!(bytes.len(), out * nb * Q6_K_BLOCK_BYTES, "packed Q6_K size");
+    let mut wq = vec![0f32; out * n];
+    let mut blk = [0f32; QK_K];
+    for o in 0..out {
+        for b in 0..nb {
+            let idx = (o * nb + b) * Q6_K_BLOCK_BYTES;
+            dequant_q6_k_block(&bytes[idx..idx + Q6_K_BLOCK_BYTES], &mut blk)
+                .expect("dequant q6_k");
+            wq[o * n + b * QK_K..o * n + (b + 1) * QK_K].copy_from_slice(&blk);
+        }
+    }
+    wq
+}
+
+/// Dequantize a packed `out × n` `Q5_0` matrix (`out·n/32` blocks) to row-major `f32` through the
+/// crate's `q5_0_scale` / `q5_0_codes` accessors: `w = d·(q − 16)`, `q5_0_codes` already offset.
+fn dequant_q5_0_matrix(bytes: &[u8], out: usize, n: usize) -> Vec<f32> {
+    let nb = n / Q5_0_QK;
+    assert_eq!(bytes.len(), out * nb * Q5_0_BLOCK_BYTES, "packed Q5_0 size");
+    let mut wq = vec![0f32; out * n];
+    for o in 0..out {
+        for b in 0..nb {
+            let idx = (o * nb + b) * Q5_0_BLOCK_BYTES;
+            let d = q5_0_scale(bytes, o * nb + b).expect("q5_0_scale");
+            let codes = q5_0_codes(&bytes[idx..idx + Q5_0_BLOCK_BYTES]).expect("q5_0_codes");
+            for (j, &c) in codes.iter().enumerate() {
+                wq[o * n + b * Q5_0_QK + j] = d * f32::from(c);
+            }
+        }
+    }
+    wq
+}
+
+/// The largest single-code step `|d·sc|` over a packed `Q6_K` matrix — the quantum a one-code
+/// difference can move any element by.
+fn q6_k_max_quantum(bytes: &[u8], out: usize, n: usize) -> f32 {
+    let nb = n / QK_K;
+    let mut m = 0f32;
+    for o in 0..out {
+        for b in 0..nb {
+            let idx = (o * nb + b) * Q6_K_BLOCK_BYTES;
+            let blk = &bytes[idx..idx + Q6_K_BLOCK_BYTES];
+            let d = f16_to_f32(q6_k_d(blk).expect("q6_k_d"));
+            for &s in &q6_k_scales(blk).expect("q6_k_scales") {
+                m = m.max((d * f32::from(s)).abs());
+            }
+        }
+    }
+    m
+}
+
+/// GPTQ error feedback into the `Q6_K` block format (damping 1.0) does not lose to the plain
+/// τ-weighted round-to-block on calibration-Gram output distortion.
+#[test]
+fn gptq_q6k_beats_q6k_round() {
+    let (out, n, t) = (4usize, 512usize, 256usize);
+    let (w, gram) = setup(out, n, t, 0x5EED_0003);
+    let tau: Vec<f32> = (0..n)
+        .map(|j| (gram[j * n + j] / t as f64) as f32)
+        .collect();
+
+    let gptq_bytes = gptq_q6k_damped(&w, out, n, &gram, Some(&tau), 1.0).expect("gptq_q6k");
+    assert_eq!(gptq_bytes.len(), out * (n / QK_K) * Q6_K_BLOCK_BYTES);
+    let wq_gptq = dequant_q6_k_matrix(&gptq_bytes, out, n);
+
+    let mut plain_bytes = Vec::with_capacity(gptq_bytes.len());
+    for o in 0..out {
+        plain_bytes.extend_from_slice(
+            &quantize_row_q6_k(&w[o * n..(o + 1) * n], Some(&tau)).expect("quantize_row_q6_k"),
+        );
+    }
+    let wq_plain = dequant_q6_k_matrix(&plain_bytes, out, n);
+
+    let e_gptq = output_error(&w, &wq_gptq, out, n, &gram).expect("oe gptq");
+    let e_plain = output_error(&w, &wq_plain, out, n, &gram).expect("oe plain");
+    println!(
+        "q6_k: gptq={e_gptq:.4e} plain={e_plain:.4e} ratio={:.2}x",
+        e_plain / e_gptq
+    );
+    assert!(
+        e_gptq <= e_plain,
+        "q6_k gptq {e_gptq:.4e} must not exceed plain {e_plain:.4e}"
+    );
+}
+
+/// GPTQ error feedback into the `Q5_0` block format (damping 1.0) does not lose to the plain
+/// τ-weighted round-to-block on calibration-Gram output distortion.
+#[test]
+fn gptq_q5_0_beats_q5_0_round() {
+    let (out, n, t) = (4usize, 512usize, 256usize);
+    let (w, gram) = setup(out, n, t, 0x5EED_0005);
+    let tau: Vec<f32> = (0..n)
+        .map(|j| (gram[j * n + j] / t as f64) as f32)
+        .collect();
+
+    let gptq_bytes = gptq_q5_0_damped(&w, out, n, &gram, Some(&tau), 1.0).expect("gptq_q5_0");
+    assert_eq!(gptq_bytes.len(), out * (n / Q5_0_QK) * Q5_0_BLOCK_BYTES);
+    let wq_gptq = dequant_q5_0_matrix(&gptq_bytes, out, n);
+
+    let mut plain_bytes = Vec::with_capacity(gptq_bytes.len());
+    for o in 0..out {
+        plain_bytes.extend_from_slice(
+            &quantize_row_q5_0(&w[o * n..(o + 1) * n], Some(&tau)).expect("quantize_row_q5_0"),
+        );
+    }
+    let wq_plain = dequant_q5_0_matrix(&plain_bytes, out, n);
+
+    let e_gptq = output_error(&w, &wq_gptq, out, n, &gram).expect("oe gptq");
+    let e_plain = output_error(&w, &wq_plain, out, n, &gram).expect("oe plain");
+    println!(
+        "q5_0: gptq={e_gptq:.4e} plain={e_plain:.4e} ratio={:.2}x",
+        e_plain / e_gptq
+    );
+    assert!(
+        e_gptq <= e_plain,
+        "q5_0 gptq {e_gptq:.4e} must not exceed plain {e_plain:.4e}"
+    );
+}
+
+/// With an identity Gram the feedback factor is diagonal, so no residual is pushed: the GPTQ
+/// kernels reduce to their row quantizers, matching the dequantized values within one code step.
+#[test]
+fn gptq_q6k_q5_0_identity_matches_row() {
+    let (out, n, t) = (2usize, 256usize, 128usize);
+    let (w, _gram) = setup(out, n, t, 0x5EED_0004);
+    let mut eye = vec![0f64; n * n];
+    for i in 0..n {
+        eye[i * n + i] = 1.0;
+    }
+    let tau: Vec<f32> = vec![1.0; n];
+
+    // Q6_K
+    let g6 = gptq_q6k_damped(&w, out, n, &eye, Some(&tau), 1.0).expect("gptq_q6k");
+    let wq_g6 = dequant_q6_k_matrix(&g6, out, n);
+    let mut plain6 = Vec::new();
+    for o in 0..out {
+        plain6.extend_from_slice(
+            &quantize_row_q6_k(&w[o * n..(o + 1) * n], Some(&tau)).expect("row q6_k"),
+        );
+    }
+    let wq_p6 = dequant_q6_k_matrix(&plain6, out, n);
+    let q6 = q6_k_max_quantum(&plain6, out, n);
+    let max6 = wq_g6
+        .iter()
+        .zip(&wq_p6)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0f32, f32::max);
+    println!("q6_k identity: max|Δ|={max6:.4e} quantum={q6:.4e}");
+    assert!(
+        max6 <= q6 + 1e-6,
+        "q6_k identity deviation {max6:.4e} exceeds one quantum {q6:.4e}"
+    );
+
+    // Q5_0
+    let g5 = gptq_q5_0_damped(&w, out, n, &eye, Some(&tau), 1.0).expect("gptq_q5_0");
+    let wq_g5 = dequant_q5_0_matrix(&g5, out, n);
+    let mut plain5 = Vec::new();
+    for o in 0..out {
+        plain5.extend_from_slice(
+            &quantize_row_q5_0(&w[o * n..(o + 1) * n], Some(&tau)).expect("row q5_0"),
+        );
+    }
+    let wq_p5 = dequant_q5_0_matrix(&plain5, out, n);
+    // Quantum = the largest |d| over the packed blocks.
+    let mut q5 = 0f32;
+    for o in 0..out {
+        for b in 0..(n / Q5_0_QK) {
+            q5 = q5.max(
+                q5_0_scale(&plain5, o * (n / Q5_0_QK) + b)
+                    .expect("q5_0_scale")
+                    .abs(),
+            );
+        }
+    }
+    let max5 = wq_g5
+        .iter()
+        .zip(&wq_p5)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0f32, f32::max);
+    println!("q5_0 identity: max|Δ|={max5:.4e} quantum={q5:.4e}");
+    assert!(
+        max5 <= q5 + 1e-6,
+        "q5_0 identity deviation {max5:.4e} exceeds one quantum {q5:.4e}"
+    );
+}
+
+/// Refusal paths for the new Gram kernels: a width that is not a whole number of blocks and a
+/// `tau` length mismatch return [`GptqError::ShapeMismatch`].
+#[test]
+fn gptq_q6k_q5_0_refusals() {
+    let (out, n) = (2usize, 256usize);
+    let w = vec![1.0f32; out * n];
+    let gram = vec![1.0f64; n * n];
+    let bad_tau = vec![1.0f32; n - 1];
+
+    // n = 128 is a multiple of 32 but not 256: Q6_K refuses, Q5_0 accepts.
+    let n5 = 128usize;
+    let w5 = vec![1.0f32; out * n5];
+    let gram5 = vec![1.0f64; n5 * n5];
+    assert_eq!(
+        gptq_q6k_damped(&w5, out, n5, &gram5, None, 1.0),
+        Err(GptqError::ShapeMismatch)
+    );
+    assert_eq!(
+        gptq_q5_0_damped(&w5, out, n5, &gram5, None, 1.0).map(|v| v.len()),
+        Ok(out * (n5 / Q5_0_QK) * Q5_0_BLOCK_BYTES)
+    );
+    // n = 20 is not a multiple of 32.
+    let n20 = 20usize;
+    let w20 = vec![1.0f32; out * n20];
+    let gram20 = vec![1.0f64; n20 * n20];
+    assert_eq!(
+        gptq_q5_0_damped(&w20, out, n20, &gram20, None, 1.0),
+        Err(GptqError::ShapeMismatch)
+    );
+    // tau length mismatch.
+    assert_eq!(
+        gptq_q6k_damped(&w, out, n, &gram, Some(&bad_tau), 1.0),
+        Err(GptqError::ShapeMismatch)
+    );
+    assert_eq!(
+        gptq_q5_0_damped(&w, out, n, &gram, Some(&bad_tau), 1.0),
+        Err(GptqError::ShapeMismatch)
+    );
 }
