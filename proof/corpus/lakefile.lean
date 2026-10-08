@@ -68,7 +68,7 @@ lean_lib ApeironWordBridge where
     `Map.ExecutedInsertSide, `Map.ExecutedInsertSlot, `Map.ExecutedInsert, `Map.ExecutedResizeOrder, `Map.ExecutedResize,
     -- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (HT-BUILD): the executed build.
     `Map.ExecutedBuild,
-    `Map.ExecutedBuildWitness,
+    `Map.ExecutedBuildWitness, `Map.ExecutedInsertTotal,
         `Count.Rep, `Count.Read, `Count.Helpers, `Count.FreqRep, `Count.OverflowOps, `Count.FreqAdd, `Count.FreqSideOv, `Count.FreqGrow, `Count.FreqInsert, `Count.Aggregate,
     -- `Flux.Discrete` is imported by the registered root `AxiomAudit` (`AxiomAudit.lean:3`) and
     -- `#audit`-ed by it (`:6`), but no `lean_lib` globbed it, so `lake build AxiomAudit` failed
