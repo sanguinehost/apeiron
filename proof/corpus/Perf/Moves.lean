@@ -482,6 +482,22 @@ theorem p55_amaxp_install_floor :
     1005 * 8720 ≤ 1000 * 8901 ∧ 1020 * 8720 ≤ 1000 * 8901 ∧ 1000 * 8901 ≤ 1022 * 8720 := by
   decide
 
+/-- P56: the qwen05b upload byte inventory measured by `qwen05b_upload_bytes_match_inventory`
+(T1): llama.cpp stored bytes, the apeiron totals with and without plane-B selection, the dn `dm`
+offset (24 layers of `896 · 4864 / 32` words), the per-group savings summing to the whole, and the
+bandwidth roofline at 907 GB/s (907000 B/µs): 114 µs for the whole saving, 86 µs for gu. Arithmetic
+over measured byte counts; the timing claim stays `measured`. -/
+theorem p56_upload_inventory :
+    246930432 + 144643072 = 391573504 ∧
+    273014784 + 153151488 = 426166272 ∧
+    376406016 + 153151488 = 529557504 ∧
+    376406016 - 273014784 = 103391232 ∧
+    24 * (896 * 4864 / 32) = 3268608 ∧
+    4644864 + 7225344 + 78446592 + 13074432 = 103391232 ∧
+    907000 * 113 ≤ 103391232 ∧ 103391232 ≤ 907000 * 114 ∧
+    907000 * 86 ≤ 78446592 ∧ 78446592 ≤ 907000 * 87 := by
+  decide
+
 end Moves
 
 end Perf
