@@ -446,6 +446,12 @@ theorem p50_selection_bytes :
     32 + 4 = 36 ∧ 16 + 4 + 4 = 24 ∧ 16 + 8 + 4 = 28 ∧ 3 * 24 = 2 * 36 ∧ 9 * 28 = 7 * 36 := by
   decide
 
+/-- P51: the measured P50 means (tg128 756.7 → 866.1 tok/s, in tenths) sit inside P50's
+registered ratio band [1.10, 1.22]. Arithmetic over measured values; grade stays `measured`. -/
+theorem p51_sel_install_band :
+    1100 * 7567 ≤ 1000 * 8661 ∧ 1000 * 8661 ≤ 1220 * 7567 := by
+  decide
+
 end Moves
 
 end Perf

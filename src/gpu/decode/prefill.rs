@@ -81,16 +81,22 @@ pub fn prefill_tile(m: u32, k: u32, carrier: Carrier, local: u32) -> (u32, u32) 
 /// Whether the cooperative-matrix chart GEMM can serve an `m × k` projection at `cr` on this
 /// device. The kernel's static preconditions are `coopmat_gemm_module`'s: `m % 16 == 0` (rows past
 /// `m` in the last 128-row tile are clamped on load and never stored, so `m % 128` may be nonzero),
-/// `k % (32·TILE_KB) == 0` (K32 is one chart block, two blocks per shared stage), and a
-/// single-plane chart carrier the device's signed-int8 MMA serves (Q8/Q4/Q2 — never Q3). When the
-/// predicate is false the DP4A batch GEMM stays the floor. `vk.has_coopmat` is false when the
-/// device lacks the extension or `APEIRON_COOPMAT=0`.
+/// `k % (32·TILE_KB) == 0` (K32 is one chart block, two blocks per shared stage), and a chart
+/// carrier the device's signed-int8 MMA serves: Q8/Q4/Q2 are single-plane, and the two-plane Q5 and
+/// Q6 are served through `PLANEB` (Q6 also `SPEC_Q6`) — the fetch loads plane B's word and the commit
+/// ORs the high bits into the low-plane code. Q3 (a two-plane chart this kernel was not taught to
+/// read) is refused. When the predicate is false the DP4A batch GEMM stays the floor, and that kernel
+/// panics on Q5 and Q6 — which is why `LayerW::load` keeps those groups at Q8 when `has_coopmat` is
+/// false. `vk.has_coopmat` is false when the device lacks the extension or `APEIRON_COOPMAT=0`.
 fn coopmat_ok(vk: &Vk, m: u32, k: u32, cr: Carrier) -> bool {
     vk.has_coopmat
         && m % 16 == 0
         && m > 0
         && k % (32 * TILE_KB) == 0
-        && matches!(cr, Carrier::Q8 | Carrier::Q4 | Carrier::Q2)
+        && matches!(
+            cr,
+            Carrier::Q8 | Carrier::Q4 | Carrier::Q2 | Carrier::Q5 | Carrier::Q6
+        )
 }
 
 /// The attention query tile (`rows`, `rts`, `ct`, `kp`, `fuse`, `mode`); `DEC_ATTN_TILE=0|off` pins
@@ -404,6 +410,8 @@ impl PrefillStack {
             }
             ok
         });
+        let dpw_o = layers.first().map_or(1, |l| dpw(l.o_c));
+        let dpw_uniform = (dpw_o == 1 || dpw_o == 2) && layers.iter().all(|l| dpw(l.o_c) == dpw_o);
         // The cooperative-matrix attention (fp16 operands, f32 accumulate, `attn_coopmat.comp`) is
         // the default where the device exposes the tensor-core shape and the cut holds; `DEC_ATTN_COOP=0`
         // pins the SIMT tile (`DEC_ATTN_TILE` set also pins it).
@@ -412,8 +420,8 @@ impl PrefillStack {
             && qkvm % 4 == 0
             && tmax % 4 == 0
             && nh % nkv == 0
-            // the kernel writes the o-projection's activation chart itself, in natural word order
-            && layers.iter().all(|l| dpw(l.o_c) == 1)
+            // the kernel writes the o-projection's activation chart itself (dpw in {1, 2})
+            && dpw_uniform
             && std::env::var("DEC_ATTN_COOP").map_or(true, |v| v != "0")
             && std::env::var("DEC_ATTN_TILE").is_err();
         let attn_gy = if attn_coop {
@@ -425,7 +433,7 @@ impl PrefillStack {
             }
         };
         let attn_key = if attn_coop {
-            format!("attn_coopmat_{ATTN_COOP_ROWS}")
+            format!("attn_coopmat_{ATTN_COOP_ROWS}_dpw{dpw_o}")
         } else {
             match tile {
                 Some((r, s, t, k, f, m)) => format!("attn_tiled_{r}_{s}_{t}_kp{k}_{f}_m{m}"),
@@ -583,7 +591,7 @@ impl PrefillStack {
             plan.push(pl.node(
                 attn_key.clone(),
                 || match tile {
-                    _ if attn_coop => attn_prefill_coopmat_bytes(nh, nkv, qkvm, tmax, scale),
+                    _ if attn_coop => attn_prefill_coopmat_bytes(nh, nkv, qkvm, tmax, scale, dpw_o),
                     Some((rows, rts, ct, kp, fuse, mode)) => attn_prefill_tiled_bytes_m(
                         nh, nkv, hd, qkvm, tmax, scale, rows, rts, ct, kp, fuse, mode,
                     ),

@@ -14,11 +14,13 @@
     reason = "faithful port of fold's bedrock/src/serve/gpu.rs; lint profile is fold's, not apeiron's"
 )]
 
-use super::pack::{pack_proj_f32, pack_q4_k_raw, Proj};
+use super::pack::{pack_proj_f32, pack_q4_k_raw, pack_q5_0_raw, pack_q6_k_raw, Proj};
 use super::*;
 use crate::engine::dequant_row_fixed;
-use crate::format::gguf::Gguf;
-use crate::format::quant::{block_geom, GGML_TYPE_F32, GGML_TYPE_Q4_K};
+use crate::format::gguf::{Gguf, GgufHeader};
+use crate::format::quant::{
+    block_geom, GGML_TYPE_F32, GGML_TYPE_Q4_K, GGML_TYPE_Q5_0, GGML_TYPE_Q6_K,
+};
 
 /// The `Config` fields a dense attention layer reads.
 #[derive(Clone, Copy, Debug)]
@@ -34,8 +36,11 @@ pub struct LayerCfg {
     pub theta: f32,
     pub rope_dims: u32,
     /// The weight carrier mode. `Carrier::Q4`: each projection whose GGUF tensors are all Q4_K is
-    /// kept as Q4_K (lossless `pack_q4_k_raw`), every other projection and the embedding/head go to
-    /// Q8. Any other carrier packs every projection at that carrier.
+    /// kept as Q4_K (lossless `pack_q4_k_raw`), a projection whose tensors are all Q5_0 (Q6_K) and
+    /// whose chart the cooperative-matrix prefill GEMM serves is kept as Q5 (Q6) (lossless
+    /// `pack_q5_0_raw`, `pack_q6_k_raw`),
+    /// every other projection and the embedding/head go to Q8. Any other carrier packs every
+    /// projection at that carrier.
     pub carrier: Carrier,
 }
 
@@ -152,15 +157,53 @@ fn dq(gguf: &Gguf, name: &str) -> Result<Vec<f32>, String> {
     dequant_rows(gguf, name, 0, rows as usize)
 }
 
+/// Whether every named tensor is stored as [`GGML_TYPE_Q5_0`] — the whole-group type test the
+/// all-Q5_0 branch of [`pack_group`] consults. Pure over the header (no file bytes are read), so a
+/// synthetic-directory unit test exercises it without a checkpoint.
+fn all_q5_0(h: &GgufHeader, names: &[String]) -> bool {
+    names
+        .iter()
+        .all(|nm| h.tensor(nm).is_some_and(|t| t.ggml_type == GGML_TYPE_Q5_0))
+}
+
+/// Whether every named tensor is stored as [`GGML_TYPE_Q6_K`] — the whole-group type test the
+/// all-Q6_K branch of [`pack_group`] consults. Pure over the header (no file bytes are read), so a
+/// synthetic-directory unit test exercises it without a checkpoint.
+fn all_q6_k(h: &GgufHeader, names: &[String]) -> bool {
+    names
+        .iter()
+        .all(|nm| h.tensor(nm).is_some_and(|t| t.ggml_type == GGML_TYPE_Q6_K))
+}
+
+/// The raw GGUF bytes of `names` concatenated row-wise, and the total row count. Every name must be
+/// present (the caller's type test has already looked each one up). Time and space O(Σ bytes), one
+/// copy of each tensor's bytes.
+fn raw_rows(gguf: &Gguf, names: &[String]) -> Result<(Vec<u8>, usize), String> {
+    let mut raw: Vec<u8> = Vec::new();
+    let mut m = 0usize;
+    for nm in names {
+        let t = gguf
+            .header
+            .tensor(nm)
+            .ok_or_else(|| format!("missing tensor {nm}"))?;
+        raw.extend_from_slice(&gguf.tensor_bytes(t).map_err(|e| format!("{nm}: {e:?}"))?);
+        m += t.dims.get(1).copied().unwrap_or(1) as usize;
+    }
+    Ok((raw, m))
+}
+
 /// Pack the row-concatenation of `names` (each `[m_i, k]`) as one chart. Carrier `Q4` mode with every
 /// tensor Q4_K: the raw GGUF bytes concatenate row-wise and go through `pack_q4_k_raw` (lossless,
-/// the bytes llama.cpp reads). Otherwise the f32 dequantization is packed at Q8 (`Q4` mode) or the
-/// mode's own carrier. Returns the chart and the carrier it is at.
+/// the bytes llama.cpp reads). With every tensor Q5_0 (Q6_K) and `plane_b_ok`: the same row
+/// concatenation goes through `pack_q5_0_raw` (`pack_q6_k_raw`) into the `Carrier::Q5` (`Carrier::Q6`)
+/// two-plane chart. Otherwise the f32 dequantization
+/// is packed at Q8 (`Q4` mode) or the mode's own carrier. Returns the chart and the carrier it is at.
 fn pack_group(
     gguf: &Gguf,
     names: &[String],
     k: usize,
     c: &LayerCfg,
+    plane_b_ok: bool,
 ) -> Result<(Proj, Carrier), String> {
     if c.carrier == Carrier::Q4 {
         let all_q4k = names.iter().all(|nm| {
@@ -169,15 +212,19 @@ fn pack_group(
                 .is_some_and(|t| t.ggml_type == GGML_TYPE_Q4_K && k % 256 == 0)
         });
         if all_q4k {
-            let mut raw: Vec<u8> = Vec::new();
-            let mut m = 0usize;
-            for nm in names {
-                let t = gguf.header.tensor(nm).unwrap();
-                raw.extend_from_slice(&gguf.tensor_bytes(t).map_err(|e| format!("{nm}: {e:?}"))?);
-                m += t.dims.get(1).copied().unwrap_or(1) as usize;
-            }
+            let (raw, m) = raw_rows(gguf, names)?;
             let p = pack_q4_k_raw(&raw, m, k, false).map_err(|e| format!("{names:?}: {e:?}"))?;
             return Ok((p, Carrier::Q4));
+        }
+        if plane_b_ok && k % 32 == 0 && all_q5_0(&gguf.header, names) {
+            let (raw, m) = raw_rows(gguf, names)?;
+            let p = pack_q5_0_raw(&raw, m, k).map_err(|e| format!("{names:?}: {e:?}"))?;
+            return Ok((p, Carrier::Q5));
+        }
+        if plane_b_ok && k % 256 == 0 && all_q6_k(&gguf.header, names) {
+            let (raw, m) = raw_rows(gguf, names)?;
+            let p = pack_q6_k_raw(&raw, m, k).map_err(|e| format!("{names:?}: {e:?}"))?;
+            return Ok((p, Carrier::Q6));
         }
     }
     let carrier = c.head_carrier();
@@ -190,24 +237,44 @@ fn pack_group(
 }
 
 impl LayerW {
-    /// Upload layer `li`: dequantize each tensor with apeiron's loader and repack into the Q4
+    /// Upload layer `li`: dequantize each tensor with apeiron's loader and repack into the mode's
     /// chart (`q`,`k`,`v` rows are concatenated into one `qkv` chart, `gate`,`up` into one `gu`
-    /// chart, as fold's loader does).
+    /// chart, as fold's loader does). Each group's carrier is [`pack_group`]'s: Q4_K in `Q4` mode,
+    /// Q5_0 or Q6_K in `Q4` mode on a coopmat device, else Q8.
     ///
     /// # Safety
     /// Vulkan buffer creation and upload.
     pub unsafe fn load(g: &GpuCtx, gguf: &Gguf, li: usize, c: &LayerCfg) -> Result<LayerW, String> {
         let n = |s: &str| format!("blk.{li}.{s}");
         let (h, dff) = (c.hidden as usize, c.dff as usize);
+        // A two-plane group (`Carrier::Q5`, `Carrier::Q6`) is served only where the cooperative-matrix
+        // prefill GEMM reads its plane B; the non-coopmat prefill fallback
+        // (`gemv_dp4a_batch_rt_module`) panics on both, so on a device without coopmat the group stays
+        // Q8 (`coopmat_ok` in `prefill.rs` reads the same flag). `DEC_SEL=0` forces every group off the
+        // two-plane selection, so the loader takes exactly the pre-selection Q4_K/Q8 path.
+        let plane_b_ok = g.vk.has_coopmat && envu("DEC_SEL", 1) != 0;
         let (qkv, qkv_c) = pack_group(
             gguf,
             &[n("attn_q.weight"), n("attn_k.weight"), n("attn_v.weight")],
             h,
             c,
+            plane_b_ok,
         )?;
-        let (o, o_c) = pack_group(gguf, &[n("attn_output.weight")], c.qn() as usize, c)?;
-        let (gu, gu_c) = pack_group(gguf, &[n("ffn_gate.weight"), n("ffn_up.weight")], h, c)?;
-        let (dn, dn_c) = pack_group(gguf, &[n("ffn_down.weight")], dff, c)?;
+        let (o, o_c) = pack_group(
+            gguf,
+            &[n("attn_output.weight")],
+            c.qn() as usize,
+            c,
+            plane_b_ok,
+        )?;
+        let (gu, gu_c) = pack_group(
+            gguf,
+            &[n("ffn_gate.weight"), n("ffn_up.weight")],
+            h,
+            c,
+            plane_b_ok,
+        )?;
+        let (dn, dn_c) = pack_group(gguf, &[n("ffn_down.weight")], dff, c, plane_b_ok)?;
         let bias = if gguf.header.tensor(&n("attn_q.bias")).is_some() {
             let mut b = dq(gguf, &n("attn_q.bias"))?;
             b.extend(dq(gguf, &n("attn_k.bias"))?);
@@ -319,5 +386,120 @@ impl Stream {
             alt: sc.h,
             prev_ffn_segs: c.segs_d(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{all_q5_0, all_q6_k};
+    use crate::engine::testdata::model_path;
+    use crate::format::gguf::{Gguf, GgufHeader, TensorDesc};
+    use crate::format::quant::{GGML_TYPE_Q4_K, GGML_TYPE_Q5_0, GGML_TYPE_Q6_K};
+
+    const QWEN05B_PATH: &str = "models/gguf/qwen05b-Q4_K_M.gguf";
+
+    fn desc(name: &str, ggml_type: u32) -> TensorDesc {
+        TensorDesc {
+            name: name.as_bytes().to_vec(),
+            dims: vec![896, 896],
+            ggml_type,
+            offset: 0,
+        }
+    }
+
+    fn header(types: &[(&str, u32)]) -> GgufHeader {
+        GgufHeader {
+            version: 3,
+            kv: Vec::new(),
+            tensors: types.iter().map(|&(n, t)| desc(n, t)).collect(),
+            alignment: 32,
+            header_end: 0,
+            data0: 0,
+        }
+    }
+
+    /// The whole-group type test over a synthetic directory: `all_q5_0` holds only when every named
+    /// tensor is present and Q5_0.
+    #[test]
+    fn all_q5_0_needs_every_tensor() {
+        let both = header(&[("a", GGML_TYPE_Q5_0), ("b", GGML_TYPE_Q5_0)]);
+        assert!(all_q5_0(&both, &["a".to_string(), "b".to_string()]));
+        let mixed = header(&[("a", GGML_TYPE_Q5_0), ("b", GGML_TYPE_Q4_K)]);
+        assert!(!all_q5_0(&mixed, &["a".to_string(), "b".to_string()]));
+        let one = header(&[("a", GGML_TYPE_Q5_0)]);
+        assert!(!all_q5_0(&one, &["a".to_string(), "missing".to_string()]));
+    }
+
+    /// The whole-group type test over a synthetic directory: `all_q6_k` holds only when every named
+    /// tensor is present and Q6_K.
+    #[test]
+    fn all_q6_k_needs_every_tensor() {
+        let both = header(&[("a", GGML_TYPE_Q6_K), ("b", GGML_TYPE_Q6_K)]);
+        assert!(all_q6_k(&both, &["a".to_string(), "b".to_string()]));
+        let mixed = header(&[("a", GGML_TYPE_Q6_K), ("b", GGML_TYPE_Q4_K)]);
+        assert!(!all_q6_k(&mixed, &["a".to_string(), "b".to_string()]));
+        let one = header(&[("a", GGML_TYPE_Q6_K)]);
+        assert!(!all_q6_k(&one, &["a".to_string(), "missing".to_string()]));
+    }
+
+    /// The selection predicate the loader reads, on qwen05b-Q4_K_M blk.0: the all-Q5_0 groups
+    /// (`attn_output`, `ffn_gate`+`ffn_up`) select Q5; `ffn_down` (Q6_K) does not, and stays Q8.
+    #[test]
+    fn q5_0_selection_on_qwen05b_blk0() {
+        let Some(path) = model_path(QWEN05B_PATH) else {
+            eprintln!("skip q5_0_selection_on_qwen05b_blk0: {QWEN05B_PATH} absent");
+            return;
+        };
+        let gguf = Gguf::open(&path).expect("open qwen05b");
+        let h = &gguf.header;
+        let names = |s: &[&str]| -> Vec<String> { s.iter().map(|x| (*x).to_string()).collect() };
+        assert!(
+            all_q5_0(h, &names(&["blk.0.attn_output.weight"])),
+            "blk.0.attn_output.weight must select Q5"
+        );
+        assert!(
+            all_q5_0(h, &names(&["blk.0.ffn_gate.weight", "blk.0.ffn_up.weight"])),
+            "blk.0 ffn_gate+ffn_up must select Q5"
+        );
+        assert!(
+            !all_q5_0(h, &names(&["blk.0.ffn_down.weight"])),
+            "blk.0.ffn_down.weight (Q6_K) must not select Q5"
+        );
+    }
+
+    /// The selection predicate the loader reads, on qwen05b-Q4_K_M: ffn_down groups that are
+    /// Q6_K are selected by `all_q6_k`, and those that are Q4_K are not.
+    #[test]
+    fn q6_k_selection_on_qwen05b() {
+        let Some(path) = model_path(QWEN05B_PATH) else {
+            eprintln!("skip q6_k_selection_on_qwen05b: {QWEN05B_PATH} absent");
+            return;
+        };
+        let gguf = Gguf::open(&path).expect("open qwen05b");
+        let h = &gguf.header;
+        let names = |s: &[&str]| -> Vec<String> { s.iter().map(|x| (*x).to_string()).collect() };
+        let mut q6_count = 0usize;
+        let mut q4_count = 0usize;
+        for i in 0..24 {
+            let name = format!("blk.{i}.ffn_down.weight");
+            if let Some(t) = h.tensor(&name) {
+                let nms = names(&[&name]);
+                if t.ggml_type == GGML_TYPE_Q6_K {
+                    assert!(
+                        all_q6_k(h, &nms),
+                        "blk.{i}.ffn_down.weight (Q6_K) must select Q6"
+                    );
+                    q6_count += 1;
+                } else if t.ggml_type == GGML_TYPE_Q4_K {
+                    assert!(
+                        !all_q6_k(h, &nms),
+                        "blk.{i}.ffn_down.weight (Q4_K) must not select Q6"
+                    );
+                    q4_count += 1;
+                }
+            }
+        }
+        assert!(q6_count > 0, "qwen05b must have Q6_K ffn_down groups");
+        assert!(q4_count > 0, "qwen05b must have Q4_K ffn_down groups");
     }
 }

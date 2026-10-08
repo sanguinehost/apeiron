@@ -1087,12 +1087,14 @@ pub fn attn_prefill_coopmat_module(
     qkvm: u32,
     tmax: u32,
     scale: f32,
+    dpw: u32,
 ) -> Vec<u32> {
     assert!(nkv > 0 && nh % nkv == 0, "GQA needs nkv | nh");
     assert!(
         qkvm % 4 == 0 && tmax % 4 == 0 && tmax >= 4,
         "qkvm and tmax must be multiples of 4"
     );
+    assert!(dpw == 1 || dpw == 2, "dpw must be 1 or 2");
     assert!(ATTN_COOPMAT_SPV.len() % 4 == 0, "SPIR-V is a word stream");
     let words: Vec<u32> = ATTN_COOPMAT_SPV
         .chunks_exact(4)
@@ -1107,11 +1109,48 @@ pub fn attn_prefill_coopmat_module(
             (2, qkvm),
             (3, tmax),
             (4, scale.to_bits()),
+            (5, dpw),
         ],
     )
 }
 
 /// [`attn_prefill_coopmat_module`] as bytes.
-pub fn attn_prefill_coopmat_bytes(nh: u32, nkv: u32, qkvm: u32, tmax: u32, scale: f32) -> Vec<u8> {
-    bytes(attn_prefill_coopmat_module(nh, nkv, qkvm, tmax, scale))
+pub fn attn_prefill_coopmat_bytes(
+    nh: u32,
+    nkv: u32,
+    qkvm: u32,
+    tmax: u32,
+    scale: f32,
+    dpw: u32,
+) -> Vec<u8> {
+    bytes(attn_prefill_coopmat_module(nh, nkv, qkvm, tmax, scale, dpw))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attn_coopmat_specialization_dpw() {
+        let m1 = attn_prefill_coopmat_module(14, 2, 1152, 2048, 0.125, 1);
+        assert!(!m1.is_empty());
+        let m2 = attn_prefill_coopmat_module(14, 2, 1152, 2048, 0.125, 2);
+        assert!(!m2.is_empty());
+        assert_ne!(m1, m2);
+    }
+
+    #[test]
+    fn attn_coopmat_dpw2_word_layout_matches_quantize_batch_module() {
+        let dpw = 2u32;
+        for w in 0..16u32 {
+            let coop_indices: Vec<u32> =
+                (0..4u32).map(|b| (w >> 1) * 8 + (w & 1) + b * 2).collect();
+            let cc = w / dpw;
+            let ll = w % dpw;
+            let base0 = cc * 4 * dpw;
+            let base = base0 + ll;
+            let quant_indices: Vec<u32> = (0..4u32).map(|b| base + b * dpw).collect();
+            assert_eq!(coop_indices, quant_indices, "mismatch at word {w}");
+        }
+    }
 }

@@ -22,8 +22,8 @@
 // codes are exact in fp16, the K scale (times 1/sqrt(hd)) is applied to S in f32, and the V scale is
 // folded into V' so P stays in [0, 1] (no fp16 underflow of exp * vs).
 //
-// Constants: NH, NKV, QKVM, TMAX, SCALE are specialization constants (patched in the binary by
-// `simt_nn::attn_prefill_coopmat_module`). QKVM and TMAX must be multiples of 4.
+// Constants: NH, NKV, QKVM, TMAX, SCALE, DPW are specialization constants (patched in the binary by
+// `simt_nn::attn_prefill_coopmat_module`). QKVM and TMAX must be multiples of 4. DPW in {1, 2}.
 
 #ifndef NSG
 #define NSG 4
@@ -43,6 +43,7 @@ layout(constant_id = 1) const uint NKV = 2;
 layout(constant_id = 2) const uint QKVM = 1152;
 layout(constant_id = 3) const uint TMAX = 2048;
 layout(constant_id = 4) const float SCALE = 0.125;
+layout(constant_id = 5) const uint DPW = 1;
 
 layout(set = 0, binding = 0, std430) readonly buffer QKV_ { vec4 qkv4[]; };
 layout(set = 0, binding = 1, std430) readonly buffer KC_ { vec4 kc4[]; };
@@ -252,20 +253,31 @@ void main() {
     }
     subgroupMemoryBarrierShared();
     subgroupBarrier();
-    // codes: 16 rows x 16 words per subgroup, four consecutive values per word
+    // codes: 16 rows x 16 words per subgroup, four consecutive values per word (DPW=1) or interleaved pairs (DPW=2)
     [[unroll]] for (uint it = 0u; it < 8u; ++it) {
         const uint idx = lane + it * 32u;
         const uint r = idx >> 4;
         const uint w = idx & 15u;
         const uint ir = i0 + sg * 16u + r;
         const float sx = sQs[(sg * 16u + r) * 2u + (w >> 3)];
-        const uint so = (sg * 16u + r) * SSTR + w * 4u;
+        const uint rso = (sg * 16u + r) * SSTR;
         uint word = 0u;
-        [[unroll]] for (uint b = 0u; b < 4u; ++b) {
-            float q = sS[so + b] / sx;
-            q = q + (q > 0.0 ? 0.5 : -0.5);
-            q = max(min(q, 127.0), -127.0);
-            word |= (uint(int(q)) & 0xFFu) << (8u * b);
+        if (DPW == 1u) {
+            const uint so = rso + w * 4u;
+            [[unroll]] for (uint b = 0u; b < 4u; ++b) {
+                float q = sS[so + b] / sx;
+                q = q + (q > 0.0 ? 0.5 : -0.5);
+                q = max(min(q, 127.0), -127.0);
+                word |= (uint(int(q)) & 0xFFu) << (8u * b);
+            }
+        } else {
+            const uint so = rso + (w >> 1) * 8u + (w & 1u);
+            [[unroll]] for (uint b = 0u; b < 4u; ++b) {
+                float q = sS[so + b * 2u] / sx;
+                q = q + (q > 0.0 ? 0.5 : -0.5);
+                q = max(min(q, 127.0), -127.0);
+                word |= (uint(int(q)) & 0xFFu) << (8u * b);
+            }
         }
         if (ir < nn) {
             xq[ir * (qn / 4u) + hb / 4u + w] = word;

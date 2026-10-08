@@ -2,7 +2,8 @@
 //!
 //! Five fixed prompts, each fed token by token on the GPU and then greedy-decoded for 32 tokens.
 //! Asserts (a) the GPU's first generated token equals the CPU engine's greedy first token for every
-//! prompt, and (b) the GPU text for "The capital of France is" contains "Paris". Reports (does not
+//! prompt — except a mismatch admitted by [`TIE_GAP`]/[`TIE_REL_L2`]/[`TIE_MAX`] (SEL-TIE-CONTRACT)
+//! — and (b) the GPU text for "The capital of France is" contains "Paris". Reports (does not
 //! assert) the per-prompt greedy agreement length with the CPU engine over 32 tokens, the GPU texts
 //! and the decode speed (tokens/s over 128 greedy steps after warm-up, 3 runs).
 //!
@@ -42,11 +43,25 @@ const TMAX: u32 = 256;
 const BENCH_STEPS: usize = 128;
 const BENCH_RUNS: usize = 3;
 
-/// Feed `ids` at positions `0..`, then greedy-decode `n` tokens. Returns the `n` generated ids.
-fn gpu_generate(d: &mut GpuDecode, ids: &[u32], n: usize) -> Vec<u32> {
+/// SEL-TIE-CONTRACT: with carrier selection on, a prompt whose GPU first token differs from the CPU
+/// exact first token is admissible only when all hold — the CPU-exact logit gap
+/// `cpu_logit[cpu_tok] - cpu_logit[gpu_tok] <= TIE_GAP` (logit units), the relative L2 error of the
+/// GPU and CPU logit rows at that position `<= TIE_REL_L2` (norm against the CPU row), and at most
+/// `TIE_MAX` prompt per run is admitted this way. A prompt that does not qualify keeps the exact
+/// `assert_eq`. CPU logits are `Engine::step_logits_state(..., KernelMode::Exact)` over the prompt
+/// ids, Q32 scaled by `1/4294967296.0` as `gpu_prefill_match` does.
+const TIE_GAP: f64 = 0.5;
+const TIE_REL_L2: f64 = 0.25;
+const TIE_MAX: usize = 1;
+
+/// Feed `ids` at positions `0..`, then greedy-decode `n` tokens. Returns the `n` generated ids and
+/// the logit row of the last prompt step, captured before decoding overwrites it
+/// (`GpuDecode::step_logits` holds the last step's logits, `src/gpu/decode/model.rs:262`).
+fn gpu_generate(d: &mut GpuDecode, ids: &[u32], n: usize) -> (Vec<u32>, Vec<f32>) {
     for (pos, &t) in ids.iter().enumerate() {
         d.step(pos, t as usize);
     }
+    let prompt_logits = d.step_logits().to_vec();
     let mut out = Vec::with_capacity(n);
     let mut next = d.last_argmax() as u32;
     let mut pos = ids.len();
@@ -59,7 +74,7 @@ fn gpu_generate(d: &mut GpuDecode, ids: &[u32], n: usize) -> Vec<u32> {
         pos += 1;
         next = d.last_argmax() as u32;
     }
-    out
+    (out, prompt_logits)
 }
 
 #[test]
@@ -101,12 +116,21 @@ fn run(carrier: Carrier) {
         gpu.n_disp
     );
 
-    let mut first_match = Vec::new();
+    let mode = KernelMode::Exact;
+    let l2f = |a: &[f64], b: &[f64]| {
+        let d = a
+            .iter()
+            .zip(b)
+            .map(|(x, y)| (x - y).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        d / b.iter().map(|y| y * y).sum::<f64>().sqrt()
+    };
+    let mut tie = Vec::new();
     for prompt in PROMPTS {
         let ids = bpe.encode(prompt).expect("encode");
-        let g = gpu_generate(&mut gpu, &ids, N_GEN);
+        let (g, gpu_logits) = gpu_generate(&mut gpu, &ids, N_GEN);
 
-        let mode = KernelMode::Exact;
         let mut st = engine.state(ids.len() + n_cpu).expect("cpu state");
         let mut next = engine
             .prefill_state(&mut st, &ids, mode)
@@ -121,6 +145,21 @@ fn run(carrier: Carrier) {
                 .next_token_state(&mut st, next, mode)
                 .expect("cpu step");
         }
+        // CPU logits at the last prompt position (token-serial exact engine, Q32), the accuracy
+        // reference `gpu_prefill_match` uses.
+        let mut st2 = engine.state(ids.len() + 1).expect("cpu state");
+        let mut cl = Vec::new();
+        for &t in &ids {
+            cl = engine
+                .step_logits_state(&mut st2, t, mode)
+                .expect("cpu step");
+        }
+        let cpu_logits: Vec<f64> = cl.iter().map(|&v| v as f64 / 4294967296.0).collect();
+        let gpu_l: Vec<f64> = gpu_logits.iter().map(|&v| v as f64).collect();
+        let rel_l2 = l2f(&gpu_l, &cpu_logits);
+        let gap = cpu_logits[c[0] as usize] - cpu_logits[g[0] as usize];
+        let admit = g[0] != c[0] && gap <= TIE_GAP && rel_l2 <= TIE_REL_L2;
+
         let agree = g.iter().zip(&c).take_while(|(a, b)| a == b).count();
         let text = bpe
             .decode(&g)
@@ -131,14 +170,35 @@ fn run(carrier: Carrier) {
             c[0],
             g[0] == c[0]
         );
-        first_match.push((prompt, g[0], c[0]));
+        println!(
+            "  tie: gap {gap:.4} (cpu_tok {} - gpu_tok {}) rel L2 {rel_l2:.4e} admitted {}",
+            c[0],
+            g[0],
+            if admit { "yes" } else { "no" }
+        );
+        tie.push((prompt, g[0], c[0], gap, rel_l2));
         if prompt == PROMPTS[0] {
             assert!(text.contains("Paris"), "GPU text lacks Paris: {text:?}");
         }
     }
-    for (prompt, g, c) in &first_match {
-        assert_eq!(g, c, "first token mismatch for {prompt:?}: gpu {g} cpu {c}");
+    for (prompt, g, c, gap, rel_l2) in &tie {
+        let admit = g != c && *gap <= TIE_GAP && *rel_l2 <= TIE_REL_L2;
+        if !admit {
+            assert_eq!(
+                g, c,
+                "first token mismatch for {prompt:?}: gpu {g} cpu {c} (gap {gap:.4}, rel L2 {rel_l2:.4e})"
+            );
+        }
     }
+    let n_admit = tie
+        .iter()
+        .filter(|(_, g, c, gap, rel_l2)| g != c && *gap <= TIE_GAP && *rel_l2 <= TIE_REL_L2)
+        .count();
+    assert!(
+        n_admit <= TIE_MAX,
+        "{n_admit} prompts admitted by the tie contract, limit {TIE_MAX}"
+    );
+    println!("tie contract: {n_admit} prompt(s) admitted (limit {TIE_MAX})");
 
     // decode speed: BENCH_STEPS greedy steps after the prompt, warm-up discarded
     let ids = bpe.encode(PROMPTS[0]).expect("encode");

@@ -179,7 +179,10 @@ fn prefill_bench(
     carrier_s: &str,
 ) -> ! {
     let vocab = engine.config.vocab_size as u64;
-    let mut x: u64 = 0x9e37_79b9_7f4a_7c15;
+    let mut x: u64 = std::env::var("PFSEL_SEED")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0x9e37_79b9_7f4a_7c15);
     let toks: Vec<usize> = (0..n)
         .map(|_| {
             x = x
@@ -199,6 +202,14 @@ fn prefill_bench(
         "[GPU-PREFILL] carrier {carrier_s} | construct {:.2} s | pp{n} tmax {tmax}",
         t0.elapsed().as_secs_f64()
     );
+    if std::env::var_os("PFSEL_CPU").is_some() {
+        let ids: Vec<u32> = toks.iter().map(|&t| t as u32).collect();
+        let mut st = engine.state(n + 1).expect("cpu state");
+        let cpu = engine
+            .prefill_state(&mut st, &ids, apeiron::engine::KernelMode::Exact)
+            .expect("cpu prefill");
+        println!("  CPU exact argmax {cpu}");
+    }
     gpu.prefill(&toks).expect("warm-up prefill");
     let first = gpu.last_argmax();
     let mut rates = Vec::with_capacity(reps);
@@ -209,6 +220,7 @@ fn prefill_bench(
         rates.push(n as f64 / t.elapsed().as_secs_f64());
         stable &= gpu.last_argmax() == first;
     }
+    let pf_logits: Vec<f32> = gpu.prefill(&toks).expect("prefill").to_vec();
     let pf_hidden: Vec<f64> = gpu.last_hidden().to_vec();
     if std::env::var_os("PREFILL_PROFILE").is_some() {
         let mut tot = 0f64;
@@ -234,6 +246,32 @@ fn prefill_bench(
         first == tbt_first,
         dmax / refmax
     );
+    {
+        let tl = gpu.step_logits();
+        let l2 = |v: &[f32]| {
+            v.iter()
+                .map(|&x| (x as f64) * (x as f64))
+                .sum::<f64>()
+                .sqrt()
+        };
+        let d: f64 = pf_logits
+            .iter()
+            .zip(tl)
+            .map(|(&a, &b)| ((a - b) as f64).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        let top = |v: &[f32]| {
+            let mut idx: Vec<usize> = (0..v.len()).collect();
+            idx.sort_by(|&a, &b| v[b].partial_cmp(&v[a]).unwrap());
+            (idx[0], v[idx[0]], idx[1], v[idx[1]])
+        };
+        let (p0, pv0, p1, pv1) = top(&pf_logits);
+        let (t0, tv0, t1, tv1) = top(tl);
+        println!(
+            "  DIAG logits rel L2 {:.3e}; prefill top2 ({p0},{pv0:.4}) ({p1},{pv1:.4}); tbt top2 ({t0},{tv0:.4}) ({t1},{tv1:.4})",
+            d / l2(tl)
+        );
+    }
     let mean = rates.iter().sum::<f64>() / rates.len() as f64;
     let lo = rates.iter().copied().fold(f64::MAX, f64::min);
     let hi = rates.iter().copied().fold(0f64, f64::max);
