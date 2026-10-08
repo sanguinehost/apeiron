@@ -19,5 +19,8 @@ pub mod countlm;
 /// Forward-only finetuning adapter over token contexts via Kneser–Ney count refinement.
 pub mod foldadapt;
 
+/// GPTQ error-feedback quantization to balanced-trit planes and affine carriers.
+pub mod gptq;
+
 /// Streaming Gram accumulation and direct SPD ridge solve: the closed-form linear head.
 pub mod ridge;
