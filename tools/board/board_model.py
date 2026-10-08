@@ -55,8 +55,24 @@ def sha256_of(text: str) -> str:
 
 
 def _row_closed(text: str) -> bool:
+    """Free row wording (a table with no state column): a marker anywhere closes it."""
     lowered = text.lower()
     return any(re.search(rf"\b{marker}\b", lowered) for marker in CLOSED_MARKERS)
+
+
+# A state cell names its status first (`landed: <rev>`, `done; …`) or records the board move
+# (`… board row Done`). A marker elsewhere is prose about the work, not the row's status:
+# `open; … axioms closed …` is open.
+_STATE_LEAD = re.compile(r"^[\s*_`~>\[(]*([a-z]+)")
+_STATE_BOARD_DONE = re.compile(r"\bboard row (?:done|closed)\b")
+
+
+def _state_closed(text: str) -> bool:
+    lowered = text.lower()
+    lead = _STATE_LEAD.match(lowered)
+    if lead and lead.group(1) in CLOSED_MARKERS:
+        return True
+    return bool(_STATE_BOARD_DONE.search(lowered))
 
 
 def _read_table(lines: list[str], start: int) -> tuple[list[str], list[list[str]], int]:
@@ -142,10 +158,12 @@ def _markdown_rows(
         name = re.sub(r"`[^`]*`", "", task_cell).strip(" —-*:")
         name = re.sub(r"\s+", " ", name)[:120]
         closed_by = ""
-        if state_at is not None and state_at < len(cells) and cells[state_at]:
-            if _row_closed(cells[state_at]):
-                closed_by = cells[state_at].strip()
-        if not closed_by and _row_closed(row_text):
+        if state_at is not None:
+            # A `|` inside a cell (`|D|`) splits it; the last header column is still the last cell.
+            state_cell = cells[-1] if state_at == len(header) - 1 else cells[state_at]
+            if _state_closed(state_cell):
+                closed_by = state_cell.strip()
+        elif _row_closed(row_text):
             closed_by = "row wording"
         gate_text = cells[gate_at] if gate_at is not None and gate_at < len(cells) else ""
         files_text = cells[files_at] if files_at is not None and files_at < len(cells) else ""
@@ -190,7 +208,7 @@ def parse_tsv_plan(text: str, source: str) -> list[dict[str, Any]]:
                 "name": name[:120],
                 "section": source,
                 "source": source,
-                "closed": _row_closed(state) or state.lower() in {"closed", "done"},
+                "closed": _state_closed(state),
                 "closed_by": state,
                 "gates": gates_of(clean.get("gate") or ""),
                 "paths": _dedupe(

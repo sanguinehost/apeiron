@@ -295,6 +295,23 @@ class PlanParseTests(unittest.TestCase):
         self.assertTrue(by_id["FIXTURE-E1-W3-T1"]["closed"])
         self.assertFalse(by_id["FIXTURE-E1-W1-T1"]["closed"])
 
+    def test_a_state_cell_closes_only_by_its_lead_or_the_board_move(self) -> None:
+        """`closed` inside an open row's prose (`axioms closed`) left the row open on the board
+        while the plan read it as closed: a false drift finding (row
+        apeiron-plan-reset-GcnP2JnZnUecOAzUIbBqrJ)."""
+        text = (
+            "| task | board | scope | state |\n|---|---|---|---|\n"
+            "| `FIX-OPEN-1` | b1 | s | open; proved, closed cone; done next |\n"
+            "| `FIX-DONE-1` | b2 | s | **done**: `abc1234` |\n"
+            "| `FIX-BOARD-1` | b3 | s | gate green (cone closed); board row Done |\n"
+            "| `FIX-PIPE-1` | b4 | reads |D| keys | open; landed half |\n"
+        )
+        by_id = {r["id"]: r for r in board.parse_markdown_plan(text, "docs/plan.md")}
+        self.assertFalse(by_id["FIX-OPEN-1"]["closed"])
+        self.assertTrue(by_id["FIX-DONE-1"]["closed"])
+        self.assertTrue(by_id["FIX-BOARD-1"]["closed"])
+        self.assertFalse(by_id["FIX-PIPE-1"]["closed"])
+
     def test_a_resume_queue_row_is_parsed_and_non_closed(self) -> None:
         """A table headed `task | session | state | note` is a plan table too."""
         text = (
