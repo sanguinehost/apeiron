@@ -401,8 +401,135 @@ theorem resize_loop0_witness :
     hR hcap t hb0 hsum hovt
   exact ⟨t, t, r, hr⟩
 
+/-! ## `with_bits` totality
+
+`Table::with_bits` builds the fresh destination table of a resize.  Its shift `1#usize <<< bits`
+fails for `bits.val ≥ Usize.numBits`; below that it is `ok (2 ^ bits.val)`, and every other step
+(`from_elem`, `into_boxed_slice`, `alloc_uninit_boxed`, the key store's `alloc`, `SideStore.empty`)
+is total once the key store's `alloc` is.  The fresh table's shape facts and the initialised-value
+domain `BigInit` and empty-overflow `Hov t 0` are its own construction. -/
+
+/-- `1#usize <<< bits` succeeds and equals `2 ^ bits.val` below the word width. -/
+theorem shl_1_ex (bits : U32) (h : bits.val < UScalarTy.Usize.numBits) :
+    ∃ n : Usize, (1#usize <<< bits = ok n) ∧ n.val = 2 ^ bits.val := by
+  refine ⟨⟨(1#usize).bv.shiftLeft bits.val⟩, ?_, ?_⟩
+  · show UScalar.shiftLeft_UScalar 1#usize bits = ok _
+    unfold UScalar.shiftLeft_UScalar UScalar.shiftLeft
+    simp only [h, if_true]
+  · show ((1#usize).bv.shiftLeft bits.val).toNat = 2 ^ bits.val
+    rw [BitVec.shiftLeft_eq, BitVec.toNat_shiftLeft]
+    have h1 : (1#usize).bv.toNat = 1 := rfl
+    rw [h1, Nat.shiftLeft_eq, one_mul]
+    apply Nat.mod_eq_of_lt
+    exact Nat.pow_lt_pow_right (by norm_num) h
+
+/-- **`with_bits_ex`.**  `Table::with_bits` is total below the word width when the key store's
+`alloc` is, and the fresh table carries its shape facts, the initialised-value domain `BigInit` and
+the empty overflow domain `Hov · 0`. -/
+theorem with_bits_ex {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (halloc : ∀ n : Usize, ∃ ks', ks.alloc n = ok ks')
+    (bits : U32) (hbits : bits.val < UScalarTy.Usize.numBits) :
+    ∃ t : Tbl KS,
+      hashtrinity.Table.with_bits I64 core.cmp.EqU64 CI ks bits = ok t ∧
+      t.bits = bits ∧ t.coords.val.length = 2 ^ bits.val ∧
+      t.vals.val.length = t.coords.val.length ∧
+      t.len.val = 0 ∧ t.overflow = none ∧ BigInit t ∧ Hov t 0 := by
+  unfold hashtrinity.Table.with_bits
+  obtain ⟨n, hn, hnv⟩ := shl_1_ex bits hbits
+  rw [hn]; simp only [bind_tc_ok]
+  obtain ⟨v, hv⟩ := from_elem_ok n
+  rw [hv]; simp only [bind_tc_ok]
+  unfold alloc.vec.Vec.into_boxed_slice
+  simp only [bind_tc_ok]
+  obtain ⟨s1, hs1⟩ := alloc_uninit_ok I64 n
+  rw [hs1]; simp only [bind_tc_ok]
+  obtain ⟨g, hg⟩ := halloc n
+  rw [hg]; simp only [bind_tc_ok]
+  unfold hashtrinity.side.SideStore.empty
+  obtain ⟨g0, hg0⟩ := halloc 0#usize
+  rw [hg0]; simp only [bind_tc_ok]
+  refine ⟨_, rfl, rfl, ?_, ?_, rfl, rfl, ?_, ?_⟩
+  · show v.val.length = 2 ^ bits.val
+    rw [from_elem_val hashtrinity.EMPTY n v hv, List.length_replicate, hnv]
+  · show s1.val.length = v.val.length
+    rw [alloc_uninit_val I64 n s1 hs1, from_elem_val hashtrinity.EMPTY n v hv]
+    simp
+  · intro i c hc hns
+    have hvv := from_elem_val hashtrinity.EMPTY n v hv
+    have hci : v.val[i]? = some c := hc
+    rw [hvv] at hci
+    have hc' : c = hashtrinity.EMPTY := (List.mem_replicate.mp (List.mem_of_getElem? hci)).2
+    exact absurd (by rw [hc']; exact Or.inl EMPTY_val) hns
+  · intro ov h
+    simp at h
+
+/-! ## `Overflow::in_order` totality
+
+The in-order walk's inner loop (`in_order_loop0_loop0`/`loop1`) pushes the left spine of the
+current subtree onto the stack; it descends into a strictly smaller subtree at each step, so it
+terminates by structural recursion on the subtree shape.  The stack-length bound
+`stack.val.length + |idxs T| < Usize.max` keeps `Vec.push` below its size ceiling. -/
+
+theorem in_order_loop0_loop0_total (v : alloc.vec.Vec ONode) :
+    ∀ (T0 : OTree) (cur : U32) (stack : alloc.vec.Vec U32),
+      Emb v.val cur T0 →
+      stack.val.length + (idxs T0).length < Usize.max →
+      ∃ r, hashtrinity.overflow.Overflow.in_order_loop0_loop0 v stack cur = ok r := by
+  intro T0
+  induction T0 with
+  | leaf =>
+    intro cur stack hE hb
+    refine ⟨stack, ?_⟩
+    unfold hashtrinity.overflow.Overflow.in_order_loop0_loop0
+    rw [loop.eq_def]
+    unfold hashtrinity.overflow.Overflow.in_order_loop0_loop0.body
+    dsimp only
+    have hcur : cur = hashtrinity.overflow.NIL := (NIL_eq_iff cur).mpr hE
+    rw [if_neg (by simp [hcur])]
+    simp
+  | node l i r ihl ihr =>
+    intro cur stack hE hb
+    obtain ⟨hci, hine, nd, hnd, hl, hr⟩ := hE
+    have hciN : cur ≠ hashtrinity.overflow.NIL := fun hh =>
+      hine (by rw [← hci]; exact (NIL_eq_iff cur).mp hh)
+    obtain ⟨stack1, hpush⟩ := vec_push_ex stack cur (by
+      have h1 : 0 < (idxs (OTree.node l i r)).length := by
+        simp only [idxs, List.length_append, List.length_cons]; omega
+      omega)
+    obtain ⟨n, hidx⟩ := vec_index_ex v (UScalar.cast .Usize cur) (by
+      rw [cast_usize_u32, hci]
+      exact (List.getElem?_eq_some_iff.mp hnd).1)
+    have hn : n = nd := by
+      have := vec_index_ok v (UScalar.cast .Usize cur) n hidx
+      rw [cast_usize_u32, hci, hnd] at this
+      exact (Option.some.inj this).symm
+    rw [hn] at hidx
+    have hcond : (cur != hashtrinity.overflow.NIL) = true := by simpa using hciN
+    have hbody : hashtrinity.overflow.Overflow.in_order_loop0_loop0.body v stack cur
+        = ok (ControlFlow.cont (stack1, nd.left)) := by
+      unfold hashtrinity.overflow.Overflow.in_order_loop0_loop0.body
+      rw [if_pos hcond, hpush]
+      simp only [lift, bind_tc_ok]
+      rw [hidx]; simp only [bind_tc_ok]
+    obtain ⟨r, hr⟩ := ihl nd.left stack1 hl (by
+      rw [vec_push_ok stack stack1 cur hpush, List.length_append, List.length_singleton]
+      have h2 : (idxs (OTree.node l i r)).length = (idxs l).length + 1 + (idxs r).length := by
+        simp only [idxs, List.length_append, List.length_cons]; omega
+      omega)
+    refine ⟨r, ?_⟩
+    unfold hashtrinity.overflow.Overflow.in_order_loop0_loop0
+    rw [loop.eq_def]
+    dsimp only
+    rw [hbody]
+    simp only [bind_ok]
+    show hashtrinity.overflow.Overflow.in_order_loop0_loop0 v stack1 nd.left = ok r
+    exact hr
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.resize_loop0_ok
 #audit Apeiron.MapExecuted.resize_loop1_ok
 #audit Apeiron.MapExecuted.resize_loop0_witness
+#audit Apeiron.MapExecuted.shl_1_ex
+#audit Apeiron.MapExecuted.with_bits_ex
+#audit Apeiron.MapExecuted.in_order_loop0_loop0_total
