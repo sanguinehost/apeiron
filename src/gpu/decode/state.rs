@@ -252,29 +252,27 @@ impl LayerW {
         // (`gemv_dp4a_batch_rt_module`) panics on both, so on a device without coopmat the group stays
         // Q8 (`coopmat_ok` in `prefill.rs` reads the same flag). `DEC_SEL=0` forces every group off the
         // two-plane selection, so the loader takes exactly the pre-selection Q4_K/Q8 path.
+        // `DEC_SEL_MASK` (default 15) selects per group for attribution: bit 0 qkv, 1 o, 2 gu, 3 dn;
+        // a cleared bit keeps that group on the pre-selection path.
         let plane_b_ok = g.vk.has_coopmat && envu("DEC_SEL", 1) != 0;
+        let sel_mask = envu("DEC_SEL_MASK", 15);
+        let sel = |bit: u32| plane_b_ok && sel_mask & (1 << bit) != 0;
         let (qkv, qkv_c) = pack_group(
             gguf,
             &[n("attn_q.weight"), n("attn_k.weight"), n("attn_v.weight")],
             h,
             c,
-            plane_b_ok,
+            sel(0),
         )?;
-        let (o, o_c) = pack_group(
-            gguf,
-            &[n("attn_output.weight")],
-            c.qn() as usize,
-            c,
-            plane_b_ok,
-        )?;
+        let (o, o_c) = pack_group(gguf, &[n("attn_output.weight")], c.qn() as usize, c, sel(1))?;
         let (gu, gu_c) = pack_group(
             gguf,
             &[n("ffn_gate.weight"), n("ffn_up.weight")],
             h,
             c,
-            plane_b_ok,
+            sel(2),
         )?;
-        let (dn, dn_c) = pack_group(gguf, &[n("ffn_down.weight")], dff, c, plane_b_ok)?;
+        let (dn, dn_c) = pack_group(gguf, &[n("ffn_down.weight")], dff, c, sel(3))?;
         let bias = if gguf.header.tensor(&n("attn_q.bias")).is_some() {
             let mut b = dq(gguf, &n("attn_q.bias"))?;
             b.extend(dq(gguf, &n("attn_k.bias"))?);
@@ -501,5 +499,158 @@ mod tests {
         }
         assert!(q6_count > 0, "qwen05b must have Q6_K ffn_down groups");
         assert!(q4_count > 0, "qwen05b must have Q4_K ffn_down groups");
+    }
+
+    /// The upload byte inventory `LayerW::load` (`state.rs:247`) and `upload_embed`/`upload_lm_head`
+    /// (`upload.rs:74,87`) produce for qwen05b-Q4_K_M, recomputed on the CPU through the same
+    /// `pack_group` / `dequant_rows` / `pack_proj_f32` calls the loader makes — no Vulkan context, no
+    /// GPU (`layer_cfg` and `Engine::open` are CPU-only).
+    ///
+    /// `plane_b_ok` is the value `LayerW::load` computes as `has_coopmat && DEC_SEL != 0`
+    /// (`state.rs:255`): `true` is a coopmat device at `DEC_SEL=1`; `false` is `DEC_SEL=0` (or a
+    /// non-coopmat device). Byte count per projection is `4 * (words.len() + dm.len())` — exactly
+    /// what `g.up_u32` uploads (`state.rs:290-302`).
+    ///
+    /// Run in release: `cargo test --release --features gpu --lib -- --ignored
+    /// qwen05b_upload_bytes_match_inventory --test-threads=1 --nocapture`.
+    #[test]
+    #[ignore = "reads the 397 MB qwen05b checkpoint; run in release with --ignored"]
+    fn qwen05b_upload_bytes_match_inventory() {
+        use super::{dequant_rows, pack_group};
+        use crate::engine::loader::Engine;
+        use crate::gpu::decode::pack::pack_proj_f32;
+        use crate::gpu::decode::upload::layer_cfg;
+        use crate::simt::Carrier;
+
+        let Some(path) = model_path(QWEN05B_PATH) else {
+            eprintln!("skip qwen05b_upload_bytes_match_inventory: {QWEN05B_PATH} absent");
+            return;
+        };
+        let gguf = Gguf::open(&path).expect("open qwen05b");
+        let eng = Engine::open(&path).expect("engine open qwen05b");
+        let ec = &eng.config;
+        let c = layer_cfg(&gguf, ec, 256, Carrier::Q4).expect("layer_cfg qwen05b");
+        assert_eq!(c.carrier, Carrier::Q4, "the loader runs Carrier::Q4 here");
+
+        const CARRIERS: [Carrier; 4] = [Carrier::Q4, Carrier::Q5, Carrier::Q6, Carrier::Q8];
+        let cidx = |car: Carrier| match car {
+            Carrier::Q4 => 0,
+            Carrier::Q5 => 1,
+            Carrier::Q6 => 2,
+            _ => 3,
+        };
+        // `LayerW::load`'s four groups: (label, tensor names, k = packer `k` argument).
+        let groups = |li: usize| -> [(&'static str, Vec<String>, usize); 4] {
+            let n = |s: &str| format!("blk.{li}.{s}");
+            [
+                (
+                    "qkv",
+                    vec![n("attn_q.weight"), n("attn_k.weight"), n("attn_v.weight")],
+                    c.hidden as usize,
+                ),
+                ("o", vec![n("attn_output.weight")], c.qn() as usize),
+                (
+                    "gu",
+                    vec![n("ffn_gate.weight"), n("ffn_up.weight")],
+                    c.hidden as usize,
+                ),
+                ("dn", vec![n("ffn_down.weight")], c.dff as usize),
+            ]
+        };
+
+        // Head: qwen05b has no `output.weight`, so `upload_lm_head` returns the tied embedding
+        // `upload_embed` built from `upload_rows(gguf, "token_embd.weight", 0, vocab)` — dequantize
+        // then `pack_proj_f32(c.head_carrier(), …, hidden, false)` (`upload.rs:101-111`).
+        let tied = gguf.header.tensor("output.weight").is_none();
+        let head_name = if tied {
+            "token_embd.weight"
+        } else {
+            "output.weight"
+        };
+        let head_desc = gguf.header.tensor(head_name).expect("head tensor").clone();
+        let head_rows = dequant_rows(&gguf, head_name, 0, ec.vocab_size).expect("head dequant");
+        let head_ref: [&[f32]; 1] = [head_rows.as_slice()];
+        let head_proj = pack_proj_f32(c.head_carrier(), &head_ref, c.hidden as usize, false);
+        let head_bytes = 4 * (head_proj.words.len() + head_proj.dm.len());
+        eprintln!(
+            "head: tied={tied} tensor={head_name} ggml_type={} stored={} B carrier={:?} \
+words={} dm={} -> {head_bytes} B",
+            head_desc.ggml_type,
+            gguf.tensor_bytes(&head_desc).expect("head bytes").len(),
+            c.head_carrier(),
+            head_proj.words.len(),
+            head_proj.dm.len(),
+        );
+        assert!(
+            tied,
+            "qwen05b must tie the head to token_embd.weight (no output.weight)"
+        );
+        assert_eq!(head_bytes, 153_151_488, "head upload bytes");
+
+        // The GGUF's own stored bytes for the tensors `pack_group` reads, over the 24 layers, and for
+        // the embedding tensor.
+        let mut stored_layers = 0usize;
+        for li in 0..ec.n_layer {
+            for (_, names, _) in groups(li) {
+                for name in &names {
+                    let td = gguf.header.tensor(name).expect("layer tensor").clone();
+                    stored_layers += gguf.tensor_bytes(&td).expect("layer bytes").len();
+                }
+            }
+        }
+        let emb = gguf
+            .header
+            .tensor("token_embd.weight")
+            .expect("token_embd")
+            .clone();
+        let stored_embd = gguf.tensor_bytes(&emb).expect("embd bytes").len();
+        eprintln!("stored: layers={stored_layers} B token_embd={stored_embd} B");
+        assert_eq!(stored_layers, 246_930_432, "GGUF stored layer-matrix bytes");
+        assert_eq!(stored_embd, 144_643_072, "GGUF token_embd.weight bytes");
+
+        let mut arms: Vec<(bool, usize, [usize; 4])> = Vec::new();
+        for plane_b_ok in [true, false] {
+            let mut per_group = [0usize; 4];
+            let mut per_carrier = [[0usize; 4]; 4];
+            let mut count = [[0usize; 4]; 4];
+            for li in 0..ec.n_layer {
+                for (gi, (_, names, k)) in groups(li).iter().enumerate() {
+                    let (p, car) = pack_group(&gguf, names, *k, &c, plane_b_ok)
+                        .unwrap_or_else(|e| panic!("pack_group blk.{li} group {gi}: {e}"));
+                    let bytes = 4 * (p.words.len() + p.dm.len());
+                    per_group[gi] += bytes;
+                    per_carrier[gi][cidx(car)] += bytes;
+                    count[gi][cidx(car)] += 1;
+                }
+            }
+            let total: usize = per_group.iter().sum();
+            eprintln!(
+                "plane_b_ok={plane_b_ok} (DEC_SEL={}): layers total {total} B",
+                u8::from(plane_b_ok)
+            );
+            for (gi, label) in ["qkv", "o", "gu", "dn"].iter().enumerate() {
+                for (ci, car) in CARRIERS.iter().enumerate() {
+                    if count[gi][ci] > 0 {
+                        eprintln!(
+                            "  {label} {car:?}: {} groups, {} B",
+                            count[gi][ci], per_carrier[gi][ci]
+                        );
+                    }
+                }
+                eprintln!("  {label} total: {} B", per_group[gi]);
+            }
+            arms.push((plane_b_ok, total, per_group));
+        }
+        for (plane_b_ok, total, per_group) in &arms {
+            let want = if *plane_b_ok {
+                273_014_784
+            } else {
+                376_406_016
+            };
+            assert_eq!(
+                *total, want,
+                "plane_b_ok={plane_b_ok} layer upload bytes (per-group {per_group:?})"
+            );
+        }
     }
 }
