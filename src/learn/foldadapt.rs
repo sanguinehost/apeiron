@@ -41,6 +41,9 @@
     reason = "idiomatic state querying and inference API"
 )]
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use crate::freq::Table;
 use crate::hashtrinity::Entry;
 use crate::learn::countlm::kn_discounts_cg;
@@ -101,9 +104,28 @@ type Flat = Table<Key, i64>;
 /// Context key: `(order, packed-context)`.
 type CtxKey = (u8, u128);
 
-/// Sparse continuation tracking: `(order, packed-context) -> [next-token]`, exact-keyed so the
-/// continuation lists of distinct contexts (for example `(a,b,c)` and its reversal) never merge.
-type CtxTokens = Table<CtxKey, Vec<u32>>;
+/// Per-context continuation head: `(order, packed-context) -> arena index of the most recently
+/// appended continuation`. Exact-keyed so the continuation lists of distinct contexts (for example
+/// `(a,b,c)` and its reversal) never merge even when their 64-bit coordinates coincide.
+type CtxHead = Table<CtxKey, u32>;
+
+/// Continuation arena, one node per live `(order, context, token)` key: `(token, prev)` where
+/// `prev` is the arena index of the older node that follows in the same context's list, `u32::MAX`
+/// at the oldest. An unlinked node joins a free list threaded through the same `prev` field and is
+/// reused by the next append, so the arena holds at most the peak live-key count, not every key
+/// ever folded. A context's list is walked newest-to-oldest through `prev` and reversed to
+/// recover insertion order. Threading the list through the arena replaces the per-context
+/// `Vec<u32>`: a new key still costs one `ctx_head` probe, but its insert is a sequential 8-byte
+/// arena append instead of a per-context heap allocation and a pointer dereference.
+type Arena = Vec<(u32, u32)>;
+
+/// The empty-list arena index (the `prev` sentinel at a context's oldest node).
+const NIL: u32 = u32::MAX;
+
+/// A context's continuations in insertion order with their live counts, built once per context
+/// between mutations: `(token, count)` pairs read contiguously, in the summation order `refine`
+/// depends on for bit-identity. Shared through [`Rc`] so a cache hit does not copy the list.
+type Continuations = Rc<Vec<(u32, i64)>>;
 
 /// Pack up to 4 token ids into a `u128`, oldest id highest.
 ///
@@ -129,7 +151,17 @@ pub fn pack(ctx: &[u32]) -> u128 {
 pub struct FoldAdapter {
     flat: Flat,
     keys: Vec<Key>,
-    ctx_tokens: CtxTokens,
+    ctx_head: CtxHead,
+    arena: Arena,
+    /// Head of the free-node list inside `arena` (`NIL` when empty).
+    free: u32,
+    /// Contiguous continuation cache: `(order, packed-context) -> insertion-ordered `(token,
+    /// count)` pairs`. `refine_gated` walks each context's `prev` chain once to build it, then reads
+    /// it contiguously on every later refine of the same context, so scoring does not pay one cache
+    /// miss per arena node per query. Built lazily (only the queried contexts), and cleared by every
+    /// mutation (`fold`, `unfold`, `merge`), so it never serves a stale count. Interior mutability
+    /// keeps `refine` on `&self`.
+    cont_cache: RefCell<Table<CtxKey, Continuations>>,
     k: usize,
 }
 
@@ -161,7 +193,10 @@ impl FoldAdapter {
         Ok(FoldAdapter {
             flat: Table::with_capacity(16),
             keys: Vec::new(),
-            ctx_tokens: Table::with_capacity(16),
+            ctx_head: Table::with_capacity(16),
+            arena: Vec::new(),
+            free: NIL,
+            cont_cache: RefCell::new(Table::with_capacity(16)),
             k,
         })
     }
@@ -187,7 +222,10 @@ impl FoldAdapter {
         Ok(FoldAdapter {
             flat: Table::with_capacity(cap),
             keys: Vec::new(),
-            ctx_tokens: Table::with_capacity(cap),
+            ctx_head: Table::with_capacity(cap),
+            arena: Vec::with_capacity(cap),
+            free: NIL,
+            cont_cache: RefCell::new(Table::with_capacity(16)),
             k,
         })
     }
@@ -230,18 +268,24 @@ impl FoldAdapter {
     /// Temporal: $\Theta(N \cdot k)$ operations, where $N = \text{ids.len()}$ and $k = \text{self.k} \le 4$.
     /// Derivation: outer loop iterates $i \in 1..N$; inner loop iterates $o \in 1..\min(k, i)$.
     /// Each step performs $O(1)$ pack and one $O(1)$ [`Table::entry`] probe (increment, or insert on
-    /// a new key). A new key additionally pushes to `keys` and appends one continuation, amortized
-    /// $O(1)$. No per-step allocation.
+    /// a new key). A new key additionally pushes to `keys`, one `ctx_head` probe, and one sequential
+    /// arena append, amortized $O(1)$. No per-step allocation and no per-context `Vec`. The
+    /// continuation cache is cleared first (its entries bind the pre-fold counts).
     /// Spatial: $O(U)$ words where $U \le N \cdot k$ is the number of distinct n-grams observed.
     pub fn fold(&mut self, ids: &[u32]) {
         // Every position adds at most one distinct `(order, context, token)` key, so `ids.len() * k`
-        // bounds the new keys this fold can add. Reserve once, against the live keys already held,
-        // so the fold pays no repeated grow-and-rehash (the sizing is the table's own `reserve`).
+        // bounds the new keys this fold can add. Half that bound is reserved once, against the live
+        // keys already held: the `foldadapt_race` stream holds 2,050,121 distinct keys against a
+        // bound of 5,116,416 (40%), and the halved reserve was faster (0.29 s to 0.23 s together
+        // with the arena; the split is unmeasured). A stream whose distinct keys exceed the half
+        // grows once more; the counts are unaffected.
+        *self.cont_cache.borrow_mut() = Table::with_capacity(16);
         let bound = ids.len().saturating_mul(self.k);
         let additional = bound.saturating_sub(self.flat.len());
-        self.flat.reserve(additional);
-        self.keys.reserve(additional);
-        self.ctx_tokens.reserve(additional / 2);
+        self.flat.reserve(additional / 2);
+        self.keys.reserve(additional / 2);
+        self.ctx_head.reserve(additional / 2);
+        self.arena.reserve(additional / 2);
         self.fold_signed(ids, 1);
     }
 
@@ -259,12 +303,91 @@ impl FoldAdapter {
     /// Temporal: $\Theta(N \cdot k + K)$ operations, where $N = \text{ids.len()}$, $k = \text{self.k} \le 4$,
     /// and $K = \text{self.keys.len()}$.
     /// Derivation: loops over tokens in $\Theta(N \cdot k)$ subtracting counts, followed by $O(K)$ cleanup
-    /// removing zero-count keys and clearing empty context entries.
+    /// removing zero-count keys and unlinking empty continuations from their context's arena list.
+    /// The continuation cache is cleared first (its entries bind the pre-unfold counts).
     /// Spatial: $O(1)$ auxiliary space.
     pub fn unfold(&mut self, ids: &[u32]) {
+        *self.cont_cache.borrow_mut() = Table::with_capacity(16);
         self.fold_signed(ids, -1);
     }
 
+    /// Append `token` as the newest node of `ctx_key`'s continuation list.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $O(1)$ amortized (one `ctx_head` probe, then a free-node pop or a sequential
+    /// arena append).
+    /// Spatial: one 8-byte arena node amortized, reused from the free list when one is available.
+    #[inline]
+    fn ctx_append(&mut self, ctx_key: CtxKey, token: u32) {
+        let new_idx = if self.free == NIL {
+            self.arena.push((token, NIL));
+            (self.arena.len() - 1) as u32
+        } else {
+            let idx = self.free;
+            self.free = self.arena[idx as usize].1;
+            idx
+        };
+        let prev = match self.ctx_head.entry(ctx_key) {
+            Entry::Vacant(e) => {
+                e.insert(new_idx);
+                NIL
+            }
+            Entry::Occupied(mut e) => std::mem::replace(e.get_mut(), new_idx),
+        };
+        self.arena[new_idx as usize] = (token, prev);
+    }
+
+    /// Unlink `token` from `ctx_key`'s continuation list; drop the context entry when its list
+    /// becomes empty.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $O(L)$ where $L$ is `ctx_key`'s continuation-list length (linear walk from the
+    /// newest node through the `prev` links).
+    /// Spatial: $O(1)$.
+    fn ctx_unlink(&mut self, ctx_key: CtxKey, token: u32) {
+        let Some(&head) = self.ctx_head.get(&ctx_key) else {
+            return;
+        };
+        // Walk newest-to-oldest; `newer` is the node whose `prev` points at `cur` (`NIL` at the head).
+        let mut cur = head;
+        let mut newer = NIL;
+        loop {
+            let (t, prev) = self.arena[cur as usize];
+            if t == token {
+                if newer == NIL {
+                    if prev == NIL {
+                        self.ctx_head.remove(&ctx_key);
+                    } else if let Some(h) = self.ctx_head.get_mut(&ctx_key) {
+                        *h = prev;
+                    }
+                } else {
+                    self.arena[newer as usize].1 = prev;
+                }
+                self.arena[cur as usize].1 = self.free;
+                self.free = cur;
+                return;
+            }
+            if prev == NIL {
+                return;
+            }
+            newer = cur;
+            cur = prev;
+        }
+    }
+
+    /// Shared signed fold/unfold core: `sign > 0` accumulates counts and threads each new
+    /// continuation onto its context's arena list; `sign < 0` subtracts and unlinks continuations
+    /// whose count reaches zero, then drops zero-count keys from `keys`.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $\Theta(N \cdot k + U + R + K)$ operations, where $N = \text{ids.len()}$,
+    /// $k = \text{self.k} \le 4$, $U$ is the number of new keys (one `flat` probe, one `ctx_head`
+    /// probe and one arena append each), $R$ the number of continuations unlinked (an $O(L)$ walk of
+    /// the context's list each) and $K = \text{self.keys.len()}$ on the unfold cleanup pass.
+    /// Spatial: $O(U)$ arena nodes amortized; no other auxiliary allocation.
     fn fold_signed(&mut self, ids: &[u32], sign: i32) {
         let k = self.k;
         if ids.len() < 2 {
@@ -295,11 +418,11 @@ impl FoldAdapter {
                         self.keys.push(key);
                         // A genuinely new `(order, context, token)` is absent from the context's
                         // continuation list (the zero-count/zero-token invariant), so no scan.
-                        self.ctx_tokens.entry(ctx_key).or_default().push(next_id);
+                        self.ctx_append(ctx_key, next_id);
                     }
                 } else {
-                    // One probe: decrement a live count; a count that hits zero drops its
-                    // continuation in place, with no per-call `Vec`.
+                    // One probe: decrement a live count; a count that hits zero unlinks its
+                    // continuation from the context's arena list, with no per-call `Vec`.
                     let became_zero = match self.flat.entry(key) {
                         Entry::Vacant(_) => false,
                         Entry::Occupied(mut e) => {
@@ -313,9 +436,7 @@ impl FoldAdapter {
                         }
                     };
                     if became_zero {
-                        if let Some(tokens) = self.ctx_tokens.get_mut(&ctx_key) {
-                            tokens.retain(|&t| t != next_id);
-                        }
+                        self.ctx_unlink(ctx_key, next_id);
                     }
                 }
             }
@@ -341,8 +462,9 @@ impl FoldAdapter {
     ///
     /// # Complexity
     ///
-    /// Temporal: $\Theta(K)$ operations where $K = \text{other.keys.len()}$.
-    /// Derivation: single pass over `other.keys`; each key is looked up in `other.flat` in $O(1)$ time and added to `self.flat` in $O(1)$ time.
+    /// Temporal: $\Theta(K + R \cdot L)$ operations where $K = \text{other.keys.len()}$ and each
+    /// zero-count continuation is unlinked in $O(L)$ ($L$ = its context's list length).
+    /// Derivation: single pass over `other.keys`; each key is looked up in `other.flat` in $O(1)$ time and added to `self.flat` in $O(1)$ time, with one `ctx_head` probe and one arena append on a new key; a second pass unlinks the merged-to-zero continuations. The continuation cache is cleared first (its entries bind the pre-merge counts).
     /// Spatial: up to $K$ new key words in `self.keys` and `self.flat`.
     pub fn merge(&mut self, other: &Self) -> Result<(), FoldAdaptError> {
         if self.k != other.k {
@@ -351,6 +473,7 @@ impl FoldAdapter {
                 actual: other.k,
             });
         }
+        *self.cont_cache.borrow_mut() = Table::with_capacity(16);
         for &k in &other.keys {
             let Some(&c) = other.flat.get(&k) else {
                 continue;
@@ -376,7 +499,7 @@ impl FoldAdapter {
                 let ctx_key = (k.0, k.1);
                 let next_id = k.2;
                 // The key is newly live, so its continuation is absent from the list by invariant.
-                self.ctx_tokens.entry(ctx_key).or_default().push(next_id);
+                self.ctx_append(ctx_key, next_id);
             }
         }
         self.keys
@@ -385,10 +508,7 @@ impl FoldAdapter {
             let (o, p, next_id) = k;
             let c = self.flat.get(&k).copied().unwrap_or(0);
             if c == 0 {
-                let ctx_key = (o, p);
-                if let Some(tokens) = self.ctx_tokens.get_mut(&ctx_key) {
-                    tokens.retain(|&t| t != next_id);
-                }
+                self.ctx_unlink((o, p), next_id);
             }
         }
         Ok(())
@@ -464,7 +584,9 @@ impl FoldAdapter {
     /// Temporal: $\Theta(V + k \cdot D)$ operations where $V = \text{base.len()}$, $k = \text{self.k} \le 4$,
     /// and $D \le V$ is maximum continuation count per queried context order.
     /// Derivation: clones `base` ($O(V)$), then queries at most $k$ orders. Each order evaluates $D$
-    /// continuation counts and scales/adds into $p$ in $O(V)$ operations.
+    /// continuation counts and scales/adds into $p$ in $O(V)$ operations. A queried context's
+    /// continuation list is built once and cached until the next mutation, so repeated refines at
+    /// the same context amortize the $O(D)$ build to zero.
     /// Spatial: allocates vector of length $V$.
     pub fn refine(&self, base: &[f64], ctx: &[u32]) -> Result<Vec<f64>, FoldAdaptError> {
         let d = self.discounts();
@@ -483,7 +605,8 @@ impl FoldAdapter {
     ///
     /// # Complexity
     ///
-    /// Temporal: $\Theta(V + k \cdot D)$ operations.
+    /// Temporal: $\Theta(V + k \cdot D)$ operations, with the $O(D)$ continuation-list build
+    /// amortized across repeated refines at the same context by the cache.
     /// Spatial: allocates vector of length $V$.
     pub fn refine_with(
         &self,
@@ -506,7 +629,8 @@ impl FoldAdapter {
     ///
     /// # Complexity
     ///
-    /// Temporal: $\Theta(V + k \cdot D)$ operations.
+    /// Temporal: $\Theta(V + k \cdot D)$ operations, with the $O(D)$ continuation-list build
+    /// amortized across repeated refines at the same context by the cache.
     /// Spatial: allocates vector of length $V$.
     pub fn refine_sparse(
         &self,
@@ -516,6 +640,43 @@ impl FoldAdapter {
         pr_max: f64,
     ) -> Result<Vec<f64>, FoldAdaptError> {
         self.refine_gated(base, ctx, d, pr_max)
+    }
+
+    /// The continuations of `ctx_key` in insertion order with their live counts, served from the
+    /// cache or built by one walk of `ctx_key`'s arena chain and cached until the next mutation.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal: $O(1)$ amortized on a cache hit; on a miss $O(D)$ (one `prev`-chain walk and one
+    /// `flat` probe per node), where $D$ is the context's continuation-list length.
+    /// Spatial: $O(D)$ for the built list, retained until the next mutation.
+    fn continuations(&self, ctx_key: CtxKey) -> Continuations {
+        if let Some(cached) = self.cont_cache.borrow().get(&ctx_key) {
+            return Rc::clone(cached);
+        }
+        let (o, p_ctx) = ctx_key;
+        let mut cnts: Vec<(u32, i64)> = Vec::new();
+        if let Some(&head) = self.ctx_head.get(&ctx_key) {
+            // Walk newest-to-oldest, then reverse to the insertion order the summation in
+            // `refine_gated` depends on for bit-identity.
+            let mut idx = head;
+            while idx != NIL {
+                let (next_id, prev) = self.arena[idx as usize];
+                let key = (o, p_ctx, next_id);
+                if let Some(&c) = self.flat.get(&key) {
+                    if c > 0 {
+                        cnts.push((next_id, c));
+                    }
+                }
+                idx = prev;
+            }
+            cnts.reverse();
+        }
+        let cnts = Rc::new(cnts);
+        self.cont_cache
+            .borrow_mut()
+            .insert(ctx_key, Rc::clone(&cnts));
+        cnts
     }
 
     fn refine_gated(
@@ -536,27 +697,14 @@ impl FoldAdapter {
             }
             let p_ctx = pack(&ctx[n - o..n]);
             let ctx_key = (o as u8, p_ctx);
-            let Some(tokens) = self.ctx_tokens.get(&ctx_key) else {
-                continue;
-            };
-            if tokens.is_empty() {
-                continue;
-            }
-            let mut cnts: Vec<(u32, i64)> = Vec::with_capacity(tokens.len());
-            for &next_id in tokens {
-                let key = (o as u8, p_ctx, next_id);
-                if let Some(&c) = self.flat.get(&key) {
-                    if c > 0 {
-                        cnts.push((next_id, c));
-                    }
-                }
-            }
+            // Insertion-ordered, contiguous, from the cache after the first query of this context.
+            let cnts = self.continuations(ctx_key);
             if cnts.is_empty() {
                 continue;
             }
             let (mut tot, mut sumsq, mut nn1, mut nn2, mut nn3) =
                 (0i64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
-            for &(_, c) in &cnts {
+            for &(_, c) in cnts.iter() {
                 tot += c;
                 let fc = c as f64;
                 sumsq += fc * fc;
@@ -578,7 +726,7 @@ impl FoldAdapter {
             for pj in &mut p {
                 *pj *= gamma;
             }
-            for &(j, c) in &cnts {
+            for &(j, c) in cnts.iter() {
                 if (j as usize) < p.len() {
                     let dc = match c {
                         1 => d.0,
