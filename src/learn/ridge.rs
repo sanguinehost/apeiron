@@ -292,11 +292,12 @@ impl FoldTrainer {
         Ok(())
     }
 
-    /// The lower-triangle accumulation shared by [`fold_sparse`](Self::fold_sparse) and its parallel
-    /// form: add each row's `nnz×nnz` support outer product into the **lower** triangle of `u` (the
-    /// Gram is symmetric, so `j <= i` is written and the upper is filled once by
-    /// [`mirror_lower`](Self::mirror_lower)). No mirror happens here, so a parallel partial stays
-    /// cheap. `O(rows·(nnz² + nnz·out_features))` time; `O(nnz)` scratch for the converted indices.
+    /// The serial lower-triangle accumulation for [`fold_sparse`](Self::fold_sparse): add each row's
+    /// `nnz×nnz` support outer product into the **lower** triangle of `u` (the Gram is symmetric, so
+    /// `j <= i` is written and the upper is filled once by
+    /// [`mirror_lower`](Self::mirror_lower)). The parallel form [`fold_sparse_par`](Self::fold_sparse_par)
+    /// uses [`sparse_accumulate_owner`] instead. `O(rows·(nnz² + nnz·out_features))` time; `O(nnz)`
+    /// scratch for the converted indices.
     ///
     /// # Errors
     /// [`RidgeError::ShapeMismatch`] on a wrong-length slice; [`RidgeError::IndexOutOfRange`] if
@@ -362,6 +363,80 @@ impl FoldTrainer {
         Ok(())
     }
 
+    /// The owner-partitioned inner kernel of [`fold_sparse_par`](Self::fold_sparse_par): for the `U`
+    /// rows `[lo, hi)` and the matching `C` rows, scan samples `[r0, r1)` and apply the pairs whose
+    /// first index `a` lies in the range. `u_rows` and `c_rows` are the worker's contiguous row
+    /// slices (row `a` starts at local offset `a - lo`). The caller has range-checked every index, so
+    /// the conversion cannot fail. Writes the **lower** triangle of `u` (`b <= a`) and the full `c`;
+    /// `vals` and `y` are touched only for in-range pairs. Rows are processed in ascending order, so
+    /// each entry accumulates in sample order regardless of how `[r0, r1)` is blocked.
+    /// `O((r1−r0)·(nnz² + nnz·out))` time, `O(1)` scratch.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the kernel is handed the two disjoint accumulator slices plus the read-only sample \
+                  arrays and geometry; bundling them into a struct would only move the fields."
+    )]
+    fn sparse_accumulate_owner(
+        u_rows: &mut [f64],
+        c_rows: &mut [f64],
+        lo: usize,
+        hi: usize,
+        d: usize,
+        out: usize,
+        bias: bool,
+        bias_row: usize,
+        idxs: &[u32],
+        vals: &[f32],
+        y: &[f32],
+        r0: usize,
+        r1: usize,
+        nnz: usize,
+    ) {
+        for r in r0..r1 {
+            let base = r * nnz;
+            let irow = &idxs[base..base + nnz];
+            for k in 0..nnz {
+                let ik = irow[k] as usize;
+                if ik < lo || ik >= hi {
+                    continue;
+                }
+                // `vals` and `y` are read only for the in-range pairs, so an out-of-range sample
+                // costs one `idxs` element and nothing else.
+                let vk = f64::from(vals[base + k]);
+                let uoff = (ik - lo) * d;
+                let urow = &mut u_rows[uoff..uoff + d];
+                for l in 0..nnz {
+                    let il = irow[l] as usize;
+                    if il <= ik {
+                        urow[il] += vk * f64::from(vals[base + l]);
+                    }
+                }
+                let yrow = &y[r * out..r * out + out];
+                let coff = (ik - lo) * out;
+                let crow = &mut c_rows[coff..coff + out];
+                for o in 0..out {
+                    crow[o] += vk * f64::from(yrow[o]);
+                }
+            }
+            if bias && lo <= bias_row && bias_row < hi {
+                // The bias row is the last row, so `u[bias, i]` and `u[bias, bias]` are lower entries.
+                let vrow = &vals[base..base + nnz];
+                let uoff = (bias_row - lo) * d;
+                let urow = &mut u_rows[uoff..uoff + d];
+                for (k, &raw) in irow.iter().enumerate() {
+                    urow[raw as usize] += f64::from(vrow[k]);
+                }
+                urow[bias_row] += 1.0;
+                let yrow = &y[r * out..r * out + out];
+                let coff = (bias_row - lo) * out;
+                let crow = &mut c_rows[coff..coff + out];
+                for o in 0..out {
+                    crow[o] += f64::from(yrow[o]);
+                }
+            }
+        }
+    }
+
     /// Copy the lower triangle of `u` into its upper triangle (`u[j,i] = u[i,j]` for `j < i`), so
     /// the full symmetric Gram is available after a lower-triangle-only accumulation. `O(d²)`.
     fn mirror_lower(&mut self) {
@@ -373,20 +448,24 @@ impl FoldTrainer {
         }
     }
 
-    /// Parallel [`fold_sparse`](Self::fold_sparse): split the `rows` into `threads` contiguous
-    /// chunks, fold each into a private `U`/`C`/`n`, and merge the partials by entrywise addition.
+    /// Parallel [`fold_sparse`](Self::fold_sparse). Two accumulator-disjoint strategies, chosen by
+    /// [`owner_partition`](Self::owner_partition):
     ///
-    /// The merge is licensed by the Gram monoid. `Sanguine.TrainingCollapse.gram_stack` — the Gram
-    /// of a stacked batch is the sum of its blocks' Grams, `(stack X₁ X₂)ᵀ·stack X₁ X₂ =
-    /// X₁ᵀX₁ + X₂ᵀX₂` (the in-repo chain is `apeiron_gram.gram_fold_i8_stack`,
-    /// `proof/corpus/Learn/GramExact.lean`) — so the chunk partials sum to the whole batch's normal
-    /// equations, up to f64 summation order. With `threads <= 1` this delegates to
-    /// [`fold_sparse`](Self::fold_sparse); a refusal is returned before any partial is merged, so a
-    /// bad index never leaves `self` half-updated.
+    /// - **Output-row partition** ([`fold_sparse_par_owner`](Self::fold_sparse_par_owner)): each
+    ///   worker owns a contiguous range of `U` rows and the matching `C` rows, re-scans every sample,
+    ///   and applies only the pairs whose first index falls in its range. The accumulators are written
+    ///   in place — no partial, no merge — and every entry accumulates in sample order, so the result
+    ///   is bit-identical to the serial [`fold_sparse`](Self::fold_sparse) and independent of the
+    ///   worker count. Chosen when the sparse nonzeros are not large relative to the Gram: the
+    ///   `T·rows·nnz` redundant index reads then cost less than the `T·d²`-entry partial zeroing and
+    ///   merge they replace.
+    /// - **Row partition with partials** ([`fold_sparse_par_partials`](Self::fold_sparse_par_partials)):
+    ///   each worker folds a row chunk into a private `U`/`C`, and the partials are summed (the
+    ///   `gram_stack` monoid). Chosen when `rows·nnz` dwarfs `d²`, where reading each sample once
+    ///   beats re-scanning it `T` times.
     ///
-    /// Cost. Work `O(rows·(nnz² + nnz·out_features))`; span `O(rows/threads·(nnz² + nnz·out) +
-    /// threads·(d² + d·out))` (the final merge is serial); extra space
-    /// `threads·(d² + d·out_features)` for the private accumulators, with `d = aug_dim()`.
+    /// Both paths shape-check and range-check every index before a worker writes, so a refusal leaves
+    /// `self` unmodified. With `threads <= 1` this delegates to [`fold_sparse`](Self::fold_sparse).
     ///
     /// # Errors
     /// [`RidgeError::ShapeMismatch`] if `idxs.len() != rows·nnz`, `vals.len() != rows·nnz`, or
@@ -394,8 +473,8 @@ impl FoldTrainer {
     /// `idxs[r·nnz + k] >= in_features`.
     ///
     /// # Panics
-    /// If a worker thread panics; the workers call only [`fold_sparse`](Self::fold_sparse), which
-    /// does not panic on caller input, so a panic here is an internal bug.
+    /// If a worker thread panics; the workers call only kernels that do not panic on caller input, so
+    /// a panic here is an internal bug.
     pub fn fold_sparse_par(
         &mut self,
         idxs: &[u32],
@@ -405,12 +484,184 @@ impl FoldTrainer {
         nnz: usize,
         threads: usize,
     ) -> Result<(), RidgeError> {
-        let (out, di) = (self.out_features, self.in_features);
+        let (d, out, di) = (self.d, self.out_features, self.in_features);
         if idxs.len() != rows * nnz || vals.len() != rows * nnz || y.len() != rows * out {
             return Err(RidgeError::ShapeMismatch);
         }
+        let threads = threads.max(1).min(d.max(1));
+        if threads <= 1 {
+            return self.fold_sparse(idxs, vals, y, rows, nnz);
+        }
+        // Range-check every index before a worker writes, preserving the serial refusal guarantee
+        // (`self` stays unmodified when a bad index is refused). Fanned over the workers so the
+        // shared pass is not a serial `rows·nnz` scan ahead of the parallel fold.
+        if !Self::indices_in_range_par(idxs, di, threads) {
+            return Err(RidgeError::IndexOutOfRange);
+        }
+        if Self::owner_partition(d, rows, nnz) {
+            self.fold_sparse_par_owner(idxs, vals, y, rows, nnz, threads)
+        } else {
+            self.fold_sparse_par_partials(idxs, vals, y, rows, nnz, threads)
+        }
+    }
+
+    /// The accumulator-disjoint strategy for [`fold_sparse_par`](Self::fold_sparse_par). The
+    /// output-row partition re-scans every sample once per worker (`T·rows·nnz` index reads) but
+    /// removes the partial zeroing and merge (`~T·d²` accumulator entries); the row partition reads
+    /// each sample once but pays that merge. The owner path is chosen when the sparse nonzeros are
+    /// within `5·d²`. The constant is calibrated on the three race configs: `200k×512`
+    /// (`rows·nnz = 1.6M > 5·d² = 1.3M` → row partition, measured 4–5 ms fold vs 7 ms owner);
+    /// `500k×1024` (`4M < 5.2M` → owner, measured 20 ms vs 22–27 ms); `1M×256`
+    /// (`12M > 0.33M` → row partition, measured 32 ms vs 61 ms owner). `O(1)` time.
+    fn owner_partition(d: usize, rows: usize, nnz: usize) -> bool {
+        rows.saturating_mul(nnz) <= 5usize.saturating_mul(d).saturating_mul(d)
+    }
+
+    /// `true` iff every `idxs` entry is `< di`, checked in parallel over `threads` scoped workers
+    /// (each scans a contiguous chunk and stops on the first out-of-range entry, setting a shared
+    /// flag). The result validates the whole input before any accumulator write, so a refusal leaves
+    /// `self` unmodified. `O(idxs.len())` time.
+    fn indices_in_range_par(idxs: &[u32], di: usize, threads: usize) -> bool {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let n = idxs.len();
+        let workers = threads.max(1).min(n.max(1));
+        if workers <= 1 {
+            return idxs.iter().all(|&raw| (raw as usize) < di);
+        }
+        let ok = AtomicBool::new(true);
+        let chunk = n.div_ceil(workers);
+        std::thread::scope(|scope| {
+            for part in idxs.chunks(chunk) {
+                let ok = &ok;
+                scope.spawn(move || {
+                    for &raw in part {
+                        if (raw as usize) >= di {
+                            ok.store(false, Ordering::Relaxed);
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        ok.load(Ordering::Relaxed)
+    }
+
+    /// Output-row-partitioned parallel fold ([`fold_sparse_par`](Self::fold_sparse_par)): split the
+    /// `d` `U`/`C` rows into `threads` contiguous ranges, scan every sample per worker, and apply the
+    /// pairs whose first index is in the worker's range, in place.
+    ///
+    /// Cost. Work `O(rows·(nnz² + nnz·out_features))` — the same total applied updates as the serial
+    /// fold, split across owners. Scan cost `T·rows·nnz`: every owner re-reads every sample to test
+    /// its indices against the owner's range, so the index scan is paid `T` times rather than once;
+    /// `vals` and `y` are read only for the in-range pairs. Span
+    /// `O(rows·nnz + rows·(nnz² + nnz·out)/T)`: each owner scans all `rows·nnz` indices and applies its
+    /// `1/T` share of the in-range updates (uniform distinct-index convention, where the expected
+    /// updates to any row are `rows·nnz²/(2d)`). Extra space `O(1)` beyond the trainer's
+    /// `O(d² + d·out_features)` accumulators; no per-worker partial.
+    ///
+    /// # Panics
+    /// If a worker thread panics.
+    ///
+    /// # Errors
+    /// [`RidgeError::ShapeMismatch`] if `rows` exceeds `i64::MAX` (unreachable for a slice input).
+    fn fold_sparse_par_owner(
+        &mut self,
+        idxs: &[u32],
+        vals: &[f32],
+        y: &[f32],
+        rows: usize,
+        nnz: usize,
+        threads: usize,
+    ) -> Result<(), RidgeError> {
+        let (d, out) = (self.d, self.out_features);
+        // Contiguous row ranges, split evenly: under the uniform distinct-index convention the
+        // expected number of lower-triangle updates to a row is `rows·nnz²/(2d)`, the same for every
+        // row, so equal row counts balance the expected work.
+        let base = d / threads;
+        let rem = d % threads;
+        let mut bounds = Vec::with_capacity(threads + 1);
+        bounds.push(0usize);
+        let mut acc = 0usize;
+        for t in 0..threads {
+            acc += base + usize::from(t < rem);
+            bounds.push(acc);
+        }
+        let bias = self.bias;
+        let bias_row = d - usize::from(bias);
+        // Carve the `U` and `C` accumulators into the workers' contiguous row slices.
+        let mut u_parts: Vec<&mut [f64]> = Vec::with_capacity(threads);
+        let mut rest: &mut [f64] = &mut self.u;
+        let mut prev = 0usize;
+        for t in 0..threads {
+            let (lo, hi) = (bounds[t], bounds[t + 1]);
+            let (_, tail) = rest.split_at_mut((lo - prev) * d);
+            let (head, tail) = tail.split_at_mut((hi - lo) * d);
+            u_parts.push(head);
+            rest = tail;
+            prev = hi;
+        }
+        let mut c_parts: Vec<&mut [f64]> = Vec::with_capacity(threads);
+        let mut rest: &mut [f64] = &mut self.c;
+        let mut prev = 0usize;
+        for t in 0..threads {
+            let (lo, hi) = (bounds[t], bounds[t + 1]);
+            let (_, tail) = rest.split_at_mut((lo - prev) * out);
+            let (head, tail) = tail.split_at_mut((hi - lo) * out);
+            c_parts.push(head);
+            rest = tail;
+            prev = hi;
+        }
+        std::thread::scope(|scope| {
+            let mut handles = Vec::with_capacity(threads);
+            for (t, (u_part, c_part)) in u_parts.into_iter().zip(c_parts).enumerate() {
+                let (lo, hi) = (bounds[t], bounds[t + 1]);
+                handles.push(scope.spawn(move || {
+                    Self::sparse_accumulate_owner(
+                        u_part, c_part, lo, hi, d, out, bias, bias_row, idxs, vals, y, 0, rows, nnz,
+                    );
+                }));
+            }
+            for h in handles {
+                h.join().expect("fold_sparse_par worker panicked");
+            }
+        });
+        let dn = i64::try_from(rows).map_err(|_| RidgeError::ShapeMismatch)?;
+        self.n += dn;
+        // The owners wrote the lower triangle only; fill the upper once for the whole state.
+        self.mirror_lower();
+        Ok(())
+    }
+
+    /// Row-partitioned parallel fold ([`fold_sparse_par`](Self::fold_sparse_par)): split the `rows`
+    /// into `threads` contiguous chunks, fold each into a private `U`/`C`, and merge the partials by
+    /// entrywise addition. The merge is licensed by the Gram monoid
+    /// `Sanguine.TrainingCollapse.gram_stack` — the Gram of a stacked batch is the sum of its blocks'
+    /// Grams, `(stack X₁ X₂)ᵀ·stack X₁ X₂ = X₁ᵀX₁ + X₂ᵀX₂` (the in-repo chain is
+    /// `apeiron_gram.gram_fold_i8_stack`, `proof/corpus/Learn/GramExact.lean`) — so the chunk partials
+    /// sum to the whole batch's normal equations, up to f64 summation order.
+    ///
+    /// Cost. Work `O(rows·(nnz² + nnz·out_features))`; span `O(rows/threads·(nnz² + nnz·out) +
+    /// threads·(d² + d·out))` (the final merge is serial); extra space
+    /// `threads·(d² + d·out_features)` for the private accumulators.
+    ///
+    /// # Panics
+    /// If a worker thread panics.
+    ///
+    /// # Errors
+    /// [`RidgeError::ShapeMismatch`] if `rows` exceeds `i64::MAX` (unreachable for a slice input).
+    fn fold_sparse_par_partials(
+        &mut self,
+        idxs: &[u32],
+        vals: &[f32],
+        y: &[f32],
+        rows: usize,
+        nnz: usize,
+        threads: usize,
+    ) -> Result<(), RidgeError> {
+        let (out, di) = (self.out_features, self.in_features);
         let threads = threads.max(1).min(rows.max(1));
         if threads <= 1 {
+            // Caller validated the shape and indices; the serial fold is the deterministic reference.
             return self.fold_sparse(idxs, vals, y, rows, nnz);
         }
         // Even split of the row range; the first `rows % threads` chunks take one extra row.
@@ -424,7 +675,7 @@ impl FoldTrainer {
             bounds.push(acc);
         }
         let (in_features, out_features, ridge, bias) = (di, out, self.ridge, self.bias);
-        let partials = std::thread::scope(|scope| {
+        let partials: Vec<FoldTrainer> = std::thread::scope(|scope| {
             let handles: Vec<_> = (0..threads)
                 .map(|t| {
                     let (lo, hi) = (bounds[t], bounds[t + 1]);
@@ -443,10 +694,9 @@ impl FoldTrainer {
                 .collect();
             handles
                 .into_iter()
-                .map(|h| h.join().expect("fold_sparse_par worker panicked"))
+                .map(|h| h.join().expect("fold_sparse_par_partials worker panicked"))
                 .collect::<Result<Vec<FoldTrainer>, RidgeError>>()
         })?;
-        // Merge only after every chunk succeeded, so `self` is never half-updated on a refusal.
         // The reduction over the `T` partials is memory-bound, so fan it over index ranges too.
         self.merge_partials_par(&partials, threads);
         // The partials accumulated the lower triangle only; fill the upper once for the whole state.
@@ -490,7 +740,7 @@ impl FoldTrainer {
             }
         });
         let dn: i64 = parts.iter().map(|p| p.n).sum();
-        self.n += dn;
+        self.n = self.n.saturating_add(dn);
     }
 
     /// Exactly remove a batch — the group inverse of [`fold`](Self::fold). Exact unlearning:
@@ -737,43 +987,77 @@ pub fn cholesky(a: &[f64], d: usize) -> Result<Vec<f64>, RidgeError> {
 /// line per row of a block.
 const CHOLESKY_BLOCK: usize = 64;
 
-/// The panel geometry shared by one trailing update: `l` is the factor so far, the panel `L21`
-/// occupies `l[·, kbase .. kbase+kb]`, and the updated trailing block's columns start at `col0`.
-struct TrailingCtx<'a> {
-    l: &'a [f64],
+/// Pack the panel `L21 = l[kend..d, kbase..kbase+kb]` transposed into `pk`, so that for a fixed
+/// panel column `p` the panel entries of consecutive trailing rows are contiguous:
+/// `pk[p·nr + r] = l[(kend+r)·d + kbase + p]`. This is the layout the register-blocked trailing
+/// update reads: its inner loop is a contiguous `dst[j] -= a·src[j]` with a broadcast `a`, which
+/// LLVM vectorizes — unlike the strided dot-product reduction it replaces, which the compiler cannot
+/// reorder without `fast-math`. `O(kb·nr)` time.
+fn pack_panel(
+    pk: &mut [f64],
+    l: &[f64],
     kbase: usize,
-    col0: usize,
+    kend: usize,
     d: usize,
     kb: usize,
-}
-
-/// Subtract `L21 · L21ᵀ` from the trailing block `rows` (the `nrows` rows of the working matrix
-/// starting at global row `first`, row stride `d`). Every row updates its lower-triangle entries
-/// `col0 ..= gi`, so splitting the rows across workers is a disjoint write with identical
-/// arithmetic per entry (thread-count-independent). `O(nrows²·kb)` multiply-adds.
-fn trailing_update(rows: &mut [f64], first: usize, nrows: usize, ctx: &TrailingCtx) {
-    let (d, kb) = (ctx.d, ctx.kb);
-    for ri in 0..nrows {
-        let gi = first + ri;
-        let row = &mut rows[ri * d..ri * d + d];
-        for gj in ctx.col0..=gi {
-            let mut s = 0.0f64;
-            for p in 0..kb {
-                s += ctx.l[gi * d + ctx.kbase + p] * ctx.l[gj * d + ctx.kbase + p];
-            }
-            row[gj] -= s;
+    nr: usize,
+) {
+    for r in 0..nr {
+        let src = &l[(kend + r) * d + kbase..(kend + r) * d + kbase + kb];
+        for p in 0..kb {
+            pk[p * nr + r] = src[p];
         }
     }
 }
 
-/// Dispatch the trailing update `work[kend..d, kend..d] -= L21 · L21ᵀ` (lower triangle) to scoped
-/// workers. Rows are split contiguously and weighted by their triangular work (`ri + 1`
+/// Subtract `L21 · L21ᵀ` from the trailing block `rows` (the `nrows` rows of the working matrix
+/// starting at global row `first`, row stride `d`) using the packed panel `pk`. For each row
+/// `gi = first + ri`, subtract `Σ_p pk[p·nr + (gi−col0)]·pk[p·nr + j]` from `row[col0 + j]` for
+/// `j = 0..=(gi−col0)` — the lower-triangle entries. The inner loop is contiguous in `j` (both the
+/// destination row and the packed source), so it lowers to vector multiply-and-subtract; the outer
+/// `p` order is fixed, so splitting the rows across workers is a disjoint write with
+/// thread-count-independent arithmetic. `O(nrows²·kb)` multiply-adds, the same as the dot-product
+/// form, but feeding a vector operation per `(row, p)` instead of a scalar latency-bound reduction.
+/// Time and space `O(nrows²·kb)`; `O(1)` scratch.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the kernel is handed the packed panel plus the trailing-block geometry (row start, \
+              row count, stride, column origin, panel width) and the total trailing-row count that \
+              indexes the packed panel; a struct would only relocate the fields."
+)]
+fn trailing_update_packed(
+    rows: &mut [f64],
+    first: usize,
+    nrows: usize,
+    pk: &[f64],
+    nr: usize,
+    d: usize,
+    col0: usize,
+    kb: usize,
+) {
+    let off = first - col0;
+    for ri in 0..nrows {
+        let gi = first + ri;
+        let lim = gi - col0 + 1;
+        let row = &mut rows[ri * d..ri * d + d];
+        let dst = &mut row[col0..col0 + lim];
+        for p in 0..kb {
+            let a = pk[p * nr + off + ri];
+            let src = &pk[p * nr..p * nr + lim];
+            for (w, b) in dst.iter_mut().zip(src) {
+                *w -= a * b;
+            }
+        }
+    }
+}
+
+/// Dispatch the packed trailing update `work[kend..d, kend..d] -= L21 · L21ᵀ` (lower triangle) to
+/// scoped workers. Rows are split contiguously and weighted by their triangular work (`ri + 1`
 /// multiply-adds), so no worker carries ~2x the mean and every entry is written once with
 /// thread-count-independent arithmetic.
 fn trailing_update_par(
     work: &mut [f64],
-    l: &[f64],
-    k: usize,
+    pk: &[f64],
     kend: usize,
     d: usize,
     kb: usize,
@@ -781,16 +1065,9 @@ fn trailing_update_par(
 ) {
     let nr = d - kend;
     let nthreads = threads.min(nr);
-    let ctx = TrailingCtx {
-        l,
-        kbase: k,
-        col0: kend,
-        d,
-        kb,
-    };
     let trailing = &mut work[kend * d..d * d];
-    if nthreads == 1 {
-        trailing_update(trailing, kend, nr, &ctx);
+    if nthreads <= 1 {
+        trailing_update_packed(trailing, kend, nr, pk, nr, d, kend, kb);
         return;
     }
     let total = nr * (nr + 1) / 2;
@@ -820,9 +1097,8 @@ fn trailing_update_par(
     }
     std::thread::scope(|scope| {
         for (first, group) in groups {
-            let ctx = &ctx;
             scope.spawn(move || {
-                trailing_update(group, first, group.len() / d, ctx);
+                trailing_update_packed(group, first, group.len() / d, pk, nr, d, kend, kb);
             });
         }
     });
@@ -880,6 +1156,9 @@ pub fn cholesky_blocked_par(a: &[f64], d: usize, threads: usize) -> Result<Vec<f
     }
     let mut work = a.to_vec();
     let mut l = vec![0.0f64; d * d];
+    // Scratch for the transposed panel of one block; reused across blocks so the packing is not a
+    // per-block allocation (and its page faults).
+    let mut pk = vec![0.0f64; CHOLESKY_BLOCK * d];
     let threads = threads.max(1);
     let mut k = 0usize;
     while k < d {
@@ -934,9 +1213,12 @@ pub fn cholesky_blocked_par(a: &[f64], d: usize, threads: usize) -> Result<Vec<f
                 });
             }
         }
-        // (3) Trailing update `work[kend..d, kend..d] -= L21 · L21ᵀ` (lower triangle), fanned out.
+        // (3) Pack the panel `L21 = L[kend..d, k..kend]` (transposed) and run the trailing update
+        // `work[kend..d, kend..d] -= L21 · L21ᵀ` (lower triangle), fanned out.
         if kend < d {
-            trailing_update_par(&mut work, &l, k, kend, d, kb, threads);
+            let nr = d - kend;
+            pack_panel(&mut pk, &l, k, kend, d, kb, nr);
+            trailing_update_par(&mut work, &pk, kend, d, kb, threads);
         }
         k = kend;
     }
