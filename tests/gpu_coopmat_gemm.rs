@@ -788,3 +788,308 @@ fn coopmat_gemm_q6_matches_cpu_on_qwen_ffn_down() {
     }
     println!("{name} Q6 all splits within 1e-5");
 }
+
+/// Grid-aligned activation block for the coopmat GEMM: `x = c * 2^-7`, `|c| <= 127`, one `|c| = 127`
+/// per 32-block, so the int8 activation chart is lossless (`sx = 2^-7`, `q = c`, `xs = sum(c) * sx`,
+/// all exact in f32). `codes` is in chart (activation byte) order, `n * k` entries; the uploaded
+/// buffers are padded to `rows = ceil(n / TILE_BN) * TILE_BN` tokens (padding zero).
+struct GridAct {
+    n: usize,
+    rows: usize,
+    codes: Vec<i8>,
+    bxq: Handle,
+    bsx: Handle,
+    bxs: Handle,
+}
+
+fn grid_act(g: &GpuCtx<'_>, rng: &mut Rng, k: usize, n: usize) -> GridAct {
+    let blocks = k / 32;
+    let rows = n.div_ceil(TILE_BN as usize) * TILE_BN as usize;
+    let mut codes = vec![0i8; n * k];
+    for blk in codes.chunks_exact_mut(32) {
+        for c in blk.iter_mut() {
+            *c = ((rng.next() % 255) as i32 - 127) as i8;
+        }
+        let pos = rng.next() as usize % 32;
+        blk[pos] = if rng.next() & 1 == 0 { 127 } else { -127 };
+    }
+    let mut xq = vec![0u32; rows * k / 4];
+    for (i, w) in xq.iter_mut().enumerate().take(n * k / 4) {
+        *w = (0..4).fold(0u32, |a, b| {
+            a | (u32::from(codes[i * 4 + b] as u8) << (8 * b))
+        });
+    }
+    let mut sx = vec![0f32; rows * blocks];
+    let mut xs = vec![0f32; rows * blocks];
+    for i in 0..n * blocks {
+        let s: i32 = codes[i * 32..(i + 1) * 32]
+            .iter()
+            .map(|&c| i32::from(c))
+            .sum();
+        sx[i] = 1.0 / 128.0;
+        xs[i] = s as f32 / 128.0;
+    }
+    let (bxq, bsx, bxs) = unsafe { (g.up_u32(&xq), g.up_f32(&sx), g.up_f32(&xs)) };
+    GridAct {
+        n,
+        rows,
+        codes,
+        bxq,
+        bsx,
+        bxs,
+    }
+}
+
+/// `out[t * m + r] = 2^-7 * sum_p wperm[r * k + p] * codes[t * k + p]` in f64, rows split over threads.
+fn grid_reference(wperm: &[f64], codes: &[i8], n: usize, m: usize, k: usize) -> Vec<f64> {
+    let xf: Vec<f64> = codes.iter().map(|&c| f64::from(c)).collect();
+    let threads = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(8);
+    let per = m.div_ceil(threads);
+    let mut out = vec![0f64; n * m];
+    let parts: Vec<(usize, Vec<f64>)> = std::thread::scope(|s| {
+        let hs: Vec<_> = (0..threads)
+            .map(|th| {
+                let (r0, r1) = (th * per, ((th + 1) * per).min(m));
+                let xf = &xf;
+                s.spawn(move || {
+                    let mut v = Vec::with_capacity(r1.saturating_sub(r0) * n);
+                    for r in r0..r1 {
+                        let w = &wperm[r * k..(r + 1) * k];
+                        for t in 0..n {
+                            let x = &xf[t * k..(t + 1) * k];
+                            let mut a = [0f64; 4];
+                            for (wc, xc) in w.chunks_exact(4).zip(x.chunks_exact(4)) {
+                                for l in 0..4 {
+                                    a[l] += wc[l] * xc[l];
+                                }
+                            }
+                            v.push((a[0] + a[1] + (a[2] + a[3])) / 128.0);
+                        }
+                    }
+                    (r0, v)
+                })
+            })
+            .collect();
+        hs.into_iter()
+            .map(|h| h.join().expect("reference thread"))
+            .collect()
+    });
+    for (r0, v) in parts {
+        for (i, val) in v.iter().enumerate() {
+            let (r, t) = (r0 + i / n, i % n);
+            out[t * m + r] = *val;
+        }
+    }
+    out
+}
+
+/// **Is the coopmat prefill GEMM exact on EVERY Q5_0 and Q6_K tensor of qwen05b?** Each tensor is
+/// packed by the loader's packer (`pack_q5_0_raw` / `pack_q6_k_raw`) and run through the served
+/// coopmat GEMM over `T = 64` and the ragged `T = 37` tokens of grid-aligned activations (lossless
+/// int8 chart, as `q5_chart_grid_exact_every_layer` does for the decode fold), at S = 1 and at the
+/// split-K the prefill serves for that projection (`DEC_QKV_SPLITK` 2, `DEC_O_SPLITK` 3,
+/// `DEC_DOWN_SPLITK` 3; gate/up unsplit). Reference: f64 matvec of `dequant_row_fixed` weights with
+/// each activation byte mapped to its true k index. Per tensor/config
+/// `rel = max|diff| / max|ref|` over every cell; the global max must be <= 1e-5. Board row
+/// `inf-decode-measure-E3CPdJamkoVAQSrj96zC6o` (lane COOPMAT-DIAG).
+#[test]
+fn coopmat_chart_grid_exact_every_tensor() {
+    let vk = {
+        let _guard = VK_LOAD_LOCK.lock().unwrap();
+        match unsafe { Vk::load() } {
+            Ok(vk) => vk,
+            Err(e) => {
+                println!("SKIP: No Vulkan device present: {e}");
+                return;
+            }
+        }
+    };
+    if !vk.has_coopmat {
+        println!("SKIP: no cooperative matrix");
+        return;
+    }
+    let Some(model) = model_path(MODEL) else {
+        println!("SKIP: Model file {MODEL} not found");
+        return;
+    };
+    let gguf = Gguf::open(&model).expect("gguf open");
+    let (g, _stage) = GpuCtx::new(&vk).expect("GpuCtx::new");
+    let mut rng = Rng(0x00c0_0b4a_7e11_0007);
+
+    let tensors: Vec<_> = gguf
+        .header
+        .tensors
+        .iter()
+        .filter(|t| t.ggml_type == GGML_TYPE_Q5_0 || t.ggml_type == GGML_TYPE_Q6_K)
+        .cloned()
+        .collect();
+    let n5 = tensors
+        .iter()
+        .filter(|t| t.ggml_type == GGML_TYPE_Q5_0)
+        .count();
+    let n6 = tensors.len() - n5;
+    println!("Q5_0 tensors: {n5}, Q6_K tensors: {n6}");
+
+    let mut acts: std::collections::HashMap<(usize, usize), GridAct> =
+        std::collections::HashMap::new();
+    // (suffix, carrier) -> (max rel, tensor, T, S)
+    let mut by_suffix: std::collections::BTreeMap<
+        (String, &'static str),
+        (f64, String, usize, u32),
+    > = std::collections::BTreeMap::new();
+    let mut failures: Vec<String> = Vec::new();
+    let mut global = 0f64;
+
+    for t in &tensors {
+        let name = String::from_utf8_lossy(&t.name).to_string();
+        let suffix = name
+            .splitn(3, '.')
+            .nth(2)
+            .unwrap_or(name.as_str())
+            .to_string();
+        let q6 = t.ggml_type == GGML_TYPE_Q6_K;
+        let (pc, cname) = if q6 {
+            (Carrier::Q6, "Q6")
+        } else {
+            (Carrier::Q5, "Q5")
+        };
+        let k = t.dims[0] as usize;
+        let m = t.dims[1] as usize;
+        let blocks = k / 32;
+        let raw = gguf.tensor_bytes(t).expect("tensor bytes");
+        let proj = if q6 {
+            pack_q6_k_raw(&raw, m, k).expect("pack_q6_k_raw")
+        } else {
+            pack_q5_0_raw(&raw, m, k).expect("pack_q5_0_raw")
+        };
+        let (wb, dmb) = unsafe { (g.up_u32(&proj.words), g.up_u32(&proj.dm)) };
+
+        // f64 dequant, permuted to chart (activation byte) order.
+        let (qk, bb) = block_geom(t.ggml_type).expect("block geometry");
+        let row_bytes = k.div_ceil(qk) * bb;
+        let mut wperm = vec![0f64; m * k];
+        let mut row_buf = Vec::with_capacity(k);
+        for r in 0..m {
+            row_buf.clear();
+            dequant_row_fixed(
+                t.ggml_type,
+                &raw[r * row_bytes..(r + 1) * row_bytes],
+                k,
+                &mut row_buf,
+            )
+            .expect("dequant_row_fixed");
+            for b in 0..blocks {
+                for j in 0..32 {
+                    let p = if q6 {
+                        q6_act(j)
+                    } else {
+                        // byte p holds true k index 8c + 2i + l: invert it
+                        let (c, i, l) = (j / 8, (j % 8) / 2, j % 2);
+                        8 * c + 4 * l + i
+                    };
+                    wperm[r * k + b * 32 + p] = row_buf[b * 32 + j] as f64 / 4_294_967_296.0;
+                }
+            }
+        }
+
+        let splits: &[u32] = match suffix.as_str() {
+            "attn_q.weight" | "attn_k.weight" | "attn_v.weight" => &[1, 2],
+            "attn_output.weight" | "ffn_down.weight" => &[1, 3],
+            _ => &[1],
+        };
+        for n in [64usize, 37] {
+            let act = acts
+                .entry((k, n))
+                .or_insert_with(|| grid_act(&g, &mut rng, k, n));
+            let want = grid_reference(&wperm, &act.codes, act.n, m, k);
+            let scale = want.iter().fold(0f64, |a, &v| a.max(v.abs())).max(1e-30);
+            let (cgx, cgy) = coopmat_gemm_groups(m as u32, n as u32);
+            for &ks in splits {
+                let out_floats = act.rows * m;
+                let step = |code: &[u8], out| unsafe {
+                    make_step_named(
+                        &g,
+                        code,
+                        &[wb, act.bxq, out, dmb, act.bxs, act.bsx],
+                        cgx,
+                        cgy,
+                        "gemm",
+                    )
+                };
+                let got = if ks == 1 {
+                    let o = unsafe { out_buf(&vk, out_floats * 4) };
+                    unsafe { run(&vk, &step(&coopmat_gemm_bytes(m as u32, k as u32, pc), o)) };
+                    unsafe { readback(&vk, o, out_floats) }
+                } else {
+                    let o_part = unsafe { out_buf(&vk, ks as usize * out_floats * 4) };
+                    let o_sp = unsafe { out_buf(&vk, out_floats * 4) };
+                    let gemm = step(
+                        &coopmat_gemm_split_bytes(m as u32, k as u32, pc, 0, 0, ks),
+                        o_part,
+                    );
+                    let red = unsafe {
+                        make_step_named(
+                            &g,
+                            &splitk_reduce_bytes(m as u32, ks),
+                            &[o_part, o_sp],
+                            REDUCE_GX,
+                            cgy,
+                            "reduce",
+                        )
+                    };
+                    unsafe { run_split(&vk, &gemm, &red, ks) };
+                    unsafe { readback(&vk, o_sp, out_floats) }
+                };
+                let mut dmax = 0f64;
+                let mut first: Option<(usize, usize, f32, f64)> = None;
+                for tk in 0..n {
+                    for r in 0..m {
+                        let (gv, wv) = (got[tk * m + r], want[tk * m + r]);
+                        let d = (f64::from(gv) - wv).abs();
+                        dmax = dmax.max(d);
+                        if first.is_none() && d / scale > 1e-5 {
+                            first = Some((tk, r, gv, wv));
+                        }
+                    }
+                }
+                let rel = dmax / scale;
+                global = global.max(rel);
+                let slot = by_suffix.entry((suffix.clone(), cname)).or_insert((
+                    f64::NEG_INFINITY,
+                    String::new(),
+                    0,
+                    0,
+                ));
+                if rel > slot.0 {
+                    *slot = (rel, name.clone(), n, ks);
+                }
+                println!("{name} {cname} m={m} k={k} T={n} S={ks} rel {rel:.3e}");
+                if let Some((tk, r, gv, wv)) = first {
+                    let msg = format!(
+                        "FAIL {name} {cname} m={m} k={k} T={n} S={ks}: rel {rel:.6e}; first differing cell (t={tk}, row={r}) got {gv:e} want {wv:e}"
+                    );
+                    println!("{msg}");
+                    failures.push(msg);
+                }
+            }
+        }
+    }
+
+    println!("per-suffix max rel (carrier, tensor, T, S):");
+    for ((suffix, cname), (rel, name, n, ks)) in &by_suffix {
+        println!("  {suffix:20} {cname}: {rel:.3e} ({name}, T={n}, S={ks})");
+    }
+    println!(
+        "global max rel {global:.3e} over {} tensors ({n5} Q5_0, {n6} Q6_K)",
+        tensors.len()
+    );
+    assert!(
+        failures.is_empty(),
+        "{} configs exceed rel 1e-5; first: {}",
+        failures.len(),
+        failures[0]
+    );
+    assert!(global <= 1e-5, "global rel {global:e} > 1e-5");
+}
