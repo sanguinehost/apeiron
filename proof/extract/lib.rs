@@ -1303,3 +1303,20 @@ pub fn word_count_slot(off: &mut [usize], h: u8) -> usize {
 pub fn word_count_aggregate(routed: &[u64], lo: usize, hi: usize) -> hashtrinity::FreqMap<u64, i64> {
     hashtrinity::FreqMap::<u64, i64>::count_aggregate(routed, lo, hi)
 }
+
+// The exact-integer Gram fold (`src/learn/gram.rs`), reached by `#[path]` so the extracted body is
+// the real source. The module is dependency-free; the wrapper fixes nothing and calls the real
+// function.
+#[path = "../../src/learn/gram.rs"]
+pub mod gram;
+
+/// Real `learn::gram::gram_fold_i8`: the exact checked `i64` fold `g += XᵀX` over a batch of `i8`
+/// rows. The wrapper calls the real body; it does not restate the product or the accumulation.
+pub fn word_gram_fold_i8(
+    g: Vec<i64>,
+    x: &[i8],
+    rows: usize,
+    d: usize,
+) -> Result<Vec<i64>, gram::GramError> {
+    gram::gram_fold_i8(g, x, rows, d)
+}

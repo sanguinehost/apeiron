@@ -29,6 +29,7 @@ import Perf.Identity
 import Perf.AttnCoop
 import Perf.IdentityFloat
 import Perf.Overlap
+import Learn.GramExact
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -430,3 +431,11 @@ import Perf.Overlap
 #audit Perf.redundant_two
 #audit Perf.redundant_three
 #audit Perf.identity_floor
+
+-- Row: `learn-ridge-direct-solve-FTcOmHFafixRjbpnupkVEh` (LEARN-RIDGE): the extracted
+-- exact-integer Gram fold `gram.gram_fold_i8` refines the integer Gram sum (`Learn/GramExact.lean`).
+#audit apeiron_gram.row_pair_loop_spec
+#audit apeiron_gram.row_loop_spec
+#audit apeiron_gram.rows_loop_spec
+#audit apeiron_gram.gram_fold_i8_ok
+#audit apeiron_gram.gram_fold_i8_refusal

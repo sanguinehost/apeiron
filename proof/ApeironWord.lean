@@ -21500,6 +21500,202 @@ def hashtrinity.Table.insert_merge_last_write
   | none => ok self1
   | some _ => fail panic
 
+/-- [apeiron_word::gram::GramError]
+    Source: '../../src/learn/gram.rs', lines 27:0-32:1
+    Visibility: public -/
+@[discriminant isize]
+inductive gram.GramError where
+| ShapeMismatch : gram.GramError
+| Overflow : gram.GramError
+
+/-- [apeiron_word::gram::row_pair_loop]: loop body 0:
+    Source: '../../src/learn/gram.rs', lines 50:4-65:5 -/
+@[rust_loop_body]
+def gram.row_pair_loop_loop.body
+  (x : Slice Std.I8) (d : Std.Usize) (r : Std.Usize) (i : Std.Usize)
+  (a : Std.I64) (g : alloc.vec.Vec Std.I64) (j : Std.Usize) (ok1 : Bool)
+  (err : Option gram.GramError) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize × Bool × (Option
+    gram.GramError)) ((alloc.vec.Vec Std.I64) × (Option gram.GramError)))
+  := do
+  if j < d
+  then
+    if ok1
+    then
+      let i1 ← r * d
+      let i2 ← i1 + j
+      let i3 ← Slice.index_usize x i2
+      let b ← lift (core.convert.num.FromI64I8.from i3)
+      let i4 ← i * d
+      let idx ← i4 + j
+      let o ← lift (I64.checked_mul a b)
+      let (g1, ok2, err1) ←
+        match o with
+        | none => ok (g, false, some gram.GramError.Overflow)
+        | some prod =>
+          do
+          let i5 ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+              g idx
+          let o1 ← lift (I64.checked_add i5 prod)
+          match o1 with
+          | none => ok (g, false, some gram.GramError.Overflow)
+          | some sum =>
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) g idx
+            let g2 := index_mut_back sum
+            ok (g2, true, err)
+      let j1 ← j + 1#usize
+      ok (cont (g1, j1, ok2, err1))
+    else ok (done (g, err))
+  else ok (done (g, err))
+
+/-- [apeiron_word::gram::row_pair_loop]: loop 0:
+    Source: '../../src/learn/gram.rs', lines 50:4-65:5 -/
+@[rust_loop]
+def gram.row_pair_loop_loop
+  (g : alloc.vec.Vec Std.I64) (x : Slice Std.I8) (d : Std.Usize)
+  (r : Std.Usize) (i : Std.Usize) (a : Std.I64) (j : Std.Usize) (ok1 : Bool)
+  (err : Option gram.GramError) :
+  Result ((alloc.vec.Vec Std.I64) × (Option gram.GramError))
+  := do
+  loop
+    (fun (g1, j1, ok2, err1) => gram.row_pair_loop_loop.body x d r i a g1 j1
+      ok2 err1)
+    (g, j, ok1, err)
+
+/-- [apeiron_word::gram::row_pair_loop]:
+    Source: '../../src/learn/gram.rs', lines 39:0-67:1 -/
+@[reducible]
+def gram.row_pair_loop
+  (g : alloc.vec.Vec Std.I64) (x : Slice Std.I8) (d : Std.Usize)
+  (r : Std.Usize) (i : Std.Usize) (a : Std.I64) :
+  Result ((alloc.vec.Vec Std.I64) × (Option gram.GramError))
+  := do
+  gram.row_pair_loop_loop g x d r i a 0#usize true none
+
+/-- [apeiron_word::gram::row_loop]: loop body 0:
+    Source: '../../src/learn/gram.rs', lines 78:4-87:5 -/
+@[rust_loop_body]
+def gram.row_loop_loop.body
+  (x : Slice Std.I8) (d : Std.Usize) (r : Std.Usize)
+  (g : alloc.vec.Vec Std.I64) (i : Std.Usize) (ok1 : Bool)
+  (err : Option gram.GramError) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize × Bool × (Option
+    gram.GramError)) ((alloc.vec.Vec Std.I64) × (Option gram.GramError)))
+  := do
+  if i < d
+  then
+    if ok1
+    then
+      let i1 ← r * d
+      let i2 ← i1 + i
+      let i3 ← Slice.index_usize x i2
+      let a ← lift (core.convert.num.FromI64I8.from i3)
+      let (g1, e1) ← gram.row_pair_loop g x d r i a
+      let (ok2, err1) ←
+        match e1 with
+        | none => ok (true, err)
+        | some _ => ok (false, e1)
+      let i4 ← i + 1#usize
+      ok (cont (g1, i4, ok2, err1))
+    else ok (done (g, err))
+  else ok (done (g, err))
+
+/-- [apeiron_word::gram::row_loop]: loop 0:
+    Source: '../../src/learn/gram.rs', lines 78:4-87:5 -/
+@[rust_loop]
+def gram.row_loop_loop
+  (g : alloc.vec.Vec Std.I64) (x : Slice Std.I8) (d : Std.Usize)
+  (r : Std.Usize) (i : Std.Usize) (ok1 : Bool) (err : Option gram.GramError) :
+  Result ((alloc.vec.Vec Std.I64) × (Option gram.GramError))
+  := do
+  loop
+    (fun (g1, i1, ok2, err1) => gram.row_loop_loop.body x d r g1 i1 ok2 err1)
+    (g, i, ok1, err)
+
+/-- [apeiron_word::gram::row_loop]:
+    Source: '../../src/learn/gram.rs', lines 74:0-89:1 -/
+@[reducible]
+def gram.row_loop
+  (g : alloc.vec.Vec Std.I64) (x : Slice Std.I8) (d : Std.Usize)
+  (r : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option gram.GramError))
+  := do
+  gram.row_loop_loop g x d r 0#usize true none
+
+/-- [apeiron_word::gram::rows_loop]: loop body 0:
+    Source: '../../src/learn/gram.rs', lines 100:4-108:5 -/
+@[rust_loop_body]
+def gram.rows_loop_loop.body
+  (x : Slice Std.I8) (d : Std.Usize) (rows : Std.Usize)
+  (g : alloc.vec.Vec Std.I64) (r : Std.Usize) (ok1 : Bool)
+  (err : Option gram.GramError) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize × Bool × (Option
+    gram.GramError)) ((alloc.vec.Vec Std.I64) × (Option gram.GramError)))
+  := do
+  if r < rows
+  then
+    if ok1
+    then
+      let (g1, e1) ← gram.row_loop g x d r
+      let (ok2, err1) ←
+        match e1 with
+        | none => ok (true, err)
+        | some _ => ok (false, e1)
+      let r1 ← r + 1#usize
+      ok (cont (g1, r1, ok2, err1))
+    else ok (done (g, err))
+  else ok (done (g, err))
+
+/-- [apeiron_word::gram::rows_loop]: loop 0:
+    Source: '../../src/learn/gram.rs', lines 100:4-108:5 -/
+@[rust_loop]
+def gram.rows_loop_loop
+  (g : alloc.vec.Vec Std.I64) (x : Slice Std.I8) (d : Std.Usize)
+  (rows : Std.Usize) (r : Std.Usize) (ok1 : Bool) (err : Option gram.GramError)
+  :
+  Result ((alloc.vec.Vec Std.I64) × (Option gram.GramError))
+  := do
+  loop
+    (fun (g1, r1, ok2, err1) => gram.rows_loop_loop.body x d rows g1 r1 ok2
+      err1)
+    (g, r, ok1, err)
+
+/-- [apeiron_word::gram::rows_loop]:
+    Source: '../../src/learn/gram.rs', lines 96:0-110:1 -/
+@[reducible]
+def gram.rows_loop
+  (g : alloc.vec.Vec Std.I64) (x : Slice Std.I8) (d : Std.Usize)
+  (rows : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option gram.GramError))
+  := do
+  gram.rows_loop_loop g x d rows 0#usize true none
+
+/-- [apeiron_word::gram::gram_fold_i8]:
+    Source: '../../src/learn/gram.rs', lines 123:0-132:1
+    Visibility: public -/
+def gram.gram_fold_i8
+  (g : alloc.vec.Vec Std.I64) (x : Slice Std.I8) (rows : Std.Usize)
+  (d : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) gram.GramError)
+  := do
+  let i := alloc.vec.Vec.len g
+  let i1 ← d * d
+  if i != i1
+  then ok (core.result.Result.Err gram.GramError.ShapeMismatch)
+  else
+    let i2 := Slice.len x
+    let i3 ← rows * d
+    if i2 != i3
+    then ok (core.result.Result.Err gram.GramError.ShapeMismatch)
+    else
+      let (g1, err) ← gram.rows_loop g x d rows
+      match err with
+      | none => ok (core.result.Result.Ok g1)
+      | some e => ok (core.result.Result.Err e)
+
 /-- [apeiron_word::policy::decide::Op]
     Source: '../../src/policy/decide.rs', lines 18:0-29:1
     Visibility: public -/
@@ -32006,5 +32202,15 @@ def word_count_aggregate
   := do
   hashtrinity.freq.FreqMapKI64.count_aggregate
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord routed lo hi
+
+/-- [apeiron_word::word_gram_fold_i8]:
+    Source: 'lib.rs', lines 1315:0-1322:1
+    Visibility: public -/
+def word_gram_fold_i8
+  (g : alloc.vec.Vec Std.I64) (x : Slice Std.I8) (rows : Std.Usize)
+  (d : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) gram.GramError)
+  := do
+  gram.gram_fold_i8 g x rows d
 
 end apeiron_word

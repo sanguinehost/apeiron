@@ -188,6 +188,7 @@ $REPO_DIR/src/hashtrinity/tregex.rs
 $REPO_DIR/src/hashtrinity/par.rs
 $REPO_DIR/src/hashtrinity/face.rs
 $REPO_DIR/src/hashtrinity/crypto.rs
+$REPO_DIR/src/learn/gram.rs
 $EXTRACT_DIR/Cargo.toml
 $EXTRACT_DIR/Cargo.lock
 $EXTRACT_DIR/lib.rs
@@ -305,6 +306,7 @@ run_extract() {
         --start-from crate::word_count_offsets \
         --start-from crate::word_count_slot \
         --start-from crate::word_count_aggregate \
+        --start-from crate::word_gram_fold_i8 \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \
