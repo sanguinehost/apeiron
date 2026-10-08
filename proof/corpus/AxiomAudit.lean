@@ -363,6 +363,7 @@ import Perf.Overlap
 #audit Perf.Moves.p51_sel_install_band
 #audit Perf.Moves.p53_ropeflash_floor
 #audit Perf.Moves.p54_ropeflash_install_band
+#audit Perf.Moves.p52_amax_tail
 #audit Perf.Moves.p10_mma_floor
 #audit Perf.Moves.p10_mma_rate_ratio
 #audit Perf.Moves.p10_mma_floor_p8
