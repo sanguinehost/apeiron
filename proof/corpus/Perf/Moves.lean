@@ -427,6 +427,16 @@ theorem p48_flash_floor :
       1341 * 1000 ≤ 1031 * (1341 - 40) := by
   decide
 
+/-- P49 (model): the qkv residual fold read once. Each of qkv's 80 row-tile workgroups re-reads the
+previous layer's 32 split-K partials (`80 * 32 * 896 * 4` bytes); one standalone `resid_add` reads them
+plus the stream once (`33 * 896 * 4`). The probe's per-call saving of 1880 ns over layers 1..23 is
+43240 ns per token, and a 1341 us token shortened by 43 us is at least 1.03x faster. Arithmetic
+only; no hardware rate follows. -/
+theorem p49_resid_once_floor :
+    80 * 32 * 896 * 4 = 9175040 ∧ 33 * 896 * 4 = 118272 ∧ 23 * 1880 = 43240 ∧
+      103 * (1341 - 43) ≤ 100 * 1341 := by
+  decide
+
 end Moves
 
 end Perf
