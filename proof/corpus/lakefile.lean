@@ -74,6 +74,9 @@ lean_lib ApeironWordBridge where
     -- `#audit`-ed by it (`:6`), but no `lean_lib` globbed it, so `lake build AxiomAudit` failed
     -- with `unknown module prefix 'Flux'` and that audit row was never evaluated. Registered.
     `Flux.Discrete,
+    -- Exact-integer Gram fold refinement (`Learn/GramExact.lean`): the extracted `gram_fold_i8`
+    -- against the canonical `Sanguine.TrainingCollapse.gram_stack`.
+    `Learn.GramExact,
     `AxiomAudit, `Joint.WordBridge,
     `Slang.Audit.Empty,
     `Slang.Syntax, `Slang.Decode,
