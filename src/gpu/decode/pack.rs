@@ -144,6 +144,69 @@ pub fn pack_proj_f32(carrier: Carrier, rows: &[&[f32]], k: usize, mirror: bool) 
     }
 }
 
+/// Pack a row-concatenation of ALL-Q5_0 tensors from raw GGUF bytes into the [`Carrier::Q5`]
+/// two-plane chart, 5.0 bits/weight — the Q4 nibble plane (`q & 0xF`, 8 codes/word, the identical
+/// k-packed layout [`pack_proj_f32`] emits for `Carrier::Q4`) followed by one permuted 1-bit
+/// high-plane word per (32-block, row), and `dm = f16(d) ‖ f16(−16·d)` so the chart reconstructs
+/// `w = d·q + lo = d·(q−16)` exactly (the Q4/Q8 epilogue already reads `d·Σ(q·x) + lo·Σx`; the
+/// reference [`crate::format::quant::q5_0_codes`] is that same code offset by −16).
+///
+/// The high plane is permuted so a DP4A phase's four codes are adjacent in the word: code `j` of a
+/// block gets its bit at `pos(j) = (j>>3)·8 + (j&1)·4 + ((j>>1)&3)`. The kernel expands the 4-bit
+/// field with `nib · 0x0204_0810 & 0x1010_1010` (llama.cpp CUDA `vecdotq.cuh:182-196`), putting
+/// each code's fifth bit into bit 4 of its byte lane.
+///
+/// Temporal cost: O(m·k) — one plane-A nibble write and one plane-B bit set per element.
+/// Spatial footprint: `Carrier::Q5.code_words_per_row(k)·m` u32 words (plane A plus the plane-B
+/// plane, no constant restated here) plus `(k/32)·m` `dm` words.
+pub fn pack_q5_0_raw(
+    raw: &[u8],
+    m: usize,
+    k: usize,
+) -> Result<Proj, crate::format::quant::QuantError> {
+    use crate::format::quant::{q5_0_codes, q5_0_d, Q5_0_BLOCK_BYTES, Q5_0_QK};
+    assert!(k % 32 == 0, "chart carriers need k % 32 == 0");
+    let pack = Carrier::Q5.pack() as usize;
+    let width = 4u32;
+    let blocks = k / 32;
+    let blocks_per_row = k.div_ceil(Q5_0_QK);
+    let row_bytes = blocks_per_row * Q5_0_BLOCK_BYTES;
+    let hi_off = Carrier::Q5.plane_b_off(m as u32, k as u32) as usize; // the high plane follows plane A
+    let mut words = vec![0u32; Carrier::Q5.code_words_per_row(k as u32) as usize * m];
+    let mut dm = vec![0u32; m * blocks];
+
+    for r in 0..m {
+        let row = &raw[r * row_bytes..(r + 1) * row_bytes];
+        for b in 0..blocks {
+            let blk = &row[b * Q5_0_BLOCK_BYTES..(b + 1) * Q5_0_BLOCK_BYTES];
+            let d = f16_to_f32(q5_0_d(blk)?);
+            let lo = -16.0f32 * d;
+            // d is already f16; -16·d is exact in f16 for every finite block scale here.
+            let dm_idx = b * m + r;
+            dm[dm_idx] = (f32_to_f16(d) as u32) | ((f32_to_f16(lo) as u32) << 16);
+            let codes = q5_0_codes(blk)?;
+            for j in 0..32 {
+                let q = (i32::from(codes[j]) + 16) as u32; // 0..31
+                let kk = b * 32 + j;
+                words[(kk / pack) * m + r] |= (q & 0xF) << ((kk % pack) as u32 * width);
+                let pos = ((j >> 3) * 8 + (j & 1) * 4 + ((j >> 1) & 3)) as u32;
+                words[hi_off + b * m + r] |= (q >> 4) << pos;
+            }
+        }
+    }
+
+    Ok(Proj {
+        dmf: dmf_of(&dm),
+        qsub: Vec::new(),
+        qsup: Vec::new(),
+        words,
+        dm,
+        cpu: Vec::new(),
+        m,
+        k,
+    })
+}
+
 /// Pack a Q4_K tensor directly from raw GGUF bytes into the DP4A k-packed chart (Carrier::Q4).
 pub fn pack_q4_k_raw(
     raw: &[u8],
@@ -235,5 +298,82 @@ pub fn pack_tensor_desc(gguf: &Gguf, desc: &TensorDesc) -> Result<Proj, GgufErro
         let name_str = String::from_utf8_lossy(&desc.name);
         let weights = gguf.dequant(&name_str)?;
         Ok(pack_proj_f32(Carrier::Q4, &[&weights], k, false))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::format::gguf::Gguf;
+    use crate::format::quant::{
+        f16_to_f32, q5_0_codes, q5_0_d, GGML_TYPE_Q5_0, Q5_0_BLOCK_BYTES, Q5_0_QK,
+    };
+    use crate::simt::Carrier;
+
+    const QWEN05B_PATH: &str = "models/gguf/qwen05b-Q4_K_M.gguf";
+
+    /// [`Carrier::Q5`]'s two-plane chart must reproduce the crate's own Q5_0 dequantizer
+    /// bit-for-bit, over every element of a real Q5_0 tensor.
+    #[test]
+    fn q5_0_chart_is_exact() {
+        let Some(path) = crate::engine::testdata::model_path(QWEN05B_PATH) else {
+            eprintln!("skip q5_0_chart_is_exact: {QWEN05B_PATH} absent");
+            return;
+        };
+        let gguf = Gguf::open(&path).expect("open qwen05b");
+        let t = gguf
+            .header
+            .tensor("blk.0.ffn_gate.weight")
+            .expect("blk.0.ffn_gate.weight")
+            .clone();
+        assert_eq!(t.ggml_type, GGML_TYPE_Q5_0, "gate tensor is Q5_0");
+        let k = usize::try_from(t.dims[0]).expect("k fits usize");
+        let m = usize::try_from(t.dims[1]).expect("m fits usize");
+        let raw = gguf.tensor_bytes(&t).expect("gate tensor bytes");
+        let p = super::pack_q5_0_raw(&raw, m, k).expect("pack_q5_0_raw");
+
+        assert_eq!(
+            p.words.len(),
+            Carrier::Q5.code_words_per_row(k as u32) as usize * m,
+            "word count is code_words_per_row(k)·m"
+        );
+        let pack = Carrier::Q5.pack() as usize;
+        let hi_off = Carrier::Q5.plane_b_off(m as u32, k as u32) as usize;
+        let row_bytes = k.div_ceil(Q5_0_QK) * Q5_0_BLOCK_BYTES;
+
+        let mut checked = 0usize;
+        for r in 0..m {
+            let row = &raw[r * row_bytes..(r + 1) * row_bytes];
+            for b in 0..k / 32 {
+                let blk = &row[b * Q5_0_BLOCK_BYTES..(b + 1) * Q5_0_BLOCK_BYTES];
+                let want_d = f16_to_f32(q5_0_d(blk).expect("q5_0_d"));
+                let codes = q5_0_codes(blk).expect("q5_0_codes");
+                let dmw = p.dm[b * m + r];
+                let d = f16_to_f32((dmw & 0xffff) as u16);
+                let lo = f16_to_f32((dmw >> 16) as u16);
+                for j in 0..32 {
+                    let kk = b * 32 + j;
+                    let nib = (p.words[(kk / pack) * m + r] >> ((kk % pack) as u32 * 4)) & 0xF;
+                    // The permuted plane-B bit for code j, stated independently of the packer.
+                    let bit = (j >> 3) * 8 + (j & 1) * 4 + ((j >> 1) & 3);
+                    let hi = (p.words[hi_off + b * m + r] >> bit) & 1;
+                    let q = nib | (hi << 4);
+                    let got = d * (q as f32) + lo;
+                    let want = want_d * f32::from(codes[j]);
+                    // The fold is exact: `d·q + lo` and `d·(q−16)` differ only in the SIGN OF ZERO
+                    // (for `d < 0`, `q = 16` the fold gives `+0.0` and the product `−0.0`; IEEE `==`
+                    // equates them and no other value differs). Compare bits, canonicalizing that
+                    // one non-value difference.
+                    assert!(
+                        got.to_bits() == want.to_bits() || (got == 0.0 && want == 0.0),
+                        "chart weight mismatch r={r} b={b} j={j}: got {got} ({:#010x}) want \
+{want} ({:#010x})",
+                        got.to_bits(),
+                        want.to_bits()
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, m * k, "every element decoded");
     }
 }
