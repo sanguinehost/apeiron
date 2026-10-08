@@ -5,6 +5,7 @@ import Map.ExecutedBuild
 import Map.ExecutedReadTotal
 import Map.ExecutedReadCoordTotal
 import Map.ExecutedOverflowAvl
+import Map.ExecutedOverflowChain
 open Aeneas Aeneas.Std Result
 
 /-!
@@ -771,6 +772,290 @@ theorem ov_rebalance_ok (o : Ov) (L : List ONode) (hL : o.nodes.val = L) (i : U3
       rw [if_neg hB']
       exact ⟨i, o1, rfl⟩
 
+/-! ## Stage 4: the chain rebalance is total
+
+`rebalance_chain` walks the recorded root-to-slot path from the innermost ancestor outward.  The only
+possibly-failing call is `rebalance` at one frame; the AVL shape facts it returns are then used to
+relink the parent (`chain_relink`), exactly as the partial spec `rebalance_chain_loop_spec` does.  The
+height fit that `rebalance` needs follows from the absolute arena bound `o.nodes.val.length + 3 ≤
+2 ^ 32 - 1`, which is preserved because every write keeps the arena length (`Rel`). -/
+
+/-- `ChainInv` fixes the arena length: its `Rel` conjunct identifies the arena with `ns0`. -/
+theorem ChainInv.len_eq {ns0 : List ONode} {U : List Nat} {F0 : alloc.vec.Vec U32} {N0 : Usize}
+    {chain : Slice U32} {o : Ov} {idx : Usize} (h : ChainInv ns0 U F0 N0 chain o idx) :
+    o.nodes.val.length = ns0.length := by
+  obtain ⟨G, S, s, sc, _, _, _, _, _, _, _, _, _, _, _, _, hRel, _, _⟩ := h
+  exact hRel.1.symm
+
+/-- Every embedded subtree height is below the ambient arena length: `ht_le_len` bounds it by the
+number of node indices of the shape, `Emb` places those indices below the arena, and `ND` makes them
+distinct. -/
+theorem ht_le_arena_len {L : List ONode} {i : U32} {t : OTree}
+    (hE : Emb L i t) (hND : ND t) : ht t ≤ L.length := by
+  have h1 : ht t ≤ (idxs t).length := ht_le_len t
+  have hlt : ∀ j ∈ idxs t, j < L.length := by
+    intro j hj
+    obtain ⟨nd, hnd, _⟩ := emb_mem hE j hj
+    exact (List.getElem?_eq_some_iff.mp hnd).1
+  have h2 : (idxs t).length ≤ L.length := idxs_length_le (nd_nodup t hND) hlt
+  omega
+
+/-- `ov_rebalance_ok` in the `frT` frame shape: `rebalance` at the innermost ancestor of a path. -/
+theorem ov_rebalance_frT_ok (o : Ov) (L : List ONode) (hL : o.nodes.val = L) (n : U32)
+    (g : Fr) (S : OTree)
+    (hEn : Emb L n (frT g S)) (hND : ND (frT g S)) (hB : BST L (frT g S))
+    (hBS : Bal S) (hHS : HOK L S) (hBg : Bal g.o) (hHg : HOK L g.o)
+    (hroom : max (ht S) (ht g.o) + 2 ≤ 2 ^ 32 - 1) :
+    ∃ x' o', hashtrinity.overflow.Overflow.rebalance CI o n = ok (x', o') := by
+  cases hd : g.d with
+  | true =>
+    rw [frT_true hd] at hEn hND hB
+    exact ov_rebalance_ok o L hL n S g.o g.a hEn hND hB hBS hBg hHS hHg hroom
+  | false =>
+    rw [frT_false hd] at hEn hND hB
+    refine ov_rebalance_ok o L hL n g.o S g.a hEn hND hB hBg hBS hHg hHS ?_
+    rw [Nat.max_comm]; exact hroom
+
+/-- One step of `rebalance_chain_loop` is total, preserves `ChainInv`, and strictly decreases the
+loop index.  This is the `loop_tot_inv` body obligation, mirroring the body walk of
+`rebalance_chain_loop_spec` with `ov_rebalance_ok` supplying the single potentially failing call and
+`bind_pair_ok` handling the pair-binds. -/
+theorem ov_rebalance_chain_body_ok (ns0 : List ONode) (U : List Nat) (F0 : alloc.vec.Vec U32)
+    (N0 : Usize) (chain : Slice U32) (o : Ov) (idx : Usize)
+    (hinv : ChainInv ns0 U F0 N0 chain.val o idx)
+    (hbound : o.nodes.val.length + 3 ≤ 2 ^ 32 - 1) :
+    ∃ cf, hashtrinity.overflow.Overflow.rebalance_chain_loop.body CI chain o idx = ok cf ∧
+      (match cf with
+        | .done _ => True
+        | .cont x' => ChainInv ns0 U F0 N0 chain.val x'.1 x'.2 ∧ x'.2.val < idx.val) := by
+  obtain ⟨G, S, s, sc, hidx, hch, hES, hBalS, hHS, hBST, hND, hU, hSp, hAnc, hsc1, hsc2, hRel,
+    hfree, hlen⟩ := hinv
+  unfold hashtrinity.overflow.Overflow.rebalance_chain_loop.body
+  by_cases hpos : idx > 0#usize
+  · rw [if_pos hpos]
+    have hpos' : 0 < idx.val := by
+      have := (UScalar.lt_equiv (0#usize) idx).mp hpos
+      omega
+    obtain ⟨idx1, hidx1, hidx1v⟩ := usub_tot idx 1#usize (by rw [val_1_usize]; omega)
+    rw [val_1_usize] at hidx1v
+    rw [hidx1]; simp only [bind_tc_ok]
+    cases G with
+    | nil => simp at hidx; omega
+    | cons g rest =>
+      have hidx' : idx.val = rest.length + 1 := by
+        simpa only [List.length_cons] using hidx
+      have hrl : rest.length = idx1.val := by rw [hidx1v]; omega
+      obtain ⟨⟨c0, hc0, hc0v⟩, hchrest⟩ := hch
+      have hidx1lt : idx1.val < chain.length := by
+        rw [← hrl]; exact (List.getElem?_eq_some_iff.mp hc0).1
+      obtain ⟨n, hn⟩ := Apeiron.PrefixMasks.slice_index_ex chain idx1 hidx1lt
+      rw [hn]; simp only [bind_tc_ok]
+      have hn' : chain.val[idx1.val]? = some n := slice_index_ok chain idx1 n hn
+      rw [← hrl, hc0] at hn'
+      have hnc : c0 = n := Option.some.inj hn'
+      have hnv : n.val = g.a := by rw [← hnc]; exact hc0v
+      obtain ⟨c, hSpc, hcv, hga, nd, hnd, hEo, hch'⟩ := hSp
+      obtain ⟨hBg, hHg, hg1, hg2, _, hAncr⟩ := hAnc
+      have hEn : Emb o.nodes.val n (frT g S) := emb_frT hnv hga hnd hEo hch' hES
+      have hNDS : ND S := nd_plugI_sub (g :: rest) hND
+      have hNDo : ND g.o := (nd_frT (nd_plugI_sub rest hND)).2.1
+      have hroom : max (ht S) (ht g.o) + 2 ≤ 2 ^ 32 - 1 := by
+        have hs := ht_le_arena_len hES hNDS
+        have ho := ht_le_arena_len hEo hNDo
+        omega
+      obtain ⟨newroot, self1, hreb⟩ :=
+        ov_rebalance_frT_ok o o.nodes.val rfl n g S hEn (nd_plugI_sub rest hND)
+          (bst_plugI_sub rest hBST) hBalS hHS hBg hHg hroom
+      rw [hreb]; rw [bind_pair_ok]
+      obtain ⟨T', A, hA, hEA, hid, hndT, hbA, hhA, hbal, hrel, hf, hr, hl, hlo, hhi⟩ :=
+        rebalance_frT o self1 o.nodes.val rfl n newroot g S sc hEn (nd_plugI_sub rest hND)
+          (bst_plugI_sub rest hBST) hBalS hHS hBg hHg hsc1 hsc2 hg1 hg2 hreb
+      have hUm : ∀ j ∈ idxs (frT g S), j ∈ U := fun j hj => by
+        rw [← hU]; exact (mem_plugI rest (frT g S)).mpr (Or.inl hj)
+      cases rest with
+      | nil =>
+        have hidx0 : idx1 = 0#usize := UScalar.eq_of_val_eq (by rw [← hrl]; rfl)
+        rw [if_pos hidx0]
+        refine ⟨ControlFlow.cont ({ self1 with root := newroot }, idx1), rfl, ?_⟩
+        refine ⟨?_, ?_⟩
+        · refine ⟨[], T', newroot, max sc (ht g.o) + 1, ?_, trivial, ?_, hbal, ?_, ?_,
+            hndT, hid.trans hU, rfl, trivial, hlo, hhi, ?_, ?_, ?_⟩
+          · rw [hidx0]; rfl
+          · dsimp only; rw [hA]; exact hEA
+          · dsimp only; rw [hA]; exact hhA
+          · dsimp only; rw [hA]; exact hbA
+          · dsimp only; rw [hA]
+            exact Rel.trans' (U := U) hRel hrel (fun j hj => hj) hUm
+          · dsimp only; rw [hf, hfree]
+          · dsimp only; rw [hl, hlen]
+        · rw [hidx1v]; omega
+      | cons h' rest' =>
+        have hrl' : rest'.length + 1 = idx1.val := by rw [← hrl]; rfl
+        have hidx0 : ¬ idx1 = 0#usize := fun e => by rw [e] at hrl'; simp at hrl'
+        rw [if_neg hidx0]
+        obtain ⟨i, hi, hiv⟩ := usub_tot idx1 1#usize (by rw [val_1_usize]; omega)
+        rw [val_1_usize] at hiv
+        rw [hi]; simp only [bind_tc_ok]
+        have hirl : i.val = rest'.length := by rw [hiv]; omega
+        obtain ⟨⟨c1, hc1, hc1v⟩, hchrest'⟩ := hchrest
+        have hilt : i.val < chain.length := by
+          rw [hirl]; exact (List.getElem?_eq_some_iff.mp hc1).1
+        obtain ⟨p, hp⟩ := Apeiron.PrefixMasks.slice_index_ex chain i hilt
+        rw [hp]; simp only [bind_tc_ok]
+        have hp' : chain.val[i.val]? = some p := slice_index_ok chain i p hp
+        rw [hirl, hc1] at hp'
+        have hpc : c1 = p := Option.some.inj hp'
+        have hpv : p.val = h'.a := by rw [← hpc]; exact hc1v
+        obtain ⟨c', hSpc', hc'v, hha, ndh, hndh, hEoh, hchh⟩ := hSpc
+        simp only [lift, bind_tc_ok]
+        have hND2 : ND (plugI (frT g S) (h' :: rest')) := hND
+        have hND3 : ND (plugI (frT h' (frT g S)) rest') := hND
+        have hhaX : h'.a ∉ idxs (frT g S) := (nd_frT (nd_plugI_sub rest' hND3)).2.2.1
+        have hAh : A[h'.a]? = some ndh := by rw [rel_out hrel hhaX]; exact hndh
+        have hAlt : h'.a < A.length := (List.getElem?_eq_some_iff.mp hAh).1
+        have hcastv : (UScalar.cast .Usize p).val = h'.a := by rw [cast_usize_u32, hpv]
+        obtain ⟨n1, hn1⟩ := vec_index_ex self1.nodes (UScalar.cast .Usize p)
+          (by rw [hA, hcastv]; exact hAlt)
+        rw [hn1]; simp only [bind_tc_ok]
+        have hn1' : A[h'.a]? = some n1 := by
+          have h := idx_ok hn1
+          rw [hA, hpv] at h
+          exact h
+        have hn1n : n1 = ndh := Option.some.inj (hn1'.symm.trans hAh)
+        rw [hn1n]
+        have hcnv : c.val = n.val := by rw [hcv, hnv]
+        have hcn' : c = n := UScalar.eq_of_val_eq hcnv
+        have hnX : n.val ∈ idxs (frT g S) := by
+          rw [hnv]; exact mem_frT.mpr (Or.inr (Or.inl rfl))
+        have hdisj := nd_plugI_disj (h' :: rest') hND2
+        have hne : ∀ j ∈ idxs T', (A.set h'.a (setChild h'.d ndh newroot))[j]? = A[j]? :=
+          fun j hj => List.getElem?_set_ne
+            (show h'.a ≠ j from fun e => hhaX (by rw [e, ← hid]; exact hj))
+        have hBT : BST o.nodes.val T' := bst_congr (fun j => (keyAt_rel hrel j).symm) hbA
+        have hBsw : BST o.nodes.val (plugI T' (h' :: rest')) :=
+          bst_plugI_swap (h' :: rest') hBST hBT hid
+        have hUh : h'.a ∈ U := by
+          rw [← hU]
+          exact (mem_plugI rest' (frT h' (frT g S))).mpr
+            (Or.inl (mem_frT.mpr (Or.inr (Or.inl rfl))))
+        obtain ⟨hSp'', hEA'', hrel'', hHAg, _hout⟩ :=
+          chain_relink (X := frT g S) (h := h') (rest' := rest') (ndh := ndh)
+            (r := o.root) (x' := newroot) (T' := T')
+            hND2 hrel hndh hSpc' hc'v hha hEoh hEA hid
+        have key : ∀ v : alloc.vec.Vec ONode, v.val = A.set h'.a (setChild h'.d ndh newroot) →
+            ChainInv ns0 U F0 N0 chain.val
+              { nodes := v, free := self1.free, root := self1.root, len := self1.len } idx1 := by
+          intro v hv
+          refine ⟨h' :: rest', T', newroot, max sc (ht g.o) + 1, ?_, ⟨⟨c1, hc1, hc1v⟩, hchrest'⟩,
+            ?_, hbal, ?_, ?_, ?_, ?_, ?_, ?_, hlo, hhi, ?_, ?_, ?_⟩
+          · show idx1.val = (h' :: rest').length
+            simp only [List.length_cons]; omega
+          · show Emb v.val newroot T'
+            rw [hv]; exact hEA''
+          · show HOK v.val T'
+            rw [hv]; exact hok_congr hhA (fun j hj => hne j hj)
+          · show BST v.val (plugI T' (h' :: rest'))
+            rw [hv]; exact bst_rel (hrel.trans hrel'') hBsw
+          · exact nd_plugI_swap (h' :: rest') hND2 hndT hid
+          · exact (idxs_plugI_eq (h' :: rest') hid).trans hU
+          · show Spine v.val self1.root newroot (h' :: rest')
+            rw [hv, hr]; exact hSp''
+          · show AncOld v.val (h' :: rest') (max sc (ht g.o) + 1)
+            rw [hv]; exact ancOld_hcongr (h' :: rest') hAncr hHAg
+          · show Rel U ns0 v.val
+            rw [hv]
+            exact Rel.trans' (U := U) (Rel.trans' (U := U) hRel hrel (fun j hj => hj) hUm) hrel''
+              (fun j hj => hj) (fun j hj => by rw [List.mem_singleton] at hj; rw [hj]; exact hUh)
+          · show self1.free = F0
+            rw [hf, hfree]
+          · show self1.len = N0
+            rw [hl, hlen]
+        cases hhd : h'.d with
+        | true =>
+          have hcond : ndh.left = n := by
+            have h1 := hchh
+            rw [hhd] at h1
+            simp [childOf] at h1
+            rw [h1, hcn']
+          rw [if_pos hcond]
+          obtain ⟨n2, back, hn2⟩ := vec_index_mut_ex self1.nodes (UScalar.cast .Usize p)
+            (by rw [hA, hcastv]; exact hAlt)
+          rw [hn2]; rw [bind_pair_ok]
+          obtain ⟨hn2', hback⟩ := idxm_ok hn2
+          rw [hA, hpv] at hn2'
+          have hn2n : n2 = ndh := Option.some.inj (hn2'.symm.trans hAh)
+          rw [hn2n]
+          refine ⟨ControlFlow.cont
+            ({ self1 with nodes := back {ndh with left := newroot} }, idx1), rfl, ?_⟩
+          refine ⟨key _ ?_, ?_⟩
+          · rw [hback, hA, hpv, hhd]; rfl
+          · rw [hidx1v]; omega
+        | false =>
+          have hcond : ¬ ndh.left = n := by
+            intro hcl
+            have h1 := hEoh
+            rw [hhd] at h1
+            simp [childOf] at h1
+            have hnn : n.val ≠ nilN := by rw [hnv]; exact hga
+            have hmem := emb_root_mem h1 (by rw [hcl]; exact hnn)
+            rw [hcl] at hmem
+            exact hdisj n.val (by
+              simp only [spineIdx, List.mem_cons, List.mem_append]
+              exact Or.inr (Or.inl hmem)) hnX
+          rw [if_neg hcond]
+          obtain ⟨n2, back, hn2⟩ := vec_index_mut_ex self1.nodes (UScalar.cast .Usize p)
+            (by rw [hA, hcastv]; exact hAlt)
+          rw [hn2]; rw [bind_pair_ok]
+          obtain ⟨hn2', hback⟩ := idxm_ok hn2
+          rw [hA, hpv] at hn2'
+          have hn2n : n2 = ndh := Option.some.inj (hn2'.symm.trans hAh)
+          rw [hn2n]
+          refine ⟨ControlFlow.cont
+            ({ self1 with nodes := back {ndh with right := newroot} }, idx1), rfl, ?_⟩
+          refine ⟨key _ ?_, ?_⟩
+          · rw [hback, hA, hpv, hhd]; rfl
+          · rw [hidx1v]; omega
+  · rw [if_neg hpos]
+    exact ⟨ControlFlow.done o, rfl, trivial⟩
+
+/-- `rebalance_chain_loop` is total on a `ChainInv` state under the absolute arena bound. -/
+theorem ov_rebalance_chain_loop_ok (ns0 : List ONode) (U : List Nat) (F0 : alloc.vec.Vec U32)
+    (N0 : Usize) (o0 : Ov) (chain : Slice U32) (idx0 : Usize)
+    (hinv : ChainInv ns0 U F0 N0 chain.val o0 idx0)
+    (hbound : o0.nodes.val.length + 3 ≤ 2 ^ 32 - 1) :
+    ∃ o', hashtrinity.overflow.Overflow.rebalance_chain_loop CI o0 chain idx0 = ok o' := by
+  have hb : ∀ st : Ov × Usize, ChainInv ns0 U F0 N0 chain.val st.1 st.2 →
+      st.1.nodes.val.length + 3 ≤ 2 ^ 32 - 1 := by
+    intro st hst
+    rw [ChainInv.len_eq hst, ← ChainInv.len_eq hinv]
+    exact hbound
+  unfold hashtrinity.overflow.Overflow.rebalance_chain_loop
+  refine loop_tot_inv
+    (fun st : Ov × Usize =>
+      hashtrinity.overflow.Overflow.rebalance_chain_loop.body CI chain st.1 st.2)
+    (fun st => ChainInv ns0 U F0 N0 chain.val st.1 st.2) (fun st => st.2.val) ?_ ?_ (o0, idx0)
+    hinv
+  · rintro ⟨o, idx⟩ hinv'
+    obtain ⟨cf, hcf, _⟩ := ov_rebalance_chain_body_ok ns0 U F0 N0 chain o idx hinv' (hb _ hinv')
+    exact ⟨cf, hcf⟩
+  · rintro ⟨o, idx⟩ ⟨o', idx'⟩ hinv' hcf
+    obtain ⟨cf, hcf0, hpost⟩ :=
+      ov_rebalance_chain_body_ok ns0 U F0 N0 chain o idx hinv' (hb _ hinv')
+    rw [hcf0] at hcf
+    have hcfeq : cf = ControlFlow.cont (o', idx') := Result.ok_injective hcf
+    rw [hcfeq] at hpost
+    exact hpost
+
+/-- `rebalance_chain` is total on a `ChainInv` state at the full chain length, under the absolute
+arena bound. -/
+theorem ov_rebalance_chain_ok (ns0 : List ONode) (U : List Nat) (F0 : alloc.vec.Vec U32)
+    (N0 : Usize) (o0 : Ov) (chain : Slice U32)
+    (hinv : ChainInv ns0 U F0 N0 chain.val o0 (Slice.len chain))
+    (hbound : o0.nodes.val.length + 3 ≤ 2 ^ 32 - 1) :
+    ∃ o', hashtrinity.overflow.Overflow.rebalance_chain CI o0 chain = ok o' := by
+  unfold hashtrinity.overflow.Overflow.rebalance_chain
+  exact ov_rebalance_chain_loop_ok ns0 U F0 N0 o0 chain (Slice.len chain) hinv hbound
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.ov_h_ok
@@ -780,3 +1065,9 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.ov_rotate_left_ok
 #audit Apeiron.MapExecuted.ov_rebalance_ok
 #audit Apeiron.MapExecuted.bind_pair_ok
+#audit Apeiron.MapExecuted.ChainInv.len_eq
+#audit Apeiron.MapExecuted.ht_le_arena_len
+#audit Apeiron.MapExecuted.ov_rebalance_frT_ok
+#audit Apeiron.MapExecuted.ov_rebalance_chain_body_ok
+#audit Apeiron.MapExecuted.ov_rebalance_chain_loop_ok
+#audit Apeiron.MapExecuted.ov_rebalance_chain_ok
