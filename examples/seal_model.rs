@@ -1,18 +1,19 @@
-//! Whole-model seal: re-quantize a `Q4_K_M` model's `Q4_K` tensors with imatrix importance.
+//! Whole-model seal: re-quantize a `Q4_K_M` model's weighted tensors with imatrix importance.
 //!
 //! Usage:
 //! ```text
 //! seal_model --f16 <f16.gguf> --typemap <Q4_K_M.gguf> --imatrix <imatrix.gguf> --out <out.gguf>
 //! ```
 //!
-//! The `--typemap` file fixes the type map: every tensor it stores as `Q4_K` is read from `--f16`,
-//! weighted by the per-column importance vector [`apeiron::learn::imatrix::read_imatrix`] returns
-//! for the same tensor name, quantized by [`apeiron::learn::seal::quantize_matrix_q4_k`], and
-//! written; every other tensor's bytes are copied verbatim from the `--typemap` file. Metadata is
-//! copied unchanged and tensor offsets are recomputed on the `general.alignment` grid. The output
-//! therefore has exactly the typemap's bits per weight.
+//! The `--typemap` file fixes the type map. Every tensor it stores as a weighted type — `Q4_K`,
+//! `Q6_K` or `Q5_0` — is read from `--f16`, weighted by the per-column importance vector
+//! [`apeiron::learn::imatrix::read_imatrix`] returns for the same tensor name, quantized by the
+//! matching [`apeiron::learn::seal`] matrix routine, and written; every other tensor's bytes
+//! (`Q8_0`, `F32`, …) are copied verbatim from the `--typemap` file, as `llama-quantize` does.
+//! Metadata is copied unchanged and tensor offsets are recomputed on the `general.alignment` grid.
+//! The output therefore has exactly the typemap's bits per weight.
 //!
-//! A `Q4_K` tensor with no imatrix entry falls back to uniform importance (`None`) and is counted.
+//! A weighted tensor with no imatrix entry falls back to the type's weight-only fit and is counted.
 #![allow(
     clippy::pedantic,
     clippy::allow_attributes_without_reason,
@@ -21,9 +22,13 @@
 )]
 
 use apeiron::format::gguf::{Gguf, GgufHeader};
-use apeiron::format::quant::{f16_to_f32, GGML_TYPE_Q4_K};
+use apeiron::format::quant::{
+    f16_to_f32, ggml_type_name, GGML_TYPE_Q4_K, GGML_TYPE_Q5_0, GGML_TYPE_Q6_K,
+};
 use apeiron::learn::imatrix::read_imatrix;
-use apeiron::learn::seal::quantize_matrix_q4_k;
+use apeiron::learn::seal::{
+    quantize_matrix_q4_k, quantize_matrix_q5_0, quantize_matrix_q6_k, SealError,
+};
 use std::time::Instant;
 
 fn arg(args: &[String], name: &str) -> Option<String> {
@@ -32,6 +37,9 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .and_then(|i| args.get(i + 1))
         .cloned()
 }
+
+/// A seal matrix quantizer: `(weights, n_out, n_in, τ) -> block bytes`.
+type QuantFn = fn(&[f32], usize, usize, Option<&[f32]>) -> Result<Vec<u8>, SealError>;
 
 /// Dequantize an `F16` tensor payload to `f32`.
 fn f16_bytes_to_f32(bytes: &[u8]) -> Vec<f32> {
@@ -105,64 +113,72 @@ fn main() {
     );
 
     let mut data = vec![0u8; total];
-    let mut n_q4k = 0usize;
-    let mut n_q4k_imat = 0usize;
-    let mut n_q4k_fallback = 0usize;
-    let mut fallback_names: Vec<String> = Vec::new();
+    // counts[type] = (weighted re-quantized, fallback-to-None, copied verbatim)
+    let mut counts: std::collections::BTreeMap<u32, (usize, usize, usize)> =
+        std::collections::BTreeMap::new();
 
     for (i, t) in header.tensors.iter().enumerate() {
         let start = usize::try_from(t.offset).expect("offset fits usize");
-        if t.ggml_type == GGML_TYPE_Q4_K {
-            n_q4k += 1;
-            let name = String::from_utf8_lossy(&t.name).into_owned();
-            let Some(fd) = f16.header.tensor(&name) else {
-                panic!("f16 model is missing Q4_K tensor {name}");
-            };
-            let n_in = usize::try_from(fd.dims[0]).expect("n_in fits usize");
-            let n_out = out_dims(&fd.dims).expect("n_out");
-            let raw = f16.tensor_bytes(fd).expect("read f16 tensor");
-            let w = f16_bytes_to_f32(&raw);
+        let quant: Option<QuantFn> = match t.ggml_type {
+            GGML_TYPE_Q4_K => Some(quantize_matrix_q4_k),
+            GGML_TYPE_Q6_K => Some(quantize_matrix_q6_k),
+            GGML_TYPE_Q5_0 => Some(quantize_matrix_q5_0),
+            _ => None,
+        };
+        let entry = counts.entry(t.ggml_type).or_insert((0, 0, 0));
+        match quant {
+            Some(f) => {
+                let name = String::from_utf8_lossy(&t.name).into_owned();
+                let Some(fd) = f16.header.tensor(&name) else {
+                    panic!("f16 model is missing quantized tensor {name}");
+                };
+                let n_in = usize::try_from(fd.dims[0]).expect("n_in fits usize");
+                let n_out = out_dims(&fd.dims).expect("n_out");
+                let raw = f16.tensor_bytes(fd).expect("read f16 tensor");
+                let w = f16_bytes_to_f32(&raw);
 
-            let tau = imatrix.vector(&name);
-            match tau {
-                Some(v) if v.len() == n_in => {}
-                Some(v) => panic!(
-                    "imatrix entry {name} has {} columns, tensor has {n_in}",
-                    v.len()
-                ),
-                None => {
-                    n_q4k_fallback += 1;
-                    fallback_names.push(name.clone());
+                let tau = imatrix.vector(&name);
+                match tau {
+                    Some(v) if v.len() == n_in => entry.0 += 1,
+                    Some(v) => panic!(
+                        "imatrix entry {name} has {} columns, tensor has {n_in}",
+                        v.len()
+                    ),
+                    None => entry.1 += 1,
                 }
+                let bytes = f(&w, n_out, n_in, tau).expect("quantize");
+                let end = start + bytes.len();
+                data[start..end].copy_from_slice(&bytes);
+                println!(
+                    "[{:>3}/{}] {name:<28} dims[{}, {}] {} <- {} bytes (imatrix: {})",
+                    i + 1,
+                    header.tensors.len(),
+                    fd.dims[0],
+                    n_out,
+                    ggml_type_name(t.ggml_type),
+                    bytes.len(),
+                    if tau.is_some() { "yes" } else { "NONE" }
+                );
             }
-            let bytes = quantize_matrix_q4_k(&w, n_out, n_in, tau).expect("quantize");
-            let end = start + bytes.len();
-            data[start..end].copy_from_slice(&bytes);
-            if tau.is_some() {
-                n_q4k_imat += 1;
+            None => {
+                entry.2 += 1;
+                let bytes = tm.tensor_bytes(t).expect("read typemap tensor");
+                let end = start + bytes.len();
+                data[start..end].copy_from_slice(&bytes);
             }
-            println!(
-                "[{:>3}/{}] {name:<28} dims[{}, {}] Q4_K <- {} bytes (imatrix: {})",
-                i + 1,
-                header.tensors.len(),
-                fd.dims[0],
-                n_out,
-                bytes.len(),
-                if tau.is_some() { "yes" } else { "NONE" }
-            );
-        } else {
-            let bytes = tm.tensor_bytes(t).expect("read typemap tensor");
-            let end = start + bytes.len();
-            data[start..end].copy_from_slice(&bytes);
         }
     }
 
     let file = apeiron::learn::gguf::write_file(&header, &data).expect("write gguf");
     std::fs::write(&out_path, &file).expect("write output file");
 
-    println!(
-        "Q4_K tensors: {n_q4k}; with imatrix: {n_q4k_imat}; fallback None: {n_q4k_fallback} {fallback_names:?}"
-    );
+    println!("per-type tensor counts (re-quantized, fallback None, copied):");
+    for (t, (r, fb, cp)) in &counts {
+        println!(
+            "  {:<6}: requantized {r}, fallback {fb}, copied {cp}",
+            ggml_type_name(*t)
+        );
+    }
     println!(
         "wrote {out_path}: {} bytes in {:.2} s",
         file.len(),
