@@ -931,12 +931,14 @@ open is a pointer.
 |---|---|---|
 | RoPE and ALiBi as one group family | **Known in part.** GRAPE, arXiv 2512.07805: multiplicative rotations in `SO(d)` plus additive logit biases from unipotent actions in `GL`, recovering RoPE and ALiBi as special cases (abstract fetched). The abstract names no hyperbolic orbit, no `SO(1,1)`, no decay and no `R[x]/(x²−σ)`; the full text is not read | elliptic + parabolic known; the hyperbolic third face and the one-ring statement: not found in four queries |
 | ALiBi equals a fixed exponential forget gate | Digest cites Forgetting Transformer, arXiv 2503.02130, §3, with a quoted sentence. Title and authors confirmed from the abstract page; the sentence itself is not verified | known (citation unverified at section level) |
-| dual or split-complex numbers in position encoding | not found in five queries | not found; not a novelty claim |
+| dual or split-complex numbers in position encoding | Second search (FACES-R3-IW-B, agy): **hyperbolic face known** — HoPE, Dai, Shan, Song, Liang, arXiv 2509.05218, §3.1 eqs. 5–7, the 2×2 Lorentz boost `[[cosh mθ, sinh mθ],[sinh mθ, cosh mθ]]` for monotone decay (title and authors confirmed from the abstract page by the lead). **Parabolic face known** as a nilpotent generator: GRAPE §4.1–4.2 (`A²=0`, `I+mA` gives exact ALiBi) and Jordan-RoPE, Yaobo Zhang, arXiv 2605.04217, §3.2–3.4 (`J = iωI + N`, `N²=0`, reducing at `ω=0` to `I+dN`; title confirmed by the lead). The names `R[ε]/(ε²)` and split-complex: not found | elliptic, parabolic and hyperbolic orbits each known separately; the one-ring statement `R[x]/(x²−σ)` over all three: not found; not a novelty claim |
+| RoPE long-period pairs as an Inönü–Wigner contraction to the parabolic face | FACES-R3-IW-A/B (agy, row `faces-r3-searched-list-of-HFjIFdmrgQqByikqw7ayoE`): contraction named in a transformer, attention or position-encoding paper: not found (arXiv API `all:"Inonu-Wigner" AND (transformer OR RoPE)`, `all:"group contraction" AND ("positional encoding" OR RoPE)`; 2507.16871 uses contraction outside attention). Small-angle `sin θd ≈ θd` emulating ALiBi: known, Litzenberger (2026) blog "Emulating ALiBi with RoPE". Long-wavelength pairs as non-rotating: known, YaRN arXiv 2309.00071 §3.2. Digests `escalation/FACES-R3-IW-A.md`, `-B.md` | contraction reading: not found; its small-angle content: known |
 | real SSM diagonal as a two-idempotent split | not found in four queries; S4D (2206.11893) and LRU (2303.06349) contrast real decay with complex rotation without the idempotent reading | not found; not a novelty claim |
 | dependent dispatch chain as nilpotent/Jordan | not found in four queries. Latency-sum framing is known: Event Tensor, arXiv 2604.13327, §1 (5–10 µs launch against 2 µs kernels), not retrieved by the lead | Jordan reading not found; latency sum known |
 
-Consequence for the series: H1+H2 are known as a pair, so the open content is H3 (the hyperbolic
-orbit as the third face with the idempotent split), H4 and H5/H6. A "not found" row shows a search
+Consequence for the series: H1+H2 are known as a pair and the hyperbolic orbit is known on its own
+(HoPE), so the open content narrows to the single ring over all three faces with the idempotent split
+(H3), the contraction reading, H4 and H5/H6. A "not found" row shows a search
 that found the two seeded papers; it does not show absence from the literature.
 
 ### FACES-R2 results (per component; model unless a command is named)
