@@ -921,6 +921,38 @@ claim that attention logits are mostly shaped by the parabolic (ALiBi-like) face
 Not covered: other checkpoints and prompts, `T>512` (the parabolic set shrinks with `L`), the `d`-dependence inside those pairs
 (affine in `d` is not measured), the Q4_K_M dequantised weights rather than the f16 checkpoint.
 
+**The `d`-dependence inside the parabolic pairs (row `faces-r1-do-the-three-on-HCnA8ZlHN3emV1nzkVH7V0`).** Command:
+`QK_DUMP=/home/socol/oc-tmp/faces-qk /home/socol/oc-tmp/shared-target/release/examples/attn_cut_probe` (hook in
+`examples/attn_cut_probe.rs`: prompt 0's unrotated `q`,`k` per layer and the engine's own cos/sin table), then
+`python3 /home/socol/oc-tmp/escalation/FACES-R1-H2-slope.py` (log `FACES-R1-H2-slope.out`); qwen05b Q4_K_M, `T=512`, 24 layers
+× 14 q heads, queries `t ≥ 31`, keys `s ≤ t`. Per pair, `conj(z_q) z_k = A + iB` from the unrotated vectors (`A` the norm
+bilinear form, position-free; `B` the `J` form) and the roped contribution is `c = Re((A+iB)·e_t·conj(e_s))` with `e_p` the
+engine table; the positional part is `p = c − A`, which on a parabolic pair is `≈ −Bθd`, an ALiBi slope with a content-set
+coefficient. Sanity: `Σ_j c` equals the roped dot product to `4.2e-16`. Prediction
+(`FACES-R1-H2-SLOPE-PREDICTION.md`, written before the run): (1) positional share of the per-query centred variance over
+`j ≥ 19` at most 0.10; (2) at most 0.01 for `j = 29..31`; (3) `p` linear in `d`, variance-weighted `r²` at least 0.95; (4) slope
+set by the mean key, `r²` against `Re(conj(z_q) k̄ (e_t conj(e_s) − 1))` at least 0.5. Control: the elliptic pairs `j ≤ 10`.
+
+| band | `Var(p)/Var(c)`, per pair | band sum | `Var(P_band)/Var(score)` | `Var(C_band)/Var(score)` | `r²(P, d)` | `r²(P, mean-key slope)` |
+|---|---|---|---|---|---|---|
+| parabolic `j ≥ 19` | 0.0010 | 0.0011 | 0.0005 | 0.4241 | 0.882 | 0.882 |
+| far `j = 29..31` | 0.0000 | 0.0000 | 0.0000 | 0.2237 | 0.966 | 0.966 |
+| elliptic `j ≤ 10` (control) | 1.089 | 1.161 | 0.5074 | 0.4370 | 0.100 | 0.786 |
+| all 32 pairs | 0.535 | 0.672 | 0.672 | 1 | 0.242 | 0.762 |
+
+Per layer, the parabolic band's positional share is at most 0.033 (layer 0); every other layer is ≤ 0.004. Predictions (1), (2),
+(4) held; (3) is **refuted**: `r²(P,d) = 0.882 < 0.95`, so the slope varies with the key (`B` is not constant over `s`). The
+control behaves as stated (`r² = 0.10` on the wrapped elliptic pairs). Reading: on this checkpoint the parabolic pairs carry
+0.42 of the softmax-visible score variance, and 0.999 of that is the position-free norm form `A`. Geometrically they sit on the
+`σ=0` orbit (the bridge table above); functionally they are content channels with a slope `≈ 5e-4` of the score variance.
+Position is carried by the elliptic pairs (0.51 of the score variance is their positional part). The "low-frequency pairs are the
+ALiBi face" reading above therefore holds for the group action and fails for what trained heads put on it. That trained RoPE
+models use the lowest frequencies as semantic channels is stated in Barbero et al., *Round and Round We Go! What makes Rotary
+Positional Encodings useful?* (arXiv 2410.06205; title from memory, not retrieved: a pointer, not evidence; agy digest lane
+`FACES-R3-ROPE-LOWFREQ` dispatched). Not covered: the f16 checkpoint, other prompts and models, `T>512` (at `L=32768`, `θ_19·L ≈
+9` rad and the same pairs are elliptic), the effect of the slope on the softmax output rather than on the logit variance. Grade
+`tested`.
+
 ### FACES-R3 results (prior-art search)
 
 Row: `faces-r3-searched-list-of-HFjIFdmrgQqByikqw7ayoE`. Digest `/home/socol/oc-tmp/escalation/FACES-R3-DIGEST.md`
@@ -952,6 +984,7 @@ each face can express follows from that space.
 | component | elliptic `σ<0` | parabolic `σ=0` | hyperbolic `σ>0` | what differs |
 |---|---|---|---|---|
 | position code (score vs `d`) | RoPE: periodic, bounded; can peak at a nonzero offset (`cos(θd−φ)`) | ALiBi: affine in `d`, no period, no peak | two exponentials; one idempotent lane kept (`|λ|<1`) for stability | only the elliptic face expresses "attend at fixed offset k" in one pair; parabolic extrapolates in length because nothing wraps; hyperbolic overflows (`e^{θd}`: 1.8e6 at `d=59`, `θ=0.31`) |
+| attention score (`conj(q)k`, conjugation `a+bx ↦ a−bx`) | scalar part `q0k0 + q1k1`: the positive-definite dot product; times `e^{iθd}` it is `A cos θd − J sin θd` | scalar part `q0k0`: degenerate, and position-free (`(w)(1+θdε)` moves only the `ε` part) | scalar part `q0k0 − q1k1`: Minkowski; times `e^{θdx}` it is `A cosh θd + J sinh θd` | `conj(R_m q)R_n k = conj(q)k·exp((n−m)θx)` on every face (`N(exp θx)=1`); the `x` part is the `J` form on every face. ALiBi's affine `A + Jθd` is the small-`θd` limit of the elliptic or hyperbolic scalar part, not the `σ=0` scalar part. `python3 /home/socol/oc-tmp/escalation/FACES-R2-score.py`: relativity error ≤ `2.7e-7` relative, product and scalar-part forms exact, 1000 draws per face; `σ=0` scalar part constant in `d` (`−0.396` at every `d`); trained qwen05b puts `5e-4` of the score variance on that slope (R1 paragraph above). Grade `tested` |
 | decay / state (`h←Ah+Bx`) | complex diagonal `A`: oscillator, phase memory, counts mod k | Jordan block `1+Nε`: state grows linearly, an integrator/counter | real diagonal `A`: exponential forgetting (RetNet, real-`A` Mamba) | memory length is `∞` (elliptic, `|λ|=1`), unbounded growth (parabolic), `1/(1−λ)` (hyperbolic) |
 | norm (RMSNorm) | `x²+y²`, positive definite: the normaliser RMSNorm uses | `x²`, degenerate: kills the second coordinate | `x²−y²`, indefinite: zero on the null cone `x=±y`, where the idempotent lanes lie | RMSNorm presupposes the elliptic face. Toy: normalising 448 Gaussian pairs by the hyperbolic form gives inverse-rms gain median 5.6, p99 41.6, max 725.9 (elliptic ≈ 1.00) and a random sign (P(Q<0)=0.502) |
 | hash-table probe | address ring `Z/2⁶⁴`, address determines key (regenerated); ring wraps | key carried beside the address; no wrap into the flat region (spill) | `Z/m` with CRT idempotent channels; address does not determine the key | already decided per face in `docs/epics/algebra-native-addressing.md` (lines 62–67, 127); the CRT split of `Z/m` is the discrete idempotent decomposition `(1±x)/2` |
