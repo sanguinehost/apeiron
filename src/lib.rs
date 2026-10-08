@@ -44,6 +44,8 @@ mod hashtrinity;
 pub mod gpu;
 pub mod kepler;
 pub mod keystore;
+/// Learning track.
+pub mod learn;
 pub mod merge;
 pub mod numeric;
 pub mod pepper;
