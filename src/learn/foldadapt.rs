@@ -42,6 +42,7 @@
 )]
 
 use crate::freq::Table;
+use crate::hashtrinity::Entry;
 use crate::learn::countlm::kn_discounts_cg;
 
 /// Maximum context order supported by the compact lossless representation ($k \le 4$).
@@ -228,9 +229,19 @@ impl FoldAdapter {
     ///
     /// Temporal: $\Theta(N \cdot k)$ operations, where $N = \text{ids.len()}$ and $k = \text{self.k} \le 4$.
     /// Derivation: outer loop iterates $i \in 1..N$; inner loop iterates $o \in 1..\min(k, i)$.
-    /// Each step performs $O(1)$ pack, $O(1)$ [`Table::get`], $O(1)$ [`Table::insert_with`], and amortized $O(1)$ key tracking.
+    /// Each step performs $O(1)$ pack and one $O(1)$ [`Table::entry`] probe (increment, or insert on
+    /// a new key). A new key additionally pushes to `keys` and appends one continuation, amortized
+    /// $O(1)$. No per-step allocation.
     /// Spatial: $O(U)$ words where $U \le N \cdot k$ is the number of distinct n-grams observed.
     pub fn fold(&mut self, ids: &[u32]) {
+        // Every position adds at most one distinct `(order, context, token)` key, so `ids.len() * k`
+        // bounds the new keys this fold can add. Reserve once, against the live keys already held,
+        // so the fold pays no repeated grow-and-rehash (the sizing is the table's own `reserve`).
+        let bound = ids.len().saturating_mul(self.k);
+        let additional = bound.saturating_sub(self.flat.len());
+        self.flat.reserve(additional);
+        self.keys.reserve(additional);
+        self.ctx_tokens.reserve(additional / 2);
         self.fold_signed(ids, 1);
     }
 
@@ -265,29 +276,45 @@ impl FoldAdapter {
                 let p = pack(&ids[i - o..i]);
                 let key = (o as u8, p, next_id);
                 let ctx_key = (o as u8, p);
-                let prev = self.flat.get(&key).copied().unwrap_or(0);
                 if sign > 0 {
-                    if prev == 0 {
+                    // One probe, one merge: increment through the entry face, or take the vacant
+                    // slot. A pre-existing zero (left in `flat` by an unfold) is logically absent.
+                    let was_absent = match self.flat.entry(key) {
+                        Entry::Vacant(e) => {
+                            e.insert(1);
+                            true
+                        }
+                        Entry::Occupied(mut e) => {
+                            let c = e.get_mut();
+                            let absent = *c == 0;
+                            *c += 1;
+                            absent
+                        }
+                    };
+                    if was_absent {
                         self.keys.push(key);
-                        self.ctx_tokens
-                            .insert_with(ctx_key, vec![next_id], |_, mut old| {
-                                if !old.contains(&next_id) {
-                                    old.push(next_id);
-                                }
-                                old
-                            });
+                        // A genuinely new `(order, context, token)` is absent from the context's
+                        // continuation list (the zero-count/zero-token invariant), so no scan.
+                        self.ctx_tokens.entry(ctx_key).or_default().push(next_id);
                     }
-                    self.flat
-                        .insert_with(key, i64::from(sign), |new, old| old + new);
-                } else if sign < 0 && prev > 0 {
-                    self.flat
-                        .insert_with(key, i64::from(sign), |new, old| old + new);
-                    let new_cnt = self.flat.get(&key).copied().unwrap_or(0);
-                    if new_cnt == 0 {
-                        if let Some(tokens) = self.ctx_tokens.get(&ctx_key) {
-                            let updated: Vec<u32> =
-                                tokens.iter().copied().filter(|&t| t != next_id).collect();
-                            self.ctx_tokens.insert_merge_last_write(ctx_key, updated);
+                } else {
+                    // One probe: decrement a live count; a count that hits zero drops its
+                    // continuation in place, with no per-call `Vec`.
+                    let became_zero = match self.flat.entry(key) {
+                        Entry::Vacant(_) => false,
+                        Entry::Occupied(mut e) => {
+                            let c = e.get_mut();
+                            if *c > 0 {
+                                *c -= 1;
+                                *c == 0
+                            } else {
+                                false
+                            }
+                        }
+                    };
+                    if became_zero {
+                        if let Some(tokens) = self.ctx_tokens.get_mut(&ctx_key) {
+                            tokens.retain(|&t| t != next_id);
                         }
                     }
                 }
@@ -325,23 +352,31 @@ impl FoldAdapter {
             });
         }
         for &k in &other.keys {
-            if let Some(&c) = other.flat.get(&k) {
-                if c != 0 {
-                    let prev = self.flat.get(&k).copied().unwrap_or(0);
-                    if prev == 0 {
-                        self.keys.push(k);
-                        let ctx_key = (k.0, k.1);
-                        let next_id = k.2;
-                        self.ctx_tokens
-                            .insert_with(ctx_key, vec![next_id], |_, mut old| {
-                                if !old.contains(&next_id) {
-                                    old.push(next_id);
-                                }
-                                old
-                            });
-                    }
-                    self.flat.insert_with(k, c, |new, old| old + new);
+            let Some(&c) = other.flat.get(&k) else {
+                continue;
+            };
+            if c == 0 {
+                continue;
+            }
+            // One probe per key: add through the entry face; a pre-existing zero is logically absent.
+            let was_absent = match self.flat.entry(k) {
+                Entry::Vacant(e) => {
+                    e.insert(c);
+                    true
                 }
+                Entry::Occupied(mut e) => {
+                    let v = e.get_mut();
+                    let absent = *v == 0;
+                    *v += c;
+                    absent
+                }
+            };
+            if was_absent {
+                self.keys.push(k);
+                let ctx_key = (k.0, k.1);
+                let next_id = k.2;
+                // The key is newly live, so its continuation is absent from the list by invariant.
+                self.ctx_tokens.entry(ctx_key).or_default().push(next_id);
             }
         }
         self.keys
@@ -351,10 +386,8 @@ impl FoldAdapter {
             let c = self.flat.get(&k).copied().unwrap_or(0);
             if c == 0 {
                 let ctx_key = (o, p);
-                if let Some(tokens) = self.ctx_tokens.get(&ctx_key) {
-                    let updated: Vec<u32> =
-                        tokens.iter().copied().filter(|&t| t != next_id).collect();
-                    self.ctx_tokens.insert_merge_last_write(ctx_key, updated);
+                if let Some(tokens) = self.ctx_tokens.get_mut(&ctx_key) {
+                    tokens.retain(|&t| t != next_id);
                 }
             }
         }
