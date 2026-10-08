@@ -352,6 +352,7 @@ import Perf.Overlap
 #audit Perf.Moves.q5_chart_gain_when_bytes_bind
 #audit Perf.Moves.q5_chart_under_tile_threshold
 #audit Perf.Moves.q5_coopmat_dot_under_magic
+#audit Perf.Moves.q6_row_words_seven_ninths
 #audit Perf.Moves.p10_mma_floor
 #audit Perf.Moves.p10_mma_rate_ratio
 #audit Perf.Moves.p10_mma_floor_p8

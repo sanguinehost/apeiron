@@ -492,6 +492,13 @@ fn gemv_module_impl(
                 "gemv_module has no two-plane decode: Carrier::Q5 is served by the DP4A path \
 (`gemv_dp4a_*`), which folds plane B per phase. Reading it here would use the low 4 bits only."
             ),
+            // `Carrier::Q6` is the same shape of two-plane chart as `Carrier::Q3`/`Carrier::Q5`:
+            // plane A is the low 4 bits and plane B holds the high 2 bits, so the single-word decode
+            // below sees only the low four bits of every six-bit code. Served by the DP4A path. Refused.
+            Carrier::Q6 => panic!(
+                "gemv_module has no two-plane decode: Carrier::Q6 is served by the DP4A path \
+(`gemv_dp4a_*`), which folds plane B per phase. Reading it here would use the low 4 bits only."
+            ),
             Carrier::Q8 | Carrier::Q4 | Carrier::Q2 => {
                 w.extend([
                     (5 << 16) | OP_SHIFT_RIGHT_LOGICAL,

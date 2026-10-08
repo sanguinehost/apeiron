@@ -207,6 +207,82 @@ pub fn pack_q5_0_raw(
     })
 }
 
+/// Pack a row-concatenation of Q6_K tensors from raw GGUF bytes into the [`Carrier::Q6`] two-plane
+/// chart, `(k/8 + k/16)·m` words plus `(k/32)·m` `dm` words = **0.875 B/w** (6-bit codes plus the
+/// per-16 scale face), against the Q8 re-chart's 1.125. Plane A is the low 4 bits of the biased code
+/// `u = code + 32` (`u & 0xF`, 8 codes/word, the identical k-packed layout [`pack_proj_f32`] emits
+/// for `Carrier::Q4`); plane B is the high 2 bits, two permuted words per (32-block, row). Code `j`
+/// of a block gets its 2-bit pair at `pos(j) = ((j>>1)&3)·8 + 2·(p&3)` of word `wi = p>>2`, with
+/// `p = (j>>3)·2 + (j&1)`, so a DP4A phase reads four contiguous 2-bit lanes. `dm = f16(d) ‖ sc_a ‖
+/// sc_b`: `d` is the super-block scale, `sc_a` the group scale of the block's first 16 codes and
+/// `sc_b` that of its last 16 (32-block `t` of a 256-superblock covers groups `2t`, `2t+1`), so the
+/// chart reconstructs `w = f16(d)·sc_h·(u−32)` — `u−32` is the signed `q6_k_codes` value the kernel
+/// must recover with a subtract-32 and a SIGNED dot.
+///
+/// Temporal cost: O(m·k) — one plane-A nibble write, one plane-B 2-bit write and one `dm` word per
+/// element. Spatial footprint: `Carrier::Q6.code_words_per_row(k)·m` u32 words (plane A plus the
+/// two-word plane B at `Carrier::Q6.plane_b_off(m, k)`; no constant restated here) plus `(k/32)·m`
+/// `dm` words.
+///
+/// `k` must be a whole number of 256-weight `Q6_K` super-blocks; a ragged `k` is refused with the
+/// crate's [`crate::format::quant::QuantError`], not truncated.
+pub fn pack_q6_k_raw(
+    raw: &[u8],
+    m: usize,
+    k: usize,
+) -> Result<Proj, crate::format::quant::QuantError> {
+    use crate::format::quant::{
+        q6_k_codes, q6_k_d, q6_k_scales, QuantError, GGML_TYPE_Q6_K, Q6_K_BLOCK_BYTES, QK_K,
+    };
+    if k % QK_K != 0 {
+        // No QuantError variant names a shape; `dequant_super_block` uses `UnknownType` for the same
+        // super-block-alignment refusal (a non-256 geometry this module cannot serve).
+        return Err(QuantError::UnknownType(GGML_TYPE_Q6_K));
+    }
+    let pack = Carrier::Q6.pack() as usize;
+    let blocks = k / 32;
+    let super_blocks = k / QK_K;
+    let row_bytes = super_blocks * Q6_K_BLOCK_BYTES;
+    let hi_off = Carrier::Q6.plane_b_off(m as u32, k as u32) as usize; // the high plane follows plane A
+    let mut words = vec![0u32; Carrier::Q6.code_words_per_row(k as u32) as usize * m];
+    let mut dm = vec![0u32; m * blocks];
+
+    for r in 0..m {
+        let row = &raw[r * row_bytes..(r + 1) * row_bytes];
+        for sb in 0..super_blocks {
+            let blk = &row[sb * Q6_K_BLOCK_BYTES..(sb + 1) * Q6_K_BLOCK_BYTES];
+            let d = q6_k_d(blk)?;
+            let scales = q6_k_scales(blk)?;
+            let codes = q6_k_codes(blk)?;
+            for t in 0..8 {
+                let b = sb * 8 + t;
+                dm[b * m + r] = (d as u32)
+                    | ((scales[2 * t] as u8 as u32) << 16)
+                    | ((scales[2 * t + 1] as u8 as u32) << 24);
+                for j in 0..32 {
+                    let u = (i32::from(codes[t * 32 + j]) + 32) as u32; // 0..63
+                    let kk = b * 32 + j;
+                    words[(kk / pack) * m + r] |= (u & 0xF) << ((kk % pack) as u32 * 4);
+                    let p = (j >> 3) * 2 + (j & 1);
+                    let bit = (((j >> 1) & 3) * 8 + 2 * (p & 3)) as u32;
+                    words[hi_off + (2 * b + (p >> 2)) * m + r] |= ((u >> 4) & 0x3) << bit;
+                }
+            }
+        }
+    }
+
+    Ok(Proj {
+        dmf: dmf_of(&dm),
+        qsub: Vec::new(),
+        qsup: Vec::new(),
+        words,
+        dm,
+        cpu: Vec::new(),
+        m,
+        k,
+    })
+}
+
 /// Pack a Q4_K tensor directly from raw GGUF bytes into the DP4A k-packed chart (Carrier::Q4).
 pub fn pack_q4_k_raw(
     raw: &[u8],
@@ -375,5 +451,79 @@ mod tests {
             }
         }
         assert_eq!(checked, m * k, "every element decoded");
+    }
+
+    /// [`Carrier::Q6`]'s two-plane chart must reproduce the crate's own Q6_K dequantizer bit-for-bit,
+    /// over every element of a real Q6_K tensor.
+    #[test]
+    fn q6_k_chart_is_exact() {
+        use crate::format::quant::{dequant_q6_k_block, GGML_TYPE_Q6_K, Q6_K_BLOCK_BYTES, QK_K};
+        let Some(path) = crate::engine::testdata::model_path(QWEN05B_PATH) else {
+            eprintln!("skip q6_k_chart_is_exact: {QWEN05B_PATH} absent");
+            return;
+        };
+        let gguf = Gguf::open(&path).expect("open qwen05b");
+        // The FIRST `blk.N.ffn_down.weight` stored as Q6_K (ggml_type 14).
+        let (name, t) = (0..256)
+            .find_map(|i| {
+                let name = format!("blk.{i}.ffn_down.weight");
+                gguf.header
+                    .tensor(&name)
+                    .filter(|t| t.ggml_type == GGML_TYPE_Q6_K)
+                    .map(|t| (name, t.clone()))
+            })
+            .expect("a Q6_K ffn_down tensor");
+        let k = usize::try_from(t.dims[0]).expect("k fits usize");
+        let m = usize::try_from(t.dims[1]).expect("m fits usize");
+        let raw = gguf.tensor_bytes(&t).expect("ffn_down tensor bytes");
+        let p = super::pack_q6_k_raw(&raw, m, k).expect("pack_q6_k_raw");
+
+        assert_eq!(
+            p.words.len(),
+            Carrier::Q6.code_words_per_row(k as u32) as usize * m,
+            "word count is code_words_per_row(k)·m"
+        );
+        let pack = Carrier::Q6.pack() as usize;
+        let hi_off = Carrier::Q6.plane_b_off(m as u32, k as u32) as usize;
+        let row_bytes = (k / QK_K) * Q6_K_BLOCK_BYTES;
+
+        let mut checked = 0usize;
+        for r in 0..m {
+            let row = &raw[r * row_bytes..(r + 1) * row_bytes];
+            for sb in 0..k / QK_K {
+                let blk = &row[sb * Q6_K_BLOCK_BYTES..(sb + 1) * Q6_K_BLOCK_BYTES];
+                let mut want = [0f32; QK_K];
+                dequant_q6_k_block(blk, &mut want).expect("dequant_q6_k_block");
+                for t32 in 0..8 {
+                    let b = sb * 8 + t32;
+                    let dmw = p.dm[b * m + r];
+                    let d = f16_to_f32((dmw & 0xffff) as u16);
+                    let sc_a = ((dmw >> 16) & 0xff) as u8 as i8;
+                    let sc_b = ((dmw >> 24) & 0xff) as u8 as i8;
+                    for j in 0..32 {
+                        let kk = b * 32 + j;
+                        let nib = (p.words[(kk / pack) * m + r] >> ((kk % pack) as u32 * 4)) & 0xF;
+                        // The permuted plane-B pair for code j, stated independently of the packer.
+                        let phase = (j >> 3) * 2 + (j & 1);
+                        let bit = ((j >> 1) & 3) * 8 + 2 * (phase & 3);
+                        let hi = (p.words[hi_off + (2 * b + (phase >> 2)) * m + r] >> bit) & 0x3;
+                        let u = nib | (hi << 4);
+                        let sc_h = if j < 16 { sc_a } else { sc_b };
+                        let got = (d * f32::from(sc_h)) * ((u as i32 - 32) as f32);
+                        let want_v = want[t32 * 32 + j];
+                        assert!(
+                            got.to_bits() == want_v.to_bits(),
+                            "chart weight mismatch r={r} sb={sb} t={t32} j={j}: got {got} \
+({:#010x}) want {want_v} ({:#010x})",
+                            got.to_bits(),
+                            want_v.to_bits()
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, m * k, "every element decoded");
+        println!("q6_k_chart_is_exact: {name} m={m} k={k} elements={checked}");
     }
 }

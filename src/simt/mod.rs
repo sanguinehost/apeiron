@@ -557,6 +557,33 @@ pub enum Carrier {
     /// phase, moving each to bit 4 of its byte lane. See
     /// llama.cpp CUDA `vecdotq.cuh:182-196` and `pack_q5_0_raw`.
     Q5,
+    /// **6-bit unsigned codes as TWO PLANES**, affine per 32-block with a per-16 scale split — the
+    /// exact `block_q6_K` layout: `w = f16(d)·sc·(u−32)` with the stored code `u = code + 32 ∈ 0..63`
+    /// (`crate::format::quant::q6_k_codes`). Plane A carries the low 4 bits (Q4/Q5's nibble plane),
+    /// plane B the high 2 bits in a permuted second plane.
+    ///
+    /// * **plane A** — the low 4 bits of `u`, 8 codes per u32, byte-identical in layout to
+    ///   [`Self::Q4`]/[`Self::Q5`] plane A (`A[(kk/8)·m + r]`), so the DP4A phase loop and the whole
+    ///   activation chart are unchanged.
+    /// * **plane B** — the high 2 bits, TWO u32 per (32-block, row) (`B[(k/8)·m + (2·b + wi)·m + r]`),
+    ///   appended AFTER plane A in the same `words` buffer at a compile-time offset, so no binding
+    ///   moves.
+    ///
+    /// `(k/8 + k/16)·m` words = **6.0 bits/weight** — 4.0 of plane-A codes plus 2.0 of plane B. The
+    /// per-16 scale split rides in `dm` (`f16(d) ‖ sc_a ‖ sc_b`, one u32 per (32-block, row)): a
+    /// 32-block is the first 16 codes of group `2t` (`sc_a`) and the last 16 of group `2t+1` (`sc_b`)
+    /// of its 256-superblock, so `w = f16(d)·sc_h·(u−32)`. That is `0.75 + 0.125 = ` **0.875 B/w**,
+    /// against [`Self::Q8`]'s 1.125.
+    ///
+    /// **Plane B is bit-PERMUTED at pack time**, the same trick as [`Self::Q3`]/[`Self::Q5`]. Code
+    /// `j` of a block has phase `p = (j>>3)·2 + (j&1)`, so its 2-bit pair sits at bit
+    /// `((j>>1)&3)·8 + 2·(p&3)` of word `wi = p>>2`; a DP4A phase `(cj, l)` then reads
+    /// `((B[wi] >> s) & 0x0303_0303) << 4` (four contiguous 2-bit lanes) and ORs it onto its four
+    /// plane-A nibbles. See `pack_q6_k_raw`.
+    ///
+    /// The kernel must subtract 32 per byte (codes are signed after the bias is removed) and use a
+    /// **SIGNED** dot, not yet wired.
+    Q6,
 }
 
 impl Carrier {
@@ -572,6 +599,8 @@ impl Carrier {
             Carrier::Q3 => 16,
             // plane A's width — Q5 rides Q4's phase loop and adds the high-bit plane per phase
             Carrier::Q5 => 8,
+            // plane A's width — Q6 rides Q4's phase loop and adds the two-bit high plane per phase
+            Carrier::Q6 => 8,
         }
     }
 
@@ -582,6 +611,7 @@ impl Carrier {
         match self {
             Carrier::Q3 => k / 16 + k / 32,
             Carrier::Q5 => k / 8 + k / 32,
+            Carrier::Q6 => k / 8 + k / 16,
             _ => k / self.pack(),
         }
     }
@@ -592,6 +622,7 @@ impl Carrier {
         match self {
             Carrier::Q3 => (k / 16) * m,
             Carrier::Q5 => (k / 8) * m,
+            Carrier::Q6 => (k / 8) * m,
             _ => 0,
         }
     }
@@ -599,7 +630,7 @@ impl Carrier {
     pub const fn is_chart(self) -> bool {
         matches!(
             self,
-            Carrier::Q8 | Carrier::Q4 | Carrier::Q2 | Carrier::Q3 | Carrier::Q5
+            Carrier::Q8 | Carrier::Q4 | Carrier::Q2 | Carrier::Q3 | Carrier::Q5 | Carrier::Q6
         )
     }
     /// The code mask for chart carriers.
@@ -610,6 +641,7 @@ impl Carrier {
             Carrier::Q2 => 3,
             Carrier::Q3 => 7,
             Carrier::Q5 => 31,
+            Carrier::Q6 => 63,
             _ => 0,
         }
     }
@@ -623,6 +655,7 @@ impl Carrier {
             Carrier::Q2 => "q2",
             Carrier::Q3 => "q3",
             Carrier::Q5 => "q5",
+            Carrier::Q6 => "q6",
         }
     }
     /// Weight bytes per element (params excluded).
@@ -640,6 +673,8 @@ impl Carrier {
             // 5 bits = 2.5 quarter-bytes; not integral, so Q5 is not expressible here and callers
             // must use `code_words_per_row`. 3 overstates, as Q3's 2 does.
             Carrier::Q5 => 3,
+            // 6 bits = 3 quarter-bytes = 0.75 B/w, exact — no scale face counted here (that is dm).
+            Carrier::Q6 => 3,
         }
     }
 }
