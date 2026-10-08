@@ -54,7 +54,9 @@ pub unsafe fn make_moe_gemv(
     weighted: bool,
     x_slot: bool,
 ) -> Gemv {
-    let wpe = (k / carrier.pack()) * m;
+    // `code_words_per_row`, not `k/pack`: `Carrier::Q3`/`Q5` are TWO planes and `pack()` describes
+    // only plane A, so `k/pack` under-strides the expert chart for a two-plane carrier.
+    let wpe = carrier.code_words_per_row(k) * m;
     let dmpe = (k / 32) * m;
     let mut bufs = vec![w, x, y, dm, xs_sx.0, xs_sx.1, sel];
     if weighted {
