@@ -311,6 +311,93 @@ fn refusals() {
 }
 
 #[test]
+fn fold_unfold_refold_round_trip() {
+    // A stream whose context [1, 2] has three distinct continuations {3, 4, 5}, so its
+    // continuation list is non-trivial and a stale entry left by unfold would duplicate on re-fold.
+    let stream = &[1u32, 2, 3, 1, 2, 4, 1, 2, 3, 5, 2, 3, 1, 2, 3];
+    let base: Vec<f64> = vec![0.02, 0.08, 0.15, 0.20, 0.10, 0.05, 0.05, 0.10, 0.10, 0.15];
+    let ctxs: &[&[u32]] = &[&[1, 2], &[2, 3], &[1], &[3]];
+
+    let mut fresh = FoldAdapter::new(3).expect("order 3 valid");
+    fresh.fold(stream);
+    let state = fresh.count_state();
+    let d = fresh.discounts();
+
+    // fold, then unfold-to-empty: keys, counts and continuation lists all clear.
+    let mut rt = FoldAdapter::new(3).expect("order 3 valid");
+    rt.fold(stream);
+    rt.unfold(stream);
+    assert!(rt.is_empty(), "unfold to empty must clear keys");
+    assert_eq!(rt.len(), 0, "unfold to empty must report length 0");
+    assert!(
+        rt.count_state().is_empty(),
+        "unfold to empty must clear count state"
+    );
+    for &ctx in ctxs {
+        assert_eq!(
+            rt.refine_with(&base, ctx, d).expect("refine succeeds"),
+            base,
+            "unfold to empty must leave the base untouched on ctx {ctx:?}"
+        );
+    }
+
+    // fold after unfold-to-empty: the exact count state AND the exact refinement return. The
+    // refinement catches a zeroed continuation left in the context list: re-folding appends the
+    // token a second time, and refine would then count that continuation twice.
+    rt.fold(stream);
+    assert_eq!(
+        rt.count_state(),
+        state,
+        "fold after unfold-to-empty must match a fresh fold"
+    );
+    for &ctx in ctxs {
+        assert_eq!(
+            rt.refine_with(&base, ctx, d).expect("refine succeeds"),
+            fresh.refine_with(&base, ctx, d).expect("refine succeeds"),
+            "refine after a fold/unfold/fold round trip must be bit-identical on ctx {ctx:?}"
+        );
+    }
+}
+
+#[test]
+fn merge_after_round_trip_refines_identically() {
+    let stream_a = &[1u32, 2, 3, 1, 2, 4, 1, 2, 3, 5, 2, 3, 1, 2, 3];
+    let stream_b = &[2u32, 3, 6, 2, 3, 7, 1, 2, 3, 2, 3, 6];
+    let base: Vec<f64> = vec![0.02, 0.08, 0.15, 0.20, 0.10, 0.05, 0.05, 0.10, 0.10, 0.15];
+    let ctxs: &[&[u32]] = &[&[1, 2], &[2, 3], &[3, 6], &[2]];
+
+    // merge(fold A, fold B) after A has been folded, unfolded to empty and folded again.
+    let mut round_trip = FoldAdapter::new(3).expect("order 3 valid");
+    round_trip.fold(stream_a);
+    round_trip.unfold(stream_a);
+    round_trip.fold(stream_a);
+    let mut b = FoldAdapter::new(3).expect("order 3 valid");
+    b.fold(stream_b);
+    round_trip.merge(&b).expect("orders match");
+
+    // fold(A); fold(B) as the reference.
+    let mut seq = FoldAdapter::new(3).expect("order 3 valid");
+    seq.fold(stream_a);
+    seq.fold(stream_b);
+
+    assert_eq!(
+        round_trip.count_state(),
+        seq.count_state(),
+        "merge after a fold/unfold/fold round trip must match sequential folding"
+    );
+    let d = seq.discounts();
+    for &ctx in ctxs {
+        assert_eq!(
+            round_trip
+                .refine_with(&base, ctx, d)
+                .expect("refine succeeds"),
+            seq.refine_with(&base, ctx, d).expect("refine succeeds"),
+            "refine after merge must be bit-identical on ctx {ctx:?}"
+        );
+    }
+}
+
+#[test]
 #[allow(
     clippy::many_single_char_names,
     reason = "algebraic context tokens a,b,c,x,y and KN discount d are single letters by convention"
