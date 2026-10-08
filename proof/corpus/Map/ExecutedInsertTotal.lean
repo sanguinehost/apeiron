@@ -1310,6 +1310,192 @@ theorem ov_insert_node_ok (o : Ov) (T : OTree) (i : U32) (ni : ONode)
     exact ov_rebalance_chain_ok v.val (idxs (plugI (.node .leaf i.val .leaf) (g0 :: G))) o.free o.len
       { o with nodes := v } (alloc.vec.Vec.deref chain1) hinv hbound'
 
+/-! ## Stage 6: `Overflow::insert_new_at` is total
+
+The lead-recorded domain (W11 finding): `insert_new_at_spec`'s premises do not make the executed body
+total.  Three extra premises are the smallest real bounds of the body — the `Usize` length room
+(`self.len + 1#usize`), the `Usize` entry-vector room at every node of the tree (the non-`NIL`
+branch's `Vec::push`), and the arena `+4` bound (`hcap`'s `+3` for the closing `insert_node`
+rebalance plus one slot for the fresh node).  The proof mirrors `insert_new_at_spec` but closes each
+branch with the totality lemmas `ov_alloc_ok` / `ov_insert_node_ok` instead of taking a successful
+run as a hypothesis. -/
+
+/-- The common tail of `Overflow::insert_new_at`: read the entry vector of the returned node and take
+its last index.  The returned node always holds at least the pushed entry, so the subtraction does not
+underflow. -/
+theorem ov_insert_new_at_tail_ok (S : Ov) (node : U32)
+    (hlt : node.val < S.nodes.val.length)
+    (hent : ∀ nd, S.nodes.val[node.val]? = some nd → 0 < nd.entries.val.length) :
+    ∃ nd e o', (do
+      let i1 ← lift (UScalar.cast .Usize node)
+      let n1 ← alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice ONode) S.nodes i1
+      let i2 := alloc.vec.Vec.len n1.entries
+      let e ← i2 - 1#usize
+      ok ((node, e), S)) = ok ((nd, e), o') := by
+  obtain ⟨n1, hn1⟩ := vec_index_ex S.nodes (UScalar.cast .Usize node)
+    (by rw [cast_usize_u32]; exact hlt)
+  have hnd : S.nodes.val[node.val]? = some n1 := by
+    have h := vec_index_ok S.nodes (UScalar.cast .Usize node) n1 hn1
+    rwa [cast_usize_u32] at h
+  have hpos : 1 ≤ (alloc.vec.Vec.len n1.entries).val := by
+    rw [alloc.vec.Vec.len_val]; exact hent n1 hnd
+  obtain ⟨e, he, _⟩ := usub_tot (alloc.vec.Vec.len n1.entries) 1#usize (by simpa using hpos)
+  refine ⟨node, e, S, ?_⟩
+  simp only [lift, bind_tc_ok]
+  rw [hn1]; simp only [bind_tc_ok]
+  rw [he]; simp only [bind_tc_ok]
+
+/-- The `NIL` branch of `Overflow::insert_new_at`: allocate a fresh node and link it.  The returned
+node is the fresh index; it carries the pushed entry. -/
+theorem ov_insert_new_at_branch_nil (o : Ov) (T : OTree) (i : Usize) (coord k : U64) (v : I64)
+    (hI : OInv o T) (hcap' : o.nodes.val.length + 4 ≤ 2 ^ 32 - 1)
+    (hkey0 : ∀ j ∈ idxs T, keyAt o.nodes.val j ≠ coord.val) :
+    ∃ S node, (do
+      let (i1, self2) ← hashtrinity.overflow.Overflow.alloc CI { o with len := i } coord k v
+      let self3 ← hashtrinity.overflow.Overflow.insert_node CI self2 i1
+      ok (self3, i1)) = ok (S, node) ∧
+      node.val < S.nodes.val.length ∧
+      (∀ nd, S.nodes.val[node.val]? = some nd → 0 < nd.entries.val.length) := by
+  obtain ⟨hE, hB, hND, hH, hBal, hfn, hfl⟩ := hI
+  have hcap : o.nodes.val.length < nilN := by unfold nilN; omega
+  obtain ⟨i1, o2, halloc⟩ := ov_alloc_ok { o with len := i } T coord k v hE hfn hfl hcap
+  obtain ⟨ni, hni, hnik, hnie, hnia, hnl, hnr, hnh, hninil, hnT, hnlt, hother, hroot2, hlen2, hfn2,
+    hfl2, hlenA⟩ :=
+    alloc_spec { o with len := i } o2 T i1 coord k v hE hfn hfl hcap halloc
+  have hneT : ∀ j ∈ idxs T, j ≠ i1.val := fun j hj e => hnT (by rw [← e]; exact hj)
+  have hagree : ∀ j ∈ idxs T, o2.nodes.val[j]? = o.nodes.val[j]? := fun j hj => hother j (hneT j hj)
+  have hE2 : Emb o2.nodes.val o2.root T := by rw [hroot2]; exact emb_congr hE hagree
+  have hB2 : BST o2.nodes.val T :=
+    bst_congr' (fun j hj => by unfold keyAt; rw [hagree j hj]) hB
+  have hH2 : HOK o2.nodes.val T := hok_congr hH hagree
+  have hkey' : ∀ j ∈ idxs T, keyAt o2.nodes.val j ≠ ni.key.val := by
+    intro j hj
+    have h1 : keyAt o2.nodes.val j = keyAt o.nodes.val j := by unfold keyAt; rw [hagree j hj]
+    rw [h1, hnik]; exact hkey0 j hj
+  have hlenA' : o2.nodes.val.length ≤ o.nodes.val.length + 1 := hlenA
+  have hbound : o2.nodes.val.length + 3 ≤ 2 ^ 32 - 1 := by omega
+  obtain ⟨o3, hins⟩ :=
+    ov_insert_node_ok o2 T i1 ni hE2 hB2 hND hH2 hBal hnT hninil hni hnl hnr hnh hkey' hbound
+  obtain ⟨T', hE3, hB3, hND3, hH3, hBal3, hperm, hrel3, hf3, hl3⟩ :=
+    insert_node_spec o2 o3 T i1 ni hE2 hB2 hND hH2 hBal hnT hninil hni hnl hnr hnh hkey' hins
+  have hi1mem : i1.val ∈ idxs T' := by
+    rw [hperm.mem_iff]; exact List.mem_cons_self ..
+  have hlt : i1.val < o3.nodes.val.length := by
+    obtain ⟨nd, hnd, _⟩ := emb_mem hE3 i1.val hi1mem
+    exact (List.getElem?_eq_some_iff.mp hnd).1
+  have hent : ∀ nd, o3.nodes.val[i1.val]? = some nd → 0 < nd.entries.val.length := by
+    intro nd hnd
+    obtain ⟨nd', hnd', hsd, _⟩ := hrel3.2 i1.val ni hni
+    have hndeq : nd = nd' := Option.some.inj (hnd.symm.trans hnd')
+    subst hndeq
+    rw [← hsd.2.1, hnie]; simp
+  refine ⟨o3, i1, ?_, hlt, hent⟩
+  rw [halloc]; rw [bind_pair_ok]
+  rw [hins]; simp only [bind_tc_ok]
+
+/-- The non-`NIL` branch of `Overflow::insert_new_at`: read the matching node and push the entry onto
+its entry vector.  The returned node is the matched index. -/
+theorem ov_insert_new_at_branch_else (o : Ov) (T : OTree) (n : U32) (i : Usize) (_coord k : U64)
+    (v : I64) (hE : Emb o.nodes.val o.root T) (hnmem : n.val ∈ idxs T)
+    (hentries : ∀ j ∈ idxs T, ∀ nd, o.nodes.val[j]? = some nd → nd.entries.val.length < Usize.max) :
+    ∃ S, (do
+      let i1 ← lift (UScalar.cast .Usize n)
+      let (n1, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice ONode) o.nodes i1
+      let v1 ← alloc.vec.Vec.push n1.entries (k, some v)
+      let v2 := index_mut_back { n1 with entries := v1 }
+      ok ({ o with nodes := v2, len := i }, n)) = ok (S, n) ∧
+      n.val < S.nodes.val.length ∧
+      (∀ nd, S.nodes.val[n.val]? = some nd → 0 < nd.entries.val.length) := by
+  obtain ⟨nd0, hnd0, _⟩ := emb_mem hE n.val hnmem
+  have hnlt : n.val < o.nodes.val.length := (List.getElem?_eq_some_iff.mp hnd0).1
+  have hcastlt : (UScalar.cast .Usize n).val < o.nodes.val.length := by
+    rw [cast_usize_u32]; exact hnlt
+  obtain ⟨n1, back, hmut⟩ := vec_index_mut_ex o.nodes (UScalar.cast .Usize n) hcastlt
+  obtain ⟨hn1, hback⟩ := idxm_ok hmut
+  have hent : n1.entries.val.length < Usize.max := hentries n.val hnmem n1 hn1
+  obtain ⟨v1, hpush⟩ := vec_push_ex' n1.entries (k, some v) hent
+  have hv1 : v1.val = n1.entries.val ++ [(k, some v)] := vec_push_ok _ _ _ hpush
+  refine ⟨{ o with nodes := back { n1 with entries := v1 }, len := i }, ?_, ?_, ?_⟩
+  · simp only [lift, bind_tc_ok]
+    rw [hmut]; rw [bind_pair_ok]
+    rw [hpush]; simp only [bind_tc_ok]
+  · rw [hback]; simp only [List.length_set]; exact hnlt
+  · intro nd hnd
+    rw [hback] at hnd
+    rw [List.getElem?_set_self hnlt] at hnd
+    have hndeq : ({ n1 with entries := v1 } : ONode) = nd := Option.some.inj hnd
+    subst hndeq
+    simp [hv1]
+
+/-- **`ov_insert_new_at_ok`.**  `Overflow::insert_new_at` returns `ok` under the stated domain: the
+`Usize` length room (`hlen`), `Usize` entry-vector room at every node of the tree (`hentries`), the
+arena bound `hcap'` (`length + 4 ≤ 2 ^ 32 - 1`; `+3` for the closing `insert_node` rebalance and one
+slot for the fresh node), and the absence of the key (`habs`).  These three are the lead-recorded
+smallest real bounds of the extracted body; `insert_new_at_spec`'s premises do not carry them. -/
+theorem ov_insert_new_at_ok (o : Ov) (T : OTree) (coord k : U64) (v : I64)
+    (hI : OInv o T) (hlen : o.len.val < Usize.max)
+    (hentries : ∀ j ∈ idxs T, ∀ nd, o.nodes.val[j]? = some nd → nd.entries.val.length < Usize.max)
+    (hcap' : o.nodes.val.length + 4 ≤ 2 ^ 32 - 1)
+    (_habs : ¬ Present o.nodes.val T coord k) :
+    ∃ nd e o', hashtrinity.overflow.Overflow.insert_new_at CI o coord k v = ok ((nd, e), o') := by
+  have hlen_lt : o.len.val + (1#usize).val < 2 ^ UScalarTy.Usize.numBits := by
+    rw [val_1_usize]
+    have hlen' := hlen
+    rw [Usize.max_def, Usize.numBits_def] at hlen'
+    have hp : 0 < 2 ^ UScalarTy.Usize.numBits := Nat.two_pow_pos _
+    omega
+  obtain ⟨i, hi, _⟩ := uadd_tot o.len 1#usize hlen_lt
+  unfold hashtrinity.overflow.Overflow.insert_new_at
+  rw [hi]
+  simp only [bind_tc_ok]
+  obtain ⟨n, hn⟩ := find_node_loop_total o.nodes coord T o.root hI.1
+  have hnfn : hashtrinity.overflow.Overflow.find_node CI { o with len := i } coord = ok n := hn
+  rw [hnfn]; simp only [bind_tc_ok]
+  have hspec := find_node_spec o.nodes coord T o.root hI.1 hI.2.1 n hn
+  by_cases hnil : n = hashtrinity.overflow.NIL
+  · rw [if_pos hnil]
+    have hkey0 : ∀ j ∈ idxs T, keyAt o.nodes.val j ≠ coord.val := by
+      rcases hspec with ⟨_, hno⟩ | ⟨hm, _⟩
+      · exact hno
+      · rw [(NIL_eq_iff n).mp hnil] at hm
+        obtain ⟨_, _, hne⟩ := emb_mem hI.1 _ hm
+        exact absurd rfl hne
+    obtain ⟨S, node, hbr, hlt, hent⟩ := ov_insert_new_at_branch_nil o T i coord k v hI hcap' hkey0
+    rw [hbr]; rw [bind_pair_ok]
+    exact ov_insert_new_at_tail_ok S node hlt hent
+  · rw [if_neg hnil]
+    have hnmem : n.val ∈ idxs T := by
+      rcases hspec with ⟨hm, _⟩ | ⟨hm, _⟩
+      · exact absurd (UScalar.eq_of_val_eq (hm.trans NIL_val.symm)) hnil
+      · exact hm
+    obtain ⟨S, hbr, hlt, hent⟩ := ov_insert_new_at_branch_else o T n i coord k v hI.1 hnmem hentries
+    rw [hbr]; rw [bind_pair_ok]
+    exact ov_insert_new_at_tail_ok S n hlt hent
+
+/-- The premise set of `ov_insert_new_at_ok` is jointly satisfiable at the empty overflow tree
+(`nodes = []`, `free = []`, root `NIL`, `len = 0`). -/
+example (coord k : U64) (_v : I64) :
+    ∃ (o : Ov) (T : OTree), OInv o T ∧ o.len.val < Usize.max ∧
+      (∀ j ∈ idxs T, ∀ nd, o.nodes.val[j]? = some nd → nd.entries.val.length < Usize.max) ∧
+      o.nodes.val.length + 4 ≤ 2 ^ 32 - 1 ∧ ¬ Present o.nodes.val T coord k := by
+  refine ⟨{ nodes := alloc.vec.Vec.from ([] : List (hashtrinity.overflow.Node U64 I64)) (by simp),
+            free := alloc.vec.Vec.from ([] : List U32) (by simp),
+            root := hashtrinity.overflow.NIL, len := 0#usize }, .leaf,
+    ⟨NIL_val, trivial, trivial, trivial, trivial, ?_, ?_⟩, ?_, ?_, ?_, ?_⟩
+  · simp [alloc.vec.Vec.from_val]
+  · intro j hj; simp [alloc.vec.Vec.from_val] at hj
+  · have h0 : (0#usize).val = 0 := rfl
+    rw [h0]
+    have hm := nilN_le_usize_max
+    unfold nilN at hm
+    omega
+  · intro j hj; simp [idxs] at hj
+  · rw [show (alloc.vec.Vec.from ([] : List (hashtrinity.overflow.Node U64 I64)) (by simp)).val.length = 0
+        by simp [alloc.vec.Vec.from_val]]
+    norm_num
+  · intro h; obtain ⟨j, hj, _⟩ := h; simp [idxs] at hj
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.ov_h_ok
@@ -1331,3 +1517,7 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.ov_alloc_ok
 #audit Apeiron.MapExecuted.insert_node_loop_total
 #audit Apeiron.MapExecuted.ov_insert_node_ok
+#audit Apeiron.MapExecuted.ov_insert_new_at_tail_ok
+#audit Apeiron.MapExecuted.ov_insert_new_at_branch_nil
+#audit Apeiron.MapExecuted.ov_insert_new_at_branch_else
+#audit Apeiron.MapExecuted.ov_insert_new_at_ok
