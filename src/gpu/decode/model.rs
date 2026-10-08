@@ -110,10 +110,27 @@ impl GpuDecode {
                 let mut st = Stream::new(&sc, &c);
                 let mut layers: Vec<Vec<Node>> = Vec::with_capacity(ec.n_layer);
                 let mut weights: Vec<LayerW> = Vec::with_capacity(ec.n_layer);
+                let carrier_layer = std::env::var("DEC_CARRIER_LAYER")
+                    .ok()
+                    .and_then(|s| s.parse::<usize>().ok());
+                let orig_sel_mask = std::env::var("DEC_SEL_MASK").ok();
                 for li in 0..ec.n_layer {
+                    if let Some(k) = carrier_layer {
+                        if li == k {
+                            std::env::set_var("DEC_SEL_MASK", "0");
+                        } else {
+                            std::env::set_var("DEC_SEL_MASK", "8");
+                        }
+                    }
                     let lw = LayerW::load(&g, gguf, li, &c)?;
                     layers.push(record_layer(&g, &c, &lw, &sc, li, &mut st));
                     weights.push(lw);
+                }
+                if carrier_layer.is_some() {
+                    match orig_sel_mask {
+                        Some(ref m) => std::env::set_var("DEC_SEL_MASK", m),
+                        None => std::env::remove_var("DEC_SEL_MASK"),
+                    }
                 }
                 let prefill = if maxb > 0 {
                     Some(PrefillStack::build(
@@ -203,20 +220,19 @@ impl GpuDecode {
                 let cb = vk.command_buffer();
                 vk.begin(cb);
                 let (prof_pool, prof_labels, n_disp) = if dec_prof >= 2 {
-                    // Lower-overhead in-chain schemes (DECODE-ATTRIB T5). `DEC_PROF` selects the
+                    // Lower-overhead in-chain schemes (DECODE-ATTRIB T5/T6). `DEC_PROF` selects the
                     // stamp set and the `vkCmdWriteTimestamp2` stage:
                     //   2 sparse / 3 full  at `STAGE_ALL_COMMANDS`;
                     //   4 sparse / 5 full  at `STAGE_BOTTOM_OF_PIPE`;
-                    //   6 sparse / 7 full  at `VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT`.
-                    // Sparse stamps the embed, each layer's first node and its `dn` node, and the
-                    // five tail nodes (54 stamps); full stamps every node (126 stamps). One
-                    // trailing stamp closes the last interval in either case.
+                    //   6 sparse / 7 full  at `VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT`;
+                    //   8 dn-and-successor / 9 single-layer  at `VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT`.
                     let sparse = matches!(dec_prof, 2 | 4 | 6);
                     let stage = match dec_prof {
                         4 | 5 => STAGE_BOTTOM_OF_PIPE,
-                        6 | 7 => STAGE2_COMPUTE,
+                        6 | 7 | 8 | 9 => STAGE2_COMPUTE,
                         _ => STAGE_ALL_COMMANDS,
                     };
+                    let prof_layer = envu("DEC_PROF_LAYER", 0) as usize;
                     // A recorded node is a `Step` (embed, final norms, argmax) or a `Node`
                     // (layer nodes, LM head).
                     enum Item<'a> {
@@ -230,46 +246,87 @@ impl GpuDecode {
                     for li in 0..ec.n_layer {
                         let ln = &layers[li];
                         let base = flat.len();
-                        // The sparse scheme stamps only the first node and the `dn` node, so the
-                        // first interval spans qkv..gu and is labelled `pre`; the full scheme
-                        // stamps every node and keeps the per-role names.
-                        if ln.len() == 5 {
-                            let roles = ["qkv", "rope/flash", "o", "gu", "dn"];
-                            for (i, (n, r)) in ln.iter().zip(roles).enumerate() {
-                                let lab = if sparse && i == 0 { "pre" } else { r };
-                                flat.push((Item::N(n), format!("{li} {lab}")));
-                            }
+                        let roles = if ln.len() == 5 {
+                            vec!["qkv", "rope/flash", "o", "gu", "dn"]
                         } else {
-                            flat.push((
-                                Item::N(&ln[0]),
-                                format!("{li} {}", if sparse { "pre" } else { "qkv" }),
-                            ));
+                            let mut r = vec!["qkv"];
                             for n in &ln[1..ln.len() - 3] {
                                 let name = match n {
                                     Node::Step(s) => s.name,
                                     Node::Gemv(_) => "rope/flash",
                                 };
-                                flat.push((Item::N(n), format!("{li} {name}")));
+                                r.push(name);
                             }
-                            flat.push((Item::N(&ln[ln.len() - 3]), format!("{li} o")));
-                            flat.push((Item::N(&ln[ln.len() - 2]), format!("{li} gu")));
-                            flat.push((Item::N(&ln[ln.len() - 1]), format!("{li} dn")));
+                            r.push("o");
+                            r.push("gu");
+                            r.push("dn");
+                            r
+                        };
+                        for (i, (n, r)) in ln.iter().zip(&roles).enumerate() {
+                            let lab = match dec_prof {
+                                8 => {
+                                    if i == 0 {
+                                        "pre"
+                                    } else {
+                                        r
+                                    }
+                                }
+                                9 => {
+                                    if li == prof_layer && i == ln.len() - 1 {
+                                        "dn"
+                                    } else if li == prof_layer + 1 && i == 0 {
+                                        "rest"
+                                    } else {
+                                        r
+                                    }
+                                }
+                                _ => {
+                                    if sparse && i == 0 {
+                                        "pre"
+                                    } else {
+                                        r
+                                    }
+                                }
+                            };
+                            let full_lab = if dec_prof == 9 && li == prof_layer + 1 && i == 0 {
+                                "- rest".to_string()
+                            } else {
+                                format!("{li} {lab}")
+                            };
+                            flat.push((Item::N(n), full_lab));
                         }
                         let dn = base + ln.len() - 1;
                         for i in base..flat.len() {
-                            stamp.push(!sparse || i == base || i == dn);
+                            let s = match dec_prof {
+                                8 => (li > 0 && i == base) || i == dn,
+                                9 => {
+                                    (li == prof_layer && i == dn)
+                                        || (prof_layer + 1 < ec.n_layer
+                                            && li == prof_layer + 1
+                                            && i == base)
+                                }
+                                _ => !sparse || i == base || i == dn,
+                            };
+                            stamp.push(s);
                         }
                     }
-                    flat.push((Item::S(&final_rms), "- final_rms".to_string()));
+                    flat.push((
+                        Item::S(&final_rms),
+                        if dec_prof == 8 {
+                            "- tail".to_string()
+                        } else {
+                            "- final_rms".to_string()
+                        },
+                    ));
                     stamp.push(true);
                     flat.push((Item::S(&final_rms_f32), "- final_rms_f32".to_string()));
-                    stamp.push(true);
+                    stamp.push(dec_prof != 8);
                     flat.push((Item::N(&lm_head), "- lm_head".to_string()));
-                    stamp.push(true);
+                    stamp.push(dec_prof != 8);
                     flat.push((Item::S(&amax1), "- amax1".to_string()));
-                    stamp.push(true);
+                    stamp.push(dec_prof != 8);
                     flat.push((Item::S(&amax2), "- amax2".to_string()));
-                    stamp.push(true);
+                    stamp.push(dec_prof != 8);
                     let labels: Vec<String> = flat
                         .iter()
                         .zip(&stamp)

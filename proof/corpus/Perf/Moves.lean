@@ -542,6 +542,25 @@ theorem p60_overhead_arithmetic :
     100 * (55 * 19) < 5 * 117410 := by
   decide
 
+/-- P61: the decomposition of P60's residual byte-identical delta `d` into stamp bias and a
+chain-wide effect. P60 measured byte-identical d at 109.68 µs for 127 stamps (133.93 - 24.25)
+and 32.31 µs for 55 stamps (56.66 - 24.35); over the 72-stamp difference that is 1.07–1.08 µs/stamp.
+Two sparser schemes reduce stamps to 50 (dn and successor across 24 layers, 1 + 24 + 23 + 1 + 1 = 50)
+and 9 (embed, layer-k dn and successor, 5 tail nodes, 1 + 1 + 1 + 5 + 1 = 9). The dn-Q6K carrier term
+is 2.03–2.04 µs per layer across the 12 Q6_K layers (24.4 µs total). Arithmetic over stated stamp counts
+and measured constants; the split verdict stays `measured`. -/
+theorem p61_stamp_bias_arithmetic :
+    1 + 24 + 23 + 1 + 1 = 50 ∧
+    1 + 1 + 1 + 5 + 1 = 9 ∧
+    13393 - 2425 = 10968 ∧
+    5666 - 2435 = 3231 ∧
+    10968 - 3231 = 7737 ∧
+    127 - 55 = 72 ∧
+    72 * 107 ≤ 7737 ∧ 7737 ≤ 72 * 108 ∧
+    12 * 203 ≤ 2440 ∧ 2440 ≤ 12 * 204 ∧
+    3231 < 55 * 108 := by
+  decide
+
 end Moves
 
 end Perf
