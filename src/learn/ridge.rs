@@ -261,14 +261,19 @@ impl FoldTrainer {
     /// `0..in_features`, `vals[r·nnz + k] : f32` its value. The row's Gram contribution is the
     /// outer product of its sparse support, `u[i,j] += Σ_{k,l} vals[k]·vals[l]` placed at
     /// `(idxs[k], idxs[l])` — exactly `x_i·x_j` for the densified row when a row's indices are
-    /// distinct (the `make_data` convention). The bias column, when `bias` is set, gets
-    /// `u[i,bias] += x_i`, `u[bias,i] += x_i`, `u[bias,bias] += 1`, and `c[bias,o] += y[o]`, the
-    /// same additions `augment` makes. No dense `[rows, d]` row is materialized.
+    /// distinct (the `make_data` convention). The Gram is symmetric, so only the lower triangle
+    /// (`i >= j`) is accumulated and [`mirror_lower`](Self::mirror_lower) fills the upper — half
+    /// the scattered stores — and the feature indices are converted and range-checked once per row,
+    /// not once per `(k,l)` pair. The bias column, when `bias` is set, gets `u[i,bias] += x_i`,
+    /// `u[bias,i] += x_i`, `u[bias,bias] += 1`, and `c[bias,o] += y[o]`, the same additions
+    /// `augment` makes (the bias row is the last row, so those are lower entries). No dense
+    /// `[rows, d]` row is materialized.
     ///
     /// The `rows·nnz²` term is independent of `d`; the `rows·nnz·out_features` term is the cross
     /// term. Derivation: per row the `nnz×nnz` support outer product is `nnz²` products and the
     /// `nnz·out_features` cross is `nnz·out_features`; the accumulators are the trainer's existing
-    /// `O(d² + d·out_features)` fields, so the extra space is one scalar.
+    /// `O(d² + d·out_features)` fields, so the extra space is one scalar plus an `O(nnz)` index
+    /// scratch buffer.
     ///
     /// # Errors
     /// [`RidgeError::ShapeMismatch`] if `idxs.len() != rows·nnz`, `vals.len() != rows·nnz`, or
@@ -282,45 +287,68 @@ impl FoldTrainer {
         rows: usize,
         nnz: usize,
     ) -> Result<(), RidgeError> {
+        self.sparse_accumulate(idxs, vals, y, rows, nnz)?;
+        self.mirror_lower();
+        Ok(())
+    }
+
+    /// The lower-triangle accumulation shared by [`fold_sparse`](Self::fold_sparse) and its parallel
+    /// form: add each row's `nnz×nnz` support outer product into the **lower** triangle of `u` (the
+    /// Gram is symmetric, so `j <= i` is written and the upper is filled once by
+    /// [`mirror_lower`](Self::mirror_lower)). No mirror happens here, so a parallel partial stays
+    /// cheap. `O(rows·(nnz² + nnz·out_features))` time; `O(nnz)` scratch for the converted indices.
+    ///
+    /// # Errors
+    /// [`RidgeError::ShapeMismatch`] on a wrong-length slice; [`RidgeError::IndexOutOfRange`] if
+    /// some `idxs[r·nnz + k] >= in_features`.
+    fn sparse_accumulate(
+        &mut self,
+        idxs: &[u32],
+        vals: &[f32],
+        y: &[f32],
+        rows: usize,
+        nnz: usize,
+    ) -> Result<(), RidgeError> {
         let (d, out, di) = (self.d, self.out_features, self.in_features);
         if idxs.len() != rows * nnz || vals.len() != rows * nnz || y.len() != rows * out {
             return Err(RidgeError::ShapeMismatch);
         }
         let bias_row = d - usize::from(self.bias);
+        let mut idx_buf = vec![0usize; nnz];
         for r in 0..rows {
             let irow = &idxs[r * nnz..r * nnz + nnz];
             let vrow = &vals[r * nnz..r * nnz + nnz];
             let yrow = &y[r * out..r * out + out];
+            // Convert and range-check the row's indices once; every `(k,l)` pair below reuses them.
             for k in 0..nnz {
                 let ik = usize::try_from(irow[k]).map_err(|_| RidgeError::IndexOutOfRange)?;
                 if ik >= di {
                     return Err(RidgeError::IndexOutOfRange);
                 }
+                idx_buf[k] = ik;
+            }
+            for k in 0..nnz {
+                let ik = idx_buf[k];
                 let vk = f64::from(vrow[k]);
-                // Gram support outer product: `u[idx_k, idx_l] += v_k · v_l`.
+                // Gram support outer product, lower triangle: `u[idx_k, idx_l] += v_k · v_l`.
                 let uk = &mut self.u[ik * d..ik * d + d];
                 for l in 0..nnz {
-                    let il = usize::try_from(irow[l]).map_err(|_| RidgeError::IndexOutOfRange)?;
-                    if il >= di {
-                        return Err(RidgeError::IndexOutOfRange);
+                    let il = idx_buf[l];
+                    if il <= ik {
+                        uk[il] += vk * f64::from(vrow[l]);
                     }
-                    uk[il] += vk * f64::from(vrow[l]);
                 }
-                if self.bias {
-                    uk[bias_row] += vk;
-                }
-                // Cross: `c[idx_k, o] += v_k · y_o`.
+                // Cross: `c[idx_k, o] += v_k · y_o` (not symmetric, full).
                 let ck = &mut self.c[ik * out..ik * out + out];
                 for o in 0..out {
                     ck[o] += vk * f64::from(yrow[o]);
                 }
             }
             if self.bias {
-                // The bias row/column and bias-bias entry, mirroring `augment`.
+                // The bias row is the last row, so `u[bias, i]` and `u[bias, bias]` are lower entries.
                 let urow = &mut self.u[bias_row * d..bias_row * d + d];
                 for k in 0..nnz {
-                    let ik = usize::try_from(irow[k]).map_err(|_| RidgeError::IndexOutOfRange)?;
-                    urow[ik] += f64::from(vrow[k]);
+                    urow[idx_buf[k]] += f64::from(vrow[k]);
                 }
                 urow[bias_row] += 1.0;
                 let crow = &mut self.c[bias_row * out..bias_row * out + out];
@@ -332,6 +360,137 @@ impl FoldTrainer {
         let dn = i64::try_from(rows).map_err(|_| RidgeError::ShapeMismatch)?;
         self.n += dn;
         Ok(())
+    }
+
+    /// Copy the lower triangle of `u` into its upper triangle (`u[j,i] = u[i,j]` for `j < i`), so
+    /// the full symmetric Gram is available after a lower-triangle-only accumulation. `O(d²)`.
+    fn mirror_lower(&mut self) {
+        let d = self.d;
+        for i in 0..d {
+            for j in 0..i {
+                self.u[j * d + i] = self.u[i * d + j];
+            }
+        }
+    }
+
+    /// Parallel [`fold_sparse`](Self::fold_sparse): split the `rows` into `threads` contiguous
+    /// chunks, fold each into a private `U`/`C`/`n`, and merge the partials by entrywise addition.
+    ///
+    /// The merge is licensed by the Gram monoid. `Sanguine.TrainingCollapse.gram_stack` — the Gram
+    /// of a stacked batch is the sum of its blocks' Grams, `(stack X₁ X₂)ᵀ·stack X₁ X₂ =
+    /// X₁ᵀX₁ + X₂ᵀX₂` (the in-repo chain is `apeiron_gram.gram_fold_i8_stack`,
+    /// `proof/corpus/Learn/GramExact.lean`) — so the chunk partials sum to the whole batch's normal
+    /// equations, up to f64 summation order. With `threads <= 1` this delegates to
+    /// [`fold_sparse`](Self::fold_sparse); a refusal is returned before any partial is merged, so a
+    /// bad index never leaves `self` half-updated.
+    ///
+    /// Cost. Work `O(rows·(nnz² + nnz·out_features))`; span `O(rows/threads·(nnz² + nnz·out) +
+    /// threads·(d² + d·out))` (the final merge is serial); extra space
+    /// `threads·(d² + d·out_features)` for the private accumulators, with `d = aug_dim()`.
+    ///
+    /// # Errors
+    /// [`RidgeError::ShapeMismatch`] if `idxs.len() != rows·nnz`, `vals.len() != rows·nnz`, or
+    /// `y.len() != rows·out_features`; [`RidgeError::IndexOutOfRange`] if some
+    /// `idxs[r·nnz + k] >= in_features`.
+    ///
+    /// # Panics
+    /// If a worker thread panics; the workers call only [`fold_sparse`](Self::fold_sparse), which
+    /// does not panic on caller input, so a panic here is an internal bug.
+    pub fn fold_sparse_par(
+        &mut self,
+        idxs: &[u32],
+        vals: &[f32],
+        y: &[f32],
+        rows: usize,
+        nnz: usize,
+        threads: usize,
+    ) -> Result<(), RidgeError> {
+        let (out, di) = (self.out_features, self.in_features);
+        if idxs.len() != rows * nnz || vals.len() != rows * nnz || y.len() != rows * out {
+            return Err(RidgeError::ShapeMismatch);
+        }
+        let threads = threads.max(1).min(rows.max(1));
+        if threads <= 1 {
+            return self.fold_sparse(idxs, vals, y, rows, nnz);
+        }
+        // Even split of the row range; the first `rows % threads` chunks take one extra row.
+        let base = rows / threads;
+        let rem = rows % threads;
+        let mut bounds = Vec::with_capacity(threads + 1);
+        bounds.push(0usize);
+        let mut acc = 0usize;
+        for t in 0..threads {
+            acc += base + usize::from(t < rem);
+            bounds.push(acc);
+        }
+        let (in_features, out_features, ridge, bias) = (di, out, self.ridge, self.bias);
+        let partials = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..threads)
+                .map(|t| {
+                    let (lo, hi) = (bounds[t], bounds[t + 1]);
+                    scope.spawn(move || {
+                        let mut part = FoldTrainer::new(in_features, out_features, ridge, bias);
+                        part.sparse_accumulate(
+                            &idxs[lo * nnz..hi * nnz],
+                            &vals[lo * nnz..hi * nnz],
+                            &y[lo * out_features..hi * out_features],
+                            hi - lo,
+                            nnz,
+                        )
+                        .map(|()| part)
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().expect("fold_sparse_par worker panicked"))
+                .collect::<Result<Vec<FoldTrainer>, RidgeError>>()
+        })?;
+        // Merge only after every chunk succeeded, so `self` is never half-updated on a refusal.
+        // The reduction over the `T` partials is memory-bound, so fan it over index ranges too.
+        self.merge_partials_par(&partials, threads);
+        // The partials accumulated the lower triangle only; fill the upper once for the whole state.
+        self.mirror_lower();
+        Ok(())
+    }
+
+    /// Add `parts` into `self` entrywise (the `gram_stack` merge), splitting the `d² + d·out` index
+    /// range over up to `threads` scoped workers. The serial `merge` re-reads and rewrites `self.u`
+    /// once per partial (`T·d²` read-modify-writes); this reads each partial once and writes `self`
+    /// once, in parallel. `O(T·(d² + d·out))` time, `O(T·(d² + d·out))` read traffic, `O(1)` extra
+    /// space.
+    fn merge_partials_par(&mut self, parts: &[Self], threads: usize) {
+        let merge_threads = threads.max(1);
+        let cu = self.u.len().div_ceil(merge_threads).max(1);
+        std::thread::scope(|scope| {
+            for (ci, dst) in self.u.chunks_mut(cu).enumerate() {
+                let off = ci * cu;
+                scope.spawn(move || {
+                    for p in parts {
+                        let n = dst.len();
+                        for (a, b) in dst.iter_mut().zip(&p.u[off..off + n]) {
+                            *a += b;
+                        }
+                    }
+                });
+            }
+        });
+        let cc = self.c.len().div_ceil(merge_threads).max(1);
+        std::thread::scope(|scope| {
+            for (ci, dst) in self.c.chunks_mut(cc).enumerate() {
+                let off = ci * cc;
+                scope.spawn(move || {
+                    for p in parts {
+                        let n = dst.len();
+                        for (a, b) in dst.iter_mut().zip(&p.c[off..off + n]) {
+                            *a += b;
+                        }
+                    }
+                });
+            }
+        });
+        let dn: i64 = parts.iter().map(|p| p.n).sum();
+        self.n += dn;
     }
 
     /// Exactly remove a batch — the group inverse of [`fold`](Self::fold). Exact unlearning:
@@ -367,13 +526,27 @@ impl FoldTrainer {
 
     /// The unique ridge head (`ridgeHead_unique`): `W = (U + λI)⁻¹ C`, one SPD solve.
     /// The drag `U + λI` is positive-definite for `λ > 0` (`drag_posDef`), so the `Cholesky` solve
-    /// does not fail. `ridge` overrides the trainer's `λ` when `Some`.
+    /// does not fail. `ridge` overrides the trainer's `λ` when `Some`. Uses the blocked, parallel
+    /// `Cholesky` ([`solve_spd_blocked_par`]) with the process's available parallelism.
     /// `O(d³ + d²·out_features)` time; `O(d² + d·out_features)` space.
     ///
     /// # Errors
     /// [`RidgeError::NotPositiveDefinite`] if `U + λI` is not positive-definite (only possible with
     /// `λ ≤ 0`).
     pub fn solve(&self, ridge: Option<f64>) -> Result<LinearHead, RidgeError> {
+        let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+        self.solve_par(ridge, threads)
+    }
+
+    /// [`solve`](Self::solve) with an explicit thread count for the blocked `Cholesky` factor; the
+    /// factorisation is thread-count-independent (each trailing row is updated by exactly one
+    /// worker in a fixed order), so `threads` changes only the wall-clock cost, not the head.
+    /// `O(d³ + d²·out_features)` time; `O(d² + d·out_features)` space.
+    ///
+    /// # Errors
+    /// [`RidgeError::NotPositiveDefinite`] if `U + λI` is not positive-definite (only possible with
+    /// `λ ≤ 0`).
+    pub fn solve_par(&self, ridge: Option<f64>, threads: usize) -> Result<LinearHead, RidgeError> {
         let lam = ridge.unwrap_or(self.ridge);
         let (d, out) = (self.d, self.out_features);
         // A = U + λI (the drag), row-major [d, d].
@@ -382,7 +555,7 @@ impl FoldTrainer {
             a[i * d + i] += lam;
         }
         // Solve A · W = C for W (row-major [d, out]).
-        let w = solve_spd(&a, &self.c, d, out)?;
+        let w = solve_spd_blocked_par(&a, &self.c, d, out, threads)?;
         // W's first `in_features` rows are the weights; the last row (if bias) is the bias.
         let di = self.in_features;
         let mut weight = vec![0.0f64; out * di];
@@ -558,4 +731,275 @@ pub fn cholesky(a: &[f64], d: usize) -> Result<Vec<f64>, RidgeError> {
         }
     }
     Ok(l)
+}
+
+/// Cache block width for the right-looking blocked `Cholesky` factor. 64 f64 = 512 B, one cache
+/// line per row of a block.
+const CHOLESKY_BLOCK: usize = 64;
+
+/// The panel geometry shared by one trailing update: `l` is the factor so far, the panel `L21`
+/// occupies `l[·, kbase .. kbase+kb]`, and the updated trailing block's columns start at `col0`.
+struct TrailingCtx<'a> {
+    l: &'a [f64],
+    kbase: usize,
+    col0: usize,
+    d: usize,
+    kb: usize,
+}
+
+/// Subtract `L21 · L21ᵀ` from the trailing block `rows` (the `nrows` rows of the working matrix
+/// starting at global row `first`, row stride `d`). Every row updates its lower-triangle entries
+/// `col0 ..= gi`, so splitting the rows across workers is a disjoint write with identical
+/// arithmetic per entry (thread-count-independent). `O(nrows²·kb)` multiply-adds.
+fn trailing_update(rows: &mut [f64], first: usize, nrows: usize, ctx: &TrailingCtx) {
+    let (d, kb) = (ctx.d, ctx.kb);
+    for ri in 0..nrows {
+        let gi = first + ri;
+        let row = &mut rows[ri * d..ri * d + d];
+        for gj in ctx.col0..=gi {
+            let mut s = 0.0f64;
+            for p in 0..kb {
+                s += ctx.l[gi * d + ctx.kbase + p] * ctx.l[gj * d + ctx.kbase + p];
+            }
+            row[gj] -= s;
+        }
+    }
+}
+
+/// Dispatch the trailing update `work[kend..d, kend..d] -= L21 · L21ᵀ` (lower triangle) to scoped
+/// workers. Rows are split contiguously and weighted by their triangular work (`ri + 1`
+/// multiply-adds), so no worker carries ~2x the mean and every entry is written once with
+/// thread-count-independent arithmetic.
+fn trailing_update_par(
+    work: &mut [f64],
+    l: &[f64],
+    k: usize,
+    kend: usize,
+    d: usize,
+    kb: usize,
+    threads: usize,
+) {
+    let nr = d - kend;
+    let nthreads = threads.min(nr);
+    let ctx = TrailingCtx {
+        l,
+        kbase: k,
+        col0: kend,
+        d,
+        kb,
+    };
+    let trailing = &mut work[kend * d..d * d];
+    if nthreads == 1 {
+        trailing_update(trailing, kend, nr, &ctx);
+        return;
+    }
+    let total = nr * (nr + 1) / 2;
+    let target = total.div_ceil(nthreads);
+    let mut lens: Vec<usize> = Vec::with_capacity(nthreads);
+    let (mut cur, mut acc) = (0usize, 0usize);
+    for ri in 0..nr {
+        cur += 1;
+        acc += ri + 1;
+        if acc >= target && lens.len() + 1 < nthreads {
+            lens.push(cur);
+            cur = 0;
+            acc = 0;
+        }
+    }
+    if cur > 0 {
+        lens.push(cur);
+    }
+    let mut rest: &mut [f64] = trailing;
+    let mut groups: Vec<(usize, &mut [f64])> = Vec::with_capacity(lens.len());
+    let mut local = 0usize;
+    for len in lens {
+        let (head, tail) = rest.split_at_mut(len * d);
+        groups.push((kend + local, head));
+        local += len;
+        rest = tail;
+    }
+    std::thread::scope(|scope| {
+        for (first, group) in groups {
+            let ctx = &ctx;
+            scope.spawn(move || {
+                trailing_update(group, first, group.len() / d, ctx);
+            });
+        }
+    });
+}
+
+/// Forward-substitution panel solve `L[first .. first+nrows, k .. k+kb]` of the blocked
+/// `Cholesky`: `L[gi, k+j] = (work[gi, k+j] − Σ_{p<j} L[gi, k+p]·L[k+j, k+p]) / L[k+j, k+j]` for
+/// each row `gi`; the rows are independent. `work` is row-major `[d, d]`; `l11` holds the factor's
+/// rows before `first` (the diagonal block rows `k..k+kb`). `O(nrows·kb²)` multiply-adds.
+fn panel_solve_rows(
+    rows: &mut [f64],
+    first: usize,
+    nrows: usize,
+    work: &[f64],
+    l11: &[f64],
+    geo: (usize, usize, usize),
+) {
+    let (k, d, kb) = geo;
+    for ri in 0..nrows {
+        let gi = first + ri;
+        let row = &mut rows[ri * d..ri * d + d];
+        for j in 0..kb {
+            let gj = k + j;
+            let mut s = work[gi * d + gj];
+            for p in 0..j {
+                s -= row[k + p] * l11[gj * d + k + p];
+            }
+            row[gj] = s / l11[gj * d + gj];
+        }
+    }
+}
+
+/// Blocked, cache-friendly right-looking `Cholesky` factor `L` of SPD `a`, single-threaded.
+/// Same factor as [`cholesky`] up to f64 summation order; same refusal semantics.
+/// `O(d³)` time; `O(d²)` extra space for the working copy and `L`.
+///
+/// # Errors
+/// [`RidgeError::ShapeMismatch`] if `a.len() != d*d`; [`RidgeError::NotPositiveDefinite`] if a
+/// diagonal pivot of a block is non-positive or NaN.
+pub fn cholesky_blocked(a: &[f64], d: usize) -> Result<Vec<f64>, RidgeError> {
+    cholesky_blocked_par(a, d, 1)
+}
+
+/// Blocked right-looking `Cholesky` factor with the trailing-block update distributed over
+/// `threads` scoped workers (one contiguous row range each, so the factorisation is
+/// thread-count-independent). Blocks of [`CHOLESKY_BLOCK`]; `threads <= 1` runs serial.
+/// `O(d³)` time; `O(d²)` extra space.
+///
+/// # Errors
+/// [`RidgeError::ShapeMismatch`] if `a.len() != d*d`; [`RidgeError::NotPositiveDefinite`] if a
+/// diagonal pivot of a block is non-positive or NaN.
+pub fn cholesky_blocked_par(a: &[f64], d: usize, threads: usize) -> Result<Vec<f64>, RidgeError> {
+    if a.len() != d * d {
+        return Err(RidgeError::ShapeMismatch);
+    }
+    let mut work = a.to_vec();
+    let mut l = vec![0.0f64; d * d];
+    let threads = threads.max(1);
+    let mut k = 0usize;
+    while k < d {
+        let kb = (d - k).min(CHOLESKY_BLOCK);
+        // (1) Factor the diagonal block `L[k..k+kb, k..k+kb]` (lower triangle) from `work`.
+        for i in 0..kb {
+            let gi = k + i;
+            for j in 0..=i {
+                let gj = k + j;
+                let mut s = work[gi * d + gj];
+                for p in 0..j {
+                    s -= l[gi * d + k + p] * l[gj * d + k + p];
+                }
+                if i == j {
+                    if s.is_nan() || s <= 0.0 {
+                        return Err(RidgeError::NotPositiveDefinite);
+                    }
+                    l[gi * d + gj] = s.sqrt();
+                } else {
+                    l[gi * d + gj] = s / l[gj * d + gj];
+                }
+            }
+        }
+        let kend = k + kb;
+        // (2) Panel solve `L[kend..d, k..kend]`: rows are independent and each costs `kb(kb-1)/2`
+        // multiply-adds, so split the rows evenly across workers.
+        {
+            let nr_p = d - kend;
+            let np = threads.min(nr_p);
+            let (diag, panel) = l.split_at_mut(kend * d);
+            let l11: &[f64] = diag;
+            if np <= 1 {
+                panel_solve_rows(panel, kend, nr_p, &work, l11, (k, d, kb));
+            } else {
+                let cp = nr_p.div_ceil(np).max(1);
+                std::thread::scope(|scope| {
+                    for (ci, group) in panel.chunks_mut(cp * d).enumerate() {
+                        let first = kend + ci * cp;
+                        let l11: &[f64] = l11;
+                        let work_ref: &[f64] = &work;
+                        scope.spawn(move || {
+                            panel_solve_rows(
+                                group,
+                                first,
+                                group.len() / d,
+                                work_ref,
+                                l11,
+                                (k, d, kb),
+                            );
+                        });
+                    }
+                });
+            }
+        }
+        // (3) Trailing update `work[kend..d, kend..d] -= L21 · L21ᵀ` (lower triangle), fanned out.
+        if kend < d {
+            trailing_update_par(&mut work, &l, k, kend, d, kb, threads);
+        }
+        k = kend;
+    }
+    Ok(l)
+}
+
+/// Solve the SPD system `A · X = Bmat` with the blocked, single-threaded `Cholesky`
+/// ([`cholesky_blocked`]). Same solution and refusal semantics as [`solve_spd`], up to f64
+/// summation order. `O(d³ + d²·out)` time; `O(d² + d·out)` space.
+///
+/// # Errors
+/// [`RidgeError::ShapeMismatch`] if `a.len() != d*d` or `bmat.len() != d*out`;
+/// [`RidgeError::NotPositiveDefinite`] if `a` has a non-positive pivot.
+pub fn solve_spd_blocked(
+    a: &[f64],
+    bmat: &[f64],
+    d: usize,
+    out: usize,
+) -> Result<Vec<f64>, RidgeError> {
+    solve_spd_blocked_par(a, bmat, d, out, 1)
+}
+
+/// Solve the SPD system `A · X = Bmat` with the blocked, parallel `Cholesky`
+/// ([`cholesky_blocked_par`]) then a forward and a back substitution per right-hand-side column.
+/// Same solution and refusal semantics as [`solve_spd`], up to f64 summation order.
+/// `O(d³ + d²·out)` time; `O(d² + d·out)` space.
+///
+/// # Errors
+/// [`RidgeError::ShapeMismatch`] if `a.len() != d*d` or `bmat.len() != d*out`;
+/// [`RidgeError::NotPositiveDefinite`] if `a` has a non-positive pivot.
+pub fn solve_spd_blocked_par(
+    a: &[f64],
+    bmat: &[f64],
+    d: usize,
+    out: usize,
+    threads: usize,
+) -> Result<Vec<f64>, RidgeError> {
+    if a.len() != d * d || bmat.len() != d * out {
+        return Err(RidgeError::ShapeMismatch);
+    }
+    let l = cholesky_blocked_par(a, d, threads)?;
+    let mut x = bmat.to_vec();
+    // Forward: x[i] = (b[i] - Σ_{k<i} L[i,k] x[k]) / L[i,i].
+    for i in 0..d {
+        let lii = l[i * d + i];
+        for o in 0..out {
+            let mut s = x[i * out + o];
+            for k in 0..i {
+                s -= l[i * d + k] * x[k * out + o];
+            }
+            x[i * out + o] = s / lii;
+        }
+    }
+    // Back: x[i] = (y[i] - Σ_{k>i} L[k,i] x[k]) / L[i,i].
+    for i in (0..d).rev() {
+        let lii = l[i * d + i];
+        for o in 0..out {
+            let mut s = x[i * out + o];
+            for k in (i + 1)..d {
+                s -= l[k * d + i] * x[k * out + o];
+            }
+            x[i * out + o] = s / lii;
+        }
+    }
+    Ok(x)
 }
