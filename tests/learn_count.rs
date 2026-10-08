@@ -179,6 +179,140 @@ fn test_exact_unlearning() {
     }
 }
 
+/// `key_pack_is_injective`: [`pack_key`] has disjoint bit fields, so distinct
+/// `(order, packed-context, byte)` triples map to distinct `u64` words, and [`unpack_key`]
+/// round-trips. Exhaustive over order `1..=4`, a sample of contexts (each order's full byte width)
+/// and all 256 bytes.
+#[test]
+fn key_pack_is_injective() {
+    use apeiron::learn::countlm::{pack_key, unpack_key};
+    use std::collections::{HashMap, HashSet};
+
+    // Contexts spanning every order width: 1, 2, 3 and 4 bytes, oldest-highest.
+    const CONTEXTS: &[u64] = &[
+        0x00,
+        0x01,
+        0xff,
+        0x01_02,
+        0xfe_ed,
+        0x00_00,
+        0x01_02_03,
+        0xff_ff_ff,
+        0x01_02_03_04,
+        0xde_ad_be_ef,
+    ];
+
+    let mut seen: HashSet<(u8, u64, u16)> = HashSet::new();
+    let mut words: HashMap<u64, (u8, u64, u16)> = HashMap::new();
+    for order in 1u8..=4 {
+        let mask = if order == 4 {
+            u64::MAX
+        } else {
+            (1u64 << (8 * u32::from(order))) - 1
+        };
+        for &c in CONTEXTS {
+            let ctx = c & mask;
+            for b in 0u16..256 {
+                let k = pack_key(order, ctx, b);
+                assert!(k < u64::MAX - 1, "packed key must not be a reserved marker");
+                assert_eq!(
+                    unpack_key(k),
+                    (order, ctx, b),
+                    "round-trip order={order} ctx={ctx:#x} b={b}"
+                );
+                if let Some(prev) = words.insert(k, (order, ctx, b)) {
+                    assert_eq!(
+                        prev,
+                        (order, ctx, b),
+                        "coordinate collision at order={order} ctx={ctx:#x} b={b}: {prev:?}"
+                    );
+                }
+                seen.insert((order, ctx, b));
+            }
+        }
+        // Every byte as its own 1-byte context, at every order.
+        for b in 0u16..256 {
+            let ctx = u64::from(u8::try_from(b).expect("byte label fits u8"));
+            let k = pack_key(order, ctx, b);
+            assert_eq!(unpack_key(k), (order, ctx, b));
+            if let Some(prev) = words.insert(k, (order, ctx, b)) {
+                assert_eq!(prev, (order, ctx, b));
+            }
+            seen.insert((order, ctx, b));
+        }
+    }
+    assert_eq!(
+        seen.len(),
+        words.len(),
+        "distinct triples must map to distinct words"
+    );
+}
+
+/// Collision count on the c4 order-4 run: the legacy tuple keys addressed by the lossy tuple `Coord`
+/// fold vs the injective packed words, and the stored-entry count of a real [`CountLM`].
+#[test]
+fn collision_count_c4() {
+    use apeiron::freq::Coord;
+    use apeiron::learn::countlm::{pack_key, unpack_key};
+    use std::collections::HashSet;
+    const CORPUS: &str = "/home/socol/models/data/c4_en.txt";
+    const K: usize = 4;
+
+    for train_len in [1_000_000usize, 8_000_000usize] {
+        let mut buf = vec![0u8; train_len];
+        File::open(CORPUS)
+            .and_then(|mut f| f.read_exact(&mut buf))
+            .unwrap_or_else(|e| panic!("{CORPUS}: {e}"));
+        let train = &buf[..];
+
+        let mut old_keys: HashSet<(u8, u64, u16)> = HashSet::new();
+        let mut old_coords: HashSet<u64> = HashSet::new();
+        let mut new_words: HashSet<u64> = HashSet::new();
+        for i in K..train.len() {
+            let label = u16::from(train[i]);
+            for o in 1..=K.min(i) {
+                let p = train[i - o..i]
+                    .iter()
+                    .fold(0u64, |p, &b| (p << 8) | u64::from(b));
+                let o8 = u8::try_from(o).expect("order fits u8");
+                let old = (o8, p, label);
+                old_keys.insert(old);
+                old_coords.insert(old.coord());
+                new_words.insert(pack_key(o8, p, label));
+            }
+        }
+
+        let mut lm = CountLM::new(K);
+        lm.fold_range(train, K, train.len());
+        let stored = lm.count_state().len();
+
+        println!(
+            "train_len={train_len}: legacy keys={} coords={} collapsed={}; packed words={} stored={}",
+            old_keys.len(),
+            old_coords.len(),
+            old_keys.len() - old_coords.len(),
+            new_words.len(),
+            stored,
+        );
+
+        assert_eq!(
+            new_words.len(),
+            old_keys.len(),
+            "injective pack: distinct words == distinct n-gram keys"
+        );
+        assert_eq!(
+            stored,
+            old_keys.len(),
+            "distinct stored entries == distinct n-gram keys"
+        );
+        // The packed key unfolds back to the exact key that was folded.
+        for &w in &new_words {
+            let (o, p, b) = unpack_key(w);
+            assert!(old_keys.contains(&(o, p, b)));
+        }
+    }
+}
+
 /// Test 4: Parity with the spinor-ttl reference on held-out English text.
 ///
 /// Corpus: `/home/socol/models/data/c4_en.txt`; train bytes `[0, 1_000_000)`, held-out bytes
