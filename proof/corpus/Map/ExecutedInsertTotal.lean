@@ -1056,6 +1056,260 @@ theorem ov_rebalance_chain_ok (ns0 : List ONode) (U : List Nat) (F0 : alloc.vec.
   unfold hashtrinity.overflow.Overflow.rebalance_chain
   exact ov_rebalance_chain_loop_ok ns0 U F0 N0 o0 chain (Slice.len chain) hinv hbound
 
+/-! ## Stage 5: `alloc` and the descent of `insert_node` are total -/
+
+/-- `2 ^ 32 - 1 ≤ Usize.max`. -/
+theorem nilN_le_usize_max : nilN ≤ Usize.max := by
+  unfold nilN
+  rw [Usize.max_def, Usize.numBits_def]
+  rcases System.Platform.numBits_eq with h | h
+  · show 2 ^ 32 - 1 ≤ 2 ^ System.Platform.numBits - 1; rw [h]
+  · show 2 ^ 32 - 1 ≤ 2 ^ System.Platform.numBits - 1; rw [h]; decide
+
+/-- `Vec::push` is total when the length is below `Usize.max`. -/
+theorem vec_push_ex' {α : Type} (v : alloc.vec.Vec α) (x : α) (h : v.val.length < Usize.max) :
+    ∃ v1, alloc.vec.Vec.push v x = ok v1 := by
+  unfold alloc.vec.Vec.push
+  dsimp only
+  rw [dif_pos (by simp only [Bool.or_eq_true, decide_eq_true_eq]; right; omega)]
+  exact ⟨_, rfl⟩
+
+/-- `Vec::pop` is total. -/
+theorem vec_pop_ex {α : Type} (v : alloc.vec.Vec α) :
+    ∃ x v1, alloc.vec.Vec.pop Global v = ok (x, v1) := by
+  unfold alloc.vec.Vec.pop
+  by_cases h : v.val.length = 0
+  · exact ⟨none, v, by rw [dif_pos h]⟩
+  · exact ⟨_, _, by rw [dif_neg h]⟩
+
+/-- **`ov_alloc_ok`.**  `Overflow::alloc` returns `ok` under `alloc_spec`'s hypotheses: the free-list
+branch reads an in-range slot, and the push branch has `Usize` room because
+`o.nodes.val.length < nilN ≤ Usize.max`. -/
+theorem ov_alloc_ok (o : Ov) (T : OTree) (coord k : U64) (v : I64)
+    (_hE : Emb o.nodes.val o.root T)
+    (_hfn : (o.free.val.map (fun x => x.val)).Nodup)
+    (hfl : ∀ j ∈ o.free.val, j.val < o.nodes.val.length ∧ j.val ∉ idxs T)
+    (hcap : o.nodes.val.length < nilN) :
+    ∃ i o', hashtrinity.overflow.Overflow.alloc CI o coord k v = ok (i, o') := by
+  obtain ⟨popped, v1, hpop⟩ := vec_pop_ex o.free
+  unfold hashtrinity.overflow.Overflow.alloc
+  simp only [lift, bind_tc_ok]
+  set nd : ONode :=
+    { key := coord,
+      entries := alloc.slice.Slice.into_vec
+        (Std.Array.to_slice (Array.make 1#usize [(k, some v)] :
+          Array (U64 × Option I64) 1#usize)),
+      left := hashtrinity.overflow.NIL, right := hashtrinity.overflow.NIL,
+      height := 1#u32, alive := true } with hnd
+  rw [hpop]
+  rw [bind_tc_ok]
+  change ∃ i' o', (match popped with
+    | none => (do let v2 ← alloc.vec.Vec.push o.nodes nd; let i1 ← alloc.vec.Vec.len v2 - 1#usize; ok (UScalar.cast .U32 i1, { o with nodes := v2, free := v1 }))
+    | some i => (do let (_, back) ← alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice ONode) o.nodes (UScalar.cast .Usize i); ok (i, { o with nodes := back nd, free := v1 }))) = ok (i', o')
+  cases popped with
+  | none =>
+    have hlenu : o.nodes.val.length < Usize.max := by
+      have := nilN_le_usize_max; unfold nilN at hcap this; omega
+    obtain ⟨v2, hpush⟩ := vec_push_ex' o.nodes nd hlenu
+    rw [hpush]
+    simp only [bind_tc_ok]
+    have hlen2 : v2.val.length = o.nodes.val.length + 1 := by
+      rw [vec_push_ok _ _ _ hpush]; simp
+    obtain ⟨i1, hi1, hi1v⟩ := usub_tot (alloc.vec.Vec.len v2) 1#usize (by
+      have h1 : (alloc.vec.Vec.len v2).val = v2.val.length := alloc.vec.Vec.len_val v2
+      rw [h1, hlen2, val_1_usize]; omega)
+    rw [hi1]; simp only [bind_tc_ok]
+    exact ⟨_, _, rfl⟩
+  | some i0 =>
+    rcases pop_spec o.free v1 (some i0) hpop with hbad | ⟨y, hfy, hyeq⟩
+    · exact absurd hbad.2.1 (by simp)
+    · have hy : y = i0 := (Option.some.inj hyeq).symm
+      rw [hy] at hfy
+      have hi0 : i0 ∈ o.free.val := by rw [hfy]; simp
+      have hi0lt : i0.val < o.nodes.val.length := (hfl i0 hi0).1
+      have hcast : (UScalar.cast .Usize i0).val < o.nodes.val.length := by
+        rw [cast_usize_u32]; exact hi0lt
+      obtain ⟨n, back, hmut⟩ := vec_index_mut_ex o.nodes (UScalar.cast .Usize i0) hcast
+      change ∃ i' o', (do let (_, back') ← alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice ONode) o.nodes (UScalar.cast .Usize i0); ok (i0, { o with nodes := back' nd, free := v1 })) = ok (i', o')
+      rw [hmut]; simp only [bind_tc_ok]
+      exact ⟨i0, _, rfl⟩
+
+/-- `Overflow::insert_node_loop` terminates: each `cont` descends to a strictly smaller subtree, and
+the growing path stays below `Usize.max` because it grows by one per descent while `ht` drops by at
+least one. -/
+theorem insert_node_loop_total (v : alloc.vec.Vec ONode) (i : U32) (key : U64) :
+    ∀ (S : OTree) (chain : alloc.vec.Vec U32) (cur : U32),
+      Emb v.val cur S → cur.val ≠ nilN → chain.val.length + ht S < Usize.max →
+      ∃ r, hashtrinity.overflow.Overflow.insert_node_loop v i key chain cur = ok r := by
+  intro S
+  induction S with
+  | leaf =>
+    intro chain cur hE hnil hclen
+    exact absurd hE hnil
+  | node Sl ii Sr ihl ihr =>
+    intro chain cur hE hnil hclen
+    obtain ⟨hcv, hii, nd, hnd, hEl, hEr⟩ := hE
+    have hcurlt : cur.val < v.val.length := by
+      rw [hcv]; exact (List.getElem?_eq_some_iff.mp hnd).1
+    have hcastlt : (UScalar.cast .Usize cur).val < v.val.length := by
+      rw [cast_usize_u32]; exact hcurlt
+    have nd_eq : ∀ n, alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice ONode) v
+        (UScalar.cast .Usize cur) = ok n → n = nd := by
+      intro n hn
+      have h := vec_index_ok v (UScalar.cast .Usize cur) n hn
+      rw [cast_usize_u32, hcv, hnd] at h
+      exact (Option.some.inj h).symm
+    have hpushlt : chain.val.length < Usize.max := by
+      have : 0 < ht (.node Sl ii Sr) := by simp only [ht]; omega
+      omega
+    obtain ⟨chain1, hpush⟩ := vec_push_ex' chain cur hpushlt
+    unfold hashtrinity.overflow.Overflow.insert_node_loop
+    rw [loop.eq_def]
+    unfold hashtrinity.overflow.Overflow.insert_node_loop.body
+    simp only [lift, bind_tc_ok]
+    rw [hpush]
+    simp only [bind_tc_ok]
+    obtain ⟨n, hn⟩ := vec_index_ex v (UScalar.cast .Usize cur) hcastlt
+    rw [hn]
+    simp only [bind_tc_ok]
+    have hnnd : n = nd := nd_eq n hn
+    rw [hnnd]
+    by_cases hlt : key < nd.key
+    · rw [if_pos hlt]
+      by_cases hnl : nd.left = hashtrinity.overflow.NIL
+      · rw [if_pos hnl]
+        obtain ⟨p, back, hm⟩ := vec_index_mut_ex v (UScalar.cast .Usize cur) hcastlt
+        rw [hm]
+        simp only [bind_tc_ok]
+        change ∃ r, (Std.bind (ok (ControlFlow.done (back { p with left := i }, chain1))) _) = ok r
+        rw [bind_ok]
+        exact ⟨_, rfl⟩
+      · rw [if_neg hnl]
+        rw [bind_ok]
+        have hnlv : nd.left.val ≠ nilN := fun hh => hnl ((NIL_eq_iff _).mpr hh)
+        have hclen' : chain1.val.length + ht Sl < Usize.max := by
+          have hch1 : chain1.val.length = chain.val.length + 1 := by
+            rw [vec_push_ok chain chain1 cur hpush]; simp
+          have hht : ht Sl + 1 ≤ ht (.node Sl ii Sr) := by simp only [ht]; omega
+          omega
+        simpa only [hashtrinity.overflow.Overflow.insert_node_loop,
+          hashtrinity.overflow.Overflow.insert_node_loop.body, lift, bind_tc_ok]
+          using ihl chain1 nd.left hEl hnlv hclen'
+    · rw [if_neg hlt]
+      by_cases hnr : nd.right = hashtrinity.overflow.NIL
+      · rw [if_pos hnr]
+        obtain ⟨p, back, hm⟩ := vec_index_mut_ex v (UScalar.cast .Usize cur) hcastlt
+        rw [hm]
+        simp only [bind_tc_ok]
+        change ∃ r, (Std.bind (ok (ControlFlow.done (back { p with right := i }, chain1))) _) = ok r
+        rw [bind_ok]
+        exact ⟨_, rfl⟩
+      · rw [if_neg hnr]
+        rw [bind_ok]
+        have hnrv : nd.right.val ≠ nilN := fun hh => hnr ((NIL_eq_iff _).mpr hh)
+        have hclen' : chain1.val.length + ht Sr < Usize.max := by
+          have hch1 : chain1.val.length = chain.val.length + 1 := by
+            rw [vec_push_ok chain chain1 cur hpush]; simp
+          have hht : ht Sr + 1 ≤ ht (.node Sl ii Sr) := by simp only [ht]; omega
+          omega
+        simpa only [hashtrinity.overflow.Overflow.insert_node_loop,
+          hashtrinity.overflow.Overflow.insert_node_loop.body, lift, bind_tc_ok]
+          using ihr chain1 nd.right hEr hnrv hclen'
+
+/-- **`ov_insert_node_ok`.**  `Overflow::insert_node` returns `ok` under `insert_node_spec`'s
+hypotheses: the descent `insert_node_loop` terminates (`insert_node_loop_total`), and the closing
+`rebalance_chain` terminates (`ov_rebalance_chain_ok`) on the `ChainInv` the descent produces. -/
+theorem ov_insert_node_ok (o : Ov) (T : OTree) (i : U32) (ni : ONode)
+    (hE : Emb o.nodes.val o.root T) (hB : BST o.nodes.val T) (hND : ND T)
+    (hH : HOK o.nodes.val T) (hBal : Bal T)
+    (hi : i.val ∉ idxs T) (hii : i.val ≠ nilN) (hni : o.nodes.val[i.val]? = some ni)
+    (hnl : ni.left.val = nilN) (hnr : ni.right.val = nilN) (hnh : ni.height.val = 1)
+    (hkey : ∀ j ∈ idxs T, keyAt o.nodes.val j ≠ ni.key.val)
+    (hbound : o.nodes.val.length + 3 ≤ 2 ^ 32 - 1) :
+    ∃ o', hashtrinity.overflow.Overflow.insert_node CI o i = ok o' := by
+  unfold hashtrinity.overflow.Overflow.insert_node
+  by_cases hroot : o.root = hashtrinity.overflow.NIL
+  · rw [if_pos hroot]
+    exact ⟨_, rfl⟩
+  · rw [if_neg hroot]
+    simp only [lift, bind_tc_ok]
+    have hilt : i.val < o.nodes.val.length := (List.getElem?_eq_some_iff.mp hni).1
+    have hcast : (UScalar.cast .Usize i).val < o.nodes.val.length := by
+      rw [cast_usize_u32]; exact hilt
+    obtain ⟨n, hn⟩ := vec_index_ex o.nodes (UScalar.cast .Usize i) hcast
+    rw [hn]; simp only [bind_tc_ok]
+    have hnni : n = ni := by
+      have h := vec_index_ok o.nodes (UScalar.cast .Usize i) n hn
+      rw [cast_usize_u32, hni] at h
+      exact (Option.some.inj h).symm
+    rw [hnni]
+    have hroot' : o.root.val ≠ nilN := fun hh => hroot ((NIL_eq_iff _).mpr hh)
+    have hclen : (alloc.vec.Vec.with_capacity U32 64#usize).val.length + ht T < Usize.max := by
+      have h0 : (alloc.vec.Vec.with_capacity U32 64#usize).val.length = 0 := by
+        simp [alloc.vec.Vec.with_capacity, alloc.vec.Vec.val, Slice.new_val]
+      rw [h0]
+      have h1 := ht_le_arena_len hE hND
+      have h2 := nilN_le_usize_max
+      unfold nilN at h2
+      omega
+    obtain ⟨⟨v, chain1⟩, hloop⟩ :=
+      insert_node_loop_total o.nodes i ni.key T (alloc.vec.Vec.with_capacity U32 64#usize) o.root
+        hE hroot' hclen
+    rw [hloop]; simp only [bind_tc_ok]
+    have hpost := insert_node_loop_spec o.nodes i ni.key o.root T hND hkey
+      (alloc.vec.Vec.with_capacity U32 64#usize) o.root
+      ⟨[], T, rfl, trivial, rfl, hE, hroot', rfl, fun g hg => absurd hg (by simp)⟩ (v, chain1) hloop
+    obtain ⟨g0, G, nd, hlenC, hchC, hDescC, hplugC, hnd, hv, hSpC⟩ := hpost
+    have hlenC' : chain1.val.length = G.length + 1 := hlenC
+    have hv' : v.val = o.nodes.val.set g0.a (setChild g0.d nd i) := hv
+    have hg0T : g0.a ∈ idxs T := by
+      rw [← hplugC]; exact (mem_plugI (g0 :: G) .leaf).mpr (Or.inr (by simp [spineIdx]))
+    have hig : i.val ≠ g0.a := fun e => hi (by rw [e]; exact hg0T)
+    have hvi : v.val[i.val]? = some ni := by
+      rw [hv', List.getElem?_set_ne (Ne.symm hig)]; exact hni
+    have hrelv : Rel [g0.a] o.nodes.val v.val := by
+      rw [hv']; exact Rel_set hnd (sameD_setChild _ _ _)
+    have hkv : ∀ j, keyAt v.val j = keyAt o.nodes.val j := keyAt_rel hrelv
+    have hhag : ∀ j, HAg o.nodes.val v.val j := by
+      intro j nd0 hnd0
+      by_cases hj : j = g0.a
+      · subst hj
+        rw [hnd] at hnd0
+        have := Option.some.inj hnd0
+        subst this
+        exact ⟨setChild g0.d nd i, by
+          rw [hv']; exact List.getElem?_set_self (List.getElem?_eq_some_iff.mp hnd).1,
+          height_setChild _ _ _⟩
+      · exact ⟨nd0, by rw [hv', List.getElem?_set_ne (Ne.symm hj)]; exact hnd0, rfl⟩
+    have hHv : HOK v.val (plugI .leaf (g0 :: G)) := by
+      rw [hplugC]; exact hok_hcongr hH (fun j _ => hhag j)
+    have hmemN : ∀ j, j ∈ idxs (.node .leaf i.val .leaf) ↔ j ∈ idxs .leaf ∨ j = i.val := by
+      intro j; simp [idxs]
+    have hNDN : ND (.node .leaf i.val .leaf) :=
+      ⟨trivial, trivial, by simp [idxs], by simp [idxs], fun j hj => by simp [idxs] at hj⟩
+    have hBN : BST v.val (.node .leaf i.val .leaf) :=
+      ⟨trivial, trivial, fun j hj => by simp [idxs] at hj, fun j hj => by simp [idxs] at hj⟩
+    have hinv : ChainInv v.val (idxs (plugI (.node .leaf i.val .leaf) (g0 :: G))) o.free o.len
+        (alloc.vec.Vec.deref chain1).val { o with nodes := v }
+        (Slice.len (alloc.vec.Vec.deref chain1)) := by
+      refine ⟨g0 :: G, .node .leaf i.val .leaf, i, 0, ?_, ?_, ⟨rfl, hii, ni, hvi, hnl, hnr⟩,
+        ⟨trivial, trivial, by simp [ht], by simp [ht]⟩, ⟨trivial, trivial, ni, hvi, by simp [ht, hnh]⟩,
+        ?_, ?_, rfl, hSpC, ?_, Nat.zero_le _, by simp [ht], Rel.refl _ _, rfl, rfl⟩
+      · rw [Slice.len_val]
+        show (alloc.vec.Vec.deref chain1).val.length = G.length + 1
+        rw [deref_val]; exact hlenC'
+      · rw [deref_val]; exact hchC
+      · exact bst_plugI_ins (keyAt_get hvi) (g0 :: G) (X := .leaf)
+          (X' := .node .leaf i.val .leaf) (descK_congr hkv hDescC) hmemN
+          (by rw [hplugC]; exact bst_rel hrelv hB) hBN
+      · exact nd_plugI_ins (g0 :: G) (X := .leaf) (X' := .node .leaf i.val .leaf) hmemN
+          (by rw [hplugC]; exact hND) hNDN (by rw [hplugC]; exact hi)
+      · exact ancOld_of_valid (g0 :: G) (X := .leaf) (by rw [hplugC]; exact hBal) hHv
+    have hbound' : v.val.length + 3 ≤ 2 ^ 32 - 1 := by
+      rw [hv', List.length_set]; exact hbound
+    exact ov_rebalance_chain_ok v.val (idxs (plugI (.node .leaf i.val .leaf) (g0 :: G))) o.free o.len
+      { o with nodes := v } (alloc.vec.Vec.deref chain1) hinv hbound'
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.ov_h_ok
@@ -1071,3 +1325,9 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.ov_rebalance_chain_body_ok
 #audit Apeiron.MapExecuted.ov_rebalance_chain_loop_ok
 #audit Apeiron.MapExecuted.ov_rebalance_chain_ok
+#audit Apeiron.MapExecuted.nilN_le_usize_max
+#audit Apeiron.MapExecuted.vec_push_ex'
+#audit Apeiron.MapExecuted.vec_pop_ex
+#audit Apeiron.MapExecuted.ov_alloc_ok
+#audit Apeiron.MapExecuted.insert_node_loop_total
+#audit Apeiron.MapExecuted.ov_insert_node_ok
