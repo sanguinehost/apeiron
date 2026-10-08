@@ -947,6 +947,325 @@ theorem into_entries_loop0_loop0_total {K V : Type}
           omega
         · rw [hh.1.symm]; rw [hcons]; simp only [List.length_cons]; omega
 
+/-! ## `Overflow::into_entries` totality
+
+`into_entries_loop0` walks the node indices `in_order` emits; for each it moves that node's `entries`
+out (`take` leaves the default empty vector), scans them (`into_entries_loop0_loop0`), and continues
+at the next index.  The decrease is the iterator length; the bound is the remaining entry count
+`remEntries`, which the scan drains.  Because `take` empties the visited node, `remEntries` is
+computed on the updated vector `v2`; the step only ever lowers it, so no duplicate-free side
+condition on `iter` is used. -/
+
+/-- The entry count of arena node `j`, or `0` off the arena. -/
+def remLen (v : alloc.vec.Vec ONode) (j : Nat) : Nat :=
+  (v.val[j]?.map (fun nd => nd.entries.val.length)).getD 0
+
+/-- The remaining entry count: the sum of `remLen` over the node indices `iter` has not yet
+visited. -/
+def remEntries (v : alloc.vec.Vec ONode) (iter : alloc.vec.into_iter.IntoIter U32) : Nat :=
+  (iter.val.map (fun x => remLen v x.val)).sum
+
+/-- `remEntries` step: with the head node present, the sum splits into its entry count and the
+tail's. -/
+theorem remEntries_cons (v : alloc.vec.Vec ONode) (n : U32) (node : ONode)
+    (it1 it : alloc.vec.into_iter.IntoIter U32) (hnode : v.val[n.val]? = some node)
+    (h : it.val = n :: it1.val) :
+    remEntries v it = node.entries.val.length + remEntries v it1 := by
+  have hf : remLen v n.val = node.entries.val.length := by simp [remLen, hnode]
+  unfold remEntries
+  rw [h, List.map_cons, List.sum_cons, hf]
+
+/-- `remEntries` is monotone in the per-index entry counts. -/
+theorem remEntries_mono (v v' : alloc.vec.Vec ONode) (it : alloc.vec.into_iter.IntoIter U32)
+    (h : ∀ j, remLen v' j ≤ remLen v j) : remEntries v' it ≤ remEntries v it := by
+  unfold remEntries
+  generalize it.val = l
+  induction l with
+  | nil => simp
+  | cons x xs ih =>
+    simp only [List.map_cons, List.sum_cons]
+    exact Nat.add_le_add (h x.val) ih
+
+/-- The `take`-emptied node only lowers `remEntries`: replacing the node at `n` by `node'`, of no
+more entries, cannot raise the remaining sum. -/
+theorem remEntries_set_le (v v' : alloc.vec.Vec ONode) (n : Nat) (node' : ONode)
+    (it : alloc.vec.into_iter.IntoIter U32) (hval : v'.val = v.val.set n node')
+    (hlen : node'.entries.val.length ≤ remLen v n) :
+    remEntries v' it ≤ remEntries v it := by
+  apply remEntries_mono
+  intro j
+  simp only [remLen]
+  rw [hval]
+  by_cases hj : j = n
+  · rw [hj]
+    by_cases hlt : n < v.val.length
+    · rw [List.getElem?_set_self hlt]
+      exact hlen
+    · rw [List.getElem?_set_self', List.getElem?_eq_none_iff.mpr (by omega)]
+      simp
+  · rw [List.getElem?_set_ne (Ne.symm hj)]
+
+/-- The entry scan of `into_entries_loop0` grows the output by at most its input length. -/
+theorem into_entries_loop0_loop0_len {K V : Type}
+    (iter : alloc.vec.into_iter.IntoIter (K × Option V)) (out : alloc.vec.Vec (U64 × K × V))
+    (key : U64) (r : alloc.vec.Vec (U64 × K × V))
+    (h : hashtrinity.overflow.Overflow.into_entries_loop0_loop0 iter out key = ok r) :
+    r.val.length ≤ out.val.length + iter.val.length := by
+  unfold hashtrinity.overflow.Overflow.into_entries_loop0_loop0 at h
+  refine loop_pc
+    (fun p : alloc.vec.into_iter.IntoIter (K × Option V) × alloc.vec.Vec (U64 × K × V) =>
+      p.2.val.length + p.1.val.length ≤ out.val.length + iter.val.length)
+    (fun r => r.val.length ≤ out.val.length + iter.val.length) _ ?_ (iter, out) (by simp) r h
+  rintro ⟨it, o⟩ hinv cf hcf
+  try dsimp only at hcf hinv
+  unfold hashtrinity.overflow.Overflow.into_entries_loop0_loop0.body at hcf
+  obtain ⟨⟨x, it1⟩, hn, hcf⟩ := bind_inv hcf
+  rcases next_spec _ _ _ hn with ⟨hnil, rfl⟩ | ⟨e, hcons, rfl⟩
+  · have hcfe : ControlFlow.done o = cf := Result.ok_injective hcf
+    rw [← hcfe]
+    show o.val.length ≤ out.val.length + iter.val.length
+    rw [hnil] at hinv
+    simpa using hinv
+  · obtain ⟨k, v⟩ := e
+    cases v with
+    | none =>
+      have hcfe : ControlFlow.cont (it1, o) = cf := Result.ok_injective hcf
+      rw [← hcfe]
+      show o.val.length + it1.val.length ≤ out.val.length + iter.val.length
+      rw [hcons] at hinv
+      simp only [List.length_cons] at hinv ⊢
+      omega
+    | some v1 =>
+      obtain ⟨o1, hpush, hcf⟩ := bind_inv hcf
+      have hcfe : ControlFlow.cont (it1, o1) = cf := Result.ok_injective hcf
+      rw [← hcfe]
+      show o1.val.length + it1.val.length ≤ out.val.length + iter.val.length
+      rw [vec_push_ok o o1 (key, k, v1) hpush]
+      rw [hcons] at hinv
+      simp only [List.length_append, List.length_cons, List.length_nil] at hinv ⊢
+      omega
+
+/-- `mem::take` of a `Vec` returns the original vector and the empty default. -/
+theorem mem_take_vec_ok {T : Type} (x : alloc.vec.Vec T) :
+    core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault T) x = ok (x, alloc.vec.Vec.new T) ∧
+      (alloc.vec.Vec.new T).val = [] := by
+  refine ⟨?_, by simp [alloc.vec.Vec.new]⟩
+  simp only [core.mem.take, alloc.vec.Vec.Insts.CoreDefaultDefault.default, bind_tc_ok]
+
+/-- **`into_entries_loop0_total`.**  The outer entry-collection loop returns `ok`: it visits each
+node index once, draining the bound `remEntries`, so no `Vec::push` and no `index_mut` fails.  The
+decreasing measure is the iterator length (`loop_tot_inv`). -/
+theorem into_entries_loop0_total (iter : alloc.vec.into_iter.IntoIter U32)
+    (v : alloc.vec.Vec ONode) (out : alloc.vec.Vec (U64 × U64 × I64))
+    (hvalid : ∀ j ∈ iter.val, j.val < v.val.length)
+    (hbound : out.val.length + remEntries v iter < Usize.max) :
+    ∃ r, hashtrinity.overflow.Overflow.into_entries_loop0 iter v out = ok r := by
+  unfold hashtrinity.overflow.Overflow.into_entries_loop0
+  refine loop_tot_inv
+    (fun p : alloc.vec.into_iter.IntoIter U32 × alloc.vec.Vec ONode ×
+        alloc.vec.Vec (U64 × U64 × I64) =>
+      hashtrinity.overflow.Overflow.into_entries_loop0.body p.1 p.2.1 p.2.2)
+    (fun p => (∀ j ∈ p.1.val, j.val < p.2.1.val.length) ∧
+      p.2.2.val.length + remEntries p.2.1 p.1 < Usize.max)
+    (fun p => p.1.val.length) ?_ ?_ (iter, v, out) ⟨hvalid, hbound⟩
+  · rintro ⟨it, vv, oo⟩ ⟨hval, hbdd⟩
+    dsimp only at *
+    obtain ⟨o, it1, hn⟩ := next_ex it
+    unfold hashtrinity.overflow.Overflow.into_entries_loop0.body
+    rw [hn]; simp only [bind_tc_ok]
+    rcases next_spec _ _ _ hn with ⟨hnil, rfl⟩ | ⟨n, hcons, rfl⟩
+    · exact ⟨_, rfl⟩
+    · change ∃ cf, (do
+        let i ← lift (UScalar.cast .Usize n)
+        let (node', index_mut_back) ← alloc.vec.Vec.index_mut
+          (core.slice.index.SliceIndexUsizeSlice (hashtrinity.overflow.Node U64 I64)) vv i
+        let (entries, v1) ← core.mem.take
+          (alloc.vec.Vec.Insts.CoreDefaultDefault (U64 × Option I64)) node'.entries
+        let iter2 ← alloc.vec.IntoIteratorVec.into_iter entries
+        let out1' ← hashtrinity.overflow.Overflow.into_entries_loop0_loop0 iter2 oo node'.key
+        let v2 := index_mut_back { node' with entries := v1 }
+        ok (ControlFlow.cont (it1, v2, out1'))) = ok cf
+      have hnv : n.val < vv.val.length := hval n (by rw [hcons]; exact List.mem_cons_self ..)
+      obtain ⟨node, back, hidx⟩ := vec_index_mut_ex vv (UScalar.cast .Usize n)
+        (by rw [cast_usize_u32]; exact hnv)
+      obtain ⟨hnode, hback⟩ := idxm_ok hidx
+      have htake : core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault (U64 × Option I64))
+            node.entries = ok (node.entries, alloc.vec.Vec.new (U64 × Option I64)) :=
+        (mem_take_vec_ok node.entries).1
+      have hiter2 : alloc.vec.IntoIteratorVec.into_iter node.entries
+          = (ok node.entries : Result (alloc.vec.into_iter.IntoIter (U64 × Option I64))) := rfl
+      have hrec : remEntries vv it = node.entries.val.length + remEntries vv it1 :=
+        remEntries_cons vv n node it1 it hnode hcons
+      have hb2 : oo.val.length + node.entries.val.length < Usize.max := by
+        have := hbdd; rw [hrec] at this; omega
+      obtain ⟨out1, hout1⟩ := into_entries_loop0_loop0_total node.entries oo node.key hb2
+      refine ⟨ControlFlow.cont (it1,
+        back { node with entries := alloc.vec.Vec.new (U64 × Option I64) }, out1), ?_⟩
+      simp only [lift, bind_tc_ok]
+      rw [hidx, bind_pair_ok]
+      rw [htake, bind_pair_ok]
+      rw [hiter2, bind_tc_ok]
+      rw [hout1, bind_tc_ok]
+  · rintro ⟨it, vv, oo⟩ ⟨it', vv', oo'⟩ ⟨hval, hbdd⟩ hcf
+    dsimp only at *
+    unfold hashtrinity.overflow.Overflow.into_entries_loop0.body at hcf
+    obtain ⟨o, it1, hn⟩ := next_ex it
+    rw [hn] at hcf
+    rw [bind_pair_ok] at hcf
+    rcases next_spec _ _ _ hn with ⟨hnil, rfl⟩ | ⟨n, hcons, rfl⟩
+    · dsimp only at hcf
+      exact absurd (Result.ok_injective hcf) (by intro hh; cases hh)
+    · dsimp only at hcf
+      simp only [lift, bind_tc_ok] at hcf
+      obtain ⟨node, back, hidx⟩ := vec_index_mut_ex vv (UScalar.cast .Usize n)
+        (by rw [cast_usize_u32]; exact hval n (by rw [hcons]; exact List.mem_cons_self ..))
+      obtain ⟨hnode, hback⟩ := idxm_ok hidx
+      rw [hidx, bind_pair_ok] at hcf
+      rw [(mem_take_vec_ok node.entries).1, bind_pair_ok] at hcf
+      have hiter2 : alloc.vec.IntoIteratorVec.into_iter node.entries
+          = (ok node.entries : Result (alloc.vec.into_iter.IntoIter (U64 × Option I64))) := rfl
+      rw [hiter2, bind_tc_ok] at hcf
+      obtain ⟨out1, hout1, hcf⟩ := bind_inv hcf
+      try dsimp only at hcf
+      have hh := Result.ok_injective hcf
+      simp only [ControlFlow.cont.injEq, Prod.mk.injEq] at hh
+      obtain ⟨rfl, rfl, rfl⟩ := hh
+      try dsimp only at *
+      refine ⟨⟨?_, ?_⟩, ?_⟩
+      · intro j hj
+        have hj' : j ∈ it.val := by rw [hcons]; exact List.mem_cons_of_mem n hj
+        rw [hback _, List.length_set]
+        exact hval j hj'
+      · have hv1 : (alloc.vec.Vec.new (U64 × Option I64)).val = [] :=
+          (mem_take_vec_ok node.entries).2
+        have hrec : remEntries vv it = node.entries.val.length + remEntries vv it1 :=
+          remEntries_cons vv n node it1 it hnode hcons
+        have hout1len : out1.val.length ≤ oo.val.length + node.entries.val.length :=
+          into_entries_loop0_loop0_len node.entries oo node.key out1 hout1
+        have hlen1 : ({ node with entries := alloc.vec.Vec.new (U64 × Option I64) } : ONode).entries.val.length
+            ≤ remLen vv n.val := by
+          have h0 : ({ node with entries := alloc.vec.Vec.new (U64 × Option I64) } : ONode).entries.val.length
+              = 0 := by simp [hv1]
+          rw [h0]; exact Nat.zero_le _
+        have hset : remEntries (back { node with entries := alloc.vec.Vec.new (U64 × Option I64) }) it1
+            ≤ remEntries vv it1 :=
+          remEntries_set_le vv (back { node with entries := alloc.vec.Vec.new (U64 × Option I64) })
+            n.val _ it1 (hback _) hlen1
+        have := hbdd; rw [hrec] at this; omega
+      · have : it.val.length = it1.val.length + 1 := by rw [hcons]; simp
+        omega
+
+/-- The outer loop's output is at most the initial output plus the remaining entry count; it also
+preserves node validity. -/
+theorem into_entries_loop0_len (iter : alloc.vec.into_iter.IntoIter U32)
+    (v : alloc.vec.Vec ONode) (out : alloc.vec.Vec (U64 × U64 × I64))
+    (hvalid : ∀ j ∈ iter.val, j.val < v.val.length)
+    (r : alloc.vec.Vec (U64 × U64 × I64))
+    (h : hashtrinity.overflow.Overflow.into_entries_loop0 iter v out = ok r) :
+    r.val.length ≤ out.val.length + remEntries v iter := by
+  unfold hashtrinity.overflow.Overflow.into_entries_loop0 at h
+  refine loop_pc
+    (fun p : alloc.vec.into_iter.IntoIter U32 × alloc.vec.Vec ONode ×
+        alloc.vec.Vec (U64 × U64 × I64) =>
+      (∀ j ∈ p.1.val, j.val < p.2.1.val.length) ∧
+        p.2.2.val.length + remEntries p.2.1 p.1 ≤ out.val.length + remEntries v iter)
+    (fun r => r.val.length ≤ out.val.length + remEntries v iter) _ ?_
+    (iter, v, out) ⟨hvalid, by simp⟩ r h
+  rintro ⟨it, vv, oo⟩ ⟨hval, hinv⟩ cf hcf
+  try dsimp only at hval hinv
+  try dsimp only at hcf
+  unfold hashtrinity.overflow.Overflow.into_entries_loop0.body at hcf
+  obtain ⟨o, it1, hn⟩ := next_ex it
+  rw [hn] at hcf
+  rw [bind_pair_ok] at hcf
+  rcases next_spec _ _ _ hn with ⟨hnil, rfl⟩ | ⟨n, hcons, rfl⟩
+  · dsimp only at hcf
+    have hcfe : ControlFlow.done oo = cf := Result.ok_injective hcf
+    rw [← hcfe]
+    show oo.val.length ≤ out.val.length + remEntries v iter
+    have hz : remEntries vv it = 0 := by unfold remEntries; rw [hnil]; simp
+    rw [hz] at hinv; omega
+  · dsimp only at hcf
+    simp only [lift, bind_tc_ok] at hcf
+    obtain ⟨node, back, hidx⟩ := vec_index_mut_ex vv (UScalar.cast .Usize n)
+      (by rw [cast_usize_u32]; exact hval n (by rw [hcons]; exact List.mem_cons_self ..))
+    obtain ⟨hnode, hback⟩ := idxm_ok hidx
+    rw [hidx, bind_pair_ok] at hcf
+    rw [(mem_take_vec_ok node.entries).1, bind_pair_ok] at hcf
+    have hiter2 : alloc.vec.IntoIteratorVec.into_iter node.entries
+          = (ok node.entries : Result (alloc.vec.into_iter.IntoIter (U64 × Option I64))) := rfl
+    rw [hiter2, bind_tc_ok] at hcf
+    obtain ⟨out1, hout1, hcf⟩ := bind_inv hcf
+    try dsimp only at hcf
+    have hcfe : ControlFlow.cont (it1,
+        back { node with entries := alloc.vec.Vec.new (U64 × Option I64) }, out1) = cf :=
+      Result.ok_injective hcf
+    rw [← hcfe]
+    refine ⟨?_, ?_⟩
+    · intro j hj
+      have hj' : j ∈ it.val := by rw [hcons]; exact List.mem_cons_of_mem n hj
+      rw [hback _, List.length_set]
+      exact hval j hj'
+    · show out1.val.length + remEntries (back { node with entries := alloc.vec.Vec.new (U64 × Option I64) }) it1
+          ≤ out.val.length + remEntries v iter
+      have hv1 : (alloc.vec.Vec.new (U64 × Option I64)).val = [] := (mem_take_vec_ok node.entries).2
+      have hrec : remEntries vv it = node.entries.val.length + remEntries vv it1 :=
+        remEntries_cons vv n node it1 it hnode hcons
+      have hout1len : out1.val.length ≤ oo.val.length + node.entries.val.length :=
+        into_entries_loop0_loop0_len node.entries oo node.key out1 hout1
+      have hlen1 : ({ node with entries := alloc.vec.Vec.new (U64 × Option I64) } : ONode).entries.val.length
+          ≤ remLen vv n.val := by
+        have h0 : ({ node with entries := alloc.vec.Vec.new (U64 × Option I64) } : ONode).entries.val.length = 0 := by
+          simp [hv1]
+        rw [h0]; exact Nat.zero_le _
+      have hset : remEntries (back { node with entries := alloc.vec.Vec.new (U64 × Option I64) }) it1
+          ≤ remEntries vv it1 :=
+        remEntries_set_le vv (back { node with entries := alloc.vec.Vec.new (U64 × Option I64) })
+          n.val _ it1 (hback _) hlen1
+      rw [hrec] at hinv
+      omega
+
+/-- **`into_entries_total`.**  On an embedded tree whose nodes are alive, `Overflow::into_entries`
+returns `ok`, with the output no longer than the tree's total entry count. -/
+theorem into_entries_total (o : Ov) (T : OTree)
+    (hE : Emb o.nodes.val o.root T)
+    (hal : ∀ i ∈ idxs T, ∃ nd, o.nodes.val[i]? = some nd ∧ nd.alive = true)
+    (hb : (idxs T).length + ((idxs T).map (remLen o.nodes)).sum < Usize.max) :
+    ∃ es, hashtrinity.overflow.Overflow.into_entries CI o = ok es ∧
+      es.val.length ≤ ((idxs T).map (remLen o.nodes)).sum := by
+  have hb_len : (idxs T).length < Usize.max := by omega
+  obtain ⟨order, horder, hordv⟩ := in_order_total o T hE hal hb_len
+  have hvalid : ∀ j ∈ order.val, j.val < o.nodes.val.length := by
+    intro j hj
+    have hjT : j.val ∈ idxs T := by
+      rw [← hordv]; exact List.mem_map_of_mem hj
+    obtain ⟨nd, hnd, _⟩ := emb_mem hE j.val hjT
+    exact (List.getElem?_eq_some_iff.mp hnd).1
+  have hsum : remEntries o.nodes order = ((idxs T).map (remLen o.nodes)).sum := by
+    unfold remEntries
+    rw [← hordv]
+    apply congrArg List.sum
+    rw [List.map_map]
+    exact List.map_congr_left (fun x _ => rfl)
+  have hout0 : (alloc.vec.Vec.with_capacity (U64 × U64 × I64) o.len).val.length = 0 := by
+    simp [alloc.vec.Vec.with_capacity, alloc.vec.Vec.val]
+  have hout : (alloc.vec.Vec.with_capacity (U64 × U64 × I64) o.len).val.length
+      + remEntries o.nodes order < Usize.max := by
+    rw [hout0, hsum]; omega
+  obtain ⟨es, hes⟩ := into_entries_loop0_total order o.nodes
+    (alloc.vec.Vec.with_capacity (U64 × U64 × I64) o.len) hvalid hout
+  have heslen : es.val.length ≤ ((idxs T).map (remLen o.nodes)).sum := by
+    have := into_entries_loop0_len order o.nodes
+      (alloc.vec.Vec.with_capacity (U64 × U64 × I64) o.len) hvalid es hes
+    rw [hout0, hsum] at this
+    simpa using this
+  refine ⟨es, ?_, heslen⟩
+  · unfold hashtrinity.overflow.Overflow.into_entries
+    rw [horder]; simp only [bind_tc_ok]
+    unfold alloc.vec.IntoIteratorVec.into_iter
+    simp only [bind_tc_ok]
+    exact hes
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.resize_loop0_ok
@@ -962,3 +1281,13 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.in_order_loop0_total
 #audit Apeiron.MapExecuted.in_order_total
 #audit Apeiron.MapExecuted.into_entries_loop0_loop0_total
+#audit Apeiron.MapExecuted.remLen
+#audit Apeiron.MapExecuted.remEntries
+#audit Apeiron.MapExecuted.remEntries_cons
+#audit Apeiron.MapExecuted.remEntries_mono
+#audit Apeiron.MapExecuted.remEntries_set_le
+#audit Apeiron.MapExecuted.into_entries_loop0_loop0_len
+#audit Apeiron.MapExecuted.mem_take_vec_ok
+#audit Apeiron.MapExecuted.into_entries_loop0_total
+#audit Apeiron.MapExecuted.into_entries_loop0_len
+#audit Apeiron.MapExecuted.into_entries_total
