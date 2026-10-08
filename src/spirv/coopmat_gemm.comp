@@ -96,6 +96,11 @@ layout(constant_id = 5) const uint SMOFF = 0;
 // z * (workgroups y * BN) of the buffer bound at O (partials [KSPLIT][rows][M]; `splitk_reduce.comp` sums them).
 // KSPLIT == 1 is the unsplit kernel: the same loop bounds, the same store offset.
 layout(constant_id = 6) const uint KSPLIT = 1;
+// Two-plane Q5 chart (PACK == 8 with PLANEB != 0): word offset of plane B, `(K/8) * M`, one u32 per (32-block,
+// row) at `PLANEB + b*M + row`. Plane A is the Q4 nibble plane. Code j of a block has its fifth bit at bit
+// `cj*8 + 4*l + i` (chart word cj, DP4A phase l, byte i), so the four codes of a phase are one 4-bit field.
+// 0 = single-plane chart.
+layout(constant_id = 7) const uint PLANEB = 0;
 // the fused writer reads its own input chart at offset 0; SCOFF/SMOFF address its output
 const uint RDSC = FUSE == 0u ? SCOFF : 0u;
 const uint RDSM = FUSE == 0u ? SMOFF : 0u;
@@ -128,7 +133,8 @@ shared int sBias[KB * BN];
 #define FRAG_I coopmat<int32_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
 
 // float(q) for |q| < 2^22 without I2F: the bits of 1.5*2^23 plus q are the float 1.5*2^23 + q,
-// exactly, and subtracting 1.5*2^23 is exact. |q| <= 32*255*127 < 2^22 for every chart carrier.
+// exactly, and subtracting 1.5*2^23 is exact. |q| <= 32*255*127 < 2^22 for every chart carrier (Q5 codes are <= 31:
+// |q| <= 32*31*127 < 2^17).
 const int MAGIC_BITS = 0x4B400000;
 const float MAGIC_F = 12582912.0;
 const float INV127 = 1.0 / 127.0;
@@ -167,6 +173,10 @@ void fetch(uint b0, uint lid, uint row0, uint tok0,
             [[unroll]] for (uint c = 0u; c < CPH; ++c) {
                 pa[kb][it][c] = w[(b * CPB + h * CPH + c) * M + row];
             }
+            // slot CPH (== 2 for PACK 8) is free: plane B of the same (block, physical row) as plane A
+            if (PACK == 8u && PLANEB != 0u) {
+                pa[kb][it][CPH] = w[PLANEB + b * M + row];
+            }
         }
         [[unroll]] for (uint it = 0u; it < IB; ++it) {
             uint idx = lid + it * NT;
@@ -198,7 +208,14 @@ void commit(uint lid, uint ar[IA], uint ah[IA]) {
             [[unroll]] for (uint q = 0u; q < 4u; ++q) {
                 // k-word q of this half: chart word q / DPW, phase q % DPW
                 uint word = pa[kb][it][q / DPW];
-                v[q] = PACK == 4u ? word ^ 0x80808080u : (word >> (WBITS * (q % DPW))) & BMASK;
+                uint val = PACK == 4u ? word ^ 0x80808080u : (word >> (WBITS * (q % DPW))) & BMASK;
+                if (PACK == 8u && PLANEB != 0u) {
+                    // chart word cj of the block, phase l: byte i of val takes bit i of the 4-bit field at
+                    // cj*8 + 4*l, expanded into bit 4 of its byte (the Q5 code's fifth bit)
+                    uint nib = (pa[kb][it][CPH] >> ((h * CPH + q / DPW) * 8u + 4u * (q % DPW))) & 0xFu;
+                    val |= (nib * 0x02040810u) & 0x10101010u;
+                }
+                v[q] = val;
             }
             sA[(kb * BM + r) * AS4 + h] = v;
         }

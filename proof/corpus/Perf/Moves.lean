@@ -324,6 +324,15 @@ theorem q5_chart_under_tile_threshold (m k : Nat) (hm : m ≤ 16384) (hk : k ≤
   calc 4 * m * q5RowWords k ≤ 4 * 16384 * 168 := Nat.mul_le_mul (Nat.mul_le_mul_left 4 hm) hw
     _ ≤ 32 * 2 ^ 20 := by decide
 
+/-- Largest |integer dot| over one 32-block for codes at most `qmax` against int8 activations. -/
+def chartBlockDotBound (qmax : Nat) : Nat := 32 * qmax * 127
+
+/-- **P42 (Q5 coopmat plane B).** `coopmat_gemm.comp` converts its int accumulator through the magic
+float `1.5·2^23 + q`, exact for `|q| < 2^22`. The Q5 code (plane A nibble plus the plane-B fifth bit)
+is at most 31, so one block's dot stays below `2^17`; the single-plane bound (code ≤ 255) holds too. -/
+theorem q5_coopmat_dot_under_magic : chartBlockDotBound 31 < 2 ^ 17 ∧ chartBlockDotBound 255 < 2 ^ 22 := by
+  unfold chartBlockDotBound; decide
+
 end Moves
 
 end Perf

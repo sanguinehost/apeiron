@@ -61,6 +61,7 @@ const SPEC_FUSE: u32 = 3;
 const SPEC_SCOFF: u32 = 4;
 const SPEC_SMOFF: u32 = 5;
 const SPEC_KSPLIT: u32 = 6;
+const SPEC_PLANEB: u32 = 7;
 
 /// Rewrite the default value of every 32-bit `OpSpecConstant` whose `SpecId` is a key of `vals`.
 /// Panics when a requested `SpecId` is absent: a constant left at its default is a different kernel.
@@ -104,7 +105,7 @@ fn specialize(module: &[u32], vals: &[(u32, u32)]) -> Vec<u32> {
     out
 }
 
-/// The coopmat chart GEMM specialized to `m × k` at `carrier` (Q8, Q4 or Q2).
+/// The coopmat chart GEMM specialized to `m × k` at `carrier` (Q8, Q4, Q2 or the two-plane Q5).
 pub fn coopmat_gemm_module(m: u32, k: u32, carrier: Carrier) -> Vec<u32> {
     coopmat_gemm_module_from(COOPMAT_GEMM_SPV, m, k, carrier)
 }
@@ -198,8 +199,11 @@ fn coopmat_gemm_specialized(
         "split-K needs at least one {TILE_KB}-block stage per split: k = {k}, ksplit = {ksplit}"
     );
     assert!(
-        matches!(carrier, Carrier::Q8 | Carrier::Q4 | Carrier::Q2),
-        "coopmat GEMM serves the single-plane chart carriers Q8/Q4/Q2, not {carrier:?}"
+        matches!(
+            carrier,
+            Carrier::Q8 | Carrier::Q4 | Carrier::Q2 | Carrier::Q5
+        ),
+        "coopmat GEMM serves the chart carriers Q8/Q4/Q2 and the two-plane Q5, not {carrier:?}"
     );
     assert!(
         k % (32 * TILE_KB) == 0,
@@ -223,6 +227,7 @@ fn coopmat_gemm_specialized(
             (SPEC_SCOFF, scoff),
             (SPEC_SMOFF, smoff),
             (SPEC_KSPLIT, ksplit),
+            (SPEC_PLANEB, carrier.plane_b_off(m, k)),
         ],
     )
 }
