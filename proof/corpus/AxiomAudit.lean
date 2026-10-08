@@ -366,6 +366,7 @@ import Perf.Overlap
 #audit Perf.Moves.p52_amax_tail
 #audit Perf.Moves.p55_amaxp_install_floor
 #audit Perf.Moves.p56_upload_inventory
+#audit Perf.Moves.p57_dn_byte_difference
 #audit Perf.Moves.p10_mma_floor
 #audit Perf.Moves.p10_mma_rate_ratio
 #audit Perf.Moves.p10_mma_floor_p8

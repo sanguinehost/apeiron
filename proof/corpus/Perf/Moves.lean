@@ -498,6 +498,19 @@ theorem p56_upload_inventory :
     907000 * 86 ≤ 78446592 ∧ 78446592 ≤ 907000 * 87 := by
   decide
 
+/-- P57: the per-call upload bytes of one Q6_K `ffn_down` GEMV (k = 4864, m = 896) in
+`examples/dn_probe.rs`: Q6 two-plane `4 · (817152 + 136192)` and Q8 `4 · (1089536 + 136192)`
+bytes. Their difference, 1089536 B, is 1.20 µs at 907 GB/s (907000 B/µs) and lies under the 1.5 µs
+refutation floor, so the predicted 3.0–9.0 µs band is not a byte term. Arithmetic over the bound
+byte counts; the timing verdict (refuted, +0.0047 µs) stays `measured`. -/
+theorem p57_dn_byte_difference :
+    4 * (817152 + 136192) = 3813376 ∧
+    4 * (1089536 + 136192) = 4902912 ∧
+    4902912 - 3813376 = 1089536 ∧
+    907000 * 1 ≤ 1089536 ∧ 1089536 ≤ 907000 * 2 ∧
+    2 * 1089536 < 3 * 907000 := by
+  decide
+
 end Moves
 
 end Perf
