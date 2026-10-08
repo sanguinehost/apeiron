@@ -2,7 +2,9 @@
 //!
 //! Subsumed from `../fold/modelfold/src/train.rs` @ `d497161f` (`pub mod finetune`)
 //! and `../spinor-ttl/src/spinor_ttl/finetune.py` @ `a05bb1b` (`FoldAdapter`).
-//! Count storage is the vendored counting face [`FreqMap`].
+//! Count storage is the crate's exact-key map [`Table`] (`Stored` keys, full-key equality on
+//! equal coordinates). The vendored `FreqMap` is not admissible here: its `freq(k) = k.coord()`
+//! is a lossy 64-bit fold, so distinct structured keys with equal coordinates merge.
 //!
 //! # Mathematical Foundations and Citations
 //!
@@ -39,7 +41,7 @@
     reason = "idiomatic state querying and inference API"
 )]
 
-use crate::freq::FreqMap;
+use crate::freq::Table;
 use crate::learn::countlm::kn_discounts_cg;
 
 /// Maximum context order supported by the compact lossless representation ($k \le 4$).
@@ -90,14 +92,17 @@ impl std::error::Error for FoldAdaptError {}
 pub type Key = (u8, u128, u32);
 
 /// Flat count state: `(order, packed-context, token) -> occurrence count`.
-/// Stored in the vendored Non-Being (NB) counting face [`FreqMap`].
-type Flat = FreqMap<Key, i64>;
+/// Stored in the crate's exact-key map [`Table`] (the `Stored` key store), whose full-key
+/// equality keeps distinct `(order, packed-context, token)` keys apart even when their 64-bit
+/// coordinates coincide — unlike the lossy frequency fold `FreqMap`.
+type Flat = Table<Key, i64>;
 
 /// Context key: `(order, packed-context)`.
 type CtxKey = (u8, u128);
 
-/// Sparse continuation tracking: `(order, packed-context) -> [next-token]`.
-type CtxTokens = FreqMap<CtxKey, Vec<u32>>;
+/// Sparse continuation tracking: `(order, packed-context) -> [next-token]`, exact-keyed so the
+/// continuation lists of distinct contexts (for example `(a,b,c)` and its reversal) never merge.
+type CtxTokens = Table<CtxKey, Vec<u32>>;
 
 /// Pack up to 4 token ids into a `u128`, oldest id highest.
 ///
@@ -153,9 +158,9 @@ impl FoldAdapter {
             return Err(FoldAdaptError::InvalidOrder(k));
         }
         Ok(FoldAdapter {
-            flat: FreqMap::with_capacity(16),
+            flat: Table::with_capacity(16),
             keys: Vec::new(),
-            ctx_tokens: FreqMap::with_capacity(16),
+            ctx_tokens: Table::with_capacity(16),
             k,
         })
     }
@@ -173,15 +178,15 @@ impl FoldAdapter {
     /// # Complexity
     ///
     /// Temporal: $O(1)$ table initialization.
-    /// Spatial: allocates table of capacity in [`FreqMap`].
+    /// Spatial: allocates table of capacity in [`Table`].
     pub fn with_capacity(k: usize, cap: usize) -> Result<Self, FoldAdaptError> {
         if k == 0 || k > MAX_ORDER {
             return Err(FoldAdaptError::InvalidOrder(k));
         }
         Ok(FoldAdapter {
-            flat: FreqMap::with_capacity(cap),
+            flat: Table::with_capacity(cap),
             keys: Vec::new(),
-            ctx_tokens: FreqMap::with_capacity(cap),
+            ctx_tokens: Table::with_capacity(cap),
             k,
         })
     }
@@ -223,7 +228,7 @@ impl FoldAdapter {
     ///
     /// Temporal: $\Theta(N \cdot k)$ operations, where $N = \text{ids.len()}$ and $k = \text{self.k} \le 4$.
     /// Derivation: outer loop iterates $i \in 1..N$; inner loop iterates $o \in 1..\min(k, i)$.
-    /// Each step performs $O(1)$ pack, $O(1)$ [`FreqMap::get`], $O(1)$ [`FreqMap::add`], and amortized $O(1)$ key tracking.
+    /// Each step performs $O(1)$ pack, $O(1)$ [`Table::get`], $O(1)$ [`Table::insert_with`], and amortized $O(1)$ key tracking.
     /// Spatial: $O(U)$ words where $U \le N \cdot k$ is the number of distinct n-grams observed.
     pub fn fold(&mut self, ids: &[u32]) {
         self.fold_signed(ids, 1);
@@ -265,22 +270,24 @@ impl FoldAdapter {
                     if prev == 0 {
                         self.keys.push(key);
                         self.ctx_tokens
-                            .insert_with(&ctx_key, vec![next_id], |_, mut old| {
+                            .insert_with(ctx_key, vec![next_id], |_, mut old| {
                                 if !old.contains(&next_id) {
                                     old.push(next_id);
                                 }
                                 old
                             });
                     }
-                    self.flat.add(&key, i64::from(sign));
+                    self.flat
+                        .insert_with(key, i64::from(sign), |new, old| old + new);
                 } else if sign < 0 && prev > 0 {
-                    self.flat.add(&key, i64::from(sign));
+                    self.flat
+                        .insert_with(key, i64::from(sign), |new, old| old + new);
                     let new_cnt = self.flat.get(&key).copied().unwrap_or(0);
                     if new_cnt == 0 {
                         if let Some(tokens) = self.ctx_tokens.get(&ctx_key) {
                             let updated: Vec<u32> =
                                 tokens.iter().copied().filter(|&t| t != next_id).collect();
-                            self.ctx_tokens.insert(&ctx_key, updated);
+                            self.ctx_tokens.insert_merge_last_write(ctx_key, updated);
                         }
                     }
                 }
@@ -326,14 +333,14 @@ impl FoldAdapter {
                         let ctx_key = (k.0, k.1);
                         let next_id = k.2;
                         self.ctx_tokens
-                            .insert_with(&ctx_key, vec![next_id], |_, mut old| {
+                            .insert_with(ctx_key, vec![next_id], |_, mut old| {
                                 if !old.contains(&next_id) {
                                     old.push(next_id);
                                 }
                                 old
                             });
                     }
-                    self.flat.add(&k, c);
+                    self.flat.insert_with(k, c, |new, old| old + new);
                 }
             }
         }
@@ -347,7 +354,7 @@ impl FoldAdapter {
                 if let Some(tokens) = self.ctx_tokens.get(&ctx_key) {
                     let updated: Vec<u32> =
                         tokens.iter().copied().filter(|&t| t != next_id).collect();
-                    self.ctx_tokens.insert(&ctx_key, updated);
+                    self.ctx_tokens.insert_merge_last_write(ctx_key, updated);
                 }
             }
         }

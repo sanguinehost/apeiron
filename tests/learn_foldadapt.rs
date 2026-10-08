@@ -21,7 +21,7 @@
     reason = "exact bit-for-bit float equality assertion in unlearning test"
 )]
 
-use apeiron::learn::foldadapt::{FoldAdaptError, FoldAdapter, DOORWAY};
+use apeiron::learn::foldadapt::{pack, FoldAdaptError, FoldAdapter, DOORWAY};
 
 #[test]
 fn order_free_merge() {
@@ -307,5 +307,82 @@ fn refusals() {
             expected: 3,
             actual: 2
         }
+    );
+}
+
+#[test]
+#[allow(
+    clippy::many_single_char_names,
+    reason = "algebraic context tokens a,b,c,x,y and KN discount d are single letters by convention"
+)]
+fn reversed_context_counts_distinct() {
+    // A stream containing (a,b,c) -> x and its reversal (c,b,a) -> y, a != c. The packed order-3
+    // contexts are distinct u128 values, but `u128::coord = lo ^ hi` is invariant under the
+    // reversal, so the two context keys share a coordinate: a frequency-folded store (FreqMap)
+    // merges their continuation lists and counts. An exact-key store keeps them distinct.
+    let (a, b, c) = (11u32, 22u32, 33u32);
+    let (x, y) = (7u32, 9u32);
+    let base = vec![0.01f64; 64];
+    let d = (0.5, 0.5, 0.5);
+
+    // Reference: the (a,b,c) -> x stream plus the two-token prefix [c,b], which contributes the
+    // order-1 continuation c -> b shared with the reversed stream but no order-3 context. So any
+    // difference from folding the reversed stream is the merged order-3 continuation alone.
+    let mut reference = FoldAdapter::new(3).expect("order 3 valid");
+    reference.fold(&[a, b, c, x]);
+    reference.fold(&[c, b]);
+
+    // Fold both full contexts.
+    let mut both = FoldAdapter::new(3).expect("order 3 valid");
+    both.fold(&[a, b, c, x]);
+    both.fold(&[c, b, a, y]);
+
+    let r_ref = reference
+        .refine_with(&base, &[a, b, c], d)
+        .expect("refine abc");
+    let r_both = both.refine_with(&base, &[a, b, c], d).expect("refine abc");
+    assert_eq!(
+        r_ref, r_both,
+        "context (a,b,c) must not take counts or continuations from its reversal (c,b,a)"
+    );
+    assert!(
+        r_both[x as usize] > r_both[y as usize],
+        "context (a,b,c) must weight its own continuation x={x} above y={y}: {} vs {}",
+        r_both[x as usize],
+        r_both[y as usize]
+    );
+
+    // Symmetric check for the reversed context.
+    let mut reference_rev = FoldAdapter::new(3).expect("order 3 valid");
+    reference_rev.fold(&[c, b, a, y]);
+    reference_rev.fold(&[a, b]);
+    let r_ref_rev = reference_rev
+        .refine_with(&base, &[c, b, a], d)
+        .expect("refine cba");
+    let r_both_rev = both.refine_with(&base, &[c, b, a], d).expect("refine cba");
+    assert_eq!(
+        r_ref_rev, r_both_rev,
+        "context (c,b,a) must not take counts or continuations from its reversal (a,b,c)"
+    );
+    assert!(
+        r_both_rev[y as usize] > r_both_rev[x as usize],
+        "context (c,b,a) must weight its own continuation y={y} above x={x}: {} vs {}",
+        r_both_rev[y as usize],
+        r_both_rev[x as usize]
+    );
+
+    // The two order-3 continuation keys are distinct entries, each with its own count 1.
+    let state = both.count_state();
+    assert!(
+        state
+            .iter()
+            .any(|&(k, n)| k == (3u8, pack(&[a, b, c]), x) && n == 1),
+        "key (3, pack[a,b,c], x={x}) must exist with count 1"
+    );
+    assert!(
+        state
+            .iter()
+            .any(|&(k, n)| k == (3u8, pack(&[c, b, a]), y) && n == 1),
+        "key (3, pack[c,b,a], y={y}) must exist with count 1"
     );
 }
