@@ -42,6 +42,9 @@
               and doc formulas use mathematical indices matching modelfold quant.rs."
 )]
 
+use crate::format::quant::{f16_to_f32, q4_k_scale_min, Q4_K_BLOCK_BYTES, Q4_K_SCALE_SIZE, QK_K};
+use crate::learn::seal::quantize_row_q4_k;
+
 /// A refusal from a GPTQ operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GptqError {
@@ -555,6 +558,144 @@ pub fn gptq_affine(
     })
 }
 
+/// Quantize weight matrix `w` (`[out, n]`, row-major) to `ggml` `Q4_K` super-blocks with GPTQ
+/// error-feedback over the calibration Gram `gram` (`[n, n]`, `= XᵀX`), with the `τ`-weighted
+/// block fit from [`quantize_row_q4_k`] as the rounding operator.
+///
+/// Follows the error-feedback structure of [`gptq_affine`]: for each 256-column super-block, when its
+/// first column is reached, the Q4_K super-block parameters (`d`, `dmin`, 6-bit sub-scales and mins)
+/// are fit from the CURRENT error-updated weights using [`quantize_row_q4_k`]. Then, column-by-column,
+/// each weight is quantized to `q = clamp(round((w + m_sub) / d_sub), 0, 15)`, producing dequantized
+/// `x̂ = d_sub·q − m_sub`, residual error `err = (w − x̂) / U[j,j]`, and the error is pushed onto all
+/// subsequent columns `k > j` through row `j` of the upper Cholesky factor `U`.
+///
+/// Output is packed into `ggml` `Q4_K` super-block layout (144 bytes per 256 weights,
+/// `out * (n / 256) * 144` bytes total), readable by [`crate::format::quant::dequant_q4_k_block`].
+///
+/// # Complexity
+/// - Temporal: $O(n^3 + \text{out} \cdot n^2)$ arithmetic operations (FLOPs).
+///   Measure: floating-point operations. Derivation: $O(n^3)$ operations in `feedback_hi` for the
+///   damped `UL` Cholesky factor and its inverse $U$; for each of $\text{out}$ rows, $n / 256$ super-blocks
+///   are fit via `quantize_row_q4_k` taking $O(n)$ operations per row; then column-by-column residual
+///   push performs $\sum_{j=0}^{n-1} (n - 1 - j) = n(n-1)/2$ multiply-subtracts per row, closing in
+///   $O(\text{out} \cdot n^2)$ arithmetic operations.
+/// - Spatial: $O(n^2 + \text{out} \cdot n)$ words allocated.
+///   Measure: heap allocations across Hessian buffers ($n \times n \times 8$ bytes), working float buffer
+///   `wk` ($\text{out} \cdot n \times 8$ bytes), and the packed output buffer ($144 \times \text{out} \cdot n / 256$ bytes).
+///
+/// # Errors
+/// Returns [`GptqError::ShapeMismatch`] if `out == 0`, `n == 0`, `w.len() != out * n`, `gram.len() != n * n`,
+/// `n % 256 != 0`, or if `tau` is supplied with `tau.len() != n`.
+/// Returns [`GptqError::NotPositiveDefinite`] if Cholesky factorization encounters a non-positive pivot.
+pub fn gptq_q4k(
+    w: &[f32],
+    out: usize,
+    n: usize,
+    gram: &[f64],
+    tau: Option<&[f32]>,
+) -> Result<Vec<u8>, GptqError> {
+    gptq_q4k_damped(w, out, n, gram, tau, 0.01)
+}
+
+/// [`gptq_q4k`] with an explicit Hessian damping fraction: the feedback factor is built from
+/// `H = G + damping·mean(diag(G))·I` instead of the production `0.01·mean(diag(G))`. `damping =
+/// 0.01` reproduces [`gptq_q4k`] exactly. `seal_model --gram` defaults to `damping = 1.0`, the
+/// lowest bits/token of {0.01, 0.1, 1.0, 10.0} on a held-out text, and the only one measured
+/// beyond its paired error against the no-Gram seal.
+///
+/// # Errors
+/// Returns [`GptqError::ShapeMismatch`] if `out == 0`, `n == 0`, `w.len() != out * n`,
+/// `gram.len() != n * n`, `n % 256 != 0`, or if `tau` is supplied with `tau.len() != n`.
+/// Returns [`GptqError::NotPositiveDefinite`] if the damped Cholesky factorization encounters a
+/// non-positive pivot.
+pub fn gptq_q4k_damped(
+    w: &[f32],
+    out: usize,
+    n: usize,
+    gram: &[f64],
+    tau: Option<&[f32]>,
+    damping: f64,
+) -> Result<Vec<u8>, GptqError> {
+    if out == 0 || n == 0 || w.len() != out * n || gram.len() != n * n || !n.is_multiple_of(QK_K) {
+        return Err(GptqError::ShapeMismatch);
+    }
+    if let Some(t) = tau {
+        if t.len() != n {
+            return Err(GptqError::ShapeMismatch);
+        }
+    }
+    let hi = feedback_hi_damped(gram, n, damping)?;
+    let n_blocks = n / QK_K;
+    let mut out_bytes = vec![0u8; out * n_blocks * Q4_K_BLOCK_BYTES];
+    let mut wk: Vec<f64> = w.iter().map(|&x| f64::from(x)).collect();
+
+    let mut cur_slice = [0f32; QK_K];
+    let mut codes = [0u8; QK_K];
+    let mut sc12 = [0u8; Q4_K_SCALE_SIZE];
+
+    for o in 0..out {
+        let row_base = o * n;
+        let mut g0 = 0;
+        let mut bi = 0;
+        while g0 < n {
+            let g1 = g0 + QK_K;
+            for (idx, slot) in cur_slice.iter_mut().enumerate() {
+                *slot = wk[row_base + g0 + idx] as f32;
+            }
+            let tau_slice = tau.map(|t| &t[g0..g1]);
+            let fit_block =
+                quantize_row_q4_k(&cur_slice, tau_slice).map_err(|_| GptqError::ShapeMismatch)?;
+
+            let d_bits = u16::from_le_bytes([fit_block[0], fit_block[1]]);
+            let m_bits = u16::from_le_bytes([fit_block[2], fit_block[3]]);
+            let d = f16_to_f32(d_bits);
+            let dmin = f16_to_f32(m_bits);
+            sc12.copy_from_slice(&fit_block[4..4 + Q4_K_SCALE_SIZE]);
+
+            for j in g0..g1 {
+                let col_in_blk = j - g0;
+                let group_idx = col_in_blk / 32;
+                let (sc, m) = q4_k_scale_min(&sc12, group_idx);
+                let d_sub = f64::from(d * f32::from(sc));
+                let m_sub = f64::from(dmin * f32::from(m));
+                let hijj = hi[j * n + j];
+                let wv = wk[row_base + j];
+
+                let q = if d_sub > 0.0 {
+                    ((wv + m_sub) / d_sub).round().clamp(0.0, 15.0) as u8
+                } else {
+                    0u8
+                };
+                codes[col_in_blk] = q;
+                let x_hat = d_sub * f64::from(q) - m_sub;
+                let err = (wv - x_hat) / hijj;
+                let hi_row = &hi[j * n + (j + 1)..j * n + n];
+                let wk_row = &mut wk[row_base + (j + 1)..row_base + n];
+                for (w_slot, &h_val) in wk_row.iter_mut().zip(hi_row) {
+                    *w_slot -= err * h_val;
+                }
+            }
+
+            let blk_out_idx = (o * n_blocks + bi) * Q4_K_BLOCK_BYTES;
+            let blk_out = &mut out_bytes[blk_out_idx..blk_out_idx + Q4_K_BLOCK_BYTES];
+            blk_out[0..2].copy_from_slice(&d_bits.to_le_bytes());
+            blk_out[2..4].copy_from_slice(&m_bits.to_le_bytes());
+            blk_out[4..4 + Q4_K_SCALE_SIZE].copy_from_slice(&sc12);
+
+            let qs = &mut blk_out[4 + Q4_K_SCALE_SIZE..];
+            for b in 0..4 {
+                for l in 0..32 {
+                    qs[32 * b + l] = codes[64 * b + l] | (codes[64 * b + 32 + l] << 4);
+                }
+            }
+
+            g0 = g1;
+            bi += 1;
+        }
+    }
+    Ok(out_bytes)
+}
+
 /// Relative output distortion `tr[(W−Ŵ) G (W−Ŵ)ᵀ] / tr[W G Wᵀ]` — the τ-metric the forward feels.
 ///
 /// Ported from `modelfold/src/quant.rs:299-320`.
@@ -653,6 +794,12 @@ fn balanced_trits(mut c: i32, l: usize) -> Vec<i8> {
 ///   Measure: heap buffers for the regularized Hessian $H$ ($n^2 \times 8$ bytes), the upper factor
 ///   $V$ ($n^2 \times 8$ bytes), and the resulting inverse factor $U$ ($n^2 \times 8$ bytes).
 fn feedback_hi(gram: &[f64], n: usize) -> Result<Vec<f64>, GptqError> {
+    feedback_hi_damped(gram, n, 0.01)
+}
+
+/// [`feedback_hi`] with an explicit damping fraction of `mean(diag(G))`; `damping = 0.01`
+/// reproduces [`feedback_hi`] exactly.
+fn feedback_hi_damped(gram: &[f64], n: usize, damping: f64) -> Result<Vec<f64>, GptqError> {
     if gram.len() != n * n || n == 0 {
         return Err(GptqError::ShapeMismatch);
     }
@@ -660,7 +807,7 @@ fn feedback_hi(gram: &[f64], n: usize) -> Result<Vec<f64>, GptqError> {
     if mean_diag.is_nan() {
         return Err(GptqError::NotPositiveDefinite);
     }
-    let damp = 0.01 * mean_diag;
+    let damp = damping * mean_diag;
     let mut h = gram.to_vec();
     for i in 0..n {
         h[i * n + i] += damp;
