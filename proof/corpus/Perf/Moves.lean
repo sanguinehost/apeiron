@@ -418,6 +418,15 @@ theorem p47_gu_coop_floor :
     537 * 18260 ≤ guBytes ∧ guBytes ≤ 731 * 13415 ∧ 24 * (18260 - 13415) = 116280 := by
   decide
 
+/-- FLASH-SPLIT-COMBINE (P48), `model` inputs from the FLASH-SCOPE digest at 8b57a7d: the combine
+folded into the `o` gemv reads `3584 · 112` bytes per layer against the standalone combine's
+`896 + 28672 + 3584`; a saving of 1670 ns per layer over 24 layers is 40080 ns per token, and on a
+1341 us token that is a tg ratio of at least 1.031. Arithmetic only; no hardware rate follows. -/
+theorem p48_flash_floor :
+    3584 * 112 = 401408 ∧ 896 + 28672 + 3584 = 33152 ∧ 24 * 1670 = 40080 ∧
+      1341 * 1000 ≤ 1031 * (1341 - 40) := by
+  decide
+
 end Moves
 
 end Perf
