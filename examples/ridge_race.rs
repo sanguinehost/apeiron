@@ -1,11 +1,15 @@
 //! `examples/ridge_race.rs` — the sparse fold + direct solve raced against the spinor-ttl
 //! reference (GPU fold vs full-batch Adam). The reference's `make_data` output is dumped to raw
 //! files (scratch python, `spinor-ttl`'s own `.venv`) so both arms see identical bytes; this
-//! example reads those files, runs [`FoldTrainer::fold_sparse`] + [`FoldTrainer::solve`], times the
-//! pair over 5 runs, and compares the f64 objective of the apeiron head to the reference fold
-//! objective.
+//! example reads those files, runs [`FoldTrainer::fold_sparse_par`] + [`FoldTrainer::solve_par`],
+//! times the fold and the solve *separately* over 5 runs (median and spread), and compares the f64
+//! objective of the apeiron head to the reference fold objective.
 //!
-//! Run: `ridge_race [data_dir]` (default `~/ridge-race/data`).
+//! `threads = 0` runs the pre-change serial attribution (`fold_sparse` + scalar `solve_spd`) so the
+//! before/after split is measured on one binary; `threads >= 1` runs the parallel arm.
+//!
+//! Run: `ridge_race [data_dir] [threads]` (defaults `~/ridge-race/data` and the
+//! process's available parallelism).
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -13,14 +17,17 @@
     clippy::many_single_char_names,
     clippy::similar_names,
     clippy::needless_range_loop,
+    clippy::too_many_lines,
     reason = "a measurement harness: raw-byte decoding and f64 statistics legitimately cross the \
-              integer/float and width boundaries, and the flat row-major kernels read as `r/i/k`."
+              integer/float and width boundaries, the flat row-major kernels read as `r/i/k`, and \
+              `main` is one linear per-config pass that keeps the attribution and race tables \
+              readable from a single loop."
 )]
 
 use std::path::Path;
 use std::time::Instant;
 
-use apeiron::learn::ridge::FoldTrainer;
+use apeiron::learn::ridge::{solve_spd, FoldTrainer};
 
 fn read_u32(p: &Path) -> Vec<u32> {
     let bytes = std::fs::read(p).unwrap_or_else(|e| panic!("read {}: {e}", p.display()));
@@ -75,16 +82,31 @@ fn objective_f64(
     obj
 }
 
+/// Median and (max − min) spread over `v`, sorted in place.
+fn median_spread(v: &mut [f64]) -> (f64, f64) {
+    v.sort_by(f64::total_cmp);
+    (v[v.len() / 2], v[v.len() - 1] - v[0])
+}
+
 fn main() {
-    let dir = std::env::args()
-        .nth(1)
+    let mut args = std::env::args().skip(1);
+    let dir = args
+        .next()
         .unwrap_or_else(|| "~/ridge-race/data".to_string());
     let dir = Path::new(&dir);
+    let avail = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    let threads: usize = args.next().map_or(avail, |s| s.parse().unwrap());
+    let serial = threads == 0;
 
     println!("cpu: {}", cpu_model());
     println!(
-        "available_parallelism: {}   fold_sparse+solve: single-threaded (no rayon / no threads)",
-        std::thread::available_parallelism().map_or(0, std::num::NonZeroUsize::get)
+        "available_parallelism: {avail}   arm: {}   threads: {}   runs: 5",
+        if serial {
+            "serial fold_sparse + scalar solve_spd (pre-change)"
+        } else {
+            "parallel fold_sparse_par + blocked solve_par"
+        },
+        threads
     );
 
     for ci in 0..3usize {
@@ -113,39 +135,82 @@ fn main() {
         assert_eq!(y.len(), rows, "y length");
         assert_eq!(w_ref.len(), d, "w_ref length");
 
-        // One untimed warmup (page-faults the fresh `d²` accumulator), then 5 timed runs.
+        // The fold's per-thread accumulator is `d²` f64, allocated fresh (lazy zero pages). A large-`d`
+        // fold is memory/page-bound, not thread-starved, so cap the partial count to keep the
+        // aggregate footprint within a few L3-cache sizes; the solve is compute-bound and keeps all
+        // `threads`.
+        let fold_threads = if serial {
+            0
+        } else {
+            threads.min(((100usize << 20) / (d * d * 8)).max(1))
+        };
+
+        // One untimed warmup (page-faults the fresh `d²` accumulator), then 5 timed runs. Fold and
+        // solve are timed separately so the attribution is per stage.
         {
             let mut t = FoldTrainer::new(d, 1, lam, false);
-            t.fold_sparse(&idxs, &vals, &y, rows, nnz).unwrap();
+            if serial {
+                t.fold_sparse(&idxs, &vals, &y, rows, nnz).unwrap();
+            } else {
+                t.fold_sparse_par(&idxs, &vals, &y, rows, nnz, fold_threads)
+                    .unwrap();
+            }
             let _ = t.solve(None).unwrap();
         }
-        let mut times = Vec::with_capacity(5);
-        let mut head_last = None;
+        let mut fold_times = Vec::with_capacity(5);
+        let mut solve_times = Vec::with_capacity(5);
+        let mut total_times = Vec::with_capacity(5);
+        let mut head_last: Option<Vec<f64>> = None;
         for _ in 0..5 {
             let mut t = FoldTrainer::new(d, 1, lam, false);
             let t0 = Instant::now();
-            t.fold_sparse(&idxs, &vals, &y, rows, nnz).unwrap();
-            let head = t.solve(None).unwrap();
-            times.push(t0.elapsed().as_secs_f64() * 1e3);
-            head_last = Some(head);
+            if serial {
+                t.fold_sparse(&idxs, &vals, &y, rows, nnz).unwrap();
+            } else {
+                t.fold_sparse_par(&idxs, &vals, &y, rows, nnz, fold_threads)
+                    .unwrap();
+            }
+            let t1 = Instant::now();
+            let w: Vec<f64> = if serial {
+                let mut a = t.drag().to_vec();
+                for i in 0..d {
+                    a[i * d + i] += lam;
+                }
+                solve_spd(&a, t.cross_term(), d, 1).unwrap()
+            } else {
+                let head = t.solve_par(None, threads).unwrap();
+                head.weight
+            };
+            let t2 = Instant::now();
+            fold_times.push((t1 - t0).as_secs_f64() * 1e3);
+            solve_times.push((t2 - t1).as_secs_f64() * 1e3);
+            total_times.push((t2 - t0).as_secs_f64() * 1e3);
+            head_last = Some(w);
         }
-        times.sort_by(f64::total_cmp);
-        let median = times[2];
-        let spread = times[4] - times[0];
-        let head = head_last.unwrap();
+        let (fold_med, fold_spread) = median_spread(&mut fold_times);
+        let (solve_med, solve_spread) = median_spread(&mut solve_times);
+        let (total_med, total_spread) = median_spread(&mut total_times);
+        let weight = head_last.unwrap();
 
-        let obj = objective_f64(&idxs, &vals, &y, &head.weight, lam, rows, nnz);
+        let obj = objective_f64(&idxs, &vals, &y, &weight, lam, rows, nnz);
         let rel = (obj - obj_fold).abs() / obj_fold.abs().max(1.0);
         let mut max_dw = 0.0f64;
         for i in 0..d {
-            max_dw = max_dw.max((head.weight[i] - f64::from(w_ref[i])).abs());
+            max_dw = max_dw.max((weight[i] - f64::from(w_ref[i])).abs());
         }
 
-        println!("config {ci}: rows={rows} D={d} nnz={nnz} lam={lam}");
         println!(
-            "  apeiron fold_sparse+solve ms: [{} {} {} {} {}]  median={median:.3} spread={spread:.3}",
-            times[0], times[1], times[2], times[3], times[4]
+            "config {ci}: rows={rows} D={d} nnz={nnz} lam={lam} fold_threads={fold_threads} solve_threads={threads}"
         );
+        println!(
+            "  apeiron fold ms:      [{} {} {} {} {}]  median={fold_med:.3} spread={fold_spread:.3}",
+            fold_times[0], fold_times[1], fold_times[2], fold_times[3], fold_times[4]
+        );
+        println!(
+            "  apeiron solve ms:     [{} {} {} {} {}]  median={solve_med:.3} spread={solve_spread:.3}",
+            solve_times[0], solve_times[1], solve_times[2], solve_times[3], solve_times[4]
+        );
+        println!("  apeiron fold+solve ms: median={total_med:.3} spread={total_spread:.3}");
         println!(
             "  obj apeiron(f64)={obj:.6}  obj ref fold={obj_fold:.6}  obj ref grad={obj_grad:.6}  iters={iters}  rel_diff={rel:.3e}"
         );
