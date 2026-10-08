@@ -199,10 +199,104 @@ impl GpuDecode {
                 };
                 let logits_map = vk.map(rb_mem).cast::<f32>();
 
-                let dec_prof = envu("DEC_PROF", 0) == 1;
+                let dec_prof = envu("DEC_PROF", 0);
                 let cb = vk.command_buffer();
                 vk.begin(cb);
-                let (prof_pool, prof_labels, n_disp) = if dec_prof {
+                let (prof_pool, prof_labels, n_disp) = if dec_prof >= 2 {
+                    // Lower-overhead in-chain schemes (DECODE-ATTRIB T5). `DEC_PROF` selects the
+                    // stamp set and the `vkCmdWriteTimestamp2` stage:
+                    //   2 sparse / 3 full  at `STAGE_ALL_COMMANDS`;
+                    //   4 sparse / 5 full  at `STAGE_BOTTOM_OF_PIPE`;
+                    //   6 sparse / 7 full  at `VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT`.
+                    // Sparse stamps the embed, each layer's first node and its `dn` node, and the
+                    // five tail nodes (54 stamps); full stamps every node (126 stamps). One
+                    // trailing stamp closes the last interval in either case.
+                    let sparse = matches!(dec_prof, 2 | 4 | 6);
+                    let stage = match dec_prof {
+                        4 | 5 => STAGE_BOTTOM_OF_PIPE,
+                        6 | 7 => STAGE2_COMPUTE,
+                        _ => STAGE_ALL_COMMANDS,
+                    };
+                    // A recorded node is a `Step` (embed, final norms, argmax) or a `Node`
+                    // (layer nodes, LM head).
+                    enum Item<'a> {
+                        S(&'a Step),
+                        N(&'a Node),
+                    }
+                    let mut flat: Vec<(Item, String)> = Vec::new();
+                    let mut stamp: Vec<bool> = Vec::new();
+                    flat.push((Item::S(&embed_node), "- embed".to_string()));
+                    stamp.push(true);
+                    for li in 0..ec.n_layer {
+                        let ln = &layers[li];
+                        let base = flat.len();
+                        // The sparse scheme stamps only the first node and the `dn` node, so the
+                        // first interval spans qkv..gu and is labelled `pre`; the full scheme
+                        // stamps every node and keeps the per-role names.
+                        if ln.len() == 5 {
+                            let roles = ["qkv", "rope/flash", "o", "gu", "dn"];
+                            for (i, (n, r)) in ln.iter().zip(roles).enumerate() {
+                                let lab = if sparse && i == 0 { "pre" } else { r };
+                                flat.push((Item::N(n), format!("{li} {lab}")));
+                            }
+                        } else {
+                            flat.push((
+                                Item::N(&ln[0]),
+                                format!("{li} {}", if sparse { "pre" } else { "qkv" }),
+                            ));
+                            for n in &ln[1..ln.len() - 3] {
+                                let name = match n {
+                                    Node::Step(s) => s.name,
+                                    Node::Gemv(_) => "rope/flash",
+                                };
+                                flat.push((Item::N(n), format!("{li} {name}")));
+                            }
+                            flat.push((Item::N(&ln[ln.len() - 3]), format!("{li} o")));
+                            flat.push((Item::N(&ln[ln.len() - 2]), format!("{li} gu")));
+                            flat.push((Item::N(&ln[ln.len() - 1]), format!("{li} dn")));
+                        }
+                        let dn = base + ln.len() - 1;
+                        for i in base..flat.len() {
+                            stamp.push(!sparse || i == base || i == dn);
+                        }
+                    }
+                    flat.push((Item::S(&final_rms), "- final_rms".to_string()));
+                    stamp.push(true);
+                    flat.push((Item::S(&final_rms_f32), "- final_rms_f32".to_string()));
+                    stamp.push(true);
+                    flat.push((Item::N(&lm_head), "- lm_head".to_string()));
+                    stamp.push(true);
+                    flat.push((Item::S(&amax1), "- amax1".to_string()));
+                    stamp.push(true);
+                    flat.push((Item::S(&amax2), "- amax2".to_string()));
+                    stamp.push(true);
+                    let labels: Vec<String> = flat
+                        .iter()
+                        .zip(&stamp)
+                        .filter(|(_, s)| **s)
+                        .map(|((_, l), _)| l.clone())
+                        .collect();
+                    let npool = labels.len() as u32 + 1;
+                    let pool = vk.timestamp_pool(npool);
+                    vk.cmd_reset_timestamps(cb, &pool);
+                    let mut q = 0u32;
+                    let mut n_disp = 0u32;
+                    for ((item, _), s) in flat.iter().zip(&stamp) {
+                        if *s {
+                            vk.cmd_write_timestamp(cb, &pool, stage, q);
+                            q += 1;
+                        }
+                        n_disp += match item {
+                            Item::S(st) => rec_step(&vk, cb, st),
+                            Item::N(Node::Step(st)) => rec_step(&vk, cb, st),
+                            Item::N(Node::Gemv(gm)) => rec_gemv(&vk, cb, gm),
+                        };
+                    }
+                    vk.cmd_write_timestamp(cb, &pool, stage, q);
+                    q += 1;
+                    assert_eq!(q, npool);
+                    (Some(pool), labels, n_disp)
+                } else if dec_prof == 1 {
                     let mut labels = Vec::new();
                     labels.push("- embed".to_string());
                     for li in 0..ec.n_layer {

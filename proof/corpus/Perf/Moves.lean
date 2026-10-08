@@ -525,6 +525,23 @@ theorem p58_refutation_arithmetic :
     907000 * 14 ≤ 13074432 ∧ 13074432 ≤ 907000 * 15 := by
   decide
 
+/-- P60: the `DEC_PROF` in-chain profiler overhead as a stamp count times a per-stamp drain cost,
+and the sparse scheme's stamp arithmetic. P58 measured 176.5 µs overhead for the 127-stamp
+`STAGE_ALL_COMMANDS` scheme on mask 0 (1.39 µs/stamp) and 24.1 µs on mask 8 (0.19 µs/stamp); the
+sparse scheme stamps the embed, each layer's first and `dn` nodes and the five tail nodes
+(1 + 24 + 24 + 5 = 54 stamped nodes, 55 stamps). At the mask-0 per-stamp cost that is 76.45 µs,
+above 5 % of the 1246.5 µs mask-0 token; at the mask-8 cost it is 10.45 µs, below 5 % of the
+1174.1 µs mask-8 token. Arithmetic over stated stamp counts and P58's measured per-stamp
+constants; the overhead verdict stays `measured`. -/
+theorem p60_overhead_arithmetic :
+    1 + 24 + 24 + 5 + 1 = 55 ∧
+    127 * 139 ≤ 17653 ∧ 17653 ≤ 127 * 140 ∧
+    127 * 19 ≤ 2413 ∧ 2413 ≤ 127 * 20 ∧
+    100 * 17653 > 5 * 124650 ∧
+    100 * (55 * 139) > 5 * 124650 ∧
+    100 * (55 * 19) < 5 * 117410 := by
+  decide
+
 end Moves
 
 end Perf
