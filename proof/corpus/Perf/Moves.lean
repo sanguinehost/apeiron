@@ -333,6 +333,20 @@ is at most 31, so one block's dot stays below `2^17`; the single-plane bound (co
 theorem q5_coopmat_dot_under_magic : chartBlockDotBound 31 < 2 ^ 17 ∧ chartBlockDotBound 255 < 2 ^ 22 := by
   unfold chartBlockDotBound; decide
 
+/-- Global words per row of the `Carrier::Q6` chart: plane A `k/8` (low 4 bits), plane B `k/16` (high
+2 bits, two words per 32-block), `dm` `k/32` (`f16(d) ‖ sc_a ‖ sc_b`), 0.875 B/w. `model` input read
+from `Carrier::Q6.code_words_per_row` (`src/simt/mod.rs`). -/
+def q6RowWords (k : Nat) : Nat := k / 8 + k / 16 + k / 32
+
+/-- **P43 (Q6 chart).** On every 32-aligned depth the Q6 chart streams exactly seven ninths of the
+Q8 re-chart's words (`k = 32 j`: `7 j` against `9 j`). -/
+theorem q6_row_words_seven_ninths (k : Nat) (h : 32 ∣ k) : 9 * q6RowWords k = 7 * q8RowWords k := by
+  obtain ⟨j, rfl⟩ := h
+  unfold q6RowWords q8RowWords
+  omega
+
+#guard q6RowWords 4864 = 1064 ∧ q8RowWords 4864 = 1368
+
 end Moves
 
 end Perf
