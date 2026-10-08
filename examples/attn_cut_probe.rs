@@ -747,6 +747,22 @@ fn run(path: &str) -> Result<bool, Box<dyn Error>> {
         let (wv, ni, no) = weight(&eng, &format!("blk.{l}.attn_v.weight"))?;
         let v = gemm(&wv, no, ni, &xn, np * T, bv.as_deref(), nth);
         drop(wv);
+        // QK_DUMP=<dir>: prompt 0's unrotated q and k per layer, f32 LE, for the
+        // faces-review slope decomposition (rope applied offline from cs).
+        if let Some(dir) = std::env::var_os("QK_DUMP") {
+            let dir = std::path::PathBuf::from(dir);
+            let le = |v: &[f32]| v.iter().flat_map(|f| f.to_le_bytes()).collect::<Vec<u8>>();
+            std::fs::write(dir.join(format!("q{l}.bin")), le(&q[..T * nh * HD]))?;
+            std::fs::write(dir.join(format!("k{l}.bin")), le(&k[..T * nkv * HD]))?;
+            if l == 0 {
+                let c: Vec<u8> = cs
+                    .iter()
+                    .flat_map(|&(c, s)| [c, s])
+                    .flat_map(f64::to_le_bytes)
+                    .collect();
+                std::fs::write(dir.join("cs.bin"), c)?;
+            }
+        }
         for pp in 0..np * T {
             let pos = pp % T;
             rot(&mut q[pp * nh * HD..(pp + 1) * nh * HD], nh, pos);
