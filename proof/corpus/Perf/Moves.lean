@@ -403,6 +403,21 @@ theorem q6_coopmat_half_split (t : Nat → Int) (sa sb : Int) (m n : Nat) :
       sa * rsum t m + sb * (rsum (fun k => t (m + k)) n + t (m + n))
     rw [ih, if_neg hn, Int.mul_add, Int.add_assoc]
 
+/-! ## P47: the `gu` cooperative prologue at the cooperative byte rate
+
+`model` inputs from `DECODE-RANK` (021ab9d): the `gu` site streams `9805824` chart bytes per call;
+the served row mapping runs at `537` B/ns, the cooperative mapping's microbench at `731` B/ns.
+Time in ns is bytes over rate. -/
+
+/-- `gu` chart bytes per call (P38 site table, Q4 arm), `model`. -/
+def guBytes : Nat := 9805824
+
+/-- At 537 B/ns the call takes at least 18260 ns; at 731 B/ns it fits in 13415 ns; over 24 layers
+the difference is 116280 ns per token. Arithmetic on `model` inputs; no hardware rate follows. -/
+theorem p47_gu_coop_floor :
+    537 * 18260 ≤ guBytes ∧ guBytes ≤ 731 * 13415 ∧ 24 * (18260 - 13415) = 116280 := by
+  decide
+
 end Moves
 
 end Perf
