@@ -2231,6 +2231,118 @@ example : ∃ (t t' : Tbl (hashtrinity.algebra.Regen U64)),
     (by intro ov hsome; rw [hovt] at hsome; exact absurd hsome (by simp))
   exact ⟨t, t', hwb, ht'⟩
 
+/-! ### `place_capped` preserves the initialised-value domain
+
+`resize`'s main-slot loop calls `place_capped` on the growing table once per live key, and the call
+needs `place_capped_ok`'s `hinit` premise on the table at that point.  `BigInit` is that premise in a
+coordinate-independent form — every non-reserved main slot holds an initialised value — and
+`place_capped_bigInit` carries it across one call.  A non-reserved slot can only ever be written with
+an initialised value, so the property is preserved by all three verdicts. -/
+
+/-- Every non-reserved main coordinate of `t` sits at an initialised value. -/
+def BigInit {KS : Type} (t : Tbl KS) : Prop :=
+  ∀ (i : Nat) (c : U64), t.coords.val[i]? = some c → ¬ IsSent c →
+    ∃ z, t.vals.val[i]? = some (some z)
+
+theorem place_capped_bigInit {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (t t' : Tbl KS) (c : U64) (v : I64)
+    (h : hashtrinity.Table.place_capped core.cmp.EqU64 CI ks t c c v = ok t')
+    (hI : BigInit t) : BigInit t' := by
+  unfold hashtrinity.Table.place_capped at h
+  obtain ⟨r, hr, h⟩ := bind_inv h
+  cases r with
+  | Blocked =>
+    obtain ⟨bo, -, h⟩ := bind_inv h
+    unfold core.option.Option.as_mut at h
+    obtain ⟨⟨o1, backo⟩, -, h⟩ := bind_inv h
+    cases o1 with
+    | none => exact absurd h (by intro hh; exact ok_not_fail hh.symm)
+    | some ov =>
+      change (do
+        let (_, ov1) ← hashtrinity.overflow.Overflow.insert_new_at CI ov c c v
+        ok ({ t with overflow := backo (some ov1) } : Tbl KS)) = ok t' at h
+      obtain ⟨a, hins, h⟩ := bind_inv h
+      rcases a with ⟨⟨nd, e⟩, ov1⟩
+      have ht'' : t' = {t with overflow := backo (some ov1)} := (Result.ok_injective h).symm
+      subst ht''
+      exact hI
+  | Hit i =>
+    have hcx : t.coords.val[i.val]? = some c :=
+      probe_capped_keyed_slot_weak ks t c c (hashtrinity.Capped.Hit i) hr
+    obtain ⟨⟨mu, back⟩, hg, h⟩ := bind_inv h
+    obtain ⟨hmu, hback⟩ := get_unchecked_mut_ok t.vals i mu back hg
+    obtain ⟨old, -, h⟩ := bind_inv h
+    obtain ⟨-, -, h⟩ := bind_inv h
+    obtain ⟨mu1, hnew, h⟩ := bind_inv h
+    obtain ⟨⟨x2, back1⟩, hg1, h⟩ := bind_inv h
+    obtain ⟨hx2, hback1⟩ := get_unchecked_mut_ok (back mu) i x2 back1 hg1
+    have hmu1 : mu1 = some v := (Result.ok_injective hnew).symm
+    have ht' : t' = {t with vals := back1 mu1} := (Result.ok_injective h).symm
+    subst ht'
+    have hlt : i.val < t.vals.length := by
+      have h1 : i.val < (back mu).val.length := (List.getElem?_eq_some_iff.mp hx2).1
+      have h2 : (back mu).val.length = t.vals.length := by
+        rw [hback, Slice.set_val_eq, List.length_set]
+      omega
+    have hlt' : i.val < (t.vals.set i mu).length := by
+      rw [slice_set_length]; exact hlt
+    intro j c' hc' hns'
+    have hc0 : t.coords.val[j]? = some c' := by simpa using hc'
+    by_cases hji : j = i.val
+    · subst hji
+      refine ⟨v, ?_⟩
+      have hb1 : ({t with vals := back1 mu1} : Tbl KS).vals.val =
+          (Slice.set (t.vals.set i mu) i mu1).val := by
+        show (back1 mu1).val = _
+        rw [hback1, hback]
+      rw [hb1, slice_set_getElem, if_pos ⟨rfl, hlt'⟩, hmu1]
+    · refine ?_
+      have hb1 : ({t with vals := back1 mu1} : Tbl KS).vals.val =
+          (Slice.set (t.vals.set i mu) i mu1).val := by
+        show (back1 mu1).val = _
+        rw [hback1, hback]
+      rw [hb1, slice_set_getElem, if_neg (by rintro ⟨h1, _⟩; exact hji h1),
+        slice_set_getElem, if_neg (by rintro ⟨h1, _⟩; exact hji h1)]
+      exact hI j c' hc0 hns'
+  | Vacant i =>
+    obtain ⟨x1, hcx, hx1e⟩ :=
+      probe_capped_keyed_slot_weak ks t c c (hashtrinity.Capped.Vacant i) hr
+    obtain ⟨⟨x0, backc⟩, hgc, h⟩ := bind_inv h
+    obtain ⟨mu, hnew, h⟩ := bind_inv h
+    obtain ⟨⟨y, backv⟩, hgv, h⟩ := bind_inv h
+    obtain ⟨tk, hset, h⟩ := bind_inv h
+    obtain ⟨i1, hi1, h⟩ := bind_inv h
+    obtain ⟨hx0, hbackc⟩ := get_unchecked_mut_ok t.coords i x0 backc hgc
+    obtain ⟨hy, hbackv⟩ := get_unchecked_mut_ok t.vals i y backv hgv
+    have hmu : mu = some v := (Result.ok_injective hnew).symm
+    have ht' : t' = {t with coords := backc c, vals := backv mu, keys := tk, len := i1} :=
+      (Result.ok_injective h).symm
+    subst ht'
+    have hltv : i.val < t.vals.length := (List.getElem?_eq_some_iff.mp hy).1
+    have hltc : i.val < t.coords.length := (List.getElem?_eq_some_iff.mp hx0).1
+    intro j c' hc' hns'
+    by_cases hji : j = i.val
+    · subst hji
+      refine ⟨v, ?_⟩
+      have hb : ({t with coords := backc c, vals := backv mu, keys := tk, len := i1} : Tbl KS).vals.val =
+          (Slice.set t.vals i mu).val := by
+        show (backv mu).val = _
+        rw [hbackv]
+      rw [hb, slice_set_getElem, if_pos ⟨rfl, hltv⟩, hmu]
+    · refine ?_
+      have hcj : t.coords.val[j]? = some c' := by
+        have h1 := hc'
+        rw [hbackc, slice_set_getElem, if_neg (by rintro ⟨h1, _⟩; exact hji h1)] at h1
+        exact h1
+      obtain ⟨z, hz⟩ := hI j c' hcj hns'
+      refine ⟨z, ?_⟩
+      have hb : ({t with coords := backc c, vals := backv mu, keys := tk, len := i1} : Tbl KS).vals.val =
+          (Slice.set t.vals i mu).val := by
+        show (backv mu).val = _
+        rw [hbackv]
+      rw [hb, slice_set_getElem, if_neg (by rintro ⟨h1, _⟩; exact hji h1)]
+      exact hz
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.ov_h_ok
@@ -2267,5 +2379,6 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.probe_capped_cold_slot_weak
 #audit Apeiron.MapExecuted.probe_capped_keyed_slot_weak
 #audit Apeiron.MapExecuted.place_capped_ok
+#audit Apeiron.MapExecuted.place_capped_bigInit
 #audit Apeiron.MapExecuted.shl_1_1
 #audit Apeiron.MapExecuted.with_bits1_RKS_ex
