@@ -857,6 +857,26 @@ pub fn flash_partial_bytes(
         nh, nkv, hd, tmax, scale, nsplit, blk, knot, compact, v8, nb_list,
     ))
 }
+/// [`flash_partial_fold_module`] as bytes — `flash_partial` with the `fused_rope_kv_fold` prologue
+/// folded in (the `DEC_ROPEFLASH` path).
+#[allow(clippy::too_many_arguments)]
+pub fn flash_partial_fold_bytes(
+    nh: u32,
+    nkv: u32,
+    hd: u32,
+    tmax: u32,
+    scale: f32,
+    nsplit: u32,
+    blk: u32,
+    theta: f32,
+    segs: u32,
+    bias: bool,
+    rope_dims: u32,
+) -> Vec<u8> {
+    bytes(flash_partial_fold_module(
+        nh, nkv, hd, tmax, scale, nsplit, blk, theta, segs, bias, rope_dims,
+    ))
+}
 /// `theta_scan_module` as bytes.
 pub fn theta_scan_bytes(
     nh: u32,

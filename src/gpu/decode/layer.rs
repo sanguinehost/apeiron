@@ -362,47 +362,80 @@ pub unsafe fn record_layer(
     if let Some(b) = l.qkv_b {
         bufs.push(b);
     }
-    nodes.push(Node::Step(make_step_named(
-        g,
-        &fused_rope_kv_fold_bytes(
-            nh,
-            nkv,
-            hd,
-            tmax,
-            c.theta,
-            0,
-            s_qkv,
-            l.qkv_b.is_some(),
-            c.rope_dims,
-            false,
-        ),
-        &bufs,
-        nh + nkv,
-        1,
-        "fused_rope_kv_fold",
-    )));
-    nodes.push(Node::Step(make_step_named(
-        g,
-        &flash_partial_bytes(
-            nh,
-            nkv,
-            hd,
-            tmax,
-            c.scale(),
-            nsplit,
-            64,
-            false,
-            false,
-            false,
-            0,
-        ),
-        &[
-            sc.qkv, l.kcq, l.vc, sc.part_o, sc.part_m, sc.part_l, sc.params, l.sk,
-        ],
-        nh * nsplit,
-        1,
-        "flash_partial",
-    )));
+    if envu("DEC_ROPEFLASH", 0) == 1 {
+        // `DEC_ROPEFLASH`: the `fused_rope_kv_fold` Step and its pipeline barrier are folded into
+        // `flash_partial`'s prologue — one dispatch instead of two. `sc.qkv` is written by neither
+        // step on this path and nothing downstream reads it (only `flash_partial` did), so the
+        // prologue computes q straight into workgroup memory.
+        let mut bufs = vec![
+            l.kcq, l.vc, sc.part_o, sc.part_m, sc.part_l, sc.params, l.sk, sc.qkvp,
+        ];
+        if let Some(b) = l.qkv_b {
+            bufs.push(b);
+        }
+        nodes.push(Node::Step(make_step_named(
+            g,
+            &flash_partial_fold_bytes(
+                nh,
+                nkv,
+                hd,
+                tmax,
+                c.scale(),
+                nsplit,
+                64,
+                c.theta,
+                s_qkv,
+                l.qkv_b.is_some(),
+                c.rope_dims,
+            ),
+            &bufs,
+            nh * nsplit,
+            1,
+            "flash_partial_fold",
+        )));
+    } else {
+        nodes.push(Node::Step(make_step_named(
+            g,
+            &fused_rope_kv_fold_bytes(
+                nh,
+                nkv,
+                hd,
+                tmax,
+                c.theta,
+                0,
+                s_qkv,
+                l.qkv_b.is_some(),
+                c.rope_dims,
+                false,
+            ),
+            &bufs,
+            nh + nkv,
+            1,
+            "fused_rope_kv_fold",
+        )));
+        nodes.push(Node::Step(make_step_named(
+            g,
+            &flash_partial_bytes(
+                nh,
+                nkv,
+                hd,
+                tmax,
+                c.scale(),
+                nsplit,
+                64,
+                false,
+                false,
+                false,
+                0,
+            ),
+            &[
+                sc.qkv, l.kcq, l.vc, sc.part_o, sc.part_m, sc.part_l, sc.params, l.sk,
+            ],
+            nh * nsplit,
+            1,
+            "flash_partial",
+        )));
+    }
     // the split-K attention merge IS the o-projection's activation
     nodes.push(Node::Gemv(make_actq_gemv(
         g,
