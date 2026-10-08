@@ -1,5 +1,7 @@
 -- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe` (APEIRON-HT-READ): `SelectedFace` rebased onto the executed body.
 import Map.ExecutedRead
+import Map.ExecutedBuild
+import Map.ExecutedReadUncond
 import Map.Selected
 
 /-!
@@ -88,6 +90,64 @@ theorem selectedReadRep_of_tableRep
     refine ⟨by rw [hrd]; exact hnone hnl, ?_⟩
     simp [Apeiron.Table.get, hnl]
 
+/-! ## The read contract on reachable build states
+
+`selectedReadRep_of_tableRep` still takes `hok`, the premise that the executed read returns `ok`,
+because this tree proves partial correctness only.  On the states the executed build actually
+reaches, the representation is `build_refines`' `MapRep s (Apeiron.Table.build (fun new _ => new)
+0#i64 xs) (· ∈ xs.map Prod.fst)`, so `live` is the key set of the stream, the canonical map is the
+canonical last-write build, and the AVX2 premise is discharged by `avx2_spec_holds`. -/
+
+open Classical in
+/-- **`SelectedReadRep` on every reachable build state.**  From `execBuild n xs = ok s`, the
+executed face `executedFace enc` satisfies the read contract at live set `enc key ∈ xs.map Prod.fst`
+and canonical map `Apeiron.Table.get (Apeiron.Table.build (fun new _ => new) 0#i64 xs)`, with the
+AVX2 premise discharged by `avx2_spec_holds`. -/
+theorem selectedReadRep_reachable
+    (enc : MapKey → U64) (n : Usize) (xs : List (U64 × I64)) (hlen : xs.length < nilN)
+    (s : Tbl (hashtrinity.algebra.Stored U64)) (h : execBuild n xs = ok s)
+    (hok : ∀ key, ∃ r, word_hashtrinity_get s (enc key) = ok r)
+    (default : I64) :
+    SelectedReadRep (executedFace enc) s (fun key => enc key ∈ xs.map Prod.fst)
+      (fun key => if enc key ∈ xs.map Prod.fst then
+        Apeiron.Table.get (Apeiron.Table.build (fun new _ => new) 0#i64 xs) (enc key)
+        else default) default := by
+  obtain ⟨hR, _⟩ := build_refines n xs hlen s h
+  have h := selectedReadRep_of_tableRep (fun _ => avx2_spec_holds) enc s
+    (Apeiron.Table.build (fun new _ => new) 0#i64 xs) (fun c => c ∈ xs.map Prod.fst) hR.1
+    default hok
+  refine ⟨fun key => h.liveSet key, ?_, ?_⟩
+  · intro key hlive
+    rw [h.get_live key hlive]
+    congr 1
+    simp only [Apeiron.Table.get]
+    rw [if_pos hlive, if_pos hlive]
+  · intro key hnot
+    obtain ⟨h1, h2⟩ := h.get_absent key hnot
+    exact ⟨h1, by simp only [Apeiron.Table.get]; exact if_neg hnot⟩
+
+open Classical in
+/-- **The executed read refines the canonical build read on every reachable state, with no `hA`,
+no `hbridge` and no `TableRep` premise.**  Reading `executedFace enc` at `s` (a state
+`execBuild n xs` reaches) answers `some value` exactly when `enc key` is a key of the stream and the
+canonical last-write build reads `value` there (the default off the key set).  The AVX2 premise is
+`avx2_spec_holds`; the residual premise is `hok`, the partial-correctness boundary of the extracted
+body. -/
+theorem executed_get_refines_canonical_get_reachable
+    (enc : MapKey → U64) (n : Usize) (xs : List (U64 × I64)) (hlen : xs.length < nilN)
+    (s : Tbl (hashtrinity.algebra.Stored U64)) (h : execBuild n xs = ok s)
+    (hok : ∀ key, ∃ r, word_hashtrinity_get s (enc key) = ok r)
+    (default : I64) (key : MapKey) (value : I64) :
+    (executedFace enc).read s key = some value ↔
+      (enc key ∈ xs.map Prod.fst) ∧
+      (if enc key ∈ xs.map Prod.fst then
+        Apeiron.Table.get (Apeiron.Table.build (fun new _ => new) 0#i64 xs) (enc key)
+        else default) = value := by
+  have hrep := selectedReadRep_reachable enc n xs hlen s h hok default
+  exact selected_get_refines_canonical_get hrep key value
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.selectedReadRep_of_tableRep
+#audit Apeiron.MapExecuted.selectedReadRep_reachable
+#audit Apeiron.MapExecuted.executed_get_refines_canonical_get_reachable
