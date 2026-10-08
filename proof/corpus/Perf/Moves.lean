@@ -437,6 +437,15 @@ theorem p49_resid_once_floor :
       103 * (1341 - 43) ≤ 100 * 1341 := by
   decide
 
+/-- P50 (model): carrier selection. Per 32 weights the Q8 chart stores 32 code bytes and one 4-byte
+scale (36 B, 1.125 B/w); the Q5_0 two-plane chart stores 16 nibble bytes, one high-bit word and one
+`dm` word (24 B, 0.75 B/w); the Q6_K two-plane chart stores 16 nibble bytes, two high-bit words and
+one `dm` word (28 B, 0.875 B/w). Selected groups stream 2/3 (Q5_0) and 7/9 (Q6_K) of their Q8 bytes.
+Arithmetic only; no hardware rate follows. -/
+theorem p50_selection_bytes :
+    32 + 4 = 36 ∧ 16 + 4 + 4 = 24 ∧ 16 + 8 + 4 = 28 ∧ 3 * 24 = 2 * 36 ∧ 9 * 28 = 7 * 36 := by
+  decide
+
 end Moves
 
 end Perf
