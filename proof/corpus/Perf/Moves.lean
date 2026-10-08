@@ -511,6 +511,20 @@ theorem p57_dn_byte_difference :
     2 * 1089536 < 3 * 907000 := by
   decide
 
+/-- P58 (refuted) and P59: the arithmetic of the in-chain profile in centi-microseconds. The role
+sums 20.15 + 25.06 + 23.27 + 24.10 + 24.53 + 12.25 + 4.84 make d = 134.20 us; the 12 Q6_K dn nodes
+carry under a quarter of it (refutation clause); the mask-0 profiled rate 702.8 tok/s sits more than
+5% under the unprofiled 802.3 (overhead clause); dn-Q6K − dn-Q4K is 12.28 us, against the 14.4 us
+byte roofline of the 13074432 B dn difference at 907 GB/s. Arithmetic over measured values; the
+timing verdict stays `measured`. -/
+theorem p58_refutation_arithmetic :
+    2015 + 2506 + 2327 + 2410 + 2453 + 1225 + 484 = 13420 ∧
+    4 * 2453 < 13420 ∧
+    7028 * 100 < 8023 * 95 ∧
+    2453 - 1225 = 1228 ∧
+    907000 * 14 ≤ 13074432 ∧ 13074432 ≤ 907000 * 15 := by
+  decide
+
 end Moves
 
 end Perf

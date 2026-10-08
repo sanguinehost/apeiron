@@ -10,7 +10,7 @@
 //! QK-norm, attention gate, knot or compact pool), the fused default path only (`DEC_FOLD`,
 //! `DEC_FUSENORM`, `DEC_ACTQFUSE`, `DEC_COMBFUSE`, `DEC_ROPEFUSE` at 1), one `Carrier` for every
 //! projection, the embedding and the head on the `dm` scale face (no two-level or superblock
-//! face), no `DEC_PROF` timestamp pool, no `seed_kv` prefill bridge, no delta-net reset.
+//! face), no `seed_kv` prefill bridge, no delta-net reset.
 #![allow(
     clippy::all,
     clippy::pedantic,
@@ -26,6 +26,7 @@ use super::upload::{layer_cfg, upload_embed, upload_final_norm, upload_lm_head};
 use super::*;
 use crate::engine::loader::EngineConfig;
 use crate::format::gguf::Gguf;
+use crate::gpu::vulkan::QueryPool;
 
 /// A device-resident decode context producing host logits, the device-side greedy token and the
 /// final normed hidden per step.
@@ -46,6 +47,8 @@ pub struct GpuDecode {
     prefill: Option<PrefillStack>,
     /// Greedy token of the last [`GpuDecode::prefill`] until the next [`GpuDecode::step`].
     pf_argmax: Option<usize>,
+    prof_pool: Option<QueryPool>,
+    prof_labels: Vec<String>,
 }
 
 // SAFETY: `GpuDecode` owns its Vulkan context and its mapped host-visible buffers exclusively; the
@@ -77,7 +80,7 @@ impl GpuDecode {
             let vk = Vk::load()?;
             let c = layer_cfg(gguf, ec, tmax, carrier)?;
             let (hidden, vocab) = (c.hidden, ec.vocab_size as u32);
-            let (((n_disp, logits_map, params_map), prefill), cb) = {
+            let ((((n_disp, logits_map, params_map), prefill), (prof_pool, prof_labels)), cb) = {
                 let (g, _stage) = GpuCtx::new(&vk)?;
                 let sc = Scratch::new(&g, &c)?;
                 let embed = upload_embed(&g, gguf, &c, ec.vocab_size)?;
@@ -196,17 +199,86 @@ impl GpuDecode {
                 };
                 let logits_map = vk.map(rb_mem).cast::<f32>();
 
+                let dec_prof = envu("DEC_PROF", 0) == 1;
                 let cb = vk.command_buffer();
                 vk.begin(cb);
-                let mut n_disp = rec_step(&vk, cb, &embed_node);
-                for l in &layers {
-                    n_disp += rec_nodes(&vk, cb, l);
-                }
-                n_disp += rec_step(&vk, cb, &final_rms);
-                n_disp += rec_step(&vk, cb, &final_rms_f32);
-                n_disp += rec_nodes(&vk, cb, std::slice::from_ref(&lm_head));
-                n_disp += rec_step(&vk, cb, &amax1);
-                n_disp += rec_step(&vk, cb, &amax2);
+                let (prof_pool, prof_labels, n_disp) = if dec_prof {
+                    let mut labels = Vec::new();
+                    labels.push("- embed".to_string());
+                    for li in 0..ec.n_layer {
+                        let ln = &layers[li];
+                        if ln.len() == 5 {
+                            labels.push(format!("{li} qkv"));
+                            labels.push(format!("{li} rope/flash"));
+                            labels.push(format!("{li} o"));
+                            labels.push(format!("{li} gu"));
+                            labels.push(format!("{li} dn"));
+                        } else {
+                            labels.push(format!("{li} qkv"));
+                            for n in &ln[1..ln.len() - 3] {
+                                let name = match n {
+                                    Node::Step(s) => s.name,
+                                    Node::Gemv(_) => "rope/flash",
+                                };
+                                labels.push(format!("{li} {name}"));
+                            }
+                            labels.push(format!("{li} o"));
+                            labels.push(format!("{li} gu"));
+                            labels.push(format!("{li} dn"));
+                        }
+                    }
+                    labels.push("- final_rms".to_string());
+                    labels.push("- final_rms_f32".to_string());
+                    labels.push("- lm_head".to_string());
+                    labels.push("- amax1".to_string());
+                    labels.push("- amax2".to_string());
+
+                    let pool = vk.timestamp_pool(labels.len() as u32 + 1);
+                    vk.cmd_reset_timestamps(cb, &pool);
+                    let mut q = 0u32;
+                    vk.cmd_write_timestamp(cb, &pool, STAGE_ALL_COMMANDS, q);
+                    q += 1;
+                    let mut n_disp = rec_step(&vk, cb, &embed_node);
+                    for l in &layers {
+                        for n in l {
+                            vk.cmd_write_timestamp(cb, &pool, STAGE_ALL_COMMANDS, q);
+                            q += 1;
+                            n_disp += match n {
+                                Node::Step(s) => rec_step(&vk, cb, s),
+                                Node::Gemv(gm) => rec_gemv(&vk, cb, gm),
+                            };
+                        }
+                    }
+                    vk.cmd_write_timestamp(cb, &pool, STAGE_ALL_COMMANDS, q);
+                    q += 1;
+                    n_disp += rec_step(&vk, cb, &final_rms);
+                    vk.cmd_write_timestamp(cb, &pool, STAGE_ALL_COMMANDS, q);
+                    q += 1;
+                    n_disp += rec_step(&vk, cb, &final_rms_f32);
+                    vk.cmd_write_timestamp(cb, &pool, STAGE_ALL_COMMANDS, q);
+                    q += 1;
+                    n_disp += rec_nodes(&vk, cb, std::slice::from_ref(&lm_head));
+                    vk.cmd_write_timestamp(cb, &pool, STAGE_ALL_COMMANDS, q);
+                    q += 1;
+                    n_disp += rec_step(&vk, cb, &amax1);
+                    vk.cmd_write_timestamp(cb, &pool, STAGE_ALL_COMMANDS, q);
+                    q += 1;
+                    n_disp += rec_step(&vk, cb, &amax2);
+                    vk.cmd_write_timestamp(cb, &pool, STAGE_ALL_COMMANDS, q);
+                    assert_eq!(q, labels.len() as u32);
+                    (Some(pool), labels, n_disp)
+                } else {
+                    let mut n_disp = rec_step(&vk, cb, &embed_node);
+                    for l in &layers {
+                        n_disp += rec_nodes(&vk, cb, l);
+                    }
+                    n_disp += rec_step(&vk, cb, &final_rms);
+                    n_disp += rec_step(&vk, cb, &final_rms_f32);
+                    n_disp += rec_nodes(&vk, cb, std::slice::from_ref(&lm_head));
+                    n_disp += rec_step(&vk, cb, &amax1);
+                    n_disp += rec_step(&vk, cb, &amax2);
+                    (None, Vec::new(), n_disp)
+                };
                 vk.barrier(
                     cb,
                     STAGE_COMPUTE,
@@ -234,7 +306,13 @@ impl GpuDecode {
                     ACCESS_HOST_READ,
                 );
                 check((vk.end_cb)(cb), "vkEndCommandBuffer");
-                (((n_disp, logits_map, sc.params_map), prefill), cb)
+                (
+                    (
+                        ((n_disp, logits_map, sc.params_map), prefill),
+                        (prof_pool, prof_labels),
+                    ),
+                    cb,
+                )
             };
             let hidden_map = logits_map.add(ec.vocab_size);
             let argmax_map = logits_map
@@ -254,6 +332,8 @@ impl GpuDecode {
                 n_disp,
                 prefill,
                 pf_argmax: None,
+                prof_pool,
+                prof_labels,
             })
         }
     }
@@ -321,5 +401,18 @@ impl GpuDecode {
     /// The final normed hidden of the step just run.
     pub fn last_hidden(&self) -> &[f64] {
         &self.hout
+    }
+
+    /// Per-node GPU-active microseconds of the decode step just run (requires `DEC_PROF=1`).
+    pub fn step_profile(&self) -> Option<Vec<(String, f64)>> {
+        let pool = self.prof_pool.as_ref()?;
+        let ts = unsafe { self.vk.read_timestamps(pool) };
+        let mut out = Vec::with_capacity(self.prof_labels.len());
+        for (i, label) in self.prof_labels.iter().enumerate() {
+            let ticks = (ts[i + 1] as i64).wrapping_sub(ts[i] as i64);
+            let us = ticks as f64 * self.vk.timestamp_period as f64 / 1000.0;
+            out.push((label.clone(), us));
+        }
+        Some(out)
     }
 }

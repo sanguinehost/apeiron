@@ -57,6 +57,7 @@ fn main() {
     };
     let tok_path = flag("--tokenizer")
         .unwrap_or_else(|| "~/models/qwen2.5-0.5b/tokenizer.json".into());
+    let prof = args.iter().any(|a| a == "--prof");
 
     let gguf = Gguf::open(path).expect("gguf open");
     let engine = Engine::open(path).expect("engine open");
@@ -117,9 +118,21 @@ fn main() {
     let (mut p, mut c) = (prefix_pos, prefix_tok);
     let mut mismatches = 0usize;
     let mut check_seq = Vec::with_capacity(gen_n);
+    let mut prof_acc: Vec<(String, f64)> = Vec::new();
     for _ in 0..gen_n {
         let h = host_argmax(gpu.step(p, c));
         let d = gpu.last_argmax();
+        if prof {
+            if let Some(sp) = gpu.step_profile() {
+                if prof_acc.is_empty() {
+                    prof_acc = sp;
+                } else {
+                    for (acc, (_, us)) in prof_acc.iter_mut().zip(sp.iter()) {
+                        acc.1 += us;
+                    }
+                }
+            }
+        }
         mismatches += usize::from(h != d);
         check_seq.push(d);
         c = d;
@@ -157,6 +170,15 @@ fn main() {
     println!(
         "  BENCH carrier={carrier_s} tg{gen_n}: mean {mean:.1} tok/s min {lo:.1} max {hi:.1} over {reps} reps"
     );
+    if prof && !prof_acc.is_empty() {
+        let mut prof_sum = 0f64;
+        for (label, total_us) in &prof_acc {
+            let mean_us = total_us / gen_n as f64;
+            prof_sum += mean_us;
+            println!("PROF {label} {mean_us:.3}");
+        }
+        println!("PROFSUM {prof_sum:.3}");
+    }
     // The Vulkan loader's atexit teardown intermittently segfaults (exit 139, after every line above
     // is printed) because `GpuDecode` is never destroyed; `_exit` skips it so `$?` carries the gate.
     use std::io::Write;
