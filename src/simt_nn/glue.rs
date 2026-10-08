@@ -725,6 +725,101 @@ pub fn argmax_finish_module(p_count: u32) -> Vec<u32> {
     });
     k.finish(1)
 }
+
+/// **Argmax stage 2 — the workgroup tree finish.** ONE workgroup of `WG = 256` invocations reduces
+/// the `P` (value, index) partial pairs of [`argmax_partial_module`] and writes the winning index
+/// into `params[1]` (byte offset 4, as u32) — exactly where [`argmax_finish_module`] writes it.
+///
+/// Lane `t` first scans the strided slice `partials[t], partials[t+WG], … < P` with the SAME take
+/// rule (greater value wins; equal value → LOWER GLOBAL INDEX wins), then stores its per-lane
+/// winner into workgroup memory and the `log₂(WG)` tree combines with the same rule. The rule is a
+/// total order on (value desc, index asc) and the partial indices are disjoint across lanes'
+/// slices, so the tree's winner is the global maximiser independent of the grouping — bit-identical
+/// to the serial finish.
+///
+/// Where the serial finish is one invocation walking `P` pairs serially, this spends `WG` lanes on
+/// the same `P` pairs: the finish stops being the `O(P)` bottleneck of the pair. Bindings:
+/// 0 = partials, 1 = params (rw). Dispatch (1,1,1) at LocalSize `WG`.
+pub fn argmax_finish_tree_module(p_count: u32) -> Vec<u32> {
+    const WG: u32 = 256;
+    let mut k = Kb::new();
+    let partials = k.ssbo_f(0);
+    let params = k.ssbo_u(1);
+    let i = k.gid_comp(0);
+    let bt = k.bool_t;
+    // Per-lane serial scan of the strided slice, the shipped stage-2 take rule.
+    let best = k.fvar_f();
+    let bi = k.fvar_f();
+    let neg = k.cf(-1.0e30);
+    k.store_var(best, neg);
+    let z = k.cf(0.0);
+    k.store_var(bi, z);
+    let cwg = k.cu(WG);
+    let cp = k.cu(p_count);
+    k.loop_step(i, cp, cwg, |k, j| {
+        let v = k.load_f(partials, j);
+        let b0 = k.load_var_f(best);
+        let cpp = k.cu(p_count);
+        let ji = k.iadd(j, cpp);
+        let idxf = k.load_f(partials, ji);
+        let gt = k.e(OP_FORD_GREATER_THAN, bt, &[v, b0]);
+        let eq = k.e(OP_FORD_EQUAL, bt, &[v, b0]);
+        let b1 = k.load_var_f(bi);
+        let lower = k.e(OP_FORD_LESS_THAN, bt, &[idxf, b1]);
+        let eqlow = k.e(OP_LOGICAL_AND, bt, &[eq, lower]);
+        let take = k.e(OP_LOGICAL_OR, bt, &[gt, eqlow]);
+        k.iff(take, |k| {
+            k.store_var(best, v);
+            k.store_var(bi, idxf);
+        });
+    });
+    // Workgroup tree: (value, index) pairs in workgroup memory, combined with the same rule.
+    let (sval, svalp) = k.shared_f32(WG);
+    let (sidx, sidxp) = k.shared_f32(WG);
+    let bf = k.load_var_f(best);
+    let bif = k.load_var_f(bi);
+    k.shared_store(sval, svalp, i, bf);
+    k.shared_store(sidx, sidxp, i, bif);
+    k.wg_barrier();
+    let mut stride = WG / 2;
+    while stride >= 1 {
+        let cs = k.cu(stride);
+        let lt = k.ult(i, cs);
+        k.iff(lt, |k| {
+            let a = k.shared_load(sval, svalp, i);
+            let ti = k.iadd(i, cs);
+            let b = k.shared_load(sval, svalp, ti);
+            let ai = k.shared_load(sidx, sidxp, i);
+            let bvi = k.shared_load(sidx, sidxp, ti);
+            // take `b` iff its value is greater, or equal with a lower global index.
+            let gt = k.e(OP_FORD_GREATER_THAN, bt, &[b, a]);
+            let eq = k.e(OP_FORD_EQUAL, bt, &[b, a]);
+            let lower = k.e(OP_FORD_LESS_THAN, bt, &[bvi, ai]);
+            let eqlow = k.e(OP_LOGICAL_AND, bt, &[eq, lower]);
+            let take = k.e(OP_LOGICAL_OR, bt, &[gt, eqlow]);
+            k.iff(take, |k| {
+                k.shared_store(sval, svalp, i, b);
+                k.shared_store(sidx, sidxp, i, bvi);
+            });
+        });
+        k.wg_barrier();
+        stride /= 2;
+    }
+    // Lane 0 writes the winning index into `params[1]` — the sampled token, never leaving the device.
+    let c0 = k.cu(0);
+    let is0 = k.e(OP_IEQ, bt, &[i, c0]);
+    k.iff(is0, |k| {
+        let win = k.shared_load(sidx, sidxp, c0);
+        let u = k.uint;
+        let tok = k.e(OP_CONVERT_F_TO_U, u, &[win]);
+        let psu = k.ptr_sb_u;
+        let c0b = k.cu(0);
+        let c1 = k.cu(1);
+        let ptr = k.e(OP_ACCESS_CHAIN, psu, &[params, c0b, c1]);
+        k.ins(OP_STORE, &[ptr, tok]);
+    });
+    k.finish(WG)
+}
 const OP_CONVERT_F_TO_U: u32 = 109;
 
 /// **The GPU-resident decode step: commit + advance.** The one on-device state transition that
@@ -955,6 +1050,10 @@ pub fn argmax_partial_bytes(n: u32, p: u32, local: u32) -> Vec<u8> {
 /// `argmax_finish_module` as bytes.
 pub fn argmax_finish_bytes(p: u32) -> Vec<u8> {
     bytes(argmax_finish_module(p))
+}
+/// `argmax_finish_tree_module` as bytes.
+pub fn argmax_finish_tree_bytes(p: u32) -> Vec<u8> {
+    bytes(argmax_finish_tree_module(p))
 }
 /// `commit_advance_module` as bytes.
 pub fn commit_advance_bytes(slot: u32) -> Vec<u8> {

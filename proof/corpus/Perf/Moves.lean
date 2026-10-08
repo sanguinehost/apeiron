@@ -466,6 +466,15 @@ theorem p54_ropeflash_install_band :
     1020 * 8678 ≤ 1000 * 8887 ∧ 1000 * 8887 ≤ 1070 * 8678 := by
   decide
 
+/-- P52 (model): the argmax tail pair. The lane probe priced the shipped pair (P = 256, serial
+finish) at 20.53 us and the P = 2048 tree pair at 6.16 us (hundredths): one pair per token saves
+14.37 us. On the P53 token (1125.2 us, in tenths) that saving reaches the predicted lower ratio
+1.008 and stays under the upper 1.02. Arithmetic only; no hardware rate follows. -/
+theorem p52_amax_tail :
+    2053 - 616 = 1437 ∧ 1008 * (11252 - 144) ≤ 1000 * 11252 ∧
+      1000 * 11252 ≤ 1020 * (11252 - 144) := by
+  decide
+
 end Moves
 
 end Perf

@@ -144,25 +144,45 @@ impl GpuDecode {
                     false,
                     ScaleFace::Dm32,
                 ));
-                let amaxp = g.dev(2 * AMAX_P as usize * 4);
+                // `DEC_AMAXP` = the argmax partial count `P`. Default `AMAX_P` (256): the two
+                // shipped Steps, byte-unchanged. Otherwise `P` lanes scan the logits in
+                // `P / 256` workgroups and the ONE-workgroup tree finish reduces the `P`
+                // partials, so the stage-2 serial walk over `P` no longer grows with `P`.
+                let amax_p = envu("DEC_AMAXP", AMAX_P);
+                assert!(
+                    amax_p >= 256 && amax_p % 256 == 0,
+                    "DEC_AMAXP={amax_p} must be a multiple of 256 at least 256"
+                );
+                let amaxp = g.dev(2 * amax_p as usize * 4);
                 // 8 bytes: `argmax_finish` writes the winner at BYTE OFFSET 4 (`params[1]`'s slot).
                 let amax_out = g.dev(8);
                 let amax1 = make_step_named(
                     &g,
-                    &argmax_partial_bytes(vocab, AMAX_P, 256),
+                    &argmax_partial_bytes(vocab, amax_p, 256),
                     &[logits, amaxp],
-                    1,
+                    amax_p / 256,
                     1,
                     "argmax_partial",
                 );
-                let amax2 = make_step_named(
-                    &g,
-                    &argmax_finish_bytes(AMAX_P),
-                    &[amaxp, amax_out],
-                    1,
-                    1,
-                    "argmax_finish",
-                );
+                let amax2 = if amax_p == AMAX_P {
+                    make_step_named(
+                        &g,
+                        &argmax_finish_bytes(amax_p),
+                        &[amaxp, amax_out],
+                        1,
+                        1,
+                        "argmax_finish",
+                    )
+                } else {
+                    make_step_named(
+                        &g,
+                        &argmax_finish_tree_bytes(amax_p),
+                        &[amaxp, amax_out],
+                        1,
+                        1,
+                        "argmax_finish",
+                    )
+                };
 
                 // `[vocab logits | hidden | argmax]` in one HOST_CACHED window.
                 let rbytes = (ec.vocab_size + hidden as usize + 1) as u64 * 4;
