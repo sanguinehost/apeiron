@@ -378,7 +378,7 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
         // the cooperative-matrix attention `prefill.rs` selects at `has_coopmat`, hd = 64
         (
             "attn_coopmat",
-            attn_prefill_coopmat_module(14, 2, 1152, 2048, 0.125),
+            attn_prefill_coopmat_module(14, 2, 1152, 2048, 0.125, 1),
         ),
         // the hd=128 dim-split tile `prefill.rs` selects (16 rows, ct=4 so hd/ct=32, kp=4): the K
         // slab is staged and scored in four 32-dim chunks through the same workgroup buffers
