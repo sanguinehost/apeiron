@@ -10,9 +10,13 @@
 
 use apeiron::format::gguf::parse_header;
 use apeiron::format::quant::{
-    dequant_q4_k_block, dequant_super_block, required_bytes, GGML_TYPE_Q4_K, Q4_K_BLOCK_BYTES, QK_K,
+    dequant_q4_k_block, dequant_q6_k_block, dequant_super_block, f16_to_f32, q5_0_codes, q5_0_d,
+    required_bytes, GGML_TYPE_Q4_K, Q4_K_BLOCK_BYTES, Q5_0_BLOCK_BYTES, Q6_K_BLOCK_BYTES, QK_K,
 };
-use apeiron::learn::seal::{channel_energy, quantize_matrix_q4_k, quantize_row_q4_k, SealError};
+use apeiron::learn::seal::{
+    channel_energy, quantize_matrix_q4_k, quantize_row_q4_k, quantize_row_q5_0, quantize_row_q6_k,
+    SealError,
+};
 
 /// A small fixed-seed 64-bit LCG (no new crates), returning a value in `[-0.5, 0.5)`.
 fn lcg(seed: &mut u64) -> f32 {
@@ -217,5 +221,93 @@ fn real_tensor_distortion() {
     assert!(
         max_err <= absmax / 15.0 + 1e-2,
         "re-quant max error {max_err} exceeds one quantization step of absmax {absmax}"
+    );
+}
+
+/// The `τ`-weighted distortion `Σ_j τ_j (x_j − x̂_j)²` of a row.
+fn tau_distortion(x: &[f32], xq: &[f32], tau: &[f32]) -> f64 {
+    x.iter()
+        .zip(xq)
+        .zip(tau)
+        .map(|((&a, &b), &t)| f64::from(t) * (f64::from(a) - f64::from(b)).powi(2))
+        .sum()
+}
+
+/// Dequantize a `Q6_K` row of 210-byte super-blocks back to `f32`.
+fn dequant_row_q6_k(bytes: &[u8], n: usize) -> Vec<f32> {
+    let mut out = Vec::with_capacity(n);
+    let mut tmp = [0f32; QK_K];
+    for b in 0..n / QK_K {
+        let off = b * Q6_K_BLOCK_BYTES;
+        dequant_q6_k_block(&bytes[off..off + Q6_K_BLOCK_BYTES], &mut tmp).unwrap();
+        out.extend_from_slice(&tmp);
+    }
+    out
+}
+
+/// Dequantize a `Q5_0` row of 22-byte blocks back to `f32`: `w = d·code`.
+fn dequant_row_q5_0(bytes: &[u8], n: usize) -> Vec<f32> {
+    let mut out = Vec::with_capacity(n);
+    for b in 0..n / 32 {
+        let blk = &bytes[b * Q5_0_BLOCK_BYTES..(b + 1) * Q5_0_BLOCK_BYTES];
+        let d = f16_to_f32(q5_0_d(blk).unwrap());
+        out.extend(q5_0_codes(blk).unwrap().iter().map(|&c| d * f32::from(c)));
+    }
+    out
+}
+
+/// `Q6_K`: the `τ`-weighted fit beats the uniform fit, and each 256-weight super-block is 210 bytes.
+#[test]
+fn q6_k_weighted_fit_and_layout() {
+    let n = 256usize;
+    let mut seed = 0x0000_0000_0BAD_F00Du64;
+    let row: Vec<f32> = (0..n).map(|_| lcg(&mut seed) * 3.0).collect();
+    // Two hot channels per 16-weight group carry 200× the energy.
+    let tau: Vec<f32> = (0..n)
+        .map(|j| {
+            if j % 16 == 3 || j % 16 == 11 {
+                200.0
+            } else {
+                1.0
+            }
+        })
+        .collect();
+
+    let bytes_w = quantize_row_q6_k(&row, Some(&tau)).unwrap();
+    let bytes_u = quantize_row_q6_k(&row, None).unwrap();
+    assert_eq!(bytes_w.len(), n / QK_K * Q6_K_BLOCK_BYTES);
+    assert_eq!(bytes_w.len(), 210, "Q6_K is 210 bytes per 256 weights");
+
+    let d_w = tau_distortion(&row, &dequant_row_q6_k(&bytes_w, n), &tau);
+    let d_u = tau_distortion(&row, &dequant_row_q6_k(&bytes_u, n), &tau);
+    eprintln!("Q6_K tau-weighted={d_w:.6e} uniform={d_u:.6e}");
+    assert!(
+        d_w < d_u,
+        "τ-weighted distortion {d_w:.6e} must be < uniform {d_u:.6e}"
+    );
+}
+
+/// `Q5_0`: the `τ`-weighted fit beats the reference fit, and each 32-weight block is 22 bytes.
+#[test]
+fn q5_0_weighted_fit_and_layout() {
+    let n = 64usize; // two Q5_0 blocks
+    let mut seed = 0x0000_0000_FEED_5EEDu64;
+    let row: Vec<f32> = (0..n).map(|_| lcg(&mut seed) * 2.0).collect();
+    // One hot channel per 8 carries 300× the energy.
+    let tau: Vec<f32> = (0..n)
+        .map(|j| if j % 8 == 2 { 300.0 } else { 1.0 })
+        .collect();
+
+    let bytes_w = quantize_row_q5_0(&row, Some(&tau)).unwrap();
+    let bytes_u = quantize_row_q5_0(&row, None).unwrap();
+    assert_eq!(bytes_w.len(), n / 32 * Q5_0_BLOCK_BYTES);
+    assert_eq!(bytes_w.len(), 2 * 22, "Q5_0 is 22 bytes per 32 weights");
+
+    let d_w = tau_distortion(&row, &dequant_row_q5_0(&bytes_w, n), &tau);
+    let d_u = tau_distortion(&row, &dequant_row_q5_0(&bytes_u, n), &tau);
+    eprintln!("Q5_0 tau-weighted={d_w:.6e} reference={d_u:.6e}");
+    assert!(
+        d_w < d_u,
+        "τ-weighted distortion {d_w:.6e} must be < reference {d_u:.6e}"
     );
 }
