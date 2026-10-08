@@ -439,3 +439,5 @@ import Learn.GramExact
 #audit apeiron_gram.rows_loop_spec
 #audit apeiron_gram.gram_fold_i8_ok
 #audit apeiron_gram.gram_fold_i8_refusal
+#audit apeiron_gram.gram_fold_i8_entry
+#audit apeiron_gram.gram_fold_i8_stack

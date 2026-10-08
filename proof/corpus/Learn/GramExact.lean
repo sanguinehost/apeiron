@@ -928,5 +928,224 @@ theorem gram_fold_i8_refusal
   · exact hh (by rw [hc1, hi1v])
   · exact hh (by rw [hc2, hi3v])
 
+/-! ## 8. The link to the canonical `gram_stack`
+
+`toMat` reads the `i8` batch as a real matrix; `gram_fold_i8_entry` identifies one fold's entry with
+an entry of `XᵀX`; `gram_fold_i8_stack` chains two folds and rewrites through the canonical
+`Sanguine.TrainingCollapse.gram_stack` (the stacked batch's `XᵀX` is the sum of the blocks'). -/
+
+/-- The real matrix of the `rows` rows of `x` at stride `d`. -/
+def toMat (x : Slice I8) (rows d : ℕ) : Matrix (Fin rows) (Fin d) ℝ :=
+  Matrix.of fun r c => ((x.val.getD (r.val * d + c.val) 0#i8).val : ℝ)
+
+/-- The zero `i64` accumulator of a `d × d` Gram buffer. -/
+def zeroGram (d : Usize) (h : d.val * d.val ≤ Usize.max) : alloc.vec.Vec I64 :=
+  alloc.vec.Vec.from (List.replicate (d.val * d.val) 0#i64) (by simpa using h)
+
+theorem zeroGram_val (d : Usize) (h : d.val * d.val ≤ Usize.max) :
+    (zeroGram d h).val = List.replicate (d.val * d.val) 0#i64 := by
+  simp [zeroGram, alloc.vec.Vec.from_val]
+
+theorem zeroGram_getD (d : Usize) (h : d.val * d.val ≤ Usize.max) {k : ℕ}
+    (hk : k < d.val * d.val) : (gvals (zeroGram d h)).getD k 0 = 0 := by
+  have hg : gvals (zeroGram d h) = List.replicate (d.val * d.val) (0 : ℤ) := by
+    simp [gvals, zeroGram_val, List.map_replicate]
+  rw [hg]
+  exact List.getD_replicate (0 : ℤ) hk
+
+/-- An in-range Gram index stays in range: `i·d + j < d·d` for `i, j < d`. -/
+theorem gram_idx_lt {dd i j : ℕ} (hi : i < dd) (hj : j < dd) : i * dd + j < dd * dd := by
+  have h1 : (i + 1) * dd ≤ dd * dd := Nat.mul_le_mul_right dd (Nat.succ_le_of_lt hi)
+  rw [Nat.succ_mul] at h1
+  omega
+
+/-- The `range rows` Gram sum, cast to `ℝ`, is the matching entry of `XᵀX`. -/
+theorem sum_range_eq_gram (x : Slice I8) (rows d : ℕ) (i j : Fin d) :
+    ((Finset.sum (Finset.range rows)
+        (fun r => (x.val.getD (r * d + i.val) 0#i8).val *
+                  (x.val.getD (r * d + j.val) 0#i8).val) : ℤ) : ℝ)
+      = ((toMat x rows d)ᵀ * toMat x rows d) i j := by
+  rw [Int.cast_sum, Matrix.mul_apply]
+  rw [show (∑ k : Fin rows, (toMat x rows d)ᵀ i k * toMat x rows d k j)
+        = ∑ k : Fin rows,
+            ((x.val.getD (k.val * d + i.val) 0#i8).val : ℝ) *
+            ((x.val.getD (k.val * d + j.val) 0#i8).val : ℝ) by
+      apply Finset.sum_congr rfl
+      intro k _
+      rw [Matrix.transpose_apply]
+      simp [toMat, Matrix.of_apply]]
+  rw [Fin.sum_univ_eq_sum_range
+      (fun r => ((x.val.getD (r * d + i.val) 0#i8).val : ℝ) *
+                ((x.val.getD (r * d + j.val) 0#i8).val : ℝ)) rows]
+  apply Finset.sum_congr rfl
+  intro r _
+  rw [Int.cast_mul]
+
+/-- `gram_fold_i8_ok` strengthened with length preservation and the accumulator bound, so a fold's
+result can be chained into a second fold. -/
+theorem gram_fold_i8_spec
+    (g : alloc.vec.Vec I64) (x : Slice I8) (rows d : Usize) (C0 : ℤ)
+    (hglen : g.val.length = d.val * d.val)
+    (hxlen : x.val.length = rows.val * d.val)
+    (hC0 : 0 ≤ C0)
+    (hC : C0 + (rows.val : ℤ) * 16384 ≤ I64.max)
+    (hbound : ∀ i < d.val, ∀ j < d.val, |(gvals g).getD (i * d.val + j) 0| ≤ C0) :
+    ∃ g', gram.gram_fold_i8 g x rows d = ok (core.result.Result.Ok g') ∧
+      g'.val.length = g.val.length ∧
+      (∀ i < d.val, ∀ j < d.val,
+        (gvals g').getD (i * d.val + j) 0 =
+          (gvals g).getD (i * d.val + j) 0 +
+            Finset.sum (Finset.range rows.val)
+              (fun r => (x.val.getD (r * d.val + i) 0#i8).val * (x.val.getD (r * d.val + j) 0#i8).val)) ∧
+      (∀ i < d.val, ∀ j < d.val, |(gvals g').getD (i * d.val + j) 0| ≤ C0 + (rows.val : ℤ) * 16384) := by
+  have hdd_max : d.val * d.val ≤ Usize.max := by
+    rw [← hglen]; exact Slice.property g.slice
+  obtain ⟨i1, hi1, hi1v⟩ := WP.spec_imp_exists (Usize.mul_spec (x := d) (y := d) hdd_max)
+  have hi_eq : alloc.vec.Vec.len g = i1 := by
+    apply UScalar.eq_of_val_eq
+    rw [alloc.vec.Vec.len_val, hi1v]
+    exact hglen
+  have hrd_max : rows.val * d.val ≤ Usize.max := by
+    rw [← hxlen]; exact Slice.property x
+  obtain ⟨i3, hi3, hi3v⟩ := WP.spec_imp_exists (Usize.mul_spec (x := rows) (y := d) hrd_max)
+  have hi2_eq : Slice.len x = i3 := by
+    apply UScalar.eq_of_val_eq
+    rw [Slice.len_val, hi3v]
+    exact hxlen
+  have hspec := rows_loop_spec x d rows g C0 hglen (by omega) hC0 hC hbound
+  obtain ⟨⟨g1, err⟩, hrows_exec, herr, hg1_len, hg1_vals, hg1_bound⟩ := (WP.spec_equiv_exists _ _).mp hspec
+  subst herr
+  refine ⟨g1, ?_, hg1_len, ?_, hg1_bound⟩
+  · rw [gram.gram_fold_i8]
+    simp only [hi1, hi3, hrows_exec]
+    have h1 : g.val.length = i1.val := by
+      simpa only [alloc.vec.Vec.len_val] using congrArg (fun u : Usize => u.val) hi_eq
+    have h2 : x.val.length = i3.val := by
+      simpa only [Slice.len_val] using congrArg (fun u : Usize => u.val) hi2_eq
+    simp
+    rw [if_pos h1, if_pos h2]
+  · intro i hi j hj
+    have hg1_v : (gvals g1).getD (i * d.val + j) 0 =
+        (rowsVals (gvals g) (xvals x) d.val rows.val).getD (i * d.val + j) 0 := by
+      rw [hg1_vals]
+    rw [hg1_v]
+    have hlen_g : d.val * d.val ≤ (gvals g).length := by rw [gvals_length, hglen]
+    rw [rowsVals_getD (gvals g) (xvals x) d.val rows.val hlen_g i j hi hj]
+    congr 1
+    apply Finset.sum_congr rfl
+    intro r hr
+    have hrlt : r < rows.val := Finset.mem_range.mp hr
+    have hr_i : r * d.val + i < x.val.length := by
+      rw [hxlen]
+      calc r * d.val + i < r * d.val + d.val := by omega
+        _ = (r + 1) * d.val := by rw [Nat.succ_mul]
+        _ ≤ rows.val * d.val := Nat.mul_le_mul_right d.val (Nat.succ_le_of_lt hrlt)
+    have hr_j : r * d.val + j < x.val.length := by
+      rw [hxlen]
+      calc r * d.val + j < r * d.val + d.val := by omega
+        _ = (r + 1) * d.val := by rw [Nat.succ_mul]
+        _ ≤ rows.val * d.val := Nat.mul_le_mul_right d.val (Nat.succ_le_of_lt hrlt)
+    rw [xvals_getD x hr_i, xvals_getD x hr_j]
+
+/-- From the zero accumulator, one fold's entry cast to `ℝ` is the matching entry of `XᵀX`.
+Derived from `gram_fold_i8_ok` with `C0 = 0`. -/
+theorem gram_fold_i8_entry
+    (x : Slice I8) (rows d : Usize) (hd : d.val * d.val ≤ Usize.max)
+    (hxlen : x.val.length = rows.val * d.val)
+    (hC : (rows.val : ℤ) * 16384 ≤ I64.max) :
+    ∃ g', gram.gram_fold_i8 (zeroGram d hd) x rows d = ok (core.result.Result.Ok g') ∧
+      ∀ i j : Fin d.val,
+        ((gvals g').getD (i.val * d.val + j.val) 0 : ℝ)
+          = ((toMat x rows.val d.val)ᵀ * toMat x rows.val d.val) i j := by
+  have hglen : (zeroGram d hd).val.length = d.val * d.val := by
+    rw [zeroGram_val, List.length_replicate]
+  have hbound : ∀ i < d.val, ∀ j < d.val,
+      |(gvals (zeroGram d hd)).getD (i * d.val + j) 0| ≤ (0 : ℤ) := by
+    intro i hi j hj
+    rw [zeroGram_getD d hd (gram_idx_lt hi hj)]
+    simp
+  obtain ⟨g', hfold, hentry⟩ :=
+    gram_fold_i8_ok (zeroGram d hd) x rows d 0 hglen hxlen (le_refl 0) (by simpa using hC) hbound
+  refine ⟨g', hfold, ?_⟩
+  intro i j
+  have hz : (gvals (zeroGram d hd)).getD (i.val * d.val + j.val) 0 = 0 :=
+    zeroGram_getD d hd (gram_idx_lt i.isLt j.isLt)
+  have hcast : ((gvals g').getD (i.val * d.val + j.val) 0 : ℝ)
+      = ((Finset.sum (Finset.range rows.val)
+          (fun r => (x.val.getD (r * d.val + i.val) 0#i8).val *
+                    (x.val.getD (r * d.val + j.val) 0#i8).val) : ℤ) : ℝ) := by
+    rw [hentry i.val i.isLt j.val j.isLt, hz, zero_add]
+  rw [hcast]
+  exact sum_range_eq_gram x rows.val d.val i j
+
+/-- **The extracted fold composes**: folding `x₁` (`n` rows) then `x₂` (`m` rows) from the zero
+accumulator gives the stacked batch's `XᵀX`, by the canonical
+`Sanguine.TrainingCollapse.gram_stack`. -/
+theorem gram_fold_i8_stack
+    (x₁ : Slice I8) (n : Usize) (x₂ : Slice I8) (m : Usize) (d : Usize)
+    (hd : d.val * d.val ≤ Usize.max)
+    (hx₁ : x₁.val.length = n.val * d.val)
+    (hx₂ : x₂.val.length = m.val * d.val)
+    (hC : ((n.val : ℤ) + (m.val : ℤ)) * 16384 ≤ I64.max) :
+    ∃ g₁ g₂,
+      gram.gram_fold_i8 (zeroGram d hd) x₁ n d = ok (core.result.Result.Ok g₁) ∧
+      gram.gram_fold_i8 g₁ x₂ m d = ok (core.result.Result.Ok g₂) ∧
+      ∀ i j : Fin d.val,
+        ((gvals g₂).getD (i.val * d.val + j.val) 0 : ℝ)
+          = ((Sanguine.TrainingCollapse.stack (toMat x₁ n.val d.val) (toMat x₂ m.val d.val))ᵀ *
+              Sanguine.TrainingCollapse.stack (toMat x₁ n.val d.val) (toMat x₂ m.val d.val)) i j := by
+  have hglen0 : (zeroGram d hd).val.length = d.val * d.val := by
+    rw [zeroGram_val, List.length_replicate]
+  have hbound0 : ∀ i < d.val, ∀ j < d.val,
+      |(gvals (zeroGram d hd)).getD (i * d.val + j) 0| ≤ (0 : ℤ) := by
+    intro i hi j hj
+    rw [zeroGram_getD d hd (gram_idx_lt hi hj)]
+    simp
+  have hnC : (n.val : ℤ) * 16384 ≤ I64.max := by
+    have hm : (0 : ℤ) ≤ (m.val : ℤ) * 16384 := by positivity
+    nlinarith [hC]
+  have hC1 : (0 : ℤ) + (n.val : ℤ) * 16384 ≤ I64.max := by linarith
+  obtain ⟨g₁, hfold1, hlen1, hentry1, hbound1⟩ :=
+    gram_fold_i8_spec (zeroGram d hd) x₁ n d 0 hglen0 hx₁ (le_refl 0) hC1 hbound0
+  have hglen1 : g₁.val.length = d.val * d.val := by rw [hlen1, hglen0]
+  have hC2 : (n.val : ℤ) * 16384 + (m.val : ℤ) * 16384 ≤ I64.max := by nlinarith [hC]
+  obtain ⟨g₂, hfold2, hentry2⟩ :=
+    gram_fold_i8_ok g₁ x₂ m d ((n.val : ℤ) * 16384) hglen1 hx₂
+      (by positivity) hC2 (by intro i hi j hj; simpa using hbound1 i hi j hj)
+  refine ⟨g₁, g₂, hfold1, hfold2, ?_⟩
+  intro i j
+  have hz : (gvals (zeroGram d hd)).getD (i.val * d.val + j.val) 0 = 0 :=
+    zeroGram_getD d hd (gram_idx_lt i.isLt j.isLt)
+  have hg1 : ((gvals g₁).getD (i.val * d.val + j.val) 0 : ℝ)
+      = ((toMat x₁ n.val d.val)ᵀ * toMat x₁ n.val d.val) i j := by
+    have e1 : (gvals g₁).getD (i.val * d.val + j.val) 0 =
+        (gvals (zeroGram d hd)).getD (i.val * d.val + j.val) 0 +
+          Finset.sum (Finset.range n.val)
+            (fun r => (x₁.val.getD (r * d.val + i.val) 0#i8).val *
+                      (x₁.val.getD (r * d.val + j.val) 0#i8).val) :=
+      hentry1 i.val i.isLt j.val j.isLt
+    rw [e1, hz, zero_add]
+    exact sum_range_eq_gram x₁ n.val d.val i j
+  have hcast : ((gvals g₂).getD (i.val * d.val + j.val) 0 : ℝ)
+      = ((gvals g₁).getD (i.val * d.val + j.val) 0 : ℝ) +
+        ((Finset.sum (Finset.range m.val)
+          (fun r => (x₂.val.getD (r * d.val + i.val) 0#i8).val *
+                    (x₂.val.getD (r * d.val + j.val) 0#i8).val) : ℤ) : ℝ) := by
+    rw [hentry2 i.val i.isLt j.val j.isLt, Int.cast_add]
+  rw [hcast, hg1]
+  rw [sum_range_eq_gram x₂ m.val d.val i j]
+  rw [Sanguine.TrainingCollapse.gram_stack (toMat x₁ n.val d.val) (toMat x₂ m.val d.val),
+      Matrix.add_apply]
+
+/-- Non-vacuity: `gram_fold_i8_stack`'s joint hypotheses are discharged at `d = n = m = 1`. -/
+example :
+    ∃ (x₁ x₂ : Slice I8) (n m d : Usize),
+      d.val * d.val ≤ Usize.max ∧
+      x₁.val.length = n.val * d.val ∧
+      x₂.val.length = m.val * d.val ∧
+      ((n.val : ℤ) + (m.val : ℤ)) * 16384 ≤ I64.max :=
+  ⟨Slice.from [3#i8] (by scalar_tac), Slice.from [5#i8] (by scalar_tac),
+   1#usize, 1#usize, 1#usize, by scalar_tac, by simp, by simp, by scalar_tac⟩
+
 end apeiron_gram
 
