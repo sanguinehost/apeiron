@@ -52,7 +52,31 @@ const TOKENIZER: &str = concat!(env!("HOME"), "/models/qwen2.5-0.5b/tokenizer.js
 const PROSE: &str = concat!(env!("HOME"), "/Workspace/fold/hashtrinity/prose8.txt");
 const DOCS: &str = concat!(env!("HOME"), "/scratch/gpu-ppl-corpus.txt");
 const T: usize = 512;
-const HD: usize = 64;
+/// Head dimension, fixed at build time: `PROBE_HD=128` builds the instrument for Qwen2.5-7B; the default 64 is
+/// Qwen2.5-0.5B. `run_dump` and `run_tail` assert it against the model's `head_dim`.
+const HD: usize = match option_env!("PROBE_HD") {
+    Some(s) => parse_usize(s),
+    None => 64,
+};
+
+/// Softmax scale `1/sqrt(HD)`.
+const SCALE: f32 = match HD {
+    64 => 0.125,
+    128 => 0.088_388_35,
+    _ => panic!("PROBE_HD must be 64 or 128"),
+};
+
+const fn parse_usize(s: &str) -> usize {
+    let b = s.as_bytes();
+    let mut i = 0;
+    let mut n = 0;
+    while i < b.len() {
+        assert!(b[i].is_ascii_digit(), "PROBE_HD must be a decimal integer");
+        n = n * 10 + (b[i] - b'0') as usize;
+        i += 1;
+    }
+    n
+}
 const BLK: usize = 16;
 const DELTAS: [f64; 6] = [2.0, 4.0, 6.0, 8.0, 10.0, 12.0];
 const BDELTAS: [f64; 3] = [4.0, 8.0, 12.0];
@@ -1945,7 +1969,7 @@ fn attend_job(
             let pos = q0 + qi;
             let qh = &q[(pos * nh + h) * HD..(pos * nh + h) * HD + HD];
             for i in kb..lim {
-                scr[qi * ld + i] = dot32(qh, krow(i)) * 0.125;
+                scr[qi * ld + i] = dot32(qh, krow(i)) * SCALE;
             }
         }
     }
@@ -2910,7 +2934,7 @@ fn page_bound(cx: &TailCtx, qh: &[f32], g: usize, b: usize) -> f64 {
         );
         acc += if cx.mutb { a } else { a.max(c) };
     }
-    acc * 0.125
+    acc * f64::from(SCALE)
 }
 
 /// Far pages at position `p`: the 64-key pages between the sinks and the near window.
@@ -2956,7 +2980,7 @@ fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize, given: &[us
     };
     let n = p + 1;
     let sc: Vec<f64> = (0..n)
-        .map(|j| f64::from(dot32(qh, key(j))) * 0.125)
+        .map(|j| f64::from(dot32(qh, key(j))) * f64::from(SCALE))
         .collect();
     let m = sc.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let w: Vec<f64> = sc.iter().map(|s| (s - m).exp()).collect();
@@ -3129,7 +3153,7 @@ fn group_box_bound(q: &[f32], hs: std::ops::Range<usize>, lo: &[f32], hi: &[f32]
                 (a * c.0).max(a * c.1)
             })
             .sum::<f64>()
-            * 0.125
+            * f64::from(SCALE)
     })
     .fold(f64::NEG_INFINITY, f64::max)
 }
@@ -3439,6 +3463,18 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
         nt <= TL_W,
         "tail longer than the window: far pages would hold tail keys"
     );
+    // `KV_TAIL_TS=8192,32768` keeps only the listed contexts, so a larger model's run splits into bounded calls.
+    let tails: Vec<usize> = match std::env::var("KV_TAIL_TS") {
+        Ok(v) => {
+            let keep: Vec<usize> = v
+                .split(',')
+                .map(str::parse)
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("KV_TAIL_TS: {e}"))?;
+            tails.into_iter().filter(|t| keep.contains(t)).collect()
+        }
+        Err(_) => tails,
+    };
     let eng = Engine::open(path)?;
     let cfg = &eng.config;
     let (nl, nh, nkv, d) = (cfg.n_layer, cfg.n_head, cfg.n_head_kv, cfg.n_embd);
@@ -3643,7 +3679,7 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                 .collect::<Vec<f64>>()
         };
         let argmax = |r: &[f32]| (0..r.len()).max_by(|&a, &b| r[a].total_cmp(&r[b])).unwrap();
-        println!("\n== t={t}: dense-tail control max rel-L2 (q,k,v, 24 layers) {ctl:.3e}; certification violations {viol} ==");
+        println!("\n== t={t}: dense-tail control max rel-L2 (q,k,v, {nl} layers) {ctl:.3e}; certification violations {viol} ==");
         let dense_bytes = arms
             .iter()
             .zip(&bytes)
