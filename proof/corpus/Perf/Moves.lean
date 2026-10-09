@@ -634,6 +634,22 @@ theorem p68_kslice_not_confirmed :
     966 < 1000 ∧ 993 < 1000 ∧ 994 < 1000 := by
   decide
 
+/-- P67: the `qkv → flash_partial_fold` per-chunk completion counter (`DEC_PDL` bit3) against
+`DEC_PDL_NOBAR` bit3, in tenths of a µs/token. Live `--gen 128 --reps 5 --carrier q4`, RTX 5080,
+5 interleaved rounds: A (`DEC_PDL=3`) 973.1 tok/s = 10277, B (`DEC_PDL=11`) 967.9 = 10332,
+C (`DEC_PDL=3 DEC_PDL_NOBAR=8`) 1053.2 = 9495. The edge ceiling A−C = 782; B is 55 tenths SLOWER
+than A, so the counter recovers none of the ceiling — the flash prologue's first action reads the
+producer's output, so removing the barrier buys no overlap. The T10 tmax-512 stall was not occupancy:
+`flash_partial_fold_module` handed `pdl_consumer_multi` the already-materialised id `k.cu(segs)`,
+which it re-materialised as the target *value*, so the emitted target was the id (95), never reached
+by the producer's `segs` = 16 increments, and every spin capped. -/
+theorem p67_qf_target_id_bug :
+    10277 - 9495 = 782 ∧
+    10332 - 10277 = 55 ∧
+    10332 > 10277 ∧
+    782 > 55 := by
+  decide
+
 end Moves
 
 end Perf
