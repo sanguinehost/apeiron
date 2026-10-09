@@ -536,6 +536,55 @@ theorem insert_core_ns_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
       simp only [bind_tc_ok]
       exact ⟨_, rfl⟩
 
+/-! ## The `Regen<u64>` face -/
+
+/-- **`coord_insert_ok`.**  `word_coordmap_insert` (the `Regen<u64>` face) returns `ok` on a
+non-reserved key: `insert_core_ns_ok` at `RKS`, whose `alloc`, `matches`, `set` and `take_key` are
+total, then the `none` arm of `insert_merge_last_write`.  This discharges the premise
+`word_coordmap_insert s k v = ok s'` of `coord_insert_refines` on that domain. -/
+theorem coord_insert_ok {s : Tbl (hashtrinity.algebra.Regen U64)} {m : Apeiron.Table.HMap U64 I64}
+    {live : U64 → Prop} (hR : RepW RKS s m live) (hcap : arenaLen s + mainCount s + 4 ≤ nilN)
+    (n : Nat) (hHov : Hov s n) (hmain : mainCount s ≤ n) (hn : n * n + n + 4 ≤ nilN)
+    (hbits : s.bits.val + 3 ≤ UScalarTy.Usize.numBits)
+    (hocc : s.len.val + s.tombs.val ≤ s.coords.length)
+    {k : U64} (hns : ¬ IsSent k) (v : I64) :
+    ∃ s', word_coordmap_insert s k v = ok s' := by
+  obtain ⟨s', h⟩ := insert_core_ns_ok RKS (fun _ _ => True) resizeOK_regen
+    (fun n => ⟨(), rfl⟩)
+    (fun keys i c k => ⟨true, RKS_matches keys i c k⟩)
+    (fun _ => avx2_spec_holds)
+    (fun keys i k => ⟨keys, rfl⟩)
+    (fun keys i c _ => ⟨keys, by
+      change hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.take_key
+        U64.Insts.Apeiron_wordHashtrinityAlgebraCoordInv core.cmp.EqU64 keys i c = ok (c, keys)
+      unfold hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.take_key
+      change (do let t ← (ok c : Result U64); ok (t, keys)) = ok (c, keys)
+      simp only [bind_tc_ok]⟩)
+    hR trivial hcap n hHov hmain hn hbits hocc hns v
+  refine ⟨s', ?_⟩
+  unfold word_coordmap_insert hashtrinity.Table.insert_merge_last_write
+  rw [h]
+  simp only [bind_tc_ok, uncurry_apply_pair]
+
+/-- **`coord_insert_witness`.**  The premises of `coord_insert_ok` hold jointly at a reachable
+state: the table `with_bits 1` builds (`grow_witness`), with the non-reserved key `1`. -/
+theorem coord_insert_witness :
+    ∃ (s : Tbl (hashtrinity.algebra.Regen U64)) (m : Apeiron.Table.HMap U64 I64)
+      (live : U64 → Prop) (n : Nat) (s' : Tbl (hashtrinity.algebra.Regen U64)),
+      RepW RKS s m live ∧
+      arenaLen s + mainCount s + 4 ≤ nilN ∧
+      Hov s n ∧ mainCount s ≤ n ∧ n * n + n + 4 ≤ nilN ∧
+      s.bits.val + 3 ≤ UScalarTy.Usize.numBits ∧
+      s.len.val + s.tombs.val ≤ s.coords.length ∧
+      ¬ IsSent 1#u64 ∧
+      word_coordmap_insert s 1#u64 0#i64 = ok s' := by
+  obtain ⟨s, m, live, n, -, hR, hcap, hHov, hmain, hn, hbits, hocc, -⟩ := grow_witness
+  have hns : ¬ IsSent 1#u64 := by
+    unfold IsSent EMPTYN TOMBN
+    decide
+  obtain ⟨s', h⟩ := coord_insert_ok hR hcap n hHov hmain hn hbits hocc hns 0#i64
+  exact ⟨s, m, live, n, s', hR, hcap, hHov, hmain, hn, hbits, hocc, hns, h⟩
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.Hov_mono
@@ -545,3 +594,5 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.take_value_ex
 #audit Apeiron.MapExecuted.write_back_ex
 #audit Apeiron.MapExecuted.insert_core_ns_ok
+#audit Apeiron.MapExecuted.coord_insert_ok
+#audit Apeiron.MapExecuted.coord_insert_witness
