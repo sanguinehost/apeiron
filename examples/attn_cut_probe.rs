@@ -2846,6 +2846,8 @@ enum Arm {
     Cert(f64),
     Fix(usize),
     Grp(usize, usize),
+    Tree(usize, usize, usize),
+    Clu(usize, usize, usize),
 }
 
 impl Arm {
@@ -2859,6 +2861,8 @@ impl Arm {
             Arm::Cert(e) => format!("a64-cert-{:.2}", kl(e)),
             Arm::Fix(b) => format!("a64-fix{b}"),
             Arm::Grp(b, r) => format!("grp-fix{b}-r{r}"),
+            Arm::Tree(b, r, s) => format!("tree{b}-r{r}-s{s}"),
+            Arm::Clu(b, r, s) => format!("clu{b}-r{r}-s{s}"),
         }
     }
 }
@@ -2986,7 +2990,7 @@ fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize, given: &[us
         let nn = TL_SINK + (n - nb);
         if let Arm::Near = arm {
             nn as f64
-        } else if let Arm::Grp(..) = arm {
+        } else if matches!(arm, Arm::Grp(..) | Arm::Tree(..) | Arm::Clu(..)) {
             for &b in given {
                 for i in page(b) {
                     sel[i] = true;
@@ -3028,7 +3032,12 @@ fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize, given: &[us
                     j
                 }
                 Arm::Fix(b) => (b / TL_P).min(n64),
-                Arm::Dense | Arm::Oracle(_) | Arm::Near | Arm::Grp(..) => unreachable!(),
+                Arm::Dense
+                | Arm::Oracle(_)
+                | Arm::Near
+                | Arm::Grp(..)
+                | Arm::Tree(..)
+                | Arm::Clu(..) => unreachable!(),
             };
             for &b in &ord[..take] {
                 for i in page(b) {
@@ -3110,6 +3119,244 @@ fn group_pages(
     (sets, meta)
 }
 
+/// Quest's bound on `q.k / 8` over the element-wise box `[lo, hi]`, maximised over the query heads `hs`.
+fn group_box_bound(q: &[f32], hs: std::ops::Range<usize>, lo: &[f32], hi: &[f32]) -> f64 {
+    hs.map(|h| {
+        let qh = &q[h * HD..(h + 1) * HD];
+        (0..HD)
+            .map(|i| {
+                let (a, c) = (f64::from(qh[i]), (f64::from(lo[i]), f64::from(hi[i])));
+                (a * c.0).max(a * c.1)
+            })
+            .sum::<f64>()
+            * 0.125
+    })
+    .fold(f64::NEG_INFINITY, f64::max)
+}
+
+/// The `k` entries of `cand` with the highest `score` (lowest under `rev`, the mutation).
+fn top_by(mut cand: Vec<usize>, score: impl Fn(usize) -> f64, k: usize, rev: bool) -> Vec<usize> {
+    let sc: std::collections::HashMap<usize, f64> = cand.iter().map(|&c| (c, score(c))).collect();
+    if rev {
+        cand.sort_by(|a, c| sc[a].total_cmp(&sc[c]));
+    } else {
+        cand.sort_by(|a, c| sc[c].total_cmp(&sc[a]));
+    }
+    cand.truncate(k);
+    cand
+}
+
+/// Element-wise boxes of consecutive groups of `TR_F` boxes (`lo`, `hi`: `n x HD`).
+fn merge_boxes(lo: &[f32], hi: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    let n = lo.len() / HD;
+    let m = n.div_ceil(TR_F);
+    let (mut l2, mut h2) = (vec![f32::INFINITY; m * HD], vec![f32::NEG_INFINITY; m * HD]);
+    for c in 0..n {
+        for i in 0..HD {
+            let o = (c / TR_F) * HD + i;
+            l2[o] = l2[o].min(lo[c * HD + i]);
+            h2[o] = h2[o].max(hi[c * HD + i]);
+        }
+    }
+    (l2, h2)
+}
+
+/// Fanout of the page index: 16 children per tree node, `ceil(n64 / 16)` clusters.
+const TR_F: usize = 16;
+
+/// `Tree(b, r, s)` and `Clu(b, r, s)` page sets: `group_pages` with the flat scan of every page bound
+/// replaced by an index. `Tree`: the boxes of 16, 256, ... consecutive pages; from the top level (at most
+/// 16 nodes, all read) keep the `s` highest group bounds and read their children, down to the pages.
+/// `Clu`: pages k-means-clustered (8 Lloyd steps, Euclidean, on the box centre) into `ceil(n64 / 16)`
+/// clusters at the first refresh, each later-sealed page inserted into the nearest centroid's cluster
+/// (centroids fixed after the first refresh); read every cluster box, keep `s`, read their pages. Either way the top
+/// `b / 64` pages are kept and every page sealed since is added between refreshes. Returns the sets, the
+/// bound vectors read per (position, KV head), and per refresh the share of the flat scan's top `b / 64`
+/// pages recovered (the flat ranking is the instrument, not the arm's cost).
+///
+/// Complexity: tree reads `2 (n_top + 16 s L)` bound vectors per refresh for `L = ceil(log16 n64) - 1`
+/// expanded levels; cluster reads `2 (K + |members of s clusters|)`; instrument time `O(gs n64 HD)` per
+/// refresh for the recall reference plus `O(8 n64 K HD)` per KV head for the clustering; space
+/// `O(n64 HD)` words for the boxes.
+#[allow(clippy::too_many_lines)]
+fn index_pages(
+    cx: &TailCtx,
+    q: &[f32],
+    nh: usize,
+    nt: usize,
+    arm: Arm,
+    rev: bool,
+) -> (Vec<Vec<Vec<usize>>>, Vec<Vec<f64>>, Vec<f64>) {
+    let (b, r, s, clu) = match arm {
+        Arm::Tree(b, r, s) => (b, r, s, false),
+        Arm::Clu(b, r, s) => (b, r, s, true),
+        _ => unreachable!(),
+    };
+    let gs = nh / cx.nkv;
+    let keep = b / TL_P;
+    let mut sets = vec![vec![Vec::new(); cx.nkv]; nt];
+    let mut meta = vec![vec![0f64; cx.nkv]; nt];
+    let mut recall = Vec::new();
+    for g in 0..cx.nkv {
+        let hs = g * gs..(g + 1) * gs;
+        let pl = |pg: usize| (g * cx.npg + pg) * HD;
+        let mut members: Vec<Vec<usize>> = Vec::new();
+        let (mut clo, mut chi, mut cen) = (Vec::new(), Vec::new(), Vec::new());
+        let mut ncl = 0usize;
+        let (mut cur, mut n64r) = (Vec::new(), 0usize);
+        for i in 0..nt {
+            let n64 = far_pages(cx.pre + i);
+            if i % r != 0 {
+                cur.extend(n64r..n64);
+                n64r = n64;
+                sets[i][g].clone_from(&cur);
+                continue;
+            }
+            let qi = &q[i * nh * HD..(i + 1) * nh * HD];
+            let pbound = |pg: usize| {
+                group_box_bound(
+                    qi,
+                    hs.clone(),
+                    &cx.mn[pl(pg)..pl(pg) + HD],
+                    &cx.mx[pl(pg)..pl(pg) + HD],
+                )
+            };
+            let flat = top_by((0..n64).collect(), pbound, keep, false);
+            let mut rd = 0usize;
+            let chosen = if clu {
+                if members.is_empty() {
+                    let k = n64.div_ceil(TR_F);
+                    let ctr: Vec<f32> = (0..n64)
+                        .flat_map(|pg| (0..HD).map(move |e| (pg, e)))
+                        .map(|(pg, e)| 0.5 * (cx.mn[pl(pg) + e] + cx.mx[pl(pg) + e]))
+                        .collect();
+                    cen = (0..k)
+                        .flat_map(|c| ctr[(c * n64 / k) * HD..(c * n64 / k + 1) * HD].to_vec())
+                        .collect();
+                    let mut asg = vec![0usize; n64];
+                    for _ in 0..8 {
+                        for pg in 0..n64 {
+                            let d2 = |c: usize| -> f32 {
+                                (0..HD)
+                                    .map(|e| (ctr[pg * HD + e] - cen[c * HD + e]).powi(2))
+                                    .sum()
+                            };
+                            asg[pg] = (0..k).min_by(|&a, &c| d2(a).total_cmp(&d2(c))).unwrap();
+                        }
+                        let mut sum = vec![0f32; k * HD];
+                        let mut cnt = vec![0usize; k];
+                        for pg in 0..n64 {
+                            cnt[asg[pg]] += 1;
+                            for e in 0..HD {
+                                sum[asg[pg] * HD + e] += ctr[pg * HD + e];
+                            }
+                        }
+                        for c in (0..k).filter(|&c| cnt[c] > 0) {
+                            for e in 0..HD {
+                                cen[c * HD + e] = sum[c * HD + e] / cnt[c] as f32;
+                            }
+                        }
+                    }
+                    members = vec![Vec::new(); k];
+                    clo = vec![f32::INFINITY; k * HD];
+                    chi = vec![f32::NEG_INFINITY; k * HD];
+                    for pg in 0..n64 {
+                        let c = asg[pg];
+                        members[c].push(pg);
+                        for e in 0..HD {
+                            clo[c * HD + e] = clo[c * HD + e].min(cx.mn[pl(pg) + e]);
+                            chi[c * HD + e] = chi[c * HD + e].max(cx.mx[pl(pg) + e]);
+                        }
+                    }
+                    ncl = n64;
+                }
+                for pg in ncl..n64 {
+                    let d2 = |c: usize| -> f32 {
+                        (0..HD)
+                            .map(|e| {
+                                (0.5 * (cx.mn[pl(pg) + e] + cx.mx[pl(pg) + e]) - cen[c * HD + e])
+                                    .powi(2)
+                            })
+                            .sum()
+                    };
+                    let c = (0..members.len())
+                        .min_by(|&a, &c| d2(a).total_cmp(&d2(c)))
+                        .unwrap();
+                    members[c].push(pg);
+                    for e in 0..HD {
+                        clo[c * HD + e] = clo[c * HD + e].min(cx.mn[pl(pg) + e]);
+                        chi[c * HD + e] = chi[c * HD + e].max(cx.mx[pl(pg) + e]);
+                    }
+                }
+                ncl = ncl.max(n64);
+                let live: Vec<usize> = (0..members.len())
+                    .filter(|&c| !members[c].is_empty())
+                    .collect();
+                rd += live.len();
+                let cb = |c: usize| {
+                    group_box_bound(
+                        qi,
+                        hs.clone(),
+                        &clo[c * HD..(c + 1) * HD],
+                        &chi[c * HD..(c + 1) * HD],
+                    )
+                };
+                let cand: Vec<usize> = top_by(live, cb, s, rev)
+                    .into_iter()
+                    .flat_map(|c| members[c].iter().copied().filter(|&pg| pg < n64))
+                    .collect();
+                rd += cand.len();
+                top_by(cand, pbound, keep, rev)
+            } else {
+                let mut lv: Vec<(Vec<f32>, Vec<f32>)> = vec![(
+                    (0..n64)
+                        .flat_map(|pg| cx.mn[pl(pg)..pl(pg) + HD].to_vec())
+                        .collect(),
+                    (0..n64)
+                        .flat_map(|pg| cx.mx[pl(pg)..pl(pg) + HD].to_vec())
+                        .collect(),
+                )];
+                while lv[lv.len() - 1].0.len() / HD > TR_F {
+                    let (lo, hi) = &lv[lv.len() - 1];
+                    let up = merge_boxes(lo, hi);
+                    lv.push(up);
+                }
+                let top = lv.len() - 1;
+                let mut front: Vec<usize> = (0..lv[top].0.len() / HD).collect();
+                rd += front.len();
+                for k in (1..=top).rev() {
+                    let (lo, hi) = &lv[k];
+                    let nb = |c: usize| {
+                        group_box_bound(
+                            qi,
+                            hs.clone(),
+                            &lo[c * HD..(c + 1) * HD],
+                            &hi[c * HD..(c + 1) * HD],
+                        )
+                    };
+                    let n_below = lv[k - 1].0.len() / HD;
+                    front = top_by(front, nb, s, rev)
+                        .into_iter()
+                        .flat_map(|c| c * TR_F..((c + 1) * TR_F).min(n_below))
+                        .collect();
+                    rd += front.len();
+                }
+                top_by(front, pbound, keep, rev)
+            };
+            recall.push(if flat.is_empty() {
+                1.0
+            } else {
+                chosen.iter().filter(|c| flat.contains(c)).count() as f64 / flat.len() as f64
+            });
+            meta[i][g] = (2 * rd) as f64;
+            cur = chosen;
+            n64r = n64;
+            sets[i][g].clone_from(&cur);
+        }
+    }
+    (sets, meta, recall)
+}
+
 /// `KV_TAIL=<dump dir>` (attention-cut T5): whole-model next-token KLD with page selection in the decode tail.
 /// The `KV_DUMP` directory at `KV_T=32768` is the dense prefill cache. For `t` in {8192, 32768} the
 /// last 8 positions are recomputed from token embeddings through all layers once per arm; each tail
@@ -3130,7 +3377,20 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
     let eps = 1.0 - (-0.05f64).exp();
     let ekl = |kl: f64| 1.0 - (-kl).exp();
     let (arms, tails, nt): (Vec<Arm>, Vec<usize>, usize) =
-        if std::env::var_os("KV_TAIL_GROUP").is_some() {
+        if std::env::var_os("KV_TAIL_TREE").is_some() {
+            (
+                vec![
+                    Arm::Dense,
+                    Arm::Grp(2048, 8),
+                    Arm::Tree(2048, 8, 4),
+                    Arm::Tree(2048, 8, 8),
+                    Arm::Clu(2048, 8, 4),
+                    Arm::Clu(2048, 8, 8),
+                ],
+                vec![4096, 8192, 16384, 32768],
+                64,
+            )
+        } else if std::env::var_os("KV_TAIL_GROUP").is_some() {
             (
                 vec![
                     Arm::Dense,
@@ -3240,6 +3500,8 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
         let mut reads: Vec<Vec<f64>> = vec![Vec::new(); na];
         let mut bytes: Vec<Vec<f64>> = vec![Vec::new(); na];
         let mut hkl: Vec<Vec<f64>> = vec![Vec::new(); na];
+        let mut rec: Vec<Vec<f64>> = vec![Vec::new(); na];
+        let mut rmeta: Vec<Vec<f64>> = vec![Vec::new(); na];
         let mut viol = 0usize;
         let mut ctl = 0f64;
         for l in 0..nl {
@@ -3309,8 +3571,14 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                 let arm = arms[a];
                 let (gsets, gmeta) = match arm {
                     Arm::Grp(b, r) => group_pages(&cx, &q, nh, nt, b, r, rev),
+                    Arm::Tree(..) | Arm::Clu(..) => {
+                        let (st, mt, rc) = index_pages(&cx, &q, nh, nt, arm, rev);
+                        rec[a].extend(rc);
+                        (st, mt)
+                    }
                     _ => (vec![vec![Vec::new(); nkv]; nt], vec![vec![0f64; nkv]; nt]),
                 };
+                rmeta[a].extend(gmeta.iter().flatten().copied().filter(|&m| m > 0.0));
                 let res: Vec<Vec<TailOut>> = std::thread::scope(|sc| {
                     let hs: Vec<_> = (0..nh)
                         .map(|h| {
@@ -3422,7 +3690,7 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                 )
             };
             println!(
-                "{:<16} KLD mean {:.4} max {:.4}{shown}; top-1 {top}/{nt}; reads/t mean {:.4} median {:.4} p90 {:.4}; bytes/dense mean {:.4}; head KL mean {:.4} max {:.4}",
+                "{:<16} KLD mean {:.4} max {:.4}{shown}; top-1 {top}/{nt}; reads/t mean {:.4} median {:.4} p90 {:.4}; bytes/dense mean {:.4}; head KL mean {:.4} max {:.4}; bound vectors/refresh {:.1}; flat-set recall {:.3}",
                 arms[a].name(),
                 kl.iter().sum::<f64>() / kl.len() as f64,
                 kl.iter().copied().fold(0.0, f64::max),
@@ -3432,6 +3700,8 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                 bytes[a].iter().sum::<f64>() / bytes[a].len() as f64,
                 hk.iter().sum::<f64>() / hk.len() as f64,
                 hk[hk.len() - 1],
+                rmeta[a].iter().sum::<f64>() / rmeta[a].len().max(1) as f64,
+                rec[a].iter().sum::<f64>() / rec[a].len().max(1) as f64,
             );
         }
         println!("elapsed {:.0}s", t0.elapsed().as_secs_f64());
