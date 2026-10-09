@@ -704,6 +704,26 @@ theorem p72_last_reduce_terms :
     48446 < 49819 := by
   decide
 
+/-- P73 (DECODE-ATTRIB T14): measured arithmetic over the `gu` transport-only probe (units: 0.01 µs per
+token). `G` = gu + o + dn per arm; `F` = `G` minus the empty-fold arm (N4 prologue skipped, P4 prologue
+intact). Fold bytes = 6537216 × 24 = 156893184 per token; floor at 960 GB/s is 16343. Transport-only
+(P1) `F` = 18164 and the live node (P0) `F` = 18566: the live node is 402 above transport-only, and
+the unpack and dp4a arms (P2, P3) sit within 72 of P1. Arithmetic over recorded measurements, not a
+kernel claim. -/
+theorem p73_transport_arms :
+    6537216 * 24 = 156893184 ∧
+    16343 * 960000 ≤ 156893184 * 100 ∧ 156893184 * 100 < 16344 * 960000 ∧
+    44218 - 26054 = 18164 ∧ 44620 - 26054 = 18566 ∧
+    44236 - 26054 = 18182 ∧ 44018 - 26054 = 17964 ∧
+    38632 - 20622 = 18010 ∧ 40932 - 20622 = 20310 ∧
+    38904 - 38632 = 272 ∧ 44236 - 44218 = 18 ∧
+    44620 - 44218 = 402 ∧ 44620 - 44018 = 602 ∧
+    402 < 800 ∧
+    38784 - 38632 = 152 ∧ 39096 - 38632 = 464 ∧
+    464 * 20 < 18010 ∧
+    18164 > 16343 ∧ 18164 * 100 < 16343 * 112 := by
+  decide
+
 end Moves
 
 end Perf

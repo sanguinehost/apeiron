@@ -366,6 +366,7 @@ K-block loop `[0xa60, 0x4f50]`, 14 iterations (KB=2), 1104 static slots:
 | P70 | DECODE-ATTRIB T11 (row `decode-attrib-attribute-CisURujlQzOoUaNOGjR1Ms`), base `b06a87dd`, qwen05b Q4_K_M, RTX 5080, tg128, `--carrier q4`: price the `gu` node and cut its prologue. `gu` = `make_fused_gemv` (`src/gpu/decode/layer.rs:194`) → `gemv_norm_module_sc` (`src/simt_nn/norm.rs:348`): m = 2·dff = 9728, k = hidden = 896, Q5 chart, LocalSize 256, segs 1, residual `Some(segs_o = 28)`, groups (38,1) = 38 WGs; every WG recomputes the 896-element RMSNorm+quant and the 28-way `o`-partial residual reduce | `t_gu = D + P + F` per token: `D` dispatch/PDL, `P` prologue (residual reduce + norm+quant), `F` fold weight transport; the floor is `F_floor` = GGUF tensor bytes / 960 GB/s = 149.8 µs/token; the achieved fold rate `B = bytes/F` against 960 GB/s decides whether the 38 WGs (of 84 SMs) under-drive the memory system | the in-scope lever is the residual reduce (inline in `gemv_norm_module_sc`): unroll/interleave it so all loads issue before the ordered adds (per element, `s` ascending, unchanged), taking the residual 24.65 → ≤ 15 µs/token and `gu` ≤ 263 (−10 µs/token, −0.42/layer) | `gu` node change within ± 8 µs/token of 273, or slower, or `SEQHASH` ≠ `9092dbbaff119a2e` | probe arms `DEC_GU_ARM` on the base binary (`DEC_PROF=7 --prof --gen 128 --carrier q4`, gu µs/token): full 273.14; residual `s=0` 248.49 (residual = 24.65); skip norm+quant 231.75 (41.39); skip residual+norm 212.85 (`P` = 60.29); skip fold 65.95 (`F` = 207.19, `D` = 5.66). Per layer 11.38 = 8.63 + 2.51 + 0.24. Fold bytes 143.8 MB/token → 694 GB/s = 72 % of the 960 floor; the achieved rate rises with workgroup count: dn 19 WGs 642 GB/s (67 %), gu 38 694 (72 %), lm_head 594 849 (88 %). Fix arms (all keep `SEQHASH 9092dbbaff119a2e`): residual full unroll 448.43 (+175, register pressure), residual interleaved 275.21 (+2.1), fold weight-word hoist in a throwaway `attn_dp4a.rs` 272.83 (−0.3) | **refuted** on both in-scope prologue arms (slower or neutral). The dominant term is the fold `F` = 207.19 µs/token = 76 % of the node, running at 72 % of the weight-read floor because only 38 of 84 SMs execute the node; load scheduling does not move it (hoist neutral), so the fix is more resident work without duplicating the prologue, which needs the fold emitter `dp4a_chart_fold` (`src/simt_nn/attn_dp4a.rs`) — outside this task's owned files | Lean: `Perf.Moves.p70_gu_cost_terms` |
 | P71 | DECODE-ATTRIB T12 (row `decode-attrib-attribute-CisURujlQzOoUaNOGjR1Ms`), base `b8d6166`, qwen05b Q4_K_M, RTX 5080, tg128, `--carrier q4`: raise the `gu` node's resident workgroups (38 of 84 SMs) without multiplying the prologue: arm 1 fewer rows per workgroup in `gemv_norm_module_sc` (`DEC_GU_RPW` = 128 / 64, 76 / 152 WGs, in-workgroup k-slices `ks = 256/RPW` keeping LocalSize 256 so the norm reduction tree and SEQHASH are unchanged; an idle-lane variant `DEC_GU_IDLE=1` keeps ks = 1), arm 2 split-K `segs` = 2 priced, arm 3 prologue once priced | `t_gu = D + P + F` (T11: 5.66 + 60.29 + 207.19 = 273.14 µs/token); the fold runs at 694 GB/s = 72 % of 960 with 38 WGs, rising with WG count (dn 19: 642, gu 38: 694, lm_head 594: 849); P is one WG's latency, parallel across WGs, so its wall time is flat in WG count while its L2 traffic grows with it | `F` 207 → ≤ 180 µs/token and node ≤ 250 at 76 or 152 WGs (rate 694 → ≥ 799 GB/s); tg128 up, SEQHASH unchanged | node change within ± 8 µs/token of 273, or slower, or `SEQHASH` ≠ `9092dbbaff119a2e`, or any interleaved round where the dial arm is not faster than base | prior art: P68 (`cfe4986`-era k-slice, ks = 2, same mechanism as arm 1) gu 274.9 → 252.9 profiled, tg128 per-pair 1.019 sd 0.027, 3 of 10 rounds slower; this row re-measures it on `b8d6166` and adds ks = 4 and the idle-lane variant | measured: the derivation is refuted (more WGs alone leaves gu at 272.9), the node reaches 247.2 only with k-slices plus the grid-barrier residual; gu 273.09 -> 247.23 µs/token, tg128 948.6 -> 973.8 tok/s, B > A in 5 of 5 rounds, SEQHASH unchanged; installed. See P71 outcome | Lean: `Perf.Moves.p71_gu_workgroups` |
 | P72 | DECODE-ATTRIB T13 (row `decode-attrib-attribute-CisURujlQzOoUaNOGjR1Ms`), base `5cc11f1`, qwen05b Q4_K_M, RTX 5080, tg128, `--carrier q4`: take the 28-way split-K residual reduce `P` out of the `gu` node. Arm A: the last-arriving `o` workgroup (device-scope acq-rel ticket per layer, `PDL_LASTRED`, `pdl_last_reduce` in `src/simt_nn/norm.rs`) sums the 28 partials in ascending segment order and writes `out[0..m]`, so `gu` reads one segment (`res_segs` 1) and the grid barrier (`PDL_GRIDBAR`) is deleted. Arm B (`DEC_SPLITK` 16 / 8 segments) priced | `t_gu = D + P + F`; `P` = 12.1 µs/token by the T12 probe on `5cc11f1`-era gu (0.5 µs/layer × 24); the reduce moves to the `o` tail, so `t_gu + t_o` falls by `P − R` where `R` is the serial reduce plus ticket round-trip on the `o` critical path | `R < P`: gu + o sum below base 332.1 µs/token, tg128 B > A in at least 4 of 5 interleaved rounds, SEQHASH `9092dbbaff119a2e`, `PDL overflow 0` | gu + o sum not lower than base, or B > A in fewer than 4 of 5 rounds, or SEQHASH ≠ `9092dbbaff119a2e`, or overflow ≠ 0 | prior art: P71 (grid barrier distributes `P` across `gu` WGs at 247.2); this row moves `P` off `gu` instead of distributing it | measured (registered after the first timings were read, as P70): derivation refuted. gu 246.2 → 234.1 (−12.1 = `P`), o 85.9 → 138.2 (+52.3), sum 332.1 → 372.3 (+40.2); a protocol-only probe (ticket, fence, barrier, second increment, no reduce) already gives o +14.1. tg128 A 996.4, B 968.9 (−2.8 %), B won 0 of 5 rounds, SEQHASH unchanged, overflow 0. Not installed. See P72 outcome | Lean: `Perf.Moves.p72_last_reduce_terms` |
+| P73 | DECODE-ATTRIB T14 (row `decode-attrib-attribute-CisURujlQzOoUaNOGjR1Ms`), base `cbc02f1`, qwen05b Q4_K_M, RTX 5080, tg128, `--carrier q4`: price the `gu` fold rate `F` against a transport-only kernel on the same grid, LocalSize and weight buffer (`gemv_norm_module_ks`, m = 9728, k = 896, Q5 chart, `(rows, ks)` = (128, 2), 76 WGs). Arms by throwaway env dial, SEQHASH not applicable to probe arms: (a) every lane issues the fold's weight loads (4 code words, plane-B word, `dm` word per block) in the fold's order and width, XORs them into one accumulator, stores it; (b) (a) plus the Q5 chart unpack without `OpSUDot`; (c) the live node; (d) (a) at 2x and 4x workgroups (`(rows, ks)` = (64, 4), (32, 8)). Each arm with the prologue in place and with it skipped | `t_arm = D + P + F_arm`, `D` = 5.66 µs/token, `P` = 12.1 by P72; fold bytes 143.8 MB/token; rate `B = 143.8 MB / (t − D)` with the prologue skipped; floor 149.8 µs at 960 GB/s; lm_head reaches 849 GB/s on 594 WGs, so the memory system sustains ≥ 849 when the grid and loads allow it | registered before any arm is timed. Clauses with the prologue skipped (`t` in µs/token, gu node): (1) arm (a) `t ≤ 175` (`B ≥ 850 GB/s`); (2) arm (c) `t` in [208, 228] (B ≈ 630–720); (3) arm (b) − arm (a) ≥ 15; (4) arm (d) at 2x and 4x within ± 5 % of arm (a). If (1) holds and (c) stays ≥ 208: `F` is bound by the fold's instruction stream, and the dominant class is named from `spirv-dis` of the fold loop. If arm (a) `t` ≥ 195 (B ≤ 780): `F` is bound by transport and the cause (load width, coalescing, occupancy) is named | arm (a) `t` in (175, 195), or (c) − (a) < 15, or (d) outside ± 5 % while (a) ≤ 175 (grid-limited transport, so the lever is the grid, not the instruction stream) | prior art: P70 (`F` = 207 at 38 WGs; hoist neutral), P71 (WGs alone flat; k-slice + grid barrier −26), P72 (`P` off `gu` refuted) | measured: clause (1) refuted (arm (a) `t` ≈ 187 in the (175, 195) window on the registered 143.8 MB; 864 GB/s on the true 156.9 MB), (2) holds, (3) refuted, (4) holds. `F` is transport-bound. Not installed. See P73 outcome | Lean: `Perf.Moves.p73_transport_arms` |
 
 ## Held-out cases still to predict
 
@@ -495,3 +496,53 @@ Interleaved 5 rounds x 5 reps (A = base, B = Arm A), tok/s mean [min, max]:
 Mean A 996.4, B 968.9 (−2.8 %); B > A in 0 of 5 rounds; SEQHASH `9092dbbaff119a2e` and
 `PDL overflow 0` in all 10 runs. Not installed. Not covered: a reduce spread over several
 workgroups (needs a second ticket level), rustc/LLVM and driver codegen.
+
+## P73 outcome
+
+Row `decode-attrib-attribute-CisURujlQzOoUaNOGjR1Ms`, base `cbc02f1`, RTX 5080, qwen05b Q4_K_M, tg128,
+`--carrier q4`. Grade `measured`. Registered before any arm was timed. Probe dials were throwaway
+(`/home/socol/oc-tmp/dect14/probe-norm.diff`, not in the diff).
+
+Bytes correction: the kernel reads 6,537,216 B per node x 24 nodes = 156,893,184 B/token
+(24 B per 32-weight block per row: 4 code words, plane-B word, `dm` word), not the registered
+143.8 MB. Floor at 960 GB/s is 163.4 µs/token, not 149.8. Rates below use 156.9 MB.
+
+Instrument: under `DEC_PDL` the in-chain `gu` stamp is not the node duration (time migrates into the
+`o` node; gu stamps of 59 µs imply 2.6 TB/s). The metric is `G` = gu + o + dn per token minus the
+empty-fold arm. `DEC_PDL=0` (serialized stamps) is a second, independent instrument. 5 rounds per
+arm, bench `/home/socol/oc-tmp/dect14/bench-probe2`.
+
+| arm | prologue skipped: G / F (µs) | GB/s | prologue intact: G / F (µs) | GB/s |
+|---|---|---|---|---|
+| empty fold (D + P + store) | 206.2 / 0 | n/a | 260.5 / 0 | n/a |
+| (a) transport-only | 386.3 / 180.1 | 871 | 442.2 / 181.6 | 864 |
+| (b) transport + Q5 unpack | 389.0 / 182.8 | 858 | 442.4 / 181.8 | 863 |
+| full fold, no k-slice reduce | 387.0 / 180.8 | 868 | 440.2 / 179.6 | 873 |
+| (c) live node | 409.3 / 203.1 | 772 | 446.2 / 185.7 | 845 |
+| (d) (a) at 2x WGs, (rows, ks) = (64, 4) | 387.8 / 181.6 | 864 | n/a (grid barrier gave up, rc 101) | n/a |
+| (d) (a) at 4x WGs, (32, 8) | 391.0 / 184.7 | 849 | n/a (rc 101) | n/a |
+
+`DEC_PDL=0`, F µs (GB/s): skipped (a) 185.4 (846), (c) 194.4 (807); intact (a) 177.1 (886), (c) 182.0
+(862).
+
+Registered clauses vs measured (prologue skipped):
+
+| clause | measured | verdict |
+|---|---|---|
+| (1) arm (a) `t` ≤ 175 | `D + F` = 185.8 (187 in the sweep), inside (175, 195) | refuted on the registered bytes; 871 GB/s on 156.9 MB |
+| (2) arm (c) `t` in [208, 228] | 208.8 | holds |
+| (3) (b) − (a) ≥ 15 | 2.7 skipped, 0.2 intact | refuted |
+| (4) (d) within ± 5 % of (a) | +0.8 % (2x), +2.5 % (4x) | holds |
+
+Named bound: transport. The transport-only kernel on the live grid reaches 864–873 GB/s (90–91 % of
+960); the live node reaches 845 GB/s, 98 % of that. Doubling and quadrupling the workgroups is flat, so
+grid and occupancy do not bind. Q5 unpack and `OpSUDot` add 0.2–2.7 µs/token (noise-level). The
+live-minus-transport gap with the prologue intact is 4.0 µs/token (P0 − P1, every round about 4.0; 6.0
+against the no-slice full arm), the in-WG k-slice shared reduce, under 0.5 % of the token. Skipping the
+prologue gives a live arm 23.0 µs above (a) (N0 − N1); its cause is not attributed, and the arm is not
+the installed configuration. Load width was not varied: one word per row with the lane on the row gives
+128 B per warp load.
+
+Lever: none in the owned files. The remaining lever is fewer bytes (Q5 at 6 bits per weight plus the
+`dm` word), a carrier/packer change outside this task. Not installed. Not covered: other GPUs, driver
+and rustc/LLVM codegen, load widths other than the live one.
