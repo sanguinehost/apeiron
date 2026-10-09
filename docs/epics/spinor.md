@@ -983,6 +983,33 @@ docs ../ref` finds only the repo's own YaRN-metadata notes; the faces reading of
 not claimed new. Not covered: other models' bases, the trained use of those pairs on the 7B (the 0.5B H2 result found them
 to be content channels), and the Q4_K_M weights.
 
+#### FACES-R1 H1/H2 bridge: where rotation widens the page box (row `faces-r1-do-the-three-on-HCnA8ZlHN3emV1nzkVH7V0`)
+
+Question left open by the 7B bridge above: is the Quest page box loose on the elliptic pairs and tight on the parabolic ones?
+Command: `OMP_NUM_THREADS=1 nice -n 19 python3 /home/socol/oc-tmp/escalation/FACES-R1-BOXWIDTH.py` (sha256 `1c437bd4de35364e…`, output
+`FACES-R1-BOXWIDTH.out`, prediction `FACES-R1-BOXWIDTH-PREDICTION.md` written before the run). Data: the f32 GPU dump
+`/home/socol/oc-tmp/hattn-long/g7-128k` (Qwen2.5-7B-Instruct-1M, unrotated `k`, 4 KV heads, 64 pairs `(j, j+64)`, the dump's own `cs.bin`),
+layers 0, 7, 14, 21, 27, rows 4096..131072, 64-key pages. Per pair and page, `w` = (max−min)(x) + (max−min)(y) of the pair's two
+coordinates; `ρ_j` = mean over pages of `w` roped over `w` unrotated. The page-local face is set by `64·θ_j`
+(`θ_j = 10^7^(−2j/128)`): 38 pairs have `64θ_j < 0.1` (page-parabolic, `j ≥ 26`), 10 have `64θ_j > 2π` (page-wrapped).
+
+| layer | `ρ`, page-parabolic | `ρ`, page-wrapped | `ρ`, between | angles of shuffled positions (control), page-parabolic |
+|---|---|---|---|---|
+| 0 | 1.0021 | 1.956 | 1.303 | 1.573 |
+| 7 | 1.0020 | 1.956 | 1.384 | 1.539 |
+| 14 | 1.0018 | 1.734 | 1.192 | 1.369 |
+| 21 | 1.0012 | 1.875 | 1.222 | 1.437 |
+| 27 | 1.0017 | 1.698 | 1.203 | 1.587 |
+
+P1 (page-parabolic `ρ ≤ 1.10`) and P2 (page-wrapped `ρ ≥ 1.5`) held on every layer. Reading (`model`): rotation changes the box width
+by 0.2% on the pairs that are a shear inside a page and by 1.7–2.0× on the pairs that wind around the circle inside one; the bound's
+looseness from rotation lives in the highest-frequency pairs (`ρ` falls 1.85, 1.85, 1.59, 1.55, 1.21, 1.03, … on every fourth pair of
+layer 14). The control row is not the prediction as I wrote it: I predicted the shuffled-angle column would stay at or below 1.10,
+which is wrong (a shuffle gives large angle jumps inside a page, so it inflates the parabolic pairs 1.4–1.6×). What the column shows
+is that the 1.002 is set by position locality, not by the data. Grade `tested`. Not covered: the effect of `ρ` on bound recall or on
+KLD (`ρ` weights are `|q_d|`-blind), other checkpoints, the f16 weights, pages beyond 131072. Search for prior art: none run; the
+widening of an axis-aligned box by rotation is elementary and no novelty is claimed.
+
 ### FACES-R3 results (prior-art search)
 
 Row: `faces-r3-searched-list-of-HFjIFdmrgQqByikqw7ayoE`. Digest `/home/socol/oc-tmp/escalation/FACES-R3-DIGEST.md`
