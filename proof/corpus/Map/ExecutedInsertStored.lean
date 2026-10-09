@@ -1,5 +1,7 @@
--- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (HT-INSERT-W30, W31, W32): the
--- `Stored<u64>` size carrier and its key-store totality lemmas.
+-- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (HT-INSERT-W30, W31, W32, W33):
+-- the `Stored<u64>` size carrier and its key-store totality lemmas.  W33 adds the linear overflow
+-- entry counter `Hent` and the linear `resize` bound `resize_hov_lin`.  Header line: 
+-- W33.
 --
 -- STATUS.  Kernel-checked: `stored_insert_total`, `stored_insert_witness`, `stored_insert_keycols` and
 -- `stored_insert_step` (the structural half of the per-insert step; the `Hov` counter is not linear
@@ -748,3 +750,15 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.stored_insert_step
 #audit Apeiron.MapExecuted.with_bits1_SKS_ex
 #audit Apeiron.MapExecuted.stored_insert_witness
+-- W33: the linear overflow entry counter `Hent` and the linear `resize` bound `resize_hov_lin`.
+#audit Apeiron.MapExecuted.remLen_eq
+#audit Apeiron.MapExecuted.sum_map_le_of_le
+#audit Apeiron.MapExecuted.sum_map_le_add_one
+#audit Apeiron.MapExecuted.Hent
+#audit Apeiron.MapExecuted.Hent_none
+#audit Apeiron.MapExecuted.Hent_of_Hov
+#audit Apeiron.MapExecuted.Hent_mono
+#audit Apeiron.MapExecuted.place_capped_domain_hent
+#audit Apeiron.MapExecuted.place_capped_hent
+#audit Apeiron.MapExecuted.resize_hov_lin
+#audit Apeiron.MapExecuted.grow_post_lin
