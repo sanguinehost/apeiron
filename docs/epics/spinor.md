@@ -991,7 +991,7 @@ each face can express follows from that space.
 | attention score (`conj(q)k`, conjugation `a+bx ↦ a−bx`) | scalar part `q0k0 + q1k1`: the positive-definite dot product; times `e^{iθd}` it is `A cos θd − J sin θd` | scalar part `q0k0`: degenerate, and position-free (`(w)(1+θdε)` moves only the `ε` part) | scalar part `q0k0 − q1k1`: Minkowski; times `e^{θdx}` it is `A cosh θd + J sinh θd` | `conj(R_m q)R_n k = conj(q)k·exp((n−m)θx)` on every face (`N(exp θx)=1`); the `x` part is the `J` form on every face. ALiBi's affine `A + Jθd` is the small-`θd` limit of the elliptic or hyperbolic scalar part, not the `σ=0` scalar part. `python3 /home/socol/oc-tmp/escalation/FACES-R2-score.py`: relativity error ≤ `2.7e-7` relative, product and scalar-part forms exact, 1000 draws per face; `σ=0` scalar part constant in `d` (`−0.396` at every `d`); trained qwen05b puts `5e-4` of the score variance on that slope (R1 paragraph above). Grade `tested` |
 | decay / state (`h←Ah+Bx`) | complex diagonal `A`: oscillator, phase memory, counts mod k | Jordan block `1+Nε`: state grows linearly, an integrator/counter | real diagonal `A`: exponential forgetting (RetNet, real-`A` Mamba) | memory length is `∞` (elliptic, `|λ|=1`), unbounded growth (parabolic), `1/(1−λ)` (hyperbolic) |
 | norm (RMSNorm) | `x²+y²`, positive definite: the normaliser RMSNorm uses | `x²`, degenerate: kills the second coordinate | `x²−y²`, indefinite: zero on the null cone `x=±y`, where the idempotent lanes lie | RMSNorm presupposes the elliptic face. Toy: normalising 448 Gaussian pairs by the hyperbolic form gives inverse-rms gain median 5.6, p99 41.6, max 725.9 (elliptic ≈ 1.00) and a random sign (P(Q<0)=0.502) |
-| hash-table probe | address ring `Z/2⁶⁴`, address determines key (regenerated); ring wraps | key carried beside the address; no wrap into the flat region (spill) | `Z/m` with CRT idempotent channels; address does not determine the key | already decided per face in `docs/epics/algebra-native-addressing.md` (lines 62–67, 127); the CRT split of `Z/m` is the discrete idempotent decomposition `(1±x)/2` |
+| hash-table probe | address ring `Z/2⁶⁴`, address determines key (regenerated); ring wraps | key carried beside the address; no wrap into the flat region (spill) | `Z/m` with CRT idempotent channels; address does not determine the key | already decided per face in `docs/epics/algebra-native-addressing.md` (lines 62–67, 127); the CRT split of `Z/m` is the discrete idempotent decomposition `(1±x)/2` (**refuted as stated**: the two splits are independent; hash-probe experiment below) |
 | decode chain (cost) | the token loop: output token re-enters as input, period one token | dependent dispatches inside a token: strictly forward, nothing returns (nilpotent), cost adds: `chainLB = Σ dispLB` | independent lanes (heads, split-K, DP4A bytes): cost is the max, combined once | the chain model is sum for a dependent composition and max for a parallel one; the face names which composition applies |
 
 Command for the norm row: `python3 /home/socol/oc-tmp/escalation/FACES-R2-norm.py` (numpy, seed 0,
@@ -1006,7 +1006,7 @@ One cheap experiment per row (the decay/state row is run below; the others have 
 | position code | one head, fixed random `q,k`, three position codes; train on offset-retrieval at length `L`, test at `4L` | parabolic does not extrapolate better than elliptic, or elliptic cannot peak at offset |
 | decay / state | 2-state linear recurrence on parity (mod-2 count), unbounded count, and moving average; one face per state | a face solves a task outside its solution space above chance |
 | norm | replace RMSNorm in a small trained block by the `|x²−y²|` form with the same eps; compare loss and gain tail | the hyperbolic normaliser trains to the elliptic loss within noise, so the null cone does not bind |
-| hash probe | read the existing per-face address decision against `Coord` measurements | none new: row defers to the addressing epic |
+| hash probe | count the idempotents of `(Z/m)[x]/(x²−σ)` by brute force and separate the `x`-split from the CRT split of `Z/m` (run below) | an idempotent count differs from the prediction, or the CRT split of `Z/m` always carries an `x`-split |
 | decode chain | two independent GEMVs in one submission, with and without a barrier, against the dependent pair (`decattr_probe chain`) | independent pair time is not near the max of the two (overlap fails), refuting H6 on this driver |
 
 #### FACES-R2 decay/state experiment (row `faces-r2-each-on-the-and-BegLX7J1BhlO8MfCu6nnZd`)
@@ -1315,3 +1315,52 @@ summed working set stays in the level that serves `S`. It does not turn bandwidt
 - Device specs, which are anchors (64 MB L2, 960 GB/s DRAM), not measured here.
 
 **Grade.** `measured` (RTX 5080, device timestamps, 3 runs, spread above); the reading is `model`.
+
+#### FACES-R2 hash-probe experiment: the `x`-split and the CRT split (row `faces-r2-each-on-the-and-BegLX7J1BhlO8MfCu6nnZd`)
+
+Command: `python3 /home/socol/oc-tmp/escalation/FACES-R2-crt-idem.py` (sha256 `a8a6f75c4e01d0fb…`; log `FACES-R2-crt-idem.out`;
+prediction in the script header, written before the run). It enumerates every `(a, b)` with `(a + bx)² = a + bx` in
+`(Z/m)[x]/(x²−σ)`, for every `σ` in `Z/m`, at `m ∈ {2..64 powers of 2, 3, 5, 7, 9, 11, 13, 25, 27, 49, 6, 10, 12, 15, 21, 35, 45, 63, 105}`:
+587 `(m, σ)` cases. Grade `tested`.
+
+Prediction: `#idem(m, σ) = Π_{pᵏ ∥ m} c_p`, with `c_2 = 2` and, for odd `p`, `c_p = 4` when `σ mod p` is a nonzero
+square and `2` otherwise. An idempotent with a nonzero `x`-slot exists iff some odd `p | m` has `σ` a nonzero square mod `p`.
+The `m = 2ᵏ` case is already proved for every `σ`: `proof/corpus/Icarus/AlgebraCarry.lean:313` `idempotent_trivial`.
+
+| check | result | verdict |
+|---|---|---|
+| P0–P2: count and `x`-slot over 587 cases | 0 mismatches | held |
+| P3a: `m = 15`, `σ = 2` (a nonsquare mod 3 and mod 5) | 4 idempotents `(0,0), (1,0), (6,0), (10,0)`, every `x`-slot 0 | held: CRT channels, no `x`-split |
+| P3b: `m = 9`, `σ = 1` | 4 idempotents `(0,0), (1,0), (5,4), (5,5)` | held: an `x`-split, no CRT channel (`9` is a prime power) |
+| P4: `m = 5`, `σ = 4 = −1` against `σ = 2` | 4 idempotents (`x`-slot nonzero) against 2 | held: a negative `σ` splits, a positive one does not |
+| control: `c_2` set to 4 in a throwaway copy | 154 mismatches, exit 1 | the check can fail |
+
+**Verdict.** The R2 table's hash-probe sentence "the CRT split of `Z/m` is the discrete idempotent decomposition `(1±x)/2`" is
+**refuted as stated**. `(Z/m)[x]/(x²−σ)` carries two independent splits that multiply:
+
+- the CRT split of the coefficient ring `Z/m`, one channel per prime power, with idempotents in the scalar slot (`x`-slot 0);
+- the `x`-split `(1 ± x/r)/2` inside each odd prime-power channel where `σ = r²` has a unit root.
+
+The addressing decision (`docs/epics/algebra-native-addressing.md:68`, an odd prime power with `2` a unit and the
+quadratic idempotents) already uses the second split, through `Native/HyperbolicBase.lean:26` `quadratic_split`. The "odd composite
+`Z/m` with CRT idempotent channels" wording at `:128` names the first. That epic already marks the phrase as superseded
+by the single-prime-power decision (`:2371`); this run supplies the reason. The two splits are not the same object. A composite
+modulus whose `σ` is a nonsquare mod every prime has CRT channels and no hyperbolic face.
+
+**Reading (`model`).** Over `Z/m` the face of `σ` is decided by its quadratic character mod each odd prime, not by its
+sign. The trichotomy is:
+- `σ ≡ 0`: local, the dual numbers;
+- a nonzero square: split, idempotents;
+- a nonsquare: a field extension, the finite-field image of the elliptic face.
+
+The sign trichotomy is a fact of `R`. A wrapping word `Z/2⁶⁴` has no split on any `σ`, which is the proved P0. This is the
+discrete counterpart of the failure-register row "real-ring classification was attributed to wrapping words" (`AGENTS.md` §10).
+
+**Prior art.** Standard, and novelty is not claimed. The splitting of `F_p[x]/(x²−σ)` by the Legendre symbol is quadratic
+reciprocity material (Gauss, *Disquisitiones Arithmeticae* (1801)), and the product over prime powers is the Chinese
+remainder theorem. Both are pointers, not retrieved.
+
+**Not covered.**
+- `m > 105`.
+- A proof for every `m`: the count is tested, not proved; a Lean statement over `ZMod (pᵏ)` would extend `quadratic_split`.
+- Whether any shipped addressing code uses a composite modulus at all.
