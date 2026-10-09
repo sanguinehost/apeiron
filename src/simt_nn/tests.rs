@@ -51,6 +51,12 @@ fn modules_walk() {
             "flashpartialcompact",
             flash_partial_module(14, 2, 64, 2048, 0.125, 8, 64, true, true, false, 0),
         ),
+        // the rope-fold flash at the decode bench shape (tmax 512 ⇒ nsplit 7), the default
+        // (`DEC_FLASH_V2` unset) merged-prologue / subgroup-max / chunked-pass-3 arm.
+        (
+            "flashpartialfold",
+            flash_partial_fold_module(14, 2, 64, 512, 0.125, 7, 64, 1e6, 8, true, 64),
+        ),
         ("flashcombine", flash_combine_module(14, 64, 8)),
         ("silu", silu_mul_module(4864, 256, 4864)),
         ("add", add_inplace_module(896, 256)),
