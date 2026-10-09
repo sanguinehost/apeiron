@@ -714,7 +714,42 @@ The thresholds are the lead's and the owner may revise them.
 
 | task | scope | files | gate | control |
 |---|---|---|---|---|
-| `HATTN-T1` (first; cheapest falsifier of compatibility) | **Prior art.** Retrieve and read the pointers above, plus hashing/binary attention, and record each one's relation to the expansion. **Measurement.** On the Qwen2.5-0.5B `q`,`k` dumps (`/home/socol/oc-tmp/faces-qk`, 24 layers, 14 query heads, 2 KV heads, `T = 512`, f32, `cs.bin` RoPE table), RoPE-rotate, apply a fixed normalized Walsh–Hadamard rotation, sign to `b` bits. Report per head the attention KL against float softmax at the best scale `s`, for exact `b ∈ {8, 12, 16}` and truncated `b = 64`, `r ∈ {1, 2, 3}`. Also report distinct-code growth in `t`. The prediction is registered before the run | `tools/hattn/qk_onebit.py`, `docs/evidence/hattn-qk-onebit.md` | `python3 tools/hattn/qk_onebit.py --check` | replace the sign map by the identity in a copy: KL is 0 at every head |
-| `HATTN-T2` | The Lean module above | `proof/corpus/Nous/Model/OneBitAttention.lean`, `proof/corpus/AxiomAudit.lean`, `proof/corpus/lakefile.lean` | `cd proof/corpus && lake build Nous.Model.OneBitAttention AxiomAudit` | drop the `sinh` term from the factor in a copy: the build fails at the product theorem |
+| `HATTN-T1` (after T2, owner 2026-10-09; cheapest falsifier of compatibility) | **Prior art.** Retrieve and read the pointers above, plus hashing/binary attention, and record each one's relation to the expansion. **Measurement.** On the Qwen2.5-0.5B `q`,`k` dumps (`/home/socol/oc-tmp/faces-qk`, 24 layers, 14 query heads, 2 KV heads, `T = 512`, f32, `cs.bin` RoPE table), RoPE-rotate, apply a fixed normalized Walsh–Hadamard rotation, sign to `b` bits. Report per head the attention KL against float softmax at the best scale `s`, for exact `b ∈ {8, 12, 16}` and truncated `b = 64`, `r ∈ {1, 2, 3}`. Also report distinct-code growth in `t`. The prediction is registered before the run | `tools/hattn/qk_onebit.py`, `docs/evidence/hattn-qk-onebit.md` | `python3 tools/hattn/qk_onebit.py --check` | replace the sign map by the identity in a copy: KL is 0 at every head |
+| `HATTN-T2` (first, owner 2026-10-09; closed) | The Lean module above and the cost model | `proof/corpus/Nous/Model/OneBitAttention.lean`, `proof/corpus/AxiomAudit/Remaining.lean` | `cd proof/corpus && lake build Nous.Model.OneBitAttention AxiomAudit` | drop the `sinh` term from the factor in a copy: the build fails at the product theorem |
 | `HATTN-T3` (after T1) | Rust exact and truncated carry; tested against float softmax on ±1 inputs; then the fold-trained sign projection of one Qwen layer | `src/learn/hattn.rs`, `src/learn/mod.rs`, `tests/learn_hattn.rs` | `cargo test --release --locked --test learn_hattn` | flip one feature sign in a copy: the carry-vs-scan test fails |
 | `HATTN-T4` (after T3) | Whole-model conversion and paired KLD against f16 and `Q4_K_M`; training cost against softmax on the spinor-ttl race corpus | specified at T3's barrier | specified at T3's barrier | specified at T3's barrier |
+
+## Verification — one-bit attention, `HATTN-T2`
+
+Gate: `cd proof/corpus && lake build Nous.Model.OneBitAttention AxiomAudit`, exit 0 (9136 jobs, 13.6 s
+warm). `AxiomAudit/Remaining.lean` audits 17 declarations of `Nous.Model.OneBit`; 16 depend on
+`{propext, Classical.choice, Quot.sound}`, `carry_query_le_scan` on `{propext, Quot.sound}`.
+
+| statement | content | grade |
+|---|---|---|
+| `exp_mul_sign` | `e^{s x} = cosh s + x sinh s` on `x ∈ {±1}` | proved |
+| `onebit_factor_is_flow` | the factor is `ringUpper 1 (flow 1 s)` at `x = 1`, `ringLower 1 (flow 1 s)` at `x = −1` | proved |
+| `onebit_exp_product` | `e^{s q·k} = Π_i (cosh s + q_i k_i sinh s)` on one-bit `q, k` | proved |
+| `prod_flow_expansion` | `Π_i (cosh s + x_i sinh s) = Σ_S λ_S x_S`, `λ_S = cosh^{d−|S|} s sinh^{|S|} s`, any real `x` | proved |
+| `onebit_exp_expansion` | `e^{s q·k} = Σ_S λ_S q_S k_S` | proved |
+| `onebit_attention_is_finite_carry` | normalized attention with per-key scales `a_n` over `N` one-bit keys = read of the carry `(carryNum, carryDen)` indexed by `Finset (Fin d)` | proved |
+| `carry_card` | the carry index has `2^d` entries | proved |
+| `carryNum_snoc`, `carryDen_snoc` | appending a key adds its own features; the carry is additive in keys | proved |
+| `onebit_truncation_bound` | keeping `|S| ≤ r` errs by at most `Σ_{|S|>r} cosh^{d−|S|} s · |sinh s|^{|S|}` | proved |
+| `truncated_card` | the truncated carry keeps `Σ_{j≤r} C(d, j)` subsets | proved |
+| `carry_query_le_scan` | per-query read `2^d (d_v+1) ≤ n (d+d_v)` when `2^d ≤ n`, `d ≥ 1` | proved |
+| `scanCausal_closed` | causal scan pass `2·Σ_{t<n} (t+1)(d+d_v) = n(n+1)(d+d_v)` | proved |
+| `carry_causal_le_scan` | causal carry pass `n·2·2^d(d_v+1) ≤` causal scan pass when `4·2^d ≤ n+1`, `d ≥ 1` | proved |
+| `onebit_witness` | joint sign witness at `d = 2`; at `d = 8`, `d_v = 64`: carry 16640 words, below a 32768-token read and a 32768-token causal pass | proved |
+
+- The carry theorem is proved by exchanging the two finite sums directly. It does not go through
+  `boost_finite_rank_recurrence_vec`, which the spec named.
+- The cost model counts real multiply-adds at unit cost (ℕ). It is not a hardware measurement.
+- Controls (`lake env lean` on copies in `/home/socol/oc-tmp/hattn-t2-ctl/`; live tree untouched):
+  - `drop_sinh.lean` removes `+ x sinh s` from `exp_mul_sign`. Exit 1: the rewrites at lines 64–65
+    fail and the theorem stays unsolved.
+  - `weak_cost.lean` weakens `carry_causal_le_scan` to `2·2^d ≤ n+1`. Exit 1 at line 264. The
+    weakened statement is false, for example at `d = 1`, `d_v = 64`, `n = 3`.
+  - `restore.lean`: exit 0.
+- Not covered: floating-point evaluation; any map from a real-valued model to signs (T1); the Rust
+  carry (T3); hardware cost.
