@@ -137,6 +137,80 @@ theorem finite_channel_mul {ι : Type*} [Fintype ι] (a : ι → ℕ)
     linear_combination (-(ZMod.prodEquivPi a coprime z.2 i *
       ZMod.prodEquivPi a coprime w.2 i)) * hrr i
 
+
+/-- In `ZMod (p ^ k)` with `p` prime the only idempotents are `0` and `1`: `p ^ k ∣ n (n - 1)` and
+`p` divides at most one of the coprime integers `n`, `n - 1`. -/
+theorem zmod_prime_pow_idempotent {p : ℕ} (hp : p.Prime) (k : ℕ) (e : ZMod (p ^ k))
+    (h : e * e = e) : e = 0 ∨ e = 1 := by
+  obtain ⟨n, rfl⟩ := ZMod.intCast_surjective e
+  have hdvd : (p : ℤ) ^ k ∣ n * (n - 1) := by
+    have h0 : ((n * (n - 1) : ℤ) : ZMod (p ^ k)) = 0 := by
+      push_cast
+      rw [mul_sub, mul_one, h, sub_self]
+    have := (ZMod.intCast_zmod_eq_zero_iff_dvd _ _).mp h0
+    exact_mod_cast this
+  have hirr : Irreducible (p : ℤ) := (Nat.prime_iff_prime_int.mp hp).irreducible
+  by_cases hn : (p : ℤ) ∣ n
+  · left
+    have hc : IsCoprime ((p : ℤ) ^ k) (n - 1) := by
+      refine IsCoprime.pow_left (hirr.coprime_iff_not_dvd.mpr ?_)
+      intro h1
+      have h2 : (p : ℤ) ∣ 1 := by simpa using dvd_sub hn h1
+      exact hirr.not_isUnit (isUnit_of_dvd_one h2)
+    have h2 : (p : ℤ) ^ k ∣ n := hc.dvd_of_dvd_mul_left (by rwa [mul_comm] at hdvd)
+    rw [ZMod.intCast_zmod_eq_zero_iff_dvd]
+    exact_mod_cast h2
+  · right
+    have hc : IsCoprime ((p : ℤ) ^ k) n :=
+      IsCoprime.pow_left (hirr.coprime_iff_not_dvd.mpr hn)
+    have h2 : (p : ℤ) ^ k ∣ n - 1 := hc.dvd_of_dvd_mul_left hdvd
+    have h3 : ((n - 1 : ℤ) : ZMod (p ^ k)) = 0 := by
+      rw [ZMod.intCast_zmod_eq_zero_iff_dvd]
+      exact_mod_cast h2
+    push_cast at h3
+    exact sub_eq_zero.mp h3
+
+/-- A cell of the selected hyperbolic base is idempotent exactly when each channel coordinate is
+`0` or `1`. -/
+theorem h3_40_idempotent_iff (z : RingCell H3_40) :
+    ringMul 1 z z = z ↔
+      ((h3_40ChannelEquiv z).1 = 0 ∨ (h3_40ChannelEquiv z).1 = 1) ∧
+        ((h3_40ChannelEquiv z).2 = 0 ∨ (h3_40ChannelEquiv z).2 = 1) := by
+  have hmul := h3_40_quadratic_split.2.2.2 z z
+  have hp : Nat.Prime 3 := by norm_num
+  constructor
+  · intro h
+    rw [h] at hmul
+    exact ⟨zmod_prime_pow_idempotent hp 40 _ (congrArg Prod.fst hmul).symm,
+      zmod_prime_pow_idempotent hp 40 _ (congrArg Prod.snd hmul).symm⟩
+  · rintro ⟨h1, h2⟩
+    apply h3_40ChannelEquiv.injective
+    rw [hmul]
+    refine Prod.ext ?_ ?_
+    · show (h3_40ChannelEquiv z).1 * (h3_40ChannelEquiv z).1 = (h3_40ChannelEquiv z).1
+      rcases h1 with h1 | h1 <;> rw [h1] <;> simp
+    · show (h3_40ChannelEquiv z).2 * (h3_40ChannelEquiv z).2 = (h3_40ChannelEquiv z).2
+      rcases h2 with h2 | h2 <;> rw [h2] <;> simp
+
+/-- The selected hyperbolic base has exactly four idempotents: `0`, `1` and the two channel
+projectors. -/
+theorem h3_40_idempotents_ncard :
+    {z : RingCell H3_40 | ringMul 1 z z = z}.ncard = 4 := by
+  have hset : {z : RingCell H3_40 | ringMul 1 z z = z} =
+      h3_40ChannelEquiv.symm '' (({0, 1} : Set H3_40) ×ˢ ({0, 1} : Set H3_40)) := by
+    ext z
+    rw [Set.mem_setOf_eq, h3_40_idempotent_iff, Equiv.image_symm_eq_preimage
+      h3_40ChannelEquiv]
+    simp
+  have h01 : (0 : H3_40) ≠ 1 := by
+    haveI : Fact (1 < 3 ^ 40) := ⟨by norm_num⟩
+    exact zero_ne_one
+  rw [hset, Set.ncard_image_of_injective _ h3_40ChannelEquiv.symm.injective, Set.ncard_prod,
+    Set.ncard_pair h01]
+
+-- The prime-power premise binds: `ZMod 6` carries the idempotent `3`, which is neither `0` nor `1`.
+#guard ((3 : ZMod 6) * 3 = 3 && (3 : ZMod 6) != 0 && (3 : ZMod 6) != 1)
+
 end
 
 end Apeiron.NativeAddress
