@@ -597,3 +597,124 @@ Qwen2.5-0.5B `ffn_down`, blocks 0–3 of 24, every arm at 1.125 b/w. Grade `test
   - `onebit_diag --index-range 0,4` (524 s), `sd1`/`sd1-path` against W7: max relative change 1.6e-5 (blk0
     `sd1-path` 0.4778163 → 0.4778086); 9 of 24 cells above 1e-6.
   - Every arm ranking above is unchanged. The cause is attributed to the rounded scale; this is inference, not tested.
+
+# Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
+
+Owner go (2026-10-09): open the fold-training and hyperbolic-attention lane, aiming at attention
+that costs O(1) or O(log n) in context length, or is otherwise cheaper than softmax, for
+training and finetuning. It must stay compatible with existing models.
+
+## Intent — one-bit attention
+
+### Already proved in this tree (`proof/corpus/Nous/Model/HyperbolicAttention.lean`)
+
+| statement | declaration | grade |
+|---|---|---|
+| The unnormalized softmax weight `e^s` is the upper idempotent channel of the hyperbolic flow `flow 1 s = (cosh s, sinh s)`, and `e^{-s}` is the lower channel | `softmax_weight_is_upper_channel`, `channelWeight_flow_one` | proved |
+| The Qwen score is the elliptic pairing of RoPE-rotated pairs and depends on positions only through `t − s` | `qwenScore_eq_rel`, `qwenScore_relative` | proved |
+| Online softmax is an exact streaming scan with a chunk-fusion law | `softmax_attention_is_online_spinor_vec`, `oaNumV_scan_append` | proved |
+| `e^{qk}` over real `q, k` has no factorization `Σ_{j<D} φ_j(q) ψ_j(k)` at any `D`, so softmax attention over real scores has no exact fixed-size carry | `exp_kernel_not_finite_rank` | proved |
+| A finite-rank content kernel times the hyperbolic boost `e^{λ(t−s)}` is exactly a fixed-size carry | `boost_finite_rank_recurrence_vec` | proved |
+
+The face picture this gives:
+- Softmax attention is an elliptic score (the positive-definite dot product, rotated by RoPE)
+  fed into a hyperbolic exponent (the `e₊` lane of `exp(jθ)`).
+- The correspondence between softmax and the hyperbolic face is exact; it is the first row.
+- The negative row is a statement about the function, not the face that computes it. Equal
+  denotations keep the same lower bound, so moving faces does not buy exact constant state over
+  real scores.
+- The fine-grained bound points the same way. Alman and Song, *Fast Attention Requires Bounded
+  Entries* (arXiv 2302.13214), and its gradient sequel (arXiv 2402.04497) rule out a truly
+  subquadratic approximation once entries reach `Θ(√log n)`, assuming SETH. These are pointers:
+  not yet retrieved or read here (§9.3).
+
+### The opening: one-bit keys and queries
+
+Take `q, k ∈ {±1}^d` and a scale `s`. Each product `x_i = q_i k_i` is `±1`, so `x_i² = 1`, and
+the hyperbolic flow evaluated at that character is
+
+    e^{s x_i} = cosh s + x_i sinh s.
+
+Multiplying the `d` factors gives, with `x_S = Π_{i∈S} x_i`:
+
+    e^{s q·k} = Π_i (cosh s + q_i k_i sinh s) = Σ_{S ⊆ [d]} cosh^{d−|S|} s · sinh^{|S|} s · q_S k_S.
+
+- R[x]/(x²−1) is the group algebra R[Z₂]. Its d-fold tensor power is R[Z₂^d], and the tensored
+  idempotent split `Π (1 ± x_i)/2` is the Walsh–Hadamard transform: the transform Part II
+  already uses.
+- So the one-bit exponential kernel has exact finite rank 2^d. The features are `q_S`, weighted by
+  `λ_S = cosh^{d−|S|} s · sinh^{|S|} s`.
+- `boost_finite_rank_recurrence_vec` applies unchanged. Exact attention is a carry of
+  `2^d·(d_v + 1)` numbers, independent of the context length `n`.
+- Lead check, numpy f64, d = 8, n = 1000, s = 0.37: carry readout vs direct softmax, max
+  difference 1.0e-15. This is a sample, not a gate.
+
+The cost of exactness:
+- The kernel has full rank 2^d (every `λ_S > 0` for `s > 0`).
+- An exact query costs `min(n, 2^d)·(d_v + 1)` multiply-adds. It beats the scan only when
+  `n > 2^d`, which means the codes collide. This is the rate rule of `AGENTS.md` §10, met here
+  by a finite key domain.
+
+Truncation by degree:
+- Write `t = tanh s`, so `e^{s q·k} = cosh^d s · Σ_S t^{|S|} q_S k_S`.
+- Keeping `|S| ≤ r` leaves an error of at most `cosh^d s · Σ_{j>r} C(d,j) t^j`, with
+  `C(d, ≤r)` features.
+- Small `s` is the bounded-entry regime of the pointer above, now with an explicit tail.
+
+### Compatibility with existing models
+
+Existing checkpoints carry real `q, k`.
+- Exactness holds after conversion to `b`-bit signs, not to the float model. Conversion changes
+  the function.
+- The open question is empirical: at which `(b, r)` the converted attention distribution stays
+  within tolerance of the float one, and whether `2^b` (exact) or `C(b, ≤r)` (truncated) falls
+  below `n` at useful lengths.
+- RoPE does not commute with the sign map. Rotating before taking signs keeps the score
+  relative only approximately; this is measured, not assumed.
+
+### Success condition
+
+1. **Distribution.** On Qwen2.5-0.5B, some `(b, r)` gives a median per-head attention KL against
+   the float softmax of at most 0.05 nats, with feature count `F < n` at `n = 32768`.
+2. **Whole model.** The converted model (one-bit q, k projections, fold-trained) has a
+   whole-model KLD against f16 no worse than `Q4_K_M`'s.
+3. **Training.** Training and finetuning attention through the carry costs linear time in `n`.
+
+The thresholds are the lead's and the owner may revise them.
+
+### Non-goals and non-claims
+
+- No exact sub-quadratic softmax over real scores: proved impossible above.
+- No novelty is asserted. Hashing and binary attention, Taylor-feature linear attention (Based,
+  arXiv 2402.18668), random features (Performer) and the polynomial method are prior art to
+  retrieve and read in `HATTN-T1` before any comparison is written.
+
+## Specification — one-bit attention
+
+- **Domain.** `s : ℝ`; `q k : Fin d → ℝ` with `q_i² = 1` and `k_i² = 1`; values `Fin d_v → ℝ`.
+  Total over that domain. Real arithmetic in Lean. The Rust carry is `f64` and tested; an exact
+  integer carry over Hamming bins is W2's question.
+- **Lean (new module `proof/corpus/Nous/Model/OneBitAttention.lean`).** Statements to prove:
+  - `onebit_factor_is_flow`: `cosh s + x sinh s` is `ringUpper 1 (flow 1 s)` at `x = 1` and
+    `ringLower 1 (flow 1 s)` at `x = −1`.
+  - `onebit_exp_product`: `exp (s * Σ q_i k_i) = Π (cosh s + q_i k_i sinh s)`.
+  - `onebit_exp_expansion`: the `Finset.powerset` sum above.
+  - `onebit_attention_is_finite_carry`: normalized attention over a list of one-bit keys equals
+    the readout of the `2^d`-feature carry, via `boost_finite_rank_recurrence_vec` at `λ = 0`.
+  - `onebit_truncation_bound`: the degree-`r` tail bound.
+  - A joint witness at `d = 2`.
+  - Audit cone `{propext, Classical.choice, Quot.sound}`.
+- **Cost model.**
+  - Exact carry: `2^d·(d_v + 1)` words; per query `2^d·(d_v + 1)` multiply-adds.
+  - Truncated: `C(d, ≤r)` in place of `2^d`.
+  - Standard scan: `n·(d + d_v)`.
+  - These are combinatorics, not measurements.
+
+## Plan — one-bit attention
+
+| task | scope | files | gate | control |
+|---|---|---|---|---|
+| `HATTN-T1` (first; cheapest falsifier of compatibility) | **Prior art.** Retrieve and read the pointers above, plus hashing/binary attention, and record each one's relation to the expansion. **Measurement.** On the Qwen2.5-0.5B `q`,`k` dumps (`/home/socol/oc-tmp/faces-qk`, 24 layers, 14 query heads, 2 KV heads, `T = 512`, f32, `cs.bin` RoPE table), RoPE-rotate, apply a fixed normalized Walsh–Hadamard rotation, sign to `b` bits. Report per head the attention KL against float softmax at the best scale `s`, for exact `b ∈ {8, 12, 16}` and truncated `b = 64`, `r ∈ {1, 2, 3}`. Also report distinct-code growth in `t`. The prediction is registered before the run | `tools/hattn/qk_onebit.py`, `docs/evidence/hattn-qk-onebit.md` | `python3 tools/hattn/qk_onebit.py --check` | replace the sign map by the identity in a copy: KL is 0 at every head |
+| `HATTN-T2` | The Lean module above | `proof/corpus/Nous/Model/OneBitAttention.lean`, `proof/corpus/AxiomAudit.lean`, `proof/corpus/lakefile.lean` | `cd proof/corpus && lake build Nous.Model.OneBitAttention AxiomAudit` | drop the `sinh` term from the factor in a copy: the build fails at the product theorem |
+| `HATTN-T3` (after T1) | Rust exact and truncated carry; tested against float softmax on ±1 inputs; then the fold-trained sign projection of one Qwen layer | `src/learn/hattn.rs`, `src/learn/mod.rs`, `tests/learn_hattn.rs` | `cargo test --release --locked --test learn_hattn` | flip one feature sign in a copy: the carry-vs-scan test fails |
+| `HATTN-T4` (after T3) | Whole-model conversion and paired KLD against f16 and `Q4_K_M`; training cost against softmax on the spinor-ttl race corpus | specified at T3's barrier | specified at T3's barrier | specified at T3's barrier |
