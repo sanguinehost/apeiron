@@ -2040,14 +2040,49 @@ theorem probe_capped_keyed_slot_weak {KS : Type} (ks : hashtrinity.algebra.KeySt
 branches read; the domain premises (`hsl`, `hinit`, `hset`, `hlenmax`, `hov`) close every
 `get_unchecked_mut`, `assume_init_read`, `set`, `+ 1#usize` and overflow step. -/
 
+/-- The `Regen<u64>` key-store size carrier: every `Usize` index fits. -/
+def regenSz (_ : hashtrinity.algebra.Regen U64) : Nat := 2 ^ 64
+
+/-- Every `Usize` value is at most `2 ^ 64`. -/
+theorem usize_val_le_two_pow64 (n : Usize) : n.val ≤ 2 ^ 64 := by
+  have h : n.val < 2 ^ UScalarTy.Usize.numBits := UScalar.hBounds n
+  have h64 : UScalarTy.Usize.numBits ≤ 64 := by
+    rw [show UScalarTy.Usize.numBits = System.Platform.numBits from rfl]
+    rcases System.Platform.numBits_eq with h | h <;> omega
+  have hp : 2 ^ UScalarTy.Usize.numBits ≤ 2 ^ 64 := Nat.pow_le_pow_right (by norm_num) h64
+  omega
+
+/-- Every `Slice U64` is at most `2 ^ 64` entries long. -/
+theorem slice_len_le_two_pow64 (s : Slice U64) : s.val.length ≤ 2 ^ 64 := by
+  have h : s.val.length < 2 ^ System.Platform.numBits := by simpa [Slice.length] using slice_len_lt s
+  have h64 : System.Platform.numBits ≤ 64 := by
+    rcases System.Platform.numBits_eq with h | h <;> omega
+  have hp : 2 ^ System.Platform.numBits ≤ 2 ^ 64 := Nat.pow_le_pow_right (by norm_num) h64
+  omega
+
+/-- Every `Slice U64` is strictly shorter than `2 ^ 64`. -/
+theorem slice_len_lt_two_pow64 (s : Slice U64) : s.val.length < 2 ^ 64 := by
+  have h : s.val.length < 2 ^ System.Platform.numBits := by simpa [Slice.length] using slice_len_lt s
+  have h64 : System.Platform.numBits ≤ 64 := by
+    rcases System.Platform.numBits_eq with h | h <;> omega
+  have hp : 2 ^ System.Platform.numBits ≤ 2 ^ 64 := Nat.pow_le_pow_right (by norm_num) h64
+  omega
+
+/-- The `Regen<u64>` size invariant holds at every table. -/
+theorem regen_sz_inv (t : Tbl (hashtrinity.algebra.Regen U64)) :
+    t.coords.val.length ≤ regenSz t.keys := by
+  simpa [regenSz] using slice_len_le_two_pow64 t.coords
+
 /-- **`place_capped_ok`.**  `Table::place_capped` returns `ok` under the weak `matches` premise and
 the table domain the three verdicts read.  `hov` states the overflow domain of a present store: an
 `OInv` shape `T`, the `+4` arena bound, the `Usize` length room and the entry-vector room at every
 node of `T`. -/
 theorem place_capped_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (sz : KS → Nat)
     (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
     (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
-    (hset : ∀ (keys : KS) (i : Usize) (k : U64), ∃ keys', ks.set keys i k = ok keys')
+    (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
+      ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
     (t : Tbl KS) (c : U64) (v : I64)
     (hbits : 0 < t.bits.val) (hlen : t.coords.length = 2 ^ t.bits.val)
     (hsl : t.vals.length = t.coords.length)
@@ -2055,7 +2090,8 @@ theorem place_capped_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
     (hlenmax : t.len.val < Usize.max)
     (hov : ∀ ov, t.overflow = some ov →
       ∃ T, OInv ov T ∧ ov.nodes.val.length + 4 ≤ 2 ^ 32 - 1 ∧ ov.len.val < Usize.max ∧
-      (∀ j ∈ idxs T, ∀ nd, ov.nodes.val[j]? = some nd → nd.entries.val.length < Usize.max)) :
+      (∀ j ∈ idxs T, ∀ nd, ov.nodes.val[j]? = some nd → nd.entries.val.length < Usize.max))
+    (hsz : t.coords.val.length ≤ sz t.keys) :
     ∃ t', hashtrinity.Table.place_capped core.cmp.EqU64 CI ks t c c v = ok t' := by
   obtain ⟨r, hr⟩ := probe_capped_keyed_ok ks hm hA t c c hbits hlen
   have hslot := probe_capped_keyed_slot_weak ks t c c r hr
@@ -2093,7 +2129,7 @@ theorem place_capped_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
     have hltv : i.val < t.vals.length := by rw [hsl]; exact hltc
     obtain ⟨_, backc, hgetc⟩ := slice_get_unchecked_mut_ex t.coords i hltc
     obtain ⟨_, backv, hgetv⟩ := slice_get_unchecked_mut_ex t.vals i hltv
-    obtain ⟨keys', hset'⟩ := hset t.keys i c
+    obtain ⟨keys', hset', -⟩ := hset t.keys i c (by omega)
     have hltmax : t.len.val + (1#usize).val < 2 ^ UScalarTy.Usize.numBits := by
       rw [val_1_usize]
       have hl := hlenmax
@@ -2220,15 +2256,16 @@ example : ∃ (t t' : Tbl (hashtrinity.algebra.Regen U64)),
       rw [hv] at h; unfold EMPTYN at h; omega
     · have hv : (0#u64).val = 0 := rfl
       rw [hv] at h; unfold TOMBN at h; omega
-  obtain ⟨t', ht'⟩ := place_capped_ok RKS
+  obtain ⟨t', ht'⟩ := place_capped_ok RKS regenSz
     (fun keys i c k => ⟨true, RKS_matches keys i c k⟩)
     (fun _ => avx2_spec_holds)
-    (fun keys i k => ⟨keys, rfl⟩)
+    (fun keys i k _ => ⟨keys, rfl, rfl⟩)
     t 0#u64 0#i64
     hR.bits_pos hR.len_pow hR.vals_len
     (fun i hc => ⟨0#i64, (hR.main_val i 0#u64 hc hns0).2⟩)
     hlenmax
     (by intro ov hsome; rw [hovt] at hsome; exact absurd hsome (by simp))
+    (regen_sz_inv t)
   exact ⟨t, t', hwb, ht'⟩
 
 /-! ### `place_capped` preserves the initialised-value domain
@@ -2568,17 +2605,20 @@ the `Blocked` verdict runs one `insert_new_at`, which `ov_insert_new_at_domain` 
 in each of the three measures.  `hK` (`n + 4 ≤ 2^32 - 1`) supplies the arena capacity the `Blocked`
 verdict reads. -/
 theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (sz : KS → Nat)
     (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
     (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
-    (hset : ∀ (keys : KS) (i : Usize) (k : U64), ∃ keys', ks.set keys i k = ok keys')
+    (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
+      ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
     (t : Tbl KS) (c : U64) (v : I64) (n : Nat)
     (hbits : 0 < t.bits.val) (hlen : t.coords.length = 2 ^ t.bits.val)
     (hsl : t.vals.length = t.coords.length)
     (hinit : ∀ (i : Nat), t.coords.val[i]? = some c → ∃ z, t.vals.val[i]? = some (some z))
     (hlenmax : t.len.val < Usize.max)
-    (hov : Hov t n) (hK : n + 4 ≤ 2 ^ 32 - 1) :
+    (hov : Hov t n) (hK : n + 4 ≤ 2 ^ 32 - 1)
+    (hsz : t.coords.val.length ≤ sz t.keys) :
     ∃ t', hashtrinity.Table.place_capped core.cmp.EqU64 CI ks t c c v = ok t' ∧
-      Hov t' (n + 1) := by
+      Hov t' (n + 1) ∧ sz t'.keys = sz t.keys := by
   obtain ⟨r, hr⟩ := probe_capped_keyed_ok ks hm hA t c c hbits hlen
   have hslot := probe_capped_keyed_slot_weak ks t c c r hr
   unfold hashtrinity.Table.place_capped
@@ -2596,7 +2636,7 @@ theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
     have hread : core.mem.maybe_uninit.MaybeUninit.assume_init_read (some z) = ok z := rfl
     have hltv2 : i.val < (t.vals.set i (some z)).length := by rw [slice_set_length]; exact hltv
     obtain ⟨_, back1, hget2⟩ := slice_get_unchecked_mut_ex (t.vals.set i (some z)) i hltv2
-    refine ⟨{t with vals := back1 (some v)}, ?_, ?_⟩
+    refine ⟨{t with vals := back1 (some v)}, ?_, ?_, ?_⟩
     · simp only [hget, hmuz, hback, bind_tc_ok]
       change (do
         let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read (some z)
@@ -2611,13 +2651,14 @@ theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
       have hsome' : t.overflow = some ov := hsome
       obtain ⟨T, hI0, hnode0, hlenov, hentries0⟩ := hov ov hsome'
       exact ⟨T, hI0, by omega, by omega, fun j hj nd hnd => by have := hentries0 j hj nd hnd; omega⟩
+    · rfl
   | Vacant i =>
     obtain ⟨_, hcx, _⟩ := hslot
     have hltc : i.val < t.coords.val.length := (List.getElem?_eq_some_iff.mp hcx).1
     have hltv : i.val < t.vals.length := by rw [hsl]; exact hltc
     obtain ⟨_, backc, hgetc⟩ := slice_get_unchecked_mut_ex t.coords i hltc
     obtain ⟨_, backv, hgetv⟩ := slice_get_unchecked_mut_ex t.vals i hltv
-    obtain ⟨keys', hset'⟩ := hset t.keys i c
+    obtain ⟨keys', hset', hsze⟩ := hset t.keys i c (by omega)
     have hltmax : t.len.val + (1#usize).val < 2 ^ UScalarTy.Usize.numBits := by
       rw [val_1_usize]
       have hl := hlenmax
@@ -2625,13 +2666,14 @@ theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
       have hp : 0 < 2 ^ UScalarTy.Usize.numBits := Nat.two_pow_pos _
       omega
     obtain ⟨i1, hi1, -⟩ := uadd_tot t.len 1#usize hltmax
-    refine ⟨{t with coords := backc c, vals := backv (some v), keys := keys', len := i1}, ?_, ?_⟩
+    refine ⟨{t with coords := backc c, vals := backv (some v), keys := keys', len := i1}, ?_, ?_, ?_⟩
     · simp only [hgetc, hgetv, hset', hi1, core.mem.maybe_uninit.MaybeUninit.new, bind_tc_ok]
       rfl
     · intro ov hsome
       have hsome' : t.overflow = some ov := hsome
       obtain ⟨T, hI0, hnode0, hlenov, hentries0⟩ := hov ov hsome'
       exact ⟨T, hI0, by omega, by omega, fun j hj nd hnd => by have := hentries0 j hj nd hnd; omega⟩
+    · exact hsze
   | Blocked =>
     cases hto : t.overflow with
     | none =>
@@ -2652,7 +2694,7 @@ theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
         intro j hj; simp [idxs] at hj
       have hcap0 : OV.nodes.val.length + 4 ≤ 2 ^ 32 - 1 := by rw [hl0]; norm_num
       obtain ⟨nd, e, ov1, hins⟩ := ov_insert_new_at_ok OV .leaf c c v hF.1 hlen0 hent0 hcap0
-      refine ⟨{t with overflow := some ov1}, ?_, ?_⟩
+      refine ⟨{t with overflow := some ov1}, ?_, ?_, ?_⟩
       · simp only [core.option.Option.is_none, Option.isNone, hnew,
           core.option.Option.as_mut, bind_tc_ok]
         rw [if_pos trivial]
@@ -2673,6 +2715,7 @@ theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
         rw [hl0] at hnodes'
         rw [hl0len] at hlen'
         exact ⟨T', hI', by omega, by omega, fun j hj nd hnd => by have := hent' j hj nd hnd; omega⟩
+      · rfl
     | some ov0 =>
       obtain ⟨T, hI0, hnode0, hlenov, hentries0⟩ := hov ov0 hto
       have hUsize : n < Usize.max := by
@@ -2680,7 +2723,7 @@ theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
       have hcap : ov0.nodes.val.length + 4 ≤ 2 ^ 32 - 1 := by omega
       obtain ⟨nd, e, ov1, hins⟩ := ov_insert_new_at_ok ov0 T c c v hI0
         (by omega) (fun j hj nd hnd => by have := hentries0 j hj nd hnd; omega) hcap
-      refine ⟨{t with overflow := some ov1}, ?_, ?_⟩
+      refine ⟨{t with overflow := some ov1}, ?_, ?_, ?_⟩
       · simp only [core.option.Option.is_none, Option.isNone,
           core.option.Option.as_mut, bind_tc_ok]
         rw [if_neg (by simp)]
@@ -2697,26 +2740,30 @@ theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
         obtain ⟨T', hI', hlen', hnodes', hent'⟩ :=
           ov_insert_new_at_domain ov0 ov1 T c c v nd e n hI0 (by unfold nilN; omega) hentries0 hins
         refine ⟨T', hI', by omega, by omega, fun j hj nd hnd => by have := hent' j hj nd hnd; omega⟩
+      · rfl
 
 /-- **`place_capped_hov`.**  One `place_capped` call carries `Hov`'s bounds across the call: the
 result's counter is `n + 1`, so the three bounds advance by at most one. -/
 theorem place_capped_hov {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (sz : KS → Nat)
     (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
     (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
-    (hset : ∀ (keys : KS) (i : Usize) (k : U64), ∃ keys', ks.set keys i k = ok keys')
+    (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
+      ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
     (t t' : Tbl KS) (c : U64) (v : I64) (n : Nat)
     (hbits : 0 < t.bits.val) (hlen : t.coords.length = 2 ^ t.bits.val)
     (hsl : t.vals.length = t.coords.length)
     (hinit : ∀ (i : Nat), t.coords.val[i]? = some c → ∃ z, t.vals.val[i]? = some (some z))
     (hlenmax : t.len.val < Usize.max)
     (hov : Hov t n) (hK : n + 4 ≤ 2 ^ 32 - 1)
+    (hsz : t.coords.val.length ≤ sz t.keys)
     (h : hashtrinity.Table.place_capped core.cmp.EqU64 CI ks t c c v = ok t') :
-    Hov t' (n + 1) := by
-  obtain ⟨t'', h'', hov''⟩ :=
-    place_capped_domain ks hm hA hset t c v n hbits hlen hsl hinit hlenmax hov hK
+    Hov t' (n + 1) ∧ sz t'.keys = sz t.keys := by
+  obtain ⟨t'', h'', hov'', hsze''⟩ :=
+    place_capped_domain ks sz hm hA hset t c v n hbits hlen hsl hinit hlenmax hov hK hsz
   have heq : t' = t'' := Result.ok_injective (h.symm.trans h'')
   subst heq
-  exact hov''
+  exact ⟨hov'', hsze''⟩
 
 /-- **`place_capped_frame`.**  `place_capped` preserves the table's shape fields (`bits`,
 `coords.length`, `vals.length`) and raises `len` by at most one (only the `Vacant` verdict writes it).
@@ -2829,3 +2876,7 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.place_capped_frame
 #audit Apeiron.MapExecuted.shl_1_1
 #audit Apeiron.MapExecuted.with_bits1_RKS_ex
+#audit Apeiron.MapExecuted.usize_val_le_two_pow64
+#audit Apeiron.MapExecuted.slice_len_le_two_pow64
+#audit Apeiron.MapExecuted.slice_len_lt_two_pow64
+#audit Apeiron.MapExecuted.regen_sz_inv
