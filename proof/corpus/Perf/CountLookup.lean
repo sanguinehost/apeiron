@@ -102,6 +102,129 @@ theorem p74_walk_cannot_close :
 #guard max 100 90 - max (100 - 30) 90 = 10
 #guard max 50 90 - max (50 - 30) 90 = 0
 
+/-! ## 4 · P75: the registered rule, applied
+
+P75 registered two hypotheses and a bar: a hypothesis holds when the median of 5 interleaved pairs is
+within ±15 % in at least 22 of 27 cells, and if neither holds the header is not the cause. The counts
+are those of the perf-predictions note §P75 result (`model` inputs). -/
+
+/-- The registered bar: cells (of 27) that must agree. -/
+def p75Bar : ℕ := 22
+
+/-- Cells (of 27) in which H-W (`ap_flat` = `ap_par` × 33/42) was within ±15 %. -/
+def p75HW : ℕ := 21
+
+/-- Cells (of 27) in which H-S (`ap_flat` = `hb_fx` at the same working set) was within ±15 %. -/
+def p75HS : ℕ := 5
+
+/-- **P75 refuted by its own rule.** Neither hypothesis reaches the bar, so the header is not the cause.
+H-W misses by one cell. -/
+theorem p75_refuted : ¬ p75Bar ≤ p75HW ∧ ¬ p75Bar ≤ p75HS ∧ p75HW + 1 = p75Bar := by decide
+
+/-! ## 5 · P76: the mispredict clause
+
+One row per excess cell, in the order 1e5 10 % dense, 1e6 1 % dense, 1e6 all dense, 1e7 10 % dense,
+1e7 all high-bits. Mispredicts (`br_misp_retired.all_branches`) and retired instructions
+(`inst_retired.any`) per lookup, in thousandths. `model` inputs, `~/count-header/p76.txt`,
+medians of 5 interleaved rounds, `ap_par` and `ap_flat`. -/
+
+/-- One P76 cell: `ap_par` and `ap_flat` mispredicts per lookup, `ap_par` retired instructions. -/
+structure P76Cell where
+  parMisp : ℕ
+  flatMisp : ℕ
+  parInst : ℕ
+
+def p76Cells : List P76Cell :=
+  [⟨106, 12, 56555⟩, ⟨108, 12, 56542⟩, ⟨148, 11, 56274⟩, ⟨148, 11, 56274⟩, ⟨113, 3, 55982⟩]
+
+/-- `ap_par` retired instructions per lookup in the controls 1e5 all dense and 1e6 10 % dense. -/
+def p76CtrlInst : List ℕ := [55001, 55003]
+
+/-- **P76 clause (1) refuted.** The `ap_par` − `ap_flat` mispredict difference is 0.094–0.137 per
+lookup in every excess cell, below the registered band [0.30, 0.70]. -/
+theorem p76_clause1_refuted :
+    ∀ c ∈ p76Cells, c.flatMisp ≤ c.parMisp ∧ c.parMisp - c.flatMisp < 300 := by decide
+
+/-- **P76 clause (2) holds.** Retired instructions in the excess cells are within ±10 % of the controls. -/
+theorem p76_clause2 :
+    ∀ c ∈ p76Cells, ∀ k ∈ p76CtrlInst, c.parInst * 10 ≤ k * 11 ∧ k * 9 ≤ c.parInst * 10 := by decide
+
+/-- **P76 clauses (3) and (4) hold.** `ap_par` mispredicts at most 0.10 per lookup in the controls
+(measured 0.000, 0.000) and `ap_flat` in all 7 cells. -/
+theorem p76_clause34 :
+    (∀ m ∈ ([0, 0] : List ℕ), m ≤ 100) ∧ (∀ c ∈ p76Cells, c.flatMisp ≤ 100) ∧
+      (∀ m ∈ ([0, 0] : List ℕ), m ≤ 100) := by decide
+
+/-! ## 6 · P77: issued against retired uops
+
+Per lookup, in thousandths, same cells and order. `model` inputs,
+`~/count-header/p77.txt`, medians of 5 interleaved rounds. `Iss` = `uops_issued.any`,
+`Ret` = `uops_retired.slots`, `Cyc` = `cycles`, `Misp` = `br_misp_retired.all_branches`;
+`machine_clears.count` was 0.000 in all 14 arm-cells. -/
+
+/-- One P77 cell. -/
+structure P77Cell where
+  parIss : ℕ
+  parRet : ℕ
+  flatIss : ℕ
+  flatRet : ℕ
+  parMisp : ℕ
+  parCyc : ℕ
+  flatCyc : ℕ
+
+def p77Cells : List P77Cell :=
+  [⟨88562, 53398, 45522, 42447, 102, 20836, 9712⟩,
+   ⟨90706, 53376, 45594, 42375, 108, 21259, 9324⟩,
+   ⟨102178, 53139, 46375, 42138, 147, 61758, 43786⟩,
+   ⟨102104, 53140, 46481, 42138, 147, 60081, 42493⟩,
+   ⟨93178, 52883, 43041, 41880, 113, 101429, 69834⟩]
+
+/-- The two controls (1e5 all dense, 1e6 10 % dense): `ap_par` issued and retired, `ap_flat` issued
+and retired. -/
+def p77Ctrl : List (ℕ × ℕ × ℕ × ℕ) := [(52007, 52003, 41006, 41003), (52013, 52009, 41006, 41003)]
+
+/-- **P77 clause (1) holds.** `ap_par` retired uops in the excess cells are within ±10 % of the controls. -/
+theorem p77_clause1 :
+    ∀ c ∈ p77Cells, ∀ k ∈ p77Ctrl, c.parRet * 10 ≤ k.2.1 * 11 ∧ k.2.1 * 9 ≤ c.parRet * 10 := by
+  decide
+
+/-- **P77 clause (2) holds.** Issued − retired is at least 30 uops per lookup for `ap_par` in every
+excess cell, at most 2 in the controls, and at most 6 for `ap_flat` everywhere. -/
+theorem p77_clause2 :
+    (∀ c ∈ p77Cells, c.parRet ≤ c.parIss ∧ 30000 ≤ c.parIss - c.parRet) ∧
+    (∀ k ∈ p77Ctrl, k.2.1 ≤ k.1 ∧ k.1 - k.2.1 ≤ 2000) ∧
+    (∀ c ∈ p77Cells, c.flatRet ≤ c.flatIss ∧ c.flatIss - c.flatRet ≤ 6000) ∧
+    (∀ k ∈ p77Ctrl, k.2.2.2 ≤ k.2.2.1 ∧ k.2.2.1 - k.2.2.2 ≤ 6000) := by decide
+
+/-- **P77 clause (3) holds.** `machine_clears.count` per lookup is below 0.02 in all 14 arm-cells. -/
+theorem p77_clause3 : ∀ m ∈ List.replicate 14 (0 : ℕ), m < 20 := by decide
+
+/-- **P77 clause (4) holds.** At least 250 non-retired uops per mispredict for `ap_par`. -/
+theorem p77_clause4 : ∀ c ∈ p77Cells, 250 * c.parMisp ≤ c.parIss - c.parRet := by decide
+
+/-- Issue-width input of the cycle model (`model`, a design assumption, not a measurement). -/
+def p77Width : ℕ := 6
+
+/-- **A lever that removes `d` cycles of throughput gains at most `d`.** Whatever the slack. -/
+theorem lever_gain_le (a b d : ℕ) : max a b - max (a - d) b ≤ d := by
+  rw [overlap_gain]; exact Nat.min_le_left _ _
+
+/-- **A lever relieving fewer cycles than a gap cannot close it.** -/
+theorem lever_cannot_close {a b d gap : ℕ} (h : d < gap) : ¬ gap ≤ max a b - max (a - d) b :=
+  fun hg => absurd (lever_closes_only_if hg).1 (by omega)
+
+/-- **The retired-uop difference is under half of the `ap_par` − `ap_flat` cycle gap.** At the issue
+width the retired-uop difference is worth at most `(parRet − flatRet) / 6` cycles; the cycle gap is more
+than twice that in every excess cell. Under the `max` model the rest is latency. -/
+theorem p77_uop_difference_under_half_gap :
+    ∀ c ∈ p77Cells, (c.parRet - c.flatRet) / p77Width * 2 < c.parCyc - c.flatCyc := by decide
+
+/-- **No lever that removes the retired-uop difference closes the cycle gap to `ap_flat`.** -/
+theorem p77_retired_uop_lever_cannot_close (c : P77Cell) (hc : c ∈ p77Cells) (a b : ℕ) :
+    ¬ c.parCyc - c.flatCyc ≤ max a b - max (a - (c.parRet - c.flatRet) / p77Width) b := by
+  have h := p77_uop_difference_under_half_gap c hc
+  exact lever_cannot_close (by omega)
+
 end CountLookup
 
 end Perf
