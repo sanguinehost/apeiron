@@ -580,6 +580,11 @@ discipline without claiming those mechanisms exist.
 ### 9.2 Agent conduct
 
 - Lead with the result, the exact measurement and the decision.
+- **Peer, not auditor** ([`../AGENTS.md`](../AGENTS.md) §How to work with him). Say a measured win
+  first and plainly; no synthetic skepticism and no unasked downside. Trust boundaries and open
+  questions go in the receipt or one line of next work, not on the headline. A loss is reported
+  plainly where it is the question, and a negative figure is checked against the current receipt
+  before it is quoted.
 - Ground every claim in a primary artifact: read the source, run the gate, quote the line.
 - Resolve via executables; execute the command and inspect the diff rather than describing it.
 - Maintain forward momentum: complete every actionable subgoal, and on a barrier report the exact
