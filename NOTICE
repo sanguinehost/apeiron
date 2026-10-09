@@ -7,9 +7,52 @@ KIND, either express or implied. Section 6 of the License does not grant
 permission to use the trade names, trademarks, service marks, or product names
 of the Licensor.
 
-Vendored code
--------------
-The module `src/hashtrinity/` is a port, by the author, of the author's own
-`hashtrinity` crate (the naive predecessor of this one). It is relicensed here
-under the terms of this repository. No third-party copyrighted code is vendored.
+Third-party code
+----------------
+No third-party code is vendored. The module `src/hashtrinity/` is a port, by the
+author, of the author's own `hashtrinity` crate, relicensed here under the terms
+of this repository.
+
+GGUF and ggml formats
+---------------------
+The files below are Rust implementations of the GGUF container and ggml quant
+block formats. They were written against llama.cpp (github.com/ggml-org/llama.cpp,
+rev ece963f41) and its PrismML fork (github.com/PrismML-Eng/llama.cpp, rev
+9ca265a57) as the format reference, and parts follow that reference's layouts and
+arithmetic. Both carry the MIT licence reproduced below, which applies to those
+portions.
+
+  src/format/gguf.rs           GGUF reader (llama.cpp ggml/src/gguf.cpp)
+  src/format/mod.rs            GGUF container and ggml block unpacking
+  src/format/quant.rs          ggml quant block geometry and dequantization
+                               (ggml/src/ggml-quants.c)
+  src/engine/dequant_lowbit.rs Q1_0, Q2_0, PQ2_0, TQ1_0, TQ2_0, PTQ1_0 block
+                               layouts (PrismML fork ggml-common.h, ggml-quants.c)
+  src/gpu/decode/pack.rs       Q4 nibble spread (ggml-cuda/vecdotq.cuh)
+  src/learn/gguf.rs            GGUF v3 writer (gguf-py/gguf/gguf_writer.py)
+  src/learn/imatrix.rs         importance-matrix reader (tools/imatrix,
+                               common/imatrix-loader.cpp)
+  src/learn/seal.rs            Q4_K block fit (ggml-quants.c quantize_row_q4_K_impl)
+
+MIT License
+
+Copyright (c) 2023-2026 The ggml authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
