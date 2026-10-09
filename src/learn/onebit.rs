@@ -36,9 +36,11 @@
 //!
 //! # Trust boundary
 //!
-//! The quantizers run in `f64` and are `tested` (`tests/learn_onebit.rs`), not refined; W8 extracts
-//! `sd_binary_row` into `Numeric/SigmaDelta`. The `output_error` metric is the existing
-//! [`crate::learn::gptq::output_error`]; this module makes no performance claim.
+//! The quantizers run in `f64` and are `tested` (`tests/learn_onebit.rs`); the `sd1`/`sd1-path`
+//! sign stream runs in the checked-integer [`crate::learn::sigma_delta::sd_binary_block`], refined
+//! to `Numeric.SigmaDelta` (`proof/corpus/Numeric/SigmaDeltaRefinement.lean`). The `output_error`
+//! metric is the existing [`crate::learn::gptq::output_error`]; this module makes no performance
+//! claim.
 
 #![allow(
     clippy::many_single_char_names,
@@ -55,6 +57,7 @@
 )]
 
 use crate::learn::gptq::{ul_cholesky, upper_tri_inverse, GptqError};
+use crate::learn::sigma_delta::sd_binary_block;
 
 /// The `Q1_0` one-bit block width: one sign plus one `f16` scale per 128 weights.
 pub const ONEBIT_GROUP: usize = 128;
@@ -228,33 +231,60 @@ fn rtn_row(w: &[f64], out: usize, n: usize, group: usize) -> Vec<f64> {
     wq
 }
 
+/// The fixed-point fractional bits of the `sd1` recurrence: `S = 24`. An `f16` weight is
+/// `k·2^(E−25)` with `k ∈ [1024, 2047]`, `1 ≤ E ≤ 30` (or `m·2^−24` subnormal), so `w·2^24` is an
+/// integer for every `f16` weight: the integer body sees the exact W7 weights and only the per-block
+/// scale `a = mean|w|` is rounded (`|round(a·2^24) − a·2^24| ≤ 1/2`, relative error below `2^−24`).
+pub const SD_FRAC_BITS: u32 = 24;
+
+/// `2^24`, the fixed-point unit the `sd1` blocks are scaled by.
+const SD_ONE: f64 = (1u64 << SD_FRAC_BITS) as f64;
+
 /// First-order sigma-delta per block, walked in `order` (natural for identity). Returns the
 /// dequantized weights and `max_t |e_t|/a`.
 ///
+/// The recurrence runs in the checked-integer body [`sd_binary_block`] on the `round(w·2^24)`
+/// weights and the `round(a·2^24)` scale; the sign stream and the residual are decided there, so no
+/// `f64` copy of the recurrence remains. The quantized value `a·s_t` is rebuilt from the integer
+/// sign with the same `f64` block scale `a` the W7 arm measured. A `None` from the integer body is a
+/// loud panic, never a silent fallback.
+///
 /// # Complexity
-/// - Temporal: $O(\text{out} \cdot n)$ — one add/compare and one residual update per weight.
-/// - Spatial: $O(\text{out} \cdot n)$ f64 words for the output.
+/// - Temporal: $O(\text{out} \cdot n)$ — one checked integer step per weight plus the roundings.
+/// - Spatial: $O(\text{out} \cdot n)$ f64 words for the output, plus $O(n)$ words for the two
+///   per-row integer block buffers.
+///
+/// # Panics
+/// Panics if a weight is not finite (the `as i64` cast would otherwise saturate or map NaN to 0), or
+/// if [`sd_binary_block`] overflows on a block; with `S = 24` and `f16` weights the state is
+/// bounded by `2·group·max|w|·2^24 < 2^60`, far inside `i64`, so this is unreachable for the arm.
 fn sd1_row(w: &[f64], out: usize, n: usize, order: &[usize], group: usize) -> (Vec<f64>, f64) {
     let mut wq = vec![0f64; out * n];
     let mut stab = 0.0f64;
+    assert!(w.iter().all(|v| v.is_finite()), "sd1: non-finite weight");
+    let mut wb: Vec<i64> = vec![0i64; n];
+    let mut sb: Vec<i8> = vec![0i8; n];
     for o in 0..out {
         let base = o * n;
         let mut g0 = 0;
         while g0 < n {
             let g1 = (g0 + group).min(n);
-            let a = (g0..g1).map(|t| w[base + order[t]].abs()).sum::<f64>() / (g1 - g0) as f64;
+            let len = g1 - g0;
+            let a = (g0..g1).map(|t| w[base + order[t]].abs()).sum::<f64>() / len as f64;
             let a = a.max(1e-12);
-            let mut e = 0.0f64;
-            for t in g0..g1 {
-                let j = order[t];
-                let wv = w[base + j];
-                let q = a * sign(wv + e);
-                wq[base + j] = q;
-                e = wv + e - q;
-                let r = e.abs() / a;
-                if r > stab {
-                    stab = r;
-                }
+            for t in 0..len {
+                wb[t] = (w[base + order[g0 + t]] * SD_ONE).round() as i64;
+            }
+            let af = (a * SD_ONE).round() as i64;
+            let (_e, peak) = sd_binary_block(&wb[..len], af, &mut sb[..len])
+                .expect("sigma-delta overflow on a fixed-point block");
+            let r = peak as f64 / SD_ONE / a;
+            if r > stab {
+                stab = r;
+            }
+            for t in 0..len {
+                let s = if sb[t] < 0 { -1.0 } else { 1.0 };
+                wq[base + order[g0 + t]] = a * s;
             }
             g0 = g1;
         }

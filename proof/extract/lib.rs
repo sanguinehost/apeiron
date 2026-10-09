@@ -1320,3 +1320,17 @@ pub fn word_gram_fold_i8(
 ) -> Result<Vec<i64>, gram::GramError> {
     gram::gram_fold_i8(g, x, rows, d)
 }
+
+// The exact-integer sigma-delta block (`src/learn/sigma_delta.rs`), reached by `#[path]` so the
+// extracted body is the real source. The module is dependency-free; the wrapper fixes nothing and
+// calls the real function. Row: `onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1` (W8).
+#[path = "../../src/learn/sigma_delta.rs"]
+pub mod sigma_delta;
+
+/// Real `learn::sigma_delta::sd_binary_block`: the checked `i64` first-order sigma-delta block. It
+/// returns the final error state and the peak `max |e_t|`, or `None` on a shape mismatch or a
+/// checked overflow. The wrapper calls the real body; it does not restate the sign test or the
+/// recurrence.
+pub fn word_sd_binary_block(w: &[i64], a: i64, s: &mut [i8]) -> Option<(i64, i64)> {
+    sigma_delta::sd_binary_block(w, a, s)
+}
