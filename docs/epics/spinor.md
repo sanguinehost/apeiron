@@ -1384,7 +1384,14 @@ Command: `python3 /home/socol/oc-tmp/escalation/FACES-R2-h340-idem.py` (sha256 `
 | control: expected set replaced by `{0, 1}` in a throwaway copy | exit 1 | the check can fail |
 
 - The split at `3^40` is already `proved`: `h3_40_quadratic_split` (`Native/HyperbolicBase.lean:62`).
-- That exactly four idempotents exist at `3^40` is `tested` only for `k ≤ 7`. At `k = 40` it is the Hensel-lifting
-  argument (`model`, standard; unique lift of a simple root of `e² − e` over `Z₃`), not a check.
+- That exactly four idempotents exist at `3^40` is `proved` (it was `tested` only for `k ≤ 7`, with `k = 40` a
+  Hensel-lifting `model`). `zmod_prime_pow_idempotent`: in `ZMod (p^k)`, `p` prime, `e·e = e` gives `e = 0 ∨ e = 1`,
+  since `p^k ∣ n(n−1)` and `p` divides at most one of `n`, `n−1`. `h3_40_idempotent_iff`: a cell of `RingCell H3_40`
+  (`σ = 1`) is idempotent iff both channel coordinates lie in `{0, 1}`. `h3_40_idempotents_ncard`: the idempotent set
+  has `ncard = 4`. All three in `Native/HyperbolicBase.lean`, audited in `AxiomAudit/Core.lean` under
+  `{propext, Classical.choice, Quot.sound}`. Controls in throwaway copies: count `4 → 3` exits 1; premise
+  `p.Prime → 1 < p` exits 1. A `#guard` records that the premise binds: `ZMod 6` has the idempotent `3`.
+  The argument is the standard local-ring fact (`ZMod (p^k)` is local, so its idempotents are `0` and `1`); no
+  novelty is claimed.
 - Verdict: the shipped address is the hyperbolic face with one split, no CRT channel. The superseded "odd composite `Z/m`"
   wording names no shipped code.

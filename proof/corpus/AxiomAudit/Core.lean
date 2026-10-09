@@ -293,6 +293,9 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.NativeAddress.h3_40_two_mul_half
 #audit Apeiron.NativeAddress.h3_40ChannelEquiv
 #audit Apeiron.NativeAddress.h3_40_quadratic_split
+#audit Apeiron.NativeAddress.zmod_prime_pow_idempotent
+#audit Apeiron.NativeAddress.h3_40_idempotent_iff
+#audit Apeiron.NativeAddress.h3_40_idempotents_ncard
 #audit Apeiron.NativeAddress.finiteChannelEquiv
 #audit Apeiron.NativeAddress.finite_channel_mul
 
