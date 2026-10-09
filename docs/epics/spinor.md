@@ -1010,6 +1010,34 @@ is that the 1.002 is set by position locality, not by the data. Grade `tested`. 
 KLD (`ρ` weights are `|q_d|`-blind), other checkpoints, the f16 weights, pages beyond 131072. Search for prior art: none run; the
 widening of an axis-aligned box by rotation is elementary and no novelty is claimed.
 
+#### FACES-R1 H8: the box widens where the pair winds inside the box's span (row `faces-r1-do-the-three-on-HCnA8ZlHN3emV1nzkVH7V0`)
+
+Question: the page bridge above measured span 64. The T8 tree reads boxes of span 1024 (level 1) and 16384 (level 2). Does the rotation
+widening follow the span? Command: `OMP_NUM_THREADS=1 nice -n 19 python3 /home/socol/oc-tmp/escalation/FACES-R1-BOXWIDTH-NODE.py` (sha256 `31c11ed76dc0739d…`,
+output `FACES-R1-BOXWIDTH-NODE.out`; prediction in the script header, written before the run). Same data as the page bridge
+(`g7-128k`, unrotated `k`, 4 KV heads, layers 0, 7, 14, 21, 27, rows 4096..131072, `θ_j = 10^7^(−2j/128)`); `ρ` = roped box width over unrotated, mean over boxes.
+
+| pairs | `ρ`, span 64 | `ρ`, span 1024 | `ρ`, span 16384 |
+|---|---|---|---|
+| j = 0..9 (wound inside a page) | 1.844 | 1.708 | 1.642 |
+| j = 10..16 | 1.535 | 1.720 | 1.626 |
+| j = 17..20 | 1.087 | 1.701 | 1.603 |
+| j = 21..31 | 1.010 | 1.324 | 1.657 |
+| j = 32..36 | 1.002 | 1.015 | 1.374 |
+| j ≥ 37 | 1.001 | 1.001 | 1.022 |
+
+Predictions: P1 (`ρ_1024 ≥ 1.5` on j = 10..16): held, 1.720. P2 (`ρ_1024 ≤ 1.10` on j ≥ 37): held, 1.001. P3 (`ρ_16384 ≥ 1.5` on j = 21..31): held,
+1.657. P4 (64 random keys from a 1024 window match `ρ_1024` within 0.15 on j = 10..16): **refuted**, 1.878 against 1.720 (0.158).
+Reading (`model`): the band where `ρ` jumps from 1 to about 1.7 moves down the spectrum with the span: pairs 0..9 at span 64, 0..20 at 1024,
+0..31 at 16384, which is `span·θ_j ≳ 2π` (turns wound: 1.06 at j = 20, 1.06 at j = 31 for 16384). A tree node therefore carries 21 elliptic pairs where a
+page carries 10, and a level-2 node carries 32. P4 refutes "width follows the span only": the scattered control is wider than the node (a sparser sample has
+a narrower unrotated box while the wound pair fills the circle either way).
+Consequence for the open tree question (`docs/evidence/hattn-decode-tail.md`): rotation looseness does not separate the tree from the cluster arm. A cluster of
+keys scattered in position is at least as wide on the wound pairs (the scatter row, 1.878) as the node (1.720), and `clu-s8` passes where `tree-s8`
+fails. So the cause of the tree's misses is not the Quest box's rotation slack on its own. The scatter control is random keys, not the k-means clusters; a
+`ρ` on the real cluster boxes is the direct check and has not run. Grade `tested`. Not covered: `ρ` weighted by `|q_d|`, the bound's recall or KLD, other
+checkpoints and prompts, f16 weights. Search for prior art: none run; the box widening under rotation is elementary and no novelty is claimed.
+
 ### FACES-R3 results (prior-art search)
 
 Row: `faces-r3-searched-list-of-HFjIFdmrgQqByikqw7ayoE`. Digest `/home/socol/oc-tmp/escalation/FACES-R3-DIGEST.md`
