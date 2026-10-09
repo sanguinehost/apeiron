@@ -209,9 +209,94 @@ KLD held at 1M. It is unmeasured: Qwen2.5-0.5B's native context is 32,768 and a 
 - Bytes are a count, not wall-clock or tokens per second; no Rust/Aeneas extraction of the selector; rustc
   and LLVM are outside the trust boundary.
 
+## HATTN-T8: a page index in place of the flat bound scan
+
+Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Grade: `measured` (one prompt, 64 tail positions at four contexts); verdicts, the tree's logarithmic depth and
+the 7B/1M cost arithmetic `proved` in `proof/corpus/Perf/HattnT8.lean` (every headline audits with an empty
+axiom set except `climb_log`: `propext`, `Quot.sound`).
+
+| item | value |
+|---|---|
+| baseline | `grp-fix2048-r8` (T7): one page set per KV head, 2048-token far budget, refreshed every 8 positions, by a flat scan of every 64-key page's Quest bound |
+| `tree-sS` | contiguous fanout-16 tree of Quest boxes (64, 1024, 16384 keys): read every top node, keep the `S` with the highest group bound (max over the 7 query heads), expand their children, repeat down to pages; keep the top 32 pages |
+| `clu-sS` | pages k-means clustered on box centre (8 Lloyd steps) into `⌈n64/16⌉` clusters at the first refresh; later-sealed pages join the nearest centroid's cluster and widen its box; read every cluster box, keep `S` clusters, rank their pages |
+| instrument | `examples/attn_cut_probe.rs` sha256 `45f38096…`, `KV_TAIL_TREE=1`, binary `attn_cut_probe.t8` sha256 `0df17577…`; 41 s; output `/home/socol/oc-tmp/hattn-long/tree.out` sha256 `64b46d6d…` |
+| control | dense tail max rel-L2 `1.815e-5`; `HATTN_MUT=2` (ranking reversed at every level) output `tree-m2.out` sha256 `c5c71824…` |
+| predictions | `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8.md`, sha256 `719f0fd1…`, registered before the run |
+| defective run | `tree-prefix.out` (sha256 `cb90ea43…`) built clusters at the first refresh and dropped every page sealed after it (`clu` KLD 0.0245 at 4096 against 0.0053). Fixed by nearest-centroid insertion; its figures are not used. |
+
+Bound vectors per refresh per KV head counts what the index reads; recall is the share of the flat scan's top 32
+pages the index selects (the flat ranking is computed only to measure recall).
+
+Mean whole-model KLD:
+
+| arm | 4096 | 8192 | 16384 | 32768 |
+|---|---:|---:|---:|---:|
+| grp-fix2048-r8 (flat) | 0.0053 | 0.0234 | 0.0342 | 0.0110 |
+| tree-s4 | 0.0053 | **0.0714** | 0.0335 | 0.0128 |
+| tree-s8 | 0.0053 | 0.0234 | 0.0372 | 0.0118 |
+| clu-s4 | 0.0053 | 0.0192 | 0.0352 | 0.0121 |
+| clu-s8 | 0.0053 | 0.0234 | 0.0329 | 0.0107 |
+| reversed (`HATTN_MUT=2`), every arm | 0.1158 | 0.61–0.62 | | |
+
+Bound vectors per refresh (recall):
+
+| arm | 8192 | 16384 | 32768 |
+|---|---:|---:|---:|
+| flat | 245.8 | 501.8 | 1013.8 |
+| tree-s4 | 138.4 (0.749) | 158.2 (0.557) | 193.6 (0.498) |
+| tree-s8 | 261.8 (1.000) | 283.7 (0.817) | 319.3 (0.727) |
+| clu-s4 | 153.5 (0.822) | 174.8 (0.549) | 211.4 (0.507) |
+| clu-s8 | 261.8 (1.000) | 301.2 (0.827) | 345.3 (0.712) |
+
+| prediction | registered | measured | verdict |
+|---|---|---|---|
+| PT1 | dense ctl ≤ 1e-4; reversed tree-s8 KLD > 0.2 at 8192 | 1.8e-5; 0.612 | held |
+| PT2 | tree-s8 passes, ≤ 1/3 of the flat scan at 32k | passes; 319.3 / 1013.8 = 0.315 | held |
+| PT3 | tree-s4 fails at some `t` | 0.071 at 8192 | held |
+| PT4 | clu-s4 passes | passes; best KLD at 8192 | held |
+| PT5 | tree-s8 recall ≥ 0.8 at 32k | 0.727 | refuted |
+| PT6 | best passing index arm ≤ 0.0025 of dense, Qwen2.5-7B-1M shape at `2^20` | tree-s8 0.00228 (derived) | held, derived |
+
+### Findings
+
+- **The index cuts the scan 3–5× at 32k at the flat scan's KLD.** clu-s4 reads 211 bound vectors per refresh
+  against 1014 (4.8×) and tree-s8 reads 319 (3.2×); both pass at every `t`, within 0.002 of the flat arm at 32k
+  (`clu4_cuts_scan`, `pt2_held`).
+- **The budget has slack.** The index arms keep only 50–73% of the flat top-32 pages at 32k and the KLD does not
+  move (`budget_slack`): the pages that hold the mass are found by any arm that passes, and the rest of the 2048
+  tokens are interchangeable. Recall against the flat ranking is the wrong target; mass is.
+- **Four 1024-key boxes are too few at 8192** (tree-s4, 22 of 64 positions above 0.05). Clustering by key
+  direction instead of position fixes it at the same width: clu-s4 at 8192 is 0.019, below flat.
+- **The tree scan grows as `log n`.** A tree with `L` levels above the pages has more than `16^L` pages
+  (`climb_log`), so its scan is at most `2(top + 16·S·L)`. The measured tree-s8 at 32k (319.3) is under that
+  model's 516 (`model_bounds_32k`). The cluster index reads `n/16` boxes: 16× below flat, still linear.
+
+### Derived, not measured: Qwen2.5-7B-Instruct-1M at `t = 2^20`
+
+Per (layer, KV head), per 8-position refresh period: 2048 far + 4 sink + 288 mean near tokens as K and V at
+every position, plus the scan once (`pt6_held`, `bytes_7b_1m`).
+
+| item | flat | tree-s8 | dense |
+|---|---:|---:|---:|
+| pages / tree levels | 16,379 | 4 roots, 3 levels | |
+| scan vectors per refresh | 32,758 | 776 | |
+| vectors per period | 70,198 | 38,216 | 16,777,216 |
+| fraction of dense | 0.00418 (239×) | 0.00228 (439×) | 1 |
+| scan share of reads | 47% | 2% | |
+| KV bytes read per token, f16 (28 layers × 4 KV heads × 128) | 252 MB | 137 MB | 60.1 GB |
+
+At 1M the tree removes the scan as a cost; what remains is the 2048-token budget and the near window. Whether the
+whole-model KLD holds at 1M with a 2048 budget is the open measurement.
+
+### What T8 does not establish
+
+- One prompt, a 0.5B model with a 32k native context; nothing measured past 32768.
+- Decode tail only, prefill dense; bytes are counts, not tokens per second.
+- No Rust/Aeneas selector; rustc, LLVM and the instrument are outside the trust boundary.
+
 ## Next
 
-Replace the linear bound scan with an index whose read cost does not grow with `t`, and keep the read exact:
-the selected keys and values are read in full, so the output over the selected set is exact attention. The
-index is the open part; measure it against grp-fix2048-r8 at the same whole-model KLD, on a model whose
-native context reaches the target length.
+Measure on Qwen2.5-7B-Instruct-1M (`/home/socol/models/gguf/Qwen2.5-7B-Instruct-1M-Q4_K_M.gguf`): the T8 arms at 32k
+first, then 128k and up, toward `2^20`, at the same whole-model KLD gate. Then the selector in Rust under the Aeneas
+extraction, and tokens per second against llama.cpp on the same model.
