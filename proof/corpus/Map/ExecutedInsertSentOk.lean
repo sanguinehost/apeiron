@@ -307,11 +307,16 @@ theorem insert_core_sent_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
     (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
       ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
     (KCS : alloc.vec.Vec U64 → KS → Prop) (htk : TakeKeySideOK ks sz KCS)
+    (KC : Slice U64 → KS → Prop)
     {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop}
-    (hR : RepW ks s m live) (hcapsz : s.side.cap.val ≤ sz s.side.keys)
+    (hR : RepW ks s m live) (hK : KC s.coords s.keys) (hcapsz : s.side.cap.val ≤ sz s.side.keys)
     (hKS : KCS s.side.coords s.side.keys)
-    {k : U64} (hk : IsSent k) (v : I64) :
-    ∃ s', hashtrinity.Table.insert_core core.cmp.EqU64 CI ks s k v true = ok (none, s') := by
+    {k : U64} (hk : IsSent k) (v : I64)
+    (hSide : ∀ ss', hashtrinity.side.SideStore.push CI ks s.side k k v = ok ss' →
+      KCS ss'.coords ss'.keys ∧ ss'.cap.val ≤ sz ss'.keys) :
+    ∃ s', hashtrinity.Table.insert_core core.cmp.EqU64 CI ks s k v true = ok (none, s') ∧
+      KC s'.coords s'.keys ∧ KCS s'.side.coords s'.side.keys ∧
+      s'.side.cap.val ≤ sz s'.side.keys := by
   unfold hashtrinity.Table.insert_core
   rw [coord_of_ok]
   simp only [bind_tc_ok]
@@ -328,7 +333,7 @@ theorem insert_core_sent_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
   cases o with
   | none =>
     obtain ⟨ss, hpush⟩ := side_push_total ks sz halloc hset KCS htk s.side k k v hlen hvl hcapsz hKS
-    refine ⟨{ s with side := ss }, ?_⟩
+    refine ⟨{ s with side := ss }, ?_, hK, (hSide ss hpush).1, (hSide ss hpush).2⟩
     rw [hpush]; simp only [bind_tc_ok]
   | some i =>
     have hik : s.side.coords.val[i.val]? = some k :=
@@ -353,7 +358,7 @@ theorem insert_core_sent_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
     let vals' : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit I64) :=
       alloc.vec.Vec.ofSlice (back2 (some v))
     let side' : hashtrinity.side.SideStore U64 I64 KS := { s.side with vals := vals' }
-    refine ⟨{ s with side := side' }, ?_⟩
+    refine ⟨{ s with side := side' }, ?_, hK, hKS, hcapsz⟩
     simp only [core.mem.drop, alloc.vec.Vec.deref_mut, lift, bind_tc_ok, uncurry_apply_pair,
       core.mem.maybe_uninit.MaybeUninit.new, ite_true, hg, hread, hback, hg2,
       alloc.vec.Vec.ofSlice]
@@ -378,11 +383,13 @@ theorem coord_insert_sent_ok {s : Tbl (hashtrinity.algebra.Regen U64)} {m : Apei
     {live : U64 → Prop} (hR : RepW RKS s m live)
     {k : U64} (hk : IsSent k) (v : I64) :
     ∃ s', word_coordmap_insert s k v = ok s' := by
-  obtain ⟨s', h⟩ := insert_core_sent_ok RKS RKS_matches regenSz
+  obtain ⟨s', h, -, -, -⟩ := insert_core_sent_ok RKS RKS_matches regenSz
     (fun n => ⟨(), rfl, usize_val_le_two_pow64 n⟩)
     (fun keys i k _ => ⟨keys, rfl, rfl⟩)
     (fun _ _ => True) regen_takeKeySideOK
-    hR (by simpa [regenSz] using usize_val_le_two_pow64 s.side.cap) trivial hk v
+    (fun _ _ => True)
+    hR trivial (by simpa [regenSz] using usize_val_le_two_pow64 s.side.cap) trivial hk v
+    (fun ss' _ => ⟨trivial, by simpa [regenSz] using usize_val_le_two_pow64 ss'.cap⟩)
   refine ⟨s', ?_⟩
   unfold word_coordmap_insert hashtrinity.Table.insert_merge_last_write
   rw [h]

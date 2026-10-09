@@ -1,7 +1,7 @@
--- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (APEIRON-HT-INSERT, HT-INSERT-W30): the
+-- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (APEIRON-HT-INSERT, HT-INSERT-W30, W31): the
 -- `Stored<u64>` size carrier and its key-store totality lemmas.
 --
--- STATUS.  Kernel-checked: `stored_insert_total` and `stored_insert_witness`.
+-- STATUS.  Kernel-checked: `stored_insert_total`, `stored_insert_witness` and `stored_insert_keycols`.
 --
 -- The size-only `take_key` premise (`i.val < sz keys → take_key keys i c = ok (c, _)`, and its
 -- arbitrary-key side-path twin) is unsatisfiable at `SKS`: `Stored::take_key` reads slot `i` as a
@@ -159,6 +159,369 @@ theorem stored_takeKeySideOK : TakeKeySideOK SKS storedSz SKCs := by
   obtain ⟨keys', htk, hsz, hval⟩ := stored_take_key_live keys i c (hK i.val c hco)
   exact ⟨c, keys', htk, hsz, fun d c' hd => by rw [hval]; exact hK d c' hd⟩
 
+/-! ## The side key column survives `push` and `resize` -/
+
+/-- **`sks_set_val`.**  A successful `SKS.set` rewrites one slot of the column's list with `some k`. -/
+theorem sks_set_val (g : hashtrinity.algebra.Stored U64) (i : Usize) (k : U64)
+    {g' : hashtrinity.algebra.Stored U64} (h : SKS.set g i k = ok g') :
+    g'.val = g.val.set i.val (some k) := by
+  change hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.set CI
+    core.cmp.EqU64 g i k = ok g' at h
+  unfold hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.set at h
+  obtain ⟨mu, hmu, h⟩ := bind_inv h
+  obtain ⟨⟨x, back⟩, hg, h⟩ := bind_inv h
+  obtain ⟨-, hback⟩ := get_unchecked_mut_ok g i x back hg
+  have := (Result.ok_injective h).symm
+  subst this
+  have hmu' : mu = some k := (Result.ok_injective hmu).symm
+  rw [hback, hmu', Slice.set_val_eq]
+
+/-- **`sks_set_lt`.**  A successful `SKS.set` only succeeds on an in-range index. -/
+theorem sks_set_lt (g : hashtrinity.algebra.Stored U64) (i : Usize) (k : U64)
+    {g' : hashtrinity.algebra.Stored U64} (h : SKS.set g i k = ok g') :
+    i.val < g.val.length := by
+  change hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.set CI
+    core.cmp.EqU64 g i k = ok g' at h
+  unfold hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.set at h
+  obtain ⟨mu, hmu, h⟩ := bind_inv h
+  obtain ⟨⟨x, back⟩, hg, h⟩ := bind_inv h
+  obtain ⟨hmu2, -⟩ := get_unchecked_mut_ok g i x back hg
+  exact (List.getElem?_eq_some_iff.mp hmu2).1
+
+/-- **`stored_push_loop_kcs`.**  `SideStore::push_loop` copies `v`'s coordinates into the key column
+the loop writes: on a source column satisfying `SKCs v`, the result again satisfies `SKCs v`.  The
+loop reads each slot with `take_key` (which returns the stored coordinate) and writes it with `set`;
+the partial-output invariant below tracks the already-copied prefix. -/
+theorem stored_push_loop_kcs (v : alloc.vec.Vec U64)
+    (grown grown1 : hashtrinity.algebra.Stored U64) (hKCS : SKCs v grown)
+    {r : hashtrinity.algebra.Stored U64}
+    (h : hashtrinity.side.SideStore.push_loop SKS v grown grown1 0#usize = ok r) :
+    SKCs v r := by
+  unfold hashtrinity.side.SideStore.push_loop at h
+  refine loop_pc
+    (fun (g : hashtrinity.algebra.Stored U64 × hashtrinity.algebra.Stored U64 × Usize) =>
+      SKCs v g.1 ∧
+      (∀ (j : Nat) (d : U64), j < g.2.2.val → v.val[j]? = some d → g.2.1.val[j]? = some (some d)))
+    (fun r => SKCs v r)
+    (fun g => hashtrinity.side.SideStore.push_loop.body SKS v g.1 g.2.1 g.2.2)
+    ?_ (grown, grown1, 0#usize)
+      ⟨hKCS, by intro j d hj; simp at hj⟩ r h
+  · rintro ⟨g2, g3, i⟩ ⟨hKg, hPg⟩ cf hcf
+    dsimp only at hKg hPg
+    unfold hashtrinity.side.SideStore.push_loop.body at hcf
+    dsimp only at hcf
+    by_cases hl : i < alloc.vec.Vec.len v
+    · rw [if_pos hl] at hcf
+      obtain ⟨c, hc, hcf⟩ := bind_inv hcf
+      obtain ⟨⟨key, g2'⟩, hkey, hcf⟩ := bind_inv hcf
+      obtain ⟨g3', hset', hcf⟩ := bind_inv hcf
+      obtain ⟨i2, hi2, hcf⟩ := bind_inv hcf
+      have hcfv : cf = ControlFlow.cont (g2', g3', i2) := (Result.ok_injective hcf).symm
+      subst hcfv
+      dsimp only
+      have hi : v.val[i.val]? = some c := vec_index_ok v i c hc
+      obtain ⟨keys', htk, -, hvalk⟩ := stored_take_key_live g2 i c (hKg i.val c hi)
+      have hkeyc : key = c := congrArg Prod.fst (Result.ok_injective (hkey.symm.trans htk))
+      have hg2' : g2' = keys' := congrArg Prod.snd (Result.ok_injective (hkey.symm.trans htk))
+      rw [hkeyc] at hset'
+      rw [hg2']
+      have hi2v : i2.val = i.val + 1 := by
+        have := (uadd_ok hi2).1; rw [val_1_usize] at this; exact this
+      have hsetv : g3'.val = g3.val.set i.val (some c) := sks_set_val g3 i c hset'
+      have hsetlt : i.val < g3.val.length := sks_set_lt g3 i c hset'
+      refine ⟨?_, ?_⟩
+      · intro j d hd
+        rw [hvalk]
+        exact hKg j d hd
+      · intro j d hj hd
+        rw [hsetv]
+        by_cases hji : j = i.val
+        · subst hji
+          have hdc : d = c := by rw [hi] at hd; exact (Option.some.inj hd).symm
+          subst hdc
+          rw [List.getElem?_set_self hsetlt]
+        · rw [List.getElem?_set_ne (Ne.symm hji)]
+          exact hPg j d (by omega) hd
+    · rw [if_neg hl] at hcf
+      have hcfv : cf = ControlFlow.done g3 := (Result.ok_injective hcf).symm
+      subst hcfv
+      dsimp only
+      have hge : v.val.length ≤ i.val := by
+        have h1 : ¬ i.val < (alloc.vec.Vec.len v).val := fun hh => hl ((UScalar.lt_equiv _ _).mpr hh)
+        have h2 : (alloc.vec.Vec.len v).val ≤ i.val := Nat.le_of_not_lt h1
+        rwa [alloc.vec.Vec.len_val] at h2
+      intro j d hd
+      exact hPg j d (by have := (List.getElem?_eq_some_iff.mp hd).1; omega) hd
+
+/-- **`stored_side_push_pc`.**  `SideStore::push` of the reserved coordinate `c` (key `c`) preserves
+both `SKCs` and the capacity bound.  The growth branch copies the old keys through `push_loop`
+(`stored_push_loop_kcs`), writes the appended coordinate with `set`, and its fresh capacity is the
+allocation size; the no-growth branch writes in place under the capacity bound. -/
+theorem stored_side_push_pc (ss : hashtrinity.side.SideStore U64 I64 (hashtrinity.algebra.Stored U64))
+    (c : U64) (v : I64) (hKCS : SKCs ss.coords ss.keys)
+    (hcapsz : ss.cap.val ≤ storedSz ss.keys)
+    {ss' : hashtrinity.side.SideStore U64 I64 (hashtrinity.algebra.Stored U64)}
+    (h : hashtrinity.side.SideStore.push CI SKS ss c c v = ok ss') :
+    SKCs ss'.coords ss'.keys ∧ ss'.cap.val ≤ storedSz ss'.keys := by
+  unfold hashtrinity.side.SideStore.push at h
+  dsimp only at h
+  obtain ⟨need, hneed, h⟩ := bind_inv h
+  have hneedv : need.val = ss.coords.val.length + 1 := by
+    have := (uadd_ok hneed).1
+    rw [alloc.vec.Vec.len_val, val_1_usize] at this
+    exact this
+  by_cases hg : need > ss.cap
+  · rw [if_pos hg] at h
+    obtain ⟨i1, hi1, h⟩ := bind_inv h
+    obtain ⟨i2, hi2, h⟩ := bind_inv h
+    rw [max_usize] at hi2
+    have hi2f : i2 = if (4#usize).val < i1.val then i1 else 4#usize :=
+      (Result.ok_injective hi2).symm
+    obtain ⟨nc, hnc, h⟩ := bind_inv h
+    rw [max_usize] at hnc
+    have hncf : nc = if need.val < i2.val then i2 else need := (Result.ok_injective hnc).symm
+    obtain ⟨grown, hgrown, h⟩ := bind_inv h
+    have hgrownv : storedSz grown = nc.val := by
+      obtain ⟨g, hg0, hgl0⟩ := stored_alloc_ex nc
+      have : g = grown := Result.ok_injective (hg0.symm.trans hgrown)
+      subst this
+      simpa [storedSz] using hgl0
+    have hneed_nc : need.val ≤ nc.val := by rw [hncf]; split <;> omega
+    have hlenlt : ss.coords.val.length < storedSz grown := by rw [hgrownv]; omega
+    obtain ⟨grown1, hgl, h⟩ := bind_inv h
+    obtain ⟨grown2, hset2, h⟩ := bind_inv h
+    obtain ⟨v1, hv1, h⟩ := bind_inv h
+    obtain ⟨mu, hmu, h⟩ := bind_inv h
+    have hmu' : mu = some v := (Result.ok_injective hmu).symm
+    subst hmu'
+    obtain ⟨v2, hv2, h⟩ := bind_inv h
+    have hss' : ss' = { ss with coords := v1, vals := v2, keys := grown2, cap := nc } :=
+      (Result.ok_injective h).symm
+    subst hss'
+    have hKCS1 : SKCs ss.coords grown1 := stored_push_loop_kcs ss.coords ss.keys grown hKCS hgl
+    have hgl_sz : storedSz grown1 = storedSz grown :=
+      side_push_loop_sz SKS storedSz sks_set_total SKCs stored_takeKeySideOK ss.coords ss.keys grown
+        0#usize (le_of_lt hlenlt) hKCS hgl
+    have hgl_len : grown1.val.length = storedSz grown := by simpa [storedSz] using hgl_sz
+    have hsetv : grown2.val = grown1.val.set ss.coords.val.length (some c) := by
+      rw [sks_set_val grown1 (alloc.vec.Vec.len ss.coords) c hset2, alloc.vec.Vec.len_val]
+    have hset_sz : storedSz grown2 = storedSz grown1 := by
+      obtain ⟨g2', hset2', hsz2⟩ := sks_set_total grown1 (alloc.vec.Vec.len ss.coords) c
+        (by rw [hgl_sz, alloc.vec.Vec.len_val]; omega)
+      have : g2' = grown2 := Result.ok_injective (hset2'.symm.trans hset2)
+      subst this
+      exact hsz2
+    have hv1v : v1.val = ss.coords.val ++ [c] := vec_push_ok _ _ _ hv1
+    refine ⟨?_, ?_⟩
+    · intro j d hd
+      rw [hv1v] at hd
+      rw [hsetv]
+      rcases append_single_get ss.coords.val c d j hd with ⟨hlt, hd'⟩ | ⟨hje, hdc⟩
+      · rw [List.getElem?_set_ne (by omega)]
+        exact hKCS1 j d hd'
+      · subst hdc
+        rw [hje, List.getElem?_set_self (by rw [hgl_len]; exact hlenlt)]
+    · show nc.val ≤ storedSz grown2
+      rw [hset_sz, hgl_sz]
+      exact le_of_eq hgrownv.symm
+  · rw [if_neg hg] at h
+    obtain ⟨grown, hset, h⟩ := bind_inv h
+    obtain ⟨v1, hv1, h⟩ := bind_inv h
+    obtain ⟨mu, hmu, h⟩ := bind_inv h
+    have hmu' : mu = some v := (Result.ok_injective hmu).symm
+    subst hmu'
+    obtain ⟨v2, hv2, h⟩ := bind_inv h
+    have hss' : ss' = { ss with coords := v1, vals := v2, keys := grown } :=
+      (Result.ok_injective h).symm
+    subst hss'
+    have hng : need.val ≤ ss.cap.val := by
+      have := not_lt.mp (fun hh => hg ((UScalar.lt_equiv _ _).mpr hh)); exact this
+    have hlenlt : ss.coords.val.length < storedSz ss.keys := by omega
+    have hsetv : grown.val = ss.keys.val.set ss.coords.val.length (some c) := by
+      rw [sks_set_val ss.keys (alloc.vec.Vec.len ss.coords) c hset, alloc.vec.Vec.len_val]
+    have hset_sz : storedSz grown = storedSz ss.keys := by
+      obtain ⟨g', hset', hsz'⟩ := sks_set_total ss.keys (alloc.vec.Vec.len ss.coords) c
+        (by rw [alloc.vec.Vec.len_val]; exact hlenlt)
+      have : g' = grown := Result.ok_injective (hset'.symm.trans hset)
+      subst this
+      exact hsz'
+    have hv1v : v1.val = ss.coords.val ++ [c] := vec_push_ok _ _ _ hv1
+    refine ⟨?_, ?_⟩
+    · intro j d hd
+      rw [hv1v] at hd
+      rw [hsetv]
+      rcases append_single_get ss.coords.val c d j hd with ⟨hlt, hd'⟩ | ⟨hje, hdc⟩
+      · rw [List.getElem?_set_ne (by omega)]
+        exact hKCS j d hd'
+      · subst hdc
+        rw [hje, List.getElem?_set_self (by simpa [storedSz] using hlenlt)]
+    · show ss.cap.val ≤ storedSz grown
+      rw [hset_sz]; exact hcapsz
+
+/-- **`place_capped_side_frame`.**  `place_capped` never writes the side store: every verdict updates
+only `vals`, `coords`/`keys`/`len` or `overflow`. -/
+theorem place_capped_side_frame {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (t t' : Tbl KS) (c k : U64) (v : I64)
+    (h : hashtrinity.Table.place_capped core.cmp.EqU64 CI ks t c k v = ok t') :
+    t'.side = t.side := by
+  unfold hashtrinity.Table.place_capped at h
+  obtain ⟨r, hr, h⟩ := bind_inv h
+  cases r with
+  | Blocked =>
+    obtain ⟨bo, -, h⟩ := bind_inv h
+    unfold core.option.Option.as_mut at h
+    obtain ⟨⟨o1, backo⟩, -, h⟩ := bind_inv h
+    cases o1 with
+    | none => exact absurd h (by intro hh; exact ok_not_fail hh.symm)
+    | some ov =>
+      change (do
+        let (_, ov1) ← hashtrinity.overflow.Overflow.insert_new_at CI ov c k v
+        ok ({ t with overflow := backo (some ov1) } : Tbl KS)) = ok t' at h
+      obtain ⟨a, hins, h⟩ := bind_inv h
+      rcases a with ⟨⟨nd, e⟩, ov1⟩
+      have ht'' : t' = {t with overflow := backo (some ov1)} := (Result.ok_injective h).symm
+      subst ht''
+      rfl
+  | Hit i =>
+    obtain ⟨⟨mu, back⟩, hg, h⟩ := bind_inv h
+    obtain ⟨old, -, h⟩ := bind_inv h
+    obtain ⟨-, -, h⟩ := bind_inv h
+    obtain ⟨mu1, hnew, h⟩ := bind_inv h
+    obtain ⟨⟨x2, back1⟩, hg1, h⟩ := bind_inv h
+    have ht' : t' = {t with vals := back1 mu1} := (Result.ok_injective h).symm
+    subst ht'
+    rfl
+  | Vacant i =>
+    obtain ⟨⟨x0, backc⟩, hgc, h⟩ := bind_inv h
+    obtain ⟨mu, hnew, h⟩ := bind_inv h
+    obtain ⟨⟨y, backv⟩, hgv, h⟩ := bind_inv h
+    obtain ⟨tk, hset, h⟩ := bind_inv h
+    obtain ⟨i1, hi1, h⟩ := bind_inv h
+    have ht' : t' = {t with coords := backc c, vals := backv mu, keys := tk, len := i1} :=
+      (Result.ok_injective h).symm
+    subst ht'
+    rfl
+
+/-- **`resize_loop1_side_frame`.**  `resize_loop1` re-places overflow entries with `place_capped`, which
+never writes the side store, so the loop preserves it. -/
+theorem resize_loop1_side_frame {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (iter : alloc.vec.into_iter.IntoIter (U64 × U64 × I64)) (t0 : Tbl KS) {r : Tbl KS}
+    (h : hashtrinity.Table.resize_loop1 core.cmp.EqU64 CI ks iter t0 = ok r) :
+    r.side = t0.side := by
+  unfold hashtrinity.Table.resize_loop1 at h
+  refine loop_pc
+    (fun (p : alloc.vec.into_iter.IntoIter (U64 × U64 × I64) × Tbl KS) => p.2.side = t0.side)
+    (fun r => r.side = t0.side)
+    (fun p => hashtrinity.Table.resize_loop1.body core.cmp.EqU64 CI ks p.1 p.2)
+    ?_ (iter, t0) rfl r h
+  rintro ⟨it, t⟩ hside cf hcf
+  dsimp only at hcf
+  unfold hashtrinity.Table.resize_loop1.body at hcf
+  obtain ⟨⟨o, it1⟩, hn, hcf⟩ := bind_inv hcf
+  rcases next_spec it it1 o hn with ⟨hnil, rfl⟩ | ⟨e, hcons, rfl⟩
+  · have hdone : cf = ControlFlow.done t := (Result.ok_injective hcf).symm
+    subst hdone
+    exact hside
+  · obtain ⟨c, k, v⟩ := e
+    obtain ⟨t1, hpl, hcf⟩ := bind_inv hcf
+    have hcont : cf = ControlFlow.cont (it1, t1) := (Result.ok_injective hcf).symm
+    subst hcont
+    dsimp only
+    have hsf := place_capped_side_frame ks t t1 c k v hpl
+    rw [hsf]; exact hside
+
+/-- **`resize_loop0_side_frame`.**  `resize_loop0` only rewrites `coords`/`vals`/`keys` of its source,
+so the side it hands back is the original table's side. -/
+theorem resize_loop0_side_frame {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (s b0 : Tbl KS) {r : hashtrinity.side.SideStore U64 I64 KS × Option Ov × Tbl KS}
+    (h : hashtrinity.Table.resize_loop0 core.cmp.EqU64 CI ks s b0 0#usize = ok r) :
+    r.1 = s.side := by
+  unfold hashtrinity.Table.resize_loop0 at h
+  refine loop_pc (fun (p : Tbl KS × Tbl KS × Usize) => p.1.side = s.side)
+    (fun r => r.1 = s.side)
+    (fun p => hashtrinity.Table.resize_loop0.body core.cmp.EqU64 CI ks p.1 p.2.1 p.2.2)
+    ?_ (s, b0, 0#usize) rfl r h
+  rintro ⟨t, b, i⟩ hside cf hcf
+  dsimp only at hcf
+  unfold hashtrinity.Table.resize_loop0.body at hcf
+  by_cases hlt : i < Slice.len t.coords
+  · rw [if_pos hlt] at hcf
+    obtain ⟨c, hc, hcf⟩ := bind_inv hcf
+    obtain ⟨bl, hbl, hcf⟩ := bind_inv hcf
+    rw [is_live_ok] at hbl
+    have hbl' := (Result.ok_injective hbl).symm
+    subst hbl'
+    by_cases hns : IsSent c
+    · rw [if_neg (by simpa using hns)] at hcf
+      obtain ⟨i2, hi2, hcf⟩ := bind_inv hcf
+      have hcont : cf = ControlFlow.cont (t, b, i2) := (Result.ok_injective hcf).symm
+      subst hcont
+      exact hside
+    · rw [if_pos (by simpa using hns)] at hcf
+      obtain ⟨⟨key, tk⟩, htk, hcf⟩ := bind_inv hcf
+      obtain ⟨⟨mu, back⟩, hg, hcf⟩ := bind_inv hcf
+      obtain ⟨vv, hread, hcf⟩ := bind_inv hcf
+      obtain ⟨cs, hupd, hcf⟩ := bind_inv hcf
+      obtain ⟨big1, hpc, hcf⟩ := bind_inv hcf
+      obtain ⟨i2, hi2, hcf⟩ := bind_inv hcf
+      have hcont : cf =
+          ControlFlow.cont ({ t with coords := cs, vals := back mu, keys := tk }, big1, i2) :=
+        (Result.ok_injective hcf).symm
+      subst hcont
+      exact hside
+  · rw [if_neg hlt] at hcf
+    have hdone : cf = ControlFlow.done (t.side, t.overflow, b) := (Result.ok_injective hcf).symm
+    subst hdone
+    exact hside
+
+/-- **`stored_resize_side`.**  `Table::resize` keeps the source side store: `resize_loop0` hands back
+the source's side and `resize_loop1` (through `place_capped`) never writes it. -/
+theorem stored_resize_side {s s' : Tbl (hashtrinity.algebra.Stored U64)} {nb : U32}
+    (h : hashtrinity.Table.resize core.cmp.EqU64 CI SKS s nb = ok s') :
+    s'.side = s.side := by
+  unfold hashtrinity.Table.resize at h
+  obtain ⟨bigger, hwb, h⟩ := bind_inv h
+  obtain ⟨⟨ss, o, b1⟩, hl0, h⟩ := bind_inv h
+  have hss : ss = s.side := resize_loop0_side_frame SKS s bigger hl0
+  obtain ⟨ss1, hs1, h⟩ := bind_inv h
+  simp only [core.mem.replace, core.option.Option.take] at h
+  cases o with
+  | none =>
+    have hs' : s' = { b1 with side := ss } := (Result.ok_injective h).symm
+    subst hs'
+    exact hss
+  | some ov =>
+    obtain ⟨ev, hev, h⟩ := bind_inv h
+    obtain ⟨iter, hiter, h⟩ := bind_inv h
+    have hsf := resize_loop1_side_frame SKS iter ({ b1 with side := ss } :
+      Tbl (hashtrinity.algebra.Stored U64)) h
+    rw [hsf]
+    exact hss
+
+/-- **`stored_grow_side`.**  `grow_for_one` either returns the table (side unchanged) or resizes
+(side reset to empty), so a `SKCs`/capacity-carrying side store survives it. -/
+theorem stored_grow_side (s s1 : Tbl (hashtrinity.algebra.Stored U64))
+    (hKS : SKCs s.side.coords s.side.keys) (hcapsz : s.side.cap.val ≤ storedSz s.side.keys)
+    (hg : hashtrinity.Table.grow_for_one core.cmp.EqU64 CI SKS s = ok s1) :
+    SKCs s1.side.coords s1.side.keys ∧ s1.side.cap.val ≤ storedSz s1.side.keys := by
+  unfold hashtrinity.Table.grow_for_one at hg
+  obtain ⟨i, -, hg⟩ := bind_inv hg
+  obtain ⟨i1, -, hg⟩ := bind_inv hg
+  obtain ⟨i2, -, hg⟩ := bind_inv hg
+  obtain ⟨i3, -, hg⟩ := bind_inv hg
+  by_cases hge : i2 >= i3
+  · rw [if_pos hge] at hg
+    obtain ⟨i4, -, hg⟩ := bind_inv hg
+    obtain ⟨nb, -, hg⟩ := bind_inv hg
+    have hside := stored_resize_side hg
+    rw [hside]
+    exact ⟨hKS, hcapsz⟩
+  · rw [if_neg hge] at hg
+    have hs1 : s1 = s := (Result.ok_injective hg).symm
+    subst hs1
+    exact ⟨hKS, hcapsz⟩
+
+
 /-- **`stored_insert_total`.**  `word_hashtrinity_insert` (the `Stored<u64>` face) returns `ok` for
 every key.  A reserved key goes to the side store (`insert_core_sent_ok`, `KCS := SKCs`); any other
 key through `grow_for_one` and the probe (`insert_core_ns_ok`, `KC := SKC`).  The premises are the
@@ -176,19 +539,58 @@ theorem stored_insert_total {s : Tbl (hashtrinity.algebra.Stored U64)}
     (k : U64) (v : I64) :
     ∃ s', word_hashtrinity_insert s k v = ok s' := by
   by_cases hk : IsSent k
-  · obtain ⟨s', h⟩ := insert_core_sent_ok SKS SKS_matches storedSz sks_alloc_total sks_set_total
-      SKCs stored_takeKeySideOK hR hcapsz hKS hk v
+  · obtain ⟨s', h, -, -, -⟩ := insert_core_sent_ok SKS SKS_matches storedSz sks_alloc_total sks_set_total
+      SKCs stored_takeKeySideOK SKC hR hK hcapsz hKS hk v
+      (fun ss' hp => stored_side_push_pc s.side k v hKS hcapsz hp)
     refine ⟨s', ?_⟩
     unfold word_hashtrinity_insert hashtrinity.Table.insert_merge_last_write
     rw [h]
     simp only [bind_tc_ok, uncurry_apply_pair]
-  · obtain ⟨s', h⟩ := insert_core_ns_ok SKS SKC resizeOK_stored storedSz sks_alloc_total
+  · obtain ⟨s', h, -, -, -⟩ := insert_core_ns_ok SKS SKC resizeOK_stored storedSz sks_alloc_total
       (fun keys i c k => ⟨true, SKS_matches keys i c k⟩) (fun _ => avx2_spec_holds)
       sks_set_total stored_takeKeyOK hR hK hcap n hHov hmain hn hbits hocc
       (by have h : s.keys.val.length = s.coords.val.length := hK.1
           show s.coords.val.length ≤ s.keys.val.length
-          omega) hk v
+          omega)
+      skc_set SKCs (fun t ht => stored_grow_side s t hKS hcapsz ht) hk v
     refine ⟨s', ?_⟩
+    unfold word_hashtrinity_insert hashtrinity.Table.insert_merge_last_write
+    rw [h]
+    simp only [bind_tc_ok, uncurry_apply_pair]
+
+/-- **`stored_insert_keycols`.**  Under exactly the `stored_insert_total` premises, a successful
+insert returns a state whose key columns still track their coordinates: the main column satisfies
+`SKC` and the side column `SKCs` with `side.cap ≤ storedSz side.keys`.  The reserved branch carries
+the side facts through `SideStore::push` (`stored_side_push_pc`); the non-reserved branch through
+`grow_for_one` (`stored_grow_side`) and the probe, whose `Vacant` write is `skc_set`. -/
+theorem stored_insert_keycols {s : Tbl (hashtrinity.algebra.Stored U64)}
+    {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop} (hR : RepW SKS s m live)
+    (hK : SKC s.coords s.keys) (hKS : SKCs s.side.coords s.side.keys)
+    (hcapsz : s.side.cap.val ≤ storedSz s.side.keys)
+    (hcap : arenaLen s + mainCount s + 4 ≤ nilN)
+    (n : Nat) (hHov : Hov s n) (hmain : mainCount s ≤ n) (hn : n * n + n + 4 ≤ nilN)
+    (hbits : s.bits.val + 3 ≤ UScalarTy.Usize.numBits)
+    (hocc : s.len.val + s.tombs.val ≤ s.coords.length)
+    (k : U64) (v : I64) :
+    ∃ s', word_hashtrinity_insert s k v = ok s' ∧
+      SKC s'.coords s'.keys ∧ SKCs s'.side.coords s'.side.keys ∧
+      s'.side.cap.val ≤ storedSz s'.side.keys := by
+  by_cases hk : IsSent k
+  · obtain ⟨s', h, hK', hKS', hcap'⟩ := insert_core_sent_ok SKS SKS_matches storedSz sks_alloc_total
+      sks_set_total SKCs stored_takeKeySideOK SKC hR hK hcapsz hKS hk v
+      (fun ss' hp => stored_side_push_pc s.side k v hKS hcapsz hp)
+    refine ⟨s', ?_, hK', hKS', hcap'⟩
+    unfold word_hashtrinity_insert hashtrinity.Table.insert_merge_last_write
+    rw [h]
+    simp only [bind_tc_ok, uncurry_apply_pair]
+  · obtain ⟨s', h, hK', hKS', hcap'⟩ := insert_core_ns_ok SKS SKC resizeOK_stored storedSz
+      sks_alloc_total (fun keys i c k => ⟨true, SKS_matches keys i c k⟩) (fun _ => avx2_spec_holds)
+      sks_set_total stored_takeKeyOK hR hK hcap n hHov hmain hn hbits hocc
+      (by have h : s.keys.val.length = s.coords.val.length := hK.1
+          show s.coords.val.length ≤ s.keys.val.length
+          omega)
+      skc_set SKCs (fun t ht => stored_grow_side s t hKS hcapsz ht) hk v
+    refine ⟨s', ?_, hK', hKS', hcap'⟩
     unfold word_hashtrinity_insert hashtrinity.Table.insert_merge_last_write
     rw [h]
     simp only [bind_tc_ok, uncurry_apply_pair]
@@ -281,6 +683,16 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.isSent_EMPTY
 #audit Apeiron.MapExecuted.stored_takeKeyOK
 #audit Apeiron.MapExecuted.stored_takeKeySideOK
+#audit Apeiron.MapExecuted.sks_set_val
+#audit Apeiron.MapExecuted.sks_set_lt
+#audit Apeiron.MapExecuted.stored_push_loop_kcs
+#audit Apeiron.MapExecuted.stored_side_push_pc
+#audit Apeiron.MapExecuted.place_capped_side_frame
+#audit Apeiron.MapExecuted.resize_loop1_side_frame
+#audit Apeiron.MapExecuted.resize_loop0_side_frame
+#audit Apeiron.MapExecuted.stored_resize_side
+#audit Apeiron.MapExecuted.stored_grow_side
 #audit Apeiron.MapExecuted.stored_insert_total
+#audit Apeiron.MapExecuted.stored_insert_keycols
 #audit Apeiron.MapExecuted.with_bits1_SKS_ex
 #audit Apeiron.MapExecuted.stored_insert_witness

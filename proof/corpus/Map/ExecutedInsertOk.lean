@@ -262,9 +262,9 @@ theorem grow_post {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64) (KC : S
     RepW ks s1 m live ∧ 0 < s1.bits.val ∧ s1.coords.length = 2 ^ s1.bits.val ∧
       s1.vals.length = s1.coords.length ∧
       arenaLen s1 + mainCount s1 + 4 ≤ nilN ∧ Hov s1 (n * n + n) ∧
-      s1.coords.val.length ≤ sz s1.keys := by
+      s1.coords.val.length ≤ sz s1.keys ∧ KC s1.coords s1.keys := by
   have hsmall : arenaLen s + mainCount s < nilN := by omega
-  obtain ⟨hR1, -, hle1⟩ := grow_rep ks KC hRes hR hK hsmall hg
+  obtain ⟨hR1, hK1, hle1⟩ := grow_rep ks KC hRes hR hK hsmall hg
   refine ⟨hR1, hR1.1.bits_pos, hR1.1.len_pow, hR1.1.vals_len, by omega, ?_⟩
   unfold hashtrinity.Table.grow_for_one at hg
   obtain ⟨i, -, hg⟩ := bind_inv hg
@@ -297,11 +297,11 @@ theorem grow_post {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64) (KC : S
         omega
     obtain ⟨hHov1, hsz1⟩ := resize_hov ks sz halloc hm hA hset KC hTK hR hK hcap nb hbits_nb hpos n
       hHov hmain hn hsz_s hg
-    exact ⟨hHov1, hsz1⟩
+    exact ⟨hHov1, hsz1, hK1⟩
   · rw [if_neg hge] at hg
     have hs1 : s1 = s := (Result.ok_injective hg).symm
     subst hs1
-    exact ⟨Hov_mono hHov (by omega), hsz_s⟩
+    exact ⟨Hov_mono hHov (by omega), hsz_s, hK⟩
 
 /-! ## Forward totality of the overflow write path
 
@@ -403,8 +403,16 @@ theorem insert_core_ns_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
     (hbits : s.bits.val + 3 ≤ UScalarTy.Usize.numBits)
     (hocc : s.len.val + s.tombs.val ≤ s.coords.length)
     (hsz_s : s.coords.val.length ≤ sz s.keys)
+    (hKCset : ∀ (coords coords' : Slice U64) (keys keys' : KS) (i : Usize) (k : U64),
+      KC coords keys → coords'.val = coords.val.set i.val k → ks.set keys i k = ok keys' →
+      KC coords' keys')
+    (KCS : alloc.vec.Vec U64 → KS → Prop)
+    (hSide : ∀ t, hashtrinity.Table.grow_for_one core.cmp.EqU64 CI ks s = ok t →
+      KCS t.side.coords t.side.keys ∧ t.side.cap.val ≤ sz t.side.keys)
     {k : U64} (hns : ¬ IsSent k) (v : I64) :
-    ∃ s', hashtrinity.Table.insert_core core.cmp.EqU64 CI ks s k v true = ok (none, s') := by
+    ∃ s', hashtrinity.Table.insert_core core.cmp.EqU64 CI ks s k v true = ok (none, s') ∧
+      KC s'.coords s'.keys ∧ KCS s'.side.coords s'.side.keys ∧
+      s'.side.cap.val ≤ sz s'.side.keys := by
   unfold hashtrinity.Table.insert_core
   rw [coord_of_ok]
   simp only [bind_tc_ok]
@@ -415,8 +423,9 @@ theorem insert_core_ns_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
     hocc hsz_s
   rw [hg]
   simp only [bind_tc_ok]
-  obtain ⟨hR1, hbits1, hlen1, hsl1, hcap1, hHov1, hsz1⟩ :=
+  obtain ⟨hR1, hbits1, hlen1, hsl1, hcap1, hHov1, hsz1, hK1⟩ :=
     grow_post ks KC hRes sz halloc hm hA hset hTK hR hK hcap n hHov hmain hn hbits hocc hsz_s hg
+  have hSide1 := hSide s1 hg
   obtain ⟨c, hc⟩ := probe_capped_keyed_ok ks hm hA s1 k k hbits1 hlen1
   rw [hc]
   simp only [bind_tc_ok]
@@ -436,7 +445,7 @@ theorem insert_core_ns_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
     have hltv2 : i.val < (s1.vals.set i (some (m k))).length := by rw [slice_set_length]; exact hltv
     obtain ⟨_, back1, hget2⟩ := slice_get_unchecked_mut_ex (s1.vals.set i (some (m k))) i hltv2
     have hnew : core.mem.maybe_uninit.MaybeUninit.new v = ok (some v) := rfl
-    refine ⟨{ s1 with vals := back1 (some v) }, ?_⟩
+    refine ⟨{ s1 with vals := back1 (some v) }, ?_, hK1, hSide1.1, hSide1.2⟩
     simp only [hget, bind_tc_ok, ite_true]
     rw [hmu', hback]
     simp only [uncurry_apply_pair, hread, hget2, core.mem.drop,
@@ -445,7 +454,9 @@ theorem insert_core_ns_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
     obtain ⟨x0, hcx, hx0e⟩ := hslot
     have hltc : i.val < s1.coords.val.length := (List.getElem?_eq_some_iff.mp hcx).1
     have hltv : i.val < s1.vals.length := by rw [hsl1]; exact hltc
-    obtain ⟨_, backc, hgetc⟩ := slice_get_unchecked_mut_ex s1.coords i hltc
+    obtain ⟨xc, backc, hgetc⟩ := slice_get_unchecked_mut_ex s1.coords i hltc
+    obtain ⟨-, hbackc⟩ := get_unchecked_mut_ok s1.coords i xc backc hgetc
+    have hco : (backc k).val = s1.coords.val.set i.val k := by rw [hbackc, Slice.set_val_eq]
     obtain ⟨_, backv, hgetv⟩ := slice_get_unchecked_mut_ex s1.vals i hltv
     obtain ⟨keys', hset', -⟩ := hset s1.keys i k (by omega)
     have hlenmax1 : s1.len.val < Usize.max := by
@@ -462,7 +473,8 @@ theorem insert_core_ns_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
       have hp : 0 < 2 ^ UScalarTy.Usize.numBits := Nat.two_pow_pos _
       omega
     obtain ⟨i1, hi1, -⟩ := uadd_tot s1.len 1#usize hltmax
-    refine ⟨{ s1 with coords := backc k, vals := backv (some v), keys := keys', len := i1 }, ?_⟩
+    refine ⟨{ s1 with coords := backc k, vals := backv (some v), keys := keys', len := i1 }, ?_,
+      hKCset s1.coords (backc k) s1.keys keys' i k hK1 hco hset', hSide1.1, hSide1.2⟩
     simp only [hgetc, hgetv, hset', hi1, core.mem.maybe_uninit.MaybeUninit.new, bind_tc_ok]
     rfl
   | Blocked =>
@@ -528,7 +540,7 @@ theorem insert_core_ns_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
     · obtain ⟨nd, e, ov1, hins⟩ := ov_insert_new_at_ok ov T k k v hI hlen hentries hcap
       rw [hins]
       simp only [bind_tc_ok, uncurry_apply_pair]
-      exact ⟨_, rfl⟩
+      exact ⟨{ s1 with overflow := _ }, rfl, hK1, hSide1.1, hSide1.2⟩
     · have hspec := (find_entry_spec ov T hI.1 hI.2.1 hentries32 k k (.some (node, entry)) hfe).2
         node entry
       obtain ⟨hnmem, nd, hnd, hkey, hfirst⟩ := hspec.mp rfl
@@ -551,7 +563,7 @@ theorem insert_core_ns_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
       simp only [bind_tc_ok, uncurry_apply_pair, ite_true]
       rw [hwb]
       simp only [bind_tc_ok]
-      exact ⟨_, rfl⟩
+      exact ⟨{ s1 with overflow := _ }, rfl, hK1, hSide1.1, hSide1.2⟩
 
 /-! ## The `Regen<u64>` face -/
 
@@ -566,13 +578,17 @@ theorem coord_insert_ok {s : Tbl (hashtrinity.algebra.Regen U64)} {m : Apeiron.T
     (hocc : s.len.val + s.tombs.val ≤ s.coords.length)
     {k : U64} (hns : ¬ IsSent k) (v : I64) :
     ∃ s', word_coordmap_insert s k v = ok s' := by
-  obtain ⟨s', h⟩ := insert_core_ns_ok RKS (fun _ _ => True) resizeOK_regen regenSz
+  obtain ⟨s', h, -, -, -⟩ := insert_core_ns_ok RKS (fun _ _ => True) resizeOK_regen regenSz
     (fun n => ⟨(), rfl, usize_val_le_two_pow64 n⟩)
     (fun keys i c k => ⟨true, RKS_matches keys i c k⟩)
     (fun _ => avx2_spec_holds)
     (fun keys i k _ => ⟨keys, rfl, rfl⟩)
     regen_takeKeyOK
-    hR trivial hcap n hHov hmain hn hbits hocc (regen_sz_inv s) hns v
+    hR trivial hcap n hHov hmain hn hbits hocc (regen_sz_inv s)
+    (fun _ _ _ _ _ _ _ _ _ => trivial)
+    (fun _ _ => True)
+    (fun t _ => ⟨trivial, usize_val_le_two_pow64 t.side.cap⟩)
+    hns v
   refine ⟨s', ?_⟩
   unfold word_coordmap_insert hashtrinity.Table.insert_merge_last_write
   rw [h]
