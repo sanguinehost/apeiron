@@ -90,24 +90,34 @@ theorem usize_max_gt_two : 2 < Usize.max := by
 
 /-! ## Totality of `SideStore::push` -/
 
+/-- **`TakeKeySideOK`.**  The key-column-conditional `take_key` premise of `SideStore::push_loop`.
+At a side store whose key column satisfies `KCS` against its coordinate vector, `take_key` at any
+in-range slot `i` (`coords[i] = some c`) returns some key, keeps the size carrier, and keeps `KCS`
+(the vector is not written). -/
+def TakeKeySideOK (sz : KS → Nat) (KCS : alloc.vec.Vec U64 → KS → Prop) : Prop :=
+  ∀ (coords : alloc.vec.Vec U64) (keys : KS) (i : Usize) (c : U64), KCS coords keys →
+    coords.val[i.val]? = some c →
+    ∃ (k' : U64) (keys' : KS), ks.take_key keys i c = ok (k', keys') ∧ sz keys' = sz keys ∧
+      KCS coords keys'
+
 /-- `SideStore::push_loop` is total: it walks `v` by an increasing index, reading each key with
 `take_key` and writing it with `set`. -/
 theorem side_push_loop_total
     (sz : KS → Nat)
     (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
       ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
-    (htk : ∀ (keys : KS) (i : Usize) (c : U64), i.val < sz keys →
-      ∃ (k' : U64) (keys' : KS), ks.take_key keys i c = ok (k', keys') ∧ sz keys' = sz keys)
+    (KCS : alloc.vec.Vec U64 → KS → Prop) (htk : TakeKeySideOK ks sz KCS)
     (v : alloc.vec.Vec U64) (grown grown1 : KS) (i0 : Usize)
-    (hlen0 : v.val.length ≤ sz grown) (hlen1 : v.val.length ≤ sz grown1) :
+    (hlen1 : v.val.length ≤ sz grown1)
+    (hKCS : KCS v grown) :
     ∃ r, hashtrinity.side.SideStore.push_loop ks v grown grown1 i0 = ok r := by
   unfold hashtrinity.side.SideStore.push_loop
   refine loop_tot_inv
     (fun (g : KS × KS × Usize) =>
       hashtrinity.side.SideStore.push_loop.body ks v g.1 g.2.1 g.2.2)
-    (fun g => sz g.1 = sz grown ∧ sz g.2.1 = sz grown1)
-    (fun g => v.val.length - g.2.2.val) ?_ ?_ (grown, grown1, i0) ⟨rfl, rfl⟩
-  · rintro ⟨g2, g3, i⟩ ⟨hg2, hg3⟩
+    (fun g => sz g.1 = sz grown ∧ sz g.2.1 = sz grown1 ∧ KCS v g.1)
+    (fun g => v.val.length - g.2.2.val) ?_ ?_ (grown, grown1, i0) ⟨rfl, rfl, hKCS⟩
+  · rintro ⟨g2, g3, i⟩ ⟨hg2, hg3, hKg⟩
     unfold hashtrinity.side.SideStore.push_loop.body
     dsimp only
     by_cases hl : i < alloc.vec.Vec.len v
@@ -116,7 +126,7 @@ theorem side_push_loop_total
         have := (UScalar.lt_equiv _ _).mp hl; rwa [alloc.vec.Vec.len_val] at this
       obtain ⟨c, hc⟩ := vec_index_ex v i hv
       rw [hc]; simp only [bind_tc_ok]
-      obtain ⟨key, g2', hkey, -⟩ := htk g2 i c (by rw [hg2]; exact lt_of_lt_of_le hv hlen0)
+      obtain ⟨key, g2', hkey, -, -⟩ := htk v g2 i c hKg (vec_index_ok v i c hc)
       rw [hkey]; simp only [bind_tc_ok, uncurry_apply_pair]
       obtain ⟨g3', hset', -⟩ := hset g3 i key (by rw [hg3]; exact lt_of_lt_of_le hv hlen1)
       rw [hset']; simp only [bind_tc_ok]
@@ -129,7 +139,7 @@ theorem side_push_loop_total
       rw [hi2]; simp only [bind_tc_ok]
       exact ⟨_, rfl⟩
     · rw [if_neg hl]; exact ⟨_, rfl⟩
-  · rintro ⟨g2, g3, i⟩ ⟨g2', g3', i1'⟩ ⟨hg2, hg3⟩ hcf
+  · rintro ⟨g2, g3, i⟩ ⟨g2', g3', i1'⟩ ⟨hg2, hg3, hKg⟩ hcf
     unfold hashtrinity.side.SideStore.push_loop.body at hcf
     dsimp only at hcf
     by_cases hl : i < alloc.vec.Vec.len v
@@ -144,7 +154,7 @@ theorem side_push_loop_total
       rw [← hi2eq]
       have hv : i.val < v.val.length := by
         have := (UScalar.lt_equiv _ _).mp hl; rwa [alloc.vec.Vec.len_val] at this
-      obtain ⟨key2, g2'', hkey2, hszk⟩ := htk g2 i c (by rw [hg2]; exact lt_of_lt_of_le hv hlen0)
+      obtain ⟨key2, g2'', hkey2, hszk, hKg2⟩ := htk v g2 i c hKg (vec_index_ok v i c hc)
       have hkeyeq : key = (key2, g2'') := Result.ok_injective (hkey.symm.trans hkey2)
       have hk2 : key.2 = g2'' := congrArg Prod.snd hkeyeq
       have hsz2 : sz g2' = sz grown := by rw [← hg2eq, hk2, hszk, hg2]
@@ -152,7 +162,7 @@ theorem side_push_loop_total
       obtain ⟨gg, hsetg, hszs⟩ := hset g3 i key.1 hsetb
       have hgg : gg = g3'' := Result.ok_injective (hsetg.symm.trans hset')
       have hsz3 : sz g3' = sz grown1 := by rw [← hg3eq, ← hgg, hszs, hg3]
-      exact ⟨⟨hsz2, hsz3⟩, by
+      exact ⟨⟨hsz2, hsz3, by rw [← hg2eq, hk2]; exact hKg2⟩, by
         show v.val.length - i2.val < v.val.length - i.val
         have hi2v : i2.val = i.val + 1 := (uadd_ok hi2).1
         omega⟩
@@ -163,20 +173,20 @@ theorem side_push_loop_sz
     (sz : KS → Nat)
     (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
       ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
-    (htk : ∀ (keys : KS) (i : Usize) (c : U64), i.val < sz keys →
-      ∃ (k' : U64) (keys' : KS), ks.take_key keys i c = ok (k', keys') ∧ sz keys' = sz keys)
+    (KCS : alloc.vec.Vec U64 → KS → Prop) (htk : TakeKeySideOK ks sz KCS)
     (v : alloc.vec.Vec U64) (grown grown1 : KS) (i0 : Usize)
-    (hlen0 : v.val.length ≤ sz grown) (hlen1 : v.val.length ≤ sz grown1) {r : KS}
+    (hlen1 : v.val.length ≤ sz grown1)
+    (hKCS : KCS v grown) {r : KS}
     (h : hashtrinity.side.SideStore.push_loop ks v grown grown1 i0 = ok r) :
     sz r = sz grown1 := by
   unfold hashtrinity.side.SideStore.push_loop at h
   refine loop_pc
-    (fun g => sz g.1 = sz grown ∧ sz g.2.1 = sz grown1)
+    (fun g => sz g.1 = sz grown ∧ sz g.2.1 = sz grown1 ∧ KCS v g.1)
     (fun r => sz r = sz grown1)
     (fun (g : KS × KS × Usize) =>
       hashtrinity.side.SideStore.push_loop.body ks v g.1 g.2.1 g.2.2)
-    ?_ (grown, grown1, i0) ⟨rfl, rfl⟩ r h
-  · rintro ⟨g2, g3, i⟩ ⟨hg2, hg3⟩ cf hcf
+    ?_ (grown, grown1, i0) ⟨rfl, rfl, hKCS⟩ r h
+  · rintro ⟨g2, g3, i⟩ ⟨hg2, hg3, hKg⟩ cf hcf
     unfold hashtrinity.side.SideStore.push_loop.body at hcf
     dsimp only at hcf
     by_cases hl : i < alloc.vec.Vec.len v
@@ -189,7 +199,7 @@ theorem side_push_loop_sz
       rw [hcfv]
       have hv : i.val < v.val.length := by
         have := (UScalar.lt_equiv _ _).mp hl; rwa [alloc.vec.Vec.len_val] at this
-      obtain ⟨key2, g2'', hkey2, hszk⟩ := htk g2 i c (by rw [hg2]; exact lt_of_lt_of_le hv hlen0)
+      obtain ⟨key2, g2'', hkey2, hszk, hKg2⟩ := htk v g2 i c hKg (vec_index_ok v i c hc)
       have hkeyeq : key = (key2, g2'') := Result.ok_injective (hkey.symm.trans hkey2)
       have hk2 : key.2 = g2'' := congrArg Prod.snd hkeyeq
       have hsz2 : sz key.2 = sz grown := by rw [hk2, hszk, hg2]
@@ -197,7 +207,7 @@ theorem side_push_loop_sz
       obtain ⟨gg, hsetg, hszs⟩ := hset g3 i key.1 hsetb
       have hgg : g3'' = gg := Result.ok_injective (hset'.symm.trans hsetg)
       have hsz3 : sz g3'' = sz grown1 := by rw [hgg, hszs, hg3]
-      exact ⟨hsz2, hsz3⟩
+      exact ⟨hsz2, hsz3, by rw [hk2]; exact hKg2⟩
     · rw [if_neg hl] at hcf
       have hcfv : cf = ControlFlow.done g3 := (Result.ok_injective hcf).symm
       rw [hcfv]; exact hg3
@@ -210,11 +220,10 @@ theorem side_push_total
     (halloc : ∀ n : Usize, ∃ ks', ks.alloc n = ok ks' ∧ n.val ≤ sz ks')
     (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
       ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
-    (htk : ∀ (keys : KS) (i : Usize) (c : U64), i.val < sz keys →
-      ∃ (k' : U64) (keys' : KS), ks.take_key keys i c = ok (k', keys') ∧ sz keys' = sz keys)
+    (KCS : alloc.vec.Vec U64 → KS → Prop) (htk : TakeKeySideOK ks sz KCS)
     (ss : hashtrinity.side.SideStore U64 I64 KS) (c k : U64) (v : I64)
     (hlen : ss.coords.val.length ≤ 2) (hvl : ss.vals.val.length ≤ 2)
-    (hsz : ss.coords.val.length < sz ss.keys) :
+    (hcapsz : ss.cap.val ≤ sz ss.keys) (hKCS : KCS ss.coords ss.keys) :
     ∃ ss', hashtrinity.side.SideStore.push CI ks ss c k v = ok ss' := by
   unfold hashtrinity.side.SideStore.push
   dsimp only
@@ -254,11 +263,11 @@ theorem side_push_total
     have hcl_grown : ss.coords.val.length < sz grown :=
       lt_of_lt_of_le hcl_need (le_trans hneed_nc hgrownsz)
     rw [hgrown]; simp only [bind_tc_ok]
-    obtain ⟨grown1, hgl⟩ := side_push_loop_total ks sz hset htk ss.coords ss.keys grown
-      0#usize (le_of_lt hsz) (le_of_lt hcl_grown)
+    obtain ⟨grown1, hgl⟩ := side_push_loop_total ks sz hset KCS htk ss.coords ss.keys grown
+      0#usize (le_of_lt hcl_grown) hKCS
     have hszgl : sz grown1 = sz grown :=
-      side_push_loop_sz ks sz hset htk ss.coords ss.keys grown 0#usize
-        (le_of_lt hsz) (le_of_lt hcl_grown) hgl
+      side_push_loop_sz ks sz hset KCS htk ss.coords ss.keys grown 0#usize
+        (le_of_lt hcl_grown) hKCS hgl
     rw [hgl]; simp only [bind_tc_ok]
     obtain ⟨g2', hset', -⟩ := hset grown1 (alloc.vec.Vec.len ss.coords) k (by
       rw [alloc.vec.Vec.len_val, hszgl]; exact hcl_grown)
@@ -272,7 +281,9 @@ theorem side_push_total
     exact ⟨_, rfl⟩
   · rw [if_neg hg]
     obtain ⟨g', hset', -⟩ := hset ss.keys (alloc.vec.Vec.len ss.coords) k (by
-      rw [alloc.vec.Vec.len_val]; exact hsz)
+      have hng : need.val ≤ ss.cap.val := by
+        have := not_lt.mp (fun h => hg ((UScalar.lt_equiv _ _).mpr h)); exact this
+      omega)
     rw [hset']; simp only [bind_tc_ok]
     obtain ⟨v1, hv1⟩ := vec_push_ex ss.coords c (by have := usize_max_gt_two; omega)
     rw [hv1]; simp only [bind_tc_ok]
@@ -295,10 +306,10 @@ theorem insert_core_sent_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
     (halloc : ∀ n : Usize, ∃ ks', ks.alloc n = ok ks' ∧ n.val ≤ sz ks')
     (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
       ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
-    (htk : ∀ (keys : KS) (i : Usize) (c : U64), i.val < sz keys →
-      ∃ (k' : U64) (keys' : KS), ks.take_key keys i c = ok (k', keys') ∧ sz keys' = sz keys)
+    (KCS : alloc.vec.Vec U64 → KS → Prop) (htk : TakeKeySideOK ks sz KCS)
     {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop}
-    (hR : RepW ks s m live) (hsz_side : s.side.coords.val.length < sz s.side.keys)
+    (hR : RepW ks s m live) (hcapsz : s.side.cap.val ≤ sz s.side.keys)
+    (hKS : KCS s.side.coords s.side.keys)
     {k : U64} (hk : IsSent k) (v : I64) :
     ∃ s', hashtrinity.Table.insert_core core.cmp.EqU64 CI ks s k v true = ok (none, s') := by
   unfold hashtrinity.Table.insert_core
@@ -316,7 +327,7 @@ theorem insert_core_sent_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
   have hvl : s.side.vals.val.length ≤ 2 := hvl0
   cases o with
   | none =>
-    obtain ⟨ss, hpush⟩ := side_push_total ks sz halloc hset htk s.side k k v hlen hvl hsz_side
+    obtain ⟨ss, hpush⟩ := side_push_total ks sz halloc hset KCS htk s.side k k v hlen hvl hcapsz hKS
     refine ⟨{ s with side := ss }, ?_⟩
     rw [hpush]; simp only [bind_tc_ok]
   | some i =>
@@ -350,6 +361,15 @@ theorem insert_core_sent_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
 
 /-! ## The `Regen<u64>` face -/
 
+/-- **`regen_takeKeySideOK`.**  `TakeKeySideOK` at `Regen<u64>` with the trivial relation. -/
+theorem regen_takeKeySideOK : TakeKeySideOK RKS regenSz (fun _ _ => True) :=
+  fun _ keys i c _ _ => ⟨c, keys, (by
+    change hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.take_key
+      U64.Insts.Apeiron_wordHashtrinityAlgebraCoordInv core.cmp.EqU64 keys i c = ok (c, keys)
+    unfold hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.take_key
+    change (do let t ← (ok c : Result U64); ok (t, keys)) = ok (c, keys)
+    simp only [bind_tc_ok]), rfl, trivial⟩
+
 /-- **`coord_insert_sent_ok`.**  `word_coordmap_insert` (the `Regen<u64>` face) returns `ok` on a
 reserved key: `insert_core_sent_ok` at `RKS`, whose `alloc`, `set` and `take_key` are total, then the
 `none` arm of `insert_merge_last_write`.  This discharges the premise
@@ -361,18 +381,8 @@ theorem coord_insert_sent_ok {s : Tbl (hashtrinity.algebra.Regen U64)} {m : Apei
   obtain ⟨s', h⟩ := insert_core_sent_ok RKS RKS_matches regenSz
     (fun n => ⟨(), rfl, usize_val_le_two_pow64 n⟩)
     (fun keys i k _ => ⟨keys, rfl, rfl⟩)
-    (fun keys i c _ => ⟨c, keys, (by
-      change hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.take_key
-        U64.Insts.Apeiron_wordHashtrinityAlgebraCoordInv core.cmp.EqU64 keys i c = ok (c, keys)
-      unfold hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.take_key
-      change (do let t ← (ok c : Result U64); ok (t, keys)) = ok (c, keys)
-      simp only [bind_tc_ok]), rfl⟩)
-    hR (by
-      have h64 : System.Platform.numBits ≤ 64 := by
-        rcases System.Platform.numBits_eq with h | h <;> omega
-      have hp : 2 ^ System.Platform.numBits ≤ 2 ^ 64 := Nat.pow_le_pow_right (by norm_num) h64
-      have := vec_len_lt s.side.coords
-      simpa [regenSz] using (show s.side.coords.val.length < 2 ^ 64 by omega)) hk v
+    (fun _ _ => True) regen_takeKeySideOK
+    hR (by simpa [regenSz] using usize_val_le_two_pow64 s.side.cap) trivial hk v
   refine ⟨s', ?_⟩
   unfold word_coordmap_insert hashtrinity.Table.insert_merge_last_write
   rw [h]
