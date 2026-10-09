@@ -10,9 +10,9 @@ package apeironWordBridge where
 -- The extraction/denotation package next door.
 require apeironWordProof from ".."
 
--- The canonical mathematical corpus at the exact revision refined by this bridge.
-require «apeiron» from git "git@github.com:sanguinehost/sanguine.git" @
-  "880aa57e47e782ed7a9d9ee1974cfc87360b446b" / "proof"
+-- The canonical mathematical corpus refined by this bridge, in-tree at `proof/canonical/`
+-- (byte-identical to canonical revision `880aa57e47e782ed7a9d9ee1974cfc87360b446b`, `proof/`).
+require «apeiron» from "../canonical"
 
 -- Pin the same Mathlib revision as the corpus, last so this package's choice wins any transitive
 -- resolution. The corpus is no longer on a 4.30.0-rc2-era Mathlib.
