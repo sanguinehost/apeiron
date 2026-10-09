@@ -2835,7 +2835,8 @@ const TL_W: usize = 256;
 const TL_P: usize = 64;
 
 /// A decode-tail selection arm. `f64` fields are the per-head mass tolerance `eps` (kept mass
-/// `>= 1 - eps`, KL `-ln(1 - eps)`); `Fix` carries the far-token budget.
+/// `>= 1 - eps`, KL `-ln(1 - eps)`); `Fix` carries the far-token budget; `Grp(b, r)` is one page set
+/// of `b` far tokens per KV head, ranked by the group's highest bound and recomputed every `r` positions.
 #[derive(Clone, Copy)]
 enum Arm {
     Dense,
@@ -2844,6 +2845,7 @@ enum Arm {
     Order(f64),
     Cert(f64),
     Fix(usize),
+    Grp(usize, usize),
 }
 
 impl Arm {
@@ -2856,6 +2858,7 @@ impl Arm {
             Arm::Order(e) => format!("a64-order-{:.2}", kl(e)),
             Arm::Cert(e) => format!("a64-cert-{:.2}", kl(e)),
             Arm::Fix(b) => format!("a64-fix{b}"),
+            Arm::Grp(b, r) => format!("grp-fix{b}-r{r}"),
         }
     }
 }
@@ -2891,14 +2894,46 @@ struct TailCtx<'a> {
     mutb: bool,
 }
 
-/// One tail query of one head under arm `arm`: (output, keys read, kept mass, certification broken).
-/// Keys read count a page bound as 2 vectors and a selected page as 64; dense and oracle read `p+1`
-/// and the oracle's kept count respectively. The scores of all `p+1` keys are computed for every arm
-/// to report the kept mass; that scan is the instrument, not the arm's cost.
+/// Quest's bound on `q.k / 8` over far page `b` of KV head `g`; the min-only `q.m` under `mutb`.
+fn page_bound(cx: &TailCtx, qh: &[f32], g: usize, b: usize) -> f64 {
+    let o = (g * cx.npg + b) * HD;
+    let (mnr, mxr) = (&cx.mn[o..o + HD], &cx.mx[o..o + HD]);
+    let mut acc = 0f64;
+    for i in 0..HD {
+        let (a, c) = (
+            f64::from(qh[i]) * f64::from(mnr[i]),
+            f64::from(qh[i]) * f64::from(mxr[i]),
+        );
+        acc += if cx.mutb { a } else { a.max(c) };
+    }
+    acc * 0.125
+}
+
+/// Far pages at position `p`: the 64-key pages between the sinks and the near window.
+fn far_pages(p: usize) -> usize {
+    (p + 1).saturating_sub(TL_W + TL_SINK) / TL_P
+}
+
+/// One tail query of one head: output, keys read by this head (T5/T6 accounting), bound vectors read
+/// by this head, kept mass, certification broken, and the keys used (for the KV head's union).
+struct TailOut {
+    o: Vec<f32>,
+    reads: f64,
+    meta: f64,
+    kept: f64,
+    viol: bool,
+    sel: Vec<bool>,
+}
+
+/// One tail query of one head under arm `arm`. Keys read count a page bound as 2 vectors and a
+/// selected page as 64; dense and oracle read `p+1` and the oracle's kept count respectively. `Grp`
+/// takes the KV head's page set `given`, whose bounds are counted once per KV head by the caller. The
+/// scores of all `p+1` keys are computed for every arm to report the kept mass; that scan is the
+/// instrument, not the arm's cost.
 ///
 /// Complexity: time `O((p+1) HD)` multiply-adds for the scores and values, plus `O(n64 HD)` for the
 /// bounds and an `O((p+1) log(p+1))` sort (oracle) or `O(n64 log n64)` (pages); space `O(p+1)` words.
-fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize) -> (Vec<f32>, f64, f64, bool) {
+fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize, given: &[usize]) -> TailOut {
     let key = |j: usize| -> &[f32] {
         let (src, r) = if j < cx.pre {
             (cx.kp, j)
@@ -2922,9 +2957,11 @@ fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize) -> (Vec<f32
     let m = sc.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let w: Vec<f64> = sc.iter().map(|s| (s - m).exp()).collect();
     let z: f64 = w.iter().sum();
-    let n64 = n.saturating_sub(TL_W + TL_SINK) / TL_P;
+    let n64 = far_pages(p);
     let nb = TL_SINK + n64 * TL_P;
+    let page = |b: usize| TL_SINK + b * TL_P..TL_SINK + (b + 1) * TL_P;
     let mut sel = vec![false; n];
+    let mut meta = 0f64;
     let reads = if let Arm::Dense = arm {
         sel.fill(true);
         n as f64
@@ -2949,25 +2986,18 @@ fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize) -> (Vec<f32
         let nn = TL_SINK + (n - nb);
         if let Arm::Near = arm {
             nn as f64
+        } else if let Arm::Grp(..) = arm {
+            for &b in given {
+                for i in page(b) {
+                    sel[i] = true;
+                }
+            }
+            (nn + TL_P * given.len()) as f64
         } else {
-            let u: Vec<f64> = (0..n64)
-                .map(|b| {
-                    let o = (g * cx.npg + b) * HD;
-                    let (mnr, mxr) = (&cx.mn[o..o + HD], &cx.mx[o..o + HD]);
-                    let mut acc = 0f64;
-                    for i in 0..HD {
-                        let (a, c) = (
-                            f64::from(qh[i]) * f64::from(mnr[i]),
-                            f64::from(qh[i]) * f64::from(mxr[i]),
-                        );
-                        acc += if cx.mutb { a } else { a.max(c) };
-                    }
-                    acc * 0.125
-                })
-                .collect();
+            let u: Vec<f64> = (0..n64).map(|b| page_bound(cx, qh, g, b)).collect();
             let mut ord: Vec<usize> = (0..n64).collect();
             ord.sort_by(|&a, &b| u[b].total_cmp(&u[a]));
-            let page = |b: usize| TL_SINK + b * TL_P..TL_SINK + (b + 1) * TL_P;
+            meta = (2 * n64) as f64;
             let near_w: f64 = (0..TL_SINK).chain(nb..n).map(|j| w[j]).sum();
             let take = match arm {
                 Arm::Order(eps) => {
@@ -2998,7 +3028,7 @@ fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize) -> (Vec<f32
                     j
                 }
                 Arm::Fix(b) => (b / TL_P).min(n64),
-                Arm::Dense | Arm::Oracle(_) | Arm::Near => unreachable!(),
+                Arm::Dense | Arm::Oracle(_) | Arm::Near | Arm::Grp(..) => unreachable!(),
             };
             for &b in &ord[..take] {
                 for i in page(b) {
@@ -3017,13 +3047,67 @@ fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize) -> (Vec<f32
         }
     }
     let kept = zs / z;
-    let viol = matches!(arm, Arm::Cert(eps) if kept < 1.0 - eps - 1e-6);
-    (
-        out.iter().map(|&o| (o / zs) as f32).collect(),
+    TailOut {
+        o: out.iter().map(|&o| (o / zs) as f32).collect(),
         reads,
+        meta,
         kept,
-        viol,
-    )
+        viol: matches!(arm, Arm::Cert(eps) if kept < 1.0 - eps - 1e-6),
+        sel,
+    }
+}
+
+/// `Grp(b, r)` page sets for every tail position `i` and KV head `g`: at `i % r == 0` the far pages
+/// are ranked by the highest Quest bound over the group's query heads (lowest first under `rev`, the
+/// mutation) and the top `b / 64` kept; between refreshes the set is reused, plus every page sealed since.
+/// Returns the sets and the bound vectors read per (position, KV head): `2 n64` at a refresh, else 0.
+///
+/// Complexity: per refresh `O(gs n64 HD)` multiply-adds and an `O(n64 log n64)` sort per KV head;
+/// space `O(nt nkv b/64)` page indices.
+fn group_pages(
+    cx: &TailCtx,
+    q: &[f32],
+    nh: usize,
+    nt: usize,
+    b: usize,
+    r: usize,
+    rev: bool,
+) -> (Vec<Vec<Vec<usize>>>, Vec<Vec<f64>>) {
+    let gs = nh / cx.nkv;
+    let mut sets = vec![vec![Vec::new(); cx.nkv]; nt];
+    let mut meta = vec![vec![0f64; cx.nkv]; nt];
+    for g in 0..cx.nkv {
+        let (mut cur, mut n64r) = (Vec::new(), 0usize);
+        for i in 0..nt {
+            let n64 = far_pages(cx.pre + i);
+            if i % r == 0 {
+                let u: Vec<f64> = (0..n64)
+                    .map(|pg| {
+                        (g * gs..(g + 1) * gs)
+                            .map(|h| {
+                                page_bound(cx, &q[(i * nh + h) * HD..(i * nh + h + 1) * HD], g, pg)
+                            })
+                            .fold(f64::NEG_INFINITY, f64::max)
+                    })
+                    .collect();
+                let mut ord: Vec<usize> = (0..n64).collect();
+                if rev {
+                    ord.sort_by(|&a, &c| u[a].total_cmp(&u[c]));
+                } else {
+                    ord.sort_by(|&a, &c| u[c].total_cmp(&u[a]));
+                }
+                ord.truncate((b / TL_P).min(n64));
+                cur = ord;
+                n64r = n64;
+                meta[i][g] = (2 * n64) as f64;
+            } else {
+                cur.extend(n64r..n64);
+                n64r = n64;
+            }
+            sets[i][g].clone_from(&cur);
+        }
+    }
+    (sets, meta)
 }
 
 /// `KV_TAIL=<dump dir>` (attention-cut T5): whole-model next-token KLD with page selection in the decode tail.
@@ -3042,10 +3126,26 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
     let nth = 16usize;
     let t0 = std::time::Instant::now();
     let mutb = std::env::var("HATTN_MUT").as_deref() == Ok("1");
+    let rev = std::env::var("HATTN_MUT").as_deref() == Ok("2");
     let eps = 1.0 - (-0.05f64).exp();
     let ekl = |kl: f64| 1.0 - (-kl).exp();
     let (arms, tails, nt): (Vec<Arm>, Vec<usize>, usize) =
-        if std::env::var_os("KV_TAIL_SWEEP").is_some() {
+        if std::env::var_os("KV_TAIL_GROUP").is_some() {
+            (
+                vec![
+                    Arm::Dense,
+                    Arm::Fix(1024),
+                    Arm::Fix(2048),
+                    Arm::Grp(1024, 1),
+                    Arm::Grp(2048, 1),
+                    Arm::Grp(1024, 8),
+                    Arm::Grp(2048, 8),
+                    Arm::Oracle(ekl(0.25)),
+                ],
+                vec![4096, 8192, 16384, 32768],
+                64,
+            )
+        } else if std::env::var_os("KV_TAIL_SWEEP").is_some() {
             (
                 vec![
                     Arm::Dense,
@@ -3138,6 +3238,7 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
         }
         let mut xs = vec![emb; na];
         let mut reads: Vec<Vec<f64>> = vec![Vec::new(); na];
+        let mut bytes: Vec<Vec<f64>> = vec![Vec::new(); na];
         let mut hkl: Vec<Vec<f64>> = vec![Vec::new(); na];
         let mut viol = 0usize;
         let mut ctl = 0f64;
@@ -3206,15 +3307,20 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                     mutb,
                 };
                 let arm = arms[a];
-                let res: Vec<Vec<(Vec<f32>, f64, f64, bool)>> = std::thread::scope(|sc| {
+                let (gsets, gmeta) = match arm {
+                    Arm::Grp(b, r) => group_pages(&cx, &q, nh, nt, b, r, rev),
+                    _ => (vec![vec![Vec::new(); nkv]; nt], vec![vec![0f64; nkv]; nt]),
+                };
+                let res: Vec<Vec<TailOut>> = std::thread::scope(|sc| {
                     let hs: Vec<_> = (0..nh)
                         .map(|h| {
-                            let (cx, q) = (&cx, &q);
+                            let (cx, q, gsets) = (&cx, &q, &gsets);
                             sc.spawn(move || {
                                 (0..nt)
                                     .map(|i| {
                                         let qh = &q[(i * nh + h) * HD..(i * nh + h + 1) * HD];
-                                        tail_head(cx, arm, qh, h / (nh / nkv), pre + i)
+                                        let g = h / (nh / nkv);
+                                        tail_head(cx, arm, qh, g, pre + i, &gsets[i][g])
                                     })
                                     .collect()
                             })
@@ -3222,13 +3328,24 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                         .collect();
                     hs.into_iter().map(|j| j.join().unwrap()).collect()
                 });
+                let gs = nh / nkv;
+                for i in 0..nt {
+                    let n = pre + i + 1;
+                    for g in 0..nkv {
+                        let used = (0..n)
+                            .filter(|&j| (g * gs..(g + 1) * gs).any(|h| res[h][i].sel[j]))
+                            .count();
+                        let meta = res[g * gs][i].meta + gmeta[i][g];
+                        bytes[a].push((2 * used) as f64 / (2 * n) as f64 + meta / (2 * n) as f64);
+                    }
+                }
                 let mut att = vec![0f32; nt * nh * HD];
                 for (h, rh) in res.into_iter().enumerate() {
-                    for (i, (o, r, kept, vi)) in rh.into_iter().enumerate() {
-                        att[(i * nh + h) * HD..(i * nh + h + 1) * HD].copy_from_slice(&o);
-                        reads[a].push(r / (pre + i + 1) as f64);
-                        hkl[a].push(-kept.ln());
-                        viol += usize::from(vi);
+                    for (i, to) in rh.into_iter().enumerate() {
+                        att[(i * nh + h) * HD..(i * nh + h + 1) * HD].copy_from_slice(&to.o);
+                        reads[a].push(to.reads / (pre + i + 1) as f64);
+                        hkl[a].push(-to.kept.ln());
+                        viol += usize::from(to.viol);
                     }
                 }
                 let o = gemm(&wo.0, wo.2, wo.1, &att, nt, None, nth);
@@ -3259,7 +3376,13 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
         };
         let argmax = |r: &[f32]| (0..r.len()).max_by(|&a, &b| r[a].total_cmp(&r[b])).unwrap();
         println!("\n== t={t}: dense-tail control max rel-L2 (q,k,v, 24 layers) {ctl:.3e}; certification violations {viol} ==");
-        ok &= ctl <= 1e-4 && viol == 0;
+        let dense_bytes = arms
+            .iter()
+            .zip(&bytes)
+            .filter(|(arm, _)| matches!(arm, Arm::Dense))
+            .all(|(_, b)| b.iter().all(|&x| x == 1.0));
+        println!("dense bytes/dense = 1 at every (KV head, position): {dense_bytes}");
+        ok &= ctl <= 1e-4 && viol == 0 && dense_bytes;
         for a in 0..na {
             let mut kl: Vec<f64> = Vec::new();
             let mut top = 0;
@@ -3299,13 +3422,14 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                 )
             };
             println!(
-                "{:<16} KLD mean {:.4} max {:.4}{shown}; top-1 {top}/{nt}; reads/t mean {:.4} median {:.4} p90 {:.4}; head KL mean {:.4} max {:.4}",
+                "{:<16} KLD mean {:.4} max {:.4}{shown}; top-1 {top}/{nt}; reads/t mean {:.4} median {:.4} p90 {:.4}; bytes/dense mean {:.4}; head KL mean {:.4} max {:.4}",
                 arms[a].name(),
                 kl.iter().sum::<f64>() / kl.len() as f64,
                 kl.iter().copied().fold(0.0, f64::max),
                 r.iter().sum::<f64>() / r.len() as f64,
                 q(&r, 0.5),
                 q(&r, 0.9),
+                bytes[a].iter().sum::<f64>() / bytes[a].len() as f64,
                 hk.iter().sum::<f64>() / hk.len() as f64,
                 hk[hk.len() - 1],
             );

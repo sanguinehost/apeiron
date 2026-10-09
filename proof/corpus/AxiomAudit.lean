@@ -31,6 +31,7 @@ import Perf.HattnT3
 import Perf.HattnT4
 import Perf.HattnT5
 import Perf.HattnT6
+import Perf.HattnT7
 import Perf.Identity
 import Perf.AttnCoop
 import Perf.IdentityFloat
@@ -487,6 +488,16 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnT6.fix1024_fourteen_x
 #audit Perf.HattnT6.bounds_dominate
 #audit Perf.HattnT6.attenuation_weak_at_quarter
+#audit Perf.HattnT7.singles_agree
+#audit Perf.HattnT7.pg1_held
+#audit Perf.HattnT7.pg2_held
+#audit Perf.HattnT7.pg3_refuted
+#audit Perf.HattnT7.pg4_held
+#audit Perf.HattnT7.pg5_held
+#audit Perf.HattnT7.pg6_held
+#audit Perf.HattnT7.gqa_correction
+#audit Perf.HattnT7.grp2048r8_thirteen_x
+#audit Perf.HattnT7.oracle_gap
 
 -- Row: `inf-resident-prefill-GEB633UfORCK7XSmzJifHd` (ATTN-COOP, P18): the SIMT shared-load
 -- dominance, the staging halving rule, the coopmat node comparison and the pp512 gain
