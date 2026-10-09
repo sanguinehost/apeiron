@@ -2634,9 +2634,708 @@ fn qk_energy_report(qke: &[(Vec<f64>, Vec<f64>, Vec<f64>)], nh: usize) {
     }
 }
 
+/// `KV_DUMP=<dir> KV_T=<tokens>`: one contiguous `prose8.txt` prompt (offset 0, so its first `T`
+/// ids are prompt 0's) through the f32 forward; writes per layer the unrotated q, k and v
+/// (`q{l}.bin` `KV_T x n_head x 64`, `k{l}.bin`/`v{l}.bin` `KV_T x n_head_kv x 64`, f32 LE), the
+/// rope table `cs.bin` (`KV_T x 32` (cos, sin) f64 LE) and `ids.bin` (u32 LE). Causal, so a
+/// prefix of length t is the dump at t. The residual entering layer `l` is checkpointed in
+/// `x.bin` / `next.txt`: an invocation stops after the layer that crosses `KV_BUDGET` seconds
+/// (default 420) and exits 3; rerun to continue. Each layer's first `T` rows of q and k are
+/// compared with `QK_REF/q{l}.bin`, `k{l}.bin` (the T=512 dumps) when `QK_REF` is set.
+///
+/// Cost per layer: projections `KV_T (n_embd (n_head + 2 n_head_kv) 64 + n_embd^2 + 3 n_embd n_ff)`
+/// multiply-adds, attention `n_head KV_T (KV_T + 1) 64` (causal, q.k and p.v); memory
+/// `KV_T n_ff` f32 twice (gate, up), the largest buffers.
+#[allow(clippy::too_many_lines)]
+fn run_dump(path: &str, dir: &std::path::Path, tn: usize) -> Result<bool, Box<dyn Error>> {
+    let nth = 16usize;
+    let budget: f64 = std::env::var("KV_BUDGET")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(420.0);
+    let t0 = std::time::Instant::now();
+    let eng = Engine::open(path)?;
+    let cfg = &eng.config;
+    let (nl, nh, nkv, d) = (cfg.n_layer, cfg.n_head, cfg.n_head_kv, cfg.n_embd);
+    assert_eq!(cfg.head_dim, HD);
+    assert_eq!(tn % ACH, 0, "KV_T must be a multiple of {ACH}");
+    let bpe = Bpe::from_tokenizer_json(TOKENIZER)?;
+    let raw = std::fs::read(PROSE)?;
+    let text = String::from_utf8_lossy(&raw[..(tn * 8).min(raw.len())]).into_owned();
+    let mut ids = bpe.encode(&text)?;
+    if ids.len() < tn {
+        return Err(format!("dump prompt: {} tokens < {tn}", ids.len()).into());
+    }
+    ids.truncate(tn);
+    let p0 = prompts(&bpe)?.swap_remove(0);
+    let bytes: Vec<u8> = ids.iter().flat_map(|x| x.to_le_bytes()).collect();
+    let hex: String = apeiron::sha256::sha256(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    println!(
+        "dump: {tn} tokens from {PROSE}[0..], ids sha256 {hex}; first {T} ids equal prompt 0: {}",
+        ids[..T] == p0[..]
+    );
+    let le = |v: &[f32]| v.iter().flat_map(|f| f.to_le_bytes()).collect::<Vec<u8>>();
+    let half = HD / 2;
+    let rope = eng.rope_table().map_err(|e| format!("{e:?}"))?;
+    let mut cs = vec![(0f64, 0f64); tn * half];
+    for p in 0..tn {
+        let mut x = vec![0i64; HD];
+        for xj in x.iter_mut().take(half) {
+            *xj = ONE as i64;
+        }
+        rope.rotate_one(&mut x, p as u32)
+            .map_err(|e| format!("rope position {p}: {e:?}"))?;
+        for j in 0..half {
+            cs[p * half + j] = (x[j] as f64 / ONE, x[j + half] as f64 / ONE);
+        }
+    }
+    let rot = |x: &mut [f32], heads: usize, p: usize| {
+        for hh in 0..heads {
+            let b = hh * HD;
+            for j in 0..half {
+                let (c, s) = cs[p * half + j];
+                let (x0, x1) = (f64::from(x[b + j]), f64::from(x[b + j + half]));
+                x[b + j] = (x0 * c - x1 * s) as f32;
+                x[b + j + half] = (x1 * c + x0 * s) as f32;
+            }
+        }
+    };
+    let next_path = dir.join("next.txt");
+    let start: usize = match std::fs::read_to_string(&next_path) {
+        Ok(s) => s.trim().parse()?,
+        Err(_) => 0,
+    };
+    let mut x: Vec<f32> = if start == 0 {
+        std::fs::write(dir.join("ids.bin"), &bytes)?;
+        let c: Vec<u8> = cs
+            .iter()
+            .flat_map(|&(c, s)| [c, s])
+            .flat_map(f64::to_le_bytes)
+            .collect();
+        std::fs::write(dir.join("cs.bin"), c)?;
+        let mut x = Vec::with_capacity(tn * d);
+        for &id in &ids {
+            x.extend(q32_vec(&eng.token_embedding(id)?));
+        }
+        x
+    } else {
+        let b = std::fs::read(dir.join("x.bin"))?;
+        assert_eq!(b.len(), tn * d * 4, "x.bin size");
+        b.chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect()
+    };
+    println!("resume at layer {start} of {nl}");
+    let qref = std::env::var_os("QK_REF").map(std::path::PathBuf::from);
+    let vecs = eng.decode_vectors();
+    let eps = cfg.rms_eps;
+    for l in start..nl {
+        let tl = std::time::Instant::now();
+        let g1 = q32_vec(
+            vecs.norms_of(l)
+                .and_then(|n| n[0].as_deref())
+                .ok_or("attn_norm")?,
+        );
+        let g2 = q32_vec(
+            vecs.norms_of(l)
+                .and_then(|n| n[1].as_deref())
+                .ok_or("ffn_norm")?,
+        );
+        let bias = |i: usize| vecs.biases_of(l).and_then(|b| b[i].as_deref()).map(q32_vec);
+        let (bq, bkk, bv) = (bias(0), bias(1), bias(2));
+        let xn = rmsnorm(&x, &g1, eps, d);
+        let (wq, ni, no) = weight(&eng, &format!("blk.{l}.attn_q.weight"))?;
+        let mut q = gemm(&wq, no, ni, &xn, tn, bq.as_deref(), nth);
+        drop(wq);
+        let (wkm, ni, no) = weight(&eng, &format!("blk.{l}.attn_k.weight"))?;
+        let mut k = gemm(&wkm, no, ni, &xn, tn, bkk.as_deref(), nth);
+        drop(wkm);
+        let (wvm, ni, no) = weight(&eng, &format!("blk.{l}.attn_v.weight"))?;
+        let v = gemm(&wvm, no, ni, &xn, tn, bv.as_deref(), nth);
+        drop(wvm);
+        drop(xn);
+        std::fs::write(dir.join(format!("q{l}.bin")), le(&q))?;
+        std::fs::write(dir.join(format!("k{l}.bin")), le(&k))?;
+        std::fs::write(dir.join(format!("v{l}.bin")), le(&v))?;
+        if let Some(r) = &qref {
+            let rd = |n: &str| -> Result<Vec<f64>, Box<dyn Error>> {
+                Ok(std::fs::read(r.join(n))?
+                    .chunks_exact(4)
+                    .map(|c| f64::from(f32::from_le_bytes([c[0], c[1], c[2], c[3]])))
+                    .collect())
+            };
+            let (eq, _) = rel_l2(&q[..T * nh * HD], &rd(&format!("q{l}.bin"))?);
+            let (ek, _) = rel_l2(&k[..T * nkv * HD], &rd(&format!("k{l}.bin"))?);
+            println!("layer {l}: first {T} rows vs QK_REF rel-L2 q {eq:.3e} k {ek:.3e}");
+        }
+        for pp in 0..tn {
+            rot(&mut q[pp * nh * HD..(pp + 1) * nh * HD], nh, pp);
+            rot(&mut k[pp * nkv * HD..(pp + 1) * nkv * HD], nkv, pp);
+        }
+        let tp = tl.elapsed().as_secs_f64();
+        let att = attend_all(&q, &k, &v, tn, nh, nkv, nth);
+        drop((q, k, v));
+        let ta = tl.elapsed().as_secs_f64();
+        let (wo, ni, no) = weight(&eng, &format!("blk.{l}.attn_output.weight"))?;
+        let o = gemm(&wo, no, ni, &att, tn, None, nth);
+        drop((wo, att));
+        for (xi, oi) in x.iter_mut().zip(&o) {
+            *xi += oi;
+        }
+        drop(o);
+        let xn2 = rmsnorm(&x, &g2, eps, d);
+        let (wg, ni, no) = weight(&eng, &format!("blk.{l}.ffn_gate.weight"))?;
+        let mut gate = gemm(&wg, no, ni, &xn2, tn, None, nth);
+        drop(wg);
+        let (wu, ni, no) = weight(&eng, &format!("blk.{l}.ffn_up.weight"))?;
+        let up = gemm(&wu, no, ni, &xn2, tn, None, nth);
+        drop((wu, xn2));
+        let per = gate.len().div_ceil(nth);
+        std::thread::scope(|sc| {
+            for (gc, uc) in gate.chunks_mut(per).zip(up.chunks(per)) {
+                sc.spawn(move || {
+                    for (gi, ui) in gc.iter_mut().zip(uc) {
+                        let gv = f64::from(*gi);
+                        *gi = (gv / (1.0 + (-gv).exp()) * f64::from(*ui)) as f32;
+                    }
+                });
+            }
+        });
+        drop(up);
+        let (wd, ni, no) = weight(&eng, &format!("blk.{l}.ffn_down.weight"))?;
+        let dn = gemm(&wd, no, ni, &gate, tn, None, nth);
+        drop((wd, gate));
+        for (xi, di) in x.iter_mut().zip(&dn) {
+            *xi += di;
+        }
+        let tmp = dir.join("x.bin.tmp");
+        std::fs::write(&tmp, le(&x))?;
+        std::fs::rename(&tmp, dir.join("x.bin"))?;
+        std::fs::write(&next_path, format!("{}\n", l + 1))?;
+        println!(
+            "layer {l}: qkv {tp:.1}s attention {:.1}s rest {:.1}s; total {:.0}s",
+            ta - tp,
+            tl.elapsed().as_secs_f64() - ta,
+            t0.elapsed().as_secs_f64()
+        );
+        if l + 1 < nl && t0.elapsed().as_secs_f64() > budget {
+            println!("budget {budget}s reached after layer {l}; rerun to continue");
+            std::process::exit(3);
+        }
+    }
+    println!("dump complete: {nl} layers");
+    Ok(true)
+}
+
+const TL_SINK: usize = 4;
+const TL_W: usize = 256;
+const TL_P: usize = 64;
+
+/// A decode-tail selection arm. `f64` fields are the per-head mass tolerance `eps` (kept mass
+/// `>= 1 - eps`, KL `-ln(1 - eps)`); `Fix` carries the far-token budget.
+#[derive(Clone, Copy)]
+enum Arm {
+    Dense,
+    Oracle(f64),
+    Near,
+    Order(f64),
+    Cert(f64),
+    Fix(usize),
+}
+
+impl Arm {
+    fn name(self) -> String {
+        let kl = |e: f64| -(1.0 - e).ln();
+        match self {
+            Arm::Dense => "dense".into(),
+            Arm::Oracle(e) => format!("oracle-{:.2}", kl(e)),
+            Arm::Near => "near".into(),
+            Arm::Order(e) => format!("a64-order-{:.2}", kl(e)),
+            Arm::Cert(e) => format!("a64-cert-{:.2}", kl(e)),
+            Arm::Fix(b) => format!("a64-fix{b}"),
+        }
+    }
+}
+
+fn rows_f32(
+    p: &std::path::Path,
+    width: usize,
+    r0: usize,
+    r1: usize,
+) -> Result<Vec<f32>, Box<dyn Error>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(p)?;
+    f.seek(SeekFrom::Start((r0 * width * 4) as u64))?;
+    let mut b = vec![0u8; (r1 - r0) * width * 4];
+    f.read_exact(&mut b)?;
+    Ok(b.chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect())
+}
+
+/// One layer's keys for the tail queries: the dump's rotated prefix rows `[0, pre)`, the arm's own
+/// rotated tail rows, and Quest's element-wise page (min, max) over 64-key pages from `TL_SINK`.
+struct TailCtx<'a> {
+    pre: usize,
+    nkv: usize,
+    kp: &'a [f32],
+    vp: &'a [f32],
+    kt: &'a [f32],
+    vt: &'a [f32],
+    npg: usize,
+    mn: &'a [f32],
+    mx: &'a [f32],
+    mutb: bool,
+}
+
+/// One tail query of one head under arm `arm`: (output, keys read, kept mass, certification broken).
+/// Keys read count a page bound as 2 vectors and a selected page as 64; dense and oracle read `p+1`
+/// and the oracle's kept count respectively. The scores of all `p+1` keys are computed for every arm
+/// to report the kept mass; that scan is the instrument, not the arm's cost.
+///
+/// Complexity: time `O((p+1) HD)` multiply-adds for the scores and values, plus `O(n64 HD)` for the
+/// bounds and an `O((p+1) log(p+1))` sort (oracle) or `O(n64 log n64)` (pages); space `O(p+1)` words.
+fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize) -> (Vec<f32>, f64, f64, bool) {
+    let key = |j: usize| -> &[f32] {
+        let (src, r) = if j < cx.pre {
+            (cx.kp, j)
+        } else {
+            (cx.kt, j - cx.pre)
+        };
+        &src[(r * cx.nkv + g) * HD..(r * cx.nkv + g + 1) * HD]
+    };
+    let val = |j: usize| -> &[f32] {
+        let (src, r) = if j < cx.pre {
+            (cx.vp, j)
+        } else {
+            (cx.vt, j - cx.pre)
+        };
+        &src[(r * cx.nkv + g) * HD..(r * cx.nkv + g + 1) * HD]
+    };
+    let n = p + 1;
+    let sc: Vec<f64> = (0..n)
+        .map(|j| f64::from(dot32(qh, key(j))) * 0.125)
+        .collect();
+    let m = sc.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let w: Vec<f64> = sc.iter().map(|s| (s - m).exp()).collect();
+    let z: f64 = w.iter().sum();
+    let n64 = n.saturating_sub(TL_W + TL_SINK) / TL_P;
+    let nb = TL_SINK + n64 * TL_P;
+    let mut sel = vec![false; n];
+    let reads = if let Arm::Dense = arm {
+        sel.fill(true);
+        n as f64
+    } else if let Arm::Oracle(eps) = arm {
+        let mut ord: Vec<usize> = (0..n).collect();
+        ord.sort_by(|&a, &b| w[b].total_cmp(&w[a]));
+        let mut acc = 0.0;
+        let mut c = 0;
+        while c < n && acc < (1.0 - eps) * z {
+            acc += w[ord[c]];
+            sel[ord[c]] = true;
+            c += 1;
+        }
+        c as f64
+    } else {
+        for s in sel.iter_mut().take(TL_SINK) {
+            *s = true;
+        }
+        for s in &mut sel[nb..] {
+            *s = true;
+        }
+        let nn = TL_SINK + (n - nb);
+        if let Arm::Near = arm {
+            nn as f64
+        } else {
+            let u: Vec<f64> = (0..n64)
+                .map(|b| {
+                    let o = (g * cx.npg + b) * HD;
+                    let (mnr, mxr) = (&cx.mn[o..o + HD], &cx.mx[o..o + HD]);
+                    let mut acc = 0f64;
+                    for i in 0..HD {
+                        let (a, c) = (
+                            f64::from(qh[i]) * f64::from(mnr[i]),
+                            f64::from(qh[i]) * f64::from(mxr[i]),
+                        );
+                        acc += if cx.mutb { a } else { a.max(c) };
+                    }
+                    acc * 0.125
+                })
+                .collect();
+            let mut ord: Vec<usize> = (0..n64).collect();
+            ord.sort_by(|&a, &b| u[b].total_cmp(&u[a]));
+            let page = |b: usize| TL_SINK + b * TL_P..TL_SINK + (b + 1) * TL_P;
+            let near_w: f64 = (0..TL_SINK).chain(nb..n).map(|j| w[j]).sum();
+            let take = match arm {
+                Arm::Order(eps) => {
+                    let mut kept = near_w;
+                    let mut j = 0;
+                    while j < n64 && kept < (1.0 - eps) * z {
+                        kept += page(ord[j]).map(|i| w[i]).sum::<f64>();
+                        j += 1;
+                    }
+                    j
+                }
+                Arm::Cert(eps) => {
+                    let c = (0..TL_SINK)
+                        .chain(nb..n)
+                        .map(|j| sc[j])
+                        .chain(u.iter().copied())
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    let mut zr: f64 = (0..TL_SINK).chain(nb..n).map(|j| (sc[j] - c).exp()).sum();
+                    let mut suf = vec![0f64; n64 + 1];
+                    for j in (0..n64).rev() {
+                        suf[j] = suf[j + 1] + TL_P as f64 * (u[ord[j]] - c).exp();
+                    }
+                    let mut j = 0;
+                    while j < n64 && suf[j] > zr * eps / (1.0 - eps) {
+                        zr += page(ord[j]).map(|i| (sc[i] - c).exp()).sum::<f64>();
+                        j += 1;
+                    }
+                    j
+                }
+                Arm::Fix(b) => (b / TL_P).min(n64),
+                Arm::Dense | Arm::Oracle(_) | Arm::Near => unreachable!(),
+            };
+            for &b in &ord[..take] {
+                for i in page(b) {
+                    sel[i] = true;
+                }
+            }
+            (nn + 2 * n64 + TL_P * take) as f64
+        }
+    };
+    let mut out = vec![0f64; HD];
+    let mut zs = 0f64;
+    for j in (0..n).filter(|&j| sel[j]) {
+        zs += w[j];
+        for (o, &vv) in out.iter_mut().zip(val(j)) {
+            *o += w[j] * f64::from(vv);
+        }
+    }
+    let kept = zs / z;
+    let viol = matches!(arm, Arm::Cert(eps) if kept < 1.0 - eps - 1e-6);
+    (
+        out.iter().map(|&o| (o / zs) as f32).collect(),
+        reads,
+        kept,
+        viol,
+    )
+}
+
+/// `KV_TAIL=<dump dir>` (attention-cut T5): whole-model next-token KLD with page selection in the decode tail.
+/// The `KV_DUMP` directory at `KV_T=32768` is the dense prefill cache. For `t` in {8192, 32768} the
+/// last 8 positions are recomputed from token embeddings through all layers once per arm; each tail
+/// query attends to the dump's prefix keys `[0, t-8)` and the arm's own tail keys. Control: the dense
+/// arm's unrotated tail q, k, v must equal the dump's rows (max rel-L2 <= 1e-4), and the certified arm
+/// must keep mass >= 1-eps in every head; either failure exits 1. `HATTN_MUT=1` replaces Quest's bound
+/// by the min-only `q.m`, which is not a bound, and must break the certification.
+///
+/// Cost per `t`: `6 arms x 8 positions x` one layer stack of projections, plus attention
+/// `6 x 24 x 8 x n_head x t x 64` multiply-adds twice (scores, values); memory: one layer's prefix k, v
+/// (`t x n_head_kv x 64` f32 each) and the dequantised LM head (`n_embd x vocab` f32).
+#[allow(clippy::too_many_lines)]
+fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
+    let nth = 16usize;
+    let t0 = std::time::Instant::now();
+    let mutb = std::env::var("HATTN_MUT").as_deref() == Ok("1");
+    let eps = 1.0 - (-0.05f64).exp();
+    let ekl = |kl: f64| 1.0 - (-kl).exp();
+    let (arms, tails, nt): (Vec<Arm>, Vec<usize>, usize) =
+        if std::env::var_os("KV_TAIL_SWEEP").is_some() {
+            (
+                vec![
+                    Arm::Dense,
+                    Arm::Near,
+                    Arm::Fix(256),
+                    Arm::Fix(512),
+                    Arm::Fix(1024),
+                    Arm::Fix(2048),
+                    Arm::Oracle(ekl(0.25)),
+                    Arm::Oracle(ekl(1.0)),
+                    Arm::Order(ekl(1.0)),
+                ],
+                vec![4096, 8192, 16384, 32768],
+                64,
+            )
+        } else {
+            (
+                vec![
+                    Arm::Dense,
+                    Arm::Oracle(eps),
+                    Arm::Near,
+                    Arm::Order(eps),
+                    Arm::Cert(eps),
+                    Arm::Fix(2048),
+                ],
+                vec![8192, 32768],
+                8,
+            )
+        };
+    assert!(
+        nt <= TL_W,
+        "tail longer than the window: far pages would hold tail keys"
+    );
+    let eng = Engine::open(path)?;
+    let cfg = &eng.config;
+    let (nl, nh, nkv, d) = (cfg.n_layer, cfg.n_head, cfg.n_head_kv, cfg.n_embd);
+    assert_eq!(cfg.head_dim, HD);
+    let half = HD / 2;
+    let ids: Vec<u32> = std::fs::read(dir.join("ids.bin"))?
+        .chunks_exact(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    let cs: Vec<(f64, f64)> = std::fs::read(dir.join("cs.bin"))?
+        .chunks_exact(16)
+        .map(|c| {
+            let f = |o: usize| f64::from_le_bytes(c[o..o + 8].try_into().unwrap());
+            (f(0), f(8))
+        })
+        .collect();
+    let tn = ids.len();
+    assert_eq!(cs.len(), tn * half);
+    let rot = |x: &mut [f32], heads: usize, p: usize| {
+        for hh in 0..heads {
+            let b = hh * HD;
+            for j in 0..half {
+                let (c, s) = cs[p * half + j];
+                let (x0, x1) = (f64::from(x[b + j]), f64::from(x[b + j + half]));
+                x[b + j] = (x0 * c - x1 * s) as f32;
+                x[b + j + half] = (x1 * c + x0 * s) as f32;
+            }
+        }
+    };
+    let rel = |a: &[f32], b: &[f32]| {
+        let (mut num, mut den) = (0f64, 0f64);
+        for (&x, &y) in a.iter().zip(b) {
+            num += (f64::from(x) - f64::from(y)).powi(2);
+            den += f64::from(y).powi(2);
+        }
+        (num / den).sqrt()
+    };
+    let vecs = eng.decode_vectors();
+    let reps = cfg.rms_eps;
+    let gout = q32_vec(vecs.output_norm.as_deref().ok_or("output_norm")?);
+    let lm_name = eng.lm_head().name.clone();
+    let (wlm, lni, lno) = weight(&eng, &lm_name)?;
+    println!(
+        "tail: {tn}-token dump {}, LM head {lm_name} {lni}x{lno}; eps {eps:.5}; HATTN_MUT {mutb}",
+        dir.display()
+    );
+    let na = arms.len();
+    let mut ok = true;
+    for &t in &tails {
+        if t > tn {
+            return Err(format!("dump has {tn} tokens < {t}").into());
+        }
+        let pre = t - nt;
+        let mut emb = Vec::with_capacity(nt * d);
+        for &id in &ids[pre..t] {
+            emb.extend(q32_vec(&eng.token_embedding(id)?));
+        }
+        let mut xs = vec![emb; na];
+        let mut reads: Vec<Vec<f64>> = vec![Vec::new(); na];
+        let mut hkl: Vec<Vec<f64>> = vec![Vec::new(); na];
+        let mut viol = 0usize;
+        let mut ctl = 0f64;
+        for l in 0..nl {
+            let g1 = q32_vec(
+                vecs.norms_of(l)
+                    .and_then(|n| n[0].as_deref())
+                    .ok_or("attn_norm")?,
+            );
+            let g2 = q32_vec(
+                vecs.norms_of(l)
+                    .and_then(|n| n[1].as_deref())
+                    .ok_or("ffn_norm")?,
+            );
+            let bias = |i: usize| vecs.biases_of(l).and_then(|b| b[i].as_deref()).map(q32_vec);
+            let (bq, bkk, bv) = (bias(0), bias(1), bias(2));
+            let w = |s: &str| weight(&eng, &format!("blk.{l}.{s}.weight"));
+            let (wq, wk, wv, wo) = (w("attn_q")?, w("attn_k")?, w("attn_v")?, w("attn_output")?);
+            let (wg, wu, wd) = (w("ffn_gate")?, w("ffn_up")?, w("ffn_down")?);
+            let kvw = nkv * HD;
+            let mut kp = rows_f32(&dir.join(format!("k{l}.bin")), kvw, 0, pre)?;
+            for j in 0..pre {
+                rot(&mut kp[j * kvw..(j + 1) * kvw], nkv, j);
+            }
+            let vp = rows_f32(&dir.join(format!("v{l}.bin")), kvw, 0, pre)?;
+            let dq = rows_f32(&dir.join(format!("q{l}.bin")), nh * HD, pre, t)?;
+            let dk = rows_f32(&dir.join(format!("k{l}.bin")), kvw, pre, t)?;
+            let dv = rows_f32(&dir.join(format!("v{l}.bin")), kvw, pre, t)?;
+            let npg = (t - TL_W - TL_SINK) / TL_P;
+            let mut mn = vec![f32::INFINITY; nkv * npg * HD];
+            let mut mx = vec![f32::NEG_INFINITY; nkv * npg * HD];
+            for g in 0..nkv {
+                for b in 0..npg {
+                    let o = (g * npg + b) * HD;
+                    for j in TL_SINK + b * TL_P..TL_SINK + (b + 1) * TL_P {
+                        let kr = &kp[(j * nkv + g) * HD..(j * nkv + g + 1) * HD];
+                        for i in 0..HD {
+                            mn[o + i] = mn[o + i].min(kr[i]);
+                            mx[o + i] = mx[o + i].max(kr[i]);
+                        }
+                    }
+                }
+            }
+            for (a, x) in xs.iter_mut().enumerate() {
+                let xn = rmsnorm(x, &g1, reps, d);
+                let mut q = gemm(&wq.0, wq.2, wq.1, &xn, nt, bq.as_deref(), nth);
+                let mut k = gemm(&wk.0, wk.2, wk.1, &xn, nt, bkk.as_deref(), nth);
+                let v = gemm(&wv.0, wv.2, wv.1, &xn, nt, bv.as_deref(), nth);
+                if a == 0 {
+                    ctl = ctl.max(rel(&q, &dq)).max(rel(&k, &dk)).max(rel(&v, &dv));
+                }
+                for i in 0..nt {
+                    rot(&mut q[i * nh * HD..(i + 1) * nh * HD], nh, pre + i);
+                    rot(&mut k[i * kvw..(i + 1) * kvw], nkv, pre + i);
+                }
+                let cx = TailCtx {
+                    pre,
+                    nkv,
+                    kp: &kp,
+                    vp: &vp,
+                    kt: &k,
+                    vt: &v,
+                    npg,
+                    mn: &mn,
+                    mx: &mx,
+                    mutb,
+                };
+                let arm = arms[a];
+                let res: Vec<Vec<(Vec<f32>, f64, f64, bool)>> = std::thread::scope(|sc| {
+                    let hs: Vec<_> = (0..nh)
+                        .map(|h| {
+                            let (cx, q) = (&cx, &q);
+                            sc.spawn(move || {
+                                (0..nt)
+                                    .map(|i| {
+                                        let qh = &q[(i * nh + h) * HD..(i * nh + h + 1) * HD];
+                                        tail_head(cx, arm, qh, h / (nh / nkv), pre + i)
+                                    })
+                                    .collect()
+                            })
+                        })
+                        .collect();
+                    hs.into_iter().map(|j| j.join().unwrap()).collect()
+                });
+                let mut att = vec![0f32; nt * nh * HD];
+                for (h, rh) in res.into_iter().enumerate() {
+                    for (i, (o, r, kept, vi)) in rh.into_iter().enumerate() {
+                        att[(i * nh + h) * HD..(i * nh + h + 1) * HD].copy_from_slice(&o);
+                        reads[a].push(r / (pre + i + 1) as f64);
+                        hkl[a].push(-kept.ln());
+                        viol += usize::from(vi);
+                    }
+                }
+                let o = gemm(&wo.0, wo.2, wo.1, &att, nt, None, nth);
+                for (xi, oi) in x.iter_mut().zip(&o) {
+                    *xi += oi;
+                }
+                let xn2 = rmsnorm(x, &g2, reps, d);
+                let mut gate = gemm(&wg.0, wg.2, wg.1, &xn2, nt, None, nth);
+                let up = gemm(&wu.0, wu.2, wu.1, &xn2, nt, None, nth);
+                for (gi, ui) in gate.iter_mut().zip(&up) {
+                    let gv = f64::from(*gi);
+                    *gi = (gv / (1.0 + (-gv).exp()) * f64::from(*ui)) as f32;
+                }
+                let dn = gemm(&wd.0, wd.2, wd.1, &gate, nt, None, nth);
+                for (xi, di) in x.iter_mut().zip(&dn) {
+                    *xi += di;
+                }
+            }
+        }
+        let xa: Vec<f32> = xs.iter().flat_map(|x| rmsnorm(x, &gout, reps, d)).collect();
+        let logits = gemm(&wlm, lno, lni, &xa, na * nt, None, nth);
+        let lsm = |r: &[f32]| {
+            let m = r.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let lz = r.iter().map(|&v| f64::from(v - m).exp()).sum::<f64>().ln();
+            r.iter()
+                .map(|&v| f64::from(v - m) - lz)
+                .collect::<Vec<f64>>()
+        };
+        let argmax = |r: &[f32]| (0..r.len()).max_by(|&a, &b| r[a].total_cmp(&r[b])).unwrap();
+        println!("\n== t={t}: dense-tail control max rel-L2 (q,k,v, 24 layers) {ctl:.3e}; certification violations {viol} ==");
+        ok &= ctl <= 1e-4 && viol == 0;
+        for a in 0..na {
+            let mut kl: Vec<f64> = Vec::new();
+            let mut top = 0;
+            for i in 0..nt {
+                let rd = &logits[i * lno..(i + 1) * lno];
+                let ra = &logits[(a * nt + i) * lno..(a * nt + i + 1) * lno];
+                let (pd, pa) = (lsm(rd), lsm(ra));
+                kl.push(
+                    pd.iter()
+                        .zip(&pa)
+                        .map(|(&x, &y)| x.exp() * (x - y))
+                        .sum::<f64>(),
+                );
+                top += usize::from(argmax(rd) == argmax(ra));
+            }
+            let mut r = reads[a].clone();
+            r.sort_by(f64::total_cmp);
+            let mut hk = hkl[a].clone();
+            hk.sort_by(f64::total_cmp);
+            let q = |v: &[f64], f: f64| v[((v.len() - 1) as f64 * f) as usize];
+            let shown = if nt <= 8 {
+                format!(
+                    " [{}]",
+                    kl.iter()
+                        .map(|v| format!("{v:.3}"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
+            } else {
+                let mut ks = kl.clone();
+                ks.sort_by(f64::total_cmp);
+                format!(
+                    " median {:.4} p90 {:.4}; > 0.05 at {}",
+                    q(&ks, 0.5),
+                    q(&ks, 0.9),
+                    ks.iter().filter(|&&v| v > 0.05).count()
+                )
+            };
+            println!(
+                "{:<16} KLD mean {:.4} max {:.4}{shown}; top-1 {top}/{nt}; reads/t mean {:.4} median {:.4} p90 {:.4}; head KL mean {:.4} max {:.4}",
+                arms[a].name(),
+                kl.iter().sum::<f64>() / kl.len() as f64,
+                kl.iter().copied().fold(0.0, f64::max),
+                r.iter().sum::<f64>() / r.len() as f64,
+                q(&r, 0.5),
+                q(&r, 0.9),
+                hk.iter().sum::<f64>() / hk.len() as f64,
+                hk[hk.len() - 1],
+            );
+        }
+        println!("elapsed {:.0}s", t0.elapsed().as_secs_f64());
+    }
+    println!("{}", if ok { "TAIL PASS" } else { "TAIL FAIL" });
+    Ok(ok)
+}
+
 fn main() -> std::process::ExitCode {
     let path = std::env::args().nth(1).unwrap_or_else(|| MODEL.to_string());
-    match run(&path) {
+    if let Some(dir) = std::env::var_os("KV_TAIL") {
+        return match run_tail(&path, std::path::Path::new(&dir)) {
+            Ok(true) => std::process::ExitCode::SUCCESS,
+            Ok(false) => std::process::ExitCode::FAILURE,
+            Err(e) => {
+                eprintln!("attn_cut_probe: {e}");
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    let res = match (std::env::var_os("KV_DUMP"), std::env::var("KV_T")) {
+        (Some(dir), Ok(tn)) => match tn.parse() {
+            Ok(tn) => run_dump(&path, std::path::Path::new(&dir), tn),
+            Err(e) => Err(format!("KV_T: {e}").into()),
+        },
+        _ => run(&path),
+    };
+    match res {
         Ok(true) => std::process::ExitCode::SUCCESS,
         Ok(false) => std::process::ExitCode::FAILURE,
         Err(e) => {
