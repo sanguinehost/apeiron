@@ -13,7 +13,7 @@ pub mod imatrix;
 /// [`crate::format::quant::dequant_q4_k_block`] reads unchanged.
 pub mod seal;
 
-/// Kneser–Ney byte count language model over the vendored counting face [`crate::freq::FreqMap`].
+/// Kneser–Ney byte count language model over the ported counting face [`crate::freq::FreqMap`].
 pub mod countlm;
 
 /// Forward-only finetuning adapter over token contexts via Kneser–Ney count refinement.

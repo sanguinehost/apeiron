@@ -1,7 +1,7 @@
 //! Kneser–Ney byte count language model (`CountLM`).
 //!
 //! Subsumed from `../fold/modelfold/src/countlm.rs` @ `d497161f` and `../spinor-ttl/src/spinor_ttl/countlm.py` @ `a05bb1b`.
-//! Count storage is the vendored counting face [`FreqMap`], keyed by an **injective** `u64` word:
+//! Count storage is the ported counting face [`FreqMap`], keyed by an **injective** `u64` word:
 //! `(order, packed-context, label)` is packed into disjoint bit fields ([`pack_key`]) so no two
 //! distinct n-gram keys share a coordinate. A structured tuple key would instead be addressed by the
 //! lossy tuple `Coord` fold (`src/hashtrinity/algebra.rs:465-476`), which merges distinct keys on a

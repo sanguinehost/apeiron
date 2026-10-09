@@ -5,21 +5,6 @@
 //! Not a wrapper over `std::HashMap`. One flat power-of-two array, one insert, and four merge
 //! functions that pick what kind of table you get. No random seed, so the layout is deterministic.
 //!
-//! ## Feature flags
-//!
-//! As a *module* of apeiron these names resolve against apeiron's own feature table, so the
-//! upstream feature names are renamed with an `ht-` prefix; they are declared as expected cfg
-//! values in `Cargo.toml`, not as features, because as features `--all-features` would switch the
-//! whole vendored surface on. Only the retained `codec` module (with its `compress`/`syntax`
-//! submodules and its `hex` syntax bridge) still carries such a gate; the table below documents
-//! upstream's names.
-//!
-//! | Feature | Deps | What it adds |
-//! |---------|------|-------------|
-//! | `codec` | — | Zero-copy wire format ([`codec::web`]), universal Term, integer column codec |
-//! | `compress` | — | Context-mixing entropy coder ([`codec::cm`]) — subsumes gzip -9 |
-//! | `syntax` | — | Collapsed syntax AST ([`codec::syntax`]) — JSON/BAML/CSV/TOON/POML/YAML surfaces |
-//!
 //! # One structure, four merges
 //!
 //! [`Table::insert_with`] is the only mutator: it merges the new value with whatever was already
@@ -100,7 +85,7 @@
 // ---------------------------------------------------------------------------
 // Host-policy allowance (apeiron). Upstream's own `#![allow]` list is below and is left byte-
 // identical to rev `4cc14471`; this block is separate because these five entries exist only to
-// reconcile the vendored tree with *apeiron's* crate-level policy, which upstream never saw.
+// reconcile the ported tree with *apeiron's* crate-level policy, which upstream never saw.
 //
 // `clippy::pedantic` + `clippy::style` — apeiron raises pedantic crate-wide through
 // `[lints.clippy]` in `Cargo.toml`, so it reaches this tree too; `style` is on by default in every
@@ -119,7 +104,7 @@
 // `src/hashtrinity/`.
 // `clippy::allow_attributes_without_reason` — apeiron requires a reason on every `#[allow]`. The 19
 // bare `#[allow]`s here are upstream's, in files this task does not edit; requiring a reason would
-// mean editing vendored source, so the lint is silenced for the subtree instead.
+// mean editing ported upstream source, so the lint is silenced for the subtree instead.
 // ---------------------------------------------------------------------------
 #![allow(
     clippy::pedantic,
@@ -155,12 +140,6 @@
 )]
 
 use std::mem::MaybeUninit;
-
-// codec is a secondary, non-default feature (the folded-in cerealize surface); its own doc pass is
-// deferred, so the crate-wide missing_docs lint is relaxed for it rather than warn on internals.
-#[cfg(feature = "ht-codec")]
-#[allow(missing_docs)]
-pub mod codec;
 
 /// The `hex` masquerade — encode/decode hex strings, the same public API as the real crate.
 /// Zero dependencies; see the module doc for what's ported.
