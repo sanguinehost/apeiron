@@ -30,6 +30,7 @@ import Perf.AttnCoop
 import Perf.IdentityFloat
 import Perf.Overlap
 import Learn.GramExact
+import Numeric.SigmaDeltaRefinement
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -454,3 +455,13 @@ import Learn.GramExact
 #audit apeiron_gram.gram_fold_i8_refusal
 #audit apeiron_gram.gram_fold_i8_entry
 #audit apeiron_gram.gram_fold_i8_stack
+
+-- Row: `ONEBIT-W8`: the extracted checked-`i64` sigma-delta body `sigma_delta.sd_binary_block`
+-- refines `Numeric.SigmaDelta.sdState`/`sdSign` (`Numeric/SigmaDeltaRefinement.lean`).
+#audit apeiron_word.sd_step_spec
+#audit apeiron_word.sd_loop_spec
+#audit apeiron_word.sd_binary_block_shape
+#audit apeiron_word.sd_binary_block_spec
+#audit apeiron_word.sd_binary_block_witness_some
+#audit apeiron_word.sd_binary_block_witness_none
+#audit apeiron_word.sd_binary_block_witness

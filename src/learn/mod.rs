@@ -25,6 +25,10 @@ pub mod gptq;
 /// One-bit arms on the calibration Gram: `Q1_0` sign planes, sigma-delta, GPTQ and Hadamard.
 pub mod onebit;
 
+/// Exact-integer first-order sigma-delta: the executed body of the `sd1` arms, refined to
+/// `Numeric.SigmaDelta` (`docs/epics/ternary-hadamard.md` Part II, W8).
+pub mod sigma_delta;
+
 /// Streaming Gram accumulation and direct SPD ridge solve: the closed-form linear head.
 pub mod ridge;
 

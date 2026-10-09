@@ -21696,6 +21696,100 @@ def gram.gram_fold_i8
       | none => ok (core.result.Result.Ok g1)
       | some e => ok (core.result.Result.Err e)
 
+/-- [apeiron_word::sigma_delta::sd_step]:
+    Source: '../../src/learn/sigma_delta.rs', lines 31:0-51:1 -/
+def sigma_delta.sd_step
+  (wt : Std.I64) (e : Std.I64) (a : Std.I64) :
+  Result (Option (Std.I8 × Std.I64 × Std.I64))
+  := do
+  let o ← lift (I64.checked_add wt e)
+  match o with
+  | none => ok none
+  | some u =>
+    let sign ← if u >= 0#i64
+                 then ok 1#i8
+                 else ok (-1)#i8
+    let i ← lift (core.convert.num.FromI64I8.from sign)
+    let o1 ← lift (I64.checked_mul a i)
+    match o1 with
+    | none => ok none
+    | some q =>
+      let o2 ← lift (I64.checked_sub u q)
+      match o2 with
+      | none => ok none
+      | some e2 =>
+        let o3 ← lift (I64.checked_sub 0#i64 e2)
+        match o3 with
+        | none => ok none
+        | some neg =>
+          if e2 < 0#i64
+          then ok (some (sign, e2, neg))
+          else ok (some (sign, e2, e2))
+
+/-- [apeiron_word::sigma_delta::sd_binary_block]: loop body 0:
+    Source: '../../src/learn/sigma_delta.rs', lines 75:4-90:5
+    Visibility: public -/
+@[rust_loop_body]
+def sigma_delta.sd_binary_block_loop.body
+  (w : Slice Std.I64) (a : Std.I64) (n : Std.Usize) (s : Slice Std.I8)
+  (e : Std.I64) (peak : Std.I64) (t : Std.Usize) (ok1 : Bool) :
+  Result (ControlFlow ((Slice Std.I8) × Std.I64 × Std.I64 × Std.Usize ×
+    Bool) ((Slice Std.I8) × Std.I64 × Std.I64 × Bool))
+  := do
+  if t < n
+  then
+    if ok1
+    then
+      let i ← Slice.index_usize w t
+      let r ← sigma_delta.sd_step i e a
+      let (s1, e1, peak1, ok2) ←
+        match r with
+        | none => ok (s, e, peak, false)
+        | some t1 =>
+          do
+          let (sign, e2, mag) := t1
+          let s2 ← Slice.update s t sign
+          let i1 ← if mag > peak
+                     then ok mag
+                     else ok peak
+          ok (s2, e2, i1, true)
+      let t1 ← t + 1#usize
+      ok (cont (s1, e1, peak1, t1, ok2))
+    else ok (done (s, e, peak, false))
+  else ok (done (s, e, peak, ok1))
+
+/-- [apeiron_word::sigma_delta::sd_binary_block]: loop 0:
+    Source: '../../src/learn/sigma_delta.rs', lines 75:4-90:5
+    Visibility: public -/
+@[rust_loop]
+def sigma_delta.sd_binary_block_loop
+  (w : Slice Std.I64) (a : Std.I64) (s : Slice Std.I8) (n : Std.Usize)
+  (e : Std.I64) (peak : Std.I64) (t : Std.Usize) (ok1 : Bool) :
+  Result ((Slice Std.I8) × Std.I64 × Std.I64 × Bool)
+  := do
+  loop
+    (fun (s1, e1, peak1, t1, ok2) => sigma_delta.sd_binary_block_loop.body w a
+      n s1 e1 peak1 t1 ok2)
+    (s, e, peak, t, ok1)
+
+/-- [apeiron_word::sigma_delta::sd_binary_block]:
+    Source: '../../src/learn/sigma_delta.rs', lines 66:0-96:1
+    Visibility: public -/
+def sigma_delta.sd_binary_block
+  (w : Slice Std.I64) (a : Std.I64) (s : Slice Std.I8) :
+  Result ((Option (Std.I64 × Std.I64)) × (Slice Std.I8))
+  := do
+  let n := Slice.len w
+  let i := Slice.len s
+  if i != n
+  then ok (none, s)
+  else
+    let (s1, e, peak, ok1) ←
+      sigma_delta.sd_binary_block_loop w a s n 0#i64 0#i64 0#usize true
+    if ok1
+    then ok (some (e, peak), s1)
+    else ok (none, s1)
+
 /-- [apeiron_word::policy::decide::Op]
     Source: '../../src/policy/decide.rs', lines 18:0-29:1
     Visibility: public -/
@@ -32212,5 +32306,14 @@ def word_gram_fold_i8
   Result (core.result.Result (alloc.vec.Vec Std.I64) gram.GramError)
   := do
   gram.gram_fold_i8 g x rows d
+
+/-- [apeiron_word::word_sd_binary_block]:
+    Source: 'lib.rs', lines 1334:0-1336:1
+    Visibility: public -/
+def word_sd_binary_block
+  (w : Slice Std.I64) (a : Std.I64) (s : Slice Std.I8) :
+  Result ((Option (Std.I64 × Std.I64)) × (Slice Std.I8))
+  := do
+  sigma_delta.sd_binary_block w a s
 
 end apeiron_word

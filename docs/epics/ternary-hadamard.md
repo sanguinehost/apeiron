@@ -474,8 +474,9 @@ that reads it.
 ### Trust boundary
 
 - The Lean rows hold over a linear ordered field or ℤ.
-- The W7 quantizers run in `f64` and are `tested`, not refined, until W8 extracts
-  `sd_binary_row`.
+- The W7 quantizers run in `f64` and are `tested`. The `sd1`/`sd1-path` sign stream runs in the checked-`i64`
+  `sd_binary_block` (`src/learn/sigma_delta.rs`), extracted and refined; the `f64 → i64` scaling in `sd1_row`
+  (`S = 24`) is `tested`, not proved.
 - Gram capture (`/home/socol/oc-tmp/gptq-w2/capture_gram.py`) is a measurement instrument outside
   the proof.
 
@@ -551,7 +552,7 @@ W6 tasks are file-disjoint. The lead adds their `#audit` lines to `AxiomAudit.le
 | sigma-delta bound, prefix, Abel, shaping identity | proved | W6-T3 |
 | hidden-axis permutation exactness | proved | W6-T4 |
 | one-bit arms on held-out Grams with controls | tested + measured | W7 |
-| executed `sd_binary_row` refines `Numeric.SigmaDelta` | proved | W8 |
+| executed `sd_binary_block` refines `Numeric.SigmaDelta` | proved | W8 |
 | whole-model one-bit KLD against `IQ1_S`/`IQ1_M` | measured | W9 |
 
 ### W7 result (row `onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1`)
@@ -578,4 +579,21 @@ Qwen2.5-0.5B `ffn_down`, blocks 0–3 of 24, every arm at 1.125 b/w. Grade `test
   feedback accumulates.
 - Controls: exact `±a` rows give 0 error in the six sign arms and < 1e-9 through the Hadamard arms; zeroed feedback
   is strictly worse than `sd1`/`gptq1`; the mutation (sd1 feedback zeroed, throwaway copy) turns the test red.
-- Open: blocks 4–23 (the exit row asks for all 24); W8 refinement; W9 whole-model KLD.
+- Open: blocks 4–23 (the exit row asks for all 24); W9 whole-model KLD.
+
+### W8 result (row `onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1`)
+
+- Executed body: `src/learn/sigma_delta.rs` `sd_binary_block`, checked `i64`. Shape mismatch or overflow returns
+  `None`; `sd1_row` panics on `None`. It is extracted by `#[path]` through `proof/extract/lib.rs` `word_sd_binary_block`.
+- `proof/corpus/Numeric/SigmaDeltaRefinement.lean` (proved, cone `{propext, Classical.choice, Quot.sound}`):
+  - `sd_step_spec`
+  - `sd_loop_spec`
+  - `sd_binary_block_shape`
+  - `sd_binary_block_spec`: on `some (e, peak)`, the state is `sdState`, the peak is `sdPeak`, and every sign is
+    `sdSign`, read through ℚ.
+  - `sd_binary_block_witness`: success, overflow and shape branches on the extraction.
+- Control: extracted `u >= 0` → `u > 0` in a throwaway copy turns the build red at lines 92, 137 and 395.
+- `sd1_row` scales by `2^24`. The `f16` weights are exact at that scale; the block scale is `round(a·2^24)`.
+  - `onebit_diag --index-range 0,4` (524 s), `sd1`/`sd1-path` against W7: max relative change 1.6e-5 (blk0
+    `sd1-path` 0.4778163 → 0.4778086); 9 of 24 cells above 1e-6.
+  - Every arm ranking above is unchanged. The cause is attributed to the rounded scale; this is inference, not tested.
