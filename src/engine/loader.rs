@@ -628,6 +628,16 @@ fn resolve_config(h: &GgufHeader) -> Result<EngineConfig, EngineError> {
         .checked_sub(n_nextn)
         .filter(|&n| n > 0)
         .ok_or_else(|| EngineError::BadMetadata("block_count".to_string()))?;
+    // Every trunk layer owns at least one `blk.<l>.*` tensor, so a count above the directory is
+    // unrunnable; refusing it here bounds `resolve_mixers` by the parsed directory, which
+    // `parse_header` bounds by the file length (fuzz `gguf_open`: `block_count = u32::MAX` in a
+    // 9600-byte file asked for a 4 GiB schedule).
+    if n_layer > h.tensors.len() {
+        return Err(EngineError::ConfigMismatch(format!(
+            "block_count {n_layer} exceeds {} tensors",
+            h.tensors.len()
+        )));
+    }
     let n_head = positive_usize(
         require_i64(h, &architecture, "attention.head_count")?,
         "attention.head_count",

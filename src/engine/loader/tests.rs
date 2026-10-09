@@ -45,7 +45,7 @@ fn qwen2_header_typed(
     w.u32(8); // STRING
     w.string("qwen2");
     for (k, v) in [
-        ("qwen2.block_count", 2u32),
+        ("qwen2.block_count", 1u32),
         ("qwen2.embedding_length", 4),
         ("qwen2.feed_forward_length", 8),
         ("qwen2.attention.head_count", 2),
@@ -75,7 +75,7 @@ fn qwen2_header_with_float_meta(rope: f32, eps: f64) -> GgufHeader {
     w.u32(8); // STRING
     w.string("qwen2");
     for (k, v) in [
-        ("qwen2.block_count", 2u32),
+        ("qwen2.block_count", 1u32),
         ("qwen2.embedding_length", 4),
         ("qwen2.feed_forward_length", 8),
         ("qwen2.attention.head_count", 2),
@@ -115,7 +115,7 @@ fn table_records_q5_0_geometry_and_checks_the_extent() {
 fn config_resolves_from_qwen2_metadata() {
     let h = qwen2_header(0, 1 << 16);
     let c = resolve_config(&h).expect("config resolves");
-    assert_eq!(c.n_layer, 2);
+    assert_eq!(c.n_layer, 1);
     assert_eq!(c.n_head, 2);
     assert_eq!(c.n_head_kv, 1);
     assert_eq!(c.n_embd, 4);
@@ -123,6 +123,42 @@ fn config_resolves_from_qwen2_metadata() {
     assert_eq!(c.vocab_size, 8);
     assert_eq!(c.head_dim, 2);
     assert!((c.rope_theta - DEFAULT_ROPE_THETA).abs() < f64::EPSILON);
+}
+
+/// A block count above the tensor directory is refused before the per-layer schedule is
+/// allocated (fuzz `gguf_open` seed `block-count-u32-max`: a 4 GiB `Vec` from a 9600-byte file).
+#[test]
+fn config_refuses_more_layers_than_tensors() {
+    let mut w = W::new();
+    w.bytes(b"GGUF");
+    w.u32(3);
+    w.u64(1); // 1 tensor
+    w.u64(6); // 6 kv
+    w.string("general.architecture");
+    w.u32(8); // STRING
+    w.string("qwen2");
+    for (k, v) in [
+        ("qwen2.block_count", u32::MAX),
+        ("qwen2.embedding_length", 4),
+        ("qwen2.feed_forward_length", 8),
+        ("qwen2.attention.head_count", 2),
+        ("qwen2.attention.head_count_kv", 1),
+    ] {
+        w.string(k);
+        w.u32(4); // UINT32
+        w.u32(v);
+    }
+    w.string("token_embd.weight");
+    w.u32(2);
+    w.u64(4);
+    w.u64(8);
+    w.u32(quant::GGML_TYPE_Q8_0);
+    w.u64(0);
+    let h = parse_header(&w.0, 1 << 16).expect("synthetic header parses");
+    match resolve_config(&h) {
+        Err(EngineError::ConfigMismatch(m)) => assert!(m.contains("block_count"), "{m}"),
+        other => panic!("expected a block_count refusal, got {other:?}"),
+    }
 }
 
 #[test]
