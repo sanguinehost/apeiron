@@ -289,9 +289,169 @@ theorem grow_post {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64) (KC : S
     subst hs1
     exact Hov_mono hHov (by omega)
 
+/-! ## Forward totality of the overflow write path
+
+`insert_core`'s `Blocked` verdict on a present key calls `Overflow::take_value` then
+`Overflow::write_back`; elsewhere they are partial-correctness.  Their common domain is `LiveEntry`:
+the node index is in the arena and its entry holds a value. -/
+
+/-- Node `n` of the arena exists and its entry `e` holds a value. -/
+def LiveEntry (o : Ov) (n e : U32) : Prop :=
+  ∃ nd, o.nodes.val[n.val]? = some nd ∧ ∃ t v, nd.entries.val[e.val]? = some (t, some v)
+
+/-- **`take_value_ex`.**  `Overflow::take_value` returns `ok` on a live entry, and the node index
+`n` is left in range with its entry vector unchanged in length (so a following `write_back` reads
+`(n, e)` in range). -/
+theorem take_value_ex (o : Ov) (n e : U32) (h : LiveEntry o n e) :
+    ∃ old o', hashtrinity.overflow.Overflow.take_value CI o n e = ok (old, o') ∧
+      (∃ nd', o'.nodes.val[n.val]? = some nd' ∧ e.val < nd'.entries.val.length) := by
+  obtain ⟨nd, hnd, t, v, hent⟩ := h
+  have hnlt : n.val < o.nodes.val.length := (List.getElem?_eq_some_iff.mp hnd).1
+  unfold hashtrinity.overflow.Overflow.take_value
+  simp only [lift, bind_tc_ok]
+  obtain ⟨n1, back, hmut⟩ := vec_index_mut_ex o.nodes (UScalar.cast .Usize n)
+    (by rw [cast_usize_u32]; exact hnlt)
+  rw [hmut]; rw [bind_pair_ok]
+  have hn1 : n1 = nd := by
+    have h1 := (vec_index_mut_ok _ _ _ _ hmut).1
+    rw [cast_usize_u32, hnd] at h1
+    exact (Option.some.inj h1).symm
+  rw [hn1]
+  have helt : (UScalar.cast .Usize e).val < nd.entries.val.length := by
+    rw [cast_usize_u32]; exact (List.getElem?_eq_some_iff.mp hent).1
+  obtain ⟨p, back1, hmut1⟩ := vec_index_mut_ex nd.entries (UScalar.cast .Usize e) helt
+  rw [hmut1]; rw [bind_pair_ok]
+  have hp : p = (t, some v) := by
+    have h1 := (vec_index_mut_ok _ _ _ _ hmut1).1
+    rw [cast_usize_u32, hent] at h1
+    exact (Option.some.inj h1).symm
+  rw [hp]
+  refine ⟨v, { o with nodes := back { nd with entries := back1 (t, none) } }, ?_, ?_⟩
+  · simp [core.option.Option.take, core.option.Option.expect, Result.ofOption, bind_tc_ok]
+  · refine ⟨{ nd with entries := back1 (t, none) }, ?_, ?_⟩
+    · have hb : back { nd with entries := back1 (t, none) } =
+          o.nodes.set (UScalar.cast .Usize n) { nd with entries := back1 (t, none) } :=
+        congrFun (vec_index_mut_ok _ _ _ _ hmut).2 _
+      rw [hb, vec_set_val, cast_usize_u32, List.getElem?_set_self hnlt]
+    · show e.val < (back1 (t, none)).val.length
+      have hb1 : back1 (t, none) =
+          nd.entries.set (UScalar.cast .Usize e) (t, none) :=
+        congrFun (vec_index_mut_ok _ _ _ _ hmut1).2 (t, none)
+      rw [hb1, vec_set_val, cast_usize_u32, List.length_set]
+      exact (List.getElem?_eq_some_iff.mp hent).1
+
+/-- **`write_back_ex`.**  `Overflow::write_back` returns `ok` on an in-range entry. -/
+theorem write_back_ex (o : Ov) (n e : U32) (v : I64)
+    (hn : n.val < o.nodes.val.length)
+    (he : ∃ nd, o.nodes.val[n.val]? = some nd ∧ e.val < nd.entries.val.length) :
+    ∃ o', hashtrinity.overflow.Overflow.write_back CI o n e v = ok o' := by
+  obtain ⟨nd, hnd, helt⟩ := he
+  unfold hashtrinity.overflow.Overflow.write_back
+  simp only [lift, bind_tc_ok]
+  obtain ⟨n1, back, hmut⟩ := vec_index_mut_ex o.nodes (UScalar.cast .Usize n)
+    (by rw [cast_usize_u32]; exact hn)
+  rw [hmut]; rw [bind_pair_ok]
+  have hn1 : n1 = nd := by
+    have h1 := (vec_index_mut_ok _ _ _ _ hmut).1
+    rw [cast_usize_u32, hnd] at h1
+    exact (Option.some.inj h1).symm
+  rw [hn1]
+  have helt' : (UScalar.cast .Usize e).val < nd.entries.val.length := by
+    rw [cast_usize_u32]; exact helt
+  obtain ⟨p, back1, hmut1⟩ := vec_index_mut_ex nd.entries (UScalar.cast .Usize e) helt'
+  rw [hmut1]; rw [bind_pair_ok]
+  exact ⟨_, rfl⟩
+
+/-! ## Forward totality of the `Blocked` verdict
+
+`insert_core`'s `Blocked` verdict runs `find_entry` and branches: an absent key takes
+`insert_new_at`; a present key takes `take_value` then `write_back`.  `ov_write_ok` is that inner
+do-block, total on an `OvFull` store. -/
+
+/-- **`ov_write_ok`.**  The `find_entry`/`insert_new_at`/`take_value`/`write_back` inner block of
+`insert_core`'s `Blocked` verdict returns `ok`, on an `OvFull` store. -/
+theorem ov_write_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (t : Tbl KS) (m : Apeiron.Table.HMap U64 I64) (ov : Ov) (T : OTree)
+    (hF : OvFull ks t m ov T)
+    (hcap : ov.nodes.val.length + 4 ≤ 2 ^ 32 - 1) (hlen : ov.len.val < Usize.max)
+    {k : U64} (v : I64) :
+    ∃ ov', (do
+      let o2 ← hashtrinity.overflow.Overflow.find_entry CI core.cmp.EqU64 ov k k
+      match o2 with
+      | none =>
+        let (_, ov1) ← hashtrinity.overflow.Overflow.insert_new_at CI ov k k v
+        ok ov1
+      | some p =>
+        let (node, entry) := p
+        core.mem.drop k
+        let (old, ov1) ← hashtrinity.overflow.Overflow.take_value CI ov node entry
+        let ov2 ← hashtrinity.overflow.Overflow.write_back CI ov1 node entry v
+        core.mem.drop old
+        ok ov2) = ok ov' := by
+  obtain ⟨hI, hall⟩ := hF
+  have hsingle : ∀ j ∈ idxs T, ∃ nd, ov.nodes.val[j]? = some nd ∧
+      ∃ w, nd.entries.val = [(nd.key, some w)] :=
+    fun j hj => by obtain ⟨nd, hnd, -, hent, -, -⟩ := hall j hj; exact ⟨nd, hnd, m nd.key, hent⟩
+  have hentries : ∀ j ∈ idxs T, ∀ nd, ov.nodes.val[j]? = some nd →
+      nd.entries.val.length < Usize.max := by
+    intro j hj nd hnd
+    obtain ⟨nd', hnd', w, hent⟩ := hsingle j hj
+    rw [hnd] at hnd'
+    have hEq : nd = nd' := Option.some.inj hnd'
+    rw [hEq, hent]
+    exact lt_of_lt_of_le (by unfold nilN; norm_num) nilN_le_usize_max
+  have hentries32 : ∀ j ∈ idxs T, ∀ nd, ov.nodes.val[j]? = some nd →
+      nd.entries.val.length < 2 ^ 32 := by
+    intro j hj nd hnd
+    obtain ⟨nd', hnd', w, hent⟩ := hsingle j hj
+    rw [hnd] at hnd'
+    have hEq : nd = nd' := Option.some.inj hnd'
+    rw [hEq, hent]; norm_num
+  have hS : SingleEntries ov.nodes.val T := fun i hi => by
+    obtain ⟨nd, hnd, w, hent⟩ := hsingle i hi
+    exact ⟨nd, hnd, w, hent⟩
+  obtain ⟨r, hfe, -⟩ := find_entry_total ov T hI.1 hI.2.1 hS k
+  rw [hfe]
+  simp only [bind_tc_ok]
+  rcases r with _ | ⟨node, entry⟩
+  · obtain ⟨nd, e, ov1, hins⟩ := ov_insert_new_at_ok ov T k k v hI hlen hentries hcap
+    rw [hins]
+    rw [bind_pair_ok]
+    exact ⟨ov1, rfl⟩
+  · change ∃ ov', (do
+      core.mem.drop k
+      let (old, ov1) ← hashtrinity.overflow.Overflow.take_value CI ov node entry
+      let ov2 ← hashtrinity.overflow.Overflow.write_back CI ov1 node entry v
+      core.mem.drop old
+      ok ov2) = ok ov'
+    have hspec := (find_entry_spec ov T hI.1 hI.2.1 hentries32 k k (.some (node, entry)) hfe).2
+      node entry
+    obtain ⟨hnmem, nd, hnd, hkey, hfirst⟩ := hspec.mp rfl
+    obtain ⟨nd1, hnd1, -, hent1, hns1, -⟩ := hall node.val hnmem
+    have hndeq : nd = nd1 := Option.some.inj (hnd.symm.trans hnd1)
+    rw [hndeq] at hkey hfirst
+    have hentk : nd1.entries.val = [(k, some (m k))] := by rw [hent1, hkey]
+    have hlive : LiveEntry ov node entry := by
+      obtain ⟨x, hx, -⟩ := hfirst.1
+      rw [hentk] at hx
+      have hlt1 : entry.val < 1 := by
+        have := (List.getElem?_eq_some_iff.mp hx).1; simpa using this
+      have he0 : entry.val = 0 := by omega
+      exact ⟨nd1, hnd1, k, m k, by rw [hentk, he0]; rfl⟩
+    obtain ⟨old, ov1, htv, ndv, hndv, hlenv⟩ := take_value_ex ov node entry hlive
+    have hn1 : node.val < ov1.nodes.val.length := (List.getElem?_eq_some_iff.mp hndv).1
+    obtain ⟨ov2, hwb⟩ := write_back_ex ov1 node entry v hn1 ⟨ndv, hndv, hlenv⟩
+    rw [htv]; rw [bind_pair_ok]
+    rw [hwb]
+    simp only [core.mem.drop, bind_tc_ok]
+    exact ⟨ov2, rfl⟩
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.Hov_mono
 #audit Apeiron.MapExecuted.resize_loop1_ok_hov
 #audit Apeiron.MapExecuted.resize_hov
 #audit Apeiron.MapExecuted.grow_post
+#audit Apeiron.MapExecuted.take_value_ex
+#audit Apeiron.MapExecuted.write_back_ex
+#audit Apeiron.MapExecuted.ov_write_ok
