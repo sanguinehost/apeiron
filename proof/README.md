@@ -375,15 +375,13 @@ cd proof/corpus && lake build
 
 ### Corpus / toolchain compatibility
 
-The corpus is at Git `880aa57e47e782ed7a9d9ee1974cfc87360b446b`; the corpus and the bridge both pin
+The canonical corpus is in-tree at `proof/canonical/` (a Lake package, byte-identical to the `proof/` tree of canonical revision `880aa57e47e782ed7a9d9ee1974cfc87360b446b`); the corpus and the bridge both pin
 Lean `4.31.0` and Mathlib `v4.31.0` (manifest revision
 `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`), the same backend the pinned Aeneas extraction uses.
 `proof/corpus/lakefile.lean` requires `mathlib @ v4.31.0`, so the bridge and the corpus resolve one
 revision.
 
-`proof/corpus/lakefile.lean` requires the corpus by Git at
-`880aa57e47e782ed7a9d9ee1974cfc87360b446b` with subdirectory `proof`; the generated manifest
-records the same full input and resolved revisions. The bridge no longer reads the sibling corpus
+`proof/corpus/lakefile.lean` requires the corpus by path (`../canonical`); the manifest records the path package. The bridge does not read any sibling corpus
 worktree. This revision retains the carrier results from `d9aefc93` and adds the table authorities
 read for this slice. The earlier commit adds
 `Apeiron.Physics.diffusiveUpdate_half_three_anyRing` (the any-ring three-cell half step, no energy
@@ -712,10 +710,7 @@ proof/regen.sh --check          # prints: extraction is fresh
 - An exported `AENEAS_HOME` that names no installation (for example a source checkout) is ignored:
   `regen.sh` falls back to `target/aeneas` and says so. An `AENEAS_HOME` that contains `aeneas` is
   still authoritative.
-- Open: `proof/corpus/lakefile.lean` still requires the private corpus
-  `git@gitlab.tas.twn.network:lucas/sanguine.git` at revision
-  `880aa57e47e782ed7a9d9ee1974cfc87360b446b` (`proof` subdir), so `cd proof/corpus && lake build`
-  does not run from a public clone. The `proof/` package (steps 1–3) does not depend on it.
+- `cd proof/corpus && lake build` runs from a clone with no route to any private host: the corpus is `proof/canonical/`. A cold build is 9302 jobs and exceeds one 580 s window; `lake build` resumes.
 
 ## What this does not establish
 
