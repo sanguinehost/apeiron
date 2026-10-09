@@ -598,6 +598,15 @@ theorem p64_pdl_edge_install :
     379 * 2 < 773 := by
   decide
 
+/-- P65: 47 more counter edges at the P64 per-edge rate (1.58 µs, here 16 tenths) recover 752
+tenths of a µs/token, above the 500 predicted floor; the token stays above the 754 µs target. -/
+theorem p65_edge_extension :
+    24 + 23 = 47 ∧
+    47 * 16 = 752 ∧
+    752 ≥ 500 ∧
+    10777 - 752 > 7540 := by
+  decide
+
 end Moves
 
 end Perf
