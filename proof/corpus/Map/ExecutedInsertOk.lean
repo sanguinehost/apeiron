@@ -262,9 +262,16 @@ theorem grow_post {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64) (KC : S
     RepW ks s1 m live ∧ 0 < s1.bits.val ∧ s1.coords.length = 2 ^ s1.bits.val ∧
       s1.vals.length = s1.coords.length ∧
       arenaLen s1 + mainCount s1 + 4 ≤ nilN ∧ Hov s1 (n * n + n) ∧
-      s1.coords.val.length ≤ sz s1.keys ∧ KC s1.coords s1.keys := by
+      s1.coords.val.length ≤ sz s1.keys ∧ KC s1.coords s1.keys ∧
+      mainCount s1 ≤ 2 * n := by
   have hsmall : arenaLen s + mainCount s < nilN := by omega
   obtain ⟨hR1, hK1, hle1⟩ := grow_rep ks KC hRes hR hK hsmall hg
+  have har : arenaLen s ≤ n := by
+    unfold arenaLen
+    cases hso : s.overflow with
+    | none => simp
+    | some ov => obtain ⟨T, _, hnodes, _, _⟩ := hHov ov hso; exact hnodes
+  have hmc1 : mainCount s1 ≤ 2 * n := by omega
   refine ⟨hR1, hR1.1.bits_pos, hR1.1.len_pow, hR1.1.vals_len, by omega, ?_⟩
   unfold hashtrinity.Table.grow_for_one at hg
   obtain ⟨i, -, hg⟩ := bind_inv hg
@@ -297,11 +304,11 @@ theorem grow_post {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64) (KC : S
         omega
     obtain ⟨hHov1, hsz1⟩ := resize_hov ks sz halloc hm hA hset KC hTK hR hK hcap nb hbits_nb hpos n
       hHov hmain hn hsz_s hg
-    exact ⟨hHov1, hsz1, hK1⟩
+    exact ⟨hHov1, hsz1, hK1, hmc1⟩
   · rw [if_neg hge] at hg
     have hs1 : s1 = s := (Result.ok_injective hg).symm
     subst hs1
-    exact ⟨Hov_mono hHov (by omega), hsz_s, hK⟩
+    exact ⟨Hov_mono hHov (by omega), hsz_s, hK, hmc1⟩
 
 /-! ## Forward totality of the overflow write path
 
@@ -423,7 +430,7 @@ theorem insert_core_ns_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
     hocc hsz_s
   rw [hg]
   simp only [bind_tc_ok]
-  obtain ⟨hR1, hbits1, hlen1, hsl1, hcap1, hHov1, hsz1, hK1⟩ :=
+  obtain ⟨hR1, hbits1, hlen1, hsl1, hcap1, hHov1, hsz1, hK1, hmc1⟩ :=
     grow_post ks KC hRes sz halloc hm hA hset hTK hR hK hcap n hHov hmain hn hbits hocc hsz_s hg
   have hSide1 := hSide s1 hg
   obtain ⟨c, hc⟩ := probe_capped_keyed_ok ks hm hA s1 k k hbits1 hlen1
