@@ -98,3 +98,5 @@ No novelty is claimed. The expansion is the Walsh–Hadamard decomposition of `e
 ## Does not cover
 
 One prompt, one model, `T = 512`, `Q4_K_M` weights dequantized to f32 for the dumps, 24 layers of q, k only (no values, no whole-model output, no perplexity). The scale is fitted per head on the first half and read on the second, so a later-context shift is in the held-out number. Fixed projections only: no trained projection. Arm B's explanation, the absolute sign-attention floor on other models, and every speed claim are untested. numpy float64 arithmetic; no rustc/LLVM, kernel or GPU layer is involved.
+
+Formalized: `proof/corpus/Perf/HattnT1.lean` (`p1_holds`, `p2_refuted`, `p3_refuted`, `p3_no_cell`, `p4_refuted`), `model` inputs copied from the tables above, audited in `AxiomAudit.lean`; the instrument and the data are outside it.

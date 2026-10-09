@@ -26,6 +26,7 @@ import Perf.Occupancy
 import Perf.Moves
 import Perf.MapMoves
 import Perf.CountLookup
+import Perf.HattnT1
 import Perf.Identity
 import Perf.AttnCoop
 import Perf.IdentityFloat
@@ -407,6 +408,23 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.CountLookup.tag_collisions_sum
 #audit Perf.CountLookup.p74_clause2_refuted
 #audit Perf.CountLookup.p74_walk_cannot_close
+#audit Perf.CountLookup.p75_refuted
+#audit Perf.CountLookup.p76_clause1_refuted
+#audit Perf.CountLookup.p76_clause2
+#audit Perf.CountLookup.p76_clause34
+#audit Perf.CountLookup.p77_clause1
+#audit Perf.CountLookup.p77_clause2
+#audit Perf.CountLookup.p77_clause3
+#audit Perf.CountLookup.p77_clause4
+#audit Perf.CountLookup.lever_gain_le
+#audit Perf.CountLookup.lever_cannot_close
+#audit Perf.CountLookup.p77_uop_difference_under_half_gap
+#audit Perf.CountLookup.p77_retired_uop_lever_cannot_close
+#audit Perf.HattnT1.p1_holds
+#audit Perf.HattnT1.p2_refuted
+#audit Perf.HattnT1.p3_refuted
+#audit Perf.HattnT1.p3_no_cell
+#audit Perf.HattnT1.p4_refuted
 
 -- Row: `inf-resident-prefill-GEB633UfORCK7XSmzJifHd` (ATTN-COOP, P18): the SIMT shared-load
 -- dominance, the staging halving rule, the coopmat node comparison and the pp512 gain
