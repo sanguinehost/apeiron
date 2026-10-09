@@ -2388,16 +2388,57 @@ is the `Emb`/`BST`/`ND`/`HOK`/`Bal`/free-list transport through `alloc` + `inser
 coordinate) or the entry push (existing coordinate).  This section restates it with `habs` dropped
 and adds the per-insert entry-vector slack the consuming loop needs. -/
 
+/-- The entry count of arena node `j`, or `0` off the arena. -/
+def remLen (v : alloc.vec.Vec ONode) (j : Nat) : Nat :=
+  (v.val[j]?.map (fun nd => nd.entries.val.length)).getD 0
+
+/-- `remLen` at a present node is its entry-vector length. -/
+theorem remLen_eq (v : alloc.vec.Vec ONode) (j : Nat) (nd : ONode) (h : v.val[j]? = some nd) :
+    remLen v j = nd.entries.val.length := by
+  simp [remLen, h]
+
+/-- The sum of a mapped list is monotone in the map. -/
+theorem sum_map_le_of_le {α : Type} (l : List α) (f g : α → Nat)
+    (h : ∀ x ∈ l, f x ≤ g x) : (l.map f).sum ≤ (l.map g).sum := by
+  induction l with
+  | nil => simp
+  | cons a t ih =>
+    simp only [List.map_cons, List.sum_cons]
+    have ha : f a ≤ g a := h a (by simp)
+    have ht : ∀ x ∈ t, f x ≤ g x := fun x hx => h x (by simp [hx])
+    exact Nat.add_le_add ha (ih ht)
+
+/-- Increasing one entry of a `Nodup` list by at most one raises its mapped sum by at most one. -/
+theorem sum_map_le_add_one {α : Type} [DecidableEq α] (l : List α) (f f' : α → Nat) (i : α)
+    (hnd : l.Nodup) (hi : i ∈ l) (h : ∀ j ∈ l, j ≠ i → f' j ≤ f j) (hi' : f' i ≤ f i + 1) :
+    (l.map f').sum ≤ (l.map f).sum + 1 := by
+  induction l with
+  | nil => simp at hi
+  | cons a t ih =>
+    rw [List.nodup_cons] at hnd
+    obtain ⟨hat, hndt⟩ := hnd
+    simp only [List.map_cons, List.sum_cons]
+    rcases List.mem_cons.mp hi with rfl | hit
+    · have ht : ∀ j ∈ t, f' j ≤ f j := fun j hj =>
+        h j (List.mem_cons_of_mem _ hj) (fun hji => hat (hji ▸ hj))
+      have hsumt := sum_map_le_of_le t f' f ht
+      omega
+    · have ha : f' a ≤ f a := h a (by simp) (fun hia => hat (hia ▸ hit))
+      have hsumt := ih hndt hit (fun j hj hji => h j (List.mem_cons_of_mem _ hj) hji)
+      omega
+
 /-- **`ov_insert_new_at_domain`.**  `Overflow::insert_new_at` preserves `OInv` with no absence
 premise: it increments `len` by one, grows the arena by at most one node, and raises the maximum
-entry-vector length by at most one (`M → M + 1`).  `hentries` bounds the old entry-vector lengths. -/
+entry-vector length by at most one (`M → M + 1`).  `hentries` bounds the old entry-vector lengths.
+It also raises the total entry count `Σ remLen` over the tree by at most one. -/
 theorem ov_insert_new_at_domain (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd : U32)
     (e : Usize) (M : Nat)
     (hI : OInv o T) (hcap : o.nodes.val.length < nilN)
     (hentries : ∀ j ∈ idxs T, ∀ nd, o.nodes.val[j]? = some nd → nd.entries.val.length ≤ M)
     (h : hashtrinity.overflow.Overflow.insert_new_at CI o coord k v = ok ((nd, e), o')) :
     ∃ T', OInv o' T' ∧ o'.len.val = o.len.val + 1 ∧ o'.nodes.val.length ≤ o.nodes.val.length + 1 ∧
-      (∀ j ∈ idxs T', ∀ nd', o'.nodes.val[j]? = some nd' → nd'.entries.val.length ≤ M + 1) := by
+      (∀ j ∈ idxs T', ∀ nd', o'.nodes.val[j]? = some nd' → nd'.entries.val.length ≤ M + 1) ∧
+      ((idxs T').map (remLen o'.nodes)).sum ≤ ((idxs T).map (remLen o.nodes)).sum + 1 := by
   obtain ⟨hE, hB, hND, hH, hBal, hfn, hfl⟩ := hI
   unfold hashtrinity.overflow.Overflow.insert_new_at at h
   simp only [lift, bind_tc_ok] at h
@@ -2458,7 +2499,7 @@ theorem ov_insert_new_at_domain (o o' : Ov) (T : OTree) (coord k : U64) (v : I64
     subst hnn
     have hnent : nd'.entries.val = [(k, some v)] := by rw [← hsd.2.1]; exact hnie
     have hnkey : nd'.key = coord := by rw [← hsd.1]; exact hnik
-    refine ⟨T', ⟨hE3, hB3, hND3, hH3, hBal3, ?_, ?_⟩, ?_, ?_, ?_⟩
+    refine ⟨T', ⟨hE3, hB3, hND3, hH3, hBal3, ?_, ?_⟩, ?_, ?_, ?_, ?_⟩
     · rw [hf3]; exact hfn2
     · intro j hj
       rw [hf3] at hj
@@ -2484,6 +2525,25 @@ theorem ov_insert_new_at_domain (o o' : Ov) (T : OTree) (coord k : U64) (v : I64
         have hlen := hentries j hjT ndo hndo
         rw [← hsd2.2.1]
         omega
+    · -- the total entry sum grows by one: a fresh node with one entry
+      have hpermMap := hperm.map (remLen self3.nodes)
+      have hsum1 : ((idxs T').map (remLen self3.nodes)).sum =
+          (((i1.val :: idxs T)).map (remLen self3.nodes)).sum := hpermMap.sum_nat
+      have hold : ((idxs T).map (remLen self3.nodes)).sum =
+          ((idxs T).map (remLen o.nodes)).sum := by
+        apply congrArg List.sum
+        apply List.map_congr_left
+        intro j hj
+        obtain ⟨ndo, hndo, _⟩ := emb_mem hE j hj
+        have hndo2 : o2.nodes.val[j]? = some ndo := by rw [hagree j hj]; exact hndo
+        obtain ⟨nds, hnds, hsd2, _⟩ := hrel3.2 j ndo hndo2
+        rw [remLen_eq self3.nodes j nds hnds, remLen_eq o.nodes j ndo hndo, ← hsd2.2.1]
+      have hnew : remLen self3.nodes i1.val = 1 := by
+        obtain ⟨nds, hnds, hsd, _⟩ := hrel3.2 i1.val ni hni
+        rw [remLen_eq self3.nodes i1.val nds hnds, ← hsd.2.1, hnie]
+        rfl
+      rw [hsum1, List.map_cons, List.sum_cons, hold, hnew]
+      omega
   · rw [if_neg hnil] at hif
     obtain ⟨⟨n1, back⟩, hn1, hif⟩ := bind_inv hif
     obtain ⟨hn1', hback⟩ := idxm_ok hn1
@@ -2550,7 +2610,7 @@ theorem ov_insert_new_at_domain (o o' : Ov) (T : OTree) (coord k : U64) (v : I64
         subst this
         exact ⟨{n1 with entries := v1}, List.getElem?_set_self hlt, rfl⟩
       · exact ⟨nd0, by rw [hne j hjj]; exact hnd0, rfl⟩
-    refine ⟨T, ⟨?_, ?_, hND, ?_, hBal, hfn, ?_⟩, ?_, ?_, ?_⟩
+    refine ⟨T, ⟨?_, ?_, hND, ?_, hBal, hfn, ?_⟩, ?_, ?_, ?_, ?_⟩
     · show Emb (back {n1 with entries := v1}).val o.root T
       rw [hnodes]; exact emb_ptr_congr hE hptr
     · show BST (back {n1 with entries := v1}).val T
@@ -2584,6 +2644,24 @@ theorem ov_insert_new_at_domain (o o' : Ov) (T : OTree) (coord k : U64) (v : I64
           exact hnde
         have hlen := hentries j hjT nde hnde'
         omega
+    · -- the total entry sum grows by one: one node's entry vector gains one entry
+      have hndT : (idxs T).Nodup := nd_nodup T hND
+      refine sum_map_le_add_one (idxs T) (remLen o.nodes) (remLen (back {n1 with entries := v1}))
+        n.val hndT hm ?_ ?_
+      · intro j hj hji
+        obtain ⟨ndo, hndo, _⟩ := emb_mem hE j hj
+        have hself : (back {n1 with entries := v1}).val[j]? = some ndo := by
+          rw [hnodes, List.getElem?_set_ne (Ne.symm hji)]
+          exact hndo
+        rw [remLen_eq (back {n1 with entries := v1}) j ndo hself, remLen_eq o.nodes j ndo hndo]
+      · have hself : (back {n1 with entries := v1}).val[n.val]? =
+            some ({n1 with entries := v1} : ONode) := by
+          rw [hnodes]
+          exact List.getElem?_set_self hlt
+        rw [remLen_eq (back {n1 with entries := v1}) n.val ({n1 with entries := v1}) hself,
+          remLen_eq o.nodes n.val n1 hn1o]
+        show v1.val.length ≤ n1.entries.val.length + 1
+        rw [hl2]
 
 /-! ### `place_capped` advances the overflow domain by at most one
 
@@ -2599,26 +2677,74 @@ def Hov {KS : Type} (t : Tbl KS) (n : Nat) : Prop :=
     ∃ T, OInv ov T ∧ ov.nodes.val.length ≤ n ∧ ov.len.val ≤ n ∧
       (∀ j ∈ idxs T, ∀ nd, ov.nodes.val[j]? = some nd → nd.entries.val.length ≤ n)
 
-/-- **`place_capped_domain`.**  `Table::place_capped` returns a table whose overflow domain is
+/-- A list's mapped sum is at most its length times a uniform per-element bound. -/
+theorem sum_map_le_mul {α : Type} (l : List α) (f : α → Nat) (n : Nat)
+    (h : ∀ x ∈ l, f x ≤ n) : (l.map f).sum ≤ l.length * n := by
+  induction l with
+  | nil => simp
+  | cons a l ih =>
+    have ha : f a ≤ n := h a (by simp)
+    have hl : ∀ x ∈ l, f x ≤ n := fun x hx => h x (by simp [hx])
+    simp only [List.map_cons, List.sum_cons, List.length_cons]
+    have := ih hl
+    nlinarith
+
+/-- The overflow entry counter: a present overflow with `OInv ov T` has total entry count
+`Σ remLen` over `T` at most `e`.  This bounds the live overflow entry count, which one
+`insert_new_at` raises by one, so a `resize` (which re-places every live entry once) raises `e`
+by that count, not by `n · n`. -/
+def Hent {KS : Type} (t : Tbl KS) (e : Nat) : Prop :=
+  ∀ ov T, t.overflow = some ov → OInv ov T → ((idxs T).map (remLen ov.nodes)).sum ≤ e
+
+/-- A table with no overflow store has entry counter `0`. -/
+theorem Hent_none {KS : Type} {t : Tbl KS} (h : t.overflow = none) : Hent t 0 := by
+  intro ov T hsome hI
+  rw [h] at hsome
+  exact absurd hsome (by simp)
+
+/-- `Hent` is monotone in its counter. -/
+theorem Hent_mono {KS : Type} {t : Tbl KS} {e e' : Nat} (h : Hent t e) (he : e ≤ e') :
+    Hent t e' := fun ov T hs hI => le_trans (h ov T hs hI) he
+
+/-- **`Hent_of_Hov`.**  `Hov t n` bounds every node's entry-vector length by `n` and every live
+tree by `n` nodes, so the total entry count is at most `n · n`; hence `Hent t (n * n)` holds. -/
+theorem Hent_of_Hov {KS : Type} {t : Tbl KS} {n : Nat} (hov : Hov t n) : Hent t (n * n) := by
+  intro ov T hsome hI
+  obtain ⟨T', hI', hnodes', -, hent'⟩ := hov ov hsome
+  have hTT : T' = T := emb_unique hI'.1 hI.1
+  subst T'
+  have hlenT : (idxs T).length ≤ ov.nodes.val.length :=
+    idxs_length_le (nd_nodup T hI.2.2.1) (fun j hj => by
+      obtain ⟨nd, hnd, -⟩ := emb_mem hI.1 j hj
+      exact (List.getElem?_eq_some_iff.mp hnd).1)
+  have hrem : ∀ j ∈ idxs T, remLen ov.nodes j ≤ n := by
+    intro j hj
+    unfold remLen
+    cases hnd : ov.nodes.val[j]? with
+    | none => simp
+    | some nd => simpa [hnd] using hent' j hj nd hnd
+  exact le_trans (sum_map_le_mul _ _ n hrem) (Nat.mul_le_mul_right n (le_trans hlenT hnodes'))
+
+/-- **`place_capped_domain_hent`.**  `Table::place_capped` returns a table whose overflow domain is
 `Hov … n` transported to `Hov … (n+1)`: the `Hit` and `Vacant` verdicts leave the overflow untouched;
 the `Blocked` verdict runs one `insert_new_at`, which `ov_insert_new_at_domain` grows by at most one
-in each of the three measures.  `hK` (`n + 4 ≤ 2^32 - 1`) supplies the arena capacity the `Blocked`
-verdict reads. -/
-theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+in each of the three measures.  It also carries the entry counter: `Hent t e` becomes `Hent t' (e+1)`.
+`hK` (`n + 4 ≤ 2^32 - 1`) supplies the arena capacity the `Blocked` verdict reads. -/
+theorem place_capped_domain_hent {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
     (sz : KS → Nat)
     (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
     (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
     (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
       ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
-    (t : Tbl KS) (c : U64) (v : I64) (n : Nat)
+    (t : Tbl KS) (c : U64) (v : I64) (n : Nat) (ec : Nat)
     (hbits : 0 < t.bits.val) (hlen : t.coords.length = 2 ^ t.bits.val)
     (hsl : t.vals.length = t.coords.length)
     (hinit : ∀ (i : Nat), t.coords.val[i]? = some c → ∃ z, t.vals.val[i]? = some (some z))
     (hlenmax : t.len.val < Usize.max)
-    (hov : Hov t n) (hK : n + 4 ≤ 2 ^ 32 - 1)
+    (hov : Hov t n) (hent : Hent t ec) (hK : n + 4 ≤ 2 ^ 32 - 1)
     (hsz : t.coords.val.length ≤ sz t.keys) :
     ∃ t', hashtrinity.Table.place_capped core.cmp.EqU64 CI ks t c c v = ok t' ∧
-      Hov t' (n + 1) ∧ sz t'.keys = sz t.keys := by
+      Hov t' (n + 1) ∧ Hent t' (ec + 1) ∧ sz t'.keys = sz t.keys := by
   obtain ⟨r, hr⟩ := probe_capped_keyed_ok ks hm hA t c c hbits hlen
   have hslot := probe_capped_keyed_slot_weak ks t c c r hr
   unfold hashtrinity.Table.place_capped
@@ -2636,7 +2762,7 @@ theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
     have hread : core.mem.maybe_uninit.MaybeUninit.assume_init_read (some z) = ok z := rfl
     have hltv2 : i.val < (t.vals.set i (some z)).length := by rw [slice_set_length]; exact hltv
     obtain ⟨_, back1, hget2⟩ := slice_get_unchecked_mut_ex (t.vals.set i (some z)) i hltv2
-    refine ⟨{t with vals := back1 (some v)}, ?_, ?_, ?_⟩
+    refine ⟨{t with vals := back1 (some v)}, ?_, ?_, ?_, ?_⟩
     · simp only [hget, hmuz, hback, bind_tc_ok]
       change (do
         let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read (some z)
@@ -2651,6 +2777,8 @@ theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
       have hsome' : t.overflow = some ov := hsome
       obtain ⟨T, hI0, hnode0, hlenov, hentries0⟩ := hov ov hsome'
       exact ⟨T, hI0, by omega, by omega, fun j hj nd hnd => by have := hentries0 j hj nd hnd; omega⟩
+    · intro ov T hsome hI
+      exact le_trans (hent ov T (show t.overflow = some ov from hsome) hI) (Nat.le_succ ec)
     · rfl
   | Vacant i =>
     obtain ⟨_, hcx, _⟩ := hslot
@@ -2666,13 +2794,16 @@ theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
       have hp : 0 < 2 ^ UScalarTy.Usize.numBits := Nat.two_pow_pos _
       omega
     obtain ⟨i1, hi1, -⟩ := uadd_tot t.len 1#usize hltmax
-    refine ⟨{t with coords := backc c, vals := backv (some v), keys := keys', len := i1}, ?_, ?_, ?_⟩
+    refine ⟨{t with coords := backc c, vals := backv (some v), keys := keys', len := i1},
+      ?_, ?_, ?_, ?_⟩
     · simp only [hgetc, hgetv, hset', hi1, core.mem.maybe_uninit.MaybeUninit.new, bind_tc_ok]
       rfl
     · intro ov hsome
       have hsome' : t.overflow = some ov := hsome
       obtain ⟨T, hI0, hnode0, hlenov, hentries0⟩ := hov ov hsome'
       exact ⟨T, hI0, by omega, by omega, fun j hj nd hnd => by have := hentries0 j hj nd hnd; omega⟩
+    · intro ov T hsome hI
+      exact le_trans (hent ov T (show t.overflow = some ov from hsome) hI) (Nat.le_succ ec)
     · exact hsze
   | Blocked =>
     cases hto : t.overflow with
@@ -2694,7 +2825,7 @@ theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
         intro j hj; simp [idxs] at hj
       have hcap0 : OV.nodes.val.length + 4 ≤ 2 ^ 32 - 1 := by rw [hl0]; norm_num
       obtain ⟨nd, e, ov1, hins⟩ := ov_insert_new_at_ok OV .leaf c c v hF.1 hlen0 hent0 hcap0
-      refine ⟨{t with overflow := some ov1}, ?_, ?_, ?_⟩
+      refine ⟨{t with overflow := some ov1}, ?_, ?_, ?_, ?_⟩
       · simp only [core.option.Option.is_none, Option.isNone, hnew,
           core.option.Option.as_mut, bind_tc_ok]
         rw [if_pos trivial]
@@ -2708,13 +2839,24 @@ theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
       · intro ov hsome
         have heq : ov = ov1 := (Option.some.inj hsome).symm
         rw [heq]
-        obtain ⟨T', hI', hlen', hnodes', hent'⟩ :=
+        obtain ⟨T', hI', hlen', hnodes', hent', -⟩ :=
           ov_insert_new_at_domain OV ov1 OTree.leaf c c v nd e 0 hF.1
             (by rw [hl0]; unfold nilN; norm_num) (by intro j hj; simp [idxs] at hj) hins
         have hl0len : OV.len.val = 0 := rfl
         rw [hl0] at hnodes'
         rw [hl0len] at hlen'
         exact ⟨T', hI', by omega, by omega, fun j hj nd hnd => by have := hent' j hj nd hnd; omega⟩
+      · intro ov T hsome hI
+        have heq : ov = ov1 := (Option.some.inj hsome).symm
+        rw [heq] at hI ⊢
+        obtain ⟨T', hI', hlen', hnodes', hent', hsum'⟩ :=
+          ov_insert_new_at_domain OV ov1 OTree.leaf c c v nd e 0 hF.1
+            (by rw [hl0]; unfold nilN; norm_num) (by intro j hj; simp [idxs] at hj) hins
+        have hIuniq : T' = T := emb_unique hI'.1 hI.1
+        subst T'
+        have hleaf : ((idxs OTree.leaf).map (remLen OV.nodes)).sum = 0 := by simp [idxs]
+        rw [hleaf, Nat.add_zero] at hsum'
+        omega
       · rfl
     | some ov0 =>
       obtain ⟨T, hI0, hnode0, hlenov, hentries0⟩ := hov ov0 hto
@@ -2723,7 +2865,7 @@ theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
       have hcap : ov0.nodes.val.length + 4 ≤ 2 ^ 32 - 1 := by omega
       obtain ⟨nd, e, ov1, hins⟩ := ov_insert_new_at_ok ov0 T c c v hI0
         (by omega) (fun j hj nd hnd => by have := hentries0 j hj nd hnd; omega) hcap
-      refine ⟨{t with overflow := some ov1}, ?_, ?_, ?_⟩
+      refine ⟨{t with overflow := some ov1}, ?_, ?_, ?_, ?_⟩
       · simp only [core.option.Option.is_none, Option.isNone,
           core.option.Option.as_mut, bind_tc_ok]
         rw [if_neg (by simp)]
@@ -2737,10 +2879,41 @@ theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
       · intro ov hsome
         have heq : ov = ov1 := (Option.some.inj hsome).symm
         rw [heq]
-        obtain ⟨T', hI', hlen', hnodes', hent'⟩ :=
+        obtain ⟨T', hI', hlen', hnodes', hent', -⟩ :=
           ov_insert_new_at_domain ov0 ov1 T c c v nd e n hI0 (by unfold nilN; omega) hentries0 hins
         refine ⟨T', hI', by omega, by omega, fun j hj nd hnd => by have := hent' j hj nd hnd; omega⟩
+      · intro ov Tg hsome hI
+        have heq : ov = ov1 := (Option.some.inj hsome).symm
+        rw [heq] at hI ⊢
+        obtain ⟨T'', hI'', hlen', hnodes', hent', hsum'⟩ :=
+          ov_insert_new_at_domain ov0 ov1 T c c v nd e n hI0 (by unfold nilN; omega) hentries0 hins
+        have hIuniq : T'' = Tg := emb_unique hI''.1 hI.1
+        subst T''
+        have he : ((idxs T).map (remLen ov0.nodes)).sum ≤ ec := hent ov0 T hto hI0
+        omega
       · rfl
+
+/-- **`place_capped_domain`.**  The `Hov` half of `place_capped_domain_hent`, recovering the
+`Hent` premise from `Hov` (`Hent_of_Hov`, `Hent t (n·n)`). -/
+theorem place_capped_domain {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (sz : KS → Nat)
+    (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
+    (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
+    (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
+      ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
+    (t : Tbl KS) (c : U64) (v : I64) (n : Nat)
+    (hbits : 0 < t.bits.val) (hlen : t.coords.length = 2 ^ t.bits.val)
+    (hsl : t.vals.length = t.coords.length)
+    (hinit : ∀ (i : Nat), t.coords.val[i]? = some c → ∃ z, t.vals.val[i]? = some (some z))
+    (hlenmax : t.len.val < Usize.max)
+    (hov : Hov t n) (hK : n + 4 ≤ 2 ^ 32 - 1)
+    (hsz : t.coords.val.length ≤ sz t.keys) :
+    ∃ t', hashtrinity.Table.place_capped core.cmp.EqU64 CI ks t c c v = ok t' ∧
+      Hov t' (n + 1) ∧ sz t'.keys = sz t.keys := by
+  obtain ⟨t', h, hov', -, hsze⟩ :=
+    place_capped_domain_hent ks sz hm hA hset t c v n (n * n) hbits hlen hsl hinit hlenmax
+      hov (Hent_of_Hov hov) hK hsz
+  exact ⟨t', h, hov', hsze⟩
 
 /-- **`place_capped_hov`.**  One `place_capped` call carries `Hov`'s bounds across the call: the
 result's counter is `n + 1`, so the three bounds advance by at most one. -/
@@ -2764,6 +2937,29 @@ theorem place_capped_hov {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
   have heq : t' = t'' := Result.ok_injective (h.symm.trans h'')
   subst heq
   exact ⟨hov'', hsze''⟩
+
+/-- **`place_capped_hent`.**  The `Hov`/`Hent` halves of `place_capped_domain_hent`: one
+`place_capped` call raises both counters by at most one. -/
+theorem place_capped_hent {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (sz : KS → Nat)
+    (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
+    (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
+    (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
+      ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
+    (t t' : Tbl KS) (c : U64) (v : I64) (n ec : Nat)
+    (hbits : 0 < t.bits.val) (hlen : t.coords.length = 2 ^ t.bits.val)
+    (hsl : t.vals.length = t.coords.length)
+    (hinit : ∀ (i : Nat), t.coords.val[i]? = some c → ∃ z, t.vals.val[i]? = some (some z))
+    (hlenmax : t.len.val < Usize.max)
+    (hov : Hov t n) (hent : Hent t ec) (hK : n + 4 ≤ 2 ^ 32 - 1)
+    (hsz : t.coords.val.length ≤ sz t.keys)
+    (h : hashtrinity.Table.place_capped core.cmp.EqU64 CI ks t c c v = ok t') :
+    Hov t' (n + 1) ∧ Hent t' (ec + 1) ∧ sz t'.keys = sz t.keys := by
+  obtain ⟨t'', h'', hov'', hent'', hsze''⟩ :=
+    place_capped_domain_hent ks sz hm hA hset t c v n ec hbits hlen hsl hinit hlenmax hov hent hK hsz
+  have heq : t' = t'' := Result.ok_injective (h.symm.trans h'')
+  subst heq
+  exact ⟨hov'', hent'', hsze''⟩
 
 /-- **`place_capped_frame`.**  `place_capped` preserves the table's shape fields (`bits`,
 `coords.length`, `vals.length`) and raises `len` by at most one (only the `Vacant` verdict writes it).

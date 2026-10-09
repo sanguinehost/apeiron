@@ -72,8 +72,9 @@ theorem resize_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
   have hcb0 : arenaLen bigger + mainCount bigger = 0 := by
     have h1 : arenaLen bigger = 0 := by unfold arenaLen; rw [hovnone]
     rw [h1, mainCount_zero ks hb0C]
-  obtain ⟨r, hr, hbr, hcr, hvr, hBigr, hlenr, hHovr, hside, hovf, hszr⟩ :=
-    resize_loop0_ok_hov_strong ks sz hm hA hset KC hTK hR hK hcap bigger hb0 hcb0 hovnone hsz_s hszbb
+  obtain ⟨r, hr, hbr, hcr, hvr, hBigr, hlenr, hHovr, -, hside, hovf, hszr⟩ :=
+    resize_loop0_ok_hov_strong ks sz hm hA hset KC hTK hR hK hcap bigger hb0 hcb0 hovnone 0
+      (Hent_none hovnone) hsz_s hszbb
   rw [hr]; simp only [bind_tc_ok]
   obtain ⟨ss1, hss1⟩ := side_empty_ex ks sz halloc
   rw [hss1]; simp only [bind_tc_ok]
@@ -111,18 +112,6 @@ theorem resize_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
       have := hvcap ov T hso hI; omega
     exact resize_loop1_ok ks sz hm hA hset es.val hes (t0 := { b1 with side := ss0 }) (mainCount s)
       hbr hcr hvr hBigr hlenr hHovr hcap1 (by simpa using hszr) es rfl
-
-/-- A list's mapped sum is at most its length times a uniform per-element bound. -/
-theorem sum_map_le_mul {α : Type} (l : List α) (f : α → Nat) (n : Nat)
-    (h : ∀ x ∈ l, f x ≤ n) : (l.map f).sum ≤ l.length * n := by
-  induction l with
-  | nil => simp
-  | cons a l ih =>
-    have ha : f a ≤ n := h a (by simp)
-    have hl : ∀ x ∈ l, f x ≤ n := fun x hx => h x (by simp [hx])
-    simp only [List.map_cons, List.sum_cons, List.length_cons]
-    have := ih hl
-    nlinarith
 
 /-- **`resize_ok_hov`.**  `resize_ok` with its two caller-supplied overflow-entry bounds replaced by
 the counter invariant `Hov s n` and a numeric cap.  `Hov` bounds a present overflow's node count,

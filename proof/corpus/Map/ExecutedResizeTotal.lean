@@ -997,10 +997,6 @@ at the next index.  The decrease is the iterator length; the bound is the remain
 computed on the updated vector `v2`; the step only ever lowers it, so no duplicate-free side
 condition on `iter` is used. -/
 
-/-- The entry count of arena node `j`, or `0` off the arena. -/
-def remLen (v : alloc.vec.Vec ONode) (j : Nat) : Nat :=
-  (v.val[j]?.map (fun nd => nd.entries.val.length)).getD 0
-
 /-- The remaining entry count: the sum of `remLen` over the node indices `iter` has not yet
 visited. -/
 def remEntries (v : alloc.vec.Vec ONode) (iter : alloc.vec.into_iter.IntoIter U32) : Nat :=
@@ -1333,6 +1329,7 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
     (hR : RepW ks s m live) (hK : KC s.coords s.keys) (hcap : arenaLen s + mainCount s + 4 ≤ nilN)
     (b0 : Tbl KS) (hb0 : RepW ks b0 m (LowMain s 0))
     (hcb0 : arenaLen b0 + mainCount b0 = 0) (hb0o : b0.overflow = none)
+    (eb : Nat) (hent0 : Hent b0 eb)
     (hsz_s : s.coords.val.length ≤ sz s.keys) (hsz_b0 : b0.coords.val.length ≤ sz b0.keys) :
     ∃ r, hashtrinity.Table.resize_loop0 core.cmp.EqU64 CI ks s b0 0#usize = ok r ∧
       0 < r.2.2.bits.val ∧
@@ -1341,6 +1338,7 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
       BigInit r.2.2 ∧
       r.2.2.len.val ≤ mainCount s ∧
       Hov r.2.2 (mainCount s) ∧
+      Hent r.2.2 (eb + mainCount s) ∧
       r.1 = s.side ∧ r.2.1 = s.overflow ∧
       r.2.2.coords.val.length ≤ sz r.2.2.keys := by
   obtain ⟨r, hr⟩ := resize_loop0_ok ks sz hm hA hset KC hTK hR hK hcap b0 hb0 hcb0 hb0o hsz_s hsz_b0
@@ -1358,6 +1356,7 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
       BigInit p.2.1 ∧
       p.2.1.len.val ≤ (s.coords.val.take p.2.2.val).countP (fun c => decide (¬ IsSent c)) ∧
       Hov p.2.1 ((s.coords.val.take p.2.2.val).countP (fun c => decide (¬ IsSent c))) ∧
+      Hent p.2.1 (eb + (s.coords.val.take p.2.2.val).countP (fun c => decide (¬ IsSent c))) ∧
       p.2.2.val ≤ s.coords.val.length ∧
       p.1.coords.val.length ≤ sz p.1.keys ∧
       p.2.1.coords.val.length ≤ sz p.2.1.keys ∧
@@ -1368,13 +1367,14 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
       BigInit r.2.2 ∧
       r.2.2.len.val ≤ mainCount s ∧
       Hov r.2.2 (mainCount s) ∧
+      Hent r.2.2 (eb + mainCount s) ∧
       r.1 = s.side ∧ r.2.1 = s.overflow ∧
       r.2.2.coords.val.length ≤ sz r.2.2.keys)
     (fun p : Tbl KS × Tbl KS × Usize =>
       hashtrinity.Table.resize_loop0.body core.cmp.EqU64 CI ks p.1 p.2.1 p.2.2)
     ?_ (s, b0, 0#usize) ?_ r hr
-  · rintro ⟨t, b, i⟩ ⟨hA1, hB, hC, hE1, hE2, hbitsb, hlenb, hslb, hBig, hlenbnd, hHov, hib,
-      hszs, hszb, hKt⟩ cf hcf
+  · rintro ⟨t, b, i⟩ ⟨hA1, hB, hC, hE1, hE2, hbitsb, hlenb, hslb, hBig, hlenbnd, hHov, hHent,
+      hib, hszs, hszb, hKt⟩ cf hcf
     dsimp only at *
     unfold hashtrinity.Table.resize_loop0.body at hcf
     by_cases hlt : i < Slice.len t.coords
@@ -1399,9 +1399,10 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
           rw [hi2v, countP_take_succ (fun c => decide (¬ IsSent c)) s.coords.val i.val c hsc]
           simp [hsent]
         refine ⟨hA1, (fun d hd => hB d (by omega)), hC, hE1, hE2, hbitsb, hlenb, hslb, hBig,
-          ?_, ?_, ?_, hszs, hszb, hKt⟩
+          ?_, ?_, ?_, ?_, hszs, hszb, hKt⟩
         · rw [hcnt]; exact hlenbnd
         · rw [hcnt]; exact hHov
+        · rw [hcnt]; exact hHent
         · omega
       · rw [if_pos (by simpa using hsent)] at hcf
         obtain ⟨⟨key, keys'⟩, htk, hcf⟩ := bind_inv hcf
@@ -1433,17 +1434,21 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
           have h := hcap; unfold nilN at h; omega
         have hlenmax : b.len.val < Usize.max := by
           have h := nilN_le_usize_max; unfold nilN at h; omega
-        obtain ⟨hHov0, hszb'⟩ := place_capped_hov ks sz hm hA hset b big1 c v
+        obtain ⟨hHov0, hHent0, hszb'⟩ := place_capped_hent ks sz hm hA hset b big1 c v
           ((s.coords.val.take i.val).countP (fun c => decide (¬ IsSent c)))
-          hbitsb hlenb hslb (fun j hcj => hBig j c hcj hsent) hlenmax hHov hK hszb hpc
+          (eb + (s.coords.val.take i.val).countP (fun c => decide (¬ IsSent c)))
+          hbitsb hlenb hslb (fun j hcj => hBig j c hcj hsent) hlenmax hHov hHent hK hszb hpc
         have hHov' : Hov big1 ((s.coords.val.take i2.val).countP (fun c => decide (¬ IsSent c))) := by
           rw [hcnt]; exact hHov0
+        have hHent' : Hent big1
+            (eb + (s.coords.val.take i2.val).countP (fun c => decide (¬ IsSent c))) := by
+          rw [hcnt, ← Nat.add_assoc]; exact hHent0
         have hupd' : cs.val = t.coords.val.set i.val hashtrinity.EMPTY :=
           slice_update_ok t.coords cs i hashtrinity.EMPTY hupd
         have hvals : (back mu).val = s.vals.val := by
           rw [hback, Slice.set_val_eq, list_set_self _ _ _ hmu, hC]
         refine ⟨?_, ?_, hvals, hE1, hE2, ?_, ?_, ?_,
-          place_capped_bigInit ks b big1 c v hpc hBig, ?_, hHov', ?_, ?_, ?_, ?_⟩
+          place_capped_bigInit ks b big1 c v hpc hBig, ?_, hHov', hHent', ?_, ?_, ?_, ?_⟩
         · rw [hupd', List.length_set]; exact hA1
         · intro d hd
           rw [hupd', List.getElem?_set_ne (by omega)]
@@ -1473,15 +1478,16 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
       have hmain : (s.coords.val.take i.val).countP (fun c => decide (¬ IsSent c)) = mainCount s := by
         rw [List.take_of_length_le hge]; rfl
       exact ⟨hbitsb, hlenb, hslb, hBig, by rw [← hmain]; exact hlenbnd,
-        by rw [← hmain]; exact hHov, hE1, hE2, hszb⟩
+        by rw [← hmain]; exact hHov, by rw [← hmain]; exact hHent, hE1, hE2, hszb⟩
   · refine ⟨rfl, (fun d _ => rfl), rfl, rfl, rfl, hb0.1.bits_pos, hb0.1.len_pow, hb0.1.vals_len,
-      ?_, ?_, ?_, Nat.zero_le _, hsz_s, hsz_b0, hK⟩
+      ?_, ?_, ?_, ?_, Nat.zero_le _, hsz_s, hsz_b0, hK⟩
     · exact fun j c' hc hns => ⟨m c', (hb0.1.main_val j c' hc hns).2⟩
     · have hb0len : b0.len.val = 0 := by rw [hb0.1.len_count]; omega
       rw [hb0len]; exact Nat.zero_le _
     · intro ov h
       rw [hb0o] at h
       exact absurd h (by simp)
+    · simpa using hent0
 
 /-- **`resize_loop0_ok_hov`.**  `resize_loop0` returns `ok` and its destination table satisfies the
 overflow domain `Hov · (mainCount s)` that `resize_loop1_ok` consumes through its `hHov0` premise.
@@ -1500,8 +1506,9 @@ theorem resize_loop0_ok_hov {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
     (hsz_s : s.coords.val.length ≤ sz s.keys) (hsz_b0 : b0.coords.val.length ≤ sz b0.keys) :
     ∃ r, hashtrinity.Table.resize_loop0 core.cmp.EqU64 CI ks s b0 0#usize = ok r ∧
       Hov r.2.2 (mainCount s) := by
-  obtain ⟨r, hr, -, -, -, -, -, hhov, -, -, -⟩ :=
-    resize_loop0_ok_hov_strong ks sz hm hA hset KC hTK hR hK hcap b0 hb0 hcb0 hb0o hsz_s hsz_b0
+  obtain ⟨r, hr, -, -, -, -, -, hhov, -, -, -, -⟩ :=
+    resize_loop0_ok_hov_strong ks sz hm hA hset KC hTK hR hK hcap b0 hb0 hcb0 hb0o 0
+      (Hent_none hb0o) hsz_s hsz_b0
   exact ⟨r, hr, hhov⟩
 
 end Apeiron.MapExecuted
