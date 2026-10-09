@@ -244,12 +244,28 @@ pub unsafe fn make_fused_gemv(
     if pdl.flags & crate::simt_nn::PDL_PRODUCER != 0 {
         bufs.push(pdl.prod);
     }
+    if pdl.flags & crate::simt_nn::PDL_GRIDBAR != 0 {
+        bufs.push(pdl.bar);
+    }
     let (l1, d1) = g.vk.ssbo_set(&bufs);
     let spv = spec
         .emit(m, k, FWG)
         .unwrap_or_else(|e| panic!("illegal fused gemv spec at {m}x{k}: {e}"));
     crate::simt_nn::pdl_clear();
     let pipe = g.vk.pipeline(&spv, l1);
+    // rows per workgroup of the emitted kernel (`gemv_norm_tile`): the grid must match it
+    let (rows, _) = crate::simt_nn::gemv_norm_tile(
+        m,
+        s,
+        spec.carrier,
+        residual,
+        spec.scale == ScaleFace::TwoLevel,
+    );
+    let groups = if rows == FWG {
+        spec.groups(m, FWG)
+    } else {
+        (m.div_ceil(rows), 1)
+    };
     let stage2 = (s > 1).then(|| {
         let (l2, d2) = g.vk.ssbo_set(&[partials, ones, y]);
         let p2 =
@@ -260,7 +276,7 @@ pub unsafe fn make_fused_gemv(
         pipe,
         layout: l1,
         dset: d1,
-        groups: spec.groups(m, FWG),
+        groups,
         stage2,
         segs: 1,
         bytes: spec.chart_bytes(m, k),
@@ -597,6 +613,12 @@ pub unsafe fn record_layer(
     if e2 {
         gu_role.flags |= crate::simt_nn::PDL_PRODUCER;
         gu_role.prod = c2;
+    }
+    // `gu` reduces the residual once across its workgroups and joins them on a grid barrier (needs
+    // the `o → gu` consumer for the shared overflow word)
+    if e1 {
+        gu_role.flags |= crate::simt_nn::PDL_GRIDBAR;
+        gu_role.bar = g.dev_zeroed(4);
     }
     crate::simt_nn::pdl_begin(gu_role);
     let mut gu_gm = make_fused_gemv(

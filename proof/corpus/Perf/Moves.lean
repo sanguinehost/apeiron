@@ -668,6 +668,22 @@ theorem p70_gu_cost_terms :
     44843 > 27314 := by
   decide
 
+/-- P71 (DECODE-ATTRIB T12): measured arithmetic over `gu` at 128 rows per workgroup with the grid
+barrier residual (units: 0.01 µs per token; tok/s ×10). Base 27309, rows-per-workgroup alone 25530
+(above the 25000 gate), with the barrier 24723; the five interleaved rounds A < B; 76 workgroups
+fit 84 SMs. Arithmetic over recorded measurements, not a kernel claim. -/
+theorem p71_gu_workgroups :
+    27309 - 24723 = 2586 ∧
+    24723 ≤ 25000 ∧
+    25000 < 25530 ∧ 25530 < 27309 ∧
+    14980 < 24723 ∧
+    9530 < 9717 ∧ 9371 < 9760 ∧ 9601 < 9733 ∧ 9371 < 9516 ∧ 9559 < 9963 ∧
+    9530 + 9371 + 9601 + 9371 + 9559 = 47432 ∧
+    9717 + 9760 + 9733 + 9516 + 9963 = 48689 ∧
+    47432 < 48689 ∧
+    38 * 2 = 76 ∧ 76 ≤ 84 := by
+  decide
+
 end Moves
 
 end Perf

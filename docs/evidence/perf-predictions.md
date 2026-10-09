@@ -364,6 +364,7 @@ K-block loop `[0xa60, 0x4f50]`, 14 iterations (KB=2), 1104 static slots:
 | P69 | DECODE-ATTRIB-SUB-FLASH (row `decode-attrib-attribute-CisURujlQzOoUaNOGjR1Ms`): the rope-flash node gets a merged prologue, a subgroup max and a chunked pass 3 (`DEC_FLASH_V2=1` default, `DEC_FLASH_UNROLL=8` default in `src/simt_nn/sparse.rs`; `DEC_FLASH_V2=0` restores the previous node). Registered after the lane numbers were read: this row records the installed default | `T(v2) = T(v1) − 24·(n_v1 − n_v2)` over the 24 rope-flash nodes; lane node time 5.20 → 4.03 µs/layer prices 28.1 µs/token | the default is the `DEC_FLASH_V2=1` arm: SEQHASH `9092dbbaff119a2e`, tg128 above every paired `DEC_FLASH_V2=0` round of the same campaign | a default run with a SEQHASH change, or a paired round at or below `DEC_FLASH_V2=0` | live tree, 4 interleaved rounds × 5 reps, `--gen 128 --reps 5 --carrier q4`, RTX 5080, qwen05b Q4_K_M (`/tmp/opencode/p69-live.sh`): `DEC_FLASH_V2=0` 933.3 / 942.8 / 944.1 / 957.5, default 975.9 / 975.3 / 947.3 / 975.3 tok/s; means 944.4 → 968.4 (1058.8 → 1032.6 µs/token, 26.2 µs/token against the 28.1 priced), per-pair ratio 1.0456 / 1.0345 / 1.0034 / 1.0186, mean 1.0255, every pair above; SEQHASH unchanged on all 8 runs; `cargo test --lib simt_nn` 19 passed (with `flashpartialfold`), clippy clean. The token stays above the 754 µs target | held (`measured` + `tested`) | Lean: `Perf.Moves.p69_flash_merged_prologue` |
 | P68 | DECODE-ATTRIB-SUB-GEMV (row `decode-attrib-attribute-CisURujlQzOoUaNOGjR1Ms`), base `a8fc3fa`, qwen05b Q4_K_M, RTX 5080, tg128, `--carrier q4`: k-slice the segs = 1 Norm GEMV (gu, Q5) in-workgroup, 256/ks rows per workgroup, slice 0 folding the shared terms in ascending order (`DEC_GEMVKS`, default 2) | `t_gu ≥ 6537216 B / 960 GB/s = 6.81 µs/node`; at ks = 1 only 38 of 84 SMs stream | gu node 11.4 → ≤ 10.6 µs; tg128 falls; SEQHASH unchanged | any paired round slower, or SEQHASH ≠ `9092dbbaff119a2e` | lane: gu 274.9 → 252.9 µs/token (profiled); tg128 1097.9 → 1084.0 µs/token, 6/6 rounds. Live tree (`cfe4986` + diff), `--gen 128 --reps 5`, 10 interleaved pairs (rounds 1–5 ks1 first, 6–10 default first), default/ks1 tok/s ratio: 0.966, 1.005, 1.034, 1.046, 1.041, 1.042, 0.993, 0.994, 1.029, 1.039; per-pair mean 1.019, sd 0.027; means ks1 966.2, default 984.3 tok/s; SEQHASH `9092dbbaff119a2e` on all 20 runs; `gpu_decode_step` q4/q8 green at ks 1 and 2 | **not confirmed**: 3 of 10 paired rounds slower (refutation clause fires); not installed. Diff kept at `/home/socol/oc-tmp/sub-gemv-p68.diff` and `sub-gemv-p68-lean.diff` | Lean: `Perf.Moves.p68_kslice_not_confirmed` |
 | P70 | DECODE-ATTRIB T11 (row `decode-attrib-attribute-CisURujlQzOoUaNOGjR1Ms`), base `b06a87dd`, qwen05b Q4_K_M, RTX 5080, tg128, `--carrier q4`: price the `gu` node and cut its prologue. `gu` = `make_fused_gemv` (`src/gpu/decode/layer.rs:194`) → `gemv_norm_module_sc` (`src/simt_nn/norm.rs:348`): m = 2·dff = 9728, k = hidden = 896, Q5 chart, LocalSize 256, segs 1, residual `Some(segs_o = 28)`, groups (38,1) = 38 WGs; every WG recomputes the 896-element RMSNorm+quant and the 28-way `o`-partial residual reduce | `t_gu = D + P + F` per token: `D` dispatch/PDL, `P` prologue (residual reduce + norm+quant), `F` fold weight transport; the floor is `F_floor` = GGUF tensor bytes / 960 GB/s = 149.8 µs/token; the achieved fold rate `B = bytes/F` against 960 GB/s decides whether the 38 WGs (of 84 SMs) under-drive the memory system | the in-scope lever is the residual reduce (inline in `gemv_norm_module_sc`): unroll/interleave it so all loads issue before the ordered adds (per element, `s` ascending, unchanged), taking the residual 24.65 → ≤ 15 µs/token and `gu` ≤ 263 (−10 µs/token, −0.42/layer) | `gu` node change within ± 8 µs/token of 273, or slower, or `SEQHASH` ≠ `9092dbbaff119a2e` | probe arms `DEC_GU_ARM` on the base binary (`DEC_PROF=7 --prof --gen 128 --carrier q4`, gu µs/token): full 273.14; residual `s=0` 248.49 (residual = 24.65); skip norm+quant 231.75 (41.39); skip residual+norm 212.85 (`P` = 60.29); skip fold 65.95 (`F` = 207.19, `D` = 5.66). Per layer 11.38 = 8.63 + 2.51 + 0.24. Fold bytes 143.8 MB/token → 694 GB/s = 72 % of the 960 floor; the achieved rate rises with workgroup count: dn 19 WGs 642 GB/s (67 %), gu 38 694 (72 %), lm_head 594 849 (88 %). Fix arms (all keep `SEQHASH 9092dbbaff119a2e`): residual full unroll 448.43 (+175, register pressure), residual interleaved 275.21 (+2.1), fold weight-word hoist in a throwaway `attn_dp4a.rs` 272.83 (−0.3) | **refuted** on both in-scope prologue arms (slower or neutral). The dominant term is the fold `F` = 207.19 µs/token = 76 % of the node, running at 72 % of the weight-read floor because only 38 of 84 SMs execute the node; load scheduling does not move it (hoist neutral), so the fix is more resident work without duplicating the prologue, which needs the fold emitter `dp4a_chart_fold` (`src/simt_nn/attn_dp4a.rs`) — outside this task's owned files | Lean: `Perf.Moves.p70_gu_cost_terms` |
+| P71 | DECODE-ATTRIB T12 (row `decode-attrib-attribute-CisURujlQzOoUaNOGjR1Ms`), base `b8d6166`, qwen05b Q4_K_M, RTX 5080, tg128, `--carrier q4`: raise the `gu` node's resident workgroups (38 of 84 SMs) without multiplying the prologue: arm 1 fewer rows per workgroup in `gemv_norm_module_sc` (`DEC_GU_RPW` = 128 / 64, 76 / 152 WGs, in-workgroup k-slices `ks = 256/RPW` keeping LocalSize 256 so the norm reduction tree and SEQHASH are unchanged; an idle-lane variant `DEC_GU_IDLE=1` keeps ks = 1), arm 2 split-K `segs` = 2 priced, arm 3 prologue once priced | `t_gu = D + P + F` (T11: 5.66 + 60.29 + 207.19 = 273.14 µs/token); the fold runs at 694 GB/s = 72 % of 960 with 38 WGs, rising with WG count (dn 19: 642, gu 38: 694, lm_head 594: 849); P is one WG's latency, parallel across WGs, so its wall time is flat in WG count while its L2 traffic grows with it | `F` 207 → ≤ 180 µs/token and node ≤ 250 at 76 or 152 WGs (rate 694 → ≥ 799 GB/s); tg128 up, SEQHASH unchanged | node change within ± 8 µs/token of 273, or slower, or `SEQHASH` ≠ `9092dbbaff119a2e`, or any interleaved round where the dial arm is not faster than base | prior art: P68 (`cfe4986`-era k-slice, ks = 2, same mechanism as arm 1) gu 274.9 → 252.9 profiled, tg128 per-pair 1.019 sd 0.027, 3 of 10 rounds slower; this row re-measures it on `b8d6166` and adds ks = 4 and the idle-lane variant | measured: the derivation is refuted (more WGs alone leaves gu at 272.9), the node reaches 247.2 only with k-slices plus the grid-barrier residual; gu 273.09 -> 247.23 µs/token, tg128 948.6 -> 973.8 tok/s, B > A in 5 of 5 rounds, SEQHASH unchanged; installed. See P71 outcome | Lean: `Perf.Moves.p71_gu_workgroups` |
 
 ## Held-out cases still to predict
 
@@ -415,3 +416,45 @@ additive here (0 + 0 − full = 5.66).
   overhead not subtracted; the truncated arms are timing only (no oracle), and the phase terms
   assume additivity, verified here to 5.66 µs. The fold rate comparison across nodes uses
   P62's per-role floors, not a fresh GGUF byte count.
+
+## P71 outcome
+
+Row `decode-attrib-attribute-CisURujlQzOoUaNOGjR1Ms`, base `b8d6166`, RTX 5080, qwen05b Q4_K_M, tg128,
+`--carrier q4`, `--gen 128`. Grade `measured`, registered before timing.
+
+Lead derivation refuted: idle-lane variants (76 and 152 WGs, same active lanes) leave gu at ~272.9,
+so WG count is not the lever; active lanes in flight are. The term that breaks it is `P`: the
+28-way residual reduce is L2-bound and every WG re-reads the 100 KB of o-partials, so `D + P`
+(fold skipped) is 67.5 / 71.6 / 127.5 / 230.7 µs/token at 38 / 76 / 152 / 304 WGs.
+
+| arm (`DEC_PROF=7 --prof`, gu µs/token) | WGs | gu | SEQHASH |
+|---|---|---|---|
+| base | 38 | 273.09 | `9092dbbaff119a2e` |
+| idle lanes, 128 rows | 76 | ~272.9 | unchanged |
+| k-slice, 128 rows (ks 2) | 76 | 255.30 | unchanged |
+| k-slice, 64 rows (ks 4) | 152 | 260.92 | unchanged |
+| grid-barrier residual, 256 rows | 38 | 263.81 | unchanged |
+| k-slice 128 + grid barrier | 76 | **247.23** | unchanged |
+| k-slice 64 + grid barrier | 152 | 250.49 | unchanged |
+| k-slice 32 + grid barrier | 304 | 252.68 | unchanged |
+
+Installed: 128 rows per WG with ks 2 (`gemv_norm_tile`) and the grid-barrier residual
+(`PDL_GRIDBAR`, `pdl_grid_barrier`): each WG reduces `ceil(n / W)` residual elements once and the
+`W` WGs join on a self-resetting device-scope barrier (needs co-resident WGs: 76 <= 84 SMs).
+Arm 2 (split-K `segs` 2) priced, not built: it changes the f32 add order and needs a consumer-side
+reduce. Arm 3 (separate prologue dispatch) priced as no gain unless `P` is parallelised, which the
+grid barrier does inside the fused node.
+
+Interleaved 5 rounds x 5 reps (A = base, B = installed), tok/s mean [min, max]:
+
+| round | A | B |
+|---|---|---|
+| 1 | 953.0 [937.1, 969.0] | 971.7 [937.4, 999.1] |
+| 2 | 937.1 [916.4, 974.1] | 976.0 [955.8, 990.7] |
+| 3 | 960.1 [950.1, 969.5] | 973.3 [947.0, 1005.4] |
+| 4 | 937.1 [923.4, 952.8] | 951.6 [935.1, 967.2] |
+| 5 | 955.9 [922.9, 981.3] | 996.3 [972.7, 1024.2] |
+
+Mean A 948.6, B 973.8 (+2.7 %); B > A in 5 of 5 rounds; `PDL overflow 0` and 0 argmax mismatches
+in every run. Not covered: other GPUs with fewer than 76 resident-capable SMs (the barrier
+deadlocks into the capped spin and sets the overflow word), rustc/LLVM and driver codegen.

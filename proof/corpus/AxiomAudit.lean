@@ -380,6 +380,7 @@ import Learn.GramExact
 #audit Perf.Moves.p68_kslice_not_confirmed
 #audit Perf.Moves.p67_qf_target_id_bug
 #audit Perf.Moves.p70_gu_cost_terms
+#audit Perf.Moves.p71_gu_workgroups
 #audit Perf.Moves.p10_mma_floor
 #audit Perf.Moves.p10_mma_rate_ratio
 #audit Perf.Moves.p10_mma_floor_p8
