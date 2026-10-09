@@ -1,5 +1,6 @@
 import AxiomAudit.Core
 import Nous.Model.HyperbolicAttention
+import Numeric.SigmaDelta
 
 set_option linter.apeiron.notation false
 set_option linter.apeiron.citation false
@@ -1091,3 +1092,12 @@ open apeiron_word
 #audit Nous.Model.boost_finite_rank_recurrence_vec
 #audit Nous.Model.boost_witness
 #audit Nous.Model.boost_score_witness
+
+-- LEARN-ONEBIT W6-T3 (onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1): sigma-delta bound, prefix, Abel, shaping
+#audit Numeric.SigmaDelta.sd_state_bound
+#audit Numeric.SigmaDelta.sd_prefix
+#audit Numeric.SigmaDelta.sd_abel
+#audit Numeric.SigmaDelta.sd_dot_bound
+#audit Numeric.SigmaDelta.shape_dot
+#audit Numeric.SigmaDelta.shape_null_exact
+#audit Numeric.SigmaDelta.sd_beats_sign
