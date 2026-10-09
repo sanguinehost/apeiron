@@ -957,6 +957,32 @@ from the `FACES-R3-ROPE-LOWFREQ` digest, not opened by the lead, are in the FACE
 9` rad and the same pairs are elliptic), the effect of the slope on the softmax output rather than on the logit variance. Grade
 `tested`.
 
+#### FACES-R1 H1/H2 bridge on the 7B-1M schedule (row `faces-r1-do-the-three-on-HCnA8ZlHN3emV1nzkVH7V0`)
+
+Command: `python3 /home/socol/oc-tmp/escalation/FACES-R1-rope-contraction-7b.py` (sha256 `124bed96…`; output
+`FACES-R1-rope-contraction-7b.out`). Same statement and tolerance as the 0.5B bridge above (`ε = 1e-2`, parabolic iff
+`θ_j L < sqrt(2ε)`, wrapped iff `θ_j L > 2π`); schedule `θ_j = θ^(-2j/hd)` with Qwen2.5-7B-Instruct-1M's GGUF
+`qwen2.rope.freq_base = 1.0e7` (read from the file's metadata, bytes `0x4B189680`) and `hd = 128` (64 pairs).
+Prediction in the script header, derived by hand before the run; refuted if a count differed by more than 1.
+
+| `L` | parabolic pairs | wrapped pairs | prediction | 0.5B (`θ = 1e6`, 32 pairs) parabolic |
+|---|---|---|---|---|
+| 512 | 31 (j ≥ 33) of 64 | 18 | 31 | 13 |
+| 32768 | 14 (j ≥ 50) | 34 | 14 | 3 |
+| 131072 | 9 (j ≥ 55) | 40 | 9 / 40 | 0 |
+| 1048576 | 1 (j ≥ 63) | 48 | 1 / 48 | 0 |
+
+Every prediction matched; the direct grid check of `sup|cos θd − 1|` and `sup|sin θd − θd|` passed for every counted pair.
+Grade `tested` (numeric, shipped schedule and the model's metadata; no weights read). Reading (`model`): the 1M-context
+model's raised base keeps 9 of 64 pairs on the `σ=0` face at `L=131072` where the 0.5B keeps none, and 1 pair at `2^20`;
+read on the faces, raising `θ` pushes the elliptic-to-parabolic contraction out to longer `L`. The T8 section of
+`docs/evidence/hattn-decode-tail.md` measures this model at 131072 and the same pairs are the Quest bound's low-frequency
+dimensions; whether the bound's looseness there is the parabolic pairs is not measured. Prior art: context-extension by raising the RoPE
+base or rescaling frequencies (NTK-aware scaling, YaRN) is established practice; pointers, not retrieved. Search: `rg -il 'yarn|ntk-aware|base of rope|rope base'
+docs ../ref` finds only the repo's own YaRN-metadata notes; the faces reading of base-raising as a longer parabolic regime is
+not claimed new. Not covered: other models' bases, the trained use of those pairs on the 7B (the 0.5B H2 result found them
+to be content channels), and the Q4_K_M weights.
+
 ### FACES-R3 results (prior-art search)
 
 Row: `faces-r3-searched-list-of-HFjIFdmrgQqByikqw7ayoE`. Digest `/home/socol/oc-tmp/escalation/FACES-R3-DIGEST.md`
