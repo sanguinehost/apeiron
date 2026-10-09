@@ -142,7 +142,8 @@ An epic without a written intent, spec and plan is still design. Do not allocate
 
 A red goal is worked by one loop, never by picking the easiest bounded task:
 
-1. **The lead ranks.** The lead (Claude Code on Opus) writes the **highest-impact items** that move
+1. **The lead ranks.** The lead (Claude Code on Sonnet; an Opus subagent for the ranking itself, per
+   [`../AGENTS.md`](../AGENTS.md) §Escalation ladder) writes the **highest-impact items** that move
    the goal, ordered by contribution *and difficulty*, hardest first. The ranking is written under
    `/home/socol/oc-tmp/escalation/` and is the dispatch order.
 2. **One lane per item.** Each item gets **one** lane, and no more lanes than the item's
@@ -480,7 +481,8 @@ Mandatory escalation triggers override every worker lane. An unresolved proof or
 obligation goes to a fresh session on a different worker model; the Lean kernel and the mutation
 control arbitrate, and contract or claim-grade questions go to the lead. A contract, grade or
 architecture question that would otherwise wait on the owner is decided by **the lead** (Claude
-Code on Opus, owner direction 2026-10-06; it replaces the earlier Sol route): the lead records the
+Code on Sonnet, with one Opus subagent for the verdict, owner direction 2026-10-09; it replaces the
+earlier Sol route): the lead records the
 verdict under `/home/socol/oc-tmp/escalation/` and in `docs/plan.md`, acts on it, and lists it for the
 owner's review. The lead does not idle waiting for the owner. Sol, Astra and Terra answers already on
 disk are historical records.
