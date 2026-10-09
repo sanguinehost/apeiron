@@ -5,12 +5,21 @@
 //!
 //! [`Table`] is the sole storage type. It is tested; its source refinement is pending.
 
+/// AES-128 (FIPS 197). Unaudited: tested against the SP 800-38A known-answer vector only. Not
+/// side-channel resistant: the S-box is indexed by secret bytes. Do not use it to protect real data;
+/// its rooting onto `R[x]/(x² − σ)` is in progress.
 pub mod aes;
 pub mod attn_cut;
 pub mod carrier;
 pub mod cell;
+/// ChaCha20-Poly1305 (RFC 8439). Unaudited: tested against the RFC 8439 known-answer vectors only.
+/// Its constant-time construction is not measured, so treat it as not side-channel resistant. Do not
+/// use it to protect real data; its rooting onto `R[x]/(x² − σ)` is in progress.
 pub mod chacha;
 pub mod coord;
+/// SHA-3 and SHAKE (FIPS 202). Unaudited: tested against the NIST known-answer vectors only, with no
+/// side-channel review. Do not use it to protect real data; its rooting onto `R[x]/(x² − σ)` is in
+/// progress.
 pub mod crypto;
 pub mod engine;
 pub mod exchange;
@@ -51,6 +60,9 @@ pub mod numeric;
 pub mod pepper;
 pub mod policy;
 pub mod scalar;
+/// SHA-256 (FIPS 180-4). Unaudited: tested against the FIPS 180-4 known-answer vectors only, with no
+/// side-channel review. Do not use it to protect real data; its rooting onto `R[x]/(x² − σ)` is in
+/// progress.
 pub mod sha256;
 /// The ported SIMT (GPU) substrate: the 12-op alphabet encoded to SPIR-V, the carrier-dial GEMV
 /// fold and the integer-dot (DP4A) chart GEMV. Faithful port of fold's `modelfold::simt`.

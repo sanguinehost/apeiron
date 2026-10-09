@@ -140,6 +140,9 @@ their benches concerned source that no longer exists, and the deletions are reco
 
 ## What this does not claim
 
+- No audited cryptography. `aes`, `chacha`, `sha256` and `crypto` are unaudited, tested against
+  known-answer vectors only, and not side-channel resistant (`aes` indexes its S-box by secret
+  bytes). Do not use them to protect real data. Their rooting onto `R[x]/(x² − σ)` is in progress.
 - No current benchmark or performance number for the table or the crate.
 - No semantics for callbacks that violate `CallbackLawsG`, including callbacks that allocate,
   panic or diverge. The proved generic refinement is conditional on those explicit callback laws and
