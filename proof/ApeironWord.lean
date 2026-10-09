@@ -18050,12 +18050,12 @@ def hashtrinity.freq.FreqMapKI64.count_aggregate_start
     (hashtrinity.freq.FreqMapKI64.COUNT_AGGREGATE_START algebraCoordInst)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}]
-    Source: '../../src/hashtrinity/freq.rs', lines 1479:43-1479:63 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 1481:43-1481:63 -/
 @[reducible]
 def hashtrinity.freq.FreqMapKI64.add.closure (K : Type) := Unit
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{impl core::ops::function::FnOnce<(i64, i64), i64> for apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}<K>}::call_once]:
-    Source: '../../src/hashtrinity/freq.rs', lines 1479:43-1479:63 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 1481:43-1481:63 -/
 def
   hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64.call_once
   {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -18067,7 +18067,7 @@ def
   new + old
 
 /-- Trait implementation: [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{impl core::ops::function::FnOnce<(i64, i64), i64> for apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}<K>}]
-    Source: '../../src/hashtrinity/freq.rs', lines 1479:43-1479:63 -/
+    Source: '../../src/hashtrinity/freq.rs', lines 1481:43-1481:63 -/
 @[reducible]
 def
   hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64
@@ -19764,7 +19764,7 @@ def hashtrinity.freq.FreqLine.insert_with
         ok { self2 with len := i5 }
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add]:
-    Source: '../../src/hashtrinity/freq.rs', lines 1477:4-1480:5
+    Source: '../../src/hashtrinity/freq.rs', lines 1479:4-1482:5
     Visibility: public -/
 def hashtrinity.freq.FreqMapKI64.add
   {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -19789,15 +19789,15 @@ def hashtrinity.bits_for_slots (slots : Std.Usize) : Result Std.U32 := do
   core.cmp.Ord.max.default core.cmp.OrdU32 i4 3#u32
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::with_capacity]:
-    Source: '../../src/hashtrinity/freq.rs', lines 1271:4-1276:5
+    Source: '../../src/hashtrinity/freq.rs', lines 1273:4-1278:5
     Visibility: public -/
 def hashtrinity.freq.FreqMap.with_capacity
   {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K)
   (cap : Std.Usize) :
   Result (hashtrinity.freq.FreqMap K V)
   := do
-  let i ← core.num.Usize.saturating_mul cap 3#usize
-  let i1 ← i / 2#usize
+  let i ← core.num.Usize.saturating_mul cap 8#usize
+  let i1 ← i / 7#usize
   let i2 ← hashtrinity.bits_for_slots i1
   let fl ← hashtrinity.freq.FreqLine.with_bits V i2
   ok { inner := fl, _k := () }

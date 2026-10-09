@@ -1258,19 +1258,21 @@ impl<K: Coord, V> FreqMap<K, V> {
         k.coord()
     }
 
-    /// A frequency map sized for the **group probe's optimum — dense** (`≈ 1.5·cap` slots, load
-    /// ~0.33–0.67). The byte-tag group probe (`GroupProbe.lean`) rejects a miss with one control
-    /// word regardless of load — probe work is occupancy over the group width, `w`-fold amplified
-    /// against load (`GroupProbe.full_groups_bounded_by_occupancy`, the load inversion) — so,
-    /// unlike the old direct-slot band probe, which wanted a sparse table to keep hits
-    /// collision-free, density is now strictly better: a smaller footprint
-    /// means fewer cold lines on every out-of-cache access. Measured: at 1M/4M keys this matches
-    /// hashbrown on misses (the area the sparse table lost, +67%) and stays within ~15% on hits,
-    /// where `≈ 3·cap` (the former read-tuned sizing) was slower on BOTH. The load knob is
+    /// A frequency map sized to hold `cap` keys below the 7/8 grow threshold: `≈ 8/7·cap` slots
+    /// (`next_pow2(8·cap/7)`; load ≤ 7/8). `8/7` is the smallest factor that keeps
+    /// `7/8·slots ≥ cap`, so a `with_capacity(cap)` line does not grow while it fills to `cap`;
+    /// `3/2` rounded the same request up a whole power of two more often (e.g. `with_capacity(1e5)`
+    /// opened 2^18 slots under `3/2`, 2^17 under `8/7`). The byte-tag group probe
+    /// (`GroupProbe.lean`) rejects a miss with one control word regardless of load — probe work is
+    /// occupancy over the group width, `w`-fold amplified against load
+    /// (`GroupProbe.full_groups_bounded_by_occupancy`, the load inversion) — so a smaller footprint
+    /// is strictly better: fewer cold lines on every out-of-cache access. The load knob is
     /// `LoadFactorFrontier`'s, not a security flag — the probe is always immune.
+    /// Row `apeiron-beat-Bu3jZusxHvuMEJ8FOQ3C9O` (APEIRON-BEAT lane 13): at `cap = 1e5`, 2^18 slots
+    /// (4 MB, past a 2 MB L2) took 0.855 L2 misses per hit read, 2^17 takes 0.221.
     pub fn with_capacity(cap: usize) -> Self {
         FreqMap {
-            inner: FreqLine::with_bits(bits_for_slots(cap.saturating_mul(3) / 2)),
+            inner: FreqLine::with_bits(bits_for_slots(cap.saturating_mul(8) / 7)),
             _k: std::marker::PhantomData,
         }
     }
