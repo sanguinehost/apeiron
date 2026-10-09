@@ -309,3 +309,8 @@ Instrument for the 7B (board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX
   - regression: the default build reproduces T8's `tree.out` line for line; only the dump path's spelling differs;
   - negative: the `PROBE_HD=128` binary refuses the 0.5B on its `head_dim` assertion, exit 101;
   - `clippy -D warnings` exits 0 at both head dims.
+- Dump (`KV_DUMP`) runs per layer in three phases over token chunks of `KV_CHUNK` rows (default 8192), resumable
+  inside a layer, so memory is bounded at long contexts (row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`).
+  Control: Qwen2.5-0.5B, `KV_T=4096`, `KV_CHUNK=1024`, `KV_BUDGET=6` (5 invocations, 4 forced resumes): q, k, v of
+  all 24 layers are byte-identical to the unchunked 32k dump's first 4096 rows (`cmp`). Clippy `-D warnings` exit 0.
+  CPU cost is the limit: FFN 73% of a 150 s layer at 32k, attention `O(t^2)`; the 1M dump needs the GPU.

@@ -2027,8 +2027,13 @@ unsafe fn attend_job_avx(
 /// in blocks of 256 so a K or V block is read once per 64 queries instead of once per query. Keys
 /// whose score is more than 30 below the row maximum (weight < 1e-13) are skipped.
 ///
-/// Complexity: time `O(nh * t^2/2 * HD)` multiply-adds for scores and again for values, space
-/// `O(t * nh * HD)` words for the output plus `64 * t` words of scores per thread.
+/// Only the query chunks `chs` (units of 64 rows) are computed; row `i` of the output is query
+/// `chs.start * 64 + i`. Each job is the same computation whatever `chs` is, so a range split is exact.
+///
+/// Complexity: time `O(nh * t^2/2 * HD)` multiply-adds for scores and again for values over the full
+/// range (a chunk ending at row `r` costs its rows times `r`), space `O(rows * nh * HD)` words for the
+/// output plus `64 * t` words of scores per thread.
+#[allow(clippy::too_many_arguments)]
 fn attend_all(
     q: &[f32],
     k: &[f32],
@@ -2037,8 +2042,9 @@ fn attend_all(
     nh: usize,
     nkv: usize,
     nth: usize,
+    chs: std::ops::Range<usize>,
 ) -> Vec<f32> {
-    let nch = t / ACH;
+    let nch = chs.len();
     let next = AtomicUsize::new(0);
     let avx = std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma");
     let results: Mutex<Vec<(usize, usize, Vec<f32>)>> = Mutex::new(Vec::new());
@@ -2051,7 +2057,7 @@ fn attend_all(
                     if job >= nch * nh {
                         break;
                     }
-                    let (ch, h) = (nch - 1 - job / nh, job % nh);
+                    let (ch, h) = (chs.end - 1 - job / nh, job % nh);
                     let out = if avx {
                         // SAFETY: avx2 and fma were detected above.
                         unsafe { attend_job_avx(q, k, v, (nh, nkv), (ch, h), &mut scr) }
@@ -2063,10 +2069,10 @@ fn attend_all(
             });
         }
     });
-    let mut att = vec![0f32; t * nh * HD];
+    let mut att = vec![0f32; nch * ACH * nh * HD];
     for (h, ch, out) in results.into_inner().unwrap() {
         for qi in 0..ACH {
-            let dst = ((ch * ACH + qi) * nh + h) * HD;
+            let dst = (((ch - chs.start) * ACH + qi) * nh + h) * HD;
             att[dst..dst + HD].copy_from_slice(&out[qi * HD..(qi + 1) * HD]);
         }
     }
@@ -2349,7 +2355,7 @@ fn run_b4(
         analyze_layer(&q, &k, &v, nh, nkv, &posg, &total);
         t_an += ta.elapsed().as_secs_f64();
         let tan = tl.elapsed().as_secs_f64();
-        let att = attend_all(&q, &k, &v, T16, nh, nkv, nth);
+        let att = attend_all(&q, &k, &v, T16, nh, nkv, nth, 0..T16 / ACH);
         let tat = tl.elapsed().as_secs_f64();
         let (wo, ni, no) = weight(eng, &format!("blk.{l}.attn_output.weight"))?;
         let o = gemm(&wo, no, ni, &att, T16, None, nth);
@@ -2662,16 +2668,20 @@ fn qk_energy_report(qke: &[(Vec<f64>, Vec<f64>, Vec<f64>)], nh: usize) {
 /// ids are prompt 0's) through the f32 forward; writes per layer the unrotated q, k and v
 /// (`q{l}.bin` `KV_T x n_head x 64`, `k{l}.bin`/`v{l}.bin` `KV_T x n_head_kv x 64`, f32 LE), the
 /// rope table `cs.bin` (`KV_T x 32` (cos, sin) f64 LE) and `ids.bin` (u32 LE). Causal, so a
-/// prefix of length t is the dump at t. The residual entering layer `l` is checkpointed in
-/// `x.bin` / `next.txt`: an invocation stops after the layer that crosses `KV_BUDGET` seconds
-/// (default 420) and exits 3; rerun to continue. Each layer's first `T` rows of q and k are
-/// compared with `QK_REF/q{l}.bin`, `k{l}.bin` (the T=512 dumps) when `QK_REF` is set.
+/// prefix of length t is the dump at t. Each layer runs in three phases over token chunks of
+/// `KV_CHUNK` rows (default 8192): q, k, v; attention and the output projection; the FFN. Every
+/// row's result is the same computation whatever the chunking, so the dump does not depend on
+/// `KV_CHUNK`. The residual is checkpointed in `x.bin` / `next.txt` (`l`, or `l phase chunk`): an
+/// invocation stops after the chunk that crosses `KV_BUDGET` seconds (default 420) and exits 3;
+/// rerun to continue. Each layer's first `T` rows of q and k are compared with `QK_REF/q{l}.bin`,
+/// `k{l}.bin` (the T=512 dumps) when `QK_REF` is set.
 ///
-/// Cost per layer: projections `KV_T (n_embd (n_head + 2 n_head_kv) 64 + n_embd^2 + 3 n_embd n_ff)`
-/// multiply-adds, attention `n_head KV_T (KV_T + 1) 64` (causal, q.k and p.v); memory
-/// `KV_T n_ff` f32 twice (gate, up), the largest buffers.
+/// Cost per layer: projections `KV_T (n_embd (n_head + 2 n_head_kv) HD + n_embd^2 + 3 n_embd n_ff)`
+/// multiply-adds, attention `n_head KV_T (KV_T + 1) HD` (causal, q.k and p.v); memory `KV_T` rows of
+/// x, q, k and v plus `KV_CHUNK n_ff` f32 four times (gate, up and their transposes).
 #[allow(clippy::too_many_lines)]
 fn run_dump(path: &str, dir: &std::path::Path, tn: usize) -> Result<bool, Box<dyn Error>> {
+    use std::io::Write;
     let nth = 16usize;
     let budget: f64 = std::env::var("KV_BUDGET")
         .ok()
@@ -2727,12 +2737,35 @@ fn run_dump(path: &str, dir: &std::path::Path, tn: usize) -> Result<bool, Box<dy
             }
         }
     };
+    // Progress: `next.txt` is `l` (layer `l` from its start) or `l p c` (layer `l`, phase `p` = 1 attention
+    // or 2 FFN, next token chunk `c`); `x.bin` is the residual at that point.
+    let cn: usize = std::env::var("KV_CHUNK")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(8192)
+        .min(tn);
+    assert!(
+        cn.is_multiple_of(ACH) && cn >= T,
+        "KV_CHUNK must be a multiple of {ACH} and at least {T}"
+    );
+    let nc = tn.div_ceil(cn);
+    let rows = |c: usize| c * cn..((c + 1) * cn).min(tn);
     let next_path = dir.join("next.txt");
-    let start: usize = match std::fs::read_to_string(&next_path) {
-        Ok(s) => s.trim().parse()?,
-        Err(_) => 0,
+    let (start, mut phase, mut chunk) = match std::fs::read_to_string(&next_path) {
+        Ok(s) => {
+            let f: Vec<usize> = s
+                .split_whitespace()
+                .map(str::parse)
+                .collect::<Result<_, _>>()?;
+            match f[..] {
+                [l] => (l, 0, 0),
+                [l, p, c] => (l, p, c),
+                _ => return Err(format!("next.txt: {s:?}").into()),
+            }
+        }
+        Err(_) => (0, 0, 0),
     };
-    let mut x: Vec<f32> = if start == 0 {
+    let mut x: Vec<f32> = if (start, phase, chunk) == (0, 0, 0) {
         std::fs::write(dir.join("ids.bin"), &bytes)?;
         let c: Vec<u8> = cs
             .iter()
@@ -2752,7 +2785,27 @@ fn run_dump(path: &str, dir: &std::path::Path, tn: usize) -> Result<bool, Box<dy
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect()
     };
-    println!("resume at layer {start} of {nl}");
+    println!(
+        "resume at layer {start} phase {phase} chunk {chunk} of {nl} layers, {nc} chunks of {cn}"
+    );
+    let save = |x: &[f32], l: usize, p: usize, c: usize| -> Result<(), Box<dyn Error>> {
+        let tmp = dir.join("x.bin.tmp");
+        std::fs::write(&tmp, le(x))?;
+        std::fs::rename(&tmp, dir.join("x.bin"))?;
+        let at = if p == 0 {
+            format!("{l}\n")
+        } else {
+            format!("{l} {p} {c}\n")
+        };
+        std::fs::write(&next_path, at)?;
+        Ok(())
+    };
+    let rd = |n: &std::path::Path| -> Result<Vec<f32>, Box<dyn Error>> {
+        Ok(std::fs::read(n)?
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect())
+    };
     let qref = std::env::var_os("QK_REF").map(std::path::PathBuf::from);
     let vecs = eng.decode_vectors();
     let eps = cfg.rms_eps;
@@ -2770,75 +2823,109 @@ fn run_dump(path: &str, dir: &std::path::Path, tn: usize) -> Result<bool, Box<dy
         );
         let bias = |i: usize| vecs.biases_of(l).and_then(|b| b[i].as_deref()).map(q32_vec);
         let (bq, bkk, bv) = (bias(0), bias(1), bias(2));
-        let xn = rmsnorm(&x, &g1, eps, d);
-        let (wq, ni, no) = weight(&eng, &format!("blk.{l}.attn_q.weight"))?;
-        let mut q = gemm(&wq, no, ni, &xn, tn, bq.as_deref(), nth);
-        drop(wq);
-        let (wkm, ni, no) = weight(&eng, &format!("blk.{l}.attn_k.weight"))?;
-        let mut k = gemm(&wkm, no, ni, &xn, tn, bkk.as_deref(), nth);
-        drop(wkm);
-        let (wvm, ni, no) = weight(&eng, &format!("blk.{l}.attn_v.weight"))?;
-        let v = gemm(&wvm, no, ni, &xn, tn, bv.as_deref(), nth);
-        drop(wvm);
-        drop(xn);
-        std::fs::write(dir.join(format!("q{l}.bin")), le(&q))?;
-        std::fs::write(dir.join(format!("k{l}.bin")), le(&k))?;
-        std::fs::write(dir.join(format!("v{l}.bin")), le(&v))?;
-        if let Some(r) = &qref {
-            let rd = |n: &str| -> Result<Vec<f64>, Box<dyn Error>> {
-                Ok(std::fs::read(r.join(n))?
-                    .chunks_exact(4)
-                    .map(|c| f64::from(f32::from_le_bytes([c[0], c[1], c[2], c[3]])))
-                    .collect())
+        let budget_hit = |p: usize, c: usize, x: &[f32]| -> Result<bool, Box<dyn Error>> {
+            if t0.elapsed().as_secs_f64() > budget {
+                save(x, l, p, c)?;
+                println!(
+                    "budget {budget}s reached at layer {l} phase {p} chunk {c}; rerun to continue"
+                );
+                return Ok(true);
+            }
+            Ok(false)
+        };
+        if phase == 0 {
+            // q, k, v by token chunk, streamed to disk unrotated.
+            let (wq, ni, nq) = weight(&eng, &format!("blk.{l}.attn_q.weight"))?;
+            let (wkm, _, nk) = weight(&eng, &format!("blk.{l}.attn_k.weight"))?;
+            let (wvm, _, nv) = weight(&eng, &format!("blk.{l}.attn_v.weight"))?;
+            let open = |n: &str| -> Result<std::io::BufWriter<std::fs::File>, Box<dyn Error>> {
+                Ok(std::io::BufWriter::new(std::fs::File::create(dir.join(n))?))
             };
-            let (eq, _) = rel_l2(&q[..T * nh * HD], &rd(&format!("q{l}.bin"))?);
-            let (ek, _) = rel_l2(&k[..T * nkv * HD], &rd(&format!("k{l}.bin"))?);
-            println!("layer {l}: first {T} rows vs QK_REF rel-L2 q {eq:.3e} k {ek:.3e}");
-        }
-        for pp in 0..tn {
-            rot(&mut q[pp * nh * HD..(pp + 1) * nh * HD], nh, pp);
-            rot(&mut k[pp * nkv * HD..(pp + 1) * nkv * HD], nkv, pp);
+            let (mut fq, mut fk, mut fv) = (
+                open(&format!("q{l}.bin"))?,
+                open(&format!("k{l}.bin"))?,
+                open(&format!("v{l}.bin"))?,
+            );
+            for c in 0..nc {
+                let r = rows(c);
+                let xn = rmsnorm(&x[r.start * d..r.end * d], &g1, eps, d);
+                let q = gemm(&wq, nq, ni, &xn, r.len(), bq.as_deref(), nth);
+                let k = gemm(&wkm, nk, ni, &xn, r.len(), bkk.as_deref(), nth);
+                let v = gemm(&wvm, nv, ni, &xn, r.len(), bv.as_deref(), nth);
+                if let (Some(rf), 0) = (&qref, c) {
+                    let rf64 = |n: &str| -> Result<Vec<f64>, Box<dyn Error>> {
+                        Ok(rd(&rf.join(n))?.into_iter().map(f64::from).collect())
+                    };
+                    let (eq, _) = rel_l2(&q[..T * nh * HD], &rf64(&format!("q{l}.bin"))?);
+                    let (ek, _) = rel_l2(&k[..T * nkv * HD], &rf64(&format!("k{l}.bin"))?);
+                    println!("layer {l}: first {T} rows vs QK_REF rel-L2 q {eq:.3e} k {ek:.3e}");
+                }
+                fq.write_all(&le(&q))?;
+                fk.write_all(&le(&k))?;
+                fv.write_all(&le(&v))?;
+            }
+            fq.flush()?;
+            fk.flush()?;
+            fv.flush()?;
+            (phase, chunk) = (1, 0);
         }
         let tp = tl.elapsed().as_secs_f64();
-        let att = attend_all(&q, &k, &v, tn, nh, nkv, nth);
-        drop((q, k, v));
-        let ta = tl.elapsed().as_secs_f64();
-        let (wo, ni, no) = weight(&eng, &format!("blk.{l}.attn_output.weight"))?;
-        let o = gemm(&wo, no, ni, &att, tn, None, nth);
-        drop((wo, att));
-        for (xi, oi) in x.iter_mut().zip(&o) {
-            *xi += oi;
-        }
-        drop(o);
-        let xn2 = rmsnorm(&x, &g2, eps, d);
-        let (wg, ni, no) = weight(&eng, &format!("blk.{l}.ffn_gate.weight"))?;
-        let mut gate = gemm(&wg, no, ni, &xn2, tn, None, nth);
-        drop(wg);
-        let (wu, ni, no) = weight(&eng, &format!("blk.{l}.ffn_up.weight"))?;
-        let up = gemm(&wu, no, ni, &xn2, tn, None, nth);
-        drop((wu, xn2));
-        let per = gate.len().div_ceil(nth);
-        std::thread::scope(|sc| {
-            for (gc, uc) in gate.chunks_mut(per).zip(up.chunks(per)) {
-                sc.spawn(move || {
-                    for (gi, ui) in gc.iter_mut().zip(uc) {
-                        let gv = f64::from(*gi);
-                        *gi = (gv / (1.0 + (-gv).exp()) * f64::from(*ui)) as f32;
-                    }
-                });
+        if phase == 1 {
+            let mut q = rd(&dir.join(format!("q{l}.bin")))?;
+            let mut k = rd(&dir.join(format!("k{l}.bin")))?;
+            let v = rd(&dir.join(format!("v{l}.bin")))?;
+            for pp in 0..tn {
+                rot(&mut q[pp * nh * HD..(pp + 1) * nh * HD], nh, pp);
+                rot(&mut k[pp * nkv * HD..(pp + 1) * nkv * HD], nkv, pp);
             }
-        });
-        drop(up);
-        let (wd, ni, no) = weight(&eng, &format!("blk.{l}.ffn_down.weight"))?;
-        let dn = gemm(&wd, no, ni, &gate, tn, None, nth);
-        drop((wd, gate));
-        for (xi, di) in x.iter_mut().zip(&dn) {
-            *xi += di;
+            let (wo, ni, no) = weight(&eng, &format!("blk.{l}.attn_output.weight"))?;
+            while chunk < nc {
+                let r = rows(chunk);
+                let att = attend_all(&q, &k, &v, tn, nh, nkv, nth, r.start / ACH..r.end / ACH);
+                let o = gemm(&wo, no, ni, &att, r.len(), None, nth);
+                for (xi, oi) in x[r.start * d..r.end * d].iter_mut().zip(&o) {
+                    *xi += oi;
+                }
+                chunk += 1;
+                if chunk < nc && budget_hit(1, chunk, &x)? {
+                    std::process::exit(3);
+                }
+            }
+            chunk = 0;
         }
-        let tmp = dir.join("x.bin.tmp");
-        std::fs::write(&tmp, le(&x))?;
-        std::fs::rename(&tmp, dir.join("x.bin"))?;
-        std::fs::write(&next_path, format!("{}\n", l + 1))?;
+        let ta = tl.elapsed().as_secs_f64();
+        let (wg, ni, nf) = weight(&eng, &format!("blk.{l}.ffn_gate.weight"))?;
+        let (wu, _, _) = weight(&eng, &format!("blk.{l}.ffn_up.weight"))?;
+        let (wd, nfi, no) = weight(&eng, &format!("blk.{l}.ffn_down.weight"))?;
+        while chunk < nc {
+            let r = rows(chunk);
+            let xn2 = rmsnorm(&x[r.start * d..r.end * d], &g2, eps, d);
+            let mut gate = gemm(&wg, nf, ni, &xn2, r.len(), None, nth);
+            let up = gemm(&wu, nf, ni, &xn2, r.len(), None, nth);
+            drop(xn2);
+            let per = gate.len().div_ceil(nth);
+            std::thread::scope(|sc| {
+                for (gc, uc) in gate.chunks_mut(per).zip(up.chunks(per)) {
+                    sc.spawn(move || {
+                        for (gi, ui) in gc.iter_mut().zip(uc) {
+                            let gv = f64::from(*gi);
+                            *gi = (gv / (1.0 + (-gv).exp()) * f64::from(*ui)) as f32;
+                        }
+                    });
+                }
+            });
+            drop(up);
+            let dn = gemm(&wd, no, nfi, &gate, r.len(), None, nth);
+            for (xi, di) in x[r.start * d..r.end * d].iter_mut().zip(&dn) {
+                *xi += di;
+            }
+            chunk += 1;
+            if chunk < nc && budget_hit(2, chunk, &x)? {
+                std::process::exit(3);
+            }
+        }
+        (phase, chunk) = (0, 0);
+        save(&x, l + 1, 0, 0)?;
         println!(
             "layer {l}: qkv {tp:.1}s attention {:.1}s rest {:.1}s; total {:.0}s",
             ta - tp,
