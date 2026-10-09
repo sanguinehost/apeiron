@@ -29,7 +29,7 @@
 # this step refuses unless that marker's staged digest equals the digest of the
 # tree being committed. The tool is the whole receipt -- measure, check-in, rows
 # -- so the obligation cannot be skipped from memory; see
-# /home/socol/oc-tmp/escalation/CHECKPOINT-MECHANISM.md for the design. It is
+# ~/oc-tmp/escalation/CHECKPOINT-MECHANISM.md for the design. It is
 # the only step whose trigger is content rather than a commit being attempted, so
 # it prints SKIP with the reason when no staged path is under those prefixes. A
 # missing tool is a named refusal, never a silent pass.

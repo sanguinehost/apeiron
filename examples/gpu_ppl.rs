@@ -30,9 +30,9 @@ use std::path::Path;
 use std::process::{exit, Command};
 use std::time::Instant;
 
-const DEFAULT_MODEL: &str = "/home/socol/models/gguf/qwen05b-Q4_K_M.gguf";
-const DEFAULT_CORPUS: &str = "/home/socol/oc-tmp/gpu-ppl-corpus.txt";
-const DEFAULT_TOKENIZER: &str = "/home/socol/models/qwen2.5-0.5b/tokenizer.json";
+const DEFAULT_MODEL: &str = concat!(env!("HOME"), "/models/gguf/qwen05b-Q4_K_M.gguf");
+const DEFAULT_CORPUS: &str = concat!(env!("HOME"), "/oc-tmp/gpu-ppl-corpus.txt");
+const DEFAULT_TOKENIZER: &str = concat!(env!("HOME"), "/models/qwen2.5-0.5b/tokenizer.json");
 const CTX: usize = 512;
 const FIRST: usize = CTX / 2; // 256
 
@@ -102,9 +102,18 @@ pub fn log_loss_i64(logits: &[i64], target: usize) -> f64 {
 
 fn check_tokenization(apeiron_tokens: &[u32], corpus_path: &str, model_path: &str) -> bool {
     let candidates = [
-        "/home/socol/Workspace/llama.cpp/build-cuda/bin/llama-tokenize",
-        "/home/socol/Workspace/llama.cpp/build-vulkan/bin/llama-tokenize",
-        "/home/socol/Workspace/llama.cpp/build/bin/llama-tokenize",
+        concat!(
+            env!("HOME"),
+            "/Workspace/llama.cpp/build-cuda/bin/llama-tokenize"
+        ),
+        concat!(
+            env!("HOME"),
+            "/Workspace/llama.cpp/build-vulkan/bin/llama-tokenize"
+        ),
+        concat!(
+            env!("HOME"),
+            "/Workspace/llama.cpp/build/bin/llama-tokenize"
+        ),
     ];
     let Some(bin) = candidates.iter().find(|p| Path::new(p).exists()) else {
         println!("[TOKENIZE-CHECK] llama-tokenize binary not found; skipped external check");
@@ -169,7 +178,11 @@ fn check_tokenization(apeiron_tokens: &[u32], corpus_path: &str, model_path: &st
             "[TOKENIZE-CHECK] LENGTH MISMATCH: apeiron {} tokens, llama.cpp {} tokens (first diff at index {})",
             apeiron_tokens.len(),
             llama_tokens.len(),
-            apeiron_tokens.iter().zip(&llama_tokens).position(|(a, b)| a != b).unwrap_or(min_len)
+            apeiron_tokens
+                .iter()
+                .zip(&llama_tokens)
+                .position(|(a, b)| a != b)
+                .unwrap_or(min_len)
         );
         return false;
     }

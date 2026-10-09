@@ -255,7 +255,7 @@ fn collision_count_c4() {
     use apeiron::freq::Coord;
     use apeiron::learn::countlm::{pack_key, unpack_key};
     use std::collections::HashSet;
-    const CORPUS: &str = "/home/socol/models/data/c4_en.txt";
+    const CORPUS: &str = concat!(env!("HOME"), "/models/data/c4_en.txt");
     const K: usize = 4;
 
     for train_len in [1_000_000usize, 8_000_000usize] {
@@ -315,7 +315,7 @@ fn collision_count_c4() {
 
 /// Test 4: Parity with the spinor-ttl reference on held-out English text.
 ///
-/// Corpus: `/home/socol/models/data/c4_en.txt`; train bytes `[0, 1_000_000)`, held-out bytes
+/// Corpus: `~/models/data/c4_en.txt`; train bytes `[0, 1_000_000)`, held-out bytes
 /// `[1_000_000, 1_100_000)`, order 4. Both sides count and score only positions with a full
 /// 4-byte context (`i >= 4` within each slice) and score the unrenormalised KN distribution.
 /// Reference: spinor-ttl `a05bb1b` `src/spinor_ttl/countlm.py` (sha256 prefix `92b83507127b3c18`),
@@ -323,7 +323,7 @@ fn collision_count_c4() {
 /// over 99996 positions, discounts (0.637186868955899, 1.0462353033030585, 1.4168338668711173).
 #[test]
 fn test_parity() {
-    const CORPUS: &str = "/home/socol/models/data/c4_en.txt";
+    const CORPUS: &str = concat!(env!("HOME"), "/models/data/c4_en.txt");
     const PY_BPB: f64 = 2.288_994_499_294;
     const PY_HITS: usize = 53_443;
     const K: usize = 4;

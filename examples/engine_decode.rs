@@ -18,9 +18,9 @@ use apeiron::engine::KernelMode;
 use apeiron::format::bpe::Bpe;
 
 /// The model named by the task.
-const DEFAULT_MODEL: &str = "/home/socol/models/gguf/qwen05b-Q4_K_M.gguf";
+const DEFAULT_MODEL: &str = concat!(env!("HOME"), "/models/gguf/qwen05b-Q4_K_M.gguf");
 /// Qwen2.5-0.5B's `tokenizer.json`, the reference the `Bpe` port is matched against.
-const DEFAULT_TOKENIZER: &str = "/home/socol/models/qwen2.5-0.5b/tokenizer.json";
+const DEFAULT_TOKENIZER: &str = concat!(env!("HOME"), "/models/qwen2.5-0.5b/tokenizer.json");
 /// The fixed raw-completion prompt.
 const PROMPT: &str = "The capital of France is";
 /// Greedy tokens to generate.

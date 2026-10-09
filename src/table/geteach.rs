@@ -4,7 +4,7 @@
 //! Ported from `fold hashtrinity/src/lib.rs:746-778` (`get_each`, disassembled as
 //! `probe_get_each`, 319 instructions at the pinned revision `4cc14471`, `src/lib.rs` sha256
 //! `f8c8fd12fc2b7a69c0a045611d70e3a02fc43310e56c69de75e163341ed19e87`; pinned disassembly
-//! `/home/socol/oc-tmp/ht-llvm/full.asm`, sha256
+//! `~/oc-tmp/ht-llvm/full.asm`, sha256
 //! `b68a950e375e5516288236bf1a70a75d9abf32471149590838b3644a1a57fb97`).
 //!
 //! What transferred is the schedule, not the instruction count. The incumbent computes each key's

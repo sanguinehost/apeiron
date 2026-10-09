@@ -5,7 +5,7 @@
 //! `modelfold::simt::gemv_dp4a_module_dyn(4096, 14336, 256, 8, Carrier::Q4, true)`, captured by
 //! linking a throwaway caller against the prebuilt `modelfold` rlib at fold revision
 //! `d497161f32e0d366220f2065ec36e680bd9aed86`. The emitter is
-//! `/home/socol/Workspace/fold/modelfold/src/simt/dp4a.rs`, sha256
+//! `~/Workspace/fold/modelfold/src/simt/dp4a.rs`, sha256
 //! `ffe4f6c313492b84ecfc2c5d99c9fa8b2945f5bf081282e9b13b1374da50901e`. The little-endian byte
 //! string of this stream hashes to
 //! `d98bd5994eaa7ed18c557765f7df80c900e9b5403b5b80e094825de69772092a` (`676` words). It exercises

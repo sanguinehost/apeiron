@@ -16,7 +16,7 @@ use apeiron::engine::fixed_vector_checksum;
 use apeiron::engine::loader::Engine;
 
 /// Default model, the Qwen2.5-0.5B `Q4_K_M` GGUF named by the task.
-const DEFAULT_PATH: &str = "/home/socol/models/gguf/qwen05b-Q4_K_M.gguf";
+const DEFAULT_PATH: &str = concat!(env!("HOME"), "/models/gguf/qwen05b-Q4_K_M.gguf");
 /// Three fixed token ids: `!` at 0, `" Hello"`-adjacent content at 9707, and the EOS id 151643.
 const PROBE_TOKENS: [u32; 3] = [0, 9707, 151_643];
 

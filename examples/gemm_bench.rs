@@ -51,8 +51,8 @@ use std::path::{Path, PathBuf};
 const TOKENS: u32 = 512;
 const INNER: u32 = 10;
 const DEFAULT_SRC: &str = "src/spirv/coopmat_gemm.comp";
-const DEFAULT_SPV_CACHE: &str = "/home/socol/oc-tmp/bench/spv";
-const DEFAULT_LEDGER: &str = "/home/socol/oc-tmp/bench/ledger.tsv";
+const DEFAULT_SPV_CACHE: &str = concat!(env!("HOME"), "/oc-tmp/bench/spv");
+const DEFAULT_LEDGER: &str = concat!(env!("HOME"), "/oc-tmp/bench/ledger.tsv");
 
 /// The receipt's pp512 profile (`docs/evidence/gpu-prefill-vs-llamacpp.md`, `PREFILL_PROFILE=1`,
 /// q4): GPU-active µs per call summed over 24 layers, and the whole call.
@@ -397,7 +397,7 @@ fn panic_msg(e: &(dyn std::any::Any + Send)) -> String {
 fn main() {
     let mut args = std::env::args().skip(1);
     let mut reps = 5usize;
-    let mut model = "/home/socol/models/gguf/qwen05b-Q4_K_M.gguf".to_string();
+    let mut model = concat!(env!("HOME"), "/models/gguf/qwen05b-Q4_K_M.gguf").to_string();
     let mut only: Option<String> = None;
     let mut stats_on = false;
     let mut blob_dir: Option<String> = None;
