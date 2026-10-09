@@ -69,7 +69,14 @@ Rows GPU-04 to GPU-07 are pre-coopmat resident-prefill and early decode figures;
 | COUNT-02 | COUNT-REMAIN home-group fast path in FreqLine::get | 12fcbda | count | FreqLine::get | baseline (unstated) | all 27 lookup cells 25-35% lower ratio | unmeasured | 1.25-1.35x lower-better, still 1.9-4.1x hb_fx | cache-lines | none | kept | docs/plan.md:106 |
 | COUNT-03 | COUNT-READPATH one k*PHI product and in-bounds bucket index | 6931f7a | count | FreqMap::count_get_arr | 27/27 failing, ap_par/hb_fx 2.32 (dense), 1.70 (random) | 26/27 failing, 1.99, 1.48 | one before/after pair | 1.17x / 1.15x lower-better | cache-lines | none | kept | docs/plan.md:106 |
 | COUNT-04 | Count lookup levers tag LUT, slot prefetch, 64 maps, interleaved ctrl+slot layout | none | count | FreqLine lookup | baseline | null | unmeasured | 1.00x (null) | none-found | none | refuted | docs/plan.md:106 |
-| COUNT-05 | Count lookup still behind hb_fx | none | count | FreqLine::get | n/a | 1.9-4.1x | unmeasured | >1.0 (loss) | unattributed | none | red | docs/plan.md:106 |
+| COUNT-05 | Count lookup still behind hb_fx | none | count | FreqLine::get | n/a | 1.9-4.1x | unmeasured | >1.0 (loss) | uops + bad-spec (d ≤ 1e4: 42 vs 29 uops/lookup, P ≈ 41-71); core (d = 1e5); MLP 3.6-6.1 vs 7.3-9.8 (d ≥ 1e6) | none | red | docs/evidence/perf-predictions.md (COUNT-MODEL) |
+| COUNT-06 | BEAT-9/-10/-12/-14 lookup structures materialised after `count_par` (freeze probes, read index, slab copy, `CountMap` line) | none | count | lookup structure built in the count column | lookup failing 26/27 vs hb_fx, count 0/27 | lookup best 16/27 (BEAT-9); count 0 -> 5-11/27 | 5 pairs | lookup gain paid by count | none: moves cost between columns | none | refuted | docs/plan.md:109 |
+| COUNT-07 | BEAT-11 hot/cold split of `get_p` | none | count | FreqLine::get_p | 46.0 instr/op, lookup failing 26/27 | 44.0 instr/op, 26/27 | spread 25-27 | 1.00x | uops (−2 did not bind) | none | refuted | docs/plan.md:109 |
+| COUNT-08 | BEAT-15 insert at first empty lane ≥ `4*(tag&3)` | none | count | FreqLine insert placement | `ap_seq` 1e6 1% 17.16 cyc/op, L2 miss 1.21/op | 10.73, 0.17; `ap_par` lookup 26 -> 27 failing, count 0 -> 2 | 5 pairs | 1.60x on `ap_seq`, none on `ap_par` | L2 sets (`ap_seq` only) | `probe_outer_spec` | refuted | docs/plan.md:109 |
+| COUNT-09 | BEAT-16 64-byte-aligned `FreqLine`, hot fields in one line | none | count | FreqLine layout | L1 miss 3.14/op, 15.4 cyc/op at 1e6 1% | 1.83/op, 14.9 | 5 pairs, contended | 1.03x (in spread) | L1 lines (did not bind) | none | refuted | docs/plan.md:109 |
+| COUNT-10 | BEAT-17 two-candidate `cmov` key confirm | none | count | FreqLine::get_p confirm branch | br-miss as measured, 15.3/15.0 cyc/op | br-miss 0, cycles +28-53% | 5 runs | 0.65-0.78x (loss) | bad-spec removed, but the branch's speculation overlapped the slot load | none | refuted | docs/plan.md:109 |
+| COUNT-11 | BEAT-18 8-bit tag (plain; XOR-folded) | none | count | FreqLine tag | br-miss 0.043 / 0.041 per lookup | plain 0.057; folded 0.010, cycles −0.7..−3.2/op (2 cells, probe) | probe only | plain refuted; folded unmeasured in bench | bad-spec (false candidates mean_lane/128) | none | refuted (plain), probe-only (folded) | docs/plan.md:109 |
+| COUNT-12 | P74 THP for the shard heaps (`glibc.malloc.hugetlb=1`, no code change) | none | count | count_par shard allocation | 1e7 all 113.6/105.1/103.4 cyc; walk 46-50 cyc/op | 98.9/98.5/92.1; walk 0.0; d = 1e5 cells −6.1..−8.0% | 5 interleaved pairs | 1.07-1.15x at 1e7 all; ap/hb still 1.55-1.83 | dTLB (walks overlap DRAM latency: 0.14-0.30x of walk_active recovered) | none | measured, not installed | docs/evidence/perf-predictions.md (COUNT-MODEL) |
 | BUILD-01 | One decoder-parameterised accumulator replaces four per-quant fast rows | cf82be1 | build | four Q4/Q8/F16/F32 copies | four decoders | one b-parameterised decoder | unmeasured | none stated (byte-identical) | alu | Spirv/Carrier.lean:carrier_split | kept | docs/epics/gpu-prefill.md:440 |
 
 ## Pattern
@@ -84,10 +91,11 @@ Rows GPU-04 to GPU-07 are pre-coopmat resident-prefill and early decode figures;
 - The kept GPU moves are narrow and primitive-level: GPU-01 (`mma`) and GPU-02 (`shared-bytes`) against the red whole-model set.
 - The gap analysis refutes both cheap explanations of the GPU loss: GPU-11 (`launches`) and GPU-12 (`global-bytes`) each come back not-binding.
 - The refuted map levers carry no numeric receipt, only the epic's list: MAP-09, MAP-10, MAP-11, MAP-12, MAP-13, COUNT-04.
+- Every refuted count lever after COUNT-04 relieved a resource that did not bind, or moved cost into the count column: COUNT-06 (columns), COUNT-07 (uops), COUNT-09 (L1 lines), COUNT-10 (bad-spec traded for lost overlap), COUNT-11 plain (bad-spec). COUNT-12 relieved the dTLB but recovered 0.14-0.30x of the walk cycles because walks overlap DRAM.
 
 ## Unattributed
 
-Rows whose receipt names no binding resource, and so are the model's first work: MAP-03, MAP-04, MAP-05, MAP-09, MAP-10, MAP-11, MAP-12, COUNT-05, GPU-04, GPU-05, GPU-06, GPU-07, GPU-08 (gap named as `mma`, mechanism not isolated per row), CPU-28.
+Rows whose receipt names no binding resource, and so are the model's first work: MAP-03, MAP-04, MAP-05, MAP-09, MAP-10, MAP-11, MAP-12, GPU-04, GPU-05, GPU-06, GPU-07, GPU-08 (gap named as `mma`, mechanism not isolated per row), CPU-28.
 
 ## Formalisation receipts
 

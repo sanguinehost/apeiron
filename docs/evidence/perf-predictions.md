@@ -367,6 +367,7 @@ K-block loop `[0xa60, 0x4f50]`, 14 iterations (KB=2), 1104 static slots:
 | P71 | DECODE-ATTRIB T12 (row `decode-attrib-attribute-CisURujlQzOoUaNOGjR1Ms`), base `b8d6166`, qwen05b Q4_K_M, RTX 5080, tg128, `--carrier q4`: raise the `gu` node's resident workgroups (38 of 84 SMs) without multiplying the prologue: arm 1 fewer rows per workgroup in `gemv_norm_module_sc` (`DEC_GU_RPW` = 128 / 64, 76 / 152 WGs, in-workgroup k-slices `ks = 256/RPW` keeping LocalSize 256 so the norm reduction tree and SEQHASH are unchanged; an idle-lane variant `DEC_GU_IDLE=1` keeps ks = 1), arm 2 split-K `segs` = 2 priced, arm 3 prologue once priced | `t_gu = D + P + F` (T11: 5.66 + 60.29 + 207.19 = 273.14 µs/token); the fold runs at 694 GB/s = 72 % of 960 with 38 WGs, rising with WG count (dn 19: 642, gu 38: 694, lm_head 594: 849); P is one WG's latency, parallel across WGs, so its wall time is flat in WG count while its L2 traffic grows with it | `F` 207 → ≤ 180 µs/token and node ≤ 250 at 76 or 152 WGs (rate 694 → ≥ 799 GB/s); tg128 up, SEQHASH unchanged | node change within ± 8 µs/token of 273, or slower, or `SEQHASH` ≠ `9092dbbaff119a2e`, or any interleaved round where the dial arm is not faster than base | prior art: P68 (`cfe4986`-era k-slice, ks = 2, same mechanism as arm 1) gu 274.9 → 252.9 profiled, tg128 per-pair 1.019 sd 0.027, 3 of 10 rounds slower; this row re-measures it on `b8d6166` and adds ks = 4 and the idle-lane variant | measured: the derivation is refuted (more WGs alone leaves gu at 272.9), the node reaches 247.2 only with k-slices plus the grid-barrier residual; gu 273.09 -> 247.23 µs/token, tg128 948.6 -> 973.8 tok/s, B > A in 5 of 5 rounds, SEQHASH unchanged; installed. See P71 outcome | Lean: `Perf.Moves.p71_gu_workgroups` |
 | P72 | DECODE-ATTRIB T13 (row `decode-attrib-attribute-CisURujlQzOoUaNOGjR1Ms`), base `5cc11f1`, qwen05b Q4_K_M, RTX 5080, tg128, `--carrier q4`: take the 28-way split-K residual reduce `P` out of the `gu` node. Arm A: the last-arriving `o` workgroup (device-scope acq-rel ticket per layer, `PDL_LASTRED`, `pdl_last_reduce` in `src/simt_nn/norm.rs`) sums the 28 partials in ascending segment order and writes `out[0..m]`, so `gu` reads one segment (`res_segs` 1) and the grid barrier (`PDL_GRIDBAR`) is deleted. Arm B (`DEC_SPLITK` 16 / 8 segments) priced | `t_gu = D + P + F`; `P` = 12.1 µs/token by the T12 probe on `5cc11f1`-era gu (0.5 µs/layer × 24); the reduce moves to the `o` tail, so `t_gu + t_o` falls by `P − R` where `R` is the serial reduce plus ticket round-trip on the `o` critical path | `R < P`: gu + o sum below base 332.1 µs/token, tg128 B > A in at least 4 of 5 interleaved rounds, SEQHASH `9092dbbaff119a2e`, `PDL overflow 0` | gu + o sum not lower than base, or B > A in fewer than 4 of 5 rounds, or SEQHASH ≠ `9092dbbaff119a2e`, or overflow ≠ 0 | prior art: P71 (grid barrier distributes `P` across `gu` WGs at 247.2); this row moves `P` off `gu` instead of distributing it | measured (registered after the first timings were read, as P70): derivation refuted. gu 246.2 → 234.1 (−12.1 = `P`), o 85.9 → 138.2 (+52.3), sum 332.1 → 372.3 (+40.2); a protocol-only probe (ticket, fence, barrier, second increment, no reduce) already gives o +14.1. tg128 A 996.4, B 968.9 (−2.8 %), B won 0 of 5 rounds, SEQHASH unchanged, overflow 0. Not installed. See P72 outcome | Lean: `Perf.Moves.p72_last_reduce_terms` |
 | P73 | DECODE-ATTRIB T14 (row `decode-attrib-attribute-CisURujlQzOoUaNOGjR1Ms`), base `cbc02f1`, qwen05b Q4_K_M, RTX 5080, tg128, `--carrier q4`: price the `gu` fold rate `F` against a transport-only kernel on the same grid, LocalSize and weight buffer (`gemv_norm_module_ks`, m = 9728, k = 896, Q5 chart, `(rows, ks)` = (128, 2), 76 WGs). Arms by throwaway env dial, SEQHASH not applicable to probe arms: (a) every lane issues the fold's weight loads (4 code words, plane-B word, `dm` word per block) in the fold's order and width, XORs them into one accumulator, stores it; (b) (a) plus the Q5 chart unpack without `OpSUDot`; (c) the live node; (d) (a) at 2x and 4x workgroups (`(rows, ks)` = (64, 4), (32, 8)). Each arm with the prologue in place and with it skipped | `t_arm = D + P + F_arm`, `D` = 5.66 µs/token, `P` = 12.1 by P72; fold bytes 143.8 MB/token; rate `B = 143.8 MB / (t − D)` with the prologue skipped; floor 149.8 µs at 960 GB/s; lm_head reaches 849 GB/s on 594 WGs, so the memory system sustains ≥ 849 when the grid and loads allow it | registered before any arm is timed. Clauses with the prologue skipped (`t` in µs/token, gu node): (1) arm (a) `t ≤ 175` (`B ≥ 850 GB/s`); (2) arm (c) `t` in [208, 228] (B ≈ 630–720); (3) arm (b) − arm (a) ≥ 15; (4) arm (d) at 2x and 4x within ± 5 % of arm (a). If (1) holds and (c) stays ≥ 208: `F` is bound by the fold's instruction stream, and the dominant class is named from `spirv-dis` of the fold loop. If arm (a) `t` ≥ 195 (B ≤ 780): `F` is bound by transport and the cause (load width, coalescing, occupancy) is named | arm (a) `t` in (175, 195), or (c) − (a) < 15, or (d) outside ± 5 % while (a) ≤ 175 (grid-limited transport, so the lever is the grid, not the instruction stream) | prior art: P70 (`F` = 207 at 38 WGs; hoist neutral), P71 (WGs alone flat; k-slice + grid barrier −26), P72 (`P` off `gu` refuted) | measured: clause (1) refuted (arm (a) `t` ≈ 187 in the (175, 195) window on the registered 143.8 MB; 864 GB/s on the true 156.9 MB), (2) holds, (3) refuted, (4) holds. `F` is transport-bound. Not installed. See P73 outcome | Lean: `Perf.Moves.p73_transport_arms` |
+| P74 | COUNT-MODEL (row `apeiron-beat-Bu3jZusxHvuMEJ8FOQ3C9O`), base `e244287`, probe `probe-e244287` (sha256 `014d0860…`), i9-14900KF core 4 (`taskset -c 4`), glibc 2.44, THP `always`: the count lookup (`read`) over 27 cells (n ∈ {1e5, 1e6, 1e7} × distinct {1 %, 10 %, all} × {dense, high-bits, random}), `ap_par` against `hb_fx`. Change: `GLIBC_TUNABLES=glibc.malloc.hugetlb=1`, probe unchanged | page walks are additive to the measured cycles: at d ≥ 1e6 `ap_par` pays `dtlb_load_misses.walk_active` 19.1–49.8 cycles/op (`hb_fx` 0.00–0.02) because the `count_par` worker-thread glibc arena heaps (65032 kB VMAs) carry 0 kB `AnonHugePages` (`ap_par` 153600 of 443220 kB, `hb_fx` 430080 of 434920 kB at 1e7 all random) | registered before the run: (1) `ap_par` AnonHugePages ≥ 90 % of anonymous at 1e7 all random; (2) on the 9 cells with d ≥ 1e6, walk_active ≤ 2 cycles/op and median cycles fall by 0.5×–1.0× the baseline walk_active; (3) the 18 cells with d ≤ 1e5 within ± 5 %; (4) `hb_fx` within ± 5 % on every cell; (5) `ap_par` stays above `hb_fx` at 1e7 all (the MLP gap is not addressed) | any clause outside its band on the median of 5 interleaved off/on pairs | prior art: COUNT-MODEL M1 and M2 refuted (P74 outcome); BEAT-17 and BEAT-18 (`docs/plan.md`, row `APEIRON-BEAT`) | measured, 5 interleaved pairs: (1) holds, 446464 of 449536 kB (99.3 %); (2) refuted: walk_active falls to 0.0 at n = 1e7 (residual 4.7–5.2 at 1e6 all high-bits/random), but cycles fall only 6.6–14.7 against 46.0–49.8 at 1e7 all (0.14–0.30×) and are within spread at 1e7 10 % and 1e6 all; walk cycles overlap DRAM latency; (3) refuted favourably: the d = 1e5 cells fall 6.1–8.0 %; (4) refuted on DRAM cells only, by host noise (hb allocation unchanged); (5) holds, ap/hb 1.83, 1.76, 1.55. MLP unchanged. Not installed; the admission bound is `Perf.CountLookup.p74_walk_cannot_close`. See P74 outcome | Lean: `Perf.CountLookup.p74_clause2_refuted` |
 
 ## Held-out cases still to predict
 
@@ -546,3 +547,56 @@ the installed configuration. Load width was not varied: one word per row with th
 Lever: none in the owned files. The remaining lever is fewer bytes (Q5 at 6 bits per weight plus the
 `dm` word), a carrier/packer change outside this task. Not installed. Not covered: other GPUs, driver
 and rustc/LLVM codegen, load widths other than the live one.
+
+## COUNT-MODEL: execution and cost model for the count lookup
+
+Instruments, all under `/home/socol/oc-tmp/count-model/` (sha256 prefixes): `campaign.py`
+`3619fba0` (27 cells × {`ap_par`, `hb_fx`} × rounds, `perf stat -D -1 --control fifo` counting the
+timed passes only, per-op = count / (R·d)), `campaign-mlp.py` `82f7c396`, `fit.py` `028cac18`,
+`fit2.py` `872ad36a`, `lat/chase.c` `f99fd870`, `p74ab.py` `3870f9e7`, registration
+`REGISTRATION.md` `090db743` (each model written there before its fit). Data:
+`/tmp/opencode/cm-r5.json` (5 rounds), `cm-mlp.json` (3 rounds), `cm-ab-{off,on}.json` (5
+interleaved pairs). Machine: i9-14900KF, core 4, 5.68 GHz, glibc 2.44, THP `always`.
+
+Measured load-to-use latency (`lat/chase.c`, dependent 64 B random cycle): 16 KiB 5 cycles,
+256 KiB 16.1, 1 MiB ~20.5, 8 MiB 70, 24 MiB ~203, 256 MiB–1 GiB 396–400.
+
+Models, each fitted on the 27 `hb_fx` medians only and accepted only if every `ap_par` cell lies in
+its observed [min, max] or within 10 % of its median:
+
+| model | form | fit | `ap_par` cells passing | verdict |
+|---|---|---|---|---|
+| M1 | `k·C_path + m·P + c2·L2 + c3·L3 + cD·D`; `C_path` from `llvm-mca -mcpu=alderlake` (hb 5.312; ap `(1−f)·7.539 + f·10.408`), `P` = 52.1 | k 1.395, c2 0, c3 12.52, cD 39.56 | 3 / 27 (M1′ with P = 69.1: 9 / 27) | refuted: under-predicts every `ap_par` cell, −6..−21 % at L1/L2 and −32..−51 % at DRAM; `ap_par` pays ~1.9× `hb_fx` per DRAM miss, so an arm-independent per-miss cost is wrong |
+| M2 | `max(k·C + m·P, u·(16·L2 + 70·L3 + 400·D)/W)`, latencies measured, `u` = uops issued | k 1.600, W 212 | 13 / 27 (`hb_fx` in-sample 9 / 27) | refuted; chosen after M1's residuals, so not blind |
+
+No further model form is fitted on this data set: a third form chosen from M2's residuals would be
+fitting noise. The model work moved to direct attribution.
+
+Attribution (measured; cycles = top-down slots / 6, an identity), by d = distinct keys:
+
+| regime | cells | `ap_par` | `hb_fx` | binding resource |
+|---|---|---|---|---|
+| R1, d ≤ 1e4 | 1e5 1 %, 1e5 10 %, 1e6 1 % | 11.5–17.6 cyc | 7.4–8.9 | retiring: 42 vs 29 uops/lookup (7.0 vs 4.8 cycle-equivalents) plus bad speculation 0–3.9; mispredict cost consistent with P ≈ 41–71 |
+| R2, d = 1e5 | 1e5 all, 1e6 10 %, 1e7 1 % | 16.4–20.4, flat in n, core-bound 8–9 | wins where sized; loses on sparse `with_capacity(n)` cells | core (uops); 4 KB pages (P74 −6..−8 %) |
+| R3, d ≥ 1e6 | 1e6 all, 1e7 10 %, 1e7 all | memory-bound | memory-bound | MLP: `l1d_pend_miss.pending / pending_cycles` ap 3.6–6.1 vs hb 7.3–9.8 (hb fill-buffer-saturated, `fb_full` 2–13 cyc/op; ap ~0); page walks 19.1–49.8 cyc/op, mostly overlapped (P74) |
+
+## P74 outcome
+
+Command: `GLIBC_TUNABLES=glibc.malloc.hugetlb=1 python3 campaign.py OUT.json 1` alternated with the
+unset run, 5 pairs, scored by `p74ab.py` (`p74ab.txt`).
+
+- Clause (1) holds: `ap_par` AnonHugePages 446464 of 449536 kB (99.3 %) at 1e7 all random.
+- Clause (2) is refuted. Walks fall to 0.0 at n = 1e7; a residual 4.7–5.2 cycles/op remains at
+  1e6 all high-bits/random. At 1e7 all, cycles fall 14.7 / 6.6 / 11.3 (dense / high-bits / random)
+  against walk_active 49.8 / 46.6 / 46.0, which is 0.14–0.30× and below the 0.5× floor. At 1e7 10 %
+  and 1e6 all the change is within spread. The walk cycles overlap the DRAM latency they wait
+  behind, so walk_active is not an additive cost term.
+- Clause (3) is refuted, in the favourable direction. The d = 1e5 cells fall: 1e7 1 % by
+  −6.3..−8.0 %, 1e6 10 % by −6.1..−6.8 %, and 1e5 all by −6.8..−7.3 %.
+- Clause (4) is refuted on the DRAM cells (`hb_fx` −6.9..+19.9 %). `hb_fx`'s allocation is
+  unchanged, so this is host noise on a contended box. The other cells are within ± 5 %.
+- Clause (5) holds: `ap_par`/`hb_fx` at 1e7 all is 1.83, 1.76 and 1.55 after the change.
+- MLP is unchanged: 5.6–6.1 against 9.5.
+- Decision: not installed. An install needs a code change (madvise, or 2 MB-aligned shard storage)
+  and its own registered per-cell prediction. The remaining R3 gap is MLP, and the R1 gap is the
+  uop and mispredict excess.

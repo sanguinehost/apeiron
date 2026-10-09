@@ -214,6 +214,103 @@ DISPOSITION: held uninstalled; worktree retained for reuse or removal. `perf 7.2
 EVIDENCE:    /home/socol/oc-tmp/prof-breakdown (uncommitted); no receipt.
 ```
 
+### [FAIL-10] `APEIRON-BEAT-9/-10/-12/-14` — lookup structures materialised after the count
+
+```text
+ATTEMPTED:   four lookup-side structures built after `count_par` (freeze shard probes, packed
+             256-descriptor read index, uniform-geometry slab copy, one `CountMap` line of 256
+             bucket ranges), each gated on the bench lookup and count columns.
+HYPOTHESIS:  the lookup gap is the shard-header indirection, so a flatter read structure closes it at
+             no cost to count.
+MEASURED:    lookup failing vs hb_fx 26 -> 16 / 19 / 23 of 27 at best; count failing 0 -> 11 / 6 / 7
+             of 27 (worst 4.81x, 1e5 all/dense); isolated collapsed read 16.05 -> 15.88 cycles/op,
+             46.9 -> 49.7 instr/op (medians of 5 interleaved pairs).
+OUTCOME:     no-move (count regression)
+WHY:         each structure costs O(capacity) or O(d) work that the bench charges to the count column;
+             the isolated read did not get faster, so the indirection was not the lookup's cost.
+BASE:        `FreqMap` shard structure (subsumed hashtrinity line).
+MODEL-GAP:   "moving work out of the lookup column is a lookup win." Cost moved between columns is
+             not removed; "every column" is the objective.
+DISPOSITION: parked; no code installed.
+EVIDENCE:    docs/plan.md:109 (`APEIRON-BEAT`); docs/evidence/perf-move-ledger.md COUNT-06.
+```
+
+### [FAIL-11] `APEIRON-BEAT-17` — a branch-free key confirm
+
+```text
+ATTEMPTED:   replace the key-confirm branch after a tag match in `FreqLine::get_p` with a
+             two-candidate `cmov` select.
+HYPOTHESIS:  the confirm branch's mispredicts (99.9% of the arm's mispredicts, ~2.5 of the ~7-cycle
+             gap at 1e5 10% / 1e6 1%) are a pure cost; removing the branch removes them.
+MEASURED:    mispredicts -> 0; cycles +28..+53% (perf stat top-down, P-core, medians of 5).
+OUTCOME:     regression
+WHY:         inference, no counter isolates it: the predicted branch let the next lookup's loads
+             issue under the slot-key load; the `cmov` puts the key load (a second cache line) on the
+             dependence chain to the value load, so the lost overlap costs more than the mispredicts
+             (2.4 cycles) it removes.
+BASE:        `FreqLine::get_p`.
+MODEL-GAP:   "a mispredict count times a penalty is a removable additive cost." The penalty is
+             against a speculation that also overlaps memory.
+DISPOSITION: reverted (probe only, never installed).
+EVIDENCE:    docs/plan.md:109; /home/socol/oc-tmp/escalation/APEIRON-BEAT-17.result.md.
+```
+
+### [FAIL-12] `APEIRON-BEAT-18` — a plain 8-bit tag
+
+```text
+ATTEMPTED:   widen the 7-bit lane tag to 8 bits to halve false tag candidates.
+HYPOTHESIS:  false candidates ahead of the true lane scale as 2^-b, so 8 bits halves br-miss.
+MEASURED:    br-miss 0.043 -> 0.057 per lookup (probe). False candidates are mean_lane/128 = 0.0376
+             predicted, 0.0374 measured; an XOR-folded 8-bit tag gives 0.041 -> 0.010, cycles
+             −0.7..−3.2/op on 2 cells (probe only, no bench).
+OUTCOME:     regression (plain); folded unmeasured in the bench
+WHY:         dense and high-bits keys collide in-group through the Weyl structure of f·PHI (dense
+             d=1e4 1.667 vs 0.349 expected); the extra window bit does not separate those collisions
+             (dense false 0.1707 -> 0.1698) and the 8-bit EMPTY mapping costs +5.6 uops/op; the window
+             fold separates them.
+BASE:        `FreqLine` tag.
+MODEL-GAP:   "false candidates scale as 2^-b of the tag width." On structured keys they scale with
+             the tag window's correlation with the group index, which the fold removes.
+DISPOSITION: parked; most failing cells have no false candidates, so the fold is not ported.
+EVIDENCE:    docs/plan.md:109; /home/socol/oc-tmp/escalation/APEIRON-BEAT-18.result.md.
+```
+
+### [FAIL-13] `COUNT-MODEL` M1 and M2 — additive and window cost models for the count lookup
+
+```text
+ATTEMPTED:   a cycle model of the count lookup fitted on hb_fx only and tested blind on ap_par over
+             27 cells: M1 additive (path + mispredicts + per-level miss costs), M2 window (max of
+             path and an MLP-limited memory term with measured latencies).
+HYPOTHESIS:  M1: a per-miss cost is arm-independent. M2: a fixed window W of in-flight uops sets the
+             memory overlap for both arms.
+MEASURED:    M1 3/27 ap_par cells in band (M1' 9/27), under-predicting every cell, −32..−51% at DRAM;
+             M2 13/27 ap_par, 9/27 hb_fx in-sample (fit.py / fit2.py, cm-r5.json, 5 rounds).
+OUTCOME:     no-move (models refuted)
+WHY:         the two arms reach different memory-level parallelism: hb_fx 7.3-9.8 outstanding L1
+             misses (fill buffer saturated), ap_par 3.6-6.1; a per-miss or per-window constant
+             shared by both arms cannot express that.
+BASE:        n/a (instrument).
+MODEL-GAP:   "per-miss cost is a machine constant." It is a function of the arm's MLP.
+DISPOSITION: retained as refuted rows; no third form fitted on this data; attribution measured directly.
+EVIDENCE:    docs/evidence/perf-predictions.md (COUNT-MODEL); /home/socol/oc-tmp/count-model/REGISTRATION.md.
+```
+
+### [FAIL-14] `P74` — page walks as an additive cost
+
+```text
+ATTEMPTED:   back the count_par shard heaps with THP (`GLIBC_TUNABLES=glibc.malloc.hugetlb=1`).
+HYPOTHESIS:  removing walk_active (46-50 cycles/op at 1e7 all) removes at least half of it from the
+             lookup's cycles.
+MEASURED:    walks 0.0; cycles −14.7 / −6.6 / −11.3 at 1e7 all (0.14-0.30x of walk_active); d = 1e5
+             cells −6.1..−8.0% (5 interleaved pairs, p74ab.txt).
+OUTCOME:     no-move on the registered clause (small improvement, not installed)
+WHY:         walk cycles overlap the DRAM latency of the same lookup; the binding R3 resource is MLP.
+BASE:        `count_par` shard allocation.
+MODEL-GAP:   "a counter's active cycles are additive cycles." Only cycles on the critical path are.
+DISPOSITION: parked; an install needs code (madvise or 2 MB-aligned storage) and its own prediction.
+EVIDENCE:    docs/evidence/perf-predictions.md P74; perf-move-ledger.md COUNT-12.
+```
+
 ## 3 · The model of speed, corrected
 
 Every failure above shares one wrong belief: **that the speed lives in the generic Table's overhead —
@@ -236,3 +333,10 @@ instruction count in the charged region; any change that does not reduce per-key
 (identity addressing, slot loads, checked arithmetic, walk stores) cannot move the ratio, however much
 it improves construction, provisioning or cleanup.* The subsumption (port the winner) is the operation
 that changes the per-key representation; everything else is a tax on the inferior base.
+
+**Correction from FAIL-10..14.** The per-key instruction proposition holds where the lookup is core-
+bound (d ≤ 1e5) and fails where it is memory-bound: at d ≥ 1e6 the binding resource is memory-level
+parallelism (ap_par 3.6-6.1 outstanding misses against hb_fx 7.3-9.8), and an instruction or walk cut
+moves cycles only if it raises MLP or is on the critical path. A count lever is admitted only with a
+registered per-cell prediction that names its regime and resource
+(`docs/evidence/perf-predictions.md`, COUNT-MODEL).

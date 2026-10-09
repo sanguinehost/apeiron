@@ -25,6 +25,7 @@ import Perf.Issue
 import Perf.Occupancy
 import Perf.Moves
 import Perf.MapMoves
+import Perf.CountLookup
 import Perf.Identity
 import Perf.AttnCoop
 import Perf.IdentityFloat
@@ -400,6 +401,12 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.MapMoves.count01_bucketTagDisjoint
 #audit Perf.MapMoves.count02_homeGroupFastPath
 #audit Perf.MapMoves.count03_readPathProduct
+#audit Perf.CountLookup.overlap_gain
+#audit Perf.CountLookup.slack_of_partial_gain
+#audit Perf.CountLookup.lever_closes_only_if
+#audit Perf.CountLookup.tag_collisions_sum
+#audit Perf.CountLookup.p74_clause2_refuted
+#audit Perf.CountLookup.p74_walk_cannot_close
 
 -- Row: `inf-resident-prefill-GEB633UfORCK7XSmzJifHd` (ATTN-COOP, P18): the SIMT shared-load
 -- dominance, the staging halving rule, the coopmat node comparison and the pp512 gain
