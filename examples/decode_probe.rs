@@ -44,19 +44,21 @@ use apeiron::format::bpe::Bpe;
 use apeiron::format::quant;
 
 /// `~/models/gguf/qwen05b-Q4_K_M.gguf`.
-const DEFAULT_QWEN: &str = "~/models/gguf/qwen05b-Q4_K_M.gguf";
+const DEFAULT_QWEN: &str = concat!(env!("HOME"), "/models/gguf/qwen05b-Q4_K_M.gguf");
 /// Qwen2.5-0.5B's `tokenizer.json`.
-const DEFAULT_QWEN_TOKENIZER: &str = "~/models/qwen2.5-0.5b/tokenizer.json";
+const DEFAULT_QWEN_TOKENIZER: &str = concat!(env!("HOME"), "/models/qwen2.5-0.5b/tokenizer.json");
 /// `Ternary-Bonsai-1.7B-PQ2_0.gguf`.
-const DEFAULT_BONSAI: &str =
-    "~/models/ternary-bonsai-1.7b/Ternary-Bonsai-1.7B-PQ2_0.gguf";
+const DEFAULT_BONSAI: &str = concat!(
+    env!("HOME"),
+    "/models/ternary-bonsai-1.7b/Ternary-Bonsai-1.7B-PQ2_0.gguf"
+);
 /// Bonsai's tokenization reference. The Prism checkpoint is Qwen-family; its sibling
 /// `~/models/bonsai/tokenizer.json` is a `LlamaTokenizer` (vocab 32000, byte-fallback)
 /// that does not match the model's 151936-token embedding, so the measured command's Qwen
 /// tokenizer is reused (it tokenizes the probe prompt identically to the reference run).
-const DEFAULT_BONSAI_TOKENIZER: &str = "~/models/qwen2.5-0.5b/tokenizer.json";
+const DEFAULT_BONSAI_TOKENIZER: &str = concat!(env!("HOME"), "/models/qwen2.5-0.5b/tokenizer.json");
 /// The fixed English text, chosen by the task.
-const DEFAULT_TEXT: &str = "~/apeiron/README.md";
+const DEFAULT_TEXT: &str = concat!(env!("HOME"), "/Workspace/apeiron/README.md");
 /// Teacher-forced positions by default.
 const DEFAULT_TOKENS: usize = 2048;
 /// The draft lengths whose expected-token count is reported.

@@ -19,7 +19,7 @@ use apeiron::engine::loader::Engine;
 use apeiron::engine::KernelMode;
 
 /// The model named by the task.
-const DEFAULT_MODEL: &str = "~/models/gguf/qwen05b-Q4_K_M.gguf";
+const DEFAULT_MODEL: &str = concat!(env!("HOME"), "/models/gguf/qwen05b-Q4_K_M.gguf");
 /// The Q32.32 fractional base `2^-32`, the scale between a stored logit and its real value.
 const Q32: f64 = 4_294_967_296.0;
 

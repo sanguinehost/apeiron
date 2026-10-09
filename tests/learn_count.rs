@@ -255,7 +255,7 @@ fn collision_count_c4() {
     use apeiron::freq::Coord;
     use apeiron::learn::countlm::{pack_key, unpack_key};
     use std::collections::HashSet;
-    const CORPUS: &str = "~/models/data/c4_en.txt";
+    const CORPUS: &str = concat!(env!("HOME"), "/models/data/c4_en.txt");
     const K: usize = 4;
 
     for train_len in [1_000_000usize, 8_000_000usize] {
@@ -323,7 +323,7 @@ fn collision_count_c4() {
 /// over 99996 positions, discounts (0.637186868955899, 1.0462353033030585, 1.4168338668711173).
 #[test]
 fn test_parity() {
-    const CORPUS: &str = "~/models/data/c4_en.txt";
+    const CORPUS: &str = concat!(env!("HOME"), "/models/data/c4_en.txt");
     const PY_BPB: f64 = 2.288_994_499_294;
     const PY_HITS: usize = 53_443;
     const K: usize = 4;

@@ -8,7 +8,7 @@
 //! `threads = 0` runs the pre-change serial attribution (`fold_sparse` + scalar `solve_spd`) so the
 //! before/after split is measured on one binary; `threads >= 1` runs the parallel arm.
 //!
-//! Run: `ridge_race [data_dir] [threads]` (defaults `~/ridge-race/data` and the
+//! Run: `ridge_race [data_dir] [threads]` (defaults `~/scratch/ridge-race/data` and the
 //! process's available parallelism).
 #![allow(
     clippy::cast_precision_loss,
@@ -92,7 +92,7 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let dir = args
         .next()
-        .unwrap_or_else(|| "~/ridge-race/data".to_string());
+        .unwrap_or_else(|| concat!(env!("HOME"), "/scratch/ridge-race/data").to_string());
     let dir = Path::new(&dir);
     let avail = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
     let threads: usize = args.next().map_or(avail, |s| s.parse().unwrap());

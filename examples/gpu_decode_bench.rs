@@ -56,7 +56,7 @@ fn main() {
         }
     };
     let tok_path = flag("--tokenizer")
-        .unwrap_or_else(|| "~/models/qwen2.5-0.5b/tokenizer.json".into());
+        .unwrap_or_else(|| concat!(env!("HOME"), "/models/qwen2.5-0.5b/tokenizer.json").into());
     let prof = args.iter().any(|a| a == "--prof");
 
     let gguf = Gguf::open(path).expect("gguf open");

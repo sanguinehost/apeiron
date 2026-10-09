@@ -47,10 +47,10 @@ use apeiron::engine::loader::Engine;
 use apeiron::engine::{dequant_row_fixed, KernelMode};
 use apeiron::format::bpe::Bpe;
 
-const MODEL: &str = "~/models/gguf/qwen05b-Q4_K_M.gguf";
-const TOKENIZER: &str = "~/models/qwen2.5-0.5b/tokenizer.json";
-const PROSE: &str = "~/fold/hashtrinity/prose8.txt";
-const DOCS: &str = "~/gpu-ppl-corpus.txt";
+const MODEL: &str = concat!(env!("HOME"), "/models/gguf/qwen05b-Q4_K_M.gguf");
+const TOKENIZER: &str = concat!(env!("HOME"), "/models/qwen2.5-0.5b/tokenizer.json");
+const PROSE: &str = concat!(env!("HOME"), "/Workspace/fold/hashtrinity/prose8.txt");
+const DOCS: &str = concat!(env!("HOME"), "/scratch/gpu-ppl-corpus.txt");
 const T: usize = 512;
 const HD: usize = 64;
 const BLK: usize = 16;

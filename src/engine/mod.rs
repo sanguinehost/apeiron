@@ -122,7 +122,7 @@
 //! fold function, its apeiron target and the fixed-point kernel or refusal it needs. Order is
 //! dependency order: a row may use the rows above it.
 //!
-//! | # | stage | fold reference (`~/fold/`) | apeiron target | v0 fixed-point kernel |
+//! | # | stage | fold reference (`~/Workspace/fold/`) | apeiron target | v0 fixed-point kernel |
 //! |---|---|---|---|---|
 //! | 0 | config, tensor table | `bedrock/src/serve/model/loaders.rs` (GGUF load), `types.rs::Config` | `src/engine/loader.rs` | none (metadata; integer/`f64` config only) |
 //! | 1 | token embedding | `forward.rs::cpu_step_f32` embed read `m.embed.cpu[t*hidden..]` | [`Engine::token_embedding`] | [`f16_to_fixed`] + the per-kind row dequantizer; **landed** |

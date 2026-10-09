@@ -55,7 +55,7 @@ use apeiron::simt::Carrier;
 use apeiron::simt_nn::{ActQ, ScaleFace};
 
 /// The checkpoint under test.
-const MODEL: &str = "~/models/gguf/qwen05b-Q4_K_M.gguf";
+const MODEL: &str = concat!(env!("HOME"), "/models/gguf/qwen05b-Q4_K_M.gguf");
 /// Back-to-back dispatches per timed command buffer.
 const R: usize = 200;
 /// Interleaved rounds per carrier.

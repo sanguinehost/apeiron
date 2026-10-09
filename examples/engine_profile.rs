@@ -63,7 +63,7 @@ struct Args {
 
 fn parse_args() -> Result<Args, Box<dyn Error>> {
     let mut a = Args {
-        model: "~/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf".into(),
+        model: concat!(env!("HOME"), "/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf").into(),
         ids: concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/tests/fixtures/qwen35-prompt2.ids"
