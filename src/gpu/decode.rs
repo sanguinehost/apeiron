@@ -56,9 +56,15 @@ pub struct Gemv {
     pub bytes: u64,
     pub m: u32,
     pub k: u32,
-    /// `[DEC-PDL]` skip this node's trailing `step_barrier` (the `o → gu` edge; the consumer waits
-    /// on the completion counter instead). `false` everywhere; ~`DEC_BAR=9` on exactly one edge.
+    /// `[DEC-PDL]` skip this node's trailing `step_barrier` (its outgoing edge carries a completion
+    /// counter instead). `false` everywhere; the PDL edges (`o → gu`, `gu → dn`, `dn → qkv`) set it.
     pub pdl_skip_barrier: bool,
+    /// `[DEC-PDL]` the layer ordinal of a `dn → qkv` (E3) node, else `u32::MAX`. Only the E3 skip
+    /// reads it: the last layer's `dn` has no `qkv` successor, so its trailing barrier is kept
+    /// (the tail reads its output) — see [`pdl_last_layer`].
+    pub pdl_layer: u32,
+    /// `[DEC-PDL]` true on the E3 `dn` node: on the last layer, keep the trailing barrier.
+    pub pdl_keep_last: bool,
 }
 
 /// `[DEC-PDL]` the shared overflow word: a capped consumer spin increments it once. Host-visible,
@@ -71,7 +77,7 @@ pub fn pdl_set_overflow_ptr(p: *const u32) {
     PDL_OVF_PTR.store(p as usize, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// The capped-spin give-up count for the last `GpuDecode` run (`[DEC-PDL]`, `DEC_PDL=1`).
+/// The capped-spin give-up count for the last `GpuDecode` run (`[DEC-PDL]`).
 pub fn pdl_overflow() -> u32 {
     let p = PDL_OVF_PTR.load(std::sync::atomic::Ordering::Relaxed);
     if p == 0 {
@@ -80,6 +86,21 @@ pub fn pdl_overflow() -> u32 {
         // SAFETY: the pointer is the mapped, host-coherent word created in `record_layer`.
         unsafe { (p as *const u32).read_volatile() }
     }
+}
+
+/// `[DEC-PDL]` the last layer's ordinal, written by `record_layer` on every call (so after the
+/// layer loop it holds `n_layer - 1`). The `dn → qkv` edge keeps its barrier on that layer, where
+/// no `qkv` successor exists. Read by [`rec_gemv`].
+static PDL_LAST_LAYER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Record the layer ordinal just built (`record_layer`).
+pub fn pdl_set_last_layer(li: u32) {
+    PDL_LAST_LAYER.store(li, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The last layer ordinal set by [`pdl_set_last_layer`].
+pub fn pdl_last_layer() -> u32 {
+    PDL_LAST_LAYER.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Chart bytes for one `m×k` projection: `k/pack` code words + `k/32` scale words, per row.
@@ -342,6 +363,8 @@ pub unsafe fn make_gemv(
         m,
         k,
         pdl_skip_barrier: false,
+        pdl_layer: u32::MAX,
+        pdl_keep_last: false,
     }
 }
 
@@ -460,9 +483,12 @@ pub unsafe fn rec_gemv(vk: &Vk, cb: CommandBuffer, gm: &Gemv) -> u32 {
         std::ptr::null(),
     );
     (vk.dispatch)(cb, gm.groups.0, gm.groups.1, 1);
-    // `[DEC-PDL]` the `o → gu` edge keeps no barrier: `gu`'s workgroups wait on `o`'s completion
-    // counter in-shader (the consumer's acquire load). Every other edge keeps `step_barrier`.
-    if !gm.pdl_skip_barrier {
+    // `[DEC-PDL]` a PDL edge keeps no barrier: the consumer's workgroups wait on the producer's
+    // completion counter in-shader (an acquire load). Every other edge keeps `step_barrier`. The
+    // `dn → qkv` edge is the exception on the LAST layer, where no `qkv` successor exists and the
+    // tail reads `dn`'s output — `pdl_keep_last` restores the barrier there.
+    let skip = gm.pdl_skip_barrier && !(gm.pdl_keep_last && gm.pdl_layer == pdl_last_layer());
+    if !skip {
         step_barrier(vk, cb);
     }
     if let Some((p2, l2, d2, g2)) = &gm.stage2 {

@@ -4,69 +4,97 @@
 
 use super::*;
 
-// ── [DEC-PDL] the `o → gu` device-scope completion counter (DECODE-ATTRIB T8) ──────────────────
+// ── [DEC-PDL] device-scope completion counters (DECODE-ATTRIB T8/T9) ───────────────────────────
 //
-// Vulkan has no programmatic dependent launch. The decode path's equivalent is: the producer `o`
+// Vulkan has no programmatic dependent launch. The decode path's equivalent is: a producer
 // dispatch's workgroups each release-increment one shared counter word after their last store; the
-// consumer `gu` dispatch's lane 0 spin-waits (CAPPED) on an acquire load of that word before it
-// reads the activation `o` produced. The role is a per-node property set by `record_layer`; a node
-// with no role emits byte-identical SPIR-V to the pre-PDL path.
+// consumer dispatch's lane 0 spin-waits (CAPPED) on an acquire load of that word before it reads
+// the activation the producer wrote. A node carries a *role set* (`Pdl`) — it may produce for one
+// edge and consume another at once (T9): `gu` consumes the `o → gu` counter and produces the
+// `gu → dn` counter; `dn` consumes `gu → dn` and produces `dn → qkv`. The set is a per-node
+// property set by `record_layer`; a node with no role emits byte-identical SPIR-V to the pre-PDL
+// path.
 //
 // Hang safety (desktop GPU): every spin is bounded by `PDL_SPIN_CAP`. A workgroup that trips the
 // cap increments `ovf[0]` and lets the kernel retire (following `simt_nn/gridsync.rs`). A tripped
 // cap is reported as INVALID, never as a cheap edge.
 std::thread_local! {
-    static PDL_ROLE: std::cell::Cell<u8> = std::cell::Cell::new(0);
-    static PDL_TARGET: std::cell::Cell<u32> = std::cell::Cell::new(0);
-    static PDL_CNT: std::cell::Cell<u64> = std::cell::Cell::new(0);
-    static PDL_OVF: std::cell::Cell<u64> = std::cell::Cell::new(0);
+    static PDL: std::cell::Cell<Pdl> = std::cell::Cell::new(Pdl::NONE);
 }
 
-/// Role constants for a PDL node (`record_layer`). 0 = none.
-pub const PDL_NONE: u8 = 0;
+/// `[DEC-PDL]` one node's role set. `flags` names the roles; the handle fields carry the counter
+/// buffer for each. `record_layer` fills it in before a dispatcher builds a node; the dispatcher
+/// appends the listed buffers in the emitter's binding order (below) and clears it after the build.
+#[derive(Clone, Copy)]
+pub struct Pdl {
+    pub flags: u8,
+    /// consumer spin target (the producer's workgroup count).
+    pub target: u32,
+    /// producer counter.
+    pub prod: u64,
+    /// consumer counter.
+    pub cons: u64,
+    /// consumer overflow word (shared across every consumer).
+    pub ovf: u64,
+    /// first reset counter.
+    pub r0: u64,
+    /// second reset counter.
+    pub r1: u64,
+}
+
+impl Pdl {
+    /// No roles: the pre-PDL kernel.
+    pub const NONE: Pdl = Pdl {
+        flags: 0,
+        target: 0,
+        prod: 0,
+        cons: 0,
+        ovf: 0,
+        r0: 0,
+        r1: 0,
+    };
+}
+
+/// Role bits for [`Pdl::flags`].
 pub const PDL_PRODUCER: u8 = 1;
 pub const PDL_CONSUMER: u8 = 2;
-pub const PDL_RESET: u8 = 3;
+pub const PDL_RESET: u8 = 4;
+pub const PDL_RESET2: u8 = 8;
 
-/// Set the PDL role, buffers and target for the NEXT kernel a dispatcher emits. The dispatcher
-/// appends `cnt` (and, for the consumer, `ovf`) to its binding list; the emitter reads the role.
-/// Every `make_*` clears it after the build, so a node outside the `o → gu` edge emits the
-/// unchanged kernel.
-pub fn pdl_begin(role: u8, cnt: u64, ovf: u64, target: u32) {
-    PDL_ROLE.with(|r| r.set(role));
-    PDL_TARGET.with(|t| t.set(target));
-    PDL_CNT.with(|c| c.set(cnt));
-    PDL_OVF.with(|o| o.set(ovf));
+/// Set the role set for the NEXT kernel a dispatcher emits. Every `make_*` (and the tail's
+/// `final_norm_step`) clears it after the build, so a node outside these edges emits the unchanged
+/// kernel.
+pub fn pdl_begin(p: Pdl) {
+    PDL.with(|c| c.set(p));
 }
 
-/// Clear the role (used by a dispatcher after its `emit`, and by a caller with no PDL node).
-pub fn pdl_set_role(role: u8, target: u32) {
-    PDL_ROLE.with(|r| r.set(role));
-    PDL_TARGET.with(|t| t.set(target));
+/// Clear the role set (used by a dispatcher after its `emit`, and by a caller with no PDL node).
+pub fn pdl_clear() {
+    PDL.with(|c| c.set(Pdl::NONE));
 }
 
-/// The role the next dispatcher should honour (`record_layer`'s active marker).
-pub fn pdl_role() -> u8 {
-    PDL_ROLE.with(|r| r.get())
+/// The active role set (`record_layer`'s marker, read by a dispatcher to size its binding list).
+pub fn pdl_info() -> Pdl {
+    PDL.with(|c| c.get())
 }
 
-/// The counter buffer handle for the active PDL node.
-pub fn pdl_cnt() -> u64 {
-    PDL_CNT.with(|c| c.get())
+/// The active role bits.
+pub fn pdl_flags() -> u8 {
+    PDL.with(|c| c.get().flags)
 }
 
-/// The overflow buffer handle for the active PDL node.
-pub fn pdl_ovf() -> u64 {
-    PDL_OVF.with(|o| o.get())
-}
-
-fn pdl_target() -> u32 {
-    PDL_TARGET.with(|t| t.get())
-}
-
-// The counter is the next free SSBO binding of its node: `o` (actq, FlashCombine aux at 4/5) → 6;
-// `dn` (actq, no aux) → 4; `gu` (fused norm with residual at 5/6) → 7, overflow → 8. Those indices
-// are pinned in the emitters below and matched by the host buffer order in `record_layer`.
+// Every counter is the next free SSBO binding of its node, in the node shape's canonical append
+// order; an absent role shifts every later one down, and both the host (`make_fused_gemv` /
+// `make_actq_gemv`) and the emitter compute the index from the same order and the same role bits:
+//
+//   node                       shape (base)  append order              binding (full role set)
+//   o   (actq FlashCombine)    6             [prod, reset0, reset1]   prod 6, r0 7, r1 8
+//   dn  (actq SiluMul, no aux) 4             [reset0, cons, ovf, prod] r0 4, cnt 5, ovf 6, prod 7
+//   gu/qkv (fused norm residual) 7           [cons, ovf, prod]         cnt 7, ovf 8, prod 9
+//   final_norm (rmsnorm tail)  4             [reset0, reset1]          r0 4, r1 5
+//
+// The `o` producer (6), the `gu` consumer (7/8) and the old `dn` reset (4) are the T8 pins; the
+// other indices are new. See `record_layer` for the reset-owner table.
 //
 // SPIR-V atomics under the default GLSL450 memory model. `gridsync.rs` emits the same ops on this
 // device; the device requests `vulkan_memory_model_device_scope` (`gpu/vulkan.rs`).
@@ -157,8 +185,9 @@ fn pdl_consumer(kb: &mut Kb, cnt: u32, ovf: u32, target: u32, tid: u32) {
     kb.wg_barrier();
 }
 
-/// Reset: lane 0 release-stores 0 into `cnt[0]`. Ordered after the consumer by the pipeline barrier
-/// the decode path keeps between `gu` and `dn`, so the next token's producer starts from zero.
+/// Reset: lane 0 release-stores 0 into `cnt[0]`. The reset owner is ordered after every consumer
+/// spin on that counter (see the reset-owner table in `record_layer`), so the next token's producer
+/// starts from zero.
 fn pdl_reset(kb: &mut Kb, cnt: u32, tid: u32) {
     let z = kb.cu(0);
     let is0 = kb.e(OP_IEQ, kb.bool_t, &[tid, z]);
@@ -247,6 +276,19 @@ pub fn rmsnorm_module(
         k.emit_quantize_from_shared(nrm, nrmp, xq, scales, xs, n, dpw, sint, tid, WG, None);
     } else {
         k.rmsnorm_wg(x, g, shv, shp, n, eps, tid, WG, NormOut::Global(out));
+    }
+    // ── [DEC-PDL] the tail reset: `final_norm_step` zeroes the last layer's `gu → dn` (and, when
+    //    the E3 edge exists, `dn → qkv`) counters behind the kept `dn → tail` barrier, so the next
+    //    token's replay starts them at zero. The binding is the module's next free SSBO. ──
+    let pdl = pdl_info();
+    if pdl.flags & PDL_RESET != 0 {
+        let nbind = if quantize_out { b + 3 } else { b + 1 };
+        let r0 = k.ssbo_u(nbind);
+        pdl_reset(&mut k, r0, tid);
+        if pdl.flags & PDL_RESET2 != 0 {
+            let r1 = k.ssbo_u(nbind + 1);
+            pdl_reset(&mut k, r1, tid);
+        }
     }
     k.finish(WG)
 }
@@ -369,16 +411,19 @@ pub fn gemv_norm_module_sc(
     let cn = kb.cu(n);
     let normsrc = if residual.is_some() { xout } else { xin };
 
-    // ── [DEC-PDL] consumer: wait for the `o` edge's completion counter BEFORE reading the
-    //    activation `o` produced (the residual `res` below). Bindings 7 = counter, 8 = overflow
-    //    are appended by `make_fused_gemv` on the `gu` node only; every other norm node has
-    //    `pdl_role() == PDL_NONE` and emits the unchanged kernel. ──
-    if pdl_role() == PDL_CONSUMER {
-        let cnt = kb.ssbo_u(7);
-        let ovf = kb.ssbo_u(8);
+    // ── [DEC-PDL] consumer: wait on the incoming edge's completion counter BEFORE reading the
+    //    activation it produced (the residual `res` below). The counter and overflow live at
+    //    `pdl_base`/`pdl_base + 1`, the outgoing producer counter at `pdl_base + 2`;
+    //    `make_fused_gemv` appends them in that order. `pdl_base = 7` for the chart+residual
+    //    `gu`/`qkv` nodes; a node with no role emits the unchanged kernel. ──
+    let pdl = pdl_info();
+    let pdl_base = (if chart { 5u32 } else { 4 }) + if residual.is_some() { 2 } else { 0 };
+    if pdl.flags & PDL_CONSUMER != 0 {
+        let cnt = kb.ssbo_u(pdl_base);
+        let ovf = kb.ssbo_u(pdl_base + 1);
         // Prefetching the weight rows before the wait was measured a net loss (T8: recovery
         // ~35% -> 0-16%) and is not emitted.
-        pdl_consumer(&mut kb, cnt, ovf, pdl_target(), tid);
+        pdl_consumer(&mut kb, cnt, ovf, pdl.target, tid);
     }
 
     // ── residual add → x_out (idempotent across WGs; x_out ≠ x_in), carrier-independent ──
@@ -482,6 +527,18 @@ pub fn gemv_norm_module_sc(
         };
         kb.store_f(out, out_idx, outv);
     });
+    // ── [DEC-PDL] producer: after a workgroup barrier, lane 0 of every workgroup
+    //    release-increments the outgoing edge's counter. The barrier is what makes lane 0's
+    //    release cover the WHOLE workgroup's stores to `out` (the fold store is per-lane
+    //    identical but issued by all lanes). Appended by `make_fused_gemv` after the consumer
+    //    pair, so its binding is `pdl_base + 2` when the consumer is also present, else
+    //    `pdl_base`. ──
+    if pdl.flags & PDL_PRODUCER != 0 {
+        let pb = pdl_base + if pdl.flags & PDL_CONSUMER != 0 { 2 } else { 0 };
+        let cnt = kb.ssbo_u(pb);
+        kb.wg_barrier();
+        pdl_producer(&mut kb, cnt, tid);
+    }
     kb.finish(WG)
 }
 
@@ -615,6 +672,19 @@ pub fn gemv_actq_module_sc(
         (c0, cspan, r)
     };
 
+    // ── [DEC-PDL] the `dn` consumer of the `gu → dn` counter: spin BEFORE reading the activation
+    //    `src` that the producer `gu` wrote. On the no-aux actq shape the counters are appended
+    //    reset-first, so the consumer lands at `4 + (reset ? 1 : 0)`; `make_actq_gemv` appends the
+    //    counter and the overflow word in that order. ──
+    let pdl = pdl_info();
+    let has_aux = matches!(act, ActQ::FlashCombine(..));
+    let cons_base = 4 + if pdl.flags & PDL_RESET != 0 { 1 } else { 0 };
+    if pdl.flags & PDL_CONSUMER != 0 {
+        let cnt = kb.ssbo_u(cons_base);
+        let ovf = kb.ssbo_u(cons_base + 1);
+        pdl_consumer(&mut kb, cnt, ovf, pdl.target, tid);
+    }
+
     // ── the activation over `[32·start, 32·bound)`, into shared f32 ──
     let c32 = kb.cu(32);
     let e0 = kb.imul(start, c32);
@@ -742,19 +812,41 @@ pub fn gemv_actq_module_sc(
         kb.store_f(out, out_idx, outv);
     });
 
-    // ── [DEC-PDL] the edge's two ends. Producer `o` (role=1) release-increments the counter after
-    //    its last store (binding 6, appended by `make_actq_gemv`); resetter `dn` (role=3)
-    //    release-stores 0 (binding 4). Any other actq node emits the unchanged kernel. ──
-    match pdl_role() {
-        PDL_PRODUCER => {
+    // ── [DEC-PDL] the node's output ends. On the `o` shape (FlashCombine aux at 4/5) the counters
+    //    are appended producer-first: producer at 6, then the two counters it resets at 6+1 / 6+2.
+    //    On the `dn` shape (no aux) they are appended reset-first, so the producer lands after the
+    //    reset (if any) and the consumer pair (if any). `make_actq_gemv` appends them in that
+    //    order on each shape. The producer is preceded by a workgroup barrier so lane 0's release
+    //    covers every lane's store to `out` — without it the increment can outrun the store and the
+    //    consumer reads an unfinished activation (a nondeterministic race, observed on the fresh
+    //    E1 default and on E2). ──
+    if has_aux {
+        if pdl.flags & PDL_PRODUCER != 0 {
             let cnt = kb.ssbo_u(6);
+            kb.wg_barrier();
             pdl_producer(&mut kb, cnt, tid);
         }
-        PDL_RESET => {
+        let rb = 6 + if pdl.flags & PDL_PRODUCER != 0 { 1 } else { 0 };
+        if pdl.flags & PDL_RESET != 0 {
+            let cnt = kb.ssbo_u(rb);
+            pdl_reset(&mut kb, cnt, tid);
+        }
+        if pdl.flags & PDL_RESET2 != 0 {
+            let r2 = rb + if pdl.flags & PDL_RESET != 0 { 1 } else { 0 };
+            let cnt = kb.ssbo_u(r2);
+            pdl_reset(&mut kb, cnt, tid);
+        }
+    } else {
+        if pdl.flags & PDL_RESET != 0 {
             let cnt = kb.ssbo_u(4);
             pdl_reset(&mut kb, cnt, tid);
         }
-        _ => {}
+        if pdl.flags & PDL_PRODUCER != 0 {
+            let pb = cons_base + if pdl.flags & PDL_CONSUMER != 0 { 2 } else { 0 };
+            let cnt = kb.ssbo_u(pb);
+            kb.wg_barrier();
+            pdl_producer(&mut kb, cnt, tid);
+        }
     }
     kb.finish(WG)
 }
