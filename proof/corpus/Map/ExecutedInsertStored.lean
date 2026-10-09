@@ -1,7 +1,9 @@
--- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (APEIRON-HT-INSERT, HT-INSERT-W30, W31): the
+-- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (APEIRON-HT-INSERT, HT-INSERT-W30, W31, W32): the
 -- `Stored<u64>` size carrier and its key-store totality lemmas.
 --
--- STATUS.  Kernel-checked: `stored_insert_total`, `stored_insert_witness` and `stored_insert_keycols`.
+-- STATUS.  Kernel-checked: `stored_insert_total`, `stored_insert_witness`, `stored_insert_keycols` and
+-- `stored_insert_step` (the structural half of the per-insert step; the `Hov` counter is not linear
+-- across a `resize`, which sends `n` to `n * n + n`).
 --
 -- The size-only `take_key` premise (`i.val < sz keys → take_key keys i c = ok (c, _)`, and its
 -- arbitrary-key side-path twin) is unsatisfiable at `SKS`: `Stored::take_key` reads slot `i` as a
@@ -595,6 +597,55 @@ theorem stored_insert_keycols {s : Tbl (hashtrinity.algebra.Stored U64)}
     rw [h]
     simp only [bind_tc_ok, uncurry_apply_pair]
 
+/-- **`StoredPre`.**  The state invariants carried between `Stored<u64>` inserts: every
+`stored_insert_total` premise except the two budget inequalities `arenaLen s + mainCount s + 4 ≤ nilN`
+and `n * n + n + 4 ≤ nilN`, which are carried separately (their size grows per insert). -/
+def StoredPre (s : Tbl (hashtrinity.algebra.Stored U64)) (m : Apeiron.Table.HMap U64 I64)
+    (live : U64 → Prop) (n : Nat) : Prop :=
+  RepW SKS s m live ∧ SKC s.coords s.keys ∧ SKCs s.side.coords s.side.keys ∧
+  s.side.cap.val ≤ storedSz s.side.keys ∧ Hov s n ∧ mainCount s ≤ n ∧
+  s.bits.val + 3 ≤ UScalarTy.Usize.numBits ∧ s.len.val + s.tombs.val ≤ s.coords.length
+
+/-- **`stored_insert_step` (structural half).**  From a `StoredPre` state and the two budget
+inequalities, `word_hashtrinity_insert` returns `ok s'` and the *preserved* part of `StoredPre`
+holds at `s'`: the representation (`upd k v m`, `live ∪ {k}`) and the key columns, side capacity
+(`stored_insert_keycols`), together with the arena/main-count frame `+ 1` of `insert_ns_rep`
+(a reserved key runs no `resize` and leaves the main table, so its frame is `0`).
+
+The `Hov` counter, the `mainCount ≤ n` bound, the `bits + 3 ≤ numBits` headroom and the occupancy
+bound are **not** established on `s'` here. Residual obligations: `insert_core_ns_ok` and
+`insert_core_sent_ok` export no `Hov`/`mainCount` post-state frame on the probe write; a `resize`
+raises `bits` with no `bits = nb` frame; the post-state occupancy needs `resize ⇒ tombs = 0`; and the
+counter is quadratic across a `resize` (`resize_hov`: `n ↦ n * n + n`), so no linear `n' ≤ n + c`
+holds. -/
+theorem stored_insert_step {s : Tbl (hashtrinity.algebra.Stored U64)}
+    {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop} {n : Nat} (hP : StoredPre s m live n)
+    (hcap : arenaLen s + mainCount s + 4 ≤ nilN) (hn : n * n + n + 4 ≤ nilN)
+    (k : U64) (v : I64) :
+    ∃ s', word_hashtrinity_insert s k v = ok s' ∧
+      RepW SKS s' (upd k v m) (fun c => live c ∨ c = k) ∧
+      SKC s'.coords s'.keys ∧ SKCs s'.side.coords s'.side.keys ∧
+      s'.side.cap.val ≤ storedSz s'.side.keys ∧
+      arenaLen s' + mainCount s' ≤ arenaLen s + mainCount s + 1 := by
+  obtain ⟨hR, hK, hKS, hcapsz, hHov, hmain, hbits, hocc⟩ := hP
+  obtain ⟨s', h, hK', hKS', hcap'⟩ :=
+    stored_insert_keycols hR hK hKS hcapsz hcap n hHov hmain hn hbits hocc k v
+  have hsmall : arenaLen s + mainCount s < nilN := by omega
+  have hmw : hashtrinity.Table.insert_merge_last_write core.cmp.EqU64 CI SKS s k v = ok s' := by
+    unfold word_hashtrinity_insert at h; exact h
+  refine ⟨s', h, ?_, hK', hKS', hcap', ?_⟩
+  · by_cases hk : IsSent k
+    · obtain ⟨ss, hs', hc⟩ := insert_sent_rep SKS SKS_matches hR.1 k v hk s' hmw
+      subst hs'
+      exact ⟨hc, hR.2⟩
+    · exact (insert_ns_rep SKS SKS_matches SKC skc_set resizeOK_stored hR hK hsmall hk v hmw).1
+  · by_cases hk : IsSent k
+    · obtain ⟨ss, hs', -⟩ := insert_sent_rep SKS SKS_matches hR.1 k v hk s' hmw
+      subst hs'
+      show arenaLen s + mainCount s ≤ arenaLen s + mainCount s + 1
+      omega
+    · exact (insert_ns_rep SKS SKS_matches SKC skc_set resizeOK_stored hR hK hsmall hk v hmw).2.2
+
 /-- `with_bits 1` at `Stored<u64>`: `bits = 1`, empty occupancy, an empty side store of capacity 0. -/
 theorem with_bits1_SKS_ex :
     ∃ t : Tbl (hashtrinity.algebra.Stored U64),
@@ -694,5 +745,6 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.stored_grow_side
 #audit Apeiron.MapExecuted.stored_insert_total
 #audit Apeiron.MapExecuted.stored_insert_keycols
+#audit Apeiron.MapExecuted.stored_insert_step
 #audit Apeiron.MapExecuted.with_bits1_SKS_ex
 #audit Apeiron.MapExecuted.stored_insert_witness
