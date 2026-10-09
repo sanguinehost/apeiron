@@ -650,6 +650,24 @@ theorem p67_qf_target_id_bug :
     782 > 55 := by
   decide
 
+/-- P70: the `gu` node's measured cost equation, in hundredths of a µs/token (probe arms on the
+base binary, `DEC_PROF=7`): dispatch 5.66 + prologue 60.29 + fold 207.19 = 273.14; per layer
+1138 (hundredths). Prologue = residual 28-way 24.65 + norm+quant 41.39. The weight-read floor is
+149.80; the fold moves 143.8 MB/token at 694 GB/s = 72 % of the 960 GB/s floor, so the node is
+above the floor (20719 > 14980). The dominant term is the fold; both in-scope prologue arms are
+neutral-to-slower (interleaved 275.21 > 273.14; unrolled 448.43). The achieved rate rises with
+workgroup count: dn 19 WGs 642 GB/s < gu 38 WGs 694 < lm_head 594 WGs 849. -/
+theorem p70_gu_cost_terms :
+    566 + 6029 + 20719 = 27314 ∧
+    27314 / 24 = 1138 ∧
+    2465 + 4139 = 6604 ∧
+    694 * 100 / 960 = 72 ∧
+    642 < 694 ∧ 694 < 849 ∧
+    20719 > 14980 ∧
+    27521 > 27314 ∧
+    44843 > 27314 := by
+  decide
+
 end Moves
 
 end Perf
