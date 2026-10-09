@@ -1363,4 +1363,27 @@ remainder theorem. Both are pointers, not retrieved.
 **Not covered.**
 - `m > 105`.
 - A proof for every `m`: the count is tested, not proved; a Lean statement over `ZMod (pᵏ)` would extend `quadratic_split`.
-- Whether any shipped addressing code uses a composite modulus at all.
+- Whether any shipped addressing code uses a composite modulus at all: answered below.
+
+**Shipped modulus** (row `faces-r2-each-on-the-and-BegLX7J1BhlO8MfCu6nnZd`). Search: `rg -n 'rem_euclid|modulus|MODULUS' src --type rust`. The one quotient-ring
+address in `src/` is `H3_40` (`src/coord/address.rs:18`): `q = 3^40`, `σ = 1`, root `r = 1`, half
+`6078832729528464401`. It is an odd prime power, so the CRT split of the coefficient ring is trivial and only the
+`x`-split is present. The table homes are `Z/2⁶⁴` multiply-shift (`src/table/state.rs`), where no `σ` splits (P0).
+`src/simt/superblock.rs` uses `Z/m` only as a ring of cells (the elliptic closure of H7), not as a coefficient ring.
+The Lean `finiteChannelEquiv` (`proof/corpus/Native/HyperbolicBase.lean`) composes coprime factors, and no shipped
+Rust path uses it.
+
+Command: `python3 /home/socol/oc-tmp/escalation/FACES-R2-h340-idem.py` (sha256 `5bdd1fe697f24b1f…`; log
+`FACES-R2-h340-idem.out`; prediction in the header, written before the run). Exit 0. Grade `tested`.
+
+| check | result | verdict |
+|---|---|---|
+| P1: brute force over `(Z/3ᵏ)[x]/(x²−1)`, `k = 1..7` | 4 idempotents at every `k`: `0`, `1`, `(h, h)`, `(h, −h)`; two have a nonzero `x`-slot; no other scalar idempotent | held |
+| P2: at `q = 3^40` with the shipped half | `e₊² = e₊`, `e₋² = e₋`, `e₊e₋ = 0`, `e₊ + e₋ = 1`, in exact integers | held |
+| control: expected set replaced by `{0, 1}` in a throwaway copy | exit 1 | the check can fail |
+
+- The split at `3^40` is already `proved`: `h3_40_quadratic_split` (`Native/HyperbolicBase.lean:62`).
+- That exactly four idempotents exist at `3^40` is `tested` only for `k ≤ 7`. At `k = 40` it is the Hensel-lifting
+  argument (`model`, standard; unique lift of a simple root of `e² − e` over `Z₃`), not a check.
+- Verdict: the shipped address is the hyperbolic face with one split, no CRT channel. The superseded "odd composite `Z/m`"
+  wording names no shipped code.
