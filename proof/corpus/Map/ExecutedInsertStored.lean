@@ -1,11 +1,14 @@
--- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (APEIRON-HT-INSERT, HT-INSERT-W30, W31, W32, W33):
--- the `Stored<u64>` size carrier and its key-store totality lemmas.  W33 adds the linear overflow
--- entry counter `Hent` and the linear `resize` bound `resize_hov_lin`.  Header line: APEIRON-HT-INSERT
--- W33.
+-- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (APEIRON-HT-INSERT, HT-INSERT-W30, W31, W32, W33, W34):
+-- the `Stored<u64>` size carrier and its key-store totality lemmas.  W34 adds the post-state counter
+-- frames of `insert_core` (`insert_core_ns_ok_lin`, `insert_core_sent_ok_lin`), the two-counter
+-- `StoredPre` at `(N, B)` with `stored_insert_step`, and the fold `stored_insert_seq`.  Header
+-- line: APEIRON-HT-INSERT W34.
 --
--- STATUS.  Kernel-checked: `stored_insert_total`, `stored_insert_witness`, `stored_insert_keycols` and
--- `stored_insert_step` (the structural half of the per-insert step; the `Hov` counter is not linear
--- across a `resize`, which sends `n` to `n * n + n`).
+-- STATUS.  Kernel-checked: `stored_insert_total`, `stored_insert_witness`, `stored_insert_keycols`,
+-- `stored_insert_step` (the per-insert step, now carrying the counters `N ↦ N' ≤ 2·(N+N)+1` and the
+-- `bits` budget `B ↦ B+1`), and `stored_insert_seq` (the fold over a key/value list, under an
+-- exponential-in-`ks.length` budget — see `seqBudget`).  A `resize` no longer sends the counter to
+-- `n * n + n`; one insert grows it by at most `2·(N+N)+1`.
 --
 -- The size-only `take_key` premise (`i.val < sz keys → take_key keys i c = ok (c, _)`, and its
 -- arbitrary-key side-path twin) is unsatisfiable at `SKS`: `Stored::take_key` reads slot `i` as a
@@ -599,54 +602,167 @@ theorem stored_insert_keycols {s : Tbl (hashtrinity.algebra.Stored U64)}
     rw [h]
     simp only [bind_tc_ok, uncurry_apply_pair]
 
-/-- **`StoredPre`.**  The state invariants carried between `Stored<u64>` inserts: every
-`stored_insert_total` premise except the two budget inequalities `arenaLen s + mainCount s + 4 ≤ nilN`
-and `n * n + n + 4 ≤ nilN`, which are carried separately (their size grows per insert). -/
+/-- **`StoredPre`.**  The state invariants carried between `Stored<u64>` inserts.  `N` bounds the
+counter-form overflow domain `Hov`, the linear entry counter `Hent` and the main count; `B` bounds
+`bits` (the headroom `B + 3 ≤ numBits` is what `grow_for_one`'s checked arithmetic reads, and `bits`
+may rise by one per insert, so `B` rises by one per step).  `tombs = 0` makes the occupancy bound
+`len + tombs ≤ coords.length` follow from `len = mainCount ≤ coords.length`. -/
 def StoredPre (s : Tbl (hashtrinity.algebra.Stored U64)) (m : Apeiron.Table.HMap U64 I64)
-    (live : U64 → Prop) (n : Nat) : Prop :=
+    (live : U64 → Prop) (N B : Nat) : Prop :=
   RepW SKS s m live ∧ SKC s.coords s.keys ∧ SKCs s.side.coords s.side.keys ∧
-  s.side.cap.val ≤ storedSz s.side.keys ∧ Hov s n ∧ mainCount s ≤ n ∧
-  s.bits.val + 3 ≤ UScalarTy.Usize.numBits ∧ s.len.val + s.tombs.val ≤ s.coords.length
+  s.side.cap.val ≤ storedSz s.side.keys ∧ Hov s N ∧ Hent s N ∧ mainCount s ≤ N ∧
+  s.bits.val ≤ B ∧ B + 3 ≤ UScalarTy.Usize.numBits ∧ s.tombs.val = 0
 
-/-- **`stored_insert_step` (structural half).**  From a `StoredPre` state and the two budget
-inequalities, `word_hashtrinity_insert` returns `ok s'` and the *preserved* part of `StoredPre`
-holds at `s'`: the representation (`upd k v m`, `live ∪ {k}`) and the key columns, side capacity
-(`stored_insert_keycols`), together with the arena/main-count frame `+ 1` of `insert_ns_rep`
-(a reserved key runs no `resize` and leaves the main table, so its frame is `0`).
+/-- A `StoredPre` state satisfies the occupancy premise: `len = mainCount` and `tombs = 0`. -/
+theorem StoredPre.hocc {s : Tbl (hashtrinity.algebra.Stored U64)}
+    {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop} {N B : Nat} (hP : StoredPre s m live N B) :
+    s.len.val + s.tombs.val ≤ s.coords.length := by
+  obtain ⟨hR, -, -, -, -, -, -, -, -, htombs⟩ := hP
+  rw [htombs, hR.1.len_count, Nat.add_zero]
+  show mainCount s ≤ s.coords.val.length
+  unfold mainCount
+  exact List.countP_le_length
 
-The `Hov` counter, the `mainCount ≤ n` bound, the `bits + 3 ≤ numBits` headroom and the occupancy
-bound are **not** established on `s'` here. Residual obligations: `insert_core_ns_ok` and
-`insert_core_sent_ok` export no `Hov`/`mainCount` post-state frame on the probe write; a `resize`
-raises `bits` with no `bits = nb` frame; the post-state occupancy needs `resize ⇒ tombs = 0`; and the
-counter is quadratic across a `resize` (`resize_hov`: `n ↦ n * n + n`), so no linear `n' ≤ n + c`
-holds. -/
+/-- A `StoredPre` state satisfies the `bits` headroom premise. -/
+theorem StoredPre.hbits {s : Tbl (hashtrinity.algebra.Stored U64)}
+    {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop} {N B : Nat} (hP : StoredPre s m live N B) :
+    s.bits.val + 3 ≤ UScalarTy.Usize.numBits := by
+  obtain ⟨-, -, -, -, -, -, -, hb, hB3, -⟩ := hP
+  omega
+
+/-- A `StoredPre` state satisfies the key-column size bound. -/
+theorem StoredPre.hsz {s : Tbl (hashtrinity.algebra.Stored U64)}
+    {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop} {N B : Nat} (hP : StoredPre s m live N B) :
+    s.coords.val.length ≤ storedSz s.keys := by
+  obtain ⟨-, hK, -, -, -, -, -, -, -, -⟩ := hP
+  unfold storedSz
+  exact le_of_eq hK.1.symm
+
+/-- A `StoredPre` state satisfies the arena bound when `N · N + N + 4 ≤ nilN`. -/
+theorem StoredPre.hcap {s : Tbl (hashtrinity.algebra.Stored U64)}
+    {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop} {N B : Nat} (hP : StoredPre s m live N B)
+    (hN : N * N + N + 4 ≤ nilN) : arenaLen s + mainCount s + 4 ≤ nilN := by
+  obtain ⟨-, -, -, -, hHov, -, hmain, -, -, -⟩ := hP
+  have har : arenaLen s ≤ N := by
+    unfold arenaLen
+    cases hso : s.overflow with
+    | none => simp
+    | some ov => obtain ⟨T, _, hnodes, _, _⟩ := hHov ov hso; exact hnodes
+  have hmm : N ≤ N * N := Nat.le_mul_self N
+  omega
+
+/-- **`stored_insert_step`.**  From a `StoredPre` state at counter `N`, budget `B` and the budget
+inequality `N · N + N + 4 ≤ nilN`, `word_hashtrinity_insert` returns `ok s'` at a state satisfying
+`StoredPre` at `N' ≤ 2·(N+N)+1` and `B + 1`: the representation (`upd k v m`, `live ∪ {k}`) via
+`insert_ns_rep`/`insert_sent_rep`, and the counter frames of `insert_core_ns_ok_lin`/
+`insert_core_sent_ok_lin`.  `bits` rises by at most one per insert, so `B` rises by one. -/
 theorem stored_insert_step {s : Tbl (hashtrinity.algebra.Stored U64)}
-    {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop} {n : Nat} (hP : StoredPre s m live n)
-    (hcap : arenaLen s + mainCount s + 4 ≤ nilN) (hn : n * n + n + 4 ≤ nilN)
-    (k : U64) (v : I64) :
-    ∃ s', word_hashtrinity_insert s k v = ok s' ∧
-      RepW SKS s' (upd k v m) (fun c => live c ∨ c = k) ∧
-      SKC s'.coords s'.keys ∧ SKCs s'.side.coords s'.side.keys ∧
-      s'.side.cap.val ≤ storedSz s'.side.keys ∧
-      arenaLen s' + mainCount s' ≤ arenaLen s + mainCount s + 1 := by
-  obtain ⟨hR, hK, hKS, hcapsz, hHov, hmain, hbits, hocc⟩ := hP
-  obtain ⟨s', h, hK', hKS', hcap'⟩ :=
-    stored_insert_keycols hR hK hKS hcapsz hcap n hHov hmain hn hbits hocc k v
-  have hsmall : arenaLen s + mainCount s < nilN := by omega
-  have hmw : hashtrinity.Table.insert_merge_last_write core.cmp.EqU64 CI SKS s k v = ok s' := by
-    unfold word_hashtrinity_insert at h; exact h
-  refine ⟨s', h, ?_, hK', hKS', hcap', ?_⟩
-  · by_cases hk : IsSent k
-    · obtain ⟨ss, hs', hc⟩ := insert_sent_rep SKS SKS_matches hR.1 k v hk s' hmw
-      subst hs'
-      exact ⟨hc, hR.2⟩
-    · exact (insert_ns_rep SKS SKS_matches SKC skc_set resizeOK_stored hR hK hsmall hk v hmw).1
-  · by_cases hk : IsSent k
-    · obtain ⟨ss, hs', -⟩ := insert_sent_rep SKS SKS_matches hR.1 k v hk s' hmw
-      subst hs'
-      show arenaLen s + mainCount s ≤ arenaLen s + mainCount s + 1
+    {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop} {N B : Nat}
+    (hP : StoredPre s m live N B) (hN : N * N + N + 4 ≤ nilN)
+    (hB : B + 4 ≤ UScalarTy.Usize.numBits) (k : U64) (v : I64) :
+    ∃ (s' : Tbl (hashtrinity.algebra.Stored U64)) (N' : Nat),
+      word_hashtrinity_insert s k v = ok s' ∧
+      StoredPre s' (upd k v m) (fun c => live c ∨ c = k) N' (B + 1) ∧
+      N' ≤ 2 * (N + N) + 1 := by
+  have hocc : s.len.val + s.tombs.val ≤ s.coords.length := StoredPre.hocc hP
+  have hcap : arenaLen s + mainCount s + 4 ≤ nilN := StoredPre.hcap hP hN
+  have hsz : s.coords.val.length ≤ storedSz s.keys := StoredPre.hsz hP
+  have hbits : s.bits.val + 3 ≤ UScalarTy.Usize.numBits := StoredPre.hbits hP
+  obtain ⟨hR, hK, hKS, hcapsz, hHov, hHent, hmain, hbitsB, hB3, htombs⟩ := hP
+  have hne : N + N + 4 ≤ nilN := by
+    have hmm : N ≤ N * N := Nat.le_mul_self N
+    omega
+  by_cases hk : IsSent k
+  · obtain ⟨s', h, hK', hKS', hcap', hHov', hHent', hmain', htombs', hbits'⟩ :=
+      insert_core_sent_ok_lin SKS SKS_matches storedSz sks_alloc_total sks_set_total SKCs
+        stored_takeKeySideOK SKC hR hK hcapsz hKS hk v
+        (fun ss' hp => stored_side_push_pc s.side k v hKS hcapsz hp) N N hHov hHent hmain htombs
+    have hmw : hashtrinity.Table.insert_merge_last_write core.cmp.EqU64 CI SKS s k v = ok s' := by
+      unfold hashtrinity.Table.insert_merge_last_write
+      rw [h]; simp only [bind_tc_ok, uncurry_apply_pair]
+    have hword : word_hashtrinity_insert s k v = ok s' := by
+      unfold word_hashtrinity_insert hashtrinity.Table.insert_merge_last_write
+      rw [h]; simp only [bind_tc_ok, uncurry_apply_pair]
+    refine ⟨s', N, hword, ?_, by omega⟩
+    obtain ⟨ss, hs', hc⟩ := insert_sent_rep SKS SKS_matches hR.1 k v hk s' hmw
+    subst hs'
+    refine ⟨⟨hc, hR.2⟩, hK', hKS', hcap', hHov', hHent', hmain', ?_, ?_, htombs'⟩
+    · rw [hbits']; omega
+    · omega
+  · obtain ⟨s', N', h, hK', hKS', hcap', hHov', hHent', hmain', hN'le, htombs', hbits'⟩ :=
+      insert_core_ns_ok_lin SKS SKC resizeOK_stored storedSz sks_alloc_total
+        (fun keys i c k => ⟨true, SKS_matches keys i c k⟩) (fun _ => avx2_spec_holds)
+        sks_set_total stored_takeKeyOK hR hK hcap N N hHov hHent hmain hN hne hbits hocc htombs hsz
+        skc_set SKCs (fun t ht => stored_grow_side s t hKS hcapsz ht) hk v
+    have hmw : hashtrinity.Table.insert_merge_last_write core.cmp.EqU64 CI SKS s k v = ok s' := by
+      unfold hashtrinity.Table.insert_merge_last_write
+      rw [h]; simp only [bind_tc_ok, uncurry_apply_pair]
+    have hsmall : arenaLen s + mainCount s < nilN := by omega
+    have hrep := (insert_ns_rep SKS SKS_matches SKC skc_set resizeOK_stored hR hK hsmall hk v hmw).1
+    have hword : word_hashtrinity_insert s k v = ok s' := by
+      unfold word_hashtrinity_insert hashtrinity.Table.insert_merge_last_write
+      rw [h]; simp only [bind_tc_ok, uncurry_apply_pair]
+    exact ⟨s', N', hword, ⟨hrep, hK', hKS', hcap', hHov', hHent', hmain', by omega, by omega,
+      htombs'⟩, hN'le⟩
+
+/-- The counter budget after `L` inserts: `insert_core_ns_ok_lin` gives `N_{i+1} ≤ 2·(N_i+N_i)+1`,
+i.e. `N_{i+1} ≤ 4·N_i + 1`, so `N_i ≤ 4^i·(N+1)`.  This is exponential in the step count (a `resize`
+is charged every step); the amortised linearity (one `resize` per doubling) is not proved. -/
+def seqBudget (N L : Nat) : Nat := 4 ^ L * (N + 1)
+
+/-- **`stored_insert_fold`.**  `stored_insert_step` iterated over a key/value list: from a `StoredPre`
+state at counter `N`, budget `B`, the budget `seqBudget N L · seqBudget N L + seqBudget N L + 4 ≤ nilN`
+and the `bits` headroom `B + L + 4 ≤ numBits`, the whole fold returns `ok` at a `StoredPre` state. -/
+theorem stored_insert_fold (ks : List (U64 × I64)) :
+    ∀ (s : Tbl (hashtrinity.algebra.Stored U64)) (m : Apeiron.Table.HMap U64 I64) (live : U64 → Prop)
+      (N B : Nat),
+      StoredPre s m live N B →
+      seqBudget N ks.length * seqBudget N ks.length + seqBudget N ks.length + 4 ≤ nilN →
+      B + ks.length + 4 ≤ UScalarTy.Usize.numBits →
+      ∃ (s' : Tbl (hashtrinity.algebra.Stored U64)) (m' : Apeiron.Table.HMap U64 I64)
+        (live' : U64 → Prop) (N' B' : Nat),
+        List.foldlM (fun s kv => word_hashtrinity_insert s kv.1 kv.2) s ks = ok s' ∧
+        StoredPre s' m' live' N' B' := by
+  induction ks with
+  | nil =>
+    intro s m live N B hP _ _
+    exact ⟨s, m, live, N, B, rfl, hP⟩
+  | cons kv rest ih =>
+    intro s m live N B hP hbud hbudb
+    simp only [List.length_cons] at hbud hbudb
+    have hS : N ≤ seqBudget N (rest.length + 1) := by
+      unfold seqBudget
+      have h1 : 1 ≤ 4 ^ (rest.length + 1) := by
+        have hp : (0 : Nat) < 4 ^ (rest.length + 1) := Nat.pow_pos (by norm_num)
+        omega
+      calc N ≤ (N + 1) := Nat.le_succ N
+        _ = 1 * (N + 1) := by ring
+        _ ≤ 4 ^ (rest.length + 1) * (N + 1) := Nat.mul_le_mul_right (N + 1) h1
+    have hstepN : N * N + N + 4 ≤ nilN := by
+      have h1 : N * N ≤ seqBudget N (rest.length + 1) * seqBudget N (rest.length + 1) :=
+        Nat.mul_le_mul hS hS
       omega
-    · exact (insert_ns_rep SKS SKS_matches SKC skc_set resizeOK_stored hR hK hsmall hk v hmw).2.2
+    have hstepB : B + 4 ≤ UScalarTy.Usize.numBits := by omega
+    obtain ⟨s1, N1, hword, hP1, hN1⟩ := stored_insert_step hP hstepN hstepB kv.1 kv.2
+    have htailN : seqBudget N1 rest.length * seqBudget N1 rest.length + seqBudget N1 rest.length + 4 ≤
+        nilN := by
+      have hm : seqBudget N1 rest.length ≤ seqBudget N (rest.length + 1) := by
+        unfold seqBudget
+        have h1 : N1 + 1 ≤ 4 * (N + 1) := by
+          have := hN1; omega
+        calc 4 ^ rest.length * (N1 + 1) ≤ 4 ^ rest.length * (4 * (N + 1)) :=
+              Nat.mul_le_mul_left _ h1
+          _ = 4 ^ (rest.length + 1) * (N + 1) := by rw [Nat.pow_succ]; ring
+      have h1 : seqBudget N1 rest.length * seqBudget N1 rest.length ≤
+          seqBudget N (rest.length + 1) * seqBudget N (rest.length + 1) := Nat.mul_le_mul hm hm
+      omega
+    have htailB : (B + 1) + rest.length + 4 ≤ UScalarTy.Usize.numBits := by omega
+    obtain ⟨s', m', live', N', B', hfold, hP'⟩ :=
+      ih s1 (upd kv.1 kv.2 m) (fun c => live c ∨ c = kv.1) N1 (B + 1) hP1 htailN htailB
+    refine ⟨s', m', live', N', B', ?_, hP'⟩
+    rw [List.foldlM_cons, hword]
+    simp only [bind_tc_ok]
+    exact hfold
 
 /-- `with_bits 1` at `Stored<u64>`: `bits = 1`, empty occupancy, an empty side store of capacity 0. -/
 theorem with_bits1_SKS_ex :
@@ -726,6 +842,47 @@ theorem stored_insert_witness :
   exact ⟨t0, (fun _ => 0#i64), (fun _ => False), 0, s', hR0, ⟨hT.2.1, hT.2.2⟩, hKS, hcs, hcap,
     hHov0, by omega, by unfold nilN; omega, hbits3, hocc0, hk, h⟩
 
+/-- **`stored_insert_seq`.**  Over a key/value list `ks` from the state `with_bits 1` builds, the fold
+`List.foldlM word_hashtrinity_insert` returns `ok s'` and `RepW` of the folded map holds, under the
+closed-form budget `seqBudget 0 ks.length · seqBudget 0 ks.length + seqBudget 0 ks.length + 4 ≤ nilN`
+(exponential in `ks.length`, see `seqBudget`) and the `bits` budget `ks.length + 5 ≤ numBits`. -/
+theorem stored_insert_seq (ks : List (U64 × I64))
+    (hbud : seqBudget 0 ks.length * seqBudget 0 ks.length + seqBudget 0 ks.length + 4 ≤ nilN)
+    (hbudbits : ks.length + 5 ≤ UScalarTy.Usize.numBits) :
+    ∃ (t0 : Tbl (hashtrinity.algebra.Stored U64)) (s' : Tbl (hashtrinity.algebra.Stored U64))
+      (m' : Apeiron.Table.HMap U64 I64) (live' : U64 → Prop),
+      hashtrinity.Table.with_bits I64 core.cmp.EqU64 CI SKS 1#u32 = ok t0 ∧
+      List.foldlM (fun s kv => word_hashtrinity_insert s kv.1 kv.2) t0 ks = ok s' ∧
+      RepW SKS s' m' live' := by
+  obtain ⟨t0, hwb, hbits0, hlen0, htombs0, hside, hcap0⟩ := with_bits1_SKS_ex
+  have hT := stored_with_bits_rep 1#u32 (by decide) t0 hwb
+  have hR0 : RepW SKS t0 (fun _ => 0#i64) (fun _ => False) :=
+    ⟨hT.1, by
+      unfold OvWF; rw [with_bits_overflow SKS 1#u32 t0 hwb]; trivial⟩
+  have hmc0 : mainCount t0 = 0 := by
+    have hsum0 : arenaLen t0 + mainCount t0 = 0 := (with_bits_wf SKS 1#u32 (by decide) t0 hwb).2
+    omega
+  have hHov0 : Hov t0 0 := by
+    intro ov hsome
+    rw [with_bits_overflow SKS 1#u32 t0 hwb] at hsome
+    exact absurd hsome (by simp)
+  have hbits3 : t0.bits.val + 3 ≤ UScalarTy.Usize.numBits := by
+    rw [hbits0]
+    show (1 : Nat) + 3 ≤ System.Platform.numBits
+    rcases System.Platform.numBits_eq with h | h <;> rw [h] <;> decide
+  have hKS : SKCs t0.side.coords t0.side.keys := by
+    intro i c hi
+    rw [hside] at hi
+    simp at hi
+  have hcs : t0.side.cap.val ≤ storedSz t0.side.keys := by
+    rw [hcap0]; exact Nat.zero_le _
+  have hP0 : StoredPre t0 (fun _ => 0#i64) (fun _ => False) 0 1 :=
+    ⟨hR0, ⟨hT.2.1, hT.2.2⟩, hKS, hcs, hHov0, by simpa using Hent_of_Hov hHov0, by omega,
+      by simp [hbits0], by have h := hbits3; rw [hbits0] at h; simpa using h, htombs0⟩
+  obtain ⟨s', m', live', N', B', hfold, hP'⟩ :=
+    stored_insert_fold ks t0 (fun _ => 0#i64) (fun _ => False) 0 1 hP0 hbud (by omega)
+  exact ⟨t0, s', m', live', hwb, hfold, hP'.1⟩
+
 end Apeiron.MapExecuted
 
 #audit Apeiron.MapExecuted.sks_alloc_total
@@ -762,3 +919,24 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.place_capped_hent
 #audit Apeiron.MapExecuted.resize_hov_lin
 #audit Apeiron.MapExecuted.grow_post_lin
+-- W34: the post-state counter frames, `StoredPre` at `(N, B)`, and the fold.
+#audit Apeiron.MapExecuted.Hov_of_overflow
+#audit Apeiron.MapExecuted.Hent_of_overflow
+#audit Apeiron.MapExecuted.mainCount_of_coords
+#audit Apeiron.MapExecuted.take_value_len
+#audit Apeiron.MapExecuted.write_back_len
+#audit Apeiron.MapExecuted.place_capped_bits_tombs
+#audit Apeiron.MapExecuted.resize_loop0_bits_tombs
+#audit Apeiron.MapExecuted.resize_loop1_bits_tombs
+#audit Apeiron.MapExecuted.with_bits_bits_tombs
+#audit Apeiron.MapExecuted.resize_bits_tombs
+#audit Apeiron.MapExecuted.grow_for_one_bits_tombs
+#audit Apeiron.MapExecuted.insert_core_ns_ok_lin
+#audit Apeiron.MapExecuted.insert_core_sent_ok_lin
+#audit Apeiron.MapExecuted.StoredPre.hocc
+#audit Apeiron.MapExecuted.StoredPre.hbits
+#audit Apeiron.MapExecuted.StoredPre.hsz
+#audit Apeiron.MapExecuted.StoredPre.hcap
+#audit Apeiron.MapExecuted.seqBudget
+#audit Apeiron.MapExecuted.stored_insert_fold
+#audit Apeiron.MapExecuted.stored_insert_seq

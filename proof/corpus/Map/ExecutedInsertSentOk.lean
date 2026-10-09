@@ -364,6 +364,77 @@ theorem insert_core_sent_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
       alloc.vec.Vec.ofSlice]
     rfl
 
+/-- **`insert_core_sent_ok_lin`.**  `insert_core_sent_ok` with the counter frames: a reserved key runs
+no `grow_for_one` and writes only the side store, so `Hov`, `Hent`, `mainCount`, `bits` and `tombs`
+of the main table are unchanged. -/
+theorem insert_core_sent_ok_lin {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
+    (sz : KS → Nat)
+    (halloc : ∀ n : Usize, ∃ ks', ks.alloc n = ok ks' ∧ n.val ≤ sz ks')
+    (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
+      ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
+    (KCS : alloc.vec.Vec U64 → KS → Prop) (htk : TakeKeySideOK ks sz KCS)
+    (KC : Slice U64 → KS → Prop)
+    {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop}
+    (hR : RepW ks s m live) (hK : KC s.coords s.keys) (hcapsz : s.side.cap.val ≤ sz s.side.keys)
+    (hKS : KCS s.side.coords s.side.keys)
+    {k : U64} (hk : IsSent k) (v : I64)
+    (hSide : ∀ ss', hashtrinity.side.SideStore.push CI ks s.side k k v = ok ss' →
+      KCS ss'.coords ss'.keys ∧ ss'.cap.val ≤ sz ss'.keys)
+    (n e : Nat) (hHov : Hov s n) (hent : Hent s e) (hmain : mainCount s ≤ n)
+    (htombs : s.tombs.val = 0) :
+    ∃ s', hashtrinity.Table.insert_core core.cmp.EqU64 CI ks s k v true = ok (none, s') ∧
+      KC s'.coords s'.keys ∧ KCS s'.side.coords s'.side.keys ∧
+      s'.side.cap.val ≤ sz s'.side.keys ∧
+      Hov s' n ∧ Hent s' e ∧ mainCount s' ≤ n ∧ s'.tombs.val = 0 ∧ s'.bits = s.bits := by
+  unfold hashtrinity.Table.insert_core
+  rw [coord_of_ok]
+  simp only [bind_tc_ok]
+  rw [is_sentinel_ok]
+  simp only [bind_tc_ok]
+  rw [if_pos (by simpa using hk)]
+  obtain ⟨o, hfind⟩ := side_find_total_KS ks hm s.side k k
+  rw [hfind]
+  simp only [bind_tc_ok]
+  have hlen := side_coords_length_le_two ks hR.1
+  have hvl0 : s.side.vals.length ≤ 2 := by
+    rw [hR.1.side_len_vals]; exact hlen
+  have hvl : s.side.vals.val.length ≤ 2 := hvl0
+  cases o with
+  | none =>
+    obtain ⟨ss, hpush⟩ := side_push_total ks sz halloc hset KCS htk s.side k k v hlen hvl hcapsz hKS
+    refine ⟨{ s with side := ss }, ?_, hK, (hSide ss hpush).1, (hSide ss hpush).2,
+      hHov, hent, hmain, htombs, rfl⟩
+    rw [hpush]; simp only [bind_tc_ok]
+  | some i =>
+    have hik : s.side.coords.val[i.val]? = some k :=
+      (side_find_spec ks hm s.side k k (some i) hfind).1 i rfl
+    have hltc : i.val < s.side.coords.val.length := (List.getElem?_eq_some_iff.mp hik).1
+    have hltv0 : i.val < s.side.vals.val.length := by
+      rw [show s.side.vals.val.length = s.side.coords.val.length from hR.1.side_len_vals]
+      exact hltc
+    have hltv : i.val < (s.side.vals.slice).length := hltv0
+    obtain ⟨mu, back, hg⟩ := slice_get_unchecked_mut_ex s.side.vals.slice i hltv
+    obtain ⟨hmu, hback⟩ := get_unchecked_mut_ok s.side.vals.slice i mu back hg
+    have hval : (s.side.vals.slice).val[i.val]? = some (some (m k)) := (hR.1.side_val i k hik).2.2
+    have hmu' : mu = some (m k) := by
+      rw [hval] at hmu
+      exact (Option.some.inj hmu).symm
+    subst hmu'
+    have hread : core.mem.maybe_uninit.MaybeUninit.assume_init_read (some (m k)) = ok (m k) := rfl
+    have hsetlen : ((s.side.vals.slice).set i (some (m k))).length =
+        (s.side.vals.slice).length := slice_set_length _ _ _
+    obtain ⟨mu2, back2, hg2⟩ := slice_get_unchecked_mut_ex
+      ((s.side.vals.slice).set i (some (m k))) i (by rw [hsetlen]; exact hltv)
+    let vals' : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit I64) :=
+      alloc.vec.Vec.ofSlice (back2 (some v))
+    let side' : hashtrinity.side.SideStore U64 I64 KS := { s.side with vals := vals' }
+    refine ⟨{ s with side := side' }, ?_, hK, hKS, hcapsz, hHov, hent, hmain, htombs, rfl⟩
+    simp only [core.mem.drop, alloc.vec.Vec.deref_mut, lift, bind_tc_ok, uncurry_apply_pair,
+      core.mem.maybe_uninit.MaybeUninit.new, ite_true, hg, hread, hback, hg2,
+      alloc.vec.Vec.ofSlice]
+    rfl
+
 /-! ## The `Regen<u64>` face -/
 
 /-- **`regen_takeKeySideOK`.**  `TakeKeySideOK` at `Regen<u64>` with the trivial relation. -/
