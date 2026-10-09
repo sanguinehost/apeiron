@@ -35,6 +35,7 @@ import Perf.HattnT7
 import Perf.HattnT8
 import Perf.HattnT8Q7
 import Perf.HattnT8Q7L
+import Perf.HattnT8Q8
 import Perf.Identity
 import Perf.AttnCoop
 import Perf.IdentityFloat
@@ -532,6 +533,15 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnT8Q7L.q5_held
 #audit Perf.HattnT8Q7L.q6_held
 #audit Perf.HattnT8Q7L.tree_fails_cluster_holds
+#audit Perf.HattnT8Q8.q1_split
+#audit Perf.HattnT8Q8.q2_held
+#audit Perf.HattnT8Q8.q3_refuted
+#audit Perf.HattnT8Q8.q4_held
+#audit Perf.HattnT8Q8.q5_held
+#audit Perf.HattnT8Q8.q6_held
+#audit Perf.HattnT8Q8.all_pass_262144
+#audit Perf.HattnT8Q8.cluster_scan_scaling
+#audit Perf.HattnT8Q8.bytes_7b_256k
 #audit Perf.HattnT8Q7L.cluster_cuts_scan_128k
 #audit Perf.HattnT8Q7L.flat_drift
 #audit Perf.HattnT8Q7L.bytes_7b_128k
