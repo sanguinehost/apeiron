@@ -607,6 +607,15 @@ theorem p65_edge_extension :
     10777 - 752 > 7540 := by
   decide
 
+/-- P66: the `DEC_PDL=3` default (o → gu and gu → dn counters) against `DEC_PDL=1` on the live
+tree, in tenths of a µs/token: 1094.9 → 1065.3 recovers 29.6 µs, and the token stays above the
+754 µs target for 1.5× CUDA. -/
+theorem p66_pdl3_default :
+    10949 - 10653 = 296 ∧
+    296 > 0 ∧
+    10653 > 7540 := by
+  decide
+
 end Moves
 
 end Perf
