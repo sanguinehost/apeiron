@@ -12,7 +12,9 @@
 --   entry (`+1` to the overflow sum, `mainCount` intact).  This is the step the resize loops need to
 --   carry the live count `mainCount s + es.length` through, and it is what the merged counter missed.
 --
--- Header line: W37.
+-- Header line: W38.  W38 adds the logarithmic `bits` frame `Hbits`, its
+-- `grow_for_one` branch lemma `grow_for_one_bits_split`/`grow_for_one_hbits`, and the `Hbits`
+-- conjunct of `insert_core_ns_ok_live`.
 import Map.ExecutedInsertOk
 open Aeneas Aeneas.Std Result
 
@@ -1006,6 +1008,98 @@ theorem insert_core_ns_ok_lin_gen_live {KS : Type} (ks : hashtrinity.algebra.Key
       · show s1.bits.val ≤ B
         exact hgbits
 
+/-- **`Hbits`.**  The `bits`-frame that a per-insert `+1` counter cannot carry: the table size
+`2 ^ s.bits.val` is at most `max (2 ^ B₀) (4 · N)`, where `N` is the `Hlive` counter.  The `2 ^ B₀`
+disjunct covers the initial state; the `4 · N` disjunct is what one `grow_for_one` doubling
+preserves.  `grow_for_one` doubles only when `len ≥ cap / 2`, so
+`2 ^ (bits + 1) = 2 · cap ≤ 4 · len ≤ 4 · N`; because `N` rises by one per insert, the frame is
+`O(log L)` over a length-`L` fold, not the `O(L)` of a per-call `bits + 1`. -/
+def Hbits {KS : Type} (s : Tbl KS) (B₀ N : Nat) : Prop :=
+  2 ^ s.bits.val ≤ max (2 ^ B₀) (4 * N)
+
+/-- `Hbits` is monotone in its `Hlive` counter. -/
+theorem Hbits_mono {KS : Type} {s : Tbl KS} {B₀ N N' : Nat} (h : Hbits s B₀ N) (hNN : N ≤ N') :
+    Hbits s B₀ N' := by
+  unfold Hbits at h ⊢
+  exact le_trans h (max_le_max (le_refl _) (by omega))
+
+/-- **`grow_for_one_bits_split`.**  `grow_for_one` changes `bits` only on its `resize` branch: the
+identity branch returns the table unchanged and a same-size rebuild sets `bits := nb = s.bits`, so
+`bits` is fixed; the doubling branch sets `bits := s.bits + 1` and is taken only when
+`¬ (s.len < cap / 2)`, i.e. `cap / 2 ≤ s.len`, so `2 ^ s.bits.val = cap ≤ 2 · s.len.val`.  (`cap =
+s.coords.length = 2 ^ s.bits.val` is the `RepW` shape clause `hlen`.) -/
+theorem grow_for_one_bits_split {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    {s s1 : Tbl KS} (hbits_pos : 0 < s.bits.val) (hlen : s.coords.length = 2 ^ s.bits.val)
+    (hg : hashtrinity.Table.grow_for_one core.cmp.EqU64 CI ks s = ok s1) :
+    s1.bits = s.bits ∨ (s1.bits.val = s.bits.val + 1 ∧ 2 ^ s.bits.val ≤ 2 * s.len.val) := by
+  unfold hashtrinity.Table.grow_for_one at hg
+  obtain ⟨i, -, hg⟩ := bind_inv hg
+  obtain ⟨i1, -, hg⟩ := bind_inv hg
+  obtain ⟨i2, -, hg⟩ := bind_inv hg
+  obtain ⟨i3, -, hg⟩ := bind_inv hg
+  by_cases hge : i2 >= i3
+  · rw [if_pos hge] at hg
+    obtain ⟨i4, hi4, hg⟩ := bind_inv hg
+    obtain ⟨nb, hnb, hg⟩ := bind_inv hg
+    by_cases hlt : s.len < i4
+    · rw [if_pos hlt] at hnb
+      left
+      obtain ⟨hb, -⟩ := resize_bits_tombs ks hg
+      rw [hb, (Result.ok_injective hnb).symm]
+    · rw [if_neg hlt] at hnb
+      right
+      obtain ⟨hb, -⟩ := resize_bits_tombs ks hg
+      have hnbv : nb.val = s.bits.val + 1 := by
+        have h := (uadd_ok hnb).1
+        have h1 : (1#u32).val = 1 := rfl
+        omega
+      refine ⟨by rw [hb, hnbv], ?_⟩
+      have hle : i4.val ≤ s.len.val := by
+        simp only [UScalar.lt_equiv] at hlt
+        omega
+      have hi4v : i4.val = s.coords.length / 2 := by
+        have h := (udiv_ok hi4).2
+        rw [Slice.len_val] at h
+        have h2 : (2#usize).val = 2 := rfl
+        rw [h2] at h
+        exact h
+      have hcap_le : s.coords.length ≤ 2 * s.len.val := by
+        have hdiv : s.coords.length / 2 ≤ s.len.val := by rw [← hi4v]; exact hle
+        have heven : 2 ∣ s.coords.length := by
+          rw [hlen]
+          obtain ⟨k, hk⟩ : ∃ k, s.bits.val = k + 1 := ⟨s.bits.val - 1, by omega⟩
+          refine ⟨2 ^ k, ?_⟩
+          rw [hk, pow_succ, Nat.mul_comm]
+        calc s.coords.length = 2 * (s.coords.length / 2) := by
+              rw [Nat.mul_comm]
+              exact (Nat.div_mul_cancel heven).symm
+          _ ≤ 2 * s.len.val := Nat.mul_le_mul_left 2 hdiv
+      rw [hlen] at hcap_le
+      exact hcap_le
+  · rw [if_neg hge] at hg
+    left
+    rw [(Result.ok_injective hg).symm]
+
+/-- **`grow_for_one_hbits`.**  `grow_for_one` preserves `Hbits s B₀ N` when `s.len.val ≤ N`: the
+non-doubling branches leave `bits` fixed, and the doubling branch's fresh bound `2 ^ (bits + 1) ≤
+4 · len ≤ 4 · N` dominates the `4 · N` disjunct.  `hlenN` is `mainCount s ≤ N` (`s.len.val =
+mainCount s`); `bits_pos` and `len_pow` are the `RepW` shape clauses. -/
+theorem grow_for_one_hbits {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    {s s1 : Tbl KS} {B₀ N : Nat}
+    (hbits_pos : 0 < s.bits.val) (hlen : s.coords.length = 2 ^ s.bits.val)
+    (hlenN : s.len.val ≤ N) (hHbits : Hbits s B₀ N)
+    (hg : hashtrinity.Table.grow_for_one core.cmp.EqU64 CI ks s = ok s1) :
+    Hbits s1 B₀ N := by
+  rcases grow_for_one_bits_split ks hbits_pos hlen hg with h | ⟨hbv, hle⟩
+  · unfold Hbits at hHbits ⊢
+    rw [h]; exact hHbits
+  · unfold Hbits at ⊢
+    rw [hbv, pow_succ]
+    have h2 : 2 ^ s.bits.val * 2 ≤ 4 * N := by
+      have h3 := Nat.mul_le_mul_right 2 hle
+      omega
+    exact le_trans h2 (le_max_right _ _)
+
 /-- **`grow_hov_live`.**  `grow_for_one` preserves the live-entry counter: from `Hov s C` and
 `Hlive s C`, the output satisfies `Hov · C`, `Hent · C` and `Hlive · C` (the resize branch is
 `resize_hov_live`; the identity branch is `s1 = s`). -/
@@ -1108,6 +1202,7 @@ theorem insert_core_ns_ok_live {KS : Type} (ks : hashtrinity.algebra.KeyStore KS
     (hR : RepW ks s m live) (hK : KC s.coords s.keys) (hcap : arenaLen s + mainCount s + 4 ≤ nilN)
     (C : Nat) (hHov : Hov s C) (hlive : Hlive s C) (hC : C * C + C + 4 ≤ nilN)
     (hbits : s.bits.val + 3 ≤ UScalarTy.Usize.numBits)
+    (B₀ : Nat) (hHbits : Hbits s B₀ C)
     (hocc : s.len.val + s.tombs.val ≤ s.coords.length) (htombs : s.tombs.val = 0)
     (hsz_s : s.coords.val.length ≤ sz s.keys)
     (hKCset : ∀ (coords coords' : Slice U64) (keys keys' : KS) (i : Usize) (k : U64),
@@ -1122,7 +1217,7 @@ theorem insert_core_ns_ok_live {KS : Type} (ks : hashtrinity.algebra.KeyStore KS
       KC s'.coords s'.keys ∧ KCS s'.side.coords s'.side.keys ∧
       s'.side.cap.val ≤ sz s'.side.keys ∧
       Hov s' (C + 1) ∧ Hent s' (C + 1) ∧ Hlive s' (C + 1) ∧ mainCount s' ≤ C + 1 ∧
-      s'.tombs.val = 0 ∧ s'.bits.val ≤ s.bits.val + 1 := by
+      s'.tombs.val = 0 ∧ s'.bits.val ≤ s.bits.val + 1 ∧ Hbits s' B₀ (C + 1) := by
   have hmain : mainCount s ≤ C := hlive.1
   have hCC : C + C + 4 ≤ nilN := by have hmm := Nat.le_mul_self C; omega
   obtain ⟨s1, hg⟩ := grow_for_one_ok ks sz halloc hm hA hset KC hTK hR hK hcap C hHov hmain hC hbits
@@ -1132,10 +1227,18 @@ theorem insert_core_ns_ok_live {KS : Type} (ks : hashtrinity.algebra.KeyStore KS
   obtain ⟨hgbits, hgtombs⟩ := grow_for_one_bits_tombs ks hg
   have hSide1 := hSide s1 hg
   have htombs1 : s1.tombs.val = 0 := by omega
+  have hs1f : Hbits s1 B₀ C :=
+    grow_for_one_hbits ks hR.1.bits_pos hR.1.len_pow (by rw [hR.1.len_count]; exact hmain) hHbits hg
   obtain ⟨s', h, hK', hKS', hcap', hHov', hHent', hHLiv', hmain', htombs', hbits'⟩ :=
     insert_core_ns_ok_lin_gen_live ks KC sz hm hA hset KCS hR1 hK1 hSide1 hcap1 hbits1 hlen1 hsl1 hsz1
-      C C (s.bits.val + 1) C hHov1 hHent1 hHLive1 hmc1 (by omega) hgbits htombs1 hKCset hns v hg
+      C C s1.bits.val C hHov1 hHent1 hHLive1 hmc1 (by omega) (le_refl _) htombs1 hKCset hns v hg
+  have hbits_le : s'.bits.val ≤ s.bits.val + 1 := by omega
+  have hframe : Hbits s' B₀ (C + 1) := by
+    unfold Hbits at hs1f ⊢
+    have h2 : 2 ^ s'.bits.val ≤ max (2 ^ B₀) (4 * C) :=
+      le_trans ((Nat.pow_le_pow_iff_right (by norm_num : 1 < 2)).mpr hbits') hs1f
+    exact le_trans h2 (max_le_max (le_refl _) (by omega))
   exact ⟨s', h, hK', hKS', hcap', Hov_mono hHov' (by omega), Hent_mono hHent' (by omega),
-    hHLiv', by omega, htombs', hbits'⟩
+    hHLiv', by omega, htombs', hbits_le, hframe⟩
 
 end Apeiron.MapExecuted
