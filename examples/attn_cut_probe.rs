@@ -3546,6 +3546,23 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                 8,
             )
         };
+    // `KV_TAIL_ARMS=2,4` keeps the dense reference (index 0) and the listed arms: each arm runs its own whole-model
+    // forward, so a subset gives the same per-arm figures as the full list.
+    let arms = match std::env::var("KV_TAIL_ARMS") {
+        Ok(v) => {
+            let keep: Vec<usize> = v
+                .split(',')
+                .map(str::parse)
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("KV_TAIL_ARMS: {e}"))?;
+            arms.into_iter()
+                .enumerate()
+                .filter(|(i, _)| *i == 0 || keep.contains(i))
+                .map(|(_, a)| a)
+                .collect()
+        }
+        Err(_) => arms,
+    };
     assert!(
         nt <= TL_W,
         "tail longer than the window: far pages would hold tail keys"
