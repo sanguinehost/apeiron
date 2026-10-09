@@ -295,11 +295,119 @@ whole-model KLD holds at 1M with a 2048 budget is the open measurement.
 - Decode tail only, prefill dense; bytes are counts, not tokens per second.
 - No Rust/Aeneas selector; rustc, LLVM and the instrument are outside the trust boundary.
 
+## HATTN-T8 on Qwen2.5-7B-Instruct-1M
+
+Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Grade: `measured` (one prompt, 64 tail positions per `t`);
+verdicts `proved` in `proof/corpus/Perf/HattnT8Q7.lean` (sha256 `465addd4…`, empty axiom cone, four changed-constant
+controls red).
+
+| item | value |
+|---|---|
+| model | Qwen2.5-7B-Instruct-1M Q4_K_M: 28 layers, 28 query / 4 KV heads, head dim 128 |
+| dump | `/home/socol/oc-tmp/hattn-long/t32k-7b`, 32768 tokens, ids sha256 `a9ff4f03…` as T3, CPU `run_dump` (137 s/layer at 32k), 17 GB |
+| instrument | `attn_cut_probe.hd128t` (`PROBE_HD=128`, source `91fae89`), sha256 `8b149f25…`; `KV_TAIL=t32k-7b KV_TAIL_TREE=1 KV_TAIL_TS=<t>`, 56–114 s per `t` |
+| outputs | `tree7b-{4096,8192,16384,32768}.out` (`b6aa2fd7…`, `240e245d…`, `35112209…`, `c14179bf…`), mutation `tree7b-m2.out` (`f16fd68d…`), all TAIL PASS |
+| predictions | registered before the run: `PREDICTIONS-T8-7B.md`, sha256 `360d7ea8…` |
+| control | dense tail rel-L2 over q, k, v, 28 layers: 2.4e-6, 5.0e-6, 1.2e-5, 1.9e-5 at the four `t` (gate 1e-4); certification violations 0 |
+
+Mean whole-model KLD (gate 0.05) at `t = 4096, 8192, 16384, 32768`:
+
+| arm | 4096 | 8192 | 16384 | 32768 | bound vectors / refresh at 32768 |
+|---|---:|---:|---:|---:|---:|
+| `grp-fix2048-r8` (flat) | 0.0030 | 0.0070 | 0.0103 | 0.0038 | 1013.8 |
+| `tree-s4` | 0.0030 | 0.0262 | 0.0148 | 0.0049 | 195.1 |
+| `tree-s8` | 0.0030 | 0.0070 | 0.0115 | 0.0047 | 321.9 |
+| `clu-s4` | 0.0030 | 0.0084 | 0.0163 | 0.0043 | 231.2 |
+| `clu-s8` | 0.0030 | 0.0070 | 0.0117 | 0.0040 | 376.0 |
+
+| prediction | verdict |
+|---|---|
+| P7-1 control: dense tail <= 1e-4; `HATTN_MUT=2` tree-s8 > 0.2 at 8192 | held: 1.9e-5 max; mutation 0.366 |
+| P7-2 flat passes at every `t` | held: max 0.0103 |
+| P7-3 `clu-s4` passes, <= 1/4 of the flat scan at 32768 | held: 4.4x fewer (231.2 against 1013.8) |
+| P7-4 `tree-s8` passes at every `t` | held: max 0.0115 |
+| P7-5 `tree-s8` scan under the model's 516 | held: 321.9 |
+| P7-6 derived `t = 2^20` read <= 0.0025 of dense | held (derived): 0.00228; the model at 32768 bounds the measured bytes/dense 0.0722 (model 0.0723) |
+
+### Findings
+
+- **The 7B passes every arm at every `t`**, `tree-s4` included (0.0262 at 8192; 0.071 on the 0.5B).
+- **The 7B is easier than the 0.5B:** the flat arm's mean KLD is lower at every `t` (0.0038 against 0.0110 at 32768).
+- **The index's recall falls and quality does not:** `tree-s8` keeps 0.625 of the flat top-32 at 32768 (0.727 on the
+  0.5B) at KLD 0.0047 (0.0118): the pages it misses carry less mass.
+- **Reads at 32768 on the 7B:** 0.0716 of dense keys (0.0722 bytes/dense with the scan); `tree-s8` reads 3.1x fewer
+  bound vectors than the flat scan, `clu-s4` 4.4x.
+
+### What this does not establish
+
+- One prompt; decode tail only, prefill dense; nothing past 32768. Bytes are counts, not tokens per second.
+- The 1M figure is the cost model's; whether the 2048-token budget holds the KLD gate at 1M is the open measurement
+  (the GPU dump, `KV_T` past 32768).
+- No Rust/Aeneas selector; rustc, LLVM and the instrument are outside the trust boundary.
+
+## HATTN-T8 on Qwen2.5-7B-Instruct-1M at 65536 and 131072
+
+Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Grade: `measured` (one prompt, 64 tail positions per `t`);
+verdicts `proved` in `proof/corpus/Perf/HattnT8Q7L.lean` (sha256 `b1ac7126…`, empty axiom cone, four changed-constant
+controls red).
+
+| item | value |
+|---|---|
+| dump | `/home/socol/oc-tmp/hattn-long/g7-128k`, 131072 tokens, ids sha256 `9dd57952…` (prefix equals the T3 ids), `examples/gpu_dump.rs` f32 Vulkan, 379 s for 28 layers, 16 GB; `KV_QTAIL=32768,65536,131072` |
+| instrument | `attn_cut_probe.hd128q` sha256 `e3261748…`; `KV_TAIL=g7-128k KV_TAIL_TREE=1 KV_QTAIL=… KV_TAIL_TS=<t>`, 103 s / 197 s / 409 s per `t` |
+| outputs | `g7t-{32768,65536,131072}.out` (`4be5423a…`, `944ddbb7…`, `4974457d…`), mutation `g7t-m2.out` (`235a6c22…`) |
+| predictions | registered before the run: `PREDICTIONS-T8-7B-128K.md`, sha256 `449ab1b4…` |
+| control | dense tail rel-L2 over q, k, v, 28 layers: 2.0e-5, 4.7e-5, 7.0e-5 (gate 1e-4); certification violations 0; the GPU dump gives the CPU dump's mean KLD at 32768 on all five arms |
+
+Mean whole-model KLD (gate 0.05) and cost:
+
+| arm | 32768 | 65536 | 131072 | bound vectors / refresh at 131072 | flat-top-32 recall at 131072 | bytes/dense at 131072 |
+|---|---:|---:|---:|---:|---:|---:|
+| `grp-fix2048-r8` (flat) | 0.0038 | 0.0208 | 0.0242 | 4085.8 | n/a | 0.0198 |
+| `tree-s4` | 0.0049 | **0.0865** | **0.0611** | 270.8 | 0.267 | 0.0180 |
+| `tree-s8` | 0.0047 | **0.0646** | **0.0549** | 525.9 | 0.452 | 0.0181 |
+| `clu-s4` | 0.0043 | 0.0256 | 0.0270 | 414.1 | 0.289 | 0.0181 |
+| `clu-s8` | 0.0040 | 0.0236 | 0.0227 | 566.1 | 0.448 | 0.0182 |
+
+`HATTN_MUT=2` at 65536: every arm 0.133–0.137 (flat 0.1364, `tree-s8` 0.1331).
+
+| prediction | verdict |
+|---|---|
+| Q1 control: dense tail <= 1e-4; GPU = CPU dump at 32768 within 0.002; `HATTN_MUT=2` `tree-s8` > 0.2 at 65536 | held / held (identical to four digits) / refuted: 0.133, still 2x `tree-s8` and 6x flat unmutated |
+| Q2 flat, `clu-s4`, `tree-s8` pass at 65536 and 131072 | flat and `clu-s4` held; `tree-s8` refuted (0.0646, 0.0549) |
+| Q3 `tree-s4` passes | refuted (0.0865, 0.0611) |
+| Q4 `tree-s8` scan under the model's 528; `clu-s4` <= 1/4 of flat | held: 525.9; 414.1 against 4085.8 (9.9x) |
+| Q5 `tree-s8` recall below its 0.625 at 32768 | held: 0.531, 0.452 |
+| Q6 `tree-s8` bytes/dense <= 0.0190, flat <= 0.0215 | held: 0.0181, 0.0198 |
+
+### Findings
+
+- **The cluster index holds the gate to 131072; the tree index does not.** `clu-s4` and `clu-s8` pass at 65536 and
+  131072 (0.0256/0.0270 and 0.0236/0.0227), as does the flat arm; `tree-s4` and `tree-s8` cross 0.05 at 65536 and stay over at
+  131072. At 131072 `tree-s8` and `clu-s8` share a flat-top-32 recall (0.452, 0.448) at KLD 0.0549 and 0.0227: the
+  pages the tree misses carry more mass; top-32 recall does not predict the gate. The cause is unmeasured.
+- **`clu-s4` reads 9.9x fewer bound vectors than the flat scan at 131072 (414.1 against 4085.8) at KLD 0.0270;
+  `clu-s8` reads 7.2x fewer at 0.0227, under the flat arm's 0.0242.**
+- **The flat arm drifts with context:** 0.0038, 0.0208, 0.0242 at a fixed 2048-token far budget (1/16 of the context
+  at 32768, 1/64 at 131072); 10 of 64 positions exceed 0.05 individually at 131072. The mean still passes.
+- **Bytes per generated token at 131072** (f16 KV, 28 layers x 4 KV heads x 256 B): dense 7.52 GB; `clu-s8` at
+  0.0182 reads 136.8 MB (`bytes_7b_128k`).
+
+### What this does not establish
+
+- One prompt; decode tail only, prefill dense; context 131072 at most. Bytes are counts, not tokens per second.
+- The dump is f32 SIMT, not the Q4_K_M reference path; it matches the CPU dump to 7.4e-6 rel-L2 at 32768.
+- The max-over-positions KLD exceeds 0.05 for every selecting arm at 65536 and 131072; the gate here is the mean.
+- Past 131072 the 1M figure is still the cost model's (`Perf.HattnT8.pt6_held`); the gate at 1M is the open
+  measurement. No Rust/Aeneas selector; rustc, LLVM, the GPU kernels and the instrument are outside the trust boundary.
+
 ## Next
 
-Measure on Qwen2.5-7B-Instruct-1M (`/home/socol/models/gguf/Qwen2.5-7B-Instruct-1M-Q4_K_M.gguf`): the T8 arms at 32k
-first, then 128k and up, toward `2^20`, at the same whole-model KLD gate. Then the selector in Rust under the Aeneas
-extraction, and tokens per second against llama.cpp on the same model.
+The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a
+measurement of which pages the tree misses (its recall matches `clu-s8` and its KLD is 2.4x), the same arms at
+262144 toward `2^20` at the same gate (GPU dump `KV_T` past 131072, attention is quadratic: ~6.8 s/layer at 131072),
+the selector in Rust under the Aeneas extraction, and tokens per second against llama.cpp on the same model (row
+`hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`).
 
 Instrument for the 7B (board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`):
 - `PROBE_HD=128` fixes `examples/attn_cut_probe.rs`'s head dim at build time, with `SCALE = 1/sqrt(HD)`. The

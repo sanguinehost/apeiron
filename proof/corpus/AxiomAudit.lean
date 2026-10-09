@@ -33,6 +33,8 @@ import Perf.HattnT5
 import Perf.HattnT6
 import Perf.HattnT7
 import Perf.HattnT8
+import Perf.HattnT8Q7
+import Perf.HattnT8Q7L
 import Perf.Identity
 import Perf.AttnCoop
 import Perf.IdentityFloat
@@ -510,6 +512,29 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnT8.climb_log
 #audit Perf.HattnT8.model_bounds_32k
 #audit Perf.HattnT8.pt6_held
+#audit Perf.HattnT8Q7.singles_agree
+#audit Perf.HattnT8Q7.p71_held
+#audit Perf.HattnT8Q7.p72_held
+#audit Perf.HattnT8Q7.p73_held
+#audit Perf.HattnT8Q7.p74_held
+#audit Perf.HattnT8Q7.p75_held
+#audit Perf.HattnT8Q7.p76_held
+#audit Perf.HattnT8Q7.all_arms_pass
+#audit Perf.HattnT8Q7.flat_below_half_b
+#audit Perf.HattnT8Q7.recall_falls_kld_holds
+#audit Perf.HattnT8Q7.scan_cut_7b
+#audit Perf.HattnT8Q7L.q1_control_held
+#audit Perf.HattnT8Q7L.q1_mut_threshold_refuted
+#audit Perf.HattnT8Q7L.q2_split
+#audit Perf.HattnT8Q7L.q3_refuted
+#audit Perf.HattnT8Q7L.q4_held
+#audit Perf.HattnT8Q7L.model_bounds_64k
+#audit Perf.HattnT8Q7L.q5_held
+#audit Perf.HattnT8Q7L.q6_held
+#audit Perf.HattnT8Q7L.tree_fails_cluster_holds
+#audit Perf.HattnT8Q7L.cluster_cuts_scan_128k
+#audit Perf.HattnT8Q7L.flat_drift
+#audit Perf.HattnT8Q7L.bytes_7b_128k
 #audit Perf.HattnT8.bytes_7b_1m
 
 -- Row: `inf-resident-prefill-GEB633UfORCK7XSmzJifHd` (ATTN-COOP, P18): the SIMT shared-load
