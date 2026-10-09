@@ -1,0 +1,148 @@
+#version 460
+
+// f32 causal flash attention with grouped KV heads for the GPU forward dump (examples/gpu_dump.rs).
+// Build with -DHD=<head_dim> (64 or 128).
+//   O[r][h] = sum_j softmax_j(scale q[r][h] . k[j][h / (nh / nkv)]) v[j][h / (nh / nkv)],  j <= pos(r)
+// One workgroup owns 64 consecutive query rows of one head and walks 64-key tiles 0..=pos/64 (aligned,
+// so only the diagonal tile is masked). Per tile: S = Q K^T by 32-wide head-dim stages (thread tile
+// 4 queries ty*4+i x 4 keys tx+16 j), scaled and masked into the shared transpose P[key][row];
+// online softmax (running max, rescale alpha, per-thread partial row sums), then O += P V with V
+// staged 32 keys at a time (thread tile 4 rows x HD/16 columns). f32 scores and accumulators.
+//
+// Parameters (binding 0, uint words): 0 nh, 1 nkv, 2 q_row0 (global position of chunk row 0, a
+// multiple of 64), 3 nqb (query blocks of 64 in the chunk), 4 scale (float bits).
+// Bindings: 1 Q [row][nh HD] (rotated), 2 K [pos][nkv HD] (rotated), 3 V [pos][nkv HD], 4 O [row][nh HD].
+// Dispatch (nqb, nh, 1); x is mapped in reverse so the longest key loops start first.
+
+#ifndef HD
+#define HD 128
+#endif
+#define G (HD / 64)
+#define NEG (-1.0e30)
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer P_ { uint p[]; };
+layout(set = 0, binding = 1, std430) readonly buffer Q_ { vec4 q[]; };
+layout(set = 0, binding = 2, std430) readonly buffer K_ { vec4 k[]; };
+layout(set = 0, binding = 3, std430) readonly buffer V_ { vec4 v[]; };
+layout(set = 0, binding = 4, std430) writeonly buffer O_ { vec4 o[]; };
+
+// Q and K stage: 64 rows x 9 vec4 (8 used, stride 9); aliased by the V stage (32 keys x HD/4 vec4).
+shared vec4 sQK[1152];
+shared vec4 sP[64 * 17];
+shared float sPart[256];
+shared float sAlpha[64];
+
+void main() {
+    const uint nh = p[0], nkv = p[1], q_row0 = p[2], nqb = p[3];
+    const float scale = uintBitsToFloat(p[4]);
+    const uint tid = gl_LocalInvocationIndex;
+    const uint tx = tid & 15u, ty = tid >> 4;
+    const uint qb = nqb - 1u - gl_WorkGroupID.x;
+    const uint h = gl_WorkGroupID.y;
+    const uint kvh = h / (nh / nkv);
+    const uint qbase = q_row0 + qb * 64u;     // global position of the block's first query
+    const uint ntile = qbase / 64u + 1u;
+    const uint qstride4 = nh * (HD / 4), kstride4 = nkv * (HD / 4);
+    const uint qoff4 = h * (HD / 4), koff4 = kvh * (HD / 4);
+
+    vec4 acc[4][G];
+    for (uint i = 0u; i < 4u; ++i)
+        for (uint g = 0u; g < G; ++g) acc[i][g] = vec4(0.0);
+    float m_run = NEG, lp = 0.0;
+    const uint srow = tid & 63u, spart = tid >> 6;   // softmax ownership: row, 16-key part
+
+    for (uint jt = 0u; jt < ntile; ++jt) {
+        const uint j0 = jt * 64u;
+        // ---- S = Q K^T ----
+        float s[4][4];
+        for (uint i = 0u; i < 4u; ++i)
+            for (uint j = 0u; j < 4u; ++j) s[i][j] = 0.0;
+        for (uint dc = 0u; dc < HD / 32u; ++dc) {
+            for (uint r = 0u; r < 2u; ++r) {
+                const uint idx = tid + 256u * r;
+                const uint row = idx >> 3, d4 = idx & 7u;
+                sQK[row * 9u + d4] = q[(qb * 64u + row) * qstride4 + qoff4 + dc * 8u + d4];
+                sQK[576u + row * 9u + d4] = k[(j0 + row) * kstride4 + koff4 + dc * 8u + d4];
+            }
+            barrier();
+            for (uint d4 = 0u; d4 < 8u; ++d4) {
+                vec4 qv[4], kv[4];
+                for (uint i = 0u; i < 4u; ++i) qv[i] = sQK[(ty * 4u + i) * 9u + d4];
+                for (uint j = 0u; j < 4u; ++j) kv[j] = sQK[576u + (tx + 16u * j) * 9u + d4];
+                for (uint i = 0u; i < 4u; ++i)
+                    for (uint j = 0u; j < 4u; ++j) {
+                        s[i][j] = fma(qv[i].x, kv[j].x, s[i][j]);
+                        s[i][j] = fma(qv[i].y, kv[j].y, s[i][j]);
+                        s[i][j] = fma(qv[i].z, kv[j].z, s[i][j]);
+                        s[i][j] = fma(qv[i].w, kv[j].w, s[i][j]);
+                    }
+            }
+            barrier();
+        }
+        // ---- scale, mask, transpose into sP[key][row] ----
+        const bool diag = j0 == qbase;
+        for (uint j = 0u; j < 4u; ++j) {
+            const uint key = tx + 16u * j;
+            vec4 sv;
+            for (uint i = 0u; i < 4u; ++i) {
+                float val = s[i][j] * scale;
+                if (diag && key > ty * 4u + i) val = NEG;
+                sv[i] = val;
+            }
+            sP[key * 17u + ty] = sv;
+        }
+        barrier();
+        // ---- online softmax: each thread a row and 16 keys ----
+        float mx = NEG;
+        for (uint kk = 0u; kk < 16u; ++kk)
+            mx = max(mx, sP[(spart * 16u + kk) * 17u + (srow >> 2)][srow & 3u]);
+        sPart[spart * 64u + srow] = mx;
+        barrier();
+        const float mt = max(max(sPart[srow], sPart[64u + srow]), max(sPart[128u + srow], sPart[192u + srow]));
+        const float m_new = max(m_run, mt);
+        const float alpha = exp(m_run - m_new);
+        m_run = m_new;
+        float ps = 0.0;
+        for (uint kk = 0u; kk < 16u; ++kk) {
+            const uint at = (spart * 16u + kk) * 17u + (srow >> 2);
+            const float pv = exp(sP[at][srow & 3u] - m_new);
+            sP[at][srow & 3u] = pv;
+            ps += pv;
+        }
+        lp = lp * alpha + ps;
+        if (spart == 0u) sAlpha[srow] = alpha;
+        barrier();
+        // ---- O = alpha O + P V ----
+        for (uint i = 0u; i < 4u; ++i) {
+            const float al = sAlpha[ty * 4u + i];
+            for (uint g = 0u; g < G; ++g) acc[i][g] *= al;
+        }
+        for (uint vc = 0u; vc < 2u; ++vc) {
+            for (uint r = 0u; r < HD / 32u; ++r) {
+                const uint idx = tid + 256u * r;                // 32 keys x HD/4 vec4
+                const uint key = idx / (HD / 4), c4 = idx % (HD / 4);
+                sQK[key * (HD / 4) + c4] = v[(j0 + vc * 32u + key) * kstride4 + koff4 + c4];
+            }
+            barrier();
+            for (uint kk = 0u; kk < 32u; ++kk) {
+                const vec4 pv = sP[(vc * 32u + kk) * 17u + ty];
+                for (uint g = 0u; g < G; ++g) {
+                    const vec4 vv = sQK[kk * (HD / 4) + g * 16u + tx];
+                    for (uint i = 0u; i < 4u; ++i) acc[i][g] = fma(vec4(pv[i]), vv, acc[i][g]);
+                }
+            }
+            barrier();
+        }
+    }
+    // ---- normalise and store ----
+    sPart[spart * 64u + srow] = lp;
+    barrier();
+    for (uint i = 0u; i < 4u; ++i) {
+        const uint row = ty * 4u + i;
+        const float l = (sPart[row] + sPart[64u + row]) + (sPart[128u + row] + sPart[192u + row]);
+        for (uint g = 0u; g < G; ++g)
+            o[(qb * 64u + row) * qstride4 + qoff4 + g * 16u + tx] = acc[i][g] / l;
+    }
+}

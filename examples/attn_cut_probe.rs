@@ -3550,7 +3550,7 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
         nt <= TL_W,
         "tail longer than the window: far pages would hold tail keys"
     );
-    // `KV_TAIL_TS=8192,32768` keeps only the listed contexts, so a larger model's run splits into bounded calls.
+    // `KV_TAIL_TS=8192,32768` runs exactly the listed contexts (each at most the dump's length), so a larger model's run splits into bounded calls.
     let tails: Vec<usize> = match std::env::var("KV_TAIL_TS") {
         Ok(v) => {
             let keep: Vec<usize> = v
@@ -3558,9 +3558,20 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                 .map(str::parse)
                 .collect::<Result<_, _>>()
                 .map_err(|e| format!("KV_TAIL_TS: {e}"))?;
-            tails.into_iter().filter(|t| keep.contains(t)).collect()
+            keep
         }
         Err(_) => tails,
+    };
+    // `KV_QTAIL=t1,t2,..` (the `gpu_dump` option): `q{l}.bin` holds only rows `[t-nt, t)` for each listed `t`, in
+    // that order, so the block for `t` starts at row `index * nt`.
+    let qtail: Option<Vec<usize>> = match std::env::var("KV_QTAIL") {
+        Ok(v) => Some(
+            v.split(',')
+                .map(str::parse)
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("KV_QTAIL: {e}"))?,
+        ),
+        Err(_) => None,
     };
     let eng = Engine::open(path)?;
     let cfg = &eng.config;
@@ -3649,7 +3660,11 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                 rot(&mut kp[j * kvw..(j + 1) * kvw], nkv, j);
             }
             let vp = rows_f32(&dir.join(format!("v{l}.bin")), kvw, 0, pre)?;
-            let dq = rows_f32(&dir.join(format!("q{l}.bin")), nh * HD, pre, t)?;
+            let qpre = match &qtail {
+                Some(l) => l.iter().position(|&x| x == t).ok_or("KV_QTAIL lacks t")? * nt,
+                None => pre,
+            };
+            let dq = rows_f32(&dir.join(format!("q{l}.bin")), nh * HD, qpre, qpre + nt)?;
             let dk = rows_f32(&dir.join(format!("k{l}.bin")), kvw, pre, t)?;
             let dv = rows_f32(&dir.join(format!("v{l}.bin")), kvw, pre, t)?;
             let npg = (t - TL_W - TL_SINK) / TL_P;

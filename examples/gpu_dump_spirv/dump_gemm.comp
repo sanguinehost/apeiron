@@ -1,0 +1,110 @@
+#version 460
+
+// f32 SIMT GEMM for the GPU forward dump (examples/gpu_dump.rs):
+//   Y[t][o] (+)= sum_i W[o][i] * X[t][i] + bias[o]       (W is n_out x n_in row-major, X is tok x n_in)
+// One workgroup owns a 128 token x 128 output tile; 256 threads, each an 8 x 8 register tile at tokens
+// ty + 16 i and outputs tx + 16 j (the interleave makes the K-side shared reads conflict-free with a
+// 20-float row stride). K advances 16 at a time through two shared buffers; the next stage's global
+// vec4 loads are issued before the current stage's FMAs and stored after them (one barrier a stage).
+// Accumulation is one serial f32 FMA chain per output in k order.
+//
+// Parameters (binding 0, uint words), written by the host before each submit (no push constants):
+//   0 n_out (multiple of 128)   1 n_in (multiple of 16)   2 tok   3 w_off (floats, multiple of 4)
+//   4 bias_off (floats, 0xFFFFFFFF = none)   5 y_off (floats, multiple of 4)   6 ldy (floats)
+//   7 accumulate (Y += result)
+// Dispatch (n_out / 128, ceil(tok / 128), 1). Rows of X past tok are read clamped and never stored.
+
+#define BM 128
+#define BN 128
+#define BK 16
+#define SK 20
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer P_ { uint p[]; };
+layout(set = 0, binding = 1, std430) readonly buffer W_ { vec4 w[]; };
+layout(set = 0, binding = 2, std430) readonly buffer B_ { float bias[]; };
+layout(set = 0, binding = 3, std430) readonly buffer X_ { vec4 x[]; };
+layout(set = 0, binding = 4, std430) buffer Y_ { float y[]; };
+
+shared vec4 sA[2][BM * SK / 4];
+shared vec4 sB[2][BN * SK / 4];
+
+void main() {
+    const uint n_out = p[0], n_in = p[1], tok = p[2];
+    const uint w4 = p[3] >> 2;
+    const uint tid = gl_LocalInvocationIndex;
+    const uint tx = tid & 15u, ty = tid >> 4;
+    const uint t0 = gl_WorkGroupID.y * BM, o0 = gl_WorkGroupID.x * BN;
+    const uint ld4 = n_in >> 2;
+    const uint nk = n_in / BK;
+
+    // global load slots: slot r covers row (tid >> 2) + 64 r, vec4 column tid & 3
+    uint arow[2], brow[2];
+    for (uint r = 0u; r < 2u; ++r) {
+        arow[r] = min(t0 + (tid >> 2) + 64u * r, tok - 1u) * ld4 + (tid & 3u);
+        brow[r] = w4 + (o0 + (tid >> 2) + 64u * r) * ld4 + (tid & 3u);
+    }
+    const uint soff = (tid >> 2) * (SK / 4) + (tid & 3u);
+
+    vec4 ra[2], rb[2];
+    for (uint r = 0u; r < 2u; ++r) {
+        ra[r] = x[arow[r]];
+        rb[r] = w[brow[r]];
+    }
+    for (uint r = 0u; r < 2u; ++r) {
+        sA[0][soff + 64u * r * (SK / 4)] = ra[r];
+        sB[0][soff + 64u * r * (SK / 4)] = rb[r];
+    }
+    barrier();
+
+    float acc[8][8];
+    for (uint i = 0u; i < 8u; ++i)
+        for (uint j = 0u; j < 8u; ++j) acc[i][j] = 0.0;
+
+    for (uint kt = 0u; kt < nk; ++kt) {
+        const uint cur = kt & 1u;
+        if (kt + 1u < nk) {
+            for (uint r = 0u; r < 2u; ++r) {
+                ra[r] = x[arow[r] + (kt + 1u) * (BK / 4)];
+                rb[r] = w[brow[r] + (kt + 1u) * (BK / 4)];
+            }
+        }
+        for (uint k4 = 0u; k4 < BK / 4; ++k4) {
+            vec4 a[8], b[8];
+            for (uint i = 0u; i < 8u; ++i) a[i] = sA[cur][(ty + 16u * i) * (SK / 4) + k4];
+            for (uint j = 0u; j < 8u; ++j) b[j] = sB[cur][(tx + 16u * j) * (SK / 4) + k4];
+            for (uint i = 0u; i < 8u; ++i)
+                for (uint j = 0u; j < 8u; ++j) {
+                    acc[i][j] = fma(a[i].x, b[j].x, acc[i][j]);
+                    acc[i][j] = fma(a[i].y, b[j].y, acc[i][j]);
+                    acc[i][j] = fma(a[i].z, b[j].z, acc[i][j]);
+                    acc[i][j] = fma(a[i].w, b[j].w, acc[i][j]);
+                }
+        }
+        if (kt + 1u < nk) {
+            const uint nxt = cur ^ 1u;
+            for (uint r = 0u; r < 2u; ++r) {
+                sA[nxt][soff + 64u * r * (SK / 4)] = ra[r];
+                sB[nxt][soff + 64u * r * (SK / 4)] = rb[r];
+            }
+        }
+        barrier();
+    }
+
+    const bool has_bias = p[4] != 0xFFFFFFFFu;
+    const bool accum = p[7] != 0u;
+    for (uint i = 0u; i < 8u; ++i) {
+        const uint t = t0 + ty + 16u * i;
+        if (t < tok) {
+            for (uint j = 0u; j < 8u; ++j) {
+                const uint o = o0 + tx + 16u * j;
+                float v = acc[i][j];
+                if (has_bias) v += bias[p[4] + o];
+                const uint at = p[5] + t * p[6] + o;
+                if (accum) v += y[at];
+                y[at] = v;
+            }
+        }
+    }
+}
