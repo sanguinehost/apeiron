@@ -300,3 +300,12 @@ whole-model KLD holds at 1M with a 2048 budget is the open measurement.
 Measure on Qwen2.5-7B-Instruct-1M (`/home/socol/models/gguf/Qwen2.5-7B-Instruct-1M-Q4_K_M.gguf`): the T8 arms at 32k
 first, then 128k and up, toward `2^20`, at the same whole-model KLD gate. Then the selector in Rust under the Aeneas
 extraction, and tokens per second against llama.cpp on the same model.
+
+Instrument for the 7B (board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`):
+- `PROBE_HD=128` fixes `examples/attn_cut_probe.rs`'s head dim at build time, with `SCALE = 1/sqrt(HD)`. The
+  default is 64.
+- `KV_TAIL_TS` keeps only the listed tail contexts.
+- Controls:
+  - regression: the default build reproduces T8's `tree.out` line for line; only the dump path's spelling differs;
+  - negative: the `PROBE_HD=128` binary refuses the 0.5B on its `head_dim` assertion, exit 101;
+  - `clippy -D warnings` exits 0 at both head dims.
