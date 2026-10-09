@@ -588,6 +588,16 @@ theorem p63_drain_ceiling :
     10936 - 9500 < 1440 := by
   decide
 
+/-- P64: the installed `o → gu` counter edge, in tenths of a µs/token. `DEC_PDL=0/1/2` live means
+11156 / 10777 / 10383: the counter recovers 379 of the 773 ceiling, above a quarter and below a
+half of it. -/
+theorem p64_pdl_edge_install :
+    11156 - 10777 = 379 ∧
+    11156 - 10383 = 773 ∧
+    379 * 4 > 773 ∧
+    379 * 2 < 773 := by
+  decide
+
 end Moves
 
 end Perf

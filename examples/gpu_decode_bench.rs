@@ -170,6 +170,13 @@ fn main() {
     println!(
         "  BENCH carrier={carrier_s} tg{gen_n}: mean {mean:.1} tok/s min {lo:.1} max {hi:.1} over {reps} reps"
     );
+    // [DEC-PDL] a capped-spin give-up means a consumer read an unfinished activation: the run is invalid.
+    let ovf = apeiron::gpu::decode::pdl_overflow();
+    assert_eq!(
+        ovf, 0,
+        "DEC_PDL: {ovf} consumer spins gave up; this run is invalid"
+    );
+    println!("  PDL overflow 0");
     if prof && !prof_acc.is_empty() {
         let mut prof_sum = 0f64;
         for (label, total_us) in &prof_acc {
