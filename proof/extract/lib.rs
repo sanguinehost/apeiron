@@ -1189,7 +1189,7 @@ pub fn word_shake256(msg: &[u8], out: &mut [u8]) {
     crypto::shake256(msg, out)
 }
 
-// ── The selected map face: the vendored incumbent, reached by `#[path]` ─────────────────────────
+// ── The selected map face: the ported incumbent, reached by `#[path]` ───────────────────────────
 //
 // `src/hashtrinity/` is the executed body of the registered selected map arm
 // (`examples/reg1/adapters/selected_map.rs`), so it is reached here by `#[path]` — the extracted

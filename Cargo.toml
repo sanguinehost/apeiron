@@ -49,8 +49,8 @@ libc = "0.2"
 # The REG-1 comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, rayon, rustc-hash,
 # twox-hash, wyhash, ahash, fnv), the harness-only `libc` (its consumer `examples/support/counter.rs`
 # is gone) and the `hashtrinity` baseline are removed with the comparison harness (owner direction,
-# 2026-10-05). `blake3`/`sha2` stay for the vendored crypto/sha bodies until those modules leave with
-# the port trim.
+# 2026-10-05). `blake3`/`sha2` are the reference oracles for the crypto module's tests
+# (`src/hashtrinity/crypto.rs`, the icarus port target) and the bench/example digests.
 blake3 = "=1.8.7"
 sha2 = "=0.10.9"
 hashbrown = "=0.15.5"
@@ -118,20 +118,3 @@ exclude = ["fuzz"]
 # reports a wrong number because a cast lost precision is worse than one that does not compile.
 [lints.clippy]
 pedantic = "warn"
-
-# The vendored `src/hashtrinity/` tree is a *module* of this crate, so every `#[cfg(feature = …)]`
-# in it resolves against **this** package's feature table. Its upstream feature names are renamed
-# to an `ht-` prefix in `src/hashtrinity/mod.rs` so none of them can collide with — or be switched
-# on by — one of ours (`derive` was the live collision: apeiron's own `derive` feature turned
-# upstream's `ht-derive` surface on, and its `hashtrinity_derive` import then failed).
-#
-# The `ht-*` names are declared here, and not as `[features]` entries on purpose: declaring them as
-# features would make `--all-features` turn the whole vendored surface **on**, pulling in external
-# crates this crate does not depend on. Declaring the *expected cfg values* keeps every remaining
-# gate a real, off-by-default gate, and keeps `unexpected_cfgs` at `warn` (so `-D warnings` still
-# fails on any cfg name not listed here). Only `ht-codec`/`ht-compress`/`ht-derive`/`ht-syntax`
-# remain referenced, by the retained `codec` and `hex` modules.
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = [
-    'cfg(feature, values("ht-codec", "ht-compress", "ht-derive", "ht-syntax"))',
-] }

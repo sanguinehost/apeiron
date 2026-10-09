@@ -569,6 +569,46 @@
         }
       ],
       "receipt": "docs/plan.md"
+    },
+    {
+      "id": "hashtrinity-codec-purge",
+      "kind": "retirement",
+      "note": "Owner direction (2026-10-09): codec is not used and leaves the tree. It was compiled only under the never-enabled ht-codec cfg; its one in-tree reference, hex::to_term/from_term under the never-enabled ht-syntax cfg, had no caller. The ht-* check-cfg block in Cargo.toml goes with it, since no ht-* cfg remains. Fold is not a requirements source (docs/direction.md, Ownership), so webfold's import of hashtrinity::codec from its external crate does not retain it here. crypto stays: it is unfinished and is the port target of the icarus crypto rooting (docs/epics/icarus-sha256-rooting.md).",
+      "removed": [
+        "src/hashtrinity/codec.rs",
+        "src/hashtrinity/codec/syntax/rdf.rs",
+        "src/hashtrinity/codec/syntax/surfaces.rs",
+        "src/hashtrinity/codec/syntax/tests.rs",
+        "src/hashtrinity/codec/syntax/yaml.rs"
+      ],
+      "replacement": [],
+      "retained_obligation": "None in this tree: no compiled path reached codec. Webfold imports hashtrinity::codec::syntax from the external Ptyktos/hashtrinity crate (rev 2c36b995); that dependency is webfold's and is unchanged.",
+      "consumers": [
+        "src/hashtrinity/mod.rs",
+        "src/hashtrinity/hex.rs",
+        "Cargo.toml",
+        "src/freq.rs"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "cargo",
+            "build",
+            "--workspace",
+            "--all-features",
+            "--locked"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "proof/regen.sh",
+            "--check"
+          ]
+        }
+      ],
+      "receipt": "docs/plan.md"
     }
   ],
   "self_test": {

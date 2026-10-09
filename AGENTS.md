@@ -231,7 +231,7 @@ Order dispatch by contribution to the goal and by difficulty, never by dispatcha
   optimization but a tax — name the base and its measured ratio first. **Enforcer: the
   dispatch-admission `subsume` field (MISSING until built; until then this rule is review-enforced
   only and is recorded as such, not as acceptance).** Worked example: the empirically best counting
-  structure is `../fold/hashtrinity` at rev `4cc14471`, vendored at `src/hashtrinity/`; it is
+  structure is `../fold/hashtrinity` at rev `4cc14471`, ported to `src/hashtrinity/`; it is
   subsumed and proved, not re-derived. `fold/hashtrinity` itself is deprecated: its table is rebased
   onto the `R[x]/(x²−σ)` basis here, and the generic `Table` (`src/table.rs`) is the inferior
   primitive, removed once the executed body is verified (`docs/plan.md`, `APEIRON-RETIRE-GENERIC`).

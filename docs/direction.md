@@ -45,7 +45,7 @@ architecture requirement, not a claim that the complete connecting theorem alrea
 
 Apeiron evolves from hashtrinity; `fold/hashtrinity` is the predecessor. The basis is
 `R[x]/(x^2 - sigma)`, `Cell<R>` with explicit `Sigma`, and face-correct `Coord` addressing.
-The selected map and count arms execute the vendored hashtrinity table (`src/hashtrinity/`,
+The selected map and count arms execute the ported hashtrinity table (`src/hashtrinity/`,
 rev `4cc14471`, reached as `apeiron::freq`); that body is the refinement target, rebased onto this
 basis (`docs/plan.md`). The generic growable [src/table.rs](../src/table.rs) — a flat
 certified-coordinate resident area plus grouped spill regions, keyed by `(Sigma,K)`, with
@@ -768,7 +768,7 @@ with its prior-art index (paper1, paper2, spinor-ttl, the Neural corpus) in the
 of pre-rebase artifacts is not a programme step. Survival income is a separate track.
 
 **AI-track re-anchor (lead direction).** The stage-2 port is reference material, not the AI track:
-no vendored module imports the canonical object, and the historical count-LM/entropy/ridge names
+no ported module imports the canonical object, and the historical count-LM/entropy/ridge names
 carry no reduction to `R[x]/(x²−σ)`. The AI track restarts from the trichotomy with a minimum
 standard model/training surface rebuilt natively in apeiron — TorchLean at `de3192df…` is read as the
 reference for that surface's scope, not adopted as a dependency; reusable pieces (rings, tensors,

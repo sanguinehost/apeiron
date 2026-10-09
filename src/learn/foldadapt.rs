@@ -3,7 +3,7 @@
 //! Subsumed from `../fold/modelfold/src/train.rs` @ `d497161f` (`pub mod finetune`)
 //! and `../spinor-ttl/src/spinor_ttl/finetune.py` @ `a05bb1b` (`FoldAdapter`).
 //! Count storage is the crate's exact-key map [`Table`] (`Stored` keys, full-key equality on
-//! equal coordinates). The vendored `FreqMap` is not admissible here: its `freq(k) = k.coord()`
+//! equal coordinates). The ported `FreqMap` is not admissible here: its `freq(k) = k.coord()`
 //! is a lossy 64-bit fold, so distinct structured keys with equal coordinates merge.
 //!
 //! # Mathematical Foundations and Citations

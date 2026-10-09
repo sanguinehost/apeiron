@@ -249,22 +249,3 @@ impl<const N: usize> FromHex for [u8; N] {
         Ok(out)
     }
 }
-
-/// The `AsTerm` (hashtrinity's serde-derive analog) integration for a decoded byte buffer —
-/// round-trips `Vec<u8>` through its hex string, the same shape real `hex`'s `serde` feature
-/// gives `#[serde(with = "hex")]`, via hashtrinity's own codec instead of bridging to real serde.
-#[cfg(feature = "ht-syntax")]
-pub fn to_term(bytes: &[u8]) -> crate::hashtrinity::codec::syntax::SyntaxTerm {
-    crate::hashtrinity::codec::syntax::SyntaxTerm::B(crate::hashtrinity::codec::syntax::Atom::Str(encode(bytes)))
-}
-/// The inverse of [`to_term`].
-#[cfg(feature = "ht-syntax")]
-pub fn from_term(
-    term: &crate::hashtrinity::codec::syntax::SyntaxTerm,
-) -> Result<Vec<u8>, crate::hashtrinity::codec::syntax::SyntaxError> {
-    use crate::hashtrinity::codec::syntax::{Atom, SyntaxError, SyntaxTerm};
-    let SyntaxTerm::B(Atom::Str(s)) = term else {
-        return Err(SyntaxError::new("expected a hex string"));
-    };
-    decode(s).map_err(|e| SyntaxError::new(e.to_string()))
-}
