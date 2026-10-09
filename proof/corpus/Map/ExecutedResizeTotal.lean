@@ -23,6 +23,18 @@ set_option linter.apeiron.citation false
 namespace Apeiron.MapExecuted
 open apeiron_word
 
+/-- **`TakeKeyOK`.**  The key-column-conditional `take_key` premise of the resize loop.  At a table
+whose key column satisfies `KC` against its coordinate slice, `take_key` at a live slot `i`
+(`coords[i] = some c`, `¬ IsSent c`) returns `(c, keys')`, keeps the size carrier, and `KC` survives
+the loop's overwrite of that coordinate with `EMPTY`. -/
+def TakeKeyOK {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64) (sz : KS → Nat)
+    (KC : Slice U64 → KS → Prop) : Prop :=
+  ∀ (coords : Slice U64) (keys : KS) (i : Usize) (c : U64), KC coords keys →
+    coords.val[i.val]? = some c → ¬ IsSent c →
+    ∃ keys', ks.take_key keys i c = ok (c, keys') ∧ sz keys' = sz keys ∧
+      ∀ coords' : Slice U64, coords'.val = coords.val.set i.val hashtrinity.EMPTY →
+        KC coords' keys'
+
 theorem slice_update_ex {α : Type} (s : Slice α) (i : Usize) (x : α) (h : i.val < s.val.length) :
     ∃ s', Slice.update s i x = ok s' := by
   obtain ⟨s', hs', _⟩ := WP.spec_imp_exists (Slice.update_spec s i x h)
@@ -36,10 +48,9 @@ theorem resize_loop0_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
     (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
     (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
       ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
-    (hTK : ∀ (keys : KS) (i : Usize) (c : U64), i.val < sz keys → ¬ IsSent c →
-      ∃ keys', ks.take_key keys i c = ok (c, keys') ∧ sz keys' = sz keys)
+    (KC : Slice U64 → KS → Prop) (hTK : TakeKeyOK ks sz KC)
     {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop}
-    (hR : RepW ks s m live)
+    (hR : RepW ks s m live) (hK : KC s.coords s.keys)
     (hcap : arenaLen s + mainCount s + 4 ≤ nilN)
     (b0 : Tbl KS) (hb0 : RepW ks b0 m (LowMain s 0))
     (hcb0 : arenaLen b0 + mainCount b0 = 0) (hb0o : b0.overflow = none)
@@ -62,11 +73,12 @@ theorem resize_loop0_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
       Hov p.2.1 ((s.coords.val.take p.2.2.val).countP (fun c => decide (¬ IsSent c))) ∧
       p.2.2.val ≤ s.coords.val.length ∧
       p.1.coords.val.length ≤ sz p.1.keys ∧
-      p.2.1.coords.val.length ≤ sz p.2.1.keys)
+      p.2.1.coords.val.length ≤ sz p.2.1.keys ∧
+      KC p.1.coords p.1.keys)
     (fun p => s.coords.val.length - p.2.2.val)
     ?_ ?_ (s, b0, 0#usize) ?_
   · rintro ⟨t, b, i⟩ ⟨hA1, hB, hC, hE1, hE2, hbitsb, hlenb, hslb, hBig, hlenbnd, hHov, hib,
-      hszs, hszb⟩
+      hszs, hszb, hKt⟩
     dsimp only at *
     unfold hashtrinity.Table.resize_loop0.body
     by_cases hlt : i < Slice.len t.coords
@@ -88,7 +100,7 @@ theorem resize_loop0_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
         rw [hi2]; simp only [bind_tc_ok]
         exact ⟨_, rfl⟩
       · rw [if_pos (by simpa using hsent)]
-        obtain ⟨kt, htk, -⟩ := hTK t.keys i c (by omega) hsent
+        obtain ⟨kt, htk, -, -⟩ := hTK t.coords t.keys i c hKt (slice_index_ok t.coords i c hc) hsent
         rw [htk]
         simp only [bind_tc_ok]
         change ∃ cf, (do
@@ -164,7 +176,7 @@ theorem resize_loop0_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
     · rw [if_neg hlt]
       exact ⟨_, rfl⟩
   · rintro ⟨t, b, i⟩ ⟨t', b', i'⟩
-      ⟨hA1, hB, hC, hE1, hE2, hbitsb, hlenb, hslb, hBig, hlenbnd, hHov, hib, hszs, hszb⟩ hcf
+      ⟨hA1, hB, hC, hE1, hE2, hbitsb, hlenb, hslb, hBig, hlenbnd, hHov, hib, hszs, hszb, hKt⟩ hcf
     dsimp only at *
     unfold hashtrinity.Table.resize_loop0.body at hcf
     by_cases hlt : i < Slice.len t.coords
@@ -191,14 +203,14 @@ theorem resize_loop0_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
           rw [hi2v, countP_take_succ (fun c => decide (¬ IsSent c)) s.coords.val i.val c hsc]
           simp [hsent]
         refine ⟨⟨hA1, (fun d hd => hB d (by omega)), hC, hE1, hE2, hbitsb, hlenb, hslb, hBig,
-          ?_, ?_, ?_, hszs, hszb⟩, ?_⟩
+          ?_, ?_, ?_, hszs, hszb, hKt⟩, ?_⟩
         · rw [hcnt]; exact hlenbnd
         · rw [hcnt]; exact hHov
         · omega
         · omega
       · rw [if_pos (by simpa using hsent)] at hcf
         obtain ⟨⟨key, keys'⟩, htk, hcf⟩ := bind_inv hcf
-        obtain ⟨kt, htk2, hszkt⟩ := hTK t.keys i c (by omega) hsent
+        obtain ⟨kt, htk2, hszkt, hKpres⟩ := hTK t.coords t.keys i c hKt htc hsent
         have hkey : key = c := congrArg Prod.fst (Result.ok_injective (htk.symm.trans htk2))
         obtain ⟨⟨mu, back⟩, hg, hcf⟩ := bind_inv hcf
         obtain ⟨hmu_arr, hback⟩ := get_unchecked_mut_ok t.vals i mu back hg
@@ -236,7 +248,7 @@ theorem resize_loop0_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
         have hvals : (back mu).val = s.vals.val := by
           rw [hback, Slice.set_val_eq, list_set_self _ _ _ hmu_arr, hC]
         refine ⟨⟨?_, ?_, hvals, hE1, hE2, ?_, ?_, ?_,
-          place_capped_bigInit ks b big1 c v hpc hBig, ?_, hHov', ?_, ?_, ?_⟩, ?_⟩
+          place_capped_bigInit ks b big1 c v hpc hBig, ?_, hHov', ?_, ?_, ?_, ?_⟩, ?_⟩
         · rw [hupd', List.length_set]; exact hA1
         · intro d hd
           rw [hupd', List.getElem?_set_ne (by omega)]
@@ -250,11 +262,14 @@ theorem resize_loop0_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
           rw [hupd', List.length_set, hkeys', hszkt]
           exact hszs
         · rw [hlenf2, hszb']; exact hszb
+        · have hkeys' : keys' = kt := congrArg Prod.snd (Result.ok_injective (htk.symm.trans htk2))
+          rw [hkeys']
+          exact hKpres cs hupd'
         · omega
     · rw [if_neg hlt] at hcf
       exact absurd (Result.ok_injective hcf) (by intro hh; cases hh)
   · refine ⟨rfl, (fun d _ => rfl), rfl, rfl, rfl, hb0.1.bits_pos, hb0.1.len_pow, hb0.1.vals_len,
-      ?_, ?_, ?_, Nat.zero_le _, hsz_s, hsz_b0⟩
+      ?_, ?_, ?_, Nat.zero_le _, hsz_s, hsz_b0, hK⟩
     · exact fun j c' hc hns => ⟨m c', (hb0.1.main_val j c' hc hns).2⟩
     · have hb0len : b0.len.val = 0 := by rw [hb0.1.len_count]; omega
       rw [hb0len]; exact Nat.zero_le _
@@ -384,6 +399,16 @@ theorem resize_loop1_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
     · simpa using hHov0
     · simpa using hsz0
 
+/-- **`regen_takeKeyOK`.**  `TakeKeyOK` at `Regen<u64>` with the trivial key-column relation:
+`Regen::take_key` returns the query coordinate and leaves the key store unchanged. -/
+theorem regen_takeKeyOK : TakeKeyOK RKS regenSz (fun _ _ => True) :=
+  fun _ keys i c _ _ _ => ⟨keys, (by
+    change hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.take_key
+      U64.Insts.Apeiron_wordHashtrinityAlgebraCoordInv core.cmp.EqU64 keys i c = ok (c, keys)
+    unfold hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.take_key
+    change (do let t ← (ok c : Result U64); ok (t, keys)) = ok (c, keys)
+    simp only [bind_tc_ok]), rfl, fun _ _ => trivial⟩
+
 /-- **Joint witness.**  Every hypothesis of `resize_loop0_ok` holds at the `Regen<u64>` key store and
 the fresh `with_bits 1` table (`s = b0`): `BigInit`/geometry/`Hov`/the counter bound are the fresh
 table's, the `take_key`/`matches`/`set` premises are `Regen`'s (all total), and the loop returns
@@ -408,13 +433,8 @@ theorem resize_loop0_witness :
     (fun keys i c k => ⟨true, RKS_matches keys i c k⟩)
     (fun _ => avx2_spec_holds)
     (fun keys i k _ => ⟨keys, rfl, rfl⟩)
-    (fun keys i c _ _ => ⟨keys, (by
-      change hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.take_key
-        U64.Insts.Apeiron_wordHashtrinityAlgebraCoordInv core.cmp.EqU64 keys i c = ok (c, keys)
-      unfold hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.take_key
-      change (do let t ← (ok c : Result U64); ok (t, keys)) = ok (c, keys)
-      simp only [bind_tc_ok]), rfl⟩)
-    hR hcap t hb0 hsum hovt (regen_sz_inv t) (regen_sz_inv t)
+    (fun _ _ => True) regen_takeKeyOK
+    hR trivial hcap t hb0 hsum hovt (regen_sz_inv t) (regen_sz_inv t)
   exact ⟨t, t, r, hr⟩
 
 /-! ## `with_bits` totality
@@ -1308,10 +1328,9 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
     (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
     (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
       ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
-    (hTK : ∀ (keys : KS) (i : Usize) (c : U64), i.val < sz keys → ¬ IsSent c →
-      ∃ keys', ks.take_key keys i c = ok (c, keys') ∧ sz keys' = sz keys)
+    (KC : Slice U64 → KS → Prop) (hTK : TakeKeyOK ks sz KC)
     {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop}
-    (hR : RepW ks s m live) (hcap : arenaLen s + mainCount s + 4 ≤ nilN)
+    (hR : RepW ks s m live) (hK : KC s.coords s.keys) (hcap : arenaLen s + mainCount s + 4 ≤ nilN)
     (b0 : Tbl KS) (hb0 : RepW ks b0 m (LowMain s 0))
     (hcb0 : arenaLen b0 + mainCount b0 = 0) (hb0o : b0.overflow = none)
     (hsz_s : s.coords.val.length ≤ sz s.keys) (hsz_b0 : b0.coords.val.length ≤ sz b0.keys) :
@@ -1324,7 +1343,7 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
       Hov r.2.2 (mainCount s) ∧
       r.1 = s.side ∧ r.2.1 = s.overflow ∧
       r.2.2.coords.val.length ≤ sz r.2.2.keys := by
-  obtain ⟨r, hr⟩ := resize_loop0_ok ks sz hm hA hset hTK hR hcap b0 hb0 hcb0 hb0o hsz_s hsz_b0
+  obtain ⟨r, hr⟩ := resize_loop0_ok ks sz hm hA hset KC hTK hR hK hcap b0 hb0 hcb0 hb0o hsz_s hsz_b0
   refine ⟨r, hr, ?_⟩
   unfold hashtrinity.Table.resize_loop0 at hr
   refine loop_pc
@@ -1341,7 +1360,8 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
       Hov p.2.1 ((s.coords.val.take p.2.2.val).countP (fun c => decide (¬ IsSent c))) ∧
       p.2.2.val ≤ s.coords.val.length ∧
       p.1.coords.val.length ≤ sz p.1.keys ∧
-      p.2.1.coords.val.length ≤ sz p.2.1.keys)
+      p.2.1.coords.val.length ≤ sz p.2.1.keys ∧
+      KC p.1.coords p.1.keys)
     (fun r => 0 < r.2.2.bits.val ∧
       r.2.2.coords.val.length = 2 ^ r.2.2.bits.val ∧
       r.2.2.vals.val.length = r.2.2.coords.val.length ∧
@@ -1354,7 +1374,7 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
       hashtrinity.Table.resize_loop0.body core.cmp.EqU64 CI ks p.1 p.2.1 p.2.2)
     ?_ (s, b0, 0#usize) ?_ r hr
   · rintro ⟨t, b, i⟩ ⟨hA1, hB, hC, hE1, hE2, hbitsb, hlenb, hslb, hBig, hlenbnd, hHov, hib,
-      hszs, hszb⟩ cf hcf
+      hszs, hszb, hKt⟩ cf hcf
     dsimp only at *
     unfold hashtrinity.Table.resize_loop0.body at hcf
     by_cases hlt : i < Slice.len t.coords
@@ -1379,13 +1399,13 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
           rw [hi2v, countP_take_succ (fun c => decide (¬ IsSent c)) s.coords.val i.val c hsc]
           simp [hsent]
         refine ⟨hA1, (fun d hd => hB d (by omega)), hC, hE1, hE2, hbitsb, hlenb, hslb, hBig,
-          ?_, ?_, ?_, hszs, hszb⟩
+          ?_, ?_, ?_, hszs, hszb, hKt⟩
         · rw [hcnt]; exact hlenbnd
         · rw [hcnt]; exact hHov
         · omega
       · rw [if_pos (by simpa using hsent)] at hcf
         obtain ⟨⟨key, keys'⟩, htk, hcf⟩ := bind_inv hcf
-        obtain ⟨kt, htk2, hszkt⟩ := hTK t.keys i c (by omega) hsent
+        obtain ⟨kt, htk2, hszkt, hKpres⟩ := hTK t.coords t.keys i c hKt htc hsent
         have hkey : key = c := congrArg Prod.fst (Result.ok_injective (htk.symm.trans htk2))
         obtain ⟨⟨mu, back⟩, hg, hcf⟩ := bind_inv hcf
         obtain ⟨hmu, hback⟩ := get_unchecked_mut_ok t.vals i mu back hg
@@ -1423,7 +1443,7 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
         have hvals : (back mu).val = s.vals.val := by
           rw [hback, Slice.set_val_eq, list_set_self _ _ _ hmu, hC]
         refine ⟨?_, ?_, hvals, hE1, hE2, ?_, ?_, ?_,
-          place_capped_bigInit ks b big1 c v hpc hBig, ?_, hHov', ?_, ?_, ?_⟩
+          place_capped_bigInit ks b big1 c v hpc hBig, ?_, hHov', ?_, ?_, ?_, ?_⟩
         · rw [hupd', List.length_set]; exact hA1
         · intro d hd
           rw [hupd', List.getElem?_set_ne (by omega)]
@@ -1437,6 +1457,9 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
           rw [hupd', List.length_set, hkeys', hszkt]
           exact hszs
         · rw [hlenf2, hszb']; exact hszb
+        · have hkeys' : keys' = kt := congrArg Prod.snd (Result.ok_injective (htk.symm.trans htk2))
+          rw [hkeys']
+          exact hKpres cs hupd'
     · rw [if_neg hlt] at hcf
       have hh : cf = ControlFlow.done (t.side, t.overflow, b) := (Result.ok_injective hcf).symm
       rw [hh]; dsimp only
@@ -1452,7 +1475,7 @@ theorem resize_loop0_ok_hov_strong {KS : Type} (ks : hashtrinity.algebra.KeyStor
       exact ⟨hbitsb, hlenb, hslb, hBig, by rw [← hmain]; exact hlenbnd,
         by rw [← hmain]; exact hHov, hE1, hE2, hszb⟩
   · refine ⟨rfl, (fun d _ => rfl), rfl, rfl, rfl, hb0.1.bits_pos, hb0.1.len_pow, hb0.1.vals_len,
-      ?_, ?_, ?_, Nat.zero_le _, hsz_s, hsz_b0⟩
+      ?_, ?_, ?_, Nat.zero_le _, hsz_s, hsz_b0, hK⟩
     · exact fun j c' hc hns => ⟨m c', (hb0.1.main_val j c' hc hns).2⟩
     · have hb0len : b0.len.val = 0 := by rw [hb0.1.len_count]; omega
       rw [hb0len]; exact Nat.zero_le _
@@ -1469,17 +1492,16 @@ theorem resize_loop0_ok_hov {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U6
     (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
     (hset : ∀ (keys : KS) (i : Usize) (k : U64), i.val < sz keys →
       ∃ keys', ks.set keys i k = ok keys' ∧ sz keys' = sz keys)
-    (hTK : ∀ (keys : KS) (i : Usize) (c : U64), i.val < sz keys → ¬ IsSent c →
-      ∃ keys', ks.take_key keys i c = ok (c, keys') ∧ sz keys' = sz keys)
+    (KC : Slice U64 → KS → Prop) (hTK : TakeKeyOK ks sz KC)
     {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop}
-    (hR : RepW ks s m live) (hcap : arenaLen s + mainCount s + 4 ≤ nilN)
+    (hR : RepW ks s m live) (hK : KC s.coords s.keys) (hcap : arenaLen s + mainCount s + 4 ≤ nilN)
     (b0 : Tbl KS) (hb0 : RepW ks b0 m (LowMain s 0))
     (hcb0 : arenaLen b0 + mainCount b0 = 0) (hb0o : b0.overflow = none)
     (hsz_s : s.coords.val.length ≤ sz s.keys) (hsz_b0 : b0.coords.val.length ≤ sz b0.keys) :
     ∃ r, hashtrinity.Table.resize_loop0 core.cmp.EqU64 CI ks s b0 0#usize = ok r ∧
       Hov r.2.2 (mainCount s) := by
   obtain ⟨r, hr, -, -, -, -, -, hhov, -, -, -⟩ :=
-    resize_loop0_ok_hov_strong ks sz hm hA hset hTK hR hcap b0 hb0 hcb0 hb0o hsz_s hsz_b0
+    resize_loop0_ok_hov_strong ks sz hm hA hset KC hTK hR hK hcap b0 hb0 hcb0 hb0o hsz_s hsz_b0
   exact ⟨r, hr, hhov⟩
 
 end Apeiron.MapExecuted
