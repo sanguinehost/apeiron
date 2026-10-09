@@ -1,6 +1,9 @@
 import AxiomAudit.Core
 import Nous.Model.HyperbolicAttention
 import Numeric.SigmaDelta
+import Numeric.HiddenPerm
+import Numeric.OneBitUnits
+import Numeric.SignPlanes
 
 set_option linter.apeiron.notation false
 set_option linter.apeiron.citation false
@@ -1101,3 +1104,36 @@ open apeiron_word
 #audit Numeric.SigmaDelta.shape_dot
 #audit Numeric.SigmaDelta.shape_null_exact
 #audit Numeric.SigmaDelta.sd_beats_sign
+
+-- LEARN-ONEBIT W6-T4 (onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1): hidden-axis permutation symmetry
+#audit Numeric.HiddenPerm.perm_coordwise
+#audit Numeric.HiddenPerm.hidden_perm_mlp
+#audit Numeric.HiddenPerm.hidden_perm_mlp_submatrix
+#audit Numeric.HiddenPerm.hidden_perm_gated
+#audit Numeric.HiddenPerm.rms_perm
+#audit Numeric.HiddenPerm.hidden_perm_residual_block
+#audit Numeric.HiddenPerm.mlp_nonvacuous
+
+-- LEARN-ONEBIT W6-T1 (onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1): one-bit units per face
+#audit apeiron_word.OneBitUnits.channelPair_ringMul_left
+#audit apeiron_word.OneBitUnits.channelPair_one_mul_one
+#audit apeiron_word.OneBitUnits.channelPair_one_mul_negOne
+#audit apeiron_word.OneBitUnits.channelPair_one_mul_j
+#audit apeiron_word.OneBitUnits.channelPair_one_mul_negJ
+#audit apeiron_word.OneBitUnits.hyper_mul_table
+#audit apeiron_word.OneBitUnits.mul_i_components
+#audit apeiron_word.OneBitUnits.i_sq
+#audit apeiron_word.OneBitUnits.i_four
+#audit apeiron_word.OneBitUnits.i_mul_negI
+#audit apeiron_word.OneBitUnits.elliptic_order_two_unique
+
+-- LEARN-ONEBIT W6-T2 (onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1): exact sign-plane decomposition
+#audit apeiron_word.SignPlanes.signPlane_decomp
+#audit apeiron_word.SignPlanes.planeNat_eq_finFunctionFinEquiv
+#audit apeiron_word.SignPlanes.planeNat_injective
+#audit apeiron_word.SignPlanes.planeNat_surj
+#audit apeiron_word.SignPlanes.planeVal_injective
+#audit apeiron_word.SignPlanes.planeVal_range
+#audit apeiron_word.SignPlanes.matvec_decomp
+#audit apeiron_word.SignPlanes.q4k_instance
+#audit apeiron_word.SignPlanes.q8_0_instance
