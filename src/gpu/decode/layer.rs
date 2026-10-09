@@ -18,6 +18,25 @@
 use super::state::{LayerCfg, LayerW, Scratch, Stream};
 use super::*;
 
+/// The one host-visible overflow word, allocated once and mapped so [`crate::gpu::decode::pdl_overflow`]
+/// can read it. Written by the device only on a give-up, so its PCIe cost never lands in a healthy run.
+unsafe fn pdl_overflow_buf(g: &GpuCtx) -> Handle {
+    static OVF: std::sync::OnceLock<Handle> = std::sync::OnceLock::new();
+    *OVF.get_or_init(|| unsafe {
+        let (buf, mem) =
+            g.vk.buffer(
+                4,
+                crate::gpu::vulkan::BUFFER_USAGE_STORAGE,
+                crate::gpu::vulkan::MEMORY_HOST_VISIBLE | crate::gpu::vulkan::MEMORY_HOST_COHERENT,
+            )
+            .expect("pdl overflow buffer alloc failed");
+        let p = g.vk.map(mem).cast::<u32>();
+        p.write_volatile(0);
+        crate::gpu::decode::pdl_set_overflow_ptr(p);
+        buf
+    })
+}
+
 /// **The ROUTED gemv** — `n_used` slots in ONE dispatch, each folding whichever expert
 /// `sel[slot]` names.
 ///
@@ -84,6 +103,7 @@ pub unsafe fn make_moe_gemv(
         bytes: chart_bytes(m, k, carrier) * n_used as u64,
         m,
         k,
+        pdl_skip_barrier: false,
     }
 }
 
@@ -196,19 +216,24 @@ pub unsafe fn make_fused_gemv(
     let out1 = if s > 1 { partials } else { y };
     // carrier is the dial: chart binds DM at slot 4 (DP4A); direct (F16) has no DM, so res/x_out
     // shift down one. `gemv_norm_bytes` matches this binding layout by carrier.
-    let bufs: Vec<Handle> = match (chart, residual) {
+    let mut bufs: Vec<Handle> = match (chart, residual) {
         (true, Some(_)) => vec![w, x_in, gain, out1, dm, res, x_out],
         (true, None) => vec![w, x_in, gain, out1, dm],
         (false, Some(_)) => vec![w, x_in, gain, out1, res, x_out],
         (false, None) => vec![w, x_in, gain, out1],
     };
+    // `[DEC-PDL]` only the `gu` consumer carries the counter (7) and overflow (8) bindings. The
+    // primary `qkv` node has role `PDL_NONE`, so it emits the unchanged kernel.
+    if crate::simt_nn::pdl_role() == crate::simt_nn::PDL_CONSUMER {
+        bufs.push(crate::simt_nn::pdl_cnt() as Handle);
+        bufs.push(crate::simt_nn::pdl_ovf() as Handle);
+    }
     let (l1, d1) = g.vk.ssbo_set(&bufs);
-    let pipe = g.vk.pipeline(
-        &spec
-            .emit(m, k, FWG)
-            .unwrap_or_else(|e| panic!("illegal fused gemv spec at {m}x{k}: {e}")),
-        l1,
-    );
+    let spv = spec
+        .emit(m, k, FWG)
+        .unwrap_or_else(|e| panic!("illegal fused gemv spec at {m}x{k}: {e}"));
+    crate::simt_nn::pdl_set_role(crate::simt_nn::PDL_NONE, 0);
+    let pipe = g.vk.pipeline(&spv, l1);
     let stage2 = (s > 1).then(|| {
         let (l2, d2) = g.vk.ssbo_set(&[partials, ones, y]);
         let p2 =
@@ -225,6 +250,7 @@ pub unsafe fn make_fused_gemv(
         bytes: spec.chart_bytes(m, k),
         m,
         k,
+        pdl_skip_barrier: false,
     }
 }
 
@@ -272,13 +298,20 @@ pub unsafe fn make_actq_gemv(
         bufs.push(a);
         bufs.push(b);
     }
+    // `[DEC-PDL]` the producer `o` (with aux) appends the counter at 6; the resetter `dn` (no aux)
+    // at 4. The emitter's binding numbers are pinned to that order in `simt_nn::norm`.
+    if matches!(
+        crate::simt_nn::pdl_role(),
+        crate::simt_nn::PDL_PRODUCER | crate::simt_nn::PDL_RESET
+    ) {
+        bufs.push(crate::simt_nn::pdl_cnt() as Handle);
+    }
     let (layout, dset) = g.vk.ssbo_set(&bufs);
-    let pipe = g.vk.pipeline(
-        &spec
-            .emit(m, k, FWG)
-            .unwrap_or_else(|e| panic!("illegal actq gemv spec at {m}x{k}: {e}")),
-        layout,
-    );
+    let spv = spec
+        .emit(m, k, FWG)
+        .unwrap_or_else(|e| panic!("illegal actq gemv spec at {m}x{k}: {e}"));
+    crate::simt_nn::pdl_set_role(crate::simt_nn::PDL_NONE, 0);
+    let pipe = g.vk.pipeline(&spv, layout);
     Gemv {
         pipe,
         layout,
@@ -289,6 +322,7 @@ pub unsafe fn make_actq_gemv(
         bytes: spec.chart_bytes(m, k),
         m,
         k,
+        pdl_skip_barrier: false,
     }
 }
 
@@ -312,6 +346,23 @@ pub unsafe fn record_layer(
     let (qn, qkv_m) = (c.qn(), c.qkv_m());
     let (s_qkv, nsplit) = (c.s_qkv(), c.nsplit());
     let mut nodes: Vec<Node> = Vec::new();
+    // `[DEC-PDL]` the `o → gu` edge is a completion counter by default (`DEC_PDL=1`, T8: 896 ->
+    // 928 tok/s tg128, same SEQHASH); `DEC_PDL=0` restores the pipeline barrier; `DEC_PDL=2` removes
+    // that edge's barrier without a counter (the per-edge ceiling arm, wrong output). The counter is
+    // per layer, the overflow word is shared; both are created once at build time.
+    let pdl_mode = envu("DEC_PDL", 1);
+    let pdl_edge = pdl_mode == 1;
+    let pdl_skip = pdl_mode == 1 || pdl_mode == 2;
+    let pdl_cnt = if pdl_edge {
+        Some(g.dev_zeroed(4))
+    } else {
+        None
+    };
+    let pdl_ovf = if pdl_edge {
+        Some(pdl_overflow_buf(g))
+    } else {
+        None
+    };
     // qkv: the RMSNorm rides the projection's weight transport; the split-K stage 2 and the bias
     // move into the rope kernel's prologue (`gm.stage2 = None`, `qkvp` holds the partials).
     if li == 0 {
@@ -438,7 +489,10 @@ pub unsafe fn record_layer(
         )));
     }
     // the split-K attention merge IS the o-projection's activation
-    nodes.push(Node::Gemv(make_actq_gemv(
+    if pdl_edge {
+        crate::simt_nn::pdl_begin(crate::simt_nn::PDL_PRODUCER, pdl_cnt.unwrap(), 0, 0);
+    }
+    let mut o_gm = make_actq_gemv(
         g,
         l.o_c,
         l.o_w,
@@ -450,8 +504,20 @@ pub unsafe fn record_layer(
         ActQ::FlashCombine(hd, nsplit),
         Some((sc.part_m, sc.part_l)),
         ScaleFace::Dm32,
-    )));
+    );
+    // the producer's workgroup count is the consumer's target: every `o` workgroup increments once
+    let target = o_gm.groups.0 * o_gm.groups.1;
+    o_gm.pdl_skip_barrier = pdl_skip;
+    nodes.push(Node::Gemv(o_gm));
     // residual + FFN RMSNorm ride the gate/up projection's transport
+    if pdl_edge {
+        crate::simt_nn::pdl_begin(
+            crate::simt_nn::PDL_CONSUMER,
+            pdl_cnt.unwrap(),
+            pdl_ovf.unwrap(),
+            target,
+        );
+    }
     nodes.push(Node::Gemv(make_fused_gemv(
         g,
         l.gu_c,
@@ -471,6 +537,9 @@ pub unsafe fn record_layer(
         ScaleFace::Dm32,
     )));
     std::mem::swap(&mut st.cur, &mut st.alt);
+    if pdl_edge {
+        crate::simt_nn::pdl_begin(crate::simt_nn::PDL_RESET, pdl_cnt.unwrap(), 0, 0);
+    }
     nodes.push(Node::Gemv(make_actq_gemv(
         g,
         l.dn_c,
