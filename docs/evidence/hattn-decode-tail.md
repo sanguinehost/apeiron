@@ -476,3 +476,10 @@ Instrument for the 7B (board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX
   Control: Qwen2.5-0.5B, `KV_T=4096`, `KV_CHUNK=1024`, `KV_BUDGET=6` (5 invocations, 4 forced resumes): q, k, v of
   all 24 layers are byte-identical to the unchunked 32k dump's first 4096 rows (`cmp`). Clippy `-D warnings` exit 0.
   CPU cost is the limit: FFN 73% of a 150 s layer at 32k, attention `O(t^2)`; the 1M dump needs the GPU.
+- Tail instrument speed (`examples/attn_cut_probe.rs`, `tail_group`, row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`):
+  - change: Dense/Near/Grp/Tree/Clu arms run key-tiled per KV group (`TAIL_KT = 256` keys, scores and softmax maximum in pass 1, weights in pass 2), on an atomic work queue over (group, 2 positions); the prelude (RoPE, page boxes, row parse), `index_pages` (per KV head, k-means assignment) and the bytes loop are parallel. Arithmetic is unchanged: `dot32` lane order, separate mul/add (no FMA), sequential accumulation over j.
+  - measured: 262144, arm 4 (`clu-s4`) plus dense, 32 logical CPUs (i9-14900KF), one invocation: 399 s before, 102 s after (1.55e3 s user, 1565% CPU, 1M dump running alongside).
+  - control (positive): the 262144 `clu-s4` output is identical to the recorded pre-change `g8a-clu4.out` on every line except `elapsed`.
+  - control (old path): `KV_TAIL_SLOW=1` keeps the per-head `tail_head` path as the comparison arm.
+  - gates: `cargo fmt --all -- --check` 0; `clippy --workspace --all-features --all-targets --locked -- -D warnings` 0 (`TAILGROUP-clippy.log`).
+  - not covered: rustc/LLVM codegen of the AVX2 intrinsics; memory at 1M is unmeasured.

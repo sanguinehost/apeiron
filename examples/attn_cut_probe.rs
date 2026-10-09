@@ -213,6 +213,43 @@ fn dot32(a: &[f32], b: &[f32]) -> f32 {
     acc.iter().sum()
 }
 
+/// Applies `f(first_item, chunk)` to `nth` contiguous chunks of `data` (`row` elements per item) on scoped threads.
+fn par_rows<T: Send>(data: &mut [T], row: usize, nth: usize, f: impl Fn(usize, &mut [T]) + Sync) {
+    let per = (data.len() / row).div_ceil(nth.max(1)).max(1);
+    std::thread::scope(|sc| {
+        for (c, ch) in data.chunks_mut(per * row).enumerate() {
+            let f = &f;
+            sc.spawn(move || f(c * per, ch));
+        }
+    });
+}
+
+/// `dot32` of four queries against one key row in AVX2 registers: four independent accumulator chains, each result
+/// bit-identical to `dot32(q[t], b)` (separate multiply and add, the same lane order and final sum).
+#[target_feature(enable = "avx2")]
+unsafe fn dot32x4_avx(q: [&[f32]; 4], b: &[f32]) -> [f32; 4] {
+    use std::arch::x86_64::{
+        __m256, _mm256_add_ps, _mm256_loadu_ps, _mm256_mul_ps, _mm256_setzero_ps, _mm256_storeu_ps,
+    };
+    assert!(q.iter().all(|x| x.len() == b.len()) && b.len().is_multiple_of(8));
+    let mut acc: [__m256; 4] = [_mm256_setzero_ps(); 4];
+    for c in 0..b.len() / 8 {
+        // SAFETY: `c * 8 + 8 <= b.len() == q[t].len()` by the assert above.
+        let kb = unsafe { _mm256_loadu_ps(b.as_ptr().add(c * 8)) };
+        for t in 0..4 {
+            let qa = unsafe { _mm256_loadu_ps(q[t].as_ptr().add(c * 8)) };
+            acc[t] = _mm256_add_ps(acc[t], _mm256_mul_ps(qa, kb));
+        }
+    }
+    let mut out = [0f32; 4];
+    for t in 0..4 {
+        let mut lanes = [0f32; 8];
+        unsafe { _mm256_storeu_ps(lanes.as_mut_ptr(), acc[t]) };
+        out[t] = lanes.iter().sum();
+    }
+    out
+}
+
 #[inline(always)]
 fn gemm_tile(ych: &mut [f32], ld: usize, t: usize, o0: usize, w: &[f32], n_in: usize, x: &[f32]) {
     let mut tb = 0;
@@ -2989,9 +3026,14 @@ fn rows_f32(
     f.seek(SeekFrom::Start((r0 * width * 4) as u64))?;
     let mut b = vec![0u8; (r1 - r0) * width * 4];
     f.read_exact(&mut b)?;
-    Ok(b.chunks_exact(4)
-        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-        .collect())
+    let mut out = vec![0f32; b.len() / 4];
+    par_rows(&mut out, 1, PAR, |i0, ch| {
+        for (o, x) in ch.iter_mut().enumerate() {
+            let c = &b[(i0 + o) * 4..(i0 + o) * 4 + 4];
+            *x = f32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+        }
+    });
+    Ok(out)
 }
 
 /// One layer's keys for the tail queries: the dump's rotated prefix rows `[0, pre)`, the arm's own
@@ -3049,22 +3091,8 @@ struct TailOut {
 /// Complexity: time `O((p+1) HD)` multiply-adds for the scores and values, plus `O(n64 HD)` for the
 /// bounds and an `O((p+1) log(p+1))` sort (oracle) or `O(n64 log n64)` (pages); space `O(p+1)` words.
 fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize, given: &[usize]) -> TailOut {
-    let key = |j: usize| -> &[f32] {
-        let (src, r) = if j < cx.pre {
-            (cx.kp, j)
-        } else {
-            (cx.kt, j - cx.pre)
-        };
-        &src[(r * cx.nkv + g) * HD..(r * cx.nkv + g + 1) * HD]
-    };
-    let val = |j: usize| -> &[f32] {
-        let (src, r) = if j < cx.pre {
-            (cx.vp, j)
-        } else {
-            (cx.vt, j - cx.pre)
-        };
-        &src[(r * cx.nkv + g) * HD..(r * cx.nkv + g + 1) * HD]
-    };
+    let key = |j: usize| key_row(cx, g, j);
+    let val = |j: usize| val_row(cx, g, j);
     let n = p + 1;
     let sc: Vec<f64> = (0..n)
         .map(|j| f64::from(dot32(qh, key(j))) * f64::from(SCALE))
@@ -3077,9 +3105,9 @@ fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize, given: &[us
     let page = |b: usize| TL_SINK + b * TL_P..TL_SINK + (b + 1) * TL_P;
     let mut sel = vec![false; n];
     let mut meta = 0f64;
-    let reads = if let Arm::Dense = arm {
-        sel.fill(true);
-        n as f64
+    let reads = if let Some((s, r)) = simple_sel(arm, p, given) {
+        sel = s;
+        r
     } else if let Arm::Oracle(eps) = arm {
         let mut ord: Vec<usize> = (0..n).collect();
         ord.sort_by(|&a, &b| w[b].total_cmp(&w[a]));
@@ -3099,16 +3127,7 @@ fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize, given: &[us
             *s = true;
         }
         let nn = TL_SINK + (n - nb);
-        if let Arm::Near = arm {
-            nn as f64
-        } else if matches!(arm, Arm::Grp(..) | Arm::Tree(..) | Arm::Clu(..)) {
-            for &b in given {
-                for i in page(b) {
-                    sel[i] = true;
-                }
-            }
-            (nn + TL_P * given.len()) as f64
-        } else {
+        {
             let u: Vec<f64> = (0..n64).map(|b| page_bound(cx, qh, g, b)).collect();
             let mut ord: Vec<usize> = (0..n64).collect();
             ord.sort_by(|&a, &b| u[b].total_cmp(&u[a]));
@@ -3175,6 +3194,178 @@ fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize, given: &[us
         viol: matches!(arm, Arm::Cert(eps) if kept < 1.0 - eps - 1e-6),
         sel,
     }
+}
+
+/// Row `j` of the key cache of KV head `g`: the dump prefix, then the recomputed tail.
+fn key_row<'a>(cx: &TailCtx<'a>, g: usize, j: usize) -> &'a [f32] {
+    let (src, r) = if j < cx.pre {
+        (cx.kp, j)
+    } else {
+        (cx.kt, j - cx.pre)
+    };
+    &src[(r * cx.nkv + g) * HD..(r * cx.nkv + g + 1) * HD]
+}
+
+/// Row `j` of the value cache of KV head `g`.
+fn val_row<'a>(cx: &TailCtx<'a>, g: usize, j: usize) -> &'a [f32] {
+    let (src, r) = if j < cx.pre {
+        (cx.vp, j)
+    } else {
+        (cx.vt, j - cx.pre)
+    };
+    &src[(r * cx.nkv + g) * HD..(r * cx.nkv + g + 1) * HD]
+}
+
+/// The key set and key reads of the arms whose selection does not depend on the softmax weights
+/// (`Dense`, `Near`, `Grp`, `Tree`, `Clu`); `None` for the others.
+fn simple_sel(arm: Arm, p: usize, given: &[usize]) -> Option<(Vec<bool>, f64)> {
+    if !matches!(
+        arm,
+        Arm::Dense | Arm::Near | Arm::Grp(..) | Arm::Tree(..) | Arm::Clu(..)
+    ) {
+        return None;
+    }
+    let n = p + 1;
+    let mut sel = vec![false; n];
+    if let Arm::Dense = arm {
+        sel.fill(true);
+        return Some((sel, n as f64));
+    }
+    let nb = TL_SINK + far_pages(p) * TL_P;
+    sel[..TL_SINK].fill(true);
+    sel[nb..].fill(true);
+    let nn = TL_SINK + (n - nb);
+    if let Arm::Near = arm {
+        return Some((sel, nn as f64));
+    }
+    for &b in given {
+        sel[TL_SINK + b * TL_P..TL_SINK + (b + 1) * TL_P].fill(true);
+    }
+    Some((sel, (nn + TL_P * given.len()) as f64))
+}
+
+/// Keys per tile of `tail_group`: 256 K rows and 256 V rows are 256 KiB, resident in L2 across the block's queries.
+const TAIL_KT: usize = 256;
+/// Scoped threads for the instrument's own serial-in-principle work (rotation, boxes, bytes, k-means assignment).
+const PAR: usize = 32;
+
+/// `tail_head` for every query head in `hs` at every position in `ps` of KV head `g`, for the arms `simple_sel`
+/// accepts. Keys are visited in tiles of `TAIL_KT` rows and each tile is applied to all `hs.len() * ps.len()`
+/// queries before the next, so a K or V row is read from memory once per block, not once per query. Per query the
+/// arithmetic and the accumulation order over `j` are those of `tail_head` (two passes: the scores and their maximum,
+/// then `exp(s - m)` summed into `z`, `zs` and the output), so the results are bit-identical.
+///
+/// Complexity per block: `Q * n` dot products of length `HD`, `Q * n_sel * HD` multiply-adds for the output, with
+/// `Q = hs.len() * ps.len()` and `n` the context; K and V traffic `2 * n * HD` words per block against
+/// `2 * Q * n * HD` per block in `tail_head`; space `Q * n` f64 scores and `Q * n` bools for the selections.
+fn tail_group(
+    cx: &TailCtx,
+    arm: Arm,
+    q: &[f32],
+    nh: usize,
+    g: usize,
+    ps: std::ops::Range<usize>,
+    gsets: &[Vec<Vec<usize>>],
+) -> Vec<(usize, usize, TailOut)> {
+    struct Qry<'a> {
+        h: usize,
+        i: usize,
+        qh: &'a [f32],
+        n: usize,
+        sel: Vec<bool>,
+        sc: Vec<f64>,
+        reads: f64,
+        m: f64,
+        z: f64,
+        zs: f64,
+        out: Vec<f64>,
+    }
+    let hs = g * (nh / cx.nkv)..(g + 1) * (nh / cx.nkv);
+    let mut qs: Vec<Qry> = Vec::new();
+    for i in ps {
+        for h in hs.clone() {
+            let p = cx.pre + i;
+            let (sel, reads) = simple_sel(arm, p, &gsets[i][g]).expect("simple arm");
+            qs.push(Qry {
+                h,
+                i,
+                qh: &q[(i * nh + h) * HD..(i * nh + h + 1) * HD],
+                n: p + 1,
+                sel,
+                sc: vec![0f64; p + 1],
+                reads,
+                m: f64::NEG_INFINITY,
+                z: 0.0,
+                zs: 0.0,
+                out: vec![0f64; HD],
+            });
+        }
+    }
+    let nmax = qs.iter().map(|x| x.n).max().unwrap_or(0);
+    let avx = std::is_x86_feature_detected!("avx2");
+    for j0 in (0..nmax).step_by(TAIL_KT) {
+        for grp in qs.chunks_mut(4) {
+            // Four queries per key row: four independent accumulator chains per row instead of one.
+            let nmin = grp.iter().map(|x| x.n).min().unwrap_or(0);
+            let batch = avx && grp.len() == 4;
+            let split = if batch {
+                nmin.min(j0 + TAIL_KT).max(j0)
+            } else {
+                j0
+            };
+            if batch {
+                let qq = [grp[0].qh, grp[1].qh, grp[2].qh, grp[3].qh];
+                for j in j0..split {
+                    // SAFETY: avx2 was detected above.
+                    let d = unsafe { dot32x4_avx(qq, key_row(cx, g, j)) };
+                    for (x, &dv) in grp.iter_mut().zip(&d) {
+                        let s = f64::from(dv) * f64::from(SCALE);
+                        x.sc[j] = s;
+                        x.m = x.m.max(s);
+                    }
+                }
+            }
+            for x in grp.iter_mut() {
+                for j in split..(j0 + TAIL_KT).min(x.n) {
+                    let s = f64::from(dot32(x.qh, key_row(cx, g, j))) * f64::from(SCALE);
+                    x.sc[j] = s;
+                    x.m = x.m.max(s);
+                }
+            }
+        }
+    }
+    for j0 in (0..nmax).step_by(TAIL_KT) {
+        for x in &mut qs {
+            for j in j0..(j0 + TAIL_KT).min(x.n) {
+                let w = (x.sc[j] - x.m).exp();
+                x.z += w;
+                if x.sel[j] {
+                    x.zs += w;
+                    for (o, &vv) in x.out.iter_mut().zip(val_row(cx, g, j)) {
+                        *o += w * f64::from(vv);
+                    }
+                }
+            }
+        }
+    }
+    qs.into_iter()
+        .map(|x| {
+            let kept = x.zs / x.z;
+            let o = x.out.iter().map(|&o| (o / x.zs) as f32).collect();
+            (
+                x.h,
+                x.i,
+                TailOut {
+                    o,
+                    reads: x.reads,
+                    meta: 0.0,
+                    kept,
+                    viol: false,
+                    sel: x.sel,
+                },
+            )
+        })
+        .collect()
 }
 
 /// `Grp(b, r)` page sets for every tail position `i` and KV head `g`: at `i % r == 0` the far pages
@@ -3305,10 +3496,10 @@ fn index_pages(
     };
     let gs = nh / cx.nkv;
     let keep = b / TL_P;
-    let mut sets = vec![vec![Vec::new(); cx.nkv]; nt];
-    let mut meta = vec![vec![0f64; cx.nkv]; nt];
-    let mut recall = Vec::new();
-    for g in 0..cx.nkv {
+    let per_g = |g: usize| -> (Vec<Vec<usize>>, Vec<f64>, Vec<f64>) {
+        let mut sets_g = vec![Vec::new(); nt];
+        let mut meta_g = vec![0f64; nt];
+        let mut recall_g = Vec::new();
         let hs = g * gs..(g + 1) * gs;
         let pl = |pg: usize| (g * cx.npg + pg) * HD;
         let mut members: Vec<Vec<usize>> = Vec::new();
@@ -3320,7 +3511,7 @@ fn index_pages(
             if i % r != 0 {
                 cur.extend(n64r..n64);
                 n64r = n64;
-                sets[i][g].clone_from(&cur);
+                sets_g[i].clone_from(&cur);
                 continue;
             }
             let qi = &q[i * nh * HD..(i + 1) * nh * HD];
@@ -3346,14 +3537,17 @@ fn index_pages(
                         .collect();
                     let mut asg = vec![0usize; n64];
                     for _ in 0..8 {
-                        for pg in 0..n64 {
-                            let d2 = |c: usize| -> f32 {
-                                (0..HD)
-                                    .map(|e| (ctr[pg * HD + e] - cen[c * HD + e]).powi(2))
-                                    .sum()
-                            };
-                            asg[pg] = (0..k).min_by(|&a, &c| d2(a).total_cmp(&d2(c))).unwrap();
-                        }
+                        par_rows(&mut asg, 1, 8, |p0, ch| {
+                            for (o, a) in ch.iter_mut().enumerate() {
+                                let pg = p0 + o;
+                                let d2 = |c: usize| -> f32 {
+                                    (0..HD)
+                                        .map(|e| (ctr[pg * HD + e] - cen[c * HD + e]).powi(2))
+                                        .sum()
+                                };
+                                *a = (0..k).min_by(|&a, &c| d2(a).total_cmp(&d2(c))).unwrap();
+                            }
+                        });
                         let mut sum = vec![0f32; k * HD];
                         let mut cnt = vec![0usize; k];
                         for pg in 0..n64 {
@@ -3454,16 +3648,38 @@ fn index_pages(
                 }
                 top_by(front, pbound, keep, rev)
             };
-            recall.push(if flat.is_empty() {
+            recall_g.push(if flat.is_empty() {
                 1.0
             } else {
                 chosen.iter().filter(|c| flat.contains(c)).count() as f64 / flat.len() as f64
             });
-            meta[i][g] = (2 * rd) as f64;
+            meta_g[i] = (2 * rd) as f64;
             cur = chosen;
             n64r = n64;
-            sets[i][g].clone_from(&cur);
+            sets_g[i].clone_from(&cur);
         }
+        (sets_g, meta_g, recall_g)
+    };
+    let parts: Vec<_> = std::thread::scope(|sc| {
+        let hs: Vec<_> = (0..cx.nkv)
+            .map(|g| {
+                sc.spawn({
+                    let f = &per_g;
+                    move || f(g)
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let mut sets = vec![vec![Vec::new(); cx.nkv]; nt];
+    let mut meta = vec![vec![0f64; cx.nkv]; nt];
+    let mut recall = Vec::new();
+    for (g, (sg, mg, rg)) in parts.into_iter().enumerate() {
+        for (i, (sv, mv)) in sg.into_iter().zip(mg).enumerate() {
+            sets[i][g] = sv;
+            meta[i][g] = mv;
+        }
+        recall.extend(rg);
     }
     (sets, meta, recall)
 }
@@ -3673,9 +3889,11 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
             let (wg, wu, wd) = (w("ffn_gate")?, w("ffn_up")?, w("ffn_down")?);
             let kvw = nkv * HD;
             let mut kp = rows_f32(&dir.join(format!("k{l}.bin")), kvw, 0, pre)?;
-            for j in 0..pre {
-                rot(&mut kp[j * kvw..(j + 1) * kvw], nkv, j);
-            }
+            par_rows(&mut kp, kvw, PAR, |j0, ch| {
+                for (o, row) in ch.chunks_mut(kvw).enumerate() {
+                    rot(row, nkv, j0 + o);
+                }
+            });
             let vp = rows_f32(&dir.join(format!("v{l}.bin")), kvw, 0, pre)?;
             let qpre = match &qtail {
                 Some(l) => l.iter().position(|&x| x == t).ok_or("KV_QTAIL lacks t")? * nt,
@@ -3687,18 +3905,21 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
             let npg = (t - TL_W - TL_SINK) / TL_P;
             let mut mn = vec![f32::INFINITY; nkv * npg * HD];
             let mut mx = vec![f32::NEG_INFINITY; nkv * npg * HD];
-            for g in 0..nkv {
-                for b in 0..npg {
-                    let o = (g * npg + b) * HD;
-                    for j in TL_SINK + b * TL_P..TL_SINK + (b + 1) * TL_P {
-                        let kr = &kp[(j * nkv + g) * HD..(j * nkv + g + 1) * HD];
-                        for i in 0..HD {
-                            mn[o + i] = mn[o + i].min(kr[i]);
-                            mx[o + i] = mx[o + i].max(kr[i]);
+            let boxes = |ext: fn(f32, f32) -> f32, dst: &mut [f32]| {
+                par_rows(dst, HD, PAR, |i0, ch| {
+                    for (o, bx) in ch.chunks_mut(HD).enumerate() {
+                        let (g, b) = ((i0 + o) / npg, (i0 + o) % npg);
+                        for j in TL_SINK + b * TL_P..TL_SINK + (b + 1) * TL_P {
+                            let kr = &kp[(j * nkv + g) * HD..(j * nkv + g + 1) * HD];
+                            for (e, &x) in bx.iter_mut().zip(kr) {
+                                *e = ext(*e, x);
+                            }
                         }
                     }
-                }
-            }
+                });
+            };
+            boxes(f32::min, &mut mn);
+            boxes(f32::max, &mut mx);
             for (a, x) in xs.iter_mut().enumerate() {
                 let xn = rmsnorm(x, &g1, reps, d);
                 let mut q = gemm(&wq.0, wq.2, wq.1, &xn, nt, bq.as_deref(), nth);
@@ -3734,34 +3955,85 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                     _ => (vec![vec![Vec::new(); nkv]; nt], vec![vec![0f64; nkv]; nt]),
                 };
                 rmeta[a].extend(gmeta.iter().flatten().copied().filter(|&m| m > 0.0));
-                let res: Vec<Vec<TailOut>> = std::thread::scope(|sc| {
-                    let hs: Vec<_> = (0..nh)
-                        .map(|h| {
-                            let (cx, q, gsets) = (&cx, &q, &gsets);
-                            sc.spawn(move || {
-                                (0..nt)
-                                    .map(|i| {
-                                        let qh = &q[(i * nh + h) * HD..(i * nh + h + 1) * HD];
-                                        let g = h / (nh / nkv);
-                                        tail_head(cx, arm, qh, g, pre + i, &gsets[i][g])
-                                    })
-                                    .collect()
-                            })
-                        })
+                let res: Vec<Vec<TailOut>> = if simple_sel(arm, pre, &[]).is_some()
+                    && std::env::var("KV_TAIL_SLOW").is_err()
+                {
+                    let pb = 2;
+                    let units: Vec<(usize, usize)> = (0..nkv)
+                        .flat_map(|g| (0..nt).step_by(pb).map(move |i0| (g, i0)))
                         .collect();
-                    hs.into_iter().map(|j| j.join().unwrap()).collect()
-                });
+                    let next = std::sync::atomic::AtomicUsize::new(0);
+                    let workers = std::thread::available_parallelism()
+                        .map_or(8, usize::from)
+                        .min(units.len());
+                    let outs: Vec<Vec<(usize, usize, TailOut)>> = std::thread::scope(|sc| {
+                        let jobs: Vec<_> = (0..workers)
+                            .map(|_| {
+                                let (cx, q, gsets, units, next) = (&cx, &q, &gsets, &units, &next);
+                                sc.spawn(move || {
+                                    let mut mine = Vec::new();
+                                    loop {
+                                        let u =
+                                            next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        let Some(&(g, i0)) = units.get(u) else { break };
+                                        mine.extend(tail_group(
+                                            cx,
+                                            arm,
+                                            q,
+                                            nh,
+                                            g,
+                                            i0..(i0 + pb).min(nt),
+                                            gsets,
+                                        ));
+                                    }
+                                    mine
+                                })
+                            })
+                            .collect();
+                        jobs.into_iter().map(|j| j.join().unwrap()).collect()
+                    });
+                    let mut slots: Vec<Vec<Option<TailOut>>> =
+                        (0..nh).map(|_| (0..nt).map(|_| None).collect()).collect();
+                    for (h, i, to) in outs.into_iter().flatten() {
+                        slots[h][i] = Some(to);
+                    }
+                    slots
+                        .into_iter()
+                        .map(|r| r.into_iter().map(|t| t.unwrap()).collect())
+                        .collect()
+                } else {
+                    std::thread::scope(|sc| {
+                        let hs: Vec<_> = (0..nh)
+                            .map(|h| {
+                                let (cx, q, gsets) = (&cx, &q, &gsets);
+                                sc.spawn(move || {
+                                    (0..nt)
+                                        .map(|i| {
+                                            let qh = &q[(i * nh + h) * HD..(i * nh + h + 1) * HD];
+                                            let g = h / (nh / nkv);
+                                            tail_head(cx, arm, qh, g, pre + i, &gsets[i][g])
+                                        })
+                                        .collect()
+                                })
+                            })
+                            .collect();
+                        hs.into_iter().map(|j| j.join().unwrap()).collect()
+                    })
+                };
                 let gs = nh / nkv;
-                for i in 0..nt {
-                    let n = pre + i + 1;
-                    for g in 0..nkv {
+                let mut bv = vec![0f64; nt * nkv];
+                par_rows(&mut bv, 1, PAR, |u0, ch| {
+                    for (o, slot) in ch.iter_mut().enumerate() {
+                        let (i, g) = ((u0 + o) / nkv, (u0 + o) % nkv);
+                        let n = pre + i + 1;
                         let used = (0..n)
                             .filter(|&j| (g * gs..(g + 1) * gs).any(|h| res[h][i].sel[j]))
                             .count();
                         let meta = res[g * gs][i].meta + gmeta[i][g];
-                        bytes[a].push((2 * used) as f64 / (2 * n) as f64 + meta / (2 * n) as f64);
+                        *slot = (2 * used) as f64 / (2 * n) as f64 + meta / (2 * n) as f64;
                     }
-                }
+                });
+                bytes[a].extend(bv);
                 let mut att = vec![0f32; nt * nh * HD];
                 for (h, rh) in res.into_iter().enumerate() {
                     for (i, to) in rh.into_iter().enumerate() {
