@@ -365,86 +365,176 @@ theorem write_back_ex (o : Ov) (n e : U32) (v : I64)
 /-! ## Forward totality of the `Blocked` verdict
 
 `insert_core`'s `Blocked` verdict runs `find_entry` and branches: an absent key takes
-`insert_new_at`; a present key takes `take_value` then `write_back`.  `ov_write_ok` is that inner
-do-block, total on an `OvFull` store. -/
+`insert_new_at`; a present key takes `take_value` then `write_back`. -/
 
-/-- **`ov_write_ok`.**  The `find_entry`/`insert_new_at`/`take_value`/`write_back` inner block of
-`insert_core`'s `Blocked` verdict returns `ok`, on an `OvFull` store. -/
-theorem ov_write_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
-    (t : Tbl KS) (m : Apeiron.Table.HMap U64 I64) (ov : Ov) (T : OTree)
-    (hF : OvFull ks t m ov T)
-    (hcap : ov.nodes.val.length + 4 ≤ 2 ^ 32 - 1) (hlen : ov.len.val < Usize.max)
-    {k : U64} (v : I64) :
-    ∃ ov', (do
-      let o2 ← hashtrinity.overflow.Overflow.find_entry CI core.cmp.EqU64 ov k k
-      match o2 with
-      | none =>
-        let (_, ov1) ← hashtrinity.overflow.Overflow.insert_new_at CI ov k k v
-        ok ov1
-      | some p =>
-        let (node, entry) := p
-        core.mem.drop k
-        let (old, ov1) ← hashtrinity.overflow.Overflow.take_value CI ov node entry
-        let ov2 ← hashtrinity.overflow.Overflow.write_back CI ov1 node entry v
-        core.mem.drop old
-        ok ov2) = ok ov' := by
-  obtain ⟨hI, hall⟩ := hF
-  have hsingle : ∀ j ∈ idxs T, ∃ nd, ov.nodes.val[j]? = some nd ∧
-      ∃ w, nd.entries.val = [(nd.key, some w)] :=
-    fun j hj => by obtain ⟨nd, hnd, -, hent, -, -⟩ := hall j hj; exact ⟨nd, hnd, m nd.key, hent⟩
-  have hentries : ∀ j ∈ idxs T, ∀ nd, ov.nodes.val[j]? = some nd →
-      nd.entries.val.length < Usize.max := by
-    intro j hj nd hnd
-    obtain ⟨nd', hnd', w, hent⟩ := hsingle j hj
-    rw [hnd] at hnd'
-    have hEq : nd = nd' := Option.some.inj hnd'
-    rw [hEq, hent]
-    exact lt_of_lt_of_le (by unfold nilN; norm_num) nilN_le_usize_max
-  have hentries32 : ∀ j ∈ idxs T, ∀ nd, ov.nodes.val[j]? = some nd →
-      nd.entries.val.length < 2 ^ 32 := by
-    intro j hj nd hnd
-    obtain ⟨nd', hnd', w, hent⟩ := hsingle j hj
-    rw [hnd] at hnd'
-    have hEq : nd = nd' := Option.some.inj hnd'
-    rw [hEq, hent]; norm_num
-  have hS : SingleEntries ov.nodes.val T := fun i hi => by
-    obtain ⟨nd, hnd, w, hent⟩ := hsingle i hi
-    exact ⟨nd, hnd, w, hent⟩
-  obtain ⟨r, hfe, -⟩ := find_entry_total ov T hI.1 hI.2.1 hS k
-  rw [hfe]
+/-! ## Totality of `insert_core` on the non-reserved path -/
+
+/-- **`insert_core_ns_ok`.**  On a non-reserved key, `insert_core k v true` returns `(none, s')`:
+the `grow_for_one` prefix is total (`grow_for_one_ok`), the capped probe is total
+(`probe_capped_keyed_ok`), and each verdict's write is total — the slot overwrite/fill of `Hit`/
+`Vacant` (`slice_get_unchecked_mut_ex`, `set`) and the overflow write of `Blocked`
+(`find_entry_total`, `ov_insert_new_at_ok`, `take_value_ex`, `write_back_ex`). -/
+theorem insert_core_ns_ok {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
+    (KC : Slice U64 → KS → Prop) (hRes : ResizeOK ks KC)
+    (halloc : ∀ n : Usize, ∃ ks', ks.alloc n = ok ks')
+    (hm : ∀ keys i c k, ∃ b, ks.«matches» keys i c k = ok b)
+    (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
+    (hset : ∀ (keys : KS) (i : Usize) (k : U64), ∃ keys', ks.set keys i k = ok keys')
+    (hTK : ∀ (keys : KS) (i : Usize) (c : U64), ¬ IsSent c →
+      ∃ keys', ks.take_key keys i c = ok (c, keys'))
+    {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop}
+    (hR : RepW ks s m live) (hK : KC s.coords s.keys) (hcap : arenaLen s + mainCount s + 4 ≤ nilN)
+    (n : Nat) (hHov : Hov s n) (hmain : mainCount s ≤ n) (hn : n * n + n + 4 ≤ nilN)
+    (hbits : s.bits.val + 3 ≤ UScalarTy.Usize.numBits)
+    (hocc : s.len.val + s.tombs.val ≤ s.coords.length)
+    {k : U64} (hns : ¬ IsSent k) (v : I64) :
+    ∃ s', hashtrinity.Table.insert_core core.cmp.EqU64 CI ks s k v true = ok (none, s') := by
+  unfold hashtrinity.Table.insert_core
+  rw [coord_of_ok]
   simp only [bind_tc_ok]
-  rcases r with _ | ⟨node, entry⟩
-  · obtain ⟨nd, e, ov1, hins⟩ := ov_insert_new_at_ok ov T k k v hI hlen hentries hcap
-    rw [hins]
-    rw [bind_pair_ok]
-    exact ⟨ov1, rfl⟩
-  · change ∃ ov', (do
-      core.mem.drop k
-      let (old, ov1) ← hashtrinity.overflow.Overflow.take_value CI ov node entry
-      let ov2 ← hashtrinity.overflow.Overflow.write_back CI ov1 node entry v
-      core.mem.drop old
-      ok ov2) = ok ov'
-    have hspec := (find_entry_spec ov T hI.1 hI.2.1 hentries32 k k (.some (node, entry)) hfe).2
-      node entry
-    obtain ⟨hnmem, nd, hnd, hkey, hfirst⟩ := hspec.mp rfl
-    obtain ⟨nd1, hnd1, -, hent1, hns1, -⟩ := hall node.val hnmem
-    have hndeq : nd = nd1 := Option.some.inj (hnd.symm.trans hnd1)
-    rw [hndeq] at hkey hfirst
-    have hentk : nd1.entries.val = [(k, some (m k))] := by rw [hent1, hkey]
-    have hlive : LiveEntry ov node entry := by
-      obtain ⟨x, hx, -⟩ := hfirst.1
-      rw [hentk] at hx
-      have hlt1 : entry.val < 1 := by
-        have := (List.getElem?_eq_some_iff.mp hx).1; simpa using this
-      have he0 : entry.val = 0 := by omega
-      exact ⟨nd1, hnd1, k, m k, by rw [hentk, he0]; rfl⟩
-    obtain ⟨old, ov1, htv, ndv, hndv, hlenv⟩ := take_value_ex ov node entry hlive
-    have hn1 : node.val < ov1.nodes.val.length := (List.getElem?_eq_some_iff.mp hndv).1
-    obtain ⟨ov2, hwb⟩ := write_back_ex ov1 node entry v hn1 ⟨ndv, hndv, hlenv⟩
-    rw [htv]; rw [bind_pair_ok]
-    rw [hwb]
-    simp only [core.mem.drop, bind_tc_ok]
-    exact ⟨ov2, rfl⟩
+  rw [is_sentinel_ok]
+  simp only [bind_tc_ok]
+  rw [if_neg (by simpa using hns)]
+  obtain ⟨s1, hg⟩ := grow_for_one_ok ks halloc hm hA hset hTK hR hcap n hHov hmain hn hbits hocc
+  rw [hg]
+  simp only [bind_tc_ok]
+  obtain ⟨hR1, hbits1, hlen1, hsl1, hcap1, hHov1⟩ :=
+    grow_post ks KC hRes halloc hm hA hset hTK hR hK hcap n hHov hmain hn hbits hocc hg
+  obtain ⟨c, hc⟩ := probe_capped_keyed_ok ks hm hA s1 k k hbits1 hlen1
+  rw [hc]
+  simp only [bind_tc_ok]
+  have hslot := probe_capped_keyed_slot_weak ks s1 k k c hc
+  cases c with
+  | Hit i =>
+    have hcx : s1.coords.val[i.val]? = some k := hslot
+    have hltc : i.val < s1.coords.val.length := (List.getElem?_eq_some_iff.mp hcx).1
+    have hltv : i.val < s1.vals.length := by rw [hsl1]; exact hltc
+    obtain ⟨mu, back, hget⟩ := slice_get_unchecked_mut_ex s1.vals i hltv
+    obtain ⟨hmu, hback⟩ := get_unchecked_mut_ok s1.vals i mu back hget
+    have hmu' : mu = some (m k) := by
+      have h1 := (hR1.1.main_val i.val k hcx hns).2
+      rw [hmu] at h1
+      exact Option.some.inj h1
+    have hread : core.mem.maybe_uninit.MaybeUninit.assume_init_read (some (m k)) = ok (m k) := rfl
+    have hltv2 : i.val < (s1.vals.set i (some (m k))).length := by rw [slice_set_length]; exact hltv
+    obtain ⟨_, back1, hget2⟩ := slice_get_unchecked_mut_ex (s1.vals.set i (some (m k))) i hltv2
+    have hnew : core.mem.maybe_uninit.MaybeUninit.new v = ok (some v) := rfl
+    refine ⟨{ s1 with vals := back1 (some v) }, ?_⟩
+    simp only [hget, bind_tc_ok, ite_true]
+    rw [hmu', hback]
+    simp only [uncurry_apply_pair, hread, hget2, core.mem.drop,
+      core.mem.maybe_uninit.MaybeUninit.new, bind_tc_ok]
+  | Vacant i =>
+    obtain ⟨x0, hcx, hx0e⟩ := hslot
+    have hltc : i.val < s1.coords.val.length := (List.getElem?_eq_some_iff.mp hcx).1
+    have hltv : i.val < s1.vals.length := by rw [hsl1]; exact hltc
+    obtain ⟨_, backc, hgetc⟩ := slice_get_unchecked_mut_ex s1.coords i hltc
+    obtain ⟨_, backv, hgetv⟩ := slice_get_unchecked_mut_ex s1.vals i hltv
+    obtain ⟨keys', hset'⟩ := hset s1.keys i k
+    have hlenmax1 : s1.len.val < Usize.max := by
+      have hmc := hR1.1.len_count
+      have hc := hcap1
+      unfold nilN at hc
+      have h := nilN_le_usize_max
+      unfold nilN at h
+      omega
+    have hltmax : s1.len.val + (1#usize).val < 2 ^ UScalarTy.Usize.numBits := by
+      rw [val_1_usize]
+      have hl := hlenmax1
+      rw [Usize.max_def, Usize.numBits_def] at hl
+      have hp : 0 < 2 ^ UScalarTy.Usize.numBits := Nat.two_pow_pos _
+      omega
+    obtain ⟨i1, hi1, -⟩ := uadd_tot s1.len 1#usize hltmax
+    refine ⟨{ s1 with coords := backc k, vals := backv (some v), keys := keys', len := i1 }, ?_⟩
+    simp only [hgetc, hgetv, hset', hi1, core.mem.maybe_uninit.MaybeUninit.new, bind_tc_ok]
+    rfl
+  | Blocked =>
+    obtain ⟨ov, T, hX, hF, hcap, hlen⟩ : ∃ (ov : Ov) (T : OTree),
+        (if core.option.Option.is_none s1.overflow = true then
+            (do let o1 ← hashtrinity.overflow.Overflow.new I64 CI; ok (some o1))
+          else ok s1.overflow) = ok (some ov) ∧
+        OvFull ks s1 m ov T ∧ ov.nodes.val.length + 4 ≤ 2 ^ 32 - 1 ∧ ov.len.val < Usize.max := by
+      cases hto : s1.overflow with
+      | none =>
+        let OV : Ov := { nodes := alloc.vec.Vec.new (hashtrinity.overflow.Node U64 I64),
+                         free := alloc.vec.Vec.new U32,
+                         root := hashtrinity.overflow.NIL,
+                         len := 0#usize }
+        have hnew : hashtrinity.overflow.Overflow.new I64 CI = ok OV := rfl
+        obtain ⟨hF, -, hl0⟩ := ov_full_new ks s1 m OV hnew
+        refine ⟨OV, .leaf, ?_, hF, by rw [hl0]; norm_num, ?_⟩
+        · simp only [core.option.Option.is_none, Option.isNone, hnew, bind_tc_ok, ite_true]
+        · have h0 : OV.len.val = 0 := rfl
+          rw [h0]
+          exact lt_of_lt_of_le (by unfold nilN; norm_num) nilN_le_usize_max
+      | some ov0 =>
+        obtain ⟨T, hF, -⟩ := ov_full_of_some ks hR1 hto
+        obtain ⟨T', hI', hnn, hln, -⟩ := hHov1 ov0 hto
+        refine ⟨ov0, T, ?_, hF, ?_, ?_⟩
+        · simp only [core.option.Option.is_none, Option.isNone]
+          rfl
+        · have hc := hn
+          unfold nilN at hc
+          omega
+        · have h := nilN_le_usize_max
+          unfold nilN at h
+          have hc := hn
+          unfold nilN at hc
+          omega
+    simp only [hX, bind_tc_ok, core.option.Option.as_mut, uncurry_apply_pair]
+    obtain ⟨hI, hall⟩ := hF
+    have hsingle : ∀ j ∈ idxs T, ∃ nd, ov.nodes.val[j]? = some nd ∧
+        ∃ w, nd.entries.val = [(nd.key, some w)] :=
+      fun j hj => by obtain ⟨nd, hnd, -, hent, -, -⟩ := hall j hj; exact ⟨nd, hnd, m nd.key, hent⟩
+    have hentries : ∀ j ∈ idxs T, ∀ nd, ov.nodes.val[j]? = some nd →
+        nd.entries.val.length < Usize.max := by
+      intro j hj nd hnd
+      obtain ⟨nd', hnd', w, hent⟩ := hsingle j hj
+      rw [hnd] at hnd'
+      have hEq : nd = nd' := Option.some.inj hnd'
+      rw [hEq, hent]
+      exact lt_of_lt_of_le (by unfold nilN; norm_num) nilN_le_usize_max
+    have hentries32 : ∀ j ∈ idxs T, ∀ nd, ov.nodes.val[j]? = some nd →
+        nd.entries.val.length < 2 ^ 32 := by
+      intro j hj nd hnd
+      obtain ⟨nd', hnd', w, hent⟩ := hsingle j hj
+      rw [hnd] at hnd'
+      have hEq : nd = nd' := Option.some.inj hnd'
+      rw [hEq, hent]; norm_num
+    have hS : SingleEntries ov.nodes.val T := fun i hi => by
+      obtain ⟨nd, hnd, w, hent⟩ := hsingle i hi
+      exact ⟨nd, hnd, w, hent⟩
+    obtain ⟨r, hfe, -⟩ := find_entry_total ov T hI.1 hI.2.1 hS k
+    rw [hfe]
+    simp only [bind_tc_ok]
+    rcases r with _ | ⟨node, entry⟩
+    · obtain ⟨nd, e, ov1, hins⟩ := ov_insert_new_at_ok ov T k k v hI hlen hentries hcap
+      rw [hins]
+      simp only [bind_tc_ok, uncurry_apply_pair]
+      exact ⟨_, rfl⟩
+    · have hspec := (find_entry_spec ov T hI.1 hI.2.1 hentries32 k k (.some (node, entry)) hfe).2
+        node entry
+      obtain ⟨hnmem, nd, hnd, hkey, hfirst⟩ := hspec.mp rfl
+      obtain ⟨nd1, hnd1, -, hent1, hns1, -⟩ := hall node.val hnmem
+      have hndeq : nd = nd1 := Option.some.inj (hnd.symm.trans hnd1)
+      rw [hndeq] at hkey hfirst
+      have hentk : nd1.entries.val = [(k, some (m k))] := by rw [hent1, hkey]
+      have hlive : LiveEntry ov node entry := by
+        obtain ⟨x, hx, -⟩ := hfirst.1
+        rw [hentk] at hx
+        have hlt1 : entry.val < 1 := by
+          have := (List.getElem?_eq_some_iff.mp hx).1; simpa using this
+        have he0 : entry.val = 0 := by omega
+        exact ⟨nd1, hnd1, k, m k, by rw [hentk, he0]; rfl⟩
+      obtain ⟨old, ov1, htv, ndv, hndv, hlenv⟩ := take_value_ex ov node entry hlive
+      have hn1 : node.val < ov1.nodes.val.length := (List.getElem?_eq_some_iff.mp hndv).1
+      obtain ⟨ov2, hwb⟩ := write_back_ex ov1 node entry v hn1 ⟨ndv, hndv, hlenv⟩
+      simp only [core.mem.drop, bind_tc_ok, uncurry_apply_pair]
+      rw [htv]
+      simp only [bind_tc_ok, uncurry_apply_pair, ite_true]
+      rw [hwb]
+      simp only [bind_tc_ok]
+      exact ⟨_, rfl⟩
 
 end Apeiron.MapExecuted
 
@@ -454,4 +544,4 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.grow_post
 #audit Apeiron.MapExecuted.take_value_ex
 #audit Apeiron.MapExecuted.write_back_ex
-#audit Apeiron.MapExecuted.ov_write_ok
+#audit Apeiron.MapExecuted.insert_core_ns_ok
