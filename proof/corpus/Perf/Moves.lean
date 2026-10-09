@@ -684,6 +684,26 @@ theorem p71_gu_workgroups :
     38 * 2 = 76 ∧ 76 ≤ 84 := by
   decide
 
+/-- P72 (DECODE-ATTRIB T13): measured arithmetic over the last-arriving-`o`-workgroup reduce (units:
+0.01 µs per token; tok/s ×10). `gu` 24620 → 23410 (removes 1210 = `P`), `o` 8590 → 13820 (adds 5230),
+sum 33210 → 37230, so the sum rises by 4020; the protocol-only probe already raises `o` by 1410 > 1210
+and the sum to 33450 > 33210; the five interleaved rounds each have A > B. Arithmetic over recorded
+measurements, not a kernel claim. -/
+theorem p72_last_reduce_terms :
+    24620 - 23410 = 1210 ∧
+    13820 - 8590 = 5230 ∧
+    23410 + 13820 = 37230 ∧
+    24620 + 8590 = 33210 ∧
+    37230 - 33210 = 4020 ∧
+    1210 < 1410 ∧
+    33210 < 33450 ∧
+    33210 < 37230 ∧
+    9926 > 9707 ∧ 10092 > 9789 ∧ 9959 > 9577 ∧ 10090 > 9702 ∧ 9752 > 9671 ∧
+    9926 + 10092 + 9959 + 10090 + 9752 = 49819 ∧
+    9707 + 9789 + 9577 + 9702 + 9671 = 48446 ∧
+    48446 < 49819 := by
+  decide
+
 end Moves
 
 end Perf
