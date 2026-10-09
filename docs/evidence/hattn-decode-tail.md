@@ -107,7 +107,7 @@ Mean whole-model KLD (positions above 0.05 out of 64) and mean reads/`t`:
 ### Findings
 
 - **The operating point is a64-fix1024:** mean KLD ≤ 0.037 at every `t`, top-1 55–61 of 64, `0.071 t` reads at
-  32k (14× fewer key reads than dense; `fix1024_fourteen_x`). The next cheaper budget fails at 8192
+  32k (14× fewer key reads than dense, counted per query head; per KV head in bytes it is 8.6×, see T7). The next cheaper budget fails at 8192
   (`fix1024_cheapest`). This is a count of reads, not a time.
 - **The mean passes, the tail does not.** a64-fix1024 has 18 of 64 positions above 0.05 at 8192 (max 0.26). A
   per-position guarantee at 0.05 needs a64-fix2048, which still misses at 16384 (6 positions, max 0.11).
@@ -135,8 +135,83 @@ depend on no axioms. The four real-analysis theorems `HattnT3.first_cumulant_le`
 - Reads, not wall-clock or tokens per second; no Rust/Aeneas extraction of the selector; rustc and LLVM are
   outside the trust boundary.
 
+## HATTN-T7: bytes per KV head, one page set per GQA group, reused across positions
+
+Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Grade: `measured` (one prompt, 256 positions);
+verdicts `proved` as arithmetic over the measured constants in `proof/corpus/Perf/HattnT7.lean`, empty axiom
+cone.
+
+| item | value |
+|---|---|
+| instrument | `KV_TAIL=<dump> KV_TAIL_GROUP=1 examples/attn_cut_probe.rs`, source sha256 `e43db6ba…`, binary `71f044e0…`; output `/home/socol/oc-tmp/hattn-long/group.out` (sha256 `d9e1efd6…`), 50 s |
+| cost metric | bytes/dense per (KV head, position): `(2·|∪ over the 7 query heads of keys used| + bound vectors read) / (2t)`; the bound scan is read once per KV head; dense is 1 exactly |
+| control | dense tail rel-L2 ≤ 1.8e-5; dense bytes/dense = 1 at every (KV head, position); `HATTN_MUT=2` (group ranking reversed) raises grp-fix1024-r1 to 0.1730, 0.6065, 0.1136, 0.0231 (`group-mut.out`, sha256 `0d0cc148…`) |
+| predictions | `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T7.md`, sha256 `54a5d2ab…` |
+| Lean controls | `grp2048r8B32` set to 820 breaks `singles_agree`, `pg6_held`, `grp2048r8_thirteen_x`; `grp2048r1Kld` at 8k set to 1227 breaks `pg4_held`, `pg5_held` (`/home/socol/oc-tmp/hattn-long/mut/HattnT7{m,n}.lean`) |
+
+| arm | selection |
+|---|---|
+| a64-fix{1024,2048} | T6: Quest-64 pages chosen per query head |
+| grp-fix{b}-r1 | one page set per KV head: pages ranked by the max over its 7 query heads of Quest's bound, top `b/64` |
+| grp-fix{b}-r8 | the same set recomputed every 8 positions and reused between; newly sealed far pages always added; the bound scan paid only at refresh |
+| oracle-0.25 | union of the 7 heads' oracle keys at per-head KL 0.25 (not deployable) |
+
+Mean whole-model KLD (positions above 0.05 out of 64) and mean bytes/dense:
+
+| arm | t = 4096 | 8192 | 16384 | 32768 |
+|---|---|---|---|---|
+| a64-fix1024 | 0.0165 (6) 0.568 | 0.0368 (18) 0.326 | 0.0293 (14) 0.204 | 0.0089 (1) 0.116 |
+| a64-fix2048 | 0.0036 (0) 0.828 | 0.0092 (1) 0.522 | 0.0158 (6) 0.330 | 0.0053 (0) 0.189 |
+| grp-fix1024-r1 | 0.0196 (4) 0.338 | 0.1551 (25) 0.176 | 0.0396 (17) 0.096 | 0.0145 (2) 0.056 |
+| grp-fix2048-r1 | 0.0047 (0) 0.590 | 0.0227 (7) 0.302 | 0.0254 (12) 0.158 | 0.0104 (1) 0.087 |
+| grp-fix1024-r8 | 0.0262 (8) 0.327 | 0.1764 (28) 0.164 | 0.0455 (16) 0.083 | 0.0150 (2) 0.042 |
+| grp-fix2048-r8 | 0.0053 (0) 0.579 | 0.0234 (7) 0.289 | 0.0342 (13) 0.145 | 0.0110 (1) 0.074 |
+| oracle-0.25 | 0.0259 (7) 0.113 | 0.0876 (19) 0.071 | 0.0497 (20) 0.046 | 0.0314 (7) 0.021 |
+
+| prediction | registered | measured | verdict |
+|---|---|---|---|
+| PG1 | dense rel-L2 ≤ 1e-4, dense bytes = 1, reversed ranking > 0.2 at 8192 | 1.8e-5; true; 0.6065 | held |
+| PG2 | a64-fix1024 bytes/dense at 32k ≥ 0.10 | 0.116 | held |
+| PG3 | grp-fix1024-r1 ≤ 0.05 at every `t` | 0.1551 at 8192 | refuted |
+| PG4 | grp-fix2048-r1 ≤ 0.05 at every `t`, bytes at 32k ≤ 0.10 | ≤ 0.0254; 0.087 | held |
+| PG5 | reuse r8 moves mean KLD ≤ 0.01 at every `t` | 0.0006, 0.0007, 0.0088, 0.0006 | held |
+| PG6 | cheapest passing deployable arm ≤ 0.08 bytes at 32k | grp-fix2048-r8, 0.074 | held |
+
+### Findings
+
+- **Correction to T6.** T6's "14× fewer key reads" for a64-fix1024 counted reads per query head. In bytes per
+  KV head, with the 7 heads' keys unioned and K and V both read, it is `0.116` of dense at 32k: 8.6×
+  (`gqa_correction`). The T6 figure overstated the saving because the 7 query heads of a group select
+  different pages.
+- **One page set per group, reused for 8 positions, is 13.6× cheaper than dense at 32k** at mean KLD ≤ 0.035
+  at every `t` (`grp2048r8_thirteen_x`). It costs less than a64-fix1024 at every `t ≥ 8192` and holds a lower
+  KLD at 8192 (0.023 against 0.037).
+- **Reuse is free at this resolution.** Refreshing the set every 8 positions instead of every position moves
+  mean KLD by ≤ 0.009 (`pg5_held`) and cuts the bound scan 8×: at r8 the scan is `1/512` of dense, and the
+  selected keys (the 2048 budget, the near set, newly sealed pages) are the rest.
+- **The oracle union is 3.5× below grp-fix2048-r8 at 32k** (0.021 against 0.074, `oracle_gap`) and still fails
+  at 8192 on the mean: a per-head KL 0.25 oracle is not the target, a whole-model one is.
+- **Per-position tail.** grp-fix2048-r8 has 13 of 64 positions above 0.05 at 16384 (max 0.25). The mean
+  passes; a per-position guarantee does not.
+
+### Derived, not measured: the cost at 1M context
+
+At refresh interval `r` the scan costs `1/(64 r)` of dense per position (2 bound vectors per 64-key page,
+against 2 vectors per key for dense) and the selected keys cost `≈ 2350/t` at grp-fix2048-r8 (its 32k figure
+less the scan). At `t = 2^20` that is `0.0020 + 0.0022 ≈ 0.004`, about 240× below dense, if the whole-model
+KLD held at 1M. It is unmeasured: Qwen2.5-0.5B's native context is 32,768 and a 1M dump of this model is
+≈ 112 GB. At 1M the linear scan is half the cost; only a sublinear index removes it.
+
+### What T7 does not establish
+
+- One prompt; 256 positions; a model with a 32k native context.
+- Selection in the decode tail only; prefill is dense.
+- Bytes are a count, not wall-clock or tokens per second; no Rust/Aeneas extraction of the selector; rustc
+  and LLVM are outside the trust boundary.
+
 ## Next
 
-Cut the `0.031 t` bound scan, which dominates reads below a 2048-token budget: a second, coarser bound level
-(pages of pages) or a bound over a quantized key so each page costs less than two vector reads. Measure against
-a64-fix1024 at the same whole-model KLD.
+Replace the linear bound scan with an index whose read cost does not grow with `t`, and keep the read exact:
+the selected keys and values are read in full, so the output over the selected set is exact attention. The
+index is the open part; measure it against grp-fix2048-r8 at the same whole-model KLD, on a model whose
+native context reaches the target length.
