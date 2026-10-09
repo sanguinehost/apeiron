@@ -705,6 +705,58 @@ theorem stored_insert_step {s : Tbl (hashtrinity.algebra.Stored U64)}
     exact ⟨s', N', hword, ⟨hrep, hK', hKS', hcap', hHov', hHent', hmain', by omega, by omega,
       htombs'⟩, hN'le⟩
 
+/-- **`stored_insert_step_nr`.**  The **no-resize** half of the split step: when `grow_for_one` is the
+identity (`hnr`; the arithmetic check `(len+tombs+1)·LOAD_DEN ≥ len(coords)·LOAD_NUM` fails), the
+probe runs on the same table and the counter moves by at most one, so the post-state satisfies
+`StoredPre` at some `N' ≤ N + 1`.  The resize half is `stored_insert_step` (`N' ≤ 2·(N+N)+1`).  A
+reserved key (`insert_core_sent_ok_lin`) leaves the counter at `N`. -/
+theorem stored_insert_step_nr {s : Tbl (hashtrinity.algebra.Stored U64)}
+    {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop} {N B : Nat}
+    (hP : StoredPre s m live N B) (hN : N * N + N + 4 ≤ nilN)
+    (hB : B + 4 ≤ UScalarTy.Usize.numBits)
+    (hnr : hashtrinity.Table.grow_for_one core.cmp.EqU64 CI SKS s = ok s) (k : U64) (v : I64) :
+    ∃ (s' : Tbl (hashtrinity.algebra.Stored U64)) (N' : Nat),
+      word_hashtrinity_insert s k v = ok s' ∧
+      StoredPre s' (upd k v m) (fun c => live c ∨ c = k) N' (B + 1) ∧
+      N' ≤ N + 1 := by
+  have hocc : s.len.val + s.tombs.val ≤ s.coords.length := StoredPre.hocc hP
+  have hcap : arenaLen s + mainCount s + 4 ≤ nilN := StoredPre.hcap hP hN
+  have hsz : s.coords.val.length ≤ storedSz s.keys := StoredPre.hsz hP
+  obtain ⟨hR, hK, hKS, hcapsz, hHov, hHent, hmain, hbitsB, hB3, htombs⟩ := hP
+  by_cases hk : IsSent k
+  · obtain ⟨s', h, hK', hKS', hcap', hHov', hHent', hmain', htombs', hbits'⟩ :=
+      insert_core_sent_ok_lin SKS SKS_matches storedSz sks_alloc_total sks_set_total SKCs
+        stored_takeKeySideOK SKC hR hK hcapsz hKS hk v
+        (fun ss' hp => stored_side_push_pc s.side k v hKS hcapsz hp) N N hHov hHent hmain htombs
+    have hmw : hashtrinity.Table.insert_merge_last_write core.cmp.EqU64 CI SKS s k v = ok s' := by
+      unfold hashtrinity.Table.insert_merge_last_write
+      rw [h]; simp only [bind_tc_ok, uncurry_apply_pair]
+    have hword : word_hashtrinity_insert s k v = ok s' := by
+      unfold word_hashtrinity_insert hashtrinity.Table.insert_merge_last_write
+      rw [h]; simp only [bind_tc_ok, uncurry_apply_pair]
+    refine ⟨s', N, hword, ?_, by omega⟩
+    obtain ⟨ss, hs', hc⟩ := insert_sent_rep SKS SKS_matches hR.1 k v hk s' hmw
+    subst hs'
+    refine ⟨⟨hc, hR.2⟩, hK', hKS', hcap', hHov', hHent', hmain', ?_, ?_, htombs'⟩
+    · rw [hbits']; omega
+    · omega
+  · have hn4 : N + 4 ≤ nilN := by have hmm := Nat.le_mul_self N; omega
+    obtain ⟨s', h, hK', hKS', hcap', hHov', hHent', hmain', htombs', hbits'⟩ :=
+      insert_core_ns_ok_nr SKS SKC storedSz
+        (fun keys i c k => ⟨true, SKS_matches keys i c k⟩) (fun _ => avx2_spec_holds)
+        sks_set_total hR hK hcap N hHov hHent hmain hn4 htombs hsz
+        skc_set SKCs (fun t ht => stored_grow_side s t hKS hcapsz ht) hk v hnr
+    have hmw : hashtrinity.Table.insert_merge_last_write core.cmp.EqU64 CI SKS s k v = ok s' := by
+      unfold hashtrinity.Table.insert_merge_last_write
+      rw [h]; simp only [bind_tc_ok, uncurry_apply_pair]
+    have hsmall : arenaLen s + mainCount s < nilN := by omega
+    have hrep := (insert_ns_rep SKS SKS_matches SKC skc_set resizeOK_stored hR hK hsmall hk v hmw).1
+    have hword : word_hashtrinity_insert s k v = ok s' := by
+      unfold word_hashtrinity_insert hashtrinity.Table.insert_merge_last_write
+      rw [h]; simp only [bind_tc_ok, uncurry_apply_pair]
+    exact ⟨s', N + 1, hword, ⟨hrep, hK', hKS', hcap', hHov', hHent', hmain', by omega, by omega,
+      htombs'⟩, by omega⟩
+
 /-- The counter budget after `L` inserts: `insert_core_ns_ok_lin` gives `N_{i+1} ≤ 2·(N_i+N_i)+1`,
 i.e. `N_{i+1} ≤ 4·N_i + 1`, so `N_i ≤ 4^i·(N+1)`.  This is exponential in the step count (a `resize`
 is charged every step); the amortised linearity (one `resize` per doubling) is not proved. -/
@@ -919,6 +971,13 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.place_capped_hent
 #audit Apeiron.MapExecuted.resize_hov_lin
 #audit Apeiron.MapExecuted.grow_post_lin
+-- W35: the split step.  `insert_core_ns_ok_lin_gen` is the post-`grow_for_one` probe bound
+-- parameterised by `(A, W)`; `insert_core_ns_ok_nr` instantiates its identity branch (no resize,
+-- `N' ≤ N+1`), and `stored_insert_step_nr` is the matching `StoredPre` step.  The resize branch
+-- remains `stored_insert_step` (`N' ≤ 2·(N+N)+1`).
+#audit Apeiron.MapExecuted.insert_core_ns_ok_lin_gen
+#audit Apeiron.MapExecuted.insert_core_ns_ok_nr
+#audit Apeiron.MapExecuted.stored_insert_step_nr
 -- W34: the post-state counter frames, `StoredPre` at `(N, B)`, and the fold.
 #audit Apeiron.MapExecuted.Hov_of_overflow
 #audit Apeiron.MapExecuted.Hent_of_overflow
