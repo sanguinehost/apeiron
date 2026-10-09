@@ -22,6 +22,9 @@ pub mod foldadapt;
 /// GPTQ error-feedback quantization to balanced-trit planes and affine carriers.
 pub mod gptq;
 
+/// One-bit arms on the calibration Gram: `Q1_0` sign planes, sigma-delta, GPTQ and Hadamard.
+pub mod onebit;
+
 /// Streaming Gram accumulation and direct SPD ridge solve: the closed-form linear head.
 pub mod ridge;
 

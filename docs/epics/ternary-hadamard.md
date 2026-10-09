@@ -553,3 +553,29 @@ W6 tasks are file-disjoint. The lead adds their `#audit` lines to `AxiomAudit.le
 | one-bit arms on held-out Grams with controls | tested + measured | W7 |
 | executed `sd_binary_row` refines `Numeric.SigmaDelta` | proved | W8 |
 | whole-model one-bit KLD against `IQ1_S`/`IQ1_M` | measured | W9 |
+
+### W7 result (row `onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1`)
+
+Command: `cargo run --release --example onebit_diag -- … --index-range 0,4` (509 s; log
+`/home/socol/oc-tmp/escalation/ONEBIT-W7-diag-final.log`). Metric: `output_error(W, Ŵ, H_eval)` on held-out Grams,
+Qwen2.5-0.5B `ffn_down`, blocks 0–3 of 24, every arm at 1.125 b/w. Grade `tested` (f64; one run, deterministic).
+
+| arm | blk0 | blk1 | blk2 | blk3 | sum |
+|---|---|---|---|---|---|
+| rtn | 0.360 | 0.358 | 1.50 | 1.34 | 3.560 |
+| sd1 | 0.528 | 0.584 | 1.64 | 1.24 | 3.992 |
+| sd1-path | 0.478 | 0.560 | 1.40 | 0.900 | 3.341 |
+| gptq1 | 0.296 | 0.375 | 1.05 | 0.706 | 2.427 |
+| gptq1-act | 0.272 | 0.388 | 0.395 | 0.501 | 1.556 |
+| gptq1-path | 0.270 | 0.357 | 1.00 | 0.520 | 2.152 |
+| had-rtn | 0.234 | 0.316 | 0.300 | 0.124 | 0.974 |
+| had-gptq1 | 0.199 | 0.350 | 0.00546 | 0.00583 | 0.560 |
+| ref-gptq3 (levels = 1) | 0.470 | 0.712 | 0.00959 | 0.0173 | 1.209 |
+
+- `had-gptq1` is lowest on 3 of 4 blocks (blk1: `had-rtn` 0.316 < 0.350); sum 0.560 against `rtn` 3.560 (6.36×).
+- Plain `sd1` is worse than `rtn` on 3 of 4 blocks. `max|e|/a` is 26–66 on the sd arms: the weights violate the
+  `|w| ≤ a` premise of the proved state bound (`a = mean|w|`, heavy tails), so the bound does not apply and the
+  feedback accumulates.
+- Controls: exact `±a` rows give 0 error in the six sign arms and < 1e-9 through the Hadamard arms; zeroed feedback
+  is strictly worse than `sd1`/`gptq1`; the mutation (sd1 feedback zeroed, throwaway copy) turns the test red.
+- Open: blocks 4–23 (the exit row asks for all 24); W8 refinement; W9 whole-model KLD.
