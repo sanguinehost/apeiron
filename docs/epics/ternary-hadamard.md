@@ -1,4 +1,4 @@
-# ternary and binary GGUF faces with an exact Walsh–Hadamard rotation
+# ternary and binary GGUF faces with an exact Walsh–Hadamard rotation, and exact one-bit faces
 
 Merged epic record: `intent/ternary-hadamard.md`, `spec/ternary-hadamard.md`, `plan/ternary-hadamard.md` (one file per epic; see `docs/README.md`).
 
@@ -128,7 +128,8 @@ cd proof/corpus && lake build AxiomAudit
 ### Non-goals
 
 - The fork's SIMD/GPU kernels, or FWHT on GPU.
-- Training or quantizing models (`quantize_ptq1_0`); load and inference only.
+- Training or quantizing models (`quantize_ptq1_0`) in Part I; load and inference only. Conversion of
+  existing models onto one-bit faces is Part II.
 - KV-cache 4-bit and mean-centering (`KV-CACHE.md`).
 - Performance claims before the quiet-host measurement session.
 
@@ -369,3 +370,186 @@ At each wave barrier:
 - run all §6 commands and the named controls;
 - record the sha256 of every new or edited file and of `proof/ApeironWord.lean`/`AxiomAudit.lean`;
 - write the wave receipt under `docs/evidence/`.
+
+# Part II — exact one-bit faces and the conversion of existing models
+
+Owner direction (2026-10-09): "go on the 1-bit epic w/ a focus on the formalisation and topology +
+note ideally we can use existing models … IDEALLY it's perfectly exact". Part I loads trained
+binary/ternary GGUFs; Part II converts trained higher-bit weights onto one-bit faces and states
+exactly which readings of "one bit" are exact. Plan row: `LEARN-ONEBIT` ([plan](../plan.md)).
+
+## Intent — one-bit faces
+
+- **Source revision:** `7088d24`; Part I unchanged.
+- **Status:** approved (owner go above).
+
+### Problem
+
+"One bit per weight" has four readings. Each one has a different exact statement:
+
+| reading | exact statement | grade at this revision |
+|---|---|---|
+| storage | A lossless code is injective, so it needs ≥ H bits per symbol. `storage_pigeonhole`, `ternary_lossless_iff` are in `../sanguine/proof/Closures/Engineering/SeedStorage.lean` (`e830d3fb`, sha256 `0bca7cc2…`, lines 152 and 266). Measured int4-code entropy on Qwen2.5-0.5B is H ≈ 3.84, so a pretrained weight is not stored losslessly in one bit. | proved in sanguine (not vendored); H measured there |
+| planes | A `b`-bit code is exactly `b` sign planes: `2q − (2^b − 1) = Σ_{k<b} 2^k s_k` with `s_k ∈ {±1}`. The matvec is `Σ_k 2^k (S_k x)`, with adds and subtracts only. Storage stays at `b` bits. | to prove (W6-T2) |
+| time | First-order sigma-delta. `s_t = sign(w_t + e_t)` and `e_{t+1} = e_t + w_t − a·s_t` keep `|e_t| ≤ a` whenever `|w_t| ≤ a`. Every prefix sum of the one-bit stream is within one quantum of the prefix sum of `w`, independent of length. The rate moves into length. | to prove (W6-T3) |
+| function | `storage_ne_compute` (same file, line 266) says the layer map may collapse, so exactness is owed only on the activation support. The bits needed are the rate of `x ↦ Wx` on that support at the required precision. That rate is measured, not assumed. | measured (W7) |
+
+The executed bridge between "time" and "function" is the error identity of a shaped one-bit
+quantizer. Write `r = w − a·s` for the residual of one row. If `r = U ε`, with `U` unit lower
+triangular and `|ε_t| ≤ a`, then:
+
+```
+rᵀ x = εᵀ (Uᵀ x)          first order (U = difference operator, Abel summation):
+Σ_t r_t x_t = e_n x_{n−1} − Σ_{t=1}^{n−1} e_t (x_t − x_{t−1}),   |·| ≤ a(|x_{n−1}| + TV_π(x))
+```
+
+The one-bit error therefore reaches the output only through `Uᵀx`:
+- In first order, `Uᵀx` is the activation's variation along the input order `π`.
+- With `U` the Cholesky factor of `H = E[xxᵀ]` (GPTQ's feedback, `src/learn/gptq.rs`
+  `ul_cholesky`, `upper_tri_inverse`), `Uᵀx` is the activation's innovation in that order.
+- Where the innovation vanishes the error vanishes exactly.
+
+"Exact one bit" is exactness on the predictable part of the activation, plus a bounded remainder on
+the innovation.
+
+### Topology
+
+Two choices are free and exact:
+1. **The order of the hidden axis.** A permutation `P` of a hidden axis commutes with every
+   elementwise nonlinearity and with RMSNorm (gain permuted alongside). Rewriting
+   `W_prev ↦ P W_prev` and `W_next ↦ W_next Pᵀ` leaves the network function unchanged.
+2. **The shaping filter `U`.**
+
+The topology question for a single layer is the Hamiltonian path `π` over input channels that
+minimises `E Σ_t |x_{π(t)} − x_{π(t−1)}|`. The Gram gives the squared form directly:
+`E(x_i − x_j)² = H_ii + H_jj − 2H_ij`. For the residual stream, one `π` is shared by every layer
+that reads it.
+
+### The algebra
+
+| face | unit group over ℤ | one-bit reading | grade |
+|---|---|---|---|
+| hyperbolic `σ = 1` | `{±1, ±j}` ≅ `ℤ/2 × ℤ/2` | In channel coordinates `channelPair 1 z = (z₁ + z₂, z₁ − z₂)`, a unit is an independent sign on each idempotent channel. The one-bit neuron is a sign per channel. `H_1 = channelPair 1`: `sylvester_one_channelPair` (`Numeric/Sylvester.lean`). | channel link proved; unit action to prove (W6-T1) |
+| elliptic `σ = −1` | `{±1, ±i}` ≅ `ℤ/4` | A quarter-turn phase. There are no nontrivial idempotents (`idempotent_iff_trivial_of_disc_nonpos`, `../sanguine-apeiron/proof/Apeiron/Trichotomy/Idempotents.lean:307`), so the 2-bit phase does not split into two one-bit channels over ℤ. | to prove (W6-T1) |
+| parabolic `σ = 0` | `±1 + bε` (infinite) | Sign plus a nilpotent first-order term: the straight-through derivative carried by dual numbers (Clifford 1873). | model |
+
+### Why the alternatives were rejected
+
+| alternative | reason |
+|---|---|
+| Claim lossless one-bit storage of pretrained weights | Refuted by `storage_pigeonhole` at the measured H ≈ 3.84 |
+| Post-hoc one-trit GPTQ as the answer | Measured 48× the seal's output error (`../spinor-ttl/TERNARY_FINDINGS.md` §13, `a05bb1b`). It is the baseline arm, not the result. |
+| Hadamard rotation, then sign | Whitening removes the neighbour correlation that `Uᵀx` exploits. It is kept as a measured arm, not assumed either way. |
+| Train one-bit from scratch (BitNet, arXiv 2402.17764) | Not a conversion of an existing model. Non-goal here. |
+| A new one-bit kernel before W7 | The rate is unmeasured. A kernel on an unmeasured rate is a tax. |
+
+### Empirical best (§3a)
+
+- **In-tree.** `src/learn/gptq.rs` (sha256 `f27ab5d7…`) ports fold `modelfold/src/quant.rs` `gptq`
+  (`d497161f`, sha256 `40424687…`): error feedback under the calibration Gram, with a ternary grid
+  and Q4_K/Q5_0/Q6_K grids. It is subsumed and is the base of every W7 arm.
+- **External comparator.** llama.cpp `IQ1_S` (1.5625 b/w) and `IQ1_M` (1.75 b/w) with an imatrix,
+  scored by paired KLD. Not subsumed; compared.
+
+### Completion condition
+
+1. The W6 Lean rows build and are audited in `AxiomAudit.lean`.
+2. W7 reports, on the 24 held-out `ffn_down` Grams of Qwen2.5-0.5B, the relative output error of
+   every arm. It runs on the build path (`src/learn/onebit.rs`) with its controls red/green.
+3. W9 (planned after W7) reports a whole-model one-bit conversion (`Q1_0`, 1.125 b/w) by paired KLD
+   against f16, beside `IQ1_S`/`IQ1_M` and `Q4_K_M`.
+
+### Invariants
+
+1. Every exact row stays exact. The sign-plane decomposition reproduces the code matrix bit for bit.
+2. Calibration and evaluation Grams are disjoint text. A number is reported on held-out data only.
+3. No inference receipt regresses; Part II touches no `src/gpu`, `src/simt*` or `src/spirv` file.
+
+### Non-goals
+
+- Training from scratch; GPU or SIMD one-bit kernels before W9.
+- Any claim of one bit below the entropy of what is stored. The claim is about the function on
+  the support.
+
+### Trust boundary
+
+- The Lean rows hold over a linear ordered field or ℤ.
+- The W7 quantizers run in `f64` and are `tested`, not refined, until W8 extracts
+  `sd_binary_row`.
+- Gram capture (`/home/socol/oc-tmp/gptq-w2/capture_gram.py`) is a measurement instrument outside
+  the proof.
+
+## Specification — one-bit faces
+
+### Lean (`proof/corpus/Numeric/`; audits added by the lead at install)
+
+| task | file | statements |
+|---|---|---|
+| W6-T1 | `OneBitUnits.lean` | Over `RingCell ℤ` at `σ = 1`, multiplication by each of `1, −1, j, −j` acts on `channelPair 1` as the sign pair `(1,1), (−1,−1), (1,−1), (−1,1)`. The four units form `ℤ/2 × ℤ/2`. At `σ = −1`, multiplication by `i` sends `(a, b)` to `(−b, a)`, `i² = −1`, `i⁴ = 1`, so the units form `ℤ/4` with no element of order 2 except `−1`. |
+| W6-T2 | `SignPlanes.lean` | For `q < 2^b`, `2q − (2^b − 1) = Σ_{k<b} 2^k (2·bit_k q − 1)`. The map `(Fin b → Bool) → ℤ` is a bijection onto the odd integers of absolute value ≤ `2^b − 1`. Matvec form: `(2Q − (2^b−1)) *ᵥ x = Σ_k 2^k (S_k *ᵥ x)` with `S_k` entries in `{±1}`. A `Q4_K`-shaped instance (`b = 4`) and a `Q8_0`-shaped one (`2q + 1`, `b = 8`) are checked by `decide` on a concrete block. |
+| W6-T3 | `SigmaDelta.lean` | Over a `LinearOrderedField`, the first-order quantizer is defined as above. Statements: `sd_state_bound` (`|e_t| ≤ a`); `sd_prefix` (`Σ_{t<T} r_t = e_T`); `sd_abel` (the identity above, exact); `sd_dot_bound`; the shaping identity `r = U *ᵥ ε → r ⬝ᵥ x = ε ⬝ᵥ (Uᵀ *ᵥ x)`; and `shape_null_exact` (`(Uᵀx)_t = 0` wherever `ε_t ≠ 0` gives zero error). A ℚ instance shows plain sign error > sigma-delta error on one vector (non-vacuity). |
+| W6-T4 | `HiddenPerm.lean` | `(W_next * Pᵀ) * f (P * W_prev x) = W_next * f (W_prev x)` for a permutation matrix `P` and coordinatewise `f`, with RMSNorm with a permuted gain. This is the exactness of the topology choice. |
+
+The control for T3: in a copy, replace `sign(w_t + e_t)` with `sign(w_t)`. `sd_state_bound` must
+fail to build, and a ℚ counterexample shows the state growing linearly. The controls for T1, T2 and
+T4: flip one sign in a statement, and the build is red.
+
+### Rust (`src/learn/onebit.rs`, `examples/onebit_diag.rs`, `tests/learn_onebit.rs`)
+
+**Arms.** All arms are per row, with groups of 128 (the `Q1_0` block) and the sign scale
+`a = mean|w|` over the group:
+
+| arm | description |
+|---|---|
+| `rtn` | sign · `a` |
+| `sd1` | first-order sigma-delta in natural order |
+| `sd1-path` | `sd1` in the greedy nearest-neighbour order on `H_ii + H_jj − 2H_ij` |
+| `gptq1` | GPTQ feedback with the grid `{−a, +a}` |
+| `gptq1-act` | `gptq1` in act-order (descending `H_ii`) |
+| `gptq1-path` | `gptq1` in the path order |
+| `had-rtn` | 128-block normalised Walsh–Hadamard on columns of `W` and on `H`, then `rtn` |
+| `had-gptq1` | the same rotation, then `gptq1` |
+
+The references are the in-tree ternary `gptq_ternary` (levels 1) and the Q4_K round.
+
+**Metrics.** Per tensor:
+- `output_error(W, Ŵ, H_eval)` relative to `output_error(W, 0, H_eval)`, on the held-out Grams
+  (`/home/socol/oc-tmp/gptq-diag/gram-eval/`). Calibration uses `/home/socol/oc-tmp/gptq-w2/gram/`
+  (51,200 tokens).
+- `max_t |ε_t|/a` (stability).
+- Bits per weight including scales.
+
+**Controls.**
+- An exact `±a` matrix gives zero error in every one-bit arm.
+- Zeroing the feedback in a copy raises `sd1` and `gptq1` error.
+- Sign planes of a Q4_K code matrix reconstruct bit for bit.
+
+**Model.** Qwen2.5-0.5B (`/home/socol/models/gguf/qwen05b-f16.gguf`). The `ffn_down` input width
+is 4864 = 38 × 128.
+
+## Plan — one-bit faces
+
+| wave | task | files (owner) | gate | control |
+|---|---|---|---|---|
+| W6 | T1 units | `Numeric/OneBitUnits.lean` (DeepSeek) | `lake build Numeric.OneBitUnits` | flipped sign red |
+| W6 | T2 planes | `Numeric/SignPlanes.lean` (DeepSeek) | `lake build Numeric.SignPlanes` | flipped plane sign red |
+| W6 | T3 sigma-delta + shaping | `Numeric/SigmaDelta.lean` (Sonnet subagent) | `lake build Numeric.SigmaDelta` | no-feedback quantizer red |
+| W6 | T4 hidden permutation | `Numeric/HiddenPerm.lean` (DeepSeek, after T1/T2 return) | `lake build Numeric.HiddenPerm` | unpermuted gain red |
+| W7 | arms + measurement | `src/learn/onebit.rs`, `examples/onebit_diag.rs`, `tests/learn_onebit.rs` (DeepSeek) | `cargo test --release --locked --test learn_onebit`; `onebit_diag` table | the three W7 controls |
+| W8 | refinement | extraction root `sd_binary_row` → `Numeric/SigmaDelta` | `proof/regen.sh --check`; `lake build` | mutated body red |
+| W9 | whole model | `Q1_0` writer + paired KLD vs f16, `IQ1_S`, `IQ1_M`, `Q4_K_M` | `llama-perplexity` paired KLD | identical-weights KLD = 0 |
+
+W6 tasks are file-disjoint. The lead adds their `#audit` lines to `AxiomAudit.lean` at install, so
+`AxiomAudit.lean` has one owner. W7 runs parallel to W6. W8 and W9 open after W7's table.
+
+### Exit table (Part II)
+
+| row | grade | gate |
+|---|---|---|
+| unit actions per face | proved | W6-T1 |
+| sign-plane exactness | proved | W6-T2 |
+| sigma-delta bound, prefix, Abel, shaping identity | proved | W6-T3 |
+| hidden-axis permutation exactness | proved | W6-T4 |
+| one-bit arms on held-out Grams with controls | tested + measured | W7 |
+| executed `sd_binary_row` refines `Numeric.SigmaDelta` | proved | W8 |
+| whole-model one-bit KLD against `IQ1_S`/`IQ1_M` | measured | W9 |
