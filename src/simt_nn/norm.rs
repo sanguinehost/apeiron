@@ -40,6 +40,8 @@ pub struct Pdl {
     pub r0: u64,
     /// second reset counter.
     pub r1: u64,
+    /// grid-barrier counter (`PDL_GRIDBAR`): one zeroed word, self-resetting.
+    pub bar: u64,
 }
 
 impl Pdl {
@@ -52,6 +54,7 @@ impl Pdl {
         ovf: 0,
         r0: 0,
         r1: 0,
+        bar: 0,
     };
 }
 
@@ -60,6 +63,9 @@ pub const PDL_PRODUCER: u8 = 1;
 pub const PDL_CONSUMER: u8 = 2;
 pub const PDL_RESET: u8 = 4;
 pub const PDL_RESET2: u8 = 8;
+/// The node distributes its residual reduce over its workgroups and joins them with an
+/// intra-dispatch grid barrier on [`Pdl::bar`] (binding after every other PDL counter).
+pub const PDL_GRIDBAR: u8 = 16;
 
 /// Set the role set for the NEXT kernel a dispatcher emits. Every `make_*` (and the tail's
 /// `final_norm_step`) clears it after the build, so a node outside these edges emits the unchanged
@@ -141,7 +147,14 @@ fn pdl_producer(kb: &mut Kb, cnt: u32, tid: u32) {
 fn pdl_consumer(kb: &mut Kb, cnt: u32, ovf: u32, target: u32, tid: u32) {
     let z = kb.cu(0);
     let is0 = kb.e(OP_IEQ, kb.bool_t, &[tid, z]);
-    kb.iff(is0, |kb| {
+    kb.iff(is0, |kb| pdl_spin(kb, cnt, ovf, target));
+    kb.wg_barrier();
+}
+
+/// The capped acquire-spin on `cnt[0] >= target`, run by one lane; a give-up increments `ovf[0]`.
+fn pdl_spin(kb: &mut Kb, cnt: u32, ovf: u32, target: u32) {
+    let z = kb.cu(0);
+    {
         let word = pdl_word_ptr(kb, cnt, z);
         let sc = kb.cu(PDL_SCOPE_DEVICE);
         let sl = kb.cu(PDL_SEM_ACQ);
@@ -180,6 +193,39 @@ fn pdl_consumer(kb: &mut Kb, cnt: u32, ovf: u32, target: u32, tid: u32) {
             let sa = kb.cu(PDL_SEM_ACQREL);
             let one2 = kb.cu(1);
             let _ = kb.e(PDL_OP_ATOMIC_IADD, kb.uint, &[ow, sc2, sa, one2]);
+        });
+    }
+}
+
+/// Intra-dispatch grid barrier over `w` workgroups on the zeroed word `cnt[0]`: a workgroup
+/// barrier orders every lane's prior stores before lane 0's device-scope release-increment
+/// (arrive); lane 0 spins until `cnt[0] >= w`; every workgroup then increments again (depart) and
+/// the one that reads `2w - 1` release-stores 0, so the word is zero for the next token with no
+/// outside reset owner. All `w` workgroups must be co-resident (`w <= 4 x 84` here); a capped spin
+/// records `ovf[0]` and is INVALID. O(1) device atomics per workgroup; `w` workgroups join.
+fn pdl_grid_barrier(kb: &mut Kb, cnt: u32, ovf: u32, w: u32, tid: u32) {
+    kb.wg_barrier();
+    let z = kb.cu(0);
+    let is0 = kb.e(OP_IEQ, kb.bool_t, &[tid, z]);
+    kb.iff(is0, |kb| {
+        let word = pdl_word_ptr(kb, cnt, z);
+        let sc = kb.cu(PDL_SCOPE_DEVICE);
+        let sem = kb.cu(PDL_SEM_ACQREL);
+        let one = kb.cu(1);
+        let _ = kb.e(PDL_OP_ATOMIC_IADD, kb.uint, &[word, sc, sem, one]);
+        pdl_spin(kb, cnt, ovf, w);
+        let word2 = pdl_word_ptr(kb, cnt, z);
+        let sc2 = kb.cu(PDL_SCOPE_DEVICE);
+        let sem2 = kb.cu(PDL_SEM_ACQREL);
+        let one2 = kb.cu(1);
+        let old = kb.e(PDL_OP_ATOMIC_IADD, kb.uint, &[word2, sc2, sem2, one2]);
+        let cl = kb.cu(2 * w - 1);
+        let last = kb.e(OP_IEQ, kb.bool_t, &[old, cl]);
+        kb.iff(last, |kb| {
+            let word3 = pdl_word_ptr(kb, cnt, z);
+            let sc3 = kb.cu(PDL_SCOPE_DEVICE);
+            let sr = kb.cu(PDL_SEM_REL);
+            kb.ins(PDL_OP_ATOMIC_STORE, &[word3, sc3, sr, z]);
         });
     });
     kb.wg_barrier();
@@ -355,6 +401,93 @@ pub fn gemv_norm_module_sc(
     residual: Option<u32>,
     two_level: bool,
 ) -> Vec<u32> {
+    let (rows, ks) = gemv_norm_tile(m, segments, carrier, residual, two_level);
+    gemv_norm_module_ks(
+        m, k, local, segments, carrier, eps, residual, two_level, rows, ks,
+    )
+}
+
+/// Rows per workgroup and k-slices of a fused-norm gemv, `(rows, ks)`. `(256, 1)` is the unsliced
+/// kernel. The residual-fed `segments == 1` chart gemv with `m >= 8192` (the `gu` node) runs
+/// `(128, 2)`: the grid is `m / 128` workgroups (76 at `gu`, against 38) and the 256 lanes k-slice
+/// the rows (`ks = 256 / rows`). Every other node gets `(256, 1)`. Measured: P71.
+pub fn gemv_norm_tile(
+    m: u32,
+    segments: u32,
+    carrier: crate::simt::Carrier,
+    residual: Option<u32>,
+    two_level: bool,
+) -> (u32, u32) {
+    let sliceable = segments == 1
+        && !two_level
+        && residual.is_some()
+        && m >= 8192
+        && matches!(
+            carrier,
+            crate::simt::Carrier::Q8
+                | crate::simt::Carrier::Q4
+                | crate::simt::Carrier::Q2
+                | crate::simt::Carrier::Q5
+        );
+    if !sliceable {
+        return (256, 1);
+    }
+    (128, 2)
+}
+
+/// [`gemv_norm_module_sc`] with the row fold split over `ks` k-slices inside the workgroup.
+///
+/// At `ks = 1` this is the unsliced kernel, byte-identical. At `ks > 1` (only `segments == 1`,
+/// Q8/Q4/Q2/Q5 chart, `dm` face) a workgroup owns `R = 256/ks` rows, lane `tid` takes row
+/// `wg·R + tid % R` and k-slice `t = tid / R` (a warp's 32 lanes share `t` and read 32 consecutive
+/// rows, so every weight load stays coalesced), and the grid is `m / R` workgroups instead of
+/// `m / 256`.
+///
+/// Why: at `gu` (m = 9728, k = 896) the unsliced grid is 38 workgroups on this device's 84 SMs, so
+/// 38 SMs carry all 6.54 MB of Q5 codes and scales (24 B per 32-weight block). Measured
+/// (`DEC_PROF=7`, a temporary fold-only decomposition): the fold costs 8.6 µs per node, about
+/// 760 GB/s, against 6.81 µs at 960 GB/s. `ks = 2` puts 76 workgroups on 76 SMs with half the
+/// bytes each.
+///
+/// Bit-identity: slice `t ≥ 1` computes each block's term `s2_b = (d·float(Σqx))·sx + m·xs` with
+/// the same instruction sequence as [`Kb::dp4a_chart_fold`] and stores it to shared; slice 0
+/// folds its own blocks `acc = 0 + s2_0 + … + s2_{L-1}`, then, after a barrier, continues
+/// `acc + s2_L + … + s2_{blocks-1}` from shared, `b` ascending. Every f32 addition is the one the
+/// unsliced fold performs, in its order, so the output is bit-identical (no reassociation).
+///
+/// Cost per lane: `L = ⌈blocks/ks⌉` blocks of loads and DP4A (`L·(32/pack + 1)` words), plus, on
+/// slice 0, `blocks − L` shared loads and f32 adds. Shared: `R·(ks−1)·L` f32 for the terms.
+#[allow(clippy::too_many_arguments)]
+pub fn gemv_norm_module_ks(
+    m: u32,
+    k: u32,
+    local: u32,
+    segments: u32,
+    carrier: crate::simt::Carrier,
+    eps: f32,
+    residual: Option<u32>,
+    two_level: bool,
+    rows: u32,
+    ks: u32,
+) -> Vec<u32> {
+    assert!(
+        (rows == 256 && ks == 1)
+            || (segments == 1
+                && !two_level
+                && matches!(
+                    carrier,
+                    crate::simt::Carrier::Q8
+                        | crate::simt::Carrier::Q4
+                        | crate::simt::Carrier::Q2
+                        | crate::simt::Carrier::Q5
+                )),
+        "k-slicing is defined for segments == 1 on a Q8/Q4/Q2/Q5 dm chart only"
+    );
+    assert!(matches!(ks, 1 | 2 | 4 | 8), "ks must be 1, 2, 4 or 8");
+    assert!(
+        rows * ks == 256,
+        "rows per workgroup times k-slices must fill the 256 lanes"
+    );
     let chart = carrier.is_chart();
     assert!(
         !two_level || chart,
@@ -406,7 +539,26 @@ pub fn gemv_norm_module_sc(
     };
 
     let tid = kb.local_index(); // 0..256 within the WG (the cooperative-reduction lane)
-    let r = kb.gid_comp(0); //     the output row (global)
+    let (r, lr, slice) = if rows == WG {
+        (kb.gid_comp(0), 0, 0) // the output row (global)
+    } else {
+        let g = kb.gid_comp(0);
+        let cwg0 = kb.cu(WG);
+        let wgi = kb.udiv(g, cwg0);
+        let crows = kb.cu(rows);
+        let lr = kb.umod(tid, crows);
+        let t = kb.udiv(tid, crows);
+        let base = kb.imul(wgi, crows);
+        let row = kb.iadd(base, lr);
+        (row, lr, t)
+    };
+    let span_blk = n / 32;
+    let slice_len = span_blk.div_ceil(ks);
+    let (part, partp) = if ks > 1 {
+        kb.shared_f32(rows * (ks - 1) * slice_len)
+    } else {
+        (0, 0)
+    };
     let cwg = kb.cu(WG);
     let cn = kb.cu(n);
     let normsrc = if residual.is_some() { xout } else { xin };
@@ -426,9 +578,14 @@ pub fn gemv_norm_module_sc(
         pdl_consumer(&mut kb, cnt, ovf, pdl.target, tid);
     }
 
-    // ── residual add → x_out (idempotent across WGs; x_out ≠ x_in), carrier-independent ──
+    // ── residual add → x_out (x_out ≠ x_in), carrier-independent ──
+    //    Default: every WG computes the whole sum (idempotent). With `PDL_GRIDBAR` each WG reduces
+    //    its `ceil(n / W)`-element slice (one lane per element, `s` ascending, the same adds) and
+    //    the `W` WGs join on a grid barrier: the `res_segs·n` partial words are read once across
+    //    the grid instead of once per WG.
+    let gridbar = pdl.flags & PDL_GRIDBAR != 0 && residual.is_some_and(|s| s > 1);
     if let Some(res_segs) = residual {
-        kb.loop_step(tid, cn, cwg, |k, i| {
+        let elem = |k: &mut Kb, i: u32| {
             let xv = k.load_f(xin, i);
             let rv = if res_segs <= 1 {
                 k.load_f(res, i)
@@ -451,7 +608,34 @@ pub fn gemv_norm_module_sc(
             };
             let s = k.fadd(xv, rv);
             k.store_f(xout, i, s);
-        });
+        };
+        if gridbar {
+            assert!(
+                pdl.flags & PDL_CONSUMER != 0,
+                "the grid barrier shares the consumer's overflow word"
+            );
+            let wgs = m.div_ceil(rows);
+            let sl = n.div_ceil(wgs);
+            assert!(sl <= WG, "grid-barrier slice must fit one lane per element");
+            let g = kb.gid_comp(0);
+            let wgi = kb.udiv(g, cwg);
+            let csl = kb.cu(sl);
+            let base = kb.imul(wgi, csl);
+            let i = kb.iadd(base, tid);
+            let in_slice = kb.ult(tid, csl);
+            let in_n = kb.ult(i, cn);
+            kb.iff(in_slice, |kb| {
+                kb.iff(in_n, |kb| elem(kb, i));
+            });
+            let bar_b = pdl_base
+                + if pdl.flags & PDL_CONSUMER != 0 { 2 } else { 0 }
+                + if pdl.flags & PDL_PRODUCER != 0 { 1 } else { 0 };
+            let bar = kb.ssbo_u(bar_b);
+            let ovf = kb.ssbo_u(pdl_base + 1);
+            pdl_grid_barrier(&mut kb, bar, ovf, wgs, tid);
+        } else {
+            kb.loop_step(tid, cn, cwg, |k, i| elem(k, i));
+        }
     }
 
     // ── fused RMSNorm: normalize x into shared `nrm`. Chart also quantizes it to the DP4A chart
@@ -497,36 +681,104 @@ pub fn gemv_norm_module_sc(
         let c0 = kb.cu(0);
         (c0, cspan, r)
     };
-    kb.iff(in_range, |kb| {
-        let outv = if chart {
-            let sc = if two_level {
-                crate::simt_nn::ChartScale::two_level(dm, m, blocks)
+    if ks > 1 {
+        // slice 0 keeps its running sum across the barrier in this variable
+        let acc0 = kb.fvar_f();
+        let c1 = kb.cu(1);
+        let is0 = kb.ult(slice, c1);
+        let c0 = kb.cu(0);
+        let not0 = kb.ult(c0, slice);
+        let crows = kb.cu(rows);
+        kb.iff(in_range, |kb| {
+            let cl = kb.cu(slice_len);
+            let b0 = kb.imul(slice, cl);
+            let clast = kb.cu(span_blk - 1);
+            let mut terms = Vec::with_capacity(slice_len as usize);
+            for j in 0..slice_len {
+                let cj = kb.cu(j);
+                let braw = kb.iadd(b0, cj);
+                // an uneven last slice re-reads block `blocks-1`; its term lands past every
+                // index slice 0 reads
+                let b = if span_blk % ks == 0 {
+                    braw
+                } else {
+                    kb.umin(braw, clast)
+                };
+                let s2 = kb.dp4a_block_term(
+                    w,
+                    dm,
+                    r,
+                    cm,
+                    b,
+                    [xqs, xqsp, sxs, sxsp, xss, xssp],
+                    carrier,
+                    carrier.plane_b_off(m, k),
+                );
+                terms.push((braw, s2));
+            }
+            kb.iff(is0, |kb| {
+                let mut acc = kb.cf(0.0);
+                for &(_, s2) in &terms {
+                    acc = kb.fadd(acc, s2);
+                }
+                kb.store_var(acc0, acc);
+            });
+            kb.iff(not0, |kb| {
+                let cl2 = kb.cu(slice_len);
+                for &(braw, s2) in &terms {
+                    let u = kb.uint;
+                    let rel = kb.e(OP_ISUB, u, &[braw, cl2]);
+                    let rr = kb.imul(rel, crows);
+                    let idx = kb.iadd(rr, lr);
+                    kb.shared_store(part, partp, idx, s2);
+                }
+            });
+        });
+        kb.wg_barrier();
+        kb.iff(in_range, |kb| {
+            kb.iff(is0, |kb| {
+                let mut acc = kb.load_var_f(acc0);
+                for rel in 0..span_blk - slice_len {
+                    let crr = kb.cu(rel * rows);
+                    let idx = kb.iadd(crr, lr);
+                    let s2 = kb.shared_load(part, partp, idx);
+                    acc = kb.fadd(acc, s2);
+                }
+                kb.store_f(out, out_idx, acc);
+            });
+        });
+    } else {
+        kb.iff(in_range, |kb| {
+            let outv = if chart {
+                let sc = if two_level {
+                    crate::simt_nn::ChartScale::two_level(dm, m, blocks)
+                } else {
+                    crate::simt_nn::ChartScale::dm(dm)
+                };
+                kb.dp4a_chart_fold(
+                    w,
+                    sc,
+                    r,
+                    cm,
+                    start,
+                    bound,
+                    xqs,
+                    xqsp,
+                    sxs,
+                    sxsp,
+                    xss,
+                    xssp,
+                    carrier,
+                    true,
+                    None,
+                    carrier.plane_b_off(m, k),
+                )
             } else {
-                crate::simt_nn::ChartScale::dm(dm)
+                kb.direct_fold(w, r, start, bound, nrm, nrmp, m, carrier)
             };
-            kb.dp4a_chart_fold(
-                w,
-                sc,
-                r,
-                cm,
-                start,
-                bound,
-                xqs,
-                xqsp,
-                sxs,
-                sxsp,
-                xss,
-                xssp,
-                carrier,
-                true,
-                None,
-                carrier.plane_b_off(m, k),
-            )
-        } else {
-            kb.direct_fold(w, r, start, bound, nrm, nrmp, m, carrier)
-        };
-        kb.store_f(out, out_idx, outv);
-    });
+            kb.store_f(out, out_idx, outv);
+        });
+    }
     // ── [DEC-PDL] producer: after a workgroup barrier, lane 0 of every workgroup
     //    release-increments the outgoing edge's counter. The barrier is what makes lane 0's
     //    release cover the WHOLE workgroup's stores to `out` (the fold store is per-lane
@@ -540,6 +792,121 @@ pub fn gemv_norm_module_sc(
         pdl_producer(&mut kb, cnt, tid);
     }
     kb.finish(WG)
+}
+
+impl Kb {
+    /// One block's term of [`Kb::dp4a_chart_fold`], `(d·float(Σqx))·sx + m·xs`, for the
+    /// Q8/Q4/Q2/Q5 single-level chart with the activation chart in shared (unwindowed): the same
+    /// loads and the same arithmetic instructions in the same order, so the f32 value is the one
+    /// the looped fold adds for block `b`. O(32/pack) loads and `32/4` OpSUDot.
+    #[allow(clippy::too_many_arguments)]
+    fn dp4a_block_term(
+        &mut self,
+        w: u32,
+        dm: u32,
+        r: u32,
+        cm: u32,
+        b: u32,
+        [xq, xqp, sx, sxp, xs, xsp]: [u32; 6],
+        carrier: crate::simt::Carrier,
+        plane_b_off: u32,
+    ) -> u32 {
+        let q5 = carrier == crate::simt::Carrier::Q5;
+        assert!(
+            !q5 || plane_b_off != 0,
+            "Carrier::Q5 needs its plane-B offset"
+        );
+        self.dp4a = true;
+        let sint = self.sint_ty();
+        let u = self.uint;
+        let f = self.float;
+        let codes_per_word = carrier.pack();
+        let dpw = codes_per_word / 4;
+        let cpb = 32 / codes_per_word;
+        let wbits = 32 / codes_per_word;
+        let byte_mask = 0x0101_0101u32 * ((1u32 << wbits) - 1);
+        let split = dpw > 1;
+        let bm = self.imul(b, cm);
+        let dmidx = self.iadd(bm, r);
+        let dmw = self.load_u(dm, dmidx);
+        let v2 = self.vec2f;
+        let g = self.glsl;
+        let unp = self.e(OP_EXT_INST, v2, &[g, GLSL_UNPACK_HALF2X16, dmw]);
+        let dval = self.e(OP_COMPOSITE_EXTRACT, f, &[unp, 0]);
+        let mval = self.e(OP_COMPOSITE_EXTRACT, f, &[unp, 1]);
+        let sxv = self.shared_load(sx, sxp, b);
+        let xsv = self.shared_load(xs, xsp, b);
+        // Q5: the block's fifth-bit plane word, `plane_b_off + b·cm + r` (see `dp4a_chart_fold`)
+        let bword = if q5 {
+            let coff = self.cu(plane_b_off);
+            let bm2 = self.imul(b, cm);
+            let bi1 = self.iadd(bm2, r);
+            let bi = self.iadd(bi1, coff);
+            self.load_u(w, bi)
+        } else {
+            0
+        };
+        let mut accq = self.sconst0();
+        for cj in 0..cpb {
+            let ccpb = self.cu(cpb);
+            let cbase = self.imul(b, ccpb);
+            let ccj = self.cu(cj);
+            let c = self.iadd(cbase, ccj);
+            let widx1 = self.imul(c, cm);
+            let widx = self.iadd(widx1, r);
+            let wword = self.load_u(w, widx);
+            let xbase = if split {
+                let cdp = self.cu(dpw);
+                self.imul(c, cdp)
+            } else {
+                c
+            };
+            for l in 0..dpw {
+                let src = if !split {
+                    wword
+                } else if l == 0 {
+                    let mask = self.cu(byte_mask);
+                    self.e(OP_BITWISE_AND, u, &[wword, mask])
+                } else {
+                    let csh = self.cu(wbits * l);
+                    let shd = self.e(OP_SHIFT_RIGHT_LOGICAL2, u, &[wword, csh]);
+                    let mask = self.cu(byte_mask);
+                    self.e(OP_BITWISE_AND, u, &[shd, mask])
+                };
+                let src = if q5 {
+                    let ccj8 = self.cu(cj);
+                    let cjsh = self.cu(8);
+                    let sh1 = self.imul(ccj8, cjsh);
+                    let cl4 = self.cu(4 * l);
+                    let sh = self.iadd(sh1, cl4);
+                    let shifted = self.e(OP_SHIFT_RIGHT_LOGICAL2, u, &[bword, sh]);
+                    let cf = self.cu(0xF);
+                    let nib = self.e(OP_BITWISE_AND, u, &[shifted, cf]);
+                    let spread = self.cu(0x0204_0810);
+                    let mul = self.e(OP_IMUL, u, &[nib, spread]);
+                    let hi_mask = self.cu(0x1010_1010);
+                    let hi = self.e(OP_BITWISE_AND, u, &[mul, hi_mask]);
+                    self.e(OP_BITWISE_OR, u, &[src, hi])
+                } else {
+                    src
+                };
+                let xqi = if l == 0 {
+                    xbase
+                } else {
+                    let cl = self.cu(l);
+                    self.iadd(xbase, cl)
+                };
+                let xw = self.shared_load_u(xq, xqp, xqi);
+                let d4 = self.e(OP_SUDOT, sint, &[xw, src, PACKED_VEC_4X8]);
+                accq = self.e(OP_IADD, sint, &[accq, d4]);
+            }
+        }
+        let accqf = self.e(OP_CONVERT_S_TO_F, f, &[accq]);
+        let dq = self.fmul(dval, accqf);
+        let dqs = self.fmul(dq, sxv);
+        let mxs = self.fmul(mval, xsv);
+        self.fadd(dqs, mxs)
+    }
 }
 
 /// Which activation the fused [`gemv_actq_module`] produces before quantizing it.
