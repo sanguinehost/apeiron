@@ -626,6 +626,14 @@ theorem p69_flash_merged_prologue :
     10781 > 7540 := by
   decide
 
+/-- P68 (not confirmed): k-sliced gu GEMV, `DEC_GEMVKS` 2 vs 1, ten interleaved live pairs; the
+default/ks1 tok/s ratios in thousandths. Their mean is 1.019, but three rounds are below 1, so the
+registered "any paired round slower" clause fires. -/
+theorem p68_kslice_not_confirmed :
+    966 + 1005 + 1034 + 1046 + 1041 + 1042 + 993 + 994 + 1029 + 1039 = 10189 ∧
+    966 < 1000 ∧ 993 < 1000 ∧ 994 < 1000 := by
+  decide
+
 end Moves
 
 end Perf
