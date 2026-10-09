@@ -616,6 +616,16 @@ theorem p66_pdl3_default :
     10653 > 7540 := by
   decide
 
+/-- P69: merged-prologue / subgroup-max / chunked-pass-3 rope-flash against `DEC_FLASH_V2=0`, in
+tenths of a µs/token 11122 → 10781 (lane, 6 paired rounds); the node falls 520 → 403 hundredths of a
+µs/layer over 24 layers; the token stays above the 754 µs target. -/
+theorem p69_flash_merged_prologue :
+    11122 - 10781 = 341 ∧
+    341 > 0 ∧
+    (520 - 403) * 24 = 2808 ∧
+    10781 > 7540 := by
+  decide
+
 end Moves
 
 end Perf
