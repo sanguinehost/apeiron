@@ -225,6 +225,105 @@ theorem p77_retired_uop_lever_cannot_close (c : P77Cell) (hc : c ∈ p77Cells) (
   have h := p77_uop_difference_under_half_gap c hc
   exact lever_cannot_close (by omega)
 
+/-! ## 7. P78 and P79: where the `ap_par` mispredicts come from
+
+`model` inputs: counts copied from `~/count-header/p79.txt` (deterministic, one run per
+cell, probe built from a clean `git archive HEAD`), mispredicts per lookup in thousandths from §5.
+Cell order as §5: 1e5 10 % dense, 1e6 1 % dense, 1e6 all dense, 1e7 10 % dense, 1e7 all high-bits. -/
+
+/-- One cell of the placement and tag-collision counts. `pool` is the number of looked-up keys. -/
+structure P79Cell where
+  off : ℕ
+  before : ℕ
+  any : ℕ
+  pool : ℕ
+  parMisp : ℕ
+  flatMisp : ℕ
+
+def p79Cells : List P79Cell :=
+  [⟨0, 1707, 3414, 10000, 106, 12⟩, ⟨0, 1707, 3414, 10000, 108, 12⟩,
+   ⟨0, 141476, 282952, 1000000, 148, 11⟩, ⟨0, 141476, 282952, 1000000, 148, 11⟩,
+   ⟨0, 1090663, 2181326, 10000000, 113, 3⟩]
+
+/-- The two controls (1e5 all dense, 1e6 10 % dense): `off`, `before`, `any`, `pool`. -/
+def p79Ctrl : List (ℕ × ℕ × ℕ × ℕ) := [(0, 0, 0, 100000), (0, 0, 0, 100000)]
+
+/-- `x / pool` lies in `[1/2, 2] · m / 1000`. -/
+def inBand (x pool m : ℕ) : Prop := m * pool ≤ 2000 * x ∧ 1000 * x ≤ 2 * m * pool
+
+instance (x pool m : ℕ) : Decidable (inBand x pool m) := by unfold inBand; infer_instance
+
+/-- **P78 clause (1) is refuted, in every cell.** The off-home fraction is 0 and the mispredict rate is
+positive, so the fraction is in no cell within a factor 2 of the rate. -/
+theorem p78_clause1_refuted : ∀ c ∈ p79Cells, ¬ inBand c.off c.pool c.parMisp := by decide
+
+/-- **P78: the placement is home-only in all 7 cells.** The refuted hypothesis had nothing to count. -/
+theorem p78_no_off_home : (∀ c ∈ p79Cells, c.off = 0) ∧ ∀ k ∈ p79Ctrl, k.1 = 0 := by decide
+
+/-- Largest shard load (thousandths) per excess cell, and smallest per control (`p78.txt`). -/
+def p78ExcessLoadMax : List ℕ := [625, 625, 486, 486, 596]
+def p78CtrlLoadMin : List ℕ := [748, 748]
+
+/-- **P78: every excess cell is less loaded than every control.** Off-home pressure rises with load,
+so load cannot explain the excess. -/
+theorem p78_excess_less_loaded : ∀ x ∈ p78ExcessLoadMax, ∀ y ∈ p78CtrlLoadMin, x < y := by decide
+
+/-- **P79 clause (1) holds.** At least 5 % of lookups have an earlier same-tag lane in the home group. -/
+theorem p79_clause1 : ∀ c ∈ p79Cells, c.pool ≤ 20 * c.before := by decide
+
+/-- **P79 clause (2) holds.** The controls have no same-tag lane pair at all. -/
+theorem p79_clause2 : ∀ k ∈ p79Ctrl, k.2.1 = 0 ∧ k.2.2.1 = 0 := by decide
+
+/-- **P79 clause (3) holds.** The exposure is within a factor 2 of the `ap_par` mispredict rate. -/
+theorem p79_clause3 : ∀ c ∈ p79Cells, inBand c.before c.pool c.parMisp := by decide
+
+/-- **P79 clause (4) holds.** `ap_flat` mispredicts under a fifth of its exposure in every cell:
+the same collisions, an order of magnitude fewer mispredicts. -/
+theorem p79_clause4 : ∀ c ∈ p79Cells, 5 * c.flatMisp * c.pool < 1000 * c.before := by decide
+
+/-- **Only pairs collide.** The count of keys with any other same-tag lane is twice the count with an
+earlier one: each colliding pair is counted once from each side, so no group holds a tag three times. -/
+theorem p79_pairs_only : ∀ c ∈ p79Cells, c.any = 2 * c.before := by decide
+
+/-! ## 8. P80: lane order against lookup order
+
+`model` inputs: medians of 5 interleaved rounds from `~/count-header/p80.txt`
+(mispredicts per lookup in thousandths; `d` is the distinct-key count, the pool length). `sh` is
+`ap_flat` filled in shuffled order. Cell order as §5. -/
+
+structure P80Cell where
+  d : ℕ
+  par : ℕ
+  flat : ℕ
+  sh : ℕ
+
+def p80Cells : List P80Cell :=
+  [⟨10000, 102, 5, 15⟩, ⟨10000, 102, 12, 14⟩, ⟨1000000, 148, 11, 148⟩, ⟨1000000, 148, 11, 149⟩,
+   ⟨10000000, 114, 3, 113⟩]
+
+/-- `sh` mispredicts per lookup in the two controls (thousandths). -/
+def p80CtrlSh : List ℕ := [0, 0]
+
+/-- **P80 clause (1) is refuted.** Shuffled fill reaches half the `ap_par` rate in only some cells. -/
+theorem p80_clause1_refuted : ¬ ∀ c ∈ p80Cells, c.par ≤ 2 * c.sh := by decide
+
+/-- **P80 clause (2) holds.** Shuffled fill stays at or under 0.005 in the controls. -/
+theorem p80_clause2 : ∀ x ∈ p80CtrlSh, x ≤ 5 := by decide
+
+/-- **P80 clause (3) is refuted.** `ap_flat` is under a fifth of `ap_flat_sh` in only some cells. -/
+theorem p80_clause3_refuted : ¬ ∀ c ∈ p80Cells, 5 * c.flat ≤ c.sh := by decide
+
+/-- **The split is by distinct-key count.** Shuffled fill restores at least half the `ap_par`
+mispredict rate, and `ap_flat` is under a fifth of it, exactly in the cells with 10⁶ or more distinct
+keys. In the 10⁴-key cells the repeated lookup sequence is learned whatever the fill order. -/
+theorem p80_split_by_pool :
+    ∀ c ∈ p80Cells, (c.par ≤ 2 * c.sh ∧ 5 * c.flat ≤ c.sh) ↔ 1000000 ≤ c.d := by decide
+
+/-- **Where fill order is the mechanism it is the whole of it.** In the large cells the shuffled rate is
+within 2 thousandths of the `ap_par` rate (and `ap_flat` is under a tenth of it). -/
+theorem p80_large_cells_match_par :
+    ∀ c ∈ p80Cells, 1000000 ≤ c.d → c.par ≤ c.sh + 2 ∧ c.sh ≤ c.par + 2 ∧ 10 * c.flat < c.sh := by decide
+
 end CountLookup
 
 end Perf
