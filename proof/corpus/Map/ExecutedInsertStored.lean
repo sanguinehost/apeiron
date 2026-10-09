@@ -21,6 +21,7 @@
 -- `Map/ExecutedInsertSentOk.lean`).  At `SKS`, `KC := SKC` (`stored_takeKeyOK`) and `KCS := SKCs`
 -- (`stored_takeKeySideOK`); at `RKS` both are `fun _ _ => True`.
 import Map.ExecutedInsertSentOk
+import Map.ExecutedInsertLinear
 import Map.ExecutedInsert
 import Map.ExecutedResize
 import Map.ExecutedBuildWitness
@@ -971,6 +972,16 @@ end Apeiron.MapExecuted
 #audit Apeiron.MapExecuted.place_capped_hent
 #audit Apeiron.MapExecuted.resize_hov_lin
 #audit Apeiron.MapExecuted.grow_post_lin
+-- W36: the live-entry counter `Hlive` and the per-`place_capped` joint bound.
+#audit Apeiron.MapExecuted.Hlive
+#audit Apeiron.MapExecuted.Hlive_mono
+#audit Apeiron.MapExecuted.Hent_of_Hlive
+#audit Apeiron.MapExecuted.place_capped_live
+#audit Apeiron.MapExecuted.Hlive_side
+#audit Apeiron.MapExecuted.Hlive_of_overflow_none
+#audit Apeiron.MapExecuted.resize_loop0_live
+#audit Apeiron.MapExecuted.resize_loop1_live
+#audit Apeiron.MapExecuted.resize_hov_live
 -- W35: the split step.  `insert_core_ns_ok_lin_gen` is the post-`grow_for_one` probe bound
 -- parameterised by `(A, W)`; `insert_core_ns_ok_nr` instantiates its identity branch (no resize,
 -- `N' ≤ N+1`), and `stored_insert_step_nr` is the matching `StoredPre` step.  The resize branch

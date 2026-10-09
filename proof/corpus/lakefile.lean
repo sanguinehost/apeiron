@@ -83,6 +83,9 @@ lean_lib ApeironWordBridge where
     -- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (W30): the `Stored<u64>`
     -- size carrier and its key-store totality lemmas.
     `Map.ExecutedInsertStored,
+    -- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (W36): the live-entry
+    -- counter `Hlive` and the per-`place_capped` joint bound for the linear fold.
+    `Map.ExecutedInsertLinear,
         `Count.Rep, `Count.Read, `Count.Helpers, `Count.FreqRep, `Count.OverflowOps, `Count.FreqAdd, `Count.FreqSideOv, `Count.FreqGrow, `Count.FreqInsert, `Count.Aggregate,
     -- `Flux.Discrete` is imported by the registered root `AxiomAudit` (`AxiomAudit.lean:3`) and
     -- `#audit`-ed by it (`:6`), but no `lean_lib` globbed it, so `lake build AxiomAudit` failed
