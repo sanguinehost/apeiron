@@ -374,6 +374,7 @@ import Learn.GramExact
 #audit Perf.Moves.p62_gap_attribution_bounds
 #audit Perf.Moves.p63_drain_ceiling
 #audit Perf.Moves.p64_pdl_edge_install
+#audit Perf.Moves.p65_edge_extension
 #audit Perf.Moves.p10_mma_floor
 #audit Perf.Moves.p10_mma_rate_ratio
 #audit Perf.Moves.p10_mma_floor_p8
