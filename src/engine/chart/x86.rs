@@ -10,7 +10,7 @@
 //! Each core is `#[target_feature(enable = "avx2")]` and is reached only behind
 //! `is_x86_feature_detected!("avx2")` (see [`avx2`]); the parent module holds the portable twin
 //! that is the fallback and the test oracle. The intrinsics are not extracted: their equality with
-//! the portable twin is `tested` (trust boundary, the engine-throughput note §W2).
+//! the portable twin is `tested` (trust boundary).
 //!
 //! The `*_rows2_*` cores are the cross-row tiled row bodies: two rows per pass share each weight
 //! block's activation code vector and per-block activation scale `S_b`. Every row keeps its own

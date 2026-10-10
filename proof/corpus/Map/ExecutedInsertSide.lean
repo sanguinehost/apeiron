@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe`: insert on a reserved coordinate.
+-- Insert on a reserved coordinate.
 import Map.ExecutedRead
 open Aeneas Aeneas.Std Result
 

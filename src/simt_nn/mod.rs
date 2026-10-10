@@ -1,4 +1,4 @@
-// Row: `inf-decode-subsume-C9XByuwivyxA4RMxX5KVlG` (INF-DECODE-SUBSUME-W1): fold `modelfold/src/simt_nn/` at `d497161f`, ported verbatim up to rustfmt.
+// Fold `modelfold/src/simt_nn/` at `d497161f`, ported verbatim up to rustfmt.
 #![allow(
     clippy::all,
     clippy::pedantic,

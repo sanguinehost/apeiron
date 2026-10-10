@@ -47,7 +47,7 @@ The pure assembly of the extracted `src/spirv/check.rs::apply_shape`, over the e
 ## Controls
 
 The mutation control swaps the order of the duplicate-result-id refusal and the undefined-id scan in
-`applyShapePure`'s `next` (throwaway copy `~/ai9-opus/Mutant.lean`): the proof of
+`applyShapePure`'s `next` (throwaway copy `Mutant.lean`): the proof of
 `apply_shape_spec` then fails, since the extracted body scans before it refuses a duplicate.
 -/
 

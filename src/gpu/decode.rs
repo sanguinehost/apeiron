@@ -1,4 +1,4 @@
-// Row: `inf-decode-subsume-C9XByuwivyxA4RMxX5KVlG` (INF-DECODE-SUBSUME-W2..W4): fold `bedrock/src/serve/gpu.rs` at `d497161f`.
+// Fold `bedrock/src/serve/gpu.rs` at `d497161f`.
 //! GPU decode serving primitives ported from fold `bedrock/src/serve/gpu.rs`.
 #![allow(
     clippy::all,

@@ -1,4 +1,4 @@
--- Row: `p1-primitive-refine-per-FfI4Rd4tkS5goRFZJVgsAR`: the executed read's bridge premise, named and split.
+-- The executed read's bridge premise, named and split.
 import Map.Read
 
 /-!

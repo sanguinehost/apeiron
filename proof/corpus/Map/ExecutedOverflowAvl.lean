@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe`: the executed overflow tree's AVL write path.
+-- The executed overflow tree's AVL write path.
 import Map.ExecutedOverflowAvlBase
 open Aeneas Aeneas.Std Result
 

@@ -1616,7 +1616,10 @@ fn qwen35_on_the_one_executor_decodes_llama_cpp_ids() {
 #[test]
 #[ignore = "release-only: cargo test --release -- --ignored qwen35_long_prompt"]
 fn qwen35_long_prompt_on_the_one_executor() {
-    const PROMPT_IDS: &str = "scratch/q35-t5/prompt2.ids";
+    const PROMPT_IDS: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/qwen35-prompt2.ids"
+    );
     let (Some(model), Some(ids)) = (model_path(QWEN35_08B_PATH), model_path(PROMPT_IDS)) else {
         eprintln!("skip qwen35_long_prompt: model or prompt ids absent");
         return;
@@ -1930,7 +1933,10 @@ fn qwen35_speculative_equals_greedy() {
 #[test]
 #[ignore = "release-only: cargo test --release -- --ignored qwen35_speculative_long"]
 fn qwen35_speculative_long_prompt() {
-    const PROMPT_IDS: &str = "scratch/q35-t5/prompt2.ids";
+    const PROMPT_IDS: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/qwen35-prompt2.ids"
+    );
     let (Some(model), Some(ids)) = (model_path(QWEN35_08B_PATH), model_path(PROMPT_IDS)) else {
         return;
     };

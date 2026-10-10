@@ -6,7 +6,7 @@ import Mathlib.Data.Nat.Basic
 the hattn-decode-tail note (T7 section): the attention-cut T6 setup (64 tail positions before each
 `t ∈ {4096, 8192, 16384, 32768}`) with the cost counted in bytes per (KV head, position):
 `(2·|∪ over the 7 query heads of keys used| + bound vectors read) / (2t)`, so dense is exactly 1
-(`KV_TAIL_GROUP=1`, output `~/hattn-long/group.out`). Every figure is a `model` input
+(`KV_TAIL_GROUP=1`, output `group.out`). Every figure is a `model` input
 copied from that output; no theorem here produces a measurement. Mean whole-model KLD and mean bytes/dense,
 both in ten-thousandths; rel-L2 in units of `1e-8`. rustc, LLVM and the instrument are outside every
 statement.

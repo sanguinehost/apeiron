@@ -4,7 +4,7 @@
 //! Run:
 //! `cargo run --release --locked --example engine_profile -- --model <gguf> --ids <file>
 //!  [--pp 200] [--tg 64] [--reps 5] [--spec <draft rows>] [--llama <llama-bench>]
-//!  [--llama-threads 8,16,24,32] [--max-busy 0.05] [--label <name>] [--out the bench note]`
+//!  [--llama-threads 8,16,24,32] [--max-busy 0.05] [--label <name>] [--out <dir>]`
 //!
 //! # Protocol
 //!
@@ -77,7 +77,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         llama_threads: "8,16,24,32".into(),
         max_busy: 0.05,
         label: "run".into(),
-        out: "the bench note".into(),
+        out: "bench".into(),
         arms: Vec::new(),
         child: false,
     };

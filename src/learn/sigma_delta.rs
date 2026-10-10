@@ -1,4 +1,4 @@
-//! Exact-integer first-order sigma-delta (the ternary-hadamard note
+//! Exact-integer first-order sigma-delta (
 //! Part II).
 //!
 //! [`sd_binary_block`] walks a block of fixed-point weights `w` and emits the sign stream

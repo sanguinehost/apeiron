@@ -3,8 +3,7 @@
 -- `synthInstanceFailed` (failed to synthesize `CommRing R`), 3 `unsolved goals`, 2
 -- `unknownIdentifier`. Committed in 439fcf0 as preserved untracked work, NOT as a finished proof. It evaluates no `#audit` row until registered, and it must not
 -- be registered until these close.
--- Row: `apeiron-untracked-corpus-D95BAcvaduxXKnnKfkKPyO` -- the row this
--- file belongs to; it is off-path and incomplete, and must not be registered until the above close.
+-- This file is off-path and incomplete, and must not be registered until the above close.
 import Apeiron.Linter.Notation
 import Apeiron.Linter.Citation
 import Apeiron.Trichotomy.AnyRing

@@ -237,7 +237,10 @@ use std::hint::black_box;
 use std::time::Instant;
 
 pub(super) const MODEL: &str = "models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf";
-pub(super) const IDS: &str = "scratch/q35-t5/prompt2.ids";
+pub(super) const IDS: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/qwen35-prompt2.ids"
+);
 const MODEL_SHA_PREFIX: &str = "37ae482d";
 
 // ---- host -------------------------------------------------------------------------------------

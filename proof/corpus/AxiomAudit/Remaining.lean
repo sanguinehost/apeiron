@@ -1114,7 +1114,7 @@ open apeiron_word
 #audit Nous.Model.boost_witness
 #audit Nous.Model.boost_score_witness
 
--- LEARN-ONEBIT (onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1): sigma-delta bound, prefix, Abel, shaping
+-- one-bit sigma-delta bound, prefix, Abel, shaping
 #audit Numeric.SigmaDelta.sd_state_bound
 #audit Numeric.SigmaDelta.sd_prefix
 #audit Numeric.SigmaDelta.sd_abel
@@ -1123,7 +1123,7 @@ open apeiron_word
 #audit Numeric.SigmaDelta.shape_null_exact
 #audit Numeric.SigmaDelta.sd_beats_sign
 
--- LEARN-ONEBIT (onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1): hidden-axis permutation symmetry
+-- one-bit hidden-axis permutation symmetry
 #audit Numeric.HiddenPerm.perm_coordwise
 #audit Numeric.HiddenPerm.hidden_perm_mlp
 #audit Numeric.HiddenPerm.hidden_perm_mlp_submatrix
@@ -1132,7 +1132,7 @@ open apeiron_word
 #audit Numeric.HiddenPerm.hidden_perm_residual_block
 #audit Numeric.HiddenPerm.mlp_nonvacuous
 
--- LEARN-ONEBIT (onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1): one-bit units per face
+-- one-bit one-bit units per face
 #audit apeiron_word.OneBitUnits.channelPair_ringMul_left
 #audit apeiron_word.OneBitUnits.channelPair_one_mul_one
 #audit apeiron_word.OneBitUnits.channelPair_one_mul_negOne
@@ -1145,7 +1145,7 @@ open apeiron_word
 #audit apeiron_word.OneBitUnits.i_mul_negI
 #audit apeiron_word.OneBitUnits.elliptic_order_two_unique
 
--- LEARN-ONEBIT (onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1): exact sign-plane decomposition
+-- one-bit exact sign-plane decomposition
 #audit apeiron_word.SignPlanes.signPlane_decomp
 #audit apeiron_word.SignPlanes.planeNat_eq_finFunctionFinEquiv
 #audit apeiron_word.SignPlanes.planeNat_injective

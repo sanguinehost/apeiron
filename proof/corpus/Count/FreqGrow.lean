@@ -1,4 +1,4 @@
--- Row: `apeiron-hashdos-cap-count-MUBqkA7OYTvluKSIRdbjC`: the capped re-placement and growth of the count face.
+-- The capped re-placement and growth of the count face.
 import ApeironWord
 import Count.Helpers
 import Count.FreqRep

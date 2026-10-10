@@ -291,7 +291,7 @@ fn hadamard_fold_version2_tied_output_refuses_at_step() {
     assert_eq!(got, Err(StepError::TiedOutputUnsupported));
 }
 
-// ---- : resident payloads and row-parallel projections --------------------
+// ---- resident payloads and row-parallel projections --------------------
 
 /// Fixture geometry: one layer, `n_embd 8`, `n_ff 128`, 2 query heads over 1 KV head of width
 /// 4, vocabulary 128 (the tied embedding). The 128-row head and FFN give the row-chunk budget

@@ -1,4 +1,3 @@
--- Row: `apeiron-untracked-corpus-D95BAcvaduxXKnnKfkKPyO`.
 /-
 Discrete flux pairing and the lattice divergence theorem.
 

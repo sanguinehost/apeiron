@@ -1,4 +1,4 @@
-// Row: `inf-resident-prefill-GEB633UfORCK7XSmzJifHd` (INF-RESIDENT-PREFILL, wave 2): the cooperative-matrix GEMM equals the DP4A batch GEMM exactly.
+// The cooperative-matrix GEMM equals the DP4A batch GEMM exactly.
 //! The cooperative-matrix chart GEMM (`simt_nn::coopmat_gemm`) against the DP4A batch GEMM the
 //! prefill path runs (`simt::gemv_dp4a_batch_rt_bytes` at `prefill_tile`'s tile), on the real
 //! Qwen2.5-0.5B layer-0 projections (qkv, o, gate/up, down, plus the first Q4_K `ffn_down`) at the
@@ -892,8 +892,7 @@ fn grid_reference(wperm: &[f64], codes: &[i8], n: usize, m: usize, k: usize) -> 
 /// split-K the prefill serves for that projection (`DEC_QKV_SPLITK` 2, `DEC_O_SPLITK` 3,
 /// `DEC_DOWN_SPLITK` 3; gate/up unsplit). Reference: f64 matvec of `dequant_row_fixed` weights with
 /// each activation byte mapped to its true k index. Per tensor/config
-/// `rel = max|diff| / max|ref|` over every cell; the global max must be <= 1e-5. Board row
-/// `inf-decode-measure-E3CPdJamkoVAQSrj96zC6o` (lane COOPMAT-DIAG).
+/// `rel = max|diff| / max|ref|` over every cell; the global max must be <= 1e-5.
 #[test]
 fn coopmat_chart_grid_exact_every_tensor() {
     let vk = {

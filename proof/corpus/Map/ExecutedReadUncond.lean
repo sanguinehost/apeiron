@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe`: the AVX2 premise of the read is discharged.
+-- The AVX2 premise of the read is discharged.
 import Map.ExecutedRead
 import Map.PrefixMasks
 open Aeneas Aeneas.Std Result

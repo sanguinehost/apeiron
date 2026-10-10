@@ -1,5 +1,5 @@
 #!/bin/sh
-# Row: `p0-count-body-get-the-a-EF9n3OLyqnX2ouQQWL8w9C` (COUNT-BODY step 2a): the five word_count_* roots below.
+# The five word_count_* roots below.
 # Regenerate and check the Aeneas extraction of the Apeiron word kernels.
 #
 #   proof/regen.sh            regenerate ApeironWord.lean and build the Lean package
@@ -110,7 +110,6 @@ if [ "$SELECTED_TRANSLATOR_SHA256" != "$PINNED_TRANSLATOR_SHA256" ] && [ "$SELEC
     exit 1
 fi
 echo "tool-identity: OK translator $SELECTED_TRANSLATOR_SHA256 == pinned"
-# Row: `p0-tool-identity-pin-to-a-Gtnw7HF7pOv26R2cBoI3wu` (P0 · TOOL-IDENTITY).
 
 echo "== source =="
 # Every listed source must exist: a missing live source fails the digest stage instead of being

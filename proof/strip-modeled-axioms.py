@@ -12,7 +12,6 @@ the model now supplies.
 
 Usage: strip-modeled-axioms.py FILE
 
-Row: `p0-extract-green-the-to-FdNduPwnGpUEQBI5PAovaC` (P0 · EXTRACT-GREEN).
 """
 import re
 import sys

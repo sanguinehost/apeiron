@@ -1,6 +1,5 @@
 //! Perplexity comparison harness: apeiron GPU decode vs llama.cpp on Qwen2.5-0.5B.
 //!
-//! Row: `inf-decode-measure-E3CPdJamkoVAQSrj96zC6o` (INF-DECODE-MEASURE).
 //!
 //! Evaluates PPL over 512-token chunks, scoring the second half of each chunk
 //! (positions 256..=510 predicting targets at 257..=511), matching llama.cpp's
@@ -31,7 +30,6 @@ use std::process::{exit, Command};
 use std::time::Instant;
 
 const DEFAULT_MODEL: &str = concat!(env!("HOME"), "/models/gguf/qwen05b-Q4_K_M.gguf");
-const DEFAULT_CORPUS: &str = concat!(env!("HOME"), "/scratch/gpu-ppl-corpus.txt");
 const DEFAULT_TOKENIZER: &str = concat!(env!("HOME"), "/models/qwen2.5-0.5b/tokenizer.json");
 const CTX: usize = 512;
 const FIRST: usize = CTX / 2; // 256
@@ -239,7 +237,10 @@ fn main() {
     let corpus_path = flag("--file")
         .or_else(|| flag("-f"))
         .or_else(|| flag("--corpus"))
-        .unwrap_or_else(|| DEFAULT_CORPUS.into());
+        .unwrap_or_else(|| {
+            eprintln!("missing --file <corpus.txt>");
+            exit(2)
+        });
 
     let tok_path = flag("--tokenizer").unwrap_or_else(|| DEFAULT_TOKENIZER.into());
     let max_chunks: Option<usize> = flag("--chunks").and_then(|v| v.parse().ok());

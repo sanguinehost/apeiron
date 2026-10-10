@@ -1,5 +1,5 @@
 //! Integer chart dot: the int8-activation projection `matvec_q8act`, defined as
-//! `matvec_fixed(W, quant(x))` bit for bit. 
+//! `matvec_fixed(W, quant(x))` bit for bit.
 //!
 //! `quant_act` is the llama.cpp `q8_0` activation shape with a power-of-two scale: each 32-wide
 //! block `b` of a Q32.32 activation vector gets the smallest scale `S_b = 2^e_b` with

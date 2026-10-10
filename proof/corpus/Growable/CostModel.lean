@@ -801,7 +801,6 @@ theorem absentHomeCost_reading :
 
 /-! ## Headline audit rows
 
--- Row: `p1-audit-rows-61-audit-cQNd0kLME75aiSVIlDWYv`.
 Each row is the closed-cone gate of `Apeiron.AuditClosed`: `#audit` collects the declaration's
 transitive axiom dependencies and fails the build on anything outside
 `{propext, Classical.choice, Quot.sound}`, so a `sorryAx` anywhere in the cone is a build failure

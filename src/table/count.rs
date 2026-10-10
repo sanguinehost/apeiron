@@ -49,7 +49,7 @@ pub const SENTINELS: [(Sigma, u64, bool); 4] = [
 ///
 /// A total widening of [`StorageError`] by [`CountRefusal::CountOverflow`]: the first two arms are
 /// the checked-layout and failed-reservation refusals the growable table already returns
-/// (the design notes, "Resource/refusal contract for the growable table", option (b)), and
+/// (the resource/refusal contract), and
 /// the third is the count merge's checked addition. No arm wraps and no arm commits a partial write.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CountRefusal {

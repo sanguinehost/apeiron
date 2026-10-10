@@ -6,7 +6,7 @@ import Mathlib.Data.Real.Basic
 
 the hattn-page-select note: Qwen2.5-0.5B Q4_K_M, the attention-cut T3 32,768-token dump, 336 heads, the last
 8 queries before `t ∈ {2048, 8192, 32768}` (`tools/hattn/page_select.py (unpublished) --full`, output
-`~/hattn-long/page_select.out`). Every figure is a `model` input copied from that table; no
+`page_select.out`). Every figure is a `model` input copied from that table; no
 theorem here produces a measurement. Reads per key in ten-thousandths of `t`, shares per mille, exponents in
 thousandths, page counts in tenths. Adaptive arms stop on the oracle kept mass; rustc, numpy and the instrument
 are outside every statement.

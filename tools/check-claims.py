@@ -126,6 +126,11 @@ GOVERNING_DOCUMENTS = (
     "the storage-refinement note",
 )
 
+# The documents a public clone ships. The rest of GOVERNING_DOCUMENTS (programme direction, plan,
+# epics) are internal: a tree that has none of them is a public clone and scans only these, a tree
+# that has some but not all is missing documents and reddens.
+PUBLIC_DOCUMENTS = ("README.md", "proof/README.md")
+
 # Governing documents covered only from a named heading to the next heading of the
 # same or higher level. An epic file is long and its earlier sections carry
 # superseded/historical grade records, so whole-file coverage would report those
@@ -796,7 +801,10 @@ def build_report(root):
     findings = []
     documents = []
     missing = []
-    for relative in GOVERNING_DOCUMENTS:
+    internal = [d for d in GOVERNING_DOCUMENTS if d not in PUBLIC_DOCUMENTS]
+    public_clone = not any((root / d).is_file() for d in internal)
+    scanned = PUBLIC_DOCUMENTS if public_clone else GOVERNING_DOCUMENTS
+    for relative in scanned:
         path = root / relative
         if not path.is_file():
             missing.append(relative)
@@ -1005,6 +1013,16 @@ def self_test():
         _synthetic_tree(base)
 
         record("positive: backed proved claim passes", 0, _run_checker(base))
+
+        public = workdir / "public-clone"
+        shutil.copytree(base, public)
+        shutil.rmtree(public / "docs")
+        record("positive: public clone with only README and proof/README passes", 0,
+               _run_checker(public))
+        with (public / "README.md").open("a", encoding="utf-8") as handle:
+            handle.write("\nThe gate `proof/no-such-public-gate.sh` is tested.\n")
+        record("negative: public clone claim citing a missing path rejected", 1,
+               _run_checker(public), ("proof/no-such-public-gate.sh",))
 
         def fresh(name):
             target = workdir / name

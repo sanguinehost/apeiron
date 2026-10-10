@@ -1,4 +1,3 @@
--- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (HT-INSERT-W30, W31, W32, W33, W34):
 -- the `Stored<u64>` size carrier and its key-store totality lemmas.  W34 adds the post-state counter
 -- frames of `insert_core` (`insert_core_ns_ok_lin`, `insert_core_sent_ok_lin`), the two-counter
 -- `StoredPre` at `(N, B)` with `stored_insert_step`, and the fold `stored_insert_seq`.  Header

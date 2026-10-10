@@ -50,7 +50,7 @@ unchanged.
 
 ## Controls
 
-Throwaway copies under `~/scratch`: (a) `rowGuard` rewritten to `true` — the model of the
+Throwaway copies: (a) `rowGuard` rewritten to `true` — the model of the
 removed `OpULessThan(r, M)` row guard — leaves `accessChain_in_bounds` unsolved at `r < d.M`;
 (b) `scaleConst` flipped off `2 ^ 15` turns `scale_fixed_point`, `gpu_dp4a_refines_shared`,
 `gpu_dp4a_word_refines_cpu_word` and the `#guard` refinement comparison red. Restored: green.

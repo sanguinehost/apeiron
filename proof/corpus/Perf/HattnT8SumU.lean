@@ -5,7 +5,7 @@ import Perf.HattnT8
 
 the hattn-decode-tail note (sub-page summary section): `Perf.HattnT8Sum` mode 1 (exact mass, mean value row)
 with the summary unit `u ∈ {64, 16, 4, 1}` keys (`KV_TAIL_SUMU`), the 64 tail positions before `t = 524288` of the
-dump `~/hattn-long/g7-1m`, instrument `attn_cut_probe.hd128qu`, output
+dump `g7-1m`, instrument `attn_cut_probe.hd128qu`, output
 `g12-t524288-sum1-u<u>.out`. Mean whole-model KLD in ten-thousandths; `u = 64` is `Perf.HattnT8Sum.mode1`. Predictions:
 `PREDICTIONS-T8-SUMU.md`, sha256 `2f795847…`. rustc, LLVM, the f32 dump kernels and the instrument are outside every
 statement; one prompt, one model.

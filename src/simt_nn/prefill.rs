@@ -324,7 +324,7 @@ fn sg_fmax(k: &mut Kb, v: u32) -> u32 {
 }
 
 /// [`attn_prefill_tiled_module`] with a `mode` bitmask of the scheduling and arithmetic variants
-/// priced in the gpu-prefill note/`: [`ATTN_MODE_REVERSE`].
+/// priced in the GPU prefill measurements: [`ATTN_MODE_REVERSE`].
 #[allow(clippy::too_many_arguments)]
 pub fn attn_prefill_tiled_module_m(
     nh: u32,

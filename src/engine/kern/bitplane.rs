@@ -915,7 +915,10 @@ mod tests {
     fn bench_qwen35_head_64_steps() {
         let (Some(model), Some(ids)) = (
             crate::engine::testdata::model_path("models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf"),
-            crate::engine::testdata::model_path("scratch/q35-t5/prompt2.ids"),
+            crate::engine::testdata::model_path(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/qwen35-prompt2.ids"
+            )),
         ) else {
             eprintln!("skip bench_qwen35_head_64_steps: model or prompt ids absent");
             return;

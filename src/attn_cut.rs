@@ -1,10 +1,10 @@
 //! Certified attention cut: a softmax read over partial sums that carries its own error bound.
 //!
-//! Board row: `inf-attn-cut-prim-DjPNsc4UJKgDnnYgNCC5T8`.
-//! Refines `Apeiron.Numeric.AttentionCut` (`proof/Apeiron/Numeric/AttentionCut.lean`, read-only
-//! source at sha256 `3bbd73592d6ec51f…`). Grade `tested` only: the Lean statements are over `ℝ`;
-//! this module is `f64` arithmetic over `f32` data and adds the rounding of that arithmetic, which
-//! `Accumulator.lean`'s layer owns and which nothing here bounds.
+//! Statements: `Apeiron.Numeric.AttentionCut` in the `sanguine-apeiron` corpus (not in this tree;
+//! source sha256 `3bbd73592d6ec51f…`). No refinement theorem links this module to them. Grade
+//! `tested` only: the Lean statements are over `ℝ`; this module is `f64` arithmetic over `f32` data
+//! and adds the rounding of that arithmetic, which `Accumulator.lean`'s layer owns and which nothing
+//! here bounds.
 //!
 //! # Frames
 //!

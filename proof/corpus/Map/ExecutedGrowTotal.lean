@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (HT-INSERT-W22): totality
+-- Totality
 -- of the executed `grow_for_one`, on the resize totality split out of `Map.ExecutedResizeTotal`.
 import Map.ExecutedResizeTotal
 open Aeneas Aeneas.Std Result

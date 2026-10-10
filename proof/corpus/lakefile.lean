@@ -26,14 +26,12 @@ lean_lib ApeironWordBridge where
   roots := #[`WordRefinement, `Native.HyperbolicBase, `Native.LocatorSpec,
     -- `Native.HashtrinityBasis` was committed in 637e093 on no build path (roots carries no
     -- `.submodules` glob). Registered with its 15 in-module `#audit` rows.
-    -- Row: `apeiron-native-gate-DbKpTzo95pI4CWY7PekAxE`.
     `Native.HashtrinityBasis,
     `Security.InterpretationWitnesses,
     -- Added with the HashDOS verification lane. Two transcription hypotheses (the multiplier
     -- constant identity and the slot arithmetic) are now discharged against the generated
     -- `table.Region.home`; the input inversion, the power-of-two bound and the `descend` binding
     -- stay blocked (no `Table::descend` body exists in the extraction).
-    -- Row: `p1-hashdos-formalise-the-CuQBvGaIws0dH6rzQYsl7j`.
     `Security.HashDos,
     `Growable.Geometry, `Growable.Identity, `Growable.Scan,
     `Growable.ReadLoop, `Growable.LocateLoop, `Growable.ReadState, `Kepler.Certificate,
@@ -44,14 +42,11 @@ lean_lib ApeironWordBridge where
     -- `.submodules` globs, so an import of a root is built only when it is itself a root.
     -- `Growable.InsertRefine` was imported by `Growable.GaplessRead`/`Growable.BuildRefine`,
     -- neither reachable, so it was ungated.
-    -- Row: `apeiron-verify-wave-land-nFsIRO8H9pKb1njJApKly`.
     -- `Growable.BuildRefine` was on no build path (roots carries no `.submodules` glob, and its
     -- only importer, `Growable/GaplessRead.lean`, is unreachable). Registered + gated.
-    -- Row: `apeiron-roots-schedule-GLorJM9lzcN49Cr1tCCT0s`.
     -- `GaplessRead`/`HomeBound` were also on no build path: registered, so their headlines are
     -- checked by a scoped `lake build` rather than by an ad-hoc `lake lean`.
     `Growable.GaplessRead, `Growable.HomeBound,
-    -- Row: `apeiron-corpus-register-GPgkBfYXcWVRfHB3t9Mpwl`.
     `Growable.InsertRefine, `Growable.Schedule, `Growable.BuildRefine, `Growable.CostModel,
     -- `Growable.Batched` was committed on no build path: `roots` carries no `.submodules` glob and
     -- nothing imported it, so its 6 `#print axioms` rows were never evaluated. Registered.
@@ -60,30 +55,30 @@ lean_lib ApeironWordBridge where
     -- nothing imported it, so its 6 `#audit` rows were never evaluated. Registered.
     `Growable.FaceBound,
     `Map.Rep, `Map.Read, `Map.Selected, `Map.PrefixMasks,
-    -- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe`: the executed map face.
+    -- The executed map face.
     `Map.ExecutedBase, `Map.ExecutedProbe, `Map.ExecutedOverflow, `Map.ExecutedRep,
     `Map.ExecutedRead, `Map.ExecutedReadTotal, `Map.ExecutedReadUncond, `Map.ExecutedSelected,
     `Map.ExecutedReadCoordTotal, `Map.ExecutedSelectedCoord, `Map.Executed,
     `Map.ExecutedOverflowAvlBase, `Map.ExecutedOverflowAvl, `Map.ExecutedOverflowChain, `Map.ExecutedOverflowDescend, `Map.ExecutedOverflowInsert,
     `Map.ExecutedInsertSide, `Map.ExecutedInsertSlot, `Map.ExecutedInsert, `Map.ExecutedResizeOrder, `Map.ExecutedResize,
-    -- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (HT-BUILD): the executed build.
+    -- The executed build.
     `Map.ExecutedBuild,
     `Map.ExecutedBuildWitness, `Map.ExecutedInsertTotal,
-    -- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (W17): totality of resize.
+    -- Totality of resize.
     `Map.ExecutedResizeTotal,
-    -- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (W22): totality of
+    -- Totality of
     -- `grow_for_one`, with the resize witness split out of `Map.ExecutedResizeTotal`.
     `Map.ExecutedGrowTotal,
-    -- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (W23): Stage 3, the executed
+    -- Stage 3, the executed
     -- insert is total.
     `Map.ExecutedInsertOk,
-    -- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (W27): Stage 3, the executed
+    -- Stage 3, the executed
     -- insert is total on a reserved key (the side-store path).
     `Map.ExecutedInsertSentOk,
-    -- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (W30): the `Stored<u64>`
+    -- The `Stored<u64>`
     -- size carrier and its key-store totality lemmas.
     `Map.ExecutedInsertStored,
-    -- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (W36): the live-entry
+    -- The live-entry
     -- counter `Hlive` and the per-`place_capped` joint bound for the linear fold.
     `Map.ExecutedInsertLinear,
         `Count.Rep, `Count.Read, `Count.Helpers, `Count.FreqRep, `Count.OverflowOps, `Count.FreqAdd, `Count.FreqSideOv, `Count.FreqGrow, `Count.FreqInsert, `Count.Aggregate,

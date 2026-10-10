@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe`: the executed insert's three slot verdicts.
+-- The executed insert's three slot verdicts.
 import Map.ExecutedOverflowInsert
 open Aeneas Aeneas.Std Result
 

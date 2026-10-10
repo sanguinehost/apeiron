@@ -716,7 +716,6 @@ unsafe fn run_actq(
 ///
 /// The reference is an f64 matvec of the exact Q5_0 dequant against the same x. Failures are
 /// collected in full and asserted once at the end. `rel_q8_*` is the lossy re-chart's error.
-/// Board row `inf-decode-measure-E3CPdJamkoVAQSrj96zC6o` (lane DECODE-Q5-DIAG).
 #[test]
 fn q5_chart_grid_exact_every_layer() {
     let vk = match unsafe { Vk::load() } {

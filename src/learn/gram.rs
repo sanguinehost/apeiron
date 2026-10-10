@@ -12,7 +12,8 @@
 //! The three loops are split into three functions (`rows_loop` calls `row_loop` calls
 //! `row_pair_loop`), one `while` loop each, with a `bool` failure flag and an `Option<GramError>`
 //! accumulator: the pinned Charon/Aeneas fragment does not compute a loop fixed point for a nested
-//! loop that carries an index re-read from a mutated `Vec`. No `?` and no early `return` appears inside a loop; overflow is `checked_*` only.
+//! loop that carries an index re-read from a mutated `Vec`. No `?` and no early `return` appears inside a
+//! loop; overflow is `checked_*` only.
 
 #![allow(
     clippy::many_single_char_names,

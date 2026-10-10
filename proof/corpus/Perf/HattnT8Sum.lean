@@ -5,7 +5,7 @@ import Perf.HattnT8
 
 the hattn-decode-tail note (hot/cold page summary section): the flat arm `grp-fix2048-r8` with every omitted
 far page replaced by a summary (page mean value, and a scalar mass), the 64 tail positions before
-`t ∈ {262144, 524288}` of the dump `~/hattn-long/g7-1m`, instrument `attn_cut_probe.hd128qs`
+`t ∈ {262144, 524288}` of the dump `g7-1m`, instrument `attn_cut_probe.hd128qs`
 (`KV_TAIL_SUM`, output `g11-t<t>-sum<mode>.out`). Mode 0: mass `64·exp(mean page score)`. Mode 1: exact page mass
 `Σ_j w_j` (ceiling for a scalar-mass summary). Mode 2: mass `64·exp(μ + σ²/2)`. All three add `mass · mean(v)`.
 Measured figures are `model` inputs: mean whole-model KLD and bytes/dense in ten-thousandths. Baselines are

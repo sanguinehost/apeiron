@@ -1,4 +1,3 @@
-// Row: `apeiron-prefix-slice-land-C5JZtM621wcM1G8Mz7VsIF` (/ ).
 //! The trait vocabulary `Table<K, V, KS>` is parameterized by — split out of `lib.rs`, re-exported
 //! from it, so every path is unchanged. Two halves: how a KEY becomes a 64-bit address
 //! (`Coord`/`CoordInv`/`KeyStore`/`Stored`/`Regen`, and the golden-128 byte fold underneath), and
@@ -11,7 +10,6 @@ use std::mem::MaybeUninit;
 ///
 /// The table's slot arrays are allocated full-length and left unwritten: liveness lives in the
 /// coordinate line, so a build writes a slot only when it stores into it. That is the property
-/// Row: `apeiron-residual4-collect-FjhX5JGjudteNjKz7TVJkU`.
 /// `../sanguine/proof/Closures/Engineering/ConcreteProbeCost.lean:607` `slot_tax_exact` charges a `capacity`-scaled per-slot tax for; an
 /// element-wise fill would move `capacity` writes into the build and forfeit it.
 ///

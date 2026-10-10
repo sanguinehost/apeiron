@@ -1,5 +1,4 @@
 //! Red team for the capped primary probe and its deterministic overflow — the HashDOS answer.
-//! Row: `apeiron-hashdos-cap-B8tcM9Je2duKmuNmBjvHzM`.
 //!
 //! `Table` examines at most [`PROBE_CAP`] primary slots per lookup, insert, update or remove; the
 //! terminal sweep is removed. A key whose capped prefix was fully occupied is stored in a

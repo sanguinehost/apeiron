@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe`: totality of the executed read.
+-- Totality of the executed read.
 import Map.ExecutedRead
 import Map.ExecutedReadUncond
 import Map.ExecutedBuild

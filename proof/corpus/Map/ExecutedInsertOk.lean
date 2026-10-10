@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (HT-INSERT-W23): Stage 3,
+-- Stage 3,
 -- the executed insert is total.
 import Map.ExecutedGrowTotal
 open Aeneas Aeneas.Std Result

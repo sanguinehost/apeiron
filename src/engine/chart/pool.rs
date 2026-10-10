@@ -77,7 +77,7 @@ const SPIN_BEFORE_PARK: Duration = Duration::from_millis(5);
 const PERF_WEIGHT: u64 = 100;
 /// Performance-to-efficiency single-core speed ratio ρ used when `APEIRON_ECORE_RATIO` is unset.
 ///
-/// Measured on the i9-14900KF by the scratch bench of (single-thread; P
+/// Measured on the i9-14900KF by a scratch bench (single-thread; P
 /// pinned to cpu 0, E pinned to cpu 16): the `Q5_0` 4864×896 chart projection ran 20.76 Gweight/s
 /// on P against 9.83 on E (ρ = 2.11) and the `PQ2_0` 4096×2048 lookup projection 46.34 against 13.45
 /// (ρ = 3.45); the geometric mean is 2.70. Overridden at runtime by `APEIRON_ECORE_RATIO` (a finite
@@ -419,8 +419,7 @@ impl Pool {
     }
 
     /// The process-wide pool. Its performance width is `APEIRON_THREADS` participants when that
-    /// variable parses, else 8 (llama.cpp's fastest setting on this host,
-    /// the decode-dominance note), capped at the pinnable performance cores. Efficiency
+    /// variable parses, else 8 (llama.cpp's fastest setting on this host), capped at the pinnable performance cores. Efficiency
     /// cores are ON by default when the host has them: with `APEIRON_ECORES` unset, all detected
     /// efficiency CPUs are used. `APEIRON_ECORES=0` restores the performance-cores-only pool,
     /// while an explicit `k` uses at most `k` efficiency workers (capped at pinnable efficiency

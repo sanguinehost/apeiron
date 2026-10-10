@@ -1,4 +1,4 @@
--- Row: `p0-count-body-get-the-a-EF9n3OLyqnX2ouQQWL8w9C`. Comment-only: 18 dangling/stale citations corrected.
+-- Comment-only: 18 dangling/stale citations corrected.
 import Count.Rep
 import Growable.Search
 

@@ -536,7 +536,7 @@ pub(crate) fn conv_silu_cols(
         ConvState::Q32(_) => conv_silu_cols_q32(layer, w, kernel, xs),
         // Decode (k = 1) fuses conv+SiLU into the pooled heads dispatch. Prefill (k > 1) keeps
         // the per-column conv: the staged path holds the window per layer and cost 2x prefill
-        //.
+        // (f32 carrier).
         ConvState::F32(_) if xs.len() > 1 => conv_silu_cols_f32(layer, w, kernel, xs),
         ConvState::F32(_) => conv_silu_cols_f32_stage(layer, w, kernel, xs),
     }

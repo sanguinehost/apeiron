@@ -1,4 +1,4 @@
-//! One-bit arms on the calibration Gram: the W7 measurement of the ternary-hadamard note.
+//! One-bit arms on the calibration Gram: the one-bit measurement.
 //!
 //! Every arm quantizes a row of `W` (`[out, n]`, row-major) in `Q1_0` blocks of 128 weights, each
 //! block carrying one sign plane and one `f16` scale `a = mean|w|` over the block (`bits/weight =

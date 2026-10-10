@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe`: the executed map face, one import.
+-- The executed map face, one import.
 import Map.ExecutedSelected
 
 /-!

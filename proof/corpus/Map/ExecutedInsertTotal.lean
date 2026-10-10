@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (HT-INSERT-W7): totality of the
+-- Totality of the
 -- executed insert and resize.
 import Map.ExecutedResize
 import Map.ExecutedBuild

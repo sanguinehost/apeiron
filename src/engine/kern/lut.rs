@@ -1,4 +1,4 @@
-//! Exact lookup-table row dot for `PQ2_0` weights (decode-dominance L6); owned by .
+//! Exact lookup-table row dot for `PQ2_0` weights (decode-dominance L6).
 //!
 //! `PQ2_0` stores one `f16` scale `d_b` per 128 weights and two-bit codes `code_l ∈ {0,1,2,3}` with
 //! `w_l = (code_l − 1)·d_b`. [`Pq2Lut::from_pq2_0`] repacks the matrix once into bit planes (`lo`,

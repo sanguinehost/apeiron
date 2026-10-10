@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (HT-INSERT-W27): the executed
+-- The executed
 -- insert is total on a reserved key (the side-store path).
 import Map.ExecutedInsertOk
 import Map.ExecutedInsertSide

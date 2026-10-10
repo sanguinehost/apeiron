@@ -1,6 +1,5 @@
 //! Red team for the count face's capped group probe and deterministic overflow, plus the
-//! reserved-frequency identity fix. Row: `apeiron-hashdos-cap-count-MUBqkA7OYTvluKSIRdbjC`
-//!.
+//! reserved-frequency identity fix.
 //!
 //! `FreqLine` (behind `FreqMap::add` and `count_par`) examines at most [`PROBE_CAP`] primary groups
 //! per lookup, insert or update; a key whose capped prefix is fully occupied routes to a

@@ -1,6 +1,5 @@
 //! k-column int8-activation projection (L1): [`matmat_q8act`], the int8-activation matrix product
 //! whose column `c` is [`matvec_q8act`] on `qs[c]` bit for bit.
-//! Owned by .
 //!
 //! For `Q8_0` and `Q5_0` each weight block is decoded once and dotted against all `k` activation
 //! blocks while its bytes are in registers, so the weight payload is read once per call instead of
@@ -14,8 +13,7 @@
 //!
 //! The AVX2 cores are reached only behind `is_x86_feature_detected!("avx2")` and are the only
 //! unsafe code here; the portable twin is the fallback and the test oracle. Their equality with
-//! the portable twin is `tested`, not extracted (trust boundary: the decode-dominance note
-//! §L1).
+//! the portable twin is `tested`, not extracted (trust boundary).
 #![allow(
     dead_code,
     reason = "the L1 entry point and its cores land in this wave; their W2 consumers (spec_greedy, \
@@ -1140,7 +1138,7 @@ mod tests {
     /// transient load spike lands on every `k` alike, and each `k`'s estimator is its minimum
     /// over the rounds (the least-contended window). This is still a shared-host wall clock, not
     /// an idle-host measurement: the ratio is indicative, and a `measured` claim needs a quiesced
-    /// host (the decode-dominance note §Invariants 3).
+    /// host.
     /// k-column cost when the weights stream from DRAM (the decode regime): 256 MB of `Q8_0`
     /// matrices of the Qwen3.5 FFN shape, cycled so no call finds its matrix in cache.
     /// `cargo test --release --all-features --locked kern::matmat -- --ignored --nocapture`.

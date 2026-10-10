@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe`: the executed overflow tree's insert path.
+-- The executed overflow tree's insert path.
 import Map.ExecutedOverflowChain
 open Aeneas Aeneas.Std Result
 

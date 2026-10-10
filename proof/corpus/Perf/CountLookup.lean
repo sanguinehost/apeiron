@@ -20,7 +20,7 @@ instances at the measured constants of P74.
  .
 
 The P74 constants are `model` inputs in tenths of a cycle per lookup, copied from
-`~/count-model/p74ab.txt` (medians of 5 interleaved pairs, i9-14900KF core 4). No
+`p74ab.txt` (medians of 5 interleaved pairs, i9-14900KF core 4). No
 theorem here produces a cycle: the `max` form is a model of the lookup, not a theorem about the CPU.
 rustc/LLVM codegen, the microarchitecture and the page-walk hardware are outside every statement.
 -/
@@ -125,7 +125,7 @@ theorem p75_refuted : ¬ p75Bar ≤ p75HW ∧ ¬ p75Bar ≤ p75HS ∧ p75HW + 1 
 
 One row per excess cell, in the order 1e5 10 % dense, 1e6 1 % dense, 1e6 all dense, 1e7 10 % dense,
 1e7 all high-bits. Mispredicts (`br_misp_retired.all_branches`) and retired instructions
-(`inst_retired.any`) per lookup, in thousandths. `model` inputs, `~/count-header/p76.txt`,
+(`inst_retired.any`) per lookup, in thousandths. `model` inputs, `p76.txt`,
 medians of 5 interleaved rounds, `ap_par` and `ap_flat`. -/
 
 /-- One P76 cell: `ap_par` and `ap_flat` mispredicts per lookup, `ap_par` retired instructions. -/
@@ -158,7 +158,7 @@ theorem p76_clause34 :
 /-! ## 6 · P77: issued against retired uops
 
 Per lookup, in thousandths, same cells and order. `model` inputs,
-`~/count-header/p77.txt`, medians of 5 interleaved rounds. `Iss` = `uops_issued.any`,
+`p77.txt`, medians of 5 interleaved rounds. `Iss` = `uops_issued.any`,
 `Ret` = `uops_retired.slots`, `Cyc` = `cycles`, `Misp` = `br_misp_retired.all_branches`;
 `machine_clears.count` was 0.000 in all 14 arm-cells. -/
 
@@ -227,7 +227,7 @@ theorem p77_retired_uop_lever_cannot_close (c : P77Cell) (hc : c ∈ p77Cells) (
 
 /-! ## 7. P78 and P79: where the `ap_par` mispredicts come from
 
-`model` inputs: counts copied from `~/count-header/p79.txt` (deterministic, one run per
+`model` inputs: counts copied from `p79.txt` (deterministic, one run per
 cell, probe built from a clean `git archive HEAD`), mispredicts per lookup in thousandths from §5.
 Cell order as §5: 1e5 10 % dense, 1e6 1 % dense, 1e6 all dense, 1e7 10 % dense, 1e7 all high-bits. -/
 
@@ -287,7 +287,7 @@ theorem p79_pairs_only : ∀ c ∈ p79Cells, c.any = 2 * c.before := by decide
 
 /-! ## 8. P80: lane order against lookup order
 
-`model` inputs: medians of 5 interleaved rounds from `~/count-header/p80.txt`
+`model` inputs: medians of 5 interleaved rounds from `p80.txt`
 (mispredicts per lookup in thousandths; `d` is the distinct-key count, the pool length). `sh` is
 `ap_flat` filled in shuffled order. Cell order as §5. -/
 

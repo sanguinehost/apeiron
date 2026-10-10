@@ -4,7 +4,7 @@ import Mathlib.Data.Nat.Basic
 # attention-cut T6: the cheapest deployable decode-tail selector at whole-model KLD 0.05
 
 the hattn-decode-tail note (T6 section): the attention-cut T5 setup with 64 tail positions before each
-`t ∈ {4096, 8192, 16384, 32768}` (`KV_TAIL_SWEEP=1`, output `~/hattn-long/sweep.out`). Every
+`t ∈ {4096, 8192, 16384, 32768}` (`KV_TAIL_SWEEP=1`, output `sweep.out`). Every
 figure is a `model` input copied from that output; no theorem here produces a measurement. Mean whole-model KLD
 over each `t`'s 64 positions and mean key reads per `t`, both in ten-thousandths; rel-L2 in units of `1e-8`.
 rustc, LLVM and the instrument are outside every statement.

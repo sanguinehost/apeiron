@@ -1,6 +1,6 @@
 //! GPU forward-pass dump: the output of `attn_cut_probe`'s `run_dump` (`KV_DUMP=<dir> KV_T=<tokens>`),
 //! computed in f32 on the Vulkan device, for Qwen2-family GGUF models (head_dim 64 or 128).
-//! Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Kernels: `gpu_dump_spirv/`.
+//! Kernels: `gpu_dump_spirv/`.
 //!
 //! Run: `KV_DUMP=<dir> KV_T=<tokens> gpu_dump [model.gguf]`
 //!

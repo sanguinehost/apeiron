@@ -1,5 +1,5 @@
 //! Learning track: training, finetuning and quantization ported from `../spinor-ttl` and `../fold`
-//!. One submodule per mechanism; each carries its focused
+//! One submodule per mechanism; each carries its focused
 //! test `tests/learn_<x>.rs`.
 
 /// GGUF v3 container writer: [`crate::format::gguf`]'s header, metadata and tensor types serialized
@@ -26,7 +26,7 @@ pub mod gptq;
 pub mod onebit;
 
 /// Exact-integer first-order sigma-delta: the executed body of the `sd1` arms, refined to
-/// `Numeric.SigmaDelta` (the ternary-hadamard note Part II, W8).
+/// `Numeric.SigmaDelta`.
 pub mod sigma_delta;
 
 /// Streaming Gram accumulation and direct SPD ridge solve: the closed-form linear head.

@@ -1,4 +1,3 @@
-// Row: `apeiron-ht-sound-HuFJWskE6qumuLwAlSJ0xi`.
 //! Panic safety and churn cost of the map table (`apeiron::freq::Table`).
 //!
 //! A merge that panics removes its key: `len` drops by one, a main slot reads `TOMB` (never `EMPTY`,

@@ -16,7 +16,7 @@ verbatim from `src/table/state.rs`:
 | `word_stored_apply_insert` | 24197-24223 | lib.rs 494:0-506:1 |
 | `word_regen_apply_insert` | 24235-24261 | lib.rs 514:0-526:1 |
 
-This is obligation 2 of `~/ht-port/receipt.md` §4: the merged value lands at the
+This is obligation 2 of `ht-port receipt` §4: the merged value lands at the
 located slot, and no search-visible state carries a live coordinate over an unpublished payload.
 The publication point in the port is the coordinate store: `publish_live` writes the payload
 (`sigma`, `held`, `value`), then the occupancy `tag`, and only then `coords[index] = coord_of place`.

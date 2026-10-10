@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (HT-BUILD-WITNESS): non-vacuity of `build_refines`.
+-- Non-vacuity of `build_refines`.
 import Map.ExecutedBuild
 open Aeneas Aeneas.Std Result
 set_option linter.apeiron.notation false

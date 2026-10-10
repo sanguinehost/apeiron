@@ -1,6 +1,6 @@
-//! Exact tensor-parallel FFN (the decode-dominance note §L8): [`ffn_tp`] runs one
+//! Exact tensor-parallel FFN: [`ffn_tp`] runs one
 //! [`ffn_q8act`] FFN (`SwiGLU`) block as a column cover of the hidden dimension in one
-//! [`Pool::global`] dispatch. Owned by .
+//! [`Pool::global`] dispatch.
 //!
 //! Task `i` owns hidden slice `S_i`, aligned to the down projection's block width; it computes the
 //! gate and up rows of `S_i` with the chart fast row kernels over the shared `quant_act(x)`, applies

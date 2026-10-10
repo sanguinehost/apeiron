@@ -1,4 +1,4 @@
--- Row: `apeiron-vv-v1-c-the-entry-BhpTnZsIcBnlxn1BVXRCcI`. Green: this module now
+-- Green: this module now
 -- builds with no `sorryAx` and a closed cone. It discharges the dispatched `entry.tag` obligation and
 -- the rest of the module's error sites (12 -> 0); the `AxiomAudit` blocker moves to
 -- `Growable.ReadComposition`, which is a separate task. Serves the P0 READLOOP goal

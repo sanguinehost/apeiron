@@ -6,7 +6,7 @@ import Mathlib.Analysis.Convex.Jensen
 
 the hattn-far-field note: Qwen2.5-0.5B Q4_K_M, one 32,768-token prompt, 24 layers × 14 heads,
 queries the last 8 positions before `t ∈ {512, 2048, 8192, 32768}` (`tools/hattn/far_field.py (unpublished) --full`,
-output `~/hattn-long/far_field.out`). Every figure below is a `model` input copied from that
+output `far_field.out`). Every figure below is a `model` input copied from that
 table; no theorem here produces a measurement. Exponents and coherences in thousandths, errors and shares in
 ten-thousandths, key counts in tenths. rustc, numpy and the instrument's own correctness are outside every
 statement here.

@@ -9,7 +9,7 @@ prefix `[0, t)` into power-of-two *buckets* indexed by a level `ℓ`, following 
 binary-indexed tree (Fenwick, *A new data structure for cumulative frequency tables*, 1994;
 Ryabko, *Adaptive coding of a source with unknown statistics*, 1992).
 
-The paper text retrieved at `~/lit/2506.04761_log_linear_attention.txt`
+The paper text retrieved at `2506.04761_log_linear_attention.txt`
 describes the partition in §3.1 (lines 352-366): "prefix into buckets of exponentially
 increasing size via a Fenwick-tree decomposition", "at most `L = O(log T)` disjoint buckets
 indexed by level ℓ", guided by `lssb(t) = max {ℓ ∈ ℕ | 2^ℓ divides t}` (line 366), and §3.2

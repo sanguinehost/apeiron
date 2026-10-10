@@ -7,7 +7,7 @@
 //! `--only qwen|bonsai`, `--skip-weights`, `--skip-accept`, `--prune` (opt-in instrument 3),
 //! `--prune-tokens N` (default 64), `--threads N` (default `available_parallelism`).
 //!
-//! Three instruments, all grades `measured` (AGENTS.md §5, §10):
+//! Three instruments, all grades `measured` (`AGENTS.md`, evidence grades):
 //!
 //! 1. **Weight-block census.** For each quantized projection class of each GGUF, decode the
 //!    weight codes and group them into consecutive 32-weight blocks. Report the fraction of

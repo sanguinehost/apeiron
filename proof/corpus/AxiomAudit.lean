@@ -169,7 +169,6 @@ import Numeric.SigmaDeltaRefinement
 #audit apeiron_word.word_f16_split_nonfinite_witness
 
 -- The executed map face (Map/Executed*.lean; `selectedReadRep_of_tableRep` is audited in Map/ExecutedSelected.lean, which imports `Apeiron.AuditClosed` through Map.Selected and cannot be imported here): `hashtrinity::Table<u64, i64, KS>`.
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe`.
 #audit Apeiron.MapExecuted.loop_pc
 #audit Apeiron.MapExecuted.is_sentinel_ok
 #audit Apeiron.MapExecuted.is_live_ok
@@ -204,7 +203,7 @@ import Numeric.SigmaDeltaRefinement
 #audit Apeiron.MapExecuted.get_refines
 #audit Apeiron.MapExecuted.coord_get_refines
 
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe`, wave 2: the AVX2 premise of the read discharged
+-- The AVX2 premise of the read discharged
 -- (`Map/ExecutedReadUncond.lean`) and the executed AVL write path (`Map/ExecutedOverflow{AvlBase,Avl,Chain,Descend,Insert}.lean`).
 #audit Apeiron.MapExecuted.avx2_spec_holds
 #audit Apeiron.MapExecuted.get_refines_uncond
@@ -228,7 +227,7 @@ import Numeric.SigmaDeltaRefinement
 #audit Apeiron.MapExecuted.insert_new_at_spec
 #audit Apeiron.MapExecuted.insert_new_at_spec_fe
 
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe`: the executed insert refines `Apeiron.Table.insertWith`
+-- The executed insert refines `Apeiron.Table.insertWith`
 -- (`Map/ExecutedInsertSide.lean`, `Map/ExecutedInsertSlot.lean`, `Map/ExecutedInsert.lean`,
 -- `Map/ExecutedResizeOrder.lean`, `Map/ExecutedResize.lean`).
 #audit Apeiron.MapExecuted.rep_side_update
@@ -273,7 +272,7 @@ import Numeric.SigmaDeltaRefinement
 #audit Apeiron.MapExecuted.with_capacity_wf
 #audit Apeiron.MapExecuted.coordinate_with_capacity_wf
 
--- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (HT-BUILD): the executed build refines
+-- The executed build refines
 -- `Apeiron.Table.build` (`Map/ExecutedBuild.lean`).
 #audit Apeiron.MapExecuted.countP_set_le
 #audit Apeiron.MapExecuted.map_get_refines
@@ -292,13 +291,13 @@ import Numeric.SigmaDeltaRefinement
 #audit Apeiron.MapExecuted.build_witness_exec
 #audit Apeiron.MapExecuted.build_refines_witness
 
--- Row: `unified-carrier-level-as-Bi4NM1lt3LKJy0qsUykdBZ` (UNIFIED-CARRIER): one decode and one
+-- One decode and one
 -- split lemma indexed by the bit width b (`Spirv/Carrier.lean`).
 #audit Spirv.carrier_decode
 #audit Spirv.carrier_split
 #audit Spirv.carrier_split_cells
 
--- Row: `perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX` (PERF-THEORY, W1): the roofline lower
+-- The roofline lower
 -- bound, the move speedup bound and the two fusion results over the resource carrier
 -- (`Perf/Roofline.lean`).
 #audit Perf.timeLB_mono
@@ -308,7 +307,7 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.fanout_forces_cost
 #audit Perf.scalar_not_sufficient
 
--- Row: `perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX` (PERF-THEORY, W2): latency hiding on the
+-- Latency hiding on the
 -- carrier (`Perf/Concurrency.lean`) and the width, walk-count and cache-line moves as instances of
 -- the move bound (`Perf/Instances.lean`).
 #audit Perf.timeLBc_mono_conc
@@ -323,7 +322,7 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.walk_mix
 #audit Perf.map01_line_control
 #audit Perf.map01_move_speedup
--- row perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX: dependent dispatch chain and its knee (Perf/Chain.lean)
+-- Dependent dispatch chain and its knee (Perf/Chain.lean)
 #audit Perf.Chain.chain_ge_bytes
 #audit Perf.Chain.knee
 #audit Perf.Chain.dispLB_of_le_knee
@@ -336,7 +335,7 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.Chain.chain_fuse_ratio
 #audit Perf.Chain.chain_fuse_pair_saving
 
--- Row: `perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX` (PERF-THEORY, W2d): the shared issue-port
+-- The shared issue-port
 -- cut, the slot move gain and the lever ceiling (`Perf/Issue.lean`).
 #audit Perf.shared_ge_timeLB
 #audit Perf.shared_strict
@@ -346,7 +345,7 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.loopRes_sharedLB
 #audit Perf.loopRes_issue_strict
 
--- Row: `perf-formal-occ-lean-and-CbhOJrD0u57zJpIUtEEMrv` (PERF-FORMAL-OCC): resident workgroups from
+-- Resident workgroups from
 -- the register file and shared memory, the occupancy gain bound and ceiling (`Perf/Occupancy.lean`).
 #audit Perf.residentWG_antitone
 #audit Perf.residentWG_step
@@ -593,7 +592,7 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnT8Layer.compounding
 #audit Perf.HattnT8.bytes_7b_1m
 
--- Row: `inf-resident-prefill-GEB633UfORCK7XSmzJifHd` (ATTN-COOP, P18): the SIMT shared-load
+-- The SIMT shared-load
 -- dominance, the staging halving rule, the coopmat node comparison and the pp512 gain
 -- (`Perf/AttnCoop.lean`).
 #audit Perf.simt_issue_bound_dominates
@@ -602,8 +601,8 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.coop_node_below_simt
 #audit Perf.attn_node_gain
 
--- Row: `perf-formal-residual-the-GN58EBVOKETdWwQ9hShVHE` (identity floor under a relative-precision
--- rounding, `Perf/IdentityFloat.lean`): every one of the five roundings is deletion-necessary.
+-- The identity floor under a relative-precision
+-- rounding (`Perf/IdentityFloat.lean`): every one of the five roundings is deletion-necessary.
 #audit Perf.Float.rne_mono
 #audit Perf.Float.fl_mono
 #audit Perf.Float.fl_idem
@@ -614,7 +613,7 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.Float.drop5_changes
 #audit Perf.Float.identity_floor
 
--- Row: `perf-formal-residual-the-GN58EBVOKETdWwQ9hShVHE` (FORMAL-OVERLAP, debt P9): the two-phase
+-- The two-phase
 -- overlap model and the P8/P9 instance (`Perf/Overlap.lean`).
 #audit Perf.ceilDiv_add_of_dvd
 #audit Perf.maxVec_add_le
@@ -629,7 +628,7 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.p8_overlap_predicted_gain
 #audit Perf.residual_not_in_fields
 
--- Row: `perf-formal-residual-the-GN58EBVOKETdWwQ9hShVHE` (RESIDUAL-IDENTITY): the fixed-grid
+-- The fixed-grid
 -- rounding model, the node-deletion family and its identity floor (`Perf/Identity.lean`).
 #audit Perf.rnd_idem
 #audit Perf.rnd_mono
@@ -640,7 +639,7 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.redundant_three
 #audit Perf.identity_floor
 
--- Row: `learn-ridge-direct-solve-FTcOmHFafixRjbpnupkVEh` (LEARN-RIDGE): the extracted
+-- The extracted
 -- exact-integer Gram fold `gram.gram_fold_i8` refines the integer Gram sum (`Learn/GramExact.lean`).
 #audit apeiron_gram.row_pair_loop_spec
 #audit apeiron_gram.row_loop_spec
@@ -650,7 +649,7 @@ import Numeric.SigmaDeltaRefinement
 #audit apeiron_gram.gram_fold_i8_entry
 #audit apeiron_gram.gram_fold_i8_stack
 
--- Row: `ONEBIT-W8`: the extracted checked-`i64` sigma-delta body `sigma_delta.sd_binary_block`
+-- The extracted checked-`i64` sigma-delta body `sigma_delta.sd_binary_block`
 -- refines `Numeric.SigmaDelta.sdState`/`sdSign` (`Numeric/SigmaDeltaRefinement.lean`).
 #audit apeiron_word.sd_step_spec
 #audit apeiron_word.sd_loop_spec

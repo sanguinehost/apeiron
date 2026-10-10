@@ -1,4 +1,4 @@
-//! Canonical elliptic Kepler solve: the executing kernel of .
+//! Canonical elliptic Kepler solve.
 //!
 //! `solve_kepler(face, mean_anomaly, eccentricity)` returns the normalized
 //! eccentric anomaly `x` of the exact-real equation
@@ -9,7 +9,7 @@
 //! solution, the defect bound, the error bound and the round count; host
 //! readouts and caches are not authorities.
 //!
-//! The additive per-orbit entry point of is
+//! The additive per-orbit entry point is
 //! [`solve_with_plan`] over a [`KeplerPlan`]: one plan per eccentricity folds
 //! the schedule band, the e-powers, the exact denominator split of `1 - e` and
 //! the e-dependent constant allowances once, and every solve of the orbit
@@ -17,7 +17,7 @@
 //! the two entries return bit-identical solutions (tested on the sampled
 //! population).
 //!
-//! # Admitted domain (contract: the kepler-canonical-spec note)
+//! # Admitted domain
 //!
 //! Only `face == Sigma::Elliptic` executes. `Sigma::default()` is Parabolic and
 //! is never a solver face. The mean anomaly is finite with `-pi <= m <= pi` over
@@ -240,7 +240,7 @@ pub struct KeplerSolution {
     pub rounds: u8,
 }
 
-/// The per-orbit solve plan of : everything the schedule
+/// The per-orbit solve plan: everything the schedule
 /// and the certificate need that depends only on the eccentricity, folded once
 /// by [`KeplerPlan::new`] and shared by every solve over the orbit.
 ///
@@ -548,7 +548,7 @@ pub fn solve_kepler(
 }
 
 /// Solve the normalized Kepler equation against a shared [`KeplerPlan`]: the
-/// per-orbit entry point of .
+/// per-orbit entry point.
 ///
 /// The plan already carries the validated eccentricity and every folded
 /// constant; this function re-checks what it receives (`NonFiniteInput` for a
@@ -783,8 +783,8 @@ fn half_ulp_allowance(v: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    // Exact-real regression for the error-bound and ceiling construction
-    //. The checks below use no rounded division:
+    // Exact-real regression for the error-bound and ceiling construction.
+    // The checks below use no rounded division:
     // `error_bound * (1 - e) >= defect_bound` is decided by exact
     // cross-multiplication (`two_sum`/`two_prod` are error-free) and an exact
     // sign test for the resulting sums of binary64 values.
