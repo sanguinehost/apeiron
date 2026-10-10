@@ -1038,6 +1038,36 @@ fails. So the cause of the tree's misses is not the Quest box's rotation slack o
 `ρ` on the real cluster boxes is the direct check and has not run. Grade `tested`. Not covered: `ρ` weighted by `|q_d|`, the bound's recall or KLD, other
 checkpoints and prompts, f16 weights. Search for prior art: none run; the box widening under rotation is elementary and no novelty is claimed.
 
+#### FACES-R1 H9: past 262144 the low-frequency pairs carry the logit and the attention spreads (row `faces-r1-do-the-three-on-HCnA8ZlHN3emV1nzkVH7V0`)
+
+Question: the T8 arms pass the KLD gate at 262144 and fail at 524288 and 1048576 with the same 2048-token far budget
+(`docs/evidence/hattn-decode-tail.md`, 1M section). On the elliptic face pair `j` has period `2π/θ_j`; pairs `j ≥ 43` have wound under one
+turn by 262144 (`θ_j · 262144 < 2π`), so beyond 262144 their phase is in a range with no full period behind it. Does the dense attention
+itself change there? Command: `OMP_NUM_THREADS=8 python3 /home/socol/oc-tmp/escalation/FACES-R1-PHASE-1M.py` (sha256 `faee3e49…`, output
+`FACES-R1-PHASE-1M.out`; predictions in the script header, written before any result). Data: `g7-1m`, unrotated q tail rows and k, `cs.bin`,
+layers 0, 7, 14, 21, 27, 4 KV heads × 7 query heads, 8 of the 64 tail positions per `t` (stride 8; a 64-position run passed the 570 s budget),
+keys `[0, t−64)`. Per query: softmax mass of the flat arm's best-case read set (4 sinks, 256 near keys, top 2048 of the rest), `N_eff` = exp(entropy),
+and the share of the logit's variance over keys carried by pairs `j ≥ 43`.
+
+| `t` | best-case read-set mass | `N_eff` | `N_eff / t` | share of logit variance, pairs `j ≥ 43` |
+|---|---|---|---|---|
+| 262144 | 0.877 | 2250 | 0.0086 | 0.647 |
+| 524288 | 0.786 | 4654 | 0.0089 | 0.740 |
+| 1048576 | 0.784 | 4976 | 0.0048 | 0.781 |
+
+`N_eff` per layer, 262144 → 524288 → 1048576: layer 0 9558 → 11975 → 11831; layer 7 387 → 921 → 2667; layer 14 167 → 2329 → 2231; layer 21 156 → 2521 → 3090;
+layer 27 983 → 5522 → 5061. Best-case mass, layers 7–27: 0.85–0.96 at 262144, 0.73–0.88 at 1048576.
+
+Predictions: P1 (mass ≥ 0.90 at 262144, falling at both steps, < 0.80 at 1048576; refuted if ≥ 0.95 at 1048576): mass falls at both steps (0.877, 0.786, 0.784) and is
+0.784 at 1048576; **refuted in its first clause**, 0.877 at 262144 (layer 0 sits at 0.70 throughout and pulls the mean under 0.90; layers 7–27 average 0.92).
+P2 (`N_eff / t` larger at 1048576): **refuted**, 0.0048 against 0.0086. P3 (hi-band share ≥ 0.10 at 262144 and a change under 25%): held, 0.647 and +21%.
+Reading (`model`, grade `tested` for the numbers): (a) in layers 14 and 21 the effective number of keys jumps 14× and 16× between 262144 and 524288 and then stops
+growing, the same place the arms' KLD jumps; layer 0 and the last layer move less. (b) The `j ≥ 43` pairs carry 65% of the logit variance over keys at
+the trained-length context and 78% at 1048576, in every layer the share rises with `t` (layer 0: 0.65 → 0.95). The 2048-token budget (1/256 of 524288)
+holds 0.79 of the mass at best, so any selection at that budget misses at least 0.21 of the mass on average. The link from (a) and (b) to the KLD cliff is a coincidence of location, not a measured cause. Not covered: other prompts and
+checkpoints; the dual-chunk or other inference-time recipe for the model past its trained length (recalled, not retrieved); how the unwound pairs enter the
+model's learned behaviour; whether a far budget that grows with `t` restores the gate (the next run). Search for prior art: none run; no novelty is claimed.
+
 ### FACES-R3 results (prior-art search)
 
 Row: `faces-r3-searched-list-of-HFjIFdmrgQqByikqw7ayoE`. Digest `/home/socol/oc-tmp/escalation/FACES-R3-DIGEST.md`
