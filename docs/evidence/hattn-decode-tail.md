@@ -764,6 +764,29 @@ Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Question: can a quer
 - Reading: page-bound pools are the bottleneck, not the final budget. The gather has to find tokens without ranking pages first.
 - Not covered: pool scoring cost (reading the `P` pool keys at full precision is not in bytes/dense), one prompt, no repeat spread, recall of the oracle set inside the pool not measured directly; rustc, LLVM.
 
+## Low-bit key scan at 524288: rank every far token by a b-bit code (Qwen2.5-7B-Instruct-1M)
+
+Row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Prose dump `g7-1m`, t=524288, 64 tail positions, gate mean whole-model KLD <= 0.05. `KV_TAIL_LOWBIT=b` scores every far token by `q . dequant_b(k)` and keeps the top-`c` per query head (`c` = the count the `grp-fix<B>-r8` page set selects). bytes/dense charges the selected sets' KV-group union plus the scan at b/32 of dense. Predictions: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-LOWBIT.md` (sha256 `8a068d4d5d61`). Probe binary `attn_cut_probe.hd128lb` (sha256 `85f1c550c59a`). Outputs `g23-lb<b>-prose-<B>.out`.
+
+| bits | B | KLD | ticks over 0.05 | top-1 | bytes/dense |
+|---|---|---|---|---|---|
+| 8 | 2048 | 0.0552 | 18 | 54/64 | 0.2656 |
+| 4 | 2048 | 0.0551 | 18 | 57/64 | 0.1407 |
+| 2 | 2048 | 0.2019 | 61 | 44/64 | 0.0742 |
+| 1 | 2048 | 0.1477 | 51 | 51/64 | 0.0511 |
+| 1 | 8192 | 0.1068 | 41 | 51/64 | 0.0977 |
+
+Reference: flat 2048 0.3370, flat 32768 0.1687, exact oracle 0.0553.
+
+- Control: 8 bits reproduces the oracle (0.0552 against 0.0553).
+- 4 bits ranks as well as the exact scores (0.0551) and sits at 0.1407 of dense, the scan being 0.125 of it. The oracle-8192 target is <= 0.053.
+- 1 bit is byte-feasible (0.0511) and halves flat 2048 (0.1477 against 0.3370); it misses the gate.
+- 2 bits is worse than 1 bit: the symmetric uniform quantiser with scale max|k| has one positive level, which makes it ternary. A better 2-bit or 3-bit quantiser is open.
+- Predictions: LB1, LB3, LB6 held; LB2 (4-bit under the gate, missed by 0.0051), LB4, LB5 refuted.
+- Scan cost is linear in n (b/32 of dense). The sc2 instrument's own compute is not charged.
+
+Lean: `proof/corpus/Perf/HattnT8LowBit.lean` (sha256 `414858423e8f`), 9 theorems, empty axiom cone in `AxiomAudit.lean`; mutation `lb4 := 951` turns it red. Grade: measured, `model` inputs. Not covered: rustc/LLVM, other models, code dump, 1M context.
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a

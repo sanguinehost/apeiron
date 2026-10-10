@@ -3322,6 +3322,32 @@ fn simple_sel(arm: Arm, p: usize, given: &[usize]) -> Option<(Vec<bool>, f64)> {
     Some((sel, (nn + TL_P * given.len()) as f64))
 }
 
+/// `KV_TAIL_LOWBIT=b`: bits per key dimension of the diagnostic scan score, `None` when unset.
+fn lowbit_bits() -> Option<u32> {
+    std::env::var("KV_TAIL_LOWBIT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&b| (1..=8).contains(&b))
+}
+
+/// Dequantised copy of key row `k` at `bits` bits per dimension: one bit is `sign(k_d)` times the row's mean
+/// `|k_d|`; `bits >= 2` is symmetric uniform with scale `max|k_d| / (2^(bits-1) - 1)`. Time `O(HD)`, space `O(1)`.
+fn lowbit_row(k: &[f32], bits: u32, out: &mut [f32]) {
+    if bits == 1 {
+        let m = k.iter().map(|v| v.abs()).sum::<f32>() / k.len() as f32;
+        for (o, &v) in out.iter_mut().zip(k) {
+            *o = if v < 0.0 { -m } else { m };
+        }
+    } else {
+        let levels = ((1u32 << (bits - 1)) - 1) as f32;
+        let mx = k.iter().fold(0f32, |a, v| a.max(v.abs()));
+        let sc = if mx > 0.0 { mx / levels } else { 1.0 };
+        for (o, &v) in out.iter_mut().zip(k) {
+            *o = (v / sc).round() * sc;
+        }
+    }
+}
+
 /// Keys per tile of `tail_group`: 256 K rows and 256 V rows are 256 KiB, resident in L2 across the block's queries.
 const TAIL_KT: usize = 256;
 /// Scoped threads for the instrument's own serial-in-principle work (rotation, boxes, bytes, k-means assignment).
@@ -3336,6 +3362,8 @@ const PAR: usize = 32;
 /// Complexity per block: `Q * n` dot products of length `HD`, `Q * n_sel * HD` multiply-adds for the output, with
 /// `Q = hs.len() * ps.len()` and `n` the context; K and V traffic `2 * n * HD` words per block against
 /// `2 * Q * n * HD` per block in `tail_head`; space `Q * n` f64 scores and `Q * n` bools for the selections.
+/// `KV_TAIL_LOWBIT=b` adds a `Q * n` dot-product pass of length `HD` over quantised key rows plus `O(n)` selection
+/// per query; space `Q * n` f32 scores.
 /// `KV_TAIL_RERANK=c` adds an `O(pool)` selection per query (`select_nth_unstable`), pool = the arm's far set.
 /// `KV_TAIL_ORACLE` adds an `O(n)` selection (`select_nth_unstable`) per query: `Q * n` comparisons in expectation.
 fn tail_group(
@@ -3423,6 +3451,32 @@ fn tail_group(
                     let s = f64::from(dot32(x.qh, key_row(cx, g, j))) * f64::from(SCALE);
                     x.sc[j] = s;
                     x.m = x.m.max(s);
+                }
+            }
+        }
+    }
+    if let Some(bits) = lowbit_bits().filter(|_| matches!(arm, Arm::Grp(..))) {
+        // Diagnostic: each query keeps the top-`c` far tokens by the `bits`-bit key score, `c` the count the page
+        // set selected. One quantised row is built per key and scored against every query of the block.
+        let mut sc2: Vec<Vec<f32>> = qs.iter().map(|x| vec![0f32; x.n]).collect();
+        let mut row = vec![0f32; HD];
+        for j in TL_SINK..nmax {
+            lowbit_row(key_row(cx, g, j), bits, &mut row);
+            for (x, s2) in qs.iter().zip(sc2.iter_mut()) {
+                if j < x.n {
+                    s2[j] = dot32(x.qh, &row);
+                }
+            }
+        }
+        for (x, s2) in qs.iter_mut().zip(&sc2) {
+            let nb = TL_SINK + far_pages(x.n - 1) * TL_P;
+            let c = x.sel[TL_SINK..nb].iter().filter(|&&b| b).count();
+            x.sel[TL_SINK..nb].fill(false);
+            if c > 0 {
+                let mut ord: Vec<usize> = (TL_SINK..nb).collect();
+                ord.select_nth_unstable_by(c - 1, |&a, &b| s2[b].total_cmp(&s2[a]));
+                for &j in &ord[..c] {
+                    x.sel[j] = true;
                 }
             }
         }
@@ -4260,7 +4314,10 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                         let used = (0..n)
                             .filter(|&j| (g * gs..(g + 1) * gs).any(|h| res[h][i].sel[j]))
                             .count();
-                        let meta = res[g * gs][i].meta + gmeta[i][g];
+                        let meta = match lowbit_bits().filter(|_| matches!(arm, Arm::Grp(..))) {
+                            Some(b) => n as f64 * f64::from(b) / 16.0,
+                            None => res[g * gs][i].meta + gmeta[i][g],
+                        };
                         *slot = (2 * used) as f64 / (2 * n) as f64 + meta / (2 * n) as f64;
                     }
                 });
