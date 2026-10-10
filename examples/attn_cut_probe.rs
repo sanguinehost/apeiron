@@ -3009,6 +3009,7 @@ impl Arm {
             Arm::Cert(e) => format!("a64-cert-{:.2}", kl(e)),
             Arm::Fix(b) => format!("a64-fix{b}"),
             Arm::Grp(b, r) => match sum_mode() {
+                Some(m) if sum_unit() != TL_P => format!("grp-fix{b}-r{r}-sum{m}-u{}", sum_unit()),
                 Some(m) => format!("grp-fix{b}-r{r}-sum{m}"),
                 None => format!("grp-fix{b}-r{r}"),
             },
@@ -3048,6 +3049,16 @@ fn sum_mode() -> Option<u8> {
     std::env::var("KV_TAIL_SUM")
         .ok()
         .and_then(|v| v.parse().ok())
+}
+
+/// `KV_TAIL_SUMU=u` sets the summary unit to `u` keys (default `TL_P`, a divisor of `TL_P`): a sub-page of `u` keys
+/// carries one mass and one mean value row.
+fn sum_unit() -> usize {
+    std::env::var("KV_TAIL_SUMU")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&u| u >= 1 && TL_P % u == 0)
+        .unwrap_or(TL_P)
 }
 
 struct TailCtx<'a> {
@@ -3302,6 +3313,8 @@ fn tail_group(
     } else {
         None
     };
+    let unit = sum_unit();
+    let nu = cx.npg * (TL_P / unit);
     let mut qs: Vec<Qry> = Vec::new();
     for i in ps {
         for h in hs.clone() {
@@ -3314,9 +3327,9 @@ fn tail_group(
                 n: p + 1,
                 sel,
                 sc: vec![0f64; p + 1],
-                ps: vec![0f64; far_pages(p)],
-                ps2: vec![0f64; far_pages(p)],
-                pw: vec![0f64; far_pages(p)],
+                ps: vec![0f64; far_pages(p) * (TL_P / sum_unit())],
+                ps2: vec![0f64; far_pages(p) * (TL_P / sum_unit())],
+                pw: vec![0f64; far_pages(p) * (TL_P / sum_unit())],
                 reads,
                 m: f64::NEG_INFINITY,
                 z: 0.0,
@@ -3363,8 +3376,8 @@ fn tail_group(
             for j in j0..(j0 + TAIL_KT).min(x.n) {
                 let w = (x.sc[j] - x.m).exp();
                 x.z += w;
-                if sum.is_some() && !x.sel[j] && j >= TL_SINK && j < TL_SINK + x.ps.len() * TL_P {
-                    let b = (j - TL_SINK) / TL_P;
+                if sum.is_some() && !x.sel[j] && j >= TL_SINK && j < TL_SINK + x.ps.len() * unit {
+                    let b = (j - TL_SINK) / unit;
                     x.ps[b] += x.sc[j];
                     x.ps2[b] += x.sc[j] * x.sc[j];
                     x.pw[b] += w;
@@ -3380,10 +3393,10 @@ fn tail_group(
     }
     let mut qs = qs;
     if let Some(mode) = sum {
-        let pf = TL_P as f64;
+        let pf = unit as f64;
         for x in &mut qs {
             for b in 0..x.ps.len() {
-                if x.sel[TL_SINK + b * TL_P] {
+                if x.sel[TL_SINK + b * unit] {
                     continue;
                 }
                 let mu = x.ps[b] / pf;
@@ -3396,7 +3409,7 @@ fn tail_group(
                     }
                 };
                 x.zs += mass;
-                let vb = &cx.vbar[(g * cx.npg + b) * HD..(g * cx.npg + b + 1) * HD];
+                let vb = &cx.vbar[(g * nu + b) * HD..(g * nu + b + 1) * HD];
                 for (o, &vv) in x.out.iter_mut().zip(vb) {
                     *o += mass * f64::from(vv);
                 }
@@ -3992,14 +4005,16 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
             boxes(f32::max, &mut mx);
             let mut vbar: Vec<f32> = Vec::new();
             if sum_mode().is_some() {
-                vbar = vec![0f32; nkv * npg * HD];
+                let unit = sum_unit();
+                let nu = npg * (TL_P / unit);
+                vbar = vec![0f32; nkv * nu * HD];
                 par_rows(&mut vbar, HD, PAR, |i0, ch| {
                     for (o, row) in ch.chunks_mut(HD).enumerate() {
-                        let (g, b) = ((i0 + o) / npg, (i0 + o) % npg);
-                        for j in TL_SINK + b * TL_P..TL_SINK + (b + 1) * TL_P {
+                        let (g, b) = ((i0 + o) / nu, (i0 + o) % nu);
+                        for j in TL_SINK + b * unit..TL_SINK + (b + 1) * unit {
                             let vr = &vp[(j * nkv + g) * HD..(j * nkv + g + 1) * HD];
                             for (e, &x) in row.iter_mut().zip(vr) {
-                                *e += x / TL_P as f32;
+                                *e += x / unit as f32;
                             }
                         }
                     }

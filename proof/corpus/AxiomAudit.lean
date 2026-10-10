@@ -39,6 +39,7 @@ import Perf.HattnT8Q8
 import Perf.HattnT8Q9
 import Perf.HattnT8Farb
 import Perf.HattnT8Sum
+import Perf.HattnT8SumU
 import Perf.Identity
 import Perf.AttnCoop
 import Perf.IdentityFloat
@@ -572,6 +573,11 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnT8Sum.s4_held
 #audit Perf.HattnT8Sum.mass_not_bottleneck
 #audit Perf.HattnT8Sum.summary_gain_and_loss
+#audit Perf.HattnT8SumU.u1_held
+#audit Perf.HattnT8SumU.u2_held
+#audit Perf.HattnT8SumU.u3_refuted
+#audit Perf.HattnT8SumU.u4_held
+#audit Perf.HattnT8SumU.no_unit_passes
 #audit Perf.HattnT8.bytes_7b_1m
 
 -- Row: `inf-resident-prefill-GEB633UfORCK7XSmzJifHd` (ATTN-COOP, P18): the SIMT shared-load
