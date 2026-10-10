@@ -48,6 +48,7 @@ import Perf.HattnT8TailProse
 import Perf.HattnT8LGroup
 import Perf.HattnT8Oracle
 import Perf.HattnT8Rerank
+import Perf.HattnT8LowBit
 import Perf.FacesPolarBound
 import Perf.Identity
 import Perf.AttnCoop
@@ -724,6 +725,15 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnT8Rerank.rr5_refuted
 #audit Perf.HattnT8Rerank.pool_limit
 #audit Perf.HattnT8Rerank.bytes_under_oracle
+#audit Perf.HattnT8LowBit.control_held
+#audit Perf.HattnT8LowBit.lb1_held
+#audit Perf.HattnT8LowBit.lb2_refuted
+#audit Perf.HattnT8LowBit.lb3_held
+#audit Perf.HattnT8LowBit.lb4_refuted
+#audit Perf.HattnT8LowBit.lb5_refuted
+#audit Perf.HattnT8LowBit.lb6_held
+#audit Perf.HattnT8LowBit.four_bit_matches_oracle
+#audit Perf.HattnT8LowBit.one_bit_halves_flat
 #audit Perf.FacesPolarBound.p1_refuted
 #audit Perf.FacesPolarBound.p2_held
 #audit Perf.FacesPolarBound.p3_held
