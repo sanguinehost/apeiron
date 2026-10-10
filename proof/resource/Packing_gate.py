@@ -7,7 +7,7 @@ Temporary manifests/wrappers call the production #[path] body; no substitute alg
 from pathlib import Path
 import argparse, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time
 ROOT = Path(__file__).resolve().parents[2]
-TOOLS = ROOT if (ROOT/'target/aeneas/aeneas').is_file() else Path('/home/socol/Workspace/apeiron')
+TOOLS = ROOT if (ROOT/'target/aeneas/aeneas').is_file() else Path(os.environ.get('APEIRON_TOOLS') or Path(__file__).resolve().parents[2])
 if __name__ == '__main__' and os.environ.get('PACKING_IN_LANE') != '1':
     deadline = str(time.time()+535)
     os.execvp('timeout', ['timeout','--kill-after=5','540s','flock','-w','530','/tmp/opencode/apeiron-lane.lock',
@@ -16,7 +16,7 @@ if __name__ == '__main__' and os.environ.get('PACKING_IN_LANE') != '1':
         'PACKING_DEADLINE='+deadline,sys.executable,str(Path(__file__).resolve()),*sys.argv[1:]])
 START = time.monotonic()
 RECORDS = []
-OUT = Path('/home/socol/oc-tmp/packing-resource')
+OUT = Path(tempfile.gettempdir()) / 'packing-resource'
 OUT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=OUT))
 

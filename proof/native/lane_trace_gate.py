@@ -12,9 +12,9 @@ from pathlib import Path
 import argparse, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time
 
 ROOT = Path(__file__).resolve().parents[2]
-MAIN = Path('/home/socol/Workspace/apeiron')
+MAIN = Path(os.environ.get('APEIRON_TOOLS') or Path(__file__).resolve().parents[2])
 OUT = Path('/tmp/opencode/native-lane-trace')
-SWARM_TMP = Path('/home/socol/oc-tmp/gpu-swarm')
+SWARM_TMP = Path(tempfile.gettempdir()) / 'gpu-swarm'
 
 if __name__ == '__main__' and os.environ.get('LANE_TRACE_IN_LANE') != '1':
     now = time.time()

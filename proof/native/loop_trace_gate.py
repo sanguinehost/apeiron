@@ -9,7 +9,7 @@ GRADE: generic model theorem only; Rust/source cost, optimization and GPU exclud
 from pathlib import Path
 import argparse, hashlib, json, os, re, signal, subprocess, sys, tempfile, time
 ROOT=Path(__file__).resolve().parents[2]
-MAIN=Path('/home/socol/Workspace/apeiron')
+MAIN=Path(os.environ.get('APEIRON_TOOLS') or Path(__file__).resolve().parents[2])
 OUT=Path('/tmp/opencode/native-loop-trace')
 if __name__=='__main__' and os.environ.get('LOOP_TRACE_IN_LANE')!='1':
     now=time.time()

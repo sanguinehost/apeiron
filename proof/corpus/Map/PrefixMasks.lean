@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-extract-DjjuLApKg3g7zaM9kRUkUE` (APEIRON-HT-EXTRACT residual): the AVX2 and scalar branches of `prefix_masks` agree.
+-- The AVX2 and scalar branches of `prefix_masks` agree.
 import ApeironWord
 import Mathlib.Data.BitVec
 import Mathlib.Tactic.IntervalCases

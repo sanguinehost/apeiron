@@ -1,4 +1,4 @@
-//! Exact-integer first-order sigma-delta (`APEIRON-ONEBIT-W8`; `docs/epics/ternary-hadamard.md`
+//! Exact-integer first-order sigma-delta (
 //! Part II).
 //!
 //! [`sd_binary_block`] walks a block of fixed-point weights `w` and emits the sign stream

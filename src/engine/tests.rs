@@ -1601,7 +1601,7 @@ fn qwen35_on_the_one_executor_decodes_llama_cpp_ids() {
         return;
     };
     let engine = Engine::open(&path).expect("load qwen35");
-    // "The capital of France is"; llama.cpp ece963f41 greedy ids (docs/evidence/qwen35-reference.md).
+    // "The capital of France is"; llama.cpp ece963f41 greedy ids.
     let prompt = [760u32, 6511, 314, 9338, 369];
     let llama = [11751u32, 13, 198, 760, 6511, 314, 9338, 369];
     assert_eq!(greedy_state(&engine, &prompt, 8, KernelMode::Q8Act), llama);
@@ -1616,7 +1616,10 @@ fn qwen35_on_the_one_executor_decodes_llama_cpp_ids() {
 #[test]
 #[ignore = "release-only: cargo test --release -- --ignored qwen35_long_prompt"]
 fn qwen35_long_prompt_on_the_one_executor() {
-    const PROMPT_IDS: &str = "oc-tmp/q35-t5/prompt2.ids";
+    const PROMPT_IDS: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/qwen35-prompt2.ids"
+    );
     let (Some(model), Some(ids)) = (model_path(QWEN35_08B_PATH), model_path(PROMPT_IDS)) else {
         eprintln!("skip qwen35_long_prompt: model or prompt ids absent");
         return;
@@ -1930,7 +1933,10 @@ fn qwen35_speculative_equals_greedy() {
 #[test]
 #[ignore = "release-only: cargo test --release -- --ignored qwen35_speculative_long"]
 fn qwen35_speculative_long_prompt() {
-    const PROMPT_IDS: &str = "oc-tmp/q35-t5/prompt2.ids";
+    const PROMPT_IDS: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/qwen35-prompt2.ids"
+    );
     let (Some(model), Some(ids)) = (model_path(QWEN35_08B_PATH), model_path(PROMPT_IDS)) else {
         return;
     };

@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (APEIRON-HT-INSERT, HT-INSERT-W17): totality of
+-- Totality of
 -- the executed resize.
 import Map.ExecutedInsertTotal
 open Aeneas Aeneas.Std Result

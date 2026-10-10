@@ -89,7 +89,7 @@ START = time.monotonic()
 RECORDS = []
 OUT = Path('/tmp/opencode/rowdot-admission')
 OUT.mkdir(parents=True, exist_ok=True)
-SCRATCH_ROOT = Path('/home/socol/oc-tmp/rowdot-admission')
+SCRATCH_ROOT = Path(tempfile.gettempdir()) / 'rowdot-admission'
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='gate-', dir=SCRATCH_ROOT))
 

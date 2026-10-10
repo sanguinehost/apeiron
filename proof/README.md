@@ -602,7 +602,7 @@ The identity is **path-independent**. `aeneas/src/dune` keeps `-g` in every OCam
 `.note.gnu.build-id` from the linked content; the raw product therefore differs at each build root.
 `bootstrap.sh` removes the symbol table, the debug sections and that note with
 `strip -R .note.gnu.build-id`, so the installed digest depends on source and toolchain only. Measured
-across three roots under `/home/socol/oc-tmp` — `aeneas-build`, `ti-rootB`, `aeneas-build-ctl` — the
+across three build roots at different paths the
 raw products give three digests (`6fde1a4dc7708d2f71d66da782bc9c21cfa6193a1d16900fddabfb59240d19de`,
 `acbfb9fada0bb5c1624675f72a1eff3e441c2dafe989cddec806c7f5af88bc2c`,
 `b8188aac4a63482a863b30f6b7408698b6b0c869e6abdaf7d36cf5dd9b231463`) and strip to the one pinned
@@ -701,7 +701,7 @@ proof/regen.sh --check          # prints: extraction is fresh
 ```
 
 - Verified against a fresh local clone of the published repository at HEAD `65e4693` with `target/`
-  absent, `APEIRON_AENEAS_BUILD_ROOT` set to `/home/socol/oc-tmp/ti-rootB` (not the step-1 root): the
+  absent, `APEIRON_AENEAS_BUILD_ROOT` set to a second build root (not the step-1 root): the
   chain exits 0 and `regen.sh --check` prints `extraction is fresh` (89 s wall clock; bootstrap 49 s,
   of which the aeneas `dune build` from an empty `_build` is ≈42 s, and regen 40 s). `bootstrap.sh`
   reuses pinned products already present at `--build-root`, so a machine that already holds the

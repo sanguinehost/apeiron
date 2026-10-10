@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe` (APEIRON-HT-READ): the executed capped probe.
+-- The executed capped probe.
 import Map.ExecutedBase
 import Count.Helpers
 open Aeneas Aeneas.Std Result

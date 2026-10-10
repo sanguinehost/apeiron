@@ -12,7 +12,7 @@ Lives on lane 1 (`/tmp/opencode/apeiron-lane-1.lock`), 540 s whole-invocation bu
 from pathlib import Path
 import argparse, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time
 ROOT = Path(__file__).resolve().parents[2]
-TOOLS = ROOT if (ROOT/'target/aeneas/aeneas').is_file() else Path('/home/socol/Workspace/apeiron')
+TOOLS = ROOT if (ROOT/'target/aeneas/aeneas').is_file() else Path(os.environ.get('APEIRON_TOOLS') or Path(__file__).resolve().parents[2])
 LANE = '/tmp/opencode/apeiron-lane-1.lock'
 BUDGET = 540
 INNER = 525
@@ -28,7 +28,7 @@ RECORDS = []
 # receipts and logs are kept under /tmp/opencode.
 OUT = Path('/tmp/opencode/fwht-resource')
 OUT.mkdir(parents=True, exist_ok=True)
-SCRATCH_ROOT = Path('/home/socol/oc-tmp/fwht-resource')
+SCRATCH_ROOT = Path(tempfile.gettempdir()) / 'fwht-resource'
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=SCRATCH_ROOT))
 

@@ -22,7 +22,7 @@ SOURCES = ('tools/dispatch/core.rs', 'proof/dispatch/extract/Cargo.toml',
 START = time.monotonic()
 PARENT_DEADLINE = os.environ.get("APEIRON_DISPATCH_DEADLINE_EPOCH")
 RECORDS = []
-BASE = Path('/home/socol/oc-tmp/rust-admission')
+BASE = Path(tempfile.gettempdir()) / 'rust-admission'
 BASE.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='proof-', dir=BASE))
 LOGS = Path('/tmp/opencode/rust-admission')

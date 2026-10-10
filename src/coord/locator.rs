@@ -12,8 +12,7 @@
 )]
 //! A sparse, face-indexed residue locator with a shared exact-identity byte trie.
 //!
-//! The locator is the physical half of the parabolic and hyperbolic faces in
-//! `docs/epics/algebra-native-addressing.md`. It is a standalone structure: it is not wired into
+//! The locator is the physical half of the parabolic and hyperbolic faces. It is a standalone structure: it is not wired into
 //! [`crate::table::Table`] and it changes no existing read or write.
 //!
 //! # Per-face indexing

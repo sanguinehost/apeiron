@@ -1,5 +1,4 @@
-// Row: `apeiron-extract-insert-4-7NjO1ZbPTGkqjZ3afaKeu` (APEIRON-EXTRACT-INSERT-MERGE).
-// Row: `apeiron-vendor-purge-B7P4Q0hmPKDkYftLsbxHIm` (APEIRON-VENDOR-PURGE): only the table core, its extraction reach and webfold's three names remain.
+// Only the table core, its extraction reach and webfold's three names remain.
 //! hashtrinity — a `K → V` table where the key is its own address.
 //!
 //! Not a wrapper over `std::HashMap`. One flat power-of-two array, one insert, and four merge

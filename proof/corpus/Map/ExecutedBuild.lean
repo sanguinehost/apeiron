@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (APEIRON-HT-INSERT, HT-BUILD): the executed build refines `Apeiron.Table.build`.
+-- The executed build refines `Apeiron.Table.build`.
 import Map.ExecutedResize
 open Aeneas Aeneas.Std Result
 

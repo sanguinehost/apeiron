@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe` (APEIRON-HT-INSERT): `resize` preserves the representation.
+-- `resize` preserves the representation.
 import Map.ExecutedInsert
 import Map.ExecutedResizeOrder
 open Aeneas Aeneas.Std Result

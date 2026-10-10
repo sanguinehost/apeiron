@@ -1,4 +1,4 @@
-//! Kernels of the decode-dominance plan (`docs/epics/decode-dominance.md`): the exact
+//! Decode kernels: the exact
 //! lookup-table row dot and the k-column projection. Each is tested bit for bit against
 //! `matvec_fixed` on the dequantized `quant_act` activation.
 

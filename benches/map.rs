@@ -1,5 +1,5 @@
-// Row: `apeiron-bench-restore-EaEUYoDjUS4nFW9F4W7iUP` (APEIRON-BENCH-RESTORE): the L3 instrument.
-// Row: `apeiron-beat-Bu3jZusxHvuMEJ8FOQ3C9O` (APEIRON-BEAT): both apeiron faces measured side by side.
+// The L3 instrument.
+// Both apeiron faces measured side by side.
 // The stored-key `Table` and the keyless `CoordMap` are two faces of one table; the bench prints both,
 // and the acceptance `--check` reads the `CoordMap` (the recommended face for injective coordinates).
 #![allow(

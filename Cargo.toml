@@ -38,8 +38,7 @@ apeiron-derive = { path = "derive", version = "0.1.0", optional = true }
 
 # The `hashtrinity` git dependency (the REG-1 incumbent) is removed. The count face's executed body
 # is the in-tree port (`src/hashtrinity/`, re-exported through `src/freq.rs`); the external crate was
-# the comparison baseline and nothing under `src/` imports it (owner direction, 2026-10-05: no
-# comparison to hashtrinity outside the HashDOS lane).
+# the comparison baseline and nothing under `src/` imports it.
 
 # Thread affinity for the Q8Act worker pool (`src/engine/chart/pool.rs`).
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -48,9 +47,9 @@ libc = "0.2"
 [dev-dependencies]
 # The REG-1 comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, rayon, rustc-hash,
 # twox-hash, wyhash, ahash, fnv), the harness-only `libc` (its consumer `examples/support/counter.rs`
-# is gone) and the `hashtrinity` baseline are removed with the comparison harness (owner direction,
-# 2026-10-05). `blake3`/`sha2` are the reference oracles for the crypto module's tests
-# (`src/hashtrinity/crypto.rs`, the icarus port target) and the bench/example digests.
+# is gone) and the `hashtrinity` baseline are removed with the comparison harness. `blake3`/`sha2`
+# are the reference oracles for the crypto module's tests (`src/hashtrinity/crypto.rs`) and the
+# bench/example digests.
 blake3 = "=1.8.7"
 sha2 = "=0.10.9"
 hashbrown = "=0.15.5"
@@ -67,7 +66,7 @@ harness = false
 
 # Examples are grouped by kind under `examples/`, so their target paths are declared here rather
 # than auto-discovered from the directory root. The comparison examples (smhasher, fold, the cost
-# probes, support, reg1) are removed with the comparison harness (owner direction, 2026-10-05).
+# probes, support, reg1) are removed with the comparison harness.
 
 # The ported SIMT kernels' GPU gates (need the `gpu` runtime feature).
 [[example]]

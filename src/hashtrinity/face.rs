@@ -1,4 +1,4 @@
-// Row: `apeiron-beat-Bu3jZusxHvuMEJ8FOQ3C9O` (APEIRON-BEAT lane 1): growth at load LOAD_NUM/LOAD_DEN = 3/4.
+// Growth at load LOAD_NUM/LOAD_DEN = 3/4.
 //! The std-shaped faces of [`Table`] — the surface a *mechanical* `HashMap` port lands on.
 //!
 //! [`Table::insert_with`] is the whole algebra: one probe, one merge, four faces. That is the right

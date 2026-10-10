@@ -1,8 +1,7 @@
-// Row: `apeiron-hashdos-cap-B8tcM9Je2duKmuNmBjvHzM` (APEIRON-HASHDOS-CAP): the deterministic overflow behind the probe cap.
+// The deterministic overflow behind the probe cap.
 //! The deterministic overflow store for [`Table`](super::Table) — one table-wide AVL tree in an
 //! arena, keyed by a key's *coordinate*.
 //!
-//! Row: `apeiron-hashdos-cap-B8tcM9Je2duKmuNmBjvHzM` (APEIRON-HASHDOS-CAP).
 //!
 //! The primary probe is capped at [`PROBE_CAP`](super::PROBE_CAP) slot examinations
 //! ([`Table::probe_limit`](super::Table)). A key whose whole capped prefix held no `EMPTY` slot and

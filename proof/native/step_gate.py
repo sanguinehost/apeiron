@@ -10,7 +10,7 @@ GRADE: pending exact positive, attributed registry mutation/restoration and clos
 from pathlib import Path
 import argparse, copy, hashlib, json, os, re, signal, subprocess, sys, tempfile, time
 ROOT=Path(__file__).resolve().parents[2]
-MAIN=Path('/home/socol/Workspace/apeiron')
+MAIN=Path(os.environ.get('APEIRON_TOOLS') or Path(__file__).resolve().parents[2])
 OUT=Path('/tmp/opencode/native-step-compatibility')
 if __name__=='__main__' and os.environ.get('STEP_IN_LANE')!='1':
     now=time.time()
@@ -253,8 +253,8 @@ def main():
     if selected!={'AENEAS_COMMIT':'505b6ca35217e7be5c96c3e2f8045edfbdf47291','AENEAS_TREE':'af23d5d9d866050c2158700cedab07501443bcdd','CHARON_COMMIT':'b104e24fea7d721b71e6c39fd70f26ff20bc0980','CHARON_TREE':'784a177101bbfd956047ac2ee1b7335d4c057b7b','AENEAS_TRANSLATOR_SHA256':'84f9c1d2e54d866ffc1b0c41091a47cc4ae189cc8671e9f1a3991c5b2610fcd1'}:raise RuntimeError('STEP_PIN_DRIFT')
     for p in [pins,*ROOT.joinpath('proof/native').glob('StepRefinement.lean'),ROOT/'proof/native/step_gate.py',ROOT/'proof/native/step_compat.patch',*ROOT.joinpath('proof/patches').glob('*.patch'),MAIN/'src/lib.rs',MAIN/'src/engine/kern/gemm.rs',MAIN/'src/engine/chart/mod.rs',MAIN/'src/engine/kern/pow2.rs',MAIN/'src/engine/value.rs']:bind(p)
     a=WORK/'aeneas';c=WORK/'charon'
-    archive('/home/socol/Workspace/aeneas',selected['AENEAS_COMMIT'],selected['AENEAS_TREE'],a,'aeneas')
-    archive('/home/socol/Workspace/charon',selected['CHARON_COMMIT'],selected['CHARON_TREE'],c,'charon')
+    archive(os.environ['AENEAS_SRC'],selected['AENEAS_COMMIT'],selected['AENEAS_TREE'],a,'aeneas')
+    archive(os.environ['CHARON_SRC'],selected['CHARON_COMMIT'],selected['CHARON_TREE'],c,'charon')
     # Verify every registered base-file digest before applying its registered patches.
     for label,dest in [('AENEAS',a),('CHARON',c)]:
         listing=re.search(label+r'_BASE_SHA256="([^"]+)"',s).group(1)
@@ -268,7 +268,7 @@ def main():
     if link.is_symlink():link.unlink()
     link.symlink_to(c,target_is_directory=True)
     # Existing OCaml cache is a private COW acceleration only; dune rechecks archived sources.
-    cow(Path('/home/socol/Workspace/aeneas/src/_build'),a/'src/_build','ocaml-cache-cow')
+    cow(Path(os.environ['AENEAS_SRC'])/'src/_build',a/'src/_build','ocaml-cache-cow')
     lean=a/'backends/lean';run(['rm','-rf',lean],ROOT,'private-lean-remove')
     cow(MAIN/'target/aeneas-model/lean',lean,'lean-model-cow')
     packages=lean/'.lake/packages'

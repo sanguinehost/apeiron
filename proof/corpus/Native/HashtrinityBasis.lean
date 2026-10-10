@@ -272,7 +272,7 @@ Refines, body by body: `lib.rs:565-572` (`home`), `lib.rs:552-560` (`coord_of`),
 `ringNormForm`, `ringNormForm_eq_upper_mul_lower`, `ringOfHalves_upper_lower` and the in-tree
 `Apeiron.NativeAddress.quadratic_split`.
 
-**Machine-code leg, `measured`.** `/home/socol/oc-tmp/ht-llvm/disasm.txt`
+**Machine-code leg, `measured`.** `disasm.txt`
 sha256 `61bc3365ac8c71d55b4935d215cc57b3fbd02b59427e1b1b1fc1e25c2352340c`, from the `4cc14471`
 build, `probe_get` at `18210`:
 
@@ -344,7 +344,7 @@ The H3_40 instance of this witness is the pair `(1, 0)`, `(0, 1)` — the same p
 `Apeiron.NativeAddress.h3_40_index_read_not_injective` in
 `proof/corpus/Native/HyperbolicFaceNullCell.lean`. That module is **not in the live tree** at this
 revision (`git ls-files proof/corpus/Native/` returns only `HyperbolicBase.lean` and
-`LocatorSpec.lean`; the module exists only in the scratch `/home/socol/oc-tmp/hyp-alg-land/tree`,
+`LocatorSpec.lean`; the module exists only in the scratch `tree`,
 from `APEIRON-HYP-ALGEBRA-W1`), so it could not be imported and this general-`σ` form was proved
 instead. Residual: when that module lands, `ht_h3_40_index_read_collapses_keys` is its
 specialisation and one of the two should be re-expressed in terms of the other. -/

@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe` (APEIRON-HT-READ): `SelectedFace` rebased onto the executed body.
+-- `SelectedFace` rebased onto the executed body.
 import Map.ExecutedRead
 import Map.ExecutedBuild
 import Map.ExecutedReadUncond

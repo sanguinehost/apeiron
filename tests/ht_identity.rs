@@ -206,7 +206,7 @@ fn fuse_sums_reserved_coordinate_counts() {
 /// and re-occupying the coordinate; this pins the value the probe leaves behind after a second write
 /// to the same key. Keys `0..8` are smaller than the slot count, so `home(c) = c` addresses a main
 /// slot directly (not a collision, the side store, or the overflow).
-// Row: `apeiron-beat-Bu3jZusxHvuMEJ8FOQ3C9O` (APEIRON-BEAT lane 4): the in-place last-write overwrite.
+// The in-place last-write overwrite.
 #[test]
 fn put_overwrites_an_existing_main_slot() {
     let mut t: Table<u64, i64> = Table::with_capacity(16);

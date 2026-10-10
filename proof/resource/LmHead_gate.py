@@ -19,7 +19,7 @@ O(B) source/tool/log bytes; external compilation is timed, not assigned constant
 from pathlib import Path
 import argparse, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time
 ROOT = Path(__file__).resolve().parents[2]
-TOOLS = ROOT if (ROOT/'target/aeneas/aeneas').is_file() else Path('/home/socol/Workspace/apeiron')
+TOOLS = ROOT if (ROOT/'target/aeneas/aeneas').is_file() else Path(os.environ.get('APEIRON_TOOLS') or Path(__file__).resolve().parents[2])
 if __name__ == '__main__' and os.environ.get('LM_HEAD_IN_LANE') != '1':
     deadline = str(time.time()+535)
     os.execvp('timeout', ['timeout','--kill-after=5','540s','flock','-w','530','/tmp/opencode/apeiron-lane-1.lock',
@@ -32,7 +32,7 @@ RECORDS = []
 # receipts and logs are kept under /tmp/opencode.
 OUT = Path('/tmp/opencode/lmhead-resource')
 OUT.mkdir(parents=True, exist_ok=True)
-SCRATCH_ROOT = Path('/home/socol/oc-tmp/lmhead-resource')
+SCRATCH_ROOT = Path(tempfile.gettempdir()) / 'lmhead-resource'
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=SCRATCH_ROOT))
 

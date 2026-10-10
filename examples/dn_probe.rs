@@ -1,5 +1,4 @@
-//! DECODE-ATTRIB T3 — isolated `ffn_down` GEMV carrier probe (prediction P57, row
-//! `decode-attrib-attribute-CisURujlQzOoUaNOGjR1Ms`).
+//! DECODE-ATTRIB T3 — isolated `ffn_down` GEMV carrier probe (prediction P57).
 //!
 //! One `ffn_down` projection on its real packed weights is timed in isolation, per carrier, on the
 //! device: the **Q6 two-plane** chart (`pack_q6_k_raw`) against the **Q8** re-chart

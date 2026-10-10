@@ -1,4 +1,4 @@
-// Row: `inf-resident-prefill-GEB633UfORCK7XSmzJifHd` (SPLITK-REAL): split-K down GEMM + reduction against the unsplit coopmat GEMM.
+// Split-K down GEMM + reduction against the unsplit coopmat GEMM.
 //! The split-K coopmat down GEMM (`coopmat_gemm_split_bytes`, grid z = splits) followed by
 //! `splitk_reduce_bytes`, on the real Qwen2.5-0.5B layer-0 `ffn_down` (Q8) and the first Q4_K `ffn_down`
 //! (Q4), `m = 896`, `k = 4864`, over a 512-token random int8 activation block.

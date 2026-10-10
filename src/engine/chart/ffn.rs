@@ -1,5 +1,5 @@
 //! Row-chunked Q8-activation projections and the chart-native FFN: the `KernelMode::Q8Act`
-//! executing path. Spec: `docs/epics/engine-throughput.md` (W2, T8).
+//! executing path.
 //!
 //! [`matvec_q8act_chunked`] is [`super::matvec_q8act`] over whole rows split into contiguous row
 //! chunks run on scoped threads, concatenated in row order; it is the Q8-activation twin of

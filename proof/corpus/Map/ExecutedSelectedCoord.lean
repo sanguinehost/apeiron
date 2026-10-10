@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe` (APEIRON-HT-READ): the `Regen<u64>` face's
+-- The `Regen<u64>` face's
 -- selected read, no `ok` premise.
 import Map.ExecutedSelected
 import Map.ExecutedReadCoordTotal

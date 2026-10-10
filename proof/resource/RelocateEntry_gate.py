@@ -12,7 +12,7 @@ from pathlib import Path
 import argparse, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time
 
 ROOT = Path(__file__).resolve().parents[2]
-TOOLS = ROOT if (ROOT / 'target/aeneas/aeneas').is_file() else Path('/home/socol/Workspace/apeiron')
+TOOLS = ROOT if (ROOT / 'target/aeneas/aeneas').is_file() else Path(os.environ.get('APEIRON_TOOLS') or Path(__file__).resolve().parents[2])
 LANE = '/tmp/opencode/apeiron-lane-3.lock'
 if __name__ == '__main__' and os.environ.get('RELOCATE_ENTRY_IN_LANE') != '1':
     deadline = str(time.time() + 535)
@@ -26,7 +26,7 @@ RECORDS = []
 # Scratch and control copies live off the tmpfs; only named receipts and logs go to /tmp/opencode.
 LOGS = Path('/tmp/opencode/relocate-entry-resource')
 LOGS.mkdir(parents=True, exist_ok=True)
-BASE = Path('/home/socol/oc-tmp/relocate-entry-resource')
+BASE = Path(tempfile.gettempdir()) / 'relocate-entry-resource'
 BASE.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='gate-', dir=BASE))
 

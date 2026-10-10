@@ -1323,7 +1323,7 @@ pub fn word_gram_fold_i8(
 
 // The exact-integer sigma-delta block (`src/learn/sigma_delta.rs`), reached by `#[path]` so the
 // extracted body is the real source. The module is dependency-free; the wrapper fixes nothing and
-// calls the real function. Row: `onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1` (W8).
+// calls the real function.
 #[path = "../../src/learn/sigma_delta.rs"]
 pub mod sigma_delta;
 

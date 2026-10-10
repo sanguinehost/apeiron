@@ -1,4 +1,4 @@
-// Row: `inf-decode-measure-E3CPdJamkoVAQSrj96zC6o` (INF-DECODE-MEASURE): the tg comparator against llama-bench.
+// The tg comparator against llama-bench.
 //! Whole-model GPU greedy decode throughput (`GpuDecode`), the apeiron side of the llama-bench `tg`
 //! comparison. Ported from fold `bedrock/examples/gpu_decode_bench.rs` (d497161f).
 //!

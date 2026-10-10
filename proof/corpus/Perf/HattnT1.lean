@@ -4,7 +4,7 @@ import Mathlib.Tactic
 # HATTN-T1: the registered predictions against the measured constants
 
 `docs/evidence/hattn-qk-onebit.md`: one prompt, Qwen2.5-0.5B Q4_K_M, T = 512, 336 heads
-(`/home/socol/oc-tmp/hattn-t1/run1.txt`; three runs identical). Every figure is a `model` input copied
+(`run1.txt`; three runs identical). Every figure is a `model` input copied
 from the table; no theorem here produces a measurement. KL in thousandths of a nat, TV in
 ten-thousandths, fractions in percent. rustc, numpy and the instrument's own correctness are outside
 every statement here.

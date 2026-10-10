@@ -20,7 +20,7 @@ The bare invocation runs the same check as `--check`; the flag names the registe
 from pathlib import Path
 import argparse, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time
 ROOT = Path(__file__).resolve().parents[2]
-TOOLS = ROOT if (ROOT / 'target/aeneas/aeneas').is_file() else Path('/home/socol/Workspace/apeiron')
+TOOLS = ROOT if (ROOT / 'target/aeneas/aeneas').is_file() else Path(os.environ.get('APEIRON_TOOLS') or Path(__file__).resolve().parents[2])
 if __name__ == '__main__' and os.environ.get('REGEN_RELOCATE_ENTRY_IN_LANE') != '1':
     deadline = str(time.time() + 535)
     os.execvp('timeout', ['timeout', '--kill-after=5', '540s', 'flock', '-w', '530',
@@ -33,7 +33,7 @@ START = time.monotonic()
 RECORDS = []
 OUT = Path('/tmp/opencode/regen-relocate-entry')
 OUT.mkdir(parents=True, exist_ok=True)
-SCRATCH = Path(tempfile.mkdtemp(prefix='scratch-', dir='/home/socol/oc-tmp'))
+SCRATCH = Path(tempfile.mkdtemp(prefix='scratch-', dir=tempfile.gettempdir()))
 MODULES = ['scalar.rs', 'cell.rs', 'coord.rs', 'table.rs']
 MUTATION_NEEDLE = 'reserved.resident.slots[index] = FlatSlot {\n                live: true,'
 MUTATION_REPLACEMENT = 'reserved.resident.slots[index] = FlatSlot {\n                live: false,'

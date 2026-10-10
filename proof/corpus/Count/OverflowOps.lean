@@ -1,4 +1,4 @@
--- Row: `apeiron-hashdos-cap-count-MUBqkA7OYTvluKSIRdbjC` (APEIRON-HASHDOS-CAP-COUNT): the overflow store as the count face uses it.
+-- The overflow store as the count face uses it.
 import ApeironWord
 import Count.Helpers
 import Count.FreqRep

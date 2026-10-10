@@ -9,7 +9,7 @@ the real crate with `--start-from crate::engine::attn::KvState::append`: no wrap
 formula, and the same body the production root names. The production root itself cannot reach it
 at this revision (`crate::engine::mixer` is not in its `engine` mirror and `attn::f32_core` does
 not resolve under `#[path]`), so the gate records that build as a diagnostic instead of depending
-on it. Every stage runs in a throwaway copy under `/home/socol/oc-tmp`; `src/` is never written.
+on it. Every stage runs in a throwaway copy under the system temporary directory (`$TMPDIR`); `src/` is never written.
 
 Stages: proof-artifact obligation -> identity -> extract-root diagnostic -> cargo build -> charon ->
 aeneas -> body presence -> `--prepare` write -> proof policy -> `lake build` -> `--controls`
@@ -19,11 +19,11 @@ absent, which it is: no committed revision exists to recover.
 from pathlib import Path
 import argparse, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time
 ROOT = Path(__file__).resolve().parents[2]
-TOOLS = ROOT if (ROOT/'target/aeneas/aeneas').is_file() else Path('/home/socol/Workspace/apeiron')
+TOOLS = ROOT if (ROOT/'target/aeneas/aeneas').is_file() else Path(os.environ.get('APEIRON_TOOLS') or Path(__file__).resolve().parents[2])
 LANE = '/tmp/opencode/apeiron-lane-1.lock'
 # Registered scratch location (docs/AGENTS.md failure register, tmpfs row): disposable copies
 # live off the tmpfs; only named receipts and logs are written under /tmp/opencode.
-WORK = Path('/home/socol/oc-tmp/kvappend-resource')
+WORK = Path(tempfile.gettempdir()) / 'kvappend-resource'
 LOGS = Path('/tmp/opencode/kvappend-resource')
 # The Lean spelling of the Charon path `apeiron::engine::attn::KvState::append`: the generated
 # `def` line must name that body. Checked on a `def` line, so an empty namespace or a dropped

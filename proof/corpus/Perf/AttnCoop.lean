@@ -5,7 +5,7 @@ import Perf.Chain
 
 `Perf.Roofline` and `Perf.Chain` give the resource carrier, the roofline lower bound
 `timeLB m r = max (fieldMax m r) (r.depth * m.latency)` and the ceiling arithmetic over `Nat`. This
-module instantiates them at the ATTN-COOP numbers (`/home/socol/oc-tmp/escalation/ATTN-COOP-PREDICTION.md`,
+module instantiates them at the ATTN-COOP numbers (`ATTN-COOP-PREDICTION.md`,
 committed prediction P18; measured outcome in `docs/evidence/perf-predictions.md` row P18), so the
 `open: no Lean row yet (coopmat attention unformalised)` obligation of P18 carries a theorem that
 builds.

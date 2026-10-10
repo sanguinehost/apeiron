@@ -3,7 +3,7 @@
 //! `std::thread::scope` spawns and joins its threads on every call. Measured on the i9-14900KF
 //! (empty scope, 2000 reps, `rustc -O`), that costs 86.5 µs at 8 threads and 291.6 µs at 32. At
 //! ≈169 projections per token this is 14.6–49.3 ms per token, while llama.cpp decodes a whole
-//! token in 8.8 ms (`docs/epics/decode-dominance.md`). This pool keeps its workers alive and hands
+//! token in 8.8 ms. This pool keeps its workers alive and hands
 //! them a job through one atomic store per worker, so a dispatch costs a store and the workers'
 //! wake-up is a spin on their own cache line.
 //!
@@ -77,7 +77,7 @@ const SPIN_BEFORE_PARK: Duration = Duration::from_millis(5);
 const PERF_WEIGHT: u64 = 100;
 /// Performance-to-efficiency single-core speed ratio ρ used when `APEIRON_ECORE_RATIO` is unset.
 ///
-/// Measured on the i9-14900KF by the scratch bench of `APEIRON-DOM-L8-T4E` (single-thread; P
+/// Measured on the i9-14900KF by a scratch bench (single-thread; P
 /// pinned to cpu 0, E pinned to cpu 16): the `Q5_0` 4864×896 chart projection ran 20.76 Gweight/s
 /// on P against 9.83 on E (ρ = 2.11) and the `PQ2_0` 4096×2048 lookup projection 46.34 against 13.45
 /// (ρ = 3.45); the geometric mean is 2.70. Overridden at runtime by `APEIRON_ECORE_RATIO` (a finite
@@ -419,8 +419,7 @@ impl Pool {
     }
 
     /// The process-wide pool. Its performance width is `APEIRON_THREADS` participants when that
-    /// variable parses, else 8 (llama.cpp's fastest setting on this host,
-    /// `docs/epics/decode-dominance.md`), capped at the pinnable performance cores. Efficiency
+    /// variable parses, else 8 (llama.cpp's fastest setting on this host), capped at the pinnable performance cores. Efficiency
     /// cores are ON by default when the host has them: with `APEIRON_ECORES` unset, all detected
     /// efficiency CPUs are used. `APEIRON_ECORES=0` restores the performance-cores-only pool,
     /// while an explicit `k` uses at most `k` efficiency workers (capped at pinnable efficiency

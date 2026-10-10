@@ -1,7 +1,5 @@
 //! The side store for reserved-coordinate keys (`EMPTY`/`TOMB`), and the merge guard every merge
 //! face runs under, moved out of `mod.rs` to keep it under the 1500-line bound.
-//! Rows: `apeiron-ht-identity-BvOqNvKHHfxZS7sswjc6j6` (APEIRON-HT-IDENTITY),
-//! `apeiron-ht-sound-HuFJWskE6qumuLwAlSJ0xi` (APEIRON-HT-SOUND).
 
 use super::*;
 

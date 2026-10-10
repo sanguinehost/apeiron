@@ -8,7 +8,7 @@ import Mathlib.Data.Nat.Basic
 far budget refreshed every 8 positions. `grp-fix2048-r8` reads every 64-key page's Quest bound at a refresh.
 `tree-sS` reads a fanout-16 tree of Quest boxes top-down, keeping `S` nodes per level; `clu-sS` reads
 `⌈n64/16⌉` k-means cluster boxes and the pages of the `S` best (`KV_TAIL_TREE=1`, output
-`/home/socol/oc-tmp/hattn-long/tree.out`). Measured figures are `model` inputs copied from that output: mean
+`tree.out`). Measured figures are `model` inputs copied from that output: mean
 whole-model KLD and bytes/dense in ten-thousandths, bound vectors per refresh in tenths, recall in thousandths,
 rel-L2 in units of `1e-8`. The cost model below is exact arithmetic over its stated counts. rustc, LLVM and the
 instrument are outside every statement.

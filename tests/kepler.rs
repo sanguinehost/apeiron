@@ -1,5 +1,5 @@
 //! Boundary, bit-exact, independent-oracle and falsifier tests for the
-//! canonical elliptic Kepler kernel (`APEIRON-KEPLER-W6-T1`).
+//! canonical elliptic Kepler kernel.
 //!
 //! The golden table is an independent reference, not produced by the kernel:
 //! 110-digit solutions of `E = M + e sin E` from the spike golden grid
@@ -837,7 +837,7 @@ fn naive_phase_accumulation_drifts_against_compensated() {
     );
 }
 
-/// Per-orbit plan (APEIRON-KEPLER-W8-T2): one `KeplerPlan` per eccentricity,
+/// Per-orbit plan: one `KeplerPlan` per eccentricity,
 /// reused across the whole sampled band, must reproduce `solve_kepler` bit for
 /// bit (anomaly, defect and error bound patterns, rounds and refusal
 /// variants), because the folding of the denominator split and the

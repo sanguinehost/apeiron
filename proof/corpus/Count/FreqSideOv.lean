@@ -1,4 +1,4 @@
--- Row: `apeiron-hashdos-cap-count-MUBqkA7OYTvluKSIRdbjC` (APEIRON-HASHDOS-CAP-COUNT): the count face's side store and overflow branches of `insert_with`.
+-- The count face's side store and overflow branches of `insert_with`.
 import ApeironWord
 import Count.Helpers
 import Count.FreqRep

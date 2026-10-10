@@ -1,4 +1,4 @@
-// Row: `inf-resident-prefill-GEB633UfORCK7XSmzJifHd` (INF-RESIDENT-PREFILL W1): fold `GpuPrefillStack` (gpu.rs:4448-5991).
+// Fold `GpuPrefillStack` (gpu.rs:4448-5991).
 //! `PrefillStack`: whole-prompt prefill on the device, ported from fold
 //! `bedrock/src/serve/gpu.rs:4448-5991` (`GpuPrefillStack`) onto [`super::model::GpuDecode`]'s
 //! resident weights and KV cache, with the batched-projection tile rule of `3886-4130`

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# pre-push: the gates that fit a push.
+#
+#   1. clippy  cargo clippy --workspace --all-features --all-targets --locked -- -D warnings
+#   2. tests   cargo test --locked --lib --test table
+#
+# The full set (`cargo test --workspace --all-features --locked`, `proof/regen.sh --check`,
+# `cd proof/corpus && lake build`) runs in CI and is not wired into a hook. Each step runs under
+# APEIRON_HOOKS_PUSH_STEP_BUDGET seconds (default 420); a step that reaches it fails the push.
+
+set -uo pipefail
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "pre-push: not inside a git work tree" >&2
+  exit 1
+}
+cd "$root" || exit 1
+
+step_budget=${APEIRON_HOOKS_PUSH_STEP_BUDGET:-420}
+status=0
+
+run_step() {
+  local name=$1
+  shift
+  local t0 code
+  t0=$(date +%s)
+  timeout "$step_budget" "$@"
+  code=$?
+  if (( code == 124 || code == 137 )); then
+    echo "pre-push: $name: FAIL budget ${step_budget}s exceeded" >&2
+    status=1
+  elif (( code != 0 )); then
+    echo "pre-push: $name: FAIL exit $code" >&2
+    status=1
+  else
+    echo "pre-push: $name: PASS $(( $(date +%s) - t0 ))s"
+  fi
+}
+
+run_step clippy cargo clippy --workspace --all-features --all-targets --locked -- -D warnings
+run_step cargo-test cargo test --locked --lib --test table
+
+if (( status != 0 )); then
+  echo "pre-push: REFUSED; nothing was pushed" >&2
+fi
+exit "$status"

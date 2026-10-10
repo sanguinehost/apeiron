@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe` (APEIRON-HT-READ): shared lemmas for the executed map face.
+-- Shared lemmas for the executed map face.
 import ApeironWord
 import Apeiron.Table.Basic
 import Mathlib.Data.BitVec

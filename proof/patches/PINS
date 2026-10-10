@@ -24,8 +24,7 @@
 # AENEAS_TRANSLATOR_SHA256 is the identity that translates this repository's `src/`; `regen.sh`
 # asserts it (fail-closed) and `bootstrap.sh` asserts all three before installing.
 #
-# REPINNED 2026-10-06 (path-independent): the three roots /home/socol/oc-tmp/aeneas-build,
-# /home/socol/oc-tmp/ti-rootB and /home/socol/oc-tmp/aeneas-build-ctl build the pinned sources to
+# REPINNED 2026-10-06 (path-independent): three build roots at different paths build the pinned sources to
 # three different raw `main.exe` digests (6fde1a4d…, acbfb9fa…, b8188aac…) that strip to one
 # 7b698238…; the earlier 6fde1a4d… pin named the raw product and reproduced only at its build path.
 # The same strip makes charon (a96627e9…) and charon-driver (3e1ae2c1…) equal across roots. Receipt:

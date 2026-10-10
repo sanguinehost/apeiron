@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe` (APEIRON-HT-READ): the `CoordMap` face's read totality.
+-- The `CoordMap` face's read totality.
 import Map.ExecutedRead
 import Map.ExecutedReadUncond
 import Map.ExecutedReadTotal

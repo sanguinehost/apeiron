@@ -1423,8 +1423,7 @@ fn prepared_rebuild_uses_materialized_payloads_and_relocates_without_merge() {
 }
 
 // ---------------------------------------------------------------------------
-// APEIRON-HT-ENCIRCLE-W1: the whole-table reduce, ported from incumbent
-// `fold hashtrinity/src/lib.rs:891` (`Table::encircle`).
+// The whole-table reduce, ported from the incumbent `hashtrinity` (`Table::encircle`).
 // ---------------------------------------------------------------------------
 
 /// Builds a `Cell<i64>`-valued table over `IdentityI64Home`, writing key `i` on `sigma`.
@@ -1694,7 +1693,7 @@ fn encircle_two_witnesses_disagree_so_neither_test_is_vacuous() {
 }
 
 // ---------------------------------------------------------------------------
-// APEIRON-HT-ENCIRCLE-ORACLE: an order oracle that is not the traversal under test.
+// An order oracle that is not the traversal under test.
 //
 // Every `encircle_*` test above builds its expected order from `Table::values_in_order`, which is
 // the traversal the tests measure. They therefore pin `reduce_all == values_in_order.fold` and not

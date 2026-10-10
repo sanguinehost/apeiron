@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe` (APEIRON-HT-READ): the executed map face's read refines `Apeiron.Table.get`.
+-- The executed map face's read refines `Apeiron.Table.get`.
 import Map.ExecutedRep
 open Aeneas Aeneas.Std Result
 

@@ -8,7 +8,7 @@ import WordRefinement
 /-!
 # Face-bound refinement of the extracted cell kernels (obligation 4)
 
-The port's obligation 4 (`/home/socol/oc-tmp/ht-port/receipt.md` §4) is the face-bound row of §3.1:
+The port's obligation 4 (`ht-port receipt` §4) is the face-bound row of §3.1:
 the *identity step* — that a cell is pinned by its readout — is stated with `σ < 0` in its
 hypotheses, per `face_bound` (each theorem's hypotheses fix `σ`'s sign). The elliptic reading (the
 multiplier is odd, hence a unit in `ZMod (2 ^ 64)`) is the identity step's admissible domain; it is

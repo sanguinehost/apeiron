@@ -1,5 +1,4 @@
 //! Exact integer Walsh–Hadamard rotation for the ternary/binary folded weights
-//! (`APEIRON-TERNARY-W1-T2`).
 //!
 //! A folded weight stores its activations in the Sylvester basis `H_{2^k} = H_2^{⊗k}` with
 //! `H_2 = [[1, 1], [1, −1]]`. Inference multiplies the activation by the stored sign vector, then

@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-insert-DRPGM5Xc97TdAjYF3GVYBs` (APEIRON-HT-INSERT, W36): the live-entry counter.
+-- The live-entry counter.
 --
 -- W35 split the per-insert step into a no-resize branch (`N' ≤ N+1`) and a resize branch
 -- (`N' ≤ 2·(N+N)+1`).  The resize branch is exponential because one merged counter bounds `Hov`,

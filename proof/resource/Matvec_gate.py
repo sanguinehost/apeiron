@@ -11,7 +11,7 @@ O(B) source/tool/log bytes; external compilation is timed, not assigned constant
 from pathlib import Path
 import argparse, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time
 ROOT = Path(__file__).resolve().parents[2]
-TOOLS = ROOT if (ROOT/'target/aeneas/aeneas').is_file() else Path('/home/socol/Workspace/apeiron')
+TOOLS = ROOT if (ROOT/'target/aeneas/aeneas').is_file() else Path(os.environ.get('APEIRON_TOOLS') or Path(__file__).resolve().parents[2])
 if __name__ == '__main__' and os.environ.get('MATVEC_IN_LANE') != '1':
     deadline = str(time.time()+535)
     os.execvp('timeout', ['timeout','--kill-after=5','540s','flock','-w','530','/tmp/opencode/apeiron-lane.lock',
@@ -21,7 +21,7 @@ if __name__ == '__main__' and os.environ.get('MATVEC_IN_LANE') != '1':
 START = time.monotonic()
 RECORDS = []
 # Disposable trees live outside the tmpfs: `/tmp` is a 32G tmpfs at 94% on this box.
-OUT = Path(os.environ.get('MATVEC_OUT') or '/home/socol/oc-tmp/matvec-resource')
+OUT = Path(os.environ.get('MATVEC_OUT') or str(Path(tempfile.gettempdir()) / 'matvec-resource'))
 OUT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=OUT))
 

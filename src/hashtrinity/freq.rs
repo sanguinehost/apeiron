@@ -1268,7 +1268,7 @@ impl<K: Coord, V> FreqMap<K, V> {
     /// (`GroupProbe.full_groups_bounded_by_occupancy`, the load inversion) — so a smaller footprint
     /// is strictly better: fewer cold lines on every out-of-cache access. The load knob is
     /// `LoadFactorFrontier`'s, not a security flag — the probe is always immune.
-    /// Row `apeiron-beat-Bu3jZusxHvuMEJ8FOQ3C9O` (APEIRON-BEAT lane 13): at `cap = 1e5`, 2^18 slots
+    /// At `cap = 1e5`, 2^18 slots
     /// (4 MB, past a 2 MB L2) took 0.855 L2 misses per hit read, 2^17 takes 0.221.
     pub fn with_capacity(cap: usize) -> Self {
         FreqMap {

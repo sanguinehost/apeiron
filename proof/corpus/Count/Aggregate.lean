@@ -1,4 +1,4 @@
--- Row: `p0-count-body-get-the-a-EF9n3OLyqnX2ouQQWL8w9C` (COUNT-BODY step 2d): the count table's representation and `count_aggregate`'s refinement.
+-- The count table's representation and `count_aggregate`'s refinement.
 import ApeironWord
 import Count.Helpers
 import Count.FreqAdd

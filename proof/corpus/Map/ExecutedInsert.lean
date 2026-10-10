@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe` (APEIRON-HT-INSERT): the executed insert refines `insertWith`.
+-- The executed insert refines `insertWith`.
 import Map.ExecutedInsertSlot
 import Map.ExecutedReadUncond
 open Aeneas Aeneas.Std Result

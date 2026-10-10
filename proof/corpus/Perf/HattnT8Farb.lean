@@ -5,7 +5,7 @@ import Perf.HattnT8
 
 `docs/evidence/hattn-decode-tail.md` (far-budget scaling section): the flat arm (`grp-fix<b>-r8`) and `clu-s4` at far
 budget `b ∈ {4096, 8192, 16384}` in place of 2048 (`KV_TAIL_FARB`), the 64 tail positions before `t = 524288` of the dump
-`/home/socol/oc-tmp/hattn-long/g7-1m`, instrument `attn_cut_probe.hd128qg`, one arm per invocation
+`g7-1m`, instrument `attn_cut_probe.hd128qg`, one arm per invocation
 (`g10-t524288-b<b>-a<arm>.out`). Measured figures are `model` inputs: mean whole-model KLD and bytes/dense in
 ten-thousandths. The `b = 2048` entries are `Perf.HattnT8Q9`'s. Predictions: `PREDICTIONS-T8-FARB.md`, sha256 `492f54aa…`.
 rustc, LLVM, the f32 dump kernels and the instrument are outside every statement; one prompt, one model.

@@ -20,7 +20,7 @@ bodies verbatim from `src/table/probe.rs`:
 | `table.get_prepared_shard` | 20594-20613 | 94:0-105:1 |
 
 This module proves the `some` half of the gapless-linear-insert read obligation of
-`/home/socol/oc-tmp/ht-port/receipt.md` §4 obligation 1, on those bodies and for every face `sigma`
+`ht-port receipt` §4 obligation 1, on those bodies and for every face `sigma`
 and every key: a returned `Some i` is certified to satisfy *both* conjuncts — `coords[i]` is the
 query's coordinate word `Region.coord_of address.place`, and slot `i` holds the merged value under
 the extracted full-key matcher `table.matches`.  No insert-path invariant is assumed; every

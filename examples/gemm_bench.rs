@@ -7,9 +7,7 @@
 //! dispatch = span / `INNER`; `--reps` rounds, arms and shapes interleaved with the arm order rotated
 //! per round. Reports mean and min–max µs, GMAC/s and int8 TOPS (2 ops per MAC), the paired
 //! per-round dp4a/arm and coopmat/arm ratios, and (without `--shape`) the pp512 implied by scaling
-//! the GEMM node times of `docs/evidence/gpu-prefill-vs-llamacpp.md` by the measured ratios.
-//!
-//! Board row `inf-resident-prefill-GEB633UfORCK7XSmzJifHd`.
+//! the GEMM node times of the pp512 receipt by the measured ratios.
 //!
 //! **Instrument.** `--grid FILE` compiles one arm per line (`NAME [src=PATH] [-DK=V ...]`) with
 //! `glslc` (`simt_nn::GLSLC_ARGS` plus the `-D`s) into `--spv-cache DIR`, keyed by the sha256 of the
@@ -51,10 +49,8 @@ use std::path::{Path, PathBuf};
 const TOKENS: u32 = 512;
 const INNER: u32 = 10;
 const DEFAULT_SRC: &str = "src/spirv/coopmat_gemm.comp";
-const DEFAULT_SPV_CACHE: &str = concat!(env!("HOME"), "/oc-tmp/bench/spv");
-const DEFAULT_LEDGER: &str = concat!(env!("HOME"), "/oc-tmp/bench/ledger.tsv");
 
-/// The receipt's pp512 profile (`docs/evidence/gpu-prefill-vs-llamacpp.md`, `PREFILL_PROFILE=1`,
+/// The receipt's pp512 profile (`PREFILL_PROFILE=1`,
 /// q4): GPU-active µs per call summed over 24 layers, and the whole call.
 const RECEIPT_TOTAL_US: f64 = 22156.0;
 const RECEIPT_TOK_S: f64 = 26587.8;
@@ -403,8 +399,8 @@ fn main() {
     let mut blob_dir: Option<String> = None;
     let mut variants_dir: Option<String> = None;
     let mut grid_file: Option<String> = None;
-    let mut spv_cache = PathBuf::from(DEFAULT_SPV_CACHE);
-    let mut ledger = PathBuf::from(DEFAULT_LEDGER);
+    let mut spv_cache = std::env::temp_dir().join("apeiron-bench/spv");
+    let mut ledger = std::env::temp_dir().join("apeiron-bench/ledger.tsv");
     let mut synth: Option<(usize, usize)> = None;
     while let Some(a) = args.next() {
         match a.as_str() {

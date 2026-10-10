@@ -4,7 +4,7 @@ import Perf.HattnT8
 # HATTN-T8 layer attribution of the 524288 failure on Qwen2.5-7B-Instruct-1M
 
 `docs/evidence/hattn-decode-tail.md` (layer attribution section): the flat arm `grp-fix2048-r8` at `t = 524288`, the 64
-tail positions of the dump `/home/socol/oc-tmp/hattn-long/g7-1m`, instrument `attn_cut_probe.hd128ql`
+tail positions of the dump `hattn-long/g7-1m`, instrument `attn_cut_probe.hd128ql`
 (`KV_TAIL_DENSE`, `KV_TAIL_SPARSE`, `layer.sh`, outputs `g13-t524288-<run>.out`). `D`: layers 14 and 21 dense, flat
 elsewhere. `Q1`..`Q4`: flat only in layers 0-6, 7-13, 14-20, 21-27, dense elsewhere. Mean whole-model KLD in
 ten-thousandths; `allFlat` is `Perf.HattnT8Q9`'s flat entry. Predictions: `PREDICTIONS-T8-LAYER.md`, sha256

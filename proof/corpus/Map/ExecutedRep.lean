@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe` (APEIRON-HT-READ): the executed map face's representation.
+-- The executed map face's representation.
 import Map.ExecutedOverflow
 open Aeneas Aeneas.Std Result
 

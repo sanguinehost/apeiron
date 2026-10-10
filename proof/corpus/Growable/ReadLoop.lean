@@ -1,6 +1,5 @@
--- Row: `apeiron-vv-v1-c-the-entry-BhpTnZsIcBnlxn1BVXRCcI` (APEIRON-VV-V1-C / READLOOP-HCOORD): hcoord is a THEOREM here; Read.lean's :417 cites it.
+-- Hcoord is a THEOREM here; Read.lean's :417 cites it.
 import Growable.Representation
--- Row: `apeiron-bridge-close-on-CCc44JmAFbofK6aRQJbemn` (APEIRON-READLOOP-PRODUCER).
 import Growable.ReadState
 import Growable.Resources
 import Lean

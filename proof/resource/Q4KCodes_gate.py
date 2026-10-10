@@ -9,7 +9,7 @@ narrow forwarding wrapper below is the only extraction root.
 from pathlib import Path
 import argparse, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time
 ROOT = Path(__file__).resolve().parents[2]
-TOOLS = ROOT if (ROOT/'target/aeneas/aeneas').is_file() else Path('/home/socol/Workspace/apeiron')
+TOOLS = ROOT if (ROOT/'target/aeneas/aeneas').is_file() else Path(os.environ.get('APEIRON_TOOLS') or Path(__file__).resolve().parents[2])
 REL = 'src/format/quant.rs'
 if __name__ == '__main__' and os.environ.get('Q4KCODES_IN_LANE') != '1':
     deadline = str(time.time()+535)
@@ -22,7 +22,7 @@ RECORDS = []
 OUT = Path('/tmp/opencode/q4kcodes-resource')
 OUT.mkdir(parents=True, exist_ok=True)
 # Heavy build trees live off the tmpfs: the record of the tmpfs-exhaustion lane failure.
-SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=Path(os.environ.get('Q4KCODES_SCRATCH_ROOT','/home/socol/oc-tmp'))))
+SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=Path(os.environ.get('Q4KCODES_SCRATCH_ROOT',tempfile.gettempdir()))))
 
 def digest(p):
     """O(B) file bytes, O(1) streaming scratch for file size B."""

@@ -1,0 +1,109 @@
+# Public cut manifest. `release/cut.py` is the only reader.
+# Everything not named in `strip` ships. A path ends in `/` for a directory, otherwise it is a file
+# or a glob (`git filter-repo --path-glob` syntax).
+
+# Removed from the tree and from every commit.
+strip = [
+  "docs/",
+  "artifacts/",
+  ".apeiron/",
+  ".githooks/",
+  "release/",
+  "AGENTS.md",
+  "tools/board/",
+  "tools/call-census/",
+  "tools/debt/",
+  "tools/dispatch/",
+  "tools/gate/",
+  "tools/gpu/",
+  "tools/hattn/",
+  "tools/joint/",
+  "tools/neural-adapt/",
+  "tools/policy-oracle/",
+  "tools/qwen35/",
+  "tools/rooting/",
+  "tools/hooks/",
+  "tools/check-assurance.py",
+  "tools/check-kepler.py",
+  "tools/vendor-neural.sh",
+  "proof/resource/",
+  "proof/dispatch/",
+  "proof/DispatchAdmission.lean",
+  "proof/controls/",
+  "proof/native/",
+  "*__pycache__/*",
+  "*.pyc",
+  "*.olean",
+  "*.ilean",
+  "*/.lake/*",
+  "target/",
+]
+
+# Added after the filter, from `release/public/<path>` to `<path>`.
+[substitute]
+"AGENTS.md" = "release/public/AGENTS.md"
+".githooks/pre-commit" = "release/public/.githooks/pre-commit"
+".githooks/commit-msg" = "release/public/.githooks/commit-msg"
+".githooks/pre-push" = "release/public/.githooks/pre-push"
+"tools/hooks/install.sh" = "release/public/tools/hooks/install.sh"
+
+# Applied to every blob in every commit (git filter-repo --replace-text syntax: literal, or
+# `regex:PATTERN==>REPLACEMENT`).
+text_map = [
+  "https://gitlab.tas.twn.network/lucas/apeiron/-/blob/==>https://github.com/sanguinehost/apeiron/blob/",
+  "git@gitlab.tas.twn.network:lucas/==>git@github.com:sanguinehost/",
+  "projects.tas.twn.network==>projects.example.invalid",
+  "gitlab.tas.twn.network==>git.example.invalid",
+  "tas.twn.network==>example.invalid",
+  "twn.systems==>example.invalid",
+  "/home/socol/oc-tmp/==>~/",
+  "/home/socol/Workspace/==>~/",
+  "/home/socol/==>~/",
+  "/home/socol==>~",
+  "-home-socol-==>-home-user-",
+  "/tmp/opencode/apeiron-lane.lock==>the lane lock",
+  "regex:/tmp/opencode/[A-Za-z0-9_./-]*[A-Za-z0-9_]==>a local scratch path",
+  # A pointer to a stripped internal document keeps its slug and drops the path.
+  "regex:`?docs/(?:epics|evidence|reviews|study|rfcs|archive|call-census)/([A-Za-z0-9_./-]*?[A-Za-z0-9_-])(?:\\.md)?(?::\\d+)?`?==>the unpublished \\1 note",
+  "regex:`?docs/(?:DESIGN|kernel-boundary|plan|roadmap|direction)(?:\\.md)?`?==>the unpublished design notes",
+  "regex:`?docs/references\\.bib`?==>the bibliography",
+]
+
+# Applied to every commit message.
+message_map = [
+  "regex:(?m)^board:.*\\n?==>",
+  "regex:\\brel-apeiron-[a-z-]+-[A-Za-z0-9]{20,24}\\b==>",
+  "regex:/home/socol/(?:oc-tmp/|Workspace/)?==>~/",
+]
+
+# `cut.py --check` fails when any of these matches a blob or a commit message of the cut.
+forbidden = [
+  "tas\\.twn",
+  "twn\\.systems",
+  "gitlab\\.tas",
+  "/home/socol",
+  "\\bsocol\\b",
+  "oc-tmp",
+  "(?i)operately",
+  "OPERATELY_API",
+  "\\brel-apeiron-[a-z-]+-[A-Za-z0-9]{20,24}\\b",
+  "^board:",
+  "/tmp/opencode",
+  "\\bdocs/(?:epics|evidence|reviews|study|rfcs|archive|call-census|contracts|templates)/",
+  "\\bdocs/(?:plan|roadmap|DESIGN|kernel-boundary|direction)\\.md",
+  "[Aa]ntigravity",
+  "\\bdeepseek\\b",
+  "(?i)\\bhold overrides",
+]
+
+# Files kept from the internal tree that the check reads for the public list.
+[expect]
+# Files that must exist in the cut (the substitutions and the public surface).
+present = [
+  "README.md", "LICENSE", "NOTICE", "SECURITY.md", "CONTRIBUTING.md", "AGENTS.md",
+  "Cargo.toml", "Cargo.lock", ".github/workflows/ci.yml",
+  ".githooks/pre-commit", ".githooks/commit-msg", ".githooks/pre-push",
+  "tools/hooks/install.sh", "tools/check-claims.py", "tools/book-check.py", "tools/book-test.sh",
+  "book/book.toml", "proof/README.md", "proof/regen.sh", "proof/canonical/lakefile.lean",
+  "proof/corpus/lakefile.lean",
+]

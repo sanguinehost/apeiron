@@ -1,4 +1,4 @@
-//! Row: `p0-count-body-get-the-a-EF9n3OLyqnX2ouQQWL8w9C` (P0 · COUNT-BODY step 1): the sequential count helpers and their oracle.
+//! The sequential count helpers and their oracle.
 //! The sequential steps of `FreqMap::count_par`: oracle equality, hand-written helper outputs,
 //! single-threaded composition, and the checked admission refusals.
 

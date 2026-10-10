@@ -12,7 +12,7 @@ from pathlib import Path
 import argparse, copy, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time
 
 ROOT = Path(__file__).resolve().parents[2]
-TOOLS = Path('/home/socol/Workspace/apeiron')
+TOOLS = Path(os.environ.get('APEIRON_TOOLS') or Path(__file__).resolve().parents[2])
 if __name__ == '__main__' and os.environ.get('NARROW_IN_LANE') != '1':
     os.execvp('timeout', ['timeout', '--kill-after=5', '540s', 'flock', '-w', '530',
         '/tmp/opencode/apeiron-lane.lock', 'systemd-run', '--user', '--scope', '-q',

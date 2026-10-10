@@ -1,4 +1,4 @@
--- Row: `apeiron-hashdos-cap-count-MUBqkA7OYTvluKSIRdbjC` (APEIRON-HASHDOS-CAP-COUNT): `insert_with`, `add` and the representation of the capped count face.
+-- `insert_with`, `add` and the representation of the capped count face.
 import ApeironWord
 import Count.Helpers
 import Count.FreqRep

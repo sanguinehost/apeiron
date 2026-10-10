@@ -6,7 +6,7 @@ import Growable.Schedule
 /-!
 # The ported sequential `build` fold: stream independence and the canonical link
 
-This is obligation 3 of `/home/socol/oc-tmp/ht-port/receipt.md` §4: the ported `build` fold is
+This is obligation 3 of `ht-port receipt` §4: the ported `build` fold is
 independent of the port's `home` and sentinel.  The generated bodies are the real sequential build
 of `proof/ApeironWord.lean`:
 

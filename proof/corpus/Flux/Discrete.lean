@@ -1,4 +1,3 @@
--- Row: `apeiron-untracked-corpus-D95BAcvaduxXKnnKfkKPyO` (APEIRON-UNTRACKED-CORPUS).
 /-
 Discrete flux pairing and the lattice divergence theorem (`docs/epics/magnetic-flux.md`).
 

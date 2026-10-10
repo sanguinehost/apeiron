@@ -6,7 +6,7 @@ import Perf.HattnT8
 `docs/evidence/hattn-decode-tail.md` (T8 on the 7B at 128k section): the HATTN-T8 arms unchanged (`grp-fix2048-r8`,
 `tree-s4`, `tree-s8`, `clu-s4`, `clu-s8`), the 64 tail positions before `t ∈ {32768, 65536, 131072}`, on
 Qwen2.5-7B-Instruct-1M Q4_K_M (28 layers, 28 query and 4 KV heads, head dim 128). The dump is the f32 GPU dump
-`/home/socol/oc-tmp/hattn-long/g7-128k` (`examples/gpu_dump.rs`, `KV_T=131072`, `KV_QTAIL=32768,65536,131072`),
+`g7-128k` (`examples/gpu_dump.rs`, `KV_T=131072`, `KV_QTAIL=32768,65536,131072`),
 instrument `attn_cut_probe.hd128q`, one `t` per invocation (`g7t-<t>.out`, `g7t-m2.out`). Measured figures are
 `model` inputs copied from those outputs: mean whole-model KLD and bytes/dense in ten-thousandths, bound vectors
 per refresh in tenths, recall in thousandths, rel-L2 in units of `1e-8`. The cost model is `Perf.HattnT8`'s.

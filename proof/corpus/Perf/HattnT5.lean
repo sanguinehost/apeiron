@@ -7,7 +7,7 @@ import Mathlib.Tactic.Linarith
 
 `docs/evidence/hattn-decode-tail.md`: Qwen2.5-0.5B Q4_K_M, the HATTN-T3 32,768-token dump as a dense prefill
 cache, the last 8 positions before `t ∈ {8192, 32768}` recomputed through all 24 layers once per arm
-(`KV_TAIL` mode of `examples/attn_cut_probe.rs`, output `/home/socol/oc-tmp/hattn-long/tail.out`). Every figure
+(`KV_TAIL` mode of `examples/attn_cut_probe.rs`, output `tail.out`). Every figure
 is a `model` input copied from that output; no theorem here produces a measurement. KLD and per-head KL in
 ten-thousandths of a nat, reads in ten-thousandths of `t`, rel-L2 in units of `1e-8`. rustc, LLVM and the
 instrument are outside every statement.

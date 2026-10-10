@@ -1,4 +1,4 @@
-// Row: `apeiron-bench-restore-EaEUYoDjUS4nFW9F4W7iUP` (APEIRON-BENCH-RESTORE), part 2: the count
+// Part 2: the count
 // face instrument. Measures `apeiron::freq::FreqMap<u64, i64>` (the parallel bucketed group-by
 // `count_par`, and the sequential `add` loop) against `hashbrown`+FxHasher and `hashbrown`+XXH3.
 // Two columns: `count` (build the counts over n keys with d distinct) and `lookup` (read back every

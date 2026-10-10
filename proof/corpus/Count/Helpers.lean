@@ -1,4 +1,4 @@
--- Row: `p0-count-body-get-the-a-EF9n3OLyqnX2ouQQWL8w9C` (COUNT-BODY step 2b): the extracted count helpers refine their specifications.
+-- The extracted count helpers refine their specifications.
 import ApeironWord
 import Mathlib.Data.BitVec
 import Mathlib.Tactic.IntervalCases

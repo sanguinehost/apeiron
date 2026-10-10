@@ -419,7 +419,7 @@ theorem chain_fuse_pair_saving (c L : Nat) (hc : 0 < c) (hL : 1 ≤ L) :
 The capacities and demands below are declared `model` inputs, not measurements: `c = 865` bytes/ns
 (streaming read), `L = 4000` ns (the 0.9 MB `o` one-pass small-GEMV floor), and the per-token
 dispatch bytes from `docs/evidence/perf-predictions.md` P2 provenance and the `DECODE-ATTRIB`
-receipt at `/home/socol/oc-tmp/escalation/DECODE-ATTRIB-RECEIPT.md`: `qkv = 1_160_000`,
+receipt at `DECODE-ATTRIB-RECEIPT.md`: `qkv = 1_160_000`,
 `o = 900_000`, `gu = 9_800_000`, `dn = 3_800_000`, `lm_head = 153_200_000`. Rope, flash attention
 and the norms carry `W = 0`, so each costs exactly the floor `L`.
 -/

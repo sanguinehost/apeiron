@@ -1,5 +1,4 @@
--- Row: `p0-readloop-green-the-so-HieItT7wKt4SKVXrMBgWgF` (P0 · READLOOP: green the
--- corpus so `AxiomAudit.olean` exists and its rows evaluate). With `Growable/Read` green (`d6197bc`)
+-- Green the corpus so `AxiomAudit.olean` exists and its rows evaluate). With `Growable/Read` green (`d6197bc`)
 -- and the `Flux.Discrete` root registered, `lake build AxiomAudit` is exit 0 (9089 jobs, zero
 -- `sorryAx`). `SpillCoordPayloadSync` is threaded here as the one named premise the composed read
 -- carries — the same premise `b0191c8` landed on the read path, not a new weakening.

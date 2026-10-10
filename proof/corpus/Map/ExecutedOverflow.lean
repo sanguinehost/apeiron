@@ -1,4 +1,4 @@
--- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe` (APEIRON-HT-READ): the executed overflow tree's read.
+-- The executed overflow tree's read.
 import Map.ExecutedProbe
 open Aeneas Aeneas.Std Result
 
