@@ -731,8 +731,12 @@ fn run(path: &str) -> Result<bool, Box<dyn Error>> {
     let ps = prompts(&bpe)?;
     let np = ps.len();
     let (lc, lb, lw) = lemma_selftest(100_000);
-    println!("lemma self-test (moment_remainder on f64): {lc} node-moment cases, {lb} violations, worst realised/bound {lw:.4}");
-    println!("model {path}\nlayers {nl} heads {nh} kv {nkv} hd {HD} n_embd {d}; prompts {np} x {T} tokens");
+    println!(
+        "lemma self-test (moment_remainder on f64): {lc} node-moment cases, {lb} violations, worst realised/bound {lw:.4}"
+    );
+    println!(
+        "model {path}\nlayers {nl} heads {nh} kv {nkv} hd {HD} n_embd {d}; prompts {np} x {T} tokens"
+    );
     for (i, ids) in ps.iter().enumerate() {
         let bytes: Vec<u8> = ids.iter().flat_map(|x| x.to_le_bytes()).collect();
         let h = apeiron::sha256::sha256(&bytes);
@@ -978,9 +982,13 @@ fn run(path: &str) -> Result<bool, Box<dyn Error>> {
         }
     }
     println!("\n== certified cut at tolerance eps (absolute error <= eps*V), per query ==");
-    println!("cert = smallest |K| with 2|D|e^-delta <= eps (delta = gap of the first dropped key); oracle = smallest prefix of the score order with realised error <= eps*V (not certifiable)");
+    println!(
+        "cert = smallest |K| with 2|D|e^-delta <= eps (delta = gap of the first dropped key); oracle = smallest prefix of the score order with realised error <= eps*V (not certifiable)"
+    );
     for (ei, eps) in EPS.iter().enumerate() {
-        println!("-- eps {eps:e}   (mean |K|/t [min,max over pairs]; share of queries with cert |K|/t < 0.25)");
+        println!(
+            "-- eps {eps:e}   (mean |K|/t [min,max over pairs]; share of queries with cert |K|/t < 0.25)"
+        );
         print!("{:<8}", "");
         for n in BUCKET_NAMES {
             print!(" {n:<26}");
@@ -1016,8 +1024,12 @@ fn run(path: &str) -> Result<bool, Box<dyn Error>> {
             println!();
         }
     }
-    println!("\n== block-box certificate (no key read for a pruned block): block {BLK}, read key 0 + last 64 keys, bound the rest by per-dimension min/max boxes ==");
-    println!("V = value-side |K'|/t; K = key-side reads incl. 2 box vectors per checked block, in key-vector units / t");
+    println!(
+        "\n== block-box certificate (no key read for a pruned block): block {BLK}, read key 0 + last 64 keys, bound the rest by per-dimension min/max boxes =="
+    );
+    println!(
+        "V = value-side |K'|/t; K = key-side reads incl. 2 box vectors per checked block, in key-vector units / t"
+    );
     for (bi, bd) in BDELTAS.iter().enumerate() {
         println!("-- delta {bd}");
         print!("{:<8}", "");
@@ -2448,7 +2460,9 @@ fn run_b4(
             c.rsum / c.n
         }
     };
-    println!("\ncut only (no nodes), read/t mean [min,max] over (layer,head,query); rows adaptive delta / grid delta");
+    println!(
+        "\ncut only (no nodes), read/t mean [min,max] over (layer,head,query); rows adaptive delta / grid delta"
+    );
     for ei in 0..3 {
         for (nm, w) in [("adapt", 0), ("grid", 1)] {
             print!("eps {:e} {nm:<5}", EPS[ei]);
@@ -2469,7 +2483,9 @@ fn run_b4(
         (0usize, "C (nodes cost node_cost(p)/128)"),
         (1, "F (node cost = 1 key-equivalent; spread-only)"),
     ] {
-        println!("\n== mode {mname}: read_equiv/t, mean [min,max]; exp = growth exponent of mean read_equiv in t ==");
+        println!(
+            "\n== mode {mname}: read_equiv/t, mean [min,max]; exp = growth exponent of mean read_equiv in t =="
+        );
         for ei in 0..3 {
             for pi in 0..3 {
                 println!("-- eps {:e}, p={}", EPS[ei], PS[pi]);
@@ -2508,7 +2524,9 @@ fn run_b4(
             }
         }
     }
-    println!("\n== summarised share (nodes' keys / non-kept keys) and share of queries using >= 1 node, mode C, eps 1e-3, p=2 and p=3, mean over (layer,head,query) ==");
+    println!(
+        "\n== summarised share (nodes' keys / non-kept keys) and share of queries using >= 1 node, mode C, eps 1e-3, p=2 and p=3, mean over (layer,head,query) =="
+    );
     for pi in [1usize, 2] {
         println!("-- p={}", PS[pi]);
         for g in 0..NG {
@@ -3089,7 +3107,7 @@ fn sum_unit() -> usize {
     std::env::var("KV_TAIL_SUMU")
         .ok()
         .and_then(|v| v.parse().ok())
-        .filter(|&u| u >= 1 && TL_P % u == 0)
+        .filter(|&u| u >= 1 && TL_P.is_multiple_of(u))
         .unwrap_or(TL_P)
 }
 
@@ -3136,6 +3154,9 @@ struct TailOut {
     kept: f64,
     viol: bool,
     sel: Vec<bool>,
+    /// `KV_TAIL_POS` proxies from the page bounds: `ln(1 + B/Z_read)` with `B` the bound mass of the unread far
+    /// pages, and the best unread bound minus the best read score (both in score units); zero when unset.
+    prox: [f64; 2],
 }
 
 /// One tail query of one head under arm `arm`. Keys read count a page bound as 2 vectors and a
@@ -3249,6 +3270,7 @@ fn tail_head(cx: &TailCtx, arm: Arm, qh: &[f32], g: usize, p: usize, given: &[us
         kept,
         viol: matches!(arm, Arm::Cert(eps) if kept < 1.0 - eps - 1e-6),
         sel,
+        prox: [0.0; 2],
     }
 }
 
@@ -3423,7 +3445,6 @@ fn tail_group(
             }
         }
     }
-    let mut qs = qs;
     if let Some(mode) = sum {
         let pf = unit as f64;
         for x in &mut qs {
@@ -3448,8 +3469,14 @@ fn tail_group(
             }
         }
     }
+    let want_pos = std::env::var_os("KV_TAIL_POS").is_some();
     qs.into_iter()
         .map(|x| {
+            let prox = if want_pos {
+                unread_proxy(cx, &x.sel, x.qh, g, x.m, x.zs, &x.sc)
+            } else {
+                [0.0; 2]
+            };
             let kept = x.zs / x.z;
             let o = x.out.iter().map(|&o| (o / x.zs) as f32).collect();
             (
@@ -3461,11 +3488,44 @@ fn tail_group(
                     meta: 0.0,
                     kept,
                     viol: false,
+                    prox,
                     sel: x.sel,
                 },
             )
         })
         .collect()
+}
+
+/// The deployable page-bound proxies of one query: `ln(1 + B/Z_read)` with `B = sum 64 exp(u_b - m)` over the
+/// far pages not read and `Z_read` the read softmax mass (`zs`, relative to the maximum score `m`), and the best
+/// unread bound minus the best read score. Both use only page bounds and read scores.
+///
+/// Complexity: time `O(n64 HD)` multiply-adds (one bound per far page), space `O(1)`.
+fn unread_proxy(
+    cx: &TailCtx,
+    sel: &[bool],
+    qh: &[f32],
+    g: usize,
+    m: f64,
+    zs: f64,
+    sc: &[f64],
+) -> [f64; 2] {
+    let n = sc.len();
+    let n64 = far_pages(n - 1);
+    let (mut bmass, mut bmax) = (0f64, f64::NEG_INFINITY);
+    for b in 0..n64 {
+        if sel[TL_SINK + b * TL_P] {
+            continue;
+        }
+        let u = page_bound(cx, qh, g, b);
+        bmass += TL_P as f64 * (u - m).exp();
+        bmax = bmax.max(u);
+    }
+    let best_read = (0..n)
+        .filter(|&j| sel[j])
+        .map(|j| sc[j])
+        .fold(f64::NEG_INFINITY, f64::max);
+    [(1.0 + bmass / zs).ln(), bmax - best_read]
 }
 
 /// `Grp(b, r)` page sets for every tail position `i` and KV head `g`: at `i % r == 0` the far pages
@@ -3984,6 +4044,8 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
         let mut hkl: Vec<Vec<f64>> = vec![Vec::new(); na];
         let mut rec: Vec<Vec<f64>> = vec![Vec::new(); na];
         let mut rmeta: Vec<Vec<f64>> = vec![Vec::new(); na];
+        // Per arm and tail position: sums of head KL, bound-mass proxy and gap proxy, their maxima, and the count.
+        let mut pos: Vec<Vec<[f64; 7]>> = vec![vec![[0.0; 7]; nt]; na];
         let mut viol = 0usize;
         let mut ctl = 0f64;
         for l in 0..nl {
@@ -4173,6 +4235,14 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                         att[(i * nh + h) * HD..(i * nh + h + 1) * HD].copy_from_slice(&to.o);
                         reads[a].push(to.reads / (pre + i + 1) as f64);
                         hkl[a].push(-to.kept.ln());
+                        let e = &mut pos[a][i];
+                        e[0] += -to.kept.ln();
+                        e[1] += to.prox[0];
+                        e[2] = e[2].max(to.prox[0]);
+                        e[3] += to.prox[1];
+                        e[4] = e[4].max(to.prox[1]);
+                        e[5] += 1.0;
+                        e[6] = e[6].max(-to.kept.ln());
                         viol += usize::from(to.viol);
                     }
                 }
@@ -4203,7 +4273,9 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                 .collect::<Vec<f64>>()
         };
         let argmax = |r: &[f32]| (0..r.len()).max_by(|&a, &b| r[a].total_cmp(&r[b])).unwrap();
-        println!("\n== t={t}: dense-tail control max rel-L2 (q,k,v, {nl} layers) {ctl:.3e}; certification violations {viol} ==");
+        println!(
+            "\n== t={t}: dense-tail control max rel-L2 (q,k,v, {nl} layers) {ctl:.3e}; certification violations {viol} =="
+        );
         let dense_bytes = arms
             .iter()
             .zip(&bytes)
@@ -4263,6 +4335,44 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                 rmeta[a].iter().sum::<f64>() / rmeta[a].len().max(1) as f64,
                 rec[a].iter().sum::<f64>() / rec[a].len().max(1) as f64,
             );
+        }
+        if std::env::var_os("KV_TAIL_POS").is_some() {
+            for a in 0..na {
+                for i in 0..nt {
+                    let rd = &logits[i * lno..(i + 1) * lno];
+                    let ra = &logits[(a * nt + i) * lno..(a * nt + i + 1) * lno];
+                    let (pd, pa) = (lsm(rd), lsm(ra));
+                    let kld: f64 = pd.iter().zip(&pa).map(|(&x, &y)| x.exp() * (x - y)).sum();
+                    let e = pos[a][i];
+                    let ent = |lp: &[f64]| -lp.iter().map(|&x| x.exp() * x).sum::<f64>();
+                    let margin = |lp: &[f64]| {
+                        let (mut t1, mut t2) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+                        for &x in lp {
+                            if x > t1 {
+                                t2 = t1;
+                                t1 = x;
+                            } else if x > t2 {
+                                t2 = x;
+                            }
+                        }
+                        t1 - t2
+                    };
+                    println!(
+                        "POS {} {i} kld {kld:.5} hkl {:.5} p_mean {:.5} p_max {:.4} d_mean {:.4} d_max {:.4} hkl_max {:.4} ent_arm {:.4} marg_arm {:.4} ent_dense {:.4} marg_dense {:.4}",
+                        arms[a].name(),
+                        e[0] / e[5],
+                        e[1] / e[5],
+                        e[2],
+                        e[3] / e[5],
+                        e[4],
+                        e[6],
+                        ent(&pa),
+                        margin(&pa),
+                        ent(&pd),
+                        margin(&pd)
+                    );
+                }
+            }
         }
         println!("elapsed {:.0}s", t0.elapsed().as_secs_f64());
     }
