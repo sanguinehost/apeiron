@@ -10,7 +10,7 @@ Multiplication is parsed inside addition, so `1 + 2 * 3` returns `add (lit 1) (m
 (lit 3))`. Each successful result carries the exact unconsumed suffix. Three independent grammar
 relations state the primary, multiplicative and additive tiers.
 
-This model covers natural literals, nested parentheses, multiplication and addition. Slang token
+This model covers natural literals, nested parentheses, multiplication and addition. Iota token
 arenas, machine integers and the production parser remain separate refinement obligations.
 -/
 

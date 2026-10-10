@@ -34,8 +34,8 @@ own laws state.
 ## What this settles, and what it does not
 
 It settles that song's cell laws follow from theorems here. It does **not** settle that the
-compiled Slang program computes what its laws say: that is the refinement gap song records at
-`CAVEATS.md`, and it needs a Slang semantics or a certificate replay, not a theorem. `song`'s own
+compiled Iota program computes what its laws say: that is the refinement gap song records at
+`CAVEATS.md`, and it needs an Iota semantics or a certificate replay, not a theorem. `song`'s own
 terminal invariant is that the prover proves everything, so nothing here is load-bearing inside
 song; this is the spec side agreeing with the decider side, checked.
 -/

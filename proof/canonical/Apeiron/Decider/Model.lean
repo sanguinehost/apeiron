@@ -33,7 +33,7 @@ composed along an induction on the fuel, and each phase is rooted in the file th
 
 ## The refinement gap, stated
 
-This model and the compiled Slang program are two objects. Nothing here says that
+This model and the compiled Iota program are two objects. Nothing here says that
 `../song/src/prover/cone/ncone0.slang`, once `songc` has lowered it to machine code, computes what
 this fold computes. Three things stand between them and none of them is a theorem:
 
@@ -49,7 +49,7 @@ this fold computes. Three things stand between them and none of them is a theore
   emitted certificates through `checkCert`. That is evidence about this model, not about the
   compiled program.
 
-Closing the gap needs a semantics for Slang, which is `../song`'s E14, not a theorem here. What
+Closing the gap needs a semantics for Iota, which is `../song`'s E14, not a theorem here. What
 this file narrows is what rests on the gap: with the certificate path proved, an UNSAT is only as
 trustworthy as `certcheck`'s own compilation, not as trustworthy as `ncone0`'s.
 -/

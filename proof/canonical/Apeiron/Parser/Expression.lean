@@ -11,7 +11,7 @@ The input `[lparen, lparen, nat 7, rparen, rparen]` has one meaning and one rema
 still be consumed. `Derives` records both facts independently of the executable parser.
 
 This first grammar contains natural literals and grouping. Addition, multiplication, precedence,
-Slang token arenas and production-parser refinement are outside the theorem statements in this
+Iota token arenas and production-parser refinement are outside the theorem statements in this
 file.
 -/
 

@@ -4,8 +4,8 @@ Canonical definition of the bounded authorization decision core
 and fold toolkit the laws need. Lean core only, no external libraries; every
 declaration here is constructive.
 
-The 64-bit meet/join are the fuel-bounded `bitwise` of `Slang.Word.bitwise`
-(proof/corpus/Slang/Word.lean:37-50), not core `Nat.land`/`Nat.lor`: the latter
+The 64-bit meet/join are the fuel-bounded `bitwise` of `Iota.Word.bitwise`
+(proof/corpus/Iota/Word.lean:37-50), not core `Nat.land`/`Nat.lor`: the latter
 depend on `propext` under Lean 4.31.0, which would put the definitions outside
 the empty axiom cone.
 -/
