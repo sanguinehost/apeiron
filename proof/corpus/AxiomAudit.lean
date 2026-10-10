@@ -54,6 +54,7 @@ import Perf.HattnT8Cells
 import Perf.HattnT3Train
 import Perf.HattnHotCold
 import Perf.PubVerifyCpu
+import Perf.OnebitW9
 import Perf.FacesPolarBound
 import Perf.Identity
 import Perf.AttnCoop
@@ -785,6 +786,14 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.PubVerifyCpu.within_one_percent
 #audit Perf.PubVerifyCpu.under_point_two_percent
 #audit Perf.PubVerifyCpu.prefill_and_main_agree
+#audit Perf.OnebitW9.control_zero
+#audit Perf.OnebitW9.writer_matches_llama
+#audit Perf.OnebitW9.q1_fewest_bits
+#audit Perf.OnebitW9.p1_had_beats_q1_twelvefold
+#audit Perf.OnebitW9.p1_iq1_beats_had
+#audit Perf.OnebitW9.p1_order
+#audit Perf.OnebitW9.p2_order
+#audit Perf.OnebitW9.p2_not_usable
 #audit Perf.FacesPolarBound.p1_refuted
 #audit Perf.FacesPolarBound.p2_held
 #audit Perf.FacesPolarBound.p3_held
