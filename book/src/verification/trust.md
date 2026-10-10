@@ -21,7 +21,7 @@ The evidence reaches the extracted Rust bodies and stops at the layers below.
 | Lean kernel | trusted by construction |
 | Aeneas and Charon | pinned; a translation bug is a wrong premise |
 | `proof/patches/aeneas-lean-model.patch` | the external model definitions, listed in [Extraction](extraction.md) |
-| axiom cone | `propext`, `Classical.choice`, `Quot.sound` for the Rust bridge and the canonical corpus; the empty set for the Slang chain |
+| axiom cone | `propext`, `Classical.choice`, `Quot.sound` for the Rust bridge and the canonical corpus; the empty set for the Iota chain |
 | extraction boundary axioms | four `f32` attention-carrier operations the Aeneas model does not define, listed in `proof/boundary-axioms.txt`; a theorem about their users holds relative to them |
 | checking code | `tools/check-claims.py`, `tools/book-check.py`, `proof/regen.sh`, `AxiomAudit.lean` |
 

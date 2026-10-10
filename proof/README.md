@@ -340,7 +340,7 @@ refinement above is revision-bound historical evidence. Open proof obligations:
   Stable partition and assembly must provide the exact
   per-key value-subsequence premise of canonical `Apeiron.Table.build_eq_of_key_streams_eq`; grouped
   readback and any partial reduction need their own order or merge law.
-- **Slang empty-cone separation.** The constructive Slang source-refinement chain requires an empty
+- **Iota empty-cone separation.** The constructive Iota source-refinement chain requires an empty
   axiom cone; the Rust/Aeneas bridge and the canonical corpus retain
   `{propext, Classical.choice, Quot.sound}`. The two cones share no declarations, and a `ZMod`-based
   bridge declaration is not importable into the empty-cone chain.
@@ -357,7 +357,7 @@ reduction laws; and allocation simulation, refusing branches, grades and audit c
 the Rust/canonical cone, `proof/regen.sh --check` freshness and mutation controls that fail before
 restore. It excludes allocator/global-allocator realization, thread/executor realization including
 `std::thread::scope`, rustc/LLVM codegen, the kernel ABI, GPU/SPIR-V and the `unsafe` container. The
-Slang chain remains separate under its empty-cone gate. The storage contract is an
+Iota chain remains separate under its empty-cone gate. The storage contract is an
 `anchor`, not `proved`; the table-versus-hashbrown comparison remains **open**, and this file adds
 no `proved`, `tested` or `measured` claim.
 
@@ -388,7 +388,7 @@ and the corpus and exceeds an hour on a single thread; CI builds it and uploads 
 
 Two evidence cones are kept distinct.
 
-- The constructive Slang source-refinement chain requires an **empty** axiom cone. Every registered
+- The constructive Iota source-refinement chain requires an **empty** axiom cone. Every registered
   declaration, instance, witness and headline audits with an empty axiom set under
   `proof/corpus/Slang/Audit/Empty.lean` and `tools/slang/zero_axioms.py`; `propext`,
   `Classical.choice`, `Quot.sound`, `noncomputable` and quotient-based representations such as

@@ -1,24 +1,24 @@
 # The Song correspondence
 
-Song is a separate project: an operating system written assembly-up in a language called Slang. It
+Song is a separate project: an operating system written assembly-up in a language called Iota. It
 shares no code with this crate and links no Rust or Aeneas runtime. What the two share is the
 canonical definition, `R[x]/(x² − σ)` and the table over it.
 
 ## What is here
 
-`proof/corpus/Slang/` holds the Lean side of the Slang source-refinement chain: syntax, a machine
+The Lean namespace and directory keep the language's earlier name, `Slang`. `proof/corpus/Slang/` holds the Lean side of the Iota source-refinement chain: syntax, a machine
 model, a decoder, address and table refinements, and a source audit. `proof/corpus/Icarus/` is a
 SHA-256 library over the same carrier. `proof/corpus/Nous/` is the model-layer library: attention, routing and decode over the three faces. They are part of this corpus and build with it.
 
 | directory | contents |
 |---|---|
-| `Slang/` | the Lean machine, decoder, address and table refinements of the Slang chain |
+| `Slang/` | the Lean machine, decoder, address and table refinements of the Iota chain |
 | `Icarus/` | the SHA-256 round step realised over the trichotomy carrier, with a keystone theorem and a cost model |
 | `Nous/` | attention, routing and decode over the three faces |
 
 ## A stricter cone
 
-The Rust bridge accepts `propext`, `Classical.choice` and `Quot.sound`. The Slang chain accepts
+The Rust bridge accepts `propext`, `Classical.choice` and `Quot.sound`. The Iota chain accepts
 none. Every registered declaration, instance, witness and headline must audit with an empty axiom
 set. `noncomputable` and quotient-based representations such as `Finset` and `ZMod` are rejected.
 
@@ -30,7 +30,7 @@ python3 tools/slang/zero_axioms.py --stage <stage> --controls
 an `axiom`, checks the registered type and collects the transitive axioms with
 `Lean.collectAxioms`.
 
-`zero_axioms.py` reads only this tree. `tools/slang/refine.py` also compares the Slang source with the
+`zero_axioms.py` reads only this tree. `tools/slang/refine.py` also compares the Iota source with the
 Lean statements and takes the `song` repository as `--song-root`; that repository is not published,
 so `refine.py` does not run from this checkout.
 
@@ -45,7 +45,7 @@ relation. The profile fixes four things.
 4. **Resources.** Allocation, time and memory are stated.
 
 A worked example, a differential test, identical names or identical layouts do not make a
-correspondence. Rust and Slang have different layouts and different proofs of the same object.
+correspondence. Rust and Iota have different layouts and different proofs of the same object.
 
 The cross-implementation correspondence is **not established**. Each side has its own refinement
 to the canonical definition. The required result, one theorem relating the two on a matched
