@@ -749,6 +749,21 @@ Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Question: is the pro
 - Group-union bytes (correction to the earlier version of this section, which listed them as uncovered: the probe's `bytes/dense` already unions the seven heads' sets, `examples/attn_cut_probe.rs` `used`): prose oracle 2048 reads 0.0176 of dense bytes (flat 0.0064, 2.75×), oracle 8192 reads 0.0530 (flat 0.0181, 2.93×). Exact top-8192 passes the gate at 0.0530 of dense (18× below dense); the flat arm at 32768 fails it at 0.1687 and reads 0.0650. Target for a deployable selector: KLD ≤ 0.05 at ≤ 0.053 of dense bytes on prose at 524288. Verdicts `union_cost`, `oracle_dominates_flat` in the same Lean file, board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Grade `measured` (existing outputs `g21-or-prose-2048.out`, `g21-or-prose-8192.out`, `g19-prose-*.out`; one run each, no repeat spread).
 - Not covered: one prompt per class; the oracle reads all scores (instrument cost, not charged to the bytes); rustc, LLVM.
 
+## Two-stage gather at 524288: exact rerank inside a Quest pool (Qwen2.5-7B-Instruct-1M)
+
+Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Question: can a query-conditioned token rerank inside the flat Quest pool reach the oracle column. Change: `KV_TAIL_RERANK=c` on `examples/attn_cut_probe.rs` (`tail_group`): the `grp-fix<P>-r8` far set is the pool, each query head keeps its exact top-`c` far tokens inside it. Predictions: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-RERANK.md` (sha256 `25d78316ab49`), registered before the runs. Binary `attn_cut_probe.hd128rr` sha256 `ec27c85d2666`, prose dump `g7-1m`, `t = 524288`, 64 tail positions, `c = 2048`, `lane` 28G, 167-169 s per run, one run each (`g22-rr-prose-<P>.out`).
+
+| pool P | rerank mean KLD | over 0.05 | top-1 | bytes/dense | flat arm at P | oracle 2048 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 8192 | 0.2619 | 63 | 43/64 | 0.0106 | 0.2612 | 0.0553 |
+| 32768 | 0.1768 | 60 | 47/64 | 0.0143 | 0.1687 | 0.0553 |
+| 131072 | 0.1045 | 48 | 50/64 | 0.0166 | not run | 0.0553 |
+
+- Against the flat 2048 arm (0.3370, same final token count) the rerank cuts KLD 1.3×, 1.9×, 3.2× at the three pools, and stays 1.89× above the oracle at P = 131072, a quarter of the context. Quest's page ranking does not put the oracle's tokens inside even that pool.
+- RR1 refuted (0.1768, worse than flat 32768 at 0.1687, which keeps 16× more tokens), RR2 refuted, RR3 refuted (0.1045), RR4 held, RR5 refuted by 0.0007 (0.2619 against 0.2612). Verdicts `Perf/HattnT8Rerank.lean` (sha256 `3fb554a010d7`), seven rows axiom-free in `AxiomAudit`; mutation (`rr131072 := 450`, scratch copy): 2 errors.
+- Reading: page-bound pools are the bottleneck, not the final budget. The gather has to find tokens without ranking pages first.
+- Not covered: pool scoring cost (reading the `P` pool keys at full precision is not in bytes/dense), one prompt, no repeat spread, recall of the oracle set inside the pool not measured directly; rustc, LLVM.
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a
