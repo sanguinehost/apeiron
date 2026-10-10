@@ -219,6 +219,7 @@ mod step;
 mod tests;
 mod value;
 
+pub use self::attn::f32_core::attn_core_f32_strided;
 pub use self::attn::{AttnError, KvState};
 pub use self::dequant::{dequant_row_fixed, f16_to_fixed};
 pub use self::error::EngineError;
