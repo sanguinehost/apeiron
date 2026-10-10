@@ -4,32 +4,21 @@ set_option autoImplicit false
 set_option warningAsError true
 
 /-
-SCOPE: the unpublished resource model/CostAlgebra.lean, new. A composition/dominance algebra over per-primitive
-resource records: the seven resources named in the resource-guided-evolution note
-Specification "Resource semantics", a componentwise dominance order, the composition of a
-sequence of dependent stages and of a graph of dependency layers, the strict `Nat` improvement
-the candidate certificate compares, and two nonvacuous schedule witnesses of one computation.
-Complete when the module kernel-checks with every headline audited and three seeded composition
-defects reject.
-REGISTER: algebra/refinement. No Rust source, no extraction, no inference implementation, no
-canonical ring correspondence, no hardware timing.
-CORPUS: no match. grep for `structure Cost`/`def Cost`/`resourceCost`/`criticalPath` over
-~/sanguine-apeiron/proof/Apeiron/, ~/apeiron/proof and
-~/apeiron/docs returned no file. Native grade of this module: proved.
-REFERENCE: ~/apeiron/proof/DispatchAdmission.lean (the `Admission` shape:
-`improves : ... afterCost x < beforeCost x`, the strict `Nat` cost this module's
-`registeredCost` supplies) and
-the unpublished resource model/ActScaleResource.lean (per-primitive resource
-accounting style: one actual body, its loop rank and its reachability witnesses).
-GATE: python3 the unpublished resource model/CostAlgebraGate.py --check --controls, cwd repository root, under
-flock /tmp/apeiron/apeiron-lane.lock and systemd-run MemoryMax=12G MemorySwapMax=0 with
-LEAN_NUM_THREADS=1. Observed red before this file existed: `test -f the unpublished resource model/CostAlgebra.lean`
-exits 1. Budget 540 s for the whole invocation including the three controls.
-GRADE: proved for the algebra, dominance and the two witnesses, under the closed logical cone
-{propext, Classical.choice, Quot.sound} checked by `#resource_audit`. The per-stage counts are
-declared example inputs of this module, grade `model`: they are not a measurement, and no
-hardware speed follows. Unmeasured and unclaimed: latency, bandwidth, device dispatch cost,
-compiler or codegen cost, and the cost of any specific kernel.
+A composition and dominance algebra over per-primitive resource records: seven named resources,
+a componentwise dominance order, the composition of a sequence of dependent stages and of a
+graph of dependency layers, the strict `Nat` improvement a candidate certificate compares, and
+two nonvacuous schedule witnesses of one computation.
+
+Depends on: Lean core only. The strict `Nat` cost supplied by `registeredCost` is the quantity
+compared by the `Admission` shape (`improves : ... afterCost x < beforeCost x`) in
+`DispatchAdmission`.
+Excludes: Rust source, extraction, any inference implementation, the canonical ring
+correspondence, hardware timing, latency, bandwidth, device dispatch cost, compiler or codegen
+cost and the cost of any specific kernel.
+Grade: the algebra, the dominance order and the two witnesses are `proved` (kernel-checked,
+axiom cone {propext, Classical.choice, Quot.sound}, checked by `#resource_audit`). The
+per-stage counts are declared example inputs of this module, grade `model`: they are not a
+measurement and no hardware speed follows. `tested`: none.
 -/
 
 namespace CostAlgebra

@@ -3,71 +3,38 @@ import Icarus.Cost.AlgebraCostCompletePart1
 import Icarus.Cost.AlgebraCostCompletePart2
 
 /-
-SCOPE:      work/proofs/AlgebraCostBridge.lean (new) and its receipt
-            work/proofs/AlgebraCostBridge.md. The alignment AR-27's §11 leaves open: the row "a map to
-            `CostAlgebra.Cost` — `ShaCost` is not connected to the registered resource record"
-            (`AlgebraCostComplete.lean`, §11). One map `shaToCost` from the twenty-three-field
-            `ShaCost σ` attempt measure into the seven-field corpus composition/dominance algebra
-            `CostAlgebra.Cost`, with a named disposition for all twenty-three source fields
-            (absorbed into a target field, or dropped with a stated reason), the bridge laws
-            (zero, additivity, per-field and joint monotonicity, iteration, overlap), the AR-15
-            round/chain/block vectors and the AR-20 attempt/range figures instantiated through the
-            map, the face verdict at the target, and the corpus algebra's `path` field proved
-            invisible to the measure. Complete when the module elaborates against the two compiled
-            upstream modules with every headline audited inside {propext, Classical.choice,
-            Quot.sound} and zero `sorryAx`.
-REGISTER:   resource model / bookkeeping alignment. No production, pin, API, extraction-root,
-            corpus or gate-driver edit; no Rust source; no cargo; no regen.sh; no measurement.
-            Excluded by construction: latency, wall-clock time, cycle counts, throughput, hash rate,
-            bytes per second, energy, joules, watts, hardware, ASIC or GPU figures, miner economics,
-            profitability, USD, compiler or codegen cost, the kernel ABI, the `unsafe` container,
-            device dispatch cost, constant-time and security properties of any hash, and every
-            asymptotic statement. The bridge is an alignment of two formal records; it is not a
-            hardware, time or price claim. AGENTS.md:429 - a cost-model proof is not a hardware
-            speed measurement.
-CORPUS:     `CostAlgebra` (repos/apeiron/the unpublished resource model/CostAlgebra.lean, sha256
-            c362ec455954e512c2f2055c04e320f26f70529700ea592aeac7eb7a1b422c95): `Cost` (:46), `zero`
-            (:57), `costLe` (:61), `costAdd` (:80), `overlap` (:93), `Cost.le_of_fields` (:98),
-            `Cost.eq_of_fields` (:103), `add_monotone` (:157), `add_monotone_left` (:163),
-            `overlap_fields` (:184), `tie_not_improvement` (:222), all grade `proved` there.
-            `AlgebraCostComplete` (work/proofs/AlgebraCostComplete.lean, sha256
-            d6d5ae7f229828122e08dc89e08a57e420e28057e04d73a7f9ada0d907d9fae4): `ShaCost` (:379),
-            `ShaCost.zero` (:429), `ShaCost.composed` (:439)/`composed_apply` (:454),
-            `ShaCost.rep` (:498)/`rep_succ` (:515)/`rep_add` (:522), `ShaCost.ofRound` (:543),
-            `roundCost` (:782)/`roundCost_fields` (:788), `roundChainCost` (:843)/`roundChain64`
-            (:867), `blockCost` (:886)/`blockCost_eq` (:896), `attemptCost` (:1576)/`attemptCost_eq`
-            (:1602), `rangeCost` (:1662)/`rangeCost_eq` (:1669), `nonceSpace` (:1751),
-            `attemptsCost_add` (:1735), `attemptCost_faceElliptic/…Parabolic/…Hyperbolic`
-            (:1897/:1905/:1913), `attemptCost_threeFaces` (:1924), grade `proved` there modulo its
-            named `model` premises (README: `RotRead`, `AddRead`, the occurrence inventories); the
-            bridge reads only kernel-checked definitions and theorems of that module.
-REFERENCE:  repos/apeiron/the unpublished resource model/CostBridge.lean (the corpus bridge pattern: `Perf`
-            (:58), `toCost` (:102), `toCost_zero` (:106), per-field monotone lemmas (:110-146),
-            `loads_invisible_to_order` (:161), `toCost_add` (:170), `runCost_append` (:279)) and
-            `CostAlgebraGate.py` (private-package build pattern for the outside-corpus modules).
-            repos/apeiron/AGENTS.md:336-341 (§8), :156-167 (§4), :226-240 (§5), :429, :513, :516.
-GATE:       three commands under lane from cwd
-            proof/corpus, in order:
-            (1) lane lake env lean -R repos/apeiron/proof/resource -o
-                /tmp/apeiron/alg-cost-bridge/oleans/CostAlgebra.olean
-                repos/apeiron/the unpublished resource model/CostAlgebra.lean
-            (2) lane lake env lean -R work/proofs -o
-                /tmp/apeiron/alg-cost-bridge/oleans/AlgebraCostComplete.olean
-                work/proofs/AlgebraCostComplete.lean
-            (3) lane env LEAN_PATH=/tmp/apeiron/alg-cost-bridge/oleans lake env lean
-                work/proofs/AlgebraCostBridge.lean
-            Wall-clock budget 450 s for the whole invocation; observed 3.5 s + 24.3 s + compile of
-            this file.  The oleans are compiled from the verbatim canonical sources; the gate
-            records their sha256 before and after.  Mutation control on a throwaway copy of this
-            file: a dropped or wrongly mapped field must turn command (3) red at a named headline.
-GRADE:      `proved` for every law, closed form, instantiation and invisibility statement below,
-            kernel-checked against the two compiled upstream modules, cone
-            {propext, Classical.choice, Quot.sound} and zero `sorryAx`, rows at the end of this
-            file.  `model` for the map itself: which of the twenty-three fields is absorbed where is
-            a representation choice (a reading of the measure onto the registered vocabulary), not a
-            hardware or time claim.  Unmeasured and unclaimed: everything on the REGISTER exclusion
-            list, in particular no wall-clock, cycle, joule, watt, hash-per-second, USD or
-            profitability figure follows from any number here.
+Alignment of the twenty-three-field SHA-256 attempt measure with the seven-field composition
+and dominance algebra: one map `shaToCost` from `ShaCost σ` (of
+`Icarus.Cost.AlgebraCostCompletePart1` and `Icarus.Cost.AlgebraCostCompletePart2`) into
+`CostAlgebra.Cost` (of `Icarus.Cost.CostAlgebra`), with a named disposition for each of the
+twenty-three source fields (absorbed into a target field, or dropped with a stated reason). The
+module proves the bridge laws (zero, additivity, per-field and joint monotonicity, iteration,
+overlap), instantiates the round, chain and block vectors and the attempt and range figures
+through the map, states the face verdict at the target, and proves the `path` field of the
+corpus algebra invisible to the measure.
+
+Depends on: `CostAlgebra` (`Icarus.Cost.CostAlgebra`): `Cost`, `zero`, `costLe`, `costAdd`,
+`overlap`, `Cost.le_of_fields`, `Cost.eq_of_fields`, `add_monotone`, `add_monotone_left`,
+`overlap_fields`, `tie_not_improvement`. `algebra_cost_complete` (`Icarus.Cost.AlgebraCostCompletePart1`,
+`Icarus.Cost.AlgebraCostCompletePart2`): `ShaCost`, `ShaCost.zero`, `ShaCost.composed`,
+`composed_apply`, `ShaCost.rep`, `rep_succ`, `rep_add`, `ShaCost.ofRound`, `roundCost`,
+`roundCost_fields`, `roundChainCost`, `roundChain64`, `blockCost`, `blockCost_eq`, `attemptCost`,
+`attemptCost_eq`, `rangeCost`, `rangeCost_eq`, `nonceSpace`, `attemptsCost_add`,
+`attemptCost_faceElliptic`, `attemptCost_faceParabolic`, `attemptCost_faceHyperbolic`,
+`attemptCost_threeFaces`. Only kernel-checked definitions and theorems of those two modules are
+read; the bridge is compiled against them.
+Excludes: latency, wall-clock time, cycle counts, throughput, hash rate, bytes per second,
+energy, joules, watts, hardware, ASIC or GPU figures, miner economics, profitability, USD,
+compiler or codegen cost, the kernel ABI, the `unsafe` container, device dispatch cost,
+constant-time and security properties of any hash, and every asymptotic statement. The bridge is
+an alignment of two formal records, not a hardware, time or price claim.
+Grade: every law, closed form, instantiation and invisibility statement is `proved`
+(kernel-checked against the two upstream modules, axiom cone {propext, Classical.choice,
+Quot.sound}, no `sorryAx`, rows at the end of the file). The inherited counts keep the grade
+they have upstream (`proved` modulo their named `model` premises `RotRead`, `AddRead` and the
+occurrence inventories). The map itself is `model`: which of the twenty-three fields is absorbed
+where is a representation choice, a reading of the measure onto the registered vocabulary.
+`tested`: none.
 -/
 
 set_option autoImplicit false

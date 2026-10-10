@@ -1,64 +1,34 @@
 /-
-SCOPE: work/proofs/AlgebraCost.lean, new, and its receipt work/proofs/AlgebraCost.md. The
-smallest kernel-checked cost core for the two-slot algebra `R[x]/(x^2 - sigma)` over the ring the
-extracted word kernels run in: one named measure of ring operations, the operation count of the
-canonical definitions `ringMul`, `ringNormForm`, `ringUpper`, `ringLower`, the counts of the
-generated bodies `word_mul` and `word_norm` anchored on their proved denotations, the iteration
-operator `RingCost.rep` and its additivity law, the measure of the canonical iterated construction
-`ringFold` and of a length-indexed chain of links, and the cost of two crypto-relevant operations
-read off `work/algebra-rooting/ops-map.md`. Complete when this module kernel-checks with every
-headline audited, a seeded per-body count defect rejects, and the receipt records the counts, the
-grades and the named premises.
-REGISTER: algebra/resource model. No production, pin, API, extraction-root, corpus or gate-driver
-edit; no Rust source, no `cargo`, no `regen.sh`, no measurement. Excludes latency, bandwidth,
-cache behaviour, rustc/LLVM codegen, the kernel ABI, device dispatch cost, constant-time or
-security properties of any hash, and every claim about hardware timing.
-CORPUS: `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringConj,ringNormForm,ringOne,ringMul_assoc,
-ringMul_comm,ringNormForm_mul}` at `Trichotomy/AnyRing.lean:98,109,118,128,146,191,180,168` and
-`Apeiron.Trichotomy.ChannelsAnyRing.{ringUpper:139,ringLower:149,ringFold:498,ringUpper_mul:160,
-ringUpper_fold:509,ringLower_fold:524,ringNormForm_fold:547}` at `Trichotomy/ChannelsAnyRing.lean`,
-read at the pinned revision `880aa57e47e782ed7a9d9ee1974cfc87360b446b` through
-`repos/apeiron/proof/corpus/.lake/packages/apeiron/proof/`, grade `proved` in the pinned corpus
-(`Apeiron/Audit.lean:1201` audits `AnyRing.ringUpper`; `:1203,1227,1236` audit `ringUpper_mul`,
-`ringUpper_fold`, `ringUpper_fold_bool`). `proof/corpus/WordRefinement.lean:38,45,56`
-(`denoteSigma`, `word_mul_denote`, `word_norm_denote`) and `proof/Denotation.lean:29,35`
-(`denote_from_i64`, `denote_wrapping_add`) are the extracted-side links, grade `proved` by corpus
-build inclusion. No `Cost`, `Steps`, `Budget` or `Measure` over ring operations exists in that
-corpus; see `work/cost-model/inventory.md`.
-REFERENCE: the unpublished resource model/CostAlgebra.lean:34-45 (one
-field per resource, a field never mixes two resources), :80 `costAdd` (dependent composition),
-:93 `overlap`, :255 `registeredCost` (the scalar an admission certificate compares),
-:271 `scalar_not_sufficient` (why this module keeps the record),
-:308-383 `seq`/`layerCost`/`planCost`; the unpublished resource model/
-CostBridge.lean:48-65 (`structure Perf`, the source-level count record whose fields are body visits,
-checked multiply-adds, reads, writes, bytes and allocations) and :88-103 (`toCost`, the map into the
-registered record, with its per-visit constants graded `model`); :161 `loads_invisible_to_order`;
-RowDotResource.lean:368-411 (`RowTrace`, the finite certificate of an extracted body, and
-`row_trace_count`); RowDotAdmission.lean:683-729 (`srcOps`/`srcReads`, declared per-body constants)
-and :903 (`improves_entry`, the strict `registeredCost` improvement an admission certificate must
-show). The corpus's own cost recurrence, as the precedent for §3: `Nous/Combinator/Sphere.lean:91`
-`fwhtCost` with its closed form at :100.
-GATE: lane lake env lean
-~/icarus/work/proofs/AlgebraCost.lean, cwd
-proof/corpus (absolute `bin/lane` from the workspace
-root), which resolves the pinned `apeiron` and `mathlib` packages. Observed red before this file
-existed: `lake env lean` on the absent path exits 1 (`error: file does not exist`). Wall-clock
-budget 590 s for the invocation, the seed control and the restore, under
-`flock /tmp/apeiron/apeiron-lane.lock`, `MemoryMax=3800M`, `MemoryHigh=3400M`,
-`MemorySwapMax=0`, `LEAN_NUM_THREADS=1`.
-GRADE: `proved` for the measure's laws, for every operation count that is read off a definition
-body by unfolding it in this module, for the composition of the measure over an iterated
-construction, and for the two worked numeric examples; the closed cone is
-`{propext, Classical.choice, Quot.sound}` with no `sorryAx`, checked by the `#print axioms` rows at
-the end of this file and recorded in the receipt. `model` for the two facts that are read off
-*generated* body text rather than off a Lean definition body in this module: the
-`scalarRingInst.mul`/`add`/`sub`/`from_i64` inventory of `cell.Cell.mul` and `cell.Cell.norm_form`,
-graded `model` exactly as `CostBridge`'s `srcOps`/`srcReads` per-visit constants are graded
-(`CostBridge.lean:28-31`, `RowDotAdmission.lean:43-45`). `conditional`: the identification of
-`ringUpper 1 (ringMul 1 (x,0) (2^n, 2^(w-n)))` with a word rotation, which is the candidate `C5`
-of `work/algebra-rooting/ops-map.md:167-180` at grade `model` and is carried below as the named
-premise `RotRead` of `rotation_cost`, never as an axiom. Unmeasured and unclaimed: everything on
-the REGISTER exclusion list.
+The smallest kernel-checked cost core for the two-slot algebra `R[x]/(x^2 - sigma)` over the
+ring the extracted word kernels run in: one named measure of ring operations, the operation
+count of the canonical definitions `ringMul`, `ringNormForm`, `ringUpper`, `ringLower`, the
+counts of the generated bodies `word_mul` and `word_norm` anchored on their proved denotations,
+the iteration operator `RingCost.rep` with its additivity law, the measure of the canonical
+iterated construction `ringFold` and of a length-indexed chain of links, and the cost of two
+crypto-relevant operations.
+
+Depends on: `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringConj,ringNormForm,ringOne,
+ringMul_assoc,ringMul_comm,ringNormForm_mul}` and
+`Apeiron.Trichotomy.ChannelsAnyRing.{ringUpper,ringLower,ringFold,ringUpper_mul,ringUpper_fold,
+ringLower_fold,ringNormForm_fold}` (pinned canonical corpus revision 880aa57e47e782ed7a9d9ee1974cfc87360b446b, `proved` there, including
+`ringUpper_fold_bool`); the extracted-side links `denoteSigma`, `word_mul_denote`,
+`word_norm_denote` in `WordRefinement` and `denote_from_i64`, `denote_wrapping_add` in
+`Denotation`. No `Cost`, `Steps`, `Budget` or `Measure` over ring operations exists in that
+corpus. The record design follows `CostAlgebra` (`Icarus.Cost.CostAlgebra`): one field per
+resource, and a field never mixes two resources.
+Excludes: latency, bandwidth, cache behaviour, rustc/LLVM codegen, the kernel ABI, device
+dispatch cost, constant-time or security properties of any hash, and every claim about
+hardware timing.
+Grade: `proved` (kernel-checked, axiom cone {propext, Classical.choice, Quot.sound}, no
+`sorryAx`, `#print axioms` rows at the end of the file) for the measure's laws, for every
+operation count read off a definition body by unfolding it in this module, for the composition
+of the measure over an iterated construction, and for the two worked numeric examples.
+`model` for the two facts read off generated body text rather than a Lean definition body: the
+`scalarRingInst.mul`/`add`/`sub`/`from_i64` inventory of `cell.Cell.mul` and
+`cell.Cell.norm_form`. `conditional`: the identification of
+`ringUpper 1 (ringMul 1 (x,0) (2^n, 2^(w-n)))` with a word rotation (candidate C5, grade
+`model`), carried as the named premise `RotRead` of `rotation_cost` and never as an axiom.
+`tested`: none.
 -/
 
 import Apeiron.Trichotomy.AnyRing

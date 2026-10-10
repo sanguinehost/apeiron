@@ -1,36 +1,18 @@
 /-
-SCOPE: work/proofs/AlgebraCostPowComparePart2.lean (new) and the facade
-work/proofs/AlgebraCostPowCompare.lean (rewritten as an `import` of
-work/proofs/AlgebraCostPowComparePart1.lean and this file). **Second half of the split of the former
-single module `work/proofs/AlgebraCostPowCompare.lean` (1,649 lines, 149 over the 1,500-line cap of
-repos/apeiron/AGENTS.md:222). The seam is §7, the boundary between the two measures: Part1 carries
-§0-§6 (the width and the three dials, AR-15/AR-20's eleven-field `RoundCost`, AR-10's six-field
-`RingCost`, the per-operation counts, the round/schedule/block chains, the SHA-256d block
-composition and the attempt and range figures in the eleven-field measure); this file carries §7-§9
-(AR-27's twenty-three-field `ShaCost` with the padding, loader and store costs, the complete attempt
-and range, AR-41's source-bound corrections, the three faces, and the audit rows). The dependency
-runs one way only - every declaration below is stated over §0-§6 of Part1, and no declaration of
-§0-§6 mentions a `ShaCost` - so the cut requires no axiom, no instance and no binder to be
-duplicated, and no declaration to be restated.
-**STATEMENT PRESERVATION IS THE INVARIANT.** No declaration changed name, namespace or type; none was
-added, dropped, merged or assumed. The full SCOPE, REGISTER, CORPUS, REFERENCE, GATE and GRADE
-header of the module lives in Part1 and governs both halves; this header adds only the split record.
-Section numbers are unchanged, so every cross-reference (`§7`, the receipt, AR-27, AR-41) still
-reads as it did.
-IMPORT ROUTE: `work/proofs` is not a root of any corpus `lean_lib`, so a sibling module is not
-resolvable by name from the lane's canonical search path. The route is the one already established
-in work/proofs/AlgebraCostBridge.md §1: each part is elaborated with
-`-R <icarus>/work/proofs -o <scratch>/oleans/<Module>.olean`, and a consumer is elaborated with that
-scratch directory prepended to `LEAN_PATH` (`lake env` appends the inherited entry, so the canonical
-search path is preserved). Those oleans are digest-recorded derived artifacts, never canonical
-files: the canonical files stay in work/proofs and are never copied into the build tree. The parts
-therefore elaborate green under the lane as
-  bin/lane lake env lean -DwarningAsError=true -R <root> -o <scratch>/oleans/<Module>.olean <abs path>
-  bin/lane env LEAN_PATH=<scratch>/oleans lake env lean -DwarningAsError=true <abs path>
-REGISTER / CORPUS / EXCLUSIONS / GRADES: as Part1, unchanged and inherited verbatim. No production,
-pin, API, extraction-root, corpus or gate-driver edit; no Rust source; no cargo; no regen.sh; no
-measurement; no live target contact, no probing, no external submission. No wall-clock, cycle,
-joule, watt, hash-rate, USD or profitability claim follows from any number in this file.
+Second half of the SHA-256 proof-of-work cost comparison, namespace `algebra_cost_pow_compare`
+(first half: `Icarus.Cost.AlgebraCostPowComparePart1`). This part carries sections 7 to 9: the
+twenty-three-field `ShaCost` measure with the padding, loader and store costs, the complete
+attempt and range figures, the source-bound corrections, the three faces, and the audit rows.
+
+Depends on: `Icarus.Cost.AlgebraCostPowComparePart1`. Every declaration here is stated over
+sections 0 to 6 of Part1 and no declaration there mentions a `ShaCost`, so the cut duplicates
+no axiom, instance or binder. The corpus and extracted-side dependencies are those of Part1:
+`Apeiron.Trichotomy.AnyRing`, `Apeiron.Trichotomy.ChannelsAnyRing`, `Crypto.Sha2`,
+`Crypto.Sha256Certificate` and `WordRefinement`.
+Excludes: as Part1. No latency, wall-clock time, cycle, joule, watt, hash-rate, USD or
+profitability claim follows from any number in this file.
+Grade: as Part1. The split changes no declaration name, namespace or type, and section numbers
+are unchanged.
 -/
 
 import Icarus.Cost.AlgebraCostPowComparePart1

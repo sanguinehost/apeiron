@@ -1,65 +1,36 @@
 /-
-SCOPE: work/proofs/AlgebraCostPow.lean, new, and its receipt work/proofs/AlgebraCostPow.md. The
-cost, in AR-15's eleven-field ring measure, of one SHA-256 proof-of-work attempt and of a full
-mining range: the canonical block-count function `blockCount n = ceil ((n+9)/64)` proved in `Nat`
-from the canonical padding arithmetic and joined to `Crypto.Sha2.pad` and `Crypto.Sha2.hash`; the
-per-attempt figure for an 80-byte header; the closed-form range figures for the 32-bit nonce space
-and for `k` padded blocks, with additivity proved over the eleven fields and over AR-10's six
-`RingCost` fields; and an all-three-faces comparison. Complete when the module elaborates with
-every headline audited inside {propext, Classical.choice, Quot.sound} and zero sorryAx, a seeded
-per-body count defect and a seeded block-count defect each reject at the theorems that state the
-closed counts, and this receipt records the counts, their grades, the named premises, the explicit
-non-claims and the residual list.
-REGISTER: algebra/resource model. No production, pin, API, extraction-root, corpus or gate-driver
-edit; no Rust source; no cargo; no regen.sh; no measurement. Excluded by construction: latency,
-wall-clock time, throughput, bytes per second, energy, joules, hardware, ASIC or GPU figures,
-miner economics, profitability, USD, compiler or codegen cost, the kernel ABI, the `unsafe`
-container, device dispatch cost, constant-time and security properties of any hash, and every
-asymptotic statement. AGENTS.md:429 - a cost-model proof is not a hardware speed measurement; this
-module states counts of algebraic operations and nothing else. This module performs no live target
-contact, no probing and no external submission.
-CORPUS: `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` and
-`Apeiron.Trichotomy.ChannelsAnyRing.{ringUpper,ringUpper_mul}` through
-repos/apeiron/proof/corpus/.lake/packages/apeiron/proof/ at the pinned revision
-880aa57e47e782ed7a9d9ee1974cfc87360b446b, grade `proved` there. The canonical SHA-2 bodies are
-`Apeiron.Crypto.Sha2.{rotr:50,shrx:54,sigma0:60,sigma1:64,Sigma0:67,Sigma1:70,choose:73,
-majority:76,schedule:82,compress:96,pad:133,lengthBlock:128,hash:146}` at
-repos/apeiron/proof/corpus/Crypto/Sha2.lean, sha256
-b87814767012d1306761c31c78a9c429f4382258201b88899598085e237d5c6e, a root of the `apeironWordBridge`
-corpus build. Extracted side: proof/corpus/WordRefinement.lean:38 (`RingCell (ZMod (2^64))`),
-proof/Denotation.lean:35 (`denote_wrapping_add`, width 64 only).
-REFERENCE: repos/apeiron/AGENTS.md:336-341 (§8 per-function complexity: the measure, the recurrence,
-why it closes), :156-167 (§4 obligations), :226-240 (§5 grades), :429 (a cost-model proof is not a
-hardware speed measurement). work/proofs/AlgebraCostRound.lean/.md (AR-15), sha256
-908c7aa729a14164a050490a67b78de83e92398fc72e2e4fa894c8077bdc6c8b: `RoundCost` (eleven fields),
-`roundCost`, `schedStepCost`, `blockCost`, `blockCost_eq`, the 64-round closed form, `rep_add`.
-work/proofs/AlgebraCost.lean (AR-10), sha256
-52e5d6c5c2b4a144df2a99824052521c29f4b24252d68df5096f7870447df4fe: `RingCost` (six fields),
-`rep_add`. work/proofs/Sha256Pad.lean/.md: `canonTotal`, `zeroFill`, `tailLen`, `totalLayout`,
-`pad_length_total`, `pad_blocks` - the canonical block-count arithmetic, re-derived here rather than
-imported (that file is not a root of any corpus `lean_lib`). receipts/campaign-review.md:27 and
-:30-34, the owner focus on a formal cost model and the statement that the mining angle is a cost
-question first.
-GATE: lane lake env lean
-~/icarus/work/proofs/AlgebraCostPow.lean, cwd
-proof/corpus. Wall-clock budget
-450 s per file elaboration and 590 s per invocation including queue time, under
-flock /tmp/apeiron/apeiron-lane.lock, MemoryMax=3800M, MemoryHigh=3400M, MemorySwapMax=0,
-LEAN_NUM_THREADS=1. No cargo, no `lake build` of the package, no regen.sh, no nohup/setsid, no
-retry loop, no raised maxRecDepth, no maxHeartbeats 0, no large enumeration.
-GRADE: `proved` for every operation count read off a Lean definition body by unfolding it in this
-module, for the block-count function and its join to `pad` and `hash`, for the measure's laws, for
-the closed forms, for the additivity laws over eleven and six fields, and for the three-face
-comparison; the cone is {propext, Classical.choice, Quot.sound} with no `sorryAx`, checked by the
-`#print axioms` rows below. `model` for three readings carried by name and never used as axioms:
-`RotRead` (the identification of `ringUpper 1 (ringMul 1 (x,0) (2^n, 2^(32-n)))` with a word
-rotation, candidate C5), `AddRead` (the identification of a `Word` addition with a `ZMod (2^32)`
-addition, template `Denotation.lean:35`, proved at width 64 only), and the count of the seven `Word`
-additions of the round body, read off `Sha2.lean:108,109,112,116` because no machine-checked
-operation-count mechanism exists. `tested`: none - no `cargo test` ran, so no row of this receipt
-carries that grade. Unmeasured and unclaimed: everything on the REGISTER exclusion list. In
-particular NO wall-clock, cycle, joule, watt, hash-per-second, USD or profitability claim follows
-from any number in this module.
+Cost, in the eleven-field ring measure of `Icarus.Cost.AlgebraCostRound`, of one SHA-256
+proof-of-work attempt and of a full mining range: the canonical block-count function
+`blockCount n = ceil ((n+9)/64)` proved in `Nat` from the canonical padding arithmetic and
+joined to `Crypto.Sha2.pad` and `Crypto.Sha2.hash`; the per-attempt figure for an 80-byte
+header; the closed-form range figures for the 32-bit nonce space and for `k` padded blocks, with
+additivity proved over the eleven fields and over the six `RingCost` fields; and an
+all-three-faces comparison.
+
+Depends on: `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` and
+`Apeiron.Trichotomy.ChannelsAnyRing.{ringUpper,ringUpper_mul}` (pinned canonical corpus revision 880aa57e47e782ed7a9d9ee1974cfc87360b446b, `proved`
+there); the canonical bodies `Apeiron.Crypto.Sha2.{rotr,shrx,sigma0,sigma1,Sigma0,Sigma1,choose,
+majority,schedule,compress,pad,lengthBlock,hash}`; the extracted side `WordRefinement`
+(`RingCell (ZMod (2^64))`) and `Denotation.denote_wrapping_add` (width 64 only). The measures
+follow `Icarus.Cost.AlgebraCostRound` (`RoundCost`, `roundCost`, `schedStepCost`, `blockCost`,
+`blockCost_eq`, the 64-round closed form, `rep_add`) and `Icarus.Cost.AlgebraCost` (`RingCost`,
+`rep_add`). The block-count arithmetic (`canonTotal`, `zeroFill`, `tailLen`, `totalLayout`,
+`pad_length_total`, `pad_blocks`) is re-derived here rather than imported.
+Excludes: latency, wall-clock time, throughput, bytes per second, energy, joules, hardware, ASIC
+or GPU figures, miner economics, profitability, USD, compiler or codegen cost, the kernel ABI,
+the `unsafe` container, device dispatch cost, constant-time and security properties of any hash,
+and every asymptotic statement. A cost-model proof is not a hardware speed measurement; this
+module states counts of algebraic operations and nothing else.
+Grade: `proved` (kernel-checked, axiom cone {propext, Classical.choice, Quot.sound}, no
+`sorryAx`, `#print axioms` rows at the end of the file) for every operation count read off a
+Lean definition body by unfolding it in this module, the block-count function and its join to
+`pad` and `hash`, the measure's laws, the closed forms, the additivity laws over eleven and six
+fields and the three-face comparison. `model` for three readings carried by name and never used
+as axioms: `RotRead` (the identification of `ringUpper 1 (ringMul 1 (x,0) (2^n, 2^(32-n)))` with
+a word rotation, candidate C5), `AddRead` (the identification of a `Word` addition with a
+`ZMod (2^32)` addition, proved at width 64 only in `Denotation`), and the count of the seven
+`Word` additions of the round body, read off the canonical source of `Crypto.Sha2` because no
+machine-checked operation-count mechanism exists. `tested`: none.
 -/
 
 import Apeiron.Trichotomy.AnyRing
