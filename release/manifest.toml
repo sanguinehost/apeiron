@@ -193,6 +193,6 @@ present = [
   "Cargo.toml", "Cargo.lock", ".github/workflows/ci.yml",
   ".githooks/pre-commit", ".githooks/commit-msg", ".githooks/pre-push",
   "tools/hooks/install.sh", "tools/check-claims.py", "tools/book-check.py", "tools/book-test.sh",
-  "book/book.toml", "proof/README.md", "proof/regen.sh", "proof/canonical/lakefile.lean",
+  "tools/check-provenance.py", "tools/provenance.toml", "book/book.toml", "proof/README.md", "proof/regen.sh", "proof/canonical/lakefile.lean",
   "proof/corpus/lakefile.lean",
 ]
