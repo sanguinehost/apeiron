@@ -656,6 +656,40 @@ Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registe
 - Formalised: `proof/corpus/Perf/HattnT8Code.lean` (`k1_held`..`k4_held`, `between`, `heavy_tail`, `code_vs_prose`), `AxiomAudit.lean` rows; `lake build Perf.HattnT8Code` exit 0, `#print axioms` none; mutation (`flatKld` set to 0.0400 in a throwaway copy) turns `k3_held` and `between` red.
 - Not covered: one code prompt and one model; the selection at a budget growing with `t`; rustc/LLVM.
 
+## Tail positions on code at 524288: a deployable trigger (Qwen2.5-7B-Instruct-1M)
+
+Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registered first (three rounds appended to one file; round 2 after round 1's results, round 3 after round 2's): `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-TAIL.md`, sha256 `c9d7b8a6…`.
+
+- Change: `KV_TAIL_POS=1` in `examples/attn_cut_probe.rs` prints one `POS` line per arm and tail position: whole-model KLD, mean and max head KL (oracle), two page-bound proxies (`P1 = ln(1 + B/Z_read)`, `P2` = best unread bound minus best read score), and the arm's and dense output entropy and top-1 margin. Instrument `attn_cut_probe.hd128qp` (sha256 `1aa00486…`; two lint-only edits followed the build), dump `g7-code`, `KV_TAIL_ARMS=0,1`. Commands: `tailpos.sh` (`g17-tailpos.out`, sha256 `cd5f88b0…`, 194 s) and `tailwide.sh` (`KV_TAIL_FARB=8192` and `32768`: `g18-tailwide-8192.out` `be3cc349…`, `g18-tailwide-32768.out` `49f8063e…`, about 190 s each).
+- Control: flat `b=2048` reproduces the code run (mean 0.1273, 15/64 over the gate, dense rel-L2 6.6e-4).
+
+| score per position (15 failing, 49 passing) | deployable | AUC |
+|---|---|---:|
+| arm output entropy | yes | 0.978 |
+| arm top-1 margin | yes | 0.965 |
+| dense output entropy | no | 0.798 |
+| `P1` page-bound mass (mean over 28x28 heads) | yes | 0.656 |
+| `P2` bound gap | yes | 0.611 |
+| mean head KL (oracle) | no | 0.600 |
+| max head KL (oracle) | no | 0.407 |
+
+- Finding: the failing positions are the ones where the approximate arm's next-token distribution is flat. Entropy >= 0.4 nats flags 12 of 64 positions and all 12 fail the gate (12 of the 15 failures). The page-bound proxies do not separate (the bound mass sits near `e^30` at every position) and the oracle head KL does not either.
+- Finding: the code prompt takes a wider far budget where the prose prompt does not. Flat `b=8192` passes at 524288 (mean 0.0136, 3/64 over, top-1 64/64, 0.0181 of dense bytes); prose at the same `t` and `b` is 0.2612. Flat `b=32768`: mean 0.0023, 1/64 over, 0.0650 of dense.
+- Composition (model; each arm is a separate whole-model run, so coupling through the tail keys is omitted; a flagged position pays the first pass and the wide pass):
+
+| arm | mean KLD | over 0.05 | bytes/dense |
+|---|---:|---:|---:|
+| flat `b=2048` | 0.1273 | 15/64 | 0.0064 |
+| flat `b=8192` | 0.0136 | 3/64 | 0.0181 |
+| entropy >= 0.4 then `b=8192` | 0.0203 | 4/64 | 0.0098 |
+| entropy >= 0.4 then `b=32768` | 0.0122 | 3/64 | 0.0186 |
+| flat `b=32768` | 0.0023 | 1/64 | 0.0650 |
+
+  The trigger with `b=8192` at the flagged positions has 1.85x fewer bytes than uniform `b=8192` at a mean under the gate: 102x fewer than dense.
+- Verdicts: TP1 held; TP2-TP6 refuted; TP7-TP9 held; TP10-TP12 held (14/15 and 12/15 failures pass at `b=32768` and `b=8192`).
+- Formalised: `proof/corpus/Perf/HattnT8Tail.lean` (`population`, `tp1_held`..`tp12_held`, `failures_are_uncertain`, `flat8192_passes_on_code`, `hybrid8192_cheaper`; AUCs are `decide +kernel` computations over the 64 recorded positions), `AxiomAudit.lean` rows; `lake build Perf.HattnT8Tail` and full `lake build AxiomAudit` (9155 jobs) exit 0, all 17 rows axiom-free; mutation (entropy list reflected, `20000 - v`, in a throwaway copy) turns `tp7_held`, `tp9_held`, `unflagged_mean`, `tp12_held`, `failures_are_uncertain` and `hybrid8192_cheaper` red (6 of 17; rerun). `cargo fmt --check` and `cargo clippy --all-targets -D warnings` exit 0 at both head dims.
+- Not covered: one code prompt, one model; the 0.4 threshold was chosen on these 64 positions; the trigger needs a second forward pass at flagged positions (KV bytes are counted, weight bytes are not); no in-line hybrid run; rustc/LLVM.
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a
