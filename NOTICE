@@ -11,7 +11,8 @@ Third-party code
 ----------------
 No third-party code is vendored. The module `src/hashtrinity/` is a port, by the
 author, of the author's own `hashtrinity` crate, relicensed here under the terms
-of this repository.
+of this repository. The revision `4cc14471` named in source comments is the commit of the author's
+unpublished `fold` repository that the port started from; it does not resolve in this repository.
 
 GGUF and ggml formats
 ---------------------

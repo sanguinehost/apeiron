@@ -200,7 +200,7 @@ generated struct. `WordRefinement.lean` proves:
 The composition is a `ZMod (2 ^ 64)` statement over the three-cell line, not a physical mass law;
 it inherits the partiality and the no-partial-result shape of the two scalar kernels.
 
-The corpus now carries the whole-line ring statement this refines. `d9aefc93` adds
+The canonical corpus carries the whole-line ring statement this refines. It adds
 `Apeiron.Physics.diffusiveUpdate_half_three_anyRing`: at the explicit `DoublesTo ν 1` witness and a
 closed right ghost face, the two shared faces are `exactHalfFlux` witnesses, each cell averages with
 its neighbor and the three-cell total is conserved — the ring analogue of the real
@@ -374,6 +374,12 @@ bridge both pin Lean `4.31.0` and Mathlib `v4.31.0` (manifest revision
 corpus is a copy of the `proof/` tree of the author's earlier corpus repository at revision
 `880aa57e47e782ed7a9d9ee1974cfc87360b446b`; that repository is not part of this one, so the
 revision is recorded as provenance and cannot be resolved here.
+
+Comments in the Lean and Rust sources cite sibling paths (`../sanguine-ref/…`, `../song/…`,
+`../fold/…`). They name the author's predecessor repositories as provenance for a statement or a
+port. Those repositories are not part of this one and nothing here reads them: no build step, gate
+or theorem depends on a sibling path. The code that was carried over is the author's own, under this
+repository's licence.
 
 Reproduce with a built `proof/` and `cd proof/corpus && lake build`. A cold build compiles Mathlib
 and the corpus and exceeds an hour on a single thread; CI builds it and uploads the log.

@@ -78,6 +78,13 @@ text_map = [
   "gitlab.tas.twn.network==>git.example.invalid",
   "tas.twn.network==>example.invalid",
   "twn.systems==>example.invalid",
+  # An agent session preflight recorded in Icarus Lean headers.
+  "regex:(?s)Pre-flight\\s+repos/apeiron/tools/gate/target/debug/gate hold.*?no\\s+hold\\s+in\\s+force`[^.]*\\.\\s*==>",
+  "/home/lucas/Workspace/icarus/repos/apeiron/==>",
+  "/home/lucas/Workspace/icarus/bin/lane==>lane",
+  "/home/lucas/Workspace/icarus/==>~/icarus/",
+  "/home/lucas/Workspace/==>~/",
+  "/home/lucas/==>~/",
   "/home/socol/oc-tmp/==>~/",
   "/home/socol/Workspace/==>~/",
   "/home/socol/==>~/",
@@ -94,6 +101,8 @@ text_map = [
   "regex:\\bthe lead review\\b==>review",
   # Reviewer names in history; the current tree is edited at the source.
   "regex:\\b(?:Sol|Astra|Terra)\\b==>the reviewer",
+  # The resource model directory is not published; a pointer into it keeps the file name.
+  "regex:(?:~/apeiron/)?proof/resource/==>the unpublished resource model/",
   "oc-tmp==>scratch",
   "/tmp/opencode==>/tmp/apeiron",
   # A pointer to a stripped internal document keeps its slug and drops the path.
@@ -116,6 +125,7 @@ forbidden = [
   "twn\\.systems",
   "gitlab\\.tas",
   "/home/socol",
+  "/home/(?!runner)[a-z]+",
   "\\bsocol\\b",
   "oc-tmp",
   "(?i)operately",
