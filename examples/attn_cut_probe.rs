@@ -3123,6 +3123,7 @@ struct TailCtx<'a> {
     mn: &'a [f32],
     mx: &'a [f32],
     mutb: bool,
+    cells: Option<&'a CellIdx>,
 }
 
 /// Quest's bound on `q.k / 8` over far page `b` of KV head `g`; the min-only `q.m` under `mutb`.
@@ -3355,6 +3356,262 @@ fn lowbit_row(k: &[f32], bits: u32, out: &mut [f32]) {
     }
 }
 
+/// `KV_TAIL_CELL=s`: F1, cell size of the oracle-ranked key partition; `KV_TAIL_MI=K`: F2, centroids per block of
+/// the inverted multi-index. `KV_TAIL_CELLR=R`: keys read; `KV_TAIL_CELLMUT=1` random cell ids, `=2` reversed order.
+fn cell_env(name: &str) -> Option<usize> {
+    std::env::var(name).ok().and_then(|v| v.parse().ok())
+}
+
+/// Content-cell index of the prefix keys (post-RoPE) of one layer: per KV head the cell id of every key `j` in
+/// `[TL_SINK, pre)`. F1 (`mi == false`): k-means on whole keys, `id`, cell member lists `off`/`mem`. F2: mean-centred
+/// keys split into the RoPE low-index pairs (dims `0..32`, `64..96`) and high-index pairs (`32..64`, `96..128`),
+/// k-means per block, `id` and `id2`, centroids `cen`, `cen2`.
+struct CellIdx {
+    mi: bool,
+    k: usize,
+    id: Vec<Vec<u16>>,
+    id2: Vec<Vec<u16>>,
+    off: Vec<Vec<u32>>,
+    mem: Vec<Vec<u32>>,
+    cen: Vec<Vec<f32>>,
+    cen2: Vec<Vec<f32>>,
+}
+
+/// Index of the centroid of `cen` (`dim`-word rows, squared norms `cn`) nearest to `p`. Time `O(k dim)`.
+fn nearest(p: &[f32], cen: &[f32], cn: &[f32], dim: usize) -> u16 {
+    let mut best = (f32::INFINITY, 0usize);
+    for (c, (row, &n)) in cen.chunks_exact(dim).zip(cn).enumerate() {
+        let d = n - 2.0 * dot32(p, row);
+        if d < best.0 {
+            best = (d, c);
+        }
+    }
+    best.1 as u16
+}
+
+/// Nearest-centroid ids of every `dim`-word row of `pts`. Time `O(m k dim)` for `m` rows, `PAR` threads.
+fn assign_all(pts: &[f32], dim: usize, cen: &[f32]) -> Vec<u16> {
+    let cn: Vec<f32> = cen.chunks_exact(dim).map(|r| dot32(r, r)).collect();
+    let mut out = vec![0u16; pts.len() / dim];
+    par_rows(&mut out, 1, PAR, |i0, ch| {
+        for (o, s) in ch.iter_mut().enumerate() {
+            *s = nearest(&pts[(i0 + o) * dim..(i0 + o + 1) * dim], cen, &cn, dim);
+        }
+    });
+    out
+}
+
+/// Lloyd's algorithm: `k` centroids of the `dim`-word rows of `pts`, initialised at strided rows, `iters` steps
+/// (an empty cell keeps its centroid). Time `O(iters m k dim)`, space `O(k dim + m)`.
+fn kmeans(pts: &[f32], dim: usize, k: usize, iters: usize) -> Vec<f32> {
+    let m = pts.len() / dim;
+    let mut cen: Vec<f32> = (0..k)
+        .flat_map(|c| pts[(c * m / k) * dim..(c * m / k + 1) * dim].to_vec())
+        .collect();
+    for _ in 0..iters {
+        let a = assign_all(pts, dim, &cen);
+        let (mut sum, mut cnt) = (vec![0f64; k * dim], vec![0u32; k]);
+        for (i, &c) in a.iter().enumerate() {
+            let c = usize::from(c);
+            cnt[c] += 1;
+            for e in 0..dim {
+                sum[c * dim + e] += f64::from(pts[i * dim + e]);
+            }
+        }
+        for c in 0..k {
+            if cnt[c] > 0 {
+                for e in 0..dim {
+                    cen[c * dim + e] = (sum[c * dim + e] / f64::from(cnt[c])) as f32;
+                }
+            }
+        }
+    }
+    cen
+}
+
+/// Rows of `pts` (`m x dim`) at a stride, at most `cap` of them, for k-means training.
+fn train_rows(pts: &[f32], dim: usize, cap: usize) -> Vec<f32> {
+    let m = pts.len() / dim;
+    let t = m.min(cap);
+    (0..t)
+        .flat_map(|i| pts[(i * m / t) * dim..(i * m / t + 1) * dim].to_vec())
+        .collect()
+}
+
+/// Cell index of one layer's prefix keys `kp` (`pre` rows of `nkv * HD`), per `KV_TAIL_CELL` or `KV_TAIL_MI`.
+/// Training: a `CELL_TRAIN`-row subsample, `CELL_ITERS` Lloyd steps; assignment: every key.
+/// Time `O(nkv (CELL_ITERS CELL_TRAIN + pre) k HD)`, space `O(pre HD)` words per KV head at build.
+fn build_cells(kp: &[f32], pre: usize, nkv: usize) -> CellIdx {
+    const CELL_TRAIN: usize = 32768;
+    const CELL_ITERS: usize = 6;
+    let mi = cell_env("KV_TAIL_MI");
+    let k =
+        mi.unwrap_or_else(|| ((pre - TL_SINK) / cell_env("KV_TAIL_CELL").unwrap_or(512)).max(1));
+    let mutc = cell_env("KV_TAIL_CELLMUT").unwrap_or(0);
+    let mut ix = CellIdx {
+        mi: mi.is_some(),
+        k,
+        id: Vec::new(),
+        id2: Vec::new(),
+        off: Vec::new(),
+        mem: Vec::new(),
+        cen: Vec::new(),
+        cen2: Vec::new(),
+    };
+    let n = pre - TL_SINK;
+    let hash = |j: usize, salt: u64| -> u16 {
+        let x = (j as u64 ^ salt).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        ((x >> 33) % k as u64) as u16
+    };
+    for g in 0..nkv {
+        let row = |j: usize| &kp[(j * nkv + g) * HD..(j * nkv + g + 1) * HD];
+        if mi.is_some() {
+            let h = HD / 2;
+            let mut mean = vec![0f64; HD];
+            for j in TL_SINK..pre {
+                for (m, &v) in mean.iter_mut().zip(row(j)) {
+                    *m += f64::from(v) / n as f64;
+                }
+            }
+            let (mut pa, mut pb) = (vec![0f32; n * h], vec![0f32; n * h]);
+            for (o, j) in (TL_SINK..pre).enumerate() {
+                let r = row(j);
+                let c = |e: usize| r[e] - mean[e] as f32;
+                for e in 0..h / 2 {
+                    pa[o * h + e] = c(e);
+                    pa[o * h + h / 2 + e] = c(h + e);
+                    pb[o * h + e] = c(h / 2 + e);
+                    pb[o * h + h / 2 + e] = c(h + h / 2 + e);
+                }
+            }
+            let blk = |pts: &[f32], salt: u64| {
+                let cen = kmeans(&train_rows(pts, h, CELL_TRAIN), h, k, CELL_ITERS);
+                let a = if mutc == 1 {
+                    (0..n).map(|o| hash(o, salt)).collect()
+                } else {
+                    assign_all(pts, h, &cen)
+                };
+                (cen, a)
+            };
+            let (ca, ia) = blk(&pa, 1);
+            let (cb, ib) = blk(&pb, 2);
+            ix.cen.push(ca);
+            ix.cen2.push(cb);
+            ix.id.push(ia);
+            ix.id2.push(ib);
+        } else {
+            let mut pts = vec![0f32; n * HD];
+            for (o, j) in (TL_SINK..pre).enumerate() {
+                pts[o * HD..(o + 1) * HD].copy_from_slice(row(j));
+            }
+            let ids = if mutc == 1 {
+                (0..n).map(|o| hash(o, 3)).collect()
+            } else {
+                let cen = kmeans(&train_rows(&pts, HD, CELL_TRAIN), HD, k, CELL_ITERS);
+                assign_all(&pts, HD, &cen)
+            };
+            let mut off = vec![0u32; k + 1];
+            for &c in &ids {
+                off[usize::from(c) + 1] += 1;
+            }
+            for c in 0..k {
+                off[c + 1] += off[c];
+            }
+            let mut at = off.clone();
+            let mut mem = vec![0u32; n];
+            for (o, &c) in ids.iter().enumerate() {
+                mem[at[usize::from(c)] as usize] = (TL_SINK + o) as u32;
+                at[usize::from(c)] += 1;
+            }
+            ix.id.push(ids);
+            ix.off.push(off);
+            ix.mem.push(mem);
+        }
+    }
+    ix
+}
+
+/// Keys of the far region `[TL_SINK, nb)` a query reads under the cell index `ix` (KV head `g`), and the
+/// candidate keys read to find them. F1: cells in order of their true softmax mass (`sc`, `m`) until `r` keys, the
+/// candidates are the selection. F2: the top `r` keys by `a[id] + b[id2]` (centroid-table scores, equal to visiting
+/// cells in score order up to the partial last cell), then the exact top `c` of them. Keys at `j >= pre` are
+/// always read. Time `O(n)` per query (exp / lookup per key, `select_nth_unstable`) plus `O(k log k)` for F1;
+/// the instrument's cost, not the arm's.
+#[allow(clippy::too_many_arguments)]
+fn cell_select(
+    ix: &CellIdx,
+    g: usize,
+    qh: &[f32],
+    sc: &[f64],
+    m: f64,
+    nb: usize,
+    pre: usize,
+    c: usize,
+) -> (Vec<usize>, Vec<usize>) {
+    let r = cell_env("KV_TAIL_CELLR").unwrap_or(8192);
+    let lim = nb.min(pre);
+    let mut sel: Vec<usize> = Vec::new();
+    let cand: Vec<usize>;
+    if ix.mi {
+        let h = HD / 2;
+        let (mut qa, mut qb) = (vec![0f32; h], vec![0f32; h]);
+        for e in 0..h / 2 {
+            qa[e] = qh[e];
+            qa[h / 2 + e] = qh[h + e];
+            qb[e] = qh[h / 2 + e];
+            qb[h / 2 + e] = qh[h + h / 2 + e];
+        }
+        let tab = |q: &[f32], cen: &[f32]| -> Vec<f32> {
+            cen.chunks_exact(h).map(|row| dot32(q, row)).collect()
+        };
+        let (ta, tb) = (tab(&qa, &ix.cen[g]), tab(&qb, &ix.cen2[g]));
+        let ap: Vec<f32> = (TL_SINK..lim)
+            .map(|j| {
+                ta[usize::from(ix.id[g][j - TL_SINK])] + tb[usize::from(ix.id2[g][j - TL_SINK])]
+            })
+            .collect();
+        let rr = r.max(c).min(ap.len());
+        let mut ord: Vec<usize> = (0..ap.len()).collect();
+        if rr > 0 && rr < ord.len() {
+            ord.select_nth_unstable_by(rr - 1, |&a, &b| ap[b].total_cmp(&ap[a]));
+            ord.truncate(rr);
+        }
+        cand = ord.iter().map(|&o| TL_SINK + o).collect();
+        let mut by = cand.clone();
+        if by.len() > c && c > 0 {
+            by.select_nth_unstable_by(c - 1, |&a, &b| sc[b].total_cmp(&sc[a]));
+            by.truncate(c);
+        }
+        sel = by;
+    } else {
+        let mut mass = vec![0f64; ix.k];
+        for j in TL_SINK..lim {
+            mass[usize::from(ix.id[g][j - TL_SINK])] += (sc[j] - m).exp();
+        }
+        let mut ord: Vec<usize> = (0..ix.k).collect();
+        if cell_env("KV_TAIL_CELLMUT") == Some(2) {
+            ord.sort_by(|&a, &b| mass[a].total_cmp(&mass[b]));
+        } else {
+            ord.sort_by(|&a, &b| mass[b].total_cmp(&mass[a]));
+        }
+        for cell in ord {
+            if sel.len() >= r {
+                break;
+            }
+            let (a, b) = (ix.off[g][cell] as usize, ix.off[g][cell + 1] as usize);
+            sel.extend(
+                ix.mem[g][a..b]
+                    .iter()
+                    .map(|&j| j as usize)
+                    .filter(|&j| j < lim),
+            );
+        }
+        cand = sel.clone();
+    }
+    sel.extend(pre.max(TL_SINK)..nb);
+    (sel, cand)
+}
+
 /// Keys per tile of `tail_group`: 256 K rows and 256 V rows are 256 KiB, resident in L2 across the block's queries.
 const TAIL_KT: usize = 256;
 /// Scoped threads for the instrument's own serial-in-principle work (rotation, boxes, bytes, k-means assignment).
@@ -3371,6 +3628,7 @@ const PAR: usize = 32;
 /// `2 * Q * n * HD` per block in `tail_head`; space `Q * n` f64 scores and `Q * n` bools for the selections.
 /// `KV_TAIL_LOWBIT=b` adds a `Q * n` dot-product pass of length `HD` over quantised key rows plus `O(n)` selection
 /// per query; space `Q * n` f32 scores.
+/// `KV_TAIL_CELL=s` / `KV_TAIL_MI=K` add `cell_select` per query: `O(n)` per query plus, for `CELL`, `O(k log k)`.
 /// `KV_TAIL_RERANK=c` adds an `O(pool)` selection per query (`select_nth_unstable`), pool = the arm's far set.
 /// `KV_TAIL_ORACLE` adds an `O(n)` selection (`select_nth_unstable`) per query: `Q * n` comparisons in expectation.
 fn tail_group(
@@ -3397,6 +3655,8 @@ fn tail_group(
         z: f64,
         zs: f64,
         out: Vec<f64>,
+        cand: Vec<usize>,
+        meta: f64,
     }
     let hs = g * (nh / cx.nkv)..(g + 1) * (nh / cx.nkv);
     let sum = if matches!(arm, Arm::Grp(..)) {
@@ -3426,6 +3686,8 @@ fn tail_group(
                 z: 0.0,
                 zs: 0.0,
                 out: vec![0f64; HD],
+                cand: Vec::new(),
+                meta: 0.0,
             });
         }
     }
@@ -3459,6 +3721,38 @@ fn tail_group(
                     x.sc[j] = s;
                     x.m = x.m.max(s);
                 }
+            }
+        }
+    }
+    if let Some(ix) = cx.cells.filter(|_| matches!(arm, Arm::Grp(..))) {
+        // Diagnostic: F1 / F2 content-cell selection (`cell_select`). Its meta is the centroid tables (`k` key rows),
+        // the candidate keys read but not selected (one K row each) and 4-byte ids (1/64 row) per candidate, once per
+        // (position, KV head), charged to the group's first head.
+        for x in &mut qs {
+            let nb = TL_SINK + far_pages(x.n - 1) * TL_P;
+            let c = x.sel[TL_SINK..nb].iter().filter(|&&b| b).count();
+            x.sel[TL_SINK..nb].fill(false);
+            let (s, cand) = cell_select(ix, g, x.qh, &x.sc, x.m, nb, cx.pre, c);
+            for &j in &s {
+                x.sel[j] = true;
+            }
+            x.cand = cand;
+        }
+        if ix.mi {
+            for grp in qs.chunks_mut(hs.len()) {
+                let n = grp[0].n;
+                let (mut any_c, mut any_s) = (vec![false; n], vec![false; n]);
+                for x in grp.iter() {
+                    for &j in &x.cand {
+                        any_c[j] = true;
+                    }
+                    for j in TL_SINK..n {
+                        any_s[j] |= x.sel[j];
+                    }
+                }
+                let nc = any_c.iter().filter(|&&b| b).count();
+                let extra = (0..n).filter(|&j| any_c[j] && !any_s[j]).count();
+                grp[0].meta = ix.k as f64 + extra as f64 + nc as f64 / 64.0;
             }
         }
     }
@@ -3588,7 +3882,7 @@ fn tail_group(
                 TailOut {
                     o,
                     reads: x.reads,
-                    meta: 0.0,
+                    meta: x.meta,
                     kept,
                     viol: false,
                     prox,
@@ -4200,6 +4494,8 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
             };
             boxes(f32::min, &mut mn);
             boxes(f32::max, &mut mx);
+            let cells = (cell_env("KV_TAIL_CELL").is_some() || cell_env("KV_TAIL_MI").is_some())
+                .then(|| build_cells(&kp, pre, nkv));
             let mut vbar: Vec<f32> = Vec::new();
             if sum_mode().is_some() {
                 let unit = sum_unit();
@@ -4241,6 +4537,7 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                     mn: &mn,
                     mx: &mx,
                     mutb,
+                    cells: cells.as_ref(),
                 };
                 let arm = layer_arm(l, arms[a]);
                 let (gsets, gmeta) = match arm {

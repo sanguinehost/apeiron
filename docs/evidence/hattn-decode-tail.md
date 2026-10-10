@@ -806,6 +806,37 @@ Reference: 1-bit alone 0.1477, 4-bit alone 0.0551, oracle 0.0553.
 
 Lean: `proof/corpus/Perf/HattnT8LbPool.lean` (sha256 `9b5212340a67`), 7 theorems, empty axiom cone; mutation `lp131072 := 456` turns it red. Grade: measured, `model` inputs. Not covered: other models, code dump, rustc/LLVM.
 
+## Content-cell indexes at 262144, 524288, 1048576: oracle-ranked cells (F1) and inverted multi-index (F2) (Qwen2.5-7B-Instruct-1M)
+
+Row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Prose `g7-1m`, 64 tail positions, gate KLD <= 0.05, binary `attn_cut_probe.hd128cl` (sha256 `f248f46584d8`), predictions `PREDICTIONS-T8-CELLS.md` (sha256 `290bbc0db534`), wrapper `cells.sh` over `cells-queue.sh`, outputs `g25-*-t*.out` in `/home/socol/oc-tmp/hattn-long/`. Source: the Opus cold-KV analysis (`/home/socol/oc-tmp/escalation/opus-cold-kv-faces.md`, F1 and F2).
+- F1: `KV_TAIL_CELL=512 KV_TAIL_FARB=2048 KV_TAIL_CELLR=R`. K-means cells on individual post-RoPE keys, cells ranked by the true softmax mass (an oracle for any partition index; the ranking cost is not charged), whole cells read until >= R keys, no rerank.
+- F2: `KV_TAIL_MI=1024 KV_TAIL_FARB=8192 KV_TAIL_CELLR=R`. Two 1024-centroid tables over mean-centred keys split at the RoPE frequency boundary (dims 0-31/64-95 and 32-63/96-127), R candidates by the sum of the two block scores, exact top-8192 rerank. Meta charged: 1024 table rows, candidate rows read but not selected, ids/64.
+- Instrument: k-means on a 32768-key subsample, 6 Lloyd steps, assignment on all keys; far keys at j >= pre are always read. `TAIL FAIL` and `exit=1` in these outputs come from the dense-tail control (relative L2 1.4e-3 against 1e-4), not from the KLD gate; KLD is read from the `grp-fix` line.
+
+Mean KLD (bytes/dense):
+
+| arm | t | R | KLD | bytes/dense |
+|---|---|---|---|---|
+| F1 | 262144 | 4096 / 8192 / 16384 | 0.0049 / 0.0027 / 0.0014 | 0.0472 / 0.0843 / 0.1488 |
+| F1 | 524288 | 8192 / 16384 | 0.0623 / 0.0317 | 0.0505 / 0.0877 |
+| F1 | 1048576 | 8192 / 16384 / 32768 | 0.1221 / 0.0725 / 0.0387 | 0.0275 / 0.0474 / 0.0822 |
+| F2 | 262144 | 8192 / 16384 / 32768 | 0.0065 / 0.0038 / 0.0030 | 0.0861 / 0.1218 / 0.1798 |
+| F2 | 524288 | 16384 / 32768 / 65536 | 0.0973 / 0.0634 / 0.0496 | 0.0684 / 0.1011 / 0.1563 |
+| F2 | 1048576 | 16384 / 32768 / 65536 | 0.1035 / 0.0908 / 0.0890 | 0.0376 / 0.0553 / 0.0855 |
+| F1 control (reversed cell order) | 524288 | 8192 | 0.5300 | 0.0478 |
+| F2 control (random cell ids) | 524288 | 32768 | 0.2402 | 0.1045 |
+
+- F1 `R*` (log-linear between the bracketing runs): 10.3k at 524288 (R*/t 0.020), 24.7k at 1048576 (0.024); alpha = 1.27 over those two lengths. At 262144 `R*` is below 4096 and unbracketed. Bytes at the passing run: 0.0877 at 524288 against 0.053 for the exact top-8192 oracle.
+- F2 `R*` at 524288: 64k (bracket 32768 to 65536; R*/t 0.12; bytes/dense 0.1563 at the first passing R, above the 4-bit scan's 0.1407). At 1048576 all three runs are above the gate and the curve flattens (0.0908 to 0.0890 for the last doubling), so `R*` has no upper bracket.
+- Controls: reversed order costs 8.5x in KLD at the same bytes; random ids cost 3.8x at the same R. The gains come from the cell ranking and cell structure, not the read budget.
+- F1 gap to F2 at 524288: R* 10.3k against 64k (6x). That is the cost of ranking by the product-index score instead of the true mass.
+- F1a (s=64, K=8192): `exit=124` at the 570 s budget (k-means assignment, about 6e13 multiply-adds over 112 layer-heads). A timeout is not a result; F1a is unmeasured.
+- Both indexes' KLD at fixed R jumps between 262144 and 524288 (F1 R=16384: 0.0014 to 0.0317; F2: 0.0038 to 0.0973), so the 524288 positions are harder for any partition. alpha is fitted only over the two bracketed lengths.
+- Decision rules: F1 kill (R*/t >= 0.05 and alpha >= 0.9) is not met (R*/t < 1/32 at both lengths). F2 kill is met by its second clause (R*(F2) >= 2 R*(F1)) at both bracketed lengths; the F2 pass rule (alpha <= 0.7) is not met. Partition and product indexes over post-RoPE keys do not give a sublinear selector here; graph indexes are not tested.
+- Predictions: F1b refuted (0.0623, below [0.08, 0.18]); F1c refuted (ratio below range, alpha 1.27 above [0.7, 1.0] under the stated interpolation); F1 control held; F2a, F2c, F2d and the F2 control held; F2b not decided (no upper bracket at 1048576).
+
+Lean: `proof/corpus/Perf/HattnT8Cells.lean` (sha256 `ef8325efc1c9`), 16 theorems, empty axiom cone in `AxiomAudit.lean`; a four-datum mutation in a scratch copy turns five theorems red and the restored file builds. Grade: measured, `model` inputs. Not covered: other models, the code dump, F1a, rustc/LLVM, the cost of the instrument's own k-means build (not charged).
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a
