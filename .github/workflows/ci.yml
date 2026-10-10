@@ -1,10 +1,10 @@
 # GitHub Actions CI workflow for the public release of apeiron.
 # Repository: github.com/sanguinehost/apeiron
 #
-# NOT in CI yet:
-#   `proof/regen.sh --check` and the Lean builds are not yet run in CI because they
-#   depend on the pinned Aeneas/Charon toolchain build and the patched backend, whose
-#   fresh-clone bootstrap is tracked as open work on row P0 · TOOL-IDENTITY.
+# The `proof` job rebuilds the pinned Aeneas/Charon toolchain (`proof/bootstrap.sh`), checks the
+# committed extraction against the source (`proof/regen.sh --check`) and builds the Lean bridge
+# (`cd proof/corpus && lake build`) over the in-tree canonical corpus `proof/canonical/`. Its OCaml
+# closure is `proof/opam-switch.export`; elan is fetched by digest.
 #
 # Toolchain pinning rationale:
 #   Pinned to `nightly-2026-04-14`, which provides `rustc 1.97.0-nightly (17584a181 2026-04-13)`
@@ -134,3 +134,54 @@ jobs:
       # proof/corpus/.lake, which a fresh clone does not have until the TOOL-IDENTITY bootstrap
       # lands. It is NOT run here rather than run with continue-on-error: a step that cannot fail
       # is not a gate (AGENTS.md §10). The pre-commit hook runs it on every local commit.
+
+  proof:
+    name: Proof (extraction + Lean)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      APEIRON_OPAMROOT: /tmp/apeiron-opam
+      APEIRON_AENEAS_BUILD_ROOT: /home/runner/aeneas-build
+      ELAN_VERSION: v4.2.3
+      ELAN_SHA256: df0b2b3a439961ffcbb3985214365ffe40f49bc871df04dff268c7d8e21ca8b2
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: System packages
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends opam libgmp-dev pkg-config binutils bubblewrap
+
+      - name: Cache opam root and Aeneas build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.APEIRON_OPAMROOT }}
+            ${{ env.APEIRON_AENEAS_BUILD_ROOT }}
+          key: ${{ runner.os }}-aeneas-${{ hashFiles('proof/opam-switch.export', 'proof/patches/PINS', 'proof/bootstrap.sh') }}
+
+      - name: OCaml closure (pinned switch export)
+        run: |
+          if [ ! -d "$APEIRON_OPAMROOT/default" ]; then
+            opam init --bare --disable-sandboxing --no-setup --yes --root "$APEIRON_OPAMROOT"
+            opam switch import proof/opam-switch.export --switch default --root "$APEIRON_OPAMROOT" --yes
+          fi
+
+      - name: Install elan (pinned digest)
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/elan.tgz" "https://github.com/leanprover/elan/releases/download/$ELAN_VERSION/elan-x86_64-unknown-linux-gnu.tar.gz"
+          echo "$ELAN_SHA256  $RUNNER_TEMP/elan.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/elan.tgz" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/elan-init" -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Aeneas and Charon (pinned, stripped digests)
+        run: proof/bootstrap.sh --step-timeout 3000
+
+      - name: Extraction is fresh
+        run: proof/regen.sh --check
+
+      - name: Lean bridge (Mathlib cache, then build)
+        working-directory: proof/corpus
+        run: |
+          lake exe cache get
+          lake build

@@ -23,7 +23,7 @@
 # the linked content; the same source therefore gives a different digest at each build root. Before
 # installing, `strip -R .note.gnu.build-id` removes the symbol table, the debug sections and that
 # note, so the installed digest depends on source and toolchain only and reproduces at any build
-# root (measured: three roots under ~/scratch strip to one digest). The pinned
+# root (measured: three build roots strip to one digest). The pinned
 # AENEAS_TRANSLATOR_SHA256 is the digest of that stripped product; the Charon binaries are stripped
 # and pinned the same way. The build root is a scratch choice, not an identity.
 #
@@ -36,15 +36,15 @@
 # Options:
 #   --aeneas-home DIR      install destination (default $REPO/target/aeneas)
 #   --build-root DIR       pinned source checkouts and build tree (default
-#                          $APEIRON_AENEAS_BUILD_ROOT, else ~/aeneas-build;
+#                          $APEIRON_AENEAS_BUILD_ROOT, else ${XDG_CACHE_HOME:-$HOME/.cache}/apeiron/aeneas-build;
 #                          the installed digest is path-independent, see above)
 #   --archive-cache DIR    downloaded-archive cache (default $REPO/target/tool-archives)
 #   --aeneas-src-repo DIR  local Aeneas git object database (default $APEIRON_AENEAS_SRC_REPO,
-#                          else ~/aeneas)
+#                          else the upstream Aeneas URL)
 #   --charon-src-repo DIR  local Charon git object database (default $APEIRON_CHARON_SRC_REPO,
-#                          else $AENEAS_SRC_REPO/charon)
+#                          else $AENEAS_SRC_REPO/charon when that is a local directory, else the upstream Charon URL)
 #   --opamroot DIR         opam root holding the pinned OCaml closure (default
-#                          $APEIRON_OPAMROOT, else ~/aeneas-build2/opamroot)
+#                          $APEIRON_OPAMROOT, else ${OPAMROOT:-$HOME/.opam})
 #   --opam-switch NAME     opam switch inside --opamroot (default default)
 #   --jobs N               aeneas parallel jobs (default 16)
 #   --step-timeout SEC     per-build timeout (default 570)
@@ -72,11 +72,11 @@ AENEAS_GIT_URL="https://github.com/AeneasVerif/aeneas.git"
 CHARON_GIT_URL="https://github.com/AeneasVerif/charon.git"
 
 AENEAS_HOME=${APEIRON_AENEAS_HOME:-"$REPO_DIR/target/aeneas"}
-BUILD_ROOT=${APEIRON_AENEAS_BUILD_ROOT:-~/aeneas-build}
+BUILD_ROOT=${APEIRON_AENEAS_BUILD_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache}/apeiron/aeneas-build}
 ARCHIVE_CACHE=${APEIRON_TOOL_ARCHIVE_CACHE:-"$REPO_DIR/target/tool-archives"}
-LOCAL_AENEAS_REPO=${APEIRON_AENEAS_SRC_REPO:-~/aeneas}
+LOCAL_AENEAS_REPO=${APEIRON_AENEAS_SRC_REPO:-$AENEAS_GIT_URL}
 LOCAL_CHARON_REPO=${APEIRON_CHARON_SRC_REPO:-}
-OPAMROOT_DIR=${APEIRON_OPAMROOT:-~/aeneas-build2/opamroot}
+OPAMROOT_DIR=${APEIRON_OPAMROOT:-${OPAMROOT:-$HOME/.opam}}
 OPAM_SWITCH=default
 JOBS=16
 STEP_TIMEOUT=570
@@ -114,7 +114,9 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-[ -n "$LOCAL_CHARON_REPO" ] || LOCAL_CHARON_REPO="$LOCAL_AENEAS_REPO/charon"
+if [ -z "$LOCAL_CHARON_REPO" ]; then
+    if [ -d "$LOCAL_AENEAS_REPO" ]; then LOCAL_CHARON_REPO="$LOCAL_AENEAS_REPO/charon"; else LOCAL_CHARON_REPO=$CHARON_GIT_URL; fi
+fi
 
 [ -f "$PINS" ] || die "missing pins: $PINS"
 [ -f "$INSTALL_PATCHES" ] || die "missing patch driver: $INSTALL_PATCHES"
@@ -127,6 +129,9 @@ done
 [ -n "${AENEAS_TRANSLATOR_SHA256:-}" ] || die "$PINS has no AENEAS_TRANSLATOR_SHA256"
 [ -n "${CHARON_SHA256:-}" ] || die "$PINS has no CHARON_SHA256"
 [ -n "${CHARON_DRIVER_SHA256:-}" ] || die "$PINS has no CHARON_DRIVER_SHA256"
+[ -n "${AENEAS_TRANSLATOR_CANON_SHA256:-}" ] || die "$PINS has no AENEAS_TRANSLATOR_CANON_SHA256"
+[ -n "${CHARON_CANON_SHA256:-}" ] || die "$PINS has no CHARON_CANON_SHA256"
+[ -n "${CHARON_DRIVER_CANON_SHA256:-}" ] || die "$PINS has no CHARON_DRIVER_CANON_SHA256"
 [ -n "${AENEAS_COMMIT:-}" ] || die "$PINS has no AENEAS_COMMIT"
 [ -n "${CHARON_COMMIT:-}" ] || die "$PINS has no CHARON_COMMIT"
 [ -n "${AENEAS_PATCH_SHA256:-}" ] || die "$PINS has no AENEAS_PATCH_SHA256"
@@ -153,16 +158,16 @@ ARCHIVE_CACHE=$(resolve_path "$ARCHIVE_CACHE")
 verify_home() {
     [ -f "$AENEAS_HOME/aeneas" ] || die "missing $AENEAS_HOME/aeneas"
     got=$(sha256 "$AENEAS_HOME/aeneas")
-    [ "$got" = "$AENEAS_TRANSLATOR_SHA256" ] \
-        || die "translator digest $got != pinned $AENEAS_TRANSLATOR_SHA256"
+    { [ "$got" = "$AENEAS_TRANSLATOR_SHA256" ] || [ "$got" = "$AENEAS_TRANSLATOR_CANON_SHA256" ]; } \
+        || die "translator digest $got != pinned $AENEAS_TRANSLATOR_SHA256 or canonical $AENEAS_TRANSLATOR_CANON_SHA256"
     [ -x "$AENEAS_HOME/charon" ] || die "missing executable $AENEAS_HOME/charon"
     got_c=$(sha256 "$AENEAS_HOME/charon")
-    [ "$got_c" = "$CHARON_SHA256" ] \
-        || die "charon digest $got_c != pinned $CHARON_SHA256"
+    { [ "$got_c" = "$CHARON_SHA256" ] || [ "$got_c" = "$CHARON_CANON_SHA256" ]; } \
+        || die "charon digest $got_c != pinned $CHARON_SHA256 or canonical $CHARON_CANON_SHA256"
     [ -x "$AENEAS_HOME/charon-driver" ] || die "missing executable $AENEAS_HOME/charon-driver"
     got_d=$(sha256 "$AENEAS_HOME/charon-driver")
-    [ "$got_d" = "$CHARON_DRIVER_SHA256" ] \
-        || die "charon-driver digest $got_d != pinned $CHARON_DRIVER_SHA256"
+    { [ "$got_d" = "$CHARON_DRIVER_SHA256" ] || [ "$got_d" = "$CHARON_DRIVER_CANON_SHA256" ]; } \
+        || die "charon-driver digest $got_d != pinned $CHARON_DRIVER_SHA256 or canonical $CHARON_DRIVER_CANON_SHA256"
     [ -d "$AENEAS_HOME/backends/lean" ] || die "missing Aeneas Lean backend at $AENEAS_HOME/backends/lean"
     log "check: aeneas $got == pinned"
     log "check: charon $got_c == pinned"
@@ -241,6 +246,8 @@ materialise() {
         git -C "$dest" fetch -q --depth 1 "$origin" "$commit" \
             || die "$label: fetch $commit from $origin failed"
     fi
+    # aeneas embeds `git describe --dirty`; the default abbreviation width scales with the clone size.
+    git -C "$dest" config core.abbrev 8
     git -C "$dest" update-ref HEAD "$commit" || die "$label: cannot point HEAD at $commit"
     git -C "$dest" read-tree HEAD || die "$label: read-tree failed"
     git -C "$dest" checkout-index -a -f || die "$label: checkout-index failed"
@@ -259,10 +266,10 @@ log "verifying pinned sources against PINS"
 "$INSTALL_PATCHES" \
     --aeneas-src "$BUILD_ROOT/aeneas" --charon-src "$BUILD_ROOT/charon"
 
-# verify_applied SRC WANT LABEL — the whole applied diff must be byte-exactly the pinned patch.
+# verify_applied SRC WANT LABEL — the whole applied diff must be byte-exactly the pinned patch. `--abbrev=8` fixes the index-line width, which otherwise scales with the object count of the clone.
 verify_applied() {
     src=$1 want=$2 label=$3
-    got=$(git -C "$src" diff | sha256sum | cut -d' ' -f1)
+    got=$(git -C "$src" diff --abbrev=8 | sha256sum | cut -d' ' -f1)
     [ "$got" = "$want" ] || die "$label: applied diff $got != pinned patch $want"
 }
 verify_applied "$BUILD_ROOT/aeneas" "$AENEAS_PATCH_DIGEST" "aeneas"
@@ -289,8 +296,8 @@ fi
 [ -f "$AENEAS_PRODUCT" ] || die "aeneas build produced no $AENEAS_PRODUCT"
 strip_identity "$AENEAS_PRODUCT" "$AENEAS_IDENTITY"
 built_aeneas=$(sha256 "$AENEAS_IDENTITY")
-[ "$built_aeneas" = "$AENEAS_TRANSLATOR_SHA256" ] \
-    || die "stripped aeneas $built_aeneas != pinned $AENEAS_TRANSLATOR_SHA256 (build root $BUILD_ROOT)"
+[ "$built_aeneas" = "$AENEAS_TRANSLATOR_CANON_SHA256" ] \
+    || die "stripped aeneas $built_aeneas != canonical $AENEAS_TRANSLATOR_CANON_SHA256 (opam root $OPAMROOT_DIR; the canonical identity needs /tmp/apeiron-opam)"
 log "aeneas: $built_aeneas == pinned (stripped identity)"
 
 # --- 4. build charon / charon-driver (Rust) ------------------------------------------------------
@@ -319,7 +326,9 @@ fi
 if [ "$charon_ok" != 1 ]; then
     command -v cargo >/dev/null 2>&1 || die "missing cargo (needed to build charon)"
     log "charon: cargo build --release --locked (timeout ${STEP_TIMEOUT}s)"
-    ( cd "$BUILD_ROOT/charon/charon" && timeout "$STEP_TIMEOUT" cargo build --release --locked ) \
+    ( cd "$BUILD_ROOT/charon/charon" \
+        && RUSTFLAGS="--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=${RUSTUP_HOME:-$HOME/.rustup}=/rustup" \
+           timeout "$STEP_TIMEOUT" cargo build --release --locked ) \
         || die "charon cargo build failed or timed out after ${STEP_TIMEOUT}s"
     CHARON_BIN=$(find_bin charon || true)
     CHARON_DRIVER=$(find_bin charon-driver || true)
@@ -332,19 +341,19 @@ case "$charon_version" in
     *) die "charon reports '$charon_version', not pinned commit $CHARON_COMMIT" ;;
 esac
 log "charon: $charon_version"
-# The charon build is already path-independent (Rust records crate paths relative to the workspace
-# root and the release profile carries no debug sections), but the same strip is applied and pinned
-# so all three installed binaries carry one verified identity rule.
+# Rust records dependency source paths under CARGO_HOME and the std source under RUSTUP_HOME in
+# panic locations; the build remaps both so the digest does not depend on the user's home. The same
+# strip is applied and pinned so all three installed binaries carry one verified identity rule.
 CHARON_IDENTITY="$BUILD_ROOT/identity/charon"
 CHARON_DRIVER_IDENTITY="$BUILD_ROOT/identity/charon-driver"
 strip_identity "$CHARON_BIN" "$CHARON_IDENTITY"
 strip_identity "$CHARON_DRIVER" "$CHARON_DRIVER_IDENTITY"
 stripped_charon=$(sha256 "$CHARON_IDENTITY")
-[ "$stripped_charon" = "$CHARON_SHA256" ] \
-    || die "stripped charon $stripped_charon != pinned $CHARON_SHA256 (build root $BUILD_ROOT)"
+[ "$stripped_charon" = "$CHARON_CANON_SHA256" ] \
+    || die "stripped charon $stripped_charon != canonical $CHARON_CANON_SHA256 (build root $BUILD_ROOT)"
 stripped_driver=$(sha256 "$CHARON_DRIVER_IDENTITY")
-[ "$stripped_driver" = "$CHARON_DRIVER_SHA256" ] \
-    || die "stripped charon-driver $stripped_driver != pinned $CHARON_DRIVER_SHA256 (build root $BUILD_ROOT)"
+[ "$stripped_driver" = "$CHARON_DRIVER_CANON_SHA256" ] \
+    || die "stripped charon-driver $stripped_driver != canonical $CHARON_DRIVER_CANON_SHA256 (build root $BUILD_ROOT)"
 log "charon: $stripped_charon == pinned (stripped identity)"
 log "charon-driver: $stripped_driver == pinned (stripped identity)"
 
@@ -370,4 +379,4 @@ verify_home
 AENEAS_HOME="$AENEAS_HOME" "$MODEL_PATCHES"
 
 log "installed AENEAS_HOME=$AENEAS_HOME"
-log "OK (aeneas == pinned $AENEAS_TRANSLATOR_SHA256)"
+log "OK (aeneas == canonical $AENEAS_TRANSLATOR_CANON_SHA256)"

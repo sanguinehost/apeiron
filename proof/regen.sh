@@ -103,8 +103,9 @@ if [ -z "$PINNED_TRANSLATOR_SHA256" ]; then
     exit 2
 fi
 SELECTED_TRANSLATOR_SHA256=$(sha256sum "$AENEAS" | cut -d' ' -f1)
-if [ "$SELECTED_TRANSLATOR_SHA256" != "$PINNED_TRANSLATOR_SHA256" ]; then
-    echo "tool-identity: FAIL selected translator sha256=$SELECTED_TRANSLATOR_SHA256 != pinned $PINNED_TRANSLATOR_SHA256 (AENEAS_HOME=$AENEAS_HOME)" >&2
+CANON_TRANSLATOR_SHA256=$(sed -n 's/^AENEAS_TRANSLATOR_CANON_SHA256=//p' "$PROOF_DIR/patches/PINS")
+if [ "$SELECTED_TRANSLATOR_SHA256" != "$PINNED_TRANSLATOR_SHA256" ] && [ "$SELECTED_TRANSLATOR_SHA256" != "$CANON_TRANSLATOR_SHA256" ]; then
+    echo "tool-identity: FAIL selected translator sha256=$SELECTED_TRANSLATOR_SHA256 != pinned $PINNED_TRANSLATOR_SHA256 or canonical $CANON_TRANSLATOR_SHA256 (AENEAS_HOME=$AENEAS_HOME)" >&2
     echo "tool-identity: a rebuild that does not reproduce the pinned translator has not reproduced the translator; set AENEAS_HOME to the pinned install, or repin deliberately in proof/patches/PINS" >&2
     exit 1
 fi
