@@ -49,6 +49,7 @@ import Perf.HattnT8LGroup
 import Perf.HattnT8Oracle
 import Perf.HattnT8Rerank
 import Perf.HattnT8LowBit
+import Perf.HattnT8LbPool
 import Perf.FacesPolarBound
 import Perf.Identity
 import Perf.AttnCoop
@@ -734,6 +735,13 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnT8LowBit.lb6_held
 #audit Perf.HattnT8LowBit.four_bit_matches_oracle
 #audit Perf.HattnT8LowBit.one_bit_halves_flat
+#audit Perf.HattnT8LbPool.lp1_refuted
+#audit Perf.HattnT8LbPool.lp2_refuted
+#audit Perf.HattnT8LbPool.lp3_refuted
+#audit Perf.HattnT8LbPool.lp4_held
+#audit Perf.HattnT8LbPool.lp5_held
+#audit Perf.HattnT8LbPool.sign_pool_misses
+#audit Perf.HattnT8LbPool.pool_reads_exceed_target
 #audit Perf.FacesPolarBound.p1_refuted
 #audit Perf.FacesPolarBound.p2_held
 #audit Perf.FacesPolarBound.p3_held

@@ -3322,6 +3322,13 @@ fn simple_sel(arm: Arm, p: usize, given: &[usize]) -> Option<(Vec<bool>, f64)> {
     Some((sel, (nn + TL_P * given.len()) as f64))
 }
 
+/// `KV_TAIL_LBPOOL=p`: candidate-pool size of the two-stage low-bit scan, `None` when unset.
+fn lowbit_pool() -> Option<usize> {
+    std::env::var("KV_TAIL_LBPOOL")
+        .ok()
+        .and_then(|v| v.parse().ok())
+}
+
 /// `KV_TAIL_LOWBIT=b`: bits per key dimension of the diagnostic scan score, `None` when unset.
 fn lowbit_bits() -> Option<u32> {
     std::env::var("KV_TAIL_LOWBIT")
@@ -3473,8 +3480,14 @@ fn tail_group(
             let c = x.sel[TL_SINK..nb].iter().filter(|&&b| b).count();
             x.sel[TL_SINK..nb].fill(false);
             if c > 0 {
+                // `KV_TAIL_LBPOOL=p` keeps the top-`p` by the quantised score, then the exact top-`c` of those.
+                let pc = lowbit_pool().map_or(c, |p| p.max(c)).min(nb - TL_SINK);
                 let mut ord: Vec<usize> = (TL_SINK..nb).collect();
-                ord.select_nth_unstable_by(c - 1, |&a, &b| s2[b].total_cmp(&s2[a]));
+                ord.select_nth_unstable_by(pc - 1, |&a, &b| s2[b].total_cmp(&s2[a]));
+                ord.truncate(pc);
+                if pc > c {
+                    ord.select_nth_unstable_by(c - 1, |&a, &b| x.sc[b].total_cmp(&x.sc[a]));
+                }
                 for &j in &ord[..c] {
                     x.sel[j] = true;
                 }

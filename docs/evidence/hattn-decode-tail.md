@@ -787,6 +787,25 @@ Reference: flat 2048 0.3370, flat 32768 0.1687, exact oracle 0.0553.
 
 Lean: `proof/corpus/Perf/HattnT8LowBit.lean` (sha256 `414858423e8f`), 9 theorems, empty axiom cone in `AxiomAudit.lean`; mutation `lb4 := 951` turns it red. Grade: measured, `model` inputs. Not covered: rustc/LLVM, other models, code dump, 1M context.
 
+## Two-stage low-bit selector at 524288: 1-bit pool, exact rerank (Qwen2.5-7B-Instruct-1M)
+
+Row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Prose `g7-1m`, t=524288, 64 tail positions, gate KLD <= 0.05. `KV_TAIL_LOWBIT=1 KV_TAIL_LBPOOL=p`: top-`p` far tokens by the 1-bit score, then each query head keeps the exact top-`c` of the pool (`c` = the `grp-fix2048-r8` count). Predictions `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-LBPOOL.md` (sha256 `8aa46964f4e1`); probe `attn_cut_probe.hd128lp` (sha256 `02a6381942f9`); outputs `g24-lp-prose-<p>.out`.
+
+| pool p | KLD | ticks over 0.05 | top-1 |
+|---|---|---|---|
+| 8192 | 0.1083 | 41 | 50/64 |
+| 32768 | 0.0802 | 33 | 53/64 |
+| 131072 | 0.0656 | 21 | 55/64 |
+
+Reference: 1-bit alone 0.1477, 4-bit alone 0.0551, oracle 0.0553.
+
+- The exact rerank recovers about half of the 1-bit loss and no more: a pool a quarter of the context (131072) is still at 0.0656.
+- Reading the keys of that pool costs at least 0.125 of dense (p/(2n)), over twice the 0.053 target, before the 1-bit scan (0.031).
+- The tokens the exact scores pick are not recoverable from sign(k) alone at any affordable pool size.
+- Predictions: LP4, LP5 held; LP1, LP2, LP3 refuted.
+
+Lean: `proof/corpus/Perf/HattnT8LbPool.lean` (sha256 `9b5212340a67`), 7 theorems, empty axiom cone; mutation `lp131072 := 456` turns it red. Grade: measured, `model` inputs. Not covered: other models, code dump, rustc/LLVM.
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a
