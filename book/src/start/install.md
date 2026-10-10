@@ -1,6 +1,6 @@
 # Install
 
-The crate needs Rust 1.87 or later. The default build has no dependencies beyond `libc` on Linux.
+The crate needs Rust 1.89 or later. The default build has no dependencies beyond `libc` on Linux.
 
 ```sh
 git clone https://github.com/sanguinehost/apeiron

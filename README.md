@@ -13,7 +13,7 @@ word-level arithmetic are specified and checked in Lean 4.
 - **`proof/`**: Lean 4 extraction of the Rust word bodies with Aeneas and Charon, and the
   refinement theorems that link them to the canonical definitions in `proof/canonical/`.
 
-The default build has no dependencies; Linux adds `libc` for thread affinity. Rust 1.87 or later.
+The default build has no dependencies; Linux adds `libc` for thread affinity. Rust 1.89 or later.
 
 ## Use
 
