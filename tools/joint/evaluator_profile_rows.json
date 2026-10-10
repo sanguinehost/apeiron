@@ -64,15 +64,15 @@
           {"name": "Apeiron.Combinator.Comb.verdict", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"}
         ],
         "song": [
-          {"symbol": "headReduce", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"},
-          {"symbol": "pass", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"},
-          {"symbol": "normalize", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"},
-          {"symbol": "hasRedex", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"},
-          {"symbol": "structEq", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"},
-          {"symbol": "verdict", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"}
+          {"symbol": "headReduce", "file": "song/src/prover/ring/prover0.slang", "lang": "iota"},
+          {"symbol": "pass", "file": "song/src/prover/ring/prover0.slang", "lang": "iota"},
+          {"symbol": "normalize", "file": "song/src/prover/ring/prover0.slang", "lang": "iota"},
+          {"symbol": "hasRedex", "file": "song/src/prover/ring/prover0.slang", "lang": "iota"},
+          {"symbol": "structEq", "file": "song/src/prover/ring/prover0.slang", "lang": "iota"},
+          {"symbol": "verdict", "file": "song/src/prover/ring/prover0.slang", "lang": "iota"}
         ],
         "rust": [],
-        "rust_absent": "No executing Rust evaluator exists for Apeiron.Combinator, so E1 is not a paired Rust-Slang row (BE1)."
+        "rust_absent": "No executing Rust evaluator exists for Apeiron.Combinator, so E1 is not a paired Rust-Iota row (BE1)."
       },
       "representation_invariant": {
         "constructor": "Song main() ring-claims the arena/memo/mstamp bases and sets CTR[C_NCOUNT] = 1 (index 0 is NIL); newNode()/newApp() allocate stride-3 nodes; parseTerm()/parseStep()/tokenNode() build the DAG and attach() fills an application node's left then right child after allocation; pass() resets CTR[C_PASS] and CTR[C_SP] before each pass.",
@@ -152,12 +152,12 @@
           {"name": "Apeiron.Decider.CertOp", "module": "Apeiron/Decider/Cert.lean", "root": "corpus"}
         ],
         "song": [
-          {"symbol": "main", "file": "song/src/prover/cone/certcheck.slang", "lang": "slang"},
-          {"symbol": "ccBatch", "file": "song/src/prover/cone/certcheck.slang", "lang": "slang"},
-          {"symbol": "ccRun", "file": "song/src/prover/cone/certcheck.slang", "lang": "slang"}
+          {"symbol": "main", "file": "song/src/prover/cone/certcheck.slang", "lang": "iota"},
+          {"symbol": "ccBatch", "file": "song/src/prover/cone/certcheck.slang", "lang": "iota"},
+          {"symbol": "ccRun", "file": "song/src/prover/cone/certcheck.slang", "lang": "iota"}
         ],
         "rust": [],
-        "rust_absent": "No Rust decider or replayer exists, so E2 is not a paired Rust-Slang row (BE2)."
+        "rust_absent": "No Rust decider or replayer exists, so E2 is not a paired Rust-Iota row (BE2)."
       },
       "representation_invariant": {
         "constructor": "certcheck main()/ccBatch()/ccNextSystem() initialize the CS control region and reset S_NRAW and S_NROW; rs()/qs() write CROWS/RAWS rows; ccNew() allocates a certificate row.",
@@ -217,17 +217,17 @@
     {
       "id": "BE1",
       "counterpart": "Rust side NONE for the canonical Apeiron.Combinator evaluator; Song song/src/prover/ring/prover0.slang::{headReduce, pass, normalize, hasRedex, structEq, verdict} exists.",
-      "reason": "There is no executing Rust evaluator for Apeiron.Combinator, so E1 is not yet a paired Rust-Slang row and no Rust representation theorem can be stated.",
+      "reason": "There is no executing Rust evaluator for Apeiron.Combinator, so E1 is not yet a paired Rust-Iota row and no Rust representation theorem can be stated.",
       "canonical_theorem": {"name": "Apeiron.Combinator.Comb.verdict_decided_exact", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"},
-      "song_entry": {"symbol": "verdict", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"},
+      "song_entry": {"symbol": "verdict", "file": "song/src/prover/ring/prover0.slang", "lang": "iota"},
       "status": "blocker"
     },
     {
       "id": "BE2",
       "counterpart": "Rust side NONE for the canonical Apeiron.Decider.checkCert; Song song/src/prover/cone/certcheck.slang::{main, ccBatch, ccRun} exists.",
-      "reason": "There is no Rust decider or certificate replayer, so E2 is not yet a paired Rust-Slang row and no Rust representation theorem can be stated.",
+      "reason": "There is no Rust decider or certificate replayer, so E2 is not yet a paired Rust-Iota row and no Rust representation theorem can be stated.",
       "canonical_theorem": {"name": "Apeiron.Decider.checkCert_sound", "module": "Apeiron/Decider/Cert.lean", "root": "corpus"},
-      "song_entry": {"symbol": "main", "file": "song/src/prover/cone/certcheck.slang", "lang": "slang"},
+      "song_entry": {"symbol": "main", "file": "song/src/prover/cone/certcheck.slang", "lang": "iota"},
       "status": "blocker"
     },
     {
@@ -235,7 +235,7 @@
       "counterpart": "Song song/src/prover/cone/satcheck.slang::{main, batchLoop} with MAXV = 12 and ROWCAP = 256; canonical side NONE.",
       "reason": "Apeiron has no canonical SAT-witness checker for this alphabet. capped_certificate_complete is a capped-box existence theorem over Fintype.piFinset, not a completeness theorem for satcheck's alphabet and not a CertOp derivation.",
       "canonical_theorem": {"name": "Apeiron.Decider.capped_certificate_complete", "module": "Apeiron/Decider/Completeness.lean", "root": "corpus"},
-      "song_entry": {"symbol": "main", "file": "song/src/prover/cone/satcheck.slang", "lang": "slang"},
+      "song_entry": {"symbol": "main", "file": "song/src/prover/cone/satcheck.slang", "lang": "iota"},
       "status": "blocker"
     },
     {

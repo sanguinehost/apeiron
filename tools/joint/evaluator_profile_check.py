@@ -53,7 +53,7 @@ import jointlib
 import jointspec
 from jointlib import (
     CheckError,
-    _check_slang,
+    _check_iota,
     _need,
     _nonempty,
     _resolve_path,
@@ -167,12 +167,12 @@ def _check_source_entry(entry: object, where: str) -> None:
     lang = entry.get("lang")
     _nonempty(symbol, f"{where}.symbol")
     _nonempty(rel, f"{where}.file")
-    _need(lang == "slang", f"{where}.lang must be slang, got {lang!r}")
+    _need(lang == "iota", f"{where}.lang must be iota, got {lang!r}")
     path = _resolve_path(rel, where)
     text = path.read_text(encoding="utf-8")
     _need(
-        _check_slang(text, symbol),
-        f"{where}: slang entry {symbol} not found in {rel}",
+        _check_iota(text, symbol),
+        f"{where}: iota entry {symbol} not found in {rel}",
     )
 
 

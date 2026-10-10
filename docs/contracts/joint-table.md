@@ -152,10 +152,10 @@ replacement-merge source-connected refinement is established at `N = 16` by
 `Apeiron.Joint.TableInstance.replacement_get` for the read relation, in
 `proof/corpus/Joint/TableInstance.lean` against canonical `Apeiron.Table.insertWith`. The universal
 generic physical invariant and admitted insertion/build preservation are proved under
-`CallbackLawsG`. Song's empty-cone `Slang.Joint.songTable_replacement_link` proves admitted
+`CallbackLawsG`. Song's empty-cone `Iota.Joint.songTable_replacement_link` proves admitted
 `MERGE_MAP` execution preserves `RepSong` for canonical replacement. It is still parameterized by
 context lookup/shape hypotheses rather than instantiated from the decoded source, and no checked
-`I64 ↔ Slang.Word` map transport or combined Rust–Song theorem exists. The joint refinement is
+`I64 ↔ Iota.Word` map transport or combined Rust–Song theorem exists. The joint refinement is
 OPEN. Controls C1 and C3.
 
 ### T4 · Refusal, post-state and mutation
@@ -300,7 +300,7 @@ claim the control goes red. A control that cannot fail has no weight.
   only.
 - Callback behavior outside the explicit Rust `CallbackLawsG` contract.
 - An unconditional decoded-source instantiation of the Song table theorem or a theorem composing
-  the Rust and Song replacement refinements. `Joint.WordBridge` checks the `I64 ↔ Slang.Word`
+  the Rust and Song replacement refinements. `Joint.WordBridge` checks the `I64 ↔ Iota.Word`
   pointwise-map relation and its preservation by new-first replacement.
 - Deletion: no deletion operation is selected by this subprofile.
 - Song backing/nonaliasing and address extent beyond `tableCapacityOk`; those remain separate caller

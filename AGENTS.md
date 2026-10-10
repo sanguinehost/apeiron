@@ -76,7 +76,7 @@ Prose that names no enforcer is not acceptance (§4, obligation 11).
 | §1 the reading order — every stage document resolves and is referenced in this file; a dispatch pins their sha256 | [`tools/rooting/read_gate.py`](tools/rooting/read_gate.py) | `python3 tools/rooting/read_gate.py --check` (`--self-test`: 3 rejection fixtures; `--controls`) |
 | §2 epic intent/spec/plan; §3 task ≤3 files with one gate and one control; §8 the per-function cost comment; a retired route not presented as active | [`tools/rooting/check.py`](tools/rooting/check.py) | `python3 tools/rooting/check.py --check` (`--self-test`: 30 reject / 23 accept) |
 | §4 obligations 1, 3, 5 — real-source extraction and the closed axiom cone | [`proof/regen.sh`](proof/regen.sh), [`proof/corpus/AxiomAudit.lean`](proof/corpus/AxiomAudit.lean) | `proof/regen.sh --check`; `cd proof/corpus && lake build` |
-| §4 obligation 5 — the Slang empty cone | [`tools/slang/zero_axioms.py`](tools/slang/zero_axioms.py) | `python3 tools/slang/zero_axioms.py --stage <stage> --controls` |
+| §4 obligation 5 — the Iota empty cone | [`tools/iota/zero_axioms.py`](tools/iota/zero_axioms.py) | `python3 tools/iota/zero_axioms.py --stage <stage> --controls` |
 | §4 obligation 7 — the per-task mutation control | the task's own gate | that gate's command; a mutation that leaves the proof green is a failure, not a pass |
 | §4 obligation 9 — Rust gates | `cargo` | the §6 commands |
 | §5 — a stated artifact resolves against the evidence index: exactly one fresh row per receipt | [`tools/rooting/index_check.py`](tools/rooting/index_check.py) | `python3 tools/rooting/index_check.py --check` (plus `--self-test`, `--controls`) |
@@ -300,10 +300,10 @@ Item 10 applies whenever a performance claim or epic budget is required; documen
    command in a claim of absence. `grep` is likewise shadowed/mangling; `rg` is the working tool.
  5. **Fail-closed axiom cone.** `proof/regen.sh` audits the extraction for `axiom`/`sorry`/`admit`;
     `proof/corpus/AxiomAudit.lean` `#audit`s each headline and throws on anything outside
-    `{propext, Classical.choice, Quot.sound}`. A `sorry` is a build failure, not a note. The Slang
+    `{propext, Classical.choice, Quot.sound}`. A `sorry` is a build failure, not a note. The Iota
     source-refinement chain is stricter: every registered declaration, instance, witness and headline
-    must audit with an **empty** axiom set under `proof/corpus/Slang/Audit/Empty.lean` and
-    `tools/slang/zero_axioms.py`; `propext`, `Classical.choice`, `Quot.sound`, `noncomputable` and
+    must audit with an **empty** axiom set under `proof/corpus/Iota/Audit/Empty.lean` and
+    `tools/iota/zero_axioms.py`; `propext`, `Classical.choice`, `Quot.sound`, `noncomputable` and
     quotient-based representations such as `Finset` and `ZMod` are rejected there. The Rust/Aeneas
     bridge and the canonical corpus retain the closed cone above.
 6. **Positive tests.** `cargo test` covers the nominal path and the boundary cases that the contract
@@ -336,7 +336,7 @@ Every stated result carries one grade. The grade is part of the claim.
 
 | grade | means |
 |---|---|
-| `proved` | A Lean kernel check (`lake build`) passes for a named theorem. If it is about Rust, the extraction is from the real source and a refinement theorem links the extracted body to the canonical definition, under the closed axiom cone. The Slang source-refinement chain instead requires an empty axiom cone (`tools/slang/zero_axioms.py`), not `{propext, Classical.choice, Quot.sound}`. |
+| `proved` | A Lean kernel check (`lake build`) passes for a named theorem. If it is about Rust, the extraction is from the real source and a refinement theorem links the extracted body to the canonical definition, under the closed axiom cone. The Iota source-refinement chain instead requires an empty axiom cone (`tools/iota/zero_axioms.py`), not `{propext, Classical.choice, Quot.sound}`. |
 | `tested` | A `cargo test` executes the build path and its boundary cases. |
 | `measured` | A benchmark or `perf` command ran, with a named machine, metric and interval. |
 | `model` / `anchor` | A reading of the algebra onto a domain, or a design assumption. True as a mapping; not evidence of correctness. |
@@ -387,10 +387,10 @@ Bridge build (canonical corpus plus the refinement package):
 cd proof/corpus && lake build
 ```
 
-Slang source-refinement zero-axiom gate (Stream 0; empty cone, per stage):
+Iota source-refinement zero-axiom gate (Stream 0; empty cone, per stage):
 
 ```sh
-python3 tools/slang/zero_axioms.py --stage <stage> --controls
+python3 tools/iota/zero_axioms.py --stage <stage> --controls
 ```
 
 Evidence tooling:

@@ -164,7 +164,7 @@ ALLOWED_STATUSES = ("selected-open", "blocker")
 
 # A Song entry must be an executing function definition, not a law/carrier/spec
 # header. Only ``name(`` at the start of a line is accepted.
-SLANG_DECL = r"(?m)^\s*{n}\s*\("
+IOTA_DECL = r"(?m)^\s*{n}\s*\("
 
 
 def _is_hex(value: object, length: int) -> bool:
@@ -175,12 +175,12 @@ def _is_hex(value: object, length: int) -> bool:
     )
 
 
-def _check_slang(text: str, symbol: str) -> bool:
-    return re.search(SLANG_DECL.format(n=re.escape(symbol)), text) is not None
+def _check_iota(text: str, symbol: str) -> bool:
+    return re.search(IOTA_DECL.format(n=re.escape(symbol)), text) is not None
 
 
 # The profile resolves Song entries with its own executing-function pattern.
-jointlib._CHECK_SLANG = _check_slang
+jointlib._CHECK_IOTA = _check_iota
 
 
 def _check_lean_ref(ref: object, where: str, require_root: str) -> None:
@@ -252,10 +252,10 @@ def _check_source_entry(entry: object, where: str) -> None:
     lang = entry.get("lang")
     _nonempty(symbol, f"{where}.symbol")
     _nonempty(rel, f"{where}.file")
-    _need(lang in ("rust", "slang"), f"{where}.lang must be rust or slang")
+    _need(lang in ("rust", "iota"), f"{where}.lang must be rust or iota")
     path = _resolve_path(rel, where)
     text = path.read_text(encoding="utf-8")
-    found = _check_rust(text, symbol) if lang == "rust" else _check_slang(text, symbol)
+    found = _check_rust(text, symbol) if lang == "rust" else _check_iota(text, symbol)
     _need(found, f"{where}: {lang} entry {symbol} not found in {rel}")
 
 
@@ -736,7 +736,7 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
     )
     add("reverse a canonical namespace", mutated)
 
-    # Non-executing Slang entry.
+    # Non-executing Iota entry.
     mutated = copy.deepcopy(data)
     mutated["rows"][0]["entry_points"]["song"][0]["symbol"] = "tableslotkey_addr"
     add(

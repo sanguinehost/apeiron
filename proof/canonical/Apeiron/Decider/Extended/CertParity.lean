@@ -20,7 +20,7 @@ the decider at all: the log names input lines and previously built rows, and the
 recomputes every row from them.
 
 This is the link `Apeiron/Decider/Model.lean`'s header calls the load-bearing one across the
-refinement gap. It does not close the gap: `certcheck.slang` is itself a compiled Slang program
+refinement gap. It does not close the gap: `certcheck.slang` is itself a compiled Iota program
 and nothing here says it agrees with `checkCert`. What it does is move what an UNSAT rests on
 from `ncone0`'s whole fold onto a replay whose soundness is a theorem.
 

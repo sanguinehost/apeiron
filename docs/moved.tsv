@@ -64,7 +64,7 @@ docs/plan/read-path-specialization.md	docs/epics/read-path-specialization.md
 docs/plan/read-proof-next.md	docs/epics/read-proof.md
 docs/plan/resource-security-continuation.md	docs/epics/resource-security-continuation.md
 docs/plan/security-algebra-rebase.md	docs/epics/security-algebra-rebase.md
-docs/plan/slang-source-refinement.md	docs/contracts/slang-source-refinement-plan.md
+docs/plan/slang-source-refinement.md	docs/contracts/iota-source-refinement-plan.md
 docs/plan/spinor-coverage.md	docs/epics/spinor.md
 docs/plan/spinor-transport.md	docs/epics/spinor.md
 docs/plan/state-ledger.tsv	docs/state-ledger.tsv
@@ -93,8 +93,8 @@ docs/spec/physical-computation-bounds.md	docs/epics/physical-computation-bounds.
 docs/spec/read-path-specialization.md	docs/epics/read-path-specialization.md
 docs/spec/read-proof-composition.md	docs/epics/read-proof.md
 docs/spec/security-algebra-rebase.md	docs/epics/security-algebra-rebase.md
-docs/spec/slang-source-entry.md	docs/contracts/slang-source-entry.md
-docs/spec/slang-source-semantics.md	docs/contracts/slang-source-semantics.md
+docs/spec/slang-source-entry.md	docs/contracts/iota-source-entry.md
+docs/spec/slang-source-semantics.md	docs/contracts/iota-source-semantics.md
 docs/spec/storage-refinement.md	docs/epics/storage-refinement.md
 docs/spec/ternary-hadamard.md	docs/epics/ternary-hadamard.md
 docs/templates/intent.md	docs/templates/epic.md

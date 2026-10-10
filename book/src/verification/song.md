@@ -6,13 +6,13 @@ canonical definition, `R[x]/(x² − σ)` and the table over it.
 
 ## What is here
 
-The Lean namespace and directory keep the language's earlier name, `Slang`. `proof/corpus/Slang/` holds the Lean side of the Iota source-refinement chain: syntax, a machine
+The Lean namespace and directory keep the language's earlier name, `Iota`. `proof/corpus/Iota/` holds the Lean side of the Iota source-refinement chain: syntax, a machine
 model, a decoder, address and table refinements, and a source audit. `proof/corpus/Icarus/` is a
 SHA-256 library over the same carrier. `proof/corpus/Nous/` is the model-layer library: attention, routing and decode over the three faces. They are part of this corpus and build with it.
 
 | directory | contents |
 |---|---|
-| `Slang/` | the Lean machine, decoder, address and table refinements of the Iota chain |
+| `Iota/` | the Lean machine, decoder, address and table refinements of the Iota chain |
 | `Icarus/` | the SHA-256 round step realised over the trichotomy carrier, with a keystone theorem and a cost model |
 | `Nous/` | attention, routing and decode over the three faces |
 
@@ -23,14 +23,14 @@ none. Every registered declaration, instance, witness and headline must audit wi
 set. `noncomputable` and quotient-based representations such as `Finset` and `ZMod` are rejected.
 
 ```sh
-python3 tools/slang/zero_axioms.py --stage <stage> --controls
+python3 tools/iota/zero_axioms.py --stage <stage> --controls
 ```
 
-`proof/corpus/Slang/Audit/Empty.lean` defines the rejecting command. It resolves the name, rejects
+`proof/corpus/Iota/Audit/Empty.lean` defines the rejecting command. It resolves the name, rejects
 an `axiom`, checks the registered type and collects the transitive axioms with
 `Lean.collectAxioms`.
 
-`zero_axioms.py` reads only this tree. `tools/slang/refine.py` also compares the Iota source with the
+`zero_axioms.py` reads only this tree. `tools/iota/refine.py` also compares the Iota source with the
 Lean statements and takes the `song` repository as `--song-root`; that repository is not published,
 so `refine.py` does not run from this checkout.
 

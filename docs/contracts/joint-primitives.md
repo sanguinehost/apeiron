@@ -208,9 +208,9 @@ physical invariant at every fixed shard capacity `N` (`emptyWordTableN_physicalI
 `wordBuildN_zero_ok_iff_empty`). The generic callback layer proves physical constructor, admitted
 insertion and admitted-build preservation under `CallbackLawsG`, including the exact zero-capacity
 split. Song's empty-cone table modules prove `RepSong`, constructor/read/write witnesses, exact
-replacement admission/refusal, resource projections, and `Slang.Joint.songTable_replacement_link`.
+replacement admission/refusal, resource projections, and `Iota.Joint.songTable_replacement_link`.
 That headline is not yet instantiated from the decoded source context;
-`proof/corpus/Joint/WordBridge.lean` checks the `I64 ↔ Slang.Word` pointwise-map transport, but no
+`proof/corpus/Joint/WordBridge.lean` checks the `I64 ↔ Iota.Word` pointwise-map transport, but no
 combined Rust–Song table theorem exists. The joint row is OPEN and T3 replacement write is the first
 joint storage target. Rejecting control:
 the same-filesystem throwaway generated-body mutation
@@ -273,9 +273,9 @@ assumed, and the checker requires every one of them to be present.
   consistency only; it does not report correspondence.
 - Callback behavior outside `CallbackLawsG`.
 - The unconditional Song source binding, decoded-context instantiation and combined R2/T3
-  replacement theorem. `Joint.WordBridge` already checks the `I64 ↔ Slang.Word` pointwise-map
+  replacement theorem. `Joint.WordBridge` already checks the `I64 ↔ Iota.Word` pointwise-map
   transport. R1 and the remaining R2 rows stay open.
-- The retired `Slang/Derivation` tower, the retired `Slang/Generated/Trace` outputs and the retired
+- The retired `Iota/Derivation` tower, the retired `Iota/Generated/Trace` outputs and the retired
   `DecodeTrace.Run`/`Derives` acceptance. They are historical and are not the active architecture;
   no row in this profile names them as a route.
 

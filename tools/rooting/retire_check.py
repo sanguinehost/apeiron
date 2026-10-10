@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Rejecting gate for the binned Slang derivation route and for removal records.
+"""Rejecting gate for the binned Iota derivation route and for removal records.
 
 The binned route is:
 
-* every file under ``proof/corpus/Slang/Derivation/`` (Steps, Decode, Lexing,
+* every file under ``proof/corpus/Iota/Derivation/`` (Steps, Decode, Lexing,
   Grammar, Statements, Selection, Validation, Utilities, Composition, Audit);
-* every file under ``proof/corpus/Slang/Generated/Trace/``;
-* the ``Run``/``Derives`` acceptance in ``tools/slang/trace_check.py``;
+* every file under ``proof/corpus/Iota/Generated/Trace/``;
+* the ``Run``/``Derives`` acceptance in ``tools/iota/trace_check.py``;
 * their Lake roots in ``proof/corpus/lakefile.lean`` and their registrations in
-  ``tools/slang/zero_axioms.json``.
+  ``tools/iota/zero_axioms.json``.
 
 This runner fails while any part of that route is still present or still
 referenced, so a reintroduced file or import cannot pass silently. ``--check``
@@ -28,15 +28,15 @@ What is checked
 ===============
 * ``R1`` binned path present: a file under either binned directory exists;
 * ``R2`` Lean import: a ``.lean`` file under ``proof/`` imports
-  ``Slang.Derivation.*`` or ``Slang.Generated.Trace.*``;
+  ``Iota.Derivation.*`` or ``Iota.Generated.Trace.*``;
 * ``R3`` Lake root: ``proof/corpus/lakefile.lean`` still lists a binned root;
-* ``R4`` registry: ``tools/slang/zero_axioms.json`` still registers a binned
+* ``R4`` registry: ``tools/iota/zero_axioms.json`` still registers a binned
   module or source path;
-* ``R5`` acceptance: ``tools/slang/trace_check.py`` still carries the
+* ``R5`` acceptance: ``tools/iota/trace_check.py`` still carries the
   ``DecodeTrace.Run``/``Derives`` acceptance (``PHASE_MODULES`` and the
   witness-type check);
-* ``R6`` producer: ``tools/slang/export.py`` can resurrect the binned route
-  (``Slang/Generated/Trace``, ``Slang.Generated.Trace``, ``Slang.Derivation``)
+* ``R6`` producer: ``tools/iota/export.py`` can resurrect the binned route
+  (``Iota/Generated/Trace``, ``Iota.Generated.Trace``, ``Iota.Derivation``)
   or emits an unbounded recursion/heartbeat option (``maxHeartbeats 0``,
   ``maxRecDepth 1000000``);
 * ``M1`` removal record names no replacement and no retained obligation;
@@ -86,7 +86,7 @@ Usage::
     python3 tools/rooting/retire_check.py --self-test
     python3 tools/rooting/retire_check.py --controls
     python3 tools/rooting/retire_check.py --check
-    python3 tools/rooting/retire_check.py --paths proof/corpus/Slang/Derivation/Steps.lean
+    python3 tools/rooting/retire_check.py --paths proof/corpus/Iota/Derivation/Steps.lean
 
 Exit status: 0 when the route is retired, every removal record is admissible
 and every control passes; 1 when a binned path or an active reference remains,
@@ -120,7 +120,7 @@ EXIT_REJECT = 1
 EXIT_USAGE = 2
 
 # The one owned path reintroduced by the --controls mutation.
-CONTROL_MUTATION = "proof/corpus/Slang/Derivation/Steps.lean"
+CONTROL_MUTATION = "proof/corpus/Iota/Derivation/Steps.lean"
 
 # The field the --controls removal mutation drops from the first real record.
 CONTROL_RECEIPT_FIELD = "receipt"
@@ -1087,7 +1087,7 @@ def controls(cfg: Config, rem: RemovalConfig) -> int:
         shutil.copytree(base, work, dirs_exist_ok=True)
         mutation = work / CONTROL_MUTATION
         mutation.parent.mkdir(parents=True, exist_ok=True)
-        mutation.write_text("import Slang.Syntax\n", encoding="utf-8")
+        mutation.write_text("import Iota.Syntax\n", encoding="utf-8")
         mutated = scan_tree(cfg, work)
         if not any(violation.rule == "R1" for violation in mutated):
             print("CONTROL mutation: SURVIVED (R1 not raised)", file=sys.stderr)
@@ -1205,7 +1205,7 @@ def check(cfg: Config, rem: RemovalConfig, root: Path) -> int:
     violations = violations + scan_removals(entries, root, "tools/rooting/removals.json", text)
     if not violations:
         print(
-            "CHECK CLEAN: the binned Slang derivation route is retired and every "
+            "CHECK CLEAN: the binned Iota derivation route is retired and every "
             f"removal record in tools/rooting/removals.json is admissible "
             f"({len(entries)} record(s))"
         )
@@ -1269,7 +1269,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="retire_check.py",
         description=(
-            "Rejecting gate for the binned Slang derivation route (R1-R6) and for "
+            "Rejecting gate for the binned Iota derivation route (R1-R6) and for "
             "removal records (M1-M4)."
         ),
     )

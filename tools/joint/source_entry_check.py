@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Consistency checker for the W18-T1 Slang source-entry fidelity specification.
+"""Consistency checker for the W18-T1 Iota source-entry fidelity specification.
 
 This tool establishes **specification consistency only**. It verifies that
-``docs/contracts/slang-source-entry.md`` and ``tools/joint/source_entry_cases.json``
+``docs/contracts/iota-source-entry.md`` and ``tools/joint/source_entry_cases.json``
 are internally complete and that every artifact they name resolves:
 
 * every selected entry carries all nine required fields and stays
@@ -19,7 +19,7 @@ are internally complete and that every artifact they name resolves:
   model, a differential suite and equal outputs are NOT a source-connected
   refinement, and a body change with an unchanged represented program must be
   rejected;
-* the missing-artifact records name the absent checked Slang source-semantics
+* the missing-artifact records name the absent checked Iota source-semantics
   link and the absent executing refinement;
 * every named reference, including control targets and any file/symbol
   reference in the entry text, is parsed under the strict fail-closed grammar
@@ -38,8 +38,8 @@ refinement has been proved or whether any control goes red.
 The specification states the active source-refinement chain and marks the
 retired route; this checker requires those statements and rejects a spec that
 drops them. Specification consistency is green. Implementation acceptance is the
-``tools/slang/refine.py`` exact-declaration probe on the unconditional
-``Slang.SourceAudit.source_binding``, red until that theorem exists.
+``tools/iota/refine.py`` exact-declaration probe on the unconditional
+``Iota.SourceAudit.source_binding``, red until that theorem exists.
 
 Usage::
 
@@ -62,7 +62,7 @@ import jointlib
 import jointspec
 from jointlib import (
     CheckError,
-    _check_slang,
+    _check_iota,
     _need,
     _nonempty,
     _resolve_path,
@@ -71,7 +71,7 @@ from jointlib import (
 
 HERE = Path(__file__).resolve()
 REPO = HERE.parents[2]
-SPEC_PATH = REPO / "docs" / "contracts" / "slang-source-entry.md"
+SPEC_PATH = REPO / "docs" / "contracts" / "iota-source-entry.md"
 CASES_PATH = HERE.parent / "source_entry_cases.json"
 
 PROFILE_ID = "APEIRON-PROGRAMME-W18-T1"
@@ -147,7 +147,7 @@ NON_REFINEMENT_PHRASES = [
     "must be rejected",
 ]
 MISSING_PHRASES = [
-    "checked slang source-semantics link",
+    "checked iota source-semantics link",
     "executing refinement",
     "missing",
 ]
@@ -162,7 +162,7 @@ ACTIVE_ROUTE_PHRASES = [
     "memo value",
     "fixed-shard store",
     "ordered fold",
-    "slang.sourceaudit.source_binding",
+    "iota.sourceaudit.source_binding",
     "apeiron.table.hmap",
     "apeiron.table.get",
     "apeiron.table.insertwith",
@@ -187,8 +187,8 @@ RETIRED_ROUTE_PHRASES = [
 ACCEPTANCE_PHRASES = [
     "specification consistency",
     "implementation acceptance",
-    "tools/slang/refine.py",
-    "slang.sourceaudit.source_binding",
+    "tools/iota/refine.py",
+    "iota.sourceaudit.source_binding",
 ]
 
 ROW_FIELD_LABELS = {
@@ -235,7 +235,7 @@ def _check_song_source(source: object, where: str, corpus: dict) -> None:
     path = _resolve_path(rel, where)
     text = path.read_text(encoding="utf-8")
     _need(
-        _check_slang(text, symbol),
+        _check_iota(text, symbol),
         f"{where}: Song entry {symbol} not found in {rel}",
     )
     _need(

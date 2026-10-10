@@ -19,7 +19,7 @@
     {
       "key": "song",
       "label": "Song",
-      "obligation": "The exact Song Slang source file, function, repository revision and sha256 digest of the selected executing body."
+      "obligation": "The exact Song Iota source file, function, repository revision and sha256 digest of the selected executing body."
     },
     {
       "key": "represented_program",
@@ -59,12 +59,12 @@
     {
       "key": "missing",
       "label": "Missing",
-      "obligation": "The checked Slang source-semantics link and the executing refinement that are absent for this entry."
+      "obligation": "The checked Iota source-semantics link and the executing refinement that are absent for this entry."
     }
   ],
   "non_refinement": {
-    "copied_model": "A copied implementation model is NOT a source-connected refinement: a Rust or Lean re-implementation of the selected Song body, however faithful, shares no checked denotation with the executing Slang source and closes no row.",
-    "differential_suite": "A differential suite is NOT a source-connected refinement: equal or differing outputs on sampled inputs are evidence about two executions, not a checked denotation of the Slang body by the canonical definition.",
+    "copied_model": "A copied implementation model is NOT a source-connected refinement: a Rust or Lean re-implementation of the selected Song body, however faithful, shares no checked denotation with the executing Iota source and closes no row.",
+    "differential_suite": "A differential suite is NOT a source-connected refinement: equal or differing outputs on sampled inputs are evidence about two executions, not a checked denotation of the Iota body by the canonical definition.",
     "equal_outputs": "Equal outputs are NOT a source-connected refinement: agreement on a test corpus does not establish that the executing body denotes the canonical object on its matched domain.",
     "body_change_rule": "Changing a selected actual Song body without changing its represented program must be rejected: the source-semantics link is a function of the actual body, so a body mutation that preserves the stated represented program is exactly the change the link must fail to accept."
   },
@@ -99,7 +99,7 @@
       "state_effects": "None. The body reads no `memory[]` cell and writes no `memory[]` cell. The in-tree laws `mergeacc_comm` and `mergeacc_assoc` are Song laws, not canonical Lean.",
       "refusal": "None. The body admits every pair of machine integers. The in-tree laws carry the domain `0 <= left, right <= COORD_CEILING`, but the executing body has no guard and computes for every pair; an out-of-domain value is outside the matched domain but is not refused.",
       "rejecting_control": "SC1",
-      "missing": "MISSING: a checked Slang source-semantics link from the executing `mergeAcc` body to the canonical merge parameter, and any executing refinement of the fold. `mergeacc_comm` and `mergeacc_assoc` are in-tree Song laws and do not establish the link."
+      "missing": "MISSING: a checked Iota source-semantics link from the executing `mergeAcc` body to the canonical merge parameter, and any executing refinement of the fold. `mergeacc_comm` and `mergeacc_assoc` are in-tree Song laws and do not establish the link."
     },
     {
       "id": "SE2",
@@ -131,7 +131,7 @@
       "state_effects": "None. A read does not write; `tableFind` and `tableSlotVal` read `memory[]` only.",
       "refusal": "A missing key, an empty probe slot, an invalid capacity or the reserved key `-1` all return the raw word `-1`, which is overloaded across those cases and is not a status. The canonical read has no refusal.",
       "rejecting_control": "SC2",
-      "missing": "MISSING: a checked Slang source-semantics link from `tableGet` to `Apeiron.Table.get` and any executing refinement. The missing-key sentinel and the canonical stored default are unresolved."
+      "missing": "MISSING: a checked Iota source-semantics link from `tableGet` to `Apeiron.Table.get` and any executing refinement. The missing-key sentinel and the canonical stored default are unresolved."
     },
     {
       "id": "SE3",
@@ -169,7 +169,7 @@
       "state_effects": "The body writes the located slot in place: `tableSlotSet` for a fresh key and `tableSlotValSet` for an existing key. The caller memory is mutated and there is no rollback.",
       "refusal": "Invalid capacity, the reserved key `-1`, an out-of-range merge code or probe exhaustion returns `-1` before any slot write. Earlier successful calls in a sequence remain visible, so the multi-insert is not transactional.",
       "rejecting_control": "SC3",
-      "missing": "MISSING: a checked Slang source-semantics link from `tableInsertWith` to `Apeiron.Table.insertWith` and any executing refinement. The absent default on a fresh write and the non-transactional post-state are unresolved."
+      "missing": "MISSING: a checked Iota source-semantics link from `tableInsertWith` to `Apeiron.Table.insertWith` and any executing refinement. The absent default on a fresh write and the non-transactional post-state are unresolved."
     },
     {
       "id": "SE4",
@@ -201,7 +201,7 @@
       "state_effects": "Writes `2*cap` cells: each slot key is set to the empty key and each value to `0` through `tableInitGo` and `tableSlotSet`. The caller memory is mutated and there is no rollback.",
       "refusal": "`tableInit` returns the raw word `-1` without writes when `tableCapacityOk(cap)` is `0`, that is for a non-positive or non-power-of-two capacity. The raw word is overloaded and is not a status.",
       "rejecting_control": "SC4",
-      "missing": "MISSING: a checked Slang source-semantics link from `tableInit` to the canonical constant-default table and any executing refinement. The caller's address extent is a separate caller obligation."
+      "missing": "MISSING: a checked Iota source-semantics link from `tableInit` to the canonical constant-default table and any executing refinement. The caller's address extent is a separate caller obligation."
     },
     {
       "id": "SE5",
@@ -233,7 +233,7 @@
       "state_effects": "Allocates arena nodes through `newApp` and `newNode` and may set the `SPENT` flag on arena exhaustion. The input node's children are not mutated and there is no rollback.",
       "refusal": "Arena exhaustion is not a refusal at this entry: `newNode` sets `SPENT` and returns the inert `NIL` node (tag `0`), and the caller `verdict` maps `SPENT` to `FUEL`. Unsupported input: none at this entry.",
       "rejecting_control": "SC5",
-      "missing": "MISSING: a checked Slang source-semantics link from `headReduce` to `Apeiron.Combinator.Comb.headReduce` and any executing refinement of the Song arena to `Apeiron.Combinator.Comb`. The `SPENT` and `NIL` arm is unresolved."
+      "missing": "MISSING: a checked Iota source-semantics link from `headReduce` to `Apeiron.Combinator.Comb.headReduce` and any executing refinement of the Song arena to `Apeiron.Combinator.Comb`. The `SPENT` and `NIL` arm is unresolved."
     },
     {
       "id": "SE6",
@@ -265,7 +265,7 @@
       "state_effects": "Increments the pass counter, resets and reuses the walk stack, and mutates the memo and memo-stamp arrays. There is no rollback.",
       "refusal": "When the source budget is exhausted or `SPENT` is set, the body returns the current root and the caller reports `FUEL`. Unsupported input: none at this entry.",
       "rejecting_control": "SC6",
-      "missing": "MISSING: a checked Slang source-semantics link from `normalize` to `Apeiron.Combinator.Comb.normalize` and any executing refinement. The source budget is not a Lean `fuel` value."
+      "missing": "MISSING: a checked Iota source-semantics link from `normalize` to `Apeiron.Combinator.Comb.normalize` and any executing refinement. The source budget is not a Lean `fuel` value."
     },
     {
       "id": "SE7",
@@ -297,7 +297,7 @@
       "state_effects": "Resets and reuses the walk stack. On stack exhaustion the body sets `SPENT` and the caller reports a redex. There is no rollback.",
       "refusal": "Stack exhaustion reports a redex (`1`) through `SPENT`; it is not a refusal. Unsupported input: none at this entry.",
       "rejecting_control": "SC7",
-      "missing": "MISSING: a checked Slang source-semantics link from `hasRedex` to `Apeiron.Combinator.Comb.hasRedex` and any executing refinement. The `SPENT` report is unresolved."
+      "missing": "MISSING: a checked Iota source-semantics link from `hasRedex` to `Apeiron.Combinator.Comb.hasRedex` and any executing refinement. The `SPENT` report is unresolved."
     },
     {
       "id": "SE8",
@@ -329,11 +329,11 @@
       "state_effects": "Mutates the arena, memo, stamps, counters and stacks in place. There is no rollback.",
       "refusal": "`PARSE <pos>` with exit `2` on an unknown byte, an incomplete term or parse-stack overflow; `FUEL` with exit `3` on `SPENT` or a remaining redex; `RING` with exit `4` on startup ring-claim failure.",
       "rejecting_control": "SC8",
-      "missing": "MISSING: a checked Slang source-semantics link from `verdict` to `Apeiron.Combinator.Comb.verdict` and any executing refinement. The byte grammar and the arena denotation are unresolved."
+      "missing": "MISSING: a checked Iota source-semantics link from `verdict` to `Apeiron.Combinator.Comb.verdict` and any executing refinement. The byte grammar and the arena denotation are unresolved."
     }
   ],
   "missing_artifacts": [
-    "MISSING: a checked Slang source-semantics link for every selected entry. No denotation from the executing Song Slang body to its canonical Lean definition exists.",
+    "MISSING: a checked Iota source-semantics link for every selected entry. No denotation from the executing Song Iota body to its canonical Lean definition exists.",
     "MISSING: an executing refinement for every selected entry. No Song-to-Lean refinement theorem for any selected body exists, and every entry stays selected-open."
   ],
   "controls": [
@@ -404,7 +404,7 @@
   ],
   "not_covered": [
     "Semantic correspondence itself: this profile and its checker establish specification consistency only and never report correspondence, refinement or proof.",
-    "A checked Slang source-semantics link for any selected entry; none exists.",
+    "A checked Iota source-semantics link for any selected entry; none exists.",
     "An executing refinement for any selected entry; none exists.",
     "rustc/LLVM code generation, the generated machine code and the kernel ABI.",
     "Runtime linkage between Apeiron and Song; the required result is a checked correspondence, not linkage.",

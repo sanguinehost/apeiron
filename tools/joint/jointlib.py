@@ -12,7 +12,7 @@ The per-checker behaviour that differs is selected through module-level
 configuration, set by the owning checker before validation runs:
 
 * ``MISSING_ARTIFACTS`` - the exact paths a checker admits without resolving;
-* ``_CHECK_SLANG`` - the Song declaration matcher;
+* ``_CHECK_IOTA`` - the Song declaration matcher;
 * ``_CHECK_RUST`` - the Rust entry resolver, or ``None`` to treat ``.rs``
   references through the Lean declaration scan.
 """
@@ -109,7 +109,7 @@ RUST_ITEM = re.compile(
 )
 # A Song entry is a concrete executing definition: a function with a body, or a
 # constant binding. A bare ``law``/``carrier``/``spec`` header is not an entry.
-SLANG_DECL = [
+IOTA_DECL = [
     r"(?m)^\s*{n}\s*\([^\n]*\{",
     r"(?m)^\s*{n}\s*=",
 ]
@@ -606,24 +606,24 @@ def _check_rust(text: str, symbol: str) -> bool:
     return symbol in _declared_rust_names(text)
 
 
-def _check_slang(text: str, symbol: str) -> bool:
+def _check_iota(text: str, symbol: str) -> bool:
     token = re.escape(symbol)
     return any(
         re.search(pattern.replace("{n}", token), text) is not None
-        for pattern in SLANG_DECL
+        for pattern in IOTA_DECL
     )
 
 
 # Dispatch selected by the owning checker. ``_CHECK_RUST`` is ``None`` for a
 # checker that treats ``.rs`` references through the Lean declaration scan.
-_CHECK_SLANG = _check_slang
+_CHECK_IOTA = _check_iota
 _CHECK_RUST = _check_rust
 
 
 def _check_symbol_in_file(path: Path, symbol: str, where: str) -> None:
     text = path.read_text(encoding="utf-8")
     if path.suffix == ".slang":
-        found = _CHECK_SLANG(text, symbol)
+        found = _CHECK_IOTA(text, symbol)
     elif path.suffix == ".rs" and _CHECK_RUST is not None:
         found = _CHECK_RUST(text, symbol)
     else:

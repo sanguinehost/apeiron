@@ -36,10 +36,10 @@ alongside foundational verification. The next large AI implementation retains it
 ## Purpose
 
 Apeiron is one R0 mathematical/computational foundation: canonical Lean and reusable Rust in one
-target repository, with Song/Slang as independent execution sharing the mathematics.
+target repository, with Song/Iota as independent execution sharing the mathematics.
 Hashtrinity/fold is its historical implementation; the two-slot spinor and affine recursion collapse
 are its semantic law; the Table ordered fold is its state/fold form; SKI/derived-Iota supplies its
-normal form/translation; Rust and Song/Slang are concrete realizations of that primitive.
+normal form/translation; Rust and Song/Iota are concrete realizations of that primitive.
 These are layers/views of one primitive, not separate foundations or programme tracks. This is the
 architecture requirement, not a claim that the complete connecting theorem already exists.
 
@@ -88,7 +88,7 @@ The owner sets one bar for the apeiron core. A face is done only when all four h
    `Apeiron.Table.{HMap,get,insertWith,build}` and
    `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` objects; the closed axiom cone
    `{propext, Classical.choice, Quot.sound}` for the Rust/Aeneas bridge, with an **empty** cone for
-   the Slang source-refinement chain; and mutation controls on the real source or generated kernel
+   the Iota source-refinement chain; and mutation controls on the real source or generated kernel
    that turn the named proof or test red and pass restored.
 2. **Faster than `hashbrown`+FxHasher and `hashbrown`+XXH3** on every workload column of the map
    face: `apeiron / incumbent <= 1.0`, mean of ≥5 paired runs with spread; `<= 0.5` is aspirational
@@ -135,12 +135,12 @@ The programme goal is a single R0 chain through the same canonical collapse/fold
 lift (source / LLVM)
   -> canonical collapse / ordered fold (two-slot algebra and spinor law)
   -> SKI / derived-Iota normal form / translation and checked reduction / subsumption
-  -> actual realization (Rust and independent Song / Slang execution)
+  -> actual realization (Rust and independent Song / Iota execution)
   -> safe and useful programmes
 ```
 
 Local algebra, matrix, Cayley, online-chart, table and evaluator proofs close only their named
-layer until a checked theorem connects the complete hashtrinity/fold/spinor/SKI/Slang chain.
+layer until a checked theorem connects the complete hashtrinity/fold/spinor/SKI/Iota chain.
 Historical recurrence-to-constant-loop and evaluator-speed anchors remain anchors, not proofs or
 measurements. An admitted normal-form/translation outcome does not assert that every SKI term
 normalizes or that every implementation runs in constant time.
@@ -181,7 +181,7 @@ byte-hash-equals-`ringMul` claim or an arbitrary-merge classification is not mad
   Reusable Rust and refinements converge in Apeiron. The approved destination is Apeiron, not a
   sibling tree. Source preservation targets a canonical package that is independent of any single
   Aeneas extraction link.
-- **Song** remains an independent, adjacent assembly-up implementation: its own assembly, Slang
+- **Song** remains an independent, adjacent assembly-up implementation: its own assembly, Iota
   implementation, contracts and local build/runtime acceptance. Where Song is slower, it derives its
   approaches from Apeiron; Apeiron's proven core is the reference. There is no Rust or Aeneas
   runtime linkage between Apeiron and Song, and Lean is not deleted. Song's local gates stay owned
@@ -236,10 +236,10 @@ readiness, and the existing Song milestones are retained, not replaced by it.
 |---|---|---|---|---|---|
 | Retained Lean + reusable Rust source convergence | Apeiron lead | all programme work | none | The canonical source location remains `../sanguine-apeiron/proof`; the bridge manifest resolves Git `880aa57e47e782ed7a9d9ee1974cfc87360b446b`, not the older `88866412` pin. Migration into Apeiron remains open. | One revision holds canonical Lean and reusable Rust, both built and audited on one source/tool identity. |
 | Literal algebra, combinator and evaluator foundation | corpus lead (Apeiron) | Song, Rust, physics | retained Lean | `Apeiron.Combinator.routes_are_a_combinatory_algebra` and `Apeiron.Combinator.denote_reduces` are checked theorems. `Apeiron.Combinator.Comb.normalize` is a fuel-bounded evaluator definition; `Apeiron.Combinator.Comb.verdict_decided_exact` proves exactness when the verdict is not `.fuel`. `Omega.lean` proves non-normalization for a named term; that is a boundary, not an unfinished theorem. Open: selected finite-machine representations and executing evaluator refinement. | The selected executing evaluator refines the canonical semantics on an explicit domain and reports resource exhaustion without a false verdict. |
-| Independent Rust–Slang primitive correspondence | cross-repo lead (Apeiron + Song) | both executing implementations | retained Lean; combinator evaluator | Profiles exist, separate Rust and Song replacement refinements are checked, and `Joint.WordBridge` proves the `I64 ↔ Slang.Word` pointwise-map transport. Open: unconditional Song source binding, decoded-context instantiation and the combined theorem on a matched domain. | A checked joint primitive theorem relates both executing implementations to the same canonical definition on a matched domain, including representation, state/effects, admission/refusal and resources. |
+| Independent Rust–Iota primitive correspondence | cross-repo lead (Apeiron + Song) | both executing implementations | retained Lean; combinator evaluator | Profiles exist, separate Rust and Song replacement refinements are checked, and `Joint.WordBridge` proves the `I64 ↔ Iota.Word` pointwise-map transport. Open: unconditional Song source binding, decoded-context instantiation and the combined theorem on a matched domain. | A checked joint primitive theorem relates both executing implementations to the same canonical definition on a matched domain, including representation, state/effects, admission/refusal and resources. |
 | Lift / universal translation | Apeiron lead, with Song owning its source/target adapters | subsumption, realization | source and semantic profiles; Song A0–A4 before bulk ingestion | Plan: Universal Algorithm Bridge, `song lift` and `song adapt` (A7), with modality-blind `universalLiftCons` ingestion and SSA cons-list state vectors. Historical Lean authorities and their real scopes are recorded in the [transfer analysis](roadmap.md#translation-authorities-and-missing-links). Missing links: LLVM domain/effects/undefined behaviour, list→Church state, opcode interpretation, historical→canonical term transport and Song source binding. | Supported source interpretations and target realizations compose through canonical semantics, refusing unsupported inputs; imported-program claims require A7, not every A0–A6 release. |
 | Checked reduction / subsumption | Apeiron lead; Song transformation owner | realization, transformation | lift; canonical term transport | Plan: structural resonance (`song resonate`) and harmonic cancellation (`song cancel`), with collision-confirmed structural sharing, checked hoist/rewrite certificates and explicit observations. `Apeiron.Combinator.Comb.hoist_preserves_semantics`, `Apeiron.Combinator.denote_reduces` and `Comb.verdict_decided_exact` cover their named term relations, not a source-level subsumption pipeline. | Lossless reconstruction or observable relative subsumption is checked, including effects, refusal and resources; distinguish source compression from runtime benefit. |
-| CPU / Slang / GPU realization | Apeiron + Song leads | applications, measurement | subsumption | Named `Cell<i64>` source kernels are refined. The programme-wide joint refinement is not established; existing Slang contracts and model bridges, and GPU experiments, have their own scope. | Each realization refines the same supported semantics, with target features, reduction order and numerical tolerance specified. |
+| CPU / Iota / GPU realization | Apeiron + Song leads | applications, measurement | subsumption | Named `Cell<i64>` source kernels are refined. The programme-wide joint refinement is not established; existing Iota contracts and model bridges, and GPU experiments, have their own scope. | Each realization refines the same supported semantics, with target features, reduction order and numerical tolerance specified. |
 | Secure OS-language-proof-kernel composition | cross-repo lead (Apeiron semantics/refinement + Song execution) | literal-machine, games and world-simulation tracks | retained Lean; Song A0–A6/B6; primitive correspondence; lift/subsumption; realization | Plan: supersede monolithic Linux with the capability OS, coupled language/proof core, Universal Algorithm Bridge, resonance/cancellation and direct hardware/native ELF projection (`song project`, A7). Hosted ELF output is not native isolation. Open: end-to-end composition through source semantics, authority, boot/ABI and hardware. | A revision-pinned vertical system passes Song's local gates; composing refinements cover the admitted language, proof kernel, OS/ABI and executing primitives with explicit threat model, refusal and resources. A7 additionally gates imported-program claims, not every local release. |
 | Measured transformation benefit and productivity | lead | programme | realization | Historical Fold numbers exist; no benchmark was rerun in this pass. | A named machine, metric and interval measure before/after transformation cost and developer productivity. |
 | Active test-time learning and lower-cost useful AI | AI-track lead | applications | joint foundation readiness; realization | Historical formal and executable records exist: [paper1](../../sanguine/release/paper1/INDEX.md) and [spinor-ttl](../../spinor-ttl/README.md). Existing work is not new acceptance. Open: a joint learning/update profile and its executing correspondence. | Streaming updates and retained knowledge satisfy the selected contracts; adaptation quality, learning/inference cost and resource bounds meet a pinned comparison profile. The research target is order-of-magnitude cost improvement at matched useful capability, not an established result. Inference or quantization alone does not close learning. |
@@ -397,7 +397,7 @@ Claims are stated at the grade the artifact supports.
   decide `SatRows` exactly; `residue_certificate_complete` gives the same iff for the
   `ResidueCertificate` language; and `checkCertStream_sound` / `checkCertRecords_sound` replay framed
   streams framewise. These are the canonical `Row`/`Line`/`CertOp`/`ResidueCertificate` fragments over
-  `ℤ`; the Song executing reader refinement and the Slang source binding are not thereby established.
+  `ℤ`; the Song executing reader refinement and the Iota source binding are not thereby established.
 - **Combinator evaluator.** `Apeiron/Combinator/Verdict.lean` defines `reduceDeep`, `normalize` and
   `verdict`. `Apeiron.Combinator.Comb.reduces_normalize` proves that `normalize fuel c` is reachable
   from `c`; `Apeiron.Combinator.Comb.verdict_decided_exact` is exact when the verdict is not `.fuel`.
@@ -417,7 +417,7 @@ Claims are stated at the grade the artifact supports.
 ## Primitive correspondence
 
 Primitive correspondence is the required cross-repo result. It relates two executing
-implementations — the Rust primitive in Apeiron and the Slang/assembly primitive in Song — to the
+implementations — the Rust primitive in Apeiron and the Iota/assembly primitive in Song — to the
 same canonical definition on a matched domain. The obligations are joint, not separate:
 
 1. **Representation.** Each concrete layout denotes the canonical object, with the denotation
@@ -434,8 +434,8 @@ same canonical definition on a matched domain. The obligations are joint, not se
 4. **Resources.** Cost and resource bounds are stated per implementation and are not silently
    identified across layouts.
 
-Equal names, worked examples, citations or identical layouts are not that proof. Rust and Slang have
-different physical layouts: Rust executes the growable flat/spill `Table`; Song's Slang/assembly
+Equal names, worked examples, citations or identical layouts are not that proof. Rust and Iota have
+different physical layouts: Rust executes the growable flat/spill `Table`; Song's Iota/assembly
 representation is its own. The historical fixed-shard proof does not discharge the new Rust layout.
 Different layouts can correspond, but only under a matched admission relation and the four
 obligations above. A differential test or a shared example
@@ -730,7 +730,7 @@ the next large implementation gated.
 
 **Terminal goal:** one admitted R0 collapse/fold primitive, connected by checked refinements from
 its historical implementation and semantic law through normal form/translation to Rust and
-Song/Slang execution, satisfying G1/REG-1 and supporting the secure OS-language-proof system.
+Song/Iota execution, satisfying G1/REG-1 and supporting the secure OS-language-proof system.
 
 The current extraction/refinement leg continues on the real growable implementation. The
 [Kani-retirement receipt](evidence/kani-retirement.md) records fresh regeneration/checking at
@@ -797,7 +797,7 @@ this milestone.
 Open acceptance obligations retained by the revised boundary: the `10^8` identity row and the coverage
 census; the unextracted `std::thread::scope` orchestration boundary and its trust statement; integration
 of the canonical/bridge identity-injectivity chain on the selected source; allocator success/failure correspondence of the
-ratified resource/refusal contract as an unextracted trust boundary; and the Slang empty-axiom-cone
+ratified resource/refusal contract as an unextracted trust boundary; and the Iota empty-axiom-cone
 separation from the Rust/Aeneas bridge cone. None of these is closed by this documentation pass.
 Extraction freshness must bind the selected source and generated roots through `proof/regen.sh --check`.
 Earlier green receipts remain historical; this documentation task does not rerun that gate.

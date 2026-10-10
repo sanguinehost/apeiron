@@ -66,8 +66,8 @@
           {"symbol": "<i64 as Ring>::add", "file": "src/scalar.rs", "lang": "rust", "role": "wrapping i64 ring-addition instance method"}
         ],
         "song": [
-          {"symbol": "mergeAcc", "file": "song/src/table/table.slang", "lang": "slang", "role": "pure accumulator merge with in-tree comm/assoc laws"},
-          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "slang", "role": "executing MERGE_ACC arm computes oldVal + value inline"}
+          {"symbol": "mergeAcc", "file": "song/src/table/table.slang", "lang": "iota", "role": "pure accumulator merge with in-tree comm/assoc laws"},
+          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "iota", "role": "executing MERGE_ACC arm computes oldVal + value inline"}
         ]
       },
       "representation_invariant": {
@@ -140,19 +140,19 @@
           {"symbol": "Table::insert_with", "file": "src/table.rs", "lang": "rust", "role": "merge-write with refusal"}
         ],
         "song": [
-          {"symbol": "tableInit", "file": "song/src/table/table.slang", "lang": "slang", "role": "initialize slots to TABLE_EMPTY"},
-          {"symbol": "tableInitGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot initialization loop"},
-          {"symbol": "tableCapacityOk", "file": "song/src/table/table.slang", "lang": "slang", "role": "positive power-of-two capacity admission"},
-          {"symbol": "tableFind", "file": "song/src/table/table.slang", "lang": "slang", "role": "probe for a key, returning slot or -1"},
-          {"symbol": "tableFindSlotGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "probe for empty slot or matching key"},
-          {"symbol": "tableLookupSlotGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "probe for an existing key"},
-          {"symbol": "tableGet", "file": "song/src/table/table.slang", "lang": "slang", "role": "read value or -1"},
-          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "slang", "role": "merge-write across SET/MAP/ACC faces"},
-          {"symbol": "tableSpread", "file": "song/src/table/table.slang", "lang": "slang", "role": "deterministic masked home coordinate"},
-          {"symbol": "tableSlotKey", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot key read"},
-          {"symbol": "tableSlotVal", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot value read"},
-          {"symbol": "tableSlotSet", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot key/value write"},
-          {"symbol": "tableSlotValSet", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot value update"}
+          {"symbol": "tableInit", "file": "song/src/table/table.slang", "lang": "iota", "role": "initialize slots to TABLE_EMPTY"},
+          {"symbol": "tableInitGo", "file": "song/src/table/table.slang", "lang": "iota", "role": "slot initialization loop"},
+          {"symbol": "tableCapacityOk", "file": "song/src/table/table.slang", "lang": "iota", "role": "positive power-of-two capacity admission"},
+          {"symbol": "tableFind", "file": "song/src/table/table.slang", "lang": "iota", "role": "probe for a key, returning slot or -1"},
+          {"symbol": "tableFindSlotGo", "file": "song/src/table/table.slang", "lang": "iota", "role": "probe for empty slot or matching key"},
+          {"symbol": "tableLookupSlotGo", "file": "song/src/table/table.slang", "lang": "iota", "role": "probe for an existing key"},
+          {"symbol": "tableGet", "file": "song/src/table/table.slang", "lang": "iota", "role": "read value or -1"},
+          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "iota", "role": "merge-write across SET/MAP/ACC faces"},
+          {"symbol": "tableSpread", "file": "song/src/table/table.slang", "lang": "iota", "role": "deterministic masked home coordinate"},
+          {"symbol": "tableSlotKey", "file": "song/src/table/table.slang", "lang": "iota", "role": "slot key read"},
+          {"symbol": "tableSlotVal", "file": "song/src/table/table.slang", "lang": "iota", "role": "slot value read"},
+          {"symbol": "tableSlotSet", "file": "song/src/table/table.slang", "lang": "iota", "role": "slot key/value write"},
+          {"symbol": "tableSlotValSet", "file": "song/src/table/table.slang", "lang": "iota", "role": "slot value update"}
         ]
       },
       "representation_invariant": {
@@ -193,7 +193,7 @@
         ]
       },
       "refinement": {
-        "source_connected": "Rust side: proof/corpus/TableRefinement.lean proves word_table_new_rep, word_table_get_new_first, word_table_get_replaced, word_table_build_get_acc and word_table_shardFull_refusal against Apeiron.Table at the concrete N = 16 word instance. The concrete I64 word instance proves the physical invariant at every fixed shard capacity N (emptyWordTableN_physicalInv, physicalInv_insert_with_all, table_build_physicalInv_of_buildAdmissibleN, wordBuildN_zero_ok_iff_empty); the generic callback layer proves constructor, admitted insertion and admitted-build preservation under CallbackLawsG. Song side: Slang.Joint.songTable_replacement_link links the decoded MERGE_MAP tableInsertWith execution to Apeiron.Table.insertWith (fun new _old => new), preserving RepSong, the raw return and the read observations; it is not yet instantiated from the decoded source context, proof/corpus/Joint/WordBridge.lean checks the I64 <-> Slang.Word pointwise-map transport, and no combined Rust-Song table theorem exists. The joint row is OPEN and is the first joint storage target.",
+        "source_connected": "Rust side: proof/corpus/TableRefinement.lean proves word_table_new_rep, word_table_get_new_first, word_table_get_replaced, word_table_build_get_acc and word_table_shardFull_refusal against Apeiron.Table at the concrete N = 16 word instance. The concrete I64 word instance proves the physical invariant at every fixed shard capacity N (emptyWordTableN_physicalInv, physicalInv_insert_with_all, table_build_physicalInv_of_buildAdmissibleN, wordBuildN_zero_ok_iff_empty); the generic callback layer proves constructor, admitted insertion and admitted-build preservation under CallbackLawsG. Song side: Iota.Joint.songTable_replacement_link links the decoded MERGE_MAP tableInsertWith execution to Apeiron.Table.insertWith (fun new _old => new), preserving RepSong, the raw return and the read observations; it is not yet instantiated from the decoded source context, proof/corpus/Joint/WordBridge.lean checks the I64 <-> Iota.Word pointwise-map transport, and no combined Rust-Song table theorem exists. The joint row is OPEN and is the first joint storage target.",
         "artifacts": [
           {"name": "Apeiron.TableRefinement.word_table_new_rep", "module": "corpus/TableRefinement.lean", "root": "bridge"},
           {"name": "Apeiron.TableRefinement.word_table_shardFull_refusal", "module": "corpus/TableRefinement.lean", "root": "bridge"},
@@ -233,7 +233,7 @@
       "counterpart": "Song song/src/prover/ring/prover0.slang::{verdict, normalize, pass, structEq}; Rust side NONE.",
       "reason": "There is no executing Rust evaluator for the canonical Apeiron.Combinator semantics, so the Song prover has no Rust counterpart to relate to.",
       "canonical_theorem": {"name": "Apeiron.Combinator.Comb.verdict_decided_exact", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"},
-      "song_entry": {"symbol": "verdict", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"},
+      "song_entry": {"symbol": "verdict", "file": "song/src/prover/ring/prover0.slang", "lang": "iota"},
       "status": "blocker"
     },
     {
@@ -241,7 +241,7 @@
       "counterpart": "Song song/src/prover/cone/certcheck.slang::{main, ccBatch, ccRun}; Rust side NONE.",
       "reason": "There is no Rust decider. certcheck must refine Apeiron.Decider.checkCert and checkCert_sound; that refinement is not established.",
       "canonical_theorem": {"name": "Apeiron.Decider.checkCert_sound", "module": "Apeiron/Decider/Cert.lean", "root": "corpus"},
-      "song_entry": {"symbol": "main", "file": "song/src/prover/cone/certcheck.slang", "lang": "slang"},
+      "song_entry": {"symbol": "main", "file": "song/src/prover/cone/certcheck.slang", "lang": "iota"},
       "status": "blocker"
     },
     {
@@ -296,6 +296,6 @@
     "Semantic correspondence itself: the checker establishes specification consistency only.",
     "A physical PhysicalInv build postcondition and arbitrary-callback Rust Table<K,V,H,N> refinement outside CallbackLawsG.",
     "Song-to-Lean refinement for R1 and R2.",
-    "The retired Slang/Derivation tower, the retired Slang/Generated/Trace outputs and the retired DecodeTrace.Run/Derives acceptance; they are historical and are not the active architecture."
+    "The retired Iota/Derivation tower, the retired Iota/Generated/Trace outputs and the retired DecodeTrace.Run/Derives acceptance; they are historical and are not the active architecture."
   ]
 }

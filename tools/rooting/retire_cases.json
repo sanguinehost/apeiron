@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "note": "Data for tools/rooting/retire_check.py, the rejecting retirement gate for the binned Slang derivation route. binned_prefixes and binned_files name what must be absent; reference_surfaces name the forms that must not reference it (Lean imports, Lake roots, zero_axioms.json registrations, the trace_check.py Run/Derives acceptance). The self_test block carries a synthetic clean tree and one mutation per rule so --self-test and --controls need no Lean, Rust or network and never touch the repository tree.",
+  "note": "Data for tools/rooting/retire_check.py, the rejecting retirement gate for the binned Iota derivation route. binned_prefixes and binned_files name what must be absent; reference_surfaces name the forms that must not reference it (Lean imports, Lake roots, zero_axioms.json registrations, the trace_check.py Run/Derives acceptance). The self_test block carries a synthetic clean tree and one mutation per rule so --self-test and --controls need no Lean, Rust or network and never touch the repository tree.",
   "binned_prefixes": [
-    "proof/corpus/Slang/Derivation/",
-    "proof/corpus/Slang/Generated/Trace/"
+    "proof/corpus/Iota/Derivation/",
+    "proof/corpus/Iota/Generated/Trace/"
   ],
   "binned_files": {
-    "proof/corpus/Slang/Derivation/": [
+    "proof/corpus/Iota/Derivation/": [
       "Audit.lean",
       "Composition.lean",
       "Decode.lean",
@@ -18,7 +18,7 @@
       "Utilities.lean",
       "Validation.lean"
     ],
-    "proof/corpus/Slang/Generated/Trace/": [
+    "proof/corpus/Iota/Generated/Trace/": [
       "Decoder.lean",
       "Grammar.lean",
       "Selection.lean",
@@ -50,8 +50,8 @@
         "__pycache__"
       ],
       "tokens": [
-        "import Slang.Derivation.",
-        "import Slang.Generated.Trace."
+        "import Iota.Derivation.",
+        "import Iota.Generated.Trace."
       ],
       "missing_is_violation": true
     },
@@ -62,36 +62,36 @@
       "kind": "file",
       "path": "proof/corpus/lakefile.lean",
       "tokens": [
-        "Slang.Derivation.",
-        "Slang.Generated.Trace"
+        "Iota.Derivation.",
+        "Iota.Generated.Trace"
       ],
       "missing_is_violation": true
     },
     {
       "id": "registry",
       "rule": "R4",
-      "title": "Registration in tools/slang/zero_axioms.json",
+      "title": "Registration in tools/iota/zero_axioms.json",
       "kind": "file",
-      "path": "tools/slang/zero_axioms.json",
+      "path": "tools/iota/zero_axioms.json",
       "tokens": [
-        "Slang.Derivation.",
-        "Slang/Derivation/",
-        "proof/corpus/Slang/Derivation/",
-        "Slang.Generated.Trace",
-        "Slang/Generated/Trace/",
-        "proof/corpus/Slang/Generated/Trace/"
+        "Iota.Derivation.",
+        "Iota/Derivation/",
+        "proof/corpus/Iota/Derivation/",
+        "Iota.Generated.Trace",
+        "Iota/Generated/Trace/",
+        "proof/corpus/Iota/Generated/Trace/"
       ],
       "missing_is_violation": true
     },
     {
       "id": "trace-acceptance",
       "rule": "R5",
-      "title": "Run/Derives acceptance in tools/slang/trace_check.py",
+      "title": "Run/Derives acceptance in tools/iota/trace_check.py",
       "kind": "file",
-      "path": "tools/slang/trace_check.py",
+      "path": "tools/iota/trace_check.py",
       "tokens": [
-        "Slang.Derivation.",
-        "Slang.Generated.Trace",
+        "Iota.Derivation.",
+        "Iota.Generated.Trace",
         "DecodeTrace.Run",
         "Derives",
         "PHASE_MODULES"
@@ -101,14 +101,14 @@
     {
       "id": "producer",
       "rule": "R6",
-      "title": "Generator cannot resurrect the binned route (tools/slang/export.py)",
+      "title": "Generator cannot resurrect the binned route (tools/iota/export.py)",
       "kind": "file",
-      "path": "tools/slang/export.py",
+      "path": "tools/iota/export.py",
       "tokens": [
-        "Slang/Generated/Trace",
-        "Slang.Generated.Trace",
-        "Slang.Derivation",
-        "Slang.Derivation.",
+        "Iota/Generated/Trace",
+        "Iota.Generated.Trace",
+        "Iota.Derivation",
+        "Iota.Derivation.",
         "maxHeartbeats 0",
         "maxRecDepth 1000000"
       ],
@@ -119,32 +119,32 @@
     {
       "id": "R1",
       "title": "Binned path present",
-      "description": "A file under proof/corpus/Slang/Derivation/ or proof/corpus/Slang/Generated/Trace/ exists in the tree."
+      "description": "A file under proof/corpus/Iota/Derivation/ or proof/corpus/Iota/Generated/Trace/ exists in the tree."
     },
     {
       "id": "R2",
       "title": "Lean import of a binned module",
-      "description": "A .lean file under proof/ imports Slang.Derivation.* or Slang.Generated.Trace.*."
+      "description": "A .lean file under proof/ imports Iota.Derivation.* or Iota.Generated.Trace.*."
     },
     {
       "id": "R3",
       "title": "Lake root still registered",
-      "description": "proof/corpus/lakefile.lean still lists a Slang.Derivation.* or Slang.Generated.Trace.* Lake root."
+      "description": "proof/corpus/lakefile.lean still lists an Iota.Derivation.* or Iota.Generated.Trace.* Lake root."
     },
     {
       "id": "R4",
       "title": "Registry still registers the route",
-      "description": "tools/slang/zero_axioms.json still names a binned module or source path."
+      "description": "tools/iota/zero_axioms.json still names a binned module or source path."
     },
     {
       "id": "R5",
       "title": "Run/Derives acceptance still active",
-      "description": "tools/slang/trace_check.py still carries the DecodeTrace.Run/Derives acceptance (PHASE_MODULES mapping and witness-type check)."
+      "description": "tools/iota/trace_check.py still carries the DecodeTrace.Run/Derives acceptance (PHASE_MODULES mapping and witness-type check)."
     },
     {
       "id": "R6",
       "title": "Generator can resurrect the binned route",
-      "description": "tools/slang/export.py still names the binned Slang.Derivation / Slang.Generated.Trace route, or emits an unbounded recursion/heartbeat option (maxHeartbeats 0, maxRecDepth 1000000)."
+      "description": "tools/iota/export.py still names the binned Iota.Derivation / Iota.Generated.Trace route, or emits an unbounded recursion/heartbeat option (maxHeartbeats 0, maxRecDepth 1000000)."
     },
     {
       "id": "S",
@@ -155,10 +155,10 @@
   "self_test": {
     "clean": {
       "files": {
-        "proof/corpus/lakefile.lean": "import Lake\nopen Lake DSL\n\npackage apeironWordBridge\n\nlean_lib ApeironWordBridge where\n  roots := #[`WordRefinement, `Slang.Syntax]\n",
-        "proof/corpus/Slang/Decode.lean": "import Slang.Syntax\n\nnamespace Slang.Decode\n\nend Slang.Decode\n",
-        "tools/slang/zero_axioms.json": "{\n  \"schema\": 1,\n  \"stages\": {\n    \"harness\": {\n      \"kind\": \"active\",\n      \"declarations\": []\n    }\n  }\n}\n",
-        "tools/slang/export.py": "#!/usr/bin/env python3\n# Clean synthetic exporter: writes only the live table binding.\n\nfrom pathlib import Path\n\nDEFAULT_OUTPUT = Path('proof/corpus/Slang/Generated/Table.lean')\n\n\ndef render():\n    return 'import Slang.Source.Bytes'\n\n\ndef main():\n    DEFAULT_OUTPUT.write_text(render(), encoding='utf-8')\n    return 0\n\n\nif __name__ == '__main__':\n    main()\n"
+        "proof/corpus/lakefile.lean": "import Lake\nopen Lake DSL\n\npackage apeironWordBridge\n\nlean_lib ApeironWordBridge where\n  roots := #[`WordRefinement, `Iota.Syntax]\n",
+        "proof/corpus/Iota/Decode.lean": "import Iota.Syntax\n\nnamespace Iota.Decode\n\nend Iota.Decode\n",
+        "tools/iota/zero_axioms.json": "{\n  \"schema\": 1,\n  \"stages\": {\n    \"harness\": {\n      \"kind\": \"active\",\n      \"declarations\": []\n    }\n  }\n}\n",
+        "tools/iota/export.py": "#!/usr/bin/env python3\n# Clean synthetic exporter: writes only the live table binding.\n\nfrom pathlib import Path\n\nDEFAULT_OUTPUT = Path('proof/corpus/Iota/Generated/Table.lean')\n\n\ndef render():\n    return 'import Iota.Source.Bytes'\n\n\ndef main():\n    DEFAULT_OUTPUT.write_text(render(), encoding='utf-8')\n    return 0\n\n\nif __name__ == '__main__':\n    main()\n"
       }
     },
     "cases": [
@@ -167,16 +167,16 @@
         "rule": "R1",
         "expect": "reject",
         "action": "write",
-        "path": "proof/corpus/Slang/Derivation/Steps.lean",
-        "text": "import Slang.Syntax\n\nnamespace Slang.Derivation.Steps\n\nend Slang.Derivation.Steps\n"
+        "path": "proof/corpus/Iota/Derivation/Steps.lean",
+        "text": "import Iota.Syntax\n\nnamespace Iota.Derivation.Steps\n\nend Iota.Derivation.Steps\n"
       },
       {
         "name": "reintroduced import",
         "rule": "R2",
         "expect": "reject",
         "action": "append",
-        "path": "proof/corpus/Slang/Decode.lean",
-        "text": "import Slang.Derivation.Steps\n"
+        "path": "proof/corpus/Iota/Decode.lean",
+        "text": "import Iota.Derivation.Steps\n"
       },
       {
         "name": "reintroduced lake root",
@@ -184,38 +184,38 @@
         "expect": "reject",
         "action": "append",
         "path": "proof/corpus/lakefile.lean",
-        "text": "  roots := #[`WordRefinement, `Slang.Derivation.Steps]\n"
+        "text": "  roots := #[`WordRefinement, `Iota.Derivation.Steps]\n"
       },
       {
         "name": "reintroduced registry reference",
         "rule": "R4",
         "expect": "reject",
         "action": "write",
-        "path": "tools/slang/zero_axioms.json",
-        "text": "{\n  \"schema\": 1,\n  \"stages\": {\n    \"derivation\": {\n      \"kind\": \"active\",\n      \"audit_module\": \"Slang/Derivation/Audit.lean\",\n      \"declarations\": [\n        {\n          \"name\": \"Slang.Derivation.Steps.nat_add_zero\",\n          \"module\": \"Slang.Derivation.Steps\",\n          \"path\": \"proof/corpus/Slang/Derivation/Steps.lean\",\n          \"expected_type\": \"(0 : Nat) + 0 = 0\"\n        }\n      ]\n    }\n  }\n}\n"
+        "path": "tools/iota/zero_axioms.json",
+        "text": "{\n  \"schema\": 1,\n  \"stages\": {\n    \"derivation\": {\n      \"kind\": \"active\",\n      \"audit_module\": \"Iota/Derivation/Audit.lean\",\n      \"declarations\": [\n        {\n          \"name\": \"Iota.Derivation.Steps.nat_add_zero\",\n          \"module\": \"Iota.Derivation.Steps\",\n          \"path\": \"proof/corpus/Iota/Derivation/Steps.lean\",\n          \"expected_type\": \"(0 : Nat) + 0 = 0\"\n        }\n      ]\n    }\n  }\n}\n"
       },
       {
         "name": "reintroduced Run/Derives acceptance",
         "rule": "R5",
         "expect": "reject",
         "action": "write",
-        "path": "tools/slang/trace_check.py",
-        "text": "PHASE_MODULES = {\"decoder\": \"Slang.Derivation.Decode\"}\n\n\ndef check_witness_types(node):\n    return \"DecodeTrace.Run\" in node or \"Derives\" in node\n"
+        "path": "tools/iota/trace_check.py",
+        "text": "PHASE_MODULES = {\"decoder\": \"Iota.Derivation.Decode\"}\n\n\ndef check_witness_types(node):\n    return \"DecodeTrace.Run\" in node or \"Derives\" in node\n"
       },
       {
         "name": "resurrected trace route in producer",
         "rule": "R6",
         "expect": "reject",
         "action": "append",
-        "path": "tools/slang/export.py",
-        "text": "\nTRACE_ROOT = 'Slang.Generated.Trace'\n"
+        "path": "tools/iota/export.py",
+        "text": "\nTRACE_ROOT = 'Iota.Generated.Trace'\n"
       },
       {
         "name": "deleted producer exporter",
         "rule": "S",
         "expect": "reject",
         "action": "delete",
-        "path": "tools/slang/export.py",
+        "path": "tools/iota/export.py",
         "text": ""
       },
       {

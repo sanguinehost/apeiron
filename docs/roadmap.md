@@ -568,7 +568,7 @@ The seven `L` identifiers below label missing links, not evidence grades or Song
 | `Substrate/Algebra/Translation/PracticalUniversalTranslation.lean`: `automated_lifting_sound` gives equal denotations under `h : SKIShaped app K_val S_val`. Its evaluator composition starts with an already denoted K leaf. | **L4:** inhabited applicative/encoding contract and opcode/environment interpretation, including width, overflow, poison, memory, effects and exhaustion. It is not a theorem about the Rust lifter or LLVM execution. |
 | Canonical `Apeiron.Combinator.Comb.bracket_correct` (`Basic.lean`): application of bracket reduces to substitution; `Comb.hoist_preserves_semantics` (`Resonance.lean`) requires `subst i body s = T`; `Apeiron.Combinator.denote_reduces` (`Denotation.lean`) preserves route denotation at real `σ`. The last name is not in namespace `Comb`. | **L5:** source-bound rewrite certificates, scope/freshness, exact structural equality, contextual effects and the selected observation relation. Hoist correctness does not prove XOR parity or finite-machine execution. |
 | Canonical `Apeiron.Table.{HMap,get,insertWith,build}`; `AnyRing.{RingCell,ringMul,ringNormForm}` and bridge `word_mul_denote` / `word_norm_denote`. | **L6:** actual associative-store/word-operation refinements and joint Rust–Song correspondence; no identification of arbitrary bytes, opcode dispatch or hash equality with ring multiplication. |
-| Song executing source, admitted compiler and native platform | **L7:** Song source binding and composed term→ISA→bytes→ABI/hardware simulation with capabilities, resources and refusal. Keep the Slang empty cone distinct from the Rust/canonical closed cone. |
+| Song executing source, admitted compiler and native platform | **L7:** Song source binding and composed term→ISA→bytes→ABI/hardware simulation with capabilities, resources and refusal. Keep the Iota empty cone distinct from the Rust/canonical closed cone. |
 
 ### Historical Rust analysis
 
@@ -634,7 +634,7 @@ performance floor is superseded by direction's unchanged current G1 contract, no
 | `88866412` appears as current pin in older paragraphs. | Use `3d66ea3aa2fe1de5997b6b757247454a2f771358` for the read bridge manifest; retain `88866412` only with its historical run identity. A sibling checkout HEAD is a different identity. |
 | Song DESIGN §3.6 describes sibling fixed shards. | Replace its paragraph beginning “The current sibling” with: “The sibling Apeiron Rust table executes a growable flat certified-coordinate resident area plus grouped spill regions. It is an implementation reference, not Song execution evidence; each layout requires its own refinement to canonical `Apeiron.Table`. Song remains independent and must meet its own collision, capacity, authority and performance gates.” |
 | Song DESIGN §8.1 and ROADMAP require six pillars; DESIGN §8.2 and AGENTS §4.1 call performance non-pillar. ONTOLOGY also uses five-pillar lifecycle wording. | Owner reconciliation must preserve all inherited A0–A6/B6 measurements and local gates; this task does not adjudicate away a release condition. Consolidate the requirement once in DESIGN, link from other documents. |
-| Song CLI says only four verbs live, index is already ported, and no shell/Python executes; `song` is a shell dispatcher with additional verbs and Python `onto`. “Zero runtime dependencies” also hides the hosted OS. | Replace CLI's live-command list from `song` dispatch; separate planned flags/services and A7 reserved verbs; state hosted Linux/assembler/linker dependencies. TESTING's Slang-runner comparison becomes target design, not delivered status; retain suite/budget obligations. |
+| Song CLI says only four verbs live, index is already ported, and no shell/Python executes; `song` is a shell dispatcher with additional verbs and Python `onto`. “Zero runtime dependencies” also hides the hosted OS. | Replace CLI's live-command list from `song` dispatch; separate planned flags/services and A7 reserved verbs; state hosted Linux/assembler/linker dependencies. TESTING's Iota-runner comparison becomes target design, not delivered status; retain suite/budget obligations. |
 | Song ROADMAP has obsolete A0 counts and “next” paragraphs beside newer dirty-work receipts. | Extract receipts to one evidence document with revision links only after a removal-control baseline; keep A0.1–A0.10, P1–P6, A1–A6 and B6 text intact until reviewed replacements map every requirement. Do not overwrite the active A0 worker's status. |
 | Song ONTOLOGY and AGENTS disagree on merge vocabulary; architecture prose can be mistaken for deployed protection. | Local source/gates decide accepted metadata tokens; keep its resolution Song-local. Retain ARCHITECTURE's Linux-hosted execution and native-isolation obligations; do not import this ontology into Apeiron. |
 
@@ -710,7 +710,7 @@ flock /tmp/opencode/apeiron-lane.lock systemd-run --user --scope -p MemoryMax=8G
 
 `<command>` is the row's `proof/regen.sh`, `proof/regen.sh --check`, or `lake build ...`, not a new
 executable. Resource-limit failures do not pass a positive or negative gate. Retain default bounded
-heartbeats/recursion and the fail-closed `{propext, Classical.choice, Quot.sound}` audit; no Slang
+heartbeats/recursion and the fail-closed `{propext, Classical.choice, Quot.sound}` audit; no Iota
 imports. Flash remains default except where a theorem, premise, attribution, grade or ineffective
 control triggers Sol; any expanded file/boundary scope returns to Astra.
 
@@ -1077,7 +1077,7 @@ recreates the current drift.
 - Retain Lean sources, packages, history and attribution. Current source locations and Git/Lake
   pins remain unchanged until a separately gated migration.
 - Apeiron owns canonical definitions and reusable Rust/refinement work. Song owns its assembly,
-  Slang implementation, contracts and local build/runtime acceptance. Applications retain policy.
+  Iota implementation, contracts and local build/runtime acceptance. Applications retain policy.
 - A primitive correspondence relates both executing implementations to the same canonical
   definition on matched domains, including representation, state/effects, refusal and resources.
   Equal names, example outputs, citations or identical layouts are not that proof.
@@ -1099,14 +1099,14 @@ intent/spec/plan is the one retained lifecycle record for the pass.
 
 The former nine-stage source-arena/memo-store sequence is not current programme authority.
 Source binding remains a later execution refinement of the same primitive under the
-[handoff](plan.md#slang-source-binding-exit-all-rows-required), not another foundation.
+[handoff](plan.md#iota-source-binding-exit-all-rows-required), not another foundation.
 
 ## Retired route
 
-The `Slang/Derivation/` `Layer`/`Derives` tower is retired. The `Slang/Generated/Trace/` generated
+The `Iota/Derivation/` `Layer`/`Derives` tower is retired. The `Iota/Generated/Trace/` generated
 decoder traces are retired. The `DecodeTrace.Run` representation is retired, the named proof DAG is
 retired, and the segment lemma is retired; none is the active architecture. The binned
-`tools/slang/trace_check.py` `Run`/`Derives` acceptance is retired. Historical references to a
+`tools/iota/trace_check.py` `Run`/`Derives` acceptance is retired. Historical references to a
 retired route carry a retirement marker and are not acceptance. The handoff governs their
 replacement; they are not extended.
 
@@ -1303,7 +1303,7 @@ Historical record of the documentation-consolidation pass. The canonical-rooting
 - Sol claim wording approved in `ses_f65dc7229ffeTavtqB83fwFrVS`: current fixed-shard table
   witnesses are not universal preservation/subsumption; capped certificates are not uncapped
   `CertOp` completeness; `normalize`/`verdict` exist, with exactness only on decided outcomes.
-  No current-table performance or Rust-Slang runtime correspondence is claimed.
+  No current-table performance or Rust-Iota runtime correspondence is claimed.
 - Central task W1-T1: lead read all three outputs, corrected unsupported absence/identity claims
   and separated scientific, application and learning acceptance. The final focused command exits 0:
   zero findings, two live baseline/red/restore controls. This opened W2 propagation on disjoint files.

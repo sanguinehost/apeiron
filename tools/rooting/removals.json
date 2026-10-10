@@ -106,21 +106,21 @@
       "receipt": "bench-ledger"
     },
     {
-      "id": "slang-derivation-route-retirement",
+      "id": "iota-derivation-route-retirement",
       "kind": "retirement",
-      "note": "The unrooted Slang derivation tower and the generated trace outputs are binned, not revived (docs/contracts/slang-source-refinement-plan.md). Rules R1-R6 of this file are the reachability evidence. tools/slang/trace_check.py carried the binned Run/Derives acceptance and is itself absent, so it is not a consumer.",
+      "note": "The unrooted Iota derivation tower and the generated trace outputs are binned, not revived (docs/contracts/iota-source-refinement-plan.md). Rules R1-R6 of this file are the reachability evidence. tools/iota/trace_check.py carried the binned Run/Derives acceptance and is itself absent, so it is not a consumer.",
       "removed": [
-        "proof/corpus/Slang/Derivation/",
-        "proof/corpus/Slang/Generated/Trace/"
+        "proof/corpus/Iota/Derivation/",
+        "proof/corpus/Iota/Generated/Trace/"
       ],
       "replacement": [],
-      "retained_obligation": "The Run/Derives acceptance in tools/slang/trace_check.py is deleted with the route and no substitute claims it; rules R2-R6 in tools/rooting/retire_check.py reject a reintroduced file, import, Lake root, registry row, acceptance or producer reference, and the Slang source-refinement chain regenerates witnesses from tools/slang/export.py.",
+      "retained_obligation": "The Run/Derives acceptance in tools/iota/trace_check.py is deleted with the route and no substitute claims it; rules R2-R6 in tools/rooting/retire_check.py reject a reintroduced file, import, Lake root, registry row, acceptance or producer reference, and the Iota source-refinement chain regenerates witnesses from tools/iota/export.py.",
       "consumers": [
         "proof/corpus/lakefile.lean",
-        "tools/slang/zero_axioms.json",
-        "tools/slang/export.py",
+        "tools/iota/zero_axioms.json",
+        "tools/iota/export.py",
         "tools/rooting/retire_cases.json",
-        "docs/contracts/slang-source-refinement-plan.md"
+        "docs/contracts/iota-source-refinement-plan.md"
       ],
       "reachability": [
         {
@@ -140,7 +140,7 @@
           ]
         }
       ],
-      "receipt": "docs/contracts/slang-source-refinement-plan.md"
+      "receipt": "docs/contracts/iota-source-refinement-plan.md"
     },
     {
       "id": "spill-group-descent-scanner-retirement",

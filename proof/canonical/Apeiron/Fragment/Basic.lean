@@ -83,7 +83,7 @@ finite conjunction of rows inside declared caps is decidable, by search over the
 
 Two things, and both are named rather than hedged.
 
-The Slang side. That `../song`'s extractor emits only this grammar is a claim about that
+The Iota side. That `../song`'s extractor emits only this grammar is a claim about that
 extractor, checkable by reading `src/prover/face/form.slang`, and is not established here. It is
 the same scope `Apeiron/Capability/Basic.lean` states for its own grammar.
 

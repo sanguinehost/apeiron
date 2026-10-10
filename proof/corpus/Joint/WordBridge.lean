@@ -1,5 +1,5 @@
 import Denotation
-import Slang.Word
+import Iota.Word
 import Apeiron.Table.Basic
 
 set_option autoImplicit false
@@ -10,11 +10,11 @@ namespace Apeiron.Joint
 open Aeneas Aeneas.Std
 
 /-- The Rust and Song words carry the same unsigned 64-bit pattern. -/
-def WordI64Rel (rust : I64) (song : Slang.Word) : Prop :=
+def WordI64Rel (rust : I64) (song : Iota.Word) : Prop :=
   rust.bv.toNat = song.val
 
 /-- A Song bit pattern identifies at most one extracted Rust word. -/
-theorem wordI64Rel_rust_unique {left right : I64} {song : Slang.Word}
+theorem wordI64Rel_rust_unique {left right : I64} {song : Iota.Word}
     (hleft : WordI64Rel left song) (hright : WordI64Rel right song) : left = right := by
   cases left with
   | mk leftBits =>
@@ -25,7 +25,7 @@ theorem wordI64Rel_rust_unique {left right : I64} {song : Slang.Word}
       exact hleft.trans hright.symm
 
 /-- An extracted Rust bit pattern identifies at most one Song word. -/
-theorem wordI64Rel_song_unique {rust : I64} {left right : Slang.Word}
+theorem wordI64Rel_song_unique {rust : I64} {left right : Iota.Word}
     (hleft : WordI64Rel rust left) (hright : WordI64Rel rust right) : left = right := by
   apply Fin.ext
   exact hleft.symm.trans hright
@@ -35,7 +35,7 @@ theorem wordI64Rel_song_unique {rust : I64} {left right : Slang.Word}
     leftRust = rightRust                                 [equality of extracted Rust words]
     ↔                                                    [exactly when, true in both directions]
     leftSong = rightSong                                 [equality of related Song words] -/
-theorem wordI64Rel_eq_iff {leftRust rightRust : I64} {leftSong rightSong : Slang.Word}
+theorem wordI64Rel_eq_iff {leftRust rightRust : I64} {leftSong rightSong : Iota.Word}
     (hleft : WordI64Rel leftRust leftSong) (hright : WordI64Rel rightRust rightSong) :
     leftRust = rightRust ↔ leftSong = rightSong := by
   constructor
@@ -48,15 +48,15 @@ theorem wordI64Rel_eq_iff {leftRust rightRust : I64} {leftSong rightSong : Slang
 
 /-- Pointwise relation between the two canonical total maps. -/
 def HMapRel (rustMap : Apeiron.Table.HMap I64 I64)
-    (songMap : Apeiron.Table.HMap Slang.Word Slang.Word) : Prop :=
+    (songMap : Apeiron.Table.HMap Iota.Word Iota.Word) : Prop :=
   ∀ rustKey songKey, WordI64Rel rustKey songKey →
     WordI64Rel (Apeiron.Table.get rustMap rustKey) (Apeiron.Table.get songMap songKey)
 
 /-- New-first replacement preserves the pointwise relation across key representations. -/
 theorem hMapRel_insertWith_replacement
     {rustMap : Apeiron.Table.HMap I64 I64}
-    {songMap : Apeiron.Table.HMap Slang.Word Slang.Word}
-    {rustKey rustValue : I64} {songKey songValue : Slang.Word}
+    {songMap : Apeiron.Table.HMap Iota.Word Iota.Word}
+    {rustKey rustValue : I64} {songKey songValue : Iota.Word}
     (hmaps : HMapRel rustMap songMap)
     (hkey : WordI64Rel rustKey songKey)
     (hvalue : WordI64Rel rustValue songValue) :

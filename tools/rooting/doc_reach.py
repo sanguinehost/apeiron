@@ -108,7 +108,7 @@ Usage::
     python3 tools/rooting/doc_reach.py --self-test
     python3 tools/rooting/doc_reach.py --controls
     python3 tools/rooting/doc_reach.py --check
-    python3 tools/rooting/doc_reach.py --inventory docs/plan/slang-source-refinement.md
+    python3 tools/rooting/doc_reach.py --inventory docs/plan/iota-source-refinement.md
 
 Every mode accepts ``--root PATH`` to scan another tree, which is what the
 controls use, and ``--registry PATH`` to read another migration table.

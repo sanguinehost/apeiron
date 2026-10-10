@@ -51,13 +51,13 @@
       "song": {
         "layout": "tableInit / tableInitGo write key TABLE_EMPTY and value 0 into cap slots. Each slot is two consecutive cells, key at base + 2*slot and value at base + 2*slot + 1, so initialization writes 2*cap cells.",
         "entry_points": [
-          {"symbol": "tableInit", "file": "song/src/table/table.slang", "lang": "slang", "role": "capacity check then initialization"},
-          {"symbol": "tableInitGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot initialization loop"},
-          {"symbol": "tableSpread", "file": "song/src/table/table.slang", "lang": "slang", "role": "deterministic masked home coordinate"},
-          {"symbol": "tableSlotKey", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot key read"},
-          {"symbol": "tableSlotVal", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot value read"},
-          {"symbol": "tableSlotSet", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot key and value write"},
-          {"symbol": "tableSlotValSet", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot value update"}
+          {"symbol": "tableInit", "file": "song/src/table/table.slang", "lang": "iota", "role": "capacity check then initialization"},
+          {"symbol": "tableInitGo", "file": "song/src/table/table.slang", "lang": "iota", "role": "slot initialization loop"},
+          {"symbol": "tableSpread", "file": "song/src/table/table.slang", "lang": "iota", "role": "deterministic masked home coordinate"},
+          {"symbol": "tableSlotKey", "file": "song/src/table/table.slang", "lang": "iota", "role": "slot key read"},
+          {"symbol": "tableSlotVal", "file": "song/src/table/table.slang", "lang": "iota", "role": "slot value read"},
+          {"symbol": "tableSlotSet", "file": "song/src/table/table.slang", "lang": "iota", "role": "slot key and value write"},
+          {"symbol": "tableSlotValSet", "file": "song/src/table/table.slang", "lang": "iota", "role": "slot value update"}
         ],
         "stride": "TABLE_STRIDE = 2. Key and value are adjacent cells; no other cell layout is selected.",
         "keys": "A live slot has a key other than TABLE_EMPTY. TABLE_EMPTY = 0 - 1 is the reserved empty key, so -1 is not an admissible live key. Live keys are unique and a missing key reads as -1.",
@@ -120,9 +120,9 @@
       "song": {
         "layout": "tableGet calls tableFind and reads tableSlotVal at the located slot; a missing key returns TABLE_EMPTY = -1.",
         "entry_points": [
-          {"symbol": "tableGet", "file": "song/src/table/table.slang", "lang": "slang", "role": "read value or -1"},
-          {"symbol": "tableFind", "file": "song/src/table/table.slang", "lang": "slang", "role": "probe for a key, returning slot or -1"},
-          {"symbol": "tableLookupSlotGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "probe for an existing key"}
+          {"symbol": "tableGet", "file": "song/src/table/table.slang", "lang": "iota", "role": "read value or -1"},
+          {"symbol": "tableFind", "file": "song/src/table/table.slang", "lang": "iota", "role": "probe for a key, returning slot or -1"},
+          {"symbol": "tableLookupSlotGo", "file": "song/src/table/table.slang", "lang": "iota", "role": "probe for an existing key"}
         ],
         "stride": "The read address is base + TABLE_STRIDE * slot + 1, one cell after the key.",
         "keys": "tableGet has no stored default: an absent key and a key holding value -1 both return -1. The occupied key must be read separately.",
@@ -187,9 +187,9 @@
       "song": {
         "layout": "tableInsertWith probes with tableFindSlotGo, then either updates the located present slot or fills the first empty probe slot.",
         "entry_points": [
-          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "slang", "role": "merge-write across SET/MAP/ACC faces"},
-          {"symbol": "MERGE_MAP", "file": "song/src/table/table.slang", "lang": "slang", "role": "map face: value replacement"},
-          {"symbol": "tableSpread", "file": "song/src/table/table.slang", "lang": "slang", "role": "masked home coordinate"}
+          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "iota", "role": "merge-write across SET/MAP/ACC faces"},
+          {"symbol": "MERGE_MAP", "file": "song/src/table/table.slang", "lang": "iota", "role": "map face: value replacement"},
+          {"symbol": "tableSpread", "file": "song/src/table/table.slang", "lang": "iota", "role": "masked home coordinate"}
         ],
         "stride": "The write address is base + TABLE_STRIDE * slot for the key and + 1 for the value.",
         "keys": "The reserved key -1 is refused before probing; a present key is located by full-key equality in tableFindSlotGo.",
@@ -251,8 +251,8 @@
       "song": {
         "layout": "A refusal returns TABLE_EMPTY = -1. Because tableInsertWith writes in place, a refusal after earlier writes leaves those writes in place.",
         "entry_points": [
-          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "slang", "role": "merge-write with -1 refusal"},
-          {"symbol": "tableFindSlotGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "probe loop whose exhaustion refuses"}
+          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "iota", "role": "merge-write with -1 refusal"},
+          {"symbol": "tableFindSlotGo", "file": "song/src/table/table.slang", "lang": "iota", "role": "probe loop whose exhaustion refuses"}
         ],
         "stride": "A refusal writes no cell.",
         "keys": "The reserved key -1 is refused before any write; a missing read is also -1, so the raw return does not distinguish them.",
@@ -314,8 +314,8 @@
       "song": {
         "layout": "Cost is counted on the caller memory table: at most cap probe steps.",
         "entry_points": [
-          {"symbol": "tableFindSlotGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "bounded probe with measure cap - step"},
-          {"symbol": "tableLookupSlotGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "bounded lookup probe with measure cap - step"}
+          {"symbol": "tableFindSlotGo", "file": "song/src/table/table.slang", "lang": "iota", "role": "bounded probe with measure cap - step"},
+          {"symbol": "tableLookupSlotGo", "file": "song/src/table/table.slang", "lang": "iota", "role": "bounded lookup probe with measure cap - step"}
         ],
         "stride": "Each probe reads two cells; no allocation.",
         "keys": "The probe bound counts key comparisons and empty-slot stops.",
@@ -385,8 +385,8 @@
       "song": {
         "layout": "Song has only per-insert tableInsertWith plus tableInit; there is no transactional build.",
         "entry_points": [
-          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "slang", "role": "per-insert loop body"},
-          {"symbol": "tableInit", "file": "song/src/table/table.slang", "lang": "slang", "role": "initialization before the loop"}
+          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "iota", "role": "per-insert loop body"},
+          {"symbol": "tableInit", "file": "song/src/table/table.slang", "lang": "iota", "role": "initialization before the loop"}
         ],
         "stride": "Each loop iteration writes one slot in place.",
         "keys": "A refused iteration leaves the keys written by earlier iterations live.",

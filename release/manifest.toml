@@ -33,8 +33,8 @@ strip = [
   "docs/contracts/commit-task-association.md",
   "docs/contracts/joint-*",
   "docs/contracts/kepler-*",
-  "docs/contracts/slang-source-*.md",
-  "tools/slang/spec_check.py",
+  "docs/contracts/iota-source-*.md",
+  "tools/iota/spec_check.py",
   "artifacts/",
   ".apeiron/",
   ".githooks/",
@@ -112,9 +112,13 @@ text_map = [
   "regex:\\bFACES-([A-Z]\\d+)\\b==>faces \\1",
   "/tmp/opencode==>/tmp/apeiron",
   # A pointer to a stripped internal document keeps its slug and drops the path.
-  "regex:`?docs/(?:(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/|contracts/(?!slang-source-))([A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*)(?:\\.md)?(?:#[A-Za-z0-9_-]+)?(?::\\d+)?`?==>the unpublished \\1 note",
-  "regex:`?docs/(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/`?==>the unpublished notes",
-  "regex:`?docs/(?:DESIGN|kernel-boundary|plan|roadmap|direction|README|hash-comparison|state-ledger|moved)(?:\\.(?:md|tsv))?(?:#[A-Za-z0-9_-]+)?`?==>the unpublished design notes",
+  # A pointer that is the whole parenthetical or the whole lead-in goes; the sentence stands without it.
+  "regex: ?\\((?:see |spec |plan )?`?docs/(?:(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/|contracts/(?!iota-source-))[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*(?:\\.md)?(?:#[A-Za-z0-9_-]+)?(?::\\d+)?`?(?:, [^()`]{0,40})?\\)==>",
+  "regex:\\bSpec: `?docs/(?:(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/|contracts/(?!iota-source-))[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*(?:\\.md)?(?:#[A-Za-z0-9_-]+)?(?::\\d+)?`?(?: \\([^()]{0,60}\\))?[.,]? ?==>",
+  # The rest keep the slug as a plain name.
+  "regex:`?docs/(?:(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/|contracts/(?!iota-source-))([A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*)(?:\\.md)?(?:#[A-Za-z0-9_-]+)?(?::\\d+)?`?==>the \\1 note",
+  "regex:`?docs/(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/`?==>the internal notes",
+  "regex:`?docs/(?:DESIGN|kernel-boundary|plan|roadmap|direction|README|hash-comparison|state-ledger|moved)(?:\\.(?:md|tsv))?(?:#[A-Za-z0-9_-]+)?`?==>the design notes",
   "regex:`?docs/references\\.bib`?==>the bibliography",
 ]
 
@@ -141,7 +145,7 @@ forbidden = [
   "\\brel-apeiron-[a-z-]+-[A-Za-z0-9]{20,24}\\b",
   "^board:",
   "/tmp/opencode",
-  "\\bdocs/(?:(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/|contracts/(?!slang-source-)\\w)",
+  "\\bdocs/(?:(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/|contracts/(?!iota-source-)\\w)",
   "\\bdocs/(?:plan|roadmap|DESIGN|kernel-boundary|direction|README|hash-comparison)\\.md",
   "[Aa]ntigravity",
   "\\bdeepseek\\b",

@@ -3,12 +3,12 @@
 This document specifies the accumulator (`MERGE_ACC`) face of the decoded selected
 `tableInsertWith` body and the default adaptation a later correspondence must carry. It is an
 obligation for a later checked theorem, not that theorem: it states no correspondence and proves
-nothing. [`slang-source-semantics.md`](slang-source-semantics.md) is normative for the decoded
-semantics, admission and resources; [`slang-source-entry.md`](slang-source-entry.md) SE3 records the
+nothing. [`iota-source-semantics.md`](iota-source-semantics.md) is normative for the decoded
+semantics, admission and resources; [`iota-source-entry.md`](iota-source-entry.md) SE3 records the
 same entry at the specification level.
 
 Authority: [`../direction.md`](../direction.md), [`joint-table.md`](joint-table.md),
-[`slang-source-semantics.md`](slang-source-semantics.md). The canonical corpus is the pinned checkout
+[`iota-source-semantics.md`](iota-source-semantics.md). The canonical corpus is the pinned checkout
 `../sanguine-apeiron/proof`; the declarations named below resolve in `Apeiron/Table/Basic.lean` at
 that pin.
 
@@ -22,7 +22,7 @@ after admission. The merge codes are `MERGE_SET = 1`, `MERGE_MAP = 2`, `MERGE_AC
 | fresh key | located slot key `is TABLE_EMPTY` | `value`; the `is MERGE_SET` test selects `TABLE_PRESENT` only for `MERGE_SET` | `tableSlotSet(base, slot, key, value)` | `value` |
 | present key | located slot key is not `TABLE_EMPTY` | `oldVal + value`, with `oldVal = tableSlotVal(base, slot)` | `tableSlotValSet(base, slot, oldVal + value)` | `oldVal + value` |
 
-Both paths run only after the admission checks below. The `+` is `Slang.Word.add`, wrapping modulo
+Both paths run only after the admission checks below. The `+` is `Iota.Word.add`, wrapping modulo
 `2^64`. The fresh-key path never reads `oldVal` and never combines with a default: it stores the
 incoming `value` unchanged. The present-key path combines with the located value in the order
 `oldVal + value`.
@@ -51,7 +51,7 @@ fresh-key path is the first fold step of `Apeiron.Table.build f (fun _ => 0) kvs
 `Apeiron.Table.build f default kvs` at a nonzero default.
 
 The present-key path has no such gap. Under `RepSong(memory, base, cap, default, O, h)` the located
-`oldVal` is `h key`, and `oldVal + value = value + oldVal` by commutativity of `Slang.Word.add`, which
+`oldVal` is `h key`, and `oldVal + value = value + oldVal` by commutativity of `Iota.Word.add`, which
 is the canonical new-value-first merge read back at `key`.
 
 ## Admission
@@ -84,7 +84,7 @@ The write performs one `tableFindSlotGo` probe bounded by `cap` iterations, a bo
 arithmetic and bitwise operations (including the wrapping multiply in `tableSpread`), one call to
 `tableSlotSet` or `tableSlotValSet`, and exactly one slot store: two raw stores on the fresh path,
 one raw store on the present path. It allocates no nodes and consumes no external stream. The
-projections are the `Slang.Machine.resources_*` fields; counts are not collapsed into one scalar
+projections are the `Iota.Machine.resources_*` fields; counts are not collapsed into one scalar
 budget.
 
 ## Canonical declarations and the admissible proof route
@@ -94,18 +94,18 @@ The later accumulator theorem names:
 - `Apeiron.Table.HMap`, `Apeiron.Table.get`, `Apeiron.Table.insertWith`,
   `Apeiron.Table.get_insertWith_self`, `Apeiron.Table.get_insertWith_ne`;
 - the local computation lemmas `insertWith_apply_self` and `insertWith_apply_ne` in
-  `proof/corpus/Slang/Table/TableWrite.lean`.
+  `proof/corpus/Iota/Table/TableWrite.lean`.
 
 The admissible route is a theorem over the same joint hypotheses as the W29 replacement link
-(`proof/corpus/Slang/Joint/SongTable.lean`, `songTable_replacement_link`), with the merge argument
-fixed to `MERGE_ACC` and the canonical merge `fun new old => Slang.Word.add old new`:
+(`proof/corpus/Iota/Joint/SongTable.lean`, `songTable_replacement_link`), with the merge argument
+fixed to `MERGE_ACC` and the canonical merge `fun new old => Iota.Word.add old new`:
 
 - present branch: conclude the raw return and the read-back equal
-  `Apeiron.Table.get (Apeiron.Table.insertWith (fun new old => Slang.Word.add old new) key value h) key`
-  from `insertWith_apply_self` and commutativity of `Slang.Word.add`; no default hypothesis is
+  `Apeiron.Table.get (Apeiron.Table.insertWith (fun new old => Iota.Word.add old new) key value h) key`
+  from `insertWith_apply_self` and commutativity of `Iota.Word.add`; no default hypothesis is
   needed;
 - fresh branch: conclude the same read-back only under the explicit hypothesis
-  `h key = Slang.Word.ofNat 0`, equivalently `default = Slang.Word.ofNat 0`. Without it the
+  `h key = Iota.Word.ofNat 0`, equivalently `default = Iota.Word.ofNat 0`. Without it the
   conclusion is false at every nonzero default.
 
 The fresh-branch hypothesis is part of the contract. A theorem that drops it, or that silently
@@ -114,9 +114,9 @@ nonzero-default fresh case is recorded as a refuted profile row, not as a theore
 
 ## Profile check and rejecting control
 
-`proof/corpus/Slang/Joint/AccumulatorProfile.lean` carries the profile as Lean data, the compiled
+`proof/corpus/Iota/Joint/AccumulatorProfile.lean` carries the profile as Lean data, the compiled
 `#guard` check and the empty-axiom audit. The `accumulator-profile` stage of
-`tools/slang/zero_axioms.json` registers exactly the audited declarations. The profile admits the
+`tools/iota/zero_axioms.json` registers exactly the audited declarations. The profile admits the
 present-key match and the fresh-key store, and rejects the row that equates fresh-key ACC insertion
 with canonical addition at an arbitrary nonzero default. The rejecting control changes that row's
 verdict from rejected to admitted in a throwaway copy; `#guard profileCheck profile` then fails and

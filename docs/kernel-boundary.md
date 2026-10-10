@@ -82,7 +82,7 @@ replacement or producer-set flag is not authorized. Borrowed grouped readback or
 `sum_parallel` reduction is a separate effect/order/overflow task; the ordered REG-1 digest and
 query callback order cannot be replaced with a sum. Payload initialization stays materialized after
 reserve-all. Existing allocator, executor/spawn/join/unwind, arbitrary-callback, codegen, ABI,
-GPU/SPIR-V and unsafe-container exclusions remain; Rust/canonical closed cone and Slang empty cone
+GPU/SPIR-V and unsafe-container exclusions remain; Rust/canonical closed cone and Iota empty cone
 remain separate. None of these exclusions waives eventual source-linked sequential refinement.
 <!-- APEIRON-STRATEGY-DECISION-T3 END -->
 
@@ -259,18 +259,18 @@ exact zero-capacity build split.
   `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`. A source-proof run log is historical evidence, not
   fresh acceptance.
 
-## Rust and Slang correspondence
+## Rust and Iota correspondence
 
-Rust and Slang have different physical layouts. Different layouts can correspond, but only under a
+Rust and Iota have different physical layouts. Different layouts can correspond, but only under a
 matched admission relation: the same canonical definition, matched domains, and explicit
 representation, state/effect, refusal and resource obligations. A worked example, a differential
 test, identical names or identical layouts are not the correspondence proof. The cross-repo
 primitive correspondence is a required programme outcome and is not established today; see the
 [programme direction](direction.md#primitive-correspondence).
 
-The Slang source-refinement chain carries a stricter evidence rule than the Rust bridge: every
+The Iota source-refinement chain carries a stricter evidence rule than the Rust bridge: every
 registered declaration, instance, witness and headline audits with an **empty** axiom set
-(`proof/corpus/Slang/Audit/Empty.lean`, `tools/slang/zero_axioms.py`). `propext`, `Classical.choice`,
+(`proof/corpus/Iota/Audit/Empty.lean`, `tools/iota/zero_axioms.py`). `propext`, `Classical.choice`,
 `Quot.sound`, `noncomputable` and quotient-based representations such as `Finset` and `ZMod` are
 rejected there. The Rust `Cell`/`Table` bridge and the canonical corpus retain the
 `{propext, Classical.choice, Quot.sound}` cone. Historical closed-cone Stream 0 evidence is
@@ -341,7 +341,7 @@ refinement belongs in `proof/corpus/TableRefinement/CoordIdentity.lean`, unfoldi
 canonical `880aa57e47e782ed7a9d9ee1974cfc87360b446b` (the revision carrying
 `Table/WordIdentity.lean`); no dirty-sibling import is admitted, and a separately gated
 `lakefile.lean` / `lake-manifest.json` / `proof/README.md` update is required before the import. This chain uses the Rust/canonical `{propext, Classical.choice, Quot.sound}` cone
-and must not enter `Slang.*`, whose audit requires the empty cone.
+and must not enter `Iota.*`, whose audit requires the empty cone.
 
 ### Resource/refusal contract for the growable table
 
@@ -378,7 +378,7 @@ proved/checked reservation.
 Axiom placement: the abstract relation and transactional preservation close in
 `{propext, Classical.choice, Quot.sound}`. No checked Aeneas model for `Vec::try_reserve`/
 `TryReserveError` exists in the tree, so actual allocator success/failure correspondence is an
-unextracted trust boundary with a simulation statement; it must not enter the `Slang.*` empty-cone
+unextracted trust boundary with a simulation statement; it must not enter the `Iota.*` empty-cone
 chain. `BuildPre` carries `checkedSizing = Ok plan ∧ reserveAll plan = Ok resources ∧ every worker
 terminates normally`; semantic premises (callback laws, identity injectivity, first-fit/search
 correctness, per-key subsequence preservation) remain separate. Provable: checked arithmetic, bounds,
@@ -486,7 +486,7 @@ parallel build. If same-key values are reordered or partial accumulators combine
 
 These modules build on canonical `Apeiron.Table.phi64_lowWord_injective` and bridge
 `Apeiron.TableRefinement.coord_spread_id_injective`. Every headline belongs in
-`proof/corpus/AxiomAudit.lean` under `{propext, Classical.choice, Quot.sound}`, never in `Slang.*`.
+`proof/corpus/AxiomAudit.lean` under `{propext, Classical.choice, Quot.sound}`, never in `Iota.*`.
 After real-source extraction and the audited bounded bridge build, each named semantic headline may
 carry `proved`. Focused Rust cases may carry `tested`. Until then the new address, `Sigma`, direct
 absence, relocation and schedule links remain anchors; the canonical corpus theorems alone remain
@@ -498,7 +498,7 @@ included by `#[path]`, refinement of their generated definitions to the canonica
 controls. It covers address arithmetic, geometry, safe indexing, explicit-state locate, SWAR,
 insertion, relocation and sequential build at the audited theorem domain. It excludes
 allocator/global-allocator realization, thread/executor realization and `std::thread::scope`,
-rustc/LLVM codegen, the kernel ABI, GPU/SPIR-V and the `unsafe` container. The Slang chain retains
+rustc/LLVM codegen, the kernel ABI, GPU/SPIR-V and the `unsafe` container. The Iota chain retains
 its separate empty cone. Astra's verdict and the Sol contract are `anchor`, not `proved`; REG-1/G1
 remains **OPEN**. Bridge pin `880aa57e47e782ed7a9d9ee1974cfc87360b446b`.
 
@@ -621,7 +621,7 @@ The claim excludes the search decision loop and its correctness law, planner/res
 allocator/global-allocator realization, allocation success/failure realization,
 executor/`std::thread::scope`, rustc/LLVM, ABI, GPU/SPIR-V and the `unsafe` container. This is not a
 model-versus-real gap after source factoring: the apply is the real production region access, and the
-decision is a controlled classification with its own Rust test and source-refinement evidence obligations. The Slang
+decision is a controlled classification with its own Rust test and source-refinement evidence obligations. The Iota
 source-refinement empty-cone separation is unchanged. Allocating public methods remain unrooted until
 a checked Aeneas primitive/tool model exists. REG-1/G1 remains **OPEN**.
 
@@ -679,7 +679,7 @@ rustc/LLVM, ABI, GPU/SPIR-V or the `unsafe` container. Conditional entry refinem
 source reads, destination writes, occupancy, separate `Sigma`, decoded identity/value preservation
 and no merge under explicit input premises, without assuming that very postcondition. Whole-state
 uniqueness, composite `DirectCover`, extent reclassification and pending-operation composition remain
-required. The Rust/canonical closed cone and separate Slang empty cone are unchanged.
+required. The Rust/canonical closed cone and separate Iota empty cone are unchanged.
 
 **Blocker and precedent.** The supplied Flash blocker is corroborated by
 `/tmp/opencode/reloc-repro/aeneas.log`: whole-body extraction reports `Could not find: type_var_id`
@@ -800,7 +800,7 @@ attachment, initialization execution/lengths/vacancy/termination and adapter sim
 outside the proved claim. Core refinement remains conditional on `PreparedResources`, input-side
 `RebuildPlanCorrect`, search/codec and callback laws. No new axiom is authorized. Arbitrary callback
 allocation/panic, executor/spawn/join/unwind, rustc/LLVM, ABI, GPU/SPIR-V and the unsafe container
-remain excluded; the Rust closed cone and Slang empty-cone separation are unchanged.
+remain excluded; the Rust closed cone and Iota empty-cone separation are unchanged.
 
 **Separate contract and headline impact.** Whole-table `RepR`/`ReservedRepR` (complete live set,
 decoded uniqueness, default observations, lengths and composite `DirectCover`) are a separate Sol
@@ -946,7 +946,7 @@ states satisfy `FreshLengthBound`, that overflow outside it returns a transactio
 arbitrary callback realizes the theorem's `merge`. The same source-to-adapter, reservation, capacity,
 initialization and orchestration exclusions remain. No roots are added or removed. Allocator,
 executor/spawn/join/unwind, rustc/LLVM, ABI, GPU/SPIR-V and unsafe-container exclusions, the Rust
-closed cone and separate Slang empty cone all remain unchanged.
+closed cone and separate Iota empty cone all remain unchanged.
 
 **No-clone-on-`Err` remains a separate required branch.** `ResourceAdapterSimulates.refused`
 explicitly carries unchanged committed state and zero clone/merge/relocation counts; these counts
@@ -1018,7 +1018,7 @@ reservation/capacity/initialization and their realization remain unproved where 
 Whole-state pending apply/commit is also unproved even though its real bodies are extracted.
 Allocator/global allocator, executor/spawn/join/unwind, arbitrary callback panic/allocation,
 rustc/LLVM codegen, ABI, GPU/SPIR-V and unsafe-container exclusions remain unchanged. The
-Rust/canonical cone stays `{propext, Classical.choice, Quot.sound}`; Slang retains its empty cone.
+Rust/canonical cone stays `{propext, Classical.choice, Quot.sound}`; Iota retains its empty cone.
 This records trust, not assurance, and does not narrow the public admitted domain.
 
 The [reopening condition](direction.md#current-strategy-decision-freeze-composition-restore-performance)
@@ -1074,7 +1074,7 @@ included from the real source and called, never restated by a wrapper. The paral
 orchestration boundary recorded above, and the pinned `JoinBoundary` and `try_reserve_exact`
 translation limits recorded there apply to the counting roots unchanged. Every added root is its own
 extraction task, registered in `proof/corpus/AxiomAudit.lean` inside
-`{propext, Classical.choice, Quot.sound}` and never inside `Slang.*`.
+`{propext, Classical.choice, Quot.sound}` and never inside `Iota.*`.
 
 **Resource and refusal semantics.** The ratified option (b) contract above applies unchanged: checked
 sizing, reserve-all ordering, initialization, one transaction point, and a `Result` whose `Err` leaves
@@ -1086,7 +1086,7 @@ production. An absent key is a successful read of the default, never a refusal, 
 **Trust exclusions.** Allocator success/failure correspondence and `try_reserve_exact` itself, thread
 memory semantics, exclusive-borrow realization, spawn/join failure, panic propagation, liveness,
 `rustc`/LLVM codegen, the kernel ABI, GPU/SPIR-V and the `unsafe` container are excluded exactly as
-above, and the Slang chain keeps its empty cone. In addition, coordinate/codec injectivity on this
+above, and the Iota chain keeps its empty cone. In addition, coordinate/codec injectivity on this
 face is **unproved**: the codec must be total, stable, equality-respecting and satisfy
 `decode(s, encode(s, c)) = c` on the admitted domain, and that law has no canonical link yet.
 HashDOS resistance is required, not established. A verified speed an adversary can collapse does not
@@ -1162,16 +1162,16 @@ misrepresent the executed writes. The open `generated_tag_nonzero` target alone 
 agreement nor summary soundness. New summary bounds can make old universally quantified apply
 statements false on malformed regions: report the exact goal to Sol, not a silent domain restriction.
 W7 stays frozen; regression maintenance is not a composition retry. Rust/canonical closed cone,
-Slang empty cone, allocator/executor, callback, codegen, ABI, GPU and unsafe-container exclusions stay
+Iota empty cone, allocator/executor, callback, codegen, ABI, GPU and unsafe-container exclusions stay
 unchanged. This ledger enlarges visible open work, not assurance.
 <!-- APEIRON-STRATEGY-DECISION-T2 END -->
 
 | Layer | Owner | Status |
 |---|---|---|
 | Canonical algebra and combinator definitions | Apeiron (Lean corpus) | proved at stated scope (`Apeiron.Combinator.Comb.reduceDeep_sound`, `Apeiron.Trichotomy.AnyRing.ringNormForm_mul`) |
-| Slang source refinement (Stream 0) | Apeiron | empty-cone gate `tools/slang/zero_axioms.py`; unconditional `Slang.SourceAudit.source_binding` remains absent from `proof/corpus/Slang/SourceAudit.lean`; no whole-source acceptance |
-| Bounded source-witness generator | Apeiron, existing `tools/slang/export.py` | untrusted producer; chunked generation remains required; retirement gate `tools/rooting/retire_check.py` R6 rejects reintroduction of the binned route and forbidden option strings |
-| Structural source witnesses | Lean source relations in `proof/corpus/Slang/Source/Tokenizer/` and `proof/corpus/Slang/Source/Parsing/` | kernel-checked witnesses and empty axiom audits required; composition lemmas at `37b95c3`, concrete chunked table/std UTF-8 witnesses still open; default recursion depth and bounded heartbeats/time/memory; no codegen/ABI claim |
+| Iota source refinement (Stream 0) | Apeiron | empty-cone gate `tools/iota/zero_axioms.py`; unconditional `Iota.SourceAudit.source_binding` remains absent from `proof/corpus/Iota/SourceAudit.lean`; no whole-source acceptance |
+| Bounded source-witness generator | Apeiron, existing `tools/iota/export.py` | untrusted producer; chunked generation remains required; retirement gate `tools/rooting/retire_check.py` R6 rejects reintroduction of the binned route and forbidden option strings |
+| Structural source witnesses | Lean source relations in `proof/corpus/Iota/Source/Tokenizer/` and `proof/corpus/Iota/Source/Parsing/` | kernel-checked witnesses and empty axiom audits required; composition lemmas at `37b95c3`, concrete chunked table/std UTF-8 witnesses still open; default recursion depth and bounded heartbeats/time/memory; no codegen/ABI claim |
 | Rust `Cell<i64>` kernels | Apeiron | refined to canonical definitions; axiom cone `{propext, Classical.choice, Quot.sound}` |
 | Rust `Table` bodies | Apeiron | extracted and elaborated; word-instance and arbitrary-callback constructor/insertion/admitted-build refinement proved under their explicit laws and domains |
 | Charon/Aeneas translation fidelity | pinned toolchain | external trust; patched for const `Repeat` to `Array.repeat` |
@@ -1186,10 +1186,10 @@ termination or purity for callbacks outside those laws. Neither a reference cont
 tested-only optimized container is an accepted substitute.
 Former storage proofs remain historical evidence about deleted source, not this table.
 
-The [bounded source-witness route](contracts/slang-source-refinement-plan.md#bounded-source-witness-route)
+The [bounded source-witness route](contracts/iota-source-refinement-plan.md#bounded-source-witness-route)
 shares data/index equations and composes proofs of existing structural relations; the retired
 named proof DAG / segment-lemma evaluator and retired generated traces remain binned. R6 checks
-producer text, not arbitrary Python behavior or default-depth compliance: `tools/slang/export.py`
+producer text, not arbitrary Python behavior or default-depth compliance: `tools/iota/export.py`
 currently emits `maxRecDepth 10000`, which must be removed for this route. A compiled `#guard`, a
 generator result or the reported barrier-probe measurements are not kernel-checked source binding.
 

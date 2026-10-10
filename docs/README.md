@@ -91,9 +91,9 @@ These files are parsed by gates. They are not merged or reformatted:
 |---|---|
 | `kepler-canonical-{intent,spec,plan}.md` | `tools/check-kepler.py` |
 | `joint-{primitives,table,evaluator,carrier-exchange}.md` | `tools/joint/{profile,table_profile,evaluator_profile,carrier_profile}_check.py` |
-| `joint-table-accumulator.md` | no checker reads it; its content is carried by `joint-primitives.md` R1 and `slang-source-entry.md` SE3, and its obligation that no accumulator correspondence exists stays open |
-| `slang-source-entry.md` | `tools/joint/source_entry_check.py` |
-| `slang-source-semantics.md`, `slang-source-refinement-plan.md` | `tools/slang/spec_check.py`, `refine.py` |
+| `joint-table-accumulator.md` | no checker reads it; its content is carried by `joint-primitives.md` R1 and `iota-source-entry.md` SE3, and its obligation that no accumulator correspondence exists stays open |
+| `iota-source-entry.md` | `tools/joint/source_entry_check.py` |
+| `iota-source-semantics.md`, `iota-source-refinement-plan.md` | `tools/iota/spec_check.py`, `refine.py` |
 
 ## Evidence (`evidence/`)
 

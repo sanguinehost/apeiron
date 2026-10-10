@@ -12,7 +12,7 @@
   "source_roots": [
     "src",
     "tools",
-    "proof/corpus/Slang"
+    "proof/corpus/Iota"
   ],
   "source_excludes": [
     ".git",
@@ -116,13 +116,13 @@
   "retired_routes": [
     {
       "id": "derivation-dir",
-      "title": "Binned Slang derivation family",
+      "title": "Binned Iota derivation family",
       "path_prefixes": [
-        "proof/corpus/Slang/Derivation/"
+        "proof/corpus/Iota/Derivation/"
       ],
       "tokens": [
-        "Slang.Derivation",
-        "Slang/Derivation/"
+        "Iota.Derivation",
+        "Iota/Derivation/"
       ],
       "case_sensitive": true
     },
@@ -130,11 +130,11 @@
       "id": "generated-trace-dir",
       "title": "Binned generated derivation traces",
       "path_prefixes": [
-        "proof/corpus/Slang/Generated/Trace/"
+        "proof/corpus/Iota/Generated/Trace/"
       ],
       "tokens": [
-        "Slang.Generated.Trace",
-        "Slang/Generated/Trace/"
+        "Iota.Generated.Trace",
+        "Iota/Generated/Trace/"
       ],
       "case_sensitive": true
     },
@@ -307,7 +307,7 @@
         "name": "retired derivation path present",
         "rule": "B",
         "expect": "reject",
-        "path": "proof/corpus/Slang/Derivation/Synthetic.lean",
+        "path": "proof/corpus/Iota/Derivation/Synthetic.lean",
         "text": "theorem ok : True := trivial\n"
       },
       {

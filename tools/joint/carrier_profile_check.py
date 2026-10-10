@@ -65,7 +65,7 @@ import jointspec
 from jointlib import (
     CheckError,
     _check_rust,
-    _check_slang,
+    _check_iota,
     _need,
     _nonempty,
     _resolve_path,
@@ -196,11 +196,11 @@ def _check_source_entry(entry: object, where: str, want_lang: str) -> None:
     lang = entry.get("lang")
     _nonempty(symbol, f"{where}.symbol")
     _nonempty(rel, f"{where}.file")
-    _need(lang in ("rust", "slang"), f"{where}.lang must be rust or slang")
+    _need(lang in ("rust", "iota"), f"{where}.lang must be rust or iota")
     _need(lang == want_lang, f"{where}: expected lang {want_lang}, got {lang}")
     path = _resolve_path(rel, where)
     text = path.read_text(encoding="utf-8")
-    found = _check_rust(text, symbol) if lang == "rust" else _check_slang(text, symbol)
+    found = _check_rust(text, symbol) if lang == "rust" else _check_iota(text, symbol)
     _need(found, f"{where}: {lang} entry {symbol} not found in {rel}")
 
 
@@ -306,7 +306,7 @@ def _validate_row(
         f"{rid}.entry_points.song must be a list (possibly empty)",
     )
     for entry in song_entries:
-        _check_source_entry(entry, f"{rid}.entry_points.song", "slang")
+        _check_source_entry(entry, f"{rid}.entry_points.song", "iota")
     if not song_entries:
         _nonempty(
             entry_points.get("song_absent"), f"{rid}.entry_points.song_absent"
@@ -381,7 +381,7 @@ def _validate_blocker(blocker: object) -> None:
     if rust_entry is not None:
         _check_source_entry(rust_entry, f"{bid}.rust_entry", "rust")
     if song_entry is not None:
-        _check_source_entry(song_entry, f"{bid}.song_entry", "slang")
+        _check_source_entry(song_entry, f"{bid}.song_entry", "iota")
     _check_blocker_refs(blocker, bid)
 
 

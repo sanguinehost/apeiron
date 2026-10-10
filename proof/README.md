@@ -316,7 +316,7 @@ refinement above is revision-bound historical evidence. Open proof obligations:
   `Apeiron/Table/WordIdentity.lean` (registered in `Audit.lean`) and the Rust refinement at
   `proof/corpus/TableRefinement/CoordIdentity.lean` (`coord_spread_id_injective`) are present and
   registered for audit; binding that chain to the selected source and the growable
-  search/relocation refinements remains open, and this chain must not enter `Slang.*`.
+  search/relocation refinements remains open, and this chain must not enter `Iota.*`.
 - **Unextracted threading boundary.** `std::thread::scope` sits behind an unextracted orchestration
   boundary; the extracted roots are the sequential partition, worker and assembly bodies. The
   schedule obligation composes the implementation-specific per-key subsequence equation with
@@ -390,10 +390,10 @@ Two evidence cones are kept distinct.
 
 - The constructive Iota source-refinement chain requires an **empty** axiom cone. Every registered
   declaration, instance, witness and headline audits with an empty axiom set under
-  `proof/corpus/Slang/Audit/Empty.lean` and `tools/slang/zero_axioms.py`; `propext`,
+  `proof/corpus/Iota/Audit/Empty.lean` and `tools/iota/zero_axioms.py`; `propext`,
   `Classical.choice`, `Quot.sound`, `noncomputable` and quotient-based representations such as
   `Finset` and `ZMod` are rejected there. The source word ring is the constructive, locally supplied
-  `Slang.Refinement.WordRing` over `Slang.Word`.
+  `Iota.Refinement.WordRing` over `Iota.Word`.
 - The Rust/Aeneas bridge and the canonical corpus retain the closed cone
   `{propext, Classical.choice, Quot.sound}`. The extracted `Cell<i64>` word theorems and the table
   headlines depend only on those standard axioms.
@@ -406,7 +406,7 @@ Two evidence cones are kept distinct.
   cone, so none of them uses these four.
 
 The two cones share no declarations. A `ZMod`-based bridge declaration is not importable into the
-empty-cone chain, so the constructive `Slang.Word` instance is used there instead of a bridge
+empty-cone chain, so the constructive `Iota.Word` instance is used there instead of a bridge
 `ZMod` instance.
 
 ## Source identity

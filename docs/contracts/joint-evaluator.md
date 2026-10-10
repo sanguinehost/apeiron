@@ -41,7 +41,7 @@ the checker rejects it.
 
 The selected boundary is the executing combinator evaluator and the certificate replayer. Both have
 a canonical definition in the pinned corpus and a Song execution, and neither has an executing Rust
-counterpart. They are therefore not paired Rust-Slang rows: each row records a Song side and a
+counterpart. They are therefore not paired Rust-Iota rows: each row records a Song side and a
 canonical side, and the missing Rust side is an unmatched blocker (`BE1`, `BE2`).
 
 | Row | Canonical object | Canonical entry | Song entry | Rust side | Status |
@@ -218,8 +218,8 @@ assumed, and the checker requires every one of them to be present.
 
 | ID | Counterpart | Reason | Status |
 |---|---|---|---|
-| BE1 | Rust side NONE for the canonical `Apeiron.Combinator` evaluator; Song `prover0.slang` exists. | There is no executing Rust evaluator, so E1 is not a paired Rust-Slang row. | blocker |
-| BE2 | Rust side NONE for `Apeiron.Decider.checkCert`; Song `certcheck.slang` exists. | There is no Rust decider or replayer, so E2 is not a paired Rust-Slang row. | blocker |
+| BE1 | Rust side NONE for the canonical `Apeiron.Combinator` evaluator; Song `prover0.slang` exists. | There is no executing Rust evaluator, so E1 is not a paired Rust-Iota row. | blocker |
+| BE2 | Rust side NONE for `Apeiron.Decider.checkCert`; Song `certcheck.slang` exists. | There is no Rust decider or replayer, so E2 is not a paired Rust-Iota row. | blocker |
 | BE3 | Song `satcheck.slang::{main,batchLoop}` at `MAXV = 12`, `ROWCAP = 256`; canonical side NONE. | No canonical SAT-witness checker for this alphabet exists; `capped_certificate_complete` is a capped-box existence theorem, not a completeness theorem for this alphabet. | blocker |
 | BE4 | Canonical framing/replay exists (`Apeiron/Decider/Stream.lean`); the executing Song byte-reader, state, wide-arithmetic, framing and replay refinement is MISSING. | Certificate readiness requires a checked executing refinement of a Song reader/writer to the canonical framed replay; `Stream.lean` starts after byte decoding and establishes no Song execution. | blocker |
 | BE5 | Canonical `Comb.I = app (app S K) K`; Song `i` (`TAG_I`) and `**skk` (`app (app S K) K`) are distinct tags and shapes. | The pair `i`/`**skk` is a source-derived regression fixture candidate against the canonical `Joinable` reading of `DISTINCT`; it is not resolved by dropping `i`/`u`, changing canonical equality, or conflating the primitive with the normal form. | blocker |

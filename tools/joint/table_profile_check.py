@@ -61,7 +61,7 @@ import jointspec
 from jointlib import (
     CheckError,
     _check_rust,
-    _check_slang,
+    _check_iota,
     _need,
     _nonempty,
     _resolve_path,
@@ -193,11 +193,11 @@ def _check_source_entry(entry: object, where: str, want_lang: str) -> None:
     lang = entry.get("lang")
     _nonempty(symbol, f"{where}.symbol")
     _nonempty(rel, f"{where}.file")
-    _need(lang in ("rust", "slang"), f"{where}.lang must be rust or slang")
+    _need(lang in ("rust", "iota"), f"{where}.lang must be rust or iota")
     _need(lang == want_lang, f"{where}: expected lang {want_lang}, got {lang}")
     path = _resolve_path(rel, where)
     text = path.read_text(encoding="utf-8")
-    found = _check_rust(text, symbol) if lang == "rust" else _check_slang(text, symbol)
+    found = _check_rust(text, symbol) if lang == "rust" else _check_iota(text, symbol)
     _need(found, f"{where}: {lang} entry {symbol} not found in {rel}")
 
 
@@ -266,7 +266,7 @@ def _validate_row(
         f"{rid}.song.entry_points must be nonempty",
     )
     for entry in song_entries:
-        _check_source_entry(entry, f"{rid}.song.entry_points", "slang")
+        _check_source_entry(entry, f"{rid}.song.entry_points", "iota")
 
     admission = row["admission"]
     _need(isinstance(admission, dict), f"{rid}.admission must be an object")
@@ -614,7 +614,7 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
 
     mutated = copy.deepcopy(data)
     mutated["rows"][0]["song"]["entry_points"][0]["symbol"] = "tableDoesNotExist"
-    cases.append(("point a slang entry at a missing symbol", mutated, spec_text))
+    cases.append(("point a iota entry at a missing symbol", mutated, spec_text))
 
     mutated = copy.deepcopy(data)
     mutated["rows"][0]["resources"]["rust"][0]["kind"] = "fuel"
