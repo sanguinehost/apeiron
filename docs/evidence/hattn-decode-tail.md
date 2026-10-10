@@ -455,6 +455,67 @@ Grade `measured` for the table (one prompt, 64 positions, f32 SIMT dump); `prove
 - The cause of the tree's misses (recall equals `clu-s8`'s at 131072 yet KLD is 2.4×) is unmeasured.
 - No Rust/Aeneas selector; rustc, LLVM, the GPU kernels and the instrument are outside the trust boundary.
 
+## HATTN-T8 on Qwen2.5-7B-Instruct-1M at 524288 and 1048576
+
+Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Same arms, same 0.05 mean-KLD gate, 64 tail positions before `t`.
+Dump: f32 GPU dump `g7-1m` (`examples/gpu_dump.rs`, `KV_T=1048576`, `KV_QTAIL=262144,524288,1048576`, 28 layers; 30 resumable
+invocations of 480 s budget, about 4.1 h, GPU peak 9.2 GiB, host RSS peak 6.0 GiB, 128 GB on disk). Predictions registered
+before the run: `PREDICTIONS-T8-7B-1M.md` (sha256 `9b221a17…`). Instrument `attn_cut_probe.hd128qf` (commit `d8e9898`), one arm
+plus dense per invocation (`tails1m.sh`, `tails1m-b.sh`, outputs `g9-t<t>-a<arm>.out`, `.time`). Verdicts:
+`proof/corpus/Perf/HattnT8Q9.lean`.
+
+| arm, `t` | mean KLD | median | positions > 0.05 | bound vectors/refresh | flat-top-32 recall | bytes/dense |
+|---|---|---|---|---|---|---|
+| flat, 262144 (read from `g7-1m`) | 0.0386 | 0.0150 | 12 | 8181.8 | – | 0.0109 |
+| flat, 524288 | 0.3370 | 0.2386 | 62 | 16373.8 | – | 0.0064 |
+| flat, 1048576 | 0.5874 | 0.4569 | 62 | 32757.8 | – | 0.0042 |
+| `clu-s4`, 524288 | 0.3237 | 0.2283 | 62 | 1188.5 | 0.219 | 0.0046 |
+| `clu-s4`, 1048576 | 0.5826 | 0.5161 | 62 | 2209.2 | 0.242 | 0.0024 |
+| `tree-s8`, 524288 | 0.3369 | 0.2349 | 63 | 579.0 | 0.379 | 0.0045 |
+| `tree-s8`, 1048576 | 0.6004 | 0.5120 | 63 | 647.3 | 0.396 | 0.0023 |
+| `clu-s4`, `HATTN_MUT=2`, 524288 | 0.5193 | 0.4028 | 63 | 1109.6 | 0.000 | 0.0044 |
+
+| prediction | verdict |
+|---|---|
+| Q1 dense control ≤ 4e-4 at 524288, ≤ 8e-4 at 1048576 | refuted: 1.407e-3 and 2.650e-3 (1.788e-4 at 262144, equal to the 256k dump's) |
+| Q1 `HATTN_MUT=2` raises `clu-s4` at 524288 ≥ 2× | refuted: 1.60× (0.5193 against 0.3237) |
+| Q2 flat at 524288 in [0.040, 0.070] | refuted: 0.3370 |
+| Q2 flat fails at 1048576 | held: 0.5874 |
+| Q3 `clu-s4` fails at 524288; every other arm fails at 1048576 | held for the arms run (flat, `clu-s4`, `tree-s8`); `tree-s4` and `clu-s8` not run |
+| Q4 `clu-s4` scan ≤ 1/14 of flat at 1048576 | held: 14.8× (2209.2 against 32757.8) |
+| Q5 `clu-s4` recall below its 262144 value (0.264) | held: 0.242, with 0.219 at 524288 |
+| Q6 `clu-s4` bytes/dense ≤ 0.0025 at 1048576 | held: 0.0024 |
+| Q7 one invocation ≤ 570 s and ≤ 24 GB | held: 411 s and 20.1 GB peak resident (`/usr/bin/time -v`, `g9-t1048576-a4-rss.time`); 337 s and 425 s on the two earlier 1048576 invocations |
+
+Control that the 1M dump is the same data as before: flat read at `t = 262144` from `g7-1m` gives 0.0386, 12 positions, bound vectors 8181.8
+and control 1.788e-4, equal to the `g7-256k` run (`g9-t262144-a1.out`).
+Grade `tested` for the table (one prompt, 64 positions, f32 SIMT dump); `proved` for the arithmetic in `Perf.HattnT8Q9`
+(`lake build Perf.HattnT8Q9 AxiomAudit` exit 0, 30 s, 9148 jobs, cone ⊆ {propext, Classical.choice, Quot.sound}; `HattnT8Q9Mut`: `q6_held`
+with `≤ 25` changed to `≤ 23` turns `decide` red).
+
+### Findings
+
+- **The cluster index does what the cost model says at 1M: 14.8× fewer bound vectors than the flat scan, 0.0024 of dense bytes (144 MB
+  of 60.1 GB per generated token), at the flat arm's quality.** One arm plus dense runs in 411 s at 20.1 GB peak.
+- **The fixed 2048-token far budget stops holding between 262144 and 524288.** Flat and `clu-s4` pass at 262144 (0.0386, 0.0418) and
+  are at 0.337 and 0.324 at 524288, 0.587 and 0.583 at 1048576. At 262144 the failures were 12–13 of 64 positions (median 0.015–0.016);
+  at 524288 and 1048576 they are 62–63 of 64 (median 0.23 to 0.52). The three index arms and the flat arm fail alike, so the
+  index is not what fails.
+- **The reversed ranking is only 1.6× worse than `clu-s4` at 524288** (1.88× at 262144, 6× at 65536): at 2048 tokens out of 524288
+  the ranking separates little from its reverse.
+- **The dense-tail control grows faster than the context** (1.8e-4, 1.4e-3, 2.65e-3), 7.9× then 1.9× against the registered doubling.
+  KLD is measured against the probe's own dense forward on the same dump, so the arms' figures stand; the dump's agreement with the
+  Q4_K_M reference path past 262144 is not measured.
+- **The cause of the cliff is open.** `docs/epics/spinor.md` (FACES-R1 H9) measures the best-case read set (sinks, 256 near keys, top 2048
+  of the rest) at 0.877 of the softmax mass at 262144 and 0.784 at 1048576; that is a smaller drop than the 15× in KLD.
+
+### What this does not establish
+
+- One prompt, decode tail only, prefill dense; the dump uses plain RoPE (base 1e7). That the checkpoint was trained to 262144 and extended past it with
+  dual-chunk attention is recalled, not retrieved; the model card is unread. Bytes are counts, not tokens per second.
+- `tree-s4` and `clu-s8` at these contexts, the mutation at 1048576, other prompts, a far budget that grows with `t`.
+- No Rust/Aeneas selector; rustc, LLVM, the GPU kernels and the instrument are outside the trust boundary.
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a
