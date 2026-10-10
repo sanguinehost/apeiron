@@ -41,6 +41,25 @@ def git_show(rev, path, cwd=SRC):
     return run(["git", "show", f"{rev}:{path}"], cwd=cwd).stdout
 
 
+def unpublished_rules(m):
+    """One rewrite per stripped prefix: a shipped mention keeps the name and says it is not shipped."""
+    skip = set(m["expect"].get("dangling_ignore", []))
+    subs = list(m["substitute"])
+    rules = []
+    for p in m["strip"]:
+        if p in skip or p.startswith("docs/") or any(c in p for c in "*?["):
+            continue
+        if any(d == p or (p.endswith("/") and d.startswith(p)) for d in subs):
+            continue
+        tail = r"(?![\w/\-]|\.\w| \(unpublished\))"
+        if p.endswith("/"):
+            rx = r"(?<![\w/.\-])(" + re.escape(p) + r"[\w./\-]*[\w])" + tail
+        else:
+            rx = r"(?<![\w/.\-])(" + re.escape(p) + r")" + tail
+        rules.append("regex:" + rx + r"==>\1 (unpublished)")
+    return rules
+
+
 def build(out, rev):
     m = load()
     if os.path.exists(out) and os.listdir(out):
@@ -58,9 +77,9 @@ def build(out, rev):
         text = os.path.join(td, "text.txt")
         msg = os.path.join(td, "msg.txt")
         with open(text, "w") as f:
-            f.write("\n".join(m["text_map"]) + "\n")
+            f.write("\n".join(m["text_map"] + unpublished_rules(m)) + "\n")
         with open(msg, "w") as f:
-            f.write("\n".join(m["message_map"]) + "\n")
+            f.write("\n".join(m["message_map"] + m["text_map"] + unpublished_rules(m)) + "\n")
         cmd = ["git", "filter-repo", "--force", "--invert-paths"]
         for p in m["strip"]:
             if p.endswith("/"):
@@ -135,6 +154,9 @@ def check(out, full):
         if f in m["substitute"]:
             continue
         bad.append(f"stripped path present: {f} (matches {p})")
+    for f in files:
+        if f.startswith("docs/") and not any(fnmatch.fnmatch(f, g) for g in m["expect"]["docs_allow"]):
+            bad.append(f"docs file outside docs_allow: {f}")
     for p in m["expect"]["present"]:
         if p not in fileset:
             bad.append(f"expected path missing: {p}")
@@ -162,8 +184,9 @@ def check(out, full):
         bad = resolve_blobs(out, bad)
 
     # A shipped file that names a stripped path that no longer resolves is a dangling reference.
-    dirs = [p for p in m["strip"] if p.endswith("/") and p != "target/"]
-    exact = [p for p in m["strip"] if not p.endswith("/") and not any(c in p for c in "*?[")]
+    ign = set(m["expect"]["dangling_ignore"])
+    dirs = [p for p in m["strip"] if p.endswith("/") and p not in ign]
+    exact = [p for p in m["strip"] if not p.endswith("/") and p not in ign and not any(c in p for c in "*?[")]
     names = [re.escape(p) for p in dirs + exact]
     rx = re.compile(r"(?<![\w/.\-])(" + "|".join(names) + r")[\w./\-]*")
     dirset = set()
@@ -172,6 +195,8 @@ def check(out, full):
         for i in range(1, len(parts)):
             dirset.add("/".join(parts[:i]) + "/")
     for f in files:
+        if f == ".gitignore":
+            continue
         try:
             with open(os.path.join(out, f), "rb") as fh:
                 data = fh.read()
@@ -183,6 +208,8 @@ def check(out, full):
         for mo in rx.finditer(txt):
             tok = mo.group(0).rstrip(".,;:)`'\"")
             if tok in fileset or tok in dirset or tok.rstrip("/") + "/" in dirset:
+                continue
+            if txt.startswith(" (unpublished)", mo.start() + len(tok)):
                 continue
             bad.append(f"dangling reference in {f}:{txt.count(chr(10), 0, mo.start()) + 1}: {tok}")
 

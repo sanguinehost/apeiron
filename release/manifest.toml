@@ -4,7 +4,26 @@
 
 # Removed from the tree and from every commit.
 strip = [
-  "docs/",
+  "docs/README.md",
+  "docs/archive/",
+  "docs/call-census/",
+  "docs/direction.md",
+  "docs/epics/",
+  "docs/evidence/",
+  "docs/hash-comparison.md",
+  "docs/kernel-boundary.md",
+  "docs/moved.tsv",
+  "docs/plan.md",
+  "docs/reviews/",
+  "docs/rfcs/",
+  "docs/roadmap.md",
+  "docs/state-ledger.tsv",
+  "docs/study/",
+  "docs/templates/",
+  "docs/contracts/artifacts.toml",
+  "docs/contracts/commit-task-association.md",
+  "docs/contracts/joint-*",
+  "docs/contracts/kepler-*",
   "artifacts/",
   ".apeiron/",
   ".githooks/",
@@ -39,14 +58,6 @@ strip = [
   "target/",
 ]
 
-# Added after the filter, from `release/public/<path>` to `<path>`.
-[substitute]
-"AGENTS.md" = "release/public/AGENTS.md"
-".githooks/pre-commit" = "release/public/.githooks/pre-commit"
-".githooks/commit-msg" = "release/public/.githooks/commit-msg"
-".githooks/pre-push" = "release/public/.githooks/pre-push"
-"tools/hooks/install.sh" = "release/public/tools/hooks/install.sh"
-
 # Applied to every blob in every commit (git filter-repo --replace-text syntax: literal, or
 # `regex:PATTERN==>REPLACEMENT`).
 text_map = [
@@ -61,11 +72,12 @@ text_map = [
   "/home/socol/==>~/",
   "/home/socol==>~",
   "-home-socol-==>-home-user-",
-  "/tmp/opencode/apeiron-lane.lock==>the lane lock",
-  "regex:/tmp/opencode/[A-Za-z0-9_./-]*[A-Za-z0-9_]==>a local scratch path",
+  "oc-tmp==>scratch",
+  "/tmp/opencode==>/tmp/apeiron",
   # A pointer to a stripped internal document keeps its slug and drops the path.
-  "regex:`?docs/(?:epics|evidence|reviews|study|rfcs|archive|call-census)/([A-Za-z0-9_./-]*?[A-Za-z0-9_-])(?:\\.md)?(?::\\d+)?`?==>the unpublished \\1 note",
-  "regex:`?docs/(?:DESIGN|kernel-boundary|plan|roadmap|direction)(?:\\.md)?`?==>the unpublished design notes",
+  "regex:`?docs/(?:(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/|contracts/(?!slang-source-))([A-Za-z0-9_./-]*?[A-Za-z0-9_-])(?:\\.md)?(?::\\d+)?`?==>the unpublished \\1 note",
+  "regex:`?docs/(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/`?==>the unpublished notes",
+  "regex:`?docs/(?:DESIGN|kernel-boundary|plan|roadmap|direction|README|hash-comparison|state-ledger|moved)(?:\\.(?:md|tsv))?`?==>the unpublished design notes",
   "regex:`?docs/references\\.bib`?==>the bibliography",
 ]
 
@@ -89,15 +101,27 @@ forbidden = [
   "\\brel-apeiron-[a-z-]+-[A-Za-z0-9]{20,24}\\b",
   "^board:",
   "/tmp/opencode",
-  "\\bdocs/(?:epics|evidence|reviews|study|rfcs|archive|call-census|contracts|templates)/",
-  "\\bdocs/(?:plan|roadmap|DESIGN|kernel-boundary|direction)\\.md",
+  "\\bdocs/(?:(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/|contracts/(?!slang-source-))",
+  "\\bdocs/(?:plan|roadmap|DESIGN|kernel-boundary|direction|README|hash-comparison)\\.md",
   "[Aa]ntigravity",
   "\\bdeepseek\\b",
   "(?i)\\bhold overrides",
 ]
 
+# Added after the filter, from `release/public/<path>` to `<path>`.
+[substitute]
+"AGENTS.md" = "release/public/AGENTS.md"
+".githooks/pre-commit" = "release/public/.githooks/pre-commit"
+".githooks/commit-msg" = "release/public/.githooks/commit-msg"
+".githooks/pre-push" = "release/public/.githooks/pre-push"
+"tools/hooks/install.sh" = "release/public/tools/hooks/install.sh"
+
 # Files kept from the internal tree that the check reads for the public list.
 [expect]
+# Under docs/ only these globs may ship.
+docs_allow = ["docs/contracts/slang-source-*.md"]
+# Stripped prefixes the dangling-reference scan skips (ordinary words, or build output).
+dangling_ignore = ["release/", "target/"]
 # Files that must exist in the cut (the substitutions and the public surface).
 present = [
   "README.md", "LICENSE", "NOTICE", "SECURITY.md", "CONTRIBUTING.md", "AGENTS.md",

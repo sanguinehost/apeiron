@@ -21,7 +21,7 @@ from .decode import _SELECTED_CONSTANT_NAMES, _SELECTED_FUNCTION_NAMES
 # delimiter-stack zero with `ScanSelected.continue`, never splitting an
 # identifier or a comment.  The emitted terms are data; the Lean kernel checks
 # them under the empty axiom cone, and `Slang.Audit.Empty` rejects a nonempty
-# set.  Port of the `/tmp/opencode/gen_structural_scan.py` spike.
+# set.  Port of the `gen_structural_scan.py` spike.
 # ---------------------------------------------------------------------------
 
 _SCAN_CHUNK = 24
