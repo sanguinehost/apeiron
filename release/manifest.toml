@@ -104,6 +104,12 @@ text_map = [
   # The resource model directory is not published; a pointer into it keeps the file name.
   "regex:(?:~/apeiron/)?proof/resource/==>the unpublished resource model/",
   "oc-tmp==>scratch",
+  # Experiment lane ids: the experiment keeps a plain name, the lane and task ids go.
+  "regex: ?\\(`LEARN-HATTN`, task `HATTN-T(\\d+)`\\)==> (attention-cut T\\1)",
+  "regex:`?escalation/FACES-R1-H5-PREDICTION\\.md`?==>the H5 prediction note",
+  "regex:(?:~/)?\\bescalation/==>",
+  "regex:\\bHATTN-T(\\d+)\\b==>attention-cut T\\1",
+  "regex:\\bFACES-([A-Z]\\d+)\\b==>faces \\1",
   "/tmp/opencode==>/tmp/apeiron",
   # A pointer to a stripped internal document keeps its slug and drops the path.
   "regex:`?docs/(?:(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/|contracts/(?!slang-source-))([A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*)(?:\\.md)?(?:#[A-Za-z0-9_-]+)?(?::\\d+)?`?==>the unpublished \\1 note",
@@ -117,6 +123,8 @@ message_map = [
   "regex:(?m)^board:.*\\n?==>",
   "regex:\\brel-apeiron-[a-z-]+-[A-Za-z0-9]{20,24}\\b==>",
   "regex:/home/socol/(?:oc-tmp/|Workspace/)?==>~/",
+  "regex:/home/(?!runner)[a-z]+\\b==>~",
+  "regex:(?:~/)?\\bescalation/==>",
 ]
 
 # `cut.py --check` fails when any of these matches a blob or a commit message of the cut.
@@ -143,6 +151,10 @@ forbidden = [
   "(?i)\\blead review",
   "-apeiron-[a-z0-9-]+-(?=[A-Za-z0-9]*[A-Z0-9])[A-Za-z0-9]{20,24}\\b",
   "\\b(?:Sol|Astra|Terra)\\b",
+  "\\bHATTN-",
+  "\\bFACES-[A-Z]",
+  "LEARN-HATTN",
+  "\\bescalation/",
 ]
 
 # Added after the filter, from `release/public/<path>` to `<path>`.
