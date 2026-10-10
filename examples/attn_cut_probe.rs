@@ -50,7 +50,7 @@ use apeiron::format::bpe::Bpe;
 const MODEL: &str = concat!(env!("HOME"), "/models/gguf/qwen05b-Q4_K_M.gguf");
 const TOKENIZER: &str = concat!(env!("HOME"), "/models/qwen2.5-0.5b/tokenizer.json");
 const PROSE: &str = concat!(env!("HOME"), "/Workspace/fold/hashtrinity/prose8.txt");
-const DOCS: &str = concat!(env!("HOME"), "/oc-tmp/gpu-ppl-corpus.txt");
+const DOCS: &str = concat!(env!("HOME"), "/models/gpu-ppl-corpus.txt");
 const T: usize = 512;
 /// Head dimension, fixed at build time: `PROBE_HD=128` builds the instrument for Qwen2.5-7B; the default 64 is
 /// Qwen2.5-0.5B. `run_dump` and `run_tail` assert it against the model's `head_dim`.
