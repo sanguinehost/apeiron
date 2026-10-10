@@ -1095,6 +1095,21 @@ holds 0.79 of the mass at best, so any selection at that budget misses at least 
 checkpoints; the dual-chunk or other inference-time recipe for the model past its trained length (recalled, not retrieved); how the unwound pairs enter the
 model's learned behaviour; whether a far budget that grows with `t` restores the gate (the next run). Search for prior art: none run; no novelty is claimed.
 
+#### FACES-R1 H10: a polar box native to the elliptic face does not improve page ranking (row `faces-r1-do-the-three-on-HCnA8ZlHN3emV1nzkVH7V0`)
+
+Question: H8 showed the Cartesian page box (Quest) widens where a RoPE pair winds. A RoPE pair is a point `r e^{iφ}` of the `σ<0` orbit, so the native box is polar: a radius range and an angle arc, with the exact bound `max |q| r cos(φ−ψ)` over the arc (the maximum is `|q| r_max` when `ψ` is inside the arc, else at an arc endpoint with `r_max` for a positive cosine and `r_min` otherwise). Both boxes are valid upper bounds, so their per-pair minimum is valid. Does the polar bound rank pages better on the prose prompt where the oracle result (`docs/evidence/hattn-decode-tail.md`, token-oracle section) places the gap in ranking? Command: `systemd-run --user --scope -q -p MemoryMax=28G -p MemorySwapMax=0 nice -n 10 timeout 570 python3 /home/socol/oc-tmp/escalation/FACES-R1-POLAR-BOUND.py` (sha256 `8543edb97a8e`, output `FACES-R1-POLAR-BOUND.out` sha256 `f596437214bd`, 39 s; predictions in the script header, written before the run). Data: `g7-1m`, `t = 524288`, layers 0, 7, 14, 21, 27, 4 KV heads × 7 query heads, 4 of the 64 tail positions; read set = 4 sinks, near keys and the 32 best 64-key pages by the bound; metric = softmax mass in the read set.
+
+| bound ranking the 32 pages | kept mass (mean over the five layers) |
+|---|---|
+| Quest Cartesian box | 0.5144 |
+| polar box | 0.4912 |
+| per-pair minimum of the two | 0.5199 |
+| page oracle (32 pages by true page mass) | 0.6375 |
+| token oracle (top 2048 far tokens) | 0.7881 |
+
+Predictions: P1 (minimum bound exceeds Quest by at least 0.03): **refuted**, +0.0055 (layer 27: the minimum is 0.0050 below Quest, a tighter bound ranking worse). P2 (minimum bound at least 0.05 below the page oracle): held, 0.1176. P3 (page oracle at least 0.05 below the token oracle): held, 0.1506.
+Reading (`model`): the elliptic-native box gives no ranking gain. The loss splits into 0.1176 from the bound and 0.1506 from the 64-key page granularity, each larger than anything the polar box returns, so the ranking gap on prose is not the rotation slack of the box. Together with H8 and H8b (rotation slack does not separate `Tree` from `Clu`), the face reading of the page box is closed as a lever: a query-conditioned token-level gather, not a tighter box, is the direction the oracle result supports. Verdicts: `proof/corpus/Perf/FacesPolarBound.lean` (sha256 `d1331d7eb85c`, four rows axiom-free in `AxiomAudit`; mutation `hybrid := 5500` in a scratch copy gives 2 errors). Grade `tested`. Not covered: other prompts and checkpoints, `T` other than 524288, the KLD of the polar arm (kept mass is the proxy), the cost of storing a polar box (an extra `r_min`, `r_max`, two angles per pair against two coordinate bounds). Search: `rg -il 'polar box|polar bound|angle arc' docs ../fold/SPEC-COLDTIER.md`, no hit; no novelty is claimed, interval and spherical-cap bounds for maximum inner product search are standard and not retrieved.
+
 ### FACES-R3 results (prior-art search)
 
 Row: `faces-r3-searched-list-of-HFjIFdmrgQqByikqw7ayoE`. Digest `/home/socol/oc-tmp/escalation/FACES-R3-DIGEST.md`
