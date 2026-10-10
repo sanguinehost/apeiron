@@ -46,6 +46,7 @@ import Perf.HattnT8Code
 import Perf.HattnT8Tail
 import Perf.HattnT8TailProse
 import Perf.HattnT8LGroup
+import Perf.HattnT8Oracle
 import Perf.Identity
 import Perf.AttnCoop
 import Perf.IdentityFloat
@@ -706,3 +707,9 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnT8LGroup.lg3_held
 #audit Perf.HattnT8LGroup.lg4_held
 #audit Perf.HattnT8LGroup.group_share
+#audit Perf.HattnT8Oracle.or1_refuted
+#audit Perf.HattnT8Oracle.or2_held
+#audit Perf.HattnT8Oracle.or3_held
+#audit Perf.HattnT8Oracle.or4_held
+#audit Perf.HattnT8Oracle.or5_held
+#audit Perf.HattnT8Oracle.selection_beats_budget
