@@ -44,6 +44,7 @@ import Perf.HattnT8Layer
 import Perf.HattnT8LFarb
 import Perf.HattnT8Code
 import Perf.HattnT8Tail
+import Perf.HattnT8TailProse
 import Perf.Identity
 import Perf.AttnCoop
 import Perf.IdentityFloat
@@ -692,3 +693,10 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnT8Tail.failures_are_uncertain
 #audit Perf.HattnT8Tail.flat8192_passes_on_code
 #audit Perf.HattnT8Tail.hybrid8192_cheaper
+#audit Perf.HattnT8TailProse.tq1_held
+#audit Perf.HattnT8TailProse.population
+#audit Perf.HattnT8TailProse.tq2_held_degenerate
+#audit Perf.HattnT8TailProse.tq3_held_unselective
+#audit Perf.HattnT8TailProse.tq4_held
+#audit Perf.HattnT8TailProse.tq5_refuted
+#audit Perf.HattnT8TailProse.budget_monotone_not_enough

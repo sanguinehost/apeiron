@@ -690,6 +690,27 @@ Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registe
 - Formalised: `proof/corpus/Perf/HattnT8Tail.lean` (`population`, `tp1_held`..`tp12_held`, `failures_are_uncertain`, `flat8192_passes_on_code`, `hybrid8192_cheaper`; AUCs are `decide +kernel` computations over the 64 recorded positions), `AxiomAudit.lean` rows; `lake build Perf.HattnT8Tail` and full `lake build AxiomAudit` (9155 jobs) exit 0, all 17 rows axiom-free; mutation (entropy list reflected, `20000 - v`, in a throwaway copy) turns `tp7_held`, `tp9_held`, `unflagged_mean`, `tp12_held`, `failures_are_uncertain` and `hybrid8192_cheaper` red (6 of 17; rerun). `cargo fmt --check` and `cargo clippy --all-targets -D warnings` exit 0 at both head dims.
 - Not covered: one code prompt, one model; the 0.4 threshold was chosen on these 64 positions; the trigger needs a second forward pass at flagged positions (KV bytes are counted, weight bytes are not); no in-line hybrid run; rustc/LLVM.
 
+## Entropy trigger on the prose prompt at 524288
+
+Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions (round 4 of `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-TAIL.md`, sha256 `e045e2e7…`) registered before the runs. Same instrument (`attn_cut_probe.hd128qp`, `KV_TAIL_POS=1`), dump `g7-1m` (prose), `t = 524288`, one run per far budget: `tailprose.sh` -> `g19-prose-2048.out` (sha256 `23ddf993…`), `g19-prose-8192.out` (`0cb6da36…`), `g19-prose-32768.out` (`b1553c1d…`); 749 to 790 s wall each including lane-lock wait.
+
+| arm | mean KLD | over 0.05 | top-1 | bytes/dense |
+|---|---:|---:|---:|---:|
+| flat `b=2048` | 0.3370 | 62/64 | 39/64 | 0.0064 |
+| flat `b=8192` | 0.2612 | 63/64 | 44/64 | 0.0181 |
+| flat `b=32768` | 0.1687 | 56/64 | 47/64 | 0.0650 |
+| entropy >= 0.4 then `b=8192` (composition) | 0.2616 | 63/64 | | 0.0181 |
+| entropy >= 0.4 then `b=32768` (composition) | 0.1715 | 56/64 | | 0.0650 |
+
+- TQ1 held: the instrument reproduces 0.3370 (62/64 over).
+- TQ2 held on a degenerate population: 62 failing, 2 passing positions; AUC 0.984 is computed over two negatives and carries little weight.
+- TQ3 held, and the trigger is not selective: entropy >= 0.4 nats flags 62 of 64 positions and catches 61 of the 62 failures. The dense model's own output entropy on prose is already about 5 nats, so the arm's entropy does not separate approximation damage from intrinsic uncertainty there.
+- TQ4 held: the gated arm (0.2616) is no better than flat `b=8192` (0.2612).
+- TQ5 refuted: flat `b=32768` is 0.1687, 56/64 over. No far budget measured on prose (2048, 8192, 32768; 16x range) reaches the gate; mean KLD falls with the budget (0.3370, 0.2612, 0.1687).
+- Reading: on code the trigger selects 12 of 64 positions and the gated budget passes. On prose it selects 62 of 64 and the budget does not pass. The code result stands as one prompt; the trigger as stated does not transfer to a prompt where the dense output is high-entropy. A trigger that compares the arm against itself at a second budget (entropy or top-1 disagreement between `b=2048` and `b=8192`) is a candidate that needs its own registered prediction.
+- Formalised: `proof/corpus/Perf/HattnT8TailProse.lean` (sha256 `9a6836a3…`), 7 theorems (`tq1_held`, `population`, `tq2_held_degenerate`, `tq3_held_unselective`, `tq4_held`, `tq5_refuted`, `budget_monotone_not_enough`), `AxiomAudit.lean` rows; `lake build Perf.HattnT8TailProse` and `lake build AxiomAudit` (9156 jobs) exit 0, all axiom-free. Mutation (entropy list reflected, `200000 - v`, throwaway copy) turns `tq2_held_degenerate`, `tq3_held_unselective` and `tq4_held` red.
+- Not covered: one prose prompt, one model; KV bytes only; composition omits tail-key coupling; rustc/LLVM and the instrument.
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a
