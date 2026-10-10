@@ -3008,7 +3008,10 @@ impl Arm {
             Arm::Order(e) => format!("a64-order-{:.2}", kl(e)),
             Arm::Cert(e) => format!("a64-cert-{:.2}", kl(e)),
             Arm::Fix(b) => format!("a64-fix{b}"),
-            Arm::Grp(b, r) => format!("grp-fix{b}-r{r}"),
+            Arm::Grp(b, r) => match sum_mode() {
+                Some(m) => format!("grp-fix{b}-r{r}-sum{m}"),
+                None => format!("grp-fix{b}-r{r}"),
+            },
             Arm::Tree(b, r, s) => format!("tree{b}-r{r}-s{s}"),
             Arm::Clu(b, r, s) => format!("clu{b}-r{r}-s{s}"),
         }
@@ -3038,7 +3041,17 @@ fn rows_f32(
 
 /// One layer's keys for the tail queries: the dump's rotated prefix rows `[0, pre)`, the arm's own
 /// rotated tail rows, and Quest's element-wise page (min, max) over 64-key pages from `TL_SINK`.
+/// `KV_TAIL_SUM=m` makes `Grp` summarise every omitted far page instead of dropping it: mode 0 adds mass
+/// `64 exp(mean score)`, mode 1 the exact page mass, mode 2 `64 exp(mean + variance / 2)`, each with the page's mean
+/// value row.
+fn sum_mode() -> Option<u8> {
+    std::env::var("KV_TAIL_SUM")
+        .ok()
+        .and_then(|v| v.parse().ok())
+}
+
 struct TailCtx<'a> {
+    vbar: &'a [f32],
     pre: usize,
     nkv: usize,
     kp: &'a [f32],
@@ -3274,6 +3287,9 @@ fn tail_group(
         n: usize,
         sel: Vec<bool>,
         sc: Vec<f64>,
+        ps: Vec<f64>,
+        ps2: Vec<f64>,
+        pw: Vec<f64>,
         reads: f64,
         m: f64,
         z: f64,
@@ -3281,6 +3297,11 @@ fn tail_group(
         out: Vec<f64>,
     }
     let hs = g * (nh / cx.nkv)..(g + 1) * (nh / cx.nkv);
+    let sum = if matches!(arm, Arm::Grp(..)) {
+        sum_mode()
+    } else {
+        None
+    };
     let mut qs: Vec<Qry> = Vec::new();
     for i in ps {
         for h in hs.clone() {
@@ -3293,6 +3314,9 @@ fn tail_group(
                 n: p + 1,
                 sel,
                 sc: vec![0f64; p + 1],
+                ps: vec![0f64; far_pages(p)],
+                ps2: vec![0f64; far_pages(p)],
+                pw: vec![0f64; far_pages(p)],
                 reads,
                 m: f64::NEG_INFINITY,
                 z: 0.0,
@@ -3339,11 +3363,42 @@ fn tail_group(
             for j in j0..(j0 + TAIL_KT).min(x.n) {
                 let w = (x.sc[j] - x.m).exp();
                 x.z += w;
+                if sum.is_some() && !x.sel[j] && j >= TL_SINK && j < TL_SINK + x.ps.len() * TL_P {
+                    let b = (j - TL_SINK) / TL_P;
+                    x.ps[b] += x.sc[j];
+                    x.ps2[b] += x.sc[j] * x.sc[j];
+                    x.pw[b] += w;
+                }
                 if x.sel[j] {
                     x.zs += w;
                     for (o, &vv) in x.out.iter_mut().zip(val_row(cx, g, j)) {
                         *o += w * f64::from(vv);
                     }
+                }
+            }
+        }
+    }
+    let mut qs = qs;
+    if let Some(mode) = sum {
+        let pf = TL_P as f64;
+        for x in &mut qs {
+            for b in 0..x.ps.len() {
+                if x.sel[TL_SINK + b * TL_P] {
+                    continue;
+                }
+                let mu = x.ps[b] / pf;
+                let mass = match mode {
+                    0 => pf * (mu - x.m).exp(),
+                    1 => x.pw[b],
+                    _ => {
+                        let var = (x.ps2[b] / pf - mu * mu).max(0.0);
+                        pf * (mu + 0.5 * var - x.m).exp()
+                    }
+                };
+                x.zs += mass;
+                let vb = &cx.vbar[(g * cx.npg + b) * HD..(g * cx.npg + b + 1) * HD];
+                for (o, &vv) in x.out.iter_mut().zip(vb) {
+                    *o += mass * f64::from(vv);
                 }
             }
         }
@@ -3935,6 +3990,21 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
             };
             boxes(f32::min, &mut mn);
             boxes(f32::max, &mut mx);
+            let mut vbar: Vec<f32> = Vec::new();
+            if sum_mode().is_some() {
+                vbar = vec![0f32; nkv * npg * HD];
+                par_rows(&mut vbar, HD, PAR, |i0, ch| {
+                    for (o, row) in ch.chunks_mut(HD).enumerate() {
+                        let (g, b) = ((i0 + o) / npg, (i0 + o) % npg);
+                        for j in TL_SINK + b * TL_P..TL_SINK + (b + 1) * TL_P {
+                            let vr = &vp[(j * nkv + g) * HD..(j * nkv + g + 1) * HD];
+                            for (e, &x) in row.iter_mut().zip(vr) {
+                                *e += x / TL_P as f32;
+                            }
+                        }
+                    }
+                });
+            }
             for (a, x) in xs.iter_mut().enumerate() {
                 let xn = rmsnorm(x, &g1, reps, d);
                 let mut q = gemm(&wq.0, wq.2, wq.1, &xn, nt, bq.as_deref(), nth);
@@ -3948,6 +4018,7 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                     rot(&mut k[i * kvw..(i + 1) * kvw], nkv, pre + i);
                 }
                 let cx = TailCtx {
+                    vbar: &vbar,
                     pre,
                     nkv,
                     kp: &kp,

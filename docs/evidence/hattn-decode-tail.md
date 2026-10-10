@@ -541,6 +541,28 @@ Grade: `measured` for the table (one prompt, one run per cell); `model` for the 
 
 Not established: other prompts, tree arms, 1M, the Lean `b=2048` bytes entry is Q9's, a selector better than Quest bounds (flat-set recall of `clu-s4` at b=16384 is 0.101).
 
+## Hot/cold page summary on Qwen2.5-7B-Instruct-1M (omitted pages summarised, not dropped)
+
+Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Prior art searched: `fold/SPEC-COLDTIER.md` (Mode 12, proposed, not measured), `Arm::Cert` (T6). Predictions registered first: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-SUM.md`, sha256 `3396f4ba…`.
+
+- Change: `KV_TAIL_SUM=m` on `examples/attn_cut_probe.rs`: the flat arm (`grp-fix2048-r8`, hot = 2048 exact tokens) adds, for each omitted far page, `mass · mean(v)` to the output and `mass` to the softmax denominator. Mode 0 mass `64·exp(mean page score)`; mode 1 exact page mass (ceiling for a scalar-mass summary); mode 2 `64·exp(μ + σ²/2)`.
+- Command: `/home/socol/oc-tmp/hattn-long/sum.sh` (`g11-t<t>-sum<m>.out`), 64 tail positions, grade `measured`, one prompt.
+
+| mean KLD | 262144 | 524288 |
+|---|---|---|
+| flat (no summary) | 0.0386 | 0.3370 |
+| mode 0 | 0.0433 | 0.2438 |
+| mode 1 (exact mass) | 0.0542 | 0.2389 |
+| mode 2 | 3.4111 | 2.1127 |
+
+- S1 refuted: exact mass does not halve the flat KLD (0.0542 > 0.0193; 0.2389 > 0.1685); at 262144 it is worse than no summary.
+- S2 refuted: mode 1 ≤ mode 2 holds; mode 2 ≤ mode 0 does not (mode 2 is 8.7× mode 0). The variance term over-weights the high-frequency RoPE pairs' score spread.
+- S3 held: no mode passes the 0.05 gate at 524288.
+- S4 held (derived): bound scan 4 vectors per page, 70188 vectors per period against 8·2·524288, 0.0084 of dense.
+- Finding: modes 0 and 1 differ by 0.005 at 524288. The page mass is not the bottleneck; a page-mean value does not hold what the omitted pages carry. A mean-value summary buys 0.09–0.10 at 524288 and costs 0.005–0.016 at 262144.
+- Formalised: `proof/corpus/Perf/HattnT8Sum.lean` (6 theorems, `AxiomAudit.lean` rows; `lake build Perf.HattnT8Sum AxiomAudit` exit 0, `HATTNSUM-lake.log`). Mutation control: `mode1 := [150, 1500]` in a throwaway copy gives 3 errors, the committed file 0.
+- Not covered: one prompt; rustc/LLVM; the summary uses the page mean value, so a per-page value weighting, a sub-page summary or a query-conditioned gather (`SPEC-COLDTIER`) is untested.
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a
