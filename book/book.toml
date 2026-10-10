@@ -1,0 +1,15 @@
+[book]
+title = "apeiron"
+authors = ["Lucas 'Paperboy' Rose-Winters"]
+description = "The algebra R[x]/(x^2 - sigma), the hash table built on it, and the evidence for both."
+language = "en"
+src = "src"
+
+[build]
+build-dir = "../target/book"
+
+[output.html]
+git-repository-url = "https://github.com/sanguinehost/apeiron"
+default-theme = "light"
+preferred-dark-theme = "navy"
+mathjax-support = true
