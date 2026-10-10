@@ -45,6 +45,13 @@ pointer arithmetic over a slice, `MaybeUninit`, `Vec::set_len`. `proof/patches/a
 defines each as an ordinary Lean definition in the backend. Each is a definition and not an
 `axiom`, so the audit reports no axiom for them.
 
+The generated file still declares four `axiom`s, all in the `f32` attention carrier:
+`core.f32.F32.is_finite`, `attn.alloc_f32_storage`, `mixer.f32_carrier.q32_to_f32` and
+`attn.KvState.attn_head_f32`. Charon does not translate these operations and the Aeneas model does
+not define them. `proof/boundary-axioms.txt` names them, and the extraction audit accepts exactly
+those names and no others. The word and table theorems are audited against the standard cone and
+do not use them.
+
 | external | modelled as | outside the model |
 |---|---|---|
 | `_mm_loadu_si128`, `_mm256_loadu_si256` | a read that fails past the window | that LLVM emits the sequence the model describes |
