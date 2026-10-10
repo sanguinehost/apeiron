@@ -563,6 +563,24 @@ Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Prior art searched:
 - Formalised: `proof/corpus/Perf/HattnT8Sum.lean` (6 theorems, `AxiomAudit.lean` rows; `lake build Perf.HattnT8Sum AxiomAudit` exit 0, `HATTNSUM-lake.log`). Mutation control: `mode1 := [150, 1500]` in a throwaway copy gives 3 errors, the committed file 0.
 - Not covered: one prompt; rustc/LLVM; the summary uses the page mean value, so a per-page value weighting, a sub-page summary or a query-conditioned gather (`SPEC-COLDTIER`) is untested.
 
+## Sub-page summary unit at 524288 (Qwen2.5-7B-Instruct-1M)
+
+Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registered first: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-SUMU.md`, sha256 `2f795847…`.
+
+- Change: `KV_TAIL_SUMU=u` on `examples/attn_cut_probe.rs`: the mode-1 summary (exact mass, mean value row) over units of `u` keys instead of 64. Command: `/home/socol/oc-tmp/hattn-long/sumu.sh` (`g12-t524288-sum1-u<u>.out`, 192–298 s each), grade `measured`, one prompt.
+
+| unit u (keys) | 64 | 16 | 4 | 1 |
+|---|---|---|---|---|
+| mean KLD at 524288 | 0.2389 | 0.2140 | 0.1416 | 0.0000 |
+
+- U1 held (control): `u = 1` is the exact softmax, KLD 0.0000, top-1 64/64.
+- U2 held: KLD falls with the unit.
+- U3 refuted: `u = 16` is 0.2140, not under 0.10.
+- U4 held (derived): `u = 16` reads 0.0142 of dense, `u = 4` 0.0376.
+- Finding: at 4 keys per unit the KLD is 0.1416 (2.8× the gate) and the reads already exceed 3.7% of dense. The omitted keys' values are not interchangeable at any unit cheaper than reading them; the far information is in individual (key, value) pairs, consistent with the rate check on contextual activations (§10).
+- Formalised: `proof/corpus/Perf/HattnT8SumU.lean` (5 theorems, `AxiomAudit.lean` rows; build exit 0, `HATTNSUMU-lake.log`). Mutation control: `kld := [2389, 800, 400, 0]` in a throwaway copy gives 2 errors, the committed file 0.
+- Not covered: one prompt; rustc/LLVM; mean value only, so a learned or query-conditioned page code is untested.
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a
