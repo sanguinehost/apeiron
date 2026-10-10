@@ -89,7 +89,7 @@ not reproduced by this documentation gate. Chunked whole-source feasibility rema
 ### Documentation boundary arc
 
 SCOPE: `docs/contracts/slang-source-refinement-plan.md`, `docs/contracts/slang-source-semantics.md`,
-`docs/plan.md`, `docs/kernel-boundary.md`; explicitly assigned four-file Astra documentation
+`docs/plan.md`, `docs/kernel-boundary.md`; four-file documentation
 pass in the supplied checkout, base `8fe3eb3d51b6d9ef6bccb80774372f31e90cd54a`; no Lean build lane.
 
 REGISTER: planning/specification; route and trust boundary only; no code, proof or measurement run.

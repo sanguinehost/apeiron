@@ -33,6 +33,8 @@ strip = [
   "docs/contracts/commit-task-association.md",
   "docs/contracts/joint-*",
   "docs/contracts/kepler-*",
+  "docs/contracts/slang-source-*.md",
+  "tools/slang/spec_check.py",
   "artifacts/",
   ".apeiron/",
   ".githooks/",
@@ -86,6 +88,12 @@ text_map = [
   # Task ids: a parenthetical holding only the id goes whole, a bare id goes alone.
   "regex: ?\\(`?APEIRON-[A-Z0-9]+(?:-[A-Za-z0-9]+)*`?\\)==>",
   "regex:`?\\bAPEIRON-[A-Z0-9]+(?:-[A-Za-z0-9]+)*\\b`?[;,]? ?==>",
+  # Wave and task labels: a parenthetical holding only the label goes whole, a bare label alone.
+  "regex: ?\\(W\\d+-[TA]\\d+[a-z]*\\)==>",
+  "regex:\\bW\\d+-[TA]\\d+[a-z]*:? ?==>",
+  "regex:\\bthe lead review\\b==>review",
+  # Reviewer names in history; the current tree is edited at the source.
+  "regex:\\b(?:Sol|Astra|Terra)\\b==>the reviewer",
   "oc-tmp==>scratch",
   "/tmp/opencode==>/tmp/apeiron",
   # A pointer to a stripped internal document keeps its slug and drops the path.
@@ -121,8 +129,10 @@ forbidden = [
   "\\bdeepseek\\b",
   "(?i)\\bhold overrides",
   "\\bAPEIRON-[A-Z]",
+  "\\bW\\d+-[TA]\\d+",
+  "(?i)\\blead review",
   "-apeiron-[a-z0-9-]+-(?=[A-Za-z0-9]*[A-Z0-9])[A-Za-z0-9]{20,24}\\b",
-  "\\bSol ruled|\\bAstra\\b|\\bTerra\\b",
+  "\\b(?:Sol|Astra|Terra)\\b",
 ]
 
 # Added after the filter, from `release/public/<path>` to `<path>`.
@@ -136,7 +146,7 @@ forbidden = [
 # Files kept from the internal tree that the check reads for the public list.
 [expect]
 # Under docs/ only these globs may ship.
-docs_allow = ["docs/contracts/slang-source-*.md"]
+docs_allow = []
 # Stripped prefixes the dangling-reference scan skips (ordinary words, or build output).
 # Public-facing documents that must read without any rewritten pointer: the cut fails when one
 # contains "unpublished", so the source is edited instead.

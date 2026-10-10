@@ -19,7 +19,9 @@ document.
 
 ## Gates
 
-Run these before a change is proposed. All are offline once the toolchains are installed.
+Two tiers. A contributor runs the first before proposing a change; CI runs both.
+
+**Contributor gate** (Rust and documentation; minutes, no Lean toolchain):
 
 ```sh
 cargo test --workspace --all-features --locked
@@ -30,7 +32,8 @@ python3 tools/book-check.py
 mdbook build book && mdbook test book -L target/debug/deps
 ```
 
-Proof work adds:
+**Maintainer gate** (a change under `proof/` or to a Rust file the extraction includes; needs the
+pinned Aeneas, Charon and Lean, and a Lean build of several GB):
 
 ```sh
 proof/bootstrap.sh              # build the pinned Aeneas and Charon (once)

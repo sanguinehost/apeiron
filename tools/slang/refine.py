@@ -37,8 +37,8 @@ throwaway root, so a symlinked ancestor cannot redirect a mutation into the
 working tree.
 
 The harness establishes gate consistency only; it never claims correspondence,
-refinement or proof. The eight stage ids bind to W22..W29 of
-``docs/contracts/slang-source-refinement-plan.md``.
+refinement or proof. The eight stage ids bind to rows W22..W29 of the
+Slang refinement plan recorded in ``tools/slang/controls.json``.
 
 Usage::
 

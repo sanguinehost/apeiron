@@ -1,6 +1,6 @@
 /-
 SCOPE: work/proofs/AlgebraCostSource.lean, new, and its receipt work/proofs/AlgebraCostSource.md.
-AR-41 of the algebra-rooting wave, Sol face adjudication §5 row 5: a source-bound formal cost for one
+A source-bound formal cost for one
 executing SHA-256 compression. Count the executing bodies' operations - the sixteen-word big-endian
 load `sha256.compress_loop0.body`, the forty-eight schedule-extension visits of
 `sha256.compress_loop1.body` (the `schedBody_step`/`sched_loop1` link is the executing connection),
