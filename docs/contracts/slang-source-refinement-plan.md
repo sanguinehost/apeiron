@@ -89,7 +89,7 @@ not reproduced by this documentation gate. Chunked whole-source feasibility rema
 ### Documentation boundary arc
 
 SCOPE: the slang-source-refinement-plan note, the slang-source-semantics note,
-the design notes, the design notes; explicitly assigned four-file the reviewer documentation
+the design notes, the design notes; four-file documentation
 pass in the supplied checkout, base `8fe3eb3d51b6d9ef6bccb80774372f31e90cd54a`; no Lean build lane.
 
 REGISTER: planning/specification; route and trust boundary only; no code, proof or measurement run.

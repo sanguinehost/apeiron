@@ -105,7 +105,7 @@ One table body serves four uses. The merge function decides which.
 
 `insert_with(k, new, f)` is the general form: `f(old, new)` resolves a clash. `CoordMap` keeps
 integer keys as coordinates and regenerates them on iteration. `FreqMap` folds a key to 64 bits
-and stores no key, so a non-member matches a member with probability `2^-64`. `FreqMap::count_par`
+and stores no key, so a non-member whose fold is uniform and independent of the member's matches it with probability `2^-64`. That bound assumes a keyed (secret) multiplier; with a known multiplier a colliding key can be constructed. `FreqMap::count_par`
 counts a key slice in parallel.
 
 ## Complexity

@@ -10,10 +10,10 @@
 //! `OpTypeFloat`, `OpConvertSToF`, `OpFAdd`, `OpFMul`) are admitted syntax and are validated only
 //! for their binary shape. It never panics on input and never unwraps parsed data.
 //!
-//! This body is the extraction root for `Spirv.Check` in wave 3.
+//! This body is the extraction root for `Spirv.Check`.
 //!
 //! One deliberate divergence from the current `Spirv.Decode` scan is recorded here and is a
-//! residual for that wave:
+//! residual obligation:
 //!
 //! * Annotation and execution-mode operands (`OpDecorate` target, `OpMemberDecorate` type,
 //!   `OpExecutionMode` entry) are the SPIR-V forward references the emitter emits; SPIR-V 1.3 §2.4

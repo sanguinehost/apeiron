@@ -4,6 +4,9 @@ The dial `σ` selects a face. Each face is a different algebra with different un
 divisors, idempotents and channels. A channel is a ring homomorphism from the cell to the base
 ring `R`: a lane that multiplies componentwise.
 
+The table below takes `R` a field such as `ℝ`. Over `ℤ` or `ℤ/2^64` (the word kernel) the zero
+divisors of `R` itself add more, so the listing is the face's contribution, not the full set.
+
 | | elliptic `σ < 0` | parabolic `σ = 0` | hyperbolic `σ > 0` |
 |---|---|---|---|
 | algebra | complex numbers | dual numbers | split-complex numbers |

@@ -14,7 +14,8 @@ issue.
 
 ## Build and check
 
-Rust 1.89 or later (`rust-version` in `Cargo.toml`); CI pins a nightly for lint stability.
+Rust 1.89 or later (`rust-version` in `Cargo.toml`; `cargo +1.89.0 check --lib --locked` passes). CI pins a
+nightly for lint stability and benchmark comparability.
 
 ```sh
 cargo build --lib
