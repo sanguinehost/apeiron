@@ -1038,6 +1038,33 @@ fails. So the cause of the tree's misses is not the Quest box's rotation slack o
 `ρ` on the real cluster boxes is the direct check and has not run. Grade `tested`. Not covered: `ρ` weighted by `|q_d|`, the bound's recall or KLD, other
 checkpoints and prompts, f16 weights. Search for prior art: none run; the box widening under rotation is elementary and no novelty is claimed.
 
+#### FACES-R1 H8b: rho on the real k-means cluster boxes (row `faces-r1-do-the-three-on-HCnA8ZlHN3emV1nzkVH7V0`)
+
+Question left open by H8: the scatter control was random keys. The `Clu` arm clusters 64-key pages by the distance of their *roped* box
+centres (`index_pages`, `examples/attn_cut_probe.rs`: 8 Lloyd steps, `k = ceil(n64/16)`, init page `c·n64/k`), so its roped box is tight by
+construction. Does the clustering absorb the rotation slack? Command: `OMP_NUM_THREADS=1 nice -n 19 python3 /home/socol/oc-tmp/escalation/FACES-R1-BOXWIDTH-CLU.py`
+(sha256 `be8ff49d…`, output `FACES-R1-BOXWIDTH-CLU.out`, 10 s; prediction in the script header, written before the run). Same data as H8 (`g7-128k`, layers 0, 7, 14, 21, 27,
+4 KV heads, rows 4096..131072, 1984 pages, 124 clusters); `ρ` = roped cluster-box width over the unrotated width of the same member keys, summed over the pair's two coordinates, mean over clusters.
+
+| pairs | `ρ`, k-means cluster | `ρ`, node span 1024 (H8) | `ρ`, random 64 of 1024 (H8) |
+|---|---|---|---|
+| j = 0..9 | 1.709 | 1.708 | |
+| j = 10..16 | 1.722 | 1.720 | 1.878 |
+| j = 17..20 | 1.691 | 1.701 | |
+| j = 21..31 | 1.344 | 1.324 | |
+| j = 32..36 | 1.042 | 1.015 | |
+| j = 37..49 | 1.008 | | |
+| j ≥ 50 | 1.001 | | |
+
+Per layer at j = 10..16: 1.842, 1.981, 1.638, 1.613, 1.536 (layers 0, 7, 14, 21, 27). Predictions: P1 (`ρ_clu ≤ 1.58` at j = 10..16): **refuted**, 1.722.
+P2 (`ρ_clu < 1.00`): **refuted**, 1.722. P3 (`ρ_clu` in [0.90, 1.15] at j ≥ 50): held, 1.001.
+Reading (`model`): the clustering does not absorb the rotation. The cluster box is as loose as a position-contiguous 1024-key node (1.722 against 1.720)
+and by band equal to it within 0.03; the Euclidean k-means is dominated by the high-norm dimensions and leaves the wound pairs as wide as a node's. So rotation slack
+does not separate `Clu` from `Tree`: `ρ` is the same on both and `clu-s8` passes at 131072 where `tree-s8` does not. The tree's misses come from somewhere else
+(recall of the flat top-32 does not explain it either: `clu-s4` recalls 0.289 at 131072 and passes, `tree-s8` recalls 0.452 and fails, `Perf.HattnT8Q7L.tree8Recall`, `clu4Recall`).
+Grade `tested`. Not covered: `ρ` weighted by `|q_d|` (the bound's width enters as `Σ|q_d|·width_d`), recall or KLD, other checkpoints, f16 weights.
+Search for prior art: none run; no novelty is claimed.
+
 #### FACES-R1 H9: past 262144 the low-frequency pairs carry the logit and the attention spreads (row `faces-r1-do-the-three-on-HCnA8ZlHN3emV1nzkVH7V0`)
 
 Question: the T8 arms pass the KLD gate at 262144 and fail at 524288 and 1048576 with the same 2048-token far budget
