@@ -3051,6 +3051,25 @@ fn sum_mode() -> Option<u8> {
         .and_then(|v| v.parse().ok())
 }
 
+/// `KV_TAIL_DENSE=l,..` runs the listed layers dense; `KV_TAIL_SPARSE=l,..` runs every other layer dense. Layers
+/// outside both lists run the arm. Attribution of the tail KLD to layers.
+fn layer_arm(l: usize, arm: Arm) -> Arm {
+    let has = |k: &str| {
+        std::env::var(k).ok().map(|v| {
+            v.split(',')
+                .filter_map(|x| x.parse::<usize>().ok())
+                .collect::<Vec<_>>()
+        })
+    };
+    let dense = has("KV_TAIL_DENSE").is_some_and(|d| d.contains(&l));
+    let off = has("KV_TAIL_SPARSE").is_some_and(|s| !s.contains(&l));
+    if dense || off {
+        Arm::Dense
+    } else {
+        arm
+    }
+}
+
 /// `KV_TAIL_SUMU=u` sets the summary unit to `u` keys (default `TL_P`, a divisor of `TL_P`): a sub-page of `u` keys
 /// carries one mass and one mean value row.
 fn sum_unit() -> usize {
@@ -4045,7 +4064,7 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                     mx: &mx,
                     mutb,
                 };
-                let arm = arms[a];
+                let arm = layer_arm(l, arms[a]);
                 let (gsets, gmeta) = match arm {
                     Arm::Grp(b, r) => group_pages(&cx, &q, nh, nt, b, r, rev),
                     Arm::Tree(..) | Arm::Clu(..) => {

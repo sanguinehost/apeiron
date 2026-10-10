@@ -40,6 +40,7 @@ import Perf.HattnT8Q9
 import Perf.HattnT8Farb
 import Perf.HattnT8Sum
 import Perf.HattnT8SumU
+import Perf.HattnT8Layer
 import Perf.Identity
 import Perf.AttnCoop
 import Perf.IdentityFloat
@@ -578,6 +579,18 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnT8SumU.u3_refuted
 #audit Perf.HattnT8SumU.u4_held
 #audit Perf.HattnT8SumU.no_unit_passes
+#audit Perf.HattnT8Layer.l1_refuted
+#audit Perf.HattnT8Layer.l2_held
+#audit Perf.HattnT8Layer.l3_refuted
+#audit Perf.HattnT8Layer.l4_held
+#audit Perf.HattnT8Layer.early_layers_dominate
+#audit Perf.HattnT8Layer.quarters_overshoot
+#audit Perf.HattnT8Layer.m1_refuted
+#audit Perf.HattnT8Layer.m2_refuted
+#audit Perf.HattnT8Layer.m3_held
+#audit Perf.HattnT8Layer.m4_held
+#audit Perf.HattnT8Layer.m5_refuted
+#audit Perf.HattnT8Layer.compounding
 #audit Perf.HattnT8.bytes_7b_1m
 
 -- Row: `inf-resident-prefill-GEB633UfORCK7XSmzJifHd` (ATTN-COOP, P18): the SIMT shared-load
