@@ -30,6 +30,10 @@ python3 tools/slang/zero_axioms.py --stage <stage> --controls
 an `axiom`, checks the registered type and collects the transitive axioms with
 `Lean.collectAxioms`.
 
+`zero_axioms.py` reads only this tree. `tools/slang/refine.py` also compares the Slang source with the
+Lean statements and takes the `song` repository as `--song-root`; that repository is not published,
+so `refine.py` does not run from this checkout.
+
 ## What correspondence needs
 
 Two implementations with different layouts can correspond, but only under a matched admission

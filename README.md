@@ -74,6 +74,11 @@ cargo run --release --locked --example engine_profile -- \
   --llama <path/to/llama-bench> --llama-threads 8,16,24,32 --max-busy 0.05 --label repro --out <dir>
 ```
 
+All rows are one machine (the i9-14900KF above); `measured` here means that host and no other. The
+GGUF files are not distributed; each receipt names the model by sha256. Only the first row's prompt
+(`tests/fixtures/qwen35-prompt2.ids`, sha256 `894a166a…`) is in the repository. The other five
+name their prompt ids by sha256 in the receipt and are not reproducible from a clone.
+
 Throughput is accepted only alongside agreement with the comparator on the same model (first
 tokens and perplexity); the book's [Results](book/src/engine/results.md) chapter gives the protocol
 and the GPU commands (`gpu_decode_bench`, `gpu_ppl`). The GPU rows and the hash table comparison
