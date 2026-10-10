@@ -56,7 +56,7 @@ Usage
     python3 proof/storage-controls.py --only w11-t5
     python3 proof/storage-controls.py --only w11-t5 --only s6-fresh-write
     python3 proof/storage-controls.py --jobs 2
-    python3 proof/storage-controls.py --throwaway-root /tmp/apeiron/storage-controls
+    python3 proof/storage-controls.py --throwaway-root /tmp/storage-controls
 
 ``--list`` prints every encoded control with its module, expected declaration and
 informational historical locator, plus each decided control and the exact reason
@@ -107,7 +107,7 @@ PACKAGE_DIRS = (
     "proof/.lake/packages",
     "proof/corpus/.lake/packages",
 )
-DEFAULT_THROWAWAY_ROOT = Path("/tmp/apeiron/storage-controls")
+DEFAULT_THROWAWAY_ROOT = Path(tempfile.gettempdir()) / "storage-controls"
 DEFAULT_TIMEOUT = 1800
 
 ERROR_RE = re.compile(r"^error:\s+(\S+?):(\d+):(\d+):", re.MULTILINE)
@@ -832,7 +832,7 @@ def self_test() -> int:
     )
 
     # A throwaway copy with a synthetic module so `check_red` can resolve a name.
-    probe = Path(tempfile.mkdtemp(prefix="storage-controls-self-", dir="/tmp/apeiron"))
+    probe = Path(tempfile.mkdtemp(prefix="storage-controls-self-", dir=tempfile.gettempdir()))
     (probe / "proof" / "corpus").mkdir(parents=True)
     (probe / "proof" / "corpus" / "Synthetic.lean").write_text(sample_text)
     base = CONTROLS[0]
@@ -986,7 +986,7 @@ def self_test() -> int:
 
     # 11. end to end: an empty PATH makes the CLI reject `lake` with exit 3 and no
     #     success summary. The subprocess re-enters main without --self-test.
-    empty_path = Path(tempfile.mkdtemp(prefix="storage-controls-empty-path-", dir="/tmp/apeiron"))
+    empty_path = Path(tempfile.mkdtemp(prefix="storage-controls-empty-path-", dir=tempfile.gettempdir()))
     env = dict(os.environ)
     env["PATH"] = str(empty_path)
     try:

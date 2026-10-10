@@ -184,7 +184,7 @@ def self_test() -> int:
         ok = result.status == status and all(n in result.reason for n in needles) and extra
         record(name, ok, f"status={result.status} reason={result.reason}")
 
-    workdir = Path(tempfile.mkdtemp(prefix="slang-refine-self-", dir="/tmp/apeiron"))
+    workdir = Path(tempfile.mkdtemp(prefix="slang-refine-self-", dir=tempfile.gettempdir()))
     try:
         repo = _synthetic_repo(workdir / "repo")
         roots = {"bridge": "."}

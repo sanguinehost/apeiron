@@ -71,7 +71,7 @@ HERE = Path(__file__).resolve()
 REPO_ROOT = HERE.parents[2]
 CONTROLS_PATH = HERE.parent / "controls.json"
 DEFAULT_SONG_ROOT = REPO_ROOT.parent / "song"
-DEFAULT_THROWAWAY_ROOT = Path("/tmp/apeiron/slang-refine")
+DEFAULT_THROWAWAY_ROOT = Path(tempfile.gettempdir()) / "slang-refine"
 DEFAULT_TIMEOUT = 1800
 
 EXIT_OK = 0
