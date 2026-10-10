@@ -640,6 +640,22 @@ Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registe
 - Formalised: `proof/corpus/Perf/HattnT8LFarb.lean` (`n1_held`..`n5_held`, `c1_held`, `nonmonotone`), `AxiomAudit.lean` rows; `lake build Perf.HattnT8LFarb` exit 0 (120 jobs), `#print axioms` within `{propext}`; mutation (B2 set to 0.3500) turns 2 theorems red. Full `AxiomAudit` build not run (lane contention).
 - Not covered: one prompt; rustc/LLVM.
 
+## Code prompt at 524288 (Qwen2.5-7B-Instruct-1M)
+
+Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registered first: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-CODE.md`, sha256 `df3c6740…`.
+
+- Change: `KV_PROSE=path` in `examples/gpu_dump.rs` replaces the prompt text. Prompt `code8.txt` (Lean and Rust sources from `~/Workspace`, sorted, each file headed by its path; 5,021,138 bytes, sha256 `59eaa07e…`), 524288 tokens, same model and instrument (`attn_cut_probe.hd128qb`), `KV_TAIL_ARMS=0,1`. Commands: `dumpgpu-code.sh`, `codeprobe.sh`; output `g16-code-524288.out` (sha256 `1dd23382…`, 173 s).
+
+| prompt | flat mean KLD | median | p90 | positions > 0.05 | top-1 |
+|---|---|---|---|---|---|
+| prose (`g9-t524288-a1.out`) | 0.3370 | 0.2386 | 0.5421 | 62 / 64 | 39 / 64 |
+| code (`g16-code-524288.out`) | 0.1273 | 0.0015 | 0.3088 | 15 / 64 | 60 / 64 |
+
+- K1-K4 held: control 6.6e-4 (< 1e-2); code mean 0.1273 < 0.3370; still over the 0.05 gate; top-1 60 > the registered 42 (the prose run's own figure is 39).
+- Finding: the 524288 failure is not specific to prose. Code lowers the mean 2.6x and the median 160x, but the mean is 2.5x the gate: 49 of 64 positions pass and the 15 that fail carry it (max 2.46).
+- Formalised: `proof/corpus/Perf/HattnT8Code.lean` (`k1_held`..`k4_held`, `between`, `heavy_tail`, `code_vs_prose`), `AxiomAudit.lean` rows; `lake build Perf.HattnT8Code` exit 0, `#print axioms` none; mutation (`flatKld` set to 0.0400 in a throwaway copy) turns `k3_held` and `between` red.
+- Not covered: one code prompt and one model; the selection at a budget growing with `t`; rustc/LLVM.
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a

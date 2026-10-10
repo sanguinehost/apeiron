@@ -471,7 +471,11 @@ mod app {
 
         // ---- tokens and rope table ----
         let bpe = Bpe::from_tokenizer_json(TOKENIZER)?;
-        let raw = std::fs::read(PROSE)?;
+        // `KV_PROSE=path` replaces the default prompt text (prompt-sensitivity runs).
+        let raw = match std::env::var("KV_PROSE") {
+            Ok(p) => std::fs::read(p)?,
+            Err(_) => std::fs::read(PROSE)?,
+        };
         let text = String::from_utf8_lossy(&raw[..(tn * 8).min(raw.len())]).into_owned();
         let mut ids = bpe.encode(&text)?;
         if ids.len() < tn {
