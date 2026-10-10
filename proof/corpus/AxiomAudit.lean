@@ -714,6 +714,8 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnT8Oracle.or4_held
 #audit Perf.HattnT8Oracle.or5_held
 #audit Perf.HattnT8Oracle.selection_beats_budget
+#audit Perf.HattnT8Oracle.union_cost
+#audit Perf.HattnT8Oracle.oracle_dominates_flat
 #audit Perf.FacesPolarBound.p1_refuted
 #audit Perf.FacesPolarBound.p2_held
 #audit Perf.FacesPolarBound.p3_held

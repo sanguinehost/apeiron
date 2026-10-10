@@ -50,6 +50,38 @@ theorem or5_held : proseOr2048 ≤ proseFlat2048 ∧ proseOr8192 ≤ proseFlat81
 32768 (0.1687) by a factor above three, so the Quest-bound ranking, not the budget, sets the prose gap. -/
 theorem selection_beats_budget : 3 * proseOr2048 < 1687 := by decide
 
+/-! ## Bytes of the oracle sets (KV-group union)
+
+`bytes/dense` in `attn_cut_probe` counts, per (KV head, position), `2·|∪ over the 7 query heads of keys used|`
+plus bound vectors, over `2t`; the oracle's per-head sets are unioned, so the figures below are the group-union
+cost of exact selection. Ten-thousandths of dense; copied from `g21-or-prose-*.out` and `g19-prose-*.out`. -/
+
+def proseOrB2048 : ℕ := 176
+
+def proseOrB8192 : ℕ := 530
+
+def proseFlatB2048 : ℕ := 64
+
+def proseFlatB8192 : ℕ := 181
+
+def proseFlatB32768 : ℕ := 650
+
+def proseFlat32768 : ℕ := 1687
+
+/-- Per-head exact sets overlap little inside a KV group: the union costs between 2× and 3× the flat set of the
+same budget. -/
+theorem union_cost :
+    2 * proseFlatB2048 < proseOrB2048 ∧ proseOrB2048 < 3 * proseFlatB2048 ∧
+    2 * proseFlatB8192 < proseOrB8192 ∧ proseOrB8192 < 3 * proseFlatB8192 := by
+  decide
+
+/-- Exact top-8192 per head passes the gate at fewer bytes than the flat arm at 32768, which fails it at 0.1687:
+0.0530 of dense (18× cheaper) against 0.0650. -/
+theorem oracle_dominates_flat :
+    proseOr8192 ≤ 500 ∧ ¬ proseFlat32768 ≤ 500 ∧ proseOrB8192 < proseFlatB32768 ∧
+      18 * proseOrB8192 < 10000 ∧ ¬ 19 * proseOrB8192 < 10000 := by
+  decide
+
 end HattnT8Oracle
 
 end Perf
