@@ -711,6 +711,28 @@ Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions (round 
 - Formalised: `proof/corpus/Perf/HattnT8TailProse.lean` (sha256 `9a6836a3…`), 7 theorems (`tq1_held`, `population`, `tq2_held_degenerate`, `tq3_held_unselective`, `tq4_held`, `tq5_refuted`, `budget_monotone_not_enough`), `AxiomAudit.lean` rows; `lake build Perf.HattnT8TailProse` and `lake build AxiomAudit` (9156 jobs) exit 0, all axiom-free. Mutation (entropy list reflected, `200000 - v`, throwaway copy) turns `tq2_held_degenerate`, `tq3_held_unselective` and `tq4_held` red.
 - Not covered: one prose prompt, one model; KV bytes only; composition omits tail-key coupling; rustc/LLVM and the instrument.
 
+## Per-layer-group far budget on prose at 524288 (Qwen2.5-7B-Instruct-1M)
+
+Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Question: which layers carry the prose gap at flat 2048. Setup: dump `g7-1m`, `t = 524288`, 64 tail positions, `grp-fix2048-r8`, `KV_TAIL_LFARB=<group>:32768` on one group of seven layers and 2048 elsewhere (`attn_cut_probe.hd128qp`, sha 1aa004864306; `/home/socol/oc-tmp/hattn-long/lgroup.sh`; 165 s per run). Predictions: `PREDICTIONS-T8-LGROUP.md`, sha256 `a17d8d8e4bd2`. Outputs `g20-lg-*.out` sha256 `f01dac94e4db` (0-6), `c9ed94fa621c` (7-13), `36b10d7d2cda` (14-20), `f1cb23780d49` (21-27).
+
+| layers at 32768 | mean KLD | over 0.05 | top-1 | reduction vs flat 2048 (0.3370) |
+|---|---:|---:|---:|---:|
+| 0-6 | 0.2531 | 62 | 45/64 | 0.0839 |
+| 7-13 | 0.2770 | 62 | 45/64 | 0.0600 |
+| 14-20 | 0.3035 | 63 | 43/64 | 0.0335 |
+| 21-27 | 0.3133 | 62 | 42/64 | 0.0237 |
+| all 28 (`g19`) | 0.1687 | 56 | | 0.1683 |
+
+Each single-group run reads 0.0191 of dense (bytes 0.0211).
+
+- Reductions fall with depth: early layers carry the most prose error.
+- The four reductions sum to 0.2011, above the all-layers 0.1683: they overlap, so the four groups together do not beat a uniform 32768 at a lower cost.
+- The best single group closes 29% of the 0.2870 gap to the gate (`group_share`); no group, and not all layers at 32768, reaches 0.05.
+
+Verdicts: `Perf/HattnT8LGroup.lean` (sha256 `17a7565de198`), `decide`, axiom-free in `AxiomAudit`: LG1 (no single group passes), LG2 (best group removes ≥0.05), LG3 (0-6 largest, monotone in depth), LG4 (reductions sum ≥ all-layers reduction) held. Mutation (group 0-6 KLD 0.3300 in a scratch copy): `lg2_held`, `lg3_held`, `lg4_held` red; `lg1_held` and `group_share` stay green by construction. The first build of `group_share` stated "under a quarter" and failed the kernel; corrected to "between a quarter and a third".
+
+Grade: `model` inputs, `proved` arithmetic over them. Not covered: one prompt, one model, one far budget (32768) per group; rustc, LLVM and the instrument.
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a

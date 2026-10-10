@@ -45,6 +45,7 @@ import Perf.HattnT8LFarb
 import Perf.HattnT8Code
 import Perf.HattnT8Tail
 import Perf.HattnT8TailProse
+import Perf.HattnT8LGroup
 import Perf.Identity
 import Perf.AttnCoop
 import Perf.IdentityFloat
@@ -700,3 +701,8 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnT8TailProse.tq4_held
 #audit Perf.HattnT8TailProse.tq5_refuted
 #audit Perf.HattnT8TailProse.budget_monotone_not_enough
+#audit Perf.HattnT8LGroup.lg1_held
+#audit Perf.HattnT8LGroup.lg2_held
+#audit Perf.HattnT8LGroup.lg3_held
+#audit Perf.HattnT8LGroup.lg4_held
+#audit Perf.HattnT8LGroup.group_share
