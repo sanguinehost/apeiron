@@ -3064,10 +3064,23 @@ fn layer_arm(l: usize, arm: Arm) -> Arm {
     let dense = has("KV_TAIL_DENSE").is_some_and(|d| d.contains(&l));
     let off = has("KV_TAIL_SPARSE").is_some_and(|s| !s.contains(&l));
     if dense || off {
-        Arm::Dense
-    } else {
-        arm
+        return Arm::Dense;
     }
+    match (arm, layer_budget(l)) {
+        (Arm::Grp(_, r), Some(n)) => Arm::Grp(n, r),
+        _ => arm,
+    }
+}
+
+/// `KV_TAIL_LFARB=lo-hi:n,..` sets the far budget of layers `lo..=hi` to `n` tokens; other layers keep the arm's.
+fn layer_budget(l: usize) -> Option<usize> {
+    let v = std::env::var("KV_TAIL_LFARB").ok()?;
+    v.split(',').find_map(|e| {
+        let (r, n) = e.split_once(':')?;
+        let (lo, hi) = r.split_once('-')?;
+        let (lo, hi): (usize, usize) = (lo.parse().ok()?, hi.parse().ok()?);
+        (lo..=hi).contains(&l).then(|| n.parse().ok()).flatten()
+    })
 }
 
 /// `KV_TAIL_SUMU=u` sets the summary unit to `u` keys (default `TL_P`, a divisor of `TL_P`): a sub-page of `u` keys

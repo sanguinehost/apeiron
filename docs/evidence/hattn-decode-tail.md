@@ -621,6 +621,25 @@ Second sweep, dense prefixes. Predictions registered first: `/home/socol/oc-tmp/
 - Formalised: `Perf.HattnT8Layer` `m1_refuted`..`m5_refuted`, `compounding`; `lake build Perf.HattnT8Layer` exit 0 (119 jobs), `#print axioms` within `{propext}`; mutation (E1 set to 0.2000) turns 2 theorems red. Full `AxiomAudit` build not run (lane contention).
 - Not covered: one prompt; rustc/LLVM.
 
+## Per-layer far budget at 524288 (Qwen2.5-7B-Instruct-1M)
+
+Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registered first: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-LFARB.md`, sha256 `f435a574…` (addendum `88f08eab…`, registered after B1-B3 and before C1).
+
+- Change: `KV_TAIL_LFARB=lo-hi:n` sets the far budget of layers `lo..=hi` (`layer_budget`, `examples/attn_cut_probe.rs`). Commands: `/home/socol/oc-tmp/hattn-long/lfarb.sh`, `lfarb2.sh` (`g15-t524288-{B1,B2,B3,C1}.out`), instrument `attn_cut_probe.hd128qb`; other layers keep 2048.
+
+| run | far budget | mean KLD at 524288 | reads/t (mean) |
+|---|---|---|---|
+| B1 | layers 0-6 at 16384 | 0.2799 | 0.0113 |
+| B2 | layers 0-6 at 65536 | 0.2091 | 0.0347 |
+| B3 | layers 0-6 and 14-20 at 16384 | 0.2613 | 0.0181 |
+| C1 | layers 0-6 at 524288 (every page) | 0.3071 | 0.2534 |
+
+- N1-N5 held (N5 is weak: B1 reads 0.0113 against a 0.30 limit).
+- C1 reproduces E3 (layers 0-6 dense): same KLD and reads/t, so the Grp and Dense paths agree and E1-E4 are comparable with B1-B3.
+- Finding: 32x the budget in layers 0-6 (65536 tokens, 1/8 of the context) leaves 0.2091, four times the gate. Both B1 and B2 are below the exact-layer run C1: approximating the early layers does better than computing them exactly while layers 7-27 stay at 2048. Mechanism open; the flat error in later layers depends on the early layers' output.
+- Formalised: `proof/corpus/Perf/HattnT8LFarb.lean` (`n1_held`..`n5_held`, `c1_held`, `nonmonotone`), `AxiomAudit.lean` rows; `lake build Perf.HattnT8LFarb` exit 0 (120 jobs), `#print axioms` within `{propext}`; mutation (B2 set to 0.3500) turns 2 theorems red. Full `AxiomAudit` build not run (lane contention).
+- Not covered: one prompt; rustc/LLVM.
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a

@@ -41,6 +41,7 @@ import Perf.HattnT8Farb
 import Perf.HattnT8Sum
 import Perf.HattnT8SumU
 import Perf.HattnT8Layer
+import Perf.HattnT8LFarb
 import Perf.Identity
 import Perf.AttnCoop
 import Perf.IdentityFloat
@@ -590,6 +591,13 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnT8Layer.m4_held
 #audit Perf.HattnT8Layer.m5_refuted
 #audit Perf.HattnT8Layer.compounding
+#audit Perf.HattnT8LFarb.n1_held
+#audit Perf.HattnT8LFarb.n2_held
+#audit Perf.HattnT8LFarb.n3_held
+#audit Perf.HattnT8LFarb.n4_held
+#audit Perf.HattnT8LFarb.n5_held
+#audit Perf.HattnT8LFarb.c1_held
+#audit Perf.HattnT8LFarb.nonmonotone
 #audit Perf.HattnT8.bytes_7b_1m
 
 -- The SIMT shared-load
