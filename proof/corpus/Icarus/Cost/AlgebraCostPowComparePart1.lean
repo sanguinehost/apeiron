@@ -1,105 +1,56 @@
 /-
-SCOPE: work/proofs/AlgebraCostPowComparePart1.lean, work/proofs/AlgebraCostPowComparePart2.lean
-(new), the facade work/proofs/AlgebraCostPowCompare.lean (rewritten as an `import` of the two parts)
-and their receipt work/proofs/AlgebraCostPowCompare.md. This file is the **first half** of the split
-of the former single module `work/proofs/AlgebraCostPowCompare.lean` (1,649 lines, 149 over the
-1,500-line cap of repos/apeiron/AGENTS.md:222), cut at §7, the boundary between the two measures:
-this file carries §0-§6 (the width and the three dials, AR-15/AR-20's eleven-field `RoundCost`,
-AR-10's six-field `RingCost`, the per-operation counts, the round/schedule/block chains, the SHA-256d
-block composition and the attempt and range figures in the eleven-field measure) and the audit rows
-of §0-§6; `AlgebraCostPowComparePart2.lean` carries §7-§9 (AR-27's twenty-three-field `ShaCost`,
-the padding/loader/store costs, the complete attempt and range, AR-41's source-bound corrections,
-the three faces and the audit rows of §7-§9). The dependency runs one way only — every §7-§9
-declaration is stated over §0-§6 and no §0-§6 declaration mentions a `ShaCost` — so the cut needs no
-axiom, instance or binder to be duplicated. **STATEMENT PRESERVATION IS THE INVARIANT:** no
-declaration changed name, namespace or type; none was added, dropped, merged or assumed; the
-namespace `algebra_cost_pow_compare` is still the one and only namespace and `import
-AlgebraCostPowCompare` still brings the whole module into scope. Section numbers are unchanged, so
-every cross-reference below still reads as it did. Scope of the claims, unchanged: the mining-side
-figure in the receipts' own measures: one
-SHA-256d proof-of-work attempt = the inner hash of the 80-byte header (two padded blocks,
-`blockCount 80 = 2`) plus the outer hash of the 32-byte digest (one padded block,
-`blockCount 32 = 1`), so three block transformations; the 2^32 nonce-space range as a closed form
-over the range with the recurrence; the ranked components (the 48-step message schedule including
-its 96 SHRs per block, the 64 rounds, the eight-word add-back, the padding bytes, the block load
-and the digest store) with their shares in the measure; and the face verdict. Two measures are
-carried side by side and never merged: AR-15/AR-20's eleven-field `RoundCost` (operations of the
-canonical bodies only) and AR-27's twenty-three-field `ShaCost` (the eleven fields plus the byte,
-`Nat`-operation and read counts of `pad`, the sixteen-word loader and the eight-word store, with
-AR-41's source-decided corrections carried as a separate named record). Complete when the module
-elaborates with every headline audited inside {propext, Classical.choice, Quot.sound} and zero
-sorryAx, seeded count defects each reject at attributable theorems, and the receipt records the
-counts, their grades, the named `model` premises, the explicit non-claims and the residual list.
-REGISTER: algebra/resource model. No production, pin, API, extraction-root, corpus or gate-driver
-edit; no Rust source; no cargo; no regen.sh; no measurement. Excluded by construction: latency,
-wall-clock time, throughput, hash rate, bytes per second, energy, joules, watts, hardware, ASIC or
-GPU figures, miner economics, profitability, USD, compiler or codegen cost, the kernel ABI, the
-`unsafe` container, device dispatch cost, constant-time and security properties of any hash, and
-every asymptotic statement. AGENTS.md:429 - a cost-model proof is not a hardware speed
-measurement; this module states counts and nothing else. No live target contact, no probing, no
-external submission.
-CORPUS: `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` and
-`Apeiron.Trichotomy.ChannelsAnyRing.{ringUpper,ringUpper_mul}` through
-repos/apeiron/proof/corpus/.lake/packages/apeiron/proof/ at the pinned revision
-880aa57e47e782ed7a9d9ee1974cfc87360b446b, grade `proved` there. The canonical SHA-2 bodies are
-`Apeiron.Crypto.Sha2.{rotr:50,shrx:54,sigma0:60,sigma1:64,Sigma0:67,Sigma1:70,choose:73,
-majority:76,schedule:82,compress:96,lengthByte:125,lengthBlock:128,pad:133,hash:146}` at
-repos/apeiron/proof/corpus/Crypto/Sha2.lean, sha256
-b87814767012d1306761c31c78a9c429f4382258201b88899598085e237d5c6e. The loader bodies are
-`apeiron_word.{b64:479,beWord16:484,bytesToWords:493}` at
-repos/apeiron/proof/corpus/Crypto/Sha256Certificate.lean, sha256
-d0bb8bb9a60975e0697f4f334602c0c0c33e46a54e4fbfa3bd8ec6e9a7e7e65a. Extracted side:
-proof/corpus/WordRefinement.lean:38 (`RingCell (ZMod (2^64))`), proof/Denotation.lean:35
-(`denote_wrapping_add`, width 64 only). The store is the extracted `sha256.sha256_loop2.body` at
-repos/apeiron/proof/ApeironWord.lean:15510-15548, read-only; its occurrence inventory is `model`
-(AR-27 residual 1).
-REFERENCE: repos/apeiron/AGENTS.md:336-341 (§8 per-function complexity: the measure, the
-recurrence, why it closes), :156-167 (§4 obligations), :226-240 (§5 grades), :429 (a cost-model
-proof is not a hardware speed measurement), :513/:516 (seeded defects; claims outrunning their
-theorem). work/proofs/AlgebraCostRound.lean/.md (AR-15), sha256
-908c7aa729a14164a050490a67b78de83e92398fc72e2e4fa894c8077bdc6c8b: `RoundCost` (eleven fields),
-`roundCost`, `schedStepCost`, `blockCost`, `RotRead`, the face verdict. work/proofs/AlgebraCost.lean
-(AR-10), sha256 52e5d6c5c2b4a144df2a99824052521c29f4b24252d68df5096f7870447df4fe: `RingCost` (six
-fields), `rep_add`. work/proofs/AlgebraCostPow.lean (AR-20), sha256
-a3d62397ffd67d6902c8b28629af42d394df3c55bb176558d8f353b1694207e0: `attemptCost`,
-`rangeCost`, `blockCount`, `canonTotal`, `zeroFill`, `rep_add`; **its receipt has no bound
-`evidence` block (`python3 work/check_receipts.py --check`: 0 blocks in that file), so its claims
-are prose here**. work/proofs/AlgebraCostComplete.lean (AR-27), sha256
-d6d5ae7f229828122e08dc89e08a57e420e28057e04d73a7f9ada0d907d9fae4: the twenty-three-field
-`ShaCost`, `padCost`, `loadCost`, `storeCost`, `blockFullCost`, `attemptCost`, `rangeCost`,
-`ShaCost.rep_add`; its receipt is lead-bound (`ar27-cost-complete`, PASS). work/proofs/
-AlgebraCostSource.lean (AR-41), sha256
-d22d714a734b973962113b6c9e0f2c195c45955fdeff6978f0808fee5e86558a: the source-bound compression
-counts and the three divergences from AR-27 (add 2328 vs 2376, bitXor 640 vs 704, schedWordWrite 64
-vs 16), the carry-stage model and the wiring model. work/proofs/AlgebraCostKeccak.lean (AR-28b),
-sha256 6ebb6ecdd5e1180a624495969f4ba5609f8b380e02a7966fc7267d51c5676a8f: the Keccak and SHA3-256
-rows of the comparison table (read-only, in the receipt). work/proofs/AlgebraSha256dCompose.lean
-(AR-40), sha256 d7eef60f59722007af296e942802e243b1fd1fff7a82ae3ac0aa888789fa0dd0:
-`pad_stateToBytes_length`, `hash_outer_eq_compress_H0`, `sha256d_eq_outer_compress_H0` - the
-canonical composition this module prices. work/proofs/Sha256Pad.lean: `canonTotal`, `zeroFill`,
-`totalLayout`, `pad_length_total`.
-GATE: /home/lucas/Workspace/icarus/bin/lane lake env lean
-/home/lucas/Workspace/icarus/work/proofs/AlgebraCostPowComparePart1.lean with cwd
-/home/lucas/Workspace/icarus/repos/apeiron/proof/corpus. Pre-flight
-repos/apeiron/tools/gate/target/debug/gate hold, cwd /home/lucas/Workspace/icarus: `gate hold: no
-hold in force`, RC=0, run before the first write of this session. Wall budget 450 s per file
-elaboration and 590 s per invocation including queue time, under
-flock /tmp/opencode/apeiron-lane.lock, MemoryMax=3800M, MemoryHigh=3400M, MemorySwapMax=0,
-LEAN_NUM_THREADS=1. No cargo, no `lake build` of the package, no regen.sh, no `| head` pipeline, no
-nohup/setsid, no retry loop for acceptance, no raised maxRecDepth, no maxHeartbeats 0, no large
-enumeration. The run ledger and the seeded controls are in work/proofs/AlgebraCostPowCompare.md.
-GRADE: `proved` for every count read off a canonical definition body by unfolding it in this
-module, for the padding-length arithmetic and its join to `pad`, for the SHA-256d block
-composition (2 + 1 = 3), for the closed forms of the attempt and the 2^32 range in both measures,
-for the component decomposition, the shares and the ranking, for the additivity laws, and for the
-face comparisons; the cone is {propext, Classical.choice, Quot.sound} with no `sorryAx`, checked
-by the `#print axioms` rows at the end of the module. `model` for the readings no machine-checked
-notion of "operation count of a term" can discharge: `RotRead`/`AddRead` (C5 and the width-32
-additive reading), the count of the seven `Word` additions of the round body, the loader and
-store occurrence inventories, and AR-41's ripple carry-stage expansion. `tested`: none - no
-`cargo test` ran, so no row of the receipt carries that grade. Unmeasured and unclaimed:
-everything on the REGISTER exclusion list. In particular NO wall-clock, cycle, joule, watt,
-hash-per-second, USD or profitability claim follows from any number in this module.
+First half of the SHA-256 proof-of-work cost comparison, namespace `algebra_cost_pow_compare`
+(second half: `Icarus.Cost.AlgebraCostPowComparePart2`). This part carries sections 0 to 6 and
+their audit rows: the width and the three dials, the eleven-field `RoundCost`, the six-field
+`RingCost`, the per-operation counts, the round, schedule and block chains, the SHA-256d block
+composition, and the attempt and range figures in the eleven-field measure. Part2 carries
+sections 7 to 9: the twenty-three-field `ShaCost`, the padding, loader and store costs, the
+complete attempt and range, the source-bound corrections, the three faces and their audit rows.
+No section 0 to 6 declaration mentions a `ShaCost`.
+
+Figures stated: one SHA-256d proof-of-work attempt is the inner hash of the 80-byte header (two
+padded blocks, `blockCount 80 = 2`) plus the outer hash of the 32-byte digest (one padded block,
+`blockCount 32 = 1`), three block transformations; the 2^32 nonce-space range as a closed form
+with its recurrence; the ranked components (the 48-step message schedule including its 96 SHRs
+per block, the 64 rounds, the eight-word add-back, the padding bytes, the block load and the
+digest store) with their shares; and the face verdict. Two measures are carried side by side and
+never merged: the eleven-field `RoundCost` (operations of the canonical bodies only) and the
+twenty-three-field `ShaCost` (the eleven fields plus the byte, `Nat`-operation and read counts of
+`pad`, the sixteen-word loader and the eight-word store, with the source-decided corrections
+carried as a separate named record).
+
+Depends on: `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` and
+`Apeiron.Trichotomy.ChannelsAnyRing.{ringUpper,ringUpper_mul}` (pinned canonical corpus revision 880aa57e47e782ed7a9d9ee1974cfc87360b446b, `proved`
+there); the canonical bodies `Apeiron.Crypto.Sha2.{rotr,shrx,sigma0,sigma1,Sigma0,Sigma1,choose,
+majority,schedule,compress,lengthByte,lengthBlock,pad,hash}`; the loaders
+`apeiron_word.{b64,beWord16,bytesToWords}` in `Crypto.Sha256Certificate`; the extracted side
+`WordRefinement` (`RingCell (ZMod (2^64))`) and `Denotation.denote_wrapping_add` (width 64
+only); the extracted store `sha256.sha256_loop2.body` in `ApeironWord`, whose occurrence
+inventory is `model`. The measures and counts follow `Icarus.Cost.AlgebraCostRound` (`RoundCost`,
+`roundCost`, `schedStepCost`, `blockCost`, `RotRead`), `Icarus.Cost.AlgebraCost` (`RingCost`,
+`rep_add`), `Icarus.Cost.AlgebraCostPow` (`attemptCost`, `rangeCost`, `blockCount`, `canonTotal`,
+`zeroFill`), `Icarus.Cost.AlgebraCostCompletePart1` and `Icarus.Cost.AlgebraCostCompletePart2`
+(`ShaCost`, `padCost`, `loadCost`, `storeCost`, `blockFullCost`), `Icarus.Cost.AlgebraCostSource`
+(source-bound counts, with three divergences: add 2328 vs 2376, bitXor 640 vs 704,
+schedWordWrite 64 vs 16; the carry-stage model and the wiring model) and
+`Icarus.Cost.AlgebraCostKeccak` (the Keccak and SHA3-256 comparison rows). The padding
+arithmetic `pad_stateToBytes_length`, `hash_outer_eq_compress_H0`, `sha256d_eq_outer_compress_H0`
+(canonical SHA-256d composition) and `canonTotal`, `zeroFill`, `totalLayout`, `pad_length_total`
+(padding layout) are the arithmetic this module prices.
+Excludes: latency, wall-clock time, throughput, hash rate, bytes per second, energy, joules,
+watts, hardware, ASIC or GPU figures, miner economics, profitability, USD, compiler or codegen
+cost, the kernel ABI, the `unsafe` container, device dispatch cost, constant-time and security
+properties of any hash, and every asymptotic statement. A cost-model proof is not a hardware
+speed measurement; this module states counts and nothing else.
+Grade: `proved` (kernel-checked, axiom cone {propext, Classical.choice, Quot.sound}, no
+`sorryAx`, `#print axioms` rows at the end of the module) for every count read off a canonical
+definition body by unfolding it, the padding-length arithmetic and its join to `pad`, the
+SHA-256d block composition (2 + 1 = 3), the closed forms of the attempt and the 2^32 range in
+both measures, the component decomposition, shares and ranking, the additivity laws and the
+face comparisons. `model` for the readings no machine-checked notion of operation count of a
+term can discharge: `RotRead` and `AddRead` (candidate C5 and the width-32 additive reading), the
+count of the seven `Word` additions of the round body, the loader and store occurrence
+inventories, and the ripple carry-stage expansion. `tested`: none.
 -/
 
 import Apeiron.Trichotomy.AnyRing

@@ -1,66 +1,32 @@
 /-
-SCOPE: work/proofs/AlgebraCostRound.lean, new, and its receipt work/proofs/AlgebraCostRound.md. A
-cost measure for one SHA-256 round of `Apeiron.Crypto.Sha2.compress`, carried over AR-10's
-`RingCost σ` with an explicit non-ring layer, the round cost, the schedule-extension step cost, the
-64-round chain with its closed form, the per-block figure, and an all-three-faces comparison at
-`σ = -1, 0, 1`. Complete when the module elaborates with every headline audited inside
-{propext, Classical.choice, Quot.sound} and zero sorryAx, and the receipt records the counts, their
-grades, the named premises and the residual list.
-REGISTER: algebra/resource model. No production, pin, API, extraction-root, corpus or gate-driver
-edit; no Rust source, no cargo, no regen.sh, no measurement. Excluded by construction: latency,
-wall-clock time, throughput, bytes, energy, hardware, compiler or codegen cost, the kernel ABI, the
-`unsafe` container, device dispatch cost, constant-time and security properties of any hash, and
-every asymptotic statement. AGENTS.md:429 - a cost-model proof is not a hardware speed measurement;
-this module states counts and nothing else.
-CORPUS: `Apeiron.Trichotomy.AnyRing.{RingCell:98,ringMul:109,ringConj:118,ringNormForm:128,
-ringMul_comm:180,ringMul_assoc:191}` and
-`Apeiron.Trichotomy.ChannelsAnyRing.{ringUpper:139,ringLower:149,ringUpper_mul:160,
-ringUpper_fold:509}` at the pinned revision 880aa57e47e782ed7a9d9ee1974cfc87360b446b through
-repos/apeiron/proof/corpus/.lake/packages/apeiron/proof/, grade `proved` there
-(`Apeiron/Audit.lean:1201` audits `AnyRing.ringUpper`; `:1227` audits `ringUpper_fold`). The round
-bodies are `Apeiron.Crypto.Sha2.{rotr:50,shrx:54,sigma0:60,sigma1:64,Sigma0:67,Sigma1:70,
-choose:73,majority:76,schedule:82,compress:96}` at repos/apeiron/proof/corpus/Crypto/Sha2.lean,
-sha256 b87814767012d1306761c31c78a9c429f4382258201b88899598085e237d5c6e, a root of the
-`apeironWordBridge` corpus build (`lakefile.lean:137`). Extracted side:
-`proof/corpus/WordRefinement.lean:38` (`RingCell (ZMod (2^64))`), `proof/Denotation.lean:35`
-(`denote_wrapping_add`, proved at width 64 only).
-REFERENCE: repos/apeiron/AGENTS.md:336-341 (§8 per-function complexity: the measure, the
-recurrence, why it closes), :156-167 and :226-240 (§4 obligations and §5 grades), :429 (a
-cost-model proof is not a hardware speed measurement).
-work/algebra-rooting/ops-map.md:88 (S1 ADD), :91 (S4 XOR), :92 (S5 AND), :94 (S7 ROTR), :95 (S8
-SHR), :136-146 (O1 XOR is not `+`, O2 AND is not affine, O3 SHR is not congruence-preserving),
-:143 (O6 the word ring does not separate the faces), :167-180 (candidate C5), :220-222 (decisions
-D1, D2). work/proofs/AlgebraCost.lean (AR-10) and .md, sha256
-52e5d6c5c2b4a144df2a99824052521c29f4b24252d68df5096f7870447df4fe, for `RingCost σ`,
-`rep_add`, `chainMulCost`, `rotationCost` and its six-field measure. work/proofs/AlgebraNorm.lean
-(AR-7), sha256 4e3d330302a6fd70c5d4736e7eff1add296226893b942a4fca0f8f4efca0f0f7, for the three
-mod-8 norm images and the face-separating residue certificates. work/proofs/AlgebraRotate.lean
-(AR-9) for `ringUpper_mul_eval`, premise-free because `x.2 * b.2 = 0`.
-work/proofs/AlgebraIdempotents.lean (AR-3), sha256
-56cb158c97b5f69b40b1c6f149da80189b41e9c61ac801bd9d89b56f8e293bb6, for
-`idempotents_trivial_of_pow2`, the idempotents at every dial. receipts/campaign-review.md:30-34,
-the owner focus on a formal cost model and on derived costs per sigma face.
-GATE: /home/lucas/Workspace/icarus/bin/lane lake env lean
-/home/lucas/Workspace/icarus/work/proofs/AlgebraCostRound.lean, cwd
-/home/lucas/Workspace/icarus/repos/apeiron/proof/corpus, the absolute lane wrapper. Pre-flight
-repos/apeiron/tools/gate/target/debug/gate hold, cwd /home/lucas/Workspace/icarus, observed
-`gate hold: no hold in force`, RC=0, run before the first write of this session. Wall-clock budget
-590 s for the invocation and its controls, including queue time, under
-flock /tmp/opencode/apeiron-lane.lock, MemoryMax=3800M, MemoryHigh=3400M, MemorySwapMax=0,
-LEAN_NUM_THREADS=1. No cargo, no lake build of the package, no regen.sh, no nohup/setsid, no
-retry loop, no raised maxRecDepth and no maxHeartbeats 0.
-GRADE: `proved` for every operation count that is read off a Lean definition body by unfolding it
-in this module - the ring bodies through `ringMul`/`ringUpper`/`ringNormForm` and the round bodies
-through `Crypto.Sha2` - and for the measure's laws, the chain recurrence and its closure, the
-closed forms, the three-face comparison and the elliptic-face root obstruction; the cone is
-{propext, Classical.choice, Quot.sound} with no sorryAx, checked by the `#print axioms` rows below.
-`model` for two readings and one count: the identification of `ringUpper 1 (ringMul 1 (x,0) (2^n,
-2^(32-n)))` with a word rotation (candidate C5, carried as the unused named premise `RotRead`), the
-identification of a `Word` addition with a `ZMod (2^32)` addition (the named premise `AddRead`,
-template `Denotation.lean:35`, proved at width 64 only), and the count of the seven `Word` additions
-of the round body, which is read off the canonical source lines `Sha2.lean:108,109,112,116` because
-no machine-checked operation-count mechanism exists. `tested`: none - no `cargo test` ran.
-Unmeasured and unclaimed: everything on the REGISTER exclusion list.
+Cost of one SHA-256 round of `Apeiron.Crypto.Sha2.compress`: a cost measure carried over
+`RingCost σ` with an explicit non-ring layer, the round cost, the schedule-extension step cost,
+the 64-round chain with its closed form, the per-block figure, and an all-three-faces comparison
+at `σ = -1, 0, 1`.
+
+Depends on: `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringConj,ringNormForm,ringMul_comm,
+ringMul_assoc}` and `Apeiron.Trichotomy.ChannelsAnyRing.{ringUpper,ringLower,ringUpper_mul,
+ringUpper_fold}` (pinned canonical corpus revision 880aa57e47e782ed7a9d9ee1974cfc87360b446b, `proved` there); the round bodies
+`Apeiron.Crypto.Sha2.{rotr,shrx,sigma0,sigma1,Sigma0,Sigma1,choose,majority,schedule,compress}`
+in `Crypto.Sha2`; on the extracted side `WordRefinement` (`RingCell (ZMod (2^64))`) and
+`Denotation.denote_wrapping_add` (proved at width 64 only). The `RingCost σ` layout, `rep_add`,
+`chainMulCost` and `rotationCost` follow `Icarus.Cost.AlgebraCost`.
+Excludes: latency, wall-clock time, throughput, bytes, energy, hardware, compiler or codegen
+cost, the kernel ABI, the `unsafe` container, device dispatch cost, constant-time and security
+properties of any hash, and every asymptotic statement. A cost-model proof is not a hardware
+speed measurement; this module states counts and nothing else.
+Grade: `proved` (kernel-checked, axiom cone {propext, Classical.choice, Quot.sound}, no
+`sorryAx`, `#print axioms` rows at the end of the file) for every operation count read off a
+Lean definition body by unfolding it in this module (the ring bodies through
+`ringMul`/`ringUpper`/`ringNormForm`, the round bodies through `Crypto.Sha2`), the measure's
+laws, the chain recurrence and its closure, the closed forms, the three-face comparison and the
+elliptic-face root obstruction. `model` for two readings and one count: the identification of
+`ringUpper 1 (ringMul 1 (x,0) (2^n, 2^(32-n)))` with a word rotation (candidate C5, carried as
+the unused named premise `RotRead`), the identification of a `Word` addition with a
+`ZMod (2^32)` addition (the named premise `AddRead`, proved at width 64 only in
+`Denotation`), and the count of the seven `Word` additions of the round body, which is read off
+the canonical source of `Crypto.Sha2` because no machine-checked operation-count mechanism
+exists. `tested`: none.
 -/
 
 import Apeiron.Trichotomy.AnyRing

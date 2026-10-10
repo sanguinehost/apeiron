@@ -1,77 +1,43 @@
 /-
-SCOPE: work/proofs/AlgebraCostSource.lean, new, and its receipt work/proofs/AlgebraCostSource.md.
-A source-bound formal cost for one
-executing SHA-256 compression. Count the executing bodies' operations - the sixteen-word big-endian
-load `sha256.compress_loop0.body`, the forty-eight schedule-extension visits of
-`sha256.compress_loop1.body` (the `schedBody_step`/`sched_loop1` link is the executing connection),
-the sixty-four rounds, the eight-word add-back and the digest store `sha256.sha256_loop2.body` - field
-by field against the existing twenty-three-field measure of `AlgebraCostComplete.lean`, with a
-derivation per field from a named source line or a `rfl`-checked body display. Price the byte-to-word
-regrouping and the rotation/shift wiring in the same units. Count the carry stages separately from the
-integer overflow bookkeeping. State the per-block recurrence over the message length as a theorem,
-not a table. State the three-face verdict as a fact about the counted bodies. Name every counted
-quantity that does not fit a field rather than forcing it. Complete when the module elaborates with
-every headline inside the closed cone and zero `sorryAx`, and the receipt records every count with its
-grade, every divergence from AR-15/AR-20/AR-27 with its source line, every named non-field quantity
-with its derivation, the recurrence bound, the face verdict and the honesty statement.
-REGISTER: algebra/resource model. No production, pin, API, extraction-root, corpus or gate-driver
-edit; no Rust source; no cargo; no regen.sh; no measurement. Excluded by construction: latency,
-wall-clock time, throughput, hash rate, bytes per second, energy, joules, watts, hardware, ASIC or
-GPU figures, miner economics, profitability, USD, compiler or codegen cost, the kernel ABI, device
-dispatch cost, constant-time and security properties of any hash, and every asymptotic statement.
-AGENTS.md:429 - a cost-model proof is not a hardware speed measurement; this module states counts and
-nothing else. No live target contact, no probing, no external submission.
-CORPUS: the pinned canonical corpus `880aa57e47e782ed7a9d9ee1974cfc87360b446b` through
-repos/apeiron/proof/corpus/.lake/packages/apeiron/proof/:
-`Apeiron.Trichotomy.AnyRing.{ringMul,ringUpper,ringOne}` and
-`Apeiron.Trichotomy.ChannelsAnyRing.ringUpper` (`:139`). Canonical SHA-2 bodies
-`Apeiron.Crypto.Sha2.{rotr:50,shrx:54,sigma0:60,sigma1:64,Sigma0:67,Sigma1:70,choose:73,
-majority:76,schedule:82,compress:96,lengthByte:125,lengthBlock:128,pad:133,hash:146}` at
-`Crypto/Sha2.lean`, sha256 `b87814767012d1306761c31c78a9c429f4382258201b88899598085e237d5c6e`. The
-executing links at `Crypto/Sha256Certificate.lean`, sha256
-`d0bb8bb9a60975e0697f4f334602c0c0c33e46a54e4fbfa3bd8ec6e9a7e7e65a`: `rotr_step:188`, `shr_step3:197`,
-`shr_step10:209`, `Sigma1_round:226`, `Sigma0_round:237`, `ch_step:248`, `maj_step:254`, `schedRow:280`,
-`schedBody_step:643` (one `compress_loop1.body` visit), `sched_loop1:851` (the loop is
-`Sha2.schedule`), `b64:479`, `beWord16:484`, `bytesToWords:493`, `schedRow_block:513`, `stateView:123`,
-`digView:153`, `K_get:170`, `H0_get:175`. The extracted bodies are the generated
-`repos/apeiron/proof/ApeironWord.lean`: `sha256.compress` `:15391`, `compress_loop0.body:15243`,
-`compress_loop1.body:15281`, `compress_loop2.body:15332`, `sha256_loop2.body:15510`, `sha256.K:15216`,
-`sha256.H0:15233`; extracted source `src/sha256.rs:33-143`. The canonical module has no compression
-link to the extracted round loop: `Crypto/Sha256Certificate.lean` carries `WordSha256Denotes` as a
-`def` and its own header lists the 64-round compression as an open stage - this module prices the
-round *primitives* through the `*_round` links and the round loop as the canonical 64-fold, and says
-so where the link is open.
-REFERENCE: repos/apeiron/AGENTS.md:336-341 (per-function complexity), :226-240 (grades), :429
-(cost-model proof is not a hardware speed measurement), :513, :516 (green gates over broken
-artifacts; claims outrunning their theorem). work/proofs/AlgebraCostComplete.lean (AR-27), sha256
-`d6d5ae7f229828122e08dc89e08a57e420e28057e04d73a7f9ada0d907d9fae4`: the 23-field `ShaCost`
-measure, re-declared here because that module is not a root of any corpus `lean_lib`;
-`AlgebraCostPow.lean` (AR-20) sha256
-`a3d62397ffd67d6902c8b28629af42d394df3c55bb176558d8f353b1694207e0`, `AlgebraCostRound.lean` (AR-15)
-sha256 `908c7aa729a14164a050490a67b78de83e92398fc72e2e4fa894c8077bdc6c8b`,
-`AlgebraCost.lean` (AR-10) sha256 `52e5d6c5c2b4a144df2a99824052521c29f4b24252d68df5096f7870447df4fe`.
-`receipts/sol-face-adjudication.md` §4 last paragraph and §5 row 5. AR-37's Boolean-carrier links
-(`work/proofs/AlgebraBoolCarrier.lean/.md`) do not exist at this base revision
-(`ls work/proofs/` shows no match), so the wiring is counted directly, as the dispatch allows.
-GATE: /home/lucas/Workspace/icarus/bin/lane lake env lean
-/home/lucas/Workspace/icarus/work/proofs/AlgebraCostSource.lean, cwd
-/home/lucas/Workspace/icarus/repos/apeiron/proof/corpus. Pre-flight
-repos/apeiron/tools/gate/target/debug/gate hold, cwd /home/lucas/Workspace/icarus, observed
-`gate hold: no hold in force`, RC=0, before the first write. Wall budget 450 s per file elaboration
-and 590 s per invocation including queue time, under flock /tmp/opencode/apeiron-lane.lock,
-MemoryMax=3800M, MemoryHigh=3400M, MemorySwapMax=0, LEAN_NUM_THREADS=1. No cargo, no `lake build`
-of the package, no regen.sh, no `| head` pipeline, no nohup/setsid, no retry loop, no raised
-maxRecDepth, no `maxHeartbeats 0`, no `decide` above small enumerations.
-GRADE: `proved` for every body display (`rfl`-checked), every per-operation and composite count
-read off a displayed body, the measure's laws, the recurrence and its bound, the carry recovery
-identity and its witnesses, the elliptic-premise refusal, and the three-face comparisons; the cone
-is {propext, Classical.choice, Quot.sound} with no `sorryAx`, checked by the audit rows at the end.
-`model` for the occurrence inventories of the `do`-block bodies (`compress_loop0.body`,
-`compress_loop1.body`, `compress_loop2.body`, `sha256_loop2.body`), for the bit-coordinate wiring
-model, for the ripple-stage carry expansion, and for the C5 ring reading of a rotation - each is
-named, stated, and never merged with a `proved` count. `tested`: none - no `cargo test` ran.
-Unmeasured and unclaimed: everything on the REGISTER exclusion list. In particular NO wall-clock,
-cycle, joule, watt, hash-per-second, USD or profitability claim follows from any number here.
+Source-bound formal cost of one executing SHA-256 compression. The operations of the executing
+bodies are counted field by field in the twenty-three-field `ShaCost` measure: the sixteen-word
+big-endian load `sha256.compress_loop0.body`, the forty-eight schedule-extension visits of
+`sha256.compress_loop1.body` (`schedBody_step` and `sched_loop1` link one visit to the loop),
+the sixty-four rounds, the eight-word add-back and the digest store `sha256.sha256_loop2.body`.
+Each field is derived from a named source line or an `rfl`-checked body display. The
+byte-to-word regrouping and the rotation/shift wiring are priced in the same units, carry stages
+are counted separately from integer overflow bookkeeping, and any counted quantity that fits no
+field is named rather than forced. The per-block recurrence over message length is a theorem,
+and the three-face verdict is stated as a fact about the counted bodies.
+
+Depends on: `Apeiron.Trichotomy.AnyRing.{ringMul,ringUpper,ringOne}`,
+`Apeiron.Trichotomy.ChannelsAnyRing.ringUpper` (pinned canonical corpus revision 880aa57e47e782ed7a9d9ee1974cfc87360b446b);
+the canonical `Apeiron.Crypto.Sha2.{rotr,shrx,sigma0,sigma1,Sigma0,Sigma1,choose,majority,
+schedule,compress,lengthByte,lengthBlock,pad,hash}`; the executing links in
+`Crypto.Sha256Certificate` (`rotr_step`, `shr_step3`, `shr_step10`, `Sigma1_round`,
+`Sigma0_round`, `ch_step`, `maj_step`, `schedRow`, `schedBody_step`, `sched_loop1`, `b64`,
+`beWord16`, `bytesToWords`, `schedRow_block`, `stateView`, `digView`, `K_get`, `H0_get`); the
+extracted bodies `sha256.compress`, `sha256.compress_loop0.body`, `sha256.compress_loop1.body`,
+`sha256.compress_loop2.body`, `sha256.sha256_loop2.body`, `sha256.K`, `sha256.H0` in
+`ApeironWord` (source `src/sha256.rs`). The `ShaCost` layout matches
+`Icarus.Cost.AlgebraCostCompletePart1` and is re-declared here; the earlier measures are
+`Icarus.Cost.AlgebraCostPow`, `Icarus.Cost.AlgebraCostRound` and `Icarus.Cost.AlgebraCost`.
+Link status: `Crypto.Sha256Certificate` carries `WordSha256Denotes` as a `def` and lists the
+64-round compression as an open stage, so this module prices the round primitives through the
+`*_round` links and the round loop as the canonical 64-fold.
+Excludes: latency, wall-clock time, throughput, hash rate, bytes per second, energy, joules,
+watts, hardware, ASIC or GPU figures, miner economics, profitability, USD, compiler or codegen
+cost, the kernel ABI, device dispatch cost, constant-time and security properties of any hash,
+and every asymptotic statement. A cost-model proof is not a hardware speed measurement; this
+module states counts and nothing else.
+Grade: `proved` (kernel-checked, axiom cone {propext, Classical.choice, Quot.sound}, no
+`sorryAx`, audit rows at the end of the file) for every `rfl`-checked body display, every
+per-operation and composite count read off a displayed body, the measure's laws, the recurrence
+and its bound, the carry recovery identity and its witnesses, the elliptic-premise refusal and
+the three-face comparisons. `model` for the occurrence inventories of the `do`-block bodies
+(`compress_loop0.body`, `compress_loop1.body`, `compress_loop2.body`, `sha256_loop2.body`), the
+bit-coordinate wiring model, the ripple-stage carry expansion and the C5 ring reading of a
+rotation; each is named, stated and never merged with a `proved` count. `tested`: none.
 -/
 
 import Apeiron.Trichotomy.AnyRing

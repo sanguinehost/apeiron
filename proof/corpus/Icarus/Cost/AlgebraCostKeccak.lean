@@ -1,58 +1,33 @@
 /-
-SCOPE: work/proofs/AlgebraCostKeccak.lean, new, and its receipt work/proofs/AlgebraCostKeccak.md. The
-cost of the Keccak-f[1600] round and permutation and of one SHA3-256 absorb block in AR-15/AR-20's
-eleven-field `RoundCost` measure, with a second two-field record for the lane-layer quantities the
-eleven fields cannot express (the pi lane permutation and the byte-to-lane widening of the sponge
-injection); the per-body counts read off `Crypto/Keccak/Round.lean` and `Crypto/Sponge.lean`; the
-24-round closed form with additivity; the absorb-step figure at the SHA3-256 rate 136; and the
-SHA-256-attempt / Keccak-permutation / SHA3-absorb comparison with the face verdict and the
-generality statement. Complete when the module elaborates with every headline audited inside
-{propext, Classical.choice, Quot.sound} and zero sorryAx, seeded count defects each reject at
-attributable theorems, and the receipt records the counts, their grades, the named premises and the
-residual list.
-REGISTER: algebra/resource model. No production, pin, API, extraction-root, corpus or gate-driver
-edit; no Rust source; no cargo; no regen.sh; no measurement. Excluded by construction: latency,
-wall-clock time, throughput, hash rate, bytes per second, energy, joules, watts, hardware, compiler
-or codegen cost, the kernel ABI, the `unsafe` container, device dispatch cost, constant-time and
-security properties of any hash, and every asymptotic statement. AGENTS.md:429 - a cost-model proof
-is not a hardware speed measurement; this module states counts and nothing else.
-CORPUS: `Crypto.Keccak.Round.{lane:23,column:27,theta:32,rho:38,pi:42,chi:49,iota:57,round:61,
-permute:65}` and `Crypto.Keccak.Constants.{RC:8,ROT:17}` at repos/apeiron/proof/corpus/Crypto/Keccak/,
-sha256 Round.lean c0a4d608707dbe109f97b50daa4e28a80e274aaf5b716dba71f4fb137a737e18, Constants.lean
-44483feb6607e8fdf50be79a275d523de472730be3e0911fd4d5d7db2ed8f016;
-`Crypto.Sponge.{rate_sha3_256:29,xorBlock:55,absorb:85,sha3_256:104}` at
-repos/apeiron/proof/corpus/Crypto/Sponge.lean, sha256
-9a4eabcca891114609314ae893a933fb071da4dbf3052020045a06a170ec5973; both are roots of the `Crypto`
-corpus `lean_lib` (proof/corpus/lakefile.lean:137-138). The ring bodies are
-`Apeiron.Trichotomy.AnyRing.{RingCell:98,ringMul:109,ringUpper:139}` at the pinned revision
-880aa57e47e782ed7a9d9ee1974cfc87360b446b through
-repos/apeiron/proof/corpus/.lake/packages/apeiron/proof/, grade `proved` there.
-REFERENCE: repos/apeiron/AGENTS.md:336-341 (section 8 per-function complexity: the measure, the
-recurrence, why it closes), :156-167 and :226-240 (section 4 obligations and section 5 grades), :429
-(a cost-model proof is not a hardware speed measurement). work/proofs/AlgebraCostRound.lean/.md
-(AR-15), sha256 908c7aa729a14164a050490a67b78de83e92398fc72e2e4fa894c8077bdc6c8b: `RoundCost`
-(eleven fields), `roundCost`, `blockCost`, `RoundCost.rep_add`. work/proofs/AlgebraCostPow.lean/.md
-(AR-20), sha256 a3d62397ffd67d6902c8b28629af42d394df3c55bb176558d8f353b1694207e0: `attemptCost`,
-`attemptCost_eq`, `blockCost_eq`, `RoundCost.rep`, `RingCost.rep`. work/algebra-rooting/ops-map.md:
-:100-122 (Keccak rows K1-K13), :136-146 (obstructions O1-O4), :167-180 (candidate C5, the rotation
-reading).
-GATE: /home/lucas/Workspace/icarus/bin/lane lake env lean
-/home/lucas/Workspace/icarus/work/proofs/AlgebraCostKeccak.lean with cwd
-/home/lucas/Workspace/icarus/repos/apeiron/proof/corpus. Pre-flight
-repos/apeiron/tools/gate/target/debug/gate hold, cwd /home/lucas/Workspace/icarus, observed
-`gate hold: no hold in force`, RC=0, run before the first write of this session. Wall-clock budget
-590 s for the invocation and its controls, including queue time, under
-flock /tmp/opencode/apeiron-lane.lock, MemoryMax=3800M, MemoryHigh=3400M, MemorySwapMax=0,
-LEAN_NUM_THREADS=1. No cargo, no lake build of the package, no regen.sh, no nohup/setsid, no retry
-loop, no raised maxRecDepth, no maxHeartbeats 0.
-GRADE: `proved` for every operation count that is read off a Lean definition body by unfolding it in
-this module - the ring bodies through `ringMul`/`ringUpper`, the Keccak bodies through
-`Crypto.Keccak.Round` and `Crypto.Sponge` - and for the measure's laws, the permutation and absorb
-closed forms, the additivity, the comparison arithmetic and the face equality; the cone is
-{propext, Classical.choice, Quot.sound} with no sorryAx, checked by the `#print axioms` rows below.
-`model` for the C5 identification of a rotation with `ringMul`-plus-`ringUpper`, carried as the named
-premise `RotRead64` and never as an axiom. `tested`: none - no `cargo test` ran. Unmeasured and
-unclaimed: everything on the REGISTER exclusion list.
+Cost of the Keccak-f[1600] round and permutation and of one SHA3-256 absorb block in the
+eleven-field `RoundCost` measure of `Icarus.Cost.AlgebraCostRound`, with a second two-field
+record for the quantities the eleven fields cannot express (the pi position permutation and the
+byte-to-word widening of the sponge injection). Per-body counts are read off the Keccak round
+and sponge definitions; the 24-round closed form is stated with additivity, the absorb step at
+the SHA3-256 rate 136, and the SHA-256-attempt / Keccak-permutation / SHA3-absorb comparison with
+the face verdict and the generality statement.
+
+Depends on: `Crypto.Keccak.Round.{column,theta,rho,pi,chi,iota,round,permute}` and
+`Crypto.Keccak.Constants.{RC,ROT}`; `Crypto.Sponge.{rate_sha3_256,xorBlock,absorb,sha3_256}`
+(both are roots of the `Crypto` corpus library); the ring bodies
+`Apeiron.Trichotomy.AnyRing.{RingCell,ringMul}` and
+`Apeiron.Trichotomy.ChannelsAnyRing.ringUpper` (pinned canonical corpus revision 880aa57e47e782ed7a9d9ee1974cfc87360b446b, `proved` there). The
+measures follow `Icarus.Cost.AlgebraCostRound` (`RoundCost`, `roundCost`, `blockCost`,
+`RoundCost.rep_add`) and `Icarus.Cost.AlgebraCostPow` (`attemptCost`, `attemptCost_eq`,
+`blockCost_eq`, `RoundCost.rep`, `RingCost.rep`).
+Excludes: latency, wall-clock time, throughput, hash rate, bytes per second, energy, joules,
+watts, hardware, compiler or codegen cost, the kernel ABI, the `unsafe` container, device
+dispatch cost, constant-time and security properties of any hash, and every asymptotic
+statement. A cost-model proof is not a hardware speed measurement; this module states counts
+and nothing else.
+Grade: `proved` (kernel-checked, axiom cone {propext, Classical.choice, Quot.sound}, no
+`sorryAx`, `#print axioms` rows at the end of the file) for every operation count read off a
+Lean definition body by unfolding it in this module (the ring bodies through
+`ringMul`/`ringUpper`, the Keccak bodies through `Crypto.Keccak.Round` and `Crypto.Sponge`), the
+measure's laws, the permutation and absorb closed forms, the additivity, the comparison
+arithmetic and the face equality. `model` for the C5 identification of a rotation with
+`ringMul`-plus-`ringUpper`, carried as the named premise `RotRead64` and never as an axiom.
+`tested`: none.
 -/
 
 import Apeiron.Trichotomy.AnyRing

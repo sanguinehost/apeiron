@@ -1,12 +1,14 @@
 /-
-SCOPE: new module refining the extracted f16 splitter; excludes act_scale, finish, ChartDot,
-  audit registry, pins, and all other source.
-REGISTER: Rust-to-Lean refinement.
-CORPUS: Numeric.DequantRefinement.f16_to_fixed_exact and f16_to_fixed_nonfinite.
-REFERENCE: /home/socol/Workspace/apeiron/proof/corpus/Numeric/DequantRefinement.lean
-GATE: `lake env lean` on this file, bounded to 540 seconds, 12 GiB, one thread, lane lock.
-GRADE: direct Lean check covers finite exactness and non-finite refusal;
-  audit registration and real-source mutation/restoration control remain separate gates.
+Refinement of the extracted binary16 splitter `word_f16_split`: every finite pattern
+(`f16Exp h ≠ 31`) splits into an exact signed Q32.32 integer product, and every non-finite
+pattern is refused with `none`.
+
+Depends on: `Numeric.DequantRefinement` (`f16_to_fixed_exact`, `f16_to_fixed_nonfinite`).
+Excludes: `act_scale`, `finish`, `ChartDot`, the audit registry, tool pins and all other
+extracted source. Audit registration and a real-source mutation/restoration control are
+separate and are not established here.
+Grade: finite exactness and non-finite refusal are `proved` by a direct Lean check of this
+module.
 -/
 import Numeric.DequantRefinement
 
