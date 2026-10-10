@@ -515,6 +515,10 @@ unsafe fn attn_core_f32_strided_avx2_inner(
 /// Dispatches strided attention core execution to AVX2+FMA when supported and `head_dim % 8 == 0`,
 /// falling back to the scalar implementation.
 ///
+/// # Errors
+///
+/// [`AttnError`] on a geometry mismatch or a non-finite output.
+///
 /// # Complexity
 ///
 /// `O((pos + 1) · head_dim)` time and zero heap allocation for `head_dim <= 256`.

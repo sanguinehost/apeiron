@@ -837,6 +837,32 @@ Mean KLD (bytes/dense):
 
 Lean: `proof/corpus/Perf/HattnT8Cells.lean` (sha256 `ef8325efc1c9`), 16 theorems, empty axiom cone in `AxiomAudit.lean`; a four-datum mutation in a scratch copy turns five theorems red and the restored file builds. Grade: measured, `model` inputs. Not covered: other models, the code dump, F1a, rustc/LLVM, the cost of the instrument's own k-means build (not charged).
 
+## Hot/cold decode step at 131072, 524288 and 1048576: 4-bit scan, top-8192, measured on CPU (Qwen2.5-7B-Instruct-1M)
+
+Row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Quality: `attn_cut_probe.hd128cl` (sha256 `f248f46584d8`), `KV_TAIL_LOWBIT=4 KV_TAIL_FARB=8192`, prose `g7-1m`, 64 tail positions, outputs `g26-lb4-b8192-t{524288,1048576}.out`. Speed: `examples/hotcold_decode.rs` (binary sha256 `de44066f4b17`), i9-14900KF, 32 threads, 28 layers, one layer's f32 K/V loaded at a time outside the timer, 5 repetitions; outputs `/home/socol/oc-tmp/hc/hc-t*.out`.
+
+| t | KLD mean | top-1 | > 0.05 | bytes/dense |
+|---|---|---|---|---|
+| 524288 | 0.0231 | 59/64 | 7 | 0.1767 |
+| 1048576 | 0.0471 | 56/64 | 13 (max 0.467) | 0.1519 |
+
+Attention per decode step (ms, mean ± sd over 5), whole token = attention + 90.1 ms non-attention (`engine_profile`, same GGUF, CPU):
+
+| t | dense | read floor (K+V once) | hot/cold | of which 4-bit scan | tokens/s hot/cold | tokens/s dense | codes (GiB) |
+|---|---|---|---|---|---|---|---|
+| 131072 | 693.6 ± 17.1 | 167.7 | 351.5 ± 1.8 | 26.1 | 2.26 | 1.28 | 0.93 |
+| 524288 | 3036.4 ± 79.1 | 645.6 | 483.7 ± 1.6 | 86.7 | 1.74 | 0.32 | 3.72 |
+| 1048576 | 6426.8 ± 114.5 | 1284.3 | 659.9 ± 3.7 | 168.1 | 1.33 | 0.15 | 7.44 |
+
+- Both depths pass the KLD gate; at 1048576 the margin is 0.0029.
+- At `t ≥ 524288` hot/cold is under one streaming read of K and V (the bound on any dense pass on this CPU): 1.33× at 524288, 1.95× at 1048576. At 131072 it is above it (351.5 against 167.7).
+- At 1048576 per layer: scan 6.0 ms, select 6.9, gather 7.5, attention 3.2. The `dense` arm reads each KV row once per query head (7×).
+- llama.cpp (CUDA, `-fa 1`, same GGUF): 169.5 tokens/s at depth 0, 65.82 at 131072 (f16 KV), 29.18 at 262144 (q8_0 KV); at 524288 (q4_0 KV) "failed to create context".
+- Controls (layer 14, heads 0 and 27): select-all against dense rel-L2 0 at all three `t`; lowest-score selection rel-L2 0.067 to 1.12, against 8.6e-5 to 2.4e-2 for the top-8192.
+- Not measured: the GPU hot path (`gpu_decode_bench` on this GGUF produced wrong text and panicked, `DEC_PDL consumer spins gave up`), and a run with all 28 layers' cold store resident (112 GB f32 at 1048576; an 8-bit cold store is 28 GB).
+
+Lean: `proof/corpus/Perf/HattnHotCold.lean`, 8 theorems, empty axiom cone in `AxiomAudit.lean`; a two-datum mutation in a scratch copy turns four theorems red. Grade: measured on one CPU; tokens/s are derived sums.
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a

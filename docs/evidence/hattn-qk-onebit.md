@@ -100,3 +100,32 @@ No novelty is claimed. The expansion is the Walsh–Hadamard decomposition of `e
 One prompt, one model, `T = 512`, `Q4_K_M` weights dequantized to f32 for the dumps, 24 layers of q, k only (no values, no whole-model output, no perplexity). The scale is fitted per head on the first half and read on the second, so a later-context shift is in the held-out number. Fixed projections only: no trained projection. Arm B's explanation, the absolute sign-attention floor on other models, and every speed claim are untested. numpy float64 arithmetic; no rustc/LLVM, kernel or GPU layer is involved.
 
 Formalized: `proof/corpus/Perf/HattnT1.lean` (`p1_holds`, `p2_refuted`, `p3_refuted`, `p3_no_cell`, `p4_refuted`), `model` inputs copied from the tables above, audited in `AxiomAudit.lean`; the instrument and the data are outside it.
+
+## Trained one-bit key codes (HATTN-T3; `measured`, two models)
+
+Row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Instrument `tools/hattn/qk_train.py` (`--check`: init identities exact, gradient against finite difference rel err 3.6e-8). Data: the 32768-token prose prefix of `g7-1m` (`g05-32k`, `g7-32k`); scale-fit rows and the 1024-position training pool from `t ∈ [4096, 16384)`, 32 held-out rows per head from `t ∈ [24576, 32768)` over all keys `s ≤ t`. Predictions `/home/socol/oc-tmp/hattn-t3/PREDICTIONS-T3.md` (sha256 `202b5ac8a192`), registered before any trained run; outputs `t3-05b.jsonl` (`1217e1ffa39d`), `t3-7b.jsonl` (`3f90740241f7`).
+
+- Arms (one key code per KV head, shared by its query heads): S0 `q · sign(k)·mean|k|` (the probe's `KV_TAIL_LOWBIT=1`); S1 the same after a Walsh–Hadamard rotation `R`; L4 the probe's 4-bit code; SR `sign(Rq) · sign(Rk)`; ST trained `(U_h q) · sign(Wk + c)·mean|Wk|` from S1; SS trained one-bit q and k from SR; STI = ST from `W = U_h = I` (labelled extension, no registered prediction). Training: Adam, 300 minibatch steps, loss mean KL(float ‖ arm), sign forward, straight-through backward (Hubara et al., arXiv 1602.02830).
+- Disclosure: the first layer-2 run trained full-batch on 64 fixed rows and overfitted (train loss 0.34, held-out KL 2.76 on one head); the minibatch pool replaced it before the other layers, predictions unchanged. Layer 2 ran in float64, the rest in float32.
+
+Median held-out KL per head (nats) and mean float mass of the arm's top `t/256` keys:
+
+| arm | 0.5B KL | 0.5B mass | 7B KL | 7B mass |
+|---|---|---|---|---|
+| S0 (probe 1-bit) | 2.700 | 0.501 | 4.644 | 0.336 |
+| S1 (rotated 1-bit) | 3.583 | 0.432 | 2.259 | 0.728 |
+| ST (trained, from S1) | 2.843 | 0.525 | 1.328 | 0.741 |
+| STI (trained, from identity) | 2.298 | 0.621 | 1.125 | 0.791 |
+| SS (trained 1-bit q and k) | 3.541 | 0.383 | — | — |
+| SR | 3.849 | 0.273 | 2.675 | 0.568 |
+| L4 (probe 4-bit) | 0.259 | 0.766 | 0.153 | 0.867 |
+| exact top `t/256` | — | 0.813 | — | 0.878 |
+
+0.5B: layers {2, 6, 10, 14, 18, 22}, 84 heads. 7B: layers {4, 14, 24}, 84 heads, trained arms ST and STI only (one KV group per 570 s run, 300-341 s each).
+
+- Verdicts: T3a refuted (ST/S1 KL 0.79, registered 0.45 [0.25, 0.75]); T3b held (φ 0.245); T3c held (ST 0.24 below L4); T3d point refuted (SS 3.54, just above [1.5, 3.5]), gate clause held; T3e held; T3f refuted (7B φ 0.085, below 0.15).
+- Decision: the port rule (ST mass ≥ L4 − 0.02 on the 7B) is not met; ST is 0.126 below and STI 0.076 below. The 4-bit scan stays the hot/cold selector. SS misses 0.05 by 70×: one-bit q and k do not convert this model by a trained projection alone; that needs finetuning.
+- Finding: on the 7B the rotation alone doubles one-bit mass (S0 0.336 → S1 0.728); the in-model one-bit runs above used the unrotated S0. On the 0.5B the rotation does not help (0.501 → 0.432).
+- Finding: at `t/16` STI holds 0.933 of the mass on the 7B (L4 0.967), so a one-bit prefilter to `t/16` followed by a 4-bit rerank is the next selector to measure in-model (`unmeasured`).
+
+Lean: `proof/corpus/Perf/HattnT3Train.lean`, 12 theorems, empty axiom cone in `AxiomAudit.lean`; a two-datum mutation in a scratch copy turns three theorems red. Not covered: in-model KLD of any trained code, other prompts, the 7B SS arm, rustc/LLVM.
