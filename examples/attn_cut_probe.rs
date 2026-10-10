@@ -3762,6 +3762,21 @@ fn run_tail(path: &str, dir: &std::path::Path) -> Result<bool, Box<dyn Error>> {
                 8,
             )
         };
+    // `KV_TAIL_FARB=n` replaces the 2048-token far budget of every indexed arm with `n`.
+    let arms: Vec<Arm> = match std::env::var("KV_TAIL_FARB") {
+        Ok(v) => {
+            let n: usize = v.parse().map_err(|e| format!("KV_TAIL_FARB: {e}"))?;
+            arms.into_iter()
+                .map(|a| match a {
+                    Arm::Grp(_, r) => Arm::Grp(n, r),
+                    Arm::Tree(_, r, s) => Arm::Tree(n, r, s),
+                    Arm::Clu(_, r, s) => Arm::Clu(n, r, s),
+                    other => other,
+                })
+                .collect()
+        }
+        Err(_) => arms,
+    };
     // `KV_TAIL_ARMS=2,4` keeps the dense reference (index 0) and the listed arms: each arm runs its own whole-model
     // forward, so a subset gives the same per-arm figures as the full list.
     let arms = match std::env::var("KV_TAIL_ARMS") {

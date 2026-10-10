@@ -516,6 +516,31 @@ with `≤ 25` changed to `≤ 23` turns `decide` red).
 - `tree-s4` and `clu-s8` at these contexts, the mutation at 1048576, other prompts, a far budget that grows with `t`.
 - No Rust/Aeneas selector; rustc, LLVM, the GPU kernels and the instrument are outside the trust boundary.
 
+## Far-budget scaling at 524288 (Qwen2.5-7B-Instruct-1M)
+
+Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`.
+
+Question: does the gate hold at 524288 if the far budget `b` grows past 2048? Setup: flat arm and `clu-s4`, `b` replaces 2048 (`KV_TAIL_FARB`), 64 tail positions before 524288 of `/home/socol/oc-tmp/hattn-long/g7-1m`, instrument `attn_cut_probe.hd128qg`, one arm per invocation (`g10-t524288-b<b>-a<arm>.out`, 175-195 s each, TAIL FAIL verdict = exit 1). Predictions F1-F4 registered before any run: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-FARB.md`, sha256 `492f54aa…`. Gate: `cd proof/corpus && lake build Perf.HattnT8Farb AxiomAudit`, exit 0; mutation control (F2 negation removed) red.
+
+| arm | b | mean KLD | over 0.05 | bytes/dense |
+|---|---:|---:|---:|---:|
+| flat | 2048 | 0.3370 | 62/64 | 0.0064 |
+| flat | 4096 | 0.2979 | 62/64 | 0.0103 |
+| flat | 8192 | 0.2612 | 63/64 | 0.0181 |
+| flat | 16384 | 0.2218 | 62/64 | 0.0338 |
+| clu-s4 | 16384 | 0.2903 | 62/64 | 0.0108 |
+
+| prediction | verdict |
+|---|---|
+| F1 flat at b=4096 in [0.05, 0.25] | refuted: 0.2979 |
+| F2 flat at b=16384 passes | refuted: 0.2218 |
+| F3 clu-s4 within 0.02 of flat at b=16384 | refuted: 0.0685 above |
+| F4 KLD monotone non-increasing in b | held: -0.0391, -0.0367, -0.0394 per doubling |
+
+Grade: `measured` for the table (one prompt, one run per cell); `model` for the extrapolation. Each doubling of `b` buys at most 0.04. Four more doublings at that rate leave 0.0618 at b=262144, and the fifth is b=524288=t, the dense read (`Perf.HattnT8Farb.doublings_to_dense`). At 524288 on this prompt a bigger far budget does not restore the gate at sparse cost; the loss is spread over the far keys, which matches the 14-16x rise in effective key count in the FACES-R1 H9 section of `docs/epics/spinor.md`.
+
+Not established: other prompts, tree arms, 1M, the Lean `b=2048` bytes entry is Q9's, a selector better than Quest bounds (flat-set recall of `clu-s4` at b=16384 is 0.101).
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a
