@@ -1311,6 +1311,17 @@ open Apeiron.Trichotomy
 #audit Apeiron.Numeric.osDen_scan_acc
 #audit Apeiron.Numeric.osNum_scan_acc
 #audit Apeiron.Numeric.softmax_attention_is_online_chart
+#audit Apeiron.Numeric.AttentionCut.ratio_error
+#audit Apeiron.Numeric.AttentionCut.certified_read
+#audit Apeiron.Numeric.AttentionCut.num_le
+#audit Apeiron.Numeric.AttentionCut.dropped_mass_bound
+#audit Apeiron.Numeric.AttentionCut.farkas_prunes
+#audit Apeiron.Numeric.AttentionCut.moment_remainder
+#audit Apeiron.Numeric.AttentionCut.moment_one_stored
+#audit Apeiron.Numeric.AttentionCut.moment_two_stored
+#audit Apeiron.Numeric.AttentionCut.partition_error
+#audit Apeiron.Numeric.AttentionCut.keyChar_injective
+#audit Apeiron.Numeric.AttentionCut.keys_determined
 
 -- The order-three weighted sum over any commutative ring: the explicit witness, the order-three
 -- relation, the variance identity, equal-weight silence and the rephasing fixed points
