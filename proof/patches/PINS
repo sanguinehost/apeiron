@@ -51,3 +51,14 @@ AENEAS_PATCH_SHA256="35bc103b490d7f38609c70e202eed365ab4a67a31634c14aa06186032ea
 AENEAS_TRANSLATOR_SHA256=7b6982382aee623b3e02965031bcce3736bf58222ed822b11a94599fef82b1df
 CHARON_SHA256=a96627e90aac379f70edd093d7dabdee5fa79dca77012a94029bad5bdef2a232
 CHARON_DRIVER_SHA256=3e1ae2c1e444c2f3d0a80bfb312cc650d5993198d5e9ea174f7f8677b1cc75a1
+
+# Canonical identities: the digests a fresh `proof/bootstrap.sh` build produces anywhere. The
+# `AENEAS_TRANSLATOR_SHA256` / `CHARON_SHA256` / `CHARON_DRIVER_SHA256` values above are the digests
+# of the original installation, whose OCaml root and Cargo home paths are embedded in the binaries
+# (the OCaml standard-library directory; dependency panic locations). The canonical build fixes the
+# OCaml root at /tmp/apeiron-opam and remaps CARGO_HOME and RUSTUP_HOME, so its digests do not
+# depend on the user's home. `bootstrap.sh --check` and `regen.sh` accept either set; a build
+# produces only the canonical one.
+AENEAS_TRANSLATOR_CANON_SHA256=93c997dd4fec76bd1c26dbc10acd7796582d681ead5467c2db2124df621530ce
+CHARON_CANON_SHA256=fe5a5a2caa3a20ee70c9d322752d983b823cf8688e0943a87770100a9a1b3809
+CHARON_DRIVER_CANON_SHA256=0aff2588f4978b0e77e8e2fe94295ba76219a5e04575dc0a02f91b27904c3689

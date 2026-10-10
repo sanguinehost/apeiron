@@ -705,8 +705,20 @@ proof/regen.sh --check          # prints: extraction is fresh
   chain exits 0 and `regen.sh --check` prints `extraction is fresh` (89 s wall clock; bootstrap 49 s,
   of which the aeneas `dune build` from an empty `_build` is ≈42 s, and regen 40 s). `bootstrap.sh`
   reuses pinned products already present at `--build-root`, so a machine that already holds the
-  toolchain does not rebuild it; a machine that does not needs `opam` with the pinned OCaml closure,
-  the `nightly-2026-08-18` Rust toolchain carrying `rustc-dev` and `miri`, and binutils `strip`.
+  toolchain does not rebuild it; a machine that does not needs `opam` with the OCaml closure of `proof/opam-switch.export` at
+  `/tmp/apeiron-opam` (`opam init --bare --disable-sandboxing --root /tmp/apeiron-opam`, then
+  `opam switch import proof/opam-switch.export --switch default --root /tmp/apeiron-opam`), the
+  `nightly-2026-08-18` Rust toolchain carrying `rustc-dev` and `miri`, and binutils `strip`.
+- Canonical identity: `proof/patches/PINS` carries `*_CANON_SHA256` for Aeneas, Charon and
+  charon-driver. The OCaml standard-library directory and the Cargo/rustup source paths are embedded
+  in the binaries, so the canonical build fixes the OCaml root at `/tmp/apeiron-opam` and remaps
+  `CARGO_HOME`/`RUSTUP_HOME`. Measured: three builds (two build roots, two `HOME` values) strip to one
+  digest per binary. `bootstrap.sh --check` and `regen.sh` accept the canonical or the original set.
+- CI: the `proof` job in `.github/workflows/ci.yml` runs `proof/bootstrap.sh`, `proof/regen.sh --check`
+  and `cd proof/corpus && lake exe cache get && lake build` on a clean runner. Its steps, run
+  verbatim in a fresh clone under a clean `HOME`, exit 0; editing `proof/ApeironWord.lean` makes
+  `regen.sh --check` exit 1 (`stale: ApeironWord.lean does not match regeneration from current
+  source`), and restoring it exits 0.
 - An exported `AENEAS_HOME` that names no installation (for example a source checkout) is ignored:
   `regen.sh` falls back to `target/aeneas` and says so. An `AENEAS_HOME` that contains `aeneas` is
   still authoritative.
