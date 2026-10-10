@@ -104,6 +104,8 @@ text_map = [
   # The resource model directory is not published; a pointer into it keeps the file name.
   "regex:(?:~/apeiron/)?proof/resource/==>the unpublished resource model/",
   "oc-tmp==>scratch",
+  # The sweep gate quotes its own tracker-name pattern in a commit message.
+  "'(?i)operately'==>'<tracker name>'",
   # Experiment lane ids: the experiment keeps a plain name, the lane and task ids go.
   "regex: ?\\(`LEARN-HATTN`, task `HATTN-T(\\d+)`\\)==> (attention-cut T\\1)",
   "regex:`?escalation/FACES-R1-H5-PREDICTION\\.md`?==>the H5 prediction note",
