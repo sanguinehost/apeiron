@@ -581,6 +581,46 @@ Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registe
 - Formalised: `proof/corpus/Perf/HattnT8SumU.lean` (5 theorems, `AxiomAudit.lean` rows; build exit 0, `HATTNSUMU-lake.log`). Mutation control: `kld := [2389, 800, 400, 0]` in a throwaway copy gives 2 errors, the committed file 0.
 - Not covered: one prompt; rustc/LLVM; mean value only, so a learned or query-conditioned page code is untested.
 
+## Layer attribution of the 524288 failure (Qwen2.5-7B-Instruct-1M)
+
+Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registered first: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-LAYER.md`, sha256 `3534046b…`.
+
+- Change: `KV_TAIL_DENSE=l,..` runs the listed layers dense, `KV_TAIL_SPARSE=l,..` runs every other layer dense (`layer_arm`, `examples/attn_cut_probe.rs`). Command: `/home/socol/oc-tmp/hattn-long/layer.sh` (`g13-t524288-<run>.out`, 197–217 s each), flat arm `grp-fix2048-r8`, 64 tail positions, grade `measured`, one prompt.
+
+| run | flat in layers | mean KLD at 524288 |
+|---|---|---|
+| all layers (Q9) | 0-27 | 0.3370 |
+| D | all except 14, 21 | 0.3202 |
+| Q1 | 0-6 only | 0.1821 |
+| Q2 | 7-13 only | 0.0479 |
+| Q3 | 14-20 only | 0.1149 |
+| Q4 | 21-27 only | 0.0666 |
+
+- L1 refuted: dense in layers 14 and 21 (where H9 saw the effective key count jump) removes 0.017 of 0.337.
+- L2 held: D fails the gate.
+- L3 refuted: the first quarter alone (0.1821) exceeds the third and fourth.
+- L4 held (control): every single-quarter run is under the all-flat 0.3370.
+- Finding: flat selection at 2048 tokens passes the gate in layers 7-13 alone (0.0479) and fails it in the other three quarters; layers 0-6 carry the most. The quarters sum to 0.4115, above 0.3370, so the shares are upper bounds.
+- Formalised: `proof/corpus/Perf/HattnT8Layer.lean` (6 theorems, `AxiomAudit.lean` rows). `lake build Perf.HattnT8Layer` exit 0 and `#print axioms` within `{propext}` (`HattnLayerAudit.lean`); mutation control `quarters := [1000, …]` gives 3 errors, the committed file 0. The full `AxiomAudit` build was not run: a concurrent lane's dirty `Count/*.lean` forced a 3369-module rebuild that passed the 570 s budget (`HATTNLAYER-lake.log`, exit 124); that build stays open.
+
+Second sweep, dense prefixes. Predictions registered first: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-LAYER2.md`, sha256 `025488e1…`. Command: `/home/socol/oc-tmp/hattn-long/layer2.sh` (`g14-t524288-E{1..4}.out`).
+
+| run | dense layers | flat elsewhere, mean KLD at 524288 | reads/t (mean) |
+|---|---|---|---|
+| E1 | 0-1 | 0.3019 | 0.0756 |
+| E2 | 0-3 | 0.3181 | 0.1467 |
+| E3 | 0-6 | 0.3071 | 0.2534 |
+| E4 | 0-6, 14-20 | 0.1033 | 0.5022 |
+
+- M1 refuted: dense layers 0-1 give 0.3019, above 0.247.
+- M2 refuted: dense layers 0-6 give 0.3071, outside [0.10, 0.20].
+- M3 held: no dense-prefix run passes the 0.05 gate; half the stack dense (E4) gives 0.1033.
+- M4 held: E1 removes at least half of what E3 removes from 0.3370.
+- M5 refuted: not monotone, E2 (0.3181) is above E1 (0.3019).
+- Finding: layers 0-6 flat alone cost 0.1821 (Q1), yet making them dense under flat elsewhere moves 0.3370 only to 0.3071. The error compounds through depth: a flat layer anywhere perturbs the residual stream every later layer reads. A per-layer dense budget does not give a passing sparse path on this prompt; the reads/t cost of E4 is 0.50 of dense.
+- Formalised: `Perf.HattnT8Layer` `m1_refuted`..`m5_refuted`, `compounding`; `lake build Perf.HattnT8Layer` exit 0 (119 jobs), `#print axioms` within `{propext}`; mutation (E1 set to 0.2000) turns 2 theorems red. Full `AxiomAudit` build not run (lane contention).
+- Not covered: one prompt; rustc/LLVM.
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a
