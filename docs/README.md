@@ -28,6 +28,7 @@ from [`templates/epic.md`](templates/epic.md).
 | [apeiron-intent-loop](epics/apeiron-intent-loop.md) | transition 4 closed: extraction freshness open; `tools/dispatch/contracts.json` registers no target |
 | [assurance-factoring](epics/assurance-factoring.md) | implementation under factoring evidence |
 | [build-cost-optimization](epics/build-cost-optimization.md) | plan |
+| [book](epics/book.md) | complete |
 | [carrier-refinement](epics/carrier-refinement.md) | complete |
 | [combinator-links](epics/combinator-links.md) | in progress |
 | [corpus-release-pin](epics/corpus-release-pin.md) | approved |

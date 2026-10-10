@@ -802,6 +802,10 @@ def build_report(root):
             missing.append(relative)
         else:
             documents.append((relative, path))
+    # The book is public prose: every chapter is a governing document, so a cited path or
+    # declaration that stops resolving reddens the gate.
+    for path in sorted((root / "book" / "src").glob("**/*.md")):
+        documents.append((path.relative_to(root).as_posix(), path))
 
     if missing:
         return {
@@ -1061,6 +1065,18 @@ def self_test():
                 ),
             )
 
+        def book_unbacked(tree):
+            _write(
+                tree / "book" / "src" / "chapter.md",
+                "# Chapter\n\n`not_a_real_book_theorem` is proved.\n",
+            )
+
+        def book_missing_command(tree):
+            _write(
+                tree / "book" / "src" / "chapter.md",
+                "# Chapter\n\nThe gate `proof/no-such-book-gate.sh` is tested.\n",
+            )
+
         def perf_blank_cell(tree):
             path = tree / "docs" / "evidence" / "perf-predictions.md"
             _write(
@@ -1146,6 +1162,20 @@ def self_test():
                 missing_document,
                 2,
                 ("docs/direction.md",),
+                (),
+            ),
+            (
+                "negative: book chapter with an unbacked proved claim rejected",
+                book_unbacked,
+                1,
+                ("book/src/chapter.md", "not_a_real_book_theorem"),
+                (),
+            ),
+            (
+                "negative: book chapter naming a missing gate rejected",
+                book_missing_command,
+                1,
+                ("book/src/chapter.md", "proof/no-such-book-gate.sh"),
                 (),
             ),
             (
