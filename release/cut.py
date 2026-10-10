@@ -144,6 +144,9 @@ def objects(out):
     p.wait()
 
 
+LAST = []
+
+
 def check(out, full):
     m = load()
     bad = []
@@ -221,8 +224,10 @@ def check(out, full):
 
     if full and not bad:
         bad += full_gate(out)
+    global LAST
+    LAST = list(dict.fromkeys(bad))
     if bad:
-        for b in dict.fromkeys(bad):
+        for b in LAST:
             print("cut: FAIL", b)
         print(f"cut: check FAILED ({len(set(bad))} finding(s))")
         return 1
@@ -279,12 +284,13 @@ def self_test():
             return 1
         m = load()
         controls = [
-            ("stripped path", "docs/plan.md", b"# plan\n"),
-            ("home path", "src/zz_control.rs", b"// /home/socol/x\n"),
-            ("row id", "src/zz_control2.rs", b"// rel-apeiron-cut-GTmRyI2IZuimzE0Sn87cNf\n"),
-            ("dangling", "src/zz_control3.rs", b"// see tools/rooting/check.py\n"),
+            ("stripped path", "docs/plan.md", b"# plan\n", "stripped path present: docs/plan.md"),
+            ("home path", "src/zz_control.rs", b"// /home/socol/x\n", "(src/zz_control.rs)"),
+            ("row id", "src/zz_control2.rs", b"// rel-apeiron-cut-GTmRyI2IZuimzE0Sn87cNf\n", "(src/zz_control2.rs)"),
+            ("dangling", "src/zz_control3.rs", b"// see tools/rooting/check.py\n",
+             "dangling reference in src/zz_control3.rs"),
         ]
-        for name, path, data in controls:
+        for name, path, data, tag in controls:
             p = os.path.join(out, path)
             os.makedirs(os.path.dirname(p), exist_ok=True)
             with open(p, "wb") as f:
@@ -296,6 +302,9 @@ def self_test():
             if rc == 0:
                 print(f"cut: self-test FAIL: control '{name}' passed")
                 ok = False
+            elif not any(tag in b for b in LAST):
+                print(f"cut: self-test FAIL: control '{name}' failed without naming {tag!r}")
+                ok = False
             run(["git", "rm", "-q", "-f", path], cwd=out)
             run(["git", "commit", "-q", "-m", f"restore {name}"], cwd=out)
         # A message control cannot be restored by a later commit: history keeps it.
@@ -303,6 +312,9 @@ def self_test():
         print("-- control: board trailer in a message (must fail)")
         if check(out, False) == 0:
             print("cut: self-test FAIL: message control passed")
+            ok = False
+        elif not any(b.startswith("commit ") and "board" in b for b in LAST):
+            print("cut: self-test FAIL: message control failed without naming a commit message")
             ok = False
     print("cut: self-test", "PASS" if ok else "FAIL")
     return 0 if ok else 1

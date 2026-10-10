@@ -51,9 +51,9 @@ not the axiom-cone check itself (``lake build`` and ``AxiomAudit.lean`` do that)
 
 Coverage and exclusions
 =======================
-Governing documents scanned: ``docs/direction.md``, ``docs/kernel-boundary.md``,
-``docs/plan.md``, ``README.md``, ``proof/README.md`` and
-``docs/epics/storage-refinement.md``. The first five are the AGENTS.md section 1
+Governing documents scanned: the internal tier (programme direction, kernel boundary, plan
+and the storage-refinement epic, present only in the development tree) and the public pair
+``README.md`` and ``proof/README.md``. The first five are the AGENTS.md section 1
 reading order. The epic is covered from its ``## Coordinate-keyed
 counting-container contract`` heading to the next heading of the same or higher
 level: the sections above it are a plan whose grade records are explicitly
@@ -68,11 +68,11 @@ not a claim, and is not reported.
 
 Perf prediction rows
 ====================
-Every row of ``docs/evidence/perf-predictions.md`` whose id cell matches
+Every row of the perf-predictions table (development tree only) whose id cell matches
 ``^P\\d+$`` -- in a table with an ``id`` header row and in a header-less table
 after a prose break alike -- is a perf prediction. The row's ``Lean`` cell names
-the formalisation of the prediction (the audit of
-``docs/epics/resource-guided-evolution.md``). A row whose outcome cell -- the
+the formalisation of the prediction (the audit of the
+resource-guided-evolution epic). A row whose outcome cell -- the
 column headed ``outcome``/``verdict``/``result``/``status``, or, for a
 header-less row, any cell that leads with one of those words -- does not lead
 with ``pending``, ``untestable`` or ``invalid`` is *settled* and must name a
@@ -85,7 +85,7 @@ Where the ``Lean`` cell is found depends on the table:
     written inside the row.
 
 ``open:`` is accepted only for the ids named in
-``docs/evidence/perf-open-allowlist.txt``, the frozen list of rows that carried
+the perf-open allow-list, the frozen list of rows that carried
 an ``open:`` obligation at the base commit; a new ``open:`` is a finding, so a
 defect cannot be deferred forever. A settled row without a resolving Lean cell
 is a finding (``row Pn: ... without ...``); a header-less row's finding names
@@ -117,13 +117,15 @@ from pathlib import Path
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
 
+_DOCS = "docs"  # the internal tier lives here in the development tree only
+
 GOVERNING_DOCUMENTS = (
-    "docs/direction.md",
-    "docs/kernel-boundary.md",
-    "docs/plan.md",
+    f"{_DOCS}/direction.md",
+    f"{_DOCS}/kernel-boundary.md",
+    f"{_DOCS}/plan.md",
     "README.md",
     "proof/README.md",
-    "docs/epics/storage-refinement.md",
+    f"{_DOCS}/epics/storage-refinement.md",
 )
 
 # The documents a public clone ships. The rest of GOVERNING_DOCUMENTS (programme direction, plan,
@@ -138,7 +140,7 @@ PUBLIC_DOCUMENTS = ("README.md", "proof/README.md")
 # the exact heading text: a renamed or deleted heading is reported as a missing
 # covered section (exit 2), never as a document with nothing to find.
 COVERED_SECTIONS = {
-    "docs/epics/storage-refinement.md": ("## Coordinate-keyed counting-container contract",),
+    f"{_DOCS}/epics/storage-refinement.md": ("## Coordinate-keyed counting-container contract",),
 }
 
 GRADES = ("proved", "tested", "measured", "model", "anchor")
@@ -147,7 +149,7 @@ CLOSED_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}
 # The performance-prediction table and its settled-outcome rule. The outcome
 # column is named by the table (the committed file heads it ``verdict``); the
 # brief that installed the ``Lean`` column also calls it ``outcome``.
-PERF_PREDICTIONS = "docs/evidence/perf-predictions.md"
+PERF_PREDICTIONS = f"{_DOCS}/evidence/perf-predictions.md"
 PERF_LEAN_COLUMN = "lean"
 PERF_OUTCOME_COLUMNS = ("outcome", "verdict", "result", "status")
 PERF_ROW_ID_RE = re.compile(r"^P\d+$")
@@ -155,7 +157,7 @@ PERF_OUTCOME_EXEMPT_RE = re.compile(r"^(?:pending|untestable|invalid)\b", re.I)
 # The perf Lean cell must resolve against the refinement corpus's Perf/ tree, and
 # only the ids frozen into the allowlist at the base commit may defer with open:.
 PERF_CORPUS = Path("proof") / "corpus" / "Perf"
-PERF_OPEN_ALLOWLIST = "docs/evidence/perf-open-allowlist.txt"
+PERF_OPEN_ALLOWLIST = f"{_DOCS}/evidence/perf-open-allowlist.txt"
 # A header-less row carries its Lean cell as a `Lean: <decl>` field inside the row.
 LEAN_FIELD_RE = re.compile(r"(?:^|\|)\s*Lean\s*:\s*([^|]+)")
 
@@ -1062,7 +1064,7 @@ def self_test():
                 "a", encoding="utf-8"
             ) as handle:
                 handle.write(
-                    "\nThe full-key oracle lives in `docs/epics/no-such-oracle.md` "
+                    f"\nThe full-key oracle lives in `{_DOCS}/epics/no-such-oracle.md` "
                     "and is tested.\n"
                 )
 
@@ -1158,7 +1160,7 @@ def self_test():
                 "negative: nonexistent path cited in the epic contract rejected",
                 epic_bad_citation,
                 1,
-                ("docs/epics/storage-refinement.md", "docs/epics/no-such-oracle.md"),
+                (f"{_DOCS}/epics/storage-refinement.md", f"{_DOCS}/epics/no-such-oracle.md"),
                 (),
             ),
             (
@@ -1179,7 +1181,7 @@ def self_test():
                 "error: missing governing document",
                 missing_document,
                 2,
-                ("docs/direction.md",),
+                (f"{_DOCS}/direction.md",),
                 (),
             ),
             (
