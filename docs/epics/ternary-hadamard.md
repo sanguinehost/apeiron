@@ -598,6 +598,25 @@ Qwen2.5-0.5B `ffn_down`, blocks 0–3 of 24, every arm at 1.125 b/w. Grade `test
     `sd1-path` 0.4778163 → 0.4778086); 9 of 24 cells above 1e-6.
   - Every arm ranking above is unchanged. The cause is attributed to the rounded scale; this is inference, not tested.
 
+### W9 result (row `onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1`)
+
+Receipt `docs/evidence/onebit-w9.md`; Lean `proof/corpus/Perf/OnebitW9.lean` (8 verdicts, empty axiom set).
+Qwen2.5-0.5B, wikitext-2 test 64×512, paired KLD against f16 on llama.cpp CPU. llama.cpp `IQ1_S`/`IQ1_M` reach only
+the 21 `ffn_down` tensors of blocks 3–23 (P1); P2 is all 168 linear tensors on llama.cpp's `Q1_0` base.
+
+| arm | b/w | P1 KLD | P2 KLD |
+|---|---:|---:|---:|
+| `IQ1_M` imatrix | 1.75 | 0.519 | — |
+| `IQ1_S` imatrix | 1.5625 | 0.632 | — |
+| `had-gptq1` | 1.125 + online R₁₂₈ | 0.834 | 6.850 |
+| `gptq1` | 1.125 | 5.243 | 15.300 |
+| `rtn` = llama.cpp `Q1_0` | 1.125 | 10.385 | 13.167 |
+
+- `had-gptq1` beats `Q1_0` 12.4× at equal bits on P1. `IQ1_S` beats it 1.32× with 1.39× the bits.
+- Post-training one bit on every linear tensor is not usable (P2 best 6.85 nats, 282× `Q4_K_M`). Whole-model one-bit
+  weights go through training: `LEARN-HATTN` T4 and the fold training path.
+- Controls: f16 against itself KLD 0; our `Q1_0` writer is byte-identical to llama-quantize's on P1.
+
 # Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
 
 Owner go (2026-10-09): open the fold-training and hyperbolic-attention lane, aiming at attention
