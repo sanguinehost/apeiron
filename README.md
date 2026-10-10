@@ -101,8 +101,9 @@ committed extraction differs from a fresh one; `cd proof/corpus && lake build` c
 - **Cryptography is unaudited.** `aes`, `chacha`, `sha256` and `crypto` are tested against
   known-answer vectors only and are not side-channel resistant (`aes` indexes its S-box by secret
   bytes). Do not use them to protect real data.
-- **`unsafe` is mostly unproved.** `src/` has 735 lines containing `unsafe` outside comments and 336
-  `SAFETY:` comments. Only the `src/table` window model is under a proof.
+- **`unsafe` is mostly unproved.** Count it with
+  `rg -n '\bunsafe\b' src --glob '*.rs' | rg -v ':\s*(//|\*)' | wc -l`; `SAFETY:` comments are
+  counted with `rg SAFETY src --glob '*.rs' | wc -l`. Only the `src/table` window model is under a proof.
 - **The GPU path is single-tenant.** Vulkan buffers run without `robustBufferAccess` and workgroup
   memory is not cleared between dispatches.
 - **No claim below the extraction.** rustc and LLVM code generation, the kernel ABI, Vulkan drivers

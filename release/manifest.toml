@@ -82,6 +82,10 @@ text_map = [
   "/home/socol==>~",
   "-home-socol-==>-home-user-",
   "regex:(?m)^# Row: `rel-apeiron-[^\\n]*\\n==>",
+  "regex:(?m)^Row: [a-z]+-apeiron-[^\\n]*\\n==>",
+  # Task ids: a parenthetical holding only the id goes whole, a bare id goes alone.
+  "regex: ?\\(`?APEIRON-[A-Z0-9]+(?:-[A-Za-z0-9]+)*`?\\)==>",
+  "regex:`?\\bAPEIRON-[A-Z0-9]+(?:-[A-Za-z0-9]+)*\\b`?[;,]? ?==>",
   "oc-tmp==>scratch",
   "/tmp/opencode==>/tmp/apeiron",
   # A pointer to a stripped internal document keeps its slug and drops the path.
@@ -116,6 +120,9 @@ forbidden = [
   "[Aa]ntigravity",
   "\\bdeepseek\\b",
   "(?i)\\bhold overrides",
+  "\\bAPEIRON-[A-Z]",
+  "-apeiron-[a-z0-9-]+-(?=[A-Za-z0-9]*[A-Z0-9])[A-Za-z0-9]{20,24}\\b",
+  "\\bSol ruled|\\bAstra\\b|\\bTerra\\b",
 ]
 
 # Added after the filter, from `release/public/<path>` to `<path>`.
@@ -135,6 +142,8 @@ docs_allow = ["docs/contracts/slang-source-*.md"]
 # contains "unpublished", so the source is edited instead.
 public_docs = ["README.md", "CONTRIBUTING.md", "SECURITY.md", "proof/README.md", "book/src/"]
 dangling_ignore = ["release/", "target/"]
+# Paths whose abbreviated commit ids are rewritten to the ids of the cut's history.
+remap = ["README.md", "proof/README.md", "bench/", "book/src/", "src/freq.rs", "src/hashtrinity/mod.rs"]
 # Files that must exist in the cut (the substitutions and the public surface).
 present = [
   "README.md", "LICENSE", "NOTICE", "SECURITY.md", "CONTRIBUTING.md", "AGENTS.md",

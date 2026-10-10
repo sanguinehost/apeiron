@@ -203,11 +203,10 @@ sha256sum $SOURCE_FILES
 run_extract() {
     dest_dir=$1
     llbc=$2
-    # The reproducible historical configuration. The `APEIRON-ANATIVE-AEN-PIPE` explicit
-    # monomorphizing candidate is withdrawn: it omits `--ops-to-function-calls` and
-    # `--index-to-function-calls`, which lower every array/slice index and repeat in the tree, so
-    # it rejects on `core::array::repeat` and `TArray`/`TSlice`. The preset translates the current
-    # source; see `docs/evidence/anative.md`.
+    # The reproducible historical configuration. The explicit monomorphizing candidate is
+    # withdrawn: it omits `--ops-to-function-calls` and `--index-to-function-calls`, which lower
+    # every array/slice index and repeat in the tree, so it rejects on `core::array::repeat` and
+    # `TArray`/`TSlice`. The preset translates the current source.
     "$CHARON" cargo \
         --preset aeneas \
         --opaque 'crate::attn::f32_core' \

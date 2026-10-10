@@ -91,6 +91,7 @@ def build(out, rev):
         cmd += ["--replace-text", text, "--replace-message", msg]
         run(cmd, cwd=out)
 
+    remap_revisions(out, m)
     for dst, data in subs.items():
         p = os.path.join(out, dst)
         os.makedirs(os.path.dirname(p) or out, exist_ok=True)
@@ -106,6 +107,42 @@ def build(out, rev):
                GIT_COMMITTER_NAME=ident[0], GIT_COMMITTER_EMAIL=ident[1])
     run(["git", "commit", "-q", "-s", "-m", body], cwd=out, env=env)
     print(f"cut: built {out} from {full[:12]}")
+
+
+def remap_revisions(out, m):
+    """Rewrite abbreviated commit ids in `remap` paths to the ids of the rewritten history.
+
+    The filter changes every commit id, so a document that pins evidence to a revision would
+    otherwise cite one that does not resolve in the cut. An id whose commit left the cut (it only
+    touched stripped paths) is left alone."""
+    cm = os.path.join(out, ".git", "filter-repo", "commit-map")
+    if not os.path.exists(cm):
+        return
+    pairs = {}
+    with open(cm) as f:
+        next(f)
+        for line in f:
+            old, new = line.split()
+            if set(new) != {"0"}:
+                pairs[old] = new
+    pat = re.compile(r"\b[0-9a-f]{7,40}\b")
+
+    def sub(mt):
+        tok = mt.group(0)
+        hit = [o for o in pairs if o.startswith(tok)]
+        return pairs[hit[0]][:len(tok)] if len(hit) == 1 else tok
+
+    for f in tree_files(out):
+        if not any(f == r or (r.endswith("/") and f.startswith(r)) for r in m["expect"].get("remap", [])):
+            continue
+        path = os.path.join(out, f)
+        try:
+            s = open(path, encoding="utf-8").read()
+        except UnicodeDecodeError:
+            continue
+        r = pat.sub(sub, s)
+        if r != s:
+            open(path, "w", encoding="utf-8").write(r)
 
 
 def tree_files(out):
