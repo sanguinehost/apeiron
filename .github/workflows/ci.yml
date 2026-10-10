@@ -121,6 +121,12 @@ jobs:
       - name: Every graded claim names a resolvable artifact
         run: python3 tools/check-claims.py
 
+      - name: Provenance controls
+        run: python3 tools/check-provenance.py --self-test
+
+      - name: Ported files and unstated origins are named
+        run: python3 tools/check-provenance.py
+
       - name: Book statements
         run: python3 tools/book-check.py
 

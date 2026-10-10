@@ -1,0 +1,126 @@
+# Origin of every file the repository did not write from a blank page, or whose bytes are not
+# readable source. `tools/check-provenance.py` is the only reader. `NOTICE` carries the licence text
+# and the same list of ported files; the checker fails when the two lists differ.
+
+[pins]
+llama = "ece963f41"   # github.com/ggml-org/llama.cpp
+prism = "9ca265a57"   # github.com/PrismML-Eng/llama.cpp
+
+# Rust files written against a llama.cpp reference. `containment` is the share of the Rust file's
+# normalised token 5-grams that also occur in the named upstream files at the pinned revisions
+# (see `check-provenance.py --similarity`; 3 decimals, comments stripped, identifiers lowercased
+# with underscores removed).
+[[ported]]
+file = "src/format/gguf.rs"
+upstream = [{ rev = "llama", path = "ggml/src/gguf.cpp" }]
+containment = 0.001
+
+[[ported]]
+file = "src/format/mod.rs"
+upstream = [{ rev = "llama", path = "ggml/src/ggml-quants.c" }, { rev = "llama", path = "ggml/src/gguf.cpp" }]
+containment = 0.0
+
+[[ported]]
+file = "src/format/quant.rs"
+upstream = [{ rev = "llama", path = "ggml/src/ggml-quants.c" }, { rev = "llama", path = "ggml/src/ggml-common.h" }]
+containment = 0.038
+
+[[ported]]
+file = "src/engine/dequant_lowbit.rs"
+upstream = [{ rev = "prism", path = "ggml/src/ggml-common.h" }, { rev = "prism", path = "ggml/src/ggml-quants.c" }]
+containment = 0.015
+
+[[ported]]
+file = "src/gpu/decode/pack.rs"
+upstream = [{ rev = "llama", path = "ggml/src/ggml-cuda/vecdotq.cuh" }]
+containment = 0.004
+
+[[ported]]
+file = "src/learn/gguf.rs"
+upstream = [{ rev = "llama", path = "gguf-py/gguf/gguf_writer.py" }]
+containment = 0.0
+
+[[ported]]
+file = "src/learn/imatrix.rs"
+upstream = [{ rev = "llama", path = "tools/imatrix/imatrix.cpp" }, { rev = "llama", path = "common/imatrix-loader.cpp" }]
+containment = 0.007
+
+[[ported]]
+file = "src/learn/seal.rs"
+upstream = [{ rev = "llama", path = "ggml/src/ggml-quants.c" }]
+containment = 0.104
+
+# Every file matching one of these globs must match an `[[origin]]` glob.
+[coverage]
+globs = ["fuzz/seeds/*/*", "src/spirv/*.spv", "src/spirv/*.comp", "examples/gpu_dump_spirv/*", "fold-abi/*.md"]
+
+# GGUF fuzz seeds: byte strings built for this repository. No upstream reproducer file is copied.
+[[origin]]
+glob = "fuzz/seeds/gguf_header/*"
+text = "GGUF v3 headers built for this repository. The cve-* seeds set the field named in the advisory (CVE-2024-21825 tensor count, CVE-2024-23605 array element count, CVE-2024-21802 n_dims) to an overflowing value; valid-q4k-q8_0 is an accepted file."
+
+[[origin]]
+glob = "fuzz/seeds/gguf_open/block-count-u32-max"
+text = "Reproducer found by the gguf_open fuzz target: block_count = u32::MAX drove a 4 GiB allocation in resolve_mixers."
+
+[[origin]]
+glob = "fuzz/seeds/gguf_open/qwen2-one-layer-f16"
+text = "build_layer_gguf from src/engine/step/prefill_tests.rs, written to disk."
+
+[[origin]]
+glob = "fuzz/seeds/gguf_open/*"
+text = "Copies of the gguf_header seeds of the same name."
+
+# SPIR-V binaries: byte-identical `glslc` output of the GLSL beside them (`check-provenance.py --recompile`).
+[[origin]]
+glob = "src/spirv/*.comp"
+text = "GLSL source written for this repository."
+
+[[origin]]
+glob = "src/spirv/*.spv"
+text = "glslc output of the same-named .comp."
+glslc = ["--target-env=vulkan1.1", "--target-spv=spv1.3", "-O", "-fshader-stage=compute"]
+
+[[origin]]
+glob = "examples/gpu_dump_spirv/*.comp"
+text = "GLSL source written for this repository."
+
+[[origin]]
+glob = "examples/gpu_dump_spirv/dump_attn64.spv"
+text = "glslc output of dump_attn.comp with -DHD=64."
+source = "examples/gpu_dump_spirv/dump_attn.comp"
+glslc = ["--target-env=vulkan1.1", "--target-spv=spv1.3", "-O", "-fshader-stage=compute", "-DHD=64"]
+
+[[origin]]
+glob = "examples/gpu_dump_spirv/dump_attn128.spv"
+text = "glslc output of dump_attn.comp with -DHD=128."
+source = "examples/gpu_dump_spirv/dump_attn.comp"
+glslc = ["--target-env=vulkan1.1", "--target-spv=spv1.3", "-O", "-fshader-stage=compute", "-DHD=128"]
+
+[[origin]]
+glob = "examples/gpu_dump_spirv/dump_gemm.spv"
+text = "glslc output of dump_gemm.comp."
+source = "examples/gpu_dump_spirv/dump_gemm.comp"
+glslc = ["--target-env=vulkan1.1", "--target-spv=spv1.3", "-O", "-fshader-stage=compute"]
+
+[[origin]]
+glob = "examples/gpu_dump_spirv/dump_rms.spv"
+text = "glslc output of dump_misc.comp with -DOP=0."
+source = "examples/gpu_dump_spirv/dump_misc.comp"
+glslc = ["--target-env=vulkan1.1", "--target-spv=spv1.3", "-O", "-fshader-stage=compute", "-DOP=0"]
+
+[[origin]]
+glob = "examples/gpu_dump_spirv/dump_rope.spv"
+text = "glslc output of dump_misc.comp with -DOP=1."
+source = "examples/gpu_dump_spirv/dump_misc.comp"
+glslc = ["--target-env=vulkan1.1", "--target-spv=spv1.3", "-O", "-fshader-stage=compute", "-DOP=1"]
+
+[[origin]]
+glob = "examples/gpu_dump_spirv/dump_silu.spv"
+text = "glslc output of dump_misc.comp with -DOP=2."
+source = "examples/gpu_dump_spirv/dump_misc.comp"
+glslc = ["--target-env=vulkan1.1", "--target-spv=spv1.3", "-O", "-fshader-stage=compute", "-DOP=2"]
+
+[[origin]]
+glob = "fold-abi/*.md"
+text = "Instructions for running github.com/rurban/smhasher (MIT) against apeiron::fold; no SMHasher code is included."
