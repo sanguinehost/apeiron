@@ -157,6 +157,12 @@ def check(out, full):
     for f in files:
         if f.startswith("docs/") and not any(fnmatch.fnmatch(f, g) for g in m["expect"]["docs_allow"]):
             bad.append(f"docs file outside docs_allow: {f}")
+    for f in files:
+        if any(f == d or (d.endswith("/") and f.startswith(d)) for d in m["expect"]["public_docs"]):
+            with open(os.path.join(out, f), "rb") as fh:
+                for i, ln in enumerate(fh.read().decode(errors="replace").splitlines(), 1):
+                    if "unpublished" in ln:
+                        bad.append(f"rewritten pointer in public document {f}:{i}: {ln.strip()[:90]}")
     for p in m["expect"]["present"]:
         if p not in fileset:
             bad.append(f"expected path missing: {p}")

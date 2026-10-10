@@ -10,11 +10,8 @@ so the machine-word extraction and the corpus link can be built and trusted sepa
 
 Neither is imported by the `apeiron` crate.
 
-This file is the local proof authority for the extraction and bridge under `proof/`. The programme
-thesis, ownership, outcomes, primitive correspondence, migration and execution order are in the
-[programme direction](../docs/direction.md); that document is the programme authority. The physical
-canonical corpus remains at `../sanguine-apeiron/proof/Apeiron/` with unchanged pins. The table
-claim's scope and trust boundary are in the [local boundary](../docs/kernel-boundary.md).
+This file is the proof authority for the extraction and bridge under `proof/`. The canonical corpus
+is in-tree at `proof/canonical/`. The table claim's scope and trust boundary are stated below.
 
 ## Purpose
 
@@ -277,8 +274,7 @@ the canonical table at checked witnesses: `word_table_new_rep` and `emptyWordTab
 write success and refusal jointly. `find_slots_spec` and `insert_full_loop_spec` prove termination
 and the searched/full loop behavior.
 
-`Apeiron.TableRefinement.PhysicalInv` is the physical invariant named in the
-[local boundary](../docs/kernel-boundary.md#shared-canonical-map-vs-physical-representation): the
+`Apeiron.TableRefinement.PhysicalInv` is the physical invariant of the fixed-shard table: the
 fixed outer array, optional length-`N` shard arrays, globally unique keys, every entry in its home
 shard, and the per-key denotation (`ReadRep`). It is general over fixed shard capacity `N`, not
 scoped to `N = 16`. For the concrete `I64` word instance, `emptyWordTableN_physicalInv` establishes
@@ -300,12 +296,9 @@ remain at their stated scope.
 The growable flat/spill representation executes. Its 43-root extraction is fresh at the identity
 recorded below, and the current conditional bridge builds under the closed axiom cone; universal
 read refinement and construction of the remaining premises are open. The fixed-shard word
-refinement above is revision-bound historical evidence. The revised
-dispatch order and the open lead decision are in the
-[local boundary](../docs/kernel-boundary.md#revised-production-boundary-astra-decision). Open proof
-obligations retained here:
+refinement above is revision-bound historical evidence. Open proof obligations:
 
-- **Flat resident plus spill representation.** The Sol contract specifies a shard-major `256 × L`
+- **Flat resident plus spill representation.** The storage contract specifies a shard-major `256 × L`
   flat area (`live` is the sole occupancy authority) beside independently load-sized grouped spill
   regions (tags are the sole occupancy authority). Checked density and budget select flat residency;
   exclusion spills rather than refusing. Extent growth reclassifies newly admitted spill keys by a
@@ -341,7 +334,7 @@ obligations retained here:
   `reservedRep` for its returned `nextState` and `nextStorage`. The bridge audits that structure and
   the conditional headlines, but the unextracted planner/resource boundary must construct it.
 - **Complete bridge set.** The current `Growable.*` roots carry audited conditional headlines from the
-  [Sol contract](../docs/epics/storage-refinement.md#flat-resident-and-grouped-spill-contract-sol-decision).
+  storage contract.
   The bounded bridge build passes 3482 jobs on the fresh artifact and `AxiomAudit.lean` accepts its
   registered declarations under `{propext, Classical.choice, Quot.sound}`. Those results prove the
   stated conditional theorems, not their open premises or universal public-read correctness.
@@ -353,7 +346,7 @@ obligations retained here:
   `{propext, Classical.choice, Quot.sound}`. The two cones share no declarations, and a `ZMod`-based
   bridge declaration is not importable into the empty-cone chain.
 
-Pending separate Sol adjudication: flat geometry and constructor joint witnesses; composite
+Open, each needing its own review: flat geometry and constructor joint witnesses; composite
 `DirectCover`, extent expansion, relocation and removal preservation; exact codec identity and
 `Sigma` separation; reachable first-empty-group certification and any change between historical
 variable-width and current seven-bit descent; stable partition/assembly; grouped readback and
@@ -365,9 +358,9 @@ reduction laws; and allocation simulation, refusing branches, grades and audit c
 the Rust/canonical cone, `proof/regen.sh --check` freshness and mutation controls that fail before
 restore. It excludes allocator/global-allocator realization, thread/executor realization including
 `std::thread::scope`, rustc/LLVM codegen, the kernel ABI, GPU/SPIR-V and the `unsafe` container. The
-Slang chain remains separate under its empty-cone gate. Astra's verdict and this Sol record are
-`anchor`, not `proved`; REG-1/G1 remains **OPEN**, and this documentation task adds no `proved`,
-`tested` or `measured` claim.
+Slang chain remains separate under its empty-cone gate. The storage contract is an
+`anchor`, not `proved`; the table-versus-hashbrown comparison remains **open**, and this file adds
+no `proved`, `tested` or `measured` claim.
 
 ```sh
 cd proof/corpus && lake build

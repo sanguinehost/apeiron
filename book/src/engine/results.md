@@ -24,7 +24,7 @@ cargo run --release --locked --example engine_profile -- \
   --model <model.gguf> --ids <prompt.ids> \
   --pp 200 --tg 64 --reps 5 \
   --llama <path/to/llama-bench> --llama-threads 8,16,24,32 \
-  --max-busy 0.05 --label <name> --out docs/evidence/bench
+  --max-busy 0.05 --label <name> --out <dir>
 ```
 
 `pp` is prompt tokens per second and `tg` is generated tokens per second. The comparator runs at

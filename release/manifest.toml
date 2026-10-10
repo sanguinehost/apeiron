@@ -20,6 +20,15 @@ strip = [
   "docs/state-ledger.tsv",
   "docs/study/",
   "docs/templates/",
+  "docs/intent/",
+  "docs/plan/",
+  "docs/spec/",
+  "docs/apeiron-intent-escalation.md",
+  "docs/apeiron-intent-return-prompt.md",
+  "docs/autonomous-run-log.md",
+  "docs/extraction-requirements.md",
+  "docs/flash-handoff.md",
+  "docs/handoff-openai.md",
   "docs/contracts/artifacts.toml",
   "docs/contracts/commit-task-association.md",
   "docs/contracts/joint-*",
@@ -72,12 +81,13 @@ text_map = [
   "/home/socol/==>~/",
   "/home/socol==>~",
   "-home-socol-==>-home-user-",
+  "regex:(?m)^# Row: `rel-apeiron-[^\\n]*\\n==>",
   "oc-tmp==>scratch",
   "/tmp/opencode==>/tmp/apeiron",
   # A pointer to a stripped internal document keeps its slug and drops the path.
-  "regex:`?docs/(?:(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/|contracts/(?!slang-source-))([A-Za-z0-9_./-]*?[A-Za-z0-9_-])(?:\\.md)?(?::\\d+)?`?==>the unpublished \\1 note",
+  "regex:`?docs/(?:(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/|contracts/(?!slang-source-))([A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*)(?:\\.md)?(?:#[A-Za-z0-9_-]+)?(?::\\d+)?`?==>the unpublished \\1 note",
   "regex:`?docs/(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/`?==>the unpublished notes",
-  "regex:`?docs/(?:DESIGN|kernel-boundary|plan|roadmap|direction|README|hash-comparison|state-ledger|moved)(?:\\.(?:md|tsv))?`?==>the unpublished design notes",
+  "regex:`?docs/(?:DESIGN|kernel-boundary|plan|roadmap|direction|README|hash-comparison|state-ledger|moved)(?:\\.(?:md|tsv))?(?:#[A-Za-z0-9_-]+)?`?==>the unpublished design notes",
   "regex:`?docs/references\\.bib`?==>the bibliography",
 ]
 
@@ -101,7 +111,7 @@ forbidden = [
   "\\brel-apeiron-[a-z-]+-[A-Za-z0-9]{20,24}\\b",
   "^board:",
   "/tmp/opencode",
-  "\\bdocs/(?:(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/|contracts/(?!slang-source-))",
+  "\\bdocs/(?:(?:epics|evidence|reviews|study|rfcs|archive|call-census|templates)/|contracts/(?!slang-source-)\\w)",
   "\\bdocs/(?:plan|roadmap|DESIGN|kernel-boundary|direction|README|hash-comparison)\\.md",
   "[Aa]ntigravity",
   "\\bdeepseek\\b",
@@ -121,6 +131,9 @@ forbidden = [
 # Under docs/ only these globs may ship.
 docs_allow = ["docs/contracts/slang-source-*.md"]
 # Stripped prefixes the dangling-reference scan skips (ordinary words, or build output).
+# Public-facing documents that must read without any rewritten pointer: the cut fails when one
+# contains "unpublished", so the source is edited instead.
+public_docs = ["README.md", "CONTRIBUTING.md", "SECURITY.md", "proof/README.md", "book/src/"]
 dangling_ignore = ["release/", "target/"]
 # Files that must exist in the cut (the substitutions and the public surface).
 present = [
