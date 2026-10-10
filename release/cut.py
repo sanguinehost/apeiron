@@ -89,6 +89,12 @@ def build(out, rev):
             else:
                 cmd += ["--path", p]
         cmd += ["--replace-text", text, "--replace-message", msg]
+        a = m["authors"]
+        mailmap = os.path.join(td, "mailmap")
+        with open(mailmap, "w") as f:
+            for alias in a["aliases"]:
+                f.write(f"{a['name']} <{a['email']}> {alias}\n")
+        cmd += ["--mailmap", mailmap]
         run(cmd, cwd=out)
 
     remap_revisions(out, m)
@@ -211,11 +217,18 @@ def check(out, full):
             bad.append(f"substitution missing: {dst}")
 
     pats = [(s, re.compile(s.encode(), re.M)) for s in m["forbidden"]]
+    want = f"{m['authors']['name']} <{m['authors']['email']}>"
     seen = 0
     for sha, typ, data in objects(out):
         if typ == "commit":
             body = data.split(b"\n\n", 1)[1] if b"\n\n" in data else b""
             seen += 1
+            head = data.split(b"\n\n", 1)[0].decode(errors="replace")
+            for ln in head.splitlines():
+                if ln.startswith(("author ", "committer ")):
+                    who = ln.split(" ", 1)[1].rsplit(" ", 2)[0]
+                    if who != want:
+                        bad.append(f"commit {sha[:12]} {ln.split(' ', 1)[0]} is {who}, not {want}")
             for s, rx in pats:
                 if rx.search(body):
                     bad.append(f"commit {sha[:12]} message matches /{s}/")
@@ -344,6 +357,16 @@ def self_test():
                 ok = False
             run(["git", "rm", "-q", "-f", path], cwd=out)
             run(["git", "commit", "-q", "-m", f"restore {name}"], cwd=out)
+        # An author control cannot be restored either.
+        env = dict(os.environ, GIT_AUTHOR_NAME="agent", GIT_AUTHOR_EMAIL="agent@local")
+        run(["git", "commit", "-q", "--allow-empty", "-m", "x"], cwd=out, env=env)
+        print("-- control: author identity (must fail)")
+        if check(out, False) == 0:
+            print("cut: self-test FAIL: author control passed")
+            ok = False
+        elif not any(b.startswith("commit ") and "agent <agent@local>" in b for b in LAST):
+            print("cut: self-test FAIL: author control failed without naming the author")
+            ok = False
         # A message control cannot be restored by a later commit: history keeps it.
         run(["git", "commit", "-q", "--allow-empty", "-m", "x\n\nboard: rel-x"], cwd=out)
         print("-- control: board trailer in a message (must fail)")

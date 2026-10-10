@@ -157,6 +157,17 @@ forbidden = [
   "\\bescalation/",
 ]
 
+# Every author and committer in the cut's history is rewritten to `name <email>`; `check` fails on any other.
+[authors]
+name = "Lucas 'Paperboy' Rose-Winters"
+email = "lucas@sanguinehost.com"
+aliases = [
+  "apeiron-lead <lead@apeiron.local>",
+  "apeiron-worker <worker@apeiron.local>",
+  "Icarus <icarus@local>",
+  "Lucas 'Paperboy' Rose-Winters <lucasrosewinters@gmail.com>",
+]
+
 # Added after the filter, from `release/public/<path>` to `<path>`.
 [substitute]
 "AGENTS.md" = "release/public/AGENTS.md"
