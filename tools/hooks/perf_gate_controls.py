@@ -13,7 +13,9 @@ staged change under a performance source path must carry, in the same commit:
 The parser, the row/column rules and the declaration resolution are taken from
 ``tools/check-claims.py`` so the hook and the claim checker cannot drift. There
 is no bypass flag and no environment override: the step refuses, naming the
-staged perf path and the missing piece.
+staged perf path and the missing piece. A staged diff of a perf path that adds and
+removes only ``//`` comment or blank lines changes no cost and is not a perf change;
+any other changed line keeps the obligation.
 
 Modes::
 
@@ -84,6 +86,22 @@ def is_perf_path(path):
         normalized == prefix.rstrip("/") or normalized.startswith(prefix)
         for prefix in PERF_PREFIXES
     )
+
+
+def is_comment_only(root, path):
+    """True when the staged diff of ``path`` adds and removes only ``//`` comment or blank lines.
+
+    A comment cannot change a cost, so it carries no formalisation obligation. Conservative: any
+    other changed line (code, a block comment delimiter, a trailing comment) makes the change
+    non-comment, and a file new to the index has only added code lines.
+    """
+    proc = git(root, "diff", "--cached", "-U0", "--", path)
+    changed = [
+        line[1:].strip()
+        for line in proc.stdout.splitlines()
+        if line[:1] in "+-" and not line.startswith(("+++", "---"))
+    ]
+    return bool(changed) and all(not text or text.startswith("//") for text in changed)
 
 
 def perf_rows(text):
@@ -164,10 +182,14 @@ def refuse(message):
 def run_gate(root):
     root = Path(root).resolve()
     paths = staged_paths(root)
-    perf = [path for path in paths if is_perf_path(path)]
+    perf = [
+        path
+        for path in paths
+        if is_perf_path(path) and not is_comment_only(root, path)
+    ]
     if not perf:
         print(
-            "perf cost-model: SKIP (no staged path under "
+            "perf cost-model: SKIP (no staged code change under "
             f"{', '.join(PERF_PREFIXES)}; {len(paths)} staged path(s))"
         )
         return 0
@@ -254,7 +276,7 @@ def _stage(repo):
     return repo
 
 
-def _touch_perf(repo, text="// perf change\n"):
+def _touch_perf(repo, text="pub fn perf_change() {}\n"):
     with (repo / "src" / "simt_nn" / "norm.rs").open("a", encoding="utf-8") as handle:
         handle.write(text)
 
@@ -280,6 +302,16 @@ def case_positive(repo):
         repo,
         "| P2 | new lever | eq | p | if | measured | held | `Perf.Moves.brand_new_gain` |\n",
     )
+    return _stage(repo)
+
+
+def case_comment_only(repo):
+    _touch_perf(repo, "// a comment, no code\n")
+    return _stage(repo)
+
+
+def case_neg_e_comment_hides_code(repo):
+    _touch_perf(repo, "// a comment\npub fn perf_change() {} // trailing\n")
     return _stage(repo)
 
 
@@ -342,6 +374,18 @@ CASES = (
         case_neg_d_unresolved_decl,
         1,
         ("does not resolve under",),
+    ),
+    (
+        "comment-only change in a perf path -> skip",
+        case_comment_only,
+        0,
+        ("SKIP",),
+    ),
+    (
+        "negative e: comment lines beside a code line -> refuse",
+        case_neg_e_comment_hides_code,
+        1,
+        ("adds no P-row",),
     ),
     (
         "restore: positive re-applied -> accept",
