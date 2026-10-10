@@ -8,10 +8,10 @@ authors = ["Lucas 'Paperboy' Rose-Winters"]
 license = "Apache-2.0"
 keywords = ["hashmap", "hash", "algebra", "deterministic", "hashdos"]
 categories = ["data-structures", "algorithms", "concurrency"]
-# 1.87 is where `i32::cast_unsigned` and its siblings stabilised (`integer_sign_cast`). `coord`
-# uses them to say "reinterpret the sign bit" in the type system rather than in a comment over a
-# suppressed lint, which is worth a floor. `#[expect]`, the other modern thing here, is 1.81.
-rust-version = "1.87"
+# 1.89 stabilised the AVX-512 and AVX-VNNI target features, so `is_x86_feature_detected!("avxvnni")`
+# in the engine kernels compiles. `cargo +1.87 check --lib` fails on it (E0658); `cargo +1.89.0
+# check --lib --locked` passes.
+rust-version = "1.89"
 
 [features]
 # Off by default, so the ordinary build of this crate still has **zero** dependencies. Turning it
