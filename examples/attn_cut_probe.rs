@@ -3336,6 +3336,7 @@ const PAR: usize = 32;
 /// Complexity per block: `Q * n` dot products of length `HD`, `Q * n_sel * HD` multiply-adds for the output, with
 /// `Q = hs.len() * ps.len()` and `n` the context; K and V traffic `2 * n * HD` words per block against
 /// `2 * Q * n * HD` per block in `tail_head`; space `Q * n` f64 scores and `Q * n` bools for the selections.
+/// `KV_TAIL_RERANK=c` adds an `O(pool)` selection per query (`select_nth_unstable`), pool = the arm's far set.
 /// `KV_TAIL_ORACLE` adds an `O(n)` selection (`select_nth_unstable`) per query: `Q * n` comparisons in expectation.
 fn tail_group(
     cx: &TailCtx,
@@ -3436,6 +3437,25 @@ fn tail_group(
                 let mut ord: Vec<usize> = (TL_SINK..nb).collect();
                 ord.select_nth_unstable_by(c - 1, |&a, &b| x.sc[b].total_cmp(&x.sc[a]));
                 for &j in &ord[..c] {
+                    x.sel[j] = true;
+                }
+            }
+        }
+    }
+    if let Some(c) = std::env::var("KV_TAIL_RERANK")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|_| matches!(arm, Arm::Grp(..)))
+    {
+        // Diagnostic: two-stage gather. The page set is the candidate pool; each query keeps its own exact top-`c`
+        // far tokens inside the pool. Pool scoring is not charged to the byte count.
+        for x in &mut qs {
+            let nb = TL_SINK + far_pages(x.n - 1) * TL_P;
+            let mut pool: Vec<usize> = (TL_SINK..nb).filter(|&j| x.sel[j]).collect();
+            if pool.len() > c {
+                pool.select_nth_unstable_by(c - 1, |&a, &b| x.sc[b].total_cmp(&x.sc[a]));
+                x.sel[TL_SINK..nb].fill(false);
+                for &j in &pool[..c] {
                     x.sel[j] = true;
                 }
             }

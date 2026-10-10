@@ -47,6 +47,7 @@ import Perf.HattnT8Tail
 import Perf.HattnT8TailProse
 import Perf.HattnT8LGroup
 import Perf.HattnT8Oracle
+import Perf.HattnT8Rerank
 import Perf.FacesPolarBound
 import Perf.Identity
 import Perf.AttnCoop
@@ -716,6 +717,13 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnT8Oracle.selection_beats_budget
 #audit Perf.HattnT8Oracle.union_cost
 #audit Perf.HattnT8Oracle.oracle_dominates_flat
+#audit Perf.HattnT8Rerank.rr1_refuted
+#audit Perf.HattnT8Rerank.rr2_refuted
+#audit Perf.HattnT8Rerank.rr3_refuted
+#audit Perf.HattnT8Rerank.rr4_held
+#audit Perf.HattnT8Rerank.rr5_refuted
+#audit Perf.HattnT8Rerank.pool_limit
+#audit Perf.HattnT8Rerank.bytes_under_oracle
 #audit Perf.FacesPolarBound.p1_refuted
 #audit Perf.FacesPolarBound.p2_held
 #audit Perf.FacesPolarBound.p3_held
