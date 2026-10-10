@@ -3336,6 +3336,7 @@ const PAR: usize = 32;
 /// Complexity per block: `Q * n` dot products of length `HD`, `Q * n_sel * HD` multiply-adds for the output, with
 /// `Q = hs.len() * ps.len()` and `n` the context; K and V traffic `2 * n * HD` words per block against
 /// `2 * Q * n * HD` per block in `tail_head`; space `Q * n` f64 scores and `Q * n` bools for the selections.
+/// `KV_TAIL_ORACLE` adds an `O(n)` selection (`select_nth_unstable`) per query: `Q * n` comparisons in expectation.
 fn tail_group(
     cx: &TailCtx,
     arm: Arm,
@@ -3421,6 +3422,21 @@ fn tail_group(
                     let s = f64::from(dot32(x.qh, key_row(cx, g, j))) * f64::from(SCALE);
                     x.sc[j] = s;
                     x.m = x.m.max(s);
+                }
+            }
+        }
+    }
+    if matches!(arm, Arm::Grp(..)) && std::env::var_os("KV_TAIL_ORACLE").is_some() {
+        // Diagnostic: each query keeps its own exact top-`c` far tokens, `c` the count the page set selected.
+        for x in &mut qs {
+            let nb = TL_SINK + far_pages(x.n - 1) * TL_P;
+            let c = x.sel[TL_SINK..nb].iter().filter(|&&b| b).count();
+            x.sel[TL_SINK..nb].fill(false);
+            if c > 0 {
+                let mut ord: Vec<usize> = (TL_SINK..nb).collect();
+                ord.select_nth_unstable_by(c - 1, |&a, &b| x.sc[b].total_cmp(&x.sc[a]));
+                for &j in &ord[..c] {
+                    x.sel[j] = true;
                 }
             }
         }

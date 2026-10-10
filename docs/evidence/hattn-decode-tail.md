@@ -733,6 +733,21 @@ Verdicts: `Perf/HattnT8LGroup.lean` (sha256 `17a7565de198`), `decide`, axiom-fre
 
 Grade: `model` inputs, `proved` arithmetic over them. Not covered: one prompt, one model, one far budget (32768) per group; rustc, LLVM and the instrument.
 
+## Token-oracle selection at 524288: ranking versus budget (Qwen2.5-7B-Instruct-1M)
+
+Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Question: is the prose gap a ranking failure or a budget failure. Change: `KV_TAIL_ORACLE=1` on `examples/attn_cut_probe.rs` (`tail_group`): each query head keeps its own exact top-`n_far` far tokens by true score, `n_far` the count the `grp-fix<b>-r8` page set selects; sinks and near window unchanged. Binary `attn_cut_probe.hd128or` sha256 `764e33ebe997` (`PROBE_HD=128`), command `/home/socol/oc-tmp/hattn-long/oracle.sh`, 64 tail positions, 184-185 s per run. Predictions: `PREDICTIONS-T8-ORACLE.md`, sha256 `c6992a2e3d23`. Outputs `g21-or-*.out` sha256 `eb5dcd97de34` (prose 2048), `e87dfebf6433` (prose 8192), `e54f1ef0b602` (code 2048).
+
+| prompt, budget | oracle mean KLD | over 0.05 | top-1 | flat Quest-bound arm |
+|---|---:|---:|---:|---:|
+| prose, 2048 | 0.0553 | 19 | 54/64 | 0.3370 |
+| prose, 8192 | 0.0275 | 6 | 56/64 | 0.2612 |
+| code, 2048 | 0.0005 | 0 | 64/64 | 0.1273 |
+
+- Exact selection at 2048 cuts the prose mean KLD six-fold and lands within 0.0053 of the gate; at 8192 it passes. The flat arm at 32768 (0.1687) is three times worse than oracle 2048.
+- The prose gap is a ranking gap: the Quest-bound ranking loses the keys that matter, and a budget increase buys little because the bound still misses them. A query-conditioned gather that approaches exact top-n is the lever; its target is the oracle column.
+- Verdicts: `Perf/HattnT8Oracle.lean` (sha256 `9dbda5493bed`), `decide`, six rows axiom-free in `AxiomAudit`. OR1 refuted (0.0553 > 0.05), OR2, OR3, OR4, OR5 held. Mutation (prose 2048 set to 0.0453, prose 8192 to 0.5275, scratch copy): 3 errors; committed file 0.
+- Not covered: per-query-head sets (a KV group's union of seven heads reads up to seven times as many keys), so the oracle's bytes are not a deployable figure; one prompt per class; the oracle reads all scores (instrument cost); rustc, LLVM.
+
 ## Next
 
 The cluster arms pass on Qwen2.5-7B-Instruct-1M to 131072 (section above); the tree arms stop at 65536. Next: a
