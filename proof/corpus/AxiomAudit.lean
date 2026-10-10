@@ -53,6 +53,7 @@ import Perf.HattnT8LbPool
 import Perf.HattnT8Cells
 import Perf.HattnT3Train
 import Perf.HattnHotCold
+import Perf.PubVerifyCpu
 import Perf.FacesPolarBound
 import Perf.Identity
 import Perf.AttnCoop
@@ -781,6 +782,9 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.HattnHotCold.tok_rate_1m
 #audit Perf.HattnHotCold.scan_under_third_1m
 #audit Perf.HattnHotCold.controls_held
+#audit Perf.PubVerifyCpu.within_one_percent
+#audit Perf.PubVerifyCpu.under_point_two_percent
+#audit Perf.PubVerifyCpu.prefill_and_main_agree
 #audit Perf.FacesPolarBound.p1_refuted
 #audit Perf.FacesPolarBound.p2_held
 #audit Perf.FacesPolarBound.p3_held

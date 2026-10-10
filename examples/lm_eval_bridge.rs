@@ -3,11 +3,11 @@
 //! Run: `cargo run --release --locked --example lm_eval_bridge [gguf]`
 //!
 //! One request per stdin line, `{"context_ids":[...],"continuation_ids":[...]}`. The bridge loads
-//! the `Q4_K_M` GGUF once and, for each request, rebuilds a fresh [`KvState`], prefills `context_ids`,
+//! the GGUF once and, for each request, rebuilds a fresh `DecodeState`, prefills `context_ids`,
 //! then scores every `continuation_ids` entry by the `f64` log-softmax of its Q32.32 logits
 //! (`logits / 2^32`). It writes one `{"logprob": <f64>, "is_greedy": <bool>}` line per request: the
 //! summed continuation log-probability and whether every scored token equals the step's argmax. The
-//! KV state is rebuilt per request, so no context crosses requests (correctness over speed).
+//! state is rebuilt per request, so no context crosses requests (correctness over speed).
 //!
 //! The tokenizer lives in the caller; ids cross this boundary already encoded.
 
@@ -99,10 +99,12 @@ fn step_logprob(logits: &[i64], target: u32) -> Result<(f64, bool), String> {
     Ok((tv - lse, am == tvi))
 }
 
-/// Prefill `context` into a fresh [`KvState`] and sum the continuation log-probabilities.
+/// Prefill `context` into a fresh `DecodeState` and sum the continuation log-probabilities.
 ///
 /// Returns `(sum of per-token log-probs, every continuation token is greedy)`. Each request gets its
-/// own cache, so no position or attention window crosses requests.
+/// own state (softmax list plus affine carrier, so hybrid schedules such as Qwen3.5 run), and no
+/// position or attention window crosses requests. `APEIRON_BRIDGE_PREFILL=1` prefills all but the
+/// last context token through the batched path; unset, every context token is one decode step.
 fn score(
     engine: &Engine,
     mode: KernelMode,
@@ -110,10 +112,17 @@ fn score(
     cont: &[u32],
 ) -> Result<(f64, bool), Box<dyn Error>> {
     let cap = context.len() + cont.len();
-    let mut kv = engine.decode_state(cap)?;
+    let mut kv = engine.state(cap)?;
     let mut cur: Option<Vec<i64>> = None;
-    for &id in context {
-        cur = Some(engine.step_logits_with_mode(&mut kv, id, mode)?);
+    let prefill = std::env::var("APEIRON_BRIDGE_PREFILL").as_deref() == Ok("1");
+    let head = if prefill && context.len() > 1 {
+        engine.prefill_state(&mut kv, &context[..context.len() - 1], mode)?;
+        context.len() - 1
+    } else {
+        0
+    };
+    for &id in &context[head..] {
+        cur = Some(engine.step_logits_state(&mut kv, id, mode)?);
     }
     let mut logits = cur.ok_or("empty context has no scoring position")?;
     let mut total = 0.0f64;
@@ -124,7 +133,7 @@ fn score(
         total += lp;
         greedy &= g;
         if i + 1 < cont.len() {
-            logits = engine.step_logits_with_mode(&mut kv, cont[i], mode)?;
+            logits = engine.step_logits_state(&mut kv, cont[i], mode)?;
         }
         i += 1;
     }
