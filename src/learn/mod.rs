@@ -34,3 +34,9 @@ pub mod ridge;
 
 /// Exact-integer Gram fold: `g += XᵀX` over a batch of `i8` rows, checked `i64`.
 pub mod gram;
+
+/// `IQ1_S` weighted-codebook quantizer and decoder: the port of llama.cpp `ece963f41`.
+pub mod iq1s;
+
+/// The 2048-entry `IQ1_S` grid extracted from llama.cpp `ece963f41`.
+pub mod iq1s_grid;
