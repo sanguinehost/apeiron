@@ -55,6 +55,7 @@ import Perf.HattnT3Train
 import Perf.HattnHotCold
 import Perf.PubVerifyCpu
 import Perf.OnebitW9
+import Perf.OnebitW10
 import Perf.FacesPolarBound
 import Perf.Identity
 import Perf.AttnCoop
@@ -794,6 +795,14 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.OnebitW9.p1_order
 #audit Perf.OnebitW9.p2_order
 #audit Perf.OnebitW9.p2_not_usable
+#audit Perf.OnebitW10.output_error_eq_quadratic
+#audit Perf.OnebitW10.invisible_iff
+#audit Perf.OnebitW10.same_function_iff
+#audit Perf.OnebitW10.ffn_block3_below_quarter
+#audit Perf.OnebitW10.ffn_block11_not_below_quarter
+#audit Perf.OnebitW10.ffn_block23_not_below_quarter
+#audit Perf.OnebitW10.ffn_function_block11_not_below_half
+#audit Perf.OnebitW10.attn_in_none_below_half
 #audit Perf.FacesPolarBound.p1_refuted
 #audit Perf.FacesPolarBound.p2_held
 #audit Perf.FacesPolarBound.p3_held
