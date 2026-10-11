@@ -1,0 +1,17 @@
+# The run class for the derivation gate (.claude/hooks/derivation_gate.py).
+# A Bash command matching any pattern is an experiment: it needs PREDICTION=<id> naming an open
+# prediction in .intent/predictions.jsonl. Gates (cargo test/clippy/fmt/build, lake build, rg,
+# git, the rooting/board/claims checkers) are not in the class.
+run_class = [
+  # cargo run/bench, direct or through the shim (cargo-gate.sh LOG <args>)
+  '\bcargo(?:-gate\.sh\s+\S+)?(?:\s+[-+]\S+)*\s+(?:run|bench)\b',
+  # built example binaries
+  '/examples/[A-Za-z0-9_]+(?:\s|$)',
+  # llama.cpp measurement tools
+  '\bllama-(?:bench|perplexity|cli|run|server|batched-bench|imatrix|eval-callback|quantize-stats)\b',
+  # measurement and probe scripts
+  '\bpython3?\b[^\n]*?(?:tools/(?:onebit|hattn|joint|neural-adapt|qwen35|gpu|policy-oracle)/|/scratchpad/)\S*\.py\b',
+  '\blm_eval\b',
+  '\bperf\s+(?:stat|record)\b',
+  '\bhyperfine\b',
+]
