@@ -38,7 +38,7 @@ from typing import Callable
 
 ROOT = Path(__file__).resolve().parents[2]
 SONG = ROOT.parent / "song"
-CORPUS = ROOT.parent / "sanguine-apeiron" / "proof"
+CORPUS = ROOT.parent / "sanguine" / "proof"
 SPEC_PATH = ROOT / "docs/contracts/iota-source-semantics.md"
 PLAN_PATH = ROOT / "docs/contracts/iota-source-refinement-plan.md"
 CANONICAL_MODULE = "Apeiron/Table/Basic.lean"

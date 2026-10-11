@@ -1,0 +1,7 @@
+{
+  "worktree_removed": "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-PROOFDISPATCH-W1-T1",
+  "branch_removed": "codex/proof-dispatch",
+  "recovery_byte_identical": true,
+  "foreign_paths_untouched": true,
+  "removed_generated_bytecode": "admit.cpython-314.pyc"
+}

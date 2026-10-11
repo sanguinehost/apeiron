@@ -1,0 +1,23 @@
+⚠ [1600/1708] Replayed Aeneas.Std.Vec
+warning: Aeneas/Std/Vec.lean:322:19: This simp argument is unused:
+  Vec.from
+
+Hint: Omit it from the simp argument list.
+  simp [Vec.set, V̵e̵c̵.̵f̵r̵o̵m̵,̵ ̵Slice.set, Slice.setAtNat]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+✔ [1705/1708] Built Dispatch.Extracted (871ms)
+✔ [1706/1708] Built Dispatch.Spec (817ms)
+✖ [1707/1708] Building Dispatch.Refinement (1.7s)
+trace: .> LEAN_PATH=/home/socol/Workspace/apeiron/proof/.lake/packages/Cli/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/batteries/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/Qq/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/aesop/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/importGraph/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/plausible/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/mathlib/.lake/build/lib/lean:/home/socol/Workspace/apeiron/target/aeneas-model/lean/.lake/build/lib/lean:/home/socol/oc-tmp/rust-admission/proof-gosusbaq/control/proof/dispatch/.lake/build/lib/lean /home/socol/.elan/toolchains/leanprover--lean4---v4.31.0/bin/lean /home/socol/oc-tmp/rust-admission/proof-gosusbaq/control/proof/dispatch/Dispatch/Refinement.lean -o /home/socol/oc-tmp/rust-admission/proof-gosusbaq/control/proof/dispatch/.lake/build/lib/lean/Dispatch/Refinement.olean -i /home/socol/oc-tmp/rust-admission/proof-gosusbaq/control/proof/dispatch/.lake/build/lib/lean/Dispatch/Refinement.ilean -c /home/socol/oc-tmp/rust-admission/proof-gosusbaq/control/proof/dispatch/.lake/build/ir/Dispatch/Refinement.c --setup /home/socol/oc-tmp/rust-admission/proof-gosusbaq/control/proof/dispatch/.lake/build/ir/Dispatch/Refinement.setup.json --json
+error: Dispatch/Refinement.lean:27:90: aesop: failed to prove the goal. Some goals were not explored because the maximum rule application depth (30) was reached. Set option 'maxRuleApplicationDepth' to increase the limit.
+error: Dispatch/Refinement.lean:24:58: unsolved goals
+case pos
+identity : core.Digest
+exit : I32
+he : ¬↑exit = 0
+⊢ False
+error: Lean exited with code 1
+Some required targets logged failures:
+- Dispatch.Refinement
+error: build failed

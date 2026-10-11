@@ -1,0 +1,162 @@
+
+running 1 test
+== gemm_probe ==
+host: Intel(R) Core(TM) i9-14900KF governor powersave | pool width 24 | carrier F32 (APEIRON_F32_CARRIER=1) | APEIRON_PREFILL_COLS block 256
+model /home/socol/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf sha256 37ae482d336108d23516fa35e8e0c4126688d81018b87178a18d752a1357814f
+prompt ids /home/socol/oc-tmp/q35-t5/prompt2.ids: 200 ids
+quiet gate: busy 0.048 over 2 s quiet=true | uptime 9.71 23.14 29.69 3/4087 2824812 | MHz P(cpu0-15) 4561 E(cpu16-31) 1705
+real prefill pp200 wall with hooks: 623.0 / 615.2 / 618.7 ms (323 tok/s last); max foreign CPU share 0.050 | MHz P(cpu0-15) 5075 E(cpu16-31) 4210
+
+-- (a) GEMM calls of one real prefill (class: calls, k per call, n_out, weight MB) --
+Gemm blk.*.attn_output.weight n_in=2048: 6 calls, k {200: 6}, n_out [1024], weights 2.23 MB/call, refused 0
+Gemm blk.*.ffn_down.weight n_in=3584: 24 calls, k {200: 24}, n_out [1024], weights 3.90 MB/call, refused 0
+Gemm blk.*.ssm_out.weight n_in=2048: 18 calls, k {200: 18}, n_out [1024], weights 2.23 MB/call, refused 0
+Group blk.*.attn_q.weight+blk.*.attn_k.weight+blk.*.attn_v.weight n_in=1024: 6 calls, k {200: 6}, n_out [4096, 512, 512], weights 5.57 MB/call, refused 0
+Group blk.*.attn_qkv.weight+blk.*.attn_gate.weight+blk.*.ssm_beta.weight+blk.*.ssm_alpha.weight n_in=1024: 18 calls, k {200: 18}, n_out [6144, 2048, 16, 16], weights 8.95 MB/call, refused 0
+Swiglu blk.*.ffn_gate.weight+blk.*.ffn_up.weight n_in=1024: 24 calls, k {200: 24}, n_out [3584, 3584], weights 7.80 MB/call, refused 0
+total logged GEMM calls 96, refused (contract path) 0
+activation columns logged from the real prefill: 19200; requantized through quant_act with scales/codes differing: 0
+
+-- (c) path identity --
+Gemm blk.*.attn_output.weight n_in=2048: 6 calls; replay==prod 6/6; kernel==oracle 6/6
+  production x2_noshift=0 x2_shift=36864 tail_group2=3072 fast_finish=76800 exact_spread=0 fast_refused=0 odd_row=0 swiglu_f32=0 swiglu_q32=0 spread_hist[4:28 5:8159 6:20447 7:50890 8:52827 9:16448 10:2073 11:1742 12:949 13:37]
+  replay     x2_noshift=0 x2_shift=36864 tail_group2=3072 fast_finish=76800 exact_spread=0 fast_refused=0 odd_row=0 swiglu_f32=0 swiglu_q32=0 spread_hist[4:28 5:8159 6:20447 7:50890 8:52827 9:16448 10:2073 11:1742 12:949 13:37]
+Gemm blk.*.ffn_down.weight n_in=3584: 24 calls; replay==prod 24/24; kernel==oracle 24/24
+  production x2_noshift=0 x2_shift=147456 tail_group2=12288 fast_finish=307200 exact_spread=0 fast_refused=0 odd_row=0 swiglu_f32=0 swiglu_q32=0 spread_hist[3:118 4:2295 5:23864 6:122295 7:222512 8:201337 9:38503 10:2297 11:275 12:841 13:63]
+  replay     x2_noshift=0 x2_shift=147456 tail_group2=12288 fast_finish=307200 exact_spread=0 fast_refused=0 odd_row=0 swiglu_f32=0 swiglu_q32=0 spread_hist[3:118 4:2295 5:23864 6:122295 7:222512 8:201337 9:38503 10:2297 11:275 12:841 13:63]
+Gemm blk.*.ssm_out.weight n_in=2048: 18 calls; replay==prod 18/18; kernel==oracle 18/18
+  production x2_noshift=0 x2_shift=110592 tail_group2=9216 fast_finish=230382 exact_spread=18 fast_refused=0 odd_row=0 swiglu_f32=0 swiglu_q32=0 spread_hist[5:118 6:6645 7:44668 8:97533 9:105387 10:62458 11:34186 12:19554 13:20987 14:26730 15:20567 16:11358 17:4872 18:3468 19:1129 20:111 21:5 25:26 26:543 27:437 28:15 29:3]
+  replay     x2_noshift=0 x2_shift=110592 tail_group2=9216 fast_finish=230382 exact_spread=18 fast_refused=0 odd_row=0 swiglu_f32=0 swiglu_q32=0 spread_hist[5:118 6:6645 7:44668 8:97533 9:105387 10:62458 11:34186 12:19554 13:20987 14:26730 15:20567 16:11358 17:4872 18:3468 19:1129 20:111 21:5 25:26 26:543 27:437 28:15 29:3]
+Group blk.*.attn_q.weight+blk.*.attn_k.weight+blk.*.attn_v.weight n_in=1024: 6 calls; replay==prod 6/6; kernel==oracle 6/6
+  production x2_noshift=0 x2_shift=184320 tail_group2=15360 fast_finish=384000 exact_spread=0 fast_refused=0 odd_row=0 swiglu_f32=0 swiglu_q32=0 spread_hist[3:1049 4:75836 5:355551 6:261753 7:66719 8:6246 9:705 10:141]
+  replay     x2_noshift=0 x2_shift=184320 tail_group2=15360 fast_finish=384000 exact_spread=0 fast_refused=0 odd_row=0 swiglu_f32=0 swiglu_q32=0 spread_hist[3:1049 4:75836 5:355551 6:261753 7:66719 8:6246 9:705 10:141]
+Group blk.*.attn_qkv.weight+blk.*.attn_gate.weight+blk.*.ssm_beta.weight+blk.*.ssm_alpha.weight n_in=1024: 18 calls; replay==prod 18/18; kernel==oracle 18/18
+  production x2_noshift=0 x2_shift=888192 tail_group2=74016 fast_finish=1850400 exact_spread=0 fast_refused=0 odd_row=0 swiglu_f32=0 swiglu_q32=0 spread_hist[2:1128 3:144325 4:287509 5:2166842 6:989573 7:107097 8:4197 9:128 10:1]
+  replay     x2_noshift=0 x2_shift=888192 tail_group2=74016 fast_finish=1850400 exact_spread=0 fast_refused=0 odd_row=0 swiglu_f32=0 swiglu_q32=0 spread_hist[2:1128 3:144325 4:287509 5:2166842 6:989573 7:107097 8:4197 9:128 10:1]
+Swiglu blk.*.ffn_gate.weight+blk.*.ffn_up.weight n_in=1024: 24 calls; replay==prod 24/24; kernel==oracle 24/24
+  production x2_noshift=0 x2_shift=1032192 tail_group2=86016 fast_finish=2150400 exact_spread=0 fast_refused=0 odd_row=0 swiglu_f32=2150400 swiglu_q32=0 spread_hist[3:13800 4:918407 5:2060858 6:1167942 7:136849 8:2850 9:94]
+  replay     x2_noshift=0 x2_shift=1032192 tail_group2=86016 fast_finish=2150400 exact_spread=0 fast_refused=0 odd_row=0 swiglu_f32=2150400 swiglu_q32=0 spread_hist[3:13800 4:918407 5:2060858 6:1167942 7:136849 8:2850 9:94]
+PATH IDENTITY (replayed real inputs vs production, per call, all branch counters + ok flag): 96/96 equal
+PATH ORACLE (kernel counters vs selectors recomputed from weight bytes and activation scales): 96/96 equal
+VERDICT real-input replay: PATH IDENTITY HOLDS
+
+-- old fixture (bench_q8_0_gemm_shapes: k=64, scales 0x2000/0x2400/0x1c00/0xa000, columns range 8) --
+fixture 1024->3584 k=64 ok=true: x2_noshift=0 x2_shift=7168 tail_group2=0 fast_finish=14336 exact_spread=0 fast_refused=0 odd_row=0 swiglu_f32=0 swiglu_q32=0 spread_hist[3:10 4:17916 5:10746]
+  branch mix (noshift share of x2, fast_finish, exact_spread, fast_refused): fixture 0.000/1.000/0.0000/0.0000 vs production Gemm 0.000/1.000/0.0000/0.0000; mean total spread fixture 4.37 production 8.31
+fixture 3584->1024 k=64 ok=true: x2_noshift=0 x2_shift=2048 tail_group2=0 fast_finish=4096 exact_spread=0 fast_refused=0 odd_row=0 swiglu_f32=0 swiglu_q32=0 spread_hist[5:8192]
+  branch mix (noshift share of x2, fast_finish, exact_spread, fast_refused): fixture 0.000/1.000/0.0000/0.0000 vs production Gemm 0.000/1.000/0.0000/0.0000; mean total spread fixture 5.00 production 8.31
+fixture 1024->6144 k=64 ok=true: x2_noshift=0 x2_shift=12288 tail_group2=0 fast_finish=24576 exact_spread=0 fast_refused=0 odd_row=0 swiglu_f32=0 swiglu_q32=0 spread_hist[3:40 4:49112]
+  branch mix (noshift share of x2, fast_finish, exact_spread, fast_refused): fixture 0.000/1.000/0.0000/0.0000 vs production Gemm 0.000/1.000/0.0000/0.0000; mean total spread fixture 4.00 production 8.31
+VERDICT old fixture: BRANCH MIX OR SPREAD DISTRIBUTION DIFFERS from production inputs
+
+-- (e) FFN reproduction --
+production FFN GEMM calls (hooked, in place) run 0: 126.91 ms over 48 calls
+production FFN GEMM calls (hooked, in place) run 1: 168.44 ms over 48 calls
+production FFN GEMM calls (hooked, in place) run 2: 152.80 ms over 48 calls
+production GEMM time in place (run 2, wall 618.7 ms): total 256.1 ms = 41.4% of wall
+  Gemm blk.*.attn_output.weight n_in=2048 k=200: 6 calls, 2.36 ms (0.394 ms/call)
+  Gemm blk.*.ffn_down.weight n_in=3584 k=200: 24 calls, 57.45 ms (2.394 ms/call)
+  Gemm blk.*.ssm_out.weight n_in=2048 k=200: 18 calls, 20.77 ms (1.154 ms/call)
+  Group blk.*.attn_q.weight+blk.*.attn_k.weight+blk.*.attn_v.weight n_in=1024 k=200: 6 calls, 14.11 ms (2.351 ms/call)
+  Group blk.*.attn_qkv.weight+blk.*.attn_gate.weight+blk.*.ssm_beta.weight+blk.*.ssm_alpha.weight n_in=1024 k=200: 18 calls, 66.05 ms (3.669 ms/call)
+  Swiglu blk.*.ffn_gate.weight+blk.*.ffn_up.weight n_in=1024 k=200: 24 calls, 95.35 ms (3.973 ms/call)
+trace phase ffn (foreign 0.044): blocked prefill 232.43 ms / 24 calls (9.685 ms/call); final token (k=1, non-GEMM path) 12.38 ms / 24 calls (0.516 ms/call)
+  => the traced FFN calls of one pp200 run are 24 blocked calls (k per block) + 24 k=1 calls: 5.100 ms/call average over all 48 calls, 244.81 ms total
+pooled activation quantization of the same columns (median per call, sum over the swiglu+down calls): 5.82 ms
+quiet gate before replay: busy 0.049 quiet=true | uptime 10.14 22.81 29.51 3/4095 2825037
+replay of the production FFN GEMM sequence (layer-cycling, 530 MB of FFN weights; foreign 0.039): best 166.52 ms median 177.12 ms over 48 calls; MHz P(cpu0-15) 4224 E(cpu16-31) 4100
+REPRODUCTION: isolated replay 177.12 ms vs in-place hooked production 152.80 ms (ratio 1.159); replay + quantization 5.82 ms = 182.93 ms vs traced blocked FFN 232.43 ms (ratio 0.787); quiet=true
+  Gemm blk.*.ffn_down.weight n_in=3584 k=200: isolated replay median 1.522 ms/call, in place 2.057 ms/call
+  Swiglu blk.*.ffn_gate.weight+blk.*.ffn_up.weight n_in=1024 k=200: isolated replay median 5.407 ms/call, in place 3.232 ms/call
+
+-- composed FFN call (fused gate/up+SwiGLU, then down) --
+24 layers with both calls
+k=64 cold (layer-cycling, foreign 0.031): per call swiglu median 0.791 ms + down median 0.215 ms; composed mean 1.688 ms, median 0.988, best layer 0.614 ms => 417.4 GMAC/s (mean), 1146.9 (best layer); MHz P(cpu0-15) 4933 E(cpu16-31) 4344
+k=64 hot (layer 12 repeated, foreign 0.039): composed best 0.561 ms median 0.593 ms => 1255.8 GMAC/s (best), 1188.1 (median); cold/hot mean ratio 2.85
+test engine::kern::gemm_probe::gemm_probe_real_inputs has been running for over 60 seconds
+k=200 cold (layer-cycling, foreign 0.041): per call swiglu median 5.515 ms + down median 3.635 ms; composed mean 8.633 ms, median 8.962, best layer 6.060 ms => 255.1 GMAC/s (mean), 363.4 (best layer); MHz P(cpu0-15) 4883 E(cpu16-31) 4314
+k=200 hot (layer 12 repeated, foreign 0.047): composed best 3.206 ms median 7.279 ms => 686.9 GMAC/s (best), 302.5 (median); cold/hot mean ratio 1.19
+
+-- (d) per shape, per k (pool width 24; warm weights; GMAC/s = n_out*n_in*k/t; peak = VNNI ymm peak at the row's measured MHz) --
+class (layer)                                   k  best ms   med ms GMAC/s b GMAC/s m  GB/s b   pack b  %peak   frgn    MHz P/E
+quiet gate before the table: busy 0.049 quiet=true | uptime 4.88 16.24 26.23 2/4123 2829125
+Gemm attn_output n_in=2048 L3                   1    0.026    0.027     81.7     77.6    86.8    0.001    2.2  0.039 5127/4397
+Gemm attn_output n_in=2048 L3                   8    0.028    0.030    599.3    559.6    79.6    0.001   17.6  0.040 4631/4032
+Gemm attn_output n_in=2048 L3                  64    0.105    0.107   1276.4   1251.2    21.2    0.002   37.0  0.030 4592/4291
+Gemm attn_output n_in=2048 L3                 128    0.198    0.202   1357.8   1327.2    11.3    0.003   36.8  0.029 5100/4195
+Gemm attn_output n_in=2048 L3                 200    0.302    0.313   1390.1   1339.4     7.4    0.004   38.9  0.025 4832/4296
+Gemm attn_output n_in=2048 L23                  1    0.026    0.039     80.1     53.4    85.1    0.001    2.2  0.076 5014/4100
+Gemm attn_output n_in=2048 L23                  8    0.028    0.045    609.5    374.4    81.0    0.001   17.1  0.046 4915/4056
+Gemm attn_output n_in=2048 L23                 64    0.105    0.108   1272.2   1244.6    21.1    0.002   35.6  0.040 4883/4203
+Gemm attn_output n_in=2048 L23                128    0.199    0.234   1351.1   1146.3    11.2    0.003   36.1  0.051 5201/4213
+Gemm attn_output n_in=2048 L23                200    0.302    0.333   1389.5   1261.2     7.4    0.003   40.1  0.029 4667/4214
+Gemm ffn_down n_in=3584 L0                      1    0.044    0.047     83.6     78.7    88.8    0.001    2.2  0.037 5292/4352
+Gemm ffn_down n_in=3584 L0                      8    0.045    0.048    649.5    616.3    86.3    0.002   18.1  0.035 4860/4279
+Gemm ffn_down n_in=3584 L0                     64    0.176    0.181   1333.4   1298.1    22.1    0.003   36.6  0.030 4948/4342
+Gemm ffn_down n_in=3584 L0                    128    0.338    0.398   1387.8   1181.5    11.5    0.007   36.9  0.034 5196/4300
+Gemm ffn_down n_in=3584 L0                    200    0.517    0.834   1418.9    880.3     7.5    0.010   39.2  0.032 5039/4071
+Gemm ffn_down n_in=3584 L12                     1    0.043    0.048     84.7     76.9    90.0    0.001    2.3  0.034 5051/4157
+Gemm ffn_down n_in=3584 L12                     8    0.046    0.049    643.4    595.4    85.5    0.002   18.4  0.037 4815/4065
+Gemm ffn_down n_in=3584 L12                    64    0.176    0.209   1331.1   1121.3    22.1    0.003   35.8  0.050 5164/4195
+Gemm ffn_down n_in=3584 L12                   128    0.336    0.358   1398.5   1311.8    11.6    0.007   38.1  0.036 5073/4200
+Gemm ffn_down n_in=3584 L12                   200    0.515    0.767   1426.0    956.9     7.6    0.010   39.5  0.056 5000/4100
+Gemm ffn_down n_in=3584 L23                     1    0.043    0.047     84.9     77.9    90.2    0.001    2.4  0.051 4881/4199
+Gemm ffn_down n_in=3584 L23                     8    0.045    0.048    652.9    614.1    86.7    0.002   19.1  0.045 4648/4054
+Gemm ffn_down n_in=3584 L23                    64    0.177    0.190   1330.5   1235.7    22.1    0.003   36.5  0.035 5026/4200
+Gemm ffn_down n_in=3584 L23                   128    0.337    0.364   1393.0   1289.1    11.6    0.007   39.4  0.041 4800/4194
+Gemm ffn_down n_in=3584 L23                   200    0.521    0.896   1410.1    819.6     7.5    0.011   37.7  0.066 5165/4295
+Gemm ssm_out n_in=2048 L0                       1    0.026    0.030     80.5     69.1    85.6    0.001    2.2  0.065 4995/4273
+Gemm ssm_out n_in=2048 L0                       8    0.028    0.033    607.8    515.8    80.7    0.001   16.9  0.047 5010/4064
+Gemm ssm_out n_in=2048 L0                      64    0.105    0.110   1273.1   1219.8    21.1    0.002   34.9  0.044 5052/4157
+Gemm ssm_out n_in=2048 L0                     128    0.200    0.271   1343.4    990.7    11.2    0.003   37.2  0.045 5008/4097
+Gemm ssm_out n_in=2048 L0                     200    0.309    0.406   1356.8   1033.6     7.2    0.004   37.6  0.058 5000/4093
+Gemm ssm_out n_in=2048 L22                      1    0.026    0.029     79.9     72.0    84.9    0.001    2.3  0.030 4722/4020
+Gemm ssm_out n_in=2048 L22                      8    0.043    0.047    386.2    357.2    51.3    0.001   10.7  0.050 5001/4067
+Gemm ssm_out n_in=2048 L22                     64    0.108    0.133   1244.6   1010.8    20.7    0.003   34.5  0.034 5000/4090
+Gemm ssm_out n_in=2048 L22                    128    0.199    0.211   1351.8   1269.9    11.2    0.003   37.5  0.029 5000/4095
+Gemm ssm_out n_in=2048 L22                    200    0.303    0.347   1385.8   1207.0     7.4    0.004   37.7  0.029 5085/4195
+Group qkv(attn) n_in=1024 L3                    1    0.063    0.099     83.0     52.9    88.2    0.000    2.3  0.041 5000/3978
+Group qkv(attn) n_in=1024 L3                    8    0.064    0.068    652.4    620.7    86.7    0.001   17.7  0.038 5103/4233
+Group qkv(attn) n_in=1024 L3                   64    0.265    0.299   1267.8   1122.2    21.0    0.001   34.4  0.036 5100/4194
+Group qkv(attn) n_in=1024 L3                  128    0.489    0.574   1372.0   1170.0    11.4    0.002   36.2  0.035 5238/4323
+Group qkv(attn) n_in=1024 L3                  200    0.764    3.441   1372.4    304.7     7.3    0.002   37.4  0.059 5055/4221
+Group qkv(attn) n_in=1024 L23                   1    0.060    0.108     87.6     48.5    93.0    0.000    2.5  0.072 4912/4056
+Group qkv(attn) n_in=1024 L23                   8    0.064    0.104    655.9    403.5    87.1    0.001   18.4  0.066 4955/4011
+Group qkv(attn) n_in=1024 L23                  64    0.263    0.323   1277.3   1037.8    21.2    0.001   34.9  0.052 5011/4278
+Group qkv(attn) n_in=1024 L23                 128    0.495    0.816   1356.0    822.4    11.3    0.002   35.9  0.037 5221/4300
+Group qkv(attn) n_in=1024 L23                 200    0.764    3.792   1372.1    276.5     7.3    0.002   37.2  0.042 5099/4200
+Group qkv+gate+ba(ssm) n_in=1024 L0             1    0.096    0.110     87.8     76.3    93.3    0.000    2.5  0.041 4950/4021
+Group qkv+gate+ba(ssm) n_in=1024 L0             8    0.100    0.125    670.6    537.8    89.1    0.001   19.0  0.051 4789/4229
+Group qkv+gate+ba(ssm) n_in=1024 L0            64    0.402    0.655   1341.5    822.4    22.3    0.001   36.4  0.049 5098/4200
+Group qkv+gate+ba(ssm) n_in=1024 L0           128    0.759    3.096   1420.1    348.2    11.8    0.002   38.5  0.041 5017/4373
+Group qkv+gate+ba(ssm) n_in=1024 L0           200    1.183    4.985   1423.7    337.9     7.6    0.002   40.1  0.039 4822/4222
+Group qkv+gate+ba(ssm) n_in=1024 L22            1    0.097    0.104     86.8     81.3    92.3    0.000    2.3  0.040 5127/4315
+Group qkv+gate+ba(ssm) n_in=1024 L22            8    0.099    0.109    678.7    619.1    90.1    0.001   18.6  0.049 4942/4400
+Group qkv+gate+ba(ssm) n_in=1024 L22           64    0.401    0.525   1343.7   1027.4    22.3    0.001   37.0  0.043 4910/4379
+Group qkv+gate+ba(ssm) n_in=1024 L22          128    0.767    3.724   1405.4    289.5    11.7    0.002   37.5  0.047 5164/4300
+Group qkv+gate+ba(ssm) n_in=1024 L22          200    1.179    5.382   1428.1    312.9     7.6    0.002   39.6  0.041 4996/4100
+Swiglu gate+up n_in=1024 L0                     1    0.097    0.109     75.9     67.3    80.6    0.000    2.1  0.039 5088/4220
+Swiglu gate+up n_in=1024 L0                     8    0.098    0.110    601.0    535.6    79.8    0.001   16.6  0.053 4939/4261
+Swiglu gate+up n_in=1024 L0                    64    0.383    0.645   1227.9    728.7    20.4    0.001   33.1  0.035 5193/4097
+Swiglu gate+up n_in=1024 L0                   128    0.728    3.793   1291.2    247.7    10.7    0.002   34.8  0.047 5116/4275
+Swiglu gate+up n_in=1024 L0                   200    1.133    5.553   1295.2    264.4     6.9    0.002   35.1  0.044 5106/4199
+Swiglu gate+up n_in=1024 L12                    1    0.097    0.107     75.9     68.4    80.7    0.000    2.1  0.069 5037/4130
+Swiglu gate+up n_in=1024 L12                    8    0.098    0.110    599.1    533.0    79.6    0.001   15.9  0.063 5178/4388
+Swiglu gate+up n_in=1024 L12                   64    0.382    0.527   1230.9    891.4    20.4    0.001   34.1  0.036 5084/3937
+Swiglu gate+up n_in=1024 L12                  128    0.726    3.865   1294.2    243.1    10.7    0.002   34.9  0.054 5120/4250
+Swiglu gate+up n_in=1024 L12                  200    1.162    6.436   1262.9    228.1     6.7    0.002   40.2  0.044 4095/4091
+Swiglu gate+up n_in=1024 L23                    1    0.097    0.116     76.0     63.2    80.7    0.000    2.1  0.040 4966/4045
+Swiglu gate+up n_in=1024 L23                    8    0.097    0.110    603.9    533.9    80.2    0.001   16.9  0.042 5001/3998
+Swiglu gate+up n_in=1024 L23                   64    0.381    0.796   1231.4    590.5    20.4    0.001   33.5  0.035 4994/4366
+Swiglu gate+up n_in=1024 L23                  128    0.729    3.102   1288.4    302.9    10.7    0.002   36.2  0.045 4813/4279
+Swiglu gate+up n_in=1024 L23                  200    1.167    5.802   1257.8    253.0     6.7    0.002   33.1  0.060 5245/4365
+limit(blocks=32)=28 limit(blocks=112)=26
+peak anchor example at 4500/3500 MHz: machine 3421 GMAC/s = 8 P x 288 + 16 E x 70
+MHz P(cpu0-15) 3361 E(cpu16-31) 4364
+uptime after: 10.43 16.10 25.66 21/4133 2830949
+GRADE inputs: quiet_before_prefill_runs=true quiet_before_replay=true quiet_before_table=true max_foreign_cpu_share=0.076 path_identity=true fixture_spread_differs=true composed_k200_cold_mean_ms=8.633
+test engine::kern::gemm_probe::gemm_probe_real_inputs ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 442 filtered out; finished in 191.45s
+
+exit 0

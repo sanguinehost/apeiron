@@ -43,7 +43,7 @@ BOARD_API = "https://projects.tas.twn.network/api/external/v1"
 SPACE_ID = "sanguine-COpRXpkvCi19pKoDZnOPg0"
 DEFAULT_PROJECT = "apeiron-ExNAtv3hObMmq01Ab20DfA"
 SESSION_DB = os.path.expanduser("~/.local/share/opencode/opencode.db")
-SANGUINE_REPOS = ("apeiron", "song", "intent", "sanguine-apeiron", "fold", "resonance", "penglai")
+SANGUINE_REPOS = ("apeiron", "song", "intent", "sanguine", "fold", "resonance", "penglai")
 
 # A staleness score is a weighted sum over named inputs. The weights are a
 # design assumption, not a fit to data: they are stated here so a reader can

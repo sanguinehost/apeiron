@@ -11,7 +11,7 @@ import Aeneas
    `relocate_all` traversal bound, and any hardware timing.
    CORPUS: `src/table.rs` `Table::relocate_entry` (lines 926-988, as the extraction header in
    `RelocateEntrySource.lean` records) and its `src/table/{state,locator,probe}.rs` children, all
-   read. `../sanguine-apeiron/proof/Apeiron/` was searched for a
+   read. `../sanguine/proof/Apeiron/` was searched for a
    relocation *resource* theorem and none refines a work measure; the object refined here is the
    extracted body itself, not a corpus theorem.
    REFERENCE: `/home/socol/Workspace/apeiron/proof/resource/RelocateEntrySource.lean`,

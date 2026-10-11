@@ -15,7 +15,7 @@ CORPUS: `src/engine/matvec.rs` lines 86-222 and the extracted `matvec.row_dot_fi
       `dequant.dequant_row_fixed`, `quant.block_geom`. `Matvec_gate.py` compares each of these
       declarations byte-for-byte against `proof/ApeironWord.lean` before this file is checked.
 REFERENCE: /home/socol/Workspace/apeiron/proof/ApeironWord.lean — the canonical-corpus extraction
-      of these same bodies (Charon/Aeneas, pins in proof/README.md). No `sanguine-apeiron`
+      of these same bodies (Charon/Aeneas, pins in proof/README.md). No `sanguine`
       theorem is used and none is needed: every statement below is about the extracted Rust body.
 GATE: `python3 proof/resource/Matvec_gate.py`, 540 s whole-invocation budget, lane
       `/tmp/opencode/apeiron-lane.lock`, MemoryMax=12G MemorySwapMax=0, LEAN_NUM_THREADS=1.

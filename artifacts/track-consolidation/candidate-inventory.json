@@ -1,0 +1,40 @@
+{
+  "lines_by_changed_file": {
+    "examples/engine_profile.rs": 1251,
+    "src/engine/attn.rs": 1982,
+    "src/engine/attn/f32_block.rs": 1015,
+    "src/engine/attn/f32_core.rs": 1399,
+    "src/engine/chart/ffn.rs": 2019,
+    "src/engine/chart/pool.rs": 1254,
+    "src/engine/error.rs": 160,
+    "src/engine/kern/bitplane.rs": 1152,
+    "src/engine/kern/gemm.rs": 2856,
+    "src/engine/kern/gemm_attrib.rs": 1179,
+    "src/engine/kern/gemm_probe.rs": 1495,
+    "src/engine/kern/matmat.rs": 1221,
+    "src/engine/kern/mod.rs": 12,
+    "src/engine/loader.rs": 1337,
+    "src/engine/loader/qk_permute.rs": 167,
+    "src/engine/loader/qk_permute/tests.rs": 172,
+    "src/engine/loader/tests.rs": 329,
+    "src/engine/mixer.rs": 2855,
+    "src/engine/mixer/conv_f32.rs": 687,
+    "src/engine/mixer/f32_carrier.rs": 836,
+    "src/engine/mixer/f32_carrier_tests.rs": 1104,
+    "src/engine/mixer/tests.rs": 2063,
+    "src/engine/step.rs": 1685,
+    "src/engine/step/attn_block.rs": 688,
+    "src/engine/step/cols.rs": 1028,
+    "src/engine/step/prefill_tests.rs": 250
+  },
+  "source_files_over_1500": {
+    "src/engine/attn.rs": 1982,
+    "src/engine/chart/ffn.rs": 2019,
+    "src/engine/kern/gemm.rs": 2856,
+    "src/engine/mixer.rs": 2855,
+    "src/engine/mixer/tests.rs": 2063,
+    "src/engine/step.rs": 1685
+  },
+  "main_runtime_diff_empty": true,
+  "grade": "inventory; source-size acceptance and whole barriers open"
+}

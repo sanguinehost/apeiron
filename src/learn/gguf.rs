@@ -10,7 +10,7 @@
 //!
 //! This is a new primitive: a lineage search
 //! (`rg 'GgufWriter|fn write_gguf|gguf_write|GGUFWriter'` over `fold`, `spinor-ttl`, `sanguine`,
-//! `sanguine-apeiron` and `lyrium`) returned no writer; the reader had no counterpart in this tree.
+//! `sanguine` and `lyrium`) returned no writer; the reader had no counterpart in this tree.
 //!
 //! Checked sizing is the contract: every string length, list count, dimension product, offset and
 //! padding length is computed with checked arithmetic and refused with [`GgufError`] on overflow.

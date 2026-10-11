@@ -1,0 +1,76 @@
+error: duplicate key
+  --> ../../.cargo/git/checkouts/fold-62126b3be665e44a/4cc1447/opsfold/Cargo.toml:61:1
+   |
+61 | netfold = { path = "../netfold", optional = true }
+   | ^^^^^^^
+warning: function `profile` is never used
+   --> src/table/locator.rs:943:8
+    |
+943 |     fn profile() -> H3_40 {
+    |        ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `apeiron` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (/home/socol/oc-tmp/wt/target-w7-t04-patched/debug/deps/apeiron-fbaf6d3d98420708)
+
+running 55 tests
+test engine::kern::bitplane::tests::bench_qwen35_head_64_steps ... ignored, benchmark
+test engine::kern::gemm::attrib::gemm_attrib_inengine ... ignored, release-only instrument: see the doc comment
+test engine::kern::gemm::attrib::gemm_attrib_real_inputs ... ignored, release-only instrument: APEIRON_F32_CARRIER=1 cargo test --release --lib --locked gemm_attrib -- --ignored --nocapture
+test engine::kern::gemm::attrib::gemm_attrib_shapes ... ignored, release-only instrument: see the doc comment
+test engine::kern::gemm::attrib::gemm_dense_shapes ... ignored, release-only instrument: see the doc comment
+test engine::kern::gemm::tests::bench_q8_0_gemm_shapes ... ignored, release-only microbench: cargo test --release --lib bench_q8_0_gemm_shapes -- --ignored --nocapture
+test engine::kern::gemm::tests::spread_limit_keeps_the_sum_in_i64 ... ok
+test engine::kern::gemm_probe::gemm_probe_real_inputs ... ignored, release-only instrument: APEIRON_F32_CARRIER=1 cargo test --release --lib --locked gemm_probe -- --ignored --nocapture
+test engine::kern::bitplane::tests::test_dense_head_round_trip ... ok
+test engine::kern::lut::tests::from_pq2_0_refuses_bad_inputs ... ok
+test engine::kern::gemm::tests::f16_split_is_f16_to_fixed ... ok
+test engine::kern::bitplane::tests::test_f16_const_matches_reference ... ok
+test engine::kern::lut::tests::matvec_lut_row_bound_keeps_i128_on_an_oversized_row ... ok
+test engine::kern::lut::tests::timing_build_tables_serial_vs_pooled ... ignored, timing measurement; run with --ignored --nocapture
+test engine::kern::lut::tests::timing_lut_vs_fixed_2048 ... ignored, timing measurement; run with --ignored --nocapture
+test engine::kern::lut::tests::matvec_lut_matches_fixed_on_zero_activations ... ok
+test engine::kern::matmat::tests::timing_k_scaling ... ignored, timing measurement, not a correctness gate
+test engine::kern::matmat::tests::timing_k_scaling_dram ... ignored, timing measurement, not a correctness gate
+test engine::kern::pow2::tests::act_scale_is_the_least_covering_power_of_two ... ok
+test engine::kern::lut::tests::matvec_lut_wide_path_matches_fixed ... ok
+test engine::kern::bitplane::tests::duplicate_rows_resolve_to_the_lower_index ... ok
+test engine::kern::matmat::tests::avx2_block_kdots_match_the_portable_twin ... ok
+test engine::kern::pow2::tests::finish_is_round_shift_32_of_the_scaled_sum ... ok
+test engine::kern::tp::tests::ffn_tp_timing_qwen_layer0 ... ignored, timing measurement; run with --ignored --nocapture and APEIRON_THREADS=8
+test engine::kern::lut::tests::matvec_lut_matches_fixed_on_extreme_codes_and_scales ... ok
+test engine::kern::lut::tests::build_tables_matches_the_plane_sum_oracle ... ok
+test engine::kern::lut::tests::matvec_lut_takes_the_two_i64_row_path_when_the_bound_holds ... ok
+test engine::kern::gemm::tests::gemm_runs_on_ordinary_inputs ... ok
+test engine::kern::lut::tests::matvec_lut_falls_back_when_the_bound_is_exceeded ... ok
+test engine::kern::lut::tests::avx2_and_portable_lut_agree ... ok
+test engine::kern::gemm::tests::finish8_matches_the_scalar_finish ... ok
+test engine::kern::gemm::tests::swiglu_fused_f32_tracks_q32_oracle ... ok
+test engine::kern::gemm::tests::fast_columns_predicate_equals_the_magnitude_form ... ok
+test engine::kern::gemm::tests::row_scales_simd_matches_the_scalar_oracle ... ok
+test engine::kern::gemm::tests::gemm_group_defers_on_a_short_or_non_finite_part ... ok
+test engine::kern::matmat::tests::columns_match_matvec_fixed_on_dequantized_activations ... ok
+test engine::kern::matmat::tests::columns_match_on_extreme_codes_and_scales ... ok
+test engine::kern::gemm::tests::swiglu_fused_runs_on_ordinary_inputs ... ok
+test engine::kern::lut::tests::matvec_lut_matches_fixed_on_random_payloads ... ok
+test engine::kern::lut::tests::n_projection_dispatch_matches_separate_calls_and_refuses ... ok
+test engine::kern::gemm::tests::swiglu_fused_reports_a_refusing_element ... ok
+test engine::kern::tp::tests::ffn_tp_refuses_exactly_as_ffn_q8act ... ok
+test engine::kern::matmat::tests::fast_family_predicate_equals_the_magnitude_form ... ok
+test engine::kern::matmat::tests::refusals_match_per_column ... ok
+test engine::kern::lut::tests::pooled_row_chunked_lut_equals_the_unchunked_kernel ... ok
+test engine::kern::bitplane::tests::adversarial_near_ties_and_exact_ties ... ok
+test engine::kern::tp::tests::ffn_tp_equals_ffn_q8act_on_the_non_sliced_families ... ok
+test engine::kern::matmat::tests::columns_match_per_column_matvec_q8act ... ok
+test engine::kern::gemm::tests::gemm_group_equals_the_per_part_gemm ... ok
+test engine::kern::bitplane::tests::pooled_argmax_matches_the_serial_scan ... ok
+test engine::kern::tp::tests::ffn_tp_equals_ffn_q8act_on_every_fast_down_family ... ok
+test engine::kern::gemm::tests::merged_kernel_equals_the_shifted_kernel ... ok
+test engine::kern::gemm::tests::swiglu_fused_equals_the_separate_path ... ok
+test engine::kern::bitplane::tests::bitplane_argmax_equals_dense_argmax ... ok
+test engine::kern::gemm::tests::gemm_equals_the_per_column_contract ... ok
+
+test result: ok. 43 passed; 0 failed; 12 ignored; 0 measured; 399 filtered out; finished in 1.49s
+

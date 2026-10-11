@@ -1,0 +1,13 @@
+
+running 1 test
+== gemm_dense == model /home/socol/oc-tmp/w7-fixtures/qwen15b-Q8_0.gguf pp 200 k 200 pool width 24 prefill block 256
+SHAPE Group blk.*.attn_q.weight+blk.*.attn_k.weight+blk.*.attn_v.weight n_in=1536 n_out=[1536, 256, 256] k=200: best 0.5842 ms = 1077.0 GMAC/s, median 0.8795 ms = 715.3 GMAC/s, foreign 0.032, digest d571b3a5f4848d56
+test engine::kern::gemm::attrib::gemm_dense_shapes has been running for over 60 seconds
+SHAPE Gemm blk.*.attn_output.weight n_in=1536 n_out=[1536] k=200: best 0.4383 ms = 1076.5 GMAC/s, median 0.4663 ms = 1011.9 GMAC/s, foreign 0.000, digest f26eafb0a64c29bc
+SHAPE Swiglu blk.*.ffn_gate.weight+blk.*.ffn_up.weight n_in=1536 n_out=[8960, 8960] k=200: best 12.1394 ms = 453.5 GMAC/s, median 17.2583 ms = 319.0 GMAC/s, foreign 0.040, digest 23a0fd5cac50a173
+SHAPE Gemm blk.*.ffn_down.weight n_in=8960 n_out=[1536] k=200: best 3.2204 ms = 854.7 GMAC/s, median 6.9457 ms = 396.3 GMAC/s, foreign 0.048, digest 11cb87c76070be64
+test engine::kern::gemm::attrib::gemm_dense_shapes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 441 filtered out; finished in 161.15s
+
+exit 0

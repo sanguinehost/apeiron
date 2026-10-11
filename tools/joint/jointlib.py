@@ -28,12 +28,12 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve()
 REPO = HERE.parents[2]
-CORPUS_ROOT = REPO.parent / "sanguine-apeiron" / "proof"
+CORPUS_ROOT = REPO.parent / "sanguine" / "proof"
 BRIDGE_ROOT = REPO / "proof"
 SONG_ROOT = REPO.parent / "song"
 PINNED_CORPUS_REPO = REPO / "proof" / "corpus" / ".lake" / "packages" / "apeiron"
-CORPUS_REFERENCE_PREFIX = "../sanguine-apeiron/"
-CORPUS_TEXT_PREFIX = "sanguine-apeiron/"
+CORPUS_REFERENCE_PREFIX = "../sanguine/"
+CORPUS_TEXT_PREFIX = "sanguine/"
 
 # Named artifacts deliberately absent from the pinned corpus. A reference that
 # does not resolve is accepted only when its exact path is listed here; the

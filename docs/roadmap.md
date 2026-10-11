@@ -70,12 +70,12 @@ current canonical identity (stage 2) and, where it executes, extracted (stage 3)
 
 | artifact | path | establishes | status |
 |---|---|---|---|
-| Paper I bundle | [`../../sanguine/release/paper1/INDEX.md`](../../sanguine/release/paper1/INDEX.md) | `null_cell_characterization`; `spinor_subtrinity` including forward-only exact gradient/Laplacian; `six_ops_one_cell`; `ridgeHead_unique`, `gram_stack`, `streaming_law`; `rexpand_rcollapse`; the numerics seam (`flash_attention_exact`, quant dual) | Lean v4.30.0-rc2, Mathlib-only, zero `sorry`; historical |
-| Paper II bundle | [`../../sanguine/release/paper2/INDEX.md`](../../sanguine/release/paper2/INDEX.md) | one object/one fold, closed-form loops (`constantStep_fixed_point`, `affine_orbit_closed_form`), determinism/confluence, capability-as-data | historical; `Machine`/`Syscall`/`Servitor` rows in progress |
+| Paper I bundle | [`../../sanguine-ref/release/paper1/INDEX.md`](../../sanguine-ref/release/paper1/INDEX.md) | `null_cell_characterization`; `spinor_subtrinity` including forward-only exact gradient/Laplacian; `six_ops_one_cell`; `ridgeHead_unique`, `gram_stack`, `streaming_law`; `rexpand_rcollapse`; the numerics seam (`flash_attention_exact`, quant dual) | Lean v4.30.0-rc2, Mathlib-only, zero `sorry`; historical |
+| Paper II bundle | [`../../sanguine-ref/release/paper2/INDEX.md`](../../sanguine-ref/release/paper2/INDEX.md) | one object/one fold, closed-form loops (`constantStep_fixed_point`, `affine_orbit_closed_form`), determinism/confluence, capability-as-data | historical; `Machine`/`Syscall`/`Servitor` rows in progress |
 | spinor-ttl | [`../../spinor-ttl/PAPER.md`](../../spinor-ttl/PAPER.md), [`STATUS.md`](../../spinor-ttl/STATUS.md), [`TERNARY_FINDINGS.md`](../../spinor-ttl/TERNARY_FINDINGS.md) | PyTorch ports and measurements: count-LM 2.205 vs 2.392 b/B; ridge fold 16-71x to the same optimum; seal vs NF4 and Q4_K_M; fold finetune vs LoRA with exact unlearning | prototype measurements; ports are reference, not the extraction path |
-| Neural corpus | [`../../sanguine/proof/Substrate/Algebra/Neural/`](../../sanguine/proof/Substrate/Algebra/Neural/) | `MirasCountLM` (`hebb_comm`, `forget_hebb`, `surprise_eq_info`), `AttentionSpinor`, `NullTransformer`, `KneserNey`, `CountLMFloor`, `TrainingCollapse`, `MLPrimitivesBridge` §6/§6b | historical; stage 2 re-binds it |
-| Fold/softmax algebra | [`../../sanguine/proof/Substrate/Algebra/NullCell/SpinorFold.lean`](../../sanguine/proof/Substrate/Algebra/NullCell/SpinorFold.lean) | `osFuse_is_add`, `osFuse_grouping_free` | historical |
-| Frontier ledger | [`../../sanguine/proof/Substrate/Algebra/Neural/FrontierLadder.lean`](../../sanguine/proof/Substrate/Algebra/Neural/FrontierLadder.lean) | the five open seams (`kappa_sufficient`, `kn_attains_kl_floor`, `turing_bridge`, `compositional_metatheorem`, `book_anchor_regular`) and the absent L1 `intelligence` predicate | ledger, prose-bounded; seams are research tasks |
+| Neural corpus | [`../../sanguine-ref/proof/Substrate/Algebra/Neural/`](../../sanguine-ref/proof/Substrate/Algebra/Neural/) | `MirasCountLM` (`hebb_comm`, `forget_hebb`, `surprise_eq_info`), `AttentionSpinor`, `NullTransformer`, `KneserNey`, `CountLMFloor`, `TrainingCollapse`, `MLPrimitivesBridge` §6/§6b | historical; stage 2 re-binds it |
+| Fold/softmax algebra | [`../../sanguine-ref/proof/Substrate/Algebra/NullCell/SpinorFold.lean`](../../sanguine-ref/proof/Substrate/Algebra/NullCell/SpinorFold.lean) | `osFuse_is_add`, `osFuse_grouping_free` | historical |
+| Frontier ledger | [`../../sanguine-ref/proof/Substrate/Algebra/Neural/FrontierLadder.lean`](../../sanguine-ref/proof/Substrate/Algebra/Neural/FrontierLadder.lean) | the five open seams (`kappa_sufficient`, `kn_attains_kl_floor`, `turing_bridge`, `compositional_metatheorem`, `book_anchor_regular`) and the absent L1 `intelligence` predicate | ledger, prose-bounded; seams are research tasks |
 
 ### Private demo milestones (falsifiable, no release)
 
@@ -487,7 +487,7 @@ REGISTER: planning/documentation; no implementation, theorem, pin or runtime cha
 CORPUS: universalLift_map / universalLiftCons_state (fold naturality/state);
         automated_lifting_sound (SKIShaped premise); universal_generation (Law substitution);
         proj_zero_cons / proj_succ_cons (List equations). Source read, not rebuilt.
-REFERENCE: /home/socol/Workspace/sanguine/proof/Substrate/Algebra/Translation/UniverseSyntaxSerialisation.lean;
+REFERENCE: /home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Translation/UniverseSyntaxSerialisation.lean;
            sanguine@7d132ffa17fa19b62ff53487d85f254aac108c46:interop/src/.
 GATE: python3 /tmp/opencode/roadmap_review.py check; initial exit 1:
       AssertionError: song resonate. git diff --check in each repo initially exits 0.
@@ -555,7 +555,7 @@ because games or world simulation might consume it.
 ### Translation authorities and missing links
 
 Historical Lean was read at Sanguine checkout `e830d3fbdeb40319d1be0d1fc803e706748b6a3c`, under
-`../sanguine/proof/` (not the canonical Apeiron package). Canonical combinator statements were read
+`../sanguine-ref/proof/` (not the canonical Apeiron package). Canonical combinator statements were read
 in `proof/corpus/.lake/packages/apeiron/proof/Apeiron/` at bridge pin
 `3d66ea3aa2fe1de5997b6b757247454a2f771358`. No Lean build or new audit ran here.
 The seven `L` identifiers below label missing links, not evidence grades or Song registers.
@@ -572,7 +572,7 @@ The seven `L` identifiers below label missing links, not evidence grades or Song
 
 ### Historical Rust analysis
 
-Read with `git -C /home/socol/Workspace/sanguine show '4556df7d^:<path>'`. The parent resolves to
+Read with `git -C /home/socol/Workspace/sanguine-ref show '4556df7d^:<path>'`. The parent resolves to
 `7d132ffa17fa19b62ff53487d85f254aac108c46`. Paths below are relative to that Git tree, not claims
 that deleted `interop/` files exist in the current checkout. The supplied prior-review findings
 (parity/hash equality, restricted textual LLVM, byte-result compiler, Linux ABI and linker defects)
@@ -1115,7 +1115,7 @@ replacement; they are not extended.
 | Checkout | Base revision | Pre-existing work to preserve |
 |---|---|---|
 | `apeiron` | `1403767e671c81737525702946a3eb1eae4f0b0b` | Clean |
-| `sanguine-apeiron` | `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f` | Clean; shares Git history with `sanguine` |
+| `sanguine` | `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f` | Clean; shares Git history with `sanguine` |
 | `sanguine` | `e830d3fbdeb40319d1be0d1fc803e706748b6a3c` | Clean; predecessor worktree, not canonical root |
 | `song` | `47869e76f982cfa3085a8618a82b80463e22ef46` | Clean; `song-ref` remains untouched |
 | `penglai` | `ed11d3b34c148eb35050b615dc47e8340a9e224f` | Clean |
@@ -1138,7 +1138,7 @@ All lanes are documentation-only. One owner per file; the lead alone maintains t
 | W0-T2 | Flash gate worker | `/tmp/opencode/programme-docs/check.py`, `baseline.json` | Checker built, snapshot captured, expected red baseline observed |
 | W1-T1 | Flash central worker; lead architecture review | `apeiron/docs/direction.md`, `docs/kernel-boundary.md`, `docs/plan.md` | Central authority, outcomes and local ownership consistent |
 | W2-T1 | Flash Apeiron worker; Sol claim review | `apeiron/AGENTS.md`, `README.md`, `proof/README.md` | Entry points and current API/evidence agree with source |
-| W2-T2 | Flash corpus worker; Sol claim review | `sanguine-apeiron/AGENTS.md`, `theory/ROADMAP.md`, `theory/POTENTIAL_CLAIMS.md` | Lean retained; current delivery/primitive correspondence distinguished |
+| W2-T2 | Flash corpus worker; Sol claim review | `sanguine/AGENTS.md`, `theory/ROADMAP.md`, `theory/POTENTIAL_CLAIMS.md` | Lean retained; current delivery/primitive correspondence distinguished |
 | W2-T3 | Flash Song roadmap worker | `song/AGENTS.md`, `docs/ROADMAP.md`, `docs/research/ROADMAP.md` | Programme obligations coexist with unchanged local release barriers |
 | W2-T4 | Flash Song architecture worker | `song/docs/DESIGN.md`, `docs/ARCHITECTURE.md`, `plans/ROADMAP.md` | Independent assembly-up boundary; obsolete Lean-retirement goals superseded |
 | W2-T5 | Flash predecessor worker | `sanguine/AGENTS.md`, `fold/AGENTS.md`, `lyrium/AGENTS.md` | Current authority pointers, local autonomy and historical scope explicit |
@@ -1228,7 +1228,7 @@ provable counting or real-analytic core. Lifecycle:
 Song executes the resource half already (fixed `FUEL_PASSES`/`NODE_CAP`/`STACK_CAP`, `FUEL` as a
 third honest verdict); the thermodynamic reservoir half has no artifact in this tree, the corpus or
 Song, and no SI constant enters. The physical identifications stay `anchor`; the kernel checks the
-cores. The plan's portable inventory lists the predecessor items from `../sanguine` and the current
+cores. The plan's portable inventory lists the predecessor items from `../sanguine-ref` and the current
 `Apeiron/Physics` modules that a later re-root wave may consume; predecessor modules are historical
 until re-derived on the trichotomy.
 
@@ -1240,9 +1240,9 @@ REGISTER:   planning + local algebra/analysis obligation; excludes Rust, extract
 CORPUS:     Apeiron/Trichotomy/Flow.lean flow_neg_one / flow_add / flow_returns_iff_disc_neg;
             Apeiron/Projective/Length.lean arcLength_vertical / log_height_le_arcLength, all
             corpus-native proved; the four absent statements have no corpus declaration.
-REFERENCE:  /home/socol/Workspace/sanguine-apeiron/proof/Apeiron/{Trichotomy/Flow,Projective/Length,
+REFERENCE:  /home/socol/Workspace/sanguine/proof/Apeiron/{Trichotomy/Flow,Projective/Length,
             Physics/CarrierDissipationAnyRing}.lean;
-            /home/socol/Workspace/sanguine/proof/Substrate/Algebra/{Gravity/BlackHoleThermodynamics,
+            /home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/{Gravity/BlackHoleThermodynamics,
             Matter/ThermalStatistics,NullCell/NullCellCoding}.lean (read this pass).
 GATE:       per module, bounded lake build in the corpus; audit lines and linters are W2.
             Baseline: every target module is absent (lake: unknown target).

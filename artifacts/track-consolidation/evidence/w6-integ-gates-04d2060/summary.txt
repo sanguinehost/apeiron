@@ -1,0 +1,9 @@
+fmt EXIT=0 0s 
+clippy EXIT=0 4s 
+lib-off EXIT=0 223s test result: ok. 409 passed; 0 failed; 32 ignored; 0 measured; 0 filtered out; finished in 220.29s
+lib-on EXIT=101 194s test result: FAILED. 404 passed; 5 failed; 32 ignored; 0 measured; 0 filtered out; finished in 193.94s
+long-off EXIT=0 10s test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 440 filtered out; finished in 4.12s
+long-on EXIT=0 3s test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 440 filtered out; finished in 3.65s
+ws-off EXIT=0 271s test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+build-prof EXIT=0 0s 
+DONE

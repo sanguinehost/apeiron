@@ -10,7 +10,7 @@ every artifact they name resolves:
   stays ``selected-open`` (a ``closed`` row is rejected);
 * every named canonical authority target resolves as the named declaration
   (``theorem``/``lemma``, ``def``/``abbrev``, ...) in the pinned canonical
-  corpus (``../sanguine-apeiron/proof``) under its exact opened namespace, and
+  corpus (``../sanguine/proof``) under its exact opened namespace, and
   every named bridge refinement resolves in ``proof/``;
 * every named Rust entry exists as a concrete executing declaration bound to
   the named implementation in its source file (a same-named method on another

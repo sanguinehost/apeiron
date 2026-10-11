@@ -11,7 +11,7 @@ defects reject.
 REGISTER: algebra/refinement. No Rust source, no extraction, no inference implementation, no
 canonical ring correspondence, no hardware timing.
 CORPUS: no match. grep for `structure Cost`/`def Cost`/`resourceCost`/`criticalPath` over
-/home/socol/Workspace/sanguine-apeiron/proof/Apeiron/, /home/socol/Workspace/apeiron/proof and
+/home/socol/Workspace/sanguine/proof/Apeiron/, /home/socol/Workspace/apeiron/proof and
 /home/socol/Workspace/apeiron/docs returned no file. Native grade of this module: proved.
 REFERENCE: /home/socol/Workspace/apeiron/proof/DispatchAdmission.lean (the `Admission` shape:
 `improves : ... afterCost x < beforeCost x`, the strict `Nat` cost this module's

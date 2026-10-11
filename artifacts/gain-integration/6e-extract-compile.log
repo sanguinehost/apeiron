@@ -1,0 +1,333 @@
+warning: type `RebuildPlan` is more private than the item `word_stored_relocate_entry`
+   --> lib.rs:530:1
+    |
+530 | / pub fn word_stored_relocate_entry(
+531 | |     mut state: WordStoredTable,
+532 | |     plan: &table::RebuildPlan,
+533 | |     mut reserved: table::RebuildReserved<table::keyrep::Stored<i64>, i64>,
+...   |
+537 | |     table::RebuildReserved<table::keyrep::Stored<i64>, i64>,
+538 | | ) {
+    | |_^ function `word_stored_relocate_entry` is reachable at visibility `pub`
+    |
+note: but type `RebuildPlan` is only usable at visibility `pub(crate)`
+   --> ../../src/table/state.rs:443:1
+    |
+443 | pub(crate) struct RebuildPlan {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `RebuildReserved<Stored<i64>, i64>` is more private than the item `word_stored_relocate_entry`
+   --> lib.rs:530:1
+    |
+530 | / pub fn word_stored_relocate_entry(
+531 | |     mut state: WordStoredTable,
+532 | |     plan: &table::RebuildPlan,
+533 | |     mut reserved: table::RebuildReserved<table::keyrep::Stored<i64>, i64>,
+...   |
+537 | |     table::RebuildReserved<table::keyrep::Stored<i64>, i64>,
+538 | | ) {
+    | |_^ function `word_stored_relocate_entry` is reachable at visibility `pub`
+    |
+note: but type `RebuildReserved<Stored<i64>, i64>` is only usable at visibility `pub(crate)`
+   --> ../../src/table/state.rs:449:1
+    |
+449 | pub(crate) struct RebuildReserved<R, V> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `RebuildPlan` is more private than the item `word_regen_relocate_entry`
+   --> lib.rs:547:1
+    |
+547 | / pub fn word_regen_relocate_entry(
+548 | |     mut state: WordRegenTable,
+549 | |     plan: &table::RebuildPlan,
+550 | |     mut reserved: table::RebuildReserved<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64>,
+...   |
+554 | |     table::RebuildReserved<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64>,
+555 | | ) {
+    | |_^ function `word_regen_relocate_entry` is reachable at visibility `pub`
+    |
+note: but type `RebuildPlan` is only usable at visibility `pub(crate)`
+   --> ../../src/table/state.rs:443:1
+    |
+443 | pub(crate) struct RebuildPlan {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `RebuildReserved<Regen<I64WordCodec>, i64>` is more private than the item `word_regen_relocate_entry`
+   --> lib.rs:547:1
+    |
+547 | / pub fn word_regen_relocate_entry(
+548 | |     mut state: WordRegenTable,
+549 | |     plan: &table::RebuildPlan,
+550 | |     mut reserved: table::RebuildReserved<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64>,
+...   |
+554 | |     table::RebuildReserved<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64>,
+555 | | ) {
+    | |_^ function `word_regen_relocate_entry` is reachable at visibility `pub`
+    |
+note: but type `RebuildReserved<Regen<I64WordCodec>, i64>` is only usable at visibility `pub(crate)`
+   --> ../../src/table/state.rs:449:1
+    |
+449 | pub(crate) struct RebuildReserved<R, V> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `RebuildPlan` is more private than the item `word_stored_relocate_all`
+   --> lib.rs:566:1
+    |
+566 | / pub fn word_stored_relocate_all(
+567 | |     mut state: WordStoredTable,
+568 | |     plan: &table::RebuildPlan,
+569 | |     mut reserved: table::RebuildReserved<table::keyrep::Stored<i64>, i64>,
+...   |
+572 | |     table::RebuildReserved<table::keyrep::Stored<i64>, i64>,
+573 | | ) {
+    | |_^ function `word_stored_relocate_all` is reachable at visibility `pub`
+    |
+note: but type `RebuildPlan` is only usable at visibility `pub(crate)`
+   --> ../../src/table/state.rs:443:1
+    |
+443 | pub(crate) struct RebuildPlan {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `RebuildReserved<Stored<i64>, i64>` is more private than the item `word_stored_relocate_all`
+   --> lib.rs:566:1
+    |
+566 | / pub fn word_stored_relocate_all(
+567 | |     mut state: WordStoredTable,
+568 | |     plan: &table::RebuildPlan,
+569 | |     mut reserved: table::RebuildReserved<table::keyrep::Stored<i64>, i64>,
+...   |
+572 | |     table::RebuildReserved<table::keyrep::Stored<i64>, i64>,
+573 | | ) {
+    | |_^ function `word_stored_relocate_all` is reachable at visibility `pub`
+    |
+note: but type `RebuildReserved<Stored<i64>, i64>` is only usable at visibility `pub(crate)`
+   --> ../../src/table/state.rs:449:1
+    |
+449 | pub(crate) struct RebuildReserved<R, V> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `RebuildPlan` is more private than the item `word_regen_relocate_all`
+   --> lib.rs:581:1
+    |
+581 | / pub fn word_regen_relocate_all(
+582 | |     mut state: WordRegenTable,
+583 | |     plan: &table::RebuildPlan,
+584 | |     mut reserved: table::RebuildReserved<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64>,
+...   |
+587 | |     table::RebuildReserved<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64>,
+588 | | ) {
+    | |_^ function `word_regen_relocate_all` is reachable at visibility `pub`
+    |
+note: but type `RebuildPlan` is only usable at visibility `pub(crate)`
+   --> ../../src/table/state.rs:443:1
+    |
+443 | pub(crate) struct RebuildPlan {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `RebuildReserved<Regen<I64WordCodec>, i64>` is more private than the item `word_regen_relocate_all`
+   --> lib.rs:581:1
+    |
+581 | / pub fn word_regen_relocate_all(
+582 | |     mut state: WordRegenTable,
+583 | |     plan: &table::RebuildPlan,
+584 | |     mut reserved: table::RebuildReserved<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64>,
+...   |
+587 | |     table::RebuildReserved<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64>,
+588 | | ) {
+    | |_^ function `word_regen_relocate_all` is reachable at visibility `pub`
+    |
+note: but type `RebuildReserved<Regen<I64WordCodec>, i64>` is only usable at visibility `pub(crate)`
+   --> ../../src/table/state.rs:449:1
+    |
+449 | pub(crate) struct RebuildReserved<R, V> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `RebuildReserved<Stored<i64>, i64>` is more private than the item `word_stored_apply_pending_and_commit`
+   --> lib.rs:600:1
+    |
+600 | / pub fn word_stored_apply_pending_and_commit(
+601 | |     mut state: WordStoredTable,
+602 | |     reserved: table::RebuildReserved<table::keyrep::Stored<i64>, i64>,
+603 | |     decision: table::SearchDecision,
+...   |
+607 | |     address: table::TableAddress,
+608 | | ) -> WordStoredTable {
+    | |____________________^ function `word_stored_apply_pending_and_commit` is reachable at visibility `pub`
+    |
+note: but type `RebuildReserved<Stored<i64>, i64>` is only usable at visibility `pub(crate)`
+   --> ../../src/table/state.rs:449:1
+    |
+449 | pub(crate) struct RebuildReserved<R, V> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `RebuildReserved<Regen<I64WordCodec>, i64>` is more private than the item `word_regen_apply_pending_and_commit`
+   --> lib.rs:625:1
+    |
+625 | / pub fn word_regen_apply_pending_and_commit(
+626 | |     mut state: WordRegenTable,
+627 | |     reserved: table::RebuildReserved<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64>,
+628 | |     decision: table::SearchDecision,
+...   |
+632 | |     address: table::TableAddress,
+633 | | ) -> WordRegenTable {
+    | |___________________^ function `word_regen_apply_pending_and_commit` is reachable at visibility `pub`
+    |
+note: but type `RebuildReserved<Regen<I64WordCodec>, i64>` is only usable at visibility `pub(crate)`
+   --> ../../src/table/state.rs:449:1
+    |
+449 | pub(crate) struct RebuildReserved<R, V> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `RebuildPlan` is more private than the item `word_stored_publish_prepared`
+   --> lib.rs:652:1
+    |
+652 | / pub fn word_stored_publish_prepared(
+653 | |     result: Result<
+654 | |         table::resources::PreparedEnvelope<table::keyrep::Stored<i64>, i64>,
+655 | |         table::StorageError,
+656 | |     >,
+657 | | ) -> table::resources::PreparedResult<table::keyrep::Stored<i64>, i64> {
+    | |______________________________________________________________________^ function `word_stored_publish_prepared` is reachable at visibility `pub`
+    |
+note: but type `RebuildPlan` is only usable at visibility `pub(crate)`
+   --> ../../src/table/state.rs:443:1
+    |
+443 | pub(crate) struct RebuildPlan {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `RebuildReserved<Stored<i64>, i64>` is more private than the item `word_stored_publish_prepared`
+   --> lib.rs:652:1
+    |
+652 | / pub fn word_stored_publish_prepared(
+653 | |     result: Result<
+654 | |         table::resources::PreparedEnvelope<table::keyrep::Stored<i64>, i64>,
+655 | |         table::StorageError,
+656 | |     >,
+657 | | ) -> table::resources::PreparedResult<table::keyrep::Stored<i64>, i64> {
+    | |______________________________________________________________________^ function `word_stored_publish_prepared` is reachable at visibility `pub`
+    |
+note: but type `RebuildReserved<Stored<i64>, i64>` is only usable at visibility `pub(crate)`
+   --> ../../src/table/state.rs:449:1
+    |
+449 | pub(crate) struct RebuildReserved<R, V> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `PreparedOutcome<Stored<i64>>` is more private than the item `word_stored_publish_prepared`
+   --> lib.rs:652:1
+    |
+652 | / pub fn word_stored_publish_prepared(
+653 | |     result: Result<
+654 | |         table::resources::PreparedEnvelope<table::keyrep::Stored<i64>, i64>,
+655 | |         table::StorageError,
+656 | |     >,
+657 | | ) -> table::resources::PreparedResult<table::keyrep::Stored<i64>, i64> {
+    | |______________________________________________________________________^ function `word_stored_publish_prepared` is reachable at visibility `pub`
+    |
+note: but type `PreparedOutcome<Stored<i64>>` is only usable at visibility `pub(crate)`
+   --> ../../src/table/resources.rs:166:1
+    |
+166 | pub(crate) struct PreparedOutcome<R> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `PreparedResult<Stored<i64>, i64>` is more private than the item `word_stored_publish_prepared`
+   --> lib.rs:652:1
+    |
+652 | / pub fn word_stored_publish_prepared(
+653 | |     result: Result<
+654 | |         table::resources::PreparedEnvelope<table::keyrep::Stored<i64>, i64>,
+655 | |         table::StorageError,
+656 | |     >,
+657 | | ) -> table::resources::PreparedResult<table::keyrep::Stored<i64>, i64> {
+    | |______________________________________________________________________^ function `word_stored_publish_prepared` is reachable at visibility `pub`
+    |
+note: but type `PreparedResult<Stored<i64>, i64>` is only usable at visibility `pub(crate)`
+   --> ../../src/table/resources.rs:183:1
+    |
+183 | pub(crate) enum PreparedResult<R, V> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `RebuildPlan` is more private than the item `word_regen_publish_prepared`
+   --> lib.rs:665:1
+    |
+665 | / pub fn word_regen_publish_prepared(
+666 | |     result: Result<
+667 | |         table::resources::PreparedEnvelope<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64>,
+668 | |         table::StorageError,
+669 | |     >,
+670 | | ) -> table::resources::PreparedResult<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64> {
+    | |_____________________________________________________________________________________________^ function `word_regen_publish_prepared` is reachable at visibility `pub`
+    |
+note: but type `RebuildPlan` is only usable at visibility `pub(crate)`
+   --> ../../src/table/state.rs:443:1
+    |
+443 | pub(crate) struct RebuildPlan {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `RebuildReserved<Regen<I64WordCodec>, i64>` is more private than the item `word_regen_publish_prepared`
+   --> lib.rs:665:1
+    |
+665 | / pub fn word_regen_publish_prepared(
+666 | |     result: Result<
+667 | |         table::resources::PreparedEnvelope<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64>,
+668 | |         table::StorageError,
+669 | |     >,
+670 | | ) -> table::resources::PreparedResult<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64> {
+    | |_____________________________________________________________________________________________^ function `word_regen_publish_prepared` is reachable at visibility `pub`
+    |
+note: but type `RebuildReserved<Regen<I64WordCodec>, i64>` is only usable at visibility `pub(crate)`
+   --> ../../src/table/state.rs:449:1
+    |
+449 | pub(crate) struct RebuildReserved<R, V> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `PreparedOutcome<Regen<I64WordCodec>>` is more private than the item `word_regen_publish_prepared`
+   --> lib.rs:665:1
+    |
+665 | / pub fn word_regen_publish_prepared(
+666 | |     result: Result<
+667 | |         table::resources::PreparedEnvelope<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64>,
+668 | |         table::StorageError,
+669 | |     >,
+670 | | ) -> table::resources::PreparedResult<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64> {
+    | |_____________________________________________________________________________________________^ function `word_regen_publish_prepared` is reachable at visibility `pub`
+    |
+note: but type `PreparedOutcome<Regen<I64WordCodec>>` is only usable at visibility `pub(crate)`
+   --> ../../src/table/resources.rs:166:1
+    |
+166 | pub(crate) struct PreparedOutcome<R> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `PreparedResult<Regen<I64WordCodec>, i64>` is more private than the item `word_regen_publish_prepared`
+   --> lib.rs:665:1
+    |
+665 | / pub fn word_regen_publish_prepared(
+666 | |     result: Result<
+667 | |         table::resources::PreparedEnvelope<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64>,
+668 | |         table::StorageError,
+669 | |     >,
+670 | | ) -> table::resources::PreparedResult<table::keyrep::Regen<table::keyrep::I64WordCodec>, i64> {
+    | |_____________________________________________________________________________________________^ function `word_regen_publish_prepared` is reachable at visibility `pub`
+    |
+note: but type `PreparedResult<Regen<I64WordCodec>, i64>` is only usable at visibility `pub(crate)`
+   --> ../../src/table/resources.rs:183:1
+    |
+183 | pub(crate) enum PreparedResult<R, V> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `mul_q32` is never used
+  --> ../../src/engine/value.rs:31:15
+   |
+31 | pub(crate) fn mul_q32(a: i64, b: i64) -> Option<i64> {
+   |               ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `exact_scan_override` is never used
+  --> ../../src/engine/attn.rs:19:15
+   |
+19 | pub(crate) fn exact_scan_override() -> Option<bool> {
+   |               ^^^^^^^^^^^^^^^^^^^
+
+warning: `apeiron_word` (lib) generated 20 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.00s

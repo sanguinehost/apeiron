@@ -1,0 +1,21 @@
+{
+  "/home/socol/Workspace/apeiron/proof/extract/lib.rs": "2abdc6e4f749fcff2f664f670d0d152a61e30f118f009d9558d6d0f509549d16",
+  "/home/socol/Workspace/apeiron/proof/README.md": "972f46918cc339d654bffbe73b7227da2fbc45fd96ac18f92a57e9f0f266c1f3",
+  "/home/socol/Workspace/apeiron/proof/corpus/lake-manifest.json": "d186c9dac28eb7942c24319a1c2e53d515a7a0ea111ebb427a228341527d41af",
+  "/home/socol/Workspace/apeiron/proof/corpus/Numeric/ColumnCover.lean": "7ed7b99978ab4a5a170d482f2e25f264c9d559a40a61f0db8ef3b8a7f3bd63e3",
+  "/home/socol/Workspace/apeiron/proof/corpus/Numeric/BitplaneArgmax.lean": "70ae501cb5c37f188dafb0f6913661bbe182666784ee17e9d4f68f36e52e3035",
+  "/home/socol/Workspace/apeiron/proof/corpus/Numeric/PrunedArgmax.lean": "7f37508faeb2ef9ad1af5b058fa4883988408c334ec9ebd133737d666a48db60",
+  "/home/socol/Workspace/apeiron/proof/corpus/Nous/Model/EngineLaws.lean": "2a46d12f5cf7649fa85c01bb4151b46106292656b3ba18245ba0dc9c6d278120",
+  "/home/socol/Workspace/apeiron/proof/corpus/Nous/Model/SpeculativeRollback.lean": "9f78bfeb66fa2e0005d80d4f9f4ffa67e14c821934a54cf43ff9950d0cf204d3",
+  "/home/socol/Workspace/apeiron/proof/corpus/Nous/Model/JacobiDecode.lean": "6600ff4c4be66b6caffe84a3d10620e2b44df25d0dd92d56212df0f3066c5127",
+  "/home/socol/Workspace/apeiron/proof/corpus/Nous/Model/BlockComposition.lean": "05585258ebaa9e3a93e062f9065e95e233a3f321b07536b0c49d2806d1f3008e",
+  "/home/socol/Workspace/apeiron/proof/corpus/Nous/Seq/GatedDelta.lean": "8b5383ee14f916d54ca5206bfd17a98bddb84807db079bcdc8c670c316db8439",
+  "/home/socol/Workspace/apeiron/proof/corpus/Nous/Seq/DeltaCarrier.lean": "7caaabfc942e14f80b4497d0db46061a3754e4289dfa78a5136977fbd3a2ece2",
+  "/home/socol/Workspace/apeiron/proof/corpus/Nous/Seq/CarrierEpsilon.lean": "e0642645b26cdc41a9eda459ee02e43c895a27baa1385cf431709c6f63f2a8ae",
+  "/home/socol/Workspace/apeiron/src/engine/step/cols.rs": "e8d3c6b5204c08dde2efa36a20d4e6f6f91711c54e04987c3821b06fd5a65000",
+  "/home/socol/Workspace/apeiron/src/engine/step/spec.rs": "3495fbdbe06c8f1a3dd4258429f8adbab0f356ddc1d01f7fa0f94e4b9d127a03",
+  "/home/socol/Workspace/webfold/src/substrate.rs": "d76e2fce5b3d065288f9516326dbeb98d02eddae1af709effddef83f547d7ab9",
+  "/home/socol/Workspace/webfold/src/lift.rs": "9f16364ce998389130f270e7e7b352133e96dd08cc54ae5b37de6cd7808cda77",
+  "/home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Combinator/Denotation.lean": "55b68b1a45c26fd64ccde9a41bc231bb4f73b844b98f0418e7a91c22ab785cc0",
+  "/home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Combinator/Linear/Fusing.lean": "a3af5aaa0199b228c3afe0c9c3e7664b5963ecd3ccf659d675be2313d293fb1f"
+}

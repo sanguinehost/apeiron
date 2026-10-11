@@ -1,0 +1,14 @@
+Pin fixed-point attention fixtures to their numerical carrier
+
+Four Q32-specific fixtures use explicit Q32 cache construction. Greedy decode
+retains both carriers and their independently observed exact checksum goldens.
+Runtime arithmetic, generated IDs and existing assertions are preserved.
+
+SCOPE: src/engine/tests.rs; carrier-domain fixture finalisation over04d2060.
+REGISTER: test; no new source-refinement, resource or speed claim.
+CORPUS: no canonical theorem or premise changes.
+REFERENCE: artifacts/gain-integration/fixture-baseline and integration receipts.
+GATE: both-carrier workspace tests, clippy and fmt exit0 in508.645624s/540s;
+      carrier and golden mutations exit101, exact restoration exit0.
+GRADE: tested. Independent Sol review accepts staging; extraction/cache
+       representation migration and whole implementation barrier remain open.

@@ -1,0 +1,9 @@
+{
+  "main_head": "01de89d020954897f48e9863f806ac9df0bbf5af",
+  "integration_head": "04fe0fe44352b07957b573d514d9ad7d0e139c97",
+  "all_preexisting_dirty_file_bytes_preserved": true,
+  "all_22_tested_runtime_and_fixture_source_hashes_match": true,
+  "rust_evidence": "rust-gates.json:606 passed per carrier, clippy/fmt0",
+  "remaining_work": "Aeneas cache representation migration and remaining proof/size/trust barriers; no additional proof acceptance claimed",
+  "owner_direction": "Ayo do the main fucking merge dude I told you already"
+}

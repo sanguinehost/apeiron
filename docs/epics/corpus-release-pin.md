@@ -13,7 +13,7 @@ Merged epic record: `intent/corpus-release-pin.md`, `spec/corpus-release-pin.md`
 ### Problem
 
 The refinement bridge loads the canonical mathematical corpus through
-`../../../sanguine-apeiron/proof`. A sibling path can resolve to any working-tree state, so a clean
+`../../../sanguine/proof`. A sibling path can resolve to any working-tree state, so a clean
 Apeiron checkout does not identify the corpus source checked by `lake build`.
 
 ### Why the alternatives were rejected

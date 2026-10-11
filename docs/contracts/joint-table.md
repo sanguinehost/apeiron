@@ -11,7 +11,7 @@ specification consistency only.
 Authority: [`docs/direction.md`](../direction.md#primitive-correspondence) is the programme
 authority; [`docs/kernel-boundary.md`](../kernel-boundary.md) owns the Rust representation and trust
 boundary; [`proof/README.md`](../../proof/README.md) owns extraction and bridge scope. The canonical
-corpus remains at `../sanguine-apeiron/proof/` at Git
+corpus remains at `../sanguine/proof/` at Git
 `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f`, Mathlib
 `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`. The Apeiron sources were read at revision
 `9a805439640ff63b5a2028aeb887f50e31cf6351` and the Song sources at revision
@@ -312,7 +312,7 @@ The checker resolves and verifies these pins; a drift in any revision or digest 
 
 | Item | Revision |
 |---|---|
-| Canonical corpus (`../sanguine-apeiron/proof`) | `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f` |
+| Canonical corpus (`../sanguine/proof`) | `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f` |
 | Mathlib | `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f` |
 | Apeiron sources | `9a805439640ff63b5a2028aeb887f50e31cf6351` |
 | Song sources | `47869e76f982cfa3085a8618a82b80463e22ef46` |
@@ -322,7 +322,7 @@ The checker resolves and verifies these pins; a drift in any revision or digest 
 | `src/table.rs` | `f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3` |
 | `song/src/table/table.slang` | `bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d` |
 | `proof/corpus/TableRefinement.lean` | `fcf322ccb1c743097105514bfef422c03ee9d58ee690512a9cf0d3760b1a9100` |
-| `../sanguine-apeiron/proof/Apeiron/Table/Basic.lean` | `e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9` |
+| `../sanguine/proof/Apeiron/Table/Basic.lean` | `e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9` |
 
 ## Checker
 

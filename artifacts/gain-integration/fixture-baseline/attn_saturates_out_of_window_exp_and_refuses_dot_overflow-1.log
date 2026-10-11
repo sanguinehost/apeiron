@@ -1,0 +1,37 @@
+error: duplicate key
+  --> ../../home/socol/.cargo/git/checkouts/fold-62126b3be665e44a/4cc1447/opsfold/Cargo.toml:61:1
+   |
+61 | netfold = { path = "../netfold", optional = true }
+   | ^^^^^^^
+warning: function `profile` is never used
+   --> src/table/locator.rs:943:8
+    |
+943 |     fn profile() -> H3_40 {
+    |        ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `apeiron` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/apeiron-fbaf6d3d98420708)
+
+running 1 test
+test engine::tests::attn_saturates_out_of_window_exp_and_refuses_dot_overflow ... FAILED
+
+failures:
+
+---- engine::tests::attn_saturates_out_of_window_exp_and_refuses_dot_overflow stdout ----
+
+thread 'engine::tests::attn_saturates_out_of_window_exp_and_refuses_dot_overflow' (2975395) panicked at src/engine/tests.rs:591:5:
+assertion `left == right` failed
+  left: Ok(())
+ right: Err(Overflow)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    engine::tests::attn_saturates_out_of_window_exp_and_refuses_dot_overflow
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 440 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`

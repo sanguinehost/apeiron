@@ -389,7 +389,7 @@ exactly which readings of "one bit" are exact. Plan row: `LEARN-ONEBIT` ([plan](
 
 | reading | exact statement | grade at this revision |
 |---|---|---|
-| storage | A lossless code is injective, so it needs ≥ H bits per symbol. `storage_pigeonhole`, `ternary_lossless_iff` are in `../sanguine/proof/Closures/Engineering/SeedStorage.lean` (`e830d3fb`, sha256 `0bca7cc2…`, lines 152 and 266). Measured int4-code entropy on Qwen2.5-0.5B is H ≈ 3.84, so a pretrained weight is not stored losslessly in one bit. | proved in sanguine (not vendored); H measured there |
+| storage | A lossless code is injective, so it needs ≥ H bits per symbol. `storage_pigeonhole`, `ternary_lossless_iff` are in `../sanguine-ref/proof/Closures/Engineering/SeedStorage.lean` (`e830d3fb`, sha256 `0bca7cc2…`, lines 152 and 266). Measured int4-code entropy on Qwen2.5-0.5B is H ≈ 3.84, so a pretrained weight is not stored losslessly in one bit. | proved in sanguine (not vendored); H measured there |
 | planes | A `b`-bit code is exactly `b` sign planes: `2q − (2^b − 1) = Σ_{k<b} 2^k s_k` with `s_k ∈ {±1}`. The matvec is `Σ_k 2^k (S_k x)`, with adds and subtracts only. Storage stays at `b` bits. | to prove (W6-T2) |
 | time | First-order sigma-delta. `s_t = sign(w_t + e_t)` and `e_{t+1} = e_t + w_t − a·s_t` keep `|e_t| ≤ a` whenever `|w_t| ≤ a`. Every prefix sum of the one-bit stream is within one quantum of the prefix sum of `w`, independent of length. The rate moves into length. | to prove (W6-T3) |
 | function | `storage_ne_compute` (same file, line 266) says the layer map may collapse, so exactness is owed only on the activation support. The bits needed are the rate of `x ↦ Wx` on that support at the required precision. That rate is measured, not assumed. | measured (W7) |
@@ -430,7 +430,7 @@ that reads it.
 | face | unit group over ℤ | one-bit reading | grade |
 |---|---|---|---|
 | hyperbolic `σ = 1` | `{±1, ±j}` ≅ `ℤ/2 × ℤ/2` | In channel coordinates `channelPair 1 z = (z₁ + z₂, z₁ − z₂)`, a unit is an independent sign on each idempotent channel. The one-bit neuron is a sign per channel. `H_1 = channelPair 1`: `sylvester_one_channelPair` (`Numeric/Sylvester.lean`). | channel link proved; unit action to prove (W6-T1) |
-| elliptic `σ = −1` | `{±1, ±i}` ≅ `ℤ/4` | A quarter-turn phase. There are no nontrivial idempotents (`idempotent_iff_trivial_of_disc_nonpos`, `../sanguine-apeiron/proof/Apeiron/Trichotomy/Idempotents.lean:307`), so the 2-bit phase does not split into two one-bit channels over ℤ. | to prove (W6-T1) |
+| elliptic `σ = −1` | `{±1, ±i}` ≅ `ℤ/4` | A quarter-turn phase. There are no nontrivial idempotents (`idempotent_iff_trivial_of_disc_nonpos`, `../sanguine/proof/Apeiron/Trichotomy/Idempotents.lean:307`), so the 2-bit phase does not split into two one-bit channels over ℤ. | to prove (W6-T1) |
 | parabolic `σ = 0` | `±1 + bε` (infinite) | Sign plus a nilpotent first-order term: the straight-through derivative carried by dual numbers (Clifford 1873). | model |
 
 ### Why the alternatives were rejected

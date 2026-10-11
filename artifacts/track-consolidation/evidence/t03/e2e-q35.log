@@ -1,0 +1,21 @@
+round 0: busy 0.049 quiet true  before pp 316.0 tg 20.40 spec NaN | same pp 320.2 tg 21.69 spec NaN | after pp 1194.3 tg 84.72 spec NaN
+round 1: busy 0.050 quiet true  before pp 282.1 tg 17.38 spec NaN | same pp 323.9 tg 18.46 spec NaN | after pp 298.8 tg 15.50 spec NaN
+round 2: busy 0.048 quiet true  before pp 248.8 tg 19.85 spec NaN | same pp 275.7 tg 20.08 spec NaN | after pp 333.5 tg 20.37 spec NaN
+round 3: busy 0.048 quiet true  before pp 310.3 tg 18.50 spec NaN | same pp 279.4 tg 20.36 spec NaN | after pp 298.6 tg 18.94 spec NaN
+round 4: busy 0.049 quiet true  before pp 275.9 tg 17.11 spec NaN | same pp 260.3 tg 20.03 spec NaN | after pp 261.9 tg 17.15 spec NaN
+round 5: busy 0.045 quiet true  before pp 282.2 tg 18.98 spec NaN | same pp 256.3 tg 18.62 spec NaN | after pp 272.6 tg 18.04 spec NaN
+round 6: busy 0.049 quiet true  before pp 279.0 tg 18.60 spec NaN | same pp 274.6 tg 17.30 spec NaN | after pp 261.5 tg 19.03 spec NaN
+# A/B `q35`
+
+- pp 200, tg 8, 7 rounds, arm order rotated per round; quiet gate busy < 0.05: every round passed
+
+| arm | env | pp tok/s | tg tok/s | spec tok/s | pp ratio | tg ratio | spec ratio |
+|---|---|---:|---:|---:|---:|---:|---:|
+| before | `EXE=/home/socol/oc-tmp/wt/bin/engine_profile-04d2060 APEIRON_F32_CARRIER=1` | 282.05 | 18.60 | NaN | 1.000 | 1.000 | NaN |
+| same | `EXE=/home/socol/oc-tmp/wt/bin/engine_profile-w7t03-base APEIRON_F32_CARRIER=1` | 275.66 | 20.03 | NaN | 0.984 | 1.062 | NaN |
+| after | `EXE=/home/socol/oc-tmp/wt/bin/engine_profile-w7t03-after APEIRON_F32_CARRIER=1` | 298.60 | 18.94 | NaN | 0.966 | 1.023 | NaN |
+
+Ratios are the median of per-round ratios to the first arm.
+
+wrote /home/socol/oc-tmp/w7t03/ab/1790805677-q35.json and /home/socol/oc-tmp/w7t03/ab/1790805677-q35.md
+exit 0

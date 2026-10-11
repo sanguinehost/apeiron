@@ -1,0 +1,8 @@
+== flag 1
+error: duplicate key
+test result: ok. 43 passed; 0 failed; 12 ignored; 0 measured; 388 filtered out; finished in 3.22s
+exit 
+== flag 0
+error: duplicate key
+test result: ok. 43 passed; 0 failed; 12 ignored; 0 measured; 388 filtered out; finished in 3.24s
+exit 

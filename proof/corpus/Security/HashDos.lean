@@ -35,7 +35,7 @@ of `ZMod (2^W)` (odd). What that buys, and what it does not, is below.
   probe as shipped). Termination itself is what the craft removes, not a short walk, so the only
   worst-case aggregate left is `Θ(n²)` (`build_bounded_by_n_squared`), the same ceiling a flooded
   `hash & mask` pays (`flood_is_quadratic`). This section is carried over from the upstream corpus
-  (`../sanguine` `Substrate/Algebra/Security/AggregationBound.lean`); the apeiron
+  (`../sanguine-ref` `Substrate/Algebra/Security/AggregationBound.lean`); the apeiron
   `Closures/Engineering/RadixDescent.lean` cites those declarations but does not carry them.
 * **Trust boundary — the seed story, stated.** The multipliers are fixed source constants, not
   per-instance secrets: `PHI = 0x9E37_79B9_7F4A_7C15` (`src/coord.rs:59`, the fold, the ported
@@ -529,7 +529,7 @@ theorem hashdos_invulnerability_and_its_limit {b D W : ℕ} (hb : 0 < b) (hD : 2
 --     a regeneration gate, not this file.
 -- (c) SHIPPED SWEEP, NOT CARRIED. The shipped `Table::descend` falls back to a terminal sweep past
 --     the `D` windows; its termination theorem (`GroupProbe.seqSweep_terminates`) and the aggregate
---     `build_bounded_by_sweep` live only in `../sanguine`, not in this corpus. §4's
+--     `build_bounded_by_sweep` live only in `../sanguine-ref`, not in this corpus. §4's
 --     `build_bounded_by_n_squared` is the ceiling that remains.
 
 end HashDos

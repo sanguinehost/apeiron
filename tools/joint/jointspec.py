@@ -64,8 +64,8 @@ def bind_source_bytes(
         repo, rev, sub = REPO, revs.get("apeiron"), resolved.relative_to(REPO)
     elif resolved.is_relative_to(SONG_ROOT):
         repo, rev, sub = SONG_ROOT, revs.get("song"), resolved.relative_to(SONG_ROOT)
-    elif corpus_tree and resolved.is_relative_to(REPO.parent / "sanguine-apeiron"):
-        repo = REPO.parent / "sanguine-apeiron"
+    elif corpus_tree and resolved.is_relative_to(REPO.parent / "sanguine"):
+        repo = REPO.parent / "sanguine"
         rev = revs.get("corpus")
         sub = resolved.relative_to(repo)
     else:

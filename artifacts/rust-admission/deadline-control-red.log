@@ -1,0 +1,22 @@
+   Compiling dispatch_core v0.1.0 (/home/socol/oc-tmp/rust-admission-deadline-control/tools/dispatch)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests main.rs (target/debug/deps/dispatch_admit-bfc46035e3fb1c21)
+
+running 1 test
+test boundary_tests::parent_deadline_expiry ... FAILED
+
+failures:
+
+---- boundary_tests::parent_deadline_expiry stdout ----
+
+thread 'boundary_tests::parent_deadline_expiry' (2632023) panicked at main.rs:653:36:
+called `Result::unwrap_err()` on an `Ok` value: 527
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    boundary_tests::parent_deadline_expiry
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--bin dispatch_admit`

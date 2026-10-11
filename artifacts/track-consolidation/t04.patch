@@ -1,0 +1,414 @@
+diff --git a/src/engine/attn.rs b/src/engine/attn.rs
+index 5dab0b0..811825f 100644
+--- a/src/engine/attn.rs
++++ b/src/engine/attn.rs
+@@ -9,6 +9,7 @@ use crate::numeric::fixed_exp::fixed_exp;
+ use crate::numeric::fixed_rsqrt::fixed_rsqrt;
+ use std::cell::Cell;
+ 
++pub mod f32_block;
+ pub mod f32_core;
+ 
+ // Test seam for `APEIRON_EXACT_SCAN`: a per-thread override of the flag, `None` falling through
+diff --git a/src/engine/attn/f32_core.rs b/src/engine/attn/f32_core.rs
+index c8f6b2a..6a572e9 100644
+--- a/src/engine/attn/f32_core.rs
++++ b/src/engine/attn/f32_core.rs
+@@ -95,7 +95,7 @@ fn dot_f32_scalar(q: &[f32], k: &[f32], scale: f32) -> f32 {
+ #[cfg(target_arch = "x86_64")]
+ #[target_feature(enable = "avx2,fma")]
+ #[inline]
+-unsafe fn dot_f32_avx2(q: &[f32], k: &[f32], scale: f32) -> f32 {
++pub(super) unsafe fn dot_f32_avx2(q: &[f32], k: &[f32], scale: f32) -> f32 {
+     let hd = q.len();
+     let chunks = hd / 8;
+     let mut v_dot = _mm256_setzero_ps();
+@@ -217,72 +217,112 @@ pub fn attn_core_f32_strided_scalar(
+     Ok(())
+ }
+ 
++/// Transpose of eight `__m256` rows: output `i` holds element `i` of every input row.
++#[cfg(target_arch = "x86_64")]
++#[target_feature(enable = "avx2")]
++#[inline]
++unsafe fn transpose8(r: &[__m256; 8]) -> [__m256; 8] {
++    let t0 = _mm256_unpacklo_ps(r[0], r[1]);
++    let t1 = _mm256_unpackhi_ps(r[0], r[1]);
++    let t2 = _mm256_unpacklo_ps(r[2], r[3]);
++    let t3 = _mm256_unpackhi_ps(r[2], r[3]);
++    let t4 = _mm256_unpacklo_ps(r[4], r[5]);
++    let t5 = _mm256_unpackhi_ps(r[4], r[5]);
++    let t6 = _mm256_unpacklo_ps(r[6], r[7]);
++    let t7 = _mm256_unpackhi_ps(r[6], r[7]);
++    let u0 = _mm256_shuffle_ps::<0x44>(t0, t2);
++    let u1 = _mm256_shuffle_ps::<0xEE>(t0, t2);
++    let u2 = _mm256_shuffle_ps::<0x44>(t1, t3);
++    let u3 = _mm256_shuffle_ps::<0xEE>(t1, t3);
++    let u4 = _mm256_shuffle_ps::<0x44>(t4, t6);
++    let u5 = _mm256_shuffle_ps::<0xEE>(t4, t6);
++    let u6 = _mm256_shuffle_ps::<0x44>(t5, t7);
++    let u7 = _mm256_shuffle_ps::<0xEE>(t5, t7);
++    [
++        _mm256_permute2f128_ps::<0x20>(u0, u4),
++        _mm256_permute2f128_ps::<0x20>(u1, u5),
++        _mm256_permute2f128_ps::<0x20>(u2, u6),
++        _mm256_permute2f128_ps::<0x20>(u3, u7),
++        _mm256_permute2f128_ps::<0x31>(u0, u4),
++        _mm256_permute2f128_ps::<0x31>(u1, u5),
++        _mm256_permute2f128_ps::<0x31>(u2, u6),
++        _mm256_permute2f128_ps::<0x31>(u3, u7),
++    ]
++}
++
+ /// Key positions scored together by [`attn_tile8_avx2`].
+-const TILE: usize = 8;
++pub(super) const TILE: usize = 8;
+ 
+-/// Score, softmax-update and accumulate the `TILE` key positions `s..s + TILE` (`s >= 1`).
++/// Phase 1 of a tile: the eight scores `(q · k_{s+j}) · scale`, `j < TILE`, into `score`.
+ ///
+-/// Bit-identical to `TILE` consecutive iterations of the single-position loop in
+-/// [`attn_core_f32_strided_avx2_inner`]: each score is the same 8-lane FMA chain (the eight chains
+-/// run interleaved, so the latency of one is hidden by the others), the running maximum is the
+-/// same sequential recurrence, the two `exp` calls per position are the lane-wise
+-/// [`exp_f32_avx2`] (equal to [`exp_f32_scalar`] bit for bit), the denominator is the same
+-/// sequential `mul_add` chain, and each accumulator chunk takes the same `fma(acc, alpha_j, w_j *
+-/// v_j)` sequence in position order (chunk-outer, position-inner, so the chunk stays in a register
+-/// across the tile). A non-finite score refuses with [`AttnError::Overflow`] before any of the
+-/// tile's state is written.
++/// Each score is the same 8-lane FMA chain as [`dot_f32_avx2`] (the eight chains run interleaved, so
++/// the latency of one is hidden by the others). The lane sums of the eight keys are transposed so
++/// that the sequential sum `((l0 + l1) + l2) + ..` of [`dot_f32_avx2`] runs as seven vector adds,
++/// the same order and rounding for all eight keys at once. A non-finite score refuses with
++/// [`AttnError::Overflow`]; no softmax state is touched.
+ ///
+ /// # Complexity
+ ///
+-/// `O(TILE · head_dim)` FMAs and `O(1)` vector `exp` calls per tile: per position `head_dim / 8`
+-/// FMAs for the score and `2 · head_dim / 8` vector ops for the accumulator. No allocation.
++/// `head_dim` FMAs per key, `O(1)` shuffles and adds per tile; no allocation.
+ ///
+ /// # Safety
+ ///
+-/// Requires AVX2 and FMA; `k` and `v` hold rows `0..s + TILE` at `stride`, each `head_dim` wide.
++/// Requires AVX2 and FMA; `kp` points at key row `s`, rows `0..TILE` at `stride`, each `head_dim`
++/// wide; `head_dim % 8 == 0`.
+ #[cfg(target_arch = "x86_64")]
+ #[target_feature(enable = "avx2,fma")]
+-#[allow(
+-    clippy::too_many_arguments,
+-    clippy::needless_range_loop,
+-    clippy::many_single_char_names,
+-    reason = "explicit strided geometry, lane loops pin the operation order"
+-)]
+-unsafe fn attn_tile8_avx2(
++#[inline]
++pub(super) unsafe fn tile_scores_avx2(
+     q: &[f32],
+-    k: &[f32],
+-    v: &[f32],
++    kp: *const f32,
+     head_dim: usize,
+     stride: usize,
+-    s: usize,
+     scale: f32,
+-    m: &mut f32,
+-    den: &mut f32,
+-    acc_vec: &mut [__m256],
++    score: &mut [f32; TILE],
+ ) -> Result<(), AttnError> {
+     let chunks = head_dim / 8;
+-    let kp = k.as_ptr().add(s * stride);
+-    let vp = v.as_ptr().add(s * stride);
+     let qp = q.as_ptr();
++    let rows: [*const f32; TILE] = std::array::from_fn(|j| kp.add(j * stride));
+     let mut dots = [_mm256_setzero_ps(); TILE];
+     for c in 0..chunks {
+         let vq = _mm256_loadu_ps(qp.add(c * 8));
+         for j in 0..TILE {
+-            let vk = _mm256_loadu_ps(kp.add(j * stride + c * 8));
+-            dots[j] = _mm256_fmadd_ps(vq, vk, dots[j]);
++            dots[j] = _mm256_fmadd_ps(vq, _mm256_loadu_ps(rows[j].add(c * 8)), dots[j]);
+         }
+     }
+-    let mut score = [0.0f32; TILE];
+-    for j in 0..TILE {
+-        let mut lanes = [0.0f32; 8];
+-        _mm256_storeu_ps(lanes.as_mut_ptr(), dots[j]);
+-        let raw =
+-            lanes[0] + lanes[1] + lanes[2] + lanes[3] + lanes[4] + lanes[5] + lanes[6] + lanes[7];
+-        score[j] = raw * scale;
+-        if !score[j].is_finite() {
+-            return Err(AttnError::Overflow);
+-        }
++    let lane = transpose8(&dots);
++    let mut sum = _mm256_add_ps(lane[0], lane[1]);
++    for l in &lane[2..] {
++        sum = _mm256_add_ps(sum, *l);
++    }
++    let vscore = _mm256_mul_ps(sum, _mm256_set1_ps(scale));
++    let finite = _mm256_cmp_ps::<_CMP_LE_OQ>(
++        _mm256_andnot_ps(_mm256_set1_ps(-0.0), vscore),
++        _mm256_set1_ps(f32::MAX),
++    );
++    if _mm256_movemask_ps(finite) != 0xFF {
++        return Err(AttnError::Overflow);
+     }
++    _mm256_storeu_ps(score.as_mut_ptr(), vscore);
++    Ok(())
++}
++
++/// Phase 2 of a tile: the running maximum over the eight scores and the two exponentials per key,
++/// `alpha_j = exp(m_{j-1} - m_j)` and `w_j = exp(score_j - m_j)`, lane-wise [`exp_f32_avx2`] (equal
++/// to [`exp_f32_scalar`] bit for bit). Sets `*m` to the maximum after the tile.
++///
++/// # Safety
++///
++/// Requires AVX2 and FMA.
++#[cfg(target_arch = "x86_64")]
++#[target_feature(enable = "avx2,fma")]
++#[inline]
++pub(super) unsafe fn tile_weights_avx2(
++    score: &[f32; TILE],
++    m: &mut f32,
++    alpha: &mut [f32; TILE],
++    w: &mut [f32; TILE],
++) {
+     let mut prev = [0.0f32; TILE];
+     let mut next = [0.0f32; TILE];
+     let mut run = *m;
+@@ -296,25 +336,190 @@ unsafe fn attn_tile8_avx2(
+     let vnext = _mm256_loadu_ps(next.as_ptr());
+     let valpha = exp_f32_avx2(_mm256_sub_ps(_mm256_loadu_ps(prev.as_ptr()), vnext));
+     let vw = exp_f32_avx2(_mm256_sub_ps(_mm256_loadu_ps(score.as_ptr()), vnext));
+-    let mut alpha = [0.0f32; TILE];
+-    let mut w = [0.0f32; TILE];
+     _mm256_storeu_ps(alpha.as_mut_ptr(), valpha);
+     _mm256_storeu_ps(w.as_mut_ptr(), vw);
++    *m = run;
++}
++
++/// Phase 3 of a tile: the denominator chain `den = fma(den, alpha_j, w_j)` and, per accumulator
++/// chunk, `acc = fma(acc, alpha_j, w_j · v_j)` in position order (chunk-outer, position-inner, so
++/// four chunks stay in registers across the tile).
++///
++/// # Complexity
++///
++/// `3 · head_dim / 8` vector ops per key; no allocation.
++///
++/// # Safety
++///
++/// Requires AVX2 and FMA; `vp` points at value row `s`, rows `0..TILE` at `stride`, each `head_dim`
++/// wide; `acc_vec` holds `head_dim / 8` chunks.
++#[cfg(target_arch = "x86_64")]
++#[target_feature(enable = "avx2,fma")]
++#[inline]
++#[allow(
++    clippy::needless_range_loop,
++    reason = "fixed lane and position loops pin the operation order"
++)]
++pub(super) unsafe fn tile_accumulate_avx2(
++    vp: *const f32,
++    head_dim: usize,
++    stride: usize,
++    alpha: &[f32; TILE],
++    w: &[f32; TILE],
++    den: &mut f32,
++    acc_vec: &mut [__m256],
++) {
++    let chunks = head_dim / 8;
++    let rows: [*const f32; TILE] = std::array::from_fn(|j| vp.add(j * stride));
+     let mut d = *den;
+     for j in 0..TILE {
+         d = d.mul_add(alpha[j], w[j]);
+     }
+-    for c in 0..chunks {
++    let mut c = 0usize;
++    while c + 4 <= chunks {
++        let mut a = [acc_vec[c], acc_vec[c + 1], acc_vec[c + 2], acc_vec[c + 3]];
++        for j in 0..TILE {
++            let vw = _mm256_set1_ps(w[j]);
++            let va = _mm256_set1_ps(alpha[j]);
++            for b in 0..4 {
++                let prod = _mm256_mul_ps(vw, _mm256_loadu_ps(rows[j].add((c + b) * 8)));
++                a[b] = _mm256_fmadd_ps(a[b], va, prod);
++            }
++        }
++        acc_vec[c..c + 4].copy_from_slice(&a);
++        c += 4;
++    }
++    while c < chunks {
+         let mut a = acc_vec[c];
+         for j in 0..TILE {
+-            let vv = _mm256_loadu_ps(vp.add(j * stride + c * 8));
+-            let prod = _mm256_mul_ps(_mm256_set1_ps(w[j]), vv);
++            let prod = _mm256_mul_ps(_mm256_set1_ps(w[j]), _mm256_loadu_ps(rows[j].add(c * 8)));
+             a = _mm256_fmadd_ps(a, _mm256_set1_ps(alpha[j]), prod);
+         }
+         acc_vec[c] = a;
++        c += 1;
+     }
+-    *m = run;
+     *den = d;
++}
++
++/// Score, softmax-update and accumulate the `TILE` key positions `s..s + TILE` (`s >= 1`).
++///
++/// Bit-identical to `TILE` consecutive iterations of the single-position loop: phases
++/// [`tile_scores_avx2`], [`tile_weights_avx2`], [`tile_accumulate_avx2`] in that order. A
++/// non-finite score refuses with [`AttnError::Overflow`] before any of the tile's state is written.
++///
++/// # Complexity
++///
++/// `O(TILE · head_dim)` FMAs and `O(1)` vector `exp` calls per tile: per position `head_dim / 8`
++/// FMAs for the score and `2 · head_dim / 8` vector ops for the accumulator. No allocation.
++///
++/// # Safety
++///
++/// Requires AVX2 and FMA; `k` and `v` hold rows `0..s + TILE` at `stride`, each `head_dim` wide.
++#[cfg(target_arch = "x86_64")]
++#[target_feature(enable = "avx2,fma")]
++#[allow(
++    clippy::too_many_arguments,
++    clippy::many_single_char_names,
++    reason = "explicit strided geometry and the recurrence state"
++)]
++unsafe fn attn_tile8_avx2(
++    q: &[f32],
++    k: &[f32],
++    v: &[f32],
++    head_dim: usize,
++    stride: usize,
++    s: usize,
++    scale: f32,
++    m: &mut f32,
++    den: &mut f32,
++    acc_vec: &mut [__m256],
++) -> Result<(), AttnError> {
++    let mut score = [0.0f32; TILE];
++    let mut alpha = [0.0f32; TILE];
++    let mut w = [0.0f32; TILE];
++    tile_scores_avx2(
++        q,
++        k.as_ptr().add(s * stride),
++        head_dim,
++        stride,
++        scale,
++        &mut score,
++    )?;
++    tile_weights_avx2(&score, m, &mut alpha, &mut w);
++    tile_accumulate_avx2(
++        v.as_ptr().add(s * stride),
++        head_dim,
++        stride,
++        &alpha,
++        &w,
++        den,
++        acc_vec,
++    );
++    Ok(())
++}
++
++/// The single-position remainder of the online recurrence: positions `s..count` one at a time.
++///
++/// The loop [`attn_core_f32_strided_avx2_inner`] runs after its tiles, shared with the batched
++/// core so both execute one body. A non-finite score refuses with [`AttnError::Overflow`].
++///
++/// # Complexity
++///
++/// `O((count - s) · head_dim)` FMAs, `O(count - s)` scalar `exp` calls; no allocation.
++///
++/// # Safety
++///
++/// Requires AVX2 and FMA; `k` and `v` hold rows `0..count` at `stride`, each `head_dim` wide.
++#[cfg(target_arch = "x86_64")]
++#[target_feature(enable = "avx2,fma")]
++#[allow(
++    clippy::too_many_arguments,
++    clippy::needless_range_loop,
++    clippy::many_single_char_names,
++    reason = "explicit strided geometry, lane loops pin the operation order"
++)]
++pub(super) unsafe fn attn_singles_avx2(
++    q: &[f32],
++    k: &[f32],
++    v: &[f32],
++    head_dim: usize,
++    stride: usize,
++    mut s: usize,
++    count: usize,
++    scale: f32,
++    m: &mut f32,
++    den: &mut f32,
++    acc_vec: &mut [__m256],
++) -> Result<(), AttnError> {
++    let chunks = head_dim / 8;
++    while s < count {
++        let base = s * stride;
++        let k_row = &k[base..base + head_dim];
++        let v_ptr = v.as_ptr().add(base);
++
++        let score_s = dot_f32_avx2(q, k_row, scale);
++        if !score_s.is_finite() {
++            return Err(AttnError::Overflow);
++        }
++
++        let m_prev = *m;
++        let m_next = if score_s > m_prev { score_s } else { m_prev };
++        let alpha = exp_f32_scalar(m_prev - m_next);
++        let w = exp_f32_scalar(score_s - m_next);
++
++        *den = den.mul_add(alpha, w);
++
++        let v_alpha = _mm256_set1_ps(alpha);
++        let v_w = _mm256_set1_ps(w);
++
++        for c in 0..chunks {
++            let v_val = _mm256_loadu_ps(v_ptr.add(c * 8));
++            let prod = _mm256_mul_ps(v_w, v_val);
++            acc_vec[c] = _mm256_fmadd_ps(acc_vec[c], v_alpha, prod);
++        }
++        *m = m_next;
++        s += 1;
++    }
+     Ok(())
+ }
+ 
+@@ -381,34 +586,9 @@ unsafe fn attn_core_f32_strided_avx2_inner(
+         )?;
+         s += TILE;
+     }
+-    while s < count {
+-        let base = s * stride;
+-        let k_row = &k[base..base + head_dim];
+-        let v_ptr = v.as_ptr().add(base);
+-
+-        let score_s = dot_f32_avx2(q, k_row, scale);
+-        if !score_s.is_finite() {
+-            return Err(AttnError::Overflow);
+-        }
+-
+-        let m_prev = m;
+-        let m_next = if score_s > m_prev { score_s } else { m_prev };
+-        let alpha = exp_f32_scalar(m_prev - m_next);
+-        let w = exp_f32_scalar(score_s - m_next);
+-
+-        den = den.mul_add(alpha, w);
+-
+-        let v_alpha = _mm256_set1_ps(alpha);
+-        let v_w = _mm256_set1_ps(w);
+-
+-        for c in 0..chunks {
+-            let v_val = _mm256_loadu_ps(v_ptr.add(c * 8));
+-            let prod = _mm256_mul_ps(v_w, v_val);
+-            acc_vec[c] = _mm256_fmadd_ps(acc_vec[c], v_alpha, prod);
+-        }
+-        m = m_next;
+-        s += 1;
+-    }
++    attn_singles_avx2(
++        q, k, v, head_dim, stride, s, count, scale, &mut m, &mut den, acc_vec,
++    )?;
+ 
+     if den <= 0.0 || !den.is_finite() {
+         return Err(AttnError::ZeroSum);

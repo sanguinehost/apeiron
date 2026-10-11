@@ -9,7 +9,7 @@ internally complete and that every artifact they name resolves:
   ``selected-open`` (a ``closed`` row is rejected);
 * every named canonical authority target resolves as the named declaration
   (``theorem``/``lemma``, ``def``/``abbrev``, ...) in the pinned canonical
-  corpus (``../sanguine-apeiron/proof``) under its exact opened namespace, and
+  corpus (``../sanguine/proof``) under its exact opened namespace, and
   every named bridge artifact resolves in ``proof/``;
 * every named Rust and Song entry exists as a concrete executing declaration
   in its source file (a ``law``/``carrier``/``spec`` header alone is not an

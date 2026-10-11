@@ -24,17 +24,17 @@ presence predicate needs that the index does not carry.
 ## Search first (§4)
 
 `rg` for a hashtrinity↔trichotomy correspondence over `proof/corpus/`,
-`../sanguine-apeiron/proof/`, `../sanguine/proof/`, `../fold/hashtrinity/proof/`:
+`../sanguine/proof/`, `../sanguine-ref/proof/`, `../fold/hashtrinity/proof/`:
 
 ```
-$ rg -l "hashtrinity|Hashtrinity" proof/ ../sanguine-apeiron/proof/ ../sanguine/proof/
+$ rg -l "hashtrinity|Hashtrinity" proof/ ../sanguine/proof/ ../sanguine-ref/proof/
 $ rg -l "Trichotomy" ../fold/hashtrinity/proof/                     # no hits
 $ rg -l "FaceHome|H3_40" ../fold/hashtrinity/ ../fold/hashtrinity/proof/   # no hits
 ```
 
 One declaration exists, and it is the port target for the read half:
 `Apeiron.Table.one_half_decides` / `Apeiron.Table.opaque_needs_lower`,
-`../sanguine-apeiron/proof/Apeiron/Table/Home.lean` at corpus revision
+`../sanguine/proof/Apeiron/Table/Home.lean` at corpus revision
 `880aa57e47e782ed7a9d9ee1974cfc87360b446b`. It reads hashtrinity's `get` at `σ > 0` over `ℝ`, with
 `Trichotomy.Cell` and `Trichotomy.upper`/`lower`, and says one coordinate decides when a decryptor
 recovers the other. It carries **no `ringMul`, no `ringNormForm`, no `RingCell`, no `RingChannel`**
@@ -374,7 +374,7 @@ theorem ht_index_read_not_injective {R : Type*} [CommRing R] [Nontrivial R] {r s
 /-! ## §4 · Honesty (b): the canonical presence predicate needs the full key -/
 
 /-- **`Apeiron.Table.get` / `insertWith` decide presence by the shared full key.**
-`../sanguine-apeiron/proof/Apeiron/Table/Basic.lean:71` and `:80` at `880aa57e`:
+`../sanguine/proof/Apeiron/Table/Basic.lean:71` and `:80` at `880aa57e`:
 `insertWith f k v m = fun x => if x = k then f v (m x) else m x`, with `[DecidableEq K]`. So a
 write is witnessed by comparing the *whole* key, and a table is unchanged everywhere else
 **exactly** when the merge at the written key is the identity — the canonical

@@ -1,0 +1,117 @@
+{
+  "base_revision": "e33977aa72534ad56775110be99cf002ca96fa37",
+  "machine": "Intel Core i9-14900KF; gate durations only",
+  "source_sha256": {
+    "AGENTS.md": "b294744dba15beabb535f674da161f50e864e0f3475aba408d86e6bdd2b0a77b",
+    "proof/DispatchAdmission.lean": "7f2ca1e195e56c00cf4b08d17ffd2a6e7f15a02d9408d22a3d4000955e38dce0",
+    "proof/dispatch/Dispatch/Audit.lean": "734613abae387b02ebf68731ae3bc835b34aae1fd77186dd3277a440a45abae3",
+    "proof/dispatch/Dispatch/Extracted.lean": "57c80bd10c8f9be9850155a4baf66f3bb7781f5b33238d3a4f66fe999a21beb9",
+    "proof/dispatch/Dispatch/Refinement.lean": "5ae719ae08d6dfc4c63bb49d1370dfa609b3fd4085541dc4bf2aa151e62b365d",
+    "proof/dispatch/Dispatch/Spec.lean": "3122f6d771d05d1eaf086ee2cdc5b55ef78f791962af1a552c3f54ceaf792182",
+    "proof/dispatch/extract/Cargo.lock": "845852353e42e63d77b213467b2ae60604ec592a17ade00dc80e05ae69860112",
+    "proof/dispatch/extract/Cargo.toml": "19051c54a4e265bcebc0aa38209a55b641590839f6ef36994c364ff345398ccb",
+    "proof/dispatch/extract/lib.rs": "42278870230645a999595cbb27f431737af77d7ffd3a90f53492aba8288c96da",
+    "proof/dispatch/gate.py": "1c40f9e15faa9618dab025f626538db684472bab392e78f9a7815ad74e91d6f4",
+    "proof/dispatch/lake-manifest.json": "9ccd1a96f2830caad41af223939c42ed7fede9e8ae6e2ce0223e8b6e86e54314",
+    "proof/dispatch/lakefile.lean": "f888f52d8930eefa809209caae1af89de1c792b577cca4b8b00438c9a5cedcb0",
+    "proof/dispatch/lean-toolchain": "efac0b94923b2d8b6840cd35be9177ad0fc5ab2332f4f4311c98712cee92fdee",
+    "proof/dispatch/regen.sh": "f99ecf5ea61c308bfb870af5ab0da02ef393c172dfd08725071001a7a5771c72",
+    "tools/dispatch/Cargo.lock": "52178f283a29942eb1d17c9661b61e5f01d14e81a9acb7a3ddcefca8f7d5c64e",
+    "tools/dispatch/Cargo.toml": "d8aa08102f60450db20bdf5ebab99ff18738ad3fe3ab8750416cfe2942110c31",
+    "tools/dispatch/admit.py": "51932dbd431832ace2e012c0385da225e65f8f6b91c12393eceaaf35707bb0fa",
+    "tools/dispatch/contracts.json": "7b094388ee365ffdae864614032160e402d483164311f807333b653a0474ed3b",
+    "tools/dispatch/core.rs": "73bf1b39c9fca82fc38f6f91fcb9df7b2baab54543f95e90be2acea37e951687",
+    "tools/dispatch/main.rs": "fd8620ee41960b9e534c54896213b71e05590d578b4aed5be304f42d12627bb0",
+    "tools/dispatch/run": "5199ae3e05b36d728e844ebd9a0f9cb5d1c4c5890569e002ca8ff156d95fa71f",
+    "tools/dispatch/self_test.rs": "fbb70b9cffa7e002bcf9d89d73b761d248b0e42955d3de4d4c128d34851848a6"
+  },
+  "tool_sha256": {
+    "/home/socol/.elan/toolchains/leanprover--lean4---v4.31.0/bin/lean": "e8baaa71855a616dc351028f3ad2200051b0671f423a1696a100e809302d5550",
+    "/home/socol/Workspace/penglai/target/aeneas/charon": "747e165bc62bb963f8d741e8c193c721a4b94555bcb1f9f86c79090fd7a59d0e",
+    "/home/socol/Workspace/penglai/target/aeneas/charon-driver": "207b223af35cf9a05227b329819b73532e94f655ccdefd64e77b755a15fdf297",
+    "/home/socol/Workspace/penglai/target/aeneas/aeneas": "33d0ce1a1cc2f1d3935c0cd2ab34f283797da61c531ed6d4e09d5c97b0d0228a"
+  },
+  "versions": {
+    "charon": "0.1.254 (b104e24fea7d721b71e6c39fd70f26ff20bc0980)",
+    "charon_toolchain": "nightly-2026-08-18",
+    "aeneas": "aeneas 505b6ca-dirty",
+    "rustc": "rustc 1.97.0-nightly (17584a181 2026-04-13)",
+    "cargo": "cargo 1.97.0-nightly (eb94155a9 2026-04-09)",
+    "mathlib": "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f"
+  },
+  "lean_pin": "leanprover/lean4:v4.31.0",
+  "claims": {
+    "proved": "Dispatch.Refinement.permit_iff over actual Aeneas-extracted core.complete, conditional on observed registration, ordered stages, successful exit codes and equal 256-bit identities; nine audited headlines and reachable success/refusal witnesses",
+    "tested": "IO adapter, strict proposal parsing, path/hash boundaries, deadlines, fifteen synthetic admission controls, unregistered production refusal",
+    "measured": "21.715431s integrated local gate duration; no inference performance measurement",
+    "model": "typed combinatory synthesis direction; no synthesis compiler/cost bridge implemented"
+  },
+  "axiom_cone": [
+    "propext",
+    "Classical.choice",
+    "Quot.sound"
+  ],
+  "independent_reviews": {
+    "proof": "ACCEPT: proof-review.jsonl",
+    "adapter_and_policy": "ACCEPT: adapter-review.jsonl"
+  },
+  "registry": {
+    "contracts": 0,
+    "production_positive": "not established; requires registered executing-source/domain/cost contract and actual production positive/control/restoration"
+  },
+  "inventory": {
+    "conservative_local_source_lines_including_tests_generated_proofs": 1912,
+    "lines_by_file": {
+      "proof/DispatchAdmission.lean": 29,
+      "proof/dispatch/Dispatch/Audit.lean": 23,
+      "proof/dispatch/Dispatch/Extracted.lean": 282,
+      "proof/dispatch/Dispatch/Refinement.lean": 80,
+      "proof/dispatch/Dispatch/Spec.lean": 49,
+      "proof/dispatch/extract/lib.rs": 34,
+      "proof/dispatch/gate.py": 151,
+      "proof/dispatch/lakefile.lean": 8,
+      "proof/dispatch/regen.sh": 18,
+      "tools/dispatch/admit.py": 8,
+      "tools/dispatch/core.rs": 358,
+      "tools/dispatch/main.rs": 700,
+      "tools/dispatch/run": 15,
+      "tools/dispatch/self_test.rs": 157
+    },
+    "maximum_owned_source_lines": 700,
+    "immediate_files_by_directory": {
+      "proof": 1,
+      "proof/dispatch/Dispatch": 4,
+      "proof/dispatch/extract": 3,
+      "proof/dispatch": 5,
+      "tools/dispatch": 8
+    },
+    "whole_programme_size_enforcement": "open; this inventory is limited to the auxiliary harness"
+  },
+  "external_trust": [
+    "Lean kernel and toolchain/dependencies",
+    "Aeneas/Charon translation and patched backend model",
+    "rustc/LLVM and std/process APIs",
+    "serde_json and sha2 dependencies",
+    "shell/timeout/flock/systemd and OS",
+    "lead protection and provenance of checker/registry/cost registration"
+  ],
+  "exclusions": [
+    "fabricated observations accepted by callers of the pure core",
+    "cryptographic collision resistance",
+    "post-check concurrent source mutation",
+    "native bypass and host interception",
+    "worker sandbox enforcement",
+    "hardware timing or a 2x inference claim",
+    "root/canonical inference epic acceptance"
+  ],
+  "controls": {
+    "source_refinement": "real certificate-exit bypass; fresh extraction; advance_refines rejects1; source restore and extraction equality pass0",
+    "axiom": "injected witness axiom rejects1; restore0",
+    "pin": "changed toolchain rejects1; restore0",
+    "deadline": "parent guard bypass test101; restore0; expired Rust/proof reject1",
+    "synthetic": "15 attributable refusal diagnostics, markers absent, restored positive",
+    "production": "unregistered contract rejects1, worker marker absent"
+  },
+  "integration_receipt": "integration-gate.json",
+  "task_cleanup": "task-cleanup.json"
+}

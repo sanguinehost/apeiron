@@ -1,0 +1,22 @@
+⚠ [1600/1708] Replayed Aeneas.Std.Vec
+warning: Aeneas/Std/Vec.lean:322:19: This simp argument is unused:
+  Vec.from
+
+Hint: Omit it from the simp argument list.
+  simp [Vec.set, V̵e̵c̵.̵f̵r̵o̵m̵,̵ ̵Slice.set, Slice.setAtNat]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+✔ [1705/1708] Built Dispatch.Extracted (875ms)
+✔ [1706/1708] Built Dispatch.Spec (823ms)
+✔ [1707/1708] Built Dispatch.Refinement (1.3s)
+ℹ [1708/1708] Built Dispatch.Audit (735ms)
+info: Dispatch/Audit.lean:15:0: DISPATCH_KERNEL_OK Dispatch.Refinement.digest_same: [propext, Quot.sound]
+info: Dispatch/Audit.lean:16:0: DISPATCH_KERNEL_OK Dispatch.Refinement.start_refines: [propext, Classical.choice, Quot.sound]
+info: Dispatch/Audit.lean:17:0: DISPATCH_KERNEL_OK Dispatch.Refinement.advance_refines: [propext, Classical.choice, Quot.sound]
+info: Dispatch/Audit.lean:18:0: DISPATCH_KERNEL_OK Dispatch.Refinement.finish_refines: [propext, Classical.choice, Quot.sound]
+info: Dispatch/Audit.lean:19:0: DISPATCH_KERNEL_OK Dispatch.Refinement.complete_refines: [propext, Classical.choice, Quot.sound]
+info: Dispatch/Audit.lean:20:0: DISPATCH_KERNEL_OK Dispatch.Refinement.permit_iff: [propext, Classical.choice, Quot.sound]
+info: Dispatch/Audit.lean:21:0: DISPATCH_KERNEL_OK Dispatch.Refinement.witness_success: [propext, Classical.choice, Quot.sound]
+info: Dispatch/Audit.lean:22:0: DISPATCH_KERNEL_OK Dispatch.Refinement.witness_refusal: [propext, Classical.choice, Quot.sound]
+info: Dispatch/Audit.lean:23:0: DISPATCH_KERNEL_OK Dispatch.Refinement.joint_reachable: [propext, Classical.choice, Quot.sound]
+Build completed successfully (1708 jobs).

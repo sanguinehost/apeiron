@@ -27,7 +27,7 @@ Three consumers need the same authorization decision and none has a checked one:
 
 The canonical corpus already has the value-level half: `Apeiron.Capability.guardedRead` with
 `guardedRead_ungranted`/`guardedRead_granted`, and `forge_reaches_only_scope`
-(`../sanguine-apeiron/proof/Apeiron/Capability/{MaskedTable,Basic}.lean` at `880aa57e`). It has
+(`../sanguine/proof/Apeiron/Capability/{MaskedTable,Basic}.lean` at `880aa57e`). It has
 no rule-set decision, no verdict with a cause and no attenuation law.
 `Capability.Extent.ungranted_reads_granted_extent` also proves that a masked lookup is containment,
 not authentication, so a compiled decision index must be keyed by the full key.
@@ -132,7 +132,7 @@ Each Lean command runs bounded (AGENTS §6), with a 600 s ceiling per invocation
   ("Delegation attenuates").
 - Policy administration, distribution and consistency tokens (OPAL/zookie class).
 - Moving the canonical corpus. The canonical definition is staged in `proof/corpus/Policy/Core.lean`
-  (decision 5) and migrates with the corpus-release pin; `../sanguine-apeiron` is unchanged.
+  (decision 5) and migrates with the corpus-release pin; `../sanguine` is unchanged.
 - Displacing [read-proof-next](../epics/read-proof.md) (G1/REG-1 OPEN), the AI-stack lanes or
   Penglai.
 
@@ -148,7 +148,7 @@ property (intent `TRUST.md` #1, structurally checked there). The Aeneas bridge k
 
 Owner direction: each decision follows from the canonical object and its principles (defence in
 depth, auditability, reversibility), not from preference. Sources are canonical-corpus theorems at
-`880aa57e` unless marked as old Sanguine (`../sanguine` `e830d3fb`, pre-trichotomy, rebase open in
+`880aa57e` unless marked as old Sanguine (`../sanguine-ref` `e830d3fb`, pre-trichotomy, rebase open in
 `docs/epics/security-algebra-rebase.md`). A derivation step that is not yet a theorem is labelled
 `anchor`.
 
@@ -582,7 +582,7 @@ SCOPE:      /home/socol/oc-tmp/policy-spike-s3a/{Core.lean,Laws.lean,report.md};
             decide_forbid_wins, decide_granted_le_want, decide_granted_mono_completion and the five
             witnesses; complete when the gate passes with the axiom report recorded.
 REGISTER:   algebra (canonical laws); excludes the Rust link.
-CORPUS:     ../sanguine-apeiron/proof/Apeiron/Capability/MaskedTable.lean `guardedRead_ungranted`
+CORPUS:     ../sanguine/proof/Apeiron/Capability/MaskedTable.lean `guardedRead_ungranted`
             (proved, native) is the closest; no rule-set decision exists.
 REFERENCE:  this file, "Canonical definition" and "Laws".
 GATE:       /home/socol/oc-tmp/policy-spike-s3a/gate.sh (lean v4.31.0, no lake); 540 s.

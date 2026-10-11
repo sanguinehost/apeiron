@@ -1,0 +1,642 @@
+==> AGENTS.md <== sha256:7c9e5da673ea50533b4c669575dd390128d3a459386802ccbcc476af4732cb4c
+[read] lines 1-674 of 674 (offset 0, limit 2000)
+1: # apeiron: working agreement
+2: 
+3: `R[x]/(x^2 - sigma)`, its `Cell<i64>` word kernel, and the growable flat/spill table that consumes it. One
+4: Rust crate, one Lean extraction package, one Lean refinement bridge. This file governs the work; the
+5: source and the gates are the record.
+6: 
+7: Apeiron owns the canonical definitions, the reusable Rust primitives and their refinements. The
+8: programme thesis, ownership, outcomes, primitive correspondence, migration and execution order are
+9: in the [programme direction](docs/direction.md); that document is the programme authority. This file
+10: is the local repository authority for the lifecycle, decomposition, gates, evidence grades and trust
+11: boundary below. The physical canonical corpus remains at `../sanguine-apeiron/proof/Apeiron/` with
+12: unchanged pins until a separately gated migration; no source has moved. Song is an independent
+13: assembly-up implementation: no Rust or Aeneas runtime dependency links it to Apeiron, and the
+14: required cross-repo result is a checked primitive correspondence, not runtime linkage.
+15: 
+16: ## Purpose
+17: 
+18: Apeiron is the O(1)-primitive basis at fixed probe width with bounded callbacks and nonconstant key length,
+19: evolved from hashtrinity; `fold/hashtrinity` is the naive predecessor. The basis is
+20: `R[x]/(x^2 - sigma)`, `Cell<R>` with `Sigma` as a value in every executing signature, `Coord`
+21: addressing correct per face, and the growable flat/spill `Table<K, V, H, N>` with transactional
+22: checked-sizing and reservation refusal. Every executing face must refine the canonical object;
+23: anything not rooted in it is not accepted. A judgment about the object is admissible only at its
+24: stated evidence grade and scope, through an explicit link to the claimed property of its named
+25: denotation: equal denotations preserve that property, and implementation, resource or performance
+26: observations require their own stated model and evidence rather than following from functional
+27: denotation alone. The canonical object is
+28: `Apeiron.Table.{HMap,get,insertWith,build}` and
+29: `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` with the extracted `Cell<i64>` word
+30: bodies (`word_mul_denote`, `word_norm_denote`).
+31: 
+32: The fold crosses from hashtrinity into apeiron, and that crossover is the lineage; the precise
+33: statement is in [programme direction](docs/direction.md#lineage-the-fold-crossover).
+34: 
+35: Reply with the result and the evidence. State a decision or a blocker; do not narrate tool calls.
+36: 
+37: The sibling `song` tree is a different repository with its own ontology, registers and `./song`
+38: gates. None of those apply here. Do not import its commands, its `R1`–`R5` registers, its `//@`
+39: ontology, or its `law`/`spec` block semantics. Adopt only the lifecycle, the wave/task discipline and
+40: the writing rules below.
+41: 
+42: ## 1 · Reading order
+43: 
+44: Read the file, not a summary of it, not an agent's report on it, not memory. A citation names a path
+45: that resolves; run the path before citing it.
+46: 
+47: | Stage | Document | Purpose | Exit condition |
+48: |---|---|---|---|
+49: | 1 | [`docs/direction.md`](docs/direction.md) | Programme authority: decisions, evidence, open work, correctness items | Current stage and its unresolved obligations are known |
+50: | 2 | `docs/kernel-boundary.md` | Layer ownership and the trust boundary | Which layer is proved, tested, measured or out of scope is known |
+51: | 3 | `docs/plan.md` | Execution order, gates, specialist approval, stop points | The current stage's gate and stop condition are known |
+52: | 4 | `proof/README.md` | Extraction and bridge, exact commands, what is **not** established | Tool pins, extraction selection and axiom cone are known |
+53: | 5 | `README.md` | Crate behavior and its stated non-claims | The actual `Cell`/`Table` behavior and the open obligations are known |
+54: | 6 | exact source | `src/`, `tests/`, `proof/extract/lib.rs`, `proof/corpus/` | The symbols to change have been read, not recalled |
+55: 
+56: `docs/direction.md` and `docs/kernel-boundary.md` govern. `docs/plan.md` governs execution
+57: order. Where a document disagrees with the source or a gate, the source and the gate win; fix the
+58: document.
+59: 
+60: **This order is enforced, not assumed.** [`tools/rooting/read_gate.py`](tools/rooting/read_gate.py)
+61: `--check` reddens by name when a stage document is missing or is not referenced in this file;
+62: `--receipt` pins each stage document's sha256 into a dispatch, and `--verify` reddens on drift
+63: between the receipt and the tree. **Anything every agent must know to act is stated in this file**,
+64: because this is the one document every agent is delivered; `docs/` is the referenced detail record,
+65: not required background. A gate establishes document identity and drift, never comprehension; that
+66: boundary is stated, not papered over.
+67: 
+68: ## 1a · Enforcement map
+69: 
+70: A rule below is non-optional only when a named artefact enforces it and a command shows the verdict.
+71: Prose that names no enforcer is not acceptance (§4, obligation 11).
+72: 
+73: | rule | enforcing artefact | command |
+74: |---|---|---|
+75: | §1 a citation names a path that resolves; §5 a grade maps to a named artefact | [`tools/check-claims.py`](tools/check-claims.py) | `python3 tools/check-claims.py` (`--self-test`: 11/11 controls) |
+76: | §1 the reading order — every stage document resolves and is referenced in this file; a dispatch pins their sha256 | [`tools/rooting/read_gate.py`](tools/rooting/read_gate.py) | `python3 tools/rooting/read_gate.py --check` (`--self-test`: 3 rejection fixtures; `--controls`) |
+77: | §2 epic intent/spec/plan; §3 task ≤3 files with one gate and one control; §8 the per-function cost comment; a retired route not presented as active | [`tools/rooting/check.py`](tools/rooting/check.py) | `python3 tools/rooting/check.py --check` (`--self-test`: 30 reject / 23 accept) |
+78: | §4 obligations 1, 3, 5 — real-source extraction and the closed axiom cone | [`proof/regen.sh`](proof/regen.sh), [`proof/corpus/AxiomAudit.lean`](proof/corpus/AxiomAudit.lean) | `proof/regen.sh --check`; `cd proof/corpus && lake build` |
+79: | §4 obligation 5 — the Slang empty cone | [`tools/slang/zero_axioms.py`](tools/slang/zero_axioms.py) | `python3 tools/slang/zero_axioms.py --stage <stage> --controls` |
+80: | §4 obligation 7 — the per-task mutation control | the task's own gate | that gate's command; a mutation that leaves the proof green is a failure, not a pass |
+81: | §4 obligation 9 — Rust gates | `cargo` | the §6 commands |
+82: | §5 — a stated artifact resolves against the evidence index: exactly one fresh row per receipt | [`tools/rooting/index_check.py`](tools/rooting/index_check.py) | `python3 tools/rooting/index_check.py --check` (plus `--self-test`, `--controls`) |
+83: | §6 — bounded Lean under the lane | `lane` (box-wide pool, outside this repository) | `lane <cmd>` |
+84: | §7 — `//@` metadata | **MISSING** — no local gate reads an annotation | n/a |
+85: | §9.1 — inference-optimisation admission | [`tools/dispatch/admit.py`](tools/dispatch/admit.py), [`proof/DispatchAdmission.lean`](proof/DispatchAdmission.lean) | `python3 tools/dispatch/admit.py --launch <proposal.json>` |
+86: | §10 — a removal names its replacement, consumers and reachability; no bare `rm` | [`tools/rooting/retire_check.py`](tools/rooting/retire_check.py) | `python3 tools/rooting/retire_check.py --check` (plus `--self-test`, `--controls`) |
+87: | §10 — a registered documentation removal names a resolvable successor, its removed path is absent, and no live document names it | [`tools/rooting/doc_reach.py`](tools/rooting/doc_reach.py) over `docs/moved.tsv` | `python3 tools/rooting/doc_reach.py --check` (`--self-test`: 18 rejection / 4 accept fixtures; `--controls`; `--inventory PATH`) |
+88: | §9.3 — a dispatch names its board row; a named row exists and its project carries a milestone | [`.githooks/commit-msg`](.githooks/commit-msg), [`tools/hooks/lane.py`](tools/hooks/lane.py) | `bash tools/hooks/install.sh`; `python3 tools/hooks/lane.py self-test` (9/9 controls) |
+89: | §3 the dispatch loop — Sol ranks, one lane per item (serialize on shared files), the lead installs on the live tree, measure then board | the operator pulse (`/home/socol/oc-tmp/bin/pool-ping.sh`); [`.githooks/commit-msg`](.githooks/commit-msg) + [`tools/hooks/lane.py`](tools/hooks/lane.py) | the pulse fires the checklist and fails a checkpoint with no measured movement; the hook refuses a commit naming no row |
+90: | §9.3 — the board is reconciled against the plan at the barrier: every row mirrored, internal-by-design or missing | [`tools/board/board.py`](tools/board/board.py) | `python3 tools/board/board.py check --controls` (the pre-push hook reports it; `APEIRON_HOOKS_BOARD_CHECK=block` refuses) |
+91: | §6 — `cargo fmt` at commit, `clippy` and the focused `cargo test` at push | [`.githooks/pre-commit`](.githooks/pre-commit), [`.githooks/pre-push`](.githooks/pre-push) | `bash tools/hooks/install.sh`; `bash /home/socol/oc-tmp/hooks/gate.sh` (10/10 controls) |
+92: 
+93: Enforcer that is MISSING and named so that prose cannot stand in for it: a Rust gate driver
+94: (`tools/gate`) replacing the per-task `*_gate.py` scripts. It is tracked in
+95: [`docs/plan.md`](docs/plan.md). The documentation-removal reachability gate for the documentation
+96: consolidations is not missing: it is [`tools/rooting/doc_reach.py`](tools/rooting/doc_reach.py), the
+97: row above, with its [discharge receipt](docs/evidence/documentation-removal-reachability.md); the
+98: evidence-receipt half runs as [`tools/rooting/index_check.py`](tools/rooting/index_check.py).
+99: 
+100: ## 2 · Lifecycle
+101: 
+102: Every nontrivial epic proceeds through five phases. The first three are sections of one committed
+103: file per epic, `docs/epics/<slug>.md`, started from `docs/templates/epic.md`; `docs/README.md` indexes
+104: every epic. A document parsed by a gate lives in `docs/contracts/` and is never merged or reformatted.
+105: 
+106: 1. **Intent** — the problem, why alternatives were rejected, the invariants, the measurable success
+107:    condition, the non-goals.
+108: 2. **Spec** — the contracts, the admissible domain and partiality, the Rust-to-Lean representation
+109:    relation, the failure semantics, the evidence plan.
+110: 3. **Plan** — the waves, files, owners, one gate command per task, and the negative control where
+111:    soundness is at stake.
+112: 4. **Implementation** — the smallest change that turns the named gate green, on the path the crate and proof build and run.
+113: 5. **Verification** — run the gate and its control, record the result, then register the claim at its
+114:    evidence grade.
+115: 
+116: An epic without a written intent, spec and plan is still design. Do not allocate tasks from it.
+117: 
+118: ## 3 · Work decomposition and collision discipline
+119: 
+120: `epic -> wave -> task`.
+121: 
+122: - A **wave** is a barrier: every gate green, with its negative control run, before the next opens.
+123: - A **task** touches at most three files, carries one arc (scope, gate, control, grade), and is
+124:   closed by one command's exit status, never by an agent saying so.
+125: - A task that cannot run parallel to its siblings takes its own wave.
+126: - **One in-progress owner per file.** Tasks in one wave touch disjoint files. Declare the owner in
+127:   the plan. If a task needs a file another task owns, stop and sequence it; do not edit across the
+128:   boundary.
+129: - **Shared build products are lanes.** `proof/ApeironWord.lean`, `target/`, `proof/.lake/` and
+130:   `proof/corpus/.lake/` each take one agent at a time. Do not mix incompatible Lean/Mathlib
+131:   artifacts in a shared cache.
+132: - **A branch and its worktree exist only for their task.** Work merges to `main`, the integration
+133:   target, or is deleted; the worktree is removed with `git worktree remove`. Inventory with
+134:   `git worktree list` and `git branch -vv` before starting and after closing, and prune stale
+135:   records (`git worktree prune`). No branch or worktree outlives its task; one that does is a failed
+136:   task, not a note.
+137: - Do not run working-tree-mutating git commands (`stash`, `reset`, `checkout`, `restore`, `clean`).
+138:   Preserve unrelated dirty work; a mutation control edits a throwaway copy, never the working tree.
+139: - A task that needs conversation history to execute is not yet a task.
+140: 
+141: ### The dispatch loop
+142: 
+143: A red goal is worked by one loop, never by picking the easiest bounded task:
+144: 
+145: 1. **Sol ranks.** The lead asks Sol for the **highest-impact items** that move the goal, ordered by
+146:    contribution *and difficulty*, hardest first. The ranking is written under
+147:    `/home/socol/oc-tmp/escalation/` and is the dispatch order.
+148: 2. **One lane per item.** Each item gets **one** lane, and no more lanes than the item's
+149:    independent-file set: items that share a file (or a shared build product) **serialize** in Sol's
+150:    order, never run in parallel. Never open the easy, bounded, safe, verification, corpus,
+151:    instrument or documentation task while the goal's number is red; use spare capacity for
+152:    independent verification, not invented parallel work.
+153: 3. **Each lane closes on its gate and control**, on the path the crate builds, in an isolated copy.
+154:    A lane returns the edited artefact, the exact gate output, the measurement and the decision — never
+155:    a live write and never a commit. **A lane runs to completion inside one turn: it must not
+156:    background its campaign, `sleep`, spawn a detached `runs.sh`/loop, or return "waiting" on a
+157:    background waiter.** A lane that comes back without its numbers is not a lane; it is a stall the
+158:    owner cannot distinguish from progress. The lead dispatches agents, not ad-hoc background shell
+159:    campaigns, and follows them to their return.
+160: 4. **The lead installs.** The lead applies the lane to the live tree, **re-runs the gate on the live
+161:    tree**, and commits. A lane's green gate is not the live tree's green gate.
+162: 5. **Measure, then board.** Run the averaged measurement, then update the board: the project
+163:    check-in carrying the fresh numbers, and the task rows whose status changed. A checkpoint that reports
+164:    no measured movement while the goal is red has failed and says so. **The board update is a field of
+165:    the checkpoint lane's own return, not a step the lead performs from memory: the lane posts the
+166:    check-in and moves the rows before it returns, and a return that carries numbers without the
+167:    check-in and the moved rows has failed this step.** The per-cycle trigger is the operator pulse
+168:    (`/home/socol/oc-tmp/bin/pool-ping.sh`); with it off, the board is stale until the next lane posts
+169:    it — the cadence is the pulse, the content is the lane. The `commit-msg` hook enforces a board row
+170:    per commit only; it does not force a per-cycle check-in.
+171: 
+172: Enforced at exactly two points: the operator pulse (`/home/socol/oc-tmp/bin/pool-ping.sh`) fires the
+173: checklist and fails a checkpoint with no measured movement; and the per-commit board declaration
+174: (`.githooks/commit-msg`, `tools/hooks/lane.py`) refuses a commit naming no row. The ordering rule —
+175: hardest first — has **no** mechanical enforcer: it is owner direction, and a dispatch that inverts it
+176: is a failure the lead owns.
+177: 
+178: Use `APEIRON-<EPIC>-W<wave>-T<task>` IDs and an isolated `worktree-agent-<id>` per task.
+179: Record owner, base revision and build lane before editing; serialize shared caches. A documentation
+180: pass explicitly assigned to the supplied checkout may record that exception. A spike uses
+181: `APEIRON-<EPIC>-SPIKE-<slug>`, a time limit and a question; it ends in evidence or a blocker, not
+182: epic closure. Existing short IDs remain historical aliases.
+183: 
+184: Emit this Arc Block before the first nontrivial edit; retain it in the plan and, when authorized,
+185: the commit body. Templates do not waive these fields:
+186: 
+187: ```text
+188: SCOPE:      owned files, change and completion condition
+189: REGISTER:   local obligation (algebra/refinement/state/test/measurement/planning); exclusions
+190: CORPUS:     exact module and quoted theorem with native grade, or files read and no match
+191: REFERENCE:  absolute path read, derived from <theorem>, or NONE - inventing
+192: GATE:       command, cwd, observed red output, numeric wall-clock budget in seconds (§10);
+193:             if absent, MISSING and a gate-first task
+194: GRADE:      evidence grade and before/after result; unmeasured or not applicable with reason
+195: ```
+196: 
+197: `REGISTER` classifies the obligation; it does not import Song's deciders or R1–R5 certification.
+198: 
+199: ## 3a · Dispatch priority
+200: 
+201: Order dispatch by contribution to the goal and by difficulty, never by dispatchability.
+202: 
+203: - The question is which task moves the programme outcome most and is hardest to do — not which
+204:   task is bounded, well-specified, or likely to return green. A body of easy, safe, locally-green
+205:   work (control registration, citation repair, splits, documentation sweeps) is not progress while
+206:   the governing outcome is an open quantitative gate; it is avoidance, and it is not a reason to
+207:   open a lane.
+208: - Work each goal's written dependencies in order. A goal whose dependency is open gets no lane.
+209:   **Penglai and webfold are downstream of the apeiron core and are frozen until apeiron beats
+210:   hashtrinity *and* is formally verified** — i.e. G1 acceptance green (`full_acceptance=true`) and
+211:   the real-source extraction with its refinement proved under the closed axiom cone. No penglai or
+212:   webfold lane opens before that condition holds. Penglai's water frame rate and webfold's parser
+213:   both ride the apeiron core; working them first is the same avoidance as hygiene.
+214: - When a goal's gap is a measured number — a failing ratio, a frame rate, a latency — the lane that
+215:   attacks that number outranks every hygiene task, and its first task is to reproduce the number on
+216:   the current source. A recorded number is stale until re-measured; a stale number is not a status.
+217: - Rank by expected contribution, then by difficulty. The hardest high-contribution task is
+218:   dispatched before the easiest, however many lanes it needs.
+219: 
+220: - **Subsume the empirical best before deriving.** Empiricism and formalism are two sides of one
+221:   coin: if an empirically better solution exists for a role, **subsume it first and formalize the
+222:   subsumption**; never iterate from an obviously inferior primitive. The empirical side selects the
+223:   base — the measured winner becomes the working artifact, on the measured path from step one; the
+224:   formal side certifies that same artifact — the refinement targets the subsumed body. A
+225:   formalization of a losing implementation is a certified loss; an unproved winner is an unverified
+226:   gain. **Every dispatch names the empirically best known solution for its role by repository,
+227:   revision and digest, and records `subsumed`, or `not-subsumable` with the exact reason and the
+228:   search command and its output; a new primitive with an unstated or unexplained absence is
+229:   refused.** Corollary: a lane whose base is a structure the measured winner does not pay is not an
+230:   optimization but a tax — name the base and its measured ratio first. **Enforcer: the
+231:   dispatch-admission `subsume` field (MISSING until built; until then this rule is review-enforced
+232:   only and is recorded as such, not as acceptance).** Worked example: the empirically best counting
+233:   structure is `../fold/hashtrinity` (pinned `Cargo.toml:76-80`, rev `4cc14471`); it must be
+234:   subsumed and proved, not re-derived, and the generic `Table` (`src/table.rs`) is the inferior
+235:   primitive — not a valid base for a count-face optimization.
+236: 
+237: - **The incumbent's evidence is pinned, not regenerated.** Read `../fold/hashtrinity` at the G1
+238:   revision `4cc14471` (`src/lib.rs` sha256 `f8c8fd12fc2b7a69…`; fold HEAD `d497161f`'s `lib.rs` is
+239:   `5bc1c9f48ef0bb17…`, a **different** file — do not mix the two) and its monomorphized disassembly,
+240:   already emitted, at `/home/socol/oc-tmp/ht-llvm/`: `full.asm` sha256 `b68a950e375e5516…`, `ap.asm`
+241:   `2841d4faa631e537…`, `disasm.txt` `61bc3365ac8c71d5…`, with the instruction-level work order in
+242:   `ht-llvm/receipt.md` and the attribution in `ht-probe/receipt.md`. A lane **reads those**; it
+243:   re-builds `../fold` or re-emits IR only to cover a body not already disassembled, and then records
+244:   the new body, digest and path. Re-emitting the same body is not evidence.
+245: 
+246: Owner direction.
+247: 
+248: ## 4 · Definition of done
+249: 
+250: A task closes on its focused gate and control, completed within its §10 wall-clock budget; a
+251: timeout is not closure. A wave requires every child plus the shared gates.
+252: An epic closes only when every row of its exit table is green on the same source/tool identity;
+253: missing gates, witnesses or evidence keep it open. `docs/plan.md` owns the epic exits;
+254: Historical completion records are not fresh acceptance.
+255: Record inapplicability with its excluded population and reason, never because a gate is difficult.
+256: 
+257: The eleven obligations below instantiate five pillars; none is removed:
+258: 
+259: | Pillar | Obligations |
+260: |---|---|
+261: | Primary artifact | 1, 3: build and run path and real-source extraction |
+262: | Non-vacuous contracts | 2: domain, joint witnesses, initialization and preservation |
+263: | Mathematical attribution | 4, 5: exact authority, refinement and closed axiom cone |
+264: | Falsifiable verification | 6, 7: positives and baseline/red/restore controls |
+265: | System pass and trusted perimeter | 8, 9, 11: identities, integration gates and bounded trust |
+266: 
+267: Item 10 applies whenever a performance claim or epic budget is required; documentation cannot waive it.
+268: 
+269: 1. **Build and run path.** The change is on the path the crate and proof actually build and run; there is no separate production, reference or mock path. No stub, parallel copy or dead code presented as complete.
+270: 2. **Explicit admissible domain and partiality.** Total, `Option`/`Result`, checked, or panicking is
+271:    stated. Every claimed `Pre`/`WellFormed` domain has a checked witness term or `#guard` for the
+272:    joint hypotheses at the claimed types, not separate incompatible witnesses. Require initialization
+273:    from the actual constructor, preservation, and successful/refusing branch witnesses for partial
+274:    operations. A model witness does not refine a Rust constructor. No silent domain reduction or
+275:    infallible signature over an operation that can lose bits.
+276: 3. **Actual Rust extraction where a Rust claim is made.** The Aeneas/Charon extraction includes the
+277:    real source by `#[path]` and calls the real body; a wrapper may fix a type, not restate the
+278:    formula.
+279: 4. **Lean theorem link.** The representation relation names the exact canonical definition or
+280:    theorem it refines. Generic mathematics lives in the pinned canonical corpus, navigated at
+281:    `../sanguine-apeiron/proof/Apeiron/`; its audits are `Audit.lean` and `AuditCarrier.lean`.
+282:    Rust representation theorems live in `proof/corpus/`, audited by `AxiomAudit.lean`.
+283:    Record the resolved corpus revision; a sibling path or `@grade` alone proves nothing.
+284: 
+285:    **Search the lineage and the sibling repos before commissioning a primitive.** A primitive this
+286:    tree lacks very often already exists — most likely in the older corpus (`../sanguine`,
+287:    `../sanguine-apeiron`), sometimes solved in a different sibling repo entirely. That form is a
+288:    **port with a named target**, not a new derivation, and the spec phase records the search: the
+289:    declaration found, its revision and digest, and what the port must add. Only absence everywhere
+290:    authorizes making one — and then the spec says so explicitly, because "we made it" is a claim
+291:    about prior art as much as about code. The search is a command over the loaded in-tree lineage plus
+292:    `~/Workspace/*` (fleet brief §9 names the repositories), not a recollection.
+293: 
+294:    **Use a search tool that works here.** `find` is shadowed by a broken shim on this box
+295:    (`/home/socol/.local/bin/find`, findutils 4.4.2): it exits 0 and returns **nothing** on directories
+296:    that plainly hold files, so a `find`-based absence check is unsound and has already produced one
+297:    false "the corpus has 0 Lean files" claim. Use `rg --files`, `ls -R`, or a shell glob, and state the
+298:    command in a claim of absence. `grep` is likewise shadowed/mangling; `rg` is the working tool.
+299:  5. **Fail-closed axiom cone.** `proof/regen.sh` audits the extraction for `axiom`/`sorry`/`admit`;
+300:     `proof/corpus/AxiomAudit.lean` `#audit`s each headline and throws on anything outside
+301:     `{propext, Classical.choice, Quot.sound}`. A `sorry` is a build failure, not a note. The Slang
+302:     source-refinement chain is stricter: every registered declaration, instance, witness and headline
+303:     must audit with an **empty** axiom set under `proof/corpus/Slang/Audit/Empty.lean` and
+304:     `tools/slang/zero_axioms.py`; `propext`, `Classical.choice`, `Quot.sound`, `noncomputable` and
+305:     quotient-based representations such as `Finset` and `ZMod` are rejected there. The Rust/Aeneas
+306:     bridge and the canonical corpus retain the closed cone above.
+307: 6. **Positive tests.** `cargo test` covers the nominal path and the boundary cases that the contract
+308:    names.
+309: 7. **Mutation control.** A mutation of the real source (or the generated kernel) in a throwaway copy
+310:    must turn the proof or test red; restoring it must pass. A check that cannot fail has no weight.
+311: 8. **Source and tool digests.** Record the sha256 of the sources the evidence binds to, and the
+312:    Aeneas/Charon/Lean/Mathlib revisions. Evidence from a dirty tree is attributed to those digests,
+313:    not to HEAD alone.
+314: 9. **Rust gates.** `cargo test`, `cargo clippy` and `cargo fmt` as in §6 pass.
+315: 10. **Measurement for performance claims.** A number is a measurement only when a named command ran
+316:     and its output was read. Name the machine, the metric and the interval; before and after.
+317:     **Average across runs.** Report the mean over at least three runs with the observed spread; a
+318:     single run is a sample, not a result. A pass-count or ratio that moved within the spread
+319:     already measured on unchanged code is not a change and is not reported as one. The
+320:     repeated-run protocol belongs to the harness, not to the reader's patience.
+321: 11. **Trust-boundary statement.** State what the claim does not cover: rustc/LLVM codegen, the
+322:      kernel ABI, GPU/SPIR-V, the `unsafe` container, or any layer the evidence does not reach.
+323: 
+324: At an implementation epic barrier, run all §6 Rust commands,
+325: `proof/regen.sh --check`, and `lake build` in both `proof/` and `proof/corpus/`, plus the named
+326: controls. These are the local barrier set, not one existing aggregate harness. Missing tools block
+327: acceptance. Local trusted checking code ≤5,000 physical lines, owned source files ≤1,500 lines, ≤12 immediate source files
+328: per directory. Inventory external trust separately; neither the whole proof library nor a bridge
+329: line count is the full TCB. Until the inventory and rejecting checks exist, size acceptance is open.
+330: 
+331: ## 5 · Evidence grades
+332: 
+333: Every stated result carries one grade. The grade is part of the claim.
+334: 
+335: | grade | means |
+336: |---|---|
+337: | `proved` | A Lean kernel check (`lake build`) passes for a named theorem. If it is about Rust, the extraction is from the real source and a refinement theorem links the extracted body to the canonical definition, under the closed axiom cone. The Slang source-refinement chain instead requires an empty axiom cone (`tools/slang/zero_axioms.py`), not `{propext, Classical.choice, Quot.sound}`. |
+338: | `tested` | A `cargo test` executes the build path and its boundary cases. |
+339: | `measured` | A benchmark or `perf` command ran, with a named machine, metric and interval. |
+340: | `model` / `anchor` | A reading of the algebra onto a domain, or a design assumption. True as a mapping; not evidence of correctness. |
+341: 
+342: A citation to a Lean theorem, a paper, or a sibling repository is a pointer, not evidence. It becomes
+343: `proved` only when the named theorem exists and the in-repo link is checked. **Never call a citation
+344: alone verified.** Label an `anchor` as an `anchor`; an `anchor` reported as `proved` costs a redesign
+345: when someone checks.
+346: 
+347: ## 6 · Local commands
+348: 
+349: Kani is retired by user direction. Do not run, schedule, repair or require it for development,
+350: acceptance or closure. This supersedes every older Kani gate, retry, harness-retention and
+351: no-retirement instruction in handoffs, plans and receipts. Historical results remain historical;
+352: retirement proves no missing theorem. Use ordinary Rust tests and source mutation controls for
+353: regressions, and extracted Lean refinements for proof claims. See
+354: [`docs/epics/kani-retirement.md`](docs/epics/kani-retirement.md).
+355: 
+356: These are the gates. There is no `./song` gate in this repository; a command that only exists in the
+357: sibling tree is not an acceptance gate here.
+358: 
+359: Rust:
+360: 
+361: ```sh
+362: cargo test --workspace --all-features --locked
+363: cargo clippy --workspace --all-features --all-targets --locked -- -D warnings
+364: cargo fmt --all -- --check
+365: ```
+366: 
+367: Proof regeneration (requires the pinned Aeneas/Charon under `target/aeneas/` or `AENEAS_HOME`, plus
+368: the patched Lean backend that `proof/lakefile.lean:19` requires):
+369: 
+370: ```sh
+371: proof/model-patches.sh     # build target/aeneas-model/lean from the backend plus the model patch
+372: proof/regen.sh             # extract, audit, build
+373: proof/regen.sh --check     # fail on drift from the committed ApeironWord.lean
+374: AENEAS_HOME=/path/to/aeneas proof/regen.sh
+375: ```
+376: 
+377: `proof/model-patches.sh` takes no arguments, has no `--check`, and rebuilds
+378: `target/aeneas-model/lean` in place; `proof/README.md` carries the ordered route from a clean
+379: checkout. Step 2 cannot be skipped: `target/` is gitignored, so neither tree exists in a fresh
+380: clone.
+381: 
+382: Bridge build (canonical corpus plus the refinement package):
+383: 
+384: ```sh
+385: cd proof/corpus && lake build
+386: ```
+387: 
+388: Slang source-refinement zero-axiom gate (Stream 0; empty cone, per stage):
+389: 
+390: ```sh
+391: python3 tools/slang/zero_axioms.py --stage <stage> --controls
+392: ```
+393: 
+394: Evidence tooling:
+395: 
+396: ```sh
+397: python tools/call-census/audit_reports.py --raw-root /tmp/opencode/census-v2
+398: ```
+399: 
+400: Tool pins and the archive checksum are in `proof/README.md`. Record the versions a run actually used;
+401: do not cite a pin from memory.
+402: 
+403: Every Lean command runs bounded: under `systemd-run --user --scope -p MemoryMax=<cap>
+404: -p MemorySwapMax=0` with `LEAN_NUM_THREADS=1` and a `timeout`, serialized on
+405: `flock /tmp/opencode/apeiron-lane.lock`. The `timeout` carries the §10 budget; the older 900 s and
+406: 3600 s local-run allowances are superseded for new runs, and historical receipts stand. `set_option maxHeartbeats 0` and any unbounded kernel
+407: reduction (for example `decide` or `rfl` over a whole source, or `maxRecDepth` raised to defeat the
+408: guard) are forbidden in committed proofs and in an agent's runs; a reduction that needs them is
+409: inconclusive, not a proof, and a job that exhausts the cap is a failure of the run, not a red gate.
+410: 
+411: **Every Rust command runs under the same bound.** `cargo build|test|run|clippy|rustc`, every
+412: measurement campaign (the `examples/reg1` campaign was removed in `c9a2d0c`), and every lane's
+413: build or test step run under
+414: `systemd-run --user --scope -p MemoryMax=<cap> -p MemorySwapMax=0` with a `timeout` carrying the §10
+415: budget; a lane that spawns a build without the cap is not admitted and its result is not evidence. The
+416: bound exists because an uncapped workspace build at 16 codegen units is 0.5–2.7 GB: twenty concurrent
+417: lanes drove this 62 GB box to a **54 GB memory peak plus 50 GB swap inside one terminal cgroup**, with
+418: no OOM-kill and no panic — the kernel stopped scheduling the cgroup, which presents as a dead terminal.
+419: A build is not exempt because it is short.
+420: 
+421: **Concurrency is capped, not aspirational.** At most **eight** build-bearing lanes run at once on this
+422: box; a ninth waits on `flock /tmp/opencode/apeiron-lane.lock` or on a finished lane's return, and the
+423: sum of the declared caps stays under half of RAM. Twelve to twenty concurrent workspace builds is the
+424: ceiling being exceeded, not a width being achieved — a fan-out wider than the file-disjoint set pays
+425: contention, not throughput, and it is what crashed the terminals. **A measurement is averaged, never
+426: refused for a busy box.** A contended run is a valid measurement when it is repeated: run at least
+427: five paired runs and report the per-pair mean with the observed spread. Contention is answered with
+428: more runs, not with a quiet window, a refusal, or a guard override that prints a single contended
+429: sample as a result. Do not hold an accepted campaign behind a quiesced box.
+430: 
+431: ## 7 · Metadata policy
+432: 
+433: Some source files carry `//@ key: value` annotations inherited from the sibling tree. They are
+434: descriptive only.
+435: 
+436: - **`//@` metadata is not mandatory and not authoritative here until a local gate reads it.** This
+437:   repository has no `song index` or ontology validator, so an annotation changes no gate.
+438: - **Do not proliferate annotations.** Add one only when it carries what the code cannot state. A
+439:   metadata claim that matters becomes a test, a proof, or a line in a governing document instead.
+440: - A comment earns its line by carrying a *why* the code cannot express. Do not restate the
+441:   declaration in prose.
+442: 
+443: ## 8 · Writing
+444: 
+445: - **No anthropomorphic or story prose.** State mechanism and evidence. Do not write that a table
+446:   "wants", a map "refuses", a dial "decides", or a crate "believes". Name the value, the operation
+447:   and the measured effect.
+448: - **Standard mathematical language, with attribution.** Name every mathematical object by its most
+449:   common standard term and notation (`R[x]/(x²−σ)`; elliptic `σ<0`, parabolic `σ=0`, hyperbolic
+450:   `σ>0`; norm form, idempotent, zero divisor) — never by a project or legacy coinage. For a borrowed
+451:   object cite the originator(s) first, then the reference (norm form: Gauss, *Disquisitiones
+452:   Arithmeticae* (1801); dual numbers: Clifford (1873); split-complex numbers: Cockle (1848); softmax:
+453:   Boltzmann (1877) and Gibbs (1902), Bridle (1990) for the name). The reference is retrieved and read
+454:   before it is called evidence; a citation alone is a pointer (§9.3).
+455: - Present tense for what is; past tense for what happened. No dates in prose; git has them.
+456: - Lowest word count that keeps every path, hash, identifier and number.
+457: - Tables and bullets over paragraphs. A qualifier belongs in the sentence that needs it.
+458: - Do not narrate a plan code (`E1`, `Wave 2`) in a durable document. Describe the change in terms
+459:   that resolve to the tree: paths, gate names, theorem names.
+460: - A number from a document is a hypothesis until the command is re-run.
+461: - **State per-function complexity where it is not O(1).** A function whose temporal cost or spatial
+462:   footprint is not O(1), or is not immediate from its type, carries a comment at its definition: the
+463:   temporal and spatial complexity, the measure they are counted in (comparisons, allocations, bytes,
+464:   words, bytes copied), and the derivation (the recurrence or loop and why it closes). A complexity
+465:   figure is a claim like any other: it names the recurrence or the command, never a bare big-O.
+466:   Trivial O(1) accessors, projections and constructors carry none.
+467: 
+468: ## 9 · Agents and escalation
+469: 
+470: ### 9.1 Default worker and trigger-selected escalation
+471: 
+472: `space-bunny-alpha` (`openrouter/stealth/space-bunny-alpha`, OpenRouter) executes every
+473: dispatch-ready task by default. It is free and the fastest free route measured: 400 tokens in
+474: 2.70 s wall, 147.9 tok/s, TTFT 1.19 s. The OpenCode Zen route to the same family
+475: (`opencode-go/space-bunny-free`, `opencode/space-bunny-free`) measured 6.95 s wall / 57.5 tok/s /
+476: TTFT 6.95 s on the same prompt — it is slower; use the OpenRouter route. **The free window ends
+477: 2026-10-05**; until then dispatch Space Bunny on every bounded task and lead-verify each result. It
+478: is mid-tier (cloaked weights, MMLU-Pro ≈ 75%): adequate for bounded, gated, ≤3-file tasks, not a
+479: proof-search ceiling. `deepseek-flash` (`deepseek/deepseek-flash`, the DeepSeek API — never the OpenRouter route) is the paid escalation lane,
+480: taken only when a mandatory trigger holds or the free lane fails the same bounded task twice.
+481: Anything beyond that escalates manually to the owner. `gemini-flash` (Vertex prepaid) remains an
+482: available lane but is not the default, and its balance is not spent on ordinary work. Escalation is
+483: selected by the artifact at risk, not by a subjective difficulty estimate. A mandatory trigger, not familiarity or a first failed hypothesis, selects the model.
+484: Mandatory escalation triggers override every worker lane. An unresolved proof or architecture
+485: obligation goes to a fresh session on a different worker model; the Lean kernel and the mutation
+486: control arbitrate, and contract or claim-grade questions go to the lead. A contract, grade or
+487: architecture question that would otherwise wait on the owner goes to **Sol** on the owner's ChatGPT
+488: Pro subscription signed into OpenCode, model `openai/gpt-6.1-sol`
+489: (`/home/socol/oc-tmp/bin/sol.sh <prompt-file> [model]`): the lead records the
+490: answer under `/home/socol/oc-tmp/escalation/`, acts on it and reports the verdict. The lead does not
+491: idle waiting for the owner.
+492: 
+493: **Escalation cost discipline.** Sol runs on the owner's ChatGPT Pro subscription (OpenCode model
+494: `openai/gpt-6.1-sol`), not a metered API key. Attach excerpts, never whole trees. Astra and Terra
+495: remain historical records.
+496: 
+497: | role | assignment | mandatory trigger | required return |
+498: |---|---|---|---|
+499: | Space Bunny (`openrouter/stealth/space-bunny-alpha`) | **default bounded worker for every dispatch-ready task**, free, OpenRouter, until 2026-10-05 | task is ≤3 files, one task-specific gate, no escalation trigger holds, and the free window is open | edited artifact, exact gate output, measurement, decision |
+500: | DeepSeek Flash (`deepseek-flash`, `deepseek/deepseek-flash`, the DeepSeek API — never the OpenRouter route) | paid escalation worker, taken only when necessary | a mandatory escalation trigger holds, or the Space Bunny lane failed the same bounded task twice, within ≤3 files and one gate | edited artifact, exact gate output, measurement, decision |
+501: | Gemini Flash (`gemini-flash`) | non-default lane, not for ordinary work | the free window is closed, or the owner directs the lane | edited artifact, exact gate output, measurement, decision |
+502: | independent verifier (fresh session on a different model from the writer, with user approval) | verification, proof and architecture escalation | passing requires changing a contract premise, a Lean theorem or its attribution, a claim grade, a canonical-corpus theorem, or a control still passes under its stated mutation; or the change exceeds 3 files or one gate, overlaps another task's paths, modifies a repository or governing-document boundary, or governing documents conflict | proof or gate verdict with named premises; architecture boundary, task decomposition, integration order, residual risk |
+503: | lead | closure authority | escalation verdict received or wave barrier reached | merge, rejection, or the next dispatch-ready wave |
+504: 
+505: - A worker continues only while the task stays within its declared files and one task-specific
+506:   gate and no escalation trigger holds. When both the verification trigger and the architecture
+507:   trigger hold, both verdicts are required.
+508: - A verification escalation states the theorem, contract, claim grade, control or missing
+509:   artifact at issue, and the exact decision requested. It adjudicates proof sufficiency through the
+510:   kernel and the mutation control; it does not waive a gate or a DoD pillar.
+511: - An architecture escalation states the affected repositories, overlapping paths or conflicting
+512:   documents, and the proposed architecture boundary. It defines interfaces and decomposes work; it
+513:   does not waive a register, bound or control.
+514: - Every handoff includes `SCOPE`, declared paths, the current diff, an available red command and
+515:   output, available measurements, the wall-clock budget with observed elapsed time, and one explicit
+516:   question. A missing gate, theorem, attribution, diff or measurement is named as the residual
+517:   obligation, never invented. Conversation history is not a handoff.
+518: - The independent verifier returns a bounded decision or artifact. Execution returns to the default
+519:   worker when that result restores a ≤3-file, one-gate task, unless a speed-lane condition holds;
+520:   escalation does not transfer ordinary work.
+521: - Standing user authorization covers `openrouter/stealth/space-bunny-alpha` invocations and
+522:   fresh-session verification that meet a trigger, and `deepseek-flash` only where a mandatory trigger
+523:   holds. Spend no other paid lane without the owner. Only the lead closes a wave, merges, commits or
+524:   pushes unless the user delegates that authority. A missing required verdict keeps the task open.
+525: 
+526: ### Mandatory inference optimization admission
+527: 
+528: Before starting an inference optimization implementation worker, the lead must invoke
+529: `python3 tools/dispatch/admit.py --launch <proposal.json>` in its task worktree. This rule applies
+530: to every provider and native-agent route; a route that cannot execute its bound worker through
+531: this launcher is not admitted for optimization implementation. Read-only analysis and separately
+532: scoped extraction, refinement and cost-model tasks may establish the prerequisites without
+533: changing an inference implementation. Admission does not replace their gates or the epic barrier.
+534: 
+535: `admit.py` is a compatibility entry into `tools/dispatch/run` and the Rust adapter; the executing
+536: core is extracted and refined under `proof/dispatch`, while IO/process/hash provenance remains a
+537: tested/trusted adapter boundary.
+538: 
+539: The lead-reviewed `tools/dispatch/contracts.json` fixes the real extraction root, source/proof
+540: identities, before/after observations including refusals, reachable joint domain, resource model,
+541: owned paths and exact worker argv. `proof/DispatchAdmission.lean` requires a reachable joint
+542: witness, universal preservation and strict improvement in that registered model. Registration
+543: requires the executing-source/refinement/cost correspondence, its rejecting controls and the
+544: independent verdict under §9.1; a worker cannot register its own optimization. Registry/checker
+545: changes are separate tasks. A cost-model proof is not a hardware speed measurement.
+546: 
+547: The registry is empty until such a contract is accepted. A cited theorem, Boolean approval,
+548: `--check` output, cached receipt or sampled numerical tolerance cannot authorize a worker.
+549: `--self-test` uses synthetic marker workers only and establishes no inference theorem. Each launch
+550: freshly checks extraction, the typed certificate, its axiom cone and current identities before
+551: starting the bound worker within one budget. New contracts require a successful production-path
+552: positive and attributable refusal/restoration controls; synthetic controls alone cannot accept one.
+553: 
+554: The launcher enforces rejection only on its own execution path. Direct shell/native tools are not
+555: intercepted by a repository script. Protection of the registry/checker, tool/dependency integrity,
+556: source/cost registration and concurrent mutation between hashing and launch remain trust boundaries.
+557: Host-side interception and immutable source snapshots remain open; this rule supplies operational
+558: discipline without claiming those mechanisms exist.
+559: 
+560: ### 9.2 Agent conduct
+561: 
+562: - Lead with the result, the exact measurement and the decision.
+563: - Ground every claim in a primary artifact: read the source, run the gate, quote the line.
+564: - Resolve via executables; execute the command and inspect the diff rather than describing it.
+565: - Maintain forward momentum: complete every actionable subgoal, and on a barrier report the exact
+566:   obstacle and advance the remaining units.
+567: - Frame any necessary assumption in one sentence, then execute toward completion.
+568: - After three materially different failed approaches to one obstacle, or five patch-and-rebuild
+569:   cycles on one proof, stop and report the smallest unresolved goal. Escalate to the lead with the
+570:   exact failing goal, the approaches tried, what is on disk and the one decision requested. Never
+571:   patch past the cap, never commit, never decide scope. Ladder:
+572:   [`../AGENTS.md`](../AGENTS.md) §Escalation ladder.
+573: - Do not commit, push, post externally, or modify another active workstream unless the user asks.
+574: - End every slice with: changed files, acceptance results (command and exit status), what is proved
+575:   versus tested versus open, and the next bounded task.
+576: - The owner-layer authority for this workspace is [`../AGENTS.md`](../AGENTS.md) §Authority, hold,
+577:   momentum. A `HOLD` marker (repo root or `~/Workspace/HOLD`) stops new work; run the preflight
+578:   `gate hold` (built from [`tools/gate`](tools/gate)) before any write or dispatch, and treat a
+579:   marker as releasable only by the owner.
+580: 
+581: ### 9.3 Assessing work
+582: 
+583: Assess an artifact against its stated goal and its named gates. A limitation is an unrun gate with a
+584: path — a row in an exit table, a theorem not yet linked, a machine not yet measured — and it carries
+585: its grade (§5) and its command.
+586: 
+587: - "The Rust set is green: `cargo test` 98, extraction fresh, `lake build` 1708
+588:   jobs."
+589: - "The next unrun gate is `cd proof/corpus && lake build`."
+590: - "Residual obligation: the bridge build, at grade `tested`."
+591: 
+592: An external or comparative claim ships with its source: retrieve the paper or repository locally
+593: first (arXiv, GitHub), read it, and cite the exact file, revision, section or theorem, left where the
+594: reader can open it.
+595: 
+596: - "`lean-dojo/TorchLean@<rev>`, `NN/Proofs/<file>.lean`, `<theorem>`: the autograd statement this
+597:   refines."
+598: - "`Substrate/Ski/CombForcedSelector.lean:18` in the local corpus: the file's own caveat on the word
+599:   'forced'."
+600: - "Source not yet retrieved: the comparison is an `anchor`, not evidence."
+601: 
+602: A citation is a pointer until the artifact is in hand and read (§5). A finding resolves to a gate, a
+603: digest, a theorem or a retrieved source.
+604: 
+605: ### Job board (Operately)
+606: 
+607: Operately is the primary job board for the Sanguine stream (`apeiron`, `song`, `penglai`). Check it
+608: before starting tracked work and move the task's status as the work proceeds; receipts and evidence
+609: stay in this repository. The board tracks status; it does not replace the epic/wave/task
+610: decomposition, a gate or a control.
+611: 
+612: - Board: company `TWN`, space `Sanguine` (`sanguine-COpRXpkvCi19pKoDZnOPg0`), Tasks tool — one
+613:   board across the three repositories; projects `apeiron`, `song` and `penglai` hold their scope.
+614:   Statuses: Not started, In progress, Done, Canceled.
+615: - OpenCode MCP: server `operately`; `tools.operately.list_tasks`, `get_task`, `update_task_status`
+616:   (a status ID, value or label from `list_task_statuses`) and `create_task`.
+617: - REST fallback for reads: `https://projects.tas.twn.network/api/external/v1/...`, header
+618:   `Authorization: Bearer $OPERATELY_API_KEY`; the token is untracked (`.env`; owner-provided).
+619:   `spaces/list_tasks?space_id=sanguine-COpRXpkvCi19pKoDZnOPg0` and `tasks/get?id=<task>` are
+620:   verified.
+621: - Tasks were seeded from each repository's planning documents and each description names its source
+622:   paths. New tasks come from a repository plan or owner direction, not from board invention.
+623: - Instance quirks: REST `create_space` and `tasks/update_status` return 500 — use MCP (or the UI)
+624:   for those; OpenCode can report a response-schema error for a mutation that landed — confirm with
+625:   a read.
+626: 
+627: ## 10 · Failure register
+628: 
+629: Observed failures in this programme's histories and the rule each one fixes. A row cites an artifact;
+630: re-run the path before quoting a number. Snapshot facts (branch counts, a timed-out run) are evidence
+631: of that snapshot, not standing claims.
+632: 
+633: **Wall-clock budget.** Every local gate invocation declares a numeric wall-clock budget and enforces
+634: it across the invocation and its descendants. Ten minutes is a failure ceiling, not a target:
+635: completion at or beyond 600 seconds fails the budget. Stop on expiry, record elapsed time, exit
+636: status and incomplete stages, and report the blocker. This supersedes older instructions permitting
+637: 900-second or 3600-second local runs; historical receipts remain unchanged. Lean memory, swap, thread
+638: and lane-lock bounds still apply. Budget exhaustion is neither a semantic counterexample nor a
+639: successful mutation control, and establishes no benchmark ratio. Redesign the check without weakening
+[read] truncated at the 51200-byte body cap; continue with offset=639

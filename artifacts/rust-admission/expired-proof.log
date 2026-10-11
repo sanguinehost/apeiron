@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-RUSTADMIT-W7A-T1/proof/dispatch/gate.py", line 140, in <module>
+    main()
+    ~~~~^^
+  File "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-RUSTADMIT-W7A-T1/proof/dispatch/gate.py", line 123, in main
+    generated = extract(ROOT, 'fresh')
+  File "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-RUSTADMIT-W7A-T1/proof/dispatch/gate.py", line 67, in extract
+    code, output = run(cmd, root, label+'-charon')
+                   ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-RUSTADMIT-W7A-T1/proof/dispatch/gate.py", line 38, in run
+    raise RuntimeError('DISPATCH_PROOF_BUDGET_EXHAUSTED')
+RuntimeError: DISPATCH_PROOF_BUDGET_EXHAUSTED

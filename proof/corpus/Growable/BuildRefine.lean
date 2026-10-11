@@ -27,7 +27,7 @@ vacant sentinel therefore enter the build *only* inside `insert_with_reserved`, 
 placement of an accepted pair, which is exactly the licence §4 obligation 3 names.
 
 The canonical link is `Apeiron.Table.build` / `Apeiron.Table.build_eq_of_key_streams_eq`
-(`../sanguine-apeiron/proof/Apeiron/Table/Basic.lean:121,169`, corpus revision
+(`../sanguine/proof/Apeiron/Table/Basic.lean:121,169`, corpus revision
 `880aa57e47e782ed7a9d9ee1974cfc87360b446b`): the canonical fold depends on the stream only through
 each key's value subsequences.  §5 (below) composes the generated fold with a named per-step
 denotation predicate; that predicate is the whole-table `RepR` insert-preservation (read-map row 4,
@@ -304,7 +304,7 @@ theorem build_at_sequential_loop_spec {K V H R F Faces : Type} {N : Std.Usize}
 /-! ## The canonical link: `Apeiron.Table.build`
 
 The generated fold above consumes the slice's own entries through `insert_with_reserved`.  The
-canonical object is `Apeiron.Table.build` (`../sanguine-apeiron/proof/Apeiron/Table/Basic.lean:121`),
+canonical object is `Apeiron.Table.build` (`../sanguine/proof/Apeiron/Table/Basic.lean:121`),
 the `List.foldl` of the write `Apeiron.Table.insertWith` (`:80`) from the constant default.  Below:
 the canonical fold, its exact equality with the generated fold's entry list, and the composition
 that carries the generated fold's per-step denotation to the canonical built map. -/

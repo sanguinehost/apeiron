@@ -8,7 +8,7 @@ are internally complete and that every artifact they name resolves:
 * every evaluator profile row carries all eight required fields and stays
   ``selected-open`` (a ``closed`` row is rejected);
 * every named canonical theorem and canonical entry point resolves as a
-  declaration in the pinned canonical corpus (``../sanguine-apeiron/proof``)
+  declaration in the pinned canonical corpus (``../sanguine/proof``)
   under its exact opened namespace, and every named Song entry exists as a
   concrete executing declaration in its source file (a ``law``/``carrier``/
   ``spec`` header alone is not an entry);

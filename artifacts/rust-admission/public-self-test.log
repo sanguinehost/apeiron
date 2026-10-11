@@ -1,0 +1,18 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+DISPATCH_SOURCE_REFINEMENT_OK
+REJECT vacuous-domain
+REJECT unreachable-domain
+REJECT rounded-reassociation
+REJECT no-cost-reduction
+REJECT weaker-theorem
+REJECT sorry
+REJECT extra-axiom
+REJECT unknown-contract
+REJECT stale-source
+REJECT stale-registry
+REJECT identity-substitution
+REJECT worker-substitution
+REJECT unowned-path
+REJECT too-many-files
+REJECT boolean-approval
+SELFTEST_SYNTHETIC_ONLY positive=1 controls=15 restored=1

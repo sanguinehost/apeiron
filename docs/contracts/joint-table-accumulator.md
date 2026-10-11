@@ -9,7 +9,7 @@ same entry at the specification level.
 
 Authority: [`../direction.md`](../direction.md), [`joint-table.md`](joint-table.md),
 [`iota-source-semantics.md`](iota-source-semantics.md). The canonical corpus is the pinned checkout
-`../sanguine-apeiron/proof`; the declarations named below resolve in `Apeiron/Table/Basic.lean` at
+`../sanguine/proof`; the declarations named below resolve in `Apeiron/Table/Basic.lean` at
 that pin.
 
 ## Decoded selected body

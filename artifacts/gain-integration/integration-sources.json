@@ -1,0 +1,30 @@
+{
+  "base": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+  "runtime_sources_unchanged_from_measured_stack": true,
+  "sha256": {
+    "examples/engine_profile.rs": "4ad78bd2b092fa71b1f6fecad26090ad994a0ca9e4e0c201c1e98e1724544372",
+    "src/engine/attn.rs": "fa036f760ec06b0059f7464f5f278c82b83c41e90e8a6effd0fd28ac73ad637f",
+    "src/engine/attn/f32_core.rs": "6ccd522cd227499f221896eb659e041993ccd8243ad03003e12eb9909db61a35",
+    "src/engine/chart/ffn.rs": "d60f3da889f79d4a23ce18484d52572c90ba35175bb39b92750828028dd2f724",
+    "src/engine/chart/pool.rs": "98e5ce505930ac73793ed479f76b02229160dd00a10506ddbfd0c4a2aab9fa93",
+    "src/engine/kern/bitplane.rs": "d7910006e525a602a88c54cbc94919716a29a50a4094267e64b04ebbd6f24948",
+    "src/engine/kern/gemm.rs": "44127bd20c1b54ce058b97df16529bc6346a1e22661a45916abbf16dad29d444",
+    "src/engine/kern/gemm_attrib.rs": "c88559893f5cdd545f43d38fb765785790405b2d8cfeb3ed5a2b2b022e2a8ae5",
+    "src/engine/kern/gemm_probe.rs": "6f8455be180bffb45c295e5603971a3ff305f61e212e4ad38aa6f71f3096f9c0",
+    "src/engine/kern/matmat.rs": "6cb31605c163433c78ee8aeb0dfb3d649c4aa0a0b5276b39866311c8a8b1350a",
+    "src/engine/kern/mod.rs": "2007824a5519628c360243f2012fc787976ee98edc0b8bc34e41fccaca8fe794",
+    "src/engine/loader.rs": "251c2399dd4179e24754b0ae422e84a4cd5db2adaf74cf243f3b7328fc44cb03",
+    "src/engine/loader/tests.rs": "ed065a0f1c76454937bada518e5d7eaebe5ce4b2c9a027d912e0cc6d47f0e780",
+    "src/engine/mixer.rs": "7947737bb2ac5ad751bf065acb6b6457deba02d1e54e51b63dc702ce6b54310f",
+    "src/engine/mixer/conv_f32.rs": "db79a54135a15387a1b9ca171e1481614b34ea277a5446e635c8f3fb1dff7613",
+    "src/engine/mixer/f32_carrier.rs": "123742566813386b4e31169f71d2eb7b92849417670cfcddcce4b9c925943cff",
+    "src/engine/mixer/f32_carrier_tests.rs": "e4718c28f97a4570ed684ab67478fc2d51e7fc04d0f2335df2bcd7f0475e8221",
+    "src/engine/mixer/tests.rs": "9d952b8411f2f77985c6313763db33d6dc04e1d5bf3a6a72323e8b8da78b613a",
+    "src/engine/step.rs": "da2036a4d1e2e1a791d9dd900b40260369cdd71e3adecc7b39a14c11825357d2",
+    "src/engine/step/attn_block.rs": "57d3f1b823ef71fbb8363ec5e0960710e8f48921802406ed59ebe1cd1972399f",
+    "src/engine/step/prefill_tests.rs": "8aefaca73c5be0f1ccd88a161e09b4ddc2af9e9e8873e709c9e7c70e365f896b",
+    "src/engine/tests.rs": "ae376c0eacf86d8847aa4d901f492147eec9ebae05edaa1528339908ceeaaed9"
+  },
+  "seconds": 0.033268781000515446,
+  "budget": 60
+}

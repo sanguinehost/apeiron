@@ -9,7 +9,7 @@
 # proof/corpus/Substrate/vendor.sha256 records the expected digests.
 set -euo pipefail
 
-SRC_ROOT="${SRC_ROOT:-/home/socol/Workspace/sanguine/proof}"
+SRC_ROOT="${SRC_ROOT:-/home/socol/Workspace/sanguine-ref/proof}"
 DST_ROOT="${DST_ROOT:-/home/socol/Workspace/apeiron/proof/corpus}"
 
 files=(

@@ -1,0 +1,56 @@
+{
+  "seconds": 1.5935572310045245,
+  "budget": 150,
+  "results": [
+    {
+      "carrier": "0",
+      "test": "attn_head_distinct_scores_pin_the_scale",
+      "exit": 0
+    },
+    {
+      "carrier": "0",
+      "test": "attn_saturates_out_of_window_exp_and_refuses_dot_overflow",
+      "exit": 0
+    },
+    {
+      "carrier": "0",
+      "test": "attn_fused_den_num_are_independent_of_tile_count",
+      "exit": 0
+    },
+    {
+      "carrier": "0",
+      "test": "attn_fused_refuses_zero_sum_and_zero_tile",
+      "exit": 0
+    },
+    {
+      "carrier": "0",
+      "test": "engine_step_greedy_decode_is_deterministic",
+      "exit": 0
+    },
+    {
+      "carrier": "1",
+      "test": "attn_head_distinct_scores_pin_the_scale",
+      "exit": 0
+    },
+    {
+      "carrier": "1",
+      "test": "attn_saturates_out_of_window_exp_and_refuses_dot_overflow",
+      "exit": 0
+    },
+    {
+      "carrier": "1",
+      "test": "attn_fused_den_num_are_independent_of_tile_count",
+      "exit": 0
+    },
+    {
+      "carrier": "1",
+      "test": "attn_fused_refuses_zero_sum_and_zero_tile",
+      "exit": 0
+    },
+    {
+      "carrier": "1",
+      "test": "engine_step_greedy_decode_is_deterministic",
+      "exit": 0
+    }
+  ]
+}

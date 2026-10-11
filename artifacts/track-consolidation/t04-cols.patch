@@ -1,0 +1,158 @@
+--- a/src/engine/step/cols.rs
++++ b/src/engine/step/cols.rs
+@@ -21,7 +21,7 @@
+ use crate::engine::chart::QuantAct;
+ use crate::engine::kern::gemm::{gemm_q8_0_group, gemm_q8_0_swiglu};
+ use crate::engine::kern::matmat::matmat_q8act;
+-use crate::engine::mixer::{AffineLayer, AffineState};
++use crate::engine::mixer::{AffineLayer, AffineState, Carrier};
+ use crate::engine::trace::{self, Phase};
+ use crate::engine::{ffn_fixed, Engine, KernelMode, KvState, MatvecError, MixerKind, ProjWeights};
+ use crate::format::quant;
+@@ -545,8 +545,20 @@
+         // read-only KV cache and `last[c]`, so the permutation leaves every word bit-identical; the
+         // gather after the dispatch restores the tip's block order.
+         let fused = exact_scan_enabled();
+-        let mut att = vec![0i64; k * q_out];
+         let kv_ro: &KvState = kv;
++        if !fused && kv_ro.carrier() == Carrier::F32 {
++            let gate_at = gated.then_some(2 * kv_out + q_out);
++            return attn_stage3_f32_blocks(
++                kv_ro,
++                slot,
++                &prep,
++                stride,
++                &last,
++                (n_head, cfg.n_head_kv, hd),
++                gate_at,
++            );
++        }
++        let mut att = vec![0i64; k * q_out];
+         let first: std::sync::Mutex<Option<(usize, StepError)>> = std::sync::Mutex::new(None);
+         crate::engine::chart::pool::Pool::global().chunks_mut(&mut att, hd, &|t, _start, dst| {
+             let (n, h) = (t / n_head, t % n_head);
+@@ -813,6 +825,124 @@
+     }
+ }
+ 
++/// Query columns per task of [`attn_stage3_f32_blocks`]: `ATTN_BLOCK_COLS · group · head_dim`
++/// output words per pool task, `n_head_kv` tasks per column block.
++const ATTN_BLOCK_COLS: usize = 2;
++
++/// Stage 3 of [`Engine::softmax_core_block`] on the binary32 cache: per (column block, KV head) one
++/// [`KvState::attn_block_f32`] call (the block's columns times the KV head's query group against
++/// that head's K/V rows once), then each query head's slice of the output gate. Every word equals
++/// the per-(column, head) [`KvState::attn_head`] dispatch it replaces.
++///
++/// `dims` is `(n_head, n_head_kv, head_dim)`; `gate_at` is the gate's offset in a `prep` column.
++/// Task `t = n · n_head_kv + kvh` owns fold position `n` of the `⌈k / ATTN_BLOCK_COLS⌉` blocks
++/// ([`fold_col`]). A refusal is keyed `c · n_head + h` like the per-head dispatch: the failing task
++/// replays its queries through `attn_head` and the gate in `(c, h)` order (cold path, allocates) to
++/// find the first refusing one.
++///
++/// # Complexity
++///
++/// Same multiply-adds as the per-head dispatch; K/V row loads drop by the queries per tile (up to
++/// `ATTN_BLOCK_COLS · group`). One output allocation of `⌈k / ATTN_BLOCK_COLS⌉ · n_head_kv` chunks
++/// plus the `k` gathered columns, where the per-head path allocated `k · q_out` plus `k` columns.
++#[allow(
++    clippy::many_single_char_names,
++    reason = "c, h, k, n, t are the column, head, column count, fold position and task words"
++)]
++fn attn_stage3_f32_blocks(
++    kv: &KvState,
++    slot: usize,
++    prep: &[i64],
++    stride: usize,
++    last: &[usize],
++    dims: (usize, usize, usize),
++    gate_at: Option<usize>,
++) -> Result<Vec<Vec<i64>>, StepError> {
++    let (n_head, n_kv, hd) = dims;
++    let (k, group) = (last.len(), n_head / n_kv);
++    let (width, q_out) = (group * hd, n_head * hd);
++    let chunk = ATTN_BLOCK_COLS * width;
++    let nb = k.div_ceil(ATTN_BLOCK_COLS);
++    let mut att = vec![0i64; nb * n_kv * chunk];
++    let gate = |c: usize, h: usize, row: &mut [i64]| -> Result<(), StepError> {
++        match gate_at {
++            Some(off) => {
++                let g0 = c * stride + off + h * hd;
++                apply_sigmoid_gate(row, &prep[g0..g0 + hd])
++            }
++            None => Ok(()),
++        }
++    };
++    let first: std::sync::Mutex<Option<(usize, StepError)>> = std::sync::Mutex::new(None);
++    crate::engine::chart::pool::Pool::global().chunks_mut(&mut att, chunk, &|t, _start, dst| {
++        let (n, kvh) = (t / n_kv, t % n_kv);
++        let c0 = fold_col(n, nb) * ATTN_BLOCK_COLS;
++        let nq = ATTN_BLOCK_COLS.min(k - c0);
++        let rows = &mut dst[..nq * width];
++        let q0 = c0 * stride + kvh * width;
++        let done = kv
++            .attn_block_f32(
++                slot,
++                kvh,
++                &prep[q0..],
++                stride,
++                last[c0]..last[c0] + nq,
++                rows,
++            )
++            .map_err(StepError::Kv)
++            .and_then(|()| {
++                for i in 0..nq {
++                    for g in 0..group {
++                        let row = &mut rows[(i * group + g) * hd..(i * group + g + 1) * hd];
++                        gate(c0 + i, kvh * group + g, row)?;
++                    }
++                }
++                Ok(())
++            });
++        if let Err(e) = done {
++            let mut found = None;
++            'replay: for i in 0..nq {
++                for g in 0..group {
++                    let (c, h) = (c0 + i, kvh * group + g);
++                    let mut row = vec![0i64; hd];
++                    let q = &prep[c * stride + h * hd..c * stride + (h + 1) * hd];
++                    let r = kv
++                        .attn_head(slot, h, q, last[c], &mut row)
++                        .map_err(StepError::Kv)
++                        .and_then(|()| gate(c, h, &mut row));
++                    if let Err(e) = r {
++                        found = Some((c * n_head + h, e));
++                        break 'replay;
++                    }
++                }
++            }
++            let (key, e) = found.unwrap_or((c0 * n_head + kvh * group, e));
++            let mut slot_min = first
++                .lock()
++                .unwrap_or_else(std::sync::PoisonError::into_inner);
++            if slot_min.as_ref().is_none_or(|(at, _)| key < *at) {
++                *slot_min = Some((key, e));
++            }
++        }
++    });
++    if let Some((_, e)) = first
++        .into_inner()
++        .unwrap_or_else(std::sync::PoisonError::into_inner)
++    {
++        return Err(e);
++    }
++    let mut atts: Vec<Vec<i64>> = (0..k).map(|_| vec![0i64; q_out]).collect();
++    for t in 0..nb * n_kv {
++        let (n, kvh) = (t / n_kv, t % n_kv);
++        let c0 = fold_col(n, nb) * ATTN_BLOCK_COLS;
++        for i in 0..ATTN_BLOCK_COLS.min(k - c0) {
++            let src = &att[t * chunk + i * width..t * chunk + (i + 1) * width];
++            atts[c0 + i][kvh * width..(kvh + 1) * width].copy_from_slice(src);
++        }
++    }
++    Ok(atts)
++}
++
+ /// The stage-3 fold order: pool task `n` owns key column `fold(n)`.
+ ///
+ /// `n -> c` is a bijection on `0..k`: the even `n = 2j` hit the lower columns `c = j` and the odd

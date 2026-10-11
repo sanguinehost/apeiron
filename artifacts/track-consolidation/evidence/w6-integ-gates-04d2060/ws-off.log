@@ -1,0 +1,783 @@
+error: duplicate key
+  --> ../../../.cargo/git/checkouts/fold-62126b3be665e44a/4cc1447/opsfold/Cargo.toml:61:1
+   |
+61 | netfold = { path = "../netfold", optional = true }
+   | ^^^^^^^
+   Compiling apeiron v0.1.0 (/home/socol/oc-tmp/wt/w6-integ)
+   Compiling apeiron-fold-abi v0.0.0 (/home/socol/oc-tmp/wt/w6-integ/fold-abi)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.63s
+     Running unittests src/lib.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/apeiron-fd63b3a41fe60350)
+
+running 442 tests
+test engine::attn::f32_core::tests::attn_f32_vs_q32_timing ... ignored, timing benchmark: run with cargo test --release --lib attn_f32_vs_q32_timing -- --ignored --nocapture
+test engine::attn::f32_core::tests::attn_layer_segments_k200 ... ignored, timing harness: run under the exclusive host lock
+test coord::locator::locator_core::tests::reserve_or_linked_finds_a_repeat_key_without_creating_anything ... ok
+test engine::attn::f32_core::tests::test_attn_core_refusal_on_non_finite ... ok
+test coord::locator::locator_core::tests::the_staged_path_scratch_is_recycled_after_publication ... ok
+test coord::locator::locator_core::tests::arc_delegates_the_exact_identity_to_the_pointee ... ok
+test engine::attn::tests::first_refusing_key_matches_weights_vec_shape ... ok
+test engine::attn::tests::attn_head_f32_carrier_matches_oracle ... ok
+test engine::attn::tests::attn_head_key_outer_output_matches_component_oracle ... ok
+test engine::attn::tests::carrier_explicit_selection ... ok
+test engine::chart::ffn::tests::swiglu_f32_vs_q32_timing ... ignored, timing benchmark: run with cargo test --release --lib swiglu_f32_vs_q32_timing -- --ignored --nocapture
+test engine::chart::pool::tests::ecores_resolution_default_and_overrides ... ok
+test engine::attn::f32_core::tests::test_attn_core_avx2_equals_scalar ... ok
+test engine::attn::tests::inline_weight_fold_matches_weights_vec_oracle ... ok
+test engine::chart::pool::weighted_split_tests::bench_pool_dispatch_latency ... ignored, release-only pool microbench: cargo test --release --lib bench_pool_dispatch_latency -- --ignored --nocapture
+test engine::chart::ffn::tests::q8act_chunked_refuses_a_shape_mismatch ... ok
+test engine::attn::tests::hoisted_row_base_matches_plane_index_oracles ... ok
+test engine::attn::tests::truncate_and_rollback_hold_for_both_carriers ... ok
+test engine::chart::pool::weighted_split_tests::round_robin_count_at_width_24 ... ok
+test engine::chart::tests::act_quot_rem_shift_equals_division_for_power_of_two_scales ... ok
+test engine::chart::pool::tests::zero_workers_is_sequential ... ok
+test engine::chart::tests::bench_pooled_shapes ... ignored, benchmark
+test engine::chart::tests::bench_qwen_row_kernels ... ignored, microbenchmark for Step 1 profiling
+test engine::chart::tests::chart_agrees_with_fixed_on_every_refusal_class ... ok
+test engine::chart::tests::dequantizes_block_fit_matches_the_per_element_loop ... ok
+test engine::chart::tests::chart_matches_fixed_on_zero_activation_blocks ... ok
+test engine::chart::tests::chart_matches_fixed_on_extreme_codes_and_scales ... ok
+test engine::attn::tests::weight_at_recip_matches_weight_at_oracle ... ok
+test engine::chart::ffn::tests::swiglu_f32_tracks_q32_oracle ... ok
+test engine::chart::tests::avx2_group_cores_match_the_portable_loop ... ok
+test engine::chart::tests::avx2_fast_row_cores_match_the_portable_twins ... ok
+test engine::chart::pool::weighted_split_tests::table_equals_function_over_n_0_to_1024 ... ok
+test engine::chart::ffn::tests::swiglu_f32_avx2_matches_scalar ... ok
+test engine::dequant::lowbit::tests::short_payload_is_refused ... ok
+test engine::dequant::lowbit::tests::non_finite_scale_is_refused ... ok
+test engine::dequant::lowbit::tests::pq2_0_row_codes_cover_every_value ... ok
+test engine::dequant::lowbit::tests::ptq1_0_row_trit_order_matches_stages ... ok
+test engine::dequant::lowbit::tests::q1_0_row_matches_fork_reference ... ok
+test engine::dequant::lowbit::tests::q2_0_row_codes_cover_every_value ... ok
+test engine::chart::tests::fast_row_bodies_match_their_portable_twins ... ok
+test engine::dequant::lowbit::tests::tq1_0_row_trit_order_matches_stages ... ok
+test engine::dequant::lowbit::tests::trit_decodes_the_fork_quantizer_digits ... ok
+test engine::fused::tests::fused_affine_q4_k_matches_the_hand_value ... ok
+test engine::chart::tests::quant_act_bounds_and_dequant_contract ... ok
+test engine::hadamard::tests::overflow_refusals ... ok
+test engine::chart::tests::chart_matches_fixed_on_random_payloads_for_every_family ... ok
+test engine::fused::tests::fused_agrees_with_fixed_on_every_refusal_class ... ok
+test engine::dequant::lowbit::tests::tq2_0_row_matches_fork_reference ... ok
+test engine::hadamard::tests::c_table_matches_reference ... ok
+test engine::hadamard::tests::refusals_leave_input_untouched ... ok
+test engine::chart::pool::weighted_split_tests::weighted_choice_is_exact_and_preserves_large_n ... ok
+test engine::attn::f32_core::tests::test_attn_core_vs_q32_oracle_deviation ... ok
+test engine::chart::tests::chart_matches_fixed_on_ragged_widths ... ok
+test engine::kern::bitplane::tests::bench_qwen35_head_64_steps ... ignored, benchmark
+test engine::attn::f32_core::tests::test_shared_exp_accuracy_in_attention ... ok
+test engine::kern::gemm::attrib::gemm_attrib_inengine ... ignored, release-only instrument: see the doc comment
+test engine::kern::gemm::attrib::gemm_attrib_real_inputs ... ignored, release-only instrument: APEIRON_F32_CARRIER=1 cargo test --release --lib --locked gemm_attrib -- --ignored --nocapture
+test engine::kern::gemm::attrib::gemm_attrib_shapes ... ignored, release-only instrument: see the doc comment
+test engine::kern::gemm::tests::bench_q8_0_gemm_shapes ... ignored, release-only microbench: cargo test --release --lib bench_q8_0_gemm_shapes -- --ignored --nocapture
+test engine::chart::tests::fast_f16_decode_matches_reference_for_all_patterns ... ok
+test engine::fused::tests::fused_matches_fixed_on_random_payloads_for_every_supported_type ... ok
+test engine::chart::pool::tests::a_task_panic_is_reraised_after_the_dispatch ... ok
+test engine::kern::bitplane::tests::test_f16_const_matches_reference ... ok
+test engine::kern::bitplane::tests::test_dense_head_round_trip ... ok
+test engine::kern::gemm::tests::f16_split_is_f16_to_fixed ... ok
+test engine::kern::gemm::tests::spread_limit_keeps_the_sum_in_i64 ... ok
+test engine::chart::pool::tests::a_worker_panic_is_reraised_and_the_pool_survives ... ok
+test engine::chart::ffn::tests::quant_acts_pooled_refuses_with_a_refusing_column ... ok
+test engine::chart::tests::vnni_and_avx2_cores_match_the_portable_twins ... ok
+test engine::kern::gemm_probe::gemm_probe_real_inputs ... ignored, release-only instrument: APEIRON_F32_CARRIER=1 cargo test --release --lib --locked gemm_probe -- --ignored --nocapture
+test engine::kern::gemm::tests::finish8_matches_the_scalar_finish ... ok
+test engine::chart::pool::tests::every_task_runs_exactly_once ... ok
+test engine::kern::lut::tests::from_pq2_0_refuses_bad_inputs ... ok
+test engine::kern::gemm::tests::fast_columns_predicate_equals_the_magnitude_form ... ok
+test engine::kern::lut::tests::avx2_and_portable_lut_agree ... ok
+test engine::kern::lut::tests::matvec_lut_matches_fixed_on_extreme_codes_and_scales ... ok
+test engine::kern::gemm::tests::row_scales_simd_matches_the_scalar_oracle ... ok
+test engine::kern::lut::tests::matvec_lut_row_bound_keeps_i128_on_an_oversized_row ... ok
+test engine::kern::lut::tests::matvec_lut_matches_fixed_on_zero_activations ... ok
+test engine::kern::lut::tests::matvec_lut_wide_path_matches_fixed ... ok
+test engine::kern::lut::tests::matvec_lut_takes_the_two_i64_row_path_when_the_bound_holds ... ok
+test engine::kern::lut::tests::matvec_lut_falls_back_when_the_bound_is_exceeded ... ok
+test engine::kern::lut::tests::timing_build_tables_serial_vs_pooled ... ignored, timing measurement; run with --ignored --nocapture
+test engine::kern::lut::tests::timing_lut_vs_fixed_2048 ... ignored, timing measurement; run with --ignored --nocapture
+test engine::kern::matmat::tests::avx2_block_kdots_match_the_portable_twin ... ok
+test engine::kern::lut::tests::matvec_lut_matches_fixed_on_random_payloads ... ok
+test engine::hadamard::tests::fwht_int_matches_naive_sylvester ... ok
+test engine::hadamard::tests::fwht_fixed_matches_naive_signed_sylvester ... ok
+test engine::hadamard::tests::fwht_fixed_involution_even_k ... ok
+test engine::kern::gemm::tests::swiglu_fused_reports_a_refusing_element ... ok
+test engine::kern::matmat::tests::timing_k_scaling ... ignored, timing measurement, not a correctness gate
+test engine::kern::matmat::tests::timing_k_scaling_dram ... ignored, timing measurement, not a correctness gate
+test engine::kern::pow2::tests::act_scale_is_the_least_covering_power_of_two ... ok
+test engine::kern::pow2::tests::finish_is_round_shift_32_of_the_scaled_sum ... ok
+test engine::kern::bitplane::tests::duplicate_rows_resolve_to_the_lower_index ... ok
+test engine::kern::matmat::tests::fast_family_predicate_equals_the_magnitude_form ... ok
+test engine::attn::f32_core::tests::test_attn_core_tiled_equals_scalar_on_tile_edges ... ok
+test engine::kern::tp::tests::ffn_tp_timing_qwen_layer0 ... ignored, timing measurement; run with --ignored --nocapture and APEIRON_THREADS=8
+test engine::loader::tests::config_interprets_float_metadata_at_the_boundary ... ok
+test engine::loader::tests::config_resolves_from_qwen2_metadata ... ok
+test engine::loader::tests::hadamard_meta_absent_version_leaves_config_unchanged ... ok
+test engine::loader::tests::hadamard_meta_accepts_each_sign_mode ... ok
+test engine::loader::tests::hadamard_meta_refuses_each_fork_rejection ... ok
+test engine::loader::tests::quant_kind_classifies_known_ids ... ok
+test engine::loader::tests::table_records_checked_extent_and_quant_kind ... ok
+test engine::loader::tests::table_records_q5_0_geometry_and_checks_the_extent ... ok
+test engine::loader::tests::table_refuses_a_tensor_past_eof ... ok
+test engine::kern::lut::tests::build_tables_matches_the_plane_sum_oracle ... ok
+test engine::kern::matmat::tests::columns_match_matvec_fixed_on_dequantized_activations ... ok
+test engine::mixer::conv_f32::tests::conv_f32_segments ... ignored, release segment attribution: cargo test --release --lib conv_f32_segments -- --ignored --nocapture
+test engine::chart::ffn::tests::ffn_q8act_equals_the_dequant_reference ... ok
+test engine::chart::pool::tests::chunks_equal_sequential_and_back_to_back_dispatches_do_not_mix ... ok
+test engine::mixer::f32_carrier::tests::affine_head_f32_state_carrier ... ok
+test engine::mixer::f32_carrier::tests::bench_conv_silu_cols_f32_k200 ... ignored, release microbench of conv_silu_cols_f32 at k=200 with the real shape (6144 channels, 4 taps)
+test engine::mixer::f32_carrier::tests::bench_delta_heads_cols_f32_k200 ... ignored, release microbench of prefill heads call at k=200 with real shape (16 heads, head dim 128), pooled
+test engine::mixer::f32_carrier::tests::conv_silu_tap4_avx2_equals_scalar ... ok
+test engine::kern::gemm::tests::gemm_group_defers_on_a_short_or_non_finite_part ... ok
+test engine::mixer::f32_carrier::tests::exp_f32_accuracy_over_domain ... ok
+test engine::kern::gemm::tests::gemm_runs_on_ordinary_inputs ... ok
+test engine::chart::ffn::tests::quant_acts_pooled_equals_the_per_column_quantizations ... ok
+test engine::mixer::f32_carrier::tests::f32_readout_to_q32_overflow_and_nan ... ok
+test engine::ffn::tests::ffn_chunked_equals_sequential_on_random_f16_weights ... ok
+test engine::mixer::f32_carrier::tests::f32_vs_q32_timing ... ignored, timing benchmark: run with cargo test --release --lib f32_vs_q32_timing -- --ignored --nocapture
+test engine::mixer::f32_carrier::tests::l2_norm_avx2_equals_scalar ... ok
+test engine::mixer::f32_carrier::tests::stage2_gated_norm_avx2_equals_scalar ... ok
+test engine::kern::gemm::tests::swiglu_fused_runs_on_ordinary_inputs ... ok
+test engine::mixer::tests::avx2_write_matches_scalar_across_value_widths ... ok
+test engine::mixer::tests::avx2_write_refuses_exact_negative_bound ... ok
+test engine::mixer::tests::bench_affine_heads_f32_decode ... ignored, timing benchmark: cargo test --release --lib bench_affine_heads_f32_decode -- --ignored --nocapture
+test engine::mixer::tests::bench_conv_silu_f32_prefill_and_decode ... ignored, timing benchmark: cargo test --release --lib bench_conv_silu_f32_prefill_and_decode -- --ignored --nocapture
+test engine::mixer::tests::bench_delta_heads_50_steps ... ignored, microbench: cargo test --release -- --ignored bench_delta_heads_50_steps
+test engine::mixer::tests::bench_delta_heads_cols_f32_vs_q32 ... ignored, timing benchmark: cargo test --release --lib bench_delta_heads_cols_f32_vs_q32 -- --ignored --nocapture
+test engine::mixer::tests::chunk_c1_equals_step ... ok
+test engine::mixer::tests::chunk_is_deterministic ... ok
+test engine::chart::ffn::tests::projections_q8act_equals_separate_unchunked_calls ... ok
+test engine::chart::ffn::tests::swiglu_cols_equals_the_serial_per_column_loop ... ok
+test engine::mixer::tests::chunk_refuses_on_width ... ok
+test engine::mixer::f32_carrier::tests::exp_and_silu_avx2_equals_scalar ... ok
+test engine::mixer::conv_f32::tests::conv_f32_shared_buffer_tags_layer ... ok
+test engine::mixer::conv_f32::tests::readout8_equals_scalar ... ok
+test engine::kern::matmat::tests::refusals_match_per_column ... ok
+test engine::mixer::tests::exact_scan_chunked_is_slice_separable ... ok
+test engine::mixer::conv_f32::tests::conv_f32_refusal_keeps_window ... ok
+test engine::mixer::tests::conv_silu_cols_k_columns_equal_k_single_column_calls ... ok
+test engine::mixer::tests::conv_silu_cols_refuses_rounding_bias_overflow ... ok
+test engine::kern::lut::tests::n_projection_dispatch_matches_separate_calls_and_refuses ... ok
+test engine::kern::matmat::tests::columns_match_on_extreme_codes_and_scales ... ok
+test engine::kern::gemm::tests::swiglu_fused_f32_tracks_q32_oracle ... ok
+test engine::mixer::f32_carrier::tests::f32_avx2_equals_scalar ... ok
+test engine::mixer::conv_f32::tests::conv_f32_calls_equal_scalar_oracle ... ok
+test engine::mixer::tests::test_renormalisation_preserves_state_within_bound ... ok
+test engine::moe::tests::moe_ffn_matches_f64_reference_with_random_f16_experts ... ok
+test engine::moe::tests::moe_gate_weights_full_and_renorm_paths_agree_on_selected_ratios ... ok
+test engine::moe::tests::moe_gate_weights_renorm_matches_selected_softmax_reference ... ok
+test engine::moe::tests::moe_gate_weights_renorm_sums_to_one_within_k_units ... ok
+test engine::moe::tests::moe_route_topk_is_order_independent ... ok
+test engine::moe::tests::moe_route_topk_matches_reference_and_breaks_ties_low ... ok
+test engine::moe::tests::moe_route_topk_matches_reference_over_a_range_of_k ... ok
+test engine::moe::tests::moe_router_refuses_bad_k_shapes_indices_and_kernels ... ok
+test engine::par::cpu_tests::online_cpus_ignores_the_calling_threads_affinity ... ok
+test engine::par::tests::row_chunked_matvec_equals_the_unchunked_kernel ... ok
+test engine::par::tests::row_chunked_matvec_returns_the_first_chunk_error_in_row_order ... ok
+test engine::par::tests::row_chunked_matvec_surfaces_a_defect_in_every_chunk ... ok
+test engine::prefix::tests::budget_refusal_leaves_cache_unchanged ... ok
+test engine::mixer::tests::test_delta_head_step_8_real_steps_drift ... ok
+test engine::prefix::tests::eviction_evicts_lru_entry_under_budget ... ok
+test engine::prefix::tests::cache_stores_one_kv_state_per_prompt_o_n_memory ... ok
+test engine::prefix::tests::hash_collision_refusal_via_full_key_confirmation ... ok
+test engine::prefix::tests::stale_boundary_key_never_returns_reused_slot_state ... ok
+test engine::prefix::tests::oversized_snapshot_refuses_and_leaves_cache_unchanged ... ok
+test engine::prefix::tests::truncate_kv_state_resets_occupied_and_resumes_append ... ok
+test engine::step::attn_block::tests::rotate_pair_prefixes_equals_two_rotate_head_prefixes ... ok
+test engine::step::attn_block::tests::rotate_pair_prefixes_keeps_the_geometry_and_range_refusals ... ok
+test engine::step::attn_block::tests::sigmoid_gate_equals_the_oracle_loop_and_keeps_its_width_refusal ... ok
+test engine::step::attn_block::tests::sigmoid_gate_micro ... ignored, timing harness: run under the exclusive host lock
+test engine::step::attn_block::tests::sigmoid_q32_equals_fixed_sigmoid_exhaustive ... ignored, exhaustive equivalence over non-saturating domain [-16*ONE, 16*ONE]: run in release
+test engine::step::attn_block::tests::sigmoid_q32_equals_the_oracle_on_a_dense_sweep ... ignored, dense sweep (about 1.7e9 oracle calls): run in release
+test engine::prefix::tests::warm_prefill_equals_cold_prefill_bit_for_bit ... ok
+test engine::step::cols::fold_order::fold_col_is_a_balanced_bijection ... ok
+test engine::mixer::tests::shared_decay_table_equals_per_column_gates ... ok
+test engine::step::tests::hadamard_fold_missing_sign_width_refuses ... ok
+test engine::step::tests::hadamard_fold_projection_matches_the_plain_weight ... ok
+test engine::step::tests::hadamard_fold_version2_tied_output_refuses_at_step ... ok
+test engine::step::tests::payload_borrows_the_same_bytes_as_read_range ... ok
+test engine::mixer::tests::chunk_matches_oracle_within_bound ... ok
+test engine::chart::ffn::tests::ffn_fused_matches_unfused_and_preserves_refusal_order ... ok
+test engine::kern::tp::tests::ffn_tp_refuses_exactly_as_ffn_q8act ... ok
+test engine::chart::ffn::tests::q8act_chunked_equals_the_unchunked_kernel ... ok
+test engine::step::tests::step_logits_is_bit_identical_to_the_sequential_reference ... ok
+test engine::tests::argmax_fixed_takes_the_max_and_prefers_the_lowest_tie ... ok
+test engine::tests::attn_fused_den_num_are_independent_of_tile_count ... ok
+test engine::tests::attn_fused_refuses_zero_sum_and_zero_tile ... ok
+test engine::tests::attn_head_causal_mask_hides_later_positions ... ok
+test engine::tests::attn_head_distinct_scores_pin_the_scale ... ok
+test engine::tests::attn_head_fused_matches_per_position_oracle_within_bound ... ok
+test engine::tests::attn_head_fused_refuses_bad_geometry_and_shapes ... ok
+test engine::tests::attn_head_fused_uses_the_global_max_across_tiles ... ok
+test engine::tests::attn_head_gqa_groups_query_heads ... ok
+test engine::tests::attn_head_hand_computed_two_key_softmax ... ok
+test engine::tests::attn_head_is_deterministic_across_calls ... ok
+test engine::tests::attn_refuses_bad_geometry_shapes_positions_and_capacity ... ok
+test engine::tests::attn_saturates_out_of_window_exp_and_refuses_dot_overflow ... ok
+test engine::tests::bench_qwen35_head ... ignored, benchmark
+test engine::tests::checksum_is_order_sensitive_and_stable ... ok
+test engine::tests::engine_step_greedy_decode_is_deterministic ... ok
+test engine::tests::engine_step_refuses_bad_token_capacity_and_shapes ... ok
+test engine::tests::f16_scale_conversion_is_exact_and_total_on_finite_values ... ok
+test engine::tests::ffn_fixed_refuses_geometry_shape_type_and_saturates_window ... ok
+test engine::tests::ffn_fixed_swiglu_matches_hand_computed_values ... ok
+test engine::mixer::tests::test_fast_eq_ref_bit_for_bit_random_and_renorm ... ok
+test engine::tests::matvec_fixed_hand_computed_two_by_two_with_a_rounding_tie ... ok
+test engine::tests::matvec_fixed_refuses_shape_short_payload_and_bad_type ... ok
+test engine::tests::q2_k_block_applies_scale_and_min ... ok
+test engine::tests::q3_k_block_applies_signed_scale ... ok
+test engine::tests::q4_k_block_applies_scale_and_min ... ok
+test engine::tests::q5_0_block_is_scale_times_code ... ok
+test engine::tests::q6_k_block_applies_signed_scale ... ok
+test engine::tests::q8_0_block_is_scale_times_code ... ok
+test engine::step::attn_block::tests::sigmoid_q32_equals_the_oracle_on_edges_and_samples ... ok
+test engine::chart::ffn::tests::quant_act_pooled_equals_the_single_quantization ... ok
+test engine::mixer::f32_carrier::tests::f32_readout_equivalence_tests ... ok
+test engine::tests::qwen35_long_prompt_on_the_one_executor ... ignored, release-only: cargo test --release -- --ignored qwen35_long_prompt
+test engine::tests::lm_head_and_argmax_through_the_real_tensor_table ... ok
+test engine::step::tests::q8act_step_logits_match_the_greedy_token_of_exact ... ok
+test engine::tests::qwen35_speculative_long_prompt ... ignored, release-only: cargo test --release -- --ignored qwen35_speculative_long
+test engine::mixer::tests::f32_conv_silu_tracks_q32_oracle ... ok
+test engine::tests::rms_norm_fixed_has_an_exact_expected_vector ... ok
+test engine::tests::rms_norm_fixed_refuses_empty_and_out_of_window ... ok
+test engine::tests::rope_admits_positions_past_the_old_window ... ok
+test engine::tests::rope_quarter_turn_is_hand_computed ... ok
+test engine::tests::rope_refuses_malformed_tables_and_short_vectors ... ok
+test engine::tests::rope_table_matches_the_load_time_boundary ... ok
+test engine::kern::lut::tests::pooled_row_chunked_lut_equals_the_unchunked_kernel ... ok
+test engine::tests::rope_turn_phase_is_additive_mod_2_to_64 ... ok
+test engine::tests::rope_turn_phase_wraps_mod_2_to_64_in_rotate ... ok
+test engine::tests::rope_turn_to_radians_maps_the_named_phases ... ok
+test engine::tests::rope_zero_angle_is_the_identity ... ok
+test engine::tests::row_dot_fixed_rounds_ties_and_refuses_out_of_range ... ok
+test engine::tests::rope_turn_angle_tracks_theta_within_2_to_the_minus_31 ... ok
+test engine::tests::silu_fixed_matches_hand_computed_values ... ok
+test engine::mixer::tests::exact_scan_off_is_bit_identical_to_the_per_step_oracle ... ok
+test engine::tests::top_p_fixed_selects_the_nucleus_prefix_and_refuses_windows ... ok
+test engine::tests::unsupported_embedding_quant_refuses ... ok
+test engine::trace::tests::phases_index_their_table ... ok
+test fold::tests::a_pepper_moves_every_address ... ok
+test engine::mixer::tests::conv_silu_cols_refuses_i128_accumulator_overflow ... ok
+test fold::tests::a_zeroed_operand_does_not_collapse_the_fold ... ok
+test engine::mixer::tests::f32_carrier_tracks_q32_per_step_oracle ... ok
+test fold::tests::length_is_part_of_the_key ... ok
+test fold::tests::no_two_keys_collide_across_the_length_ladder ... ok
+test engine::mixer::f32_carrier::tests::stage2_heads_cols_f32_equals_old_oracle ... ok
+test fold::tests::the_finalizer_is_a_bijection_and_the_rejected_one_is_not ... ok
+test fold::tests::the_guard_swaps_only_on_the_two_element_coset ... ok
+test engine::kern::matmat::tests::columns_match_per_column_matvec_q8act ... ok
+test format::bpe::tests::byte_alphabet_is_a_bijection_with_space_as_g ... ok
+test format::bpe::tests::pretokenizer_matches_the_reference_splits ... ok
+test format::bpe::tests::fixture_encode_decode_and_refusals ... ok
+test format::gguf::tests::array_count_past_buffer_is_refused ... ok
+test format::gguf::tests::corrupt_length_field_is_refused ... ok
+test format::gguf::tests::element_overflow_is_refused ... ok
+test format::gguf::tests::float_metadata_keeps_raw_little_endian_bits ... ok
+test format::gguf::tests::oversized_counts_do_not_allocate ... ok
+test format::gguf::tests::too_many_dims_is_refused ... ok
+test format::gguf::tests::truncated_tensor_directory_is_refused ... ok
+test format::gguf::tests::unknown_tensor_type_has_no_byte_size ... ok
+test format::gguf::tests::unsupported_version_is_refused ... ok
+test format::gguf::tests::valid_header_parses_alignment_and_directory ... ok
+test format::gguf::tests::wrong_magic_is_refused ... ok
+test format::packing::tests::canonical_round_trip_per_width_and_order ... ok
+test engine::kern::tp::tests::ffn_tp_equals_ffn_q8act_on_the_non_sliced_families ... ok
+test format::packing::tests::f16_and_f32_conversion_matches_the_integer_reference ... ok
+test format::packing::tests::f16_and_pow2_scale_decoding_is_exact ... ok
+test format::packing::tests::f16_terminal_decode_is_exact ... ok
+test format::packing::tests::f32_terminal_decode_rounds_toward_positive_infinity ... ok
+test format::packing::tests::from_gguf_kind_covers_the_eight_packed_kinds ... ok
+test format::packing::tests::grammar_refuses_bad_width_block_and_geometry ... ok
+test format::packing::tests::q2_k_conversion_matches_the_quant_decoder ... ok
+test format::packing::tests::q3_k_conversion_matches_the_quant_decoder ... ok
+test format::packing::tests::q4_k_conversion_matches_the_quant_decoder ... ok
+test format::packing::tests::q5_0_conversion_matches_the_quant_decoder ... ok
+test format::packing::tests::q6_k_conversion_matches_the_quant_decoder ... ok
+test format::packing::tests::q8_0_conversion_matches_the_quant_decoder ... ok
+test format::packing::tests::short_canonical_payload_is_refused ... ok
+test format::quant::tests::dequant_zero_block_is_constant_min ... ok
+test format::quant::tests::f16_roundtrip_known_values ... ok
+test format::quant::tests::geometry_is_consistent ... ok
+test format::quant::tests::k_quant_scale_and_scale_bits_accessors_are_public_and_checked ... ok
+test format::quant::tests::low_bit_geometry_and_names ... ok
+test format::quant::tests::q2_k_codes_are_two_bit_planes ... ok
+test format::quant::tests::q4_k_codes_and_scale_min_unpack ... ok
+test format::quant::tests::q5_0_codes_fold_the_high_plane ... ok
+test format::quant::tests::q6_k_codes_fold_the_high_plane ... ok
+test format::quant::tests::q8_0_dequant_matches_the_reference ... ok
+test format::quant::tests::required_bytes_checks_overflow ... ok
+test format::quant::tests::short_payload_is_refused_not_truncated ... ok
+test kepler::tests::error_bound_covers_the_exact_real_quotient ... ok
+test fold::tests::no_two_of_a_hundred_thousand_distinct_strings_share_an_address ... ok
+test merge::tests::every_in_place_merge_agrees_with_its_pure_twin ... ok
+test merge::tests::exactly_two_of_the_four_are_fusible ... ok
+test merge::tests::monoid_combine_is_associative ... ok
+test merge::tests::ordered_combine_is_commutative_but_not_associative ... ok
+test merge::tests::the_fusible_merges_are_commutative_and_the_others_are_not ... ok
+test numeric::fixed_exp::tests::accuracy_against_f64_exp ... ok
+test numeric::fixed_exp::tests::monotone_on_a_sample ... ok
+test numeric::fixed_exp::tests::zero_and_boundaries ... ok
+test numeric::fixed_ln::tests::ln_accuracy_dense_sweep ... ok
+test numeric::fixed_ln::tests::ln_exact_and_powers_of_two ... ok
+test numeric::fixed_ln::tests::ln_refusals ... ok
+test kepler::tests::service_ceiling_is_exact_real_conservative ... ok
+test numeric::fixed_ln::tests::sigmoid_accuracy_monotonicity_and_symmetry ... ok
+test numeric::fixed_ln::tests::softplus_accuracy_and_monotonicity ... ok
+test numeric::fixed_rsqrt::tests::exact_identities_and_boundaries ... ok
+test numeric::fixed_rsqrt::tests::accuracy_on_a_dense_grid ... ok
+test numeric::fixed_rsqrt::tests::monotone_decreasing_on_a_sample ... ok
+test numeric::fixed_trig::tests::exact_and_near_values ... ok
+test numeric::fixed_trig::tests::monotone_across_the_base_interval ... ok
+test numeric::fixed_trig::tests::refuses_outside_the_window ... ok
+test policy::decide::tests::allow_attenuate_ask_deny_are_reachable ... ok
+test policy::decide::tests::ask_precedes_partial_grant ... ok
+test policy::decide::tests::default_deny_names_no_permit ... ok
+test policy::decide::tests::duplicate_rule_ids_are_allowed ... ok
+test policy::decide::tests::forbid_on_disjoint_rights_attenuates ... ok
+test policy::decide::tests::max_rights_and_want ... ok
+test policy::decide::tests::order_independent_with_min_cause ... ok
+test policy::decide::tests::other_actions_are_ignored ... ok
+test policy::decide::tests::out_of_range_atoms_are_unknown_not_panic ... ok
+test policy::decide::tests::slot_63_known_and_slot_64_unknown ... ok
+test policy::decide::tests::unknown_forbid_applies_and_unknown_permit_is_inert ... ok
+test policy::decide::tests::zero_want_is_denied ... ok
+test scalar::tests::a_half_is_exact_and_round_trips ... ok
+test scalar::tests::arithmetic_stays_exact_where_a_float_would_drift ... ok
+test scalar::tests::checked_arithmetic_is_exact_where_it_is_representable ... ok
+test scalar::tests::checked_arithmetic_reports_every_overflow ... ok
+test scalar::tests::equality_is_independent_of_scale ... ok
+test scalar::tests::the_infallible_api_refuses_to_drop_bits - should panic ... ok
+test table::keyrep::tests::direct_regen_hit_never_materializes_the_stored_key ... ok
+test table::locator_tests::elliptic_reserves_an_empty_receipt_and_no_directory ... ok
+test table::locator_tests::empty_directory_beside_a_live_payload_is_rejected ... ok
+test table::locator_tests::empty_locator_allocates_no_directory ... ok
+test table::locator_tests::found_updates_keep_existing_links ... ok
+test table::locator_tests::fresh_inserts_maintain_coverage_on_both_carriers_and_faces ... ok
+test table::locator_tests::locator_refusal_precedes_the_table_merge ... ok
+test table::locator_tests::locator_reservation_receipt_observes_every_checked_target ... ok
+test table::locator_tests::real_inserts_maintain_coverage_and_the_elliptic_face_has_no_directory ... ok
+test table::locator_tests::spill_growth_retargets_existing_links_and_keeps_coverage ... ok
+test table::locator_tests::spill_to_flat_relocation_keeps_coverage_on_both_carriers ... ok
+test table::locator_tests::unlinked_staging_issues_no_certificate ... ok
+test table::partition::tests::every_input_index_appears_exactly_once_in_output ... ok
+test format::packing::tests::conversion_matches_the_exact_integer_reference_on_the_real_model ... ok
+test table::partition::tests::lpt_is_load_ordered_and_deterministic ... ok
+test table::partition::tests::mixed_face_parallel_roundtrip_distinguishes_faces ... ok
+test table::partition::tests::mixed_face_serial_roundtrip_distinguishes_faces ... ok
+test table::partition::tests::named_test_home_semantic_face_is_not_the_physical_placement ... ok
+test table::partition::tests::locator_only_serial_and_parallel_roundtrip_distinguishes_faces ... ok
+test table::partition::tests::parallel_scatter_equals_serial_parts_across_worker_counts ... ok
+test table::partition::tests::parallel_scatter_output_rejects_a_same_shard_reversal ... ok
+test table::partition::tests::parallel_scatter_matches_serial_for_interleaved_repeated_keys ... ok
+test table::partition::tests::partition_integrity_accepts_a_single_shard_load_skew ... ok
+test table::partition::tests::partition_integrity_accepts_clustered_repeated_keys ... ok
+test table::partition::tests::partition_integrity_rejects_a_duplicate_assignment ... ok
+test table::partition::tests::partition_integrity_rejects_a_misrouted_index ... ok
+test table::partition::tests::partition_integrity_rejects_a_same_shard_duplicate ... ok
+test table::partition::tests::partition_integrity_rejects_a_same_shard_reversal ... ok
+test table::partition::tests::partition_integrity_rejects_an_omitted_assignment ... ok
+test table::partition::tests::partition_integrity_rejects_nonmonotone_bounds ... ok
+test table::partition::tests::partition_integrity_rejects_out_of_range_bounds ... ok
+test table::partition::tests::partition_is_one_contiguous_buffer_not_one_allocation_per_element ... ok
+test table::partition::tests::runs_preserve_input_order_within_each_shard ... ok
+test table::partition::tests::shard_sizes_match_the_loads_and_lpt_bins_partition_the_shards ... ok
+test table::prepared_placement_tests::distinct_keys_report_distinct_slots ... ok
+test table::prepared_placement_tests::placement_reports_the_slot_for_fresh_and_repeat_entries ... ok
+test table::probe::tests::spill_locate_classifies_a_fixed_initialized_region ... ok
+test table::probe::tests::spill_read_reports_absence_without_a_full_key_match ... ok
+test table::probe::tests::spill_read_returns_absence_on_a_summary_miss ... ok
+test table::probe::tests::spill_read_returns_the_late_matching_slot ... ok
+test table::probe::tests::spill_read_sweeps_when_the_summary_is_unavailable ... ok
+test table::scan::tests::a_neighbouring_high_byte_is_not_a_match ... ok
+test table::scan::tests::least_set_lane_matches_the_scalar_search ... ok
+test table::scan::tests::swar_and_scalar_agree_on_every_tag ... ok
+test table::scan::tests::the_scalar_tail_scans_a_partial_word ... ok
+test table::tests::apply_insert_commits_a_flat_vacancy_then_updates_a_flat_found_slot ... ok
+test table::tests::apply_insert_updates_a_found_spill_slot ... ok
+test table::tests::apply_pending_and_commit_consumes_the_supplied_decision ... ok
+test table::tests::counted_identity_is_the_value_not_the_clone_counter ... ok
+test table::tests::counted_semantic_map_is_independent_of_the_collision_only_route ... ok
+test table::tests::density_plan_refusal_is_transactional_and_the_success_extent_is_unchanged ... ok
+test table::tests::every_live_spill_tag_has_its_summary_bit_recorded ... ok
+test table::tests::exhausted_apply_returns_the_prepared_growth_outcome_without_allocating ... ok
+test table::tests::final_reservation_refusal_leaves_the_table_unchanged_with_no_clone_or_merge ... ok
+test table::tests::flat_found_update_recycles_the_staged_scratch ... ok
+test table::tests::malformed_summary_lengths_are_total ... ok
+test table::tests::prepared_adapter_materializes_vacant_storage_and_carries_the_pending_held ... ok
+test table::tests::prepared_shard_reserves_before_hold_on_sizing_refusal ... ok
+test table::tests::read_absence_coverage_certificate_forces_complete_sweep ... ok
+test table::tests::read_absence_direct_empty_certificate_returns_default ... ok
+test table::tests::read_absence_summary_miss_certificate_skips_the_sweep ... ok
+test table::tests::read_clones_and_merges_nothing_and_leaves_storage_unchanged ... ok
+test table::tests::read_finds_a_late_spill_hit_after_a_window_vacancy ... ok
+test table::tests::read_forced_summary_collision_has_no_false_negative ... ok
+test table::tests::read_found_identity_is_unchanged_for_both_carriers_and_areas ... ok
+test table::tests::read_helper_finds_a_late_match_after_a_window_vacancy ... ok
+test table::tests::read_path_timing_old_decision_versus_specialized ... ignored, timing diagnostic; run with --ignored --nocapture
+test table::tests::selected_resident_reservation_failure_leaves_table_unchanged ... ok
+test table::partition::tests::parallel_scatter_preserves_chunk_order_for_a_single_hot_shard ... ok
+test table::tests::spill_decision_selects_the_first_vacant_lane ... ok
+test table::tests::spill_found_update_recycles_the_staged_scratch ... ok
+test table::tests::spill_publication_order_is_payload_then_summary_then_tag ... ok
+test table::tests::spill_sweep_finds_a_late_match_after_a_window_vacancy ... ok
+test table::tests::summary_sizing_overflow_refuses_before_any_hold_or_clone ... ok
+test table::tests::summary_trailing_zeros_matches_the_standard_intrinsic ... ok
+test table::tests::zero_length_summary_is_total_and_disables_filtering ... ok
+test engine::mixer::f32_carrier::tests::f32_tracks_q32_oracle ... ok
+test engine::tests::token_embd_row_dot_through_the_real_tensor_table ... ok
+test numeric::fixed_trig::tests::accuracy_against_f64_sin_cos ... ok
+test format::bpe::tests::qwen2_5_0_5b_matches_fold_reference ... ok
+test engine::mixer::tests::test_fused_conv_deltanet_tracks_oracle_at_k5 ... ok
+test engine::kern::bitplane::tests::adversarial_near_ties_and_exact_ties ... ok
+test engine::mixer::tests::exact_scan_on_agrees_with_per_step_within_bound ... ok
+test engine::mixer::tests::test_fused_conv_deltanet_tracks_oracle_at_k1 ... ok
+test fold::tests::every_input_bit_moves_half_the_output_at_every_length ... ok
+test engine::tests::schedule_is_read_from_metadata_not_architecture_name ... ok
+test fold::tests::a_short_key_and_the_pepper_are_not_interchangeable ... ok
+test engine::step::tests::q8act_resident_matches_the_name_resolved_sequential_reference ... ok
+test engine::step::tests::q8act_step_logits_match_the_unpooled_quantization ... ok
+test engine::kern::gemm::tests::gemm_group_equals_the_per_part_gemm ... ok
+test engine::step::tests::q8act_parallel_heads_match_the_serial_head_loop ... ok
+test table::tests::serial_build_branches_maintain_storage_coverage ... ok
+test engine::kern::tp::tests::ffn_tp_equals_ffn_q8act_on_every_fast_down_family ... ok
+test engine::chart::pool::tests::heterogeneous_stress_100k_dispatches_checksum ... ok
+test engine::kern::bitplane::tests::pooled_argmax_matches_the_serial_scan ... ok
+test engine::mixer::tests::sliced_heads_equal_whole_heads ... ok
+test engine::kern::gemm::tests::swiglu_fused_equals_the_separate_path ... ok
+test engine::chart::pool::tests::stress_100k_random_dispatches_checksum ... ok
+test engine::step::prefill_tests::prefill_state_matches_two_phase_computation ... ok
+test engine::kern::gemm::tests::gemm_equals_the_per_column_contract ... ok
+test engine::kern::bitplane::tests::bitplane_argmax_equals_dense_argmax ... ok
+test engine::tests::qwen25_two_columns_equal_two_single_steps ... ok
+test engine::tests::qwen35_bitplane_head_equals_dense_head_in_lockstep has been running for over 60 seconds
+test engine::tests::qwen35_exact_scan_attention_block_matches_baseline_within_bound has been running for over 60 seconds
+test engine::tests::qwen35_on_the_one_executor_decodes_llama_cpp_ids has been running for over 60 seconds
+test engine::tests::qwen35_speculative_equals_greedy has been running for over 60 seconds
+test engine::tests::qwen35_two_columns_equal_two_single_steps has been running for over 60 seconds
+test engine::tests::qwen35_exact_scan_attention_block_matches_baseline_within_bound ... ok
+test engine::tests::qwen35_on_the_one_executor_decodes_llama_cpp_ids ... ok
+test engine::tests::qwen35_bitplane_head_equals_dense_head_in_lockstep ... ok
+test engine::tests::qwen35_speculative_equals_greedy ... ok
+test engine::tests::qwen35_two_columns_equal_two_single_steps ... ok
+
+test result: ok. 410 passed; 0 failed; 32 ignored; 0 measured; 0 filtered out; finished in 222.57s
+
+     Running tests/coord_is_injective.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/coord_is_injective-255d7a5e9076aff5)
+
+running 5 tests
+test mixed_width_keys_do_not_collide ... ok
+test an_unsigned_grid_is_still_spread_without_collision ... ok
+test a_signed_pair_grid_is_spread_without_collision ... ok
+test a_signed_triple_grid_is_spread_without_collision ... ok
+test a_wide_signed_pair_grid_is_spread_without_collision ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/each_face_gets_the_fold_it_needs.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/each_face_gets_the_fold_it_needs-5cf7dd4d450519c7)
+
+running 5 tests
+test a_packed_key_round_trips_exactly ... ok
+test a_narrow_coordinate_refuses_an_out_of_range_value ... ok
+test the_arithmetic_fold_is_not_a_bijection_and_here_is_the_collision ... ok
+test packing_separates_every_key_in_a_signed_grid ... ok
+test the_discard_spreads_evenly_on_the_grids_that_use_it ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/gpu_spv_check.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/gpu_spv_check-403114908b1c1d8a)
+
+running 6 tests
+test out_of_set_opcode_is_refused ... ok
+test duplicate_result_id_is_refused ... ok
+test zero_word_count_is_refused ... ok
+test captured_module_carries_the_dot_product_opcode ... ok
+test overrun_word_count_is_refused ... ok
+test captured_emitter_module_is_admitted ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/idempotents_over_a_ring_with_halves.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/idempotents_over_a_ring_with_halves-888ddd5b8c308b1b)
+
+running 7 tests
+test the_idempotents_are_neither_zero_nor_one ... ok
+test the_null_basis_change_needs_halves ... ok
+test the_same_cell_is_idempotent_only_above_zero ... ok
+test in_the_null_basis_the_idempotents_are_the_unit_vectors ... ok
+test the_idempotents_split_the_unit ... ok
+test the_idempotents_are_idempotent_above_zero ... ok
+test projection_keeps_one_channel_and_destroys_the_other ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/kepler.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/kepler-bf89aee1b12237d8)
+
+running 11 tests
+test accepted_refused_boundary_matrix ... ok
+test circular_monad_is_bit_exact ... ok
+test kepler_plan_refuses_exactly_the_unadmitted_inputs ... ok
+test w8t3_escalation_serves_the_former_head_band_rows ... ok
+test golden_oracle_rows_certify ... ok
+test naive_phase_accumulation_drifts_against_compensated ... ok
+test naive_placeholder_fixed_point_is_not_the_operating_kernel ... ok
+test kepler_plan_split_slack_matches_the_domination_argument ... ok
+test solve_with_plan_is_bit_identical_to_solve_kepler ... ok
+test certificate_invariant_on_the_sampled_grid ... ok
+test reported_bounds_match_the_fresh_sin_certificate_bit_for_bit ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/native_address/main.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/native_address-a7c3ddb97536e72d)
+
+running 16 tests
+test elliptic_packing_round_trips_on_its_domain ... ok
+test faces_and_profile_are_preserved ... ok
+test locator_domain_admits_a_twelve_byte_key ... ok
+test elliptic_full_word_is_not_reduced ... ok
+test locator_is_not_a_cast ... ok
+test locator_sigma_admits_only_the_filtered_faces ... ok
+test parabolic_uses_existing_spread ... ok
+test legacy_word_home_is_unchanged ... ok
+test locator_domain_shares_the_face_dispatch ... ok
+test residue_capability_is_the_specified_face_map ... ok
+test profile_is_valid_and_rejects_other_parameters ... ok
+test residue_constructor_rejects_noncanonical ... ok
+test signed_words_keep_bits_and_collisions_keep_identity ... ok
+test wide_key_residue_collision_keeps_exact_identity ... ok
+test word_face_home_admits_the_sigma_domain ... ok
+test word_reduction_matches_integer_remainder ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_locator/main.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/native_locator-cbcf2631b84aebc0)
+
+running 25 tests
+test absent_requires_the_coverage_invariant ... ok
+test coefficient_path_is_sixty_four_binary_levels ... ok
+test capacity_refusal_leaves_state_intact ... ok
+test elliptic_face_has_no_locator ... ok
+test face_index_policy_matches_the_contract ... ok
+test forced_allocation_refusal_stutters_the_committed_state ... ok
+test forced_allocation_refusal_stutters_the_parabolic_state ... ok
+test forced_refusal_is_one_shot_and_the_next_insert_succeeds ... ok
+test forced_size_overflow_refusal_stutters_the_committed_state ... ok
+test forced_late_edge_refusal_precedes_retention_and_publishes_nothing ... ok
+test identity_miss_requires_the_complete_residue_path ... ok
+test insert_get_and_absent_on_a_word ... ok
+test many_to_one_residues_never_decide_identity ... ok
+test parabolic_and_hyperbolic_faces_never_alias ... ok
+test parabolic_scalar_indexes_presence_and_absence ... ok
+test parabolic_scalar_collision_separates_by_identity ... ok
+test residue_path_is_forty_ternary_levels ... ok
+test small_integer_identity_is_the_original_bit_pattern ... ok
+test preassemble_repeat_key_returns_the_first_handle_and_adds_no_link_node_or_edge ... ok
+test stale_identity_is_unknown_not_absent ... ok
+test small_integer_high_byte_distinguishes_identity ... ok
+test word_identity_reuses_the_i64wordcodec ... ok
+test byte_identity_paths_handle_long_common_prefixes ... ok
+test occupied_nodes_respect_the_design_bound ... ok
+test identity_node_fanout_is_bounded_by_256 ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/parallel/main.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/parallel-70981365039cbd6f)
+
+running 20 tests
+test counted_key_identity_is_the_value_not_the_hold_counter ... ok
+test invalid_group_width_is_refused_on_both_paths ... ok
+test reserve_all_precedes_every_scatter_worker ... ok
+test a_panicking_merge_propagates_and_never_returns_a_partial_table ... ok
+test parallel_kernel_runs_only_above_the_crossover_with_two_workers ... ok
+test injected_recording_buffer_reservation_has_zero_cross_worker_effects ... ok
+test injected_final_shard_reservation_refusal_has_zero_cross_worker_effects ... ok
+test injected_late_locator_edge_refusal_has_zero_cross_worker_effects ... ok
+test injected_worker_buffer_reservation_has_zero_cross_worker_effects ... ok
+test injected_finalize_unconsumed_handle_refuses_with_allocation_failed ... ok
+test injected_finalize_missing_handle_refuses_with_allocation_failed ... ok
+test injected_finalize_link_out_of_range_refuses_with_allocation_failed ... ok
+test injected_finalize_index_out_of_range_refuses_with_size_overflow ... ok
+test sum_parallel_matches_the_serial_sum ... ok
+test load_skew_matches_serial_and_dominates_one_shard ... ok
+test parallel_at_build_and_probe_match_serial_across_worker_counts ... ok
+test single_shard_repeated_keys_preserve_chunk_order_across_worker_counts ... ok
+test parallel_build_skips_elliptic_placements_and_reads_back_every_face ... ok
+test parallel_build_and_probe_match_serial_across_worker_counts ... ok
+test parallel_build_covers_the_assembled_table_on_both_carriers ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 42.06s
+
+     Running tests/table.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/table-931f85992df8c875)
+
+running 43 tests
+test build_at_separates_sigma_and_preserves_stream_order ... ok
+test a_direct_candidate_holding_another_key_falls_through ... ok
+test build_preserves_each_keys_stream_order ... ok
+test insert_is_new_first_and_replaces_an_existing_override ... ok
+test out_of_range_direct_index_spills_and_is_found ... ok
+test placement_only_home_returns_no_direct_word ... ok
+test regen_keeps_unequal_sigma_with_an_equal_key_distinct ... ok
+test both_carriers_agree_on_exact_identity_bytes ... ok
+test distinct_sigma_same_key_stay_distinct ... ok
+test live_nonmatching_flat_slot_falls_through_to_spill ... ok
+test a_colliding_direct_candidate_falls_through_after_growth ... ok
+test regen_keys_with_one_place_and_distinct_ids_do_not_alias ... ok
+test growth_keeps_direct_resident_keys_findable ... ok
+test search_decision_finds_a_spill_key_after_a_direct_collision ... ok
+test search_decision_matches_the_two_lane_spill_oracle_for_every_small_prefix ... ok
+test search_decision_reports_direct_first_fit_and_apply_commits_it ... ok
+test merge_runs_exactly_once_per_logical_insert ... ok
+test spill_growth_after_exhaustion_commits_the_pending_entry_exactly_once ... ok
+test prepared_rebuild_uses_materialized_payloads_and_relocates_without_merge ... ok
+test search_decision_reports_exhaustion_without_an_index ... ok
+test default_read_is_total_before_any_write ... ok
+test replacement_merge_fresh_write_stores_new_value ... ok
+test density_failure_spills_instead_of_refusing ... ok
+test non_power_of_two_group_width_is_refused_publicly ... ok
+test same_home_unequal_keys_are_distinguished_by_full_key_equality ... ok
+test regen_recovers_the_key_exactly_from_its_identity_coordinate ... ok
+test search_decision_matches_the_direct_resident_oracle_for_every_small_prefix ... ok
+test the_direct_lane_is_the_coordinate_not_the_placement ... ok
+test replacement_merge_present_write_stores_new_value ... ok
+test word_home_certifies_the_word_only_below_two_to_the_thirty_two ... ok
+test unequal_sigma_same_word_do_not_alias_a_flat_slot ... ok
+test zero_group_width_refusal_leaves_the_table_unchanged ... ok
+test doubling_resident_extent_reclassifies_newly_eligible_spill_key ... ok
+test search_decision_matches_the_direct_collision_spill_oracle_for_every_small_prefix ... ok
+test grouped_probe_restores_query_order_before_a_non_commutative_callback ... ok
+test scoped_parallel_build_propagates_a_worker_panic_without_a_table ... ok
+test partitioned_build_matches_the_sequential_non_commutative_oracle ... ok
+test scoped_parallel_build_matches_one_worker_for_a_non_commutative_merge ... ok
+test an_absent_direct_resident_key_reads_the_default_under_direct_cover ... ok
+test a_sub_word_group_width_round_trips_through_the_scalar_tail ... ok
+test certified_direct_index_keys_round_trip_by_coordinate ... ok
+test growth_admits_far_beyond_the_old_fixed_ceiling ... ok
+test skewed_parallel_build_is_independent_of_worker_count ... ok
+
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s
+
+     Running tests/the_address_is_the_pair.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/the_address_is_the_pair-a7c759bef051aa91)
+
+running 4 tests
+test the_low_half_is_additive ... ok
+test the_high_half_is_additive_up_to_the_carry ... ok
+test the_low_window_degenerates_and_the_tag_does_not ... ok
+test every_bit_of_place_is_one_lo_bit_and_one_hi_bit ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/the_carrier_readout_is_generic.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/the_carrier_readout_is_generic-6d9bd664937b6df3)
+
+running 4 tests
+test the_unit_direction_density_is_the_amplitude_square_on_every_face ... ok
+test density_is_the_norm_form_of_the_stretched_cell ... ok
+test flux_is_the_density_times_the_forward_difference ... ok
+test the_carrier_domain_matches_the_machine_word_readout ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/the_carrier_step_is_conservative.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/the_carrier_step_is_conservative-362a1446a3cd6695)
+
+running 11 tests
+test a_diffusive_step_moves_a_spike_toward_level ... ok
+test a_shared_face_moves_density_without_creating_it ... ok
+test a_step_at_the_representable_edges ... ok
+test a_step_balances_incoming_outgoing_and_source ... ok
+test an_anti_diffusive_orientation_sharpens_instead_of_levelling ... ok
+test an_odd_difference_has_no_exact_half ... ok
+test an_overflowing_step_is_refused ... ok
+test an_overlarge_difference_has_no_half ... ok
+test diffusion_runs_down_the_gradient_and_stops_when_level ... ok
+test the_exact_half_negates_the_half_not_the_difference ... ok
+test the_source_is_the_only_net_addition ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/the_dial_is_real.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/the_dial_is_real-980f0ae6bb241aba)
+
+running 8 tests
+test folding_is_order_free_on_every_face ... ok
+test idempotents_and_zero_divisors_over_the_integers ... ok
+test the_channel_count_is_the_sign_of_the_discriminant ... ok
+test only_the_hyperbolic_face_can_discard ... ok
+test the_norm_factors_into_the_channels ... ok
+test the_two_channels_multiply_independently ... ok
+test the_norm_is_multiplicative_on_every_face ... ok
+test multiplication_is_commutative_associative_and_unital_on_every_face ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/the_diffusive_line3_step_is_exact.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/the_diffusive_line3_step_is_exact-1f9fec22feb2d939)
+
+running 9 tests
+test a_closed_line_with_no_source_conserves_the_total ... ok
+test a_closed_spike_levels_toward_its_neighbors ... ok
+test a_late_refusal_is_transactional ... ok
+test a_level_line_moves_by_exactly_its_source ... ok
+test a_multi_step_run_eventually_refuses ... ok
+test an_odd_interior_difference_refuses_the_whole_line ... ok
+test an_unrepresentable_intermediate_refuses_the_whole_line ... ok
+test the_orientation_is_down_gradient_not_anti_diffusive ... ok
+test the_source_is_the_only_net_addition ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/the_exchange_is_a_swap.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/the_exchange_is_a_swap-de213e360cce3fff)
+
+running 6 tests
+test the_derived_impulse_is_the_difference ... ok
+test the_exchange_swaps_even_at_the_wrapping_extremes ... ok
+test the_exchange_swaps_the_two_momenta ... ok
+test the_norm_form_ledger_is_conserved_on_all_three_faces ... ok
+test total_momentum_is_conserved ... ok
+test the_exact_claim_is_accepted_and_others_are_rejected ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/the_ring_laws.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/the_ring_laws-5edd1e932a9a2b81)
+
+running 2 tests
+test distributivity_holds_across_the_whole_ring ... ok
+test the_cell_laws_hold_across_a_window ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/three_and_one.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/three_and_one-481c510efdf65fcf)
+
+running 7 tests
+test the_exact_projection_is_idempotent ... ok
+test only_the_non_being_face_destroys_information ... ok
+test the_three_faces_license_three_different_storage_policies ... ok
+test the_word_projection_is_a_scaled_map_not_an_idempotent ... ok
+test what_survives_a_store_is_what_the_face_permits ... ok
+test three_keystores_vary_with_the_dial_and_the_one_merge_does_not ... ok
+test the_merge_does_not_vary_with_the_dial ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/apeiron_derive-16043ffaa40afcf5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/apeiron_fold_abi-be1331967b4c8c18)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests apeiron
+
+running 7 tests
+test src/table/keyrep.rs - table::keyrep::ExactCodec (line 173) - compile fail ... ok
+test src/coord/address.rs - coord::address::EllipticPacking (line 385) - compile fail ... ok
+test src/table.rs - table::Home (line 116) - compile fail ... ok
+test src/table/keyrep.rs - table::keyrep::Stored (line 71) - compile fail ... ok
+test src/table.rs - table::Table<K,V,H,N,R>::get_at (line 319) - compile fail ... ok
+test src/pepper.rs - pepper (line 17) ... ok
+test src/merge.rs - merge (line 43) ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+   Doc-tests apeiron_derive
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

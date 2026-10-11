@@ -102,12 +102,12 @@ table in `docs/roadmap.md` ("Prior-art index").
 
 | artifact | path (revision) | what it gives this plan |
 |---|---|---|
-| Paper I | `../sanguine/release/paper1/INDEX.md` (`sanguine@e830d3fb`) | `spinor_subtrinity` with a forward-only exact gradient/Laplacian; `ridgeHead_unique`, `gram_stack`, `streaming_law`; the numerics seam (`flash_attention_exact`, the quant dual) — Tracks D and T |
-| Paper II | `../sanguine/release/paper2/INDEX.md` | closed-form loops (`constantStep_fixed_point`, `affine_orbit_closed_form`), determinism and confluence — Track C (looped cores) |
-| Neural corpus | `../sanguine/proof/Substrate/Algebra/Neural/` (43 modules) | `AttentionSpinor`, `SpinorRecall`, `SpeculativeGen`, `TrainingCollapse`, `TrainingBudget`, `MirasCountLM` (`hebb_comm`, `forget_hebb`, `surprise_eq_info`), `NullTransformer`, `SparseAttentionBudget`, `FrontierLadder` (the open seams) |
+| Paper I | `../sanguine-ref/release/paper1/INDEX.md` (`sanguine@e830d3fb`) | `spinor_subtrinity` with a forward-only exact gradient/Laplacian; `ridgeHead_unique`, `gram_stack`, `streaming_law`; the numerics seam (`flash_attention_exact`, the quant dual) — Tracks D and T |
+| Paper II | `../sanguine-ref/release/paper2/INDEX.md` | closed-form loops (`constantStep_fixed_point`, `affine_orbit_closed_form`), determinism and confluence — Track C (looped cores) |
+| Neural corpus | `../sanguine-ref/proof/Substrate/Algebra/Neural/` (43 modules) | `AttentionSpinor`, `SpinorRecall`, `SpeculativeGen`, `TrainingCollapse`, `TrainingBudget`, `MirasCountLM` (`hebb_comm`, `forget_hebb`, `surprise_eq_info`), `NullTransformer`, `SparseAttentionBudget`, `FrontierLadder` (the open seams) |
 | fold | `../fold@d497161f`: `STATE.md`, `docs/ml-architecture-standard.md`, `modelfold/` (`examples/climbmix_train.rs`, `hellaswag.rs`, `piqa.rs`, `src/bin/harness.rs`), `results/` (61 records) | the served-model product gate `AC-PRODUCT` (coherent generation and store fetching together, at 30–60 tokens/s); the countlm harness; 8B/27B decode and 1M-context records |
 | spinor-ttl | `../spinor-ttl@a05bb1b`: `PAPER.md`, `STATUS.md`, `TERNARY_FINDINGS.md`, `bench/` | measured on the RTX 5080: a ridge fold reaching the same optimum 16–71× faster than full-batch Adam (`bench/train_fold_vs_grad.py`); fold finetune vs LoRA with exact unlearning (`bench/ridge_vs_lora.py`, `finetune_race.py`); activation-weighted ternary descent from a 4-bit seed (`bench/ternary_descent.py`, `ternary_8b_vs_bnb.py`); seal vs NF4/Q4_K_M |
-| data pins | `../sanguine/data/MANIFEST.md` | ClimbMix (`nvidia/Nemotron-ClimbMix`); reasoning (`SupraLabs/reasoning-corpus-4K-5M-v1`); agentic traces (Kimi-K3, Fable-5); a Stack v3 subset; the stated starter mix for a small native-ternary conversational model |
+| data pins | `../sanguine-ref/data/MANIFEST.md` | ClimbMix (`nvidia/Nemotron-ClimbMix`); reasoning (`SupraLabs/reasoning-corpus-4K-5M-v1`); agentic traces (Kimi-K3, Fable-5); a Stack v3 subset; the stated starter mix for a small native-ternary conversational model |
 | nursery | `../sanguine_nursery/` | reference-paper notes (`REFERENCES.md`, `EQUATIONS.md`) |
 
 ## Tracks

@@ -1,0 +1,35 @@
+{
+  "before": [
+    {
+      "pid": 2840635,
+      "comm": "bash",
+      "cwd": "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T03",
+      "start_ticks": "3954735"
+    },
+    {
+      "pid": 2840637,
+      "comm": "flock",
+      "cwd": "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T03",
+      "start_ticks": "3954735"
+    },
+    {
+      "pid": 2860886,
+      "comm": "timeout",
+      "cwd": "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T03",
+      "start_ticks": "3985480"
+    },
+    {
+      "pid": 2860887,
+      "comm": "cargo",
+      "cwd": "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T03",
+      "start_ticks": "3985480"
+    },
+    {
+      "pid": 2860919,
+      "comm": "apeiron-fd63b3a",
+      "cwd": "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T03",
+      "start_ticks": "3985494"
+    }
+  ],
+  "after": []
+}

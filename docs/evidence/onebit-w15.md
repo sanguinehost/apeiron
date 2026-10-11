@@ -139,3 +139,102 @@ truncation is not the whole of the W14 inversion.
 - One model, 0.5B; embeddings and `lm_head` excluded; cross-token terms and `g`–`x` dependence dropped.
 - Gaussian-codebook rate model; basis side information uncounted; the oracle is not achievable.
 - C4 calibration; P1 KLD is wikitext-2 through llama.cpp.
+
+# ONEBIT W15c: the converse side and the floor against model size
+
+Command (repository root, same venv and GPU): `python tools/onebit/converse.py {controls,main,ekfac,scale} …`.
+Source `tools/onebit/converse.py` sha256 `29034f02d9002f6f…`; receipts
+`/home/socol/oc-tmp/escalation/2026-10-11-converse-{controls,main,ekfac,scale-*}.json` with `.log`.
+
+## Measured structure a 1.18 b/w code could exploit (Qwen2.5-0.5B, 168 tensors)
+
+`slb_gap`: under the Shannon lower bound (`anchor`, Shannon 1959), a code that reaches Q4_K_M's KL at 1.18 b/w needs
+negentropy `J ≥ R_g(D_Q4) − 1.18`: 1.994 b/w on the separable curve, 1.173 b/w on the oracle curve.
+
+| structure | measured | estimator control |
+|---|---:|---|
+| marginal negentropy, K-FAC coefficient basis at the Q4 level | 6.9e-5 b/component | Gaussian 3.6e-5; Laplace 0.10465 (truth 0.10440) |
+| marginal negentropy, raw weight basis | 0.00815 b/component | as above |
+| causal-neighbour context gain | −0.031 b | iid-Laplace −0.032 b (estimator noise) |
+| linear structure (Gaussian total correlation over the shuffled null) | 0.141 b/w (`attn_q` 0.77, `attn_o` 0.53, `attn_k` 0.38, FFN 0.05–0.10) | AR(1) −0.4%, iid −0.3% |
+
+- Measured `J` < 0.15 b/w against the 1.994 (separable) and 1.173 (oracle) b/w required. On 0.5B, marginal, context
+  and linear structure do not close the gap. Nonlinear structure was not probed.
+- `K0` from log-determinants is 1.1918, within 15% of the bisection `K0` (1.227 at 4.5 b/w, 1.312 at 1.18 b/w).
+- Eigenvalue-corrected K-FAC moves `had-gptq1` from 0.659 to 0.701 of the exact quadratic; the order inversion
+  persists (prediction `conv-ekfac-1` refuted).
+
+## The Q4-matching rate falls with model size
+
+Same pipeline; Q4_K_M made locally for 1.5B and 3B (llama.cpp imatrix on 100 C4 chunks at c = 512, then quantize;
+files in `/home/socol/oc-tmp/converse/`). bf16 against fp32 on 0.5B changes `R*` by 0.0016.
+
+| model | layers | Q4_K_M K-FAC KL (full-model est.) | `R*` high-res | `R*` histogram bisection |
+|---|---|---:|---:|---:|
+| Qwen2.5-0.5B | 24 of 24 | 0.015697 | 3.147 | **3.174** |
+| Qwen2.5-0.5B | 8 of 24 (0, 3, 6, 10, 13, 16, 20, 23) | 0.019461 | 3.003 | 3.051 |
+| Qwen2.5-1.5B | 8 of 28 (0, 4, …, 24, 27) | 0.017634 | 2.724 | **2.780** |
+| Qwen2.5-3B | 8 of 36 (0, 5, …, 35) | 0.018151 | 1.670 | **2.378** |
+
+- `R*` is the all-in rate (side information counted) at which separable water-filling reaches Q4_K_M's KL.
+- Subset control (prediction `subset-bias-1`, refuted on its KL clause only): 8 stratified layers read `R*` 0.12 b/w
+  low and the Q4 KL 24% high on 0.5B. Corrected by that offset, the trend is 3.17 → ≈2.90 → ≈2.50 b/w.
+- At 3B the high-resolution formula drops near-null components the water level does not reach; the bisection column
+  is the measurement.
+- `K0/N` falls 3.33e-9 → 5.76e-10 → 6.53e-11 while Q4_K_M's KL stays at 0.016–0.019: Q4_K_M spends a nearly
+  constant KL, and the curvature per weight it spends it against falls as the model grows.
+
+## Formal record
+
+`Perf.CostCorrespondence.{waterfill_highres, waterfill_exclusion, slb_gap, converse_w15c}` (`proved`, closed cone,
+`#audit`ed in `proof/corpus/AxiomAudit.lean`). `waterfill_exclusion`: in the high-resolution regime
+`KL(R)/KL(R') = 4^{−(R−R')}`. `converse_w15c` states the 0.5B measurements above as ℚ facts. Live tree:
+`cd proof/corpus && lake build Perf.CostCorrespondence AxiomAudit` 9172 jobs, exit 0
+(`/home/socol/oc-tmp/escalation/2026-10-11-converse-live.log`); 9/9 mutation controls (m13–m21) exit 1
+(`/home/socol/oc-tmp/escalation/2026-10-11-converse-lean.log`). The size trend is not yet in Lean.
+
+## Not covered (W15c)
+
+- 1.5B and 3B on 8-layer subsets; 7B and above not measured (no layer-streamed capture yet).
+- Shannon lower bound is an `anchor`; nonlinear dependence not probed; C4 calibration only.
+
+# ONEBIT W15d: output-fitted transfer, first configuration
+
+Command: `python tools/onebit/fold_transfer.py …` (sha256 `4032c1e27555ffb6…`), receipts
+`/home/socol/oc-tmp/escalation/2026-10-11-fold-transfer{,-block}.{json,log}`. Qwen2.5-0.5B, all 24 blocks, one-bit
+signs with per-row and per-column amplitudes at a uniform 1.133 b/w all-in, 100 C4 calibration chunks, 40 held-out.
+
+The loop alternates the ridge solve (`src/learn/ridge.rs` `FoldTrainer::solve`, `W = (XᵀX + λI)⁻¹XᵀY` against the
+teacher's outputs on the student's inputs) with one-bit GPTQ rounding and error feedback (`src/learn/onebit.rs`
+`gptq_row`, `feedback_u`), then refits the amplitudes by their normal equations. `fold_transfer.py` is a Python
+mirror; it matches a transcription of `gptq_row` to 1e-16.
+
+| variant | held-out KL (nats/token) | top-1 agreement | wall |
+|---|---:|---:|---:|
+| RTN | 12.70 | 0.000 | 0.03 s |
+| GPTQ one-bit, teacher Grams (W9 reproduction) | 14.86 | 0.000 | 31.6 s |
+| GPTQ one-bit, student-upstream Grams | 7.08 | 0.047 | 38.0 s |
+| ridge target + GPTQ | 5.25 | 0.087 | 44.9 s |
+| + amplitude refits (layer target) | 3.81 | 0.206 | ~90 s |
+| + block-output target | **3.09** | 0.261 | 88.8 s |
+| control: ridge with full-precision weights | 0.0195 | 0.921 | 22.0 s |
+| control: same, mutated | 7.09 | 0.032 | 22.2 s |
+
+- Prediction `fold-transfer-block-1` confirmed (block KL in 1.5–3.5, control < 0.05, mutant > 5).
+- Each output-fitting step cut KL; together 4.8× against GPTQ in 89 s. This first configuration sits at 154× Q4_K_M
+  (≈ 0.020).
+- Not yet in this configuration: rate water-filled across tensors (it spends a uniform 1.133 b/w where W15b puts
+  `attn_v` and FFN far above `attn_q`), a KL-weighted (`G`) target instead of block-output MSE, enough calibration to
+  stop overfitting (in-sample 0.86 against held-out 3.09), coding in the K-FAC eigenbasis, end-to-end refinement.
+
+## 27B time (`model`, calibrated 88.7 s predicted against 90 s measured on 0.5B)
+
+At 51,200 calibration tokens on the RTX 5080: the fit as written ran in f64 (0.85 TFLOPS) and models at about 16,300 s;
+in fp32 about 1,200 s; fp32 with a fused column kernel about 736 s. Arithmetic in `/home/socol/oc-tmp/ft/b2.py`.
+f64 is retired from this path: `src/learn/ridge.rs`, `src/learn/onebit.rs` and `tools/onebit/*.py` move to fp32.
+
+## Not covered (W15d)
+
+- 0.5B only; Python mirror, not the Rust path; C4 only; the 27B time is a model, not a run.
+
+Board row: `onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1` (LEARN-ONEBIT, `docs/plan.md` row 248).

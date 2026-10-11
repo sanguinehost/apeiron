@@ -26,8 +26,8 @@ map. The algebra, the elliptic metric and the fuel evaluator exist; the constrai
 | Alternative | Why not |
 |---|---|
 | Keep the four as anchors in discussion | Each has a finite counting or real-analytic core that is provable today; leaving it unmapped keeps a gap with no gate. |
-| Port the predecessor modules wholesale | `../sanguine/proof/Substrate/Algebra/{Gravity,Matter,NullCell}` is pre-trichotomy and the corpus requires re-derivation on `Apeiron.Trichotomy`; transcription carries the old rooting. |
-| State the physical bound as an axiom or hypothesis | Violates the fail-closed cone in `../sanguine-apeiron/AGENTS.md` §3a; no new axioms, and an unproved identification is `anchor`, not `proved`. |
+| Port the predecessor modules wholesale | `../sanguine-ref/proof/Substrate/Algebra/{Gravity,Matter,NullCell}` is pre-trichotomy and the corpus requires re-derivation on `Apeiron.Trichotomy`; transcription carries the old rooting. |
+| State the physical bound as an axiom or hypothesis | Violates the fail-closed cone in `../sanguine/AGENTS.md` §3a; no new axioms, and an unproved identification is `anchor`, not `proved`. |
 | Prove the full physical statement (Bekenstein number, `ħ`, `k_B`) | Those constants are unit conventions or empirical inputs; the corpus proves the structural core and names the substitution as a mapping. |
 
 ### Completion condition
@@ -37,7 +37,7 @@ Four rooted corpus modules compile with kernel-checked cores, carry `#audit` lin
 corpus barrier is green.
 
 ```sh
-cd /home/socol/Workspace/sanguine-apeiron/proof && lake build
+cd /home/socol/Workspace/sanguine/proof && lake build
 ```
 
 ### Invariants
@@ -58,7 +58,7 @@ cd /home/socol/Workspace/sanguine-apeiron/proof && lake build
 | Access-time lower bound `τ ≥ d/c` on the elliptic face | proved, elliptic only | `Apeiron.Projective.Latency` from `log_height_le_arcLength` |
 | Hyperbolic causal condition on a path | next | `exists_null_direction_iff_disc_nonneg`; `Projective/Length.lean`'s header records its absence |
 | Boundary-linear capacity cannot carry a square region (`4n−4 < n²`) | proved | `Apeiron.Physics.Capacity`, `lake build` |
-| Bekenstein `S = A/4` | model/anchor | predecessor `../sanguine/proof/Substrate/Algebra/Gravity/BlackHoleThermodynamics.lean:101`; re-rooting required, not authority |
+| Bekenstein `S = A/4` | model/anchor | predecessor `../sanguine-ref/proof/Substrate/Algebra/Gravity/BlackHoleThermodynamics.lean:101`; re-rooting required, not authority |
 
 ### Non-goals
 
@@ -133,14 +133,14 @@ cardinality API. No extraction, Aeneas or bridge claim is made.
 | Input class | Result | Named condition |
 |---|---|---|
 | A target that does not kernel-check | not landed; reported `open` with the failing goal | module does not build |
-| A physical identification without a definitional bridge | `anchor` in the module header, never `proved` | `../sanguine-apeiron/AGENTS.md` §5 |
+| A physical identification without a definitional bridge | `anchor` in the module header, never `proved` | `../sanguine/AGENTS.md` §5 |
 | A statement needing `sorry`, an axiom or `maxHeartbeats 0` | refused; task reports a blocker | fail-closed cone |
 | A target that resists after three materially different approaches | report the smallest unresolved goal | apex `AGENTS.md` §10 budget |
 
 ### Evidence plan
 
 1. **Positive build.** Bounded corpus module build per task:
-   `cd /home/socol/Workspace/sanguine-apeiron/proof && lake build Apeiron.Physics.<Module>`
+   `cd /home/socol/Workspace/sanguine/proof && lake build Apeiron.Physics.<Module>`
    (or `Apeiron.Projective.Latency`), under the §10 runner: `flock /tmp/opencode/apeiron-lane.lock`,
    `systemd-run --user --scope -p MemoryMax=<cap> -p MemorySwapMax=0`, `LEAN_NUM_THREADS=1`,
    `timeout 540s`. A run reaching 600 s has failed.
@@ -157,7 +157,7 @@ cardinality API. No extraction, Aeneas or bridge claim is made.
 
 The corpus proves counting and real-analytic identities over its rooted algebra. The substitution of
 `k_B`, `ħ`, `c` and `A/4ℓ_P²` is a declared mapping onto units and geometry, not a kernel claim. The
-predecessor modules in `../sanguine` are historical reference; nothing here is refined against an
+predecessor modules in `../sanguine-ref` are historical reference; nothing here is refined against an
 executing system, and Song's `FUEL` behaviour is cited, not re-proved.
 
 ### Open questions
@@ -187,11 +187,11 @@ CORPUS:     Apeiron/Trichotomy/Flow.lean: flow_neg_one, flow_add, flow_returns_i
             (proved); Apeiron/Projective/Length.lean: arcLength_vertical,
             log_height_le_arcLength (proved, elliptic face only); Apeiron/Linear/Basic.lean:
             consumeAt_second_alias_is_nothing; Apeiron.Combinator.Comb.verdict_decided_exact.
-REFERENCE:  /home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Trichotomy/Flow.lean;
-            /home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Projective/Length.lean;
-            /home/socol/Workspace/sanguine/proof/Substrate/Algebra/Gravity/BlackHoleThermodynamics.lean;
-            /home/socol/Workspace/sanguine/proof/Substrate/Algebra/Matter/ThermalStatistics.lean.
-GATE:       per W1 module: cd /home/socol/Workspace/sanguine-apeiron/proof && lake build
+REFERENCE:  /home/socol/Workspace/sanguine/proof/Apeiron/Trichotomy/Flow.lean;
+            /home/socol/Workspace/sanguine/proof/Apeiron/Projective/Length.lean;
+            /home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Gravity/BlackHoleThermodynamics.lean;
+            /home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Matter/ThermalStatistics.lean.
+GATE:       per W1 module: cd /home/socol/Workspace/sanguine/proof && lake build
             Apeiron.<module> under the §10 runner; observed red baseline: each module does not
             exist (lake: unknown target). MISSING at plan time: audit lines, linters, controls.
 GRADE:      planning/anchor only; before: four absent items, no corpus target; after: these four
@@ -201,10 +201,10 @@ GRADE:      planning/anchor only; before: four absent items, no corpus target; a
 ### Ground rules
 
 The corpus carries the proofs: Apeiron `AGENTS.md` §4.4 puts generic mathematics in the pinned
-canonical corpus at `../sanguine-apeiron/proof/Apeiron/`. `lakefile.lean` globs `Apeiron.*`, so a
+canonical corpus at `../sanguine/proof/Apeiron/`. `lakefile.lean` globs `Apeiron.*`, so a
 new module enters the build the moment it exists; no root list is edited. Corpus writing,
 rooting, satisfiability, one-authority, fail-closed and audit rules in
-`../sanguine-apeiron/AGENTS.md` §3a and `theory/WRITING.md` govern over this plan.
+`../sanguine/AGENTS.md` §3a and `theory/WRITING.md` govern over this plan.
 
 W1 runs in the supplied corpus checkout, recorded exception: the warm `.lake` is 7.7 GiB and cannot
 be duplicated per task inside the §10 budget. Each worker edits exactly one declared new file, never
@@ -212,7 +212,7 @@ be duplicated per task inside the §10 budget. Each worker edits exactly one dec
 serialize on `flock /tmp/opencode/apeiron-lane.lock`:
 
 ```sh
-cd /home/socol/Workspace/sanguine-apeiron/proof && \
+cd /home/socol/Workspace/sanguine/proof && \
   flock /tmp/opencode/apeiron-lane.lock \
   systemd-run --user --scope -p MemoryMax=<cap> -p MemorySwapMax=0 \
   env LEAN_NUM_THREADS=1 timeout 540s lake build Apeiron.<module>
@@ -253,7 +253,7 @@ W1 tasks are file-disjoint and parallel. W2 is one owner on `Audit.lean`. W3 is 
 | `APEIRON-PHYS-W2-T1` | C: `proof/Apeiron/Audit.lean` (serialized) | lead or assigned worker | `lake build` after adding `#audit` per headline; closed cone | scratch: insert an axiom-backed declaration and confirm the audit rejects; restore |
 | `APEIRON-PHYS-W3-T1` | C: design task (no file yet) | lead | corpus economics decision recorded as an intent update | n/a — planning |
 
-C = `/home/socol/Workspace/sanguine-apeiron`. W3-T1 is the re-root of the portable predecessor
+C = `/home/socol/Workspace/sanguine`. W3-T1 is the re-root of the portable predecessor
 items (Bekenstein chain, thermal statistics, chaos bound) and does not open before W2 is green and
 the lead resolves the spec's open questions.
 

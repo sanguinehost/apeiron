@@ -1,0 +1,34 @@
+{
+  "task": "APEIRON-FINALISE-W1-T1",
+  "base": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+  "source": "src/engine/tests.rs",
+  "sha256": "ae376c0eacf86d8847aa4d901f492147eec9ebae05edaa1528339908ceeaaed9",
+  "grade": "tested pending; no post-change test result",
+  "format": {
+    "command": "rustfmt --edition 2024 src/engine/tests.rs",
+    "exit": 0,
+    "scope": "owned source file"
+  },
+  "focused_gate": {
+    "command": "timeout -k3 150 python3 /home/socol/Workspace/apeiron/artifacts/gain-integration/fixture-gate.py /tmp/worktree-agent-APEIRON-FINALISE-W1-T1 /home/socol/Workspace/apeiron/artifacts/gain-integration/fixture-finalise",
+    "cwd": "/tmp/worktree-agent-APEIRON-FINALISE-W1-T1",
+    "budget_seconds": 150,
+    "script_elapsed_seconds": 0.6398,
+    "exit": 1,
+    "interpretation": "Infrastructure failure before compilation; not a test rejection. All ten carrier/test invocations exited 101.",
+    "diagnostics": [
+      "Cargo dependency manifest reports duplicate netfold key in cached git checkout.",
+      "Cargo cannot open the lock in /home/socol/oc-tmp/wt/target-w6-integ: read-only file system."
+    ]
+  },
+  "escalation": {
+    "purpose": "write to the explicitly assigned shared Cargo target lane",
+    "result": "automatic approval review failed because the selected model was at capacity; command was not executed"
+  },
+  "controls": {
+    "fixture_carrier_flip": "not run; Cargo gate infrastructure unavailable",
+    "checksum_golden_bit_flip": "not run; Cargo gate infrastructure unavailable",
+    "restoration": "not run; Cargo gate infrastructure unavailable"
+  },
+  "baseline": "../fixture-baseline/receipt.json: Q32 five focused tests exit 0; F32 five exit 101 under the pre-change tests."
+}

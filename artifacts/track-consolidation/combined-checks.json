@@ -1,0 +1,94 @@
+{
+  "budget_seconds": 180,
+  "seconds": 13.458516642996983,
+  "commands": [
+    {
+      "name": "combined-attention",
+      "argv": [
+        "cargo",
+        "test",
+        "--lib",
+        "--locked",
+        "--offline",
+        "engine::attn"
+      ],
+      "cwd": "/home/socol/oc-tmp/track-consolidation-candidate",
+      "exit": 0,
+      "seconds": 6.628040722003789
+    },
+    {
+      "name": "combined-gemm",
+      "argv": [
+        "cargo",
+        "test",
+        "--lib",
+        "--locked",
+        "--offline",
+        "engine::kern"
+      ],
+      "cwd": "/home/socol/oc-tmp/track-consolidation-candidate",
+      "exit": 0,
+      "seconds": 1.5661640490070567
+    },
+    {
+      "name": "combined-rope",
+      "argv": [
+        "cargo",
+        "test",
+        "--lib",
+        "--locked",
+        "--offline",
+        "qk_permute"
+      ],
+      "cwd": "/home/socol/oc-tmp/track-consolidation-candidate",
+      "exit": 0,
+      "seconds": 0.06372261800424894
+    },
+    {
+      "name": "combined-prefill",
+      "argv": [
+        "cargo",
+        "test",
+        "--lib",
+        "--locked",
+        "--offline",
+        "prefill_state_matches_two_phase_computation"
+      ],
+      "cwd": "/home/socol/oc-tmp/track-consolidation-candidate",
+      "exit": 0,
+      "seconds": 0.31373256900405977
+    },
+    {
+      "name": "combined-clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-features",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "/home/socol/oc-tmp/track-consolidation-candidate",
+      "exit": 0,
+      "seconds": 4.42165860899695
+    },
+    {
+      "name": "combined-format",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "cwd": "/home/socol/oc-tmp/track-consolidation-candidate",
+      "exit": 0,
+      "seconds": 0.46481917700293707
+    }
+  ],
+  "scope": "focused combined candidate, APEIRON_F32_CARRIER=1; no full suite or timing; no semantic proof"
+}

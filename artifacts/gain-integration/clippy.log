@@ -1,0 +1,9 @@
+error: duplicate key
+  --> ../../home/socol/.cargo/git/checkouts/fold-62126b3be665e44a/4cc1447/opsfold/Cargo.toml:61:1
+   |
+61 | netfold = { path = "../netfold", optional = true }
+   | ^^^^^^^
+   Compiling apeiron-derive v0.1.0 (/tmp/worktree-agent-APEIRON-FINALISE-W1-T1/derive)
+    Checking apeiron v0.1.0 (/tmp/worktree-agent-APEIRON-FINALISE-W1-T1)
+    Checking apeiron-fold-abi v0.0.0 (/tmp/worktree-agent-APEIRON-FINALISE-W1-T1/fold-abi)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.40s

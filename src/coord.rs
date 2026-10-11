@@ -224,7 +224,7 @@ pub struct Addr {
 ///
 /// # The trichotomy is a theorem over the reals, and it does not survive the base change
 ///
-/// The Lean development in `sanguine-apeiron/proof/Apeiron/Trichotomy` characterises the three
+/// The Lean development in `sanguine/proof/Apeiron/Trichotomy` characterises the three
 /// faces by three properties, each of which holds at exactly one sign of `sigma`. This crate's
 /// arithmetic is `Z/2^64`. **All three characterising properties are constant in `sigma` there**,
 /// so none of them can single a face out, and `proofs.rs` says so at full width or over `Z/2^8`
@@ -266,7 +266,7 @@ pub struct Addr {
 ///
 /// # What does transfer, and it is now a theorem upstream rather than an argument here
 ///
-/// `sanguine-apeiron/proof/Apeiron/Trichotomy/AnyRing.lean` carries the construction over an
+/// `sanguine/proof/Apeiron/Trichotomy/AnyRing.lean` carries the construction over an
 /// **arbitrary commutative ring**, so `Z/2^64` is an instance of it rather than an analogy for it.
 /// Two results cross:
 ///

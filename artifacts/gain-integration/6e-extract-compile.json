@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "cargo",
+    "check",
+    "--manifest-path",
+    "proof/extract/Cargo.toml",
+    "--locked",
+    "--offline"
+  ],
+  "cwd": "/tmp/worktree-agent-APEIRON-FINALISE-W1-T1",
+  "exit": 0,
+  "seconds": 0.015540016000159085,
+  "budget": 45
+}

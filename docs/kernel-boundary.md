@@ -335,7 +335,7 @@ realization obligations remain open and are not waived by this statement.
 
 **Identity theorem placement (lead-ratified).** Reusable odd-multiply injectivity on `ZMod (2^64)` (generalized to
 `2^w` if practical) belongs in the canonical corpus at
-`../sanguine-apeiron/proof/Apeiron/Table/WordIdentity.lean`, registered in `Audit.lean`. The Rust
+`../sanguine/proof/Apeiron/Table/WordIdentity.lean`, registered in `Audit.lean`. The Rust
 refinement belongs in `proof/corpus/TableRefinement/CoordIdentity.lean`, unfolding the generated
 `coord.spread` low-word truncation and instantiating at `PHI`. Pin-transport rule: the bridge pins
 canonical `880aa57e47e782ed7a9d9ee1974cfc87360b446b` (the revision carrying

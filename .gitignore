@@ -19,3 +19,6 @@ proof/extract/target/
 
 # local secrets (owner-provided); never tracked
 .env
+
+# the agent voice guide (owner-provided); never tracked
+/VOICE.md

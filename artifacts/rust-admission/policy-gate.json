@@ -1,0 +1,9 @@
+{
+  "task": "APEIRON-RUSTADMIT-W8-T1",
+  "owner": "lead",
+  "base": "e33977aa72534ad56775110be99cf002ca96fa37",
+  "gate": "exact reviewed insertion; deleting insertion equals previous policy bytes",
+  "exit": 0,
+  "seconds": 0.0009259619982913136,
+  "budget_seconds": 60
+}

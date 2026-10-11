@@ -1,0 +1,16 @@
+{
+  "Gemini": {
+    "exit": 124,
+    "budget_seconds": 150,
+    "verdict": null,
+    "reason": "provider transport error then timeout",
+    "log": "independent-review.jsonl"
+  },
+  "MiMo": {
+    "exit": 124,
+    "budget_seconds": 90,
+    "verdict": null,
+    "reason": "no verdict within budget",
+    "log": "independent-review-mimo.jsonl"
+  }
+}

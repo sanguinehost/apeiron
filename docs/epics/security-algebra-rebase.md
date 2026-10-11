@@ -82,7 +82,7 @@ The three questions are the verification question (formal + empirical), the cryp
 (structural/algebraic), and the implementation question (engineering/protocol), asked of the same
 artifact.
 
-### What the corpus declares (inventory, `../sanguine/proof`)
+### What the corpus declares (inventory, `../sanguine-ref/proof`)
 
 `Substrate/Algebra/Security/` (17 files):
 
@@ -313,8 +313,8 @@ channels, network adversaries and deployed protocols remain outside this specifi
   `target/open-areas/baseline.json`; task `APEIRON-SECURITY-W1-T1` in its isolated worktree.
 - **Status:** attribution review active. The finite interpretation task below can follow the
   documentary gate; canonical transport awaits a specified contract, owner and local gates.
-- **Source corpus:** `../sanguine` (old Sanguine proofs and prose), read-only; canonical target
-  `../sanguine-apeiron/proof/Apeiron` (`3d66ea3aa2fe1de5997b6b757247454a2f771358`).
+- **Source corpus:** `../sanguine-ref` (old Sanguine proofs and prose), read-only; canonical target
+  `../sanguine/proof/Apeiron` (`3d66ea3aa2fe1de5997b6b757247454a2f771358`).
   Old source revision: `e830d3fbdeb40319d1be0d1fc803e706748b6a3c`.
 
 ```text
@@ -324,8 +324,8 @@ REGISTER: planning/algebra attribution; no canonical transport, deployed secrecy
 CORPUS: pinned Basic.nilpotent_of_disc_zero, zeroDivisorPair_of_disc_one;
         IdempotentsAnyRing.ringComplementary_idem needs r²=σ, rs=1, 2h=1;
         old RecoveryTrinity.otp_perfect_secrecy is unique compatible key.
-REFERENCE: /home/socol/Workspace/sanguine/proof/Substrate/Algebra/Trinity/RecoveryTrinity.lean;
-           /home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Trichotomy/Basic.lean;
+REFERENCE: /home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Trinity/RecoveryTrinity.lean;
+           /home/socol/Workspace/sanguine/proof/Apeiron/Trichotomy/Basic.lean;
            both read at the pinned revisions above.
 GATE: complete-file/source attribution and git diff --check in this worktree;
       prior semantic security gate MISSING; documentary controls specified below.
@@ -393,7 +393,7 @@ federation identities have no forced face. Neither face proves secrecy by itself
 
 #### Source-grade theorem and claim ledger
 
-Paths in the first column are relative to `/home/socol/Workspace/sanguine/`. A grade citation is the
+Paths in the first column are relative to `/home/socol/Workspace/sanguine-ref/`. A grade citation is the
 source line that declares the grade, not the theorem line. The face column records the old
 interpretive proposal, not a proved face assignment; a generic statement remains **face unassigned**
 until a representation theorem names its algebra. `all faces` means the statement is generic.
@@ -688,9 +688,9 @@ assert 'e830d3fbdeb40319d1be0d1fc803e706748b6a3c' in text
 assert '3d66ea3aa2fe1de5997b6b757247454a2f771358' in text
 assert 'unique compatible key' in text and 'biased' in text
 assert 'face unassigned' in text and 'nilpotent_of_disc_zero' in text
-old = subprocess.check_output(['git', '-C', '../sanguine', 'show',
+old = subprocess.check_output(['git', '-C', '../sanguine-ref', 'show',
     'e830d3fbdeb40319d1be0d1fc803e706748b6a3c:proof/Substrate/Algebra/Trinity/RecoveryTrinity.lean'], text=True)
-canonical = subprocess.check_output(['git', '-C', '../sanguine-apeiron', 'show',
+canonical = subprocess.check_output(['git', '-C', '../sanguine', 'show',
     '3d66ea3aa2fe1de5997b6b757247454a2f771358:proof/Apeiron/Trichotomy/Basic.lean'], text=True)
 assert 'theorem otp_perfect_secrecy (c m : G) : ∃! k : G, m + k = c' in old
 assert 'theorem nilpotent_of_disc_zero' in canonical

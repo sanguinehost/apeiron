@@ -1,0 +1,42 @@
+error: duplicate key
+  --> ../../../.cargo/git/checkouts/fold-62126b3be665e44a/4cc1447/opsfold/Cargo.toml:61:1
+   |
+61 | netfold = { path = "../netfold", optional = true }
+   | ^^^^^^^
+warning: function `profile` is never used
+   --> src/table/locator.rs:943:8
+    |
+943 |     fn profile() -> H3_40 {
+    |        ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `apeiron` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (/home/socol/oc-tmp/wt/target-w7-t04/debug/deps/apeiron-fbaf6d3d98420708)
+
+running 21 tests
+test engine::attn::f32_block::tests::attn_block_segments ... ignored, timing harness
+test engine::attn::f32_block::tests::attn_block_timing ... ignored, timing harness
+test engine::attn::f32_core::tests::attn_f32_vs_q32_timing ... ignored, timing benchmark: run with cargo test --release --lib attn_f32_vs_q32_timing -- --ignored --nocapture
+test engine::attn::f32_core::tests::attn_layer_segments_k200 ... ignored, timing harness: run under the exclusive host lock
+test engine::attn::tests::carrier_explicit_selection ... ok
+test engine::attn::f32_block::tests::block_refusals_match_the_per_query_loop ... ok
+test engine::attn::tests::attn_head_key_outer_output_matches_component_oracle ... ok
+test engine::attn::f32_core::tests::test_attn_core_avx2_equals_scalar ... ok
+test engine::attn::tests::hoisted_row_base_matches_plane_index_oracles ... ok
+test engine::attn::tests::truncate_and_rollback_hold_for_both_carriers ... ok
+test engine::attn::f32_core::tests::test_attn_core_refusal_on_non_finite ... ok
+test engine::attn::tests::first_refusing_key_matches_weights_vec_shape ... ok
+test engine::attn::tests::attn_head_f32_carrier_matches_oracle ... ok
+test engine::attn::tests::inline_weight_fold_matches_weights_vec_oracle ... ok
+test engine::attn::tests::weight_at_recip_matches_weight_at_oracle ... ok
+test engine::attn::f32_core::tests::test_shared_exp_accuracy_in_attention ... ok
+test engine::attn::f32_block::tests::block_equals_per_query_loop_on_fallback_widths ... ok
+test engine::attn::f32_core::tests::test_attn_core_vs_q32_oracle_deviation ... ok
+test engine::attn::f32_block::tests::block_overflow_refusal_and_partial_output_match_the_loop ... ok
+test engine::attn::f32_core::tests::test_attn_core_tiled_equals_scalar_on_tile_edges ... ok
+test engine::attn::f32_block::tests::block_equals_per_query_loop ... ok
+
+test result: ok. 17 passed; 0 failed; 4 ignored; 0 measured; 426 filtered out; finished in 1.95s
+

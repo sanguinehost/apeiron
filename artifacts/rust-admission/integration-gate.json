@@ -1,0 +1,99 @@
+{
+  "whole_budget_seconds": 540,
+  "whole_seconds": 21.71543116599787,
+  "exit": 0,
+  "commands": [
+    {
+      "name": "rust-tests",
+      "argv": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "tools/dispatch/Cargo.toml",
+        "--locked",
+        "--offline",
+        "--target-dir",
+        "/home/socol/oc-tmp/rust-admission-entry-target"
+      ],
+      "cwd": "/home/socol/Workspace/apeiron",
+      "exit": 0,
+      "seconds": 0.263679203002539,
+      "log": "rust-tests.log"
+    },
+    {
+      "name": "rust-clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--manifest-path",
+        "tools/dispatch/Cargo.toml",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "--target-dir",
+        "/home/socol/oc-tmp/rust-admission-entry-target",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "/home/socol/Workspace/apeiron",
+      "exit": 0,
+      "seconds": 0.9651100089977263,
+      "log": "rust-clippy.log"
+    },
+    {
+      "name": "rust-format",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "tools/dispatch/Cargo.toml",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "cwd": "/home/socol/Workspace/apeiron",
+      "exit": 0,
+      "seconds": 0.0634744650014909,
+      "log": "rust-format.log"
+    },
+    {
+      "name": "source-proof-controls",
+      "argv": [
+        "proof/dispatch/regen.sh",
+        "--check",
+        "--controls"
+      ],
+      "cwd": "/home/socol/Workspace/apeiron",
+      "exit": 0,
+      "seconds": 11.780760993999138,
+      "log": "source-proof-controls.log"
+    },
+    {
+      "name": "public-self-test",
+      "argv": [
+        "python3",
+        "tools/dispatch/admit.py",
+        "--self-test"
+      ],
+      "cwd": "/home/socol/Workspace/apeiron",
+      "exit": 0,
+      "seconds": 6.775971122006013,
+      "log": "public-self-test.log"
+    },
+    {
+      "name": "public-unregistered-launch",
+      "argv": [
+        "python3",
+        "tools/dispatch/admit.py",
+        "--launch",
+        "/tmp/opencode/rust-admission/unregistered-launch.json"
+      ],
+      "cwd": "/home/socol/Workspace/apeiron",
+      "exit": 1,
+      "seconds": 1.8662059119960759,
+      "log": "public-unregistered-launch.log"
+    }
+  ],
+  "unregistered_worker_marker_absent": true
+}

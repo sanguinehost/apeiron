@@ -13,7 +13,7 @@ REGISTER: planning/refinement; excludes production, backend, canonical-source an
 CORPUS: ringComplementary_idem requires root, inverse and half witnesses; old otp_perfect_secrecy
         says only forall c m, exists unique k, m + k = c. Source grades retained; no new proof.
 REFERENCE: /home/socol/Workspace/apeiron/target/aeneas-model/lean/Aeneas/Std/Vec.lean;
-           /home/socol/Workspace/sanguine/proof/Substrate/Algebra/Trinity/RecoveryTrinity.lean.
+           /home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Trinity/RecoveryTrinity.lean.
 GATE: git diff --check -- docs/epics/resource-security-continuation.md,
       cwd assigned worktree. Semantic gates MISSING/unrun as specified below; no invented red.
 GRADE: anchor before/after; no runtime measurement or proof build in a documentation spike.

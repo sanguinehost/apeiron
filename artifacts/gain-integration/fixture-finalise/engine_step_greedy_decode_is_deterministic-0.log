@@ -1,0 +1,9 @@
+error: duplicate key
+  --> ../../home/socol/.cargo/git/checkouts/fold-62126b3be665e44a/4cc1447/opsfold/Cargo.toml:61:1
+   |
+61 | netfold = { path = "../netfold", optional = true }
+   | ^^^^^^^
+error: failed to open: /home/socol/oc-tmp/wt/target-w6-integ/debug/.cargo-build-lock
+
+Caused by:
+  Read-only file system (os error 30)

@@ -1,0 +1,7 @@
+t04-attn-on EXIT=0 4s test result: ok. 17 passed; 0 failed; 4 ignored; 0 measured; 426 filtered out; finished in 1.98s
+t04-attn-off EXIT=0 2s test result: ok. 17 passed; 0 failed; 4 ignored; 0 measured; 426 filtered out; finished in 1.95s
+t04-clippy EXIT=0 0s 
+t03-kern-on EXIT=0 2s test result: ok. 43 passed; 0 failed; 12 ignored; 0 measured; 388 filtered out; finished in 2.10s
+t03-kern-off EXIT=0 3s test result: ok. 43 passed; 0 failed; 12 ignored; 0 measured; 388 filtered out; finished in 2.05s
+t03-clippy EXIT=0 0s 
+DONE

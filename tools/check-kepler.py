@@ -40,7 +40,7 @@ What is checked
   revision equals the manifest's resolved revision and any revision the
   manifest records for that package; the pinned revision is a published commit
   in the sibling corpus checkout (``git -C <corpus> cat-file -e <rev>^{commit}``,
-  default ``/home/socol/Workspace/sanguine-apeiron``, override with
+  default ``/home/socol/Workspace/sanguine``, override with
   ``--corpus``); and the bridge roots retain ``Growable.ReadLoop`` (the
   sequencing invariant: the other owner's root entry lands before the pin
   bump). A Kepler root entry is deliberately not required until W5.
@@ -994,7 +994,7 @@ def contract_campaign() -> int:
 
 LAKEFILE_REL = "proof/corpus/lakefile.lean"
 MANIFEST_REL = "proof/corpus/lake-manifest.json"
-CORPUS_CHECKOUT = Path("/home/socol/Workspace/sanguine-apeiron")
+CORPUS_CHECKOUT = Path("/home/socol/Workspace/sanguine")
 PIN_HEX_RE = re.compile(r"^[0-9a-f]{40}$")
 ALL_ZEROS_REV = "0" * 40
 GIT_TIMEOUT_S = 20
@@ -3610,7 +3610,7 @@ def cmd_stage_missing(stage: str) -> int:
         "'pin' (APEIRON-KEPLER-W4-T0), 'bridge' (APEIRON-KEPLER-W5-T0), "
         "'runtime' (APEIRON-KEPLER-W6-T0) and 'barrier' (APEIRON-KEPLER-W7-T0). "
         "Stages 'foundation'/'enclosure' belong to the corpus checker "
-        "(scripts/check-kepler.py in sanguine-apeiron). A missing gate is not "
+        "(scripts/check-kepler.py in sanguine). A missing gate is not "
         "success."
     )
     return EXIT_REJECT

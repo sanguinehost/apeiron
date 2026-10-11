@@ -1,0 +1,26 @@
+   Compiling libc v0.2.189
+    Checking apeiron_word v0.0.0 (/tmp/worktree-agent-APEIRON-FINALISE-W1-T1/proof/extract)
+error[E0583]: file not found for module `f32_core`
+  --> ../../src/engine/attn.rs:12:1
+   |
+12 | pub mod f32_core;
+   | ^^^^^^^^^^^^^^^^^
+   |
+   = help: to create the module `f32_core`, create file "../../src/engine/f32_core.rs" or "../../src/engine/f32_core/mod.rs"
+   = note: if there is a `mod f32_core` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0433]: cannot find `mixer` in `engine`
+ --> ../../src/engine/attn.rs:6:20
+  |
+6 | use crate::engine::mixer::f32_carrier::q32_to_f32;
+  |                    ^^^^^ could not find `mixer` in `engine`
+
+error[E0432]: unresolved import `crate::engine::mixer`
+ --> ../../src/engine/attn.rs:7:20
+  |
+7 | use crate::engine::mixer::{carrier_from_env, Carrier};
+  |                    ^^^^^ could not find `mixer` in `engine`
+
+Some errors have detailed explanations: E0432, E0433, E0583.
+For more information about an error, try `rustc --explain E0432`.
+error: could not compile `apeiron_word` (lib) due to 3 previous errors

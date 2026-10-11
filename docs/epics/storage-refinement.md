@@ -957,7 +957,7 @@ The query `q` is related to `sigma`, `held` and `address` by the existing carrie
 beyond the already recorded relocation result, `SearchDecisionCorrect` and `CallbackLaws`; it makes
 the real extracted commit call explicit. Its canonical target remains
 `Apeiron.Table.insertWith` at
-`/home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Table/Basic.lean:80-81`.
+`/home/socol/Workspace/sanguine/proof/Apeiron/Table/Basic.lean:80-81`.
 
 **Audit evidence and digest correction.** Rooting the old pending-commit body with Aeneas
 `505b6ca-dirty` exits 1 at `proof/regen.sh`'s audit. `Flat::index` contributes
@@ -1007,7 +1007,7 @@ key and value; it is representation preservation of the canonical `Apeiron.Table
 in the pending apply/commit decision above.
 
 Its canonical target is exactly `Apeiron.Table.insertWith` at
-`/home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Table/Basic.lean:80-81`, under
+`/home/socol/Workspace/sanguine/proof/Apeiron/Table/Basic.lean:80-81`, under
 `RepR t (Apeiron.Table.HMap (Sigma × K) V)`. New-first merge occurs exactly once in the pending apply;
 relocation invokes none. `rebuild_preserves` is now proved in `Growable/Rebuild.lean`; the
 composition headline is not. This premise extension weakens no existing
@@ -2071,7 +2071,7 @@ the two governing documents (no build lane). They share the authorized represent
 SCOPE:      the three slices above; fixed inline storage, real-body extraction, bounded proof plan
 REGISTER:   representation/extraction/test/planning; excludes completed Rust-to-HMap refinement
 CORPUS:     Apeiron.Table "get_insertWith_self", "get_build_acc", "get_build_append"; native proved
-REFERENCE:  /home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Table/{Basic,Adjacency,Home}.lean
+REFERENCE:  /home/socol/Workspace/sanguine/proof/Apeiron/Table/{Basic,Adjacency,Home}.lean
 GATE:       cargo build/test --workspace --all-features --locked; proof/regen.sh --check (root)
             supplied red: capacity/try_reserve_exact/TryReserveError axioms after arrow removal
 GRADE:      tested representation; clean extraction/elaboration, not proved table refinement
@@ -2433,7 +2433,7 @@ SCOPE:      the three slices above; remove competing containers, expose only Tab
 REGISTER:   planning/API removal; excludes completed implementation, refinement and performance
 CORPUS:     Apeiron.Table "get_build_acc", "build_eq_of_key_streams_eq",
             "build_gauge_invariance"; Adjacency and Home, native grade proved
-REFERENCE:  /home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Table/{Basic,Adjacency,Home}.lean
+REFERENCE:  /home/socol/Workspace/sanguine/proof/Apeiron/Table/{Basic,Adjacency,Home}.lean
 GATE:       root: cargo check --lib --locked baseline 0; cargo test --doc --locked after deletion
             101: E0599, Table::new missing at src/merge.rs:47; git diff --check 0
 GRADE:      anchor; declaration only, no methods or executing container; no new proof/measurement
@@ -2490,7 +2490,7 @@ waves 5-7 remain blocked on a generated `Table` representation.
 SCOPE:      proof extraction roots/generated file, TableRefinement/audits/pin, storage status docs
 REGISTER:   extraction/refinement; excludes compiler, allocator and ungenerated Table transitions
 CORPUS:     Apeiron.Table Basic/Adjacency/Home at 50c94192399add3b9f8e64bd14e36d8cba270705
-REFERENCE:  /home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Table/{Basic,Adjacency,Home}.lean
+REFERENCE:  /home/socol/Workspace/sanguine/proof/Apeiron/Table/{Basic,Adjacency,Home}.lean
 GATE:       proof/regen.sh --check; lake build in proof/corpus; initial stale source digest exit 1
 GRADE:      proved canonical contracts/error constructors; Rust Table implementation link open
 ```
@@ -3122,7 +3122,7 @@ grant that licenses taking a second representation into the tree is itself uncom
 by `APEIRON-COUNT-W1-T3`; a citation against either tree is checkable only against its named digest.
 The canonical object is unchanged:
 `Apeiron.Table.{HMap,get,insertWith,build}` in
-`/home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Table/Basic.lean` (`HMap:63`, `get:71`,
+`/home/socol/Workspace/sanguine/proof/Apeiron/Table/Basic.lean` (`HMap:63`, `get:71`,
 `insertWith:80-81`, `build:121`, `get_build_acc:134`, `get_insertWith_self:89`,
 `get_insertWith_ne:97`, `build_eq_of_key_streams_eq:169`).
 
@@ -3278,7 +3278,7 @@ default is `0`; the overflow policy is **checked refusal, never wrapping** — a
 refusal at the commit point on option (b)'s transactional terms, and a refused merge leaves the
 committed state unchanged and writes nothing. The merge is `f(new, old) = new + old`, in the new-first
 argument order of `Apeiron.Table.insertWith` (`insertWith f k v m = fun x => if x = k then f v (m x)
-else m x`, `/home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Table/Basic.lean:80-81`); because
+else m x`, `/home/socol/Workspace/sanguine/proof/Apeiron/Table/Basic.lean:80-81`); because
 `i64` addition is commutative the new-first order is not observable through the merge itself, and the
 order clause 6 fixes is the input order of the build.
 
@@ -3308,7 +3308,7 @@ widening of `StorageError` by `CountOverflow`. It lives in the counting module s
 touches at most three files and `src/table.rs` is not edited for an error variant. The default is a
 parameter, matching `Apeiron.Table.build`'s own default argument
 (`build f d kvs = kvs.foldl (insertWith …) (fun _ => d)`,
-`/home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Table/Basic.lean:121-122`), frozen here at `0`:
+`/home/socol/Workspace/sanguine/proof/Apeiron/Table/Basic.lean:121-122`), frozen here at `0`:
 `HMap K V = K → V` (`Basic.lean:63`) is a total function whose absence is the default, and `0` is the
 additive identity of `Int64`, so `get` at a coordinate never written answers `0` and a build of an
 empty stream is the constant-zero table.

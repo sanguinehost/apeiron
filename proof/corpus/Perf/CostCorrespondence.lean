@@ -9,6 +9,9 @@ import Mathlib.LinearAlgebra.Matrix.Trace
 import Perf.Roofline
 import Perf.Chain
 import Perf.Overlap
+import Apeiron.Trichotomy.Basic
+
+set_option linter.apeiron.notation false
 
 /-!
 # The correspondence between the performance cost model and the quantisation cost model
@@ -439,6 +442,79 @@ theorem kfac_w15b :
     ((317 : ℚ) / 100 < 31760 / 10 ^ 4 ∧ (235 : ℚ) / 100 < 23526 / 10 ^ 4) := by
   norm_num
 
+/-- **The high-resolution regime.** When the level `θ` lies below every `λ_i` (no component is dropped), the
+water-filling distortion is `Σ min λ_i θ = |I| θ` and the rate constraint `Σ log (λ_i / θ) / c = R` fixes
+`log θ = (Σ log λ_i − c R) / |I|`: the log-determinant form, so `θ` falls by the factor `exp (−c / |I|)` per unit
+of rate. This is the Gaussian achievability side; it is not a converse for a non-Gaussian source. -/
+theorem waterfill_highres {ι : Type*} (I : Finset ι) (lam : ι → ℝ) {c θ R : ℝ} (hc : 0 < c) (hθ : 0 < θ)
+    (hI : I.Nonempty) (hlam : ∀ i ∈ I, 0 < lam i) (hge : ∀ i ∈ I, θ ≤ lam i)
+    (hR : ∑ i ∈ I, Real.log (lam i / θ) / c = R) :
+    ∑ i ∈ I, min (lam i) θ = I.card * θ ∧
+      Real.log θ = (∑ i ∈ I, Real.log (lam i) - c * R) / I.card := by
+  have hcard : (0 : ℝ) < I.card := by exact_mod_cast hI.card_pos
+  constructor
+  · rw [Finset.sum_congr rfl fun i hi => min_eq_right (hge i hi)]
+    simp
+  · have hsum : ∑ i ∈ I, Real.log (lam i / θ) = c * R := by
+      rw [← hR, ← Finset.sum_div]
+      field_simp
+    have hdiv : ∑ i ∈ I, Real.log (lam i / θ) = ∑ i ∈ I, Real.log (lam i) - I.card * Real.log θ := by
+      rw [Finset.sum_congr rfl fun i hi => Real.log_div (hlam i hi).ne' hθ.ne']
+      simp [Finset.sum_sub_distrib]
+    rw [eq_div_iff hcard.ne']
+    linarith
+
+/-- **Distortion ratio per unit rate.** In the high-resolution regime at two rates `R`, `R'` (levels `θ`, `θ'`
+both below every `λ_i`), `KL(R) / KL(R') = exp (−c (R − R') / |I|)`; with `c = 2 ln 2` this is `4^{−(R−R')/|I|}`
+for `R` counted in total bits, i.e. `4^{−ΔR}` per bit per weight. -/
+theorem waterfill_exclusion {ι : Type*} (I : Finset ι) (lam : ι → ℝ) {c θ θ' R R' : ℝ} (hc : 0 < c)
+    (hθ : 0 < θ) (hθ' : 0 < θ') (hI : I.Nonempty) (hlam : ∀ i ∈ I, 0 < lam i)
+    (hge : ∀ i ∈ I, θ ≤ lam i) (hge' : ∀ i ∈ I, θ' ≤ lam i)
+    (hR : ∑ i ∈ I, Real.log (lam i / θ) / c = R) (hR' : ∑ i ∈ I, Real.log (lam i / θ') / c = R') :
+    (∑ i ∈ I, min (lam i) θ) / (∑ i ∈ I, min (lam i) θ') = Real.exp (-(c * (R - R')) / I.card) := by
+  have hcard : (0 : ℝ) < I.card := by exact_mod_cast hI.card_pos
+  obtain ⟨h1, h2⟩ := waterfill_highres I lam hc hθ hI hlam hge hR
+  obtain ⟨h1', h2'⟩ := waterfill_highres I lam hc hθ' hI hlam hge' hR'
+  rw [h1, h1', mul_div_mul_left _ _ hcard.ne']
+  have hlog : Real.log (θ / θ') = -(c * (R - R')) / I.card := by
+    rw [Real.log_div hθ.ne' hθ'.ne', h2, h2']
+    field_simp
+    ring
+  rw [← hlog, Real.exp_log (div_pos hθ hθ')]
+
+/-- **The Shannon-lower-bound gap, as algebra.** Hypothesis `hslb` (an `anchor`, Shannon 1959, not proved here):
+every code that reaches distortion `D` has rate at least `Rg D − J`, where `Rg` is the Gaussian rate and `J ≥ 0` the
+negentropy (marginal plus total correlation). Then a code at rate `R_T` that reaches `D_Q` requires
+`J ≥ Rg D_Q − R_T`: the negentropy a 1.18 b/w code must have in the source. -/
+theorem slb_gap {reach : ℝ → ℝ → Prop} {Rg : ℝ → ℝ} {J RT DQ : ℝ}
+    (hslb : ∀ R D, reach R D → Rg D - J ≤ R) (h : reach RT DQ) : Rg DQ - RT ≤ J := by
+  have := hslb RT DQ h
+  linarith
+
+/-- **Verdict for the converse measurements** (Qwen2.5-0.5B, 168 tensors, 100 C4 chunks;
+`tools/onebit/converse.py`, receipts `2026-10-11-converse-{controls,main,ekfac}`). Grade `measured` for the numbers,
+`anchor` for the Shannon lower bound. In order:
+
+1. `K0` from log-determinants 1.1918 is within 15% of the bisection `K0` at 4.5 b/w (1.2271) and at 1.18 b/w (1.3123);
+2. the separable-normalised K-FAC coefficients at the Q4-matching level have marginal negentropy 6.9e-5 b per
+   component (below 1e-3), and 0.00815 b in the raw weight basis (below 1e-2);
+3. the causal-neighbour context gain is -0.031 b, the same sign and size as the iid control (-0.032 b): no context gain;
+4. the Gaussian total-correlation excess over the shuffled null is 0.14143 b per weight, so marginal plus structure
+   (0.00815 + 0.14143) is below 3/20 b/w;
+5. `slb_gap` demands `J ≥ Rg(D_Q4) − 1.18`: 3.174 − 1.18 = 1.994 b/w for the separable rate and 2.353 − 1.18 = 1.173
+   b/w for the oracle rate; the measured `J` is below 3/20, a factor above 12 and above 7 short;
+6. eigenvalue-corrected K-FAC leaves `had-gptq1` at 0.70085 of the exact quadratic (K-FAC 0.65897), below 0.85, and
+   the order flip persists (ekfac `had-gptq1` 0.29360 < `IQ1_M` 0.39060, exact 0.41892 > `IQ1_S` 0.39085). -/
+theorem converse_w15c :
+    ((85 : ℚ) / 100 < 11918 / 12271 ∧ (11918 : ℚ) / 12271 < 115 / 100) ∧
+    ((85 : ℚ) / 100 < 11918 / 13123 ∧ (11918 : ℚ) / 13123 < 115 / 100) ∧
+    ((69 : ℚ) / 10 ^ 6 < 1 / 10 ^ 3 ∧ (815 : ℚ) / 10 ^ 5 < 1 / 10 ^ 2) ∧
+    ((-31 : ℚ) / 10 ^ 3 < 0 ∧ (-32 : ℚ) / 10 ^ 3 < 0) ∧
+    ((815 : ℚ) / 10 ^ 5 + 14143 / 10 ^ 5 < 3 / 20) ∧
+    ((12 : ℚ) * (3 / 20) < 3174 / 1000 - 118 / 100 ∧ (7 : ℚ) * (3 / 20) < 2353 / 1000 - 118 / 100) ∧
+    (((70085 : ℚ) / 10 ^ 5 < 85 / 100) ∧ (29360 : ℚ) < 39060 ∧ (39085 : ℚ) < 41892) := by
+  norm_num
+
 /-! ## 5 · Carrier ↔ coder -/
 
 /-- **The rate is the decode numerator.** A decode step reads `N · R / 8` bytes at bandwidth `BW`; the floor ratio of
@@ -451,6 +527,148 @@ theorem tg_floor_ratio {N BW R₁ R₂ : ℝ} (hN : 0 < N) (hBW : 0 < BW) (hR₂
 theorem qwen27b_target_floor :
     (27 * 10 ^ 9 : ℚ) * 118 / 100 / 8 = 3982500000 ∧ (3982500000 : ℚ) / (960 * 10 ^ 9) < 415 / 100000 := by
   constructor <;> norm_num
+
+/-! ## 8 · Faces of the pipeline -/
+
+/-- **Discriminant of a real 2×2 matrix.** `disc2 M = (tr M)²/4 − det M`. Its sign gives the face of the algebra
+generated by `M`: negative (elliptic), zero (parabolic), positive (hyperbolic). -/
+noncomputable def disc2 (M : Matrix (Fin 2) (Fin 2) ℝ) : ℝ := M.trace ^ 2 / 4 - M.det
+
+/-- **Discriminant in entries.** `disc2 [[a, b], [c, d]] = ((a − d)/2)² + b c`. -/
+theorem disc2_eq (a b c d : ℝ) : disc2 !![a, b; c, d] = ((a - d) / 2) ^ 2 + b * c := by
+  simp [disc2, Matrix.trace_fin_two, Matrix.det_fin_two_of]
+  ring
+
+/-- **Cayley–Hamilton for 2×2.** With `N = M − (tr M / 2) · 1` (trace zero), `N² = disc2 M · 1`. So the algebra
+generated by `M` is `R[x]/(x² − disc2 M)`. -/
+theorem disc2_sq (M : Matrix (Fin 2) (Fin 2) ℝ) :
+    (M - (M.trace / 2) • (1 : Matrix (Fin 2) (Fin 2) ℝ)) * (M - (M.trace / 2) • (1 : Matrix (Fin 2) (Fin 2) ℝ)) =
+      disc2 M • (1 : Matrix (Fin 2) (Fin 2) ℝ) := by
+  ext i j
+  fin_cases i <;> fin_cases j <;>
+    simp [disc2, Matrix.mul_apply, Fin.sum_univ_two, Matrix.trace_fin_two, Matrix.det_fin_two, Matrix.one_apply] <;>
+    ring
+
+/-- **The face of a 2×2 step is the canonical σ.** With `N = M − (tr M / 2)·1`, the point `a·1 + b·N` multiplies as
+`Apeiron.Trichotomy.mul (disc2 M)` on its coordinates `(a, b)`: the algebra generated by `M` is `R[x]/(x² − disc2 M)`. -/
+theorem face_mul_canonical (M : Matrix (Fin 2) (Fin 2) ℝ) (a b c d : ℝ) :
+    let N := M - (M.trace / 2) • (1 : Matrix (Fin 2) (Fin 2) ℝ)
+    (a • 1 + b • N) * (c • 1 + d • N) =
+      (Apeiron.Trichotomy.mul (disc2 M) (a, b) (c, d)).1 • 1 + (Apeiron.Trichotomy.mul (disc2 M) (a, b) (c, d)).2 • N := by
+  intro N
+  have hN : N * N = disc2 M • (1 : Matrix (Fin 2) (Fin 2) ℝ) := disc2_sq M
+  simp only [add_mul, mul_add, Matrix.smul_mul, Matrix.mul_smul, smul_smul, one_mul, mul_one, hN]
+  module
+
+/-- **Elliptic face (rotation).** A plane rotation by `θ` with `sin θ ≠ 0` has `disc2 = −sin² θ < 0`. This is the
+Hadamard/incoherence rotation. -/
+theorem rotation_elliptic (θ : ℝ) (h : Real.sin θ ≠ 0) :
+    disc2 !![Real.cos θ, -Real.sin θ; Real.sin θ, Real.cos θ] < 0 := by
+  have h2 : 0 < Real.sin θ ^ 2 := lt_of_le_of_ne (sq_nonneg _) (Ne.symm (pow_ne_zero 2 h))
+  rw [disc2_eq]
+  nlinarith [h2]
+
+/-- **Parabolic face (shear).** A unit upper-triangular `[[1, c], [0, 1]]` has `disc2 = 0`. This is the unit-triangular
+factor of the LDL/Cholesky error feedback. -/
+theorem shear_parabolic (c : ℝ) : disc2 !![1, c; 0, 1] = 0 := by
+  rw [disc2_eq]
+  ring
+
+/-- **Nilpotent shear.** `([[1, c], [0, 1]] − 1)² = 0`: the shear minus identity is nilpotent of index 2. -/
+theorem shear_nilpotent (c : ℝ) :
+    (!![1, c; 0, 1] - (1 : Matrix (Fin 2) (Fin 2) ℝ)) * (!![1, c; 0, 1] - (1 : Matrix (Fin 2) (Fin 2) ℝ)) = 0 := by
+  ext i j
+  fin_cases i <;> fin_cases j <;>
+    simp [Matrix.mul_apply, Fin.sum_univ_two, Matrix.one_apply]
+
+/-- **Hyperbolic face (rebalance).** `disc2 diag(s, s⁻¹) = ((s − s⁻¹)/2)² > 0` for `s > 0`, `s ≠ 1`: the AWQ/SmoothQuant
+scale pair lies on the hyperbolic face. -/
+theorem rebalance_hyperbolic (s : ℝ) (hs : 0 < s) (h1 : s ≠ 1) : 0 < disc2 !![s, 0; 0, s⁻¹] := by
+  have hne : s - s⁻¹ ≠ 0 := by
+    intro h
+    have e : s * (s - s⁻¹) = s * s - 1 := by rw [mul_sub, mul_inv_cancel₀ hs.ne']
+    rw [h, mul_zero] at e
+    have h3 : (s - 1) * (s + 1) = 0 := by linear_combination -e
+    rcases mul_eq_zero.mp h3 with h4 | h4
+    · exact h1 (by linarith)
+    · linarith
+  rw [disc2_eq, mul_zero, add_zero]
+  exact lt_of_le_of_ne (sq_nonneg _) (Ne.symm (pow_ne_zero 2 (div_ne_zero hne two_ne_zero)))
+
+/-- **Rebalance preserves the product.** Scaling a weight column by `s` and the matching activation row by `s⁻¹`
+leaves `(s w)(s⁻¹ a) = w a` unchanged. -/
+theorem rebalance_preserves_product (s w a : ℝ) (hs : s ≠ 0) : (s * w) * (s⁻¹ * a) = w * a := by
+  have e : (s * w) * (s⁻¹ * a) = (s * s⁻¹) * (w * a) := by ring
+  rw [e, mul_inv_cancel₀ hs, one_mul]
+
+/-- **Corrector identity.** For `A = ‖p‖²`, `B = ⟪δ, p⟫`, `C = ‖δ‖²`:
+`‖δ + c p‖² A = C A − B² + (B + c A)²`. Every `c` leaves a non-negative remainder `(B + cA)²`. -/
+theorem corrector_identity {E : Type*} [NormedAddCommGroup E] [InnerProductSpace ℝ E] (δ p : E) (c : ℝ) :
+    ‖δ + c • p‖ ^ 2 * ‖p‖ ^ 2 =
+      ‖δ‖ ^ 2 * ‖p‖ ^ 2 - inner ℝ δ p ^ 2 + (inner ℝ δ p + c * ‖p‖ ^ 2) ^ 2 := by
+  rw [norm_add_sq_real, norm_smul, real_inner_smul_right, Real.norm_eq_abs, mul_pow, sq_abs]
+  ring
+
+/-- **Corrector residual (lower bound).** The residual of a corrector `δ + c p` in the Fisher metric is at least the
+negative pair discriminant over `‖p‖²`: `‖δ‖²‖p‖² − ⟪δ,p⟫² ≤ ‖δ + c p‖²‖p‖²`. The residual is the score-form
+discriminant of `score_form_disc_nonpos` with its sign reversed. -/
+theorem corrector_residual {E : Type*} [NormedAddCommGroup E] [InnerProductSpace ℝ E] (δ p : E) (c : ℝ) :
+    ‖δ‖ ^ 2 * ‖p‖ ^ 2 - inner ℝ δ p ^ 2 ≤ ‖δ + c • p‖ ^ 2 * ‖p‖ ^ 2 := by
+  have h := corrector_identity δ p c
+  have h2 := sq_nonneg (inner ℝ δ p + c * ‖p‖ ^ 2)
+  linarith
+
+/-- **Corrector optimum.** For `p ≠ 0` the choice `c = −⟪δ,p⟫/‖p‖²` attains the bound with equality:
+`‖δ + c p‖² ‖p‖² = ‖δ‖²‖p‖² − ⟪δ,p⟫²`. -/
+theorem corrector_attained {E : Type*} [NormedAddCommGroup E] [InnerProductSpace ℝ E] (δ p : E) (hp : p ≠ 0) :
+    ‖δ + (-(inner ℝ δ p) / ‖p‖ ^ 2) • p‖ ^ 2 * ‖p‖ ^ 2 = ‖δ‖ ^ 2 * ‖p‖ ^ 2 - inner ℝ δ p ^ 2 := by
+  have hA : ‖p‖ ^ 2 ≠ 0 := pow_ne_zero 2 (norm_ne_zero_iff.mpr hp)
+  have h0 : inner ℝ δ p + (-(inner ℝ δ p) / ‖p‖ ^ 2) * ‖p‖ ^ 2 = 0 := by
+    field_simp
+    ring
+  rw [corrector_identity, h0]
+  ring
+
+/-- **Parabolic boundary of the corrector.** The optimal residual vanishes exactly when the pair discriminant
+`⟪δ,p⟫² − ‖δ‖²‖p‖²` vanishes, that is when `δ` and `p` are parallel (Cauchy–Schwarz equality). -/
+theorem corrector_zero_iff {E : Type*} [NormedAddCommGroup E] [InnerProductSpace ℝ E] (δ p : E) (hp : p ≠ 0) :
+    ‖δ + (-(inner ℝ δ p) / ‖p‖ ^ 2) • p‖ ^ 2 * ‖p‖ ^ 2 = 0 ↔
+      inner ℝ δ p ^ 2 - ‖δ‖ ^ 2 * ‖p‖ ^ 2 = 0 := by
+  rw [corrector_attained δ p hp]
+  constructor <;> intro h <;> linarith
+
+/-- **Floor invariance under change of basis.** For invertible `T`, the product `(T S Tᵀ)((Tᵀ)⁻¹ F T⁻¹)` is the
+conjugate `T (S F) T⁻¹`, so its characteristic polynomial equals that of `S F`. The reverse water-filling floor is a
+function of the eigenvalues of `S F`; no invertible reparametrisation of the weights (rotation, rebalance, triangular
+feedback) moves it. -/
+theorem spectrum_conj {n : Type*} [Fintype n] [DecidableEq n] (S F T : Matrix n n ℝ) (hT : IsUnit T.det) :
+    ((T * S * Tᵀ) * ((Tᵀ)⁻¹ * F * T⁻¹)).charpoly = (S * F).charpoly := by
+  have hTT : IsUnit Tᵀ.det := by rw [Matrix.det_transpose]; exact hT
+  have h1 : Tᵀ * (Tᵀ)⁻¹ = 1 := Matrix.mul_nonsing_inv Tᵀ hTT
+  have hinv : T⁻¹ * T = 1 := Matrix.nonsing_inv_mul T hT
+  have key : (T * S * Tᵀ) * ((Tᵀ)⁻¹ * F * T⁻¹) = T * (S * F) * T⁻¹ := by
+    calc (T * S * Tᵀ) * ((Tᵀ)⁻¹ * F * T⁻¹) = T * S * (Tᵀ * (Tᵀ)⁻¹) * F * T⁻¹ := by
+          simp only [Matrix.mul_assoc]
+      _ = T * (S * F) * T⁻¹ := by rw [h1]; simp only [Matrix.mul_one, Matrix.mul_assoc]
+  rw [key, Matrix.charpoly_mul_comm (T * (S * F)) T⁻¹, ← Matrix.mul_assoc T⁻¹ T (S * F), hinv, Matrix.one_mul]
+
+/-- **Verdict, method gap at 1.133 b/w.** The fold-block KL `3.0897` over the uniform-rate separable floor `0.3887`
+exceeds `7`. Measured inputs from the W15 receipts. -/
+theorem method_gap_1133 : (3.0897 : ℝ) / 0.3887 > 7 := by norm_num
+
+/-- **Verdict, reverse water-filling gain at 1.133 b/w.** The uniform-rate separable floor `0.3887` over the
+water-filled floor `0.2837` lies in `(1.3, 1.4)`. -/
+theorem waterfill_gain_1133 : (0.3887 : ℝ) / 0.2837 > 1.3 ∧ (0.3887 : ℝ) / 0.2837 < 1.4 := by
+  constructor <;> norm_num
+
+/-- **Verdict, floor gaps against Q4_K_M.** The oracle floor `0.1128` and the separable floor `0.2837`, over the
+Q4_K_M K-FAC KL `0.015665`, exceed `7` and `18`. -/
+theorem floor_gap_1133 : (0.1128 : ℝ) / 0.015665 > 7 ∧ (0.2837 : ℝ) / 0.015665 > 18 := by
+  constructor <;> norm_num
+
+/-- **Verdict, variance ladder refuted.** The best structured variance model's coefficient-only rate `R* = 3.129`
+bits per weight lies within `0.1` of the separable `3.176`: it recovers less than `0.1` b/w. -/
+theorem variance_ladder_refuted : (3.129 : ℝ) > 3.176 - 0.1 := by norm_num
 
 end CostCorrespondence
 

@@ -1,0 +1,31 @@
+{
+  "archive_sha256": "3daf8dcf99b09c9faf38061f9087733e1521e388fd9004edc4a4d6f97048beb9",
+  "members": 42,
+  "source_sha256": {
+    "proof/DispatchAdmission.lean": "7f2ca1e195e56c00cf4b08d17ffd2a6e7f15a02d9408d22a3d4000955e38dce0",
+    "tools/dispatch/admit.py": "db6a4730dc245d4995de634266cc9369b70c0f768a79493a0e0fbab6ff1f4295",
+    "tools/dispatch/contracts.json": "7b094388ee365ffdae864614032160e402d483164311f807333b653a0474ed3b",
+    "AGENTS.md": "cfd8840ce306f76a93974264f5c374f4c1503a87f1410bb73d6cf7173878e109",
+    "docs/epics/structural-decode-search.md": "41710ead985700373b60873561b0d7f56e86d052d4a878a4150dbfe98b1872f7"
+  },
+  "integration": {
+    "exit": 0,
+    "seconds": 5.924181772999873,
+    "budget_seconds": 60,
+    "selftest_exit": 0,
+    "refusal_exit": 1,
+    "forbidden_worker_started": false,
+    "governance_clause": true
+  },
+  "schema_controls_seconds": 5.39450843600207,
+  "affine_refusal_seconds": 0.47271174600246013,
+  "grade": "typed schema and tested launch refusal only",
+  "production_contracts": 0,
+  "cleanup": {
+    "worktree_removed": "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-PROOFDISPATCH-W1-T1",
+    "branch_removed": "codex/proof-dispatch",
+    "recovery_byte_identical": true,
+    "foreign_paths_untouched": true,
+    "removed_generated_bytecode": "admit.cpython-314.pyc"
+  }
+}

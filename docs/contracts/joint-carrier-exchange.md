@@ -10,7 +10,7 @@ integration order and what is explicitly not covered.
 Authority: [`docs/direction.md`](../direction.md#primitive-correspondence) is the programme
 authority; [`docs/kernel-boundary.md`](../kernel-boundary.md) owns the Rust representation and trust
 boundary; [`proof/README.md`](../../proof/README.md) owns extraction and bridge scope. The canonical
-corpus remains at `../sanguine-apeiron/proof/` at Git
+corpus remains at `../sanguine/proof/` at Git
 `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f`, Mathlib `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`.
 The Apeiron sources were read at revision `9a805439640ff63b5a2028aeb887f50e31cf6351` and the Song
 sources at revision `47869e76f982cfa3085a8618a82b80463e22ef46`; the per-file digests are recorded
@@ -486,7 +486,7 @@ Every recorded digest is bound to the blob at its recorded revision.
 
 | Item | Revision |
 |---|---|
-| Canonical corpus (`../sanguine-apeiron/proof`) | `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f` |
+| Canonical corpus (`../sanguine/proof`) | `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f` |
 | Mathlib | `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f` |
 | Apeiron sources | `9a805439640ff63b5a2028aeb887f50e31cf6351` |
 | Song sources | `47869e76f982cfa3085a8618a82b80463e22ef46` |
@@ -499,10 +499,10 @@ Every recorded digest is bound to the blob at its recorded revision.
 | `src/exchange.rs` | `f488773c798c649ff59d39f7b24c4c17b6ff350fa9f7a3b4ccc81cfc479b7621` |
 | `proof/Denotation.lean` | `d55971bea1f696e6d3ac8d7ed56e3be59cb98df68308ee2a159867cd5fbfa999` |
 | `proof/corpus/WordRefinement.lean` | `9ceaed87c9a0ea92eb1a0e05e634b9ff18486684418ce4a8d419372e653d9c7a` |
-| `../sanguine-apeiron/proof/Apeiron/Trichotomy/AnyRing.lean` | `51cf1ceecd283771a4a5ae52be39150cc3d3e2ff3419906822a10a121eafffca` |
-| `../sanguine-apeiron/proof/Apeiron/Physics/CarrierAnyRing.lean` | `bee50d1df59be11d7a41536e4c56ff284235cb32c16265e55ba0cfd4e7df2b79` |
-| `../sanguine-apeiron/proof/Apeiron/Physics/CarrierScalarKernelAnyRing.lean` | `4545466793c6fcc367e5d8367784c9cd9f0f0cbb8bdbc952e6aaac00d2853b29` |
-| `../sanguine-apeiron/proof/Apeiron/Physics/CarrierBodyWorkAnyRing.lean` | `ea3155611c61b7e4edcc26461ccbb9d238b0e8c24c74d921d39d3e1e8c3b34ac` |
+| `../sanguine/proof/Apeiron/Trichotomy/AnyRing.lean` | `51cf1ceecd283771a4a5ae52be39150cc3d3e2ff3419906822a10a121eafffca` |
+| `../sanguine/proof/Apeiron/Physics/CarrierAnyRing.lean` | `bee50d1df59be11d7a41536e4c56ff284235cb32c16265e55ba0cfd4e7df2b79` |
+| `../sanguine/proof/Apeiron/Physics/CarrierScalarKernelAnyRing.lean` | `4545466793c6fcc367e5d8367784c9cd9f0f0cbb8bdbc952e6aaac00d2853b29` |
+| `../sanguine/proof/Apeiron/Physics/CarrierBodyWorkAnyRing.lean` | `ea3155611c61b7e4edcc26461ccbb9d238b0e8c24c74d921d39d3e1e8c3b34ac` |
 
 ## Checker
 

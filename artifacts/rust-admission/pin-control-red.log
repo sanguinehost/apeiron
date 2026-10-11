@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/home/socol/oc-tmp/rust-admission-audit-control/proof/dispatch/gate.py", line 137, in <module>
+    main()
+    ~~~~^^
+  File "/home/socol/oc-tmp/rust-admission-audit-control/proof/dispatch/gate.py", line 119, in main
+    raise RuntimeError('DISPATCH_TOOLCHAIN_REJECT')
+RuntimeError: DISPATCH_TOOLCHAIN_REJECT

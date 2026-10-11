@@ -10,7 +10,7 @@ internally complete and that every artifact they name resolves:
 * every required blocker and hazard is present as an actual Markdown table
   record and as a JSON record, not merely an incidental ID mention;
 * every named canonical theorem resolves as a fully qualified declaration in
-  the pinned canonical corpus (``../sanguine-apeiron/proof``), and every named
+  the pinned canonical corpus (``../sanguine/proof``), and every named
   bridge refinement resolves in ``proof/``;
 * every named Rust and Song entry exists as a concrete declaration in its
   source file, and every Song entry is an executing function rather than a

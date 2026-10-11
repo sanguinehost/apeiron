@@ -1,0 +1,35 @@
+{
+  "seconds": 0.4282703099961509,
+  "budget": 60,
+  "results": [
+    {
+      "name": "gpu-host",
+      "argv": [
+        "nvidia-smi",
+        "--query-gpu=name,driver_version,memory.total",
+        "--format=csv,noheader"
+      ],
+      "exit": 0,
+      "selected": [
+        "NVIDIA GeForce RTX 5080, 615.71.09, 16303 MiB"
+      ]
+    },
+    {
+      "name": "vulkan-host",
+      "argv": [
+        "vulkaninfo"
+      ],
+      "exit": 0,
+      "selected": [
+        "apiVersion        = 1.4.351 (4211039)",
+        "deviceName        = NVIDIA GeForce RTX 5080",
+        "maxStorageBufferRange                           = 4294967295",
+        "maxComputeSharedMemorySize                      = 49152",
+        "maxComputeWorkGroupInvocations                  = 1024",
+        "driverInfo                                           = 615.71.09",
+        "shaderIntegerDotProduct                            = true"
+      ]
+    }
+  ],
+  "scope": "host device/driver capabilities; no GPU kernel timing or execution claim"
+}

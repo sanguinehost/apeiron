@@ -9,7 +9,7 @@ is explicitly not covered.
 Authority: [`docs/direction.md`](../direction.md#primitive-correspondence) is the programme
 authority; [`docs/kernel-boundary.md`](../kernel-boundary.md) owns the Rust representation and trust
 boundary; [`proof/README.md`](../../proof/README.md) owns extraction and bridge scope. The canonical
-corpus remains at `../sanguine-apeiron/proof/` at Git
+corpus remains at `../sanguine/proof/` at Git
 `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f`, Mathlib `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`.
 
 ## Canonical object and executing root

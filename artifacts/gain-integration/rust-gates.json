@@ -1,0 +1,70 @@
+{
+  "cwd": "/tmp/worktree-agent-APEIRON-FINALISE-W1-T1",
+  "base": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+  "fixture_sha256": "ae376c0eacf86d8847aa4d901f492147eec9ebae05edaa1528339908ceeaaed9",
+  "budget": 540,
+  "seconds": 508.6456243220018,
+  "test_threads": 8,
+  "results": [
+    {
+      "name": "workspace-q32",
+      "argv": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--all-features",
+        "--locked",
+        "--offline"
+      ],
+      "carrier": "0",
+      "exit": 0,
+      "seconds": 268.83389056599844
+    },
+    {
+      "name": "workspace-f32",
+      "argv": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--all-features",
+        "--locked",
+        "--offline"
+      ],
+      "carrier": "1",
+      "exit": 0,
+      "seconds": 234.92354414900183
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-features",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "carrier": "1",
+      "exit": 0,
+      "seconds": 4.471811038005399
+    },
+    {
+      "name": "format",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "carrier": "1",
+      "exit": 0,
+      "seconds": 0.4144888059963705
+    }
+  ],
+  "exit": 0
+}

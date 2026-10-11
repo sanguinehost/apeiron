@@ -1,0 +1,16 @@
+{
+  "grade": "tested artifact consistency; no proof or performance rerun",
+  "initial_inventory_error": "selective archive uses logs/receipt.json, not evidence/receipt.json; mapping corrected",
+  "baseline": 0,
+  "seeded_ratio_mutation": "rejected: paired ratio changed",
+  "restoration": 0,
+  "local_links": 33,
+  "archive_hashes": {
+    "selective-lookup-spike": "3dc7fa905e8bd5d15ed8512c80b9c56bb4a15b5f97ab7420d55a26b6c880b73a",
+    "lookup-window-spike": "8d600c6bcd549ad958cf870327fc35bd28aa18d8198383104812bb143171f165",
+    "context-decode-compare": "b11521e67a55adbe8a94b66520dabc2ee71d89abdb1254993497e413333b7bfb"
+  },
+  "reviewed_sources": 19,
+  "exit": 0,
+  "elapsed_seconds": 0.04447870700096246
+}

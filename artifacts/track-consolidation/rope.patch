@@ -1,0 +1,120 @@
+diff --git a/src/engine/error.rs b/src/engine/error.rs
+index 8274358..d230f64 100644
+--- a/src/engine/error.rs
++++ b/src/engine/error.rs
+@@ -16,6 +16,8 @@ use crate::format::quant::QuantError;
+ pub enum EngineError {
+     /// An OS read or open failed.
+     Io(String),
++    /// `general.architecture` is not in the loader's allowlist of tested architectures.
++    UnsupportedArchitecture(String),
+     /// The GGUF layer refused.
+     Gguf(GgufError),
+     /// The quant layer refused.
+@@ -91,6 +93,9 @@ impl core::fmt::Display for EngineError {
+     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+         match self {
+             EngineError::Io(e) => write!(f, "io: {e}"),
++            EngineError::UnsupportedArchitecture(a) => {
++                write!(f, "unsupported general.architecture {a:?}")
++            }
+             EngineError::Gguf(e) => write!(f, "gguf: {e}"),
+             EngineError::Quant(e) => write!(f, "quant: {e}"),
+             EngineError::MissingMetadata(k) => write!(f, "missing metadata {k}"),
+diff --git a/src/engine/loader.rs b/src/engine/loader.rs
+index d552f47..60ceda9 100644
+--- a/src/engine/loader.rs
++++ b/src/engine/loader.rs
+@@ -28,6 +28,23 @@ use super::value::round_shift_32;
+ 
+ /// The `general.architecture` this loader resolves config keys for.
+ pub const QWEN2_ARCH: &str = "qwen2";
++/// Whether the loader must permute each head's `attn_q`/`attn_k` output rows, decided once from
++/// `general.architecture`. The engine implements the `NEOX` `RoPE` pairing `(j, j + n/2)`
++/// (`llama-model.cpp`, `llama_model_rope_type`: `LLM_ARCH_QWEN2` is `NEOX`, `LLM_ARCH_QWEN35` is
++/// `IMROPE`, which pairs like `NEOX` for text positions). `LLM_ARCH_LLAMA` is `NORM`, pairing
++/// `(2i, 2i + 1)`; its rows are permuted at load ([`qk_permute`]) so the same `NEOX` rotation
++/// yields the same scores.
++///
++/// # Errors
++///
++/// [`EngineError::UnsupportedArchitecture`] for any architecture outside `qwen2`, `qwen35`, `llama`.
++pub fn qk_row_permutation_for(architecture: &str) -> Result<bool, EngineError> {
++    match architecture {
++        "qwen2" | "qwen35" => Ok(false),
++        "llama" => Ok(true),
++        other => Err(EngineError::UnsupportedArchitecture(other.to_string())),
++    }
++}
+ /// Default `RoPE` base when `*.rope.freq_base` is absent.
+ pub const DEFAULT_ROPE_THETA: f64 = 10_000.0;
+ /// Default `RMSNorm` epsilon when `*.attention.layer_norm_rms_epsilon` is absent.
+@@ -132,6 +149,9 @@ pub struct EngineConfig {
+     pub context_length: usize,
+     /// `*.rope.freq_base`.
+     pub rope_theta: f64,
++    /// Whether `Engine::open` permutes each head's `attn_q`/`attn_k` rows (`NORM` `RoPE`
++    /// architectures), resolved from [`EngineConfig::architecture`] by [`qk_row_permutation_for`].
++    pub qk_row_permutation: bool,
+     /// `*.attention.layer_norm_rms_epsilon`.
+     pub rms_eps: f64,
+     /// `*.attention.key_length` when stated, else `n_embd / n_head` (checked integral).
+@@ -617,6 +637,7 @@ fn positive_usize(v: i64, key: &str) -> Result<usize, EngineError> {
+ /// Resolve the `qwen2.*` metadata and the `token_embd.weight` shape into an [`EngineConfig`].
+ fn resolve_config(h: &GgufHeader) -> Result<EngineConfig, EngineError> {
+     let architecture = String::from_utf8_lossy(h.arch()).into_owned();
++    let qk_row_permutation = qk_row_permutation_for(&architecture)?;
+     let n_block = positive_usize(require_i64(h, &architecture, "block_count")?, "block_count")?;
+     // Multi-token-prediction blocks follow the trunk and are not part of the decode step.
+     let n_nextn = match h.meta_i64(&format!("{architecture}.nextn_predict_layers")) {
+@@ -699,6 +720,7 @@ fn resolve_config(h: &GgufHeader) -> Result<EngineConfig, EngineError> {
+         vocab_size,
+         context_length,
+         rope_theta,
++        qk_row_permutation,
+         rms_eps,
+         head_dim,
+         mixers,
+@@ -977,6 +999,9 @@ impl Engine {
+         };
+         let vectors = engine.load_decode_vectors()?;
+         engine.vectors = vectors;
++        if engine.config.qk_row_permutation {
++            engine.permute_qk_rows()?;
++        }
+         Ok(engine)
+     }
+ 
+@@ -1306,5 +1331,7 @@ impl Engine {
+     }
+ }
+ 
++mod qk_permute;
++
+ #[cfg(test)]
+ mod tests;
+diff --git a/src/engine/loader/tests.rs b/src/engine/loader/tests.rs
+index 26c3fe0..91e695c 100644
+--- a/src/engine/loader/tests.rs
++++ b/src/engine/loader/tests.rs
+@@ -310,3 +310,20 @@ fn hadamard_meta_refuses_each_fork_rejection() {
+     // widths cover fewer values than present
+     assert!(refusal(explicit_kv(&[2], &[1, 1, 1])).contains("sign_values length mismatch"));
+ }
++
++#[test]
++fn architecture_allowlist_maps_qk_permutation_and_refuses_unknown() {
++    assert_eq!(qk_row_permutation_for("qwen2"), Ok(false));
++    assert_eq!(qk_row_permutation_for("qwen35"), Ok(false));
++    assert_eq!(qk_row_permutation_for("llama"), Ok(true));
++    assert_eq!(
++        qk_row_permutation_for("mistral3"),
++        Err(EngineError::UnsupportedArchitecture("mistral3".to_string()))
++    );
++    assert_eq!(
++        qk_row_permutation_for(""),
++        Err(EngineError::UnsupportedArchitecture(String::new()))
++    );
++    let h = qwen2_header(0, 1 << 16);
++    assert!(!resolve_config(&h).unwrap().qk_row_permutation);
++}

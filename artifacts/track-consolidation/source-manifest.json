@@ -1,0 +1,72 @@
+{
+  "base_main": "e33977aa72534ad56775110be99cf002ca96fa37",
+  "committed_claude_base": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+  "combined_source_sha256": {
+    "examples/engine_profile.rs": "4ad78bd2b092fa71b1f6fecad26090ad994a0ca9e4e0c201c1e98e1724544372",
+    "src/engine/attn.rs": "59ee49544f45fa576d289dfa50ec8aa849b62077634b3a9566d1ccf3559bf26f",
+    "src/engine/attn/f32_block.rs": "f4aeebdfb177980b606e773dbd504fea9fe0d1c0fc5f2bad6a2b9d0c7f1a92e8",
+    "src/engine/attn/f32_core.rs": "69cc1e77739af4deea57229b26a223e0cf5fded3d0f56a28768b5f52ef540742",
+    "src/engine/chart/ffn.rs": "d60f3da889f79d4a23ce18484d52572c90ba35175bb39b92750828028dd2f724",
+    "src/engine/chart/pool.rs": "98e5ce505930ac73793ed479f76b02229160dd00a10506ddbfd0c4a2aab9fa93",
+    "src/engine/error.rs": "dc389009e4239a6c09f4633598d40fed785084e0772a65d49dbbf3f651c5b49e",
+    "src/engine/kern/bitplane.rs": "d7910006e525a602a88c54cbc94919716a29a50a4094267e64b04ebbd6f24948",
+    "src/engine/kern/gemm.rs": "5aa7cb770d39e55431f1d7ec66a70febcbbfc9ecda147e1b4567b779bdb3ba28",
+    "src/engine/kern/gemm_attrib.rs": "28e27b609290a9eaa655f815dd31bd54b5c9695623ab6676cdaec2867b3cbccd",
+    "src/engine/kern/gemm_probe.rs": "6f8455be180bffb45c295e5603971a3ff305f61e212e4ad38aa6f71f3096f9c0",
+    "src/engine/kern/matmat.rs": "6cb31605c163433c78ee8aeb0dfb3d649c4aa0a0b5276b39866311c8a8b1350a",
+    "src/engine/kern/mod.rs": "2007824a5519628c360243f2012fc787976ee98edc0b8bc34e41fccaca8fe794",
+    "src/engine/loader.rs": "203c35a994ad67fa2dd818708f8f707d207ec0ef6b6bd0a63aff7bb9ea574a39",
+    "src/engine/loader/qk_permute.rs": "f94e727c46329e3b684a6e2a74c96fca25cc898c57d4e09702c29311e073e35f",
+    "src/engine/loader/qk_permute/tests.rs": "75f5285ec922f8bb314ae284f33d45edd294171a3f89593fd73d02744fa74e90",
+    "src/engine/loader/tests.rs": "9747eaec154d77d37b99f66bde8a0d80e840b35d94c22b9174238abc982cc0fb",
+    "src/engine/mixer.rs": "7947737bb2ac5ad751bf065acb6b6457deba02d1e54e51b63dc702ce6b54310f",
+    "src/engine/mixer/conv_f32.rs": "db79a54135a15387a1b9ca171e1481614b34ea277a5446e635c8f3fb1dff7613",
+    "src/engine/mixer/f32_carrier.rs": "123742566813386b4e31169f71d2eb7b92849417670cfcddcce4b9c925943cff",
+    "src/engine/mixer/f32_carrier_tests.rs": "e4718c28f97a4570ed684ab67478fc2d51e7fc04d0f2335df2bcd7f0475e8221",
+    "src/engine/mixer/tests.rs": "9d952b8411f2f77985c6313763db33d6dc04e1d5bf3a6a72323e8b8da78b613a",
+    "src/engine/step.rs": "da2036a4d1e2e1a791d9dd900b40260369cdd71e3adecc7b39a14c11825357d2",
+    "src/engine/step/attn_block.rs": "57d3f1b823ef71fbb8363ec5e0960710e8f48921802406ed59ebe1cd1972399f",
+    "src/engine/step/cols.rs": "544812d516a5570a503c2c893b2aaa0dc47b8b520c826ac621ec421332e5552d",
+    "src/engine/step/prefill_tests.rs": "8aefaca73c5be0f1ccd88a161e09b4ddc2af9e9e8873e709c9e7c70e365f896b"
+  },
+  "overlays": [
+    {
+      "track": "rope",
+      "worktree": "/home/socol/oc-tmp/wt/w6-integ",
+      "base": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+      "sources": {
+        "src/engine/error.rs": "dc389009e4239a6c09f4633598d40fed785084e0772a65d49dbbf3f651c5b49e",
+        "src/engine/loader.rs": "203c35a994ad67fa2dd818708f8f707d207ec0ef6b6bd0a63aff7bb9ea574a39",
+        "src/engine/loader/tests.rs": "9747eaec154d77d37b99f66bde8a0d80e840b35d94c22b9174238abc982cc0fb",
+        "src/engine/loader/qk_permute.rs": "f94e727c46329e3b684a6e2a74c96fca25cc898c57d4e09702c29311e073e35f",
+        "src/engine/loader/qk_permute/tests.rs": "75f5285ec922f8bb314ae284f33d45edd294171a3f89593fd73d02744fa74e90"
+      }
+    },
+    {
+      "track": "t03",
+      "worktree": "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T03",
+      "base": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+      "sources": {
+        "src/engine/kern/gemm.rs": "5aa7cb770d39e55431f1d7ec66a70febcbbfc9ecda147e1b4567b779bdb3ba28",
+        "src/engine/kern/gemm_attrib.rs": "28e27b609290a9eaa655f815dd31bd54b5c9695623ab6676cdaec2867b3cbccd"
+      }
+    },
+    {
+      "track": "t04",
+      "worktree": "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T04",
+      "base": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+      "sources": {
+        "src/engine/attn.rs": "59ee49544f45fa576d289dfa50ec8aa849b62077634b3a9566d1ccf3559bf26f",
+        "src/engine/attn/f32_core.rs": "69cc1e77739af4deea57229b26a223e0cf5fded3d0f56a28768b5f52ef540742",
+        "src/engine/attn/f32_block.rs": "f4aeebdfb177980b606e773dbd504fea9fe0d1c0fc5f2bad6a2b9d0c7f1a92e8"
+      }
+    }
+  ],
+  "pending_wiring_applied_only_to_candidate": true,
+  "preservation_control": "baseline0; changed recovered byte rejected; restore0",
+  "whole_seconds": 0.2634817389989621,
+  "budget_seconds": 60,
+  "exit": 0,
+  "runtime_main_integrated": false,
+  "candidate_directory": "/home/socol/oc-tmp/track-consolidation-candidate"
+}

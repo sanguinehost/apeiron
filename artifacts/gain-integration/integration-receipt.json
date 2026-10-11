@@ -1,0 +1,29 @@
+{
+  "branch": "codex/prefill-integration",
+  "head": "04fe0fe44352b07957b573d514d9ad7d0e139c97",
+  "worktree": "/tmp/worktree-agent-APEIRON-FINALISE-W1-T1",
+  "main_unchanged": "e33977aa72534ad56775110be99cf002ca96fa37",
+  "runtime_base": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+  "counts": {
+    "workspace-q32": {
+      "passed": 606,
+      "failed": 0,
+      "ignored": 32,
+      "suites": 22
+    },
+    "workspace-f32": {
+      "passed": 606,
+      "failed": 0,
+      "ignored": 32,
+      "suites": 22
+    }
+  },
+  "tools": {
+    "rustc": "rustc 1.97.0-nightly (17584a181 2026-04-13)\nbinary: rustc\ncommit-hash: 17584a181979f04f2aaad867332c22db1caa511a\ncommit-date: 2026-04-13\nhost: x86_64-unknown-linux-gnu\nrelease: 1.97.0-nightly\nLLVM version: 22.1.2",
+    "cargo": "cargo 1.97.0-nightly (eb94155a9 2026-04-09)"
+  },
+  "rust_gate": "rust-gates.json",
+  "controls": "fixture-controls/receipt.json",
+  "status": "runtime candidate and epic plans committed to isolated integration branch; accepted main merge waits for source-connected extraction representation repair and remaining implementation barrier",
+  "grade": "tested runtime; historical measured receipts; no new source/cost or GPU proof"
+}

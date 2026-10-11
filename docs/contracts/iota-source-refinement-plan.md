@@ -14,7 +14,7 @@ SCOPE: `docs/contracts/iota-source-semantics.md`, `docs/contracts/iota-source-re
 REGISTER: planning/specification; source arena, memo store, addressing, storage and the algebraic
 link; no correspondence claim.
 
-CORPUS: `../sanguine-apeiron/proof/Apeiron/Table/Basic.lean`, exact
+CORPUS: `../sanguine/proof/Apeiron/Table/Basic.lean`, exact
 `Apeiron.Table.{HMap,get,insertWith,build}` targets, and
 `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}`.
 

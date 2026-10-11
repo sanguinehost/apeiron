@@ -44,7 +44,7 @@ edit against four contradictory authorities.
 |---|---|---|---|---|
 | apeiron | `AGENTS.md`, `docs/direction.md` | `cargo test/clippy/fmt --locked`; `proof/regen.sh --check`; `cd proof && lake build`; `cd proof/corpus && lake build` | `APEIRON-<EPIC>-W<n>-T<k>` | song `//@`/`R1–R5`/`law`·`spec` |
 | penglai | `AGENTS.md`, `docs/substrate-port-scope.md` | `scripts/check.sh --all`; `cargo fmt/clippy/test --locked`; `proof/regen.sh --check` + `lake build`; `tools/benchmark.py`; world-profile/solver-cost/water checks | `PENGLAI-<EPIC>-W<n>-T<k>` | Song R1-R5 |
-| song | `AGENTS.md`, `docs/DESIGN.md`/`ONTOLOGY.md`/`ROADMAP.md` | `./song check\|test\|controls\|build\|laws\|crosscheck\|bench`; `lake build Apeiron.Parser.Arithmetic` (sanguine-apeiron) | `<PROJECT>-<EPIC>-W<n>-T<n>` | sibling ontologies; apeiron zero-axiom rule |
+| song | `AGENTS.md`, `docs/DESIGN.md`/`ONTOLOGY.md`/`ROADMAP.md` | `./song check\|test\|controls\|build\|laws\|crosscheck\|bench`; `lake build Apeiron.Parser.Arithmetic` (sanguine) | `<PROJECT>-<EPIC>-W<n>-T<n>` | sibling ontologies; apeiron zero-axiom rule |
 | webfold | `AGENTS.md` (sovereign), `docs/EXTRACTION-PIPELINE.md`, `ADVERSARIAL-REVIEW.md`, `CONTENT-RECOVERY-PLAN.md` | `tools/webfold/check.sh` + `controls.sh`; `proof/regen.sh --check`, `regen_acquisition.sh --check`, `audit.py`, `controls.py`; receipt checkers | (webfold IDs) | any other repo's register/vocabulary |
 
 ## 4 · Dispatchable census (width for ~50)
@@ -259,7 +259,7 @@ F4, Penglai P3–P5, Song S9) that need no heavy Lean. That is how 10 lanes stay
 - **Do not delete `RegenRelocateAll` for sharing a source body.** Compare carrier assumptions,
   domains, refusals and claimed resource properties; reuse a common extraction where appropriate and
   retain distinct obligations where the contracts differ.
-- **Ecosystem coverage is implicit.** Add explicit disposition rows for `sanguine`/`sanguine-apeiron`,
+- **Ecosystem coverage is implicit.** Add explicit disposition rows for `sanguine`/`sanguine`,
   `TorchLean` and Whispering Tides; a Song application profile covers one interface slice, not the
   application programme.
 - **Replace the per-child gate placeholders before dispatch.** Each task needs its exact command,

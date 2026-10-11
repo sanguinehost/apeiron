@@ -1,0 +1,24 @@
+⚠ [1599/1699] Replayed Aeneas.Std.Vec
+warning: Aeneas/Std/Vec.lean:322:19: This simp argument is unused:
+  Vec.from
+
+Hint: Omit it from the simp argument list.
+  simp [Vec.set, V̵e̵c̵.̵f̵r̵o̵m̵,̵ ̵Slice.set, Slice.setAtNat]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+✔ [1707/1708] Built Dispatch.Refinement (1.2s)
+✖ [1708/1708] Building Dispatch.Audit (717ms)
+trace: .> LEAN_PATH=/home/socol/Workspace/apeiron/proof/.lake/packages/Cli/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/batteries/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/Qq/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/aesop/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/importGraph/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/plausible/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/mathlib/.lake/build/lib/lean:/home/socol/Workspace/apeiron/target/aeneas-model/lean/.lake/build/lib/lean:/home/socol/oc-tmp/rust-admission-audit-control/proof/dispatch/.lake/build/lib/lean /home/socol/.elan/toolchains/leanprover--lean4---v4.31.0/bin/lean /home/socol/oc-tmp/rust-admission-audit-control/proof/dispatch/Dispatch/Audit.lean -o /home/socol/oc-tmp/rust-admission-audit-control/proof/dispatch/.lake/build/lib/lean/Dispatch/Audit.olean -i /home/socol/oc-tmp/rust-admission-audit-control/proof/dispatch/.lake/build/lib/lean/Dispatch/Audit.ilean -c /home/socol/oc-tmp/rust-admission-audit-control/proof/dispatch/.lake/build/ir/Dispatch/Audit.c --setup /home/socol/oc-tmp/rust-admission-audit-control/proof/dispatch/.lake/build/ir/Dispatch/Audit.setup.json --json
+info: Dispatch/Audit.lean:15:0: DISPATCH_KERNEL_OK Dispatch.Refinement.digest_same: [propext, Quot.sound]
+info: Dispatch/Audit.lean:16:0: DISPATCH_KERNEL_OK Dispatch.Refinement.start_refines: [propext, Classical.choice, Quot.sound]
+info: Dispatch/Audit.lean:17:0: DISPATCH_KERNEL_OK Dispatch.Refinement.advance_refines: [propext, Classical.choice, Quot.sound]
+info: Dispatch/Audit.lean:18:0: DISPATCH_KERNEL_OK Dispatch.Refinement.finish_refines: [propext, Classical.choice, Quot.sound]
+info: Dispatch/Audit.lean:19:0: DISPATCH_KERNEL_OK Dispatch.Refinement.complete_refines: [propext, Classical.choice, Quot.sound]
+info: Dispatch/Audit.lean:20:0: DISPATCH_KERNEL_OK Dispatch.Refinement.permit_iff: [propext, Classical.choice, Quot.sound]
+info: Dispatch/Audit.lean:21:0: DISPATCH_KERNEL_OK Dispatch.Refinement.witness_success: [propext, Classical.choice, Quot.sound]
+error: Dispatch/Audit.lean:22:0: DISPATCH_AXIOM_REJECT Dispatch.Refinement.witness_refusal: [Dispatch.Refinement.injectedWitness]
+error: Dispatch/Audit.lean:23:0: DISPATCH_AXIOM_REJECT Dispatch.Refinement.joint_reachable: [Dispatch.Refinement.injectedWitness]
+error: Lean exited with code 1
+Some required targets logged failures:
+- Dispatch.Audit
+error: build failed

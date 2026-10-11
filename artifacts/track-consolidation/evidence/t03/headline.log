@@ -1,0 +1,72 @@
+identity ...
+warm-up ...
+round 0: busy 0.048 quiet true
+  pp 1744.8 tok/s (23.9 cores)  tg 138.70 tok/s (23.8 cores)  llama pp 1032.1@24t tg 90.22@16t
+round 1: busy 0.047 quiet true
+  pp 435.8 tok/s (21.7 cores)  tg 27.68 tok/s (21.5 cores)  llama pp 1003.7@24t tg 90.66@16t
+round 2: busy 0.047 quiet true
+  pp 489.7 tok/s (22.5 cores)  tg 33.12 tok/s (22.2 cores)  llama pp 906.5@24t tg 90.59@16t
+round 3: busy 0.049 quiet true
+  pp 430.8 tok/s (22.1 cores)  tg 32.18 tok/s (22.1 cores)  llama pp 928.8@24t tg 93.35@16t
+round 4: busy 0.045 quiet true
+  pp 459.3 tok/s (22.0 cores)  tg 32.73 tok/s (22.1 cores)  llama pp 948.9@24t tg 93.04@16t
+traced run ...
+# Engine benchmark `w7t03-headline-q05b`
+
+- model `/home/socol/oc-tmp/w7-fixtures/qwen05b-Q8_0.gguf` (sha256 `62394c3af2f7e1a7db73cf86d47638a3df4d19c1fcd20b9dd2a07c40444f8a37`)
+- prompt ids `/home/socol/oc-tmp/w7-fixtures/qwen25.ids` (sha256 `0e7b28afb1d1aca440ddb0a7aa0987ba7818d97f7b1a3fa2ba0e5b052d6b3c1e`), pp 200, tg 64, 5 rounds
+- git `04d206013f70f245dfdaf2619c0b1846d10b9922` with 2 dirty paths; src sha256 `30ceefc0b35ce5a2b7a2f19982443bec5cc20490cc5575638e0b991bc2df7b62`
+- Intel(R) Core(TM) i9-14900KF; governor powersave; 32 CPUs; rustc 1.97.0-nightly (17584a181 2026-04-13)
+- read ceiling (1 GiB sum, best of 3): 75.2 / 88.0 / 88.8 GB/s at 8 / 16 / 32 threads
+- llama.cpp `0324696b8`, threads 8,16,24,32
+- quiet gate busy < 0.05: every round passed
+
+| metric (tok/s) | median | min | max |
+|---|---:|---:|---:|
+| apeiron pp | 459.33 | 430.78 | 1744.76 |
+| llama.cpp pp (best threads) | 948.94 | 906.53 | 1032.06 |
+| ratio pp (per round) | 0.48 | 0.43 | 1.69 |
+| apeiron tg | 32.73 | 27.68 | 138.70 |
+| llama.cpp tg (best threads) | 90.66 | 90.22 | 93.35 |
+| ratio tg (per round) | 0.35 | 0.31 | 1.54 |
+| apeiron pp busy cores | 22.08 | 21.66 | 23.91 |
+| apeiron tg busy cores | 22.12 | 21.51 | 23.82 |
+| mean MHz before pp | 4630.19 | 4568.29 | 4774.71 |
+| mean MHz before tg | 4519.12 | 4331.90 | 4651.28 |
+
+### Traced phases
+
+#### pp: 200 tokens, 2.09 ms/token wall
+
+| phase | ms/token | share of wall | calls | GB/s | GMAC/s |
+|---|---:|---:|---:|---:|---:|
+| embed | 0.001 | 0.0% | 1 | - | - |
+| norm | 0.338 | 16.2% | 49 | - | - |
+| residual | 0.037 | 1.8% | 48 | - | - |
+| attn.proj_in | 0.148 | 7.1% | 24 | 0.9 | 167.2 |
+| attn.core | 0.259 | 12.4% | 24 | - | - |
+| attn.proj_out | 0.146 | 7.0% | 24 | 0.7 | 132.4 |
+| ffn | 1.152 | 55.1% | 24 | 1.4 | 272.5 |
+| head | 0.006 | 0.3% | 1 | 124.0 | 116.7 |
+| untraced in pass | 0.004 | 0.2% | 0 | - | - |
+| outside passes | 0.001 | 0.1% | 0 | - | - |
+| pool.wait (overlay; tasks/dispatch 317.7) | 1.619 | 77.4% | 388 | - | - |
+
+#### tg: 64 tokens, 27.56 ms/token wall
+
+| phase | ms/token | share of wall | calls | GB/s | GMAC/s |
+|---|---:|---:|---:|---:|---:|
+| embed | 0.002 | 0.0% | 64 | - | - |
+| norm | 0.173 | 0.6% | 3136 | - | - |
+| residual | 0.046 | 0.2% | 3072 | - | - |
+| attn.proj_in | 3.430 | 12.4% | 1536 | 7.7 | 7.2 |
+| attn.core | 1.917 | 7.0% | 1536 | - | - |
+| attn.proj_out | 1.334 | 4.8% | 1536 | 15.3 | 14.4 |
+| ffn | 16.729 | 60.7% | 1536 | 19.9 | 18.8 |
+| head | 3.890 | 14.1% | 64 | 37.2 | 35.0 |
+| untraced in pass | 0.036 | 0.1% | 0 | - | - |
+| outside passes | 0.001 | 0.0% | 0 | - | - |
+| pool.wait (overlay; tasks/dispatch 38.1) | 21.700 | 78.7% | 15552 | - | - |
+
+wrote /home/socol/oc-tmp/w7t03/ab/1790805243-w7t03-headline-q05b.json and /home/socol/oc-tmp/w7t03/ab/1790805243-w7t03-headline-q05b.md
+exit 0

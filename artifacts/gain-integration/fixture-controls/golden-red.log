@@ -1,0 +1,39 @@
+error: duplicate key
+  --> ../../home/socol/.cargo/git/checkouts/fold-62126b3be665e44a/4cc1447/opsfold/Cargo.toml:61:1
+   |
+61 | netfold = { path = "../netfold", optional = true }
+   | ^^^^^^^
+   Compiling apeiron v0.1.0 (/tmp/apeiron-fixture-controls)
+warning: function `profile` is never used
+   --> src/table/locator.rs:943:8
+    |
+943 |     fn profile() -> H3_40 {
+    |        ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `apeiron` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.74s
+     Running unittests src/lib.rs (/home/socol/oc-tmp/wt/target-w6-integ/debug/deps/apeiron-fbaf6d3d98420708)
+
+running 1 test
+test engine::tests::engine_step_greedy_decode_is_deterministic ... FAILED
+
+failures:
+
+---- engine::tests::engine_step_greedy_decode_is_deterministic stdout ----
+engine_step_decode initial 3 steps 8 ids [0, 0, 0, 0, 0, 0, 0, 0] first_checksum 0x483c6d3ece968247 checksums [5205155385854820935, 12641576210630469119, 7846454660759608174, 451383896495683840, 10639439021546618426, 14535272330854169233, 14809834588224658146, 14146993699163431599]
+
+thread 'engine::tests::engine_step_greedy_decode_is_deterministic' (3003681) panicked at src/engine/tests.rs:1398:5:
+assertion `left == right` failed: recorded first-step logits checksum
+  left: 5205155385854820935
+ right: 5205155385854820934
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    engine::tests::engine_step_greedy_decode_is_deterministic
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 440 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`

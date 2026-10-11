@@ -1,0 +1,33 @@
+{
+  "budget": 150,
+  "seconds": 8.171183949001716,
+  "source_sha256": "ae376c0eacf86d8847aa4d901f492147eec9ebae05edaa1528339908ceeaaed9",
+  "results": [
+    {
+      "name": "baseline",
+      "exit": 0,
+      "attributable": true
+    },
+    {
+      "name": "carrier-red",
+      "exit": 101,
+      "attributable": true
+    },
+    {
+      "name": "carrier-restored",
+      "exit": 0,
+      "attributable": true
+    },
+    {
+      "name": "golden-red",
+      "exit": 101,
+      "attributable": true
+    },
+    {
+      "name": "golden-restored",
+      "exit": 0,
+      "attributable": true
+    }
+  ],
+  "restore_byte_identical": true
+}

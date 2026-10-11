@@ -1,0 +1,93 @@
+{
+  "archive_sha256": "df72aeb598abe5f38916d127c9b92a9419a7d0a449f1c16bebf5e5a59c5d35fb",
+  "operations": [
+    {
+      "cmd": [
+        "git",
+        "worktree",
+        "remove",
+        "--force",
+        "/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-compile-graph"
+      ],
+      "exit": 0,
+      "output": ""
+    },
+    {
+      "cmd": [
+        "git",
+        "branch",
+        "-D",
+        "codex/structural-compile-graph"
+      ],
+      "exit": 0,
+      "output": "Deleted branch codex/structural-compile-graph (was 3f29041).\n"
+    },
+    {
+      "cmd": [
+        "git",
+        "worktree",
+        "remove",
+        "--force",
+        "/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-selective-state"
+      ],
+      "exit": 0,
+      "output": ""
+    },
+    {
+      "cmd": [
+        "git",
+        "branch",
+        "-D",
+        "codex/structural-selective-state"
+      ],
+      "exit": 0,
+      "output": "Deleted branch codex/structural-selective-state (was 3f29041).\n"
+    },
+    {
+      "cmd": [
+        "git",
+        "worktree",
+        "remove",
+        "--force",
+        "/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-quant-certificate"
+      ],
+      "exit": 0,
+      "output": ""
+    },
+    {
+      "cmd": [
+        "git",
+        "branch",
+        "-D",
+        "codex/structural-quant-certificate"
+      ],
+      "exit": 0,
+      "output": "Deleted branch codex/structural-quant-certificate (was 3f29041).\n"
+    },
+    {
+      "cmd": [
+        "git",
+        "worktree",
+        "remove",
+        "--force",
+        "/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-benchmarks"
+      ],
+      "exit": 0,
+      "output": ""
+    },
+    {
+      "cmd": [
+        "git",
+        "branch",
+        "-D",
+        "codex/structural-benchmarks"
+      ],
+      "exit": 0,
+      "output": "Deleted branch codex/structural-benchmarks (was 3f29041).\n"
+    }
+  ],
+  "worktrees_after": "worktree /home/socol/Workspace/apeiron\nHEAD e33977aa72534ad56775110be99cf002ca96fa37\nbranch refs/heads/main\n\nworktree /home/socol/oc-tmp/ns/exp-hyper\nHEAD da48b1cd168afd1624d3cdb9c9e1836c8c0bf033\nbranch refs/heads/exp/hyper-attn\n\nworktree /home/socol/oc-tmp/ns/integ\nHEAD e33977aa72534ad56775110be99cf002ca96fa37\nbranch refs/heads/nightshift\n\nworktree /home/socol/oc-tmp/ns/wt/affine-head-signed-mul-r30\nHEAD e33977aa72534ad56775110be99cf002ca96fa37\nbranch refs/heads/ns/affine-head-signed-mul-r30\n\nworktree /home/socol/oc-tmp/ns/wt/decode-q8-4row-tile-r30\nHEAD e33977aa72534ad56775110be99cf002ca96fa37\nbranch refs/heads/ns/decode-q8-4row-tile-r30\n\nworktree /home/socol/oc-tmp/ns/wt/gemm-dpbusd-chain-split-r30\nHEAD e33977aa72534ad56775110be99cf002ca96fa37\nbranch refs/heads/ns/gemm-dpbusd-chain-split-r30\n\nworktree /home/socol/oc-tmp/wt/w5-integ\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w5-integ\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T01\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w6-t01\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T04\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w6-t04\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T05\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w6-t05\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T06\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w6-t06\n\n",
+  "branches_after": "+ exp/hyper-attn                 da48b1c (/home/socol/oc-tmp/ns/exp-hyper) Record comparator receipt ns-r007: pp 0.58x, tg 1.27x vs llama.cpp CPU\n* main                           e33977a [origin/main: ahead 28] Record comparator receipt ns-r028: pp 0.64x, tg 1.40x vs llama.cpp CPU\n+ nightshift                     e33977a (/home/socol/oc-tmp/ns/integ) Record comparator receipt ns-r028: pp 0.64x, tg 1.40x vs llama.cpp CPU\n+ ns/affine-head-signed-mul-r30  e33977a (/home/socol/oc-tmp/ns/wt/affine-head-signed-mul-r30) Record comparator receipt ns-r028: pp 0.64x, tg 1.40x vs llama.cpp CPU\n+ ns/decode-q8-4row-tile-r30     e33977a (/home/socol/oc-tmp/ns/wt/decode-q8-4row-tile-r30) Record comparator receipt ns-r028: pp 0.64x, tg 1.40x vs llama.cpp CPU\n+ ns/gemm-dpbusd-chain-split-r30 e33977a (/home/socol/oc-tmp/ns/wt/gemm-dpbusd-chain-split-r30) Record comparator receipt ns-r028: pp 0.64x, tg 1.40x vs llama.cpp CPU\n  one-allocation                 f78ce71 one allocation for both arrays: sound, Miri-clean, and not yet a net win\n+ task/w5-integ                  3f29041 (/home/socol/oc-tmp/wt/w5-integ) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-t01                    3f29041 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T01) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-t04                    3f29041 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T04) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-t05                    3f29041 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T05) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-t06                    3f29041 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T06) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n",
+  "elapsed": 0.08900207199985744,
+  "exit": 0
+}

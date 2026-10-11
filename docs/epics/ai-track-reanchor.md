@@ -129,7 +129,7 @@ CORPUS:     Apeiron.Table.{HMap,get,insertWith,build} and
             Apeiron.Trichotomy.ChannelsAnyRing.{ringUpper,ringLower,RingChannel,ringUpper_channel,ringLower_channel},
             Apeiron.Trichotomy.Basic.{normForm_eq_zero_iff_of_neg,nilpotent_of_disc_zero,zeroDivisorPair_of_disc_one}
             at resolved dependency revision 880aa57e47e782ed7a9d9ee1974cfc87360b446b (package `apeiron`
-            in proof/corpus/.lake/packages/apeiron; the sibling tree ../sanguine-apeiron/proof/Apeiron/
+            in proof/corpus/.lake/packages/apeiron; the sibling tree ../sanguine/proof/Apeiron/
             is at the same revision); reference only TorchLean at /tmp/opencode/torchlean-read @
             de3192df4779877ceb65cfe470a4d4ce9d480a5b
 REFERENCE:  docs/epics/ai-track-reanchor.md, docs/direction.md; TorchLean NN/API.lean,

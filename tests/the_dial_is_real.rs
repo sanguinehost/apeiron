@@ -1,6 +1,6 @@
 //! The trichotomy, as behaviour rather than vocabulary.
 //!
-//! Each test mirrors one theorem in `../sanguine-apeiron/proof/Apeiron/Trichotomy/`. The reason
+//! Each test mirrors one theorem in `../sanguine/proof/Apeiron/Trichotomy/`. The reason
 //! they exist as tests and not as comments is the thing this crate was written to fix: hashtrinity
 //! names its three storage faces after the trichotomy and branches on no discriminant anywhere, so
 //! nothing would fail if the trichotomy were wrong, absent, or replaced by three other words.

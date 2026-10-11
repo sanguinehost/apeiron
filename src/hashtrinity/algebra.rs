@@ -10,7 +10,7 @@ use std::mem::MaybeUninit;
 ///
 /// The table's slot arrays are allocated full-length and left unwritten: liveness lives in the
 /// coordinate line, so a build writes a slot only when it stores into it. That is the property
-/// `../sanguine/proof/Closures/Engineering/ConcreteProbeCost.lean:607` `slot_tax_exact` charges a `capacity`-scaled per-slot tax for; an
+/// `../sanguine-ref/proof/Closures/Engineering/ConcreteProbeCost.lean:607` `slot_tax_exact` charges a `capacity`-scaled per-slot tax for; an
 /// element-wise fill would move `capacity` writes into the build and forfeit it.
 ///
 /// One allocation of `n` elements, zero per-slot writes: O(n) bytes allocated, 0 element writes,
@@ -152,7 +152,7 @@ pub trait KeyReadout<K: Coord>: KeyStore<K> {
 /// No `Option`, no per-slot clearing: the key store rides the SAME invariant as the value array —
 /// **`keys[i]` is initialized iff `coords[i]` is live** (neither `EMPTY` nor a tombstone) — so
 /// allocation writes nothing
-/// (`../sanguine/proof/Closures/Engineering/ConcreteProbeCost.lean:607` `slot_tax_exact`: per-slot clearing is a named, removable build
+/// (`../sanguine-ref/proof/Closures/Engineering/ConcreteProbeCost.lean:607` `slot_tax_exact`: per-slot clearing is a named, removable build
 /// cost; this is the move that removed the `Option<V>` discriminant, applied to `K`). Liveness
 /// lives in the coordinate line, so `clone_live`/`drop_live` take it from the caller.
 ///

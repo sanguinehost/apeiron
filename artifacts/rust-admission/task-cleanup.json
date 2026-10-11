@@ -1,0 +1,37 @@
+[
+  {
+    "task": "W6",
+    "archive": "artifacts/rust-admission/tasks/W6.tar.gz",
+    "source_files": 10,
+    "worktree_removed": "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-RUSTADMIT-W6-T1",
+    "branch_deleted": "codex/rust-admit-cli"
+  },
+  {
+    "task": "W7",
+    "archive": "artifacts/rust-admission/tasks/W7.tar.gz",
+    "source_files": 21,
+    "worktree_removed": "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-RUSTADMIT-W7-T1",
+    "branch_deleted": "codex/rust-admit-entry"
+  },
+  {
+    "task": "W7A",
+    "archive": "artifacts/rust-admission/tasks/W7A.tar.gz",
+    "source_files": 21,
+    "worktree_removed": "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-RUSTADMIT-W7A-T1",
+    "branch_deleted": "codex/rust-admit-deadline"
+  },
+  {
+    "task": "W7B",
+    "archive": "artifacts/rust-admission/tasks/W7B.tar.gz",
+    "source_files": 21,
+    "worktree_removed": "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-RUSTADMIT-W7B-T1",
+    "branch_deleted": "codex/rust-admit-proof-budget"
+  },
+  {
+    "task": "W8",
+    "archive": "artifacts/rust-admission/tasks/W8.tar.gz",
+    "source_files": 1,
+    "worktree_removed": "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-RUSTADMIT-W8-T1",
+    "branch_deleted": "codex/rust-admit-policy"
+  }
+]

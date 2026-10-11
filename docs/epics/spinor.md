@@ -22,8 +22,8 @@ Merged epic record: `plan/spinor-coverage.md`, `plan/spinor-transport.md` (one f
 
 - Consuming tree `/home/socol/Workspace/apeiron`, corpus pin `88866412`, unchanged. No Rust,
   Aeneas, Slang, Song or Fold change.
-- Live canonical proof source `/home/socol/Workspace/sanguine-apeiron`, `336ce8d3`, dirty. Old
-  read-only reference `/home/socol/Workspace/sanguine`, `e830d3f`.
+- Live canonical proof source `/home/socol/Workspace/sanguine`, `336ce8d3`, dirty. Old
+  read-only reference `/home/socol/Workspace/sanguine-ref`, `e830d3f`.
 - Lean `leanprover/lean4:v4.31.0`, commit `68218e876d2a38b1985b8590fff244a83c321783`; Mathlib
   `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`.
 - E1/E2/C2 file `proof/Apeiron/Trichotomy/Derived/Elliptic.lean`, sha256
@@ -151,7 +151,7 @@ File `proof/Apeiron/Numeric/Accumulator.lean`, namespace `Apeiron.Numeric`. New 
 `osNum_scan_acc` and the headline `softmax_attention_is_online_chart`: for `l : List (ℝ × ℝ)`,
 `osNum (osScan l)` is the value-weighted exponential sum and `osDen (osScan l)` the exponential
 sum, and both channels merge as exact `+`. This transports the old three-conjunct
-`softmax_attention_is_online_spinor` at `/home/socol/Workspace/sanguine` rev `e830d3fb`,
+`softmax_attention_is_online_spinor` at `/home/socol/Workspace/sanguine-ref` rev `e830d3fb`,
 `proof/Substrate/Algebra/Neural/AttentionSpinor.lean:403-469`, not the doc's paraphrase. The chart
 is not `Trichotomy.Cell`; no `ringMul` or `ringNormForm` is read. Integrated uncommitted; grade
 proved at the canonical gate below.
@@ -185,11 +185,11 @@ Every Lean gate is serialized and bounded, with no `maxHeartbeats 0`, no raised 
 and no whole-source `decide`. Commands run individually from the stated cwd.
 
 ```sh
-# cwd /home/socol/Workspace/sanguine-apeiron/proof
+# cwd /home/socol/Workspace/sanguine/proof
 flock /tmp/opencode/apeiron-lane.lock systemd-run --user --scope \
   -p MemoryMax=6G -p MemorySwapMax=0 -- env LEAN_NUM_THREADS=1 timeout 1800 \
   lake build <module> Apeiron.Audit
-# cwd /home/socol/Workspace/sanguine-apeiron
+# cwd /home/socol/Workspace/sanguine
 scripts/check-lints.py
 python3 scripts/check-style.py
 python3 scripts/check-imports.py
@@ -229,7 +229,7 @@ GRADE:      proved; carried inverse witness hw; control conclusion `= 1` to `= 2
 SCOPE:      N1 add the online numerator/denominator chart to Numeric/Accumulator; gate exits 0.
 REGISTER:   local algebra transport (pair chart; numerator and denominator merge as exact +).
 CORPUS:     Numeric osFuse, osVal, osFuse_is_add, osFuse_fold_eq_add.
-REFERENCE:  /home/socol/Workspace/sanguine rev e830d3fb,
+REFERENCE:  /home/socol/Workspace/sanguine-ref rev e830d3fb,
             proof/Substrate/Algebra/Neural/AttentionSpinor.lean:403-469.
 GATE:       cd proof && lake build Apeiron.Numeric.Accumulator Apeiron.Audit; exit 0.
 GRADE:      proved; control numerator channel swapped to the denominator channel red, restored.
@@ -311,7 +311,7 @@ because `Linter/Citations.lean` has no Cayley or spinor key. Nothing is committe
 ### Reference register
 
 - Consuming tree `/home/socol/Workspace/apeiron`, pin `88866412`, unchanged.
-- Live canonical `/home/socol/Workspace/sanguine-apeiron`, `336ce8d3`, dirty:
+- Live canonical `/home/socol/Workspace/sanguine`, `336ce8d3`, dirty:
   `Physics/Quadratic.lean` (`rot`, `elliptic_one_param`, `unitNorm_elliptic`,
   `elliptic_rotors_commute`, all sigma < 0; M1 `ringRep`, `cellVec`, `toMatrixStep`, `ringRep_mul`,
   `matrixStep_apply`, `matrixStep_comp`, `ringRep_real_eq_rep`); `Trichotomy/Flow.lean` (`flow`,
@@ -325,7 +325,7 @@ because `Linter/Citations.lean` has no Cayley or spinor key. Nothing is committe
   `osFuse`/`osFuse_is_add`/`osFuse_fold_eq_add`/`osVal`; pair chart `osFusePair`, `osDen`, `osNum`,
   `osTile`, `osScan`, `softmax_attention_is_online_chart`); `Combinator/RouteAnyRing.lean`
   (`Route`).
-- Old read-only `/home/socol/Workspace/sanguine`, `e830d3f` (faces verified at the declarations):
+- Old read-only `/home/socol/Workspace/sanguine-ref`, `e830d3f` (faces verified at the declarations):
   `Substrate/Algebra/Neural/AttentionSpinor.lean:340` (`rotor`, `spinApply`; sigma < 0),
   `:403` (`oaFuse`, `softmax_attention_is_online_spinor`; sigma < 0);
   `Substrate/Algebra/Neural/TrainingCollapse.lean:290` (`rotorStep`, `rotor_isometry`; sigma < 0);
@@ -369,7 +369,7 @@ because `Linter/Citations.lean` has no Cayley or spinor key. Nothing is committe
 - Resolved pinned corpus package:
   `/home/socol/Workspace/apeiron/proof/corpus/.lake/packages/apeiron/proof`, revision
   `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f` (consumer pin unchanged).
-- Canonical proof source base (live sibling): `/home/socol/Workspace/sanguine-apeiron`, revision
+- Canonical proof source base (live sibling): `/home/socol/Workspace/sanguine`, revision
   `336ce8d3d7ef7d7be3be343e4b678ee16a5c321b`, dirty.
 - W1/M1 file `proof/Apeiron/Trichotomy/AnyRing.lean`, sha256
   `decbba9dc965bbf94f83beb982d468e27ddee69c024ecf923740a30217445428`.
@@ -388,7 +388,7 @@ because `Linter/Citations.lean` has no Cayley or spinor key. Nothing is committe
   `proof/Apeiron/Numeric/Accumulator.lean` and `proof/Apeiron/Physics/Quadratic.lean` (sha256
   `b90770cb6a43e58b6a92cb3b618190eee389dfebafd1e23928d343866da1848a`); hashes in
   `docs/epics/spinor.md`.
-- Old source (read-only reference): `/home/socol/Workspace/sanguine`, revision
+- Old source (read-only reference): `/home/socol/Workspace/sanguine-ref`, revision
   `e830d3fbdeb40319d1be0d1fc803e706748b6a3c`.
 - Lean toolchain `lean-toolchain`: `leanprover/lean4:v4.31.0`, commit
   `68218e876d2a38b1985b8590fff244a83c321783`.
@@ -450,7 +450,7 @@ material (`SpinorFold.upper_nmul`, `lower_nmul`, `nmul_is_diagonal`, `spinorFold
 declarations to the canonical ones, so these are canonical analogues/reads, not exact transports.
 
 **Per-face attribution of the old declarations.** Paths are relative to
-`/home/socol/Workspace/sanguine/proof/`; `SP` = `Substrate/StationaryPhase`,
+`/home/socol/Workspace/sanguine-ref/proof/`; `SP` = `Substrate/StationaryPhase`,
 `NC` = `Substrate/Algebra/NullCell`, `NA` = `Substrate/Algebra/Neural`,
 `AS` = `Substrate/Algebra/Security`, `AT` = `Substrate/Algebra/Translation`,
 `SU` = `Substrate`.
@@ -607,11 +607,11 @@ Every Lean gate is serialized and bounded, with no `maxHeartbeats 0`, no raised 
 whole-source `decide`. Commands run individually from the stated cwd:
 
 ```sh
-# cwd /home/socol/Workspace/sanguine-apeiron/proof
+# cwd /home/socol/Workspace/sanguine/proof
 flock /tmp/opencode/apeiron-lane.lock systemd-run --user --scope \
   -p MemoryMax=6G -p MemorySwapMax=0 -- env LEAN_NUM_THREADS=1 timeout 1800 lake build <targets>
 lake build
-# cwd /home/socol/Workspace/sanguine-apeiron
+# cwd /home/socol/Workspace/sanguine
 scripts/check-lints.py
 python3 scripts/check-style.py
 python3 scripts/check-imports.py
@@ -637,7 +637,7 @@ REGISTER:   local algebra obligation with a semantic state witness (the order- a
             sigma-distinguishing fold witness); no refinement, measurement or Rust obligation.
 CORPUS:     Apeiron/Trichotomy/AnyRing.lean; derives from ringMul_assoc, ringMul_distrib_add,
             ringMul_one, ringMul_zero.
-REFERENCE:  /home/socol/Workspace/sanguine/proof/Substrate/StationaryPhase/SpinorLoop.lean at
+REFERENCE:  /home/socol/Workspace/sanguine-ref/proof/Substrate/StationaryPhase/SpinorLoop.lean at
             e830d3f; AffineStep.apply/compose/compose_apply/compose_assoc resolve there.
 GATE:       cd proof && lake build Apeiron.Trichotomy.AnyRing Apeiron.Audit; exit 0, 3519 jobs.
 GRADE:      proved; witness values (4,4), (1,1), (3,4), folds unequal.

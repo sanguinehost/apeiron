@@ -19,9 +19,9 @@ REGISTER: refinement planning for the AI-track outcome
           AI"); excludes execution, grade changes, pin changes and performance work
 CORPUS: canonical definitions Apeiron.Table.{HMap, get, insertWith, build} and
         Apeiron.Trichotomy.AnyRing.{RingCell, ringMul, ringNormForm} at the pinned corpus
-        (../sanguine-apeiron/proof, corpus Git 3d66ea3aa2fe1de5997b6b757247454a2f771358 per the
-        bridge manifest); historical statements in ../sanguine/proof/Substrate/Algebra/Neural/ and
-        ../sanguine/proof/Substrate/Algebra/NullCell/SpinorFold.lean; paper1/paper2 bundles;
+        (../sanguine/proof, corpus Git 3d66ea3aa2fe1de5997b6b757247454a2f771358 per the
+        bridge manifest); historical statements in ../sanguine-ref/proof/Substrate/Algebra/Neural/ and
+        ../sanguine-ref/proof/Substrate/Algebra/NullCell/SpinorFold.lean; paper1/paper2 bundles;
         ../spinor-ttl ports
 REFERENCE: docs/direction.md outcomes row and execution order; docs/roadmap.md
            "Verified-AI sequence and prior-art index"; the module files listed above, read in this
@@ -33,7 +33,7 @@ GRADE: anchor/planning; historical grades retained, not fresh acceptance
 ### Problem
 
 The AI-track outcome's formal records live in sibling checkouts at the older toolchain
-(`../sanguine` pins `leanprover/lean4:v4.30.0-rc2`; this package pins `v4.31.0`), and no rebased
+(`../sanguine-ref` pins `leanprover/lean4:v4.30.0-rc2`; this package pins `v4.31.0`), and no rebased
 statement links a streaming-update or attention mechanism to the canonical
 `Apeiron.Table`/`Apeiron.Trichotomy` objects consumed here. The executing reference is the
 `../spinor-ttl` port suite: measured, not extracted. `docs/direction.md` records the state:
@@ -64,7 +64,7 @@ cd proof/corpus && lake build <module set fixed in the spec> && lake build Axiom
 
 ### Invariants
 
-1. No canonical source moves and no pin change: `../sanguine-apeiron/proof` and the bridge manifest
+1. No canonical source moves and no pin change: `../sanguine/proof` and the bridge manifest
    stay as they are.
 2. Statement fidelity: a rebased headline keeps its historical statement, or carries a Sol-reviewed
    change note; a changed statement is renamed and its grade re-earned, never carried.
@@ -107,7 +107,7 @@ identity `3d66ea3a…` is trusted for the canonical definitions; this epic does 
 
 - Rebase home: new modules under `proof/corpus/Neural/` importing the pinned `apeiron` package (lead
   default; keeps the pin and the stage-3 extraction path) versus contributions to
-  `../sanguine-apeiron`. Owner: lead; decide before the spec.
+  `../sanguine`. Owner: lead; decide before the spec.
 - First-wave module list and compile status under `v4.31.0`: the [inventory](neural-rebase.md)
   (anchor) records the per-file digests, imports and the wave proposal, and the
   [spec](neural-rebase.md) fixes the wave; compile status remains the focused-module gates.
@@ -135,8 +135,8 @@ REGISTER: refinement planning for the AI-track outcome; the executable wave is s
           verified-AI sequence and produces no Rust or extraction change
 CORPUS: canonical definitions Apeiron.Table.{HMap, get, insertWith, build} and
         Apeiron.Trichotomy.AnyRing.{RingCell, ringMul, ringNormForm} at the pinned corpus
-        (../sanguine-apeiron/proof, corpus Git 3d66ea3aa2fe1de5997b6b757247454a2f771358);
-        historical statements at ../sanguine/proof/Substrate/Algebra/Neural/ (per-file digests
+        (../sanguine/proof, corpus Git 3d66ea3aa2fe1de5997b6b757247454a2f771358);
+        historical statements at ../sanguine-ref/proof/Substrate/Algebra/Neural/ (per-file digests
         in the inventory)
 REFERENCE: closure computed by recursive import scan (/tmp/opencode/neural-closure.py):
            46 modules, 16,371 lines; executed compile `lake build SubstrateVendored` finds three
@@ -158,7 +158,7 @@ vendored file enters only as required import closure and carries no headline cla
 | Item | Value |
 |---|---|
 | Operation | Vendor the admitted modules and their transitive import closure into `proof/corpus`, then compile and audit at the pinned identity |
-| Domain | 6 admitted modules + closure = 46 modules, 16,371 lines (recursive `import` scan of `../sanguine/proof`, Mathlib/Batteries/Std excluded) |
+| Domain | 6 admitted modules + closure = 46 modules, 16,371 lines (recursive `import` scan of `../sanguine-ref/proof`, Mathlib/Batteries/Std excluded) |
 | Totality | total Lean definitions; conditional theorems keep their hypotheses; no partial operation is specified |
 | Preconditions | pinned toolchain and Mathlib; historical per-file sha256 recorded; lane lock and per-command budget |
 | Postcondition | every wave row's focused `lake build <Module>` exits 0; every headline is registered in `AxiomAudit` inside `{propext, Classical.choice, Quot.sound}`; fidelity digests match except named adaptations |
@@ -183,7 +183,7 @@ file limit — split required first).
 
 | Layer | Symbol | Path |
 |---|---|---|
-| Historical source | each admitted module | `/home/socol/Workspace/sanguine/proof/…`, sha256 per inventory |
+| Historical source | each admitted module | `/home/socol/Workspace/sanguine-ref/proof/…`, sha256 per inventory |
 | Rebased module | same module name | `proof/corpus/Substrate/…` (mirrored tree, imports unchanged) |
 | Canonical definition | `Apeiron.Table.*`, `Apeiron.Trichotomy.AnyRing.*` | pinned corpus; link named per row, standalone in wave 1 |
 | Fidelity check | vendored bytes | `sha256sum -c proof/corpus/Substrate/vendor.sha256` |
@@ -282,9 +282,9 @@ REGISTER: refinement planning for the AI-track outcome (docs/direction.md#progra
           pin changes and performance work
 CORPUS: canonical definitions Apeiron.Table.{HMap, get, insertWith, build} and
         Apeiron.Trichotomy.AnyRing.{RingCell, ringMul, ringNormForm} at the pinned corpus
-        (../sanguine-apeiron/proof, corpus Git 3d66ea3aa2fe1de5997b6b757247454a2f771358 per the
-        bridge manifest); historical statements at ../sanguine/proof/Substrate/Algebra/Neural/ and
-        ../sanguine/proof/Substrate/Algebra/NullCell/SpinorFold.lean
+        (../sanguine/proof, corpus Git 3d66ea3aa2fe1de5997b6b757247454a2f771358 per the
+        bridge manifest); historical statements at ../sanguine-ref/proof/Substrate/Algebra/Neural/ and
+        ../sanguine-ref/proof/Substrate/Algebra/NullCell/SpinorFold.lean
 REFERENCE: docs/epics/neural-rebase.md; docs/epics/neural-rebase.md; docs/epics/neural-rebase.md;
            docs/roadmap.md ("Verified-AI sequence and prior-art index");
            docs/epics/agent-throughput-segmentation.md; /tmp/opencode/neural-closure.py
@@ -313,7 +313,7 @@ cd proof/corpus && lake build Substrate.Algebra.Neural.MirasCountLM \
 ### 2. Non-goals and trust boundary
 
 - Non-goals: Rust runtime changes or Aeneas extraction (stage 3); model training or benchmark
-  measurements (stage 6); modifying the pinned canonical corpus at `../sanguine-apeiron/proof`;
+  measurements (stage 6); modifying the pinned canonical corpus at `../sanguine/proof`;
   NullCell world/terrain modules; publication.
 - Trust boundary: covers the kernel-checked statements of the vendored modules at Lean `v4.31.0` and
   Mathlib `fabf563a…`, file digest fidelity against historical sources, and the closed axiom cone.
@@ -528,7 +528,7 @@ All three adaptations: record the diff against the historical file, the new sha2
 `awk '{print $2}' proof/corpus/Substrate/vendor.sha256 | xargs sha256sum >
 proof/corpus/Substrate/adapted.sha256`), and the `tools/neural-adapt/` patch entry —
 `diff -u --label a/proof/corpus/<rel> --label b/proof/corpus/<rel>
-/home/socol/Workspace/sanguine/proof/<rel> proof/corpus/<rel> > tools/neural-adapt/<name>.patch`,
+/home/socol/Workspace/sanguine-ref/proof/<rel> proof/corpus/<rel> > tools/neural-adapt/<name>.patch`,
 applied by `tools/vendor-neural.sh` with `git apply` from the repository root. The manifest
 regeneration and vendor re-run are serialized on the integrator lane; a worker records only its
 patch.
@@ -905,7 +905,7 @@ Run at wave barrier:
 - [ ] File limit invariant: every vendored file ≤1,500 lines; every directory ≤12 immediate files.
 - [ ] Axiom cone invariant: `#audit` verifies empty transitive axioms outside `{propext, Classical.choice, Quot.sound}`.
 - [ ] No `sorry`, `admit` or `axiom` declarations in vendored tree.
-- [ ] Pinned package `../sanguine-apeiron/proof` unmodified; manifest pin unchanged.
+- [ ] Pinned package `../sanguine/proof` unmodified; manifest pin unchanged.
 
 Stop and rollback conditions:
 - If any admitted module encounters an unresolvable Mathlib semantic breaking change requiring theorem
@@ -934,19 +934,19 @@ proof/corpus/lakefile.lean
 proof/corpus/AxiomAudit.lean
 proof/corpus/lean-toolchain
 proof/corpus/lake-manifest.json
-/home/socol/Workspace/sanguine
-/home/socol/Workspace/sanguine/proof/lake-manifest.json
-/home/socol/Workspace/sanguine/proof/lean-toolchain
-/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/MirasCountLM.lean
-/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/KneserNey.lean
-/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/CountLMFloor.lean
-/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/AttentionSpinor.lean
-/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/MLPrimitivesBridge.lean
-/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/TrainingCollapse.lean
-/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/NullTransformer.lean
-/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/FrontierLadder.lean
-/home/socol/Workspace/sanguine/proof/Substrate/Algebra/NullCell/SpinorFold.lean
-/home/socol/Workspace/sanguine/proof/Substrate/CollapseCore.lean
+/home/socol/Workspace/sanguine-ref
+/home/socol/Workspace/sanguine-ref/proof/lake-manifest.json
+/home/socol/Workspace/sanguine-ref/proof/lean-toolchain
+/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/MirasCountLM.lean
+/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/KneserNey.lean
+/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/CountLMFloor.lean
+/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/AttentionSpinor.lean
+/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/MLPrimitivesBridge.lean
+/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/TrainingCollapse.lean
+/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/NullTransformer.lean
+/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/FrontierLadder.lean
+/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/NullCell/SpinorFold.lean
+/home/socol/Workspace/sanguine-ref/proof/Substrate/CollapseCore.lean
 /home/socol/Workspace/spinor-ttl
 /tmp/opencode/neural-closure.py
 ```
@@ -970,12 +970,12 @@ done
 - **Scope:** one row per in-scope module (paths, sha256, line count, declaration counts,
   `sorry`/`admit`/`axiom` scan, cross-module imports, paper-INDEX headline names), the old identity
   pin, a candidate first wave, and per-module rebase risks. It changes no source, theorem or gate.
-- **Source root for the table paths:** `/home/socol/Workspace/sanguine` (historical checkout).
+- **Source root for the table paths:** `/home/socol/Workspace/sanguine-ref` (historical checkout).
 
 ### Commands used
 
 ```sh
-cd /home/socol/Workspace/sanguine
+cd /home/socol/Workspace/sanguine-ref
 sha256sum <9 module paths>            # digests, table column 2
 wc -l <9 module paths>                # line counts, table column 3
 rg -c 'theorem|lemma' <file>          # thm+lem column (matching lines)
@@ -985,20 +985,20 @@ rg -n 'sorry|admit|axiom' <file> | head -3
 rg -n '^import ' <file>               # import lines
 rg -n '^\s*(theorem|lemma)\b' <file>  # anchored declaration counts (footnote)
 rg -n '^\s*(def|structure|instance|abbrev|noncomputable def)\b' <file>
-cat -n /home/socol/Workspace/sanguine/lean-toolchain
-cat -n /home/socol/Workspace/sanguine/proof/lean-toolchain
-cat -n /home/socol/Workspace/sanguine/proof/lake-manifest.json
+cat -n /home/socol/Workspace/sanguine-ref/lean-toolchain
+cat -n /home/socol/Workspace/sanguine-ref/proof/lean-toolchain
+cat -n /home/socol/Workspace/sanguine-ref/proof/lake-manifest.json
 rg -n <INDEX theorem names> <9 module paths>          # name-level INDEX match
-rg -n <Substrate module> /home/socol/Workspace/sanguine/proof/lakefile.lean
+rg -n <Substrate module> /home/socol/Workspace/sanguine-ref/proof/lakefile.lean
 test -e <each cited path>                              # path gate, see §6
 ```
 
 The handoff named a manifest at the sanguine repository root; `test -e` reports no file there. The
-manifest that exists and is quoted is at `/home/socol/Workspace/sanguine/proof/lake-manifest.json`.
+manifest that exists and is quoted is at `/home/socol/Workspace/sanguine-ref/proof/lake-manifest.json`.
 
 ### 1. Module table
 
-One row per module. Paths are relative to `/home/socol/Workspace/sanguine` (the resolved absolute
+One row per module. Paths are relative to `/home/socol/Workspace/sanguine-ref` (the resolved absolute
 forms are listed in §6); every row resolves with `test -e`. `thm+lem` and `def+struct+inst` are
 `rg -c` matching-line counts; anchored declaration counts are in the footnote. The
 `sorry|admit|axiom` column is the substring scan — every hit is inside prose (`admits`, or a
@@ -1027,11 +1027,11 @@ MLPrimitivesBridge 20/6, CountLMFloor 26/11, KneserNey 6/9, TrainingCollapse 34/
 
 Quoted with file and line.
 
-- `/home/socol/Workspace/sanguine/lean-toolchain:1`:
+- `/home/socol/Workspace/sanguine-ref/lean-toolchain:1`:
   `leanprover/lean4:v4.30.0-rc2`
-- `/home/socol/Workspace/sanguine/proof/lean-toolchain:1`:
+- `/home/socol/Workspace/sanguine-ref/proof/lean-toolchain:1`:
   `leanprover/lean4:v4.30.0-rc2` (same string)
-- `/home/socol/Workspace/sanguine/proof/lake-manifest.json:8`:
+- `/home/socol/Workspace/sanguine-ref/proof/lake-manifest.json:8`:
   `   "rev": "89d44072ff8960893f469c67f75280db4fe4023a",`
   with `:9` `   "name": "mathlib",` and `:11` `   "inputRev": "master",`.
   Manifest header `:1` `{"version": "1.2.0",`, package name `:94` ` "name": "«sanguine-proof»",`.
@@ -1044,29 +1044,29 @@ Current pin for contrast (from `/home/socol/Workspace/apeiron/proof/corpus`):
   `   "rev": "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f",` (`:9` `"name": "mathlib",`)
 
 A manifest at the sanguine repository root does not exist; the digest-bearing manifest is
-`/home/socol/Workspace/sanguine/proof/lake-manifest.json`.
+`/home/socol/Workspace/sanguine-ref/proof/lake-manifest.json`.
 
 ### 3. Metadata sources: paper INDEX and spinor-ttl
 
 **Theorem-name lists.** The paper1 INDEX
-(`/home/socol/Workspace/sanguine/release/paper1/INDEX.md`) names, by release file:
-`/home/socol/Workspace/sanguine/release/paper1/Numerics.lean` → `accumulator_fits`,
+(`/home/socol/Workspace/sanguine-ref/release/paper1/INDEX.md`) names, by release file:
+`/home/socol/Workspace/sanguine-ref/release/paper1/Numerics.lean` → `accumulator_fits`,
 `lossy_error_is_additive`, `token_survives_margin`, `numerics_seam`,
 `output_error_is_function_distortion`, `aware_scale_is_the_chart`, `weight_only_is_dual_blind`,
 `osFuse_is_add`, `osFuse_grouping_free`, `flash_attention_exact`;
-`/home/socol/Workspace/sanguine/release/paper1/Train.lean` → `ridgeHead_unique`, `gram_stack`,
-`streaming_law`; `/home/socol/Workspace/sanguine/release/paper1/Cell.lean` →
-`null_cell_characterization`; `/home/socol/Workspace/sanguine/release/paper1/Spinor.lean` →
-`spinor_subtrinity`; `/home/socol/Workspace/sanguine/release/paper1/Ops.lean` →
-`six_ops_one_cell`; `/home/socol/Workspace/sanguine/release/paper1/Seed.lean` →
+`/home/socol/Workspace/sanguine-ref/release/paper1/Train.lean` → `ridgeHead_unique`, `gram_stack`,
+`streaming_law`; `/home/socol/Workspace/sanguine-ref/release/paper1/Cell.lean` →
+`null_cell_characterization`; `/home/socol/Workspace/sanguine-ref/release/paper1/Spinor.lean` →
+`spinor_subtrinity`; `/home/socol/Workspace/sanguine-ref/release/paper1/Ops.lean` →
+`six_ops_one_cell`; `/home/socol/Workspace/sanguine-ref/release/paper1/Seed.lean` →
 `rexpand_rcollapse`, `Gen.decode_encode`. The paper2 INDEX
-(`/home/socol/Workspace/sanguine/release/paper2/INDEX.md`) names
+(`/home/socol/Workspace/sanguine-ref/release/paper2/INDEX.md`) names
 `meaning_is_the_only_freedom`, `fromTerm_unique`, `state_is_a_fromTerm`, `lift_is_format_agnostic`,
 `the_one_object`, `constantStep_fixed_point`, `affine_orbit_closed_form`,
 `fixed_point_is_bulk_ratio`, `loops_are_closed_forms`, `canonical_floor_unique`, `confluence`,
 `evalIO_syscall`, `capability_orthogonal_awareness`, `no_self_reference`, declared over
-`/home/socol/Workspace/sanguine/release/paper2/Object.lean` and
-`/home/socol/Workspace/sanguine/release/paper2/Loop.lean`; the INDEX marks its `Machine`, `Syscall`
+`/home/socol/Workspace/sanguine-ref/release/paper2/Object.lean` and
+`/home/socol/Workspace/sanguine-ref/release/paper2/Loop.lean`; the INDEX marks its `Machine`, `Syscall`
 and `Servitor` rows in progress and no release file for them exists.
 
 Of these, only `ridgeHead_unique`, `gram_stack` (declared in the TrainingCollapse module) and
@@ -1080,12 +1080,12 @@ occur in the in-scope modules. No in-scope module path is named by either INDEX.
 | measured claim (source) | mapped module (as stated) |
 |---|---|
 | count-LM 2.205 b/B in 1.7 s vs 2-layer byte transformer 2.392 b/B in 20.9 s; Lean ref 2.239 vs 2.469 (PAPER §2, `/home/socol/Workspace/spinor-ttl/bench/beats_transformer.py`) | `/home/socol/Workspace/spinor-ttl/src/spinor_ttl/countlm.py`; counts-cited Lean: KneserNey, CountLMFloor, MirasCountLM |
-| `osFuse_is_add` / `osFuse_grouping_free` (PAPER §1, names `SpinorFold.lean`) | **drift:** the theorems are declared at `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:174,182`, not in `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/NullCell/SpinorFold.lean` |
-| `output_error_is_function_distortion`, `aware_scale_is_the_chart`, `weight_only_is_dual_blind` (PAPER §3, MLPrimitivesBridge §6) | `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:304,333,344` (matches) |
-| `kn_floor_refinement` (PAPER §4, MLPrimitivesBridge §6b) | `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:385` (matches) |
+| `osFuse_is_add` / `osFuse_grouping_free` (PAPER §1, names `SpinorFold.lean`) | **drift:** the theorems are declared at `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:174,182`, not in `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/NullCell/SpinorFold.lean` |
+| `output_error_is_function_distortion`, `aware_scale_is_the_chart`, `weight_only_is_dual_blind` (PAPER §3, MLPrimitivesBridge §6) | `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:304,333,344` (matches) |
+| `kn_floor_refinement` (PAPER §4, MLPrimitivesBridge §6b) | `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:385` (matches) |
 | seal 4.2665 bits/token @4.45 b/w vs NF4 4.3032 @4.50; vs Q4_K_M 4.2121/4.2191 @6.34 (PAPER §3) | `/home/socol/Workspace/spinor-ttl/src/spinor_ttl/seal.py`; mechanism: MLPrimitivesBridge §6 |
 | finetune fold⊕base 0.724 b/B vs LoRA 0.850, fold alone 0.957, frozen base 0.910; exact unlearning (PAPER §4) | `/home/socol/Workspace/spinor-ttl/src/spinor_ttl/finetune.py` (`FoldAdapter`); mechanism: MLPrimitivesBridge `kn_floor_refinement`, MirasCountLM `forget_hebb` |
-| ridge fold 16–71× vs full-batch Adam at the same optimum (STATUS, `/home/socol/Workspace/spinor-ttl/bench/train_fold_vs_grad.py`) | `/home/socol/Workspace/spinor-ttl/bench/test_sparse_ridge_fold.py`; mechanism: TrainingCollapse `ridgeHead`, `/home/socol/Workspace/sanguine/proof/Runtime/Model.lean` `BU.foldRow` |
+| ridge fold 16–71× vs full-batch Adam at the same optimum (STATUS, `/home/socol/Workspace/spinor-ttl/bench/train_fold_vs_grad.py`) | `/home/socol/Workspace/spinor-ttl/bench/test_sparse_ridge_fold.py`; mechanism: TrainingCollapse `ridgeHead`, `/home/socol/Workspace/sanguine-ref/proof/Runtime/Model.lean` `BU.foldRow` |
 
 ### 4. Candidate first wave
 
@@ -1094,20 +1094,20 @@ spinor-ttl. One rationale line each.
 
 | module | rationale |
 |---|---|
-| `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/MirasCountLM.lean` | Test-time memory as the exact fold: `hebb`/`forget` are the order-free update and its exact inverse (`hebb_comm`, `forget_hebb`); the `hebb` rule is the count-table primitive. |
-| `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/KneserNey.lean` | The smoothing lever that closes the estimation gap (`kn_normalizes`); spinor-ttl counts on it for both count-LM and finetune. Self-contained (Mathlib only). |
-| `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/CountLMFloor.lean` | The bits/byte decomposition and the two levers (KL→0, conditioning→full) that name the lower-cost inference target; declares the open `kappa_sufficient` seam. |
-| `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/AttentionSpinor.lean` | Attention as an `A=I` spinor scan and exact online-softmax carry: `O(1)` state per step, the lower-cost inference mechanism. |
-| `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/MLPrimitivesBridge.lean` | The op-level bridge carrying the flash-attention chart (`osFuse_*`) and the quant-dual law spun out in spinor-ttl §3; also `kn_floor_refinement`. |
-| `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/TrainingCollapse.lean` | Closed-form ridge solve and exact streaming/removal fold (`ridgeHead_unique`, `gram_stack`, `normal_equations_*`): the spinor-ttl "training fold" speed win. |
-| `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/NullCell/SpinorFold.lean` (decision item) | The fold/softmax algebra spinor-ttl cites for the streaming merge; carries the real `spinorFold`/`nmul_assoc` content, but the cited `osFuse_*` names live elsewhere (drift above). The intent leaves "stage 2 or fold crossover" open — owner decision. |
+| `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/MirasCountLM.lean` | Test-time memory as the exact fold: `hebb`/`forget` are the order-free update and its exact inverse (`hebb_comm`, `forget_hebb`); the `hebb` rule is the count-table primitive. |
+| `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/KneserNey.lean` | The smoothing lever that closes the estimation gap (`kn_normalizes`); spinor-ttl counts on it for both count-LM and finetune. Self-contained (Mathlib only). |
+| `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/CountLMFloor.lean` | The bits/byte decomposition and the two levers (KL→0, conditioning→full) that name the lower-cost inference target; declares the open `kappa_sufficient` seam. |
+| `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/AttentionSpinor.lean` | Attention as an `A=I` spinor scan and exact online-softmax carry: `O(1)` state per step, the lower-cost inference mechanism. |
+| `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/MLPrimitivesBridge.lean` | The op-level bridge carrying the flash-attention chart (`osFuse_*`) and the quant-dual law spun out in spinor-ttl §3; also `kn_floor_refinement`. |
+| `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/TrainingCollapse.lean` | Closed-form ridge solve and exact streaming/removal fold (`ridgeHead_unique`, `gram_stack`, `normal_equations_*`): the spinor-ttl "training fold" speed win. |
+| `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/NullCell/SpinorFold.lean` (decision item) | The fold/softmax algebra spinor-ttl cites for the streaming merge; carries the real `spinorFold`/`nmul_assoc` content, but the cited `osFuse_*` names live elsewhere (drift above). The intent leaves "stage 2 or fold crossover" open — owner decision. |
 
 Clearly downstream, can wait:
 
 | module | why it can wait |
 |---|---|
-| `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/FrontierLadder.lean` | A prose ledger over CountLMFloor with only four native facts; every rung cites a theorem in another module. It cannot be re-bound before the modules it names. |
-| `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/NullTransformer.lean` | A composite consumer of AttentionSpinor, RopeRelative and the MLPrimitivesBridge/TrainingCollapse algebra; 1648 lines and the largest Mathlib surface. It re-states nothing those modules do not already carry and should follow them. |
+| `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/FrontierLadder.lean` | A prose ledger over CountLMFloor with only four native facts; every rung cites a theorem in another module. It cannot be re-bound before the modules it names. |
+| `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/NullTransformer.lean` | A composite consumer of AttentionSpinor, RopeRelative and the MLPrimitivesBridge/TrainingCollapse algebra; 1648 lines and the largest Mathlib surface. It re-states nothing those modules do not already carry and should follow them. |
 
 The NullCell world/terrain modules and the physics, security and game rows are excluded by the
 intent's non-goals and are not in this inventory.
@@ -1120,45 +1120,45 @@ in-scope Mathlib import path and every Mathlib declaration named in the docstrin
 **by file/name grep against the current Mathlib tree**
 (`/home/socol/Workspace/apeiron/proof/corpus/.lake/packages/mathlib/Mathlib`); no build was run.
 
-- `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/MirasCountLM.lean` — re-home
+- `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/MirasCountLM.lean` — re-home
   `Substrate.Algebra.NullCell.NullCellCoding`
-  (`/home/socol/Workspace/sanguine/proof/Substrate/Algebra/NullCell/NullCellCoding.lean`, itself
+  (`/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/NullCell/NullCellCoding.lean`, itself
   importing `NullCell`). Mathlib: `Mathlib.Tactic` present.
-- `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/AttentionSpinor.lean` — re-home
+- `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/AttentionSpinor.lean` — re-home
   `Substrate.StationaryPhase.SpinorLoop`
-  (`/home/socol/Workspace/sanguine/proof/Substrate/StationaryPhase/SpinorLoop.lean`), whose own
+  (`/home/socol/Workspace/sanguine-ref/proof/Substrate/StationaryPhase/SpinorLoop.lean`), whose own
   imports pull `AffineLoopCollapse`, `Ski.PolyIotaTermAlgebra` and 8 Mathlib modules; the widest
   out-of-directory fan-in of the wave. Mathlib: `Data.Matrix.Mul`,
   `SpecialFunctions.Trigonometric.Basic` present.
-- `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/NullTransformer.lean` — re-home
+- `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/NullTransformer.lean` — re-home
   `NullCell.NullCell` plus the two in-directory imports `Neural.AttentionSpinor`,
   `Neural.RopeRelative`. Mathlib: `SpecialFunctions.Sqrt`, `SpecialFunctions.Log.Deriv`,
   `Calculus.Deriv.Slope`, `Calculus.FDeriv.Pi` present.
-- `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/FrontierLadder.lean` — re-home
+- `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/FrontierLadder.lean` — re-home
   `Neural.CountLMFloor` only; imports no Mathlib module directly.
-- `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/MLPrimitivesBridge.lean` —
+- `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/MLPrimitivesBridge.lean` —
   highest external fan-in: re-home `Security.HashTrinityCore` (Mathlib-only),
   `NullCell.Opportunity` (pulling `Trinity.NonBeing`, `StationaryPhase.BalancedSingularity`,
   `Substrate.Collapse`), and `Substrate.Collapse` (pulling `Substrate.CollapseCore`), plus the
   in-directory `Neural.TrainingCollapse`. Mathlib: `Data.List.Sort` present; the sort row rides
   `List.mergeSort_perm` and `List.Perm.eq_of_pairwise'`, both present.
-- `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/CountLMFloor.lean` — re-home
+- `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/CountLMFloor.lean` — re-home
   `Neural.SparseAttentionBudget`
-  (`/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/SparseAttentionBudget.lean`),
+  (`/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/SparseAttentionBudget.lean`),
   which itself imports `Substrate.Algebra.Bulk.BulkExhaustiveness`
-  (`/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Bulk/BulkExhaustiveness.lean`) **and**
+  (`/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Bulk/BulkExhaustiveness.lean`) **and**
   `Closures.Engineering.CoordinateReadout`
-  (`/home/socol/Workspace/sanguine/proof/Closures/Engineering/CoordinateReadout.lean`): a second
+  (`/home/socol/Workspace/sanguine-ref/proof/Closures/Engineering/CoordinateReadout.lean`): a second
   root namespace (`Closures`, not `Substrate`) that a rebase must carry. Mathlib:
   `Algebra.BigOperators.Fin`, `Algebra.Order.BigOperators.Ring.Finset`,
   `SpecialFunctions.Log.Basic`, `SpecialFunctions.Log.NegMulLog`, `Data.Real.Basic`, the tactic
   modules present. The cited names `Real.log_le_sub_one_of_pos`,
   `Real.strictConcaveOn_negMulLog`, `Finset.sum_mul_sq_le_sq_mul_sq` are present.
-- `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/KneserNey.lean` — no
+- `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/KneserNey.lean` — no
   cross-module import; Mathlib-only (`Mathlib.Tactic`). Lowest re-homing risk.
-- `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/Neural/TrainingCollapse.lean` — re-home
+- `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/Neural/TrainingCollapse.lean` — re-home
   `QuantumField.QuantumClassicalIsomorphism`
-  (`/home/socol/Workspace/sanguine/proof/Substrate/Algebra/QuantumField/QuantumClassicalIsomorphism.lean`,
+  (`/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/QuantumField/QuantumClassicalIsomorphism.lean`,
   pulling `QuantumField.MadelungCell`, `QuantumField.WickRotation`, `NullCell.NullCell`) and
   `Substrate.Collapse`. Mathlib surface largest of the wave; all 18 imported module paths and the
   cited names `Matrix.posSemidef_conjTranspose_mul_self`, `Matrix.PosDef.smul`,
@@ -1166,8 +1166,8 @@ in-scope Mathlib import path and every Mathlib declaration named in the docstrin
   (`/home/socol/Workspace/apeiron/proof/corpus/.lake/packages/mathlib/Mathlib/LinearAlgebra/Matrix/PosDef.lean:507`),
   `Matrix.posSemidef_diagonal_iff`, `PosSemidef.conjTranspose_mul_mul_same`, `Complex.exp_conj`,
   `Matrix.mul_apply` are present.
-- `/home/socol/Workspace/sanguine/proof/Substrate/Algebra/NullCell/SpinorFold.lean` — re-home
-  `NullCell.NullCell` (`/home/socol/Workspace/sanguine/proof/Substrate/Algebra/NullCell/NullCell.lean`)
+- `/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/NullCell/SpinorFold.lean` — re-home
+  `NullCell.NullCell` (`/home/socol/Workspace/sanguine-ref/proof/Substrate/Algebra/NullCell/NullCell.lean`)
   only; Mathlib-free. Low risk.
 
 Toolchain-version features: a `rg -n '^import '` and
@@ -1208,9 +1208,9 @@ rg -n '^\s*(sorry|admit|axiom)\b' <9 paths>  -> (none)
 
 rg -n '^import ' <9 paths>  -> the import lines transcribed in the table
 
-cat -n /home/socol/Workspace/sanguine/lean-toolchain                 -> 1  leanprover/lean4:v4.30.0-rc2
-cat -n /home/socol/Workspace/sanguine/proof/lean-toolchain           -> 1  leanprover/lean4:v4.30.0-rc2
-cat -n /home/socol/Workspace/sanguine/proof/lake-manifest.json       -> :8  "rev": "89d44072ff8960893f469c67f75280db4fe4023a",
+cat -n /home/socol/Workspace/sanguine-ref/lean-toolchain                 -> 1  leanprover/lean4:v4.30.0-rc2
+cat -n /home/socol/Workspace/sanguine-ref/proof/lean-toolchain           -> 1  leanprover/lean4:v4.30.0-rc2
+cat -n /home/socol/Workspace/sanguine-ref/proof/lake-manifest.json       -> :8  "rev": "89d44072ff8960893f469c67f75280db4fe4023a",
                                                                         :9  "name": "mathlib",
 
 cat -n /home/socol/Workspace/apeiron/proof/corpus/lean-toolchain          -> 1  leanprover/lean4:v4.31.0
@@ -1226,11 +1226,11 @@ rg -n <Mathlib module names> /home/socol/Workspace/apeiron/proof/corpus/.lake/pa
 
 git -C /home/socol/Workspace/apeiron/proof/corpus/.lake/packages/mathlib rev-parse HEAD
   -> fabf563a7c95a166b8d7b6efca11c8b4dc9d911f
-git -C /home/socol/Workspace/sanguine/proof/.lake/packages/mathlib rev-parse HEAD
+git -C /home/socol/Workspace/sanguine-ref/proof/.lake/packages/mathlib rev-parse HEAD
   -> 89d44072ff8960893f469c67f75280db4fe4023a
 ```
 
-Path gate (table paths resolved against `/home/socol/Workspace/sanguine`; every other cited path is
+Path gate (table paths resolved against `/home/socol/Workspace/sanguine-ref`; every other cited path is
 absolute) and the whitespace gate:
 
 ```sh
@@ -1313,7 +1313,7 @@ All six learning track mechanisms ((a) seal quantizer, (b) FoldAdapter, (c) ridg
 
 - Large-scale distributed pre-training runs (deferred to stage 6).
 - New neural architectural searches or novel optimizer derivations.
-- Modifying the pinned canonical corpus at `../sanguine-apeiron/proof`.
+- Modifying the pinned canonical corpus at `../sanguine/proof`.
 - Modifying the frozen stage-2 vendored Lean files in `proof/corpus/Substrate/`.
 
 #### Trust boundary
@@ -1440,10 +1440,10 @@ This specification covers six learning, finetuning, and quantization mechanisms 
    - **Float:** per-channel calibration energy $\tau_j = \sum_t X_{tj}^2$, scale factor $s_j = \sqrt{\tau_j}$, min/max range $d, m \in \mathbb{R}$, function distortion loss evaluation. Float operations tested against exact analytical references, not proved.
    - **Representation relation:** Rust `Seal` struct and packed tensor buffer mapped to Lean `functionDistortion τ r` over `Fin n → ℝ` in `MLPrimitivesBridge.lean`.
 5. **Lineage search:**
-   - Command: `rg -c "aware_scale" /home/socol/Workspace/{sanguine,sanguine-apeiron,fold,spinor-ttl,apeiron}`
+   - Command: `rg -c "aware_scale" /home/socol/Workspace/{sanguine,sanguine,fold,spinor-ttl,apeiron}`
    - Summary: 16 matching files found across all 5 repositories:
      - `spinor-ttl`: 6 files (`src/spinor_ttl/seal.py`, `PAPER.md`, `README.md`, `bench/seal_8b.py`, `bench/ternary_8b_vs_bnb.py`, `TERNARY_FINDINGS.md`).
-     - `sanguine-apeiron`: 3 files (`theory/HEADLINES.tsv`, `proof/Apeiron/Audit.lean`, `proof/Apeiron/Numeric/Accumulator.lean`).
+     - `sanguine`: 3 files (`theory/HEADLINES.tsv`, `proof/Apeiron/Audit.lean`, `proof/Apeiron/Numeric/Accumulator.lean`).
      - `sanguine`: 3 files (`proof/Substrate/Algebra/Neural/MLPrimitivesBridge.lean`, `release/paper1/Numerics.lean`, `release/paper1/INDEX.md`).
      - `fold`: 1 file (`modelfold/src/quant.rs`).
      - `apeiron`: 3 files (`docs/epics/neural-rebase.md`, `proof/corpus/AxiomAudit/Core.lean`, `proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean`).
@@ -1497,7 +1497,7 @@ This specification covers six learning, finetuning, and quantization mechanisms 
    - **Float:** absolute discounts $D_1, D_2, D_3 \in \mathbb{R}$, probability refinement blending mass $\gamma = \sum_i D(c_i)/\text{tot}$, and next-token distribution calculation $q_j = \gamma p_j + (c_j - D(c_j))/\text{tot}$. Tested in `tests/learn_foldadapt.rs`.
    - **Representation relation:** Rust count table `FreqMap` / `Table` mapped to Lean `Memory K` (`K → ℤ`) in `MirasCountLM.lean`, and refined distribution mapped to `kn_floor_refinement` in `MLPrimitivesBridge.lean`.
 5. **Lineage search:**
-   - Command: `rg -c "FoldAdapter" /home/socol/Workspace/{sanguine,sanguine-apeiron,fold,spinor-ttl,apeiron}`
+   - Command: `rg -c "FoldAdapter" /home/socol/Workspace/{sanguine,sanguine,fold,spinor-ttl,apeiron}`
    - Summary: 22 matching files found across repositories:
      - `spinor-ttl`: 6 files (`STATUS.md`, `PAPER.md`, `README.md`, `src/spinor_ttl/finetune.py`, `src/spinor_ttl/__init__.py`, `tests/test_finetune_refine.py`).
      - `fold`: 10 files (`modelfold/src/train.rs`, `modelfold/src/countlm.rs`, `modelfold/src/lib.rs`, `opsfold/src/flowops.rs`, `bedrock/examples/ttl_fact.rs`, `bedrock/examples/finetune_demo.rs`, `bedrock/examples/table_scaling.rs`, `modelfold/examples/cer_investigation.rs`, `modelfold/examples/gemma3_bench.rs`, `transcode/examples/codec_fidelity.rs`).
@@ -1553,7 +1553,7 @@ This specification covers six learning, finetuning, and quantization mechanisms 
    - **Float:** Cholesky decomposition $L L^T = U$, forward/backward substitution solving $U W = B$, regularization damping $\lambda > 0$. Tested in `tests/learn_ridge.rs`.
    - **Representation relation:** Rust Gram buffer `[f64; d*d]` and normal equations mapped to Lean `drag X lam` and `ridgeHead X Y lam` in `TrainingCollapse.lean`.
 5. **Lineage search:**
-   - Command: `rg -c "ridgeHead" /home/socol/Workspace/{sanguine,sanguine-apeiron,fold,spinor-ttl,apeiron}`
+   - Command: `rg -c "ridgeHead" /home/socol/Workspace/{sanguine,sanguine,fold,spinor-ttl,apeiron}`
    - Summary: 56 matching files across the 5 repositories:
      - `spinor-ttl`: 4 files (`STATUS.md`, `src/spinor_ttl/foldtrain.py`, `bench/train_fold_vs_grad.py`, `bench/test_sparse_ridge_fold.py`).
      - `sanguine`: 24 files (`TrainingCollapse.lean`, `MLPrimitivesBridge.lean`, `LocalSupportRidge.lean`, `Train.lean`, `Model.lean`, etc.).
@@ -1608,7 +1608,7 @@ This specification covers six learning, finetuning, and quantization mechanisms 
    - **Float:** absolute discounts $D_k = k - (k+1) \frac{N_{k+1}}{N_k} \frac{N_1}{N_1 + 2 N_2}$, continuation probabilities $p_{KN} \in [0, 1]$, log-loss / b/B evaluation $- \log_2 p$. Tested in `tests/learn_count.rs`.
    - **Representation relation:** Rust `CountLM` state mapped to Lean `c : Fin V → ℕ` and `pKN c pLower D` in `KneserNey.lean`.
 5. **Lineage search:**
-   - Command: `rg -c "countlm_is_exact_miras|kn_normalizes" /home/socol/Workspace/{sanguine,sanguine-apeiron,fold,spinor-ttl,apeiron}`
+   - Command: `rg -c "countlm_is_exact_miras|kn_normalizes" /home/socol/Workspace/{sanguine,sanguine,fold,spinor-ttl,apeiron}`
    - Summary: 10 matching files found across repositories:
      - `sanguine`: 3 files (`proof/Substrate/Algebra/Neural/KneserNey.lean`, `MirasCountLM.lean`, `FrontierLadder.lean`).
      - `fold`: 4 files (`docs/SYNTHESIS.md`, `docs/STATE-ARCHIVE.md`, `STATE.md`, `modelfold/src/countlm.rs`).
@@ -1647,7 +1647,7 @@ This specification covers six learning, finetuning, and quantization mechanisms 
    - **Float:** Hessian $H = X^T X + \lambda I$, Cholesky decomposition of $H^{-1}$, column error-feedback updates, output distortion metric. Tested in `tests/learn_gptq.rs`.
    - **Representation relation:** Rust `Q2Plane` (`Vec<u8>`) and place values mapped to Lean balanced ternary vectors `Fin L → Fin n → {-1, 0, 1}`.
 5. **Lineage search:**
-   - Command: `rg -c "gptq_ternary" /home/socol/Workspace/{sanguine,sanguine-apeiron,fold,spinor-ttl,apeiron}`
+   - Command: `rg -c "gptq_ternary" /home/socol/Workspace/{sanguine,sanguine,fold,spinor-ttl,apeiron}`
    - Summary: 6 matching files across repositories:
      - `spinor-ttl`: 1 file (`bench/ternary_descent.py`).
      - `fold`: 4 files (`modelfold/src/quant.rs`, `modelfold/src/arch.rs`, `modelfold/tests/gptq.rs`, `bedrock/src/serve/model/quant.rs`).
@@ -1684,7 +1684,7 @@ This specification covers six learning, finetuning, and quantization mechanisms 
    - **Float:** Pre-activation projection $W x + b$, nonlinear activation $\tanh$, floating-point Gram accumulation, Cholesky solve of the head. Tested in `tests/learn_foldnet.rs`.
    - **Representation relation:** Rust `FoldNet` readout mapped to `TrainingCollapse.ridgeHead` over feature map $\Phi$.
 5. **Lineage search:**
-   - Command: `rg -c "FoldNet" /home/socol/Workspace/{sanguine,sanguine-apeiron,fold,spinor-ttl,apeiron}`
+   - Command: `rg -c "FoldNet" /home/socol/Workspace/{sanguine,sanguine,fold,spinor-ttl,apeiron}`
    - Summary: 9 matching files across repositories:
      - `fold`: 9 files (`modelfold/src/arch.rs`, `foldnet_demo.rs`, `cmapss_rul_net.rs`, `cnn_fold.rs`, `glyph_ocr.rs`, `msx_foldnet.rs`, etc.).
 6. **Rust target:**
@@ -1720,7 +1720,7 @@ Reimplement and verify the six learning track mechanisms in this crate under `sr
 
 #### 2. Non-goals and trust boundary
 
-- Non-goals: Full-scale distributed cluster pre-training; novel architecture search; modifying the pinned canonical corpus at `../sanguine-apeiron/proof`; regression of inference decode speeds (`tg128` and `pp512` on Qwen2.5-0.5B).
+- Non-goals: Full-scale distributed cluster pre-training; novel architecture search; modifying the pinned canonical corpus at `../sanguine/proof`; regression of inference decode speeds (`tg128` and `pp512` on Qwen2.5-0.5B).
 - Trust boundary: Covers the in-tree Rust implementation, unit/integration test suites, Aeneas extraction models, and Lean kernel-checked refinement links. Does not cover host OS scheduling, GPU vendor drivers, or third-party python evaluation harnesses.
 
 #### 3. Lane map and serialization rules

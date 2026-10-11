@@ -1,0 +1,93 @@
+{
+  "seconds": 1.4583059299984598,
+  "files": {
+    "/home/socol/Workspace/apeiron/tools/dispatch/core.rs": "73bf1b39c9fca82fc38f6f91fcb9df7b2baab54543f95e90be2acea37e951687",
+    "/home/socol/Workspace/apeiron/proof/dispatch/extract/Cargo.toml": "19051c54a4e265bcebc0aa38209a55b641590839f6ef36994c364ff345398ccb",
+    "/home/socol/Workspace/apeiron/proof/dispatch/extract/Cargo.lock": "845852353e42e63d77b213467b2ae60604ec592a17ade00dc80e05ae69860112",
+    "/home/socol/Workspace/apeiron/proof/dispatch/extract/lib.rs": "42278870230645a999595cbb27f431737af77d7ffd3a90f53492aba8288c96da",
+    "/home/socol/Workspace/apeiron/proof/dispatch/lakefile.lean": "f888f52d8930eefa809209caae1af89de1c792b577cca4b8b00438c9a5cedcb0",
+    "/home/socol/Workspace/apeiron/proof/dispatch/lean-toolchain": "efac0b94923b2d8b6840cd35be9177ad0fc5ab2332f4f4311c98712cee92fdee",
+    "/home/socol/Workspace/apeiron/proof/dispatch/lake-manifest.json": "9ccd1a96f2830caad41af223939c42ed7fede9e8ae6e2ce0223e8b6e86e54314",
+    "/home/socol/Workspace/apeiron/proof/dispatch/Dispatch/Extracted.lean": "57c80bd10c8f9be9850155a4baf66f3bb7781f5b33238d3a4f66fe999a21beb9",
+    "/home/socol/Workspace/apeiron/proof/dispatch/Dispatch/Spec.lean": "3122f6d771d05d1eaf086ee2cdc5b55ef78f791962af1a552c3f54ceaf792182",
+    "/home/socol/Workspace/apeiron/proof/dispatch/Dispatch/Refinement.lean": "5ae719ae08d6dfc4c63bb49d1370dfa609b3fd4085541dc4bf2aa151e62b365d",
+    "/home/socol/Workspace/apeiron/proof/dispatch/Dispatch/Audit.lean": "734613abae387b02ebf68731ae3bc835b34aae1fd77186dd3277a440a45abae3",
+    "/home/socol/Workspace/apeiron/proof/dispatch/regen.sh": "f99ecf5ea61c308bfb870af5ab0da02ef393c172dfd08725071001a7a5771c72",
+    "/home/socol/Workspace/apeiron/proof/dispatch/gate.py": "1c40f9e15faa9618dab025f626538db684472bab392e78f9a7815ad74e91d6f4",
+    "/home/socol/Workspace/penglai/target/aeneas/charon": "747e165bc62bb963f8d741e8c193c721a4b94555bcb1f9f86c79090fd7a59d0e",
+    "/home/socol/Workspace/penglai/target/aeneas/charon-driver": "207b223af35cf9a05227b329819b73532e94f655ccdefd64e77b755a15fdf297",
+    "/home/socol/Workspace/penglai/target/aeneas/aeneas": "33d0ce1a1cc2f1d3935c0cd2ab34f283797da61c531ed6d4e09d5c97b0d0228a"
+  },
+  "records": [
+    {
+      "label": "fresh-charon",
+      "argv": [
+        "/home/socol/Workspace/apeiron/target/aeneas/charon",
+        "cargo",
+        "--sysroot",
+        "default",
+        "--preset",
+        "aeneas",
+        "--dest-file",
+        "/home/socol/oc-tmp/rust-admission/proof-0x2r0_75/fresh/dispatch_extract.llbc",
+        "--start-from",
+        "crate::same",
+        "--start-from",
+        "crate::start",
+        "--start-from",
+        "crate::advance",
+        "--start-from",
+        "crate::finish",
+        "--start-from",
+        "crate::complete",
+        "--start-from",
+        "crate::witness_success",
+        "--start-from",
+        "crate::witness_refusal",
+        "--",
+        "--manifest-path",
+        "proof/dispatch/extract/Cargo.toml",
+        "--locked",
+        "--offline",
+        "--lib",
+        "--target-dir",
+        "/home/socol/oc-tmp/rust-admission/proof-0x2r0_75/extract-target"
+      ],
+      "cwd": "/home/socol/Workspace/apeiron",
+      "exit": 0,
+      "seconds": 0.11362891199678415,
+      "log": "/tmp/opencode/rust-admission/proof-0x2r0_75-fresh-charon.log"
+    },
+    {
+      "label": "fresh-aeneas",
+      "argv": [
+        "/home/socol/Workspace/apeiron/target/aeneas/aeneas",
+        "-backend",
+        "lean",
+        "-dest",
+        "/home/socol/oc-tmp/rust-admission/proof-0x2r0_75/fresh",
+        "-warnings-as-errors",
+        "-no-progress-bar",
+        "-all-computable",
+        "/home/socol/oc-tmp/rust-admission/proof-0x2r0_75/fresh/dispatch_extract.llbc"
+      ],
+      "cwd": "/home/socol/Workspace/apeiron",
+      "exit": 0,
+      "seconds": 0.3635550030012382,
+      "log": "/tmp/opencode/rust-admission/proof-0x2r0_75-fresh-aeneas.log"
+    },
+    {
+      "label": "proof",
+      "argv": [
+        "lake",
+        "build",
+        "Dispatch.Audit"
+      ],
+      "cwd": "/home/socol/Workspace/apeiron/proof/dispatch",
+      "exit": 0,
+      "seconds": 0.6648838549954235,
+      "log": "/tmp/opencode/rust-admission/proof-0x2r0_75-proof.log"
+    }
+  ],
+  "trust": "IO/process/toolchain, Charon/Aeneas semantics, rustc/LLVM and OS remain outside the Lean theorem."
+}

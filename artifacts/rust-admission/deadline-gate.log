@@ -1,0 +1,82 @@
+   Compiling version_check v0.9.5
+   Compiling typenum v1.20.1
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.151
+   Compiling cfg-if v1.0.5
+   Compiling itoa v1.0.18
+   Compiling cpufeatures v0.2.17
+   Compiling memchr v2.8.3
+   Compiling generic-array v0.14.7
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling dispatch_core v0.1.0 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-RUSTADMIT-W7A-T1/tools/dispatch)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.29s
+     Running unittests core.rs (/home/socol/oc-tmp/rust-admission-deadline-target/debug/deps/dispatch_core-f226d336485f9095)
+
+running 8 tests
+test tests::test_empty_registry_and_mismatch ... ok
+test tests::test_failure_session_consumed ... ok
+test tests::test_nominal_and_witnesses ... ok
+test tests::test_missing_and_reorder_stages ... ok
+test tests::test_nonzero_exits_all_stages ... ok
+test tests::test_replay_and_unexpected_done ... ok
+test tests::test_stale_final_and_premature_finish ... ok
+test tests::test_wrong_digest_limbs_all_four ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests main.rs (/home/socol/oc-tmp/rust-admission-deadline-target/debug/deps/dispatch_admit-bfc46035e3fb1c21)
+
+running 5 tests
+test boundary_tests::parent_deadline_expiry ... ok
+test boundary_tests::accepts_new_owned_leaf_without_filesystem_escape ... ok
+test boundary_tests::rejects_parent_and_absolute_paths ... ok
+test boundary_tests::rejects_symlink_parent_before_missing_leaf ... ok
+test boundary_tests::hash_instrument_matches_empty_sha256_vector ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests dispatch_core
+
+running 1 test
+test core.rs - (line 5) - compile fail ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+    Checking typenum v1.20.1
+    Checking memchr v2.8.3
+    Checking itoa v1.0.18
+    Checking cfg-if v1.0.5
+    Checking cpufeatures v0.2.17
+    Checking serde_core v1.0.229
+    Checking zmij v1.0.23
+    Checking generic-array v0.14.7
+    Checking block-buffer v0.10.4
+    Checking crypto-common v0.1.7
+    Checking digest v0.10.7
+    Checking sha2 v0.10.9
+    Checking serde_json v1.0.151
+    Checking dispatch_core v0.1.0 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-RUSTADMIT-W7A-T1/tools/dispatch)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.91s
+   Compiling dispatch_core v0.1.0 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-RUSTADMIT-W7A-T1/tools/dispatch)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s
+DISPATCH_SOURCE_REFINEMENT_OK
+REJECT vacuous-domain
+REJECT unreachable-domain
+REJECT rounded-reassociation
+REJECT no-cost-reduction
+REJECT weaker-theorem
+REJECT sorry
+REJECT extra-axiom
+REJECT unknown-contract
+REJECT stale-source
+REJECT stale-registry
+REJECT identity-substitution
+REJECT worker-substitution
+REJECT unowned-path
+REJECT too-many-files
+REJECT boolean-approval
+SELFTEST_SYNTHETIC_ONLY positive=1 controls=15 restored=1

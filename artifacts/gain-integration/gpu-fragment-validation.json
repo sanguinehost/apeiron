@@ -1,0 +1,31 @@
+{
+  "source": "tests/gpu_spv_check.rs",
+  "source_sha256": "befaf444a4eecee19c69b84ec7fad4ab01eb282d1464506f5e5966fea4004b69",
+  "words": 676,
+  "binary_sha256": "d98bd5994eaa7ed18c557765f7df80c900e9b5403b5b80e094825de69772092a",
+  "seconds": 0.006029115000274032,
+  "budget": 60,
+  "results": [
+    {
+      "name": "validator-version",
+      "argv": [
+        "spirv-val",
+        "--version"
+      ],
+      "exit": 0,
+      "output": "SPIRV-Tools v2026.3 vulkan-sdk-1.4.357.0-0-g9a49b0883\nTargets:\n  SPIR-V 1.0\n  SPIR-V 1.1\n  SPIR-V 1.2\n  SPIR-V 1.3\n  SPIR-V 1.4\n  SPIR-V 1.5\n  SPIR-V 1.6\n  SPIR-V 1.2 (under OpenCL 2.2 Full Profile semantics)\n  SPIR-V 1.0 (under Vulkan 1.0 semantics)\n  SPIR-V 1.3 (under Vulkan 1.1 semantics)\n  SPIR-V 1.4 (under Vulkan 1.1 semantics)\n  SPIR-V 1.5 (under Vulkan 1.2 semantics)\n  SPIR-V 1.6 (under Vulkan 1.3 semantics) SPIR-V 1.6 (under Vulkan 1.4 semantics)"
+    },
+    {
+      "name": "captured-module-validation",
+      "argv": [
+        "spirv-val",
+        "--target-env",
+        "vulkan1.1",
+        "artifacts/gain-integration/captured-dp4a.spv"
+      ],
+      "exit": 0,
+      "output": ""
+    }
+  ],
+  "scope": "captured served module syntax, includes float epilogue; no GPU execution or integer refinement claim"
+}

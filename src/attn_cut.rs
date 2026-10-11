@@ -1,6 +1,6 @@
 //! Certified attention cut: a softmax read over partial sums that carries its own error bound.
 //!
-//! Statements: `Apeiron.Numeric.AttentionCut` in the `sanguine-apeiron` corpus (not in this tree;
+//! Statements: `Apeiron.Numeric.AttentionCut` in the `sanguine` corpus (not in this tree;
 //! source sha256 `3bbd73592d6ec51f…`). No refinement theorem links this module to them. Grade
 //! `tested` only: the Lean statements are over `ℝ`; this module is `f64` arithmetic over `f32` data
 //! and adds the rounding of that arithmetic, which `Accumulator.lean`'s layer owns and which nothing

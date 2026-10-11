@@ -12,7 +12,7 @@ defects reject.
 REGISTER: resource model; no Rust source, no extraction, no inference implementation, no
 canonical ring correspondence, no hardware timing.
 CORPUS: no match. grep for `structure Perf`/`structure Count`/`toCost`/`resourceCost` over
-/home/socol/Workspace/sanguine-apeiron/proof/Apeiron/, /home/socol/Workspace/apeiron/proof and
+/home/socol/Workspace/sanguine/proof/Apeiron/, /home/socol/Workspace/apeiron/proof and
 /home/socol/Workspace/apeiron/docs returned no file. Native grade of this module: proved.
 REFERENCE: /home/socol/Workspace/apeiron/proof/resource/CostAlgebra.lean (the `Cost` record, its
 componentwise `≤`, `costAdd`, `strictlyCheaper`, `dominates_improves`) and

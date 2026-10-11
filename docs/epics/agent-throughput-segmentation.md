@@ -9,7 +9,7 @@ SCOPE:      lane map, queue protocol, interface freezes, file-split wave, milest
 REGISTER:   planning/execution; excludes claim grades, gate results and scope promises
 CORPUS:     none - no Lean theorem is claimed here
 REFERENCE:  measured rates: apeiron 279 commits/14 active days of 27; song 1845 commits/79 of 86;
-            penglai 48 commits/8 of 16; sanguine-apeiron bursts up to 146/day
+            penglai 48 commits/8 of 16; sanguine bursts up to 146/day
 GATE:       task-ledger closure counts per week (to be instrumented); no compiler gate
 GRADE:      anchor - a scheduling reading of measured rates, not evidence of correctness
 ```
@@ -21,7 +21,7 @@ GRADE:      anchor - a scheduling reading of measured rates, not evidence of cor
 | apeiron | Aug 29 → Sep 24 | 279 | 14 of 27 | 52% | 152 Lean modules, 506 audits; read rows 1–5c, 6 partial, 7 partial; G1 308/1450 |
 | song | Jun 20 → Sep 14 | 1,845 | 79 of 86 | 92% | K0–K14 done; A0 6 implemented / A0.4 partial / A0.6+A0.9 blocked / A0.10 open |
 | penglai | Sep 8 → Sep 24 | 48 | 8 of 16 | 50% | playable Bevy slice; substrate milestones 2–5 closed |
-| sanguine-apeiron | May → Sep 24 | 2,253 | bursts | — | 154 canonical modules; lands on demand |
+| sanguine | May → Sep 24 | 2,253 | bursts | — | 154 canonical modules; lands on demand |
 
 Song already runs near the target operating envelope: numbered items, file-disjoint modules, fast
 local gates (`./song check/test/controls`), high commit cadence. Apeiron's gates are comparably fast

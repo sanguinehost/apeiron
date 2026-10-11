@@ -1,0 +1,58 @@
+{
+  "archive": "/home/socol/Workspace/apeiron/artifacts/structural-prefill-resume/evidence.tar.gz",
+  "sha256": "2146330090d146bb6a1c5d048c208716b8ee06b48c3329d180c36b6a61e80ca9",
+  "bytes": 450194,
+  "elapsed": 0.897317973999634,
+  "budget": 60,
+  "exit": 0,
+  "tasks": {
+    "prefill-state": {
+      "root": "/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-prefill-state",
+      "branch": "codex/structural-prefill-state",
+      "head": "3f29041c23697ab7aebab23da95fa900d3ff27b4",
+      "paths": {
+        "src/engine/attn.rs": "848288c7324393b9d4d8a08e2a1890c1deb99d1d66e5e1d7f07e2cdc5005bc3e",
+        "src/engine/mixer.rs": "6f88bd842e5138924763bd466da5639ed345bee1325d4b1f7fb2d22319d410fb",
+        "src/engine/step/spec.rs": "e8922b682097eb6268c9b90abe478394fa2800b34a94df0bbdaceb7eedf33336"
+      },
+      "patch_sha256": "c5d0a8aef91adb5ed9cce7d49dbac47327ee8c12b90fba43e6de95e36eb251f8"
+    },
+    "compile-graph": {
+      "root": "/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-compile-graph",
+      "branch": "codex/structural-compile-graph",
+      "head": "3f29041c23697ab7aebab23da95fa900d3ff27b4",
+      "paths": {
+        "src/engine/step.rs": "84e3d70e8b413fda48de191052603b6a8e2ee7c34f4906132054cc679840e874",
+        "src/engine/step/cols.rs": "b0bf2a11378d8c0f6e1c6061925cef213b1f0c2c83f56622333d7ef84055abc0",
+        "src/engine/step/graph.rs": "7d34ba75ce8aa86ca6314bd880720525fc6aecbb758955e4f48bef2e1382e0dc"
+      },
+      "patch_sha256": "4978d2b2eae4529c1ff41bf496dafcd3179794ede9e4d16ae5a35be5d08a1613"
+    },
+    "benchmarks": {
+      "root": "/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-benchmarks",
+      "branch": "codex/structural-benchmarks",
+      "head": "3f29041c23697ab7aebab23da95fa900d3ff27b4",
+      "paths": {
+        "src/engine/step/spec.rs": "0441f9b5dad76767c3888f70a20dd0c5ee9a651f1bd481acaa21c45a9f26d8fc",
+        "examples/llama_context.cpp": "683b48566f3e064e9a5a9003b371f8af5c70953f008d511f60c595ccb0fcd9e6",
+        "examples/lookup_probe.rs": "ddd30f00be10555f29fbce6605400e171726f3f9be5ed57dfd580d031155c9b4",
+        "tools/structural_decode_bench.py": "1bbe4ccec01260e4b34783831713b388a7d6aeac3373f1797ebb2a9a1a3fa467"
+      },
+      "patch_sha256": "dbb9f4d0371968cddd1d04617bb740713345bd08c44dc2fa4f2d2afa75ff7c91"
+    },
+    "norm-destination": {
+      "root": "/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-norm-destination",
+      "branch": "codex/structural-norm-destination",
+      "head": "3f29041c23697ab7aebab23da95fa900d3ff27b4",
+      "paths": {
+        "src/engine/attn.rs": "848288c7324393b9d4d8a08e2a1890c1deb99d1d66e5e1d7f07e2cdc5005bc3e",
+        "src/engine/mixer.rs": "6f88bd842e5138924763bd466da5639ed345bee1325d4b1f7fb2d22319d410fb",
+        "src/engine/step/cols.rs": "3c406d4e08fd6ad4015c9473ab2e4023ea7c50a8de3034d9b107a40c9d5d3bf2",
+        "src/engine/step/spec.rs": "e8922b682097eb6268c9b90abe478394fa2800b34a94df0bbdaceb7eedf33336",
+        "examples/prefill_norm_probe.rs": "2743cd9acd8e0a3b944f10b5888b492c41d17e8eedccd6e56da9bf4b978bb675"
+      },
+      "patch_sha256": "12d33d6f835c009e3f2b56216797cb49daca1b5e656bf45e880c8f5e76a0e0ff"
+    }
+  },
+  "cleanup": "blocked: dirty unmerged candidates; no authorized abandonment and no forced removal"
+}

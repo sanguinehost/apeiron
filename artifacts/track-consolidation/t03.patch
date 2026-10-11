@@ -1,0 +1,659 @@
+diff --git a/src/engine/kern/gemm.rs b/src/engine/kern/gemm.rs
+index 6fcb635..f4e6f39 100644
+--- a/src/engine/kern/gemm.rs
++++ b/src/engine/kern/gemm.rs
+@@ -92,14 +92,56 @@ fn spread_limit(blocks: usize) -> u32 {
+     33u32.saturating_sub(log)
+ }
+ 
++/// One 64-byte line of `N` values of `T`: the unit of [`Aligned`].
++#[repr(C, align(64))]
++#[derive(Clone, Copy)]
++struct Line<T: Copy, const N: usize>([T; N]);
++
++/// A buffer of `T` whose base address is 64-byte aligned, so every 32-byte kernel load at a
++/// multiple of 32 bytes stays inside one cache line. The global allocator's 16-byte-aligned
++/// `Vec<u32>` made half of the activation loads straddle a line boundary. One allocation, as
++/// before; the length is a whole number of lines.
++struct Aligned<T: Copy + 'static, const N: usize> {
++    lines: Vec<Line<T, N>>,
++    len: usize,
++}
++
++impl<T: Copy, const N: usize> Aligned<T, N> {
++    fn with_capacity(n: usize) -> Self {
++        Self {
++            lines: Vec::with_capacity(n.div_ceil(N)),
++            len: 0,
++        }
++    }
++    fn as_ptr(&self) -> *const T {
++        self.lines.as_ptr().cast()
++    }
++    fn as_mut_ptr(&mut self) -> *mut T {
++        self.lines.as_mut_ptr().cast()
++    }
++    #[cfg(test)]
++    fn len(&self) -> usize {
++        self.len
++    }
++    /// # Safety
++    ///
++    /// `n` is a multiple of `N` and the first `n` values are initialized.
++    unsafe fn set_len(&mut self, n: usize) {
++        debug_assert!(n.is_multiple_of(N));
++        // SAFETY: by the caller's contract `n / N` whole lines are initialized.
++        unsafe { self.lines.set_len(n / N) };
++        self.len = n;
++    }
++}
++
+ /// One call's activation columns, packed.
+ struct Packed {
+     /// Column groups, `⌈k / 8⌉`.
+     groups: usize,
+     /// `[group][block][quad][lane]`: four `x + 128` bytes of column `8·group + lane`.
+-    words: Vec<u32>,
++    words: Aligned<u32, 16>,
+     /// `[group][block][lane]`: `e_{c,b} − e_min(c)`; `0` for a zero block and a padding lane.
+-    shift: Vec<i64>,
++    shift: Aligned<i64, 8>,
+     /// `e_min(c)` per column.
+     emin: Vec<u32>,
+     /// The largest shift in each group.
+@@ -131,8 +173,8 @@ unsafe impl Sync for PackPtr {}
+ fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
+     let k = qs.len();
+     let groups = k.div_ceil(LANES);
+-    let mut words = Vec::with_capacity(groups * blocks * 8 * LANES);
+-    let mut shift = Vec::with_capacity(groups * blocks * LANES);
++    let mut words: Aligned<u32, 16> = Aligned::with_capacity(groups * blocks * 8 * LANES);
++    let mut shift: Aligned<i64, 8> = Aligned::with_capacity(groups * blocks * LANES);
+     let mut emin = Vec::with_capacity(k);
+     let mut spread = Vec::with_capacity(groups);
+     let refused = std::sync::atomic::AtomicBool::new(false);
+@@ -730,11 +772,11 @@ mod x86 {
+         __m128i, __m256i, _mm256_add_epi64, _mm256_and_si256, _mm256_andnot_si256,
+         _mm256_blendv_epi8, _mm256_castsi256_si128, _mm256_cmpeq_epi64, _mm256_cmpgt_epi64,
+         _mm256_cvtepi32_epi64, _mm256_cvtepu32_epi64, _mm256_extracti128_si256, _mm256_loadu_si256,
+-        _mm256_mullo_epi32, _mm256_or_si256, _mm256_sad_epu8, _mm256_set1_epi32,
+-        _mm256_set1_epi64x, _mm256_set1_epi8, _mm256_setzero_si256, _mm256_sllv_epi64,
+-        _mm256_srlv_epi64, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_epi64,
+-        _mm256_testc_si256, _mm256_xor_si256, _mm_add_epi64, _mm_cvtsi128_si64, _mm_extract_epi64,
+-        _mm_loadu_si128,
++        _mm256_mul_epi32, _mm256_mullo_epi32, _mm256_or_si256, _mm256_sad_epu8, _mm256_set1_epi32,
++        _mm256_set1_epi64x, _mm256_set1_epi8, _mm256_setzero_si256, _mm256_sllv_epi32,
++        _mm256_sllv_epi64, _mm256_srlv_epi64, _mm256_storeu_si256, _mm256_sub_epi32,
++        _mm256_sub_epi64, _mm256_testc_si256, _mm256_xor_si256, _mm_add_epi64, _mm_cvtsi128_si64,
++        _mm_extract_epi64, _mm_loadu_si128,
+     };
+ 
+     /// VEX-encoded `vpdpbusd`: four `u8·i8` products added into each `i32` lane.
+@@ -1074,6 +1116,194 @@ mod x86 {
+         [a0_0, a1_0, b0_0, b1_0, a0_1, a1_1, b0_1, b1_1]
+     }
+ 
++    /// Largest `row spread + column-group spread` for [`group2_x2_merged`]: the merged multiplier
++    /// `m·2^(k−k_min+e−e_min)` has `|m| < 2^11` ([`f16_split`]), so `|m|·2^19 < 2^30` fits `i32`.
++    pub(super) const MERGED_SPREAD: u32 = 19;
++
++    /// Both rows' [`row_merged`] operands and their spreads.
++    pub(super) type Merged<'a> = (&'a [(i32, i32)], &'a [(i32, i32)], u32, u32);
++
++    /// One row's per-block operands of [`group2_x2_merged`]: `(m << (k − k_min), −bias)`.
++    ///
++    /// The row's spread is at most [`MERGED_SPREAD`] (the caller checks), so every `k − k_min` is
++    /// below 32 and the shift cannot overflow.
++    ///
++    /// # Complexity
++    ///
++    /// `O(blocks)` scalar steps per row.
++    pub(super) fn row_merged(
++        sa: &[(i32, i64, i32)],
++        out: &mut [std::mem::MaybeUninit<(i32, i32)>],
++    ) {
++        for (o, &(m, k, ba)) in out.iter_mut().zip(sa) {
++            o.write((m << k, ba.wrapping_neg()));
++        }
++    }
++
++    /// [`group2_x2`] with the per-block multiplier merged: for row operand `(mk, −ba)` and column
++    /// shift `sh = e − e_min`, the term `((D − ba)·m) << (k − k_min + sh)` of each lane is
++    /// `(D − ba) · (mk << sh)`, one `vpsllvd` of the row's `mk` by the group's shifts and one
++    /// `vpmuldq` into `i64` lanes, exactly equal while `row spread + group spread ≤`
++    /// [`MERGED_SPREAD`] (`|D − ba| ≤ 2^19` and `|mk << sh| < 2^30`, so both factors are `i32`
++    /// and the product is exact in `i64`). The bias is the accumulator's initial value (`vpdpbusd`
++    /// and the `i32` sum wrap identically), so the per-block `vpsubd`, `vpmulld`, `vpaddq` of the
++    /// shift count and `vpsllvq` are gone. The shift array's `i64` lanes are read as dwords: the
++    /// count sits in the even dword of each lane and the odd dword is zero.
++    ///
++    /// # Safety
++    ///
++    /// AVX2 and AVX-VNNI; `ra`, `rb` hold `blocks` blocks, `ska`/`skb` hold `blocks` entries from
++    /// [`row_merged`], the word and shift pointers address the two groups' `blocks·64` words and
++    /// `blocks·8` shifts, and every `k − k_min + sh` of the operands is at most [`MERGED_SPREAD`].
++    ///
++    /// # Complexity
++    ///
++    /// `O(blocks)` vector steps, 32 `vpdpbusd` and about 40 other vector operations per block.
++    #[target_feature(enable = "avx2")]
++    #[allow(
++        clippy::cast_ptr_alignment,
++        clippy::too_many_arguments,
++        clippy::similar_names,
++        clippy::too_many_lines,
++        reason = "unaligned 256-bit loads and 32-bit weight-word reads"
++    )]
++    pub(super) unsafe fn group2_x2_merged(
++        ra: &[u8],
++        rb: &[u8],
++        ska: &[(i32, i32)],
++        skb: &[(i32, i32)],
++        blocks: usize,
++        words_g0: *const u32,
++        words_g1: *const u32,
++        shift_g0: *const i64,
++        shift_g1: *const i64,
++    ) -> [__m256i; 8] {
++        let z = _mm256_setzero_si256();
++        let (mut a0_0, mut a1_0, mut b0_0, mut b1_0) = (z, z, z, z);
++        let (mut a0_1, mut a1_1, mut b0_1, mut b1_1) = (z, z, z, z);
++        for b in 0..blocks {
++            // SAFETY: in range by the caller's geometry.
++            unsafe {
++                let ca = ra.as_ptr().add(b * Q8_0_BLOCK_BYTES + 2);
++                let cb = rb.as_ptr().add(b * Q8_0_BLOCK_BYTES + 2);
++                let wb0 = words_g0.add(b * 8 * LANES);
++                let wb1 = words_g1.add(b * 8 * LANES);
++                let (mka, nba) = ska[b];
++                let (mkb, nbb) = skb[b];
++                let mut da0 = _mm256_set1_epi32(nba);
++                let mut da1 = da0;
++                let mut db0 = _mm256_set1_epi32(nbb);
++                let mut db1 = db0;
++                for quad in 0..8 {
++                    let act0 = _mm256_loadu_si256(wb0.add(quad * LANES).cast::<__m256i>());
++                    let act1 = _mm256_loadu_si256(wb1.add(quad * LANES).cast::<__m256i>());
++                    let wa = _mm256_set1_epi32(ca.add(4 * quad).cast::<i32>().read_unaligned());
++                    da0 = dpbusd(da0, act0, wa);
++                    da1 = dpbusd(da1, act1, wa);
++                    let wbv = _mm256_set1_epi32(cb.add(4 * quad).cast::<i32>().read_unaligned());
++                    db0 = dpbusd(db0, act0, wbv);
++                    db1 = dpbusd(db1, act1, wbv);
++                }
++                let e00 = _mm256_loadu_si256(shift_g0.add(b * LANES).cast::<__m256i>());
++                let e01 = _mm256_loadu_si256(shift_g0.add(b * LANES + 4).cast::<__m256i>());
++                let e10 = _mm256_loadu_si256(shift_g1.add(b * LANES).cast::<__m256i>());
++                let e11 = _mm256_loadu_si256(shift_g1.add(b * LANES + 4).cast::<__m256i>());
++                let va = _mm256_set1_epi32(mka);
++                let vb = _mm256_set1_epi32(mkb);
++                let term = |d: __m256i, v: __m256i, e0: __m256i, e1: __m256i| {
++                    (
++                        _mm256_mul_epi32(
++                            _mm256_cvtepi32_epi64(_mm256_castsi256_si128(d)),
++                            _mm256_sllv_epi32(v, e0),
++                        ),
++                        _mm256_mul_epi32(
++                            _mm256_cvtepi32_epi64(_mm256_extracti128_si256(d, 1)),
++                            _mm256_sllv_epi32(v, e1),
++                        ),
++                    )
++                };
++                let (t0, t1) = term(da0, va, e00, e01);
++                a0_0 = _mm256_add_epi64(a0_0, t0);
++                a1_0 = _mm256_add_epi64(a1_0, t1);
++                let (t0, t1) = term(da1, va, e10, e11);
++                a0_1 = _mm256_add_epi64(a0_1, t0);
++                a1_1 = _mm256_add_epi64(a1_1, t1);
++                let (t0, t1) = term(db0, vb, e00, e01);
++                b0_0 = _mm256_add_epi64(b0_0, t0);
++                b1_0 = _mm256_add_epi64(b1_0, t1);
++                let (t0, t1) = term(db1, vb, e10, e11);
++                b0_1 = _mm256_add_epi64(b0_1, t0);
++                b1_1 = _mm256_add_epi64(b1_1, t1);
++            }
++        }
++        [a0_0, a1_0, b0_0, b1_0, a0_1, a1_1, b0_1, b1_1]
++    }
++
++    /// The [`row_merged`] operands of two rows, or `None` when either row's spread exceeds
++    /// [`MERGED_SPREAD`] (then [`x2_shifted`] runs [`group2_x2`]). `sa`/`sb` have `blocks` entries.
++    pub(super) fn merged_operands<'a>(
++        sa: &[(i32, i64, i32)],
++        sb: &[(i32, i64, i32)],
++        spa: u32,
++        spb: u32,
++        ska: &'a mut [std::mem::MaybeUninit<(i32, i32)>; MAX_BLOCKS],
++        skb: &'a mut [std::mem::MaybeUninit<(i32, i32)>; MAX_BLOCKS],
++    ) -> Option<Merged<'a>> {
++        if spa.max(spb) > MERGED_SPREAD {
++            return None;
++        }
++        row_merged(sa, &mut ska[..sa.len()]);
++        row_merged(sb, &mut skb[..sb.len()]);
++        // SAFETY: `row_merged` initialized the first `sa.len()` / `sb.len()` entries.
++        unsafe {
++            Some((
++                std::slice::from_raw_parts(ska.as_ptr().cast(), sa.len()),
++                std::slice::from_raw_parts(skb.as_ptr().cast(), sb.len()),
++                spa,
++                spb,
++            ))
++        }
++    }
++
++    /// The shifted two-group, two-row kernel: [`group2_x2_merged`] when both rows and both groups
++    /// stay within [`MERGED_SPREAD`] (`merged` holds both rows' [`row_merged`] operands), else
++    /// [`group2_x2`]. Both return the same `i64` lane sums.
++    ///
++    /// # Safety
++    ///
++    /// As [`group2_x2`]; `merged`, when `Some`, holds operands of these two rows.
++    #[target_feature(enable = "avx2")]
++    #[allow(clippy::too_many_arguments, reason = "the kernels' operands")]
++    pub(super) unsafe fn x2_shifted(
++        ra: &[u8],
++        rb: &[u8],
++        sa: &[(i32, i64, i32)],
++        sb: &[(i32, i64, i32)],
++        merged: Option<Merged<'_>>,
++        blocks: usize,
++        p: &Packed,
++        g: usize,
++    ) -> [__m256i; 8] {
++        // SAFETY: `g + 1 < p.groups`, so both groups' slabs lie inside the packed buffers.
++        unsafe {
++            let (w0, w1) = (
++                p.words.as_ptr().add(g * blocks * 8 * LANES),
++                p.words.as_ptr().add((g + 1) * blocks * 8 * LANES),
++            );
++            let (s0, s1) = (
++                p.shift.as_ptr().add(g * blocks * LANES),
++                p.shift.as_ptr().add((g + 1) * blocks * LANES),
++            );
++            let gmax = p.spread[g].max(p.spread[g + 1]);
++            if let Some((ska, skb, spa, spb)) = merged {
++                if spa.max(spb) + gmax <= MERGED_SPREAD {
++                    return group2_x2_merged(ra, rb, ska, skb, blocks, w0, w1, s0, s1);
++                }
++            }
++            group2_x2(ra, rb, sa, sb, blocks, w0, w1, s0, s1)
++        }
++    }
++
+     /// The scalar [`super::row_scales`] with each block's code sum taken as
+     /// `Σ unsigned(c ^ 0x80) − 32·128`: the sign-bit flip is the two's-complement bijection
+     /// `[-128, 127] → [0, 255]`, so `psadbw` sums the unsigned bytes into four 64-bit lanes (at
+@@ -1257,6 +1487,8 @@ mod x86 {
+             std::slice::from_raw_parts_mut(sb.as_mut_ptr().cast::<(i32, i64, i32)>(), blocks)
+         };
+         let mut lanes2 = [0i64; 16];
++        let mut ska = [const { std::mem::MaybeUninit::<(i32, i32)>::uninit() }; MAX_BLOCKS];
++        let mut skb = [const { std::mem::MaybeUninit::<(i32, i32)>::uninit() }; MAX_BLOCKS];
+         #[cfg(test)]
+         let pc = probe_hooks::Local::new();
+         let mut r = 0usize;
+@@ -1274,6 +1506,7 @@ mod x86 {
+             ) else {
+                 return false;
+             };
++            let merged = merged_operands(sa_slice, sb_slice, spa, spb, &mut ska, &mut skb);
+             let mut g = 0usize;
+             while g + 1 < p.groups {
+                 let acc = unsafe {
+@@ -1292,17 +1525,7 @@ mod x86 {
+                     } else {
+                         #[cfg(test)]
+                         pc.add(probe_hooks::X2_SHIFT);
+-                        group2_x2(
+-                            ra,
+-                            rb,
+-                            sa_slice,
+-                            sb_slice,
+-                            blocks,
+-                            p.words.as_ptr().add(g * blocks * 8 * LANES),
+-                            p.words.as_ptr().add((g + 1) * blocks * 8 * LANES),
+-                            p.shift.as_ptr().add(g * blocks * LANES),
+-                            p.shift.as_ptr().add((g + 1) * blocks * LANES),
+-                        )
++                        x2_shifted(ra, rb, sa_slice, sb_slice, merged, blocks, p, g)
+                     }
+                 };
+                 for (sub_g, acc_chunk) in [(g, &acc[..4]), (g + 1, &acc[4..])] {
+@@ -1601,6 +1824,8 @@ mod x86 {
+             std::slice::from_raw_parts_mut(sb.as_mut_ptr().cast::<(i32, i64, i32)>(), blocks)
+         };
+         let mut lanes = [0i64; 16];
++        let mut ska = [const { std::mem::MaybeUninit::<(i32, i32)>::uninit() }; MAX_BLOCKS];
++        let mut skb = [const { std::mem::MaybeUninit::<(i32, i32)>::uninit() }; MAX_BLOCKS];
+         #[cfg(test)]
+         let pc = probe_hooks::Local::new();
+         let mut r = 0usize;
+@@ -1676,6 +1901,7 @@ mod x86 {
+                     }
+                 }
+             };
++            let merged = merged_operands(sa_slice, sb_slice, spa, spb, &mut ska, &mut skb);
+             let mut g = 0usize;
+             while g + 1 < p.groups {
+                 let acc = unsafe {
+@@ -1694,17 +1920,7 @@ mod x86 {
+                     } else {
+                         #[cfg(test)]
+                         pc.add(probe_hooks::X2_SHIFT);
+-                        group2_x2(
+-                            ga,
+-                            ua,
+-                            sa_slice,
+-                            sb_slice,
+-                            blocks,
+-                            p.words.as_ptr().add(g * blocks * 8 * LANES),
+-                            p.words.as_ptr().add((g + 1) * blocks * 8 * LANES),
+-                            p.shift.as_ptr().add(g * blocks * LANES),
+-                            p.shift.as_ptr().add((g + 1) * blocks * LANES),
+-                        )
++                        x2_shifted(ga, ua, sa_slice, sb_slice, merged, blocks, p, g)
+                     }
+                 };
+                 for (sub_g, acc_chunk) in [(g, &acc[..4]), (g + 1, &acc[4..])] {
+@@ -2084,6 +2300,96 @@ mod tests {
+         }
+     }
+ 
++    /// `x2_shifted` returns the lane sums of the reference kernel [`x86::group2_x2`] for row
++    /// pairs at, below and above the merged-multiplier bound (`row spread + group spread ≤ 19`),
++    /// with the largest weight mantissa (`0x7bff`: `m = 2047`), extreme weight codes and columns
++    /// spanning 1 to 30 bits of block magnitude. Both the merged and the fallback branch occur.
++    #[test]
++    #[cfg(target_arch = "x86_64")]
++    fn merged_kernel_equals_the_shifted_kernel() {
++        if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
++            return;
++        }
++        let (n_in, blocks) = (256usize, 8usize);
++        let mut seed = 0x6d65_7267_6564_u64;
++        let (mut merged_runs, mut fallback_runs) = (0usize, 0usize);
++        for row_spread in [0u16, 1, 7, 12, 18, 19, 20, 24] {
++            let lo = 0x7bff - 0x0400 * row_spread;
++            for range in [1u32, 3, 8, 12, 19, 25, 30] {
++                for codes in [0u8, 1, 2] {
++                    let mut raw = payload(2, n_in, &[0x7bff, lo], &mut seed);
++                    if codes != 0 {
++                        // Extreme codes: all -128 (or all 127) in every block.
++                        let fill = if codes == 1 { 0x80 } else { 0x7f };
++                        for blk in raw.chunks_mut(Q8_0_BLOCK_BYTES) {
++                            blk[2..].fill(fill);
++                        }
++                    }
++                    let qs = columns(16, n_in, range, &mut seed);
++                    let p = pack(&qs, blocks).expect("power-of-two scales");
++                    let (ra, rb) = raw.split_at(blocks * Q8_0_BLOCK_BYTES);
++                    let mut sa = vec![(0i32, 0i64, 0i32); blocks];
++                    let mut sb = vec![(0i32, 0i64, 0i32); blocks];
++                    // SAFETY: AVX2 checked above; rows hold `blocks` blocks.
++                    let (Some((_, spa)), Some((_, spb))) = (unsafe {
++                        (
++                            x86::row_scales_avx2(ra, blocks, &mut sa),
++                            x86::row_scales_avx2(rb, blocks, &mut sb),
++                        )
++                    }) else {
++                        panic!("finite scales");
++                    };
++                    let mut ska =
++                        [const { std::mem::MaybeUninit::<(i32, i32)>::uninit() }; MAX_BLOCKS];
++                    let mut skb =
++                        [const { std::mem::MaybeUninit::<(i32, i32)>::uninit() }; MAX_BLOCKS];
++                    let merged = x86::merged_operands(&sa, &sb, spa, spb, &mut ska, &mut skb);
++                    let eligible = merged.is_some()
++                        && spa.max(spb) + p.spread[0].max(p.spread[1]) <= x86::MERGED_SPREAD;
++                    merged_runs += usize::from(eligible);
++                    fallback_runs += usize::from(!eligible);
++                    // SAFETY: AVX2 and AVX-VNNI checked; groups 0 and 1 exist (`k = 16`).
++                    let (got, want) = unsafe {
++                        (
++                            x86::x2_shifted(ra, rb, &sa, &sb, merged, blocks, &p, 0),
++                            x86::group2_x2(
++                                ra,
++                                rb,
++                                &sa,
++                                &sb,
++                                blocks,
++                                p.words.as_ptr(),
++                                p.words.as_ptr().add(blocks * 8 * LANES),
++                                p.shift.as_ptr(),
++                                p.shift.as_ptr().add(blocks * LANES),
++                            ),
++                        )
++                    };
++                    // SAFETY: `__m256i` is 32 plain bytes.
++                    let (got, want): ([[i64; 4]; 8], [[i64; 4]; 8]) = unsafe {
++                        (
++                            std::mem::transmute::<[std::arch::x86_64::__m256i; 8], [[i64; 4]; 8]>(
++                                got,
++                            ),
++                            std::mem::transmute::<[std::arch::x86_64::__m256i; 8], [[i64; 4]; 8]>(
++                                want,
++                            ),
++                        )
++                    };
++                    assert_eq!(
++                        got, want,
++                        "row spread {row_spread} range {range} codes {codes} (spa {spa} spb {spb} group spreads {} {})",
++                        p.spread[0], p.spread[1]
++                    );
++                }
++            }
++        }
++        assert!(
++            merged_runs > 0 && fallback_runs > 0,
++            "{merged_runs} merged, {fallback_runs} fallback"
++        );
++    }
++
+     /// The kernel takes the fast path on ordinary inputs (a test that always fell back would pass
+     /// vacuously).
+     #[test]
+diff --git a/src/engine/kern/gemm_attrib.rs b/src/engine/kern/gemm_attrib.rs
+index 9b5fd1a..89b22c9 100644
+--- a/src/engine/kern/gemm_attrib.rs
++++ b/src/engine/kern/gemm_attrib.rs
+@@ -981,3 +981,199 @@ fn gemm_attrib_shapes() {
+         }
+     }
+ }
++
++// ---- real dense-model shapes -----------------------------------------------------------------
++
++/// FNV-1a over a slice of words.
++fn fnv(mut h: u64, v: &[i64]) -> u64 {
++    for w in v {
++        h = (h ^ w.cast_unsigned()).wrapping_mul(0x0000_0100_0000_01b3);
++    }
++    h
++}
++
++/// Per class of the real prefill calls of `APEIRON_DENSE_MODEL` (default: the Qwen3.5 probe model)
++/// at `APEIRON_DENSE_IDS`: the layer-12 call with real weights and real columns (cyclic to `k`),
++/// best and median call time, GMAC/s and an FNV digest of every output word (equal digests across
++/// two builds prove identical words on these inputs).
++///
++/// Run: `APEIRON_F32_CARRIER=1 APEIRON_DENSE_MODEL=<gguf> APEIRON_DENSE_IDS=<ids> cargo test
++/// --release --lib --locked gemm_dense_shapes -- --ignored --nocapture`; `APEIRON_ATTRIB_K`
++/// (default 200), `APEIRON_ATTRIB_REPS` (default 40), `APEIRON_ATTRIB_ATT` (default 4 attempts).
++#[test]
++#[ignore = "release-only instrument: see the doc comment"]
++fn gemm_dense_shapes() {
++    use crate::engine::kern::gemm::{gemm_q8_0, gemm_q8_0_group, gemm_q8_0_swiglu};
++    use crate::engine::kern::gemm_probe::{hooks, raw, rebuild, take_k, wait_quiet, Load};
++    use crate::engine::loader::Engine;
++    use crate::engine::KernelMode;
++    use crate::format::quant::GGML_TYPE_Q8_0;
++    if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
++        println!("gemm_dense: host lacks AVX-VNNI");
++        return;
++    }
++    let env = |k: &str, d: usize| {
++        std::env::var(k)
++            .ok()
++            .and_then(|v| v.parse().ok())
++            .unwrap_or(d)
++    };
++    let model = std::env::var("APEIRON_DENSE_MODEL")
++        .unwrap_or_else(|_| crate::engine::kern::gemm_probe::MODEL.to_string());
++    let ids_path = std::env::var("APEIRON_DENSE_IDS")
++        .unwrap_or_else(|_| crate::engine::kern::gemm_probe::IDS.to_string());
++    let ids: Vec<u32> = std::fs::read_to_string(&ids_path)
++        .expect("ids")
++        .split_whitespace()
++        .filter_map(|x| x.parse().ok())
++        .take(env("APEIRON_DENSE_PP", 200))
++        .collect();
++    let e = Engine::open(&model).expect("open model");
++    let names = crate::engine::kern::gemm_probe::tensor_names(&e);
++    let mut st = e.state(ids.len() + 1).expect("state");
++    e.prefill_state(&mut st, &ids, KernelMode::Q8Act)
++        .expect("warm");
++    hooks::start(2);
++    let mut st = e.state(ids.len() + 1).expect("state");
++    e.prefill_state(&mut st, &ids, KernelMode::Q8Act)
++        .expect("prefill");
++    let cap = hooks::stop();
++    let k = env("APEIRON_ATTRIB_K", 200);
++    let reps = env("APEIRON_ATTRIB_REPS", 40);
++    let attempts = env("APEIRON_ATTRIB_ATT", 4);
++    println!(
++        "== gemm_dense == model {model} pp {} k {k} pool width {} prefill block {}",
++        ids.len(),
++        crate::engine::chart::pool::Pool::global().width(),
++        crate::engine::step::prefill_block()
++    );
++    let mut seen = std::collections::BTreeSet::new();
++    for c in &cap {
++        let label = {
++            let n: Vec<String> = c
++                .parts
++                .iter()
++                .map(|p| {
++                    crate::engine::kern::gemm_probe::strip_layer(
++                        names.get(&p.ptr).map_or("?", String::as_str),
++                    )
++                })
++                .collect();
++            format!(
++                "{:?} {} n_in={} n_out={:?}",
++                c.kind,
++                n.join("+"),
++                c.n_in,
++                c.parts.iter().map(|p| p.n_out).collect::<Vec<_>>()
++            )
++        };
++        if c.k < 8
++            || !seen.insert(label.clone())
++            || std::env::var("APEIRON_DENSE_ONLY").is_ok_and(|o| !label.contains(&o))
++        {
++            continue;
++        }
++        // The layer-12 call of this class (or the last one when the model is shallower).
++        let pick = cap
++            .iter()
++            .filter(|d| {
++                d.kind == c.kind
++                    && d.n_in == c.n_in
++                    && d.k == c.k
++                    && d.parts.len() == c.parts.len()
++                    && d.parts
++                        .iter()
++                        .zip(&c.parts)
++                        .all(|(a, b)| a.n_out == b.n_out)
++            })
++            .collect::<Vec<_>>();
++        let d = pick.get(12).or(pick.last()).expect("call");
++        let (qs, _) = rebuild(&take_k(&d.cols, k));
++        let macs: f64 = d
++            .parts
++            .iter()
++            .map(|p| p.n_out as f64 * d.n_in as f64 * k as f64)
++            .sum();
++        let mut digest = 0xcbf2_9ce4_8422_2325u64;
++        // SAFETY: the engine is alive for the whole test.
++        let call = |digest: Option<&mut u64>| unsafe {
++            match d.kind {
++                hooks::Kind::Gemm => {
++                    let r = gemm_q8_0(
++                        GGML_TYPE_Q8_0,
++                        raw(&d.parts[0]),
++                        d.parts[0].n_out,
++                        d.n_in,
++                        &qs,
++                    );
++                    if let (Some(h), Some(r)) = (digest, &r) {
++                        for col in r {
++                            *h = fnv(*h, col);
++                        }
++                    }
++                    std::hint::black_box(r).is_some()
++                }
++                hooks::Kind::Group => {
++                    let parts: Vec<(u32, &[u8], usize)> = d
++                        .parts
++                        .iter()
++                        .map(|p| (GGML_TYPE_Q8_0, raw(p), p.n_out))
++                        .collect();
++                    let r = gemm_q8_0_group(&parts, d.n_in, &qs);
++                    if let (Some(h), Some(r)) = (digest, &r) {
++                        for part in r {
++                            for col in part {
++                                *h = fnv(*h, col);
++                            }
++                        }
++                    }
++                    std::hint::black_box(r).is_some()
++                }
++                hooks::Kind::Swiglu => {
++                    let r = gemm_q8_0_swiglu(
++                        raw(&d.parts[0]),
++                        raw(&d.parts[1]),
++                        d.parts[0].n_out,
++                        d.n_in,
++                        &qs,
++                    );
++                    if let (Some(h), Some(Ok(r))) = (digest, &r) {
++                        for col in r {
++                            *h = fnv(*h, col);
++                        }
++                    }
++                    std::hint::black_box(r).is_some()
++                }
++            }
++        };
++        assert!(call(Some(&mut digest)), "{label}: refused");
++        for _ in 0..30 {
++            call(None);
++        }
++        let mut best_run: Option<(f64, f64, f64)> = None;
++        for _ in 0..attempts {
++            let (_, busy) = wait_quiet();
++            let l = Load::begin();
++            let mut v: Vec<f64> = (0..reps)
++                .map(|_| {
++                    let t = Instant::now();
++                    call(None);
++                    t.elapsed().as_secs_f64() * 1e3
++                })
++                .collect();
++            let foreign = l.foreign();
++            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            let cand = (v[0], v[v.len() / 2], foreign);
++            let _ = busy;
++            if best_run.is_none_or(|b| (cand.2 < 0.05, -cand.0) > (b.2 < 0.05, -b.0)) {
++                best_run = Some(cand);
++            }
++        }
++        let (best, med, foreign) = best_run.unwrap();
++        println!(
++            "SHAPE {label} k={k}: best {best:.4} ms = {:.1} GMAC/s, median {med:.4} ms = {:.1} GMAC/s, foreign {foreign:.3}, digest {digest:016x}",
++            macs / best / 1e6,
++            macs / med / 1e6
++        );
++    }
++}

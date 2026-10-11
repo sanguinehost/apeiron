@@ -11,7 +11,7 @@ exact-declaration probe on the unconditional existential.
 Authority: [`docs/direction.md`](../direction.md#primitive-correspondence),
 [`joint-primitives.md`](joint-primitives.md), [`joint-table.md`](joint-table.md), and
 [`iota-source-entry.md`](iota-source-entry.md). The canonical corpus is the checkout
-`../sanguine-apeiron/proof` at Git `3d66ea3aa2fe1de5997b6b757247454a2f771358`, with Mathlib
+`../sanguine/proof` at Git `3d66ea3aa2fe1de5997b6b757247454a2f771358`, with Mathlib
 `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`.
 
 ## Required obligations
