@@ -57,6 +57,7 @@ import Perf.PubVerifyCpu
 import Perf.OnebitW9
 import Perf.OnebitW10
 import Perf.Iq1s
+import Perf.OnebitW13
 import Perf.FacesPolarBound
 import Perf.Identity
 import Perf.AttnCoop
@@ -829,3 +830,16 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.Iq1s.blocks_compared
 #audit Perf.Iq1s.weights_are_blocks
 #audit Perf.Iq1s.p1_verdict
+#audit Perf.OnebitW13.quad_eq
+#audit Perf.OnebitW13.pivot_le_diag
+#audit Perf.OnebitW13.shaped_le_white
+#audit Perf.OnebitW13.det_eq_prod_pivots
+#audit Perf.OnebitW13.hadamard_chol
+#audit Perf.OnebitW13.gm_le_am
+#audit Perf.OnebitW13.hi_res_floor
+#audit Perf.OnebitW13.sign_mse_min
+#audit Perf.OnebitW13.sign_loss_bounds
+#audit Perf.OnebitW13.sign_loss
+#audit Perf.OnebitW13.arm_above_floor_1125
+#audit Perf.OnebitW13.one_bit_floor_vs_q4k
+#audit Perf.OnebitW13.floor_rate_at_q4k
