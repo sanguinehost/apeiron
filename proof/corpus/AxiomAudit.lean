@@ -56,6 +56,7 @@ import Perf.HattnHotCold
 import Perf.PubVerifyCpu
 import Perf.OnebitW9
 import Perf.OnebitW10
+import Perf.Iq1s
 import Perf.FacesPolarBound
 import Perf.Identity
 import Perf.AttnCoop
@@ -816,3 +817,15 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.FacesPolarBound.p2_held
 #audit Perf.FacesPolarBound.p3_held
 #audit Perf.FacesPolarBound.polar_alone_loses
+#audit Perf.Iq1s.rate
+#audit Perf.Iq1s.err_expand
+#audit Perf.Iq1s.err_eq_best_add_sq
+#audit Perf.Iq1s.refit_scalar_le
+#audit Perf.Iq1s.idx_mono
+#audit Perf.Iq1s.idx_nearest
+#audit Perf.Iq1s.exists_monotone_le
+#audit Perf.Iq1s.pair_discriminant_nonpos
+#audit Perf.Iq1s.pair_form_on_direction
+#audit Perf.Iq1s.blocks_compared
+#audit Perf.Iq1s.weights_are_blocks
+#audit Perf.Iq1s.p1_verdict
