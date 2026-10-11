@@ -4,6 +4,8 @@ import Mathlib.MeasureTheory.Group.Action
 import Mathlib.Analysis.InnerProductSpace.Basic
 import Mathlib.Analysis.Matrix.Order
 import Mathlib.Algebra.Order.Chebyshev
+import Mathlib.Analysis.SpecialFunctions.Log.Basic
+import Mathlib.LinearAlgebra.Matrix.Trace
 import Perf.Roofline
 import Perf.Chain
 import Perf.Overlap
@@ -24,7 +26,7 @@ where the two models differ.
 | composition, lower | overlap ≥ max (no cancellation) | none: scores cancel | `roofline_nocancel`, `kl_cancels` |
 | serial composition | chain cost adds (ℓ¹) | | `chain_append` |
 | pair form | | discriminant `⟪v,w⟫² − ‖v‖²‖w‖² ≤ 0`: elliptic or parabolic, never hyperbolic | `score_form_disc_nonpos` |
-| partition | rounds `⌈k/p⌉`; greedy ≤ `W/S + w/s` | water level across tensors (not built here) | `greedy_makespan`, `refine_gain_le` |
+| partition | rounds `⌈k/p⌉`; greedy ≤ `W/S + w/s` | fluid floor `W/S` ↔ reverse water-filling level `θ` (`fluid_floor`, `waterfill_floor`) | `greedy_makespan`, `refine_gain_le` |
 | carrier ↔ coder | bytes per token = `N · R / 8` | rate `R` | `tg_floor_ratio` |
 
 The asymmetry in composition is the sign of the summands, not the norm: performance demands are non-negative
@@ -275,6 +277,148 @@ theorem partition_0bf8b4d :
     ceilDiv 64 24 = 3 ∧ ceilDiv 256 24 = 11 ∧ (768 : ℚ) / 704 < 1105 / 1000 ∧
       (1139 : ℚ) / 1000 < 1 + 24 / 64 := by
   refine ⟨by decide, by decide, by norm_num, by norm_num⟩
+
+/-- **The fluid floor (performance water level).** Divisible work on workers of speed `s_i > 0`, every worker done by
+`T`: the total work is at most `T · Σ s_i`, so the makespan is at least `W / S`. -/
+theorem fluid_floor {ι : Type*} (I : Finset ι) (x s : ι → ℝ) (T : ℝ) (hs : ∀ i ∈ I, 0 < s i)
+    (hT : ∀ i ∈ I, x i / s i ≤ T) : ∑ i ∈ I, x i ≤ T * ∑ i ∈ I, s i := by
+  rw [Finset.mul_sum]
+  refine Finset.sum_le_sum fun i hi => ?_
+  have := hT i hi
+  rw [div_le_iff₀ (hs i hi)] at this
+  linarith
+
+/-- Proportional loads `x_i = s_i · W / S` carry all the work and finish together at the level `W / S`: the fluid
+floor is attained, every loaded worker at the same level. -/
+theorem fluid_attained {ι : Type*} (I : Finset ι) (s : ι → ℝ) (W : ℝ) (hS : 0 < ∑ i ∈ I, s i)
+    (hs : ∀ i ∈ I, 0 < s i) :
+    ∑ i ∈ I, s i * (W / ∑ j ∈ I, s j) = W ∧
+      ∀ i ∈ I, s i * (W / ∑ j ∈ I, s j) / s i = W / ∑ j ∈ I, s j := by
+  refine ⟨?_, fun i hi => ?_⟩
+  · rw [← Finset.sum_mul]
+    field_simp
+  · have := (hs i hi).ne'
+    field_simp
+
+/-- **Reverse water-filling is optimal (quantisation water level).** Component `i` coded at rate `r_i` leaves
+distortion `λ_i e^{-c r_i}` (Gaussian components: `c = 2 ln 2` per bit). An allocation `r*` whose active components
+(`r*_i > 0`) sit at the level `θ` and whose inactive ones sit below it leaves the least total distortion among all
+allocations with no more total rate. Proof: the tangent line of `exp` at `r*_i`, summed against the budget (the KKT
+conditions). -/
+theorem waterfill_opt {ι : Type*} (I : Finset ι) (lam r rs : ι → ℝ) {c θ : ℝ} (hc : 0 ≤ c) (hθ : 0 ≤ θ)
+    (hlam : ∀ i ∈ I, 0 ≤ lam i) (hr : ∀ i ∈ I, 0 ≤ r i) (hrs : ∀ i ∈ I, 0 ≤ rs i)
+    (hle : ∀ i ∈ I, lam i * Real.exp (-(c * rs i)) ≤ θ)
+    (hact : ∀ i ∈ I, 0 < rs i → lam i * Real.exp (-(c * rs i)) = θ)
+    (hbud : ∑ i ∈ I, r i ≤ ∑ i ∈ I, rs i) :
+    ∑ i ∈ I, lam i * Real.exp (-(c * rs i)) ≤ ∑ i ∈ I, lam i * Real.exp (-(c * r i)) := by
+  have key : ∀ i ∈ I, lam i * Real.exp (-(c * rs i)) - c * θ * (r i - rs i) ≤
+      lam i * Real.exp (-(c * r i)) := by
+    intro i hi
+    have ha0 : 0 ≤ lam i * Real.exp (-(c * rs i)) := mul_nonneg (hlam i hi) (Real.exp_pos _).le
+    have hsplit : lam i * Real.exp (-(c * r i)) =
+        lam i * Real.exp (-(c * rs i)) * Real.exp (-(c * (r i - rs i))) := by
+      rw [mul_assoc, ← Real.exp_add]
+      congr 2
+      ring
+    have htan : 1 + -(c * (r i - rs i)) ≤ Real.exp (-(c * (r i - rs i))) := by
+      have := Real.add_one_le_exp (-(c * (r i - rs i)))
+      linarith
+    have hprod : 0 ≤ c * (r i - rs i) * (θ - lam i * Real.exp (-(c * rs i))) := by
+      rcases (hrs i hi).lt_or_eq with hpos | hzero
+      · rw [hact i hi hpos, sub_self, mul_zero]
+      · have hl := hle i hi
+        rw [← hzero] at hl ⊢
+        exact mul_nonneg (mul_nonneg hc (by linarith [hr i hi])) (by linarith)
+    rw [hsplit]
+    nlinarith [mul_le_mul_of_nonneg_left htan ha0]
+  calc ∑ i ∈ I, lam i * Real.exp (-(c * rs i))
+      ≤ ∑ i ∈ I, lam i * Real.exp (-(c * rs i)) - c * θ * (∑ i ∈ I, r i - ∑ i ∈ I, rs i) := by
+        have : 0 ≤ c * θ * (∑ i ∈ I, rs i - ∑ i ∈ I, r i) :=
+          mul_nonneg (mul_nonneg hc hθ) (by linarith)
+        linarith
+    _ = ∑ i ∈ I, (lam i * Real.exp (-(c * rs i)) - c * θ * (r i - rs i)) := by
+        rw [Finset.sum_sub_distrib, ← Finset.mul_sum, Finset.sum_sub_distrib]
+    _ ≤ _ := Finset.sum_le_sum key
+
+/-- **The water level.** With `r*_i = max 0 (log (λ_i / θ) / c)` the residual distortion of component `i` is
+`min λ_i θ`: a component below the level gets no rate, a component above it is coded down to it. -/
+theorem waterfill_level {lam θ c : ℝ} (hlam : 0 < lam) (hθ : 0 < θ) (hc : 0 < c) :
+    lam * Real.exp (-(c * max 0 (Real.log (lam / θ) / c))) = min lam θ := by
+  rcases le_or_gt lam θ with h | h
+  · have h1 : Real.log (lam / θ) ≤ 0 :=
+      Real.log_nonpos (div_pos hlam hθ).le ((div_le_one hθ).2 h)
+    have h2 : Real.log (lam / θ) / c ≤ 0 := div_nonpos_of_nonpos_of_nonneg h1 hc.le
+    rw [max_eq_left h2, mul_zero, neg_zero, Real.exp_zero, mul_one, min_eq_left h]
+  · have hpos : 0 < Real.log (lam / θ) / c := div_pos (Real.log_pos ((one_lt_div hθ).2 h)) hc
+    have hcc : c * (Real.log (lam / θ) / c) = Real.log (lam / θ) := by field_simp
+    rw [max_eq_right hpos.le, hcc, Real.exp_neg, Real.exp_log (div_pos hlam hθ), min_eq_right h.le]
+    field_simp
+
+/-- **The water level is the floor.** At level `θ`, no allocation of at most `Σ_i max 0 (log (λ_i/θ) / c)` total
+rate leaves less distortion than `Σ_i min λ_i θ`. Over the components of every tensor at once this is the global
+rate allocation across tensors: the quantisation analogue of `fluid_floor`. -/
+theorem waterfill_floor {ι : Type*} (I : Finset ι) (lam r : ι → ℝ) {c θ : ℝ} (hc : 0 < c) (hθ : 0 < θ)
+    (hlam : ∀ i ∈ I, 0 < lam i) (hr : ∀ i ∈ I, 0 ≤ r i)
+    (hbud : ∑ i ∈ I, r i ≤ ∑ i ∈ I, max 0 (Real.log (lam i / θ) / c)) :
+    ∑ i ∈ I, min (lam i) θ ≤ ∑ i ∈ I, lam i * Real.exp (-(c * r i)) := by
+  have hopt := waterfill_opt I lam r (fun i => max 0 (Real.log (lam i / θ) / c)) hc.le hθ.le
+    (fun i hi => (hlam i hi).le) hr (fun i _ => le_max_left _ _)
+    (fun i hi => by
+      rw [waterfill_level (hlam i hi) hθ hc]
+      exact min_le_right _ _)
+    (fun i hi hpos => by
+      rw [waterfill_level (hlam i hi) hθ hc]
+      apply min_eq_right
+      by_contra hlt
+      have h1 : Real.log (lam i / θ) ≤ 0 :=
+        Real.log_nonpos (div_pos (hlam i hi) hθ).le ((div_le_one hθ).2 (not_le.mp hlt).le)
+      rw [max_eq_left (div_nonpos_of_nonpos_of_nonneg h1 hc.le)] at hpos
+      exact lt_irrefl _ hpos)
+    hbud
+  calc ∑ i ∈ I, min (lam i) θ
+      = ∑ i ∈ I, lam i * Real.exp (-(c * max 0 (Real.log (lam i / θ) / c))) :=
+        Finset.sum_congr rfl fun i hi => (waterfill_level (hlam i hi) hθ hc).symm
+    _ ≤ _ := hopt
+
+/-- **The Kronecker metric is diagonal in the factor eigenbases.** With `G = U diag(g) Uᵀ`, `H = V diag(h) Vᵀ`
+(`UᵀU = 1`, `VᵀV = 1`) and the weight error `D = U E Vᵀ`, the K-FAC form `tr(Dᵀ G D H) = Σ_{ij} g_i h_j E_{ij}²`:
+each coefficient of the rotated error is one component of weight `g_i h_j`, the input of `waterfill_floor`. -/
+theorem kron_diag {m n : Type*} [Fintype m] [Fintype n] [DecidableEq m] [DecidableEq n]
+    (U : Matrix m m ℝ) (V : Matrix n n ℝ) (hU : Uᵀ * U = 1) (hV : Vᵀ * V = 1) (g : m → ℝ) (h : n → ℝ)
+    (E : Matrix m n ℝ) :
+    trace ((U * E * Vᵀ)ᵀ * (U * diagonal g * Uᵀ) * (U * E * Vᵀ) * (V * diagonal h * Vᵀ)) =
+      ∑ i, ∑ j, g i * h j * E i j ^ 2 := by
+  have hU' : ∀ X : Matrix m n ℝ, Uᵀ * (U * X) = X := fun X => by
+    rw [← Matrix.mul_assoc, hU, Matrix.one_mul]
+  have hV' : ∀ Y : Matrix n n ℝ, Vᵀ * (V * Y) = Y := fun Y => by
+    rw [← Matrix.mul_assoc, hV, Matrix.one_mul]
+  simp only [transpose_mul, transpose_transpose, Matrix.mul_assoc, hU', hV']
+  rw [Matrix.trace_mul_comm]
+  simp only [Matrix.mul_assoc, hV, Matrix.mul_one]
+  simp only [Matrix.trace, Matrix.diag_apply, Matrix.mul_apply, Matrix.transpose_apply]
+  rw [Finset.sum_comm]
+  refine Finset.sum_congr rfl fun i _ => Finset.sum_congr rfl fun j _ => ?_
+  simp only [Matrix.diagonal_apply, ite_mul, mul_ite, zero_mul, mul_zero, Finset.sum_ite_eq, Finset.sum_ite_eq',
+    Finset.mem_univ, if_true]
+  ring
+
+/-- W15a ray scan (`tools/onebit/ray_scan.py`, receipt `/home/socol/oc-tmp/escalation/2026-10-11-ray.json`, 100 C4
+chunks of 512 tokens, all 21 `ffn_down` tensors of Qwen2.5-0.5B moved jointly along `W + tD`). Per-token KL at
+`t = 1/8` and `t = 1` (six significant figures). Verdicts:
+1. the quadratic form carries the full step: `KL(1) / (64 · KL(1/8)) < 1.16` for `IQ1_S`, `IQ1_M`, Q4_K_M and
+   `had-gptq1`; RTN exceeds `2.7` (outside the quadratic regime);
+2. the exact quadratic `64 · KL(1/8)` orders `had-gptq1 > IQ1_S > IQ1_M`, the P1 KLD order, so the W14 sampled-Fisher
+   inversion (`had-gptq1` below `IQ1_S`) is estimator error;
+3. the odd remainder of `had-gptq1` at `t = 1` is negative: `KL(D) < KL(-D)`. -/
+theorem ray_w15a :
+    (449916 : ℚ) / 10 ^ 6 / (64 * (61071 / 10 ^ 7)) < 116 / 100 ∧
+    (344035 : ℚ) / 10 ^ 6 / (64 * (477229 / 10 ^ 8)) < 116 / 100 ∧
+    (450143 : ℚ) / 10 ^ 8 / (64 * (70449 / 10 ^ 9)) < 116 / 100 ∧
+    (460010 : ℚ) / 10 ^ 6 / (64 * (654562 / 10 ^ 8)) < 116 / 100 ∧
+    (27 : ℚ) / 10 < 982565 / 10 ^ 5 / (64 * (555673 / 10 ^ 7)) ∧
+    (61071 : ℚ) / 10 ^ 7 < 654562 / 10 ^ 8 ∧ (477229 : ℚ) / 10 ^ 8 < 61071 / 10 ^ 7 ∧
+    (460010 : ℚ) / 10 ^ 6 < 106903 / 10 ^ 5 := by
+  norm_num
 
 /-! ## 5 · Carrier ↔ coder -/
 

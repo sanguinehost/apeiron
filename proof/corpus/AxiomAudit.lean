@@ -872,5 +872,12 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.CostCorrespondence.greedy_makespan
 #audit Perf.CostCorrespondence.refine_gain_le
 #audit Perf.CostCorrespondence.partition_0bf8b4d
+#audit Perf.CostCorrespondence.fluid_floor
+#audit Perf.CostCorrespondence.fluid_attained
+#audit Perf.CostCorrespondence.waterfill_opt
+#audit Perf.CostCorrespondence.waterfill_level
+#audit Perf.CostCorrespondence.waterfill_floor
+#audit Perf.CostCorrespondence.kron_diag
+#audit Perf.CostCorrespondence.ray_w15a
 #audit Perf.CostCorrespondence.tg_floor_ratio
 #audit Perf.CostCorrespondence.qwen27b_target_floor
