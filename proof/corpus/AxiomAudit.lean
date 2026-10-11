@@ -58,6 +58,7 @@ import Perf.OnebitW9
 import Perf.OnebitW10
 import Perf.Iq1s
 import Perf.OnebitW13
+import Perf.OnebitW14
 import Perf.FacesPolarBound
 import Perf.Identity
 import Perf.AttnCoop
@@ -843,3 +844,8 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.OnebitW13.arm_above_floor_1125
 #audit Perf.OnebitW13.one_bit_floor_vs_q4k
 #audit Perf.OnebitW13.floor_rate_at_q4k
+#audit Perf.OnebitW14.pred_order
+#audit Perf.OnebitW14.p1_order
+#audit Perf.OnebitW14.rank_inversion
+#audit Perf.OnebitW14.ratio_band
+#audit Perf.OnebitW14.additivity
