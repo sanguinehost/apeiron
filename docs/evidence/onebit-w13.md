@@ -10,7 +10,7 @@ quantity, KLD is the model quantity.
 | statement | theorem |
 |---|---|
 | `rᵀ(RᵀR)r = Σ_i ((Rr)_i)²` | `quad_eq` |
-| the Cholesky pivot is at most the diagonal, so error feedback at one quantizer noise never exceeds independent rounding | `pivot_le_diag`, `shaped_le_white` |
+| the Cholesky pivot is at most the diagonal, so with the same additive noise `q²` on every coordinate error feedback never exceeds independent rounding (at 1 bit the noise grows with the compensated coordinate, so the premise is `model` there) | `pivot_le_diag`, `shaped_le_white` |
 | `det H = ∏ R_ii²` and `det H ≤ ∏ H_ii` (Hadamard) | `det_eq_prod_pivots`, `hadamard_chol` |
 | `n (∏ x_i)^{1/n} ≤ Σ x_i`: fed-back error `≥ n q² GM(λ)` against `n q² AM(λ)` for white noise | `gm_le_am`, `hi_res_floor` |
 | the best amplitude on a unit source leaves `1 − m1²`; for the unit Gaussian (`m1² = 2/π`, anchor) `0.3633 < 1 − 2/π < 0.3634`, above the Gaussian rate–distortion value `1/4` at one bit | `sign_mse_min`, `sign_loss_bounds`, `sign_loss` |
@@ -42,8 +42,15 @@ Instrument checks (computed from the receipt):
 
 - `ln GM(eig H) ≤ ln GM(diag H)` holds on 21/21 tensors (Hadamard).
 - The `had_rtn` median `ρ = 0.339` against the white-Gaussian sign value `1 − 2/π = 0.363`.
-- `AM/GM(eig H)` is 2.9–6.6 dB on blocks 4–20 and 22, and 15.6 / 12.6 / 12.2 dB on blocks 3 / 21 / 23.
-- `had_rtn → had-gptq1` realises 0.62–0.96 (mean 0.73) of the `AM/GM(eig)` gain in dB.
+- `AM/GM(eig H)` is 2.9–6.6 dB on blocks 4–20 and 22, and 15.6 / 12.6 / 12.2 dB on blocks 3 / 21 / 23. The figure
+  is computed from the Cholesky of `H + 0.01·mean(diag H)` (`arm_compare.py`), so it counts near-null modes at up to
+  20 dB each: on block 3, `(1 − 1037/4864)·20 dB = 15.7 dB` against 15.6 measured. It is set by the damping on
+  low-rank blocks, not by `H` alone.
+- `had_rtn → had-gptq1` realises 0.62–0.96 (mean 0.73) of that gain in dB; the denominator carries the damping.
+- Scope of `ρ`: it is `Σ(dHdᵀ)/Σ(wHwᵀ)`, the layer error with output-gradient Gram `G = I`. The loss stiffness is
+  `G ⊗ H`. `ρ` ranks `had-gptq1` at or below `IQ1_S` on 21/21 tensors; P1 KLD ranks them the other way (`IQ1_S` 0.6315,
+  `had-gptq1` 0.8345, `Perf.Iq1s.p1_verdict`). `ρ` is therefore not a predictor of KLD across arm families.
+  Whether `had-gptq1` was fitted on the same Gram that `ρ` uses (in-sample) is not checked.
 - Plain RTN is above the white-Gaussian sign value on all 21 tensors (0.37–1.34; peaks on blocks 3, 11, 21, 23): it
   is not white against `H`. Prediction `arm-shaping-1-1`: refuted with plain RTN as the white baseline; the
   same-basis baseline (`had_rtn`) gives the gain fractions above.
@@ -70,14 +77,16 @@ Prediction `floor-1`: refuted on two clauses (block 3 arm above the floor, not b
 
 ## What this says
 
-- The Gerzon–Craven gain `AM/GM(eig H)` is what separates the arms: `had-gptq1` realises most of it, and `IQ1_S`
-  (diagonal proxy of `H`) reaches `GM(diag H)`, which equals `GM(eig H)` only when `H` is diagonal.
-- Under the isotropic row model, 1 b/w at the Q4_K-type error is reachable on block 3 and unreachable on the typical
-  blocks (floor `ρ` 0.07–0.13 at 1 b/w). The model is `model` grade: a weight row with structure (low effective rank,
-  heavy tails) can sit below it. The measured `had-gptq1` `ρ` is within 1.2–2.4× of the floor everywhere.
-- The remaining rate gap of 0.46–0.59 b/w on the typical blocks has two measured parts: the sign quantizer, whose
-  one-bit loss `1 − 2/π` exceeds the Gaussian `1/4` (`sign_loss`), and the spectral shaping not realised (0.62–0.96
-  of the `AM/GM` gain; mean 0.73). Their split is not measured here.
+- In `ρ` (`G = I`), `had-gptq1` sits below `IQ1_S`; in P1 KLD it sits above. The `ρ` comparison does not carry to KLD,
+  so no statement about which arm is better follows from this table (Opus review, `/home/socol/oc-tmp/escalation/2026-10-11-opus-w13-review.md`).
+- Under the isotropic row model, the floor `ρ` at 1 b/w is at the Q4_K-type error on block 3 and above it on the
+  typical blocks (0.05–0.13). The model is `model` grade, and the `W10` function ranks (`F99` 99 / 770 / 441 of 896)
+  contradict isotropic rows, so the floor is not a bound on this population. The measured `had-gptq1` `ρ` is within
+  1.2–2.4× of the floor.
+- The rate gap of 0.46–0.59 b/w on the typical blocks includes 0.125 b/w of scale side information that the floor does
+  not charge. The remainder is the sign quantizer's loss (`sign_loss`) and the pivot allocation. For a fixed step the
+  GPTQ error is `q²·n·AM(d)` and `GM(d) = GM(λ)` for any order (`det_eq_prod_pivots`), so the allocation term is
+  `AM(d)/GM(d)` of the pivots; that split is computable from the existing Cholesky and is not measured here.
 
 ## Not covered
 
