@@ -803,6 +803,15 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.OnebitW10.ffn_block23_not_below_quarter
 #audit Perf.OnebitW10.ffn_function_block11_not_below_half
 #audit Perf.OnebitW10.attn_in_none_below_half
+#audit Perf.OnebitW10.refit_pythagoras
+#audit Perf.OnebitW10.refit_le
+#audit Perf.OnebitW10.block3_removes_95
+#audit Perf.OnebitW10.removed_share_order
+#audit Perf.OnebitW10.scale_only_range_fails
+#audit Perf.OnebitW10.run_in_predicted_band
+#audit Perf.OnebitW10.control_in_band
+#audit Perf.OnebitW10.run_below_w9
+#audit Perf.OnebitW10.run_not_usable
 #audit Perf.FacesPolarBound.p1_refuted
 #audit Perf.FacesPolarBound.p2_held
 #audit Perf.FacesPolarBound.p3_held
