@@ -4,7 +4,7 @@
 //! trichotomy and naming it: `Sigma` is an argument, the channel accessors exist only where the
 //! channels do, and a discard cannot be constructed on a face that has none.
 //!
-//! Theorem names in the doc comments resolve against `../sanguine-apeiron/proof/Apeiron/`.
+//! Theorem names in the doc comments resolve against `../sanguine/proof/Apeiron/`.
 
 use crate::scalar::{Halve, Ring};
 

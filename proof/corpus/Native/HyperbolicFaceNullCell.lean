@@ -71,7 +71,7 @@ absent. The directions the correspondence uses are proved below without it.
 
 ## Search for prior art
 
-`rg` over `proof/corpus/`, `../sanguine-apeiron/proof/`, `../sanguine/prof` and
+`rg` over `proof/corpus/`, `../sanguine/proof/`, `../sanguine-ref/prof` and
 `../fold/hashtrinity/proof/` for a hyperbolic-face cell/index correspondence returns no declaration in
 any of the four trees. The port target used here is `Apeiron.NativeAddress.quadratic_split` /
 `h3_40_quadratic_split` (`proof/corpus/Native/HyperbolicBase.lean`) together with the canonical

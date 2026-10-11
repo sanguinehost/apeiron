@@ -277,7 +277,7 @@ impl<C: CountKeyCodec> CountingTable<C> {
     /// New-first `insertWith` at one coordinate: merges `new_count` into the committed count as
     /// `f(new, old) = new + old`, in the argument order of `Apeiron.Table.insertWith`
     /// (`insertWith f k v m = fun x => if x = k then f v (m x) else m x`,
-    /// `../sanguine-apeiron/proof/Apeiron/Table/Basic.lean:80-81`). Returns the committed count
+    /// `../sanguine/proof/Apeiron/Table/Basic.lean:80-81`). Returns the committed count
     /// after the merge.
     ///
     /// Order: locate → merge-checked-plan → reserve → relocate without merge → merge once → commit.
