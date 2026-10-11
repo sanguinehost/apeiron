@@ -879,5 +879,6 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.CostCorrespondence.waterfill_floor
 #audit Perf.CostCorrespondence.kron_diag
 #audit Perf.CostCorrespondence.ray_w15a
+#audit Perf.CostCorrespondence.kfac_w15b
 #audit Perf.CostCorrespondence.tg_floor_ratio
 #audit Perf.CostCorrespondence.qwen27b_target_floor

@@ -61,6 +61,7 @@ the rows where the two models agree and where they differ.
 | W14 joint KL within the Minkowski bound | per-block KL from `/home/socol/oc-tmp/escalation/2026-10-11-stiffness.json` | joint / `(Σ√k_l)²` = 0.055 `IQ1_S`, 0.052 `IQ1_M`, 0.060 Q4_K_M, 0.062 RTN, 0.042 `had-gptq1`; the 21 block scores compose near the orthogonal (ℓ²) sum, not the aligned (ℓ¹) one | `w14_within_minkowski` |
 | partition `0bf8b4d` (64 → 256 tasks, 24 workers) | GMAC/s ffn_down 1096 → 1211–1218, attn_output 1047 → 1177–1185, ssm_out 1054 → 1197–1201 | homogeneous rounds model `⌈64/24⌉ = 3`, `⌈256/24⌉ = 11`, gain `1.0909`; measured `1.105–1.139` exceeds it (homogeneous model refuted; heterogeneous P/E cores are the `model` reading, speeds not measured); under the greedy bound `1.375` | `partition_0bf8b4d`, `refine_gain_le` |
 | quadratic form along the ray (W15a) | direct KL at `t = 1/8, 1, −1`, `docs/evidence/onebit-w15.md` | `KL(1)/(64·KL(1/8)) < 1.16` for `IQ1_S`, `IQ1_M`, Q4_K_M, `had-gptq1`; RTN `> 2.7`; exact quadratic orders `had-gptq1 > IQ1_S > IQ1_M` (P1 order); `had-gptq1` odd remainder negative | `ray_w15a` |
+| K-FAC water level (W15b) | `½ tr(DᵀGDH)` on all 168 tensors, `docs/evidence/onebit-w15.md` | K-FAC within `[1/2, 2]` of the exact quadratic on four arms but orders `had-gptq1` lowest (refuted); at 1.18 b/w separable floor `> 16×` and oracle `> 6×` Q4_K_M; Q4-matching rate `> 3.17` (separable), `> 2.35` (oracle) | `kfac_w15b` |
 | 27B decode floor at the target rate | `27·10⁹` weights, 1.18 b/w, 960 GB/s | 3.9825 GB, floor `< 4.15` ms per token | `qwen27b_target_floor`, `tg_floor_ratio` |
 
 ## Gates and controls
@@ -82,7 +83,8 @@ the rows where the two models agree and where they differ.
   does not assume isotropic rows.
 - So post-training coding of blocks with high stiff fraction cannot reach Q4-level error at 1.18 b/w; a route to the
   target either lowers the stiff fraction of the function (training) or spends the rate unevenly across tensors (the
-  water level, `waterfill_floor`; its K-FAC instrument is the open measurement).
+  water level, `waterfill_floor`). Measured in the K-FAC metric on 0.5B (W15b), the uneven spend needs 3.18 b/w
+  (separable) or 2.35 b/w (oracle) to reach Q4_K_M; 1.18 b/w leaves 16.9× / 6.6× its KL.
 
 ## Not covered
 
@@ -90,6 +92,7 @@ the rows where the two models agree and where they differ.
   the Shannon lower bound (`anchor`, not retrieved); the KL is a quadratic form only in the small-perturbation regime.
 - The stiff count `r99` is a 99%-energy rank of the layer Gram (`G = I`), not of the full Fisher `G ⊗ H`.
 - The water-filling floor assumes Gaussian components (`λ e^{−c r}` with `c = 2 ln 2` per bit) and the quadratic
-  form; W15a shows the quadratic form within 15% at one-bit error on `ffn_down` only. No floor has been evaluated on
-  measured `g_i h_j` yet.
+  form; W15a shows the quadratic form within 15% at one-bit error on `ffn_down` only. W15b evaluates the floor on
+  measured `g_i h_j` for one 0.5B model; K-FAC drops cross-token terms and `g`–`x` dependence and under-reads
+  `had-gptq1` 0.66×.
 - No byte, cycle or nat follows from a theorem here; numbers in the verdicts are measured inputs.

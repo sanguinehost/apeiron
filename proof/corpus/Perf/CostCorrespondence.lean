@@ -420,6 +420,25 @@ theorem ray_w15a :
     (460010 : ℚ) / 10 ^ 6 < 106903 / 10 ^ 5 := by
   norm_num
 
+/-- W15b K-FAC water level (`tools/onebit/kfac_floor.py`, receipt `/home/socol/oc-tmp/escalation/2026-10-11-kfac.json`,
+100 C4 chunks, 4 sampled targets, all 168 linear tensors of Qwen2.5-0.5B). Per-token KL, five significant figures.
+1. K-FAC `½ tr(DᵀGDH)` summed over the 21 `ffn_down` tensors is within `[1/2, 2]` of the exact quadratic
+   `64 · KL(1/8)` for `IQ1_S` 0.42329/0.39085, `IQ1_M` 0.33660/0.30543, Q4_K_M 0.0036205/0.0045087 and `had-gptq1`
+   0.27639/0.41892, but it orders `had-gptq1` lowest where the exact quadratic orders it highest (prediction
+   `kfac-1-1` order clause refuted);
+2. separable-variance water-filling at 1.18 b/w leaves 0.26454, more than 16 times Q4_K_M's K-FAC KL 0.015675 on the
+   same 168 tensors; the oracle reference leaves 0.10378, more than 6 times;
+3. the separable rate that matches Q4_K_M is above 3.17 b/w, the oracle rate above 2.35 b/w. -/
+theorem kfac_w15b :
+    ((1 : ℚ) / 2 < 42329 / 39085 ∧ (42329 : ℚ) / 39085 < 2) ∧
+    ((1 : ℚ) / 2 < 33660 / 30543 ∧ (33660 : ℚ) / 30543 < 2) ∧
+    ((1 : ℚ) / 2 < 36205 / 45087 ∧ (36205 : ℚ) / 45087 < 2) ∧
+    ((1 : ℚ) / 2 < 27639 / 41892 ∧ (27639 : ℚ) / 41892 < 2) ∧
+    ((27639 : ℚ) < 33660 ∧ (33660 : ℚ) < 42329 ∧ (39085 : ℚ) < 41892) ∧
+    (16 * (15675 : ℚ) / 10 ^ 6 < 26454 / 10 ^ 5 ∧ 6 * (15675 : ℚ) / 10 ^ 6 < 10378 / 10 ^ 5) ∧
+    ((317 : ℚ) / 100 < 31760 / 10 ^ 4 ∧ (235 : ℚ) / 100 < 23526 / 10 ^ 4) := by
+  norm_num
+
 /-! ## 5 · Carrier ↔ coder -/
 
 /-- **The rate is the decode numerator.** A decode step reads `N · R / 8` bytes at bandwidth `BW`; the floor ratio of
