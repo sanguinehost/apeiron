@@ -65,6 +65,7 @@ import Perf.Identity
 import Perf.AttnCoop
 import Perf.IdentityFloat
 import Perf.Overlap
+import Perf.FaceTyped
 import Learn.GramExact
 import Numeric.SigmaDeltaRefinement
 
@@ -966,3 +967,11 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.CostCorrespondence.asymmetric_wiener_target_optimality
 #audit Perf.CostCorrespondence.asymmetric_distortion_penalty_strict
 #audit Perf.CostCorrespondence.w16_t0_best_arm_3seed
+#audit Perf.FaceTyped.null_channels_eq
+#audit Perf.FaceTyped.two_plane_split_complex
+#audit Perf.FaceTyped.two_plane_null_channel
+#audit Perf.FaceTyped.two_plane_value_mem
+#audit Perf.FaceTyped.null_basis_rate_eq
+#audit Perf.FaceTyped.null_basis_diag_cross_zero
+#audit Perf.FaceTyped.coefC_symm
+#audit Perf.FaceTyped.bilinear_junction_hyperbolic

@@ -590,6 +590,20 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
       not re-run on seeds `1` and `2`, so the arm-to-arm gap at matched seeds is measured on seed `0` only.
     - Board row: `onebit-w16-t0-receipt-for-CEEkDLWOB0s8inHVh8q2Aa`.
 
+22. **Face-typed 2-plane code in the canonical algebra** (W16a; grade `proved`; board row
+    `onebit-w16-t1-face-typed-HKnziwmCmuvo0tAP682tNM`). `proof/corpus/Perf/FaceTyped.lean` (sha256 `9d09ab5c…`, namespace
+    `Perf.FaceTyped`; root: `upper`/`lower` of `Apeiron.Trichotomy.NullBasis` at `σ = 1`). Gate:
+    `cd proof/corpus && lake build Perf.FaceTyped AxiomAudit` (exit 0, 9173 jobs; all eight audits
+    `[propext, Classical.choice, Quot.sound]`).
+    - `two_plane_split_complex`, `two_plane_null_channel`, `two_plane_value_mem`: `r₁s₁ + r₂s₂ = s₁·(upper 1 (r₁,r₂))` if
+      `s₁s₂ = 1`, `s₁·(lower 1 (r₁,r₂))` otherwise, so every weight lies in `{±(r₁+r₂), ±(r₁−r₂)}`; `null_channels_eq`.
+    - `null_basis_rate_eq`: `(s₁,s₂) ↦ (s₁, s₁s₂)` is an involutive bijection on `ℤˣ × ℤˣ`: the null-basis code has the
+      2-plane code's bits.
+    - `null_basis_diag_cross_zero`: the diagonal of `H` contributes no `a·b` term (`crossTerm H t m p p = 0`); `coefC_symm`.
+    - `bilinear_junction_hyperbolic`: the product form `xy` has discriminant `1/4 > 0` and the gauge `(x,y) ↦ (sx, y/s)`
+      preserves it.
+    - Control: `j² = −1` in `two_plane_split_complex` is red (`Control.lean:45:36 unsolved goals ⊢ 1 = -1`).
+
 ## Not covered (W15d)
 
 - Constructive transfer evaluated on 0.5B only; `src/learn/ridge.rs` and `src/learn/onebit.rs` remain `f64` on CPU.
