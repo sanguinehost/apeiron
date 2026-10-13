@@ -245,3 +245,32 @@ def G : ℚ := (913131631099057 : ℚ) / 250000000000000
 def bits : ℕ := 421541376
 
 end Receipts.w17_c_run100
+
+-- Receipt the receipts/onebit/w17-d-tilt note.json`
+namespace Receipts.w17_d_tilt
+
+def sha256 : String := "94b6b8ee72413f2639a216030dfe24839bff49a21067ef96f8cef377542ccada"
+def J_out : ℚ := (18622583341702077 : ℚ) / 1000000000000
+def J_in : ℚ := (1592205527866451 : ℚ) / 100000000000
+def tilt_in : ℚ := (9802402338223923 : ℚ) / 10000000000000000
+def tilt_out : ℚ := (12029095435353307 : ℚ) / 10000000000000000
+def q2_over_J_in : ℚ := (11206271438742447 : ℚ) / 500000000000000000000
+def q2_over_J_out : ℚ := (28517616963567557 : ℚ) / 500000000000000000000
+def Q_tilt : ℚ := (12271578966358603 : ℚ) / 10000000000000000
+def Q_lin : ℚ := (6361977112426559 : ℚ) / 2500000000000000
+def Q_product : ℚ := (390357522586543 : ℚ) / 125000000000000
+def Q_receipt : ℚ := (3122860462543633 : ℚ) / 1000000000000000
+def kl_in : ℚ := (3498024000377261 : ℚ) / 10000000000000000
+def q2_in : ℚ := (35685374663075303 : ℚ) / 100000000000000000
+def positions_in : ℕ := 10240
+def kl_share_range8_in : ℚ := (702779645921981 : ℚ) / 1250000000000000
+def kl_out : ℚ := (3194156072802093 : ℚ) / 2500000000000000
+def q2_out : ℚ := (424857358888619 : ℚ) / 400000000000000
+def positions_out : ℕ := 20480
+def kl_share_range8_out : ℚ := (9925310133895491 : ℚ) / 10000000000000000
+def pass_ : Bool := true
+def controlDeltaZeroPass : Bool := true
+def controlEps005Pass : Bool := true
+def controlRun100Pass : Bool := true
+
+end Receipts.w17_d_tilt

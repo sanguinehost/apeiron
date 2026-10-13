@@ -245,4 +245,73 @@ theorem w17_c_run100_bits :
     Receipts.w17_c_run100.bits = Receipts.t3_nb_3seed.bits := by
   norm_num [Receipts.w17_c_run100.bits, Receipts.t3_nb_3seed.bits]
 
+/-!
+## W17-D verdicts (`measured` inputs, `proved` consequences)
+
+Inputs are the generated `Receipts.w17_d_tilt` constants (`Perf/Receipts/Onebit.lean`), bound to
+ledger row `onebit-receipt-w17-d-tilt` and its sha256. Grade of every theorem below: `proved` over
+`measured` inputs. Registered prediction `w17-d-tilt-1-1`.
+-/
+
+/-- Split of `Q` (`w17-d-tilt-1-1`): `Q_tilt · Q_lin` agrees with `Q_product` to `10⁻⁶`, and
+`Q_product` agrees with the W17-C receipt `Q` to `10⁻⁶`. -/
+theorem w17_d_q_split :
+    |Receipts.w17_d_tilt.Q_tilt * Receipts.w17_d_tilt.Q_lin - Receipts.w17_d_tilt.Q_product|
+        < 1 / 10 ^ 6 ∧
+    |Receipts.w17_d_tilt.Q_product - Receipts.w17_c_measure100.Q| < 1 / 10 ^ 6 := by
+  norm_num [abs_lt, Receipts.w17_d_tilt.Q_tilt, Receipts.w17_d_tilt.Q_lin,
+    Receipts.w17_d_tilt.Q_product, Receipts.w17_c_measure100.Q]
+
+/-- Tilt identities (`w17-d-tilt-1-1`): `Q_tilt = tilt_out / tilt_in`, `tilt_in = kl_in / q2_in` and
+`tilt_out = kl_out / q2_out`, each to `10⁻⁹`. -/
+theorem w17_d_tilt_ratio :
+    |Receipts.w17_d_tilt.Q_tilt - Receipts.w17_d_tilt.tilt_out / Receipts.w17_d_tilt.tilt_in|
+        < 1 / 10 ^ 9 ∧
+    |Receipts.w17_d_tilt.tilt_in - Receipts.w17_d_tilt.kl_in / Receipts.w17_d_tilt.q2_in|
+        < 1 / 10 ^ 9 ∧
+    |Receipts.w17_d_tilt.tilt_out - Receipts.w17_d_tilt.kl_out / Receipts.w17_d_tilt.q2_out|
+        < 1 / 10 ^ 9 := by
+  norm_num [abs_lt, Receipts.w17_d_tilt.Q_tilt, Receipts.w17_d_tilt.tilt_in,
+    Receipts.w17_d_tilt.tilt_out, Receipts.w17_d_tilt.kl_in, Receipts.w17_d_tilt.q2_in,
+    Receipts.w17_d_tilt.kl_out, Receipts.w17_d_tilt.q2_out]
+
+/-- Linearisation (`w17-d-tilt-1-1`): `Q_lin = q2_over_J_out / q2_over_J_in` to `10⁻⁹`. -/
+theorem w17_d_qlin_ratio :
+    |Receipts.w17_d_tilt.Q_lin -
+        Receipts.w17_d_tilt.q2_over_J_out / Receipts.w17_d_tilt.q2_over_J_in| < 1 / 10 ^ 9 := by
+  norm_num [abs_lt, Receipts.w17_d_tilt.Q_lin, Receipts.w17_d_tilt.q2_over_J_out,
+    Receipts.w17_d_tilt.q2_over_J_in]
+
+/-- Registered bands of prediction `w17-d-tilt-1-1`: `tilt_in ∈ [9/10, 13/10]`,
+`tilt_out ∈ [9/10, 16/10]`, `Q_tilt ∈ [9/10, 3/2]`, `Q_lin ≥ 2`. -/
+theorem w17_d_p_tilt_bands :
+    9 / 10 ≤ Receipts.w17_d_tilt.tilt_in ∧ Receipts.w17_d_tilt.tilt_in ≤ 13 / 10 ∧
+    9 / 10 ≤ Receipts.w17_d_tilt.tilt_out ∧ Receipts.w17_d_tilt.tilt_out ≤ 16 / 10 ∧
+    9 / 10 ≤ Receipts.w17_d_tilt.Q_tilt ∧ Receipts.w17_d_tilt.Q_tilt ≤ 3 / 2 ∧
+    2 ≤ Receipts.w17_d_tilt.Q_lin := by
+  norm_num [Receipts.w17_d_tilt.tilt_in, Receipts.w17_d_tilt.tilt_out,
+    Receipts.w17_d_tilt.Q_tilt, Receipts.w17_d_tilt.Q_lin]
+
+/-- Falsifier of `w17-d-tilt-1-1` is not triggered: `4/5 ≤ Q_tilt ≤ 2`. -/
+theorem w17_d_falsifier_not_triggered :
+    Receipts.w17_d_tilt.Q_tilt ≤ 2 ∧ 4 / 5 ≤ Receipts.w17_d_tilt.Q_tilt := by
+  norm_num [Receipts.w17_d_tilt.Q_tilt]
+
+/-- The linearisation carries more of `Q` than the tilt: `Q_lin > Q_tilt` (`w17-d-tilt-1-1`). -/
+theorem w17_d_lin_dominates :
+    Receipts.w17_d_tilt.Q_lin > Receipts.w17_d_tilt.Q_tilt := by
+  norm_num [Receipts.w17_d_tilt.Q_lin, Receipts.w17_d_tilt.Q_tilt]
+
+/-- Tilt against `log Q` (`w17-d-tilt-1-1`): `Q_tilt^4 < Q_product`, i.e. `4 log Q_tilt < log Q`
+(the tilt carries under a quarter of `log Q`). -/
+theorem w17_d_ratio_dominance_of_log :
+    Receipts.w17_d_tilt.Q_tilt ^ 4 < Receipts.w17_d_tilt.Q_product := by
+  norm_num [Receipts.w17_d_tilt.Q_tilt, Receipts.w17_d_tilt.Q_product]
+
+/-- The 20% form (`w17-d-tilt-1-1`): `Q_tilt^5 < Q_product`, i.e. `5 log Q_tilt < log Q`, so the tilt
+carries under one fifth of `log Q` (measured `tilt_fraction_of_logQ = 0.1797`). -/
+theorem w17_d_ratio_dominance_of_log_fifth :
+    Receipts.w17_d_tilt.Q_tilt ^ 5 < Receipts.w17_d_tilt.Q_product := by
+  norm_num [Receipts.w17_d_tilt.Q_tilt, Receipts.w17_d_tilt.Q_product]
+
 end Perf.Generalisation
