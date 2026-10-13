@@ -695,6 +695,60 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
       the Lean statements take the measured values as `model` inputs and do not prove the arm's numerical fit.
 
 
+26. **Junction side information for the `-nb` residual frame: route (b) closed at linear and product-junction order, route (a) priced** (W16c-T6;
+    grade `measured` for `R²_H`, rates and comparison counts, `proved` for the Lean verdict over them as `model` inputs; board row
+    `onebit-w16-t6-cross-side-o9JggmT2wCrNW9sHFePAF`). Question: the `-nb` residual `R = W − Q(W)` costs how many bits as a
+    Hessian-weighted frame, and how much of it do decoded junction partners (same-head `v`/`o`, `q`/`k` through GQA, `gate`/`up`/`down`,
+    sorted-key neighbour blocks) predict (decoder-side information, Wyner–Ziv 1976, conditional-rate reading)? Spec: Opus verdict
+    `/home/socol/oc-tmp/escalation/2026-10-14-w16-t6-sideinfo.md`.
+    Estimator: `E = fwht128(R)·Hr^{1/2}` with `Hr = had_gram(Hl_m)`; gate `‖E‖² = J` to `9.1e-15` relative. Predictors `F0` self,
+    `F1` linear junction, `F2` product junction (`o`↔`v`, `down`↔`up/gate`), `F3` routed sorted-key neighbour, each with a decoded and
+    an oracle-partner arm; closed-form ridge, leave-one-layer-out; `R²_H` out of fold. Script sha256 `47ccda4d…`.
+
+    Commands (receipt sha256 `7194dce4…`, capture `cap.json` sha256 `28f0663a…`):
+    `PREDICTION=w16-t6-capture-1 flock /tmp/opencode/gpu.lock timeout 580 /home/socol/Workspace/spinor-ttl/.venv/bin/python tools/onebit/side_probe.py capture --variants had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp-nb --seeds 0 --dump /home/socol/oc-tmp/lanes/w16/t6/nb_seed0.pt --cap /home/socol/oc-tmp/lanes/w16/t6/cap --out /home/socol/oc-tmp/lanes/w16/t6/cap.json`
+    (held-out KL `1.27766`, bits `421541376`, wall `127.2 s`);
+    `PREDICTION=w16-t6-probe-1 flock /tmp/opencode/gpu.lock timeout 580 /home/socol/Workspace/spinor-ttl/.venv/bin/python tools/onebit/side_probe.py probe --cap /home/socol/oc-tmp/lanes/w16/t6/cap --dump /home/socol/oc-tmp/lanes/w16/t6/nb_seed0.pt --out /home/socol/oc-tmp/w16/t6-sideinfo.json`
+    (controls `27.4 s`, pass 1 `101.1 s`, pass 2 `43.8 s`; the prediction record states `145 s`, the stage sum is `172 s`).
+
+    | kind | `J` share | `R²_H` self (`F0`) | best decoded increment | oracle increment | `R_a(f*)` b/w |
+    |---|---|---|---|---|---|
+    | `q` | 7.74% | 0.0001 | 0.00058 (`F1`) | 0.00062 | 2.037 |
+    | `k` | 0.42% | −0.0001 | 0.00017 (`F1`) | 0.00027 | 0.398 |
+    | `v` | 0.30% | −0.0001 | −0.00003 | −0.00003 | 0.420 |
+    | `o` | 0.17% | −0.0023 | 0.00002 (`F2`) | 0.00003 | 2.145 |
+    | `gate` | 46.25% | 0.0000 | 0.00000 | 0.00001 | 2.888 |
+    | `up` | 42.46% | 0.0165 | 0.00223 (`F2`) | 0.00124 | 2.878 |
+    | `down` | 2.66% | −0.0002 | 0.00000 | 0.00000 | 0.532 |
+    | total (J-weighted) | | 0.0070 | 0.00094 (`F2`) | 0.00051 | 2.072 |
+
+    - Route (b): the J-weighted decoded increment is `0.00094` (`F1` `0.00004`, `F3` `−0.00006`), `0.0072×` the `0.13` opening threshold
+      and below `0.02` on every kind; the oracle partner adds at most `0.00124`. The whitened residual is nearly
+      white: self `R²_H` is `0.0070` total. Shuffled-partner `|ΔR²| ≤ 4.4e-5`. Planted `R² ∈ {0, 0.3}` recovered within `0.007`.
+    - Route (a): the rate to recover `f* = 0.98479` of `J` (the fraction of the `-nb` KL that Q4_K_M parity needs, under KL ∝ `J`) is
+      `2.0723` b/w per-tensor water-filling (`1.8807` with a global threshold), against the `3.0196` b/w white bound and the `1.178061`
+      b/w budget. At `f = 0.5` the rate is `0.262` b/w; at `f = 0.9` it is `1.078` b/w. Conditioning on junction context leaves it at
+      `2.0682` (`F0`; `F1d`, `F2d`, `F3d` the same to four places), against `2.0723` unconditioned.
+    - Routed lookup: `F3` sorted-key search used `7.0–12.3` comparisons on average and never exceeded `⌈log₂(m+1)⌉`
+      (`q`/`o`/`down` `10`, `k`/`v` `8`, `gate`/`up` `13`; `2.4M–13.1M` lookups per kind).
+    - Predictions: `w16-t6-capture-1` confirmed; `w16-t6-probe-1` refuted on the `R_a(f*)` magnitude (predicted `[2.6, 3.1]`,
+      measured `2.0723`), its decoded-increment and oracle clauses held, and its falsifier (any kind with ≥ 5% of `J` at increment
+      ≥ 0.05, or `R_a(f*) < 2.0`) did not trigger.
+    - Decision (spec §5): route (b) is closed at linear and product-junction order; route (a) is closed at `R_a(f*) ≥ 2.0`
+      (`1.76×` the bit budget). `gate` + `up` hold `88.7%` of the residual `J`; `v` + `o` hold `0.47%`.
+    - Lean: `Perf/SideInfo.lean` (sha256 `ec389a5d…`; `char_coords_norm`, `norm_boost_blind`, `lone_channel_fiber_card`,
+      `side_info_recovers`, `side_info_char_coord`, `gauss_side_info_saving`, `lowerBound_count_le`, `lowerBound_spec`,
+      `w16_t6_route_b_open`, `w16_t6_route_b_closed_linear`, `w16_t6_route_a_closed`; hyperbolic face `σ = 1`, characteristic
+      coordinates `u = a − b`, `v = a + b`; the elliptic `σ = −1` and a changed-constant control are red) and
+      `Perf.CostCorrespondence.w16_t6_sideinfo` (§28). The old-corpus statements ported with standard vocabulary are
+      `fullDecode_recovers`, `triadDecode_recovers` (`sanguine-ref/proof/Substrate/Algebra/Web/NullWebRotation.lean:195,212`);
+      `retrieval_is_O1_navigation` (`NullWebRetrieval.lean:153`) stays Open and is not ported. Lineage search:
+      `rg --files -g 'Web*.lean' -g 'Wire*.lean' sanguine-ref sanguine apeiron lrw.com`; `rg "Nat.clog|binary.?search" proof ../sanguine/proof`
+      finds no binary search, so `lowerBound` is new.
+    - Trust boundary: `J` is the calibration-Hessian proxy and generalisation is `72.8%` of held-out KL (the four-factor decomposition above, `E_gen = 1.0028` nats); `f*` assumes
+      KL ∝ `J` (`model`); the Gaussian and Wyner–Ziv rates are anchors; nonlinear predictors are outside scope; seed `0`, fp32 on
+      one RTX 5080; the Python is not extracted.
+
 ## Not covered (W15d)
 
 - Constructive transfer evaluated on 0.5B only; `src/learn/ridge.rs` and `src/learn/onebit.rs` remain `f64` on CPU.

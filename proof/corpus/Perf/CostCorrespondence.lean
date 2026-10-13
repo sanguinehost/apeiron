@@ -9,6 +9,7 @@ import Mathlib.LinearAlgebra.Matrix.Trace
 import Perf.Roofline
 import Perf.Chain
 import Perf.Overlap
+import Perf.SideInfo
 import Apeiron.Trichotomy.Basic
 
 set_option linter.apeiron.notation false
@@ -1357,6 +1358,27 @@ theorem w16_t3_nb_paired :
     by norm_num, by norm_num, ?_, ?_⟩
   · rw [abs_lt]; constructor <;> norm_num
   · rw [abs_lt]; constructor <;> norm_num
+
+/-! ## 28 · W16 T6 receipt: junction side information for the `-nb` residual frame -/
+/-- **Verdict: route (b) closed at linear and product-junction order, route (a) closed (`w16_t6_sideinfo`).** `model`
+inputs from `tools/onebit/side_probe.py` on the `-nb` seed-`0` capture (receipt `/home/socol/oc-tmp/w16/t6-sideinfo.json`):
+largest per-kind out-of-fold increment of the Hessian-weighted `R²` over the self predictor `0.00223` (decoded,
+`up`, product junction), `0.00124` (oracle partner, same cell); J-weighted total decoded increment `0.00094`; largest
+shuffled-partner `|ΔR²|` `4.4e-5`; route-(a) rate at `f* = 0.98479` is `2.0723` b/w against the white bound `3.0196` and
+the `1.178061` b/w budget. Clauses: (a) every kind's decoded increment is below the `0.02` closure threshold, so
+`Perf.SideInfo.RouteBClosedLinear` holds and `RouteBOpen` fails at the J-weighted total; (b) the oracle increment is
+below `0.05`; (c) the shuffled control is below `0.005`; (d) `Perf.SideInfo.RouteAClosed` holds at `2.0723`; (e) the
+`w16-t6-probe-1` magnitude prediction `R_a(f*) ∈ [2.6, 3.1]` is refuted (`2.0723 < 2.6`) while its falsifier
+(`R_a(f*) < 2.0`) does not trigger; (f) the rate sits below the white bound and above the bit budget. -/
+theorem w16_t6_sideinfo :
+    Perf.SideInfo.RouteBClosedLinear (0.00223 : ℝ) ∧ ¬ Perf.SideInfo.RouteBOpen (0.00094 : ℝ) ∧
+    (0.00124 : ℝ) ≤ 0.05 ∧ (0.000044 : ℝ) ≤ 0.005 ∧
+    Perf.SideInfo.RouteAClosed (2.0723 : ℝ) ∧
+    (2.0723 : ℝ) < 2.6 ∧ (2.0723 : ℝ) < 3.0196 ∧ (1.178061 : ℝ) < 2.0723 := by
+  refine ⟨?_, ?_, by norm_num, by norm_num, ?_, by norm_num, by norm_num, by norm_num⟩
+  · norm_num [Perf.SideInfo.RouteBClosedLinear]
+  · norm_num [Perf.SideInfo.RouteBOpen]
+  · norm_num [Perf.SideInfo.RouteAClosed]
 
 end CostCorrespondence
 end Perf

@@ -748,6 +748,20 @@ Owner go (2026-10-09): open the fold-training and hyperbolic-attention lane, aim
 that costs O(1) or O(log n) in context length, or is otherwise cheaper than softmax, for
 training and finetuning. It must stay compatible with existing models.
 
+### W16c result (T6 junction side information)
+
+Evidence: `docs/evidence/onebit-w15.md` item 26. Board row: `onebit-w16-t6-cross-side-o9JggmT2wCrNW9sHFePAF`.
+
+- Question: how many bits does the Hessian-weighted frame of the `-nb` residual cost, and does decoded junction context
+  (same-head `v`/`o`, `q`/`k`, `gate`/`up`/`down`, sorted-key neighbours) lower it (Wyner–Ziv conditional-rate reading)?
+- Route (b) closed at linear and product-junction order: J-weighted decoded increment in `R²_H` is `0.00094`, at most `0.00223`
+  per kind (`up`); the oracle partner adds at most `0.00124`. The whitened residual is nearly white (self `R²_H = 0.0070`).
+- Route (a) priced: `R_a(f*) = 2.0723` b/w at `f* = 0.98479` (white bound `3.0196`; budget `1.178061`); `0.262` b/w at `f = 0.5`,
+  `1.078` b/w at `f = 0.9`.
+- `gate` + `up` hold `88.7%` of the residual `J`; `v` + `o` hold `0.47%`.
+- Routing: the sorted-key lookup is `⌈log₂(m+1)⌉` comparisons (`Perf.SideInfo.lowerBound_count_le`); measured maxima equal the bound.
+- Next: W16c T4 (`-hjunc`), zero-rate gauge. Its `up`/`down` pair covers `45%` of `J`; its `v`/`o` pair covers `0.47%`.
+
 ## Intent — one-bit attention
 
 ### Already proved in this tree (`proof/corpus/Nous/Model/HyperbolicAttention.lean`)
