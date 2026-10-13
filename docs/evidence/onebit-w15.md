@@ -604,6 +604,28 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
       preserves it.
     - Control: `j² = −1` in `two_plane_split_complex` is red (`Control.lean:45:36 unsolved goals ⊢ 1 = -1`).
 
+23. **Joint null-basis fit against sequential fit, sign level** (W16a; grade `measured`; board row
+    `onebit-w16-t2-junction-vs-Cg2BlFbboy15bMGMhVyNxP`). Command (CPU, float64, wall `261.5 s`):
+    `PREDICTION=<id> timeout 580 /home/socol/Workspace/spinor-ttl/.venv/bin/python tools/onebit/face_probe.py --out /home/socol/oc-tmp/w16/t2-face-probe.json`
+    (`face_probe.py` sha256 `87a2eb09…`; receipt sha256 `e6f19708…`). Layers `0,5,11,17,23`, Hadamard-rotated basis,
+    `H` unridged, `J/J0` = curvature-weighted error over signal energy, ±1 sign planes on the original weights (the
+    best arm's planes are `E₈ ∪ O₈` codes, so this bounds the mechanism, not the arm).
+
+    | kind | SEQ | joint-cold | joint-warm |
+    |---|---|---|---|
+    | k | 0.0195 | 0.0162 (0.830×) | 0.0162 (0.828×) |
+    | v | 0.0288 | 0.0248 (0.861×) | 0.0247 (0.858×) |
+    | o | 0.0187 | 0.0159 (0.849×) | 0.0156 (0.832×) |
+    | gate | 0.0115 | 0.0088 (0.768×) | 0.0088 (0.762×) |
+    | up | 0.0252 | 0.0201 (0.797×) | 0.0200 (0.792×) |
+
+    - Diagonal share of the plane cross term: k `0.435`, v `0.447`, o `0.507`, gate `0.444`, up `0.517`.
+    - Junction imbalance `ρ`: up/down median `≈ 0.91–0.99` (max/min up to `7.9` at layer 23); v/o median `2.08–3.16`.
+    - Self-checks (a)–(e) run first; the flipped-sign copy (`/home/socol/oc-tmp/lanes/w16/t2/face_probe.py`) is red at (e)
+      (random-start descent), exit 1.
+    - Decision: `docs/epics/ternary-hadamard.md` W16 opens W16b when joint `J` is below sequential+backfit `J` on the
+      2-plane tensors; it is (`0.77–0.86×`). In `J0` units the gap is `0.0035`; relative to SEQ it is `14–24%`.
+
 ## Not covered (W15d)
 
 - Constructive transfer evaluated on 0.5B only; `src/learn/ridge.rs` and `src/learn/onebit.rs` remain `f64` on CPU.
