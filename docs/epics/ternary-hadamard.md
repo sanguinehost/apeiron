@@ -821,6 +821,11 @@ Stop conditions: C stops at the first sandwich violation; B stops after five ext
   `O = 1.146 (finite-sample) × 1.303 (student-input shift)`; `Q`, KL per unit `J` out/in, is the largest factor. `E_gen ∝ N^-0.315` (`25/50/100` chunks: `1.435/1.125/0.928` nats).
   Sandwich: 336 pairs, 0 violations. P1 refuted on per-kind bands (aggregate in band), P2 refuted, P3 refuted (`α` below `[0.5, 1]`, above the `0.3` falsifier).
   Receipts `w17-c-{run25,run50,run100,measure100,fit}` indexed (rows 106–110, digests `110/110`). Next: D (the `J → KL` identity and tilt), since `Q` is the largest factor.
+- D-lean (`onebit-w17-d-j-to-kl-FODqnwdkkWselp984dWMO8`): `Perf/KLTilt.lean` (new; lineage search `rg --files proof ../sanguine/proof ../sanguine-ref/proof -g '*KL*' -g '*Softmax*' -g '*Gibbs*'`
+  finds only `CountLMFloor.klDiv` (count model) and `crossEntropy_eq_logSumExp`, so nothing ported) proves on `Fin n` with `[NeZero n]`: `kl_sm_eq` (`KL = A(1) − A(0) − A'(0)`), `A_hasDerivAt`,
+  `A_second` (`A'' = Var`), `kl_eq_half_var` (`∃ ξ ∈ (0,1), KL(p‖q) = ½ Var_{p_ξ}(δ)`, two Rolle steps), `wvar_le_range` (Popoviciu), `kl_le_range_sq_div_8`, and two non-vacuity witnesses.
+  Gate on the live tree: `lake build Perf.KLTilt AxiomAudit` exit 0 (9178 jobs), eight `#audit`s in `[propext, Classical.choice, Quot.sound]`.
+  Controls red: `1/2 → 1/3` (`linarith failed`), `/8 → /9` (`linarith failed`). The measured tilt (`w17-d-tilt-1`) is the D-probe task.
 
 # Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
 

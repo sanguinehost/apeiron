@@ -69,6 +69,7 @@ import Perf.FaceTyped
 import Perf.FaceTypedE8
 import Perf.SideInfo
 import Perf.Generalisation
+import Perf.KLTilt
 import Learn.GramExact
 import Numeric.SigmaDeltaRefinement
 
@@ -1021,3 +1022,11 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.Generalisation.w17_c_p3_egen25_refuted
 #audit Perf.Generalisation.w17_c_sandwich_measured
 #audit Perf.Generalisation.w17_c_run100_bits
+#audit Perf.KLTilt.kl_sm_eq
+#audit Perf.KLTilt.A_hasDerivAt
+#audit Perf.KLTilt.A_second
+#audit Perf.KLTilt.kl_eq_half_var
+#audit Perf.KLTilt.wvar_le_range
+#audit Perf.KLTilt.kl_le_range_sq_div_8
+#audit Perf.KLTilt.witness_half_var
+#audit Perf.KLTilt.witness_range
