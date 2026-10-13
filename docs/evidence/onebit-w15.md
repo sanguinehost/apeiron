@@ -651,6 +651,50 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
     - Prediction `w16-matched-seed-baseline-1` recorded refuted: seeds `1` and `2` are `−0.007` and `+0.061` from seed `0`, not
       `+0.11`.
 
+25. **`-nb` joint block-ICM arm: paired per-seed gain over the best W15d arm** (W16b; grade `measured` for the KL and `J` columns,
+    `proved` for the Lean verdict over them as `model` inputs; board row `onebit-w16-t3-nb-null-2-F692bk4KVDww0Z4wqmWlQe`).
+    Arm: `had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp-nb` at `1.178061` b/w (bits `421541376`, unchanged).
+    Mechanism: after the backfit, on `k`, `v`, `o` only, a warm exact joint ICM over the `256 × 256` pair set per 8-block in the
+    coupled block metric (`e8_joint_icm_2plane`), a joint `(r₁, r₂)` solve (`r_step2`), `c_step` per plane, `dh` frozen, ≤ 2
+    rounds, a round kept only if `J` falls (`nb_refine`). Spec: Opus verdict `/home/socol/oc-tmp/escalation/2026-10-14-w16-e8-lift.md`.
+    Script sha256 `a7351081…` (start `ce173401…`).
+
+    Command (wall `406.9 s` for three seeds, one GPU lane; receipt sha256 `228765ed…`):
+    `PREDICTION=w16-t3-nb-3seed-1 flock /tmp/opencode/gpu.lock timeout 580 /home/socol/Workspace/spinor-ttl/.venv/bin/python tools/onebit/fold_transfer.py --out /home/socol/oc-tmp/w16/t3-nb-3seed.json --seeds 0,1,2 --variants had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp-nb`
+
+    | seed | T0 best arm | `-nb` | paired Δ | top-1 `-nb` |
+    |---|---|---|---|---|
+    | 0 | 1.2798 | 1.2777 | −0.0021 | 44.20% |
+    | 1 | 1.3894 | 1.3086 | −0.0808 | 43.67% |
+    | 2 | 1.3896 | 1.3007 | −0.0889 | 44.19% |
+    | mean | 1.3529 | 1.2956 | −0.0573 | 44.02% |
+
+    - Mechanism gate (seed 0): aggregate `k/v/o` `J_nb/J_seq = 0.9217` (k `0.9298`, v `0.9274`, o `0.8920`; `J_seq 6.183e6`,
+      `J_nb 5.699e6` on `Hl_m`, 24 layers), inside the predicted `[0.90, 0.98]`. Bits `421541376`, peak GPU `4.993–4.998 GB`,
+      per-seed transfer wall `130–131 s` (T0 `105.6–106 s`).
+    - Controls: (a) base arm seed 0 `1.27977`, bits `421541376` (identical to T0); (b) `-nb` with `ONEBIT_NB_SWEEPS=0`
+      bitwise equal to (a) in `kl_heldout` and `kl_insample`; (c) exhaustive `65536`-pair check on four (seed, block) cases
+      (`/home/socol/oc-tmp/lanes/w16/t3/ctl.py`, sha256 `5ae8116a…`): live joint ICM within `1.8e-16` of brute force, with the
+      cross term `X` zeroed the gap is `1.24e-2` (red); (d) the best arm without `-nb` re-run on seeds `1, 2`
+      (`PREDICTION=w16-t0-rerun-seeds12-1`, receipt `/home/socol/oc-tmp/w16/t3-base-seeds12.json`, sha256 `fb0ca184…`, wall
+      `226 s`) gives `1.389386` / `1.389587`, so T0's seed-1/2 values reproduce and the paired deltas are against a reproduced
+      baseline.
+    - Predictions: `w16-t3-jstage-1` and `w16-t3-ctl-ab-1` confirmed; `w16-t0-rerun-seeds12-1` confirmed;
+      `w16-t3-nb-3seed-1` refuted on magnitude (predicted mean Δ `[−0.015, −0.001]`, measured `−0.0573`); its falsifier (mean
+      `≥ 0`, any seed `> +0.005`, bits changed) did not trigger, so the outcome gate passes.
+    - Reading: seed 0 moves by `−0.0021`, inside the predicted band; seeds `1` and `2` move by `−0.08`. The `-nb` seeds spread
+      `0.031` nats against `0.110` for the T0 arm, and the `-nb` mean `1.2956` is `0.0999` below the matched base arm's `1.3955`
+      (§24). The `J` ratio alone does not account for the seed-1/2 movement; the mechanism for it is open, and the gain is
+      recorded per seed rather than as a mean-only claim.
+    - Remaining gap to Q4_K_M: the `-nb` mean is `65.8×` the `0.0197` nat target.
+    - Lean: `Perf.CostCorrespondence.w16_t3_nb_paired` (audited; changed-constant control `1.3086 − 1.3894 > 0` red);
+      `Perf/FaceTypedE8.lean` (spinor closure, shared-channel pointwise null channel, `spinor_cross_diag`, joint block-cost
+      expansion, `joint_move_le_planewise`, `spinor_card = 128`, `pair_rate_eq = 2^16`, `sparse_not_injective`; sha256
+      `ce2f0d5a…`; build `Built Perf.FaceTypedE8`, all declarations audited with the closed cone).
+    - Trust boundary: `J` is the `Hl_m` proxy on the calibration Hessian; KL is Qwen2.5-0.5B on the script's held-out chunks;
+      the Lean statements take the measured values as `model` inputs and do not prove the arm's numerical fit.
+
+
 ## Not covered (W15d)
 
 - Constructive transfer evaluated on 0.5B only; `src/learn/ridge.rs` and `src/learn/onebit.rs` remain `f64` on CPU.

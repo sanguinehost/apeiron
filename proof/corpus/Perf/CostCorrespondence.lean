@@ -1335,5 +1335,28 @@ theorem w16_t0b_matched_seed_baseline :
     ((1.2798 : ℝ) + 1.3894 + 1.3896) / 3 > 0.0197 := by
   refine ⟨by norm_num, by norm_num, by norm_num, by norm_num, by norm_num, by norm_num⟩
 
+/-! ## 27 · W16 T3 receipt: the `-nb` joint block-ICM arm -/
+/-- **Verdict: `-nb` against the best W15d arm, paired per seed (`w16_t3_nb_paired`).** `model` inputs from
+`tools/onebit/fold_transfer.py` (receipts `/home/socol/oc-tmp/w16/t3-nb-3seed.json`,
+`/home/socol/oc-tmp/w16/t3-base-seeds12.json`): `-nb` held-out KL per seed `1.2777, 1.3086, 1.3007`; best arm (T0)
+`1.2798, 1.3894, 1.3896`; aggregate k/v/o `J_nb/J_seq = 0.9217` on seed `0`; the best arm re-run on seeds `1, 2` gives
+`1.38939, 1.38959`. Clauses: (a) the aggregate `J` ratio lies in the predicted `[0.90, 0.97]`; (b) the paired difference is
+negative on every seed; (c) the largest paired difference is below the `+0.005` falsifier; (d) the mean paired difference
+is negative and lies below `-0.015`, outside the predicted `[-0.015, -0.001]` band (that prediction is refuted on
+magnitude); (e) the control re-run reproduces T0 on seeds `1, 2` within `0.005`; (f) the `-nb` mean stays above
+Q4_K_M's `0.0197` nats and below the matched base arm's `1.3955`. -/
+theorem w16_t3_nb_paired :
+    (0.90 : ℝ) ≤ 0.9217 ∧ (0.9217 : ℝ) ≤ 0.97 ∧
+    (1.2777 : ℝ) - 1.2798 < 0 ∧ (1.3086 : ℝ) - 1.3894 < 0 ∧ (1.3007 : ℝ) - 1.3896 < 0 ∧
+    (1.2777 : ℝ) - 1.2798 < 0.005 ∧
+    ((1.2777 : ℝ) - 1.2798 + (1.3086 - 1.3894) + (1.3007 - 1.3896)) / 3 < -0.015 ∧
+    ((1.2777 : ℝ) + 1.3086 + 1.3007) / 3 > 0.0197 ∧
+    ((1.2777 : ℝ) + 1.3086 + 1.3007) / 3 < 1.3955 ∧
+    |(1.38939 : ℝ) - 1.3894| < 0.005 ∧ |(1.38959 : ℝ) - 1.3896| < 0.005 := by
+  refine ⟨by norm_num, by norm_num, by norm_num, by norm_num, by norm_num, by norm_num, by norm_num,
+    by norm_num, by norm_num, ?_, ?_⟩
+  · rw [abs_lt]; constructor <;> norm_num
+  · rw [abs_lt]; constructor <;> norm_num
+
 end CostCorrespondence
 end Perf

@@ -593,6 +593,146 @@ def e8_icm_step(Ws, Hl, S_rot, r, c, d, sweeps=2, icm_ridge=0.0):
     return S_cur
 
 
+def _plane_w(P):
+    S_rot, r, c, d = P
+    return compose(fwht128(S_rot * d[None, :]), r, c)
+
+
+def _j_rows(Ws, W, Hl, g_row=None):
+    D = Ws - W
+    j = ((D @ Hl) * D).sum(1)
+    return float((j * g_row).sum()) if g_row is not None else float(j.sum())
+
+
+def e8_joint_icm_2plane(Ws, Hl, P1, P2, sweeps=2, icm_ridge=0.0, g_row=None, row_chunk=256, blocks=None):
+    """Joint block-ICM over the 256x256 pair set E8 U O8 x E8 U O8 per 8-block of two stacked planes (T3, W16 E8 lift).
+    P_k = (S_rot, r, c, d): plane k weight = fwht128(S_rot*d) * r_rep * c.  The pair (i1, i2) of codebook indices of block m
+    minimises, per row, cost = a1^2 Q1[i1] + a2^2 Q2[i2] + 2 a1 a2 X_m[i1, i2] - 2 a1 u[i1] - 2 a2 v[i2] in the coupled metric
+    H_kl = had_gram(Hl*c_k c_l^T)*d_k d_l^T (X_m = C H12[m,m] C^T).  Returns (P1', P2', dict(J_before, J_after, moves)); J in the
+    icm-ridged metric, row-weighted by g_row when given.  Scales are not touched.
+    Complexity: temporal  sweeps * (n/8) * O * 65536 additions to build the cost tensor and as many comparisons in the argmin
+    (+ 2*O*256*8 MACs for u, v and O*8*n MACs for the residual update per block); the per-sweep count is the recurrence
+    sum over the n/8 blocks, each block closing in one pass over the 65536 pairs of every row (rows are independent given the
+    residual field).  Setup: 3 had_gram of n x n (3 n^2 log 128 flops) plus X: (n/8) * 256*256*8 MACs.
+    Spatial  row_chunk * 65536 * dtype bytes for the cost tensor (64 MB at 256 rows, fp32) + (n/8)*65536*bytes for X
+    (29 MB at n=896) + 4 n^2 for H11, H22, H12, H21."""
+    O, n = Ws.shape
+    if icm_ridge > 0.0:
+        Hl = Hl.clone()
+        Hl.diagonal().add_((icm_ridge * (n / 896.0)) * Hl.diagonal().mean())
+    S1, r1, c1, d1 = P1[0].clone(), P1[1], P1[2], P1[3]
+    S2, r2, c2, d2 = P2[0].clone(), P2[1], P2[2], P2[3]
+    j_before = _j_rows(Ws, _plane_w((S1, r1, c1, d1)) + _plane_w((S2, r2, c2, d2)), Hl, g_row)
+    C = e8_o8_codebook(Ws.dtype, Ws.device)
+    nb = n // 8
+    WH = Ws @ Hl
+    G1, G2 = fwht128(WH * c1[None, :]) * d1[None, :], fwht128(WH * c2[None, :]) * d2[None, :]
+    H11 = had_gram(Hl * c1[:, None] * c1[None, :]) * d1[:, None] * d1[None, :]
+    H22 = had_gram(Hl * c2[:, None] * c2[None, :]) * d2[:, None] * d2[None, :]
+    H12 = had_gram(Hl * c1[:, None] * c2[None, :]) * d1[:, None] * d2[None, :]
+    H21 = H12.T.contiguous()
+    B1, B2 = S1 * r1.repeat_interleave(GROUP, 1), S2 * r2.repeat_interleave(GROUP, 1)
+    F1 = G1 - B1 @ H11 - B2 @ H21
+    F2 = G2 - B2 @ H22 - B1 @ H12
+
+    def dblk(Hm_):
+        return Hm_.view(nb, 8, nb, 8).diagonal(dim1=0, dim2=2).permute(2, 0, 1).contiguous()
+    Hb11, Hb22, Hb12 = dblk(H11), dblk(H22), dblk(H12)
+    Hb21 = Hb12.transpose(1, 2).contiguous()
+    Q1 = ((C[None, :, :] @ Hb11) * C[None, :, :]).sum(-1)
+    Q2 = ((C[None, :, :] @ Hb22) * C[None, :, :]).sum(-1)
+    X = (C[None, :, :] @ Hb12) @ C.T[None, :, :]
+    moves = 0
+    for sw in range(sweeps):
+        order = list(range(nb - 1, -1, -1) if sw % 2 == 0 else range(nb)) if blocks is None else list(blocks)
+        for m in order:
+            b0, b1 = m * 8, (m + 1) * 8
+            a1, a2 = r1[:, b0 // GROUP], r2[:, b0 // GROUP]
+            s1o, s2o = S1[:, b0:b1], S2[:, b0:b1]
+            f1 = F1[:, b0:b1] + (a1[:, None] * s1o) @ Hb11[m] + (a2[:, None] * s2o) @ Hb21[m]
+            f2 = F2[:, b0:b1] + (a2[:, None] * s2o) @ Hb22[m] + (a1[:, None] * s1o) @ Hb12[m]
+            A = (a1[:, None] ** 2) * Q1[m][None, :] - 2.0 * a1[:, None] * (f1 @ C.T)
+            Bv = (a2[:, None] ** 2) * Q2[m][None, :] - 2.0 * a2[:, None] * (f2 @ C.T)
+            idx = torch.empty(O, dtype=torch.long, device=Ws.device)
+            for o0 in range(0, O, row_chunk):
+                o1 = min(O, o0 + row_chunk)
+                t = (2.0 * a1[o0:o1] * a2[o0:o1])[:, None, None] * X[m][None, :, :]
+                t.add_(A[o0:o1, :, None])
+                t.add_(Bv[o0:o1, None, :])
+                idx[o0:o1] = t.view(o1 - o0, -1).argmin(dim=-1)
+                del t
+            s1n, s2n = C[idx // 256], C[idx % 256]
+            e1, e2 = a1[:, None] * (s1n - s1o), a2[:, None] * (s2n - s2o)
+            moves += int(((e1 != 0).any(1) | (e2 != 0).any(1)).sum())
+            S1[:, b0:b1], S2[:, b0:b1] = s1n, s2n
+            F1.sub_(e1 @ H11[b0:b1, :] + e2 @ H21[b0:b1, :])
+            F2.sub_(e2 @ H22[b0:b1, :] + e1 @ H12[b0:b1, :])
+    j_after = _j_rows(Ws, _plane_w((S1, r1, c1, d1)) + _plane_w((S2, r2, c2, d2)), Hl, g_row)
+    return (S1, r1, c1, d1), (S2, r2, c2, d2), dict(J_before=j_before, J_after=j_after, moves=moves)
+
+
+def r_step2(Ws, Hl, S1, c1, S2, c2):
+    """Joint least squares for both planes' group scales: min over (r1, r2) in R^{O x G} x R^{O x G} of J(Ws, compose(S1,r1,c1)+compose(S2,r2,c2), Hl).
+    Per row a (2G x 2G) normal system M x = t, M[(k,g),(l,g')] = P_k[g]^T Hl[g,g'] P_l[g'], P_k = S_k*c_k.
+    Complexity: temporal 2G Hl-row-panel products of O x 128 by 128 x n (2G*O*128*n MACs) + O batched 2G x 2G solves (O*(2G)^3/3);
+    spatial O*(2G)^2 for M, O*n for P (G = n/128)."""
+    O, n = Ws.shape
+    G = n // GROUP
+    P = torch.cat([(S1 * c1[None, :]).view(O, G, GROUP), (S2 * c2[None, :]).view(O, G, GROUP)], dim=1)
+    M = torch.empty(O, 2 * G, 2 * G, dtype=Ws.dtype, device=Ws.device)
+    for a_ in range(2 * G):
+        ga = a_ % G
+        K = (P[:, a_, :] @ Hl[ga * GROUP:(ga + 1) * GROUP, :]).view(O, G, GROUP)
+        M[:, a_, :] = (torch.cat([K, K], dim=1) * P).sum(-1)
+    WH = (Ws @ Hl).view(O, G, GROUP)
+    t = (P * torch.cat([WH, WH], dim=1)).sum(-1)
+    eye = torch.eye(2 * G, dtype=Ws.dtype, device=Ws.device)
+    eps = 1e-6 if Ws.dtype == torch.float32 else 1e-12
+    M = M + eps * M.diagonal(dim1=1, dim2=2).mean(-1)[:, None, None] * eye
+    x = torch.linalg.solve(M, t[:, :, None])[:, :, 0]
+    return x[:, :G].contiguous(), x[:, G:].contiguous()
+
+
+NB_SWEEPS = int(os.environ.get("ONEBIT_NB_SWEEPS", "2"))
+
+
+def nb_refine(Ws, Hl, P1, P2, g_row=None, icm_ridge=0.20, sweeps=None, rounds=2):
+    """Reduced joint block-ICM post-pass on a finished 2-plane pair (T3).  <= `rounds` rounds of: joint sweeps on stored
+    (r, c, d); r_step2 + quant_r_hier; c_step per plane against Ws minus the other plane + quant_c_u8(., 6); keep a round iff
+    J(Ws, W1+W2, Hl) falls, else revert.  Bits unchanged (same quantizers).  Returns (W1, W2, log).
+    Complexity: temporal rounds * (e8_joint_icm_2plane + r_step2 + 2 c_step + 2 quant) + 1 + rounds evaluations of J (O*n^2 MACs each);
+    spatial as e8_joint_icm_2plane plus O*n per plane."""
+    sweeps = NB_SWEEPS if sweeps is None else sweeps
+    W1, W2 = _plane_w(P1), _plane_w(P2)
+    j_seq = J(Ws, W1 + W2, Hl)
+    j_cur = j_seq
+    log = dict(J_seq=j_seq, rounds_kept=0, moves=0, icm=[])
+    cur = (P1, P2, W1, W2)
+    for _ in range(rounds):
+        Pa, Pb = cur[0], cur[1]
+        Pa_n, Pb_n, st = e8_joint_icm_2plane(Ws, Hl, Pa, Pb, sweeps=sweeps, icm_ridge=icm_ridge, g_row=g_row)
+        log["moves"] += st["moves"]
+        log["icm"].append(st)
+        if st["moves"] == 0:
+            break
+        S1e, S2e = fwht128(Pa_n[0] * Pa_n[3][None, :]), fwht128(Pb_n[0] * Pb_n[3][None, :])
+        r1, r2 = r_step2(Ws, Hl, S1e, Pa_n[2], S2e, Pb_n[2])
+        rh1, _ = quant_r_hier(r1)
+        rh2, _ = quant_r_hier(r2)
+        c1n, _ = quant_c_u8(c_step(Ws - compose(S2e, rh2, Pb_n[2]), Hl, S1e, rh1, g_row=g_row), bits=6)
+        W1n = compose(S1e, rh1, c1n)
+        c2n, _ = quant_c_u8(c_step(Ws - W1n, Hl, S2e, rh2, g_row=g_row), bits=6)
+        W2n = compose(S2e, rh2, c2n)
+        j_new = J(Ws, W1n + W2n, Hl)
+        if not (j_new < j_cur):
+            break
+        cur = ((Pa_n[0], rh1, c1n, Pa_n[3]), (Pb_n[0], rh2, c2n, Pb_n[3]), W1n, W2n)
+        j_cur = j_new
+        log["rounds_kept"] += 1
+    log["J_nb"] = j_cur
+    return cur[2], cur[3], log
+
+
 def fold_fit(Ws, H, iters, ridge, refit=True, had=False, damp=0.01, inner_iters=1, act_order=False, wscale=False, hier_scale=False, bscale=False, cgauge=False, bgptq=False, hpre=False, e8_code=False, e8_beam=1, e8_icm=False, icm_ridge=0.0, g_row=None):
     """Alternation of the discrete step (gptq1 / had-gptq1 / had-e8) and the exact continuous steps. Returns (W', info)."""
     n = H.shape[0]
@@ -669,6 +809,7 @@ def fold_fit(Ws, H, iters, ridge, refit=True, had=False, damp=0.01, inner_iters=
     if not refit:
         return compose(S, f16r(r), torch.ones_like(c)), dict(tag=tag, J=trace, J_best=best[0])
     b_d = 0
+    pack = None
     if cgauge and bscale and had:
         dh, b_d, b_c = torch.round(d.clamp(0.0, 1.0) * 15.0) / 15.0, 4 * n, 4 * n
         Wp, best_j = None, float("inf")
@@ -688,11 +829,13 @@ def fold_fit(Ws, H, iters, ridge, refit=True, had=False, damp=0.01, inner_iters=
     elif bscale and had:
         dh, b_d = quant_c_u8(d, bits=5)
         S_dh = fwht128(S_rot * dh[None, :])
+        S_rot_dh = S_rot
         r_dh = r_step(Ws, Hl, S_dh, c)
         rh, b_r = quant_r_hier(r_dh)
         c_ref = c_step(Ws, Hl, S_dh, rh, g_row=g_row)
         ch, b_c = quant_c_u8(c_ref, bits=6)
         Wp = compose(S_dh, rh, ch)
+        pack = (S_rot_dh, rh, ch, dh)
         if e8_icm and e8_code:
             S_rot_q = e8_icm_step(Ws, Hl, S_rot, rh, ch, dh, sweeps=2, icm_ridge=icm_ridge)
             S_dh_q = fwht128(S_rot_q * dh[None, :])
@@ -701,6 +844,7 @@ def fold_fit(Ws, H, iters, ridge, refit=True, had=False, damp=0.01, inner_iters=
             Wp_q = compose(S_dh_q, rh_q, ch_q)
             if J(Ws, Wp_q, Hl) < J(Ws, Wp, Hl):
                 Wp, S_rot = Wp_q, S_rot_q
+                pack = (S_rot_q, rh_q, ch_q, dh)
         if hpre:
             mcg = c_ref.abs().view(-1, GROUP).amax(1).clamp_min(1e-12)
             rh_g, _ = quant_r_hier(r_dh * mcg[None, :])
@@ -709,6 +853,7 @@ def fold_fit(Ws, H, iters, ridge, refit=True, had=False, damp=0.01, inner_iters=
             Wp_g = compose(S_dh, rh_g, ch_g)
             if J(Ws, Wp_g, Hl) < J(Ws, Wp, Hl):
                 Wp = Wp_g
+                pack = (S_rot_dh, rh_g, ch_g, dh)
         S_1 = fwht128(S_rot)
         r_1 = r_step(Ws, Hl, S_1, c)
         rh_1, _ = quant_r_hier(r_1)
@@ -716,6 +861,8 @@ def fold_fit(Ws, H, iters, ridge, refit=True, had=False, damp=0.01, inner_iters=
         Wp_1 = compose(S_1, rh_1, ch_1)
         if J(Ws, Wp_1, Hl) < J(Ws, Wp, Hl):
             Wp = Wp_1
+            pack = (S_rot, rh_1, ch_1, torch.ones_like(dh))
+        assert torch.equal(compose(fwht128(pack[0] * pack[3][None, :]), pack[1], pack[2]), Wp), "winning pack != Wp"
     elif hier_scale:
         rh, b_r = quant_r_hier(r)
         ch, b_c = quant_c_u8(c_step(Ws, Hl, S, rh, g_row=g_row), bits=8)
@@ -724,7 +871,7 @@ def fold_fit(Ws, H, iters, ridge, refit=True, had=False, damp=0.01, inner_iters=
         rh, ch = f16r(r), f16r(c)
         b_r, b_c = 16 * r.numel(), 16 * c.numel()
         Wp = compose(S, rh, ch)
-    return Wp, dict(tag=tag, J=trace, J_best=best[0], J_f16=J(Ws, Wp, Hl), bits_r=b_r, bits_c=b_c, bits_d=b_d, S_rot=S_rot)
+    return Wp, dict(tag=tag, J=trace, J_best=best[0], J_f16=J(Ws, Wp, Hl), bits_r=b_r, bits_c=b_c, bits_d=b_d, S_rot=S_rot, pack=pack)
 
 
 def fnorm_fit(cfg, ht, hs, steps=4, ridge=0.05, lr=1.0, coh_prior=False):
@@ -800,7 +947,8 @@ def run_variant(cfg, TL, ids_cal, name, a):
                  "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-align-qmlp",
                  "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-asym-qmlp",
                  "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-align-asym-qmlp",
-                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-skew-qmlp")
+                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-skew-qmlp",
+                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp-nb")
     split_intra_inter = name in ("had-fold-2plane-gqa-split", "had-fold-2plane-gqa-split-corr", "had-fold-2plane-attn-rk2-split",
                                  "had-fold-2plane-attn-bscale-split", "had-fold-2plane-attn-bscale-split-bgptq",
                                  "had-fold-2plane-attn-bscale-hpre", "had-fold-2plane-attn-rk2-hpre",
@@ -832,6 +980,8 @@ def run_variant(cfg, TL, ids_cal, name, a):
     e8_code = name in ("had-fold-2plane-attn-bscale-e8", "had-fold-2plane-attn-rk2-e8", "had-fold-2plane-attn-bscale-e8-beam", "had-fold-2plane-attn-bscale-e8-beam8") + icm_names
     e8_beam = 8 if name == "had-fold-2plane-attn-bscale-e8-beam8" else (4 if (name == "had-fold-2plane-attn-bscale-e8-beam" or (name in icm_names and name != "had-fold-2plane-attn-bscale-e8-b1-icm")) else 1)
     e8_icm = name in icm_names
+    nb_arm = name.endswith("-nb")
+    nb_stats = {k: dict(J_seq=0.0, J_nb=0.0, moves=0, rounds_kept=0, tensors=0) for k in ("k", "v", "o")}
     icm_ridge = 0.25 if "icm25" in name else (0.20 if "icm20" in name else (0.15 if "icm15" in name else 0.0))
     gin_val = 0.25 if ("-gin25" in name) else a.inter_gamma_in
     glu_comp = name.endswith("-glu")
@@ -1077,6 +1227,12 @@ def run_variant(cfg, TL, ids_cal, name, a):
                                 Wp2_b, info2_b = fold_fit(Ws_nm - Wp1, Hm, fit_iters, rg_q, **fk)
                                 if J(Ws_nm, Wp1 + Wp2_b, Hl_m) < J(Ws_nm, Wp1 + Wp2, Hl_m):
                                     Wp2, info2 = Wp2_b, info2_b
+                        if nb_arm and nm in ("k", "v", "o"):
+                            W1n, W2n, nb_log = nb_refine(Ws_nm, Hl_m, info1["pack"], info2["pack"], g_row=g_row, icm_ridge=icm_ridge)
+                            Wp1, Wp2 = W1n, W2n
+                            st_ = nb_stats[nm]
+                            st_["J_seq"] += nb_log["J_seq"]; st_["J_nb"] += nb_log["J_nb"]; st_["moves"] += nb_log["moves"]
+                            st_["rounds_kept"] += nb_log["rounds_kept"]; st_["tensors"] += 1
                         Wp = Wp1 + Wp2
                         nsign += Oi * n; nr += info2["bits_r"]; nc += info2["bits_c"]; nd += info2.get("bits_d", 0)
                     elif (mlp_2plane_k896 or q_mlp_trans) and nm in ("gate", "up"):
@@ -1245,7 +1401,13 @@ def run_variant(cfg, TL, ids_cal, name, a):
         else:
             Ls[-1]["fnorm"] = fnorm_fit(cfg, ht, hs, steps=4, ridge=0.05)
         tm["refit"] += tick() - t0
-    return Ls, dict(bits=nsign + nr + nc + nd + ncorr, params=ntot, bits_sign=nsign, bits_r=nr, bits_c=nc, bits_d=nd, bits_corr=ncorr), tm
+    binfo = dict(bits=nsign + nr + nc + nd + ncorr, params=ntot, bits_sign=nsign, bits_r=nr, bits_c=nc, bits_d=nd, bits_corr=ncorr)
+    if nb_arm:
+        agg_seq = sum(v["J_seq"] for v in nb_stats.values())
+        agg_nb = sum(v["J_nb"] for v in nb_stats.values())
+        binfo["nb"] = dict(sweeps=NB_SWEEPS, per_kind={k: dict(v, ratio=(v["J_nb"] / v["J_seq"] if v["J_seq"] else None)) for k, v in nb_stats.items()},
+                           J_seq=agg_seq, J_nb=agg_nb, ratio=(agg_nb / agg_seq if agg_seq else None))
+    return Ls, binfo, tm
 
 
 # ---------------------------------------------------------------- evaluation

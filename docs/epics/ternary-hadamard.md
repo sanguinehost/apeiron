@@ -732,6 +732,16 @@ Board row: `onebit-w16-t3-nb-null-2-F692bk4KVDww0Z4wqmWlQe`.
 - Lean: `Perf/FaceTypedE8.lean` (spinor closure, shared-channel pointwise null channel, joint block-cost expansion,
   `joint_move_le_planewise`, pair rate `2^16`, `D₈` non-injectivity witness), closed cone, with the T5 verdict constants.
 
+### W16b result
+
+Evidence: `docs/evidence/onebit-w15.md` item 25. Board row: `onebit-w16-t3-nb-null-2-F692bk4KVDww0Z4wqmWlQe`.
+
+- `-nb` passes the outcome gate: held-out KL per seed `1.2777 / 1.3086 / 1.3007` against T0 `1.2798 / 1.3894 / 1.3896`, mean paired
+  `ΔKL = −0.0573`, bits `421541376`; seed-0 aggregate `J_nb/J_seq = 0.9217`.
+- The magnitude prediction (`ΔKL` in `[−0.015, −0.001]`) is refuted; seeds `1` and `2` move by `−0.08`. T0's seed-1/2 values
+  reproduce on the current script (`1.389386 / 1.389587`).
+- Next: W16c (T4), hyperbolic junction gauges on up/down and v/o, gated against the `-nb` arm per seed.
+
 # Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
 
 Owner go (2026-10-09): open the fold-training and hyperbolic-attention lane, aiming at attention

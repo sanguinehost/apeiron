@@ -66,6 +66,7 @@ import Perf.AttnCoop
 import Perf.IdentityFloat
 import Perf.Overlap
 import Perf.FaceTyped
+import Perf.FaceTypedE8
 import Learn.GramExact
 import Numeric.SigmaDeltaRefinement
 
@@ -968,6 +969,7 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.CostCorrespondence.asymmetric_distortion_penalty_strict
 #audit Perf.CostCorrespondence.w16_t0_best_arm_3seed
 #audit Perf.CostCorrespondence.w16_t0b_matched_seed_baseline
+#audit Perf.CostCorrespondence.w16_t3_nb_paired
 #audit Perf.FaceTyped.null_channels_eq
 #audit Perf.FaceTyped.two_plane_split_complex
 #audit Perf.FaceTyped.two_plane_null_channel
@@ -976,3 +978,14 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.FaceTyped.null_basis_diag_cross_zero
 #audit Perf.FaceTyped.coefC_symm
 #audit Perf.FaceTyped.bilinear_junction_hyperbolic
+#audit Perf.FaceTypedE8.spinor_mul_closed
+#audit Perf.FaceTypedE8.spinor_mul_self
+#audit Perf.FaceTypedE8.spinorNullBasis_involutive
+#audit Perf.FaceTypedE8.spinor_pair_null_channel
+#audit Perf.FaceTypedE8.spinor_cross_diag
+#audit Perf.FaceTypedE8.joint_block_cost_expand
+#audit Perf.FaceTypedE8.joint_move_le_planewise
+#audit Perf.FaceTypedE8.joint_move_le_planewise'
+#audit Perf.FaceTypedE8.spinor_card
+#audit Perf.FaceTypedE8.pair_rate_eq
+#audit Perf.FaceTypedE8.sparse_not_injective
