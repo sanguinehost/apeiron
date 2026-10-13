@@ -47,6 +47,7 @@ W17 = {
     "w17_c_run25": "docs/evidence/receipts/onebit/w17-c-run25.json",
     "w17_c_run50": "docs/evidence/receipts/onebit/w17-c-run50.json",
     "w17_c_run100": "docs/evidence/receipts/onebit/w17-c-run100.json",
+    "w17_d_tilt": "docs/evidence/receipts/onebit/w17-d-tilt.json",
 }
 
 SEEDS = ["0", "1", "2"]
@@ -287,9 +288,32 @@ def w17_fields(ns: str, rel: str, sha: str, data: dict) -> list:
         out.append(("rat", "EGen", rat_value(data["E_gen"])))
         out.append(("rat", "G", rat_value(data["G"])))
         out.append(("nat", "bits", int_value(data["bits"])))
+    elif ns == "w17_d_tilt":
+        sp = data["split"]
+        for name in ["J_out", "J_in", "tilt_in", "tilt_out", "q2_over_J_in", "q2_over_J_out",
+                     "Q_tilt", "Q_lin", "Q_product", "Q_receipt"]:
+            out.append(("rat", name, rat_value(sp[name])))
+        for side in ["in", "out"]:
+            s = data["sets"][side]
+            out.append(("rat", f"kl_{side}", rat_value(s["kl_mean"])))
+            out.append(("rat", f"q2_{side}", rat_value(s["q2_mean"])))
+            out.append(("nat", f"positions_{side}", int_value(s["n_pos"])))
+            out.append(("rat", f"kl_share_range8_{side}", rat_value(s["kl_share_range_gt_8"])))
+        out.append(("bool", "pass_", bool_value(data["pass_"], ns)))
+        for name, key in [("controlDeltaZeroPass", "delta_zero"), ("controlEps005Pass", "eps_0.05"),
+                          ("controlRun100Pass", "run100_reproduced")]:
+            block = data["controls"].get(key)
+            if block is not None:
+                out.append(("bool", name, bool_value(block["pass_"], ns)))
     else:
         raise Fail(f"no W17 field map for {ns}")
     return out
+
+
+def bool_value(v, ns: str) -> bool:
+    if not isinstance(v, bool):
+        raise Fail(f"{ns}: expected a bool, got {v!r}")
+    return v
 
 
 def render_w17(ns: str, rel: str, sha: str, data: dict) -> str:
@@ -301,6 +325,8 @@ def render_w17(ns: str, rel: str, sha: str, data: dict) -> str:
             lines.append(f"def {name} : ℕ := {value}")
         elif kind == "rat":
             lines.append(f"def {name} : ℚ := {lean_rat(value)}")
+        elif kind == "bool":
+            lines.append(f"def {name} : Bool := {'true' if value else 'false'}")
     lines.append("")
     lines.append(f"end Receipts.{ns}")
     return "\n".join(lines) + "\n"
@@ -431,10 +457,17 @@ def cmd_self_test() -> int:
         print(f"self-test: control (iv) W17-C generated count -> exit {rc}")
         ok &= rc == 1
 
+        # (v) one generated tilt constant of the W17-D receipt.
+        d = fresh("control-v")
+        mutate(d / OUT, "def tilt_in : ℚ := (", "def tilt_in : ℚ := (1 + ")
+        rc = cmd_check(d)
+        print(f"self-test: control (v) W17-D generated tilt constant -> exit {rc}")
+        ok &= rc == 1
+
     if not ok:
         print("self-test: a control was not red", file=sys.stderr)
         return 1
-    print("self-test: 4/4 controls red")
+    print("self-test: 5/5 controls red")
     return 0
 
 

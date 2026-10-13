@@ -825,7 +825,8 @@ Stop conditions: C stops at the first sandwich violation; B stops after five ext
   finds only `CountLMFloor.klDiv` (count model) and `crossEntropy_eq_logSumExp`, so nothing ported) proves on `Fin n` with `[NeZero n]`: `kl_sm_eq` (`KL = A(1) − A(0) − A'(0)`), `A_hasDerivAt`,
   `A_second` (`A'' = Var`), `kl_eq_half_var` (`∃ ξ ∈ (0,1), KL(p‖q) = ½ Var_{p_ξ}(δ)`, two Rolle steps), `wvar_le_range` (Popoviciu), `kl_le_range_sq_div_8`, and two non-vacuity witnesses.
   Gate on the live tree: `lake build Perf.KLTilt AxiomAudit` exit 0 (9178 jobs), eight `#audit`s in `[propext, Classical.choice, Quot.sound]`.
-  Controls red: `1/2 → 1/3` (`linarith failed`), `/8 → /9` (`linarith failed`). The measured tilt (`w17-d-tilt-1`) is the D-probe task.
+  Controls red: `1/2 → 1/3` (`linarith failed`), `/8 → /9` (`linarith failed`). The measured tilt is the D-probe bullet below.
+- D-probe (`onebit-w17-d-j-to-kl-FODqnwdkkWselp984dWMO8`): evidence item 28 in `docs/evidence/onebit-w15.md`. `Q = 3.1229 = Q_tilt × Q_lin = 1.2272 × 2.5448` (product `3.122860` against the item-27 `Q` `3.122860`); tilt = mean KL / mean `q2` is `0.980` in-sample and `1.203` held-out, `q2/J` is `2.24e-5` and `5.70e-5`. `Q` is carried by the `J → q2` step: `J_out/J_in = 1.17` against `q2_out/q2_in = 2.98`. Hoeffding and mean-value checks 0 violations; run100 KL reproduced to `1.2e-8`. Prediction `w17-d-tilt-1-1` confirmed. Receipt `w17-d-tilt` indexed (row 111). Next: `J_out/J_in` per tensor against the weight-error propagation to the logits (proposed, not started).
 
 # Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
 

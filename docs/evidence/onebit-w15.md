@@ -783,6 +783,32 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
       `w17_c_p3_egen25_refuted`, `w17_c_sandwich_measured`, `w17_c_run100_bits`; all `#audit`ed, closed cone. Control: alpha bound `3/10 → 32/100` red.
     - Trust boundary: seed `0`, single run per `N`, one RTX 5080 fp32; `H_cal` is the student-input Hessian; `k`/`v` share `q`'s `μ̂` and `up` shares `gate`'s (one stage each); `O(N)` at 25 and 50 not measured; the Python is not extracted.
 
+28. **Split of `Q`: exponential tilt against logit-space linearisation** (W17-D; grade `measured`, with the `proved` identity `Perf.KLTilt.kl_eq_half_var`; board row
+    `onebit-w17-d-j-to-kl-FODqnwdkkWselp984dWMO8`). Question: `Q = (KL/J)_out/(KL/J)_in = 3.1229` (item 27) factors as `Q_tilt · Q_lin` with
+    `Q_tilt = (KL/q2)_out/(KL/q2)_in` and `Q_lin = (q2/J)_out/(q2/J)_in`, `q2 = ½·E_pos Var_p(δ)` (`p` teacher softmax, `δ` student − teacher log-probability).
+    Script `tools/onebit/gen_probe.py` (`tilt`) sha256 `5d227370…`, receipt `w17-d-tilt.json` sha256 `94b6b8ee…`, dump `nb100.pt` sha256 `196568f9…`;
+    `-nb` arm, seed 0, `N = 100`; in-sample chunks `[0, 20)` (10240 positions), held-out chunks `[100, 140)` (20480 positions); wall 87 s (prediction `w17-d-tilt-1-1`).
+
+    | | in-sample | held-out |
+    |---|---|---|
+    | mean KL | 0.349802 | 1.277662 |
+    | mean `q2` | 0.356854 | 1.062143 |
+    | tilt = mean KL / mean `q2` | 0.9802 | 1.2029 |
+    | `q2/J` | 2.2413e-5 | 5.7035e-5 |
+    | per-position KL/`q2` p10 / p50 / p90 / p99 | 0.674 / 0.941 / 1.400 / 6.88 | 0.647 / 0.985 / 2.601 / 63.8 |
+    | positions with `range(δ) > 8` (their share of KL) | 35.3% (56.2%) | 96.0% (99.3%) |
+    | median `range(δ)` | 7.36 | 12.52 |
+
+    - `Q_tilt = 1.2272`, `Q_lin = 2.5448`; product `3.122860` against the item-27 `Q` `3.122860` (difference `−2.8e-7`). The tilt carries `18.0%` of `log Q`.
+    - `J_out/J_in = 1.170` while `q2_out/q2_in = 2.976`: the layer-local `J` rises 17% from in-sample to held-out text, the logit-space second-order KL rises 198%.
+    - Instrument checks on the real positions: Hoeffding `KL ≤ range(δ)²/8` 0 violations (both sets); mean-value `2·KL ∈ [min_t Var_{p_t}(δ), max_t Var_{p_t}(δ)]` on a 41-point grid
+      0 violations (an absolute floor `1e-6` is in the receipt; without it also 0); Simpson quadrature of `2∫(1−t)Var_{p_t}(δ)dt` against `2·KL`: median relative error `7.3e-7` (in), `4.7e-7` (out), max `8.9e-3`, `6.6e-3`.
+    - Controls: `δ = 0` gives `KL = q2 = 0`; `ε = 0.05` scaling gives tilt `0.9979` (in), `1.0076` (out); run100 KL reproduced to `1.2e-8` (in `0.349802402` against `0.349802399`, out `1.27766253` against `1.27766254`).
+    - Prediction `w17-d-tilt-1-1` confirmed: tilt_in `0.980 ∈ [0.9, 1.3]`, tilt_out `1.203 ∈ [0.9, 1.6]`, `Q_tilt ∈ [0.9, 1.5]`, `Q_lin ≥ 2`; falsifier (`Q_tilt > 2` or `< 0.8`) not triggered.
+    - Decision: `Q` is carried by `Q_lin = q2/J` (`2.54`), not by the tilt (`1.23`). `J` underpredicts held-out logit-space distortion by `2.5×` relative to in-sample, so the open
+      factor is `J → q2`: per-tensor `J_out/J_in` against the propagation of the weight error to the final logits.
+    - Trust boundary: seed `0` only; fp32 on one RTX 5080; `J` is the Fisher-to-Hessian proxy of item 27; per-position tilt means are dominated by a few high-KL positions (`tilt_pos_mean` held-out `4.15`), the set-level ratio is the one entering `Q`.
+
 ## Not covered (W15d)
 
 - Constructive transfer evaluated on 0.5B only; `src/learn/ridge.rs` and `src/learn/onebit.rs` remain `f64` on CPU.

@@ -1022,6 +1022,14 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.Generalisation.w17_c_p3_egen25_refuted
 #audit Perf.Generalisation.w17_c_sandwich_measured
 #audit Perf.Generalisation.w17_c_run100_bits
+#audit Perf.Generalisation.w17_d_q_split
+#audit Perf.Generalisation.w17_d_tilt_ratio
+#audit Perf.Generalisation.w17_d_qlin_ratio
+#audit Perf.Generalisation.w17_d_p_tilt_bands
+#audit Perf.Generalisation.w17_d_falsifier_not_triggered
+#audit Perf.Generalisation.w17_d_lin_dominates
+#audit Perf.Generalisation.w17_d_ratio_dominance_of_log
+#audit Perf.Generalisation.w17_d_ratio_dominance_of_log_fifth
 #audit Perf.KLTilt.kl_sm_eq
 #audit Perf.KLTilt.A_hasDerivAt
 #audit Perf.KLTilt.A_second
