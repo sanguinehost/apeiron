@@ -1194,5 +1194,129 @@ theorem rmsnorm_pullback_sink_attenuation {rn rs g ds : ℝ} (hrn : 0 < rn) (hrs
 theorem sink_row_trust_clipping_dominance {d_star d r_clip : ℝ}
     (h1 : d_star ≤ r_clip) (h2 : r_clip < d) : (r_clip - d_star) ^ 2 < (d - d_star) ^ 2 := by nlinarith
 
+/-! ## 21 · Face Swap #8: Hyperbolic Inter-Leg Equalization Minimizes Bilinear Noise -/
+/-- **Hyperbolic inter-leg equalization minimizes joint SwiGLU quantization noise (`swiglu_hyperbolic_noise_minimization`).**
+Along the invariant hyperbola `(s u) · (s⁻¹ d) = u d`, the joint noise variance `(s u)² + (s⁻¹ d)²`
+has algebraic excess `(s u - s⁻¹ d)² ≥ 0` over the vertex floor `2 u d`. The minimum is attained
+uniquely when `s u = s⁻¹ d`, that is, `s = √(d / u)`. -/
+theorem swiglu_hyperbolic_noise_minimization (u d s : ℝ) (_hu : 0 < u) (_hd : 0 < d) (hs : 0 < s) :
+    (s * u) ^ 2 + (s⁻¹ * d) ^ 2 - 2 * (u * d) = (s * u - s⁻¹ * d) ^ 2 ∧
+    2 * (u * d) ≤ (s * u) ^ 2 + (s⁻¹ * d) ^ 2 ∧
+    ((s * u) ^ 2 + (s⁻¹ * d) ^ 2 = 2 * (u * d) ↔ s * u = s⁻¹ * d) := by
+  have hs_ne : s ≠ 0 := ne_of_gt hs
+  have hinv : (s * u) * (s⁻¹ * d) = u * d := by
+    calc (s * u) * (s⁻¹ * d) = (s * s⁻¹) * (u * d) := by ring
+    _ = 1 * (u * d) := by rw [mul_inv_cancel₀ hs_ne]
+    _ = u * d := by ring
+  have hid : (s * u) ^ 2 + (s⁻¹ * d) ^ 2 - 2 * (u * d) = (s * u - s⁻¹ * d) ^ 2 := by
+    calc (s * u) ^ 2 + (s⁻¹ * d) ^ 2 - 2 * (u * d) = (s * u) ^ 2 + (s⁻¹ * d) ^ 2 - 2 * ((s * u) * (s⁻¹ * d)) := by rw [hinv]
+    _ = (s * u - s⁻¹ * d) ^ 2 := by ring
+  have hsq : 0 ≤ (s * u - s⁻¹ * d) ^ 2 := sq_nonneg _
+  have hle : 2 * (u * d) ≤ (s * u) ^ 2 + (s⁻¹ * d) ^ 2 := by linarith
+  have heq : (s * u) ^ 2 + (s⁻¹ * d) ^ 2 = 2 * (u * d) ↔ s * u = s⁻¹ * d := by
+    rw [← sub_eq_zero, hid, sq_eq_zero_iff, sub_eq_zero]
+  exact ⟨hid, hle, heq⟩
+
+/-! ## 22 · Face Swap #9: Coupled Schur Solve Dominance over Decoupled Optimization under Crosstalk -/
+/-- **Coupled Schur solve dominance over decoupled scalar fitting (`coupled_schur_crosstalk_dominance`).**
+For a 2-fibre block with positive diagonal Fisher entries `a, b > 0` and off-diagonal crosstalk `c ≠ 0`
+such that `a b - c² > 0`, the optimal coupled solve achieves strictly lower error than any decoupled
+choice that ignores off-diagonal covariance `c`. -/
+theorem coupled_schur_crosstalk_dominance {a b c r2 : ℝ}
+    (_ha : 0 < a) (hb : 0 < b) (hc : c ≠ 0) (hpos : 0 < a * b - c ^ 2) :
+    let det := a * b - c ^ 2
+    let s1_opt := (-c * r2) / det
+    let s2_opt := (a * r2) / det
+    let s1_dec : ℝ := 0
+    let s2_dec := r2 / b
+    let J (s1 s2 : ℝ) := a * s1 ^ 2 + b * s2 ^ 2 + 2 * c * s1 * s2 - 2 * r2 * s2
+    (r2 ≠ 0 → J s1_opt s2_opt < J s1_dec s2_dec) := by
+  intro det s1_opt s2_opt s1_dec s2_dec J hr2
+  dsimp [J, s1_opt, s2_opt, s1_dec, s2_dec, det]
+  have hdet_ne : a * b - c ^ 2 ≠ 0 := ne_of_gt hpos
+  have hb_ne : b ≠ 0 := ne_of_gt hb
+  have hc2_pos : 0 < c ^ 2 := sq_pos_of_ne_zero hc
+  have hr2_sq : 0 < r2 ^ 2 := sq_pos_of_ne_zero hr2
+  have hid_diff : (a * 0 ^ 2 + b * (r2 / b) ^ 2 + 2 * c * 0 * (r2 / b) - 2 * r2 * (r2 / b)) -
+    (a * (-c * r2 / (a * b - c ^ 2)) ^ 2 + b * (a * r2 / (a * b - c ^ 2)) ^ 2 +
+     2 * c * (-c * r2 / (a * b - c ^ 2)) * (a * r2 / (a * b - c ^ 2)) -
+     2 * r2 * (a * r2 / (a * b - c ^ 2))) =
+    (c ^ 2 * r2 ^ 2) / (b * (a * b - c ^ 2)) := by
+    field_simp; ring
+  have hpos_rhs : 0 < (c ^ 2 * r2 ^ 2) / (b * (a * b - c ^ 2)) := by
+    apply div_pos (mul_pos hc2_pos hr2_sq) (mul_pos hb hpos)
+  linarith
+
+/-! ## 23 · The Cost Model Floor: 1.18 b/w Spectral 1-Bit vs llama.cpp Q4_K_M -/
+/-- **1.18 b/w rate ceiling achieves at least 3.8× lower memory bandwidth floor than Q4_K_M (`q4k_vs_1bit_transfer_floor`).** -/
+theorem q4k_vs_1bit_transfer_floor :
+    (450 : ℚ) / 100 / ((118 : ℚ) / 100) = 225 / 59 ∧
+    (38 : ℚ) / 10 < 225 / 59 ∧
+    (118 : ℚ) / 100 / ((450 : ℚ) / 100) < 27 / 100 := by
+  norm_num
+
+/-! ## 24 · Face Swap #10: Asymmetric Wiener Target Eliminates Upstream Activation Distortion -/
+/-- **Asymmetric Wiener target strictly minimizes reconstruction loss under upstream distortion (`asymmetric_wiener_target_optimality`).**
+Given student intermediate activation variance `p > 0`, cross-covariance with teacher target `c`, and target variance `y`,
+the quadratic reconstruction objective `J(w) = p w² - 2 c w + y` attains its unique global minimum at `w* = c / p`.
+Any other weight `w` incurs strictly positive excess loss `p (w - w*)² ≥ 0`, with equality iff `w = w*`. -/
+theorem asymmetric_wiener_target_optimality (p c y w : ℝ) (hp : 0 < p) :
+    let w_star := c / p
+    let J (v : ℝ) := p * v ^ 2 - 2 * c * v + y
+    J w - J w_star = p * (w - w_star) ^ 2 ∧
+    J w_star ≤ J w ∧
+    (J w = J w_star ↔ w = w_star) := by
+  intro w_star J
+  have hp_ne : p ≠ 0 := ne_of_gt hp
+  have hid : J w - J w_star = p * (w - w_star) ^ 2 := by
+    dsimp [J, w_star]
+    field_simp
+    ring
+  have hnonneg : 0 ≤ p * (w - w_star) ^ 2 := mul_nonneg (le_of_lt hp) (sq_nonneg _)
+  have hle : J w_star ≤ J w := by linarith [hid, hnonneg]
+  have heq : J w = J w_star ↔ w = w_star := by
+    constructor
+    · intro h
+      have : p * (w - w_star) ^ 2 = 0 := by linarith [hid, h]
+      cases mul_eq_zero.mp this with
+      | inl h1 => exact False.elim (hp_ne h1)
+      | inr h2 => exact eq_of_sub_eq_zero (sq_eq_zero_iff.mp h2)
+    · intro h
+      rw [h]
+  exact ⟨hid, hle, heq⟩
+
+/-- **Undistorted teacher weight incurs strict positive penalty under correlation attenuation (`asymmetric_distortion_penalty_strict`).**
+When student activation has correlation coefficient `ρ < 1` with teacher activation (`c = ρ p w₀`),
+retaining the unadapted teacher target `w₀ ≠ 0` incurs a strictly positive excess loss `p (1 - ρ)² w₀² > 0`
+over the asymmetric Wiener target `w* = ρ w₀`. -/
+theorem asymmetric_distortion_penalty_strict (p w0 rho : ℝ) (hp : 0 < p) (hw0 : w0 ≠ 0) (hrho : rho < 1) :
+    let w_star := rho * w0
+    let excess := p * (w0 - w_star) ^ 2
+    excess = p * (1 - rho) ^ 2 * w0 ^ 2 ∧ 0 < excess := by
+  intro w_star excess
+  have hid : excess = p * (1 - rho) ^ 2 * w0 ^ 2 := by
+    dsimp [excess, w_star]
+    ring
+  have h1 : 0 < (1 - rho) ^ 2 := sq_pos_of_ne_zero (by linarith)
+  have h2 : 0 < w0 ^ 2 := sq_pos_of_ne_zero hw0
+  have hpos : 0 < p * (1 - rho) ^ 2 * w0 ^ 2 := mul_pos (mul_pos hp h1) h2
+  exact ⟨hid, by linarith [hid, hpos]⟩
+
+/-! ## 25 · W16 T0 receipt: 3-seed verdict for the best W15d arm -/
+/-- **Verdict: `had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp` over three calibration-order
+seeds (`w16_t0_best_arm_3seed`).** `model` inputs from `tools/onebit/fold_transfer.py --seeds 0,1,2` (receipt
+`~/w16/t0-best-3seed.json`, Qwen2.5-0.5B, 24 layers): `bits = 421541376`, `params = 357826560`;
+held-out KL per seed `1.2798, 1.3894, 1.3896` nats (mean `1.3529`). Clauses: (a) `bits/params ≤ 1.18`;
+(b) the 3-seed mean held-out KL is below the committed single-seed `…-sink-fnorm` arm (`1.3777`);
+(c) the mean stays above Q4_K_M's `0.0197` nats (refuted-target clause: Q4_K_M is not reached);
+(d) the seed spread (max − min held-out KL) is below `0.12` nats. -/
+theorem w16_t0_best_arm_3seed :
+    (421541376 : ℚ) / 357826560 ≤ 118 / 100 ∧
+    ((1.2798 : ℝ) + 1.3894 + 1.3896) / 3 < 1.3777 ∧
+    ((1.2798 : ℝ) + 1.3894 + 1.3896) / 3 > 1.3529 ∧
+    ((1.2798 : ℝ) + 1.3894 + 1.3896) / 3 > 0.0197 ∧
+    (1.3896 : ℝ) - 1.2798 < 0.12 := by
+  refine ⟨by norm_num, by norm_num, by norm_num, by norm_num, by norm_num⟩
+
 end CostCorrespondence
 end Perf

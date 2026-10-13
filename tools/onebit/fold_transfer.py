@@ -791,7 +791,16 @@ def run_variant(cfg, TL, ids_cal, name, a):
                  "had-fold-2plane-attn-bscale-e8-icm15", "had-fold-2plane-attn-bscale-e8-icm20",
                  "had-fold-2plane-attn-bscale-e8-icm20-gin25", "had-fold-2plane-attn-bscale-e8-icm25-gin25",
                  "had-fold-2plane-attn-bscale-e8-icm20-gin25-glu", "had-fold-2plane-attn-bscale-e8-icm20-gin3515-glu",
-                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink", "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm")
+                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink", "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm",
+                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-mlp2p",
+                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow",
+                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-res",
+                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res",
+                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp",
+                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-align-qmlp",
+                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-asym-qmlp",
+                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-align-asym-qmlp",
+                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-skew-qmlp")
     split_intra_inter = name in ("had-fold-2plane-gqa-split", "had-fold-2plane-gqa-split-corr", "had-fold-2plane-attn-rk2-split",
                                  "had-fold-2plane-attn-bscale-split", "had-fold-2plane-attn-bscale-split-bgptq",
                                  "had-fold-2plane-attn-bscale-hpre", "had-fold-2plane-attn-rk2-hpre",
@@ -809,7 +818,9 @@ def run_variant(cfg, TL, ids_cal, name, a):
     qronos_metric = name in ("had-fold-2plane-gqa-qronos", "had-fold-2plane-gqa-wscale", "had-fold-2plane-gqa-zellner") + attn_names
     zellner = name == "had-fold-2plane-gqa-zellner"
     hier_scale = name in attn_names
-    full_attn_2plane = hier_scale
+    full_attn_2plane = hier_scale and not ("-mlp2p" in name or "-qmlp" in name)
+    mlp_2plane_k896 = "-mlp2p" in name
+    q_mlp_trans = "-qmlp" in name
     backfit_2plane = name in attn_names and name != "had-fold-2plane-attn-hier"
     bscale = backfit_2plane and name != "had-fold-2plane-attn-backfit"
     cgauge = name in ("had-fold-2plane-attn-rk2", "had-fold-2plane-attn-rk2-split", "had-fold-2plane-attn-rk2-hpre", "had-fold-2plane-attn-rk2-fnorm", "had-fold-2plane-attn-rk2-e8")
@@ -817,7 +828,7 @@ def run_variant(cfg, TL, ids_cal, name, a):
     hpre = name in ("had-fold-2plane-attn-bscale-hpre", "had-fold-2plane-attn-rk2-hpre")
     fnorm_align = name in ("had-fold-2plane-attn-bscale-fnorm", "had-fold-2plane-attn-rk2-fnorm")
     sink_gate = "-sink" in name
-    sink_fnorm = name.endswith("-sink-fnorm")
+    sink_fnorm = "-sink-fnorm" in name
     e8_code = name in ("had-fold-2plane-attn-bscale-e8", "had-fold-2plane-attn-rk2-e8", "had-fold-2plane-attn-bscale-e8-beam", "had-fold-2plane-attn-bscale-e8-beam8") + icm_names
     e8_beam = 8 if name == "had-fold-2plane-attn-bscale-e8-beam8" else (4 if (name == "had-fold-2plane-attn-bscale-e8-beam" or (name in icm_names and name != "had-fold-2plane-attn-bscale-e8-b1-icm")) else 1)
     e8_icm = name in icm_names
@@ -825,6 +836,12 @@ def run_variant(cfg, TL, ids_cal, name, a):
     gin_val = 0.25 if ("-gin25" in name) else a.inter_gamma_in
     glu_comp = name.endswith("-glu")
     rrr_mode = name == "had-fold-2plane-attn-rrr"
+    use_grow = "-grow" in name
+    use_res = "-res" in name
+    use_align = "-align" in name
+    use_asym = "-asym" in name
+    use_skew = "-skew" in name
+    SKEW_K_ROWS = [1024, 128, 512, 512, 256, 256, 256, 256, 512, 128, 128, 128, 128, 128, 128, 256, 256, 256, 256, 384, 384, 384, 384, 768]
     use_corr = name in ("had-fold-2plane-gqa-corr", "had-fold-2plane-gqa-wfill", "had-fold-2plane-gqa-split",
                         "had-fold-2plane-gqa-split-corr") or act_order
     corr_wfill = name in ("had-fold-2plane-gqa-wfill", "had-fold-2plane-gqa-split-corr", "had-fold-2plane-gqa-qronos",
@@ -877,7 +894,7 @@ def run_variant(cfg, TL, ids_cal, name, a):
             Cts = {nm: torch.zeros(n, Lt[nm].shape[0], dtype=dt, device=dev_s) if (split_intra_inter and sname in ("o", "down")) else None for nm in names} if (split_intra_inter and sname in ("o", "down")) else None
             x_sum = torch.zeros(n, dtype=dt, device=dev_s)
             y_sum = {nm: torch.zeros(Lt[nm].shape[0], dtype=dt, device=dev_s) for nm in names}
-            X_slabs = [] if (glu_comp and sname == "ffn") else None
+            X_slabs = [] if ((glu_comp or use_res or use_align) and sname == "ffn") else None
             stage_in_slabs = [] if (not teacher_in and sname in ("o", "down")) else None
             n_toks = 0
             t0 = tick()
@@ -973,14 +990,22 @@ def run_variant(cfg, TL, ids_cal, name, a):
                         C0 = H_solve @ W0.T
                         if nm in ("o", "down"):
                             C_intra, C_inter = Cts[nm] - C0, Cs[nm] - Cts[nm]
-                            dW_intra = ridge_solve(H_solve, C_intra, a.ridge_intra * (n / 896.0))
-                            dW_inter = ridge_solve(H_solve, C_inter, a.ridge_inter * (n / 896.0))
-                            dW = dW_intra + a.inter_gamma * dW_inter
-                            if sink_gate and a.sink_tau > 0.0:
-                                w0_rn = W0.norm(dim=1, keepdim=True).clamp_min(1e-6)
-                                dw_rn = dW.norm(dim=1, keepdim=True).clamp_min(1e-6)
-                                dW = torch.where(dw_rn > a.sink_tau * w0_rn, dW * (a.sink_tau * w0_rn / dw_rn), dW)
-                            Ws_list.append(W0 + dW)
+                            if use_asym and nm == "down":
+                                dP = H_solve.diagonal()
+                                lam_d = a.ridge_intra * (n / 896.0)
+                                Hr = H_solve.clone()
+                                Hr.diagonal().add_(lam_d * dP)
+                                C_reg = Cts[nm] + lam_d * (dP[:, None] * W0.T)
+                                Ws_list.append(torch.cholesky_solve(C_reg, torch.linalg.cholesky(Hr)).T.contiguous())
+                            else:
+                                dW_intra = ridge_solve(H_solve, C_intra, a.ridge_intra * (n / 896.0))
+                                dW_inter = ridge_solve(H_solve, C_inter, a.ridge_inter * (n / 896.0))
+                                dW = dW_intra + a.inter_gamma * dW_inter
+                                if sink_gate and a.sink_tau > 0.0:
+                                    w0_rn = W0.norm(dim=1, keepdim=True).clamp_min(1e-6)
+                                    dw_rn = dW.norm(dim=1, keepdim=True).clamp_min(1e-6)
+                                    dW = torch.where(dw_rn > a.sink_tau * w0_rn, dW * (a.sink_tau * w0_rn / dw_rn), dW)
+                                Ws_list.append(W0 + dW)
                         else:
                             gin_nm = (0.35 if nm in ("q", "k", "v") else 0.15) if ("gin3515" in name) else gin_val
                             dW_inter = ridge_solve(H_solve, Cs[nm] - C0, a.ridge_w0_gqa * (n / 896.0))
@@ -1005,13 +1030,14 @@ def run_variant(cfg, TL, ids_cal, name, a):
                     Ws_tik_nm = Ws_cat[o0:o0 + Oi]
                     o0 += Oi
                     g_row = None
-                    if rrr_mode:
-                        Ws_nm = drift_filter(W0_nm, Ws_tik_nm, Hl_m, rank=64, gamma_tail=0.65)
+                    if rrr_mode or use_grow:
+                        Ws_nm = drift_filter(W0_nm, Ws_tik_nm, Hl_m, rank=64, gamma_tail=0.65) if rrr_mode else Ws_tik_nm
                         if nm in ("gate", "up"):
                             g_row = (Lt["down"].to(dt).to(dev_s) ** 2).sum(0)
                             g_row = g_row / g_row.mean().clamp_min(1e-12)
                         elif nm in ("o", "down"):
-                            g_row = (Lt["ln2" if nm == "o" else "ln1"].to(dt).to(dev_s) ** 2)
+                            ln_t = Lt["ln2"] if nm == "o" else (TL[l + 1]["ln1"] if (l + 1 < len(TL)) else cfg.fnorm)
+                            g_row = (ln_t.to(dt).to(dev_s) ** 2)
                             g_row = g_row / g_row.mean().clamp_min(1e-12)
                     elif zellner and nm in ("o", "down"):
                         Ws_nm = (1.0 - a.zellner_gamma) * W0_nm + a.zellner_gamma * Ws_tik_nm
@@ -1036,7 +1062,12 @@ def run_variant(cfg, TL, ids_cal, name, a):
                     fit_iters = 1 if e8_icm else a.iters
                     Wp1, info1 = fold_fit(Ws_nm, Hm, fit_iters, rg_q, **fk)
                     nsign += Oi * n; nr += info1["bits_r"]; nc += info1["bits_c"]; nd += info1.get("bits_d", 0); ntot += Oi * n
-                    two_plane_nm = ("q", "k", "v", "o") if full_attn_2plane else ("k", "v")
+                    if q_mlp_trans:
+                        two_plane_nm = ("k", "v", "o")
+                    elif full_attn_2plane:
+                        two_plane_nm = ("q", "k", "v", "o")
+                    else:
+                        two_plane_nm = ("k", "v")
                     if nm in two_plane_nm:
                         Wp2, info2 = fold_fit(Ws_nm - Wp1, Hm, fit_iters, rg_q, **fk)
                         if backfit_2plane:
@@ -1048,11 +1079,24 @@ def run_variant(cfg, TL, ids_cal, name, a):
                                     Wp2, info2 = Wp2_b, info2_b
                         Wp = Wp1 + Wp2
                         nsign += Oi * n; nr += info2["bits_r"]; nc += info2["bits_c"]; nd += info2.get("bits_d", 0)
+                    elif (mlp_2plane_k896 or q_mlp_trans) and nm in ("gate", "up"):
+                        k_rows = (SKEW_K_ROWS[l] if use_skew else 416) if q_mlp_trans else 832
+                        if k_rows > 0:
+                            row_mass = (Ws_nm ** 2).sum(1)
+                            top_idx = torch.topk(row_mass, k_rows).indices
+                            Ws_top = Ws_nm[top_idx] - Wp1[top_idx]
+                            fk_top = dict(fk, g_row=g_row[top_idx] if g_row is not None else None)
+                            Wp2_top, info2 = fold_fit(Ws_top, Hm, fit_iters, rg_q, **fk_top)
+                            Wp = Wp1.clone()
+                            Wp[top_idx] += Wp2_top
+                            nsign += k_rows * n; nr += info2["bits_r"]; nc += info2["bits_c"]; nd += info2.get("bits_d", 0)
+                        else:
+                            Wp = Wp1
                     else:
                         Wp = Wp1
-                    corr_targets = ("down",) if full_attn_2plane else ("q", "o", "down")
+                    corr_targets = ("q", "down") if q_mlp_trans else (("q", "o", "down") if mlp_2plane_k896 else (("down",) if full_attn_2plane else ("q", "o", "down")))
                     if use_corr and nm in corr_targets:
-                        rk = (2 if cgauge else 1) if full_attn_2plane else ((3 if nm in ("q", "o") else 2) if corr_wfill else 2)
+                        rk = 2 if ((mlp_2plane_k896 or q_mlp_trans) and nm == "q") else (2 if (mlp_2plane_k896 and nm == "o") else 1)
                         Ws_corr = ((1.0 - a.corr_gamma) * W0_nm + a.corr_gamma * Ws_tik_nm) if zellner else Ws_nm
                         Corr, b_corr, _ = lowrank_corrector(Ws_corr - Wp, Hl_m, rank=rk, round_f16=not bscale, u8_corr=bscale)
                         if J(Ws_corr, Wp + Corr, Hl_m) < J(Ws_corr, Wp, Hl_m):
@@ -1061,6 +1105,61 @@ def run_variant(cfg, TL, ids_cal, name, a):
                     if nm in ("q", "k", "v"):
                         db = (y_sum[nm] - (x_sum @ Wp.T)) / n_toks
                         Lq[nm + "b"] = (Lt[nm + "b"].to(dt) + db.to(DEV)).float().contiguous()
+                    if use_align and nm == "up" and X_slabs is not None:
+                        W_u0 = Lt["up"].to(dt).to(dev_s)
+                        Wq_g = Lq["gate"].to(dt).to(dev_s)
+                        Wq_u = Wp.to(dt).to(dev_s)
+                        num_align = torch.zeros(Oi, dtype=dt, device=dev_s)
+                        den_align = torch.zeros(Oi, dtype=dt, device=dev_s)
+                        for X_b in X_slabs:
+                            X_bd = X_b.to(dev_s)
+                            if sink_gate:
+                                r_tok = X_bd.norm(dim=-1, keepdim=True)
+                                r_med = r_tok.median()
+                                w_t = torch.where(r_tok > a.sink_thresh * r_med, (r_med / r_tok.clamp_min(1e-6)), torch.ones_like(r_tok)).to(dt)
+                            else:
+                                w_t = 1.0
+                            s_q = F.silu(X_bd @ Wq_g.T)
+                            u_q = X_bd @ Wq_u.T
+                            u_0 = X_bd @ W_u0.T
+                            sq2 = (s_q ** 2) * w_t
+                            num_align += (sq2 * u_q * u_0).sum(0)
+                            den_align += (sq2 * (u_q ** 2)).sum(0)
+                            del X_bd, s_q, u_q, u_0, sq2
+                        r_align = (num_align / den_align.clamp_min(1e-12)).clamp(0.5, 2.0)
+                        Wp = Wp * r_align[:, None]
+                        del W_u0, Wq_g, Wq_u, num_align, den_align, r_align
+                        if not use_res:
+                            del X_slabs
+                            X_slabs = None
+                    if use_res and nm == "up" and X_slabs is not None:
+                        W_g0 = Lt["gate"].to(dt).to(dev_s)
+                        W_u0 = Lt["up"].to(dt).to(dev_s)
+                        Wq_g = Lq["gate"].to(dt).to(dev_s)
+                        Wq_u = Wp.to(dt).to(dev_s)
+                        W_down_t = Lt["down"].to(dt).to(dev_s)
+                        G = W_down_t.T @ W_down_t
+                        P_mat = torch.zeros(Oi, Oi, dtype=dt, device=dev_s)
+                        C_mat = torch.zeros(Oi, Oi, dtype=dt, device=dev_s)
+                        for X_b in X_slabs:
+                            X_bd = X_b.to(dev_s)
+                            P_0 = F.silu(X_bd @ W_g0.T) * (X_bd @ W_u0.T)
+                            P_q = F.silu(X_bd @ Wq_g.T) * (X_bd @ Wq_u.T)
+                            P_mat += P_q.T @ P_q
+                            C_mat += P_q.T @ P_0
+                            del X_bd, P_0, P_q
+                        GoP = G * P_mat
+                        GoC = G * C_mat
+                        ones = torch.ones(Oi, 1, dtype=dt, device=dev_s)
+                        rhs = GoC @ ones
+                        lam = 0.05 * GoP.diagonal().mean().clamp_min(1e-12)
+                        GoP.diagonal().add_(lam)
+                        rhs += lam * ones
+                        s_sol = torch.linalg.solve(GoP, rhs)[:, 0]
+                        s_sol = s_sol.clamp(0.5, 2.0)
+                        Wp = Wp * s_sol[:, None]
+                        del W_g0, W_u0, Wq_g, Wq_u, W_down_t, G, P_mat, C_mat, GoP, GoC, ones, rhs, s_sol, X_slabs
+                        X_slabs = None
                     Lq[nm] = Wp.to(DEV).float().contiguous()
                     del Wp, Wp1, Ws_nm, W0_nm
                 del Hm, Hl_m, Ws_cat
@@ -1438,8 +1537,10 @@ def controls(cfg, TL, hf, ids_all):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True); ap.add_argument("--variants", default="")
+    ap.add_argument("--dump", default=None, help="Path to dump quantized layer weights for text_probe.py")
     ap.add_argument("--controls", action="store_true"); ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--dtype", default="fp32", choices=["fp32", "fp64"])
+    ap.add_argument("--seeds", default="0", help="comma list; seed s permutes the calibration chunks (identity for 0)")
     for k, v in [("layers", 24), ("iters", 2), ("n-cal", 100), ("n-eval", 40), ("n-in", 20), ("slab", 10)]:
         ap.add_argument(f"--{k}", type=int, default=v)
     for k, v in [("ridge", 1e-3), ("ridge-w0", 0.01), ("ridge-w0-gqa", 0.03), ("quant-ridge", 0.005), ("quant-damp", 0.02),
@@ -1470,26 +1571,40 @@ def main():
     res["variants"] = {}
     n_lin = sum(TL[l][k].numel() for l in range(cfg.nl) for k in KINDS)
     res["linear_params"] = n_lin
+    seeds = [int(x) for x in a.seeds.split(",") if x != ""]
     for name in [v for v in a.variants.split(",") if v]:
-        t0 = tick()
-        torch.cuda.reset_peak_memory_stats()
-        if name in ("q4km", "gguf-f16"):
-            Ls, bpw = gguf_layers(cfg, TL, GGUF_Q4KM if name == "q4km" else GGUF_F16)
-            info, tm = dict(bpw_linears=bpw), {}
-        else:
-            Ls, binfo, tm = run_variant(cfg, TL, ids_cal, name, a)
-            info = dict(binfo)
-            if binfo["params"]:
-                info["bpw_linears"] = binfo["bits"] / binfo["params"]
-        tq = tick() - t0
-        kl, ag = kl_eval(cfg, TL, Ls, ids_ev)
-        kli, agi = kl_eval(cfg, TL, Ls, ids_in)
-        info.update(kl_heldout=kl, top1_heldout=ag, kl_insample=kli, top1_insample=agi, wall_transfer_s=tq,
-                    timings=tm, peak_gpu_gb=torch.cuda.max_memory_allocated() / 2**30)
+        runs = []
+        for sd in seeds:
+            t0 = tick()
+            torch.cuda.reset_peak_memory_stats()
+            torch.manual_seed(sd)
+            ids_c = ids_cal if sd == 0 else ids_cal[torch.randperm(ids_cal.shape[0], generator=torch.Generator().manual_seed(sd))]
+            if name in ("q4km", "gguf-f16"):
+                Ls, bpw = gguf_layers(cfg, TL, GGUF_Q4KM if name == "q4km" else GGUF_F16)
+                info, tm = dict(bpw_linears=bpw), {}
+            else:
+                Ls, binfo, tm = run_variant(cfg, TL, ids_c, name, a)
+                info = dict(binfo)
+                if binfo["params"]:
+                    info["bpw_linears"] = binfo["bits"] / binfo["params"]
+            tq = tick() - t0
+            kl, ag = kl_eval(cfg, TL, Ls, ids_ev)
+            kli, agi = kl_eval(cfg, TL, Ls, ids_in)
+            info.update(kl_heldout=kl, top1_heldout=ag, kl_insample=kli, top1_insample=agi, wall_transfer_s=tq,
+                        timings=tm, peak_gpu_gb=torch.cuda.max_memory_allocated() / 2**30, seed=sd)
+            runs.append(info)
+            print(name, json.dumps(info), flush=True)
+            if a.dump and sd == seeds[0]:
+                torch.save({"layers": [{k: v.cpu() for k, v in L.items()} for L in Ls], "fnorm": cfg.fnorm.cpu()}, a.dump)
+            del Ls
+            torch.cuda.empty_cache()
+        info = dict(runs[0])
+        if len(runs) > 1:
+            info["seeds"] = {str(r["seed"]): {k: r[k] for k in ("kl_heldout", "top1_heldout", "kl_insample", "top1_insample", "wall_transfer_s", "peak_gpu_gb")} for r in runs}
+            for k in ("kl_heldout", "top1_heldout", "kl_insample"):
+                xs = [r[k] for r in runs]
+                info[k + "_stats"] = dict(mean=sum(xs) / len(xs), min=min(xs), max=max(xs))
         res["variants"][name] = info
-        print(name, json.dumps(info), flush=True)
-        del Ls
-        torch.cuda.empty_cache()
     res["wall_total_s"] = tick() - t00
     json.dump(res, open(a.out, "w"), indent=1)
     print("wall_total_s", res["wall_total_s"])
