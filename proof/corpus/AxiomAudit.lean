@@ -67,6 +67,7 @@ import Perf.IdentityFloat
 import Perf.Overlap
 import Perf.FaceTyped
 import Perf.FaceTypedE8
+import Perf.SideInfo
 import Learn.GramExact
 import Numeric.SigmaDeltaRefinement
 
@@ -989,3 +990,15 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.FaceTypedE8.spinor_card
 #audit Perf.FaceTypedE8.pair_rate_eq
 #audit Perf.FaceTypedE8.sparse_not_injective
+#audit Perf.CostCorrespondence.w16_t6_sideinfo
+#audit Perf.SideInfo.char_coords_norm
+#audit Perf.SideInfo.norm_boost_blind
+#audit Perf.SideInfo.lone_channel_fiber_card
+#audit Perf.SideInfo.side_info_recovers
+#audit Perf.SideInfo.side_info_char_coord
+#audit Perf.SideInfo.gauss_side_info_saving
+#audit Perf.SideInfo.lowerBound_count_le
+#audit Perf.SideInfo.lowerBound_spec
+#audit Perf.SideInfo.w16_t6_route_b_open
+#audit Perf.SideInfo.w16_t6_route_b_closed_linear
+#audit Perf.SideInfo.w16_t6_route_a_closed
