@@ -626,6 +626,31 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
     - Decision: `docs/epics/ternary-hadamard.md` W16 opens W16b when joint `J` is below sequential+backfit `J` on the
       2-plane tensors; it is (`0.77–0.86×`). In `J0` units the gap is `0.0035`; relative to SEQ it is `14–24%`.
 
+24. **Matched-seed baseline for the best arm** (W16a; grade `measured` for the KL columns, `proved` for the Lean verdict over
+    them as `model` inputs; board row `onebit-w16-t0-receipt-for-CEEkDLWOB0s8inHVh8q2Aa`). Command (wall `311.5 s`, one
+    GPU lane):
+    `PREDICTION=w16-matched-seed-baseline-1 flock /tmp/opencode/gpu.lock timeout 580 /home/socol/Workspace/spinor-ttl/.venv/bin/python tools/onebit/fold_transfer.py --out /home/socol/oc-tmp/w16/t0b-sinkfnorm-3seed.json --seeds 0,1,2 --variants had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm`
+    (script sha256 `ce173401…`; receipt sha256 `b26980d1…`).
+
+    | seed | `…-sink-fnorm` (`1.179460` b/w) | best arm (`1.178061` b/w) | best − base |
+    |---|---|---|---|
+    | 0 | 1.3777 (42.19%) | 1.2798 (43.76%) | −0.0979 |
+    | 1 | 1.3705 (42.15%) | 1.3894 (41.91%) | +0.0189 |
+    | 2 | 1.4383 (40.62%) | 1.3896 (42.15%) | −0.0487 |
+    | mean | 1.3955 (41.65%) | 1.3529 (42.61%) | −0.0426 |
+
+    - Seed `0` reproduces the §20 value `1.3777`. The base arm's seed-to-seed spread is `0.068` nats (min `1.3705`, max
+      `1.4383`), larger than the best arm's expected `−0.001` to `−0.015` nats from the joint `-nb` move (W16b design verdict
+      in `docs/epics/ternary-hadamard.md`).
+    - The earlier hypothesis that identity calibration order makes seed `0` low does not hold for the base arm: its seed `1`
+      is `0.007` below seed `0`. The best arm's seed-`0` margin (`−0.0979`) is the largest paired difference; the paired mean
+      is `−0.0426`, with one seed (`1`) positive.
+    - Consequence: a single 3-seed KL mean cannot resolve a `−0.015` nat effect. The W16b mechanism gate is seed-0
+      `J_nb/J_seq` on `k`, `v`, `o`; the KL stage is read as paired per-seed differences against the best-arm column above.
+    - Lean: `Perf.CostCorrespondence.w16_t0b_matched_seed_baseline` (audited; closed cone).
+    - Prediction `w16-matched-seed-baseline-1` recorded refuted: seeds `1` and `2` are `−0.007` and `+0.061` from seed `0`, not
+      `+0.11`.
+
 ## Not covered (W15d)
 
 - Constructive transfer evaluated on 0.5B only; `src/learn/ridge.rs` and `src/learn/onebit.rs` remain `f64` on CPU.

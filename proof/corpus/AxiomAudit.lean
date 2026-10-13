@@ -967,6 +967,7 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.CostCorrespondence.asymmetric_wiener_target_optimality
 #audit Perf.CostCorrespondence.asymmetric_distortion_penalty_strict
 #audit Perf.CostCorrespondence.w16_t0_best_arm_3seed
+#audit Perf.CostCorrespondence.w16_t0b_matched_seed_baseline
 #audit Perf.FaceTyped.null_channels_eq
 #audit Perf.FaceTyped.two_plane_split_complex
 #audit Perf.FaceTyped.two_plane_null_channel

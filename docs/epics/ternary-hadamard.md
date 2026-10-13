@@ -705,13 +705,32 @@ receipt path and Lean declaration names.
 | W16a | T0 receipt for the W15d best arm | `docs/evidence/onebit-w15.md`, `proof/corpus/Perf/CostCorrespondence.lean`, `proof/corpus/AxiomAudit.lean` (Sonnet) | `fold_transfer.py --variants had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp` reproduces 1.2798 at script sha256 `7f87fcc9…`; `cd proof/corpus && lake build Perf.CostCorrespondence AxiomAudit` | changed measured constant red |
 | W16a | T1 face-typed Lean | `proof/corpus/Perf/FaceTyped.lean` (Sonnet) | `cd proof/corpus && lake build Perf.FaceTyped` | `j² = −1` red |
 | W16a | T2 junction probe | `tools/onebit/face_probe.py` (Haiku) | per tensor on `/home/socol/oc-tmp/best_arm.pt`: `J = tr(E H Eᵀ)` sequential+backfit vs joint null-basis on the 2-plane tensors; diagonal vs off-diagonal share of the plane cross term; junction norm imbalance `‖d_i‖/‖u_i‖`, `‖o_·i‖/‖v_i·‖` | exact synthetic 2-plane matrix: both fits `J = 0` |
-| W16b | T3 `-nb` null-basis 2-plane arm | `tools/onebit/fold_transfer.py` (Sonnet; after T0 commits it) | held-out KL `< 1.2798` at `≤ 1.18` b/w, 3 seeds | `a = b` forced reproduces the 1-plane arm |
+| W16b | T3 `-nb` joint block-ICM 2-plane arm (k/v/o) | `tools/onebit/fold_transfer.py` (Sonnet; after T0 commits it) | seed-0 `J_nb/J_seq` on k/v/o `≤ 0.97`, then 3-seed paired mean `ΔKL < 0` against the T0 per-seed values at `1.178061` b/w | `sweeps = 0` reproduces T0 bit for bit |
 | W16c | T4 `-hjunc` hyperbolic junction gauges (up/down, v/o) and `-asym` | `tools/onebit/fold_transfer.py` (after T3) | held-out KL below the W16b arm | `s = 1` reproduces the W16b arm |
 | W16c | T5 per-wave verdicts | `proof/corpus/Perf/FaceTyped.lean` (after T1) | `lake build Perf.FaceTyped AxiomAudit` | changed constant red |
 
 T0, T1 and T2 are file-disjoint; T0 and T2 share the GPU and serialize on it. W16b opens when T0 is
 committed and T2 reports joint null-basis `J` below sequential+backfit `J` on the 2-plane tensors; W16c opens after W16b's
 gate.
+
+### W16b design verdict (E₈ ∪ O₈ lift)
+
+Record: `/home/socol/oc-tmp/escalation/2026-10-14-w16-e8-lift.md` (Opus subagent; the lead adopts it).
+Board row: `onebit-w16-t3-nb-null-2-F692bk4KVDww0Z4wqmWlQe`.
+
+- The null basis is exact only on spinor × spinor pairs (16384 of 65536) with a shared channel field; on `D₈`/`O₈` words the
+  map is not injective. The lift is a joint move over the 256 × 256 pair set per 8-block in the coupled block metric with the
+  cross term `H₁₂`, 16 bits per block, bits unchanged (`421541376`).
+- Search: warm joint block-ICM with a precomputed cross table per block, on `k`, `v`, `o` only, `dh` frozen. Cold 65536-pair
+  CVP costs about 256× the current refit and is rejected; alternating exact CVP is the existing backfit.
+- Scales: joint sweeps, then a joint `(r₁, r₂)` solve, then `c_step` per plane on the residual; a round is kept only if `J` falls.
+- Expected effect (model): `J_nb/J_seq` on k/v/o `0.90–0.98`; paired `ΔKL` `−0.001` to `−0.015` nats. The sign-level
+  `0.77–0.86` (§23) is an estimate, not a bound.
+- Gate: per-seed paired `ΔKL` against T0 (`1.2798 / 1.3894 / 1.3896`); `1.2798` is seed 0 alone and the 3-seed mean is `1.3529`.
+  Refuted if `J_nb/J_seq > 0.97` on seed 0, the mean paired `ΔKL ≥ 0`, any seed's `ΔKL > +0.005`, or bits differ. A refutation
+  opens W16c (T4) directly.
+- Lean: `Perf/FaceTypedE8.lean` (spinor closure, shared-channel pointwise null channel, joint block-cost expansion,
+  `joint_move_le_planewise`, pair rate `2^16`, `D₈` non-injectivity witness), closed cone, with the T5 verdict constants.
 
 # Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
 
