@@ -793,7 +793,7 @@ theorems and `norm_num` verdicts over hand-typed literals). Verdict: `/home/soco
 
 | task | board row | owns | gate | control | order |
 |---|---|---|---|---|---|
-| A | `onebit-w17-a-receipt-EJG21b4JnOIzadMIc92CZd` | `tools/onebit/receipt_lean.py`, `docs/evidence/receipts/onebit/`, `Perf/Receipts/Onebit.lean` (then `CostCorrespondence.lean` rebind) | `index_check.py --check`; `receipt_lean.py --check`; `lake build` | edit one digit in a receipt → E5 red; edit a generated constant → `--check` red; stale `w15_four_factor_05b_decomposition` red until rebound | parallel with C |
+| A | `onebit-w17-a-receipt-EJG21b4JnOIzadMIc92CZd` | `tools/rooting/receipt_lean.py`, `docs/evidence/receipts/onebit/`, `Perf/Receipts/Onebit.lean` (then `CostCorrespondence.lean` rebind) | `index_check.py --check`; `receipt_lean.py --check`; `lake build` | edit one digit in a receipt → E5 red; edit a generated constant → `--check` red; stale `w15_four_factor_05b_decomposition` red until rebound | parallel with C |
 | C | `onebit-w17-c-model-aeILmtZsGbJ8hZYFslWj5` | `Perf/Generalisation.lean`, `tools/onebit/fold_transfer.py` (instrument only), `docs/evidence/onebit-w15.md` | `lake build Perf.Generalisation` closed cone; `O/T/Q` and `E_gen(N)` measured, P1–P3 each confirmed or refuted | changed λ constant → verdict red; shuffled `Ĥ` split → sandwich still holds | hardest, first |
 | D | `onebit-w17-d-j-to-kl-FODqnwdkkWselp984dWMO8` | `Perf/Generalisation.lean`, `fold_transfer.py` | identity proved on `Fin V` under the closed cone; tilt `Q` at seed 0 | changed-constant red | after C |
 | B | `onebit-w17-b-bits-cfg-BpyoXO720q3VZEbY0hYN7n` | `src/learn/onebit_bits.rs`, `proof/extract/lib.rs`, `Perf/BitsRefine.lean` | `proof/regen.sh --check`; `lake build`; equality with receipt components | `k_rows` 417 → red; header dropped → red | after A; serialises on `proof/ApeironWord.lean` |
@@ -811,6 +811,12 @@ Stop conditions: C stops at the first sandwich violation; B stops after five ext
   `ffn_down` verdict `w17_c_sandwich_verdict`. Gate on the live tree: `lake build Perf.Generalisation AxiomAudit` exit 0 (9176 jobs), seven
   `#audit`s in `[propext, Classical.choice, Quot.sound]`. Controls: `47/100 → 49/100` red (`linarith failed`), swapped PSD premises red (type mismatch).
   The Marchenko–Pastur edge is an `anchor` input; no random-matrix statement is proved. Measured `O`, `Q`, `μ̂`, `E_gen(N)` are the C-probe task.
+- A2 (`onebit-w17-a-receipt-EJG21b4JnOIzadMIc92CZd`): `tools/rooting/receipt_lean.py` (stdlib; `--check`, `--write`, `--self-test`) generates
+  `proof/corpus/Perf/Receipts/Onebit.lean` from four receipts (`t3-nb-3seed`, `t0b-sinkfnorm-3seed`, `t0-best-3seed`, `t6-sideinfo`): sha256, per-seed
+  KL/top-1 as exact rationals from the JSON text, bit components as ℕ, means defined in Lean with `_eq` theorems, `bitsComponents_eq` (sum of components = `bits`).
+  It lives under `tools/rooting/`, not `tools/onebit/`, because the derivation hook treats any `tools/onebit/*.py` run as an experiment.
+  Gate on the live tree: `--check` exit 0; `lake build Perf.Receipts.Onebit` exit 0 (776 jobs). Self-test controls red: generated constant edited
+  (`drift ...Onebit.lean:156`), receipt digit edited (`stale sha256`), namespace deleted (`drift ...Onebit.lean:106`).
 
 # Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
 
