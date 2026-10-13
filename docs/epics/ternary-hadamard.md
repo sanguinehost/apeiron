@@ -817,6 +817,10 @@ Stop conditions: C stops at the first sandwich violation; B stops after five ext
   It lives under `tools/rooting/`, not `tools/onebit/`, because the derivation hook treats any `tools/onebit/*.py` run as an experiment.
   Gate on the live tree: `--check` exit 0; `lake build Perf.Receipts.Onebit` exit 0 (776 jobs). Self-test controls red: generated constant edited
   (`drift ...Onebit.lean:156`), receipt digit edited (`stale sha256`), namespace deleted (`drift ...Onebit.lean:106`).
+- C-probe (`onebit-w17-c-model-aeILmtZsGbJ8hZYFslWj5`): evidence item 27 in `docs/evidence/onebit-w15.md`. Seed 0, `-nb` arm: `G = O·T·Q = 1.4933 × 0.7833 × 3.1229 = 3.653`;
+  `O = 1.146 (finite-sample) × 1.303 (student-input shift)`; `Q`, KL per unit `J` out/in, is the largest factor. `E_gen ∝ N^-0.315` (`25/50/100` chunks: `1.435/1.125/0.928` nats).
+  Sandwich: 336 pairs, 0 violations. P1 refuted on per-kind bands (aggregate in band), P2 refuted, P3 refuted (`α` below `[0.5, 1]`, above the `0.3` falsifier).
+  Receipts `w17-c-{run25,run50,run100,measure100,fit}` indexed (rows 106–110, digests `110/110`). Next: D (the `J → KL` identity and tilt), since `Q` is the largest factor.
 
 # Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
 

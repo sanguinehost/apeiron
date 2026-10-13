@@ -40,6 +40,15 @@ RECEIPTS = {
     "t6_sideinfo": ("docs/evidence/receipts/onebit/t6-sideinfo.json", None),
 }
 
+# W17-C receipts: namespace id -> receipt path. Emitted after RECEIPTS by w17_fields().
+W17 = {
+    "w17_c_fit": "docs/evidence/receipts/onebit/w17-c-fit.json",
+    "w17_c_measure100": "docs/evidence/receipts/onebit/w17-c-measure100.json",
+    "w17_c_run25": "docs/evidence/receipts/onebit/w17-c-run25.json",
+    "w17_c_run50": "docs/evidence/receipts/onebit/w17-c-run50.json",
+    "w17_c_run100": "docs/evidence/receipts/onebit/w17-c-run100.json",
+}
+
 SEEDS = ["0", "1", "2"]
 PER_SEED_RAT = [("klHeldout", "kl_heldout"), ("klInsample", "kl_insample"),
                 ("top1Heldout", "top1_heldout"), ("top1Insample", "top1_insample")]
@@ -91,11 +100,16 @@ def read_ledger(root: Path) -> dict:
     return rows
 
 
+def all_receipts():
+    """(namespace id, receipt path) for every receipt, the four originals first."""
+    return [(ns, rel) for ns, (rel, _) in RECEIPTS.items()] + list(W17.items())
+
+
 def check_ledger(root: Path) -> dict:
     """Return {namespace id: sha256} after checking each receipt against its ledger row."""
     ledger = read_ledger(root)
     shas = {}
-    for ns, (rel, _) in RECEIPTS.items():
+    for ns, rel in all_receipts():
         path = root / rel
         if not path.is_file():
             raise Fail(f"missing receipt {rel}")
@@ -221,6 +235,77 @@ def render_receipt(ns: str, rel: str, arm, sha: str, data: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def int_value(v) -> int:
+    """A count from JSON: an int, or decimal text with no fractional part (n_cal is written 25.0)."""
+    if isinstance(v, bool):
+        raise Fail(f"expected a count, got {v!r}")
+    if isinstance(v, int):
+        return v
+    if isinstance(v, str):
+        q = Fraction(v)
+        if q.denominator != 1:
+            raise Fail(f"expected a count, got {v!r}")
+        return int(q)
+    raise Fail(f"expected a count, got {v!r}")
+
+
+def rat_value(v) -> Fraction:
+    return Fraction(v) if isinstance(v, int) and not isinstance(v, bool) else rat(v)
+
+
+def w17_fields(ns: str, rel: str, sha: str, data: dict) -> list:
+    """(kind, name, value) for one W17-C receipt; the same kinds as emit_receipt."""
+    out = [("str", "sha256", sha)]
+    if ns == "w17_c_fit":
+        for i in range(3):
+            out.append(("nat", f"nCal{i}", int_value(data["n_cal"][i])))
+        for name, key in [("klHeldout", "kl_heldout"), ("klInsample", "kl_insample"),
+                          ("EGen", "E_gen"), ("G", "G")]:
+            for i in range(3):
+                out.append(("rat", f"{name}{i}", rat_value(data[key][i])))
+        out.append(("rat", "alphaLoglogFit", rat_value(data["alpha_loglog_fit"])))
+        out.append(("rat", "prefactor", rat_value(data["prefactor"])))
+        for i in range(2):
+            out.append(("rat", f"localExponents{i}", rat_value(data["local_exponents"][i])))
+    elif ns == "w17_c_measure100":
+        agg = data["aggregate"]
+        for name, key in [("O", "O"), ("OFs", "O_fs"), ("OShift", "O_shift"),
+                          ("ODown", "O_down"), ("O896Wide", "O_896_wide")]:
+            out.append(("rat", name, rat_value(agg[key])))
+        sw = data["sandwich"]
+        out.append(("nat", "checkedPairs", int_value(sw["checked_pairs"])))
+        out.append(("nat", "violations", int_value(sw["violations"])))
+        qt = data["QT"]
+        out.append(("rat", "Q", rat_value(qt["Q"])))
+        out.append(("rat", "TDerived", rat_value(qt["T_derived"])))
+        out.append(("rat", "QTO", rat_value(qt["O"])))
+        out.append(("rat", "QTG", rat_value(qt["G"])))
+        out.append(("rat", "tightnessJw", rat_value(data["per_kind"]["down"]["tightness_Jw"])))
+    elif ns in ("w17_c_run25", "w17_c_run50", "w17_c_run100"):
+        out.append(("rat", "klHeldout", rat_value(data["kl_heldout"])))
+        out.append(("rat", "klInsample", rat_value(data["kl_insample"])))
+        out.append(("rat", "EGen", rat_value(data["E_gen"])))
+        out.append(("rat", "G", rat_value(data["G"])))
+        out.append(("nat", "bits", int_value(data["bits"])))
+    else:
+        raise Fail(f"no W17 field map for {ns}")
+    return out
+
+
+def render_w17(ns: str, rel: str, sha: str, data: dict) -> str:
+    lines = [f"-- Receipt `{rel}`", f"namespace Receipts.{ns}", ""]
+    for kind, name, value in w17_fields(ns, rel, sha, data):
+        if kind == "str":
+            lines.append(f'def {name} : String := "{value}"')
+        elif kind == "nat":
+            lines.append(f"def {name} : ℕ := {value}")
+        elif kind == "rat":
+            lines.append(f"def {name} : ℚ := {lean_rat(value)}")
+    lines.append("")
+    lines.append(f"end Receipts.{ns}")
+    return "\n".join(lines) + "\n"
+
+
 def generate(root: Path) -> str:
     shas = check_ledger(root)
     head = [
@@ -235,6 +320,9 @@ def generate(root: Path) -> str:
     for ns, (rel, arm) in RECEIPTS.items():
         data = load_json(root / rel)
         body.append(render_receipt(ns, rel, arm, shas[ns], data))
+    for ns, rel in W17.items():
+        data = load_json(root / rel)
+        body.append(render_w17(ns, rel, shas[ns], data))
     return "\n".join(head) + "\n" + "\n".join(body)
 
 
@@ -280,7 +368,7 @@ def cmd_write(root: Path) -> int:
 def copy_fixture(dst: Path) -> None:
     (dst / "docs/evidence/receipts/onebit").mkdir(parents=True)
     shutil.copy(REPO / LEDGER, dst / LEDGER)
-    for ns, (rel, _) in RECEIPTS.items():
+    for ns, rel in all_receipts():
         shutil.copy(REPO / rel, dst / rel)
 
 
@@ -336,10 +424,17 @@ def cmd_self_test() -> int:
         print(f"self-test: control (iii) namespace deleted -> exit {rc}")
         ok &= rc == 1
 
+        # (iv) one generated count of a W17-C receipt.
+        d = fresh("control-iv")
+        mutate(d / OUT, "def checkedPairs : ℕ := 336", "def checkedPairs : ℕ := 337")
+        rc = cmd_check(d)
+        print(f"self-test: control (iv) W17-C generated count -> exit {rc}")
+        ok &= rc == 1
+
     if not ok:
         print("self-test: a control was not red", file=sys.stderr)
         return 1
-    print("self-test: 3/3 controls red")
+    print("self-test: 4/4 controls red")
     return 0
 
 

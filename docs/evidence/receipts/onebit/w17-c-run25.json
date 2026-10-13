@@ -1,0 +1,38 @@
+{
+ "script_sha256": "43deb35cc4cf55b4553cdd1f3cfe870f48b0987f91a31fa0dc1a926e5d2cd5f3",
+ "fold_transfer_sha256": "a7351081ba5b2c98a28ee57a73d465dc1fff97583904d6880e8c4bb8a06b0519",
+ "variant": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp-nb",
+ "seed": 0,
+ "n_cal": 25,
+ "cal_chunks": [
+  0,
+  25
+ ],
+ "heldout_chunks": [
+  100,
+  140
+ ],
+ "insample_chunks": [
+  0,
+  20
+ ],
+ "n_chunks": 170,
+ "kl_heldout": 1.5753550946712493,
+ "kl_insample": 0.1402655392885208,
+ "top1_heldout": 0.390478515625,
+ "top1_insample": 0.7818359375,
+ "E_gen": 1.4350895553827285,
+ "G": 11.231234005601365,
+ "bits": 421541376,
+ "params": 357826560,
+ "captured": 168,
+ "expected_captured": 168,
+ "receipt_seed0": {
+  "path": "/home/socol/oc-tmp/w16/t3-nb-3seed.json",
+  "kl_heldout": 1.2776625394821166,
+  "kl_insample": 0.34980239868164065
+ },
+ "wall_transfer_s": 99.5356764793396,
+ "cap": "/home/socol/oc-tmp/w17/cap25",
+ "dump": "/home/socol/oc-tmp/w17/nb25.pt"
+}

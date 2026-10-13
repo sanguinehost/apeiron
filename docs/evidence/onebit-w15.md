@@ -749,6 +749,40 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
       KL ∝ `J` (`model`); the Gaussian and Wyner–Ziv rates are anchors; nonlinear predictors are outside scope; seed `0`, fp32 on
       one RTX 5080; the Python is not extracted.
 
+27. **Generalisation factors of the `-nb` gap: `G = O·T·Q` and `E_gen(N)`** (W17-C; grade `measured` for `O`, `Q`, `μ̂` and `E_gen`, `proved` for the
+    sandwich in `Perf/Generalisation.lean`; board row `onebit-w17-c-model-aeILmtZsGbJ8hZYFslWj5`). Question: of `G = KL_out/KL_in = 3.653` (seed 0), how
+    much is Hessian optimism `O` (finite-sample plus student-input shift), how much is the layer-output MSE ratio `T`, and how much is KL per unit `J`, `Q`?
+    Script `tools/onebit/gen_probe.py` sha256 `43deb35c…`; held-out fixed at chunks `[100, 140)`; receipts under `docs/evidence/receipts/onebit/`
+    (`w17-c-run25`, `-run50`, `-run100`, `-measure100`, `-fit`, sha256 prefixes `99e4200c…`, `4b7236a0…`, `f9e9a412…`, `adb3bced…`, `6fdfa890…`).
+    The `N = 100` driver reproduces the 3-seed receipt seed 0 bit-exactly (`dKL = 0.0`, bits `421541376`).
+
+    | `N` (calibration chunks) | `KL_out` | `KL_in` | `E_gen` | `G` |
+    |---|---|---|---|---|
+    | 25 | 1.5754 | 0.1403 | 1.4351 | 11.23 |
+    | 50 | 1.3496 | 0.2248 | 1.1247 | 6.003 |
+    | 100 | 1.2777 | 0.3498 | 0.9279 | 3.653 |
+
+    - `E_gen ∝ N^-α`, `α = 0.3146` (local `0.352` for 25→50, `0.278` for 50→100), prefactor `3.917`; one seed, three points.
+    - Factors at `N = 100`: `O = 1.4933`, `Q = 3.1229`, `T = 0.7833` (`T = G/(O·Q)` is derived and equals `J_cal/J_in`; the product is bookkeeping). `Q` is the largest.
+    - `O = O_fs × O_shift = 1.1461 × 1.3029`: finite-sample (teacher calibration `[0,100)` against held-out) and student-versus-teacher input shift.
+      `O_896-wide = 1.4723`, `O_down = 2.2594` (`O_fs` `1.185`, `O_shift` `1.907`; layer range `1.49–3.86`).
+    - Per kind `O` (`O_fs`, `O_shift`): `q` 1.407 (1.088, 1.293), `k` 1.469, `v` 1.477, `o` 1.637 (1.160, 1.411), `gate` 1.484 (1.149, 1.292), `up` 1.470, `down` 2.259.
+      `J_cal` share: `gate` 46.2%, `up` 42.5%, `q` 7.7%, `down` 2.7%.
+    - Sandwich `1/μ̂_max ≤ O ≤ 1/μ̂_min`: 336 tensor pairs, 0 violations. `μ̂_min` median/min: `gate` 0.048/0.014, `down` 0.007/0.001.
+    - Controls: synthetic Marchenko–Pastur (`d = 512`, `n = 5400`) `μ̂_min` 0.4811 against edge 0.4790, `O` 2.063 against `1/μ̂_min` 2.078; planted `H_out = H_cal` gives
+      `O = 1`, `μ = 1` to `1e-13`; shuffled `R` gives `O` within `[0.983, 1.004]` of the trace ratio; a mutated sandwich is rejected.
+    - Predictions: `w17-c-run100-1` confirmed. `w17-c-run25-1` refuted (predicted `E_gen ≈ 3.8`, measured `1.435`); `w17-c-run50-1` refuted (predicted `≈ 1.9`, measured `1.125`).
+      P1 (`w17-c-measure100-1`): aggregate `O ∈ [1.3, 2.0]` holds; `O_896 = 1.472` is above `[1.1, 1.33]` and `O_down = 2.259` above `[1.6, 2.09]`, both from `O_shift`; ledger verdict refuted.
+      P2 refuted: `O_down·μ̂_min` (J-weighted) `0.017` against `≥ 0.7` (falsifier `< 0.4`); `μ̂_min` of `down` is set by the 40-chunk `H_out`, so `1/μ̂_min ≈ 140` is loose.
+      P3 (`w17-c-fit-1-1`) refuted: `α = 0.315` is below `[0.5, 1]` and above the `0.3` falsifier; the `E_gen(25) ≈ 3.8` clause is refuted by the measured `1.435`.
+    - Decision: the iid Marchenko–Pastur finite-sample factor explains `O_fs = 1.15` only. `G` is not mainly calibration-size overfit: `E_gen` falls as `N^-0.31`.
+      The `J → KL` step (`Q = 3.12`, item D) and the input shift (`O_shift = 1.30`) are the larger factors; route (a)'s `f* = 0.98479` assumed KL ∝ `J` (item 26).
+    - Lean: `Perf/Generalisation.lean` (`loewner_sandwich`, `argmin_optimism`, `mp_floor_gt`, `w17_c_sandwich_verdict`; commit `2120009`) and the verdicts over
+      generated `Perf.Receipts.Onebit` constants: `w17_c_bookkeeping`, `w17_c_q_dominates`, `w17_c_o_decomposition`, `w17_c_p1_aggregate_in_band`,
+      `w17_c_p1_per_kind_refuted`, `w17_c_p2_refuted` (`tightness_Jw = Σ J_out·μ̂_min / Σ J_cal = 0.01718`), `w17_c_p3_alpha_band`, `w17_c_p3_egen_decreasing`,
+      `w17_c_p3_egen25_refuted`, `w17_c_sandwich_measured`, `w17_c_run100_bits`; all `#audit`ed, closed cone. Control: alpha bound `3/10 → 32/100` red.
+    - Trust boundary: seed `0`, single run per `N`, one RTX 5080 fp32; `H_cal` is the student-input Hessian; `k`/`v` share `q`'s `μ̂` and `up` shares `gate`'s (one stage each); `O(N)` at 25 and 50 not measured; the Python is not extracted.
+
 ## Not covered (W15d)
 
 - Constructive transfer evaluated on 0.5B only; `src/learn/ridge.rs` and `src/learn/onebit.rs` remain `f64` on CPU.
