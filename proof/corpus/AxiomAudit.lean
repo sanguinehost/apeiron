@@ -960,3 +960,9 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.CostCorrespondence.swiglu_bilinear_comp_dominance
 #audit Perf.CostCorrespondence.rmsnorm_pullback_sink_attenuation
 #audit Perf.CostCorrespondence.sink_row_trust_clipping_dominance
+#audit Perf.CostCorrespondence.swiglu_hyperbolic_noise_minimization
+#audit Perf.CostCorrespondence.coupled_schur_crosstalk_dominance
+#audit Perf.CostCorrespondence.q4k_vs_1bit_transfer_floor
+#audit Perf.CostCorrespondence.asymmetric_wiener_target_optimality
+#audit Perf.CostCorrespondence.asymmetric_distortion_penalty_strict
+#audit Perf.CostCorrespondence.w16_t0_best_arm_3seed

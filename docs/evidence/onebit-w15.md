@@ -525,6 +525,71 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
      have high stiff-direction density (`R*_sep = 3.1731` b/w on 0.5B vs `2.2530` on 8B and `1.9927` on 32B, where the
      separable floor at `1.18` b/w is already `3.78× Q4_K_M` = `0.0913` nats, below 4.5-bit `NF4`'s `4.62× Q4_K_M`).
 
+21. **Best arm over three calibration-order seeds**
+    (`had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp`, `1.178061` b/w; grade `measured` for the KL
+    and top-1 columns, `proved` for the Lean verdict over the measured constants as `model` inputs).
+    - Command (Qwen2.5-0.5B, 24 layers, 100 calibration / 40 held-out / 20 in-sample chunks, `fp32`, one GPU, under
+      `flock /tmp/opencode/gpu.lock`, wall 443.4 s total including model load):
+      `flock /tmp/opencode/gpu.lock timeout 580 /home/socol/Workspace/spinor-ttl/.venv/bin/python tools/onebit/fold_transfer.py --out /home/socol/oc-tmp/w16/t0-best-3seed.json --seeds 0,1,2 --variants had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp`.
+    - `tools/onebit/fold_transfer.py` `sha256` `ce1734018f202aa8aa6bace3aad4858cc09b2f0d31d2dc89b2397179bb112309`
+      (`--seeds`: seed `s ≠ 0` permutes the calibration chunks with `torch.randperm(n_cal, generator=Generator().manual_seed(s))`
+      and seeds `torch.manual_seed(s)`; seed `0` is the identity order; held-out and in-sample chunks never change). Receipt
+      `/home/socol/oc-tmp/w16/t0-best-3seed.json`, `sha256` `3715d9b7427dca22f450ff21583e41a5d6bc6d6ba80fdc3544a089ad5fd2b10e`
+      (keys `seeds`, `kl_heldout_stats`, `top1_heldout_stats`, `kl_insample_stats`; the top-level keys are seed 0).
+    - Results (`bits = 421,541,376`, `params = 357,826,560`, `1.178061` b/w on every seed, peak GPU `4.995 / 4.996 / 4.995` GB):
+
+      | seed | held-out KL (nats) | held-out top-1 | in-sample KL (nats) | in-sample top-1 | wall (s) |
+      |---|---|---|---|---|---|
+      | 0 | 1.2798 | 43.76% | 0.3474 | 67.81% | 105.6 |
+      | 1 | 1.3894 | 41.91% | 0.3686 | 67.02% | 131.8 |
+      | 2 | 1.3896 | 42.15% | 0.3682 | 67.07% | 189.0 |
+      | mean (min, max) | **1.3529** (1.2798, 1.3896) | **42.61%** (41.91, 43.76) | **0.3614** (0.3474, 0.3686) | — | — |
+
+      Seed `0` reproduces the earlier single run (`1.2798` nats, `43.76%`, `0.3474` nats, `67.81%`): held-out KL differs by
+      `3e-5` nats. The wall of seeds `1` and `2` includes contention from other jobs on the machine; it is not a
+      throughput figure. Seed `0` is the best of the three by `0.110` nats; seeds `1` and `2` agree to `2e-4` nats.
+    - What the three suffixes do (`tools/onebit/fold_transfer.py`):
+      - `-grow` (`use_grow`, `:839`; `:1033-1042`): the scale solve inside `fold_fit` weights output rows by `g_row`
+        (`:605`). For `gate`/`up`, `g_row` is the column energy `Σ_j W_down[j, i]²` of the following `down` (mean-normalized);
+        for `o`/`down`, `g_row` is the squared RMSNorm gain of the next consumer (`ln2` for `o`, the next layer's `ln1` or
+        the final norm for `down`), mean-normalized.
+      - `-res` (`use_res`, `:840`; `:1135-1158`): after `up` is quantized, solve for one scale `s_i ∈ [0.5, 2]` per
+        intermediate row of `P = silu(X W_gate^T) ⊙ (X W_up^T)`: `(G ∘ P_qᵀP_q + λI) s = (G ∘ P_qᵀP_0) 1 + λ 1` with
+        `G = W_downᵀ W_down` (Hadamard product `∘`) and `λ = 0.05 · mean diag(G ∘ P_qᵀP_q)`; then `Wp ← diag(s) Wp`
+        for `up`. The scales are fitted against the teacher product `P_0` on the calibration slabs, so they cost no bits in
+        the bit count above.
+      - `-qmlp` (`q_mlp_trans`, `:823`; `:1065-1096`): second plane (the same `E₈ ∪ O₈` code, fitted on the plane-1 residual, not a ±1 sign plane) on `k`, `v`, `o` (`two_plane_nm = ("k","v","o")`,
+        `q` stays 1-plane) and on the top-`416` rows of `gate` and `up` ranked by row mass `Σ_j W[i, j]²`
+        (`topk(row_mass, 416)`; `Wp[top_idx] += fold_fit(W_s[top] − Wp1[top])`); the rank-2 correction targets are
+        `("q","down")` (`:1097-1099`). The extra planes are in the `1.178061` b/w count.
+    - `Perf.CostCorrespondence` theorems added with this arm's work (`proof/corpus/Perf/CostCorrespondence.lean`, all
+      `#audit`ed in `proof/corpus/AxiomAudit.lean`, closed cone):
+      - `swiglu_hyperbolic_noise_minimization (u d s : ℝ)`, hypotheses `0 < u`, `0 < d`, `0 < s`: conclusion
+        `(su)² + (s⁻¹d)² − 2ud = (su − s⁻¹d)²`, `2ud ≤ (su)² + (s⁻¹d)²`, and equality iff `su = s⁻¹d`. Algebraic model of
+        inter-leg equalization along the invariant hyperbola `(su)(s⁻¹d) = ud`. **Not used by the arm**: no code path sets
+        `s = √(d/u)`; `-res` rescales the product `P`, not the two legs.
+      - `coupled_schur_crosstalk_dominance {a b c r2 : ℝ}`, hypotheses `0 < a`, `0 < b`, `c ≠ 0`, `0 < ab − c²`:
+        for `r2 ≠ 0`, the coupled optimum `(s₁, s₂) = (−c·r2, a·r2)/(ab − c²)` has strictly lower
+        `J = a s₁² + b s₂² + 2c s₁s₂ − 2 r2 s₂` than the decoupled choice `(0, r2/b)`; the gap is `c² r2² / (b(ab − c²))`.
+        2-fibre model of a coupled solve; `-res` solves the same kind of coupled system at size `Oi × Oi` (`G ∘ P` matrix)
+        but the theorem is not instantiated at that size, so the arm is **motivated by, not proved by**, this theorem.
+      - `asymmetric_wiener_target_optimality (p c y w : ℝ)`, hypothesis `0 < p`: with `w* = c/p` and
+        `J(v) = p v² − 2cv + y`, `J(w) − J(w*) = p (w − w*)²`, `J(w*) ≤ J(w)`, and `J(w) = J(w*) ↔ w = w*`. **Not used by the
+        arm**: the asymmetric target is the `-asym` variant (`use_asym`, `:842`, `:993-999`), which is not in this arm's name.
+      - Also uncommitted before this section and audited with it: `q4k_vs_1bit_transfer_floor` (`4.5 / 1.18 = 225/59 > 3.8`
+        and `1.18 / 4.5 < 0.27`, bytes-per-weight ratio against Q4_K_M, `norm_num`) and `asymmetric_distortion_penalty_strict`
+        (`ρ < 1`, `w₀ ≠ 0`: excess `p(1 − ρ)² w₀² > 0`).
+    - Verdict `w16_t0_best_arm_3seed` (`Perf.CostCorrespondence` §25; inputs `model`, 3-seed receipt above): (a)
+      `421541376/357826560 ≤ 1.18`; (b) mean held-out KL `(1.2798 + 1.3894 + 1.3896)/3 < 1.3777`; (c) the mean is `> 1.3529`
+      and `> 0.0197` (Q4_K_M not reached: refuted-target clause, the mean is `68.7× Q4_K_M`'s `0.0197`); (d) the seed spread
+      is `< 0.12` nats.
+    - Comparison to §20 (`…-sink-fnorm`, `1.179460` b/w, `1.3777` nats, `42.19%`, `0.3749` nats in-sample, one run =
+      seed `0`): seed `0` against seed `0` is `−0.0979` nats held-out (`1.3777 → 1.2798`), `+1.57` top-1 points, and
+      `−0.0275` nats in-sample; the 3-seed mean is `−0.0248` nats held-out and `−0.0135` nats in-sample against that
+      single run, at `−0.001399` b/w. Seeds `1` and `2` are each `+0.012` nats above the §20 seed-`0` value. The §20 arm was
+      not re-run on seeds `1` and `2`, so the arm-to-arm gap at matched seeds is measured on seed `0` only.
+    - Board row: `onebit-w16-t0-receipt-for-CEEkDLWOB0s8inHVh8q2Aa`.
+
 ## Not covered (W15d)
 
 - Constructive transfer evaluated on 0.5B only; `src/learn/ridge.rs` and `src/learn/onebit.rs` remain `f64` on CPU.
