@@ -397,6 +397,7 @@ def top(net, X, tm):
 # ---------------------------------------------------------------------------------------------------------------- stats
 def new_stats():
     return {"cnt": torch.zeros(LBN, dtype=torch.int64, device="cuda"), "dsum": torch.zeros(LBN, dtype=torch.float32, device="cuda"),
+            "orc_cnt": torch.zeros(LBN, dtype=torch.int64, device="cuda"), "orc_dsum": torch.zeros(LBN, dtype=torch.float32, device="cuda"),
             "sumlog": np.float32(0), "n_sel": 0, "side_bits": 0, "kq_list": [], "per_kind": {}}
 
 
@@ -439,19 +440,24 @@ def hist_sep(stats, La, Lb):
     stats["dsum"] += dsum
 
 
+_CEN = None
+
+
 def hist_exact(stats, lam):
-    """The rstar_stream.py element histogram (reference for the control)."""
-    cen = torch.exp2((torch.arange(LBN, device="cuda", dtype=torch.float32) + 0.5) * LBW - LB0)
+    """The rstar_stream.py element histogram (reference for the control and the oracle floor)."""
+    global _CEN
+    if _CEN is None:
+        _CEN = torch.exp2((torch.arange(LBN, device="cuda", dtype=torch.float32) + 0.5) * LBW - LB0)
     lam = lam.clamp(min=EPS)
     idx = ((torch.log2(lam) + LB0) / LBW).long().clamp(0, LBN - 1)
     stats["cnt"] += torch.bincount(idx, minlength=LBN)
     s = torch.zeros(LBN, dtype=torch.float32, device="cuda")
-    s.index_add_(0, idx, lam / cen[idx] - 1)
+    s.index_add_(0, idx, lam / _CEN[idx] - 1)
     stats["dsum"] += s
 
 
-def spectra_to_stats(stats, rows, cols, g, r0, h, c0, m):
-    """Add one tensor given its spectra: g (rows), r0 (rows), h (cols), c0 (cols), m = mean C^2. Mirrors `analyze`."""
+def spectra_to_stats(stats, rows, cols, g, r0, h, c0, m, C2=None):
+    """Add one tensor given its spectra: g (rows), r0 (rows), h (cols), c0 (cols), m = mean C^2, optional C2 = (U^T W V)^2."""
     g, h = g.clamp(min=EPS), h.clamp(min=EPS)
     r, c = r0.clamp(min=EPS), c0.clamp(min=EPS)
     sl = cols * (torch.log(g / 2) + torch.log(r)).sum() + rows * (torch.log(h) + torch.log(c)).sum() - rows * cols * torch.log(m)
@@ -459,6 +465,12 @@ def spectra_to_stats(stats, rows, cols, g, r0, h, c0, m):
     La = torch.log2((0.5 * g * r0 / m).clamp(min=EPS))
     Lb = torch.log2((h * c0).clamp(min=EPS))
     hist_sep(stats, La, Lb)
+    if C2 is not None:
+        ost = {"cnt": stats["orc_cnt"], "dsum": stats["orc_dsum"]}
+        step = max(1, (1 << 25) // cols)
+        for i in range(0, rows, step):
+            lam = (0.5 * g[i:i + step, None] * h[None, :] * C2[i:i + step]).reshape(-1)
+            hist_exact(ost, lam)
     stats["n_sel"] += rows * cols
     stats["side_bits"] += 16 * (rows + cols)
 
@@ -547,20 +559,29 @@ def analyze_layer(net, st, l, grams, dq, mode, dump):
             g, U = decomp(G, mode)
             grams["G:" + GK[kind]] = None
             del G
-            r0 = align(U, W, 0, mode)
-            del U
             if hk not in ecache:
                 ecache[hk] = decomp(Hm.clone() if uses[hk] > 1 else Hm, mode)
             h, V = ecache[hk]
+            C2 = None
+            if U is not None and V is not None:
+                with tf32(aux):
+                    UW = U.t() @ W
+                    r0 = (UW ** 2).sum(1) / cols
+                    C2 = (UW @ V) ** 2
+                del UW, U
+            else:
+                r0 = align(U, W, 0, mode)
+                del U
             c0 = align(V, W, 1, mode)
             uses[hk] -= 1
             if uses[hk] == 0:
                 grams["H:" + hk] = None
-                del Hm
+                del Hm, V
                 ecache.pop(hk, None)
         m = (W.float() ** 2).mean()
         with tm("an.hist"):
-            spectra_to_stats(st, rows, cols, g, r0, h, c0, m)
+            spectra_to_stats(st, rows, cols, g, r0, h, c0, m, C2)
+        del C2
         if dump:
             np.savez(os.path.join(dump, f"{l}.{kind}.npz"), g=g.cpu().numpy(), r0=r0.cpu().numpy(), h=h.cpu().numpy(),
                      c0=c0.cpu().numpy(), m=m.item(), rows=rows, cols=cols, k4=k4)
@@ -682,25 +703,46 @@ def aggregate(net, st, args, out_extra):
            "kl_q4_by_kind_sample": {k: float(v) for k, v in st["per_kind"].items()},
            "R_star_net": math.log(K0 / kq4_full, 4), "R_star_allin": math.log(K0 / kq4_full, 4) + side_bpw}
     cen = torch.exp2((torch.arange(LBN, dtype=torch.float32) + 0.5) * LBW - LB0)
-    ok = cnt > 0
-    cn = cnt[ok].float()
-    lb = cen[ok] * (1 + dsum[ok] / cn)
-    log2l = torch.log2(lb)
 
-    def at(th):
-        kl = float((cn * torch.clamp(lb, max=th)).sum())
-        rate = float((cn * torch.clamp(0.5 * (log2l - math.log2(th)), min=0)).sum())
-        return kl, rate
+    def bisect_hist(cnt_t, dsum_t, side_b):
+        ok = cnt_t > 0
+        cn = cnt_t[ok].float()
+        lb = cen[ok] * (1 + dsum_t[ok] / cn)
+        log2l = torch.log2(lb)
 
-    res["hist_bisection"] = {}
-    lo, hi = np.float32(math.log(float(lb.min())) - 50), np.float32(math.log(float(lb.max())))
-    for _ in range(100):
-        mid = np.float32((lo + hi) / 2)
-        lo, hi = (mid, hi) if at(float(np.exp(mid)))[0] < kq4 else (lo, mid)
-    th_q4 = float(np.exp(lo))
-    kl, rate = at(th_q4)
-    res["hist_bisection"]["q4_match"] = {"theta": th_q4, "kl_sample": kl, "rate_net_bpw": rate / n_sel,
-                                         "rate_allin_bpw": rate / n_sel + side_bpw}
+        def at(th):
+            kl = float((cn * torch.clamp(lb, max=th)).sum())
+            rate = float((cn * torch.clamp(0.5 * (log2l - math.log2(th)), min=0)).sum())
+            return kl, rate
+
+        lo, hi = np.float32(math.log(float(lb.min())) - 50), np.float32(math.log(float(lb.max())))
+        for _ in range(100):
+            mid = np.float32((lo + hi) / 2)
+            lo, hi = (mid, hi) if at(float(np.exp(mid)))[0] < kq4 else (lo, mid)
+        th_q4 = float(np.exp(lo))
+        kl, rate = at(th_q4)
+        lo_r, hi_r = np.float32(math.log(float(lb.min())) - 50), np.float32(math.log(float(lb.max())))
+        bud_118 = 1.18 * n_sel - side_b
+        for _ in range(100):
+            mid = np.float32((lo_r + hi_r) / 2)
+            lo_r, hi_r = (mid, hi_r) if at(float(np.exp(mid)))[1] > bud_118 else (lo_r, mid)
+        th_118 = float(np.exp(hi_r))
+        kl_118, _ = at(th_118)
+        return {"theta": th_q4, "kl_sample": kl, "rate_net_bpw": rate / n_sel,
+                "rate_allin_bpw": (rate + side_b) / n_sel,
+                "kl_at_1.18_sample": kl_118, "kl_at_1.18_full_est": kl_118 * scale,
+                "kl_at_1.18_over_q4": kl_118 / kq4}
+
+    res["hist_bisection"] = {"q4_match": bisect_hist(cnt, dsum, side)}
+    ocnt, odsum = st["orc_cnt"].cpu(), st["orc_dsum"].cpu()
+    if int(ocnt.sum()) == n_sel:
+        om = bisect_hist(ocnt, odsum, 0)
+        sm = res["hist_bisection"]["q4_match"]
+        om["ratio_to_sep_allin"] = om["rate_allin_bpw"] / sm["rate_allin_bpw"]
+        om["ratio_to_sep_net"] = om["rate_net_bpw"] / sm["rate_net_bpw"]
+        om["diff_from_sep_allin_bpw"] = sm["rate_allin_bpw"] - om["rate_allin_bpw"]
+        om["diff_from_sep_net_bpw"] = sm["rate_net_bpw"] - om["rate_net_bpw"]
+        res["hist_bisection"]["oracle_q4_match"] = om
     res.update(out_extra)
     res["script_sha256"] = hashlib.sha256(open(os.path.abspath(__file__), "rb").read()).hexdigest()
     return res
@@ -792,7 +834,10 @@ def main():
                                     "gpu_peak_gib": torch.cuda.max_memory_allocated() / 2**30})
     json.dump(res, open(args.out, "w"), indent=1)
     log(json.dumps({k: res[k] for k in ("K0_over_N", "kl_q4_sample", "R_star_allin", "wall_s")}),
-        "q4_match allin:", res["hist_bisection"]["q4_match"]["rate_allin_bpw"])
+        "q4_match allin:", res["hist_bisection"]["q4_match"]["rate_allin_bpw"],
+        *(["oracle_q4_match:", res["hist_bisection"]["oracle_q4_match"]["rate_allin_bpw"],
+           "ratio:", res["hist_bisection"]["oracle_q4_match"]["ratio_to_sep_allin"]]
+          if "oracle_q4_match" in res["hist_bisection"] else []))
     log("phases", {k: round(v, 1) for k, v in tm.t.items()})
 
 
