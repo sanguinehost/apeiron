@@ -806,6 +806,11 @@ Stop conditions: C stops at the first sandwich violation; B stops after five ext
   and indexed in `docs/evidence/ledger.jsonl` (rows 76–105). `python3 tools/rooting/index_check.py --check`: digests `105/105`, `E5 = 0`, `E1 = 28`
   (pre-existing, not receipts). Control: one digit edited in `t0-best-3seed.json` gives `E5 stale sha256`, exit 1; restored, `E5` gone.
   Not copied: `2026-10-11-ray.json` and `2026-10-11-kfac.json` (cited at `CostCorrespondence.lean:410,428`); A3 decides.
+- C-lean (`onebit-w17-c-model-aeILmtZsGbJ8hZYFslWj5`): `Perf/Generalisation.lean` proves `J_nonneg`, `J_mono`, `J_smul`, `loewner_sandwich`,
+  `argmin_optimism` (extra premise `H ≽ 0`, needed for the sign of `J_Ĥ(R̂)`), `mp_floor_gt` (`(1−√(19/200))² > 47/100`, `1/(1−√(19/200))² < 21/10`) and the
+  `ffn_down` verdict `w17_c_sandwich_verdict`. Gate on the live tree: `lake build Perf.Generalisation AxiomAudit` exit 0 (9176 jobs), seven
+  `#audit`s in `[propext, Classical.choice, Quot.sound]`. Controls: `47/100 → 49/100` red (`linarith failed`), swapped PSD premises red (type mismatch).
+  The Marchenko–Pastur edge is an `anchor` input; no random-matrix statement is proved. Measured `O`, `Q`, `μ̂`, `E_gen(N)` are the C-probe task.
 
 # Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
 

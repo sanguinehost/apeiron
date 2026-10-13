@@ -68,6 +68,7 @@ import Perf.Overlap
 import Perf.FaceTyped
 import Perf.FaceTypedE8
 import Perf.SideInfo
+import Perf.Generalisation
 import Learn.GramExact
 import Numeric.SigmaDeltaRefinement
 
@@ -1002,3 +1003,10 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.SideInfo.w16_t6_route_b_open
 #audit Perf.SideInfo.w16_t6_route_b_closed_linear
 #audit Perf.SideInfo.w16_t6_route_a_closed
+#audit Perf.Generalisation.J_nonneg
+#audit Perf.Generalisation.J_mono
+#audit Perf.Generalisation.J_smul
+#audit Perf.Generalisation.loewner_sandwich
+#audit Perf.Generalisation.argmin_optimism
+#audit Perf.Generalisation.mp_floor_gt
+#audit Perf.Generalisation.w17_c_sandwich_verdict
