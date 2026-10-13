@@ -617,6 +617,102 @@ the 21 `ffn_down` tensors of blocks 3–23 (P1); P2 is all 168 linear tensors on
   weights go through training: `LEARN-HATTN` T4 and the fold training path.
 - Controls: f16 against itself KLD 0; our `Q1_0` writer is byte-identical to llama-quantize's on P1.
 
+## W16 — face-typed quantizer (row `onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1`)
+
+Owner direction (2026-10-14): the measured wins of this programme are face changes of one
+subcomponent (the Hadamard rotation on the quantizer basis, the `E₈ ∪ O₈` lattice); the next step is
+an architectural one, not a further shave of the W15d pipeline. Every component and the cost model
+are proved in Lean.
+
+### Intent
+
+**Problem.** The W15d coder (`tools/onebit/fold_transfer.py`, best arm
+`had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp`, 1.178061 b/w, held-out
+1.2798 nats / 43.76% top-1; receipt `docs/evidence/onebit-w15.md` §21, written by T0) applies one quantizer to every
+tensor: an elliptic rotation (`H₁₂₈/√128`) on the input side and parabolic feedback (GPTQ/ICM, unit
+triangular). Every place two quantized quantities meet is a 2×2 form whose discriminant fixes its
+face (`face_is_forced`, `../sanguine/proof/Apeiron/Decider/Face.lean:274`), and each face has its
+own decoupling basis: rotation (`σ < 0`), shear (`σ = 0`), idempotent channels (`σ > 0`). Where the
+code is fitted in a basis of the wrong face, the two quantities leak error into each other
+(crosstalk) at zero gain.
+
+**Junction faces of a Qwen2 block.**
+
+| junction | 2×2 form | discriminant | grade | decoupling basis | W15d fits it in |
+|---|---|---|---|---|---|
+| pair of input columns `(i, j)` under `H = E[xxᵀ]` | `[[Hᵢᵢ, Hᵢⱼ], [Hᵢⱼ, Hⱼⱼ]]` | `≤ 0` (`Perf.Iq1s.pair_discriminant_nonpos`) | proved | rotation; shear on the rank-deficient part | rotation + feedback: **matched** |
+| two-layer score form `q·k` | Fisher score form | `≤ 0` (`Perf.CostCorrespondence.score_form_disc_nonpos`) | proved | rotation | float scores: **matched** (sign scores refuted, `docs/evidence/hattn-qk-onebit.md:49-56`) |
+| 2-plane code `r₁S₁ + r₂S₂` per weight | `S₁(r₁ + r₂j)`, `j = S₁S₂`, `j² = +1` | `> 0` | to prove (T1) | null basis `a = r₁ + r₂`, `b = r₁ − r₂`: each weight is `±a` or `±b` | plane 1, then plane 2 on its residual, then Gauss–Seidel backfit: **parabolic, mismatched** |
+| `up ↔ down` through `silu(g)·u` | product `u_i d_i` | `> 0` (product form) | to prove (T1); gauge `rebalance_preserves_product` proved | diagonal boost `s_i = √(‖d_i‖/‖u_i‖)` (`swiglu_hyperbolic_noise_minimization`) | ungauged: **mismatched** |
+| `v ↔ o` (attention linear in V) | product per head dim, shared over 7 q heads | `> 0` | to prove (T1) | diagonal boost per kv head dim | ungauged: **mismatched** |
+| `gate` | `silu` not homogeneous | none | — | none | — |
+
+The input side and the scores are on the correct face. The three hyperbolic junctions are fitted on
+the parabolic face or not at all; they hold the bits above 1.0 b/w (2-plane k, v, o × 24 and the
+top-416 gate/up rows: `fold_transfer.py` `-qmlp`, `-skew`) and the two largest K-FAC shares (up
+0.00398, down 0.00427 of Q4_K_M's 0.015675, `docs/evidence/onebit-w15.md:100-101`).
+
+**Change.** A face-typed quantizer: each junction is coded in its own face's decoupling basis.
+1. 2-plane tensors: one joint pass over the 4-level alphabet `{±a, ±b}` per row group, with `a`
+   and `b` fitted per channel; stored as `r₁ = (a+b)/2`, `r₂ = (a−b)/2`, `S₁`, `S₂`. Same bits,
+   same decoder.
+2. Hyperbolic junctions: the diagonal boost is applied before quantization and folded back after,
+   exact in real arithmetic (zero bits); it changes the result through the non-equivariant parts of
+   the quantizer (isotropic damping, the equal-norm `E₈` codebook, top-row selection, sink clipping).
+3. Input side: unchanged (already on its face).
+
+**Success.** Held-out KL below 1.2798 nats at ≤ 1.18 b/w on Qwen2.5-0.5B, same calibration and
+held-out chunks, mean over 3 calibration-order seeds with spread; then the next junction on top.
+Q4_K_M parity (0.0197 nats, 91.37% top-1) is the programme target; the per-wave gate is strict
+improvement on the face-typed path.
+
+**Rejected.** Further tuning of W15d constants (incremental). A hyperbolic squeeze on the input
+side: refuted (`precond_damping_distortion`, `hpre` 1.8843) and predicted by the `≤ 0` input pair
+discriminant. Sign-quantized scores: refuted, `≤ 0` score form.
+
+**Non-goals.** A new decoder or storage format; training; models other than Qwen2.5-0.5B before
+the 0.5B gate is met.
+
+**Trust boundary.** The Lean rows hold over ℝ; the transfer runs in `fp32` on the RTX 5080 and is
+`measured`; the Python transfer is not extracted.
+
+### Specification
+
+| statement (Lean, `proof/corpus/Perf/FaceTyped.lean`) | content |
+|---|---|
+| `two_plane_split_complex` | for `s₁, s₂ ∈ {±1}`: `r₁s₁ + r₂s₂ = s₁ · (r₁ + r₂ j)` with `j = s₁s₂`, `j² = 1` |
+| `two_plane_null_channel` | `r₁s₁ + r₂s₂ ∈ {±(r₁+r₂), ±(r₁−r₂)}`, with the channel fixed by `j` |
+| `null_basis_rate_eq` | `(s₁, s₂) ↦ (s₁, j)` is a bijection on `{±1}²`: the null-basis code is the 2-plane code at equal bits |
+| `null_basis_diag_cross_zero` | in `Σ_{p,q} H_pq w_p w_q` with `w_p ∈ {±a, ±b}`, every `a·b` term has `p ≠ q`: the diagonal of `H` couples no channels |
+| `bilinear_junction_hyperbolic` | the product form `xy` has discriminant `> 0`; its gauge `(x, y) ↦ (sx, y/s)` preserves `xy` (links `rebalance_hyperbolic`, `rebalance_preserves_product`) |
+| per-wave verdicts | measured constants as `model` inputs, one `decide`/`norm_num` theorem per registered clause, holds or refuted |
+
+Audits are added to `proof/corpus/AxiomAudit.lean` by the lead at install (closed cone). Control per
+statement: in a copy under `/home/socol/oc-tmp/`, `j² = −1` in place of `j² = 1` (or one changed
+measured constant) turns the build red.
+
+Measurement: `tools/onebit/fold_transfer.py` (torch venv
+`/home/socol/Workspace/spinor-ttl/.venv/bin/python`), calibration chunks 0–99 and held-out chunks
+100–139 of `/home/socol/oc-tmp/seal/calib-c4.txt` (512 tokens each), RTX 5080, ≤ 600 s per run, one
+GPU lane at a time, every run registered with `python3 .claude/hooks/derivation_gate.py predict`.
+Results go into `docs/evidence/onebit-w15.md` as numbered sections with the command, script sha256,
+receipt path and Lean declaration names.
+
+### Plan
+
+| wave | task | files (owner) | gate | control |
+|---|---|---|---|---|
+| W16a | T0 receipt for the W15d best arm | `docs/evidence/onebit-w15.md`, `proof/corpus/Perf/CostCorrespondence.lean`, `proof/corpus/AxiomAudit.lean` (Sonnet) | `fold_transfer.py --variants had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp` reproduces 1.2798 at script sha256 `7f87fcc9…`; `cd proof/corpus && lake build Perf.CostCorrespondence AxiomAudit` | changed measured constant red |
+| W16a | T1 face-typed Lean | `proof/corpus/Perf/FaceTyped.lean` (Sonnet) | `cd proof/corpus && lake build Perf.FaceTyped` | `j² = −1` red |
+| W16a | T2 junction probe | `tools/onebit/face_probe.py` (Haiku) | per tensor on `/home/socol/oc-tmp/best_arm.pt`: `J = tr(E H Eᵀ)` sequential+backfit vs joint null-basis on the 2-plane tensors; diagonal vs off-diagonal share of the plane cross term; junction norm imbalance `‖d_i‖/‖u_i‖`, `‖o_·i‖/‖v_i·‖` | exact synthetic 2-plane matrix: both fits `J = 0` |
+| W16b | T3 `-nb` null-basis 2-plane arm | `tools/onebit/fold_transfer.py` (Sonnet; after T0 commits it) | held-out KL `< 1.2798` at `≤ 1.18` b/w, 3 seeds | `a = b` forced reproduces the 1-plane arm |
+| W16c | T4 `-hjunc` hyperbolic junction gauges (up/down, v/o) and `-asym` | `tools/onebit/fold_transfer.py` (after T3) | held-out KL below the W16b arm | `s = 1` reproduces the W16b arm |
+| W16c | T5 per-wave verdicts | `proof/corpus/Perf/FaceTyped.lean` (after T1) | `lake build Perf.FaceTyped AxiomAudit` | changed constant red |
+
+T0, T1 and T2 are file-disjoint; T0 and T2 share the GPU and serialize on it. W16b opens when T0 is
+committed and T2 reports joint null-basis `J` below sequential+backfit `J` on the 2-plane tensors; W16c opens after W16b's
+gate.
+
 # Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
 
 Owner go (2026-10-09): open the fold-training and hyperbolic-attention lane, aiming at attention
