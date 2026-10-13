@@ -1,0 +1,126 @@
+{
+ "script_sha256": "976c19d344da63ccfc70423de7eed1e9659e84b04b7a0d67437b6ae06eddd051",
+ "args": {
+  "out": "/home/socol/oc-tmp/escalation/2026-10-12-fold-transfer-attn-bscale.json",
+  "variants": "had-fold-2plane-attn-backfit,had-fold-2plane-attn-bscale",
+  "controls": true,
+  "layers": 24,
+  "iters": 2,
+  "ridge": 0.001,
+  "ridge_w0": 0.01,
+  "ridge_w0_gqa": 0.03,
+  "quant_ridge": 0.005,
+  "quant_damp": 0.02,
+  "zellner_gamma": 0.85,
+  "corr_gamma": 0.75,
+  "ridge_intra": 0.045,
+  "ridge_inter": 0.025,
+  "inter_gamma": 1.0,
+  "inter_gamma_in": 1.0,
+  "block_alpha": 1.0,
+  "dtype": "fp32",
+  "n_cal": 100,
+  "n_eval": 40,
+  "n_in": 20,
+  "slab": 10,
+  "verbose": false
+ },
+ "n_tokens": 87466,
+ "n_chunks": 170,
+ "cal_chunks": [
+  0,
+  100
+ ],
+ "eval_chunks": [
+  100,
+  140
+ ],
+ "insample_chunks": [
+  0,
+  20
+ ],
+ "gpu": "NVIDIA GeForce RTX 5080",
+ "controls": {
+  "c1_gptq_vec_vs_naive_numpy_maxabs": 2.220446049250313e-16,
+  "c2_identity_gram_equals_rtn_maxabs": 0.0,
+  "c3_UtU_h_minus_I_maxabs": 3.774758283725532e-15,
+  "c4_J_gptq_cstep_rstep": [
+   70705668.61553544,
+   53544980.817152336,
+   52910408.30066104
+  ],
+  "c4_perturbations_below_minimum_c_r": [
+   0,
+   0
+  ],
+  "c5_fold_solve_recovery_maxabs": 3.75788289375123e-11,
+  "c6_forward_vs_hf_maxabs_logp": 0.0002079010009765625,
+  "c6_forward_vs_hf_KL": -9.94614057781007e-10,
+  "c7_gram_blk5_down_rel_frob_vs_file": 5.709303351512809e-07,
+  "c7_gram_trace_ratio": 1.0000000224500356,
+  "c8_rtn_vs_numpy_maxabs": 0.0,
+  "c9_fwht128_involution_fp32_maxabs": 4.76837158203125e-07,
+  "c9_had_gram_quadratic_rel_diff_fp32": 9.149026200523782e-08,
+  "c10_orthogonal_corrector_rel_err_fp32": 1.8279834655239577e-07,
+  "c11_two_component_telescoping_rel_err_fp32": 6.456361916207243e-07,
+  "c12_act_order_recompose_maxabs_fp32": 0.0,
+  "c12_act_order_j_ratio_fp32": 0.9715592823036682,
+  "c13_wscale_recompose_maxabs_fp32": 0.0,
+  "c13_wscale_vs_act_j_ratio_fp32": 0.9869534425847681,
+  "c14_hier_scale_rel_frob_fp32": 0.00043478296720422804,
+  "c14_2plane_hier_vs_1plane_f16_j_ratio_fp32": 0.3195204768316495,
+  "c15_dstep_j_ratio_f64": 0.7347823763706338,
+  "c15_dstep_perturbations_below_min": 0,
+  "c15_2plane_backfit_j_ratio_fp32": 0.9147634637329959
+ },
+ "variants": {
+  "had-fold-2plane-attn-backfit": {
+   "bits": 422142720,
+   "params": 357826560,
+   "bits_sign": 401866752,
+   "bits_r": 15401472,
+   "bits_c": 2662656,
+   "bits_d": 0,
+   "bits_corr": 2211840,
+   "bpw_linears": 1.1797411572802199,
+   "kl_heldout": 1.8580291271209717,
+   "top1_heldout": 0.362158203125,
+   "kl_insample": 0.5929453730583191,
+   "top1_insample": 0.60341796875,
+   "wall_transfer_s": 540.1967511177063,
+   "timings": {
+    "gram": 152.0465292930603,
+    "solve": 3.925907850265503,
+    "gptq": 0.0,
+    "refit": 373.38612127304077,
+    "fwd": 10.267353534698486
+   },
+   "peak_gpu_gb": 0.2164459228515625
+  },
+  "had-fold-2plane-attn-bscale": {
+   "bits": 422042112,
+   "params": 357826560,
+   "bits_sign": 401866752,
+   "bits_r": 15401472,
+   "bits_c": 1999104,
+   "bits_d": 1667328,
+   "bits_corr": 1107456,
+   "bpw_linears": 1.1794599931318681,
+   "kl_heldout": 1.858125340938568,
+   "top1_heldout": 0.356201171875,
+   "kl_insample": 0.5956151425838471,
+   "top1_insample": 0.60146484375,
+   "wall_transfer_s": 168.0927107334137,
+   "timings": {
+    "gram": 38.08130693435669,
+    "solve": 0.7697577476501465,
+    "gptq": 0.0,
+    "refit": 123.20392441749573,
+    "fwd": 5.627116680145264
+   },
+   "peak_gpu_gb": 1.2654051780700684
+  }
+ },
+ "linear_params": 357826560,
+ "wall_total_s": 788.7071132659912
+}

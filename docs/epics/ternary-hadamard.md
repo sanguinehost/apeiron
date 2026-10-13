@@ -800,6 +800,13 @@ theorems and `norm_num` verdicts over hand-typed literals). Verdict: `/home/soco
 
 Stop conditions: C stops at the first sandwich violation; B stops after five extraction cycles.
 
+### W17 results
+
+- A1 (`onebit-w17-a-receipt-EJG21b4JnOIzadMIc92CZd`): 30 receipts (8 W16, 22 W15) committed byte-for-byte under `docs/evidence/receipts/onebit/`
+  and indexed in `docs/evidence/ledger.jsonl` (rows 76–105). `python3 tools/rooting/index_check.py --check`: digests `105/105`, `E5 = 0`, `E1 = 28`
+  (pre-existing, not receipts). Control: one digit edited in `t0-best-3seed.json` gives `E5 stale sha256`, exit 1; restored, `E5` gone.
+  Not copied: `2026-10-11-ray.json` and `2026-10-11-kfac.json` (cited at `CostCorrespondence.lean:410,428`); A3 decides.
+
 # Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
 
 Owner go (2026-10-09): open the fold-training and hyperbolic-attention lane, aiming at attention

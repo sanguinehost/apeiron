@@ -1,0 +1,99 @@
+{
+ "script_sha256": "8202d98ebe03d45bfc35132d1c571db39c8afff70772784f50db6ae941ed366f",
+ "args": {
+  "out": "/home/socol/oc-tmp/escalation/2026-10-12-fold-transfer-attn-hier.json",
+  "variants": "had-fold-2plane-attn-hier",
+  "controls": true,
+  "layers": 24,
+  "iters": 2,
+  "ridge": 0.001,
+  "ridge_w0": 0.01,
+  "ridge_w0_gqa": 0.03,
+  "quant_ridge": 0.005,
+  "quant_damp": 0.02,
+  "zellner_gamma": 0.85,
+  "corr_gamma": 0.75,
+  "ridge_intra": 0.045,
+  "ridge_inter": 0.025,
+  "inter_gamma": 1.0,
+  "inter_gamma_in": 1.0,
+  "block_alpha": 1.0,
+  "dtype": "fp32",
+  "n_cal": 100,
+  "n_eval": 40,
+  "n_in": 20,
+  "slab": 10,
+  "verbose": false
+ },
+ "n_tokens": 87466,
+ "n_chunks": 170,
+ "cal_chunks": [
+  0,
+  100
+ ],
+ "eval_chunks": [
+  100,
+  140
+ ],
+ "insample_chunks": [
+  0,
+  20
+ ],
+ "gpu": "NVIDIA GeForce RTX 5080",
+ "controls": {
+  "c1_gptq_vec_vs_naive_numpy_maxabs": 1.1102230246251565e-16,
+  "c2_identity_gram_equals_rtn_maxabs": 1.1102230246251565e-16,
+  "c3_UtU_h_minus_I_maxabs": 2.6645352591003757e-15,
+  "c4_J_gptq_cstep_rstep": [
+   70705668.61553542,
+   53544980.817152336,
+   52910408.30066104
+  ],
+  "c4_perturbations_below_minimum_c_r": [
+   0,
+   0
+  ],
+  "c5_fold_solve_recovery_maxabs": 3.757127942094485e-11,
+  "c6_forward_vs_hf_maxabs_logp": 0.0001773834228515625,
+  "c6_forward_vs_hf_KL": -1.568707164167904e-09,
+  "c7_gram_blk5_down_rel_frob_vs_file": 6.233840968359137e-07,
+  "c7_gram_trace_ratio": 0.9999998981485407,
+  "c8_rtn_vs_numpy_maxabs": 0.0,
+  "c9_fwht128_involution_fp32_maxabs": 4.76837158203125e-07,
+  "c9_had_gram_quadratic_rel_diff_fp32": 9.149026200523782e-08,
+  "c10_orthogonal_corrector_rel_err_fp32": 4.5699582461194886e-08,
+  "c11_two_component_telescoping_rel_err_fp32": 7.650085080967983e-07,
+  "c12_act_order_recompose_maxabs_fp32": 0.0,
+  "c12_act_order_j_ratio_fp32": 0.9715592823036682,
+  "c13_wscale_recompose_maxabs_fp32": 0.0,
+  "c13_wscale_vs_act_j_ratio_fp32": 0.9869534425847681,
+  "c14_hier_scale_rel_frob_fp32": 0.00043477644794620574,
+  "c14_2plane_hier_vs_1plane_f16_j_ratio_fp32": 0.3195204195064838
+ },
+ "variants": {
+  "had-fold-2plane-attn-hier": {
+   "bits": 422142720,
+   "params": 357826560,
+   "bits_sign": 401866752,
+   "bits_r": 15401472,
+   "bits_c": 2662656,
+   "bits_corr": 2211840,
+   "bpw_linears": 1.1797411572802199,
+   "kl_heldout": 1.8666969001293183,
+   "top1_heldout": 0.36181640625,
+   "kl_insample": 0.5814476788043976,
+   "top1_insample": 0.6052734375,
+   "wall_transfer_s": 84.06287670135498,
+   "timings": {
+    "gram": 15.386008977890015,
+    "solve": 0.3152616024017334,
+    "gptq": 0.0,
+    "refit": 65.1799988746643,
+    "fwd": 3.169753313064575
+   },
+   "peak_gpu_gb": 6.141459941864014
+  }
+ },
+ "linear_params": 357826560,
+ "wall_total_s": 96.67057657241821
+}
