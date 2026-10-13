@@ -146,8 +146,12 @@ def _markdown_rows(
         row_text = " ".join(cells)
         if not row_text.strip(" |"):
             continue
-        ids = _dedupe(PLAN_ID_IN_CODE.findall(row_text))
         task_cell = cells[task_at] if task_at < len(cells) else ""
+        # Aliases come from the id cell only: an id backticked elsewhere in the row is a mention
+        # of another row, and as an alias it inherited this row's state.
+        ids = _dedupe(PLAN_ID_IN_CODE.findall(task_cell)) or _dedupe(
+            PLAN_ID_IN_CODE.findall(row_text)
+        )[:1]
         if ids:
             row_id = ids[0]
             also = ids[1:]

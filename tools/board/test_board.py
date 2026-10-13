@@ -312,6 +312,18 @@ class PlanParseTests(unittest.TestCase):
         self.assertTrue(by_id["FIX-BOARD-1"]["closed"])
         self.assertFalse(by_id["FIX-PIPE-1"]["closed"])
 
+    def test_an_id_mentioned_outside_the_id_cell_is_not_an_alias(self) -> None:
+        """A closed row naming `FIX-LIVE-1` in its scope made a closed alias row
+        that shadowed the real open row (LEARN-HATTN, REL-APEIRON-CUT)."""
+        text = (
+            "| task | scope | state |\n|---|---|---|\n"
+            "| `FIX-DONE-2` | supersedes part of `FIX-LIVE-1` | **done** |\n"
+            "| `FIX-LIVE-1` | s | open |\n"
+        )
+        rows = board.parse_markdown_plan(text, "docs/plan.md")
+        self.assertEqual([r["id"] for r in rows], ["FIX-DONE-2", "FIX-LIVE-1"])
+        self.assertFalse(rows[1]["closed"])
+
     def test_a_resume_queue_row_is_parsed_and_non_closed(self) -> None:
         """A table headed `task | session | state | note` is a plan table too."""
         text = (
