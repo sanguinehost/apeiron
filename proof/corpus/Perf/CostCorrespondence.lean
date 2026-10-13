@@ -1318,5 +1318,22 @@ theorem w16_t0_best_arm_3seed :
     (1.3896 : ℝ) - 1.2798 < 0.12 := by
   refine ⟨by norm_num, by norm_num, by norm_num, by norm_num, by norm_num⟩
 
+/-! ## 26 · W16 T0b receipt: matched-seed baseline for the best W15d arm -/
+/-- **Verdict: matched-seed comparison of `…-sink-fnorm` (`1.179460` b/w) against
+`…-sink-fnorm-grow-res-qmlp` (`1.178061` b/w) (`w16_t0b_matched_seed_baseline`).** `model` inputs from
+`tools/onebit/fold_transfer.py --seeds 0,1,2` (receipts `~/w16/t0b-sinkfnorm-3seed.json`,
+`~/w16/t0-best-3seed.json`): held-out KL of the `…-sink-fnorm` arm per seed `1.3777, 1.3705, 1.4383`
+(mean `1.3955`); of the best arm `1.2798, 1.3894, 1.3896` (mean `1.3529`). Clauses: (a) the paired mean difference
+(best minus base) is negative; (b) the paired difference is positive on seed `1` (the gain is not uniform over seeds);
+(c) the base arm's own seed spread exceeds `0.06` nats, above the best arm's expected-gain scale of `0.015`;
+(d) both means stay above Q4_K_M's `0.0197` nats. -/
+theorem w16_t0b_matched_seed_baseline :
+    ((1.2798 : ℝ) - 1.3777 + (1.3894 - 1.3705) + (1.3896 - 1.4383)) / 3 < 0 ∧
+    (1.3894 : ℝ) - 1.3705 > 0 ∧
+    (1.4383 : ℝ) - 1.3705 > 0.06 ∧ (1.4383 : ℝ) - 1.3705 < 0.07 ∧
+    ((1.3777 : ℝ) + 1.3705 + 1.4383) / 3 > 0.0197 ∧
+    ((1.2798 : ℝ) + 1.3894 + 1.3896) / 3 > 0.0197 := by
+  refine ⟨by norm_num, by norm_num, by norm_num, by norm_num, by norm_num, by norm_num⟩
+
 end CostCorrespondence
 end Perf
