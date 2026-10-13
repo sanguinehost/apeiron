@@ -742,12 +742,6 @@ Evidence: `docs/evidence/onebit-w15.md` item 25. Board row: `onebit-w16-t3-nb-nu
   reproduce on the current script (`1.389386 / 1.389587`).
 - Next: W16c (T4), hyperbolic junction gauges on up/down and v/o, gated against the `-nb` arm per seed.
 
-# Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
-
-Owner go (2026-10-09): open the fold-training and hyperbolic-attention lane, aiming at attention
-that costs O(1) or O(log n) in context length, or is otherwise cheaper than softmax, for
-training and finetuning. It must stay compatible with existing models.
-
 ### W16c result (T6 junction side information)
 
 Evidence: `docs/evidence/onebit-w15.md` item 26. Board row: `onebit-w16-t6-cross-side-o9JggmT2wCrNW9sHFePAF`.
@@ -761,6 +755,56 @@ Evidence: `docs/evidence/onebit-w15.md` item 26. Board row: `onebit-w16-t6-cross
 - `gate` + `up` hold `88.7%` of the residual `J`; `v` + `o` hold `0.47%`.
 - Routing: the sorted-key lookup is `⌈log₂(m+1)⌉` comparisons (`Perf.SideInfo.lowerBound_count_le`); measured maxima equal the bound.
 - Next: W16c T4 (`-hjunc`), zero-rate gauge. Its `up`/`down` pair covers `45%` of `J`; its `v`/`o` pair covers `0.47%`.
+
+## W17 — cost-model foundation (Lean enforces the model that drives decisions)
+
+Owner go (2026-10-14): "focus on that shit first" after the gap analysis (Lean held textbook lemmas, scalar sign-of-effect
+theorems and `norm_num` verdicts over hand-typed literals). Verdict: `/home/socol/oc-tmp/escalation/2026-10-14-w17-foundation.md`
+(Opus, brief `/home/socol/oc-tmp/lanes/w17/FOUNDATION-brief.md`). Read first: `Perf/CostCorrespondence.lean`, `tools/onebit/fold_transfer.py`,
+`docs/evidence/onebit-w15.md` items 20 and 26.
+
+### Intent
+
+- Gap measured by the `-nb` receipt `t3-nb-3seed.json`: held-out KL `1.29564`, in-sample `0.35064`, `G = 3.695`, `E_gen = 0.945` nats (`72.9%`).
+  `G` has no model in Lean; the `J` → KL step assumes small perturbations at `1.28` nats; verdict constants are literals
+  (`w15_four_factor_05b_decomposition` carries the sink-fnorm values `1.8580/0.5929` against evidence item 20's `1.3777/0.3749`);
+  the bit count `421541376` has no Lean function and omits the `qmlp` gate/up row index (`fold_transfer.py:1241-1248`, `48·log₂ C(4864,416) = 98106` bits, `1.17833` b/w).
+- Success: each item closes on its gate and control below, and each retires one hand-typed or assumed quantity from the decision path.
+- Non-goals: a new quantiser arm; rooting `src/learn/onebit.rs` (holds only the Q1_0 arms, not the active arm).
+
+### Spec
+
+- Subsumed / lineage: no prior generalisation model in `../sanguine`, `../sanguine-ref` or `proof/corpus` (`rg --files -g '*Generali*' -g '*Wishart*' -g '*Marchenko*'`
+  over `~/Workspace/{apeiron,sanguine,sanguine-ref,lrw.com}`; absence authorises the new module). Marchenko–Pastur (1967) edges and Bai–Yin (1993) enter as `anchor` inputs, never as theorems.
+- C (`Perf/Generalisation.lean`, `proved`): Loewner sandwich `λ·H ≤ Ĥ ≤ Λ·H ⟹ λ·J_H ≤ J_Ĥ ≤ Λ·J_H`; `argmin_optimism`: `J_H(R̂)/J_Ĥ(R̂) ≤ 1/λ`
+  and `J_H(R̂) ≤ (Λ/λ)·min_C J_H` for any finite code set. Measured `O` (Hessian optimism), `T` (layer-output MSE out/in over `O`), `Q` (KL per `J`, out/in),
+  `μ̂_min/μ̂_max` of `Ĥ_cal v = μ Ĥ_out v`, per tensor, 3 seeds; calibration scaling at `{25, 50, 100}` chunks. `G = O·T·Q` is bookkeeping, labelled so.
+  Predictions: P1 iid-MP aggregate `O ∈ [1.3, 2.0]` (refuted above `2.2` or below `1.15`); P2 `O_down ≥ 0.7/μ̂_min`; P3 `E_gen ∝ N^-α`, `α ∈ [0.5, 1]` (refuted below `0.3`).
+  A sandwich violation is an instrument bug.
+- D (`proved`, finite vocabulary): `KL(p‖q) = ½ Var_{p_ξ}(δ)` for `q = softmax(z+δ)`, some `ξ ∈ (0,1)`; Hoeffding range bound `KL ≤ range(δ)²/8`. `kl_eval` computes `KL(teacher‖student)`, so the identity applies. Tilt ratio measured at seed 0.
+- A: receipts copied byte-for-byte to `docs/evidence/receipts/onebit/<prediction-id>.json`, indexed in `docs/evidence/ledger.jsonl` (`index_check.py` E1/E5);
+  `tools/onebit/receipt_lean.py` emits `proof/corpus/Perf/Receipts/Onebit.lean` (per-seed values as exact ℚ from the JSON decimal text, bit components as ℕ, means computed in Lean);
+  `--check` regenerates and diffs; verdicts cite `Receipts.<id>`.
+- B: `src/learn/onebit_bits.rs` (config, per-component bit count including the row index), rooted in `proof/extract/lib.rs`, refined in `Perf/BitsRefine.lean` for all configs by loop invariant, then evaluated at Qwen2.5-0.5B: sign `400490496`, r `15347712`, c `2128896`, d `1775616`, corr `1798656`, index `≥ 98106`.
+  Python → Rust is a receipt equality (`tested`), not a refinement; no packed format exists.
+- Trust boundary after W17: the estimator in `fold_transfer.py` (Gram, GPTQ/E8-ICM, ridge, fnorm, `kl_eval`), torch fp32, cuBLAS/cuSOLVER on the proprietary driver, the data loader, the receipt writer. Grade `tested-by-control, unextracted`.
+
+### Plan
+
+| task | board row | owns | gate | control | order |
+|---|---|---|---|---|---|
+| A | `onebit-w17-a-receipt-EJG21b4JnOIzadMIc92CZd` | `tools/onebit/receipt_lean.py`, `docs/evidence/receipts/onebit/`, `Perf/Receipts/Onebit.lean` (then `CostCorrespondence.lean` rebind) | `index_check.py --check`; `receipt_lean.py --check`; `lake build` | edit one digit in a receipt → E5 red; edit a generated constant → `--check` red; stale `w15_four_factor_05b_decomposition` red until rebound | parallel with C |
+| C | `onebit-w17-c-model-aeILmtZsGbJ8hZYFslWj5` | `Perf/Generalisation.lean`, `tools/onebit/fold_transfer.py` (instrument only), `docs/evidence/onebit-w15.md` | `lake build Perf.Generalisation` closed cone; `O/T/Q` and `E_gen(N)` measured, P1–P3 each confirmed or refuted | changed λ constant → verdict red; shuffled `Ĥ` split → sandwich still holds | hardest, first |
+| D | `onebit-w17-d-j-to-kl-FODqnwdkkWselp984dWMO8` | `Perf/Generalisation.lean`, `fold_transfer.py` | identity proved on `Fin V` under the closed cone; tilt `Q` at seed 0 | changed-constant red | after C |
+| B | `onebit-w17-b-bits-cfg-BpyoXO720q3VZEbY0hYN7n` | `src/learn/onebit_bits.rs`, `proof/extract/lib.rs`, `Perf/BitsRefine.lean` | `proof/regen.sh --check`; `lake build`; equality with receipt components | `k_rows` 417 → red; header dropped → red | after A; serialises on `proof/ApeironWord.lean` |
+
+Stop conditions: C stops at the first sandwich violation; B stops after five extraction cycles.
+
+# Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
+
+Owner go (2026-10-09): open the fold-training and hyperbolic-attention lane, aiming at attention
+that costs O(1) or O(log n) in context length, or is otherwise cheaper than softmax, for
+training and finetuning. It must stay compatible with existing models.
 
 ## Intent — one-bit attention
 
