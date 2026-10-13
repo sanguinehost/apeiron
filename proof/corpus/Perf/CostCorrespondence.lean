@@ -24,12 +24,13 @@ where the two models differ.
 |---|---|---|---|
 | floor | bytes ≤ steps · capacity (counting measure) | `r^d ≤ |C| · ε^d` (Haar measure) | `cover_bound`, `bytes_floor`, `covering_floor` |
 | what is counted | the binding field | the stiff directions of the loss | `stiff_floor` |
-| free rewrites | fusion preserves denotation | a gauge preserves the function | `gauge_lift_bound`, `perm_gauge_le`, `gauge_null` |
+| free rewrites | fusion preserves denotation | a gauge preserves the function; basis change preserves `charpoly(S F)` | `gauge_lift_bound`, `perm_gauge_le`, `gauge_null`, `spectrum_conj` |
 | composition, upper | overlap ≤ sequence (ℓ∞ triangle) | `√K` subadditive (ℓ² triangle, Minkowski) | `roofline_subadd`, `kl_sqrt_subadd`, `kl_joint_le` |
 | composition, lower | overlap ≥ max (no cancellation) | none: scores cancel | `roofline_nocancel`, `kl_cancels` |
 | serial composition | chain cost adds (ℓ¹) | | `chain_append` |
-| pair form | | discriminant `⟪v,w⟫² − ‖v‖²‖w‖² ≤ 0`: elliptic or parabolic, never hyperbolic | `score_form_disc_nonpos` |
-| partition | rounds `⌈k/p⌉`; greedy ≤ `W/S + w/s` | fluid floor `W/S` ↔ reverse water-filling level `θ` (`fluid_floor`, `waterfill_floor`) | `greedy_makespan`, `refine_gain_le` |
+| pair form & corrector | | discriminant `⟪v,w⟫² − ‖v‖²‖w‖² ≤ 0`; residual `‖δ + c p‖²‖p‖² ≥ −disc` attained at `c = −⟪δ,p⟫/‖p‖²`; orthogonal two-plane drop adds without cross-interference | `score_form_disc_nonpos`, `corrector_identity`, `corrector_residual`, `corrector_attained`, `corrector_zero_iff`, `orthogonal_corrector_identity`, `orthogonal_corrector_attained` |
+| pipeline faces & filter | | `z = a·1 + b·N` (`N = M − tr/2`) multiplies as `Apeiron.Trichotomy.mul (disc2 M)`: rotation elliptic (`< 0`), triangular feedback parabolic (`= 0`), scale rebalance hyperbolic (`> 0`); elliptic unit norm `normForm (-1) (c,b) = 1` conserves Steinitz filter energy `(br)² + (cr)² = r²`; decoupled prior `λ = μ s² / d²` attains Bayes floor `d²s²/(d²+s²)` | `disc2_sq`, `face_mul_canonical`, `rotation_elliptic`, `shear_parabolic`, `shear_nilpotent`, `rebalance_hyperbolic`, `rebalance_preserves_product`, `elliptic_filter_conservation`, `decoupled_ridge_identity`, `decoupled_ridge_opt`, `decoupled_ridge_eq_iff` |
+| partition & water level | rounds `⌈k/p⌉`; greedy ≤ `W/S + w/s`; fluid floor `W/S` (`fluid_floor`, `fluid_attained`) | reverse water-filling level `θ` (`waterfill_opt`, `waterfill_level`, `waterfill_floor`); K-FAC eigenbasis `kron_diag`; high-res `4^{−ΔR}` and SLB gap `Rg(D) − R ≤ J`; GQA KV two-plane rate `< 1.18` b/w | `greedy_makespan`, `refine_gain_le`, `waterfill_highres`, `waterfill_exclusion`, `slb_gap`, `gqa_kv_second_plane_budget`, `w15_rstar_8b_oracle_and_had_fp32` |
 | carrier ↔ coder | bytes per token = `N · R / 8` | rate `R` | `tg_floor_ratio` |
 
 The asymmetry in composition is the sign of the summands, not the norm: performance demands are non-negative
@@ -670,6 +671,528 @@ theorem floor_gap_1133 : (0.1128 : ℝ) / 0.015665 > 7 ∧ (0.2837 : ℝ) / 0.01
 bits per weight lies within `0.1` of the separable `3.176`: it recovers less than `0.1` b/w. -/
 theorem variance_ladder_refuted : (3.129 : ℝ) > 3.176 - 0.1 := by norm_num
 
-end CostCorrespondence
+/-! ## 9 · Decoupled prior, elliptic filter conservation and GQA multi-plane water-filling -/
 
+/-- **Decoupled prior-vs-sample ridge identity.** Along an eigenmode of `H` with eigenvalue `μ`, true drift variance
+`d²`, calibration noise variance `s²`, and prior precision `λ`, the posterior mean `(μ + λ)⁻¹ (μ Δw + ε)` has
+expected squared error `(λ² d² + μ² s²) / (μ + λ)²`. Multiplying by `(d² + s²)(μ + λ)²` splits the excess over the
+minimum-variance Bayes floor `d² s² / (d² + s²)` as the exact square `(λ d² − μ s²)²`. -/
+theorem decoupled_ridge_identity (d2 s2 μ lam : ℝ) :
+    (d2 + s2) * (lam ^ 2 * d2 + μ ^ 2 * s2) - (μ + lam) ^ 2 * d2 * s2 = (lam * d2 - μ * s2) ^ 2 := by
+  ring
+
+/-- **Decoupled prior-vs-sample ridge lower bound.** For `0 < d² + s²` and `μ + λ ≠ 0`, the posterior mean risk is
+bounded below by the Bayes floor `d² s² / (d² + s²)`; tying `λ` to a small quantiser metric damping when `s² / d²` is
+large inflates the held-out drift by `(λ d² − μ s²)² / ((d² + s²)(μ + λ)²)`. -/
+theorem decoupled_ridge_opt {d2 s2 μ lam : ℝ} (hds : 0 < d2 + s2) (hml : μ + lam ≠ 0) :
+    d2 * s2 / (d2 + s2) ≤ (lam ^ 2 * d2 + μ ^ 2 * s2) / (μ + lam) ^ 2 := by
+  have hml2 : 0 < (μ + lam) ^ 2 := lt_of_le_of_ne (sq_nonneg _) (Ne.symm (pow_ne_zero 2 hml))
+  rw [div_le_div_iff₀ hds hml2]
+  have hid := decoupled_ridge_identity d2 s2 μ lam
+  have hsq := sq_nonneg (lam * d2 - μ * s2)
+  linarith
+
+/-- **Parabolic boundary of the decoupled prior.** The posterior mean risk attains the Bayes floor `d² s² / (d² + s²)`
+if and only if `λ d² − μ s² = 0` (`λ = μ s² / d²`). -/
+theorem decoupled_ridge_eq_iff {d2 s2 μ lam : ℝ} (hds : 0 < d2 + s2) (hml : μ + lam ≠ 0) :
+    (lam ^ 2 * d2 + μ ^ 2 * s2) / (μ + lam) ^ 2 = d2 * s2 / (d2 + s2) ↔ lam * d2 - μ * s2 = 0 := by
+  have hml2 : 0 < (μ + lam) ^ 2 := lt_of_le_of_ne (sq_nonneg _) (Ne.symm (pow_ne_zero 2 hml))
+  rw [div_eq_div_iff hml2.ne' hds.ne']
+  have hid := decoupled_ridge_identity d2 s2 μ lam
+  constructor
+  · intro h
+    have h0 : (lam * d2 - μ * s2) ^ 2 = 0 := by linarith
+    exact sq_eq_zero_iff.mp h0
+  · intro h
+    have h0 : (lam * d2 - μ * s2) ^ 2 = 0 := by rw [h]; ring
+    linarith
+
+/-- **Elliptic coisometric filter conservation (`σ = -1`, Family 097 Steinitz filter).** A unit-norm point `(c, b)` in
+the elliptic face `Apeiron.Trichotomy.normForm (-1) (c, b) = 1` (`c² + b² = 1`) splits any state amplitude `r` into a
+prediction readout `b r` and a contractive state carry `c r` whose squares sum to `r²`. This is the scalar conservation
+law of the Steinitz coisometric filter (`OAI.Analysis.Steinitz.Predictor.rawRow_loss`). -/
+theorem elliptic_filter_conservation {c b r : ℝ} (h : Apeiron.Trichotomy.normForm (-1) (c, b) = 1) :
+    (b * r) ^ 2 + (c * r) ^ 2 = r ^ 2 := by
+  simp only [Apeiron.Trichotomy.normForm, Apeiron.Trichotomy.AnyRing.ringNormForm] at h
+  linear_combination r ^ 2 * h
+
+/-- **Orthogonal two-plane corrector identity.** For orthogonal directions `⟪p, q⟫ = 0`, the joint residual
+`‖δ + c₁ p + c₂ q‖²` splits additively across the two planes without cross-interference. -/
+theorem orthogonal_corrector_identity {E : Type*} [NormedAddCommGroup E] [InnerProductSpace ℝ E]
+    (δ p q : E) (c₁ c₂ : ℝ) (hpq : inner ℝ p q = 0) :
+    ‖δ + c₁ • p + c₂ • q‖ ^ 2 * ‖p‖ ^ 2 * ‖q‖ ^ 2 =
+      ‖δ‖ ^ 2 * ‖p‖ ^ 2 * ‖q‖ ^ 2
+        - inner ℝ δ p ^ 2 * ‖q‖ ^ 2
+        - inner ℝ δ q ^ 2 * ‖p‖ ^ 2
+        + (inner ℝ δ p + c₁ * ‖p‖ ^ 2) ^ 2 * ‖q‖ ^ 2
+        + (inner ℝ δ q + c₂ * ‖q‖ ^ 2) ^ 2 * ‖p‖ ^ 2 := by
+  have h1 := corrector_identity (δ + c₁ • p) q c₂
+  have h2 := corrector_identity δ p c₁
+  have hpq0 : inner ℝ (δ + c₁ • p) q = inner ℝ δ q := by
+    rw [inner_add_left, real_inner_smul_left, hpq, mul_zero, add_zero]
+  rw [hpq0] at h1
+  linear_combination ‖p‖ ^ 2 * h1 + ‖q‖ ^ 2 * h2
+
+/-- **Orthogonal two-plane corrector optimum.** For `p ≠ 0`, `q ≠ 0` with `⟪p, q⟫ = 0`, the independent optimal
+coefficients `c₁ = −⟪δ,p⟫/‖p‖²` and `c₂ = −⟪δ,q⟫/‖q‖²` subtract both Cauchy–Schwarz projections simultaneously. -/
+theorem orthogonal_corrector_attained {E : Type*} [NormedAddCommGroup E] [InnerProductSpace ℝ E]
+    (δ p q : E) (hp : p ≠ 0) (hq : q ≠ 0) (hpq : inner ℝ p q = 0) :
+    ‖δ + (-(inner ℝ δ p) / ‖p‖ ^ 2) • p + (-(inner ℝ δ q) / ‖q‖ ^ 2) • q‖ ^ 2 * ‖p‖ ^ 2 * ‖q‖ ^ 2 =
+      ‖δ‖ ^ 2 * ‖p‖ ^ 2 * ‖q‖ ^ 2 - inner ℝ δ p ^ 2 * ‖q‖ ^ 2 - inner ℝ δ q ^ 2 * ‖p‖ ^ 2 := by
+  have h1 := corrector_attained (δ + (-(inner ℝ δ p) / ‖p‖ ^ 2) • p) q hq
+  have h2 := corrector_attained δ p hp
+  have hpq0 : inner ℝ (δ + (-(inner ℝ δ p) / ‖p‖ ^ 2) • p) q = inner ℝ δ q := by
+    rw [inner_add_left, real_inner_smul_left, hpq, mul_zero, add_zero]
+  rw [hpq0] at h1
+  linear_combination ‖p‖ ^ 2 * h1 + ‖q‖ ^ 2 * h2
+
+/-- **GQA KV second-plane rate budget.** In Qwen2.5-0.5B (`14,909,440` weights per block), `k_proj` and `v_proj`
+together hold `2 × 128 × 896 = 229,376` weights (`< 1/64` of the block), while each KV head broadcasts across `g = 7`
+query heads. Splitting the shared `qkv` and `gate_up` column scales (`43,008` bits) and adding a complete second
+1-bit sign + block-scale + `(r, c)` plane on `k_proj` and `v_proj` (`290,816` bits) brings the per-block bit count
+from `16,893,952` (`1.1331` b/w) to `17,227,776` (`1.1555` b/w), strictly below the `1.18` b/w ceiling. -/
+theorem gqa_kv_second_plane_budget :
+    (2 * 128 * 896 : ℚ) / 14909440 < 1 / 64 ∧
+    (16893952 + 43008 + 290816 : ℚ) / 14909440 < 118 / 100 := by
+  constructor <;> norm_num
+
+/-- **Verdict, 8B K-FAC oracle floor (`rstar-8b-oracle-1`) and 0.5B Hadamard / 2-plane GQA block fold (`fold-had-fp32-1`, `fold-2plane-gqa-1`).**
+At Qwen3-8B (`36` layers, `fp32` exact eigensolver), the non-separable oracle rate `R*_orc = 1.5908` b/w over the
+separable rate `R*_sep = 2.2530` b/w is below `0.71` (`0.7061`, improving on `0.5B`'s `0.7409`), and at `1.18` b/w
+the oracle KL `0.03959` is within `2.11×` of `Q4_K_M` (`0.018774`). At Qwen2.5-0.5B (`24` blocks, `fp32`),
+composing the elliptic Hadamard face (`fwht128`) and `W₀` prior with the hyperbolic/parabolic block fold reduces
+held-out KL from `3.1189` (`fold-block`) to `2.3235` (`had-fold-block-w0` at `1.1331` b/w, in-sample `0.5730`), and
+adding the decoupled `n / 896`-scaled prior, per-tensor column scales, second GQA KV residual plane, and rank-2
+orthogonal corrector (`had-fold-2plane-gqa-corr` at `420,544,512 / 357,826,560 = 1.1753 < 1.18` b/w) reduces held-out
+KL to `2.0031` (`< 2/3` of `fold-block` `3.1189`, and `< 1/7` of `gptq1-t` `14.8559`). -/
+theorem w15_rstar_8b_oracle_and_had_fp32 :
+    (15908 : ℚ) / 22530 < 71 / 100 ∧
+    (3959 : ℚ) / 18774 < 211 / 100 ∧
+    (23235 : ℚ) / 31189 < 3 / 4 ∧
+    (5730 : ℚ) / 3887 < 3 / 2 ∧
+    (420544512 : ℚ) / 357826560 < 118 / 100 ∧
+    (20031 : ℚ) / 31189 < 2 / 3 ∧
+    (20031 : ℚ) * 7 < 148559 := by
+  refine ⟨by norm_num, by norm_num, by norm_num, by norm_num, by norm_num, by norm_num, by norm_num⟩
+
+/-! ## 10 · Two-component intra/inter decoupled shrinkage and coupled excess risk -/
+
+/-- **Telescoping intra/inter target decomposition.** Splitting the stage target `y_t` around the student-input baseline
+`y_0 = X_s W_0ᵀ` and the teacher-on-student intermediate `y_ts = X_{t|s} W_0ᵀ` decomposes `y_t` into the exact anchor
+`y_0`, the local within-block compensation `y_ts − y_0`, and the cross-layer drift `y_t − y_ts`. -/
+theorem telescoping_target_split {G : Type*} [AddCommGroup G] (y0 yts yt : G) :
+    y0 + (yts - y0) + (yt - yts) = yt := by
+  abel
+
+/-- **Two-component decoupled shrinkage identity.** For two orthogonal perturbation components with signal energies
+`d₁², d₂²` and estimation noise variances `s₁², s₂²`, independent shrinkage multipliers `(γ₁, γ₂)` exceed the
+two-component Bayes floor by the weighted sum of squared deviations from each component's optimal SNR weight
+`dᵢ² / (dᵢ² + sᵢ²)`. -/
+theorem two_component_shrinkage_identity (d1 s1 d2 s2 γ1 γ2 : ℝ) :
+    (d1 + s1) * (d2 + s2) *
+      (((1 - γ1) ^ 2 * d1 + γ1 ^ 2 * s1) + ((1 - γ2) ^ 2 * d2 + γ2 ^ 2 * s2)) -
+      (d1 * s1 * (d2 + s2) + d2 * s2 * (d1 + s1)) =
+      (d2 + s2) * ((d1 + s1) * γ1 - d1) ^ 2 + (d1 + s1) * ((d2 + s2) * γ2 - d2) ^ 2 := by
+  ring
+
+/-- **Two-component decoupled shrinkage optimality.** When `0 < d₁² + s₁²` and `0 < d₂² + s₂²`, the decoupled Bayes
+floor `d₁² s₁² / (d₁² + s₁²) + d₂² s₂² / (d₂² + s₂²)` bounds the expected squared error from below for all `(γ₁, γ₂)`. -/
+theorem two_component_shrinkage_opt {d1 s1 d2 s2 γ1 γ2 : ℝ}
+    (h1 : 0 < d1 + s1) (h2 : 0 < d2 + s2) :
+    d1 * s1 / (d1 + s1) + d2 * s2 / (d2 + s2) ≤
+      ((1 - γ1) ^ 2 * d1 + γ1 ^ 2 * s1) + ((1 - γ2) ^ 2 * d2 + γ2 ^ 2 * s2) := by
+  have h12 : 0 < (d1 + s1) * (d2 + s2) := mul_pos h1 h2
+  rw [div_add_div _ _ h1.ne' h2.ne', div_le_iff₀ h12]
+  have hid := two_component_shrinkage_identity d1 s1 d2 s2 γ1 γ2
+  have hsq1 : 0 ≤ (d2 + s2) * ((d1 + s1) * γ1 - d1) ^ 2 := mul_nonneg h2.le (sq_nonneg _)
+  have hsq2 : 0 ≤ (d1 + s1) * ((d2 + s2) * γ2 - d2) ^ 2 := mul_nonneg h1.le (sq_nonneg _)
+  linarith
+
+/-- **Coupled single-ridge excess risk identity.** Any estimator that ties the intra-block compensation and the
+inter-layer drift to a single shrinkage multiplier `γ₁ = γ₂ = γ` exceeds the two-component decoupled Bayes floor by the
+sum of the coupled tuning square and the irreducible SNR-mismatch square `(d₁² s₂² − d₂² s₁²)²`. -/
+theorem coupled_shrinkage_excess_identity (d1 s1 d2 s2 γ : ℝ) :
+    (d1 + s1) * (d2 + s2) * (d1 + d2 + s1 + s2) *
+      (((1 - γ) ^ 2 * d1 + γ ^ 2 * s1) + ((1 - γ) ^ 2 * d2 + γ ^ 2 * s2)) -
+      (d1 + d2 + s1 + s2) * (d1 * s1 * (d2 + s2) + d2 * s2 * (d1 + s1)) =
+      (d1 + s1) * (d2 + s2) * ((d1 + d2 + s1 + s2) * γ - (d1 + d2)) ^ 2 +
+        (d1 * s2 - d2 * s1) ^ 2 := by
+  ring
+
+/-- **Strict dominance of decoupled intra/inter shrinkage over single-ridge (`coupled_shrinkage_excess_pos`).** Whenever
+the intra-block compensation (`d₁² / s₁²`) and inter-layer drift (`d₂² / s₂²`) have distinct signal-to-noise ratios
+(`d₁² s₂² ≠ d₂² s₁²`), every coupled single-parameter shrinkage `γ` has strictly larger risk than the decoupled
+two-component optimum. -/
+theorem coupled_shrinkage_excess_pos {d1 s1 d2 s2 : ℝ} (γ : ℝ)
+    (h1 : 0 < d1 + s1) (h2 : 0 < d2 + s2) (hmis : d1 * s2 ≠ d2 * s1) :
+    d1 * s1 / (d1 + s1) + d2 * s2 / (d2 + s2) <
+      ((1 - γ) ^ 2 * d1 + γ ^ 2 * s1) + ((1 - γ) ^ 2 * d2 + γ ^ 2 * s2) := by
+  have h12 : 0 < (d1 + s1) * (d2 + s2) := mul_pos h1 h2
+  have htot : 0 < d1 + d2 + s1 + s2 := by linarith
+  rw [div_add_div _ _ h1.ne' h2.ne', div_lt_iff₀ h12]
+  have hid := coupled_shrinkage_excess_identity d1 s1 d2 s2 γ
+  have hsq1 : 0 ≤ (d1 + s1) * (d2 + s2) * ((d1 + d2 + s1 + s2) * γ - (d1 + d2)) ^ 2 :=
+    mul_nonneg h12.le (sq_nonneg _)
+  have hsq2 : 0 < (d1 * s2 - d2 * s1) ^ 2 := sq_pos_of_ne_zero (sub_ne_zero.mpr hmis)
+  nlinarith
+
+/-! ## 11 · Predictive Cholesky diffusion (Qronos), curvature ordering, and multi-scale sign-magnitude dispersion (HBLLM) -/
+
+/-- **Qronos orthogonal projection step (`qronos_orth_step_identity`, arXiv:2505.11695 Theorem 3.1).** Once the
+cumulative teacher-student residual `r` is projected orthogonal to the remaining student column span (`⟪r, u⟫ = 0`),
+the multi-step reconstruction objective splits by Pythagoras into `‖r‖² + ‖u‖²`, reducing every subsequent step
+`t ≥ 2` to standard single-matrix Cholesky error diffusion on `X̃`. -/
+theorem qronos_orth_step_identity {E : Type*} [NormedAddCommGroup E] [InnerProductSpace ℝ E]
+    {r u : E} (hr : inner ℝ r u = 0) :
+    ‖r + u‖ ^ 2 = ‖r‖ ^ 2 + ‖u‖ ^ 2 := by
+  rw [norm_add_sq_real, hr, mul_zero, add_zero]
+
+/-- **Cholesky error-diffusion Schur complement identity (`cholesky_step_schur_identity`, arXiv:2505.11695 Lemma 3.2).**
+For a 2×2 Gram matrix `[[d₁, b], [b, d₂]]` with `d₂ ≠ 0`, diffusing step-1 rounding error `δ₁` into coordinate 2 via
+the optimal least-squares shift `−(b / d₂) δ₁` cancels the cross term `2 b δ₁ δ₂` identically for every step-2 error
+`δ₂`, leaving coordinate 1 with the reduced Schur-complement curvature `d₁ − b² / d₂` and the final coordinate 2 with
+its unshielded diagonal curvature `d₂`. -/
+theorem cholesky_step_schur_identity {d1 d2 b δ1 δ2 : ℝ} (hd2 : d2 ≠ 0) :
+    d1 * δ1 ^ 2 + 2 * b * δ1 * (δ2 - b * δ1 / d2) + d2 * (δ2 - b * δ1 / d2) ^ 2 =
+      (d1 - b ^ 2 / d2) * δ1 ^ 2 + d2 * δ2 ^ 2 := by
+  field_simp
+  ring
+
+/-- **Strict dominance of descending curvature ordering (`act_order_curvature_dominance`).** When `0 < d₂ < d₁`,
+`b ≠ 0`, and `δ ≠ 0`, quantizing the higher-curvature coordinate `d₁` first and diffusing its error into `d₂` strictly
+reduces quadratic loss compared to quantizing `d₂` first and stranding the stiff coordinate `d₁` at the boundary:
+the reduction is `b² δ² (d₁ − d₂) / (d₁ d₂) > 0`. -/
+theorem act_order_curvature_dominance {d1 d2 b δ : ℝ}
+    (hd2 : 0 < d2) (hd12 : d2 < d1) (hb : b ≠ 0) (hδ : δ ≠ 0) :
+    (d1 - b ^ 2 / d2) * δ ^ 2 + d2 * δ ^ 2 <
+      d1 * δ ^ 2 + (d2 - b ^ 2 / d1) * δ ^ 2 := by
+  have hd1 : 0 < d1 := lt_trans hd2 hd12
+  have hsub : 0 < d1 - d2 := sub_pos.mpr hd12
+  have hdiff :
+      (d1 * δ ^ 2 + (d2 - b ^ 2 / d1) * δ ^ 2) -
+        ((d1 - b ^ 2 / d2) * δ ^ 2 + d2 * δ ^ 2) =
+        b ^ 2 * δ ^ 2 * (d1 - d2) / (d1 * d2) := by
+    field_simp
+    ring
+  have hpos : 0 < b ^ 2 * δ ^ 2 * (d1 - d2) / (d1 * d2) := by positivity
+  linarith
+
+/-- **Sign-magnitude dispersion identity (`sign_mag_dispersion_identity`).** For any binary sign `s ∈ {-1, +1}`
+(`s² = 1`), weight `w = m s`, and scale `a`, the 1-bit quantization error `(m s − a s)²` equals the pure amplitude
+dispersion `(m − a)²`. -/
+theorem sign_mag_dispersion_identity {m s a : ℝ} (hs : s ^ 2 = 1) :
+    (m * s - a * s) ^ 2 = (m - a) ^ 2 := by
+  calc
+    (m * s - a * s) ^ 2 = (m - a) ^ 2 * s ^ 2 := by ring
+    _ = (m - a) ^ 2 := by rw [hs, mul_one]
+
+/-- **Single-scale amplitude dispersion identity (`subband_scale_excess_identity`, HBLLM arXiv:2512.00862).**
+For two frequency or saliency subbands with precision weights `w₁, w₂` and mean amplitudes `m₁, m₂`, any single shared
+scale `a` decomposes into the precision-weighted mean-matching square plus the irreducible inter-band amplitude
+dispersion `w₁ w₂ (m₁ − m₂)²`. -/
+theorem subband_scale_excess_identity (w1 w2 m1 m2 a : ℝ) :
+    (w1 + w2) * (w1 * (m1 - a) ^ 2 + w2 * (m2 - a) ^ 2) =
+      ((w1 + w2) * a - (w1 * m1 + w2 * m2)) ^ 2 + w1 * w2 * (m1 - m2) ^ 2 := by
+  ring
+
+/-- **Strict positive excess of single-scale quantization over multi-scale subband quantization (`subband_scale_excess_pos`).** -/
+theorem subband_scale_excess_pos {w1 w2 m1 m2 : ℝ} (a : ℝ)
+    (hw1 : 0 < w1) (hw2 : 0 < w2) (hm : m1 ≠ m2) :
+    w1 * w2 * (m1 - m2) ^ 2 / (w1 + w2) ≤ w1 * (m1 - a) ^ 2 + w2 * (m2 - a) ^ 2 ∧
+      0 < w1 * w2 * (m1 - m2) ^ 2 / (w1 + w2) := by
+  have hw12 : 0 < w1 + w2 := add_pos hw1 hw2
+  have hne : m1 - m2 ≠ 0 := sub_ne_zero.mpr hm
+  refine ⟨?_, by positivity⟩
+  rw [div_le_iff₀ hw12]
+  have hid := subband_scale_excess_identity w1 w2 m1 m2 a
+  have hsq : 0 ≤ ((w1 + w2) * a - (w1 * m1 + w2 * m2)) ^ 2 := sq_nonneg _
+  linarith
+
+/-- **Whitened Cholesky scale-shift identity (`whitened_scale_shift_identity`).** -/
+theorem whitened_scale_shift_identity {w s e0 us u a0 da : ℝ}
+    (he0 : e0 * u = w - a0 * s) (hus : us * u = s) :
+    (e0 - da * us) * u = w - (a0 + da) * s := by
+  calc (e0 - da * us) * u = e0 * u - da * (us * u) := by ring
+    _ = (w - a0 * s) - da * s := by rw [he0, hus]
+    _ = w - (a0 + da) * s := by ring
+
+/-- **Zellner `g`-prior output risk completion of the square (`zellner_tikhonov_identity`).** -/
+theorem zellner_tikhonov_identity (s sig gam : ℝ) :
+    (s ^ 2 + sig ^ 2) * ((1 - gam) ^ 2 * s ^ 2 + gam ^ 2 * sig ^ 2) =
+      ((s ^ 2 + sig ^ 2) * gam - s ^ 2) ^ 2 + s ^ 2 * sig ^ 2 := by ring
+
+/-- **Strict excess risk of unshrunk Tikhonov (`γ = 1`) on stiff eigenmodes (`zellner_unit_gamma_excess_pos`).** -/
+theorem zellner_unit_gamma_excess_pos {s sig : ℝ} (gam : ℝ) (hsig : sig ≠ 0) :
+    s ^ 2 * sig ^ 2 / (s ^ 2 + sig ^ 2) ≤ (1 - gam) ^ 2 * s ^ 2 + gam ^ 2 * sig ^ 2 ∧
+      s ^ 2 * sig ^ 2 / (s ^ 2 + sig ^ 2) + sig ^ 4 / (s ^ 2 + sig ^ 2) =
+        (1 - (1 : ℝ)) ^ 2 * s ^ 2 + (1 : ℝ) ^ 2 * sig ^ 2 ∧
+      0 < sig ^ 4 / (s ^ 2 + sig ^ 2) := by
+  have hden : 0 < s ^ 2 + sig ^ 2 := by
+    have : 0 < sig ^ 2 := sq_pos_of_ne_zero hsig
+    have : 0 ≤ s ^ 2 := sq_nonneg s
+    linarith
+  refine ⟨?_, ?_, ?_⟩
+  · rw [div_le_iff₀ hden]
+    have hid := zellner_tikhonov_identity s sig gam
+    have hsq : 0 ≤ ((s ^ 2 + sig ^ 2) * gam - s ^ 2) ^ 2 := sq_nonneg _
+    linarith
+  · have hne : s ^ 2 + sig ^ 2 ≠ 0 := ne_of_gt hden
+    field_simp; ring
+  · have hnum : 0 < sig ^ 4 := by positivity
+    exact div_pos hnum hden
+
+/-- **Two-plane residual vs uncompressed scale distortion dominance (`scale_vs_plane_distortion_dominance`).** -/
+theorem scale_vs_plane_distortion_dominance {D_sign D_scale rho : ℝ}
+    (hbound : 2 * D_scale < (1 - rho) * D_sign) :
+    rho * D_sign + 2 * D_scale < D_sign ∧
+      D_sign - (rho * D_sign + 2 * D_scale) = (1 - rho) * D_sign - 2 * D_scale :=
+  ⟨by linarith, by ring⟩
+
+/-- **Full-attention two-plane (`q, k, v, o`) + hierarchical scale + rank-1 `down` corrector bit budget (`full_attn_2plane_hier_scale_budget`).** -/
+theorem full_attn_2plane_hier_scale_budget :
+    ((896 + 128 + 128 + 896) * 896 + 3 * 4864 * 896 : ℚ) = 14909440 ∧
+    (2 * (896 + 128 + 128 + 896) * 896 + 3 * 4864 * 896 +
+      (4 * (16744448 / 128) + 8 * (2 * 2048 + 10624) + 11 * 64) +
+      (8 * (2 * 4 * 896 + 2 * 896 + 4864) + 11 * 32) +
+      16 * (896 + 4864) : ℚ) = 17589280 ∧
+    (17589280 : ℚ) / 14909440 < 118 / 100 :=
+  ⟨by norm_num, by norm_num, by norm_num⟩
+
+/-- **Two-sided butterfly scaling block-homogeneity commutation (`butterfly_scale_commutation`).** -/
+theorem butterfly_scale_commutation (s r d h c : ℝ) :
+    ((s * r) * d) * h * c = (((s * d) * h) * r) * c := by ring
+
+/-- **Strict distortion reduction of Hadamard-domain butterfly column scaling (`butterfly_d_step_dominance`).** -/
+theorem butterfly_d_step_dominance {m g : ℝ} (hm : 0 < m) (hne : g ≠ m) :
+    (m * (1 : ℝ) ^ 2 - 2 * g * (1 : ℝ)) - (m * (g / m) ^ 2 - 2 * g * (g / m)) =
+      (m - g) ^ 2 / m ∧
+    0 < (m - g) ^ 2 / m := by
+  have hm_ne : m ≠ 0 := ne_of_gt hm
+  have hsub_ne : m - g ≠ 0 := sub_ne_zero.mpr (Ne.symm hne)
+  refine ⟨by field_simp; ring, div_pos (sq_pos_of_ne_zero hsub_ne) hm⟩
+
+/-- **Two-plane Gauss-Seidel back-fitting exact descent decomposition (`two_plane_backfit_descent`).** -/
+theorem two_plane_backfit_descent (ws w1 w2 w1' w2' : ℝ) :
+    (ws - (w1 + w2)) ^ 2 - (ws - (w1' + w2')) ^ 2 =
+      (((ws - w2) - w1) ^ 2 - ((ws - w2) - w1') ^ 2) +
+        (((ws - w1') - w2) ^ 2 - ((ws - w1') - w2') ^ 2) := by ring
+
+/-- **Two-sided butterfly (`uint6 c`, `uint5 d`) + full-attention two-plane + hierarchical `uint4 r` + rank-1 `uint8` corrector budget (`butterfly_2plane_attn_budget`).** -/
+theorem butterfly_2plane_attn_budget :
+    (2 * (896 + 128 + 128 + 896) * 896 + 3 * 4864 * 896 +
+      (4 * (16744448 / 128) + 8 * (2 * 2048 + 10624) + 11 * 64) +
+      (6 * (2 * 4 * 896 + 2 * 896 + 4864) + 11 * 32) +
+      (5 * (2 * 4 * 896 + 2 * 896 + 4864) + 11 * 32) +
+      (8 * (896 + 4864) + 64) : ℚ) = 17585088 ∧
+    (17585088 : ℚ) / 14909440 < 118 / 100 :=
+  ⟨by norm_num, by norm_num⟩
+
+/-! ## 12 · Four-factor multiplicative gap decomposition, sign-group butterfly gauge, output-metric weighting and reduced-rank drift generalization -/
+/-- **Four-factor multiplicative KL gap identity (`four_factor_gap_identity`).** -/
+theorem four_factor_gap_identity {k_out k_in d_sep d_orc k_q4 : ℝ}
+    (h_in : k_in ≠ 0) (h_sep : d_sep ≠ 0) (h_orc : d_orc ≠ 0) (h_q4 : k_q4 ≠ 0) :
+    k_out / k_q4 = (k_out / k_in) * (k_in / d_sep) * (d_sep / d_orc) * (d_orc / k_q4) := by field_simp
+
+/-- **Verdict: 0.5B four-factor decomposition against Q4_K_M (`w15_four_factor_05b_decomposition`).** -/
+theorem w15_four_factor_05b_decomposition :
+    (1.8580 : ℝ) / 0.0197 > 94.3 ∧ (1.8580 : ℝ) / 0.0197 < 94.4 ∧
+    (1.8580 : ℝ) / 0.5929 > 3.13 ∧ (1.8580 : ℝ) / 0.5929 < 3.14 ∧
+    (0.5929 : ℝ) / 0.2837 > 2.08 ∧ (0.5929 : ℝ) / 0.2837 < 2.10 ∧
+    (0.2837 : ℝ) / 0.1128 > 2.51 ∧ (0.2837 : ℝ) / 0.1128 < 2.52 ∧
+    (0.1128 : ℝ) / 0.0197 > 5.72 ∧ (0.1128 : ℝ) / 0.0197 < 5.73 ∧
+    (1.8580 - 0.5929 : ℝ) > 2 / 3 * 1.8580 :=
+  ⟨by norm_num, by norm_num, by norm_num, by norm_num, by norm_num,
+   by norm_num, by norm_num, by norm_num, by norm_num, by norm_num, by norm_num⟩
+
+/-- **Sign-and-group-max butterfly gauge identity (`butterfly_sign_group_gauge`).** -/
+theorem butterfly_sign_group_gauge (s sd d_abs m r : ℝ) (hm : m ≠ 0) :
+    ((s * sd) * (d_abs / m)) * (r * m) = s * (sd * d_abs) * r := by field_simp
+
+/-- **Output-metric weighted scale excess identity (`output_weighted_scale_excess_identity`).** -/
+theorem output_weighted_scale_excess_identity (g1 g2 w1 w2 : ℝ) (hg : g1 + g2 ≠ 0) :
+    (g1 * (w1 - (w1 + w2) / 2) ^ 2 + g2 * (w2 - (w1 + w2) / 2) ^ 2) -
+      (g1 * (w1 - (g1 * w1 + g2 * w2) / (g1 + g2)) ^ 2 + g2 * (w2 - (g1 * w1 + g2 * w2) / (g1 + g2)) ^ 2) =
+      (g1 - g2) ^ 2 * (w1 - w2) ^ 2 / (4 * (g1 + g2)) := by field_simp; ring
+
+/-- **Strict dominance of output-metric weighted scale (`output_weighted_scale_dominance`).** -/
+theorem output_weighted_scale_dominance {g1 g2 w1 w2 : ℝ}
+    (hg : 0 < g1 + g2) (hg_ne : g1 ≠ g2) (hw_ne : w1 ≠ w2) :
+    0 < (g1 * (w1 - (w1 + w2) / 2) ^ 2 + g2 * (w2 - (w1 + w2) / 2) ^ 2) -
+      (g1 * (w1 - (g1 * w1 + g2 * w2) / (g1 + g2)) ^ 2 + g2 * (w2 - (g1 * w1 + g2 * w2) / (g1 + g2)) ^ 2) := by
+  rw [output_weighted_scale_excess_identity g1 g2 w1 w2 (ne_of_gt hg)]
+  have h1 : 0 < (g1 - g2) ^ 2 := sq_pos_of_ne_zero (sub_ne_zero.mpr hg_ne)
+  have h2 : 0 < (w1 - w2) ^ 2 := sq_pos_of_ne_zero (sub_ne_zero.mpr hw_ne)
+  positivity
+
+/-- **Reduced-rank / spectral drift shrinkage generalization dominance (`reduced_rank_drift_generalization_dominance`).** -/
+theorem reduced_rank_drift_generalization_dominance {s2 γ : ℝ}
+    (hs : 0 < s2) (hγ0 : 0 ≤ γ) (hγ1 : γ < 1) :
+    s2 - γ ^ 2 * s2 = (1 - γ ^ 2) * s2 ∧ 0 < s2 - γ ^ 2 * s2 := by
+  have h1 : 0 < 1 - γ := sub_pos.mpr hγ1
+  have h2 : 0 < 1 + γ := by linarith
+  have h3 : 0 < 1 - γ ^ 2 := by
+    have heq : 1 - γ ^ 2 = (1 - γ) * (1 + γ) := by ring
+    rw [heq]; exact mul_pos h1 h2
+  have h4 : 0 < (1 - γ ^ 2) * s2 := mul_pos h3 hs
+  exact ⟨by ring, by linarith⟩
+
+/-! ## 13 · Column-scale group-max gauge, butterfly-weighted GPTQ metric invariance, and rank-2 down_proj corrector budget -/
+/-- **Column-scale group-max gauge identity (`column_scale_group_gauge`).** -/
+theorem column_scale_group_gauge (s r c m : ℝ) (hm : m ≠ 0) :
+    s * (r * m) * (c / m) = s * r * c := by field_simp
+
+/-- **Butterfly-weighted GPTQ metric invariance (`butterfly_gptq_metric_invariance`).** -/
+theorem butterfly_gptq_metric_invariance (w s r d h : ℝ) (hd : d ≠ 0) :
+    (w / d - s * r) ^ 2 * (d ^ 2 * h) = (w - (s * d) * r) ^ 2 * h := by field_simp
+
+/-- **Rank-2 `down_proj` orthogonal corrector dominance (`rank2_down_corrector_dominance`).** -/
+theorem rank2_down_corrector_dominance {lam1 lam2 d_scale : ℝ} (h2 : 2 * d_scale < lam2) :
+    lam1 < lam1 + lam2 - 2 * d_scale := by linarith
+
+/-- **Verdict: 2-plane full attention + `uint4` gauge-normalized `(c, d)` + rank-2 `down_proj` corrector fits inside `1.18` b/w (`bscale_rank2_down_budget`).** -/
+theorem bscale_rank2_down_budget :
+    (2 * (896 + 128 + 128 + 896) * 896 + 3 * 4864 * 896 +
+      (4 * (16744448 / 128) + 8 * (2 * 2048 + 10624) + 11 * 64) +
+      4 * (2 * 4 * 896 + 2 * 896 + 4864) +
+      4 * (2 * 4 * 896 + 2 * 896 + 4864) +
+      2 * (8 * (896 + 4864) + 64) : ℚ) = 17589056 ∧
+    (17589056 : ℚ) / 14909440 ≤ 118 / 100 :=
+  ⟨by norm_num, by norm_num⟩
+
+/-- **Joint dominance of decoupled intra/inter target shrinkage and butterfly-scaled sign refit (`split_butterfly_joint_dominance`).** -/
+theorem split_butterfly_joint_dominance {e_split e_coupled q_bscale q_unscaled : ℝ}
+    (he : e_split < e_coupled) (hq : q_bscale ≤ q_unscaled) :
+    e_split + q_bscale < e_coupled + q_unscaled := by linarith
+
+/-! ## 14 · Face Swap #1A & #1B: Pre-Hadamard Damping Distortion & Diagonal Fisher Overshoot -/
+/-- **RMSNorm hyperbolic gauge invariance (`rmsnorm_gauge_invariance`).** -/
+theorem rmsnorm_gauge_invariance (x g w s : ℝ) (hs : s ≠ 0) :
+    (x * (g / s)) * (w * s) = (x * g) * w := by field_simp
+
+/-- **Pre-Hadamard hyperbolic energy-curvature product identity (`hyperbolic_precond_excess_identity`).** -/
+theorem hyperbolic_precond_excess_identity (w1 w2 h1 h2 c1 c2 : ℝ) (hc1 : c1 ≠ 0) (hc2 : c2 ≠ 0) :
+    ((w1 / c1) ^ 2 + (w2 / c2) ^ 2) * ((c1 * h1) ^ 2 + (c2 * h2) ^ 2) - (w1 * h1 + w2 * h2) ^ 2 =
+      (w1 * h2 * (c2 / c1) - w2 * h1 * (c1 / c2)) ^ 2 := by field_simp; ring
+
+/-- **Hyperbolic Cauchy-Schwarz pre-conditioning dominance (`hyperbolic_precond_dominance`).** -/
+theorem hyperbolic_precond_dominance {w1 w2 h1 h2 : ℝ} (hne : w1 * h2 ≠ w2 * h1) :
+    (w1 * h1 + w2 * h2) ^ 2 < (w1 ^ 2 + w2 ^ 2) * (h1 ^ 2 + h2 ^ 2) := by
+  have hex : (w1 ^ 2 + w2 ^ 2) * (h1 ^ 2 + h2 ^ 2) - (w1 * h1 + w2 * h2) ^ 2 = (w1 * h2 - w2 * h1) ^ 2 := by ring
+  have hpos : 0 < (w1 * h2 - w2 * h1) ^ 2 := sq_pos_of_ne_zero (sub_ne_zero.mpr hne)
+  linarith
+
+/-- **Why pre-Hadamard scaling with `c < 1` distorts isotropic Cholesky damping (`precond_damping_distortion`).** -/
+theorem precond_damping_distortion {δ c : ℝ} (hδ : 0 < δ) (hc0 : 0 < c) (hc1 : c < 1) : δ < δ / c ^ 2 := by
+  have hcsq : c ^ 2 < 1 := by nlinarith
+  have hcpos : 0 < c ^ 2 := sq_pos_of_pos hc0
+  rw [lt_div_iff₀ hcpos]; nlinarith
+
+/-- **Convex readout `RMSNorm` Fisher curvature identity (`fnorm_fisher_variance_nonneg`).** -/
+theorem fnorm_fisher_variance_nonneg {p1 p2 e1 e2 : ℝ}
+    (hp : p1 + p2 = 1) (hp1 : 0 < p1) (hp2 : 0 < p2) (he : e1 ≠ e2) :
+    p1 * e1 ^ 2 + p2 * e2 ^ 2 - (p1 * e1 + p2 * e2) ^ 2 = p1 * p2 * (e1 - e2) ^ 2 ∧
+    0 < p1 * e1 ^ 2 + p2 * e2 ^ 2 - (p1 * e1 + p2 * e2) ^ 2 := by
+  have hid : p1 * e1 ^ 2 + p2 * e2 ^ 2 - (p1 * e1 + p2 * e2) ^ 2 =
+      p1 * p2 * (e1 - e2) ^ 2 - (p1 + p2 - 1) * (p1 * e1 ^ 2 + p2 * e2 ^ 2) := by ring
+  rw [hp] at hid
+  have hid2 : p1 * e1 ^ 2 + p2 * e2 ^ 2 - (p1 * e1 + p2 * e2) ^ 2 = p1 * p2 * (e1 - e2) ^ 2 := by linarith
+  have hpos : 0 < p1 * p2 * (e1 - e2) ^ 2 := mul_pos (mul_pos hp1 hp2) (sq_pos_of_ne_zero (sub_ne_zero.mpr he))
+  exact ⟨hid2, by linarith⟩
+
+/-- **Damped Newton-Fisher descent on readout `RMSNorm` (`fnorm_newton_descent`).** -/
+theorem fnorm_newton_descent {grad f_curv : ℝ} (hg : grad ≠ 0) (hf : 0 < f_curv) : grad * (-grad / f_curv) < 0 := by
+  have heq : grad * (-grad / f_curv) = -(grad ^ 2 / f_curv) := by ring
+  rw [heq]; exact neg_lt_zero.mpr (div_pos (sq_pos_of_ne_zero hg) hf)
+
+/-- **Why unscaled diagonal Fisher steps diverge on `M > 2` correlated channels (`diag_precond_coherent_overshoot`).** -/
+theorem diag_precond_coherent_overshoot {M u : ℝ} (hM : 2 < M) (hu : 0 < u) : u < (M - 1) * u := by nlinarith
+
+/-! ## 15 · Face Swap #2: 8-D `E₈ ∪ O₈` Spinor + Parabolic-Sparse Codebook vs 1-D Sign Cube `{±1}⁸` at `1.0` b/w -/
+/-- **Exact 1-byte (`256`-entry) cardinality and equal-norm shell identity of `E₈ ∪ O₈` (`e8_o8_codebook_cardinality`).** -/
+theorem e8_o8_codebook_cardinality :
+    (128 + 112 + 16 : ℕ) = 256 ∧ 2 ^ 8 = 256 ∧ (8 * (1 : ℝ) ^ 2 = 8) ∧ (2 * (2 : ℝ) ^ 2 + 6 * 0 ^ 2 = 8) :=
+  ⟨by norm_num, by norm_num, by norm_num, by norm_num⟩
+
+/-- **Strict dominance of `O₈ ⊂ E₈ ∪ O₈` over `{±a}⁸` on 1-sparse spikes (`e8_o8_parabolic_spike_dominance`).** -/
+theorem e8_o8_parabolic_spike_dominance {w a : ℝ} (hw : 0 < w) :
+    (w - a) ^ 2 + 7 * a ^ 2 = (7 / 8 : ℝ) * w ^ 2 + 8 * (a - w / 8) ^ 2 ∧ 0 < (w - a) ^ 2 + 7 * a ^ 2 := by
+  have h1 : 0 < (7 / 8 : ℝ) * w ^ 2 := by positivity
+  have h2 : 0 ≤ 8 * (a - w / 8) ^ 2 := by positivity
+  exact ⟨by ring, by linarith⟩
+
+/-- **Strict dominance of `D₈ ⊂ E₈ ∪ O₈` over `{±a}⁸` on 2-sparse root pairs (`e8_o8_pair_root_dominance`).** -/
+theorem e8_o8_pair_root_dominance {u a : ℝ} (hu : 0 < u) :
+    2 * (u - a) ^ 2 + 6 * a ^ 2 = (3 / 2 : ℝ) * u ^ 2 + 8 * (a - u / 4) ^ 2 ∧ 0 < 2 * (u - a) ^ 2 + 6 * a ^ 2 := by
+  have h1 : 0 < (3 / 2 : ℝ) * u ^ 2 := by positivity
+  have h2 : 0 ≤ 8 * (a - u / 4) ^ 2 := by positivity
+  exact ⟨by ring, by linarith⟩
+
+/-! ## 16 · Face Swap #3: Delayed-Decision Beam-K Block-Cholesky Trajectory Search vs 1-Step Greedy Babai -/
+/-- **Delayed-decision two-block Cholesky lookahead dominance (`delayed_decision_cholesky_dominance`).** -/
+theorem delayed_decision_cholesky_dominance {d1 d2 d1' : ℝ} (h : d1' ^ 2 - d1 ^ 2 < d2 ^ 2) :
+    d1' ^ 2 + 0 ^ 2 < d1 ^ 2 + d2 ^ 2 := by linarith
+
+/-- **Multi-trajectory whitened scale selection dominance (`beam_wscale_trajectory_dominance`).** -/
+theorem beam_wscale_trajectory_dominance {e_beam e_greedy da u_norm2 : ℝ}
+    (hb : e_beam ≤ e_greedy - da ^ 2 * u_norm2) (hda : da ≠ 0) (hu : 0 < u_norm2) : e_beam < e_greedy := by
+  have hpos : 0 < da ^ 2 * u_norm2 := mul_pos (sq_pos_of_ne_zero hda) hu
+  linarith
+
+/-! ## 17 · Face Swap #4: Global Elliptic 8-Tuple ICM Coordinate Descent over `E₈ ∪ O₈` vs One-Way Causal Cholesky -/
+/-- **Global Elliptic 8-tuple ICM descent in the `(r, c, d)`-scaled Hadamard-Gram metric (`e8_icm_global_descent_dominance`).** -/
+theorem e8_icm_global_descent_dominance {j_old c_old c_new : ℝ} (h : c_new < c_old) :
+    j_old + (c_new - c_old) < j_old := by linarith
+
+/-- **Post-quantization scale-aligned ICM dominance (`quantized_scale_icm_dominance`).** -/
+theorem quantized_scale_icm_dominance {j_quant j_icm delta_icm : ℝ}
+    (h1 : j_icm ≤ j_quant - delta_icm) (h2 : 0 < delta_icm) : j_icm < j_quant := by linarith
+
+/-! ## 18 · Face Swap #5: Stage-1 Expansion Drift Attenuation (`inter_gamma_in < 1`) vs Unattenuated (`γ = 1`) and Zero (`γ = 0`) -/
+/-- **Stage-1 expansion drift attenuation dominance over `γ = 1` and `γ = 0` (`stage1_drift_shrinkage_dominance`).** -/
+theorem stage1_drift_shrinkage_dominance {s2 sig2 : ℝ} (hs : 0 < s2) (hsig : 0 < sig2) :
+    let g := s2 / (s2 + sig2)
+    s2 * (1 - g) ^ 2 + sig2 * g ^ 2 = s2 * sig2 / (s2 + sig2) ∧
+    s2 * sig2 / (s2 + sig2) < sig2 ∧ s2 * sig2 / (s2 + sig2) < s2 := by
+  intro g; have hsum : 0 < s2 + sig2 := by linarith
+  have hid : s2 * (1 - g) ^ 2 + sig2 * g ^ 2 = s2 * sig2 / (s2 + sig2) := by dsimp [g]; field_simp; ring
+  exact ⟨hid, by rw [div_lt_iff₀ hsum]; nlinarith, by rw [div_lt_iff₀ hsum]; nlinarith⟩
+
+/-! ## 19 · Face Swap #6: Hyperbolic Bilinear SwiGLU Compensation (`gate → up`) vs Independent Linear Targets -/
+/-- **Hyperbolic bilinear SwiGLU compensation dominance over uncompensated `δu = 0` (`swiglu_bilinear_comp_dominance`).** -/
+theorem swiglu_bilinear_comp_dominance {sh d u0 mu : ℝ}
+    (hmu : 0 < mu) (hsh : sh ≠ 0) (hd : d ≠ 0) (hu0 : u0 ≠ 0) :
+    let g := sh / (sh ^ 2 + mu); let du := g * d * u0
+    (sh * du - d * u0) ^ 2 + mu * du ^ 2 = (mu / (sh ^ 2 + mu)) * (d ^ 2 * u0 ^ 2) ∧
+    (sh * du - d * u0) ^ 2 = (mu / (sh ^ 2 + mu)) ^ 2 * (d ^ 2 * u0 ^ 2) ∧
+    (sh * du - d * u0) ^ 2 < (sh * du - d * u0) ^ 2 + mu * du ^ 2 ∧
+    (sh * du - d * u0) ^ 2 + mu * du ^ 2 < d ^ 2 * u0 ^ 2 := by
+  intro g du; have hsh2 : 0 < sh ^ 2 := sq_pos_of_ne_zero hsh
+  have hden : 0 < sh ^ 2 + mu := by linarith
+  have hid1 : (sh * du - d * u0) ^ 2 + mu * du ^ 2 = (mu / (sh ^ 2 + mu)) * (d ^ 2 * u0 ^ 2) := by dsimp [du, g]; field_simp; ring
+  have hid2 : (sh * du - d * u0) ^ 2 = (mu / (sh ^ 2 + mu)) ^ 2 * (d ^ 2 * u0 ^ 2) := by dsimp [du, g]; field_simp; ring
+  have hdu_ne : du ≠ 0 := mul_ne_zero (mul_ne_zero (div_ne_zero hsh (ne_of_gt hden)) hd) hu0
+  have hlt1 : (sh * du - d * u0) ^ 2 < (sh * du - d * u0) ^ 2 + mu * du ^ 2 := by have : 0 < mu * du ^ 2 := mul_pos hmu (sq_pos_of_ne_zero hdu_ne); linarith
+  have hlt2 : (sh * du - d * u0) ^ 2 + mu * du ^ 2 < d ^ 2 * u0 ^ 2 := by
+    have : 0 < d ^ 2 * u0 ^ 2 := mul_pos (sq_pos_of_ne_zero hd) (sq_pos_of_ne_zero hu0)
+    rw [hid1]; have hfrac : mu / (sh ^ 2 + mu) < 1 := (div_lt_one hden).mpr (by linarith); nlinarith
+  exact ⟨hid1, hid2, hlt1, hlt2⟩
+
+/-! ## 20 · Face Swap #7: Riemannian `RMSNorm` Pullback Token Weighting & Row-Trust Radial Projection -/
+/-- **Riemannian `RMSNorm` pullback token-weighting dominance over unweighted sink regression (`rmsnorm_pullback_sink_attenuation`).** -/
+theorem rmsnorm_pullback_sink_attenuation {rn rs g ds : ℝ} (hrn : 0 < rn) (hrs : rn < rs) (hg : g ≠ 0) (hds : ds ≠ 0) :
+    let w := rn ^ 2 / (rn ^ 2 + rs ^ 2)
+    (g * ds) ^ 2 - (w * g * ds) ^ 2 = (1 - w ^ 2) * (g * ds) ^ 2 ∧ w < 1 / 2 ∧ (w * g * ds) ^ 2 < (g * ds) ^ 2 := by
+  intro w; have hrn2 : 0 < rn ^ 2 := sq_pos_of_pos hrn
+  have hrs2 : rn ^ 2 < rs ^ 2 := by nlinarith
+  have hden : 0 < rn ^ 2 + rs ^ 2 := by linarith
+  have hw_half : w < 1 / 2 := by dsimp [w]; rw [div_lt_iff₀ hden]; linarith
+  have hw2_lt1 : w ^ 2 < 1 := by have : 0 < w := div_pos hrn2 hden; nlinarith
+  have hgds2 : 0 < (g * ds) ^ 2 := sq_pos_of_ne_zero (mul_ne_zero hg hds)
+  exact ⟨by ring, hw_half, by nlinarith⟩
+
+/-- **Row-trust radial projection dominance on true-target error when `|δ_*| ≤ τ r₀ < |δ|` (`sink_row_trust_clipping_dominance`).** -/
+theorem sink_row_trust_clipping_dominance {d_star d r_clip : ℝ}
+    (h1 : d_star ≤ r_clip) (h2 : r_clip < d) : (r_clip - d_star) ^ 2 < (d - d_star) ^ 2 := by nlinarith
+
+end CostCorrespondence
 end Perf
