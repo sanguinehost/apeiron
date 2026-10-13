@@ -164,3 +164,84 @@ def routeBClosedLinear : Bool := true
 def routeAClosed : Bool := true
 def controlsPass : Bool := true
 end Receipts.t6_sideinfo
+
+-- Receipt the receipts/onebit/w17-c-fit note.json`
+namespace Receipts.w17_c_fit
+
+def sha256 : String := "6fdfa890ac837e7a2afc6fb01a4bfadedc24fa47b16575dbf4e81e377e0e5799"
+def nCal0 : ℕ := 25
+def nCal1 : ℕ := 50
+def nCal2 : ℕ := 100
+def klHeldout0 : ℚ := (15753550946712493 : ℚ) / 10000000000000000
+def klHeldout1 : ℚ := (843470748513937 : ℚ) / 625000000000000
+def klHeldout2 : ℚ := (6388312697410583 : ℚ) / 5000000000000000
+def klInsample0 : ℚ := (175331924110651 : ℚ) / 1250000000000000
+def klInsample1 : ℚ := (449646931886673 : ℚ) / 2000000000000000
+def klInsample2 : ℚ := (6996047973632813 : ℚ) / 20000000000000000
+def EGen0 : ℚ := (2870179110765457 : ℚ) / 2000000000000000
+def EGen1 : ℚ := (5623648658394813 : ℚ) / 5000000000000000
+def EGen2 : ℚ := (231965035200119 : ℚ) / 250000000000000
+def G0 : ℚ := (2246246801120273 : ℚ) / 200000000000000
+def G1 : ℚ := (6002723923678121 : ℚ) / 1000000000000000
+def G2 : ℚ := (913131631099057 : ℚ) / 250000000000000
+def alphaLoglogFit : ℚ := (393225940433031 : ℚ) / 1250000000000000
+def prefactor : ℚ := (7833631842682811 : ℚ) / 2000000000000000
+def localExponents0 : ℚ := (439453001007571 : ℚ) / 1250000000000000
+def localExponents1 : ℚ := (2775991038867933 : ℚ) / 10000000000000000
+
+end Receipts.w17_c_fit
+
+-- Receipt the receipts/onebit/w17-c-measure100 note.json`
+namespace Receipts.w17_c_measure100
+
+def sha256 : String := "adb3bced4a7071952f4727656be6483b2bb8d7ce7f998b6949b5775c304a1a30"
+def O : ℚ := (14932642714010829 : ℚ) / 10000000000000000
+def OFs : ℚ := (11461338619150359 : ℚ) / 10000000000000000
+def OShift : ℚ := (3257176846921787 : ℚ) / 2500000000000000
+def ODown : ℚ := (4518884838618641 : ℚ) / 2000000000000000
+def O896Wide : ℚ := (1472331851866041 : ℚ) / 1000000000000000
+def checkedPairs : ℕ := 336
+def violations : ℕ := 0
+def Q : ℚ := (3122860462543633 : ℚ) / 1000000000000000
+def TDerived : ℚ := (979070889788201 : ℚ) / 1250000000000000
+def QTO : ℚ := (14932642714010829 : ℚ) / 10000000000000000
+def QTG : ℚ := (913131631099057 : ℚ) / 250000000000000
+def tightnessJw : ℚ := (1718273284426889 : ℚ) / 100000000000000000
+
+end Receipts.w17_c_measure100
+
+-- Receipt the receipts/onebit/w17-c-run25 note.json`
+namespace Receipts.w17_c_run25
+
+def sha256 : String := "99e4200ceea1c16a37a320577abe6382d34f9b029184a5dba64909b57906bc40"
+def klHeldout : ℚ := (15753550946712493 : ℚ) / 10000000000000000
+def klInsample : ℚ := (175331924110651 : ℚ) / 1250000000000000
+def EGen : ℚ := (2870179110765457 : ℚ) / 2000000000000000
+def G : ℚ := (2246246801120273 : ℚ) / 200000000000000
+def bits : ℕ := 421541376
+
+end Receipts.w17_c_run25
+
+-- Receipt the receipts/onebit/w17-c-run50 note.json`
+namespace Receipts.w17_c_run50
+
+def sha256 : String := "4b7236a0c6c06858f7d426e50314106422d2edd24f306d18f1e0416fcd3c3ace"
+def klHeldout : ℚ := (843470748513937 : ℚ) / 625000000000000
+def klInsample : ℚ := (449646931886673 : ℚ) / 2000000000000000
+def EGen : ℚ := (5623648658394813 : ℚ) / 5000000000000000
+def G : ℚ := (6002723923678121 : ℚ) / 1000000000000000
+def bits : ℕ := 421541376
+
+end Receipts.w17_c_run50
+
+-- Receipt the receipts/onebit/w17-c-run100 note.json`
+namespace Receipts.w17_c_run100
+
+def sha256 : String := "f9e9a412ed9512222223cef640d35088d084e78aa01c9e26daaa82005561f8d7"
+def klHeldout : ℚ := (6388312697410583 : ℚ) / 5000000000000000
+def klInsample : ℚ := (6996047973632813 : ℚ) / 20000000000000000
+def EGen : ℚ := (231965035200119 : ℚ) / 250000000000000
+def G : ℚ := (913131631099057 : ℚ) / 250000000000000
+def bits : ℕ := 421541376
+
+end Receipts.w17_c_run100

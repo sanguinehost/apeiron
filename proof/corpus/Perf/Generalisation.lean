@@ -1,6 +1,7 @@
 import Mathlib.LinearAlgebra.Matrix.PosDef
 import Mathlib.LinearAlgebra.Matrix.Trace
 import Mathlib.Tactic
+import Perf.Receipts.Onebit
 
 /-!
 # Loewner sandwich and argmin optimism for a quadratic code score
@@ -152,5 +153,96 @@ theorem w17_c_sandwich_verdict :
     exact loewner_sandwich hlam hlow hup R
   · intro m H Hh lam Lam C Rh hC hH hlam hlow hup hRh hmin hne
     exact argmin_optimism C hC hH hlam hlow hup hRh hmin hne
+
+/-!
+## W17-C verdicts (`measured` inputs, `proved` consequences)
+
+Inputs are the generated `Receipts.w17_c_*` constants (`Perf/Receipts/Onebit.lean`), each bound to its
+ledger row and sha256. Products and means are computed here, not copied. Registered predictions are
+the W17-C items of the onebit-w15 note item 27. Grade of every theorem below: `proved` over
+`measured` inputs; no statement here is a model of the `-nb` arm beyond those receipts.
+-/
+
+/-- Bookkeeping `G = O·T·Q` (`w17-c-measure100-1`, `w17-c-run100-1`) and
+`E_gen(N) = KL_out(N) − KL_in(N)` at `N = 25, 50, 100` (`w17-c-fit-1-1`). -/
+theorem w17_c_bookkeeping :
+    |Receipts.w17_c_measure100.O * Receipts.w17_c_measure100.TDerived *
+        Receipts.w17_c_measure100.Q - Receipts.w17_c_run100.G| < 1 / 10 ^ 6 ∧
+    |Receipts.w17_c_fit.EGen0 - (Receipts.w17_c_fit.klHeldout0 - Receipts.w17_c_fit.klInsample0)|
+        < 1 / 10 ^ 9 ∧
+    |Receipts.w17_c_fit.EGen1 - (Receipts.w17_c_fit.klHeldout1 - Receipts.w17_c_fit.klInsample1)|
+        < 1 / 10 ^ 9 ∧
+    |Receipts.w17_c_fit.EGen2 - (Receipts.w17_c_fit.klHeldout2 - Receipts.w17_c_fit.klInsample2)|
+        < 1 / 10 ^ 9 := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;>
+    norm_num [abs_lt, Receipts.w17_c_measure100.O, Receipts.w17_c_measure100.TDerived,
+      Receipts.w17_c_measure100.Q, Receipts.w17_c_run100.G, Receipts.w17_c_fit.EGen0,
+      Receipts.w17_c_fit.EGen1, Receipts.w17_c_fit.EGen2, Receipts.w17_c_fit.klHeldout0,
+      Receipts.w17_c_fit.klHeldout1, Receipts.w17_c_fit.klHeldout2,
+      Receipts.w17_c_fit.klInsample0, Receipts.w17_c_fit.klInsample1,
+      Receipts.w17_c_fit.klInsample2]
+
+/-- `Q` is the largest factor of `G = O·T·Q`: `Q > O` and `Q > 1/T`, with `T < 1`
+(`w17-c-measure100-1`, `QT` block). -/
+theorem w17_c_q_dominates :
+    Receipts.w17_c_measure100.Q > Receipts.w17_c_measure100.O ∧
+    Receipts.w17_c_measure100.Q > 1 / Receipts.w17_c_measure100.TDerived ∧
+    Receipts.w17_c_measure100.TDerived < 1 := by
+  norm_num [Receipts.w17_c_measure100.Q, Receipts.w17_c_measure100.O,
+    Receipts.w17_c_measure100.TDerived]
+
+/-- The aggregate factor decomposes as `O ≈ O_fs·O_shift` (`w17-c-measure100-1`, aggregate block). -/
+theorem w17_c_o_decomposition :
+    |Receipts.w17_c_measure100.O -
+        Receipts.w17_c_measure100.OFs * Receipts.w17_c_measure100.OShift| < 1 / 100 := by
+  norm_num [abs_lt, Receipts.w17_c_measure100.O, Receipts.w17_c_measure100.OFs,
+    Receipts.w17_c_measure100.OShift]
+
+/-- P1, aggregate (`w17-c-measure100-1`): `O ∈ [1.3, 2]`. -/
+theorem w17_c_p1_aggregate_in_band :
+    13 / 10 ≤ Receipts.w17_c_measure100.O ∧ Receipts.w17_c_measure100.O ≤ 2 := by
+  norm_num [Receipts.w17_c_measure100.O]
+
+/-- P1, per kind (`w17-c-measure100-1`): `O_896-wide > 1.33` and `O_down > 2.09`, both refuting
+the registered bands. -/
+theorem w17_c_p1_per_kind_refuted :
+    Receipts.w17_c_measure100.O896Wide > 133 / 100 ∧
+    Receipts.w17_c_measure100.ODown > 209 / 100 := by
+  norm_num [Receipts.w17_c_measure100.O896Wide, Receipts.w17_c_measure100.ODown]
+
+/-- P2 (`w17-c-measure100-1`, item 27): the J-weighted `down` figure
+`tightnessJw = Σ J_out·μ_min / Σ J_cal` is below the registered falsifier `4/10`. -/
+theorem w17_c_p2_refuted : Receipts.w17_c_measure100.tightnessJw < 4 / 10 := by
+  norm_num [Receipts.w17_c_measure100.tightnessJw]
+
+/-- P3 exponent (`w17-c-fit-1-1`): `α ∈ (3/10, 1/2)`, below the registered `[1/2, 1]` band and above
+the `3/10` falsifier. -/
+theorem w17_c_p3_alpha_band :
+    3 / 10 < Receipts.w17_c_fit.alphaLoglogFit ∧ Receipts.w17_c_fit.alphaLoglogFit < 1 / 2 := by
+  norm_num [Receipts.w17_c_fit.alphaLoglogFit]
+
+/-- P3 monotonicity (`w17-c-fit-1-1`): `E_gen(25) > E_gen(50) > E_gen(100)`. -/
+theorem w17_c_p3_egen_decreasing :
+    Receipts.w17_c_fit.EGen0 > Receipts.w17_c_fit.EGen1 ∧
+    Receipts.w17_c_fit.EGen1 > Receipts.w17_c_fit.EGen2 := by
+  norm_num [Receipts.w17_c_fit.EGen0, Receipts.w17_c_fit.EGen1, Receipts.w17_c_fit.EGen2]
+
+/-- P3 at `N = 25` (`w17-c-fit-1-1`, `w17-c-run25-1`): `E_gen(25) < 3`, against the registered
+prediction `≈ 3.8`. -/
+theorem w17_c_p3_egen25_refuted : Receipts.w17_c_fit.EGen0 < 3 := by
+  norm_num [Receipts.w17_c_fit.EGen0]
+
+/-- Sandwich (`w17-c-measure100-1`): `336` pairs checked, `0` violations. -/
+theorem w17_c_sandwich_measured :
+    Receipts.w17_c_measure100.violations = 0 ∧
+    Receipts.w17_c_measure100.checkedPairs = 336 := by
+  norm_num [Receipts.w17_c_measure100.violations, Receipts.w17_c_measure100.checkedPairs]
+
+/-- Bit count of the `-nb` arm at `N = 100` (`w17-c-run100-1`): `421541376`, equal to the
+`t3_nb_3seed` arm. -/
+theorem w17_c_run100_bits :
+    Receipts.w17_c_run100.bits = 421541376 ∧
+    Receipts.w17_c_run100.bits = Receipts.t3_nb_3seed.bits := by
+  norm_num [Receipts.w17_c_run100.bits, Receipts.t3_nb_3seed.bits]
 
 end Perf.Generalisation

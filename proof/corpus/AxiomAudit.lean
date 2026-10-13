@@ -1010,3 +1010,14 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.Generalisation.argmin_optimism
 #audit Perf.Generalisation.mp_floor_gt
 #audit Perf.Generalisation.w17_c_sandwich_verdict
+#audit Perf.Generalisation.w17_c_bookkeeping
+#audit Perf.Generalisation.w17_c_q_dominates
+#audit Perf.Generalisation.w17_c_o_decomposition
+#audit Perf.Generalisation.w17_c_p1_aggregate_in_band
+#audit Perf.Generalisation.w17_c_p1_per_kind_refuted
+#audit Perf.Generalisation.w17_c_p2_refuted
+#audit Perf.Generalisation.w17_c_p3_alpha_band
+#audit Perf.Generalisation.w17_c_p3_egen_decreasing
+#audit Perf.Generalisation.w17_c_p3_egen25_refuted
+#audit Perf.Generalisation.w17_c_sandwich_measured
+#audit Perf.Generalisation.w17_c_run100_bits
