@@ -50,6 +50,13 @@ W17 = {
     "w17_d_tilt": "docs/evidence/receipts/onebit/w17-d-tilt.json",
 }
 
+# W15 receipts for the §12 and §28 verdicts (the backfit arm is single-seed; t3-base-seeds12 holds seeds 1, 2 only).
+W15 = {
+    "w15_backfit_attn": "docs/evidence/receipts/onebit/2026-10-12-fold-transfer-attn-bscale.json",
+    "t3_base_seeds12": "docs/evidence/receipts/onebit/t3-base-seeds12.json",
+    "t6_sideinfo_ext": "docs/evidence/receipts/onebit/t6-sideinfo.json",
+}
+
 SEEDS = ["0", "1", "2"]
 PER_SEED_RAT = [("klHeldout", "kl_heldout"), ("klInsample", "kl_insample"),
                 ("top1Heldout", "top1_heldout"), ("top1Insample", "top1_insample")]
@@ -103,7 +110,7 @@ def read_ledger(root: Path) -> dict:
 
 def all_receipts():
     """(namespace id, receipt path) for every receipt, the four originals first."""
-    return [(ns, rel) for ns, (rel, _) in RECEIPTS.items()] + list(W17.items())
+    return [(ns, rel) for ns, (rel, _) in RECEIPTS.items()] + list(W17.items()) + list(W15.items())
 
 
 def check_ledger(root: Path) -> dict:
@@ -306,7 +313,36 @@ def w17_fields(ns: str, rel: str, sha: str, data: dict) -> list:
             if block is not None:
                 out.append(("bool", name, bool_value(block["pass_"], ns)))
     else:
-        raise Fail(f"no W17 field map for {ns}")
+        return w15_fields(ns, rel, sha, data)
+    return out
+
+
+BACKFIT_ARM = "had-fold-2plane-attn-backfit"
+
+
+def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
+    """(kind, name, value) for the W15 receipts; the same kinds as emit_receipt."""
+    out = [("str", "sha256", sha)]
+    if ns == "w15_backfit_attn":
+        # Single-seed arm: no seeds block.
+        v = data["variants"][BACKFIT_ARM]
+        out.append(("str", "arm", BACKFIT_ARM))
+        out.append(("rat", "klHeldout", rat(v["kl_heldout"])))
+        out.append(("rat", "klInsample", rat(v["kl_insample"])))
+    elif ns == "t3_base_seeds12":
+        seeds = data["variants"][T0_ARM]["seeds"]
+        if sorted(seeds.keys()) != ["1", "2"]:
+            raise Fail(f"{rel}: seeds keys are not ['1', '2']")
+        out.append(("str", "arm", T0_ARM))
+        out.append(("rat", "klHeldout1", rat(seeds["1"]["kl_heldout"])))
+        out.append(("rat", "klHeldout2", rat(seeds["2"]["kl_heldout"])))
+    elif ns == "t6_sideinfo_ext":
+        res = data["result"]
+        out.append(("rat", "incrOverF0F2dUp", rat(res["incr_over_F0"]["F2d"]["up"])))
+        out.append(("rat", "incrOverF0F2oUp", rat(res["incr_over_F0"]["F2o"]["up"])))
+        out.append(("rat", "shuffleF1KDR2", rat(res["shuffle_delta_r2"]["F1"]["per_kind"]["k"])))
+    else:
+        raise Fail(f"no W15/W17 field map for {ns}")
     return out
 
 
@@ -346,7 +382,7 @@ def generate(root: Path) -> str:
     for ns, (rel, arm) in RECEIPTS.items():
         data = load_json(root / rel)
         body.append(render_receipt(ns, rel, arm, shas[ns], data))
-    for ns, rel in W17.items():
+    for ns, rel in list(W17.items()) + list(W15.items()):
         data = load_json(root / rel)
         body.append(render_w17(ns, rel, shas[ns], data))
     return "\n".join(head) + "\n" + "\n".join(body)

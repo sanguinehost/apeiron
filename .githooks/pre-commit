@@ -162,6 +162,8 @@ run_step board-declaration "$step_budget" python3 -B tools/hooks/lane.py staged
 # Row: `apeiron-purge-comparison-FHJYanehAPPFDz5O61a6P5` (APEIRON-PURGE-COMPARISON).
 run_step cargo-fmt "$step_budget" cargo fmt --all -- --check
 run_step check-claims "$step_budget" python3 -B tools/check-claims.py
+# Generated Lean receipt constants (proof/corpus/Perf/Receipts/Onebit.lean) must match their committed receipts and ledger digests.
+run_step receipt-lean "$step_budget" python3 -B tools/rooting/receipt_lean.py --check
 
 # Step 5, the perf cost-model gate. Its trigger is content, so it prints SKIP with
 # the reason when nothing under a performance source path is staged; otherwise it

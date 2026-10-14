@@ -274,3 +274,33 @@ def controlEps005Pass : Bool := true
 def controlRun100Pass : Bool := true
 
 end Receipts.w17_d_tilt
+
+-- Receipt `docs/evidence/receipts/onebit/2026-10-12-fold-transfer-attn-bscale.json`
+namespace Receipts.w15_backfit_attn
+
+def sha256 : String := "44126a3a42938ef773e18138f85429584ecc1a66604719e04ba68bcbeb03077e"
+def arm : String := "had-fold-2plane-attn-backfit"
+def klHeldout : ℚ := (18580291271209717 : ℚ) / 10000000000000000
+def klInsample : ℚ := (5929453730583191 : ℚ) / 10000000000000000
+
+end Receipts.w15_backfit_attn
+
+-- Receipt `docs/evidence/receipts/onebit/t3-base-seeds12.json`
+namespace Receipts.t3_base_seeds12
+
+def sha256 : String := "fb0ca184b21e0d44c6e0e4f051649eb9911ddaa3ee510bf6609a35634e6a6fc1"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp"
+def klHeldout1 : ℚ := (13893862903118133 : ℚ) / 10000000000000000
+def klHeldout2 : ℚ := (1389587014913559 : ℚ) / 1000000000000000
+
+end Receipts.t3_base_seeds12
+
+-- Receipt `docs/evidence/receipts/onebit/t6-sideinfo.json`
+namespace Receipts.t6_sideinfo_ext
+
+def sha256 : String := "28f0663a9eede7f4863b906cc7e2e1609ebbec59334b197f7ef5b8bcca250487"
+def incrOverF0F2dUp : ℚ := (2225260159328113 : ℚ) / 1000000000000000000
+def incrOverF0F2oUp : ℚ := (3110810990583357 : ℚ) / 2500000000000000000
+def shuffleF1KDR2 : ℚ := (-1746856546906983 : ℚ) / 40000000000000000000
+
+end Receipts.t6_sideinfo_ext
