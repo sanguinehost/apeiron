@@ -46,3 +46,6 @@ pub mod iq1s_grid;
 
 /// Fixed codebooks: the 256-entry E8 ∪ O8 code of the one-bit fold transfer.
 pub mod code;
+
+/// Backward passes of the ported model: dense adjoints, attention with `RoPE`, KL/TV heads.
+pub mod grad;
