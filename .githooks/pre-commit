@@ -153,6 +153,26 @@ run_step() {
   echo "pre-commit: $name: PASS $((t1 - t0))s (budget ${budget}s)"
 }
 
+# Step 0, executing language (AGENTS.md §4 obligation 1): model computation is Rust or
+# SPIR-V on the build path, never Python, because nothing extracts Python. Refuse any added
+# `.py` file, and any staged `.py` whose staged content imports a numeric or model library.
+# Shell only: the enforcer of "not Python" is not itself Python.
+executing_language() {
+  command -v rg >/dev/null || { echo "pre-commit: executing-language: FAIL rg-missing" >&2; return 1; }
+  local f bad=0
+  while IFS= read -r -d '' f; do
+    echo "pre-commit: executing-language: python-added: $f (AGENTS.md §4.1: no Python file is added)" >&2
+    bad=1
+  done < <(git diff --cached --name-only -z --diff-filter=AC -- '*.py')
+  while IFS= read -r -d '' f; do
+    if git show ":$f" | rg -q '^\s*(import|from)\s+(torch|numpy|scipy|jax|transformers|safetensors|gguf)\b'; then
+      echo "pre-commit: executing-language: python-model-computation: $f (AGENTS.md §4.1: frozen; port to src/learn/)" >&2
+      bad=1
+    fi
+  done < <(git diff --cached --name-only -z --diff-filter=MR -- '*.py')
+  return $bad
+}
+run_step executing-language "$step_budget" bash -c "$(declare -f executing_language); executing_language"
 run_step board-declaration "$step_budget" python3 -B tools/hooks/lane.py staged
 # The per-cycle checkpoint step is retired with the acceptance harness: it read a reg1
 # acceptance stream from `examples/reg1`, and with the comparison removed there is no such
