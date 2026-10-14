@@ -97,6 +97,7 @@ pub mod engine {
         attn, chart, error, f32_convert, ffn, fused, hadamard, kern, lm_head, loader, matvec, mixer,
         moe, norm, par, rope, sampler, silu, step, trace, value,
     };
+    pub use super::rope::{RopeError, RopeTable};
 
     /// The engine refusal type at its real `crate::engine::EngineError` path.
     pub use super::error::EngineError;
@@ -115,7 +116,7 @@ pub mod engine {
     /// absolute `crate::engine::` paths rather than `super::`).
     pub use super::{
         argmax_fixed, f16_to_fixed, f32_to_fixed, ffn_fixed, matvec_fixed, row_dot_fixed,
-        silu_fixed, top_p_fixed, FfnError, ProjWeights,
+        rms_norm_fixed, silu_fixed, top_p_fixed, FfnError, NormError, ProjWeights,
     };
     pub use super::loader::{AffineGeom, AffineVectors, Engine, MixerKind, TensorEntry};
     pub use super::step::{DecodeState, KernelMode, MtpState, SpecStats, StepError, StepResult};
@@ -1397,3 +1398,7 @@ pub fn word_onebit_params(c: &onebit_bits::Cfg) -> Option<u64> {
 pub fn word_onebit_index_bits(c: &onebit_bits::Cfg) -> Option<u64> {
     onebit_bits::index_bits(c)
 }
+
+// The one-bit backward passes (`src/learn/grad/{dense,attn,head}.rs`), reached through `learn_port.rs`.
+#[path = "learn_port.rs"]
+pub mod learn_port;

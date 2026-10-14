@@ -6025,12 +6025,12 @@ structure attn.KvState where
   storage : attn.KvStorage
 
 /-- [apeiron_word::engine::FIXED_FRAC_BITS]
-    Source: 'lib.rs', lines 124:4-124:40
+    Source: 'lib.rs', lines 125:4-125:40
     Visibility: public -/
 @[global_simps, irreducible] def engine.FIXED_FRAC_BITS : Std.U32 := 32#u32
 
 /-- [apeiron_word::engine::ONE]
-    Source: 'lib.rs', lines 126:4-126:46
+    Source: 'lib.rs', lines 127:4-127:46
     Visibility: public -/
 @[global_simps, irreducible]
 def engine.ONE : Result Std.I64 := 1#i64 <<< engine.FIXED_FRAC_BITS
@@ -11858,6 +11858,123 @@ inductive ffn.FfnError where
 | Overflow : ffn.FfnError
 | Matvec : matvec.MatvecError → ffn.FfnError
 
+/-- [apeiron_word::ffn::silu::SiluError]
+    Source: '../../src/engine/silu.rs', lines 13:0-22:1
+    Visibility: public -/
+@[discriminant isize]
+inductive ffn.silu.SiluError where
+| ExpOutOfRange : ffn.silu.SiluError
+| ZeroDenominator : ffn.silu.SiluError
+| Overflow : ffn.silu.SiluError
+
+/-- [apeiron_word::ffn::{impl core::convert::From<apeiron_word::ffn::silu::SiluError> for apeiron_word::ffn::FfnError}::from]:
+    Source: '../../src/engine/ffn.rs', lines 36:4-42:5
+    Visibility: public -/
+def ffn.FfnError.Insts.CoreConvertFromSiluError.from
+  (e : ffn.silu.SiluError) : Result ffn.FfnError := do
+  match e with
+  | ffn.silu.SiluError.ExpOutOfRange => ok ffn.FfnError.ExpOutOfRange
+  | ffn.silu.SiluError.ZeroDenominator => ok ffn.FfnError.ZeroDenominator
+  | ffn.silu.SiluError.Overflow => ok ffn.FfnError.Overflow
+
+/-- [apeiron_word::ffn::{impl core::convert::From<apeiron_word::ffn::silu::SiluError> for apeiron_word::ffn::FfnError}::{impl core::ops::function::FnOnce<(apeiron_word::ffn::silu::SiluError,), apeiron_word::ffn::FfnError> for apeiron_word::ffn::{impl core::convert::From<apeiron_word::ffn::silu::SiluError> for apeiron_word::ffn::FfnError}::from}::call_once]:
+    Source: '../../src/engine/ffn.rs', lines 36:4-42:5
+    Visibility: public -/
+def P.Insts.CoreOpsFunctionFnOnceTupleSiluErrorFfnError.call_once
+  (state : ffn.silu.SiluError → Result ffn.FfnError)
+  (args : ffn.silu.SiluError) :
+  Result ffn.FfnError
+  := do
+  ffn.FfnError.Insts.CoreConvertFromSiluError.from args
+
+/-- Trait implementation: [apeiron_word::ffn::{impl core::convert::From<apeiron_word::ffn::silu::SiluError> for apeiron_word::ffn::FfnError}::{impl core::ops::function::FnOnce<(apeiron_word::ffn::silu::SiluError,), apeiron_word::ffn::FfnError> for apeiron_word::ffn::{impl core::convert::From<apeiron_word::ffn::silu::SiluError> for apeiron_word::ffn::FfnError}::from}]
+    Source: '../../src/engine/ffn.rs', lines 36:4-42:5 -/
+@[reducible]
+def P.Insts.CoreOpsFunctionFnOnceTupleSiluErrorFfnError :
+  core.ops.function.FnOnce (ffn.silu.SiluError → Result ffn.FfnError)
+  ffn.silu.SiluError ffn.FfnError := {
+  call_once := P.Insts.CoreOpsFunctionFnOnceTupleSiluErrorFfnError.call_once
+}
+
+/-- [apeiron_word::ffn::silu::silu_fixed::UPPER]
+    Source: '../../src/engine/silu.rs', lines 55:4-55:32 -/
+@[global_simps, irreducible]
+def ffn.silu.silu_fixed.UPPER : Result Std.I64 := do
+  let i ← engine.ONE
+  16#i64 * i
+
+/-- [apeiron_word::ffn::silu::silu_fixed::LOWER]
+    Source: '../../src/engine/silu.rs', lines 54:4-54:33 -/
+@[global_simps, irreducible]
+def ffn.silu.silu_fixed.LOWER : Result Std.I64 := do
+  let i ← engine.ONE
+  (-21)#i64 * i
+
+/-- [apeiron_word::ffn::silu::silu_fixed]:
+    Source: '../../src/engine/silu.rs', lines 53:0-92:1
+    Visibility: public -/
+def ffn.silu.silu_fixed
+  (v : Std.I64) : Result (core.result.Result Std.I64 ffn.silu.SiluError) := do
+  let i ← ffn.silu.silu_fixed.UPPER
+  if v >= i
+  then ok (core.result.Result.Ok v)
+  else
+    let i1 ← ffn.silu.silu_fixed.LOWER
+    if v <= i1
+    then ok (core.result.Result.Ok 0#i64)
+    else
+      let w ← -. v
+      let r ← fixed_exp.fixed_exp w
+      match r with
+      | core.result.Result.Ok e =>
+        let i2 ← engine.ONE
+        let o ← lift (I64.checked_add i2 e)
+        match o with
+        | none => ok (core.result.Result.Err ffn.silu.SiluError.Overflow)
+        | some den =>
+          if den <= 0#i64
+          then ok (core.result.Result.Err ffn.silu.SiluError.ZeroDenominator)
+          else
+            let mag ←
+              if v < 0#i64
+              then
+                do
+                let i3 ← lift (core.convert.num.FromI128I64.from v)
+                -. i3
+              else ok (core.convert.num.FromI128I64.from v)
+            let i3 ← lift (core.convert.num.FromI128I64.from i2)
+            let o1 ← lift (I128.checked_mul mag i3)
+            match o1 with
+            | none => ok (core.result.Result.Err ffn.silu.SiluError.Overflow)
+            | some num =>
+              let i4 ← lift (core.convert.num.FromI128I64.from den)
+              let q ← value.div_round_nearest num i4
+              let signed ← if v < 0#i64
+                             then -. q
+                             else ok q
+              let i5 ← lift (IScalar.cast .I128 core.num.I64.MAX)
+              if signed > i5
+              then ok (core.result.Result.Err ffn.silu.SiluError.Overflow)
+              else
+                let i6 ← lift (IScalar.cast .I128 core.num.I64.MIN)
+                if signed < i6
+                then ok (core.result.Result.Err ffn.silu.SiluError.Overflow)
+                else
+                  let i7 ← lift (IScalar.cast .I64 signed)
+                  ok (core.result.Result.Ok i7)
+      | core.result.Result.Err _ =>
+        ok (core.result.Result.Err ffn.silu.SiluError.ExpOutOfRange)
+
+/-- [apeiron_word::ffn::silu_fixed]:
+    Source: '../../src/engine/ffn.rs', lines 66:0-68:1
+    Visibility: public -/
+def ffn.silu_fixed
+  (v : Std.I64) : Result (core.result.Result Std.I64 ffn.FfnError) := do
+  let r ← ffn.silu.silu_fixed v
+  core.result.Result.map_err
+    P.Insts.CoreOpsFunctionFnOnceTupleSiluErrorFfnError r
+    (ffn.FfnError.Insts.CoreConvertFromSiluError.from)
+
 /-- [apeiron_word::hadamard::MAX_K]
     Source: '../../src/engine/hadamard.rs', lines 18:0-18:24 -/
 @[global_simps, irreducible] def hadamard.MAX_K : Std.Usize := 16#usize
@@ -13437,6 +13554,20 @@ structure rope.RopeTable where
   head_dim : Std.Usize
   turns : alloc.vec.Vec Std.U64
 
+/-- [apeiron_word::rope::{apeiron_word::rope::RopeTable}::head_dim]:
+    Source: '../../src/engine/rope.rs', lines 111:4-113:5
+    Visibility: public -/
+def rope.RopeTable.impl.head_dim
+  (self : rope.RopeTable) : Result Std.Usize := do
+  ok self.head_dim
+
+/-- [apeiron_word::rope::{apeiron_word::rope::RopeTable}::turns]:
+    Source: '../../src/engine/rope.rs', lines 117:4-119:5
+    Visibility: public -/
+def rope.RopeTable.impl.turns
+  (self : rope.RopeTable) : Result (Slice Std.U64) := do
+  ok (alloc.vec.Vec.deref self.turns)
+
 /-- [apeiron_word::fixed_trig::TWO_PI_Q32]
     Source: '../../src/numeric/fixed_trig.rs', lines 42:0-42:39 -/
 @[global_simps, irreducible]
@@ -13888,6 +14019,75 @@ def rope.RopeTable.rotate
       then ok (core.result.Result.Ok (), q1, k1)
       else ok (core.result.Result.Err rope.RopeError.OutOfRange, q1, k1)
     else ok (core.result.Result.Err rope.RopeError.VectorLength, q, k)
+
+/-- [apeiron_word::rope::{apeiron_word::rope::RopeTable}::rotate_one]: loop body 0:
+    Source: '../../src/engine/rope.rs', lines 190:8-197:9
+    Visibility: public -/
+@[rust_loop_body]
+def rope.RopeTable.rotate_one_loop.body
+  (self : rope.RopeTable) (hd : Std.Usize) (v : alloc.vec.Vec Std.U64)
+  (pos : Std.U32) (heads : Std.Usize) (x : Slice Std.I64) (h : Std.Usize)
+  (ok1 : Bool) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize × Bool) ((Slice Std.I64)
+    × Bool))
+  := do
+  if h < heads
+  then
+    if ok1
+    then
+      let base ← h * self.head_dim
+      let i ← base + self.head_dim
+      let (s, index_mut_back) ←
+        core.slice.index.Slice.index_mut
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) x
+          { start := base, «end» := i }
+      let (r, s1) ←
+        rope.RopeTable.rotate_head { head_dim := hd, turns := v } s pos
+      let ok2 ←
+        match r with
+        | core.result.Result.Ok _ => ok true
+        | core.result.Result.Err _ => ok false
+      let h1 ← h + 1#usize
+      let x1 := index_mut_back s1
+      ok (cont (x1, h1, ok2))
+    else ok (done (x, false))
+  else ok (done (x, ok1))
+
+/-- [apeiron_word::rope::{apeiron_word::rope::RopeTable}::rotate_one]: loop 0:
+    Source: '../../src/engine/rope.rs', lines 190:8-197:9
+    Visibility: public -/
+@[rust_loop]
+def rope.RopeTable.rotate_one_loop
+  (self : rope.RopeTable) (hd : Std.Usize) (v : alloc.vec.Vec Std.U64)
+  (x : Slice Std.I64) (pos : Std.U32) (heads : Std.Usize) (h : Std.Usize)
+  (ok1 : Bool) :
+  Result ((Slice Std.I64) × Bool)
+  := do
+  loop
+    (fun (x1, h1, ok2) => rope.RopeTable.rotate_one_loop.body self hd v pos
+      heads x1 h1 ok2)
+    (x, h, ok1)
+
+/-- [apeiron_word::rope::{apeiron_word::rope::RopeTable}::rotate_one]:
+    Source: '../../src/engine/rope.rs', lines 181:4-202:5
+    Visibility: public -/
+def rope.RopeTable.rotate_one
+  (self : rope.RopeTable) (x : Slice Std.I64) (pos : Std.U32) :
+  Result ((core.result.Result Unit rope.RopeError) × (Slice Std.I64))
+  := do
+  let i := Slice.len x
+  let b ← core.num.Usize.is_multiple_of i self.head_dim
+  if b
+  then
+    let i1 := Slice.len x
+    let heads ← i1 / self.head_dim
+    let (x1, ok1) ←
+      rope.RopeTable.rotate_one_loop self self.head_dim self.turns x pos heads
+        0#usize true
+    if ok1
+    then ok (core.result.Result.Ok (), x1)
+    else ok (core.result.Result.Err rope.RopeError.OutOfRange, x1)
+  else ok (core.result.Result.Err rope.RopeError.VectorLength, x)
 
 /-- [apeiron_word::rope::rope_rotate_fixed]:
     Source: '../../src/engine/rope.rs', lines 270:0-277:1
@@ -21559,6 +21759,4565 @@ def hashtrinity.Table.insert_merge_last_write
   match o with
   | none => ok self1
   | some _ => fail panic
+
+/-- [apeiron_word::learn_port::attn::AttnError]
+    Source: '../../src/learn/grad/attn.rs', lines 46:0-60:1
+    Visibility: public -/
+@[discriminant isize]
+inductive learn_port.attn.AttnError where
+| BadShape : learn_port.attn.AttnError
+| Overflow : learn_port.attn.AttnError
+| ExpOutOfRange : learn_port.attn.AttnError
+| RsqrtOutOfRange : learn_port.attn.AttnError
+| Rope : rope.RopeError → learn_port.attn.AttnError
+
+/-- [apeiron_word::learn_port::attn::round32]:
+    Source: '../../src/learn/grad/attn.rs', lines 63:0-65:1 -/
+def learn_port.attn.round32 (v : Std.I128) : Result Std.I128 := do
+  let i ← 1#i128 <<< 31#i32
+  let i1 ← v + i
+  i1 >>> 32#i32
+
+/-- [apeiron_word::learn_port::attn::acc_round]:
+    Source: '../../src/learn/grad/attn.rs', lines 68:0-75:1 -/
+def learn_port.attn.acc_round
+  (acc : Std.I128) :
+  Result (core.result.Result Std.I64 learn_port.attn.AttnError)
+  := do
+  let r ← learn_port.attn.round32 acc
+  let i ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+  if r > i
+  then ok (core.result.Result.Err learn_port.attn.AttnError.Overflow)
+  else
+    let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+    if r < i1
+    then ok (core.result.Result.Err learn_port.attn.AttnError.Overflow)
+    else let i2 ← lift (IScalar.cast .I64 r)
+         ok (core.result.Result.Ok i2)
+
+/-- [apeiron_word::learn_port::attn::mul_round]:
+    Source: '../../src/learn/grad/attn.rs', lines 78:0-83:1 -/
+def learn_port.attn.mul_round
+  (a : Std.I64) (b : Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.attn.AttnError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from a)
+  let i1 ← lift (core.convert.num.FromI128I64.from b)
+  let o ← lift (I128.checked_mul i i1)
+  match o with
+  | none => ok (core.result.Result.Err learn_port.attn.AttnError.Overflow)
+  | some p => learn_port.attn.acc_round p
+
+/-- [apeiron_word::learn_port::attn::dot_round]: loop body 0:
+    Source: '../../src/learn/grad/attn.rs', lines 91:4-100:5 -/
+@[rust_loop_body]
+def learn_port.attn.dot_round_loop.body
+  (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (acc : Std.I128)
+  (i : Std.Usize) (ok1 : Bool) :
+  Result (ControlFlow (Std.I128 × Std.Usize × Bool) (Std.I128 × Bool))
+  := do
+  if i < n
+  then
+    if ok1
+    then
+      let i1 ← Slice.index_usize a i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← Slice.index_usize b i
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let o ← lift (I128.checked_mul i2 i4)
+      let (acc1, ok2) ←
+        match o with
+        | none => ok (acc, false)
+        | some p =>
+          do
+          let o1 ← lift (I128.checked_add acc p)
+          match o1 with
+          | none => ok (acc, false)
+          | some s => ok (s, true)
+      let i5 ← i + 1#usize
+      ok (cont (acc1, i5, ok2))
+    else ok (done (acc, false))
+  else ok (done (acc, ok1))
+
+/-- [apeiron_word::learn_port::attn::dot_round]: loop 0:
+    Source: '../../src/learn/grad/attn.rs', lines 91:4-100:5 -/
+@[rust_loop]
+def learn_port.attn.dot_round_loop
+  (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (acc : Std.I128)
+  (i : Std.Usize) (ok1 : Bool) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (acc1, i1, ok2) => learn_port.attn.dot_round_loop.body a b n acc1 i1
+      ok2)
+    (acc, i, ok1)
+
+/-- [apeiron_word::learn_port::attn::dot_round]:
+    Source: '../../src/learn/grad/attn.rs', lines 86:0-106:1 -/
+def learn_port.attn.dot_round
+  (a : Slice Std.I64) (b : Slice Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.attn.AttnError)
+  := do
+  let n := Slice.len a
+  let (acc, ok1) ← learn_port.attn.dot_round_loop a b n 0#i128 0#usize true
+  if ok1
+  then learn_port.attn.acc_round acc
+  else ok (core.result.Result.Err learn_port.attn.AttnError.Overflow)
+
+/-- [apeiron_word::learn_port::attn::dim_product]:
+    Source: '../../src/learn/grad/attn.rs', lines 109:0-114:1 -/
+def learn_port.attn.dim_product
+  (a : Std.Usize) (b : Std.Usize) :
+  Result (core.result.Result Std.Usize learn_port.attn.AttnError)
+  := do
+  let o ← lift (Usize.checked_mul a b)
+  match o with
+  | none => ok (core.result.Result.Err learn_port.attn.AttnError.Overflow)
+  | some x => ok (core.result.Result.Ok x)
+
+/-- [apeiron_word::learn_port::attn::rows_of]:
+    Source: '../../src/learn/grad/attn.rs', lines 120:0-126:1 -/
+def learn_port.attn.rows_of
+  (len : Std.Usize) (row : Std.Usize) :
+  Result (core.result.Result Std.Usize learn_port.attn.AttnError)
+  := do
+  if row = 0#usize
+  then ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
+  else
+    if len = 0#usize
+    then ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
+    else
+      let b ← core.num.Usize.is_multiple_of len row
+      if b
+      then let i ← len / row
+           ok (core.result.Result.Ok i)
+      else ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
+
+/-- [apeiron_word::learn_port::attn::rsqrt_scale]:
+    Source: '../../src/learn/grad/attn.rs', lines 132:0-143:1 -/
+def learn_port.attn.rsqrt_scale
+  (hd : Std.Usize) :
+  Result (core.result.Result Std.I64 learn_port.attn.AttnError)
+  := do
+  let i ← lift (UScalar.cast .U64 hd)
+  let i1 ← 1#u64 <<< 40#i32
+  if i > i1
+  then ok (core.result.Result.Err learn_port.attn.AttnError.RsqrtOutOfRange)
+  else
+    let i2 ← lift (UScalar.hcast .I64 hd)
+    let i3 ← engine.ONE
+    let o ← lift (I64.checked_mul i2 i3)
+    match o with
+    | none =>
+      ok (core.result.Result.Err learn_port.attn.AttnError.RsqrtOutOfRange)
+    | some x =>
+      let r ← fixed_rsqrt.fixed_rsqrt x
+      match r with
+      | core.result.Result.Ok s => ok (core.result.Result.Ok s)
+      | core.result.Result.Err _ =>
+        ok (core.result.Result.Err learn_port.attn.AttnError.RsqrtOutOfRange)
+
+/-- [apeiron_word::learn_port::attn::gqa_shape]:
+    Source: '../../src/learn/grad/attn.rs', lines 146:0-152:1 -/
+def learn_port.attn.gqa_shape
+  (nh : Std.Usize) (nkv : Std.Usize) (hd : Std.Usize) :
+  Result (core.result.Result Unit learn_port.attn.AttnError)
+  := do
+  if nh = 0#usize
+  then ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
+  else
+    if nkv = 0#usize
+    then ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
+    else
+      if hd = 0#usize
+      then ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
+      else
+        let b ← core.num.Usize.is_multiple_of nh nkv
+        if b
+        then ok (core.result.Result.Ok ())
+        else ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
+
+/-- [apeiron_word::learn_port::attn::rope_fwd]:
+    Source: '../../src/learn/grad/attn.rs', lines 166:0-175:1
+    Visibility: public -/
+def learn_port.attn.rope_fwd
+  (x : Slice Std.I64) (pos : Std.U32) (table : rope.RopeTable) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) learn_port.attn.AttnError)
+  := do
+  let b ← core.slice.Slice.is_empty x
+  if b
+  then ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
+  else
+    let y ← alloc.slice.Slice.to_vec core.clone.CloneI64 x
+    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut y)
+    let (r, s1) ← rope.RopeTable.rotate_one table s pos
+    match r with
+    | core.result.Result.Ok _ =>
+      let y1 := deref_mut_back s1
+      ok (core.result.Result.Ok y1)
+    | core.result.Result.Err e =>
+      ok (core.result.Result.Err (learn_port.attn.AttnError.Rope e))
+
+/-- [apeiron_word::learn_port::attn::rope_elem_bwd]:
+    Source: '../../src/learn/grad/attn.rs', lines 222:0-241:1 -/
+def learn_port.attn.rope_elem_bwd
+  (dy : Slice Std.I64) (i : Std.Usize) (hd : Std.Usize) (turn : Std.U64)
+  (pos : Std.U32) :
+  Result (core.result.Result Std.I64 learn_port.attn.AttnError)
+  := do
+  let d2 ← hd / 2#usize
+  let r ← i % hd
+  let partner ← if r < d2
+                  then i + d2
+                  else i - d2
+  let i1 ← lift (core.convert.num.FromU128U64.from turn)
+  let i2 ← lift (core.convert.num.FromU128U32.from pos)
+  let i3 ← i1 * i2
+  let i4 ← lift (core.convert.num.FromU128U64.from core.num.U64.MAX)
+  let i5 ← lift (i3 &&& i4)
+  let phase ← lift (UScalar.cast .U64 i5)
+  let i6 ← fixed_trig.turn_to_radians phase
+  let r1 ← fixed_trig.fixed_sin_cos i6
+  match r1 with
+  | core.result.Result.Ok sc =>
+    let i7 ← Slice.index_usize dy i
+    let y ← lift (core.convert.num.FromI128I64.from i7)
+    let i8 ← Slice.index_usize dy partner
+    let w ← lift (core.convert.num.FromI128I64.from i8)
+    let c ← lift (core.convert.num.FromI128I64.from sc.cos)
+    let s ← lift (core.convert.num.FromI128I64.from sc.sin)
+    let sum ←
+      if r < d2
+      then do
+           let i9 ← y * c
+           let i10 ← w * s
+           i9 + i10
+      else do
+           let i9 ← y * c
+           let i10 ← w * s
+           i9 - i10
+    let r2 ← learn_port.attn.acc_round sum
+    match r2 with
+    | core.result.Result.Ok _ => ok r2
+    | core.result.Result.Err _ =>
+      ok (core.result.Result.Err (learn_port.attn.AttnError.Rope
+        rope.RopeError.OutOfRange))
+  | core.result.Result.Err _ =>
+    ok (core.result.Result.Err (learn_port.attn.AttnError.Rope
+      rope.RopeError.OutOfRange))
+
+/-- [apeiron_word::learn_port::attn::rope_bwd]: loop body 0:
+    Source: '../../src/learn/grad/attn.rs', lines 203:4-209:5
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.attn.rope_bwd_loop.body
+  (dy : Slice Std.I64) (pos : Std.U32) (hd : Std.Usize) (turns : Slice Std.U64)
+  (n : Std.Usize) (dx : alloc.vec.Vec Std.I64) (i : Std.Usize) (ok1 : Bool) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize × Bool)
+    ((alloc.vec.Vec Std.I64) × Bool))
+  := do
+  if i < n
+  then
+    if ok1
+    then
+      let i1 ← i % hd
+      let i2 ← hd / 2#usize
+      let i3 ← i1 % i2
+      let i4 ← Slice.index_usize turns i3
+      let r ← learn_port.attn.rope_elem_bwd dy i hd i4 pos
+      let (dx1, ok2) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) dx i
+          let dx2 := index_mut_back v
+          ok (dx2, true)
+        | core.result.Result.Err _ => ok (dx, false)
+      let i5 ← i + 1#usize
+      ok (cont (dx1, i5, ok2))
+    else ok (done (dx, false))
+  else ok (done (dx, ok1))
+
+/-- [apeiron_word::learn_port::attn::rope_bwd]: loop 0:
+    Source: '../../src/learn/grad/attn.rs', lines 203:4-209:5
+    Visibility: public -/
+@[rust_loop]
+def learn_port.attn.rope_bwd_loop
+  (dy : Slice Std.I64) (pos : Std.U32) (hd : Std.Usize) (turns : Slice Std.U64)
+  (n : Std.Usize) (dx : alloc.vec.Vec Std.I64) (i : Std.Usize) (ok1 : Bool) :
+  Result ((alloc.vec.Vec Std.I64) × Bool)
+  := do
+  loop
+    (fun (dx1, i1, ok2) => learn_port.attn.rope_bwd_loop.body dy pos hd turns n
+      dx1 i1 ok2)
+    (dx, i, ok1)
+
+/-- [apeiron_word::learn_port::attn::rope_bwd]:
+    Source: '../../src/learn/grad/attn.rs', lines 190:0-215:1
+    Visibility: public -/
+def learn_port.attn.rope_bwd
+  (dy : Slice Std.I64) (pos : Std.U32) (table : rope.RopeTable) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) learn_port.attn.AttnError)
+  := do
+  let b ← core.slice.Slice.is_empty dy
+  if b
+  then ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
+  else
+    let hd ← rope.RopeTable.impl.head_dim table
+    let i := Slice.len dy
+    let i1 ← i % hd
+    if i1 != 0#usize
+    then
+      ok (core.result.Result.Err (learn_port.attn.AttnError.Rope
+        rope.RopeError.VectorLength))
+    else
+      let turns ← rope.RopeTable.impl.turns table
+      let n := Slice.len dy
+      let dx ← alloc.vec.from_elem core.clone.CloneI64 0#i64 n
+      let (dx1, ok1) ←
+        learn_port.attn.rope_bwd_loop dy pos hd turns n dx 0#usize true
+      if ok1
+      then ok (core.result.Result.Ok dx1)
+      else
+        ok (core.result.Result.Err (learn_port.attn.AttnError.Rope
+          rope.RopeError.OutOfRange))
+
+/-- [apeiron_word::learn_port::attn::score_scaled]:
+    Source: '../../src/learn/grad/attn.rs', lines 247:0-261:1 -/
+def learn_port.attn.score_scaled
+  (qi : Slice Std.I64) (k : Slice Std.I64) (kvh : Std.Usize) (nkv : Std.Usize)
+  (hd : Std.Usize) (j : Std.Usize) (scale : Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.attn.AttnError)
+  := do
+  let i ← j * nkv
+  let i1 ← i + kvh
+  let base ← i1 * hd
+  let i2 ← base + hd
+  let s ←
+    core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+      Std.I64) k { start := base, «end» := i2 }
+  let r ← learn_port.attn.dot_round qi s
+  match r with
+  | core.result.Result.Ok d => learn_port.attn.mul_round d scale
+  | core.result.Result.Err _ => ok r
+
+/-- [apeiron_word::learn_port::attn::exp_gap]:
+    Source: '../../src/learn/grad/attn.rs', lines 272:0-281:1 -/
+def learn_port.attn.exp_gap
+  (s : Std.I64) (m : Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.attn.AttnError)
+  := do
+  let o ← lift (I64.checked_sub s m)
+  let r ← core.option.Option.ok_or o learn_port.attn.AttnError.Overflow
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let i ← engine.ONE
+    let i1 ← (-16)#i64 * i
+    if val < i1
+    then ok (core.result.Result.Ok 0#i64)
+    else
+      let r1 ← fixed_exp.fixed_exp val
+      match r1 with
+      | core.result.Result.Ok e => ok (core.result.Result.Ok e)
+      | core.result.Result.Err _ =>
+        ok (core.result.Result.Err learn_port.attn.AttnError.ExpOutOfRange)
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      Std.I64 (core.convert.FromSame learn_port.attn.AttnError) residual
+
+/-- [apeiron_word::learn_port::attn::prob]:
+    Source: '../../src/learn/grad/attn.rs', lines 287:0-299:1 -/
+def learn_port.attn.prob
+  (e : Std.I64) (z : Std.I128) :
+  Result (core.result.Result Std.I64 learn_port.attn.AttnError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from e)
+  let i1 ← engine.ONE
+  let i2 ← lift (core.convert.num.FromI128I64.from i1)
+  let num ← i * i2
+  let i3 ← z / 2#i128
+  let i4 ← num + i3
+  let o ← lift (I128.checked_div i4 z)
+  match o with
+  | none => ok (core.result.Result.Err learn_port.attn.AttnError.Overflow)
+  | some q =>
+    let i5 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+    if q > i5
+    then ok (core.result.Result.Err learn_port.attn.AttnError.Overflow)
+    else
+      let i6 ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+      if q < i6
+      then ok (core.result.Result.Err learn_port.attn.AttnError.Overflow)
+      else let i7 ← lift (IScalar.cast .I64 q)
+           ok (core.result.Result.Ok i7)
+
+/-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop body 0:
+    Source: '../../src/learn/grad/attn.rs', lines 330:4-344:5 -/
+@[rust_loop_body]
+def learn_port.attn.attn_row_fwd_loop0.body
+  (qi : Slice Std.I64) (k : Slice Std.I64) (kvh : Std.Usize) (nkv : Std.Usize)
+  (hd : Std.Usize) (n : Std.Usize) (scale : Std.I64) (prow : Slice Std.I64)
+  (m : Std.I64) (j : Std.Usize) (ok1 : Bool) (err : learn_port.attn.AttnError)
+  :
+  Result (ControlFlow ((Slice Std.I64) × Std.I64 × Std.Usize × Bool ×
+    learn_port.attn.AttnError) ((Slice Std.I64) × Std.I64 × Bool ×
+    learn_port.attn.AttnError))
+  := do
+  if j < n
+  then
+    if ok1
+    then
+      let r ← learn_port.attn.score_scaled qi k kvh nkv hd j scale
+      let (prow1, m1, ok2, err1) ←
+        match r with
+        | core.result.Result.Ok s =>
+          do
+          let s1 ← Slice.update prow j s
+          let i ← if s > m
+                    then ok s
+                    else ok m
+          ok (s1, i, true, err)
+        | core.result.Result.Err e => ok (prow, m, false, e)
+      let j1 ← j + 1#usize
+      ok (cont (prow1, m1, j1, ok2, err1))
+    else ok (done (prow, m, false, err))
+  else ok (done (prow, m, ok1, err))
+
+/-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop 0:
+    Source: '../../src/learn/grad/attn.rs', lines 330:4-344:5 -/
+@[rust_loop]
+def learn_port.attn.attn_row_fwd_loop0
+  (qi : Slice Std.I64) (k : Slice Std.I64) (kvh : Std.Usize) (nkv : Std.Usize)
+  (hd : Std.Usize) (n : Std.Usize) (scale : Std.I64) (prow : Slice Std.I64)
+  (m : Std.I64) (j : Std.Usize) (ok1 : Bool) (err : learn_port.attn.AttnError)
+  :
+  Result ((Slice Std.I64) × Std.I64 × Bool × learn_port.attn.AttnError)
+  := do
+  loop
+    (fun (prow1, m1, j1, ok2, err1) => learn_port.attn.attn_row_fwd_loop0.body
+      qi k kvh nkv hd n scale prow1 m1 j1 ok2 err1)
+    (prow, m, j, ok1, err)
+
+/-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop body 1:
+    Source: '../../src/learn/grad/attn.rs', lines 347:4-362:5 -/
+@[rust_loop_body]
+def learn_port.attn.attn_row_fwd_loop1.body
+  (n : Std.Usize) (m : Std.I64) (prow : Slice Std.I64) (j : Std.Usize)
+  (ok1 : Bool) (err : learn_port.attn.AttnError) (z : Std.I128) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize × Bool ×
+    learn_port.attn.AttnError × Std.I128) ((Slice Std.I64) × Bool ×
+    learn_port.attn.AttnError × Std.I128))
+  := do
+  if j < n
+  then
+    if ok1
+    then
+      let i ← Slice.index_usize prow j
+      let r ← learn_port.attn.exp_gap i m
+      match r with
+      | core.result.Result.Ok e =>
+        let s ← Slice.update prow j e
+        let i1 ← lift (core.convert.num.FromI128I64.from e)
+        let o ← lift (I128.checked_add z i1)
+        let (ok2, z1) ←
+          match o with
+          | none => ok (false, z)
+          | some s1 => ok (true, s1)
+        let j1 ← j + 1#usize
+        ok (cont (s, j1, ok2, err, z1))
+      | core.result.Result.Err e =>
+        let j1 ← j + 1#usize
+        ok (cont (prow, j1, false, e, z))
+    else ok (done (prow, false, err, z))
+  else ok (done (prow, ok1, err, z))
+
+/-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop 1:
+    Source: '../../src/learn/grad/attn.rs', lines 347:4-362:5 -/
+@[rust_loop]
+def learn_port.attn.attn_row_fwd_loop1
+  (n : Std.Usize) (prow : Slice Std.I64) (m : Std.I64) (j : Std.Usize)
+  (ok1 : Bool) (err : learn_port.attn.AttnError) (z : Std.I128) :
+  Result ((Slice Std.I64) × Bool × learn_port.attn.AttnError × Std.I128)
+  := do
+  loop
+    (fun (prow1, j1, ok2, err1, z1) => learn_port.attn.attn_row_fwd_loop1.body
+      n m prow1 j1 ok2 err1 z1)
+    (prow, j, ok1, err, z)
+
+/-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop body 2:
+    Source: '../../src/learn/grad/attn.rs', lines 364:4-373:5 -/
+@[rust_loop_body]
+def learn_port.attn.attn_row_fwd_loop2.body
+  (n : Std.Usize) (z : Std.I128) (prow : Slice Std.I64) (j : Std.Usize)
+  (ok1 : Bool) (err : learn_port.attn.AttnError) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize × Bool ×
+    learn_port.attn.AttnError) ((Slice Std.I64) × Bool ×
+    learn_port.attn.AttnError))
+  := do
+  if j < n
+  then
+    if ok1
+    then
+      let i ← Slice.index_usize prow j
+      let r ← learn_port.attn.prob i z
+      match r with
+      | core.result.Result.Ok p =>
+        let s ← Slice.update prow j p
+        let j1 ← j + 1#usize
+        ok (cont (s, j1, true, err))
+      | core.result.Result.Err e =>
+        let j1 ← j + 1#usize
+        ok (cont (prow, j1, false, e))
+    else ok (done (prow, false, err))
+  else ok (done (prow, ok1, err))
+
+/-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop 2:
+    Source: '../../src/learn/grad/attn.rs', lines 364:4-373:5 -/
+@[rust_loop]
+def learn_port.attn.attn_row_fwd_loop2
+  (n : Std.Usize) (prow : Slice Std.I64) (j : Std.Usize) (ok1 : Bool)
+  (err : learn_port.attn.AttnError) (z : Std.I128) :
+  Result ((Slice Std.I64) × Bool × learn_port.attn.AttnError)
+  := do
+  loop
+    (fun (prow1, j1, ok2, err1) => learn_port.attn.attn_row_fwd_loop2.body n z
+      prow1 j1 ok2 err1)
+    (prow, j, ok1, err)
+
+/-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop body 4:
+    Source: '../../src/learn/grad/attn.rs', lines 378:8-388:9 -/
+@[rust_loop_body]
+def learn_port.attn.attn_row_fwd_loop3_loop0.body
+  (v : Slice Std.I64) (kvh : Std.Usize) (nkv : Std.Usize) (hd : Std.Usize)
+  (n : Std.Usize) (prow : Slice Std.I64) (d : Std.Usize) (ok1 : Bool)
+  (acc : Std.I128) (jj : Std.Usize) :
+  Result (ControlFlow (Bool × Std.I128 × Std.Usize) (Bool × Std.I128))
+  := do
+  if jj < n
+  then
+    if ok1
+    then
+      let i ← jj * nkv
+      let i1 ← i + kvh
+      let i2 ← i1 * hd
+      let i3 ← i2 + d
+      let vj ← Slice.index_usize v i3
+      let i4 ← Slice.index_usize prow jj
+      let i5 ← lift (core.convert.num.FromI128I64.from i4)
+      let i6 ← lift (core.convert.num.FromI128I64.from vj)
+      let o ← lift (I128.checked_mul i5 i6)
+      let (ok2, acc1) ←
+        match o with
+        | none => ok (false, acc)
+        | some prod =>
+          do
+          let o1 ← lift (I128.checked_add acc prod)
+          match o1 with
+          | none => ok (false, acc)
+          | some s => ok (true, s)
+      let jj1 ← jj + 1#usize
+      ok (cont (ok2, acc1, jj1))
+    else ok (done (false, acc))
+  else ok (done (ok1, acc))
+
+/-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop 4:
+    Source: '../../src/learn/grad/attn.rs', lines 378:8-388:9 -/
+@[rust_loop]
+def learn_port.attn.attn_row_fwd_loop3_loop0
+  (v : Slice Std.I64) (kvh : Std.Usize) (nkv : Std.Usize) (hd : Std.Usize)
+  (n : Std.Usize) (prow : Slice Std.I64) (ok1 : Bool) (d : Std.Usize)
+  (acc : Std.I128) (jj : Std.Usize) :
+  Result (Bool × Std.I128)
+  := do
+  loop
+    (fun (ok2, acc1, jj1) => learn_port.attn.attn_row_fwd_loop3_loop0.body v
+      kvh nkv hd n prow d ok2 acc1 jj1)
+    (ok1, acc, jj)
+
+/-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop body 3:
+    Source: '../../src/learn/grad/attn.rs', lines 375:4-399:5 -/
+@[rust_loop_body]
+def learn_port.attn.attn_row_fwd_loop3.body
+  (v : Slice Std.I64) (kvh : Std.Usize) (nkv : Std.Usize) (hd : Std.Usize)
+  (n : Std.Usize) (prow : Slice Std.I64) (orow : Slice Std.I64) (ok1 : Bool)
+  (err : learn_port.attn.AttnError) (d : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Bool × learn_port.attn.AttnError ×
+    Std.Usize) ((Slice Std.I64) × Bool × learn_port.attn.AttnError))
+  := do
+  if d < hd
+  then
+    if ok1
+    then
+      let (ok2, acc) ←
+        learn_port.attn.attn_row_fwd_loop3_loop0 v kvh nkv hd n prow true d
+          0#i128 0#usize
+      let (orow1, ok3, err1) ←
+        if ok2
+        then
+          do
+          let r ← learn_port.attn.acc_round acc
+          match r with
+          | core.result.Result.Ok o =>
+            let s ← Slice.update orow d o
+            ok (s, true, err)
+          | core.result.Result.Err e => ok (orow, false, e)
+        else ok (orow, false, err)
+      let d1 ← d + 1#usize
+      ok (cont (orow1, ok3, err1, d1))
+    else ok (done (orow, false, err))
+  else ok (done (orow, ok1, err))
+
+/-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop 3:
+    Source: '../../src/learn/grad/attn.rs', lines 375:4-399:5 -/
+@[rust_loop]
+def learn_port.attn.attn_row_fwd_loop3
+  (v : Slice Std.I64) (kvh : Std.Usize) (nkv : Std.Usize) (hd : Std.Usize)
+  (n : Std.Usize) (prow : Slice Std.I64) (orow : Slice Std.I64) (ok1 : Bool)
+  (err : learn_port.attn.AttnError) (d : Std.Usize) :
+  Result ((Slice Std.I64) × Bool × learn_port.attn.AttnError)
+  := do
+  loop
+    (fun (orow1, ok2, err1, d1) => learn_port.attn.attn_row_fwd_loop3.body v
+      kvh nkv hd n prow orow1 ok2 err1 d1)
+    (orow, ok1, err, d)
+
+/-- [apeiron_word::learn_port::attn::attn_row_fwd]:
+    Source: '../../src/learn/grad/attn.rs', lines 314:0-405:1 -/
+def learn_port.attn.attn_row_fwd
+  (qi : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64)
+  (kvh : Std.Usize) (nkv : Std.Usize) (hd : Std.Usize) (n : Std.Usize)
+  (scale : Std.I64) (prow : Slice Std.I64) (orow : Slice Std.I64) :
+  Result ((core.result.Result Unit learn_port.attn.AttnError) × (Slice
+    Std.I64) × (Slice Std.I64))
+  := do
+  let (prow1, m, ok1, err) ←
+    learn_port.attn.attn_row_fwd_loop0 qi k kvh nkv hd n scale prow
+      core.num.I64.MIN 0#usize true learn_port.attn.AttnError.Overflow
+  let (prow2, ok2, err1, z) ←
+    learn_port.attn.attn_row_fwd_loop1 n prow1 m 0#usize ok1 err 0#i128
+  let (prow3, ok3, err2) ←
+    learn_port.attn.attn_row_fwd_loop2 n prow2 0#usize ok2 err1 z
+  let (orow1, ok4, err3) ←
+    learn_port.attn.attn_row_fwd_loop3 v kvh nkv hd n prow3 orow ok3 err2
+      0#usize
+  if ok4
+  then ok (core.result.Result.Ok (), prow3, orow1)
+  else ok (core.result.Result.Err err3, prow3, orow1)
+
+/-- [apeiron_word::learn_port::attn::attn_fwd]: loop body 1:
+    Source: '../../src/learn/grad/attn.rs', lines 451:8-474:9
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.attn.attn_fwd_loop0_loop0.body
+  (q : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64) (nh : Std.Usize)
+  (nkv : Std.Usize) (hd : Std.Usize) (t : Std.Usize) (scale : Std.I64)
+  (h : Std.Usize) (kvh : Std.Usize) (p : alloc.vec.Vec Std.I64)
+  (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : learn_port.attn.AttnError)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    Bool × learn_port.attn.AttnError × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64) × Bool × learn_port.attn.AttnError))
+  := do
+  if i < t
+  then
+    if ok1
+    then
+      let i1 ← i * nh
+      let i2 ← i1 + h
+      let qbase ← i2 * hd
+      let i3 ← h * t
+      let i4 ← i3 + i
+      let pbase ← i4 * t
+      let i5 ← qbase + hd
+      let s ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) q
+          { start := qbase, «end» := i5 }
+      let i6 ← i + 1#usize
+      let i7 ← pbase + t
+      let (s1, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) p { start := pbase, «end» := i7 }
+      let (s2, index_mut_back1) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) out { start := qbase, «end» := i5 }
+      let (r, s3, s4) ←
+        learn_port.attn.attn_row_fwd s k v kvh nkv hd i6 scale s1 s2
+      let (p1, out1, ok2, err1) ←
+        match r with
+        | core.result.Result.Ok _ =>
+          let out2 := index_mut_back1 s4
+          let p2 := index_mut_back s3
+          ok (p2, out2, true, err)
+        | core.result.Result.Err e =>
+          let out2 := index_mut_back1 s4
+          let p2 := index_mut_back s3
+          ok (p2, out2, false, e)
+      ok (cont (p1, out1, ok2, err1, i6))
+    else ok (done (p, out, false, err))
+  else ok (done (p, out, ok1, err))
+
+/-- [apeiron_word::learn_port::attn::attn_fwd]: loop 1:
+    Source: '../../src/learn/grad/attn.rs', lines 451:8-474:9
+    Visibility: public -/
+@[rust_loop]
+def learn_port.attn.attn_fwd_loop0_loop0
+  (q : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64) (nh : Std.Usize)
+  (nkv : Std.Usize) (hd : Std.Usize) (t : Std.Usize) (scale : Std.I64)
+  (p : alloc.vec.Vec Std.I64) (out : alloc.vec.Vec Std.I64) (h : Std.Usize)
+  (ok1 : Bool) (err : learn_port.attn.AttnError) (kvh : Std.Usize)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × Bool ×
+    learn_port.attn.AttnError)
+  := do
+  loop
+    (fun (p1, out1, ok2, err1, i1) => learn_port.attn.attn_fwd_loop0_loop0.body
+      q k v nh nkv hd t scale h kvh p1 out1 ok2 err1 i1)
+    (p, out, ok1, err, i)
+
+/-- [apeiron_word::learn_port::attn::attn_fwd]: loop body 0:
+    Source: '../../src/learn/grad/attn.rs', lines 448:4-476:5
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.attn.attn_fwd_loop0.body
+  (q : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64) (nh : Std.Usize)
+  (nkv : Std.Usize) (hd : Std.Usize) (t : Std.Usize) (scale : Std.I64)
+  (rep : Std.Usize) (p : alloc.vec.Vec Std.I64) (out : alloc.vec.Vec Std.I64)
+  (h : Std.Usize) (ok1 : Bool) (err : learn_port.attn.AttnError) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    Std.Usize × Bool × learn_port.attn.AttnError) ((alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64) × Bool × learn_port.attn.AttnError))
+  := do
+  if h < nh
+  then
+    if ok1
+    then
+      let kvh ← h / rep
+      let (p1, out1, ok2, err1) ←
+        learn_port.attn.attn_fwd_loop0_loop0 q k v nh nkv hd t scale p out h
+          true err kvh 0#usize
+      let h1 ← h + 1#usize
+      ok (cont (p1, out1, h1, ok2, err1))
+    else ok (done (p, out, false, err))
+  else ok (done (p, out, ok1, err))
+
+/-- [apeiron_word::learn_port::attn::attn_fwd]: loop 0:
+    Source: '../../src/learn/grad/attn.rs', lines 448:4-476:5
+    Visibility: public -/
+@[rust_loop]
+def learn_port.attn.attn_fwd_loop0
+  (q : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64) (nh : Std.Usize)
+  (nkv : Std.Usize) (hd : Std.Usize) (t : Std.Usize) (scale : Std.I64)
+  (rep : Std.Usize) (p : alloc.vec.Vec Std.I64) (out : alloc.vec.Vec Std.I64)
+  (h : Std.Usize) (ok1 : Bool) (err : learn_port.attn.AttnError) :
+  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × Bool ×
+    learn_port.attn.AttnError)
+  := do
+  loop
+    (fun (p1, out1, h1, ok2, err1) => learn_port.attn.attn_fwd_loop0.body q k v
+      nh nkv hd t scale rep p1 out1 h1 ok2 err1)
+    (p, out, h, ok1, err)
+
+/-- [apeiron_word::learn_port::attn::attn_fwd]:
+    Source: '../../src/learn/grad/attn.rs', lines 424:0-482:1
+    Visibility: public -/
+def learn_port.attn.attn_fwd
+  (q : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64) (nh : Std.Usize)
+  (nkv : Std.Usize) (hd : Std.Usize) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) learn_port.attn.AttnError)
+  := do
+  let r ← learn_port.attn.gqa_shape nh nkv hd
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let r1 ← learn_port.attn.dim_product nh hd
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let r2 ← learn_port.attn.dim_product nkv hd
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        let i := Slice.len q
+        let r3 ← learn_port.attn.rows_of i val
+        let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val2 =>
+          let i1 := Slice.len k
+          let r4 ← learn_port.attn.rows_of i1 val1
+          let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r4
+          match cf4 with
+          | core.ops.control_flow.ControlFlow.Continue val3 =>
+            if val3 != val2
+            then ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
+            else
+              let i2 := Slice.len v
+              let i3 := Slice.len k
+              if i2 != i3
+              then
+                ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
+              else
+                let r5 ← learn_port.attn.rsqrt_scale hd
+                let cf5 ← core.result.Result.Insts.CoreOpsTry.branch r5
+                match cf5 with
+                | core.ops.control_flow.ControlFlow.Continue val4 =>
+                  let rep ← nh / nkv
+                  let r6 ← learn_port.attn.dim_product nh val2
+                  let cf6 ← core.result.Result.Insts.CoreOpsTry.branch r6
+                  match cf6 with
+                  | core.ops.control_flow.ControlFlow.Continue val5 =>
+                    let r7 ← learn_port.attn.dim_product val5 val2
+                    let cf7 ← core.result.Result.Insts.CoreOpsTry.branch r7
+                    match cf7 with
+                    | core.ops.control_flow.ControlFlow.Continue val6 =>
+                      let r8 ← learn_port.attn.dim_product val2 val
+                      let cf8 ← core.result.Result.Insts.CoreOpsTry.branch r8
+                      match cf8 with
+                      | core.ops.control_flow.ControlFlow.Continue val7 =>
+                        let p ←
+                          alloc.vec.from_elem core.clone.CloneI64 0#i64 val6
+                        let out ←
+                          alloc.vec.from_elem core.clone.CloneI64 0#i64 val7
+                        let (p1, out1, ok1, err) ←
+                          learn_port.attn.attn_fwd_loop0 q k v nh nkv hd val2
+                            val4 rep p out 0#usize true
+                            learn_port.attn.AttnError.Overflow
+                        if ok1
+                        then ok (core.result.Result.Ok (out1, p1))
+                        else ok (core.result.Result.Err err)
+                      | core.ops.control_flow.ControlFlow.Break residual =>
+                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                          ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+                          (core.convert.FromSame learn_port.attn.AttnError)
+                          residual
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+                        (core.convert.FromSame learn_port.attn.AttnError)
+                        residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+                      (core.convert.FromSame learn_port.attn.AttnError)
+                      residual
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+                    (core.convert.FromSame learn_port.attn.AttnError) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+              (core.convert.FromSame learn_port.attn.AttnError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+            (core.convert.FromSame learn_port.attn.AttnError) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+          (core.convert.FromSame learn_port.attn.AttnError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+        (core.convert.FromSame learn_port.attn.AttnError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+      (core.convert.FromSame learn_port.attn.AttnError) residual
+
+/-- [apeiron_word::learn_port::attn::attn_row_ds]: loop body 0:
+    Source: '../../src/learn/grad/attn.rs', lines 510:4-520:5 -/
+@[rust_loop_body]
+def learn_port.attn.attn_row_ds_loop0.body
+  (dout_i : Slice Std.I64) (v : Slice Std.I64) (kvh : Std.Usize)
+  (nkv : Std.Usize) (hd : Std.Usize) (n : Std.Usize) (dprow : Slice Std.I64)
+  (j : Std.Usize) (ok1 : Bool) (err : learn_port.attn.AttnError) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize × Bool ×
+    learn_port.attn.AttnError) ((Slice Std.I64) × Bool ×
+    learn_port.attn.AttnError))
+  := do
+  if j < n
+  then
+    if ok1
+    then
+      let i ← j * nkv
+      let i1 ← i + kvh
+      let base ← i1 * hd
+      let i2 ← base + hd
+      let s ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) v
+          { start := base, «end» := i2 }
+      let r ← learn_port.attn.dot_round dout_i s
+      let (dprow1, ok2, err1) ←
+        match r with
+        | core.result.Result.Ok d =>
+          do
+          let s1 ← Slice.update dprow j d
+          ok (s1, true, err)
+        | core.result.Result.Err e => ok (dprow, false, e)
+      let j1 ← j + 1#usize
+      ok (cont (dprow1, j1, ok2, err1))
+    else ok (done (dprow, false, err))
+  else ok (done (dprow, ok1, err))
+
+/-- [apeiron_word::learn_port::attn::attn_row_ds]: loop 0:
+    Source: '../../src/learn/grad/attn.rs', lines 510:4-520:5 -/
+@[rust_loop]
+def learn_port.attn.attn_row_ds_loop0
+  (dout_i : Slice Std.I64) (v : Slice Std.I64) (kvh : Std.Usize)
+  (nkv : Std.Usize) (hd : Std.Usize) (n : Std.Usize) (dprow : Slice Std.I64)
+  (j : Std.Usize) (ok1 : Bool) (err : learn_port.attn.AttnError) :
+  Result ((Slice Std.I64) × Bool × learn_port.attn.AttnError)
+  := do
+  loop
+    (fun (dprow1, j1, ok2, err1) => learn_port.attn.attn_row_ds_loop0.body
+      dout_i v kvh nkv hd n dprow1 j1 ok2 err1)
+    (dprow, j, ok1, err)
+
+/-- [apeiron_word::learn_port::attn::attn_row_ds]: loop body 1:
+    Source: '../../src/learn/grad/attn.rs', lines 523:4-532:5 -/
+@[rust_loop_body]
+def learn_port.attn.attn_row_ds_loop1.body
+  (n : Std.Usize) (prow : Slice Std.I64) (dprow : Slice Std.I64)
+  (j : Std.Usize) (ok1 : Bool) (acc : Std.I128) :
+  Result (ControlFlow (Std.Usize × Bool × Std.I128) (Bool × Std.I128))
+  := do
+  if j < n
+  then
+    if ok1
+    then
+      let i ← Slice.index_usize dprow j
+      let i1 ← lift (core.convert.num.FromI128I64.from i)
+      let i2 ← Slice.index_usize prow j
+      let i3 ← lift (core.convert.num.FromI128I64.from i2)
+      let o ← lift (I128.checked_mul i1 i3)
+      let (ok2, acc1) ←
+        match o with
+        | none => ok (false, acc)
+        | some prod =>
+          do
+          let o1 ← lift (I128.checked_add acc prod)
+          match o1 with
+          | none => ok (false, acc)
+          | some s => ok (true, s)
+      let j1 ← j + 1#usize
+      ok (cont (j1, ok2, acc1))
+    else ok (done (false, acc))
+  else ok (done (ok1, acc))
+
+/-- [apeiron_word::learn_port::attn::attn_row_ds]: loop 1:
+    Source: '../../src/learn/grad/attn.rs', lines 523:4-532:5 -/
+@[rust_loop]
+def learn_port.attn.attn_row_ds_loop1
+  (n : Std.Usize) (prow : Slice Std.I64) (dprow : Slice Std.I64)
+  (j : Std.Usize) (ok1 : Bool) (acc : Std.I128) :
+  Result (Bool × Std.I128)
+  := do
+  loop
+    (fun (j1, ok2, acc1) => learn_port.attn.attn_row_ds_loop1.body n prow dprow
+      j1 ok2 acc1)
+    (j, ok1, acc)
+
+/-- [apeiron_word::learn_port::attn::attn_row_ds]: loop body 2:
+    Source: '../../src/learn/grad/attn.rs', lines 544:4-558:5 -/
+@[rust_loop_body]
+def learn_port.attn.attn_row_ds_loop2.body
+  (n : Std.Usize) (prow : Slice Std.I64) (rsum : Std.I64)
+  (dprow : Slice Std.I64) (j : Std.Usize) (ok1 : Bool)
+  (err : learn_port.attn.AttnError) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize × Bool ×
+    learn_port.attn.AttnError) ((Slice Std.I64) × Bool ×
+    learn_port.attn.AttnError))
+  := do
+  if j < n
+  then
+    if ok1
+    then
+      let i ← Slice.index_usize dprow j
+      let o ← lift (I64.checked_sub i rsum)
+      match o with
+      | none =>
+        let j1 ← j + 1#usize
+        ok (cont (dprow, j1, false, learn_port.attn.AttnError.Overflow))
+      | some diff =>
+        let i1 ← Slice.index_usize prow j
+        let r ← learn_port.attn.mul_round i1 diff
+        match r with
+        | core.result.Result.Ok ds =>
+          let s ← Slice.update dprow j ds
+          let j1 ← j + 1#usize
+          ok (cont (s, j1, true, err))
+        | core.result.Result.Err e =>
+          let j1 ← j + 1#usize
+          ok (cont (dprow, j1, false, e))
+    else ok (done (dprow, false, err))
+  else ok (done (dprow, ok1, err))
+
+/-- [apeiron_word::learn_port::attn::attn_row_ds]: loop 2:
+    Source: '../../src/learn/grad/attn.rs', lines 544:4-558:5 -/
+@[rust_loop]
+def learn_port.attn.attn_row_ds_loop2
+  (n : Std.Usize) (prow : Slice Std.I64) (dprow : Slice Std.I64)
+  (j : Std.Usize) (ok1 : Bool) (err : learn_port.attn.AttnError)
+  (rsum : Std.I64) :
+  Result ((Slice Std.I64) × Bool × learn_port.attn.AttnError)
+  := do
+  loop
+    (fun (dprow1, j1, ok2, err1) => learn_port.attn.attn_row_ds_loop2.body n
+      prow rsum dprow1 j1 ok2 err1)
+    (dprow, j, ok1, err)
+
+/-- [apeiron_word::learn_port::attn::attn_row_ds]:
+    Source: '../../src/learn/grad/attn.rs', lines 497:0-564:1 -/
+def learn_port.attn.attn_row_ds
+  (dout_i : Slice Std.I64) (v : Slice Std.I64) (kvh : Std.Usize)
+  (nkv : Std.Usize) (hd : Std.Usize) (n : Std.Usize) (prow : Slice Std.I64)
+  (dprow : Slice Std.I64) :
+  Result ((core.result.Result Unit learn_port.attn.AttnError) × (Slice
+    Std.I64))
+  := do
+  let (dprow1, ok1, err) ←
+    learn_port.attn.attn_row_ds_loop0 dout_i v kvh nkv hd n dprow 0#usize true
+      learn_port.attn.AttnError.Overflow
+  let (ok2, acc) ←
+    learn_port.attn.attn_row_ds_loop1 n prow dprow1 0#usize ok1 0#i128
+  let (ok3, err1, rsum) ←
+    if ok2
+    then
+      do
+      let r ← learn_port.attn.acc_round acc
+      match r with
+      | core.result.Result.Ok r1 => ok (true, err, r1)
+      | core.result.Result.Err e => ok (false, e, 0#i64)
+    else ok (false, err, 0#i64)
+  let (dprow2, ok4, err2) ←
+    learn_port.attn.attn_row_ds_loop2 n prow dprow1 0#usize ok3 err1 rsum
+  if ok4
+  then ok (core.result.Result.Ok (), dprow2)
+  else ok (core.result.Result.Err err2, dprow2)
+
+/-- [apeiron_word::learn_port::attn::acc_add]:
+    Source: '../../src/learn/grad/attn.rs', lines 570:0-581:1 -/
+def learn_port.attn.acc_add
+  (acc : Slice Std.I128) (idx : Std.Usize) (a : Std.I64) (b : Std.I64) :
+  Result ((core.result.Result Unit learn_port.attn.AttnError) × (Slice
+    Std.I128))
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from a)
+  let i1 ← lift (core.convert.num.FromI128I64.from b)
+  let o ← lift (I128.checked_mul i i1)
+  match o with
+  | none => ok (core.result.Result.Err learn_port.attn.AttnError.Overflow, acc)
+  | some prod =>
+    let i2 ← Slice.index_usize acc idx
+    let o1 ← lift (I128.checked_add i2 prod)
+    match o1 with
+    | none =>
+      ok (core.result.Result.Err learn_port.attn.AttnError.Overflow, acc)
+    | some s =>
+      let acc1 ← Slice.update acc idx s
+      ok (core.result.Result.Ok (), acc1)
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]: loop body 3:
+    Source: '../../src/learn/grad/attn.rs', lines 672:16-699:17
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.attn.attn_bwd_loop0_loop0_loop0_loop0.body
+  (q : Slice Std.I64) (k : Slice Std.I64) (dout : Slice Std.I64)
+  (hd : Std.Usize) (qbase : Std.Usize) (kbase : Std.Usize) (pij : Std.I64)
+  (dsij : Std.I64) (dq_acc : alloc.vec.Vec Std.I128)
+  (dk_acc : alloc.vec.Vec Std.I128) (dv_acc : alloc.vec.Vec Std.I128)
+  (ok1 : Bool) (err : learn_port.attn.AttnError) (d : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × (alloc.vec.Vec Std.I128) ×
+    (alloc.vec.Vec Std.I128) × Bool × learn_port.attn.AttnError × Std.Usize)
+    ((alloc.vec.Vec Std.I128) × (alloc.vec.Vec Std.I128) × (alloc.vec.Vec
+    Std.I128) × Bool × learn_port.attn.AttnError))
+  := do
+  if d < hd
+  then
+    if ok1
+    then
+      let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut dv_acc)
+      let i ← kbase + d
+      let i1 ← qbase + d
+      let i2 ← Slice.index_usize dout i1
+      let (r, s1) ← learn_port.attn.acc_add s i pij i2
+      let (ok2, err1) ←
+        match r with
+        | core.result.Result.Ok _ => ok (true, err)
+        | core.result.Result.Err e => ok (false, e)
+      let (dk_acc1, dv_acc1, ok3, err2) ←
+        if ok2
+        then
+          do
+          let (s2, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut dk_acc)
+          let i3 ← Slice.index_usize q i1
+          let (r1, s3) ← learn_port.attn.acc_add s2 i dsij i3
+          match r1 with
+          | core.result.Result.Ok _ =>
+            let dk_acc2 := deref_mut_back1 s3
+            let dv_acc2 := deref_mut_back s1
+            ok (dk_acc2, dv_acc2, true, err1)
+          | core.result.Result.Err e =>
+            let dk_acc2 := deref_mut_back1 s3
+            let dv_acc2 := deref_mut_back s1
+            ok (dk_acc2, dv_acc2, false, e)
+        else let dv_acc2 := deref_mut_back s1
+             ok (dk_acc, dv_acc2, false, err1)
+      let (dq_acc1, ok4, err3) ←
+        if ok3
+        then
+          do
+          let (s2, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut dq_acc)
+          let i3 ← Slice.index_usize k i
+          let (r1, s3) ← learn_port.attn.acc_add s2 i1 dsij i3
+          match r1 with
+          | core.result.Result.Ok _ =>
+            let dq_acc2 := deref_mut_back1 s3
+            ok (dq_acc2, true, err2)
+          | core.result.Result.Err e =>
+            let dq_acc2 := deref_mut_back1 s3
+            ok (dq_acc2, false, e)
+        else ok (dq_acc, false, err2)
+      let d1 ← d + 1#usize
+      ok (cont (dq_acc1, dk_acc1, dv_acc1, ok4, err3, d1))
+    else ok (done (dq_acc, dk_acc, dv_acc, false, err))
+  else ok (done (dq_acc, dk_acc, dv_acc, ok1, err))
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]: loop 3:
+    Source: '../../src/learn/grad/attn.rs', lines 672:16-699:17
+    Visibility: public -/
+@[rust_loop]
+def learn_port.attn.attn_bwd_loop0_loop0_loop0_loop0
+  (q : Slice Std.I64) (k : Slice Std.I64) (dout : Slice Std.I64)
+  (hd : Std.Usize) (dq_acc : alloc.vec.Vec Std.I128)
+  (dk_acc : alloc.vec.Vec Std.I128) (dv_acc : alloc.vec.Vec Std.I128)
+  (ok1 : Bool) (err : learn_port.attn.AttnError) (qbase : Std.Usize)
+  (kbase : Std.Usize) (pij : Std.I64) (dsij : Std.I64) (d : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I128) × (alloc.vec.Vec Std.I128) ×
+    (alloc.vec.Vec Std.I128) × Bool × learn_port.attn.AttnError)
+  := do
+  loop
+    (fun (dq_acc1, dk_acc1, dv_acc1, ok2, err1, d1) =>
+      learn_port.attn.attn_bwd_loop0_loop0_loop0_loop0.body q k dout hd qbase
+      kbase pij dsij dq_acc1 dk_acc1 dv_acc1 ok2 err1 d1)
+    (dq_acc, dk_acc, dv_acc, ok1, err, d)
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]: loop body 2:
+    Source: '../../src/learn/grad/attn.rs', lines 667:12-701:13
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.attn.attn_bwd_loop0_loop0_loop0.body
+  (q : Slice Std.I64) (k : Slice Std.I64) (p : Slice Std.I64)
+  (dout : Slice Std.I64) (nkv : Std.Usize) (hd : Std.Usize)
+  (ds : alloc.vec.Vec Std.I64) (kvh : Std.Usize) (qbase : Std.Usize)
+  (pbase : Std.Usize) (n : Std.Usize) (dq_acc : alloc.vec.Vec Std.I128)
+  (dk_acc : alloc.vec.Vec Std.I128) (dv_acc : alloc.vec.Vec Std.I128)
+  (ok1 : Bool) (err : learn_port.attn.AttnError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × (alloc.vec.Vec Std.I128) ×
+    (alloc.vec.Vec Std.I128) × Bool × learn_port.attn.AttnError × Std.Usize)
+    ((alloc.vec.Vec Std.I128) × (alloc.vec.Vec Std.I128) × (alloc.vec.Vec
+    Std.I128) × Bool × learn_port.attn.AttnError))
+  := do
+  if j < n
+  then
+    if ok1
+    then
+      let i ← j * nkv
+      let i1 ← i + kvh
+      let kbase ← i1 * hd
+      let i2 ← pbase + j
+      let pij ← Slice.index_usize p i2
+      let dsij ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) ds
+          i2
+      let (dq_acc1, dk_acc1, dv_acc1, ok2, err1) ←
+        learn_port.attn.attn_bwd_loop0_loop0_loop0_loop0 q k dout hd dq_acc
+          dk_acc dv_acc true err qbase kbase pij dsij 0#usize
+      let j1 ← j + 1#usize
+      ok (cont (dq_acc1, dk_acc1, dv_acc1, ok2, err1, j1))
+    else ok (done (dq_acc, dk_acc, dv_acc, false, err))
+  else ok (done (dq_acc, dk_acc, dv_acc, ok1, err))
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]: loop 2:
+    Source: '../../src/learn/grad/attn.rs', lines 667:12-701:13
+    Visibility: public -/
+@[rust_loop]
+def learn_port.attn.attn_bwd_loop0_loop0_loop0
+  (q : Slice Std.I64) (k : Slice Std.I64) (p : Slice Std.I64)
+  (dout : Slice Std.I64) (nkv : Std.Usize) (hd : Std.Usize)
+  (ds : alloc.vec.Vec Std.I64) (dq_acc : alloc.vec.Vec Std.I128)
+  (dk_acc : alloc.vec.Vec Std.I128) (dv_acc : alloc.vec.Vec Std.I128)
+  (ok1 : Bool) (err : learn_port.attn.AttnError) (kvh : Std.Usize)
+  (qbase : Std.Usize) (pbase : Std.Usize) (n : Std.Usize) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I128) × (alloc.vec.Vec Std.I128) ×
+    (alloc.vec.Vec Std.I128) × Bool × learn_port.attn.AttnError)
+  := do
+  loop
+    (fun (dq_acc1, dk_acc1, dv_acc1, ok2, err1, j1) =>
+      learn_port.attn.attn_bwd_loop0_loop0_loop0.body q k p dout nkv hd ds kvh
+      qbase pbase n dq_acc1 dk_acc1 dv_acc1 ok2 err1 j1)
+    (dq_acc, dk_acc, dv_acc, ok1, err, j)
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]: loop body 1:
+    Source: '../../src/learn/grad/attn.rs', lines 646:8-703:9
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.attn.attn_bwd_loop0_loop0.body
+  (q : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64)
+  (p : Slice Std.I64) (dout : Slice Std.I64) (nh : Std.Usize) (nkv : Std.Usize)
+  (hd : Std.Usize) (t : Std.Usize) (h : Std.Usize) (kvh : Std.Usize)
+  (ds : alloc.vec.Vec Std.I64) (dq_acc : alloc.vec.Vec Std.I128)
+  (dk_acc : alloc.vec.Vec Std.I128) (dv_acc : alloc.vec.Vec Std.I128)
+  (ok1 : Bool) (err : learn_port.attn.AttnError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I128) ×
+    (alloc.vec.Vec Std.I128) × (alloc.vec.Vec Std.I128) × Bool ×
+    learn_port.attn.AttnError × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I128) × (alloc.vec.Vec Std.I128) × (alloc.vec.Vec
+    Std.I128) × Bool × learn_port.attn.AttnError))
+  := do
+  if i < t
+  then
+    if ok1
+    then
+      let i1 ← i * nh
+      let i2 ← i1 + h
+      let qbase ← i2 * hd
+      let i3 ← h * t
+      let i4 ← i3 + i
+      let pbase ← i4 * t
+      let n ← i + 1#usize
+      let i5 ← qbase + hd
+      let s ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) dout
+          { start := qbase, «end» := i5 }
+      let i6 ← pbase + n
+      let s1 ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) p
+          { start := pbase, «end» := i6 }
+      let (s2, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) ds { start := pbase, «end» := i6 }
+      let (r, s3) ← learn_port.attn.attn_row_ds s v kvh nkv hd n s1 s2
+      let (ok2, err1) ←
+        match r with
+        | core.result.Result.Ok _ => ok (true, err)
+        | core.result.Result.Err e => ok (false, e)
+      let ds1 := index_mut_back s3
+      let (dq_acc1, dk_acc1, dv_acc1, ok3, err2) ←
+        learn_port.attn.attn_bwd_loop0_loop0_loop0 q k p dout nkv hd ds1 dq_acc
+          dk_acc dv_acc ok2 err1 kvh qbase pbase n 0#usize
+      let i7 ← i + 1#usize
+      ok (cont (ds1, dq_acc1, dk_acc1, dv_acc1, ok3, err2, i7))
+    else ok (done (ds, dq_acc, dk_acc, dv_acc, false, err))
+  else ok (done (ds, dq_acc, dk_acc, dv_acc, ok1, err))
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]: loop 1:
+    Source: '../../src/learn/grad/attn.rs', lines 646:8-703:9
+    Visibility: public -/
+@[rust_loop]
+def learn_port.attn.attn_bwd_loop0_loop0
+  (q : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64)
+  (p : Slice Std.I64) (dout : Slice Std.I64) (nh : Std.Usize) (nkv : Std.Usize)
+  (hd : Std.Usize) (t : Std.Usize) (ds : alloc.vec.Vec Std.I64)
+  (dq_acc : alloc.vec.Vec Std.I128) (dk_acc : alloc.vec.Vec Std.I128)
+  (dv_acc : alloc.vec.Vec Std.I128) (h : Std.Usize) (ok1 : Bool)
+  (err : learn_port.attn.AttnError) (kvh : Std.Usize) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I128) × (alloc.vec.Vec
+    Std.I128) × (alloc.vec.Vec Std.I128) × Bool × learn_port.attn.AttnError)
+  := do
+  loop
+    (fun (ds1, dq_acc1, dk_acc1, dv_acc1, ok2, err1, i1) =>
+      learn_port.attn.attn_bwd_loop0_loop0.body q k v p dout nh nkv hd t h kvh
+      ds1 dq_acc1 dk_acc1 dv_acc1 ok2 err1 i1)
+    (ds, dq_acc, dk_acc, dv_acc, ok1, err, i)
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]: loop body 0:
+    Source: '../../src/learn/grad/attn.rs', lines 643:4-705:5
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.attn.attn_bwd_loop0.body
+  (q : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64)
+  (p : Slice Std.I64) (dout : Slice Std.I64) (nh : Std.Usize) (nkv : Std.Usize)
+  (hd : Std.Usize) (t : Std.Usize) (rep : Std.Usize)
+  (ds : alloc.vec.Vec Std.I64) (dq_acc : alloc.vec.Vec Std.I128)
+  (dk_acc : alloc.vec.Vec Std.I128) (dv_acc : alloc.vec.Vec Std.I128)
+  (h : Std.Usize) (ok1 : Bool) (err : learn_port.attn.AttnError) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I128) ×
+    (alloc.vec.Vec Std.I128) × (alloc.vec.Vec Std.I128) × Std.Usize × Bool
+    × learn_port.attn.AttnError) ((alloc.vec.Vec Std.I128) × (alloc.vec.Vec
+    Std.I128) × (alloc.vec.Vec Std.I128) × Bool ×
+    learn_port.attn.AttnError))
+  := do
+  if h < nh
+  then
+    if ok1
+    then
+      let kvh ← h / rep
+      let (ds1, dq_acc1, dk_acc1, dv_acc1, ok2, err1) ←
+        learn_port.attn.attn_bwd_loop0_loop0 q k v p dout nh nkv hd t ds dq_acc
+          dk_acc dv_acc h true err kvh 0#usize
+      let h1 ← h + 1#usize
+      ok (cont (ds1, dq_acc1, dk_acc1, dv_acc1, h1, ok2, err1))
+    else ok (done (dq_acc, dk_acc, dv_acc, false, err))
+  else ok (done (dq_acc, dk_acc, dv_acc, ok1, err))
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]: loop 0:
+    Source: '../../src/learn/grad/attn.rs', lines 643:4-705:5
+    Visibility: public -/
+@[rust_loop]
+def learn_port.attn.attn_bwd_loop0
+  (q : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64)
+  (p : Slice Std.I64) (dout : Slice Std.I64) (nh : Std.Usize) (nkv : Std.Usize)
+  (hd : Std.Usize) (t : Std.Usize) (rep : Std.Usize)
+  (ds : alloc.vec.Vec Std.I64) (dq_acc : alloc.vec.Vec Std.I128)
+  (dk_acc : alloc.vec.Vec Std.I128) (dv_acc : alloc.vec.Vec Std.I128)
+  (h : Std.Usize) (ok1 : Bool) (err : learn_port.attn.AttnError) :
+  Result ((alloc.vec.Vec Std.I128) × (alloc.vec.Vec Std.I128) ×
+    (alloc.vec.Vec Std.I128) × Bool × learn_port.attn.AttnError)
+  := do
+  loop
+    (fun (ds1, dq_acc1, dk_acc1, dv_acc1, h1, ok2, err1) =>
+      learn_port.attn.attn_bwd_loop0.body q k v p dout nh nkv hd t rep ds1
+      dq_acc1 dk_acc1 dv_acc1 h1 ok2 err1)
+    (ds, dq_acc, dk_acc, dv_acc, h, ok1, err)
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]: loop body 4:
+    Source: '../../src/learn/grad/attn.rs', lines 710:4-725:5
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.attn.attn_bwd_loop1.body
+  (scale : Std.I64) (qn : Std.Usize) (dq_acc : alloc.vec.Vec Std.I128)
+  (ok1 : Bool) (err : learn_port.attn.AttnError) (dq : alloc.vec.Vec Std.I64)
+  (x : Std.Usize) :
+  Result (ControlFlow (Bool × learn_port.attn.AttnError × (alloc.vec.Vec
+    Std.I64) × Std.Usize) (Bool × learn_port.attn.AttnError × (alloc.vec.Vec
+    Std.I64)))
+  := do
+  if x < qn
+  then
+    if ok1
+    then
+      let i ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128)
+          dq_acc x
+      let r ← learn_port.attn.acc_round i
+      let (ok2, err1, dq1) ←
+        match r with
+        | core.result.Result.Ok a =>
+          do
+          let r1 ← learn_port.attn.mul_round a scale
+          match r1 with
+          | core.result.Result.Ok b =>
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) dq x
+            let dq2 := index_mut_back b
+            ok (true, err, dq2)
+          | core.result.Result.Err e => ok (false, e, dq)
+        | core.result.Result.Err e => ok (false, e, dq)
+      let x1 ← x + 1#usize
+      ok (cont (ok2, err1, dq1, x1))
+    else ok (done (false, err, dq))
+  else ok (done (ok1, err, dq))
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]: loop 4:
+    Source: '../../src/learn/grad/attn.rs', lines 710:4-725:5
+    Visibility: public -/
+@[rust_loop]
+def learn_port.attn.attn_bwd_loop1
+  (scale : Std.I64) (qn : Std.Usize) (dq_acc : alloc.vec.Vec Std.I128)
+  (ok1 : Bool) (err : learn_port.attn.AttnError) (dq : alloc.vec.Vec Std.I64)
+  (x : Std.Usize) :
+  Result (Bool × learn_port.attn.AttnError × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (ok2, err1, dq1, x1) => learn_port.attn.attn_bwd_loop1.body scale qn
+      dq_acc ok2 err1 dq1 x1)
+    (ok1, err, dq, x)
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]: loop body 5:
+    Source: '../../src/learn/grad/attn.rs', lines 727:4-742:5
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.attn.attn_bwd_loop2.body
+  (scale : Std.I64) (kvn : Std.Usize) (dk_acc : alloc.vec.Vec Std.I128)
+  (ok1 : Bool) (err : learn_port.attn.AttnError) (dk : alloc.vec.Vec Std.I64)
+  (x : Std.Usize) :
+  Result (ControlFlow (Bool × learn_port.attn.AttnError × (alloc.vec.Vec
+    Std.I64) × Std.Usize) (Bool × learn_port.attn.AttnError × (alloc.vec.Vec
+    Std.I64)))
+  := do
+  if x < kvn
+  then
+    if ok1
+    then
+      let i ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128)
+          dk_acc x
+      let r ← learn_port.attn.acc_round i
+      let (ok2, err1, dk1) ←
+        match r with
+        | core.result.Result.Ok a =>
+          do
+          let r1 ← learn_port.attn.mul_round a scale
+          match r1 with
+          | core.result.Result.Ok b =>
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) dk x
+            let dk2 := index_mut_back b
+            ok (true, err, dk2)
+          | core.result.Result.Err e => ok (false, e, dk)
+        | core.result.Result.Err e => ok (false, e, dk)
+      let x1 ← x + 1#usize
+      ok (cont (ok2, err1, dk1, x1))
+    else ok (done (false, err, dk))
+  else ok (done (ok1, err, dk))
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]: loop 5:
+    Source: '../../src/learn/grad/attn.rs', lines 727:4-742:5
+    Visibility: public -/
+@[rust_loop]
+def learn_port.attn.attn_bwd_loop2
+  (scale : Std.I64) (kvn : Std.Usize) (dk_acc : alloc.vec.Vec Std.I128)
+  (ok1 : Bool) (err : learn_port.attn.AttnError) (dk : alloc.vec.Vec Std.I64)
+  (x : Std.Usize) :
+  Result (Bool × learn_port.attn.AttnError × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (ok2, err1, dk1, x1) => learn_port.attn.attn_bwd_loop2.body scale kvn
+      dk_acc ok2 err1 dk1 x1)
+    (ok1, err, dk, x)
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]: loop body 6:
+    Source: '../../src/learn/grad/attn.rs', lines 744:4-753:5
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.attn.attn_bwd_loop3.body
+  (kvn : Std.Usize) (dv_acc : alloc.vec.Vec Std.I128) (ok1 : Bool)
+  (err : learn_port.attn.AttnError) (dv : alloc.vec.Vec Std.I64)
+  (x : Std.Usize) :
+  Result (ControlFlow (Bool × learn_port.attn.AttnError × (alloc.vec.Vec
+    Std.I64) × Std.Usize) (Bool × learn_port.attn.AttnError × (alloc.vec.Vec
+    Std.I64)))
+  := do
+  if x < kvn
+  then
+    if ok1
+    then
+      let i ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128)
+          dv_acc x
+      let r ← learn_port.attn.acc_round i
+      let (ok2, err1, dv1) ←
+        match r with
+        | core.result.Result.Ok a =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) dv x
+          let dv2 := index_mut_back a
+          ok (true, err, dv2)
+        | core.result.Result.Err e => ok (false, e, dv)
+      let x1 ← x + 1#usize
+      ok (cont (ok2, err1, dv1, x1))
+    else ok (done (false, err, dv))
+  else ok (done (ok1, err, dv))
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]: loop 6:
+    Source: '../../src/learn/grad/attn.rs', lines 744:4-753:5
+    Visibility: public -/
+@[rust_loop]
+def learn_port.attn.attn_bwd_loop3
+  (kvn : Std.Usize) (dv_acc : alloc.vec.Vec Std.I128) (ok1 : Bool)
+  (err : learn_port.attn.AttnError) (dv : alloc.vec.Vec Std.I64)
+  (x : Std.Usize) :
+  Result (Bool × learn_port.attn.AttnError × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (ok2, err1, dv1, x1) => learn_port.attn.attn_bwd_loop3.body kvn dv_acc
+      ok2 err1 dv1 x1)
+    (ok1, err, dv, x)
+
+/-- [apeiron_word::learn_port::attn::attn_bwd]:
+    Source: '../../src/learn/grad/attn.rs', lines 611:0-759:1
+    Visibility: public -/
+def learn_port.attn.attn_bwd
+  (q : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64)
+  (p : Slice Std.I64) (dout : Slice Std.I64) (nh : Std.Usize) (nkv : Std.Usize)
+  (hd : Std.Usize) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.I64)) learn_port.attn.AttnError)
+  := do
+  let r ← learn_port.attn.gqa_shape nh nkv hd
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let r1 ← learn_port.attn.dim_product nh hd
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let r2 ← learn_port.attn.dim_product nkv hd
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        let i := Slice.len q
+        let r3 ← learn_port.attn.rows_of i val
+        let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val2 =>
+          let i1 := Slice.len k
+          let r4 ← learn_port.attn.rows_of i1 val1
+          let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r4
+          match cf4 with
+          | core.ops.control_flow.ControlFlow.Continue val3 =>
+            if val3 != val2
+            then ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
+            else
+              let i2 := Slice.len v
+              let i3 := Slice.len k
+              if i2 != i3
+              then
+                ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
+              else
+                let r5 ← learn_port.attn.dim_product nh val2
+                let cf5 ← core.result.Result.Insts.CoreOpsTry.branch r5
+                match cf5 with
+                | core.ops.control_flow.ControlFlow.Continue val4 =>
+                  let r6 ← learn_port.attn.dim_product val4 val2
+                  let cf6 ← core.result.Result.Insts.CoreOpsTry.branch r6
+                  match cf6 with
+                  | core.ops.control_flow.ControlFlow.Continue val5 =>
+                    let i4 := Slice.len p
+                    if i4 != val5
+                    then
+                      ok (core.result.Result.Err
+                        learn_port.attn.AttnError.BadShape)
+                    else
+                      let i5 := Slice.len dout
+                      let r7 ← learn_port.attn.dim_product val2 val
+                      let cf7 ← core.result.Result.Insts.CoreOpsTry.branch r7
+                      match cf7 with
+                      | core.ops.control_flow.ControlFlow.Continue val6 =>
+                        if i5 != val6
+                        then
+                          ok (core.result.Result.Err
+                            learn_port.attn.AttnError.BadShape)
+                        else
+                          let r8 ← learn_port.attn.rsqrt_scale hd
+                          let cf8 ←
+                            core.result.Result.Insts.CoreOpsTry.branch r8
+                          match cf8 with
+                          | core.ops.control_flow.ControlFlow.Continue val7 =>
+                            let rep ← nh / nkv
+                            let r9 ← learn_port.attn.dim_product val2 val1
+                            let cf9 ←
+                              core.result.Result.Insts.CoreOpsTry.branch r9
+                            match cf9 with
+                            | core.ops.control_flow.ControlFlow.Continue val8
+                              =>
+                              let cf10 ←
+                                core.result.Result.Insts.CoreOpsTry.branch r7
+                              match cf10 with
+                              | core.ops.control_flow.ControlFlow.Continue val9
+                                =>
+                                let ds ←
+                                  alloc.vec.from_elem core.clone.CloneI64 0#i64
+                                    val5
+                                let dq_acc ←
+                                  alloc.vec.from_elem core.clone.CloneI128
+                                    0#i128 val9
+                                let dk_acc ←
+                                  alloc.vec.from_elem core.clone.CloneI128
+                                    0#i128 val8
+                                let (dq_acc1, dk_acc1, dv_acc, ok1, err) ←
+                                  learn_port.attn.attn_bwd_loop0 q k v p dout
+                                    nh nkv hd val2 rep ds dq_acc dk_acc dk_acc
+                                    0#usize true
+                                    learn_port.attn.AttnError.Overflow
+                                let dq ←
+                                  alloc.vec.from_elem core.clone.CloneI64 0#i64
+                                    val9
+                                let dk ←
+                                  alloc.vec.from_elem core.clone.CloneI64 0#i64
+                                    val8
+                                let (ok2, err1, dq1) ←
+                                  learn_port.attn.attn_bwd_loop1 val7 val9
+                                    dq_acc1 ok1 err dq 0#usize
+                                let (ok3, err2, dk1) ←
+                                  learn_port.attn.attn_bwd_loop2 val7 val8
+                                    dk_acc1 ok2 err1 dk 0#usize
+                                let (ok4, err3, dv) ←
+                                  learn_port.attn.attn_bwd_loop3 val8 dv_acc
+                                    ok3 err2 dk 0#usize
+                                if ok4
+                                then ok (core.result.Result.Ok (dq1, dk1, dv))
+                                else ok (core.result.Result.Err err3)
+                              | core.ops.control_flow.ControlFlow.Break
+                                residual =>
+                                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                  ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+                                  Std.I64) × (alloc.vec.Vec Std.I64))
+                                  (core.convert.FromSame
+                                  learn_port.attn.AttnError) residual
+                            | core.ops.control_flow.ControlFlow.Break residual
+                              =>
+                              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+                                Std.I64) × (alloc.vec.Vec Std.I64))
+                                (core.convert.FromSame
+                                learn_port.attn.AttnError) residual
+                          | core.ops.control_flow.ControlFlow.Break residual =>
+                            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                              ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+                              Std.I64) × (alloc.vec.Vec Std.I64))
+                              (core.convert.FromSame learn_port.attn.AttnError)
+                              residual
+                      | core.ops.control_flow.ControlFlow.Break residual =>
+                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                          ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64)
+                          × (alloc.vec.Vec Std.I64)) (core.convert.FromSame
+                          learn_port.attn.AttnError) residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+                      (alloc.vec.Vec Std.I64)) (core.convert.FromSame
+                      learn_port.attn.AttnError) residual
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+                    (alloc.vec.Vec Std.I64)) (core.convert.FromSame
+                    learn_port.attn.AttnError) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+              (alloc.vec.Vec Std.I64)) (core.convert.FromSame
+              learn_port.attn.AttnError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+            (alloc.vec.Vec Std.I64)) (core.convert.FromSame
+            learn_port.attn.AttnError) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+          Std.I64)) (core.convert.FromSame learn_port.attn.AttnError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+        Std.I64)) (core.convert.FromSame learn_port.attn.AttnError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+      Std.I64)) (core.convert.FromSame learn_port.attn.AttnError) residual
+
+/-- [apeiron_word::learn_port::dense::DenseError]
+    Source: '../../src/learn/grad/dense.rs', lines 42:0-52:1
+    Visibility: public -/
+@[discriminant isize]
+inductive learn_port.dense.DenseError where
+| Empty : learn_port.dense.DenseError
+| Shape : learn_port.dense.DenseError
+| Overflow : learn_port.dense.DenseError
+| Range : learn_port.dense.DenseError
+
+/-- [apeiron_word::learn_port::dense::round32]:
+    Source: '../../src/learn/grad/dense.rs', lines 56:0-61:1 -/
+def learn_port.dense.round32 (v : Std.I128) : Result (Option Std.I128) := do
+  let i ← 1#i128 <<< 31#i32
+  let o ← lift (I128.checked_add v i)
+  match o with
+  | none => ok none
+  | some s => let i1 ← s >>> 32#i32
+              ok (some i1)
+
+/-- [apeiron_word::learn_port::dense::narrow]:
+    Source: '../../src/learn/grad/dense.rs', lines 64:0-70:1 -/
+def learn_port.dense.narrow (v : Std.I128) : Result (Option Std.I64) := do
+  let i ← lift (IScalar.cast .I128 core.num.I64.MAX)
+  if v > i
+  then ok none
+  else
+    let i1 ← lift (IScalar.cast .I128 core.num.I64.MIN)
+    if v < i1
+    then ok none
+    else let i2 ← lift (IScalar.cast .I64 v)
+         ok (some i2)
+
+/-- [apeiron_word::learn_port::dense::mul_round]:
+    Source: '../../src/learn/grad/dense.rs', lines 73:0-81:1 -/
+def learn_port.dense.mul_round
+  (a : Std.I64) (b : Std.I64) : Result (Option Std.I64) := do
+  let i ← lift (core.convert.num.FromI128I64.from a)
+  let i1 ← lift (core.convert.num.FromI128I64.from b)
+  let o ← lift (I128.checked_mul i i1)
+  match o with
+  | none => ok none
+  | some p =>
+    let o1 ← learn_port.dense.round32 p
+    match o1 with
+    | none => ok none
+    | some r => learn_port.dense.narrow r
+
+/-- [apeiron_word::learn_port::dense::ov]:
+    Source: '../../src/learn/grad/dense.rs', lines 84:0-89:1 -/
+def learn_port.dense.ov
+  (o : Option Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.dense.DenseError)
+  := do
+  match o with
+  | none => ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+  | some v => ok (core.result.Result.Ok v)
+
+/-- [apeiron_word::learn_port::dense::div_round]:
+    Source: '../../src/learn/grad/dense.rs', lines 93:0-102:1 -/
+def learn_port.dense.div_round
+  (v : Std.I64) (d : Std.I64) : Result (Option Std.I64) := do
+  let num ← lift (core.convert.num.FromI128I64.from v)
+  let den ← lift (core.convert.num.FromI128I64.from d)
+  let q ←
+    if num >= 0#i128
+    then do
+         let i ← den / 2#i128
+         let i1 ← num + i
+         i1 / den
+    else do
+         let i ← den / 2#i128
+         let i1 ← num - i
+         i1 / den
+  learn_port.dense.narrow q
+
+/-- [apeiron_word::learn_port::dense::expect_len]:
+    Source: '../../src/learn/grad/dense.rs', lines 105:0-119:1 -/
+def learn_port.dense.expect_len
+  (rows : Std.Usize) (cols : Std.Usize) (len : Std.Usize) :
+  Result (core.result.Result Unit learn_port.dense.DenseError)
+  := do
+  if rows = 0#usize
+  then ok (core.result.Result.Err learn_port.dense.DenseError.Empty)
+  else
+    if cols = 0#usize
+    then ok (core.result.Result.Err learn_port.dense.DenseError.Empty)
+    else
+      let o ← lift (Usize.checked_mul rows cols)
+      match o with
+      | none =>
+        ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+      | some total =>
+        if total = len
+        then ok (core.result.Result.Ok ())
+        else ok (core.result.Result.Err learn_port.dense.DenseError.Shape)
+
+/-- [apeiron_word::learn_port::dense::linear_fwd_acc]: loop body 2:
+    Source: '../../src/learn/grad/dense.rs', lines 142:12-151:13 -/
+@[rust_loop_body]
+def learn_port.dense.linear_fwd_acc_loop0_loop0_loop0.body
+  (x : Slice Std.I64) (w : Slice Std.I64) (i : Std.Usize) (r : Std.Usize)
+  (c : Std.Usize) (ok1 : Bool) (k : Std.Usize) (acc : Std.I128) :
+  Result (ControlFlow (Bool × Std.Usize × Std.I128) (Bool × Std.I128))
+  := do
+  if k < i
+  then
+    if ok1
+    then
+      let i1 ← r * i
+      let i2 ← i1 + k
+      let i3 ← Slice.index_usize x i2
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let i5 ← c * i
+      let i6 ← i5 + k
+      let i7 ← Slice.index_usize w i6
+      let i8 ← lift (core.convert.num.FromI128I64.from i7)
+      let o ← lift (I128.checked_mul i4 i8)
+      let (ok2, acc1) ←
+        match o with
+        | none => ok (false, acc)
+        | some p =>
+          do
+          let o1 ← lift (I128.checked_add acc p)
+          match o1 with
+          | none => ok (false, acc)
+          | some s => ok (true, s)
+      let k1 ← k + 1#usize
+      ok (cont (ok2, k1, acc1))
+    else ok (done (false, acc))
+  else ok (done (ok1, acc))
+
+/-- [apeiron_word::learn_port::dense::linear_fwd_acc]: loop 2:
+    Source: '../../src/learn/grad/dense.rs', lines 142:12-151:13 -/
+@[rust_loop]
+def learn_port.dense.linear_fwd_acc_loop0_loop0_loop0
+  (x : Slice Std.I64) (w : Slice Std.I64) (i : Std.Usize) (r : Std.Usize)
+  (ok1 : Bool) (c : Std.Usize) (k : Std.Usize) (acc : Std.I128) :
+  Result (Bool × Std.I128)
+  := do
+  loop
+    (fun (ok2, k1, acc1) =>
+      learn_port.dense.linear_fwd_acc_loop0_loop0_loop0.body x w i r c ok2 k1
+      acc1)
+    (ok1, k, acc)
+
+/-- [apeiron_word::learn_port::dense::linear_fwd_acc]: loop body 1:
+    Source: '../../src/learn/grad/dense.rs', lines 139:8-156:9 -/
+@[rust_loop_body]
+def learn_port.dense.linear_fwd_acc_loop0_loop0.body
+  (x : Slice Std.I64) (w : Slice Std.I64) (i : Std.Usize) (o : Std.Usize)
+  (r : Std.Usize) (out : alloc.vec.Vec Std.I128) (ok1 : Bool) (c : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Bool × Std.Usize)
+    ((alloc.vec.Vec Std.I128) × Bool))
+  := do
+  if c < o
+  then
+    if ok1
+    then
+      let (ok2, acc) ←
+        learn_port.dense.linear_fwd_acc_loop0_loop0_loop0 x w i r true c
+          0#usize 0#i128
+      let out1 ← if ok2
+                   then alloc.vec.Vec.push out acc
+                   else ok out
+      let c1 ← c + 1#usize
+      ok (cont (out1, ok2, c1))
+    else ok (done (out, false))
+  else ok (done (out, ok1))
+
+/-- [apeiron_word::learn_port::dense::linear_fwd_acc]: loop 1:
+    Source: '../../src/learn/grad/dense.rs', lines 139:8-156:9 -/
+@[rust_loop]
+def learn_port.dense.linear_fwd_acc_loop0_loop0
+  (x : Slice Std.I64) (w : Slice Std.I64) (i : Std.Usize) (o : Std.Usize)
+  (out : alloc.vec.Vec Std.I128) (r : Std.Usize) (ok1 : Bool) (c : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I128) × Bool)
+  := do
+  loop
+    (fun (out1, ok2, c1) => learn_port.dense.linear_fwd_acc_loop0_loop0.body x
+      w i o r out1 ok2 c1)
+    (out, ok1, c)
+
+/-- [apeiron_word::learn_port::dense::linear_fwd_acc]: loop body 0:
+    Source: '../../src/learn/grad/dense.rs', lines 137:4-158:5 -/
+@[rust_loop_body]
+def learn_port.dense.linear_fwd_acc_loop0.body
+  (x : Slice Std.I64) (w : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) (out : alloc.vec.Vec Std.I128) (r : Std.Usize) (ok1 : Bool) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Std.Usize × Bool)
+    ((alloc.vec.Vec Std.I128) × Bool))
+  := do
+  if r < n
+  then
+    if ok1
+    then
+      let (out1, ok2) ←
+        learn_port.dense.linear_fwd_acc_loop0_loop0 x w i o out r true 0#usize
+      let r1 ← r + 1#usize
+      ok (cont (out1, r1, ok2))
+    else ok (done (out, false))
+  else ok (done (out, ok1))
+
+/-- [apeiron_word::learn_port::dense::linear_fwd_acc]: loop 0:
+    Source: '../../src/learn/grad/dense.rs', lines 137:4-158:5 -/
+@[rust_loop]
+def learn_port.dense.linear_fwd_acc_loop0
+  (x : Slice Std.I64) (w : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) (out : alloc.vec.Vec Std.I128) (r : Std.Usize) (ok1 : Bool) :
+  Result ((alloc.vec.Vec Std.I128) × Bool)
+  := do
+  loop
+    (fun (out1, r1, ok2) => learn_port.dense.linear_fwd_acc_loop0.body x w n i
+      o out1 r1 ok2)
+    (out, r, ok1)
+
+/-- [apeiron_word::learn_port::dense::linear_fwd_acc]:
+    Source: '../../src/learn/grad/dense.rs', lines 127:0-164:1 -/
+def learn_port.dense.linear_fwd_acc
+  (x : Slice Std.I64) (w : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I128)
+    learn_port.dense.DenseError)
+  := do
+  let i1 ← n * o
+  let out := alloc.vec.Vec.with_capacity Std.I128 i1
+  let (out1, ok1) ←
+    learn_port.dense.linear_fwd_acc_loop0 x w n i o out 0#usize true
+  if ok1
+  then ok (core.result.Result.Ok out1)
+  else ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_input_acc]: loop body 2:
+    Source: '../../src/learn/grad/dense.rs', lines 187:12-196:13 -/
+@[rust_loop_body]
+def learn_port.dense.linear_bwd_input_acc_loop0_loop0_loop0.body
+  (dy : Slice Std.I64) (w : Slice Std.I64) (i : Std.Usize) (o : Std.Usize)
+  (r : Std.Usize) (k : Std.Usize) (ok1 : Bool) (c : Std.Usize) (acc : Std.I128)
+  :
+  Result (ControlFlow (Bool × Std.Usize × Std.I128) (Bool × Std.I128))
+  := do
+  if c < o
+  then
+    if ok1
+    then
+      let i1 ← r * o
+      let i2 ← i1 + c
+      let i3 ← Slice.index_usize dy i2
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let i5 ← c * i
+      let i6 ← i5 + k
+      let i7 ← Slice.index_usize w i6
+      let i8 ← lift (core.convert.num.FromI128I64.from i7)
+      let o1 ← lift (I128.checked_mul i4 i8)
+      let (ok2, acc1) ←
+        match o1 with
+        | none => ok (false, acc)
+        | some p =>
+          do
+          let o2 ← lift (I128.checked_add acc p)
+          match o2 with
+          | none => ok (false, acc)
+          | some s => ok (true, s)
+      let c1 ← c + 1#usize
+      ok (cont (ok2, c1, acc1))
+    else ok (done (false, acc))
+  else ok (done (ok1, acc))
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_input_acc]: loop 2:
+    Source: '../../src/learn/grad/dense.rs', lines 187:12-196:13 -/
+@[rust_loop]
+def learn_port.dense.linear_bwd_input_acc_loop0_loop0_loop0
+  (dy : Slice Std.I64) (w : Slice Std.I64) (i : Std.Usize) (o : Std.Usize)
+  (r : Std.Usize) (ok1 : Bool) (k : Std.Usize) (c : Std.Usize) (acc : Std.I128)
+  :
+  Result (Bool × Std.I128)
+  := do
+  loop
+    (fun (ok2, c1, acc1) =>
+      learn_port.dense.linear_bwd_input_acc_loop0_loop0_loop0.body dy w i o r k
+      ok2 c1 acc1)
+    (ok1, c, acc)
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_input_acc]: loop body 1:
+    Source: '../../src/learn/grad/dense.rs', lines 184:8-201:9 -/
+@[rust_loop_body]
+def learn_port.dense.linear_bwd_input_acc_loop0_loop0.body
+  (dy : Slice Std.I64) (w : Slice Std.I64) (i : Std.Usize) (o : Std.Usize)
+  (r : Std.Usize) (out : alloc.vec.Vec Std.I128) (ok1 : Bool) (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Bool × Std.Usize)
+    ((alloc.vec.Vec Std.I128) × Bool))
+  := do
+  if k < i
+  then
+    if ok1
+    then
+      let (ok2, acc) ←
+        learn_port.dense.linear_bwd_input_acc_loop0_loop0_loop0 dy w i o r true
+          k 0#usize 0#i128
+      let out1 ← if ok2
+                   then alloc.vec.Vec.push out acc
+                   else ok out
+      let k1 ← k + 1#usize
+      ok (cont (out1, ok2, k1))
+    else ok (done (out, false))
+  else ok (done (out, ok1))
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_input_acc]: loop 1:
+    Source: '../../src/learn/grad/dense.rs', lines 184:8-201:9 -/
+@[rust_loop]
+def learn_port.dense.linear_bwd_input_acc_loop0_loop0
+  (dy : Slice Std.I64) (w : Slice Std.I64) (i : Std.Usize) (o : Std.Usize)
+  (out : alloc.vec.Vec Std.I128) (r : Std.Usize) (ok1 : Bool) (k : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I128) × Bool)
+  := do
+  loop
+    (fun (out1, ok2, k1) =>
+      learn_port.dense.linear_bwd_input_acc_loop0_loop0.body dy w i o r out1
+      ok2 k1)
+    (out, ok1, k)
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_input_acc]: loop body 0:
+    Source: '../../src/learn/grad/dense.rs', lines 182:4-203:5 -/
+@[rust_loop_body]
+def learn_port.dense.linear_bwd_input_acc_loop0.body
+  (dy : Slice Std.I64) (w : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) (out : alloc.vec.Vec Std.I128) (r : Std.Usize) (ok1 : Bool) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Std.Usize × Bool)
+    ((alloc.vec.Vec Std.I128) × Bool))
+  := do
+  if r < n
+  then
+    if ok1
+    then
+      let (out1, ok2) ←
+        learn_port.dense.linear_bwd_input_acc_loop0_loop0 dy w i o out r true
+          0#usize
+      let r1 ← r + 1#usize
+      ok (cont (out1, r1, ok2))
+    else ok (done (out, false))
+  else ok (done (out, ok1))
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_input_acc]: loop 0:
+    Source: '../../src/learn/grad/dense.rs', lines 182:4-203:5 -/
+@[rust_loop]
+def learn_port.dense.linear_bwd_input_acc_loop0
+  (dy : Slice Std.I64) (w : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) (out : alloc.vec.Vec Std.I128) (r : Std.Usize) (ok1 : Bool) :
+  Result ((alloc.vec.Vec Std.I128) × Bool)
+  := do
+  loop
+    (fun (out1, r1, ok2) => learn_port.dense.linear_bwd_input_acc_loop0.body dy
+      w n i o out1 r1 ok2)
+    (out, r, ok1)
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_input_acc]:
+    Source: '../../src/learn/grad/dense.rs', lines 172:0-209:1 -/
+def learn_port.dense.linear_bwd_input_acc
+  (dy : Slice Std.I64) (w : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I128)
+    learn_port.dense.DenseError)
+  := do
+  let i1 ← n * i
+  let out := alloc.vec.Vec.with_capacity Std.I128 i1
+  let (out1, ok1) ←
+    learn_port.dense.linear_bwd_input_acc_loop0 dy w n i o out 0#usize true
+  if ok1
+  then ok (core.result.Result.Ok out1)
+  else ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_weight_acc]: loop body 2:
+    Source: '../../src/learn/grad/dense.rs', lines 232:12-241:13 -/
+@[rust_loop_body]
+def learn_port.dense.linear_bwd_weight_acc_loop0_loop0_loop0.body
+  (dy : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) (c : Std.Usize) (k : Std.Usize) (ok1 : Bool) (r : Std.Usize)
+  (acc : Std.I128) :
+  Result (ControlFlow (Bool × Std.Usize × Std.I128) (Bool × Std.I128))
+  := do
+  if r < n
+  then
+    if ok1
+    then
+      let i1 ← r * o
+      let i2 ← i1 + c
+      let i3 ← Slice.index_usize dy i2
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let i5 ← r * i
+      let i6 ← i5 + k
+      let i7 ← Slice.index_usize x i6
+      let i8 ← lift (core.convert.num.FromI128I64.from i7)
+      let o1 ← lift (I128.checked_mul i4 i8)
+      let (ok2, acc1) ←
+        match o1 with
+        | none => ok (false, acc)
+        | some p =>
+          do
+          let o2 ← lift (I128.checked_add acc p)
+          match o2 with
+          | none => ok (false, acc)
+          | some s => ok (true, s)
+      let r1 ← r + 1#usize
+      ok (cont (ok2, r1, acc1))
+    else ok (done (false, acc))
+  else ok (done (ok1, acc))
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_weight_acc]: loop 2:
+    Source: '../../src/learn/grad/dense.rs', lines 232:12-241:13 -/
+@[rust_loop]
+def learn_port.dense.linear_bwd_weight_acc_loop0_loop0_loop0
+  (dy : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) (c : Std.Usize) (ok1 : Bool) (k : Std.Usize) (r : Std.Usize)
+  (acc : Std.I128) :
+  Result (Bool × Std.I128)
+  := do
+  loop
+    (fun (ok2, r1, acc1) =>
+      learn_port.dense.linear_bwd_weight_acc_loop0_loop0_loop0.body dy x n i o
+      c k ok2 r1 acc1)
+    (ok1, r, acc)
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_weight_acc]: loop body 1:
+    Source: '../../src/learn/grad/dense.rs', lines 229:8-246:9 -/
+@[rust_loop_body]
+def learn_port.dense.linear_bwd_weight_acc_loop0_loop0.body
+  (dy : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) (c : Std.Usize) (out : alloc.vec.Vec Std.I128) (ok1 : Bool)
+  (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Bool × Std.Usize)
+    ((alloc.vec.Vec Std.I128) × Bool))
+  := do
+  if k < i
+  then
+    if ok1
+    then
+      let (ok2, acc) ←
+        learn_port.dense.linear_bwd_weight_acc_loop0_loop0_loop0 dy x n i o c
+          true k 0#usize 0#i128
+      let out1 ← if ok2
+                   then alloc.vec.Vec.push out acc
+                   else ok out
+      let k1 ← k + 1#usize
+      ok (cont (out1, ok2, k1))
+    else ok (done (out, false))
+  else ok (done (out, ok1))
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_weight_acc]: loop 1:
+    Source: '../../src/learn/grad/dense.rs', lines 229:8-246:9 -/
+@[rust_loop]
+def learn_port.dense.linear_bwd_weight_acc_loop0_loop0
+  (dy : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) (out : alloc.vec.Vec Std.I128) (c : Std.Usize) (ok1 : Bool)
+  (k : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I128) × Bool)
+  := do
+  loop
+    (fun (out1, ok2, k1) =>
+      learn_port.dense.linear_bwd_weight_acc_loop0_loop0.body dy x n i o c out1
+      ok2 k1)
+    (out, ok1, k)
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_weight_acc]: loop body 0:
+    Source: '../../src/learn/grad/dense.rs', lines 227:4-248:5 -/
+@[rust_loop_body]
+def learn_port.dense.linear_bwd_weight_acc_loop0.body
+  (dy : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) (out : alloc.vec.Vec Std.I128) (c : Std.Usize) (ok1 : Bool) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Std.Usize × Bool)
+    ((alloc.vec.Vec Std.I128) × Bool))
+  := do
+  if c < o
+  then
+    if ok1
+    then
+      let (out1, ok2) ←
+        learn_port.dense.linear_bwd_weight_acc_loop0_loop0 dy x n i o out c
+          true 0#usize
+      let c1 ← c + 1#usize
+      ok (cont (out1, c1, ok2))
+    else ok (done (out, false))
+  else ok (done (out, ok1))
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_weight_acc]: loop 0:
+    Source: '../../src/learn/grad/dense.rs', lines 227:4-248:5 -/
+@[rust_loop]
+def learn_port.dense.linear_bwd_weight_acc_loop0
+  (dy : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) (out : alloc.vec.Vec Std.I128) (c : Std.Usize) (ok1 : Bool) :
+  Result ((alloc.vec.Vec Std.I128) × Bool)
+  := do
+  loop
+    (fun (out1, c1, ok2) => learn_port.dense.linear_bwd_weight_acc_loop0.body
+      dy x n i o out1 c1 ok2)
+    (out, c, ok1)
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_weight_acc]:
+    Source: '../../src/learn/grad/dense.rs', lines 217:0-254:1 -/
+def learn_port.dense.linear_bwd_weight_acc
+  (dy : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I128)
+    learn_port.dense.DenseError)
+  := do
+  let i1 ← o * i
+  let out := alloc.vec.Vec.with_capacity Std.I128 i1
+  let (out1, ok1) ←
+    learn_port.dense.linear_bwd_weight_acc_loop0 dy x n i o out 0#usize true
+  if ok1
+  then ok (core.result.Result.Ok out1)
+  else ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+
+/-- [apeiron_word::learn_port::dense::round_all]: loop body 0:
+    Source: '../../src/learn/grad/dense.rs', lines 266:4-275:5 -/
+@[rust_loop_body]
+def learn_port.dense.round_all_loop.body
+  (acc : Slice Std.I128) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (k : Std.Usize) (ok1 : Bool) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize × Bool)
+    ((alloc.vec.Vec Std.I64) × Bool))
+  := do
+  if k < n
+  then
+    if ok1
+    then
+      let i ← Slice.index_usize acc k
+      let o ← learn_port.dense.round32 i
+      let (out1, ok2) ←
+        match o with
+        | none => ok (out, false)
+        | some v =>
+          do
+          let o1 ← learn_port.dense.narrow v
+          match o1 with
+          | none => ok (out, false)
+          | some q => let out2 ← alloc.vec.Vec.push out q
+                      ok (out2, true)
+      let k1 ← k + 1#usize
+      ok (cont (out1, k1, ok2))
+    else ok (done (out, false))
+  else ok (done (out, ok1))
+
+/-- [apeiron_word::learn_port::dense::round_all]: loop 0:
+    Source: '../../src/learn/grad/dense.rs', lines 266:4-275:5 -/
+@[rust_loop]
+def learn_port.dense.round_all_loop
+  (acc : Slice Std.I128) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (k : Std.Usize) (ok1 : Bool) :
+  Result ((alloc.vec.Vec Std.I64) × Bool)
+  := do
+  loop
+    (fun (out1, k1, ok2) => learn_port.dense.round_all_loop.body acc n out1 k1
+      ok2)
+    (out, k, ok1)
+
+/-- [apeiron_word::learn_port::dense::round_all]:
+    Source: '../../src/learn/grad/dense.rs', lines 261:0-281:1 -/
+def learn_port.dense.round_all
+  (acc : Slice Std.I128) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    learn_port.dense.DenseError)
+  := do
+  let n := Slice.len acc
+  let out := alloc.vec.Vec.with_capacity Std.I64 n
+  let (out1, ok1) ← learn_port.dense.round_all_loop acc n out 0#usize true
+  if ok1
+  then ok (core.result.Result.Ok out1)
+  else ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+
+/-- [apeiron_word::learn_port::dense::linear_fwd]:
+    Source: '../../src/learn/grad/dense.rs', lines 295:0-306:1
+    Visibility: public -/
+def learn_port.dense.linear_fwd
+  (x : Slice Std.I64) (w : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    learn_port.dense.DenseError)
+  := do
+  let i1 := Slice.len x
+  let r ← learn_port.dense.expect_len n i i1
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let i2 := Slice.len w
+    let r1 ← learn_port.dense.expect_len o i i2
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      let r2 ← learn_port.dense.linear_fwd_acc x w n i o
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let s := alloc.vec.Vec.deref val
+        learn_port.dense.round_all s
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          learn_port.dense.DenseError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame
+        learn_port.dense.DenseError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      learn_port.dense.DenseError) residual
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_input]:
+    Source: '../../src/learn/grad/dense.rs', lines 317:0-328:1
+    Visibility: public -/
+def learn_port.dense.linear_bwd_input
+  (dy : Slice Std.I64) (w : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    learn_port.dense.DenseError)
+  := do
+  let i1 := Slice.len dy
+  let r ← learn_port.dense.expect_len n o i1
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let i2 := Slice.len w
+    let r1 ← learn_port.dense.expect_len o i i2
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      let r2 ← learn_port.dense.linear_bwd_input_acc dy w n i o
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let s := alloc.vec.Vec.deref val
+        learn_port.dense.round_all s
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          learn_port.dense.DenseError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame
+        learn_port.dense.DenseError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      learn_port.dense.DenseError) residual
+
+/-- [apeiron_word::learn_port::dense::linear_bwd_weight]:
+    Source: '../../src/learn/grad/dense.rs', lines 339:0-350:1
+    Visibility: public -/
+def learn_port.dense.linear_bwd_weight
+  (dy : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    learn_port.dense.DenseError)
+  := do
+  let i1 := Slice.len dy
+  let r ← learn_port.dense.expect_len n o i1
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let i2 := Slice.len x
+    let r1 ← learn_port.dense.expect_len n i i2
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      let r2 ← learn_port.dense.linear_bwd_weight_acc dy x n i o
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let s := alloc.vec.Vec.deref val
+        learn_port.dense.round_all s
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          learn_port.dense.DenseError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame
+        learn_port.dense.DenseError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      learn_port.dense.DenseError) residual
+
+/-- [apeiron_word::learn_port::dense::inv_rms]: loop body 0:
+    Source: '../../src/learn/grad/dense.rs', lines 376:4-385:5 -/
+@[rust_loop_body]
+def learn_port.dense.inv_rms_loop.body
+  (x : Slice Std.I64) (n : Std.Usize) (sum_sq : Std.I128) (k : Std.Usize)
+  (ok1 : Bool) :
+  Result (ControlFlow (Std.I128 × Std.Usize × Bool) (Std.I128 × Bool))
+  := do
+  if k < n
+  then
+    if ok1
+    then
+      let i ← Slice.index_usize x k
+      let i1 ← lift (core.convert.num.FromI128I64.from i)
+      let i2 ← lift (core.convert.num.FromI128I64.from i)
+      let o ← lift (I128.checked_mul i1 i2)
+      let (sum_sq1, ok2) ←
+        match o with
+        | none => ok (sum_sq, false)
+        | some sq =>
+          do
+          let o1 ← lift (I128.checked_add sum_sq sq)
+          match o1 with
+          | none => ok (sum_sq, false)
+          | some s => ok (s, true)
+      let k1 ← k + 1#usize
+      ok (cont (sum_sq1, k1, ok2))
+    else ok (done (sum_sq, false))
+  else ok (done (sum_sq, ok1))
+
+/-- [apeiron_word::learn_port::dense::inv_rms]: loop 0:
+    Source: '../../src/learn/grad/dense.rs', lines 376:4-385:5 -/
+@[rust_loop]
+def learn_port.dense.inv_rms_loop
+  (x : Slice Std.I64) (n : Std.Usize) (sum_sq : Std.I128) (k : Std.Usize)
+  (ok1 : Bool) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (sum_sq1, k1, ok2) => learn_port.dense.inv_rms_loop.body x n sum_sq1
+      k1 ok2)
+    (sum_sq, k, ok1)
+
+/-- [apeiron_word::learn_port::dense::inv_rms]:
+    Source: '../../src/learn/grad/dense.rs', lines 364:0-410:1 -/
+def learn_port.dense.inv_rms
+  (x : Slice Std.I64) (eps : Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.dense.DenseError)
+  := do
+  let n := Slice.len x
+  if n = 0#usize
+  then ok (core.result.Result.Err learn_port.dense.DenseError.Empty)
+  else
+    let i ← lift (UScalar.cast .U64 n)
+    let i1 ← lift (IScalar.hcast .U64 core.num.I64.MAX)
+    if i > i1
+    then ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+    else
+      let nd ← lift (UScalar.hcast .I64 n)
+      let (sum_sq, ok1) ←
+        learn_port.dense.inv_rms_loop x n 0#i128 0#usize true
+      if ok1
+      then
+        let i2 ← lift (core.convert.num.FromI128I64.from nd)
+        let i3 ← engine.ONE
+        let i4 ← lift (core.convert.num.FromI128I64.from i3)
+        let o ← lift (I128.checked_mul i2 i4)
+        match o with
+        | none =>
+          ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+        | some d =>
+          let i5 ← d / 2#i128
+          let o1 ← lift (I128.checked_add sum_sq i5)
+          match o1 with
+          | none =>
+            ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+          | some h =>
+            let mean ← h / d
+            let i6 ← lift (core.convert.num.FromI128I64.from eps)
+            let o2 ← lift (I128.checked_add mean i6)
+            match o2 with
+            | none =>
+              ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+            | some a =>
+              let o3 ← learn_port.dense.narrow a
+              match o3 with
+              | none =>
+                ok (core.result.Result.Err learn_port.dense.DenseError.Range)
+              | some a1 =>
+                let r ← fixed_rsqrt.fixed_rsqrt a1
+                match r with
+                | core.result.Result.Ok r1 => ok (core.result.Result.Ok r1)
+                | core.result.Result.Err _ =>
+                  ok (core.result.Result.Err learn_port.dense.DenseError.Range)
+      else ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+
+/-- [apeiron_word::learn_port::dense::rmsnorm_fwd]: loop body 0:
+    Source: '../../src/learn/grad/dense.rs', lines 440:4-446:5
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.dense.rmsnorm_fwd_loop.body
+  (gamma : Slice Std.I64) (n : Std.Usize) (normed : alloc.vec.Vec Std.I64)
+  (out : alloc.vec.Vec Std.I64) (k : Std.Usize) (ok1 : Bool) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize × Bool)
+    ((alloc.vec.Vec Std.I64) × Bool))
+  := do
+  if k < n
+  then
+    if ok1
+    then
+      let i ← Slice.index_usize gamma k
+      let i1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          normed k
+      let o ← learn_port.dense.mul_round i i1
+      let (out1, ok2) ←
+        match o with
+        | none => ok (out, false)
+        | some v => do
+                    let out2 ← alloc.vec.Vec.push out v
+                    ok (out2, true)
+      let k1 ← k + 1#usize
+      ok (cont (out1, k1, ok2))
+    else ok (done (out, false))
+  else ok (done (out, ok1))
+
+/-- [apeiron_word::learn_port::dense::rmsnorm_fwd]: loop 0:
+    Source: '../../src/learn/grad/dense.rs', lines 440:4-446:5
+    Visibility: public -/
+@[rust_loop]
+def learn_port.dense.rmsnorm_fwd_loop
+  (gamma : Slice Std.I64) (n : Std.Usize) (normed : alloc.vec.Vec Std.I64)
+  (out : alloc.vec.Vec Std.I64) (k : Std.Usize) (ok1 : Bool) :
+  Result ((alloc.vec.Vec Std.I64) × Bool)
+  := do
+  loop
+    (fun (out1, k1, ok2) => learn_port.dense.rmsnorm_fwd_loop.body gamma n
+      normed out1 k1 ok2)
+    (out, k, ok1)
+
+/-- [apeiron_word::learn_port::dense::rmsnorm_fwd]:
+    Source: '../../src/learn/grad/dense.rs', lines 424:0-452:1
+    Visibility: public -/
+def learn_port.dense.rmsnorm_fwd
+  (x : Slice Std.I64) (gamma : Slice Std.I64) (eps : Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    learn_port.dense.DenseError)
+  := do
+  let n := Slice.len x
+  if n = 0#usize
+  then ok (core.result.Result.Err learn_port.dense.DenseError.Empty)
+  else
+    let i := Slice.len gamma
+    if i != n
+    then ok (core.result.Result.Err learn_port.dense.DenseError.Shape)
+    else
+      let r ← norm.rms_norm_fixed x eps
+      match r with
+      | core.result.Result.Ok v =>
+        let out := alloc.vec.Vec.with_capacity Std.I64 n
+        let (out1, ok1) ←
+          learn_port.dense.rmsnorm_fwd_loop gamma n v out 0#usize true
+        if ok1
+        then ok (core.result.Result.Ok out1)
+        else ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+      | core.result.Result.Err ne =>
+        match ne with
+        | norm.NormError.EmptyRow =>
+          ok (core.result.Result.Err learn_port.dense.DenseError.Empty)
+        | norm.NormError.OutOfRange =>
+          ok (core.result.Result.Err learn_port.dense.DenseError.Range)
+
+/-- [apeiron_word::learn_port::dense::rmsnorm_bwd]: loop body 0:
+    Source: '../../src/learn/grad/dense.rs', lines 498:4-513:5
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.dense.rmsnorm_bwd_loop0.body
+  (x : Slice Std.I64) (gamma : Slice Std.I64) (dy : Slice Std.I64)
+  (n : Std.Usize) (a : alloc.vec.Vec Std.I64) (acc : Std.I128) (k : Std.Usize)
+  (ok1 : Bool) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.I128 × Std.Usize ×
+    Bool) ((alloc.vec.Vec Std.I64) × Std.I128 × Bool))
+  := do
+  if k < n
+  then
+    if ok1
+    then
+      let i ← Slice.index_usize gamma k
+      let i1 ← Slice.index_usize dy k
+      let o ← learn_port.dense.mul_round i i1
+      let (a1, acc1, ok2) ←
+        match o with
+        | none => ok (a, acc, false)
+        | some av =>
+          do
+          let a2 ← alloc.vec.Vec.push a av
+          let i2 ← lift (core.convert.num.FromI128I64.from av)
+          let i3 ← Slice.index_usize x k
+          let i4 ← lift (core.convert.num.FromI128I64.from i3)
+          let o1 ← lift (I128.checked_mul i2 i4)
+          let (i5, b) ←
+            match o1 with
+            | none => ok (acc, false)
+            | some p =>
+              do
+              let o2 ← lift (I128.checked_add acc p)
+              match o2 with
+              | none => ok (acc, false)
+              | some s => ok (s, true)
+          ok (a2, i5, b)
+      let k1 ← k + 1#usize
+      ok (cont (a1, acc1, k1, ok2))
+    else ok (done (a, acc, false))
+  else ok (done (a, acc, ok1))
+
+/-- [apeiron_word::learn_port::dense::rmsnorm_bwd]: loop 0:
+    Source: '../../src/learn/grad/dense.rs', lines 498:4-513:5
+    Visibility: public -/
+@[rust_loop]
+def learn_port.dense.rmsnorm_bwd_loop0
+  (x : Slice Std.I64) (gamma : Slice Std.I64) (dy : Slice Std.I64)
+  (n : Std.Usize) (a : alloc.vec.Vec Std.I64) (acc : Std.I128) (k : Std.Usize)
+  (ok1 : Bool) :
+  Result ((alloc.vec.Vec Std.I64) × Std.I128 × Bool)
+  := do
+  loop
+    (fun (a1, acc1, k1, ok2) => learn_port.dense.rmsnorm_bwd_loop0.body x gamma
+      dy n a1 acc1 k1 ok2)
+    (a, acc, k, ok1)
+
+/-- [apeiron_word::learn_port::dense::rmsnorm_bwd]: loop body 1:
+    Source: '../../src/learn/grad/dense.rs', lines 525:4-562:5
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.dense.rmsnorm_bwd_loop1.body
+  (x : Slice Std.I64) (dy : Slice Std.I64) (n : Std.Usize) (nd : Std.I64)
+  (r : Std.I64) (r2 : Std.I64) (a : alloc.vec.Vec Std.I64) (s : Std.I64)
+  (k : Std.Usize) (ok1 : Bool) (dx : alloc.vec.Vec Std.I64)
+  (dg : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow (Std.Usize × Bool × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64)) (Bool × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)))
+  := do
+  if k < n
+  then
+    if ok1
+    then
+      let i ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) a k
+      let p ← learn_port.dense.mul_round r i
+      let i1 ← Slice.index_usize x k
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← lift (core.convert.num.FromI128I64.from r2)
+      let o ← lift (I128.checked_mul i2 i3)
+      let t ←
+        match o with
+        | none => ok none
+        | some xp =>
+          do
+          let i4 ← lift (core.convert.num.FromI128I64.from r)
+          let o1 ← lift (I128.checked_mul xp i4)
+          match o1 with
+          | none => ok none
+          | some xpr =>
+            let i5 ← 1#i128 <<< 63#i32
+            let o2 ← lift (I128.checked_add xpr i5)
+            match o2 with
+            | none => ok none
+            | some sum => let i6 ← sum >>> 64#i32
+                          learn_port.dense.narrow i6
+      let q ←
+        match t with
+        | none => ok none
+        | some tv =>
+          do
+          let o1 ← learn_port.dense.mul_round tv s
+          match o1 with
+          | none => ok none
+          | some ts => learn_port.dense.div_round ts nd
+      let d ←
+        match p with
+        | none => ok none
+        | some pv =>
+          match q with
+          | none => ok none
+          | some qv => ok (I64.checked_sub pv qv)
+      let i4 ← Slice.index_usize dy k
+      let o1 ← learn_port.dense.mul_round i4 i1
+      let g ←
+        match o1 with
+        | none => ok none
+        | some v => learn_port.dense.mul_round v r
+      let (ok2, dx1, dg1) ←
+        match d with
+        | none => ok (false, dx, dg)
+        | some dv =>
+          match g with
+          | none => ok (false, dx, dg)
+          | some gv =>
+            do
+            let dx2 ← alloc.vec.Vec.push dx dv
+            let dg2 ← alloc.vec.Vec.push dg gv
+            ok (true, dx2, dg2)
+      let k1 ← k + 1#usize
+      ok (cont (k1, ok2, dx1, dg1))
+    else ok (done (false, dx, dg))
+  else ok (done (ok1, dx, dg))
+
+/-- [apeiron_word::learn_port::dense::rmsnorm_bwd]: loop 1:
+    Source: '../../src/learn/grad/dense.rs', lines 525:4-562:5
+    Visibility: public -/
+@[rust_loop]
+def learn_port.dense.rmsnorm_bwd_loop1
+  (x : Slice Std.I64) (dy : Slice Std.I64) (n : Std.Usize) (nd : Std.I64)
+  (r : Std.I64) (r2 : Std.I64) (a : alloc.vec.Vec Std.I64) (k : Std.Usize)
+  (ok1 : Bool) (s : Std.I64) (dx : alloc.vec.Vec Std.I64)
+  (dg : alloc.vec.Vec Std.I64) :
+  Result (Bool × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (k1, ok2, dx1, dg1) => learn_port.dense.rmsnorm_bwd_loop1.body x dy n
+      nd r r2 a s k1 ok2 dx1 dg1)
+    (k, ok1, dx, dg)
+
+/-- [apeiron_word::learn_port::dense::rmsnorm_bwd]:
+    Source: '../../src/learn/grad/dense.rs', lines 470:0-568:1
+    Visibility: public -/
+def learn_port.dense.rmsnorm_bwd
+  (x : Slice Std.I64) (gamma : Slice Std.I64) (eps : Std.I64)
+  (dy : Slice Std.I64) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) learn_port.dense.DenseError)
+  := do
+  let n := Slice.len x
+  if n = 0#usize
+  then ok (core.result.Result.Err learn_port.dense.DenseError.Empty)
+  else
+    let i := Slice.len gamma
+    if i != n
+    then ok (core.result.Result.Err learn_port.dense.DenseError.Shape)
+    else
+      let i1 := Slice.len dy
+      if i1 != n
+      then ok (core.result.Result.Err learn_port.dense.DenseError.Shape)
+      else
+        let i2 ← lift (UScalar.cast .U64 n)
+        let i3 ← lift (IScalar.hcast .U64 core.num.I64.MAX)
+        if i2 > i3
+        then ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+        else
+          let nd ← lift (UScalar.hcast .I64 n)
+          let r ← learn_port.dense.inv_rms x eps
+          let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+          match cf with
+          | core.ops.control_flow.ControlFlow.Continue val =>
+            let o ← learn_port.dense.mul_round val val
+            let r1 ← learn_port.dense.ov o
+            let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+            match cf1 with
+            | core.ops.control_flow.ControlFlow.Continue val1 =>
+              let a := alloc.vec.Vec.with_capacity Std.I64 n
+              let (a1, acc, ok1) ←
+                learn_port.dense.rmsnorm_bwd_loop0 x gamma dy n a 0#i128
+                  0#usize true
+              if ok1
+              then
+                let o1 ← learn_port.dense.round32 acc
+                let o2 ←
+                  match o1 with
+                  | none => ok none
+                  | some v => learn_port.dense.narrow v
+                let r2 ← learn_port.dense.ov o2
+                let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+                match cf2 with
+                | core.ops.control_flow.ControlFlow.Continue val2 =>
+                  let dx := alloc.vec.Vec.with_capacity Std.I64 n
+                  let dg := alloc.vec.Vec.with_capacity Std.I64 n
+                  let (ok2, dx1, dg1) ←
+                    learn_port.dense.rmsnorm_bwd_loop1 x dy n nd val val1 a1
+                      0#usize true val2 dx dg
+                  if ok2
+                  then ok (core.result.Result.Ok (dx1, dg1))
+                  else
+                    ok (core.result.Result.Err
+                      learn_port.dense.DenseError.Overflow)
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+                    (core.convert.FromSame learn_port.dense.DenseError)
+                    residual
+              else
+                ok (core.result.Result.Err
+                  learn_port.dense.DenseError.Overflow)
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+                (core.convert.FromSame learn_port.dense.DenseError) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+              (core.convert.FromSame learn_port.dense.DenseError) residual
+
+/-- [apeiron_word::learn_port::dense::silu_one]:
+    Source: '../../src/learn/grad/dense.rs', lines 577:0-582:1 -/
+def learn_port.dense.silu_one
+  (g : Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.dense.DenseError)
+  := do
+  let r ← ffn.silu_fixed g
+  match r with
+  | core.result.Result.Ok v => ok (core.result.Result.Ok v)
+  | core.result.Result.Err _ =>
+    ok (core.result.Result.Err learn_port.dense.DenseError.Range)
+
+/-- [apeiron_word::fixed_ln::round_div_i128]:
+    Source: '../../src/numeric/fixed_ln.rs', lines 76:0-83:1 -/
+def fixed_ln.round_div_i128
+  (num : Std.I128) (den : Std.I128) : Result Std.I128 := do
+  let half ← den >>> 1#i32
+  if num >= 0#i128
+  then let i ← num + half
+       i / den
+  else let i ← -. num
+       let i1 ← i + half
+       let i2 ← i1 / den
+       -. i2
+
+/-- [apeiron_word::fixed_ln::LnError]
+    Source: '../../src/numeric/fixed_ln.rs', lines 54:0-59:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fixed_ln.LnError where
+| NonPositive : fixed_ln.LnError
+| OutOfRange : fixed_ln.LnError
+
+/-- [apeiron_word::fixed_ln::ONE]
+    Source: '../../src/numeric/fixed_ln.rs', lines 41:0-41:29
+    Visibility: public -/
+@[global_simps, irreducible]
+def fixed_ln.ONE : Result Std.I64 := 1#i64 <<< 32#i32
+
+/-- [apeiron_word::fixed_ln::EXP_LOWER_BOUND]
+    Source: '../../src/numeric/fixed_ln.rs', lines 50:0-50:39 -/
+@[global_simps, irreducible]
+def fixed_ln.EXP_LOWER_BOUND : Result Std.I64 := do
+  let i ← fixed_ln.ONE
+  (-16)#i64 * i
+
+/-- [apeiron_word::fixed_ln::fixed_sigmoid]:
+    Source: '../../src/numeric/fixed_ln.rs', lines 265:0-308:1
+    Visibility: public -/
+def fixed_ln.fixed_sigmoid
+  (x : Std.I64) : Result (core.result.Result Std.I64 fixed_ln.LnError) := do
+  if x >= 0#i64
+  then
+    let neg_x ← -. x
+    let i ← fixed_ln.EXP_LOWER_BOUND
+    let exp_neg ←
+      if neg_x < i
+      then ok 0#i64
+      else
+        do
+        let r ← fixed_exp.fixed_exp neg_x
+        match r with
+        | core.result.Result.Ok v => ok v
+        | core.result.Result.Err _ => ok 0#i64
+    let i1 ← fixed_ln.ONE
+    let i2 ← lift (IScalar.cast .I128 i1)
+    let i3 ← lift (IScalar.cast .I128 exp_neg)
+    let den ← i2 + i3
+    let i4 ← lift (IScalar.cast .I128 i1)
+    let num ← i4 <<< 32#i32
+    let res ← fixed_ln.round_div_i128 num den
+    let i5 ← lift (IScalar.cast .I128 i1)
+    if res > i5
+    then ok (core.result.Result.Ok i1)
+    else
+      if res < 0#i128
+      then ok (core.result.Result.Ok 0#i64)
+      else
+        let res_clamped ← lift (IScalar.cast .I64 res)
+        ok (core.result.Result.Ok res_clamped)
+  else
+    let i ← fixed_ln.EXP_LOWER_BOUND
+    let exp_pos ←
+      if x < i
+      then ok 0#i64
+      else
+        do
+        let r ← fixed_exp.fixed_exp x
+        match r with
+        | core.result.Result.Ok v => ok v
+        | core.result.Result.Err _ => ok 0#i64
+    let i1 ← fixed_ln.ONE
+    let i2 ← lift (IScalar.cast .I128 i1)
+    let i3 ← lift (IScalar.cast .I128 exp_pos)
+    let den ← i2 + i3
+    let i4 ← lift (IScalar.cast .I128 exp_pos)
+    let num ← i4 <<< 32#i32
+    let res ← fixed_ln.round_div_i128 num den
+    let i5 ← lift (IScalar.cast .I128 i1)
+    if res > i5
+    then ok (core.result.Result.Ok i1)
+    else
+      if res < 0#i128
+      then ok (core.result.Result.Ok 0#i64)
+      else
+        let res_clamped ← lift (IScalar.cast .I64 res)
+        ok (core.result.Result.Ok res_clamped)
+
+/-- [apeiron_word::learn_port::dense::sigmoid_one]:
+    Source: '../../src/learn/grad/dense.rs', lines 590:0-595:1 -/
+def learn_port.dense.sigmoid_one
+  (g : Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.dense.DenseError)
+  := do
+  let r ← fixed_ln.fixed_sigmoid g
+  match r with
+  | core.result.Result.Ok v => ok (core.result.Result.Ok v)
+  | core.result.Result.Err _ =>
+    ok (core.result.Result.Err learn_port.dense.DenseError.Range)
+
+/-- [apeiron_word::learn_port::dense::silu_deriv]:
+    Source: '../../src/learn/grad/dense.rs', lines 602:0-618:1 -/
+def learn_port.dense.silu_deriv
+  (g : Std.I64) (s : Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.dense.DenseError)
+  := do
+  let i ← engine.ONE
+  let o ← lift (I64.checked_sub i s)
+  let r ← learn_port.dense.ov o
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let o1 ← learn_port.dense.mul_round g val
+    let r1 ← learn_port.dense.ov o1
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let i1 ← lift (core.convert.num.FromI128I64.from i)
+      let i2 ← lift (core.convert.num.FromI128I64.from val1)
+      let t ← i1 + i2
+      let i3 ← lift (core.convert.num.FromI128I64.from s)
+      let o2 ← lift (I128.checked_mul i3 t)
+      match o2 with
+      | none =>
+        ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+      | some p =>
+        let o3 ← learn_port.dense.round32 p
+        match o3 with
+        | none =>
+          ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+        | some v =>
+          let o4 ← learn_port.dense.narrow v
+          match o4 with
+          | none =>
+            ok (core.result.Result.Err learn_port.dense.DenseError.Overflow)
+          | some v1 => ok (core.result.Result.Ok v1)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Std.I64 (core.convert.FromSame learn_port.dense.DenseError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      Std.I64 (core.convert.FromSame learn_port.dense.DenseError) residual
+
+/-- [apeiron_word::learn_port::dense::swiglu_fwd]: loop body 0:
+    Source: '../../src/learn/grad/dense.rs', lines 642:4-654:5
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.dense.swiglu_fwd_loop.body
+  (gate : Slice Std.I64) (up : Slice Std.I64) (n : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (k : Std.Usize)
+  (err : learn_port.dense.DenseError) (ok1 : Bool) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize ×
+    learn_port.dense.DenseError × Bool) ((alloc.vec.Vec Std.I64) ×
+    learn_port.dense.DenseError × Bool))
+  := do
+  if k < n
+  then
+    if ok1
+    then
+      let i ← Slice.index_usize gate k
+      let r ← learn_port.dense.silu_one i
+      let (out1, err1, ok2) ←
+        match r with
+        | core.result.Result.Ok sv =>
+          do
+          let i1 ← Slice.index_usize up k
+          let o ← learn_port.dense.mul_round sv i1
+          let (v, b) ←
+            match o with
+            | none => ok (out, false)
+            | some v1 =>
+              do
+              let out2 ← alloc.vec.Vec.push out v1
+              ok (out2, true)
+          ok (v, err, b)
+        | core.result.Result.Err e => ok (out, e, false)
+      let k1 ← k + 1#usize
+      ok (cont (out1, k1, err1, ok2))
+    else ok (done (out, err, false))
+  else ok (done (out, err, ok1))
+
+/-- [apeiron_word::learn_port::dense::swiglu_fwd]: loop 0:
+    Source: '../../src/learn/grad/dense.rs', lines 642:4-654:5
+    Visibility: public -/
+@[rust_loop]
+def learn_port.dense.swiglu_fwd_loop
+  (gate : Slice Std.I64) (up : Slice Std.I64) (n : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (k : Std.Usize)
+  (err : learn_port.dense.DenseError) (ok1 : Bool) :
+  Result ((alloc.vec.Vec Std.I64) × learn_port.dense.DenseError × Bool)
+  := do
+  loop
+    (fun (out1, k1, err1, ok2) => learn_port.dense.swiglu_fwd_loop.body gate up
+      n out1 k1 err1 ok2)
+    (out, k, err, ok1)
+
+/-- [apeiron_word::learn_port::dense::swiglu_fwd]:
+    Source: '../../src/learn/grad/dense.rs', lines 630:0-660:1
+    Visibility: public -/
+def learn_port.dense.swiglu_fwd
+  (gate : Slice Std.I64) (up : Slice Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    learn_port.dense.DenseError)
+  := do
+  let n := Slice.len gate
+  if n = 0#usize
+  then ok (core.result.Result.Err learn_port.dense.DenseError.Empty)
+  else
+    let i := Slice.len up
+    if i != n
+    then ok (core.result.Result.Err learn_port.dense.DenseError.Shape)
+    else
+      let out := alloc.vec.Vec.with_capacity Std.I64 n
+      let (out1, err, ok1) ←
+        learn_port.dense.swiglu_fwd_loop gate up n out 0#usize
+          learn_port.dense.DenseError.Overflow true
+      if ok1
+      then ok (core.result.Result.Ok out1)
+      else ok (core.result.Result.Err err)
+
+/-- [apeiron_word::learn_port::dense::swiglu_one_bwd]:
+    Source: '../../src/learn/grad/dense.rs', lines 668:0-676:1 -/
+def learn_port.dense.swiglu_one_bwd
+  (g : Std.I64) (u : Std.I64) (dy : Std.I64) :
+  Result (core.result.Result (Std.I64 × Std.I64) learn_port.dense.DenseError)
+  := do
+  let r ← learn_port.dense.sigmoid_one g
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r1 ← learn_port.dense.silu_deriv g val
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let r2 ← learn_port.dense.silu_one g
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        let o ← learn_port.dense.mul_round dy u
+        let r3 ← learn_port.dense.ov o
+        let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val3 =>
+          let o1 ← learn_port.dense.mul_round val3 val1
+          let r4 ← learn_port.dense.ov o1
+          let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r4
+          match cf4 with
+          | core.ops.control_flow.ControlFlow.Continue val4 =>
+            let o2 ← learn_port.dense.mul_round dy val2
+            let r5 ← learn_port.dense.ov o2
+            let cf5 ← core.result.Result.Insts.CoreOpsTry.branch r5
+            match cf5 with
+            | core.ops.control_flow.ControlFlow.Continue val5 =>
+              ok (core.result.Result.Ok (val4, val5))
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                (Std.I64 × Std.I64) (core.convert.FromSame
+                learn_port.dense.DenseError) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (Std.I64 × Std.I64) (core.convert.FromSame
+              learn_port.dense.DenseError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (Std.I64 × Std.I64) (core.convert.FromSame
+            learn_port.dense.DenseError) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (Std.I64 × Std.I64) (core.convert.FromSame
+          learn_port.dense.DenseError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (Std.I64 × Std.I64) (core.convert.FromSame
+        learn_port.dense.DenseError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (Std.I64 × Std.I64) (core.convert.FromSame learn_port.dense.DenseError)
+      residual
+
+/-- [apeiron_word::learn_port::dense::swiglu_bwd]: loop body 0:
+    Source: '../../src/learn/grad/dense.rs', lines 705:4-717:5
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.dense.swiglu_bwd_loop.body
+  (gate : Slice Std.I64) (up : Slice Std.I64) (dy : Slice Std.I64)
+  (n : Std.Usize) (dgate : alloc.vec.Vec Std.I64) (dup : alloc.vec.Vec Std.I64)
+  (k : Std.Usize) (err : learn_port.dense.DenseError) (ok1 : Bool) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    Std.Usize × learn_port.dense.DenseError × Bool) ((alloc.vec.Vec Std.I64)
+    × (alloc.vec.Vec Std.I64) × learn_port.dense.DenseError × Bool))
+  := do
+  if k < n
+  then
+    if ok1
+    then
+      let i ← Slice.index_usize gate k
+      let i1 ← Slice.index_usize up k
+      let i2 ← Slice.index_usize dy k
+      let r ← learn_port.dense.swiglu_one_bwd i i1 i2
+      let (dgate1, dup1, err1, ok2) ←
+        match r with
+        | core.result.Result.Ok p =>
+          do
+          let (dg, du) := p
+          let dgate2 ← alloc.vec.Vec.push dgate dg
+          let dup2 ← alloc.vec.Vec.push dup du
+          ok (dgate2, dup2, err, true)
+        | core.result.Result.Err e => ok (dgate, dup, e, false)
+      let k1 ← k + 1#usize
+      ok (cont (dgate1, dup1, k1, err1, ok2))
+    else ok (done (dgate, dup, err, false))
+  else ok (done (dgate, dup, err, ok1))
+
+/-- [apeiron_word::learn_port::dense::swiglu_bwd]: loop 0:
+    Source: '../../src/learn/grad/dense.rs', lines 705:4-717:5
+    Visibility: public -/
+@[rust_loop]
+def learn_port.dense.swiglu_bwd_loop
+  (gate : Slice Std.I64) (up : Slice Std.I64) (dy : Slice Std.I64)
+  (n : Std.Usize) (dgate : alloc.vec.Vec Std.I64) (dup : alloc.vec.Vec Std.I64)
+  (k : Std.Usize) (err : learn_port.dense.DenseError) (ok1 : Bool) :
+  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    learn_port.dense.DenseError × Bool)
+  := do
+  loop
+    (fun (dgate1, dup1, k1, err1, ok2) => learn_port.dense.swiglu_bwd_loop.body
+      gate up dy n dgate1 dup1 k1 err1 ok2)
+    (dgate, dup, k, err, ok1)
+
+/-- [apeiron_word::learn_port::dense::swiglu_bwd]:
+    Source: '../../src/learn/grad/dense.rs', lines 688:0-723:1
+    Visibility: public -/
+def learn_port.dense.swiglu_bwd
+  (gate : Slice Std.I64) (up : Slice Std.I64) (dy : Slice Std.I64) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) learn_port.dense.DenseError)
+  := do
+  let n := Slice.len gate
+  if n = 0#usize
+  then ok (core.result.Result.Err learn_port.dense.DenseError.Empty)
+  else
+    let i := Slice.len up
+    if i != n
+    then ok (core.result.Result.Err learn_port.dense.DenseError.Shape)
+    else
+      let i1 := Slice.len dy
+      if i1 != n
+      then ok (core.result.Result.Err learn_port.dense.DenseError.Shape)
+      else
+        let dgate := alloc.vec.Vec.with_capacity Std.I64 n
+        let dup := alloc.vec.Vec.with_capacity Std.I64 n
+        let (dgate1, dup1, err, ok1) ←
+          learn_port.dense.swiglu_bwd_loop gate up dy n dgate dup 0#usize
+            learn_port.dense.DenseError.Overflow true
+        if ok1
+        then ok (core.result.Result.Ok (dgate1, dup1))
+        else ok (core.result.Result.Err err)
+
+/-- [apeiron_word::learn_port::head::FLUSH]
+    Source: '../../src/learn/grad/head.rs', lines 48:0-48:41 -/
+@[global_simps, irreducible]
+def learn_port.head.FLUSH : Result Std.I128 := do
+  let i ← 1#i128 <<< 32#i32
+  (-16)#i128 * i
+
+/-- [apeiron_word::learn_port::head::HeadError]
+    Source: '../../src/learn/grad/head.rs', lines 52:0-63:1
+    Visibility: public -/
+@[discriminant isize]
+inductive learn_port.head.HeadError where
+| Shape : learn_port.head.HeadError
+| Overflow : learn_port.head.HeadError
+| Exp : fixed_exp.ExpError → learn_port.head.HeadError
+| Ln : fixed_ln.LnError → learn_port.head.HeadError
+
+/-- [apeiron_word::learn_port::head::Objective]
+    Source: '../../src/learn/grad/head.rs', lines 67:0-72:1
+    Visibility: public -/
+@[discriminant isize]
+inductive learn_port.head.Objective where
+| Kl : learn_port.head.Objective
+| Tv : learn_port.head.Objective
+
+/-- [apeiron_word::learn_port::head::Dims]
+    Source: '../../src/learn/grad/head.rs', lines 76:0-83:1
+    Visibility: public -/
+structure learn_port.head.Dims where
+  n : Std.Usize
+  d : Std.Usize
+  v : Std.Usize
+
+/-- [apeiron_word::learn_port::head::abs128]:
+    Source: '../../src/learn/grad/head.rs', lines 87:0-93:1 -/
+def learn_port.head.abs128 (x : Std.I128) : Result Std.I128 := do
+  if x < 0#i128
+  then 0#i128 - x
+  else ok x
+
+/-- [apeiron_word::learn_port::head::round_div]:
+    Source: '../../src/learn/grad/head.rs', lines 96:0-108:1 -/
+def learn_port.head.round_div
+  (n : Std.I128) (d : Std.I128) : Result Std.I128 := do
+  let q ← n / d
+  let r ← n % d
+  let i ← learn_port.head.abs128 r
+  let i1 ← 2#i128 * i
+  if i1 >= d
+  then if n >= 0#i128
+       then q + 1#i128
+       else q - 1#i128
+  else ok q
+
+/-- [apeiron_word::learn_port::head::to64]:
+    Source: '../../src/learn/grad/head.rs', lines 115:0-121:1 -/
+def learn_port.head.to64
+  (x : Std.I128) :
+  Result (core.result.Result Std.I64 learn_port.head.HeadError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+  if x < i
+  then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+  else
+    let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+    if x > i1
+    then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+    else let i2 ← lift (IScalar.cast .I64 x)
+         ok (core.result.Result.Ok i2)
+
+/-- [apeiron_word::learn_port::head::add128]:
+    Source: '../../src/learn/grad/head.rs', lines 123:0-128:1 -/
+def learn_port.head.add128
+  (a : Std.I128) (b : Std.I128) :
+  Result (core.result.Result Std.I128 learn_port.head.HeadError)
+  := do
+  let o ← lift (I128.checked_add a b)
+  match o with
+  | none => ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+  | some s => ok (core.result.Result.Ok s)
+
+/-- [apeiron_word::learn_port::head::mul128]:
+    Source: '../../src/learn/grad/head.rs', lines 130:0-135:1 -/
+def learn_port.head.mul128
+  (a : Std.I128) (b : Std.I128) :
+  Result (core.result.Result Std.I128 learn_port.head.HeadError)
+  := do
+  let o ← lift (I128.checked_mul a b)
+  match o with
+  | none => ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+  | some s => ok (core.result.Result.Ok s)
+
+/-- [apeiron_word::learn_port::head::dim128]:
+    Source: '../../src/learn/grad/head.rs', lines 138:0-140:1 -/
+def learn_port.head.dim128 (a : Std.Usize) : Result Std.I128 := do
+  ok (UScalar.hcast .I128 a)
+
+/-- [apeiron_word::learn_port::head::mul_dims]:
+    Source: '../../src/learn/grad/head.rs', lines 142:0-147:1 -/
+def learn_port.head.mul_dims
+  (a : Std.Usize) (b : Std.Usize) :
+  Result (core.result.Result Std.Usize learn_port.head.HeadError)
+  := do
+  let o ← lift (Usize.checked_mul a b)
+  match o with
+  | none => ok (core.result.Result.Err learn_port.head.HeadError.Shape)
+  | some s => ok (core.result.Result.Ok s)
+
+/-- [apeiron_word::learn_port::head::sgn]:
+    Source: '../../src/learn/grad/head.rs', lines 150:0-156:1 -/
+def learn_port.head.sgn (x : Std.I128) : Result Std.I128 := do
+  let o ← lift (core.cmp.impls.OrdI128.cmp x 0#i128)
+  match o with
+  | Ordering.lt => ok (-1)#i128
+  | Ordering.eq => ok 0#i128
+  | Ordering.gt => ok 1#i128
+
+/-- [apeiron_word::learn_port::head::exp_entry]:
+    Source: '../../src/learn/grad/head.rs', lines 163:0-175:1 -/
+def learn_port.head.exp_entry
+  (zi : Std.I64) (m : Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.head.HeadError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from zi)
+  let i1 ← lift (core.convert.num.FromI128I64.from m)
+  let ui ← i - i1
+  let i2 ← learn_port.head.FLUSH
+  if ui < i2
+  then ok (core.result.Result.Ok 0#i64)
+  else
+    let i3 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+    if ui > i3
+    then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+    else
+      let i4 ← lift (IScalar.cast .I64 ui)
+      let r ← fixed_exp.fixed_exp i4
+      match r with
+      | core.result.Result.Ok ev => ok (core.result.Result.Ok ev)
+      | core.result.Result.Err x =>
+        ok (core.result.Result.Err (learn_port.head.HeadError.Exp x))
+
+/-- [apeiron_word::learn_port::head::row_max]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 182:4-187:5 -/
+@[rust_loop_body]
+def learn_port.head.row_max_loop.body
+  (z : Slice Std.I64) (v : Std.Usize) (m : Std.I64) (i : Std.Usize) :
+  Result (ControlFlow (Std.I64 × Std.Usize) Std.I64)
+  := do
+  if i < v
+  then
+    let i1 ← Slice.index_usize z i
+    let m1 ← if i1 > m
+               then ok i1
+               else ok m
+    let i2 ← i + 1#usize
+    ok (cont (m1, i2))
+  else ok (done m)
+
+/-- [apeiron_word::learn_port::head::row_max]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 182:4-187:5 -/
+@[rust_loop]
+def learn_port.head.row_max_loop
+  (z : Slice Std.I64) (v : Std.Usize) (m : Std.I64) (i : Std.Usize) :
+  Result Std.I64
+  := do
+  loop
+    (fun (m1, i1) => learn_port.head.row_max_loop.body z v m1 i1)
+    (m, i)
+
+/-- [apeiron_word::learn_port::head::row_max]:
+    Source: '../../src/learn/grad/head.rs', lines 178:0-189:1 -/
+def learn_port.head.row_max (z : Slice Std.I64) : Result Std.I64 := do
+  let v := Slice.len z
+  let m ← Slice.index_usize z 0#usize
+  learn_port.head.row_max_loop z v m 1#usize
+
+/-- [apeiron_word::learn_port::head::exp_fill]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 201:4-213:5 -/
+@[rust_loop_body]
+def learn_port.head.exp_fill_loop.body
+  (z : Slice Std.I64) (m : Std.I64) (v : Std.Usize) (e : Slice Std.I64)
+  (sum : Std.I128) (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.I128 × (Option
+    learn_port.head.HeadError) × Std.Usize) ((Slice Std.I64) × Std.I128 ×
+    (Option learn_port.head.HeadError)))
+  := do
+  if i < v
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i1 ← Slice.index_usize z i
+      let r ← learn_port.head.exp_entry i1 m
+      let (e1, sum1, fail2) ←
+        match r with
+        | core.result.Result.Ok ev =>
+          do
+          let s ← Slice.update e i ev
+          let i2 ← lift (core.convert.num.FromI128I64.from ev)
+          let r1 ← learn_port.head.add128 sum i2
+          let (i3, o) ←
+            match r1 with
+            | core.result.Result.Ok s1 => ok (s1, fail1)
+            | core.result.Result.Err x => ok (sum, some x)
+          ok (s, i3, o)
+        | core.result.Result.Err x => ok (e, sum, some x)
+      let i2 ← i + 1#usize
+      ok (cont (e1, sum1, fail2, i2))
+    else ok (done (e, sum, fail1))
+  else ok (done (e, sum, fail1))
+
+/-- [apeiron_word::learn_port::head::exp_fill]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 201:4-213:5 -/
+@[rust_loop]
+def learn_port.head.exp_fill_loop
+  (z : Slice Std.I64) (m : Std.I64) (e : Slice Std.I64) (v : Std.Usize)
+  (sum : Std.I128) (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result ((Slice Std.I64) × Std.I128 × (Option learn_port.head.HeadError))
+  := do
+  loop
+    (fun (e1, sum1, fail2, i1) => learn_port.head.exp_fill_loop.body z m v e1
+      sum1 fail2 i1)
+    (e, sum, fail1, i)
+
+/-- [apeiron_word::learn_port::head::exp_fill]:
+    Source: '../../src/learn/grad/head.rs', lines 196:0-218:1 -/
+def learn_port.head.exp_fill
+  (z : Slice Std.I64) (m : Std.I64) (e : Slice Std.I64) :
+  Result ((core.result.Result Std.I128 learn_port.head.HeadError) × (Slice
+    Std.I64))
+  := do
+  let v := Slice.len z
+  let (e1, sum, fail1) ←
+    learn_port.head.exp_fill_loop z m e v 0#i128 none 0#usize
+  match fail1 with
+  | none => ok (core.result.Result.Ok sum, e1)
+  | some x => ok (core.result.Result.Err x, e1)
+
+/-- [apeiron_word::learn_port::head::lp_entry]:
+    Source: '../../src/learn/grad/head.rs', lines 221:0-223:1 -/
+def learn_port.head.lp_entry
+  (zi : Std.I64) (m : Std.I64) (l : Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.head.HeadError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from zi)
+  let i1 ← lift (core.convert.num.FromI128I64.from m)
+  let i2 ← i - i1
+  let i3 ← lift (core.convert.num.FromI128I64.from l)
+  let i4 ← i2 - i3
+  learn_port.head.to64 i4
+
+/-- [apeiron_word::learn_port::head::p_entry]:
+    Source: '../../src/learn/grad/head.rs', lines 226:0-231:1 -/
+def learn_port.head.p_entry
+  (ei : Std.I64) (sum : Std.I128) :
+  Result (core.result.Result Std.I64 learn_port.head.HeadError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from ei)
+  let i1 ← engine.ONE
+  let i2 ← lift (core.convert.num.FromI128I64.from i1)
+  let r ← learn_port.head.mul128 i i2
+  match r with
+  | core.result.Result.Ok num =>
+    let i3 ← learn_port.head.round_div num sum
+    learn_port.head.to64 i3
+  | core.result.Result.Err x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::learn_port::head::fill_lp_p]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 251:4-263:5 -/
+@[rust_loop_body]
+def learn_port.head.fill_lp_p_loop.body
+  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
+  (sum : Std.I128) (v : Std.Usize) (lp : Slice Std.I64) (p : Slice Std.I64)
+  (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × (Option
+    learn_port.head.HeadError) × Std.Usize) ((Option
+    learn_port.head.HeadError) × (Slice Std.I64) × (Slice Std.I64)))
+  := do
+  if i < v
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i1 ← Slice.index_usize z i
+      let r ← learn_port.head.lp_entry i1 m l
+      let (lp1, fail2) ←
+        match r with
+        | core.result.Result.Ok x =>
+          do
+          let s ← Slice.update lp i x
+          ok (s, fail1)
+        | core.result.Result.Err x => ok (lp, some x)
+      let b1 := core.option.Option.is_none fail2
+      let (p1, fail3) ←
+        if b1
+        then
+          do
+          let i2 ← Slice.index_usize e i
+          let r1 ← learn_port.head.p_entry i2 sum
+          match r1 with
+          | core.result.Result.Ok x =>
+            let s ← Slice.update p i x
+            ok (s, fail2)
+          | core.result.Result.Err x => ok (p, some x)
+        else ok (p, fail2)
+      let i2 ← i + 1#usize
+      ok (cont (lp1, p1, fail3, i2))
+    else ok (done (fail1, lp, p))
+  else ok (done (fail1, lp, p))
+
+/-- [apeiron_word::learn_port::head::fill_lp_p]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 251:4-263:5 -/
+@[rust_loop]
+def learn_port.head.fill_lp_p_loop
+  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
+  (sum : Std.I128) (lp : Slice Std.I64) (p : Slice Std.I64) (v : Std.Usize)
+  (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64) × (Slice
+    Std.I64))
+  := do
+  loop
+    (fun (lp1, p1, fail2, i1) => learn_port.head.fill_lp_p_loop.body z m l e
+      sum v lp1 p1 fail2 i1)
+    (lp, p, fail1, i)
+
+/-- [apeiron_word::learn_port::head::fill_lp_p]:
+    Source: '../../src/learn/grad/head.rs', lines 239:0-265:1 -/
+def learn_port.head.fill_lp_p
+  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
+  (sum : Std.I128) (lp : Slice Std.I64) (p : Slice Std.I64) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64) × (Slice
+    Std.I64))
+  := do
+  let v := Slice.len z
+  learn_port.head.fill_lp_p_loop z m l e sum lp p v none 0#usize
+
+/-- [apeiron_word::fixed_ln::round_div_2p32::HALF]
+    Source: '../../src/numeric/fixed_ln.rs', lines 64:4-64:31 -/
+@[global_simps, irreducible]
+def fixed_ln.round_div_2p32.HALF : Result Std.I128 := 1#i128 <<< 31#i32
+
+/-- [apeiron_word::fixed_ln::round_div_2p32]:
+    Source: '../../src/numeric/fixed_ln.rs', lines 63:0-70:1 -/
+def fixed_ln.round_div_2p32 (value : Std.I128) : Result Std.I128 := do
+  if value >= 0#i128
+  then
+    let i ← fixed_ln.round_div_2p32.HALF
+    let i1 ← value + i
+    i1 >>> 32#i32
+  else
+    let i ← -. value
+    let i1 ← fixed_ln.round_div_2p32.HALF
+    let i2 ← i + i1
+    let i3 ← i2 >>> 32#i32
+    -. i3
+
+/-- [apeiron_word::fixed_ln::ln_atanh_poly]:
+    Source: '../../src/numeric/fixed_ln.rs', lines 102:0-112:1 -/
+def fixed_ln.ln_atanh_poly (s : Std.I128) : Result Std.I128 := do
+  let i ← s * s
+  let y ← fixed_ln.round_div_2p32 i
+  let i1 ← 660764199#i128 * y
+  let i2 ← fixed_ln.round_div_2p32 i1
+  let acc ← i2 + 780903145#i128
+  let i3 ← acc * y
+  let i4 ← fixed_ln.round_div_2p32 i3
+  let acc1 ← i4 + 954437177#i128
+  let i5 ← acc1 * y
+  let i6 ← fixed_ln.round_div_2p32 i5
+  let acc2 ← i6 + 1227133513#i128
+  let i7 ← acc2 * y
+  let i8 ← fixed_ln.round_div_2p32 i7
+  let acc3 ← i8 + 1717986918#i128
+  let i9 ← acc3 * y
+  let i10 ← fixed_ln.round_div_2p32 i9
+  let acc4 ← i10 + 2863311531#i128
+  let i11 ← acc4 * y
+  let i12 ← fixed_ln.round_div_2p32 i11
+  let i13 ← 2#i128 <<< 32#i32
+  let acc5 ← i12 + i13
+  let i14 ← acc5 * s
+  fixed_ln.round_div_2p32 i14
+
+/-- [apeiron_word::fixed_ln::SQRT2_Q62]
+    Source: '../../src/numeric/fixed_ln.rs', lines 47:0-47:50 -/
+@[global_simps, irreducible]
+def fixed_ln.SQRT2_Q62 : Std.U128 := 6521908912666391553#u128
+
+/-- [apeiron_word::fixed_ln::LN2_Q32]
+    Source: '../../src/numeric/fixed_ln.rs', lines 44:0-44:39
+    Visibility: public -/
+@[global_simps, irreducible] def fixed_ln.LN2_Q32 : Std.I64 := 2977044472#i64
+
+/-- [apeiron_word::fixed_ln::fixed_ln]:
+    Source: '../../src/numeric/fixed_ln.rs', lines 137:0-169:1
+    Visibility: public -/
+def fixed_ln.fixed_ln
+  (x : Std.I64) : Result (core.result.Result Std.I64 fixed_ln.LnError) := do
+  if x <= 0#i64
+  then ok (core.result.Result.Err fixed_ln.LnError.NonPositive)
+  else
+    let i ← lift (IScalar.hcast .U64 x)
+    let lz ← lift (core.num.U64.leading_zeros i)
+    let k ← 63#u32 - lz
+    let i1 ← lift (IScalar.hcast .U128 x)
+    let i2 ← lz - 1#u32
+    let x_norm ← i1 <<< i2
+    let p ← if x_norm >= fixed_ln.SQRT2_Q62
+              then k + 1#u32
+              else ok k
+    let i3 ← lift (UScalar.hcast .I64 p)
+    let e ← i3 - 32#i64
+    let base ← 1#i128 <<< p
+    let x_wide ← lift (IScalar.cast .I128 x)
+    let i4 ← x_wide - base
+    let num ← i4 <<< 32#i32
+    let den ← x_wide + base
+    let s ← fixed_ln.round_div_i128 num den
+    let ln_m ← fixed_ln.ln_atanh_poly s
+    let i5 ← lift (IScalar.cast .I128 e)
+    let i6 ← lift (IScalar.cast .I128 fixed_ln.LN2_Q32)
+    let e_ln2 ← i5 * i6
+    let total ← e_ln2 + ln_m
+    let i7 ← lift (IScalar.cast .I128 core.num.I64.MAX)
+    if total > i7
+    then ok (core.result.Result.Err fixed_ln.LnError.OutOfRange)
+    else
+      let i8 ← lift (IScalar.cast .I128 core.num.I64.MIN)
+      if total < i8
+      then ok (core.result.Result.Err fixed_ln.LnError.OutOfRange)
+      else
+        let i9 ← lift (IScalar.cast .I64 total)
+        ok (core.result.Result.Ok i9)
+
+/-- [apeiron_word::learn_port::head::softmax_row]:
+    Source: '../../src/learn/grad/head.rs', lines 279:0-304:1 -/
+def learn_port.head.softmax_row
+  (z : Slice Std.I64) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) learn_port.head.HeadError)
+  := do
+  let v := Slice.len z
+  if v = 0#usize
+  then ok (core.result.Result.Err learn_port.head.HeadError.Shape)
+  else
+    let m ← learn_port.head.row_max z
+    let e ← alloc.vec.from_elem core.clone.CloneI64 0#i64 v
+    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut e)
+    let (r, s1) ← learn_port.head.exp_fill z m s
+    match r with
+    | core.result.Result.Ok s2 =>
+      let r1 ← learn_port.head.to64 s2
+      match r1 with
+      | core.result.Result.Ok s3 =>
+        let r2 ← fixed_ln.fixed_ln s3
+        match r2 with
+        | core.result.Result.Ok l =>
+          let e1 := deref_mut_back s1
+          let s4 := alloc.vec.Vec.deref e1
+          let (s5, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut e)
+          let (s6, deref_mut_back2) ← lift (alloc.vec.Vec.deref_mut e)
+          let (o, s7, s8) ← learn_port.head.fill_lp_p z m l s4 s2 s5 s6
+          match o with
+          | none =>
+            let lp := deref_mut_back1 s7
+            let p := deref_mut_back2 s8
+            ok (core.result.Result.Ok (lp, p))
+          | some x => ok (core.result.Result.Err x)
+        | core.result.Result.Err x =>
+          ok (core.result.Result.Err (learn_port.head.HeadError.Ln x))
+      | core.result.Result.Err x => ok (core.result.Result.Err x)
+    | core.result.Result.Err x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::learn_port::head::log_softmax_row]:
+    Source: '../../src/learn/grad/head.rs', lines 319:0-324:1
+    Visibility: public -/
+def learn_port.head.log_softmax_row
+  (z : Slice Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) learn_port.head.HeadError)
+  := do
+  let r ← learn_port.head.softmax_row z
+  match r with
+  | core.result.Result.Ok p => let (lp, _) := p
+                               ok (core.result.Result.Ok lp)
+  | core.result.Result.Err x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::learn_port::head::kl_acc]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 336:4-346:5 -/
+@[rust_loop_body]
+def learn_port.head.kl_acc_loop.body
+  (p_t : Slice Std.I64) (lp_t : Slice Std.I64) (lp_s : Slice Std.I64)
+  (v : Std.Usize) (acc : Std.I128) (fail1 : Option learn_port.head.HeadError)
+  (i : Std.Usize) :
+  Result (ControlFlow (Std.I128 × (Option learn_port.head.HeadError) ×
+    Std.Usize) (Std.I128 × (Option learn_port.head.HeadError)))
+  := do
+  if i < v
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i1 ← Slice.index_usize lp_t i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← Slice.index_usize lp_s i
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let delta ← i2 - i4
+      let i5 ← Slice.index_usize p_t i
+      let i6 ← lift (core.convert.num.FromI128I64.from i5)
+      let r ← learn_port.head.mul128 i6 delta
+      let (acc1, fail2) ←
+        match r with
+        | core.result.Result.Ok term =>
+          do
+          let r1 ← learn_port.head.add128 acc term
+          match r1 with
+          | core.result.Result.Ok s => ok (s, fail1)
+          | core.result.Result.Err x => ok (acc, some x)
+        | core.result.Result.Err x => ok (acc, some x)
+      let i7 ← i + 1#usize
+      ok (cont (acc1, fail2, i7))
+    else ok (done (acc, fail1))
+  else ok (done (acc, fail1))
+
+/-- [apeiron_word::learn_port::head::kl_acc]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 336:4-346:5 -/
+@[rust_loop]
+def learn_port.head.kl_acc_loop
+  (p_t : Slice Std.I64) (lp_t : Slice Std.I64) (lp_s : Slice Std.I64)
+  (v : Std.Usize) (acc : Std.I128) (fail1 : Option learn_port.head.HeadError)
+  (i : Std.Usize) :
+  Result (Std.I128 × (Option learn_port.head.HeadError))
+  := do
+  loop
+    (fun (acc1, fail2, i1) => learn_port.head.kl_acc_loop.body p_t lp_t lp_s v
+      acc1 fail2 i1)
+    (acc, fail1, i)
+
+/-- [apeiron_word::learn_port::head::kl_acc]:
+    Source: '../../src/learn/grad/head.rs', lines 331:0-351:1 -/
+def learn_port.head.kl_acc
+  (p_t : Slice Std.I64) (lp_t : Slice Std.I64) (lp_s : Slice Std.I64) :
+  Result (core.result.Result Std.I128 learn_port.head.HeadError)
+  := do
+  let v := Slice.len p_t
+  let (acc, fail1) ←
+    learn_port.head.kl_acc_loop p_t lp_t lp_s v 0#i128 none 0#usize
+  match fail1 with
+  | none => ok (core.result.Result.Ok acc)
+  | some x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::learn_port::head::dz_diff]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 358:4-364:5 -/
+@[rust_loop_body]
+def learn_port.head.dz_diff_loop.body
+  (p_s : Slice Std.I64) (p_t : Slice Std.I64) (v : Std.Usize)
+  (dz : Slice Std.I64) (fail1 : Option learn_port.head.HeadError)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option learn_port.head.HeadError) ×
+    Std.Usize) ((Option learn_port.head.HeadError) × (Slice Std.I64)))
+  := do
+  if i < v
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i1 ← Slice.index_usize p_s i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← Slice.index_usize p_t i
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let i5 ← i2 - i4
+      let r ← learn_port.head.to64 i5
+      let (dz1, fail2) ←
+        match r with
+        | core.result.Result.Ok g =>
+          do
+          let s ← Slice.update dz i g
+          ok (s, fail1)
+        | core.result.Result.Err x => ok (dz, some x)
+      let i6 ← i + 1#usize
+      ok (cont (dz1, fail2, i6))
+    else ok (done (fail1, dz))
+  else ok (done (fail1, dz))
+
+/-- [apeiron_word::learn_port::head::dz_diff]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 358:4-364:5 -/
+@[rust_loop]
+def learn_port.head.dz_diff_loop
+  (p_s : Slice Std.I64) (p_t : Slice Std.I64) (dz : Slice Std.I64)
+  (v : Std.Usize) (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64))
+  := do
+  loop
+    (fun (dz1, fail2, i1) => learn_port.head.dz_diff_loop.body p_s p_t v dz1
+      fail2 i1)
+    (dz, fail1, i)
+
+/-- [apeiron_word::learn_port::head::dz_diff]:
+    Source: '../../src/learn/grad/head.rs', lines 354:0-366:1 -/
+def learn_port.head.dz_diff
+  (p_s : Slice Std.I64) (p_t : Slice Std.I64) (dz : Slice Std.I64) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64))
+  := do
+  let v := Slice.len p_s
+  learn_port.head.dz_diff_loop p_s p_t dz v none 0#usize
+
+/-- [apeiron_word::learn_port::head::kl_row]:
+    Source: '../../src/learn/grad/head.rs', lines 381:0-405:1
+    Visibility: public -/
+def learn_port.head.kl_row
+  (z_s : Slice Std.I64) (z_t : Slice Std.I64) :
+  Result (core.result.Result (Std.I64 × (alloc.vec.Vec Std.I64))
+    learn_port.head.HeadError)
+  := do
+  let i := Slice.len z_s
+  let i1 := Slice.len z_t
+  if i != i1
+  then ok (core.result.Result.Err learn_port.head.HeadError.Shape)
+  else
+    let r ← learn_port.head.softmax_row z_s
+    match r with
+    | core.result.Result.Ok pair =>
+      let (lp_s, p_s) := pair
+      let r1 ← learn_port.head.softmax_row z_t
+      match r1 with
+      | core.result.Result.Ok pair1 =>
+        let (lp_t, p_t) := pair1
+        let s := alloc.vec.Vec.deref p_t
+        let s1 := alloc.vec.Vec.deref lp_t
+        let s2 := alloc.vec.Vec.deref lp_s
+        let r2 ← learn_port.head.kl_acc s s1 s2
+        match r2 with
+        | core.result.Result.Ok a =>
+          let i2 := Slice.len z_s
+          let dz ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i2
+          let s3 := alloc.vec.Vec.deref p_s
+          let s4 := alloc.vec.Vec.deref p_t
+          let (s5, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut dz)
+          let (o, s6) ← learn_port.head.dz_diff s3 s4 s5
+          match o with
+          | none =>
+            let i3 ← engine.ONE
+            let i4 ← lift (core.convert.num.FromI128I64.from i3)
+            let i5 ← learn_port.head.round_div a i4
+            let r3 ← learn_port.head.to64 i5
+            match r3 with
+            | core.result.Result.Ok loss =>
+              let dz1 := deref_mut_back s6
+              ok (core.result.Result.Ok (loss, dz1))
+            | core.result.Result.Err x => ok (core.result.Result.Err x)
+          | some x => ok (core.result.Result.Err x)
+        | core.result.Result.Err x => ok (core.result.Result.Err x)
+      | core.result.Result.Err x => ok (core.result.Result.Err x)
+    | core.result.Result.Err x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::learn_port::head::tv_scan]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 419:4-434:5 -/
+@[rust_loop_body]
+def learn_port.head.tv_scan_loop.body
+  (p_s : Slice Std.I64) (p_t : Slice Std.I64) (v : Std.Usize)
+  (sg : Slice Std.I128) (abs_sum : Std.I128) (signed : Std.I128)
+  (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I128) × Std.I128 × Std.I128 × (Option
+    learn_port.head.HeadError) × Std.Usize) ((Slice Std.I128) × Std.I128 ×
+    Std.I128 × (Option learn_port.head.HeadError)))
+  := do
+  if i < v
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i1 ← Slice.index_usize p_s i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← Slice.index_usize p_t i
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let diff ← i2 - i4
+      let i5 ← learn_port.head.sgn diff
+      let sg1 ← Slice.update sg i i5
+      let i6 ← learn_port.head.abs128 diff
+      let r ← learn_port.head.add128 abs_sum i6
+      let (abs_sum1, fail2) ←
+        match r with
+        | core.result.Result.Ok s => ok (s, fail1)
+        | core.result.Result.Err x => ok (abs_sum, some x)
+      let i7 ← lift (core.convert.num.FromI128I64.from i1)
+      let i8 ← Slice.index_usize sg1 i
+      let r1 ← learn_port.head.mul128 i7 i8
+      let (signed1, fail3) ←
+        match r1 with
+        | core.result.Result.Ok term =>
+          do
+          let r2 ← learn_port.head.add128 signed term
+          match r2 with
+          | core.result.Result.Ok s => ok (s, fail2)
+          | core.result.Result.Err x => ok (signed, some x)
+        | core.result.Result.Err x => ok (signed, some x)
+      let i9 ← i + 1#usize
+      ok (cont (sg1, abs_sum1, signed1, fail3, i9))
+    else ok (done (sg, abs_sum, signed, fail1))
+  else ok (done (sg, abs_sum, signed, fail1))
+
+/-- [apeiron_word::learn_port::head::tv_scan]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 419:4-434:5 -/
+@[rust_loop]
+def learn_port.head.tv_scan_loop
+  (p_s : Slice Std.I64) (p_t : Slice Std.I64) (sg : Slice Std.I128)
+  (v : Std.Usize) (abs_sum : Std.I128) (signed : Std.I128)
+  (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result ((Slice Std.I128) × Std.I128 × Std.I128 × (Option
+    learn_port.head.HeadError))
+  := do
+  loop
+    (fun (sg1, abs_sum1, signed1, fail2, i1) =>
+      learn_port.head.tv_scan_loop.body p_s p_t v sg1 abs_sum1 signed1 fail2
+      i1)
+    (sg, abs_sum, signed, fail1, i)
+
+/-- [apeiron_word::learn_port::head::tv_scan]:
+    Source: '../../src/learn/grad/head.rs', lines 413:0-439:1 -/
+def learn_port.head.tv_scan
+  (p_s : Slice Std.I64) (p_t : Slice Std.I64) (sg : Slice Std.I128) :
+  Result ((core.result.Result (Std.I128 × Std.I128) learn_port.head.HeadError)
+    × (Slice Std.I128))
+  := do
+  let v := Slice.len p_s
+  let (sg1, abs_sum, signed, fail1) ←
+    learn_port.head.tv_scan_loop p_s p_t sg v 0#i128 0#i128 none 0#usize
+  match fail1 with
+  | none => ok (core.result.Result.Ok (abs_sum, signed), sg1)
+  | some x => ok (core.result.Result.Err x, sg1)
+
+/-- [apeiron_word::learn_port::head::tv_dz]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 447:4-456:5 -/
+@[rust_loop_body]
+def learn_port.head.tv_dz_loop.body
+  (p_s : Slice Std.I64) (sg : Slice Std.I128) (signed : Std.I128)
+  (v : Std.Usize) (one : Std.I128) (dz : Slice Std.I64)
+  (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option learn_port.head.HeadError) ×
+    Std.Usize) ((Option learn_port.head.HeadError) × (Slice Std.I64)))
+  := do
+  if i < v
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i1 ← Slice.index_usize p_s i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← Slice.index_usize sg i
+      let i4 ← i3 * one
+      let i5 ← i4 - signed
+      let r ← learn_port.head.mul128 i2 i5
+      let (dz1, fail2) ←
+        match r with
+        | core.result.Result.Ok num =>
+          do
+          let i6 ← 2#i128 * one
+          let i7 ← learn_port.head.round_div num i6
+          let r1 ← learn_port.head.to64 i7
+          match r1 with
+          | core.result.Result.Ok g =>
+            let s ← Slice.update dz i g
+            ok (s, fail1)
+          | core.result.Result.Err x => ok (dz, some x)
+        | core.result.Result.Err x => ok (dz, some x)
+      let i6 ← i + 1#usize
+      ok (cont (dz1, fail2, i6))
+    else ok (done (fail1, dz))
+  else ok (done (fail1, dz))
+
+/-- [apeiron_word::learn_port::head::tv_dz]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 447:4-456:5 -/
+@[rust_loop]
+def learn_port.head.tv_dz_loop
+  (p_s : Slice Std.I64) (sg : Slice Std.I128) (signed : Std.I128)
+  (dz : Slice Std.I64) (v : Std.Usize) (one : Std.I128)
+  (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64))
+  := do
+  loop
+    (fun (dz1, fail2, i1) => learn_port.head.tv_dz_loop.body p_s sg signed v
+      one dz1 fail2 i1)
+    (dz, fail1, i)
+
+/-- [apeiron_word::learn_port::head::tv_dz]:
+    Source: '../../src/learn/grad/head.rs', lines 442:0-458:1 -/
+def learn_port.head.tv_dz
+  (p_s : Slice Std.I64) (sg : Slice Std.I128) (signed : Std.I128)
+  (dz : Slice Std.I64) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64))
+  := do
+  let v := Slice.len p_s
+  let i ← engine.ONE
+  let one ← lift (core.convert.num.FromI128I64.from i)
+  learn_port.head.tv_dz_loop p_s sg signed dz v one none 0#usize
+
+/-- [apeiron_word::learn_port::head::tv_row]:
+    Source: '../../src/learn/grad/head.rs', lines 473:0-499:1
+    Visibility: public -/
+def learn_port.head.tv_row
+  (z_s : Slice Std.I64) (z_t : Slice Std.I64) :
+  Result (core.result.Result (Std.I64 × (alloc.vec.Vec Std.I64))
+    learn_port.head.HeadError)
+  := do
+  let i := Slice.len z_s
+  let i1 := Slice.len z_t
+  if i != i1
+  then ok (core.result.Result.Err learn_port.head.HeadError.Shape)
+  else
+    let r ← learn_port.head.softmax_row z_s
+    match r with
+    | core.result.Result.Ok pair =>
+      let (_, p_s) := pair
+      let r1 ← learn_port.head.softmax_row z_t
+      match r1 with
+      | core.result.Result.Ok pair1 =>
+        let (_, p_t) := pair1
+        let v := Slice.len z_s
+        let sg ← alloc.vec.from_elem core.clone.CloneI128 0#i128 v
+        let s := alloc.vec.Vec.deref p_s
+        let s1 := alloc.vec.Vec.deref p_t
+        let (s2, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut sg)
+        let (r2, s3) ← learn_port.head.tv_scan s s1 s2
+        match r2 with
+        | core.result.Result.Ok pair2 =>
+          let (abs_sum, signed) := pair2
+          let dz ← alloc.vec.from_elem core.clone.CloneI64 0#i64 v
+          let s4 := alloc.vec.Vec.deref p_s
+          let sg1 := deref_mut_back s3
+          let s5 := alloc.vec.Vec.deref sg1
+          let (s6, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut dz)
+          let (o, s7) ← learn_port.head.tv_dz s4 s5 signed s6
+          match o with
+          | none =>
+            let i2 ← learn_port.head.round_div abs_sum 2#i128
+            let r3 ← learn_port.head.to64 i2
+            match r3 with
+            | core.result.Result.Ok loss =>
+              let dz1 := deref_mut_back1 s7
+              ok (core.result.Result.Ok (loss, dz1))
+            | core.result.Result.Err x => ok (core.result.Result.Err x)
+          | some x => ok (core.result.Result.Err x)
+        | core.result.Result.Err x => ok (core.result.Result.Err x)
+      | core.result.Result.Err x => ok (core.result.Result.Err x)
+    | core.result.Result.Err x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::learn_port::head::row_objective]:
+    Source: '../../src/learn/grad/head.rs', lines 502:0-511:1 -/
+def learn_port.head.row_objective
+  (objective : learn_port.head.Objective) (z_s : Slice Std.I64)
+  (z_t : Slice Std.I64) :
+  Result (core.result.Result (Std.I64 × (alloc.vec.Vec Std.I64))
+    learn_port.head.HeadError)
+  := do
+  match objective with
+  | learn_port.head.Objective.Kl => learn_port.head.kl_row z_s z_t
+  | learn_port.head.Objective.Tv => learn_port.head.tv_row z_s z_t
+
+/-- [apeiron_word::learn_port::head::dot_round]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 522:4-531:5 -/
+@[rust_loop_body]
+def learn_port.head.dot_round_loop.body
+  (a : Slice Std.I64) (abase : Std.Usize) (b : Slice Std.I64)
+  (bbase : Std.Usize) (d : Std.Usize) (acc : Std.I128)
+  (fail1 : Option learn_port.head.HeadError) (j : Std.Usize) :
+  Result (ControlFlow (Std.I128 × (Option learn_port.head.HeadError) ×
+    Std.Usize) (Std.I128 × (Option learn_port.head.HeadError)))
+  := do
+  if j < d
+  then
+    let b1 := core.option.Option.is_none fail1
+    if b1
+    then
+      let i ← abase + j
+      let i1 ← Slice.index_usize a i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← bbase + j
+      let i4 ← Slice.index_usize b i3
+      let i5 ← lift (core.convert.num.FromI128I64.from i4)
+      let r ← learn_port.head.mul128 i2 i5
+      let (acc1, fail2) ←
+        match r with
+        | core.result.Result.Ok t =>
+          do
+          let r1 ← learn_port.head.add128 acc t
+          match r1 with
+          | core.result.Result.Ok s => ok (s, fail1)
+          | core.result.Result.Err x => ok (acc, some x)
+        | core.result.Result.Err x => ok (acc, some x)
+      let j1 ← j + 1#usize
+      ok (cont (acc1, fail2, j1))
+    else ok (done (acc, fail1))
+  else ok (done (acc, fail1))
+
+/-- [apeiron_word::learn_port::head::dot_round]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 522:4-531:5 -/
+@[rust_loop]
+def learn_port.head.dot_round_loop
+  (a : Slice Std.I64) (abase : Std.Usize) (b : Slice Std.I64)
+  (bbase : Std.Usize) (d : Std.Usize) (acc : Std.I128)
+  (fail1 : Option learn_port.head.HeadError) (j : Std.Usize) :
+  Result (Std.I128 × (Option learn_port.head.HeadError))
+  := do
+  loop
+    (fun (acc1, fail2, j1) => learn_port.head.dot_round_loop.body a abase b
+      bbase d acc1 fail2 j1)
+    (acc, fail1, j)
+
+/-- [apeiron_word::learn_port::head::dot_round]:
+    Source: '../../src/learn/grad/head.rs', lines 518:0-536:1 -/
+def learn_port.head.dot_round
+  (a : Slice Std.I64) (abase : Std.Usize) (b : Slice Std.I64)
+  (bbase : Std.Usize) (d : Std.Usize) :
+  Result (core.result.Result Std.I64 learn_port.head.HeadError)
+  := do
+  let (acc, fail1) ←
+    learn_port.head.dot_round_loop a abase b bbase d 0#i128 none 0#usize
+  match fail1 with
+  | none =>
+    let i ← engine.ONE
+    let i1 ← lift (core.convert.num.FromI128I64.from i)
+    let i2 ← learn_port.head.round_div acc i1
+    learn_port.head.to64 i2
+  | some x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::learn_port::head::logits_row]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 557:4-563:5 -/
+@[rust_loop_body]
+def learn_port.head.logits_row_loop.body
+  (hidden : Slice Std.I64) (w_head : Slice Std.I64) (r : Std.Usize)
+  (d : Std.Usize) (v : Std.Usize) (zs : alloc.vec.Vec Std.I64)
+  (fail1 : Option learn_port.head.HeadError) (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    learn_port.head.HeadError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option learn_port.head.HeadError)))
+  := do
+  if k < v
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i ← r * d
+      let i1 ← k * d
+      let r1 ← learn_port.head.dot_round hidden i w_head i1 d
+      let (zs1, fail2) ←
+        match r1 with
+        | core.result.Result.Ok z =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) zs k
+          let zs2 := index_mut_back z
+          ok (zs2, fail1)
+        | core.result.Result.Err x => ok (zs, some x)
+      let k1 ← k + 1#usize
+      ok (cont (zs1, fail2, k1))
+    else ok (done (zs, fail1))
+  else ok (done (zs, fail1))
+
+/-- [apeiron_word::learn_port::head::logits_row]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 557:4-563:5 -/
+@[rust_loop]
+def learn_port.head.logits_row_loop
+  (hidden : Slice Std.I64) (w_head : Slice Std.I64) (r : Std.Usize)
+  (d : Std.Usize) (v : Std.Usize) (zs : alloc.vec.Vec Std.I64)
+  (fail1 : Option learn_port.head.HeadError) (k : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option learn_port.head.HeadError))
+  := do
+  loop
+    (fun (zs1, fail2, k1) => learn_port.head.logits_row_loop.body hidden w_head
+      r d v zs1 fail2 k1)
+    (zs, fail1, k)
+
+/-- [apeiron_word::learn_port::head::logits_row]:
+    Source: '../../src/learn/grad/head.rs', lines 547:0-568:1 -/
+def learn_port.head.logits_row
+  (hidden : Slice Std.I64) (w_head : Slice Std.I64) (r : Std.Usize)
+  (d : Std.Usize) (v : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) learn_port.head.HeadError)
+  := do
+  let zs ← alloc.vec.from_elem core.clone.CloneI64 0#i64 v
+  let (zs1, fail1) ←
+    learn_port.head.logits_row_loop hidden w_head r d v zs none 0#usize
+  match fail1 with
+  | none => ok (core.result.Result.Ok zs1)
+  | some x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::learn_port::head::dh_entry]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 586:4-595:5 -/
+@[rust_loop_body]
+def learn_port.head.dh_entry_loop.body
+  (dz : Slice Std.I64) (w_head : Slice Std.I64) (d : Std.Usize) (j : Std.Usize)
+  (v : Std.Usize) (acc : Std.I128) (fail1 : Option learn_port.head.HeadError)
+  (k : Std.Usize) :
+  Result (ControlFlow (Std.I128 × (Option learn_port.head.HeadError) ×
+    Std.Usize) (Std.I128 × (Option learn_port.head.HeadError)))
+  := do
+  if k < v
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i ← Slice.index_usize dz k
+      let i1 ← lift (core.convert.num.FromI128I64.from i)
+      let i2 ← k * d
+      let i3 ← i2 + j
+      let i4 ← Slice.index_usize w_head i3
+      let i5 ← lift (core.convert.num.FromI128I64.from i4)
+      let r ← learn_port.head.mul128 i1 i5
+      let (acc1, fail2) ←
+        match r with
+        | core.result.Result.Ok t =>
+          do
+          let r1 ← learn_port.head.add128 acc t
+          match r1 with
+          | core.result.Result.Ok s => ok (s, fail1)
+          | core.result.Result.Err x => ok (acc, some x)
+        | core.result.Result.Err x => ok (acc, some x)
+      let k1 ← k + 1#usize
+      ok (cont (acc1, fail2, k1))
+    else ok (done (acc, fail1))
+  else ok (done (acc, fail1))
+
+/-- [apeiron_word::learn_port::head::dh_entry]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 586:4-595:5 -/
+@[rust_loop]
+def learn_port.head.dh_entry_loop
+  (dz : Slice Std.I64) (w_head : Slice Std.I64) (d : Std.Usize) (j : Std.Usize)
+  (v : Std.Usize) (acc : Std.I128) (fail1 : Option learn_port.head.HeadError)
+  (k : Std.Usize) :
+  Result (Std.I128 × (Option learn_port.head.HeadError))
+  := do
+  loop
+    (fun (acc1, fail2, k1) => learn_port.head.dh_entry_loop.body dz w_head d j
+      v acc1 fail2 k1)
+    (acc, fail1, k)
+
+/-- [apeiron_word::learn_port::head::dh_entry]:
+    Source: '../../src/learn/grad/head.rs', lines 575:0-600:1 -/
+def learn_port.head.dh_entry
+  (dz : Slice Std.I64) (w_head : Slice Std.I64) (d : Std.Usize) (j : Std.Usize)
+  (n_scale : Std.I128) :
+  Result (core.result.Result Std.I64 learn_port.head.HeadError)
+  := do
+  let v := Slice.len dz
+  let (acc, fail1) ←
+    learn_port.head.dh_entry_loop dz w_head d j v 0#i128 none 0#usize
+  match fail1 with
+  | none =>
+    let i ← learn_port.head.round_div acc n_scale
+    learn_port.head.to64 i
+  | some x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::learn_port::head::dh_fill]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 613:4-619:5 -/
+@[rust_loop_body]
+def learn_port.head.dh_fill_loop.body
+  (dz : Slice Std.I64) (w_head : Slice Std.I64) (d : Std.Usize)
+  (n_scale : Std.I128) (dbase : Std.Usize) (dh : Slice Std.I64)
+  (fail1 : Option learn_port.head.HeadError) (j : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option learn_port.head.HeadError) ×
+    Std.Usize) ((Option learn_port.head.HeadError) × (Slice Std.I64)))
+  := do
+  if j < d
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let r ← learn_port.head.dh_entry dz w_head d j n_scale
+      let (dh1, fail2) ←
+        match r with
+        | core.result.Result.Ok g =>
+          do
+          let i ← dbase + j
+          let s ← Slice.update dh i g
+          ok (s, fail1)
+        | core.result.Result.Err x => ok (dh, some x)
+      let j1 ← j + 1#usize
+      ok (cont (dh1, fail2, j1))
+    else ok (done (fail1, dh))
+  else ok (done (fail1, dh))
+
+/-- [apeiron_word::learn_port::head::dh_fill]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 613:4-619:5 -/
+@[rust_loop]
+def learn_port.head.dh_fill_loop
+  (dz : Slice Std.I64) (w_head : Slice Std.I64) (d : Std.Usize)
+  (n_scale : Std.I128) (dh : Slice Std.I64) (dbase : Std.Usize)
+  (fail1 : Option learn_port.head.HeadError) (j : Std.Usize) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64))
+  := do
+  loop
+    (fun (dh1, fail2, j1) => learn_port.head.dh_fill_loop.body dz w_head d
+      n_scale dbase dh1 fail2 j1)
+    (dh, fail1, j)
+
+/-- [apeiron_word::learn_port::head::dh_fill]:
+    Source: '../../src/learn/grad/head.rs', lines 603:0-621:1 -/
+@[reducible]
+def learn_port.head.dh_fill
+  (dz : Slice Std.I64) (w_head : Slice Std.I64) (d : Std.Usize)
+  (n_scale : Std.I128) (dh : Slice Std.I64) (dbase : Std.Usize) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64))
+  := do
+  learn_port.head.dh_fill_loop dz w_head d n_scale dh dbase none 0#usize
+
+/-- [apeiron_word::learn_port::head::dw_fill]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 639:4-650:5 -/
+@[rust_loop_body]
+def learn_port.head.dw_fill_loop.body
+  (dz : Slice Std.I64) (hidden : Slice Std.I64) (hbase : Std.Usize)
+  (d : Std.Usize) (total : Std.Usize) (dw : Slice Std.I128)
+  (fail1 : Option learn_port.head.HeadError) (t : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I128) × (Option learn_port.head.HeadError)
+    × Std.Usize) ((Option learn_port.head.HeadError) × (Slice Std.I128)))
+  := do
+  if t < total
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let k ← t / d
+      let j ← t % d
+      let i ← Slice.index_usize dz k
+      let i1 ← lift (core.convert.num.FromI128I64.from i)
+      let i2 ← hbase + j
+      let i3 ← Slice.index_usize hidden i2
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let r ← learn_port.head.mul128 i1 i4
+      match r with
+      | core.result.Result.Ok term =>
+        let i5 ← Slice.index_usize dw t
+        let r1 ← learn_port.head.add128 i5 term
+        match r1 with
+        | core.result.Result.Ok s =>
+          let s1 ← Slice.update dw t s
+          let t1 ← t + 1#usize
+          ok (cont (s1, fail1, t1))
+        | core.result.Result.Err x =>
+          let t1 ← t + 1#usize
+          ok (cont (dw, some x, t1))
+      | core.result.Result.Err x =>
+        let t1 ← t + 1#usize
+        ok (cont (dw, some x, t1))
+    else ok (done (fail1, dw))
+  else ok (done (fail1, dw))
+
+/-- [apeiron_word::learn_port::head::dw_fill]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 639:4-650:5 -/
+@[rust_loop]
+def learn_port.head.dw_fill_loop
+  (dz : Slice Std.I64) (hidden : Slice Std.I64) (hbase : Std.Usize)
+  (d : Std.Usize) (dw : Slice Std.I128) (total : Std.Usize)
+  (fail1 : Option learn_port.head.HeadError) (t : Std.Usize) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I128))
+  := do
+  loop
+    (fun (dw1, fail2, t1) => learn_port.head.dw_fill_loop.body dz hidden hbase
+      d total dw1 fail2 t1)
+    (dw, fail1, t)
+
+/-- [apeiron_word::learn_port::head::dw_fill]:
+    Source: '../../src/learn/grad/head.rs', lines 629:0-652:1 -/
+def learn_port.head.dw_fill
+  (dz : Slice Std.I64) (hidden : Slice Std.I64) (hbase : Std.Usize)
+  (d : Std.Usize) (dw : Slice Std.I128) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I128))
+  := do
+  let i := Slice.len dz
+  let total ← i * d
+  learn_port.head.dw_fill_loop dz hidden hbase d dw total none 0#usize
+
+/-- [apeiron_word::learn_port::head::absorb_row]:
+    Source: '../../src/learn/grad/head.rs', lines 671:0-695:1 -/
+def learn_port.head.absorb_row
+  (loss : Std.I64) (dz : Slice Std.I64) (hidden : Slice Std.I64)
+  (hbase : Std.Usize) (w_head : Slice Std.I64) (d : Std.Usize)
+  (n_scale : Std.I128) (loss_acc : Std.I128) (dh : Slice Std.I64)
+  (dbase : Std.Usize) (dw : Slice Std.I128) :
+  Result ((core.result.Result Std.I128 learn_port.head.HeadError) × (Slice
+    Std.I64) × (Slice Std.I128))
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from loss)
+  let r ← learn_port.head.add128 loss_acc i
+  match r with
+  | core.result.Result.Ok _ =>
+    let (o, dh1) ← learn_port.head.dh_fill dz w_head d n_scale dh dbase
+    match o with
+    | none =>
+      let (o1, dw1) ← learn_port.head.dw_fill dz hidden hbase d dw
+      match o1 with
+      | none => ok (r, dh1, dw1)
+      | some x => ok (core.result.Result.Err x, dh1, dw1)
+    | some x => ok (core.result.Result.Err x, dh1, dw)
+  | core.result.Result.Err _ => ok (r, dh, dw)
+
+/-- [apeiron_word::learn_port::head::row_step]:
+    Source: '../../src/learn/grad/head.rs', lines 706:0-741:1 -/
+def learn_port.head.row_step
+  (objective : learn_port.head.Objective) (hidden : Slice Std.I64)
+  (w_head : Slice Std.I64) (z_t : Slice Std.I64) (dims : learn_port.head.Dims)
+  (r : Std.Usize) (n_scale : Std.I128) (loss_acc : Std.I128)
+  (dh : Slice Std.I64) (dw : Slice Std.I128) :
+  Result ((core.result.Result Std.I128 learn_port.head.HeadError) × (Slice
+    Std.I64) × (Slice Std.I128))
+  := do
+  let r1 ← learn_port.head.logits_row hidden w_head r dims.d dims.v
+  match r1 with
+  | core.result.Result.Ok z =>
+    let s := alloc.vec.Vec.deref z
+    let i ← r * dims.v
+    let i1 ← r + 1#usize
+    let i2 ← i1 * dims.v
+    let s1 ←
+      core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+        Std.I64) z_t { start := i, «end» := i2 }
+    let r2 ← learn_port.head.row_objective objective s s1
+    match r2 with
+    | core.result.Result.Ok pair =>
+      let (loss, dz) := pair
+      let s2 := alloc.vec.Vec.deref dz
+      let i3 ← r * dims.d
+      learn_port.head.absorb_row loss s2 hidden i3 w_head dims.d n_scale
+        loss_acc dh i3 dw
+    | core.result.Result.Err x => ok (core.result.Result.Err x, dh, dw)
+  | core.result.Result.Err x => ok (core.result.Result.Err x, dh, dw)
+
+/-- [apeiron_word::learn_port::head::rows_loop]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 766:4-774:5 -/
+@[rust_loop_body]
+def learn_port.head.rows_loop_loop.body
+  (objective : learn_port.head.Objective) (hidden : Slice Std.I64)
+  (w_head : Slice Std.I64) (z_t : Slice Std.I64) (n : Std.Usize)
+  (i : Std.Usize) (i1 : Std.Usize) (n_scale : Std.I128) (dh : Slice Std.I64)
+  (dw : Slice Std.I128) (loss_acc : Std.I128)
+  (fail1 : Option learn_port.head.HeadError) (r : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Slice Std.I128) × Std.I128 ×
+    (Option learn_port.head.HeadError) × Std.Usize) ((Slice Std.I64) × (Slice
+    Std.I128) × Std.I128 × (Option learn_port.head.HeadError)))
+  := do
+  if r < n
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let (r1, dh1, dw1) ←
+        learn_port.head.row_step objective hidden w_head z_t
+          { n, d := i, v := i1 } r n_scale loss_acc dh dw
+      let (loss_acc1, fail2) ←
+        match r1 with
+        | core.result.Result.Ok a => ok (a, fail1)
+        | core.result.Result.Err x => ok (loss_acc, some x)
+      let r2 ← r + 1#usize
+      ok (cont (dh1, dw1, loss_acc1, fail2, r2))
+    else ok (done (dh, dw, loss_acc, fail1))
+  else ok (done (dh, dw, loss_acc, fail1))
+
+/-- [apeiron_word::learn_port::head::rows_loop]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 766:4-774:5 -/
+@[rust_loop]
+def learn_port.head.rows_loop_loop
+  (objective : learn_port.head.Objective) (hidden : Slice Std.I64)
+  (w_head : Slice Std.I64) (z_t : Slice Std.I64) (n : Std.Usize)
+  (i : Std.Usize) (i1 : Std.Usize) (n_scale : Std.I128) (dh : Slice Std.I64)
+  (dw : Slice Std.I128) (loss_acc : Std.I128)
+  (fail1 : Option learn_port.head.HeadError) (r : Std.Usize) :
+  Result ((Slice Std.I64) × (Slice Std.I128) × Std.I128 × (Option
+    learn_port.head.HeadError))
+  := do
+  loop
+    (fun (dh1, dw1, loss_acc1, fail2, r1) =>
+      learn_port.head.rows_loop_loop.body objective hidden w_head z_t n i i1
+      n_scale dh1 dw1 loss_acc1 fail2 r1)
+    (dh, dw, loss_acc, fail1, r)
+
+/-- [apeiron_word::learn_port::head::rows_loop]:
+    Source: '../../src/learn/grad/head.rs', lines 752:0-779:1 -/
+def learn_port.head.rows_loop
+  (objective : learn_port.head.Objective) (hidden : Slice Std.I64)
+  (w_head : Slice Std.I64) (z_t : Slice Std.I64) (dims : learn_port.head.Dims)
+  (n_scale : Std.I128) (dh : Slice Std.I64) (dw : Slice Std.I128) :
+  Result ((core.result.Result Std.I128 learn_port.head.HeadError) × (Slice
+    Std.I64) × (Slice Std.I128))
+  := do
+  let (dh1, dw1, loss_acc, fail1) ←
+    learn_port.head.rows_loop_loop objective hidden w_head z_t dims.n
+      dims.d dims.v n_scale dh dw 0#i128 none 0#usize
+  match fail1 with
+  | none => ok (core.result.Result.Ok loss_acc, dh1, dw1)
+  | some x => ok (core.result.Result.Err x, dh1, dw1)
+
+/-- [apeiron_word::learn_port::head::dw_out_fill]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 786:4-792:5 -/
+@[rust_loop_body]
+def learn_port.head.dw_out_fill_loop.body
+  (dw : Slice Std.I128) (n_scale : Std.I128) (len : Std.Usize)
+  (out : Slice Std.I64) (fail1 : Option learn_port.head.HeadError)
+  (j : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option learn_port.head.HeadError) ×
+    Std.Usize) ((Option learn_port.head.HeadError) × (Slice Std.I64)))
+  := do
+  if j < len
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i ← Slice.index_usize dw j
+      let i1 ← learn_port.head.round_div i n_scale
+      let r ← learn_port.head.to64 i1
+      let (out1, fail2) ←
+        match r with
+        | core.result.Result.Ok x =>
+          do
+          let s ← Slice.update out j x
+          ok (s, fail1)
+        | core.result.Result.Err x => ok (out, some x)
+      let j1 ← j + 1#usize
+      ok (cont (out1, fail2, j1))
+    else ok (done (fail1, out))
+  else ok (done (fail1, out))
+
+/-- [apeiron_word::learn_port::head::dw_out_fill]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 786:4-792:5 -/
+@[rust_loop]
+def learn_port.head.dw_out_fill_loop
+  (dw : Slice Std.I128) (n_scale : Std.I128) (out : Slice Std.I64)
+  (len : Std.Usize) (fail1 : Option learn_port.head.HeadError) (j : Std.Usize)
+  :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64))
+  := do
+  loop
+    (fun (out1, fail2, j1) => learn_port.head.dw_out_fill_loop.body dw n_scale
+      len out1 fail2 j1)
+    (out, fail1, j)
+
+/-- [apeiron_word::learn_port::head::dw_out_fill]:
+    Source: '../../src/learn/grad/head.rs', lines 782:0-794:1 -/
+def learn_port.head.dw_out_fill
+  (dw : Slice Std.I128) (n_scale : Std.I128) (out : Slice Std.I64) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64))
+  := do
+  let len := Slice.len dw
+  learn_port.head.dw_out_fill_loop dw n_scale out len none 0#usize
+
+/-- [apeiron_word::learn_port::head::head_chunked]:
+    Source: '../../src/learn/grad/head.rs', lines 819:0-867:1
+    Visibility: public -/
+def learn_port.head.head_chunked
+  (hidden : Slice Std.I64) (w_head : Slice Std.I64) (z_t : Slice Std.I64)
+  (dims : learn_port.head.Dims) (chunk : Std.Usize)
+  (objective : learn_port.head.Objective) :
+  Result (core.result.Result (Std.I64 × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64)) learn_port.head.HeadError)
+  := do
+  if dims.n = 0#usize
+  then ok (core.result.Result.Err learn_port.head.HeadError.Shape)
+  else
+    if dims.d = 0#usize
+    then ok (core.result.Result.Err learn_port.head.HeadError.Shape)
+    else
+      if dims.v = 0#usize
+      then ok (core.result.Result.Err learn_port.head.HeadError.Shape)
+      else
+        if chunk = 0#usize
+        then ok (core.result.Result.Err learn_port.head.HeadError.Shape)
+        else
+          let r ← learn_port.head.mul_dims dims.n dims.d
+          match r with
+          | core.result.Result.Ok x =>
+            let r1 ← learn_port.head.mul_dims dims.v dims.d
+            match r1 with
+            | core.result.Result.Ok x1 =>
+              let r2 ← learn_port.head.mul_dims dims.n dims.v
+              match r2 with
+              | core.result.Result.Ok x2 =>
+                let i := Slice.len hidden
+                if i != x
+                then
+                  ok (core.result.Result.Err learn_port.head.HeadError.Shape)
+                else
+                  let i1 := Slice.len w_head
+                  if i1 != x1
+                  then
+                    ok (core.result.Result.Err learn_port.head.HeadError.Shape)
+                  else
+                    let i2 := Slice.len z_t
+                    if i2 != x2
+                    then
+                      ok (core.result.Result.Err
+                        learn_port.head.HeadError.Shape)
+                    else
+                      let i3 ← learn_port.head.dim128 dims.n
+                      let i4 ← engine.ONE
+                      let i5 ← lift (core.convert.num.FromI128I64.from i4)
+                      let r3 ← learn_port.head.mul128 i3 i5
+                      match r3 with
+                      | core.result.Result.Ok x3 =>
+                        let dh ←
+                          alloc.vec.from_elem core.clone.CloneI64 0#i64 x
+                        let dw ←
+                          alloc.vec.from_elem core.clone.CloneI128 0#i128 x1
+                        let (s, deref_mut_back) ←
+                          lift (alloc.vec.Vec.deref_mut dh)
+                        let (s1, deref_mut_back1) ←
+                          lift (alloc.vec.Vec.deref_mut dw)
+                        let (r4, s2, s3) ←
+                          learn_port.head.rows_loop objective hidden w_head z_t
+                            dims x3 s s1
+                        match r4 with
+                        | core.result.Result.Ok a =>
+                          let i6 ← learn_port.head.round_div a i3
+                          let r5 ← learn_port.head.to64 i6
+                          match r5 with
+                          | core.result.Result.Ok x4 =>
+                            let dw_out ←
+                              alloc.vec.from_elem core.clone.CloneI64 0#i64 x1
+                            let dw1 := deref_mut_back1 s3
+                            let s4 := alloc.vec.Vec.deref dw1
+                            let (s5, deref_mut_back2) ←
+                              lift (alloc.vec.Vec.deref_mut dw_out)
+                            let (o, s6) ←
+                              learn_port.head.dw_out_fill s4 x3 s5
+                            match o with
+                            | none =>
+                              let dh1 := deref_mut_back s2
+                              let dw_out1 := deref_mut_back2 s6
+                              ok (core.result.Result.Ok (x4, dh1, dw_out1))
+                            | some x5 => ok (core.result.Result.Err x5)
+                          | core.result.Result.Err x4 =>
+                            ok (core.result.Result.Err x4)
+                        | core.result.Result.Err x4 =>
+                          ok (core.result.Result.Err x4)
+                      | core.result.Result.Err x3 =>
+                        ok (core.result.Result.Err x3)
+              | core.result.Result.Err x2 => ok (core.result.Result.Err x2)
+            | core.result.Result.Err x1 => ok (core.result.Result.Err x1)
+          | core.result.Result.Err x => ok (core.result.Result.Err x)
 
 /-- [apeiron_word::gram::GramError]
     Source: '../../src/learn/gram.rs', lines 27:0-32:1
@@ -32038,8 +36797,164 @@ def table.Table.build_at
       else ok (core.result.Result.Err table.StorageError.SizeOverflow)
     else ok (core.result.Result.Err table.StorageError.SizeOverflow)
 
+/-- [apeiron_word::learn_port::word_dense_linear_fwd]:
+    Source: 'learn_port.rs', lines 10:0-18:1
+    Visibility: public -/
+def learn_port.word_dense_linear_fwd
+  (x : Slice Std.I64) (w : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    learn_port.dense.DenseError)
+  := do
+  learn_port.dense.linear_fwd x w n i o
+
+/-- [apeiron_word::learn_port::word_dense_linear_bwd_input]:
+    Source: 'learn_port.rs', lines 21:0-29:1
+    Visibility: public -/
+def learn_port.word_dense_linear_bwd_input
+  (dy : Slice Std.I64) (w : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    learn_port.dense.DenseError)
+  := do
+  learn_port.dense.linear_bwd_input dy w n i o
+
+/-- [apeiron_word::learn_port::word_dense_linear_bwd_weight]:
+    Source: 'learn_port.rs', lines 32:0-40:1
+    Visibility: public -/
+def learn_port.word_dense_linear_bwd_weight
+  (dy : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize) (i : Std.Usize)
+  (o : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    learn_port.dense.DenseError)
+  := do
+  learn_port.dense.linear_bwd_weight dy x n i o
+
+/-- [apeiron_word::learn_port::word_dense_rmsnorm_fwd]:
+    Source: 'learn_port.rs', lines 43:0-49:1
+    Visibility: public -/
+def learn_port.word_dense_rmsnorm_fwd
+  (x : Slice Std.I64) (gamma : Slice Std.I64) (eps : Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    learn_port.dense.DenseError)
+  := do
+  learn_port.dense.rmsnorm_fwd x gamma eps
+
+/-- [apeiron_word::learn_port::word_dense_rmsnorm_bwd]:
+    Source: 'learn_port.rs', lines 52:0-59:1
+    Visibility: public -/
+def learn_port.word_dense_rmsnorm_bwd
+  (x : Slice Std.I64) (gamma : Slice Std.I64) (eps : Std.I64)
+  (dy : Slice Std.I64) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) learn_port.dense.DenseError)
+  := do
+  learn_port.dense.rmsnorm_bwd x gamma eps dy
+
+/-- [apeiron_word::learn_port::word_dense_swiglu_fwd]:
+    Source: 'learn_port.rs', lines 62:0-64:1
+    Visibility: public -/
+def learn_port.word_dense_swiglu_fwd
+  (gate : Slice Std.I64) (up : Slice Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    learn_port.dense.DenseError)
+  := do
+  learn_port.dense.swiglu_fwd gate up
+
+/-- [apeiron_word::learn_port::word_dense_swiglu_bwd]:
+    Source: 'learn_port.rs', lines 67:0-73:1
+    Visibility: public -/
+def learn_port.word_dense_swiglu_bwd
+  (gate : Slice Std.I64) (up : Slice Std.I64) (dy : Slice Std.I64) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) learn_port.dense.DenseError)
+  := do
+  learn_port.dense.swiglu_bwd gate up dy
+
+/-- [apeiron_word::learn_port::word_attn_rope_fwd]:
+    Source: 'learn_port.rs', lines 80:0-86:1
+    Visibility: public -/
+def learn_port.word_attn_rope_fwd
+  (x : Slice Std.I64) (pos : Std.U32) (table : rope.RopeTable) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) learn_port.attn.AttnError)
+  := do
+  learn_port.attn.rope_fwd x pos table
+
+/-- [apeiron_word::learn_port::word_attn_rope_bwd]:
+    Source: 'learn_port.rs', lines 89:0-95:1
+    Visibility: public -/
+def learn_port.word_attn_rope_bwd
+  (dy : Slice Std.I64) (pos : Std.U32) (table : rope.RopeTable) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) learn_port.attn.AttnError)
+  := do
+  learn_port.attn.rope_bwd dy pos table
+
+/-- [apeiron_word::learn_port::word_attn_attn_fwd]:
+    Source: 'learn_port.rs', lines 98:0-107:1
+    Visibility: public -/
+def learn_port.word_attn_attn_fwd
+  (q : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64) (nh : Std.Usize)
+  (nkv : Std.Usize) (hd : Std.Usize) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) learn_port.attn.AttnError)
+  := do
+  learn_port.attn.attn_fwd q k v nh nkv hd
+
+/-- [apeiron_word::learn_port::word_attn_attn_bwd]:
+    Source: 'learn_port.rs', lines 110:0-121:1
+    Visibility: public -/
+def learn_port.word_attn_attn_bwd
+  (q : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64)
+  (p : Slice Std.I64) (dout : Slice Std.I64) (nh : Std.Usize) (nkv : Std.Usize)
+  (hd : Std.Usize) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.I64)) learn_port.attn.AttnError)
+  := do
+  learn_port.attn.attn_bwd q k v p dout nh nkv hd
+
+/-- [apeiron_word::learn_port::word_head_log_softmax_row]:
+    Source: 'learn_port.rs', lines 127:0-129:1
+    Visibility: public -/
+def learn_port.word_head_log_softmax_row
+  (z : Slice Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) learn_port.head.HeadError)
+  := do
+  learn_port.head.log_softmax_row z
+
+/-- [apeiron_word::learn_port::word_head_kl_row]:
+    Source: 'learn_port.rs', lines 132:0-134:1
+    Visibility: public -/
+def learn_port.word_head_kl_row
+  (z_s : Slice Std.I64) (z_t : Slice Std.I64) :
+  Result (core.result.Result (Std.I64 × (alloc.vec.Vec Std.I64))
+    learn_port.head.HeadError)
+  := do
+  learn_port.head.kl_row z_s z_t
+
+/-- [apeiron_word::learn_port::word_head_tv_row]:
+    Source: 'learn_port.rs', lines 137:0-139:1
+    Visibility: public -/
+def learn_port.word_head_tv_row
+  (z_s : Slice Std.I64) (z_t : Slice Std.I64) :
+  Result (core.result.Result (Std.I64 × (alloc.vec.Vec Std.I64))
+    learn_port.head.HeadError)
+  := do
+  learn_port.head.tv_row z_s z_t
+
+/-- [apeiron_word::learn_port::word_head_head_chunked]:
+    Source: 'learn_port.rs', lines 142:0-151:1
+    Visibility: public -/
+def learn_port.word_head_head_chunked
+  (hidden : Slice Std.I64) (w_head : Slice Std.I64) (z_t : Slice Std.I64)
+  (dims : learn_port.head.Dims) (chunk : Std.Usize)
+  (objective : learn_port.head.Objective) :
+  Result (core.result.Result (Std.I64 × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64)) learn_port.head.HeadError)
+  := do
+  learn_port.head.head_chunked hidden w_head z_t dims chunk objective
+
 /-- [apeiron_word::word_mul]:
-    Source: 'lib.rs', lines 159:0-161:1
+    Source: 'lib.rs', lines 160:0-162:1
     Visibility: public -/
 def word_mul
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) (b : cell.Cell Std.I64) :
@@ -32048,14 +36963,14 @@ def word_mul
   cell.Cell.mul I64.Insts.Apeiron_wordScalarRing a sigma b
 
 /-- [apeiron_word::word_norm]:
-    Source: 'lib.rs', lines 164:0-166:1
+    Source: 'lib.rs', lines 165:0-167:1
     Visibility: public -/
 def word_norm
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) : Result Std.I64 := do
   cell.Cell.norm_form I64.Insts.Apeiron_wordScalarRing a sigma
 
 /-- [apeiron_word::word_point_density]:
-    Source: 'lib.rs', lines 173:0-175:1
+    Source: 'lib.rs', lines 174:0-176:1
     Visibility: public -/
 def word_point_density
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64) :
@@ -32065,7 +36980,7 @@ def word_point_density
     direction
 
 /-- [apeiron_word::word_point_flux]:
-    Source: 'lib.rs', lines 178:0-186:1
+    Source: 'lib.rs', lines 179:0-187:1
     Visibility: public -/
 def word_point_flux
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64)
@@ -32076,7 +36991,7 @@ def word_point_flux
     previous next
 
 /-- [apeiron_word::word_conservative_density_step]:
-    Source: 'lib.rs', lines 190:0-197:1
+    Source: 'lib.rs', lines 191:0-198:1
     Visibility: public -/
 def word_conservative_density_step
   (density : Std.I64) (incoming : Std.I64) (outgoing : Std.I64)
@@ -32086,14 +37001,14 @@ def word_conservative_density_step
   carrier.conservative_density_step density incoming outgoing source
 
 /-- [apeiron_word::word_diffusive_flux_half]:
-    Source: 'lib.rs', lines 200:0-202:1
+    Source: 'lib.rs', lines 201:0-203:1
     Visibility: public -/
 def word_diffusive_flux_half
   (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
   carrier.diffusive_flux_half left right
 
 /-- [apeiron_word::word_diffusive_line3_step]:
-    Source: 'lib.rs', lines 206:0-211:1
+    Source: 'lib.rs', lines 207:0-212:1
     Visibility: public -/
 def word_diffusive_line3_step
   (old : carrier.DensityLine3) (source : carrier.DensityLine3) :
@@ -32102,7 +37017,7 @@ def word_diffusive_line3_step
   carrier.diffusive_line3_step old source
 
 /-- [apeiron_word::word_exchange_impulse]:
-    Source: 'lib.rs', lines 214:0-216:1
+    Source: 'lib.rs', lines 215:0-217:1
     Visibility: public -/
 def word_exchange_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -32111,7 +37026,7 @@ def word_exchange_impulse
   exchange.exchange_impulse I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_elastic_exchange]:
-    Source: 'lib.rs', lines 219:0-221:1
+    Source: 'lib.rs', lines 220:0-222:1
     Visibility: public -/
 def word_elastic_exchange
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -32120,7 +37035,7 @@ def word_elastic_exchange
   exchange.elastic_exchange I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_accept_derived_impulse]:
-    Source: 'lib.rs', lines 228:0-234:1
+    Source: 'lib.rs', lines 229:0-235:1
     Visibility: public -/
 def word_accept_derived_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) (claimed : cell.Cell Std.I64)
@@ -32130,7 +37045,7 @@ def word_accept_derived_impulse
   exchange.accept_derived_impulse I64.Insts.Apeiron_wordScalarRing p q claimed
 
 /-- [apeiron_word::word_i64_codec_encode]:
-    Source: 'lib.rs', lines 275:0-281:1
+    Source: 'lib.rs', lines 276:0-282:1
     Visibility: public -/
 def word_i64_codec_encode
   (sigma : cell.Sigma) (key : Std.I64) : Result Std.U64 := do
@@ -32140,7 +37055,7 @@ def word_i64_codec_encode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma key address
 
 /-- [apeiron_word::word_i64_codec_decode]:
-    Source: 'lib.rs', lines 284:0-288:1
+    Source: 'lib.rs', lines 285:0-289:1
     Visibility: public -/
 def word_i64_codec_decode
   (sigma : cell.Sigma) (identity : Std.U64) : Result Std.I64 := do
@@ -32148,7 +37063,7 @@ def word_i64_codec_decode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma identity
 
 /-- [apeiron_word::word_regen_hold]:
-    Source: 'lib.rs', lines 291:0-301:1
+    Source: 'lib.rs', lines 292:0-302:1
     Visibility: public -/
 def word_regen_hold
   (sigma : cell.Sigma) (key : Std.I64) :
@@ -32163,7 +37078,7 @@ def word_regen_hold
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma key address
 
 /-- [apeiron_word::word_regen_matches]:
-    Source: 'lib.rs', lines 304:0-315:1
+    Source: 'lib.rs', lines 305:0-316:1
     Visibility: public -/
 def word_regen_matches
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec)
@@ -32179,7 +37094,7 @@ def word_regen_matches
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held key address
 
 /-- [apeiron_word::word_regen_key_owned]:
-    Source: 'lib.rs', lines 318:0-326:1
+    Source: 'lib.rs', lines 319:0-327:1
     Visibility: public -/
 def word_regen_key_owned
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -32192,7 +37107,7 @@ def word_regen_key_owned
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held
 
 /-- [apeiron_word::word_regen_address_held]:
-    Source: 'lib.rs', lines 329:0-338:1
+    Source: 'lib.rs', lines 330:0-339:1
     Visibility: public -/
 def word_regen_address_held
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -32205,7 +37120,7 @@ def word_regen_address_held
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) () sigma held
 
 /-- [apeiron_word::word_stored_table_get_at]:
-    Source: 'lib.rs', lines 351:0-353:1
+    Source: 'lib.rs', lines 352:0-354:1
     Visibility: public -/
 def word_stored_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32219,7 +37134,7 @@ def word_stored_table_get_at
     state sigma key
 
 /-- [apeiron_word::word_stored_table_build_at]:
-    Source: 'lib.rs', lines 367:0-372:1
+    Source: 'lib.rs', lines 368:0-373:1
     Visibility: public -/
 def word_stored_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -32234,7 +37149,7 @@ def word_stored_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_regen_table_get_at]:
-    Source: 'lib.rs', lines 384:0-386:1
+    Source: 'lib.rs', lines 385:0-387:1
     Visibility: public -/
 def word_regen_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32249,7 +37164,7 @@ def word_regen_table_get_at
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_table_build_at]:
-    Source: 'lib.rs', lines 401:0-406:1
+    Source: 'lib.rs', lines 402:0-407:1
     Visibility: public -/
 def word_regen_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -32267,7 +37182,7 @@ def word_regen_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_stored_prepared_shard_get]:
-    Source: 'lib.rs', lines 409:0-415:1
+    Source: 'lib.rs', lines 410:0-416:1
     Visibility: public -/
 def word_stored_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32282,7 +37197,7 @@ def word_stored_prepared_shard_get
     state sigma key
 
 /-- [apeiron_word::word_stored_prepared_shard_apply]:
-    Source: 'lib.rs', lines 419:0-427:1
+    Source: 'lib.rs', lines 420:0-428:1
     Visibility: public -/
 def word_stored_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32300,7 +37215,7 @@ def word_stored_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_regen_prepared_shard_get]:
-    Source: 'lib.rs', lines 430:0-432:1
+    Source: 'lib.rs', lines 431:0-433:1
     Visibility: public -/
 def word_regen_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32316,7 +37231,7 @@ def word_regen_prepared_shard_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_prepared_shard_apply]:
-    Source: 'lib.rs', lines 436:0-444:1
+    Source: 'lib.rs', lines 437:0-445:1
     Visibility: public -/
 def word_regen_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32338,7 +37253,7 @@ def word_regen_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_stored_apply_get]:
-    Source: 'lib.rs', lines 452:0-454:1
+    Source: 'lib.rs', lines 453:0-455:1
     Visibility: public -/
 def word_stored_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32352,7 +37267,7 @@ def word_stored_apply_get
     state decision
 
 /-- [apeiron_word::word_stored_apply_insert]:
-    Source: 'lib.rs', lines 461:0-473:1
+    Source: 'lib.rs', lines 462:0-474:1
     Visibility: public -/
 def word_stored_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32375,7 +37290,7 @@ def word_stored_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_regen_apply_get]:
-    Source: 'lib.rs', lines 476:0-478:1
+    Source: 'lib.rs', lines 477:0-479:1
     Visibility: public -/
 def word_regen_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32390,7 +37305,7 @@ def word_regen_apply_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state decision
 
 /-- [apeiron_word::word_regen_apply_insert]:
-    Source: 'lib.rs', lines 481:0-493:1
+    Source: 'lib.rs', lines 482:0-494:1
     Visibility: public -/
 def word_regen_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32416,7 +37331,7 @@ def word_regen_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_schedule_is_complete]:
-    Source: 'lib.rs', lines 496:0-501:1
+    Source: 'lib.rs', lines 497:0-502:1
     Visibility: public -/
 def word_schedule_is_complete
   (loads : Array Std.Usize 256#usize) (workers : Std.Usize) : Result Bool := do
@@ -32424,37 +37339,37 @@ def word_schedule_is_complete
   table.partition.Schedule.is_complete s
 
 /-- [apeiron_word::word_coord_finish]:
-    Source: 'lib.rs', lines 506:0-508:1
+    Source: 'lib.rs', lines 507:0-509:1
     Visibility: public -/
 def word_coord_finish (h : Std.U64) : Result Std.U64 := do
   coord.finish h
 
 /-- [apeiron_word::word_coord_spread]:
-    Source: 'lib.rs', lines 514:0-516:1
+    Source: 'lib.rs', lines 515:0-517:1
     Visibility: public -/
 def word_coord_spread (x : Std.U64) : Result coord.Addr := do
   coord.spread x
 
 /-- [apeiron_word::word_coord_unspread]:
-    Source: 'lib.rs', lines 519:0-521:1
+    Source: 'lib.rs', lines 520:0-522:1
     Visibility: public -/
 def word_coord_unspread (id : Std.U64) : Result Std.U64 := do
   coord.unspread id
 
 /-- [apeiron_word::word_coord_id]:
-    Source: 'lib.rs', lines 527:0-529:1
+    Source: 'lib.rs', lines 528:0-530:1
     Visibility: public -/
 def word_coord_id (address : coord.Addr) : Result Std.U64 := do
   ok address.id
 
 /-- [apeiron_word::word_coord_place]:
-    Source: 'lib.rs', lines 535:0-537:1
+    Source: 'lib.rs', lines 536:0-538:1
     Visibility: public -/
 def word_coord_place (address : coord.Addr) : Result Std.U64 := do
   ok address.place
 
 /-- [apeiron_word::word_stored_relocate_entry]:
-    Source: 'lib.rs', lines 545:0-556:1
+    Source: 'lib.rs', lines 546:0-557:1
     Visibility: public -/
 def word_stored_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32473,7 +37388,7 @@ def word_stored_relocate_entry
     state plan reserved entry_at
 
 /-- [apeiron_word::word_regen_relocate_entry]:
-    Source: 'lib.rs', lines 562:0-573:1
+    Source: 'lib.rs', lines 563:0-574:1
     Visibility: public -/
 def word_regen_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32494,7 +37409,7 @@ def word_regen_relocate_entry
     entry_at
 
 /-- [apeiron_word::word_stored_relocate_all]:
-    Source: 'lib.rs', lines 581:0-591:1
+    Source: 'lib.rs', lines 582:0-592:1
     Visibility: public -/
 def word_stored_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32512,7 +37427,7 @@ def word_stored_relocate_all
     state plan reserved
 
 /-- [apeiron_word::word_regen_relocate_all]:
-    Source: 'lib.rs', lines 596:0-606:1
+    Source: 'lib.rs', lines 597:0-607:1
     Visibility: public -/
 def word_regen_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32532,7 +37447,7 @@ def word_regen_relocate_all
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state plan reserved
 
 /-- [apeiron_word::word_stored_apply_pending_and_commit]:
-    Source: 'lib.rs', lines 615:0-634:1
+    Source: 'lib.rs', lines 616:0-635:1
     Visibility: public -/
 def word_stored_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32552,7 +37467,7 @@ def word_stored_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_regen_apply_pending_and_commit]:
-    Source: 'lib.rs', lines 640:0-659:1
+    Source: 'lib.rs', lines 641:0-660:1
     Visibility: public -/
 def word_regen_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32576,7 +37491,7 @@ def word_regen_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_stored_publish_prepared]:
-    Source: 'lib.rs', lines 667:0-674:1
+    Source: 'lib.rs', lines 668:0-675:1
     Visibility: public -/
 def word_stored_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -32587,7 +37502,7 @@ def word_stored_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_regen_publish_prepared]:
-    Source: 'lib.rs', lines 680:0-687:1
+    Source: 'lib.rs', lines 681:0-688:1
     Visibility: public -/
 def word_regen_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -32600,7 +37515,7 @@ def word_regen_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_capacity_bound_holds]:
-    Source: 'lib.rs', lines 692:0-694:1
+    Source: 'lib.rs', lines 693:0-695:1
     Visibility: public -/
 def word_capacity_bound_holds
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
@@ -32609,40 +37524,40 @@ def word_capacity_bound_holds
   table.resources.capacity_bound_holds required_len observed_capacity
 
 /-- [apeiron_word::word_fixed_exp]:
-    Source: 'lib.rs', lines 701:0-703:1
+    Source: 'lib.rs', lines 702:0-704:1
     Visibility: public -/
 def word_fixed_exp
   (x : Std.I64) : Result (core.result.Result Std.I64 fixed_exp.ExpError) := do
   fixed_exp.fixed_exp x
 
 /-- [apeiron_word::word_act_scale]:
-    Source: 'lib.rs', lines 708:0-710:1
+    Source: 'lib.rs', lines 709:0-711:1
     Visibility: public -/
 def word_act_scale (absmax : Std.U64) : Result (Option Std.U64) := do
   pow2.act_scale absmax
 
 /-- [apeiron_word::word_f16_split]:
-    Source: 'lib.rs', lines 715:0-717:1
+    Source: 'lib.rs', lines 716:0-718:1
     Visibility: public -/
 def word_f16_split (h : Std.U16) : Result (Option (Std.I32 × Std.U32)) := do
   pow2.f16_split h
 
 /-- [apeiron_word::word_pow2_finish]:
-    Source: 'lib.rs', lines 722:0-724:1
+    Source: 'lib.rs', lines 723:0-725:1
     Visibility: public -/
 def word_pow2_finish
   (acc : Std.I64) (s : Std.U32) : Result (Option Std.I64) := do
   pow2.finish acc s
 
 /-- [apeiron_word::word_silu_fixed]:
-    Source: 'lib.rs', lines 731:0-733:1
+    Source: 'lib.rs', lines 732:0-734:1
     Visibility: public -/
 def word_silu_fixed
   (v : Std.I64) : Result (core.result.Result Std.I64 silu.SiluError) := do
   silu.silu_fixed v
 
 /-- [apeiron_word::word_rms_norm_fixed]:
-    Source: 'lib.rs', lines 741:0-746:1
+    Source: 'lib.rs', lines 742:0-747:1
     Visibility: public -/
 def word_rms_norm_fixed
   (row : Slice Std.I64) (eps_fixed : Std.I64) :
@@ -32651,7 +37566,7 @@ def word_rms_norm_fixed
   norm.rms_norm_fixed row eps_fixed
 
 /-- [apeiron_word::word_rope_rotate_fixed]:
-    Source: 'lib.rs', lines 753:0-760:1
+    Source: 'lib.rs', lines 754:0-761:1
     Visibility: public -/
 def word_rope_rotate_fixed
   (q : Slice Std.I64) (k : Slice Std.I64) (pos : Std.U32)
@@ -32662,7 +37577,7 @@ def word_rope_rotate_fixed
   rope.rope_rotate_fixed q k pos table
 
 /-- [apeiron_word::word_fixed_rsqrt]:
-    Source: 'lib.rs', lines 764:0-766:1
+    Source: 'lib.rs', lines 765:0-767:1
     Visibility: public -/
 def word_fixed_rsqrt
   (x : Std.I64) :
@@ -32671,7 +37586,7 @@ def word_fixed_rsqrt
   fixed_rsqrt.fixed_rsqrt x
 
 /-- [apeiron_word::word_fixed_sin_cos]:
-    Source: 'lib.rs', lines 770:0-772:1
+    Source: 'lib.rs', lines 771:0-773:1
     Visibility: public -/
 def word_fixed_sin_cos
   (x : Std.I64) :
@@ -32680,7 +37595,7 @@ def word_fixed_sin_cos
   fixed_trig.fixed_sin_cos x
 
 /-- [apeiron_word::word_gguf_parse_header]:
-    Source: 'lib.rs', lines 778:0-780:1
+    Source: 'lib.rs', lines 779:0-781:1
     Visibility: public -/
 def word_gguf_parse_header
   (buf : Slice Std.U8) :
@@ -32691,7 +37606,7 @@ def word_gguf_parse_header
   gguf.parse_header buf i1
 
 /-- [apeiron_word::word_q4_k_codes]:
-    Source: 'lib.rs', lines 786:0-788:1
+    Source: 'lib.rs', lines 787:0-789:1
     Visibility: public -/
 def word_q4_k_codes
   (blk : Slice Std.U8) :
@@ -32700,7 +37615,7 @@ def word_q4_k_codes
   quant.q4_k_codes blk
 
 /-- [apeiron_word::word_q6_k_codes]:
-    Source: 'lib.rs', lines 804:0-806:1
+    Source: 'lib.rs', lines 805:0-807:1
     Visibility: public -/
 def word_q6_k_codes
   (blk : Slice Std.U8) :
@@ -32709,7 +37624,7 @@ def word_q6_k_codes
   quant.q6_k_codes blk
 
 /-- [apeiron_word::word_packing_decode_block]:
-    Source: 'lib.rs', lines 823:0-828:1
+    Source: 'lib.rs', lines 824:0-829:1
     Visibility: public -/
 def word_packing_decode_block
   (p : packing.Packing) (raw : Slice Std.U8) :
@@ -32718,7 +37633,7 @@ def word_packing_decode_block
   packing.Packing.decode_block p raw
 
 /-- [apeiron_word::word_route_topk]:
-    Source: 'lib.rs', lines 834:0-836:1
+    Source: 'lib.rs', lines 835:0-837:1
     Visibility: public -/
 def word_route_topk
   (logits : Slice Std.I64) (k : Std.Usize) :
@@ -32727,7 +37642,7 @@ def word_route_topk
   moe.route_topk logits k
 
 /-- [apeiron_word::word_gate_weights]:
-    Source: 'lib.rs', lines 842:0-848:1
+    Source: 'lib.rs', lines 843:0-849:1
     Visibility: public -/
 def word_gate_weights
   (logits : Slice Std.I64) (sel : Slice Std.U32) (renorm : Bool) :
@@ -32736,7 +37651,7 @@ def word_gate_weights
   moe.gate_weights logits sel renorm
 
 /-- [apeiron_word::word_fwht_fixed]:
-    Source: 'lib.rs', lines 854:0-860:1
+    Source: 'lib.rs', lines 855:0-861:1
     Visibility: public -/
 def word_fwht_fixed
   (x : Slice Std.I64) (signs : Option (Slice Std.I8)) (block : Std.Usize) :
@@ -32745,7 +37660,7 @@ def word_fwht_fixed
   hadamard.fwht_fixed x signs block
 
 /-- [apeiron_word::word_stage_mul]:
-    Source: 'lib.rs', lines 867:0-874:1
+    Source: 'lib.rs', lines 868:0-875:1
     Visibility: public -/
 def word_stage_mul
   (x : Slice Std.I64) (span : Std.Usize) (w : cell.Cell Std.I64)
@@ -32755,7 +37670,7 @@ def word_stage_mul
   register.stage_mul x span w sigma
 
 /-- [apeiron_word::word_matvec_fixed]:
-    Source: 'lib.rs', lines 882:0-890:1
+    Source: 'lib.rs', lines 883:0-891:1
     Visibility: public -/
 def word_matvec_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (n_out : Std.Usize)
@@ -32765,7 +37680,7 @@ def word_matvec_fixed
   matvec.matvec_fixed ggml_type raw n_out n_in x
 
 /-- [apeiron_word::word_row_dot_fixed]:
-    Source: 'lib.rs', lines 897:0-899:1
+    Source: 'lib.rs', lines 898:0-900:1
     Visibility: public -/
 def word_row_dot_fixed
   (w_row : Slice Std.I64) (x : Slice Std.I64) :
@@ -32774,7 +37689,7 @@ def word_row_dot_fixed
   matvec.row_dot_fixed w_row x
 
 /-- [apeiron_word::word_lm_head_fixed]:
-    Source: 'lib.rs', lines 909:0-917:1
+    Source: 'lib.rs', lines 910:0-918:1
     Visibility: public -/
 def word_lm_head_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (vocab : Std.Usize)
@@ -32784,7 +37699,7 @@ def word_lm_head_fixed
   lm_head.lm_head_fixed ggml_type raw vocab n_embd x
 
 /-- [apeiron_word::word_kv_state_new]:
-    Source: 'lib.rs', lines 934:0-949:1
+    Source: 'lib.rs', lines 935:0-950:1
     Visibility: public -/
 def word_kv_state_new
   (n_layer : Std.Usize) (n_head : Std.Usize) (n_head_kv : Std.Usize)
@@ -32795,7 +37710,7 @@ def word_kv_state_new
     mixer.Carrier.Q32
 
 /-- [apeiron_word::word_kv_append]:
-    Source: 'lib.rs', lines 955:0-962:1
+    Source: 'lib.rs', lines 956:0-963:1
     Visibility: public -/
 def word_kv_append
   (state : attn.KvState) (layer : Std.Usize) (k_rows : Slice Std.I64)
@@ -32805,7 +37720,7 @@ def word_kv_append
   attn.KvState.append state layer k_rows v_rows
 
 /-- [apeiron_word::word_attn_head]:
-    Source: 'lib.rs', lines 969:0-978:1
+    Source: 'lib.rs', lines 970:0-979:1
     Visibility: public -/
 def word_attn_head
   (state : attn.KvState) (layer : Std.Usize) (q_head : Std.Usize)
@@ -32815,7 +37730,7 @@ def word_attn_head
   attn.KvState.attn_head state layer q_head q pos out
 
 /-- [apeiron_word::word_argmax_fixed]:
-    Source: 'lib.rs', lines 984:0-986:1
+    Source: 'lib.rs', lines 985:0-987:1
     Visibility: public -/
 def word_argmax_fixed
   (logits : Slice Std.I64) :
@@ -32824,7 +37739,7 @@ def word_argmax_fixed
   sampler.argmax_fixed logits
 
 /-- [apeiron_word::word_check_fragment]:
-    Source: 'lib.rs', lines 1010:0-1012:1
+    Source: 'lib.rs', lines 1011:0-1013:1
     Visibility: public -/
 def word_check_fragment
   (words : Slice Std.U32) :
@@ -32833,7 +37748,7 @@ def word_check_fragment
   spirv.check.check_fragment words
 
 /-- [apeiron_word::word_policy_decide]:
-    Source: 'lib.rs', lines 1028:0-1037:1
+    Source: 'lib.rs', lines 1029:0-1038:1
     Visibility: public -/
 def word_policy_decide
   (rules : Slice policy.decide.Rule) (atoms : Slice policy.decide.Atom)
@@ -32844,38 +37759,38 @@ def word_policy_decide
   policy.decide.decide rules atoms facts known action want
 
 /-- [apeiron_word::word_keccakf]:
-    Source: 'lib.rs', lines 1097:0-1099:1
+    Source: 'lib.rs', lines 1098:0-1100:1
     Visibility: public -/
 def word_keccakf
   (state : Array Std.U64 25#usize) : Result (Array Std.U64 25#usize) := do
   crypto.keccak_f1600 state
 
 /-- [apeiron_word::word_sha3_256]:
-    Source: 'lib.rs', lines 1104:0-1106:1
+    Source: 'lib.rs', lines 1105:0-1107:1
     Visibility: public -/
 def word_sha3_256 (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
   crypto.sha3_256 msg
 
 /-- [apeiron_word::word_sha3_512]:
-    Source: 'lib.rs', lines 1109:0-1111:1
+    Source: 'lib.rs', lines 1110:0-1112:1
     Visibility: public -/
 def word_sha3_512 (msg : Slice Std.U8) : Result (Array Std.U8 64#usize) := do
   crypto.sha3_512 msg
 
 /-- [apeiron_word::word_sha256]:
-    Source: 'lib.rs', lines 1117:0-1119:1
+    Source: 'lib.rs', lines 1118:0-1120:1
     Visibility: public -/
 def word_sha256 (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
   sha256.sha256 msg
 
 /-- [apeiron_word::word_sha256d]:
-    Source: 'lib.rs', lines 1125:0-1127:1
+    Source: 'lib.rs', lines 1126:0-1128:1
     Visibility: public -/
 def word_sha256d (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
   sha256.sha256d msg
 
 /-- [apeiron_word::word_chacha20poly1305_encrypt]:
-    Source: 'lib.rs', lines 1140:0-1147:1
+    Source: 'lib.rs', lines 1141:0-1148:1
     Visibility: public -/
 def word_chacha20poly1305_encrypt
   (key : Array Std.U8 32#usize) (nonce : Array Std.U8 12#usize)
@@ -32885,7 +37800,7 @@ def word_chacha20poly1305_encrypt
   chacha.chacha20poly1305_encrypt key nonce aad plaintext
 
 /-- [apeiron_word::word_chacha20poly1305_decrypt]:
-    Source: 'lib.rs', lines 1155:0-1162:1
+    Source: 'lib.rs', lines 1156:0-1163:1
     Visibility: public -/
 def word_chacha20poly1305_decrypt
   (key : Array Std.U8 32#usize) (nonce : Array Std.U8 12#usize)
@@ -32895,7 +37810,7 @@ def word_chacha20poly1305_decrypt
   chacha.chacha20poly1305_decrypt key nonce aad ciphertext_and_tag
 
 /-- [apeiron_word::word_aes128_encrypt_block]:
-    Source: 'lib.rs', lines 1175:0-1180:1
+    Source: 'lib.rs', lines 1176:0-1181:1
     Visibility: public -/
 def word_aes128_encrypt_block
   (key : Array Std.U8 16#usize) (block : Array Std.U8 16#usize) :
@@ -32904,7 +37819,7 @@ def word_aes128_encrypt_block
   aes.aes128_encrypt_block key block
 
 /-- [apeiron_word::word_aes128_decrypt_block]:
-    Source: 'lib.rs', lines 1188:0-1193:1
+    Source: 'lib.rs', lines 1189:0-1194:1
     Visibility: public -/
 def word_aes128_decrypt_block
   (key : Array Std.U8 16#usize) (block : Array Std.U8 16#usize) :
@@ -32913,7 +37828,7 @@ def word_aes128_decrypt_block
   aes.aes128_decrypt_block key block
 
 /-- [apeiron_word::word_hashtrinity_new]:
-    Source: 'lib.rs', lines 1233:0-1235:1
+    Source: 'lib.rs', lines 1234:0-1236:1
     Visibility: public -/
 def word_hashtrinity_new
   :
@@ -32924,7 +37839,7 @@ def word_hashtrinity_new
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
 
 /-- [apeiron_word::word_hashtrinity_with_capacity]:
-    Source: 'lib.rs', lines 1238:0-1240:1
+    Source: 'lib.rs', lines 1239:0-1241:1
     Visibility: public -/
 def word_hashtrinity_with_capacity
   (cap : Std.Usize) :
@@ -32935,7 +37850,7 @@ def word_hashtrinity_with_capacity
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord cap
 
 /-- [apeiron_word::word_hashtrinity_get]:
-    Source: 'lib.rs', lines 1243:0-1248:1
+    Source: 'lib.rs', lines 1244:0-1249:1
     Visibility: public -/
 def word_hashtrinity_get
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
@@ -32952,7 +37867,7 @@ def word_hashtrinity_get
   | some _ => ok o
 
 /-- [apeiron_word::word_hashtrinity_insert]:
-    Source: 'lib.rs', lines 1252:0-1259:1
+    Source: 'lib.rs', lines 1253:0-1260:1
     Visibility: public -/
 def word_hashtrinity_insert
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
@@ -32967,7 +37882,7 @@ def word_hashtrinity_insert
     value
 
 /-- [apeiron_word::word_coordmap_coordinate_with_capacity]:
-    Source: 'lib.rs', lines 1262:0-1264:1
+    Source: 'lib.rs', lines 1263:0-1265:1
     Visibility: public -/
 def word_coordmap_coordinate_with_capacity
   (cap : Std.Usize) :
@@ -32978,7 +37893,7 @@ def word_coordmap_coordinate_with_capacity
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoordInv core.cmp.EqU64 cap
 
 /-- [apeiron_word::word_coordmap_get]:
-    Source: 'lib.rs', lines 1267:0-1272:1
+    Source: 'lib.rs', lines 1268:0-1273:1
     Visibility: public -/
 def word_coordmap_get
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Regen
@@ -32996,7 +37911,7 @@ def word_coordmap_get
   | some _ => ok o
 
 /-- [apeiron_word::word_coordmap_insert]:
-    Source: 'lib.rs', lines 1275:0-1282:1
+    Source: 'lib.rs', lines 1276:0-1283:1
     Visibility: public -/
 def word_coordmap_insert
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Regen
@@ -33011,21 +37926,21 @@ def word_coordmap_insert
     value
 
 /-- [apeiron_word::word_count_home]:
-    Source: 'lib.rs', lines 1288:0-1290:1
+    Source: 'lib.rs', lines 1289:0-1291:1
     Visibility: public -/
 def word_count_home (c : Std.U64) : Result Std.Usize := do
   hashtrinity.freq.FreqMapKI64.count_home
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord c
 
 /-- [apeiron_word::word_count_admit]:
-    Source: 'lib.rs', lines 1293:0-1295:1
+    Source: 'lib.rs', lines 1294:0-1296:1
     Visibility: public -/
 def word_count_admit (n : Std.Usize) (count_max : Std.U64) : Result Bool := do
   hashtrinity.freq.FreqMapKI64.count_admit
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord n count_max
 
 /-- [apeiron_word::word_count_histogram]:
-    Source: 'lib.rs', lines 1298:0-1300:1
+    Source: 'lib.rs', lines 1299:0-1301:1
     Visibility: public -/
 def word_count_histogram
   (keys : Slice Std.U64) (homes : Slice Std.U8) (hist : Slice Std.U32) :
@@ -33035,7 +37950,7 @@ def word_count_histogram
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord keys homes hist
 
 /-- [apeiron_word::word_count_offsets]:
-    Source: 'lib.rs', lines 1303:0-1311:1
+    Source: 'lib.rs', lines 1304:0-1312:1
     Visibility: public -/
 def word_count_offsets
   (counts : Slice Std.U32) (w : Std.Usize) (n : Std.Usize)
@@ -33046,7 +37961,7 @@ def word_count_offsets
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord counts w n bstart woff
 
 /-- [apeiron_word::word_count_slot]:
-    Source: 'lib.rs', lines 1314:0-1316:1
+    Source: 'lib.rs', lines 1315:0-1317:1
     Visibility: public -/
 def word_count_slot
   (off : Slice Std.Usize) (h : Std.U8) :
@@ -33056,7 +37971,7 @@ def word_count_slot
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord off h
 
 /-- [apeiron_word::word_count_aggregate]:
-    Source: 'lib.rs', lines 1319:0-1321:1
+    Source: 'lib.rs', lines 1320:0-1322:1
     Visibility: public -/
 def word_count_aggregate
   (routed : Slice Std.U64) (lo : Std.Usize) (hi : Std.Usize) :
@@ -33066,7 +37981,7 @@ def word_count_aggregate
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord routed lo hi
 
 /-- [apeiron_word::word_gram_fold_i8]:
-    Source: 'lib.rs', lines 1331:0-1338:1
+    Source: 'lib.rs', lines 1332:0-1339:1
     Visibility: public -/
 def word_gram_fold_i8
   (g : alloc.vec.Vec Std.I64) (x : Slice Std.I8) (rows : Std.Usize)
@@ -33076,7 +37991,7 @@ def word_gram_fold_i8
   gram.gram_fold_i8 g x rows d
 
 /-- [apeiron_word::word_sd_binary_block]:
-    Source: 'lib.rs', lines 1350:0-1352:1
+    Source: 'lib.rs', lines 1351:0-1353:1
     Visibility: public -/
 def word_sd_binary_block
   (w : Slice Std.I64) (a : Std.I64) (s : Slice Std.I8) :
@@ -33085,50 +38000,50 @@ def word_sd_binary_block
   sigma_delta.sd_binary_block w a s
 
 /-- [apeiron_word::word_onebit_total_bits]:
-    Source: 'lib.rs', lines 1362:0-1364:1
+    Source: 'lib.rs', lines 1363:0-1365:1
     Visibility: public -/
 def word_onebit_total_bits
   (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.total_bits c
 
 /-- [apeiron_word::word_onebit_bits_sign]:
-    Source: 'lib.rs', lines 1367:0-1369:1
+    Source: 'lib.rs', lines 1368:0-1370:1
     Visibility: public -/
 def word_onebit_bits_sign (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_sign c
 
 /-- [apeiron_word::word_onebit_bits_r]:
-    Source: 'lib.rs', lines 1372:0-1374:1
+    Source: 'lib.rs', lines 1373:0-1375:1
     Visibility: public -/
 def word_onebit_bits_r (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_r c
 
 /-- [apeiron_word::word_onebit_bits_c]:
-    Source: 'lib.rs', lines 1377:0-1379:1
+    Source: 'lib.rs', lines 1378:0-1380:1
     Visibility: public -/
 def word_onebit_bits_c (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_c c
 
 /-- [apeiron_word::word_onebit_bits_d]:
-    Source: 'lib.rs', lines 1382:0-1384:1
+    Source: 'lib.rs', lines 1383:0-1385:1
     Visibility: public -/
 def word_onebit_bits_d (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_d c
 
 /-- [apeiron_word::word_onebit_bits_corr]:
-    Source: 'lib.rs', lines 1387:0-1389:1
+    Source: 'lib.rs', lines 1388:0-1390:1
     Visibility: public -/
 def word_onebit_bits_corr (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_corr c
 
 /-- [apeiron_word::word_onebit_params]:
-    Source: 'lib.rs', lines 1392:0-1394:1
+    Source: 'lib.rs', lines 1393:0-1395:1
     Visibility: public -/
 def word_onebit_params (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.params c
 
 /-- [apeiron_word::word_onebit_index_bits]:
-    Source: 'lib.rs', lines 1397:0-1399:1
+    Source: 'lib.rs', lines 1398:0-1400:1
     Visibility: public -/
 def word_onebit_index_bits
   (c : onebit_bits.Cfg) : Result (Option Std.U64) := do

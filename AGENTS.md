@@ -417,8 +417,12 @@ Tool pins and the archive checksum are in `proof/README.md`. Record the versions
 do not cite a pin from memory.
 
 Every Lean command runs bounded: under `systemd-run --user --scope -p MemoryMax=<cap>
--p MemorySwapMax=0` with `LEAN_NUM_THREADS=1` and a `timeout`, serialized on
-`flock /tmp/opencode/apeiron-lane.lock`. The `timeout` carries the §10 budget; the older 900 s and
+-p MemorySwapMax=0` and a `timeout`. The lock is per build product, not per box: a run takes
+`flock <worktree>/.lane.lock` on the worktree whose `.lake` it writes, so lanes in separate worktrees
+(each on its reflinked copy of the shared cache) build in parallel; only writers to the same `.lake`
+serialize. `LEAN_NUM_THREADS` scales with the box (32 threads, 62 GB): set it per run so the sum of
+concurrent caps stays under half of RAM (owner, 2026-10-15). `proof/regen.sh` builds no Lean unless
+`APEIRON_LAKE=1` and takes no lock beyond its worktree's. The `timeout` carries the §10 budget; the older 900 s and
 3600 s local-run allowances are superseded for new runs, and historical receipts stand. `set_option maxHeartbeats 0` and any unbounded kernel
 reduction (for example `decide` or `rfl` over a whole source, or `maxRecDepth` raised to defeat the
 guard) are forbidden in committed proofs and in an agent's runs; a reduction that needs them is
@@ -435,7 +439,7 @@ no OOM-kill and no panic — the kernel stopped scheduling the cgroup, which pre
 A build is not exempt because it is short.
 
 **Concurrency is capped, not aspirational.** At most **eight** build-bearing lanes run at once on this
-box; a ninth waits on `flock /tmp/opencode/apeiron-lane.lock` or on a finished lane's return, and the
+box; a ninth waits on a finished lane's return, and the
 sum of the declared caps stays under half of RAM. Twelve to twenty concurrent workspace builds is the
 ceiling being exceeded, not a width being achieved — a fan-out wider than the file-disjoint set pays
 contention, not throughput, and it is what crashed the terminals. **A measurement is averaged, never

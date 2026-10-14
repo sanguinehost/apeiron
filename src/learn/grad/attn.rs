@@ -26,6 +26,7 @@
 
 #![allow(
     clippy::many_single_char_names,
+    clippy::manual_is_multiple_of,
     clippy::similar_names,
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
@@ -191,45 +192,51 @@ pub fn rope_bwd(dy: &[i64], pos: u32, table: &RopeTable) -> Result<Vec<i64>, Att
         return Err(AttnError::BadShape);
     }
     let hd = table.head_dim();
-    if !dy.len().is_multiple_of(hd) {
+    if dy.len() % hd != 0 {
         return Err(AttnError::Rope(RopeError::VectorLength));
     }
-    let d2 = hd / 2;
     let turns = table.turns();
-    let heads = dy.len() / hd;
-    let mut dx: Vec<i64> = vec![0; dy.len()];
-    let mut h = 0usize;
+    let n = dy.len();
+    let mut dx: Vec<i64> = vec![0; n];
+    let mut i = 0usize;
     let mut ok = true;
-    let err = AttnError::Rope(RopeError::OutOfRange);
-    while h < heads && ok {
-        let base = h * hd;
-        let mut j = 0usize;
-        while j < d2 && ok {
-            let phase = ((u128::from(turns[j]) * u128::from(pos)) & u128::from(u64::MAX)) as u64;
-            match fixed_sin_cos(turn_to_radians(phase)) {
-                Err(_) => ok = false,
-                Ok(sc) => {
-                    let y0 = i128::from(dy[base + j]);
-                    let y1 = i128::from(dy[base + j + d2]);
-                    let c = i128::from(sc.cos);
-                    let s = i128::from(sc.sin);
-                    match (acc_round(y0 * c + y1 * s), acc_round(y1 * c - y0 * s)) {
-                        (Ok(a), Ok(b)) => {
-                            dx[base + j] = a;
-                            dx[base + j + d2] = b;
-                        }
-                        _ => ok = false,
-                    }
-                }
-            }
-            j += 1;
+    while i < n && ok {
+        match rope_elem_bwd(dy, i, hd, turns[(i % hd) % (hd / 2)], pos) {
+            Ok(v) => dx[i] = v,
+            Err(_) => ok = false,
         }
-        h += 1;
+        i += 1;
     }
     if ok {
         Ok(dx)
     } else {
-        Err(err)
+        Err(AttnError::Rope(RopeError::OutOfRange))
+    }
+}
+
+/// One output component of [`rope_bwd`] at flat index `i`: the transpose of the pair rotation
+/// for the pair holding `i`, with the phase `turn · pos` of that pair.
+///
+/// # Complexity
+/// `O(1)` checked `i128` operations and one `fixed_sin_cos`.
+fn rope_elem_bwd(dy: &[i64], i: usize, hd: usize, turn: u64, pos: u32) -> Result<i64, AttnError> {
+    let d2 = hd / 2;
+    let r = i % hd;
+    let partner = if r < d2 { i + d2 } else { i - d2 };
+    let phase = ((u128::from(turn) * u128::from(pos)) & u128::from(u64::MAX)) as u64;
+    match fixed_sin_cos(turn_to_radians(phase)) {
+        Err(_) => Err(AttnError::Rope(RopeError::OutOfRange)),
+        Ok(sc) => {
+            let y = i128::from(dy[i]);
+            let w = i128::from(dy[partner]);
+            let c = i128::from(sc.cos);
+            let s = i128::from(sc.sin);
+            let sum = if r < d2 { y * c + w * s } else { y * c - w * s };
+            match acc_round(sum) {
+                Ok(v) => Ok(v),
+                Err(_) => Err(AttnError::Rope(RopeError::OutOfRange)),
+            }
+        }
     }
 }
 
@@ -805,12 +812,12 @@ mod tests {
         hd: usize,
         dout: &[i64],
     ) -> i128 {
+        type Named<'a> = (usize, &'a [i64], &'a [i64]);
         let (_, p) = attn_fwd(q, k, v, nh, nkv, hd).expect("forward");
         let (dq, dk, dv) = attn_bwd(q, k, v, &p, dout, nh, nkv, hd).expect("backward");
         let sum_abs: i128 = dout.iter().map(|d| i128::from(*d).abs()).sum();
-        let tol: i128 = ((1_i128 << 12) * 1472 * sum_abs >> 32) + 64;
+        let tol: i128 = (((1_i128 << 12) * 1472 * sum_abs) >> 32) + 64;
         let mut worst: i128 = 0;
-        type Named<'a> = (usize, &'a [i64], &'a [i64]);
         let tensors: [Named; 3] = [(0, q, &dq), (1, k, &dk), (2, v, &dv)];
         for (which, base, grad) in tensors {
             for idx in 0..base.len() {
@@ -873,8 +880,8 @@ mod tests {
             let mut rhs: i128 = 0;
             for head in 0..2 {
                 for j in 0..2 {
-                    let phase =
-                        ((table.turns()[j] as u128 * pos as u128) & u64::MAX as u128) as u64;
+                    let phase = ((u128::from(table.turns()[j]) * u128::from(pos))
+                        & u128::from(u64::MAX)) as u64;
                     let sc = fixed_sin_cos(turn_to_radians(phase)).expect("trig");
                     let (c, sn) = (i128::from(sc.cos), i128::from(sc.sin));
                     let (x0, x1) = (i128::from(x[head * 4 + j]), i128::from(x[head * 4 + j + 2]));
@@ -900,9 +907,11 @@ mod tests {
                 .zip(&dx)
                 .map(|(a, b)| i128::from(*a) * i128::from(*b))
                 .sum();
-            let bound: i128 = (dy.iter().map(|a| i128::from(*a).abs()).sum::<i128>()
-                + x.iter().map(|a| i128::from(*a).abs()).sum::<i128>())
-                / 2;
+            let bound: i128 = dy
+                .iter()
+                .map(|a| i128::from(*a).abs())
+                .sum::<i128>()
+                .midpoint(x.iter().map(|a| i128::from(*a).abs()).sum::<i128>());
             assert!(
                 (sl - sr).abs() <= bound,
                 "rounded adjoint at pos {pos}: {} > {bound}",
@@ -1072,7 +1081,7 @@ mod tests {
         let mid = exp_gap(-10 * ONE, 0).expect("shift -10·ONE is inside the fixed_exp window");
         match fixed_exp(-10 * ONE) {
             Ok(e) => assert_eq!(mid, e),
-            Err(_) => panic!("fixed_exp(-10·ONE) must be in window"),
+            Err(e) => panic!("fixed_exp(-10·ONE) must be in window: {e:?}"),
         }
         assert!(mid != 0, "shift -10·ONE must not saturate");
     }
