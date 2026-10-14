@@ -1,0 +1,149 @@
+{
+ "question": "Does an AQLM phase-3 block-wise fine-tuning phase (Egiazarian et al., arXiv 2401.06118, Sec. 3.4: each block fits its relative squared residual on the teacher's hidden-state input) for the first 120 s of the train budget, before the KL phase, lower the held-out KL of the 1.178 b/w E8 arm against the paired KL-only arm at the same 580 s wall?",
+ "protocol": {
+  "n_cal": 50,
+  "n_eval": 40,
+  "n_in": 20,
+  "batch": 8,
+  "v_every": 0,
+  "codes": "vstep",
+  "compose": "step",
+  "kl": "fused",
+  "hadamard": "mm",
+  "rotation": "had",
+  "train": "r,c,d,norm",
+  "block_s": [
+   120.0,
+   0.0
+  ],
+  "wall": "timeout 580, wall-budgeted steps",
+  "order": [
+   "b120",
+   "base"
+  ],
+  "bound": "flock /tmp/opencode/gpu.lock, systemd-run MemoryMax=40G MemorySwapMax=0"
+ },
+ "machine": "RTX 5080 host",
+ "source": {
+  "pv_finish": {
+   "path": "tools/onebit/pv_finish.py",
+   "sha256": "03bc6c26ebd7ede96f097af9378bb631429880db2ebaf4eb2a150756511e97f2"
+  },
+  "fold_transfer": {
+   "path": "tools/onebit/fold_transfer.py",
+   "sha256": "07bec896011689fdd41262649984f24baf85dbcc9313441d694f69b5366fa764"
+  }
+ },
+ "predictions": [
+  {
+   "id": "qreg-blockft-1",
+   "verdict": "refuted"
+  },
+  {
+   "id": "qreg-blockft-2",
+   "verdict": "confirmed"
+  }
+ ],
+ "arms": [
+  {
+   "label": "b120",
+   "exit": 0,
+   "steps": 813,
+   "block_s": 120.0,
+   "bits_after": 421541376,
+   "bpw_after": 1.1780606112637362,
+   "train_s": 402.2107000350952,
+   "total_s": 541.7730355262756,
+   "quick_kl_step0": 0.795434296131134,
+   "quick_kl_final": 0.6827459037303925,
+   "kl_heldout_before": 1.1636724948883057,
+   "kl_heldout_after": 0.8817335486412048,
+   "top1_heldout_after": 0.5404296875,
+   "kl_insample_after": 0.2643756210803986,
+   "script_sha256": {
+    "pv_finish": "03bc6c26ebd7ede96f097af9378bb631429880db2ebaf4eb2a150756511e97f2",
+    "fold_transfer": "07bec896011689fdd41262649984f24baf85dbcc9313441d694f69b5366fa764"
+   },
+   "block": {
+    "steps": 296,
+    "wall_s": 120.19421553611755,
+    "s_per_step": 0.4060615389733701,
+    "loss_first": 0.31196773052215576,
+    "loss_last": 0.28028422594070435,
+    "layer_err_first": [
+     0.10599027574062347,
+     0.20766958594322205,
+     0.39100146293640137,
+     0.4748687148094177,
+     0.4417819082736969,
+     0.43944251537323,
+     0.36376386880874634,
+     0.3589431941509247,
+     0.2929462790489197,
+     0.4020819365978241,
+     0.40248173475265503,
+     0.35315006971359253,
+     0.3464040160179138,
+     0.3808671236038208,
+     0.3059156537055969,
+     0.26696860790252686,
+     0.27668875455856323,
+     0.24644024670124054,
+     0.38734930753707886,
+     0.2776440680027008,
+     0.22091558575630188,
+     0.20262713730335236,
+     0.2835872173309326,
+     0.057696323841810226
+    ],
+    "layer_err_last": [
+     0.0985962301492691,
+     0.18751224875450134,
+     0.356184184551239,
+     0.4264640212059021,
+     0.38981470465660095,
+     0.3989565372467041,
+     0.32953476905822754,
+     0.3277791738510132,
+     0.26075485348701477,
+     0.3586232364177704,
+     0.34663766622543335,
+     0.310137540102005,
+     0.30542832612991333,
+     0.34250834584236145,
+     0.27632632851600647,
+     0.24475939571857452,
+     0.25311756134033203,
+     0.22402092814445496,
+     0.3453344702720642,
+     0.25465789437294006,
+     0.20329368114471436,
+     0.18811093270778656,
+     0.2463265210390091,
+     0.05194200575351715
+    ],
+    "quick_kl_at_switch": 0.9634653925895691
+   }
+  },
+  {
+   "label": "base",
+   "exit": 0,
+   "steps": 730,
+   "block_s": 0.0,
+   "bits_after": 421541376,
+   "bpw_after": 1.1780606112637362,
+   "train_s": 392.8770225048065,
+   "total_s": 543.5804164409637,
+   "quick_kl_step0": 0.795434296131134,
+   "quick_kl_final": 0.6593553125858307,
+   "kl_heldout_before": 1.1636724948883057,
+   "kl_heldout_after": 0.8587512105703354,
+   "top1_heldout_after": 0.547265625,
+   "kl_insample_after": 0.23896759897470474,
+   "script_sha256": {
+    "pv_finish": "03bc6c26ebd7ede96f097af9378bb631429880db2ebaf4eb2a150756511e97f2",
+    "fold_transfer": "07bec896011689fdd41262649984f24baf85dbcc9313441d694f69b5366fa764"
+   }
+  }
+ ]
+}

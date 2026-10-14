@@ -27,6 +27,9 @@ codes it (fp16 min/max, 8-bit levels), so step 0 is the stored plane exactly; th
 stored bits are unchanged (bits_corr).  With corr off the dense plane stays frozen and every code path is today's.
 --selftest-kan runs the float64 register/adjoint checks with no model.
 --attrib N (default 0 = off; every other code path is unchanged) uses the first N held-out eval chunks and, once before and once after finishing, restores the teacher's linear weights one group at a time (each layer's seven linears, each kind across all layers, all linears) to record where the held-out KL lives: base, per-layer, per-kind and all-linear KL, their deltas, and a teacher-as-student zero control.  It also restores the student's linears back over the all-linear configuration in each single layer (iso), each prefix of layers (prefix) and each suffix of layers (suffix), recording the KL each costs in isolation; set against base - all_linear, the iso-cost sum and the prefix/suffix costs show whether the KL of a layer set is more or less than the sum of its layers' isolated costs.
+--block-s S (default 0.0 = off; needs --codes vstep, --v-every 0, --v-gain linear, --compose step, --rotation had) makes the train loop start with
+S seconds of AQLM phase-3 block-wise fine-tuning (Egiazarian et al., arXiv 2401.06118, Sec. 3.4): each code block fits its relative squared residual on
+the teacher's own hidden-state input, then the Adam state is cleared and the warmup restarts for the KL phase; the stored bits are unchanged.
 usage: pv_finish.py --out OUT.json [--smoke] [--v-gain {linear,obs}] [--codes {vstep,ste}] ; run with /home/socol/Workspace/spinor-ttl/.venv/bin/python (torch + CUDA).
 """
 import argparse, hashlib, json, math, os, sys, time
@@ -994,6 +997,11 @@ def main():
                          "per step through PlaneCompose (frozen codes only: --v-every 0, --codes vstep)")
     ap.add_argument("--kl", choices=("ckpt", "fused"), default="ckpt",
                     help="ckpt: checkpoint(kl_chunk) recomputes both head matmuls in backward; fused: KLHead saves dL/dz")
+    ap.add_argument("--block-s", type=float, default=0.0,
+                    help="0.0 off; > 0 starts the train loop with that many seconds of AQLM phase-3 block-wise fine-tuning "
+                         "(Egiazarian et al., arXiv 2401.06118, Sec. 3.4): each code block fits its relative squared residual on the "
+                         "teacher's hidden-state input (no LM head, no final norm), then the Adam state is cleared and the warmup "
+                         "restarts for the KL phase; needs --codes vstep, --v-every 0, --v-gain linear, --compose step, --rotation had")
     ap.add_argument("--hadamard", choices=("butterfly", "mm"), default="butterfly",
                     help="training-path fwht128 under --compose step: butterfly (ft.fwht128) or mm (one fp32 H128 matmul); "
                          "eval, controls and the final weights always use ft.fwht128")
@@ -1022,6 +1030,12 @@ def main():
     train_set = set(a.train.split(","))
     assert train_set and train_set <= {"r", "c", "d", "norm", "corr"}, a.train
     LAMS = tuple(float(x) for x in a.obs_lams.split(","))
+    if a.block_s > 0:
+        assert a.codes == "vstep", "--block-s needs --codes vstep"
+        assert a.v_every == 0, "--block-s needs --v-every 0"
+        assert a.v_gain == "linear", "--block-s needs --v-gain linear"
+        assert a.compose == "step", "--block-s needs --compose step"
+        assert a.rotation == "had", "--block-s needs --rotation had"
     if a.smoke:
         a.n_cal, a.n_eval, a.n_in, a.steps, a.batch = 8, 8, 8, 20, 2
         a.v_every = 10 if a.v_every else 0  # an explicit --v-every 0 stays off in smoke
@@ -1272,6 +1286,40 @@ def main():
             tot = tot + k
             agree += int(g)
         return tot / hs.shape[0], agree / hs.shape[0]
+
+    def block_batch(idsb):
+        """AQLM phase 3 (Egiazarian et al., arXiv 2401.06118, Sec. 3.4): per-layer fine-tuning of each code block on the teacher's
+        own input.  Lds = layer_dicts_step() composes the student weights for the step (as the KL path under --compose step); the
+        teacher's nl+1 hidden states are recomputed under no_grad; layer l's block is run on the detached teacher state ht[l]
+        under checkpoint, inside the same bf16 autocast as student_h, and its relative squared residual error
+        e_l = mean over the batch*CHUNK rows of ||o_l - ht[l+1]||^2 / ||ht[l+1] - ht[l]||^2 is minimised; the loss is the mean of
+        the e_l.  Every trainable of layer l therefore receives gradient only from e_l, and no final-norm tunable receives any.
+        Returns (loss, e), e the nl detached floats for logging.
+        Temporal: one teacher forward keeping nl+1 hidden states and one checkpointed student forward/backward over the nl blocks
+        per step, no LM head.  Spatial: (nl+1) * batch * CHUNK * hid fp32 teacher states plus today's composed weights."""
+        Lds = layer_dicts_step()
+        with torch.no_grad():
+            ht = [Eg[idsb]]
+            for li in range(cfg.nl):
+                ht.append(ft.parts(cfg, TLg[li], ht[li])["out"])
+        es = []
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=MODE["amp"]):
+            for li in range(cfg.nl):
+                o = checkpoint(lambda h_, Ld: ft.parts(cfg, Ld, h_)["out"], ht[li], Lds[li], use_reentrant=False)
+                e_l = ((o.float() - ht[li + 1].float()).pow(2).sum(-1)
+                       / (ht[li + 1].float() - ht[li].float()).pow(2).sum(-1).clamp_min(1e-12)).mean()
+                es.append(e_l)
+        loss = torch.stack(es).mean()
+        return loss, [float(x.detach()) for x in es]
+
+    def block_probe(idsb):
+        """block_batch on a fixed batch with no gradient: the block phase draws a fresh train chunk every step, so comparing the
+        loss of the first block step with the loss of the last block step on their own batches measures the text variation between
+        two chunks, not the phase.  The phase's effect is measured on the inputs it started on.  Returns (loss float, e list).
+        Temporal one teacher forward plus one student forward over the nl blocks, no backward; spatial as block_batch."""
+        with torch.no_grad():
+            loss, e = block_batch(idsb)
+        return float(loss.detach()), e
 
     @torch.no_grad()
     def quick_eval():
@@ -1746,8 +1794,25 @@ def main():
     traj, vlog, step, v_frac = [], [], 0, a.v_frac
     last_loss = float("nan")
     prof = None
+    # ---- --block-s: AQLM phase 3 runs from step 1 while the train clock is under a.block_s, then hands the run to the KL phase
+    block_mode = a.block_s > 0
+    block_on, switch_step = block_mode, None
+    b_steps, b_first, b_last, b_e_first, b_e_last, b_switch_kl, b_wall = 0, None, None, None, None, None, 0.0
+    idsb_first = None
     while step < a.steps and time.time() < t_end:
         step += 1
+        if block_on and time.time() - t_train0 >= a.block_s:
+            # first step whose train clock has reached a.block_s: the block phase ends, the KL phase starts here.  The Adam
+            # moments of the block phase are discarded and the warmup restarts from this step; the cosine part is unchanged.
+            block_on, switch_step = False, step
+            opt.state.clear()
+            b_wall = time.time() - t_train0
+            with torch.no_grad():
+                b_switch_kl = quick_eval()
+            if b_steps:
+                b_last, b_e_last = block_probe(idsb_first)  # the block-phase-final weights, before any KL update
+            print(f"block phase: {b_steps} steps in {b_wall:.1f}s, Adam state cleared, warmup restarted at step {step}, "
+                  f"quick heldout KL {b_switch_kl:.5f}", flush=True)
         if a.profile and step == 6:
             torch.cuda.synchronize()
             prof = torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA])
@@ -1768,7 +1833,8 @@ def main():
             dump()
             sys.exit(0)
         frac = max(min(1.0, (time.time() - t_train0) / max(t_end - t_train0, 1e-6)), step / a.steps)
-        f = min(1.0, step / a.warmup) * (0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * frac)))
+        wu = (step - switch_step) / a.warmup if switch_step is not None else step / a.warmup
+        f = min(1.0, wu) * (0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * frac)))
         for gi, g in enumerate(opt.param_groups):
             g["lr"] = base_lr[gi] * f
         idsb = tr[perm[((step - 1) * a.batch) % ntr:((step - 1) * a.batch) % ntr + a.batch]]
@@ -1791,7 +1857,15 @@ def main():
                 tag = f"lam {t['lam']} frac {t['fraction']}" if "lam" in t else f"skip {t['skip']} f={t['v_frac']:.2e}"
                 print(f"   {tag}: {t['moves']} mv, pred {t['predicted_dloss']:.3g}, loss {t['loss_after']:.4f}"
                       f" (realised {t['loss_after'] - rec['loss_before']:+.4g})", flush=True)
-        if a.v_gain == "obs":
+        if block_on:
+            loss, e = block_batch(idsb)
+            agree = float("nan")
+            b_steps += 1
+            if b_steps == 1:
+                b_first, b_e_first, idsb_first = float(loss.detach()), e, idsb
+            if b_steps % 25 == 0:
+                print(f"block step {b_steps} loss {float(loss.detach()):.4f} t {time.time() - t_train0:.1f}s", flush=True)
+        elif a.v_gain == "obs":
             Ss_all, leaves = make_Ss(True)
             for k, S in enumerate(leaves):
                 S.register_post_accumulate_grad_hook(make_hook(k))
@@ -1827,6 +1901,19 @@ def main():
             print(f"step {step} loss {last_loss:.4f} top1 {agree:.4f} f {f:.3f} t {time.time() - t_train0:.1f}s elapsed {elapsed():.1f}s", flush=True)
     wall_train = time.time() - t_train0
     ste_on[0] = False
+    if block_mode:
+        # the block phase ended at the switch or, if the loop ran out first, at loop exit; either way it is over here.
+        if switch_step is None:
+            b_wall = wall_train
+            if b_steps:
+                b_last, b_e_last = block_probe(idsb_first)
+        res["block"] = dict(block_s=a.block_s, steps=b_steps, wall_s=b_wall,
+                            s_per_step=b_wall / b_steps if b_steps else None, loss_first=b_first, loss_last=b_last,
+                            layer_err_first=b_e_first, layer_err_last=b_e_last, quick_kl_at_switch=b_switch_kl)
+        res["walls"]["block_s"] = b_wall
+        print(f"block: {b_steps} steps, {b_wall:.1f}s" + (f" ({b_wall / b_steps:.3f} s/step)" if b_steps else "")
+              + f", loss {b_first} -> {b_last} (both on the first block step's batch)", flush=True)
+        assert b_steps and b_last < b_first, "block phase did not lower the block loss"
     if ste:
         if not code_changes or code_changes[-1]["step"] != step:
             rec_codes(step, last_loss)

@@ -392,6 +392,34 @@ is at least `0.0229` nats, above Q4_K_M's whole-model `0.0197` (`anchor`: differ
 isolated cost of one layer, with the rest at the teacher, a one-forward inner-loop objective for a per-layer quantizer:
 the per-layer target that reaches the Q4_K_M level is roughly 30–45× below the present costs.
 
+### Block-wise fine-tuning (prediction `qreg-blockft-1`, refuted)
+
+Receipt [`docs/evidence/receipts/onebit/qreg-blockft.json`](../evidence/receipts/onebit/qreg-blockft.json)
+(sha256 `b9da33a4…`); verdicts `blockft_refuted`, `blockft_phase_raises_kl`, `blockft_block_step_cost` in
+`proof/corpus/Perf/QuantumRotation.lean`, audited in `AxiomAudit.lean` (namespace `qreg_blockft`; controls: the
+reversed KL order and a block step under `3/4` of a KL step each leave `⊢ False`, exit 1; `blockLossLast` moved by one
+unit in a copy, `receipt_lean.py --check` exit 1 on drift; restored, exit 0). Board row
+`quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs`.
+`pv_finish.py --block-s S` (off by default) spends the first `S` s of the train budget on AQLM's phase 3 (Egiazarian et
+al., arXiv 2401.06118, Sec. 3.4): each block fits its relative squared residual update
+`‖f_l^s(h_l^t) − h_{l+1}^t‖² / ‖h_{l+1}^t − h_l^t‖²` on the teacher's hidden state `h_l^t`, no LM head; at `S` the Adam
+state is cleared, the warmup restarts and the end-to-end KL phase runs to the same wall. One pair, same transfer
+(step-0 quick KL `0.7954` in both), same source, n-cal 50, mm/step/fused, 1.178 b/w.
+
+| arm | steps | train s | held-out KL `1.1637 →` | held-out top-1 |
+|---|---|---|---|---|
+| `--block-s 120` | 813 (296 block, 517 KL) | 402.2 | 0.8817 | 0.5404 |
+| KL only | 730 | 392.9 | **0.8588** | **0.5473** |
+
+The block phase lowers its own loss (`0.3120 → 0.2803` on the same batch, every layer's error falls) while the quick
+held-out KL rises `0.7954 → 0.9635`; the KL phase then recovers most but not all of it. The Euclidean residual of each
+block on teacher inputs is not aligned with the end-to-end KL: it scores each block in isolation, while the iso rows
+above show the composed chain costs `0.57–0.79×` the sum of isolated costs, i.e. later layers compensate earlier
+errors; fitting each block to the teacher's states alone spends parameters on error the chain already absorbs. Cost model: a block
+step is `0.406` s against `0.538` s for a KL step (ratio `0.754`, it skips the LM head), so the phase buys 83 extra steps
+and still loses `0.023` nats. With the iso result (errors saturate, every layer `≥ 0.0229` alone), continuous-parameter
+finishing is not where the gap is; the next arm re-rounds the discrete codes under a full-model-KL Hessian.
+
 ### Arc Block (W1-T1)
 
 ```text

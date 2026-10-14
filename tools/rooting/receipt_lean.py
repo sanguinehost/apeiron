@@ -95,6 +95,7 @@ W15 = {
     "qreg_t5_corr": "docs/evidence/receipts/onebit/qreg-t5-corr.json",
     "qreg_attrib": "docs/evidence/receipts/onebit/qreg-attrib.json",
     "qreg_iso": "docs/evidence/receipts/onebit/qreg-iso.json",
+    "qreg_blockft": "docs/evidence/receipts/onebit/qreg-blockft.json",
 }
 
 # End-loss-weighted Gram receipts (fold_transfer "-guided[a|b]NN"): namespace -> variant prefixes (see guided_prefix).
@@ -809,6 +810,34 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
             raise Fail(f"{rel}: factor store bits {c['store_bits']} != bits_corr {c['bits_corr']}")
         out.append(("nat", "corrPlanes", nat(c["planes"])))
         out.append(("nat", "corrStoreBits", nat(c["store_bits"])))
+    elif ns == "qreg_blockft":
+        # Block-wise fine-tuning phase (pv_finish.py --block-s 120) vs the KL-only arm, one wall-budgeted pair on one source
+        # and one transfer: per arm `<b120|base><Field>`; the block phase's own fields once, prefixed `block`.
+        arms = {a["label"]: a for a in data["arms"]}
+        p = data["protocol"]
+        if sorted(arms) != ["b120", "base"] or (p["n_cal"], p["hadamard"], p["compose"], p["kl"]) != (50, "mm", "step", "fused"):
+            raise Fail(f"{rel}: not the b120/base, n-cal 50, mm/step/fused pair")
+        if (arms["b120"]["block_s"], arms["base"]["block_s"]) != ("120.0", "0.0") or "block" in arms["base"]:
+            raise Fail(f"{rel}: arms are not --block-s 120 and off")
+        if (arms["b120"]["quick_kl_step0"] != arms["base"]["quick_kl_step0"]
+                or arms["b120"]["bits_after"] != arms["base"]["bits_after"]
+                or arms["b120"]["script_sha256"] != arms["base"]["script_sha256"]):
+            raise Fail(f"{rel}: arms differ in transfer, bits or source")
+        for lab in ("b120", "base"):
+            a = arms[lab]
+            if a["exit"] != 0:
+                raise Fail(f"{rel}: arm {lab} exit {a['exit']}")
+            out.append(("nat", lab + "Steps", nat(a["steps"])))
+            for name, k in [("TrainS", "train_s"), ("QuickKlStep0", "quick_kl_step0"), ("QuickKlFinal", "quick_kl_final"),
+                            ("KlHeldoutBefore", "kl_heldout_before"), ("KlHeldoutAfter", "kl_heldout_after"),
+                            ("Top1HeldoutAfter", "top1_heldout_after")]:
+                out.append(("rat", lab + name, rat(a[k])))
+        out.append(("nat", "bitsAfter", nat(arms["base"]["bits_after"])))
+        b = arms["b120"]["block"]
+        out.append(("nat", "blockSteps", nat(b["steps"])))
+        for name, k in [("blockWallS", "wall_s"), ("blockLossFirst", "loss_first"), ("blockLossLast", "loss_last"),
+                        ("blockQuickKlAtSwitch", "quick_kl_at_switch")]:
+            out.append(("rat", name, rat(b[k])))
     elif ns in ("qreg_attrib", "qreg_iso"):
         # Teacher-restore attribution of the held-out KL (pv_finish.py --attrib 8), before and after finishing in one run:
         # per phase `<before|after><Field>`, the 24 per-layer restore KLs `...LayerKl<l>` and the 7 per-kind `...Kind<K>Kl`.

@@ -1205,6 +1205,9 @@ import Perf.QuantumRotation
 #audit Perf.QuantumRotation.iso_groups_saturate
 #audit Perf.QuantumRotation.iso_finishing_saturates
 #audit Perf.QuantumRotation.iso_every_layer_costs
+#audit Perf.QuantumRotation.blockft_refuted
+#audit Perf.QuantumRotation.blockft_phase_raises_kl
+#audit Perf.QuantumRotation.blockft_block_step_cost
 #audit apeiron_word.RegisterRefinement.checked_mul_spec
 #audit apeiron_word.RegisterRefinement.checked_mul_none
 #audit apeiron_word.RegisterRefinement.checked_mul_none_of_a

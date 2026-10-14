@@ -561,4 +561,41 @@ theorem iso_every_layer_costs :
       qreg_iso.afterIsoKl17, qreg_iso.afterIsoKl18, qreg_iso.afterIsoKl19, qreg_iso.afterIsoKl20,
       qreg_iso.afterIsoKl21, qreg_iso.afterIsoKl22, qreg_iso.afterIsoKl23]
 
+/-! ## Block-wise fine-tuning (`docs/evidence/receipts/onebit/qreg-blockft.json`)
+
+`pv_finish.py --block-s 120` spends the first 120 s of the train budget on AQLM's phase 3 (Egiazarian et al., arXiv
+2401.06118, Sec. 3.4): each block fits its relative squared residual update on the teacher's hidden-state input, then the
+Adam state is cleared and the end-to-end KL phase runs to the same wall. One pair, same transfer, same source. -/
+
+/-- **Prediction `qreg-blockft-1` is refuted.** The block-phase arm ends `0.023` nats of held-out KL above the KL-only arm
+at the same wall (`0.8817` against `0.8588`), with lower held-out top-1, although it fits more steps in the budget. -/
+theorem blockft_refuted :
+    qreg_blockft.baseKlHeldoutAfter + 2 / 100 < qreg_blockft.b120KlHeldoutAfter ∧
+    qreg_blockft.b120Top1HeldoutAfter < qreg_blockft.baseTop1HeldoutAfter ∧
+    qreg_blockft.baseSteps < qreg_blockft.b120Steps ∧
+    qreg_blockft.b120QuickKlStep0 = qreg_blockft.baseQuickKlStep0 := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;>
+    norm_num [qreg_blockft.baseKlHeldoutAfter, qreg_blockft.b120KlHeldoutAfter, qreg_blockft.b120Top1HeldoutAfter,
+      qreg_blockft.baseTop1HeldoutAfter, qreg_blockft.baseSteps, qreg_blockft.b120Steps, qreg_blockft.b120QuickKlStep0,
+      qreg_blockft.baseQuickKlStep0]
+
+/-- **The block-local objective is misaligned with the end-to-end KL.** Over the 296 block steps the block loss falls
+(`0.3120 → 0.2803` on the same batch) while the quick held-out KL rises by more than `0.1` (`0.7954 → 0.9635`). -/
+theorem blockft_phase_raises_kl :
+    qreg_blockft.blockLossLast < qreg_blockft.blockLossFirst ∧
+    qreg_blockft.b120QuickKlStep0 + 1 / 10 < qreg_blockft.blockQuickKlAtSwitch := by
+  refine ⟨?_, ?_⟩ <;>
+    norm_num [qreg_blockft.blockLossLast, qreg_blockft.blockLossFirst, qreg_blockft.b120QuickKlStep0,
+      qreg_blockft.blockQuickKlAtSwitch]
+
+/-- **Cost model: a block step costs `3/4` to `4/5` of a KL step** (`0.406` s against `0.538` s, ratio `0.754`): it skips the
+LM head, so the phase buys steps, not KL. -/
+theorem blockft_block_step_cost :
+    qreg_blockft.blockWallS / qreg_blockft.blockSteps <
+      4 / 5 * (qreg_blockft.baseTrainS / qreg_blockft.baseSteps) ∧
+    3 / 4 * (qreg_blockft.baseTrainS / qreg_blockft.baseSteps) <
+      qreg_blockft.blockWallS / qreg_blockft.blockSteps := by
+  refine ⟨?_, ?_⟩ <;>
+    norm_num [qreg_blockft.blockWallS, qreg_blockft.blockSteps, qreg_blockft.baseTrainS, qreg_blockft.baseSteps]
+
 end Perf.QuantumRotation
