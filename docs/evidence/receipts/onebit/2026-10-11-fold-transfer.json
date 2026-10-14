@@ -1,0 +1,177 @@
+{
+ "script_sha256": "4032c1e27555ffb60d1a6c0c864197ca6c37d26d358516823c19dd4808fc085d",
+ "args": {
+  "out": "/home/socol/oc-tmp/escalation/2026-10-11-fold-transfer.json",
+  "variants": "rtn,q4km,gguf-f16,gptq1-t,gptq1-s,fold-ns,fold-local",
+  "controls": true,
+  "layers": 24,
+  "iters": 2,
+  "ridge": 0.001,
+  "n_cal": 100,
+  "n_eval": 40,
+  "n_in": 20,
+  "slab": 10,
+  "verbose": false
+ },
+ "n_tokens": 87466,
+ "n_chunks": 170,
+ "cal_chunks": [
+  0,
+  100
+ ],
+ "eval_chunks": [
+  100,
+  140
+ ],
+ "insample_chunks": [
+  0,
+  20
+ ],
+ "gpu": "NVIDIA GeForce RTX 5080",
+ "controls": {
+  "c1_gptq_vec_vs_naive_numpy_maxabs": 1.1102230246251565e-16,
+  "c2_identity_gram_equals_rtn_maxabs": 1.1102230246251565e-16,
+  "c3_UtU_h_minus_I_maxabs": 2.6645352591003757e-15,
+  "c4_J_gptq_cstep_rstep": [
+   70705668.61553542,
+   53544980.817152336,
+   52910408.30066104
+  ],
+  "c4_perturbations_below_minimum_c_r": [
+   0,
+   0
+  ],
+  "c5_fold_solve_recovery_maxabs": 3.757127942094485e-11,
+  "c6_forward_vs_hf_maxabs_logp": 0.0001773834228515625,
+  "c6_forward_vs_hf_KL": -1.568707164167904e-09,
+  "c7_gram_blk5_down_rel_frob_vs_file": 6.233840968359137e-07,
+  "c7_gram_trace_ratio": 0.9999998981485407,
+  "c8_rtn_vs_numpy_maxabs": 0.0
+ },
+ "variants": {
+  "rtn": {
+   "bits": 402554880,
+   "params": 357826560,
+   "bpw_linears": 1.125,
+   "kl_heldout": 12.69526801109314,
+   "top1_heldout": 0.0,
+   "kl_insample": 12.86105318069458,
+   "top1_insample": 0.0,
+   "wall_transfer_s": 0.034813880920410156,
+   "timings": {
+    "gram": 0.0,
+    "solve": 0.0,
+    "gptq": 0.0,
+    "refit": 0.0,
+    "fwd": 0.0
+   },
+   "peak_gpu_gb": 6.129638195037842
+  },
+  "q4km": {
+   "bpw_linears": 5.520673076923077,
+   "kl_heldout": 0.019728742260485887,
+   "top1_heldout": 0.913671875,
+   "kl_insample": 0.017369855754077436,
+   "top1_insample": 0.9193359375,
+   "wall_transfer_s": 4.896240949630737,
+   "timings": {},
+   "peak_gpu_gb": 6.106627941131592
+  },
+  "gguf-f16": {
+   "bpw_linears": 16.0,
+   "kl_heldout": 1.5864842439761161e-09,
+   "top1_heldout": 1.0,
+   "kl_insample": 1.532597754261289e-09,
+   "top1_insample": 1.0,
+   "wall_transfer_s": 3.9897642135620117,
+   "timings": {},
+   "peak_gpu_gb": 6.106627941131592
+  },
+  "gptq1-t": {
+   "bits": 402554880,
+   "params": 357826560,
+   "bits_sign": 357826560,
+   "bits_r": 44728320,
+   "bits_c": 0,
+   "bpw_linears": 1.125,
+   "kl_heldout": 14.85678505897522,
+   "top1_heldout": 4.8828125e-05,
+   "kl_insample": 15.032217407226563,
+   "top1_insample": 0.0,
+   "wall_transfer_s": 31.56896996498108,
+   "timings": {
+    "gram": 7.983138084411621,
+    "solve": 0.01875591278076172,
+    "gptq": 20.44075655937195,
+    "refit": 0.0,
+    "fwd": 3.106903076171875
+   },
+   "peak_gpu_gb": 6.161010265350342
+  },
+  "gptq1-s": {
+   "bits": 402554880,
+   "params": 357826560,
+   "bits_sign": 357826560,
+   "bits_r": 44728320,
+   "bits_c": 0,
+   "bpw_linears": 1.125,
+   "kl_heldout": 7.0752849817276005,
+   "top1_heldout": 0.046728515625,
+   "kl_insample": 6.724843454360962,
+   "top1_insample": 0.0435546875,
+   "wall_transfer_s": 37.952234983444214,
+   "timings": {
+    "gram": 14.297348976135254,
+    "solve": 0.01848435401916504,
+    "gptq": 20.479938507080078,
+    "refit": 0.0,
+    "fwd": 3.1366312503814697
+   },
+   "peak_gpu_gb": 6.163695812225342
+  },
+  "fold-ns": {
+   "bits": 402554880,
+   "params": 357826560,
+   "bits_sign": 357826560,
+   "bits_r": 44728320,
+   "bits_c": 0,
+   "bpw_linears": 1.125,
+   "kl_heldout": 5.252820467948913,
+   "top1_heldout": 0.087158203125,
+   "kl_insample": 3.9184262990951537,
+   "top1_insample": 0.1158203125,
+   "wall_transfer_s": 44.86745238304138,
+   "timings": {
+    "gram": 15.310336112976074,
+    "solve": 3.836594343185425,
+    "gptq": 0.0,
+    "refit": 22.580199003219604,
+    "fwd": 3.1197071075439453
+   },
+   "peak_gpu_gb": 6.163634777069092
+  },
+  "fold-local": {
+   "bits": 405454848,
+   "params": 357826560,
+   "bits_sign": 357826560,
+   "bits_r": 44728320,
+   "bits_c": 2899968,
+   "bpw_linears": 1.1331043956043956,
+   "kl_heldout": 3.8059012651443482,
+   "top1_heldout": 0.20595703125,
+   "kl_insample": 2.441487121582031,
+   "top1_insample": 0.2583984375,
+   "wall_transfer_s": 90.14943194389343,
+   "timings": {
+    "gram": 15.334128856658936,
+    "solve": 3.850222587585449,
+    "gptq": 0.0,
+    "refit": 67.79719376564026,
+    "fwd": 3.142104148864746
+   },
+   "peak_gpu_gb": 6.169921398162842
+  }
+ },
+ "linear_params": 357826560,
+ "wall_total_s": 248.34614968299866
+}

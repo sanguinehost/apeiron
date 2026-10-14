@@ -304,3 +304,64 @@ def incrOverF0F2oUp : ℚ := (3110810990583357 : ℚ) / 2500000000000000000
 def shuffleF1KDR2 : ℚ := (-1746856546906983 : ℚ) / 40000000000000000000
 
 end Receipts.t6_sideinfo_ext
+
+-- Receipt `docs/evidence/receipts/onebit/2026-10-11-vladder.json`
+namespace Receipts.vladder_1011
+
+def sha256 : String := "8088dfd46087dd2decedc0c092ba795544200d4f43ea4d2caeb06fc23a8e6781"
+def sepKL1133 : ℚ := (28374364972114563 : ℚ) / 100000000000000000
+def sepRealizedKL1133 : ℚ := (28338494896888733 : ℚ) / 100000000000000000
+def oracleKL1133 : ℚ := (225625142455101 : ℚ) / 2000000000000000
+def q4KLTotal : ℚ := (1566526356128861 : ℚ) / 100000000000000000
+def sepRStarAllin : ℚ := (1588229739010989 : ℚ) / 500000000000000
+def oracleRStarAllin : ℚ := (470603751717033 : ℚ) / 200000000000000
+
+end Receipts.vladder_1011
+
+-- Receipt `docs/evidence/receipts/onebit/2026-10-11-ray.json`
+namespace Receipts.ray_1011
+
+def sha256 : String := "40e693d217fdbe6c77089fae682e30d95c630d1695c81fadbb8d37003ed2f878"
+def iq1SKl0125 : ℚ := (12214209221824179 : ℚ) / 2000000000000000000
+def iq1SKl1 : ℚ := (4499161145119847 : ℚ) / 10000000000000000
+def iq1MKl0125 : ℚ := (1193072819237767 : ℚ) / 250000000000000000
+def iq1MKl1 : ℚ := (3440351262690617 : ℚ) / 10000000000000000
+def q4KMKl0125 : ℚ := (7044895232812841 : ℚ) / 100000000000000000000
+def q4KMKl1 : ℚ := (225071509176787 : ℚ) / 50000000000000000
+def hadGptq1Kl0125 : ℚ := (163640462439641 : ℚ) / 25000000000000000
+def hadGptq1Kl1 : ℚ := (920020166802869 : ℚ) / 2000000000000000
+def rtnKl0125 : ℚ := (11113454892905271 : ℚ) / 200000000000000000
+def rtnKl1 : ℚ := (2456411942586553 : ℚ) / 250000000000000
+def hadGptq1KlNeg1 : ℚ := (1336282372862761 : ℚ) / 1250000000000000
+
+end Receipts.ray_1011
+
+-- Receipt `docs/evidence/receipts/onebit/2026-10-11-kfac.json`
+namespace Receipts.kfac_1011
+
+def sha256 : String := "e64115b13698bf50bbaaf2ac703e9a753748f0d7ce07ab9594ec323d0dec0d9e"
+def kfacDowniq1S : ℚ := (21164448261026697 : ℚ) / 50000000000000000
+def exactQuadraticiq1S : ℚ := (7817 : ℚ) / 20000
+def kfacDowniq1M : ℚ := (33659999920855643 : ℚ) / 100000000000000000
+def exactQuadraticiq1M : ℚ := (30543 : ℚ) / 100000
+def kfacDownq4KM : ℚ := (7241023923333801 : ℚ) / 2000000000000000000
+def exactQuadraticq4KM : ℚ := (45087 : ℚ) / 10000000
+def kfacDownhadGptq1 : ℚ := (2763866389611407 : ℚ) / 10000000000000000
+def exactQuadratichadGptq1 : ℚ := (10473 : ℚ) / 25000
+def sepKl118 : ℚ := (13227255525115103 : ℚ) / 50000000000000000
+def oracleKl118 : ℚ := (1297247617934253 : ℚ) / 12500000000000000
+def q4KKfacAll : ℚ := (3135035787520473 : ℚ) / 200000000000000000
+def sepRateAtQ4 : ℚ := (31759949804061507 : ℚ) / 10000000000000000
+def oracleRateAtQ4 : ℚ := (1176310159601831 : ℚ) / 500000000000000
+
+end Receipts.kfac_1011
+
+-- Receipt `docs/evidence/receipts/onebit/2026-10-11-fold-transfer.json`
+namespace Receipts.fold_transfer_1011
+
+def sha256 : String := "c52ebdd34b1cc0446310c64d112634c1299f19c8271b1f11cdc1d7ce14481d9b"
+def arm : String := "q4km"
+def q4kmKlHeldout : ℚ := (19728742260485887 : ℚ) / 1000000000000000000
+def q4kmKlInsample : ℚ := (4342463938519359 : ℚ) / 250000000000000000
+
+end Receipts.fold_transfer_1011

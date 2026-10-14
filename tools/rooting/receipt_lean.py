@@ -57,6 +57,18 @@ W15 = {
     "t6_sideinfo_ext": "docs/evidence/receipts/onebit/t6-sideinfo.json",
 }
 
+# 2026-10-11 escalation receipts (copied with their names): the W15a/W15b rate-distortion, ray and K-FAC
+# verdicts in CostCorrespondence.lean, and the held-out Q4_K_M reference. Emitted after W15 by d1011_fields().
+D1011 = {
+    "vladder_1011": "docs/evidence/receipts/onebit/2026-10-11-vladder.json",
+    "ray_1011": "docs/evidence/receipts/onebit/2026-10-11-ray.json",
+    "kfac_1011": "docs/evidence/receipts/onebit/2026-10-11-kfac.json",
+    "fold_transfer_1011": "docs/evidence/receipts/onebit/2026-10-11-fold-transfer.json",
+}
+
+RAY_ARMS = [("iq1S", "iq1_s"), ("iq1M", "iq1_m"), ("q4KM", "q4_k_m"), ("hadGptq1", "had_gptq1"), ("rtn", "rtn")]
+KFAC_ARMS = [("iq1S", "iq1_s"), ("iq1M", "iq1_m"), ("q4KM", "q4_k_m"), ("hadGptq1", "had_gptq1")]
+
 SEEDS = ["0", "1", "2"]
 PER_SEED_RAT = [("klHeldout", "kl_heldout"), ("klInsample", "kl_insample"),
                 ("top1Heldout", "top1_heldout"), ("top1Insample", "top1_insample")]
@@ -110,7 +122,8 @@ def read_ledger(root: Path) -> dict:
 
 def all_receipts():
     """(namespace id, receipt path) for every receipt, the four originals first."""
-    return [(ns, rel) for ns, (rel, _) in RECEIPTS.items()] + list(W17.items()) + list(W15.items())
+    return ([(ns, rel) for ns, (rel, _) in RECEIPTS.items()] + list(W17.items()) + list(W15.items())
+            + list(D1011.items()))
 
 
 def check_ledger(root: Path) -> dict:
@@ -312,8 +325,48 @@ def w17_fields(ns: str, rel: str, sha: str, data: dict) -> list:
             block = data["controls"].get(key)
             if block is not None:
                 out.append(("bool", name, bool_value(block["pass_"], ns)))
+    elif ns in D1011:
+        return d1011_fields(ns, rel, sha, data)
     else:
         return w15_fields(ns, rel, sha, data)
+    return out
+
+
+def d1011_fields(ns: str, rel: str, sha: str, data: dict) -> list:
+    """(kind, name, value) for the 2026-10-11 escalation receipts; the same kinds as emit_receipt."""
+    out = [("str", "sha256", sha)]
+    if ns == "vladder_1011":
+        sep, orc = data["models"]["sep"], data["models"]["oracle"]
+        out.append(("rat", "sepKL1133", rat_value(sep["KL_at_1.133"])))
+        out.append(("rat", "sepRealizedKL1133", rat_value(sep["realized_KL_at_1.133"])))
+        out.append(("rat", "oracleKL1133", rat_value(orc["KL_at_1.133"])))
+        out.append(("rat", "q4KLTotal", rat_value(data["q4_kl_total"])))
+        out.append(("rat", "sepRStarAllin", rat_value(sep["R_star_allin"])))
+        out.append(("rat", "oracleRStarAllin", rat_value(orc["R_star_allin"])))
+    elif ns == "ray_1011":
+        for name, key in RAY_ARMS:
+            kl = data["arms"][key]["kl"]
+            out.append(("rat", f"{name}Kl0125", rat_value(kl["0.125"])))
+            out.append(("rat", f"{name}Kl1", rat_value(kl["1.0"])))
+        out.append(("rat", "hadGptq1KlNeg1", rat_value(data["arms"]["had_gptq1"]["kl"]["-1.0"])))
+    elif ns == "kfac_1011":
+        for name, key in KFAC_ARMS:
+            v = data["validation"][key]
+            out.append(("rat", f"kfacDown{name}", rat_value(v["kfac_down"])))
+            out.append(("rat", f"exactQuadratic{name}", rat_value(v["exact_quadratic"])))
+        sep, orc = data["floor"]["separable"], data["floor"]["oracle"]
+        out.append(("rat", "sepKl118", rat_value(sep["by_rate"]["1.18"]["kl"])))
+        out.append(("rat", "oracleKl118", rat_value(orc["by_rate"]["1.18"]["kl"])))
+        out.append(("rat", "q4KKfacAll", rat_value(data["q4_k_m_kfac_all"])))
+        out.append(("rat", "sepRateAtQ4", rat_value(sep["rate_bpw_at_q4_kl"])))
+        out.append(("rat", "oracleRateAtQ4", rat_value(orc["rate_bpw_at_q4_kl"])))
+    elif ns == "fold_transfer_1011":
+        q = data["variants"]["q4km"]
+        out.append(("str", "arm", "q4km"))
+        out.append(("rat", "q4kmKlHeldout", rat_value(q["kl_heldout"])))
+        out.append(("rat", "q4kmKlInsample", rat_value(q["kl_insample"])))
+    else:
+        raise Fail(f"no 2026-10-11 field map for {ns}")
     return out
 
 
@@ -382,7 +435,7 @@ def generate(root: Path) -> str:
     for ns, (rel, arm) in RECEIPTS.items():
         data = load_json(root / rel)
         body.append(render_receipt(ns, rel, arm, shas[ns], data))
-    for ns, rel in list(W17.items()) + list(W15.items()):
+    for ns, rel in list(W17.items()) + list(W15.items()) + list(D1011.items()):
         data = load_json(root / rel)
         body.append(render_w17(ns, rel, shas[ns], data))
     return "\n".join(head) + "\n" + "\n".join(body)
