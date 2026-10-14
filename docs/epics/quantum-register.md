@@ -420,6 +420,40 @@ step is `0.406` s against `0.538` s for a KL step (ratio `0.754`, it skips the L
 and still loses `0.023` nats. With the iso result (errors saturate, every layer `≥ 0.0229` alone), continuous-parameter
 finishing is not where the gap is; the next arm re-rounds the discrete codes under a full-model-KL Hessian.
 
+### Output-side code refinement (predictions `qreg-yaqa-1`, `-3`, `-6`, refuted)
+
+Receipt [`docs/evidence/receipts/onebit/qreg-yaqa.json`](../evidence/receipts/onebit/qreg-yaqa.json)
+(sha256 `971444ca…`); verdicts `yaqa_refuted`, `yaqa_jo_falls`, `yaqa_capture_noise` and the block identities
+`YaqaBlock.dJ_exact`, `block_complete_square`, `block_target_attains` in `proof/corpus/Perf/QuantumRotation.lean`, audited
+in `AxiomAudit.lean` (namespace `qreg_yaqa`; controls: the reversed KL order, `up` `J_O` rising, and the `down` agreement
+tightened to `1.1%` each leave unsolved goals, exit 1). Board row `quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs`.
+`fold_transfer.py` arm suffix `-yaqa` (off by default) re-rounds every finished E8 plane against
+`J_O(D) = tr(Dᵀ H_O D H_l)`, `D = W_s − W` (Tseng et al., YAQA, arXiv 2505.22988, eq. 5–6), `H_O` the output-side
+Kronecker factor of the full-model KL Hessian by Sketch A (eq. 11) from `gq_capture(outer=True)`: 50 × 512 tokens, 4
+sampled vocabulary directions per token. The refine sets each 256-row block to `E_C = H_O,CC⁻¹ (H_O[C,:] D − H_O,CC D_C)`
+(`block_target_attains`: the exact minimiser of `J_O` over the block with the rest fixed), re-rounds it, and keeps it only
+when `J_O` falls. Arms at n-cal 50, mm/step/fused, 1.178 b/w, one 580 s wall each:
+
+| arm | capture | held-out KL before finishing | after finishing (steps) | exit |
+|---|---|---|---|---|
+| base, base2 | — | 1.1637 | 0.8616 (696), 0.8616 (726) | 0 |
+| jacobi1, jacobi2 (one source) | defective | 1.1341, 1.2852 | — | 2, 1 |
+| solveA, solveB (one source, bit-identical) | fixed | **1.3471** | — | 1, 1 |
+
+`J_O` falls in every kind on the fixed capture (`gate −10.3%`, `up −20.2%`, `down −17.1%`, `o −8.4%`; all `gate`/`up`
+blocks accepted) while held-out KL rises `0.183` nats. The two jacobi arms ran one source on a capture whose `H_O` carried
+atomics noise from the fp32 memory-efficient attention backward: their per-kind `J_O` agree within `1.2%`, their held-out
+KL differs by `0.151`. The refine is therefore driven by `H_O` estimation error at this token count (`25,600` tokens
+against YAQA's `20M`, so `N/O ≈ 21` at `O = 4864` against `≈ 5000`). Two capture defects were found and fixed on the way:
+Sketch-A token weights `‖x_t‖²` taken after the layer loop (every layer used layer 23's), and the nondeterministic backward
+(the capture now runs the math backend and asserts two passes bit-equal). Every `-yaqa` arm that reached it fails the fp32 Hadamard
+gradient-equivalence control (`5.7e-5 > 1e-5`) that the base arms pass at `3.2e-6`, so finishing never ran on them.
+Controls: CPU self-test (`dJ` relative error `6.4e-16`, a planted single-block error recovered to ratio `0.27`, the sign
+control), a block-Jacobi revert mutation (exit 1 on `JO_after < 0.5·JO_before`), and the capture determinism control
+(math backend bit-equal, efficient backend asserts fire 3/3). The open question is the estimator, not the target: a
+split-half `H_O` cross-validation arm (`-yaqaxv`, train on half A, score `J` on half B, plus diagonal shrinkage) separates
+fitting estimation noise from a misaligned Kronecker proxy.
+
 ### Arc Block (W1-T1)
 
 ```text

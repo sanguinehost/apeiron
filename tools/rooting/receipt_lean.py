@@ -96,6 +96,7 @@ W15 = {
     "qreg_attrib": "docs/evidence/receipts/onebit/qreg-attrib.json",
     "qreg_iso": "docs/evidence/receipts/onebit/qreg-iso.json",
     "qreg_blockft": "docs/evidence/receipts/onebit/qreg-blockft.json",
+    "qreg_yaqa": "docs/evidence/receipts/onebit/qreg-yaqa.json",
 }
 
 # End-loss-weighted Gram receipts (fold_transfer "-guided[a|b]NN"): namespace -> variant prefixes (see guided_prefix).
@@ -838,6 +839,41 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
         for name, k in [("blockWallS", "wall_s"), ("blockLossFirst", "loss_first"), ("blockLossLast", "loss_last"),
                         ("blockQuickKlAtSwitch", "quick_kl_at_switch")]:
             out.append(("rat", name, rat(b[k])))
+    elif ns == "qreg_yaqa":
+        # Output-side code refinement ("-yaqa"): two finished base arms, two block-Jacobi arms on the defective capture, two
+        # block-solve arms on the fixed capture (one source): per arm `<label>KlHeldoutBefore`, per-kind J_O and acceptance
+        # of solveA as `solve<Kind><Field>`.
+        arms = {a["label"]: a for a in data["arms"]}
+        if sorted(arms) != ["base", "base2", "jacobi1", "jacobi2", "solveA", "solveB"] or data["protocol"]["n_cal"] != 50:
+            raise Fail(f"{rel}: not the base/jacobi/solve set at n-cal 50")
+        if len({a["bits_before"] for a in arms.values()}) != 1:
+            raise Fail(f"{rel}: arms differ in bits")
+        sA, sB = arms["solveA"], arms["solveB"]
+        if (sA["kl_heldout_before"], sA["yaqa"], sA["script_sha256"]) != (sB["kl_heldout_before"], sB["yaqa"], sB["script_sha256"]):
+            raise Fail(f"{rel}: the solve repeat differs")
+        if sA["script_sha256"]["fold_transfer"] != data["source"]["fold_transfer"]["sha256"]:
+            raise Fail(f"{rel}: solve arms are not the receipt source")
+        for lab in ("base", "base2"):
+            a = arms[lab]
+            if a["exit"] != 0 or not a["grad_equiv_ok"]:
+                raise Fail(f"{rel}: arm {lab} exit {a['exit']} or grad_equiv failed")
+            out.append(("nat", lab + "Steps", nat(a["steps"])))
+            out.append(("rat", lab + "KlHeldoutAfter", rat(a["kl_heldout_after"])))
+        for lab in ("base", "base2", "jacobi1", "jacobi2", "solveA", "solveB"):
+            out.append(("rat", lab + "KlHeldoutBefore", rat(arms[lab]["kl_heldout_before"])))
+        out.append(("nat", "bitsBefore", nat(sA["bits_before"])))
+        for k, v in sA["yaqa"].items():
+            K = k[0].upper() + k[1:]
+            out.append(("rat", f"solve{K}JoBefore", rat(v["JO_before"])))
+            out.append(("rat", f"solve{K}JoAfter", rat(v["JO_after"])))
+            out.append(("nat", f"solve{K}Accepted", nat(v["accepted"])))
+            out.append(("nat", f"solve{K}Chunks", nat(v["chunks"])))
+        for k, v in arms["jacobi1"]["yaqa"].items():
+            K = k[0].upper() + k[1:]
+            out.append(("rat", f"jacobi1{K}JoAfter", rat(v["JO_after"])))
+            out.append(("rat", f"jacobi2{K}JoAfter", rat(arms["jacobi2"]["yaqa"][k]["JO_after"])))
+        out.append(("rat", "solveGradEquivLossRel", rat(sA["grad_equiv_fp32_had_loss_rel"])))
+        out.append(("rat", "baseGradEquivLossRel", rat(arms["base"]["grad_equiv_fp32_had_loss_rel"])))
     elif ns in ("qreg_attrib", "qreg_iso"):
         # Teacher-restore attribution of the held-out KL (pv_finish.py --attrib 8), before and after finishing in one run:
         # per phase `<before|after><Field>`, the 24 per-layer restore KLs `...LayerKl<l>` and the 7 per-kind `...Kind<K>Kl`.

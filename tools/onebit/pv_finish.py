@@ -76,7 +76,7 @@ def arm_args(n_cal, n_eval, n_in, out):
     """The argparse namespace ft.main builds for this arm (defaults of ft.main)."""
     d = dict(out=out, variants=ARM, dump=None, controls=False, verbose=False, outcomes=False, hs_n=1000, gen_new=48, dtype="fp32",
              model="Qwen/Qwen2.5-0.5B", q4km=None, seeds="0", layers=24, iters=2, n_cal=n_cal, n_eval=n_eval, n_in=n_in, slab=10,
-             cal_extra=0, qmlp_rows=416, ridge=1e-3, ridge_w0=0.01, ridge_w0_gqa=0.03, quant_ridge=0.005, quant_damp=0.02,
+             cal_extra=0, qmlp_rows=416, gq_k=4, gq_seed=0, ridge=1e-3, ridge_w0=0.01, ridge_w0_gqa=0.03, quant_ridge=0.005, quant_damp=0.02,
              zellner_gamma=0.85, corr_gamma=0.75, ridge_intra=0.045, ridge_inter=0.025, inter_gamma=1.0, inter_gamma_in=1.0,
              block_alpha=1.0, glu_gamma=0.75, glu_mu=0.05, glu_ridge=0.045, sink_thresh=5.0, sink_tau=1.5, fnorm_lr=0.15)
     return argparse.Namespace(**d)
@@ -966,6 +966,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--smoke", action="store_true")
+    ap.add_argument("--arm-suffix", type=str, default="",
+                    help="appended to the arm name handed to ft.run_variant (e.g. \"-yaqa\" for the output-side code "
+                         "refinement); \"\" leaves ARM, res[\"arm\"] and every output key as today")
     ap.add_argument("--n-cal", type=int, default=50); ap.add_argument("--n-eval", type=int, default=40)
     ap.add_argument("--n-in", type=int, default=20)
     ap.add_argument("--steps", type=int, default=10 ** 9); ap.add_argument("--batch", type=int, default=8)
@@ -1040,7 +1043,7 @@ def main():
         a.n_cal, a.n_eval, a.n_in, a.steps, a.batch = 8, 8, 8, 20, 2
         a.v_every = 10 if a.v_every else 0  # an explicit --v-every 0 stays off in smoke
         a.rec_every = 5
-    res = dict(script_sha256=dict(pv_finish=sha_file(__file__), fold_transfer=sha_file(ft.__file__)), arm=ARM, args=vars(a),
+    res = dict(script_sha256=dict(pv_finish=sha_file(__file__), fold_transfer=sha_file(ft.__file__)), arm=ARM + a.arm_suffix, args=vars(a),
                protocol="pack sink -> codes (E8/O8 index per 8-block) -> P-step Adam (STE) + V-step linearised code moves, KL(teacher||student)"
                + (" [v-gain obs: window gbar/Fisher, OBS diagonal gain]" if a.v_gain == "obs" else "")
                + (" [codes ste: latent L, nearest-of-16 projection, straight-through; V-steps off]" if a.codes == "ste" else "")
@@ -1066,6 +1069,8 @@ def main():
 
     # ---- arm transfer with the pack sink
     ns = arm_args(a.n_cal, a.n_eval, a.n_in, a.out)
+    if a.arm_suffix:
+        ns.variants = ARM + a.arm_suffix
     if not a.smoke:
         ref_args = json.load(open(REF_RECEIPT))["args"]
         diff = {k: (v, ref_args[k]) for k, v in vars(ns).items() if k in ref_args and k not in ("out", "variants") and ref_args[k] != v}
@@ -1074,11 +1079,18 @@ def main():
     ft.PACK_SINK = {}
     t0 = ft.tick()
     torch.manual_seed(0)
-    Ls, binfo, tm = ft.run_variant(cfg, TL, ids_cal, ARM, ns)
+    Ls, binfo, tm = ft.run_variant(cfg, TL, ids_cal, ARM + a.arm_suffix, ns)
     wall_transfer = ft.tick() - t0
     sink, ft.PACK_SINK = ft.PACK_SINK, None
     res["walls"]["load_s"] = t0 - t_load
     res["walls"]["transfer_s"] = wall_transfer
+    if a.arm_suffix:
+        if "yaqa" in binfo:
+            res["yaqa"] = binfo["yaqa"]
+        if "yaqa" in tm:
+            res["walls"]["yaqa_s"] = tm["yaqa"]
+        if "capture" in tm:
+            res["walls"]["capture_s"] = tm["capture"]
     res["controls"]["pack_equality"] = dict(linears=len(sink), torch_equal=ft.PACK_STATS["equal"], within_1e6=ft.PACK_STATS["tol"],
                                             max_rel=ft.PACK_STATS["max_rel"])
     assert ft.PACK_STATS["equal"] + ft.PACK_STATS["tol"] == len(sink) == cfg.nl * len(KINDS), (ft.PACK_STATS, len(sink))
@@ -1096,7 +1108,10 @@ def main():
     res.update(kl_heldout_before=kl_ev0, top1_heldout_before=t1_ev0, kl_insample_before=kl_in0, top1_insample_before=t1_in0)
     res["walls"]["eval_before_s"] = wall_eval
     print(f"before heldout KL {kl_ev0:.6f} top1 {t1_ev0:.6f}  insample KL {kl_in0:.6f} top1 {t1_in0:.6f}  eval {wall_eval:.1f}s", flush=True)
-    if not a.smoke:
+    if a.arm_suffix:
+        # REF_KL_HELDOUT is the base arm's; a suffixed arm changes the transfer by design, so its before-KL is a result.
+        res["controls"]["before_kl_regression"] = dict(ref=REF_KL_HELDOUT, got=kl_ev0, note="suffixed arm: not the reference arm")
+    elif not a.smoke:
         ok = abs(kl_ev0 - REF_KL_HELDOUT) <= 0.002
         res["controls"]["before_kl_regression"] = dict(ref=REF_KL_HELDOUT, got=kl_ev0, ok=ok)
         if not ok:

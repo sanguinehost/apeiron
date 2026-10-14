@@ -1,0 +1,489 @@
+{
+ "question": "Does output-side YAQA code refinement (Tseng et al., arXiv 2505.22988, Eq. 5-6 feedback; Sketch A H_O, Eq. 11, one round from H_I = I) of every finished E8 plane of the 1.178 b/w arm lower held-out KL before finishing, against the same arm without it, at unchanged bits?",
+ "protocol": {
+  "n_cal": 50,
+  "n_eval": 40,
+  "n_in": 20,
+  "batch": 8,
+  "v_every": 0,
+  "codes": "vstep",
+  "compose": "step",
+  "kl": "fused",
+  "hadamard": "mm",
+  "train": "r,c,d,norm",
+  "arm_suffix": "-yaqa",
+  "gq_k": 4,
+  "gq_seed": 0,
+  "ho_tokens": 25600,
+  "ho_samples_per_token": 4,
+  "ho_normalisation": "mean diagonal 1, +0.01 on the diagonal",
+  "wall": "timeout 580, wall-budgeted steps",
+  "bound": "flock /tmp/opencode/gpu.lock, systemd-run MemoryMax=40G MemorySwapMax=0"
+ },
+ "machine": "RTX 5080 host",
+ "source": {
+  "fold_transfer": {
+   "path": "tools/onebit/fold_transfer.py",
+   "sha256": "3f70c7fcea3d068244241707ba7191d5f875ace0dc121fe9fa70d12214dce2bc"
+  },
+  "pv_finish": {
+   "path": "tools/onebit/pv_finish.py",
+   "sha256": "ae62df523220ba3bfd1ab9d2e1c830dc4a7e880eac26b5b4034a7528a9d58107"
+  }
+ },
+ "reference": {
+  "paper": "Tseng et al., YAQA, arXiv 2505.22988",
+  "local": "/home/socol/oc-tmp/refs/blockft/yaqa.txt",
+  "their_sketch_a_tokens": 20000000
+ },
+ "predictions": [
+  {
+   "id": "qreg-yaqa-ctl-1",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "qreg-yaqa-1",
+   "verdict": "refuted"
+  },
+  {
+   "id": "qreg-yaqa-2",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "qreg-yaqa-solve-2",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "qreg-yaqa-solve-3",
+   "verdict": "withdrawn"
+  },
+  {
+   "id": "qreg-yaqa-3",
+   "verdict": "refuted"
+  },
+  {
+   "id": "qreg-yaqa-4",
+   "verdict": "withdrawn"
+  },
+  {
+   "id": "qreg-yaqa-ctl-2",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "qreg-yaqa-5",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "qreg-yaqa-6",
+   "verdict": "refuted"
+  },
+  {
+   "id": "qreg-yaqa-7",
+   "verdict": "confirmed"
+  }
+ ],
+ "arms": [
+  {
+   "label": "base",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqa/prod-base.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb",
+   "script_sha256": {
+    "pv_finish": "7f2ae7d0df8290d457f58257a8122fe73e504ec4491fe7367e95b2e3bfe684d0",
+    "fold_transfer": "36181dd719585422dd4a9dce409c1cfef6322b9b5bae16a2bd1dd1c8b18a76d1"
+   },
+   "exit": 0,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.1636724948883057",
+   "top1_heldout_before": "0.479736328125",
+   "walls": {
+    "load_s": "5.090080261230469",
+    "transfer_s": "121.21106719970703",
+    "eval_before_s": "7.8136961460113525",
+    "projected_finish_s": "20.985750567913055",
+    "train_s": "388.289834022522",
+    "finish_s": "392.3514287471771",
+    "total_s": "538.6232180595398"
+   },
+   "steps": 696,
+   "kl_heldout_after": "0.8615914106369018",
+   "top1_heldout_after": "0.547802734375",
+   "grad_equiv_ok": true,
+   "grad_equiv_fp32_had_loss_rel": "3.2441974074897585e-06"
+  },
+  {
+   "label": "base2",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqa/prod-base2.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb",
+   "script_sha256": {
+    "pv_finish": "ae62df523220ba3bfd1ab9d2e1c830dc4a7e880eac26b5b4034a7528a9d58107",
+    "fold_transfer": "30e0215ae034e008fbee1dc461996a1e0c32bc4ec2850d015bdeb63bd857bd81"
+   },
+   "exit": 0,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.1636724948883057",
+   "top1_heldout_before": "0.479736328125",
+   "walls": {
+    "load_s": "3.7562804222106934",
+    "transfer_s": "123.73493361473083",
+    "eval_before_s": "6.207138538360596",
+    "projected_finish_s": "19.138209319114686",
+    "train_s": "390.5947644710541",
+    "finish_s": "394.31130957603455",
+    "total_s": "540.4301090240479"
+   },
+   "steps": 726,
+   "kl_heldout_after": "0.8616401106119156",
+   "top1_heldout_after": "0.546630859375",
+   "grad_equiv_ok": true,
+   "grad_equiv_fp32_had_loss_rel": "3.2441974074897585e-06"
+  },
+  {
+   "label": "jacobi1",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqa/prod-yaqa.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqa",
+   "script_sha256": {
+    "pv_finish": "7f2ae7d0df8290d457f58257a8122fe73e504ec4491fe7367e95b2e3bfe684d0",
+    "fold_transfer": "36181dd719585422dd4a9dce409c1cfef6322b9b5bae16a2bd1dd1c8b18a76d1"
+   },
+   "exit": 2,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.1340648978948593",
+   "top1_heldout_before": "0.48388671875",
+   "walls": {
+    "load_s": "4.348872661590576",
+    "transfer_s": "221.8717555999756",
+    "yaqa_s": "55.195876121520996",
+    "capture_s": "24.41610813140869",
+    "eval_before_s": "4.973042011260986"
+   },
+   "capture": "defective",
+   "yaqa": {
+    "q": {
+     "JO_before": "21407008.18359375",
+     "JO_after": "21407008.18359375",
+     "accepted": 0,
+     "chunks": 96,
+     "rows_moved": 0
+    },
+    "k": {
+     "JO_before": "766786.2543945312",
+     "JO_after": "766786.2543945312",
+     "accepted": 0,
+     "chunks": 24,
+     "rows_moved": 0
+    },
+    "v": {
+     "JO_before": "995591.3225250244",
+     "JO_after": "995496.732925415",
+     "accepted": 2,
+     "chunks": 24,
+     "rows_moved": 255
+    },
+    "o": {
+     "JO_before": "548731.1718349457",
+     "JO_after": "526106.0652399063",
+     "accepted": 85,
+     "chunks": 96,
+     "rows_moved": 18688
+    },
+    "gate": {
+     "JO_before": "144138254.25",
+     "JO_after": "131471979.75",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 111086
+    },
+    "up": {
+     "JO_before": "117617317.75",
+     "JO_after": "97285122.25",
+     "accepted": 441,
+     "chunks": 456,
+     "rows_moved": 110457
+    },
+    "down": {
+     "JO_before": "8804118.60546875",
+     "JO_after": "8714961.08984375",
+     "accepted": 54,
+     "chunks": 96,
+     "rows_moved": 11392
+    }
+   },
+   "refine_target": "block-Jacobi per-row shift",
+   "yaqa_chunk": 32
+  },
+  {
+   "label": "jacobi2",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqa/prod-yaqa2.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqa",
+   "script_sha256": {
+    "pv_finish": "ae62df523220ba3bfd1ab9d2e1c830dc4a7e880eac26b5b4034a7528a9d58107",
+    "fold_transfer": "36181dd719585422dd4a9dce409c1cfef6322b9b5bae16a2bd1dd1c8b18a76d1"
+   },
+   "exit": 1,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.285153439640999",
+   "top1_heldout_before": "0.4734375",
+   "walls": {
+    "load_s": "3.6486918926239014",
+    "transfer_s": "197.56813740730286",
+    "yaqa_s": "46.60124087333679",
+    "capture_s": "22.50064754486084",
+    "eval_before_s": "4.96356463432312"
+   },
+   "grad_equiv_ok": false,
+   "grad_equiv_fp32_had_loss_rel": "5.7951555147734946e-05",
+   "capture": "defective",
+   "yaqa": {
+    "q": {
+     "JO_before": "21475815.6875",
+     "JO_after": "21475815.6875",
+     "accepted": 0,
+     "chunks": 96,
+     "rows_moved": 0
+    },
+    "k": {
+     "JO_before": "770861.2484741211",
+     "JO_after": "770861.2484741211",
+     "accepted": 0,
+     "chunks": 24,
+     "rows_moved": 0
+    },
+    "v": {
+     "JO_before": "995876.5222396851",
+     "JO_after": "995790.5549545288",
+     "accepted": 2,
+     "chunks": 24,
+     "rows_moved": 256
+    },
+    "o": {
+     "JO_before": "546102.5663528442",
+     "JO_after": "524848.0178489685",
+     "accepted": 85,
+     "chunks": 96,
+     "rows_moved": 18688
+    },
+    "gate": {
+     "JO_before": "144180552.0",
+     "JO_after": "131537130.0",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 111134
+    },
+    "up": {
+     "JO_before": "117725073.0",
+     "JO_after": "97238097.0",
+     "accepted": 440,
+     "chunks": 456,
+     "rows_moved": 110149
+    },
+    "down": {
+     "JO_before": "8685814.40625",
+     "JO_after": "8612884.83203125",
+     "accepted": 54,
+     "chunks": 96,
+     "rows_moved": 11392
+    }
+   },
+   "refine_target": "block-Jacobi per-row shift",
+   "yaqa_chunk": 32
+  },
+  {
+   "label": "solveA",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqa/prod-fixA.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqa",
+   "script_sha256": {
+    "pv_finish": "ae62df523220ba3bfd1ab9d2e1c830dc4a7e880eac26b5b4034a7528a9d58107",
+    "fold_transfer": "3f70c7fcea3d068244241707ba7191d5f875ace0dc121fe9fa70d12214dce2bc"
+   },
+   "exit": 1,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.3470581084489823",
+   "top1_heldout_before": "0.45888671875",
+   "walls": {
+    "load_s": "5.130298376083374",
+    "transfer_s": "191.63642287254333",
+    "yaqa_s": "45.2142608165741",
+    "capture_s": "21.617841482162476",
+    "eval_before_s": "5.055736541748047"
+   },
+   "grad_equiv_ok": false,
+   "grad_equiv_fp32_had_loss_rel": "5.731402004927619e-05",
+   "capture": "fixed",
+   "yaqa": {
+    "q": {
+     "JO_before": "21437479.330078125",
+     "JO_after": "20861547.59765625",
+     "accepted": 47,
+     "chunks": 96,
+     "rows_moved": 10651
+    },
+    "k": {
+     "JO_before": "752175.5137939453",
+     "JO_after": "747576.9219970703",
+     "accepted": 15,
+     "chunks": 24,
+     "rows_moved": 1707
+    },
+    "v": {
+     "JO_before": "991947.2109451294",
+     "JO_after": "986903.1844406128",
+     "accepted": 23,
+     "chunks": 24,
+     "rows_moved": 2610
+    },
+    "o": {
+     "JO_before": "584148.9232654572",
+     "JO_after": "535321.6903266907",
+     "accepted": 96,
+     "chunks": 96,
+     "rows_moved": 21503
+    },
+    "gate": {
+     "JO_before": "148003150.5",
+     "JO_after": "132697208.0",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 111071
+    },
+    "up": {
+     "JO_before": "122968553.25",
+     "JO_after": "98076588.125",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 114453
+    },
+    "down": {
+     "JO_before": "8580745.8359375",
+     "JO_after": "7113012.1015625",
+     "accepted": 74,
+     "chunks": 96,
+     "rows_moved": 16256
+    }
+   },
+   "refine_target": "block solve E_C = HO_CC^-1 (HO[C,:] D - HO_CC D_C)",
+   "yaqa_chunk": 256
+  },
+  {
+   "label": "solveB",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqa/prod-fixB.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqa",
+   "script_sha256": {
+    "pv_finish": "ae62df523220ba3bfd1ab9d2e1c830dc4a7e880eac26b5b4034a7528a9d58107",
+    "fold_transfer": "3f70c7fcea3d068244241707ba7191d5f875ace0dc121fe9fa70d12214dce2bc"
+   },
+   "exit": 1,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.3470581084489823",
+   "top1_heldout_before": "0.45888671875",
+   "walls": {
+    "load_s": "6.215037107467651",
+    "transfer_s": "192.28095173835754",
+    "yaqa_s": "44.34639763832092",
+    "capture_s": "24.077641010284424",
+    "eval_before_s": "4.926739692687988"
+   },
+   "grad_equiv_ok": false,
+   "grad_equiv_fp32_had_loss_rel": "5.731402004927619e-05",
+   "capture": "fixed",
+   "yaqa": {
+    "q": {
+     "JO_before": "21437479.330078125",
+     "JO_after": "20861547.59765625",
+     "accepted": 47,
+     "chunks": 96,
+     "rows_moved": 10651
+    },
+    "k": {
+     "JO_before": "752175.5137939453",
+     "JO_after": "747576.9219970703",
+     "accepted": 15,
+     "chunks": 24,
+     "rows_moved": 1707
+    },
+    "v": {
+     "JO_before": "991947.2109451294",
+     "JO_after": "986903.1844406128",
+     "accepted": 23,
+     "chunks": 24,
+     "rows_moved": 2610
+    },
+    "o": {
+     "JO_before": "584148.9232654572",
+     "JO_after": "535321.6903266907",
+     "accepted": 96,
+     "chunks": 96,
+     "rows_moved": 21503
+    },
+    "gate": {
+     "JO_before": "148003150.5",
+     "JO_after": "132697208.0",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 111071
+    },
+    "up": {
+     "JO_before": "122968553.25",
+     "JO_after": "98076588.125",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 114453
+    },
+    "down": {
+     "JO_before": "8580745.8359375",
+     "JO_after": "7113012.1015625",
+     "accepted": 74,
+     "chunks": 96,
+     "rows_moved": 16256
+    }
+   },
+   "refine_target": "block solve E_C = HO_CC^-1 (HO[C,:] D - HO_CC D_C)",
+   "yaqa_chunk": 256
+  }
+ ],
+ "defects": [
+  {
+   "name": "last-layer token weights",
+   "fixed_in": "3f70c7fc",
+   "what": "gq_capture computed the Sketch-A weights w_t = ||x_t||^2 after the layer loop, so every layer's H_O used layer 23's input norms; now appended per layer inside the loop"
+  },
+  {
+   "name": "nondeterministic SDPA backward",
+   "fixed_in": "3f70c7fc",
+   "what": "the fp32 memory-efficient SDPA backward accumulates with atomics; jacobi1 and jacobi2 ran one source (fold_transfer 36181dd7) and differ in held-out KL before by 0.151 with per-kind J_O after within 1.2% (down 1.17%, the other six within 0.6%); the capture now runs under the math backend and asserts two backward passes bit-equal"
+  }
+ ],
+ "controls": {
+  "selftest": {
+   "command": "CUDA_VISIBLE_DEVICES= fold_transfer.py --yaqa-controls",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqa/ctl2.json",
+   "fold_transfer": "3f70c7fc",
+   "dJ_rel_err": "6.358895301036575e-16",
+   "chunk": 16,
+   "single_ratio": "0.27309911704853024",
+   "two_ratio": "0.17737863567076592",
+   "sign_drop_plus": "472.501988017222",
+   "sign_drop_minus": "0.0"
+  },
+  "jacobi_revert_mutation": {
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqa/mut2.log",
+   "exit": 1,
+   "single_JO_before": "1646.239822038086",
+   "single_JO_after": "943.2158541113123",
+   "assert_line": "assert lg['JO_after'] < 0.5 * lg['JO_before']"
+  },
+  "capture_determinism": {
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqa/capdet/capdet.json",
+   "math_assert_passed": true,
+   "math_ho_bit_equal": true,
+   "efficient_assert_fired": 3,
+   "efficient_tries": 3
+  },
+  "repeat": {
+   "note": "solveA and solveB on one source: kl_heldout_before and every per-kind yaqa field equal"
+  },
+  "grad_equiv": {
+   "note": "every yaqa arm that reached it fails the fp32_had loss bound 1e-5 (pv_finish.py); the base arms pass at 3.24e-6; finishing never ran on a yaqa arm",
+   "bound": "1e-5"
+  }
+ }
+}

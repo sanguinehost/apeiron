@@ -18,10 +18,11 @@ usage: fold_transfer.py --out OUT.json [--variants a,b,..] [--controls] [--layer
 variants: teacher rtn gptq1-t gptq1-s fold-ns fold-local fold-block fp-ridge fp-ridge-mut q4km gguf-f16
 Run with /home/socol/Workspace/spinor-ttl/.venv/bin/python (torch + CUDA).
 """
-import argparse, hashlib, json, os, re, sys, time
+import argparse, contextlib, hashlib, json, os, re, sys, time
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.nn.attention import SDPBackend, sdpa_kernel
 import transformers
 
 sys.path.insert(0, "/home/socol/Workspace/llama.cpp/gguf-py")
@@ -752,6 +753,89 @@ def nb_refine(Ws, Hl, P1, P2, g_row=None, icm_ridge=0.20, sweeps=None, rounds=2)
     return cur[2], cur[3], log, cur[0], cur[1]
 
 
+def _yaqa_JO(HO, Hl, D):
+    """J_O(D) = tr(D^T HO D Hl) = sum((HO @ D @ Hl) * D).  Temporal O*O*n + O*n*n MACs, spatial O*n."""
+    return float(((HO @ D @ Hl) * D).sum())
+
+
+def _yaqa_dJ(HO, Hl, D, rows, delta):
+    """Exact J_O(D with rows replaced by D[rows] + delta) - J_O(D), no linearisation:
+    2 <HO[rows,:] D Hl, delta> + <HO[rows,rows] delta Hl, delta>.  Temporal |rows|*O*n + |rows|*n*n + |rows|^2*n MACs."""
+    first = 2.0 * (((HO[rows, :] @ D) @ Hl) * delta).sum()
+    sec = (((HO[rows][:, rows] @ delta) @ Hl) * delta).sum()
+    return float(first + sec)
+
+
+# rows per Gauss-Seidel block of yaqa_refine; recorded in binfo["yaqa_chunk"].  Each ICM call loops over the n/8 E8
+# groups regardless of its row count, so the refine wall scales with O/chunk calls: chunk 32 is 8x the calls of 256.
+YAQA_CHUNK = 256
+
+
+def yaqa_refine(Ws, Hl, HO, P1, P2=None, W_fixed=None, icm_ridge=0.0, chunk=YAQA_CHUNK, sweeps=2, rounds=1, shift_sign=1.0):
+    """Output-side (YAQA) code refinement of finished planes: minimise J_O(D) = tr(D^T HO D Hl) = sum((HO @ D @ Hl) * D),
+    D = Ws - (_plane_w(P1) + [_plane_w(P2)] + [W_fixed]), by Gauss-Seidel over row chunks of the E8/O8 codes only (scales
+    r, c, d and the bit count are untouched).  Plane P = (S_rot, r, c, d) as in _plane_w; W_fixed is a dense additive
+    plane (a top-rows partial second plane).  Tseng et al., arXiv 2505.22988 Eq. 5-6: the output-side feedback term.
+    Block derivation: with the rows outside C fixed, J_O = tr((D_C + E_C)^T HO_CC (D_C + E_C) Hl) + const for
+    E_C = HO_CC^-1 HO[C,notC] D_notC, so the continuous optimum of the block is D_C = -E_C and the ICM pass targets
+    Ws_C + E_C (minus W_fixed_C).  For |C| = 1 this is the per-row identity E_r = HO[r,notr] D_notr / HO[r,r]; the
+    per-row (block-Jacobi) shift at |C| > 1 counts the coupling HO[C,C] of rows that all move at once and overshoots
+    (selftest: two planes, chunk 16, block-Jacobi accepts nothing).  The ICM rounds each row of C independently, so the
+    rounding errors' coupling inside C is left to the exact second-order dJ of _yaqa_dJ, which decides acceptance;
+    the update is applied to S_rot only (rejected chunks keep their rows).
+    Complexity: temporal per round O*O*n + O*n*n MACs for the shifts and the dJ (summed over the O/chunk chunks), plus
+    O*chunk^2 for the block solves (O/chunk solves of chunk^3) and one ICM pass over all rows; spatial O*O for HO,
+    O*n for D (and chunk*n transient per chunk).
+    Returns (P1', P2', log) with log = dict(JO_before, JO_after, chunks, accepted, rows_moved); P2' is None for one plane."""
+    O, n = Ws.shape
+    HO = HO.to(Ws.dtype).to(Ws.device)
+    Hl = Hl.to(Ws.dtype).to(Ws.device)
+    two = P2 is not None
+    S1, r1, c1, d1 = P1[0].clone(), P1[1], P1[2], P1[3]
+    if two:
+        S2, r2, c2, d2 = P2[0].clone(), P2[1], P2[2], P2[3]
+    W = _plane_w((S1, r1, c1, d1))
+    if two:
+        W = W + _plane_w((S2, r2, c2, d2))
+    if W_fixed is not None:
+        W = W + W_fixed
+    D = Ws - W
+    j0 = _yaqa_JO(HO, Hl, D)
+    log = dict(JO_before=j0, JO_after=j0, chunks=0, accepted=0, rows_moved=0)
+    for rnd in range(int(rounds)):
+        cuts = list(range(0, O, int(chunk)))
+        if rnd % 2 == 1:
+            cuts = cuts[::-1]        # Gauss-Seidel order reversed on odd rounds
+        for c0 in cuts:
+            Cs = slice(c0, min(O, c0 + int(chunk)))
+            log["chunks"] += 1
+            HCC = HO[Cs, Cs]
+            E_C = shift_sign * torch.linalg.solve(HCC, HO[Cs, :] @ D - HCC @ D[Cs])
+            T_C = Ws[Cs] + E_C
+            if W_fixed is not None:
+                T_C = T_C - W_fixed[Cs]
+            if two:
+                P1n, P2n, _st = e8_joint_icm_2plane(T_C, Hl, (S1[Cs], r1[Cs], c1, d1), (S2[Cs], r2[Cs], c2, d2),
+                                                    sweeps=sweeps, icm_ridge=icm_ridge)
+                W_new = _plane_w(P1n) + _plane_w(P2n)
+            else:
+                P1n = (e8_icm_step(T_C, Hl, S1[Cs], r1[Cs], c1, d1, sweeps=sweeps, icm_ridge=icm_ridge), r1[Cs], c1, d1)
+                W_new = _plane_w(P1n)
+            if W_fixed is not None:
+                W_new = W_new + W_fixed[Cs]
+            delta = (Ws[Cs] - W_new) - D[Cs]
+            if _yaqa_dJ(HO, Hl, D, Cs, delta) < 0.0:
+                S1[Cs] = P1n[0]
+                if two:
+                    S2[Cs] = P2n[0]
+                D[Cs] += delta
+                log["accepted"] += 1
+                log["rows_moved"] += int((delta.abs().amax(-1) > 0).sum())
+            del E_C, T_C, delta, HCC
+    log["JO_after"] = _yaqa_JO(HO, Hl, D)
+    return (S1, r1, c1, d1), ((S2, r2, c2, d2) if two else None), log
+
+
 def fold_fit(Ws, H, iters, ridge, refit=True, had=False, damp=0.01, inner_iters=1, act_order=False, wscale=False, hier_scale=False, bscale=False, cgauge=False, bgptq=False, hpre=False, e8_code=False, e8_beam=1, e8_icm=False, icm_ridge=0.0, g_row=None):
     """Alternation of the discrete step (gptq1 / had-gptq1 / had-e8) and the exact continuous steps. Returns (W', info)."""
     n = H.shape[0]
@@ -1009,17 +1093,30 @@ GQ_FORCE_ONES = False   # null control: a_t = 1 (Grams equal the base arm's); b 
 GQ_NULL_B = False       # null control: keep the base arm's g_row (b not applied)
 GQ_DEBUG = None         # dict receiving layer-0 Hm / Hm_w per stage (control)
 GQ_STAGE_OF = dict(q="qkv", k="qkv", v="qkv", o="o", gate="ffn", up="ffn", down="down")
+# The input of each linear whose per-token ||x_t||^2 weights the output-side Hessian HO (YAQA Sketch A): q/k/v: x_a; o: a;
+# gate/up: x_f; down: silu(g)*u.
+GQ_IN_OF = dict(q="xa", k="xa", v="xa", o="at", gate="xf", up="xf", down="m")
 GQ_SUFFIX = "-guided"
 
-def gq_capture(cfg, TL, ids_cal, K=4, seed=0, bs=1):
+def gq_capture(cfg, TL, ids_cal, K=4, seed=0, bs=1, outer=False):
     """True-Fisher output-gradient statistics of the teacher on ids_cal (N x T), K sampled targets per position.
     Returns dict(a=[l][stage] float64 CPU (N,T) mean 1, b=[l][nm] float64 CPU (O,) mean 1, wall_s).
+    With outer=True it also accumulates, per layer l and kind nm, HO[l][nm] = sum over tokens t and the K samples of
+    w_t * g_t g_t^T, g_t (length O) the sampled-label gradient of that linear's OUTPUT at token t and w_t = ||x_t||^2 the
+    squared norm of its input at t.  This is YAQA Sketch A, Eq. 11 (Tseng et al., arXiv 2505.22988, Eq. 5-6: the
+    output-side feedback term L_O^T Delta), one round from (H_I)_0 = I.  fp32 accumulation on the GPU, then per (l, nm)
+    divided by its mean diagonal (mean diag 1), 0.01 added to the diagonal, moved to CPU fp32, returned under out["ho"].
     Cost: one teacher forward plus K backward passes through the retained graph (data gradients only, weights are
     constants): (2 + 2K) * P * N * T FLOPs with P ~ 0.49e9 (24 layers + tied head), i.e. 10 P N T at K = 4 (~ 5e13 at
     N = 50, T = 512); counted in FLOPs, derived as forward 2P per token + K backward passes of 2P.
+     outer=True adds K * N * T * sum_nm O_nm^2 MACs (the accumulation recurrence is one rank-1 update per token and sample)
+    and sum_nm O_nm^2 fp32 floats of accumulator (about 4.8 GB over the 24 Qwen2.5-0.5B layers, freed before return);
+    the per-token input norms are L*B*T*4 floats per batch (each layer's own inputs).  With outer=True the capture runs
+    under the math SDPA backend (retains B*nh*T^2 attention floats per layer, ~14.7 MB at bs=1, T=512, nh=14) and asserts
+    on the first batch that two backward passes give bit-equal gradients, so H_O is a function of (ids_cal, K, seed).
     Space: B*T*(~8e4 floats/layer * 24 retained activations + V logits) = bs=1: ~3 GB peak on GPU; accumulators
     N*T*4*L doubles (a) + sum_l O_l doubles (b) = ~10 MB at N = 50; weights 2.5 GB resident fp32."""
-    key = (hashlib.sha256(ids_cal.numpy().tobytes()).hexdigest(), K, seed)
+    key = (hashlib.sha256(ids_cal.numpy().tobytes()).hexdigest(), K, seed, bool(outer))
     if key in GQ_CACHE:
         return GQ_CACHE[key]
     t0 = tick()
@@ -1034,45 +1131,66 @@ def gq_capture(cfg, TL, ids_cal, K=4, seed=0, bs=1):
     stage_ch = {"qkv": chan["q"] + chan["k"] + chan["v"], "o": chan["o"], "ffn": chan["gate"] + chan["up"], "down": chan["down"]}
     A = [{st: torch.zeros(N, T, dtype=F64) for st in stage_ch} for _ in range(nl)]
     B = [{nm: torch.zeros(TL[l][nm].shape[0], dtype=F64) for nm in kinds} for l in range(nl)]
+    HO = [{nm: torch.zeros(chan[nm], chan[nm], dtype=torch.float32, device=DEV) for nm in kinds} for _ in range(nl)] if outer else None
     gen = torch.Generator(device=DEV).manual_seed(seed)
     max_dlogit = 0.0
-    for b0 in range(0, N, bs):
-        ids = ids_cal[b0:b0 + bs]
-        h = E[ids.to(DEV)].clone().requires_grad_(True)
-        zs = []
-        for L in Ld:
-            xa = rms(h, L["ln1"], cfg.eps)
-            q, k, v = xa @ L["q"].T + L["qb"], xa @ L["k"].T + L["kb"], xa @ L["v"].T + L["vb"]
-            at = attn_a(cfg, L, xa, (q, k, v))
-            o = at @ L["o"].T
-            mid = h + o
-            xf = rms(mid, L["ln2"], cfg.eps)
-            g, u = xf @ L["gate"].T, xf @ L["up"].T
-            d = (F.silu(g) * u) @ L["down"].T
-            h = mid + d
-            zs.append(dict(q=q, k=k, v=v, o=o, gate=g, up=u, down=d))
-        logits = rms(h, fn, cfg.eps) @ E.T
-        flat = [z[nm] for z in zs for nm in kinds]
-        if b0 == 0:  # the capture forward is the teacher forward
-            ref_lg = logits_of(cfg, TL, ids[:1])
-            max_dlogit = float((logits.detach()[:1].cpu() - ref_lg).abs().max())
-            assert max_dlogit < 1e-2 * float(ref_lg.abs().max()), max_dlogit
-            del ref_lg
-        probs = F.softmax(logits.detach(), -1).view(-1, logits.shape[-1])
-        for kk in range(K):
-            s = torch.multinomial(probs, 1, generator=gen)[:, 0]
-            loss = F.cross_entropy(logits.view(-1, logits.shape[-1]), s, reduction="sum")
-            grads = torch.autograd.grad(loss, flat, retain_graph=(kk < K - 1))
-            for l in range(nl):
-                tok = {st: torch.zeros(ids.shape[0], T, dtype=F64, device=DEV) for st in stage_ch}
-                for ji, nm in enumerate(kinds):
-                    g2 = grads[l * len(kinds) + ji].double() ** 2
-                    tok[GQ_STAGE_OF[nm]] += g2.sum(-1)
-                    B[l][nm] += g2.sum((0, 1)).cpu()
-                for st in stage_ch:
-                    A[l][st][b0:b0 + ids.shape[0]] += tok[st].cpu()
-            del grads, loss
-        del zs, flat, logits, probs, h
+    # the fp32 memory-efficient SDPA backward accumulates with atomics (not bit-reproducible); the math backend is
+    # explicit matmul + softmax, so the H_O capture is a function of (ids_cal, K, seed)
+    with (sdpa_kernel(SDPBackend.MATH) if outer else contextlib.nullcontext()):
+        for b0 in range(0, N, bs):
+            ids = ids_cal[b0:b0 + bs]
+            h = E[ids.to(DEV)].clone().requires_grad_(True)
+            zs = []
+            nins = []
+            for L in Ld:
+                xa = rms(h, L["ln1"], cfg.eps)
+                q, k, v = xa @ L["q"].T + L["qb"], xa @ L["k"].T + L["kb"], xa @ L["v"].T + L["vb"]
+                at = attn_a(cfg, L, xa, (q, k, v))
+                o = at @ L["o"].T
+                mid = h + o
+                xf = rms(mid, L["ln2"], cfg.eps)
+                g, u = xf @ L["gate"].T, xf @ L["up"].T
+                mi = F.silu(g) * u
+                d = mi @ L["down"].T
+                h = mid + d
+                zs.append(dict(q=q, k=k, v=v, o=o, gate=g, up=u, down=d))
+                if outer:  # Sketch-A token weights w_t = ||x_t||^2 of THIS layer's linear inputs
+                    with torch.no_grad():
+                        nins.append(dict(xa=(xa * xa).sum(-1), at=(at * at).sum(-1), xf=(xf * xf).sum(-1), m=(mi * mi).sum(-1)))
+            logits = rms(h, fn, cfg.eps) @ E.T
+            flat = [z[nm] for z in zs for nm in kinds]
+            if b0 == 0:  # the capture forward is the teacher forward
+                ref_lg = logits_of(cfg, TL, ids[:1])
+                max_dlogit = float((logits.detach()[:1].cpu() - ref_lg).abs().max())
+                assert max_dlogit < 1e-2 * float(ref_lg.abs().max()), max_dlogit
+                del ref_lg
+            probs = F.softmax(logits.detach(), -1).view(-1, logits.shape[-1])
+            if outer and b0 == 0:  # fail loud on a nondeterministic backward: two passes on the argmax labels are bit-equal
+                sa = probs.argmax(-1)
+                g1 = torch.autograd.grad(F.cross_entropy(logits.view(-1, logits.shape[-1]), sa, reduction="sum"), flat, retain_graph=True)
+                g2 = torch.autograd.grad(F.cross_entropy(logits.view(-1, logits.shape[-1]), sa, reduction="sum"), flat, retain_graph=True)
+                det_ok = all(torch.equal(x, y) for x, y in zip(g1, g2))
+                assert det_ok, "gq_capture backward is not bit-reproducible"
+                del g1, g2, sa
+            for kk in range(K):
+                s = torch.multinomial(probs, 1, generator=gen)[:, 0]
+                loss = F.cross_entropy(logits.view(-1, logits.shape[-1]), s, reduction="sum")
+                grads = torch.autograd.grad(loss, flat, retain_graph=(kk < K - 1))
+                for l in range(nl):
+                    tok = {st: torch.zeros(ids.shape[0], T, dtype=F64, device=DEV) for st in stage_ch}
+                    for ji, nm in enumerate(kinds):
+                        g2 = grads[l * len(kinds) + ji].double() ** 2
+                        tok[GQ_STAGE_OF[nm]] += g2.sum(-1)
+                        B[l][nm] += g2.sum((0, 1)).cpu()
+                        if outer:
+                            # Sketch A, Eq. 11: HO += sum_t w_t g_t g_t^T with w_t = ||x_t||^2 of this linear's input.
+                            g_ = grads[l * len(kinds) + ji].float().reshape(-1, chan[nm])
+                            w_ = nins[l][GQ_IN_OF[nm]].reshape(-1).float()
+                            HO[l][nm] += (g_ * w_[:, None]).T @ g_
+                    for st in stage_ch:
+                        A[l][st][b0:b0 + ids.shape[0]] += tok[st].cpu()
+                del grads, loss
+            del zs, flat, logits, probs, h
     for l in range(nl):
         for st, c in stage_ch.items():
             x = A[l][st] / (K * c)
@@ -1081,8 +1199,22 @@ def gq_capture(cfg, TL, ids_cal, K=4, seed=0, bs=1):
             x = B[l][nm] / (K * N * T)
             B[l][nm] = x / x.mean()
     del Ld, E, fn
+    ho = None
+    if outer:
+        ho = []
+        for l in range(nl):
+            dl = {}
+            for nm in kinds:
+                x = HO[l][nm]
+                x = x / x.diagonal().mean().clamp_min(1e-30)   # mean diagonal 1
+                x.diagonal().add_(0.01)
+                dl[nm] = x.cpu()                                # fp32 on the CPU
+            ho.append(dl)
+        HO = None
     torch.cuda.empty_cache()
     out = dict(a=A, b=B, wall_s=tick() - t0, K=K, seed=seed, max_dlogit=max_dlogit)
+    if outer:
+        out["ho"] = ho
     GQ_CACHE[key] = out
     return out
 
@@ -1101,6 +1233,12 @@ FLAG_PROBE = None  # control: run_variant appends its resolved scalar flags and 
 def run_variant(cfg, TL, ids_cal, name, a):
     """Returns (student layers, bits info, timings)."""
     dt = torch.float32 if a.dtype == "fp32" else torch.float64
+    # "-yaqa": output-side (YAQA) code refinement of every finished plane; stripped before the rest of the name, so it
+    # may follow a "-guided..." suffix.  Only `yaqa` differs between the base arm and base + "-yaqa".
+    yaqa_m = re.search(r"-yaqa$", name)
+    yaqa = yaqa_m is not None
+    if yaqa:
+        name = name[:yaqa_m.start()]
     # "-guided": every flag below resolves from the base arm's name; only `guided` is new
     # "-guided[a|b]NN": NN tempers the token weights to a_t^(NN/100) (renormalised to mean 1; bare is the paper's a_t);
     # "a" applies the token weights only (row weights stay the base proxy), "b" the row weights only (a_t = 1)
@@ -1167,6 +1305,7 @@ def run_variant(cfg, TL, ids_cal, name, a):
     e8_icm = name in icm_names
     nb_arm = name.endswith("-nb")
     nb_stats = {k: dict(J_seq=0.0, J_nb=0.0, moves=0, rounds_kept=0, tensors=0) for k in ("k", "v", "o")}
+    yaqa_stats = {nm: dict(JO_before=0.0, JO_after=0.0, accepted=0, chunks=0, rows_moved=0) for nm in KINDS}
     icm_ridge = 0.25 if "icm25" in name else (0.20 if "icm20" in name else (0.15 if "icm15" in name else 0.0))
     gin_val = 0.25 if ("-gin25" in name) else a.inter_gamma_in
     glu_comp = name.endswith("-glu")
@@ -1185,6 +1324,8 @@ def run_variant(cfg, TL, ids_cal, name, a):
     refit = name in ("fold-local", "fold-block", "had-fold-local", "had-fold-block", "had-fold-block-w0") or mode == "fold_gqa"
     block = name in ("fold-block", "had-fold-block", "had-fold-block-w0") or mode == "fold_gqa"
     tm = dict(gram=0.0, solve=0.0, gptq=0.0, refit=0.0, fwd=0.0)
+    if yaqa:
+        tm["yaqa"] = 0.0
     if FLAG_PROBE is not None:
         loc = dict(locals())
         FLAG_PROBE.append({k: v for k, v in loc.items() if isinstance(v, (bool, int, float, str)) and k not in ("name", "loc")})
@@ -1206,14 +1347,18 @@ def run_variant(cfg, TL, ids_cal, name, a):
         return Ls, dict(bits=nsign + nr, params=ntot), tm
     N = ids_cal.shape[0]
     gq = None
-    if guided:
-        assert mode == "fold_gqa" and use_grow, "-guided applies to the fold_gqa arms with row weights"
-        gq = gq_capture(cfg, TL, ids_cal.cpu(), K=a.gq_k, seed=a.gq_seed)
+    if guided or yaqa:
+        assert mode == "fold_gqa" and use_grow, "-guided / -yaqa apply to the fold_gqa arms with row weights"
+        gq = gq_capture(cfg, TL, ids_cal.cpu(), K=a.gq_k, seed=a.gq_seed, outer=yaqa)
         tm["capture"] = gq["wall_s"]
-        if gq_gamma != 1.0:
-            gq = dict(gq, a=[{st: x ** gq_gamma / (x ** gq_gamma).mean() for st, x in d.items()} for d in gq["a"]])
-        if GQ_FORCE_ONES or gq_part == "b":
-            gq = dict(gq, a=[{st: torch.ones_like(x) for st, x in d.items()} for d in gq["a"]])
+        if yaqa:
+            assert "ho" in gq, "outer capture produced no output-side Hessian"
+        if guided:
+            if gq_gamma != 1.0:
+                gq = dict(gq, a=[{st: x ** gq_gamma / (x ** gq_gamma).mean() for st, x in d.items()} for d in gq["a"]])
+            if GQ_FORCE_ONES or gq_part == "b":
+                gq = dict(gq, a=[{st: torch.ones_like(x) for st, x in d.items()} for d in gq["a"]])
+    ho = gq["ho"] if yaqa else None
     ht = cfg.E[ids_cal.cpu()]
     hs = ht.clone()
     for l in range(cfg.nl):
@@ -1444,24 +1589,29 @@ def run_variant(cfg, TL, ids_cal, name, a):
                         two_plane_nm = ("q", "k", "v", "o")
                     else:
                         two_plane_nm = ("k", "v")
+                    pk1 = info1["pack"]; pk2 = None
                     pk2_top = None; top_sel = None
-                    sink_planes = [_sink_plane(info1["pack"])] if PACK_SINK is not None else None
+                    sink_planes = [_sink_plane(pk1)] if PACK_SINK is not None else None
                     if nm in two_plane_nm:
                         Wp2, info2 = fold_fit(Ws_nm - Wp1, Hm, fit_iters, rg_q, **fk)
+                        pk2 = info2["pack"]
                         if backfit_2plane:
                             Wp1_b, info1_b = fold_fit(Ws_nm - Wp2, Hm, fit_iters, rg_q, **fk)
                             if J(Ws_nm, Wp1_b + Wp2, Hl_m) < J(Ws_nm, Wp1 + Wp2, Hl_m):
                                 Wp1, info1 = Wp1_b, info1_b
+                                pk1 = info1["pack"]
                                 Wp2_b, info2_b = fold_fit(Ws_nm - Wp1, Hm, fit_iters, rg_q, **fk)
                                 if J(Ws_nm, Wp1 + Wp2_b, Hl_m) < J(Ws_nm, Wp1 + Wp2, Hl_m):
                                     Wp2, info2 = Wp2_b, info2_b
+                                    pk2 = info2["pack"]
                         if PACK_SINK is not None:
-                            sink_planes = [_sink_plane(info1["pack"]), _sink_plane(info2["pack"])]
+                            sink_planes = [_sink_plane(pk1), _sink_plane(pk2)]
                         if nb_arm and nm in ("k", "v", "o"):
-                            W1n, W2n, nb_log, Pn1, Pn2 = nb_refine(Ws_nm, Hl_m, info1["pack"], info2["pack"], g_row=g_row, icm_ridge=icm_ridge)
+                            W1n, W2n, nb_log, Pn1, Pn2 = nb_refine(Ws_nm, Hl_m, pk1, pk2, g_row=g_row, icm_ridge=icm_ridge)
                             Wp1, Wp2 = W1n, W2n
+                            pk1, pk2 = Pn1, Pn2
                             if PACK_SINK is not None:
-                                sink_planes = [_sink_plane(Pn1), _sink_plane(Pn2)]
+                                sink_planes = [_sink_plane(pk1), _sink_plane(pk2)]
                             st_ = nb_stats[nm]
                             st_["J_seq"] += nb_log["J_seq"]; st_["J_nb"] += nb_log["J_nb"]; st_["moves"] += nb_log["moves"]
                             st_["rounds_kept"] += nb_log["rounds_kept"]; st_["tensors"] += 1
@@ -1479,12 +1629,46 @@ def run_variant(cfg, TL, ids_cal, name, a):
                             Wp[top_idx] += Wp2_top
                             pk2_top = info2["pack"]; top_sel = top_idx
                             if PACK_SINK is not None:
-                                sink_planes = [_sink_plane(info1["pack"]), _sink_plane(pk2_top, rows=top_idx)]
+                                sink_planes = [_sink_plane(pk1), _sink_plane(pk2_top, rows=top_idx)]
                             nsign += k_rows * n; nr += info2["bits_r"]; nc += info2["bits_c"]; nd += info2.get("bits_d", 0)
                         else:
                             Wp = Wp1
                     else:
                         Wp = Wp1
+                    if yaqa:
+                        # Output-side (YAQA) refinement of the finished codes: every full-row plane (1 or 2) is refined
+                        # against HO[l][nm], a top-rows partial plane enters as the frozen W_fixed.  Runs before any
+                        # row-scale fold, sink store or Lq assignment, so every later consumer sees the refined packs.
+                        t0y = tick()
+                        HO_nm = ho[l][nm].to(dev_s).to(dt)
+                        if nm in two_plane_nm:
+                            P1r, P2r, ylog = yaqa_refine(Ws_nm, Hl_m, HO_nm, pk1, pk2, icm_ridge=icm_ridge)
+                            pk1, pk2 = P1r, P2r
+                            info1["pack"], info2["pack"] = P1r, P2r
+                            Wp1, Wp2 = _plane_w(P1r), _plane_w(P2r)
+                            Wp = Wp1 + Wp2
+                            if PACK_SINK is not None:
+                                sink_planes = [_sink_plane(P1r), _sink_plane(P2r)]
+                        else:
+                            W_fixed = None
+                            if pk2_top is not None:
+                                W_fixed = torch.zeros_like(Ws_nm)
+                                W_fixed[top_sel] = _plane_w(pk2_top)
+                            P1r, _, ylog = yaqa_refine(Ws_nm, Hl_m, HO_nm, pk1, None, W_fixed=W_fixed, icm_ridge=icm_ridge)
+                            pk1 = P1r
+                            info1["pack"] = P1r
+                            Wp1 = _plane_w(P1r)
+                            Wp = Wp1.clone()
+                            if pk2_top is not None:
+                                Wp[top_sel] += _plane_w(pk2_top)
+                            if PACK_SINK is not None:
+                                sink_planes = [_sink_plane(P1r)] + ([_sink_plane(pk2_top, rows=top_sel)] if pk2_top is not None else [])
+                            del W_fixed
+                        st_y = yaqa_stats[nm]
+                        for k_ in ("JO_before", "JO_after", "accepted", "chunks", "rows_moved"):
+                            st_y[k_] += ylog[k_]
+                        tm["yaqa"] += tick() - t0y
+                        del HO_nm
                     corr_targets = ("q", "down") if q_mlp_trans else (("q", "o", "down") if mlp_2plane_k896 else (("down",) if full_attn_2plane else ("q", "o", "down")))
                     if use_corr and nm in corr_targets:
                         rk = 2 if ((mlp_2plane_k896 or q_mlp_trans) and nm == "q") else (2 if (mlp_2plane_k896 and nm == "o") else 1)
@@ -1666,6 +1850,9 @@ def run_variant(cfg, TL, ids_cal, name, a):
         agg_nb = sum(v["J_nb"] for v in nb_stats.values())
         binfo["nb"] = dict(sweeps=NB_SWEEPS, per_kind={k: dict(v, ratio=(v["J_nb"] / v["J_seq"] if v["J_seq"] else None)) for k, v in nb_stats.items()},
                            J_seq=agg_seq, J_nb=agg_nb, ratio=(agg_nb / agg_seq if agg_seq else None))
+    if yaqa:
+        binfo["yaqa"] = {nm: dict(v) for nm, v in yaqa_stats.items()}
+        binfo["yaqa_chunk"] = YAQA_CHUNK
     return Ls, binfo, tm
 
 
@@ -1675,7 +1862,8 @@ GQ_ARM = "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-n
 def gq_controls(cfg, TL, ids_all, a):
     """(1) base and base+"-guided" resolve the same flags except `guided`; (2) with a_t = 1 the layer-0 Grams, x_sum, n_toks
     equal the base arm's exactly (torch.equal) and, with the row weights left to the base proxy, so does every stored layer
-    and the bit count; (3) with the real a_t the Grams differ (the comparison can fail)."""
+    and the bit count; (3) with the real a_t the Grams differ (the comparison can fail).  (4) base and base+"-yaqa" resolve
+    the same flags except `yaqa`."""
     global FLAG_PROBE, GQ_FORCE_ONES, GQ_NULL_B, GQ_DEBUG
     out = {}
     ids_c = ids_all[:a.n_cal].contiguous()
@@ -1688,6 +1876,13 @@ def gq_controls(cfg, TL, ids_all, a):
     out["flag_diff"] = diff
     out["n_flags"] = len(fb)
     assert diff == ["guided"], diff
+    FLAG_PROBE = []
+    run_variant(cfg, TL, ids_c, GQ_ARM + "-yaqa", a)
+    fy = FLAG_PROBE[0]
+    FLAG_PROBE = None
+    diff_y = sorted(k for k in set(fb) | set(fy) if fb.get(k) != fy.get(k))
+    out["flag_diff_yaqa"] = diff_y
+    assert diff_y == ["yaqa"], diff_y
     GQ_DEBUG = {}
     Lb, ib, _ = run_variant(cfg, TL, ids_c, GQ_ARM, a)
     dbg_b, GQ_DEBUG = GQ_DEBUG, {}
@@ -2132,12 +2327,72 @@ def outcome_eval(cfg, Ls, tok, ids_ev, n_hs, n_new, ref_key=None):
     return o
 
 
+def yaqa_controls():
+    """Synthetic fp64 checks of yaqa_refine (cuda when available), no model: O = 64, n = 256 = 2 * GROUP, Hl = X^T X / N
+    + 1e-3 I, HO = U U^T + 0.05 I with U of rank 4, and an initial single-plane P (and a two-plane pair) from the
+    module's own fold_fit path.  (a) the incremental dJ of _yaqa_dJ equals the full J_O(after) - J_O(before) recomputed
+    from the objective, rel err < 1e-9; (b) JO_after <= JO_before always and, at chunk 16, JO_after < 0.5 * JO_before with
+    accepted >= 1 for the single- and the two-plane case; (c) drop(shift_sign=+1) > drop(shift_sign=-1)."""
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    gen = torch.Generator(device="cpu").manual_seed(11)
+    gd = gen if dev == "cpu" else torch.Generator(device=dev).manual_seed(11)
+    O, n, N = 64, 256, 4096
+    Ws = (torch.randn(O, n, generator=gen, dtype=F64) * 0.5).to(dev)
+    X = torch.randn(N, n, generator=gen, dtype=F64).to(dev)
+    Hl = X.T @ X / N + 1e-3 * torch.eye(n, dtype=F64, device=dev)
+    U = torch.randn(O, 4, generator=gen, dtype=F64).to(dev) / 2.0
+    HO = U @ U.T + 0.05 * torch.eye(O, dtype=F64, device=dev)
+    fit = lambda W_: fold_fit(W_, Hl, 2, 0.0, refit=True, had=True, damp=0.01, bscale=True, inner_iters=2)
+    _, i1 = fit(Ws)
+    P1 = i1["pack"]
+    _, i2 = fit(Ws - _plane_w(P1))
+    P2 = i2["pack"]
+    assert P1 is not None and P2 is not None and P1[0].shape == (O, n), (P1, P2)
+    out = dict(O=O, n=n, device=dev, group=GROUP)
+    # (a) exact incremental dJ, on one chunk of rows and a random delta the size of the residual
+    D = Ws - _plane_w(P1)
+    Cs = slice(0, 16)
+    delta = (torch.rand(16, n, generator=gd, dtype=F64, device=dev) - 0.5) * D.abs().amax()
+    d_inc = _yaqa_dJ(HO, Hl, D, Cs, delta)
+    D2 = D.clone(); D2[Cs] += delta
+    j_ref = _yaqa_JO(HO, Hl, D)
+    d_full = _yaqa_JO(HO, Hl, D2) - j_ref
+    out["a"] = dict(d_inc=d_inc, d_full=d_full,
+                    rel_err=abs(d_inc - d_full) / max(abs(d_full), 1e-6 * abs(j_ref)))
+    assert out["a"]["rel_err"] < 1e-9, out["a"]
+    # (b) both plane counts: no regression ever, and at chunk 16 a drop above half of J_O.  The block target
+    # E_C = HO_CC^-1 HO[C,notC] D_notC is what makes chunk 16 move at all: the per-row (block-Jacobi) shift measured
+    # 42.7% single-plane and 0% (nothing accepted) two-plane here, against 72.7% and 82.3% for the block target.
+    CH = 16
+    out["chunk"] = CH
+    for tag, P2i in (("single", None), ("two", P2)):
+        _, _, lg = yaqa_refine(Ws, Hl, HO, P1, P2i, icm_ridge=0.0, chunk=CH, sweeps=2, rounds=1)
+        drop = lg["JO_before"] - lg["JO_after"]
+        out[tag] = dict(JO_before=lg["JO_before"], JO_after=lg["JO_after"], drop=drop, accepted=lg["accepted"],
+                        chunks=lg["chunks"], rows_moved=lg["rows_moved"], ratio=lg["JO_after"] / lg["JO_before"])
+        print(f"yaqa {tag}: JO {lg['JO_before']:.6g} -> {lg['JO_after']:.6g}  drop {drop:.6g} "
+              f"({100.0 * drop / lg['JO_before']:.3f}%)  accepted {lg['accepted']}/{lg['chunks']} rows_moved {lg['rows_moved']}", flush=True)
+        assert lg["JO_after"] <= lg["JO_before"], out[tag]
+        assert lg["JO_after"] < 0.5 * lg["JO_before"], out[tag]
+        assert lg["accepted"] >= 1, out[tag]
+    # (c) sign control: the wrong-sign shift must lower J_O less
+    _, _, lgp = yaqa_refine(Ws, Hl, HO, P1, P2, icm_ridge=0.0, chunk=CH, sweeps=2, rounds=1, shift_sign=1.0)
+    _, _, lgm = yaqa_refine(Ws, Hl, HO, P1, P2, icm_ridge=0.0, chunk=CH, sweeps=2, rounds=1, shift_sign=-1.0)
+    drop_p = lgp["JO_before"] - lgp["JO_after"]
+    drop_m = lgm["JO_before"] - lgm["JO_after"]
+    out["c"] = dict(drop_plus=drop_p, drop_minus=drop_m, JO_minus=lgm["JO_after"], JO_before=lgm["JO_before"])
+    print(f"yaqa sign: drop(+1) {drop_p:.6g} vs drop(-1) {drop_m:.6g}", flush=True)
+    assert drop_p > drop_m, out["c"]
+    return out
+
+
 def main():
     global MODEL, GGUF_Q4KM
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True); ap.add_argument("--variants", default="")
     ap.add_argument("--dump", default=None, help="Path to dump quantized layer weights for text_probe.py")
     ap.add_argument("--controls", action="store_true"); ap.add_argument("--gq-controls", action="store_true"); ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--yaqa-controls", action="store_true", help="synthetic fp64 checks of yaqa_refine, then exit (no model)")
     ap.add_argument("--outcomes", action="store_true", help="true-label NLL, WikiText-2 ppl, ARC-Easy/HellaSwag acc, greedy text (first seed)")
     ap.add_argument("--hs-n", type=int, default=1000); ap.add_argument("--gen-new", type=int, default=48)
     ap.add_argument("--dtype", default="fp32", choices=["fp32", "fp64"])
@@ -2152,6 +2407,13 @@ def main():
                  ("sink-thresh", 5.0), ("sink-tau", 1.5), ("fnorm-lr", 0.15)]:
         ap.add_argument(f"--{k}", type=float, default=v)
     a = ap.parse_args()
+    if a.yaqa_controls:
+        ctl = yaqa_controls()
+        res = dict(script_sha256=hashlib.sha256(open(__file__, "rb").read()).hexdigest(), args=vars(a),
+                   gpu=torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu", yaqa_controls=ctl)
+        json.dump(res, open(a.out, "w"), indent=1)
+        print(json.dumps(ctl, indent=1), flush=True)
+        sys.exit(0)
     torch.manual_seed(0)
     t00 = tick()
     MODEL, GGUF_Q4KM = a.model, a.q4km or GGUF_Q4KM
