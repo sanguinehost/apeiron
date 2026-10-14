@@ -1098,7 +1098,69 @@ GQ_STAGE_OF = dict(q="qkv", k="qkv", v="qkv", o="o", gate="ffn", up="ffn", down=
 GQ_IN_OF = dict(q="xa", k="xa", v="xa", o="at", gate="xf", up="xf", down="m")
 GQ_SUFFIX = "-guided"
 
-def gq_capture(cfg, TL, ids_cal, K=4, seed=0, bs=1, outer=False):
+def lw_intensity(S4, Q, H, n):
+    """Analytic shrinkage intensity of the output-side Hessian sketch toward its diagonal, from the capture's own
+    samples.  Target D: diagonal, unequal variances (Schafer and Strimmer, Stat. Appl. Genet. Mol. Biol. 4 (2005)
+    art. 32; the Ledoit-Wolf (2004) construction for that target).  H = sum_t s_t s_t^T is the RAW scatter of the
+    n samples s (length O), S4 = sum_t ||s_t||^4 and Q = sum_t s_t^4.  With M = H / n:
+      S4 - sum(Q) - n * off(M) = sum_{i != j} sum_t (s_ti s_tj)^2 - n * sum_{i != j} M_ij^2
+      num = that / (n (n - 1))      = sum_{i != j} Var-hat(mean_t s_ti s_tj)
+      lambda = clamp(num / off(M), 0, 1),  off(M) = ||M||_F^2 - sum_i M_ii^2
+    Returns (num, lambda); lambda is the per-linear alpha of the convex combination HO <- (1-lambda) HO + lambda
+    diag(HO).  Cost: O(O^2) elementwise on H plus O(O) on Q, once per (layer, kind)."""
+    S4f = float(S4)
+    Qd = Q.to(torch.float64).flatten()
+    Hd = H.to(torch.float64)
+    n = int(n)
+    M = Hd / n
+    d = M.diagonal()
+    off = float((M * M).sum() - (d * d).sum())
+    if off <= 0.0:
+        return 0.0, 0.0
+    num = (S4f - float(Qd.sum()) - n * off) / (n * (n - 1))
+    return num, float(min(1.0, max(0.0, num / off)))
+
+def _block_off(Sk):
+    """off(H_b) of ONE block without ever forming the O x O scatter H_b = sum_k S_k^T S_k.  With the block's samples
+    stacked per label draw k as S_k (T x O, s = g * sqrt(w)), ||H_b||_F^2 = sum_{k,k'} ||S_k S_k'^T||_F^2 is the
+    squared Frobenius norm of the (K T) x (K T) Gram of the stacked samples (each (k, k') pair of T x T Grams is one
+    block of it), so one Gram carries all K^2 pairs, and diag(H_b) = sum_k (S_k ** 2).sum(0).  Returns the fp64 scalar
+    ||H_b||_F^2 - ||diag(H_b)||^2.  Cost: K^2 T^2 O MACs per linear (K^2 pairs, each T x T Gram T^2 O MACs) plus
+    O(K T) for the diagonal; the fp64 sum of the Gram's squares is one O(K^2 T^2) elementwise pass."""
+    Sall = torch.cat(list(Sk), 0)                      # (K T, O): every (k, k') T x T Gram is one block of it
+    G = Sall @ Sall.T                                  # (K T, K T)
+    dg = (Sall.double() ** 2).sum(0)                   # diag(H_b)
+    return (G.double() ** 2).sum() - (dg * dg).sum()
+
+def lw_block_intensity(P, B, H, n):
+    """Analytic shrinkage intensity of the output-side Hessian sketch toward its diagonal, with the SEQUENCE as the
+    sample unit.  Target D: diagonal, unequal variances (Schafer and Strimmer, Stat. Appl. Genet. Mol. Biol. 4 (2005)
+    art. 32; the Ledoit-Wolf (2004) construction for that target).  lw_intensity treats the n = K*N*T samples s_t =
+    sqrt(w_t) g_t as independent; the tokens of one sequence, and the K label draws of one token, are correlated, so
+    that mean's variance is underestimated.  gq_capture runs bs = 1, so one block is one batch b0 = one independent
+    draw of ids_cal: B blocks, block b holding n_b samples with scatter H_b = sum_t s_t s_t^T and mean M_b = H_b/n_b,
+    M = (sum_b H_b) / (B n_b) = H / n.  With off(X) = ||X||_F^2 - sum_i X_ii^2:
+      P = sum_b off(M_b)
+      num = (P - B * off(M)) / (B (B - 1))   = sum_{i != j} Var-hat_b(M_b,ij)
+      lambda = clamp(num / off(M), 0, 1)
+    Returns (num, lambda); lambda is the per-linear alpha of the convex combination HO <- (1-lambda) HO + lambda
+    diag(HO).  P is accumulated off(M_b) = off(H_b) / n_b^2 with _block_off, i.e. without the O(O^2) scatter.
+    Cost: B * K^2 T^2 O MACs per linear for the Grams (the +K*T*sum O floats of storage live in gq_capture), plus one
+    O(O^2) elementwise pass over H.  B < 2 has no between-block variance and returns (0.0, 0.0)."""
+    B = int(B)
+    n = int(n)
+    if B < 2:
+        return 0.0, 0.0
+    Hd = H.to(torch.float64)
+    M = Hd / n
+    d = M.diagonal()
+    off = float((M * M).sum() - (d * d).sum())
+    if off <= 0.0:
+        return 0.0, 0.0
+    num = (float(P) - B * off) / (B * (B - 1))
+    return num, float(min(1.0, max(0.0, num / off)))
+
+def gq_capture(cfg, TL, ids_cal, K=4, seed=0, bs=1, outer=False, blocks=False):
     """True-Fisher output-gradient statistics of the teacher on ids_cal (N x T), K sampled targets per position.
     Returns dict(a=[l][stage] float64 CPU (N,T) mean 1, b=[l][nm] float64 CPU (O,) mean 1, wall_s).
     With outer=True it also accumulates, per layer l and kind nm, HO[l][nm] = sum over tokens t and the K samples of
@@ -1111,17 +1173,30 @@ def gq_capture(cfg, TL, ids_cal, K=4, seed=0, bs=1, outer=False):
     N = 50, T = 512); counted in FLOPs, derived as forward 2P per token + K backward passes of 2P.
      outer=True adds K * N * T * sum_nm O_nm^2 MACs (the accumulation recurrence is one rank-1 update per token and sample)
     and sum_nm O_nm^2 fp32 floats of accumulator (about 4.8 GB over the 24 Qwen2.5-0.5B layers, freed before return);
+    per (l, nm) it also accumulates S4 = sum_t ||s_t||^4 in one fp64 scalar and Q = sum_t s_t^4 in one fp64 O-vector
+    (O(O+1) extra MACs and 8*(O+1) bytes per linear, i.e. cost O per sample), from which out["ho_lw"][l][nm] = the
+    Schafer and Strimmer (2005) intensity of the raw scatter HO_raw toward its diagonal is computed before the
+    mean-diagonal normalisation;
+     blocks=True (with outer, and bs = 1) additionally keeps the K samples S_k (T x O fp32, s = g * sqrt(w)) of the
+    current block per linear (K*T*sum_nm O_nm fp32 floats, ~623 MB per k on Qwen2.5-0.5B, ~2.5 GB at K = 4, staged as
+    an exact host copy and freed at the end of each block: a 15.5 GiB card does not hold it beside HO), accumulates
+    one fp64 GPU scalar P[l][nm] += off(H_b) / n_b^2 after each K loop
+    (B * K^2 T^2 O_nm MACs per linear over the capture, K^2 T^2 O_nm per block), and gives out["ho_lb"][l][nm] = the
+    batch-means (sequence-unit) intensity of the same raw scatter, computed before the mean-diagonal normalisation;
     the per-token input norms are L*B*T*4 floats per batch (each layer's own inputs).  With outer=True the capture runs
     under the math SDPA backend (retains B*nh*T^2 attention floats per layer, ~14.7 MB at bs=1, T=512, nh=14) and asserts
     on the first batch that two backward passes give bit-equal gradients, so H_O is a function of (ids_cal, K, seed).
     Space: B*T*(~8e4 floats/layer * 24 retained activations + V logits) = bs=1: ~3 GB peak on GPU; accumulators
     N*T*4*L doubles (a) + sum_l O_l doubles (b) = ~10 MB at N = 50; weights 2.5 GB resident fp32."""
-    key = (hashlib.sha256(ids_cal.numpy().tobytes()).hexdigest(), K, seed, bool(outer))
+    key = (hashlib.sha256(ids_cal.numpy().tobytes()).hexdigest(), K, seed, bool(outer), bool(blocks))
     if key in GQ_CACHE:
         return GQ_CACHE[key]
     t0 = tick()
     N, T = ids_cal.shape
     assert T == CHUNK
+    if blocks:
+        assert outer, "the block intensity needs the output-side (outer) capture"
+        assert bs == 1, f"the batch-means intensity takes one sequence per block, got bs={bs}"
     nl = cfg.nl
     Ld = [{k: v.to(DEV) for k, v in L.items()} for L in TL]
     E = cfg.E.to(DEV)
@@ -1132,6 +1207,12 @@ def gq_capture(cfg, TL, ids_cal, K=4, seed=0, bs=1, outer=False):
     A = [{st: torch.zeros(N, T, dtype=F64) for st in stage_ch} for _ in range(nl)]
     B = [{nm: torch.zeros(TL[l][nm].shape[0], dtype=F64) for nm in kinds} for l in range(nl)]
     HO = [{nm: torch.zeros(chan[nm], chan[nm], dtype=torch.float32, device=DEV) for nm in kinds} for _ in range(nl)] if outer else None
+    # Schafer-Strimmer (2005) shrinkage intensities of HO_raw: S4 = sum_t ||s_t||^4 (fp64 scalar) and Q = sum_t s_t^4
+    # (fp64 O-vector) per (l, nm), accumulated next to HO; cost O per sample
+    S4 = [{nm: torch.zeros((), dtype=F64, device=DEV) for nm in kinds} for _ in range(nl)] if outer else None
+    Q4 = [{nm: torch.zeros(chan[nm], dtype=F64, device=DEV) for nm in kinds} for _ in range(nl)] if outer else None
+    # batch-means (sequence-unit) intensity: P[l][nm] = sum over blocks of off(H_b), one fp64 scalar per (l, nm)
+    PB = [{nm: torch.zeros((), dtype=F64, device=DEV) for nm in kinds} for _ in range(nl)] if (outer and blocks) else None
     gen = torch.Generator(device=DEV).manual_seed(seed)
     max_dlogit = 0.0
     # the fp32 memory-efficient SDPA backward accumulates with atomics (not bit-reproducible); the math backend is
@@ -1139,6 +1220,9 @@ def gq_capture(cfg, TL, ids_cal, K=4, seed=0, bs=1, outer=False):
     with (sdpa_kernel(SDPBackend.MATH) if outer else contextlib.nullcontext()):
         for b0 in range(0, N, bs):
             ids = ids_cal[b0:b0 + bs]
+            # the block's per-(l, nm) fp32 samples S_k = g * sqrt(w) for k = 0..K-1, kept for the K^2 Grams and freed
+            # at the end of the block; K*T*sum_nm O_nm floats per block
+            sbuf = [{nm: [None] * K for nm in kinds} for _ in range(nl)] if (outer and blocks) else None
             h = E[ids.to(DEV)].clone().requires_grad_(True)
             zs = []
             nins = []
@@ -1187,9 +1271,28 @@ def gq_capture(cfg, TL, ids_cal, K=4, seed=0, bs=1, outer=False):
                             g_ = grads[l * len(kinds) + ji].float().reshape(-1, chan[nm])
                             w_ = nins[l][GQ_IN_OF[nm]].reshape(-1).float()
                             HO[l][nm] += (g_ * w_[:, None]).T @ g_
+                            if blocks:
+                                # the block's samples s = g * sqrt(w) of this draw, staged on the HOST (an exact fp32
+                                # copy): the K x (T x O) block buffer is ~2.5 GB at K = 4 on Qwen2.5-0.5B and does not
+                                # fit beside HO on a 15.5 GiB card; only the (K T) x O stack of one linear is on the
+                                # GPU at a time when its Grams are formed
+                                sbuf[l][nm][kk] = (g_ * w_.sqrt()[:, None]).cpu()
+                            # s_ti^2 = w_t g_ti^2 in fp64: S4 += ||s_t||^4, Q_i += s_ti^4
+                            s2 = g_.double() ** 2 * w_.double()[:, None]
+                            S4[l][nm] += (s2.sum(-1) ** 2).sum()
+                            Q4[l][nm] += (s2 ** 2).sum(0)
                     for st in stage_ch:
                         A[l][st][b0:b0 + ids.shape[0]] += tok[st].cpu()
                 del grads, loss
+            if outer and blocks:
+                # P += off(M_b) = off(H_b) / n_b^2 per (l, nm), from the block's K^2 T x T Grams; H_b is never formed
+                nb = K * T
+                for l in range(nl):
+                    for nm in kinds:
+                        Sk = [s.to(DEV) for s in sbuf[l][nm]]      # one linear's (K T) x O stack, ~80 MB at most
+                        PB[l][nm] += _block_off(Sk) / float(nb * nb)
+                        del Sk
+                sbuf = None
             del zs, flat, logits, probs, h
     for l in range(nl):
         for st, c in stage_ch.items():
@@ -1200,21 +1303,40 @@ def gq_capture(cfg, TL, ids_cal, K=4, seed=0, bs=1, outer=False):
             B[l][nm] = x / x.mean()
     del Ld, E, fn
     ho = None
+    ho_lw = None
+    ho_lb = None
     if outer:
         ho = []
+        ho_lw = []
+        ho_lb = [] if blocks else None
+        n_samp = K * N * T
         for l in range(nl):
             dl = {}
+            dlw = {}
+            dlb = {} if blocks else None
             for nm in kinds:
                 x = HO[l][nm]
+                dlw[nm] = lw_intensity(S4[l][nm], Q4[l][nm], x, n_samp)[1]  # before normalisation
+                if blocks:
+                    dlb[nm] = lw_block_intensity(PB[l][nm], N, x, n_samp)[1]  # before normalisation
                 x = x / x.diagonal().mean().clamp_min(1e-30)   # mean diagonal 1
                 x.diagonal().add_(0.01)
                 dl[nm] = x.cpu()                                # fp32 on the CPU
             ho.append(dl)
+            ho_lw.append(dlw)
+            if blocks:
+                ho_lb.append(dlb)
         HO = None
+        S4 = None
+        Q4 = None
+        PB = None
     torch.cuda.empty_cache()
     out = dict(a=A, b=B, wall_s=tick() - t0, K=K, seed=seed, max_dlogit=max_dlogit)
     if outer:
         out["ho"] = ho
+        out["ho_lw"] = ho_lw
+        if blocks:
+            out["ho_lb"] = ho_lb
     GQ_CACHE[key] = out
     return out
 
@@ -1237,9 +1359,13 @@ def run_variant(cfg, TL, ids_cal, name, a):
     # may follow a "-guided..." suffix.  Only `yaqa` differs between the base arm and base + "-yaqa".  "-yaqaxv" is the
     # same refinement plus the held-out-half cross-validation diagnostic: `yaqa` is True for both, `yaqa_xv` marks it.
     # "-yaqasNN": the same refinement with the output-side Hessian shrunk toward its diagonal by NN/100 (`yaqa_shrink`).
-    yaqa_m = re.search(r"-yaqa(xv|s\d\d)?$", name)
+    # "-yaqalw": the same refinement with the per-linear analytic (Schafer and Strimmer 2005) shrinkage `yaqa_lw`.
+    # "-yaqalb": the same refinement with the per-linear block (batch-means, sequence-unit) intensity `yaqa_lb`.
+    yaqa_m = re.search(r"-yaqa(xv|s\d\d|lw|lb)?$", name)
     yaqa = yaqa_m is not None
     yaqa_xv = bool(yaqa and yaqa_m.group(1) == "xv")
+    yaqa_lw = bool(yaqa and yaqa_m.group(1) == "lw")
+    yaqa_lb = bool(yaqa and yaqa_m.group(1) == "lb")
     yaqa_shrink = 0.0
     if yaqa and yaqa_m.group(1) and yaqa_m.group(1)[0] == "s":
         yaqa_shrink = int(yaqa_m.group(1)[1:]) / 100.0
@@ -1372,7 +1498,7 @@ def run_variant(cfg, TL, ids_cal, name, a):
             gq_b = gq_capture(cfg, TL, ids_cal.cpu()[1::2], K=a.gq_k, seed=a.gq_seed, outer=True)
             tm["capture"] = gq["wall_s"] + gq_b["wall_s"]
         else:
-            gq = gq_capture(cfg, TL, ids_cal.cpu(), K=a.gq_k, seed=a.gq_seed, outer=yaqa)
+            gq = gq_capture(cfg, TL, ids_cal.cpu(), K=a.gq_k, seed=a.gq_seed, outer=yaqa, blocks=yaqa_lb)
             tm["capture"] = gq["wall_s"]
         if yaqa:
             assert "ho" in gq, "outer capture produced no output-side Hessian"
@@ -1382,6 +1508,8 @@ def run_variant(cfg, TL, ids_cal, name, a):
             if GQ_FORCE_ONES or gq_part == "b":
                 gq = dict(gq, a=[{st: torch.ones_like(x) for st, x in d.items()} for d in gq["a"]])
     ho = gq["ho"] if yaqa else None
+    ho_lw = gq["ho_lw"] if yaqa_lw else None
+    ho_lb = gq["ho_lb"] if yaqa_lb else None
     ho_b = gq_b["ho"] if yaqa_xv else None
     ht = cfg.E[ids_cal.cpu()]
     hs = ht.clone()
@@ -1668,7 +1796,12 @@ def run_variant(cfg, TL, ids_cal, name, a):
                         # yaqa_refine passes per linear plus three J_O evaluations, each O*O*n + O*n*n MACs.
                         t0y = tick()
                         HO_nm = ho[l][nm].to(dev_s).to(dt)
-                        if yaqa_shrink > 0.0:
+                        if yaqa_lw or yaqa_lb:
+                            # per-linear analytic intensity (Schafer and Strimmer 2005); -yaqalb's is the batch-means
+                            # (sequence-unit) form, whose sample unit is the sequence, not the token
+                            al = float(ho_lw[l][nm]) if yaqa_lw else float(ho_lb[l][nm])
+                            HO_nm = (1.0 - al) * HO_nm + al * torch.diag(HO_nm.diagonal())
+                        elif yaqa_shrink > 0.0:
                             # the held-out split showed the unshrunk refine fits HO estimation noise; shrinkage toward
                             # the diagonal is the bias-variance trade (Ledoit and Wolf 2004); O(O^2) once per linear
                             HO_nm = (1.0 - yaqa_shrink) * HO_nm + yaqa_shrink * torch.diag(HO_nm.diagonal())
@@ -1916,6 +2049,10 @@ def run_variant(cfg, TL, ids_cal, name, a):
     if yaqa:
         binfo["yaqa"] = {nm: dict(v) for nm, v in yaqa_stats.items()}
         binfo["yaqa_shrink"] = yaqa_shrink
+        if yaqa_lw:
+            binfo["yaqa_lw"] = {f"L{l}.{nm}": float(v) for l, d in enumerate(ho_lw) for nm, v in d.items()}
+        if yaqa_lb:
+            binfo["yaqa_lb"] = {f"L{l}.{nm}": float(v) for l, d in enumerate(ho_lb) for nm, v in d.items()}
         binfo["yaqa_chunk"] = YAQA_CHUNK
     return Ls, binfo, tm
 
@@ -1929,7 +2066,8 @@ def gq_controls(cfg, TL, ids_all, a):
     and the bit count; (3) with the real a_t the Grams differ (the comparison can fail).  (4) base and base+"-yaqa" resolve
     the same flags except `yaqa`; (5) base and base+"-yaqaxv" resolve the same flags except `yaqa` and `yaqa_xv` (the xv
     capture halves the calibration rows, which changes no scalar flag); (6) base and base+"-yaqas50" resolve the same flags
-    except `yaqa` and `yaqa_shrink`."""
+    except `yaqa` and `yaqa_shrink`; (7) base and base+"-yaqalw" resolve the same flags except `yaqa` and `yaqa_lw`;
+    (8) base and base+"-yaqalb" resolve the same flags except `yaqa` and `yaqa_lb`."""
     global FLAG_PROBE, GQ_FORCE_ONES, GQ_NULL_B, GQ_DEBUG
     out = {}
     ids_c = ids_all[:a.n_cal].contiguous()
@@ -1956,6 +2094,20 @@ def gq_controls(cfg, TL, ids_all, a):
     diff_ys = sorted(k for k in set(fb) | set(fys) if fb.get(k) != fys.get(k))
     out["flag_diff_yaqas"] = diff_ys
     assert diff_ys == ["yaqa", "yaqa_shrink"], diff_ys
+    FLAG_PROBE = []
+    run_variant(cfg, TL, ids_c, GQ_ARM + "-yaqalw", a)
+    flw = FLAG_PROBE[0]
+    FLAG_PROBE = None
+    diff_lw = sorted(k for k in set(fb) | set(flw) if fb.get(k) != flw.get(k))
+    out["flag_diff_yaqalw"] = diff_lw
+    assert diff_lw == ["yaqa", "yaqa_lw"], diff_lw
+    FLAG_PROBE = []
+    run_variant(cfg, TL, ids_c, GQ_ARM + "-yaqalb", a)
+    flb = FLAG_PROBE[0]
+    FLAG_PROBE = None
+    diff_lb = sorted(k for k in set(fb) | set(flb) if fb.get(k) != flb.get(k))
+    out["flag_diff_yaqalb"] = diff_lb
+    assert diff_lb == ["yaqa", "yaqa_lb"], diff_lb
     FLAG_PROBE = []
     run_variant(cfg, TL, ids_c, GQ_ARM + "-yaqaxv", a)
     fxv = FLAG_PROBE[0]
@@ -2463,6 +2615,67 @@ def yaqa_controls():
     out["c"] = dict(drop_plus=drop_p, drop_minus=drop_m, JO_minus=lgm["JO_after"], JO_before=lgm["JO_before"])
     print(f"yaqa sign: drop(+1) {drop_p:.6g} vs drop(-1) {drop_m:.6g}", flush=True)
     assert drop_p > drop_m, out["c"]
+    # (d) Schafer-Strimmer (2005) intensity estimator via the module's own lw_intensity: (a) the closed-form num equals
+    # the brute-force sum over i != j of the per-entry sample variance of the mean of s_ti s_tj; (b) an unequal-variance
+    # diagonal population gives lambda > 0.5; (c) a strongly correlated population gives lambda < 0.05.  float64, CPU.
+    gd = torch.Generator(device="cpu").manual_seed(23)
+    Olw, n_a = 12, 400
+    Sa = torch.randn(n_a, Olw, generator=gd, dtype=F64)
+    Ha = Sa.T @ Sa
+    num_a, _ = lw_intensity(float((Sa ** 2).sum(-1).pow(2).sum()), (Sa ** 4).sum(0), Ha, n_a)
+    Ma = Ha / n_a
+    W2 = Sa[:, :, None] * Sa[:, None, :]
+    varmean = ((W2 ** 2).sum(0) - n_a * Ma ** 2) / (n_a * (n_a - 1))
+    bf = float(varmean[~torch.eye(Olw, dtype=torch.bool)].sum())
+    rel_a = abs(num_a - bf) / max(abs(bf), 1e-300)
+    assert rel_a < 1e-10, (num_a, bf, rel_a)
+    n_lw = 20000
+    Sd = torch.randn(n_lw, Olw, generator=gd, dtype=F64) * torch.arange(1, Olw + 1, dtype=F64)
+    _, lam_b = lw_intensity(float((Sd ** 2).sum(-1).pow(2).sum()), (Sd ** 4).sum(0), Sd.T @ Sd, n_lw)
+    assert lam_b > 0.5, lam_b
+    Lc = torch.linalg.cholesky(0.9 * torch.ones(Olw, Olw, dtype=F64) + 0.1 * torch.eye(Olw, dtype=F64))
+    Sc = torch.randn(n_lw, Olw, generator=gd, dtype=F64) @ Lc.T
+    _, lam_c = lw_intensity(float((Sc ** 2).sum(-1).pow(2).sum()), (Sc ** 4).sum(0), Sc.T @ Sc, n_lw)
+    assert lam_c < 0.05, lam_c
+    out["lw"] = dict(a=rel_a, b=lam_b, c=lam_c)
+    print(f"yaqa_lw a={rel_a:.3g} b={lam_b:.6g} c={lam_c:.6g}", flush=True)
+    # (e) batch-means (sequence-unit) intensity via the module's own _block_off / lw_block_intensity: (a) the K^2 Gram
+    # route's P equals the P formed from every H_b directly, and its num equals the brute-force sum over i != j of
+    # ((sum_b M_b,ij^2) - B M_ij^2) / (B (B - 1)); (b) an iid population gives lambda_block within 0.25 of
+    # lambda_iid; (c) a within-block correlated population gives lambda_block > 5 * lambda_iid.  float64, CPU.
+    Ob, Bb, Kb, Tb = 10, 30, 2, 16
+    nb, nSb = Kb * Tb, Bb * Kb * Tb
+    Sb = torch.randn(Bb, Kb, Tb, Ob, generator=gd, dtype=F64)          # (block, draw, sample, O)
+    Hb = torch.stack([b.reshape(nb, Ob).T @ b.reshape(nb, Ob) for b in Sb])         # (B, O, O), the O x O route
+    Pb_dir = float(sum((h * h).sum() - (h.diagonal() ** 2).sum() for h in Hb)) / nb ** 2
+    Pb_gr = float(sum(_block_off([b[k] for k in range(Kb)]) for b in Sb)) / nb ** 2
+    Mb = Hb / nb
+    bf = float((((Mb ** 2).sum(0) - Bb * Mb.mean(0) ** 2) / (Bb * (Bb - 1)))[~torch.eye(Ob, dtype=torch.bool)].sum())
+    Ht = Sb.reshape(-1, Ob).T @ Sb.reshape(-1, Ob)
+    num_gr, _ = lw_block_intensity(Pb_gr, Bb, Ht, nSb)
+    rel_P = abs(Pb_gr - Pb_dir) / max(abs(Pb_dir), 1e-300)
+    rel_num = abs(num_gr - bf) / max(abs(bf), 1e-300)
+    assert rel_P < 1e-10, (Pb_gr, Pb_dir, rel_P)
+    assert rel_num < 1e-10, (num_gr, bf, rel_num)
+    Ob2, Bb2, Kb2, Tb2 = 10, 200, 2, 32
+    nb2, n2 = Kb2 * Tb2, Bb2 * Kb2 * Tb2
+    Sd2 = torch.randn(Bb2, Kb2, Tb2, Ob2, generator=gd, dtype=F64) * torch.arange(1, Ob2 + 1, dtype=F64).sqrt()
+    H2 = Sd2.reshape(-1, Ob2).T @ Sd2.reshape(-1, Ob2)
+    P2 = float(sum(_block_off([b[k] for k in range(Kb2)]) for b in Sd2)) / nb2 ** 2
+    li = lw_intensity(float((Sd2.reshape(-1, Ob2) ** 2).sum(-1).pow(2).sum()), (Sd2.reshape(-1, Ob2) ** 4).sum(0), H2, n2)[1]
+    lb = lw_block_intensity(P2, Bb2, H2, n2)[1]
+    out["lb"] = dict(a=dict(rel_P=rel_P, rel_num=rel_num, P=P2), b=dict(lb=lb, li=li))
+    assert abs(lb - li) < 0.25, (lb, li)
+    Lc2 = torch.linalg.cholesky(0.9 * torch.ones(Ob2, Ob2, dtype=F64) + 0.1 * torch.eye(Ob2, dtype=F64))
+    S3 = (torch.randn(Bb2, Ob2, generator=gd, dtype=F64) @ Lc2.T)[:, None, None, :] \
+        + 0.1 * torch.randn(Bb2, Kb2, Tb2, Ob2, generator=gd, dtype=F64)
+    H3 = S3.reshape(-1, Ob2).T @ S3.reshape(-1, Ob2)
+    P3 = float(sum(_block_off([b[k] for k in range(Kb2)]) for b in S3)) / nb2 ** 2
+    li3 = lw_intensity(float((S3.reshape(-1, Ob2) ** 2).sum(-1).pow(2).sum()), (S3.reshape(-1, Ob2) ** 4).sum(0), H3, n2)[1]
+    lb3 = lw_block_intensity(P3, Bb2, H3, n2)[1]
+    out["lb"].update(c=dict(lb=lb3, li=li3, ratio=(lb3 / li3 if li3 else float("inf"))))
+    assert lb3 > 5 * li3, (lb3, li3)
+    print(f"yaqa_lb a={rel_P:.3g},{rel_num:.3g} b={lb:.6g}/{li:.6g} c={lb3:.6g}/{li3:.6g}", flush=True)
     return out
 
 

@@ -766,6 +766,48 @@ theorem yaqab_before_misleads :
     norm_num [qreg_yaqash.bfBaseKlHeldoutBefore, qreg_yaqash.bfS50KlHeldoutBefore, qreg_yaqash.bfS50QuickKlStep0,
       qreg_yaqash.bfBaseQuickKlStep0, qreg_yaqash.bfS50KlHeldoutAfter, qreg_yaqash.bfBaseKlHeldoutAfter]
 
+/-- **An analytic per-linear shrinkage intensity loses to the fixed `α = 0.5` (predictions `qreg-yaqalw-2`,
+`qreg-yaqalb-2` confirmed).** Schäfer and Strimmer (2005, target D) intensity, token samples as the unit (`lw`) and
+sequences as the unit by batch means (`lb`); equal 580 s wall and unchanged bits. Each finishes more than `0.009` nats
+above every `α = 0.5` run of `qreg_yaqash`, and its single run sits above the three-run base mean. The sequence-unit
+capture costs finishing steps. -/
+theorem yaqalw_loses :
+    qreg_yaqalw.bitsBefore = qreg_yaqash.bitsBefore ∧
+    (qreg_yaqash.bfS50KlHeldoutAfter + 9 / 1000 < qreg_yaqalw.lwKlHeldoutAfter ∧
+      qreg_yaqash.bfS50rKlHeldoutAfter + 9 / 1000 < qreg_yaqalw.lwKlHeldoutAfter ∧
+      qreg_yaqash.bfS50tKlHeldoutAfter + 9 / 1000 < qreg_yaqalw.lwKlHeldoutAfter) ∧
+    (qreg_yaqash.bfS50KlHeldoutAfter + 9 / 1000 < qreg_yaqalw.lbKlHeldoutAfter ∧
+      qreg_yaqash.bfS50rKlHeldoutAfter + 9 / 1000 < qreg_yaqalw.lbKlHeldoutAfter ∧
+      qreg_yaqash.bfS50tKlHeldoutAfter + 9 / 1000 < qreg_yaqalw.lbKlHeldoutAfter) ∧
+    qreg_yaqash.bfBaseKlHeldoutAfter + qreg_yaqash.bfBase2KlHeldoutAfter + qreg_yaqash.bfBase3KlHeldoutAfter <
+      3 * qreg_yaqalw.lwKlHeldoutAfter ∧
+    qreg_yaqash.bfBaseKlHeldoutAfter + qreg_yaqash.bfBase2KlHeldoutAfter + qreg_yaqash.bfBase3KlHeldoutAfter <
+      3 * qreg_yaqalw.lbKlHeldoutAfter ∧
+    qreg_yaqalw.lbSteps < qreg_yaqalw.lwSteps := by
+  refine ⟨?_, ⟨?_, ?_, ?_⟩, ⟨?_, ?_, ?_⟩, ?_, ?_, ?_⟩ <;>
+    norm_num [qreg_yaqalw.bitsBefore, qreg_yaqash.bitsBefore, qreg_yaqash.bfS50KlHeldoutAfter,
+      qreg_yaqash.bfS50rKlHeldoutAfter, qreg_yaqash.bfS50tKlHeldoutAfter, qreg_yaqash.bfBaseKlHeldoutAfter,
+      qreg_yaqash.bfBase2KlHeldoutAfter, qreg_yaqash.bfBase3KlHeldoutAfter, qreg_yaqalw.lwKlHeldoutAfter,
+      qreg_yaqalw.lbKlHeldoutAfter, qreg_yaqalw.lbSteps, qreg_yaqalw.lwSteps]
+
+/-- **The analytic intensities are small where the fixed `α` wins.** The token-unit median is below `1/10`; the
+sequence unit raises the median in every linear kind, yet the gate median stays below `6/10` in both, against the
+`α ≈ 0.9` that the split-half capture of `qreg_yaqash` wants on gate and down. -/
+theorem yaqalw_intensity_small :
+    qreg_yaqalw.lwLamMedian < 1 / 10 ∧ qreg_yaqalw.lwLamMedian < qreg_yaqalw.lbLamMedian ∧
+    (qreg_yaqalw.lwLamQMedian < qreg_yaqalw.lbLamQMedian ∧ qreg_yaqalw.lwLamKMedian < qreg_yaqalw.lbLamKMedian ∧
+      qreg_yaqalw.lwLamVMedian < qreg_yaqalw.lbLamVMedian ∧ qreg_yaqalw.lwLamOMedian < qreg_yaqalw.lbLamOMedian ∧
+      qreg_yaqalw.lwLamGateMedian < qreg_yaqalw.lbLamGateMedian ∧
+      qreg_yaqalw.lwLamUpMedian < qreg_yaqalw.lbLamUpMedian ∧
+      qreg_yaqalw.lwLamDownMedian < qreg_yaqalw.lbLamDownMedian) ∧
+    qreg_yaqalw.lbLamGateMedian < 6 / 10 ∧ qreg_yaqalw.lbLamDownMedian < 6 / 10 := by
+  refine ⟨?_, ?_, ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, ?_, ?_⟩ <;>
+    norm_num [qreg_yaqalw.lwLamMedian, qreg_yaqalw.lbLamMedian, qreg_yaqalw.lwLamQMedian, qreg_yaqalw.lbLamQMedian,
+      qreg_yaqalw.lwLamKMedian, qreg_yaqalw.lbLamKMedian, qreg_yaqalw.lwLamVMedian, qreg_yaqalw.lbLamVMedian,
+      qreg_yaqalw.lwLamOMedian, qreg_yaqalw.lbLamOMedian, qreg_yaqalw.lwLamGateMedian, qreg_yaqalw.lbLamGateMedian,
+      qreg_yaqalw.lwLamUpMedian, qreg_yaqalw.lbLamUpMedian, qreg_yaqalw.lwLamDownMedian,
+      qreg_yaqalw.lbLamDownMedian]
+
 end Perf.QuantumRotation
 
 /-!
