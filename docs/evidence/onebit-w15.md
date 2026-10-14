@@ -1230,6 +1230,43 @@ which reports Llama-2 7B at 1.58 b/w within 1.43× of fp16 perplexity).
   criterion, Hassibi and Stork (1993), at diagonal order), so that predicted and realised code moves agree and the
   codes train. Single-batch training loss sits in 0.91–1.11 from step 50 on, so more tokens on the scales alone is not the lever.
 
+### Curvature-corrected V-step (`measured`, refuted; `Perf/PVFinish.lean`)
+
+- Method: `pv_finish.py --v-gain obs`. Over the P-steps since the last V-step, accumulate per coded plane the
+  gradient `ḡ` and the diagonal empirical Fisher `F = mean g²` of `dL/dS` (gradient hooks on the `S` leaf). Each block's
+  best candidate among its 16 nearest codewords minimises `⟨ḡ, Δ⟩ + (λ/2) Σ F Δ²`, the Optimal Brain Surgeon criterion
+  (Hassibi and Stork (1993)) at diagonal order. Tries are `λ` × fraction {0.001, 0.01} of positive-gain blocks per
+  plane, each scored on a disjoint batch and reverted unless the loss falls. `--obs-lams` sets the `λ` grid; its
+  default `1,4,16,64` reproduces the first run.
+- Runs (RTX 5080, same protocol and controls as `pv05-1`, all controls pass, pre-finishing KL reproduced bit for bit):
+
+| receipt | `pv_finish.py` | `λ` | V-steps accepted | tries that lowered the loss | held-out KL after | in-sample after |
+|---|---|---|---:|---:|---:|---:|
+| `w18-pv05.json` | `c973b38c…` | linear gain | 1 / 17 | 1 / 136 | 0.8981 | 0.2416 |
+| `w18-pvobs05.json` | `bab41be3…` | 1–64 | 0 / 18 | 0 / 144 | 0.8906 | 0.2387 |
+| `w18-pvlam05.json` | `3e14c5d8…` | 1024–65536 | 0 / 17 | 0 / 136 | 0.8948 | 0.2382 |
+
+- Predictions `pvobs05-1` (held-out in `[0.72, 0.88]`) and `pvobslam05-1` (≥ 3 accepted V-steps) are refuted
+  (`pvobs_refuted`). Every try was predicted to lower the loss; none did (`pvobs_vstep_fails`). First run: realised
+  +5.3 to +25.4 against predicted −1 to −13.7, and `λ` from 1 to 64 changed the prediction by at most 11%. Each
+  P-step gradient averages 4096 tokens (`tokens = 4096 · steps`), so the batch-gradient `F` sits about 4096 times below the
+  per-token one. Second run: at `λ = 65536 = 16 · 4096` the best try (28,603 moves) was predicted −0.399 and realised
+  +0.627, and every try at that `λ` rose by over 3/2 of its predicted fall (`pvobs_damping_insufficient`).
+- Measured (three runs, `pv_scales_carry_gain`): the run with one accepted V-step is not better than either run with
+  none. Held-out KL after finishing has mean 0.8945 and spread 0.0075 (0.8906–0.8981), each run removing over a fifth
+  of 1.1637. The 0.89 is the P-step on the scales, reproduced three times. Control `ctl_pvobs` (3/2 raised to 8/5, the
+  mean bound raised to 0.8945) fails at both lines; axioms `{propext, Classical.choice, Quot.sound}`.
+- Reading: no damping of the diagonal empirical Fisher makes a top-gain codeword move fall. Two readings fit, and
+  neither is tested yet. (a) The empirical Fisher (squared gradients of the observed loss) is not the curvature:
+  Kunstner, Balles and Hennig (arXiv 1905.12558, abstract retrieved) show that "the empirical Fisher—unlike the
+  Fisher—does not generally capture second-order information". (b) The selected moves are not independent: top-gain
+  blocks cluster in the same sensitive rows, and after the FWHT each 8-block spreads over 128 weights, so cross terms
+  add coherently. pv05's one falling move was a low-gain set (skip-rank 0.97), which is consistent with both.
+- Decision: stop scoring discrete moves. Train the codes the way `Perf/KDScaling.lean` trained a sign plane: a latent
+  `S` per plane, projected in the forward pass to its nearest E8 ∪ O8 codeword with a straight-through gradient, jointly
+  with the scales, at unchanged stored bits. The OBS path in `pv_finish.py` stays only until that run lands.
+- Board row for these runs: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
 Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
 ## Limit claims

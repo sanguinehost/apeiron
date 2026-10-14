@@ -20,6 +20,13 @@ and it trains under 5% of the stored bits (the scales). The first-order V-step p
 moves of the sign codes and realised one, at under 1/45 of its prediction: the code (95% of the bits) is where the next
 gain has to come from, and its move needs a curvature term.
 
+Two further runs score the V-step candidates by a curvature-corrected (Optimal Brain Surgeon, Hassibi and Stork
+(1993), at diagonal order) gain `⟨ḡ, Δ⟩ + (λ/2) Σ F Δ²`, with `ḡ` and the diagonal empirical Fisher `F` averaged over the
+window's batch gradients: `w18-pvobs05.json` (`pv_finish.py` sha256 `bab41be3…`, `λ ∈ {1, 4, 16, 64}`) and
+`w18-pvlam05.json` (sha256 `3e14c5d8…`, `λ ∈ {1024, …, 65536}`). Predictions `pvobs05-1` and `pvobslam05-1` are
+refuted: no candidate in either run lowered the loss, even at `λ = 65536`, sixteen times the tokens per batch gradient.
+The three runs reproduce the held-out drop through the scales alone (0.8906, 0.8948, 0.8981; mean under 0.895).
+
 Grades: every statement is a `proved` arithmetic fact about `measured` constants (`Perf/Receipts/Onebit.lean`); the
 controls are `tested` booleans checked by `tools/rooting/receipt_lean.py` before they are emitted.
 -/
@@ -87,5 +94,68 @@ theorem pv_vstep_first_order_fails :
     w18_pv05.vTries = 136 ∧ w18_pv05.vTriesPredictedFall = w18_pv05.vTries ∧ w18_pv05.vTriesFell = 1 ∧
     w18_pv05.vFellRealised < 0 ∧ 45 * w18_pv05.vFellRealised > w18_pv05.vFellPredicted := by
   refine ⟨rfl, rfl, rfl, ?_, ?_⟩ <;> norm_num [w18_pv05.vFellRealised, w18_pv05.vFellPredicted]
+
+/-- **The OBS runs are the same arm.** Both curvature-corrected runs start from the size-trend arm's code and held-out
+KL to the last digit, keep the stored bits, and pass every control. -/
+theorem pvobs_same_arm :
+    w18_pvobs05.arm = w18_pv05.arm ∧ w18_pvlam05.arm = w18_pv05.arm ∧
+    w18_pvobs05.klHeldoutBefore = w18_pv05.klHeldoutBefore ∧
+    w18_pvlam05.klHeldoutBefore = w18_pv05.klHeldoutBefore ∧
+    w18_pvobs05.bitsAfter = w18_pv05.bitsBefore ∧ w18_pvlam05.bitsAfter = w18_pv05.bitsBefore ∧
+    w18_pvobs05.beforeMatchesReference = true ∧ w18_pvobs05.bitsEqual = true ∧
+    w18_pvobs05.codebookExact = true ∧ w18_pvobs05.dataDisjoint = true ∧
+    w18_pvlam05.beforeMatchesReference = true ∧ w18_pvlam05.bitsEqual = true ∧
+    w18_pvlam05.codebookExact = true ∧ w18_pvlam05.dataDisjoint = true := by
+  refine ⟨rfl, rfl, ?_, ?_, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩ <;>
+    norm_num [w18_pvobs05.klHeldoutBefore, w18_pvlam05.klHeldoutBefore, w18_pv05.klHeldoutBefore]
+
+/-- **Predictions `pvobs05-1` and `pvobslam05-1` refuted.** `pvobs05-1` predicted held-out KL in `[0.72, 0.88]`; it
+ended above `0.88`. `pvobslam05-1` predicted at least three accepted V-steps; none was accepted. -/
+theorem pvobs_refuted :
+    (88 / 100 : ℚ) < w18_pvobs05.klHeldoutAfter ∧ w18_pvobs05.vAccepted = 0 ∧ w18_pvlam05.vAccepted = 0 := by
+  refine ⟨?_, rfl, rfl⟩
+  norm_num [w18_pvobs05.klHeldoutAfter]
+
+/-- **The OBS gain does not find a falling move.** In both runs every candidate was predicted to lower the loss and none
+did; the candidate with the smallest realised change still raised it. -/
+theorem pvobs_vstep_fails :
+    w18_pvobs05.vTriesPredictedFall = w18_pvobs05.vTries ∧ w18_pvobs05.vTriesFell = 0 ∧
+    0 < w18_pvobs05.vBestRealised ∧
+    w18_pvlam05.vTriesPredictedFall = w18_pvlam05.vTries ∧ w18_pvlam05.vTriesFell = 0 ∧
+    0 < w18_pvlam05.vBestRealised ∧
+    w18_pvobs05.vTries + w18_pvlam05.vTries = 280 := by
+  refine ⟨rfl, rfl, ?_, rfl, rfl, ?_, rfl⟩ <;>
+    norm_num [w18_pvobs05.vBestRealised, w18_pvlam05.vBestRealised]
+
+/-- **Damping is not the missing factor.** Each P-step gradient averages 4096 tokens (`tokens = 4096 · steps`), so the
+batch-gradient Fisher sits about 4096 times below the per-token Fisher. At `λ = 65536 = 16 · 4096` every candidate still
+raised the loss by over `3/2` of its predicted fall, and the best candidate of the small-`λ` run rose by over three
+times its prediction. The diagonal empirical Fisher of the loss gradient does not measure the curvature a codeword move
+meets. -/
+theorem pvobs_damping_insufficient :
+    w18_pvlam05.tokens = 4096 * w18_pvlam05.steps ∧ w18_pvobs05.tokens = 4096 * w18_pvobs05.steps ∧
+    w18_pvlam05.obsLamMax = 16 * 4096 ∧ w18_pvlam05.vBestLam = w18_pvlam05.obsLamMax ∧
+    (3 / 2 : ℚ) < w18_pvlam05.vRiseOverPredMinAtLamMax ∧
+    -w18_pvlam05.vBestPredicted < w18_pvlam05.vBestRealised ∧
+    -3 * w18_pvobs05.vBestPredicted < w18_pvobs05.vBestRealised := by
+  refine ⟨rfl, rfl, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvlam05.obsLamMax, w18_pvlam05.vBestLam, w18_pvlam05.vRiseOverPredMinAtLamMax,
+      w18_pvlam05.vBestPredicted, w18_pvlam05.vBestRealised, w18_pvobs05.vBestPredicted, w18_pvobs05.vBestRealised]
+
+/-- **The scales carry the drop (three runs).** The run with one accepted V-step is not better than either run with
+none; across the three runs held-out KL after finishing lies within `1/125` of each other, with mean in
+`(0.894, 0.895)`, and each run removes over a fifth of the arm's held-out KL. -/
+theorem pv_scales_carry_gain :
+    w18_pv05.vAccepted = 1 ∧ w18_pvobs05.vAccepted = 0 ∧ w18_pvlam05.vAccepted = 0 ∧
+    w18_pvobs05.klHeldoutAfter < w18_pvlam05.klHeldoutAfter ∧
+    w18_pvlam05.klHeldoutAfter < w18_pv05.klHeldoutAfter ∧
+    w18_pv05.klHeldoutAfter - w18_pvobs05.klHeldoutAfter < 1 / 125 ∧
+    (894 / 1000 : ℚ) < (w18_pv05.klHeldoutAfter + w18_pvobs05.klHeldoutAfter + w18_pvlam05.klHeldoutAfter) / 3 ∧
+    (w18_pv05.klHeldoutAfter + w18_pvobs05.klHeldoutAfter + w18_pvlam05.klHeldoutAfter) / 3 < 895 / 1000 ∧
+    w18_pvobs05.klHeldoutAfter < (78 / 100 : ℚ) * w18_pvobs05.klHeldoutBefore ∧
+    w18_pvlam05.klHeldoutAfter < (78 / 100 : ℚ) * w18_pvlam05.klHeldoutBefore := by
+  refine ⟨rfl, rfl, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pv05.klHeldoutAfter, w18_pvobs05.klHeldoutAfter, w18_pvlam05.klHeldoutAfter,
+      w18_pvobs05.klHeldoutBefore, w18_pvlam05.klHeldoutBefore]
 
 end Perf.PVFinish

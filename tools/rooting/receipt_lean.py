@@ -67,6 +67,8 @@ W15 = {
     "w18_size15": "docs/evidence/receipts/onebit/w18-size15-n50.json",
     "w18_size15m": "docs/evidence/receipts/onebit/w18-size15-m792.json",
     "w18_pv05": "docs/evidence/receipts/onebit/w18-pv05.json",
+    "w18_pvobs05": "docs/evidence/receipts/onebit/w18-pvobs05.json",
+    "w18_pvlam05": "docs/evidence/receipts/onebit/w18-pvlam05.json",
 }
 
 OUTCOME_ARMS = [("teacher", "teacher"), ("q4km", "q4km"), ("resq", RESQ_ARM)]
@@ -486,8 +488,12 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
             for name, k in [("q4kmBpw", "bpw_linears"), ("q4kmKlHeldout", "kl_heldout"), ("q4kmTop1Heldout", "top1_heldout")]:
                 out.append(("rat", name, rat(q[k])))
         out.append(("rat", "wallTotalS", rat(data["wall_total_s"])))
-    elif ns == "w18_pv05":
+    elif ns in ("w18_pv05", "w18_pvobs05", "w18_pvlam05"):
         # End-to-end KL finishing of the arm's stored code (pv_finish.py): the same arm, before and after, at identical bits.
+        # pv05 scores V-step candidates by the linear gain; pvobs05 and pvlam05 by the diagonal-Fisher OBS gain.
+        obs = ns != "w18_pv05"
+        if data.get("v_gain", "linear") != ("obs" if obs else "linear"):
+            raise Fail(f"{rel}: V-step gain is not the one this namespace records")
         if data["arm"] != RESQ_ARM or data["n_cal"] != 50 or data["eval_chunks"] != [50, 90] or data["insample_chunks"] != [0, 20]:
             raise Fail(f"{rel}: not the arm on the n-cal 50 / held-out [50, 90) protocol")
         c = data["controls"]
@@ -511,12 +517,28 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
         out.append(("nat", "vTries", nat(len(tries))))
         out.append(("nat", "vTriesPredictedFall", nat(sum(1 for t, _ in tries if rat(t["predicted_dloss"]) < 0))))
         out.append(("nat", "vTriesFell", nat(len(fell))))
-        if len(fell) != 1:
-            raise Fail(f"{rel}: expected exactly one V-step candidate to lower the loss, got {len(fell)}")
-        t, b = fell[0]
-        out.append(("nat", "vFellMoves", nat(t["moves"])))
-        out.append(("rat", "vFellPredicted", rat(t["predicted_dloss"])))
-        out.append(("rat", "vFellRealised", rat(t["loss_after"]) - rat(b)))
+        if obs:
+            if fell:
+                raise Fail(f"{rel}: expected no OBS V-step candidate to lower the loss, got {len(fell)}")
+            lams = sorted({rat(t["lam"]) for t, _ in tries})
+            out.append(("rat", "obsLamMin", lams[0]))
+            out.append(("rat", "obsLamMax", lams[-1]))
+            # The candidate with the smallest realised rise, and the one with the largest realised/|predicted| ratio floor.
+            t, b = min(tries, key=lambda x: rat(x[0]["loss_after"]) - rat(x[1]))
+            out.append(("rat", "vBestLam", rat(t["lam"])))
+            out.append(("nat", "vBestMoves", nat(t["moves"])))
+            out.append(("rat", "vBestPredicted", rat(t["predicted_dloss"])))
+            out.append(("rat", "vBestRealised", rat(t["loss_after"]) - rat(b)))
+            # At the largest lam, the smallest realised rise over |predicted| across every try.
+            top = [(rat(t["loss_after"]) - rat(b)) / -rat(t["predicted_dloss"]) for t, b in tries if rat(t["lam"]) == lams[-1]]
+            out.append(("rat", "vRiseOverPredMinAtLamMax", min(top)))
+        else:
+            if len(fell) != 1:
+                raise Fail(f"{rel}: expected exactly one V-step candidate to lower the loss, got {len(fell)}")
+            t, b = fell[0]
+            out.append(("nat", "vFellMoves", nat(t["moves"])))
+            out.append(("rat", "vFellPredicted", rat(t["predicted_dloss"])))
+            out.append(("rat", "vFellRealised", rat(t["loss_after"]) - rat(b)))
         bc = data["bits_components"]
         if bc != data["bits_components_after"] or sum(bc.values()) != data["bits_before"]:
             raise Fail(f"{rel}: bit components changed or do not sum to the stored bits")
