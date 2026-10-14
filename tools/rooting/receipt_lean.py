@@ -83,6 +83,7 @@ W15 = {
     "w18_pvfast": "docs/evidence/receipts/onebit/w18-pvfast.json",
     "w18_pvprof": "docs/evidence/receipts/onebit/w18-pvprof.json",
     "w18_pvprof2": "docs/evidence/receipts/onebit/w18-pvprof2.json",
+    "w18_hadmm": "docs/evidence/receipts/onebit/w18-hadmm.json",
     "w18_guided05": "docs/evidence/receipts/onebit/w18-guided05.json",
     "w18_guidedsweep": "docs/evidence/receipts/onebit/w18-guidedsweep.json",
     "w18_guidedseed": "docs/evidence/receipts/onebit/w18-guidedseed.json",
@@ -97,7 +98,7 @@ GUIDED_SEEDS = {"w18_guidedseed": ["1", "2"]}
 # Scale-group ablation of the finishing drop (pv_finish.py --train, V-steps off): namespace -> trained groups.
 PVAB_GROUPS = {"w18_pvabnorm05": ["norm"], "w18_pvabr05": ["r"], "w18_pvaball05v0": ["c", "d", "norm", "r"], "w18_pvabrcd05": ["c", "d", "r"], "w18_pvabcd05": ["c", "d"],
                "w18_pvgrid25": ["c", "d", "norm", "r"], "w18_pvtok146": ["c", "d", "norm", "r"], "w18_pvtok292": ["c", "d", "norm", "r"],
-               "w18_pvfast": ["c", "d", "norm", "r"]}
+               "w18_pvfast": ["c", "d", "norm", "r"], "w18_hadmm": ["c", "d", "norm", "r"]}
 
 # Ten-step torch.profiler windows of the finishing loop (pv_finish.py --profile 10): namespace -> (compose, kl) path.
 # `selfDeviceS` is the receipt's own total: pvprof sums aten-op and kernel self time (double counts), pvprof2 kernels only.
@@ -672,15 +673,49 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
         if (data["args"].get("compose", "layer"), data["args"].get("kl", "ckpt")) != ("layer", "ckpt"):
             # Throughput path (PlaneCompose once per step, KLHead): the start-of-training probe compares losses and the
             # trainable gradient against the (layer, ckpt) path, with a second (layer, ckpt) pass as the noise floor.
+            # Arms on the fwht128 butterfly must be loss-bit-equal.  Under --hadamard mm (summation order differs) the mm
+            # arithmetic is gated in float64 on real planes (PlaneComposeMM vs PlaneCompose, forward and adjoints, max
+            # relative < 1e-12); at model level the fp32-student mm arm against the fp32 butterfly arm holds loss relative
+            # < 1e-5 and gradient relative L2 < 1e-2, the bf16 mm arms gradient relative L2 < 1e-1.
             ge = c["grad_equiv"]
-            if not ge["ok"] or not all(v["loss_equal"] for v in ge["arms"].values()):
+            had = data["args"].get("hadamard", "butterfly")
+            mm_arms = {"had_only", "requested"} if had == "mm" else set()
+            for k, v in ge["arms"].items():
+                if k in mm_arms:
+                    fh = ge["fp32"]["fp32_had"]
+                    ok_k = (rat(ge["fp32"]["float64_unit_max_rel"]) < Fraction(1, 10 ** 12) and rat(fh["loss_rel"]) < Fraction(1, 10 ** 5)
+                            and rat(fh["grad_rel_l2"]) < Fraction(1, 100) and rat(v["grad_rel_l2"]) < Fraction(1, 10))
+                else:
+                    ok_k = k == "jitter" or v["loss_equal"]
+                if not ok_k:
+                    raise Fail(f"{rel}: grad_equiv arm {k} outside its tolerance")
+            if not ge["ok"]:
                 raise Fail(f"{rel}: grad_equiv control failed")
             out.append(("str", "compose", data["args"]["compose"]))
             out.append(("str", "klMode", data["args"]["kl"]))
+            out.append(("str", "hadamard", had))
             out.append(("bool", "gradEquivOk", bool_value(ge["ok"], ns)))
-            for name, k in [("gradRelFloor", "ref_again"), ("gradRelComposeOnly", "compose_only"), ("gradRelKlOnly", "kl_only"),
-                            ("gradRelRequested", "requested")]:
+            arms = [("gradRelFloor", "ref_again"), ("gradRelComposeOnly", "compose_only"), ("gradRelKlOnly", "kl_only"),
+                    ("gradRelRequested", "requested")]
+            if had == "mm":
+                arms += [("gradRelHadOnly", "had_only"), ("gradRelJitter", "jitter")]
+            for name, k in arms:
                 out.append(("rat", name, rat(ge["arms"][k]["grad_rel_l2"])))
+            if had == "mm":
+                for name, k in [("lossRelHadOnly", "had_only"), ("lossRelJitter", "jitter"), ("lossRelRequested", "requested")]:
+                    out.append(("rat", name, rat(ge["arms"][k]["loss_rel"])))
+                for name, k in [("bf16FlipsMm", "mm"), ("bf16FlipsJitter", "jitter")]:
+                    out.append(("nat", name, nat(ge["weights"][k]["bf16_flips"])))
+                out.append(("rat", "wRelMaxMm", rat(ge["weights"]["mm"]["w_rel_max"])))
+                for name, k in [("bf16RelL2Mm", "mm"), ("bf16RelL2Jitter", "jitter")]:
+                    out.append(("rat", name, rat(ge["weights"][k]["bf16_rel_l2"])))
+                out.append(("nat", "zeroToNonzeroMm", nat(ge["weights"]["mm"]["zero_to_nonzero"])))
+                fp = ge["fp32"]
+                out.append(("rat", "lossRelFp32Had", rat(fp["fp32_had"]["loss_rel"])))
+                out.append(("rat", "gradRelFp32Had", rat(fp["fp32_had"]["grad_rel_l2"])))
+                out.append(("rat", "gradRelFp32Floor", rat(fp["fp32_ref_again"]["grad_rel_l2"])))
+                out.append(("rat", "lossRelBf16VsFp32", rat(fp["bf16_vs_fp32_loss_rel"])))
+                out.append(("rat", "float64UnitMaxRel", rat(fp["float64_unit_max_rel"])))
             out.append(("rat", "peakMemGb", rat(data["peak_mem_gb"])))
         out.append(("rat", "trainS", rat(data["walls"]["train_s"])))
         for name, k in [("bitsR", "bits_r"), ("bitsC", "bits_c"), ("bitsD", "bits_d")]:

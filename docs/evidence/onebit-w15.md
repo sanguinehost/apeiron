@@ -1525,6 +1525,51 @@ which reports Llama-2 7B at 1.58 b/w within 1.43× of fp16 perplexity).
 
 Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
+### The Hadamard as one matmul (`measured`; `Perf/PVFinish.lean`)
+
+`pv_finish.py --hadamard mm` (sha256 `60b0f6bc…`) replaces each 128-group's 7-stage `fwht128` butterfly with one
+`x.reshape(-1, 128) @ H₁₂₈/√128` matmul (Sylvester's `H₁₂₈ = H^⊗7`, built in float64 and cast; symmetric and its own
+inverse, so it serves the forward and both adjoints). Everything else is `w18-pvfast`'s protocol. Receipt
+[`receipts/onebit/w18-hadmm.json`](receipts/onebit/w18-hadmm.json) (sha256 `bae8ada3…`), RTX 5080, 580 s budget.
+
+| run | Hadamard | steps | train s | s/step | tokens | held-out KL | top-1 | in-sample KL | peak GB |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `w18-pvfast` | butterfly | 729 | 416.2 | 0.571 | 2,985,984 | 0.8577 | 0.548 | 0.2398 | 6.68 |
+| `w18-hadmm` | matmul | 871 | 417.4 | 0.479 | 3,567,616 | **0.8484** | 0.551 | 0.2419 | 8.05 |
+
+Arm, bits (1.178061 b/w) and the before-finishing point (held-out 1.1637, top-1 0.480) are identical.
+
+- Cost model (`hadmm_cost_model`): the butterfly reads and writes every fp32 word at each of 7 stages plus the `1/√128`
+  scale, 64 B per word; the matmul moves 8 B per word, eight times fewer, and spends 256 FLOPs per word (32 per byte) on
+  the tensor cores. The measured saving is between 0.09 and 0.10 s per step (`hadmm_faster`), against ≈ 0.121 s of
+  butterfly `cat + sub + add` profiled on `pvfast`; the step is 1.1–1.2× faster. Peak memory rises 1.37 GB.
+- Same function (`hadmm_same_function`): in float64 on eight coded planes the forward and the `r, c, d` adjoints agree to
+  `7.13 · 10⁻¹⁶` relative. With an fp32 student the model loss moves `3.24 · 10⁻⁶` relative and the trainable gradient
+  `1.344 · 10⁻³`, under ten times the fp32 rerun noise `1.68 · 10⁻⁴` (atomic reordering alone).
+- bf16 amplification (`hadmm_bf16_amplification`): the matmul moves no fp32 weight by more than `8.7 · 10⁻⁷` relative
+  and its bf16 relative L2 change (`2.55 · 10⁻⁵`) is below a seeded `2⁻²²` jitter's (`3.59 · 10⁻⁵`), yet it flips
+  291,588 bf16 words against the jitter's 21,296 (33,800 zero → nonzero): its error is absolute per 128-group, so it
+  lands on small words. The bf16 loss moves `2.93 · 10⁻³` relative, over 800 times the fp32 change and below the
+  bf16-vs-fp32 cast's own `4.50 · 10⁻³`.
+- Lower (`hadmm_lower`): held-out KL 0.8484, 0.0093 below `pvfast`, over the 0.0075 protocol spread; top-1 rises. The
+  step 729 → 871 is over a quarter of a token doubling and its drop is under a quarter of the 146 → 292 doubling's: the
+  fifth token point lies below the earlier per-doubling rate.
+- Predictions: `hadmm-smoke-1` refuted (bf16 gradient tolerance `1/100` guessed; measured `3.46 · 10⁻²`);
+  `hadmm-smoke-2-1` refuted (bf16 flips 13.3× the jitter's, over the 3× falsifier); `hadmm-full-1` refuted (loss 5.9×
+  the jitter's; no training ran); `hadmm-full-2` refuted (fp32 gradient `1.336 · 10⁻³` over the guessed `10⁻³`); each
+  was the control's assert, before any training step. `hadmm-full-3` confirmed (s/step, steps and held-out KL inside
+  their predicted ranges). `hadmm_guessed_tolerances` records the two guessed thresholds the measurements exceed.
+- Lesson, now in the control: the identity is checked in float64 (`< 10⁻¹²`); fp32 and bf16 tolerances derive from the
+  measured fp32 rerun noise and a seeded jitter in the same run, never from a guessed threshold.
+- Controls: `hadmm_cost_model` 8 → 9, `hadmm_same_arm` pvfast `"butterfly"` → `"mm"`, `hadmm_same_function` `10⁻⁵` →
+  `10⁻⁶`, `hadmm_bf16_amplification` 13 → 14, `hadmm_guessed_tolerances` `1/1000` → `1/100`, `hadmm_faster` `9/100` →
+  `1/10` and `hadmm_lower` `75/10000` → `100/10000` each fails at its own theorem; axioms `{propext, Classical.choice,
+  Quot.sound}` for six, `{propext}` for the cost model.
+- Decision: `--hadamard mm` is the finishing default. Next device work: fold the Hadamard onto activations
+  (`x Wᵀ = (d ⊙ H(c ⊙ x)) (S ⊙ r)ᵀ` per 128-column group), which removes weight composition from the step; the learned
+  K-angle rotation of the quantum epic generalises this fixed `H^⊗7`.
+- Board row for this run: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
 ## Limit claims
 
 `tools/rooting/limit_check.py` refuses, in this file, `onebit-w13.md`, `docs/epics/ternary-hadamard.md` and the
