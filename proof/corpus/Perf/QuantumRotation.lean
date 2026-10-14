@@ -1,4 +1,6 @@
 import Perf.Receipts.Onebit
+import Mathlib.LinearAlgebra.Matrix.Trace
+import Mathlib.Data.Real.Basic
 
 /-!
 # Learned register angles against the fixed Hadamard: verdicts (`quantum-register` )
@@ -598,4 +600,144 @@ theorem blockft_block_step_cost :
   refine ⟨?_, ?_⟩ <;>
     norm_num [qreg_blockft.blockWallS, qreg_blockft.blockSteps, qreg_blockft.baseTrainS, qreg_blockft.baseSteps]
 
+/-! ## Output-side code refinement (the receipts/onebit/qreg-yaqa note.json`)
+
+`fold_transfer.py` arm suffix `-yaqa` re-rounds every E8 plane of the 1.178 b/w arm against
+`J_O(D) = tr(Dᵀ H_O D H_l)` (Tseng et al., YAQA, arXiv 2505.22988, eq. 5–6; `H_O` by Sketch A, eq. 11, from
+`50 × 512` tokens), a 256-row block at a time, keeping a block only when `J_O` falls (`YaqaBlock` below). Two block-Jacobi
+arms ran on a capture whose `H_O` carried atomics noise; two block-solve arms ran on the fixed, bit-reproducible capture. -/
+
+/-- **Predictions `qreg-yaqa-1`, `-3` and `-6` are refuted.** The block solve lowers `J_O` in all seven linear kinds and
+raises held-out KL before finishing by more than `0.18` nats (`1.1637 → 1.3471`) at unchanged bits; the repeat on the same
+source is bit-identical. -/
+theorem yaqa_refuted :
+    qreg_yaqa.baseKlHeldoutBefore + 18 / 100 < qreg_yaqa.solveAKlHeldoutBefore ∧
+    qreg_yaqa.solveAKlHeldoutBefore = qreg_yaqa.solveBKlHeldoutBefore ∧
+    qreg_yaqa.baseKlHeldoutBefore = qreg_yaqa.base2KlHeldoutBefore := by
+  refine ⟨?_, ?_, ?_⟩ <;>
+    norm_num [qreg_yaqa.baseKlHeldoutBefore, qreg_yaqa.solveAKlHeldoutBefore, qreg_yaqa.solveBKlHeldoutBefore,
+      qreg_yaqa.base2KlHeldoutBefore]
+
+/-- **The proxy falls in every kind.** `J_O` after the accepted blocks is below `J_O` before for `q, k, v, o, gate, up,
+down`; `gate` and `up` accept every block. The objective the refine optimises is not the held-out KL it moves. -/
+theorem yaqa_jo_falls :
+    qreg_yaqa.solveQJoAfter < qreg_yaqa.solveQJoBefore ∧ qreg_yaqa.solveKJoAfter < qreg_yaqa.solveKJoBefore ∧
+    qreg_yaqa.solveVJoAfter < qreg_yaqa.solveVJoBefore ∧ qreg_yaqa.solveOJoAfter < qreg_yaqa.solveOJoBefore ∧
+    qreg_yaqa.solveGateJoAfter < qreg_yaqa.solveGateJoBefore ∧ qreg_yaqa.solveUpJoAfter < qreg_yaqa.solveUpJoBefore ∧
+    qreg_yaqa.solveDownJoAfter < qreg_yaqa.solveDownJoBefore ∧
+    qreg_yaqa.solveGateAccepted = qreg_yaqa.solveGateChunks ∧ qreg_yaqa.solveUpAccepted = qreg_yaqa.solveUpChunks := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [qreg_yaqa.solveQJoAfter, qreg_yaqa.solveQJoBefore, qreg_yaqa.solveKJoAfter, qreg_yaqa.solveKJoBefore,
+      qreg_yaqa.solveVJoAfter, qreg_yaqa.solveVJoBefore, qreg_yaqa.solveOJoAfter, qreg_yaqa.solveOJoBefore,
+      qreg_yaqa.solveGateJoAfter, qreg_yaqa.solveGateJoBefore, qreg_yaqa.solveUpJoAfter, qreg_yaqa.solveUpJoBefore,
+      qreg_yaqa.solveDownJoAfter, qreg_yaqa.solveDownJoBefore, qreg_yaqa.solveGateAccepted, qreg_yaqa.solveGateChunks,
+      qreg_yaqa.solveUpAccepted, qreg_yaqa.solveUpChunks]
+
+/-- **Held-out KL is hypersensitive to `H_O` estimation noise.** The two block-Jacobi arms ran one source; their captures
+differ only by atomics in the attention backward. Their per-kind `J_O` after the refine agree within `1.2%` relative in
+every kind, while held-out KL before finishing differs by more than `0.15` nats. -/
+theorem yaqa_capture_noise :
+    qreg_yaqa.jacobi1KlHeldoutBefore + 15 / 100 < qreg_yaqa.jacobi2KlHeldoutBefore ∧
+    |qreg_yaqa.jacobi1QJoAfter - qreg_yaqa.jacobi2QJoAfter| < 12 / 1000 * qreg_yaqa.jacobi1QJoAfter ∧
+    |qreg_yaqa.jacobi1KJoAfter - qreg_yaqa.jacobi2KJoAfter| < 12 / 1000 * qreg_yaqa.jacobi1KJoAfter ∧
+    |qreg_yaqa.jacobi1VJoAfter - qreg_yaqa.jacobi2VJoAfter| < 12 / 1000 * qreg_yaqa.jacobi1VJoAfter ∧
+    |qreg_yaqa.jacobi1OJoAfter - qreg_yaqa.jacobi2OJoAfter| < 12 / 1000 * qreg_yaqa.jacobi1OJoAfter ∧
+    |qreg_yaqa.jacobi1GateJoAfter - qreg_yaqa.jacobi2GateJoAfter| < 12 / 1000 * qreg_yaqa.jacobi1GateJoAfter ∧
+    |qreg_yaqa.jacobi1UpJoAfter - qreg_yaqa.jacobi2UpJoAfter| < 12 / 1000 * qreg_yaqa.jacobi1UpJoAfter ∧
+    |qreg_yaqa.jacobi1DownJoAfter - qreg_yaqa.jacobi2DownJoAfter| < 12 / 1000 * qreg_yaqa.jacobi1DownJoAfter := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [abs_lt, qreg_yaqa.jacobi1KlHeldoutBefore, qreg_yaqa.jacobi2KlHeldoutBefore, qreg_yaqa.jacobi1QJoAfter,
+      qreg_yaqa.jacobi2QJoAfter, qreg_yaqa.jacobi1KJoAfter, qreg_yaqa.jacobi2KJoAfter, qreg_yaqa.jacobi1VJoAfter,
+      qreg_yaqa.jacobi2VJoAfter, qreg_yaqa.jacobi1OJoAfter, qreg_yaqa.jacobi2OJoAfter, qreg_yaqa.jacobi1GateJoAfter,
+      qreg_yaqa.jacobi2GateJoAfter, qreg_yaqa.jacobi1UpJoAfter, qreg_yaqa.jacobi2UpJoAfter,
+      qreg_yaqa.jacobi1DownJoAfter, qreg_yaqa.jacobi2DownJoAfter]
+
 end Perf.QuantumRotation
+
+/-!
+## YAQA block refinement: the trace identities behind `yaqa_refine`
+
+`tools/onebit/fold_transfer.py` `yaqa_refine` (Tseng et al., YAQA, arXiv 2505.22988, eq. 5–6) re-rounds the
+E8 codes of one linear against `J(D) = tr(Dᵀ H_O D H_l)`, `D = Ws − W`, `H_O` the output-side Hessian sketch
+(eq. 11, Sketch A) and `H_l` the input metric, a block of rows `C` at a time. With the other rows fixed, the
+block objective in `X = D_C` is `tr(Xᵀ A X L) + 2 tr(Xᵀ B L) + const` with `A = H_O[C,C]`,
+`B = H_O[C,¬C] D_¬C = H_O[C,:] D − A D_C` and `L = H_l`. The code solves `A E = B`
+(`torch.linalg.solve`) and rounds toward `W_C = Ws_C + E`, i.e. `X = −E` (`block_target_attains`), and accepts
+a chunk only when the exact increment `dJ_exact` is negative. The earlier per-row target
+`(H_O[r,:] D − H_O[r,r] D_r)/H_O[r,r]` is this solve with `A` replaced by its diagonal.
+
+Not covered: the discrete ICM rounding over the code alphabet, the accuracy of the `H_O` sketch, the block
+split of `J` itself, and the held-out KL, which are harness measurements.
+-/
+
+
+namespace Perf.QuantumRotation.YaqaBlock
+
+open Matrix
+
+variable {o n c : ℕ}
+
+/-- **Exact increment of the block objective.** For symmetric `H` and `L`, the change of
+`J(D) = tr(Dᵀ H D L)` under `D ↦ D + Δ` is the first-order term `2 tr(Δᵀ H D L)` plus the exact
+remainder `tr(Δᵀ H Δ L)`; nothing is linearised away. The cross term uses the symmetry
+`tr(Xᵀ H Y L) = tr(Yᵀ H X L)` of the bilinear form. -/
+theorem dJ_exact (H : Matrix (Fin o) (Fin o) ℝ) (L : Matrix (Fin n) (Fin n) ℝ)
+    (D Δ : Matrix (Fin o) (Fin n) ℝ) (hH : Hᵀ = H) (hL : Lᵀ = L) :
+    Matrix.trace ((D + Δ)ᵀ * H * (D + Δ) * L) - Matrix.trace (Dᵀ * H * D * L)
+      = 2 * Matrix.trace (Δᵀ * (H * D * L)) + Matrix.trace (Δᵀ * H * Δ * L) := by
+  have hcross : ∀ X Y : Matrix (Fin o) (Fin n) ℝ,
+      Matrix.trace (Xᵀ * H * Y * L) = Matrix.trace (Yᵀ * H * X * L) := by
+    intro X Y
+    rw [Matrix.trace_mul_comm (Xᵀ * H * Y) L]
+    rw [← Matrix.trace_transpose (L * (Xᵀ * H * Y))]
+    congr 1
+    simp only [Matrix.transpose_mul, Matrix.transpose_transpose, hH, hL, Matrix.mul_assoc]
+  have hexpand : Matrix.trace ((D + Δ)ᵀ * H * (D + Δ) * L)
+      = Matrix.trace (Dᵀ * H * D * L) + Matrix.trace (Dᵀ * H * Δ * L)
+        + Matrix.trace (Δᵀ * H * D * L) + Matrix.trace (Δᵀ * H * Δ * L) := by
+    simp only [Matrix.transpose_add, Matrix.add_mul, Matrix.mul_add, Matrix.trace_add,
+      Matrix.mul_assoc]
+    ring
+  rw [hexpand, hcross D Δ]
+  simp only [Matrix.mul_assoc]
+  ring
+
+/-- **Block complete square.** With `A` and `L` symmetric and the block target `B = A E`, the block
+objective `tr(Xᵀ A X L) + 2 tr(Xᵀ B L)` equals the complete square
+`tr((X + E)ᵀ A (X + E) L) - tr(Eᵀ A E L)`: the last term is the irreducible cost of the block
+target. -/
+theorem block_complete_square (A : Matrix (Fin c) (Fin c) ℝ) (L : Matrix (Fin n) (Fin n) ℝ)
+    (B E X : Matrix (Fin c) (Fin n) ℝ) (hA : Aᵀ = A) (hL : Lᵀ = L) (hE : A * E = B) :
+    Matrix.trace (Xᵀ * A * X * L) + 2 * Matrix.trace (Xᵀ * B * L)
+      = Matrix.trace ((X + E)ᵀ * A * (X + E) * L) - Matrix.trace (Eᵀ * A * E * L) := by
+  have hcross : ∀ P Q : Matrix (Fin c) (Fin n) ℝ,
+      Matrix.trace (Pᵀ * A * Q * L) = Matrix.trace (Qᵀ * A * P * L) := by
+    intro P Q
+    rw [Matrix.trace_mul_comm (Pᵀ * A * Q) L]
+    rw [← Matrix.trace_transpose (L * (Pᵀ * A * Q))]
+    congr 1
+    simp only [Matrix.transpose_mul, Matrix.transpose_transpose, hA, hL, Matrix.mul_assoc]
+  have hexpand : Matrix.trace ((X + E)ᵀ * A * (X + E) * L)
+      = Matrix.trace (Xᵀ * A * X * L) + Matrix.trace (Xᵀ * A * E * L)
+        + Matrix.trace (Eᵀ * A * X * L) + Matrix.trace (Eᵀ * A * E * L) := by
+    simp only [Matrix.transpose_add, Matrix.add_mul, Matrix.mul_add, Matrix.trace_add,
+      Matrix.mul_assoc]
+    ring
+  have hB : Matrix.trace (Xᵀ * A * E * L) = Matrix.trace (Xᵀ * B * L) := by
+    rw [Matrix.mul_assoc Xᵀ A E, hE]
+  rw [hexpand, hcross E X, hB]
+  simp only [Matrix.mul_assoc]
+  ring
+
+/-- **The block target is attained.** Under the hypotheses of `block_complete_square`, the code
+`X = -E` zeroes the square: the block objective there is exactly `- tr(Eᵀ A E L)`. Minimality over
+all `X` needs `A` and `L` positive semidefinite, which is not proved here. A corollary of
+`block_complete_square`. -/
+theorem block_target_attains (A : Matrix (Fin c) (Fin c) ℝ) (L : Matrix (Fin n) (Fin n) ℝ)
+    (B E : Matrix (Fin c) (Fin n) ℝ) (hA : Aᵀ = A) (hL : Lᵀ = L) (hE : A * E = B) :
+    Matrix.trace ((-E)ᵀ * A * (-E) * L) + 2 * Matrix.trace ((-E)ᵀ * B * L)
+      = - Matrix.trace (Eᵀ * A * E * L) := by
+  have h := block_complete_square A L B E (-E) hA hL hE
+  simpa using h
+
+end Perf.QuantumRotation.YaqaBlock

@@ -1208,6 +1208,12 @@ import Perf.QuantumRotation
 #audit Perf.QuantumRotation.blockft_refuted
 #audit Perf.QuantumRotation.blockft_phase_raises_kl
 #audit Perf.QuantumRotation.blockft_block_step_cost
+#audit Perf.QuantumRotation.YaqaBlock.dJ_exact
+#audit Perf.QuantumRotation.YaqaBlock.block_complete_square
+#audit Perf.QuantumRotation.YaqaBlock.block_target_attains
+#audit Perf.QuantumRotation.yaqa_refuted
+#audit Perf.QuantumRotation.yaqa_jo_falls
+#audit Perf.QuantumRotation.yaqa_capture_noise
 #audit apeiron_word.RegisterRefinement.checked_mul_spec
 #audit apeiron_word.RegisterRefinement.checked_mul_none
 #audit apeiron_word.RegisterRefinement.checked_mul_none_of_a

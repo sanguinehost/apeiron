@@ -1740,6 +1740,68 @@ def blockQuickKlAtSwitch : ℚ := (9634653925895691 : ℚ) / 10000000000000000
 
 end Receipts.qreg_blockft
 
+-- Receipt the receipts/onebit/qreg-yaqa note.json`
+namespace Receipts.qreg_yaqa
+
+def sha256 : String := "971444cae185211e4439f16013e250c26ecd3282181bf3bb9f88e63fc533129a"
+def baseSteps : ℕ := 696
+def baseKlHeldoutAfter : ℚ := (4307957053184509 : ℚ) / 5000000000000000
+def base2Steps : ℕ := 726
+def base2KlHeldoutAfter : ℚ := (2154100276529789 : ℚ) / 2500000000000000
+def baseKlHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def base2KlHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def jacobi1KlHeldoutBefore : ℚ := (11340648978948593 : ℚ) / 10000000000000000
+def jacobi2KlHeldoutBefore : ℚ := (1285153439640999 : ℚ) / 1000000000000000
+def solveAKlHeldoutBefore : ℚ := (13470581084489823 : ℚ) / 10000000000000000
+def solveBKlHeldoutBefore : ℚ := (13470581084489823 : ℚ) / 10000000000000000
+def bitsBefore : ℕ := 421541376
+def solveQJoBefore : ℚ := (10975989417 : ℚ) / 512
+def solveQJoAfter : ℚ := (5340556185 : ℚ) / 256
+def solveQAccepted : ℕ := 47
+def solveQChunks : ℕ := 96
+def solveKJoBefore : ℚ := (7521755137939453 : ℚ) / 10000000000
+def solveKJoAfter : ℚ := (7475769219970703 : ℚ) / 10000000000
+def solveKAccepted : ℕ := 15
+def solveKChunks : ℕ := 24
+def solveVJoBefore : ℚ := (4959736054725647 : ℚ) / 5000000000
+def solveVJoAfter : ℚ := (616814490275383 : ℚ) / 625000000
+def solveVAccepted : ℕ := 23
+def solveVChunks : ℕ := 24
+def solveOJoBefore : ℚ := (1460372308163643 : ℚ) / 2500000000
+def solveOJoAfter : ℚ := (5353216903266907 : ℚ) / 10000000000
+def solveOAccepted : ℕ := 96
+def solveOChunks : ℕ := 96
+def solveGateJoBefore : ℚ := (296006301 : ℚ) / 2
+def solveGateJoAfter : ℚ := (132697208 : ℚ) / 1
+def solveGateAccepted : ℕ := 456
+def solveGateChunks : ℕ := 456
+def solveUpJoBefore : ℚ := (491874213 : ℚ) / 4
+def solveUpJoAfter : ℚ := (784612705 : ℚ) / 8
+def solveUpAccepted : ℕ := 456
+def solveUpChunks : ℕ := 456
+def solveDownJoBefore : ℚ := (1098335467 : ℚ) / 128
+def solveDownJoAfter : ℚ := (910465549 : ℚ) / 128
+def solveDownAccepted : ℕ := 74
+def solveDownChunks : ℕ := 96
+def jacobi1QJoAfter : ℚ := (5480194095 : ℚ) / 256
+def jacobi2QJoAfter : ℚ := (343613051 : ℚ) / 16
+def jacobi1KJoAfter : ℚ := (239620704498291 : ℚ) / 312500000
+def jacobi2KJoAfter : ℚ := (7708612484741211 : ℚ) / 10000000000
+def jacobi1VJoAfter : ℚ := (199099346585083 : ℚ) / 200000000
+def jacobi2VJoAfter : ℚ := (1244738193693161 : ℚ) / 1250000000
+def jacobi1OJoAfter : ℚ := (5261060652399063 : ℚ) / 10000000000
+def jacobi2OJoAfter : ℚ := (1049696035697937 : ℚ) / 2000000000
+def jacobi1GateJoAfter : ℚ := (525887919 : ℚ) / 4
+def jacobi2GateJoAfter : ℚ := (131537130 : ℚ) / 1
+def jacobi1UpJoAfter : ℚ := (389140489 : ℚ) / 4
+def jacobi2UpJoAfter : ℚ := (97238097 : ℚ) / 1
+def jacobi1DownJoAfter : ℚ := (2231030039 : ℚ) / 256
+def jacobi2DownJoAfter : ℚ := (2204898517 : ℚ) / 256
+def solveGradEquivLossRel : ℚ := (5731402004927619 : ℚ) / 100000000000000000000
+def baseGradEquivLossRel : ℚ := (6488394814979517 : ℚ) / 2000000000000000000000
+
+end Receipts.qreg_yaqa
+
 -- Receipt the receipts/onebit/2026-10-11-vladder note.json`
 namespace Receipts.vladder_1011
 
