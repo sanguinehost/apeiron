@@ -192,6 +192,10 @@ $REPO_DIR/src/hashtrinity/crypto.rs
 $REPO_DIR/src/learn/gram.rs
 $REPO_DIR/src/learn/sigma_delta.rs
 $REPO_DIR/src/learn/onebit_bits.rs
+$REPO_DIR/src/learn/grad/dense.rs
+$REPO_DIR/src/learn/grad/attn.rs
+$REPO_DIR/src/learn/grad/head.rs
+$EXTRACT_DIR/learn_port.rs
 $EXTRACT_DIR/Cargo.toml
 $EXTRACT_DIR/Cargo.lock
 $EXTRACT_DIR/lib.rs
@@ -319,6 +323,21 @@ run_extract() {
         --start-from crate::word_onebit_bits_corr \
         --start-from crate::word_onebit_params \
         --start-from crate::word_onebit_index_bits \
+        --start-from crate::learn_port::word_dense_linear_fwd \
+        --start-from crate::learn_port::word_dense_linear_bwd_input \
+        --start-from crate::learn_port::word_dense_linear_bwd_weight \
+        --start-from crate::learn_port::word_dense_rmsnorm_fwd \
+        --start-from crate::learn_port::word_dense_rmsnorm_bwd \
+        --start-from crate::learn_port::word_dense_swiglu_fwd \
+        --start-from crate::learn_port::word_dense_swiglu_bwd \
+        --start-from crate::learn_port::word_attn_rope_fwd \
+        --start-from crate::learn_port::word_attn_rope_bwd \
+        --start-from crate::learn_port::word_attn_attn_fwd \
+        --start-from crate::learn_port::word_attn_attn_bwd \
+        --start-from crate::learn_port::word_head_log_softmax_row \
+        --start-from crate::learn_port::word_head_kl_row \
+        --start-from crate::learn_port::word_head_tv_row \
+        --start-from crate::learn_port::word_head_head_chunked \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \

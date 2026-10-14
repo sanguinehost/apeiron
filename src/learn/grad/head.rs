@@ -36,7 +36,8 @@
 
 #![allow(
     clippy::many_single_char_names,
-    reason = "the softmax, gradient and head recurrences name the logit index `i`, the vocabulary index `k`, the hidden index `j`, the row `r`, the shifted value `u` and the probability `p`, as in the frozen script"
+    clippy::question_mark,
+    reason = "the softmax, gradient and head recurrences name the logit index `i`, the vocabulary index `k`, the hidden index `j`, the row `r`, the shifted value `u` and the probability `p`, as in the frozen script; `?` is outside the pinned extraction fragment, so refusals propagate by explicit `match`"
 )]
 
 use crate::engine::ONE;
@@ -81,11 +82,21 @@ pub struct Dims {
     pub v: usize,
 }
 
+/// `|x|` for `x > i128::MIN` (both call sites: a remainder `n % d` with `d > 0`, and a difference
+/// of two `i64`). Written out because Aeneas has no model of `i128::abs`.
+fn abs128(x: i128) -> i128 {
+    if x < 0 {
+        0 - x
+    } else {
+        x
+    }
+}
+
 /// Round `n / d` to nearest, ties away from zero; `d > 0`, and `|n| / d` fits `i128`.
 fn round_div(n: i128, d: i128) -> i128 {
     let q = n / d;
     let r = n % d;
-    if 2 * r.abs() >= d {
+    if 2 * abs128(r) >= d {
         if n >= 0 {
             q + 1
         } else {
@@ -96,10 +107,16 @@ fn round_div(n: i128, d: i128) -> i128 {
     }
 }
 
+/// Narrow to `i64` by the bounds check; the cast is exact on the checked range.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "the value is range-checked against the i64 bounds on the line above"
+)]
 fn to64(x: i128) -> Result<i64, HeadError> {
-    match i64::try_from(x) {
-        Ok(v) => Ok(v),
-        Err(_) => Err(HeadError::Overflow),
+    if x < i128::from(i64::MIN) || x > i128::from(i64::MAX) {
+        Err(HeadError::Overflow)
+    } else {
+        Ok(x as i64)
     }
 }
 
@@ -117,11 +134,9 @@ fn mul128(a: i128, b: i128) -> Result<i128, HeadError> {
     }
 }
 
-fn dim128(a: usize) -> Result<i128, HeadError> {
-    match i128::try_from(a) {
-        Ok(x) => Ok(x),
-        Err(_) => Err(HeadError::Shape),
-    }
+/// `usize` widened to `i128`: every `usize` value is representable, so the widening is exact.
+fn dim128(a: usize) -> i128 {
+    a as i128
 }
 
 fn mul_dims(a: usize, b: usize) -> Result<usize, HeadError> {
@@ -140,6 +155,115 @@ fn sgn(x: i128) -> i128 {
     }
 }
 
+/// Softmax weight `e = fixed_exp(z − m)` of one entry; `0` below the flush edge.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "the shifted value is range-checked against i64 on the line above the cast"
+)]
+fn exp_entry(zi: i64, m: i64) -> Result<i64, HeadError> {
+    let ui = i128::from(zi) - i128::from(m);
+    if ui < FLUSH {
+        return Ok(0);
+    }
+    if ui > i128::from(i64::MAX) {
+        return Err(HeadError::Overflow);
+    }
+    match fixed_exp(ui as i64) {
+        Ok(ev) => Ok(ev),
+        Err(x) => Err(HeadError::Exp(x)),
+    }
+}
+
+/// Maximum of a non-empty row; the caller refuses the empty row first.
+fn row_max(z: &[i64]) -> i64 {
+    let v = z.len();
+    let mut m: i64 = z[0];
+    let mut i: usize = 1;
+    while i < v {
+        if z[i] > m {
+            m = z[i];
+        }
+        i += 1;
+    }
+    m
+}
+
+/// Fills `e[i] = exp_entry(z[i], m)` and returns `Σ e`.
+///
+/// # Complexity
+///
+/// `O(v)` `fixed_exp` calls and `v` checked `i128` additions; space is the caller's `e`.
+fn exp_fill(z: &[i64], m: i64, e: &mut [i64]) -> Result<i128, HeadError> {
+    let v = z.len();
+    let mut sum: i128 = 0;
+    let mut fail: Option<HeadError> = None;
+    let mut i: usize = 0;
+    while i < v && fail.is_none() {
+        match exp_entry(z[i], m) {
+            Ok(ev) => {
+                e[i] = ev;
+                match add128(sum, i128::from(ev)) {
+                    Ok(s) => sum = s,
+                    Err(x) => fail = Some(x),
+                }
+            }
+            Err(x) => fail = Some(x),
+        }
+        i += 1;
+    }
+    match fail {
+        Some(x) => Err(x),
+        None => Ok(sum),
+    }
+}
+
+/// `log p_i = (z_i − m) − l` narrowed to `i64`.
+fn lp_entry(zi: i64, m: i64, l: i64) -> Result<i64, HeadError> {
+    to64(i128::from(zi) - i128::from(m) - i128::from(l))
+}
+
+/// `p_i = round(e_i · ONE / S)` narrowed to `i64`; `S > 0`.
+fn p_entry(ei: i64, sum: i128) -> Result<i64, HeadError> {
+    match mul128(i128::from(ei), i128::from(ONE)) {
+        Ok(num) => to64(round_div(num, sum)),
+        Err(x) => Err(x),
+    }
+}
+
+/// Fills `lp` and `p` for every entry; returns the first refusal.
+///
+/// # Complexity
+///
+/// `O(v)`: two checked `i128` operations and one division per entry; space is the caller's `lp`
+/// and `p`.
+fn fill_lp_p(
+    z: &[i64],
+    m: i64,
+    l: i64,
+    e: &[i64],
+    sum: i128,
+    lp: &mut [i64],
+    p: &mut [i64],
+) -> Option<HeadError> {
+    let v = z.len();
+    let mut fail: Option<HeadError> = None;
+    let mut i: usize = 0;
+    while i < v && fail.is_none() {
+        match lp_entry(z[i], m, l) {
+            Ok(x) => lp[i] = x,
+            Err(x) => fail = Some(x),
+        }
+        if fail.is_none() {
+            match p_entry(e[i], sum) {
+                Ok(x) => p[i] = x,
+                Err(x) => fail = Some(x),
+            }
+        }
+        i += 1;
+    }
+    fail
+}
+
 /// Softmax of one row: returns `(log p, p)` under the rules of the module documentation.
 ///
 /// # Errors
@@ -149,58 +273,23 @@ fn sgn(x: i128) -> i128 {
 ///
 /// # Complexity
 ///
-/// `O(v)` comparisons, `v` window tests, `v` `fixed_exp` calls and `v` divisions in `i128`, plus
-/// one `fixed_ln`; `O(v)` words of output for `log p` and `p`. The temporaries are the shifted
-/// vector `u` (`v` words of `i128`), the vector `e` (`v` words), and the sum `S` (one word).
-#[allow(
-    clippy::question_mark,
-    reason = "explicit `match` returns keep the extracted term free of `?`"
-)]
+/// `O(v)` comparisons, `v` `fixed_exp` calls and `v` divisions in `i128`, plus one `fixed_ln`;
+/// `O(v)` words of output for `log p` and `p`. The temporaries are the weight vector `e` (`v`
+/// words) and the sum `S` (one `i128` word).
 fn softmax_row(z: &[i64]) -> Result<(Vec<i64>, Vec<i64>), HeadError> {
     let v = z.len();
     if v == 0 {
         return Err(HeadError::Shape);
     }
-    let mut m: i64 = z[0];
-    let mut i: usize = 1;
-    while i < v {
-        if z[i] > m {
-            m = z[i];
-        }
-        i += 1;
-    }
-    let mut u: Vec<i128> = vec![0; v];
+    let m = row_max(z);
     let mut e: Vec<i64> = vec![0; v];
-    let mut sum: i128 = 0;
-    let mut fail: Option<HeadError> = None;
-    i = 0;
-    while i < v && fail.is_none() {
-        let ui = i128::from(z[i]) - i128::from(m);
-        u[i] = ui;
-        if ui < FLUSH {
-            e[i] = 0;
-        } else {
-            match i64::try_from(ui) {
-                Err(_) => fail = Some(HeadError::Overflow),
-                Ok(uq) => match fixed_exp(uq) {
-                    Ok(ev) => e[i] = ev,
-                    Err(x) => fail = Some(HeadError::Exp(x)),
-                },
-            }
-        }
-        if fail.is_none() {
-            match add128(sum, i128::from(e[i])) {
-                Ok(s) => sum = s,
-                Err(x) => fail = Some(x),
-            }
-        }
-        i += 1;
-    }
-    if let Some(x) = fail {
-        return Err(x);
-    }
-    let Ok(s64) = i64::try_from(sum) else {
-        return Err(HeadError::Overflow);
+    let sum = match exp_fill(z, m, &mut e) {
+        Ok(s) => s,
+        Err(x) => return Err(x),
+    };
+    let s64 = match to64(sum) {
+        Ok(s) => s,
+        Err(x) => return Err(x),
     };
     let l = match fixed_ln(s64) {
         Ok(l) => l,
@@ -208,26 +297,10 @@ fn softmax_row(z: &[i64]) -> Result<(Vec<i64>, Vec<i64>), HeadError> {
     };
     let mut lp: Vec<i64> = vec![0; v];
     let mut p: Vec<i64> = vec![0; v];
-    i = 0;
-    while i < v && fail.is_none() {
-        match to64(u[i] - i128::from(l)) {
-            Ok(x) => lp[i] = x,
-            Err(x) => fail = Some(x),
-        }
-        // `S > 0` here: `fixed_ln` returned `Ok`, so `S` is positive and in range.
-        match mul128(i128::from(e[i]), i128::from(ONE)) {
-            Ok(num) => match to64(round_div(num, sum)) {
-                Ok(x) => p[i] = x,
-                Err(x) => fail = Some(x),
-            },
-            Err(x) => fail = Some(x),
-        }
-        i += 1;
+    match fill_lp_p(z, m, l, &e, sum, &mut lp, &mut p) {
+        Some(x) => Err(x),
+        None => Ok((lp, p)),
     }
-    if let Some(x) = fail {
-        return Err(x);
-    }
-    Ok((lp, p))
 }
 
 /// `log softmax` of one row, `log p_i = u_i − ln S` with `u` shifted by the row maximum.
@@ -244,8 +317,52 @@ fn softmax_row(z: &[i64]) -> Result<(Vec<i64>, Vec<i64>), HeadError> {
 ///
 /// `O(v)`, as [`softmax_row`].
 pub fn log_softmax_row(z: &[i64]) -> Result<Vec<i64>, HeadError> {
-    let (lp, _p) = softmax_row(z)?;
-    Ok(lp)
+    match softmax_row(z) {
+        Ok((lp, _p)) => Ok(lp),
+        Err(x) => Err(x),
+    }
+}
+
+/// `Σ p_t (log p_t − log p_s)` in exact `i128`.
+///
+/// # Complexity
+///
+/// `O(v)` checked `i128` multiply-adds; space `O(1)`.
+fn kl_acc(p_t: &[i64], lp_t: &[i64], lp_s: &[i64]) -> Result<i128, HeadError> {
+    let v = p_t.len();
+    let mut acc: i128 = 0;
+    let mut fail: Option<HeadError> = None;
+    let mut i: usize = 0;
+    while i < v && fail.is_none() {
+        let delta = i128::from(lp_t[i]) - i128::from(lp_s[i]);
+        match mul128(i128::from(p_t[i]), delta) {
+            Err(x) => fail = Some(x),
+            Ok(term) => match add128(acc, term) {
+                Ok(s) => acc = s,
+                Err(x) => fail = Some(x),
+            },
+        }
+        i += 1;
+    }
+    match fail {
+        Some(x) => Err(x),
+        None => Ok(acc),
+    }
+}
+
+/// Fills `dz[i] = p_s,i − p_t,i`, narrowed to `i64`; returns the first refusal.
+fn dz_diff(p_s: &[i64], p_t: &[i64], dz: &mut [i64]) -> Option<HeadError> {
+    let v = p_s.len();
+    let mut fail: Option<HeadError> = None;
+    let mut i: usize = 0;
+    while i < v && fail.is_none() {
+        match to64(i128::from(p_s[i]) - i128::from(p_t[i])) {
+            Ok(g) => dz[i] = g,
+            Err(x) => fail = Some(x),
+        }
+        i += 1;
+    }
+    fail
 }
 
 /// `KL(p_t ‖ p_s)` of one row and its gradient `dz_s = p_s − p_t`, both in Q32.32.
@@ -261,10 +378,6 @@ pub fn log_softmax_row(z: &[i64]) -> Result<Vec<i64>, HeadError> {
 /// # Complexity
 ///
 /// `O(v)` for two softmaxes and one pass over the `v` terms; output `v + 1` words.
-#[allow(
-    clippy::question_mark,
-    reason = "explicit `match` returns keep the extracted term free of `?`"
-)]
 pub fn kl_row(z_s: &[i64], z_t: &[i64]) -> Result<(i64, Vec<i64>), HeadError> {
     if z_s.len() != z_t.len() {
         return Err(HeadError::Shape);
@@ -277,35 +390,71 @@ pub fn kl_row(z_s: &[i64], z_t: &[i64]) -> Result<(i64, Vec<i64>), HeadError> {
         Ok(pair) => pair,
         Err(x) => return Err(x),
     };
-    let v = z_s.len();
-    let mut acc: i128 = 0;
-    let mut dz: Vec<i64> = vec![0; v];
+    let acc = match kl_acc(&p_t, &lp_t, &lp_s) {
+        Ok(a) => a,
+        Err(x) => return Err(x),
+    };
+    let mut dz: Vec<i64> = vec![0; z_s.len()];
+    if let Some(x) = dz_diff(&p_s, &p_t, &mut dz) {
+        return Err(x);
+    }
+    match to64(round_div(acc, i128::from(ONE))) {
+        Ok(loss) => Ok((loss, dz)),
+        Err(x) => Err(x),
+    }
+}
+
+/// Scan of one row for the TV loss: fills `sg[i] = sign(p_s,i − p_t,i)` and returns
+/// `(Σ |p_s − p_t|, Σ p_s,j s_j)`.
+///
+/// # Complexity
+///
+/// `O(v)` checked `i128` operations; space is the caller's `sg`.
+fn tv_scan(p_s: &[i64], p_t: &[i64], sg: &mut [i128]) -> Result<(i128, i128), HeadError> {
+    let v = p_s.len();
+    let mut abs_sum: i128 = 0;
+    let mut signed: i128 = 0;
     let mut fail: Option<HeadError> = None;
     let mut i: usize = 0;
     while i < v && fail.is_none() {
-        let delta = i128::from(lp_t[i]) - i128::from(lp_s[i]);
-        match mul128(i128::from(p_t[i]), delta) {
+        let diff = i128::from(p_s[i]) - i128::from(p_t[i]);
+        sg[i] = sgn(diff);
+        match add128(abs_sum, abs128(diff)) {
+            Ok(s) => abs_sum = s,
             Err(x) => fail = Some(x),
-            Ok(term) => match add128(acc, term) {
-                Ok(s) => acc = s,
+        }
+        match mul128(i128::from(p_s[i]), sg[i]) {
+            Ok(term) => match add128(signed, term) {
+                Ok(s) => signed = s,
+                Err(x) => fail = Some(x),
+            },
+            Err(x) => fail = Some(x),
+        }
+        i += 1;
+    }
+    match fail {
+        Some(x) => Err(x),
+        None => Ok((abs_sum, signed)),
+    }
+}
+
+/// Fills `dz[i] = ½ p_s,i (s_i·ONE − A) / ONE` rounded once, with `A = Σ p_s,j s_j` in Q32.
+fn tv_dz(p_s: &[i64], sg: &[i128], signed: i128, dz: &mut [i64]) -> Option<HeadError> {
+    let v = p_s.len();
+    let one = i128::from(ONE);
+    let mut fail: Option<HeadError> = None;
+    let mut i: usize = 0;
+    while i < v && fail.is_none() {
+        match mul128(i128::from(p_s[i]), sg[i] * one - signed) {
+            Err(x) => fail = Some(x),
+            Ok(num) => match to64(round_div(num, 2 * one)) {
+                Ok(g) => dz[i] = g,
                 Err(x) => fail = Some(x),
             },
         }
         i += 1;
     }
-    i = 0;
-    while i < v && fail.is_none() {
-        match to64(i128::from(p_s[i]) - i128::from(p_t[i])) {
-            Ok(g) => dz[i] = g,
-            Err(x) => fail = Some(x),
-        }
-        i += 1;
-    }
-    if let Some(x) = fail {
-        return Err(x);
-    }
-    let loss = to64(round_div(acc, i128::from(ONE)))?;
-    Ok((loss, dz))
+    fail
 }
 
 /// `TV(p_s, p_t) = ½Σ|p_s − p_t|` of one row and its gradient, both in Q32.32.
@@ -321,10 +470,6 @@ pub fn kl_row(z_s: &[i64], z_t: &[i64]) -> Result<(i64, Vec<i64>), HeadError> {
 ///
 /// `O(v)` for two softmaxes, one pass for the loss and the signed sum `A = Σ_j p_s,j s_j`, and one
 /// pass for the gradient; output `v + 1` words.
-#[allow(
-    clippy::question_mark,
-    reason = "explicit `match` returns keep the extracted term free of `?`"
-)]
 pub fn tv_row(z_s: &[i64], z_t: &[i64]) -> Result<(i64, Vec<i64>), HeadError> {
     if z_s.len() != z_t.len() {
         return Err(HeadError::Shape);
@@ -338,53 +483,22 @@ pub fn tv_row(z_s: &[i64], z_t: &[i64]) -> Result<(i64, Vec<i64>), HeadError> {
         Err(x) => return Err(x),
     };
     let v = z_s.len();
-    let mut abs_sum: i128 = 0;
-    let mut signed: i128 = 0;
     let mut sg: Vec<i128> = vec![0; v];
-    let mut fail: Option<HeadError> = None;
-    let mut i: usize = 0;
-    while i < v && fail.is_none() {
-        let diff = i128::from(p_s[i]) - i128::from(p_t[i]);
-        sg[i] = sgn(diff);
-        match add128(abs_sum, diff.abs()) {
-            Ok(s) => abs_sum = s,
-            Err(x) => fail = Some(x),
-        }
-        match mul128(i128::from(p_s[i]), sg[i]) {
-            Ok(term) => match add128(signed, term) {
-                Ok(s) => signed = s,
-                Err(x) => fail = Some(x),
-            },
-            Err(x) => fail = Some(x),
-        }
-        i += 1;
-    }
+    let (abs_sum, signed) = match tv_scan(&p_s, &p_t, &mut sg) {
+        Ok(pair) => pair,
+        Err(x) => return Err(x),
+    };
     let mut dz: Vec<i64> = vec![0; v];
-    i = 0;
-    let one = i128::from(ONE);
-    while i < v && fail.is_none() {
-        // dz = ½ p_s (s·ONE − A) / ONE in Q32, with A = Σ p_s,j s_j in Q32.
-        match mul128(i128::from(p_s[i]), sg[i] * one - signed) {
-            Err(x) => fail = Some(x),
-            Ok(num) => match to64(round_div(num, 2 * one)) {
-                Ok(g) => dz[i] = g,
-                Err(x) => fail = Some(x),
-            },
-        }
-        i += 1;
-    }
-    if let Some(x) = fail {
+    if let Some(x) = tv_dz(&p_s, &sg, signed, &mut dz) {
         return Err(x);
     }
-    let loss = to64(round_div(abs_sum, 2))?;
-    Ok((loss, dz))
+    match to64(round_div(abs_sum, 2)) {
+        Ok(loss) => Ok((loss, dz)),
+        Err(x) => Err(x),
+    }
 }
 
 /// One row's loss and logit gradient under `objective`.
-#[allow(
-    clippy::question_mark,
-    reason = "explicit `match` returns keep the extracted term free of `?`"
-)]
 fn row_objective(
     objective: Objective,
     z_s: &[i64],
@@ -396,13 +510,296 @@ fn row_objective(
     }
 }
 
+/// `round((a[abase..abase+d] · b[bbase..bbase+d]) / ONE)` with a checked `i128` accumulator.
+///
+/// # Complexity
+///
+/// `O(d)` checked `i128` multiply-adds and one rounding; space `O(1)`.
+fn dot_round(a: &[i64], abase: usize, b: &[i64], bbase: usize, d: usize) -> Result<i64, HeadError> {
+    let mut acc: i128 = 0;
+    let mut fail: Option<HeadError> = None;
+    let mut j: usize = 0;
+    while j < d && fail.is_none() {
+        match mul128(i128::from(a[abase + j]), i128::from(b[bbase + j])) {
+            Err(x) => fail = Some(x),
+            Ok(t) => match add128(acc, t) {
+                Ok(s) => acc = s,
+                Err(x) => fail = Some(x),
+            },
+        }
+        j += 1;
+    }
+    match fail {
+        Some(x) => Err(x),
+        None => to64(round_div(acc, i128::from(ONE))),
+    }
+}
+
+/// The student logits of row `r`: `z_k = round(Σ_j hidden_rj · w_kj / ONE)` for `k < v`.
+///
+/// # Errors
+///
+/// [`HeadError::Overflow`] when a dot product or a logit leaves its range.
+///
+/// # Complexity
+///
+/// `O(v·d)` `i128` multiply-adds, `v` roundings; output `v` words.
+fn logits_row(
+    hidden: &[i64],
+    w_head: &[i64],
+    r: usize,
+    d: usize,
+    v: usize,
+) -> Result<Vec<i64>, HeadError> {
+    let mut zs: Vec<i64> = vec![0; v];
+    let mut fail: Option<HeadError> = None;
+    let mut k: usize = 0;
+    while k < v && fail.is_none() {
+        match dot_round(hidden, r * d, w_head, k * d, d) {
+            Ok(z) => zs[k] = z,
+            Err(x) => fail = Some(x),
+        }
+        k += 1;
+    }
+    match fail {
+        Some(x) => Err(x),
+        None => Ok(zs),
+    }
+}
+
+/// `d_hidden[r,j] = round((Σ_k dz_k · w_kj) / n_scale)` for one `j`.
+///
+/// # Complexity
+///
+/// `O(v)` checked `i128` multiply-adds and one rounding.
+fn dh_entry(
+    dz: &[i64],
+    w_head: &[i64],
+    d: usize,
+    j: usize,
+    n_scale: i128,
+) -> Result<i64, HeadError> {
+    let v = dz.len();
+    let mut acc: i128 = 0;
+    let mut fail: Option<HeadError> = None;
+    let mut k: usize = 0;
+    while k < v && fail.is_none() {
+        match mul128(i128::from(dz[k]), i128::from(w_head[k * d + j])) {
+            Err(x) => fail = Some(x),
+            Ok(t) => match add128(acc, t) {
+                Ok(s) => acc = s,
+                Err(x) => fail = Some(x),
+            },
+        }
+        k += 1;
+    }
+    match fail {
+        Some(x) => Err(x),
+        None => to64(round_div(acc, n_scale)),
+    }
+}
+
+/// Writes `dh[dbase + j] = dh_entry(j)` for `j < d`.
+fn dh_fill(
+    dz: &[i64],
+    w_head: &[i64],
+    d: usize,
+    n_scale: i128,
+    dh: &mut [i64],
+    dbase: usize,
+) -> Option<HeadError> {
+    let mut fail: Option<HeadError> = None;
+    let mut j: usize = 0;
+    while j < d && fail.is_none() {
+        match dh_entry(dz, w_head, d, j, n_scale) {
+            Ok(g) => dh[dbase + j] = g,
+            Err(x) => fail = Some(x),
+        }
+        j += 1;
+    }
+    fail
+}
+
+/// `dw[t] += dz[k] · hidden[hbase + j]` for `t = k·d + j`, one flat loop over `v·d` entries.
+///
+/// # Complexity
+///
+/// `v·d` checked `i128` multiply-adds, one per entry of `dw`; the index is split by `t / d` and
+/// `t % d` with `d > 0`.
+fn dw_fill(
+    dz: &[i64],
+    hidden: &[i64],
+    hbase: usize,
+    d: usize,
+    dw: &mut [i128],
+) -> Option<HeadError> {
+    let total = dz.len() * d;
+    let mut fail: Option<HeadError> = None;
+    let mut t: usize = 0;
+    while t < total && fail.is_none() {
+        let k = t / d;
+        let j = t % d;
+        match mul128(i128::from(dz[k]), i128::from(hidden[hbase + j])) {
+            Err(x) => fail = Some(x),
+            Ok(term) => match add128(dw[t], term) {
+                Ok(s) => dw[t] = s,
+                Err(x) => fail = Some(x),
+            },
+        }
+        t += 1;
+    }
+    fail
+}
+
+/// Fold one row's loss and gradient into the head's outputs; returns the new loss accumulator.
+///
+/// Adds `loss` into `loss_acc`, writes `d_hidden` row `r` (at `dbase`) and adds `dz_k · hidden_r,j`
+/// into `dw` (exact, unrounded; rounded once by the caller).
+///
+/// # Errors
+///
+/// [`HeadError::Overflow`] when an accumulator or an output leaves its range.
+///
+/// # Complexity
+///
+/// `O(v·d)` `i128` multiply-adds: one `v`-term sum per output of `dh` row and one `d`-term update
+/// per `(k, j)` pair of `dw`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the row's loss, gradient, inputs and two outputs"
+)]
+fn absorb_row(
+    loss: i64,
+    dz: &[i64],
+    hidden: &[i64],
+    hbase: usize,
+    w_head: &[i64],
+    d: usize,
+    n_scale: i128,
+    loss_acc: i128,
+    dh: &mut [i64],
+    dbase: usize,
+    dw: &mut [i128],
+) -> Result<i128, HeadError> {
+    let acc = match add128(loss_acc, i128::from(loss)) {
+        Ok(s) => s,
+        Err(x) => return Err(x),
+    };
+    if let Some(x) = dh_fill(dz, w_head, d, n_scale, dh, dbase) {
+        return Err(x);
+    }
+    if let Some(x) = dw_fill(dz, hidden, hbase, d, dw) {
+        return Err(x);
+    }
+    Ok(acc)
+}
+
+/// One row of the chunked head: logits, objective and the fold into the outputs.
+///
+/// # Complexity
+///
+/// `O(v·d)`, as [`absorb_row`] and [`logits_row`].
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the objective, inputs, row index, scale, accumulator and two outputs"
+)]
+fn row_step(
+    objective: Objective,
+    hidden: &[i64],
+    w_head: &[i64],
+    z_t: &[i64],
+    dims: Dims,
+    r: usize,
+    n_scale: i128,
+    loss_acc: i128,
+    dh: &mut [i64],
+    dw: &mut [i128],
+) -> Result<i128, HeadError> {
+    let d = dims.d;
+    let v = dims.v;
+    let zs = match logits_row(hidden, w_head, r, d, v) {
+        Ok(z) => z,
+        Err(x) => return Err(x),
+    };
+    let (loss, dz) = match row_objective(objective, &zs, &z_t[r * v..(r + 1) * v]) {
+        Ok(pair) => pair,
+        Err(x) => return Err(x),
+    };
+    absorb_row(
+        loss,
+        &dz,
+        hidden,
+        r * d,
+        w_head,
+        d,
+        n_scale,
+        loss_acc,
+        dh,
+        r * d,
+        dw,
+    )
+}
+
+/// Runs [`row_step`] over every row in order; returns the exact loss accumulator.
+///
+/// # Complexity
+///
+/// `O(n·v·d)` checked `i128` operations; space is the outputs `dh`, `dw` and one row of logits.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the objective, inputs, dims, scale and two outputs"
+)]
+fn rows_loop(
+    objective: Objective,
+    hidden: &[i64],
+    w_head: &[i64],
+    z_t: &[i64],
+    dims: Dims,
+    n_scale: i128,
+    dh: &mut [i64],
+    dw: &mut [i128],
+) -> Result<i128, HeadError> {
+    let n = dims.n;
+    let mut loss_acc: i128 = 0;
+    let mut fail: Option<HeadError> = None;
+    let mut r: usize = 0;
+    while r < n && fail.is_none() {
+        match row_step(
+            objective, hidden, w_head, z_t, dims, r, n_scale, loss_acc, dh, dw,
+        ) {
+            Ok(a) => loss_acc = a,
+            Err(x) => fail = Some(x),
+        }
+        r += 1;
+    }
+    match fail {
+        Some(x) => Err(x),
+        None => Ok(loss_acc),
+    }
+}
+
+/// `out[j] = round(dw[j] / n_scale)` narrowed to `i64`.
+fn dw_out_fill(dw: &[i128], n_scale: i128, out: &mut [i64]) -> Option<HeadError> {
+    let len = dw.len();
+    let mut fail: Option<HeadError> = None;
+    let mut j: usize = 0;
+    while j < len && fail.is_none() {
+        match to64(round_div(dw[j], n_scale)) {
+            Ok(x) => out[j] = x,
+            Err(x) => fail = Some(x),
+        }
+        j += 1;
+    }
+    fail
+}
+
 /// Mean loss, `d_hidden` and `d_w_head` of the chunked head.
 ///
 /// The student logits are `z_s = hidden · w_headᵀ`, one rounded dot product per entry. Rows are
-/// processed in blocks of `chunk` positions, so the logits held at one time are `chunk × v` words.
-/// The per-position gradient `dz_s` of the row objective is applied to `d_hidden` and
-/// accumulated into `d_w_head`; both are scaled by `1/n` for the mean. Every accumulation is exact
-/// in `i128`, and each output is rounded once, so the result does not depend on `chunk`.
+/// folded one at a time in order, so the logits held at one time are one row of `v` words. The
+/// per-position gradient `dz_s` of the row objective is applied to `d_hidden` and accumulated into
+/// `d_w_head`; both are scaled by `1/n` for the mean. Every accumulation is exact in `i128`, and
+/// each output is rounded once, so the result does not depend on `chunk` (validated nonzero).
 ///
 /// Returns `(mean loss, d_hidden[n×d], d_w_head[v×d])`.
 ///
@@ -417,8 +814,8 @@ fn row_objective(
 ///
 /// Count: `3·n·v·d` `i128` multiply-adds (logits, `d_hidden`, `d_w_head`) plus `O(n·v)` for the row
 /// objectives. Derivation: each of the `n` rows runs one logit dot product per `k < v` of length
-/// `d`, and the two gradient products of the same shape. Space: `chunk·v` logit words, `v·d`
-/// `i128` accumulator words, and the `n·d` output.
+/// `d`, and the two gradient products of the same shape. Space: `v` logit words for one row,
+/// `v·d` `i128` accumulator words, and the `n·d` output.
 pub fn head_chunked(
     hidden: &[i64],
     w_head: &[i64],
@@ -427,213 +824,46 @@ pub fn head_chunked(
     chunk: usize,
     objective: Objective,
 ) -> Result<(i64, Vec<i64>, Vec<i64>), HeadError> {
-    #[allow(
-        clippy::question_mark,
-        reason = "explicit `match` returns keep the extracted term free of `?`"
-    )]
-    fn inner(
-        hidden: &[i64],
-        w_head: &[i64],
-        z_t: &[i64],
-        dims: Dims,
-        chunk: usize,
-        objective: Objective,
-    ) -> Result<(i64, Vec<i64>, Vec<i64>), HeadError> {
-        let (n, d, v) = (dims.n, dims.d, dims.v);
-        if n == 0 || d == 0 || v == 0 || chunk == 0 {
-            return Err(HeadError::Shape);
-        }
-        let nd = mul_dims(n, d)?;
-        let vd = mul_dims(v, d)?;
-        let nv = mul_dims(n, v)?;
-        if hidden.len() != nd || w_head.len() != vd || z_t.len() != nv {
-            return Err(HeadError::Shape);
-        }
-        let n_scale = mul128(dim128(n)?, i128::from(ONE))?;
-        let mut loss_acc: i128 = 0;
-        let mut dh: Vec<i64> = vec![0; nd];
-        let mut dw: Vec<i128> = vec![0; vd];
-        let mut fail: Option<HeadError> = None;
-        let mut r0: usize = 0;
-        while r0 < n && fail.is_none() {
-            let r1 = if n - r0 < chunk { n } else { r0 + chunk };
-            let mut r: usize = r0;
-            while r < r1 && fail.is_none() {
-                match logits_row(hidden, w_head, r, d, v) {
-                    Err(x) => fail = Some(x),
-                    Ok(zs) => match row_objective(objective, &zs, &z_t[r * v..(r + 1) * v]) {
-                        Err(x) => fail = Some(x),
-                        Ok((loss, dz)) => {
-                            if let Err(x) = absorb_row(
-                                loss,
-                                &dz,
-                                &hidden[r * d..(r + 1) * d],
-                                w_head,
-                                d,
-                                n_scale,
-                                &mut loss_acc,
-                                &mut dh[r * d..(r + 1) * d],
-                                &mut dw,
-                            ) {
-                                fail = Some(x);
-                            }
-                        }
-                    },
-                }
-                r += 1;
-            }
-            r0 = r1;
-        }
-        if let Some(x) = fail {
-            return Err(x);
-        }
-        let loss = to64(round_div(loss_acc, dim128(n)?))?;
-        let mut dw_out: Vec<i64> = vec![0; vd];
-        let mut j: usize = 0;
-        while j < vd {
-            match to64(round_div(dw[j], n_scale)) {
-                Ok(x) => dw_out[j] = x,
-                Err(x) => return Err(x),
-            }
-            j += 1;
-        }
-        Ok((loss, dh, dw_out))
+    let (n, d, v) = (dims.n, dims.d, dims.v);
+    if n == 0 || d == 0 || v == 0 || chunk == 0 {
+        return Err(HeadError::Shape);
     }
-    inner(hidden, w_head, z_t, dims, chunk, objective)
-}
-
-/// The student logits of row `r`: `z_k = round(Σ_j hidden_rj · w_kj / ONE)` for `k < v`.
-///
-/// # Errors
-///
-/// [`HeadError::Overflow`] when a dot product or a logit leaves its range.
-///
-/// # Complexity
-///
-/// `O(v·d)` `i128` multiply-adds, `v` roundings; output `v` words.
-#[allow(
-    clippy::question_mark,
-    reason = "explicit `match` returns keep the extracted term free of `?`"
-)]
-fn logits_row(
-    hidden: &[i64],
-    w_head: &[i64],
-    r: usize,
-    d: usize,
-    v: usize,
-) -> Result<Vec<i64>, HeadError> {
-    let mut zs: Vec<i64> = vec![0; v];
-    let h = &hidden[r * d..(r + 1) * d];
-    let one = i128::from(ONE);
-    let mut k: usize = 0;
-    let mut fail: Option<HeadError> = None;
-    while k < v && fail.is_none() {
-        let w = &w_head[k * d..(k + 1) * d];
-        let mut acc: i128 = 0;
-        let mut j: usize = 0;
-        while j < d && fail.is_none() {
-            match mul128(i128::from(h[j]), i128::from(w[j])) {
-                Err(x) => fail = Some(x),
-                Ok(t) => match add128(acc, t) {
-                    Ok(s) => acc = s,
-                    Err(x) => fail = Some(x),
-                },
-            }
-            j += 1;
-        }
-        if fail.is_none() {
-            match to64(round_div(acc, one)) {
-                Ok(z) => zs[k] = z,
-                Err(x) => fail = Some(x),
-            }
-        }
-        k += 1;
-    }
-    if let Some(x) = fail {
-        return Err(x);
-    }
-    Ok(zs)
-}
-
-/// Fold one row's loss and gradient into the head's outputs.
-///
-/// Adds `loss` into `loss_acc`, writes `d_hidden_r = round((dz · W) / (n·ONE))` into `dh_row`, and
-/// adds `dz_k · hidden_r,j` into `dw` (exact, unrounded; rounded once by the caller).
-///
-/// # Errors
-///
-/// [`HeadError::Overflow`] when an accumulator or an output leaves its range.
-///
-/// # Complexity
-///
-/// `O(v·d)` `i128` multiply-adds: one `v`-term sum per output of `dh_row` and one `d`-term update
-/// per `(k, j)` pair of `dw`.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the row's loss, gradient, inputs and three outputs"
-)]
-#[allow(
-    clippy::question_mark,
-    reason = "explicit `match` returns keep the extracted term free of `?`"
-)]
-fn absorb_row(
-    loss: i64,
-    dz: &[i64],
-    h_row: &[i64],
-    w_head: &[i64],
-    d: usize,
-    n_scale: i128,
-    loss_acc: &mut i128,
-    dh_row: &mut [i64],
-    dw: &mut [i128],
-) -> Result<(), HeadError> {
-    let v = dz.len();
-    *loss_acc = match add128(*loss_acc, i128::from(loss)) {
-        Ok(s) => s,
+    let nd = match mul_dims(n, d) {
+        Ok(x) => x,
         Err(x) => return Err(x),
     };
-    let mut j: usize = 0;
-    let mut fail: Option<HeadError> = None;
-    while j < d && fail.is_none() {
-        let mut acc: i128 = 0;
-        let mut k: usize = 0;
-        while k < v && fail.is_none() {
-            match mul128(i128::from(dz[k]), i128::from(w_head[k * d + j])) {
-                Err(x) => fail = Some(x),
-                Ok(t) => match add128(acc, t) {
-                    Ok(s) => acc = s,
-                    Err(x) => fail = Some(x),
-                },
-            }
-            k += 1;
-        }
-        if fail.is_none() {
-            match to64(round_div(acc, n_scale)) {
-                Ok(g) => dh_row[j] = g,
-                Err(x) => fail = Some(x),
-            }
-        }
-        j += 1;
+    let vd = match mul_dims(v, d) {
+        Ok(x) => x,
+        Err(x) => return Err(x),
+    };
+    let nv = match mul_dims(n, v) {
+        Ok(x) => x,
+        Err(x) => return Err(x),
+    };
+    if hidden.len() != nd || w_head.len() != vd || z_t.len() != nv {
+        return Err(HeadError::Shape);
     }
-    let mut k: usize = 0;
-    while k < v && fail.is_none() {
-        let mut j: usize = 0;
-        while j < d && fail.is_none() {
-            match mul128(i128::from(dz[k]), i128::from(h_row[j])) {
-                Err(x) => fail = Some(x),
-                Ok(t) => match add128(dw[k * d + j], t) {
-                    Ok(s) => dw[k * d + j] = s,
-                    Err(x) => fail = Some(x),
-                },
-            }
-            j += 1;
-        }
-        k += 1;
+    let n_scale = match mul128(dim128(n), i128::from(ONE)) {
+        Ok(x) => x,
+        Err(x) => return Err(x),
+    };
+    let mut dh: Vec<i64> = vec![0; nd];
+    let mut dw: Vec<i128> = vec![0; vd];
+    let loss_acc = match rows_loop(
+        objective, hidden, w_head, z_t, dims, n_scale, &mut dh, &mut dw,
+    ) {
+        Ok(a) => a,
+        Err(x) => return Err(x),
+    };
+    let loss = match to64(round_div(loss_acc, dim128(n))) {
+        Ok(x) => x,
+        Err(x) => return Err(x),
+    };
+    let mut dw_out: Vec<i64> = vec![0; vd];
+    if let Some(x) = dw_out_fill(&dw, n_scale, &mut dw_out) {
+        return Err(x);
     }
-    match fail {
-        Some(x) => Err(x),
-        None => Ok(()),
-    }
+    Ok((loss, dh, dw_out))
 }
 
 #[cfg(test)]
@@ -728,14 +958,10 @@ mod tests {
     fn kl_gradient_matches_central_difference() {
         for (zs, zt) in fixtures() {
             let (_, dz) = kl_row(&zs, &zt).unwrap();
-            for i in 0..zs.len() {
+            for (i, &g) in dz.iter().enumerate() {
                 let fd = central(&|z: &[i64]| kl_row(z, &zt).unwrap().0, &zs, i);
-                let err = (i128::from(dz[i]) - fd).abs();
-                assert!(
-                    err <= FD_TOL,
-                    "kl dz[{i}] = {} fd = {fd} err = {err}",
-                    dz[i]
-                );
+                let err = (i128::from(g) - fd).abs();
+                assert!(err <= FD_TOL, "kl dz[{i}] = {g} fd = {fd} err = {err}");
             }
         }
         // Zero row: both logits zero, gradient zero.
@@ -759,14 +985,10 @@ mod tests {
                 );
             }
             let (_, dz) = tv_row(&zs, &zt).unwrap();
-            for i in 0..zs.len() {
+            for (i, &g) in dz.iter().enumerate() {
                 let fd = central(&|z: &[i64]| tv_row(z, &zt).unwrap().0, &zs, i);
-                let err = (i128::from(dz[i]) - fd).abs();
-                assert!(
-                    err <= FD_TOL,
-                    "tv dz[{i}] = {} fd = {fd} err = {err}",
-                    dz[i]
-                );
+                let err = (i128::from(g) - fd).abs();
+                assert!(err <= FD_TOL, "tv dz[{i}] = {g} fd = {fd} err = {err}");
             }
         }
     }
@@ -833,6 +1055,7 @@ mod tests {
 
     #[test]
     fn head_gradients_match_central_difference() {
+        const HEAD_FD_TOL: i128 = 1 << 17;
         let (h, w, zt, dims) = grad_fixture();
         let (n, d, v) = (dims.n, dims.d, dims.v);
         // Margin check, as in the TV row test: every |p_s − p_t| exceeds 2^-10 at the student logits
@@ -857,28 +1080,20 @@ mod tests {
         // quotient multiplies by 2^11. The central-difference truncation is ≤ 43 ULP at |f'''| ≤ 1,
         // and the dz and output roundings are ≤ 13 ULP after the weights |w| ≤ 0.8 and the 1/n.
         // Total ≤ 2^11 · 49 + 128 < 2^17.
-        const HEAD_FD_TOL: i128 = 1 << 17;
         for objective in [Objective::Kl, Objective::Tv] {
             let loss_at =
                 |hh: &[i64], ww: &[i64]| head_chunked(hh, ww, &zt, dims, 1, objective).unwrap().0;
             let (_, dh, dw) = head_chunked(&h, &w, &zt, dims, 1, objective).unwrap();
-            for i in 0..n * d {
+            assert_eq!((dh.len(), dw.len()), (n * d, v * d));
+            for (i, &g) in dh.iter().enumerate() {
                 let fd = central(&|x: &[i64]| loss_at(x, &w), &h, i);
-                let err = (i128::from(dh[i]) - fd).abs();
-                assert!(
-                    err <= HEAD_FD_TOL,
-                    "dh[{i}] = {} fd = {fd} err = {err}",
-                    dh[i]
-                );
+                let err = (i128::from(g) - fd).abs();
+                assert!(err <= HEAD_FD_TOL, "dh[{i}] = {g} fd = {fd} err = {err}");
             }
-            for i in 0..v * d {
+            for (i, &g) in dw.iter().enumerate() {
                 let fd = central(&|x: &[i64]| loss_at(&h, x), &w, i);
-                let err = (i128::from(dw[i]) - fd).abs();
-                assert!(
-                    err <= HEAD_FD_TOL,
-                    "dw[{i}] = {} fd = {fd} err = {err}",
-                    dw[i]
-                );
+                let err = (i128::from(g) - fd).abs();
+                assert!(err <= HEAD_FD_TOL, "dw[{i}] = {g} fd = {fd} err = {err}");
             }
         }
     }

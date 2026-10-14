@@ -19,6 +19,7 @@
 
 #![allow(
     clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
     clippy::cast_lossless,
     clippy::cast_sign_loss,
     clippy::many_single_char_names,
@@ -26,7 +27,7 @@
     clippy::manual_map,
     reason = "the narrowing `as i64` is range-checked against i64::MAX/MIN immediately before it, \
               the widening `i128::from` forms are total, and `usize` lengths are converted to i64 \
-              only after `i64::try_from` succeeds; the single-letter names are the recurrence \
+              only after a range check against `i64::MAX` (as `usize as u64`); the single-letter names are the recurrence \
               symbols of the Python source (`x`, `w`, `g`, `u`, `r`, `s`, `n`, `i`, `o`, `k`); \
               let-else and a closure-free `match` are the forms the pinned extraction fragment \
               models, as in `engine::norm`"
@@ -365,10 +366,10 @@ fn inv_rms(x: &[i64], eps: i64) -> Result<i64, DenseError> {
     if n == 0 {
         return Err(DenseError::Empty);
     }
-    let nd = match i64::try_from(n) {
-        Ok(v) => v,
-        Err(_) => return Err(DenseError::Overflow),
-    };
+    if n as u64 > i64::MAX as u64 {
+        return Err(DenseError::Overflow);
+    }
+    let nd = n as i64;
     let mut sum_sq: i128 = 0;
     let mut k = 0usize;
     let mut ok = true;
@@ -479,10 +480,10 @@ pub fn rmsnorm_bwd(
     if gamma.len() != n || dy.len() != n {
         return Err(DenseError::Shape);
     }
-    let nd = match i64::try_from(n) {
-        Ok(v) => v,
-        Err(_) => return Err(DenseError::Overflow),
-    };
+    if n as u64 > i64::MAX as u64 {
+        return Err(DenseError::Overflow);
+    }
+    let nd = n as i64;
     let r = inv_rms(x, eps)?;
     // r² is rounded once to Q32.32 and r³ is never rounded: t = round(x·r²·r / 2⁶⁴) is one product
     // chain with a single final rounding. Rounding r³ itself to Q32.32 costs 2⁻⁵ relative when

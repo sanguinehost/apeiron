@@ -22,3 +22,5 @@ proof/extract/target/
 
 # the agent voice guide (owner-provided); never tracked
 /VOICE.md
+# per-worktree build-product lock (AGENTS.md §6)
+/.lane.lock
