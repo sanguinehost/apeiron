@@ -26,6 +26,7 @@ and every add of the plane uses corr_weight(p) = u8(U) @ u8(V), each factor vect
 codes it (fp16 min/max, 8-bit levels), so step 0 is the stored plane exactly; the export stores that product, so the
 stored bits are unchanged (bits_corr).  With corr off the dense plane stays frozen and every code path is today's.
 --selftest-kan runs the float64 register/adjoint checks with no model.
+--attrib N (default 0 = off; every other code path is unchanged) uses the first N held-out eval chunks and, once before and once after finishing, restores the teacher's linear weights one group at a time (each layer's seven linears, each kind across all layers, all linears) to record where the held-out KL lives: base, per-layer, per-kind and all-linear KL, their deltas, and a teacher-as-student zero control.
 usage: pv_finish.py --out OUT.json [--smoke] [--v-gain {linear,obs}] [--codes {vstep,ste}] ; run with ~/spinor-ttl/.venv/bin/python (torch + CUDA).
 """
 import argparse, hashlib, json, math, os, sys, time
@@ -845,6 +846,62 @@ class KLHead(torch.autograd.Function):
         return gk * gz, None, None
 
 
+# ------------------------------------------------------------------------------------------------ KL attribution
+@torch.no_grad()
+def attrib(cfg, TL, Lstud, ids_at):
+    """Where the held-out KL of `Lstud` on `ids_at` lives, measured by restoring the teacher's linear weights one group at a time.
+    Groups: base = Lstud unchanged; layer[l] = layer l's KINDS linears from TL[l], every other entry of Lstud (norms, biases,
+    fnorm, the other layers); kind[k] = kind k from TL in every layer; all_linear = every KINDS linear in every layer.
+    Deltas are base - group, so a positive delta is the KL the student's own weights of that group cost.
+    Each modified list is a shallow copy (Lm = list(Lstud); Lm[l] = dict(Lstud[l]); Lm[l][k] = TL[l][k]), so neither Lstud nor
+    TL is mutated.  Temporal (nl + len(KINDS) + 2) kl_eval passes of the student over N = ids_at.shape[0] chunks of CHUNK
+    tokens, i.e. (24 + 7 + 2) student forwards over N chunks in the 24-layer arm; spatial the layer dict copies (nl + 1 dicts
+    of the 11 weight tensors' references) plus kl_eval's own hidden state.  One teacher-hidden cache fill for ids_at is paid
+    on the first call and reused by every group (ft.kl_eval keys _TEACHER_H_CACHE on len(TL), ids.data_ptr(), N, seqlen)."""
+    t0 = ft.tick()
+    base, base_top1 = ft.kl_eval(cfg, TL, Lstud, ids_at)
+    nl = len(Lstud)
+    layer, layer_top1 = [], []
+    for l in range(nl):
+        Lm = list(Lstud)
+        Lm[l] = dict(Lstud[l])
+        for k in KINDS:
+            Lm[l][k] = TL[l][k]
+        kl, t1 = ft.kl_eval(cfg, TL, Lm, ids_at)
+        layer.append(kl)
+        layer_top1.append(t1)
+        del Lm
+    kind, kind_top1 = {}, {}
+    for k in KINDS:
+        Lm = list(Lstud)
+        for l in range(nl):
+            Lm[l] = dict(Lstud[l])
+            Lm[l][k] = TL[l][k]
+        kl, t1 = ft.kl_eval(cfg, TL, Lm, ids_at)
+        kind[k] = kl
+        kind_top1[k] = t1
+        del Lm
+    Lm = list(Lstud)
+    for l in range(nl):
+        Lm[l] = dict(Lstud[l])
+        for k in KINDS:
+            Lm[l][k] = TL[l][k]
+    all_linear, all_linear_top1 = ft.kl_eval(cfg, TL, Lm, ids_at)
+    del Lm
+    return dict(base=base, base_top1=base_top1, layers=nl, layer=layer, layer_top1=layer_top1, kind=kind, kind_top1=kind_top1,
+                all_linear=all_linear, all_linear_top1=all_linear_top1, layer_delta=[base - x for x in layer],
+                kind_delta={k: base - kind[k] for k in kind}, all_linear_delta=base - all_linear, wall_s=ft.tick() - t0)
+
+
+def attrib_line(tag, r):
+    """One line: group KLs and the 5 largest layer_delta, then every kind_delta."""
+    top = sorted(range(len(r["layer_delta"])), key=lambda l: -r["layer_delta"][l])[:5]
+    print(f"attrib {tag}: base {r['base']:.6f} all_linear {r['all_linear']:.6f} (delta {r['all_linear_delta']:.6f})  "
+          f"top layer_delta " + " ".join(f"L{l}:{r['layer_delta'][l]:.6f}" for l in top) + "  kind_delta "
+          + " ".join(f"{k}:{r['kind_delta'][k]:.6f}" for k in sorted(r["kind_delta"], key=lambda k: -r["kind_delta"][k]))
+          + f"  wall {r['wall_s']:.1f}s", flush=True)
+
+
 # ------------------------------------------------------------------------------------------------ main
 def main():
     ap = argparse.ArgumentParser()
@@ -871,6 +928,9 @@ def main():
                     help="0 off; N > 0 re-fits every trainable plane's r grid (lo, sp) to its latents every N steps (training follows every re-fit)")
     ap.add_argument("--profile", type=int, default=0,
                     help="0 off; N > 0 records steps 6..5+N under torch.profiler, writes the op table to the receipt and exits")
+    ap.add_argument("--attrib", type=int, default=0,
+                    help="0 off; N > 0 uses the first N held-out eval chunks and, before and after finishing, restores the teacher's "
+                         "linears one group at a time (each layer, each kind, all) to record where the held-out KL lives")
     ap.add_argument("--compose", choices=("layer", "step"), default="layer",
                     help="layer: plane weights composed inside each layer checkpoint (forward and recompute); step: composed once "
                          "per step through PlaneCompose (frozen codes only: --v-every 0, --codes vstep)")
@@ -972,6 +1032,19 @@ def main():
             dump(); print(res["failure"]); sys.exit(2)
     else:
         res["controls"]["before_kl_regression"] = dict(ref=None, got=kl_ev0, note="smoke: n_cal differs from reference")
+
+    if a.attrib:
+        # Where the held-out KL lives, before finishing: one teacher-hidden cache fill on ids_at, then base + one group per
+        # layer + one group per kind + all linears, each group a shallow-copied layer list over the unmutated Ls.
+        ids_at = ids_ev[:a.attrib].clone()
+        tz, tz_t1 = ft.kl_eval(cfg, TL, TL, ids_at)
+        res["controls"]["attrib_teacher_zero"] = dict(kl=tz, top1=tz_t1, chunks=int(ids_at.shape[0]), seqlen=int(ids_at.shape[1]), ok=tz < 1e-9)
+        assert tz < 1e-9, ("teacher as student is not the teacher: KL(TL, TL) is nonzero", tz)
+        res["attrib"] = dict(N=a.attrib, chunks=int(ids_at.shape[0]), kinds=list(KINDS))
+        res["attrib"]["before"] = attrib(cfg, TL, Ls, ids_at)
+        assert max(res["attrib"]["before"]["layer_delta"]) > 0, ("no layer moves the KL: attribution cannot see the student's weights", res["attrib"]["before"]["layer_delta"])
+        attrib_line("before", res["attrib"]["before"])
+        res["walls"]["attrib_before_s"] = res["attrib"]["before"]["wall_s"]
 
     # ---- student planes
     C = ft.e8_o8_codebook(torch.float32, DEV)
@@ -1453,6 +1526,9 @@ def main():
               + (f" toward_preimage cum {rec['flips_toward_preimage']} window {rec['flips_toward_preimage_window']}" if rec else ""), flush=True)
 
     est_after = 1.15 * wall_eval + 12.0
+    if a.attrib:
+        # the AFTER attribution repeats every group eval, so the finishing loop must leave room for it too
+        est_after += 1.15 * res["attrib"]["before"]["wall_s"]
     t_train0 = time.time()
     t_end = T0 + BUDGET_S - (est_after + 25.0)
     res["walls"]["projected_finish_s"] = est_after
@@ -1811,6 +1887,10 @@ def main():
     kl_ev1, t1_ev1 = ft.kl_eval(cfg, TL, Ls2, ids_ev)
     kl_in1, t1_in1 = ft.kl_eval(cfg, TL, Ls2, ids_in)
     res.update(kl_heldout_after=kl_ev1, top1_heldout_after=t1_ev1, kl_insample_after=kl_in1, top1_insample_after=t1_in1)
+    if a.attrib:
+        res["attrib"]["after"] = attrib(cfg, TL, Ls2, ids_at)
+        attrib_line("after", res["attrib"]["after"])
+        res["walls"]["attrib_after_s"] = res["attrib"]["after"]["wall_s"]
     res["walls"]["finish_s"] = wall_train + (ft.tick() - t0)
     res["walls"]["total_s"] = elapsed()
     res["partial"] = False

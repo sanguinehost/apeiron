@@ -355,4 +355,81 @@ theorem t5_corr_loses :
     norm_num [qreg_t5_corr.baseKlHeldoutAfter, qreg_t5_corr.corrKlHeldoutAfter, qreg_t5_corr.baseTop1HeldoutAfter,
       qreg_t5_corr.corrTop1HeldoutAfter, qreg_t5_corr.baseSteps, qreg_t5_corr.corrSteps]
 
+open qreg_attrib in
+/-- Held-out KL on 8 chunks after finishing with layer `l`'s seven linears restored to the teacher's, `l = 0 … 23`. -/
+def attribAfterLayers : List ℚ :=
+  [afterLayerKl0, afterLayerKl1, afterLayerKl2, afterLayerKl3, afterLayerKl4, afterLayerKl5, afterLayerKl6, afterLayerKl7,
+   afterLayerKl8, afterLayerKl9, afterLayerKl10, afterLayerKl11, afterLayerKl12, afterLayerKl13, afterLayerKl14,
+   afterLayerKl15, afterLayerKl16, afterLayerKl17, afterLayerKl18, afterLayerKl19, afterLayerKl20, afterLayerKl21,
+   afterLayerKl22, afterLayerKl23]
+
+open qreg_attrib in
+/-- As `attribAfterLayers`, before finishing. -/
+def attribBeforeLayers : List ℚ :=
+  [beforeLayerKl0, beforeLayerKl1, beforeLayerKl2, beforeLayerKl3, beforeLayerKl4, beforeLayerKl5, beforeLayerKl6,
+   beforeLayerKl7, beforeLayerKl8, beforeLayerKl9, beforeLayerKl10, beforeLayerKl11, beforeLayerKl12, beforeLayerKl13,
+   beforeLayerKl14, beforeLayerKl15, beforeLayerKl16, beforeLayerKl17, beforeLayerKl18, beforeLayerKl19, beforeLayerKl20,
+   beforeLayerKl21, beforeLayerKl22, beforeLayerKl23]
+
+open qreg_attrib in
+/-- Held-out KL after finishing with one linear kind restored to the teacher's in all 24 layers. -/
+def attribAfterKinds : List ℚ :=
+  [afterKindQKl, afterKindKKl, afterKindVKl, afterKindOKl, afterKindGateKl, afterKindUpKl, afterKindDownKl]
+
+/-- Sum over layers of the single-layer restore deltas `base − KL(layer l restored)`. -/
+def layerDeltaSum (base : ℚ) (layers : List ℚ) : ℚ := (layers.map (base - ·)).sum
+
+/-- **No layer holds the held-out KL after finishing.** Restoring any one layer's seven linears to the teacher's lowers
+the 8-chunk held-out KL of the finished 1.178 b/w arm by less than `7%` of it (the largest is layer 23). -/
+theorem attrib_no_layer_holds_kl :
+    ∀ x ∈ attribAfterLayers, qreg_attrib.afterBase - x < 7 / 100 * qreg_attrib.afterBase := by
+  simp only [attribAfterLayers, List.mem_cons, List.not_mem_nil, or_false]
+  rintro x (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl) <;>
+    norm_num [qreg_attrib.afterBase, qreg_attrib.afterLayerKl0, qreg_attrib.afterLayerKl1, qreg_attrib.afterLayerKl2,
+      qreg_attrib.afterLayerKl3, qreg_attrib.afterLayerKl4, qreg_attrib.afterLayerKl5, qreg_attrib.afterLayerKl6,
+      qreg_attrib.afterLayerKl7, qreg_attrib.afterLayerKl8, qreg_attrib.afterLayerKl9, qreg_attrib.afterLayerKl10,
+      qreg_attrib.afterLayerKl11, qreg_attrib.afterLayerKl12, qreg_attrib.afterLayerKl13, qreg_attrib.afterLayerKl14,
+      qreg_attrib.afterLayerKl15, qreg_attrib.afterLayerKl16, qreg_attrib.afterLayerKl17, qreg_attrib.afterLayerKl18,
+      qreg_attrib.afterLayerKl19, qreg_attrib.afterLayerKl20, qreg_attrib.afterLayerKl21, qreg_attrib.afterLayerKl22,
+      qreg_attrib.afterLayerKl23]
+
+/-- **The held-out KL is not additive over layers, and finishing makes it less so.** The 24 single-layer restore deltas
+sum to between `59%` and `60%` of the base KL before finishing and between `40%` and `41%` after: the rest is the
+cross-layer part, which no single-layer restore recovers. -/
+theorem attrib_kl_nonadditive :
+    59 / 100 * qreg_attrib.beforeBase < layerDeltaSum qreg_attrib.beforeBase attribBeforeLayers ∧
+    layerDeltaSum qreg_attrib.beforeBase attribBeforeLayers < 60 / 100 * qreg_attrib.beforeBase ∧
+    40 / 100 * qreg_attrib.afterBase < layerDeltaSum qreg_attrib.afterBase attribAfterLayers ∧
+    layerDeltaSum qreg_attrib.afterBase attribAfterLayers < 41 / 100 * qreg_attrib.afterBase := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;>
+    norm_num [layerDeltaSum, attribBeforeLayers, attribAfterLayers, qreg_attrib.beforeBase, qreg_attrib.afterBase,
+      qreg_attrib.beforeLayerKl0, qreg_attrib.beforeLayerKl1, qreg_attrib.beforeLayerKl2, qreg_attrib.beforeLayerKl3,
+      qreg_attrib.beforeLayerKl4, qreg_attrib.beforeLayerKl5, qreg_attrib.beforeLayerKl6, qreg_attrib.beforeLayerKl7,
+      qreg_attrib.beforeLayerKl8, qreg_attrib.beforeLayerKl9, qreg_attrib.beforeLayerKl10, qreg_attrib.beforeLayerKl11,
+      qreg_attrib.beforeLayerKl12, qreg_attrib.beforeLayerKl13, qreg_attrib.beforeLayerKl14, qreg_attrib.beforeLayerKl15,
+      qreg_attrib.beforeLayerKl16, qreg_attrib.beforeLayerKl17, qreg_attrib.beforeLayerKl18, qreg_attrib.beforeLayerKl19,
+      qreg_attrib.beforeLayerKl20, qreg_attrib.beforeLayerKl21, qreg_attrib.beforeLayerKl22, qreg_attrib.beforeLayerKl23,
+      qreg_attrib.afterLayerKl0, qreg_attrib.afterLayerKl1, qreg_attrib.afterLayerKl2, qreg_attrib.afterLayerKl3,
+      qreg_attrib.afterLayerKl4, qreg_attrib.afterLayerKl5, qreg_attrib.afterLayerKl6, qreg_attrib.afterLayerKl7,
+      qreg_attrib.afterLayerKl8, qreg_attrib.afterLayerKl9, qreg_attrib.afterLayerKl10, qreg_attrib.afterLayerKl11,
+      qreg_attrib.afterLayerKl12, qreg_attrib.afterLayerKl13, qreg_attrib.afterLayerKl14, qreg_attrib.afterLayerKl15,
+      qreg_attrib.afterLayerKl16, qreg_attrib.afterLayerKl17, qreg_attrib.afterLayerKl18, qreg_attrib.afterLayerKl19,
+      qreg_attrib.afterLayerKl20, qreg_attrib.afterLayerKl21, qreg_attrib.afterLayerKl22, qreg_attrib.afterLayerKl23]
+
+/-- **The finished kinds are co-adapted.** After finishing, restoring any one linear kind to the teacher's in all 24
+layers raises the held-out KL above the student's own; restoring `down` alone costs more than `0.18` nats. Restoring
+every linear brings it below `0.011`. -/
+theorem attrib_kinds_coadapted :
+    (∀ x ∈ attribAfterKinds, qreg_attrib.afterBase < x) ∧
+    qreg_attrib.afterBase + 18 / 100 < qreg_attrib.afterKindDownKl ∧
+    qreg_attrib.afterAllLinear < 11 / 1000 := by
+  refine ⟨?_, ?_, ?_⟩
+  · simp only [attribAfterKinds, List.mem_cons, List.not_mem_nil, or_false]
+    rintro x (rfl | rfl | rfl | rfl | rfl | rfl | rfl) <;>
+      norm_num [qreg_attrib.afterBase, qreg_attrib.afterKindQKl, qreg_attrib.afterKindKKl, qreg_attrib.afterKindVKl,
+        qreg_attrib.afterKindOKl, qreg_attrib.afterKindGateKl, qreg_attrib.afterKindUpKl, qreg_attrib.afterKindDownKl]
+  · norm_num [qreg_attrib.afterBase, qreg_attrib.afterKindDownKl]
+  · norm_num [qreg_attrib.afterAllLinear]
+
 end Perf.QuantumRotation

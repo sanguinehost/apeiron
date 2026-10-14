@@ -1197,3 +1197,6 @@ import Perf.QuantumRotation
 #audit Perf.QuantumRotation.pair_host_slowdown
 #audit Perf.QuantumRotation.t5_corr_store_refines
 #audit Perf.QuantumRotation.t5_corr_loses
+#audit Perf.QuantumRotation.attrib_no_layer_holds_kl
+#audit Perf.QuantumRotation.attrib_kl_nonadditive
+#audit Perf.QuantumRotation.attrib_kinds_coadapted
