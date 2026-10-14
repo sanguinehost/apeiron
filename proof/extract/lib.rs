@@ -1334,3 +1334,50 @@ pub mod sigma_delta;
 pub fn word_sd_binary_block(w: &[i64], a: i64, s: &mut [i8]) -> Option<(i64, i64)> {
     sigma_delta::sd_binary_block(w, a, s)
 }
+
+// The one-bit arm bit budget (`src/learn/onebit_bits.rs`), reached by `#[path]` so the extracted
+// bodies are the real source. The module depends only on `core`; each wrapper fixes nothing and
+// calls the real function.
+#[path = "../../src/learn/onebit_bits.rs"]
+pub mod onebit_bits;
+
+/// Real `learn::onebit_bits::total_bits`: `nsign + nr + nc + nd + ncorr`, `None` on a checked
+/// overflow or a width that does not divide `group`.
+pub fn word_onebit_total_bits(c: &onebit_bits::Cfg) -> Option<u64> {
+    onebit_bits::total_bits(c)
+}
+
+/// Real `learn::onebit_bits::bits_sign`.
+pub fn word_onebit_bits_sign(c: &onebit_bits::Cfg) -> Option<u64> {
+    onebit_bits::bits_sign(c)
+}
+
+/// Real `learn::onebit_bits::bits_r`.
+pub fn word_onebit_bits_r(c: &onebit_bits::Cfg) -> Option<u64> {
+    onebit_bits::bits_r(c)
+}
+
+/// Real `learn::onebit_bits::bits_c`.
+pub fn word_onebit_bits_c(c: &onebit_bits::Cfg) -> Option<u64> {
+    onebit_bits::bits_c(c)
+}
+
+/// Real `learn::onebit_bits::bits_d`.
+pub fn word_onebit_bits_d(c: &onebit_bits::Cfg) -> Option<u64> {
+    onebit_bits::bits_d(c)
+}
+
+/// Real `learn::onebit_bits::bits_corr`.
+pub fn word_onebit_bits_corr(c: &onebit_bits::Cfg) -> Option<u64> {
+    onebit_bits::bits_corr(c)
+}
+
+/// Real `learn::onebit_bits::params`.
+pub fn word_onebit_params(c: &onebit_bits::Cfg) -> Option<u64> {
+    onebit_bits::params(c)
+}
+
+/// Real `learn::onebit_bits::index_bits`.
+pub fn word_onebit_index_bits(c: &onebit_bits::Cfg) -> Option<u64> {
+    onebit_bits::index_bits(c)
+}

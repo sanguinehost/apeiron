@@ -190,6 +190,7 @@ $REPO_DIR/src/hashtrinity/face.rs
 $REPO_DIR/src/hashtrinity/crypto.rs
 $REPO_DIR/src/learn/gram.rs
 $REPO_DIR/src/learn/sigma_delta.rs
+$REPO_DIR/src/learn/onebit_bits.rs
 $EXTRACT_DIR/Cargo.toml
 $EXTRACT_DIR/Cargo.lock
 $EXTRACT_DIR/lib.rs
@@ -308,6 +309,14 @@ run_extract() {
         --start-from crate::word_count_aggregate \
         --start-from crate::word_gram_fold_i8 \
         --start-from crate::word_sd_binary_block \
+        --start-from crate::word_onebit_total_bits \
+        --start-from crate::word_onebit_bits_sign \
+        --start-from crate::word_onebit_bits_r \
+        --start-from crate::word_onebit_bits_c \
+        --start-from crate::word_onebit_bits_d \
+        --start-from crate::word_onebit_bits_corr \
+        --start-from crate::word_onebit_params \
+        --start-from crate::word_onebit_index_bits \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \

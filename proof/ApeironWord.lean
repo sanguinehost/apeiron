@@ -21696,6 +21696,571 @@ def gram.gram_fold_i8
       | none => ok (core.result.Result.Ok g1)
       | some e => ok (core.result.Result.Err e)
 
+/-- [apeiron_word::onebit_bits::Cfg]
+    Source: '../../src/learn/onebit_bits.rs', lines 35:0-70:1
+    Visibility: public -/
+structure onebit_bits.Cfg where
+  d_model : Std.U64
+  kv : Std.U64
+  ff : Std.U64
+  layers : Std.U64
+  k_rows : Std.U64
+  group : Std.U64
+  header_bits : Std.U64
+  r_level_bits : Std.U64
+  r_mu_bits : Std.U64
+  r_sp_bits : Std.U64
+  c_bits : Std.U64
+  d_bits : Std.U64
+  corr_bits : Std.U64
+  rank_q : Std.U64
+  rank_down : Std.U64
+  index_sets : Std.U64
+  index_bits_per_set : Std.U64
+
+/-- [apeiron_word::onebit_bits::add]:
+    Source: '../../src/learn/onebit_bits.rs', lines 100:0-102:1 -/
+def onebit_bits.add (a : Std.U64) (b : Std.U64) : Result (Option Std.U64) := do
+  ok (U64.checked_add a b)
+
+/-- [apeiron_word::onebit_bits::mul]:
+    Source: '../../src/learn/onebit_bits.rs', lines 105:0-107:1 -/
+def onebit_bits.mul (a : Std.U64) (b : Std.U64) : Result (Option Std.U64) := do
+  ok (U64.checked_mul a b)
+
+/-- [apeiron_word::onebit_bits::sign_layer]:
+    Source: '../../src/learn/onebit_bits.rs', lines 111:0-119:1 -/
+def onebit_bits.sign_layer
+  (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  let o ← onebit_bits.mul c.d_model c.d_model
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let o1 ← onebit_bits.mul c.kv c.d_model
+    let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let o2 ← onebit_bits.mul c.ff c.d_model
+      let cf2 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        let o3 ← onebit_bits.mul c.k_rows c.d_model
+        let cf3 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o3
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val3 =>
+          let o4 ← onebit_bits.mul 3#u64 val
+          let cf4 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o4
+          match cf4 with
+          | core.ops.control_flow.ControlFlow.Continue val4 =>
+            let o5 ← onebit_bits.mul 4#u64 val1
+            let cf5 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o5
+            match cf5 with
+            | core.ops.control_flow.ControlFlow.Continue val5 =>
+              let o6 ← onebit_bits.add val4 val5
+              let cf6 ←
+                core.option.Option.Insts.CoreOpsTry_traitTry.branch o6
+              match cf6 with
+              | core.ops.control_flow.ControlFlow.Continue val6 =>
+                let o7 ← onebit_bits.mul 3#u64 val2
+                let cf7 ←
+                  core.option.Option.Insts.CoreOpsTry_traitTry.branch o7
+                match cf7 with
+                | core.ops.control_flow.ControlFlow.Continue val7 =>
+                  let o8 ← onebit_bits.add val6 val7
+                  let cf8 ←
+                    core.option.Option.Insts.CoreOpsTry_traitTry.branch o8
+                  match cf8 with
+                  | core.ops.control_flow.ControlFlow.Continue val8 =>
+                    let o9 ← onebit_bits.mul 2#u64 val3
+                    let cf9 ←
+                      core.option.Option.Insts.CoreOpsTry_traitTry.branch o9
+                    match cf9 with
+                    | core.ops.control_flow.ControlFlow.Continue val9 =>
+                      onebit_bits.add val8 val9
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                        Std.U64 residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                      Std.U64 residual
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                    Std.U64 residual
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                  Std.U64 residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                Std.U64 residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+              Std.U64 residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+            Std.U64 residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+          Std.U64 residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+        Std.U64 residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.U64 residual
+
+/-- [apeiron_word::onebit_bits::bits_sign]:
+    Source: '../../src/learn/onebit_bits.rs', lines 123:0-125:1
+    Visibility: public -/
+def onebit_bits.bits_sign (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  let o ← onebit_bits.sign_layer c
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    onebit_bits.mul c.layers val
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.U64 residual
+
+/-- [apeiron_word::onebit_bits::params]:
+    Source: '../../src/learn/onebit_bits.rs', lines 129:0-135:1
+    Visibility: public -/
+def onebit_bits.params (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  let o ← onebit_bits.mul c.d_model c.d_model
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let o1 ← onebit_bits.mul c.kv c.d_model
+    let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let o2 ← onebit_bits.mul c.ff c.d_model
+      let cf2 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        let o3 ← onebit_bits.mul 2#u64 val
+        let cf3 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o3
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val3 =>
+          let o4 ← onebit_bits.mul 2#u64 val1
+          let cf4 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o4
+          match cf4 with
+          | core.ops.control_flow.ControlFlow.Continue val4 =>
+            let o5 ← onebit_bits.add val3 val4
+            let cf5 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o5
+            match cf5 with
+            | core.ops.control_flow.ControlFlow.Continue val5 =>
+              let o6 ← onebit_bits.mul 3#u64 val2
+              let cf6 ←
+                core.option.Option.Insts.CoreOpsTry_traitTry.branch o6
+              match cf6 with
+              | core.ops.control_flow.ControlFlow.Continue val6 =>
+                let o7 ← onebit_bits.add val5 val6
+                let cf7 ←
+                  core.option.Option.Insts.CoreOpsTry_traitTry.branch o7
+                match cf7 with
+                | core.ops.control_flow.ControlFlow.Continue val7 =>
+                  onebit_bits.mul c.layers val7
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                    Std.U64 residual
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                  Std.U64 residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                Std.U64 residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+              Std.U64 residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+            Std.U64 residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+          Std.U64 residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+        Std.U64 residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.U64 residual
+
+/-- [apeiron_word::onebit_bits::call_r]:
+    Source: '../../src/learn/onebit_bits.rs', lines 143:0-151:1 -/
+def onebit_bits.call_r
+  (o : Std.U64) (n : Std.U64) (c : onebit_bits.Cfg) :
+  Result (Option Std.U64)
+  := do
+  if c.group = 0#u64
+  then ok none
+  else
+    let i ← n % c.group
+    if i != 0#u64
+    then ok none
+    else
+      let groups ← n / c.group
+      let o1 ← onebit_bits.mul c.r_level_bits o
+      let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let o2 ← onebit_bits.mul val groups
+        let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o2
+        match cf1 with
+        | core.ops.control_flow.ControlFlow.Continue val1 =>
+          let o3 ← onebit_bits.add c.r_mu_bits c.r_sp_bits
+          let cf2 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o3
+          match cf2 with
+          | core.ops.control_flow.ControlFlow.Continue val2 =>
+            let o4 ← onebit_bits.mul val2 o
+            let cf3 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o4
+            match cf3 with
+            | core.ops.control_flow.ControlFlow.Continue val3 =>
+              let o5 ← onebit_bits.add val1 val3
+              let cf4 ←
+                core.option.Option.Insts.CoreOpsTry_traitTry.branch o5
+              match cf4 with
+              | core.ops.control_flow.ControlFlow.Continue val4 =>
+                let o6 ← onebit_bits.mul 2#u64 c.header_bits
+                let cf5 ←
+                  core.option.Option.Insts.CoreOpsTry_traitTry.branch o6
+                match cf5 with
+                | core.ops.control_flow.ControlFlow.Continue val5 =>
+                  onebit_bits.add val4 val5
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                    Std.U64 residual
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                  Std.U64 residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                Std.U64 residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+              Std.U64 residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+            Std.U64 residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+          Std.U64 residual
+
+/-- [apeiron_word::onebit_bits::call_vec]:
+    Source: '../../src/learn/onebit_bits.rs', lines 155:0-157:1 -/
+def onebit_bits.call_vec
+  (bits : Std.U64) (n : Std.U64) (c : onebit_bits.Cfg) :
+  Result (Option Std.U64)
+  := do
+  let o ← onebit_bits.mul bits n
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    onebit_bits.add val c.header_bits
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.U64 residual
+
+/-- [apeiron_word::onebit_bits::bits_r]:
+    Source: '../../src/learn/onebit_bits.rs', lines 162:0-169:1
+    Visibility: public -/
+def onebit_bits.bits_r (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  let o ← onebit_bits.call_r c.d_model c.d_model c
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let o1 ← onebit_bits.mul 3#u64 val
+    let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let o2 ← onebit_bits.call_r c.kv c.d_model c
+      let cf2 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        let o3 ← onebit_bits.mul 4#u64 val2
+        let cf3 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o3
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val3 =>
+          let o4 ← onebit_bits.add val1 val3
+          let cf4 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o4
+          match cf4 with
+          | core.ops.control_flow.ControlFlow.Continue val4 =>
+            let o5 ← onebit_bits.call_r c.ff c.d_model c
+            let cf5 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o5
+            match cf5 with
+            | core.ops.control_flow.ControlFlow.Continue val5 =>
+              let o6 ← onebit_bits.mul 2#u64 val5
+              let cf6 ←
+                core.option.Option.Insts.CoreOpsTry_traitTry.branch o6
+              match cf6 with
+              | core.ops.control_flow.ControlFlow.Continue val6 =>
+                let o7 ← onebit_bits.add val4 val6
+                let cf7 ←
+                  core.option.Option.Insts.CoreOpsTry_traitTry.branch o7
+                match cf7 with
+                | core.ops.control_flow.ControlFlow.Continue val7 =>
+                  let o8 ← onebit_bits.call_r c.d_model c.ff c
+                  let cf8 ←
+                    core.option.Option.Insts.CoreOpsTry_traitTry.branch o8
+                  match cf8 with
+                  | core.ops.control_flow.ControlFlow.Continue val8 =>
+                    let o9 ← onebit_bits.add val7 val8
+                    let cf9 ←
+                      core.option.Option.Insts.CoreOpsTry_traitTry.branch o9
+                    match cf9 with
+                    | core.ops.control_flow.ControlFlow.Continue val9 =>
+                      let o10 ← onebit_bits.call_r c.k_rows c.d_model c
+                      let cf10 ←
+                        core.option.Option.Insts.CoreOpsTry_traitTry.branch o10
+                      match cf10 with
+                      | core.ops.control_flow.ControlFlow.Continue val10 =>
+                        let o11 ← onebit_bits.mul 2#u64 val10
+                        let cf11 ←
+                          core.option.Option.Insts.CoreOpsTry_traitTry.branch
+                            o11
+                        match cf11 with
+                        | core.ops.control_flow.ControlFlow.Continue val11 =>
+                          let o12 ← onebit_bits.add val9 val11
+                          let cf12 ←
+                            core.option.Option.Insts.CoreOpsTry_traitTry.branch
+                              o12
+                          match cf12 with
+                          | core.ops.control_flow.ControlFlow.Continue val12 =>
+                            onebit_bits.mul c.layers val12
+                          | core.ops.control_flow.ControlFlow.Break residual =>
+                            core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                              Std.U64 residual
+                        | core.ops.control_flow.ControlFlow.Break residual =>
+                          core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                            Std.U64 residual
+                      | core.ops.control_flow.ControlFlow.Break residual =>
+                        core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                          Std.U64 residual
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                        Std.U64 residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                      Std.U64 residual
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                    Std.U64 residual
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                  Std.U64 residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                Std.U64 residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+              Std.U64 residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+            Std.U64 residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+          Std.U64 residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+        Std.U64 residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.U64 residual
+
+/-- [apeiron_word::onebit_bits::vec_layer]:
+    Source: '../../src/learn/onebit_bits.rs', lines 173:0-176:1 -/
+def onebit_bits.vec_layer
+  (bits : Std.U64) (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  let o ← onebit_bits.call_vec bits c.d_model c
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let o1 ← onebit_bits.mul 11#u64 val
+    let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let o2 ← onebit_bits.call_vec bits c.ff c
+      let cf2 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        onebit_bits.add val1 val2
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+          Std.U64 residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+        Std.U64 residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.U64 residual
+
+/-- [apeiron_word::onebit_bits::bits_c]:
+    Source: '../../src/learn/onebit_bits.rs', lines 181:0-183:1
+    Visibility: public -/
+def onebit_bits.bits_c (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  let o ← onebit_bits.vec_layer c.c_bits c
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    onebit_bits.mul c.layers val
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.U64 residual
+
+/-- [apeiron_word::onebit_bits::bits_d]:
+    Source: '../../src/learn/onebit_bits.rs', lines 188:0-190:1
+    Visibility: public -/
+def onebit_bits.bits_d (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  let o ← onebit_bits.vec_layer c.d_bits c
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    onebit_bits.mul c.layers val
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.U64 residual
+
+/-- [apeiron_word::onebit_bits::corr_call]:
+    Source: '../../src/learn/onebit_bits.rs', lines 194:0-197:1 -/
+def onebit_bits.corr_call
+  (rank : Std.U64) (o : Std.U64) (n : Std.U64) (c : onebit_bits.Cfg) :
+  Result (Option Std.U64)
+  := do
+  let o1 ← onebit_bits.add o n
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let o2 ← onebit_bits.mul c.corr_bits val
+    let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o2
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let o3 ← onebit_bits.mul 2#u64 c.header_bits
+      let cf2 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o3
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        let o4 ← onebit_bits.add val1 val2
+        let cf3 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o4
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val3 =>
+          onebit_bits.mul rank val3
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+            Std.U64 residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+          Std.U64 residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+        Std.U64 residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.U64 residual
+
+/-- [apeiron_word::onebit_bits::bits_corr]:
+    Source: '../../src/learn/onebit_bits.rs', lines 202:0-206:1
+    Visibility: public -/
+def onebit_bits.bits_corr (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  let o ← onebit_bits.corr_call c.rank_q c.d_model c.d_model c
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let o1 ← onebit_bits.corr_call c.rank_down c.d_model c.ff c
+    let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let o2 ← onebit_bits.add val val1
+      let cf2 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        onebit_bits.mul c.layers val2
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+          Std.U64 residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+        Std.U64 residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.U64 residual
+
+/-- [apeiron_word::onebit_bits::total_bits]:
+    Source: '../../src/learn/onebit_bits.rs', lines 211:0-216:1
+    Visibility: public -/
+def onebit_bits.total_bits
+  (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  let o ← onebit_bits.bits_sign c
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let o1 ← onebit_bits.bits_r c
+    let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let o2 ← onebit_bits.add val val1
+      let cf2 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        let o3 ← onebit_bits.bits_c c
+        let cf3 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o3
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val3 =>
+          let o4 ← onebit_bits.add val2 val3
+          let cf4 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o4
+          match cf4 with
+          | core.ops.control_flow.ControlFlow.Continue val4 =>
+            let o5 ← onebit_bits.bits_d c
+            let cf5 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o5
+            match cf5 with
+            | core.ops.control_flow.ControlFlow.Continue val5 =>
+              let o6 ← onebit_bits.add val4 val5
+              let cf6 ←
+                core.option.Option.Insts.CoreOpsTry_traitTry.branch o6
+              match cf6 with
+              | core.ops.control_flow.ControlFlow.Continue val6 =>
+                let o7 ← onebit_bits.bits_corr c
+                let cf7 ←
+                  core.option.Option.Insts.CoreOpsTry_traitTry.branch o7
+                match cf7 with
+                | core.ops.control_flow.ControlFlow.Continue val7 =>
+                  onebit_bits.add val6 val7
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                    Std.U64 residual
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                  Std.U64 residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                Std.U64 residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+              Std.U64 residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+            Std.U64 residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+          Std.U64 residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+        Std.U64 residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.U64 residual
+
+/-- [apeiron_word::onebit_bits::index_bits]:
+    Source: '../../src/learn/onebit_bits.rs', lines 221:0-223:1
+    Visibility: public -/
+def onebit_bits.index_bits
+  (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  let o ← onebit_bits.mul c.layers c.index_sets
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    onebit_bits.mul val c.index_bits_per_set
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.U64 residual
+
 /-- [apeiron_word::sigma_delta::sd_step]:
     Source: '../../src/learn/sigma_delta.rs', lines 31:0-51:1 -/
 def sigma_delta.sd_step
@@ -32315,5 +32880,55 @@ def word_sd_binary_block
   Result ((Option (Std.I64 × Std.I64)) × (Slice Std.I8))
   := do
   sigma_delta.sd_binary_block w a s
+
+/-- [apeiron_word::word_onebit_total_bits]:
+    Source: 'lib.rs', lines 1346:0-1348:1
+    Visibility: public -/
+def word_onebit_total_bits
+  (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  onebit_bits.total_bits c
+
+/-- [apeiron_word::word_onebit_bits_sign]:
+    Source: 'lib.rs', lines 1351:0-1353:1
+    Visibility: public -/
+def word_onebit_bits_sign (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  onebit_bits.bits_sign c
+
+/-- [apeiron_word::word_onebit_bits_r]:
+    Source: 'lib.rs', lines 1356:0-1358:1
+    Visibility: public -/
+def word_onebit_bits_r (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  onebit_bits.bits_r c
+
+/-- [apeiron_word::word_onebit_bits_c]:
+    Source: 'lib.rs', lines 1361:0-1363:1
+    Visibility: public -/
+def word_onebit_bits_c (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  onebit_bits.bits_c c
+
+/-- [apeiron_word::word_onebit_bits_d]:
+    Source: 'lib.rs', lines 1366:0-1368:1
+    Visibility: public -/
+def word_onebit_bits_d (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  onebit_bits.bits_d c
+
+/-- [apeiron_word::word_onebit_bits_corr]:
+    Source: 'lib.rs', lines 1371:0-1373:1
+    Visibility: public -/
+def word_onebit_bits_corr (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  onebit_bits.bits_corr c
+
+/-- [apeiron_word::word_onebit_params]:
+    Source: 'lib.rs', lines 1376:0-1378:1
+    Visibility: public -/
+def word_onebit_params (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  onebit_bits.params c
+
+/-- [apeiron_word::word_onebit_index_bits]:
+    Source: 'lib.rs', lines 1381:0-1383:1
+    Visibility: public -/
+def word_onebit_index_bits
+  (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
+  onebit_bits.index_bits c
 
 end apeiron_word

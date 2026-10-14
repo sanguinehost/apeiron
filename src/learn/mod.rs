@@ -25,6 +25,9 @@ pub mod gptq;
 /// One-bit arms on the calibration Gram: `Q1_0` sign planes, sigma-delta, GPTQ and Hadamard.
 pub mod onebit;
 
+/// Bit budget of the one-bit `-nb` arm, split by component (sign, r, c, d, corrector, row index).
+pub mod onebit_bits;
+
 /// Exact-integer first-order sigma-delta: the executed body of the `sd1` arms, refined to
 /// `Numeric.SigmaDelta`.
 pub mod sigma_delta;

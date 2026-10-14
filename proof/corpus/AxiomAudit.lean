@@ -72,6 +72,7 @@ import Perf.Generalisation
 import Perf.KLTilt
 import Learn.GramExact
 import Numeric.SigmaDeltaRefinement
+import Perf.BitsRefine
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -1038,3 +1039,33 @@ import Numeric.SigmaDeltaRefinement
 #audit Perf.KLTilt.kl_le_range_sq_div_8
 #audit Perf.KLTilt.witness_half_var
 #audit Perf.KLTilt.witness_range
+
+-- One-bit bit budget (Perf/BitsRefine.lean): executed bodies refine the closed forms.
+#audit apeiron_word.BitsRefine.sign_layer_spec
+#audit apeiron_word.BitsRefine.bits_sign_spec
+#audit apeiron_word.BitsRefine.params_spec
+#audit apeiron_word.BitsRefine.bits_r_spec
+#audit apeiron_word.BitsRefine.bits_c_spec
+#audit apeiron_word.BitsRefine.bits_d_spec
+#audit apeiron_word.BitsRefine.bits_corr_spec
+#audit apeiron_word.BitsRefine.total_bits_spec
+#audit apeiron_word.BitsRefine.index_bits_spec
+#audit apeiron_word.BitsRefine.qwen_fits
+#audit apeiron_word.BitsRefine.qwen_bits_sign
+#audit apeiron_word.BitsRefine.qwen_bits_r
+#audit apeiron_word.BitsRefine.qwen_bits_c
+#audit apeiron_word.BitsRefine.qwen_bits_d
+#audit apeiron_word.BitsRefine.qwen_bits_corr
+#audit apeiron_word.BitsRefine.qwen_total_is_sum
+#audit apeiron_word.BitsRefine.qwen_total_bits
+#audit apeiron_word.BitsRefine.qwen_total_bits_receipt
+#audit apeiron_word.BitsRefine.qwen_params
+#audit apeiron_word.BitsRefine.qwen_params_receipt
+#audit apeiron_word.BitsRefine.choose_4864_416_le
+#audit apeiron_word.BitsRefine.lt_choose_4864_416
+#audit apeiron_word.BitsRefine.index_bits_per_set_minimal
+#audit apeiron_word.BitsRefine.index_bits_qwen
+#audit apeiron_word.BitsRefine.row_index_cover
+#audit apeiron_word.BitsRefine.headline_bpw_bounds
+#audit apeiron_word.BitsRefine.counted_bpw_bounds
+#audit apeiron_word.BitsRefine.headline_bpw_receipt
