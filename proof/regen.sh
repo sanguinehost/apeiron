@@ -195,6 +195,7 @@ $REPO_DIR/src/learn/onebit_bits.rs
 $REPO_DIR/src/learn/grad/dense.rs
 $REPO_DIR/src/learn/grad/attn.rs
 $REPO_DIR/src/learn/grad/head.rs
+$REPO_DIR/src/learn/code/e8.rs
 $EXTRACT_DIR/learn_port.rs
 $EXTRACT_DIR/Cargo.toml
 $EXTRACT_DIR/Cargo.lock
@@ -338,6 +339,9 @@ run_extract() {
         --start-from crate::learn_port::word_head_kl_row \
         --start-from crate::learn_port::word_head_tv_row \
         --start-from crate::learn_port::word_head_head_chunked \
+        --start-from crate::learn_port::word_e8_codeword \
+        --start-from crate::learn_port::word_e8_nearest \
+        --start-from crate::learn_port::word_e8_nearest_scaled \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \

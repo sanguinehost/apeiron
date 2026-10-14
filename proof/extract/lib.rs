@@ -1399,6 +1399,7 @@ pub fn word_onebit_index_bits(c: &onebit_bits::Cfg) -> Option<u64> {
     onebit_bits::index_bits(c)
 }
 
-// The one-bit backward passes (`src/learn/grad/{dense,attn,head}.rs`), reached through `learn_port.rs`.
+// The one-bit backward passes (`src/learn/grad/{dense,attn,head}.rs`) and the E8 codebook
+// (`src/learn/code/e8.rs`), reached through `learn_port.rs`.
 #[path = "learn_port.rs"]
 pub mod learn_port;

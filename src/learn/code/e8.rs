@@ -50,98 +50,76 @@ pub enum E8Error {
     Overflow,
 }
 
-/// Parity of the popcount of `i` (8-bit index): `true` iff the number of set bits is even.
+/// Parity of the popcount of `r < 256` (its eight low bits): `0` if even, `1` if odd, as the sum of the
+/// eight bit values `r / 2^k % 2` modulo 2.
 ///
 /// # Complexity
-/// `O(8)` single-bit steps for an 8-bit `i`: one XOR and one shift per bit.
-fn even_parity(i: usize) -> bool {
-    let mut x: usize = i;
-    let mut p: usize = 0;
-    while x > 0 {
-        p ^= x & 1;
-        x >>= 1;
-    }
-    p == 0
+/// `O(1)`: eight divisions, eight remainders and seven additions on `usize` (a sum of at most 8).
+fn popcount_parity(r: usize) -> usize {
+    (r % 2 + r / 2 % 2 + r / 4 % 2 + r / 8 % 2 + r / 16 % 2 + r / 32 % 2 + r / 64 % 2 + r / 128 % 2)
+        % 2
 }
 
 /// Row `r < 128` of the codebook: the `r`-th even-popcount sign vector in ascending index order.
 ///
+/// Pair `{2m, 2m+1}` holds exactly one even-popcount index, since `popcount(2m) = popcount(m)` and
+/// `popcount(2m+1) = popcount(m) + 1`. That index is `2m + popcount_parity(m)`, so the `r`-th even
+/// index is `key = 2r + popcount_parity(r)`.
+///
 /// # Complexity
-/// `O(256)` loop steps, each an [`even_parity`] of cost `O(8)`: `O(2048)` bit operations. The loop
-/// always finds its key for `r < 128`, since exactly 128 of the 256 indices have even popcount.
+/// `O(1)` for the key, then `O(8)` for the signs; `w = 2^(7-k)` selects bit `7-k` as `key / w % 2`.
+/// Measure: `usize` divisions.
 fn spinor_row(r: usize) -> [i64; 8] {
-    let mut i: usize = 0;
-    let mut count: usize = 0;
-    let mut key: usize = 0;
-    let mut hit: bool = false;
-    while i < 256 && !hit {
-        if even_parity(i) {
-            if count == r {
-                key = i;
-                hit = true;
-            } else {
-                count += 1;
-            }
-        }
-        i += 1;
-    }
+    let key: usize = 2 * r + popcount_parity(r);
     let mut out = [0_i64; 8];
     let mut k: usize = 0;
+    let mut w: usize = 128;
     while k < 8 {
-        out[k] = if ((key >> (7 - k)) & 1) == 1 {
-            NEG_ONE
-        } else {
-            ONE
-        };
+        out[k] = if (key / w) % 2 == 1 { NEG_ONE } else { ONE };
         k += 1;
+        w /= 2;
     }
     out
 }
 
 /// Row `128 + k` (`k < 112`) of the codebook: the `k`-th D8 root `±2e_a ±2e_b` in loop order.
 ///
+/// The pairs `a < b` are enumerated lexicographically; `start(a) = (15a − a²)/2` counts the pairs
+/// with first index `< a`. `a` is the largest `t` in `0..7` with `start(t) ≤ pair`, and `b` follows.
+///
 /// # Complexity
-/// `O(28)` pair steps to locate the pair `(a, b)` with `pos = k/4` in lexicographic order.
+/// `O(7)` loop steps to locate `a`, then `O(1)` for `b`. Measure: comparisons on `usize`.
+#[allow(
+    clippy::manual_is_multiple_of,
+    reason = "`is_multiple_of` is outside the Aeneas-extractable fragment"
+)]
 fn root_row(k: usize) -> [i64; 8] {
     let pair = k / 4;
     let sub = k % 4;
-    let mut pos: usize = 0;
-    let mut first: usize = 0;
-    let mut second: usize = 1;
-    let mut hit: bool = false;
-    while first < 7 && !hit {
-        second = first + 1;
-        while second < 8 && !hit {
-            if pos == pair {
-                hit = true;
-            } else {
-                pos += 1;
-                second += 1;
-            }
+    let mut a: usize = 0;
+    let mut t: usize = 1;
+    while t < 7 {
+        if (15 * t - t * t) / 2 <= pair {
+            a = t;
         }
-        if !hit {
-            first += 1;
-        }
+        t += 1;
     }
+    let b = a + 1 + (pair - (15 * a - a * a) / 2);
     let mut out = [0_i64; 8];
     // `sub = 2·(index of s_a) + (index of s_b)`, with index 0 for −2 and 1 for +2.
-    out[first] = if sub / 2 == 0 { NEG_TWO_ONE } else { TWO_ONE };
-    out[second] = if sub.is_multiple_of(2) {
-        NEG_TWO_ONE
-    } else {
-        TWO_ONE
-    };
+    out[a] = if sub / 2 == 0 { NEG_TWO_ONE } else { TWO_ONE };
+    out[b] = if sub % 2 == 0 { NEG_TWO_ONE } else { TWO_ONE };
     out
 }
 
 /// Row `240 + 2i + s` (`s = 0` for `−√8`, `1` for `+√8`) of the codebook: the O8 vertex `±√8 e_i`.
+#[allow(
+    clippy::manual_is_multiple_of,
+    reason = "`is_multiple_of` is outside the Aeneas-extractable fragment"
+)]
 fn o8_row(k: usize) -> [i64; 8] {
     let mut out = [0_i64; 8];
-    out[k / 2] = if k.is_multiple_of(2) {
-        NEG_SQRT8_Q32
-    } else {
-        SQRT8_Q32
-    };
+    out[k / 2] = if k % 2 == 0 { NEG_SQRT8_Q32 } else { SQRT8_Q32 };
     out
 }
 
@@ -191,14 +169,11 @@ fn scaled_term(x: i64, c: i64, scale: i64) -> Option<i128> {
 }
 
 /// Squared distance from `x` to the scaled row `scale · row` (Q32.32 rounding per coordinate), as an
-/// exact `i128` sum of the eight [`scaled_term`]s.
-///
-/// # Errors
-/// [`E8Error::Overflow`] if any term or the running sum leaves `i128`.
+/// exact `i128` sum of the eight [`scaled_term`]s. Returns `(d, true)`, or `(0, false)` on overflow.
 ///
 /// # Complexity
 /// `O(8)` checked `i128` multiplications and additions.
-fn scaled_dist2(x: &[i64; 8], row: &[i64; 8], scale: i64) -> Result<i128, E8Error> {
+fn scaled_dist2(x: &[i64; 8], row: &[i64; 8], scale: i64) -> (i128, bool) {
     let mut acc: i128 = 0;
     let mut i: usize = 0;
     let mut ok: bool = true;
@@ -218,11 +193,7 @@ fn scaled_dist2(x: &[i64; 8], row: &[i64; 8], scale: i64) -> Result<i128, E8Erro
         }
         i += 1;
     }
-    if ok {
-        Ok(acc)
-    } else {
-        Err(E8Error::Overflow)
-    }
+    (acc, ok)
 }
 
 /// Index of the codebook row nearest to `x` (Euclidean, exact `i128`), first index on ties. `x` is in
@@ -251,22 +222,17 @@ pub fn nearest_scaled(x: &[i64; 8], scale: i64) -> Result<usize, E8Error> {
     if scale <= 0 {
         return Err(E8Error::NonPositiveScale);
     }
+    let (d0, ok0) = row_dist(x, 0, scale);
     let mut best: usize = 0;
-    let mut best_d: i128 = 0;
-    let mut ok: bool = true;
-    let mut j: usize = 0;
-    while j < CODEBOOK_LEN && ok {
-        let row = codeword_unchecked(j);
-        match scaled_dist2(x, &row, scale) {
-            Err(_) => {
-                ok = false;
-            }
-            Ok(d) => {
-                if j == 0 || d < best_d {
-                    best = j;
-                    best_d = d;
-                }
-            }
+    let mut best_d: i128 = d0;
+    let mut ok: bool = ok0;
+    let mut j: usize = 1;
+    while j < CODEBOOK_LEN {
+        let (d, good) = row_dist(x, j, scale);
+        ok = ok && good;
+        if d < best_d {
+            best = j;
+            best_d = d;
         }
         j += 1;
     }
@@ -275,6 +241,13 @@ pub fn nearest_scaled(x: &[i64; 8], scale: i64) -> Result<usize, E8Error> {
     } else {
         Err(E8Error::Overflow)
     }
+}
+
+/// Distance of `x` from the scaled codeword `j`, with its overflow flag; loop-free so that
+/// `nearest_scaled` carries values, not borrows, across its loop.
+fn row_dist(x: &[i64; 8], j: usize, scale: i64) -> (i128, bool) {
+    let row = codeword_unchecked(j);
+    scaled_dist2(x, &row, scale)
 }
 
 #[cfg(test)]
@@ -410,9 +383,9 @@ mod tests {
         // 200 pseudo-random points, coordinates uniform in [−3, 3) in Q32.32.
         while checked < 200 {
             let mut x = [0_i64; 8];
-            for k in 0..8 {
+            for xk in &mut x {
                 let r = xorshift(&mut state) % (6 * ONE as u64);
-                x[k] = r as i64 - 3 * ONE;
+                *xk = r.cast_signed() - 3 * ONE;
             }
             assert_eq!(nearest(&x), Ok(brute_nearest(&x)), "point {checked}");
             checked += 1;
