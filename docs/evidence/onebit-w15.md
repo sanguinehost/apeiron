@@ -40,10 +40,10 @@ three verdicts on these figures as ℚ facts; a changed `had-gptq1` bound (`< 1.
 
 ## What follows
 
-- The water-filling floor (`waterfill_floor`) applies to one-bit error levels on `ffn_down`: the quadratic form is the
+- The water-filling floor (`waterfill_floor`, `conditional` on the exponential distortion model) applies to one-bit error levels on `ffn_down`: the quadratic form is the
   objective to within 15%.
 - The sampled-Fisher estimator is too noisy to rank arms. The Kronecker factorisation `G ⊗ H` (`kron_diag`) is the
-  next instrument, validated against `64·KL(1/8)` above before any floor is read from it.
+  next instrument, validated against `64·KL(1/8)` above before any `model` floor is read from it.
 
 ## Not covered
 
@@ -69,7 +69,7 @@ tensors (7 kinds × 24 blocks). Wall 118.3 s (capture 22.0 + 17.8 s in two 12-bl
   input (`attn_in`, `o_in`, `mlp_in`, `down_in`).
 - Per-token KL of an error `D` is read as `½ tr(DᵀGDH)` (`model`: drops cross-token covariance and the dependence of
   `g` on `x`).
-- Floors: in the eigenbases `G = U diag(g) Uᵀ`, `H = V diag(h) Vᵀ`, the coefficients `C = UᵀWV` carry weights
+- Floors (`model`): in the eigenbases `G = U diag(g) Uᵀ`, `H = V diag(h) Vᵀ`, the coefficients `C = UᵀWV` carry weights
   `½ g_i h_j` (`kron_diag`), and global reverse water-filling (`waterfill_opt`, `waterfill_level`) over all 168
   tensors gives `KL(R) = Σ min(λ, θ)` at rate `R = Σ max(0, ½ log₂(λ/θ))`.
   - **separable**: `σ²_ij = r_i c_j / m`, the variance a row-and-column-scaled Gaussian codebook achieves (Lapidoth
@@ -95,7 +95,7 @@ Sum over the 21 `ffn_down` tensors (blocks 3–23) against `64·KL(1/8)` from W1
   alone, which is the factor the Kronecker model treats as independent of `g`; the under-read is that assumption,
   not sampling noise (`model`).
 
-## Floor
+## Floor (`model`: K-FAC quadratic KL, Gaussian rate)
 
 Q4_K_M's K-FAC KL over all 168 tensors is 0.015675 (q 0.00042, k 0.00074, v 0.00297, o 0.00131, gate 0.00198,
 up 0.00398, down 0.00427).
@@ -132,7 +132,7 @@ truncation is not the whole of the W14 inversion.
 - On Qwen2.5-0.5B, post-training coding in the K-FAC metric needs ≥ 2.35 b/w (oracle) to reach Q4_K_M's KL; 1.18 b/w
   is 6.6× above Q4 even there (`model`).
 - The open question for the 27B target is how the matching rate scales with model size. The next measurement is the
-  same floor on larger Qwen2.5 checkpoints, registered before it runs.
+  same `model` floor on larger Qwen2.5 checkpoints, registered before it runs.
 
 ## Not covered (W15b)
 
@@ -140,7 +140,7 @@ truncation is not the whole of the W14 inversion.
 - Gaussian-codebook rate model; basis side information uncounted; the oracle is not achievable.
 - C4 calibration; P1 KLD is wikitext-2 through llama.cpp.
 
-# ONEBIT W15c: the converse side and the floor against model size
+# ONEBIT W15c: the Shannon-bound side (`anchor`) and the K-FAC floor (`model`) against model size
 
 Command (repository root, same venv and GPU): `python tools/onebit/converse.py {controls,main,ekfac,scale} …`.
 Source `tools/onebit/converse.py` sha256 `29034f02d9002f6f…`; receipts
@@ -172,7 +172,7 @@ information).
 
 | variance model | `R*` coeff-only (b/w) | `R*` all-in (b/w) | floor KL at 1.133 b/w all-in |
 |---|---:|---:|---:|
-| separable (`r_i c_j / m`, control) | 3.151 | **3.176** | 0.2837 (uniform-rate: 0.3887, 1.37×) |
+| separable (`r_i c_j / m`, control) | 3.151 | **3.176** | 0.2837 (uniform-rate: 0.3887, 1.37×; `refuted` as a floor by the measured in-sample KL `0.35064` (`t3-nb-3seed.json`)) |
 | block-128 | 3.148 | 3.273 | — |
 | block-32 | 3.129 | 3.629 | — |
 | rank-2 NMF | 3.146 | 3.196 | — |
@@ -219,7 +219,8 @@ information).
 - Separable per-tensor water-filling flattens near `2.0` b/w at 32B (`1.9927` b/w, missing `[0.9, 1.9]` by `0.093`).
 - At Qwen3-8B, the 0-side-info K-FAC oracle floor (`σ²_ij = C_ij²`) is **1.5908 b/w** (`ΔR* = 0.6622` b/w all-in,
   `0.6559` net; ratio `0.7061`), leaving `2.11×` Q4_K_M's KL at 1.18 b/w and projecting to `1.33–1.41` b/w at 32B:
-  within-tensor K-FAC rate allocation cannot reach 1.18 b/w even with oracle variances.
+  within-tensor K-FAC rate allocation cannot reach 1.18 b/w even with oracle variances (`model`: K-FAC quadratic KL,
+  Gaussian rate).
 
 ## Formal record (W15c & §8 faces)
 
@@ -316,7 +317,7 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
     `1.1753 ≤ 1.18` b/w) drops held-out KL further to **`2.0031` nats** (`0.642×` of `fold-block` `3.1189`, `7.42×`
     below `gptq1-t` `14.86`) and raises held-out top-1 agreement to **`34.75%`** (`+8.52` pp over `fold-block`).
   - Weakening the `ffn_down` prior to `0.03` (`v2`) pushes in-sample KL down to **`0.5449` nats** (`1.40×` of the
-    uniform-rate separable floor `0.3887`) while raising held-out KL to `2.0791`; increasing the prior factor to `0.04`
+    uniform-rate separable `model` floor `0.3887`, since `refuted` as a floor by the measured in-sample KL `0.35064` (`t3-nb-3seed.json`)) while raising held-out KL to `2.0791`; increasing the prior factor to `0.04`
     (`v3`) raises both in-sample (`0.7036`) and held-out (`2.0420`) KL, bracketing the `0.03` optimum on `51,200`
     calibration tokens.
   - Two-component intra/inter decoupled shrinkage (`Perf.CostCorrespondence` §10: `telescoping_target_split`,
@@ -475,9 +476,9 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
       gates (`1.8142` nats on `e8`). Attenuating Stage-1 cross-layer drift to `inter_gamma_in = 0.25` (`stage1_drift_shrinkage_dominance`,
       `c23_stage1_gin25_vs_gin100_j_ratio_f64 = 0.2556`, `c23_stage1_gin25_vs_gin000_j_ratio_f64 = 0.7564`) cuts held-out KL on
       `had-fold-2plane-attn-bscale-e8-icm20-gin25` (`1.179460` b/w, wall `108.43` s) by another **`−0.0242` nats (`−0.3526` nats
-      / `−17.90× Q4_K_M` below `bscale-split`) to `1.4974` nats (`76.01× Q4_K_M`, breaking the `1.50` nats barrier!)** and raises
+      / `−17.90× Q4_K_M` below `bscale-split`) to `1.4974` nats (`76.01× Q4_K_M`, below `1.50` nats)** and raises
       held-out top-1 agreement by **`+0.69%` to `41.41%` (`+5.58%` over `bscale-split`)**, with in-sample KL at **`0.4296` nats
-      (`24.69× Q4_K_M`, `65.69%` top-1)** (and `λ_icm = 0.25` variant `had-fold-2plane-attn-bscale-e8-icm25-gin25` also breaking
+      (`24.69× Q4_K_M`, `65.69%` top-1)** (and `λ_icm = 0.25` variant `had-fold-2plane-attn-bscale-e8-icm25-gin25` also below
       `1.50` nats at **`1.4997` nats / `76.13× Q4_K_M`, `41.04%` top-1**).
     - **§19 (Face Swap #6: Hyperbolic Bilinear SwiGLU Compensation `gate → up`, `fold-attn-e8-icm-glu-1` refuted)**:
       shifting the Stage-1 `up_proj` ridge target after `gate_proj` quantization to compensate for the bilinear error
@@ -503,9 +504,9 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
       `g ∈ ℝ^896` anchored to the non-sink cosine-coherence target `g_target = g_0 · (ρ / max(0.5, α))`
       (`had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm` at **`1.179460` b/w**, wall `93.91` s; receipt
       `/home/socol/oc-tmp/escalation/2026-10-13-fold-transfer-attn-e8-icm-sink.json`, `sha256` `49fc294c…`) drives in-sample KL
-      down to **`0.3749` nats (`21.55× Q4_K_M`, `0.9646×` — `3.54%` BELOW the `0.3887` nats uniform-rate separable K-FAC floor!,
+      down to **`0.3749` nats (`21.55× Q4_K_M`, `0.9646×` — `3.54%` below the `0.3887` nats uniform-rate separable K-FAC `model` floor, `refuted` as a floor by the measured in-sample KL `0.35064` (`t3-nb-3seed.json`),
       `66.31%` top-1)** and held-out KL down by another **`−0.0429` nats (`−0.1197` nats below `gin25`, `−0.4722` nats /
-      `−23.97× Q4_K_M` below `bscale-split`) to `1.3777` nats (`69.93× Q4_K_M`, breaking `< 1.38` nats and `< 70× Q4_K_M`!,
+      `−23.97× Q4_K_M` below `bscale-split`) to `1.3777` nats (`69.93× Q4_K_M`, below `1.38` nats and `70× Q4_K_M`,
       `42.19%` held-out top-1)**. Vectorizing `e8_icm_step` (`7.2×` speedup, `max_diff = 0`), caching `(U, Z_c)` in `gptq_e8`
       across inner iterations and planes (`solve_triangular` preserved), and keeping `Pt_cache` and `kl_eval` on GPU cut
       per-variant Gram time `3.14×` (`36.1 → 11.5` s), forward time `2.53×` (`13.2 → 5.2` s), and total transfer wall from
@@ -516,12 +517,12 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
   `KL_out / KL_Q4 = (KL_out / KL_in) · (KL_in / D_sep) · (D_sep / D_orc) · (D_orc / KL_Q4)`:
   1. **Finite-sample generalization (`KL_out / KL_in = 3.675×`, `E_gen = 1.0028` nats = `72.8%` of total held-out KL, down from `1.0678` nats at `gin25` and `1.0947` nats at `bscale-split`)**:
      driven by fitting `14.9M` dense target parameters per layer to `51,200` tokens (`n / N_tok ≈ 9.5%` on `4864`-wide `ffn_down`).
-  2. **Constructive coder efficiency (`KL_in / D_sep = 1.322×` vs non-uniform `0.2837` nats, and **`0.9646×` — `3.54%` BELOW**
-     the uniform-rate separable floor `0.3887` nats)**: Face Swaps #2–#7 (`E₈ ∪ O₈` + `beam=4` + MP-damped `icm20` + `gin25` +
+  2. **Constructive coder efficiency (`KL_in / D_sep = 1.322×` vs non-uniform `0.2837` nats, and **`0.9646×` — `3.54%` below**
+     the uniform-rate separable `model` floor `0.3887` nats, `refuted` as a floor by the measured in-sample KL `0.35064` (`t3-nb-3seed.json`))**: Face Swaps #2–#7 (`E₈ ∪ O₈` + `beam=4` + MP-damped `icm20` + `gin25` +
      `sink-fnorm`) drive `KL_in` down to **`0.3749` nats** (`21.55× Q4_K_M`, down from `0.5929` nats at `backfit`).
   3. **Separable-to-oracle envelope gap (`D_sep / D_orc = 2.515×`)**: `0.2837 / 0.1128` nats (`χ²_1` per-coefficient sparsity
      `ΔR* ≈ 0.66–0.82` b/w).
-  4. **Intrinsic 0.5B oracle floor (`D_orc / KL_Q4 = 5.726×` on 0.5B → `2.11×` on 8B → `~1.35×` on 27B/32B)**: small models
+  4. **0.5B oracle K-FAC floor (`model`, `D_orc / KL_Q4 = 5.726×` on 0.5B → `2.11×` on 8B → `~1.35×` on 27B/32B)**: small models
      have high stiff-direction density (`R*_sep = 3.1731` b/w on 0.5B vs `2.2530` on 8B and `1.9927` on 32B, where the
      separable floor at `1.18` b/w is already `3.78× Q4_K_M` = `0.0913` nats, below 4.5-bit `NF4`'s `4.62× Q4_K_M`).
 
@@ -802,7 +803,7 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
     - `Q_tilt = 1.2272`, `Q_lin = 2.5448`; product `3.122860` against the item-27 `Q` `3.122860` (difference `−2.8e-7`). The tilt carries `18.0%` of `log Q`.
     - `J_out/J_in = 1.170` while `q2_out/q2_in = 2.976`: the layer-local `J` rises 17% from in-sample to held-out text, the logit-space second-order KL rises 198%.
     - Instrument checks on the real positions: Hoeffding `KL ≤ range(δ)²/8` 0 violations (both sets); mean-value `2·KL ∈ [min_t Var_{p_t}(δ), max_t Var_{p_t}(δ)]` on a 41-point grid
-      0 violations (an absolute floor `1e-6` is in the receipt; without it also 0); Simpson quadrature of `2∫(1−t)Var_{p_t}(δ)dt` against `2·KL`: median relative error `7.3e-7` (in), `4.7e-7` (out), max `8.9e-3`, `6.6e-3`.
+      0 violations (an absolute clamp `1e-6` is in the receipt; without it also 0); Simpson quadrature of `2∫(1−t)Var_{p_t}(δ)dt` against `2·KL`: median relative error `7.3e-7` (in), `4.7e-7` (out), max `8.9e-3`, `6.6e-3`.
     - Controls: `δ = 0` gives `KL = q2 = 0`; `ε = 0.05` scaling gives tilt `0.9979` (in), `1.0076` (out); run100 KL reproduced to `1.2e-8` (in `0.349802402` against `0.349802399`, out `1.27766253` against `1.27766254`).
     - Prediction `w17-d-tilt-1-1` confirmed: tilt_in `0.980 ∈ [0.9, 1.3]`, tilt_out `1.203 ∈ [0.9, 1.6]`, `Q_tilt ∈ [0.9, 1.5]`, `Q_lin ≥ 2`; falsifier (`Q_tilt > 2` or `< 0.8`) not triggered.
     - Decision: `Q` is carried by `Q_lin = q2/J` (`2.54`), not by the tilt (`1.23`). `J` underpredicts held-out logit-space distortion by `2.5×` relative to in-sample, so the open
@@ -814,3 +815,94 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
 - Constructive transfer evaluated on 0.5B only; `src/learn/ridge.rs` and `src/learn/onebit.rs` remain `f64` on CPU.
 
 Board row: `onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1` (LEARN-ONEBIT, `docs/plan.md` row 248).
+
+# ONEBIT W18: the result against the literature and its own trajectory
+
+Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
+Receipts (committed, rows in `docs/evidence/ledger.jsonl`):
+
+| receipt | content | source |
+|---|---|---|
+| `docs/evidence/receipts/onebit/w18-literature.tsv` | 57 rows, ~38 papers: arXiv id and version, regime, model, stated and all-in b/w, metric, value, FP baseline, table, PDF sha256 | PDFs and `pdftotext` copies in `/home/socol/oc-tmp/papers/`; every number read at the named table |
+| `docs/evidence/receipts/onebit/w18-trajectory.tsv` | 83 arm results, oldest first: commit, arm, b/w and its basis, eval, KL and top-1 in-sample and held-out, seeds, source | committed receipts, then `docs/evidence/onebit-*.md`, then commit messages; regenerator `/home/socol/oc-tmp/lanes/w18/traj/make.py` |
+| `docs/evidence/receipts/onebit/w18-trajectory-disagreements.tsv` | 13 numbers that two sources state differently, both values with their sources | as above |
+
+## Literature (`measured` where a row names its table)
+
+- No paper read reports KL or top-1 agreement against the FP model at ≤ 1.6 b/w on a pretrained model of ≤ 3B.
+  KL appears only as a training or calibration loss (LittleBit, NanoQuant Eq. 11, BitDistill). This scope is the papers
+  in the receipt, not the field.
+- Qwen2.5-0.5B appears in no binarisation PTQ paper read. The nearest same-regime results are WikiText-2 perplexity only:
+
+| paper | model | b/w (paper's count) | PPL | FP PPL | ratio | location |
+|---|---|---:|---:|---:|---:|---|
+| NanoQuant 2602.06694v3 | Qwen3-0.6B | 1.00 | 27.56 | 12.66 | 2.18× | Table 2 |
+| NanoQuant 2602.06694v3 | Qwen3-1.7B | 1.00 | 19.21 | 9.39 | 2.05× | Table 2 |
+| 2512.21651v3 | OPT-1.3B | 1.11 | 24.30 | 14.62 | 1.66× | Table 1 |
+| 2512.21651v3 | OPT-2.7B | 1.11 | 18.25 | 12.47 | 1.46× | Table 1 |
+| PTQ1.61 2502.13179v2 | OPT-2.7B | 1.61 | 28.56 | 12.47 | 2.29× | Table 6 |
+| PV-Tuning 2405.14852v2 | Llama-2 7B | 1.58 | 7.32 | 5.12 | 1.43× | Table 7 |
+
+- Training-based points: BitNet b1.58 3B from scratch, PPL 9.91 against 10.04 (100B tokens, 2402.17764v1 Table 1);
+  BitDistill 2510.13998v1 ternary Qwen2.5-0.5B, MNLI 79.98 against FP16-SFT 79.91 after a 10B-token warm-up (Table 3);
+  CAT-Q 2606.26650v1 ternary PTQ Qwen3-1.7B, 5-task average 51.01 against 61.42 (Table 1).
+- VBQ 2607.02893v1 is the one KL-against-FP figure found: a 131M model trained from scratch at 1.82 b/w, KLD 0.21 nats,
+  argmax flip rate 18.7% (Sec. 5.3).
+- Three claims made about the field without reading it are not supported by any paper in the receipt: a QuIP#
+  sub-2-bit cliff below 7B (no paper read tests ≤ 2.1 b/w at ≤ 3B), AQLM sub-1B results (none reported), and a
+  collapse of closed-form PTQ at 1 bit (the rows above).
+- Placement (`model`: perplexity and KL are different metrics): the comparators are measured on perplexity, ours on KL
+  and top-1. A bridging measurement, the `-nb` arm on WikiText-2 perplexity or a public 1-bit PTQ code scored by
+  `tools/onebit/fold_transfer.py`, places the two on one axis; it is not run.
+
+## Trajectory (`measured`, `w18-trajectory.tsv`)
+
+Qwen2.5-0.5B, all 168 linear tensors, b/w over the linear weights (embedding and `lm_head` excluded); held-out =
+`fold_transfer` over C4 chunks 100–140, except the first row (paired KLD over 64×512 WikiText).
+
+| commit | arm | b/w | held-out KL | held-out top-1 |
+|---|---|---:|---:|---:|
+| `d759873` | RTN / Q1_0 | 1.125 | 13.17 | 0.0% |
+| `d759873` | had-gptq1 | 1.125 | 6.85 | 1.38% |
+| `57d3f59` | fold-block | 1.133 | 3.09 | 26.1% |
+| `a40e622` | had-fold-block-w0 | — | 2.32 | 31.3% |
+| `a40e622` | 2plane-gqa-corr | 1.175 | 2.00 | 34.8% |
+| `a40e622` | e8 | — | 1.633 | 39.4% |
+| `a40e622` | sink-fnorm | 1.1795 | 1.378 | 42.2% |
+| `2975be5` | T0, 3 seeds | 1.1781 | 1.353 | 42.6% |
+| `6a958e5` | `-nb`, 3 seeds | 1.17834 | 1.2956 | 44.0% |
+
+- From the first whole-model commit at ≤ 1.25 b/w (`d759873`) to `-nb` (`6a958e5`): 71.08 h of commit time; held-out
+  KL falls 10.2× at the same width.
+- `-nb` per seed: held-out KL 1.2777 / 1.3086 / 1.3007; in-sample mean 0.35064. Fields at `t3-nb-3seed.json:93–96` are
+  seed 0; the 3-seed statistics start at line 134.
+- IQ1_S (0.6315 KLD, 62.0% top-1) and IQ1_M (0.5191, 65.9%) quantise `ffn_down` blocks 3–23 only (`onebit-w9.md`); no
+  whole-model IQ1 point exists here.
+- Every arm after `57d3f59` was selected on the same 40 held-out chunks; the held-out figures carry that selection.
+
+## Disagreements between sources (`w18-trajectory-disagreements.tsv`)
+
+- One arm, two receipts: `had-fold-2plane-attn-bscale` is 1.8500 / 0.6020 in `attn-rrr.json` and 1.8581 / 0.5956 in
+  `attn-bscale.json`.
+- Q4_K_M carries five KL figures for five evaluations: 0.0243 (WikiText), 0.020054, 0.019729 (C4 held-out), 0.015675
+  (K-FAC model), 0.015700.
+- b/w basis: W15d "all-in" counts linear weights only; T0 and `-nb` 1.178061 omit the 98,112-bit row index (1.17834 with
+  it, `Perf.BitsRefine`).
+- Six arms' receipts are only under `/home/socol/oc-tmp/escalation/`; `grow24` (1.4082) and `mlp2p` (1.3890) appear in
+  no committed document.
+
+## Limit claims
+
+`tools/rooting/limit_check.py` refuses, in this file, `onebit-w13.md`, `docs/epics/ternary-hadamard.md` and the
+docstrings of `Perf.CostCorrespondence`, `Perf.KLTilt` and `Perf.BitsRefine`, a limit word (converse, floor, lower
+bound, cannot reach, unreachable, impossible, unprecedented, state of the art) without a grade label or a cited theorem
+with no hypothesis binder. A registered model floor beaten by a committed receipt must be marked `refuted`: the
+uniform-rate separable K-FAC floor 0.3887 is `refuted` by the `-nb` in-sample mean 0.35064. `--staged` applies the
+same rule to every added line in `docs/` and `book/`. The checker establishes that a grade is stated, not that it is
+correct.
+
+## Not covered (W18)
+
+- No bridging measurement against the perplexity literature.
+- Papers read: those in the receipt. The ~40-paper scope is not a survey; Proteus was not found on arXiv.
