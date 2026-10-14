@@ -1424,6 +1424,47 @@ which reports Llama-2 7B at 1.58 b/w within 1.43× of fp16 perplexity).
   (gradient-weighted Grams, GuidedQuant, Kim et al., arXiv 2505.07004 §3.2 Eq. 7) is in development.
 - Board row for these runs: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
+### End-loss-weighted Grams in the code solve (`measured`; `Perf/Guided.lean`)
+
+- Method: `fold_transfer.py` token `-guided[a|b]NN` (sha256 `0a68d4ae…` for `w18-guided05`; `28b9b4c0…` for
+  `w18-guidedsweep` and `w18-guidedseed`, which adds only the `a`/`b` part parsing). Each layer's Gram becomes
+  `Σ_t a_t x_t x_tᵀ` with `a_t` the true-Fisher output-gradient energy at that layer (`K = 4` sampled targets,
+  `gq_capture`, 9.9 s), and row weights `b` replace the arm's row proxy: GuidedQuant (Kim et al., arXiv 2505.07004 §3.2
+  Eq. 7). `NN` tempers `a_t` to `a_t^(NN/100)`, mean 1; part `a` = token weights only, `b` = row weights only. The
+  `--gq-controls` null control (`a_t = 1`) reproduces the base Grams and layers exactly. `--n-cal 50`, held-out
+  `[50, 90)`, in-sample `[0, 20)`; bits 421,541,376 (1.17806 b/w) in every variant.
+
+| variant | seed | held-out KL | in-sample | top-1 | Kish ESS min |
+|---|---:|---:|---:|---:|---:|
+| base | 0 / 1 / 2 | 1.1637 / 1.1884 / 1.1790 | 0.2224 / 0.2247 / 0.2230 | 0.480 / 0.470 / 0.476 | 1 |
+| `-guided25` | 0 | 1.2977 | 0.2214 | 0.466 | 0.767 |
+| `-guided50` | 0 / 1 / 2 | 1.1355 / 1.1361 / 1.2087 | 0.2520 / 0.2524 / 0.2534 | 0.479 / 0.481 / 0.473 | 0.070 |
+| `-guided75` | 0 | 1.1539 | 0.2706 | 0.473 | 0.0053 |
+| `-guided` (γ = 1) | 0 | 1.2032 | 0.3068 | 0.462 | 0.0023 |
+| `-guideda50` | 0 | 1.2273 | 0.2513 | 0.470 | 0.070 |
+| `-guidedb` | 0 | 1.3460 | 0.2210 | 0.465 | 1 |
+
+- The weighting is a large, unordered perturbation of the code solve, not a smooth lever. The sign of the change
+  alternates along `γ = 1/4, 1/2, 3/4, 1` (`guided_nonmonotone`); the Kish effective sample size `(Σa)²/(nΣa²)` does
+  not order it: `γ = 3/4` keeps 0.5% at its worst stage and beats the base, `γ = 1/4` keeps 77% and loses by 0.13
+  (`guided_ess_not_order`). Neither part alone beats the base (`guided_parts`).
+- The base solve is stable across calibration order (seeds 0–2 within 0.025, `base_seed_spread`); `-guided50` widens
+  that 2.96-fold (`guided_seed_spread`). Over three seeds its paired mean is 0.017 lower, two seeds better and one worse
+  than every base seed (`guided_seed_mean`): not a robust gain at this protocol.
+- In-sample KL rises with the weighting on every seed while held-out falls on two (`guided_insample_rises`): the
+  weighted objective trades calibration fit for something else, as the scale finishing does. The finishing drop
+  (1.16 → 0.88) is the larger and the stable lever.
+- Predictions: `guided05-1` confirmed (`guided05_confirmed`); `guidedsweep-1` refuted, its 1.25 falsifier fires on
+  `-guided25` and `-guidedb` (`guidedsweep_refuted`); `guidedseed-1` refuted on its first clause (base spread predicted
+  `≥ 0.05`, measured 0.025).
+- Controls: tightening `guided_seed_mean`'s bound −3/100 → −51/1000, `guided_nonmonotone` 13/100 → 14/100,
+  `base_seed_spread` 25/1000 → 24/1000, `guided_parts` 18/100 → 19/100, `guided_ess_not_order` 3/4 → 8/10 and
+  `guided_seed_spread` 29/10 → 3 each fails; axioms `{propext, Classical.choice, Quot.sound}` for all ten theorems.
+- Decision: the code side keeps the unweighted Gram. Held-out falls only where the code is pulled off the in-sample
+  optimum, and the stable way to do that is end-to-end scale finishing on held-apart tokens; its measured limit is
+  tokens per box, so its throughput is the next lever.
+- Board row for these runs: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
 Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
 ## Limit claims

@@ -1024,6 +1024,100 @@ def wallTotalS : ℚ := (33351345133781433 : ℚ) / 100000000000000
 
 end Receipts.w18_pvtok292
 
+-- Receipt `docs/evidence/receipts/onebit/w18-guided05.json`
+namespace Receipts.w18_guided05
+
+def sha256 : String := "1ceeba2b342c242f89056745707ecead62c4c1820b80eef1da4409d88a1c11ed"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def baseBits : ℕ := 421541376
+def baseKlHeldout : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def baseKlInsample : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def baseTop1Heldout : ℚ := (1965 : ℚ) / 4096
+def gab100Bits : ℕ := 421541376
+def gab100KlHeldout : ℚ := (6016213595867157 : ℚ) / 5000000000000000
+def gab100KlInsample : ℚ := (3067619949579239 : ℚ) / 10000000000000000
+def gab100Top1Heldout : ℚ := (947 : ℚ) / 2048
+def gab100Gamma : ℚ := (1 : ℚ) / 1
+def gab100Part : String := "ab"
+def gab100CaptureK : ℕ := 4
+def gab100EssMin : ℚ := (22574039627964123 : ℚ) / 10000000000000000000
+def gab50Bits : ℕ := 421541376
+def gab50KlHeldout : ℚ := (11355209469795227 : ℚ) / 10000000000000000
+def gab50KlInsample : ℚ := (25196254104375837 : ℚ) / 100000000000000000
+def gab50Top1Heldout : ℚ := (9819 : ℚ) / 20480
+def gab50Gamma : ℚ := (1 : ℚ) / 2
+def gab50Part : String := "ab"
+def gab50CaptureK : ℕ := 4
+def gab50EssMin : ℚ := (352035391072623 : ℚ) / 5000000000000000
+
+end Receipts.w18_guided05
+
+-- Receipt `docs/evidence/receipts/onebit/w18-guidedsweep.json`
+namespace Receipts.w18_guidedsweep
+
+def sha256 : String := "56c471920a0fff6d85d660a3e56b65b6360ab5cbca7d2597e570f59ec078216d"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def gab25Bits : ℕ := 421541376
+def gab25KlHeldout : ℚ := (12976844966411591 : ℚ) / 10000000000000000
+def gab25KlInsample : ℚ := (5535787157714367 : ℚ) / 25000000000000000
+def gab25Top1Heldout : ℚ := (149 : ℚ) / 320
+def gab25Gamma : ℚ := (1 : ℚ) / 4
+def gab25Part : String := "ab"
+def gab25CaptureK : ℕ := 4
+def gab25EssMin : ℚ := (1916427790199689 : ℚ) / 2500000000000000
+def gab75Bits : ℕ := 421541376
+def gab75KlHeldout : ℚ := (11538679242134093 : ℚ) / 10000000000000000
+def gab75KlInsample : ℚ := (13529089093208313 : ℚ) / 50000000000000000
+def gab75Top1Heldout : ℚ := (9677 : ℚ) / 20480
+def gab75Gamma : ℚ := (3 : ℚ) / 4
+def gab75Part : String := "ab"
+def gab75CaptureK : ℕ := 4
+def gab75EssMin : ℚ := (1050349207423803 : ℚ) / 200000000000000000
+def ga50Bits : ℕ := 421541376
+def ga50KlHeldout : ℚ := (38353540468961 : ℚ) / 31250000000000
+def ga50KlInsample : ℚ := (2512786716222763 : ℚ) / 10000000000000000
+def ga50Top1Heldout : ℚ := (9627 : ℚ) / 20480
+def ga50Gamma : ℚ := (1 : ℚ) / 2
+def ga50Part : String := "a"
+def ga50CaptureK : ℕ := 4
+def ga50EssMin : ℚ := (880088486778821 : ℚ) / 12500000000000000
+def gb100Bits : ℕ := 421541376
+def gb100KlHeldout : ℚ := (13460154771804809 : ℚ) / 10000000000000000
+def gb100KlInsample : ℚ := (11048786938190461 : ℚ) / 50000000000000000
+def gb100Top1Heldout : ℚ := (9517 : ℚ) / 20480
+def gb100Gamma : ℚ := (1 : ℚ) / 1
+def gb100Part : String := "b"
+def gb100CaptureK : ℕ := 4
+def gb100EssMin : ℚ := (1 : ℚ) / 1
+
+end Receipts.w18_guidedsweep
+
+-- Receipt `docs/evidence/receipts/onebit/w18-guidedseed.json`
+namespace Receipts.w18_guidedseed
+
+def sha256 : String := "fe874f9e7b8d8c09bb035be8434b9ff731ad218d5c5a96e1b3726bbc7e5663fc"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def baseBits : ℕ := 421541376
+def baseKlHeldoutS1 : ℚ := (11884212732315063 : ℚ) / 10000000000000000
+def baseKlHeldoutS2 : ℚ := (589518292248249 : ℚ) / 500000000000000
+def baseKlInsampleS1 : ℚ := (11233716458082199 : ℚ) / 50000000000000000
+def baseKlInsampleS2 : ℚ := (2787851244211197 : ℚ) / 12500000000000000
+def baseTop1HeldoutS1 : ℚ := (9629 : ℚ) / 20480
+def baseTop1HeldoutS2 : ℚ := (4873 : ℚ) / 10240
+def gab50Bits : ℕ := 421541376
+def gab50KlHeldoutS1 : ℚ := (454433411359787 : ℚ) / 400000000000000
+def gab50KlHeldoutS2 : ℚ := (12087027877569199 : ℚ) / 10000000000000000
+def gab50KlInsampleS1 : ℚ := (6310639604926109 : ℚ) / 25000000000000000
+def gab50KlInsampleS2 : ℚ := (1267198845744133 : ℚ) / 5000000000000000
+def gab50Top1HeldoutS1 : ℚ := (1231 : ℚ) / 2560
+def gab50Top1HeldoutS2 : ℚ := (4847 : ℚ) / 10240
+def gab50Gamma : ℚ := (1 : ℚ) / 2
+def gab50Part : String := "ab"
+def gab50CaptureK : ℕ := 4
+def gab50EssMin : ℚ := (6941980955559107 : ℚ) / 100000000000000000
+
+end Receipts.w18_guidedseed
+
 -- Receipt `docs/evidence/receipts/onebit/2026-10-11-vladder.json`
 namespace Receipts.vladder_1011
 

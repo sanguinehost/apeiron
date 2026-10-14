@@ -18,6 +18,7 @@ Modes:
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -79,7 +80,16 @@ W15 = {
     "w18_pvgrid25": "docs/evidence/receipts/onebit/w18-pvgrid25.json",
     "w18_pvtok146": "docs/evidence/receipts/onebit/w18-pvtok146.json",
     "w18_pvtok292": "docs/evidence/receipts/onebit/w18-pvtok292.json",
+    "w18_guided05": "docs/evidence/receipts/onebit/w18-guided05.json",
+    "w18_guidedsweep": "docs/evidence/receipts/onebit/w18-guidedsweep.json",
+    "w18_guidedseed": "docs/evidence/receipts/onebit/w18-guidedseed.json",
 }
+
+# End-loss-weighted Gram receipts (fold_transfer "-guided[a|b]NN"): namespace -> variant prefixes (see guided_prefix).
+GUIDED = {"w18_guided05": ["base", "gab100", "gab50"], "w18_guidedsweep": ["gab25", "gab75", "ga50", "gb100"],
+          "w18_guidedseed": ["base", "gab50"]}
+# Multi-seed guided receipts (calibration-order seeds): namespace -> seeds, emitted per seed as `<prefix><Field>S<seed>`.
+GUIDED_SEEDS = {"w18_guidedseed": ["1", "2"]}
 
 # Scale-group ablation of the finishing drop (pv_finish.py --train, V-steps off): namespace -> trained groups.
 PVAB_GROUPS = {"w18_pvabnorm05": ["norm"], "w18_pvabr05": ["r"], "w18_pvaball05v0": ["c", "d", "norm", "r"], "w18_pvabrcd05": ["c", "d", "r"], "w18_pvabcd05": ["c", "d"],
@@ -655,9 +665,47 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
                         ("klInsampleBefore", "kl_insample_before"), ("klInsampleAfter", "kl_insample_after")]:
             out.append(("rat", name, rat(data[k])))
         out.append(("rat", "wallTotalS", rat(data["walls"]["total_s"])))
+    elif ns in GUIDED:
+        # End-loss-weighted Grams (fold_transfer "-guided[a|b]NN"): per variant, prefix `base` for the arm itself and
+        # `g<part><NN>` otherwise (part ab = token and row weights, a = token only, b = row only; NN = 100 * gamma).
+        if data["args"]["n_cal"] != 50 or data["eval_chunks"] != [50, 90] or data["insample_chunks"] != [0, 20]:
+            raise Fail(f"{rel}: not the n-cal 50 / held-out [50, 90) protocol")
+        names = sorted(data["variants"])
+        if sorted(guided_prefix(n, rel) for n in names) != sorted(GUIDED[ns]):
+            raise Fail(f"{rel}: variants {names} are not {GUIDED[ns]}")
+        out.append(("str", "arm", RESQ_ARM))
+        seeds = GUIDED_SEEDS.get(ns)
+        if data["args"]["seeds"] != (",".join(seeds) if seeds else "0"):
+            raise Fail(f"{rel}: seeds {data['args']['seeds']} are not {seeds or ['0']}")
+        for n in names:
+            v, pre = data["variants"][n], guided_prefix(n, rel)
+            out.append(("nat", pre + "Bits", nat(v["bits"])))
+            for name, k in [("KlHeldout", "kl_heldout"), ("KlInsample", "kl_insample"), ("Top1Heldout", "top1_heldout")]:
+                if seeds:
+                    for sd in seeds:
+                        out.append(("rat", pre + name + "S" + sd, rat(v["seeds"][sd][k])))
+                else:
+                    out.append(("rat", pre + name, rat(v[k])))
+            if pre != "base":
+                g = v["gq"]
+                out.append(("rat", pre + "Gamma", rat(g["gamma"])))
+                out.append(("str", pre + "Part", g.get("part", "ab")))
+                out.append(("nat", pre + "CaptureK", nat(g["K"])))
+                # Kish effective sample size of the token weights, as a fraction of the tokens: min over layers and stages.
+                out.append(("rat", pre + "EssMin", rat(min(g["ess_frac"].values()))))
     else:
         raise Fail(f"no W15/W17 field map for {ns}")
     return out
+
+
+def guided_prefix(name: str, rel: str) -> str:
+    """`base` for RESQ_ARM, `g<part><NN>` for RESQ_ARM + "-guided[a|b]NN" (bare NN = 100)."""
+    if name == RESQ_ARM:
+        return "base"
+    m = re.fullmatch(re.escape(RESQ_ARM) + r"-guided([ab])?(\d+)?", name)
+    if not m:
+        raise Fail(f"{rel}: variant {name} is neither the arm nor a -guided arm")
+    return "g" + (m.group(1) or "ab") + (m.group(2) or "100")
 
 
 def bool_value(v, ns: str) -> bool:
