@@ -1,0 +1,619 @@
+{
+ "question": "Does finishing the 2-plane arm (-yaqas50, 1.178 b/w) on the total-variation distance to its bf16 teacher, the quantity speculative acceptance is 1 minus, raise acceptance above the KL-finished arm at equal wall, and at what cost in held-out KL?",
+ "protocol": {
+  "n_cal": 50,
+  "n_eval": 40,
+  "n_in": 20,
+  "batch": 8,
+  "v_every": 0,
+  "codes": "vstep",
+  "compose": "step",
+  "kl": "fused",
+  "hadamard": "butterfly",
+  "train": "r,c,d,norm",
+  "arm_suffix": "-yaqas50",
+  "wall": "timeout 580",
+  "bound": "flock /tmp/opencode/gpu.lock, systemd-run MemoryMax=40G MemorySwapMax=0",
+  "objective": "--objective tv: loss = 1/2 sum_x |q(x) - p(x)| per position (TVHead); --objective kl: KLHead",
+  "order": "tv1 first; then tv2, kl2, tv3, kl3 interleaved; the KL arm's first run is the committed s50 run",
+  "accept": "a_t = 1 - TV per held-out position",
+  "e_k": "teacher-forced block length, k = 1..8"
+ },
+ "machine": {
+  "cpu": "Intel(R) Core(TM) i9-14900KF",
+  "device": "NVIDIA GeForce RTX 5080"
+ },
+ "source": {
+  "pv_finish": {
+   "path": "tools/onebit/pv_finish.py",
+   "sha256_final": "53b72973d81af77d6c3d49a4f33d1774f0c8a5bd414f1cf90096c4e196da82fa",
+   "note": "tv1 ran before the quick-eval label edit (prints 'quick heldout TV', adds quick_objective); the per-run sha256 is in each run row"
+  },
+  "fold_transfer": {
+   "path": "tools/onebit/fold_transfer.py"
+  }
+ },
+ "runs": {
+  "tv": [
+   {
+    "label": "tv1",
+    "objective": "tv",
+    "file": "/home/socol/oc-tmp/lanes/qreg/tv/tv1.json",
+    "exit": 0,
+    "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqas50",
+    "steps": 520,
+    "bits_before": 421541376,
+    "bits_after": 421541376,
+    "kl_heldout_before": "1.2056242614984511",
+    "kl_heldout_after": "0.9445615231990814",
+    "top1_heldout_after": "0.554443359375",
+    "grad_equiv_ok": true,
+    "pv_finish_sha256": "cc042d89b1ab014d984456b421c5c110b354aed4cfda2fcdf72a347aee2a6897",
+    "fold_transfer_sha256": "5f9e16f6ddb167c14b21481d3a4caacc3514b2a5707f5263244c87f0ac1a9e69",
+    "accept": "0.6122040718793869",
+    "tv": "0.38779592812061314",
+    "e_k": [
+     "1.61175902230399",
+     "2.0013068184020026",
+     "2.2538829258510042",
+     "2.4204911368233817",
+     "2.531850784543961",
+     "2.607279992482019",
+     "2.658983708941747",
+     "2.6948695954822357"
+    ],
+    "kmax": 8,
+    "positions": 20480,
+    "block_starts": 20160
+   },
+   {
+    "label": "tv2",
+    "objective": "tv",
+    "file": "/home/socol/oc-tmp/lanes/qreg/tv/tv2.json",
+    "exit": 0,
+    "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqas50",
+    "steps": 522,
+    "bits_before": 421541376,
+    "bits_after": 421541376,
+    "kl_heldout_before": "1.2056242614984511",
+    "kl_heldout_after": "0.9451511830091477",
+    "top1_heldout_after": "0.55556640625",
+    "grad_equiv_ok": true,
+    "pv_finish_sha256": "53b72973d81af77d6c3d49a4f33d1774f0c8a5bd414f1cf90096c4e196da82fa",
+    "fold_transfer_sha256": "5f9e16f6ddb167c14b21481d3a4caacc3514b2a5707f5263244c87f0ac1a9e69",
+    "accept": "0.6120379775762558",
+    "tv": "0.3879620224237442",
+    "e_k": [
+     "1.6115949116055928",
+     "2.0010065472315226",
+     "2.253507305326916",
+     "2.420103236607143",
+     "2.531497337704613",
+     "2.60698729015532",
+     "2.658770194886223",
+     "2.6947545248364646"
+    ],
+    "kmax": 8,
+    "positions": 20480,
+    "block_starts": 20160
+   },
+   {
+    "label": "tv3",
+    "objective": "tv",
+    "file": "/home/socol/oc-tmp/lanes/qreg/tv/tv3.json",
+    "exit": 0,
+    "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqas50",
+    "steps": 523,
+    "bits_before": 421541376,
+    "bits_after": 421541376,
+    "kl_heldout_before": "1.2056242614984511",
+    "kl_heldout_after": "0.9426416456699371",
+    "top1_heldout_after": "0.555908203125",
+    "grad_equiv_ok": true,
+    "pv_finish_sha256": "53b72973d81af77d6c3d49a4f33d1774f0c8a5bd414f1cf90096c4e196da82fa",
+    "fold_transfer_sha256": "5f9e16f6ddb167c14b21481d3a4caacc3514b2a5707f5263244c87f0ac1a9e69",
+    "accept": "0.612381500005722",
+    "tv": "0.387618499994278",
+    "e_k": [
+     "1.6119674500964938",
+     "2.0018297831217446",
+     "2.25472896515377",
+     "2.421645815410311",
+     "2.533286939348493",
+     "2.608963678753565",
+     "2.6608799525669644",
+     "2.6969491867792037"
+    ],
+    "kmax": 8,
+    "positions": 20480,
+    "block_starts": 20160
+   }
+  ],
+  "kl": [
+   {
+    "label": "s50",
+    "objective": "kl",
+    "file": "/home/socol/oc-tmp/lanes/qreg/spec/s50.json",
+    "exit": 0,
+    "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqas50",
+    "steps": 549,
+    "bits_before": 421541376,
+    "bits_after": 421541376,
+    "kl_heldout_before": "1.2056242614984511",
+    "kl_heldout_after": "0.8576398313045501",
+    "top1_heldout_after": "0.550244140625",
+    "grad_equiv_ok": true,
+    "pv_finish_sha256": "bca3a797218effe15d33b3a40478601bb4e124b927169fa2b95b4eaa0bb8fe24",
+    "fold_transfer_sha256": "5f9e16f6ddb167c14b21481d3a4caacc3514b2a5707f5263244c87f0ac1a9e69",
+    "accept": "0.5972044438123703",
+    "tv": "0.40279555618762974",
+    "e_k": [
+     "1.596744131663489",
+     "1.9682410588340153",
+     "2.2039344303191655",
+     "2.355967760842944",
+     "2.4552989051455545",
+     "2.5210789756169394",
+     "2.565160902719649",
+     "2.595089854891338"
+    ],
+    "kmax": 8,
+    "positions": 20480,
+    "block_starts": 20160
+   },
+   {
+    "label": "kl2",
+    "objective": "kl",
+    "file": "/home/socol/oc-tmp/lanes/qreg/tv/kl2.json",
+    "exit": 0,
+    "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqas50",
+    "steps": 557,
+    "bits_before": 421541376,
+    "bits_after": 421541376,
+    "kl_heldout_before": "1.2056242614984511",
+    "kl_heldout_after": "0.8524971395730973",
+    "top1_heldout_after": "0.553515625",
+    "grad_equiv_ok": true,
+    "pv_finish_sha256": "53b72973d81af77d6c3d49a4f33d1774f0c8a5bd414f1cf90096c4e196da82fa",
+    "fold_transfer_sha256": "5f9e16f6ddb167c14b21481d3a4caacc3514b2a5707f5263244c87f0ac1a9e69",
+    "accept": "0.5989544272422791",
+    "tv": "0.4010455727577209",
+    "e_k": [
+     "1.5985213870093935",
+     "1.972170209127759",
+     "2.2098879011850507",
+     "2.363633776467944",
+     "2.4643501160636783",
+     "2.5312149047851564",
+     "2.5761265830388145",
+     "2.6066885811941964"
+    ],
+    "kmax": 8,
+    "positions": 20480,
+    "block_starts": 20160
+   },
+   {
+    "label": "kl3",
+    "objective": "kl",
+    "file": "/home/socol/oc-tmp/lanes/qreg/tv/kl3.json",
+    "exit": 0,
+    "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqas50",
+    "steps": 554,
+    "bits_before": 421541376,
+    "bits_after": 421541376,
+    "kl_heldout_before": "1.2056242614984511",
+    "kl_heldout_after": "0.8549829244613647",
+    "top1_heldout_after": "0.5513671875",
+    "grad_equiv_ok": true,
+    "pv_finish_sha256": "53b72973d81af77d6c3d49a4f33d1774f0c8a5bd414f1cf90096c4e196da82fa",
+    "fold_transfer_sha256": "5f9e16f6ddb167c14b21481d3a4caacc3514b2a5707f5263244c87f0ac1a9e69",
+    "accept": "0.5978483438491822",
+    "tv": "0.4021516561508178",
+    "e_k": [
+     "1.5974025120810857",
+     "1.9696644858708456",
+     "2.2060816628592357",
+     "2.358719961983817",
+     "2.4585327996148005",
+     "2.524693661644345",
+     "2.5690685453869047",
+     "2.5992225889175655"
+    ],
+    "kmax": 8,
+    "positions": 20480,
+    "block_starts": 20160
+   }
+  ]
+ },
+ "summary": {
+  "tv": {
+   "accept": {
+    "mean": "0.6122078498204548",
+    "min": "0.6120379775762558",
+    "max": "0.612381500005722"
+   },
+   "kl_heldout_after": {
+    "mean": "0.9441181172927221",
+    "min": "0.9426416456699371",
+    "max": "0.9451511830091477"
+   },
+   "top1_heldout_after": {
+    "mean": "0.5553059895833333",
+    "min": "0.554443359375",
+    "max": "0.555908203125"
+   },
+   "e_k1": {
+    "mean": "1.611773794668692",
+    "min": "1.6115949116055928",
+    "max": "1.6119674500964938"
+   },
+   "e_k2": {
+    "mean": "2.00138104958509",
+    "min": "2.0010065472315226",
+    "max": "2.0018297831217446"
+   },
+   "e_k3": {
+    "mean": "2.2540397321105634",
+    "min": "2.253507305326916",
+    "max": "2.25472896515377"
+   },
+   "e_k4": {
+    "mean": "2.420746729613612",
+    "min": "2.420103236607143",
+    "max": "2.421645815410311"
+   },
+   "e_k5": {
+    "mean": "2.5322116871990223",
+    "min": "2.531497337704613",
+    "max": "2.533286939348493"
+   },
+   "e_k6": {
+    "mean": "2.607743653796968",
+    "min": "2.60698729015532",
+    "max": "2.608963678753565"
+   },
+   "e_k7": {
+    "mean": "2.6595446187983116",
+    "min": "2.658770194886223",
+    "max": "2.6608799525669644"
+   },
+   "e_k8": {
+    "mean": "2.6955244356993013",
+    "min": "2.6947545248364646",
+    "max": "2.6969491867792037"
+   }
+  },
+  "kl": {
+   "accept": {
+    "mean": "0.5980024049679439",
+    "min": "0.5972044438123703",
+    "max": "0.5989544272422791"
+   },
+   "kl_heldout_after": {
+    "mean": "0.8550399651130041",
+    "min": "0.8524971395730973",
+    "max": "0.8576398313045501"
+   },
+   "top1_heldout_after": {
+    "mean": "0.551708984375",
+    "min": "0.550244140625",
+    "max": "0.553515625"
+   },
+   "e_k1": {
+    "mean": "1.5975560102513227",
+    "min": "1.596744131663489",
+    "max": "1.5985213870093935"
+   },
+   "e_k2": {
+    "mean": "1.97002525127754",
+    "min": "1.9682410588340153",
+    "max": "1.972170209127759"
+   },
+   "e_k3": {
+    "mean": "2.2066346647878174",
+    "min": "2.2039344303191655",
+    "max": "2.2098879011850507"
+   },
+   "e_k4": {
+    "mean": "2.3594404997649017",
+    "min": "2.355967760842944",
+    "max": "2.363633776467944"
+   },
+   "e_k5": {
+    "mean": "2.4593939402746776",
+    "min": "2.4552989051455545",
+    "max": "2.4643501160636783"
+   },
+   "e_k6": {
+    "mean": "2.5256625140154805",
+    "min": "2.5210789756169394",
+    "max": "2.5312149047851564"
+   },
+   "e_k7": {
+    "mean": "2.570118677048456",
+    "min": "2.565160902719649",
+    "max": "2.5761265830388145"
+   },
+   "e_k8": {
+    "mean": "2.6003336750010333",
+    "min": "2.595089854891338",
+    "max": "2.6066885811941964"
+   }
+  }
+ },
+ "controls": {
+  "grad_equiv": "fused TVHead backward against autograd of the checkpointed TV loss, every run",
+  "mutation": "adjoint without the -<s,q> centring (sg instead of sg - (sg*qs).sum): grad_equiv AssertionError, requested grad rel L2 5.453 (cos 0.5410) against noise floor 6.06e-03, exit 1; log /home/socol/oc-tmp/lanes/qreg/tv/mut.log"
+ },
+ "reference": {
+  "speculative": "Leviathan, Kalman and Matias 2022, arXiv 2211.17192, Thm. 3.5 (acceptance = 1 - TV)",
+  "distillspec": "Zhou et al., DistillSpec, ICLR 2024, arXiv 2310.08461: acceptance = 1 - D_TVD (eq. 3); direct TVD 'does not yield the best performance in most of the settings explored'"
+ },
+ "verify": {
+  "command": "llama.cpp build/bin/llama-bench -m /home/socol/models/gguf/q3-8b/Qwen3-8B-Q4_K_M.gguf -ngl 0 -r 5 -o json; run 1: -p 1,7 -n 16 -t 8,16,24; run 2: -p 1,2,3,4,5,6,7,8 -n 0 -t 24; systemd-run MemoryMax=12G, timeout 280",
+  "llama_cpp": {
+   "path": "/home/socol/Workspace/llama.cpp",
+   "build_commit": "60bc8866b",
+   "build_number": 9796
+  },
+  "model": {
+   "path": "/home/socol/models/gguf/q3-8b/Qwen3-8B-Q4_K_M.gguf",
+   "bytes": 5021827072,
+   "params": 8190735360
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "run1": [
+   {
+    "threads": 8,
+    "n_prompt": 1,
+    "n_gen": 0,
+    "mean_ms": "72.43816740000001",
+    "samples_ms": [
+     "76.207553",
+     "71.071577",
+     "71.850914",
+     "73.300525",
+     "69.760268"
+    ]
+   },
+   {
+    "threads": 8,
+    "n_prompt": 7,
+    "n_gen": 0,
+    "mean_ms": "172.5335224",
+    "samples_ms": [
+     "179.216683",
+     "178.20658",
+     "164.113207",
+     "169.261806",
+     "171.869336"
+    ]
+   },
+   {
+    "threads": 8,
+    "n_prompt": 0,
+    "n_gen": 16,
+    "mean_ms": "1191.0007736",
+    "samples_ms": [
+     "1192.327068",
+     "1198.821311",
+     "1208.440168",
+     "1175.895734",
+     "1179.519587"
+    ]
+   },
+   {
+    "threads": 16,
+    "n_prompt": 1,
+    "n_gen": 0,
+    "mean_ms": "67.112483",
+    "samples_ms": [
+     "67.814805",
+     "65.320858",
+     "70.079873",
+     "66.306247",
+     "66.040632"
+    ]
+   },
+   {
+    "threads": 16,
+    "n_prompt": 7,
+    "n_gen": 0,
+    "mean_ms": "138.39922280000002",
+    "samples_ms": [
+     "140.050134",
+     "137.765813",
+     "140.275398",
+     "137.890366",
+     "136.014403"
+    ]
+   },
+   {
+    "threads": 16,
+    "n_prompt": 0,
+    "n_gen": 16,
+    "mean_ms": "1066.9366656",
+    "samples_ms": [
+     "1062.002693",
+     "1063.147104",
+     "1081.832077",
+     "1068.456307",
+     "1059.245147"
+    ]
+   },
+   {
+    "threads": 24,
+    "n_prompt": 1,
+    "n_gen": 0,
+    "mean_ms": "67.12123220000001",
+    "samples_ms": [
+     "66.767203",
+     "66.14035",
+     "66.981716",
+     "67.375009",
+     "68.341883"
+    ]
+   },
+   {
+    "threads": 24,
+    "n_prompt": 7,
+    "n_gen": 0,
+    "mean_ms": "117.9416614",
+    "samples_ms": [
+     "114.088071",
+     "116.957211",
+     "115.622003",
+     "124.039371",
+     "119.001651"
+    ]
+   },
+   {
+    "threads": 24,
+    "n_prompt": 0,
+    "n_gen": 16,
+    "mean_ms": "1117.6470288",
+    "samples_ms": [
+     "1119.692713",
+     "1120.784968",
+     "1117.556299",
+     "1113.877222",
+     "1116.323942"
+    ]
+   }
+  ],
+  "curve": [
+   {
+    "threads": 24,
+    "n_prompt": 1,
+    "n_gen": 0,
+    "mean_ms": "67.8398186",
+    "samples_ms": [
+     "67.763401",
+     "68.0438",
+     "67.739738",
+     "67.818778",
+     "67.833376"
+    ]
+   },
+   {
+    "threads": 24,
+    "n_prompt": 2,
+    "n_gen": 0,
+    "mean_ms": "73.4180768",
+    "samples_ms": [
+     "73.460527",
+     "74.229899",
+     "72.873952",
+     "72.549619",
+     "73.976387"
+    ]
+   },
+   {
+    "threads": 24,
+    "n_prompt": 3,
+    "n_gen": 0,
+    "mean_ms": "83.8388642",
+    "samples_ms": [
+     "85.37644",
+     "83.747146",
+     "82.648143",
+     "83.940621",
+     "83.481971"
+    ]
+   },
+   {
+    "threads": 24,
+    "n_prompt": 4,
+    "n_gen": 0,
+    "mean_ms": "86.32452959999999",
+    "samples_ms": [
+     "85.524809",
+     "88.596176",
+     "85.281477",
+     "87.222814",
+     "84.997372"
+    ]
+   },
+   {
+    "threads": 24,
+    "n_prompt": 5,
+    "n_gen": 0,
+    "mean_ms": "95.8219398",
+    "samples_ms": [
+     "94.515199",
+     "96.425913",
+     "99.438517",
+     "94.439675",
+     "94.290395"
+    ]
+   },
+   {
+    "threads": 24,
+    "n_prompt": 6,
+    "n_gen": 0,
+    "mean_ms": "105.83316740000001",
+    "samples_ms": [
+     "105.385762",
+     "107.212323",
+     "106.746017",
+     "104.285604",
+     "105.536131"
+    ]
+   },
+   {
+    "threads": 24,
+    "n_prompt": 7,
+    "n_gen": 0,
+    "mean_ms": "121.789729",
+    "samples_ms": [
+     "122.43625",
+     "118.877023",
+     "119.038008",
+     "120.035157",
+     "128.562207"
+    ]
+   },
+   {
+    "threads": 24,
+    "n_prompt": 8,
+    "n_gen": 0,
+    "mean_ms": "125.4045138",
+    "samples_ms": [
+     "123.852192",
+     "121.94718",
+     "125.193571",
+     "132.523765",
+     "123.505861"
+    ]
+   }
+  ],
+  "note": "a pass of m tokens (n_prompt = m, n_gen = 0) is the verifier's cost for a draft of k = m - 1; the ratio t(m)/t(1) is read on Qwen3-8B and carried to the 27B verifier as a model (both linear in parameters)"
+ },
+ "predictions": [
+  {
+   "id": "spec-tv-1",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "spec-tv-mut-1",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "spec-tv-rep-1",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "spec-verify-1",
+   "verdict": "refuted",
+   "note": "t7/t1 1.76 at best (24 threads), predicted <= 1.6"
+  },
+  {
+   "id": "spec-verify-2",
+   "verdict": "refuted",
+   "note": "curve within 0.109 of linear and optimal k = 3 hold; E_3/c(4) 1.771 above the [1.45, 1.75] band"
+  }
+ ]
+}

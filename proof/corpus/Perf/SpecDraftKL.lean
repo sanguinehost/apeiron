@@ -1,6 +1,7 @@
 import Perf.Pinsker
 import Perf.Receipts.Onebit
 import Nous.Model.SpeculativeAccept
+import Mathlib.Analysis.SpecialFunctions.ExpDeriv
 
 /-!
 # Speculative-decoding acceptance from the draft's KL
@@ -161,8 +162,8 @@ theorem blockLen_witness : blockLen (1 / 2) 2 = 7 / 4 := by
 /-! ## Receipt instances: the finished arm as a draft (`qreg-spec.json`)
 
 Acceptance, block lengths and bandwidths are `measured` (`docs/evidence/receipts/onebit/qreg-spec.json`); the
-arithmetic is `proved`. The 27B step times are a `model`: a verifier pass reads its weights once from host DRAM
-(bandwidth-bound), the 27B Q4_K_M verifier carries the 0.5B receipt's `q4kmBpw` (5.52 bits per weight), the draft is
+arithmetic is `proved`. The 27B step times are a `model`: the 27B Q4_K_M verifier carries the 0.5B receipt's `q4kmBpw`
+(5.52 bits per weight) and the measured 8B CPU pass time per weight byte (`tPass27`, `qreg-spectv.json`), the draft is
 `qwen27b_target_floor`'s 3.9825 GB read at the measured device bandwidth, and the 0.5B pair's acceptance stands for the
 27B pair. -/
 
@@ -184,23 +185,108 @@ theorem spec_runs_cluster :
   constructor <;> norm_num [blockLen, sum_range_succ, Receipts.qreg_spec.accept, Receipts.qreg_spec.eK4,
     Receipts.qreg_spec.eK8]
 
-/-- `model`: one 27B Q4_K_M verifier pass read from host DRAM, seconds. -/
-noncomputable def tVerify27 : ℝ :=
-  27 * 10 ^ 9 * (Receipts.w18_size05.q4kmBpw : ℝ) / 8 / ((Receipts.qreg_spec.hostReadGBs : ℝ) * 10 ^ 9)
-
 /-- `model`: one 27B draft step at 1.18 bits per weight (3.9825 GB, `qwen27b_target_floor`) read from VRAM, seconds. -/
 noncomputable def tDraft27 : ℝ := 3982500000 / ((Receipts.qreg_spec.deviceReadGBs : ℝ) * 10 ^ 9)
 
-/-- **27B at 4 GB VRAM, output exact to the Q4_K_M verifier.** The verifier alone decodes below 5 tokens per second;
-with the 1.18-bit draft at `k = 6` and the measured block length the pair emits above 10, more than twice the verifier
-alone; streaming the verifier over this box's PCIe link instead takes above a second per pass. -/
-theorem spec27b_host :
-    1 / tVerify27 < 5 ∧ tDraft27 < 5 / 1000 ∧
-    10 < (Receipts.qreg_spec.eK6 : ℝ) / (tVerify27 + 6 * tDraft27) ∧
-    2 / tVerify27 < (Receipts.qreg_spec.eK6 : ℝ) / (tVerify27 + 6 * tDraft27) ∧
+/-! ## Training the acceptance directly: the TV objective's logit adjoint
+
+`TVHead` in `tools/onebit/pv_finish.py` (`--objective tv`) minimises `∑_t TV(p_t, q_t) = ∑_t (1 - accept_t)` with
+`q = softmax z`. Away from ties `q x = p x`, `TV = (1/2) ∑ s x (q x - p x)` with `s = sign (q - p)` locally constant, so
+its derivative along the logit `z y` is half the derivative of the `q`-weighted mean `∑ s x q x`. That derivative is
+`q y (s y - ∑ s x q x)` (the softmax Jacobian applied to `s`), which `TVHead` forms in its forward pass. -/
+
+/-- **Softmax adjoint.** Along logit `y`, `t ↦ ∑ s x softmax(z + t e_y) x` has derivative `q y (s y - ⟨s, q⟩)` at `0`,
+`q = softmax z`. -/
+theorem softmax_adjoint (z s : Fin n → ℝ) (y : Fin n) :
+    HasDerivAt (fun t : ℝ => (∑ x, s x * Real.exp (z x + t * (if x = y then 1 else 0))) /
+        ∑ x, Real.exp (z x + t * (if x = y then 1 else 0)))
+      (Real.exp (z y) / (∑ x, Real.exp (z x)) *
+        (s y - (∑ x, s x * Real.exp (z x)) / ∑ x, Real.exp (z x))) 0 := by
+  have hD : 0 < ∑ x, Real.exp (z x) := sum_pos (fun _ _ => Real.exp_pos _) ⟨y, mem_univ y⟩
+  have hd : ∀ x, HasDerivAt (fun t : ℝ => Real.exp (z x + t * (if x = y then 1 else 0)))
+      (Real.exp (z x + 0 * (if x = y then 1 else 0)) * (1 * (if x = y then 1 else 0))) 0 :=
+    fun x => (((hasDerivAt_id (0 : ℝ)).mul_const _).const_add (z x)).exp
+  have hN := HasDerivAt.fun_sum (u := univ) (fun x _ => (hd x).const_mul (s x))
+  have hDd := HasDerivAt.fun_sum (u := univ) (fun x _ => hd x)
+  refine (hN.div hDd (by simpa using hD.ne')).congr_deriv ?_
+  have hD0 := hD.ne'
+  simp only [mul_ite, mul_one, mul_zero, ite_self, add_zero, sum_ite_eq', mem_univ, if_true]
+  field_simp
+
+/-! ## Receipt instances: TV-finished against KL-finished (`qreg-spectv.json`)
+
+Three runs per objective at equal wall (`timeout 580`); the KL arm's first run is the `qreg-spec` run. `measured`
+values, `proved` comparisons. -/
+
+open Receipts.qreg_spectv in
+/-- **Training the acceptance raises it.** Every TV-finished run accepts above `153/250` (0.612), every KL-finished run
+below `599/1000`; the mean gain exceeds `7/500` while each arm's run range stays under `1/500`. -/
+theorem spectv_accept :
+    (153 / 250 : ℚ) < tvAccept1 ∧ (153 / 250 : ℚ) < tvAccept2 ∧ (153 / 250 : ℚ) < tvAccept3 ∧
+    klAccept1 < 599 / 1000 ∧ klAccept2 < 599 / 1000 ∧ klAccept3 < 599 / 1000 ∧
+    (7 / 500 : ℚ) < (tvAccept1 + tvAccept2 + tvAccept3) / 3 - (klAccept1 + klAccept2 + klAccept3) / 3 ∧
+    max tvAccept1 (max tvAccept2 tvAccept3) - min tvAccept1 (min tvAccept2 tvAccept3) < 1 / 2500 ∧
+    max klAccept1 (max klAccept2 klAccept3) - min klAccept1 (min klAccept2 klAccept3) < 1 / 500 := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [tvAccept1, tvAccept2, tvAccept3, klAccept1, klAccept2, klAccept3]
+
+open Receipts.qreg_spectv in
+/-- **The outcomes move with acceptance, the KL does not.** Every TV run's top-1 is above every KL run's (`0.554`
+separates them) while its held-out KL is above `47/50` against below `43/50`: KL is not the outcome here. -/
+theorem spectv_top1_kl :
+    (277 / 500 : ℚ) < tvTop11 ∧ (277 / 500 : ℚ) < tvTop12 ∧ (277 / 500 : ℚ) < tvTop13 ∧
+    klTop11 < 277 / 500 ∧ klTop12 < 277 / 500 ∧ klTop13 < 277 / 500 ∧
+    (47 / 50 : ℚ) < tvKl1 ∧ (47 / 50 : ℚ) < tvKl2 ∧ (47 / 50 : ℚ) < tvKl3 ∧
+    klKl1 < 43 / 50 ∧ klKl2 < 43 / 50 ∧ klKl3 < 43 / 50 := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [tvTop11, tvTop12, tvTop13, klTop11, klTop12, klTop13, tvKl1, tvKl2, tvKl3, klKl1, klKl2, klKl3]
+
+/-- `model`: one 27B Q4_K_M verifier pass over `m` tokens on this CPU, seconds: the measured Qwen3-8B Q4_K_M pass of
+`m` tokens (`verifyMs<m>`, llama.cpp, 24 threads) scaled by weight bytes (27B at `q4kmBpw` against the 8B GGUF). A
+pass of `m` tokens is not one weight read: `t 7 / t 1 = 1.80`. -/
+noncomputable def tPass27 (ms : ℚ) : ℝ :=
+  27 * 10 ^ 9 * (Receipts.w18_size05.q4kmBpw : ℝ) / 8 * ((ms : ℝ) / 1000) /
+    (Receipts.qreg_spectv.verifyModelBytes : ℝ)
+
+open Receipts.qreg_spectv in
+/-- **The CPU verify is not one weight read.** A pass of 7 tokens costs above `7/4` of a pass of one, and the cost
+rises monotonically in `m`, so the draft length that maximises `E_k / t(k+1)` is not the longest. -/
+theorem verify_curve :
+    (7 / 4 : ℚ) * verifyMs1 < verifyMs7 ∧ verifyMs1 < verifyMs2 ∧ verifyMs2 < verifyMs3 ∧ verifyMs3 < verifyMs4 ∧
+    verifyMs4 < verifyMs5 ∧ verifyMs5 < verifyMs6 ∧ verifyMs6 < verifyMs7 ∧ verifyMs7 < verifyMs8 := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [verifyMs1, verifyMs2, verifyMs3, verifyMs4, verifyMs5, verifyMs6, verifyMs7, verifyMs8]
+
+open Receipts.qreg_spectv in
+/-- **Draft length 3 is best on this CPU.** With the TV draft's mean block lengths, `E_k / (t(k+1) / t(1))` at
+`k = 3` exceeds every other `k = 1..7` and exceeds `7/4`. -/
+theorem verify_best_k :
+    (7 / 4 : ℚ) < tvEK3Mean / (verifyMs4 / verifyMs1) ∧
+    tvEK1Mean / (verifyMs2 / verifyMs1) < tvEK3Mean / (verifyMs4 / verifyMs1) ∧
+    tvEK2Mean / (verifyMs3 / verifyMs1) < tvEK3Mean / (verifyMs4 / verifyMs1) ∧
+    tvEK4Mean / (verifyMs5 / verifyMs1) < tvEK3Mean / (verifyMs4 / verifyMs1) ∧
+    tvEK5Mean / (verifyMs6 / verifyMs1) < tvEK3Mean / (verifyMs4 / verifyMs1) ∧
+    tvEK6Mean / (verifyMs7 / verifyMs1) < tvEK3Mean / (verifyMs4 / verifyMs1) ∧
+    tvEK7Mean / (verifyMs8 / verifyMs1) < tvEK3Mean / (verifyMs4 / verifyMs1) := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [verifyMs1, verifyMs2, verifyMs3, verifyMs4, verifyMs5, verifyMs6, verifyMs7, verifyMs8,
+      tvEK1Mean, tvEK2Mean, tvEK3Mean, tvEK4Mean, tvEK5Mean, tvEK6Mean, tvEK7Mean]
+
+/-- **27B at 4 GB VRAM, output exact to the Q4_K_M verifier.** The verifier alone on this CPU decodes below 4 tokens
+per second; with the TV-finished 1.18-bit draft at `k = 3` the pair emits above `13/2`, more than `33/20` of the
+verifier alone. At `k = 6` the measured verify cost holds the pair below 6: the 1-token-verify step model that gave
+above 10 is refuted by `verify_curve`. Streaming the verifier over this box's PCIe link takes above a second per pass. -/
+theorem spec27b_cpu :
+    1 / tPass27 Receipts.qreg_spectv.verifyMs1 < 4 ∧ tDraft27 < 5 / 1000 ∧
+    13 / 2 < (Receipts.qreg_spectv.tvEK3Mean : ℝ) / (tPass27 Receipts.qreg_spectv.verifyMs4 + 3 * tDraft27) ∧
+    33 / 20 / tPass27 Receipts.qreg_spectv.verifyMs1 <
+      (Receipts.qreg_spectv.tvEK3Mean : ℝ) / (tPass27 Receipts.qreg_spectv.verifyMs4 + 3 * tDraft27) ∧
+    (Receipts.qreg_spectv.tvEK6Mean : ℝ) / (tPass27 Receipts.qreg_spectv.verifyMs7 + 6 * tDraft27) < 6 ∧
     1 < 27 * 10 ^ 9 * (Receipts.w18_size05.q4kmBpw : ℝ) / 8 / ((Receipts.qreg_spec.h2dGBs : ℝ) * 10 ^ 9) := by
-  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;>
-    norm_num [tVerify27, tDraft27, Receipts.qreg_spec.eK6, Receipts.qreg_spec.hostReadGBs,
-      Receipts.qreg_spec.deviceReadGBs, Receipts.qreg_spec.h2dGBs, Receipts.w18_size05.q4kmBpw]
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [tPass27, tDraft27, Receipts.qreg_spectv.verifyMs1, Receipts.qreg_spectv.verifyMs4,
+      Receipts.qreg_spectv.verifyMs7, Receipts.qreg_spectv.verifyModelBytes, Receipts.qreg_spectv.tvEK3Mean,
+      Receipts.qreg_spectv.tvEK6Mean, Receipts.qreg_spec.deviceReadGBs, Receipts.qreg_spec.h2dGBs,
+      Receipts.w18_size05.q4kmBpw]
 
 end Perf.SpecDraftKL

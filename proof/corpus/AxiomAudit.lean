@@ -1236,7 +1236,12 @@ import Perf.SpecDraftKL
 #audit Perf.SpecDraftKL.blockLen_witness
 #audit Perf.SpecDraftKL.spec_accept_measured
 #audit Perf.SpecDraftKL.spec_runs_cluster
-#audit Perf.SpecDraftKL.spec27b_host
+#audit Perf.SpecDraftKL.softmax_adjoint
+#audit Perf.SpecDraftKL.spectv_accept
+#audit Perf.SpecDraftKL.spectv_top1_kl
+#audit Perf.SpecDraftKL.verify_curve
+#audit Perf.SpecDraftKL.verify_best_k
+#audit Perf.SpecDraftKL.spec27b_cpu
 #audit apeiron_word.RegisterRefinement.checked_mul_spec
 #audit apeiron_word.RegisterRefinement.checked_mul_none
 #audit apeiron_word.RegisterRefinement.checked_mul_none_of_a

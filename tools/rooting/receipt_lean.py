@@ -100,6 +100,7 @@ W15 = {
     "qreg_yaqash": "docs/evidence/receipts/onebit/qreg-yaqash.json",
     "qreg_yaqalw": "docs/evidence/receipts/onebit/qreg-yaqalw.json",
     "qreg_spec": "docs/evidence/receipts/onebit/qreg-spec.json",
+    "qreg_spectv": "docs/evidence/receipts/onebit/qreg-spectv.json",
 }
 
 # End-loss-weighted Gram receipts (fold_transfer "-guided[a|b]NN"): namespace -> variant prefixes (see guided_prefix).
@@ -962,6 +963,31 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
             out.append(("rat", f"eK{k}", rat(v)))
         for name, k in [("hostReadGBs", "host_read"), ("h2dGBs", "h2d_pinned"), ("deviceReadGBs", "device_read")]:
             out.append(("rat", name, rat(data["bandwidth"][k]["mean"])))
+    elif ns == "qreg_spectv":
+        # TV-finished against KL-finished arms (pv_finish.py --objective tv|kl), three runs each: per arm `<tv|kl>`
+        # the run values `...Accept<i>`, `...Kl<i>`, `...Top1<i>`, `...Steps<i>` (i = 1..3) and `...EK<k>Mean` (k = 1..8).
+        for arm in ("tv", "kl"):
+            rs = data["runs"][arm]
+            if len(rs) != 3 or any(r["exit"] != 0 or not r["grad_equiv_ok"] or r["objective"] != arm or r["kmax"] != 8
+                                   or r["bits_before"] != r["bits_after"] for r in rs):
+                raise Fail(f"{rel}: arm {arm} is not three exit-0, grad_equiv-ok, bits-unchanged runs of its objective")
+            for i, r in enumerate(rs, 1):
+                if not 0 <= rat(r["accept"]) <= 1 or abs(rat(r["accept"]) + rat(r["tv"]) - 1) > Fraction(1, 10 ** 12):
+                    raise Fail(f"{rel}: {arm} run {i}: accept is not in [0, 1] or accept + tv is not 1 within 1e-12")
+                out.append(("rat", f"{arm}Accept{i}", rat(r["accept"])))
+                out.append(("rat", f"{arm}Kl{i}", rat(r["kl_heldout_after"])))
+                out.append(("rat", f"{arm}Top1{i}", rat(r["top1_heldout_after"])))
+                out.append(("nat", f"{arm}Steps{i}", nat(r["steps"])))
+            for k in range(8):
+                out.append(("rat", f"{arm}EK{k + 1}Mean", sum(rat(r["e_k"][k]) for r in rs) / 3))
+        # CPU verifier pass of m = 1..8 tokens (Qwen3-8B Q4_K_M, -ngl 0, 24 threads): `verifyMs<m>` mean ms and the
+        # model's GGUF size `verifyModelBytes`.
+        v = data["verify"]
+        if v["exit"] != [0, 0] or [c["n_prompt"] for c in v["curve"]] != list(range(1, 9)) or {c["threads"] for c in v["curve"]} != {24}:
+            raise Fail(f"{rel}: verify curve is not exit-0 passes of m = 1..8 tokens at 24 threads")
+        for c in v["curve"]:
+            out.append(("rat", f"verifyMs{c['n_prompt']}", rat(c["mean_ms"])))
+        out.append(("nat", "verifyModelBytes", nat(v["model"]["bytes"])))
     elif ns in ("qreg_attrib", "qreg_iso"):
         # Teacher-restore attribution of the held-out KL (pv_finish.py --attrib 8), before and after finishing in one run:
         # per phase `<before|after><Field>`, the 24 per-layer restore KLs `...LayerKl<l>` and the 7 per-kind `...Kind<K>Kl`.

@@ -1037,7 +1037,7 @@ Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 Not covered here: the bound is from the token-level KL(teacher‖draft); the measured `1 − TV` of the finished arm is
 in the next section. The seed generator that regenerates a trained tensor is not built.
 
-## Measured speculative acceptance of the finished arm, and the 27B host-verifier model (`measured`, `proved`, `model`)
+## Measured speculative acceptance of the finished arm (`measured`, `proved`)
 
 Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`. Receipt
 `docs/evidence/receipts/onebit/qreg-spec.json` (ledger `onebit-receipt-qreg-spec`); Lean `Perf/SpecDraftKL.lean`
@@ -1060,7 +1060,7 @@ not 1): `AssertionError (0.5, 0.571)`, exit 1.
 | pinned host-to-device (RTX 5080) | 12.80 GB/s (12.78–12.83) |
 | device read | 865.20 GB/s (832.14–906.40) |
 
-- `spec_accept_measured`: acceptance in `(0.59, 0.60)`; the Pinsker floor from the same KL is below `0.35`. The
+- `spec_accept_measured`: acceptance in `(0.59, 0.60)`; the Pinsker bound (`accept_ge`, `proved`) from the same KL is below `0.35`. The
   measured rate is 1.7× the guarantee.
 - `spec_runs_cluster`: the teacher-forced `E_4`, `E_8` exceed the geometric `blockLen a k` at the mean acceptance.
   Rejections bunch on hard tokens, so the iid formula undercounts the block.
@@ -1068,20 +1068,63 @@ not 1): `AssertionError (0.5, 0.571)`, exit 1.
   block-length algebra the instrument computes.
 - `spec_faster`: with a verifier pass that costs `tV` for one position or `k + 1`, speculation beats the verifier alone
   exactly when `k·tD < (E − 1)·tV`.
-- `spec27b_host` (`model` step times, `proved` arithmetic): a 27B Q4_K_M verifier in host DRAM (`q4kmBpw` 5.52 b/w,
-  18.6 GB at 86.82 GB/s, `tV` 0.215 s) decodes below 5 tokens/s alone. The 1.18 b/w draft in VRAM (3.9825 GB at
-  865.2 GB/s, `tD` < 5 ms) at `k = 6` with the measured `E_6` gives above 10 tokens/s, over 2× the verifier alone.
-  The output equals the verifier's distribution (`Nous.Model.specStep_eq_target`), and VRAM holds only the draft.
-  Streaming the verifier over this PCIe link instead takes above 1 s per pass.
-- One draft step is 2% of a verifier pass (six are 13%), so the speed-up is set by `E_k`, that is
-  by acceptance. At the Q4_K_M floor (`q4km_accept`, `a > 0.9`) the geometric `E_8` is above 6.1.
+- The 27B tokens/s figure is in the next section (`spec27b_cpu`). The step-time model first committed here charged a
+  7-token verify as one weight read and gave above 10 tokens/s; the CPU verify curve below refutes that premise.
+- At the Q4_K_M acceptance (`q4km_accept`, `proved`: `a > 0.9`) the geometric `E_8` is above 6.1.
 
-Model assumptions behind `spec27b_host`, each an open measurement:
-- the CPU verifier is bandwidth-bound at `k + 1 = 7` positions (no batched llama.cpp verify of a 27B on this host has
-  been timed);
-- the 27B Q4_K_M rate is taken as the 0.5B receipt's 5.52 b/w;
-- the 0.5B pair's acceptance stands for the 27B pair's;
-- `E_k` is teacher-forced, not sampled from the draft.
+## Training the acceptance: the TV finishing objective, and the measured CPU verify cost (`measured`, `proved`, `model`)
+
+Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`. Receipt
+`docs/evidence/receipts/onebit/qreg-spectv.json` (ledger `onebit-receipt-qreg-spectv`); Lean `Perf/SpecDraftKL.lean`
+§ "Training the acceptance directly" and § "Receipt instances: TV-finished against KL-finished"; constants
+`Receipts.qreg_spectv`.
+
+Acceptance is `1 − TV` (Leviathan, Kalman and Matias, arXiv 2211.17192, Thm. 3.5), so `pv_finish.py --objective tv`
+finishes the arm on `½ ∑ |q − p|` per position instead of KL. `TVHead` forms the logit adjoint
+`½ q_y (s_y − ⟨s, q⟩)`, `s = sign(q − p)`; `softmax_adjoint` proves the softmax-Jacobian step. Control: the fused
+backward against autograd of the checkpointed TV loss in every run (`grad_equiv`); mutation (adjoint without the
+`−⟨s, q⟩` centring) gives requested-gradient rel L2 5.453 against a noise floor of 6.06e-3, `AssertionError`, exit 1.
+DistillSpec (Zhou et al., ICLR 2024, arXiv 2310.08461) reports direct TVD "does not yield the best performance in most
+of the settings explored"; on this arm it does.
+
+| arm `-yaqas50`, 1.178 b/w, 580 s, 3 runs each | KL-finished (s50, kl2, kl3) | TV-finished (tv1–3) |
+|---|---|---|
+| mean `1 − TV`, 20480 held-out positions | 0.59800 (range 0.00175) | **0.61221** (range 0.00034) |
+| teacher-forced `E_3` / `E_6` | 2.207 / 2.526 | 2.254 / 2.608 |
+| held-out top-1 | 0.5517 | 0.5553 |
+| held-out KL | 0.855 | 0.944 |
+| steps | 549, 557, 554 | 520, 522, 523 |
+
+- `spectv_accept`: every TV run above 0.612, every KL run below 0.599; the mean gain exceeds 0.014 while each arm's
+  range stays under 0.002.
+- `spectv_top1_kl`: every TV run's top-1 is above every KL run's while its held-out KL is above 0.94 against below
+  0.86. KL does not track the outcome here.
+
+CPU verify cost (llama.cpp `60bc8866b`, Qwen3-8B Q4_K_M 5.02 GB, `-ngl 0`, 24 threads, 5 reps; a pass of `m` tokens is
+the verifier's cost for a draft of `k = m − 1`):
+
+| m | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| ms | 67.8 | 73.4 | 83.8 | 86.3 | 95.8 | 105.8 | 121.8 | 125.4 |
+| `t(m)/t(1)` | 1.00 | 1.08 | 1.24 | 1.27 | 1.41 | 1.56 | 1.80 | 1.85 |
+
+At 8 and 16 threads a 7-token pass is 2.38× and 2.06× one token; one token at 16 threads is 66.7 ms (15.0 tokens/s),
+0.87 of the 57.9 ms DRAM-read bound.
+
+- `verify_curve`: `t(7) > 7/4·t(1)` and `t` rises in `m`. The verify is not one weight read on this CPU.
+- `verify_best_k`: with the TV draft, `E_k / (t(k+1)/t(1))` is largest at `k = 3` (1.77), above every other `k = 1..7`.
+- `spec27b_cpu` (`model` step times, `proved` arithmetic): the 27B Q4_K_M verifier (`q4kmBpw` 5.52 b/w, 18.6 GB,
+  pass time scaled per weight byte from the 8B curve) decodes below 4 tokens/s alone; with the TV-finished 1.18 b/w
+  draft in VRAM at `k = 3` the pair emits above 6.5 tokens/s, over 1.65× the verifier alone, output exact to the
+  verifier (`Nous.Model.specStep_eq_target`). At `k = 6` it is below 6.
+
+The verify cost is a kernel property, not a model one: llama.cpp's CPU Q4_K path at `m = 7` runs above the DRAM-read
+time. A weight-stationary multi-column kernel that reads each block once for all `m` columns moves `t(m)/t(1)` toward 1
+and the best `k` toward the longest block.
+
+Model assumptions behind `spec27b_cpu`, each an open measurement: the 27B Q4_K_M rate is the 0.5B receipt's 5.52 b/w;
+the 8B curve's per-byte cost carries to 27B; the 0.5B pair's acceptance stands for the 27B pair's; `E_k` is
+teacher-forced, not sampled from the draft.
 
 ## Argon review outcomes (checked against source)
 
