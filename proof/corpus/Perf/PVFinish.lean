@@ -193,4 +193,49 @@ theorem pvste_flips_wholesale :
     norm_num [w18_pvste05.lrCode, w18_pvste05.codeBlocks, w18_pvste05.codeChangedTotal,
       w18_pvste05.codeChangedFirstWindow, w18_pvste05.trainLossStep1, w18_pvste05.trainLossStep25]
 
+/-- The pre-image run is the same arm on the same protocol, and its latent initialisation reproduces the stored code on
+every block at step 0. -/
+theorem pvpre_same_arm :
+    w18_pvpre05.arm = w18_pv05.arm ∧ w18_pvpre05.klHeldoutBefore = w18_pv05.klHeldoutBefore ∧
+    w18_pvpre05.bitsAfter = w18_pv05.bitsBefore ∧ w18_pvpre05.step0ProjectionMismatch = 0 ∧
+    w18_pvpre05.beforeMatchesReference = true ∧ w18_pvpre05.bitsEqual = true ∧
+    w18_pvpre05.codebookExact = true ∧ w18_pvpre05.dataDisjoint = true := by
+  refine ⟨rfl, ?_, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  norm_num [w18_pvpre05.klHeldoutBefore, w18_pv05.klHeldoutBefore]
+
+/-- **Prediction `pvpre05-1` refuted.** It predicted held-out KL in `[0.78, 0.88]`, falsified at or above the best
+scales-only run. Held-out KL after finishing lies above the three scales-only runs' mean by more than three times their
+spread. -/
+theorem pvpre_refuted :
+    w18_pvobs05.klHeldoutAfter ≤ w18_pvpre05.klHeldoutAfter ∧
+    (w18_pv05.klHeldoutAfter + w18_pvobs05.klHeldoutAfter + w18_pvlam05.klHeldoutAfter) / 3 +
+      3 * (w18_pv05.klHeldoutAfter - w18_pvobs05.klHeldoutAfter) < w18_pvpre05.klHeldoutAfter ∧
+    w18_pvpre05.klHeldoutAfter < w18_pvpre05.klHeldoutBefore := by
+  refine ⟨?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvpre05.klHeldoutAfter, w18_pvpre05.klHeldoutBefore, w18_pv05.klHeldoutAfter,
+      w18_pvobs05.klHeldoutAfter, w18_pvlam05.klHeldoutAfter]
+
+/-- **Sparse, gradient-ordered flips still cost.** Fewer than one block in 5000 changed index, and fewer than half of
+those moved to the pre-image's nearest codeword; the pre-image's nearest codeword is the stored index on under two
+blocks in five. -/
+theorem pvpre_flips_sparse :
+    5000 * w18_pvpre05.codeChangedTotal < w18_pvpre05.codeBlocks ∧
+    2 * w18_pvpre05.flipsTowardPreimage < w18_pvpre05.codeChangedTotal ∧
+    w18_pvpre05.preimageNearestIsIdx < 2 / 5 := by
+  refine ⟨?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvpre05.codeChangedTotal, w18_pvpre05.codeBlocks, w18_pvpre05.flipsTowardPreimage,
+      w18_pvpre05.preimageNearestIsIdx]
+
+/-- **No code move has beaten the scales (five runs).** The best held-out KL after finishing is a run that moved no
+code; each run that changed a code index (one accepted linear V-step; Adam straight-through; pre-image
+straight-through) ends above it. -/
+theorem pv_code_moves_cost :
+    w18_pvobs05.vAccepted = 0 ∧ w18_pvobs05.klHeldoutAfter < w18_pvlam05.klHeldoutAfter ∧
+    w18_pvobs05.klHeldoutAfter < w18_pv05.klHeldoutAfter ∧
+    w18_pvobs05.klHeldoutAfter < w18_pvpre05.klHeldoutAfter ∧
+    w18_pvobs05.klHeldoutAfter < w18_pvste05.klHeldoutAfter := by
+  refine ⟨rfl, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvobs05.klHeldoutAfter, w18_pvlam05.klHeldoutAfter, w18_pv05.klHeldoutAfter,
+      w18_pvpre05.klHeldoutAfter, w18_pvste05.klHeldoutAfter]
+
 end Perf.PVFinish
