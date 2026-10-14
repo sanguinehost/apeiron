@@ -447,6 +447,40 @@ def resqFirstDivergence5 : ℕ := 1
 
 end Receipts.w18_outcomes
 
+-- Receipt the receipts/onebit/w18-kd-main1 note.json`
+namespace Receipts.w18_kd_main1
+
+def sha256 : String := "fd3d4fbb1ca0955c188197e0498eeea96cb625e91f867b73c50b4975099b687f"
+def steps : ℕ := 520
+def tokensTrained : ℕ := 2129920
+def params : ℕ := 357826560
+def bits : ℕ := 406487040
+def bpwLinears : ℚ := (1135989010989011 : ℚ) / 1000000000000000
+def klInit : ℚ := (396694453060627 : ℚ) / 31250000000000
+def klHeldout : ℚ := (23038010120391847 : ℚ) / 10000000000000000
+def top1Heldout : ℚ := (3107 : ℚ) / 10240
+def signFlipFrac : ℚ := (24013455010159113 : ℚ) / 1000000000000000000
+def trainWallS : ℚ := (1582880642414093 : ℚ) / 5000000000000
+
+end Receipts.w18_kd_main1
+
+-- Receipt the receipts/onebit/w18-kd-main2 note.json`
+namespace Receipts.w18_kd_main2
+
+def sha256 : String := "61860d39fe71ed2ab047923c269b381cff4dc37cb878d4d457ebb2fb4a855083"
+def steps : ℕ := 880
+def tokensTrained : ℕ := 3604480
+def params : ℕ := 357826560
+def bits : ℕ := 406487040
+def bpwLinears : ℚ := (1135989010989011 : ℚ) / 1000000000000000
+def klInit : ℚ := (396694453060627 : ℚ) / 31250000000000
+def klHeldout : ℚ := (20103699624538423 : ℚ) / 10000000000000000
+def top1Heldout : ℚ := (6909 : ℚ) / 20480
+def signFlipFrac : ℚ := (1849834176646921 : ℚ) / 25000000000000000
+def trainWallS : ℚ := (1167467371225357 : ℚ) / 2500000000000
+
+end Receipts.w18_kd_main2
+
 -- Receipt the receipts/onebit/2026-10-11-vladder note.json`
 namespace Receipts.vladder_1011
 
@@ -505,5 +539,8 @@ def sha256 : String := "c52ebdd34b1cc0446310c64d112634c1299f19c8271b1f11cdc1d7ce
 def arm : String := "q4km"
 def q4kmKlHeldout : ℚ := (19728742260485887 : ℚ) / 1000000000000000000
 def q4kmKlInsample : ℚ := (4342463938519359 : ℚ) / 250000000000000000
+def foldLocalKlHeldout : ℚ := (19029506325721741 : ℚ) / 5000000000000000
+def foldLocalBpw : ℚ := (2832760989010989 : ℚ) / 2500000000000000
+def rtnKlHeldout : ℚ := (634763400554657 : ℚ) / 50000000000000
 
 end Receipts.fold_transfer_1011
