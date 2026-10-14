@@ -61,7 +61,9 @@ the register still wins: at 550 steps its KL is `0.00125` below the convex lower
 the batch is `torch.equal` to `kan_matrix` per key in fp32 and fp64, `dL/dδ` rel `2.7 × 10⁻¹⁶`; control 10: the `a ↔ b`
 swap mutant moves it by rel `0.95`). Step-0 weights stay exact (`kan_mmb_protocol`). The step costs `0.81×` the
 per-key register's and `1.19×` the fixed Hadamard matmul's (`kan_mmb_step_cost`), and the same as the fixed butterfly
-`pvfast`'s to within `1%`.
+`pvfast`'s to within `1%`. That `1.19×` compares runs on two host states. Three interleaved pairs on one host state
+(receipt `qreg-step-pair.json`) put the register at `1.03–1.04×` the fixed Hadamard matmul (`kan_pair_step_parity`,
+`kan_pair_each`); the matmul arm itself ran more than `1.10×` slower there than in `w18_hadmm` (`pair_host_slowdown`).
 
 Prediction `kan-kl-mmb-1` (step in `[0.48, 0.56]` s, at least 690 steps, held-out KL below the butterfly's `0.8577`) is
 refuted on its speed and step clauses; its KL clause holds. At equal wall the learned register beats the fixed butterfly
@@ -288,5 +290,69 @@ theorem kan_mmb_wins_matched_step :
   refine ⟨by decide, by decide, ?_, ?_⟩ <;>
     norm_num [secant, w18_pvtok292.steps, w18_pvaball05v0.steps, w18_pvfast.steps, qreg_kan_mmb.steps,
       w18_pvtok292.klHeldoutAfter, w18_pvaball05v0.klHeldoutAfter, w18_pvfast.klHeldoutAfter, qreg_kan_mmb.klHeldoutAfter]
+
+/-- **Step-time parity on one host state** (`qreg-step-pair-1`, confirmed). Three interleaved pairs (ABBA order), steady
+s/step over steps 25→100: the summed register step is between `1.03×` and `1.04×` the summed fixed Hadamard matmul step. -/
+theorem kan_pair_step_parity :
+    103 / 100 * (qreg_step_pair.hadSteady1 + qreg_step_pair.hadSteady2 + qreg_step_pair.hadSteady3) <
+      qreg_step_pair.kanSteady1 + qreg_step_pair.kanSteady2 + qreg_step_pair.kanSteady3 ∧
+    qreg_step_pair.kanSteady1 + qreg_step_pair.kanSteady2 + qreg_step_pair.kanSteady3 <
+      104 / 100 * (qreg_step_pair.hadSteady1 + qreg_step_pair.hadSteady2 + qreg_step_pair.hadSteady3) := by
+  refine ⟨?_, ?_⟩ <;>
+    norm_num [qreg_step_pair.kanSteady1, qreg_step_pair.kanSteady2, qreg_step_pair.kanSteady3,
+      qreg_step_pair.hadSteady1, qreg_step_pair.hadSteady2, qreg_step_pair.hadSteady3]
+
+/-- **Per pair.** The register is slower in every pair, by less than `1.03×` in pairs 1 and 2 and less than `1.06×` in
+pair 3 (spread `0.039`). -/
+theorem kan_pair_each :
+    qreg_step_pair.hadSteady1 < qreg_step_pair.kanSteady1 ∧
+    qreg_step_pair.kanSteady1 < 103 / 100 * qreg_step_pair.hadSteady1 ∧
+    qreg_step_pair.hadSteady2 < qreg_step_pair.kanSteady2 ∧
+    qreg_step_pair.kanSteady2 < 103 / 100 * qreg_step_pair.hadSteady2 ∧
+    qreg_step_pair.hadSteady3 < qreg_step_pair.kanSteady3 ∧
+    qreg_step_pair.kanSteady3 < 106 / 100 * qreg_step_pair.hadSteady3 := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [qreg_step_pair.kanSteady1, qreg_step_pair.kanSteady2, qreg_step_pair.kanSteady3,
+      qreg_step_pair.hadSteady1, qreg_step_pair.hadSteady2, qreg_step_pair.hadSteady3]
+
+/-- **The 1.19× of `kan_mmb_step_cost` was host state.** On the pair's host state every fixed Hadamard matmul arm runs
+more than `1.10×` the `w18_hadmm` mean step, and the `qreg_kan_mmb` mean step is within `1.02×` of the pair's mean
+register step (`trainS / steps` includes the first 25 steps; the pair's is the steady window). -/
+theorem pair_host_slowdown :
+    11 / 10 * (w18_hadmm.trainS / w18_hadmm.steps) < qreg_step_pair.hadSteady1 ∧
+    11 / 10 * (w18_hadmm.trainS / w18_hadmm.steps) < qreg_step_pair.hadSteady2 ∧
+    11 / 10 * (w18_hadmm.trainS / w18_hadmm.steps) < qreg_step_pair.hadSteady3 ∧
+    (qreg_step_pair.kanSteady1 + qreg_step_pair.kanSteady2 + qreg_step_pair.kanSteady3) / 3 <
+      qreg_kan_mmb.trainS / qreg_kan_mmb.steps ∧
+    qreg_kan_mmb.trainS / qreg_kan_mmb.steps <
+      102 / 100 * ((qreg_step_pair.kanSteady1 + qreg_step_pair.kanSteady2 + qreg_step_pair.kanSteady3) / 3) := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_hadmm.trainS, w18_hadmm.steps, qreg_kan_mmb.trainS, qreg_kan_mmb.steps,
+      qreg_step_pair.kanSteady1, qreg_step_pair.kanSteady2, qreg_step_pair.kanSteady3,
+      qreg_step_pair.hadSteady1, qreg_step_pair.hadSteady2, qreg_step_pair.hadSteady3]
+
+/-- **The trainable corrector's store is the extracted corrector count.** Both arms of the pair carry the same
+48-plane corrector, and its factor store `u8(U) @ u8(V)` equals `t3_nb_3seed.bitsCorr`, the constant
+`apeiron_word.BitsRefine.qwen_bits_corr` proves equal to `bits_corr` of the extracted Rust on the Qwen configuration;
+the two arms have equal total bits. -/
+theorem t5_corr_store_refines :
+    qreg_t5_corr.corrStoreBits = t3_nb_3seed.bitsCorr ∧
+    qreg_t5_corr.baseBitsCorr = qreg_t5_corr.corrStoreBits ∧
+    qreg_t5_corr.corrBitsCorr = qreg_t5_corr.corrStoreBits ∧
+    qreg_t5_corr.corrBitsAfter = qreg_t5_corr.baseBitsAfter :=
+  ⟨rfl, rfl, rfl, rfl⟩
+
+/-- **Training the corrector loses at equal bits and equal wall.** Against the paired arm with the same corrector
+frozen, training `u8(U)`, `u8(V)` at `lr_corr = 1e-4` raises held-out KL by between `0.004` and `0.005` nats and lowers
+held-out top-1, while running within `2%` of the frozen arm's steps. -/
+theorem t5_corr_loses :
+    qreg_t5_corr.baseKlHeldoutAfter + 4 / 1000 < qreg_t5_corr.corrKlHeldoutAfter ∧
+    qreg_t5_corr.corrKlHeldoutAfter < qreg_t5_corr.baseKlHeldoutAfter + 5 / 1000 ∧
+    qreg_t5_corr.corrTop1HeldoutAfter < qreg_t5_corr.baseTop1HeldoutAfter ∧
+    98 / 100 * (qreg_t5_corr.baseSteps : ℚ) < qreg_t5_corr.corrSteps ∧
+    qreg_t5_corr.corrSteps < qreg_t5_corr.baseSteps := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [qreg_t5_corr.baseKlHeldoutAfter, qreg_t5_corr.corrKlHeldoutAfter, qreg_t5_corr.baseTop1HeldoutAfter,
+      qreg_t5_corr.corrTop1HeldoutAfter, qreg_t5_corr.baseSteps, qreg_t5_corr.corrSteps]
 
 end Perf.QuantumRotation

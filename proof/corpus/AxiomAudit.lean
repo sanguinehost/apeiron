@@ -1192,3 +1192,8 @@ import Perf.QuantumRotation
 #audit Perf.QuantumRotation.kan_mmb_beats_butterfly_wall
 #audit Perf.QuantumRotation.kan_mmb_loses_hadmm
 #audit Perf.QuantumRotation.kan_mmb_wins_matched_step
+#audit Perf.QuantumRotation.kan_pair_step_parity
+#audit Perf.QuantumRotation.kan_pair_each
+#audit Perf.QuantumRotation.pair_host_slowdown
+#audit Perf.QuantumRotation.t5_corr_store_refines
+#audit Perf.QuantumRotation.t5_corr_loses
