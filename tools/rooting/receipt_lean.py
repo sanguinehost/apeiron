@@ -91,6 +91,8 @@ W15 = {
     "qreg_kan_exact": "docs/evidence/receipts/onebit/qreg-kan-exact.json",
     "qreg_kan_mm": "docs/evidence/receipts/onebit/qreg-kan-mm.json",
     "qreg_kan_mmb": "docs/evidence/receipts/onebit/qreg-kan-mmb.json",
+    "qreg_step_pair": "docs/evidence/receipts/onebit/qreg-step-pair.json",
+    "qreg_t5_corr": "docs/evidence/receipts/onebit/qreg-t5-corr.json",
 }
 
 # End-loss-weighted Gram receipts (fold_transfer "-guided[a|b]NN"): namespace -> variant prefixes (see guided_prefix).
@@ -768,6 +770,43 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
                                                Fraction(0))))
         out.append(("rat", "mmS", sum((rat(o["self_device_s"]) for o in aten if o["name"] == "aten::mm"), Fraction(0))))
         out.append(("nat", "catCalls", nat(sum(o["calls"] for o in aten if o["name"] == "aten::cat"))))
+    elif ns == "qreg_step_pair":
+        # Interleaved step-time pairs, register (--rotation kan) vs fixed Hadamard matmul, one host state: per arm the
+        # steady step (t(100) - t(25)) / 75 from its train_trajectory, emitted as `<rotation>Steady<n>`.
+        p, arms = data["protocol"], data["arms"]
+        if (p["steps"], p["n_cal"], p["hadamard"], p["compose"], p["kl"], p["window"]) != (101, 50, "mm", "step", "fused",
+                                                                                          [25, 100]):
+            raise Fail(f"{rel}: not the 101-step, n-cal 50, mm/step/fused, steps-25-to-100 protocol")
+        if sorted(a["label"] for a in arms) != ["had1", "had2", "had3", "kan1", "kan2", "kan3"]:
+            raise Fail(f"{rel}: arms are not three register and three hadmm runs")
+        for a in arms:
+            if a["exit"] != 0 or a["rotation"] != a["label"][:3]:
+                raise Fail(f"{rel}: arm {a['label']} exit {a['exit']} rotation {a['rotation']}")
+            out.append(("rat", f"{a['rotation']}Steady{a['label'][3]}", (rat(a["t100"]) - rat(a["t25"])) / 75))
+    elif ns == "qreg_t5_corr":
+        # Trainable corrector u8(U) @ u8(V) vs the same stored corrector frozen, one wall-budgeted pair (base, corr3):
+        # per arm `<base|corr><Field>`; the corrector store is emitted once.
+        arms = {a["label"]: a for a in data["arms"]}
+        if sorted(arms) != ["base", "corr3"] or data["protocol"]["n_cal"] != 50 or data["protocol"]["lr_corr"] != "0.0001":
+            raise Fail(f"{rel}: not the base/corr3, n-cal 50, lr_corr 1e-4 pair")
+        for lab, pre in [("base", "base"), ("corr3", "corr")]:
+            a = arms[lab]
+            if a["exit"] != 0 or not a["grad_equiv_ok"] or rat(a["compose_only_loss_rel"]) != 0:
+                raise Fail(f"{rel}: arm {lab} exit {a['exit']} or grad_equiv not exact")
+            if ("corr" in a["train"].split(",")) != (lab == "corr3"):
+                raise Fail(f"{rel}: arm {lab} trains {a['train']}")
+            out.append(("nat", pre + "Steps", nat(a["steps"])))
+            out.append(("nat", pre + "BitsAfter", nat(a["bits_after"])))
+            out.append(("nat", pre + "BitsCorr", nat(a["bits_components_after"]["bits_corr"])))
+            out.append(("nat", pre + "TrainableParams", nat(a["trainable_params"])))
+            for name, k in [("TrainS", "train_s"), ("KlHeldoutBefore", "kl_heldout_before"),
+                            ("KlHeldoutAfter", "kl_heldout_after"), ("Top1HeldoutAfter", "top1_heldout_after")]:
+                out.append(("rat", pre + name, rat(a[k])))
+        c = arms["corr3"]["corr"]
+        if c["store_bits"] != c["bits_corr"]:
+            raise Fail(f"{rel}: factor store bits {c['store_bits']} != bits_corr {c['bits_corr']}")
+        out.append(("nat", "corrPlanes", nat(c["planes"])))
+        out.append(("nat", "corrStoreBits", nat(c["store_bits"])))
     elif ns == "qreg_kan_probe":
         # Learned register angles vs fwht128 (kan_probe.py): J sums over the four input sites of every layer.
         rows, a = data["rows"], data["args"]

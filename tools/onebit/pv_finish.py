@@ -20,6 +20,11 @@ the quantized r, c, d and the involution fwht128), shrunk along C[idx] -> P unti
 --rotation kan (needs --compose step) replaces fwht128 in the plane weight with the learned register of kan_probe (seven stages of
 64 reflections, angle offset d = theta - pi/4 per (layer, site) of shape (7, 64), init 0 = fwht128 bit for bit (unscaled stages, one GROUP**-0.5 at the end), shared by every coded plane of the site's linears) trained end to end
 on KL by RegisterCompose; the final weights use d quantised to 16 bits (the theta grid), 7*64*16 bits per learning site per layer added to bits_after.
+--train corr trains each dense corrector plane (p.dense, added on q and down) through its stored factors: p.U, p.V start
+as the u8 codes lowrank_corrector stores (pack sink U, V; p.dense = U @ V), train in their own Adam group at --lr-corr,
+and every add of the plane uses corr_weight(p) = u8(U) @ u8(V), each factor vector coded as lowrank_corrector's u8 branch
+codes it (fp16 min/max, 8-bit levels), so step 0 is the stored plane exactly; the export stores that product, so the
+stored bits are unchanged (bits_corr).  With corr off the dense plane stays frozen and every code path is today's.
 --selftest-kan runs the float64 register/adjoint checks with no model.
 usage: pv_finish.py --out OUT.json [--smoke] [--v-gain {linear,obs}] [--codes {vstep,ste}] ; run with /home/socol/Workspace/spinor-ttl/.venv/bin/python (torch + CUDA).
 """
@@ -199,8 +204,10 @@ class Plane:
 
     def __init__(self, d, C):
         self.L = None  # --codes ste: fp32 latent of the code field
+        self.U = self.V = self.k = None  # --train corr: fp32 factors of the dense corrector, set by factor_dense
         self.dense = d["dense"].to(DEV) if "dense" in d else None
         if self.dense is not None:
+            self.Uc, self.Vc = d["U"].to(DEV), d["V"].to(DEV)  # the stored factors, p.dense = Uc @ Vc
             return
         S = d["S_rot"].to(DEV)
         self.O, self.n = S.shape
@@ -271,6 +278,50 @@ def plane_weight(p, S):
     and autograd keeps the stage outputs when S carries grad).  Derivation: the stage loop in ft.fwht128 runs log2(128) = 7 times."""
     r, c, d = p.qvals()
     return ft.compose(ft.fwht128(S * d[None, :]), r, c)
+
+
+def u8_ste(x, dim):
+    """x coded as ft.quant_c_u8 codes it (per vector along dim: fp16 min and max, 8-bit affine levels), with a
+    straight-through gradient (forward is the coded value, backward is d/dx = 1).  This is the store
+    fold_transfer.lowrank_corrector prices on the u8 branch, rank * (8 * (O + n) + 64) bits.
+    Temporal O(N) over N = x.numel() (one min/max reduction per vector, one round per entry); spatial one N-word
+    temporary.  Derivation: the body is the per-vector affine round; the .detach() on the correction keeps identity Jacobian."""
+    lo, hi = ft.f16r(x.amin(dim, keepdim=True)), ft.f16r(x.amax(dim, keepdim=True))
+    span = (hi - lo).clamp_min(1e-12)
+    q = lo + torch.round((x - lo) / span * 255.0).clamp(0.0, 255.0) / 255.0 * span
+    return x + (q - x).detach()
+
+
+def u8_factors(p):
+    """The stored corrector factors: U coded per column (dim 0), V per row (dim 1), as lowrank_corrector stores them."""
+    return u8_ste(p.U, 0), u8_ste(p.V, 1)
+
+
+def factor_dense(p):
+    """Make the stored factors of one dense corrector plane trainable: p.U = Uc (O x k), p.V = Vc (k x n) in fp32, k the
+    stored rank.  Refuses (ValueError) factors that are not fixed points of u8_ste, so u8(U) @ u8(V) at step 0 is the
+    stored product exactly; an f16-branch or unrounded corrector is refused, not re-coded.  Sets p.O, p.n, p.k.
+    Temporal O(k (O + n)) for the two u8_ste passes and comparisons; spatial O(k (O + n)) words for the factor copies."""
+    U, V = p.Uc.float(), p.Vc.float()
+    if not (torch.equal(u8_ste(U, 0), U) and torch.equal(u8_ste(V, 1), V)):
+        raise ValueError("factor_dense: stored corrector factors are not u8 codes (u8_ste is not the identity on them)")
+    p.O, p.k, p.n = U.shape[0], U.shape[1], V.shape[1]
+    p.U = U.clone().contiguous().requires_grad_()
+    p.V = V.clone().contiguous().requires_grad_()
+    return p.k
+
+
+def corr_weight(p):
+    """The dense corrector plane's weight from its trainable factors, each 8-bit coded as stored: u8(U) @ u8(V).  With
+    p.U None (the dense plane frozen, no --train corr) returns p.dense, so the frozen code path is byte-for-byte today's.
+    Temporal O(O*k + k*n) roundings plus O(O*k*n) multiply-adds; spatial one O*k and one k*n coded temporary plus the
+    O*n product. Derivation: u8_ste over O*k + k*n entries, then one matmul.  The product runs in fp32 with autocast off:
+    layer_dict calls this inside the bf16 autocast and layer_dicts_step outside it, and the two must compose one weight."""
+    if p.U is None:
+        return p.dense
+    Uq, Vq = u8_factors(p)
+    with torch.autocast("cuda", enabled=False):
+        return Uq @ Vq
 
 
 def add_plane(W, p, Wi):
@@ -441,7 +492,7 @@ def kan_recon(planes, delta_q):
 
 
 def selftest_kan(out):
-    """--selftest-kan: no model, on DEV.  Ten controls, all must hold: (1) kan_register at delta = 0 is torch.equal to
+    """--selftest-kan: no model, on DEV.  Twelve controls, all must hold: (1) kan_register at delta = 0 is torch.equal to
     ft.fwht128 on random fp32 and fp64 input, and RegisterCompose's forward is torch.equal to ft.compose(fwht128(.)) in fp32;
     (2) float64 forward at random |delta| ~ 0.1 against autograd's reference ft.compose(kp.register(S d, pi/4 + delta), r, c),
     rel < 1e-12; (3) the adjoints gd, gr, gc, gdelta against autograd on that reference, rel < 1e-10 each; (4) gdelta against
@@ -454,9 +505,14 @@ def selftest_kan(out):
     while the unmutated copies stay < 1e-12; (9) the batched register pass kan_matrix_batch on D (5, 7, 64) with |D| ~ 0.1 is
     torch.equal to kan_matrix per key in fp32 and fp64, and its dL/dD matches the stacked per-key gradients, rel < 1e-12 in
     fp64; (10) a local copy of the batch with the stage's a and b swapped moves away from kan_matrix at D != 0 by rel >= 1e-3
-    (red), so control (9) sees the stage.
+    (red), so control (9) sees the stage; (11) with --train corr, factor_dense on a synthetic q-like dense plane (rank 2,
+    stored as quant_c_u8 factors U, V with p.dense = U @ V, as lowrank_corrector's u8 branch stores it) gives k = 2, and
+    corr_weight = u8(U) @ u8(V) is torch.equal to p.dense while its factors receive a nonzero gradient in one backward;
+    (12) a local copy of corr_weight that returns the frozen p.dense has rel exactly 0 but no factor gradient, so control
+    (11) is red on it; (13) factor_dense refuses f16-rounded factors (not u8 codes) with ValueError.
     Writes the result to `out`, prints one JSON line, returns the exit status.
-    Temporal: a few passes over O*n = 2048 words plus 32 forward evaluations; spatial O(O*n)."""
+    Temporal: a few passes over O*n = 2048 words plus 32 forward evaluations, u8 codes and products of three 896x2 and 2x896 factor pairs;
+    spatial O(O*n)."""
     gen = torch.Generator(device=DEV)
     gen.manual_seed(0)
     O, n = 8, 256
@@ -615,12 +671,59 @@ def selftest_kan(out):
     Bm = kan_matrix_batch_mut(Dm)
     mut_batch = max(float((Bm[k] - kan_matrix(Dm[k])).abs().max() / kan_matrix(Dm[k]).abs().max()) for k in range(Kb))
     ok10 = mut_batch >= 1e-3
+    # (11) --train corr: a dense corrector plane stored as u8 factors (q-like O x n, rank 2, as fold_transfer.
+    # lowrank_corrector's u8 branch stores it) trains from those factors: corr_weight is torch.equal to the frozen
+    # corr-off weight and its factors receive a nonzero gradient in one backward; (12) a local copy of corr_weight that
+    # returns the frozen p.dense drops the factors from the graph: rel 0 but no gradient, so control (11)'s gradient
+    # check is red on it; (13) f16-rounded factors are refused by factor_dense.
+    gq = torch.Generator(device=DEV)
+    gq.manual_seed(2)
+    Oq, nq = 896, 896  # the arm's q linear
+    Uq0 = torch.randn(Oq, 2, generator=gq, device=DEV) * 0.1
+    Vq0 = torch.randn(2, nq, generator=gq, device=DEV) * 0.1
+    Uh0 = torch.stack([ft.quant_c_u8(Uq0[:, j])[0] for j in range(2)], 1)
+    Vh0 = torch.stack([ft.quant_c_u8(Vq0[j])[0] for j in range(2)], 0)
+    pq = Plane(dict(dense=Uh0 @ Vh0, U=Uh0, V=Vh0), None)
+    kq = factor_dense(pq)
+    with torch.no_grad():
+        rel11 = float((corr_weight(pq) - pq.dense).abs().max() / pq.dense.abs().max())
+    loss11 = corr_weight(pq).pow(2).sum()
+    if loss11.requires_grad:
+        loss11.backward()
+    gU11 = float(pq.U.grad.abs().sum()) if pq.U.grad is not None else 0.0
+    gV11 = float(pq.V.grad.abs().sum()) if pq.V.grad is not None else 0.0
+    ok11 = kq == 2 and rel11 == 0.0 and gU11 > 0.0 and gV11 > 0.0
+
+    def corr_weight_mut(p):
+        """Local copy of corr_weight with the injected defect of control (12): returns the frozen p.dense, so p.U and
+        p.V drop out of the graph.  Temporal and spatial as corr_weight with the two cast pairs and the matmul removed."""
+        return p.dense
+
+    pm = Plane(dict(dense=Uh0 @ Vh0, U=Uh0, V=Vh0), None)
+    factor_dense(pm)
+    with torch.no_grad():
+        rel12 = float((corr_weight_mut(pm) - pm.dense).abs().max() / pm.dense.abs().max())
+    loss12 = corr_weight_mut(pm).pow(2).sum()
+    if loss12.requires_grad:
+        loss12.backward()
+    grad12 = pm.U.grad is not None
+    ok12 = rel12 == 0.0 and not grad12 and not loss12.requires_grad
+    Uf, Vf = ft.f16r(Uq0), ft.f16r(Vq0)
+    try:
+        factor_dense(Plane(dict(dense=Uf @ Vf, U=Uf, V=Vf), None))
+        ok13 = False
+    except ValueError:
+        ok13 = True
+
     res = dict(identity=ident, identity_ok=ok1, forward_rel=fwd, forward_ok=ok2, adjoint_rel=errs, adjoint_tol=1e-10, adjoint_ok=ok3,
                fd_gdelta_rel=fd_err, fd_ok=ok4, mutation_rel=mut, mutation_red=ok5, kan_matrix_hn=mm_id, kan_matrix_hn_ok=ok6,
                mm_forward_rel=fwd_mm, mm_adjoint_rel=mm_errs, mm_ok=ok7, mm_mutation_rel=mm_mut, mm_mutation_red=ok8,
                kan_matrix_batch=bat, kan_matrix_batch_grad_rel=gbatch, kan_matrix_batch_ok=ok9,
                kan_matrix_batch_mutation_rel=mut_batch, kan_matrix_batch_mutation_red=ok10,
-               ok=ok1 and ok2 and ok3 and ok4 and ok5 and ok6 and ok7 and ok8 and ok9 and ok10)
+               corr_refactor_k=kq, corr_refactor_rel=rel11, corr_refactor_grad=dict(U=gU11, V=gV11), corr_refactor_ok=ok11,
+               corr_mutation_rel=rel12, corr_mutation_requires_grad=bool(loss12.requires_grad),
+               corr_mutation_grad_present=grad12, corr_mutation_red=ok12, corr_f16_refused=ok13,
+               ok=ok1 and ok2 and ok3 and ok4 and ok5 and ok6 and ok7 and ok8 and ok9 and ok10 and ok11 and ok12 and ok13)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     json.dump(res, open(out, "w"), indent=1)
     print(json.dumps(res), flush=True)
@@ -777,7 +880,9 @@ def main():
                     help="training-path fwht128 under --compose step: butterfly (ft.fwht128) or mm (one fp32 H128 matmul); "
                          "eval, controls and the final weights always use ft.fwht128")
     ap.add_argument("--train", default="r,c,d,norm",
-                    help="comma subset of r (pa), c (pb), d (pd), norm (zero-bit d_* tunables and d_fn); unselected tensors are frozen")
+                    help="comma subset of r (pa), c (pb), d (pd), norm (zero-bit d_* tunables and d_fn), corr (dense "
+                         "corrector factors U, V through corr_weight at --lr-corr); unselected tensors are frozen")
+    ap.add_argument("--lr-corr", type=float, default=1e-4)
     ap.add_argument("--rotation", choices=("had", "kan"), default="had",
                     help="had: fwht128 in every plane weight; kan: the learned 7 x 64 reflection register (kan_probe.register) per layer and "
                          "site, angles trained end to end on KL (needs --compose step)")
@@ -797,7 +902,7 @@ def main():
     assert a.compose == "layer" or (a.v_every == 0 and a.codes == "vstep"), "--compose step needs frozen codes"
     assert a.hadamard == "butterfly" or a.compose == "step", "--hadamard mm needs --compose step"
     train_set = set(a.train.split(","))
-    assert train_set and train_set <= {"r", "c", "d", "norm"}, a.train
+    assert train_set and train_set <= {"r", "c", "d", "norm", "corr"}, a.train
     LAMS = tuple(float(x) for x in a.obs_lams.split(","))
     if a.smoke:
         a.n_cal, a.n_eval, a.n_in, a.steps, a.batch = 8, 8, 8, 20, 2
@@ -887,6 +992,18 @@ def main():
     res["controls"]["codebook_match"] = dict(planes=n_planes, inexact_planes=n_inexact, ok=n_inexact == 0)
     print(f"codes: {n_planes} planes, inexact {n_inexact}  elapsed {elapsed():.1f}s", flush=True)
 
+    # ---- --train corr: factor every dense corrector plane into fp32 factors (p.U, p.V) at the arm's stored rank
+    if "corr" in train_set:
+        corr_planes = [p for pl in PL for nm in KINDS for p in pl[nm] if p.dense is not None]
+        for p in corr_planes:
+            factor_dense(p)
+        store_bits = sum(p.k * (8 * (p.O + p.n) + 64) for p in corr_planes)  # the u8 price of the factors trained
+        res["corr"] = dict(planes=len(corr_planes), k=sum(p.k for p in corr_planes), ranks=sorted({p.k for p in corr_planes}),
+                           bits_corr=binfo["bits_corr"], store_bits=store_bits)
+        print(f"corr: {len(corr_planes)} dense planes, ranks {sorted(p.k for p in corr_planes)}, factor store bits {store_bits} "
+              f"vs bits_corr {binfo['bits_corr']}", flush=True)
+        assert store_bits == binfo["bits_corr"], ("stored factor ranks do not reproduce bits_corr", store_bits, binfo["bits_corr"])
+
     # tunables (zero-bit)
     def vec(x):
         return x.to(DEV).float()
@@ -930,7 +1047,7 @@ def main():
             W = None
             for p in PL[li][nm]:
                 if p.dense is not None:
-                    W = W + p.dense
+                    W = W + corr_weight(p)
                     continue
                 S = Ss[k] if Ss else (ste_S(p) if ste_on[0] and p.L is not None else p.S(C))
                 k += 1
@@ -965,7 +1082,7 @@ def main():
                 W = None
                 for pi, p in enumerate(PL[li][nm]):
                     if p.dense is not None:
-                        W = W + p.dense
+                        W = W + corr_weight(p)
                         continue
                     r, c, d = p.qvals()
                     th = TH.get((li, KIND_SITE[nm])) if MODE["rot"] == "kan" else None
@@ -1076,6 +1193,9 @@ def main():
         groups.append(dict(params=lat, lr=a.lr_lat)); base_lr.append(a.lr_lat)
     if norm:
         groups.append(dict(params=norm, lr=a.lr_norm)); base_lr.append(a.lr_norm)
+    corr_g = [t for pl in PL for nm in KINDS for p in pl[nm] if p.U is not None for t in (p.U, p.V)]
+    if corr_g:
+        groups.append(dict(params=corr_g, lr=a.lr_corr)); base_lr.append(a.lr_corr)
     assert groups, "--train selected no tensor"
     ste = a.codes == "ste"
     code_kinds = list(KINDS) if a.code_kinds == "all" else a.code_kinds.split(",")
@@ -1103,7 +1223,7 @@ def main():
                         W, Wi = None, []
                         for p in PL[li][nm]:
                             if p.dense is not None:
-                                W = W + p.dense
+                                W = W + corr_weight(p)
                                 Wi.append(None)
                                 continue
                             w = plane_weight(p, p.S(C))
@@ -1600,6 +1720,7 @@ def main():
     torch.set_float32_matmul_precision("highest")
     Ls2, n_eq, n_ne, max_rel = [], 0, 0, 0.0
     bits = dict(bits_sign=0, bits_r=0, bits_c=0, bits_d=0)
+    corr_rel = []  # per dense plane: ||Corr_after - Corr_before|| / ||Corr_before||, Corr_after = f16r(U) @ f16r(V)
     code_ok = True
     THq = {k: kp.quant_angles(v.detach(), ANGLE_BITS) for k, v in TH.items()}  # the stored 16-bit offsets d = theta - pi/4; pi/4 is grid point 8192 of 2 pi / 65536, so round(d / q) q is the theta grid
     with torch.no_grad():
@@ -1614,7 +1735,13 @@ def main():
                 st_planes, qt_planes = [], []
                 for p in PL[li][nm]:
                     if p.dense is not None:
-                        st_planes.append(dict(dense=p.dense)); qt_planes.append(dict(dense=p.dense))
+                        # --train corr: store the refactored corrector as its 8-bit coded factors' product (bits
+                        # unchanged); otherwise the frozen dense plane verbatim.  Corr_after vs Corr_before recorded.
+                        d_exp = p.dense if p.U is None else torch.matmul(*u8_factors(p)).detach()
+                        if p.U is not None:
+                            with torch.no_grad():
+                                corr_rel.append(float((d_exp - p.dense).norm() / p.dense.norm().clamp_min(1e-12)))
+                        st_planes.append(dict(dense=d_exp)); qt_planes.append(dict(dense=d_exp))
                         continue
                     r_l, c_l, d_l = p.latents()
                     rq, kint = p.r_grid(r_l)
@@ -1652,6 +1779,12 @@ def main():
                 del st_planes, qt_planes, W_st, W_qt
             Ls2.append(L)
     angle_bits = kp.NST * kp.NBF * ANGLE_BITS * len(THq)  # 7 * 64 * 16 per learning site per layer
+    if corr_rel:
+        res["corr"].update(k=sum(p.k for pl in PL for nm in KINDS for p in pl[nm] if p.U is not None),
+                           planes=len(corr_rel), rel_mean=float(np.mean(corr_rel)), rel_max=float(max(corr_rel)),
+                           bits_corr=binfo["bits_corr"])
+        print(f"corr export: {len(corr_rel)} planes, ||Corr_after-Corr_before||/||Corr_before|| mean "
+              f"{res['corr']['rel_mean']:.3e} max {res['corr']['rel_max']:.3e}, bits_corr {binfo['bits_corr']}", flush=True)
     bits_after = sum(bits.values()) + binfo["bits_corr"] + angle_bits
     comp_ok = all(bits[k] == binfo[k] for k in bits)
     res.update(bits_after=bits_after, bpw_after=bits_after / binfo["params"], bits_components_after=dict(bits, bits_corr=binfo["bits_corr"]))

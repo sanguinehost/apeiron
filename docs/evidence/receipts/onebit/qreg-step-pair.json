@@ -1,0 +1,118 @@
+{
+ "question": "Is the batched register's (--rotation kan) steady step within 1.05x of the fixed Hadamard matmul's on one host state? Interleaved ABBA pairs; the earlier 1.19x (qreg-kan-mmb vs w18-hadmm) was measured on different host states.",
+ "protocol": {
+  "steps": 101,
+  "n_cal": 50,
+  "n_eval": 40,
+  "n_in": 20,
+  "batch": 8,
+  "v_every": 0,
+  "codes": "vstep",
+  "hadamard": "mm",
+  "compose": "step",
+  "kl": "fused",
+  "train": "r,c,d,norm",
+  "window": [
+   25,
+   100
+  ],
+  "order": [
+   "kan1",
+   "had1",
+   "had2",
+   "kan2",
+   "kan3",
+   "had3"
+  ],
+  "bound": "flock /tmp/opencode/gpu.lock, systemd-run MemoryMax=40G MemorySwapMax=0, timeout 580"
+ },
+ "machine": "RTX 5080 host; a co-tenant process at ~570% CPU (load ~7) throughout",
+ "source": {
+  "path": "tools/onebit/pv_finish.py",
+  "sha256": "302ae284f7d55e9b1be29d64b0d803bbb27209fd9c08fd900493b9cd4cdf85b4"
+ },
+ "arms": [
+  {
+   "label": "kan1",
+   "rotation": "kan",
+   "rotation_flag": "kan",
+   "t25": 14.139106750488281,
+   "t100": 56.49621820449829,
+   "steady_s_per_step": 0.5647614860534668,
+   "exit": 0,
+   "prediction": "qreg-step-pair-1",
+   "out_json_sha256": "23927e340f324d04a2453d1886bb52824a06b41669cb4529932d29a6cddb0c1a",
+   "wall_total_s": 205.94951057434082
+  },
+  {
+   "label": "had1",
+   "rotation": "had",
+   "rotation_flag": "had",
+   "t25": 13.885690927505493,
+   "t100": 55.32251811027527,
+   "steady_s_per_step": 0.552491029103597,
+   "exit": 0,
+   "prediction": "qreg-step-had-arm-1",
+   "out_json_sha256": "8e74cb550dd720677d27d6c1008965ccd36848acbd46bca07fede6ee136f4ca2",
+   "wall_total_s": 202.87025904655457
+  },
+  {
+   "label": "had2",
+   "rotation": "had",
+   "rotation_flag": "had",
+   "t25": 13.980483770370483,
+   "t100": 55.38957214355469,
+   "steady_s_per_step": 0.5521211783091228,
+   "exit": 0,
+   "prediction": "qreg-step-had-arm-2",
+   "out_json_sha256": "fa04fda3bb0db3276f132829f67b7616855c90731724f7f202b4642df00312f4",
+   "wall_total_s": 203.49745988845825
+  },
+  {
+   "label": "kan2",
+   "rotation": "kan",
+   "rotation_flag": "kan",
+   "t25": 14.171392917633057,
+   "t100": 56.448131799697876,
+   "steady_s_per_step": 0.5636898517608643,
+   "exit": 0,
+   "prediction": "qreg-step-kan-arm-1",
+   "out_json_sha256": "a88492bdc8153c393cf500d49e89ebe2925b70a96cfb8b2800859bc81cf2b3cc",
+   "wall_total_s": 200.76567387580872
+  },
+  {
+   "label": "kan3",
+   "rotation": "kan",
+   "rotation_flag": "kan",
+   "t25": 13.906905174255371,
+   "t100": 55.825506925582886,
+   "steady_s_per_step": 0.5589146900177002,
+   "exit": 0,
+   "prediction": "qreg-step-kan-arm-2",
+   "out_json_sha256": "3b4685d283d3528df898ab6b65c6b37d91a1776816b64703d34612297c9d1871",
+   "wall_total_s": 208.40468096733093
+  },
+  {
+   "label": "had3",
+   "rotation": "had",
+   "rotation_flag": "had",
+   "t25": 13.273946523666382,
+   "t100": 52.83533453941345,
+   "steady_s_per_step": 0.5274851735432943,
+   "exit": 0,
+   "prediction": "qreg-step-had-arm-3",
+   "out_json_sha256": "378cca4dbcdff5804ffe6d32fb3e01e576ecc5e182f53c730fdc3a17fefe7c09",
+   "wall_total_s": 205.8246898651123
+  }
+ ],
+ "pair_ratios": [
+  1.0222093324660462,
+  1.0209531420025775,
+  1.0595836964729897
+ ],
+ "pair_ratio_spread": 0.03863055447041219,
+ "mean_kan": 0.5624553426106771,
+ "mean_had": 0.5440324603186714,
+ "ratio_of_means": 1.0338635718192521,
+ "mean_pair_ratio": 1.0342487236472044
+}

@@ -1461,6 +1461,44 @@ def wallTotalS : ℚ := (5423622605800629 : ℚ) / 10000000000000
 
 end Receipts.qreg_kan_mmb
 
+-- Receipt `docs/evidence/receipts/onebit/qreg-step-pair.json`
+namespace Receipts.qreg_step_pair
+
+def sha256 : String := "e192abcb77fa113de41afc251674896f98a23eeab8f29a00064a103112ba1653"
+def kanSteady1 : ℚ := (42357111454010009 : ℚ) / 75000000000000000
+def hadSteady1 : ℚ := (41436827182769777 : ℚ) / 75000000000000000
+def hadSteady2 : ℚ := (13803029457728069 : ℚ) / 25000000000000000
+def kanSteady2 : ℚ := (42276738882064819 : ℚ) / 75000000000000000
+def kanSteady3 : ℚ := (2794573450088501 : ℚ) / 5000000000000000
+def hadSteady3 : ℚ := (3296782334645589 : ℚ) / 6250000000000000
+
+end Receipts.qreg_step_pair
+
+-- Receipt `docs/evidence/receipts/onebit/qreg-t5-corr.json`
+namespace Receipts.qreg_t5_corr
+
+def sha256 : String := "a9b456eb70fdf35a746d8952c287cab5a69499de8742f14e1e788aa316758f83"
+def baseSteps : ℕ := 740
+def baseBitsAfter : ℕ := 422229504
+def baseBitsCorr : ℕ := 1798656
+def baseTrainableParams : ℕ := 3949952
+def baseTrainS : ℚ := (99673324406147 : ℚ) / 250000000000
+def baseKlHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def baseKlHeldoutAfter : ℚ := (265352675691247 : ℚ) / 312500000000000
+def baseTop1HeldoutAfter : ℚ := (11257 : ℚ) / 20480
+def corrSteps : ℕ := 732
+def corrBitsAfter : ℕ := 422229504
+def corrBitsCorr : ℕ := 1798656
+def corrTrainableParams : ℕ := 4174208
+def corrTrainS : ℚ := (2497113960981369 : ℚ) / 6250000000000
+def corrKlHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def corrKlHeldoutAfter : ℚ := (533709580078721 : ℚ) / 625000000000000
+def corrTop1HeldoutAfter : ℚ := (2809 : ℚ) / 5120
+def corrPlanes : ℕ := 48
+def corrStoreBits : ℕ := 1798656
+
+end Receipts.qreg_t5_corr
+
 -- Receipt `docs/evidence/receipts/onebit/2026-10-11-vladder.json`
 namespace Receipts.vladder_1011
 

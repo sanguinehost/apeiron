@@ -1,0 +1,126 @@
+{
+ "question": "Does the trainable u8 low-rank corrector (48 dense planes, ranks 1-2, u8(U) @ u8(V) from the stored factors) lower held-out KL against the paired arm with the same stored corrector frozen, at equal wall and equal bits (1.179984 b/w)?",
+ "protocol": {
+  "n_cal": 50,
+  "n_eval": 40,
+  "n_in": 20,
+  "batch": 8,
+  "v_every": 0,
+  "codes": "vstep",
+  "compose": "step",
+  "kl": "fused",
+  "hadamard": "mm",
+  "rotation": "kan",
+  "lr_corr": 0.0001,
+  "wall": "timeout 580, wall-budgeted steps",
+  "order": [
+   "base",
+   "corr3"
+  ],
+  "bound": "flock /tmp/opencode/gpu.lock, systemd-run MemoryMax=40G MemorySwapMax=0"
+ },
+ "machine": "RTX 5080 host",
+ "source": {
+  "pv_finish": {
+   "path": "tools/onebit/pv_finish.py",
+   "sha256": "1973f541aeb2aff13a56950e0ec4a428979eb93cbececf84d2f7736dfbc44c33"
+  },
+  "fold_transfer": {
+   "path": "tools/onebit/fold_transfer.py",
+   "sha256": "07bec896011689fdd41262649984f24baf85dbcc9313441d694f69b5366fa764"
+  }
+ },
+ "refuted_before": [
+  {
+   "prediction": "qreg-t5-corr-1",
+   "cause": "factor_dense re-factored the dense plane by SVD and re-coded u8, so step0 was 120/168 torch.equal"
+  },
+  {
+   "prediction": "qreg-t5-corr-2",
+   "cause": "layer_dict ran u8(U) @ u8(V) under the bf16 autocast and layer_dicts_step in fp32; compose_only loss_rel 1.66e-3"
+  }
+ ],
+ "arms": [
+  {
+   "steps": 740,
+   "bits_after": 422229504,
+   "bpw_after": 1.179983688186813,
+   "trainable_params": 3949952,
+   "kl_heldout_before": 1.1636724948883057,
+   "top1_heldout_before": 0.479736328125,
+   "kl_heldout_after": 0.8491285622119904,
+   "top1_heldout_after": 0.549658203125,
+   "kl_insample_after": 0.2468959704041481,
+   "top1_insample_after": 0.72548828125,
+   "quick_kl_step0": 0.795434296131134,
+   "label": "base",
+   "prediction": "qreg-t5-base-1",
+   "exit": 0,
+   "out_json_sha256": "d5c7f8432063dff1f25f231ab5777de356a9901be6ddf1e8e26c01884e9bf8a4",
+   "script_sha256": {
+    "pv_finish": "f2a7683137ae0a3da339cc5c501934aff782a6ac81a2ae5e3c2088b3ae68542f",
+    "fold_transfer": "07bec896011689fdd41262649984f24baf85dbcc9313441d694f69b5366fa764"
+   },
+   "train": "r,c,d,norm",
+   "bits_components_after": {
+    "bits_sign": 400490496,
+    "bits_r": 15347712,
+    "bits_c": 2128896,
+    "bits_d": 1775616,
+    "bits_corr": 1798656
+   },
+   "train_s": 398.693297624588,
+   "s_per_step": 0.5387747265197135,
+   "grad_equiv_ok": true,
+   "compose_only_loss_rel": 0.0
+  },
+  {
+   "steps": 732,
+   "bits_after": 422229504,
+   "bpw_after": 1.179983688186813,
+   "trainable_params": 4174208,
+   "kl_heldout_before": 1.1636724948883057,
+   "top1_heldout_before": 0.479736328125,
+   "kl_heldout_after": 0.8539353281259536,
+   "top1_heldout_after": 0.5486328125,
+   "kl_insample_after": 0.24433253407478334,
+   "top1_insample_after": 0.7267578125,
+   "quick_kl_step0": 0.7952422201633453,
+   "label": "corr3",
+   "prediction": "qreg-t5-corr-3",
+   "exit": 0,
+   "out_json_sha256": "f21d29cb629e2e74f032a26202752d21d906e7ba53180111ae054395b6b0f459",
+   "script_sha256": {
+    "pv_finish": "1973f541aeb2aff13a56950e0ec4a428979eb93cbececf84d2f7736dfbc44c33",
+    "fold_transfer": "07bec896011689fdd41262649984f24baf85dbcc9313441d694f69b5366fa764"
+   },
+   "train": "r,c,d,norm,corr",
+   "bits_components_after": {
+    "bits_sign": 400490496,
+    "bits_r": 15347712,
+    "bits_c": 2128896,
+    "bits_d": 1775616,
+    "bits_corr": 1798656
+   },
+   "train_s": 399.53823375701904,
+   "s_per_step": 0.5458172592309003,
+   "grad_equiv_ok": true,
+   "compose_only_loss_rel": 0.0,
+   "corr": {
+    "planes": 48,
+    "k": 72,
+    "ranks": [
+     1,
+     2
+    ],
+    "bits_corr": 1798656,
+    "store_bits": 1798656,
+    "rel_mean": 0.10272304558505614,
+    "rel_max": 0.1520342379808426
+   }
+  }
+ ],
+ "kl_delta": 0.004806765913963229,
+ "top1_delta": -0.0010253906250000666,
+ "step_ratio": 0.9891891891891892
+}

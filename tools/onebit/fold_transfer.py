@@ -39,7 +39,7 @@ MODEL = "Qwen/Qwen2.5-0.5B"  # --model; GGUF_* above are 0.5B files, replaced by
 GRAM_DIR = "/home/socol/oc-tmp/gptq-w2/gram"
 CHUNK, GROUP = 512, 128
 # Pack sink (pv_finish.py): None leaves run_variant unchanged.  A dict receives, per linear (layer, kind), the planes whose
-# sum is the stored weight: [dict(S_rot, r, c, d, rgrid=(lo, span), rows)] (+ dict(dense=Corr) for an accepted corrector),
+# sum is the stored weight: [dict(S_rot, r, c, d, rgrid=(lo, span), rows)] (+ dict(dense=Corr, U, V) for an accepted corrector, Corr = U @ V the stored factors),
 # all on CPU; rows is None or the row indices a plane is added to.  PACK_STATS counts the per-linear reconstruction checks.
 PACK_SINK = None
 PACK_STATS = dict(equal=0, tol=0, max_rel=0.0)
@@ -556,8 +556,9 @@ def quant_r_hier(r):
     return best_r, 4 * O * G + 8 * O + 64
 
 
-def lowrank_corrector(DeltaW, Hl, rank, round_f16=True, u8_corr=False):
-    """Exact rank-k corrector in metric Hl (CostCorrespondence.orthogonal_corrector_attained)."""
+def lowrank_corrector(DeltaW, Hl, rank, round_f16=True, u8_corr=False, factors=False):
+    """Exact rank-k corrector in metric Hl (CostCorrespondence.orthogonal_corrector_attained).  factors=True appends the
+    stored factors (U, V) with Corr = U @ V, so a consumer can train the store itself rather than a re-factoring."""
     O, n = DeltaW.shape
     M = (DeltaW @ Hl) @ DeltaW.T
     evals, evecs = torch.linalg.eigh(0.5 * (M + M.T))
@@ -568,15 +569,16 @@ def lowrank_corrector(DeltaW, Hl, rank, round_f16=True, u8_corr=False):
         eye = torch.eye(rank, dtype=DeltaW.dtype, device=DeltaW.device) * 1e-6
         V = torch.linalg.solve(Uh.T @ Uh + eye, Uh.T @ DeltaW)
         Vh = torch.stack([quant_c_u8(V[k, :], bits=8)[0] for k in range(rank)], dim=0)
-        return Uh @ Vh, rank * (8 * (O + n) + 64), top_sum
+        out = (Uh @ Vh, rank * (8 * (O + n) + 64), top_sum)
+        return out + ((Uh, Vh),) if factors else out
     if round_f16:
         Uh = f16r(U)
         eye = torch.eye(rank, dtype=DeltaW.dtype, device=DeltaW.device) * 1e-6
         Vh = f16r(torch.linalg.solve(Uh.T @ Uh + eye, Uh.T @ DeltaW))
-        Corr = Uh @ Vh
     else:
-        Corr = U @ (U.T @ DeltaW)
-    return Corr, 16 * rank * (O + n), top_sum
+        Uh, Vh = U, U.T @ DeltaW
+    out = (Uh @ Vh, 16 * rank * (O + n), top_sum)
+    return out + ((Uh, Vh),) if factors else out
 
 
 def e8_icm_step(Ws, Hl, S_rot, r, c, d, sweeps=2, icm_ridge=0.0):
@@ -988,7 +990,7 @@ def _sink_store(l, nm, planes, Wl):
     out = []
     for p in planes:
         if "dense" in p:
-            out.append(dict(dense=p["dense"].cpu()))
+            out.append(dict(dense=p["dense"].cpu(), U=p["U"].cpu(), V=p["V"].cpu()))
         else:
             out.append(dict(S_rot=p["S_rot"].cpu(), r=p["r"].cpu(), c=p["c"].cpu(), d=p["d"].cpu(),
                             rgrid=(p["rgrid"][0].cpu(), p["rgrid"][1].cpu()),
@@ -1487,11 +1489,12 @@ def run_variant(cfg, TL, ids_cal, name, a):
                     if use_corr and nm in corr_targets:
                         rk = 2 if ((mlp_2plane_k896 or q_mlp_trans) and nm == "q") else (2 if (mlp_2plane_k896 and nm == "o") else 1)
                         Ws_corr = ((1.0 - a.corr_gamma) * W0_nm + a.corr_gamma * Ws_tik_nm) if zellner else Ws_nm
-                        Corr, b_corr, _ = lowrank_corrector(Ws_corr - Wp, Hl_m, rank=rk, round_f16=not bscale, u8_corr=bscale)
+                        Corr, b_corr, _, *fac = lowrank_corrector(Ws_corr - Wp, Hl_m, rank=rk, round_f16=not bscale, u8_corr=bscale,
+                                                                  factors=PACK_SINK is not None)
                         if J(Ws_corr, Wp + Corr, Hl_m) < J(Ws_corr, Wp, Hl_m):
                             Wp = Wp + Corr
                             if PACK_SINK is not None:
-                                sink_planes.append(dict(dense=Corr))
+                                sink_planes.append(dict(dense=Corr, U=fac[0][0], V=fac[0][1]))
                         ncorr += b_corr
                     if nm in ("q", "k", "v"):
                         db = (y_sum[nm] - (x_sum @ Wp.T)) / n_toks
