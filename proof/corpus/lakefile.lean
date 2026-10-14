@@ -92,6 +92,11 @@ lean_lib ApeironWordBridge where
     -- E8 codebook refinement (`Learn/E8Code.lean`): the extracted `learn_port.e8` codeword
     -- and nearest-codeword bodies against integer specifications over `ℤ`.
     `Learn.E8Code,
+    -- Exact-integer `src/learn/grad/dense.rs` refinement (`Learn/Grad/DenseLinearSpec.lean` is the
+    -- independent `ℤ`/`List ℤ` model; `Learn/Grad/DenseLinear.lean` refines the extracted
+    -- `linear_fwd` / `linear_bwd_input` / `linear_bwd_weight` against it; `DenseLinearWitness`
+    -- shows the admissible domain and every refusal arm are inhabited; `AxiomAudit` audits them).
+    `Learn.Grad.DenseLinearSpec, `Learn.Grad.DenseLinear, `Learn.Grad.DenseLinearWitness,
     `AxiomAudit, `Joint.WordBridge,
     `Iota.Audit.Empty,
     `Iota.Syntax, `Iota.Decode,
