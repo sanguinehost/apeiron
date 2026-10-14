@@ -776,6 +776,156 @@ def wallTotalS : ℚ := (135529423058033 : ℚ) / 250000000000
 
 end Receipts.w18_pvpre05
 
+-- Receipt `docs/evidence/receipts/onebit/w18-pvabnorm05.json`
+namespace Receipts.w18_pvabnorm05
+
+def sha256 : String := "8d686d765d689686e794fada6c06b78543750f4c84a465e5d48506df076f6614"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def trainGroups : String := "norm"
+def beforeMatchesReference : Bool := true
+def bitsEqual : Bool := true
+def codebookExact : Bool := true
+def dataDisjoint : Bool := true
+def params : ℕ := 357826560
+def bitsBefore : ℕ := 421541376
+def bitsAfter : ℕ := 421541376
+def steps : ℕ := 672
+def tokens : ℕ := 2752512
+def trainableParams : ℕ := 71552
+def vSteps : ℕ := 0
+def bitsR : ℕ := 15347712
+def bitsC : ℕ := 2128896
+def bitsD : ℕ := 1775616
+def klHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klHeldoutAfter : ℚ := (2151587349176407 : ℚ) / 2000000000000000
+def top1HeldoutBefore : ℚ := (1965 : ℚ) / 4096
+def top1HeldoutAfter : ℚ := (5031 : ℚ) / 10240
+def klInsampleBefore : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def klInsampleAfter : ℚ := (11146213114261627 : ℚ) / 50000000000000000
+def wallTotalS : ℚ := (676815011203289 : ℚ) / 1250000000000
+
+end Receipts.w18_pvabnorm05
+
+-- Receipt `docs/evidence/receipts/onebit/w18-pvabr05.json`
+namespace Receipts.w18_pvabr05
+
+def sha256 : String := "d041dafccaa27260e8a7c6a1c45d3805a929dcde3091d99a454b5bcf775460e3"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def trainGroups : String := "r"
+def beforeMatchesReference : Bool := true
+def bitsEqual : Bool := true
+def codebookExact : Bool := true
+def dataDisjoint : Bool := true
+def params : ℕ := 357826560
+def bitsBefore : ℕ := 421541376
+def bitsAfter : ℕ := 421541376
+def steps : ℕ := 630
+def tokens : ℕ := 2580480
+def trainableParams : ℕ := 3128832
+def vSteps : ℕ := 0
+def bitsR : ℕ := 15347712
+def bitsC : ℕ := 2128896
+def bitsD : ℕ := 1775616
+def klHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klHeldoutAfter : ℚ := (4545616865158081 : ℚ) / 5000000000000000
+def top1HeldoutBefore : ℚ := (1965 : ℚ) / 4096
+def top1HeldoutAfter : ℚ := (10977 : ℚ) / 20480
+def klInsampleBefore : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def klInsampleAfter : ℚ := (5787409096956253 : ℚ) / 25000000000000000
+def wallTotalS : ℚ := (5419671814441681 : ℚ) / 10000000000000
+
+end Receipts.w18_pvabr05
+
+-- Receipt `docs/evidence/receipts/onebit/w18-pvaball05v0.json`
+namespace Receipts.w18_pvaball05v0
+
+def sha256 : String := "be3e1d69dd950f5eaf61d11bcce72ec9e948aa7273030aa90c69f23f08a9427e"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def trainGroups : String := "c,d,norm,r"
+def beforeMatchesReference : Bool := true
+def bitsEqual : Bool := true
+def codebookExact : Bool := true
+def dataDisjoint : Bool := true
+def params : ℕ := 357826560
+def bitsBefore : ℕ := 421541376
+def bitsAfter : ℕ := 421541376
+def steps : ℕ := 529
+def tokens : ℕ := 2166784
+def trainableParams : ℕ := 3906944
+def vSteps : ℕ := 0
+def bitsR : ℕ := 15347712
+def bitsC : ℕ := 2128896
+def bitsD : ℕ := 1775616
+def klHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klHeldoutAfter : ℚ := (8823881775140763 : ℚ) / 10000000000000000
+def top1HeldoutBefore : ℚ := (1965 : ℚ) / 4096
+def top1HeldoutAfter : ℚ := (5547 : ℚ) / 10240
+def klInsampleBefore : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def klInsampleAfter : ℚ := (4757257103919983 : ℚ) / 20000000000000000
+def wallTotalS : ℚ := (5422433822154999 : ℚ) / 10000000000000
+
+end Receipts.w18_pvaball05v0
+
+-- Receipt `docs/evidence/receipts/onebit/w18-pvabrcd05.json`
+namespace Receipts.w18_pvabrcd05
+
+def sha256 : String := "3b5fed3c14d1e0b0499be99d540754ccdfd728a8720ff8224863e56f4bb26cd5"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def trainGroups : String := "c,d,r"
+def beforeMatchesReference : Bool := true
+def bitsEqual : Bool := true
+def codebookExact : Bool := true
+def dataDisjoint : Bool := true
+def params : ℕ := 357826560
+def bitsBefore : ℕ := 421541376
+def bitsAfter : ℕ := 421541376
+def steps : ℕ := 540
+def tokens : ℕ := 2211840
+def trainableParams : ℕ := 3835392
+def vSteps : ℕ := 0
+def bitsR : ℕ := 15347712
+def bitsC : ℕ := 2128896
+def bitsD : ℕ := 1775616
+def klHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klHeldoutAfter : ℚ := (4413561373949051 : ℚ) / 5000000000000000
+def top1HeldoutBefore : ℚ := (1965 : ℚ) / 4096
+def top1HeldoutAfter : ℚ := (11103 : ℚ) / 20480
+def klInsampleBefore : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def klInsampleAfter : ℚ := (946207445859909 : ℚ) / 4000000000000000
+def wallTotalS : ℚ := (541830962896347 : ℚ) / 1000000000000
+
+end Receipts.w18_pvabrcd05
+
+-- Receipt `docs/evidence/receipts/onebit/w18-pvabcd05.json`
+namespace Receipts.w18_pvabcd05
+
+def sha256 : String := "a0e01bfdbebd11e3577550c4a99cf49c9ab1a14582e337c1f140686a3bd36b57"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def trainGroups : String := "c,d"
+def beforeMatchesReference : Bool := true
+def bitsEqual : Bool := true
+def codebookExact : Bool := true
+def dataDisjoint : Bool := true
+def params : ℕ := 357826560
+def bitsBefore : ℕ := 421541376
+def bitsAfter : ℕ := 421541376
+def steps : ℕ := 548
+def tokens : ℕ := 2244608
+def trainableParams : ℕ := 706560
+def vSteps : ℕ := 0
+def bitsR : ℕ := 15347712
+def bitsC : ℕ := 2128896
+def bitsD : ℕ := 1775616
+def klHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klHeldoutAfter : ℚ := (370594402551651 : ℚ) / 400000000000000
+def top1HeldoutBefore : ℚ := (1965 : ℚ) / 4096
+def top1HeldoutAfter : ℚ := (5417 : ℚ) / 10240
+def klInsampleBefore : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def klInsampleAfter : ℚ := (23417298793792723 : ℚ) / 100000000000000000
+def wallTotalS : ℚ := (1355843756198883 : ℚ) / 2500000000000
+
+end Receipts.w18_pvabcd05
+
 -- Receipt `docs/evidence/receipts/onebit/2026-10-11-vladder.json`
 namespace Receipts.vladder_1011
 

@@ -238,4 +238,145 @@ theorem pv_code_moves_cost :
     norm_num [w18_pvobs05.klHeldoutAfter, w18_pvlam05.klHeldoutAfter, w18_pv05.klHeldoutAfter,
       w18_pvpre05.klHeldoutAfter, w18_pvste05.klHeldoutAfter]
 
+/-! ## Which tunables carry the drop (`pv_finish.py --train`, V-steps off) -/
+
+/-- The ablation runs are the same arm on the same protocol: the before-KL reproduces the reference, the stored bits
+are unchanged, no V-step ran, and every control passes. -/
+theorem pvab_same_arm :
+    w18_pvabnorm05.arm = w18_pv05.arm ∧ w18_pvabr05.arm = w18_pv05.arm ∧
+    w18_pvabnorm05.klHeldoutBefore = w18_pv05.klHeldoutBefore ∧
+    w18_pvabr05.klHeldoutBefore = w18_pv05.klHeldoutBefore ∧
+    w18_pvabnorm05.bitsAfter = w18_pv05.bitsBefore ∧ w18_pvabr05.bitsAfter = w18_pv05.bitsBefore ∧
+    w18_pvabnorm05.vSteps = 0 ∧ w18_pvabr05.vSteps = 0 ∧
+    w18_pvabnorm05.trainGroups = "norm" ∧ w18_pvabr05.trainGroups = "r" ∧
+    w18_pvabnorm05.beforeMatchesReference = true ∧ w18_pvabnorm05.bitsEqual = true ∧
+    w18_pvabnorm05.codebookExact = true ∧ w18_pvabnorm05.dataDisjoint = true ∧
+    w18_pvabr05.beforeMatchesReference = true ∧ w18_pvabr05.bitsEqual = true ∧
+    w18_pvabr05.codebookExact = true ∧ w18_pvabr05.dataDisjoint = true := by
+  refine ⟨rfl, rfl, ?_, ?_, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩ <;>
+    norm_num [w18_pvabnorm05.klHeldoutBefore, w18_pvabr05.klHeldoutBefore, w18_pv05.klHeldoutBefore]
+
+/-- **Prediction `pvabr05-1` confirmed; `pvabnorm05-1` refuted.** Training only the group scales `r` ends in
+`[0.90, 1.00]`, as predicted. Training only the norms and q/k/v biases ends above the predicted `1.07`, below the
+`1.12` falsifier. -/
+theorem pvab_predictions :
+    (90 / 100 : ℚ) ≤ w18_pvabr05.klHeldoutAfter ∧ w18_pvabr05.klHeldoutAfter ≤ 1 ∧
+    (107 / 100 : ℚ) < w18_pvabnorm05.klHeldoutAfter ∧ w18_pvabnorm05.klHeldoutAfter < 112 / 100 := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;> norm_num [w18_pvabr05.klHeldoutAfter, w18_pvabnorm05.klHeldoutAfter]
+
+/-- **The share of `r` against the V-step runs.** `r` alone removes over nine tenths of the three all-group runs' mean
+drop (`pv_scales_carry_gain`); the norms and biases alone remove under a third of it. Not exclusive:
+`pvab_scales_substitute` shows the column scales alone reach over eight tenths too. -/
+theorem pvab_r_share :
+    (9 / 10 : ℚ) * (w18_pv05.klHeldoutBefore -
+        (w18_pv05.klHeldoutAfter + w18_pvobs05.klHeldoutAfter + w18_pvlam05.klHeldoutAfter) / 3) <
+      w18_pvabr05.klHeldoutBefore - w18_pvabr05.klHeldoutAfter ∧
+    3 * (w18_pvabnorm05.klHeldoutBefore - w18_pvabnorm05.klHeldoutAfter) <
+      w18_pv05.klHeldoutBefore -
+        (w18_pv05.klHeldoutAfter + w18_pvobs05.klHeldoutAfter + w18_pvlam05.klHeldoutAfter) / 3 := by
+  refine ⟨?_, ?_⟩ <;>
+    norm_num [w18_pv05.klHeldoutBefore, w18_pv05.klHeldoutAfter, w18_pvobs05.klHeldoutAfter,
+      w18_pvlam05.klHeldoutAfter, w18_pvabr05.klHeldoutBefore, w18_pvabr05.klHeldoutAfter,
+      w18_pvabnorm05.klHeldoutBefore, w18_pvabnorm05.klHeldoutAfter]
+
+/-- **The two groups overlap.** The norm-only and `r`-only drops sum to more than the all-group mean drop, so part of
+what each fixes the other also fixes: a norm gain and a row of `r` both rescale a row's output. -/
+theorem pvab_groups_overlap :
+    w18_pv05.klHeldoutBefore -
+        (w18_pv05.klHeldoutAfter + w18_pvobs05.klHeldoutAfter + w18_pvlam05.klHeldoutAfter) / 3 <
+      (w18_pvabnorm05.klHeldoutBefore - w18_pvabnorm05.klHeldoutAfter) +
+        (w18_pvabr05.klHeldoutBefore - w18_pvabr05.klHeldoutAfter) := by
+  norm_num [w18_pv05.klHeldoutBefore, w18_pv05.klHeldoutAfter, w18_pvobs05.klHeldoutAfter,
+    w18_pvlam05.klHeldoutAfter, w18_pvabr05.klHeldoutBefore, w18_pvabr05.klHeldoutAfter,
+    w18_pvabnorm05.klHeldoutBefore, w18_pvabnorm05.klHeldoutAfter]
+
+/-- **The ablation runs saw more tokens.** With V-steps off, each ablation run took over 13/10 the steps of every
+all-group run in the same wall-clock box (`tokens = 4096 · steps` in all five). The all-group run without V-steps
+(`w18-pvaball05v0`) is the matched denominator. -/
+theorem pvab_more_steps :
+    w18_pvabr05.tokens = 4096 * w18_pvabr05.steps ∧ w18_pvabnorm05.tokens = 4096 * w18_pvabnorm05.steps ∧
+    13 * w18_pvobs05.steps < 10 * w18_pvabr05.steps ∧ 13 * w18_pvobs05.steps < 10 * w18_pvabnorm05.steps ∧
+    w18_pv05.steps < w18_pvobs05.steps ∧ w18_pvlam05.steps < w18_pvobs05.steps := by
+  refine ⟨rfl, rfl, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvabr05.steps, w18_pvabnorm05.steps, w18_pvobs05.steps, w18_pv05.steps, w18_pvlam05.steps]
+
+/-- The matched denominator is the same arm on the same protocol: every group trains, no V-step runs, the stored bits
+are unchanged and every control passes. -/
+theorem pvab_matched_same_arm :
+    w18_pvaball05v0.arm = w18_pv05.arm ∧ w18_pvaball05v0.trainGroups = "c,d,norm,r" ∧
+    w18_pvaball05v0.klHeldoutBefore = w18_pv05.klHeldoutBefore ∧
+    w18_pvaball05v0.bitsAfter = w18_pv05.bitsBefore ∧ w18_pvaball05v0.vSteps = 0 ∧
+    w18_pvaball05v0.tokens = 4096 * w18_pvaball05v0.steps ∧
+    w18_pvaball05v0.beforeMatchesReference = true ∧ w18_pvaball05v0.bitsEqual = true ∧
+    w18_pvaball05v0.codebookExact = true ∧ w18_pvaball05v0.dataDisjoint = true := by
+  refine ⟨rfl, rfl, ?_, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  norm_num [w18_pvaball05v0.klHeldoutBefore, w18_pv05.klHeldoutBefore]
+
+/-- **Prediction `pvaball05v0-1` confirmed, and V-steps off is the best finishing run.** Every group with no V-step ends
+in `[0.85, 0.90]` and below each of the three all-group runs that paused for V-steps; it took more steps than any of
+them in the same wall-clock box. One run: the margin under the best of them, `0.8906`, is above their spread `0.0075`
+and under three times it. -/
+theorem pvab_matched_best :
+    (85 / 100 : ℚ) ≤ w18_pvaball05v0.klHeldoutAfter ∧ w18_pvaball05v0.klHeldoutAfter ≤ 90 / 100 ∧
+    w18_pvaball05v0.klHeldoutAfter < w18_pvobs05.klHeldoutAfter ∧
+    w18_pvaball05v0.klHeldoutAfter < w18_pvlam05.klHeldoutAfter ∧
+    w18_pvaball05v0.klHeldoutAfter < w18_pv05.klHeldoutAfter ∧
+    w18_pvobs05.steps < w18_pvaball05v0.steps := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvaball05v0.klHeldoutAfter, w18_pvobs05.klHeldoutAfter, w18_pvlam05.klHeldoutAfter,
+      w18_pv05.klHeldoutAfter, w18_pvobs05.steps, w18_pvaball05v0.steps]
+
+/-- **The share of `r` against the matched denominator.** With V-steps off in every run, `r` alone removes over nine
+tenths of the all-group drop and the norms alone under a third; the two single-group drops sum past it, so they
+overlap. Matched in wall clock, not in tokens: the single-group runs step faster and took more steps. -/
+theorem pvab_matched_r_share :
+    (9 / 10 : ℚ) * (w18_pvaball05v0.klHeldoutBefore - w18_pvaball05v0.klHeldoutAfter) <
+      w18_pvabr05.klHeldoutBefore - w18_pvabr05.klHeldoutAfter ∧
+    3 * (w18_pvabnorm05.klHeldoutBefore - w18_pvabnorm05.klHeldoutAfter) <
+      w18_pvaball05v0.klHeldoutBefore - w18_pvaball05v0.klHeldoutAfter ∧
+    w18_pvaball05v0.klHeldoutBefore - w18_pvaball05v0.klHeldoutAfter <
+      (w18_pvabnorm05.klHeldoutBefore - w18_pvabnorm05.klHeldoutAfter) +
+        (w18_pvabr05.klHeldoutBefore - w18_pvabr05.klHeldoutAfter) ∧
+    w18_pvaball05v0.steps < w18_pvabr05.steps ∧ w18_pvabr05.steps < w18_pvabnorm05.steps := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvaball05v0.klHeldoutBefore, w18_pvaball05v0.klHeldoutAfter, w18_pvabr05.klHeldoutBefore,
+      w18_pvabr05.klHeldoutAfter, w18_pvabnorm05.klHeldoutBefore, w18_pvabnorm05.klHeldoutAfter,
+      w18_pvaball05v0.steps, w18_pvabr05.steps, w18_pvabnorm05.steps]
+
+/-- **Prediction `pvabrcd05-1` confirmed: the norms add nothing once the stored scales train.** `r, c, d` with the norms
+frozen ends in `[0.86, 0.92]`, within `1/1000` of the all-group run, on the same arm and controls. -/
+theorem pvab_rcd_equals_all :
+    w18_pvabrcd05.arm = w18_pv05.arm ∧ w18_pvabrcd05.trainGroups = "c,d,r" ∧ w18_pvabrcd05.vSteps = 0 ∧
+    w18_pvabrcd05.bitsAfter = w18_pv05.bitsBefore ∧
+    w18_pvabrcd05.beforeMatchesReference = true ∧ w18_pvabrcd05.bitsEqual = true ∧
+    w18_pvabrcd05.codebookExact = true ∧ w18_pvabrcd05.dataDisjoint = true ∧
+    (86 / 100 : ℚ) ≤ w18_pvabrcd05.klHeldoutAfter ∧ w18_pvabrcd05.klHeldoutAfter ≤ 92 / 100 ∧
+    |w18_pvabrcd05.klHeldoutAfter - w18_pvaball05v0.klHeldoutAfter| < 1 / 1000 := by
+  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, ?_, ?_, ?_⟩
+  · norm_num [w18_pvabrcd05.klHeldoutAfter]
+  · norm_num [w18_pvabrcd05.klHeldoutAfter]
+  · rw [abs_lt]; constructor <;> norm_num [w18_pvabrcd05.klHeldoutAfter, w18_pvaball05v0.klHeldoutAfter]
+
+/-- **Prediction `pvabcd05-1` refuted: the scale groups substitute for each other.** The per-column scales `c, d` alone
+(706,560 latents, under a quarter of `r`'s 3,128,832) end at or below the `0.95` falsifier and remove over eight tenths
+of the joint `r, c, d` drop; `r` alone removes over nine tenths. The two single-group drops sum past 17/10 of the joint
+drop: a per-row block scale and a per-column scale both rescale the same stored weight, and either recovers most of
+the gain. Same arm and controls. -/
+theorem pvab_scales_substitute :
+    w18_pvabcd05.arm = w18_pv05.arm ∧ w18_pvabcd05.trainGroups = "c,d" ∧ w18_pvabcd05.vSteps = 0 ∧
+    w18_pvabcd05.bitsAfter = w18_pv05.bitsBefore ∧
+    w18_pvabcd05.beforeMatchesReference = true ∧ w18_pvabcd05.bitsEqual = true ∧
+    w18_pvabcd05.codebookExact = true ∧ w18_pvabcd05.dataDisjoint = true ∧
+    w18_pvabcd05.klHeldoutAfter ≤ 95 / 100 ∧
+    (8 / 10 : ℚ) * (w18_pvabrcd05.klHeldoutBefore - w18_pvabrcd05.klHeldoutAfter) <
+      w18_pvabcd05.klHeldoutBefore - w18_pvabcd05.klHeldoutAfter ∧
+    (9 / 10 : ℚ) * (w18_pvabrcd05.klHeldoutBefore - w18_pvabrcd05.klHeldoutAfter) <
+      w18_pvabr05.klHeldoutBefore - w18_pvabr05.klHeldoutAfter ∧
+    (17 / 10 : ℚ) * (w18_pvabrcd05.klHeldoutBefore - w18_pvabrcd05.klHeldoutAfter) <
+      (w18_pvabcd05.klHeldoutBefore - w18_pvabcd05.klHeldoutAfter) +
+        (w18_pvabr05.klHeldoutBefore - w18_pvabr05.klHeldoutAfter) := by
+  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvabcd05.klHeldoutAfter, w18_pvabcd05.klHeldoutBefore, w18_pvabrcd05.klHeldoutBefore,
+      w18_pvabrcd05.klHeldoutAfter, w18_pvabr05.klHeldoutBefore, w18_pvabr05.klHeldoutAfter]
+
 end Perf.PVFinish

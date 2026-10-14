@@ -71,7 +71,15 @@ W15 = {
     "w18_pvlam05": "docs/evidence/receipts/onebit/w18-pvlam05.json",
     "w18_pvste05": "docs/evidence/receipts/onebit/w18-pvste05.json",
     "w18_pvpre05": "docs/evidence/receipts/onebit/w18-pvpre05.json",
+    "w18_pvabnorm05": "docs/evidence/receipts/onebit/w18-pvabnorm05.json",
+    "w18_pvabr05": "docs/evidence/receipts/onebit/w18-pvabr05.json",
+    "w18_pvaball05v0": "docs/evidence/receipts/onebit/w18-pvaball05v0.json",
+    "w18_pvabrcd05": "docs/evidence/receipts/onebit/w18-pvabrcd05.json",
+    "w18_pvabcd05": "docs/evidence/receipts/onebit/w18-pvabcd05.json",
 }
+
+# Scale-group ablation of the finishing drop (pv_finish.py --train, V-steps off): namespace -> trained groups.
+PVAB_GROUPS = {"w18_pvabnorm05": ["norm"], "w18_pvabr05": ["r"], "w18_pvaball05v0": ["c", "d", "norm", "r"], "w18_pvabrcd05": ["c", "d", "r"], "w18_pvabcd05": ["c", "d"]}
 
 OUTCOME_ARMS = [("teacher", "teacher"), ("q4km", "q4km"), ("resq", RESQ_ARM)]
 OUTCOME_RAT = [("C4Ppl", "c4_ppl"), ("Wt2Ppl", "wt2_ppl"), ("ArcAcc", "arc_acc"), ("ArcAccNorm", "arc_acc_norm"),
@@ -597,6 +605,40 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
         out.append(("nat", "bitsSign", nat(bc["bits_sign"])))
         out.append(("nat", "bitsScales", nat(bc["bits_r"] + bc["bits_c"] + bc["bits_d"])))
         out.append(("nat", "bitsCorr", nat(bc["bits_corr"])))
+        for name, k in [("klHeldoutBefore", "kl_heldout_before"), ("klHeldoutAfter", "kl_heldout_after"),
+                        ("top1HeldoutBefore", "top1_heldout_before"), ("top1HeldoutAfter", "top1_heldout_after"),
+                        ("klInsampleBefore", "kl_insample_before"), ("klInsampleAfter", "kl_insample_after")]:
+            out.append(("rat", name, rat(data[k])))
+        out.append(("rat", "wallTotalS", rat(data["walls"]["total_s"])))
+    elif ns in PVAB_GROUPS:
+        # Finishing with only a subset of the zero-bit-cost tunables trained (pv_finish.py --train): r = group scales,
+        # c, d = column scales, norm = norms and q/k/v biases. Codes are fixed: V-steps off, no straight-through codes.
+        if data["codes"] != "vstep" or data["args"]["v_every"] != 0 or data["v_steps"]:
+            raise Fail(f"{rel}: V-steps ran, or the codes were trained")
+        if data["train_groups"] != PVAB_GROUPS[ns]:
+            raise Fail(f"{rel}: trained groups {data['train_groups']} are not {PVAB_GROUPS[ns]}")
+        if data["arm"] != RESQ_ARM or data["n_cal"] != 50 or data["eval_chunks"] != [50, 90] or data["insample_chunks"] != [0, 20]:
+            raise Fail(f"{rel}: not the arm on the n-cal 50 / held-out [50, 90) protocol")
+        c = data["controls"]
+        if c["pack_equality"]["torch_equal"] != c["pack_equality"]["linears"]:
+            raise Fail(f"{rel}: pack sink does not reconstruct every linear")
+        if c["quantized_eval_equality"]["linears_not_equal"] != 0 or c["data_disjoint"]["overlap"] != 0:
+            raise Fail(f"{rel}: eval weights are not the stored code, or train overlaps calibration")
+        bc = data["bits_components"]
+        if bc != data["bits_components_after"] or sum(bc.values()) != data["bits_before"]:
+            raise Fail(f"{rel}: bit components changed or do not sum to the stored bits")
+        out.append(("str", "arm", RESQ_ARM))
+        out.append(("str", "trainGroups", ",".join(data["train_groups"])))
+        out.append(("bool", "beforeMatchesReference", bool_value(c["before_kl_regression"]["ok"], ns)))
+        out.append(("bool", "bitsEqual", bool_value(c["bits_equal"]["ok"], ns)))
+        out.append(("bool", "codebookExact", bool_value(c["codebook_match"]["ok"], ns)))
+        out.append(("bool", "dataDisjoint", bool_value(c["data_disjoint"]["ok"], ns)))
+        for name, k in [("params", "params"), ("bitsBefore", "bits_before"), ("bitsAfter", "bits_after"),
+                        ("steps", "steps"), ("tokens", "tokens"), ("trainableParams", "trainable_params")]:
+            out.append(("nat", name, nat(data[k])))
+        out.append(("nat", "vSteps", nat(len(data["v_steps"]))))
+        for name, k in [("bitsR", "bits_r"), ("bitsC", "bits_c"), ("bitsD", "bits_d")]:
+            out.append(("nat", name, nat(bc[k])))
         for name, k in [("klHeldoutBefore", "kl_heldout_before"), ("klHeldoutAfter", "kl_heldout_after"),
                         ("top1HeldoutBefore", "top1_heldout_before"), ("top1HeldoutAfter", "top1_heldout_after"),
                         ("klInsampleBefore", "kl_insample_before"), ("klInsampleAfter", "kl_insample_after")]:

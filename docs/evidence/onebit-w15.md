@@ -1338,8 +1338,58 @@ which reports Llama-2 7B at 1.58 b/w within 1.43× of fp16 perplexity).
   post-training code on this model at 1.18 b/w at 16.9× Q4_K_M's KL with separable per-tensor water-filling and 6.6×
   with oracle variances (`model`: K-FAC quadratic KL, Gaussian rate; a different KL estimator from the measured
   held-out KL). The separable factor falls to 3.78× at Qwen3-32B. Next: re-allocate the arm's planes across the 168
-  tensors by K-FAC water-filling at the same mean 1.178 b/w, then finish the scales on that arm.
+  tensors by K-FAC water-filling at the same mean 1.178 b/w, then finish the scales on that arm. (Superseded by the
+  ablation below; within-kind row reallocation was refuted, `w18_rowsel_resid_refuted`.)
 - Board row for this run: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
+### Which tunables carry the drop (`measured`; `Perf/PVFinish.lean`)
+
+- Method: `pv_finish.py --train <groups> --v-every 0` (sha256 `48ababac…`). Unselected groups are frozen. The groups
+  are `r` (per-(row, 128-block) scales, 3,128,832 latents through each row's frozen 16-level grid, 15,347,712 stored
+  bits), `c` and `d` (per-column scales, 6 and 5 bits), and `norm` (RMSNorm gains and q/k/v biases, 71,552 parameters,
+  zero stored bits). Every run fits the same 580 s box: same arm, before-KL exact, bits unchanged, all controls pass.
+
+| receipt | groups | V-steps | steps | tokens | held-out KL | top-1 | in-sample |
+|---|---|---|---:|---:|---:|---:|---:|
+| before | — | — | 0 | 0 | 1.1637 | 0.480 | 0.2224 |
+| `w18-pv05` / `pvobs05` / `pvlam05` | r,c,d,norm | every 25 | 432–450 | 1.77–1.84M | 0.8981 / 0.8906 / 0.8948 | — | 0.238–0.242 |
+| `w18-pvaball05v0` | r,c,d,norm | off | 529 | 2.17M | **0.8824** | 0.542 | 0.2379 |
+| `w18-pvabrcd05` | r,c,d | off | 540 | 2.21M | 0.8827 | 0.542 | 0.2366 |
+| `w18-pvabcd05` | c,d | off | 548 | 2.24M | 0.9265 | 0.529 | 0.2342 |
+| `w18-pvabr05` | r | off | 630 | 2.58M | 0.9091 | 0.536 | 0.2315 |
+| `w18-pvabnorm05` | norm | off | 672 | 2.75M | 1.0758 | 0.491 | 0.2229 |
+
+- V-steps off is the best finishing run: 0.8824, below each of the three V-step runs (`pvab_matched_best`). Without
+  pauses for V-step scoring it took 529 steps against 432–450. One run; the margin under the best V-step run (0.0082)
+  exceeds their spread (0.0075) and is under three times it.
+- The scale groups substitute for each other. Against the joint `r, c, d` drop (0.2810), `r` alone removes 0.2546
+  (over 9/10) and the column scales `c, d` alone remove 0.2372 (over 8/10) with 706,560 latents, under a quarter of
+  `r`'s. The two single-group drops sum past 17/10 of the joint drop (`pvab_scales_substitute`). A per-(row, block)
+  scale and a per-column scale both rescale the same stored weight, and either one recovers most of the gain.
+- The norms add least: alone they remove 0.0879, under 1/3 of the all-group drop (`pvab_matched_r_share`), and once
+  the stored scales train they add nothing: `r, c, d` with the norms frozen ends at 0.8827, within 1/1000 of the
+  all-group run (`pvab_rcd_equals_all`).
+- The match is in wall clock, not in tokens: single-group steps are cheaper, so `r` took 630 steps and the norms 672,
+  against 529–548 for the multi-group runs.
+- Predictions: `pvaball05v0-1` ([0.85, 0.90]), `pvabrcd05-1` ([0.86, 0.92]) and `pvabr05-1` ([0.90, 1.00]) confirmed;
+  `pvabnorm05-1` ([0.95, 1.07]) refuted at 1.0758, below its 1.12 falsifier (`pvab_predictions`); `pvabcd05-1`
+  ([0.98, 1.12]) refuted at 0.9265, past its 0.95 falsifier.
+- Controls: tightening `pvab_predictions` 0.90 → 0.92, `pvab_matched_r_share` 9/10 → 91/100, `pvab_rcd_equals_all`
+  1/1000 → 1/10000 and `pvab_scales_substitute` 8/10 → 85/100 each fails; axioms `{propext, Classical.choice,
+  Quot.sound}` for all ten `pvab_*` theorems.
+- Reading (`measured`, one run per group, 2.2–2.8M tokens): the scale family reaches about 0.88 by any route that
+  includes `r` or `c, d`, and adding the other groups moves it by 0.03 to 0.05. The finishing gain is a gain
+  correction of the stored weights, low-dimensional enough that 706,560 column scales capture over 8/10 of it. What
+  separates 0.88 from Q4_K_M's 0.0184 on these chunks lies outside what any measured scale group has moved.
+- Structure: `r` is trained as `r0 · exp(pa)` and quantized onto the row's 16-level grid `lo + k/15 · sp`, which is fixed
+  at the arm's values. The straight-through estimator passes gradient where the clamp saturates, so a latent can move
+  past its grid with no effect on the weight. `fold_transfer.quant_r_hier` stores `4·O·G + 8·O + 64` bits for any grid
+  it chooses (a 6-bit row mean index, a 2-bit spread index, four fp16 plane constants), so choosing the grid again from
+  the trained latents costs zero bits.
+- Decision: run the zero-bit grid re-selection (`pv_finish.py --regrid N`) against `w18-pvaball05v0` as the last
+  scale-side lever, and the token-scaling points (146 and 292 steps) to read the slope at 529. The larger move is on the
+  code side, where the arm's bits are: 400,490,496 of its 421,541,376 are sign bits.
+- Board row for these runs: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
 Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 

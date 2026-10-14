@@ -281,10 +281,15 @@ def main():
     ap.add_argument("--code-opt", choices=("adam", "nsgd"), default="adam")
     ap.add_argument("--code-kinds", default="all", help="comma list of linear kinds whose codes train under --codes ste")
     ap.add_argument("--rec-every", type=int, default=25)
+    ap.add_argument("--train", default="r,c,d,norm",
+                    help="comma subset of r (pa), c (pb), d (pd), norm (zero-bit d_* tunables and d_fn); unselected tensors are frozen")
     a = ap.parse_args()
+    train_set = set(a.train.split(","))
+    assert train_set and train_set <= {"r", "c", "d", "norm"}, a.train
     LAMS = tuple(float(x) for x in a.obs_lams.split(","))
     if a.smoke:
-        a.n_cal, a.n_eval, a.n_in, a.steps, a.batch, a.v_every = 8, 8, 8, 20, 2, 10
+        a.n_cal, a.n_eval, a.n_in, a.steps, a.batch = 8, 8, 8, 20, 2
+        a.v_every = 10 if a.v_every else 0  # an explicit --v-every 0 stays off in smoke
         a.rec_every = 5
     res = dict(script_sha256=dict(pv_finish=sha_file(__file__), fold_transfer=sha_file(ft.__file__)), arm=ARM, args=vars(a),
                protocol="pack sink -> codes (E8/O8 index per 8-block) -> P-step Adam (STE) + V-step linearised code moves, KL(teacher||student)"
@@ -491,10 +496,24 @@ def main():
     used_hashes = set()
 
     # ---- optimiser
-    lat = [t for pl in PL for nm in KINDS for p in pl[nm] if p.dense is None for t in p.params()]
-    norm = [t["d_" + k] for t in tun for k in ("ln1", "ln2", "qb", "kb", "vb")] + [d_fn]
+    lat_keyed = [(k, t) for pl in PL for nm in KINDS for p in pl[nm] if p.dense is None
+                 for k, t in zip(("r", "c", "d"), p.params())]
+    norm_all = [t["d_" + k] for t in tun for k in ("ln1", "ln2", "qb", "kb", "vb")] + [d_fn]
+    for k, t in lat_keyed:
+        if k not in train_set:
+            t.requires_grad_(False)
+    if "norm" not in train_set:
+        for t in norm_all:
+            t.requires_grad_(False)
+    lat = [t for k, t in lat_keyed if k in train_set]
+    norm = norm_all if "norm" in train_set else []
     coded = [(li, nm, p) for li in range(cfg.nl) for nm in KINDS for p in PL[li][nm] if p.dense is None and p.idx is not None]
-    groups, base_lr = [dict(params=lat, lr=a.lr_lat), dict(params=norm, lr=a.lr_norm)], [a.lr_lat, a.lr_norm]
+    groups, base_lr = [], []
+    if lat:
+        groups.append(dict(params=lat, lr=a.lr_lat)); base_lr.append(a.lr_lat)
+    if norm:
+        groups.append(dict(params=norm, lr=a.lr_norm)); base_lr.append(a.lr_norm)
+    assert groups, "--train selected no tensor"
     ste = a.codes == "ste"
     code_kinds = list(KINDS) if a.code_kinds == "all" else a.code_kinds.split(",")
     ste_planes = []
@@ -559,6 +578,8 @@ def main():
             base_lr.append(a.lr_code)
         print(f"ste: {len(ste_planes)} coded planes, {res['code_blocks']} blocks, kinds {code_kinds}, lr_code {a.lr_code}", flush=True)
     opt = torch.optim.Adam(groups, fused=True)
+    res.update(train_groups=sorted(train_set), trainable_params=sum(t.numel() for g in groups for t in g["params"]))
+    print(f"train {sorted(train_set)}: {res['trainable_params']} scalar params in {len(groups)} groups", flush=True)
     code_changes = []
 
     def rec_codes(step_, loss_):
