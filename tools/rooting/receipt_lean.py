@@ -29,6 +29,7 @@ LEDGER = "docs/evidence/ledger.jsonl"
 OUT = "proof/corpus/Perf/Receipts/Onebit.lean"
 
 T3_ARM = "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp-nb"
+RESQ_ARM = "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
 T0B_ARM = "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm"
 T0_ARM = "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp"
 
@@ -36,6 +37,7 @@ T0_ARM = "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp"
 RECEIPTS = {
     "t3_nb_3seed": ("docs/evidence/receipts/onebit/t3-nb-3seed.json", T3_ARM),
     "w18_rowsel_resid_3seed": ("docs/evidence/receipts/onebit/w18-rowsel-resid-3seed.json", T3_ARM),
+    "w18_resq_3seed": ("docs/evidence/receipts/onebit/w18-resq-3seed.json", RESQ_ARM),
     "t0b_sinkfnorm_3seed": ("docs/evidence/receipts/onebit/t0b-sinkfnorm-3seed.json", T0B_ARM),
     "t0_best_3seed": ("docs/evidence/receipts/onebit/t0-best-3seed.json", T0_ARM),
     "t6_sideinfo": ("docs/evidence/receipts/onebit/t6-sideinfo.json", None),

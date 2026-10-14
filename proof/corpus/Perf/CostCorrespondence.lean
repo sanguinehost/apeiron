@@ -1471,5 +1471,41 @@ theorem w18_rowsel_resid_refuted :
       Receipts.w18_rowsel_resid_3seed.klInsample2, Receipts.t3_nb_3seed.klInsample0,
       Receipts.t3_nb_3seed.klInsample1, Receipts.t3_nb_3seed.klInsample2]
 
+/-! ## 30 · W18 receipt: row multipliers folded into the stored hierarchical row scale -/
+/-- **Verdict: absorbing the `-res` row multipliers into the stored row scale costs no bits and no KL
+(`w18_resq_absorbed`).** The `-res` arm multiplies each intermediate row of the up projection by a continuous
+`s_sol` (clamped to `[0.5, 2]`), which is not on the grid of `quant_r_hier`; storing it separately costs
+`4864 * 24 * 16` bits at f16 (`4864` intermediate rows, `24` layers). The `-resq` arm re-quantises
+`r * s_sol` through `quant_r_hier` instead. Receipts: `Receipts.w18_resq_3seed` and `Receipts.t3_nb_3seed`.
+Prediction `w18-resq-live-1`: paired held-out KL difference in `[-0.004, +0.002]`, bits unchanged. Clauses:
+(a) accounted bits and the row-scale bits equal the baseline's; (b) the baseline budget (`bits + 98112` index bits) is
+within `1.18` b/w; (c) explicit f16 multipliers on top of it exceed `1.18` b/w; (d) the paired mean lies in the
+predicted band; (e) the in-sample mean is no higher than the baseline's. -/
+theorem w18_resq_absorbed :
+    Receipts.w18_resq_3seed.bits = Receipts.t3_nb_3seed.bits ∧
+    Receipts.w18_resq_3seed.bitsR = Receipts.t3_nb_3seed.bitsR ∧
+    ((Receipts.t3_nb_3seed.bits + 98112 : ℕ) : ℚ) / (Receipts.t3_nb_3seed.params : ℚ) ≤ 118 / 100 ∧
+    118 / 100 < ((Receipts.t3_nb_3seed.bits + 98112 + 4864 * 24 * 16 : ℕ) : ℚ) / (Receipts.t3_nb_3seed.params : ℚ) ∧
+    -4 / 1000 ≤ Receipts.w18_resq_3seed.klHeldoutMean - Receipts.t3_nb_3seed.klHeldoutMean ∧
+    Receipts.w18_resq_3seed.klHeldoutMean - Receipts.t3_nb_3seed.klHeldoutMean ≤ 2 / 1000 ∧
+    Receipts.w18_resq_3seed.klInsampleMean ≤ Receipts.t3_nb_3seed.klInsampleMean := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · norm_num [Receipts.w18_resq_3seed.bits, Receipts.t3_nb_3seed.bits]
+  · norm_num [Receipts.w18_resq_3seed.bitsR, Receipts.t3_nb_3seed.bitsR]
+  · norm_num [Receipts.t3_nb_3seed.bits, Receipts.t3_nb_3seed.params]
+  · norm_num [Receipts.t3_nb_3seed.bits, Receipts.t3_nb_3seed.params]
+  · norm_num [Receipts.w18_resq_3seed.klHeldoutMean, Receipts.t3_nb_3seed.klHeldoutMean,
+      Receipts.w18_resq_3seed.klHeldout0, Receipts.w18_resq_3seed.klHeldout1,
+      Receipts.w18_resq_3seed.klHeldout2, Receipts.t3_nb_3seed.klHeldout0,
+      Receipts.t3_nb_3seed.klHeldout1, Receipts.t3_nb_3seed.klHeldout2]
+  · norm_num [Receipts.w18_resq_3seed.klHeldoutMean, Receipts.t3_nb_3seed.klHeldoutMean,
+      Receipts.w18_resq_3seed.klHeldout0, Receipts.w18_resq_3seed.klHeldout1,
+      Receipts.w18_resq_3seed.klHeldout2, Receipts.t3_nb_3seed.klHeldout0,
+      Receipts.t3_nb_3seed.klHeldout1, Receipts.t3_nb_3seed.klHeldout2]
+  · norm_num [Receipts.w18_resq_3seed.klInsampleMean, Receipts.t3_nb_3seed.klInsampleMean,
+      Receipts.w18_resq_3seed.klInsample0, Receipts.w18_resq_3seed.klInsample1,
+      Receipts.w18_resq_3seed.klInsample2, Receipts.t3_nb_3seed.klInsample0,
+      Receipts.t3_nb_3seed.klInsample1, Receipts.t3_nb_3seed.klInsample2]
+
 end CostCorrespondence
 end Perf

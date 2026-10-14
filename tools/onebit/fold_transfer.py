@@ -948,7 +948,8 @@ def run_variant(cfg, TL, ids_cal, name, a):
                  "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-asym-qmlp",
                  "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-align-asym-qmlp",
                  "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-skew-qmlp",
-                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp-nb")
+                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp-nb",
+                 "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb")
     split_intra_inter = name in ("had-fold-2plane-gqa-split", "had-fold-2plane-gqa-split-corr", "had-fold-2plane-attn-rk2-split",
                                  "had-fold-2plane-attn-bscale-split", "had-fold-2plane-attn-bscale-split-bgptq",
                                  "had-fold-2plane-attn-bscale-hpre", "had-fold-2plane-attn-rk2-hpre",
@@ -988,6 +989,7 @@ def run_variant(cfg, TL, ids_cal, name, a):
     rrr_mode = name == "had-fold-2plane-attn-rrr"
     use_grow = "-grow" in name
     use_res = "-res" in name
+    use_resq = "-resq" in name
     use_align = "-align" in name
     use_asym = "-asym" in name
     use_skew = "-skew" in name
@@ -1218,6 +1220,7 @@ def run_variant(cfg, TL, ids_cal, name, a):
                         two_plane_nm = ("q", "k", "v", "o")
                     else:
                         two_plane_nm = ("k", "v")
+                    pk2_top = None; top_sel = None
                     if nm in two_plane_nm:
                         Wp2, info2 = fold_fit(Ws_nm - Wp1, Hm, fit_iters, rg_q, **fk)
                         if backfit_2plane:
@@ -1245,6 +1248,7 @@ def run_variant(cfg, TL, ids_cal, name, a):
                             Wp2_top, info2 = fold_fit(Ws_top, Hm, fit_iters, rg_q, **fk_top)
                             Wp = Wp1.clone()
                             Wp[top_idx] += Wp2_top
+                            pk2_top = info2["pack"]; top_sel = top_idx
                             nsign += k_rows * n; nr += info2["bits_r"]; nc += info2["bits_c"]; nd += info2.get("bits_d", 0)
                         else:
                             Wp = Wp1
@@ -1313,7 +1317,18 @@ def run_variant(cfg, TL, ids_cal, name, a):
                         rhs += lam * ones
                         s_sol = torch.linalg.solve(GoP, rhs)[:, 0]
                         s_sol = s_sol.clamp(0.5, 2.0)
-                        Wp = Wp * s_sol[:, None]
+                        if use_resq:
+                            # -resq: s_sol is folded into each plane's stored hierarchical row scale,
+                            # so the multiplier costs no bits beyond quant_r_hier's accounted r-bits.
+                            S_r1, rh_1s, ch_1s, dh_1s = info1["pack"]
+                            rh_1n, _ = quant_r_hier(rh_1s * s_sol[:, None])
+                            Wp = compose(fwht128(S_r1 * dh_1s[None, :]), rh_1n, ch_1s)
+                            if pk2_top is not None:
+                                S_r2, rh_2s, ch_2s, dh_2s = pk2_top
+                                rh_2n, _ = quant_r_hier(rh_2s * s_sol[top_sel][:, None])
+                                Wp[top_sel] += compose(fwht128(S_r2 * dh_2s[None, :]), rh_2n, ch_2s)
+                        else:
+                            Wp = Wp * s_sol[:, None]
                         del W_g0, W_u0, Wq_g, Wq_u, W_down_t, G, P_mat, C_mat, GoP, GoC, ones, rhs, s_sol, X_slabs
                         X_slabs = None
                     Lq[nm] = Wp.to(DEV).float().contiguous()

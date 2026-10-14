@@ -557,8 +557,9 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
       - `-res` (`use_res`, `:840`; `:1135-1158`): after `up` is quantized, solve for one scale `s_i ∈ [0.5, 2]` per
         intermediate row of `P = silu(X W_gate^T) ⊙ (X W_up^T)`: `(G ∘ P_qᵀP_q + λI) s = (G ∘ P_qᵀP_0) 1 + λ 1` with
         `G = W_downᵀ W_down` (Hadamard product `∘`) and `λ = 0.05 · mean diag(G ∘ P_qᵀP_q)`; then `Wp ← diag(s) Wp`
-        for `up`. The scales are fitted against the teacher product `P_0` on the calibration slabs, so they cost no bits in
-        the bit count above.
+        for `up`. The scales are fitted against the teacher product `P_0` on the calibration slabs. In `-res` they are
+        continuous and applied after packing, so they are not on the `quant_r_hier` grid and the bit count above does
+        not cover them (see "Row multipliers on the stored scale"); `-resq` folds them into the stored scale.
       - `-qmlp` (`q_mlp_trans`, `:823`; `:1065-1096`): second plane (the same `E₈ ∪ O₈` code, fitted on the plane-1 residual, not a ±1 sign plane) on `k`, `v`, `o` (`two_plane_nm = ("k","v","o")`,
         `q` stays 1-plane) and on the top-`416` rows of `gate` and `up` ranked by row mass `Σ_j W[i, j]²`
         (`topk(row_mass, 416)`; `Wp[top_idx] += fold_fit(W_s[top] − Wp1[top])`); the rank-2 correction targets are
@@ -912,6 +913,33 @@ Refuted (`Perf.CostCorrespondence.w18_rowsel_resid_refuted`, `measured`). A seco
 wall time (364.2 s and 364.6 s). The arm is a scratch copy of `fold_transfer.py` (`ROWSEL=resid`, outside the run class
 of the derivation gate), so the gate ledger holds the prediction open; `tools/onebit/` is unchanged.
 
+## Row multipliers on the stored scale (`measured`, `w18-resq-3seed.json`)
+
+Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
+Cost-model defect in `-res`: `s_sol` is one continuous multiplier per up-projection row, applied after packing
+(`fold_transfer.py`, `use_res` block). The stored row scale is `quant_r_hier` (6-bit mean level, 2-bit spread, 4-bit group
+codes), so `r * s_sol` is not representable in the accounted `bits_r`. Stored explicitly, the `4864 * 24 = 116,736`
+multipliers cost 1,867,776 bits at f16, which moves the arm from 1.17834 to 1.18356 b/w all-in and breaks the `1.18`
+clause of `w16_t0_best_arm_3seed` (934,656 bits, 1.18095 b/w, at u8).
+
+Arm `-resq` (`use_resq`): re-quantise `r * s_sol` through `quant_r_hier` for plane 1 and, for the top rows, plane 2, then
+rebuild the plane with `compose(fwht128(S*dh), r_new, ch)`. Zero extra bits by construction.
+
+Prediction `w18-resq-live-1`: paired held-out KL difference to `-nb` in `[-0.004, +0.002]`, bits unchanged.
+
+| seed | held-out KL, `-nb` | held-out KL, `-resq` | paired difference |
+|---|---|---|---|
+| 0 | 1.27766 | 1.29045 | +0.0128 |
+| 1 | 1.30857 | 1.28744 | -0.0211 |
+| 2 | 1.30069 | 1.29815 | -0.0025 |
+| mean | 1.2956 | 1.2920 | -0.0036 |
+
+In-sample KL mean 0.3495 against 0.3506; held-out top-1 43.91 / 43.97 / 44.05% against 44.20 / 43.67 / 44.19%; accounted
+bits 421,541,376 in both, `bits_r` unchanged. Confirmed (`Perf.CostCorrespondence.w18_resq_absorbed`, `measured`): the
+absorbed arm matches the unrepresentable one inside the seed spread and keeps the `1.18` b/w budget. A scratch run of the
+same code gave bit-identical per-variant values, and is withdrawn in the gate ledger because the run was not admitted.
+
 ## Argon review outcomes (checked against source)
 
 - `fnorm` is a 0-bit 896-vector Newton-Fisher fit on the final RMSNorm (`fold_transfer.py:877`); the dense 896x896
@@ -919,8 +947,9 @@ of the derivation gate), so the gate ledger holds the prediction open; `tools/on
 - Held-out top-1 for `-nb` is 44.02% (`t3-nb-3seed.json`); the review's 53.20% matches no receipt.
 - The gate-error compensation in `up` is `glu_comp` (`fold_transfer.py` near :1197); the per-column gauge `hpre` is
   refuted in §14.
-- Open: `nb_refine` runs for `k`, `v`, `o` only (`fold_transfer.py:1229`); whether the gate/up multipliers `s_sol`
-  (applied after packing, `:1316`) are counted in the bits.
+- Open: `nb_refine` runs for `k`, `v`, `o` only (`fold_transfer.py:1229`).
+- Resolved: the gate/up multipliers `s_sol` of `-res` are not counted in the bits and are not representable in them;
+  `-resq` folds them into the stored scale (previous section).
 
 ## Limit claims
 
