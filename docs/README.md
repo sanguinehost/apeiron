@@ -50,6 +50,7 @@ from [`templates/epic.md`](templates/epic.md).
 | [parallel-stable-scatter](epics/parallel-stable-scatter.md) | approved for bounded implementation |
 | [physical-computation-bounds](epics/physical-computation-bounds.md) | draft |
 | [policy-engine](epics/policy-engine.md) | W0–W2 closed (core and analysis proved, extraction fresh, oracle tested); W3 refinement next |
+| [quantum-register](epics/quantum-register.md) | approved; W1 learned elliptic rotation probe vs fixed Hadamard, register theorems |
 | [read-path-specialization](epics/read-path-specialization.md) | extraction landed; universal read open |
 | [read-proof](epics/read-proof.md) | proposed |
 | [resource-security-continuation](epics/resource-security-continuation.md) | plan |
