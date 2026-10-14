@@ -648,3 +648,88 @@ with three changed-constant controls red at the edited line and the real file gr
 Every row above is registered in `proof/corpus/AxiomAudit.lean` (closed cone).
 
 Open: a 3-D Madelung (the canonical one is 1-D), so the joint row is 1-D; a rate for 3d; the link `a = Δφ/m` for row 9. Row 6 stays `anchor` (cited, not proved); 7 is the step 3c and 3d bypass, not one they need.
+
+## Quantum counterparts of the architecture, and where the k = 4 correspondence changes the mathematics
+
+Retrieved and read (`/home/socol/oc-tmp/papers/qm-arch/`, `/home/socol/oc-tmp/papers/qml/`; sha256 of the PDF, first 16):
+
+| Source | Read for | sha256 |
+|---|---|---|
+| Gottesman, quant-ph/9807006, Theorem 1 (Knill) | Clifford gates, Pauli measurements and classically conditioned Clifford operations are simulated classically in polynomial time; universality needs a non-Clifford gate | `4c5f0b3c818cb85f` |
+| Renes, Blume-Kohout, Scott, Caves, quant-ph/0310075, §2–3 | a SIC-POVM is a 2-design with `d²` elements, the fewest a 2-design has; qubit SIC Bloch vectors form a regular tetrahedron | `336013ee08070187` |
+| Webb, 1510.02769 | the Clifford group is a unitary 3-design and not a 4-design; stabilizer states are a state 3-design (Kueng–Gross) | `ffb38baa6230821d` |
+| Renou et al., 2101.10873 | real and complex quantum theory differ only in networks with independent sources; the difference is postulate (iv), the tensor product | `012741886cd88ff8` |
+| McKague, Mosca, Gisin, 0810.1923 | complex quantum theory simulated in a real Hilbert space with one extra rebit carrying the complex plane | `5ff0508367b84f06` |
+| Hall, Reginatto, quant-ph/0102069, §3.5 eq. 19 | Schrödinger from an exact uncertainty relation `δx·ΔN = ℏ/2`, `δx` = Fisher information`^{-1/2}`; Cramér–Rao then gives Heisenberg | `ed03d050d7ac7a4e` |
+| Liu et al., QML tutorial 2502.01146, Thm 4.9 (Crooks), Thm 5.8 | parameter-shift rule for gates `e^{-iθH/2}`, `H² = 1`; layer norm as state normalization | `6b67556fb424389e` |
+
+Mathlib (`proof/corpus/.lake/packages/mathlib`, rev `fabf563a7c`, `LinearAlgebra/CliffordAlgebra/Equivs.lean`):
+`CliffordAlgebraComplex.equiv` (`≃ₐ[ℝ] ℂ`, line 189), `CliffordAlgebraDualNumber.equiv` (`≃ₐ[R] R[ε]`, line 348),
+`CliffordAlgebraQuaternion.equiv` (`≃ₐ[R] ℍ[R,c₁,0,c₂]` for `Q = c₁x² + c₂y²`, line 318).
+
+**Result.** At this scale quantum mechanics adds no fourth number system. One generator of a real quadratic form is one
+of the three faces of `R[x]/(x²−σ)`; quantum structure enters as two ways of composing faces: the tensor product
+(entanglement) and anticommuting generators (spin). The k = 4 exactness window is the quadratic window, and it is the
+same window three times over: the tetrahedral stencil, the qubit SIC-POVM (a 2-design), and the Van Vleck / Clifford
+window that Gottesman–Knill simulates classically. Inside that window everything runs on CPU and SPIR-V. What quantum
+mechanics contributes to 1.18 b/w is three disciplines, and each sits where the measured KL sits: interference (the
+cross-layer part), informationally complete measurement (the calibration gap `G`), and quanta by freeze-out (rate by
+mode, not by tensor).
+
+The figures in this section from `qreg-attrib`/`qreg-iso` and `G = 3.695` are observations of the frozen Python script
+(§4 obligation 1); every measurement below is re-taken on the Rust path `src/learn/grad/model.rs`.
+
+### 1 · Component by component
+
+| Component (engine site) | Quantum counterpart | What a replacement changes | Grade |
+|---|---|---|---|
+| Hadamard rotation before the sign planes (`register_hadamard`, `channelPair 1`) | `H^⊗n`, one Clifford element; it maps the computational basis to the conjugate basis and spreads an outlier over `2^n` amplitudes | the ensemble statement: a Clifford twirl (random signed permutation then `H^⊗n`) is a unitary 3-design (Webb), so the rotated quantisation error is isotropic in its second and third moments, not only for one fixed `H` | `model` |
+| RMSNorm | state normalization `ψ/‖ψ‖` (tutorial Thm 5.8) | the hidden state is a ray; its error budget is angular, which is what a sign plane quantises | `model` |
+| softmax attention, LM head and sampling | Gibbs state; Born rule in the vocabulary basis | in amplitude coordinates `ψ = √p` the Fisher metric is Euclidean: `KL(p‖q) ≥ ‖√p − √q‖²` exactly and `KL ≈ 2‖δψ‖²` locally (L6), so errors add as amplitudes and interfere | `model`, L6 to prove |
+| RoPE (`src/learn/grad/attn.rs`, `Learn/Grad/Rope.lean`) | the elliptic face's one-parameter subgroup `e^{iθ}` (canonical `flow_is_one_param`) | nothing: it is already the quantum object, now refined against the extracted body | `proved` (refinement) |
+| SwiGLU gate `σ(x)` | Born weight of a two-level Gibbs state, `σ(x) = softmax(x, 0)₀` (L8) | none on its own; it places the gate inside the same metric as attention | `model`, L8 |
+| gated-delta mixer `S(I − βkkᵀ)`, `‖k‖ = 1` (`src/engine/mixer.rs:885` `l2_normalize`) | `β ∈ (0,1)`: weak measurement (a Kraus operator, non-expansive: `householder_nonexpansive`); `β = 1`: Lüders projector; `β = 2`: Householder / Grover reflection | at `β = 2` the step is an involution, so its backward needs no stored state (as `reflStage_involutive`) (L7) | `proved` for `β ∈ [0,2]` non-expansion; L7 open |
+| one-bit sign planes after the rotation | `±1` equal-weight states; `Z` and `CZ` on `\|+⟩^n` reach exactly `(−1)^{q(x)}`, `q` quadratic over GF(2) (the second-order Reed–Muller cosets; `CZ` rows 16–17); a cubic term needs `CCZ`, a non-Clifford gate (hypergraph states) | a structured sign code: `RM(2,8)` has `1 + 8 + 28 = 37` bits per 256 signs, `0.145` b/w, so alone it is far below the planes' rate (Q4) | `model` |
+| the residual stack (24 layers composed) | a circuit; each layer's quantisation error is an amplitude `δψ_l` | the cross terms `Σ_{l≠m}⟨δψ_l, δψ_m⟩` are the cross-layer KL; the measured saturation (`qreg-iso`: groups cost `0.57–0.79×` their layers' isolated sum) reads as destructive interference, and an echo (layer `l` quantised against the student's upstream state so its error cancels the accumulated one) is the quantum-control counterpart (Q1) | `model`, Q1 measures it |
+
+### 2 · Where the mathematics changes and where it does not
+
+| # | Clause | Changes / does not | Lean task | Grade now |
+|---|---|---|---|---|
+| L1 | `R[x]/(x²−σ)` is the Clifford algebra of the 1-D form `σv²`: `σ = −1 ≅ ℂ`, `σ = 0 ≅ R[ε]`, `σ = +1` the split algebra; two anticommuting generators give `ℍ[R,σ₁,0,σ₂]`: Hamilton (spin, `SU(2)`) at `(−1,−1)`, `M₂(ℝ)` (rebit) at `(+1,+1)` | does not change: the "fourth element" is anticommuting composition, not a fourth face | `CellClifford.lean`: `Cell σ ≃ₐ CliffordAlgebra (σ·x²)` from the three Mathlib equivalences; quaternion pair | `model` |
+| L2 | `ℂ ⊗_ℝ ℂ ≅ ℂ × ℂ`: `(i⊗i)² = +1`, `i⊗i ≠ ±1`, so two elliptic cells composed contain the hyperbolic face; complex QM's tensor rule is the projection by `e = (1 − i⊗i)/2`, on which `i⊗1 = 1⊗i` | changes: this is where real and complex QM part (Renou), and it is a hyperbolic idempotent, not a new number | `EllipticTensor.lean`: `e² = e`, `(i⊗1)e = (1⊗i)e`, `(i⊗i)² = 1` | `model` (checked by hand) |
+| L3 | the tetrahedral stencil identities `Σv = 0`, `Σvvᵀ = 4I` (row 3c) are the qubit SIC conditions: `Π_k = (I + n_k·σ)/2`, `n_k = v_k/√3`, `Σ Π_k/2 = I`, `\|⟨ψ_j\|ψ_k⟩\|² = 1/3` | does not change: k = 4 is the SIC count `d²` (Renes et al.) and the stencil count `d + 1` in ℝ³ | `Numeric/SicStencil.lean` over `Numeric/Qubit.lean` `projP` | `model` |
+| L4 | degree ladder: the tetrahedron is a 2-design and not a 3-design (`Σ xyz = 4` over its vertices); the octahedron (the six one-qubit stabilizer states) is a 3-design; the Clifford group stops at 3 (Webb). A stencil reads the spherical mean exactly to the design's degree; past it, finite `h` needs a non-Clifford resource (`π/8`, the eighth roots; the four-branch orbit `{±1, ±i}` is the `S`-phase group) | changes at degree 3 and again at 4: exactness past quadratic costs branches, and past cubic costs magic | `Numeric/DesignLadder.lean`: tetra not 3-design, octahedron 3-design, cubic stencil exactness | `model` |
+| L5 | **one shift rule on all three faces.** With `exp(sx) = C_σ(s) + S_σ(s)x` in `R[x]/(x²−σ)`, every `f ∈ span{1, S_σ(θ), (C_σ(θ)−1)/σ}` satisfies `f(θ+s) − f(θ−s) = 2S_σ(s)f′(θ)` and `f(θ+s) + f(θ−s) − 2f(θ) = 2((C_σ(s)−1)/σ)f″(θ)`; the span is `{1, sin, cos}` (σ < 0), `{1, sinh, cosh}` (σ > 0), `{1, θ, θ²/2}` (σ = 0, the limit) | does not change: the quantum parameter-shift rule (elliptic, `s = π/2`, tutorial Thm 4.9) and the parabolic stencil exactness (`antithetic_recovers_gradient`) are one σ-indexed theorem; the hyperbolic `sinh` rule is the third face | `Numeric/FaceShift.lean`: both identities for every σ, from `C′ = σS`, `S′ = C` and the addition law | `model` (checked by hand) |
+| L6 | `KL(p‖q) ≥ ‖√p − √q‖²` (from `log x ≤ x − 1`); `KL = 2‖δψ‖² + o(‖δψ‖²)`; with `δψ = Σ_l δψ_l` the cross-layer KL is the Gram off-diagonal | changes the objective's coordinates, not the algebra | `Perf/AmplitudeKL.lean` | `model` |
+| L7 | `β = 1`: `I − kkᵀ` idempotent; `β = 2`: involution; extends `Nous/Seq/DeltaCarrier.lean` | does not change: measurement and reflection are the two ends of the proved `β ∈ [0,2]` family | `Nous/Seq/DeltaCarrier.lean` additions | `model` |
+| L8 | `σ(x) = softmax(x, 0)₀` | does not change | one lemma beside L6 | `model` |
+| L9 | `∫ρQ = (ℏ²/8m) I_F` (Fisher), Hall–Reginatto `δx·ΔN = ℏ/2`, Cramér–Rao ⇒ Heisenberg | changes the reading of rate: a Fisher-weighted quantum is the unit, which `waterfill_opt` already uses | `Numeric/ExactUncertainty.lean` on canonical `Schrodinger.lean` | `model` |
+| L10 | McKague's extra rebit is the elliptic cell as the real `2×2` matrix `[[a, −b],[b, a]]` | does not change: no complex dtype in the register | lemma in `Numeric/Qubit.lean` | `model` |
+| L11 | Gottesman–Knill: the quadratic window is classically simulable | does not change: the window is buildable, and its exactness is free; what is outside it (cubic sign terms, `CCZ`, `π/8`) is where cost appears | pointer, Gottesman Theorem 1 | `anchor` |
+
+The answer to "trichotomy or a fourth element": the trichotomy covers each generator; composition supplies the rest.
+Anticommuting composition gives spin (L1), tensor composition gives entanglement and the real/complex split as a
+hyperbolic idempotent (L2), and the exactness window is degree-indexed (L4), with k = 4 the quadratic rung.
+
+**Why the classical models broke, read onto the quantiser** (`model`). Rayleigh–Jeans gave every mode `kT`
+(equipartition) and diverged at high frequency; Planck gave a mode energy only when its quantum `hν` was below `kT`, so
+high modes freeze out. Uniform bits per weight are equipartition. Reverse water-filling is freeze-out: a component
+whose Fisher weight `λ_i` is below the level `θ` gets no rate (`waterfill_level`, `waterfill_opt`, `proved` in
+`Perf/CostCorrespondence.lean`), and on the separable K-FAC model it already gained `1.3–1.4×` (`waterfill_gain_1133`).
+What is still classical in the pipeline is the mode basis: water-filling ran per tensor, as if layers were
+independent oscillators, while 60% of the finished KL is cross-layer. Freeze-out over the coupled system's normal
+modes is Q2.
+
+### 3 · Plan, ranked by contribution, hardest first
+
+| # | Task | Gate | Prediction | Control |
+|---|---|---|---|---|
+| Q1 | Interference Gram on the Rust path: per-layer student substitution on `src/learn/grad/model.rs` forward, `δψ_l = √q_l − √p` on held-out tokens, the Gram `⟨δψ_l, δψ_m⟩`; predict each group's KL as `2‖Σ_{l∈g} δψ_l‖²`; then the echo arm: quantise layer `l` against the student's upstream state | 3 runs, mean and spread, under 600 s; a Lean verdict per clause | the Gram predicts the measured group ratios (prefix `0.57–0.62`, suffix `0.72–0.79`, isolated-sum ÷ whole `1.651`) within the run spread; if it does not, the saturation is softmax nonlinearity and the amplitude reading is `refuted` | teacher-as-student gives a zero Gram; one layer's `δψ` sign-flipped moves the prediction |
+| Q2 | Normal-mode freeze-out: water-fill on the eigenbasis of the joint cross-layer Fisher (W2 backward, `src/learn/grad/model.rs`), not per tensor | held-out KL at 1.178 b/w against the separable allocation, 3 runs | lower held-out KL at equal rate | a diagonal (separable) Fisher reproduces the separable allocation |
+| Q3 | Calibration as tomography: the calibration Gram's effective rank per layer against `d`; `G` predicted from the deficit; a Clifford-twirled (signed-permutation + `H`) calibration estimate against shrinkage toward `I/d` | `G` on held-out, 3 runs | `G` falls as the estimate approaches an informationally complete one | twirl of identity leaves the estimate unchanged |
+| Q4 | Sign planes as stabilizer codes: quadratic-phase (`RM(2,n)`) residual on top of the planes | KL at fixed rate | exploratory; `0.145` b/w alone is a small code | `q ≡ 0` reproduces the plain plane |
+
+Lean tasks, in order: L5 (one theorem, decides the shift-rule unification), L6 (the Q1 objective), L4, L2, L1, L3,
+L7, L8, L9, L10. Each lands with a changed-constant control red and the real file green, audited in `AxiomAudit.lean`.
+Board row `quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs`.
