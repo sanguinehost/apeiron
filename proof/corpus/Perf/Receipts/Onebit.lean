@@ -1398,6 +1398,69 @@ def wallTotalS : ℚ := (677550128698349 : ℚ) / 1250000000000
 
 end Receipts.qreg_kan_mm
 
+-- Receipt the receipts/onebit/qreg-kan-mmb note.json`
+namespace Receipts.qreg_kan_mmb
+
+def sha256 : String := "c24380bbc951e31ed7a39d454a1450ae29601b1e2ad7530f352ed66323e9aa45"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def trainGroups : String := "c,d,norm,r"
+def beforeMatchesReference : Bool := true
+def bitsEqual : Bool := true
+def codebookExact : Bool := true
+def dataDisjoint : Bool := true
+def params : ℕ := 357826560
+def bitsBefore : ℕ := 421541376
+def bitsAfter : ℕ := 422229504
+def steps : ℕ := 683
+def tokens : ℕ := 2797568
+def trainableParams : ℕ := 3949952
+def vSteps : ℕ := 0
+def regrid : ℕ := 0
+def stepsCap : ℕ := 1000000000
+def compose : String := "step"
+def klMode : String := "fused"
+def hadamard : String := "mm"
+def gradEquivOk : Bool := true
+def gradRelFloor : ℚ := (1432234887033701 : ℚ) / 500000000000000000
+def gradRelComposeOnly : ℚ := (910797854885459 : ℚ) / 250000000000000000
+def gradRelKlOnly : ℚ := (11248074471950531 : ℚ) / 2000000000000000000
+def gradRelRequested : ℚ := (4668712988495827 : ℚ) / 100000000000000000
+def gradRelHadOnly : ℚ := (915171280503273 : ℚ) / 20000000000000000
+def gradRelJitter : ℚ := (1519227959215641 : ℚ) / 100000000000000000
+def lossRelHadOnly : ℚ := (14629763689334417 : ℚ) / 5000000000000000000
+def lossRelJitter : ℚ := (1249699163111249 : ℚ) / 2500000000000000000
+def lossRelRequested : ℚ := (14629763689334417 : ℚ) / 5000000000000000000
+def bf16FlipsMm : ℕ := 291588
+def bf16FlipsJitter : ℕ := 21296
+def wRelMaxMm : ℚ := (8688873549544951 : ℚ) / 10000000000000000000000
+def bf16RelL2Mm : ℚ := (12755146150329937 : ℚ) / 500000000000000000000
+def bf16RelL2Jitter : ℚ := (14023921064873 : ℚ) / 390625000000000000
+def zeroToNonzeroMm : ℕ := 33800
+def lossRelFp32Had : ℚ := (6488394814979517 : ℚ) / 2000000000000000000000
+def gradRelFp32Had : ℚ := (42386629502289 : ℚ) / 31250000000000000
+def gradRelFp32Floor : ℚ := (3269998705945909 : ℚ) / 20000000000000000000
+def lossRelBf16VsFp32 : ℚ := (4501083591972967 : ℚ) / 1000000000000000000
+def float64UnitMaxRel : ℚ := (713483145566757 : ℚ) / 1000000000000000000000000000000
+def peakMemGb : ℚ := (160939998626709 : ℚ) / 20000000000000
+def kanStep0Equal : Bool := true
+def angleBits : ℕ := 688128
+def gradRelFp32Kan : ℚ := (1350127742625773 : ℚ) / 1000000000000000000
+def thetaGradL2 : ℚ := (2032123687119789 : ℚ) / 5000000000000000
+def thetaDriftMaxAbs : ℚ := (6672816723585129 : ℚ) / 100000000000000000
+def trainS : ℚ := (972816196680069 : ℚ) / 2500000000000
+def bitsR : ℕ := 15347712
+def bitsC : ℕ := 2128896
+def bitsD : ℕ := 1775616
+def klHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klHeldoutAfter : ℚ := (8546889692544937 : ℚ) / 10000000000000000
+def top1HeldoutBefore : ℚ := (1965 : ℚ) / 4096
+def top1HeldoutAfter : ℚ := (2803 : ℚ) / 5120
+def klInsampleBefore : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def klInsampleAfter : ℚ := (12256468385457993 : ℚ) / 50000000000000000
+def wallTotalS : ℚ := (5423622605800629 : ℚ) / 10000000000000
+
+end Receipts.qreg_kan_mmb
+
 -- Receipt the receipts/onebit/2026-10-11-vladder note.json`
 namespace Receipts.vladder_1011
 

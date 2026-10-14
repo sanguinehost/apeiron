@@ -357,6 +357,26 @@ def kan_matrix(delta):
     return kan_register(torch.eye(GROUP, dtype=delta.dtype, device=delta.device), delta)
 
 
+def kan_matrix_batch(D):
+    """kan_matrix for a batch of offsets D (K, 7, 64) -> (K, 128, 128) with out[k] == kan_matrix(D[k]) bit for bit: y starts as
+    the identity expanded to (K, GROUP, GROUP) and stage st with h = 1 << st, A = GROUP // (2 h) applies
+    (u, v) -> (a u + b v, b u - a v) with a = cos d - sin d, b = cos d + sin d, one multiply by GROUP**-0.5 at the end.  The
+    stage loop, the a, b and the final scale are the same ops in the same order as kan_matrix, so both fp32 and fp64 are
+    torch.equal per key (selftest_kan control 9).  Temporal 7 x 3 x K x GROUP^2 = 7 x 3 x K x 128^2 flops in 7 launches of each
+    elementwise op; spatial K x GROUP^2 = K x 128^2 words per stage."""
+    K = D.shape[0]
+    y = torch.eye(GROUP, dtype=D.dtype, device=D.device)[None].expand(K, GROUP, GROUP)
+    for st in range(kp.NST):
+        h = 1 << st
+        A = GROUP // (2 * h)
+        c, sn = D[:, st].cos().view(K, 1, A, h), D[:, st].sin().view(K, 1, A, h)
+        a, b = c - sn, c + sn
+        y4 = y.reshape(K, GROUP, A, 2, h)
+        u, v = y4[..., 0, :], y4[..., 1, :]
+        y = torch.stack((a * u + b * v, b * u - a * v), dim=3).reshape(K, GROUP, GROUP)
+    return (y * (GROUP ** -0.5)).contiguous()
+
+
 class RegisterCompose(torch.autograd.Function):
     """W = compose(kan_register(S * d, delta), r, c) with the code field S fixed; delta (7, 64) = theta - pi/4 (init 0).
     Backward without stored stage tensors: Z = kan_register_raw(S * d) is recomputed, Y = Z s with s = GROUP**-0.5.  With
@@ -421,7 +441,7 @@ def kan_recon(planes, delta_q):
 
 
 def selftest_kan(out):
-    """--selftest-kan: no model, on DEV.  Eight controls, all must hold: (1) kan_register at delta = 0 is torch.equal to
+    """--selftest-kan: no model, on DEV.  Ten controls, all must hold: (1) kan_register at delta = 0 is torch.equal to
     ft.fwht128 on random fp32 and fp64 input, and RegisterCompose's forward is torch.equal to ft.compose(fwht128(.)) in fp32;
     (2) float64 forward at random |delta| ~ 0.1 against autograd's reference ft.compose(kp.register(S d, pi/4 + delta), r, c),
     rel < 1e-12; (3) the adjoints gd, gr, gc, gdelta against autograd on that reference, rel < 1e-10 each; (4) gdelta against
@@ -431,7 +451,10 @@ def selftest_kan(out):
     Gup, RegisterComposeMM's forward and its d, r, c and delta adjoints (delta via autograd through kan_matrix) match
     RegisterCompose's, rel < 1e-12 each; (8) local copies of the mm backward with gc formed from Y instead of G * Y
     give gc rel >= 0.5, and with gX = gY @ T (T not transposed) give gd rel >= 1e-6, against the RegisterCompose reference,
-    while the unmutated copies stay < 1e-12.
+    while the unmutated copies stay < 1e-12; (9) the batched register pass kan_matrix_batch on D (5, 7, 64) with |D| ~ 0.1 is
+    torch.equal to kan_matrix per key in fp32 and fp64, and its dL/dD matches the stacked per-key gradients, rel < 1e-12 in
+    fp64; (10) a local copy of the batch with the stage's a and b swapped moves away from kan_matrix at D != 0 by rel >= 1e-3
+    (red), so control (9) sees the stage.
     Writes the result to `out`, prints one JSON line, returns the exit status.
     Temporal: a few passes over O*n = 2048 words plus 32 forward evaluations; spatial O(O*n)."""
     gen = torch.Generator(device=DEV)
@@ -550,10 +573,54 @@ def selftest_kan(out):
                   gc_drop_G=rel(mut_gc(True), gr_[2]), gc_unmutated=rel(mut_gc(False), gr_[2]))
     ok8 = (mm_mut["gc_drop_G"] >= 0.5 and mm_mut["no_transpose"] >= 1e-6
            and mm_mut["unmutated"] < 1e-12 and mm_mut["gc_unmutated"] < 1e-12)
+    # (9) the batched register pass is bit for bit kan_matrix per element: D (5, 7, 64) with |D| ~ 0.1, fp32 and fp64
+    # torch.equal for every k, and the dL/dD through the batch matches the stacked per-key gradients, rel < 1e-12 in fp64
+    Kb = 5
+    bat = {}
+    for dt in (torch.float32, torch.float64):
+        Db = (torch.randn(Kb, kp.NST, kp.NBF, generator=gen, device=DEV, dtype=torch.float64) * 0.1).to(dt)
+        Bb = kan_matrix_batch(Db)
+        eq = all(bool(torch.equal(Bb[k], kan_matrix(Db[k]))) for k in range(Kb))
+        mad = max(float((Bb[k] - kan_matrix(Db[k])).abs().max()) for k in range(Kb))
+        bat[str(dt)] = dict(equal=eq, max_abs=mad)
+    Db = (torch.randn(Kb, kp.NST, kp.NBF, generator=gen, device=DEV, dtype=torch.float64) * 0.1).requires_grad_()
+    g = torch.randn(Kb, GROUP, GROUP, generator=gen, device=DEV, dtype=torch.float64)
+    (kan_matrix_batch(Db) * g).sum().backward()
+    gs = []
+    for k in range(Kb):
+        Dk = Db.detach()[k].clone().requires_grad_()
+        (kan_matrix(Dk) * g[k]).sum().backward()
+        gs.append(Dk.grad)
+    gbatch = rel(Db.grad.detach(), torch.stack(gs))
+    ok9 = all(v["equal"] and v["max_abs"] == 0.0 for v in bat.values()) and gbatch < 1e-12
+
+    def kan_matrix_batch_mut(D):
+        """Local copy of kan_matrix_batch with the stage coefficients a and b swapped: the injected defect of control (10).
+        Temporal and spatial the same 7 x 3 x K x 128^2 flops and K x 128^2 words per stage as kan_matrix_batch."""
+        K = D.shape[0]
+        y = torch.eye(GROUP, dtype=D.dtype, device=D.device)[None].expand(K, GROUP, GROUP)
+        for st in range(kp.NST):
+            h = 1 << st
+            A = GROUP // (2 * h)
+            c, sn = D[:, st].cos().view(K, 1, A, h), D[:, st].sin().view(K, 1, A, h)
+            a, b = c + sn, c - sn
+            y4 = y.reshape(K, GROUP, A, 2, h)
+            u, v = y4[..., 0, :], y4[..., 1, :]
+            y = torch.stack((a * u + b * v, b * u - a * v), dim=3).reshape(K, GROUP, GROUP)
+        return (y * (GROUP ** -0.5)).contiguous()
+
+    # (10) the a <-> b swap mutant must move the batch away from kan_matrix at D != 0 by rel >= 1e-3 (red), so control (9)
+    # sees the stage
+    Dm = torch.randn(Kb, kp.NST, kp.NBF, generator=gen, device=DEV, dtype=torch.float64) * 0.1
+    Bm = kan_matrix_batch_mut(Dm)
+    mut_batch = max(float((Bm[k] - kan_matrix(Dm[k])).abs().max() / kan_matrix(Dm[k]).abs().max()) for k in range(Kb))
+    ok10 = mut_batch >= 1e-3
     res = dict(identity=ident, identity_ok=ok1, forward_rel=fwd, forward_ok=ok2, adjoint_rel=errs, adjoint_tol=1e-10, adjoint_ok=ok3,
                fd_gdelta_rel=fd_err, fd_ok=ok4, mutation_rel=mut, mutation_red=ok5, kan_matrix_hn=mm_id, kan_matrix_hn_ok=ok6,
                mm_forward_rel=fwd_mm, mm_adjoint_rel=mm_errs, mm_ok=ok7, mm_mutation_rel=mm_mut, mm_mutation_red=ok8,
-               ok=ok1 and ok2 and ok3 and ok4 and ok5 and ok6 and ok7 and ok8)
+               kan_matrix_batch=bat, kan_matrix_batch_grad_rel=gbatch, kan_matrix_batch_ok=ok9,
+               kan_matrix_batch_mutation_rel=mut_batch, kan_matrix_batch_mutation_red=ok10,
+               ok=ok1 and ok2 and ok3 and ok4 and ok5 and ok6 and ok7 and ok8 and ok9 and ok10)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     json.dump(res, open(out, "w"), indent=1)
     print(json.dumps(res), flush=True)
@@ -880,11 +947,18 @@ def main():
     def layer_dicts_step():
         """Every layer's weights composed once for the step through PlaneCompose, outside the layer checkpoints, so the
         recompute re-runs only ft.parts.  Temporal one PlaneCompose forward per coded plane per step (two under --compose
-        layer: forward and recompute), plus under --hadamard mm one kan_matrix per (layer, site) per call; spatial the
-        composed fp32 weights of the model (4 bytes per parameter) held until backward plus one GROUP^2 register matrix per
-        (layer, site) under mm."""
+        layer: forward and recompute), plus under --hadamard mm one batched kan_matrix_batch register pass per call (7 stage
+        launches for all (layer, site) keys) instead of one kan_matrix per (layer, site); spatial the composed fp32 weights of
+        the model (4 bytes per parameter) held until backward plus one GROUP^2 register matrix per (layer, site) under mm."""
         out = []
-        Tk = {}  # (layer, site) -> T(delta) of this call; the register matrix, built once per (layer, site) under --hadamard mm
+        # Under --rotation kan --hadamard mm the register matrices T(delta) for every (layer, site) are built in one batched
+        # register pass (7 stage launches total) here, once per call; Butterfly and non-kan paths keep using their own build.
+        if MODE["rot"] == "kan" and MODE["had"] == "mm":
+            keys = list(TH)  # fixed (layer, site) order; one batched build covers all of TH
+            Tb = kan_matrix_batch(torch.stack([TH[k] for k in keys]))
+            Tk = {k: Tb[i] for i, k in enumerate(keys)}  # (layer, site) -> T(delta) of this call
+        else:
+            Tk = {}
         for li in range(cfg.nl):
             Ld = tuned(li)
             for ki, nm in enumerate(KINDS):
@@ -896,10 +970,7 @@ def main():
                     r, c, d = p.qvals()
                     th = TH.get((li, KIND_SITE[nm])) if MODE["rot"] == "kan" else None
                     if th is not None and MODE["had"] == "mm":
-                        key = (li, KIND_SITE[nm])
-                        if key not in Tk:
-                            Tk[key] = kan_matrix(th)
-                        Wi = RegisterComposeMM.apply(p.Sc, d, r, c, Tk[key])
+                        Wi = RegisterComposeMM.apply(p.Sc, d, r, c, Tk[(li, KIND_SITE[nm])])
                     elif th is not None:
                         Wi = RegisterCompose.apply(p.Sc, d, r, c, th)
                     else:

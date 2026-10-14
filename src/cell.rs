@@ -268,3 +268,24 @@ impl<R: Halve> Cell<R> {
         }
     }
 }
+
+impl Cell<i64> {
+    /// `(a1 a2 + sigma b1 b2, a1 b2 + b1 a2)` in `i64`, refusing on overflow.
+    ///
+    /// The same formula as [`Cell::mul`], with `checked_mul`/`checked_add` on `i64`: `None` on
+    /// `i64` overflow, and `Some` agrees with `mul`. Temporal and spatial O(1): a fixed count of
+    /// checked scalar operations on the two slots.
+    #[must_use]
+    pub fn checked_mul(self, sigma: Sigma, other: Self) -> Option<Self> {
+        let s = sigma.value();
+        let a = self
+            .a
+            .checked_mul(other.a)?
+            .checked_add(s.checked_mul(self.b)?.checked_mul(other.b)?)?;
+        let b = self
+            .a
+            .checked_mul(other.b)?
+            .checked_add(self.b.checked_mul(other.a)?)?;
+        Some(Self { a, b })
+    }
+}
