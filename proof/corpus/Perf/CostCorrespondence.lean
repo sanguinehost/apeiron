@@ -417,33 +417,51 @@ chunks of 512 tokens, all 21 `ffn_down` tensors of Qwen2.5-0.5B moved jointly al
    inversion (`had-gptq1` below `IQ1_S`) is estimator error;
 3. the odd remainder of `had-gptq1` at `t = 1` is negative: `KL(D) < KL(-D)`. -/
 theorem ray_w15a :
-    (449916 : ℚ) / 10 ^ 6 / (64 * (61071 / 10 ^ 7)) < 116 / 100 ∧
-    (344035 : ℚ) / 10 ^ 6 / (64 * (477229 / 10 ^ 8)) < 116 / 100 ∧
-    (450143 : ℚ) / 10 ^ 8 / (64 * (70449 / 10 ^ 9)) < 116 / 100 ∧
-    (460010 : ℚ) / 10 ^ 6 / (64 * (654562 / 10 ^ 8)) < 116 / 100 ∧
-    (27 : ℚ) / 10 < 982565 / 10 ^ 5 / (64 * (555673 / 10 ^ 7)) ∧
-    (61071 : ℚ) / 10 ^ 7 < 654562 / 10 ^ 8 ∧ (477229 : ℚ) / 10 ^ 8 < 61071 / 10 ^ 7 ∧
-    (460010 : ℚ) / 10 ^ 6 < 106903 / 10 ^ 5 := by
-  norm_num
+    Receipts.ray_1011.iq1SKl1 / (64 * Receipts.ray_1011.iq1SKl0125) < 116 / 100 ∧
+    Receipts.ray_1011.iq1MKl1 / (64 * Receipts.ray_1011.iq1MKl0125) < 116 / 100 ∧
+    Receipts.ray_1011.q4KMKl1 / (64 * Receipts.ray_1011.q4KMKl0125) < 116 / 100 ∧
+    Receipts.ray_1011.hadGptq1Kl1 / (64 * Receipts.ray_1011.hadGptq1Kl0125) < 116 / 100 ∧
+    (27 : ℚ) / 10 < Receipts.ray_1011.rtnKl1 / (64 * Receipts.ray_1011.rtnKl0125) ∧
+    Receipts.ray_1011.iq1SKl0125 < Receipts.ray_1011.hadGptq1Kl0125 ∧
+    Receipts.ray_1011.iq1MKl0125 < Receipts.ray_1011.iq1SKl0125 ∧
+    Receipts.ray_1011.hadGptq1Kl1 < Receipts.ray_1011.hadGptq1KlNeg1 := by
+  norm_num [Receipts.ray_1011.iq1SKl1, Receipts.ray_1011.iq1SKl0125, Receipts.ray_1011.iq1MKl1,
+    Receipts.ray_1011.iq1MKl0125, Receipts.ray_1011.q4KMKl1, Receipts.ray_1011.q4KMKl0125,
+    Receipts.ray_1011.hadGptq1Kl1, Receipts.ray_1011.hadGptq1Kl0125, Receipts.ray_1011.rtnKl1,
+    Receipts.ray_1011.rtnKl0125, Receipts.ray_1011.hadGptq1KlNeg1]
 
 /-- W15b K-FAC water level (`tools/onebit/kfac_floor.py`, receipt `2026-10-11-kfac.json`,
 100 C4 chunks, 4 sampled targets, all 168 linear tensors of Qwen2.5-0.5B). Per-token KL, five significant figures.
 1. K-FAC `½ tr(DᵀGDH)` summed over the 21 `ffn_down` tensors is within `[1/2, 2]` of the exact quadratic
-   `64 · KL(1/8)` for `IQ1_S` 0.42329/0.39085, `IQ1_M` 0.33660/0.30543, Q4_K_M 0.0036205/0.0045087 and `had-gptq1`
-   0.27639/0.41892, but it orders `had-gptq1` lowest where the exact quadratic orders it highest (prediction
+   `64 · KL(1/8)` for `IQ1_S`, `IQ1_M`, Q4_K_M and `had-gptq1` (`Receipts.kfac_1011.kfacDown*` over
+   `Receipts.kfac_1011.exactQuadratic*`), but it orders `had-gptq1` lowest where the exact quadratic orders it highest (prediction
    `kfac-1-1` order clause refuted);
-2. separable-variance water-filling at 1.18 b/w leaves 0.26454, more than 16 times Q4_K_M's K-FAC KL 0.015675 on the
-   same 168 tensors; the oracle reference leaves 0.10378, more than 6 times;
-3. the separable rate that matches Q4_K_M is above 3.17 b/w, the oracle rate above 2.35 b/w. -/
+2. separable-variance water-filling at 1.18 b/w leaves `Receipts.kfac_1011.sepKl118`, more than 16 times Q4_K_M's
+   K-FAC KL `Receipts.kfac_1011.q4KKfacAll` on the same 168 tensors; the oracle reference leaves
+   `Receipts.kfac_1011.oracleKl118`, more than 6 times;
+3. the separable rate that matches Q4_K_M is above 3.17 b/w (`sepRateAtQ4`), the oracle rate above 2.35 b/w
+   (`oracleRateAtQ4`). -/
 theorem kfac_w15b :
-    ((1 : ℚ) / 2 < 42329 / 39085 ∧ (42329 : ℚ) / 39085 < 2) ∧
-    ((1 : ℚ) / 2 < 33660 / 30543 ∧ (33660 : ℚ) / 30543 < 2) ∧
-    ((1 : ℚ) / 2 < 36205 / 45087 ∧ (36205 : ℚ) / 45087 < 2) ∧
-    ((1 : ℚ) / 2 < 27639 / 41892 ∧ (27639 : ℚ) / 41892 < 2) ∧
-    ((27639 : ℚ) < 33660 ∧ (33660 : ℚ) < 42329 ∧ (39085 : ℚ) < 41892) ∧
-    (16 * (15675 : ℚ) / 10 ^ 6 < 26454 / 10 ^ 5 ∧ 6 * (15675 : ℚ) / 10 ^ 6 < 10378 / 10 ^ 5) ∧
-    ((317 : ℚ) / 100 < 31760 / 10 ^ 4 ∧ (235 : ℚ) / 100 < 23526 / 10 ^ 4) := by
-  norm_num
+    ((1 : ℚ) / 2 < Receipts.kfac_1011.kfacDowniq1S / Receipts.kfac_1011.exactQuadraticiq1S ∧
+      Receipts.kfac_1011.kfacDowniq1S / Receipts.kfac_1011.exactQuadraticiq1S < 2) ∧
+    ((1 : ℚ) / 2 < Receipts.kfac_1011.kfacDowniq1M / Receipts.kfac_1011.exactQuadraticiq1M ∧
+      Receipts.kfac_1011.kfacDowniq1M / Receipts.kfac_1011.exactQuadraticiq1M < 2) ∧
+    ((1 : ℚ) / 2 < Receipts.kfac_1011.kfacDownq4KM / Receipts.kfac_1011.exactQuadraticq4KM ∧
+      Receipts.kfac_1011.kfacDownq4KM / Receipts.kfac_1011.exactQuadraticq4KM < 2) ∧
+    ((1 : ℚ) / 2 < Receipts.kfac_1011.kfacDownhadGptq1 / Receipts.kfac_1011.exactQuadratichadGptq1 ∧
+      Receipts.kfac_1011.kfacDownhadGptq1 / Receipts.kfac_1011.exactQuadratichadGptq1 < 2) ∧
+    (Receipts.kfac_1011.kfacDownhadGptq1 < Receipts.kfac_1011.kfacDowniq1M ∧
+      Receipts.kfac_1011.kfacDowniq1M < Receipts.kfac_1011.kfacDowniq1S ∧
+      Receipts.kfac_1011.exactQuadraticiq1S < Receipts.kfac_1011.exactQuadratichadGptq1) ∧
+    (16 * Receipts.kfac_1011.q4KKfacAll < Receipts.kfac_1011.sepKl118 ∧
+      6 * Receipts.kfac_1011.q4KKfacAll < Receipts.kfac_1011.oracleKl118) ∧
+    ((317 : ℚ) / 100 < Receipts.kfac_1011.sepRateAtQ4 ∧ (235 : ℚ) / 100 < Receipts.kfac_1011.oracleRateAtQ4) := by
+  norm_num [Receipts.kfac_1011.kfacDowniq1S, Receipts.kfac_1011.exactQuadraticiq1S,
+    Receipts.kfac_1011.kfacDowniq1M, Receipts.kfac_1011.exactQuadraticiq1M,
+    Receipts.kfac_1011.kfacDownq4KM, Receipts.kfac_1011.exactQuadraticq4KM,
+    Receipts.kfac_1011.kfacDownhadGptq1, Receipts.kfac_1011.exactQuadratichadGptq1,
+    Receipts.kfac_1011.q4KKfacAll, Receipts.kfac_1011.sepKl118, Receipts.kfac_1011.oracleKl118,
+    Receipts.kfac_1011.sepRateAtQ4, Receipts.kfac_1011.oracleRateAtQ4]
 
 /-- **The high-resolution regime.** When the level `θ` lies below every `λ_i` (no component is dropped), the
 water-filling distortion is `Σ min λ_i θ = |I| θ` and the rate constraint `Σ log (λ_i / θ) / c = R` fixes
@@ -660,14 +678,20 @@ exceeds `7`. Measured inputs from the W15 receipts. -/
 theorem method_gap_1133 : (3.0897 : ℝ) / 0.3887 > 7 := by norm_num
 
 /-- **Verdict, reverse water-filling gain at 1.133 b/w.** The uniform-rate separable floor `0.3887` over the
-water-filled floor `0.2837` lies in `(1.3, 1.4)`. -/
-theorem waterfill_gain_1133 : (0.3887 : ℝ) / 0.2837 > 1.3 ∧ (0.3887 : ℝ) / 0.2837 < 1.4 := by
-  constructor <;> norm_num
+water-filled floor `Receipts.vladder_1011.sepKL1133` lies in `(1.3, 1.4)`. -/
+theorem waterfill_gain_1133 :
+    (0.3887 : ℝ) / ((Receipts.vladder_1011.sepKL1133 : ℚ) : ℝ) > 1.3 ∧
+    (0.3887 : ℝ) / ((Receipts.vladder_1011.sepKL1133 : ℚ) : ℝ) < 1.4 := by
+  constructor <;> norm_num [Receipts.vladder_1011.sepKL1133]
 
-/-- **Verdict, floor gaps against Q4_K_M.** The oracle floor `0.1128` and the separable floor `0.2837`, over the
-Q4_K_M K-FAC KL `0.015665`, exceed `7` and `18`. -/
-theorem floor_gap_1133 : (0.1128 : ℝ) / 0.015665 > 7 ∧ (0.2837 : ℝ) / 0.015665 > 18 := by
-  constructor <;> norm_num
+/-- **Verdict, floor gaps against Q4_K_M.** The oracle floor `Receipts.vladder_1011.oracleKL1133` and the separable
+floor `Receipts.vladder_1011.sepKL1133`, over the Q4_K_M K-FAC KL `Receipts.vladder_1011.q4KLTotal`, exceed `7` and
+`18`. -/
+theorem floor_gap_1133 :
+    ((Receipts.vladder_1011.oracleKL1133 : ℚ) : ℝ) / ((Receipts.vladder_1011.q4KLTotal : ℚ) : ℝ) > 7 ∧
+    ((Receipts.vladder_1011.sepKL1133 : ℚ) : ℝ) / ((Receipts.vladder_1011.q4KLTotal : ℚ) : ℝ) > 18 := by
+  constructor <;> norm_num [Receipts.vladder_1011.oracleKL1133, Receipts.vladder_1011.sepKL1133,
+    Receipts.vladder_1011.q4KLTotal]
 
 /-- **Verdict, variance ladder refuted.** The best structured variance model's coefficient-only rate `R* = 3.129`
 bits per weight lies within `0.1` of the separable `3.176`: it recovers less than `0.1` b/w. -/
@@ -997,21 +1021,25 @@ theorem four_factor_gap_identity {k_out k_in d_sep d_orc k_q4 : ℝ}
 
 /-- **Verdict: 0.5B four-factor decomposition against Q4_K_M, `backfit` arm (`w15_four_factor_05b_decomposition`).**
 `k_out` and `k_in` are the held-out and in-sample KL of the single-seed `had-fold-2plane-attn-backfit` arm, which is
-not the current `-nb` arm: `Receipts.w15_backfit_attn`. `d_sep = 0.2837`, `d_orc = 0.1128` and the Q4_K_M reference
-`0.0197` are unbound: no committed receipt holds them (the onebit-w15 note, variance ladder at line 175 and
-oracle at line 181, Q4_K_M held-out at line 302). -/
+not the current `-nb` arm: `Receipts.w15_backfit_attn`. `d_sep`, `d_orc` and the Q4_K_M reference are bound to
+`Receipts.vladder_1011.sepKL1133`, `Receipts.vladder_1011.oracleKL1133` and `Receipts.fold_transfer_1011.q4kmKlHeldout`.
+The lower bounds `94.3` and `5.72` widen to `94.1` and `5.71`: the exact values are `94.179` and `5.718`. -/
 theorem w15_four_factor_05b_decomposition :
-    ((Receipts.w15_backfit_attn.klHeldout : ℚ) : ℝ) / 0.0197 > 94.3 ∧
-    ((Receipts.w15_backfit_attn.klHeldout : ℚ) : ℝ) / 0.0197 < 94.4 ∧
+    ((Receipts.w15_backfit_attn.klHeldout : ℚ) : ℝ) / ((Receipts.fold_transfer_1011.q4kmKlHeldout : ℚ) : ℝ) > 94.1 ∧
+    ((Receipts.w15_backfit_attn.klHeldout : ℚ) : ℝ) / ((Receipts.fold_transfer_1011.q4kmKlHeldout : ℚ) : ℝ) < 94.4 ∧
     ((Receipts.w15_backfit_attn.klHeldout : ℚ) : ℝ) / ((Receipts.w15_backfit_attn.klInsample : ℚ) : ℝ) > 3.13 ∧
     ((Receipts.w15_backfit_attn.klHeldout : ℚ) : ℝ) / ((Receipts.w15_backfit_attn.klInsample : ℚ) : ℝ) < 3.14 ∧
-    ((Receipts.w15_backfit_attn.klInsample : ℚ) : ℝ) / 0.2837 > 2.08 ∧
-    ((Receipts.w15_backfit_attn.klInsample : ℚ) : ℝ) / 0.2837 < 2.10 ∧
-    (0.2837 : ℝ) / 0.1128 > 2.51 ∧ (0.2837 : ℝ) / 0.1128 < 2.52 ∧
-    (0.1128 : ℝ) / 0.0197 > 5.72 ∧ (0.1128 : ℝ) / 0.0197 < 5.73 ∧
+    ((Receipts.w15_backfit_attn.klInsample : ℚ) : ℝ) / ((Receipts.vladder_1011.sepKL1133 : ℚ) : ℝ) > 2.08 ∧
+    ((Receipts.w15_backfit_attn.klInsample : ℚ) : ℝ) / ((Receipts.vladder_1011.sepKL1133 : ℚ) : ℝ) < 2.10 ∧
+    ((Receipts.vladder_1011.sepKL1133 : ℚ) : ℝ) / ((Receipts.vladder_1011.oracleKL1133 : ℚ) : ℝ) > 2.51 ∧
+    ((Receipts.vladder_1011.sepKL1133 : ℚ) : ℝ) / ((Receipts.vladder_1011.oracleKL1133 : ℚ) : ℝ) < 2.52 ∧
+    ((Receipts.vladder_1011.oracleKL1133 : ℚ) : ℝ) / ((Receipts.fold_transfer_1011.q4kmKlHeldout : ℚ) : ℝ) > 5.71 ∧
+    ((Receipts.vladder_1011.oracleKL1133 : ℚ) : ℝ) / ((Receipts.fold_transfer_1011.q4kmKlHeldout : ℚ) : ℝ) < 5.73 ∧
     (((Receipts.w15_backfit_attn.klHeldout : ℚ) : ℝ) - ((Receipts.w15_backfit_attn.klInsample : ℚ) : ℝ)) >
       2 / 3 * ((Receipts.w15_backfit_attn.klHeldout : ℚ) : ℝ) := by
-  norm_num [Receipts.w15_backfit_attn.klHeldout, Receipts.w15_backfit_attn.klInsample]
+  norm_num [Receipts.w15_backfit_attn.klHeldout, Receipts.w15_backfit_attn.klInsample,
+    Receipts.vladder_1011.sepKL1133, Receipts.vladder_1011.oracleKL1133,
+    Receipts.fold_transfer_1011.q4kmKlHeldout]
 
 /-- **Sign-and-group-max butterfly gauge identity (`butterfly_sign_group_gauge`).** -/
 theorem butterfly_sign_group_gauge (s sd d_abs m r : ℝ) (hm : m ≠ 0) :
