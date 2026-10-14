@@ -62,6 +62,7 @@ W15 = {
     "w18_kd_main1": "docs/evidence/receipts/onebit/w18-kd-main1.json",
     "w18_kd_main2": "docs/evidence/receipts/onebit/w18-kd-main2.json",
     "w18_calx600": "docs/evidence/receipts/onebit/w18-calx600.json",
+    "w18_trellis2": "docs/evidence/receipts/onebit/w18-trellis2.json",
 }
 
 OUTCOME_ARMS = [("teacher", "teacher"), ("q4km", "q4km"), ("resq", RESQ_ARM)]
@@ -440,6 +441,23 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
                         ("top1Heldout", "top1_heldout"), ("top1Insample", "top1_insample"),
                         ("wallTransferS", "wall_transfer_s")]:
             out.append(("rat", name, rat(v[k])))
+    elif ns == "w18_trellis2":
+        lin, sm, c = data["linears"], data["summary"], data["controls"]
+        out.append(("nat", "linears", nat(len(lin))))
+        for L in ("L8", "L12"):
+            for b in ("beam1", "beam4"):
+                key = f"{L}_vs_{b}"
+                if sm[key]["n"] != len(lin):
+                    raise Fail(f"{rel}: summary {key} n != linears")
+                out.append(("rat", f"median{L}{b.capitalize()}", rat(sm[key]["median"])))
+                out.append(("rat", f"geomean{L}{b.capitalize()}", rat(sm[key]["geomean"])))
+                # Minimum over every linear: the per-linear ratios, not a summary field.
+                out.append(("rat", f"min{L}{b.capitalize()}", rat(min(x[f"ratio_{L}_vs_{b}"] for x in lin))))
+        dg = c["degenerate"]
+        for name, k in [("signL8Ratio", "ratio"), ("signL1Ratio", "ratio_L1"), ("gptqSignRatio", "ratio_gptq_sign")]:
+            out.append(("rat", name, rat(dg[k])))
+        out.append(("rat", "identityRel", rat(c["identity"]["rel"])))
+        out.append(("rat", "wallS", rat(data["total_wall"])))
     else:
         raise Fail(f"no W15/W17 field map for {ns}")
     return out

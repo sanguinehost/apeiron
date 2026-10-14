@@ -1105,6 +1105,43 @@ is `458d6efd…`. The committed file (`9183c172…`) adds `--model`/`--q4km` wit
 
 Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
+## Seeded trellis generator against E8 at 1 b/w (`measured`; `Perf/Trellis.lean`)
+
+Prediction `trellis-2`, confirmed (`trellis-1` withdrawn: its single command slot went to a debug run). The generator
+form of "generate the weights from a seed" is random coding: a seed fixes a pseudo-random codebook and the encoder
+searches for the seed path whose generated values best match the weights. `tools/onebit/trellis_gen.py` (sha256
+`a364850b…`) builds the strongest published instance, the bitshift trellis with the 1MAD hash generator (QTIP, Tseng
+et al., arXiv 2406.11235): `L` state bits, one code bit per weight, Viterbi over 16-column blocks with per-survivor
+GPTQ feedback, plus `L/n` start-state bits per row. It is scored on the arm's own objective `J` (Hadamard-rotated
+weights, damped Gram of calibration chunks `[0, 20)`) against `gptq_e8` at beam 1 and beam 4 with the same scale
+refit. 21 linears (layers 0, 11, 23 × q, k, v, o, gate, up, down), RTX 5080, 190 s. Receipt `w18-trellis2.json`.
+
+| code | b/w | `J / J_e8_beam1` median | geomean | min over 21 | `J / J_e8_beam4` median |
+|---|---|---|---|---|---|
+| E8 beam 4 | 1.125 | 0.90 (layer 0 q) | | | 1 |
+| 1MAD trellis, L = 8 | 1.127–1.134 | 1.616 | 1.638 | 1.539 | 1.778 |
+| 1MAD trellis, L = 12 | 1.128–1.138 | **1.606** | 1.619 | 1.498 | 1.759 |
+| sign trellis, L = 8 (layer 0 q) | 1.134 | 0.867 | | | ≈ 0.97 |
+| sign Viterbi, L = 1 (layer 0 q) | 1.125 | 0.922 | | | |
+| scalar GPTQ signs (layer 0 q) | 1.125 | 1.227 | | | |
+
+- The hashed generator loses on every linear, at both lengths; 16× the states moves the median by 0.010.
+- The search is not the loss: the same Viterbi over a sign alphabet (`v(s) = ±1` by the state's last bit) beats E8.
+  At one bit per weight a Gaussian-like codebook spends rate on amplitude that the sign alphabet does not carry;
+  QTIP's own operating points are 2–4 b/w.
+- Instrument controls: Viterbi path cost equals `J` to 1.6e-8 relative; DP cost equals the recomputed path;
+  diagonal `H` gives exact brute-force equality. For non-diagonal `H` per-survivor Viterbi is a heuristic upper bound
+  (32/60 toy rows equal the 2¹⁶ brute-force minimum, max gap 79%), so the trellis ratios above are an upper bound on the
+  code's best `J` under this encoder.
+- Verdicts (`proved`, `Perf.Trellis`): `trellis_bits` (the trellis stores more bits than E8 at every coded width),
+  `trellis2_confirmed`, `trellis_loses_everywhere` (min > 1.49 vs beam 1, > 1.6 vs beam 4), `trellis_length_flat`,
+  `sign_search_wins`, `trellis_identity`. Control `ctl_trellis` (minimum bound raised to 1.5) fails.
+- Decision: a seeded pseudo-random codebook is not the generator for the 1-bit arm. The 3.4 % sign-trellis gain over
+  beam 4 on one matrix is a `J` refinement of the existing code, not a route to the 63× KL gap; it is not pursued
+  before the size trend.
+
+Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
 ## Limit claims
 
 `tools/rooting/limit_check.py` refuses, in this file, `onebit-w13.md`, `docs/epics/ternary-hadamard.md` and the

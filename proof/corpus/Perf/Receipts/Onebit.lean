@@ -499,6 +499,31 @@ def wallTransferS : ℚ := (4188570809364319 : ℚ) / 10000000000000
 
 end Receipts.w18_calx600
 
+-- Receipt `docs/evidence/receipts/onebit/w18-trellis2.json`
+namespace Receipts.w18_trellis2
+
+def sha256 : String := "dc2070d0f73a0a17caaa5018d794a8d56a653cf351a4af3f5698ee5a1f964fe9"
+def linears : ℕ := 21
+def medianL8Beam1 : ℚ := (16159626403609477 : ℚ) / 10000000000000000
+def geomeanL8Beam1 : ℚ := (204725387616857 : ℚ) / 125000000000000
+def minL8Beam1 : ℚ := (3077757912444321 : ℚ) / 2000000000000000
+def medianL8Beam4 : ℚ := (3555649747816279 : ℚ) / 2000000000000000
+def geomeanL8Beam4 : ℚ := (2274777840963339 : ℚ) / 1250000000000000
+def minL8Beam4 : ℚ := (2026818666867421 : ℚ) / 1250000000000000
+def medianL12Beam1 : ℚ := (3212985773644089 : ℚ) / 2000000000000000
+def geomeanL12Beam1 : ℚ := (1619363033155911 : ℚ) / 1000000000000000
+def minL12Beam1 : ℚ := (234114720684317 : ℚ) / 156250000000000
+def medianL12Beam4 : ℚ := (3518293325292237 : ℚ) / 2000000000000000
+def geomeanL12Beam4 : ℚ := (224916605799293 : ℚ) / 125000000000000
+def minL12Beam4 : ℚ := (25154232090673 : ℚ) / 15625000000000
+def signL8Ratio : ℚ := (8673103315865137 : ℚ) / 10000000000000000
+def signL1Ratio : ℚ := (2305573346982707 : ℚ) / 2500000000000000
+def gptqSignRatio : ℚ := (2454706859420107 : ℚ) / 2000000000000000
+def identityRel : ℚ := (7875198870319641 : ℚ) / 500000000000000000000000
+def wallS : ℚ := (18969856309890747 : ℚ) / 100000000000000
+
+end Receipts.w18_trellis2
+
 -- Receipt `docs/evidence/receipts/onebit/2026-10-11-vladder.json`
 namespace Receipts.vladder_1011
 
