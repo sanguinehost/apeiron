@@ -38,6 +38,11 @@ GGUF_Q4KM = "/home/socol/oc-tmp/seal/qwen05b-Q4_K_M-imat.gguf"
 MODEL = "Qwen/Qwen2.5-0.5B"  # --model; GGUF_* above are 0.5B files, replaced by --q4km for another model
 GRAM_DIR = "/home/socol/oc-tmp/gptq-w2/gram"
 CHUNK, GROUP = 512, 128
+# Pack sink (pv_finish.py): None leaves run_variant unchanged.  A dict receives, per linear (layer, kind), the planes whose
+# sum is the stored weight: [dict(S_rot, r, c, d, rgrid=(lo, span), rows)] (+ dict(dense=Corr) for an accepted corrector),
+# all on CPU; rows is None or the row indices a plane is added to.  PACK_STATS counts the per-linear reconstruction checks.
+PACK_SINK = None
+PACK_STATS = dict(equal=0, tol=0, max_rel=0.0)
 KINDS = {"q": "attn_q", "k": "attn_k", "v": "attn_v", "o": "attn_output", "gate": "ffn_gate", "up": "ffn_up",
          "down": "ffn_down"}
 STAGES = [("qkv", ["q", "k", "v"], "xa"), ("o", ["o"], "a"), ("ffn", ["gate", "up"], "xf"), ("down", ["down"], "m")]
@@ -528,6 +533,9 @@ def quant_r_hier(r):
     sp_levels = sp_min + torch.linspace(0.0, 1.0, 4, dtype=r.dtype, device=r.device) * (sp_max - sp_min)
     best_err = torch.full((O,), float("inf"), dtype=r.dtype, device=r.device)
     best_r = r.clone()
+    track = PACK_SINK is not None
+    if track:
+        best_lo, best_sp = torch.zeros_like(rm), torch.ones_like(rm)
     for du in (-1.0, 0.0, 1.0):
         u6 = (u6_base + du).clamp(0.0, 63.0)
         mu = mu_min + (u6 / 63.0) * mu_span
@@ -541,6 +549,10 @@ def quant_r_hier(r):
             mask = err < best_err
             best_err = torch.where(mask, err, best_err)
             best_r = torch.where(mask[:, None], rq, best_r)
+            if track:
+                best_lo, best_sp = torch.where(mask, r_lo, best_lo), torch.where(mask, r_sp, best_sp)
+    if track:
+        best_r.grid = (best_lo, best_sp)  # per-row chosen (r_lo, r_sp): rq = r_lo + k / 15 * r_sp, k in 0..15
     return best_r, 4 * O * G + 8 * O + 64
 
 
@@ -703,7 +715,8 @@ NB_SWEEPS = int(os.environ.get("ONEBIT_NB_SWEEPS", "2"))
 def nb_refine(Ws, Hl, P1, P2, g_row=None, icm_ridge=0.20, sweeps=None, rounds=2):
     """Reduced joint block-ICM post-pass on a finished 2-plane pair (T3).  <= `rounds` rounds of: joint sweeps on stored
     (r, c, d); r_step2 + quant_r_hier; c_step per plane against Ws minus the other plane + quant_c_u8(., 6); keep a round iff
-    J(Ws, W1+W2, Hl) falls, else revert.  Bits unchanged (same quantizers).  Returns (W1, W2, log).
+    J(Ws, W1+W2, Hl) falls, else revert.  Bits unchanged (same quantizers).  Returns (W1, W2, log, P1', P2') with P*' the
+    final (S_rot, r, c, d) packs.
     Complexity: temporal rounds * (e8_joint_icm_2plane + r_step2 + 2 c_step + 2 quant) + 1 + rounds evaluations of J (O*n^2 MACs each);
     spatial as e8_joint_icm_2plane plus O*n per plane."""
     sweeps = NB_SWEEPS if sweeps is None else sweeps
@@ -734,7 +747,7 @@ def nb_refine(Ws, Hl, P1, P2, g_row=None, icm_ridge=0.20, sweeps=None, rounds=2)
         j_cur = j_new
         log["rounds_kept"] += 1
     log["J_nb"] = j_cur
-    return cur[2], cur[3], log
+    return cur[2], cur[3], log, cur[0], cur[1]
 
 
 def fold_fit(Ws, H, iters, ridge, refit=True, had=False, damp=0.01, inner_iters=1, act_order=False, wscale=False, hier_scale=False, bscale=False, cgauge=False, bgptq=False, hpre=False, e8_code=False, e8_beam=1, e8_icm=False, icm_ridge=0.0, g_row=None):
@@ -926,6 +939,61 @@ def fnorm_fit(cfg, ht, hs, steps=4, ridge=0.05, lr=1.0, coh_prior=False):
     del E_g, E2_g
     torch.cuda.empty_cache()
     return g.cpu()
+
+
+# ---------------------------------------------------------------- pack sink
+def _sink_plane(pack, rows=None):
+    """Plane record of a finished (S_rot, r, c, d) pack; r must come from quant_r_hier under the sink (carries .grid)."""
+    if pack is None:
+        raise NotImplementedError("pack sink: path produced no (S_rot, r, c, d) pack")
+    S_rot, r, c, d = pack
+    grid = getattr(r, "grid", None)
+    if grid is None:
+        raise NotImplementedError("pack sink: r was not produced by quant_r_hier")
+    return dict(S_rot=S_rot, r=r, c=c, d=d, rgrid=grid, rows=rows)
+
+
+def _sink_recon(planes):
+    """Stored weight from the planes, summed in run_variant's order.  Temporal O(P * O * n * log 128) flops (P planes, 7 FWHT
+    stages each), spatial O(O * n) words."""
+    W = None
+    for p in planes:
+        if "dense" in p:
+            W = W + p["dense"]
+            continue
+        Wi = compose(fwht128(p["S_rot"] * p["d"][None, :]), p["r"], p["c"])
+        if W is None:
+            W = Wi
+        elif p["rows"] is None:
+            W = W + Wi
+        else:
+            W = W.clone()
+            W[p["rows"]] += Wi
+    return W
+
+
+def _sink_store(l, nm, planes, Wl):
+    """Check sum(planes) == Wl (the weight run_variant stored: torch.equal, else max|diff| <= 1e-6 max|W| and counted in
+    PACK_STATS['tol']), then keep the planes on CPU in PACK_SINK[(l, nm)].  Temporal as _sink_recon."""
+    if planes is None:
+        raise NotImplementedError(f"pack sink: no plane record for L{l} {nm}")
+    Wr = _sink_recon(planes).to(Wl.device).float()
+    if torch.equal(Wr, Wl):
+        PACK_STATS["equal"] += 1
+    else:
+        rel = float((Wr - Wl).abs().max() / Wl.abs().max())
+        assert rel <= 1e-6, f"pack sink: planes != stored weight at L{l} {nm}: max|diff|/max|W| = {rel}"
+        PACK_STATS["tol"] += 1
+        PACK_STATS["max_rel"] = max(PACK_STATS["max_rel"], rel)
+    out = []
+    for p in planes:
+        if "dense" in p:
+            out.append(dict(dense=p["dense"].cpu()))
+        else:
+            out.append(dict(S_rot=p["S_rot"].cpu(), r=p["r"].cpu(), c=p["c"].cpu(), d=p["d"].cpu(),
+                            rgrid=(p["rgrid"][0].cpu(), p["rgrid"][1].cpu()),
+                            rows=None if p["rows"] is None else p["rows"].cpu()))
+    PACK_SINK[(l, nm)] = out
 
 
 # ---------------------------------------------------------------- sequential transfer
@@ -1229,6 +1297,7 @@ def run_variant(cfg, TL, ids_cal, name, a):
                     else:
                         two_plane_nm = ("k", "v")
                     pk2_top = None; top_sel = None
+                    sink_planes = [_sink_plane(info1["pack"])] if PACK_SINK is not None else None
                     if nm in two_plane_nm:
                         Wp2, info2 = fold_fit(Ws_nm - Wp1, Hm, fit_iters, rg_q, **fk)
                         if backfit_2plane:
@@ -1238,9 +1307,13 @@ def run_variant(cfg, TL, ids_cal, name, a):
                                 Wp2_b, info2_b = fold_fit(Ws_nm - Wp1, Hm, fit_iters, rg_q, **fk)
                                 if J(Ws_nm, Wp1 + Wp2_b, Hl_m) < J(Ws_nm, Wp1 + Wp2, Hl_m):
                                     Wp2, info2 = Wp2_b, info2_b
+                        if PACK_SINK is not None:
+                            sink_planes = [_sink_plane(info1["pack"]), _sink_plane(info2["pack"])]
                         if nb_arm and nm in ("k", "v", "o"):
-                            W1n, W2n, nb_log = nb_refine(Ws_nm, Hl_m, info1["pack"], info2["pack"], g_row=g_row, icm_ridge=icm_ridge)
+                            W1n, W2n, nb_log, Pn1, Pn2 = nb_refine(Ws_nm, Hl_m, info1["pack"], info2["pack"], g_row=g_row, icm_ridge=icm_ridge)
                             Wp1, Wp2 = W1n, W2n
+                            if PACK_SINK is not None:
+                                sink_planes = [_sink_plane(Pn1), _sink_plane(Pn2)]
                             st_ = nb_stats[nm]
                             st_["J_seq"] += nb_log["J_seq"]; st_["J_nb"] += nb_log["J_nb"]; st_["moves"] += nb_log["moves"]
                             st_["rounds_kept"] += nb_log["rounds_kept"]; st_["tensors"] += 1
@@ -1257,6 +1330,8 @@ def run_variant(cfg, TL, ids_cal, name, a):
                             Wp = Wp1.clone()
                             Wp[top_idx] += Wp2_top
                             pk2_top = info2["pack"]; top_sel = top_idx
+                            if PACK_SINK is not None:
+                                sink_planes = [_sink_plane(info1["pack"]), _sink_plane(pk2_top, rows=top_idx)]
                             nsign += k_rows * n; nr += info2["bits_r"]; nc += info2["bits_c"]; nd += info2.get("bits_d", 0)
                         else:
                             Wp = Wp1
@@ -1269,10 +1344,14 @@ def run_variant(cfg, TL, ids_cal, name, a):
                         Corr, b_corr, _ = lowrank_corrector(Ws_corr - Wp, Hl_m, rank=rk, round_f16=not bscale, u8_corr=bscale)
                         if J(Ws_corr, Wp + Corr, Hl_m) < J(Ws_corr, Wp, Hl_m):
                             Wp = Wp + Corr
+                            if PACK_SINK is not None:
+                                sink_planes.append(dict(dense=Corr))
                         ncorr += b_corr
                     if nm in ("q", "k", "v"):
                         db = (y_sum[nm] - (x_sum @ Wp.T)) / n_toks
                         Lq[nm + "b"] = (Lt[nm + "b"].to(dt) + db.to(DEV)).float().contiguous()
+                    if PACK_SINK is not None and nm == "up" and X_slabs is not None and (use_align or (use_res and not use_resq)):
+                        raise NotImplementedError("pack sink: -align / non-resq -res rescale Wp outside the stored planes")
                     if use_align and nm == "up" and X_slabs is not None:
                         W_u0 = Lt["up"].to(dt).to(dev_s)
                         Wq_g = Lq["gate"].to(dt).to(dev_s)
@@ -1335,11 +1414,17 @@ def run_variant(cfg, TL, ids_cal, name, a):
                                 S_r2, rh_2s, ch_2s, dh_2s = pk2_top
                                 rh_2n, _ = quant_r_hier(rh_2s * s_sol[top_sel][:, None])
                                 Wp[top_sel] += compose(fwht128(S_r2 * dh_2s[None, :]), rh_2n, ch_2s)
+                            if PACK_SINK is not None:
+                                sink_planes = [_sink_plane((S_r1, rh_1n, ch_1s, dh_1s))]
+                                if pk2_top is not None:
+                                    sink_planes.append(_sink_plane((S_r2, rh_2n, ch_2s, dh_2s), rows=top_sel))
                         else:
                             Wp = Wp * s_sol[:, None]
                         del W_g0, W_u0, Wq_g, Wq_u, W_down_t, G, P_mat, C_mat, GoP, GoC, ones, rhs, s_sol, X_slabs
                         X_slabs = None
                     Lq[nm] = Wp.to(DEV).float().contiguous()
+                    if PACK_SINK is not None:
+                        _sink_store(l, nm, sink_planes, Lq[nm])
                     del Wp, Wp1, Ws_nm, W0_nm
                 del Hm, Hl_m, Ws_cat
                 tm["refit"] += tick() - t0

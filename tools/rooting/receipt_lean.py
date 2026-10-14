@@ -66,6 +66,7 @@ W15 = {
     "w18_size05": "docs/evidence/receipts/onebit/w18-size05-n50.json",
     "w18_size15": "docs/evidence/receipts/onebit/w18-size15-n50.json",
     "w18_size15m": "docs/evidence/receipts/onebit/w18-size15-m792.json",
+    "w18_pv05": "docs/evidence/receipts/onebit/w18-pv05.json",
 }
 
 OUTCOME_ARMS = [("teacher", "teacher"), ("q4km", "q4km"), ("resq", RESQ_ARM)]
@@ -485,6 +486,48 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
             for name, k in [("q4kmBpw", "bpw_linears"), ("q4kmKlHeldout", "kl_heldout"), ("q4kmTop1Heldout", "top1_heldout")]:
                 out.append(("rat", name, rat(q[k])))
         out.append(("rat", "wallTotalS", rat(data["wall_total_s"])))
+    elif ns == "w18_pv05":
+        # End-to-end KL finishing of the arm's stored code (pv_finish.py): the same arm, before and after, at identical bits.
+        if data["arm"] != RESQ_ARM or data["n_cal"] != 50 or data["eval_chunks"] != [50, 90] or data["insample_chunks"] != [0, 20]:
+            raise Fail(f"{rel}: not the arm on the n-cal 50 / held-out [50, 90) protocol")
+        c = data["controls"]
+        if c["pack_equality"]["torch_equal"] != c["pack_equality"]["linears"]:
+            raise Fail(f"{rel}: pack sink does not reconstruct every linear")
+        if c["quantized_eval_equality"]["linears_not_equal"] != 0 or c["data_disjoint"]["overlap"] != 0:
+            raise Fail(f"{rel}: eval weights are not the stored code, or train overlaps calibration")
+        out.append(("str", "arm", RESQ_ARM))
+        out.append(("bool", "beforeMatchesReference", bool_value(c["before_kl_regression"]["ok"], ns)))
+        out.append(("bool", "bitsEqual", bool_value(c["bits_equal"]["ok"], ns)))
+        out.append(("bool", "codebookExact", bool_value(c["codebook_match"]["ok"], ns)))
+        out.append(("bool", "dataDisjoint", bool_value(c["data_disjoint"]["ok"], ns)))
+        for name, k in [("params", "params"), ("bitsBefore", "bits_before"), ("bitsAfter", "bits_after"),
+                        ("steps", "steps"), ("tokens", "tokens")]:
+            out.append(("nat", name, nat(data[k])))
+        out.append(("nat", "vSteps", nat(len(data["v_steps"]))))
+        out.append(("nat", "vAccepted", nat(sum(1 for x in data["v_steps"] if x["accepted"]))))
+        # Every V-step candidate (skip-rank x fraction) against the loss it realised on its own scoring batch.
+        tries = [(t, x["loss_before"]) for x in data["v_steps"] for t in x["tries"]]
+        fell = [(t, b) for t, b in tries if rat(t["loss_after"]) < rat(b)]
+        out.append(("nat", "vTries", nat(len(tries))))
+        out.append(("nat", "vTriesPredictedFall", nat(sum(1 for t, _ in tries if rat(t["predicted_dloss"]) < 0))))
+        out.append(("nat", "vTriesFell", nat(len(fell))))
+        if len(fell) != 1:
+            raise Fail(f"{rel}: expected exactly one V-step candidate to lower the loss, got {len(fell)}")
+        t, b = fell[0]
+        out.append(("nat", "vFellMoves", nat(t["moves"])))
+        out.append(("rat", "vFellPredicted", rat(t["predicted_dloss"])))
+        out.append(("rat", "vFellRealised", rat(t["loss_after"]) - rat(b)))
+        bc = data["bits_components"]
+        if bc != data["bits_components_after"] or sum(bc.values()) != data["bits_before"]:
+            raise Fail(f"{rel}: bit components changed or do not sum to the stored bits")
+        out.append(("nat", "bitsSign", nat(bc["bits_sign"])))
+        out.append(("nat", "bitsScales", nat(bc["bits_r"] + bc["bits_c"] + bc["bits_d"])))
+        out.append(("nat", "bitsCorr", nat(bc["bits_corr"])))
+        for name, k in [("klHeldoutBefore", "kl_heldout_before"), ("klHeldoutAfter", "kl_heldout_after"),
+                        ("top1HeldoutBefore", "top1_heldout_before"), ("top1HeldoutAfter", "top1_heldout_after"),
+                        ("klInsampleBefore", "kl_insample_before"), ("klInsampleAfter", "kl_insample_after")]:
+            out.append(("rat", name, rat(data[k])))
+        out.append(("rat", "wallTotalS", rat(data["walls"]["total_s"])))
     else:
         raise Fail(f"no W15/W17 field map for {ns}")
     return out

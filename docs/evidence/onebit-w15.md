@@ -1177,6 +1177,61 @@ widens it to 792 rows and matches 0.5B's sign bits per weight (1.1192).
 
 Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
+## End-to-end KL finishing of the arm's stored code (`measured`; `Perf/PVFinish.lean`)
+
+The size-trend section names the per-layer objective `J` as the gap. This run keeps the arm's stored code and its bit
+count fixed and optimises it against end-to-end KL, in the manner of PV-Tuning (Malinovskii et al., arXiv 2405.14852,
+which reports Llama-2 7B at 1.58 b/w within 1.43× of fp16 perplexity).
+
+- Method (`tools/onebit/pv_finish.py`, sha256 `c973b38c…`; `tools/onebit/fold_transfer.py` sha256 `f21e276a…`, whose
+  `PACK_SINK` records every linear's stored planes `(S_rot, r, c, d, rows)`): build the arm on Qwen2.5-0.5B exactly as
+  `w18-size05-n50.json` (n-cal 50, held-out `calib-c4` `[50, 90)`, in-sample `[0, 20)`), then train on forward
+  KL(fp32 teacher ‖ student) over C4 training chunks disjoint from calibration.
+  - P-step: Adam on the scales `r`, `c`, `d` through the arm's own quantizers by a straight-through estimator, plus the
+    norms and q/k/v biases (zero stored bits). Latents are log-space offsets; lr 1e-3 (scales) and 1e-4 (norms, biases),
+    10-step warmup, cosine to 10% over the time box.
+  - V-step every 25 steps: move E8 ∪ O8 codebook indices among each row's 16 nearest codewords by the linearised gain
+    `⟨g, Δ⟩`; 8 candidates (skip-rank × fraction) scored on a disjoint training batch, the best applied only if that
+    batch's loss falls.
+- Prediction `pv05-1` (held-out KL in `[0.55, 0.95]`, falsifier `≥ 1.10`): confirmed. One run, RTX 5080, 541.7 s
+  (transfer 107.8 s, training 418.7 s); receipt `docs/evidence/receipts/onebit/w18-pv05.json`.
+
+| metric | before | after |
+|---|---:|---:|
+| held-out KL (nats/token) | 1.1637 | **0.8981** |
+| held-out top-1 | 0.4797 | 0.5379 |
+| in-sample KL | 0.2224 | 0.2416 |
+| stored bits | 421,541,376 (1.17806 b/w) | 421,541,376 |
+| ratio to Q4_K_M held-out KL | 63.3× | 48.9× |
+
+- Training: 432 steps at batch 8 × 512, 1,769,472 tokens. 17 V-steps, one accepted (step 25, 62,376 of ~50M blocks).
+- Controls, all pass: pack reconstruction `torch.equal` on 168/168 linears; pre-finishing held-out KL equals the
+  size-trend receipt bit for bit; every 8-block of `S_rot` is a codebook row (288 planes); step-0 weights equal the arm;
+  the 3,592 training chunks used overlap none of calibration `[0, 90)`; eval weights equal the re-quantized stored values
+  (168/168); stored bits and every bit component are unchanged.
+- Deviations from the brief: the brief's V-step (top 0.5% of blocks by gain) raised the loss 1.38 → 12.7 and was
+  replaced by the scored candidate set above; `r` is quantized on a frozen per-row grid because `quant_r_hier` is not
+  idempotent; the accepted low-rank correction (q rank 2, down rank 1) is a fixed dense plane, its bits counted.
+- Mechanism (`proved` arithmetic over the receipt, `Perf.PVFinish`):
+  - The gain is generalisation: in-sample KL rises 0.222 → 0.242 while held-out falls; held-out/in-sample goes from
+    5.2× to 3.7× (`pv_gap_shrinks`).
+  - The trained parameters are the scales, 19,252,224 bits, under 5% of the stored bits; the sign codes hold
+    400,490,496 bits, over 95% (`pv_scales_small`).
+  - The codes did not move because the first-order move is wrong at codeword scale: all 136 V-step candidates predicted
+    a loss fall, one realised it, and that one realised −0.0022 against a predicted −0.1029, under 1/45
+    (`pv_vstep_first_order_fails`). Larger candidate sets (250,080 moves) raised the loss up to 1.04 → 10.7. A codeword
+    move is a finite jump; the curvature term `½ ΔᵀHΔ` outweighs `⟨g, Δ⟩`.
+  - Also `pv_same_arm`, `pv05_confirmed`, `pv_heldout_drop` (> 22% drop, top-1 +5.8 points), `pv_q4km_ratio`
+    (48–49×), `pv_vstep_rare`. Control `ctl_pv` (the 0.95 bound lowered to 0.89, the 1/45 ratio raised to 1/47) fails at
+    both lines; axioms `{propext, Classical.choice, Quot.sound}`.
+- Decision: end-to-end finishing is the first lever since W17 to move held-out KL by a fifth at fixed bits, and it did
+  so through 5% of the bits. The other 95% are the next target: a V-step whose gain includes the curvature term,
+  `⟨g, Δ⟩ − ½ Σᵢ Fᵢᵢ Δᵢ²` with `F` the diagonal empirical Fisher accumulated over the P-step (the Optimal Brain Surgeon
+  criterion, Hassibi and Stork (1993), at diagonal order), so that predicted and realised code moves agree and the
+  codes train. Single-batch training loss sits in 0.91–1.11 from step 50 on, so more tokens on the scales alone is not the lever.
+
+Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
 ## Limit claims
 
 `tools/rooting/limit_check.py` refuses, in this file, `onebit-w13.md`, `docs/epics/ternary-hadamard.md` and the
