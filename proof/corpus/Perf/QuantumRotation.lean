@@ -53,6 +53,21 @@ both clauses (`kan_mm_loses_wall`). The speedup buys 173 more steps and `0.020` 
 the register still wins: at 550 steps its KL is `0.00125` below the convex lower bound from the butterfly curve
 (`kan_mm_wins_matched_step`), under the same convexity `anchor`. The remaining gap is the per-(layer, site) build of
 `T`: 96 builds of seven stages each, forward and backward.
+
+## The batched register (`quantum-register` W2)
+
+`pv_finish.py` (sha256 `302ae284…`) builds every (layer, site) register matrix of a step in one batched pass,
+`kan_matrix_batch`: seven stage launches per call instead of 96 × 7 (receipt `qreg-kan-mmb.json`; selftest control 9:
+the batch is `torch.equal` to `kan_matrix` per key in fp32 and fp64, `dL/dδ` rel `2.7 × 10⁻¹⁶`; control 10: the `a ↔ b`
+swap mutant moves it by rel `0.95`). Step-0 weights stay exact (`kan_mmb_protocol`). The step costs `0.81×` the
+per-key register's and `1.19×` the fixed Hadamard matmul's (`kan_mmb_step_cost`), and the same as the fixed butterfly
+`pvfast`'s to within `1%`.
+
+Prediction `kan-kl-mmb-1` (step in `[0.48, 0.56]` s, at least 690 steps, held-out KL below the butterfly's `0.8577`) is
+refuted on its speed and step clauses; its KL clause holds. At equal wall the learned register beats the fixed butterfly
+(`kan_mmb_beats_butterfly_wall`: `0.8547` against `0.8577`) and still loses to the fixed Hadamard matmul's `0.8484`
+(`kan_mmb_loses_hadmm`). Per step the margin grows: at 683 steps its KL is `0.0036` below the convex lower bound from the
+butterfly curve (`kan_mmb_wins_matched_step`), against `0.00125` at 550 steps, under the same convexity `anchor`.
 -/
 
 namespace Perf.QuantumRotation
@@ -218,5 +233,60 @@ theorem kan_mm_wins_matched_step :
   refine ⟨by decide, by decide, ?_, ?_⟩ <;>
     norm_num [secant, w18_pvtok292.steps, w18_pvaball05v0.steps, w18_pvfast.steps, qreg_kan_mm.steps,
       w18_pvtok292.klHeldoutAfter, w18_pvaball05v0.klHeldoutAfter, w18_pvfast.klHeldoutAfter, qreg_kan_mm.klHeldoutAfter]
+
+/-- **Protocol and identity, batched register.** Step-0 weights `torch.equal` to `PlaneCompose`'s; bits grow by exactly
+the angle count; the fp32 gradient is within `10⁻²` relative L2 of the fixed Hadamard's; offsets stay within `0.07` rad of
+`π/4`. -/
+theorem kan_mmb_protocol :
+    qreg_kan_mmb.hadamard = "mm" ∧ qreg_kan_mmb.kanStep0Equal = true ∧
+    qreg_kan_mmb.bitsAfter = qreg_kan_mmb.bitsBefore + qreg_kan_mmb.angleBits ∧
+    qreg_kan_mmb.angleBits = qreg_kan_probe.angleBitsFullModel ∧
+    qreg_kan_mmb.gradRelFp32Kan < 1 / 100 ∧ qreg_kan_mmb.thetaDriftMaxAbs < 7 / 100 := by
+  refine ⟨rfl, rfl, rfl, rfl, ?_, ?_⟩ <;>
+    norm_num [qreg_kan_mmb.gradRelFp32Kan, qreg_kan_mmb.thetaDriftMaxAbs]
+
+/-- **Step cost, batched register.** Seconds per step: below `0.81 ×` the per-key matmul register's, between `1.18 ×`
+and `1.19 ×` the fixed Hadamard matmul's, and within `1%` of the fixed butterfly's. -/
+theorem kan_mmb_step_cost :
+    qreg_kan_mmb.trainS / qreg_kan_mmb.steps < 81 / 100 * (qreg_kan_mm.trainS / qreg_kan_mm.steps) ∧
+    118 / 100 * (w18_hadmm.trainS / w18_hadmm.steps) < qreg_kan_mmb.trainS / qreg_kan_mmb.steps ∧
+    qreg_kan_mmb.trainS / qreg_kan_mmb.steps < 119 / 100 * (w18_hadmm.trainS / w18_hadmm.steps) ∧
+    99 / 100 * (w18_pvfast.trainS / w18_pvfast.steps) < qreg_kan_mmb.trainS / qreg_kan_mmb.steps ∧
+    qreg_kan_mmb.trainS / qreg_kan_mmb.steps < w18_pvfast.trainS / w18_pvfast.steps := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [qreg_kan_mmb.trainS, qreg_kan_mmb.steps, qreg_kan_mm.trainS, qreg_kan_mm.steps, w18_hadmm.trainS,
+      w18_hadmm.steps, w18_pvfast.trainS, w18_pvfast.steps]
+
+/-- **Beats the fixed butterfly at equal wall** (the KL clause of `kan-kl-mmb-1`). Fewer than 690 steps (the step clause
+fails) and more than the per-key register's; held-out KL below the butterfly `pvfast`'s and `0.02` below the per-key
+register's. -/
+theorem kan_mmb_beats_butterfly_wall :
+    qreg_kan_mmb.steps < 690 ∧ qreg_kan_mm.steps < qreg_kan_mmb.steps ∧
+    qreg_kan_mmb.klHeldoutAfter < w18_pvfast.klHeldoutAfter ∧
+    qreg_kan_mmb.klHeldoutAfter + 2 / 100 < qreg_kan_mm.klHeldoutAfter := by
+  refine ⟨by decide, by decide, ?_, ?_⟩ <;>
+    norm_num [qreg_kan_mmb.klHeldoutAfter, w18_pvfast.klHeldoutAfter, qreg_kan_mm.klHeldoutAfter]
+
+/-- **Loses to the fixed Hadamard matmul at equal wall.** Its held-out KL is above `w18_hadmm`'s by more than `0.006`. -/
+theorem kan_mmb_loses_hadmm :
+    w18_hadmm.klHeldoutAfter + 6 / 1000 < qreg_kan_mmb.klHeldoutAfter := by
+  norm_num [w18_hadmm.klHeldoutAfter, qreg_kan_mmb.klHeldoutAfter]
+
+/-- **Per-step win, batched register.** At 683 steps (between 529 and 729) its held-out KL is `3 × 10⁻³` below the
+292→529 secant of the butterfly curve extended forward (`0.8583`; a lower bound for a convex curve) and below the 529→729
+chord (`0.8634`; an upper bound). -/
+theorem kan_mmb_wins_matched_step :
+    w18_pvaball05v0.steps < qreg_kan_mmb.steps ∧ qreg_kan_mmb.steps < w18_pvfast.steps ∧
+    qreg_kan_mmb.klHeldoutAfter + 3 / 1000 <
+      w18_pvaball05v0.klHeldoutAfter +
+        secant w18_pvtok292.steps w18_pvaball05v0.steps w18_pvtok292.klHeldoutAfter w18_pvaball05v0.klHeldoutAfter *
+          ((qreg_kan_mmb.steps : ℚ) - w18_pvaball05v0.steps) ∧
+    qreg_kan_mmb.klHeldoutAfter <
+      w18_pvaball05v0.klHeldoutAfter +
+        secant w18_pvaball05v0.steps w18_pvfast.steps w18_pvaball05v0.klHeldoutAfter w18_pvfast.klHeldoutAfter *
+          ((qreg_kan_mmb.steps : ℚ) - w18_pvaball05v0.steps) := by
+  refine ⟨by decide, by decide, ?_, ?_⟩ <;>
+    norm_num [secant, w18_pvtok292.steps, w18_pvaball05v0.steps, w18_pvfast.steps, qreg_kan_mmb.steps,
+      w18_pvtok292.klHeldoutAfter, w18_pvaball05v0.klHeldoutAfter, w18_pvfast.klHeldoutAfter, qreg_kan_mmb.klHeldoutAfter]
 
 end Perf.QuantumRotation

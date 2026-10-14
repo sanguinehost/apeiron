@@ -78,6 +78,7 @@ import Numeric.Qubit
 import Numeric.BranchLaplacian
 import Numeric.BranchMadelung
 import Numeric.TetraLimit
+import Numeric.TetraLaplacian
 import Numeric.BranchQuantization
 import Numeric.PathDensity
 import Perf.QuantumRotation
@@ -1153,6 +1154,9 @@ import Perf.QuantumRotation
 #audit Numeric.TetraLimit.oneSided_tendsto
 #audit Numeric.TetraLimit.tetra4_tendsto_lines
 #audit Numeric.TetraLimit.tetra4_tendsto_field
+#audit Numeric.TetraLaplacian.line_second_deriv
+#audit Numeric.TetraLaplacian.tetra_sum_eq_lap
+#audit Numeric.TetraLaplacian.tetra4_tendsto_laplacian
 #audit Numeric.BranchQuantization.term_eq_pow
 #audit Numeric.BranchQuantization.branchSum_eq_of_exp_eq_one
 #audit Numeric.BranchQuantization.branchSum_geom
@@ -1183,3 +1187,8 @@ import Perf.QuantumRotation
 #audit Perf.QuantumRotation.kan_mm_step_cost
 #audit Perf.QuantumRotation.kan_mm_loses_wall
 #audit Perf.QuantumRotation.kan_mm_wins_matched_step
+#audit Perf.QuantumRotation.kan_mmb_protocol
+#audit Perf.QuantumRotation.kan_mmb_step_cost
+#audit Perf.QuantumRotation.kan_mmb_beats_butterfly_wall
+#audit Perf.QuantumRotation.kan_mmb_loses_hadmm
+#audit Perf.QuantumRotation.kan_mmb_wins_matched_step

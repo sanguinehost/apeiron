@@ -90,6 +90,7 @@ W15 = {
     "qreg_kan_probe": "docs/evidence/receipts/onebit/qreg-kan-probe.json",
     "qreg_kan_exact": "docs/evidence/receipts/onebit/qreg-kan-exact.json",
     "qreg_kan_mm": "docs/evidence/receipts/onebit/qreg-kan-mm.json",
+    "qreg_kan_mmb": "docs/evidence/receipts/onebit/qreg-kan-mmb.json",
 }
 
 # End-loss-weighted Gram receipts (fold_transfer "-guided[a|b]NN"): namespace -> variant prefixes (see guided_prefix).
@@ -102,7 +103,8 @@ GUIDED_SEEDS = {"w18_guidedseed": ["1", "2"]}
 PVAB_GROUPS = {"w18_pvabnorm05": ["norm"], "w18_pvabr05": ["r"], "w18_pvaball05v0": ["c", "d", "norm", "r"], "w18_pvabrcd05": ["c", "d", "r"], "w18_pvabcd05": ["c", "d"],
                "w18_pvgrid25": ["c", "d", "norm", "r"], "w18_pvtok146": ["c", "d", "norm", "r"], "w18_pvtok292": ["c", "d", "norm", "r"],
                "w18_pvfast": ["c", "d", "norm", "r"], "w18_hadmm": ["c", "d", "norm", "r"],
-               "qreg_kan_exact": ["c", "d", "norm", "r"], "qreg_kan_mm": ["c", "d", "norm", "r"]}
+               "qreg_kan_exact": ["c", "d", "norm", "r"], "qreg_kan_mm": ["c", "d", "norm", "r"],
+               "qreg_kan_mmb": ["c", "d", "norm", "r"]}
 
 # Ten-step torch.profiler windows of the finishing loop (pv_finish.py --profile 10): namespace -> (compose, kl) path.
 # `selfDeviceS` is the receipt's own total: pvprof sums aten-op and kernel self time (double counts), pvprof2 kernels only.

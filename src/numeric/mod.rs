@@ -9,3 +9,4 @@ pub mod fixed_exp;
 pub mod fixed_ln;
 pub mod fixed_rsqrt;
 pub mod fixed_trig;
+pub mod register;

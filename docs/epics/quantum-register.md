@@ -159,6 +159,16 @@ Hardest and highest-contribution first: the measurement decides whether the rest
 Stop: W1 refutes (no error drop beyond the seed spread at fixed bits) → record the verdict theorem, keep T2/T4 (the
 primitive stands on its own), and move K to the dense Cayley route (`cayley_isometry`) as the next row.
 
+### W2-T4 Rust stage (`tested`; extraction open)
+
+`src/numeric/register.rs` `stage_mul` multiplies each pair `(x[b+i], x[b+i+span])` by `w` through `Cell::<i64>::checked_mul`
+(`src/cell.rs`, appended after every extracted item so `proof/regen.sh --check` is unchanged): `Err(Overflow)` on any
+`i64` overflow, `Err(NotPowerOfTwo)`, `Err(LengthMismatch)`. Loops are flag loops, one per function, index carried by
+value (the shapes the pinned Aeneas accepts). `cargo test --lib register`: 6 passed (Hadamard-angle pair, `normForm`
+scaling by 25, conjugate stage = `normForm σ w • x` on all three faces, agreement with `Cell::mul`, overflow and domain
+refusals). Controls: lo/hi swap in the write-back fails 2; dropping `σ` from `checked_mul` fails 5. Open: the extraction
+wrapper `word_stage_mul` and `stage_mul_denote` to `Numeric.Register.cellStage`.
+
 ### W1-T1 result (prediction `kan-probe-1`, refuted)
 
 Receipt [`docs/evidence/receipts/onebit/qreg-kan-probe.json`](../evidence/receipts/onebit/qreg-kan-probe.json)
@@ -221,6 +231,33 @@ untransposed in the input adjoint (rel 0.39; `H128` is symmetric, so that defect
 The matmul path is `0.673×` the butterfly register's step and still `1.47×` the fixed matmul's: the 96 `T(δ)` builds
 run seven stages of small kernels each, forward and backward. Next row: all 96 built in one batched register pass
 (`kan_matrix_batch`, seven stage launches per step; bitwise equal to `kan_matrix` per key, `--selftest-kan` controls 9–10).
+
+### W2 result: the batched register (prediction `kan-kl-mmb-1`, refuted on speed and steps, beats the butterfly at equal wall)
+
+Receipt [`docs/evidence/receipts/onebit/qreg-kan-mmb.json`](../evidence/receipts/onebit/qreg-kan-mmb.json)
+(sha256 `c24380bb…`, `pv_finish.py` `302ae284…`, RTX 5080, 542 s); verdicts `kan_mmb_protocol`, `kan_mmb_step_cost`,
+`kan_mmb_beats_butterfly_wall`, `kan_mmb_loses_hadmm`, `kan_mmb_wins_matched_step` in
+`proof/corpus/Perf/QuantumRotation.lean`, audited in `AxiomAudit.lean` (controls: offset drift `0.08`, train time `300` s,
+per-key register KL `0.86`, register KL `0.85`, `0.8565`, each red at its own theorem). `--selftest-kan` 10/10: the batch
+is `torch.equal` to `kan_matrix` per key in fp32 and fp64, `dL/dδ` rel `2.7·10⁻¹⁶` against the stacked per-key
+gradients; the `a ↔ b` swap mutant moves it by rel `0.95`.
+
+| quantity | register, batched | register, per-key matmul | fixed butterfly (`w18_pvfast`) | fixed Hadamard, matmul (`w18_hadmm`) |
+|---|---|---|---|---|
+| s/step | 0.570 | 0.707 | 0.571 | 0.479 |
+| steps in the 580 s run | 683 | 550 | 729 | 871 |
+| held-out KL after | **0.8547** | 0.8779 | 0.8577 | 0.8484 |
+| top-1 after | 0.5475 | 0.5424 | — | — |
+| butterfly KL at the register's steps, convex bracket | [0.8583, 0.8634] | [0.8791, 0.8798] | — | — |
+| b/w | 1.179984 | 1.179984 | 1.178061 | 1.178061 |
+
+The learned register now runs at the fixed butterfly's step cost and beats it at equal wall (`0.8547 < 0.8577`). The
+per-step margin under the butterfly's convex lower bound grows from `0.00125` at 550 steps to `0.0036` at 683
+(`anchor`: convexity). The fixed Hadamard matmul is still ahead by `0.0063`: its step is `0.84×` the register's, which
+buys 188 more steps. The remaining `0.091` s/step is the angle gradient: `dL/dT = Σ_g W_gᵀ · dL/dW_g` per (layer,
+site) and the backward through the seven stages. Next row: W3-T5, train the corrector `N` (`Corr = U Vᵀ`, rank 2 on q,
+rank 1 on down; `fold_transfer.py` `lowrank_corrector`, `pv_finish.py` `Plane.dense`) as factors at unchanged bits
+(`bits_corr` 1798656), on the batched register; gate: held-out KL against `0.8484`.
 
 ### Arc Block (W1-T1)
 
@@ -312,7 +349,7 @@ Each block, mapped to the corpus (`canonical` = in-tree `proof/canonical`, pin `
 | 3a | one branch's 1-jet does not determine `∇²R` | Vattay 2605.02621 | `QuantumClassicalIsomorphism.lean` `single_branch_underdetermines` | proved |
 | 3b | four branches `{±1, ±i}` reconstruct `∇²R` exactly on a quadratic amplitude, 2-D | — (ours) | `QuantumClassicalIsomorphism.lean` `stencil4_reconstructs_laplacian` | proved |
 | 3c | four tetrahedral branches reconstruct `∇²R` exactly on a quadratic amplitude in ℝ³; `k ≥ d + 1` | — (ours) | `Numeric/BranchLaplacian.lean` `tetra_stencil_reconstructs_laplacian`, `branch_count_ge_four`, `tetra_family_attains_four` | proved |
-| 3d | four-branch stencil → `∇²R` as `h → 0` for `R` twice differentiable (beyond quadratics) | — (ours) | `Numeric/BranchLaplacian.lean` `secondDiff_tendsto`, `stencil4_tendsto_laplacian` (limit, no rate); `Numeric/TetraLimit.lean` `tetra4_tendsto_field`: the four-branch tetrahedral stencil of any `C²` field on `ℝ³` (no quadratic premise) tends to the mean of the second derivatives along the four branch lines; identifying that mean with `(∂xx+∂yy+∂zz)/3` needs the symmetric Hessian (open) | proved |
+| 3d | four-branch stencil → `∇²R` as `h → 0` for `R` twice differentiable (beyond quadratics) | — (ours) | `Numeric/BranchLaplacian.lean` `secondDiff_tendsto`, `stencil4_tendsto_laplacian` (limit, no rate); `Numeric/TetraLimit.lean` `tetra4_tendsto_field`: the four-branch tetrahedral stencil of any `C²` field on `ℝ³` (no quadratic premise) tends to the mean of the second derivatives along the four branch lines; `Numeric/TetraLaplacian.lean` `tetra_sum_eq_lap`, `tetra4_tendsto_laplacian`: that mean is `∂xx+∂yy+∂zz`, because `Σₙ vₙ vₙᵀ = 4·1` gives `Σₙ D²F(vₙ, vₙ) = 4 tr D²F` for any bilinear `D²F`, symmetric or not (`line_second_deriv`: `(t ↦ F(p+tv))″(0) = D²F(p)(v, v)`) | proved |
 | 4 | time rescaling leaves `R″(t′)·|∇t′|² + R′·∇²t′` in `∇²R(t′(x))`, and the four-branch stencil of `R ∘ t′` returns it | Vattay 2606.05197 eq. 1–2 | `Numeric/BranchLaplacian.lean` `second_derivative_comp`, `stencil4_quad_comp_affine`, `stencil4_affine_comp_quad` (each term read exactly) | proved |
 | 5 | Van Vleck kernel exact on the three quadratic faces | Vattay 2606.05197 §3 | canonical `VanVleck/{Elliptic,Parabolic,Hyperbolic}.lean` `*_vanVleck_pointwise_exact` (pointwise residual, not propagator) | proved |
 | 6 | Van Vleck exact **only if** the Hamiltonian is at most quadratic | Vattay 2606.05197 §3 (cited theorem) | absent; cited, not proved | anchor |
@@ -330,10 +367,9 @@ Each block, mapped to the corpus (`canonical` = in-tree `proof/canonical`, pin `
 | 17 | measurement: qubit projectors idempotent, sum to identity, Born weights sum to `‖x‖²` | L–S Lemma 2 (Born rule a postulate there) | `Numeric/Register.lean` `measProj_idem`, `measProj_add`, `measProj_orth`, `born_sum` | proved |
 | 18 | reflection stage is an involution, so `Tᵀ` is the stages in reverse order | — (W2 inverse for `fold_transfer`) | `Numeric/Register.lean` `reflPair_involutive`, `reflStage_involutive`, `reflStage_sum_sq`, `reflStages_reverse_cancel`, `refl_quarter` | proved |
 
-Landed: 3c, 3d, 4 (`Numeric/BranchLaplacian.lean`, `Numeric/TetraLimit.lean`), 1+3 (`Numeric/BranchMadelung.lean`), 9 (`Numeric/PathDensity.lean`), 10 (`Numeric/BranchQuantization.lean`), 11–13 (`Numeric/Qubit.lean`), 16–18 (`Numeric/Register.lean`), each
+Landed: 3c, 3d, 4 (`Numeric/BranchLaplacian.lean`, `Numeric/TetraLimit.lean`, `Numeric/TetraLaplacian.lean`), 1+3 (`Numeric/BranchMadelung.lean`), 9 (`Numeric/PathDensity.lean`), 10 (`Numeric/BranchQuantization.lean`), 11–13 (`Numeric/Qubit.lean`), 16–18 (`Numeric/Register.lean`), each
 with three changed-constant controls red at the edited line and the real file green.
 
 Every row above is registered in `proof/corpus/AxiomAudit.lean` (closed cone).
 
-Open: a 3-D Madelung (the canonical one is 1-D), so the joint row is 1-D; the symmetric-Hessian step that turns the
-tetra limit into `∇²/3`; a rate for 3d; the link `a = Δφ/m` for row 9. Row 6 stays `anchor` (cited, not proved); 7 is the step 3c and 3d bypass, not one they need.
+Open: a 3-D Madelung (the canonical one is 1-D), so the joint row is 1-D; a rate for 3d; the link `a = Δφ/m` for row 9. Row 6 stays `anchor` (cited, not proved); 7 is the step 3c and 3d bypass, not one they need.
