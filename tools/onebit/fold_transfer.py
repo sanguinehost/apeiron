@@ -1234,9 +1234,16 @@ def run_variant(cfg, TL, ids_cal, name, a):
     """Returns (student layers, bits info, timings)."""
     dt = torch.float32 if a.dtype == "fp32" else torch.float64
     # "-yaqa": output-side (YAQA) code refinement of every finished plane; stripped before the rest of the name, so it
-    # may follow a "-guided..." suffix.  Only `yaqa` differs between the base arm and base + "-yaqa".
-    yaqa_m = re.search(r"-yaqa$", name)
+    # may follow a "-guided..." suffix.  Only `yaqa` differs between the base arm and base + "-yaqa".  "-yaqaxv" is the
+    # same refinement plus the held-out-half cross-validation diagnostic: `yaqa` is True for both, `yaqa_xv` marks it.
+    # "-yaqasNN": the same refinement with the output-side Hessian shrunk toward its diagonal by NN/100 (`yaqa_shrink`).
+    yaqa_m = re.search(r"-yaqa(xv|s\d\d)?$", name)
     yaqa = yaqa_m is not None
+    yaqa_xv = bool(yaqa and yaqa_m.group(1) == "xv")
+    yaqa_shrink = 0.0
+    if yaqa and yaqa_m.group(1) and yaqa_m.group(1)[0] == "s":
+        yaqa_shrink = int(yaqa_m.group(1)[1:]) / 100.0
+        assert 0.0 < yaqa_shrink <= 1.0, yaqa_shrink
     if yaqa:
         name = name[:yaqa_m.start()]
     # "-guided": every flag below resolves from the base arm's name; only `guided` is new
@@ -1250,6 +1257,10 @@ def run_variant(cfg, TL, ids_cal, name, a):
         gq_gamma = int(gq_m.group(2)) / 100 if gq_m.group(2) else 1.0
         gq_part = gq_m.group(1) or "ab"
         name = name[:gq_m.start()]
+    if yaqa_xv:
+        # a "-guided...-yaqaxv" name would weight half A's H_O by the end-loss gradient, so the halves would not be
+        # exchangeable; refused by construction rather than silently captured
+        assert not guided, name
     mode = dict(rtn="rtn", **{"gptq1-t": "gptq", "gptq1-s": "gptq", "had-gptq1-t": "gptq", "had-gptq1-s": "gptq",
                               "fold-ns": "fold", "fold-local": "fold", "fold-block": "fold", "had-fold-local": "fold",
                               "had-fold-block": "fold", "had-fold-block-w0": "fold", "fp-ridge": "ridge", "fp-ridge-mut": "ridge"}).get(name, "fold_gqa")
@@ -1306,6 +1317,9 @@ def run_variant(cfg, TL, ids_cal, name, a):
     nb_arm = name.endswith("-nb")
     nb_stats = {k: dict(J_seq=0.0, J_nb=0.0, moves=0, rounds_kept=0, tensors=0) for k in ("k", "v", "o")}
     yaqa_stats = {nm: dict(JO_before=0.0, JO_after=0.0, accepted=0, chunks=0, rows_moved=0) for nm in KINDS}
+    if yaqa_xv:
+        for _d in yaqa_stats.values():
+            _d.update(JB_before=0.0, JB_after=0.0, JB_after_a50=0.0, JB_after_a90=0.0, accepted_a50=0, accepted_a90=0)
     icm_ridge = 0.25 if "icm25" in name else (0.20 if "icm20" in name else (0.15 if "icm15" in name else 0.0))
     gin_val = 0.25 if ("-gin25" in name) else a.inter_gamma_in
     glu_comp = name.endswith("-glu")
@@ -1347,10 +1361,19 @@ def run_variant(cfg, TL, ids_cal, name, a):
         return Ls, dict(bits=nsign + nr, params=ntot), tm
     N = ids_cal.shape[0]
     gq = None
+    gq_b = None
     if guided or yaqa:
         assert mode == "fold_gqa" and use_grow, "-guided / -yaqa apply to the fold_gqa arms with row weights"
-        gq = gq_capture(cfg, TL, ids_cal.cpu(), K=a.gq_k, seed=a.gq_seed, outer=yaqa)
-        tm["capture"] = gq["wall_s"]
+        if yaqa_xv:
+            # Two captures on disjoint halves of the calibration set: the refine is fitted on half A, half B is the
+            # held-out estimate.  Same K, seed and CHUNK per call, so the only difference is the token population.
+            assert ids_cal.shape[0] >= 2, ids_cal.shape
+            gq = gq_capture(cfg, TL, ids_cal.cpu()[0::2], K=a.gq_k, seed=a.gq_seed, outer=True)
+            gq_b = gq_capture(cfg, TL, ids_cal.cpu()[1::2], K=a.gq_k, seed=a.gq_seed, outer=True)
+            tm["capture"] = gq["wall_s"] + gq_b["wall_s"]
+        else:
+            gq = gq_capture(cfg, TL, ids_cal.cpu(), K=a.gq_k, seed=a.gq_seed, outer=yaqa)
+            tm["capture"] = gq["wall_s"]
         if yaqa:
             assert "ho" in gq, "outer capture produced no output-side Hessian"
         if guided:
@@ -1359,6 +1382,7 @@ def run_variant(cfg, TL, ids_cal, name, a):
             if GQ_FORCE_ONES or gq_part == "b":
                 gq = dict(gq, a=[{st: torch.ones_like(x) for st, x in d.items()} for d in gq["a"]])
     ho = gq["ho"] if yaqa else None
+    ho_b = gq_b["ho"] if yaqa_xv else None
     ht = cfg.E[ids_cal.cpu()]
     hs = ht.clone()
     for l in range(cfg.nl):
@@ -1639,8 +1663,23 @@ def run_variant(cfg, TL, ids_cal, name, a):
                         # Output-side (YAQA) refinement of the finished codes: every full-row plane (1 or 2) is refined
                         # against HO[l][nm], a top-rows partial plane enters as the frozen W_fixed.  Runs before any
                         # row-scale fold, sink store or Lq assignment, so every later consumer sees the refined packs.
+                        # -yaqaxv: the applied refine fits half A, so its J_O gain need not transfer; half B (HOB)
+                        # scores D0 (before), D1 (after) and the diagonal-shrunk probes, held-out.  Cost: two extra
+                        # yaqa_refine passes per linear plus three J_O evaluations, each O*O*n + O*n*n MACs.
                         t0y = tick()
                         HO_nm = ho[l][nm].to(dev_s).to(dt)
+                        if yaqa_shrink > 0.0:
+                            # the held-out split showed the unshrunk refine fits HO estimation noise; shrinkage toward
+                            # the diagonal is the bias-variance trade (Ledoit and Wolf 2004); O(O^2) once per linear
+                            HO_nm = (1.0 - yaqa_shrink) * HO_nm + yaqa_shrink * torch.diag(HO_nm.diagonal())
+                        if yaqa_xv:
+                            HOB = ho_b[l][nm].to(dev_s).to(dt)
+                            JB_before = _yaqa_JO(HOB, Hl_m, Ws_nm - Wp)
+                            pk1_pre, pk2_pre = pk1, pk2
+                            W_fixed_pre = None
+                            if nm not in two_plane_nm and pk2_top is not None:
+                                W_fixed_pre = torch.zeros_like(Ws_nm)
+                                W_fixed_pre[top_sel] = _plane_w(pk2_top)
                         if nm in two_plane_nm:
                             P1r, P2r, ylog = yaqa_refine(Ws_nm, Hl_m, HO_nm, pk1, pk2, icm_ridge=icm_ridge)
                             pk1, pk2 = P1r, P2r
@@ -1664,9 +1703,33 @@ def run_variant(cfg, TL, ids_cal, name, a):
                             if PACK_SINK is not None:
                                 sink_planes = [_sink_plane(P1r)] + ([_sink_plane(pk2_top, rows=top_sel)] if pk2_top is not None else [])
                             del W_fixed
+                        if yaqa_xv:
+                            assert ylog["JO_before"] != JB_before, ("half B equals half A: HO estimate not held out", JB_before)
+                            JB_after = _yaqa_JO(HOB, Hl_m, Ws_nm - Wp)
+                            probe = {}
+                            for tag, alpha in (("a50", 0.5), ("a90", 0.9)):
+                                HOa = (1.0 - alpha) * HO_nm + alpha * torch.diag(HO_nm.diagonal())
+                                if pk2_pre is not None:
+                                    Q1, Q2, lg_a = yaqa_refine(Ws_nm, Hl_m, HOa, pk1_pre, pk2_pre, icm_ridge=icm_ridge)
+                                    Wa = _plane_w(Q1) + _plane_w(Q2)
+                                else:
+                                    Q1, _, lg_a = yaqa_refine(Ws_nm, Hl_m, HOa, pk1_pre, None, W_fixed=W_fixed_pre, icm_ridge=icm_ridge)
+                                    Wa = _plane_w(Q1)
+                                    if W_fixed_pre is not None:
+                                        Wa = Wa + W_fixed_pre
+                                probe[tag] = (_yaqa_JO(HOB, Hl_m, Ws_nm - Wa), lg_a["accepted"])
+                                del Q1, Wa, HOa
                         st_y = yaqa_stats[nm]
                         for k_ in ("JO_before", "JO_after", "accepted", "chunks", "rows_moved"):
                             st_y[k_] += ylog[k_]
+                        if yaqa_xv:
+                            st_y["JB_before"] += JB_before
+                            st_y["JB_after"] += JB_after
+                            st_y["JB_after_a50"] += probe["a50"][0]
+                            st_y["JB_after_a90"] += probe["a90"][0]
+                            st_y["accepted_a50"] += probe["a50"][1]
+                            st_y["accepted_a90"] += probe["a90"][1]
+                            del HOB, pk1_pre, pk2_pre, W_fixed_pre, probe
                         tm["yaqa"] += tick() - t0y
                         del HO_nm
                     corr_targets = ("q", "down") if q_mlp_trans else (("q", "o", "down") if mlp_2plane_k896 else (("down",) if full_attn_2plane else ("q", "o", "down")))
@@ -1852,6 +1915,7 @@ def run_variant(cfg, TL, ids_cal, name, a):
                            J_seq=agg_seq, J_nb=agg_nb, ratio=(agg_nb / agg_seq if agg_seq else None))
     if yaqa:
         binfo["yaqa"] = {nm: dict(v) for nm, v in yaqa_stats.items()}
+        binfo["yaqa_shrink"] = yaqa_shrink
         binfo["yaqa_chunk"] = YAQA_CHUNK
     return Ls, binfo, tm
 
@@ -1863,7 +1927,9 @@ def gq_controls(cfg, TL, ids_all, a):
     """(1) base and base+"-guided" resolve the same flags except `guided`; (2) with a_t = 1 the layer-0 Grams, x_sum, n_toks
     equal the base arm's exactly (torch.equal) and, with the row weights left to the base proxy, so does every stored layer
     and the bit count; (3) with the real a_t the Grams differ (the comparison can fail).  (4) base and base+"-yaqa" resolve
-    the same flags except `yaqa`."""
+    the same flags except `yaqa`; (5) base and base+"-yaqaxv" resolve the same flags except `yaqa` and `yaqa_xv` (the xv
+    capture halves the calibration rows, which changes no scalar flag); (6) base and base+"-yaqas50" resolve the same flags
+    except `yaqa` and `yaqa_shrink`."""
     global FLAG_PROBE, GQ_FORCE_ONES, GQ_NULL_B, GQ_DEBUG
     out = {}
     ids_c = ids_all[:a.n_cal].contiguous()
@@ -1883,6 +1949,20 @@ def gq_controls(cfg, TL, ids_all, a):
     diff_y = sorted(k for k in set(fb) | set(fy) if fb.get(k) != fy.get(k))
     out["flag_diff_yaqa"] = diff_y
     assert diff_y == ["yaqa"], diff_y
+    FLAG_PROBE = []
+    run_variant(cfg, TL, ids_c, GQ_ARM + "-yaqas50", a)
+    fys = FLAG_PROBE[0]
+    FLAG_PROBE = None
+    diff_ys = sorted(k for k in set(fb) | set(fys) if fb.get(k) != fys.get(k))
+    out["flag_diff_yaqas"] = diff_ys
+    assert diff_ys == ["yaqa", "yaqa_shrink"], diff_ys
+    FLAG_PROBE = []
+    run_variant(cfg, TL, ids_c, GQ_ARM + "-yaqaxv", a)
+    fxv = FLAG_PROBE[0]
+    FLAG_PROBE = None
+    diff_xv = sorted(k for k in set(fb) | set(fxv) if fb.get(k) != fxv.get(k))
+    out["flag_diff_yaqaxv"] = diff_xv
+    assert diff_xv == ["yaqa", "yaqa_xv"], diff_xv
     GQ_DEBUG = {}
     Lb, ib, _ = run_variant(cfg, TL, ids_c, GQ_ARM, a)
     dbg_b, GQ_DEBUG = GQ_DEBUG, {}
