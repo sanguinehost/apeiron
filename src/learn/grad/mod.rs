@@ -4,3 +4,4 @@
 pub mod attn;
 pub mod dense;
 pub mod head;
+pub mod model;
