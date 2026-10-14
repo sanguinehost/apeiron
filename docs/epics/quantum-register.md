@@ -268,14 +268,15 @@ Each block, mapped to the corpus (`canonical` = in-tree `proof/canonical`, pin `
 | 3a | one branch's 1-jet does not determine `∇²R` | Vattay 2605.02621 | `QuantumClassicalIsomorphism.lean` `single_branch_underdetermines` | proved |
 | 3b | four branches `{±1, ±i}` reconstruct `∇²R` exactly on a quadratic amplitude, 2-D | — (ours) | `QuantumClassicalIsomorphism.lean` `stencil4_reconstructs_laplacian` | proved |
 | 3c | four tetrahedral branches reconstruct `∇²R` exactly on a quadratic amplitude in ℝ³; `k ≥ d + 1` | — (ours) | `Numeric/BranchLaplacian.lean` `tetra_stencil_reconstructs_laplacian`, `branch_count_ge_four`, `tetra_family_attains_four` | proved |
-| 3d | four-branch stencil → `∇²R` as `h → 0` for `R` twice differentiable (beyond quadratics) | — (ours) | `Numeric/BranchLaplacian.lean` `secondDiff_tendsto`, `stencil4_tendsto_laplacian` (limit, no rate) | proved |
+| 3d | four-branch stencil → `∇²R` as `h → 0` for `R` twice differentiable (beyond quadratics) | — (ours) | `Numeric/BranchLaplacian.lean` `secondDiff_tendsto`, `stencil4_tendsto_laplacian` (limit, no rate); `Numeric/TetraLimit.lean` `tetra4_tendsto_field`: the four-branch tetrahedral stencil of any `C²` field on `ℝ³` (no quadratic premise) tends to the mean of the second derivatives along the four branch lines; identifying that mean with `(∂xx+∂yy+∂zz)/3` needs the symmetric Hessian (open) | proved |
 | 4 | time rescaling leaves `R″(t′)·|∇t′|² + R′·∇²t′` in `∇²R(t′(x))`, and the four-branch stencil of `R ∘ t′` returns it | Vattay 2606.05197 eq. 1–2 | `Numeric/BranchLaplacian.lean` `second_derivative_comp`, `stencil4_quad_comp_affine`, `stencil4_affine_comp_quad` (each term read exactly) | proved |
 | 5 | Van Vleck kernel exact on the three quadratic faces | Vattay 2606.05197 §3 | canonical `VanVleck/{Elliptic,Parabolic,Hyperbolic}.lean` `*_vanVleck_pointwise_exact` (pointwise residual, not propagator) | proved |
 | 6 | Van Vleck exact **only if** the Hamiltonian is at most quadratic | Vattay 2606.05197 §3 (cited theorem) | absent; cited, not proved | anchor |
 | 7 | Duru–Kleinert / Kustaanheimo–Stiefel flow equivalence under `dt = |x| dτ` | L–S Example 6, reply Annex | sanguine `Physics/KustaanheimoStiefel.lean` states it is not claimed (points only) | open |
 | 8 | quadratic flow is the face's one-parameter subgroup | L–S Thm 1 on quadratic `H` | canonical `Physics/Quadratic.lean` `flow_is_one_param`, `flow_is_one_param_unique` | proved |
-| 9 | density along a path `ρ(t) = ρ₀ e^{−∫Δφ}` | L–S eq. 12 | **missing** | — |
-| 10 | quantization: `Σ_{κ<K} e^{iκφ/ℏ}/K → 0` unless `φ/ℏ ∈ 2πℤ` | L–S Lemma 3 | **missing** (Mathlib `IsPrimitiveRoot.geom_sum_eq_zero` covers the finite case) | — |
+| 9 | density along a path `ρ(t) = ρ₀ e^{−∫Δφ}` | L–S eq. 12 | `Numeric/PathDensity.lean` `pathDensity_hasDerivAt`, `pathDensity_zero`, `pathDensity_unique` (any `C¹` solution of `ρ' = −ρa`, `a` continuous, equals the closed form), `pathDensity_pos`; `a = Δφ/m` along a Hamiltonian path not linked | proved |
+| 10 | quantization: `Σ_{κ<K} e^{iκφ/ℏ}/K → 0` unless `φ/ℏ ∈ 2πℤ` | L–S Lemma 3 | `Numeric/BranchQuantization.lean` `branchAvg_tendsto_zero`, `branchAvg_tendsto_one`, `norm_branchSum_le` (`‖Σ‖ ≤ 2/‖e^{iθ}−1‖`), `branchSum_eq_zero_iff` (finite `K`: zero exactly at nontrivial `K`-th roots), `exp_eq_one_iff_mem`, `branchSum_four_quarter` (four branches at `θ = π/2` cancel) | proved |
+| 1+3 | `Q` read from the branches, joined to block 1: the 1-D two-branch `Q_h` tends to Bohm's `Q`, and the canonical Schrödinger ⟺ Madelung iff holds with that limit | Vattay 2.1–2.5; L–S Lemma 3.1 | `Numeric/BranchMadelung.lean` `branchQ_tendsto`, `schrodinger_iff_branch_madelung` (1-D; the corpus has no 3-D Madelung) | proved |
 | 11 | spinor ↦ Bloch vector, `|n| = |ψ|²` | L–S Fig. 4, eq. 39 | sanguine `Physics/KustaanheimoStiefel.lean` `ks_norm`; in-tree port `Numeric/Qubit.lean` `bloch_norm`, `bloch_eq_ks` (Bloch vector = KS map of `(Re α, Im β, Re β, Im α)`; KS defs copied from sanguine lines 53–71) | proved |
 | 12 | SU(2) gate on the spinor = SO(3) rotation of the Bloch vector (Hopf equivariance) | L–S eq. 36–37 | `Numeric/Qubit.lean` `bloch_rz`, `bloch_ry`, `suR_blochVec` (any `U(a,b) = [[a,−b̄],[b,ā]]`), `suR_orthogonal` (`|a|²+|b|² = 1`) | proved |
 | 13 | `Σ·n = χ↑χ↑† − χ↓χ↓†`, `(Σ·n)² = 1`; real meridian `[[c,s],[s,−c]] = c·σ_z + s·σ_x` (the `kan_probe` butterfly) | L–S eq. 38 | `Numeric/Qubit.lean` `sigmaN_sq`, `sigmaN_sq_unit`, `projP_idem`, `projP_add_projM`, `projP_mul_projM`, `sigmaN_meridian`, `sigmaN_meridian_pi_four` | proved |
@@ -285,8 +286,10 @@ Each block, mapped to the corpus (`canonical` = in-tree `proof/canonical`, pin `
 | 17 | measurement: qubit projectors idempotent, sum to identity, Born weights sum to `‖x‖²` | L–S Lemma 2 (Born rule a postulate there) | `Numeric/Register.lean` `measProj_idem`, `measProj_add`, `measProj_orth`, `born_sum` | proved |
 | 18 | reflection stage is an involution, so `Tᵀ` is the stages in reverse order | — (W2 inverse for `fold_transfer`) | `Numeric/Register.lean` `reflPair_involutive`, `reflStage_involutive`, `reflStage_sum_sq`, `reflStages_reverse_cancel`, `refl_quarter` | proved |
 
-Landed: 3c, 3d, 4 (`Numeric/BranchLaplacian.lean`), 11–13 (`Numeric/Qubit.lean`), 16–18 (`Numeric/Register.lean`), each
+Landed: 3c, 3d, 4 (`Numeric/BranchLaplacian.lean`, `Numeric/TetraLimit.lean`), 1+3 (`Numeric/BranchMadelung.lean`), 9 (`Numeric/PathDensity.lean`), 10 (`Numeric/BranchQuantization.lean`), 11–13 (`Numeric/Qubit.lean`), 16–18 (`Numeric/Register.lean`), each
 with three changed-constant controls red at the edited line and the real file green.
 
-Open: 9 and 10 (queued); the joint theorem of 3b–3d with block 1 (`Q` from the branches, no harmonic premise); a rate
-for 3d. Row 6 stays `anchor` (cited, not proved); 7 is the step 3c and 3d bypass, not one they need.
+Every row above is registered in `proof/corpus/AxiomAudit.lean` (closed cone).
+
+Open: a 3-D Madelung (the canonical one is 1-D), so the joint row is 1-D; the symmetric-Hessian step that turns the
+tetra limit into `∇²/3`; a rate for 3d; the link `a = Δφ/m` for row 9. Row 6 stays `anchor` (cited, not proved); 7 is the step 3c and 3d bypass, not one they need.
