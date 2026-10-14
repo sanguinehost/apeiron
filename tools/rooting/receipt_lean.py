@@ -407,6 +407,7 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
             o = data["variants"][key]["outcomes"]
             for name, k in OUTCOME_RAT:
                 out.append(("rat", pre + name, rat(o[k])))
+            out.append(("rat", pre + "Kl", rat(data["variants"][key]["kl_heldout"])))
             out.append(("nat", pre + "ArcN", nat(o["arc_n"])))
             out.append(("nat", pre + "HsN", nat(o["hs_n"])))
         gens = data["variants"][RESQ_ARM]["outcomes"]["generation"]

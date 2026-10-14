@@ -976,6 +976,33 @@ Prediction `w18-outcomes-1`, confirmed with two misses: the teacher's ARC-Easy `
 (`acc_norm` ARC > 0.45, HellaSwag > 0.40, perplexity < 2x teacher) did not fire. Verdict:
 `Perf.CostCorrespondence.w18_outcomes_gap` (`measured`, with the changed-constant control).
 
+## Perplexity and KL (`proved` identity, `measured` instances; `Perf/PerplexityKL.lean`)
+
+For a data distribution `d`, teacher conditional `p` and student conditional `q` on a finite vocabulary,
+`log(ppl(d,q) / ppl(d,p)) = KL(p || q) + cross(d,p,q)` with `cross = sum (d - p)(log p - log q)`
+(`Perf.PerplexityKL.log_ppl_ratio`). On teacher-distributed data `cross = 0`, so the log perplexity ratio is exactly
+`KL(p || q)` and is non-negative (`log_ppl_ratio_calibrated`, `kl_nonneg`: Gibbs). On a token sequence with one-hot labels
+the same holds per position and averages (`token_ppl_identity`). The cross term is the only place the data enters:
+it is the mismatch between the real text and the teacher's own distribution.
+
+Measured instances on C4 (`Receipts.w18_outcomes`, seed 0; KL is the held-out mean):
+
+| arm | KL | log(ppl ratio) | KL - log(ppl ratio) | verdict |
+|---|---:|---:|---:|---|
+| Q4_K_M | 0.01973 | 0.0183 | in (0.0010, 0.0020) | `q4km_gap` |
+| `-resq` (1.178 b/w) | 1.29045 | 1.263 | in (0.020, 0.037) | `resq_gap` |
+
+The gap is the negated cross term plus finite-sample noise: 2% of KL for the one-bit arm, 7% for Q4_K_M. So the held-out KL is the
+perplexity gap to within the cross term on this corpus, and the earlier KL-only trajectory (RTN 13.17 to `-nb` 1.2956) is
+an outcome trajectory. The one-bit arm's KL is between 65 and 66 times Q4_K_M's (`resq_kl_ratio`). Matching Q4_K_M's
+perplexity on teacher-distributed text needs `KL = ln(1.019) = 0.019`. Out of domain the C4 KL does not transfer:
+WikiText-2 gives `ln(98.71 / 17.19) = 1.75` for the same arm.
+
+Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
+Not covered: the cross term is not bounded by a theorem (the receipt gives its value at two points); positions in the
+KL average 512 per chunk against 511 scored targets; one seed.
+
 ## Argon review outcomes (checked against source)
 
 - `fnorm` is a 0-bit 896-vector Newton-Fisher fit on the final RMSNorm (`fold_transfer.py:877`); the dense 896x896
