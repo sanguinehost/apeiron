@@ -91,6 +91,7 @@ import Perf.SpecDraftKL
 import Numeric.Quantum.Ledger.FaceShift
 import Numeric.Quantum.Ledger.AmplitudeKL
 import Numeric.Quantum.Ledger.DesignLadder
+import Numeric.Quantum.Ledger.EllipticTensor
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -1370,3 +1371,25 @@ import Numeric.Quantum.Ledger.DesignLadder
 #audit Quantum.DesignLadder.cube_not_design_four
 #audit Quantum.DesignLadder.tetra_union_is_cube
 #audit Quantum.DesignLadder.verdict_l4
+
+-- Two composed elliptic cells `ℂ ⊗_ℝ ℂ = (RingCell ℂ, ringMul (−1))`
+-- (`Numeric/Quantum/Ledger/EllipticTensor.lean`): each factor elliptic, the hyperbolic face
+-- `j = i ⊗ i` with `j² = +1`, `j ≠ ±1`, the complementary idempotent pair `e`, `e' = 1 − e`,
+-- the tensor rule `i ⊗ 1 = 1 ⊗ i` on `e` with its conjugate on `e'`, the ring isomorphism
+-- `ℂ ⊗_ℝ ℂ ≅ ℂ × ℂ`, and the unit verdict.
+#audit Quantum.EllipticTensor.iL_sq
+#audit Quantum.EllipticTensor.iR_sq
+#audit Quantum.EllipticTensor.j_eq
+#audit Quantum.EllipticTensor.j_sq
+#audit Quantum.EllipticTensor.j_ne_one
+#audit Quantum.EllipticTensor.j_ne_neg_one
+#audit Quantum.EllipticTensor.e_idem
+#audit Quantum.EllipticTensor.e'_idem
+#audit Quantum.EllipticTensor.e_complementary
+#audit Quantum.EllipticTensor.tensor_rule
+#audit Quantum.EllipticTensor.anti_rule
+#audit Quantum.EllipticTensor.split_mul
+#audit Quantum.EllipticTensor.split_one
+#audit Quantum.EllipticTensor.split_e
+#audit Quantum.EllipticTensor.split_e'
+#audit Quantum.EllipticTensor.verdict_l2
