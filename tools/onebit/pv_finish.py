@@ -233,6 +233,28 @@ class Plane:
             dq = ft.quant_c_u8(d_l, bits=5)[0]
         return r_l + (rq - r_l).detach(), c_l + (cq - c_l).detach(), d_l + (dq - d_l).detach()
 
+    def regrid(self):
+        """Re-fit the per-row r grid (lo, sp) to the current latents with ft.quant_r_hier; the stored cost is unchanged.
+        Temporal 12 candidate grids x O*G words: the du x s_idx loop of ft.quant_r_hier is 3 x 4 = 12 candidates, each one
+        rounding over the O*G latent words. Spatial O*G words per candidate, not kept across candidates.
+        Derivation: the loop is 3 x 4 by construction; PACK_SINK is a non-None sentinel so the chosen grid is attached as .grid."""
+        prev, ft.PACK_SINK = ft.PACK_SINK, {}
+        try:
+            with torch.no_grad():
+                best, _ = ft.quant_r_hier(self.latents()[0])
+                lo, sp = best.grid
+                self.lo, self.sp = lo.detach().to(self.lo), sp.detach().to(self.sp)
+        finally:
+            ft.PACK_SINK = prev
+
+    def sat_frac(self):
+        """Fraction of r latents strictly outside [lo, lo + sp] of their row. Temporal O*G compares plus one reduction;
+        spatial O*G bool words. Derivation: one elementwise comparison over the O*G latent matrix, then a mean."""
+        with torch.no_grad():
+            r_l = self.latents()[0]
+            out = (r_l < self.lo[:, None]) | (r_l > (self.lo + self.sp)[:, None])
+            return float(out.float().mean())
+
     def params(self):
         return [self.pa, self.pb, self.pd]
 
@@ -281,6 +303,8 @@ def main():
     ap.add_argument("--code-opt", choices=("adam", "nsgd"), default="adam")
     ap.add_argument("--code-kinds", default="all", help="comma list of linear kinds whose codes train under --codes ste")
     ap.add_argument("--rec-every", type=int, default=25)
+    ap.add_argument("--regrid", type=int, default=0,
+                    help="0 off; N > 0 re-fits every trainable plane's r grid (lo, sp) to its latents every N steps (training follows every re-fit)")
     ap.add_argument("--train", default="r,c,d,norm",
                     help="comma subset of r (pa), c (pb), d (pd), norm (zero-bit d_* tunables and d_fn); unselected tensors are frozen")
     a = ap.parse_args()
@@ -734,6 +758,27 @@ def main():
         return dict(step=step, accepted=accepted, moves=tries[best]["moves"] if accepted else 0, best=best if accepted else None,
                     loss_grad_batch=lossg, loss_before=loss0, window_steps=window_steps, gain_stats=gstat, tries=tries), v_frac
 
+    def r_sat_mean():
+        """Mean of Plane.sat_frac over the non-dense planes, weighted by numel of the r latents (O*G per plane)."""
+        tot, den = 0.0, 0
+        for li in range(cfg.nl):
+            for nm in KINDS:
+                for p in PL[li][nm]:
+                    if p.dense is None:
+                        n = p.pa.numel()
+                        tot += p.sat_frac() * n
+                        den += n
+        return tot / den if den else None
+
+    def regrid_all():
+        for li in range(cfg.nl):
+            for nm in KINDS:
+                for p in PL[li][nm]:
+                    if p.dense is None and p.pa.requires_grad:
+                        p.regrid()
+
+    res.update(regrid=a.regrid, r_sat_frac_before=r_sat_mean())
+
     # ---- train
     traj, vlog, step, v_frac = [], [], 0, a.v_frac
     last_loss = float("nan")
@@ -748,6 +793,8 @@ def main():
         for i in range(idsb.shape[0]):
             used_hashes.add(hashlib.sha256(idsb[i].numpy().tobytes()).hexdigest())
         idsb = idsb.to(DEV)
+        if a.regrid and step % a.regrid == 0:
+            regrid_all()
         if a.v_every and not ste and step % a.v_every == 0 and step < a.steps:
             j = (ntr // 2 + (step // a.v_every) * a.batch) % ntr
             idss = tr[perm[j:j + a.batch]]
@@ -816,6 +863,8 @@ def main():
     assert not inter, "train chunk equals a calib-c4 chunk"
     del opt
     torch.cuda.empty_cache()
+
+    res.update(r_sat_frac_after=r_sat_mean())  # no regrid here: a grid change with no training step after it is untrained
 
     # ---- final stored values, integer codes, eval weights
     t0 = ft.tick()

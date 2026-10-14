@@ -1377,8 +1377,9 @@ which reports Llama-2 7B at 1.58 b/w within 1.43× of fp16 perplexity).
 - Controls: tightening `pvab_predictions` 0.90 → 0.92, `pvab_matched_r_share` 9/10 → 91/100, `pvab_rcd_equals_all`
   1/1000 → 1/10000 and `pvab_scales_substitute` 8/10 → 85/100 each fails; axioms `{propext, Classical.choice,
   Quot.sound}` for all ten `pvab_*` theorems.
-- Reading (`measured`, one run per group, 2.2–2.8M tokens): the scale family reaches about 0.88 by any route that
-  includes `r` or `c, d`, and adding the other groups moves it by 0.03 to 0.05. The finishing gain is a gain
+- Reading (`measured`, one run per group, 2.2–2.8M tokens): inside one 580 s box the scale family reaches about 0.88 by
+  any route that includes `r` or `c, d`, and adding the other groups moves it by 0.03 to 0.05. The 0.88 is the box, not
+  the family: held-out KL is still falling with tokens at 529 steps (next subsection). The finishing gain is a gain
   correction of the stored weights, low-dimensional enough that 706,560 column scales capture over 8/10 of it. What
   separates 0.88 from Q4_K_M's 0.0184 on these chunks lies outside what any measured scale group has moved.
 - Structure: `r` is trained as `r0 · exp(pa)` and quantized onto the row's 16-level grid `lo + k/15 · sp`, which is fixed
@@ -1389,6 +1390,38 @@ which reports Llama-2 7B at 1.58 b/w within 1.43× of fp16 perplexity).
 - Decision: run the zero-bit grid re-selection (`pv_finish.py --regrid N`) against `w18-pvaball05v0` as the last
   scale-side lever, and the token-scaling points (146 and 292 steps) to read the slope at 529. The larger move is on the
   code side, where the arm's bits are: 400,490,496 of its 421,541,376 are sign bits.
+- Board row for these runs: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
+### Grid re-selection and token scaling (`measured`; `Perf/PVFinish.lean`)
+
+- Method: `pv_finish.py` (sha256 `3cb9e4f7…`) with `--v-every 0 --train r,c,d,norm`, the `w18-pvaball05v0` protocol.
+  `--regrid N` re-chooses each row's 16-level `r` grid from its trained latents every `N` steps (zero stored bits);
+  `--steps S` completes the cosine schedule at `S` steps. Every run: same arm, before-KL exact, bits 421,541,376
+  (1.17806 b/w), all controls pass.
+
+| receipt | flag | steps | tokens | held-out KL | top-1 | in-sample | wall |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `w18-pvtok146` | `--steps 146` | 146 | 598,016 | 0.9653 | 0.519 | 0.2339 | 236 s |
+| `w18-pvtok292` | `--steps 292` | 292 | 1,196,032 | 0.9195 | 0.532 | 0.2343 | 334 s |
+| `w18-pvaball05v0` | — | 529 | 2,166,784 | 0.8824 | 0.542 | 0.2379 | 580 s box |
+| `w18-pvgrid25` | `--regrid 25` | 519 | 2,125,824 | 0.8794 | 0.542 | 0.2397 | 542 s |
+
+- The grid range does not bind: re-selection ends at 0.8794, 0.003 below the run without it and inside the 0.0075
+  three-run spread; it moves 5.65% of `r` latents to a grid end, from 0 (`pvgrid_no_gain`).
+- Finishing is still token-limited. Doubling tokens 146 → 292 steps drops held-out KL 0.0458; the next ×1.81 to 529
+  steps drops 0.0371, over eight tenths of the previous doubling's drop in under one doubling (`pvtok_still_falling`).
+  The 580 s box ends the run, not the scale family. In-sample KL stays at 0.234–0.240 across all three: the gain is
+  generalisation of the gain correction, not in-sample fit.
+- Fit (`model`, three points): `KL(T) = L∞ + A·T^(−α)` gives α ≈ 0.086, L∞ ≈ 0.17, poorly constrained; it projects 0.84
+  at 4.3M tokens and 0.80 at 8.7M. L∞ is a fit parameter, not a bound.
+- Predictions: `pvgrid25-1` ([0.86, 0.90]), `pvtok146-1` ([0.92, 0.98]) and `pvtok292-1` ([0.89, 0.93]) confirmed
+  (`pvgrid_no_gain`, `pvtok_predictions`).
+- Controls: tightening `pvgrid_no_gain`'s spread 75/10000 → 25/10000 and saturation bound 1/10 → 5/100,
+  `pvtok_predictions` 0.92 → 0.97 and `pvtok_still_falling` 8/10 → 85/100 each fails; axioms `{propext,
+  Classical.choice, Quot.sound}` for the three theorems.
+- Decision: more tokens per box is a measured lever on the scale side (throughput: a step costs about 1.1 s at 4096
+  tokens). The code side, where 400,490,496 of the 421,541,376 bits are, is the larger move: the `-guided` arm token
+  (gradient-weighted Grams, GuidedQuant, Kim et al., arXiv 2505.07004 §3.2 Eq. 7) is in development.
 - Board row for these runs: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
 Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.

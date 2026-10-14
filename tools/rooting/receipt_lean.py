@@ -76,10 +76,14 @@ W15 = {
     "w18_pvaball05v0": "docs/evidence/receipts/onebit/w18-pvaball05v0.json",
     "w18_pvabrcd05": "docs/evidence/receipts/onebit/w18-pvabrcd05.json",
     "w18_pvabcd05": "docs/evidence/receipts/onebit/w18-pvabcd05.json",
+    "w18_pvgrid25": "docs/evidence/receipts/onebit/w18-pvgrid25.json",
+    "w18_pvtok146": "docs/evidence/receipts/onebit/w18-pvtok146.json",
+    "w18_pvtok292": "docs/evidence/receipts/onebit/w18-pvtok292.json",
 }
 
 # Scale-group ablation of the finishing drop (pv_finish.py --train, V-steps off): namespace -> trained groups.
-PVAB_GROUPS = {"w18_pvabnorm05": ["norm"], "w18_pvabr05": ["r"], "w18_pvaball05v0": ["c", "d", "norm", "r"], "w18_pvabrcd05": ["c", "d", "r"], "w18_pvabcd05": ["c", "d"]}
+PVAB_GROUPS = {"w18_pvabnorm05": ["norm"], "w18_pvabr05": ["r"], "w18_pvaball05v0": ["c", "d", "norm", "r"], "w18_pvabrcd05": ["c", "d", "r"], "w18_pvabcd05": ["c", "d"],
+               "w18_pvgrid25": ["c", "d", "norm", "r"], "w18_pvtok146": ["c", "d", "norm", "r"], "w18_pvtok292": ["c", "d", "norm", "r"]}
 
 OUTCOME_ARMS = [("teacher", "teacher"), ("q4km", "q4km"), ("resq", RESQ_ARM)]
 OUTCOME_RAT = [("C4Ppl", "c4_ppl"), ("Wt2Ppl", "wt2_ppl"), ("ArcAcc", "arc_acc"), ("ArcAccNorm", "arc_acc_norm"),
@@ -637,6 +641,13 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
                         ("steps", "steps"), ("tokens", "tokens"), ("trainableParams", "trainable_params")]:
             out.append(("nat", name, nat(data[k])))
         out.append(("nat", "vSteps", nat(len(data["v_steps"]))))
+        if "regrid" in data:
+            # Zero-bit r-grid refit every `regrid` steps (0 = off) and the step cap that ends the cosine schedule.
+            out.append(("nat", "regrid", nat(data["regrid"])))
+            out.append(("nat", "stepsCap", nat(min(data["args"]["steps"], 10 ** 9))))
+            if data["regrid"]:
+                out.append(("rat", "rSatFracBefore", rat(data["r_sat_frac_before"])))
+                out.append(("rat", "rSatFracAfter", rat(data["r_sat_frac_after"])))
         for name, k in [("bitsR", "bits_r"), ("bitsC", "bits_c"), ("bitsD", "bits_d")]:
             out.append(("nat", name, nat(bc[k])))
         for name, k in [("klHeldoutBefore", "kl_heldout_before"), ("klHeldoutAfter", "kl_heldout_after"),

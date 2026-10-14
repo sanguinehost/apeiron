@@ -1,0 +1,228 @@
+{
+ "script_sha256": {
+  "pv_finish": "3cb9e4f7e499a0e10af555ad5e3a267a2fab0c44e1d9ce8dc326122162a08386",
+  "fold_transfer": "f21e276a4e2ce1d903b2f1f0f3a77aec25fe584552c69af3900f4ce4af8cca16"
+ },
+ "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb",
+ "args": {
+  "out": "/home/socol/oc-tmp/lanes/w18/pvtok/s292.json",
+  "smoke": false,
+  "n_cal": 50,
+  "n_eval": 40,
+  "n_in": 20,
+  "steps": 292,
+  "batch": 8,
+  "lr_lat": 0.001,
+  "lr_norm": 0.0001,
+  "warmup": 10,
+  "v_every": 0,
+  "v_frac": 0.005,
+  "seed": 0,
+  "v_gain": "linear",
+  "obs_lams": "1,4,16,64",
+  "codes": "vstep",
+  "lr_code": 0.1,
+  "code_init": "codeword",
+  "code_opt": "adam",
+  "code_kinds": "all",
+  "rec_every": 25,
+  "regrid": 0,
+  "train": "r,c,d,norm"
+ },
+ "protocol": "pack sink -> codes (E8/O8 index per 8-block) -> P-step Adam (STE) + V-step linearised code moves, KL(teacher||student)",
+ "v_gain": "linear",
+ "codes": "vstep",
+ "gpu": "NVIDIA GeForce RTX 5080",
+ "controls": {
+  "args_match_reference_receipt": true,
+  "pack_equality": {
+   "linears": 168,
+   "torch_equal": 168,
+   "within_1e6": 0,
+   "max_rel": 0.0
+  },
+  "before_kl_regression": {
+   "ref": 1.1636724948883057,
+   "got": 1.1636724948883057,
+   "ok": true
+  },
+  "codebook_match": {
+   "planes": 288,
+   "inexact_planes": 0,
+   "ok": true
+  },
+  "step0_weights_equal_arm": {
+   "linears": 168,
+   "torch_equal": 168,
+   "max_rel_other": 0.0
+  },
+  "data_disjoint": {
+   "train_chunks_used": 2336,
+   "calib_chunks_checked": 90,
+   "overlap": 0,
+   "ok": true,
+   "train_npy_sha256": "74945dcc18b06e3bff23aa4dd78454bc1206cd425d75b5ac03dc181854c7a2f5"
+  },
+  "quantized_eval_equality": {
+   "linears_equal": 168,
+   "linears_not_equal": 0,
+   "max_rel": 0.0,
+   "integer_codes_roundtrip_and_in_range": true
+  },
+  "bits_equal": {
+   "before": 421541376,
+   "after": 421541376,
+   "components_equal": true,
+   "ok": true
+  }
+ },
+ "walls": {
+  "load_s": 3.7553212642669678,
+  "transfer_s": 100.71445083618164,
+  "eval_before_s": 4.388724327087402,
+  "projected_finish_s": 17.04703297615051,
+  "train_s": 218.3177146911621,
+  "finish_s": 221.70314240455627,
+  "total_s": 333.51345133781433
+ },
+ "partial": false,
+ "n_cal": 50,
+ "eval_chunks": [
+  50,
+  90
+ ],
+ "insample_chunks": [
+  0,
+  20
+ ],
+ "bits_before": 421541376,
+ "params": 357826560,
+ "bpw_before": 1.1780606112637362,
+ "bits_components": {
+  "bits_sign": 400490496,
+  "bits_r": 15347712,
+  "bits_c": 2128896,
+  "bits_d": 1775616,
+  "bits_corr": 1798656
+ },
+ "kl_heldout_before": 1.1636724948883057,
+ "top1_heldout_before": 0.479736328125,
+ "kl_insample_before": 0.22243813574314117,
+ "top1_insample_before": 0.73603515625,
+ "quick_kl_step0": 0.795434296131134,
+ "train_groups": [
+  "c",
+  "d",
+  "norm",
+  "r"
+ ],
+ "trainable_params": 3906944,
+ "regrid": 0,
+ "r_sat_frac_before": 0.0,
+ "steps": 292,
+ "tokens": 1196032,
+ "batch": 8,
+ "train_trajectory": [
+  {
+   "step": 1,
+   "train_loss": 1.213012933731079,
+   "top1": 0.4755859375,
+   "lr_factor": 0.0999973955719066,
+   "t": 0.8380181789398193
+  },
+  {
+   "step": 25,
+   "train_loss": 1.165966510772705,
+   "top1": 0.447265625,
+   "lr_factor": 0.9838200672806932,
+   "t": 18.729673147201538
+  },
+  {
+   "step": 50,
+   "train_loss": 1.0325887203216553,
+   "top1": 0.480712890625,
+   "lr_factor": 0.9364437812241114,
+   "t": 37.36414098739624
+  },
+  {
+   "step": 75,
+   "train_loss": 1.0719804763793945,
+   "top1": 0.517333984375,
+   "lr_factor": 0.8612780090341933,
+   "t": 56.08362007141113
+  },
+  {
+   "step": 100,
+   "train_loss": 0.9698842167854309,
+   "top1": 0.490234375,
+   "lr_factor": 0.7637279824301727,
+   "t": 74.79052114486694
+  },
+  {
+   "step": 125,
+   "train_loss": 1.075059175491333,
+   "top1": 0.486572265625,
+   "lr_factor": 0.6508086030441369,
+   "t": 93.50334620475769
+  },
+  {
+   "step": 150,
+   "train_loss": 1.114365577697754,
+   "top1": 0.498291015625,
+   "lr_factor": 0.5306399951479612,
+   "t": 112.15925168991089
+  },
+  {
+   "step": 175,
+   "train_loss": 1.0858935117721558,
+   "top1": 0.51513671875,
+   "lr_factor": 0.41186358092268116,
+   "t": 130.87520837783813
+  },
+  {
+   "step": 200,
+   "train_loss": 0.9659586548805237,
+   "top1": 0.5234375,
+   "lr_factor": 0.3030206687718765,
+   "t": 149.58773112297058
+  },
+  {
+   "step": 225,
+   "train_loss": 0.9458449482917786,
+   "top1": 0.513671875,
+   "lr_factor": 0.21193824089809604,
+   "t": 168.2406632900238
+  },
+  {
+   "step": 250,
+   "train_loss": 1.0025584697723389,
+   "top1": 0.51123046875,
+   "lr_factor": 0.14516610865649054,
+   "t": 186.96000409126282
+  },
+  {
+   "step": 275,
+   "train_loss": 1.0633320808410645,
+   "top1": 0.48583984375,
+   "lr_factor": 0.10750591030125478,
+   "t": 205.58758878707886
+  }
+ ],
+ "v_steps": [],
+ "quick_kl_final": 0.6927711665630341,
+ "train_loss_last": 0.9132916927337646,
+ "r_sat_frac_after": 0.04593567279426707,
+ "bits_after": 421541376,
+ "bpw_after": 1.1780606112637362,
+ "bits_components_after": {
+  "bits_sign": 400490496,
+  "bits_r": 15347712,
+  "bits_c": 2128896,
+  "bits_d": 1775616,
+  "bits_corr": 1798656
+ },
+ "kl_heldout_after": 0.919505137205124,
+ "top1_heldout_after": 0.532275390625,
+ "kl_insample_after": 0.2343331530690193,
+ "top1_insample_after": 0.72998046875
+}

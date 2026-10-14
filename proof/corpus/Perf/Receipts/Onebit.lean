@@ -926,6 +926,104 @@ def wallTotalS : ℚ := (1355843756198883 : ℚ) / 2500000000000
 
 end Receipts.w18_pvabcd05
 
+-- Receipt `docs/evidence/receipts/onebit/w18-pvgrid25.json`
+namespace Receipts.w18_pvgrid25
+
+def sha256 : String := "48f081c8c0155e19dd431bd51506377803246d5731b6cf141101fa7e12cdac01"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def trainGroups : String := "c,d,norm,r"
+def beforeMatchesReference : Bool := true
+def bitsEqual : Bool := true
+def codebookExact : Bool := true
+def dataDisjoint : Bool := true
+def params : ℕ := 357826560
+def bitsBefore : ℕ := 421541376
+def bitsAfter : ℕ := 421541376
+def steps : ℕ := 519
+def tokens : ℕ := 2125824
+def trainableParams : ℕ := 3906944
+def vSteps : ℕ := 0
+def regrid : ℕ := 25
+def stepsCap : ℕ := 1000000000
+def rSatFracBefore : ℚ := (0 : ℚ) / 1
+def rSatFracAfter : ℚ := (1412364136681541 : ℚ) / 25000000000000000
+def bitsR : ℕ := 15347712
+def bitsC : ℕ := 2128896
+def bitsD : ℕ := 1775616
+def klHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klHeldoutAfter : ℚ := (1758789598941803 : ℚ) / 2000000000000000
+def top1HeldoutBefore : ℚ := (1965 : ℚ) / 4096
+def top1HeldoutAfter : ℚ := (2773 : ℚ) / 5120
+def klInsampleBefore : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def klInsampleAfter : ℚ := (191768319606781 : ℚ) / 800000000000000
+def wallTotalS : ℚ := (5417191114425659 : ℚ) / 10000000000000
+
+end Receipts.w18_pvgrid25
+
+-- Receipt `docs/evidence/receipts/onebit/w18-pvtok146.json`
+namespace Receipts.w18_pvtok146
+
+def sha256 : String := "0727136efccd458a74d72f7fc1a81c6982d0799c563d0eba87f438d716982f76"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def trainGroups : String := "c,d,norm,r"
+def beforeMatchesReference : Bool := true
+def bitsEqual : Bool := true
+def codebookExact : Bool := true
+def dataDisjoint : Bool := true
+def params : ℕ := 357826560
+def bitsBefore : ℕ := 421541376
+def bitsAfter : ℕ := 421541376
+def steps : ℕ := 146
+def tokens : ℕ := 598016
+def trainableParams : ℕ := 3906944
+def vSteps : ℕ := 0
+def regrid : ℕ := 0
+def stepsCap : ℕ := 146
+def bitsR : ℕ := 15347712
+def bitsC : ℕ := 2128896
+def bitsD : ℕ := 1775616
+def klHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klHeldoutAfter : ℚ := (4826280832290649 : ℚ) / 5000000000000000
+def top1HeldoutBefore : ℚ := (1965 : ℚ) / 4096
+def top1HeldoutAfter : ℚ := (10637 : ℚ) / 20480
+def klInsampleBefore : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def klInsampleAfter : ℚ := (4677063524723053 : ℚ) / 20000000000000000
+def wallTotalS : ℚ := (5897386884689331 : ℚ) / 25000000000000
+
+end Receipts.w18_pvtok146
+
+-- Receipt `docs/evidence/receipts/onebit/w18-pvtok292.json`
+namespace Receipts.w18_pvtok292
+
+def sha256 : String := "dded449066ccb0477c25720642e6a48dcf2fb872c771b312d35ae4be7bd17cc6"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def trainGroups : String := "c,d,norm,r"
+def beforeMatchesReference : Bool := true
+def bitsEqual : Bool := true
+def codebookExact : Bool := true
+def dataDisjoint : Bool := true
+def params : ℕ := 357826560
+def bitsBefore : ℕ := 421541376
+def bitsAfter : ℕ := 421541376
+def steps : ℕ := 292
+def tokens : ℕ := 1196032
+def trainableParams : ℕ := 3906944
+def vSteps : ℕ := 0
+def regrid : ℕ := 0
+def stepsCap : ℕ := 292
+def bitsR : ℕ := 15347712
+def bitsC : ℕ := 2128896
+def bitsD : ℕ := 1775616
+def klHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klHeldoutAfter : ℚ := (229876284301281 : ℚ) / 250000000000000
+def top1HeldoutBefore : ℚ := (1965 : ℚ) / 4096
+def top1HeldoutAfter : ℚ := (10901 : ℚ) / 20480
+def klInsampleBefore : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def klInsampleAfter : ℚ := (2343331530690193 : ℚ) / 10000000000000000
+def wallTotalS : ℚ := (33351345133781433 : ℚ) / 100000000000000
+
+end Receipts.w18_pvtok292
+
 -- Receipt `docs/evidence/receipts/onebit/2026-10-11-vladder.json`
 namespace Receipts.vladder_1011
 
