@@ -1713,6 +1713,33 @@ def afterSuffixKl18 : ℚ := (1412919145077467 : ℚ) / 5000000000000000
 
 end Receipts.qreg_iso
 
+-- Receipt the receipts/onebit/qreg-blockft note.json`
+namespace Receipts.qreg_blockft
+
+def sha256 : String := "b9da33a4e6149385d5931df7c1dd24f3f3d4756a7292f261fd0a60e10786a882"
+def b120Steps : ℕ := 813
+def b120TrainS : ℚ := (502763375043869 : ℚ) / 1250000000000
+def b120QuickKlStep0 : ℚ := (397717148065567 : ℚ) / 500000000000000
+def b120QuickKlFinal : ℚ := (273098361492157 : ℚ) / 400000000000000
+def b120KlHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def b120KlHeldoutAfter : ℚ := (551083467900753 : ℚ) / 625000000000000
+def b120Top1HeldoutAfter : ℚ := (2767 : ℚ) / 5120
+def baseSteps : ℕ := 730
+def baseTrainS : ℚ := (785754045009613 : ℚ) / 2000000000000
+def baseQuickKlStep0 : ℚ := (397717148065567 : ℚ) / 500000000000000
+def baseQuickKlFinal : ℚ := (6593553125858307 : ℚ) / 10000000000000000
+def baseKlHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def baseKlHeldoutAfter : ℚ := (4293756052851677 : ℚ) / 5000000000000000
+def baseTop1HeldoutAfter : ℚ := (1401 : ℚ) / 2560
+def bitsAfter : ℕ := 421541376
+def blockSteps : ℕ := 296
+def blockWallS : ℚ := (2403884310722351 : ℚ) / 20000000000000
+def blockLossFirst : ℚ := (3899596631526947 : ℚ) / 12500000000000000
+def blockLossLast : ℚ := (5605684518814087 : ℚ) / 20000000000000000
+def blockQuickKlAtSwitch : ℚ := (9634653925895691 : ℚ) / 10000000000000000
+
+end Receipts.qreg_blockft
+
 -- Receipt the receipts/onebit/2026-10-11-vladder note.json`
 namespace Receipts.vladder_1011
 
