@@ -1,0 +1,118 @@
+{
+ "script_sha256": "c3af3e1ef065abff68abf2e73280805164cc166984113fa229850b7cff6942f1",
+ "args": {
+  "out": "/home/socol/oc-tmp/lanes/w18/size/s15-m792.json",
+  "variants": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb",
+  "dump": null,
+  "controls": false,
+  "verbose": true,
+  "outcomes": false,
+  "hs_n": 1000,
+  "gen_new": 48,
+  "dtype": "fp32",
+  "model": "Qwen/Qwen2.5-1.5B",
+  "q4km": null,
+  "seeds": "0",
+  "layers": 28,
+  "iters": 2,
+  "n_cal": 50,
+  "n_eval": 40,
+  "n_in": 20,
+  "slab": 10,
+  "cal_extra": 0,
+  "qmlp_rows": 792,
+  "ridge": 0.001,
+  "ridge_w0": 0.01,
+  "ridge_w0_gqa": 0.03,
+  "quant_ridge": 0.005,
+  "quant_damp": 0.02,
+  "zellner_gamma": 0.85,
+  "corr_gamma": 0.75,
+  "ridge_intra": 0.045,
+  "ridge_inter": 0.025,
+  "inter_gamma": 1.0,
+  "inter_gamma_in": 1.0,
+  "block_alpha": 1.0,
+  "glu_gamma": 0.75,
+  "glu_mu": 0.05,
+  "glu_ridge": 0.045,
+  "sink_thresh": 5.0,
+  "sink_tau": 1.5,
+  "fnorm_lr": 0.15
+ },
+ "n_tokens": 87466,
+ "n_chunks": 170,
+ "cal_chunks": [
+  0,
+  50
+ ],
+ "eval_chunks": [
+  50,
+  90
+ ],
+ "insample_chunks": [
+  0,
+  20
+ ],
+ "gpu": "NVIDIA GeForce RTX 5080",
+ "variants": {
+  "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb": {
+   "bits": 1529939712,
+   "params": 1310195712,
+   "bits_sign": 1466400768,
+   "bits_r": 51821056,
+   "bits_c": 4354560,
+   "bits_d": 3630592,
+   "bits_corr": 3732736,
+   "nb": {
+    "sweeps": 2,
+    "per_kind": {
+     "k": {
+      "J_seq": 3724856.63671875,
+      "J_nb": 3463597.265625,
+      "moves": 453597,
+      "rounds_kept": 56,
+      "tensors": 28,
+      "ratio": 0.929860556640404
+     },
+     "v": {
+      "J_seq": 4301869.7099609375,
+      "J_nb": 4005647.2373046875,
+      "moves": 476398,
+      "rounds_kept": 56,
+      "tensors": 28,
+      "ratio": 0.9311409938868326
+     },
+     "o": {
+      "J_seq": 6798406.01171875,
+      "J_nb": 6296632.431640625,
+      "moves": 5050036,
+      "rounds_kept": 56,
+      "tensors": 28,
+      "ratio": 0.926192466408568
+     }
+    },
+    "J_seq": 14825132.358398438,
+    "J_nb": 13765876.934570312,
+    "ratio": 0.9285500191013096
+   },
+   "bpw_linears": 1.1677184545693278,
+   "kl_heldout": 1.3425765812397004,
+   "top1_heldout": 0.464306640625,
+   "kl_insample": 0.17795907706022263,
+   "top1_insample": 0.75185546875,
+   "wall_transfer_s": 357.8636543750763,
+   "timings": {
+    "gram": 17.592888832092285,
+    "solve": 2.6037514209747314,
+    "gptq": 0.0,
+    "refit": 329.9721131324768,
+    "fwd": 6.154955148696899
+   },
+   "peak_gpu_gb": 8.32548189163208,
+   "seed": 0
+  }
+ },
+ "linear_params": 1310195712,
+ "wall_total_s": 373.24124121665955
+}

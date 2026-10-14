@@ -1142,6 +1142,41 @@ refit. 21 linears (layers 0, 11, 23 × q, k, v, o, gate, up, down), RTX 5080, 19
 
 Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
+## Model size and the 2-plane arm (`measured`; `Perf/SizeTrend.lean`)
+
+Switch-rule run 2: does the arm's KL gap shrink from Qwen2.5-0.5B to Qwen2.5-1.5B? The basis is the literature's
+one-bit post-training trend (OPT-1.3B → 2.7B log-perplexity gap 0.51 → 0.38, `w18-literature.tsv`) and the K-FAC rate
+model's `R*` falling with size (section "The Q4-matching rate across model size"). One protocol for every fit:
+`fold_transfer.py --n-cal 50` (the 1.5B transfer at 100 chunks projects to 622 s, over the 600 s ceiling;
+`size15-timing-1` refuted, `size15-ncal-1` confirmed), held-out `calib-c4` `[50, 90)`, in-sample `[0, 20)`, fp32,
+each model against its own imatrix Q4_K_M, RTX 5080. The arm's gate/up second plane is a fixed row count, now the flag
+`--qmlp-rows` (default 416, so earlier receipts are unchanged); at 1.5B, 416 of 8960 rows stores 1.142 b/w, so a third fit
+widens it to 792 rows and matches 0.5B's sign bits per weight (1.1192).
+
+| fit | script | b/w | sign bits/w | held-out KL | top-1 | in-sample KL | Q4_K_M KL (b/w) | arm / Q4_K_M | wall |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.5B, 416 rows (`w18-size05-n50.json`) | `9183c172` | 1.178 | 1.1192 | **1.1637** | 0.480 | 0.2224 | 0.01837 (5.52) | 63.3× | 118 s |
+| 1.5B, 416 rows (`w18-size15-n50.json`) | `9183c172` | 1.142 | 1.0945 | **1.3237** | 0.468 | 0.1830 | 0.01917 (4.81) | 69.0× | 389 s |
+| 1.5B, 792 rows (`w18-size15-m792.json`) | `c3af3e1e` | 1.168 | 1.1192 | **1.3426** | 0.464 | 0.1780 | — | 70.0× | 373 s |
+
+- `size15-arm-1` refuted: `KL_1.5B / KL_0.5B` = 1.137 against the 0.95 falsifier. `size05-n50-1` refuted on its
+  range (1.25–1.60 predicted for 0.5B at 50 chunks; 1.1637 measured).
+- `size15-matched-1` refuted: matching the stored bits raises held-out KL to 1.3426 (ratio 1.154). The 0.036 b/w
+  deficit is not the gap: the extra 376 rows per gate/up lower in-sample KL and raise held-out KL.
+- In-sample KL falls with size (0.222 → 0.183 → 0.178) while held-out rises; the held-out/in-sample ratio goes from
+  5.2× to 7.2–7.5×. Q4_K_M moves 4% with no fit to calibration activations.
+- Verdicts (`proved`, `Perf.SizeTrend`): `size_same_arm`, `size_bits` (416 rows store > 1/50 fewer sign bits/w at
+  1.5B; 792 rows match to 10⁻⁴), `size_heldout_rises` (> 1.13× and > 1.15×), `size_more_rows_overfit`,
+  `size_gap_grows`, `size_q4km_ratio` (63–64× → 69–70×). Control `ctl_size` (the 1.13 bound raised to 1.15) fails;
+  axioms `{propext, Classical.choice, Quot.sound}`.
+- Decision: the switch rule fires on run 2. The arm's held-out loss on this pair grows with model size, and the part
+  that grows is the in-sample/held-out split. The measured decomposition of that split (item 27: `G = O·T·Q`, with the
+  `J → KL` step `Q = 3.12` the largest factor and calibration size `E_gen ∝ N^-0.31`) names the target: the per-layer
+  quadratic objective `J`, fitted on calibration activations, is not the end-to-end KL. The next run optimises the
+  arm's stored codes against end-to-end KL instead of `J`.
+
+Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
 ## Limit claims
 
 `tools/rooting/limit_check.py` refuses, in this file, `onebit-w13.md`, `docs/epics/ternary-hadamard.md` and the

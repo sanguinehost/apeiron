@@ -63,6 +63,9 @@ W15 = {
     "w18_kd_main2": "docs/evidence/receipts/onebit/w18-kd-main2.json",
     "w18_calx600": "docs/evidence/receipts/onebit/w18-calx600.json",
     "w18_trellis2": "docs/evidence/receipts/onebit/w18-trellis2.json",
+    "w18_size05": "docs/evidence/receipts/onebit/w18-size05-n50.json",
+    "w18_size15": "docs/evidence/receipts/onebit/w18-size15-n50.json",
+    "w18_size15m": "docs/evidence/receipts/onebit/w18-size15-m792.json",
 }
 
 OUTCOME_ARMS = [("teacher", "teacher"), ("q4km", "q4km"), ("resq", RESQ_ARM)]
@@ -458,6 +461,30 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
             out.append(("rat", name, rat(dg[k])))
         out.append(("rat", "identityRel", rat(c["identity"]["rel"])))
         out.append(("rat", "wallS", rat(data["total_wall"])))
+    elif ns in ("w18_size05", "w18_size15", "w18_size15m"):
+        # Size trend: the arm and the model's own Q4_K_M on one protocol (50 calibration chunks, held-out [50, 90)).
+        # w18_size15m is the arm alone with the gate/up second plane widened to 792 rows (stored bits matched to 0.5B).
+        v = data["variants"][RESQ_ARM]
+        if data["args"]["n_cal"] != 50 or data["eval_chunks"] != [50, 90]:
+            raise Fail(f"{rel}: not the n-cal 50 / held-out [50, 90) protocol")
+        if data["args"].get("qmlp_rows", 416) != (792 if ns == "w18_size15m" else 416):
+            raise Fail(f"{rel}: unexpected qmlp_rows")
+        out.append(("nat", "qmlpRows", nat(data["args"].get("qmlp_rows", 416))))
+        out.append(("str", "arm", RESQ_ARM))
+        out.append(("str", "model", data["args"]["model"]))
+        out.append(("nat", "layers", nat(data["args"]["layers"])))
+        out.append(("nat", "linearParams", nat(data["linear_params"])))
+        out.append(("nat", "params", nat(v["params"])))
+        out.append(("nat", "bits", nat(v["bits"])))
+        out.append(("nat", "bitsSign", nat(v["bits_sign"])))
+        for name, k in [("bpwLinears", "bpw_linears"), ("klHeldout", "kl_heldout"), ("klInsample", "kl_insample"),
+                        ("top1Heldout", "top1_heldout"), ("wallTransferS", "wall_transfer_s")]:
+            out.append(("rat", name, rat(v[k])))
+        if ns != "w18_size15m":
+            q = data["variants"]["q4km"]
+            for name, k in [("q4kmBpw", "bpw_linears"), ("q4kmKlHeldout", "kl_heldout"), ("q4kmTop1Heldout", "top1_heldout")]:
+                out.append(("rat", name, rat(q[k])))
+        out.append(("rat", "wallTotalS", rat(data["wall_total_s"])))
     else:
         raise Fail(f"no W15/W17 field map for {ns}")
     return out
