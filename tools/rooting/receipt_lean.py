@@ -99,6 +99,7 @@ W15 = {
     "qreg_yaqa": "docs/evidence/receipts/onebit/qreg-yaqa.json",
     "qreg_yaqash": "docs/evidence/receipts/onebit/qreg-yaqash.json",
     "qreg_yaqalw": "docs/evidence/receipts/onebit/qreg-yaqalw.json",
+    "qreg_spec": "docs/evidence/receipts/onebit/qreg-spec.json",
 }
 
 # End-loss-weighted Gram receipts (fold_transfer "-guided[a|b]NN"): namespace -> variant prefixes (see guided_prefix).
@@ -942,6 +943,25 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
             for kind in sorted({k.split(".")[1] for k in lam}):
                 K = kind[0].upper() + kind[1:]
                 out.append(("rat", f"{lab}Lam{K}Median", median([v for k, v in lam.items() if k.split(".")[1] == kind])))
+    elif ns == "qreg_spec":
+        # Speculative acceptance of the finished arm (fold_transfer.spec_stats via pv_finish.py): `accept` = mean 1 - TV,
+        # `eK<k>` = teacher-forced block length for k = 1..8, and the probe's mean bandwidths in GB/s
+        # (`hostReadGBs`, `h2dGBs`, `deviceReadGBs`).
+        a = data["arm"]
+        if a["exit"] != 0 or not a["grad_equiv_ok"] or a["kmax"] != 8 or len(a["e_k"]) != 8 or data["bandwidth"]["exit"] != 0:
+            raise Fail(f"{rel}: not an exit-0, grad_equiv-ok arm with 8 block lengths and an exit-0 bandwidth probe")
+        if not 0 <= rat(a["accept"]) <= 1 or abs(rat(a["accept"]) + rat(a["tv"]) - 1) > Fraction(1, 10 ** 12):
+            raise Fail(f"{rel}: accept is not in [0, 1] or accept + tv is not 1 within 1e-12")
+        out.append(("nat", "bitsBefore", nat(a["bits_before"])))
+        out.append(("nat", "steps", nat(a["steps"])))
+        out.append(("nat", "positions", nat(a["positions"])))
+        out.append(("rat", "klHeldoutAfter", rat(a["kl_heldout_after"])))
+        out.append(("rat", "top1HeldoutAfter", rat(a["top1_heldout_after"])))
+        out.append(("rat", "accept", rat(a["accept"])))
+        for k, v in enumerate(a["e_k"], 1):
+            out.append(("rat", f"eK{k}", rat(v)))
+        for name, k in [("hostReadGBs", "host_read"), ("h2dGBs", "h2d_pinned"), ("deviceReadGBs", "device_read")]:
+            out.append(("rat", name, rat(data["bandwidth"][k]["mean"])))
     elif ns in ("qreg_attrib", "qreg_iso"):
         # Teacher-restore attribution of the held-out KL (pv_finish.py --attrib 8), before and after finishing in one run:
         # per phase `<before|after><Field>`, the 24 per-layer restore KLs `...LayerKl<l>` and the 7 per-kind `...Kind<K>Kl`.

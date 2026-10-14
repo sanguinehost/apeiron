@@ -1034,8 +1034,54 @@ Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
   and are discarded. Bare `--agent argon` exits 1 ("Nothing to compact yet"); `-m "google-vertex/gemini-4-argon#high"`
   is required. Its proposed experiment (rank-`k` plus 1-plane residual at 0.185 b/w) is a `model` hypothesis.
 
-Not covered: acceptance is bounded from the token-level KL(teacher‖draft); no run of the arm's logits against the
-teacher's gives the actual `1 − TV`. The seed generator that regenerates a trained tensor is not built.
+Not covered here: the bound is from the token-level KL(teacher‖draft); the measured `1 − TV` of the finished arm is
+in the next section. The seed generator that regenerates a trained tensor is not built.
+
+## Measured speculative acceptance of the finished arm, and the 27B host-verifier model (`measured`, `proved`, `model`)
+
+Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`. Receipt
+`docs/evidence/receipts/onebit/qreg-spec.json` (ledger `onebit-receipt-qreg-spec`); Lean `Perf/SpecDraftKL.lean`
+§ "Block length and step-time model" and § "Receipt instances"; constants `Receipts.qreg_spec`.
+
+Instrument: `fold_transfer.spec_stats` (called from `kl_eval(..., stats=)`, recorded by `pv_finish.py` as
+`spec_heldout_after`) takes per held-out position `a_t = ∑ min(p_t, q_t) = 1 − TV` (teacher `p`, arm `q`) and the
+block length `E_k = mean_t ∑_{j≤k} ∏_{i<j} a_{t+i}`, read along the held-out text (teacher-forced: the context is the
+text, not the accepted drafts). Self-test in `--yaqa-controls`: identical draft gives `a = 1`, `E_k = k + 1`;
+`p = (½, ½)`, `q = (¾, ¼)` gives `a = ¾` and the geometric `E_k`; both exact (error 0). Mutation (block counted from 0,
+not 1): `AssertionError (0.5, 0.571)`, exit 1.
+
+| quantity (arm `-yaqas50`, 1.178 b/w, 549 steps, 541.9 s) | value |
+|---|---|
+| mean `1 − TV` over 20480 held-out positions | 0.5972 |
+| held-out KL / top-1 | 0.85764 / 0.5502 |
+| `E_k`, k = 1..8 (teacher-forced) | 1.597, 1.968, 2.204, 2.356, 2.455, 2.521, 2.565, 2.595 |
+| geometric `E_k` at `a = 0.5972`, k = 4 / 8 | 2.294 / 2.459 |
+| host DRAM read, all 32 threads (i9-14900KF) | 86.82 GB/s (85.58–89.19, 5 reps) |
+| pinned host-to-device (RTX 5080) | 12.80 GB/s (12.78–12.83) |
+| device read | 865.20 GB/s (832.14–906.40) |
+
+- `spec_accept_measured`: acceptance in `(0.59, 0.60)`; the Pinsker floor from the same KL is below `0.35`. The
+  measured rate is 1.7× the guarantee.
+- `spec_runs_cluster`: the teacher-forced `E_4`, `E_8` exceed the geometric `blockLen a k` at the mean acceptance.
+  Rejections bunch on hard tokens, so the iid formula undercounts the block.
+- `blockLen_geom` (`(1 − a)·E = 1 − a^{k+1}`), `blockLenAt_const`, `blockLen_mono`, `blockLen_bounds`: the
+  block-length algebra the instrument computes.
+- `spec_faster`: with a verifier pass that costs `tV` for one position or `k + 1`, speculation beats the verifier alone
+  exactly when `k·tD < (E − 1)·tV`.
+- `spec27b_host` (`model` step times, `proved` arithmetic): a 27B Q4_K_M verifier in host DRAM (`q4kmBpw` 5.52 b/w,
+  18.6 GB at 86.82 GB/s, `tV` 0.215 s) decodes below 5 tokens/s alone. The 1.18 b/w draft in VRAM (3.9825 GB at
+  865.2 GB/s, `tD` < 5 ms) at `k = 6` with the measured `E_6` gives above 10 tokens/s, over 2× the verifier alone.
+  The output equals the verifier's distribution (`Nous.Model.specStep_eq_target`), and VRAM holds only the draft.
+  Streaming the verifier over this PCIe link instead takes above 1 s per pass.
+- One draft step is 2% of a verifier pass (six are 13%), so the speed-up is set by `E_k`, that is
+  by acceptance. At the Q4_K_M floor (`q4km_accept`, `a > 0.9`) the geometric `E_8` is above 6.1.
+
+Model assumptions behind `spec27b_host`, each an open measurement:
+- the CPU verifier is bandwidth-bound at `k + 1 = 7` positions (no batched llama.cpp verify of a 27B on this host has
+  been timed);
+- the 27B Q4_K_M rate is taken as the 0.5B receipt's 5.52 b/w;
+- the 0.5B pair's acceptance stands for the 27B pair's;
+- `E_k` is teacher-forced, not sampled from the draft.
 
 ## Argon review outcomes (checked against source)
 

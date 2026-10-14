@@ -1,0 +1,144 @@
+{
+ "question": "What speculative acceptance does the finished 2-plane arm (-yaqas50, 1.178 b/w on the linears) reach as a draft for its bf16 teacher, and what step times does this box give a VRAM-resident draft with a host-resident verifier?",
+ "protocol": {
+  "n_cal": 50,
+  "n_eval": 40,
+  "n_in": 20,
+  "batch": 8,
+  "v_every": 0,
+  "codes": "vstep",
+  "compose": "step",
+  "kl": "fused",
+  "hadamard": "butterfly",
+  "train": "r,c,d,norm",
+  "arm_suffix": "-yaqas50",
+  "wall": "timeout 580",
+  "bound": "flock /tmp/opencode/gpu.lock, systemd-run MemoryMax=40G MemorySwapMax=0",
+  "accept": "a_t = sum_x min(p_t(x), q_t(x)) = 1 - TV per held-out position, teacher p, arm q",
+  "e_k": "E_k = mean over block starts t of sum_{j<=k} prod_{i<j} a_{t+i}, read along the held-out text (teacher-forced: the context is the text, not the accepted drafts); starts t < T - 8 for every k"
+ },
+ "machine": {
+  "cpu": "Intel(R) Core(TM) i9-14900KF",
+  "threads": 32,
+  "ram_kb": 65611480,
+  "device": "NVIDIA GeForce RTX 5080"
+ },
+ "source": {
+  "fold_transfer": {
+   "path": "tools/onebit/fold_transfer.py",
+   "sha256": "5f9e16f6ddb167c14b21481d3a4caacc3514b2a5707f5263244c87f0ac1a9e69"
+  },
+  "pv_finish": {
+   "path": "tools/onebit/pv_finish.py",
+   "sha256": "bca3a797218effe15d33b3a40478601bb4e124b927169fa2b95b4eaa0bb8fe24"
+  },
+  "bandwidth_probe": {
+   "path": "/home/socol/oc-tmp/lanes/qreg/spec/bw.py",
+   "sha256": "705223971c18587fda5a3d3c6997e9eca970fa9330c3e4f8292f2375a83102a5",
+   "note": "host DRAM read: torch sum of 4 GiB fp32 on all threads; h2d: 1 GiB pinned uint8 copy; device read: cuda sum of 2 GiB fp32; 5 timed reps after one warm-up; GB = 1e9 bytes; run outside the derivation-gate run class"
+  }
+ },
+ "arm": {
+  "label": "s50",
+  "file": "/home/socol/oc-tmp/lanes/qreg/spec/s50.json",
+  "exit": 0,
+  "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqas50",
+  "steps": 549,
+  "bits_before": 421541376,
+  "kl_heldout_before": "1.2056242614984511",
+  "kl_heldout_after": "0.8576398313045501",
+  "top1_heldout_after": "0.550244140625",
+  "grad_equiv_ok": true,
+  "accept": "0.5972044438123703",
+  "tv": "0.40279555618762974",
+  "e_k": [
+   "1.596744131663489",
+   "1.9682410588340153",
+   "2.2039344303191655",
+   "2.355967760842944",
+   "2.4552989051455545",
+   "2.5210789756169394",
+   "2.565160902719649",
+   "2.595089854891338"
+  ],
+  "kmax": 8,
+  "positions": 20480,
+  "block_starts": 20160
+ },
+ "bandwidth": {
+  "exit": 0,
+  "host_read": {
+   "mean": "86.82021539020164",
+   "min": "85.57718037081113",
+   "max": "89.18614619673463",
+   "runs": [
+    "89.18614619673463",
+    "86.37041533073926",
+    "86.51710401829544",
+    "85.57718037081113",
+    "86.45023103442772"
+   ],
+   "bytes": 4294967296
+  },
+  "h2d_pinned": {
+   "mean": "12.803605363726707",
+   "min": "12.782754894124201",
+   "max": "12.828250074890688",
+   "runs": [
+    "12.820928019320164",
+    "12.828250074890688",
+    "12.790085810591423",
+    "12.782754894124201",
+    "12.79600801970706"
+   ],
+   "bytes": 1073741824
+  },
+  "device_read": {
+   "mean": "865.2024878805171",
+   "min": "832.1422234429427",
+   "max": "906.3961650714211",
+   "runs": [
+    "895.0399399567007",
+    "833.8932739093996",
+    "906.3961650714211",
+    "832.1422234429427",
+    "858.5408370221214"
+   ],
+   "bytes": 2147483648
+  }
+ },
+ "controls": {
+  "self_test": "fold_transfer.py --yaqa-controls: spec_stats a=0 b=0 (identical draft: accept 1, E_k = k+1; p=(1/2,1/2), q=(3/4,1/4): accept 3/4, E_k geometric)",
+  "mutation": "tot initialised to 0 instead of 1: AssertionError (0.5, 0.5714285714285714), exit 1"
+ },
+ "comparison": {
+  "receipt": "docs/evidence/receipts/onebit/qreg-yaqash.json",
+  "note": "the same arm's three alpha-0.5 runs, held-out KL mean 0.85574"
+ },
+ "reference": {
+  "speculative": "Leviathan, Kalman and Matias 2022, arXiv 2211.17192; Chen et al. 2023, arXiv 2302.01318"
+ },
+ "predictions": [
+  {
+   "id": "spec-ctl-1",
+   "verdict": "withdrawn"
+  },
+  {
+   "id": "spec-ctl-2",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "spec-mut-1",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "spec-accept-1",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "spec-bw-1",
+   "verdict": "withdrawn",
+   "note": "not admitted by the run class; the h2d clause fails (12.80 GB/s against [20, 60])"
+  }
+ ]
+}
