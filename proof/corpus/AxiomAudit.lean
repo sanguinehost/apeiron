@@ -74,6 +74,7 @@ import Learn.GramExact
 import Learn.E8Code
 import Learn.Grad.DenseLinear
 import Learn.Grad.DenseLinearWitness
+import Learn.Grad.Rope
 import Numeric.SigmaDeltaRefinement
 import Perf.BitsRefine
 import Numeric.Register
@@ -742,6 +743,17 @@ import Perf.SpecDraftKL
 #audit apeiron_word.linear_bwd_weight_witness_empty
 #audit apeiron_word.linear_bwd_weight_witness_shape
 #audit apeiron_word.linear_bwd_weight_witness_overflow
+-- The extracted RoPE passes `learn_port.attn.rope_fwd`/`rope_bwd` (`src/learn/grad/attn.rs`) refine
+-- the `rotHeadsState` head content and the `ropeBwdPrefix` transpose (`Learn/Grad/Rope.lean`).
+#audit apeiron_rope.rope_elem_bwd_spec_lo
+#audit apeiron_rope.rope_elem_bwd_spec_hi
+#audit apeiron_rope.rope_bwd_loop_spec
+#audit apeiron_rope.rope_bwd_refines
+#audit apeiron_rope.rot_one_loop_spec
+#audit apeiron_rope.rotate_one_spec
+#audit apeiron_rope.rope_fwd_refines
+#audit apeiron_rope.rope_fwd_witness
+#audit apeiron_rope.rope_bwd_witness
 
 -- The extracted checked-`i64` sigma-delta body `sigma_delta.sd_binary_block`
 -- refines `Numeric.SigmaDelta.sdState`/`sdSign` (`Numeric/SigmaDeltaRefinement.lean`).
