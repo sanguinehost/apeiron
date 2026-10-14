@@ -17,6 +17,10 @@ stored code stays one 8-bit index per 8-block, so the bits are unchanged.
 --code-init preimage starts L at the continuous pre-image P of the plane (the plane's share of the teacher weight, mapped back through
 the quantized r, c, d and the involution fwht128), shrunk along C[idx] -> P until the nearest-of-16 projection still returns idx
 (step 0 forward is the stored code); --code-opt nsgd moves L by lr * g / rms(g), rms over the whole plane's latent gradient.
+--rotation kan (needs --compose step) replaces fwht128 in the plane weight with the learned register of kan_probe (seven stages of
+64 reflections, angle offset d = theta - pi/4 per (layer, site) of shape (7, 64), init 0 = fwht128 bit for bit (unscaled stages, one GROUP**-0.5 at the end), shared by every coded plane of the site's linears) trained end to end
+on KL by RegisterCompose; the final weights use d quantised to 16 bits (the theta grid), 7*64*16 bits per learning site per layer added to bits_after.
+--selftest-kan runs the float64 register/adjoint checks with no model.
 usage: pv_finish.py --out OUT.json [--smoke] [--v-gain {linear,obs}] [--codes {vstep,ste}] ; run with ~/spinor-ttl/.venv/bin/python (torch + CUDA).
 """
 import argparse, hashlib, json, math, os, sys, time
@@ -27,6 +31,7 @@ from torch.utils.checkpoint import checkpoint
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fold_transfer as ft
+import kan_probe as kp
 import transformers
 
 DEV, GROUP, CHUNK = ft.DEV, ft.GROUP, ft.CHUNK
@@ -306,7 +311,267 @@ class PlaneCompose(torch.autograd.Function):
         return None, gd, gr, gc
 
 
+KIND_SITE = {nm: site for site, names, _ in kp.SITES for nm in names}
+ANGLE_BITS = 16
+
+
+def kan_ab(dl, h):
+    """Stage coefficients a = cos d - sin d, b = cos d + sin d, each (A, h) with A = GROUP / (2 h), from the 64 angle offsets dl
+    (d = theta - pi/4).  At d = 0 both are exactly 1.  Temporal ~4 flops per butterfly; spatial two 64-word tensors."""
+    A = GROUP // (2 * h)
+    c, sn = dl.cos().view(A, h), dl.sin().view(A, h)
+    return c - sn, c + sn
+
+
+def kan_stage(y, dl, h):
+    """One unscaled reflection stage on y (M, 128), stride h = 2^st, dl (64,) its offsets d = theta - pi/4:
+    (u, v) -> (a u + b v, b u - a v) = sqrt(2) (cos theta u + sin theta v, sin theta u - cos theta v).  Symmetric with square 2I
+    (a^2 + b^2 = 2), so its adjoint is itself and its inverse is itself / 2 (exact in binary).  At d = 0 it is fwht128's
+    (u + v, u - v).  Temporal ~3 M*128 flops; spatial one M*128 output."""
+    a, b = kan_ab(dl, h)
+    y4 = y.reshape(-1, GROUP // (2 * h), 2, h)
+    u, v = y4[:, :, 0, :], y4[:, :, 1, :]
+    return torch.stack((a * u + b * v, b * u - a * v), dim=2).reshape(-1, GROUP)
+
+
+def kan_register_raw(x, delta):
+    """Seven unscaled stages (no 1/sqrt(128)); x (..., n), n a multiple of 128, delta (7, 64).  Temporal 7 x 3 n flops."""
+    y = x.reshape(-1, GROUP)
+    for st in range(kp.NST):
+        y = kan_stage(y, delta[st], 1 << st)
+    return y.reshape(x.shape)
+
+
+def kan_register(x, delta):
+    """The learned register: kan_register_raw scaled once by GROUP**-0.5 in fwht128's place and form.  Equals
+    kp.register(x, pi/4 + delta) and, at delta = 0, is bit-identical to ft.fwht128.  Temporal 7 x 3 n + n flops."""
+    return (kan_register_raw(x, delta) * (GROUP ** -0.5)).contiguous()
+
+
+def kan_matrix(delta):
+    """The register as a 128 x 128 row-vector matrix T(delta): the map kan_register(., delta) applied to the identity rows, so
+    x @ T == kan_register(x, delta) for x (..., 128).  Built from plain torch ops (the register on GROUP rows), so autograd
+    carries dT -> ddelta and no hand-written adjoint is needed here.  Temporal 7 stages x 3 flops x GROUP^2 = 7 x 3 x 128^2
+    flops; spatial GROUP^2 = 128^2 words.  At delta = 0 every entry is exactly +-fp(GROUP**-0.5), so T(0) is torch.equal to
+    had_mm's H128 / sqrt(128) (HN) in fp32 and fp64 (checked by selftest_kan control 6)."""
+    return kan_register(torch.eye(GROUP, dtype=delta.dtype, device=delta.device), delta)
+
+
+class RegisterCompose(torch.autograd.Function):
+    """W = compose(kan_register(S * d, delta), r, c) with the code field S fixed; delta (7, 64) = theta - pi/4 (init 0).
+    Backward without stored stage tensors: Z = kan_register_raw(S * d) is recomputed, Y = Z s with s = GROUP**-0.5.  With
+    G = dL/dW: dL/dc = sum_i G*Y*r_rep, dL/dr_{i,g} = sum_{j in g} G*Y*c, and gY = G * r_rep * c.  Y = s M_6 ... M_0 x, so the
+    adjoint starts at s gY and walks the stages 6..0 with the unscaled M.  Each M is symmetric with M^2 = 2I: the stage input is
+    x_in = M x_out / 2.  With M = [[a, b], [b, -a]], da/dd = -b, db/dd = a, the stage's offset gradient is
+    gdelta[st] = sum over rows and groups of g1 (-b u + a v) + g2 (a u + b v), (u, v) the x_in pair, (g1, g2) the gradient at the
+    stage output; then g <- M g.  After stage 0, dL/dd = sum_i S * g.  dL/dtheta = dL/ddelta.
+    Temporal: forward 7 stages x 3 O*n + 3 O*n ~ 24 O*n; backward the recompute (21 O*n) plus per stage one inverse stage (3), the
+    offset product-sum (~6) and one adjoint stage (3) = 12 O*n x 7 = 84 O*n, plus ~8 O*n elementwise and reductions.  Spatial:
+    saves S, d, r, c, delta only; ~8 O*n transient words in backward.  The loop runs log2(128) = 7 times over O*n words."""
+
+    @staticmethod
+    def forward(ctx, S, d, r, c, delta):
+        ctx.save_for_backward(S, d, r, c, delta)
+        return ft.compose(kan_register(S * d[None, :], delta), r, c)
+
+    @staticmethod
+    def backward(ctx, G):
+        S, d, r, c, delta = ctx.saved_tensors
+        O, n = S.shape
+        s = GROUP ** -0.5
+        r_rep = r.repeat_interleave(GROUP, 1)
+        x = kan_register_raw(S * d[None, :], delta).reshape(-1, GROUP)  # Z
+        GY = G * (x.view(O, n) * s)
+        gc = (GY * r_rep).sum(0)
+        gr = (GY * c[None, :]).view(O, n // GROUP, GROUP).sum(-1)
+        del GY
+        g = (G * r_rep * c[None, :] * s).reshape(-1, GROUP)
+        gdelta = torch.empty_like(delta)
+        for st in range(kp.NST - 1, -1, -1):
+            h = 1 << st
+            A = GROUP // (2 * h)
+            x = kan_stage(x, delta[st], h) * 0.5  # stage input
+            a, b = kan_ab(delta[st], h)
+            xi, gg = x.view(-1, A, 2, h), g.view(-1, A, 2, h)
+            u, v, g1, g2 = xi[:, :, 0, :], xi[:, :, 1, :], gg[:, :, 0, :], gg[:, :, 1, :]
+            gdelta[st] = (g1 * (a * v - b * u) + g2 * (a * u + b * v)).sum(0).reshape(kp.NBF)
+            g = kan_stage(g, delta[st], h)
+        gd = (S * g.view(O, n)).sum(0)
+        return None, gd, gr, gc, gdelta
+
+
+def kan_recon(planes, delta_q):
+    """ft._sink_recon with fwht128 replaced by kan_register(., delta_q): the stored weight from the planes, summed in the same
+    order (dense planes added, coded planes composed, row-restricted planes added into W[rows]).  Temporal O(P * O * n * 7)
+    multiply-adds (P planes, 7 reflection stages each), spatial O(O * n) words."""
+    W = None
+    for p in planes:
+        if "dense" in p:
+            W = W + p["dense"]
+            continue
+        Wi = ft.compose(kan_register(p["S_rot"] * p["d"][None, :], delta_q), p["r"], p["c"])
+        if W is None:
+            W = Wi
+        elif p["rows"] is None:
+            W = W + Wi
+        else:
+            W = W.clone()
+            W[p["rows"]] += Wi
+    return W
+
+
+def selftest_kan(out):
+    """--selftest-kan: no model, on DEV.  Eight controls, all must hold: (1) kan_register at delta = 0 is torch.equal to
+    ft.fwht128 on random fp32 and fp64 input, and RegisterCompose's forward is torch.equal to ft.compose(fwht128(.)) in fp32;
+    (2) float64 forward at random |delta| ~ 0.1 against autograd's reference ft.compose(kp.register(S d, pi/4 + delta), r, c),
+    rel < 1e-12; (3) the adjoints gd, gr, gc, gdelta against autograd on that reference, rel < 1e-10 each; (4) gdelta against
+    central finite differences of the loss <W, G> in float64 on 16 random entries, rel < 1e-7; (5) two mutated local copies of the
+    backward (gdelta sign flipped; final scale dropped from the adjoint seed) must each fail control (3) with rel >= 0.5.
+    (6) kan_matrix(zeros) is torch.equal to had_mm's H128 / sqrt(128) in fp32 and fp64; (7) in float64 on the same S, d, r, c,
+    Gup, RegisterComposeMM's forward and its d, r, c and delta adjoints (delta via autograd through kan_matrix) match
+    RegisterCompose's, rel < 1e-12 each; (8) local copies of the mm backward with gc formed from Y instead of G * Y
+    give gc rel >= 0.5, and with gX = gY @ T (T not transposed) give gd rel >= 1e-6, against the RegisterCompose reference,
+    while the unmutated copies stay < 1e-12.
+    Writes the result to `out`, prints one JSON line, returns the exit status.
+    Temporal: a few passes over O*n = 2048 words plus 32 forward evaluations; spatial O(O*n)."""
+    gen = torch.Generator(device=DEV)
+    gen.manual_seed(0)
+    O, n = 8, 256
+    f64 = dict(device=DEV, dtype=torch.float64)
+    S = torch.randint(0, 2, (O, n), generator=gen, device=DEV).double() * 2 - 1
+    d = torch.rand(n, generator=gen, **f64) + 0.5
+    r = torch.rand(O, n // GROUP, generator=gen, **f64) + 0.5
+    c = torch.rand(n, generator=gen, **f64) + 0.5
+    delta = torch.randn(kp.NST, kp.NBF, generator=gen, **f64) * 0.1
+    Gup = torch.randn(O, n, generator=gen, **f64)
+    # (1) identity at delta = 0
+    ident = {}
+    for dt in (torch.float32, torch.float64):
+        X = torch.randn(64, 4 * GROUP, generator=gen, device=DEV, dtype=torch.float64).to(dt)
+        z = torch.zeros(kp.NST, kp.NBF, device=DEV, dtype=dt)
+        Y, Yf = kan_register(X, z), ft.fwht128(X)
+        ident[str(dt)] = dict(equal=bool(torch.equal(Y, Yf)), max_abs=float((Y - Yf).abs().max()))
+    S32, d32, r32, c32 = S.float(), d.float(), r.float(), c.float()
+    z32 = torch.zeros(kp.NST, kp.NBF, device=DEV, dtype=torch.float32)
+    Wk, Wf = RegisterCompose.apply(S32, d32, r32, c32, z32), ft.compose(ft.fwht128(S32 * d32[None, :]), r32, c32)
+    ident["RegisterCompose_fp32"] = dict(equal=bool(torch.equal(Wk, Wf)), max_abs=float((Wk - Wf).abs().max()))
+    ok1 = all(v["equal"] and v["max_abs"] == 0.0 for v in ident.values())
+
+    def ref():
+        leaves = [t.clone().requires_grad_() for t in (d, r, c, delta)]
+        W = ft.compose(kp.register(S * leaves[0][None, :], math.pi / 4 + leaves[3]), leaves[1], leaves[2])
+        W.backward(Gup)
+        return W.detach(), [t.grad for t in leaves]
+
+    def new():
+        leaves = [t.clone().requires_grad_() for t in (d, r, c, delta)]
+        W = RegisterCompose.apply(S, leaves[0], leaves[1], leaves[2], leaves[3])
+        W.backward(Gup)
+        return W.detach(), [t.grad for t in leaves]
+
+    def rel(a_, b_):
+        return float((a_ - b_).abs().max() / b_.abs().max())
+
+    def mutated(flip, noscale):
+        """Local copy of RegisterCompose.backward's gdelta walk with one injected defect."""
+        s = 1.0 if noscale else GROUP ** -0.5
+        r_rep = r.repeat_interleave(GROUP, 1)
+        x = kan_register_raw(S * d[None, :], delta).reshape(-1, GROUP)
+        g = (Gup * r_rep * c[None, :] * s).reshape(-1, GROUP)
+        gdl = torch.empty_like(delta)
+        for st in range(kp.NST - 1, -1, -1):
+            h = 1 << st
+            A = GROUP // (2 * h)
+            x = kan_stage(x, delta[st], h) * 0.5
+            a, b = kan_ab(delta[st], h)
+            xi, gg = x.view(-1, A, 2, h), g.view(-1, A, 2, h)
+            u, v, g1, g2 = xi[:, :, 0, :], xi[:, :, 1, :], gg[:, :, 0, :], gg[:, :, 1, :]
+            gdl[st] = (g1 * (a * v - b * u) + g2 * (a * u + b * v)).sum(0).reshape(kp.NBF)
+            g = kan_stage(g, delta[st], h)
+        return -gdl if flip else gdl
+
+    Wr, gr_ = ref()
+    names = ("gd", "gr", "gc", "gdelta")
+    Wn, gn_ = new()
+    fwd = rel(Wn, Wr)
+    errs = {k: rel(x, y) for k, x, y in zip(names, gn_, gr_)}
+    ok2, ok3 = fwd < 1e-12, all(v < 1e-10 for v in errs.values())
+    # (4) central finite differences of <W, Gup> in delta
+    hh, fd_err = 1e-6, 0.0
+    flat = gn_[3].reshape(-1)
+    idx = torch.randperm(flat.numel(), generator=torch.Generator().manual_seed(1))[:16].tolist()
+    for k in idx:
+        dp, dm = delta.clone().reshape(-1), delta.clone().reshape(-1)
+        dp[k] += hh
+        dm[k] -= hh
+        with torch.no_grad():
+            Lp = float((RegisterCompose.apply(S, d, r, c, dp.view_as(delta)) * Gup).sum())
+            Lm = float((RegisterCompose.apply(S, d, r, c, dm.view_as(delta)) * Gup).sum())
+        fd_err = max(fd_err, abs((Lp - Lm) / (2 * hh) - float(flat[k])) / float(flat.abs().max()))
+    ok4 = fd_err < 1e-7
+    # (5) mutations
+    mut = {"flip_gdelta": rel(mutated(True, False), gr_[3]), "drop_final_scale": rel(mutated(False, True), gr_[3]),
+           "unmutated_copy": rel(mutated(False, False), gr_[3])}
+    ok5 = mut["flip_gdelta"] >= 0.5 and mut["drop_final_scale"] >= 0.5 and mut["unmutated_copy"] < 1e-10
+    # (6) kan_matrix at delta = 0 is had_mm's H128 / sqrt(128) bit for bit, in fp32 and fp64
+    mm_id = {}
+    for dt in (torch.float32, torch.float64):
+        hx = torch.ones(1, GROUP, device=DEV, dtype=dt)
+        had_mm(hx)  # populate HN[(hx.device, dt)]
+        Tm = kan_matrix(torch.zeros(kp.NST, kp.NBF, device=DEV, dtype=dt))
+        mm_id[str(dt)] = dict(equal=bool(torch.equal(Tm, HN[(hx.device, dt)])), max_abs=float((Tm - HN[(hx.device, dt)]).abs().max()))
+    ok6 = all(v["equal"] and v["max_abs"] == 0.0 for v in mm_id.values())
+    # (7) RegisterComposeMM in float64 on the same S, d, r, c, Gup as the RegisterCompose reference (Wr, gr_): forward and the
+    # d, r, c adjoints from its backward, delta via autograd from gT through kan_matrix
+    d_l, r_l, c_l = (t.clone().requires_grad_() for t in (d, r, c))
+    dl_l = delta.clone().requires_grad_()
+    Wmm = RegisterComposeMM.apply(S, d_l, r_l, c_l, kan_matrix(dl_l))
+    gmm = torch.autograd.grad((Wmm * Gup).sum(), (d_l, r_l, c_l, dl_l))
+    fwd_mm = rel(Wmm.detach(), Wr)
+    mm_errs = {k: rel(x, y) for k, x, y in zip(names, gmm, gr_)}
+    ok7 = fwd_mm < 1e-12 and all(v < 1e-12 for v in mm_errs.values())
+    # (8) mutations of the mm backward against the RegisterCompose reference, the unmutated copies < 1e-12 on gd and gc:
+    # gc formed from Y instead of G * Y (the defect of the first mm backward) must give gc rel >= 0.5; gX = gY @ T (T not
+    # transposed) must fail control (7) by >= 10^6 x its tolerance, gd rel >= 1e-6 (H128 is symmetric, so T - T^T = O(delta)
+    # and this mutation moves gd by O(|delta|), not O(1)).
+    Td = kan_matrix(delta)
+    Yd = (S * d[None, :]).reshape(-1, GROUP) @ Td
+    gYd = (Gup.view(O, n // GROUP, GROUP) * r[:, :, None]).view(O, n) * c[None, :]
+
+    def mut_mm(no_T):
+        gX = gYd.reshape(-1, GROUP) @ (Td if no_T else Td.T)
+        return (S * gX.view(O, n)).sum(0)
+
+    def mut_gc(drop_G):
+        GY = (Yd.view(O, n) if drop_G else Gup * Yd.view(O, n)).view(O, n // GROUP, GROUP)
+        return (GY * r[:, :, None]).sum(0).reshape(n)
+
+    mm_mut = dict(no_transpose=rel(mut_mm(True), gr_[0]), unmutated=rel(mut_mm(False), gr_[0]),
+                  gc_drop_G=rel(mut_gc(True), gr_[2]), gc_unmutated=rel(mut_gc(False), gr_[2]))
+    ok8 = (mm_mut["gc_drop_G"] >= 0.5 and mm_mut["no_transpose"] >= 1e-6
+           and mm_mut["unmutated"] < 1e-12 and mm_mut["gc_unmutated"] < 1e-12)
+    res = dict(identity=ident, identity_ok=ok1, forward_rel=fwd, forward_ok=ok2, adjoint_rel=errs, adjoint_tol=1e-10, adjoint_ok=ok3,
+               fd_gdelta_rel=fd_err, fd_ok=ok4, mutation_rel=mut, mutation_red=ok5, kan_matrix_hn=mm_id, kan_matrix_hn_ok=ok6,
+               mm_forward_rel=fwd_mm, mm_adjoint_rel=mm_errs, mm_ok=ok7, mm_mutation_rel=mm_mut, mm_mutation_red=ok8,
+               ok=ok1 and ok2 and ok3 and ok4 and ok5 and ok6 and ok7 and ok8)
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    json.dump(res, open(out, "w"), indent=1)
+    print(json.dumps(res), flush=True)
+    return 0 if res["ok"] else 1
+
+
 HN = {}
+
+
+def mm_highest(x, T):
+    """The high-precision form of x @ T: one matmul with TF32 switched off for the call (the prior mode restored after), so
+    the tensor-core path is the full fp32 one.  Shared by had_mm and RegisterComposeMM.  Temporal 2*GROUP flops per word on
+    the tensor units; spatial one output tensor."""
+    prev = torch.get_float32_matmul_precision()
+    torch.set_float32_matmul_precision("highest")
+    y = x @ T
+    torch.set_float32_matmul_precision(prev)
+    return y
 
 
 def had_mm(x):
@@ -320,11 +585,7 @@ def had_mm(x):
         while H.shape[0] < GROUP:
             H = torch.cat((torch.cat((H, H), 1), torch.cat((H, -H), 1)), 0)
         HN[key] = (H * GROUP ** -0.5).to(x.device, x.dtype)
-    prev = torch.get_float32_matmul_precision()
-    torch.set_float32_matmul_precision("highest")
-    y = (x.reshape(-1, GROUP) @ HN[key]).view(x.shape)
-    torch.set_float32_matmul_precision(prev)
-    return y
+    return mm_highest(x.reshape(-1, GROUP), HN[key]).view(x.shape)
 
 
 def jitter(W, seed):
@@ -358,6 +619,37 @@ class PlaneComposeMM(torch.autograd.Function):
         gr = (GY * c.view(1, n // GROUP, GROUP)).sum(-1)
         gd = (S * had_mm((G.view(O, n // GROUP, GROUP) * r[:, :, None]).view(O, n) * c[None, :])).sum(0)
         return None, gd, gr, gc
+
+
+class RegisterComposeMM(torch.autograd.Function):
+    """PlaneCompose with fwht128 replaced by one 128-wide matmul against the register matrix T = kan_matrix(delta) and r
+    broadcast over its 128-column groups (the product order (Y * r) * c is kept).  Identical op sequence to PlaneComposeMM
+    with T in HN's place, and the same adjoint as PlaneCompose.  With W = (Y r) c, Y = X T, X = S * d: dL/dc = sum_i G*Y*r,
+    dL/dr_{i,g} = sum_{j in g} G*Y*c, and gY = G*r*c, so gX = gY T^T, gd = sum_i S*gX, gT = X^T gY, dL/ddelta = backprop of
+    gT through kan_matrix.  Temporal: forward one 128-wide matmul plus 3 O*n elementwise; backward three matmuls (Y
+    recompute, gX, gT) plus ~6 O*n elementwise and three reductions.  Spatial: saves S, d, r, c, T (T is GROUP^2 words)."""
+
+    @staticmethod
+    def forward(ctx, S, d, r, c, T):
+        ctx.save_for_backward(S, d, r, c, T)
+        O, n = S.shape
+        X = (S * d[None, :]).reshape(-1, GROUP)
+        Y = mm_highest(X, T)
+        return (Y.view(O, n // GROUP, GROUP) * r[:, :, None]).view(O, n) * c[None, :]
+
+    @staticmethod
+    def backward(ctx, G):
+        S, d, r, c, T = ctx.saved_tensors
+        O, n = S.shape
+        X = (S * d[None, :]).reshape(-1, GROUP)
+        GY = (G * mm_highest(X, T).view(O, n)).view(O, n // GROUP, GROUP)
+        gc = (GY * r[:, :, None]).sum(0).reshape(n)
+        gr = (GY * c.view(1, n // GROUP, GROUP)).sum(-1)
+        gY = (G.view(O, n // GROUP, GROUP) * r[:, :, None]).view(O, n) * c[None, :]
+        gX = mm_highest(gY.reshape(-1, GROUP), T.T)
+        gd = (S * gX.view(O, n)).sum(0)
+        gT = mm_highest(X.T, gY.reshape(-1, GROUP))
+        return None, gd, gr, gc, gT
 
 
 class KLHead(torch.autograd.Function):
@@ -419,7 +711,22 @@ def main():
                          "eval, controls and the final weights always use ft.fwht128")
     ap.add_argument("--train", default="r,c,d,norm",
                     help="comma subset of r (pa), c (pb), d (pd), norm (zero-bit d_* tunables and d_fn); unselected tensors are frozen")
+    ap.add_argument("--rotation", choices=("had", "kan"), default="had",
+                    help="had: fwht128 in every plane weight; kan: the learned 7 x 64 reflection register (kan_probe.register) per layer and "
+                         "site, angles trained end to end on KL (needs --compose step)")
+    ap.add_argument("--kan-sites", default=",".join(site for site, _, _ in kp.SITES),
+                    help="comma list of sites whose angles learn under --rotation kan; the others keep fwht128")
+    ap.add_argument("--lr-angle", type=float, default=1e-3)
+    ap.add_argument("--selftest-kan", action="store_true",
+                    help="float64 register / RegisterCompose adjoint checks with a built-in negative control; no model is loaded")
     a = ap.parse_args()
+    if a.selftest_kan:
+        sys.exit(selftest_kan(a.out))
+    kan_sites = set(a.kan_sites.split(",")) if a.rotation == "kan" else set()
+    assert kan_sites <= {site for site, _, _ in kp.SITES}, a.kan_sites
+    assert a.rotation == "had" or (a.compose == "step" and a.codes == "vstep" and a.v_every == 0
+                                   and a.hadamard in ("butterfly", "mm") and kan_sites), \
+        "--rotation kan needs --compose step, frozen codes, --hadamard butterfly or mm, a site"
     assert a.compose == "layer" or (a.v_every == 0 and a.codes == "vstep"), "--compose step needs frozen codes"
     assert a.hadamard == "butterfly" or a.compose == "step", "--hadamard mm needs --compose step"
     train_set = set(a.train.split(","))
@@ -432,7 +739,8 @@ def main():
     res = dict(script_sha256=dict(pv_finish=sha_file(__file__), fold_transfer=sha_file(ft.__file__)), arm=ARM, args=vars(a),
                protocol="pack sink -> codes (E8/O8 index per 8-block) -> P-step Adam (STE) + V-step linearised code moves, KL(teacher||student)"
                + (" [v-gain obs: window gbar/Fisher, OBS diagonal gain]" if a.v_gain == "obs" else "")
-               + (" [codes ste: latent L, nearest-of-16 projection, straight-through; V-steps off]" if a.codes == "ste" else ""),
+               + (" [codes ste: latent L, nearest-of-16 projection, straight-through; V-steps off]" if a.codes == "ste" else "")
+               + (f" [rotation kan: learned 7x64 reflection register, sites {sorted(kan_sites)}]" if a.rotation == "kan" else ""),
                v_gain=a.v_gain, codes=a.codes,
                gpu=torch.cuda.get_device_name(0), controls={}, walls={}, partial=True)
 
@@ -533,7 +841,10 @@ def main():
                     qb=t["qb"] + t["d_qb"] * t["qb_s"], kb=t["kb"] + t["d_kb"] * t["kb_s"], vb=t["vb"] + t["d_vb"] * t["vb_s"])
 
     ste_on, pending = [False], {}
-    MODE = dict(compose=a.compose, kl=a.kl, had=a.hadamard, amp=True)
+    MODE = dict(compose=a.compose, kl=a.kl, had=a.hadamard, amp=True, rot=a.rotation)
+    # angle offsets d = theta - pi/4 of the learned register: (layer, site) -> (7, 64) fp32, init 0 (= fwht128 bit for bit); empty under --rotation had
+    TH = {(li, site): torch.zeros(kp.NST, kp.NBF, dtype=torch.float32, device=DEV, requires_grad=True)
+          for li in range(cfg.nl) for site in sorted(kan_sites)}
 
     def ste_S(p):
         """Straight-through code field: the value is the exact codebook row nearest to L among nn[p.idx]; the gradient goes to L.
@@ -569,8 +880,11 @@ def main():
     def layer_dicts_step():
         """Every layer's weights composed once for the step through PlaneCompose, outside the layer checkpoints, so the
         recompute re-runs only ft.parts.  Temporal one PlaneCompose forward per coded plane per step (two under --compose
-        layer: forward and recompute); spatial the composed fp32 weights of the model (4 bytes per parameter) held until backward."""
+        layer: forward and recompute), plus under --hadamard mm one kan_matrix per (layer, site) per call; spatial the
+        composed fp32 weights of the model (4 bytes per parameter) held until backward plus one GROUP^2 register matrix per
+        (layer, site) under mm."""
         out = []
+        Tk = {}  # (layer, site) -> T(delta) of this call; the register matrix, built once per (layer, site) under --hadamard mm
         for li in range(cfg.nl):
             Ld = tuned(li)
             for ki, nm in enumerate(KINDS):
@@ -580,7 +894,16 @@ def main():
                         W = W + p.dense
                         continue
                     r, c, d = p.qvals()
-                    Wi = (PlaneComposeMM if MODE["had"] == "mm" else PlaneCompose).apply(p.Sc, d, r, c)
+                    th = TH.get((li, KIND_SITE[nm])) if MODE["rot"] == "kan" else None
+                    if th is not None and MODE["had"] == "mm":
+                        key = (li, KIND_SITE[nm])
+                        if key not in Tk:
+                            Tk[key] = kan_matrix(th)
+                        Wi = RegisterComposeMM.apply(p.Sc, d, r, c, Tk[key])
+                    elif th is not None:
+                        Wi = RegisterCompose.apply(p.Sc, d, r, c, th)
+                    else:
+                        Wi = (PlaneComposeMM if MODE["had"] == "mm" else PlaneCompose).apply(p.Sc, d, r, c)
                     W = add_plane(W, p, jitter(Wi, (li * len(KINDS) + ki) * 8 + pi) if MODE["had"] == "jitter" else Wi)
                 Ld[nm] = W
             out.append(Ld)
@@ -746,6 +1069,9 @@ def main():
             groups.append(dict(params=[p.L for p in ste_planes], lr=a.lr_code))
             base_lr.append(a.lr_code)
         print(f"ste: {len(ste_planes)} coded planes, {res['code_blocks']} blocks, kinds {code_kinds}, lr_code {a.lr_code}", flush=True)
+    ang = list(TH.values())
+    if ang:
+        groups.append(dict(params=ang, lr=a.lr_angle)); base_lr.append(a.lr_angle)
     opt = torch.optim.Adam(groups, fused=True)
     res.update(train_groups=sorted(train_set), trainable_params=sum(t.numel() for g in groups for t in g["params"]))
     print(f"train {sorted(train_set)}: {res['trainable_params']} scalar params in {len(groups)} groups", flush=True)
@@ -756,16 +1082,43 @@ def main():
                 for p in PL[li][nm]:
                     if p.dense is None:
                         p.Sc = p.S(C)
+    if a.rotation == "kan":
+        # control (a): step-0 composed weights of every linear under the register (all offsets 0) against the PlaneCompose
+        # (fwht128) weights.  Under --hadamard butterfly the register is bit-identical to ft.fwht128, and under mm
+        # kan_matrix at delta = 0 is bit-identical to had_mm's H128 / sqrt(128) with RegisterComposeMM running
+        # PlaneComposeMM's op sequence, so the difference is exactly 0 in both hadamard modes: torch.equal and max_rel == 0.
+        # Temporal two layer_dicts_step forwards; spatial two fp32 model copies held at once.
+        with torch.no_grad():
+            MODE.update(rot="had")
+            Wb = layer_dicts_step()
+            MODE.update(rot="kan")
+            Wk = layer_dicts_step()
+            rel_s0, rel_site, all_equal = 0.0, {}, True
+            for li in range(cfg.nl):
+                for nm in KINDS:
+                    all_equal = all_equal and bool(torch.equal(Wk[li][nm], Wb[li][nm]))
+                    rl = float((Wk[li][nm] - Wb[li][nm]).abs().max() / Wb[li][nm].abs().max())
+                    rel_s0 = max(rel_s0, rl)
+                    rel_site[KIND_SITE[nm]] = max(rel_site.get(KIND_SITE[nm], 0.0), rl)
+            del Wb, Wk
+        res["controls"]["kan_step0_vs_planecompose"] = dict(max_rel=rel_s0, max_rel_per_site=rel_site, torch_equal=all_equal,
+                                                            bound=0.0, ok=all_equal and rel_s0 == 0.0)
+        print(f"kan step0 composed weights vs PlaneCompose: max rel {rel_s0:.3e}, torch.equal {all_equal} "
+              f"(bound exactly 0; T(0) == HN bitwise under mm)", flush=True)
+        dump()
+        assert res["controls"]["kan_step0_vs_planecompose"]["ok"], res["controls"]["kan_step0_vs_planecompose"]
     if a.compose != "layer" or a.kl != "ckpt":
         # control: on two calibration chunks, loss and every trainable gradient under the requested (compose, kl) against
         # (layer, ckpt).  Temporal two forward+backward passes at batch 2; spatial one fp32 copy of the trainable gradients.
-        tparams = [t for g in groups for t in g["params"]]
+        angle_ids = {id(t) for t in ang}
+        tparams = [t for g in groups for t in g["params"] if id(t) not in angle_ids]
 
         def probe(mode):
-            MODE.update({"amp": True, **mode})
+            MODE.update({"amp": True, "rot": "had", **mode})
             opt.zero_grad(set_to_none=True)
             loss_, agree_ = kl_batch(ids_cal[:2].to(DEV), True)
             loss_.backward()
+            probe.ang_g2 = sum(float(t.grad.pow(2).sum()) for t in ang if t.grad is not None) if ang else 0.0
             gs = torch.cat([(t.grad if t.grad is not None else torch.zeros_like(t)).reshape(-1) for t in tparams])
             opt.zero_grad(set_to_none=True)
             return float(loss_.detach()), agree_, gs
@@ -828,8 +1181,25 @@ def main():
                           f"bf16 rel L2 {wdiff[md_]['bf16_rel_l2']:.3e}", flush=True)
                     del Wx
                 del Wb
-        arm_modes.append(("requested", dict(compose=a.compose, kl=a.kl, had=a.hadamard)))
-        fp32 = {}
+        arm_modes.append(("requested", dict(compose=a.compose, kl=a.kl, had=a.hadamard, rot=a.rotation)))
+        fp32, fp32_ok = {}, True
+        if a.rotation == "kan":
+            # as the mm arm: the register weight differs from fwht128's by fp32 rounding, which the bf16 layers amplify, so
+            # equality is gated in fp32 (amp off): loss relative < 1e-5 and gradient relative L2 < 1e-2 against the butterfly.
+            # The kan arm runs in the requested hadamard mode (had=a.hadamard), so under --hadamard mm it takes the mm path;
+            # its fp32 keys are prefixed kan_ so the mm block's fp32_ref cannot clobber them.
+            lf, gf, gsf = probe(dict(compose="layer", kl="ckpt", had="butterfly", amp=False))
+            fp32["kan_ref"] = dict(loss=lf, agree=gf)
+            for nm_, md in (("kan_ref_again", dict(compose="layer", kl="ckpt", had="butterfly", amp=False)),
+                            ("kan_arm", dict(compose="step", kl="ckpt", had=a.hadamard, rot="kan", amp=False))):
+                l1, g1, gs1 = probe(md)
+                fp32[nm_] = dict(loss=l1, agree=g1, loss_rel=abs(l1 - lf) / abs(lf),
+                                 grad_rel_l2=float((gs1 - gsf).norm() / gsf.norm()), grad_cos=float(F.cosine_similarity(gs1, gsf, 0)))
+                print(f"grad_equiv {nm_}: loss {l1!r} vs {lf!r}, grad rel L2 {fp32[nm_]['grad_rel_l2']:.3e}", flush=True)
+            fp32["theta_grad_l2"] = probe.ang_g2 ** 0.5
+            fp32_ok = (fp32["kan_arm"]["loss_rel"] < 1e-5 and fp32["kan_arm"]["grad_rel_l2"] < 1e-2
+                       and math.isfinite(fp32["theta_grad_l2"]) and fp32["theta_grad_l2"] > 0.0)
+            del gsf
         if a.hadamard == "mm":
             # Temporal three fp32 forward+backward passes at batch 2; spatial one more fp32 gradient copy.
             lf, gf, gsf = probe(fp32_modes[0][1])
@@ -841,25 +1211,31 @@ def main():
                 print(f"grad_equiv {nm_}: loss {l1!r} vs {lf!r}, grad rel L2 {fp32[nm_]['grad_rel_l2']:.3e}", flush=True)
             fp32["bf16_vs_fp32_loss_rel"] = abs(l0 - lf) / abs(lf)
             fp32["float64_unit_max_rel"] = max(unit)
-            fp32["ok"] = max(unit) < 1e-12 and fp32["fp32_had"]["loss_rel"] < 1e-5 and fp32["fp32_had"]["grad_rel_l2"] < 1e-2
+            fp32_ok = fp32_ok and max(unit) < 1e-12 and fp32["fp32_had"]["loss_rel"] < 1e-5 and fp32["fp32_had"]["grad_rel_l2"] < 1e-2
             del gsf
+        if fp32:
+            fp32["ok"] = fp32_ok
         for nm_, md in arm_modes:
             l1, g1, gs1 = probe(md)
             loss_rel = abs(l1 - l0) / abs(l0)
             arms[nm_] = dict(loss=l1, agree=g1, loss_equal=l1 == l0, loss_rel=loss_rel,
                              grad_rel_l2=float((gs1 - gs0).norm() / gs0.norm()), grad_cos=float(F.cosine_similarity(gs1, gs0, 0)))
+            if a.rotation == "kan":
+                arms[nm_]["theta_grad_l2"] = probe.ang_g2 ** 0.5
             print(f"grad_equiv {nm_}: loss {l1!r} vs {l0!r}, agree {g1} vs {g0}, grad rel L2 {arms[nm_]['grad_rel_l2']:.3e} "
                   f"cos {arms[nm_]['grad_cos']:.8f}", flush=True)
         for nm_, md in arm_modes:
             v = arms[nm_]
             if md["had"] == "mm":
                 v["loss_ok"] = fp32["ok"] and v["grad_rel_l2"] < 1e-1
+            elif md.get("rot") == "kan":
+                v["loss_ok"] = fp32["ok"] and v["grad_rel_l2"] < 1e-1 and v["theta_grad_l2"] > 0.0
             else:
                 v["loss_ok"] = md["had"] == "jitter" or v["loss_equal"]
-        MODE.update(compose=a.compose, kl=a.kl, had=a.hadamard, amp=True)
+        MODE.update(compose=a.compose, kl=a.kl, had=a.hadamard, amp=True, rot=a.rotation)
         floor = arms["ref_again"]["grad_rel_l2"]
-        grad_ok = arms["requested"]["grad_rel_l2"] < (1e-2 if a.hadamard == "butterfly" else 1e-1)
-        res["controls"]["grad_equiv"] = dict(mode=dict(compose=a.compose, kl=a.kl, had=a.hadamard), loss_ref=l0, agree_ref=g0,
+        grad_ok = arms["requested"]["grad_rel_l2"] < (1e-2 if a.hadamard == "butterfly" and a.rotation == "had" else 1e-1)
+        res["controls"]["grad_equiv"] = dict(mode=dict(compose=a.compose, kl=a.kl, had=a.hadamard, **({"rot": a.rotation} if a.rotation == "kan" else {})), loss_ref=l0, agree_ref=g0,
                                              arms=arms, weights=wdiff, fp32=fp32, noise_floor_rel_l2=floor,
                                              ok=all(v["loss_ok"] for v in arms.values()) and grad_ok)
         dump()
@@ -1154,6 +1530,7 @@ def main():
     Ls2, n_eq, n_ne, max_rel = [], 0, 0, 0.0
     bits = dict(bits_sign=0, bits_r=0, bits_c=0, bits_d=0)
     code_ok = True
+    THq = {k: kp.quant_angles(v.detach(), ANGLE_BITS) for k, v in TH.items()}  # the stored 16-bit offsets d = theta - pi/4; pi/4 is grid point 8192 of 2 pi / 65536, so round(d / q) q is the theta grid
     with torch.no_grad():
         for li in range(cfg.nl):
             L = dict(Ls[li])
@@ -1191,7 +1568,11 @@ def main():
                     bits["bits_r"] += 4 * kint.numel() + 8 * p.O + 64
                     bits["bits_c"] += 6 * cint.numel() + 32
                     bits["bits_d"] += 5 * dint.numel() + 32
-                W_st, W_qt = ft._sink_recon(st_planes), ft._sink_recon(qt_planes)
+                th_q = THq.get((li, KIND_SITE[nm]))
+                if th_q is None:
+                    W_st, W_qt = ft._sink_recon(st_planes), ft._sink_recon(qt_planes)
+                else:
+                    W_st, W_qt = kan_recon(st_planes, th_q), kan_recon(qt_planes, th_q)
                 if torch.equal(W_st, W_qt):
                     n_eq += 1
                 else:
@@ -1199,12 +1580,25 @@ def main():
                 L[nm] = W_st.float().cpu()
                 del st_planes, qt_planes, W_st, W_qt
             Ls2.append(L)
-    bits_after = sum(bits.values()) + binfo["bits_corr"]
+    angle_bits = kp.NST * kp.NBF * ANGLE_BITS * len(THq)  # 7 * 64 * 16 per learning site per layer
+    bits_after = sum(bits.values()) + binfo["bits_corr"] + angle_bits
     comp_ok = all(bits[k] == binfo[k] for k in bits)
     res.update(bits_after=bits_after, bpw_after=bits_after / binfo["params"], bits_components_after=dict(bits, bits_corr=binfo["bits_corr"]))
     res["controls"]["quantized_eval_equality"] = dict(linears_equal=n_eq, linears_not_equal=n_ne, max_rel=max_rel,
                                                       integer_codes_roundtrip_and_in_range=code_ok)
-    res["controls"]["bits_equal"] = dict(before=bits_before, after=bits_after, components_equal=comp_ok, ok=bits_after == bits_before and comp_ok)
+    res["controls"]["bits_equal"] = dict(before=bits_before, after=bits_after, components_equal=comp_ok,
+                                         ok=bits_after == bits_before + angle_bits and comp_ok)
+    if a.rotation == "kan":
+        # bits_equal reads after == before + angle_bits; the register angles are the only added stored bits.
+        drift = {}
+        for site in sorted(kan_sites):
+            dd = torch.stack([THq[(li, site)].abs() for li in range(cfg.nl)])
+            drift[site] = dict(max_abs=float(dd.max()), rms=float(dd.pow(2).mean().sqrt()),
+                               per_layer_rms=[float(x) for x in dd.pow(2).mean((1, 2)).sqrt()])
+        res["controls"]["bits_equal"].update(angle_bits=angle_bits, rule="after == before + angle_bits")
+        res["rotation"] = dict(mode="kan", sites=sorted(kan_sites), lr_angle=a.lr_angle, angle_bits_each=ANGLE_BITS, angle_bits=angle_bits,
+                               bpw_after=res["bpw_after"], bpw_angle=angle_bits / binfo["params"], theta_drift_vs_pi4=drift,
+                               kan_probe_sha256=sha_file(kp.__file__))
     print(f"final weights built {ft.tick() - t0:.1f}s; eval-vs-quantizer equal {n_eq}/{n_eq + n_ne} code_ok {code_ok} bits {bits_before}->{bits_after}", flush=True)
     for t in (PL, tun, TLg, lat, norm):
         t.clear()

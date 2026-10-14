@@ -1174,3 +1174,12 @@ import Perf.QuantumRotation
 #audit Perf.QuantumRotation.kan_probe_attn_out_in
 #audit Perf.QuantumRotation.kan_probe_attn_in
 #audit Perf.QuantumRotation.kan_probe_ffn_loses
+#audit Perf.QuantumRotation.kan_exact_protocol
+#audit Perf.QuantumRotation.kan_exact_step_cost
+#audit Perf.QuantumRotation.kan_exact_loses_wall
+#audit Perf.QuantumRotation.butterfly_curve_convex
+#audit Perf.QuantumRotation.kan_exact_wins_matched_step
+#audit Perf.QuantumRotation.kan_mm_protocol
+#audit Perf.QuantumRotation.kan_mm_step_cost
+#audit Perf.QuantumRotation.kan_mm_loses_wall
+#audit Perf.QuantumRotation.kan_mm_wins_matched_step
