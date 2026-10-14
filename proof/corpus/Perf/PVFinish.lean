@@ -428,4 +428,149 @@ theorem pvtok_still_falling :
     norm_num [w18_pvaball05v0.klHeldoutAfter, w18_pvtok292.klHeldoutAfter, w18_pvtok146.klHeldoutAfter,
       w18_pvtok146.klHeldoutBefore, w18_pvaball05v0.tokens, w18_pvtok292.tokens, w18_pvtok146.tokens]
 
+/-! ## Finishing throughput: one composition per step and a fused KL head
+
+`w18-pvfast.json` (`pv_finish.py` sha256 `ce1095bf…`, `--compose step --kl fused`) is the all-group protocol with V-steps
+off (`w18-pvaball05v0`) on a faster path. `PlaneCompose` composes each coded plane once per step outside the layer
+checkpoints, with an analytic backward; `KLHead` saves `(softmax(z_s) − p_t) E` in the forward, so no vocabulary-head
+matmul is recomputed. The cost model below counts both changes from the code; the receipt measures the step. -/
+
+/-- Rows per KL chunk and tokens per step (batch 8 of 512-token chunks). -/
+def klChunkRows : ℕ := 256
+def tokensPerStep : ℕ := 4096
+/-- Qwen2.5-0.5B hidden width and vocabulary. -/
+def hid : ℕ := 896
+def vocab : ℕ := 151936
+
+/-- Vocabulary-head matmuls per KL chunk. Checkpointed `kl_chunk`: teacher and student logits in the forward (2), both
+again in the recompute (2), and the student-logit adjoint `G E` in the backward (1). `KLHead`: the two logit matmuls and
+the saved adjoint `(q − p) E`, all in the forward (3). -/
+def headMatmulsCkpt : ℕ := 5
+def headMatmulsFused : ℕ := 3
+
+/-- Plane-composition forwards per coded plane per step: under `--compose layer` the layer checkpoint composes in the
+forward and again in the recompute (2); under `--compose step` `PlaneCompose` composes once (1). Each path has one
+backward. -/
+def composeFwdLayer : ℕ := 2
+def composeFwdStep : ℕ := 1
+
+/-- FLOPs of one head matmul, `2 · rows · hid · vocab`. -/
+def headMatmulFlops : ℕ := 2 * klChunkRows * hid * vocab
+
+/-- **Cost model.** A step runs 16 KL chunks; the fused head does 48 head matmuls a step against 80, three fifths, and
+removes `32 · 2 · 256 · 896 · 151936 ≈ 2.23 · 10¹²` FLOPs a step. Composition forwards halve. -/
+theorem pvfast_cost_model :
+    tokensPerStep / klChunkRows = 16 ∧
+    (tokensPerStep / klChunkRows) * headMatmulsFused = 48 ∧ (tokensPerStep / klChunkRows) * headMatmulsCkpt = 80 ∧
+    5 * headMatmulsFused = 3 * headMatmulsCkpt ∧
+    (tokensPerStep / klChunkRows) * (headMatmulsCkpt - headMatmulsFused) * headMatmulFlops = 2230430203904 ∧
+    2 * composeFwdStep = composeFwdLayer := by
+  norm_num [tokensPerStep, klChunkRows, headMatmulsFused, headMatmulsCkpt, headMatmulFlops, hid, vocab,
+    composeFwdStep, composeFwdLayer]
+
+/-- **Same arm, same bits, same controls, the fast path.** The receipt's tokens are `4096` a step, its start-of-training
+probe passed (losses bit-equal to the `(layer, ckpt)` path in every arm), and no V-step ran. -/
+theorem pvfast_same_arm :
+    w18_pvfast.arm = w18_pv05.arm ∧ w18_pvfast.trainGroups = "c,d,norm,r" ∧ w18_pvfast.vSteps = 0 ∧
+    w18_pvfast.regrid = 0 ∧ w18_pvfast.compose = "step" ∧ w18_pvfast.klMode = "fused" ∧
+    w18_pvfast.bitsAfter = w18_pv05.bitsBefore ∧ w18_pvfast.bitsAfter = w18_pvaball05v0.bitsAfter ∧
+    w18_pvfast.tokens = tokensPerStep * w18_pvfast.steps ∧
+    w18_pvfast.beforeMatchesReference = true ∧ w18_pvfast.bitsEqual = true ∧
+    w18_pvfast.codebookExact = true ∧ w18_pvfast.dataDisjoint = true ∧ w18_pvfast.gradEquivOk = true ∧
+    w18_pvfast.klHeldoutBefore = w18_pvaball05v0.klHeldoutBefore := by
+  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, ?_⟩
+  norm_num [w18_pvfast.klHeldoutBefore, w18_pvaball05v0.klHeldoutBefore]
+
+/-- **The fast path computes the same gradient.** On two calibration chunks the trainable gradient differs from the
+`(layer, ckpt)` path by a relative L2 under `1/100` and under `3/2` times the rerun floor (the same path run twice);
+the composition change alone is within `11/10` of that floor. -/
+theorem pvfast_grad_floor :
+    w18_pvfast.gradRelRequested < 1 / 100 ∧
+    w18_pvfast.gradRelRequested < (3 / 2) * w18_pvfast.gradRelFloor ∧
+    w18_pvfast.gradRelComposeOnly < (11 / 10) * w18_pvfast.gradRelFloor ∧
+    w18_pvfast.gradRelKlOnly < (3 / 2) * w18_pvfast.gradRelFloor := by
+  norm_num [w18_pvfast.gradRelRequested, w18_pvfast.gradRelFloor, w18_pvfast.gradRelComposeOnly,
+    w18_pvfast.gradRelKlOnly]
+
+/-- **A step is 1.3 to 1.4 times faster.** Seconds per step fall from `419.1/529` to `416.2/729`, and the same box runs
+over `13/10` of the steps. -/
+theorem pvfast_faster :
+    13 * w18_pvfast.trainS * w18_pvaball05v0.steps < 10 * w18_pvaball05v0.trainS * w18_pvfast.steps ∧
+    10 * w18_pvaball05v0.trainS * w18_pvfast.steps < 14 * w18_pvfast.trainS * w18_pvaball05v0.steps ∧
+    13 * w18_pvaball05v0.steps < 10 * w18_pvfast.steps := by
+  norm_num [w18_pvfast.trainS, w18_pvaball05v0.trainS, w18_pvfast.steps, w18_pvaball05v0.steps]
+
+/-- **Prediction `pvfast-2` refuted on its throughput ranges.** Seconds per step land above the predicted `[0.30, 0.50]`
+and steps below the predicted `[800, 1300]`; the held-out KL lands inside its predicted `[0.83, 0.875]`. -/
+theorem pvfast_refuted :
+    w18_pvfast.trainS / w18_pvfast.steps > 1 / 2 ∧ w18_pvfast.steps < 800 ∧
+    (83 / 100 : ℚ) ≤ w18_pvfast.klHeldoutAfter ∧ w18_pvfast.klHeldoutAfter ≤ 875 / 1000 := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;> norm_num [w18_pvfast.trainS, w18_pvfast.steps, w18_pvfast.klHeldoutAfter]
+
+/-- **More tokens, lower KL at equal bits.** Held-out KL ends `0.0247` below the `(layer, ckpt)` run, over three times
+the `0.0075` spread of that protocol (`pvgrid_no_gain`); top-1 rises with it. -/
+theorem pvfast_lower :
+    w18_pvfast.klHeldoutAfter + 2 / 100 < w18_pvaball05v0.klHeldoutAfter ∧
+    w18_pvfast.klHeldoutAfter + 3 * (75 / 10000) < w18_pvaball05v0.klHeldoutAfter ∧
+    w18_pvaball05v0.top1HeldoutAfter < w18_pvfast.top1HeldoutAfter := by
+  norm_num [w18_pvfast.klHeldoutAfter, w18_pvaball05v0.klHeldoutAfter, w18_pvfast.top1HeldoutAfter,
+    w18_pvaball05v0.top1HeldoutAfter]
+
+/-- **The token trend does not flatten at 3.0M tokens.** From 529 to 729 steps is under half a doubling of tokens
+(`729² < 2 · 529²`), and the drop over it exceeds half the drop over the first full doubling (146 to 292 steps): the drop
+per doubling has not shrunk across the four points 146, 292, 529, 729. -/
+theorem pvtok_trend_four :
+    w18_pvfast.klHeldoutAfter < w18_pvaball05v0.klHeldoutAfter ∧
+    w18_pvaball05v0.klHeldoutAfter < w18_pvtok292.klHeldoutAfter ∧
+    w18_pvtok292.klHeldoutAfter < w18_pvtok146.klHeldoutAfter ∧
+    w18_pvfast.tokens * w18_pvfast.tokens < 2 * (w18_pvaball05v0.tokens * w18_pvaball05v0.tokens) ∧
+    w18_pvtok146.klHeldoutAfter - w18_pvtok292.klHeldoutAfter <
+      2 * (w18_pvaball05v0.klHeldoutAfter - w18_pvfast.klHeldoutAfter) := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvfast.klHeldoutAfter, w18_pvaball05v0.klHeldoutAfter, w18_pvtok292.klHeldoutAfter,
+      w18_pvtok146.klHeldoutAfter, w18_pvfast.tokens, w18_pvaball05v0.tokens]
+
+/-! ### Ten-step profiles of both paths
+
+`w18-pvprof.json` (`(layer, ckpt)`, `pv_finish.py` sha256 `8ece3ced…`) and `w18-pvprof2.json` (`(step, fused)`, sha256
+`ce1095bf…`) are `torch.profiler` windows of 10 training steps. `elementwiseS` sums the self device time of the listed
+`aten::{mul, cat, sub, add, add_, copy_, fill_, index, gather}` ops, `mmS` of `aten::mm`, `atenSelfS` of every listed aten
+op; `selfDeviceS` is kernel time on `pvprof2` and a double-counted op-plus-kernel sum on `pvprof`. -/
+
+/-- **Prediction `pvprof-1` refuted.** The profiled step on the `(layer, ckpt)` path costs over 2 s, outside the
+predicted `[0.4, 1.6]`, and the elementwise ops of plane composition take over half the aten device time and more than
+every matmul together: the vocabulary head was not the cost. -/
+theorem pvprof_refuted :
+    w18_pvprof.steps = 10 ∧ 2 * w18_pvprof.steps < w18_pvprof.wallS ∧
+    w18_pvprof.atenSelfS < 2 * w18_pvprof.elementwiseS ∧ w18_pvprof.mmS < w18_pvprof.elementwiseS := by
+  refine ⟨rfl, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvprof.steps, w18_pvprof.wallS, w18_pvprof.atenSelfS, w18_pvprof.elementwiseS, w18_pvprof.mmS]
+
+/-- **Prediction `pvprof2-1` refuted; its falsifier did not fire.** Kernel time per step lands in the predicted
+`[0.35, 0.55]` s, but the profiled step is above the predicted 1.2 s and the elementwise share of kernel time is above the
+predicted 35%; it stays under the falsifier's 50%. -/
+theorem pvprof2_refuted :
+    w18_pvprof2.steps = 10 ∧
+    (35 / 100 : ℚ) * w18_pvprof2.steps ≤ w18_pvprof2.selfDeviceS ∧
+    w18_pvprof2.selfDeviceS ≤ (55 / 100 : ℚ) * w18_pvprof2.steps ∧
+    (6 / 5 : ℚ) * w18_pvprof2.steps < w18_pvprof2.wallS ∧
+    (35 / 100 : ℚ) * w18_pvprof2.selfDeviceS < w18_pvprof2.elementwiseS ∧
+    w18_pvprof2.elementwiseS < (1 / 2 : ℚ) * w18_pvprof2.selfDeviceS := by
+  refine ⟨rfl, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvprof2.steps, w18_pvprof2.selfDeviceS, w18_pvprof2.wallS, w18_pvprof2.elementwiseS]
+
+/-- **What the fast path removed, and what it left.** Elementwise device time falls to under `7/10` of the layer path and
+matmul time falls; the `cat` calls of the `fwht128` butterflies rise, because the analytic backward runs `fwht128` twice
+per plane. Kernel time covers over `9/10` of the unprofiled step (`416.2 s / 729`): the step is device-bound, so the next
+gain has to remove device work, and the butterflies are the largest single block of it. -/
+theorem pvprof_fast_path :
+    10 * w18_pvprof2.elementwiseS < 7 * w18_pvprof.elementwiseS ∧ w18_pvprof2.mmS < w18_pvprof.mmS ∧
+    w18_pvprof.catCalls < w18_pvprof2.catCalls ∧
+    (9 / 10 : ℚ) * (w18_pvfast.trainS / w18_pvfast.steps) < w18_pvprof2.selfDeviceS / w18_pvprof2.steps ∧
+    w18_pvprof2.selfDeviceS / w18_pvprof2.steps < w18_pvfast.trainS / w18_pvfast.steps := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvprof2.elementwiseS, w18_pvprof.elementwiseS, w18_pvprof2.mmS, w18_pvprof.mmS,
+      w18_pvprof.catCalls, w18_pvprof2.catCalls, w18_pvfast.trainS, w18_pvfast.steps, w18_pvprof2.selfDeviceS,
+      w18_pvprof2.steps]
+
 end Perf.PVFinish

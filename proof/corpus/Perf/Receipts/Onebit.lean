@@ -793,6 +793,7 @@ def steps : ℕ := 672
 def tokens : ℕ := 2752512
 def trainableParams : ℕ := 71552
 def vSteps : ℕ := 0
+def trainS : ℚ := (2089010875225067 : ℚ) / 5000000000000
 def bitsR : ℕ := 15347712
 def bitsC : ℕ := 2128896
 def bitsD : ℕ := 1775616
@@ -823,6 +824,7 @@ def steps : ℕ := 630
 def tokens : ℕ := 2580480
 def trainableParams : ℕ := 3128832
 def vSteps : ℕ := 0
+def trainS : ℚ := (8323862452507019 : ℚ) / 20000000000000
 def bitsR : ℕ := 15347712
 def bitsC : ℕ := 2128896
 def bitsD : ℕ := 1775616
@@ -853,6 +855,7 @@ def steps : ℕ := 529
 def tokens : ℕ := 2166784
 def trainableParams : ℕ := 3906944
 def vSteps : ℕ := 0
+def trainS : ℚ := (20955463123321533 : ℚ) / 50000000000000
 def bitsR : ℕ := 15347712
 def bitsC : ℕ := 2128896
 def bitsD : ℕ := 1775616
@@ -883,6 +886,7 @@ def steps : ℕ := 540
 def tokens : ℕ := 2211840
 def trainableParams : ℕ := 3835392
 def vSteps : ℕ := 0
+def trainS : ℚ := (1046492640376091 : ℚ) / 2500000000000
 def bitsR : ℕ := 15347712
 def bitsC : ℕ := 2128896
 def bitsD : ℕ := 1775616
@@ -913,6 +917,7 @@ def steps : ℕ := 548
 def tokens : ℕ := 2244608
 def trainableParams : ℕ := 706560
 def vSteps : ℕ := 0
+def trainS : ℚ := (10570919817686081 : ℚ) / 25000000000000
 def bitsR : ℕ := 15347712
 def bitsC : ℕ := 2128896
 def bitsD : ℕ := 1775616
@@ -947,6 +952,7 @@ def regrid : ℕ := 25
 def stepsCap : ℕ := 1000000000
 def rSatFracBefore : ℚ := (0 : ℚ) / 1
 def rSatFracAfter : ℚ := (1412364136681541 : ℚ) / 25000000000000000
+def trainS : ℚ := (2090425077676773 : ℚ) / 5000000000000
 def bitsR : ℕ := 15347712
 def bitsC : ℕ := 2128896
 def bitsD : ℕ := 1775616
@@ -979,6 +985,7 @@ def trainableParams : ℕ := 3906944
 def vSteps : ℕ := 0
 def regrid : ℕ := 0
 def stepsCap : ℕ := 146
+def trainS : ℚ := (11165394449234009 : ℚ) / 100000000000000
 def bitsR : ℕ := 15347712
 def bitsC : ℕ := 2128896
 def bitsD : ℕ := 1775616
@@ -1011,6 +1018,7 @@ def trainableParams : ℕ := 3906944
 def vSteps : ℕ := 0
 def regrid : ℕ := 0
 def stepsCap : ℕ := 292
+def trainS : ℚ := (2183177146911621 : ℚ) / 10000000000000
 def bitsR : ℕ := 15347712
 def bitsC : ℕ := 2128896
 def bitsD : ℕ := 1775616
@@ -1023,6 +1031,77 @@ def klInsampleAfter : ℚ := (2343331530690193 : ℚ) / 10000000000000000
 def wallTotalS : ℚ := (33351345133781433 : ℚ) / 100000000000000
 
 end Receipts.w18_pvtok292
+
+-- Receipt the receipts/onebit/w18-pvfast note.json`
+namespace Receipts.w18_pvfast
+
+def sha256 : String := "931b7c2afd4ecd65d373d4e24ade7471e5b379606056da456569e7871682e518"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def trainGroups : String := "c,d,norm,r"
+def beforeMatchesReference : Bool := true
+def bitsEqual : Bool := true
+def codebookExact : Bool := true
+def dataDisjoint : Bool := true
+def params : ℕ := 357826560
+def bitsBefore : ℕ := 421541376
+def bitsAfter : ℕ := 421541376
+def steps : ℕ := 729
+def tokens : ℕ := 2985984
+def trainableParams : ℕ := 3906944
+def vSteps : ℕ := 0
+def regrid : ℕ := 0
+def stepsCap : ℕ := 1000000000
+def compose : String := "step"
+def klMode : String := "fused"
+def gradEquivOk : Bool := true
+def gradRelFloor : ℚ := (1083938404917717 : ℚ) / 250000000000000000
+def gradRelComposeOnly : ℚ := (4617982544004917 : ℚ) / 1000000000000000000
+def gradRelKlOnly : ℚ := (15171719714999199 : ℚ) / 2500000000000000000
+def gradRelRequested : ℚ := (1419219302079 : ℚ) / 244140625000000
+def peakMemGb : ℚ := (3340196371078491 : ℚ) / 500000000000000
+def trainS : ℚ := (20807780635356903 : ℚ) / 50000000000000
+def bitsR : ℕ := 15347712
+def bitsC : ℕ := 2128896
+def bitsD : ℕ := 1775616
+def klHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klHeldoutAfter : ℚ := (8577000021934509 : ℚ) / 10000000000000000
+def top1HeldoutBefore : ℚ := (1965 : ℚ) / 4096
+def top1HeldoutAfter : ℚ := (2243 : ℚ) / 4096
+def klInsampleBefore : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def klInsampleAfter : ℚ := (19183389544487 : ℚ) / 80000000000000
+def wallTotalS : ℚ := (1354764888882637 : ℚ) / 2500000000000
+
+end Receipts.w18_pvfast
+
+-- Receipt the receipts/onebit/w18-pvprof note.json`
+namespace Receipts.w18_pvprof
+
+def sha256 : String := "11334073f28b7064894766be578900bcb84c17a217d4e7e563468fe9377ecb76"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def steps : ℕ := 10
+def wallS : ℚ := (10898689866065979 : ℚ) / 500000000000000
+def selfDeviceS : ℚ := (14383249277000163 : ℚ) / 1000000000000000
+def atenSelfS : ℚ := (155487356450000081 : ℚ) / 25000000000000000
+def elementwiseS : ℚ := (82735319650000537 : ℚ) / 25000000000000000
+def mmS : ℚ := (3142449982499983 : ℚ) / 1250000000000000
+def catCalls : ℕ := 41760
+
+end Receipts.w18_pvprof
+
+-- Receipt the receipts/onebit/w18-pvprof2 note.json`
+namespace Receipts.w18_pvprof2
+
+def sha256 : String := "754fe6b864a41f315fd06419985815e1012ebbe4e0389374b69007ab9b99c05e"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def steps : ℕ := 10
+def wallS : ℚ := (2664857292175293 : ℚ) / 200000000000000
+def selfDeviceS : ℚ := (2635131281000089 : ℚ) / 500000000000000
+def atenSelfS : ℚ := (239236656750007659 : ℚ) / 50000000000000000
+def elementwiseS : ℚ := (698152947500067 : ℚ) / 312500000000000
+def mmS : ℚ := (531388414499993 : ℚ) / 250000000000000
+def catCalls : ℕ := 61920
+
+end Receipts.w18_pvprof2
 
 -- Receipt the receipts/onebit/w18-guided05 note.json`
 namespace Receipts.w18_guided05
