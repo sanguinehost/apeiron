@@ -1079,6 +1079,32 @@ C4 shard 00001, sha256 `77078e5f…`, disjoint from the calibration file):
 
 Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
+## Calibration size and the 2-plane arm (`measured`; `Perf/CalScaling.lean`)
+
+Prediction `calx-1`, refuted. Script `tools/onebit/fold_transfer.py` `--cal-extra 500` appends the first 500 chunks of C4
+shard 00001 (`train-c4.qwen.npy` sha256 `74945dcc…`) to the 100 `calib-c4` calibration chunks; the run's script sha256
+is `458d6efd…`. The committed file (`9183c172…`) adds `--model`/`--q4km` with unchanged defaults. Held-out chunks
+`[100, 140)` and in-sample chunks `[0, 20)` are the same as the 100-chunk fit. RTX 5080, single chunk order.
+
+| fit | calibration tokens | b/w | held-out KL | held-out top-1 | in-sample KL | transfer wall |
+|---|---|---|---|---|---|---|
+| `w18-resq-3seed.json` (3 orders) | 51,200 | 1.17806 | 1.2905 / 1.2874 / 1.2982 | 0.439–0.440 | 0.349 / 0.351 / 0.348 | 120 s |
+| `w18-calx600.json` | 307,200 | 1.17806 | **1.2505** | 0.4456 | 0.7734 | 419 s |
+
+- Predicted held-out 0.80–1.05; measured 1.2505, above the 1.20 falsifier. Six times the data moves held-out KL by
+  −0.040 against the same chunk order (−3.2 % of the 3-order mean) while in-sample KL more than doubles: the 3.7× gap of the 100-chunk fit was
+  in-sample overfitting, not recoverable held-out quality.
+- Verdicts (`proved`, `Perf.CalScaling`): `calx_same_code` (bits, params, 600 × 512 tokens), `calx_heldout` (below each
+  100-chunk order, by < 0.04 and < 1/30 of the mean; above 1.20), `calx_overfit` (in-sample > 2×; gap > 3.6× before,
+  < 1.7× after), `calx_standing` (below distillation's 2.01; 63–64× above Q4_K_M). Control `ctl_calx` (changed
+  falsifier constant) fails.
+- Cost: gram + forward passes scale with calibration tokens (12.3 s + 5.0 s at 100 chunks, 154 s + 101 s at 600);
+  the refit timer grows 101 s → 163 s through the `-resq` GLU solve, which streams the stored activations.
+- Decision: the 2-plane arm's held-out level at 1.178 b/w is a property of the representation. Per the switch rule
+  this route stops here and the work moves to a generator plus coded residual.
+
+Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
 ## Limit claims
 
 `tools/rooting/limit_check.py` refuses, in this file, `onebit-w13.md`, `docs/epics/ternary-hadamard.md` and the

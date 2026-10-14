@@ -61,6 +61,7 @@ W15 = {
     "w18_outcomes": "docs/evidence/receipts/onebit/w18-outcomes.json",
     "w18_kd_main1": "docs/evidence/receipts/onebit/w18-kd-main1.json",
     "w18_kd_main2": "docs/evidence/receipts/onebit/w18-kd-main2.json",
+    "w18_calx600": "docs/evidence/receipts/onebit/w18-calx600.json",
 }
 
 OUTCOME_ARMS = [("teacher", "teacher"), ("q4km", "q4km"), ("resq", RESQ_ARM)]
@@ -428,6 +429,17 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
                         ("top1Heldout", "top1_heldout"), ("signFlipFrac", "sign_flip_frac"),
                         ("trainWallS", "train_wall_s")]:
             out.append(("rat", name, rat(data[k])))
+    elif ns == "w18_calx600":
+        v = data["variants"][RESQ_ARM]
+        out.append(("str", "arm", RESQ_ARM))
+        out.append(("nat", "calTokens", nat(data["cal_tokens"])))
+        out.append(("nat", "calExtraChunks", nat(data["args"]["cal_extra"])))
+        out.append(("nat", "params", nat(v["params"])))
+        out.append(("nat", "bits", nat(v["bits"])))
+        for name, k in [("bpwLinears", "bpw_linears"), ("klHeldout", "kl_heldout"), ("klInsample", "kl_insample"),
+                        ("top1Heldout", "top1_heldout"), ("top1Insample", "top1_insample"),
+                        ("wallTransferS", "wall_transfer_s")]:
+            out.append(("rat", name, rat(v[k])))
     else:
         raise Fail(f"no W15/W17 field map for {ns}")
     return out
