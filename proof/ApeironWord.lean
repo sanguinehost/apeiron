@@ -21760,6 +21760,366 @@ def hashtrinity.Table.insert_merge_last_write
   | none => ok self1
   | some _ => fail panic
 
+/-- [apeiron_word::learn_port::e8::CODEBOOK_LEN]
+    Source: '../../src/learn/code/e8.rs', lines 31:0-31:36
+    Visibility: public -/
+@[global_simps, irreducible]
+def learn_port.e8.CODEBOOK_LEN : Std.Usize := 256#usize
+
+/-- [apeiron_word::learn_port::e8::SQRT8_Q32]
+    Source: '../../src/learn/code/e8.rs', lines 35:0-35:42
+    Visibility: public -/
+@[global_simps, irreducible]
+def learn_port.e8.SQRT8_Q32 : Std.I64 := 12148002000#i64
+
+/-- [apeiron_word::learn_port::e8::NEG_ONE]
+    Source: '../../src/learn/code/e8.rs', lines 37:0-37:26 -/
+@[global_simps, irreducible]
+def learn_port.e8.NEG_ONE : Result Std.I64 := do let i ← engine.ONE
+                                                 -. i
+
+/-- [apeiron_word::learn_port::e8::TWO_ONE]
+    Source: '../../src/learn/code/e8.rs', lines 38:0-38:29 -/
+@[global_simps, irreducible]
+def learn_port.e8.TWO_ONE : Result Std.I64 := do let i ← engine.ONE
+                                                 2#i64 * i
+
+/-- [apeiron_word::learn_port::e8::NEG_TWO_ONE]
+    Source: '../../src/learn/code/e8.rs', lines 39:0-39:34 -/
+@[global_simps, irreducible]
+def learn_port.e8.NEG_TWO_ONE : Result Std.I64 := do
+  let i ← engine.ONE
+  (-2)#i64 * i
+
+/-- [apeiron_word::learn_port::e8::NEG_SQRT8_Q32]
+    Source: '../../src/learn/code/e8.rs', lines 40:0-40:38 -/
+@[global_simps, irreducible]
+def learn_port.e8.NEG_SQRT8_Q32 : Result Std.I64 := -. learn_port.e8.SQRT8_Q32
+
+/-- [apeiron_word::learn_port::e8::E8Error]
+    Source: '../../src/learn/code/e8.rs', lines 44:0-51:1
+    Visibility: public -/
+@[discriminant isize]
+inductive learn_port.e8.E8Error where
+| IndexOutOfRange : learn_port.e8.E8Error
+| NonPositiveScale : learn_port.e8.E8Error
+| Overflow : learn_port.e8.E8Error
+
+/-- [apeiron_word::learn_port::e8::popcount_parity]:
+    Source: '../../src/learn/code/e8.rs', lines 58:0-61:1 -/
+def learn_port.e8.popcount_parity (r : Std.Usize) : Result Std.Usize := do
+  let i ← r % 2#usize
+  let i1 ← r / 2#usize
+  let i2 ← i1 % 2#usize
+  let i3 ← i + i2
+  let i4 ← r / 4#usize
+  let i5 ← i4 % 2#usize
+  let i6 ← i3 + i5
+  let i7 ← r / 8#usize
+  let i8 ← i7 % 2#usize
+  let i9 ← i6 + i8
+  let i10 ← r / 16#usize
+  let i11 ← i10 % 2#usize
+  let i12 ← i9 + i11
+  let i13 ← r / 32#usize
+  let i14 ← i13 % 2#usize
+  let i15 ← i12 + i14
+  let i16 ← r / 64#usize
+  let i17 ← i16 % 2#usize
+  let i18 ← i15 + i17
+  let i19 ← r / 128#usize
+  let i20 ← i19 % 2#usize
+  let i21 ← i18 + i20
+  i21 % 2#usize
+
+/-- [apeiron_word::learn_port::e8::spinor_row]: loop body 0:
+    Source: '../../src/learn/code/e8.rs', lines 77:4-81:5 -/
+@[rust_loop_body]
+def learn_port.e8.spinor_row_loop.body
+  (key : Std.Usize) (out : Array Std.I64 8#usize) (k : Std.Usize)
+  (w : Std.Usize) :
+  Result (ControlFlow ((Array Std.I64 8#usize) × Std.Usize × Std.Usize)
+    (Array Std.I64 8#usize))
+  := do
+  if k < 8#usize
+  then
+    let i ← key / w
+    let i1 ← i % 2#usize
+    let i2 ← if i1 = 1#usize
+               then learn_port.e8.NEG_ONE
+               else engine.ONE
+    let a ← Array.update out k i2
+    let k1 ← k + 1#usize
+    let w1 ← w / 2#usize
+    ok (cont (a, k1, w1))
+  else ok (done out)
+
+/-- [apeiron_word::learn_port::e8::spinor_row]: loop 0:
+    Source: '../../src/learn/code/e8.rs', lines 77:4-81:5 -/
+@[rust_loop]
+def learn_port.e8.spinor_row_loop
+  (key : Std.Usize) (out : Array Std.I64 8#usize) (k : Std.Usize)
+  (w : Std.Usize) :
+  Result (Array Std.I64 8#usize)
+  := do
+  loop
+    (fun (out1, k1, w1) => learn_port.e8.spinor_row_loop.body key out1 k1 w1)
+    (out, k, w)
+
+/-- [apeiron_word::learn_port::e8::spinor_row]:
+    Source: '../../src/learn/code/e8.rs', lines 72:0-83:1 -/
+def learn_port.e8.spinor_row
+  (r : Std.Usize) : Result (Array Std.I64 8#usize) := do
+  let i ← 2#usize * r
+  let i1 ← learn_port.e8.popcount_parity r
+  let key ← i + i1
+  let out := Array.repeat 8#usize 0#i64
+  learn_port.e8.spinor_row_loop key out 0#usize 128#usize
+
+/-- [apeiron_word::learn_port::e8::root_row]: loop body 0:
+    Source: '../../src/learn/code/e8.rs', lines 101:4-106:5 -/
+@[rust_loop_body]
+def learn_port.e8.root_row_loop.body
+  (pair : Std.Usize) (a : Std.Usize) (t : Std.Usize) :
+  Result (ControlFlow (Std.Usize × Std.Usize) Std.Usize)
+  := do
+  if t < 7#usize
+  then
+    let i ← 15#usize * t
+    let i1 ← t * t
+    let i2 ← i - i1
+    let i3 ← i2 / 2#usize
+    let a1 ← if i3 <= pair
+               then ok t
+               else ok a
+    let t1 ← t + 1#usize
+    ok (cont (a1, t1))
+  else ok (done a)
+
+/-- [apeiron_word::learn_port::e8::root_row]: loop 0:
+    Source: '../../src/learn/code/e8.rs', lines 101:4-106:5 -/
+@[rust_loop]
+def learn_port.e8.root_row_loop
+  (pair : Std.Usize) (a : Std.Usize) (t : Std.Usize) : Result Std.Usize := do
+  loop
+    (fun (a1, t1) => learn_port.e8.root_row_loop.body pair a1 t1)
+    (a, t)
+
+/-- [apeiron_word::learn_port::e8::root_row]:
+    Source: '../../src/learn/code/e8.rs', lines 96:0-113:1 -/
+def learn_port.e8.root_row
+  (k : Std.Usize) : Result (Array Std.I64 8#usize) := do
+  let pair ← k / 4#usize
+  let sub ← k % 4#usize
+  let a ← learn_port.e8.root_row_loop pair 0#usize 1#usize
+  let i ← a + 1#usize
+  let i1 ← 15#usize * a
+  let i2 ← a * a
+  let i3 ← i1 - i2
+  let i4 ← i3 / 2#usize
+  let i5 ← pair - i4
+  let b ← i + i5
+  let out := Array.repeat 8#usize 0#i64
+  let i6 ← sub / 2#usize
+  let i7 ←
+    if i6 = 0#usize
+    then learn_port.e8.NEG_TWO_ONE
+    else learn_port.e8.TWO_ONE
+  let out1 ← Array.update out a i7
+  let i8 ← sub % 2#usize
+  let i9 ←
+    if i8 = 0#usize
+    then learn_port.e8.NEG_TWO_ONE
+    else learn_port.e8.TWO_ONE
+  Array.update out1 b i9
+
+/-- [apeiron_word::learn_port::e8::o8_row]:
+    Source: '../../src/learn/code/e8.rs', lines 120:0-124:1 -/
+def learn_port.e8.o8_row (k : Std.Usize) : Result (Array Std.I64 8#usize) := do
+  let out := Array.repeat 8#usize 0#i64
+  let i ← k % 2#usize
+  let i1 ←
+    if i = 0#usize
+    then learn_port.e8.NEG_SQRT8_Q32
+    else ok learn_port.e8.SQRT8_Q32
+  let i2 ← k / 2#usize
+  Array.update out i2 i1
+
+/-- [apeiron_word::learn_port::e8::codeword_unchecked]:
+    Source: '../../src/learn/code/e8.rs', lines 127:0-135:1 -/
+def learn_port.e8.codeword_unchecked
+  (j : Std.Usize) : Result (Array Std.I64 8#usize) := do
+  if j < 128#usize
+  then learn_port.e8.spinor_row j
+  else
+    if j < 240#usize
+    then let i ← j - 128#usize
+         learn_port.e8.root_row i
+    else let i ← j - 240#usize
+         learn_port.e8.o8_row i
+
+/-- [apeiron_word::learn_port::e8::codeword]:
+    Source: '../../src/learn/code/e8.rs', lines 148:0-154:1
+    Visibility: public -/
+def learn_port.e8.codeword
+  (idx : Std.Usize) :
+  Result (core.result.Result (Array Std.I64 8#usize) learn_port.e8.E8Error)
+  := do
+  if idx < learn_port.e8.CODEBOOK_LEN
+  then
+    let a ← learn_port.e8.codeword_unchecked idx
+    ok (core.result.Result.Ok a)
+  else ok (core.result.Result.Err learn_port.e8.E8Error.IndexOutOfRange)
+
+/-- [apeiron_word::learn_port::e8::scaled_term]:
+    Source: '../../src/learn/code/e8.rs', lines 158:0-169:1 -/
+def learn_port.e8.scaled_term
+  (x : Std.I64) (c : Std.I64) (scale : Std.I64) :
+  Result (Option Std.I128)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from scale)
+  let i1 ← lift (core.convert.num.FromI128I64.from c)
+  let o ← lift (I128.checked_mul i i1)
+  match o with
+  | none => ok none
+  | some sc =>
+    let i2 ← 1#i128 <<< 31#i32
+    let o1 ← lift (I128.checked_add sc i2)
+    match o1 with
+    | none => ok none
+    | some t =>
+      let i3 ← lift (core.convert.num.FromI128I64.from x)
+      let i4 ← t >>> 32#i32
+      let o2 ← lift (I128.checked_sub i3 i4)
+      match o2 with
+      | none => ok none
+      | some e => ok (I128.checked_mul e e)
+
+/-- [apeiron_word::learn_port::e8::scaled_dist2]: loop body 0:
+    Source: '../../src/learn/code/e8.rs', lines 180:4-195:5 -/
+@[rust_loop_body]
+def learn_port.e8.scaled_dist2_loop.body
+  (x : Array Std.I64 8#usize) (row : Array Std.I64 8#usize) (scale : Std.I64)
+  (acc : Std.I128) (i : Std.Usize) (ok1 : Bool) :
+  Result (ControlFlow (Std.I128 × Std.Usize × Bool) (Std.I128 × Bool))
+  := do
+  if i < 8#usize
+  then
+    if ok1
+    then
+      let i1 ← Array.index_usize x i
+      let i2 ← Array.index_usize row i
+      let o ← learn_port.e8.scaled_term i1 i2 scale
+      let (acc1, ok2) ←
+        match o with
+        | none => ok (acc, false)
+        | some t =>
+          do
+          let o1 ← lift (I128.checked_add acc t)
+          match o1 with
+          | none => ok (acc, false)
+          | some s => ok (s, true)
+      let i3 ← i + 1#usize
+      ok (cont (acc1, i3, ok2))
+    else ok (done (acc, false))
+  else ok (done (acc, ok1))
+
+/-- [apeiron_word::learn_port::e8::scaled_dist2]: loop 0:
+    Source: '../../src/learn/code/e8.rs', lines 180:4-195:5 -/
+@[rust_loop]
+def learn_port.e8.scaled_dist2_loop
+  (x : Array Std.I64 8#usize) (row : Array Std.I64 8#usize) (scale : Std.I64)
+  (acc : Std.I128) (i : Std.Usize) (ok1 : Bool) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (acc1, i1, ok2) => learn_port.e8.scaled_dist2_loop.body x row scale
+      acc1 i1 ok2)
+    (acc, i, ok1)
+
+/-- [apeiron_word::learn_port::e8::scaled_dist2]:
+    Source: '../../src/learn/code/e8.rs', lines 176:0-197:1 -/
+@[reducible]
+def learn_port.e8.scaled_dist2
+  (x : Array Std.I64 8#usize) (row : Array Std.I64 8#usize) (scale : Std.I64) :
+  Result (Std.I128 × Bool)
+  := do
+  learn_port.e8.scaled_dist2_loop x row scale 0#i128 0#usize true
+
+/-- [apeiron_word::learn_port::e8::row_dist]:
+    Source: '../../src/learn/code/e8.rs', lines 248:0-251:1 -/
+def learn_port.e8.row_dist
+  (x : Array Std.I64 8#usize) (j : Std.Usize) (scale : Std.I64) :
+  Result (Std.I128 × Bool)
+  := do
+  let row ← learn_port.e8.codeword_unchecked j
+  learn_port.e8.scaled_dist2 x row scale
+
+/-- [apeiron_word::learn_port::e8::nearest_scaled]: loop body 0:
+    Source: '../../src/learn/code/e8.rs', lines 230:4-238:5
+    Visibility: public -/
+@[rust_loop_body]
+def learn_port.e8.nearest_scaled_loop.body
+  (x : Array Std.I64 8#usize) (scale : Std.I64) (best : Std.Usize)
+  (best_d : Std.I128) (ok1 : Bool) (j : Std.Usize) :
+  Result (ControlFlow (Std.Usize × Std.I128 × Bool × Std.Usize) (Std.Usize
+    × Bool))
+  := do
+  if j < learn_port.e8.CODEBOOK_LEN
+  then
+    let (d, good) ← learn_port.e8.row_dist x j scale
+    let ok2 ← if ok1
+                then ok good
+                else ok false
+    let (best1, best_d1) ←
+      if d < best_d
+      then ok (j, d)
+      else ok (best, best_d)
+    let j1 ← j + 1#usize
+    ok (cont (best1, best_d1, ok2, j1))
+  else ok (done (best, ok1))
+
+/-- [apeiron_word::learn_port::e8::nearest_scaled]: loop 0:
+    Source: '../../src/learn/code/e8.rs', lines 230:4-238:5
+    Visibility: public -/
+@[rust_loop]
+def learn_port.e8.nearest_scaled_loop
+  (x : Array Std.I64 8#usize) (scale : Std.I64) (best : Std.Usize)
+  (best_d : Std.I128) (ok1 : Bool) (j : Std.Usize) :
+  Result (Std.Usize × Bool)
+  := do
+  loop
+    (fun (best1, best_d1, ok2, j1) => learn_port.e8.nearest_scaled_loop.body x
+      scale best1 best_d1 ok2 j1)
+    (best, best_d, ok1, j)
+
+/-- [apeiron_word::learn_port::e8::nearest_scaled]:
+    Source: '../../src/learn/code/e8.rs', lines 221:0-244:1
+    Visibility: public -/
+def learn_port.e8.nearest_scaled
+  (x : Array Std.I64 8#usize) (scale : Std.I64) :
+  Result (core.result.Result Std.Usize learn_port.e8.E8Error)
+  := do
+  if scale <= 0#i64
+  then ok (core.result.Result.Err learn_port.e8.E8Error.NonPositiveScale)
+  else
+    let (d0, ok0) ← learn_port.e8.row_dist x 0#usize scale
+    let (best, ok1) ←
+      learn_port.e8.nearest_scaled_loop x scale 0#usize d0 ok0 1#usize
+    if ok1
+    then ok (core.result.Result.Ok best)
+    else ok (core.result.Result.Err learn_port.e8.E8Error.Overflow)
+
+/-- [apeiron_word::learn_port::e8::nearest]:
+    Source: '../../src/learn/code/e8.rs', lines 208:0-210:1
+    Visibility: public -/
+def learn_port.e8.nearest
+  (x : Array Std.I64 8#usize) :
+  Result (core.result.Result Std.Usize learn_port.e8.E8Error)
+  := do
+  let i ← engine.ONE
+  learn_port.e8.nearest_scaled x i
+
 /-- [apeiron_word::learn_port::attn::AttnError]
     Source: '../../src/learn/grad/attn.rs', lines 46:0-60:1
     Visibility: public -/
@@ -36952,6 +37312,33 @@ def learn_port.word_head_head_chunked
     (alloc.vec.Vec Std.I64)) learn_port.head.HeadError)
   := do
   learn_port.head.head_chunked hidden w_head z_t dims chunk objective
+
+/-- [apeiron_word::learn_port::word_e8_codeword]:
+    Source: 'learn_port.rs', lines 158:0-160:1
+    Visibility: public -/
+def learn_port.word_e8_codeword
+  (idx : Std.Usize) :
+  Result (core.result.Result (Array Std.I64 8#usize) learn_port.e8.E8Error)
+  := do
+  learn_port.e8.codeword idx
+
+/-- [apeiron_word::learn_port::word_e8_nearest]:
+    Source: 'learn_port.rs', lines 163:0-165:1
+    Visibility: public -/
+def learn_port.word_e8_nearest
+  (x : Array Std.I64 8#usize) :
+  Result (core.result.Result Std.Usize learn_port.e8.E8Error)
+  := do
+  learn_port.e8.nearest x
+
+/-- [apeiron_word::learn_port::word_e8_nearest_scaled]:
+    Source: 'learn_port.rs', lines 168:0-170:1
+    Visibility: public -/
+def learn_port.word_e8_nearest_scaled
+  (x : Array Std.I64 8#usize) (scale : Std.I64) :
+  Result (core.result.Result Std.Usize learn_port.e8.E8Error)
+  := do
+  learn_port.e8.nearest_scaled x scale
 
 /-- [apeiron_word::word_mul]:
     Source: 'lib.rs', lines 160:0-162:1

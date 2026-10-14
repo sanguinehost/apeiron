@@ -71,6 +71,7 @@ import Perf.SideInfo
 import Perf.Generalisation
 import Perf.KLTilt
 import Learn.GramExact
+import Learn.E8Code
 import Numeric.SigmaDeltaRefinement
 import Perf.BitsRefine
 import Numeric.Register
@@ -699,6 +700,19 @@ import Perf.SpecDraftKL
 #audit apeiron_gram.gram_fold_i8_refusal
 #audit apeiron_gram.gram_fold_i8_entry
 #audit apeiron_gram.gram_fold_i8_stack
+
+-- The extracted E8 codebook `learn_port.e8` refines integer specifications (`Learn/E8Code.lean`).
+#audit Learn.E8Code.popcount_parity_spec
+#audit Learn.E8Code.spinor_row_spec
+#audit Learn.E8Code.spinor_key_parity
+#audit Learn.E8Code.e8_codeword_spec
+#audit Learn.E8Code.e8_codeword_spin8
+#audit Learn.E8Code.e8_nearest_spec
+#audit Learn.E8Code.witness_codeword_ok
+#audit Learn.E8Code.witness_codeword_err
+#audit Learn.E8Code.witness_nonpositive_scale
+#audit Learn.E8Code.witness_nearest_ok
+#audit Learn.E8Code.witness_overflow
 
 -- The extracted checked-`i64` sigma-delta body `sigma_delta.sd_binary_block`
 -- refines `Numeric.SigmaDelta.sdState`/`sdSign` (`Numeric/SigmaDeltaRefinement.lean`).

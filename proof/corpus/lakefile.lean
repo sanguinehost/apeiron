@@ -89,6 +89,9 @@ lean_lib ApeironWordBridge where
     -- Exact-integer Gram fold refinement (`Learn/GramExact.lean`): the extracted `gram_fold_i8`
     -- against the canonical `Sanguine.TrainingCollapse.gram_stack`.
     `Learn.GramExact,
+    -- E8 codebook refinement (`Learn/E8Code.lean`): the extracted `learn_port.e8` codeword
+    -- and nearest-codeword bodies against integer specifications over `ℤ`.
+    `Learn.E8Code,
     `AxiomAudit, `Joint.WordBridge,
     `Iota.Audit.Empty,
     `Iota.Syntax, `Iota.Decode,

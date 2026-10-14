@@ -149,3 +149,22 @@ pub fn word_head_head_chunked(
 ) -> Result<(i64, Vec<i64>, Vec<i64>), head::HeadError> {
     head::head_chunked(hidden, w_head, z_t, dims, chunk, objective)
 }
+
+// The E8 ∪ O8 codebook of the one-bit fold transfer (`src/learn/code/e8.rs`).
+#[path = "../../src/learn/code/e8.rs"]
+pub mod e8;
+
+/// Real `learn::code::e8::codeword`.
+pub fn word_e8_codeword(idx: usize) -> Result<[i64; 8], e8::E8Error> {
+    e8::codeword(idx)
+}
+
+/// Real `learn::code::e8::nearest`.
+pub fn word_e8_nearest(x: &[i64; 8]) -> Result<usize, e8::E8Error> {
+    e8::nearest(x)
+}
+
+/// Real `learn::code::e8::nearest_scaled`.
+pub fn word_e8_nearest_scaled(x: &[i64; 8], scale: i64) -> Result<usize, e8::E8Error> {
+    e8::nearest_scaled(x, scale)
+}
