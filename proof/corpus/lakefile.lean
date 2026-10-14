@@ -97,6 +97,10 @@ lean_lib ApeironWordBridge where
     -- `linear_fwd` / `linear_bwd_input` / `linear_bwd_weight` against it; `DenseLinearWitness`
     -- shows the admissible domain and every refusal arm are inhabited; `AxiomAudit` audits them).
     `Learn.Grad.DenseLinearSpec, `Learn.Grad.DenseLinear, `Learn.Grad.DenseLinearWitness,
+    -- Extracted RoPE forward/backward refinement (`Learn/Grad/Rope.lean`): `learn_port.attn.rope_fwd`
+    -- against `rotHeadsState`/`RopeTable.rotate_one`, and `learn_port.attn.rope_bwd`/`rope_elem_bwd`
+    -- against the transpose kernel `ropeBwdPair` accumulated as `ropeBwdPrefix`.
+    `Learn.Grad.Rope,
     `AxiomAudit, `Joint.WordBridge,
     `Iota.Audit.Empty,
     `Iota.Syntax, `Iota.Decode,
