@@ -997,9 +997,119 @@ def _sink_store(l, nm, planes, Wl):
 
 
 # ---------------------------------------------------------------- sequential transfer
+
+# ---------------------------------------------------------------- end-loss guidance (variant token "-guided")
+# GuidedQuant (Kim et al., arXiv 2505.07004, Sec 3.1 Eq 4, Sec 3.2 Eq 7): the layer-wise least-squares objective is weighted by
+# the gradient of the end loss w.r.t. the linear's output z.  A token weight a_stage[l][t] multiplies each token's term in the
+# stage Grams; a row weight b[l][nm][j] replaces g_row.  Captured on the calibration chunks only.
+GQ_CACHE = {}
+GQ_FORCE_ONES = False   # null control: a_t = 1 (Grams equal the base arm's); b is left to GQ_NULL_B
+GQ_NULL_B = False       # null control: keep the base arm's g_row (b not applied)
+GQ_DEBUG = None         # dict receiving layer-0 Hm / Hm_w per stage (control)
+GQ_STAGE_OF = dict(q="qkv", k="qkv", v="qkv", o="o", gate="ffn", up="ffn", down="down")
+GQ_SUFFIX = "-guided"
+
+def gq_capture(cfg, TL, ids_cal, K=4, seed=0, bs=1):
+    """True-Fisher output-gradient statistics of the teacher on ids_cal (N x T), K sampled targets per position.
+    Returns dict(a=[l][stage] float64 CPU (N,T) mean 1, b=[l][nm] float64 CPU (O,) mean 1, wall_s).
+    Cost: one teacher forward plus K backward passes through the retained graph (data gradients only, weights are
+    constants): (2 + 2K) * P * N * T FLOPs with P ~ 0.49e9 (24 layers + tied head), i.e. 10 P N T at K = 4 (~ 5e13 at
+    N = 50, T = 512); counted in FLOPs, derived as forward 2P per token + K backward passes of 2P.
+    Space: B*T*(~8e4 floats/layer * 24 retained activations + V logits) = bs=1: ~3 GB peak on GPU; accumulators
+    N*T*4*L doubles (a) + sum_l O_l doubles (b) = ~10 MB at N = 50; weights 2.5 GB resident fp32."""
+    key = (hashlib.sha256(ids_cal.numpy().tobytes()).hexdigest(), K, seed)
+    if key in GQ_CACHE:
+        return GQ_CACHE[key]
+    t0 = tick()
+    N, T = ids_cal.shape
+    assert T == CHUNK
+    nl = cfg.nl
+    Ld = [{k: v.to(DEV) for k, v in L.items()} for L in TL]
+    E = cfg.E.to(DEV)
+    fn = cfg.fnorm.to(DEV)
+    kinds = list(KINDS)
+    chan = {nm: TL[0][nm].shape[0] for nm in kinds}
+    stage_ch = {"qkv": chan["q"] + chan["k"] + chan["v"], "o": chan["o"], "ffn": chan["gate"] + chan["up"], "down": chan["down"]}
+    A = [{st: torch.zeros(N, T, dtype=F64) for st in stage_ch} for _ in range(nl)]
+    B = [{nm: torch.zeros(TL[l][nm].shape[0], dtype=F64) for nm in kinds} for l in range(nl)]
+    gen = torch.Generator(device=DEV).manual_seed(seed)
+    max_dlogit = 0.0
+    for b0 in range(0, N, bs):
+        ids = ids_cal[b0:b0 + bs]
+        h = E[ids.to(DEV)].clone().requires_grad_(True)
+        zs = []
+        for L in Ld:
+            xa = rms(h, L["ln1"], cfg.eps)
+            q, k, v = xa @ L["q"].T + L["qb"], xa @ L["k"].T + L["kb"], xa @ L["v"].T + L["vb"]
+            at = attn_a(cfg, L, xa, (q, k, v))
+            o = at @ L["o"].T
+            mid = h + o
+            xf = rms(mid, L["ln2"], cfg.eps)
+            g, u = xf @ L["gate"].T, xf @ L["up"].T
+            d = (F.silu(g) * u) @ L["down"].T
+            h = mid + d
+            zs.append(dict(q=q, k=k, v=v, o=o, gate=g, up=u, down=d))
+        logits = rms(h, fn, cfg.eps) @ E.T
+        flat = [z[nm] for z in zs for nm in kinds]
+        if b0 == 0:  # the capture forward is the teacher forward
+            ref_lg = logits_of(cfg, TL, ids[:1])
+            max_dlogit = float((logits.detach()[:1].cpu() - ref_lg).abs().max())
+            assert max_dlogit < 1e-2 * float(ref_lg.abs().max()), max_dlogit
+            del ref_lg
+        probs = F.softmax(logits.detach(), -1).view(-1, logits.shape[-1])
+        for kk in range(K):
+            s = torch.multinomial(probs, 1, generator=gen)[:, 0]
+            loss = F.cross_entropy(logits.view(-1, logits.shape[-1]), s, reduction="sum")
+            grads = torch.autograd.grad(loss, flat, retain_graph=(kk < K - 1))
+            for l in range(nl):
+                tok = {st: torch.zeros(ids.shape[0], T, dtype=F64, device=DEV) for st in stage_ch}
+                for ji, nm in enumerate(kinds):
+                    g2 = grads[l * len(kinds) + ji].double() ** 2
+                    tok[GQ_STAGE_OF[nm]] += g2.sum(-1)
+                    B[l][nm] += g2.sum((0, 1)).cpu()
+                for st in stage_ch:
+                    A[l][st][b0:b0 + ids.shape[0]] += tok[st].cpu()
+            del grads, loss
+        del zs, flat, logits, probs, h
+    for l in range(nl):
+        for st, c in stage_ch.items():
+            x = A[l][st] / (K * c)
+            A[l][st] = x / x.mean()
+        for nm in kinds:
+            x = B[l][nm] / (K * N * T)
+            B[l][nm] = x / x.mean()
+    del Ld, E, fn
+    torch.cuda.empty_cache()
+    out = dict(a=A, b=B, wall_s=tick() - t0, K=K, seed=seed, max_dlogit=max_dlogit)
+    GQ_CACHE[key] = out
+    return out
+
+def gq_stats(cap, layers):
+    st = {}
+    for l in layers:
+        for sname, x in cap["a"][l].items():
+            f = x.flatten()
+            st[f"L{l}.{sname}"] = dict(max=float(f.max()), p99=float(torch.quantile(f, 0.99)), pos0_mean=float(x[:, 0].mean()),
+                                       pos0_argmax_frac=float((x.argmax(1) == 0).double().mean()),
+                                       pos0_mass_share=float(x[:, 0].sum() / x.sum()))
+    return st
+
+FLAG_PROBE = None  # control: run_variant appends its resolved scalar flags and returns
+
 def run_variant(cfg, TL, ids_cal, name, a):
     """Returns (student layers, bits info, timings)."""
     dt = torch.float32 if a.dtype == "fp32" else torch.float64
+    # "-guided": every flag below resolves from the base arm's name; only `guided` is new
+    # "-guided[a|b]NN": NN tempers the token weights to a_t^(NN/100) (renormalised to mean 1; bare is the paper's a_t);
+    # "a" applies the token weights only (row weights stay the base proxy), "b" the row weights only (a_t = 1)
+    gq_m = re.search(r"-guided([ab])?(\d+)?$", name)
+    guided = gq_m is not None
+    gq_gamma, gq_part = 1.0, "ab"
+    if guided:
+        assert name.count(GQ_SUFFIX) == 1, name
+        gq_gamma = int(gq_m.group(2)) / 100 if gq_m.group(2) else 1.0
+        gq_part = gq_m.group(1) or "ab"
+        name = name[:gq_m.start()]
     mode = dict(rtn="rtn", **{"gptq1-t": "gptq", "gptq1-s": "gptq", "had-gptq1-t": "gptq", "had-gptq1-s": "gptq",
                               "fold-ns": "fold", "fold-local": "fold", "fold-block": "fold", "had-fold-local": "fold",
                               "had-fold-block": "fold", "had-fold-block-w0": "fold", "fp-ridge": "ridge", "fp-ridge-mut": "ridge"}).get(name, "fold_gqa")
@@ -1073,6 +1183,10 @@ def run_variant(cfg, TL, ids_cal, name, a):
     refit = name in ("fold-local", "fold-block", "had-fold-local", "had-fold-block", "had-fold-block-w0") or mode == "fold_gqa"
     block = name in ("fold-block", "had-fold-block", "had-fold-block-w0") or mode == "fold_gqa"
     tm = dict(gram=0.0, solve=0.0, gptq=0.0, refit=0.0, fwd=0.0)
+    if FLAG_PROBE is not None:
+        loc = dict(locals())
+        FLAG_PROBE.append({k: v for k, v in loc.items() if isinstance(v, (bool, int, float, str)) and k not in ("name", "loc")})
+        return None, None, None
     nsign = nr = nc = nd = ncorr = ntot = 0
     Ls = []
     if mode == "rtn":
@@ -1089,6 +1203,15 @@ def run_variant(cfg, TL, ids_cal, name, a):
             Ls.append(L)
         return Ls, dict(bits=nsign + nr, params=ntot), tm
     N = ids_cal.shape[0]
+    gq = None
+    if guided:
+        assert mode == "fold_gqa" and use_grow, "-guided applies to the fold_gqa arms with row weights"
+        gq = gq_capture(cfg, TL, ids_cal.cpu(), K=a.gq_k, seed=a.gq_seed)
+        tm["capture"] = gq["wall_s"]
+        if gq_gamma != 1.0:
+            gq = dict(gq, a=[{st: x ** gq_gamma / (x ** gq_gamma).mean() for st, x in d.items()} for d in gq["a"]])
+        if GQ_FORCE_ONES or gq_part == "b":
+            gq = dict(gq, a=[{st: torch.ones_like(x) for st, x in d.items()} for d in gq["a"]])
     ht = cfg.E[ids_cal.cpu()]
     hs = ht.clone()
     for l in range(cfg.nl):
@@ -1157,6 +1280,14 @@ def run_variant(cfg, TL, ids_cal, name, a):
                         stage_in_slabs.append(Pin_in.cpu() if pt_dev == "cpu" else Pin_in)
                 X = Pin_in.reshape(-1, n)
                 Xd = X.to(dt).to(dev_s)
+                Xraw = Xd
+                a_sl = None
+                if guided:
+                    # token t contributes a_t * (x_t x_t^T) and a_t * (x_t y_t^T): weighted least squares sum_t a_t |y_t - W x_t|^2.
+                    # Slab order and chunk order equal the capture's (ids_cal rows s0:s0+slab_sz, T = CHUNK).
+                    a_sl = gq["a"][l][sname][s0:s0 + slab_sz].reshape(-1, 1).to(dt).to(dev_s)
+                    assert a_sl.shape[0] == X.shape[0], (a_sl.shape, X.shape)
+                    Xd = Xraw * a_sl.sqrt()
                 Hm += Xd.T @ Xd
                 if sink_gate:
                     r_t = torch.maximum(hts.float().norm(dim=-1), torch.maximum(Pt["mid"].float().norm(dim=-1), Pt["out"].float().norm(dim=-1)))
@@ -1171,18 +1302,26 @@ def run_variant(cfg, TL, ids_cal, name, a):
                     Xw = Xd
                     w_tok = None
                 if X_slabs is not None:
-                    X_slabs.append(Xd.cpu())
+                    X_slabs.append(Xraw.cpu())  # unweighted: the -resq GLU solve reads raw activations
                 if mode == "fold_gqa":
-                    x_sum += Xd.sum(0)
-                    n_toks += X.shape[0]
+                    if guided:
+                        x_sum += (Xraw * a_sl).sum(0)
+                        n_toks += float(a_sl.sum())
+                    else:
+                        x_sum += Xd.sum(0)
+                        n_toks += X.shape[0]
                 if split_intra_inter and sname == "o":
                     a_ts = attn_a(cfg, Lt, Pin_xa)
                     Y_ts = (a_ts @ Lt["o"].T).reshape(-1, Lt["o"].shape[0]).to(dt).to(dev_s)
+                    if guided:
+                        Y_ts = Y_ts * a_sl.sqrt()
                     Cts["o"] += Xw.T @ (Y_ts * w_tok if w_tok is not None else Y_ts)
                     del a_ts, Y_ts, Pin_xa
                 elif split_intra_inter and sname == "down":
                     m_ts = F.silu(Pin_xf @ Lt["gate"].T) * (Pin_xf @ Lt["up"].T)
                     Y_ts = (m_ts @ Lt["down"].T).reshape(-1, Lt["down"].shape[0]).to(dt).to(dev_s)
+                    if guided:
+                        Y_ts = Y_ts * a_sl.sqrt()
                     Cts["down"] += Xw.T @ (Y_ts * w_tok if w_tok is not None else Y_ts)
                     del m_ts, Y_ts, Pin_xf
                 if mode in ("fold", "fold_gqa", "ridge"):
@@ -1202,12 +1341,15 @@ def run_variant(cfg, TL, ids_cal, name, a):
                         if name == "fp-ridge-mut":
                             Y = Y[torch.randperm(Y.shape[0], device=DEV)]
                         Yd = Y.to(dt).to(dev_s)
-                        Cs[nm] += Xw.T @ (Yd * w_tok if w_tok is not None else Yd)
+                        Yg = Yd * a_sl.sqrt() if guided else Yd
+                        Cs[nm] += Xw.T @ (Yg * w_tok if w_tok is not None else Yg)
                         if mode == "fold_gqa":
-                            y_sum[nm] += Yd.sum(0)
+                            y_sum[nm] += (Yd * a_sl).sum(0) if guided else Yd.sum(0)
                         del Y, Yd
-                del Pt, Pin_in, Pin_mid, X, Xd, Xw, w_tok, hts, hss
+                del Pt, Pin_in, Pin_mid, X, Xd, Xw, w_tok, hts, hss, Xraw, a_sl
             tm["gram"] += tick() - t0
+            if GQ_DEBUG is not None and l == 0:
+                GQ_DEBUG[sname] = (Hm.clone().cpu(), Hm_w.clone().cpu() if Hm_w is not None else None, x_sum.clone().cpu(), n_toks)
             if mode == "fold_gqa":
                 t0 = tick()
                 H_solve = Hm_w if sink_gate else Hm
@@ -1271,6 +1413,10 @@ def run_variant(cfg, TL, ids_cal, name, a):
                         Ws_nm = (1.0 - a.zellner_gamma) * W0_nm + a.zellner_gamma * Ws_tik_nm
                     else:
                         Ws_nm = Ws_tik_nm
+                    if guided and not GQ_NULL_B and gq_part != "a":
+                        # end-loss row weight: mean_t g_tj^2 of the output gradient, for every kind (q, k, v included)
+                        g_row = gq["b"][l][nm].to(dt).to(dev_s)
+                        assert g_row.shape[0] == Oi
                     if glu_comp and nm == "up" and X_slabs is not None:
                         W_g0 = Ws_cat[:Lt["gate"].shape[0]]
                         Wq_g = Lq["gate"].to(dt).to(dev_s)
@@ -1510,6 +1656,8 @@ def run_variant(cfg, TL, ids_cal, name, a):
             Ls[-1]["fnorm"] = fnorm_fit(cfg, ht, hs, steps=4, ridge=0.05)
         tm["refit"] += tick() - t0
     binfo = dict(bits=nsign + nr + nc + nd + ncorr, params=ntot, bits_sign=nsign, bits_r=nr, bits_c=nc, bits_d=nd, bits_corr=ncorr)
+    if guided:
+        binfo["gq"] = dict(K=a.gq_k, seed=a.gq_seed, gamma=gq_gamma, part=gq_part, ess_frac={f"L{l}.{st}": float(x.sum() ** 2 / (x ** 2).sum() / x.numel()) for l, d in enumerate(gq["a"]) for st, x in d.items()}, capture_s=gq["wall_s"], max_dlogit=gq["max_dlogit"], stats=gq_stats(gq, sorted({0, cfg.nl // 2, cfg.nl - 1})))
     if nb_arm:
         agg_seq = sum(v["J_seq"] for v in nb_stats.values())
         agg_nb = sum(v["J_nb"] for v in nb_stats.values())
@@ -1517,6 +1665,53 @@ def run_variant(cfg, TL, ids_cal, name, a):
                            J_seq=agg_seq, J_nb=agg_nb, ratio=(agg_nb / agg_seq if agg_seq else None))
     return Ls, binfo, tm
 
+
+
+GQ_ARM = "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+
+def gq_controls(cfg, TL, ids_all, a):
+    """(1) base and base+"-guided" resolve the same flags except `guided`; (2) with a_t = 1 the layer-0 Grams, x_sum, n_toks
+    equal the base arm's exactly (torch.equal) and, with the row weights left to the base proxy, so does every stored layer
+    and the bit count; (3) with the real a_t the Grams differ (the comparison can fail)."""
+    global FLAG_PROBE, GQ_FORCE_ONES, GQ_NULL_B, GQ_DEBUG
+    out = {}
+    ids_c = ids_all[:a.n_cal].contiguous()
+    FLAG_PROBE = []
+    run_variant(cfg, TL, ids_c, GQ_ARM, a)
+    run_variant(cfg, TL, ids_c, GQ_ARM + GQ_SUFFIX, a)
+    fb, fg = FLAG_PROBE
+    FLAG_PROBE = None
+    diff = sorted(k for k in set(fb) | set(fg) if fb.get(k) != fg.get(k))
+    out["flag_diff"] = diff
+    out["n_flags"] = len(fb)
+    assert diff == ["guided"], diff
+    GQ_DEBUG = {}
+    Lb, ib, _ = run_variant(cfg, TL, ids_c, GQ_ARM, a)
+    dbg_b, GQ_DEBUG = GQ_DEBUG, {}
+    GQ_FORCE_ONES, GQ_NULL_B = True, True
+    try:
+        Lg, ig, _ = run_variant(cfg, TL, ids_c, GQ_ARM + GQ_SUFFIX, a)
+    finally:
+        GQ_FORCE_ONES, GQ_NULL_B = False, False
+    dbg_g, GQ_DEBUG = GQ_DEBUG, {}
+    eq = {}
+    for st in dbg_b:
+        hb, hwb, xb, nb_ = dbg_b[st]; hg, hwg, xg, ng_ = dbg_g[st]
+        eq[st] = bool(torch.equal(hb, hg) and (hwb is None or torch.equal(hwb, hwg)) and torch.equal(xb, xg) and float(nb_) == float(ng_))
+    out["null_grams_equal_by_stage"] = eq
+    out["null_layers_equal"] = all(all(torch.equal(Lb[l][k], Lg[l][k]) for k in Lb[l]) for l in range(len(Lb)))
+    out["null_bits_equal"] = all(ib[k] == ig[k] for k in ib if k != "nb") and ib["nb"] == ig["nb"] if "nb" in ib else all(ib[k] == ig[k] for k in ib)
+    GQ_DEBUG = {}
+    Lr, ir, _ = run_variant(cfg, TL, ids_c, GQ_ARM + GQ_SUFFIX, a)
+    dbg_r, GQ_DEBUG = GQ_DEBUG, None
+    out["real_a_grams_differ_by_stage"] = {st: not torch.equal(dbg_b[st][0], dbg_r[st][0]) for st in dbg_b}
+    out["real_bits_equal_base"] = all(ib[k] == ir[k] for k in ("bits", "params", "bits_sign", "bits_r", "bits_c", "bits_d", "bits_corr"))
+    # capture self-check: the capture forward reproduces the teacher logits of logits_of
+    out["capture_max_dlogit_vs_logits_of"] = None
+    out["capture_wall_s"] = ir["gq"]["capture_s"]
+    assert all(out["null_grams_equal_by_stage"].values()) and out["null_layers_equal"] and out["null_bits_equal"], out
+    assert all(out["real_a_grams_differ_by_stage"].values()) and out["real_bits_equal_base"], out
+    return out
 
 # ---------------------------------------------------------------- evaluation
 _TEACHER_H_CACHE = {}
@@ -1939,13 +2134,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True); ap.add_argument("--variants", default="")
     ap.add_argument("--dump", default=None, help="Path to dump quantized layer weights for text_probe.py")
-    ap.add_argument("--controls", action="store_true"); ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--controls", action="store_true"); ap.add_argument("--gq-controls", action="store_true"); ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--outcomes", action="store_true", help="true-label NLL, WikiText-2 ppl, ARC-Easy/HellaSwag acc, greedy text (first seed)")
     ap.add_argument("--hs-n", type=int, default=1000); ap.add_argument("--gen-new", type=int, default=48)
     ap.add_argument("--dtype", default="fp32", choices=["fp32", "fp64"])
     ap.add_argument("--model", default=MODEL); ap.add_argument("--q4km", default=None, help="Q4_K_M GGUF of --model")
     ap.add_argument("--seeds", default="0", help="comma list; seed s permutes the calibration chunks (identity for 0)")
-    for k, v in [("layers", 24), ("iters", 2), ("n-cal", 100), ("n-eval", 40), ("n-in", 20), ("slab", 10), ("cal-extra", 0), ("qmlp-rows", 416)]:
+    for k, v in [("layers", 24), ("iters", 2), ("n-cal", 100), ("n-eval", 40), ("n-in", 20), ("slab", 10), ("cal-extra", 0), ("qmlp-rows", 416), ("gq-k", 4), ("gq-seed", 0)]:
         ap.add_argument(f"--{k}", type=int, default=v)
     for k, v in [("ridge", 1e-3), ("ridge-w0", 0.01), ("ridge-w0-gqa", 0.03), ("quant-ridge", 0.005), ("quant-damp", 0.02),
                  ("zellner-gamma", 0.85), ("corr-gamma", 0.75), ("ridge-intra", 0.045), ("ridge-inter", 0.025),
@@ -1979,6 +2174,9 @@ def main():
         print(json.dumps(res["controls"], indent=1), flush=True)
     del hf
     torch.cuda.empty_cache()
+    if a.gq_controls:
+        res["gq_controls"] = gq_controls(cfg, TL, ids_all, a)
+        print("gq_controls", json.dumps(res["gq_controls"]), flush=True)
     res["variants"] = {}
     n_lin = sum(TL[l][k].numel() for l in range(cfg.nl) for k in KINDS)
     res["linear_params"] = n_lin
