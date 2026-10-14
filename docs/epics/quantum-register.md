@@ -308,6 +308,38 @@ equal-wall point: `0.8491` at 740 steps against `w18_hadmm`'s `0.8484` at 871. N
 training — the 48 planes spend `1798656` bits on a rank-1/2 fix whose trained form loses; the question for that row is
 whether those bits buy more as sign-plane or `r` bits at the same total.
 
+### Attribution: where the held-out KL lives (prediction `qreg-attrib-1`, refuted)
+
+Receipt [`docs/evidence/receipts/onebit/qreg-attrib.json`](../evidence/receipts/onebit/qreg-attrib.json)
+(sha256 `fa668251…`); verdicts `attrib_no_layer_holds_kl`, `attrib_kl_nonadditive`, `attrib_kinds_coadapted` in
+`proof/corpus/Perf/QuantumRotation.lean`, audited in `AxiomAudit.lean` (constants from `tools/rooting/receipt_lean.py`,
+namespace `qreg_attrib`; controls: the before-phase base against the after-phase layers leaves layer 0's goal `False`,
+exit 1; the base moved by `0.01` in a receipt copy, `--check` exit 1 on the stale sha; restored, both exit 0).
+`pv_finish.py --attrib N` restores the teacher's linears one group at a time on the first `N` held-out chunks, before
+and after finishing in one run: each layer's seven, each kind across all 24 layers, and all of them; the teacher as its
+own student is the zero control (KL `0`), and a no-op restore fails the run's "some layer moves the KL" assert.
+Arm: 1.178 b/w, n-cal 50, `mm/step/fused`, `--attrib 8`, 683 wall-budgeted steps (the attribution's 34 s comes out of
+the finishing wall), held-out KL `1.1637 → 0.8660`.
+
+| on 8 held-out chunks | before finishing | after finishing |
+|---|---|---|
+| student KL (base) | 0.7957 | 0.6626 |
+| largest single-layer restore delta | 0.0839 (L23) | 0.0463 (L23, 7.0%) |
+| sum of the 24 single-layer deltas | 0.4713 (0.59× base) | 0.2666 (0.40× base) |
+| cross-layer part, base − sum | 0.3244 | 0.3960 |
+| restore `down` in all layers | +0.6045 | +0.1854 |
+| restore `gate` / `o` / `up` in all layers | +0.0135 / +0.0785 / +0.0212 | +0.0657 / +0.0563 / +0.0372 |
+| restore `q` / `k` / `v` in all layers | −0.0060 / +0.0014 / +0.0138 | +0.0023 / +0.0016 / +0.0144 |
+| restore every linear | 0.0112 | 0.0106 |
+
+(Kind rows are the KL change from restoring that kind, so `+` means the teacher's kind alone is worse than the
+student's.) No layer holds the KL: the largest is 7% of it, so a per-layer rate reallocation reaches at most the additive
+part. 60% of the finished KL is cross-layer, and finishing moves KL into that part (additive `0.471 → 0.267`, cross-layer
+`0.324 → 0.396`). After finishing every kind is co-adapted: restoring any one kind raises the KL, `down` most. The
+error to remove is a property of the composed network, so the lever is the end-to-end objective and its rate per
+second of finishing, not a per-tensor fit. Next row: restore contiguous depth blocks (prefix and suffix), to see whether
+the cross-layer part grows with depth as compounded residual-stream error does.
+
 ### Arc Block (W1-T1)
 
 ```text

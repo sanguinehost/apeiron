@@ -93,6 +93,7 @@ W15 = {
     "qreg_kan_mmb": "docs/evidence/receipts/onebit/qreg-kan-mmb.json",
     "qreg_step_pair": "docs/evidence/receipts/onebit/qreg-step-pair.json",
     "qreg_t5_corr": "docs/evidence/receipts/onebit/qreg-t5-corr.json",
+    "qreg_attrib": "docs/evidence/receipts/onebit/qreg-attrib.json",
 }
 
 # End-loss-weighted Gram receipts (fold_transfer "-guided[a|b]NN"): namespace -> variant prefixes (see guided_prefix).
@@ -807,6 +808,25 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
             raise Fail(f"{rel}: factor store bits {c['store_bits']} != bits_corr {c['bits_corr']}")
         out.append(("nat", "corrPlanes", nat(c["planes"])))
         out.append(("nat", "corrStoreBits", nat(c["store_bits"])))
+    elif ns == "qreg_attrib":
+        # Teacher-restore attribution of the held-out KL (pv_finish.py --attrib 8), before and after finishing in one run:
+        # per phase `<before|after><Field>`, the 24 per-layer restore KLs `...LayerKl<l>` and the 7 per-kind `...Kind<K>Kl`.
+        if data["exit"] != 0 or not data["grad_equiv_ok"] or data["protocol"]["attrib"] != 8 or rat(data["teacher_zero"]["kl"]) != 0:
+            raise Fail(f"{rel}: not an exit-0, grad_equiv-ok, --attrib 8 run with a zero teacher control")
+        out.append(("nat", "steps", nat(data["steps"])))
+        out.append(("nat", "bitsAfter", nat(data["bits_after"])))
+        for name, k in [("KlHeldoutBefore", "kl_heldout_before"), ("KlHeldoutAfter", "kl_heldout_after")]:
+            out.append(("rat", name[0].lower() + name[1:], rat(data[k])))
+        for ph in ("before", "after"):
+            r = data["attrib"][ph]
+            if r["layers"] != 24 or len(r["layer"]) != 24 or sorted(r["kind"]) != sorted(["q", "k", "v", "o", "gate", "up", "down"]):
+                raise Fail(f"{rel}: {ph} is not 24 layers x 7 kinds")
+            out.append(("rat", ph + "Base", rat(r["base"])))
+            out.append(("rat", ph + "AllLinear", rat(r["all_linear"])))
+            for l, v in enumerate(r["layer"]):
+                out.append(("rat", f"{ph}LayerKl{l}", rat(v)))
+            for k, v in r["kind"].items():
+                out.append(("rat", f"{ph}Kind{k[0].upper() + k[1:]}Kl", rat(v)))
     elif ns == "qreg_kan_probe":
         # Learned register angles vs fwht128 (kan_probe.py): J sums over the four input sites of every layer.
         rows, a = data["rows"], data["args"]
