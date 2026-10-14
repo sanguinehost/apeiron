@@ -849,6 +849,31 @@ class KLHead(torch.autograd.Function):
         return gk * gz, None, None
 
 
+class TVHead(torch.autograd.Function):
+    """sum_t TV(p_t, q_t) = sum_t (1/2) sum_x |q_t(x) - p_t(x)| over a chunk of rows and the top-1 agreement count, p and q as
+    in KLHead.  1 - TV_t is the speculative acceptance of draft q against target p at position t (Leviathan, Kalman and
+    Matias, arXiv 2211.17192, Thm. 3.5), so this objective trains the acceptance directly.  With s = sign(q - p) the logit
+    adjoint is (1/2) q (s - <s, q>) (the softmax Jacobian applied to s/2); it is formed in the forward and saved as its E
+    product.  Temporal and spatial as KLHead."""
+
+    @staticmethod
+    def forward(ctx, zs, zt, E):
+        lt = F.log_softmax(zt @ E.T, -1)
+        ls = F.log_softmax(zs @ E.T, -1)
+        d = ls.exp() - lt.exp()
+        k = 0.5 * d.abs().sum()
+        agree = (lt.argmax(-1) == ls.argmax(-1)).sum()
+        qs, sg = ls.exp(), torch.sign(d)
+        ctx.save_for_backward((0.5 * qs * (sg - (sg * qs).sum(-1, keepdim=True))) @ E)
+        ctx.mark_non_differentiable(agree)
+        return k, agree
+
+    @staticmethod
+    def backward(ctx, gk, _ga):
+        (gz,) = ctx.saved_tensors
+        return gk * gz, None, None
+
+
 # ------------------------------------------------------------------------------------------------ KL attribution
 @torch.no_grad()
 def attrib(cfg, TL, Lstud, ids_at):
@@ -1000,6 +1025,9 @@ def main():
                          "per step through PlaneCompose (frozen codes only: --v-every 0, --codes vstep)")
     ap.add_argument("--kl", choices=("ckpt", "fused"), default="ckpt",
                     help="ckpt: checkpoint(kl_chunk) recomputes both head matmuls in backward; fused: KLHead saves dL/dz")
+    ap.add_argument("--objective", choices=("kl", "tv"), default="kl",
+                    help="finishing loss: kl, sum_t KL(p_t || q_t); tv, sum_t TV(p_t, q_t) = sum_t (1 - speculative acceptance) "
+                         "(TVHead under --kl fused, autograd under --kl ckpt); held-out reporting stays KL and acceptance")
     ap.add_argument("--block-s", type=float, default=0.0,
                     help="0.0 off; > 0 starts the train loop with that many seconds of AQLM phase-3 block-wise fine-tuning "
                          "(Egiazarian et al., arXiv 2401.06118, Sec. 3.4): each code block fits its relative squared residual on the "
@@ -1191,7 +1219,7 @@ def main():
                     qb=t["qb"] + t["d_qb"] * t["qb_s"], kb=t["kb"] + t["d_kb"] * t["kb_s"], vb=t["vb"] + t["d_vb"] * t["vb_s"])
 
     ste_on, pending = [False], {}
-    MODE = dict(compose=a.compose, kl=a.kl, had=a.hadamard, amp=True, rot=a.rotation)
+    MODE = dict(compose=a.compose, kl=a.kl, had=a.hadamard, amp=True, rot=a.rotation, obj=a.objective)
     # angle offsets d = theta - pi/4 of the learned register: (layer, site) -> (7, 64) fp32, init 0 (= fwht128 bit for bit); empty under --rotation had
     TH = {(li, site): torch.zeros(kp.NST, kp.NBF, dtype=torch.float32, device=DEV, requires_grad=True)
           for li in range(cfg.nl) for site in sorted(kan_sites)}
@@ -1287,6 +1315,8 @@ def main():
             with torch.no_grad():
                 lt = F.log_softmax(ft.rms(ht, fn_t, cfg.eps) @ Eg.T, -1)
             ls = F.log_softmax(ft.rms(hs, fn0 * torch.exp(d_fn), cfg.eps) @ Eg.T, -1)
+            if MODE["obj"] == "tv":
+                return 0.5 * (ls.exp() - lt.exp()).abs().sum(), (lt.argmax(-1) == ls.argmax(-1)).sum()
             return (lt.exp() * (lt - ls)).sum(), (lt.argmax(-1) == ls.argmax(-1)).sum()
 
     def kl_batch(idsb, grad, Ss_all=None):
@@ -1298,7 +1328,7 @@ def main():
                     zs = ft.rms(hs[s0:s0 + 256], fn0 * torch.exp(d_fn), cfg.eps)
                     with torch.no_grad():
                         zt = ft.rms(ht[s0:s0 + 256], fn_t, cfg.eps)
-                    k, g = KLHead.apply(zs, zt, Eg)
+                    k, g = (TVHead if MODE["obj"] == "tv" else KLHead).apply(zs, zt, Eg)
             elif grad:
                 k, g = checkpoint(kl_chunk, hs[s0:s0 + 256], ht[s0:s0 + 256], use_reentrant=False)
             else:
@@ -1364,8 +1394,8 @@ def main():
         print(f"step0 weights: {n_eq}/{cfg.nl * len(KINDS)} torch.equal, max rel of others {max_rel:.2e}", flush=True)
         torch.set_float32_matmul_precision("high")
         kq0 = quick_eval()
-        res["quick_kl_step0"] = kq0
-        print(f"step0 quick heldout KL (bf16 student) {kq0:.5f}", flush=True)
+        res["quick_kl_step0"], res["quick_objective"] = kq0, MODE["obj"]  # quick_kl_* hold the training objective (TV under tv)
+        print(f"step0 quick heldout {MODE['obj'].upper()} (bf16 student) {kq0:.5f}", flush=True)
 
     # ---- data
     tr = np.load(TRAIN_NPY)
@@ -1943,7 +1973,7 @@ def main():
         torch.cuda.empty_cache()
     with torch.no_grad():
         kq1 = quick_eval()
-    print(f"trained {step} steps in {wall_train:.1f}s; quick heldout KL {kq1:.5f} (step0 {kq0:.5f})", flush=True)
+    print(f"trained {step} steps in {wall_train:.1f}s; quick heldout {MODE['obj'].upper()} {kq1:.5f} (step0 {kq0:.5f})", flush=True)
     res.update(steps=step, tokens=step * a.batch * CHUNK, batch=a.batch, train_trajectory=traj, v_steps=vlog, quick_kl_step0=kq0,
                quick_kl_final=kq1, train_loss_last=last_loss)
     res["walls"]["train_s"] = wall_train
