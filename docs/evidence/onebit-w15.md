@@ -1048,6 +1048,37 @@ teacher's gives the actual `1 − TV`. The seed generator that regenerates a tra
 - Resolved: the gate/up multipliers `s_sol` of `-res` are not counted in the bits and are not representable in them;
   `-resq` folds them into the stored scale (previous section).
 
+## Straight-through KL distillation of a single sign plane (`measured`; `Perf/KDScaling.lean`)
+
+Command (prediction `kdmain-1`, `kdlr-1`; script `tools/onebit/kl_distill.py` sha256 `3690026e…`; RTX 5080; train data
+C4 shard 00001, sha256 `77078e5f…`, disjoint from the calibration file):
+
+| run | steps | tokens | lr latent / scale | held-out KL (fp32, chunks 100–140) | top-1 | signs flipped | train wall |
+|---|---|---|---|---|---|---|---|
+| start (`sign(W)`, `r` = group mean abs) | 0 | 0 | | 12.694 | 0.000 | 0 | |
+| `w18-kd-main1.json` | 520 | 2,129,920 | 2e-4 / 1e-3 | 2.3038 | 0.3034 | 2.4 % | 317 s |
+| `w18-kd-main2.json` | 880 | 3,604,480 | 1e-3 / 2e-3 | 2.0104 | 0.3374 | 7.4 % | 467 s |
+
+- Student: `W'[o,i] = r[o,⌊i/128⌋] · sign(L[o,i]) · c[i]`, `r`, `c` f16, latent `L` fp32 and not stored. Stored rate
+  1 + 16/128 + 16/O per weight over the 168 linears: 406,487,040 bits / 357,826,560 weights = 1.13599 b/w, below the
+  post-training arm's 1.178. Embeddings, norms, biases and `fnorm` are teacher values.
+- Loss `KL(teacher ‖ student)` on next-token distributions; straight-through estimator on `sign` (Bengio, Léonard and
+  Courville 2013, arXiv 1308.3432); fused Adam, 20-step warmup, cosine to 10 %; batch 8 × 512 tokens; student in bf16
+  autocast, loss head and the held-out score in fp32. Same instrument and chunks as the post-training arm.
+- Verdicts (`proved`, `Perf.KDScaling`): `bpw_below_arm`, `kd_order` (main2 < main1 < start; both < `fold-local` 3.806;
+  arm mean 1.2920 < main2; Q4_K_M 0.0197 < arm), `kd_ratios` (> 1.8× over `fold-local`, > 6× over the start, between
+  101× and 102× above Q4_K_M), `tokens_per_step`, `kd_accept_bound_vacuous` (the Pinsker acceptance guarantee of
+  `Perf.SpecDraftKL.accept_ge` is negative at KL 2.01). Controls: `ctl_kd1`–`ctl_kd3` (changed constants) fail.
+- Same-instrument comparison at ~1.13 b/w: `fold-local` 3.806 (post-training), distillation 2.010 (8 minutes). The
+  2-plane E8 post-training arm (1.178 b/w) stays ahead at 1.292. The student is a single-plane fit; the arm's
+  factorised structure is not used as the start.
+- Cost model (`model` grade, a fit over one decade of the quick-KL trajectory, 8 held-out chunks, bf16): KL ∝ tokens^−α
+  with α = 0.311 (main1, steps 52–520) and 0.325 (main2, steps 88–880). Anchored at the exact main2 KL, reaching 1.29
+  takes ≈ 14M tokens (≈ 3,500 steps at batch 8, ≈ 0.53 s/step); 0.0197 extrapolates to ≈ 10¹³ tokens. The trajectory
+  was still falling at the last step of both runs. 3,500 steps exceed the 600 s measurement ceiling at this step time.
+
+Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
 ## Limit claims
 
 `tools/rooting/limit_check.py` refuses, in this file, `onebit-w13.md`, `docs/epics/ternary-hadamard.md` and the

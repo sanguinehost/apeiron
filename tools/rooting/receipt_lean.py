@@ -59,6 +59,8 @@ W15 = {
     "t3_base_seeds12": "docs/evidence/receipts/onebit/t3-base-seeds12.json",
     "t6_sideinfo_ext": "docs/evidence/receipts/onebit/t6-sideinfo.json",
     "w18_outcomes": "docs/evidence/receipts/onebit/w18-outcomes.json",
+    "w18_kd_main1": "docs/evidence/receipts/onebit/w18-kd-main1.json",
+    "w18_kd_main2": "docs/evidence/receipts/onebit/w18-kd-main2.json",
 }
 
 OUTCOME_ARMS = [("teacher", "teacher"), ("q4km", "q4km"), ("resq", RESQ_ARM)]
@@ -373,6 +375,10 @@ def d1011_fields(ns: str, rel: str, sha: str, data: dict) -> list:
         out.append(("str", "arm", "q4km"))
         out.append(("rat", "q4kmKlHeldout", rat_value(q["kl_heldout"])))
         out.append(("rat", "q4kmKlInsample", rat_value(q["kl_insample"])))
+        fl, rt = data["variants"]["fold-local"], data["variants"]["rtn"]
+        out.append(("rat", "foldLocalKlHeldout", rat_value(fl["kl_heldout"])))
+        out.append(("rat", "foldLocalBpw", rat_value(fl["bpw_linears"])))
+        out.append(("rat", "rtnKlHeldout", rat_value(rt["kl_heldout"])))
     else:
         raise Fail(f"no 2026-10-11 field map for {ns}")
     return out
@@ -413,6 +419,15 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
         gens = data["variants"][RESQ_ARM]["outcomes"]["generation"]
         for i, g in enumerate(gens):
             out.append(("nat", f"resqFirstDivergence{i}", nat(g["first_divergence"])))
+    elif ns in ("w18_kd_main1", "w18_kd_main2"):
+        out.append(("nat", "steps", nat(data["args"]["steps"])))
+        out.append(("nat", "tokensTrained", nat(data["tokens_trained"])))
+        out.append(("nat", "params", nat(data["linear_params"])))
+        out.append(("nat", "bits", nat(data["bits"])))
+        for name, k in [("bpwLinears", "bpw_linears"), ("klInit", "kl_heldout_init"), ("klHeldout", "kl_heldout"),
+                        ("top1Heldout", "top1_heldout"), ("signFlipFrac", "sign_flip_frac"),
+                        ("trainWallS", "train_wall_s")]:
+            out.append(("rat", name, rat(data[k])))
     else:
         raise Fail(f"no W15/W17 field map for {ns}")
     return out

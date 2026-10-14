@@ -1,0 +1,123 @@
+{
+ "script_sha256": "3690026efcb823aa0037c4b32739d94dfa8df1975196076e037c88e320a13755",
+ "args": {
+  "out": "/home/socol/oc-tmp/lanes/w18/kd/main2.json",
+  "dump": null,
+  "steps": 880,
+  "batch": 8,
+  "lr_latent": 0.001,
+  "lr_scale": 0.002,
+  "warmup": 20,
+  "eval_every": 88,
+  "seed": 0,
+  "n_cal": 100,
+  "n_eval": 40
+ },
+ "train_sha256": "77078e5f72b2aa11aa624cfdf55fb7a1fc94d3b91b4b42239217f6ecfb12d515",
+ "train_chunks": 10193,
+ "eval_chunks": [
+  100,
+  140
+ ],
+ "gpu": "NVIDIA GeForce RTX 5080",
+ "linear_params": 357826560,
+ "bits": 406487040,
+ "bpw_linears": 1.135989010989011,
+ "kl_heldout_init": 12.694222497940064,
+ "top1_heldout_init": 0.0,
+ "train_wall_s": 466.9869484901428,
+ "trajectory": [
+  {
+   "step": 0,
+   "tokens": 0,
+   "kl_quick": 12.6220703125,
+   "top1_quick": 0.0
+  },
+  {
+   "step": 88,
+   "tokens": 360448,
+   "kl_quick": 3.8798694610595703,
+   "top1_quick": 0.1494140625,
+   "train_loss": 3.9503941535949707,
+   "wall_s": 47.089202880859375
+  },
+  {
+   "step": 176,
+   "tokens": 720896,
+   "kl_quick": 3.180983543395996,
+   "top1_quick": 0.20849609375,
+   "train_loss": 3.3366761207580566,
+   "wall_s": 93.83073711395264
+  },
+  {
+   "step": 264,
+   "tokens": 1081344,
+   "kl_quick": 2.828480839729309,
+   "top1_quick": 0.24072265625,
+   "train_loss": 2.7896807193756104,
+   "wall_s": 140.47454977035522
+  },
+  {
+   "step": 352,
+   "tokens": 1441792,
+   "kl_quick": 2.572616934776306,
+   "top1_quick": 0.255859375,
+   "train_loss": 2.4562582969665527,
+   "wall_s": 187.13185048103333
+  },
+  {
+   "step": 440,
+   "tokens": 1802240,
+   "kl_quick": 2.363323211669922,
+   "top1_quick": 0.28564453125,
+   "train_loss": 2.4189088344573975,
+   "wall_s": 233.75469589233398
+  },
+  {
+   "step": 528,
+   "tokens": 2162688,
+   "kl_quick": 2.259622097015381,
+   "top1_quick": 0.292236328125,
+   "train_loss": 2.119703769683838,
+   "wall_s": 280.39945816993713
+  },
+  {
+   "step": 616,
+   "tokens": 2523136,
+   "kl_quick": 2.073660731315613,
+   "top1_quick": 0.312255859375,
+   "train_loss": 2.1172916889190674,
+   "wall_s": 326.99761605262756
+  },
+  {
+   "step": 704,
+   "tokens": 2883584,
+   "kl_quick": 1.9631872177124023,
+   "top1_quick": 0.320556640625,
+   "train_loss": 2.1288814544677734,
+   "wall_s": 373.64588260650635
+  },
+  {
+   "step": 792,
+   "tokens": 3244032,
+   "kl_quick": 1.8835644721984863,
+   "top1_quick": 0.3349609375,
+   "train_loss": 2.0960726737976074,
+   "wall_s": 420.30992126464844
+  },
+  {
+   "step": 880,
+   "tokens": 3604480,
+   "kl_quick": 1.8279163837432861,
+   "top1_quick": 0.34814453125,
+   "train_loss": 2.1814017295837402,
+   "wall_s": 466.98692655563354
+  }
+ ],
+ "tokens_trained": 3604480,
+ "sign_flip_frac": 0.07399336706587684,
+ "peak_gpu_gb": 8.720059871673584,
+ "kl_heldout": 2.0103699624538423,
+ "top1_heldout": 0.337353515625,
+ "wall_total_s": 477.0322585105896
+}
