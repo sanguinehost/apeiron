@@ -72,6 +72,8 @@ import Perf.Generalisation
 import Perf.KLTilt
 import Learn.GramExact
 import Learn.E8Code
+import Learn.Grad.DenseLinear
+import Learn.Grad.DenseLinearWitness
 import Numeric.SigmaDeltaRefinement
 import Perf.BitsRefine
 import Numeric.Register
@@ -713,6 +715,33 @@ import Perf.SpecDraftKL
 #audit Learn.E8Code.witness_nonpositive_scale
 #audit Learn.E8Code.witness_nearest_ok
 #audit Learn.E8Code.witness_overflow
+-- The extracted Q32.32 `i64` linear forward and its two adjoints
+-- (`learn_port.dense.linear_fwd` / `linear_bwd_input` / `linear_bwd_weight`) refine the independent
+-- `ℤ`/`List ℤ` model (`Learn/Grad/DenseLinear.lean`); the branch witnesses are in
+-- `Learn/Grad/DenseLinearWitness.lean`.
+#audit apeiron_word.dense_expect_len_ok
+#audit apeiron_word.dense_expect_len_empty
+#audit apeiron_word.dense_expect_len_shape
+#audit apeiron_word.dense_expect_len_overflow
+#audit apeiron_word.linear_fwd_acc_spec
+#audit apeiron_word.linear_fwd_ok
+#audit apeiron_word.linear_bwd_input_acc_spec
+#audit apeiron_word.linear_bwd_input_ok
+#audit apeiron_word.linear_bwd_weight_acc_spec
+#audit apeiron_word.linear_bwd_weight_ok
+#audit apeiron_word.dense_expect_len_ne_range
+#audit apeiron_word.linear_fwd_witness_ok
+#audit apeiron_word.linear_fwd_witness_empty
+#audit apeiron_word.linear_fwd_witness_shape
+#audit apeiron_word.linear_fwd_witness_overflow
+#audit apeiron_word.linear_bwd_input_witness_ok
+#audit apeiron_word.linear_bwd_input_witness_empty
+#audit apeiron_word.linear_bwd_input_witness_shape
+#audit apeiron_word.linear_bwd_input_witness_overflow
+#audit apeiron_word.linear_bwd_weight_witness_ok
+#audit apeiron_word.linear_bwd_weight_witness_empty
+#audit apeiron_word.linear_bwd_weight_witness_shape
+#audit apeiron_word.linear_bwd_weight_witness_overflow
 
 -- The extracted checked-`i64` sigma-delta body `sigma_delta.sd_binary_block`
 -- refines `Numeric.SigmaDelta.sdState`/`sdSign` (`Numeric/SigmaDeltaRefinement.lean`).
