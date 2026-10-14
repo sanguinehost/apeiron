@@ -1302,6 +1302,45 @@ which reports Llama-2 7B at 1.58 b/w within 1.43× of fp16 perplexity).
   by the gradient, not by Adam's step size.
 - Board row for this run: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
+### Straight-through code training from the continuous pre-image (`measured`, refuted; `Perf/PVFinish.lean`)
+
+- Method: `pv_finish.py --codes ste --code-init preimage --code-opt nsgd --lr-code 1e-3` (sha256 `e1e6af61…`). Plane
+  `k` of a linear stores `W_k = fwht128(S·d) · r ⊗ c`, and `fwht128` is an orthonormal involution, so its pre-image in
+  code coordinates is `P = fwht128((W_teacher − Σ_{j≠k} W_j) / (r ⊗ c)) / d`. Each 8-block's latent starts at
+  `C[idx] + ρ (P − C[idx])`, with `ρ ≤ 1` clipped to 0.9 of the first crossing into any of the 16 neighbouring cells,
+  so the step-0 projection is the stored code on every block. Latents move by plane-normalised SGD,
+  `L ← L − lr · g / rms_plane(g)`, so a block moves in proportion to its gradient.
+- Run `w18-pvpre05.json` (same protocol, all controls pass, before-KL exact, bits unchanged, wall 542.1 s, 292 steps):
+
+| metric | before | after |
+|---|---:|---:|
+| held-out KL `[50, 90)` | 1.1637 | 0.9229 |
+| held-out top-1 | 0.480 | 0.531 |
+| in-sample KL `[0, 20)` | 0.2224 | 0.2590 |
+| blocks whose index changed | 0 | 5,205 of 50,061,312 (1.04e-4) |
+| of those, to the pre-image's nearest codeword | — | 1,941 (37.3%) |
+| step-0 projection ≠ stored code | 0 | — |
+
+- Prediction `pvpre05-1` (held-out in `[0.78, 0.88]`) is refuted (`pvpre_refuted`). The result lies above the three
+  scales-only runs' mean 0.8945 by more than three times their spread. The flips were sparse and gradient-ordered,
+  under one block in 5000 (`pvpre_flips_sparse`), and they still cost about 0.028 held-out KL.
+- Pre-image diagnostic: the Euclidean-nearest codeword of `P` is the stored index on 39.8% of blocks, and 51.5% of
+  latents were clipped. The ICM codes (`e8_joint_icm_2plane`, coupled Hessian metric) sit away from Euclidean rounding of
+  the pre-image on most blocks, and the gradient sent most flips elsewhere too.
+- Across five runs (`pv_code_moves_cost`), every run that changed a code index ended above the best run that changed
+  none: one accepted linear V-step 0.8981, Adam straight-through 1.9991, pre-image straight-through 0.9229, against
+  0.8906. At this token budget (1.2M tokens per 580 s run), the end-to-end loss has not been lowered by any measured
+  code move away from the ICM codes (`measured`, five runs, one seed).
+- Control `ctl_pvpre` (3× spread raised to 4×; 1/5000 tightened to 1/10000) fails at lines 213 and 224; axioms
+  `{propext, Classical.choice, Quot.sound}`.
+- Decision: at fixed codes, finishing has one lever left, the scales (mean 0.8945). The remaining distance to Q4_K_M
+  (0.0184 on these chunks, 48×) is in the code's rate and its allocation. The K-FAC floor table above puts any
+  post-training code on this model at 1.18 b/w at 16.9× Q4_K_M's KL with separable per-tensor water-filling and 6.6×
+  with oracle variances (`model`: K-FAC quadratic KL, Gaussian rate; a different KL estimator from the measured
+  held-out KL). The separable factor falls to 3.78× at Qwen3-32B. Next: re-allocate the arm's planes across the 168
+  tensors by K-FAC water-filling at the same mean 1.178 b/w, then finish the scales on that arm.
+- Board row for this run: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
 Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
 ## Limit claims

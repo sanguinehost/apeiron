@@ -14,6 +14,9 @@ batch gradients (gbar, diagonal empirical Fisher F), candidates lam in --obs-lam
 --codes ste replaces the V-step: each coded plane keeps an fp32 latent L (initialised to the stored codewords), the forward uses the
 nearest of the 16 nearest codewords of the current index (straight-through gradient to L), and the index follows that argmin; the
 stored code stays one 8-bit index per 8-block, so the bits are unchanged.
+--code-init preimage starts L at the continuous pre-image P of the plane (the plane's share of the teacher weight, mapped back through
+the quantized r, c, d and the involution fwht128), shrunk along C[idx] -> P until the nearest-of-16 projection still returns idx
+(step 0 forward is the stored code); --code-opt nsgd moves L by lr * g / rms(g), rms over the whole plane's latent gradient.
 usage: pv_finish.py --out OUT.json [--smoke] [--v-gain {linear,obs}] [--codes {vstep,ste}] ; run with /home/socol/Workspace/spinor-ttl/.venv/bin/python (torch + CUDA).
 """
 import argparse, hashlib, json, math, os, sys, time
@@ -152,6 +155,38 @@ def project_local(L, idx, C, nn, chunk=1 << 18):
     return S_hat.view(L.shape), new.view(idx.shape)
 
 
+@torch.no_grad()
+def preimage_init(P, idx, C, nn, chunk=1 << 18):
+    """Latent start inside the stored cell.  Per 8-block with v = P_b - C[idx_b] and, for each of the 16 rows j in nn[idx_b],
+    u = C[j] - C[idx_b]: t*_j = |u|^2 / (2 v.u) when v.u > 0 (else inf), rho_b = min(1, 0.9 min_j t*_j), L0_b = C[idx_b] + rho_b v.
+    |L - C[j]|^2 - |L - C[idx_b]|^2 = |u|^2 - 2 t v.u > 0 for t < t*_j, so nearest-of-16(L0) == idx_b.
+    Returns (L0 (O, n) float32, pnear (O, n/8) uint8 = Euclidean-nearest of all 256 rows to P_b, number of blocks with rho_b < 1,
+    number of blocks with pnear == idx_b).
+    Temporal (16*8*3 + 256*8)*M MACs (M = O*n/8 blocks; per chunk the 16 difference rows, their dot and square-sum with v, and one
+    matmul against the 256 rows); spatial chunk*16*8 words of workspace plus chunk*256 words for the matmul plus the M*8-word output."""
+    M = idx.numel()
+    Pb, ib = P.reshape(-1, 8), idx.reshape(-1).long()
+    cn = (C * C).sum(1)
+    L0 = torch.empty_like(Pb)
+    pnear = torch.empty(M, dtype=torch.uint8, device=P.device)
+    nclip = nnear = 0
+    for s0 in range(0, M, chunk):
+        pb, i0 = Pb[s0:s0 + chunk], ib[s0:s0 + chunk]
+        c0 = C[i0]
+        v = pb - c0
+        u = C[nn[i0]] - c0[:, None, :]
+        vu = (v[:, None, :] * u).sum(-1)
+        uu = (u * u).sum(-1)
+        t = torch.where(vu > 0, uu / (2.0 * vu.clamp_min(1e-30)), torch.full_like(vu, float("inf")))
+        rho = torch.clamp(0.9 * t.min(1)[0], max=1.0)
+        L0[s0:s0 + chunk] = c0 + rho[:, None] * v
+        pn = (2.0 * pb @ C.T - cn[None, :]).argmax(1)
+        pnear[s0:s0 + chunk] = pn.to(torch.uint8)
+        nclip += int((rho < 1.0).sum())
+        nnear += int((pn == i0).sum())
+    return L0.view(P.shape), pnear.view(idx.shape), nclip, nnear
+
+
 # ------------------------------------------------------------------------------------------------ student
 class Plane:
     """One stored plane: integer codes idx (or a fixed S_fix when a block is not a codebook row), frozen per-row r grid
@@ -242,6 +277,8 @@ def main():
     ap.add_argument("--obs-lams", default="1,4,16,64")
     ap.add_argument("--codes", choices=("vstep", "ste"), default="vstep")
     ap.add_argument("--lr-code", type=float, default=1e-1)
+    ap.add_argument("--code-init", choices=("codeword", "preimage"), default="codeword")
+    ap.add_argument("--code-opt", choices=("adam", "nsgd"), default="adam")
     ap.add_argument("--code-kinds", default="all", help="comma list of linear kinds whose codes train under --codes ste")
     ap.add_argument("--rec-every", type=int, default=25)
     a = ap.parse_args()
@@ -467,11 +504,59 @@ def main():
             if nm in code_kinds:
                 p.L = p.S(C).clone().requires_grad_()
                 p.idx0, p.idx_prev = p.idx.clone(), p.idx.clone()
+                p.pnear = None
                 ste_planes.append(p)
-        groups.append(dict(params=[p.L for p in ste_planes], lr=a.lr_code))
-        base_lr.append(a.lr_code)
         res.update(lr_code=a.lr_code, codes_trained_kinds=code_kinds, code_planes=len(ste_planes),
-                   code_blocks=sum(p.idx.numel() for p in ste_planes))
+                   code_blocks=sum(p.idx.numel() for p in ste_planes), code_init=a.code_init, code_opt=a.code_opt)
+        if a.code_init == "preimage":
+            # Per linear at step 0: R_k = teacher weight - (every other plane and dense corrector) restricted to p.rows, then
+            # P = fwht128(R_k / (r_rep * c)) / d with the quantized r, c, d of plane_weight (inverse of compose and fwht128).
+            # Temporal per coded plane one plane_weight plus one fwht128 plus preimage_init; spatial ~10 * O*n words per linear.
+            mine, nmis, nclip, nnear, nfall, nblk = {id(p) for p in ste_planes}, 0, 0, 0, 0, 0
+            with torch.no_grad():
+                for li in range(cfg.nl):
+                    for nm in KINDS:
+                        if not any(id(p) in mine for p in PL[li][nm]):
+                            continue
+                        W, Wi = None, []
+                        for p in PL[li][nm]:
+                            if p.dense is not None:
+                                W = W + p.dense
+                                Wi.append(None)
+                                continue
+                            w = plane_weight(p, p.S(C))
+                            Wi.append(w)
+                            W = add_plane(W, p, w)
+                        Rfull = TLg[li][nm].float() - W
+                        for p, w in zip(PL[li][nm], Wi):
+                            if id(p) not in mine:
+                                continue
+                            R = (Rfull if p.rows is None else Rfull[p.rows]) + w
+                            r, c, d = p.qvals()
+                            P = ft.fwht128(R / (r.repeat_interleave(GROUP, 1) * c[None, :])) / d[None, :]
+                            bad = (~torch.isfinite(P)).view(-1, 8).any(1) | (d == 0).view(1, -1, 8).any(-1).expand(p.O, -1).reshape(-1)
+                            P.view(-1, 8)[bad] = C[p.idx.reshape(-1).long()[bad]]
+                            L0, p.pnear, nc, nn_ = preimage_init(P, p.idx, C, nn)
+                            _, back = project_local(L0, p.idx, C, nn)
+                            nmis += int((back != p.idx).sum())
+                            nclip += nc
+                            nnear += nn_
+                            nfall += int(bad.sum())
+                            nblk += p.idx.numel()
+                            p.L = L0.clone().requires_grad_()
+                            del R, P, L0, w
+                        del W, Wi, Rfull
+            torch.cuda.empty_cache()
+            res.update(step0_projection_mismatch=nmis, preimage_nearest_is_idx=nnear / nblk, preimage_clipped=nclip / nblk,
+                       preimage_fallback_blocks=nfall, preimage_blocks=nblk)
+            res["controls"]["step0_projection_mismatch_zero"] = dict(mismatch=nmis, blocks=nblk, ok=nmis == 0)
+            print(f"preimage: blocks {nblk} fallback {nfall} nearest_is_idx {nnear / nblk:.4f} clipped {nclip / nblk:.4f} "
+                  f"step0_projection_mismatch {nmis}", flush=True)
+            dump()
+            assert nmis == 0, f"step0_projection_mismatch {nmis}"
+        if a.code_opt == "adam":
+            groups.append(dict(params=[p.L for p in ste_planes], lr=a.lr_code))
+            base_lr.append(a.lr_code)
         print(f"ste: {len(ste_planes)} coded planes, {res['code_blocks']} blocks, kinds {code_kinds}, lr_code {a.lr_code}", flush=True)
     opt = torch.optim.Adam(groups, fused=True)
     code_changes = []
@@ -481,11 +566,18 @@ def main():
         Temporal one compare per block (M blocks over all trained planes); spatial one bool temporary per plane."""
         cum = sum(int((p.idx != p.idx0).sum()) for p in ste_planes)
         win_ = sum(int((p.idx != p.idx_prev).sum()) for p in ste_planes)
+        rec = {}
+        if a.code_init == "preimage":
+            tc = sum(int(((p.idx != p.idx0) & (p.idx == p.pnear)).sum()) for p in ste_planes)
+            tw = sum(int(((p.idx != p.idx_prev) & (p.idx == p.pnear)).sum()) for p in ste_planes)
+            rec = dict(flips_toward_preimage=tc / cum if cum else None, flips_toward_preimage_window=tw / win_ if win_ else None,
+                       flips_toward_preimage_cum_count=tc, flips_toward_preimage_window_count=tw)
         for p in ste_planes:
             p.idx_prev = p.idx.clone()
         nb = res["code_blocks"]
-        code_changes.append(dict(step=step_, changed_cum=cum, changed_window=win_, frac_cum=cum / nb, frac_window=win_ / nb, train_loss=loss_))
-        print(f"codes step {step_}: changed cum {cum} ({cum / nb:.3e}) window {win_} ({win_ / nb:.3e}) loss {loss_:.4f}", flush=True)
+        code_changes.append(dict(step=step_, changed_cum=cum, changed_window=win_, frac_cum=cum / nb, frac_window=win_ / nb, train_loss=loss_, **rec))
+        print(f"codes step {step_}: changed cum {cum} ({cum / nb:.3e}) window {win_} ({win_ / nb:.3e}) loss {loss_:.4f}"
+              + (f" toward_preimage cum {rec['flips_toward_preimage']} window {rec['flips_toward_preimage_window']}" if rec else ""), flush=True)
 
     est_after = 1.15 * wall_eval + 12.0
     t_train0 = time.time()
@@ -659,6 +751,15 @@ def main():
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
+        if ste and a.code_opt == "nsgd":
+            with torch.no_grad():
+                for p in ste_planes:
+                    g = p.L.grad
+                    if g is not None:
+                        rms = g.pow(2).mean().sqrt()
+                        if float(rms) > 0.0 and bool(torch.isfinite(rms)):
+                            p.L.add_(g / rms, alpha=-a.lr_code * f)
+                    p.L.grad = None
         last_loss = loss.item()
         if ste:
             for p in ste_planes:

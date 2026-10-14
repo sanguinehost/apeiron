@@ -70,6 +70,7 @@ W15 = {
     "w18_pvobs05": "docs/evidence/receipts/onebit/w18-pvobs05.json",
     "w18_pvlam05": "docs/evidence/receipts/onebit/w18-pvlam05.json",
     "w18_pvste05": "docs/evidence/receipts/onebit/w18-pvste05.json",
+    "w18_pvpre05": "docs/evidence/receipts/onebit/w18-pvpre05.json",
 }
 
 OUTCOME_ARMS = [("teacher", "teacher"), ("q4km", "q4km"), ("resq", RESQ_ARM)]
@@ -489,10 +490,24 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
             for name, k in [("q4kmBpw", "bpw_linears"), ("q4kmKlHeldout", "kl_heldout"), ("q4kmTop1Heldout", "top1_heldout")]:
                 out.append(("rat", name, rat(q[k])))
         out.append(("rat", "wallTotalS", rat(data["wall_total_s"])))
-    elif ns == "w18_pvste05":
+    elif ns in ("w18_pvste05", "w18_pvpre05"):
         # End-to-end finishing with the E8 u O8 codes trained by a straight-through projection (pv_finish.py --codes ste).
+        # pvste05 starts each latent at its codeword under Adam; pvpre05 at the plane's continuous pre-image under nsgd.
         if data["codes"] != "ste" or data["v_steps"]:
             raise Fail(f"{rel}: not a straight-through code run, or V-steps ran")
+        pre = ns == "w18_pvpre05"
+        if (data.get("code_init", "codeword"), data.get("code_opt", "adam")) != (("preimage", "nsgd") if pre else ("codeword", "adam")):
+            raise Fail(f"{rel}: code init / optimiser is not the one this namespace records")
+        if pre:
+            if data["step0_projection_mismatch"] != 0 or not data["controls"]["step0_projection_mismatch_zero"]:
+                raise Fail(f"{rel}: step-0 projection differs from the stored code")
+            last = data["code_changes"][-1]
+            if last["changed_cum"] != data["code_changed_total"]:
+                raise Fail(f"{rel}: last code-change record is not the total")
+            out.append(("nat", "step0ProjectionMismatch", nat(data["step0_projection_mismatch"])))
+            out.append(("rat", "preimageNearestIsIdx", rat(data["preimage_nearest_is_idx"])))
+            out.append(("rat", "preimageClipped", rat(data["preimage_clipped"])))
+            out.append(("nat", "flipsTowardPreimage", nat(last["flips_toward_preimage_cum_count"])))
         if data["arm"] != RESQ_ARM or data["n_cal"] != 50 or data["eval_chunks"] != [50, 90] or data["insample_chunks"] != [0, 20]:
             raise Fail(f"{rel}: not the arm on the n-cal 50 / held-out [50, 90) protocol")
         c = data["controls"]
