@@ -1053,6 +1053,7 @@ def regrid : ℕ := 0
 def stepsCap : ℕ := 1000000000
 def compose : String := "step"
 def klMode : String := "fused"
+def hadamard : String := "butterfly"
 def gradEquivOk : Bool := true
 def gradRelFloor : ℚ := (1083938404917717 : ℚ) / 250000000000000000
 def gradRelComposeOnly : ℚ := (4617982544004917 : ℚ) / 1000000000000000000
@@ -1102,6 +1103,64 @@ def mmS : ℚ := (531388414499993 : ℚ) / 250000000000000
 def catCalls : ℕ := 61920
 
 end Receipts.w18_pvprof2
+
+-- Receipt the receipts/onebit/w18-hadmm note.json`
+namespace Receipts.w18_hadmm
+
+def sha256 : String := "bae8ada3e647a66462d5e1e9b3c610998711f756011d8f945d48c487196da0c2"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def trainGroups : String := "c,d,norm,r"
+def beforeMatchesReference : Bool := true
+def bitsEqual : Bool := true
+def codebookExact : Bool := true
+def dataDisjoint : Bool := true
+def params : ℕ := 357826560
+def bitsBefore : ℕ := 421541376
+def bitsAfter : ℕ := 421541376
+def steps : ℕ := 871
+def tokens : ℕ := 3567616
+def trainableParams : ℕ := 3906944
+def vSteps : ℕ := 0
+def regrid : ℕ := 0
+def stepsCap : ℕ := 1000000000
+def compose : String := "step"
+def klMode : String := "fused"
+def hadamard : String := "mm"
+def gradEquivOk : Bool := true
+def gradRelFloor : ℚ := (455564062576741 : ℚ) / 125000000000000000
+def gradRelComposeOnly : ℚ := (989621039479971 : ℚ) / 250000000000000000
+def gradRelKlOnly : ℚ := (6192474160343409 : ℚ) / 1000000000000000000
+def gradRelRequested : ℚ := (2394026331603527 : ℚ) / 50000000000000000
+def gradRelHadOnly : ℚ := (4636451601982117 : ℚ) / 100000000000000000
+def gradRelJitter : ℚ := (15060698613524437 : ℚ) / 1000000000000000000
+def lossRelHadOnly : ℚ := (14629763689334417 : ℚ) / 5000000000000000000
+def lossRelJitter : ℚ := (1249699163111249 : ℚ) / 2500000000000000000
+def lossRelRequested : ℚ := (14629763689334417 : ℚ) / 5000000000000000000
+def bf16FlipsMm : ℕ := 291588
+def bf16FlipsJitter : ℕ := 21296
+def wRelMaxMm : ℚ := (8688873549544951 : ℚ) / 10000000000000000000000
+def bf16RelL2Mm : ℚ := (12755146150329937 : ℚ) / 500000000000000000000
+def bf16RelL2Jitter : ℚ := (14023921064873 : ℚ) / 390625000000000000
+def zeroToNonzeroMm : ℕ := 33800
+def lossRelFp32Had : ℚ := (6488394814979517 : ℚ) / 2000000000000000000000
+def gradRelFp32Had : ℚ := (1679920096648857 : ℚ) / 1250000000000000000
+def gradRelFp32Floor : ℚ := (841960936668329 : ℚ) / 5000000000000000000
+def lossRelBf16VsFp32 : ℚ := (4501083591972967 : ℚ) / 1000000000000000000
+def float64UnitMaxRel : ℚ := (713483145566757 : ℚ) / 1000000000000000000000000000000
+def peakMemGb : ℚ := (161027889251709 : ℚ) / 20000000000000
+def trainS : ℚ := (20868915390968323 : ℚ) / 50000000000000
+def bitsR : ℕ := 15347712
+def bitsC : ℕ := 2128896
+def bitsD : ℕ := 1775616
+def klHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klHeldoutAfter : ℚ := (265117553062737 : ℚ) / 312500000000000
+def top1HeldoutBefore : ℚ := (1965 : ℚ) / 4096
+def top1HeldoutAfter : ℚ := (141 : ℚ) / 256
+def klInsampleBefore : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def klInsampleAfter : ℚ := (3023581374436617 : ℚ) / 12500000000000000
+def wallTotalS : ℚ := (2710668475627899 : ℚ) / 5000000000000
+
+end Receipts.w18_hadmm
 
 -- Receipt the receipts/onebit/w18-guided05 note.json`
 namespace Receipts.w18_guided05

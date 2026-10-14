@@ -573,4 +573,100 @@ theorem pvprof_fast_path :
       w18_pvprof.catCalls, w18_pvprof2.catCalls, w18_pvfast.trainS, w18_pvfast.steps, w18_pvprof2.selfDeviceS,
       w18_pvprof2.steps]
 
+/-! ### The Hadamard as one matmul (`--hadamard mm`)
+
+`w18-hadmm.json` (`pv_finish.py` sha256 `60b0f6bc…`) is `pvfast`'s protocol with every 128-group's `fwht128` butterfly
+replaced by one matmul with the `128 × 128` Sylvester matrix `H^⊗7`, built in float64 and cast. The two are the same
+linear map; the start-of-training control checks that in float64 on real planes, then measures what fp32 summation order
+and the bf16 cast do to it. -/
+
+/-- The register: a 128-group is `2^7` words, so the Hadamard is seven butterfly stages. -/
+def hadWidth : ℕ := 128
+def hadStages : ℕ := 7
+/-- Bytes per fp32 word. -/
+def hadWordBytes : ℕ := 4
+/-- Memory traffic per transformed word. Butterfly: each of the 7 stages reads and writes every word, plus the final
+`1/√128` scaling pass (read and write). Matmul: the word is read once and written once; the `128 × 128` operand stays in
+cache. -/
+def butterflyBytesPerWord : ℕ := hadStages * 2 * hadWordBytes + 2 * hadWordBytes
+def mmBytesPerWord : ℕ := 2 * hadWordBytes
+/-- FLOPs per transformed word under the matmul: one row of `H` against the group, a multiply and an add per entry. -/
+def mmFlopsPerWord : ℕ := 2 * hadWidth
+
+/-- **Cost model.** The butterfly moves 64 bytes per word and the matmul 8, eight times fewer; the matmul spends 256 FLOPs
+per word, 32 per byte moved, which runs on the tensor cores and is no longer elementwise traffic. -/
+theorem hadmm_cost_model :
+    2 ^ hadStages = hadWidth ∧ butterflyBytesPerWord = 64 ∧ mmBytesPerWord = 8 ∧
+    butterflyBytesPerWord = 8 * mmBytesPerWord ∧ mmFlopsPerWord = 32 * mmBytesPerWord := by
+  norm_num [hadStages, hadWidth, butterflyBytesPerWord, mmBytesPerWord, mmFlopsPerWord, hadWordBytes]
+
+/-- **Same arm, same bits, the matmul path.** -/
+theorem hadmm_same_arm :
+    w18_hadmm.arm = w18_pvfast.arm ∧ w18_hadmm.trainGroups = "c,d,norm,r" ∧ w18_hadmm.vSteps = 0 ∧
+    w18_hadmm.compose = "step" ∧ w18_hadmm.klMode = "fused" ∧ w18_hadmm.hadamard = "mm" ∧
+    w18_pvfast.hadamard = "butterfly" ∧ w18_hadmm.bitsAfter = w18_pvfast.bitsAfter ∧
+    w18_hadmm.tokens = tokensPerStep * w18_hadmm.steps ∧
+    w18_hadmm.beforeMatchesReference = true ∧ w18_hadmm.bitsEqual = true ∧ w18_hadmm.codebookExact = true ∧
+    w18_hadmm.dataDisjoint = true ∧ w18_hadmm.gradEquivOk = true ∧
+    w18_hadmm.klHeldoutBefore = w18_pvfast.klHeldoutBefore := by
+  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, ?_⟩
+  norm_num [w18_hadmm.klHeldoutBefore, w18_pvfast.klHeldoutBefore]
+
+/-- **The matmul is the butterfly's function.** In float64 on eight coded planes, forward and the `r, c, d` adjoints
+agree to a relative `7.1 · 10⁻¹⁶`. With an fp32 student the model loss moves by under `10⁻⁵` relative and the trainable
+gradient by under `1/100`, within ten times the fp32 rerun floor (atomic reordering alone). -/
+theorem hadmm_same_function :
+    w18_hadmm.float64UnitMaxRel < 1 / 10 ^ 12 ∧ w18_hadmm.lossRelFp32Had < 1 / 10 ^ 5 ∧
+    w18_hadmm.gradRelFp32Had < 1 / 100 ∧ w18_hadmm.gradRelFp32Had < 10 * w18_hadmm.gradRelFp32Floor := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_hadmm.float64UnitMaxRel, w18_hadmm.lossRelFp32Had, w18_hadmm.gradRelFp32Had,
+      w18_hadmm.gradRelFp32Floor]
+
+/-- **What the bf16 student does to an fp32 rounding difference.** The matmul moves no fp32 weight by more than `10⁻⁶`
+relative, and its bf16 relative L2 change is below a seeded `2⁻²²` relative jitter's; it still flips over thirteen times
+as many bf16 words (under one eighth of them zero to nonzero), because its error is absolute per 128-group and lands on
+small words. The bf16 loss moves over 800 times the fp32 loss and over five times the jitter's, the gradient over three
+times the jitter's; the bf16 cast alone moves the loss more than the matmul does. -/
+theorem hadmm_bf16_amplification :
+    w18_hadmm.wRelMaxMm < 1 / 10 ^ 6 ∧ w18_hadmm.bf16RelL2Mm < w18_hadmm.bf16RelL2Jitter ∧
+    13 * w18_hadmm.bf16FlipsJitter < w18_hadmm.bf16FlipsMm ∧ 8 * w18_hadmm.zeroToNonzeroMm < w18_hadmm.bf16FlipsMm ∧
+    800 * w18_hadmm.lossRelFp32Had < w18_hadmm.lossRelHadOnly ∧
+    5 * w18_hadmm.lossRelJitter < w18_hadmm.lossRelHadOnly ∧
+    3 * w18_hadmm.gradRelJitter < w18_hadmm.gradRelHadOnly ∧
+    w18_hadmm.lossRelHadOnly < w18_hadmm.lossRelBf16VsFp32 ∧ w18_hadmm.lossRelRequested = w18_hadmm.lossRelHadOnly := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, rfl⟩ <;>
+    norm_num [w18_hadmm.wRelMaxMm, w18_hadmm.bf16RelL2Mm, w18_hadmm.bf16RelL2Jitter, w18_hadmm.bf16FlipsJitter,
+      w18_hadmm.bf16FlipsMm, w18_hadmm.zeroToNonzeroMm, w18_hadmm.lossRelFp32Had, w18_hadmm.lossRelHadOnly,
+      w18_hadmm.lossRelJitter, w18_hadmm.gradRelJitter, w18_hadmm.gradRelHadOnly, w18_hadmm.lossRelBf16VsFp32]
+
+/-- **The guessed tolerances were wrong, not the path.** Prediction `hadmm-smoke-1` set the bf16 gradient
+tolerance at `1/100` and `hadmm-full-2` the fp32 one at `1/1000`; the measured values exceed both, while the float64 identity
+holds (`hadmm_same_function`). The gate now derives from the float64 identity and the measured fp32 floor. -/
+theorem hadmm_guessed_tolerances :
+    1 / 100 < w18_hadmm.gradRelRequested ∧ 1 / 1000 < w18_hadmm.gradRelFp32Had := by
+  refine ⟨?_, ?_⟩ <;> norm_num [w18_hadmm.gradRelRequested, w18_hadmm.gradRelFp32Had]
+
+/-- **A step is 1.1 to 1.2 times faster than `pvfast`.** Seconds per step fall from `416.2/729` to `417.4/871`, a saving
+between `9/100` and `1/10` s per step. -/
+theorem hadmm_faster :
+    11 * w18_hadmm.trainS * w18_pvfast.steps < 10 * w18_pvfast.trainS * w18_hadmm.steps ∧
+    10 * w18_pvfast.trainS * w18_hadmm.steps < 12 * w18_hadmm.trainS * w18_pvfast.steps ∧
+    9 / 100 < w18_pvfast.trainS / w18_pvfast.steps - w18_hadmm.trainS / w18_hadmm.steps ∧
+    w18_pvfast.trainS / w18_pvfast.steps - w18_hadmm.trainS / w18_hadmm.steps < 1 / 10 := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;> norm_num [w18_hadmm.trainS, w18_pvfast.trainS, w18_hadmm.steps, w18_pvfast.steps]
+
+/-- **More tokens, lower KL; the fifth point lies below the earlier rate.** Held-out KL ends `0.0093` below `pvfast`,
+over the `0.0075` protocol spread, and top-1 rises. The step from 729 to 871 is over a quarter of a token doubling
+(`871⁴ > 2 · 729⁴`), and its drop is under a quarter of the first doubling's (146 to 292). -/
+theorem hadmm_lower :
+    w18_hadmm.klHeldoutAfter + 75 / 10000 < w18_pvfast.klHeldoutAfter ∧
+    w18_pvfast.top1HeldoutAfter < w18_hadmm.top1HeldoutAfter ∧
+    2 * w18_pvfast.tokens ^ 4 < w18_hadmm.tokens ^ 4 ∧
+    4 * (w18_pvfast.klHeldoutAfter - w18_hadmm.klHeldoutAfter) <
+      w18_pvtok146.klHeldoutAfter - w18_pvtok292.klHeldoutAfter := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_hadmm.klHeldoutAfter, w18_pvfast.klHeldoutAfter, w18_hadmm.top1HeldoutAfter,
+      w18_pvfast.top1HeldoutAfter, w18_pvfast.tokens, w18_hadmm.tokens, w18_pvtok146.klHeldoutAfter,
+      w18_pvtok292.klHeldoutAfter]
+
 end Perf.PVFinish

@@ -306,6 +306,60 @@ class PlaneCompose(torch.autograd.Function):
         return None, gd, gr, gc
 
 
+HN = {}
+
+
+def had_mm(x):
+    """fwht128 as one matmul: x viewed (-1, 128) times Sylvester's H128 / sqrt(128) (symmetric, its own inverse), in full
+    fp32 (TF32 is switched off for the call).  Temporal 2 * 128 flops per word on the tensor units against fwht128's 7
+    stacked butterfly stages (7 reads and writes of the whole tensor); spatial one output tensor.  Equal to fwht128 up to
+    fp32 summation order."""
+    key = (x.device, x.dtype)
+    if key not in HN:
+        H = torch.ones(1, 1, dtype=torch.float64)
+        while H.shape[0] < GROUP:
+            H = torch.cat((torch.cat((H, H), 1), torch.cat((H, -H), 1)), 0)
+        HN[key] = (H * GROUP ** -0.5).to(x.device, x.dtype)
+    prev = torch.get_float32_matmul_precision()
+    torch.set_float32_matmul_precision("highest")
+    y = (x.reshape(-1, GROUP) @ HN[key]).view(x.shape)
+    torch.set_float32_matmul_precision(prev)
+    return y
+
+
+def jitter(W, seed):
+    """W * (1 + 2^-22 s), s a seeded +-1 field: a two-ulp fp32 perturbation of every word, the size of had_mm's summation-order
+    difference from fwht128, used by the grad_equiv control as the reference for what any fp32 reordering does to the
+    bf16 student.  Temporal 2 O*n (one randint, one multiply-add); spatial two O*n words.  Control path only."""
+    g = torch.Generator(device=W.device)
+    g.manual_seed(seed)
+    s = torch.randint(0, 2, W.shape, generator=g, device=W.device, dtype=torch.int8).float() * 2.0 - 1.0
+    return W * (1.0 + 2.0 ** -22 * s)
+
+
+class PlaneComposeMM(torch.autograd.Function):
+    """PlaneCompose with fwht128 replaced by had_mm and r broadcast over its 128-column groups instead of
+    repeat_interleave'd (the product order (Y * r) * c is kept).  Same adjoint as PlaneCompose.  Temporal: forward one
+    had_mm plus 3 O*n elementwise; backward two had_mm plus ~6 O*n elementwise and three reductions.  Spatial as
+    PlaneCompose without the O*n r_rep tensor."""
+
+    @staticmethod
+    def forward(ctx, S, d, r, c):
+        ctx.save_for_backward(S, d, r, c)
+        O, n = S.shape
+        return (had_mm(S * d[None, :]).view(O, n // GROUP, GROUP) * r[:, :, None]).view(O, n) * c[None, :]
+
+    @staticmethod
+    def backward(ctx, G):
+        S, d, r, c = ctx.saved_tensors
+        O, n = S.shape
+        GY = (G * had_mm(S * d[None, :])).view(O, n // GROUP, GROUP)
+        gc = (GY * r[:, :, None]).sum(0).reshape(n)
+        gr = (GY * c.view(1, n // GROUP, GROUP)).sum(-1)
+        gd = (S * had_mm((G.view(O, n // GROUP, GROUP) * r[:, :, None]).view(O, n) * c[None, :])).sum(0)
+        return None, gd, gr, gc
+
+
 class KLHead(torch.autograd.Function):
     """sum_t KL(p_t || q_t) over a chunk of rows and the top-1 agreement count, p = softmax(zt E^T) (teacher, no gradient),
     q = softmax(zs E^T).  The gradient to zs is formed in the forward as (q - p) E (the log-softmax adjoint, sum p = 1) and
@@ -360,10 +414,14 @@ def main():
                          "per step through PlaneCompose (frozen codes only: --v-every 0, --codes vstep)")
     ap.add_argument("--kl", choices=("ckpt", "fused"), default="ckpt",
                     help="ckpt: checkpoint(kl_chunk) recomputes both head matmuls in backward; fused: KLHead saves dL/dz")
+    ap.add_argument("--hadamard", choices=("butterfly", "mm"), default="butterfly",
+                    help="training-path fwht128 under --compose step: butterfly (ft.fwht128) or mm (one fp32 H128 matmul); "
+                         "eval, controls and the final weights always use ft.fwht128")
     ap.add_argument("--train", default="r,c,d,norm",
                     help="comma subset of r (pa), c (pb), d (pd), norm (zero-bit d_* tunables and d_fn); unselected tensors are frozen")
     a = ap.parse_args()
     assert a.compose == "layer" or (a.v_every == 0 and a.codes == "vstep"), "--compose step needs frozen codes"
+    assert a.hadamard == "butterfly" or a.compose == "step", "--hadamard mm needs --compose step"
     train_set = set(a.train.split(","))
     assert train_set and train_set <= {"r", "c", "d", "norm"}, a.train
     LAMS = tuple(float(x) for x in a.obs_lams.split(","))
@@ -475,7 +533,7 @@ def main():
                     qb=t["qb"] + t["d_qb"] * t["qb_s"], kb=t["kb"] + t["d_kb"] * t["kb_s"], vb=t["vb"] + t["d_vb"] * t["vb_s"])
 
     ste_on, pending = [False], {}
-    MODE = dict(compose=a.compose, kl=a.kl)
+    MODE = dict(compose=a.compose, kl=a.kl, had=a.hadamard, amp=True)
 
     def ste_S(p):
         """Straight-through code field: the value is the exact codebook row nearest to L among nn[p.idx]; the gradient goes to L.
@@ -515,14 +573,15 @@ def main():
         out = []
         for li in range(cfg.nl):
             Ld = tuned(li)
-            for nm in KINDS:
+            for ki, nm in enumerate(KINDS):
                 W = None
-                for p in PL[li][nm]:
+                for pi, p in enumerate(PL[li][nm]):
                     if p.dense is not None:
                         W = W + p.dense
                         continue
                     r, c, d = p.qvals()
-                    W = add_plane(W, p, PlaneCompose.apply(p.Sc, d, r, c))
+                    Wi = (PlaneComposeMM if MODE["had"] == "mm" else PlaneCompose).apply(p.Sc, d, r, c)
+                    W = add_plane(W, p, jitter(Wi, (li * len(KINDS) + ki) * 8 + pi) if MODE["had"] == "jitter" else Wi)
                 Ld[nm] = W
             out.append(Ld)
         return out
@@ -530,7 +589,7 @@ def main():
     def student_h(idsb, grad, Ss_all):
         h = Eg[idsb]
         Lds = layer_dicts_step() if grad and MODE["compose"] == "step" and not Ss_all and not ste_on[0] else None
-        with torch.autocast("cuda", dtype=torch.bfloat16):
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=MODE["amp"]):
             for li in range(cfg.nl):
                 Ss = Ss_all[li] if Ss_all else ()
                 if Lds is not None:
@@ -703,7 +762,7 @@ def main():
         tparams = [t for g in groups for t in g["params"]]
 
         def probe(mode):
-            MODE.update(mode)
+            MODE.update({"amp": True, **mode})
             opt.zero_grad(set_to_none=True)
             loss_, agree_ = kl_batch(ids_cal[:2].to(DEV), True)
             loss_.backward()
@@ -711,20 +770,98 @@ def main():
             opt.zero_grad(set_to_none=True)
             return float(loss_.detach()), agree_, gs
 
-        l0, g0, gs0 = probe(dict(compose="layer", kl="ckpt"))
-        arms = {}
-        for nm_, md in (("ref_again", dict(compose="layer", kl="ckpt")), ("compose_only", dict(compose=a.compose, kl="ckpt")),
-                        ("kl_only", dict(compose="layer", kl=a.kl)), ("requested", dict(compose=a.compose, kl=a.kl))):
+        # Under --hadamard mm the composed weight differs from fwht128's by fp32 summation order, which the bf16 cast inside
+        # the layers amplifies (the jitter arm, a seeded two-ulp fp32 perturbation of the butterfly weight, shows the size of
+        # that for an isotropic perturbation).  Equality of the mm arithmetic is gated in float64 on real planes:
+        # PlaneComposeMM against PlaneCompose, forward and the d, r, c adjoints, max relative < 1e-12.  At model level the
+        # fp32 student arms hold loss relative < 1e-5 and gradient relative L2 < 1e-2 (the bound of the butterfly fast
+        # path), the bf16 mm arms gradient relative L2 < 1e-1.  Every butterfly arm stays bit-equal.
+        l0, g0, gs0 = probe(dict(compose="layer", kl="ckpt", had="butterfly"))
+        arms, wdiff = {}, {}
+        arm_modes = [("ref_again", dict(compose="layer", kl="ckpt", had="butterfly")),
+                     ("compose_only", dict(compose=a.compose, kl="ckpt", had="butterfly")),
+                     ("kl_only", dict(compose="layer", kl=a.kl, had="butterfly"))]
+        if a.hadamard == "mm":
+            arm_modes += [("jitter", dict(compose="step", kl="ckpt", had="jitter")),
+                          ("had_only", dict(compose="step", kl="ckpt", had="mm"))]
+            # float64 PlaneComposeMM vs PlaneCompose on the first 8 coded planes, seeded upstream gradient.  Temporal
+            # 8 x (two forwards, two backwards) at O*n words; spatial ~10 O*n float64 words per plane.
+            unit, gq = [], torch.Generator(device=DEV)
+            gq.manual_seed(0)
+            for p in [p for pl in PL for nm in KINDS for p in pl[nm] if p.dense is None][:8]:
+                r_, c_, d_ = (t.detach().double() for t in p.qvals())
+                Sd = p.Sc.double()
+                Gq = torch.randn(Sd.shape, generator=gq, device=DEV, dtype=torch.float64)
+                o_ = []
+                for F_ in (PlaneCompose, PlaneComposeMM):
+                    dd, rr, cc = (t.clone().requires_grad_() for t in (d_, r_, c_))
+                    with torch.autocast("cuda", enabled=False):
+                        Wq = F_.apply(Sd, dd, rr, cc)
+                        Wq.backward(Gq)
+                    o_.append((Wq.detach(), dd.grad, rr.grad, cc.grad))
+                unit.append(max(float((x - y).abs().max() / y.abs().max()) for x, y in zip(o_[1], o_[0])))
+            print(f"grad_equiv float64 PlaneComposeMM vs PlaneCompose, 8 planes: max rel {max(unit):.2e}", flush=True)
+            fp32_modes = [("fp32_ref", dict(compose="layer", kl="ckpt", had="butterfly", amp=False)),
+                          ("fp32_ref_again", dict(compose="layer", kl="ckpt", had="butterfly", amp=False)),
+                          ("fp32_had", dict(compose="step", kl="ckpt", had="mm", amp=False))]
+            # composed weights of every linear: fp32 max relative difference and bf16 rounding flips against butterfly.
+            # Temporal three layer_dicts_step forwards; spatial two fp32 model copies held at once.
+            with torch.no_grad():
+                MODE.update(had="butterfly")
+                Wb = layer_dicts_step()
+                for md_ in ("mm", "jitter"):
+                    MODE.update(had=md_)
+                    Wx, rel, flips, zflips, tot, dn2, n2 = layer_dicts_step(), 0.0, 0, 0, 0, 0.0, 0.0
+                    for li in range(cfg.nl):
+                        for nm in KINDS:
+                            A, B = Wb[li][nm], Wx[li][nm]
+                            Ab, Bb = A.bfloat16(), B.bfloat16()
+                            rel = max(rel, float((B - A).abs().max() / A.abs().max()))
+                            flips += int((Ab != Bb).sum())
+                            zflips += int(((A == 0) & (B != 0)).sum())
+                            dn2 += float((Bb.float() - Ab.float()).pow(2).sum())
+                            n2 += float(Ab.float().pow(2).sum())
+                            tot += A.numel()
+                    wdiff[md_] = dict(w_rel_max=rel, bf16_flips=flips, words=tot, bf16_flip_frac=flips / tot,
+                                      zero_to_nonzero=zflips, bf16_rel_l2=(dn2 / n2) ** 0.5)
+                    print(f"grad_equiv weights {md_}: fp32 max rel {rel:.3e}, bf16 flips {flips}/{tot}, zero->nonzero {zflips}, "
+                          f"bf16 rel L2 {wdiff[md_]['bf16_rel_l2']:.3e}", flush=True)
+                    del Wx
+                del Wb
+        arm_modes.append(("requested", dict(compose=a.compose, kl=a.kl, had=a.hadamard)))
+        fp32 = {}
+        if a.hadamard == "mm":
+            # Temporal three fp32 forward+backward passes at batch 2; spatial one more fp32 gradient copy.
+            lf, gf, gsf = probe(fp32_modes[0][1])
+            fp32["fp32_ref"] = dict(loss=lf, agree=gf)
+            for nm_, md in fp32_modes[1:]:
+                l1, g1, gs1 = probe(md)
+                fp32[nm_] = dict(loss=l1, agree=g1, loss_rel=abs(l1 - lf) / abs(lf),
+                                 grad_rel_l2=float((gs1 - gsf).norm() / gsf.norm()), grad_cos=float(F.cosine_similarity(gs1, gsf, 0)))
+                print(f"grad_equiv {nm_}: loss {l1!r} vs {lf!r}, grad rel L2 {fp32[nm_]['grad_rel_l2']:.3e}", flush=True)
+            fp32["bf16_vs_fp32_loss_rel"] = abs(l0 - lf) / abs(lf)
+            fp32["float64_unit_max_rel"] = max(unit)
+            fp32["ok"] = max(unit) < 1e-12 and fp32["fp32_had"]["loss_rel"] < 1e-5 and fp32["fp32_had"]["grad_rel_l2"] < 1e-2
+            del gsf
+        for nm_, md in arm_modes:
             l1, g1, gs1 = probe(md)
-            arms[nm_] = dict(loss=l1, agree=g1, loss_equal=l1 == l0, grad_rel_l2=float((gs1 - gs0).norm() / gs0.norm()),
-                             grad_cos=float(F.cosine_similarity(gs1, gs0, 0)))
+            loss_rel = abs(l1 - l0) / abs(l0)
+            arms[nm_] = dict(loss=l1, agree=g1, loss_equal=l1 == l0, loss_rel=loss_rel,
+                             grad_rel_l2=float((gs1 - gs0).norm() / gs0.norm()), grad_cos=float(F.cosine_similarity(gs1, gs0, 0)))
             print(f"grad_equiv {nm_}: loss {l1!r} vs {l0!r}, agree {g1} vs {g0}, grad rel L2 {arms[nm_]['grad_rel_l2']:.3e} "
                   f"cos {arms[nm_]['grad_cos']:.8f}", flush=True)
-        MODE.update(compose=a.compose, kl=a.kl)
+        for nm_, md in arm_modes:
+            v = arms[nm_]
+            if md["had"] == "mm":
+                v["loss_ok"] = fp32["ok"] and v["grad_rel_l2"] < 1e-1
+            else:
+                v["loss_ok"] = md["had"] == "jitter" or v["loss_equal"]
+        MODE.update(compose=a.compose, kl=a.kl, had=a.hadamard, amp=True)
         floor = arms["ref_again"]["grad_rel_l2"]
-        res["controls"]["grad_equiv"] = dict(mode=dict(compose=a.compose, kl=a.kl), loss_ref=l0, agree_ref=g0, arms=arms,
-                                             noise_floor_rel_l2=floor,
-                                             ok=all(v["loss_equal"] for v in arms.values()) and arms["requested"]["grad_rel_l2"] < 1e-2)
+        grad_ok = arms["requested"]["grad_rel_l2"] < (1e-2 if a.hadamard == "butterfly" else 1e-1)
+        res["controls"]["grad_equiv"] = dict(mode=dict(compose=a.compose, kl=a.kl, had=a.hadamard), loss_ref=l0, agree_ref=g0,
+                                             arms=arms, weights=wdiff, fp32=fp32, noise_floor_rel_l2=floor,
+                                             ok=all(v["loss_ok"] for v in arms.values()) and grad_ok)
         dump()
         assert res["controls"]["grad_equiv"]["ok"], res["controls"]["grad_equiv"]
         del gs0, gs1
