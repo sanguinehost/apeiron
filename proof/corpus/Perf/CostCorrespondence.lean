@@ -11,6 +11,7 @@ import Perf.Chain
 import Perf.Overlap
 import Perf.SideInfo
 import Apeiron.Trichotomy.Basic
+import Perf.Receipts.Onebit
 
 set_option linter.apeiron.notation false
 
@@ -994,16 +995,23 @@ theorem four_factor_gap_identity {k_out k_in d_sep d_orc k_q4 : ℝ}
     (h_in : k_in ≠ 0) (h_sep : d_sep ≠ 0) (h_orc : d_orc ≠ 0) (h_q4 : k_q4 ≠ 0) :
     k_out / k_q4 = (k_out / k_in) * (k_in / d_sep) * (d_sep / d_orc) * (d_orc / k_q4) := by field_simp
 
-/-- **Verdict: 0.5B four-factor decomposition against Q4_K_M (`w15_four_factor_05b_decomposition`).** -/
+/-- **Verdict: 0.5B four-factor decomposition against Q4_K_M, `backfit` arm (`w15_four_factor_05b_decomposition`).**
+`k_out` and `k_in` are the held-out and in-sample KL of the single-seed `had-fold-2plane-attn-backfit` arm, which is
+not the current `-nb` arm: `Receipts.w15_backfit_attn`. `d_sep = 0.2837`, `d_orc = 0.1128` and the Q4_K_M reference
+`0.0197` are unbound: no committed receipt holds them (the onebit-w15 note, variance ladder at line 175 and
+oracle at line 181, Q4_K_M held-out at line 302). -/
 theorem w15_four_factor_05b_decomposition :
-    (1.8580 : ℝ) / 0.0197 > 94.3 ∧ (1.8580 : ℝ) / 0.0197 < 94.4 ∧
-    (1.8580 : ℝ) / 0.5929 > 3.13 ∧ (1.8580 : ℝ) / 0.5929 < 3.14 ∧
-    (0.5929 : ℝ) / 0.2837 > 2.08 ∧ (0.5929 : ℝ) / 0.2837 < 2.10 ∧
+    ((Receipts.w15_backfit_attn.klHeldout : ℚ) : ℝ) / 0.0197 > 94.3 ∧
+    ((Receipts.w15_backfit_attn.klHeldout : ℚ) : ℝ) / 0.0197 < 94.4 ∧
+    ((Receipts.w15_backfit_attn.klHeldout : ℚ) : ℝ) / ((Receipts.w15_backfit_attn.klInsample : ℚ) : ℝ) > 3.13 ∧
+    ((Receipts.w15_backfit_attn.klHeldout : ℚ) : ℝ) / ((Receipts.w15_backfit_attn.klInsample : ℚ) : ℝ) < 3.14 ∧
+    ((Receipts.w15_backfit_attn.klInsample : ℚ) : ℝ) / 0.2837 > 2.08 ∧
+    ((Receipts.w15_backfit_attn.klInsample : ℚ) : ℝ) / 0.2837 < 2.10 ∧
     (0.2837 : ℝ) / 0.1128 > 2.51 ∧ (0.2837 : ℝ) / 0.1128 < 2.52 ∧
     (0.1128 : ℝ) / 0.0197 > 5.72 ∧ (0.1128 : ℝ) / 0.0197 < 5.73 ∧
-    (1.8580 - 0.5929 : ℝ) > 2 / 3 * 1.8580 :=
-  ⟨by norm_num, by norm_num, by norm_num, by norm_num, by norm_num,
-   by norm_num, by norm_num, by norm_num, by norm_num, by norm_num, by norm_num⟩
+    (((Receipts.w15_backfit_attn.klHeldout : ℚ) : ℝ) - ((Receipts.w15_backfit_attn.klInsample : ℚ) : ℝ)) >
+      2 / 3 * ((Receipts.w15_backfit_attn.klHeldout : ℚ) : ℝ) := by
+  norm_num [Receipts.w15_backfit_attn.klHeldout, Receipts.w15_backfit_attn.klInsample]
 
 /-- **Sign-and-group-max butterfly gauge identity (`butterfly_sign_group_gauge`).** -/
 theorem butterfly_sign_group_gauge (s sd d_abs m r : ℝ) (hm : m ≠ 0) :
@@ -1305,80 +1313,102 @@ theorem asymmetric_distortion_penalty_strict (p w0 rho : ℝ) (hp : 0 < p) (hw0 
 
 /-! ## 25 · W16 T0 receipt: 3-seed verdict for the best W15d arm -/
 /-- **Verdict: `had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp` over three calibration-order
-seeds (`w16_t0_best_arm_3seed`).** `model` inputs from `tools/onebit/fold_transfer.py --seeds 0,1,2` (receipt
-`~/w16/t0-best-3seed.json`, Qwen2.5-0.5B, 24 layers): `bits = 421541376`, `params = 357826560`;
-held-out KL per seed `1.2798, 1.3894, 1.3896` nats (mean `1.3529`). Clauses: (a) `bits/params ≤ 1.18`;
-(b) the 3-seed mean held-out KL is below the committed single-seed `…-sink-fnorm` arm (`1.3777`);
-(c) the mean stays above Q4_K_M's `0.0197` nats (refuted-target clause: Q4_K_M is not reached);
-(d) the seed spread (max − min held-out KL) is below `0.12` nats. -/
+seeds (`w16_t0_best_arm_3seed`).** Every receipt numeral is a generated constant of `Receipts.t0_best_3seed`
+(receipt the receipts/onebit/t0-best-3seed note.json`, Qwen2.5-0.5B, 24 layers). Clauses: (a) `bits/params ≤ 1.18`;
+(b) the 3-seed mean held-out KL is below the seed-0 held-out KL of the committed `…-sink-fnorm` arm,
+`Receipts.t0b_sinkfnorm_3seed.klHeldout0`; (c) the mean stays above Q4_K_M's `0.0197` nats (refuted-target clause:
+Q4_K_M is not reached); (d) the seed spread (max − min held-out KL) is below `0.12` nats. The lower bound `1.3529` is
+the receipt's printed mean, kept as a literal threshold. -/
 theorem w16_t0_best_arm_3seed :
-    (421541376 : ℚ) / 357826560 ≤ 118 / 100 ∧
-    ((1.2798 : ℝ) + 1.3894 + 1.3896) / 3 < 1.3777 ∧
-    ((1.2798 : ℝ) + 1.3894 + 1.3896) / 3 > 1.3529 ∧
-    ((1.2798 : ℝ) + 1.3894 + 1.3896) / 3 > 0.0197 ∧
-    (1.3896 : ℝ) - 1.2798 < 0.12 := by
-  refine ⟨by norm_num, by norm_num, by norm_num, by norm_num, by norm_num⟩
+    ((Receipts.t0_best_3seed.bits : ℕ) : ℚ) / (Receipts.t0_best_3seed.params : ℕ) ≤ 118 / 100 ∧
+    Receipts.t0_best_3seed.klHeldoutMean < Receipts.t0b_sinkfnorm_3seed.klHeldout0 ∧
+    Receipts.t0_best_3seed.klHeldoutMean > 13529 / 10000 ∧
+    Receipts.t0_best_3seed.klHeldoutMean > 197 / 10000 ∧
+    Receipts.t0_best_3seed.klHeldout2 - Receipts.t0_best_3seed.klHeldout0 < 12 / 100 := by
+  norm_num [Receipts.t0_best_3seed.bits, Receipts.t0_best_3seed.params, Receipts.t0_best_3seed.klHeldout0,
+    Receipts.t0_best_3seed.klHeldout1, Receipts.t0_best_3seed.klHeldout2, Receipts.t0_best_3seed.klHeldoutMean,
+    Receipts.t0b_sinkfnorm_3seed.klHeldout0]
 
 /-! ## 26 · W16 T0b receipt: matched-seed baseline for the best W15d arm -/
-/-- **Verdict: matched-seed comparison of `…-sink-fnorm` (`1.179460` b/w) against
-`…-sink-fnorm-grow-res-qmlp` (`1.178061` b/w) (`w16_t0b_matched_seed_baseline`).** `model` inputs from
-`tools/onebit/fold_transfer.py --seeds 0,1,2` (receipts `~/w16/t0b-sinkfnorm-3seed.json`,
-`~/w16/t0-best-3seed.json`): held-out KL of the `…-sink-fnorm` arm per seed `1.3777, 1.3705, 1.4383`
-(mean `1.3955`); of the best arm `1.2798, 1.3894, 1.3896` (mean `1.3529`). Clauses: (a) the paired mean difference
-(best minus base) is negative; (b) the paired difference is positive on seed `1` (the gain is not uniform over seeds);
-(c) the base arm's own seed spread exceeds `0.06` nats, above the best arm's expected-gain scale of `0.015`;
-(d) both means stay above Q4_K_M's `0.0197` nats. -/
+/-- **Verdict: matched-seed comparison of `…-sink-fnorm` (`Receipts.t0b_sinkfnorm_3seed.bpwLinears`)
+against `…-sink-fnorm-grow-res-qmlp` (`Receipts.t0_best_3seed`, `Receipts.t0_best_3seed.bpwLinears`) (`w16_t0b_matched_seed_baseline`).**
+Clauses: (a) the paired mean difference (best minus base) is negative; (b) the paired difference is positive on seed `1`
+(the gain is not uniform over seeds); (c) the base arm's own seed spread (seed 2 minus seed 1) exceeds `0.06` nats, above
+the best arm's expected-gain scale of `0.015`; (d) both means stay above Q4_K_M's `0.0197` nats. -/
 theorem w16_t0b_matched_seed_baseline :
-    ((1.2798 : ℝ) - 1.3777 + (1.3894 - 1.3705) + (1.3896 - 1.4383)) / 3 < 0 ∧
-    (1.3894 : ℝ) - 1.3705 > 0 ∧
-    (1.4383 : ℝ) - 1.3705 > 0.06 ∧ (1.4383 : ℝ) - 1.3705 < 0.07 ∧
-    ((1.3777 : ℝ) + 1.3705 + 1.4383) / 3 > 0.0197 ∧
-    ((1.2798 : ℝ) + 1.3894 + 1.3896) / 3 > 0.0197 := by
-  refine ⟨by norm_num, by norm_num, by norm_num, by norm_num, by norm_num, by norm_num⟩
+    ((Receipts.t0_best_3seed.klHeldout0 - Receipts.t0b_sinkfnorm_3seed.klHeldout0) +
+      (Receipts.t0_best_3seed.klHeldout1 - Receipts.t0b_sinkfnorm_3seed.klHeldout1) +
+      (Receipts.t0_best_3seed.klHeldout2 - Receipts.t0b_sinkfnorm_3seed.klHeldout2)) / 3 < 0 ∧
+    Receipts.t0_best_3seed.klHeldout1 - Receipts.t0b_sinkfnorm_3seed.klHeldout1 > 0 ∧
+    Receipts.t0b_sinkfnorm_3seed.klHeldout2 - Receipts.t0b_sinkfnorm_3seed.klHeldout1 > 6 / 100 ∧
+    Receipts.t0b_sinkfnorm_3seed.klHeldout2 - Receipts.t0b_sinkfnorm_3seed.klHeldout1 < 7 / 100 ∧
+    Receipts.t0b_sinkfnorm_3seed.klHeldoutMean > 197 / 10000 ∧
+    Receipts.t0_best_3seed.klHeldoutMean > 197 / 10000 := by
+  norm_num [Receipts.t0_best_3seed.klHeldout0, Receipts.t0_best_3seed.klHeldout1,
+    Receipts.t0_best_3seed.klHeldout2, Receipts.t0b_sinkfnorm_3seed.klHeldout0,
+    Receipts.t0b_sinkfnorm_3seed.klHeldout1, Receipts.t0b_sinkfnorm_3seed.klHeldout2,
+    Receipts.t0_best_3seed.klHeldoutMean, Receipts.t0b_sinkfnorm_3seed.klHeldoutMean]
 
 /-! ## 27 · W16 T3 receipt: the `-nb` joint block-ICM arm -/
-/-- **Verdict: `-nb` against the best W15d arm, paired per seed (`w16_t3_nb_paired`).** `model` inputs from
-`tools/onebit/fold_transfer.py` (receipts `~/w16/t3-nb-3seed.json`,
-`~/w16/t3-base-seeds12.json`): `-nb` held-out KL per seed `1.2777, 1.3086, 1.3007`; best arm (T0)
-`1.2798, 1.3894, 1.3896`; aggregate k/v/o `J_nb/J_seq = 0.9217` on seed `0`; the best arm re-run on seeds `1, 2` gives
-`1.38939, 1.38959`. Clauses: (a) the aggregate `J` ratio lies in the predicted `[0.90, 0.97]`; (b) the paired difference is
-negative on every seed; (c) the largest paired difference is below the `+0.005` falsifier; (d) the mean paired difference
-is negative and lies below `-0.015`, outside the predicted `[-0.015, -0.001]` band (that prediction is refuted on
-magnitude); (e) the control re-run reproduces T0 on seeds `1, 2` within `0.005`; (f) the `-nb` mean stays above
-Q4_K_M's `0.0197` nats and below the matched base arm's `1.3955`. -/
+/-- **Verdict: `-nb` against the best W15d arm, paired per seed (`w16_t3_nb_paired`).** Receipts:
+`Receipts.t3_nb_3seed` (`-nb` held-out KL per seed, aggregate `J_nb/J_seq` as `nbRatio`),
+`Receipts.t0_best_3seed` (best arm), `Receipts.t3_base_seeds12` (the best arm re-run on seeds `1, 2`), and
+`Receipts.t0b_sinkfnorm_3seed` (matched base arm mean). Clauses: (a) the aggregate `J` ratio lies in the predicted
+`[0.90, 0.97]`; (b) the paired difference is negative on every seed; (c) the largest paired difference is below the
+`+0.005` falsifier; (d) the mean paired difference is negative and lies below `-0.015`, outside the predicted
+`[-0.015, -0.001]` band (that prediction is refuted on magnitude); (e) the control re-run reproduces T0 on seeds `1, 2`
+within `0.005`; (f) the `-nb` mean stays above Q4_K_M's `0.0197` nats and below the matched base arm's mean. -/
 theorem w16_t3_nb_paired :
-    (0.90 : ℝ) ≤ 0.9217 ∧ (0.9217 : ℝ) ≤ 0.97 ∧
-    (1.2777 : ℝ) - 1.2798 < 0 ∧ (1.3086 : ℝ) - 1.3894 < 0 ∧ (1.3007 : ℝ) - 1.3896 < 0 ∧
-    (1.2777 : ℝ) - 1.2798 < 0.005 ∧
-    ((1.2777 : ℝ) - 1.2798 + (1.3086 - 1.3894) + (1.3007 - 1.3896)) / 3 < -0.015 ∧
-    ((1.2777 : ℝ) + 1.3086 + 1.3007) / 3 > 0.0197 ∧
-    ((1.2777 : ℝ) + 1.3086 + 1.3007) / 3 < 1.3955 ∧
-    |(1.38939 : ℝ) - 1.3894| < 0.005 ∧ |(1.38959 : ℝ) - 1.3896| < 0.005 := by
-  refine ⟨by norm_num, by norm_num, by norm_num, by norm_num, by norm_num, by norm_num, by norm_num,
-    by norm_num, by norm_num, ?_, ?_⟩
-  · rw [abs_lt]; constructor <;> norm_num
-  · rw [abs_lt]; constructor <;> norm_num
+    (90 / 100 : ℚ) ≤ Receipts.t3_nb_3seed.nbRatio ∧ Receipts.t3_nb_3seed.nbRatio ≤ 97 / 100 ∧
+    Receipts.t3_nb_3seed.klHeldout0 - Receipts.t0_best_3seed.klHeldout0 < 0 ∧
+    Receipts.t3_nb_3seed.klHeldout1 - Receipts.t0_best_3seed.klHeldout1 < 0 ∧
+    Receipts.t3_nb_3seed.klHeldout2 - Receipts.t0_best_3seed.klHeldout2 < 0 ∧
+    Receipts.t3_nb_3seed.klHeldout0 - Receipts.t0_best_3seed.klHeldout0 < 5 / 1000 ∧
+    ((Receipts.t3_nb_3seed.klHeldout0 - Receipts.t0_best_3seed.klHeldout0) +
+      (Receipts.t3_nb_3seed.klHeldout1 - Receipts.t0_best_3seed.klHeldout1) +
+      (Receipts.t3_nb_3seed.klHeldout2 - Receipts.t0_best_3seed.klHeldout2)) / 3 < -15 / 1000 ∧
+    Receipts.t3_nb_3seed.klHeldoutMean > 197 / 10000 ∧
+    Receipts.t3_nb_3seed.klHeldoutMean < Receipts.t0b_sinkfnorm_3seed.klHeldoutMean ∧
+    Receipts.t3_base_seeds12.klHeldout1 - Receipts.t0_best_3seed.klHeldout1 < 5 / 1000 ∧
+    Receipts.t0_best_3seed.klHeldout1 - Receipts.t3_base_seeds12.klHeldout1 < 5 / 1000 ∧
+    Receipts.t3_base_seeds12.klHeldout2 - Receipts.t0_best_3seed.klHeldout2 < 5 / 1000 ∧
+    Receipts.t0_best_3seed.klHeldout2 - Receipts.t3_base_seeds12.klHeldout2 < 5 / 1000 := by
+  norm_num [Receipts.t3_nb_3seed.nbRatio, Receipts.t3_nb_3seed.klHeldout0, Receipts.t3_nb_3seed.klHeldout1,
+    Receipts.t3_nb_3seed.klHeldout2, Receipts.t3_nb_3seed.klHeldoutMean,
+    Receipts.t0_best_3seed.klHeldout0, Receipts.t0_best_3seed.klHeldout1, Receipts.t0_best_3seed.klHeldout2,
+    Receipts.t0b_sinkfnorm_3seed.klHeldoutMean, Receipts.t0b_sinkfnorm_3seed.klHeldout0,
+    Receipts.t0b_sinkfnorm_3seed.klHeldout1, Receipts.t0b_sinkfnorm_3seed.klHeldout2,
+    Receipts.t3_base_seeds12.klHeldout1,
+    Receipts.t3_base_seeds12.klHeldout2]
 
 /-! ## 28 · W16 T6 receipt: junction side information for the `-nb` residual frame -/
-/-- **Verdict: route (b) closed at linear and product-junction order, route (a) closed (`w16_t6_sideinfo`).** `model`
-inputs from `tools/onebit/side_probe.py` on the `-nb` seed-`0` capture (receipt `~/w16/t6-sideinfo.json`):
-largest per-kind out-of-fold increment of the Hessian-weighted `R²` over the self predictor `0.00223` (decoded,
-`up`, product junction), `0.00124` (oracle partner, same cell); J-weighted total decoded increment `0.00094`; largest
-shuffled-partner `|ΔR²|` `4.4e-5`; route-(a) rate at `f* = 0.98479` is `2.0723` b/w against the white bound `3.0196` and
-the `1.178061` b/w budget. Clauses: (a) every kind's decoded increment is below the `0.02` closure threshold, so
+/-- **Verdict: route (b) closed at linear and product-junction order, route (a) closed (`w16_t6_sideinfo`).** Inputs
+are generated constants of `Receipts.t6_sideinfo` and `Receipts.t6_sideinfo_ext` (receipt
+the receipts/onebit/t6-sideinfo note.json`, `-nb` seed-`0` capture), with the `-nb` budget
+`Receipts.t3_nb_3seed.bpwLinears`. Clauses: (a) every kind's decoded increment is below the `0.02` closure threshold, so
 `Perf.SideInfo.RouteBClosedLinear` holds and `RouteBOpen` fails at the J-weighted total; (b) the oracle increment is
-below `0.05`; (c) the shuffled control is below `0.005`; (d) `Perf.SideInfo.RouteAClosed` holds at `2.0723`; (e) the
-`w16-t6-probe-1` magnitude prediction `R_a(f*) ∈ [2.6, 3.1]` is refuted (`2.0723 < 2.6`) while its falsifier
-(`R_a(f*) < 2.0`) does not trigger; (f) the rate sits below the white bound and above the bit budget. -/
+below `0.05`; (c) the shuffled control is below `0.005` in magnitude; (d) `Perf.SideInfo.RouteAClosed` holds at
+`Receipts.t6_sideinfo.rAFStarTotal`; (e) the `w16-t6-probe-1` magnitude prediction `R_a(f*) ∈ [2.6, 3.1]` is refuted
+(`R_a(f*) < 2.6`) while its falsifier (`R_a(f*) < 2.0`) does not trigger; (f) the rate sits below the white bound
+`Receipts.t6_sideinfo.whiteBoundBpw` and above the bit budget. -/
 theorem w16_t6_sideinfo :
-    Perf.SideInfo.RouteBClosedLinear (0.00223 : ℝ) ∧ ¬ Perf.SideInfo.RouteBOpen (0.00094 : ℝ) ∧
-    (0.00124 : ℝ) ≤ 0.05 ∧ (0.000044 : ℝ) ≤ 0.005 ∧
-    Perf.SideInfo.RouteAClosed (2.0723 : ℝ) ∧
-    (2.0723 : ℝ) < 2.6 ∧ (2.0723 : ℝ) < 3.0196 ∧ (1.178061 : ℝ) < 2.0723 := by
-  refine ⟨?_, ?_, by norm_num, by norm_num, ?_, by norm_num, by norm_num, by norm_num⟩
-  · norm_num [Perf.SideInfo.RouteBClosedLinear]
-  · norm_num [Perf.SideInfo.RouteBOpen]
-  · norm_num [Perf.SideInfo.RouteAClosed]
+    Perf.SideInfo.RouteBClosedLinear ((Receipts.t6_sideinfo_ext.incrOverF0F2dUp : ℚ) : ℝ) ∧
+    ¬ Perf.SideInfo.RouteBOpen ((Receipts.t6_sideinfo.incrDecodedF2d : ℚ) : ℝ) ∧
+    ((Receipts.t6_sideinfo_ext.incrOverF0F2oUp : ℚ) : ℝ) ≤ 0.05 ∧
+    |((Receipts.t6_sideinfo_ext.shuffleF1KDR2 : ℚ) : ℝ)| ≤ 0.005 ∧
+    Perf.SideInfo.RouteAClosed ((Receipts.t6_sideinfo.rAFStarTotal : ℚ) : ℝ) ∧
+    ((Receipts.t6_sideinfo.rAFStarTotal : ℚ) : ℝ) < 2.6 ∧
+    ((Receipts.t6_sideinfo.rAFStarTotal : ℚ) : ℝ) < ((Receipts.t6_sideinfo.whiteBoundBpw : ℚ) : ℝ) ∧
+    ((Receipts.t3_nb_3seed.bpwLinears : ℚ) : ℝ) < ((Receipts.t6_sideinfo.rAFStarTotal : ℚ) : ℝ) := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · norm_num [Perf.SideInfo.RouteBClosedLinear, Receipts.t6_sideinfo_ext.incrOverF0F2dUp]
+  · norm_num [Perf.SideInfo.RouteBOpen, Receipts.t6_sideinfo.incrDecodedF2d]
+  · norm_num [Receipts.t6_sideinfo_ext.incrOverF0F2oUp]
+  · rw [abs_le]; constructor <;> norm_num [Receipts.t6_sideinfo_ext.shuffleF1KDR2]
+  · norm_num [Perf.SideInfo.RouteAClosed, Receipts.t6_sideinfo.rAFStarTotal]
+  · norm_num [Receipts.t6_sideinfo.rAFStarTotal]
+  · norm_num [Receipts.t6_sideinfo.rAFStarTotal, Receipts.t6_sideinfo.whiteBoundBpw]
+  · norm_num [Receipts.t3_nb_3seed.bpwLinears, Receipts.t6_sideinfo.rAFStarTotal]
 
 end CostCorrespondence
 end Perf
