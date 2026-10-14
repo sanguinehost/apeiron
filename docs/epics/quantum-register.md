@@ -183,9 +183,14 @@ and the wrapper. `proof/corpus/Numeric/RegisterRefinement.lean` (`lake build Num
 | `stage_mul_denote_witness` | the hypotheses hold jointly on `[3, 5]`, span 1, `w = (2, 1)`, `σ = 1` |
 
 All ten are in `AxiomAudit.lean` (`{propext, Classical.choice, Quot.sound}`). Controls: in a renamed copy of the file,
-swapping `w`'s slots or negating `σ` in `mulCell_denote` fails at line 617 (exit 1 each). Open: the generated-body mutation
-named in the plan row (change the multiply in a copy of `ApeironWord.lean`; `stage_mul_denote` red). Board row
-`quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs`.
+swapping `w`'s slots or negating `σ` in `mulCell_denote` fails at line 617 (exit 1 each). Generated-body control
+`bash proof/controls/register.sh` (copies under `/home/socol/oc-tmp`, never the working tree; 12G cap, lane lock): baseline
+green; swapping the lo/hi write-back in `register.stage_block_loop.body` fails at `RegisterRefinement.lean:484`; dropping
+`σ` from `cell.CellI64.checked_mul` (`I64.checked_mul s self.b` → `1#i64`) fails at `RegisterRefinement.lean:159`; restored
+green; exit 0 in 489 s of 580. The two mutations build in parallel copies, because one fresh chain after an
+`ApeironWord.lean` change is ~245 s (`Numeric.Exp.Part2` 186 s). With both mutations made identity edits, the script
+exits 1 with "mutation not detected" on both steps, so its own refusal fires.
+Board row `quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs`.
 
 ### W1-T1 result (prediction `kan-probe-1`, refuted)
 
