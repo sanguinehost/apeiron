@@ -86,8 +86,8 @@ theorem bytes_floor {α : Type*} [MeasurableSpace α] [MeasurableSingletonClass 
   have hB : B.card ≤ n * cap := by exact_mod_cast h
   exact ⟨hB, Chain.ceilDiv_le_of_le_mul hcap hB⟩
 
-/-- **Quantisation instance (covering converse).** A codebook of `|I|` words whose `ε`-balls cover the `r`-ball of a
-`d`-dimensional real space has `r^d ≤ |I| · ε^d`: at least `d · log₂ (r/ε)` bits. -/
+/-- **Quantisation instance (covering converse).** If the `ε`-balls of a codebook of `|I|` words cover the `r`-ball
+of a `d`-dimensional real space, then `r^d ≤ |I| · ε^d`: at least `d · log₂ (r/ε)` bits. -/
 theorem covering_floor {E : Type*} [NormedAddCommGroup E] [NormedSpace ℝ E] [FiniteDimensional ℝ E]
     [MeasurableSpace E] [BorelSpace E] (μ : Measure E) [μ.IsAddHaarMeasure] {ι : Type*} (I : Finset ι)
     (z : ι → E) {r ε : ℝ} (hr : 0 < r) (hε : 0 < ε) (hcov : ball (0 : E) r ⊆ ⋃ i ∈ I, ball (z i) ε) :
@@ -165,8 +165,8 @@ theorem qwen05b_perm_gauge :
     (4864 : ℕ) ≤ 2 ^ 13 ∧ 24 * (13 * 4864) * 1000 ≤ 4 * 494032768 := by
   constructor <;> norm_num
 
-/-- **A continuous exact gauge is Fisher-null.** A direction `x` along which the loss is flat to second order
-(`xᵀ F x = 0`, `F` positive semidefinite) leaves every quadratic error unchanged: `(D + t x)ᵀ F (D + t x) = Dᵀ F D`.
+/-- **A continuous exact gauge is Fisher-null.** If a direction `x` is flat to second order
+(`xᵀ F x = 0`, `F` positive semidefinite), it leaves every quadratic error unchanged: `(D + t x)ᵀ F (D + t x) = Dᵀ F D`.
 Water-filling on `F` gives such a direction zero rate, so the gauge choice moves only the coder's gap to the
 floor, never the floor. -/
 theorem gauge_null {n : Type*} [Fintype n] [DecidableEq n] {F : Matrix n n ℝ} (hF : F.PosSemidef)
@@ -264,7 +264,7 @@ theorem greedy_makespan {W S w s t : ℝ} (hS : 0 < S) (hbusy : S * t ≤ W - w)
     nlinarith
   linarith
 
-/-- Any schedule takes at least `W/S` (the floor), and greedy at most `W/S + w/s`: refining the partition gains at
+/-- If a schedule takes at least `W/S` (the floor) and greedy at most `W/S + w/s`, refining the partition gains at
 most the factor `1 + (w/s) / (W/S)`. -/
 theorem refine_gain_le {W S w s T₀ T₁ : ℝ} (hS : 0 < S) (hW : 0 < W) (hws : 0 ≤ w / s)
     (h₀ : T₀ ≤ W / S + w / s) (h₁ : W / S ≤ T₁) : T₀ / T₁ ≤ 1 + (w / s) / (W / S) := by
@@ -284,8 +284,8 @@ theorem partition_0bf8b4d :
       (1139 : ℚ) / 1000 < 1 + 24 / 64 := by
   refine ⟨by decide, by decide, by norm_num, by norm_num⟩
 
-/-- **The fluid floor (performance water level).** Divisible work on workers of speed `s_i > 0`, every worker done by
-`T`: the total work is at most `T · Σ s_i`, so the makespan is at least `W / S`. -/
+/-- **The fluid floor (performance water level).** If divisible work on workers of speed `s_i > 0` has every worker
+done by `T`, the total work is at most `T · Σ s_i`, so the makespan is at least `W / S`. -/
 theorem fluid_floor {ι : Type*} (I : Finset ι) (x s : ι → ℝ) (T : ℝ) (hs : ∀ i ∈ I, 0 < s i)
     (hT : ∀ i ∈ I, x i / s i ≤ T) : ∑ i ∈ I, x i ≤ T * ∑ i ∈ I, s i := by
   rw [Finset.mul_sum]
@@ -294,8 +294,8 @@ theorem fluid_floor {ι : Type*} (I : Finset ι) (x s : ι → ℝ) (T : ℝ) (h
   rw [div_le_iff₀ (hs i hi)] at this
   linarith
 
-/-- Proportional loads `x_i = s_i · W / S` carry all the work and finish together at the level `W / S`: the fluid
-floor is attained, every loaded worker at the same level. -/
+/-- When every speed is positive, proportional loads `x_i = s_i · W / S` carry all the work and finish together at
+the level `W / S`: the fluid floor is attained, every loaded worker at the same level. -/
 theorem fluid_attained {ι : Type*} (I : Finset ι) (s : ι → ℝ) (W : ℝ) (hS : 0 < ∑ i ∈ I, s i)
     (hs : ∀ i ∈ I, 0 < s i) :
     ∑ i ∈ I, s i * (W / ∑ j ∈ I, s j) = W ∧
@@ -360,9 +360,11 @@ theorem waterfill_level {lam θ c : ℝ} (hlam : 0 < lam) (hθ : 0 < θ) (hc : 0
     rw [max_eq_right hpos.le, hcc, Real.exp_neg, Real.exp_log (div_pos hlam hθ), min_eq_right h.le]
     field_simp
 
-/-- **The water level is the floor.** At level `θ`, no allocation of at most `Σ_i max 0 (log (λ_i/θ) / c)` total
-rate leaves less distortion than `Σ_i min λ_i θ`. Over the components of every tensor at once this is the global
-rate allocation across tensors: the quantisation analogue of `fluid_floor`. -/
+/-- **The water level is the floor, under the exponential distortion model.** If component `i` leaves distortion
+`λ_i · exp (-c · r_i)` at rate `r_i` (a `model` for real weights, exact for a Gaussian source), then at level `θ`
+no allocation of at most `Σ_i max 0 (log (λ_i/θ) / c)` total rate leaves less distortion than `Σ_i min λ_i θ`.
+Over the components of every tensor at once this is the global rate allocation across tensors: the quantisation
+analogue of `fluid_floor`. -/
 theorem waterfill_floor {ι : Type*} (I : Finset ι) (lam r : ι → ℝ) {c θ : ℝ} (hc : 0 < c) (hθ : 0 < θ)
     (hlam : ∀ i ∈ I, 0 < lam i) (hr : ∀ i ∈ I, 0 ≤ r i)
     (hbud : ∑ i ∈ I, r i ≤ ∑ i ∈ I, max 0 (Real.log (lam i / θ) / c)) :
