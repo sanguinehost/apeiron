@@ -2030,6 +2030,30 @@ def lbLamVMedian : ℚ := (5196524669509163 : ℚ) / 10000000000000000
 
 end Receipts.qreg_yaqalw
 
+-- Receipt the receipts/onebit/qreg-spec note.json`
+namespace Receipts.qreg_spec
+
+def sha256 : String := "1cc32b465b5a1f3790ea190411a2d9bfd56a63f5704489b87959a3d1ad109d74"
+def bitsBefore : ℕ := 421541376
+def steps : ℕ := 549
+def positions : ℕ := 20480
+def klHeldoutAfter : ℚ := (8576398313045501 : ℚ) / 10000000000000000
+def top1HeldoutAfter : ℚ := (11269 : ℚ) / 20480
+def accept : ℚ := (5972044438123703 : ℚ) / 10000000000000000
+def eK1 : ℚ := (1596744131663489 : ℚ) / 1000000000000000
+def eK2 : ℚ := (19682410588340153 : ℚ) / 10000000000000000
+def eK3 : ℚ := (4407868860638331 : ℚ) / 2000000000000000
+def eK4 : ℚ := (36811996263171 : ℚ) / 15625000000000
+def eK5 : ℚ := (4910597810291109 : ℚ) / 2000000000000000
+def eK6 : ℚ := (12605394878084697 : ℚ) / 5000000000000000
+def eK7 : ℚ := (2565160902719649 : ℚ) / 1000000000000000
+def eK8 : ℚ := (1297544927445669 : ℚ) / 500000000000000
+def hostReadGBs : ℚ := (2170505384755041 : ℚ) / 25000000000000
+def h2dGBs : ℚ := (12803605363726707 : ℚ) / 1000000000000000
+def deviceReadGBs : ℚ := (8652024878805171 : ℚ) / 10000000000000
+
+end Receipts.qreg_spec
+
 -- Receipt the receipts/onebit/2026-10-11-vladder note.json`
 namespace Receipts.vladder_1011
 

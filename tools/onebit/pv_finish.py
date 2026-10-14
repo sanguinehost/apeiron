@@ -2050,9 +2050,12 @@ def main():
         t.clear()
     torch.cuda.empty_cache()
 
-    kl_ev1, t1_ev1 = ft.kl_eval(cfg, TL, Ls2, ids_ev)
+    spec1 = {}
+    kl_ev1, t1_ev1 = ft.kl_eval(cfg, TL, Ls2, ids_ev, stats=spec1)
     kl_in1, t1_in1 = ft.kl_eval(cfg, TL, Ls2, ids_in)
-    res.update(kl_heldout_after=kl_ev1, top1_heldout_after=t1_ev1, kl_insample_after=kl_in1, top1_insample_after=t1_in1)
+    res.update(kl_heldout_after=kl_ev1, top1_heldout_after=t1_ev1, kl_insample_after=kl_in1, top1_insample_after=t1_in1,
+               spec_heldout_after=spec1)
+    print(f"spec heldout accept {spec1['accept']:.6f} E_k {[round(x, 4) for x in spec1['e_k']]}", flush=True)
     if a.attrib:
         res["attrib"]["after"] = attrib(cfg, TL, Ls2, ids_at)
         attrib_line("after", res["attrib"]["after"])

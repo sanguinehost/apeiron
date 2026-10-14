@@ -2145,8 +2145,36 @@ def gq_controls(cfg, TL, ids_all, a):
 
 # ---------------------------------------------------------------- evaluation
 _TEACHER_H_CACHE = {}
+SPEC_KMAX = 8
+
+
+def spec_stats(lt, ls, kmax=SPEC_KMAX):
+    """Speculative-sampling acceptance of draft `ls` against target `lt` (log-probs, (B, T, V)), teacher-forced.
+
+    Per position the acceptance is `a_t = sum_x min(p_t(x), q_t(x)) = 1 - TV(p_t, q_t)` (Leviathan, Kalman, Matias 2022,
+    arXiv 2211.17192; `Nous.Model.SpeculativeAccept.accept_rate`). For a block of `k` drafted tokens starting at `t`
+    the expected emitted count, with the acceptances read along the held-out text, is
+    `E_k(t) = 1 + sum_{j=1..k} prod_{i<j} a_{t+i}` (the first rejection or the bonus token ends the block); returned
+    as sums over the `T - kmax` start positions of each row so every k averages one population.
+    Cost: O(B T V) adds for `a`, O(B T kmax) multiplies for the products; extra memory one (B, T, V) min.
+    """
+    a = torch.minimum(lt.exp(), ls.exp()).sum(-1).clamp(max=1.0)  # (B, T)
+    T = a.shape[1]
+    S = T - kmax
+    prod = torch.ones_like(a[:, :S])
+    ek = []
+    tot = torch.ones_like(prod)
+    for j in range(1, kmax + 1):
+        prod = prod * a[:, j - 1:j - 1 + S]
+        tot = tot + prod
+        ek.append(float(tot.sum()))
+    return float(a.sum()), int(a.numel()), ek, int(prod.numel())
+
+
 @torch.no_grad()
-def kl_eval(cfg, TL, Ls, ids, bs=10):
+def kl_eval(cfg, TL, Ls, ids, bs=10, stats=None):
+    """Mean token KL(teacher || student) and top-1 agreement over `ids`; with `stats` (a dict) also the speculative
+    acceptance `1 - TV` and `E_k` for k = 1..SPEC_KMAX from `spec_stats`."""
     N = ids.shape[0]
     key = (len(TL), ids.data_ptr(), N, ids.shape[1])
     if key not in _TEACHER_H_CACHE:
@@ -2168,6 +2196,7 @@ def kl_eval(cfg, TL, Ls, ids, bs=10):
     fn_s = Ls[-1].get("fnorm", cfg.fnorm).to(DEV) if Ls else cfg.fnorm.to(DEV)
     E_g = cfg.E.to(DEV)
     kls, agree, n = 0.0, 0, 0
+    acc, na, eks, ne = 0.0, 0, [0.0] * SPEC_KMAX, 0
     for i in range(0, N, 2):
         ut = rms(ht[i:i + 2].to(DEV), fn_t, cfg.eps)
         us = rms(hs[i:i + 2].to(DEV), fn_s, cfg.eps)
@@ -2176,9 +2205,16 @@ def kl_eval(cfg, TL, Ls, ids, bs=10):
         kls += float((lt.exp() * (lt - ls)).sum(-1).sum().item())
         agree += int((lt.argmax(-1) == ls.argmax(-1)).sum().item())
         n += int(ids[i:i + 2].numel())
+        if stats is not None:
+            a_s, a_n, ek, e_n = spec_stats(lt, ls)
+            acc, na, ne = acc + a_s, na + a_n, ne + e_n
+            eks = [x + y for x, y in zip(eks, ek)]
         del ut, us, lt, ls
     del E_g, hs
     torch.cuda.empty_cache()
+    if stats is not None:
+        stats.update(accept=acc / na, tv=1 - acc / na, e_k=[x / ne for x in eks], kmax=SPEC_KMAX, positions=na,
+                     block_starts=ne)
     return kls / n, agree / n
 
 
@@ -2676,6 +2712,19 @@ def yaqa_controls():
     out["lb"].update(c=dict(lb=lb3, li=li3, ratio=(lb3 / li3 if li3 else float("inf"))))
     assert lb3 > 5 * li3, (lb3, li3)
     print(f"yaqa_lb a={rel_P:.3g},{rel_num:.3g} b={lb:.6g}/{li:.6g} c={lb3:.6g}/{li3:.6g}", flush=True)
+    # spec_stats: (a) identical draft accepts every token and emits k + 1 per block; (b) p = (1/2, 1/2), q = (3/4, 1/4)
+    # at every position accepts 3/4 and emits the geometric sum (1 - (3/4)^(k+1)) / (1/4).
+    lt = torch.log_softmax(torch.randn(2, 20, 7, dtype=torch.float64, generator=gen), -1)
+    a_s, a_n, ek, e_n = spec_stats(lt, lt)
+    rel_a = max(abs(a_s / a_n - 1), max(abs(x / e_n - (k + 1)) / (k + 1) for k, x in enumerate(ek, 1)))
+    p2 = torch.tensor([0.5, 0.5], dtype=torch.float64).log().expand(2, 20, 2)
+    q2 = torch.tensor([0.75, 0.25], dtype=torch.float64).log().expand(2, 20, 2)
+    a_s, a_n, ek, e_n = spec_stats(p2, q2)
+    rel_b = max(abs(a_s / a_n - 0.75) / 0.75,
+                max(abs(x / e_n - (1 - 0.75 ** (k + 1)) / 0.25) / ((1 - 0.75 ** (k + 1)) / 0.25) for k, x in enumerate(ek, 1)))
+    out["spec"] = dict(rel_identical=rel_a, rel_geometric=rel_b)
+    assert rel_a < 1e-12 and rel_b < 1e-12, (rel_a, rel_b)
+    print(f"spec_stats a={rel_a:.3g} b={rel_b:.3g}", flush=True)
     return out
 
 

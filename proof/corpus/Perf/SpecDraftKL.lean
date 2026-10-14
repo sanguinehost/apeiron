@@ -110,4 +110,97 @@ theorem witness_accept :
   · norm_num [Fin.sum_univ_two]
   · norm_num [Fin.sum_univ_two]
 
+/-! ## Block length and step-time model
+
+A speculative block drafts `k` tokens and the verifier scores all `k + 1` positions in one pass. Draft `j` is kept
+when drafts `0..j-1` were kept and its own test passes; the block emits the kept prefix plus one corrected or bonus
+token. With acceptance `a t` at position `t` the expected emission from a block starting at `t` is
+`blockLenAt a t k = ∑_{j ≤ k} ∏_{i < j} a (t + i)` (`spec_stats` in `tools/onebit/fold_transfer.py` computes it
+along held-out text); at a constant `a` it is the geometric sum `blockLen a k = (1 - a^(k+1)) / (1 - a)`
+(Leviathan, Kalman and Matias 2022, arXiv 2211.17192, §3.1). -/
+
+/-- Expected emission of one block of `k` drafts at constant acceptance `a`. -/
+noncomputable def blockLen (a : ℝ) (k : ℕ) : ℝ := ∑ j ∈ range (k + 1), a ^ j
+
+/-- Expected emission of one block of `k` drafts starting at `t`, acceptance `a i` at position `i`. -/
+noncomputable def blockLenAt (a : ℕ → ℝ) (t k : ℕ) : ℝ := ∑ j ∈ range (k + 1), ∏ i ∈ range j, a (t + i)
+
+/-- At a constant acceptance the per-position block length is the geometric one. -/
+theorem blockLenAt_const (a : ℝ) (t k : ℕ) : blockLenAt (fun _ => a) t k = blockLen a k := by
+  simp [blockLenAt, blockLen, prod_const, card_range]
+
+/-- **Geometric closed form.** `(1 - a) · blockLen a k = 1 - a^(k+1)`. -/
+theorem blockLen_geom (a : ℝ) (k : ℕ) : (1 - a) * blockLen a k = 1 - a ^ (k + 1) :=
+  mul_neg_geom_sum a (k + 1)
+
+/-- Block length rises with acceptance. -/
+theorem blockLen_mono {a b : ℝ} (k : ℕ) (h0 : 0 ≤ a) (hab : a ≤ b) : blockLen a k ≤ blockLen b k := by
+  unfold blockLen; gcongr
+
+/-- Block length is between `1` and `k + 1` for an acceptance in `[0, 1]`. -/
+theorem blockLen_bounds {a : ℝ} (k : ℕ) (h0 : 0 ≤ a) (h1 : a ≤ 1) : 1 ≤ blockLen a k ∧ blockLen a k ≤ k + 1 := by
+  constructor
+  · have := blockLen_mono k le_rfl h0
+    simpa [blockLen, zero_pow_eq] using this
+  · have := blockLen_mono k h0 h1
+    simpa [blockLen] using this
+
+/-- **When speculation pays.** A verifier pass costs `tV` whether it scores one position or `k + 1` (its weights are
+read once: the bandwidth-bound regime), a draft step costs `tD`. Speculation emits `E` tokens per `tV + k tD` against
+one per `tV` without it, and is faster exactly when the `E - 1` extra tokens outweigh the drafting time. -/
+theorem spec_faster {E tV tD : ℝ} (k : ℕ) (hV : 0 < tV) (hD : 0 ≤ tD) :
+    1 / tV < E / (tV + k * tD) ↔ k * tD < (E - 1) * tV := by
+  have hk : 0 < tV + k * tD := by positivity
+  rw [div_lt_div_iff₀ hV hk]
+  constructor <;> intro h <;> nlinarith
+
+/-- Witness: at `a = 1/2`, `k = 2` the block emits `7/4`. -/
+theorem blockLen_witness : blockLen (1 / 2) 2 = 7 / 4 := by
+  norm_num [blockLen, sum_range_succ]
+
+/-! ## Receipt instances: the finished arm as a draft (`qreg-spec.json`)
+
+Acceptance, block lengths and bandwidths are `measured` (the receipts/onebit/qreg-spec note.json`); the
+arithmetic is `proved`. The 27B step times are a `model`: a verifier pass reads its weights once from host DRAM
+(bandwidth-bound), the 27B Q4_K_M verifier carries the 0.5B receipt's `q4kmBpw` (5.52 bits per weight), the draft is
+`qwen27b_target_floor`'s 3.9825 GB read at the measured device bandwidth, and the 0.5B pair's acceptance stands for the
+27B pair. -/
+
+/-- The finished arm accepts between `59/100` and `3/5` of the teacher's tokens; the Pinsker floor from the same run's
+KL is below `7/20`, so the measured rate is the number, not the bound. -/
+theorem spec_accept_measured :
+    (59 / 100 : ℝ) < (Receipts.qreg_spec.accept : ℝ) ∧ (Receipts.qreg_spec.accept : ℝ) < 3 / 5 ∧
+    1 - Real.sqrt ((Receipts.qreg_spec.klHeldoutAfter : ℝ) / 2) < 7 / 20 := by
+  refine ⟨by norm_num [Receipts.qreg_spec.accept], by norm_num [Receipts.qreg_spec.accept], ?_⟩
+  have : (13 / 20 : ℝ) < Real.sqrt ((Receipts.qreg_spec.klHeldoutAfter : ℝ) / 2) := by
+    rw [Real.lt_sqrt (by norm_num)]; norm_num [Receipts.qreg_spec.klHeldoutAfter]
+  linarith
+
+/-- **Acceptances cluster along the text.** At `k = 4` and `k = 8` the teacher-forced block length exceeds the
+geometric one at the mean acceptance, so rejections bunch together and the iid formula undercounts. -/
+theorem spec_runs_cluster :
+    blockLen (Receipts.qreg_spec.accept : ℝ) 4 < (Receipts.qreg_spec.eK4 : ℝ) ∧
+    blockLen (Receipts.qreg_spec.accept : ℝ) 8 < (Receipts.qreg_spec.eK8 : ℝ) := by
+  constructor <;> norm_num [blockLen, sum_range_succ, Receipts.qreg_spec.accept, Receipts.qreg_spec.eK4,
+    Receipts.qreg_spec.eK8]
+
+/-- `model`: one 27B Q4_K_M verifier pass read from host DRAM, seconds. -/
+noncomputable def tVerify27 : ℝ :=
+  27 * 10 ^ 9 * (Receipts.w18_size05.q4kmBpw : ℝ) / 8 / ((Receipts.qreg_spec.hostReadGBs : ℝ) * 10 ^ 9)
+
+/-- `model`: one 27B draft step at 1.18 bits per weight (3.9825 GB, `qwen27b_target_floor`) read from VRAM, seconds. -/
+noncomputable def tDraft27 : ℝ := 3982500000 / ((Receipts.qreg_spec.deviceReadGBs : ℝ) * 10 ^ 9)
+
+/-- **27B at 4 GB VRAM, output exact to the Q4_K_M verifier.** The verifier alone decodes below 5 tokens per second;
+with the 1.18-bit draft at `k = 6` and the measured block length the pair emits above 10, more than twice the verifier
+alone; streaming the verifier over this box's PCIe link instead takes above a second per pass. -/
+theorem spec27b_host :
+    1 / tVerify27 < 5 ∧ tDraft27 < 5 / 1000 ∧
+    10 < (Receipts.qreg_spec.eK6 : ℝ) / (tVerify27 + 6 * tDraft27) ∧
+    2 / tVerify27 < (Receipts.qreg_spec.eK6 : ℝ) / (tVerify27 + 6 * tDraft27) ∧
+    1 < 27 * 10 ^ 9 * (Receipts.w18_size05.q4kmBpw : ℝ) / 8 / ((Receipts.qreg_spec.h2dGBs : ℝ) * 10 ^ 9) := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [tVerify27, tDraft27, Receipts.qreg_spec.eK6, Receipts.qreg_spec.hostReadGBs,
+      Receipts.qreg_spec.deviceReadGBs, Receipts.qreg_spec.h2dGBs, Receipts.w18_size05.q4kmBpw]
+
 end Perf.SpecDraftKL

@@ -83,6 +83,7 @@ import Numeric.TetraLaplacian
 import Numeric.BranchQuantization
 import Numeric.PathDensity
 import Perf.QuantumRotation
+import Perf.SpecDraftKL
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -1223,6 +1224,19 @@ import Perf.QuantumRotation
 #audit Perf.QuantumRotation.yaqab_before_misleads
 #audit Perf.QuantumRotation.yaqalw_loses
 #audit Perf.QuantumRotation.yaqalw_intensity_small
+#audit Perf.SpecDraftKL.accept_ge
+#audit Perf.SpecDraftKL.mean_accept_ge
+#audit Perf.SpecDraftKL.q4km_accept
+#audit Perf.SpecDraftKL.resq_accept
+#audit Perf.SpecDraftKL.blockLenAt_const
+#audit Perf.SpecDraftKL.blockLen_geom
+#audit Perf.SpecDraftKL.blockLen_mono
+#audit Perf.SpecDraftKL.blockLen_bounds
+#audit Perf.SpecDraftKL.spec_faster
+#audit Perf.SpecDraftKL.blockLen_witness
+#audit Perf.SpecDraftKL.spec_accept_measured
+#audit Perf.SpecDraftKL.spec_runs_cluster
+#audit Perf.SpecDraftKL.spec27b_host
 #audit apeiron_word.RegisterRefinement.checked_mul_spec
 #audit apeiron_word.RegisterRefinement.checked_mul_none
 #audit apeiron_word.RegisterRefinement.checked_mul_none_of_a
