@@ -69,6 +69,7 @@ W15 = {
     "w18_pv05": "docs/evidence/receipts/onebit/w18-pv05.json",
     "w18_pvobs05": "docs/evidence/receipts/onebit/w18-pvobs05.json",
     "w18_pvlam05": "docs/evidence/receipts/onebit/w18-pvlam05.json",
+    "w18_pvste05": "docs/evidence/receipts/onebit/w18-pvste05.json",
 }
 
 OUTCOME_ARMS = [("teacher", "teacher"), ("q4km", "q4km"), ("resq", RESQ_ARM)]
@@ -488,6 +489,42 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
             for name, k in [("q4kmBpw", "bpw_linears"), ("q4kmKlHeldout", "kl_heldout"), ("q4kmTop1Heldout", "top1_heldout")]:
                 out.append(("rat", name, rat(q[k])))
         out.append(("rat", "wallTotalS", rat(data["wall_total_s"])))
+    elif ns == "w18_pvste05":
+        # End-to-end finishing with the E8 u O8 codes trained by a straight-through projection (pv_finish.py --codes ste).
+        if data["codes"] != "ste" or data["v_steps"]:
+            raise Fail(f"{rel}: not a straight-through code run, or V-steps ran")
+        if data["arm"] != RESQ_ARM or data["n_cal"] != 50 or data["eval_chunks"] != [50, 90] or data["insample_chunks"] != [0, 20]:
+            raise Fail(f"{rel}: not the arm on the n-cal 50 / held-out [50, 90) protocol")
+        c = data["controls"]
+        if c["quantized_eval_equality"]["linears_not_equal"] != 0 or c["data_disjoint"]["overlap"] != 0:
+            raise Fail(f"{rel}: eval weights are not the stored code, or train overlaps calibration")
+        bc = data["bits_components"]
+        if bc != data["bits_components_after"] or sum(bc.values()) != data["bits_before"]:
+            raise Fail(f"{rel}: bit components changed or do not sum to the stored bits")
+        out.append(("str", "arm", RESQ_ARM))
+        out.append(("bool", "beforeMatchesReference", bool_value(c["before_kl_regression"]["ok"], ns)))
+        out.append(("bool", "bitsEqual", bool_value(c["bits_equal"]["ok"], ns)))
+        out.append(("bool", "codebookExact", bool_value(c["codebook_match"]["ok"], ns)))
+        out.append(("bool", "dataDisjoint", bool_value(c["data_disjoint"]["ok"], ns)))
+        for name, k in [("params", "params"), ("bitsBefore", "bits_before"), ("bitsAfter", "bits_after"),
+                        ("steps", "steps"), ("tokens", "tokens"), ("codePlanes", "code_planes"),
+                        ("codeBlocks", "code_blocks"), ("codeChangedTotal", "code_changed_total")]:
+            out.append(("nat", name, nat(data[k])))
+        out.append(("nat", "codeKinds", nat(len(data["codes_trained_kinds"]))))
+        out.append(("rat", "lrCode", rat(data["lr_code"])))
+        # The first 25-step window: blocks moved, and the train loss at step 1 against step 25.
+        w0 = data["code_changes"][0]
+        if w0["step"] != 25 or data["train_trajectory"][0]["step"] != 1:
+            raise Fail(f"{rel}: first code-change window is not steps 1..25")
+        out.append(("nat", "codeChangedFirstWindow", nat(w0["changed_window"])))
+        out.append(("rat", "trainLossStep1", rat(data["train_trajectory"][0]["train_loss"])))
+        out.append(("rat", "trainLossStep25", rat(w0["train_loss"])))
+        out.append(("rat", "trainLossLast", rat(data["train_loss_last"])))
+        for name, k in [("klHeldoutBefore", "kl_heldout_before"), ("klHeldoutAfter", "kl_heldout_after"),
+                        ("top1HeldoutBefore", "top1_heldout_before"), ("top1HeldoutAfter", "top1_heldout_after"),
+                        ("klInsampleBefore", "kl_insample_before"), ("klInsampleAfter", "kl_insample_after")]:
+            out.append(("rat", name, rat(data[k])))
+        out.append(("rat", "wallTotalS", rat(data["walls"]["total_s"])))
     elif ns in ("w18_pv05", "w18_pvobs05", "w18_pvlam05"):
         # End-to-end KL finishing of the arm's stored code (pv_finish.py): the same arm, before and after, at identical bits.
         # pv05 scores V-step candidates by the linear gain; pvobs05 and pvlam05 by the diagonal-Fisher OBS gain.

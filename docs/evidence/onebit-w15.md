@@ -1267,6 +1267,41 @@ which reports Llama-2 7B at 1.58 b/w within 1.43× of fp16 perplexity).
   with the scales, at unchanged stored bits. The OBS path in `pv_finish.py` stays only until that run lands.
 - Board row for these runs: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
+### Straight-through code training from the codewords (`measured`, refuted; `Perf/PVFinish.lean`)
+
+- Method: `pv_finish.py --codes ste` (sha256 `56a0eaa7…`). Each coded plane keeps an fp32 latent `L` initialised at
+  its stored codewords `C[idx]`. The forward pass uses the nearest of the 16 codebook neighbours of the current index
+  (`project_local`), with a straight-through gradient to `L`; the index is committed after each optimiser step.
+  Latents sit in their own Adam group at `--lr-code`; scales keep their schedule; V-steps are off. All seven linear
+  kinds train. Evaluation reads the stored integer codes, never `L`.
+- Run `w18-pvste05.json` (RTX 5080, same protocol as `pv05-1`, all controls pass, pre-finishing KL reproduced bit for
+  bit, bits unchanged at 1.17806 b/w, wall 542.2 s, 304 steps):
+
+| metric | before | after |
+|---|---:|---:|
+| held-out KL `[50, 90)` | 1.1637 | 1.9991 |
+| held-out top-1 | 0.480 | 0.340 |
+| in-sample KL `[0, 20)` | 0.2224 | 1.9505 |
+| blocks whose index changed | 0 | 13,081,296 of 50,061,312 (26.1%) |
+
+- Prediction `pvste05-1` (held-out in `[0.65, 0.86]`) is refuted (`pvste_refuted`): held-out KL rose above 1.7× its
+  start and in-sample KL more than eightfold. `lr-code` came from the batch-2 smoke: 1e-3 and 2e-2 moved no block, 0.1
+  moved 4,543. At batch 8 the same rate moved 2.07M blocks (4.1%) in steps 1–25, and train loss rose 1.213 → 4.208
+  over those steps (`pvste_flips_wholesale`). It then fell to 1.88 by step 300, still falling, without recovering the
+  start.
+- Reading: Adam divides each coordinate's step by its own gradient scale, so every latent moves about `lr` per step
+  whatever its gradient. A latent that starts at a codeword centre carries no information about which side of the
+  Voronoi boundary the weight wants, so the flips that cross are not ordered by the loss. `Perf/KDScaling.lean`'s
+  sign plane trained because its latent started at the continuous weight `W`, so only weights near zero flipped
+  first.
+- Control `ctl_pvste` (17/10 raised to 18/10; 3× raised to 4×) fails at lines 178 and 191; axioms
+  `{propext, Classical.choice, Quot.sound}`.
+- Decision: start each latent at the plane's continuous pre-image: the teacher weight minus the other planes, mapped
+  back through `compose` and `fwht128` into code coordinates. Keep the stored index until `L` is nearer another
+  codeword by a margin, so the first flips are the blocks already on a boundary. The flip count per window is then set
+  by the gradient, not by Adam's step size.
+- Board row for this run: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
 Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
 ## Limit claims

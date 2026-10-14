@@ -11,7 +11,10 @@ S_rot a field of 8-blocks, each an index into the 256-row E8/O8 codebook; r a 16
 Eval after on the same chunks as eval before, with weights rebuilt from the integer stored codes.
 --v-gain obs replaces the one-batch linear gain by the Optimal Brain Surgeon diagonal gain from window statistics of the P-steps'
 batch gradients (gbar, diagonal empirical Fisher F), candidates lam in --obs-lams (default {1,4,16,64}) x fraction in {0.001,0.01} of positive-gain blocks.
-usage: pv_finish.py --out OUT.json [--smoke] [--v-gain {linear,obs}] ; run with /home/socol/Workspace/spinor-ttl/.venv/bin/python (torch + CUDA).
+--codes ste replaces the V-step: each coded plane keeps an fp32 latent L (initialised to the stored codewords), the forward uses the
+nearest of the 16 nearest codewords of the current index (straight-through gradient to L), and the index follows that argmin; the
+stored code stays one 8-bit index per 8-block, so the bits are unchanged.
+usage: pv_finish.py --out OUT.json [--smoke] [--v-gain {linear,obs}] [--codes {vstep,ste}] ; run with /home/socol/Workspace/spinor-ttl/.venv/bin/python (torch + CUDA).
 """
 import argparse, hashlib, json, math, os, sys, time
 import numpy as np
@@ -128,12 +131,34 @@ def block_gain_obs(gsum, fsum, count, S, idx, C, nn, lams, chunk=1 << 18):
     return gain, new
 
 
+@torch.no_grad()
+def project_local(L, idx, C, nn, chunk=1 << 18):
+    """Per 8-block of the latent L (O, n): the nearest of the 16 codebook rows nn[idx_b] (Euclidean) and its index.
+    Returns (S_hat (O, n) float32 of exact codebook rows, new idx (O, n/8) uint8).
+    Temporal 16*8*M MACs (M = O*n/8 blocks; per chunk a gather of chunk*16 rows, a subtraction, a square-sum and an argmin);
+    spatial chunk*16*8 words of workspace plus the M*8-word output (chunk = 2^18: 134 MB)."""
+    M = idx.numel()
+    Lb, ib = L.reshape(-1, 8), idx.reshape(-1).long()
+    new = torch.empty(M, dtype=torch.uint8, device=L.device)
+    S_hat = torch.empty_like(Lb)
+    for s0 in range(0, M, chunk):
+        cand = nn[ib[s0:s0 + chunk]]
+        rows = C[cand]
+        d2 = ((Lb[s0:s0 + chunk, None, :] - rows) ** 2).sum(-1)
+        arg = d2.argmin(1)
+        best = cand.gather(1, arg[:, None])[:, 0]
+        new[s0:s0 + chunk] = best.to(torch.uint8)
+        S_hat[s0:s0 + chunk] = C[best]
+    return S_hat.view(L.shape), new.view(idx.shape)
+
+
 # ------------------------------------------------------------------------------------------------ student
 class Plane:
     """One stored plane: integer codes idx (or a fixed S_fix when a block is not a codebook row), frozen per-row r grid
     (lo, sp), latents r0/c0/d0 with log-space offsets (pa, pb, pd)."""
 
     def __init__(self, d, C):
+        self.L = None  # --codes ste: fp32 latent of the code field
         self.dense = d["dense"].to(DEV) if "dense" in d else None
         if self.dense is not None:
             return
@@ -215,13 +240,20 @@ def main():
     # OBS curvature multipliers. F is the mean square of batch-mean gradients, about 1/(tokens per batch) of the
     # per-token Fisher, so lam near batch*seq puts the quadratic term on the per-token scale.
     ap.add_argument("--obs-lams", default="1,4,16,64")
+    ap.add_argument("--codes", choices=("vstep", "ste"), default="vstep")
+    ap.add_argument("--lr-code", type=float, default=1e-1)
+    ap.add_argument("--code-kinds", default="all", help="comma list of linear kinds whose codes train under --codes ste")
+    ap.add_argument("--rec-every", type=int, default=25)
     a = ap.parse_args()
     LAMS = tuple(float(x) for x in a.obs_lams.split(","))
     if a.smoke:
         a.n_cal, a.n_eval, a.n_in, a.steps, a.batch, a.v_every = 8, 8, 8, 20, 2, 10
+        a.rec_every = 5
     res = dict(script_sha256=dict(pv_finish=sha_file(__file__), fold_transfer=sha_file(ft.__file__)), arm=ARM, args=vars(a),
                protocol="pack sink -> codes (E8/O8 index per 8-block) -> P-step Adam (STE) + V-step linearised code moves, KL(teacher||student)"
-               + (" [v-gain obs: window gbar/Fisher, OBS diagonal gain]" if a.v_gain == "obs" else ""), v_gain=a.v_gain,
+               + (" [v-gain obs: window gbar/Fisher, OBS diagonal gain]" if a.v_gain == "obs" else "")
+               + (" [codes ste: latent L, nearest-of-16 projection, straight-through; V-steps off]" if a.codes == "ste" else ""),
+               v_gain=a.v_gain, codes=a.codes,
                gpu=torch.cuda.get_device_name(0), controls={}, walls={}, partial=True)
 
     def dump():
@@ -320,6 +352,19 @@ def main():
         return dict(ln1=t["ln1"] * torch.exp(t["d_ln1"]), ln2=t["ln2"] * torch.exp(t["d_ln2"]),
                     qb=t["qb"] + t["d_qb"] * t["qb_s"], kb=t["kb"] + t["d_kb"] * t["kb_s"], vb=t["vb"] + t["d_vb"] * t["vb_s"])
 
+    ste_on, pending = [False], {}
+
+    def ste_S(p):
+        """Straight-through code field: the value is the exact codebook row nearest to L among nn[p.idx]; the gradient goes to L.
+        The new index is parked in pending by the first call of a step (the forward); the checkpoint recompute gathers C[pending]
+        (one gather, no search), the same value; the index is committed after the optimiser step.  Temporal: project_local once
+        per plane per step plus one gather per recompute."""
+        if id(p) in pending:
+            S_hat = C[pending[id(p)].long()].view(p.O, p.n)
+        else:
+            S_hat, pending[id(p)] = project_local(p.L, p.idx, C, nn)
+        return S_hat + (p.L - p.L.detach())
+
     def layer_dict(li, Ss):
         Ld, k = tuned(li), 0
         for nm in KINDS:
@@ -328,7 +373,7 @@ def main():
                 if p.dense is not None:
                     W = W + p.dense
                     continue
-                S = Ss[k] if Ss else p.S(C)
+                S = Ss[k] if Ss else (ste_S(p) if ste_on[0] and p.L is not None else p.S(C))
                 k += 1
                 W = add_plane(W, p, plane_weight(p, S))
             Ld[nm] = W
@@ -411,9 +456,36 @@ def main():
     # ---- optimiser
     lat = [t for pl in PL for nm in KINDS for p in pl[nm] if p.dense is None for t in p.params()]
     norm = [t["d_" + k] for t in tun for k in ("ln1", "ln2", "qb", "kb", "vb")] + [d_fn]
-    opt = torch.optim.Adam([dict(params=lat, lr=a.lr_lat), dict(params=norm, lr=a.lr_norm)], fused=True)
-    base_lr = [a.lr_lat, a.lr_norm]
     coded = [(li, nm, p) for li in range(cfg.nl) for nm in KINDS for p in PL[li][nm] if p.dense is None and p.idx is not None]
+    groups, base_lr = [dict(params=lat, lr=a.lr_lat), dict(params=norm, lr=a.lr_norm)], [a.lr_lat, a.lr_norm]
+    ste = a.codes == "ste"
+    code_kinds = list(KINDS) if a.code_kinds == "all" else a.code_kinds.split(",")
+    ste_planes = []
+    if ste:
+        assert all(k in KINDS for k in code_kinds), (code_kinds, KINDS)
+        for li, nm, p in coded:
+            if nm in code_kinds:
+                p.L = p.S(C).clone().requires_grad_()
+                p.idx0, p.idx_prev = p.idx.clone(), p.idx.clone()
+                ste_planes.append(p)
+        groups.append(dict(params=[p.L for p in ste_planes], lr=a.lr_code))
+        base_lr.append(a.lr_code)
+        res.update(lr_code=a.lr_code, codes_trained_kinds=code_kinds, code_planes=len(ste_planes),
+                   code_blocks=sum(p.idx.numel() for p in ste_planes))
+        print(f"ste: {len(ste_planes)} coded planes, {res['code_blocks']} blocks, kinds {code_kinds}, lr_code {a.lr_code}", flush=True)
+    opt = torch.optim.Adam(groups, fused=True)
+    code_changes = []
+
+    def rec_codes(step_, loss_):
+        """Blocks whose index differs from step 0 (cumulative) and from the last record (window).
+        Temporal one compare per block (M blocks over all trained planes); spatial one bool temporary per plane."""
+        cum = sum(int((p.idx != p.idx0).sum()) for p in ste_planes)
+        win_ = sum(int((p.idx != p.idx_prev).sum()) for p in ste_planes)
+        for p in ste_planes:
+            p.idx_prev = p.idx.clone()
+        nb = res["code_blocks"]
+        code_changes.append(dict(step=step_, changed_cum=cum, changed_window=win_, frac_cum=cum / nb, frac_window=win_ / nb, train_loss=loss_))
+        print(f"codes step {step_}: changed cum {cum} ({cum / nb:.3e}) window {win_} ({win_ / nb:.3e}) loss {loss_:.4f}", flush=True)
 
     est_after = 1.15 * wall_eval + 12.0
     t_train0 = time.time()
@@ -563,7 +635,7 @@ def main():
         for i in range(idsb.shape[0]):
             used_hashes.add(hashlib.sha256(idsb[i].numpy().tobytes()).hexdigest())
         idsb = idsb.to(DEV)
-        if a.v_every and step % a.v_every == 0 and step < a.steps:
+        if a.v_every and not ste and step % a.v_every == 0 and step < a.steps:
             j = (ntr // 2 + (step // a.v_every) * a.batch) % ntr
             idss = tr[perm[j:j + a.batch]]
             assert idss.shape[0] == a.batch, "score chunk wrap"
@@ -582,11 +654,18 @@ def main():
                 S.register_post_accumulate_grad_hook(make_hook(k))
             loss, agree = kl_batch(idsb, True, Ss_all)
         else:
+            ste_on[0] = ste
             loss, agree = kl_batch(idsb, True)
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
         last_loss = loss.item()
+        if ste:
+            for p in ste_planes:
+                p.idx = pending[id(p)]
+            pending.clear()
+            if step % a.rec_every == 0:
+                rec_codes(step, last_loss)
         if a.v_gain == "obs":
             win["n"] += 1
             win["loss"] += last_loss
@@ -595,6 +674,14 @@ def main():
             traj.append(dict(step=step, train_loss=last_loss, top1=agree, lr_factor=f, t=time.time() - t_train0))
             print(f"step {step} loss {last_loss:.4f} top1 {agree:.4f} f {f:.3f} t {time.time() - t_train0:.1f}s elapsed {elapsed():.1f}s", flush=True)
     wall_train = time.time() - t_train0
+    ste_on[0] = False
+    if ste:
+        if not code_changes or code_changes[-1]["step"] != step:
+            rec_codes(step, last_loss)
+        res.update(code_changes=code_changes, code_changed_total=sum(int((p.idx != p.idx0).sum()) for p in ste_planes))
+        for p in ste_planes:
+            p.L = None
+        torch.cuda.empty_cache()
     with torch.no_grad():
         kq1 = quick_eval()
     print(f"trained {step} steps in {wall_train:.1f}s; quick heldout KL {kq1:.5f} (step0 {kq0:.5f})", flush=True)
@@ -643,6 +730,8 @@ def main():
                     code_ok &= bool(torch.equal(rbuilt, rq) and torch.equal(cbuilt, cq) and torch.equal(dbuilt, dq))
                     code_ok &= bool(kint.min() >= 0 and kint.max() <= 15 and cint.min() >= 0 and cint.max() <= lc and dint.min() >= 0 and dint.max() <= ld)
                     S = p.S(C)
+                    if p.idx is not None:
+                        code_ok &= bool(encode(S, C)[1] and p.idx.dtype == torch.uint8)
                     st_planes.append(dict(S_rot=S, r=rbuilt, c=cbuilt, d=dbuilt, rows=p.rows))
                     qt_planes.append(dict(S_rot=S, r=rq, c=cq, d=dq, rows=p.rows))
                     bits["bits_sign"] += (p.idx.numel() * 8 if p.idx is not None else S.numel())

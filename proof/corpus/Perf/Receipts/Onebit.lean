@@ -706,6 +706,39 @@ def wallTotalS : ℚ := (1354617350101471 : ℚ) / 2500000000000
 
 end Receipts.w18_pvlam05
 
+-- Receipt `docs/evidence/receipts/onebit/w18-pvste05.json`
+namespace Receipts.w18_pvste05
+
+def sha256 : String := "3f8da6ba5fd2ce649026580e041d32670e9b0542dde7b3f465e7dd79c0042307"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def beforeMatchesReference : Bool := true
+def bitsEqual : Bool := true
+def codebookExact : Bool := true
+def dataDisjoint : Bool := true
+def params : ℕ := 357826560
+def bitsBefore : ℕ := 421541376
+def bitsAfter : ℕ := 421541376
+def steps : ℕ := 304
+def tokens : ℕ := 1245184
+def codePlanes : ℕ := 288
+def codeBlocks : ℕ := 50061312
+def codeChangedTotal : ℕ := 13081296
+def codeKinds : ℕ := 7
+def lrCode : ℚ := (1 : ℚ) / 10
+def codeChangedFirstWindow : ℕ := 2074217
+def trainLossStep1 : ℚ := (1213012933731079 : ℚ) / 1000000000000000
+def trainLossStep25 : ℚ := (4208268165588379 : ℚ) / 1000000000000000
+def trainLossLast : ℚ := (4108546257019043 : ℚ) / 2000000000000000
+def klHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klHeldoutAfter : ℚ := (9995674610137939 : ℚ) / 5000000000000000
+def top1HeldoutBefore : ℚ := (1965 : ℚ) / 4096
+def top1HeldoutAfter : ℚ := (6969 : ℚ) / 20480
+def klInsampleBefore : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def klInsampleAfter : ℚ := (975239610671997 : ℚ) / 500000000000000
+def wallTotalS : ℚ := (2710936601161957 : ℚ) / 5000000000000
+
+end Receipts.w18_pvste05
+
 -- Receipt `docs/evidence/receipts/onebit/2026-10-11-vladder.json`
 namespace Receipts.vladder_1011
 

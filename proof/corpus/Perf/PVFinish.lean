@@ -158,4 +158,39 @@ theorem pv_scales_carry_gain :
     norm_num [w18_pv05.klHeldoutAfter, w18_pvobs05.klHeldoutAfter, w18_pvlam05.klHeldoutAfter,
       w18_pvobs05.klHeldoutBefore, w18_pvlam05.klHeldoutBefore]
 
+/-- The straight-through run is the same arm on the same protocol: the before-KL reproduces the reference bit for
+bit and every stored-code control passes, at the bits the scales-only runs stored. -/
+theorem pvste_same_arm :
+    w18_pvste05.arm = w18_pv05.arm ∧ w18_pvste05.klHeldoutBefore = w18_pv05.klHeldoutBefore ∧
+    w18_pvste05.bitsAfter = w18_pv05.bitsBefore ∧ w18_pvste05.bitsBefore = w18_pv05.bitsBefore ∧
+    w18_pvste05.beforeMatchesReference = true ∧ w18_pvste05.bitsEqual = true ∧
+    w18_pvste05.codebookExact = true ∧ w18_pvste05.dataDisjoint = true := by
+  refine ⟨rfl, ?_, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  norm_num [w18_pvste05.klHeldoutBefore, w18_pv05.klHeldoutBefore]
+
+/-- **Prediction `pvste05-1` refuted.** It predicted held-out KL in `[0.65, 0.86]` from training the E8 ∪ O8 codes by a
+straight-through projection jointly with the scales. Held-out KL rose above `1.7×` its starting value, past the
+scales-only mean `0.894` (`pv_scales_carry_gain`), and in-sample KL rose over eightfold. -/
+theorem pvste_refuted :
+    (894 / 1000 : ℚ) < w18_pvste05.klHeldoutAfter ∧
+    (17 / 10 : ℚ) * w18_pvste05.klHeldoutBefore < w18_pvste05.klHeldoutAfter ∧
+    w18_pvste05.top1HeldoutAfter < w18_pvste05.top1HeldoutBefore ∧
+    8 * w18_pvste05.klInsampleBefore < w18_pvste05.klInsampleAfter := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvste05.klHeldoutAfter, w18_pvste05.klHeldoutBefore, w18_pvste05.top1HeldoutAfter,
+      w18_pvste05.top1HeldoutBefore, w18_pvste05.klInsampleAfter, w18_pvste05.klInsampleBefore]
+
+/-- **The codes were flipped wholesale, from the first window.** At `lr-code = 1/10` under Adam, over a quarter of all
+8-blocks changed index; more than one block in 25 changed in steps 1..25, and the train loss over those steps rose more
+than threefold. Adam's per-coordinate normalisation moves every latent about `lr` per step whatever its gradient, so
+the flips are not ordered by the loss. -/
+theorem pvste_flips_wholesale :
+    w18_pvste05.lrCode = 1 / 10 ∧ w18_pvste05.codeKinds = 7 ∧
+    w18_pvste05.codeBlocks < 4 * w18_pvste05.codeChangedTotal ∧
+    w18_pvste05.codeBlocks < 25 * w18_pvste05.codeChangedFirstWindow ∧
+    3 * w18_pvste05.trainLossStep1 < w18_pvste05.trainLossStep25 := by
+  refine ⟨?_, rfl, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvste05.lrCode, w18_pvste05.codeBlocks, w18_pvste05.codeChangedTotal,
+      w18_pvste05.codeChangedFirstWindow, w18_pvste05.trainLossStep1, w18_pvste05.trainLossStep25]
+
 end Perf.PVFinish
