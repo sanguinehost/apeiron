@@ -652,6 +652,120 @@ theorem yaqa_capture_noise :
       qreg_yaqa.jacobi2GateJoAfter, qreg_yaqa.jacobi1UpJoAfter, qreg_yaqa.jacobi2UpJoAfter,
       qreg_yaqa.jacobi1DownJoAfter, qreg_yaqa.jacobi2DownJoAfter]
 
+/-! ## Held-out split and diagonal shrinkage (`docs/evidence/receipts/onebit/qreg-yaqash.json`)
+
+Arm suffix `-yaqaxv` captures `H_O` separately on `ids_cal[0::2]` (half A) and `ids_cal[1::2]` (half B), refines on A and
+scores the accepted blocks on B. `-yaqas<NN>` applies the refine against `(1 − α) H_O + α diag H_O`, `α = NN/100`
+(Ledoit and Wolf, J. Multivariate Anal. 88 (2004)). -/
+
+/-- **Prediction `qreg-yaqaxv-1` is refuted: the refine fits `H_O` estimation error.** On `gate` and `down` the fitted
+half's `J_A` falls by more than 14% while the held-out half's `J_B` rises by more than 12%; held-out KL before finishing
+sits above the unrefined base. -/
+theorem yaqaxv_fits_noise :
+    qreg_yaqash.xvGateJoAfter < 86 / 100 * qreg_yaqash.xvGateJoBefore ∧
+    112 / 100 * qreg_yaqash.xvGateJbBefore < qreg_yaqash.xvGateJbAfter ∧
+    qreg_yaqash.xvDownJoAfter < 86 / 100 * qreg_yaqash.xvDownJoBefore ∧
+    112 / 100 * qreg_yaqash.xvDownJbBefore < qreg_yaqash.xvDownJbAfter ∧
+    qreg_yaqa.baseKlHeldoutBefore < qreg_yaqash.xvKlHeldoutBefore := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [qreg_yaqash.xvGateJoAfter, qreg_yaqash.xvGateJoBefore, qreg_yaqash.xvGateJbBefore,
+      qreg_yaqash.xvGateJbAfter, qreg_yaqash.xvDownJoAfter, qreg_yaqash.xvDownJoBefore, qreg_yaqash.xvDownJbBefore,
+      qreg_yaqash.xvDownJbAfter, qreg_yaqa.baseKlHeldoutBefore, qreg_yaqash.xvKlHeldoutBefore]
+
+/-- **Shrinkage at `α = 0.5` turns the held-out objective down in six of seven kinds.** Scoring the half-A refine, refit
+against the shrunk `H_O`, on half B: `J_B` falls for `q, k, v, o, up, down` and rises on `gate`. -/
+theorem yaqaxv_shrink_heldout :
+    qreg_yaqash.xvQJbAfterA50 < qreg_yaqash.xvQJbBefore ∧ qreg_yaqash.xvKJbAfterA50 < qreg_yaqash.xvKJbBefore ∧
+    qreg_yaqash.xvVJbAfterA50 < qreg_yaqash.xvVJbBefore ∧ qreg_yaqash.xvOJbAfterA50 < qreg_yaqash.xvOJbBefore ∧
+    qreg_yaqash.xvUpJbAfterA50 < qreg_yaqash.xvUpJbBefore ∧ qreg_yaqash.xvDownJbAfterA50 < qreg_yaqash.xvDownJbBefore ∧
+    qreg_yaqash.xvGateJbBefore < qreg_yaqash.xvGateJbAfterA50 := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [qreg_yaqash.xvQJbAfterA50, qreg_yaqash.xvQJbBefore, qreg_yaqash.xvKJbAfterA50, qreg_yaqash.xvKJbBefore,
+      qreg_yaqash.xvVJbAfterA50, qreg_yaqash.xvVJbBefore, qreg_yaqash.xvOJbAfterA50, qreg_yaqash.xvOJbBefore,
+      qreg_yaqash.xvUpJbAfterA50, qreg_yaqash.xvUpJbBefore, qreg_yaqash.xvDownJbAfterA50, qreg_yaqash.xvDownJbBefore,
+      qreg_yaqash.xvGateJbBefore, qreg_yaqash.xvGateJbAfterA50]
+
+/-- **Predictions `qreg-yaqas-1` and `-2` are refuted, and the curve is not monotone in `α`.** Applied shrinkage at
+`α = 0.5` and `0.9` both leave held-out KL before finishing above the unrefined base; `α = 0.5` sits below both the
+unshrunk solve and `α = 0.9`. -/
+theorem yaqas_refuted :
+    qreg_yaqa.baseKlHeldoutBefore + 4 / 100 < qreg_yaqash.s50KlHeldoutBefore ∧
+    qreg_yaqa.baseKlHeldoutBefore + 12 / 100 < qreg_yaqash.s90KlHeldoutBefore ∧
+    qreg_yaqash.s50KlHeldoutBefore + 8 / 100 < qreg_yaqash.s90KlHeldoutBefore ∧
+    qreg_yaqash.s50KlHeldoutBefore + 14 / 100 < qreg_yaqa.solveAKlHeldoutBefore := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;>
+    norm_num [qreg_yaqa.baseKlHeldoutBefore, qreg_yaqash.s50KlHeldoutBefore, qreg_yaqash.s90KlHeldoutBefore,
+      qreg_yaqa.solveAKlHeldoutBefore]
+
+/-- **The proxy move is too small to carry the KL move.** At `α = 0.9` every kind's `J_O` falls by under 2% (`down` by
+under 0.1%), while held-out KL before finishing rises over `0.12` nats above the base. -/
+theorem yaqas90_small_move :
+    98 / 100 * qreg_yaqash.s90QJoBefore < qreg_yaqash.s90QJoAfter ∧
+    98 / 100 * qreg_yaqash.s90KJoBefore < qreg_yaqash.s90KJoAfter ∧
+    98 / 100 * qreg_yaqash.s90VJoBefore < qreg_yaqash.s90VJoAfter ∧
+    98 / 100 * qreg_yaqash.s90OJoBefore < qreg_yaqash.s90OJoAfter ∧
+    98 / 100 * qreg_yaqash.s90GateJoBefore < qreg_yaqash.s90GateJoAfter ∧
+    98 / 100 * qreg_yaqash.s90UpJoBefore < qreg_yaqash.s90UpJoAfter ∧
+    999 / 1000 * qreg_yaqash.s90DownJoBefore < qreg_yaqash.s90DownJoAfter := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [qreg_yaqash.s90QJoBefore, qreg_yaqash.s90QJoAfter, qreg_yaqash.s90KJoBefore, qreg_yaqash.s90KJoAfter,
+      qreg_yaqash.s90VJoBefore, qreg_yaqash.s90VJoAfter, qreg_yaqash.s90OJoBefore, qreg_yaqash.s90OJoAfter,
+      qreg_yaqash.s90GateJoBefore, qreg_yaqash.s90GateJoAfter, qreg_yaqash.s90UpJoBefore, qreg_yaqash.s90UpJoAfter,
+      qreg_yaqash.s90DownJoBefore, qreg_yaqash.s90DownJoAfter]
+
+/-- **Shrinkage at `α = 0.5` finishes lower than the unrefined base, in every one of three runs per arm (predictions
+`qreg-yaqab-2`, `-5`, `-6`, `-8` confirmed).** Equal 580 s wall, unchanged bits, butterfly Hadamard. `bfBase2` is the
+lowest base run in KL and the highest in top-1; every `α = 0.5` run finishes more than `0.005` nats below it and more than
+`0.003` above it in top-1, and the three-run sums differ by more than `3 · 0.011`. Every `α = 0.5` run takes fewer
+finishing steps than every base run, and held-out KL before finishing starts `0.04` higher. -/
+theorem yaqab_shrink_wins :
+    (qreg_yaqash.bfBase2KlHeldoutAfter ≤ qreg_yaqash.bfBaseKlHeldoutAfter ∧
+      qreg_yaqash.bfBase2KlHeldoutAfter ≤ qreg_yaqash.bfBase3KlHeldoutAfter) ∧
+    (qreg_yaqash.bfS50KlHeldoutAfter + 5 / 1000 < qreg_yaqash.bfBase2KlHeldoutAfter ∧
+      qreg_yaqash.bfS50rKlHeldoutAfter + 5 / 1000 < qreg_yaqash.bfBase2KlHeldoutAfter ∧
+      qreg_yaqash.bfS50tKlHeldoutAfter + 5 / 1000 < qreg_yaqash.bfBase2KlHeldoutAfter) ∧
+    qreg_yaqash.bfS50KlHeldoutAfter + qreg_yaqash.bfS50rKlHeldoutAfter + qreg_yaqash.bfS50tKlHeldoutAfter + 33 / 1000 <
+      qreg_yaqash.bfBaseKlHeldoutAfter + qreg_yaqash.bfBase2KlHeldoutAfter + qreg_yaqash.bfBase3KlHeldoutAfter ∧
+    (qreg_yaqash.bfBaseTop1HeldoutAfter ≤ qreg_yaqash.bfBase2Top1HeldoutAfter ∧
+      qreg_yaqash.bfBase3Top1HeldoutAfter ≤ qreg_yaqash.bfBase2Top1HeldoutAfter) ∧
+    (qreg_yaqash.bfBase2Top1HeldoutAfter + 3 / 1000 < qreg_yaqash.bfS50Top1HeldoutAfter ∧
+      qreg_yaqash.bfBase2Top1HeldoutAfter + 3 / 1000 < qreg_yaqash.bfS50rTop1HeldoutAfter ∧
+      qreg_yaqash.bfBase2Top1HeldoutAfter + 3 / 1000 < qreg_yaqash.bfS50tTop1HeldoutAfter) ∧
+    (qreg_yaqash.bfS50rSteps < qreg_yaqash.bfBaseSteps ∧ qreg_yaqash.bfS50Steps ≤ qreg_yaqash.bfS50rSteps ∧
+      qreg_yaqash.bfS50tSteps ≤ qreg_yaqash.bfS50rSteps ∧ qreg_yaqash.bfBaseSteps ≤ qreg_yaqash.bfBase3Steps ∧
+      qreg_yaqash.bfBaseSteps ≤ qreg_yaqash.bfBase2Steps) ∧
+    qreg_yaqash.bfBaseKlHeldoutBefore + 4 / 100 < qreg_yaqash.bfS50KlHeldoutBefore := by
+  refine ⟨⟨?_, ?_⟩, ⟨?_, ?_, ?_⟩, ?_, ⟨?_, ?_⟩, ⟨?_, ?_, ?_⟩, ⟨?_, ?_, ?_, ?_, ?_⟩, ?_⟩ <;>
+    norm_num [qreg_yaqash.bfBaseKlHeldoutAfter, qreg_yaqash.bfBase2KlHeldoutAfter, qreg_yaqash.bfBase3KlHeldoutAfter,
+      qreg_yaqash.bfS50KlHeldoutAfter, qreg_yaqash.bfS50rKlHeldoutAfter, qreg_yaqash.bfS50tKlHeldoutAfter,
+      qreg_yaqash.bfBaseTop1HeldoutAfter, qreg_yaqash.bfBase2Top1HeldoutAfter, qreg_yaqash.bfBase3Top1HeldoutAfter,
+      qreg_yaqash.bfS50Top1HeldoutAfter, qreg_yaqash.bfS50rTop1HeldoutAfter, qreg_yaqash.bfS50tTop1HeldoutAfter,
+      qreg_yaqash.bfBaseSteps, qreg_yaqash.bfBase2Steps, qreg_yaqash.bfBase3Steps, qreg_yaqash.bfS50Steps,
+      qreg_yaqash.bfS50rSteps, qreg_yaqash.bfS50tSteps, qreg_yaqash.bfBaseKlHeldoutBefore,
+      qreg_yaqash.bfS50KlHeldoutBefore]
+
+/-- **The finished outcome is interior in `α` (predictions `qreg-yaqab-3` confirmed, `qreg-yaqab-4` refuted).** The
+unshrunk refine finishes more than `0.06` above the first base run and `α = 0.9` more than `0.004` above it; `α = 0.5`
+lands below. -/
+theorem yaqab_alpha_interior :
+    qreg_yaqash.bfBaseKlHeldoutAfter + 6 / 100 < qreg_yaqash.bfS00KlHeldoutAfter ∧
+    qreg_yaqash.bfBaseKlHeldoutAfter + 4 / 1000 < qreg_yaqash.bfS90KlHeldoutAfter ∧
+    qreg_yaqash.bfS50KlHeldoutAfter < qreg_yaqash.bfBaseKlHeldoutAfter := by
+  refine ⟨?_, ?_, ?_⟩ <;>
+    norm_num [qreg_yaqash.bfBaseKlHeldoutAfter, qreg_yaqash.bfS00KlHeldoutAfter, qreg_yaqash.bfS90KlHeldoutAfter,
+      qreg_yaqash.bfS50KlHeldoutAfter]
+
+/-- **Before-finishing KL ranks the arms wrongly; the first quick eval ranks them rightly.** `α = 0.5` starts above the
+base on the 40-chunk fp32 before-eval yet below it on the 8-chunk step-0 quick eval, and that order is the finished
+order. -/
+theorem yaqab_before_misleads :
+    qreg_yaqash.bfBaseKlHeldoutBefore < qreg_yaqash.bfS50KlHeldoutBefore ∧
+    qreg_yaqash.bfS50QuickKlStep0 < qreg_yaqash.bfBaseQuickKlStep0 ∧
+    qreg_yaqash.bfS50KlHeldoutAfter < qreg_yaqash.bfBaseKlHeldoutAfter := by
+  refine ⟨?_, ?_, ?_⟩ <;>
+    norm_num [qreg_yaqash.bfBaseKlHeldoutBefore, qreg_yaqash.bfS50KlHeldoutBefore, qreg_yaqash.bfS50QuickKlStep0,
+      qreg_yaqash.bfBaseQuickKlStep0, qreg_yaqash.bfS50KlHeldoutAfter, qreg_yaqash.bfBaseKlHeldoutAfter]
+
 end Perf.QuantumRotation
 
 /-!

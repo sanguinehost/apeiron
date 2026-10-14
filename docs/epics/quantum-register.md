@@ -450,9 +450,60 @@ Sketch-A token weights `‖x_t‖²` taken after the layer loop (every layer use
 gradient-equivalence control (`5.7e-5 > 1e-5`) that the base arms pass at `3.2e-6`, so finishing never ran on them.
 Controls: CPU self-test (`dJ` relative error `6.4e-16`, a planted single-block error recovered to ratio `0.27`, the sign
 control), a block-Jacobi revert mutation (exit 1 on `JO_after < 0.5·JO_before`), and the capture determinism control
-(math backend bit-equal, efficient backend asserts fire 3/3). The open question is the estimator, not the target: a
-split-half `H_O` cross-validation arm (`-yaqaxv`, train on half A, score `J` on half B, plus diagonal shrinkage) separates
-fitting estimation noise from a misaligned Kronecker proxy.
+(math backend bit-equal, efficient backend asserts fire 3/3). The estimator, not the target, was the defect: the next
+section shrinks `H_O` toward its diagonal and the refine then finishes below the base.
+
+### Shrunk output-side refinement finishes lower (predictions `qreg-yaqab-2`, `-5`, `-6`, `-8` confirmed)
+
+Receipt [`docs/evidence/receipts/onebit/qreg-yaqash.json`](../evidence/receipts/onebit/qreg-yaqash.json)
+(sha256 `919100cb…`); verdicts `yaqab_shrink_wins`, `yaqab_alpha_interior`, `yaqab_before_misleads`, `yaqaxv_fits_noise`,
+`yaqaxv_shrink_heldout`, `yaqas_refuted`, `yaqas90_small_move` in `proof/corpus/Perf/QuantumRotation.lean`, audited in
+`AxiomAudit.lean` (namespace `qreg_yaqash`; controls: the worst shrunk run `0.006` below the best base run, the
+three-run sums `0.034` apart, `α = 0.9` below the base, and before-KL ranking the shrunk arm first each leave unsolved
+goals, exit 1). `fold_transfer.py` arm suffixes: `-yaqaxv` captures `H_O` separately on
+`ids_cal[0::2]` (A) and `ids_cal[1::2]` (B), refines on A and scores `J` on B; `-yaqasNN` refines against
+`(1 − α) H_O + α diag H_O`, `α = NN/100` (shrinkage toward the diagonal: Ledoit and Wolf, J. Multivariate Anal. 88 (2004)).
+All arms: 1.178 b/w, n-cal 50, step/fused, one 580 s wall each.
+
+**Finished outcome** (butterfly Hadamard; every arm exit 0, grad_equiv ok):
+
+| arm | held-out KL before | step-0 quick KL | held-out KL after (steps) | top-1 after |
+|---|---|---|---|---|
+| base, 3 runs | 1.16367 | 0.79543 | 0.86859 (646), 0.86413 (665), 0.86777 (659); mean **0.86683** | 0.5442 mean |
+| `-yaqas50`, 3 runs | 1.20562 | 0.79009 | 0.85223 (547), 0.85641 (561), 0.85857 (553); mean **0.85574** | 0.5507 mean |
+| `-yaqa` (α 0) | 1.34706 | 1.08276 | 0.93200 (535) | 0.5339 |
+| `-yaqas90` | 1.29323 | 1.05966 | 0.87312 (556) | 0.5449 |
+
+At `α = 0.5` the refine lowers finished held-out KL by `0.0111` nats on the three-run means (spreads `0.0045` base,
+`0.0063` shrunk) and raises top-1 by `0.65` points; every shrunk run sits more than `0.005` below every base run and above
+it in top-1, at equal wall with ~100 fewer finishing steps (the refine and the capture take 63 s of the 580). The outcome
+is interior in `α`: unshrunk finishes `0.065` above the base mean, `α = 0.9` `0.006` above it. Before-finishing state is
+bit-identical across repeats; the run-to-run spread is the finishing phase.
+
+**Before-finishing KL ranks pre-finish code edits wrongly.** `α = 0.5` starts `0.042` above the base on the 40-chunk
+fp32 before-eval and ends below it; the step-0 quick eval (first 8 held-out chunks, bf16, `pv_finish.py` `quick_eval`)
+has it below the base from the start, the finished order. Reading (`model` grade): `H_O` is the KL curvature at the
+teacher, and a before-finishing KL of ~1.2 nats is outside the quadratic regime, so the refine is a better start for
+finishing rather than a better endpoint by itself. The before-KL refutations `qreg-yaqaxv-1`, `qreg-yaqas-1`, `-2` stand
+as stated.
+
+**Held-out split** (mm Hadamard, before finishing; `J_B` scored on half B):
+
+| kind | `J_A` after/before | `J_B` after/before | `J_B` at α 0.5 | `J_B` at α 0.9 |
+|---|---|---|---|---|
+| q | 0.975 | 1.001 | 0.968 | 0.989 |
+| k | 0.990 | 0.990 | 0.991 | 0.992 |
+| v | 0.993 | 0.995 | 0.995 | 0.995 |
+| o | 0.907 | 0.945 | 0.938 | 0.971 |
+| gate | 0.853 | **1.130** | 1.004 | 0.994 |
+| up | 0.764 | 0.993 | 0.903 | 0.968 |
+| down | 0.786 | **1.143** | 0.997 | 0.996 |
+
+The unshrunk refine fits estimation noise in `H_O` on `gate` and `down` (fitted half down 15–21%, held-out half up 13–14%);
+shrinkage at `α = 0.5` turns the held-out `J_B` down in six of seven kinds. The best `α` differs per kind, so the next
+arm replaces the fixed `α` by each linear's analytic shrinkage intensity (Schäfer and Strimmer, Stat. Appl. Genet. Mol.
+Biol. 4 (2005) art. 32, target D). The mm-Hadamard `-yaqa*` arms fail the fp32 Hadamard gradient-equivalence bound
+(`1e-5`; `3.1e-5`–`1.2e-4` on refined codes), so the finished arms run the butterfly Hadamard, whose control passes.
 
 ### Arc Block (W1-T1)
 

@@ -1087,6 +1087,7 @@ def main():
     if a.arm_suffix:
         if "yaqa" in binfo:
             res["yaqa"] = binfo["yaqa"]
+            res["yaqa_shrink"] = binfo["yaqa_shrink"]
         if "yaqa" in tm:
             res["walls"]["yaqa_s"] = tm["yaqa"]
         if "capture" in tm:

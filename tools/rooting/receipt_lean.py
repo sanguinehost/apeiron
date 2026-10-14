@@ -97,6 +97,7 @@ W15 = {
     "qreg_iso": "docs/evidence/receipts/onebit/qreg-iso.json",
     "qreg_blockft": "docs/evidence/receipts/onebit/qreg-blockft.json",
     "qreg_yaqa": "docs/evidence/receipts/onebit/qreg-yaqa.json",
+    "qreg_yaqash": "docs/evidence/receipts/onebit/qreg-yaqash.json",
 }
 
 # End-loss-weighted Gram receipts (fold_transfer "-guided[a|b]NN"): namespace -> variant prefixes (see guided_prefix).
@@ -874,6 +875,39 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
             out.append(("rat", f"jacobi2{K}JoAfter", rat(arms["jacobi2"]["yaqa"][k]["JO_after"])))
         out.append(("rat", "solveGradEquivLossRel", rat(sA["grad_equiv_fp32_had_loss_rel"])))
         out.append(("rat", "baseGradEquivLossRel", rat(arms["base"]["grad_equiv_fp32_had_loss_rel"])))
+    elif ns == "qreg_yaqash":
+        # Held-out split, diagonal shrinkage and finished outcome of the "-yaqa" refine: the xv arm (H_O fit on half A,
+        # scored on half B) as `xv<Kind><Field>`; every arm as `<label>KlHeldoutBefore`, `<label>QuickKlStep0`, and when it
+        # finished `<label>KlHeldoutAfter`/`<label>Steps`; refined arms as `<label><Kind>Jo<Before|After>`.
+        arms = {a["label"]: a for a in data["arms"]}
+        if "xv" not in arms or "bfBase" not in arms or data["protocol"]["n_cal"] != 50:
+            raise Fail(f"{rel}: lacks the xv or bfBase arm, or n-cal is not 50")
+        if len({a["bits_before"] for a in arms.values()}) != 1:
+            raise Fail(f"{rel}: arms differ in bits")
+        if any(a["script_sha256"]["fold_transfer"] != data["source"]["fold_transfer"]["sha256"] for l, a in arms.items() if l != "xv"):
+            raise Fail(f"{rel}: an arm other than xv is not the receipt source")
+        out.append(("nat", "bitsBefore", nat(arms["xv"]["bits_before"])))
+        for lab, a in arms.items():
+            if "yaqa" in a:
+                m = re.search(r"[sS](\d\d)[rt]?$", lab)
+                if rat(a.get("yaqa_shrink", "0")) != (Fraction(int(m.group(1)), 100) if m else 0):
+                    raise Fail(f"{rel}: arm {lab} recorded shrink {a.get('yaqa_shrink')}")
+            out.append(("rat", lab + "KlHeldoutBefore", rat(a["kl_heldout_before"])))
+            out.append(("rat", lab + "QuickKlStep0", rat(a["quick_kl_step0"])))
+            if "kl_heldout_after" in a:
+                if a["exit"] != 0 or not a["grad_equiv_ok"]:
+                    raise Fail(f"{rel}: finished arm {lab} exit {a['exit']} or grad_equiv failed")
+                out.append(("nat", lab + "Steps", nat(a["steps"])))
+                out.append(("rat", lab + "KlHeldoutAfter", rat(a["kl_heldout_after"])))
+                out.append(("rat", lab + "Top1HeldoutAfter", rat(a["top1_heldout_after"])))
+            for k, v in a.get("yaqa", {}).items():
+                K = k[0].upper() + k[1:]
+                fields = [("JoBefore", "JO_before"), ("JoAfter", "JO_after")]
+                if lab == "xv":
+                    fields += [("JbBefore", "JB_before"), ("JbAfter", "JB_after"), ("JbAfterA50", "JB_after_a50"),
+                               ("JbAfterA90", "JB_after_a90")]
+                for name, f in fields:
+                    out.append(("rat", f"{lab}{K}{name}", rat(v[f])))
     elif ns in ("qreg_attrib", "qreg_iso"):
         # Teacher-restore attribution of the held-out KL (pv_finish.py --attrib 8), before and after finishing in one run:
         # per phase `<before|after><Field>`, the 24 per-layer restore KLs `...LayerKl<l>` and the 7 per-kind `...Kind<K>Kl`.

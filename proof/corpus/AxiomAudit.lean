@@ -1214,6 +1214,13 @@ import Perf.QuantumRotation
 #audit Perf.QuantumRotation.yaqa_refuted
 #audit Perf.QuantumRotation.yaqa_jo_falls
 #audit Perf.QuantumRotation.yaqa_capture_noise
+#audit Perf.QuantumRotation.yaqaxv_fits_noise
+#audit Perf.QuantumRotation.yaqaxv_shrink_heldout
+#audit Perf.QuantumRotation.yaqas_refuted
+#audit Perf.QuantumRotation.yaqas90_small_move
+#audit Perf.QuantumRotation.yaqab_shrink_wins
+#audit Perf.QuantumRotation.yaqab_alpha_interior
+#audit Perf.QuantumRotation.yaqab_before_misleads
 #audit apeiron_word.RegisterRefinement.checked_mul_spec
 #audit apeiron_word.RegisterRefinement.checked_mul_none
 #audit apeiron_word.RegisterRefinement.checked_mul_none_of_a

@@ -1,0 +1,854 @@
+{
+ "question": "Does the YAQA output-side refine (Tseng et al., arXiv 2505.22988) with H_O shrunk toward its diagonal (Ledoit and Wolf 2004) lower the finished held-out KL at equal wall and unchanged bits, and is the refine's before-finishing KL rise an estimation-error fit of the sketched H_O?",
+ "protocol": {
+  "n_cal": 50,
+  "n_eval": 40,
+  "n_in": 20,
+  "batch": 8,
+  "v_every": 0,
+  "codes": "vstep",
+  "compose": "step",
+  "kl": "fused",
+  "hadamard": "per arm",
+  "train": "r,c,d,norm",
+  "gq_k": 4,
+  "gq_seed": 0,
+  "ho_tokens": 25600,
+  "xv": "H_O captured separately on ids_cal[0::2] (A, fit) and ids_cal[1::2] (B, held out); refine on A",
+  "shrink": "HO <- (1 - alpha) HO + alpha diag(HO) before the applied refine",
+  "wall": "timeout 580",
+  "bound": "flock /tmp/opencode/gpu.lock, systemd-run MemoryMax=40G MemorySwapMax=0"
+ },
+ "machine": "RTX 5080 host",
+ "source": {
+  "fold_transfer": {
+   "path": "tools/onebit/fold_transfer.py",
+   "sha256": "d5fe8a7988c9b9703c1adbc894308ed5bff7244faacb643ccaa7ef6113013177"
+  },
+  "pv_finish": {
+   "path": "tools/onebit/pv_finish.py",
+   "sha256": "19638c5fd8ef88369e67db597c224fedf6d1f0137b7e52aab14673f8019c94fd"
+  },
+  "xv_note": "the xv arm ran on the preceding fold_transfer (no -yaqas parsing); its xv path is unchanged"
+ },
+ "base_reference": {
+  "receipt": "docs/evidence/receipts/onebit/qreg-yaqa.json",
+  "base_kl_heldout_before": "1.1636725",
+  "solve_kl_heldout_before": "1.3470581"
+ },
+ "reference": {
+  "shrinkage": "Ledoit and Wolf, J. Multivariate Anal. 88 (2004) 365-411",
+  "yaqa": "Tseng et al., arXiv 2505.22988, /home/socol/oc-tmp/refs/blockft/yaqa.txt"
+ },
+ "arms": [
+  {
+   "label": "xv",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqaxv/prod.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqaxv",
+   "script_sha256": {
+    "pv_finish": "ae62df523220ba3bfd1ab9d2e1c830dc4a7e880eac26b5b4034a7528a9d58107",
+    "fold_transfer": "fdac9d4329b64c4a016f3fdccfabaeee94b1ddab22d83784c08b532a9a97c42c"
+   },
+   "exit": 1,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.38890597820282",
+   "top1_heldout_before": "0.454638671875",
+   "walls": {
+    "load_s": "3.6393330097198486",
+    "transfer_s": "258.96612215042114",
+    "yaqa_s": "126.20378684997559",
+    "capture_s": "22.836588859558105",
+    "eval_before_s": "4.673537492752075"
+   },
+   "grad_equiv_ok": false,
+   "grad_equiv_fp32_had_loss_rel": "0.00012303207553043653",
+   "quick_kl_step0": "1.0225256085395813",
+   "yaqa": {
+    "q": {
+     "JO_before": "21394833.787109375",
+     "JO_after": "20857454.4921875",
+     "accepted": 40,
+     "chunks": 96,
+     "rows_moved": 8572,
+     "JB_before": "21364011.734375",
+     "JB_after": "21393876.13671875",
+     "JB_after_a50": "20678910.61328125",
+     "JB_after_a90": "21124505.87109375",
+     "accepted_a50": 92,
+     "accepted_a90": 85
+    },
+    "k": {
+     "JO_before": "751218.1968383789",
+     "JO_after": "743423.7695922852",
+     "accepted": 19,
+     "chunks": 24,
+     "rows_moved": 2146,
+     "JB_before": "751365.3062744141",
+     "JB_after": "743682.8651733398",
+     "JB_after_a50": "744706.0097045898",
+     "JB_after_a90": "745389.1112670898",
+     "accepted_a50": 23,
+     "accepted_a90": 23
+    },
+    "v": {
+     "JO_before": "994346.4104537964",
+     "JO_after": "987792.1536102295",
+     "accepted": 23,
+     "chunks": 24,
+     "rows_moved": 2603,
+     "JB_before": "992410.2952575684",
+     "JB_after": "987069.7291870117",
+     "JB_after_a50": "987069.8719177246",
+     "JB_after_a90": "986997.6609802246",
+     "accepted_a50": 22,
+     "accepted_a90": 23
+    },
+    "o": {
+     "JO_before": "577855.7895011902",
+     "JO_after": "523825.5612888336",
+     "accepted": 96,
+     "chunks": 96,
+     "rows_moved": 21503,
+     "JB_before": "576613.7379398346",
+     "JB_after": "545032.6423950195",
+     "JB_after_a50": "540883.6509771347",
+     "JB_after_a90": "559732.8228607178",
+     "accepted_a50": 96,
+     "accepted_a90": 96
+    },
+    "gate": {
+     "JO_before": "147308171.75",
+     "JO_after": "125709482.875",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 112361,
+     "JB_before": "147680406.5",
+     "JB_after": "166854875.0",
+     "JB_after_a50": "148312679.25",
+     "JB_after_a90": "146729387.25",
+     "accepted_a50": 456,
+     "accepted_a90": 456
+    },
+    "up": {
+     "JO_before": "121392772.5",
+     "JO_after": "92743263.25",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 114675,
+     "JB_before": "121884564.0",
+     "JB_after": "121074711.25",
+     "JB_after_a50": "110061639.0",
+     "JB_after_a90": "118020939.25",
+     "accepted_a50": 456,
+     "accepted_a90": 456
+    },
+    "down": {
+     "JO_before": "8442163.59765625",
+     "JO_after": "6633675.97265625",
+     "accepted": 76,
+     "chunks": 96,
+     "rows_moved": 16768,
+     "JB_before": "8457591.63671875",
+     "JB_after": "9668819.171875",
+     "JB_after_a50": "8431280.50390625",
+     "JB_after_a90": "8422077.09765625",
+     "accepted_a50": 62,
+     "accepted_a90": 51
+    }
+   },
+   "hadamard": "mm"
+  },
+  {
+   "label": "s50",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqas/prod-s50.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqas50",
+   "script_sha256": {
+    "pv_finish": "19638c5fd8ef88369e67db597c224fedf6d1f0137b7e52aab14673f8019c94fd",
+    "fold_transfer": "d5fe8a7988c9b9703c1adbc894308ed5bff7244faacb643ccaa7ef6113013177"
+   },
+   "exit": 1,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.2056242614984511",
+   "top1_heldout_before": "0.471923828125",
+   "walls": {
+    "load_s": "3.657613754272461",
+    "transfer_s": "180.4970211982727",
+    "yaqa_s": "41.55440378189087",
+    "capture_s": "29.682536602020264",
+    "eval_before_s": "4.680803298950195"
+   },
+   "grad_equiv_ok": false,
+   "grad_equiv_fp32_had_loss_rel": "6.291074537999214e-05",
+   "quick_kl_step0": "0.7900866568088531",
+   "yaqa": {
+    "q": {
+     "JO_before": "22141109.677734375",
+     "JO_after": "21791942.333984375",
+     "accepted": 89,
+     "chunks": 96,
+     "rows_moved": 16020
+    },
+    "k": {
+     "JO_before": "787289.41796875",
+     "JO_after": "778248.7239990234",
+     "accepted": 24,
+     "chunks": 24,
+     "rows_moved": 2729
+    },
+    "v": {
+     "JO_before": "993944.4648513794",
+     "JO_after": "989965.3486404419",
+     "accepted": 23,
+     "chunks": 24,
+     "rows_moved": 2601
+    },
+    "o": {
+     "JO_before": "554934.2361164093",
+     "JO_after": "536077.8576316833",
+     "accepted": 94,
+     "chunks": 96,
+     "rows_moved": 21113
+    },
+    "gate": {
+     "JO_before": "149997287.5",
+     "JO_after": "145504186.25",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 104070
+    },
+    "up": {
+     "JO_before": "124051228.75",
+     "JO_after": "116729635.0",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 109055
+    },
+    "down": {
+     "JO_before": "8743080.3203125",
+     "JO_after": "8365810.3828125",
+     "accepted": 64,
+     "chunks": 96,
+     "rows_moved": 14336
+    }
+   },
+   "yaqa_shrink": "0.5",
+   "hadamard": "mm"
+  },
+  {
+   "label": "s90",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqas/prod-s90.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqas90",
+   "script_sha256": {
+    "pv_finish": "19638c5fd8ef88369e67db597c224fedf6d1f0137b7e52aab14673f8019c94fd",
+    "fold_transfer": "d5fe8a7988c9b9703c1adbc894308ed5bff7244faacb643ccaa7ef6113013177"
+   },
+   "exit": 1,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.293226507306099",
+   "top1_heldout_before": "0.4654296875",
+   "walls": {
+    "load_s": "4.382250785827637",
+    "transfer_s": "183.4787414073944",
+    "yaqa_s": "42.55219626426697",
+    "capture_s": "24.02513813972473",
+    "eval_before_s": "4.637411594390869"
+   },
+   "grad_equiv_ok": false,
+   "grad_equiv_fp32_had_loss_rel": "3.103480298032556e-05",
+   "quick_kl_step0": "1.0596563816070557",
+   "yaqa": {
+    "q": {
+     "JO_before": "22557967.81640625",
+     "JO_after": "22518620.68359375",
+     "accepted": 89,
+     "chunks": 96,
+     "rows_moved": 9528
+    },
+    "k": {
+     "JO_before": "807018.1351318359",
+     "JO_after": "797173.708190918",
+     "accepted": 24,
+     "chunks": 24,
+     "rows_moved": 2742
+    },
+    "v": {
+     "JO_before": "992418.7626037598",
+     "JO_after": "988292.468170166",
+     "accepted": 22,
+     "chunks": 24,
+     "rows_moved": 2438
+    },
+    "o": {
+     "JO_before": "545330.584774971",
+     "JO_after": "535828.82954216",
+     "accepted": 92,
+     "chunks": 96,
+     "rows_moved": 20526
+    },
+    "gate": {
+     "JO_before": "149435183.5",
+     "JO_after": "148984877.5",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 61933
+    },
+    "up": {
+     "JO_before": "123776621.125",
+     "JO_after": "123240233.5",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 73066
+    },
+    "down": {
+     "JO_before": "8749072.5078125",
+     "JO_after": "8745576.8359375",
+     "accepted": 55,
+     "chunks": 96,
+     "rows_moved": 12283
+    }
+   },
+   "yaqa_shrink": "0.9",
+   "hadamard": "mm"
+  },
+  {
+   "label": "bfBase",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqab/base.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb",
+   "script_sha256": {
+    "pv_finish": "19638c5fd8ef88369e67db597c224fedf6d1f0137b7e52aab14673f8019c94fd",
+    "fold_transfer": "d5fe8a7988c9b9703c1adbc894308ed5bff7244faacb643ccaa7ef6113013177"
+   },
+   "exit": 0,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.1636724948883057",
+   "top1_heldout_before": "0.479736328125",
+   "walls": {
+    "load_s": "4.246382713317871",
+    "transfer_s": "113.57186532020569",
+    "eval_before_s": "4.996500492095947",
+    "projected_finish_s": "17.74597556591034",
+    "train_s": "408.52519965171814",
+    "finish_s": "412.13593101501465",
+    "total_s": "541.9000973701477"
+   },
+   "steps": 646,
+   "kl_heldout_after": "0.868592593073845",
+   "top1_heldout_after": "0.544140625",
+   "grad_equiv_ok": true,
+   "quick_kl_step0": "0.795434296131134",
+   "hadamard": "butterfly"
+  },
+  {
+   "label": "bfBase2",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqab/base2.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb",
+   "script_sha256": {
+    "pv_finish": "19638c5fd8ef88369e67db597c224fedf6d1f0137b7e52aab14673f8019c94fd",
+    "fold_transfer": "d5fe8a7988c9b9703c1adbc894308ed5bff7244faacb643ccaa7ef6113013177"
+   },
+   "exit": 0,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.1636724948883057",
+   "top1_heldout_before": "0.479736328125",
+   "walls": {
+    "load_s": "3.7750017642974854",
+    "transfer_s": "107.35038781166077",
+    "eval_before_s": "4.6861796379089355",
+    "projected_finish_s": "17.389106583595275",
+    "train_s": "417.27738094329834",
+    "finish_s": "420.83205699920654",
+    "total_s": "542.0511612892151"
+   },
+   "steps": 665,
+   "kl_heldout_after": "0.8641314685344696",
+   "top1_heldout_after": "0.545458984375",
+   "grad_equiv_ok": true,
+   "quick_kl_step0": "0.795434296131134",
+   "hadamard": "butterfly"
+  },
+  {
+   "label": "bfBase3",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqab/base3.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb",
+   "script_sha256": {
+    "pv_finish": "19638c5fd8ef88369e67db597c224fedf6d1f0137b7e52aab14673f8019c94fd",
+    "fold_transfer": "d5fe8a7988c9b9703c1adbc894308ed5bff7244faacb643ccaa7ef6113013177"
+   },
+   "exit": 0,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.1636724948883057",
+   "top1_heldout_before": "0.479736328125",
+   "walls": {
+    "load_s": "3.807936668395996",
+    "transfer_s": "109.1140205860138",
+    "eval_before_s": "4.712308645248413",
+    "projected_finish_s": "17.419154942035675",
+    "train_s": "415.07725262641907",
+    "finish_s": "418.7124171257019",
+    "total_s": "541.7930860519409"
+   },
+   "steps": 659,
+   "kl_heldout_after": "0.8677674353122711",
+   "top1_heldout_after": "0.542919921875",
+   "grad_equiv_ok": true,
+   "quick_kl_step0": "0.795434296131134",
+   "hadamard": "butterfly"
+  },
+  {
+   "label": "bfS00",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqab/s00.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqa",
+   "script_sha256": {
+    "pv_finish": "19638c5fd8ef88369e67db597c224fedf6d1f0137b7e52aab14673f8019c94fd",
+    "fold_transfer": "d5fe8a7988c9b9703c1adbc894308ed5bff7244faacb643ccaa7ef6113013177"
+   },
+   "exit": 0,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.3470581084489823",
+   "top1_heldout_before": "0.45888671875",
+   "walls": {
+    "load_s": "7.993208646774292",
+    "transfer_s": "182.68345046043396",
+    "yaqa_s": "41.98365521430969",
+    "capture_s": "29.94145965576172",
+    "eval_before_s": "4.646701335906982",
+    "projected_finish_s": "17.34370653629303",
+    "train_s": "337.36647367477417",
+    "finish_s": "340.92552733421326",
+    "total_s": "541.6886167526245"
+   },
+   "steps": 535,
+   "kl_heldout_after": "0.9320033133029938",
+   "top1_heldout_after": "0.53388671875",
+   "grad_equiv_ok": true,
+   "quick_kl_step0": "1.0827594697475433",
+   "yaqa": {
+    "q": {
+     "JO_before": "21437479.330078125",
+     "JO_after": "20861547.59765625",
+     "accepted": 47,
+     "chunks": 96,
+     "rows_moved": 10651
+    },
+    "k": {
+     "JO_before": "752175.5137939453",
+     "JO_after": "747576.9219970703",
+     "accepted": 15,
+     "chunks": 24,
+     "rows_moved": 1707
+    },
+    "v": {
+     "JO_before": "991947.2109451294",
+     "JO_after": "986903.1844406128",
+     "accepted": 23,
+     "chunks": 24,
+     "rows_moved": 2610
+    },
+    "o": {
+     "JO_before": "584148.9232654572",
+     "JO_after": "535321.6903266907",
+     "accepted": 96,
+     "chunks": 96,
+     "rows_moved": 21503
+    },
+    "gate": {
+     "JO_before": "148003150.5",
+     "JO_after": "132697208.0",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 111071
+    },
+    "up": {
+     "JO_before": "122968553.25",
+     "JO_after": "98076588.125",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 114453
+    },
+    "down": {
+     "JO_before": "8580745.8359375",
+     "JO_after": "7113012.1015625",
+     "accepted": 74,
+     "chunks": 96,
+     "rows_moved": 16256
+    }
+   },
+   "yaqa_shrink": "0.0",
+   "hadamard": "butterfly"
+  },
+  {
+   "label": "bfS50",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqab/s50.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqas50",
+   "script_sha256": {
+    "pv_finish": "19638c5fd8ef88369e67db597c224fedf6d1f0137b7e52aab14673f8019c94fd",
+    "fold_transfer": "d5fe8a7988c9b9703c1adbc894308ed5bff7244faacb643ccaa7ef6113013177"
+   },
+   "exit": 0,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.2056242614984511",
+   "top1_heldout_before": "0.471923828125",
+   "walls": {
+    "load_s": "3.660679340362549",
+    "transfer_s": "176.5051941871643",
+    "yaqa_s": "41.95386052131653",
+    "capture_s": "21.3641574382782",
+    "eval_before_s": "4.6489644050598145",
+    "projected_finish_s": "17.346309065818787",
+    "train_s": "345.1649589538574",
+    "finish_s": "348.70959663391113",
+    "total_s": "541.7712643146515"
+   },
+   "steps": 547,
+   "kl_heldout_after": "0.8522268652915954",
+   "top1_heldout_after": "0.552490234375",
+   "grad_equiv_ok": true,
+   "quick_kl_step0": "0.7900866568088531",
+   "yaqa": {
+    "q": {
+     "JO_before": "22141109.677734375",
+     "JO_after": "21791942.333984375",
+     "accepted": 89,
+     "chunks": 96,
+     "rows_moved": 16020
+    },
+    "k": {
+     "JO_before": "787289.41796875",
+     "JO_after": "778248.7239990234",
+     "accepted": 24,
+     "chunks": 24,
+     "rows_moved": 2729
+    },
+    "v": {
+     "JO_before": "993944.4648513794",
+     "JO_after": "989965.3486404419",
+     "accepted": 23,
+     "chunks": 24,
+     "rows_moved": 2601
+    },
+    "o": {
+     "JO_before": "554934.2361164093",
+     "JO_after": "536077.8576316833",
+     "accepted": 94,
+     "chunks": 96,
+     "rows_moved": 21113
+    },
+    "gate": {
+     "JO_before": "149997287.5",
+     "JO_after": "145504186.25",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 104070
+    },
+    "up": {
+     "JO_before": "124051228.75",
+     "JO_after": "116729635.0",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 109055
+    },
+    "down": {
+     "JO_before": "8743080.3203125",
+     "JO_after": "8365810.3828125",
+     "accepted": 64,
+     "chunks": 96,
+     "rows_moved": 14336
+    }
+   },
+   "yaqa_shrink": "0.5",
+   "hadamard": "butterfly"
+  },
+  {
+   "label": "bfS50r",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqab/s50r.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqas50",
+   "script_sha256": {
+    "pv_finish": "19638c5fd8ef88369e67db597c224fedf6d1f0137b7e52aab14673f8019c94fd",
+    "fold_transfer": "d5fe8a7988c9b9703c1adbc894308ed5bff7244faacb643ccaa7ef6113013177"
+   },
+   "exit": 0,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.2056242614984511",
+   "top1_heldout_before": "0.471923828125",
+   "walls": {
+    "load_s": "3.7782678604125977",
+    "transfer_s": "170.32964491844177",
+    "yaqa_s": "41.57998991012573",
+    "capture_s": "21.489731311798096",
+    "eval_before_s": "4.713061094284058",
+    "projected_finish_s": "17.420020258426668",
+    "train_s": "354.40774488449097",
+    "finish_s": "357.95058369636536",
+    "total_s": "542.1613516807556"
+   },
+   "steps": 561,
+   "kl_heldout_after": "0.8564102113246918",
+   "top1_heldout_after": "0.550146484375",
+   "grad_equiv_ok": true,
+   "quick_kl_step0": "0.7900866568088531",
+   "yaqa": {
+    "q": {
+     "JO_before": "22141109.677734375",
+     "JO_after": "21791942.333984375",
+     "accepted": 89,
+     "chunks": 96,
+     "rows_moved": 16020
+    },
+    "k": {
+     "JO_before": "787289.41796875",
+     "JO_after": "778248.7239990234",
+     "accepted": 24,
+     "chunks": 24,
+     "rows_moved": 2729
+    },
+    "v": {
+     "JO_before": "993944.4648513794",
+     "JO_after": "989965.3486404419",
+     "accepted": 23,
+     "chunks": 24,
+     "rows_moved": 2601
+    },
+    "o": {
+     "JO_before": "554934.2361164093",
+     "JO_after": "536077.8576316833",
+     "accepted": 94,
+     "chunks": 96,
+     "rows_moved": 21113
+    },
+    "gate": {
+     "JO_before": "149997287.5",
+     "JO_after": "145504186.25",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 104070
+    },
+    "up": {
+     "JO_before": "124051228.75",
+     "JO_after": "116729635.0",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 109055
+    },
+    "down": {
+     "JO_before": "8743080.3203125",
+     "JO_after": "8365810.3828125",
+     "accepted": 64,
+     "chunks": 96,
+     "rows_moved": 14336
+    }
+   },
+   "yaqa_shrink": "0.5",
+   "hadamard": "butterfly"
+  },
+  {
+   "label": "bfS50t",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqab/s50t.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqas50",
+   "script_sha256": {
+    "pv_finish": "19638c5fd8ef88369e67db597c224fedf6d1f0137b7e52aab14673f8019c94fd",
+    "fold_transfer": "d5fe8a7988c9b9703c1adbc894308ed5bff7244faacb643ccaa7ef6113013177"
+   },
+   "exit": 0,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.2056242614984511",
+   "top1_heldout_before": "0.471923828125",
+   "walls": {
+    "load_s": "3.6996893882751465",
+    "transfer_s": "172.59762477874756",
+    "yaqa_s": "42.06415843963623",
+    "capture_s": "21.372068166732788",
+    "eval_before_s": "4.625817775726318",
+    "projected_finish_s": "17.319690442085268",
+    "train_s": "351.95396065711975",
+    "finish_s": "355.51169085502625",
+    "total_s": "541.9764051437378"
+   },
+   "steps": 553,
+   "kl_heldout_after": "0.8585652023553848",
+   "top1_heldout_after": "0.549462890625",
+   "grad_equiv_ok": true,
+   "quick_kl_step0": "0.7900866568088531",
+   "yaqa": {
+    "q": {
+     "JO_before": "22141109.677734375",
+     "JO_after": "21791942.333984375",
+     "accepted": 89,
+     "chunks": 96,
+     "rows_moved": 16020
+    },
+    "k": {
+     "JO_before": "787289.41796875",
+     "JO_after": "778248.7239990234",
+     "accepted": 24,
+     "chunks": 24,
+     "rows_moved": 2729
+    },
+    "v": {
+     "JO_before": "993944.4648513794",
+     "JO_after": "989965.3486404419",
+     "accepted": 23,
+     "chunks": 24,
+     "rows_moved": 2601
+    },
+    "o": {
+     "JO_before": "554934.2361164093",
+     "JO_after": "536077.8576316833",
+     "accepted": 94,
+     "chunks": 96,
+     "rows_moved": 21113
+    },
+    "gate": {
+     "JO_before": "149997287.5",
+     "JO_after": "145504186.25",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 104070
+    },
+    "up": {
+     "JO_before": "124051228.75",
+     "JO_after": "116729635.0",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 109055
+    },
+    "down": {
+     "JO_before": "8743080.3203125",
+     "JO_after": "8365810.3828125",
+     "accepted": 64,
+     "chunks": 96,
+     "rows_moved": 14336
+    }
+   },
+   "yaqa_shrink": "0.5",
+   "hadamard": "butterfly"
+  },
+  {
+   "label": "bfS90",
+   "file": "/home/socol/oc-tmp/lanes/qreg/yaqab/s90.json",
+   "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb-yaqas90",
+   "script_sha256": {
+    "pv_finish": "19638c5fd8ef88369e67db597c224fedf6d1f0137b7e52aab14673f8019c94fd",
+    "fold_transfer": "d5fe8a7988c9b9703c1adbc894308ed5bff7244faacb643ccaa7ef6113013177"
+   },
+   "exit": 0,
+   "bits_before": 421541376,
+   "kl_heldout_before": "1.293226507306099",
+   "top1_heldout_before": "0.4654296875",
+   "walls": {
+    "load_s": "3.8163440227508545",
+    "transfer_s": "171.40707087516785",
+    "yaqa_s": "42.00800633430481",
+    "capture_s": "21.364664554595947",
+    "eval_before_s": "4.660923719406128",
+    "projected_finish_s": "17.36006227731705",
+    "train_s": "350.88859391212463",
+    "finish_s": "354.4172110557556",
+    "total_s": "541.6756076812744"
+   },
+   "steps": 556,
+   "kl_heldout_after": "0.8731189966201782",
+   "top1_heldout_after": "0.544921875",
+   "grad_equiv_ok": true,
+   "quick_kl_step0": "1.0596563816070557",
+   "yaqa": {
+    "q": {
+     "JO_before": "22557967.81640625",
+     "JO_after": "22518620.68359375",
+     "accepted": 89,
+     "chunks": 96,
+     "rows_moved": 9528
+    },
+    "k": {
+     "JO_before": "807018.1351318359",
+     "JO_after": "797173.708190918",
+     "accepted": 24,
+     "chunks": 24,
+     "rows_moved": 2742
+    },
+    "v": {
+     "JO_before": "992418.7626037598",
+     "JO_after": "988292.468170166",
+     "accepted": 22,
+     "chunks": 24,
+     "rows_moved": 2438
+    },
+    "o": {
+     "JO_before": "545330.584774971",
+     "JO_after": "535828.82954216",
+     "accepted": 92,
+     "chunks": 96,
+     "rows_moved": 20526
+    },
+    "gate": {
+     "JO_before": "149435183.5",
+     "JO_after": "148984877.5",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 61933
+    },
+    "up": {
+     "JO_before": "123776621.125",
+     "JO_after": "123240233.5",
+     "accepted": 456,
+     "chunks": 456,
+     "rows_moved": 73066
+    },
+    "down": {
+     "JO_before": "8749072.5078125",
+     "JO_after": "8745576.8359375",
+     "accepted": 55,
+     "chunks": 96,
+     "rows_moved": 12283
+    }
+   },
+   "yaqa_shrink": "0.9",
+   "hadamard": "butterfly"
+  }
+ ],
+ "predictions": [
+  {
+   "id": "qreg-yaqaxv-1",
+   "verdict": "refuted"
+  },
+  {
+   "id": "qreg-yaqas-1",
+   "verdict": "refuted"
+  },
+  {
+   "id": "qreg-yaqas-2",
+   "verdict": "refuted"
+  },
+  {
+   "id": "qreg-yaqab-1",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "qreg-yaqab-2",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "qreg-yaqab-3",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "qreg-yaqab-4",
+   "verdict": "refuted"
+  },
+  {
+   "id": "qreg-yaqab-5",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "qreg-yaqab-6",
+   "verdict": "confirmed"
+  },
+  {
+   "id": "qreg-yaqab-7",
+   "verdict": "refuted"
+  },
+  {
+   "id": "qreg-yaqab-8",
+   "verdict": "confirmed"
+  }
+ ]
+}
