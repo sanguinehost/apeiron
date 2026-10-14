@@ -1996,6 +1996,40 @@ def bfS90DownJoAfter : ℚ := (1119433835 : ℚ) / 128
 
 end Receipts.qreg_yaqash
 
+-- Receipt `docs/evidence/receipts/onebit/qreg-yaqalw.json`
+namespace Receipts.qreg_yaqalw
+
+def sha256 : String := "f0d5c1280bca9001b225a26648bc3b0c4b80fd83a6edd881fef0f8d420d2a4e1"
+def bitsBefore : ℕ := 421541376
+def lwKlHeldoutBefore : ℚ := (12536495059728623 : ℚ) / 10000000000000000
+def lwQuickKlStep0 : ℚ := (3822445124387741 : ℚ) / 5000000000000000
+def lwSteps : ℕ := 556
+def lwKlHeldoutAfter : ℚ := (271237775683403 : ℚ) / 312500000000000
+def lwTop1HeldoutAfter : ℚ := (1119 : ℚ) / 2048
+def lwLamMedian : ℚ := (13054709524761017 : ℚ) / 250000000000000000
+def lwLamDownMedian : ℚ := (3617982828748419 : ℚ) / 50000000000000000
+def lwLamGateMedian : ℚ := (56340283651461193 : ℚ) / 200000000000000000
+def lwLamKMedian : ℚ := (10515721705944509 : ℚ) / 4000000000000000000
+def lwLamOMedian : ℚ := (10094197495552809 : ℚ) / 200000000000000000
+def lwLamQMedian : ℚ := (10235145618964051 : ℚ) / 4000000000000000000
+def lwLamUpMedian : ℚ := (22664133966096079 : ℚ) / 400000000000000000
+def lwLamVMedian : ℚ := (95175791496829959 : ℚ) / 200000000000000000
+def lbKlHeldoutBefore : ℚ := (6060075059533119 : ℚ) / 5000000000000000
+def lbQuickKlStep0 : ℚ := (5031449794769287 : ℚ) / 5000000000000000
+def lbSteps : ℕ := 501
+def lbKlHeldoutAfter : ℚ := (8707834929227829 : ℚ) / 10000000000000000
+def lbTop1HeldoutAfter : ℚ := (11143 : ℚ) / 20480
+def lbLamMedian : ℚ := (1002777450766753 : ℚ) / 10000000000000000
+def lbLamDownMedian : ℚ := (2315216009585801 : ℚ) / 20000000000000000
+def lbLamGateMedian : ℚ := (7923778450143011 : ℚ) / 20000000000000000
+def lbLamKMedian : ℚ := (2279599342100841 : ℚ) / 400000000000000000
+def lbLamOMedian : ℚ := (1838334699764527 : ℚ) / 20000000000000000
+def lbLamQMedian : ℚ := (17594886826813077 : ℚ) / 2000000000000000000
+def lbLamUpMedian : ℚ := (20494819097588959 : ℚ) / 200000000000000000
+def lbLamVMedian : ℚ := (5196524669509163 : ℚ) / 10000000000000000
+
+end Receipts.qreg_yaqalw
+
 -- Receipt `docs/evidence/receipts/onebit/2026-10-11-vladder.json`
 namespace Receipts.vladder_1011
 

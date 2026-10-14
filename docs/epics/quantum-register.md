@@ -500,10 +500,39 @@ as stated.
 | down | 0.786 | **1.143** | 0.997 | 0.996 |
 
 The unshrunk refine fits estimation noise in `H_O` on `gate` and `down` (fitted half down 15–21%, held-out half up 13–14%);
-shrinkage at `α = 0.5` turns the held-out `J_B` down in six of seven kinds. The best `α` differs per kind, so the next
-arm replaces the fixed `α` by each linear's analytic shrinkage intensity (Schäfer and Strimmer, Stat. Appl. Genet. Mol.
-Biol. 4 (2005) art. 32, target D). The mm-Hadamard `-yaqa*` arms fail the fp32 Hadamard gradient-equivalence bound
+shrinkage at `α = 0.5` turns the held-out `J_B` down in six of seven kinds. The best `α` differs per kind; the next
+section replaces the fixed `α` by each linear's analytic shrinkage intensity, and that loses. The mm-Hadamard `-yaqa*` arms fail the fp32 Hadamard gradient-equivalence bound
 (`1e-5`; `3.1e-5`–`1.2e-4` on refined codes), so the finished arms run the butterfly Hadamard, whose control passes.
+
+### Analytic shrinkage intensity loses to the fixed `α` (predictions `qreg-yaqalw-2`, `qreg-yaqalb-2` confirmed)
+
+Receipt [`docs/evidence/receipts/onebit/qreg-yaqalw.json`](../evidence/receipts/onebit/qreg-yaqalw.json)
+(sha256 `f0d5c128…`); verdicts `yaqalw_loses`, `yaqalw_intensity_small` in `proof/corpus/Perf/QuantumRotation.lean`,
+audited in `AxiomAudit.lean` (namespace `qreg_yaqalw`; controls: the token arm `0.01` above the worst fixed-α run, it
+below the base mean, the sequence unit taking more steps, and its gate median below `0.3` each leave unsolved goals,
+exit 1). Each linear's `H_O` is shrunk toward its diagonal by
+`λ = clamp(Σ_{i≠j} Var̂(M_ij) / off(M), 0, 1)` (Schäfer and Strimmer, Stat. Appl. Genet. Mol. Biol. 4 (2005) art. 32,
+target D; Ledoit and Wolf, J. Multivariate Anal. 88 (2004)). `fold_transfer.py` `lw_intensity` takes the `K·N·T` token
+samples as the unit (`-yaqalw`); `lw_block_intensity` takes the `N = 50` sequences as the unit by batch means, with each
+block's `off(H_b)` from `(K T)²` Gram blocks rather than an `O²` accumulator (`-yaqalb`). Controls: the CPU self-test
+(Gram route against direct `H_b`, `λ_block ≈ λ_iid` on an iid population, `λ_block > 5 λ_iid` on a within-block
+correlated one); dropping `B·off(M)` or the cross Grams exits 1; each flag changes exactly its own field.
+
+| arm | median λ (q / k / v / o / gate / up / down) | steps | held-out KL after | top-1 |
+|---|---|---|---|---|
+| fixed α 0.5, 3 runs (`qreg_yaqash`) | 0.5 everywhere | 547–561 | mean **0.85574** (max 0.85857) | 0.5507 |
+| base, 3 runs | 0 | 646–665 | mean **0.86683** | 0.5442 |
+| `-yaqalw` token unit | 0.0026 / 0.0026 / 0.48 / 0.051 / 0.28 / 0.057 / 0.072 | 556 | **0.86796** | 0.5464 |
+| `-yaqalb` sequence unit | 0.0088 / 0.0057 / 0.52 / 0.092 / 0.40 / 0.10 / 0.12 | 501 | **0.87078** | 0.5441 |
+
+Both analytic arms finish more than `0.009` nats above every fixed-α run and above the base mean. Taking sequences as the
+unit raises λ in every kind, as the within-sequence correlation predicts, but the median stays at `0.10` and gate at
+`0.40`, while the held-out split above has gate and down lowest at the larger `α` tested. The sequence-unit capture costs
+`31.5 s` (55.6 against 24.1), 55 finishing steps. Reading (`model` grade): Schäfer–Strimmer minimises the Frobenius
+error of `H_O`, but the refine minimises `J` against the estimate and so selects the directions where the estimate is
+most wrong (the optimizer's curse: Smith and Winkler, Manage. Sci. 52 (2006) 311–322); the shrinkage that suits the
+minimiser is larger than the MSE-optimal one. Shrinkage tuning is closed at this token count: its total effect is
+`0.011` nats against a `0.856`-nat gap to Q4_K_M's `0.0197`.
 
 ### Arc Block (W1-T1)
 

@@ -1088,6 +1088,10 @@ def main():
         if "yaqa" in binfo:
             res["yaqa"] = binfo["yaqa"]
             res["yaqa_shrink"] = binfo["yaqa_shrink"]
+            if "yaqa_lw" in binfo:
+                res["yaqa_lw"] = binfo["yaqa_lw"]
+            if "yaqa_lb" in binfo:
+                res["yaqa_lb"] = binfo["yaqa_lb"]
         if "yaqa" in tm:
             res["walls"]["yaqa_s"] = tm["yaqa"]
         if "capture" in tm:

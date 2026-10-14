@@ -1221,6 +1221,8 @@ import Perf.QuantumRotation
 #audit Perf.QuantumRotation.yaqab_shrink_wins
 #audit Perf.QuantumRotation.yaqab_alpha_interior
 #audit Perf.QuantumRotation.yaqab_before_misleads
+#audit Perf.QuantumRotation.yaqalw_loses
+#audit Perf.QuantumRotation.yaqalw_intensity_small
 #audit apeiron_word.RegisterRefinement.checked_mul_spec
 #audit apeiron_word.RegisterRefinement.checked_mul_none
 #audit apeiron_word.RegisterRefinement.checked_mul_none_of_a

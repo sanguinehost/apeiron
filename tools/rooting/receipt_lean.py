@@ -98,6 +98,7 @@ W15 = {
     "qreg_blockft": "docs/evidence/receipts/onebit/qreg-blockft.json",
     "qreg_yaqa": "docs/evidence/receipts/onebit/qreg-yaqa.json",
     "qreg_yaqash": "docs/evidence/receipts/onebit/qreg-yaqash.json",
+    "qreg_yaqalw": "docs/evidence/receipts/onebit/qreg-yaqalw.json",
 }
 
 # End-loss-weighted Gram receipts (fold_transfer "-guided[a|b]NN"): namespace -> variant prefixes (see guided_prefix).
@@ -908,6 +909,39 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
                                ("JbAfterA90", "JB_after_a90")]
                 for name, f in fields:
                     out.append(("rat", f"{lab}{K}{name}", rat(v[f])))
+    elif ns == "qreg_yaqalw":
+        # Per-linear analytic shrinkage intensities of the "-yaqa" refine: each arm's finished outcome as
+        # `<label>KlHeldoutAfter`/`Top1HeldoutAfter`/`Steps`, and its intensity medians recomputed here from the
+        # per-linear values as `<label>LamMedian`, `<label>Lam<Kind>Median` (median of an even count: mean of the middle two).
+        arms = {a["label"]: a for a in data["arms"]}
+        if set(arms) != {"lw", "lb"} or data["protocol"]["n_cal"] != 50:
+            raise Fail(f"{rel}: arms are not exactly lw and lb, or n-cal is not 50")
+        if arms["lb"]["script_sha256"]["fold_transfer"] != data["source"]["fold_transfer"]["sha256"]:
+            raise Fail(f"{rel}: the lb arm is not the receipt source")
+        if len({a["bits_before"] for a in arms.values()}) != 1:
+            raise Fail(f"{rel}: arms differ in bits")
+        out.append(("nat", "bitsBefore", nat(arms["lw"]["bits_before"])))
+
+        def median(xs):
+            xs = sorted(xs)
+            h = len(xs) // 2
+            return xs[h] if len(xs) % 2 else (xs[h - 1] + xs[h]) / 2
+
+        for lab, a in arms.items():
+            if a["exit"] != 0 or not a["grad_equiv_ok"] or a["intensity_kind"] != "yaqa_" + lab:
+                raise Fail(f"{rel}: arm {lab} exit {a['exit']}, grad_equiv or intensity kind {a['intensity_kind']}")
+            lam = {k: rat(v) for k, v in a["intensity"].items()}
+            if len(lam) != 168 or any(not 0 <= v <= 1 for v in lam.values()):
+                raise Fail(f"{rel}: arm {lab} intensities are not 168 values in [0, 1]")
+            out.append(("rat", lab + "KlHeldoutBefore", rat(a["kl_heldout_before"])))
+            out.append(("rat", lab + "QuickKlStep0", rat(a["quick_kl_step0"])))
+            out.append(("nat", lab + "Steps", nat(a["steps"])))
+            out.append(("rat", lab + "KlHeldoutAfter", rat(a["kl_heldout_after"])))
+            out.append(("rat", lab + "Top1HeldoutAfter", rat(a["top1_heldout_after"])))
+            out.append(("rat", lab + "LamMedian", median(list(lam.values()))))
+            for kind in sorted({k.split(".")[1] for k in lam}):
+                K = kind[0].upper() + kind[1:]
+                out.append(("rat", f"{lab}Lam{K}Median", median([v for k, v in lam.items() if k.split(".")[1] == kind])))
     elif ns in ("qreg_attrib", "qreg_iso"):
         # Teacher-restore attribution of the held-out KL (pv_finish.py --attrib 8), before and after finishing in one run:
         # per phase `<before|after><Field>`, the 24 per-layer restore KLs `...LayerKl<l>` and the 7 per-kind `...Kind<K>Kl`.
