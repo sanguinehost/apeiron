@@ -889,13 +889,14 @@ Hardest first. A wave's Rust tasks run in parallel on disjoint files; extraction
 | 1 | T1 dense backward | `src/learn/grad/dense.rs` | `cargo test --release --locked --lib learn::grad::dense`: integer finite-difference check of every backward against its forward | drop a transpose term → red |
 | 1 | T2 attention backward | `src/learn/grad/attn.rs` | as T1, `learn::grad::attn` (RoPE rotate-half, causal GQA) | drop the softmax Jacobian's `−p·(p·dS)` term → red |
 | 1 | T3 KL and TV heads | `src/learn/grad/head.rs` | as T1, `learn::grad::head`; KL ≥ 0, TV ∈ [0, 1] on fixtures | sign flip in `log p_t − log p_s` → red |
-| 1 | T4 E₈ ∪ O₈ code | `src/learn/code/e8.rs` | `cargo test … learn::code::e8`: 256 distinct codewords, nearest codeword equals exhaustive search | swap one codeword → red |
+| 1 | T4 E₈ ∪ O₈ code | `src/learn/code/e8.rs` | `cargo test … learn::code::e8`: 256 distinct codewords, nearest codeword equals exhaustive search; Q32.32 carrier (the 16 O₈ rows are `±√8`, `SQRT8_Q32` correctly rounded), `nearest` is the script's exhaustive argmin with first-index ties, not a coset decoder; board `onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1` | swap one codeword → red |
 | 1b | T5–T8 extraction + refinement, one per T1–T4 | `proof/extract/learn_port.rs`, `proof/corpus/Learn/<Module>.lean` | `proof/regen.sh --check`; `cd proof/corpus && lake build Learn.<Module> AxiomAudit` | mutated Rust body → refinement red |
 | 2 | Qwen2 Q32.32 schedule (GGUF via `learn/gguf.rs`), stage capture, whole-model backward | `src/learn/grad/model.rs` | logits equal the engine's on a 2-layer slice; finite-difference check | as T1 |
 | 3 | transfer: ICM, r/c/d grids, corrector, sink, fnorm, grow, resq, qmlp, nb | `src/learn/transfer/` (≤ 12 files, each ≤ 1,500 lines), `examples/onebit_transfer.rs` | 0.5B held-out KL, 3 runs | `--dscale 2` mutant moves KL |
 | 4 | finishing: P-step Adam with STE, V-step over E₈, TV objective | `src/learn/finish/` | 0.5B acceptance, 3 runs | as W3 |
 | 5 | SPIR-V matmuls for W3–W4 | `src/simt_nn/` | equality with the CPU body | as T1 |
 | 6+ | remaining probes, `tools/hattn/`, `tools/qwen35/reference.py`; each `.py` deleted on landing (`retire_check.py`) | per script | per script | per script |
+| 7 | gate scripts over 1,500 lines: `tools/check-kepler.py` 3,686, `tools/gpu/q8_occupancy.py` 1,733, `tools/board/checkpoint.py` 1,527 | the Rust gate driver `tools/gate` (AGENTS.md §1a, MISSING), one module per check, each ≤ 1,500 lines | the ported check's verdict equals the script's on the same tree | each check's existing seeded-defect control red |
 
 # Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
 
