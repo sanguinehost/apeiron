@@ -31,8 +31,11 @@ from gguf.quants import dequantize
 DEV = "cuda"
 F64 = torch.float64
 CALIB = "~/seal/calib-c4.txt"
+# C4 shard 00001 (disjoint from CALIB), Qwen-tokenised by kl_distill.train_ids; --cal-extra appends its first chunks
+CAL_EXTRA_NPY = "~/lanes/w18/kd/c4data/train-c4.qwen.npy"
 GGUF_F16 = "~/models/gguf/qwen05b-f16.gguf"
 GGUF_Q4KM = "~/seal/qwen05b-Q4_K_M-imat.gguf"
+MODEL = "Qwen/Qwen2.5-0.5B"  # --model; GGUF_* above are 0.5B files, replaced by --q4km for another model
 GRAM_DIR = "~/gptq-w2/gram"
 CHUNK, GROUP = 512, 128
 KINDS = {"q": "attn_q", "k": "attn_k", "v": "attn_v", "o": "attn_output", "gate": "ffn_gate", "up": "ffn_up",
@@ -94,7 +97,7 @@ def logits_of(cfg, Ls, ids):
 
 def load_model():
     cfg = Cfg()
-    m = transformers.AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-0.5B", dtype=torch.float32)
+    m = transformers.AutoModelForCausalLM.from_pretrained(MODEL, dtype=torch.float32)
     c = m.config
     cfg.nl, cfg.nh, cfg.nkv, cfg.hid, cfg.inter = c.num_hidden_layers, c.num_attention_heads, c.num_key_value_heads, c.hidden_size, c.intermediate_size
     cfg.hd, cfg.eps, cfg.theta = c.hidden_size // c.num_attention_heads, c.rms_norm_eps, float(c.rope_parameters["rope_theta"])
@@ -1031,7 +1034,11 @@ def run_variant(cfg, TL, ids_cal, name, a):
         t0_fwd = tick()
         Pt_cache = []
         keep_keys = ("q", "k", "v", "mid", "g", "u", "out") + (("xa", "a", "xf", "m") if teacher_in else ())
-        pt_dev = "cpu" if torch.cuda.mem_get_info()[0] < 5 * 2**30 else DEV
+        # cached teacher parts are N * CHUNK * 4 bytes per kept channel; on CPU when they would not leave 5 GiB free
+        hid = Lt["o"].shape[0]
+        per_tok = sum(Lt[k].shape[0] for k in ("q", "k", "v", "gate", "up")) + 2 * hid
+        per_tok += 3 * hid + Lt["up"].shape[0] if teacher_in else 0
+        pt_dev = "cpu" if torch.cuda.mem_get_info()[0] < 5 * 2**30 + N * ids_cal.shape[1] * 4 * per_tok else DEV
         for s0 in range(0, N, slab_sz):
             Pt_f = parts(cfg, Lt, ht[s0:s0 + slab_sz].to(DEV))
             Pt_cache.append({k: (Pt_f[k].cpu() if pt_dev == "cpu" else Pt_f[k]) for k in keep_keys})
@@ -1843,6 +1850,7 @@ def outcome_eval(cfg, Ls, tok, ids_ev, n_hs, n_new, ref_key=None):
 
 
 def main():
+    global MODEL, GGUF_Q4KM
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True); ap.add_argument("--variants", default="")
     ap.add_argument("--dump", default=None, help="Path to dump quantized layer weights for text_probe.py")
@@ -1850,8 +1858,9 @@ def main():
     ap.add_argument("--outcomes", action="store_true", help="true-label NLL, WikiText-2 ppl, ARC-Easy/HellaSwag acc, greedy text (first seed)")
     ap.add_argument("--hs-n", type=int, default=1000); ap.add_argument("--gen-new", type=int, default=48)
     ap.add_argument("--dtype", default="fp32", choices=["fp32", "fp64"])
+    ap.add_argument("--model", default=MODEL); ap.add_argument("--q4km", default=None, help="Q4_K_M GGUF of --model")
     ap.add_argument("--seeds", default="0", help="comma list; seed s permutes the calibration chunks (identity for 0)")
-    for k, v in [("layers", 24), ("iters", 2), ("n-cal", 100), ("n-eval", 40), ("n-in", 20), ("slab", 10)]:
+    for k, v in [("layers", 24), ("iters", 2), ("n-cal", 100), ("n-eval", 40), ("n-in", 20), ("slab", 10), ("cal-extra", 0)]:
         ap.add_argument(f"--{k}", type=int, default=v)
     for k, v in [("ridge", 1e-3), ("ridge-w0", 0.01), ("ridge-w0-gqa", 0.03), ("quant-ridge", 0.005), ("quant-damp", 0.02),
                  ("zellner-gamma", 0.85), ("corr-gamma", 0.75), ("ridge-intra", 0.045), ("ridge-inter", 0.025),
@@ -1862,7 +1871,8 @@ def main():
     a = ap.parse_args()
     torch.manual_seed(0)
     t00 = tick()
-    tok = transformers.AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B")
+    MODEL, GGUF_Q4KM = a.model, a.q4km or GGUF_Q4KM
+    tok = transformers.AutoTokenizer.from_pretrained(MODEL)
     ids = tok.encode(open(CALIB, encoding="utf-8").read())
     nch = len(ids) // CHUNK
     assert nch >= a.n_cal + a.n_eval, (nch, a.n_cal, a.n_eval)
@@ -1873,6 +1883,12 @@ def main():
                n_tokens=len(ids), n_chunks=nch, cal_chunks=[0, a.n_cal], eval_chunks=[a.n_cal, a.n_cal + a.n_eval],
                insample_chunks=[0, a.n_in], gpu=torch.cuda.get_device_name(0))
     ids_cal, ids_ev, ids_in = ids_all[:a.n_cal].contiguous(), ids_all[a.n_cal:a.n_cal + a.n_eval], ids_all[:a.n_in]
+    if a.cal_extra:
+        ex = np.load(CAL_EXTRA_NPY)[:a.cal_extra * CHUNK]
+        assert len(ex) == a.cal_extra * CHUNK, (len(ex), a.cal_extra)
+        ids_cal = torch.cat([ids_cal, torch.from_numpy(ex.astype(np.int64)).view(a.cal_extra, CHUNK)]).contiguous()
+        res.update(cal_extra_sha256=hashlib.sha256(open(CAL_EXTRA_NPY, "rb").read()).hexdigest(),
+                   cal_extra_chunks=[0, a.cal_extra], cal_tokens=ids_cal.numel())
     if a.controls:
         res["controls"] = controls(cfg, TL, hf, ids_all)
         print(json.dumps(res["controls"], indent=1), flush=True)

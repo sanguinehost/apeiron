@@ -481,6 +481,24 @@ def trainWallS : ℚ := (1167467371225357 : ℚ) / 2500000000000
 
 end Receipts.w18_kd_main2
 
+-- Receipt the receipts/onebit/w18-calx600 note.json`
+namespace Receipts.w18_calx600
+
+def sha256 : String := "c0b8a75c0a971f36e570e6fc34ae62fcbb56adb30bcad7c4f3522bdf1b6ef43e"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def calTokens : ℕ := 307200
+def calExtraChunks : ℕ := 500
+def params : ℕ := 357826560
+def bits : ℕ := 421541376
+def bpwLinears : ℚ := (5890303056318681 : ℚ) / 5000000000000000
+def klHeldout : ℚ := (12504647076129913 : ℚ) / 10000000000000000
+def klInsample : ℚ := (7734031915664673 : ℚ) / 10000000000000000
+def top1Heldout : ℚ := (1825 : ℚ) / 4096
+def top1Insample : ℚ := (1409 : ℚ) / 2560
+def wallTransferS : ℚ := (4188570809364319 : ℚ) / 10000000000000
+
+end Receipts.w18_calx600
+
 -- Receipt the receipts/onebit/2026-10-11-vladder note.json`
 namespace Receipts.vladder_1011
 
