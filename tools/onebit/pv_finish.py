@@ -9,7 +9,9 @@ S_rot a field of 8-blocks, each an index into the 256-row E8/O8 codebook; r a 16
   V-step  every --v-every steps, dL/dS per plane, per 8-block the best of the 16 nearest codebook rows by the linearised gain
           <g_b, s_b - C_i>, the top --v-frac of blocks per plane with gain > 0 move (reverted, v_frac halved, if the same-batch loss rises).
 Eval after on the same chunks as eval before, with weights rebuilt from the integer stored codes.
-usage: pv_finish.py --out OUT.json [--smoke] ; run with ~/spinor-ttl/.venv/bin/python (torch + CUDA).
+--v-gain obs replaces the one-batch linear gain by the Optimal Brain Surgeon diagonal gain from window statistics of the P-steps'
+batch gradients (gbar, diagonal empirical Fisher F), candidates lam in --obs-lams (default {1,4,16,64}) x fraction in {0.001,0.01} of positive-gain blocks.
+usage: pv_finish.py --out OUT.json [--smoke] [--v-gain {linear,obs}] ; run with ~/spinor-ttl/.venv/bin/python (torch + CUDA).
 """
 import argparse, hashlib, json, math, os, sys, time
 import numpy as np
@@ -28,6 +30,7 @@ TRAIN_NPY = "~/lanes/w18/kd/c4data/train-c4.qwen.npy"
 REF_RECEIPT = "~/apeiron/the receipts/onebit/w18-size05-n50 note.json"
 REF_KL_HELDOUT = 1.1636724948883057
 BUDGET_S = 580.0
+OBS_FRACS = (0.001, 0.01)
 
 
 def proc_start():
@@ -97,6 +100,34 @@ def block_gain(g, S, idx, C, nn, chunk=1 << 18):
     return gain, new
 
 
+@torch.no_grad()
+def block_gain_obs(gsum, fsum, count, S, idx, C, nn, lams, chunk=1 << 18):
+    """Per 8-block and per lam: best curvature-corrected gain over the 16 nearest rows and the row achieving it.
+    With D = C_i - s_b, gbar = gsum/count, Fd = fsum/count (diagonal empirical Fisher of the window's batch gradients),
+    the predicted loss change is <gbar, D> + (lam/2) sum_k Fd_k D_k^2 (Hassibi and Stork, Optimal Brain Surgeon, diagonal
+    order, 1993), and gain = minus that.  The row itself (D = 0) is candidate 0, so gain >= 0.
+    Returns gain (L, M) float32 and new (L, M) uint8.  Temporal L*16*8*M MACs for the quadratic term plus 16*8*M for the
+    linear term (M blocks, L = len(lams)); spatial chunk*16*8 words of workspace plus L*M*5 bytes of output.  The lams share
+    diff, lin and qd, so the L-fold cost is only the 16*M reduction per lam."""
+    M, L = idx.numel(), len(lams)
+    gb, fb = gsum.reshape(-1, 8), fsum.reshape(-1, 8)
+    sb, ib = S.reshape(-1, 8), idx.reshape(-1).long()
+    lam = torch.tensor(lams, dtype=torch.float32, device=gb.device)[:, None, None]
+    inv = 1.0 / count
+    gain = torch.empty(L, M, device=gb.device)
+    new = torch.empty(L, M, dtype=torch.uint8, device=gb.device)
+    for s0 in range(0, M, chunk):
+        s1 = min(M, s0 + chunk)
+        cand = nn[ib[s0:s1]]
+        diff = sb[s0:s1, None, :] - C[cand]
+        lin = (diff * gb[s0:s1, None, :].float()).sum(-1) * inv
+        qd = (diff * diff * fb[s0:s1, None, :].float()).sum(-1) * inv
+        best, arg = (lin[None] - 0.5 * lam * qd[None]).max(2)
+        gain[:, s0:s1] = best
+        new[:, s0:s1] = cand[None].expand(L, -1, -1).gather(2, arg[..., None])[..., 0].to(torch.uint8)
+    return gain, new
+
+
 # ------------------------------------------------------------------------------------------------ student
 class Plane:
     """One stored plane: integer codes idx (or a fixed S_fix when a block is not a codebook row), frozen per-row r grid
@@ -147,11 +178,18 @@ class Plane:
 
 
 def plane_weight(p, S):
+    """Dense weight of one plane from the code field S: compose(fwht128(S * d), r, c).
+    Temporal O*n*(1 + 7 + 2) flops (O*n scale by d; 7 butterfly stages of one add or sub per word; two elementwise scales in
+    compose) plus O(O*G + 2n) for qvals (G = n/128 groups); spatial ~9*O*n words (fwht128 stacks one new O*n tensor per stage,
+    and autograd keeps the stage outputs when S carries grad).  Derivation: the stage loop in ft.fwht128 runs log2(128) = 7 times."""
     r, c, d = p.qvals()
     return ft.compose(ft.fwht128(S * d[None, :]), r, c)
 
 
 def add_plane(W, p, Wi):
+    """Sum a plane weight Wi into W (all rows when p.rows is None, else the rows p.rows).
+    Temporal O*n adds (rows given: a clone of W, O_W*n words copied, plus |rows|*n adds); spatial O_W*n words for the clone,
+    none otherwise.  Derivation: one elementwise add or one index_put over |rows|*n words, no loop."""
     if W is None:
         return Wi
     if p.rows is None:
@@ -173,11 +211,17 @@ def main():
     ap.add_argument("--warmup", type=int, default=10)
     ap.add_argument("--v-every", type=int, default=25); ap.add_argument("--v-frac", type=float, default=0.005)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--v-gain", choices=("linear", "obs"), default="linear")
+    # OBS curvature multipliers. F is the mean square of batch-mean gradients, about 1/(tokens per batch) of the
+    # per-token Fisher, so lam near batch*seq puts the quadratic term on the per-token scale.
+    ap.add_argument("--obs-lams", default="1,4,16,64")
     a = ap.parse_args()
+    LAMS = tuple(float(x) for x in a.obs_lams.split(","))
     if a.smoke:
         a.n_cal, a.n_eval, a.n_in, a.steps, a.batch, a.v_every = 8, 8, 8, 20, 2, 10
     res = dict(script_sha256=dict(pv_finish=sha_file(__file__), fold_transfer=sha_file(ft.__file__)), arm=ARM, args=vars(a),
-               protocol="pack sink -> codes (E8/O8 index per 8-block) -> P-step Adam (STE) + V-step linearised code moves, KL(teacher||student)",
+               protocol="pack sink -> codes (E8/O8 index per 8-block) -> P-step Adam (STE) + V-step linearised code moves, KL(teacher||student)"
+               + (" [v-gain obs: window gbar/Fisher, OBS diagonal gain]" if a.v_gain == "obs" else ""), v_gain=a.v_gain,
                gpu=torch.cuda.get_device_name(0), controls={}, walls={}, partial=True)
 
     def dump():
@@ -379,8 +423,9 @@ def main():
           f"projected wall {(t_end - T0) + est_after:.1f}s of {BUDGET_S:.0f}s", flush=True)
     dump()
 
-    def v_step(step, idsb, idss, v_frac):
-        """Gradient on idsb; candidate moves are scored on the disjoint train batch idss (no selection on the gradient batch)."""
+    def make_Ss(grad_leaves):
+        """Per layer, the S field of every non-dense plane in layer_dict order; the coded ones are fresh leaves when grad_leaves.
+        Temporal one gather C[idx] per coded plane (M blocks of 8 words); spatial the S fields of the whole model (fp32, ~1.4 GB at 0.5B)."""
         Ss_all, leaves = [], []
         for li in range(cfg.nl):
             row = []
@@ -389,20 +434,53 @@ def main():
                     if p.dense is not None:
                         continue
                     S = p.S(C)
-                    if p.idx is not None:
+                    if grad_leaves and p.idx is not None:
                         S = S.requires_grad_()
                         leaves.append(S)
                     row.append(S)
             Ss_all.append(row)
-        loss, _ = kl_batch(idsb, True, Ss_all)
-        grads = torch.autograd.grad(loss, leaves)
-        lossg = loss.item()
-        with torch.no_grad():
-            loss0 = kl_batch(idss, False)[0].item()
-        gains = []
-        for (li, nm, p), S, g in zip(coded, leaves, grads):
-            gains.append(block_gain(g, S.detach(), p.idx, C, nn))
-        del Ss_all, leaves, grads, loss
+        return Ss_all, leaves
+
+    # window statistics for --v-gain obs: gsum += g, fsum += g*g per coded plane over the P-steps since the last V-step
+    gsum = [torch.zeros(p.O, p.n, device=DEV) for _, _, p in coded] if a.v_gain == "obs" else []
+    fsum = [torch.zeros(p.O, p.n, device=DEV) for _, _, p in coded] if a.v_gain == "obs" else []
+    win = dict(n=0, loss=0.0)
+
+    def make_hook(k):
+        def hook(S):
+            g = S.grad
+            gsum[k] += g
+            fsum[k] += g * g
+            S.grad = None
+        return hook
+
+    def v_step(step, idsb, idss, v_frac):
+        """linear: gradient on idsb, candidate moves scored on the disjoint train batch idss (no selection on the gradient batch).
+        obs: gain from the window statistics accumulated by the P-steps (no gradient pass here); scored on idss the same way."""
+        obs = a.v_gain == "obs"
+        if obs:
+            assert win["n"] > 0, "no P-step in the window"
+            lossg = win["loss"] / win["n"]
+            with torch.no_grad():
+                loss0 = kl_batch(idss, False)[0].item()
+            gains_by_lam = {lam: [] for lam in LAMS}
+            for k, (li, nm, p) in enumerate(coded):
+                gl, nl_ = block_gain_obs(gsum[k], fsum[k], win["n"], p.S(C), p.idx, C, nn, LAMS)
+                for i, lam in enumerate(LAMS):
+                    gains_by_lam[lam].append((gl[i], nl_[i]))
+                del gl, nl_
+            gains = gains_by_lam[LAMS[0]]
+        else:
+            Ss_all, leaves = make_Ss(True)
+            loss, _ = kl_batch(idsb, True, Ss_all)
+            grads = torch.autograd.grad(loss, leaves)
+            lossg = loss.item()
+            with torch.no_grad():
+                loss0 = kl_batch(idss, False)[0].item()
+            gains = []
+            for (li, nm, p), S, g in zip(coded, leaves, grads):
+                gains.append(block_gain(g, S.detach(), p.idx, C, nn))
+            del Ss_all, leaves, grads, loss
         # gain distribution over positive-gain blocks (all planes): the linearisation is trusted only where the gain is moderate
         allpos = torch.cat([g[g > 0] for g, _ in gains])
         qs = torch.quantile(allpos[::max(1, allpos.numel() >> 22)], torch.tensor([0.5, 0.9, 0.99, 0.999], device=DEV))
@@ -411,12 +489,16 @@ def main():
         del allpos
         tries = []
 
-        def apply(f, skip):
-            """Move the blocks ranked [skip*P, skip*P + f*M) by gain among each plane's P positive-gain blocks; returns (moves, pred, undo)."""
+        def apply(f, skip, gains=gains, of_pos=False):
+            """Move the blocks ranked [skip*P, skip*P + k) by gain among each plane's P positive-gain blocks, k = f*M (linear)
+            or f*P (of_pos, obs); returns (moves, pred, undo).
+            Temporal one topk of the plane's M gains per plane (O(M log k)); spatial one undo list of <= k entries per plane."""
             moves, pred, undo = 0, 0.0, []
             for (li, nm, p), (gain, new) in zip(coded, gains):
                 P = int((gain > 0).sum())
-                k = max(1, int(f * gain.numel()))
+                if of_pos and P == 0:
+                    continue
+                k = max(1, int(f * (P if of_pos else gain.numel())))
                 lo = int(skip * P)
                 top, sel = torch.topk(gain, min(P, lo + k))
                 sel = sel[lo:][top[lo:] > 0]
@@ -432,21 +514,40 @@ def main():
 
         # Trial grid (skip x f); each is applied, scored on the same batch with no grad, and reverted; the best one that lowers the loss is re-applied.
         # Cost: |grid| forwards of the batch (temporal), one undo list of <= f*M entries per plane (spatial).
-        for skip in (0.1, 0.5, 0.9, 0.97):
-            for f in (v_frac, v_frac / 4):
-                moves, pred, undo = apply(f, skip)
-                with torch.no_grad():
-                    loss1 = kl_batch(idss, False)[0].item()
-                revert(undo)
-                tries.append(dict(skip=skip, v_frac=f, moves=moves, loss_after=loss1, predicted_dloss=-pred))
+        if obs:
+            # Trial grid (lam x fraction of positive-gain blocks per plane): 8 forwards of idss.
+            for lam in LAMS:
+                for f in OBS_FRACS:
+                    moves, pred, undo = apply(f, 0.0, gains_by_lam[lam], True)
+                    with torch.no_grad():
+                        loss1 = kl_batch(idss, False)[0].item()
+                    revert(undo)
+                    tries.append(dict(lam=lam, fraction=f, moves=moves, loss_after=loss1, predicted_dloss=-pred))
+        else:
+            for skip in (0.1, 0.5, 0.9, 0.97):
+                for f in (v_frac, v_frac / 4):
+                    moves, pred, undo = apply(f, skip)
+                    with torch.no_grad():
+                        loss1 = kl_batch(idss, False)[0].item()
+                    revert(undo)
+                    tries.append(dict(skip=skip, v_frac=f, moves=moves, loss_after=loss1, predicted_dloss=-pred))
         best = min(range(len(tries)), key=lambda i: tries[i]["loss_after"])
         accepted = tries[best]["loss_after"] < loss0
         if accepted:
-            apply(tries[best]["v_frac"], tries[best]["skip"])
+            if obs:
+                apply(tries[best]["fraction"], 0.0, gains_by_lam[tries[best]["lam"]], True)
+            else:
+                apply(tries[best]["v_frac"], tries[best]["skip"])
+        window_steps = win["n"]
+        if obs:
+            for t in gsum + fsum:
+                t.zero_()
+            win["n"], win["loss"] = 0, 0.0
+            del gains_by_lam
         del gains
         torch.cuda.empty_cache()
         return dict(step=step, accepted=accepted, moves=tries[best]["moves"] if accepted else 0, best=best if accepted else None,
-                    loss_grad_batch=lossg, loss_before=loss0, gain_stats=gstat, tries=tries), v_frac
+                    loss_grad_batch=lossg, loss_before=loss0, window_steps=window_steps, gain_stats=gstat, tries=tries), v_frac
 
     # ---- train
     traj, vlog, step, v_frac = [], [], 0, a.v_frac
@@ -472,12 +573,24 @@ def main():
             vlog.append(rec)
             print(f"V-step {step}: accepted {rec['accepted']} moved {rec['moves']} blocks; loss {rec['loss_before']:.4f}; gains {rec['gain_stats']}", flush=True)
             for t in rec["tries"]:
-                print(f"   skip {t['skip']} f={t['v_frac']:.2e}: {t['moves']} mv, pred {t['predicted_dloss']:.3g}, loss {t['loss_after']:.4f}", flush=True)
-        loss, agree = kl_batch(idsb, True)
+                tag = f"lam {t['lam']} frac {t['fraction']}" if "lam" in t else f"skip {t['skip']} f={t['v_frac']:.2e}"
+                print(f"   {tag}: {t['moves']} mv, pred {t['predicted_dloss']:.3g}, loss {t['loss_after']:.4f}"
+                      f" (realised {t['loss_after'] - rec['loss_before']:+.4g})", flush=True)
+        if a.v_gain == "obs":
+            Ss_all, leaves = make_Ss(True)
+            for k, S in enumerate(leaves):
+                S.register_post_accumulate_grad_hook(make_hook(k))
+            loss, agree = kl_batch(idsb, True, Ss_all)
+        else:
+            loss, agree = kl_batch(idsb, True)
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
         last_loss = loss.item()
+        if a.v_gain == "obs":
+            win["n"] += 1
+            win["loss"] += last_loss
+            del Ss_all, leaves
         if step == 1 or step % 25 == 0:
             traj.append(dict(step=step, train_loss=last_loss, top1=agree, lr_factor=f, t=time.time() - t_train0))
             print(f"step {step} loss {last_loss:.4f} top1 {agree:.4f} f {f:.3f} t {time.time() - t_train0:.1f}s elapsed {elapsed():.1f}s", flush=True)

@@ -628,6 +628,84 @@ def wallTotalS : ℚ := (5416856939792633 : ℚ) / 10000000000000
 
 end Receipts.w18_pv05
 
+-- Receipt the receipts/onebit/w18-pvobs05 note.json`
+namespace Receipts.w18_pvobs05
+
+def sha256 : String := "f0e75ae82d3dccfcb045cc84ef9c71907711905a5a78e33188a9ac224e94dbd0"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def beforeMatchesReference : Bool := true
+def bitsEqual : Bool := true
+def codebookExact : Bool := true
+def dataDisjoint : Bool := true
+def params : ℕ := 357826560
+def bitsBefore : ℕ := 421541376
+def bitsAfter : ℕ := 421541376
+def steps : ℕ := 450
+def tokens : ℕ := 1843200
+def vSteps : ℕ := 18
+def vAccepted : ℕ := 0
+def vTries : ℕ := 144
+def vTriesPredictedFall : ℕ := 144
+def vTriesFell : ℕ := 0
+def obsLamMin : ℚ := (1 : ℚ) / 1
+def obsLamMax : ℚ := (64 : ℚ) / 1
+def vBestLam : ℚ := (16 : ℚ) / 1
+def vBestMoves : ℕ := 48840
+def vBestPredicted : ℚ := (-13723720638081431 : ℚ) / 10000000000000000
+def vBestRealised : ℚ := (6579367965459823 : ℚ) / 1250000000000000
+def vRiseOverPredMinAtLamMax : ℚ := (7648713231086731 : ℚ) / 11589633779833093
+def bitsSign : ℕ := 400490496
+def bitsScales : ℕ := 19252224
+def bitsCorr : ℕ := 1798656
+def klHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klHeldoutAfter : ℚ := (8905885994434357 : ℚ) / 10000000000000000
+def top1HeldoutBefore : ℚ := (1965 : ℚ) / 4096
+def top1HeldoutAfter : ℚ := (5521 : ℚ) / 10240
+def klInsampleBefore : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def klInsampleAfter : ℚ := (23872512578964233 : ℚ) / 100000000000000000
+def wallTotalS : ℚ := (682012225985527 : ℚ) / 1250000000000
+
+end Receipts.w18_pvobs05
+
+-- Receipt the receipts/onebit/w18-pvlam05 note.json`
+namespace Receipts.w18_pvlam05
+
+def sha256 : String := "da8e10b7884ce48c91a7438d4acd6e918d3c2e87eed01a938bd807f3972b1658"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def beforeMatchesReference : Bool := true
+def bitsEqual : Bool := true
+def codebookExact : Bool := true
+def dataDisjoint : Bool := true
+def params : ℕ := 357826560
+def bitsBefore : ℕ := 421541376
+def bitsAfter : ℕ := 421541376
+def steps : ℕ := 444
+def tokens : ℕ := 1818624
+def vSteps : ℕ := 17
+def vAccepted : ℕ := 0
+def vTries : ℕ := 136
+def vTriesPredictedFall : ℕ := 136
+def vTriesFell : ℕ := 0
+def obsLamMin : ℚ := (1024 : ℚ) / 1
+def obsLamMax : ℚ := (65536 : ℚ) / 1
+def vBestLam : ℚ := (65536 : ℚ) / 1
+def vBestMoves : ℕ := 28603
+def vBestPredicted : ℚ := (-39866063946465147 : ℚ) / 100000000000000000
+def vBestRealised : ℚ := (156769722700119 : ℚ) / 250000000000000
+def vRiseOverPredMinAtLamMax : ℚ := (20902629693349200 : ℚ) / 13288687982155049
+def bitsSign : ℕ := 400490496
+def bitsScales : ℕ := 19252224
+def bitsCorr : ℕ := 1798656
+def klHeldoutBefore : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klHeldoutAfter : ℚ := (1789549821615219 : ℚ) / 2000000000000000
+def top1HeldoutBefore : ℚ := (1965 : ℚ) / 4096
+def top1HeldoutAfter : ℚ := (5513 : ℚ) / 10240
+def klInsampleBefore : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def klInsampleAfter : ℚ := (23823470026254653 : ℚ) / 100000000000000000
+def wallTotalS : ℚ := (1354617350101471 : ℚ) / 2500000000000
+
+end Receipts.w18_pvlam05
+
 -- Receipt the receipts/onebit/2026-10-11-vladder note.json`
 namespace Receipts.vladder_1011
 
