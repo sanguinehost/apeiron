@@ -379,4 +379,53 @@ theorem pvab_scales_substitute :
     norm_num [w18_pvabcd05.klHeldoutAfter, w18_pvabcd05.klHeldoutBefore, w18_pvabrcd05.klHeldoutBefore,
       w18_pvabrcd05.klHeldoutAfter, w18_pvabr05.klHeldoutBefore, w18_pvabr05.klHeldoutAfter]
 
+/-- **Prediction `pvgrid25-1` confirmed: the `r` grid range does not bind.** Refitting each row's 16-level `r` grid to its
+trained latents every 25 steps (zero bits) ends in `[0.86, 0.90]` and within the `0.0075` three-run spread of the same
+protocol without the refit; the refit moves under a tenth of the `r` latents to a grid end. Same arm and controls. -/
+theorem pvgrid_no_gain :
+    w18_pvgrid25.arm = w18_pv05.arm ∧ w18_pvgrid25.trainGroups = "c,d,norm,r" ∧ w18_pvgrid25.vSteps = 0 ∧
+    w18_pvgrid25.regrid = 25 ∧ w18_pvgrid25.bitsAfter = w18_pv05.bitsBefore ∧
+    w18_pvgrid25.beforeMatchesReference = true ∧ w18_pvgrid25.bitsEqual = true ∧
+    w18_pvgrid25.codebookExact = true ∧ w18_pvgrid25.dataDisjoint = true ∧
+    w18_pvgrid25.rSatFracBefore = 0 ∧ w18_pvgrid25.rSatFracAfter < 1 / 10 ∧
+    (86 / 100 : ℚ) ≤ w18_pvgrid25.klHeldoutAfter ∧ w18_pvgrid25.klHeldoutAfter ≤ 90 / 100 ∧
+    |w18_pvgrid25.klHeldoutAfter - w18_pvaball05v0.klHeldoutAfter| < 75 / 10000 := by
+  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, ?_, ?_, ?_, ?_, ?_⟩
+  · norm_num [w18_pvgrid25.rSatFracBefore]
+  · norm_num [w18_pvgrid25.rSatFracAfter]
+  · norm_num [w18_pvgrid25.klHeldoutAfter]
+  · norm_num [w18_pvgrid25.klHeldoutAfter]
+  · rw [abs_lt]; constructor <;> norm_num [w18_pvgrid25.klHeldoutAfter, w18_pvaball05v0.klHeldoutAfter]
+
+/-- **Predictions `pvtok146-1` and `pvtok292-1` confirmed.** The all-group protocol with the cosine schedule completed at
+146 and 292 steps (4096 tokens a step) ends in `[0.92, 0.98]` and `[0.89, 0.93]`. Same arm and controls. -/
+theorem pvtok_predictions :
+    w18_pvtok146.arm = w18_pv05.arm ∧ w18_pvtok292.arm = w18_pv05.arm ∧
+    w18_pvtok146.trainGroups = "c,d,norm,r" ∧ w18_pvtok292.trainGroups = "c,d,norm,r" ∧
+    w18_pvtok146.steps = 146 ∧ w18_pvtok292.steps = 292 ∧ w18_pvtok146.stepsCap = 146 ∧ w18_pvtok292.stepsCap = 292 ∧
+    w18_pvtok146.tokens = 4096 * w18_pvtok146.steps ∧ w18_pvtok292.tokens = 4096 * w18_pvtok292.steps ∧
+    w18_pvtok146.vSteps = 0 ∧ w18_pvtok292.vSteps = 0 ∧
+    w18_pvtok146.bitsAfter = w18_pv05.bitsBefore ∧ w18_pvtok292.bitsAfter = w18_pv05.bitsBefore ∧
+    w18_pvtok146.beforeMatchesReference = true ∧ w18_pvtok292.beforeMatchesReference = true ∧
+    w18_pvtok146.dataDisjoint = true ∧ w18_pvtok292.dataDisjoint = true ∧
+    (92 / 100 : ℚ) ≤ w18_pvtok146.klHeldoutAfter ∧ w18_pvtok146.klHeldoutAfter ≤ 98 / 100 ∧
+    (89 / 100 : ℚ) ≤ w18_pvtok292.klHeldoutAfter ∧ w18_pvtok292.klHeldoutAfter ≤ 93 / 100 := by
+  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvtok146.klHeldoutAfter, w18_pvtok292.klHeldoutAfter]
+
+/-- **Finishing is still token-limited at 2.2M tokens.** Held-out KL falls at every step count, by over `4/100` from 146
+to 292 steps (a doubling of tokens) and by over eight tenths of that from 292 to 529 steps (`529/292 < 2`, under one
+doubling): no flattening between the last two points. The 580-second box, not the scale family, ends the run. -/
+theorem pvtok_still_falling :
+    w18_pvaball05v0.klHeldoutAfter < w18_pvtok292.klHeldoutAfter ∧
+    w18_pvtok292.klHeldoutAfter < w18_pvtok146.klHeldoutAfter ∧
+    w18_pvtok146.klHeldoutAfter < w18_pvtok146.klHeldoutBefore ∧
+    w18_pvtok292.tokens = 2 * w18_pvtok146.tokens ∧ w18_pvaball05v0.tokens < 2 * w18_pvtok292.tokens ∧
+    (4 / 100 : ℚ) < w18_pvtok146.klHeldoutAfter - w18_pvtok292.klHeldoutAfter ∧
+    (8 / 10 : ℚ) * (w18_pvtok146.klHeldoutAfter - w18_pvtok292.klHeldoutAfter) <
+      w18_pvtok292.klHeldoutAfter - w18_pvaball05v0.klHeldoutAfter := by
+  refine ⟨?_, ?_, ?_, rfl, ?_, ?_, ?_⟩ <;>
+    norm_num [w18_pvaball05v0.klHeldoutAfter, w18_pvtok292.klHeldoutAfter, w18_pvtok146.klHeldoutAfter,
+      w18_pvtok146.klHeldoutBefore, w18_pvaball05v0.tokens, w18_pvtok292.tokens, w18_pvtok146.tokens]
+
 end Perf.PVFinish
