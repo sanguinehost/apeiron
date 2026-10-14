@@ -831,6 +831,72 @@ Stop conditions: C stops at the first sandwich violation; B stops after five ext
 - A4/A5 (`onebit-w17-a-receipt-EJG21b4JnOIzadMIc92CZd`): the variance-ladder, ray, kfac and fold-transfer receipts are committed under `docs/evidence/receipts/onebit/2026-10-11-*.json` with ledger rows `onebit-receipt-2026-10-11-{vladder,ray,kfac,fold-transfer}` and generated namespaces `Receipts.{vladder,ray,kfac,fold_transfer}_1011`. `CostCorrespondence.lean` `kfac_w15b`, `ray_w15a`, `waterfill_gain_1133`, `floor_gap_1133` and `w15_four_factor_05b_decomposition` state their numerals through those constants: `D_sep` 0.28374 (`sepKL1133`), `D_orc` 0.11281 (`oracleKL1133`), in-sample Q4_K_M 0.015665 (`q4KLTotal`), held-out Q4_K_M 0.019729 (`q4kmKlHeldout`). Two hand-typed bounds did not hold against the exact receipt values and were corrected: `klHeldout/q4kmKlHeldout` `> 94.3` -> `> 94.1` (exact 94.179) and `D_orc/q4kmKlHeldout` `> 5.72` -> `> 5.71` (exact 5.718). Control: `oracleKL1133 + 1/10` turns the `< 5.73` clause red. Still literal: the `ekfac` numerals (`CostCorrespondence.lean:528,536`, a receipt not yet committed) and the prose `0.0197` in the t0/sinkfnorm docstrings.
 - B (`onebit-w17-b-bits-cfg-BpyoXO720q3VZEbY0hYN7n`): the bits accounting of the `-nb` arm is Rust `src/learn/onebit_bits.rs` (`Cfg`, `bits_sign`, `bits_r`, `bits_c`, `bits_d`, `bits_corr`, `params`, `total_bits`, `index_bits`; checked arithmetic, `Option<u64>`), extracted by `proof/extract/lib.rs` (`onebit_bits.*` in `proof/ApeironWord.lean`, `proof/regen.sh --check` fresh). `proof/corpus/Perf/BitsRefine.lean` proves, for every `Cfg`, that each extracted body returns `some x` with `x` equal to its Nat closed form when every intermediate fits in 2^64 and `none` otherwise, never `fail` (`*_spec`, closed cone). At `qwenCfg` the components equal `Receipts.t3_nb_3seed.{bitsSign,bitsR,bitsC,bitsD,bitsCorr}`, `total_bits` = 421541376, `params` = 357826560. Row-index term: `C(4864,416) <= 2^2044 < 2 * C(4864,416)` (`index_bits_per_set_minimal`), 48 x 2044 = 98112 bits, not in `total_bits`; headline `(421541376 + 98112) / 357826560` = 1.17834 b/w (`headline_bpw_bounds`); counted without the index 1.17806. Grade: extracted body to closed form `proved`; closed form to `fold_transfer.py` `tested` via the receipt only; no packed format or decoder exists, so this counts a format that is not implemented. Controls: `k_rows` 416 -> 417, `signLayerN` coefficient 2 -> 3 and bound 2^2044 -> 2^2043 each turn the build red; Rust `k_rows` 417 turns 6 of 8 tests red.
 
+## W19 — Rust port of the model scripts, extracted and refined (owner go 2026-10-15)
+
+### Intent
+
+Every computation W11–W18 rests on ran in torch (`tools/onebit/` 19 files, `tools/hattn/` 4, `tools/qwen35/reference.py`;
+12,349 lines). Nothing extracts Python, so no Lean theorem in Part II binds the crate (§4 obligation 1, failure-register row
+"quantisation programme ran in Python"). Two scripts also break the 1,500-line source limit (`fold_transfer.py` 2,835,
+`pv_finish.py` 2,102). The port moves every script to Rust on the crate's build path, extracted by Aeneas from the real source,
+with a Lean refinement theorem over each extracted body; each script is deleted when its port lands.
+
+Rejected: an `f32` training carrier. Aeneas has no `f32` arithmetic model: `f32` calls extract as axioms
+(`proof/ApeironWord.lean:68`, `axiom core.f32.F32.is_finite`), outside the closed cone (§4 obligation 5).
+
+Invariants: Q32.32 `i64` values with `i128` accumulation, the engine's carrier (`src/engine/mod.rs:193`); checked arithmetic,
+`Result` on every overflow, never a silent wrap; each source file ≤ 1,500 lines and each directory ≤ 12 immediate files;
+`src/learn/` already holds 14 files, so new modules go in subdirectories.
+
+Success: (1) every module below is in `proof/ApeironWord.lean` from its real source, with its refinement under the closed cone;
+(2) the Rust transfer and finishing re-measure on Qwen2.5-0.5B (held-out KL, top-1, TV acceptance, b/w by `onebit_bits.rs`),
+3 runs each; (3) `rg --files -g '*.py' tools/onebit tools/hattn tools/qwen35` is empty. The Python figures (KL 0.855 after
+finishing, accept 0.612) are observations of the script, a reference only, not the gate.
+
+Non-goals: new arms during the port; dead variants of `fold_transfer.py` (only the committed arm path and its controls).
+
+### Spec
+
+| layer | reused, already extracted and refined | new |
+|---|---|---|
+| scalar | `numeric/fixed_rsqrt.rs` (`RsqrtRefinement`), `numeric/fixed_exp.rs` (`ExpRefinement`), `numeric/fixed_ln.rs`, `engine/silu.rs` (`EngineSiluRefinement`) | derivatives: `silu'`, `rsqrt'` |
+| vector | `engine/norm.rs` (`EngineNormRefinement`), `engine/matvec.rs` (`EngineMatvecRefinement`), `engine/hadamard.rs` (`HadamardFixed`), RoPE (`EngineRopeRefinement`) | backward of each: `Xᵀ·dY`, `dY·W`, rmsnorm, swiglu, RoPE, causal GQA attention |
+| head | `numeric/fixed_exp.rs`, `fixed_ln.rs` | `KL(p_t‖p_s)` and `½Σ|q−p|` with gradients, vocab-chunked |
+| code | `learn/onebit.rs` (gptq_row), `learn/ridge.rs`, `learn/sigma_delta.rs` (`SigmaDeltaRefinement`) | `E₈ ∪ O₈` 256-codebook, nearest codeword, ICM sweep, 2-plane compose, r/c/d grids |
+
+- Representation relation: each backward body refines the exact integer Jacobian-transpose product of its forward body at the
+  stated rounding (the Lean spec is the `ℤ` formula, `divRoundNearest` as in `EngineNormRefinement`), and a second theorem bounds
+  its distance from the real derivative of the `ℝ` forward (`rmsReal`-style). Grade `proved` only for the first; the second is
+  `proved` where it lands, otherwise stated as open.
+- Partiality: `Result<_, Err>` on every checked overflow, empty input or out-of-window argument; refusal branches have their own
+  refinement theorems (pattern: `word_rms_norm_fixed_*_refuses`).
+- Extraction: `proof/extract/lib.rs` is 1,399 lines; the port's `#[path]` entries go in a new `proof/extract/learn_port.rs`,
+  declared from `lib.rs`. Loops carry values, not indices (the fixed-point shapes the extractor already accepts).
+- Subsumed (§3a): hand-written forward/backward with finite-difference checks, `../fold` rev `d497161f`,
+  `modelfold/src/arch.rs` sha256 `2e243911bc9d46d58f7198783ee066c3f9ecf83d36d08ca24f2136c451a9934d` (`gemm_nt` 3447, `gemm_nn` 3483,
+  `gemm_tn_add` 3576, `rmsnorm_bwd` 3610, `silu_bwd` 3659, `attention_bwd` 3790, `backward` 4161, `step` 4280; `f32`, ported to
+  Q32.32). RoPE and GQA backward have no prior body (`rg -l 'rope.*bwd|rope_backward|gqa.*bwd' -g '*.rs' fold sanguine sanguine-ref` from `~/Workspace`: none).
+  No Rust `E₈` codebook exists in `~/Workspace` (`rg -il 'e8.*codebook' -g '*.rs' ~/Workspace`: none); its definition is
+  `fold_transfer.py:239`.
+
+### Plan
+
+Hardest first. A wave's Rust tasks run in parallel on disjoint files; extraction and refinement serialise on
+`proof/extract/learn_port.rs` and `proof/ApeironWord.lean` (one lane at a time).
+
+| wave | task | owns | gate | control |
+|---|---|---|---|---|
+| 1 | T1 dense backward | `src/learn/grad/dense.rs` | `cargo test --release --locked --lib learn::grad::dense`: integer finite-difference check of every backward against its forward | drop a transpose term → red |
+| 1 | T2 attention backward | `src/learn/grad/attn.rs` | as T1, `learn::grad::attn` (RoPE rotate-half, causal GQA) | drop the softmax Jacobian's `−p·(p·dS)` term → red |
+| 1 | T3 KL and TV heads | `src/learn/grad/head.rs` | as T1, `learn::grad::head`; KL ≥ 0, TV ∈ [0, 1] on fixtures | sign flip in `log p_t − log p_s` → red |
+| 1 | T4 E₈ ∪ O₈ code | `src/learn/code/e8.rs` | `cargo test … learn::code::e8`: 256 distinct codewords, nearest codeword equals exhaustive search | swap one codeword → red |
+| 1b | T5–T8 extraction + refinement, one per T1–T4 | `proof/extract/learn_port.rs`, `proof/corpus/Learn/<Module>.lean` | `proof/regen.sh --check`; `cd proof/corpus && lake build Learn.<Module> AxiomAudit` | mutated Rust body → refinement red |
+| 2 | Qwen2 Q32.32 schedule (GGUF via `learn/gguf.rs`), stage capture, whole-model backward | `src/learn/grad/model.rs` | logits equal the engine's on a 2-layer slice; finite-difference check | as T1 |
+| 3 | transfer: ICM, r/c/d grids, corrector, sink, fnorm, grow, resq, qmlp, nb | `src/learn/transfer/` (≤ 12 files, each ≤ 1,500 lines), `examples/onebit_transfer.rs` | 0.5B held-out KL, 3 runs | `--dscale 2` mutant moves KL |
+| 4 | finishing: P-step Adam with STE, V-step over E₈, TV objective | `src/learn/finish/` | 0.5B acceptance, 3 runs | as W3 |
+| 5 | SPIR-V matmuls for W3–W4 | `src/simt_nn/` | equality with the CPU body | as T1 |
+| 6+ | remaining probes, `tools/hattn/`, `tools/qwen35/reference.py`; each `.py` deleted on landing (`retire_check.py`) | per script | per script | per script |
+
 # Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
 
 Owner go (2026-10-09): open the fold-training and hyperbolic-attention lane, aiming at attention
