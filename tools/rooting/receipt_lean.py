@@ -87,6 +87,7 @@ W15 = {
     "w18_guided05": "docs/evidence/receipts/onebit/w18-guided05.json",
     "w18_guidedsweep": "docs/evidence/receipts/onebit/w18-guidedsweep.json",
     "w18_guidedseed": "docs/evidence/receipts/onebit/w18-guidedseed.json",
+    "qreg_kan_probe": "docs/evidence/receipts/onebit/qreg-kan-probe.json",
 }
 
 # End-loss-weighted Gram receipts (fold_transfer "-guided[a|b]NN"): namespace -> variant prefixes (see guided_prefix).
@@ -741,6 +742,23 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
                                                Fraction(0))))
         out.append(("rat", "mmS", sum((rat(o["self_device_s"]) for o in aten if o["name"] == "aten::mm"), Fraction(0))))
         out.append(("nat", "catCalls", nat(sum(o["calls"] for o in aten if o["name"] == "aten::cat"))))
+    elif ns == "qreg_kan_probe":
+        # Learned register angles vs fwht128 (kan_probe.py): J sums over the four input sites of every layer.
+        rows, a = data["rows"], data["args"]
+        if a["n_cal"] != 100 or a["n_eval"] != 40 or a["angle_bits"] != 16 or len(rows) != 96:
+            raise Fail(f"{rel}: not the 100/40-chunk, 16-bit, 24-layer x 4-site protocol")
+        out.append(("nat", "rows", nat(len(rows))))
+        out.append(("nat", "angleBitsFullModel", nat(data["angle_bits_full_model"])))
+        out.append(("nat", "linearParams", nat(data["linear_params"])))
+        for name, k in [("identityMaxAbs", "identity_max_abs"), ("ratioCal", "ratio_cal"), ("geoCal", "geo_cal"),
+                        ("ratioEv", "ratio_ev"), ("geoEv", "geo_ev"), ("wallS", "wall_s")]:
+            out.append(("rat", name, rat(data[k])))
+        for site, pre in [("attn_in", "attnIn"), ("attn_out_in", "attnOutIn"), ("ffn_in", "ffnIn"),
+                          ("ffn_down_in", "ffnDownIn")]:
+            rs = [r for r in rows if r["site"] == site]
+            for split, cap in [("cal", "Cal"), ("ev", "Ev")]:
+                out.append(("rat", pre + "JHad" + cap, sum((rat(r[f"J_had_{split}"]) for r in rs), Fraction(0))))
+                out.append(("rat", pre + "JKan" + cap, sum((rat(r[f"J_kan_{split}"]) for r in rs), Fraction(0))))
     elif ns in GUIDED:
         # End-loss-weighted Grams (fold_transfer "-guided[a|b]NN"): per variant, prefix `base` for the arm itself and
         # `g<part><NN>` otherwise (part ab = token and row weights, a = token only, b = row only; NN = 100 * gamma).

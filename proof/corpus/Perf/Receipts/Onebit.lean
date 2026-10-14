@@ -1256,6 +1256,38 @@ def gab50EssMin : ℚ := (6941980955559107 : ℚ) / 100000000000000000
 
 end Receipts.w18_guidedseed
 
+-- Receipt `docs/evidence/receipts/onebit/qreg-kan-probe.json`
+namespace Receipts.qreg_kan_probe
+
+def sha256 : String := "e13b83564906600b615c223830e49aca32b7548f9588badbb743fb8b04e781fd"
+def rows : ℕ := 96
+def angleBitsFullModel : ℕ := 688128
+def linearParams : ℕ := 357826560
+def identityMaxAbs : ℚ := (3552713678800501 : ℚ) / 2000000000000000000000000000000
+def ratioCal : ℚ := (125371876775947 : ℚ) / 125000000000000
+def geoCal : ℚ := (1957142237070373 : ℚ) / 2000000000000000
+def ratioEv : ℚ := (10036784471989477 : ℚ) / 10000000000000000
+def geoEv : ℚ := (4892102942755927 : ℚ) / 5000000000000000
+def wallS : ℚ := (44700290083885193 : ℚ) / 100000000000000
+def attnInJHadCal : ℚ := (2324048214532470703 : ℚ) / 25000000000
+def attnInJKanCal : ℚ := (9247986856463623047 : ℚ) / 100000000000
+def attnInJHadEv : ℚ := (1007914650841140747 : ℚ) / 25000000000
+def attnInJKanEv : ℚ := (10041144794002532959 : ℚ) / 250000000000
+def attnOutInJHadCal : ℚ := (90359700155258178711 : ℚ) / 25000000000000
+def attnOutInJKanCal : ℚ := (5178945521879196167 : ℚ) / 1562500000000
+def attnOutInJHadEv : ℚ := (43175470671558380127 : ℚ) / 25000000000000
+def attnOutInJKanEv : ℚ := (51783258855 : ℚ) / 32768
+def ffnInJHadCal : ℚ := (821890619 : ℚ) / 1
+def ffnInJKanCal : ℚ := (825416122 : ℚ) / 1
+def ffnInJHadEv : ℚ := (2992031893 : ℚ) / 8
+def ffnInJKanEv : ℚ := (3006804829 : ℚ) / 8
+def ffnDownInJHadCal : ℚ := (2186249343 : ℚ) / 128
+def ffnDownInJKanCal : ℚ := (2191329091 : ℚ) / 128
+def ffnDownInJHadEv : ℚ := (2529533823 : ℚ) / 256
+def ffnDownInJKanEv : ℚ := (1267181611 : ℚ) / 128
+
+end Receipts.qreg_kan_probe
+
 -- Receipt `docs/evidence/receipts/onebit/2026-10-11-vladder.json`
 namespace Receipts.vladder_1011
 

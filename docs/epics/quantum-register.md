@@ -129,7 +129,8 @@ integers.
 | `register_stage_normForm` | `σ = −1`: `Σ (stage w x)_i² = normForm (−1) w · Σ x_i²` | proved |
 | `register_stage_conj` | `stage (conj w) (stage w x) = normForm σ w • x` | proved |
 | `register_hadamard` | `fwhtRef 7 = sylvesterH 7 *ᵥ ·` on a 128-register | proved |
-| `iwasawa_faces` | `det M = 1 → ∃ t a v, M = rep (−1) (rot t) · (H · diag(a, a⁻¹) · H / 2) · (rep 0 (1, v))ᵀ` with `a > 0`; the middle factor is `rep 1 (cosh s, sinh s)` for `a = e^s` | proved |
+| `iwasawa_faces` | `det M = 1 → ∃ t a v, 0 < a ∧ M = rep (−1) (cos t, sin t) · diag(a, a⁻¹) · (rep 0 (1, v))ᵀ`; `diag_eq_hadamard_conj_rep_hyperbolic`: `diag(eᵗ, e⁻ᵗ) = ½ H · rep 1 (cosh t, sinh t) · H` (`iwasawa_faces_hadamard`) | proved |
+| `register_stage_diagonal` | the Hadamard stage is not a cell multiply: `(1,1)` at `σ = 1` sends `(u, v)` to `(u+v, u+v)`. The butterfly is `channelPair 1`, and it diagonalises the `σ = 1` cell stage | proved |
 | `register_cost` | `n` stages × `2^(n−1)` pairs, 4 mul + 2 add per pair | proved |
 | overflow | an `i64` overflow returns `Err(Overflow)` and leaves no partial claim | tested |
 
@@ -158,6 +159,25 @@ Hardest and highest-contribution first: the measurement decides whether the rest
 Stop: W1 refutes (no error drop beyond the seed spread at fixed bits) → record the verdict theorem, keep T2/T4 (the
 primitive stands on its own), and move K to the dense Cayley route (`cayley_isometry`) as the next row.
 
+### W1-T1 result (prediction `kan-probe-1`, refuted)
+
+Receipt [`docs/evidence/receipts/onebit/qreg-kan-probe.json`](../evidence/receipts/onebit/qreg-kan-probe.json)
+(sha256 `e13b8356…`, `kan_probe.py` `981e9fc7…`, RTX 5080, 447 s); verdicts in `proof/corpus/Perf/QuantumRotation.lean`
+(controls: flipped sum, `92 → 91`, `194 → 192`, each red at its line).
+
+| site | J learned / J Hadamard, calibration | held-out |
+|---|---|---|
+| q/k/v input | 0.99481 | 0.99623 |
+| o input | 0.91704 | 0.91504 |
+| gate/up input | 1.00429 | 1.00494 |
+| down input | 1.00232 | 1.00191 |
+| all, summed | 1.00298 | 1.00368 |
+| all, geometric mean of 96 | 0.97857 | 0.97842 |
+
+The angles cost `0.00192` b/w (`688128` bits). The surrogate is per-layer with the code detached; the wins sit on
+small-J solves and on the o input. Next row: angles trained on end-to-end KL inside `pv_finish`, starting from the
+all-`π/4` register (bit-equal to the Hadamard arm), and the o-input-only register as its cheaper control.
+
 ### Arc Block (W1-T1)
 
 ```text
@@ -185,3 +205,88 @@ state|Gottesman'` over `apeiron sanguine sanguine-ref song fold spinor-ttl inten
   `src/numeric/fixed_trig.rs` `fixed_sin_cos`.
 - `song` matches for Givens are Iota checker identifiers, not rotations; `sanguine-ref` qubit matches are paper prose
   and `Hopfion.lean`, no register.
+- The Hopf map `ℝ⁴ → ℝ³` over `ℍ` (spinor to Bloch vector) is in the canonical corpus as the Kustaanheimo–Stiefel map:
+  `../sanguine/proof/Apeiron/Physics/KustaanheimoStiefel.lean` (sanguine `abcf09e3`, last touched `ebc45479`)
+  `ks_norm` (`|x| = |u|²`), points only. It is not in the in-tree `proof/canonical` pin (`880aa57e`): a consumer ports it.
+
+## Building blocks: the Lohmiller–Slotine / Vattay exchange against the corpus
+
+Retrieved and read, `/home/socol/oc-tmp/refs/quantum-classical/` (PDF and `pdftotext -layout` text):
+
+| arXiv | Paper | sha256 (PDF) |
+|---|---|---|
+| 2405.06328v11 | Lohmiller, Slotine, *On computing quantum waves exactly from classical and relativistic action* | `365a99fb…9de9e3` |
+| 2605.02621v1 | Vattay, *Comment* | `78e623b2…40e527` |
+| 2605.20443v5 | Lohmiller, Slotine, *Reply to second comment* (with extended Lemma 3.1) | `b61c1113…6ec2` |
+| 2606.05197v1 | Vattay, *Reply* | `5a578ea0…bfac` |
+
+What the exchange settles, with both sides' own words:
+
+- Substituting `ψ = √ρ e^{iφ/ℏ}` into Schrödinger gives continuity plus Hamilton–Jacobi with the Madelung–Bohm term
+  `Q = −(ℏ²/2M) ∇²√ρ / √ρ` (Vattay 2605.02621 eq. 2.3–2.6). The extended Lemma 3.1 of 2605.20443 concedes this and
+  restates the claim as conditional: the classical action is exact on a branch when `∇²√ρ_j = 0` on that branch.
+- Lohmiller–Slotine: `∇²√ρ_j = 0` holds when `Δφ_j` is independent of position, which covers the Pauli, Dirac and
+  Maxwell derivations and every example except hydrogen; hydrogen needs a Duru–Kleinert time rescaling `t′(x, t)`.
+- Vattay 2606.05197: in physical coordinates `∇²R(t′(x,t)) = R″(∇t′)² + R′∇²t′`, which does not vanish, so the
+  rescaled construction is the Van Vleck–Pauli–Morette propagator, exact if and only if the Hamiltonian is at most
+  quadratic. Lohmiller–Slotine answer that the condition is on a Laplacian (a scalar), not the Van Vleck Hessian.
+- Spin (2405.06328 §4.2, eq. 36–39): the action is a pure-imaginary quaternion `ℏ s γ/2 · Σ·n`, the wave
+  `e^{iΣ·n sγ/2}` is a unit quaternion acting on the Bloch sphere, `Σ·n = χ↑χ↑† − χ↓χ↓†`. Here `Δφ = 0`, `ρ` is constant
+  along the path, `Q = 0` exactly: no dispute covers this case.
+
+**The contribution here: four branches.** Vattay's objection is that one classical branch cannot supply `∇²√ρ`, so
+Lohmiller–Slotine need `∇²√ρ = 0`. Sample four branches and `Q` is computed, not assumed zero; the harmonic condition
+and the time-rescaling term both drop out of the argument, because the stencil samples the amplitude in physical
+coordinates and so includes `R″|∇t′|² + R′∇²t′` whatever `t′` is.
+`Substrate/Algebra/QuantumField/QuantumClassicalIsomorphism.lean` (vendored from sanguine):
+
+- proved: `single_branch_underdetermines`, `¬ ∃ F, F (jet1 (quad …)) = p + q`. This is Vattay's obstruction: the
+  1-jet of one branch does not determine the Laplacian.
+- proved: `stencil4_reconstructs_laplacian`. The four branches `(x ± h, y)`, `(x, y ± h)`, which are the orbit
+  `{±1, ±i}` (`stencil_offsets_are_the_orbit`), give `∇²R = p + q` exactly for every `h ≠ 0` on a quadratic amplitude.
+- open, in the file's own list: exactness beyond the quadratic amplitude (the `h → 0` limit), minimality, and the
+  joint theorem with block 1.
+
+Proved in `proof/corpus/Numeric/BranchLaplacian.lean` (controls: centre weight `4 → 3`, divisor `2h² → h²`, bound `4 → 5`, each red). In ℝ³, where the hydrogen case lives, four branches at
+the vertices of a regular tetrahedron `v ∈ {(1,1,1), (1,−1,−1), (−1,1,−1), (−1,−1,1)}` give
+`Σₖ f(x + h vₖ) − 4 f(x) = 2h² ∇²f` exactly on quadratics, since `Σ vₖ = 0` and `Σ vₖ vₖᵀ = 4I`. Four is also the
+fewest. A weighted stencil needs `Σ wₖ vₖ = 0` and `Σ wₖ vₖ vₖᵀ = cI` with `c ≠ 0`. The second forces three linearly
+independent `vₖ`; with exactly three, the first forces `w = 0`. So `k ≥ d + 1 = 4`. In ℝ³, then, `K = 4` is the
+minimum branch count that reconstructs `Q` exactly on quadratic amplitudes, with no antipodal-symmetry premise.
+
+Consequence for the register: a `2^n`-amplitude register has no spatial Laplacian, so `Q` never arises; its dynamics
+`iψ′ = Hψ` is the finite-dimensional unitary flow, inside the exactness window on both sides' accounts. The quantum
+computation primitives are gates, tensor structure, entangling stages and measurement, not the propagator question.
+
+Each block, mapped to the corpus (`canonical` = in-tree `proof/canonical`, pin `880aa57e`; `sanguine` = `../sanguine/proof`, rev `abcf09e3`):
+
+| # | Block | Paper | Corpus declaration | Grade |
+|---|---|---|---|---|
+| 1 | Schrödinger ⟺ HJ + `Q` and continuity, 1-D, `ρ > 0` | Vattay 2.1–2.5; L–S Lemma 3.1 | canonical `Physics/Models/Schrodinger.lean` `actual_schrodinger_iff_madelung` | proved |
+| 2 | `Q = −(ℏ²/2M) ∇²√ρ/√ρ`; the gap to classical HJ is `R″/R` | Vattay 2.6 | canonical `quantumPotential_eq_actual_laplacian_sqrt_density`; `Substrate/Algebra/QuantumField/QuantumClassicalIsomorphism.lean` `quantum_potential_is_the_gap` | proved |
+| 3 | harmonic amplitude (`∇²√ρ = 0`) ⇒ Schrödinger ⟺ classical HJ + continuity | L–S reply Lemma 3.1 | superseded by 3a–3d: with four branches the premise is not needed | — |
+| 3a | one branch's 1-jet does not determine `∇²R` | Vattay 2605.02621 | `QuantumClassicalIsomorphism.lean` `single_branch_underdetermines` | proved |
+| 3b | four branches `{±1, ±i}` reconstruct `∇²R` exactly on a quadratic amplitude, 2-D | — (ours) | `QuantumClassicalIsomorphism.lean` `stencil4_reconstructs_laplacian` | proved |
+| 3c | four tetrahedral branches reconstruct `∇²R` exactly on a quadratic amplitude in ℝ³; `k ≥ d + 1` | — (ours) | `Numeric/BranchLaplacian.lean` `tetra_stencil_reconstructs_laplacian`, `branch_count_ge_four`, `tetra_family_attains_four` | proved |
+| 3d | four-branch stencil → `∇²R` as `h → 0` for `R` twice differentiable (beyond quadratics) | — (ours) | `Numeric/BranchLaplacian.lean` `secondDiff_tendsto`, `stencil4_tendsto_laplacian` (limit, no rate) | proved |
+| 4 | time rescaling leaves `R″(t′)·|∇t′|² + R′·∇²t′` in `∇²R(t′(x))`, and the four-branch stencil of `R ∘ t′` returns it | Vattay 2606.05197 eq. 1–2 | `Numeric/BranchLaplacian.lean` `second_derivative_comp`, `stencil4_quad_comp_affine`, `stencil4_affine_comp_quad` (each term read exactly) | proved |
+| 5 | Van Vleck kernel exact on the three quadratic faces | Vattay 2606.05197 §3 | canonical `VanVleck/{Elliptic,Parabolic,Hyperbolic}.lean` `*_vanVleck_pointwise_exact` (pointwise residual, not propagator) | proved |
+| 6 | Van Vleck exact **only if** the Hamiltonian is at most quadratic | Vattay 2606.05197 §3 (cited theorem) | absent; cited, not proved | anchor |
+| 7 | Duru–Kleinert / Kustaanheimo–Stiefel flow equivalence under `dt = |x| dτ` | L–S Example 6, reply Annex | sanguine `Physics/KustaanheimoStiefel.lean` states it is not claimed (points only) | open |
+| 8 | quadratic flow is the face's one-parameter subgroup | L–S Thm 1 on quadratic `H` | canonical `Physics/Quadratic.lean` `flow_is_one_param`, `flow_is_one_param_unique` | proved |
+| 9 | density along a path `ρ(t) = ρ₀ e^{−∫Δφ}` | L–S eq. 12 | **missing** | — |
+| 10 | quantization: `Σ_{κ<K} e^{iκφ/ℏ}/K → 0` unless `φ/ℏ ∈ 2πℤ` | L–S Lemma 3 | **missing** (Mathlib `IsPrimitiveRoot.geom_sum_eq_zero` covers the finite case) | — |
+| 11 | spinor ↦ Bloch vector, `|n| = |ψ|²` | L–S Fig. 4, eq. 39 | sanguine `Physics/KustaanheimoStiefel.lean` `ks_norm`; in-tree port `Numeric/Qubit.lean` `bloch_norm`, `bloch_eq_ks` (Bloch vector = KS map of `(Re α, Im β, Re β, Im α)`; KS defs copied from sanguine lines 53–71) | proved |
+| 12 | SU(2) gate on the spinor = SO(3) rotation of the Bloch vector (Hopf equivariance) | L–S eq. 36–37 | `Numeric/Qubit.lean` `bloch_rz`, `bloch_ry`, `suR_blochVec` (any `U(a,b) = [[a,−b̄],[b,ā]]`), `suR_orthogonal` (`|a|²+|b|² = 1`) | proved |
+| 13 | `Σ·n = χ↑χ↑† − χ↓χ↓†`, `(Σ·n)² = 1`; real meridian `[[c,s],[s,−c]] = c·σ_z + s·σ_x` (the `kan_probe` butterfly) | L–S eq. 38 | `Numeric/Qubit.lean` `sigmaN_sq`, `sigmaN_sq_unit`, `projP_idem`, `projP_add_projM`, `projP_mul_projM`, `sigmaN_meridian`, `sigmaN_meridian_pi_four` | proved |
+| 14 | unitary step conserves total Born density | L–S eq. 18 | `Substrate/StationaryPhase/SpinorLoop.lean` `cayley_isometry`, `cayley_conserves_born_density`, `schrodinger_generator_skew` | proved |
+| 15 | single-qubit gate on every pair of a `2^n` register; `H^⊗n` | L–S eq. 53 (product state) | `Numeric/Register.lean` `pairStage`, `register_hadamard`, `register_stage_normForm` | proved |
+| 16 | entangling two-qubit stage (controlled-Z as a sign diagonal) | L–S Example 7 (EPR) | `Numeric/Register.lean` `cz_involutive`, `cz_sum_sq`, `cz_entangles` (`y₀y₃ ≠ y₁y₂` on the all-ones register; every product state has equality) | proved |
+| 17 | measurement: qubit projectors idempotent, sum to identity, Born weights sum to `‖x‖²` | L–S Lemma 2 (Born rule a postulate there) | `Numeric/Register.lean` `measProj_idem`, `measProj_add`, `measProj_orth`, `born_sum` | proved |
+| 18 | reflection stage is an involution, so `Tᵀ` is the stages in reverse order | — (W2 inverse for `fold_transfer`) | `Numeric/Register.lean` `reflPair_involutive`, `reflStage_involutive`, `reflStage_sum_sq`, `reflStages_reverse_cancel`, `refl_quarter` | proved |
+
+Landed: 3c, 3d, 4 (`Numeric/BranchLaplacian.lean`), 11–13 (`Numeric/Qubit.lean`), 16–18 (`Numeric/Register.lean`), each
+with three changed-constant controls red at the edited line and the real file green.
+
+Open: 9 and 10 (queued); the joint theorem of 3b–3d with block 1 (`Q` from the branches, no harmonic premise); a rate
+for 3d. Row 6 stays `anchor` (cited, not proved); 7 is the step 3c and 3d bypass, not one they need.
