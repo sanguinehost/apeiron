@@ -90,6 +90,7 @@ import Perf.QuantumRotation
 import Perf.SpecDraftKL
 import Quantum.FaceShift
 import Quantum.AmplitudeKL
+import Numeric.Quantum.Ledger.DesignLadder
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -1345,3 +1346,27 @@ import Quantum.AmplitudeKL
 #audit Quantum.AmplitudeKL.logistic_eq_softmax_two
 #audit Quantum.AmplitudeKL.logistic_amplitude_add
 #audit Quantum.AmplitudeKL.verdict_l6
+
+-- Spherical t-design moment ladder in ℤ³ (`Numeric/Quantum/Ledger/DesignLadder.lean`): the
+-- tetrahedron 2-design and its odd-moment refusal of order 3, the octahedron 3-design and its
+-- refusal of order 4, the cube 3-design and its refusal of order 4, the antipodal closure
+-- `T ∪ (−T) = C`, and the unit verdict.
+#audit Quantum.DesignLadder.tetra_deg1
+#audit Quantum.DesignLadder.tetra_deg2
+#audit Quantum.DesignLadder.tetra_xyz
+#audit Quantum.DesignLadder.tetra_design_two
+#audit Quantum.DesignLadder.tetra_not_design_three
+#audit Quantum.DesignLadder.octa_deg1
+#audit Quantum.DesignLadder.octa_deg2
+#audit Quantum.DesignLadder.octa_deg3
+#audit Quantum.DesignLadder.octa_x4
+#audit Quantum.DesignLadder.octa_design_three
+#audit Quantum.DesignLadder.octa_not_design_four
+#audit Quantum.DesignLadder.cube_deg1
+#audit Quantum.DesignLadder.cube_deg2
+#audit Quantum.DesignLadder.cube_deg3
+#audit Quantum.DesignLadder.cube_x4
+#audit Quantum.DesignLadder.cube_design_three
+#audit Quantum.DesignLadder.cube_not_design_four
+#audit Quantum.DesignLadder.tetra_union_is_cube
+#audit Quantum.DesignLadder.verdict_l4
