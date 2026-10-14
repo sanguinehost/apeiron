@@ -43,3 +43,6 @@ pub mod iq1s;
 
 /// The 2048-entry `IQ1_S` grid extracted from llama.cpp `ece963f41`.
 pub mod iq1s_grid;
+
+/// Fixed codebooks: the 256-entry E8 ∪ O8 code of the one-bit fold transfer.
+pub mod code;
