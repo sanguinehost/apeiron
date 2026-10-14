@@ -1201,6 +1201,10 @@ import Perf.QuantumRotation
 #audit Perf.QuantumRotation.attrib_no_layer_holds_kl
 #audit Perf.QuantumRotation.attrib_kl_nonadditive
 #audit Perf.QuantumRotation.attrib_kinds_coadapted
+#audit Perf.QuantumRotation.iso_kl_superadditive
+#audit Perf.QuantumRotation.iso_groups_saturate
+#audit Perf.QuantumRotation.iso_finishing_saturates
+#audit Perf.QuantumRotation.iso_every_layer_costs
 #audit apeiron_word.RegisterRefinement.checked_mul_spec
 #audit apeiron_word.RegisterRefinement.checked_mul_none
 #audit apeiron_word.RegisterRefinement.checked_mul_none_of_a
