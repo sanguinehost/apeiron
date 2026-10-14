@@ -4,7 +4,7 @@
 //! - [`f16_split`]: a weight scale as `m·2^k`;
 //! - [`finish`]: the kernel's final rounding.
 //!
-//! The vector kernel (`kern::gemm`) calls these bodies. `Numeric/Pow2Refinement.lean` links half
+//! The vector kernel (`kern::gemm`) calls these bodies. `Numeric/Engine/Pow2.lean` links half
 //! conversion; activation-scale and finishing refinements remain open. The extraction loops use
 //! carried values without `TryFrom`, iterators or early returns, so Charon/Aeneas translate them.
 

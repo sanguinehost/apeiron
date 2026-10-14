@@ -31,7 +31,7 @@
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     reason = "the attention recurrence names its tensors q, k, v, p, d, h, i, j, t, n as in the frozen \
-              Python (`attn_a`) and `Numeric/SigmaDelta.lean`; the casts are narrowings or same-width \
+              Python (`attn_a`) and `Numeric/OneBit/SigmaDelta.lean`; the casts are narrowings or same-width \
               reinterpretations each preceded by an explicit range check (`acc_round`, `to_i64`) or a \
               documented bound (`hd ≤ 2^40`, `pos` and `turns` as `u128` phase products masked to 64 bits)"
 )]

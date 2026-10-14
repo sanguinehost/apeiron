@@ -1,5 +1,5 @@
 import ApeironWord
-import Numeric.RopeRotate
+import Numeric.Rope.Rotate
 
 /-!
 # The extracted RoPE forward and backward passes

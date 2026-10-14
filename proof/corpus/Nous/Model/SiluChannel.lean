@@ -1,10 +1,10 @@
 import Nous.Model.Weighting
-import Numeric.EngineSiluRefinement
+import Numeric.Engine.Silu
 
 /-!
 # The SiLU gate as the carrier's binary channel weight
 
-The sigmoid-linear unit `siluReal x = x / (1 + exp (-x))` (`Numeric/EngineSiluRefinement.lean`)
+The sigmoid-linear unit `siluReal x = x / (1 + exp (-x))` (`Numeric/Engine/Silu.lean`)
 carries a logistic gate `siluGate x = 1 / (1 + exp (-x))`. This module shows that gate is the
 carrier's binary channel weight at the point `siluCell x = ((exp x + 1) / 2, (exp x - 1) / 2)` in
 `R[x]/(x² − σ)` at `σ = 1` (`Nous.Model.Weighting`), whose norm form is the exponential.
@@ -35,7 +35,7 @@ statements.
 
 No claim reaches `rustc`/LLVM, the kernel ABI, or the fixed-point extraction's rounding error: this
 module is about the real-valued reference `siluReal`, not about the extracted `word_silu_fixed`
-value bound. The `silu_window_refines` error statement in `Numeric/EngineSiluRefinement.lean` is a
+value bound. The `silu_window_refines` error statement in `Numeric/Engine/Silu.lean` is a
 separate obligation.
 -/
 

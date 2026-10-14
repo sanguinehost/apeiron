@@ -13,7 +13,7 @@ radicand is the rounded mean of the input. This module rebuilds `fullBlock'` wit
 
 | stage slot | grounded in | defect | expansion |
 |---|---|---|---|
-| `q`, `k`, `v`, `o`, `gate`, `up`, `down` projections | `MatvecBridgeGrid.matvecSpecGrid` (`Numeric/MatvecBridgeGrid.lean:156`), transported to the block widths by `GridProj.spec` | `matvecEps`, proved in `matvec_stage_grid_proved` (`Numeric/MatvecBridgeGrid.lean:207`) from `matvec_refines_proved` | max row `ℓ¹` norm, `le_maxRowBound` (`Numeric/MatvecBridge.lean:94`) |
+| `q`, `k`, `v`, `o`, `gate`, `up`, `down` projections | `MatvecBridgeGrid.matvecSpecGrid` (`Numeric/Matvec/BridgeGrid.lean:156`), transported to the block widths by `GridProj.spec` | `matvecEps`, proved in `matvec_stage_grid_proved` (`Numeric/Matvec/BridgeGrid.lean:207`) from `matvec_refines_proved` | max row `ℓ¹` norm, `le_maxRowBound` (`Numeric/Matvec/Bridge.lean:94`) |
 | first and second norm | `Nous.Model.rmsVectorStage` (`Nous/Model/RmsVectorStage.lean:405`) | `rmsVecDelta B A0`, from `rms_norm_refines_ideal` through `rmsVecOut_bound` (`Nous/Model/RmsVectorStage.lean:390`) | `(1 + n)/√(toReal eps)`, `rmsIdealVec_lipschitz` (`Nous/Model/RmsVectorStage.lean:62`) |
 | SiLU gate branch | `Nous.Model.siluStage` (`Nous/Model/BlockGrid.lean:156`) | `siluErrTotal B`, from `silu_refines_total` (`Numeric/SiluSaturation.lean:150`) | `3`, `siluReal_lipschitz` |
 | optional pre-projection rotation | `Nous.Model.rotationStage` (`Nous/Model/RotationStage.lean:294`), wrapped by `RotSlot.ofRotation` | a caller hypothesis: the Rust `fwht_fixed_refines` link has not landed | `√(2^k)`, `hadamardRef_lipschitz_sup` (`Nous/Model/RotationStage.lean:151`) |
@@ -41,7 +41,7 @@ composed domain while its inhabitedness stays the residual obligation.
 
 Trust boundary: no claim about rustc/LLVM codegen, the kernel ABI, GPU/SPIR-V, the `unsafe`
 container, or the dequant-to-ideal-weight reading (the class-(b) `tested` boundary of
-`Numeric/EngineMatvecRefinement.lean`). The grid algebra is checked at the abstract real level
+`Numeric/Engine/Matvec.lean`). The grid algebra is checked at the abstract real level
 under the closed axiom cone `{propext, Classical.choice, Quot.sound}`.
 
 The notation and citation linters of the vendored `apeiron` corpus are switched off, as in
@@ -50,7 +50,7 @@ without adopting the corpus's gloss protocol.
 -/
 import Nous.Model.BlockGrid
 import Nous.Model.RmsVectorStage
-import Numeric.MatvecBridgeGrid
+import Numeric.Matvec.BridgeGrid
 import Nous.Model.RotationStage
 
 set_option linter.apeiron.notation false

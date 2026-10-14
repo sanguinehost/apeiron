@@ -298,7 +298,7 @@ fn lut_i64_bound_ok(act_scales: &[i64]) -> bool {
 /// high half `W = Σ_b ⌊d_b·v_b / 2^32⌋` and the low half `L = Σ_b (d_b·v_b mod 2^32)`, whose
 /// recombination `W·2^32 + L` is the row accumulator.
 ///
-/// The derivation, from the proved `Numeric/LutPQ2.lean` `planeSum_bound` (`|P_g| ≤ 508` for four
+/// The derivation, from the proved `Numeric/Matvec/LutPQ2.lean` `planeSum_bound` (`|P_g| ≤ 508` for four
 /// activation codes `|xq| ≤ 127`):
 ///
 /// * one group's table entry is `|P_g| ≤ 508` (`planeSum_bound`);

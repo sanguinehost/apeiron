@@ -17,7 +17,7 @@ Both saturation bounds rest on `x·exp(-x) ≤ c·exp(-c)` for `x ≥ c ≥ 1`, 
 `exp(x-c) ≥ 1 + (x-c) ≥ x/c`. The case split is the two saturation guards versus their complement,
 which is exactly `silu_window v`.
 -/
-import Numeric.EngineSiluRefinement
+import Numeric.Engine.Silu
 
 namespace apeiron_word
 

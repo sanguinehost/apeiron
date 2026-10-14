@@ -440,7 +440,7 @@ fn timing_build_tables_serial_vs_pooled() {
 }
 
 /// The independent table oracle: `P_g[n] = Σ_{k<4} bit_k(n)·code_{4g+k}` (the `planeSum` identity
-/// of `Numeric/LutPQ2.lean`), split as `P + 508 = lo + 256·hi` with `xs[g] = P_g[15]`.
+/// of `Numeric/Matvec/LutPQ2.lean`), split as `P + 508 = lo + 256·hi` with `xs[g] = P_g[15]`.
 fn plane_sum_oracle(codes: &[i8]) -> (Vec<u8>, Vec<u8>, Vec<i16>) {
     let n_groups = codes.len() / 4;
     let mut lo = vec![0u8; n_groups * 16];

@@ -10,11 +10,11 @@
 //! [`round_shift_32`] and one `i64` range check per output row — the epilogue `q8act_rows` applies
 //! to the whole-row accumulator.
 //!
-//! The licensing statements are `Numeric/ColumnCover.lean` (`split_ffn_exact`: the unsplit FFN
+//! The licensing statements are `Numeric/Matvec/ColumnCover.lean` (`split_ffn_exact`: the unsplit FFN
 //! `r (D·Q(σ(Gx, Ux)))` equals the slice reduction for any partition of the hidden blocks;
 //! `column_cover_round`: one rounding over a cover equals the rounding of the covered sum;
 //! `quant_locality`: a 32-aligned slice quantizes locally), with the per-block quantizer itself
-//! `Numeric/ChartDot.lean` `quantBlock`/`dequantBlock`.
+//! `Numeric/Matvec/ChartDot.lean` `quantBlock`/`dequantBlock`.
 //!
 //! The sliced path is taken only when all three projections' plans are `Fused` and fully fast and
 //! every slice stays on its non-fallback path; any other case — a refusal, a non-finite weight

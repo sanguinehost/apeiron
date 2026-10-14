@@ -28,12 +28,12 @@ specification. Does not cover rustc/LLVM codegen, the kernel ABI, GPU/SPIR-V, th
 nor the gate-weight and expert-combination paths (`gate_weights`, `moe_ffn_fixed`).
 
 The `import Numeric.AttnLoopScore` this module used to carry is retargeted to
-`Numeric.EngineAttnRefinement`. No declaration here names `attn`, `attnLoop*` or any name the moved
+`Numeric.Engine.Attn`. No declaration here names `attn`, `attnLoop*` or any name the moved
 attention modules own; the import existed only to reach the extracted `proof/ApeironWord.lean`
 constants (`moe.route_topk`, `moe.best_unchosen`, `Slice`, `Usize`) transitively, and
-`Numeric.EngineAttnRefinement` is the surviving green module carrying that extraction root.
+`Numeric.Engine.Attn` is the surviving green module carrying that extraction root.
 -/
-import Numeric.EngineAttnRefinement
+import Numeric.Engine.Attn
 import Nous.Model.TopKRouter
 
 namespace apeiron_word

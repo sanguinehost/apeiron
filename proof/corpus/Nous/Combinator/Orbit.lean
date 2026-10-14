@@ -24,7 +24,7 @@ import Apeiron.Combinator.Basic
 import Apeiron.Combinator.Confluence
 import Nous.Combinator.Church
 import Nous.Model.RopeOrbit
-import Numeric.RopeTurns
+import Numeric.Rope.Turns
 
 set_option linter.apeiron.notation false
 

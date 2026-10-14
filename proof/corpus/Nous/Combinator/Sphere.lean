@@ -36,7 +36,7 @@ import Nous.Combinator.ListHom
 import Nous.Model.RmsVectorStage
 import Nous.Model.RotationStage
 import Numeric.RmsNormIdeal
-import Numeric.Sylvester
+import Numeric.Hadamard.Sylvester
 import Substrate.StationaryPhase.SpinorLoop
 
 set_option linter.apeiron.notation false

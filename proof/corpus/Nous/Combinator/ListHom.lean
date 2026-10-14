@@ -1,6 +1,6 @@
 import Mathlib
 import Substrate.Algebra.Neural.MLPrimitivesBridge
-import Numeric.ColumnCover
+import Numeric.Matvec.ColumnCover
 
 set_option autoImplicit false
 set_option warningAsError true
@@ -140,7 +140,7 @@ theorem colSum_tree {α : Type*} (f : α → ℤ) (t : MTree α) :
 /-!
 ### Bridge to `Numeric.ColumnCover`
 
-`Numeric.ColumnCover.column_cover_round` is formulated over indexed families `Fin n → ℤ` partitioned
+`Numeric.Matvec.ColumnCover.column_cover_round` is formulated over indexed families `Fin n → ℤ` partitioned
 via fibers of an index map `part : Fin n → Fin k`, with a rounding operator `r : ℤ → ℤ`:
 ```
 theorem column_cover_round {n k : ℕ} (part : Fin n → Fin k) (acc : Fin n → ℤ) (r : ℤ → ℤ) :
