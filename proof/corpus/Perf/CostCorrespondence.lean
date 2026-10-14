@@ -1440,5 +1440,36 @@ theorem w16_t6_sideinfo :
   · norm_num [Receipts.t6_sideinfo.rAFStarTotal, Receipts.t6_sideinfo.whiteBoundBpw]
   · norm_num [Receipts.t3_nb_3seed.bpwLinears, Receipts.t6_sideinfo.rAFStarTotal]
 
+/-! ## 29 · W18 receipt: Fisher-weighted residual row selection for the second plane -/
+/-- **Verdict: residual row selection (`ROWSEL=resid`) is refuted against `-nb` (`w18_rowsel_resid_refuted`).** Receipts:
+`Receipts.w18_rowsel_resid_3seed` (the arm with the second-plane row mass `g_row * diag(R H R^T)`, `R = W - W_plane1`)
+and `Receipts.t3_nb_3seed` (the arm with the row mass `||W||^2`). Prediction `w18-rowsel-resid-1-1`: paired held-out KL
+difference in `[-0.04, -0.01]` per seed, falsifier `mean > -0.02` or any seed worse. Clauses: (a) the accounted bits
+are equal; (b) seeds `0` and `2` are worse than baseline; (c) the mean paired difference is positive, hence above the
+`-0.02` falsifier; (d) the in-sample mean is higher than the baseline's. -/
+theorem w18_rowsel_resid_refuted :
+    Receipts.w18_rowsel_resid_3seed.bits = Receipts.t3_nb_3seed.bits ∧
+    0 < Receipts.w18_rowsel_resid_3seed.klHeldout0 - Receipts.t3_nb_3seed.klHeldout0 ∧
+    0 < Receipts.w18_rowsel_resid_3seed.klHeldout2 - Receipts.t3_nb_3seed.klHeldout2 ∧
+    -2 / 100 < Receipts.w18_rowsel_resid_3seed.klHeldoutMean - Receipts.t3_nb_3seed.klHeldoutMean ∧
+    0 < Receipts.w18_rowsel_resid_3seed.klHeldoutMean - Receipts.t3_nb_3seed.klHeldoutMean ∧
+    Receipts.t3_nb_3seed.klInsampleMean < Receipts.w18_rowsel_resid_3seed.klInsampleMean := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
+  · norm_num [Receipts.w18_rowsel_resid_3seed.bits, Receipts.t3_nb_3seed.bits]
+  · norm_num [Receipts.w18_rowsel_resid_3seed.klHeldout0, Receipts.t3_nb_3seed.klHeldout0]
+  · norm_num [Receipts.w18_rowsel_resid_3seed.klHeldout2, Receipts.t3_nb_3seed.klHeldout2]
+  · norm_num [Receipts.w18_rowsel_resid_3seed.klHeldoutMean, Receipts.t3_nb_3seed.klHeldoutMean,
+      Receipts.w18_rowsel_resid_3seed.klHeldout0, Receipts.w18_rowsel_resid_3seed.klHeldout1,
+      Receipts.w18_rowsel_resid_3seed.klHeldout2, Receipts.t3_nb_3seed.klHeldout0,
+      Receipts.t3_nb_3seed.klHeldout1, Receipts.t3_nb_3seed.klHeldout2]
+  · norm_num [Receipts.w18_rowsel_resid_3seed.klHeldoutMean, Receipts.t3_nb_3seed.klHeldoutMean,
+      Receipts.w18_rowsel_resid_3seed.klHeldout0, Receipts.w18_rowsel_resid_3seed.klHeldout1,
+      Receipts.w18_rowsel_resid_3seed.klHeldout2, Receipts.t3_nb_3seed.klHeldout0,
+      Receipts.t3_nb_3seed.klHeldout1, Receipts.t3_nb_3seed.klHeldout2]
+  · norm_num [Receipts.w18_rowsel_resid_3seed.klInsampleMean, Receipts.t3_nb_3seed.klInsampleMean,
+      Receipts.w18_rowsel_resid_3seed.klInsample0, Receipts.w18_rowsel_resid_3seed.klInsample1,
+      Receipts.w18_rowsel_resid_3seed.klInsample2, Receipts.t3_nb_3seed.klInsample0,
+      Receipts.t3_nb_3seed.klInsample1, Receipts.t3_nb_3seed.klInsample2]
+
 end CostCorrespondence
 end Perf

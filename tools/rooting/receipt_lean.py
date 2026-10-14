@@ -35,6 +35,7 @@ T0_ARM = "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp"
 # Lean namespace id -> (receipt path, variants arm key or None for the side-information receipt)
 RECEIPTS = {
     "t3_nb_3seed": ("docs/evidence/receipts/onebit/t3-nb-3seed.json", T3_ARM),
+    "w18_rowsel_resid_3seed": ("docs/evidence/receipts/onebit/w18-rowsel-resid-3seed.json", T3_ARM),
     "t0b_sinkfnorm_3seed": ("docs/evidence/receipts/onebit/t0b-sinkfnorm-3seed.json", T0B_ARM),
     "t0_best_3seed": ("docs/evidence/receipts/onebit/t0-best-3seed.json", T0_ARM),
     "t6_sideinfo": ("docs/evidence/receipts/onebit/t6-sideinfo.json", None),

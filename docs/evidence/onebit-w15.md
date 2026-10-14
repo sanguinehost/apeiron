@@ -892,6 +892,36 @@ Qwen2.5-0.5B, all 168 linear tensors, b/w over the linear weights (embedding and
 - Six arms' receipts are only under `/home/socol/oc-tmp/escalation/`; `grow24` (1.4082) and `mlp2p` (1.3890) appear in
   no committed document.
 
+## Second-plane row selection (`measured`, `w18-rowsel-resid-3seed.json`)
+
+Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
+Prediction `w18-rowsel-resid-1-1`: replacing the second-plane row mass `||W||^2` (`fold_transfer.py:1241`, which ignores
+`g_row`, the Hessian `Hm` and the plane-1 residual) with `g_row * diag(R Hm R^T)`, `R = W - W_plane1`, lowers held-out
+KL by 0.01 to 0.04 per seed at equal bits. Falsifier: paired mean above -0.02, or any seed worse.
+
+| seed | held-out KL, `-nb` | held-out KL, `resid` | paired difference |
+|---|---|---|---|
+| 0 | 1.27766 | 1.29769 | +0.0200 |
+| 1 | 1.30857 | 1.29427 | -0.0143 |
+| 2 | 1.30069 | 1.33376 | +0.0331 |
+| mean | 1.2956 | 1.3086 | +0.0129 |
+
+In-sample KL mean 0.3567 against 0.3506; held-out top-1 mean 43.29% against 44.02%; accounted bits 421,541,376 in both.
+Refuted (`Perf.CostCorrespondence.w18_rowsel_resid_refuted`, `measured`). A second run is identical to the first except
+wall time (364.2 s and 364.6 s). The arm is a scratch copy of `fold_transfer.py` (`ROWSEL=resid`, outside the run class
+of the derivation gate), so the gate ledger holds the prediction open; `tools/onebit/` is unchanged.
+
+## Argon review outcomes (checked against source)
+
+- `fnorm` is a 0-bit 896-vector Newton-Fisher fit on the final RMSNorm (`fold_transfer.py:877`); the dense 896x896
+  matrix at 0.0359 b/w in the review appears in no receipt.
+- Held-out top-1 for `-nb` is 44.02% (`t3-nb-3seed.json`); the review's 53.20% matches no receipt.
+- The gate-error compensation in `up` is `glu_comp` (`fold_transfer.py` near :1197); the per-column gauge `hpre` is
+  refuted in §14.
+- Open: `nb_refine` runs for `k`, `v`, `o` only (`fold_transfer.py:1229`); whether the gate/up multipliers `s_sol`
+  (applied after packing, `:1316`) are counted in the bits.
+
 ## Limit claims
 
 `tools/rooting/limit_check.py` refuses, in this file, `onebit-w13.md`, `docs/epics/ternary-hadamard.md` and the

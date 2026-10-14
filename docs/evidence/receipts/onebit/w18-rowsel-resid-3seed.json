@@ -1,0 +1,152 @@
+{
+ "script_sha256": "5c3794a67f20f46e3d526215a663e7a6bfb5bad7486cc8aaa008d1602bddc237",
+ "args": {
+  "out": "/home/socol/oc-tmp/lanes/w18/rowsel/rerun/rowsel-resid-3seed.json",
+  "variants": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp-nb",
+  "dump": null,
+  "controls": false,
+  "verbose": false,
+  "dtype": "fp32",
+  "seeds": "0,1,2",
+  "layers": 24,
+  "iters": 2,
+  "n_cal": 100,
+  "n_eval": 40,
+  "n_in": 20,
+  "slab": 10,
+  "ridge": 0.001,
+  "ridge_w0": 0.01,
+  "ridge_w0_gqa": 0.03,
+  "quant_ridge": 0.005,
+  "quant_damp": 0.02,
+  "zellner_gamma": 0.85,
+  "corr_gamma": 0.75,
+  "ridge_intra": 0.045,
+  "ridge_inter": 0.025,
+  "inter_gamma": 1.0,
+  "inter_gamma_in": 1.0,
+  "block_alpha": 1.0,
+  "glu_gamma": 0.75,
+  "glu_mu": 0.05,
+  "glu_ridge": 0.045,
+  "sink_thresh": 5.0,
+  "sink_tau": 1.5,
+  "fnorm_lr": 0.15
+ },
+ "n_tokens": 87466,
+ "n_chunks": 170,
+ "cal_chunks": [
+  0,
+  100
+ ],
+ "eval_chunks": [
+  100,
+  140
+ ],
+ "insample_chunks": [
+  0,
+  20
+ ],
+ "gpu": "NVIDIA GeForce RTX 5080",
+ "variants": {
+  "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp-nb": {
+   "bits": 421541376,
+   "params": 357826560,
+   "bits_sign": 400490496,
+   "bits_r": 15347712,
+   "bits_c": 2128896,
+   "bits_d": 1775616,
+   "bits_corr": 1798656,
+   "nb": {
+    "sweeps": 2,
+    "per_kind": {
+     "k": {
+      "J_seq": 2884127.0043945312,
+      "J_nb": 2684949.5415039062,
+      "moves": 85375,
+      "rounds_kept": 48,
+      "tensors": 24,
+      "ratio": 0.9309401206718223
+     },
+     "v": {
+      "J_seq": 2098140.959411621,
+      "J_nb": 1941676.685836792,
+      "moves": 90812,
+      "rounds_kept": 48,
+      "tensors": 24,
+      "ratio": 0.9254271869232722
+     },
+     "o": {
+      "J_seq": 1235729.1017570496,
+      "J_nb": 1098088.1230258942,
+      "moves": 1290406,
+      "rounds_kept": 48,
+      "tensors": 24,
+      "ratio": 0.8886155723487879
+     }
+    },
+    "J_seq": 6217997.065563202,
+    "J_nb": 5724714.350366592,
+    "ratio": 0.920668551304321
+   },
+   "bpw_linears": 1.1780606112637362,
+   "kl_heldout": 1.2976946353912353,
+   "top1_heldout": 0.435595703125,
+   "kl_insample": 0.3603026419878006,
+   "top1_insample": 0.67060546875,
+   "wall_transfer_s": 119.1339361667633,
+   "timings": {
+    "gram": 13.226388931274414,
+    "solve": 0.6449000835418701,
+    "gptq": 0.0,
+    "refit": 99.64823198318481,
+    "fwd": 5.058310508728027
+   },
+   "peak_gpu_gb": 5.014657020568848,
+   "seed": 0,
+   "seeds": {
+    "0": {
+     "kl_heldout": 1.2976946353912353,
+     "top1_heldout": 0.435595703125,
+     "kl_insample": 0.3603026419878006,
+     "top1_insample": 0.67060546875,
+     "wall_transfer_s": 119.1339361667633,
+     "peak_gpu_gb": 5.014657020568848
+    },
+    "1": {
+     "kl_heldout": 1.2942669808864593,
+     "top1_heldout": 0.43154296875,
+     "kl_insample": 0.3542094647884369,
+     "top1_insample": 0.67158203125,
+     "wall_transfer_s": 116.43247866630554,
+     "peak_gpu_gb": 5.014824867248535
+    },
+    "2": {
+     "kl_heldout": 1.3337566018104554,
+     "top1_heldout": 0.431494140625,
+     "kl_insample": 0.3554603099822998,
+     "top1_insample": 0.678515625,
+     "wall_transfer_s": 114.54132509231567,
+     "peak_gpu_gb": 5.014809608459473
+    }
+   },
+   "kl_heldout_stats": {
+    "mean": 1.3085727393627167,
+    "min": 1.2942669808864593,
+    "max": 1.3337566018104554
+   },
+   "top1_heldout_stats": {
+    "mean": 0.43287760416666665,
+    "min": 0.431494140625,
+    "max": 0.435595703125
+   },
+   "kl_insample_stats": {
+    "mean": 0.3566574722528458,
+    "min": 0.3542094647884369,
+    "max": 0.3603026419878006
+   }
+  }
+ },
+ "linear_params": 357826560,
+ "wall_total_s": 364.22412300109863
+}
