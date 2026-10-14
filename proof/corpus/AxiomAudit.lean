@@ -88,6 +88,7 @@ import Numeric.BranchQuantization
 import Numeric.PathDensity
 import Perf.QuantumRotation
 import Perf.SpecDraftKL
+import Quantum.FaceShift
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -1307,3 +1308,30 @@ import Perf.SpecDraftKL
 #audit apeiron_word.RegisterRefinement.stageRef_denote
 #audit apeiron_word.RegisterRefinement.stage_mul_denote
 #audit apeiron_word.RegisterRefinement.stage_mul_denote_witness
+#audit Quantum.FaceShift.C_add
+#audit Quantum.FaceShift.S_add
+#audit Quantum.FaceShift.C_neg
+#audit Quantum.FaceShift.S_neg
+#audit Quantum.FaceShift.C_eq_one_add
+#audit Quantum.FaceShift.hasDerivAt_C
+#audit Quantum.FaceShift.hasDerivAt_S
+#audit Quantum.FaceShift.hasDerivAt_K
+#audit Quantum.FaceShift.hasDerivAt_f
+#audit Quantum.FaceShift.hasDerivAt_f1
+#audit Quantum.FaceShift.S_central
+#audit Quantum.FaceShift.C_central
+#audit Quantum.FaceShift.K_central
+#audit Quantum.FaceShift.S_second
+#audit Quantum.FaceShift.C_second
+#audit Quantum.FaceShift.K_second
+#audit Quantum.FaceShift.shift_first
+#audit Quantum.FaceShift.shift_second
+#audit Quantum.FaceShift.S_neg_one_half_pi
+#audit Quantum.FaceShift.K_neg_one_half_pi
+#audit Quantum.FaceShift.parameter_shift_elliptic
+#audit Quantum.FaceShift.central_difference_parabolic
+#audit Quantum.FaceShift.S_one
+#audit Quantum.FaceShift.K_one
+#audit Quantum.FaceShift.shift_hyperbolic
+#audit Quantum.FaceShift.cubic_violates_shift_first
+#audit Quantum.FaceShift.verdict_l5
