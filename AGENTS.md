@@ -80,6 +80,7 @@ Prose that names no enforcer is not acceptance (§4, obligation 11).
 | §4 obligation 7 — the per-task mutation control | the task's own gate | that gate's command; a mutation that leaves the proof green is a failure, not a pass |
 | §4 obligation 9 — Rust gates | `cargo` | the §6 commands |
 | §5 — a stated artifact resolves against the evidence index: exactly one fresh row per receipt | [`tools/rooting/index_check.py`](tools/rooting/index_check.py) | `python3 tools/rooting/index_check.py --check` (plus `--self-test`, `--controls`) |
+| §5 a limit claim (converse, floor, lower bound, cannot reach, impossible, unprecedented, state of the art) in the one-bit record carries a grade label or a cited unconditional theorem; a model floor beaten by a committed receipt is marked `refuted` | [`tools/rooting/limit_check.py`](tools/rooting/limit_check.py) | `python3 tools/rooting/limit_check.py --check` (`--staged` for added `docs/` and `book/` lines; `--self-test`: 12/12; `--controls`: 4 mutations red, restores green; run per commit by `.githooks/pre-commit`) |
 | §6 — bounded Lean under the lane | `lane` (box-wide pool, outside this repository) | `lane <cmd>` |
 | §7 — `//@` metadata | **MISSING** — no local gate reads an annotation | n/a |
 | §9.1 — inference-optimisation admission | [`tools/dispatch/admit.py`](tools/dispatch/admit.py), [`proof/DispatchAdmission.lean`](proof/DispatchAdmission.lean) | `python3 tools/dispatch/admit.py --launch <proposal.json>` |

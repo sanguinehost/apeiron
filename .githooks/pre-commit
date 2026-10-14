@@ -164,6 +164,9 @@ run_step cargo-fmt "$step_budget" cargo fmt --all -- --check
 run_step check-claims "$step_budget" python3 -B tools/check-claims.py
 # Generated Lean receipt constants (proof/corpus/Perf/Receipts/Onebit.lean) must match their committed receipts and ledger digests.
 run_step receipt-lean "$step_budget" python3 -B tools/rooting/receipt_lean.py --check
+# An ungraded limit claim in the one-bit record, and any added docs/book line that states one, is refused (AGENTS.md section 1a).
+run_step limit-check "$step_budget" python3 -B tools/rooting/limit_check.py --check
+run_step limit-check-staged "$step_budget" python3 -B tools/rooting/limit_check.py --staged
 
 # Step 5, the perf cost-model gate. Its trigger is content, so it prints SKIP with
 # the reason when nothing under a performance source path is staged; otherwise it

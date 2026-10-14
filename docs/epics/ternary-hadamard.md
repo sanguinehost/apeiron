@@ -854,8 +854,8 @@ The face picture this gives:
   fed into a hyperbolic exponent (the `e₊` lane of `exp(jθ)`).
 - The correspondence between softmax and the hyperbolic face is exact; it is the first row.
 - The negative row is a statement about the function, not the face that computes it. Equal
-  denotations keep the same lower bound, so moving faces does not buy exact constant state over
-  real scores.
+  denotations keep the same lower bound (`proved`, `exp_kernel_not_finite_rank`, no hypotheses), so
+  moving faces does not buy exact constant state over real scores.
 - The fine-grained bound points the same way. Alman and Song, *Fast Attention Requires Bounded
   Entries* (arXiv 2302.13214), and its gradient sequel (arXiv 2402.04497) rule out a truly
   subquadratic approximation once entries reach `Θ(√log n)`, assuming SETH. These are pointers:
@@ -917,7 +917,7 @@ The thresholds are the lead's and the owner may revise them.
 
 ### Non-goals and non-claims
 
-- No exact sub-quadratic softmax over real scores: proved impossible above.
+- No exact sub-quadratic softmax over real scores: `proved` impossible above (`exp_kernel_not_finite_rank`).
 - No novelty is asserted. Hashing and binary attention, Taylor-feature linear attention (Based,
   arXiv 2402.18668), random features (Performer) and the polynomial method are prior art to
   retrieve and read in `HATTN-T1` before any comparison is written.

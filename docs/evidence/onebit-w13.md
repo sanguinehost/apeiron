@@ -24,7 +24,7 @@ above the water level. The Cover & Thomas `R(D)` theorem is not retrieved here: 
 | item | command | receipt |
 |---|---|---|
 | per-arm `ρ`, `AM/GM` of `H` | `tools/onebit/arm_compare.py` (`/home/socol/Workspace/spinor-ttl/.venv/bin/python`, 14 s) | `/home/socol/oc-tmp/escalation/2026-10-11-arm-compare.json` |
-| isotropic water-filling floor | `tools/onebit/waterfill.py` (17 s) | `/home/socol/oc-tmp/escalation/2026-10-11-waterfill.json` |
+| isotropic water-filling floor (`model`) | `tools/onebit/waterfill.py` (17 s) | `/home/socol/oc-tmp/escalation/2026-10-11-waterfill.json` |
 | instrument control | `tools/onebit/waterfill.py --self-test` | white spectrum gives `ρ = 2^{-2R}`; a two-level spectrum matches its closed form to 1e-9; a throwaway copy with `np.minimum → np.maximum` in `rho_of_theta` raises `AssertionError (0.5, 1.0)`, exit 1; copy removed |
 
 ### Arms (`measured`, `ρ` against f16 on `H`)
@@ -83,8 +83,8 @@ Prediction `floor-1`: refuted on two clauses (block 3 arm above the floor, not b
   typical blocks (0.05–0.13). The model is `model` grade, and the `W10` function ranks (`F99` 99 / 770 / 441 of 896)
   contradict isotropic rows, so the floor is not a bound on this population. The measured `had-gptq1` `ρ` is within
   1.2–2.4× of the floor.
-- The rate gap of 0.46–0.59 b/w on the typical blocks includes 0.125 b/w of scale side information that the floor does
-  not charge. The remainder is the sign quantizer's loss (`sign_loss`) and the pivot allocation. For a fixed step the
+- The rate gap of 0.46–0.59 b/w on the typical blocks includes 0.125 b/w of scale side information that the `model` floor
+  does not charge. The remainder is the sign quantizer's loss (`sign_loss`) and the pivot allocation. For a fixed step the
   GPTQ error is `q²·n·AM(d)` and `GM(d) = GM(λ)` for any order (`det_eq_prod_pivots`), so the allocation term is
   `AM(d)/GM(d)` of the pivots; that split is computable from the existing Cholesky and is not measured here.
 
