@@ -1507,5 +1507,41 @@ theorem w18_resq_absorbed :
       Receipts.w18_resq_3seed.klInsample2, Receipts.t3_nb_3seed.klInsample0,
       Receipts.t3_nb_3seed.klInsample1, Receipts.t3_nb_3seed.klInsample2]
 
+/-! ## 31 · W18 receipt: outcome metrics of the one-bit arm against the teacher and Q4_K_M -/
+/-- **Verdict: the held-out KL gap is an outcome gap (`w18_outcomes_gap`).** Receipt `Receipts.w18_outcomes`
+(seed 0, Qwen2.5-0.5B, fp32 forward; true-label perplexity on the 40 held-out C4 chunks, WikiText-2 test in
+non-overlapping 512-token windows, ARC-Easy test (2376 questions) and the first 1000 HellaSwag validation items by
+continuation log-likelihood, greedy text from six prompts). Prediction `w18-outcomes-1`. Clauses:
+(a) Q4_K_M is within 5% of the teacher's perplexity on both corpora and within `1/100` on ARC-Easy accuracy;
+(b) the `-resq` one-bit arm has at least `7/2` times the teacher's C4 perplexity and `5` times its WikiText-2
+perplexity; (c) its ARC-Easy accuracy is below `2/5`, more than `1/4` under the teacher's; (d) its HellaSwag
+length-normalised accuracy is below `2/5`, more than `1/10` under the teacher's; (e) both accuracies stay above
+chance `1/4`; (f) its greedy text leaves the teacher's within one token on all six prompts; (g) the two clauses of the
+prediction that the receipt exceeds: the teacher's ARC-Easy accuracy is above `31/50` and the one-bit arm's HellaSwag
+length-normalised accuracy above `7/20`. -/
+theorem w18_outcomes_gap :
+    Receipts.w18_outcomes.q4kmC4Ppl < 21 / 20 * Receipts.w18_outcomes.teacherC4Ppl ∧
+    Receipts.w18_outcomes.q4kmWt2Ppl < 21 / 20 * Receipts.w18_outcomes.teacherWt2Ppl ∧
+    Receipts.w18_outcomes.teacherArcAcc - Receipts.w18_outcomes.q4kmArcAcc < 1 / 100 ∧
+    7 / 2 * Receipts.w18_outcomes.teacherC4Ppl < Receipts.w18_outcomes.resqC4Ppl ∧
+    5 * Receipts.w18_outcomes.teacherWt2Ppl < Receipts.w18_outcomes.resqWt2Ppl ∧
+    Receipts.w18_outcomes.resqArcAcc < 2 / 5 ∧
+    1 / 4 < Receipts.w18_outcomes.teacherArcAcc - Receipts.w18_outcomes.resqArcAcc ∧
+    Receipts.w18_outcomes.resqHsAccNorm < 2 / 5 ∧
+    1 / 10 < Receipts.w18_outcomes.teacherHsAccNorm - Receipts.w18_outcomes.resqHsAccNorm ∧
+    1 / 4 < Receipts.w18_outcomes.resqArcAcc ∧ 1 / 4 < Receipts.w18_outcomes.resqHsAcc ∧
+    Receipts.w18_outcomes.resqFirstDivergence0 ≤ 1 ∧ Receipts.w18_outcomes.resqFirstDivergence1 ≤ 1 ∧
+    Receipts.w18_outcomes.resqFirstDivergence2 ≤ 1 ∧ Receipts.w18_outcomes.resqFirstDivergence3 ≤ 1 ∧
+    Receipts.w18_outcomes.resqFirstDivergence4 ≤ 1 ∧ Receipts.w18_outcomes.resqFirstDivergence5 ≤ 1 ∧
+    31 / 50 < Receipts.w18_outcomes.teacherArcAcc ∧ 7 / 20 < Receipts.w18_outcomes.resqHsAccNorm := by
+  unfold Receipts.w18_outcomes.q4kmC4Ppl Receipts.w18_outcomes.teacherC4Ppl Receipts.w18_outcomes.q4kmWt2Ppl
+    Receipts.w18_outcomes.teacherWt2Ppl Receipts.w18_outcomes.teacherArcAcc Receipts.w18_outcomes.q4kmArcAcc
+    Receipts.w18_outcomes.resqC4Ppl Receipts.w18_outcomes.resqWt2Ppl Receipts.w18_outcomes.resqArcAcc
+    Receipts.w18_outcomes.resqHsAccNorm Receipts.w18_outcomes.teacherHsAccNorm Receipts.w18_outcomes.resqHsAcc
+    Receipts.w18_outcomes.resqFirstDivergence0 Receipts.w18_outcomes.resqFirstDivergence1
+    Receipts.w18_outcomes.resqFirstDivergence2 Receipts.w18_outcomes.resqFirstDivergence3
+    Receipts.w18_outcomes.resqFirstDivergence4 Receipts.w18_outcomes.resqFirstDivergence5
+  norm_num
+
 end CostCorrespondence
 end Perf

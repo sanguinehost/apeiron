@@ -15,10 +15,10 @@ c f16 per input column (one vector per Gram-sharing group).  Alternation per ten
 Layers are fitted in order; each stage (qkv, o, gate/up, down) takes its X_s and H from the already-quantised upstream.
 
 usage: fold_transfer.py --out OUT.json [--variants a,b,..] [--controls] [--layers N] [--iters K]
-variants: rtn gptq1-t gptq1-s fold-ns fold-local fold-block fp-ridge fp-ridge-mut q4km gguf-f16
+variants: teacher rtn gptq1-t gptq1-s fold-ns fold-local fold-block fp-ridge fp-ridge-mut q4km gguf-f16
 Run with /home/socol/Workspace/spinor-ttl/.venv/bin/python (torch + CUDA).
 """
-import argparse, hashlib, json, os, sys, time
+import argparse, hashlib, json, os, re, sys, time
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -65,7 +65,8 @@ def attn_a(cfg, L, xa, qkv=None):
     B, T, _ = xa.shape
     q, k, v = qkv if qkv is not None else (xa @ L["q"].T + L["qb"], xa @ L["k"].T + L["kb"], xa @ L["v"].T + L["vb"])
     qh, kh, vh = q.view(B, T, cfg.nh, cfg.hd).transpose(1, 2), k.view(B, T, cfg.nkv, cfg.hd).transpose(1, 2), v.view(B, T, cfg.nkv, cfg.hd).transpose(1, 2)
-    qh, kh = qh * cfg.cos + rot(qh) * cfg.sin, kh * cfg.cos + rot(kh) * cfg.sin
+    cs, sn = cfg.cos[:T], cfg.sin[:T]
+    qh, kh = qh * cs + rot(qh) * sn, kh * cs + rot(kh) * sn
     rep = cfg.nh // cfg.nkv
     kh, vh = kh.repeat_interleave(rep, 1), vh.repeat_interleave(rep, 1)
     return F.scaled_dot_product_attention(qh, kh, vh, is_causal=True).transpose(1, 2).reshape(B, T, cfg.nh * cfg.hd)
@@ -1711,11 +1712,143 @@ def controls(cfg, TL, hf, ids_all):
     return out
 
 
+# ---------------------------------------------------------------- outcome metrics (true-label, task, generated text)
+EVAL_DIR = "/home/socol/oc-tmp/evaldata"
+GEN_PROMPTS = ["The capital of France is", "Once upon a time, in a small village by the sea,", "def fibonacci(n):",
+               "The three laws of thermodynamics state that", "Q: What is the boiling point of water in degrees Celsius?\nA:",
+               "In 1969, the Apollo 11 mission"]
+_GEN_REF = {}
+
+
+def _jsonl(path, n=None):
+    with open(path, encoding="utf-8") as f:
+        rows = [json.loads(l) for l in f]
+    return rows if n is None else rows[:n]
+
+
+def _hs_clean(t):
+    t = t.strip().replace(" [title]", ". ")
+    return re.sub(r"  ", " ", re.sub(r"\[.*?\]", "", t))
+
+
+@torch.no_grad()
+def _fwd(cfg, Lg, fn, E_g, ids):
+    h = E_g[ids]
+    for L in Lg:
+        h = parts(cfg, L, h)["out"]
+    return rms(h, fn, cfg.eps)
+
+
+@torch.no_grad()
+def score_seqs(cfg, Lg, fn, E_g, seqs, tok_budget=8192):
+    """Sum log p of the last n_cont tokens of each (ids, n_cont) in `seqs` (teacher-forced, fp32 forward on the
+    resident layers). Cost: one forward per padded batch, O(sum_i len_i) tokens x (linear + O(len) attention) FLOPs;
+    the vocab matmul runs on the n_cont rows only. Padding is on the right, so causal rows are unaffected."""
+    order = sorted(range(len(seqs)), key=lambda i: len(seqs[i][0]))
+    out = [0.0] * len(seqs)
+    i = 0
+    while i < len(order):
+        j = i
+        while j < len(order) and (j - i + 1) * len(seqs[order[j]][0]) <= tok_budget:
+            j += 1
+        j = max(j, i + 1)
+        idx = order[i:j]
+        mx = max(len(seqs[k][0]) for k in idx)
+        ids = torch.zeros(len(idx), mx, dtype=torch.long)
+        for r, k in enumerate(idx):
+            ids[r, :len(seqs[k][0])] = torch.tensor(seqs[k][0])
+        ids = ids.to(DEV)
+        h = _fwd(cfg, Lg, fn, E_g, ids)
+        rows, cols, tgt, owner = [], [], [], []
+        for r, k in enumerate(idx):
+            s, nc = seqs[k]
+            for t in range(len(s) - nc, len(s)):
+                rows.append(r); cols.append(t - 1); tgt.append(s[t]); owner.append(k)
+        rows_t, cols_t, tgt_t = (torch.tensor(x, device=DEV) for x in (rows, cols, tgt))
+        hs = h[rows_t, cols_t]
+        for c0 in range(0, hs.shape[0], 1024):
+            lp = F.log_softmax((hs[c0:c0 + 1024] @ E_g.T).float(), -1)
+            v = lp.gather(1, tgt_t[c0:c0 + 1024, None])[:, 0].cpu().tolist()
+            for q, val in enumerate(v):
+                out[owner[c0 + q]] += val
+        i = j
+    return out
+
+
+@torch.no_grad()
+def greedy_text(cfg, Lg, fn, E_g, ids, n_new):
+    """Greedy continuation, no KV cache: n_new forwards of length <= len(ids)+n_new (O(n_new * L^2) attention)."""
+    s = list(ids)
+    for _ in range(n_new):
+        h = _fwd(cfg, Lg, fn, E_g, torch.tensor([s], device=DEV))
+        s.append(int((h[0, -1] @ E_g.T).argmax().item()))
+    return s[len(ids):]
+
+
+def outcome_eval(cfg, Ls, tok, ids_ev, n_hs, n_new, ref_key=None):
+    t0 = tick()
+    Lg = [{k: v.to(DEV) for k, v in L.items() if k != "fnorm"} for L in Ls]
+    fn = (Ls[-1].get("fnorm", cfg.fnorm) if Ls else cfg.fnorm).to(DEV)
+    E_g = cfg.E.to(DEV)
+    o = {}
+    # C4 held-out true-label NLL (the same chunks kl_eval scores against the teacher)
+    sc = score_seqs(cfg, Lg, fn, E_g, [(r.tolist(), CHUNK - 1) for r in ids_ev])
+    n = ids_ev.shape[0] * (CHUNK - 1)
+    o["c4_nll"] = -sum(sc) / n; o["c4_ppl"] = float(np.exp(o["c4_nll"])); o["c4_tokens"] = n
+    # WikiText-2 test, HF-style: "\n\n".join(rows), non-overlapping windows of CHUNK tokens, first token of a window unscored
+    wt = tok.encode("\n\n".join(r["text"] for r in _jsonl(f"{EVAL_DIR}/wt2/test.jsonl")))
+    wins = [(wt[i:i + CHUNK], CHUNK - 1) for i in range(0, len(wt) - CHUNK + 1, CHUNK)]
+    sc = score_seqs(cfg, Lg, fn, E_g, wins)
+    n = len(wins) * (CHUNK - 1)
+    o["wt2_nll"] = -sum(sc) / n; o["wt2_ppl"] = float(np.exp(o["wt2_nll"])); o["wt2_tokens"] = n; o["wt2_window"] = CHUNK
+    # multiple choice by continuation log-likelihood (lm-evaluation-harness conventions: acc = argmax sum log p,
+    # acc_norm = argmax sum log p / len(choice in characters))
+    def mc(items):
+        seqs, meta = [], []
+        for ctx, conts, gold in items:
+            ce = tok.encode(ctx)
+            for c in conts:
+                we = tok.encode(ctx + c)
+                nc = len(we) - len(ce)
+                assert nc >= 1 and we[:len(ce)] == ce, (ctx, c)
+                seqs.append((we, nc)); meta.append(len(c))
+        s = score_seqs(cfg, Lg, fn, E_g, seqs)
+        a = an = p = 0
+        for q, (ctx, conts, gold) in enumerate(items):
+            ll = s[p:p + len(conts)]; ln = [ll[m] / meta[p + m] for m in range(len(conts))]
+            a += int(max(range(len(conts)), key=lambda m: ll[m]) == gold)
+            an += int(max(range(len(conts)), key=lambda m: ln[m]) == gold)
+            p += len(conts)
+        return a / len(items), an / len(items), len(items)
+    arc = _jsonl(f"{EVAL_DIR}/arc/test.jsonl")
+    o["arc_acc"], o["arc_acc_norm"], o["arc_n"] = mc([(f"Question: {r['question']}\nAnswer:", [" " + t for t in r["choices"]["text"]],
+                                                       r["choices"]["label"].index(r["answerKey"])) for r in arc])
+    hs = _jsonl(f"{EVAL_DIR}/hs/val.jsonl", n_hs)
+    o["hs_acc"], o["hs_acc_norm"], o["hs_n"] = mc([(_hs_clean(r["activity_label"] + ": " + r["ctx_a"] + " " + r["ctx_b"].capitalize()),
+                                                    [" " + _hs_clean(e) for e in r["endings"]], int(r["label"])) for r in hs])
+    gen = []
+    for p in GEN_PROMPTS:
+        pe = tok.encode(p)
+        g = greedy_text(cfg, Lg, fn, E_g, pe, n_new)
+        ref = _GEN_REF.get(p)
+        gen.append(dict(prompt=p, text=tok.decode(g), tokens=g,
+                        first_divergence=(None if ref is None else next((i for i, (x, y) in enumerate(zip(g, ref)) if x != y), len(g)))))
+        if ref_key == "teacher":
+            _GEN_REF[p] = g
+    o["generation"] = gen; o["gen_new_tokens"] = n_new
+    o["wall_outcomes_s"] = tick() - t0
+    del Lg, E_g
+    torch.cuda.empty_cache()
+    return o
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True); ap.add_argument("--variants", default="")
     ap.add_argument("--dump", default=None, help="Path to dump quantized layer weights for text_probe.py")
     ap.add_argument("--controls", action="store_true"); ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--outcomes", action="store_true", help="true-label NLL, WikiText-2 ppl, ARC-Easy/HellaSwag acc, greedy text (first seed)")
+    ap.add_argument("--hs-n", type=int, default=1000); ap.add_argument("--gen-new", type=int, default=48)
     ap.add_argument("--dtype", default="fp32", choices=["fp32", "fp64"])
     ap.add_argument("--seeds", default="0", help="comma list; seed s permutes the calibration chunks (identity for 0)")
     for k, v in [("layers", 24), ("iters", 2), ("n-cal", 100), ("n-eval", 40), ("n-in", 20), ("slab", 10)]:
@@ -1756,7 +1889,9 @@ def main():
             torch.cuda.reset_peak_memory_stats()
             torch.manual_seed(sd)
             ids_c = ids_cal if sd == 0 else ids_cal[torch.randperm(ids_cal.shape[0], generator=torch.Generator().manual_seed(sd))]
-            if name in ("q4km", "gguf-f16"):
+            if name == "teacher":
+                Ls, info, tm = TL, dict(bpw_linears=32.0), {}
+            elif name in ("q4km", "gguf-f16"):
                 Ls, bpw = gguf_layers(cfg, TL, GGUF_Q4KM if name == "q4km" else GGUF_F16)
                 info, tm = dict(bpw_linears=bpw), {}
             else:
@@ -1769,11 +1904,14 @@ def main():
             kli, agi = kl_eval(cfg, TL, Ls, ids_in)
             info.update(kl_heldout=kl, top1_heldout=ag, kl_insample=kli, top1_insample=agi, wall_transfer_s=tq,
                         timings=tm, peak_gpu_gb=torch.cuda.max_memory_allocated() / 2**30, seed=sd)
+            if a.outcomes and sd == seeds[0]:
+                info["outcomes"] = outcome_eval(cfg, Ls, tok, ids_ev, a.hs_n, a.gen_new, "teacher" if name == "teacher" else None)
             runs.append(info)
             print(name, json.dumps(info), flush=True)
             if a.dump and sd == seeds[0]:
                 torch.save({"layers": [{k: v.cpu() for k, v in L.items()} for L in Ls], "fnorm": cfg.fnorm.cpu()}, a.dump)
-            del Ls
+            if name != "teacher":
+                del Ls
             torch.cuda.empty_cache()
         info = dict(runs[0])
         if len(runs) > 1:

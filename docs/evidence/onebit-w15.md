@@ -940,6 +940,42 @@ bits 421,541,376 in both, `bits_r` unchanged. Confirmed (`Perf.CostCorrespondenc
 absorbed arm matches the unrepresentable one inside the seed spread and keeps the `1.18` b/w budget. A scratch run of the
 same code gave bit-identical per-variant values, and is withdrawn in the gate ledger because the run was not admitted.
 
+## Outcome metrics against the teacher and Q4_K_M (`measured`, `w18-outcomes.json`)
+
+Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`. Every earlier arm was scored by KL and top-1 against the
+teacher. This receipt scores teacher, Q4_K_M and the `-resq` arm (1.178 b/w) on outcomes, with one forward
+(`fold_transfer.py --outcomes`, fp32, seed 0, 242 s wall on the RTX 5080):
+
+- **C4 true-label perplexity**: the 40 held-out chunks of the KL evaluation, 20,440 scored tokens.
+- **WikiText-2 perplexity**: test split joined with `"\n\n"`, non-overlapping 512-token windows (the first token of a
+  window is unscored), 584 windows, 298,424 scored tokens. A 512 window is shorter than the usual
+  2048, so the absolute value is above published figures; the comparison is across arms.
+- **ARC-Easy** (test, 2376 questions) and **HellaSwag** (first 1000 validation items): continuation log-likelihood with
+  the lm-evaluation-harness prompt and normalisation conventions (`acc`; `acc_norm` divides by the choice's character
+  length). Standard errors: about 1.0 point (ARC) and 1.5 points (HellaSwag).
+- **Greedy text**: six fixed prompts, 48 new tokens, no sampling; the texts are in the receipt.
+
+| metric | teacher (fp32) | Q4_K_M (5.52 b/w) | `-resq` (1.178 b/w) |
+|---|---|---|---|
+| held-out KL / top-1 | 0 / 100% | 0.0197 / 91.37% | 1.2905 / 43.91% |
+| C4 perplexity | 24.35 | 24.80 | 86.09 |
+| WikiText-2 perplexity (512 windows) | 17.19 | 17.51 | 98.71 |
+| ARC-Easy acc / acc_norm | 0.646 / 0.595 | 0.644 / 0.578 | 0.373 / 0.351 |
+| HellaSwag acc / acc_norm (n=1000) | 0.401 / 0.496 | 0.405 / 0.490 | 0.308 / 0.371 |
+| greedy text vs teacher, first divergence (tokens) | n/a | 5, 11, 46, 7, 48, 9 | 0, 0, 0, 0, 0, 1 |
+
+Reading: Q4_K_M matches the teacher on every outcome inside the standard error (perplexity +1.9%, ARC-Easy -0.2 point,
+HellaSwag +0.4 / -0.6 points). The one-bit arm does not: perplexity 3.5x (C4) and 5.7x (WikiText-2), task accuracy
+between chance (0.25) and the teacher, and the generated text is degenerate (repetition: `** ** **`, `A: A: A:`, the
+same clause looped). The KL metric was not hiding a good outcome; the outcome gap is the KL gap, `exp(1.29) = 3.6` against
+the measured 3.5x on C4. The sparse inference pattern in the owner's note is not exercised here: this is the dense
+forward with fitted weights.
+
+Prediction `w18-outcomes-1`, confirmed with two misses: the teacher's ARC-Easy `acc` 0.646 sits above the stated
+0.55-0.62 band, and the one-bit arm's HellaSwag `acc_norm` 0.371 above the stated `<= 0.35`; the falsifier
+(`acc_norm` ARC > 0.45, HellaSwag > 0.40, perplexity < 2x teacher) did not fire. Verdict:
+`Perf.CostCorrespondence.w18_outcomes_gap` (`measured`, with the changed-constant control).
+
 ## Argon review outcomes (checked against source)
 
 - `fnorm` is a 0-bit 896-vector Newton-Fisher fit on the final RMSNorm (`fold_transfer.py:877`); the dense 896x896
@@ -963,5 +999,7 @@ correct.
 
 ## Not covered (W18)
 
-- No bridging measurement against the perplexity literature.
+- Outcome metrics are one seed (seed 0) on one calibration order; the 3-seed held-out KL range of the arm is 0.011, so
+  the outcome spread across seeds is not measured. The sparse inference pattern is not evaluated.
+- No bridging measurement against the perplexity literature at the usual 2048-token window.
 - Papers read: those in the receipt. The ~40-paper scope is not a survey; Proteus was not found on arXiv.

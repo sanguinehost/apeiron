@@ -407,6 +407,43 @@ def shuffleF1KDR2 : ℚ := (-1746856546906983 : ℚ) / 40000000000000000000
 
 end Receipts.t6_sideinfo_ext
 
+-- Receipt `docs/evidence/receipts/onebit/w18-outcomes.json`
+namespace Receipts.w18_outcomes
+
+def sha256 : String := "071a5eb457175d3e383aa618b50b353908626989cd6a3c6d2960d06dc1bb271d"
+def teacherC4Ppl : ℚ := (24349901617745697 : ℚ) / 1000000000000000
+def teacherWt2Ppl : ℚ := (1719297883025251 : ℚ) / 100000000000000
+def teacherArcAcc : ℚ := (6460437710437711 : ℚ) / 10000000000000000
+def teacherArcAccNorm : ℚ := (1487794612794613 : ℚ) / 2500000000000000
+def teacherHsAcc : ℚ := (401 : ℚ) / 1000
+def teacherHsAccNorm : ℚ := (62 : ℚ) / 125
+def teacherArcN : ℕ := 2376
+def teacherHsN : ℕ := 1000
+def q4kmC4Ppl : ℚ := (3099914555619907 : ℚ) / 125000000000000
+def q4kmWt2Ppl : ℚ := (4377445539496919 : ℚ) / 250000000000000
+def q4kmArcAcc : ℚ := (3221801346801347 : ℚ) / 5000000000000000
+def q4kmArcAccNorm : ℚ := (5782828282828283 : ℚ) / 10000000000000000
+def q4kmHsAcc : ℚ := (81 : ℚ) / 200
+def q4kmHsAccNorm : ℚ := (49 : ℚ) / 100
+def q4kmArcN : ℕ := 2376
+def q4kmHsN : ℕ := 1000
+def resqC4Ppl : ℚ := (2152255628393841 : ℚ) / 25000000000000
+def resqWt2Ppl : ℚ := (987131495014141 : ℚ) / 10000000000000
+def resqArcAcc : ℚ := (18623737373737373 : ℚ) / 50000000000000000
+def resqArcAccNorm : ℚ := (8764730639730639 : ℚ) / 25000000000000000
+def resqHsAcc : ℚ := (77 : ℚ) / 250
+def resqHsAccNorm : ℚ := (371 : ℚ) / 1000
+def resqArcN : ℕ := 2376
+def resqHsN : ℕ := 1000
+def resqFirstDivergence0 : ℕ := 0
+def resqFirstDivergence1 : ℕ := 0
+def resqFirstDivergence2 : ℕ := 0
+def resqFirstDivergence3 : ℕ := 0
+def resqFirstDivergence4 : ℕ := 0
+def resqFirstDivergence5 : ℕ := 1
+
+end Receipts.w18_outcomes
+
 -- Receipt `docs/evidence/receipts/onebit/2026-10-11-vladder.json`
 namespace Receipts.vladder_1011
 

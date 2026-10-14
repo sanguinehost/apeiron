@@ -58,7 +58,12 @@ W15 = {
     "w15_backfit_attn": "docs/evidence/receipts/onebit/2026-10-12-fold-transfer-attn-bscale.json",
     "t3_base_seeds12": "docs/evidence/receipts/onebit/t3-base-seeds12.json",
     "t6_sideinfo_ext": "docs/evidence/receipts/onebit/t6-sideinfo.json",
+    "w18_outcomes": "docs/evidence/receipts/onebit/w18-outcomes.json",
 }
+
+OUTCOME_ARMS = [("teacher", "teacher"), ("q4km", "q4km"), ("resq", RESQ_ARM)]
+OUTCOME_RAT = [("C4Ppl", "c4_ppl"), ("Wt2Ppl", "wt2_ppl"), ("ArcAcc", "arc_acc"), ("ArcAccNorm", "arc_acc_norm"),
+               ("HsAcc", "hs_acc"), ("HsAccNorm", "hs_acc_norm")]
 
 # 2026-10-11 escalation receipts (copied with their names): the W15a/W15b rate-distortion, ray and K-FAC
 # verdicts in CostCorrespondence.lean, and the held-out Q4_K_M reference. Emitted after W15 by d1011_fields().
@@ -397,6 +402,16 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
         out.append(("rat", "incrOverF0F2dUp", rat(res["incr_over_F0"]["F2d"]["up"])))
         out.append(("rat", "incrOverF0F2oUp", rat(res["incr_over_F0"]["F2o"]["up"])))
         out.append(("rat", "shuffleF1KDR2", rat(res["shuffle_delta_r2"]["F1"]["per_kind"]["k"])))
+    elif ns == "w18_outcomes":
+        for pre, key in OUTCOME_ARMS:
+            o = data["variants"][key]["outcomes"]
+            for name, k in OUTCOME_RAT:
+                out.append(("rat", pre + name, rat(o[k])))
+            out.append(("nat", pre + "ArcN", nat(o["arc_n"])))
+            out.append(("nat", pre + "HsN", nat(o["hs_n"])))
+        gens = data["variants"][RESQ_ARM]["outcomes"]["generation"]
+        for i, g in enumerate(gens):
+            out.append(("nat", f"resqFirstDivergence{i}", nat(g["first_divergence"])))
     else:
         raise Fail(f"no W15/W17 field map for {ns}")
     return out
