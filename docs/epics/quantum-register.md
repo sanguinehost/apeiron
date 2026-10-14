@@ -178,6 +178,50 @@ The angles cost `0.00192` b/w (`688128` bits). The surrogate is per-layer with t
 small-J solves and on the o input. Next row: angles trained on end-to-end KL inside `pv_finish`, starting from the
 all-`π/4` register (bit-equal to the Hadamard arm), and the o-input-only register as its cheaper control.
 
+### W2 result: angles on end-to-end KL (prediction `kan-kl-exact-1`, refuted on wall, wins per step)
+
+Receipt [`docs/evidence/receipts/onebit/qreg-kan-exact.json`](../evidence/receipts/onebit/qreg-kan-exact.json)
+(sha256 `4bf34898…`, `pv_finish.py` `17586d6d…`, RTX 5080, 542 s); verdicts `kan_exact_protocol`, `kan_exact_step_cost`,
+`kan_exact_loses_wall`, `butterfly_curve_convex`, `kan_exact_wins_matched_step` in
+`proof/corpus/Perf/QuantumRotation.lean`, audited in `AxiomAudit.lean` (controls: register KL `0.85`, `0.9`, the 529-step
+KL `0.91`, register train time `215` s, each red at its own theorem).
+
+| quantity | register (`--rotation kan`, butterfly) | fixed Hadamard |
+|---|---|---|
+| step-0 weights | `torch.equal` to `fwht128`'s on all 168 | — |
+| s/step | 1.050 | 0.571 (`w18_pvfast`); ratio 1.84 |
+| steps in the 580 s run | 377 | 729 |
+| held-out KL after | 0.8979 | 0.8577 |
+| butterfly KL at 377 steps, convex bracket | — | [0.9012, 0.9062] |
+| b/w | 1.179984 (+688128 angle bits) | 1.178061 |
+
+Per step the register is below the butterfly curve's convex lower bound (`anchor`: convexity between the measured
+points; `kan_exact_wins_matched_step`); at equal wall it loses because each of its seven
+stages runs as a separate kernel. Next row: the register as one `128 × 128` matmul `T(δ)` per (layer, site) per step
+(`kan_matrix`, `RegisterComposeMM`), the same cost shape as `had_mm`; its gate is the held-out KL against `hadmm`'s 0.8484.
+
+### W2 result: the register as one matmul (prediction `kan-kl-mm-1`, refuted on wall, wins per step)
+
+Receipt [`docs/evidence/receipts/onebit/qreg-kan-mm.json`](../evidence/receipts/onebit/qreg-kan-mm.json)
+(sha256 `62d597a6…`, `pv_finish.py` `4611904f…`, RTX 5080, 542 s); verdicts `kan_mm_protocol`, `kan_mm_step_cost`,
+`kan_mm_loses_wall`, `kan_mm_wins_matched_step` in `proof/corpus/Perf/QuantumRotation.lean`, audited in `AxiomAudit.lean`
+(controls: register KL `0.84`, `0.8785`, train time `263` s, offset drift `0.08`, each red at its own theorem).
+`--selftest-kan` gates the hand adjoint `RegisterComposeMM` in float64 against the butterfly path (adjoints
+`≤ 8.4·10⁻¹⁶`) and seeds two defects it must catch: `G` dropped from the column-scale adjoint (rel 1.57) and `T`
+untransposed in the input adjoint (rel 0.39; `H128` is symmetric, so that defect is visible only at `δ ≠ 0`).
+
+| quantity | register, matmul | register, butterfly | fixed Hadamard, matmul (`w18_hadmm`) |
+|---|---|---|---|
+| s/step | 0.707 | 1.050 | 0.479 |
+| steps in the 580 s run | 550 | 377 | 871 |
+| held-out KL after | 0.8779 | 0.8979 | 0.8484 |
+| butterfly KL at the register's steps, convex bracket | [0.8791, 0.8798] | [0.9012, 0.9062] | — |
+| b/w | 1.179984 | 1.179984 | 1.178061 |
+
+The matmul path is `0.673×` the butterfly register's step and still `1.47×` the fixed matmul's: the 96 `T(δ)` builds
+run seven stages of small kernels each, forward and backward. Next row: all 96 built in one batched register pass
+(`kan_matrix_batch`, seven stage launches per step; bitwise equal to `kan_matrix` per key, `--selftest-kan` controls 9–10).
+
 ### Arc Block (W1-T1)
 
 ```text

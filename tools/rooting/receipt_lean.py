@@ -88,6 +88,8 @@ W15 = {
     "w18_guidedsweep": "docs/evidence/receipts/onebit/w18-guidedsweep.json",
     "w18_guidedseed": "docs/evidence/receipts/onebit/w18-guidedseed.json",
     "qreg_kan_probe": "docs/evidence/receipts/onebit/qreg-kan-probe.json",
+    "qreg_kan_exact": "docs/evidence/receipts/onebit/qreg-kan-exact.json",
+    "qreg_kan_mm": "docs/evidence/receipts/onebit/qreg-kan-mm.json",
 }
 
 # End-loss-weighted Gram receipts (fold_transfer "-guided[a|b]NN"): namespace -> variant prefixes (see guided_prefix).
@@ -99,7 +101,8 @@ GUIDED_SEEDS = {"w18_guidedseed": ["1", "2"]}
 # Scale-group ablation of the finishing drop (pv_finish.py --train, V-steps off): namespace -> trained groups.
 PVAB_GROUPS = {"w18_pvabnorm05": ["norm"], "w18_pvabr05": ["r"], "w18_pvaball05v0": ["c", "d", "norm", "r"], "w18_pvabrcd05": ["c", "d", "r"], "w18_pvabcd05": ["c", "d"],
                "w18_pvgrid25": ["c", "d", "norm", "r"], "w18_pvtok146": ["c", "d", "norm", "r"], "w18_pvtok292": ["c", "d", "norm", "r"],
-               "w18_pvfast": ["c", "d", "norm", "r"], "w18_hadmm": ["c", "d", "norm", "r"]}
+               "w18_pvfast": ["c", "d", "norm", "r"], "w18_hadmm": ["c", "d", "norm", "r"],
+               "qreg_kan_exact": ["c", "d", "norm", "r"], "qreg_kan_mm": ["c", "d", "norm", "r"]}
 
 # Ten-step torch.profiler windows of the finishing loop (pv_finish.py --profile 10): namespace -> (compose, kl) path.
 # `selfDeviceS` is the receipt's own total: pvprof sums aten-op and kernel self time (double counts), pvprof2 kernels only.
@@ -718,6 +721,27 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
                 out.append(("rat", "lossRelBf16VsFp32", rat(fp["bf16_vs_fp32_loss_rel"])))
                 out.append(("rat", "float64UnitMaxRel", rat(fp["float64_unit_max_rel"])))
             out.append(("rat", "peakMemGb", rat(data["peak_mem_gb"])))
+        if data.get("rotation", {}).get("mode") == "kan":
+            # Learned reflection register (--rotation kan): offsets delta = theta - pi/4 per (layer, site, stage, butterfly),
+            # 16 bits each.  At delta = 0 the composed weights equal the fwht128 weights bit for bit (step-0 control), the
+            # fp32 student under the register holds loss relative < 1e-5 and gradient relative L2 < 1e-2 against the
+            # butterfly, and the stored bits grow by exactly the angle bits.
+            # The register's fp32 arm is `fp32_kan` in receipts before its matmul path and `kan_arm` after (keys distinct
+            # from the --hadamard mm block's).
+            ro, k0, fp = data["rotation"], c["kan_step0_vs_planecompose"], c["grad_equiv"]["fp32"]
+            fk = fp["kan_arm"] if "kan_arm" in fp else fp["fp32_kan"]
+            if not (k0["ok"] is True and k0["torch_equal"] is True and rat(k0["max_rel"]) == 0):
+                raise Fail(f"{rel}: step-0 register weights are not the fwht128 weights")
+            if not (fp["ok"] is True and rat(fk["loss_rel"]) < Fraction(1, 10 ** 5)
+                    and rat(fk["grad_rel_l2"]) < Fraction(1, 100) and rat(fp["theta_grad_l2"]) > 0):
+                raise Fail(f"{rel}: fp32 register gradient control outside its tolerance")
+            if data["bits_after"] != data["bits_before"] + ro["angle_bits"]:
+                raise Fail(f"{rel}: bits_after is not bits_before plus the angle bits")
+            out.append(("bool", "kanStep0Equal", bool_value(k0["torch_equal"], ns)))
+            out.append(("nat", "angleBits", nat(ro["angle_bits"])))
+            out.append(("rat", "gradRelFp32Kan", rat(fk["grad_rel_l2"])))
+            out.append(("rat", "thetaGradL2", rat(fp["theta_grad_l2"])))
+            out.append(("rat", "thetaDriftMaxAbs", max(rat(v["max_abs"]) for v in ro["theta_drift_vs_pi4"].values())))
         out.append(("rat", "trainS", rat(data["walls"]["train_s"])))
         for name, k in [("bitsR", "bits_r"), ("bitsC", "bits_c"), ("bitsD", "bits_d")]:
             out.append(("nat", name, nat(bc[k])))
