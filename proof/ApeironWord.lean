@@ -1166,6 +1166,66 @@ def cell.Cell.Insts.CoreCmpPartialEqCell.eq
   then corecmpPartialEqInst.eq self.b other.b
   else ok false
 
+/-- [apeiron_word::cell::{apeiron_word::cell::Cell<i64>}::checked_mul]:
+    Source: '../../src/cell.rs', lines 279:4-290:5
+    Visibility: public -/
+def cell.CellI64.checked_mul
+  (self : cell.Cell Std.I64) (sigma : cell.Sigma) (other : cell.Cell Std.I64) :
+  Result (Option (cell.Cell Std.I64))
+  := do
+  let s ← cell.Sigma.value sigma
+  let o ← lift (I64.checked_mul self.a other.a)
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let o1 ← lift (I64.checked_mul s self.b)
+    let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let o2 ← lift (I64.checked_mul val1 other.b)
+      let cf2 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        let o3 ← lift (I64.checked_add val val2)
+        let cf3 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o3
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val3 =>
+          let o4 ← lift (I64.checked_mul self.a other.b)
+          let cf4 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o4
+          match cf4 with
+          | core.ops.control_flow.ControlFlow.Continue val4 =>
+            let o5 ← lift (I64.checked_mul self.b other.a)
+            let cf5 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o5
+            match cf5 with
+            | core.ops.control_flow.ControlFlow.Continue val5 =>
+              let o6 ← lift (I64.checked_add val4 val5)
+              let cf6 ←
+                core.option.Option.Insts.CoreOpsTry_traitTry.branch o6
+              match cf6 with
+              | core.ops.control_flow.ControlFlow.Continue val6 =>
+                ok (some { a := val3, b := val6 })
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                  (cell.Cell Std.I64) residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+                (cell.Cell Std.I64) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+              (cell.Cell Std.I64) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+            (cell.Cell Std.I64) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+          (cell.Cell Std.I64) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+        (cell.Cell Std.I64) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      (cell.Cell Std.I64) residual
+
 /-- [apeiron_word::chacha::ONETIME_KEY_LEN]
     Source: '../../src/chacha.rs', lines 32:0-32:38
     Visibility: public -/
@@ -5965,12 +6025,12 @@ structure attn.KvState where
   storage : attn.KvStorage
 
 /-- [apeiron_word::engine::FIXED_FRAC_BITS]
-    Source: 'lib.rs', lines 122:4-122:40
+    Source: 'lib.rs', lines 124:4-124:40
     Visibility: public -/
 @[global_simps, irreducible] def engine.FIXED_FRAC_BITS : Std.U32 := 32#u32
 
 /-- [apeiron_word::engine::ONE]
-    Source: 'lib.rs', lines 124:4-124:46
+    Source: 'lib.rs', lines 126:4-126:46
     Visibility: public -/
 @[global_simps, irreducible]
 def engine.ONE : Result Std.I64 := 1#i64 <<< engine.FIXED_FRAC_BITS
@@ -22355,6 +22415,139 @@ def sigma_delta.sd_binary_block
     then ok (some (e, peak), s1)
     else ok (none, s1)
 
+/-- [apeiron_word::register::RegisterError]
+    Source: '../../src/numeric/register.rs', lines 13:0-20:1
+    Visibility: public -/
+@[discriminant isize]
+inductive register.RegisterError where
+| LengthMismatch : register.RegisterError
+| NotPowerOfTwo : register.RegisterError
+| Overflow : register.RegisterError
+
+/-- [apeiron_word::register::stage_block]: loop body 0:
+    Source: '../../src/numeric/register.rs', lines 83:4-95:5 -/
+@[rust_loop_body]
+def register.stage_block_loop.body
+  (base : Std.Usize) (span : Std.Usize) (w : cell.Cell Std.I64)
+  (sigma : cell.Sigma) (x : Slice Std.I64) (lane : Std.Usize)
+  (err : Option register.RegisterError) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize × (Option
+    register.RegisterError)) ((Option register.RegisterError) × (Slice
+    Std.I64)))
+  := do
+  if lane < span
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let lo ← base + lane
+      let hi ← lo + span
+      let i ← Slice.index_usize x lo
+      let i1 ← Slice.index_usize x hi
+      let o ← cell.CellI64.checked_mul w sigma { a := i, b := i1 }
+      match o with
+      | none =>
+        let lane1 ← lane + 1#usize
+        ok (cont (x, lane1, some register.RegisterError.Overflow))
+      | some out =>
+        let x1 ← Slice.update x lo out.a
+        let s ← Slice.update x1 hi out.b
+        let lane1 ← lane + 1#usize
+        ok (cont (s, lane1, err))
+    else ok (done (err, x))
+  else ok (done (err, x))
+
+/-- [apeiron_word::register::stage_block]: loop 0:
+    Source: '../../src/numeric/register.rs', lines 83:4-95:5 -/
+@[rust_loop]
+def register.stage_block_loop
+  (x : Slice Std.I64) (base : Std.Usize) (span : Std.Usize)
+  (w : cell.Cell Std.I64) (sigma : cell.Sigma) (lane : Std.Usize)
+  (err : Option register.RegisterError) :
+  Result ((Option register.RegisterError) × (Slice Std.I64))
+  := do
+  loop
+    (fun (x1, lane1, err1) => register.stage_block_loop.body base span w sigma
+      x1 lane1 err1)
+    (x, lane, err)
+
+/-- [apeiron_word::register::stage_block]:
+    Source: '../../src/numeric/register.rs', lines 74:0-97:1 -/
+@[reducible]
+def register.stage_block
+  (x : Slice Std.I64) (base : Std.Usize) (span : Std.Usize)
+  (w : cell.Cell Std.I64) (sigma : cell.Sigma) :
+  Result ((Option register.RegisterError) × (Slice Std.I64))
+  := do
+  register.stage_block_loop x base span w sigma 0#usize none
+
+/-- [apeiron_word::register::stage_mul]: loop body 0:
+    Source: '../../src/numeric/register.rs', lines 60:4-63:5
+    Visibility: public -/
+@[rust_loop_body]
+def register.stage_mul_loop.body
+  (span : Std.Usize) (w : cell.Cell Std.I64) (sigma : cell.Sigma)
+  (block : Std.Usize) (x : Slice Std.I64) (base : Std.Usize)
+  (err : Option register.RegisterError) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize × (Option
+    register.RegisterError)) ((Slice Std.I64) × (Option
+    register.RegisterError)))
+  := do
+  let i := Slice.len x
+  if base < i
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (err1, x1) ← register.stage_block x base span w sigma
+      let base1 ← base + block
+      ok (cont (x1, base1, err1))
+    else ok (done (x, err))
+  else ok (done (x, err))
+
+/-- [apeiron_word::register::stage_mul]: loop 0:
+    Source: '../../src/numeric/register.rs', lines 60:4-63:5
+    Visibility: public -/
+@[rust_loop]
+def register.stage_mul_loop
+  (x : Slice Std.I64) (span : Std.Usize) (w : cell.Cell Std.I64)
+  (sigma : cell.Sigma) (block : Std.Usize) (base : Std.Usize)
+  (err : Option register.RegisterError) :
+  Result ((Slice Std.I64) × (Option register.RegisterError))
+  := do
+  loop
+    (fun (x1, base1, err1) => register.stage_mul_loop.body span w sigma block
+      x1 base1 err1)
+    (x, base, err)
+
+/-- [apeiron_word::register::stage_mul]:
+    Source: '../../src/numeric/register.rs', lines 44:0-68:1
+    Visibility: public -/
+def register.stage_mul
+  (x : Slice Std.I64) (span : Std.Usize) (w : cell.Cell Std.I64)
+  (sigma : cell.Sigma) :
+  Result ((core.result.Result Unit register.RegisterError) × (Slice Std.I64))
+  := do
+  let b ← core.num.Usize.is_power_of_two span
+  if b
+  then
+    let i ← 1#usize <<< 16#i32
+    if span >= i
+    then ok (core.result.Result.Err register.RegisterError.NotPowerOfTwo, x)
+    else
+      let block ← 2#usize * span
+      let i1 := Slice.len x
+      let i2 ← i1 % block
+      if i2 != 0#usize
+      then ok (core.result.Result.Err register.RegisterError.LengthMismatch, x)
+      else
+        let (x1, err) ←
+          register.stage_mul_loop x span w sigma block 0#usize none
+        match err with
+        | none => ok (core.result.Result.Ok (), x1)
+        | some e => ok (core.result.Result.Err e, x1)
+  else ok (core.result.Result.Err register.RegisterError.NotPowerOfTwo, x)
+
 /-- [apeiron_word::policy::decide::Op]
     Source: '../../src/policy/decide.rs', lines 18:0-29:1
     Visibility: public -/
@@ -31846,7 +32039,7 @@ def table.Table.build_at
     else ok (core.result.Result.Err table.StorageError.SizeOverflow)
 
 /-- [apeiron_word::word_mul]:
-    Source: 'lib.rs', lines 157:0-159:1
+    Source: 'lib.rs', lines 159:0-161:1
     Visibility: public -/
 def word_mul
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) (b : cell.Cell Std.I64) :
@@ -31855,14 +32048,14 @@ def word_mul
   cell.Cell.mul I64.Insts.Apeiron_wordScalarRing a sigma b
 
 /-- [apeiron_word::word_norm]:
-    Source: 'lib.rs', lines 162:0-164:1
+    Source: 'lib.rs', lines 164:0-166:1
     Visibility: public -/
 def word_norm
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) : Result Std.I64 := do
   cell.Cell.norm_form I64.Insts.Apeiron_wordScalarRing a sigma
 
 /-- [apeiron_word::word_point_density]:
-    Source: 'lib.rs', lines 171:0-173:1
+    Source: 'lib.rs', lines 173:0-175:1
     Visibility: public -/
 def word_point_density
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64) :
@@ -31872,7 +32065,7 @@ def word_point_density
     direction
 
 /-- [apeiron_word::word_point_flux]:
-    Source: 'lib.rs', lines 176:0-184:1
+    Source: 'lib.rs', lines 178:0-186:1
     Visibility: public -/
 def word_point_flux
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64)
@@ -31883,7 +32076,7 @@ def word_point_flux
     previous next
 
 /-- [apeiron_word::word_conservative_density_step]:
-    Source: 'lib.rs', lines 188:0-195:1
+    Source: 'lib.rs', lines 190:0-197:1
     Visibility: public -/
 def word_conservative_density_step
   (density : Std.I64) (incoming : Std.I64) (outgoing : Std.I64)
@@ -31893,14 +32086,14 @@ def word_conservative_density_step
   carrier.conservative_density_step density incoming outgoing source
 
 /-- [apeiron_word::word_diffusive_flux_half]:
-    Source: 'lib.rs', lines 198:0-200:1
+    Source: 'lib.rs', lines 200:0-202:1
     Visibility: public -/
 def word_diffusive_flux_half
   (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
   carrier.diffusive_flux_half left right
 
 /-- [apeiron_word::word_diffusive_line3_step]:
-    Source: 'lib.rs', lines 204:0-209:1
+    Source: 'lib.rs', lines 206:0-211:1
     Visibility: public -/
 def word_diffusive_line3_step
   (old : carrier.DensityLine3) (source : carrier.DensityLine3) :
@@ -31909,7 +32102,7 @@ def word_diffusive_line3_step
   carrier.diffusive_line3_step old source
 
 /-- [apeiron_word::word_exchange_impulse]:
-    Source: 'lib.rs', lines 212:0-214:1
+    Source: 'lib.rs', lines 214:0-216:1
     Visibility: public -/
 def word_exchange_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -31918,7 +32111,7 @@ def word_exchange_impulse
   exchange.exchange_impulse I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_elastic_exchange]:
-    Source: 'lib.rs', lines 217:0-219:1
+    Source: 'lib.rs', lines 219:0-221:1
     Visibility: public -/
 def word_elastic_exchange
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -31927,7 +32120,7 @@ def word_elastic_exchange
   exchange.elastic_exchange I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_accept_derived_impulse]:
-    Source: 'lib.rs', lines 226:0-232:1
+    Source: 'lib.rs', lines 228:0-234:1
     Visibility: public -/
 def word_accept_derived_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) (claimed : cell.Cell Std.I64)
@@ -31937,7 +32130,7 @@ def word_accept_derived_impulse
   exchange.accept_derived_impulse I64.Insts.Apeiron_wordScalarRing p q claimed
 
 /-- [apeiron_word::word_i64_codec_encode]:
-    Source: 'lib.rs', lines 273:0-279:1
+    Source: 'lib.rs', lines 275:0-281:1
     Visibility: public -/
 def word_i64_codec_encode
   (sigma : cell.Sigma) (key : Std.I64) : Result Std.U64 := do
@@ -31947,7 +32140,7 @@ def word_i64_codec_encode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma key address
 
 /-- [apeiron_word::word_i64_codec_decode]:
-    Source: 'lib.rs', lines 282:0-286:1
+    Source: 'lib.rs', lines 284:0-288:1
     Visibility: public -/
 def word_i64_codec_decode
   (sigma : cell.Sigma) (identity : Std.U64) : Result Std.I64 := do
@@ -31955,7 +32148,7 @@ def word_i64_codec_decode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma identity
 
 /-- [apeiron_word::word_regen_hold]:
-    Source: 'lib.rs', lines 289:0-299:1
+    Source: 'lib.rs', lines 291:0-301:1
     Visibility: public -/
 def word_regen_hold
   (sigma : cell.Sigma) (key : Std.I64) :
@@ -31970,7 +32163,7 @@ def word_regen_hold
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma key address
 
 /-- [apeiron_word::word_regen_matches]:
-    Source: 'lib.rs', lines 302:0-313:1
+    Source: 'lib.rs', lines 304:0-315:1
     Visibility: public -/
 def word_regen_matches
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec)
@@ -31986,7 +32179,7 @@ def word_regen_matches
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held key address
 
 /-- [apeiron_word::word_regen_key_owned]:
-    Source: 'lib.rs', lines 316:0-324:1
+    Source: 'lib.rs', lines 318:0-326:1
     Visibility: public -/
 def word_regen_key_owned
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -31999,7 +32192,7 @@ def word_regen_key_owned
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held
 
 /-- [apeiron_word::word_regen_address_held]:
-    Source: 'lib.rs', lines 327:0-336:1
+    Source: 'lib.rs', lines 329:0-338:1
     Visibility: public -/
 def word_regen_address_held
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -32012,7 +32205,7 @@ def word_regen_address_held
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) () sigma held
 
 /-- [apeiron_word::word_stored_table_get_at]:
-    Source: 'lib.rs', lines 349:0-351:1
+    Source: 'lib.rs', lines 351:0-353:1
     Visibility: public -/
 def word_stored_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32026,7 +32219,7 @@ def word_stored_table_get_at
     state sigma key
 
 /-- [apeiron_word::word_stored_table_build_at]:
-    Source: 'lib.rs', lines 365:0-370:1
+    Source: 'lib.rs', lines 367:0-372:1
     Visibility: public -/
 def word_stored_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -32041,7 +32234,7 @@ def word_stored_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_regen_table_get_at]:
-    Source: 'lib.rs', lines 382:0-384:1
+    Source: 'lib.rs', lines 384:0-386:1
     Visibility: public -/
 def word_regen_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32056,7 +32249,7 @@ def word_regen_table_get_at
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_table_build_at]:
-    Source: 'lib.rs', lines 399:0-404:1
+    Source: 'lib.rs', lines 401:0-406:1
     Visibility: public -/
 def word_regen_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -32074,7 +32267,7 @@ def word_regen_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_stored_prepared_shard_get]:
-    Source: 'lib.rs', lines 407:0-413:1
+    Source: 'lib.rs', lines 409:0-415:1
     Visibility: public -/
 def word_stored_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32089,7 +32282,7 @@ def word_stored_prepared_shard_get
     state sigma key
 
 /-- [apeiron_word::word_stored_prepared_shard_apply]:
-    Source: 'lib.rs', lines 417:0-425:1
+    Source: 'lib.rs', lines 419:0-427:1
     Visibility: public -/
 def word_stored_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32107,7 +32300,7 @@ def word_stored_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_regen_prepared_shard_get]:
-    Source: 'lib.rs', lines 428:0-430:1
+    Source: 'lib.rs', lines 430:0-432:1
     Visibility: public -/
 def word_regen_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32123,7 +32316,7 @@ def word_regen_prepared_shard_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_prepared_shard_apply]:
-    Source: 'lib.rs', lines 434:0-442:1
+    Source: 'lib.rs', lines 436:0-444:1
     Visibility: public -/
 def word_regen_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32145,7 +32338,7 @@ def word_regen_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_stored_apply_get]:
-    Source: 'lib.rs', lines 450:0-452:1
+    Source: 'lib.rs', lines 452:0-454:1
     Visibility: public -/
 def word_stored_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32159,7 +32352,7 @@ def word_stored_apply_get
     state decision
 
 /-- [apeiron_word::word_stored_apply_insert]:
-    Source: 'lib.rs', lines 459:0-471:1
+    Source: 'lib.rs', lines 461:0-473:1
     Visibility: public -/
 def word_stored_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32182,7 +32375,7 @@ def word_stored_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_regen_apply_get]:
-    Source: 'lib.rs', lines 474:0-476:1
+    Source: 'lib.rs', lines 476:0-478:1
     Visibility: public -/
 def word_regen_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32197,7 +32390,7 @@ def word_regen_apply_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state decision
 
 /-- [apeiron_word::word_regen_apply_insert]:
-    Source: 'lib.rs', lines 479:0-491:1
+    Source: 'lib.rs', lines 481:0-493:1
     Visibility: public -/
 def word_regen_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32223,7 +32416,7 @@ def word_regen_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_schedule_is_complete]:
-    Source: 'lib.rs', lines 494:0-499:1
+    Source: 'lib.rs', lines 496:0-501:1
     Visibility: public -/
 def word_schedule_is_complete
   (loads : Array Std.Usize 256#usize) (workers : Std.Usize) : Result Bool := do
@@ -32231,37 +32424,37 @@ def word_schedule_is_complete
   table.partition.Schedule.is_complete s
 
 /-- [apeiron_word::word_coord_finish]:
-    Source: 'lib.rs', lines 504:0-506:1
+    Source: 'lib.rs', lines 506:0-508:1
     Visibility: public -/
 def word_coord_finish (h : Std.U64) : Result Std.U64 := do
   coord.finish h
 
 /-- [apeiron_word::word_coord_spread]:
-    Source: 'lib.rs', lines 512:0-514:1
+    Source: 'lib.rs', lines 514:0-516:1
     Visibility: public -/
 def word_coord_spread (x : Std.U64) : Result coord.Addr := do
   coord.spread x
 
 /-- [apeiron_word::word_coord_unspread]:
-    Source: 'lib.rs', lines 517:0-519:1
+    Source: 'lib.rs', lines 519:0-521:1
     Visibility: public -/
 def word_coord_unspread (id : Std.U64) : Result Std.U64 := do
   coord.unspread id
 
 /-- [apeiron_word::word_coord_id]:
-    Source: 'lib.rs', lines 525:0-527:1
+    Source: 'lib.rs', lines 527:0-529:1
     Visibility: public -/
 def word_coord_id (address : coord.Addr) : Result Std.U64 := do
   ok address.id
 
 /-- [apeiron_word::word_coord_place]:
-    Source: 'lib.rs', lines 533:0-535:1
+    Source: 'lib.rs', lines 535:0-537:1
     Visibility: public -/
 def word_coord_place (address : coord.Addr) : Result Std.U64 := do
   ok address.place
 
 /-- [apeiron_word::word_stored_relocate_entry]:
-    Source: 'lib.rs', lines 543:0-554:1
+    Source: 'lib.rs', lines 545:0-556:1
     Visibility: public -/
 def word_stored_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32280,7 +32473,7 @@ def word_stored_relocate_entry
     state plan reserved entry_at
 
 /-- [apeiron_word::word_regen_relocate_entry]:
-    Source: 'lib.rs', lines 560:0-571:1
+    Source: 'lib.rs', lines 562:0-573:1
     Visibility: public -/
 def word_regen_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32301,7 +32494,7 @@ def word_regen_relocate_entry
     entry_at
 
 /-- [apeiron_word::word_stored_relocate_all]:
-    Source: 'lib.rs', lines 579:0-589:1
+    Source: 'lib.rs', lines 581:0-591:1
     Visibility: public -/
 def word_stored_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32319,7 +32512,7 @@ def word_stored_relocate_all
     state plan reserved
 
 /-- [apeiron_word::word_regen_relocate_all]:
-    Source: 'lib.rs', lines 594:0-604:1
+    Source: 'lib.rs', lines 596:0-606:1
     Visibility: public -/
 def word_regen_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32339,7 +32532,7 @@ def word_regen_relocate_all
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state plan reserved
 
 /-- [apeiron_word::word_stored_apply_pending_and_commit]:
-    Source: 'lib.rs', lines 613:0-632:1
+    Source: 'lib.rs', lines 615:0-634:1
     Visibility: public -/
 def word_stored_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -32359,7 +32552,7 @@ def word_stored_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_regen_apply_pending_and_commit]:
-    Source: 'lib.rs', lines 638:0-657:1
+    Source: 'lib.rs', lines 640:0-659:1
     Visibility: public -/
 def word_regen_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -32383,7 +32576,7 @@ def word_regen_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_stored_publish_prepared]:
-    Source: 'lib.rs', lines 665:0-672:1
+    Source: 'lib.rs', lines 667:0-674:1
     Visibility: public -/
 def word_stored_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -32394,7 +32587,7 @@ def word_stored_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_regen_publish_prepared]:
-    Source: 'lib.rs', lines 678:0-685:1
+    Source: 'lib.rs', lines 680:0-687:1
     Visibility: public -/
 def word_regen_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -32407,7 +32600,7 @@ def word_regen_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_capacity_bound_holds]:
-    Source: 'lib.rs', lines 690:0-692:1
+    Source: 'lib.rs', lines 692:0-694:1
     Visibility: public -/
 def word_capacity_bound_holds
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
@@ -32416,40 +32609,40 @@ def word_capacity_bound_holds
   table.resources.capacity_bound_holds required_len observed_capacity
 
 /-- [apeiron_word::word_fixed_exp]:
-    Source: 'lib.rs', lines 699:0-701:1
+    Source: 'lib.rs', lines 701:0-703:1
     Visibility: public -/
 def word_fixed_exp
   (x : Std.I64) : Result (core.result.Result Std.I64 fixed_exp.ExpError) := do
   fixed_exp.fixed_exp x
 
 /-- [apeiron_word::word_act_scale]:
-    Source: 'lib.rs', lines 706:0-708:1
+    Source: 'lib.rs', lines 708:0-710:1
     Visibility: public -/
 def word_act_scale (absmax : Std.U64) : Result (Option Std.U64) := do
   pow2.act_scale absmax
 
 /-- [apeiron_word::word_f16_split]:
-    Source: 'lib.rs', lines 713:0-715:1
+    Source: 'lib.rs', lines 715:0-717:1
     Visibility: public -/
 def word_f16_split (h : Std.U16) : Result (Option (Std.I32 × Std.U32)) := do
   pow2.f16_split h
 
 /-- [apeiron_word::word_pow2_finish]:
-    Source: 'lib.rs', lines 720:0-722:1
+    Source: 'lib.rs', lines 722:0-724:1
     Visibility: public -/
 def word_pow2_finish
   (acc : Std.I64) (s : Std.U32) : Result (Option Std.I64) := do
   pow2.finish acc s
 
 /-- [apeiron_word::word_silu_fixed]:
-    Source: 'lib.rs', lines 729:0-731:1
+    Source: 'lib.rs', lines 731:0-733:1
     Visibility: public -/
 def word_silu_fixed
   (v : Std.I64) : Result (core.result.Result Std.I64 silu.SiluError) := do
   silu.silu_fixed v
 
 /-- [apeiron_word::word_rms_norm_fixed]:
-    Source: 'lib.rs', lines 739:0-744:1
+    Source: 'lib.rs', lines 741:0-746:1
     Visibility: public -/
 def word_rms_norm_fixed
   (row : Slice Std.I64) (eps_fixed : Std.I64) :
@@ -32458,7 +32651,7 @@ def word_rms_norm_fixed
   norm.rms_norm_fixed row eps_fixed
 
 /-- [apeiron_word::word_rope_rotate_fixed]:
-    Source: 'lib.rs', lines 751:0-758:1
+    Source: 'lib.rs', lines 753:0-760:1
     Visibility: public -/
 def word_rope_rotate_fixed
   (q : Slice Std.I64) (k : Slice Std.I64) (pos : Std.U32)
@@ -32469,7 +32662,7 @@ def word_rope_rotate_fixed
   rope.rope_rotate_fixed q k pos table
 
 /-- [apeiron_word::word_fixed_rsqrt]:
-    Source: 'lib.rs', lines 762:0-764:1
+    Source: 'lib.rs', lines 764:0-766:1
     Visibility: public -/
 def word_fixed_rsqrt
   (x : Std.I64) :
@@ -32478,7 +32671,7 @@ def word_fixed_rsqrt
   fixed_rsqrt.fixed_rsqrt x
 
 /-- [apeiron_word::word_fixed_sin_cos]:
-    Source: 'lib.rs', lines 768:0-770:1
+    Source: 'lib.rs', lines 770:0-772:1
     Visibility: public -/
 def word_fixed_sin_cos
   (x : Std.I64) :
@@ -32487,7 +32680,7 @@ def word_fixed_sin_cos
   fixed_trig.fixed_sin_cos x
 
 /-- [apeiron_word::word_gguf_parse_header]:
-    Source: 'lib.rs', lines 776:0-778:1
+    Source: 'lib.rs', lines 778:0-780:1
     Visibility: public -/
 def word_gguf_parse_header
   (buf : Slice Std.U8) :
@@ -32498,7 +32691,7 @@ def word_gguf_parse_header
   gguf.parse_header buf i1
 
 /-- [apeiron_word::word_q4_k_codes]:
-    Source: 'lib.rs', lines 784:0-786:1
+    Source: 'lib.rs', lines 786:0-788:1
     Visibility: public -/
 def word_q4_k_codes
   (blk : Slice Std.U8) :
@@ -32507,7 +32700,7 @@ def word_q4_k_codes
   quant.q4_k_codes blk
 
 /-- [apeiron_word::word_q6_k_codes]:
-    Source: 'lib.rs', lines 802:0-804:1
+    Source: 'lib.rs', lines 804:0-806:1
     Visibility: public -/
 def word_q6_k_codes
   (blk : Slice Std.U8) :
@@ -32516,7 +32709,7 @@ def word_q6_k_codes
   quant.q6_k_codes blk
 
 /-- [apeiron_word::word_packing_decode_block]:
-    Source: 'lib.rs', lines 821:0-826:1
+    Source: 'lib.rs', lines 823:0-828:1
     Visibility: public -/
 def word_packing_decode_block
   (p : packing.Packing) (raw : Slice Std.U8) :
@@ -32525,7 +32718,7 @@ def word_packing_decode_block
   packing.Packing.decode_block p raw
 
 /-- [apeiron_word::word_route_topk]:
-    Source: 'lib.rs', lines 832:0-834:1
+    Source: 'lib.rs', lines 834:0-836:1
     Visibility: public -/
 def word_route_topk
   (logits : Slice Std.I64) (k : Std.Usize) :
@@ -32534,7 +32727,7 @@ def word_route_topk
   moe.route_topk logits k
 
 /-- [apeiron_word::word_gate_weights]:
-    Source: 'lib.rs', lines 840:0-846:1
+    Source: 'lib.rs', lines 842:0-848:1
     Visibility: public -/
 def word_gate_weights
   (logits : Slice Std.I64) (sel : Slice Std.U32) (renorm : Bool) :
@@ -32543,7 +32736,7 @@ def word_gate_weights
   moe.gate_weights logits sel renorm
 
 /-- [apeiron_word::word_fwht_fixed]:
-    Source: 'lib.rs', lines 852:0-858:1
+    Source: 'lib.rs', lines 854:0-860:1
     Visibility: public -/
 def word_fwht_fixed
   (x : Slice Std.I64) (signs : Option (Slice Std.I8)) (block : Std.Usize) :
@@ -32551,8 +32744,18 @@ def word_fwht_fixed
   := do
   hadamard.fwht_fixed x signs block
 
+/-- [apeiron_word::word_stage_mul]:
+    Source: 'lib.rs', lines 867:0-874:1
+    Visibility: public -/
+def word_stage_mul
+  (x : Slice Std.I64) (span : Std.Usize) (w : cell.Cell Std.I64)
+  (sigma : cell.Sigma) :
+  Result ((core.result.Result Unit register.RegisterError) × (Slice Std.I64))
+  := do
+  register.stage_mul x span w sigma
+
 /-- [apeiron_word::word_matvec_fixed]:
-    Source: 'lib.rs', lines 866:0-874:1
+    Source: 'lib.rs', lines 882:0-890:1
     Visibility: public -/
 def word_matvec_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (n_out : Std.Usize)
@@ -32562,7 +32765,7 @@ def word_matvec_fixed
   matvec.matvec_fixed ggml_type raw n_out n_in x
 
 /-- [apeiron_word::word_row_dot_fixed]:
-    Source: 'lib.rs', lines 881:0-883:1
+    Source: 'lib.rs', lines 897:0-899:1
     Visibility: public -/
 def word_row_dot_fixed
   (w_row : Slice Std.I64) (x : Slice Std.I64) :
@@ -32571,7 +32774,7 @@ def word_row_dot_fixed
   matvec.row_dot_fixed w_row x
 
 /-- [apeiron_word::word_lm_head_fixed]:
-    Source: 'lib.rs', lines 893:0-901:1
+    Source: 'lib.rs', lines 909:0-917:1
     Visibility: public -/
 def word_lm_head_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (vocab : Std.Usize)
@@ -32581,7 +32784,7 @@ def word_lm_head_fixed
   lm_head.lm_head_fixed ggml_type raw vocab n_embd x
 
 /-- [apeiron_word::word_kv_state_new]:
-    Source: 'lib.rs', lines 918:0-933:1
+    Source: 'lib.rs', lines 934:0-949:1
     Visibility: public -/
 def word_kv_state_new
   (n_layer : Std.Usize) (n_head : Std.Usize) (n_head_kv : Std.Usize)
@@ -32592,7 +32795,7 @@ def word_kv_state_new
     mixer.Carrier.Q32
 
 /-- [apeiron_word::word_kv_append]:
-    Source: 'lib.rs', lines 939:0-946:1
+    Source: 'lib.rs', lines 955:0-962:1
     Visibility: public -/
 def word_kv_append
   (state : attn.KvState) (layer : Std.Usize) (k_rows : Slice Std.I64)
@@ -32602,7 +32805,7 @@ def word_kv_append
   attn.KvState.append state layer k_rows v_rows
 
 /-- [apeiron_word::word_attn_head]:
-    Source: 'lib.rs', lines 953:0-962:1
+    Source: 'lib.rs', lines 969:0-978:1
     Visibility: public -/
 def word_attn_head
   (state : attn.KvState) (layer : Std.Usize) (q_head : Std.Usize)
@@ -32612,7 +32815,7 @@ def word_attn_head
   attn.KvState.attn_head state layer q_head q pos out
 
 /-- [apeiron_word::word_argmax_fixed]:
-    Source: 'lib.rs', lines 968:0-970:1
+    Source: 'lib.rs', lines 984:0-986:1
     Visibility: public -/
 def word_argmax_fixed
   (logits : Slice Std.I64) :
@@ -32621,7 +32824,7 @@ def word_argmax_fixed
   sampler.argmax_fixed logits
 
 /-- [apeiron_word::word_check_fragment]:
-    Source: 'lib.rs', lines 994:0-996:1
+    Source: 'lib.rs', lines 1010:0-1012:1
     Visibility: public -/
 def word_check_fragment
   (words : Slice Std.U32) :
@@ -32630,7 +32833,7 @@ def word_check_fragment
   spirv.check.check_fragment words
 
 /-- [apeiron_word::word_policy_decide]:
-    Source: 'lib.rs', lines 1012:0-1021:1
+    Source: 'lib.rs', lines 1028:0-1037:1
     Visibility: public -/
 def word_policy_decide
   (rules : Slice policy.decide.Rule) (atoms : Slice policy.decide.Atom)
@@ -32641,38 +32844,38 @@ def word_policy_decide
   policy.decide.decide rules atoms facts known action want
 
 /-- [apeiron_word::word_keccakf]:
-    Source: 'lib.rs', lines 1081:0-1083:1
+    Source: 'lib.rs', lines 1097:0-1099:1
     Visibility: public -/
 def word_keccakf
   (state : Array Std.U64 25#usize) : Result (Array Std.U64 25#usize) := do
   crypto.keccak_f1600 state
 
 /-- [apeiron_word::word_sha3_256]:
-    Source: 'lib.rs', lines 1088:0-1090:1
+    Source: 'lib.rs', lines 1104:0-1106:1
     Visibility: public -/
 def word_sha3_256 (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
   crypto.sha3_256 msg
 
 /-- [apeiron_word::word_sha3_512]:
-    Source: 'lib.rs', lines 1093:0-1095:1
+    Source: 'lib.rs', lines 1109:0-1111:1
     Visibility: public -/
 def word_sha3_512 (msg : Slice Std.U8) : Result (Array Std.U8 64#usize) := do
   crypto.sha3_512 msg
 
 /-- [apeiron_word::word_sha256]:
-    Source: 'lib.rs', lines 1101:0-1103:1
+    Source: 'lib.rs', lines 1117:0-1119:1
     Visibility: public -/
 def word_sha256 (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
   sha256.sha256 msg
 
 /-- [apeiron_word::word_sha256d]:
-    Source: 'lib.rs', lines 1109:0-1111:1
+    Source: 'lib.rs', lines 1125:0-1127:1
     Visibility: public -/
 def word_sha256d (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
   sha256.sha256d msg
 
 /-- [apeiron_word::word_chacha20poly1305_encrypt]:
-    Source: 'lib.rs', lines 1124:0-1131:1
+    Source: 'lib.rs', lines 1140:0-1147:1
     Visibility: public -/
 def word_chacha20poly1305_encrypt
   (key : Array Std.U8 32#usize) (nonce : Array Std.U8 12#usize)
@@ -32682,7 +32885,7 @@ def word_chacha20poly1305_encrypt
   chacha.chacha20poly1305_encrypt key nonce aad plaintext
 
 /-- [apeiron_word::word_chacha20poly1305_decrypt]:
-    Source: 'lib.rs', lines 1139:0-1146:1
+    Source: 'lib.rs', lines 1155:0-1162:1
     Visibility: public -/
 def word_chacha20poly1305_decrypt
   (key : Array Std.U8 32#usize) (nonce : Array Std.U8 12#usize)
@@ -32692,7 +32895,7 @@ def word_chacha20poly1305_decrypt
   chacha.chacha20poly1305_decrypt key nonce aad ciphertext_and_tag
 
 /-- [apeiron_word::word_aes128_encrypt_block]:
-    Source: 'lib.rs', lines 1159:0-1164:1
+    Source: 'lib.rs', lines 1175:0-1180:1
     Visibility: public -/
 def word_aes128_encrypt_block
   (key : Array Std.U8 16#usize) (block : Array Std.U8 16#usize) :
@@ -32701,7 +32904,7 @@ def word_aes128_encrypt_block
   aes.aes128_encrypt_block key block
 
 /-- [apeiron_word::word_aes128_decrypt_block]:
-    Source: 'lib.rs', lines 1172:0-1177:1
+    Source: 'lib.rs', lines 1188:0-1193:1
     Visibility: public -/
 def word_aes128_decrypt_block
   (key : Array Std.U8 16#usize) (block : Array Std.U8 16#usize) :
@@ -32710,7 +32913,7 @@ def word_aes128_decrypt_block
   aes.aes128_decrypt_block key block
 
 /-- [apeiron_word::word_hashtrinity_new]:
-    Source: 'lib.rs', lines 1217:0-1219:1
+    Source: 'lib.rs', lines 1233:0-1235:1
     Visibility: public -/
 def word_hashtrinity_new
   :
@@ -32721,7 +32924,7 @@ def word_hashtrinity_new
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
 
 /-- [apeiron_word::word_hashtrinity_with_capacity]:
-    Source: 'lib.rs', lines 1222:0-1224:1
+    Source: 'lib.rs', lines 1238:0-1240:1
     Visibility: public -/
 def word_hashtrinity_with_capacity
   (cap : Std.Usize) :
@@ -32732,7 +32935,7 @@ def word_hashtrinity_with_capacity
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord cap
 
 /-- [apeiron_word::word_hashtrinity_get]:
-    Source: 'lib.rs', lines 1227:0-1232:1
+    Source: 'lib.rs', lines 1243:0-1248:1
     Visibility: public -/
 def word_hashtrinity_get
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
@@ -32749,7 +32952,7 @@ def word_hashtrinity_get
   | some _ => ok o
 
 /-- [apeiron_word::word_hashtrinity_insert]:
-    Source: 'lib.rs', lines 1236:0-1243:1
+    Source: 'lib.rs', lines 1252:0-1259:1
     Visibility: public -/
 def word_hashtrinity_insert
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
@@ -32764,7 +32967,7 @@ def word_hashtrinity_insert
     value
 
 /-- [apeiron_word::word_coordmap_coordinate_with_capacity]:
-    Source: 'lib.rs', lines 1246:0-1248:1
+    Source: 'lib.rs', lines 1262:0-1264:1
     Visibility: public -/
 def word_coordmap_coordinate_with_capacity
   (cap : Std.Usize) :
@@ -32775,7 +32978,7 @@ def word_coordmap_coordinate_with_capacity
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoordInv core.cmp.EqU64 cap
 
 /-- [apeiron_word::word_coordmap_get]:
-    Source: 'lib.rs', lines 1251:0-1256:1
+    Source: 'lib.rs', lines 1267:0-1272:1
     Visibility: public -/
 def word_coordmap_get
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Regen
@@ -32793,7 +32996,7 @@ def word_coordmap_get
   | some _ => ok o
 
 /-- [apeiron_word::word_coordmap_insert]:
-    Source: 'lib.rs', lines 1259:0-1266:1
+    Source: 'lib.rs', lines 1275:0-1282:1
     Visibility: public -/
 def word_coordmap_insert
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Regen
@@ -32808,21 +33011,21 @@ def word_coordmap_insert
     value
 
 /-- [apeiron_word::word_count_home]:
-    Source: 'lib.rs', lines 1272:0-1274:1
+    Source: 'lib.rs', lines 1288:0-1290:1
     Visibility: public -/
 def word_count_home (c : Std.U64) : Result Std.Usize := do
   hashtrinity.freq.FreqMapKI64.count_home
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord c
 
 /-- [apeiron_word::word_count_admit]:
-    Source: 'lib.rs', lines 1277:0-1279:1
+    Source: 'lib.rs', lines 1293:0-1295:1
     Visibility: public -/
 def word_count_admit (n : Std.Usize) (count_max : Std.U64) : Result Bool := do
   hashtrinity.freq.FreqMapKI64.count_admit
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord n count_max
 
 /-- [apeiron_word::word_count_histogram]:
-    Source: 'lib.rs', lines 1282:0-1284:1
+    Source: 'lib.rs', lines 1298:0-1300:1
     Visibility: public -/
 def word_count_histogram
   (keys : Slice Std.U64) (homes : Slice Std.U8) (hist : Slice Std.U32) :
@@ -32832,7 +33035,7 @@ def word_count_histogram
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord keys homes hist
 
 /-- [apeiron_word::word_count_offsets]:
-    Source: 'lib.rs', lines 1287:0-1295:1
+    Source: 'lib.rs', lines 1303:0-1311:1
     Visibility: public -/
 def word_count_offsets
   (counts : Slice Std.U32) (w : Std.Usize) (n : Std.Usize)
@@ -32843,7 +33046,7 @@ def word_count_offsets
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord counts w n bstart woff
 
 /-- [apeiron_word::word_count_slot]:
-    Source: 'lib.rs', lines 1298:0-1300:1
+    Source: 'lib.rs', lines 1314:0-1316:1
     Visibility: public -/
 def word_count_slot
   (off : Slice Std.Usize) (h : Std.U8) :
@@ -32853,7 +33056,7 @@ def word_count_slot
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord off h
 
 /-- [apeiron_word::word_count_aggregate]:
-    Source: 'lib.rs', lines 1303:0-1305:1
+    Source: 'lib.rs', lines 1319:0-1321:1
     Visibility: public -/
 def word_count_aggregate
   (routed : Slice Std.U64) (lo : Std.Usize) (hi : Std.Usize) :
@@ -32863,7 +33066,7 @@ def word_count_aggregate
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord routed lo hi
 
 /-- [apeiron_word::word_gram_fold_i8]:
-    Source: 'lib.rs', lines 1315:0-1322:1
+    Source: 'lib.rs', lines 1331:0-1338:1
     Visibility: public -/
 def word_gram_fold_i8
   (g : alloc.vec.Vec Std.I64) (x : Slice Std.I8) (rows : Std.Usize)
@@ -32873,7 +33076,7 @@ def word_gram_fold_i8
   gram.gram_fold_i8 g x rows d
 
 /-- [apeiron_word::word_sd_binary_block]:
-    Source: 'lib.rs', lines 1334:0-1336:1
+    Source: 'lib.rs', lines 1350:0-1352:1
     Visibility: public -/
 def word_sd_binary_block
   (w : Slice Std.I64) (a : Std.I64) (s : Slice Std.I8) :
@@ -32882,50 +33085,50 @@ def word_sd_binary_block
   sigma_delta.sd_binary_block w a s
 
 /-- [apeiron_word::word_onebit_total_bits]:
-    Source: 'lib.rs', lines 1346:0-1348:1
+    Source: 'lib.rs', lines 1362:0-1364:1
     Visibility: public -/
 def word_onebit_total_bits
   (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.total_bits c
 
 /-- [apeiron_word::word_onebit_bits_sign]:
-    Source: 'lib.rs', lines 1351:0-1353:1
+    Source: 'lib.rs', lines 1367:0-1369:1
     Visibility: public -/
 def word_onebit_bits_sign (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_sign c
 
 /-- [apeiron_word::word_onebit_bits_r]:
-    Source: 'lib.rs', lines 1356:0-1358:1
+    Source: 'lib.rs', lines 1372:0-1374:1
     Visibility: public -/
 def word_onebit_bits_r (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_r c
 
 /-- [apeiron_word::word_onebit_bits_c]:
-    Source: 'lib.rs', lines 1361:0-1363:1
+    Source: 'lib.rs', lines 1377:0-1379:1
     Visibility: public -/
 def word_onebit_bits_c (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_c c
 
 /-- [apeiron_word::word_onebit_bits_d]:
-    Source: 'lib.rs', lines 1366:0-1368:1
+    Source: 'lib.rs', lines 1382:0-1384:1
     Visibility: public -/
 def word_onebit_bits_d (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_d c
 
 /-- [apeiron_word::word_onebit_bits_corr]:
-    Source: 'lib.rs', lines 1371:0-1373:1
+    Source: 'lib.rs', lines 1387:0-1389:1
     Visibility: public -/
 def word_onebit_bits_corr (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_corr c
 
 /-- [apeiron_word::word_onebit_params]:
-    Source: 'lib.rs', lines 1376:0-1378:1
+    Source: 'lib.rs', lines 1392:0-1394:1
     Visibility: public -/
 def word_onebit_params (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.params c
 
 /-- [apeiron_word::word_onebit_index_bits]:
-    Source: 'lib.rs', lines 1381:0-1383:1
+    Source: 'lib.rs', lines 1397:0-1399:1
     Visibility: public -/
 def word_onebit_index_bits
   (c : onebit_bits.Cfg) : Result (Option Std.U64) := do

@@ -140,6 +140,7 @@ $REPO_DIR/src/table/partition.rs
 $REPO_DIR/src/table/resources.rs
 $REPO_DIR/src/table/parallel.rs
 $REPO_DIR/src/numeric/fixed_exp.rs
+$REPO_DIR/src/numeric/register.rs
 $REPO_DIR/src/numeric/fixed_rsqrt.rs
 $REPO_DIR/src/numeric/fixed_trig.rs
 $REPO_DIR/src/format/gguf.rs
@@ -281,6 +282,7 @@ run_extract() {
         --start-from crate::word_attn_head \
         --start-from crate::word_argmax_fixed \
         --start-from crate::word_fwht_fixed \
+        --start-from crate::word_stage_mul \
         --start-from crate::word_route_topk \
         --start-from crate::word_gate_weights \
         --start-from crate::word_check_fragment \
