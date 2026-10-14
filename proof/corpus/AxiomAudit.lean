@@ -89,6 +89,7 @@ import Numeric.PathDensity
 import Perf.QuantumRotation
 import Perf.SpecDraftKL
 import Quantum.FaceShift
+import Quantum.AmplitudeKL
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -1335,3 +1336,12 @@ import Quantum.FaceShift
 #audit Quantum.FaceShift.shift_hyperbolic
 #audit Quantum.FaceShift.cubic_violates_shift_first
 #audit Quantum.FaceShift.verdict_l5
+
+-- Amplitude-form KL divergence (`Quantum/AmplitudeKL.lean`): the Hellinger-type lower bound, the
+-- second-order agreement of `s ↦ KL p (q_s)` with `s ↦ 2 ‖√(q_s) − √p‖²`, the logistic/softmax
+-- identity and its amplitude form, and the unit verdict.
+#audit Quantum.AmplitudeKL.kl_ge_amplitude_sq
+#audit Quantum.AmplitudeKL.kl_second_order
+#audit Quantum.AmplitudeKL.logistic_eq_softmax_two
+#audit Quantum.AmplitudeKL.logistic_amplitude_add
+#audit Quantum.AmplitudeKL.verdict_l6
