@@ -432,4 +432,133 @@ theorem attrib_kinds_coadapted :
   · norm_num [qreg_attrib.afterBase, qreg_attrib.afterKindDownKl]
   · norm_num [qreg_attrib.afterAllLinear]
 
+open qreg_iso in
+/-- Held-out KL before finishing with layer `l`'s student linears put back over the all-linear (teacher) configuration. -/
+def isoBefore : List ℚ :=
+  [beforeIsoKl0, beforeIsoKl1, beforeIsoKl2, beforeIsoKl3, beforeIsoKl4, beforeIsoKl5, beforeIsoKl6, beforeIsoKl7,
+   beforeIsoKl8, beforeIsoKl9, beforeIsoKl10, beforeIsoKl11, beforeIsoKl12, beforeIsoKl13, beforeIsoKl14,
+   beforeIsoKl15, beforeIsoKl16, beforeIsoKl17, beforeIsoKl18, beforeIsoKl19, beforeIsoKl20, beforeIsoKl21,
+   beforeIsoKl22, beforeIsoKl23]
+
+open qreg_iso in
+/-- Held-out KL after finishing with layer `l`'s student linears put back over the all-linear (teacher) configuration. -/
+def isoAfter : List ℚ :=
+  [afterIsoKl0, afterIsoKl1, afterIsoKl2, afterIsoKl3, afterIsoKl4, afterIsoKl5, afterIsoKl6, afterIsoKl7,
+   afterIsoKl8, afterIsoKl9, afterIsoKl10, afterIsoKl11, afterIsoKl12, afterIsoKl13, afterIsoKl14, afterIsoKl15,
+   afterIsoKl16, afterIsoKl17, afterIsoKl18, afterIsoKl19, afterIsoKl20, afterIsoKl21, afterIsoKl22, afterIsoKl23]
+
+/-- Sum over put-back groups of their cost `KL − lin` over the all-linear KL `lin`. O(n) additions in the list length. -/
+def isoCostSum (lin : ℚ) (xs : List ℚ) : ℚ := (xs.map (· - lin)).sum
+
+/-- Cost of one put-back group `g − lin` as a fraction of the summed isolated costs of its layers `xs`. -/
+def groupRatio (lin g : ℚ) (xs : List ℚ) : ℚ := (g - lin) / isoCostSum lin xs
+
+/-- **The isolated layer costs over-count the held-out KL, and finishing makes the over-count larger.** Putting back one
+layer's student linears over the all-linear configuration costs, summed over the 24 layers, between `1.44×` and
+`1.45×` the full gap `base − all_linear` before finishing and between `1.65×` and `1.66×` after. -/
+theorem iso_kl_superadditive :
+    144 / 100 * (qreg_iso.beforeBase - qreg_iso.beforeAllLinear) < isoCostSum qreg_iso.beforeAllLinear isoBefore ∧
+    isoCostSum qreg_iso.beforeAllLinear isoBefore < 145 / 100 * (qreg_iso.beforeBase - qreg_iso.beforeAllLinear) ∧
+    165 / 100 * (qreg_iso.afterBase - qreg_iso.afterAllLinear) < isoCostSum qreg_iso.afterAllLinear isoAfter ∧
+    isoCostSum qreg_iso.afterAllLinear isoAfter < 166 / 100 * (qreg_iso.afterBase - qreg_iso.afterAllLinear) := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;>
+    norm_num [isoCostSum, isoBefore, isoAfter,
+      qreg_iso.beforeIsoKl0, qreg_iso.beforeIsoKl1, qreg_iso.beforeIsoKl2, qreg_iso.beforeIsoKl3,
+      qreg_iso.beforeIsoKl4, qreg_iso.beforeIsoKl5, qreg_iso.beforeIsoKl6, qreg_iso.beforeIsoKl7,
+      qreg_iso.beforeIsoKl8, qreg_iso.beforeIsoKl9, qreg_iso.beforeIsoKl10, qreg_iso.beforeIsoKl11,
+      qreg_iso.beforeIsoKl12, qreg_iso.beforeIsoKl13, qreg_iso.beforeIsoKl14, qreg_iso.beforeIsoKl15,
+      qreg_iso.beforeIsoKl16, qreg_iso.beforeIsoKl17, qreg_iso.beforeIsoKl18, qreg_iso.beforeIsoKl19,
+      qreg_iso.beforeIsoKl20, qreg_iso.beforeIsoKl21, qreg_iso.beforeIsoKl22, qreg_iso.beforeIsoKl23,
+      qreg_iso.beforeBase, qreg_iso.beforeAllLinear, qreg_iso.beforePrefixKl6, qreg_iso.beforePrefixKl12,
+      qreg_iso.beforePrefixKl18, qreg_iso.beforeSuffixKl6, qreg_iso.beforeSuffixKl12, qreg_iso.beforeSuffixKl18,
+      qreg_iso.afterIsoKl0, qreg_iso.afterIsoKl1, qreg_iso.afterIsoKl2, qreg_iso.afterIsoKl3, qreg_iso.afterIsoKl4,
+      qreg_iso.afterIsoKl5, qreg_iso.afterIsoKl6, qreg_iso.afterIsoKl7, qreg_iso.afterIsoKl8, qreg_iso.afterIsoKl9,
+      qreg_iso.afterIsoKl10, qreg_iso.afterIsoKl11, qreg_iso.afterIsoKl12, qreg_iso.afterIsoKl13,
+      qreg_iso.afterIsoKl14, qreg_iso.afterIsoKl15, qreg_iso.afterIsoKl16, qreg_iso.afterIsoKl17,
+      qreg_iso.afterIsoKl18, qreg_iso.afterIsoKl19, qreg_iso.afterIsoKl20, qreg_iso.afterIsoKl21,
+      qreg_iso.afterIsoKl22, qreg_iso.afterIsoKl23, qreg_iso.afterBase, qreg_iso.afterAllLinear,
+      qreg_iso.afterPrefixKl6, qreg_iso.afterPrefixKl12, qreg_iso.afterPrefixKl18, qreg_iso.afterSuffixKl6,
+      qreg_iso.afterSuffixKl12, qreg_iso.afterSuffixKl18]
+
+/-- **Layer errors saturate through depth.** Every prefix (layers `0..k−1`) and suffix (layers `k..23`) put back
+together, `k ∈ {6, 12, 18}`, costs less than the sum of its layers' isolated costs: below `0.69` of it for prefixes and
+`0.92` for suffixes before finishing, below `0.62` and `0.79` after. Early-layer errors saturate more. -/
+theorem iso_groups_saturate :
+    groupRatio qreg_iso.beforeAllLinear qreg_iso.beforePrefixKl6 (isoBefore.take 6) < 69 / 100 ∧
+    groupRatio qreg_iso.beforeAllLinear qreg_iso.beforePrefixKl12 (isoBefore.take 12) < 69 / 100 ∧
+    groupRatio qreg_iso.beforeAllLinear qreg_iso.beforePrefixKl18 (isoBefore.take 18) < 69 / 100 ∧
+    groupRatio qreg_iso.beforeAllLinear qreg_iso.beforeSuffixKl6 (isoBefore.drop 6) < 92 / 100 ∧
+    groupRatio qreg_iso.beforeAllLinear qreg_iso.beforeSuffixKl12 (isoBefore.drop 12) < 92 / 100 ∧
+    groupRatio qreg_iso.beforeAllLinear qreg_iso.beforeSuffixKl18 (isoBefore.drop 18) < 92 / 100 ∧
+    groupRatio qreg_iso.afterAllLinear qreg_iso.afterPrefixKl6 (isoAfter.take 6) < 62 / 100 ∧
+    groupRatio qreg_iso.afterAllLinear qreg_iso.afterPrefixKl12 (isoAfter.take 12) < 62 / 100 ∧
+    groupRatio qreg_iso.afterAllLinear qreg_iso.afterPrefixKl18 (isoAfter.take 18) < 62 / 100 ∧
+    groupRatio qreg_iso.afterAllLinear qreg_iso.afterSuffixKl6 (isoAfter.drop 6) < 79 / 100 ∧
+    groupRatio qreg_iso.afterAllLinear qreg_iso.afterSuffixKl12 (isoAfter.drop 12) < 79 / 100 ∧
+    groupRatio qreg_iso.afterAllLinear qreg_iso.afterSuffixKl18 (isoAfter.drop 18) < 79 / 100 := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [groupRatio, isoCostSum, isoBefore, isoAfter, qreg_iso.beforeIsoKl0, qreg_iso.beforeIsoKl1,
+      qreg_iso.beforeIsoKl2, qreg_iso.beforeIsoKl3, qreg_iso.beforeIsoKl4, qreg_iso.beforeIsoKl5,
+      qreg_iso.beforeIsoKl6, qreg_iso.beforeIsoKl7, qreg_iso.beforeIsoKl8, qreg_iso.beforeIsoKl9,
+      qreg_iso.beforeIsoKl10, qreg_iso.beforeIsoKl11, qreg_iso.beforeIsoKl12, qreg_iso.beforeIsoKl13,
+      qreg_iso.beforeIsoKl14, qreg_iso.beforeIsoKl15, qreg_iso.beforeIsoKl16, qreg_iso.beforeIsoKl17,
+      qreg_iso.beforeIsoKl18, qreg_iso.beforeIsoKl19, qreg_iso.beforeIsoKl20, qreg_iso.beforeIsoKl21,
+      qreg_iso.beforeIsoKl22, qreg_iso.beforeIsoKl23, qreg_iso.beforeBase, qreg_iso.beforeAllLinear,
+      qreg_iso.beforePrefixKl6, qreg_iso.beforePrefixKl12, qreg_iso.beforePrefixKl18, qreg_iso.beforeSuffixKl6,
+      qreg_iso.beforeSuffixKl12, qreg_iso.beforeSuffixKl18, qreg_iso.afterIsoKl0, qreg_iso.afterIsoKl1,
+      qreg_iso.afterIsoKl2, qreg_iso.afterIsoKl3, qreg_iso.afterIsoKl4, qreg_iso.afterIsoKl5, qreg_iso.afterIsoKl6,
+      qreg_iso.afterIsoKl7, qreg_iso.afterIsoKl8, qreg_iso.afterIsoKl9, qreg_iso.afterIsoKl10, qreg_iso.afterIsoKl11,
+      qreg_iso.afterIsoKl12, qreg_iso.afterIsoKl13, qreg_iso.afterIsoKl14, qreg_iso.afterIsoKl15,
+      qreg_iso.afterIsoKl16, qreg_iso.afterIsoKl17, qreg_iso.afterIsoKl18, qreg_iso.afterIsoKl19,
+      qreg_iso.afterIsoKl20, qreg_iso.afterIsoKl21, qreg_iso.afterIsoKl22, qreg_iso.afterIsoKl23, qreg_iso.afterBase,
+      qreg_iso.afterAllLinear, qreg_iso.afterPrefixKl6, qreg_iso.afterPrefixKl12, qreg_iso.afterPrefixKl18,
+      qreg_iso.afterSuffixKl6, qreg_iso.afterSuffixKl12, qreg_iso.afterSuffixKl18]
+
+/-- **Finishing makes every group saturate more.** For each prefix and suffix group, `k ∈ {6, 12, 18}`, the ratio of the
+group's put-back cost to the sum of its layers' isolated costs is smaller after finishing than before. -/
+theorem iso_finishing_saturates :
+    groupRatio qreg_iso.afterAllLinear qreg_iso.afterPrefixKl6 (isoAfter.take 6) <
+      groupRatio qreg_iso.beforeAllLinear qreg_iso.beforePrefixKl6 (isoBefore.take 6) ∧
+    groupRatio qreg_iso.afterAllLinear qreg_iso.afterPrefixKl12 (isoAfter.take 12) <
+      groupRatio qreg_iso.beforeAllLinear qreg_iso.beforePrefixKl12 (isoBefore.take 12) ∧
+    groupRatio qreg_iso.afterAllLinear qreg_iso.afterPrefixKl18 (isoAfter.take 18) <
+      groupRatio qreg_iso.beforeAllLinear qreg_iso.beforePrefixKl18 (isoBefore.take 18) ∧
+    groupRatio qreg_iso.afterAllLinear qreg_iso.afterSuffixKl6 (isoAfter.drop 6) <
+      groupRatio qreg_iso.beforeAllLinear qreg_iso.beforeSuffixKl6 (isoBefore.drop 6) ∧
+    groupRatio qreg_iso.afterAllLinear qreg_iso.afterSuffixKl12 (isoAfter.drop 12) <
+      groupRatio qreg_iso.beforeAllLinear qreg_iso.beforeSuffixKl12 (isoBefore.drop 12) ∧
+    groupRatio qreg_iso.afterAllLinear qreg_iso.afterSuffixKl18 (isoAfter.drop 18) <
+      groupRatio qreg_iso.beforeAllLinear qreg_iso.beforeSuffixKl18 (isoBefore.drop 18) := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    norm_num [groupRatio, isoCostSum, isoBefore, isoAfter, qreg_iso.beforeIsoKl0, qreg_iso.beforeIsoKl1,
+      qreg_iso.beforeIsoKl2, qreg_iso.beforeIsoKl3, qreg_iso.beforeIsoKl4, qreg_iso.beforeIsoKl5,
+      qreg_iso.beforeIsoKl6, qreg_iso.beforeIsoKl7, qreg_iso.beforeIsoKl8, qreg_iso.beforeIsoKl9,
+      qreg_iso.beforeIsoKl10, qreg_iso.beforeIsoKl11, qreg_iso.beforeIsoKl12, qreg_iso.beforeIsoKl13,
+      qreg_iso.beforeIsoKl14, qreg_iso.beforeIsoKl15, qreg_iso.beforeIsoKl16, qreg_iso.beforeIsoKl17,
+      qreg_iso.beforeIsoKl18, qreg_iso.beforeIsoKl19, qreg_iso.beforeIsoKl20, qreg_iso.beforeIsoKl21,
+      qreg_iso.beforeIsoKl22, qreg_iso.beforeIsoKl23, qreg_iso.beforeBase, qreg_iso.beforeAllLinear,
+      qreg_iso.beforePrefixKl6, qreg_iso.beforePrefixKl12, qreg_iso.beforePrefixKl18, qreg_iso.beforeSuffixKl6,
+      qreg_iso.beforeSuffixKl12, qreg_iso.beforeSuffixKl18, qreg_iso.afterIsoKl0, qreg_iso.afterIsoKl1,
+      qreg_iso.afterIsoKl2, qreg_iso.afterIsoKl3, qreg_iso.afterIsoKl4, qreg_iso.afterIsoKl5, qreg_iso.afterIsoKl6,
+      qreg_iso.afterIsoKl7, qreg_iso.afterIsoKl8, qreg_iso.afterIsoKl9, qreg_iso.afterIsoKl10, qreg_iso.afterIsoKl11,
+      qreg_iso.afterIsoKl12, qreg_iso.afterIsoKl13, qreg_iso.afterIsoKl14, qreg_iso.afterIsoKl15,
+      qreg_iso.afterIsoKl16, qreg_iso.afterIsoKl17, qreg_iso.afterIsoKl18, qreg_iso.afterIsoKl19,
+      qreg_iso.afterIsoKl20, qreg_iso.afterIsoKl21, qreg_iso.afterIsoKl22, qreg_iso.afterIsoKl23, qreg_iso.afterBase,
+      qreg_iso.afterAllLinear, qreg_iso.afterPrefixKl6, qreg_iso.afterPrefixKl12, qreg_iso.afterPrefixKl18,
+      qreg_iso.afterSuffixKl6, qreg_iso.afterSuffixKl12, qreg_iso.afterSuffixKl18]
+
+/-- **No single layer is cheap to quantize after finishing.** Every layer's student linears, put back alone over the
+all-linear configuration, cost more than `0.02` nats of held-out KL (the smallest is layer 11, `0.0229`). -/
+theorem iso_every_layer_costs :
+    ∀ x ∈ isoAfter, qreg_iso.afterAllLinear + 2 / 100 < x := by
+  simp only [isoAfter, List.mem_cons, List.not_mem_nil, or_false]
+  rintro x (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl) <;>
+    norm_num [qreg_iso.afterAllLinear, qreg_iso.afterIsoKl0, qreg_iso.afterIsoKl1, qreg_iso.afterIsoKl2, qreg_iso.afterIsoKl3,
+      qreg_iso.afterIsoKl4, qreg_iso.afterIsoKl5, qreg_iso.afterIsoKl6, qreg_iso.afterIsoKl7, qreg_iso.afterIsoKl8,
+      qreg_iso.afterIsoKl9, qreg_iso.afterIsoKl10, qreg_iso.afterIsoKl11, qreg_iso.afterIsoKl12,
+      qreg_iso.afterIsoKl13, qreg_iso.afterIsoKl14, qreg_iso.afterIsoKl15, qreg_iso.afterIsoKl16,
+      qreg_iso.afterIsoKl17, qreg_iso.afterIsoKl18, qreg_iso.afterIsoKl19, qreg_iso.afterIsoKl20,
+      qreg_iso.afterIsoKl21, qreg_iso.afterIsoKl22, qreg_iso.afterIsoKl23]
+
 end Perf.QuantumRotation

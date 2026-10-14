@@ -26,7 +26,7 @@ and every add of the plane uses corr_weight(p) = u8(U) @ u8(V), each factor vect
 codes it (fp16 min/max, 8-bit levels), so step 0 is the stored plane exactly; the export stores that product, so the
 stored bits are unchanged (bits_corr).  With corr off the dense plane stays frozen and every code path is today's.
 --selftest-kan runs the float64 register/adjoint checks with no model.
---attrib N (default 0 = off; every other code path is unchanged) uses the first N held-out eval chunks and, once before and once after finishing, restores the teacher's linear weights one group at a time (each layer's seven linears, each kind across all layers, all linears) to record where the held-out KL lives: base, per-layer, per-kind and all-linear KL, their deltas, and a teacher-as-student zero control.
+--attrib N (default 0 = off; every other code path is unchanged) uses the first N held-out eval chunks and, once before and once after finishing, restores the teacher's linear weights one group at a time (each layer's seven linears, each kind across all layers, all linears) to record where the held-out KL lives: base, per-layer, per-kind and all-linear KL, their deltas, and a teacher-as-student zero control.  It also restores the student's linears back over the all-linear configuration in each single layer (iso), each prefix of layers (prefix) and each suffix of layers (suffix), recording the KL each costs in isolation; set against base - all_linear, the iso-cost sum and the prefix/suffix costs show whether the KL of a layer set is more or less than the sum of its layers' isolated costs.
 usage: pv_finish.py --out OUT.json [--smoke] [--v-gain {linear,obs}] [--codes {vstep,ste}] ; run with /home/socol/Workspace/spinor-ttl/.venv/bin/python (torch + CUDA).
 """
 import argparse, hashlib, json, math, os, sys, time
@@ -853,9 +853,12 @@ def attrib(cfg, TL, Lstud, ids_at):
     Groups: base = Lstud unchanged; layer[l] = layer l's KINDS linears from TL[l], every other entry of Lstud (norms, biases,
     fnorm, the other layers); kind[k] = kind k from TL in every layer; all_linear = every KINDS linear in every layer.
     Deltas are base - group, so a positive delta is the KL the student's own weights of that group cost.
+    Complementing them, three families start from all_linear and put the student's KINDS linears back into a layer set S:
+    iso[l] (S = {l}) and prefix[k]/suffix[k] (S = {0..k-1} / {k..nl-1}, k in 6, 12, 18); their costs are group - all_linear,
+    the KL the student's linears of S cost in isolation.  iso_cost_sum is their sum over layers.
     Each modified list is a shallow copy (Lm = list(Lstud); Lm[l] = dict(Lstud[l]); Lm[l][k] = TL[l][k]), so neither Lstud nor
-    TL is mutated.  Temporal (nl + len(KINDS) + 2) kl_eval passes of the student over N = ids_at.shape[0] chunks of CHUNK
-    tokens, i.e. (24 + 7 + 2) student forwards over N chunks in the 24-layer arm; spatial the layer dict copies (nl + 1 dicts
+    TL is mutated.  Temporal (nl + len(KINDS) + 2 + nl + 6) kl_eval passes of the student over N = ids_at.shape[0] chunks of CHUNK
+    tokens, i.e. (24 + 7 + 2 + 24 + 6) student forwards over N chunks in the 24-layer arm; spatial the layer dict copies (nl + 1 dicts
     of the 11 weight tensors' references) plus kl_eval's own hidden state.  One teacher-hidden cache fill for ids_at is paid
     on the first call and reused by every group (ft.kl_eval keys _TEACHER_H_CACHE on len(TL), ids.data_ptr(), N, seqlen)."""
     t0 = ft.tick()
@@ -888,17 +891,70 @@ def attrib(cfg, TL, Lstud, ids_at):
             Lm[l][k] = TL[l][k]
     all_linear, all_linear_top1 = ft.kl_eval(cfg, TL, Lm, ids_at)
     del Lm
+    # iso[l]: the all-linear configuration with layer l's KINDS linears put back to the student's, so iso_cost[l] is the KL
+    # that layer l's own linears cost in isolation (all_linear - all of them at once is the base-relative all_linear_delta).
+    iso, iso_top1, iso_cost = [], [], []
+    for l in range(nl):
+        Lm = list(Lstud)
+        for ll in range(nl):
+            Lm[ll] = dict(Lstud[ll])
+            for k in KINDS:
+                Lm[ll][k] = TL[ll][k]
+        for k in KINDS:
+            Lm[l][k] = Lstud[l][k]
+        kl, t1 = ft.kl_eval(cfg, TL, Lm, ids_at)
+        iso.append(kl)
+        iso_top1.append(t1)
+        iso_cost.append(kl - all_linear)
+        del Lm
+    # prefix[k] / suffix[k]: the student's KINDS linears back over layers {0..k-1} / {k..nl-1}; k >= nl makes prefix[k] the
+    # base configuration and suffix[k] the all-linear one.  Costs are referenced to all_linear, so they are comparable with
+    # the sum of the iso costs and show whether the cross-layer part of the KL compounds through depth.
+    prefix, prefix_cost, suffix, suffix_cost = {}, {}, {}, {}
+    for K in (6, 12, 18):
+        Lm = list(Lstud)
+        for ll in range(nl):
+            Lm[ll] = dict(Lstud[ll])
+            for k in KINDS:
+                Lm[ll][k] = TL[ll][k]
+        for ll in range(K):
+            for k in KINDS:
+                Lm[ll][k] = Lstud[ll][k]
+        kl, _ = ft.kl_eval(cfg, TL, Lm, ids_at)
+        prefix[str(K)] = kl
+        prefix_cost[str(K)] = kl - all_linear
+        del Lm
+        Lm = list(Lstud)
+        for ll in range(nl):
+            Lm[ll] = dict(Lstud[ll])
+            for k in KINDS:
+                Lm[ll][k] = TL[ll][k]
+        for ll in range(K, nl):
+            for k in KINDS:
+                Lm[ll][k] = Lstud[ll][k]
+        kl, _ = ft.kl_eval(cfg, TL, Lm, ids_at)
+        suffix[str(K)] = kl
+        suffix_cost[str(K)] = kl - all_linear
+        del Lm
     return dict(base=base, base_top1=base_top1, layers=nl, layer=layer, layer_top1=layer_top1, kind=kind, kind_top1=kind_top1,
                 all_linear=all_linear, all_linear_top1=all_linear_top1, layer_delta=[base - x for x in layer],
-                kind_delta={k: base - kind[k] for k in kind}, all_linear_delta=base - all_linear, wall_s=ft.tick() - t0)
+                kind_delta={k: base - kind[k] for k in kind}, all_linear_delta=base - all_linear, wall_s=ft.tick() - t0,
+                iso=iso, iso_top1=iso_top1, iso_cost=iso_cost, iso_cost_sum=sum(iso_cost),
+                prefix=prefix, prefix_cost=prefix_cost, suffix=suffix, suffix_cost=suffix_cost)
 
 
 def attrib_line(tag, r):
-    """One line: group KLs and the 5 largest layer_delta, then every kind_delta."""
+    """One line: group KLs, the 5 largest layer_delta, every kind_delta, iso_cost_sum with the 3 largest iso_cost, and
+    every prefix_cost and suffix_cost."""
     top = sorted(range(len(r["layer_delta"])), key=lambda l: -r["layer_delta"][l])[:5]
+    itop = sorted(range(len(r["iso_cost"])), key=lambda l: -r["iso_cost"][l])[:3]
     print(f"attrib {tag}: base {r['base']:.6f} all_linear {r['all_linear']:.6f} (delta {r['all_linear_delta']:.6f})  "
           f"top layer_delta " + " ".join(f"L{l}:{r['layer_delta'][l]:.6f}" for l in top) + "  kind_delta "
           + " ".join(f"{k}:{r['kind_delta'][k]:.6f}" for k in sorted(r["kind_delta"], key=lambda k: -r["kind_delta"][k]))
+          + f"  iso_cost_sum {r['iso_cost_sum']:.6f} top iso_cost "
+          + " ".join(f"L{l}:{r['iso_cost'][l]:.6f}" for l in itop)
+          + "  prefix_cost " + " ".join(f"{k}:{r['prefix_cost'][k]:.6f}" for k in sorted(r["prefix_cost"], key=int))
+          + "  suffix_cost " + " ".join(f"{k}:{r['suffix_cost'][k]:.6f}" for k in sorted(r["suffix_cost"], key=int))
           + f"  wall {r['wall_s']:.1f}s", flush=True)
 
 
@@ -930,7 +986,9 @@ def main():
                     help="0 off; N > 0 records steps 6..5+N under torch.profiler, writes the op table to the receipt and exits")
     ap.add_argument("--attrib", type=int, default=0,
                     help="0 off; N > 0 uses the first N held-out eval chunks and, before and after finishing, restores the teacher's "
-                         "linears one group at a time (each layer, each kind, all) to record where the held-out KL lives")
+                         "linears one group at a time (each layer, each kind, all) to record where the held-out KL lives, and "
+                         "restores the student's linears back into each single layer, each prefix of layers and each suffix of "
+                         "layers over the all-linear configuration to record the KL they cost in isolation")
     ap.add_argument("--compose", choices=("layer", "step"), default="layer",
                     help="layer: plane weights composed inside each layer checkpoint (forward and recompute); step: composed once "
                          "per step through PlaneCompose (frozen codes only: --v-every 0, --codes vstep)")
@@ -1043,6 +1101,7 @@ def main():
         res["attrib"] = dict(N=a.attrib, chunks=int(ids_at.shape[0]), kinds=list(KINDS))
         res["attrib"]["before"] = attrib(cfg, TL, Ls, ids_at)
         assert max(res["attrib"]["before"]["layer_delta"]) > 0, ("no layer moves the KL: attribution cannot see the student's weights", res["attrib"]["before"]["layer_delta"])
+        assert max(res["attrib"]["before"]["iso_cost"]) > 0, ("no layer's student linears cost KL in isolation", res["attrib"]["before"]["iso_cost"])
         attrib_line("before", res["attrib"]["before"])
         res["walls"]["attrib_before_s"] = res["attrib"]["before"]["wall_s"]
 

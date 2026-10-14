@@ -358,6 +358,35 @@ error to remove is a property of the composed network, so the lever is the end-t
 second of finishing, not a per-tensor fit. Next row: restore contiguous depth blocks (prefix and suffix), to see whether
 the cross-layer part grows with depth as compounded residual-stream error does.
 
+### Attribution: layer errors saturate, they do not compound (prediction `qreg-iso-1`, confirmed)
+
+Receipt [`docs/evidence/receipts/onebit/qreg-iso.json`](../evidence/receipts/onebit/qreg-iso.json)
+(sha256 `c3790895…`); verdicts `iso_kl_superadditive`, `iso_groups_saturate`, `iso_finishing_saturates`,
+`iso_every_layer_costs` in `proof/corpus/Perf/QuantumRotation.lean`, audited in `AxiomAudit.lean` (namespace
+`qreg_iso`; controls: the after prefix-12 ratio bounded by `0.57` and the before/after suffix-18 ratios swapped each leave
+`⊢ False`, exit 1; layer 11's iso KL moved by `0.01` in a receipt copy, `--check` exit 1 on the stale sha; restored, both
+exit 0). Board row `quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs`. The complementary view to the restore rows
+above: `pv_finish.py --attrib N` also starts from the all-linear configuration (every linear the teacher's) and puts the
+student's linears back into one layer (iso), into layers `0..k−1` (prefix) or `k..23` (suffix), `k ∈ {6, 12, 18}`; a
+no-op put-back fails the run's "no layer's student linears cost KL in isolation" assert. Cost of a group is its KL minus
+all_linear. Arm as above, 589 wall-budgeted steps (the two attribution phases take 34 s and 33 s of the finishing wall),
+held-out KL `1.1637 → 0.8776`.
+
+| on 8 held-out chunks | before finishing | after finishing |
+|---|---|---|
+| base / all_linear | 0.7957 / 0.0112 | 0.6709 / 0.0107 |
+| sum of 24 isolated costs ÷ (base − all_linear) | 1.446 | 1.651 |
+| smallest / largest isolated cost | 0.0228 (L11) / 0.1387 (L23) | 0.0229 (L11) / 0.1096 (L23) |
+| prefix group ÷ its layers' isolated sum, k = 6 / 12 / 18 | 0.671 / 0.633 / 0.690 | 0.612 / 0.571 / 0.616 |
+| suffix group ÷ its layers' isolated sum, k = 6 / 12 / 18 | 0.825 / 0.881 / 0.915 | 0.722 / 0.753 / 0.786 |
+
+Every group costs less than the sum of its layers' isolated costs: the errors saturate through depth instead of
+compounding, early-layer errors saturate most (later layers absorb them), and finishing strengthens it in all six
+groups. The "cross-layer part" of the restore rows is this saturation, not growth with depth. Each layer's isolated cost
+is at least `0.0229` nats, above Q4_K_M's whole-model `0.0197` (`anchor`: different evaluation sets). That makes the
+isolated cost of one layer, with the rest at the teacher, a one-forward inner-loop objective for a per-layer quantizer:
+the per-layer target that reaches the Q4_K_M level is roughly 30–45× below the present costs.
+
 ### Arc Block (W1-T1)
 
 ```text
