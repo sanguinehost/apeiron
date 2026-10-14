@@ -1,7 +1,7 @@
 /-
 RMSNorm against the ideal reference (`APEIRON-ALGEBRA-G3-RMS-W3-B2`).
 
-`Numeric.EngineNormRefinement` proves `rms_norm_refines_proved`: the extracted
+`Numeric.Engine.Norm` proves `rms_norm_refines_proved`: the extracted
 `apeiron_word.word_rms_norm_fixed` tracks `rmsReal a x = toReal x / sqrt (toReal a)`, that is, the
 reference divided by the square root of the *executed rounded* radicand `a`. The ideal RMSNorm is
 `x / sqrt (meanSqReal row + toReal eps)` with the exact rational mean square
@@ -17,7 +17,7 @@ value is the integer sum divided by `n·2⁶⁴`; the single rounding contribute
 The residual obligation is the ideal-only face of the composition: this module bounds the executed
 kernel against the ideal reference, not an extracted ideal kernel.
 -/
-import Numeric.EngineNormRefinement
+import Numeric.Engine.Norm
 
 namespace apeiron_word
 

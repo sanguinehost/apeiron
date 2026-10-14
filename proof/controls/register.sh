@@ -3,7 +3,7 @@
 #
 #   bash proof/controls/register.sh
 #
-# `proof/corpus/Numeric/RegisterRefinement.lean` proves `stage_mul_denote` and its dependents over
+# `proof/corpus/Numeric/Quantum/RegisterRefinement.lean` proves `stage_mul_denote` and its dependents over
 # the Aeneas-extracted `register.stage_mul` / `cell.CellI64.checked_mul` generated into
 # `proof/ApeironWord.lean` from `src/numeric/register.rs` (`proof/extract/lib.rs`, `word_stage_mul`).
 # The statement-side controls (renamed copy of the refinement file, swapped `w` slots, negated `σ`)
@@ -20,18 +20,18 @@
 #   1  copy the control's paths into two throwaway copies, a/ (baseline + mutation A + restore) and
 #      b/ (mutation B). Two copies because mutation A and mutation B are alternatives of one file:
 #      each must be built from the committed body, and neither may inherit the other's build state.
-#   2  BASELINE, copy a/: `lake build Numeric.RegisterRefinement` exits 0.
+#   2  BASELINE, copy a/: `lake build Numeric.Quantum.RegisterRefinement` exits 0.
 #   3  MUTATION A, copy a/: swap the pair write-back in `register.stage_block_loop.body`
 #      (`Slice.update x lo out.a` / `Slice.update x1 hi out.b` -> `x hi` / `x1 lo`). The build must
-#      exit nonzero with its first error inside `Numeric/RegisterRefinement.lean`.
+#      exit nonzero with its first error inside `Numeric/Quantum/RegisterRefinement.lean`.
 #   4  MUTATION B, copy b/: drop sigma from the first slot of `cell.CellI64.checked_mul`
 #      (`I64.checked_mul s self.b` -> `I64.checked_mul 1#i64 self.b`). Same requirement.
 #   5  RESTORE, copy a/: put the committed body back and rebuild; the exit must be 0.
 #
 # Steps 3 and 4 are two independent throwaway copies and are built concurrently, then waited for:
-# one build of `Numeric.RegisterRefinement` after a change to `ApeironWord.lean` is a serial chain
-# of ~245-260 s (ApeironWord 26 s, `Numeric.Exp.Part2` 186 s, the rest of the `Numeric` closure
-# ~50 s; `Numeric.Register` imports that battery through `Numeric.HadamardStage`), so three fresh
+# one build of `Numeric.Quantum.RegisterRefinement` after a change to `ApeironWord.lean` is a serial chain
+# of ~245-260 s (ApeironWord 26 s, `Numeric.Engine.Exp.Part2` 186 s, the rest of the `Numeric` closure
+# ~50 s; `Numeric.Quantum.Register` imports that battery through `Numeric.Hadamard.Stage`), so three fresh
 # chains would need ~770 s, past the 580 s budget this control declares. Both chains are still full
 # fresh builds from mutated sources; nothing is cached, skipped or inherited. No job is left
 # running: the script waits for both before printing their receipts.
@@ -167,7 +167,7 @@ launch_build() {
             --unit="apeiron-register-$$-$step" \
             -p MemoryMax="$CAP" -p MemorySwapMax=0 -- \
             env LEAN_NUM_THREADS=1 timeout --signal=TERM --kill-after=10 "$t" \
-            lake build Numeric.RegisterRefinement
+            lake build Numeric.Quantum.RegisterRefinement
     ) > "$RUN/step$step.log" 2>&1 &
     LAUNCH_PID=$!
 }
@@ -262,7 +262,7 @@ echo "== setup =="
 echo "machine:   $(uname -n) $(uname -m), nproc=$NPROC"
 echo "copy:      $RUN (a=baseline+mutationA+restore, b=mutationB)"
 echo "bound:     MemoryMax=$CAP MemorySwapMax=0 LEAN_NUM_THREADS=1"
-echo "build:     cd <copy>/proof/corpus && lake build Numeric.RegisterRefinement"
+echo "build:     cd <copy>/proof/corpus && lake build Numeric.Quantum.RegisterRefinement"
 echo "budget:    ${BUDGET}s total, per-build cap ${T_LEAN_MAX}s, step floor ${STEP_FLOOR}s, lock-wait ${T_LOCK_WAIT}s"
 echo "preflight: free>=${MIN_FREE_MB}MiB, load1<${IO_HOG_LOAD}, no rsync/dd"
 echo "source:    src/numeric/register.rs sha256 $(sha256sum "$REPO_DIR/src/numeric/register.rs" | awk '{print $1}')"

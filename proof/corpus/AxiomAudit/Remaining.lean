@@ -1,10 +1,10 @@
 import AxiomAudit.Core
 import Nous.Model.HyperbolicAttention
 import Nous.Model.OneBitAttention
-import Numeric.SigmaDelta
-import Numeric.HiddenPerm
-import Numeric.OneBitUnits
-import Numeric.SignPlanes
+import Numeric.OneBit.SigmaDelta
+import Numeric.Hadamard.HiddenPerm
+import Numeric.OneBit.Units
+import Numeric.OneBit.SignPlanes
 
 set_option linter.apeiron.notation false
 set_option linter.apeiron.citation false
@@ -349,7 +349,7 @@ open apeiron_word
 -- word_attn_head_unfold dropped: it depends on attn.KvState.attn_head_f32, an f32 extraction
 -- boundary declaration (proof/boundary-axioms.txt:20), outside this kernel-cone audit.
 -- word_attn_head_{ok, zero_sum, exp_refuses, out_refuses} dropped: removed in the EngineAttn
--- repair (Numeric/EngineAttnRefinement.lean:101-103), so no constant remains to audit.
+-- repair (Numeric/Engine/Attn.lean:101-103), so no constant remains to audit.
 #audit apeiron_word.score_epilogue_bound
 #audit apeiron_word.weight_at_spec
 #audit apeiron_word.weight_rounding_bound

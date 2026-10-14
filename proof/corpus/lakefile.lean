@@ -92,14 +92,6 @@ lean_lib ApeironWordBridge where
     -- E8 codebook refinement (`Learn/E8Code.lean`): the extracted `learn_port.e8` codeword
     -- and nearest-codeword bodies against integer specifications over `ℤ`.
     `Learn.E8Code,
-    -- The face-uniform shift rule (`Quantum/FaceShift.lean`): `C`/`S`/`K` read off the canonical
-    -- size-one flow, the two shift identities uniform in sigma, their three face instances, and
-    -- the cubic counterexample bounding the span.
-    `Quantum.FaceShift,
-    -- Amplitude-form KL divergence on finite distributions (`Quantum/AmplitudeKL.lean`): the
-    -- Hellinger-type lower bound, the second-order agreement along the amplitude curve, and the
-    -- logistic/softmax identity with its amplitude form.
-    `Quantum.AmplitudeKL,
     -- Exact-integer `src/learn/grad/dense.rs` refinement (`Learn/Grad/DenseLinearSpec.lean` is the
     -- independent `ℤ`/`List ℤ` model; `Learn/Grad/DenseLinear.lean` refines the extracted
     -- `linear_fwd` / `linear_bwd_input` / `linear_bwd_weight` against it; `DenseLinearWitness`

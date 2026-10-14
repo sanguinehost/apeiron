@@ -9,7 +9,7 @@ witness on a concrete 210-byte payload.
 REGISTER: scalar source-refinement resource model. Work is counted in loop-body invocations and
 array writes under the named premises; it is never cycles, wall-clock or GPU time. The pointwise
 code-value refinement is not re-proved here: it is
-proof/corpus/Numeric/FormatRefinement.lean `word_q6_k_codes_ok`, a separate register, and the
+proof/corpus/Numeric/Packing/Format.lean `word_q6_k_codes_ok`, a separate register, and the
 per-code values are not claimed by this file.
 CORPUS: src/format/quant.rs `q6_k_codes` and the actual extracted
 q6_k_codes_source.quant.q6_k_codes, `.{q6_k_codes_loop0,q6_k_codes_loop0_loop0}.body`,

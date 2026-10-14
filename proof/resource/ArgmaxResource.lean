@@ -297,7 +297,7 @@ theorem success_branch (logits : Slice I64) (best : Usize) (hne : 0 < logits.len
     `u32::try_from` narrowing refuses and the real `map_err` closure produces `LogitsTooLong`.
     This is the branch statement under a named premise; it is not a claim that some particular
     input takes the branch, which needs the argmax-correctness theorem owned by
-    `Numeric.PrunedArgmax` and `Numeric.EngineSamplerRefinement`. -/
+    `Numeric.OneBit.PrunedArgmax` and `Numeric.Engine.Sampler`. -/
 theorem too_long_branch (logits : Slice I64) (best : Usize) (hne : 0 < logits.length)
     (hloop : argmax_source.sampler.argmax_fixed_loop logits 0#usize 1#usize = ok best)
     (hbig : U32.max < best.val) :

@@ -11,7 +11,7 @@ CORPUS: src/engine/matvec.rs `row_dot_fixed` and the actual extracted
 `row_dot_source.matvec.row_dot_fixed`, `row_dot_source.matvec.row_dot_fixed_loop`,
 `row_dot_source.matvec.row_dot_fixed_loop.body` and `row_dot_source.value.round_shift_32`.
 REFERENCE: /home/socol/Workspace/apeiron/proof/ApeironWord.lean (committed extraction of the same
-`matvec.rs` body) and proof/corpus/Numeric/EngineDotRefinement.lean.
+`matvec.rs` body) and proof/corpus/Numeric/Engine/Dot.lean.
 GATE: python3 proof/resource/RowDot_gate.py --controls, whole invocation 540 s.
 GRADE: Lean checked only when that gate succeeds; the work measure is a visit and multiply-add
 count, not a machine-time measurement.

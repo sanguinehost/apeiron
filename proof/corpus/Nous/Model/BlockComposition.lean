@@ -36,15 +36,15 @@ no `sorry`/`axiom`/`native_decide`. Two classes of per-stage input are Rust-kern
 unchanged from `Nous.Model.ErrorComposition` (read, not restated):
 
 * `siluLayer : Layer ℝ` (`ErrorComposition.lean:522`), whose defect traces to
-  `silu_window_refines` (`Numeric/EngineSiluRefinement.lean:755`);
+  `silu_window_refines` (`Numeric/Engine/Silu.lean:755`);
 * `rmsLayer a ha B hB : Layer ℝ` (`ErrorComposition.lean:601`), whose defect traces to
-  `rmsElement_bound`/`rms_norm_refines_proved` (`Numeric/EngineNormRefinement.lean:685,726`). `a`
+  `rmsElement_bound`/`rms_norm_refines_proved` (`Numeric/Engine/Norm.lean:685,726`). `a`
   (the fixed mean-square-plus-epsilon radicand) is an **external hypothesis** of `rmsLayer` itself:
   the mean-square computation ("RMSNorm's mean") is not derived from the block's input vector by
   `rmsLayer`, and is not re-derived here either — it is exactly the hypothesis this file inherits.
 
 `Stage.matvec`'s per-coordinate defect `matvecEps = 1/(2·2^32)` is an **abstract-algebra model** of
-`matvec_refines_proved`'s conclusion (`Numeric/EngineMatvecRefinement.lean:96-108`: the extracted
+`matvec_refines_proved`'s conclusion (`Numeric/Engine/Matvec.lean:96-108`: the extracted
 `word_matvec_fixed`'s output is within `1/(2·q32)` of `rowDotReal (deq r) x` per coordinate); the
 correspondence between the abstract linear map used here (`matvecRef`, real-valued, `Fin m → Fin n →
 ℝ`) and the extracted body over `Slice I64`/`Nat`-indexed rows is a reading (`model` grade), not a
@@ -53,9 +53,9 @@ larger obligation.
 
 `attn` (RoPE, the softmax reweighting and the value sum, end-to-end) and `mul` (the FFN's elementwise
 gate/up product) are genuine hypotheses of `BlockResidual`, carrying no kernel refinement wired in at
-this revision. `rotate_head_bound` (`Numeric/RopeHeadContent.lean:403`) proves a per-rotary-index
+this revision. `rotate_head_bound` (`Numeric/Rope/HeadContent.lean:403`) proves a per-rotary-index
 RoPE bound, and `attn_stage_compose_closed`/`softmaxPerturbBound`
-(`Numeric/AttnSoftmaxPerturb.lean:581,572`) prove an attention-stage perturbation bound; neither is
+(`Numeric/Attn/SoftmaxPerturb.lean:581,572`) prove an attention-stage perturbation bound; neither is
 wired into `attn`'s `delta`/`L` here, matching `ErrorComposition.lean:335-336`'s own note that
 `rope_pair_spec_proved` is proved but "not yet wired into this file". `attn.ref` is left fully open
 (no formula pinned), as `ErrorComposition.lean`'s `UnrefinedOp.attentionSoftmax` leaves it unpinned
@@ -67,7 +67,7 @@ the whole space makes `BlockResidual p h` empty for every `1 ≤ h`
 (`Nous.Model.BlockGroundedWitness1.pinnedMul_stage_impossible`).
 
 No claim is made about rustc/LLVM codegen, the kernel ABI, GPU/SPIR-V, the `unsafe` container, or the
-dequant-to-ideal-weight reading (`Numeric/EngineMatvecRefinement.lean`'s own class-(b) `tested`
+dequant-to-ideal-weight reading (`Numeric/Engine/Matvec.lean`'s own class-(b) `tested`
 boundary, not re-examined here).
 -/
 import Mathlib.Analysis.Normed.Group.Constructions
@@ -242,7 +242,7 @@ def pi {ι : Type*} [Fintype ι] (s : Stage E E) : Stage (ι → E) (ι → E) w
 /-! ## Real matrix-vector product as a stage -/
 
 /-- The real matrix-vector product `y i = Σ_j W i j * x j`, the reference form of
-`matvec_refines_proved`'s conclusion (`Numeric/EngineMatvecRefinement.lean:99-107`), abstracted from
+`matvec_refines_proved`'s conclusion (`Numeric/Engine/Matvec.lean:99-107`), abstracted from
 `Slice I64`/`rowDotReal` to a real `Fin m → Fin n → ℝ` matrix. -/
 def matvecRef {n m : ℕ} (W : Fin m → Fin n → ℝ) (x : Fin n → ℝ) : Fin m → ℝ :=
   fun i => ∑ j, W i j * x j
@@ -337,7 +337,7 @@ end Stage
 width, `h` the FFN hidden width. -/
 
 /-- The abstract-algebra model of `matvec_refines_proved`'s per-coordinate bound
-(`Numeric/EngineMatvecRefinement.lean:107`): `1/(2·q32)`, `q32 = 2^32`
+(`Numeric/Engine/Matvec.lean:107`): `1/(2·q32)`, `q32 = 2^32`
 (`Numeric.Scale.q32`). Restated as a real literal so `Stage.matvec` does not depend on the Aeneas
 `I64`/`Slice` types it is a model of. -/
 noncomputable def matvecEps : ℝ := 1 / (2 * (2 : ℝ) ^ (32 : ℕ))

@@ -38,7 +38,7 @@
 //!
 //! The quantizers run in `f64` and are `tested` (`tests/learn_onebit.rs`); the `sd1`/`sd1-path`
 //! sign stream runs in the checked-integer [`crate::learn::sigma_delta::sd_binary_block`], refined
-//! to `Numeric.SigmaDelta` (`proof/corpus/Numeric/SigmaDeltaRefinement.lean`). The `output_error`
+//! to `Numeric.SigmaDelta` (`proof/corpus/Numeric/OneBit/SigmaDeltaRefinement.lean`). The `output_error`
 //! metric is the existing [`crate::learn::gptq::output_error`]; this module makes no performance
 //! claim.
 

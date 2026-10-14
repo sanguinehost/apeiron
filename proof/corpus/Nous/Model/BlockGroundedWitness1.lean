@@ -18,7 +18,7 @@ contract, not of `BlockResidual`, whose domain agreement stands.
 
 What is delivered is the smallest witness: `d = p = 1`, `h = 0`, with the four attention
 projections `GridProj 1 1` carrying the real `F16` weight row of
-`Numeric/DequantRefinement.lean` (`f16WitRaw` `[0x00, 0x3C]` = `1.0`) and dequantized rows
+`Numeric/Dequant/Refinement.lean` (`f16WitRaw` `[0x00, 0x3C]` = `1.0`) and dequantized rows
 `f16WitVec` `[1.0]`, whose domain contains the zero activation. The witness input is the zero row:
 each grounded `exec` maps `0` to `0`, and the two residual stages are supplied so that they do too.
 `fullBlockGrounded_dom_nonempty_f16` states the resulting membership. This de-degenerates the
@@ -33,7 +33,7 @@ under the closed axiom cone `{propext, Classical.choice, Quot.sound}`; no claim 
 codegen, the kernel ABI, GPU/SPIR-V, the `unsafe` container, or the dequant-to-ideal-weight reading.
 -/
 import Nous.Model.BlockGroundedWitness
-import Numeric.DequantRefinement
+import Numeric.Dequant.Refinement
 
 set_option linter.apeiron.notation false
 set_option linter.apeiron.citation false

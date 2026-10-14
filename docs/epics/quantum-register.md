@@ -2,7 +2,7 @@
 
 Board row: `quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs`. Evidence for runs lands in
 [`docs/evidence/onebit-w15.md`](../evidence/onebit-w15.md) under its own section; Lean in
-`proof/corpus/Numeric/Register.lean` and `proof/corpus/Perf/`.
+`proof/corpus/Numeric/Quantum/Register.lean` and `proof/corpus/Perf/`.
 
 ## Intent
 
@@ -25,7 +25,7 @@ block:
 | N: shear `rep 0 (1, v)` | parabolic, `σ = 0` | `parabolic_one_param`, `shear_additive_iff_parabolic` | no: the low-rank corrector is frozen |
 
 The Hadamard butterfly `(u, v) ↦ (u + v, u − v)` is `channelPair 1` (`sylvester_one_channelPair`,
-`proof/corpus/Numeric/Sylvester.lean:186`): the change to the idempotent coordinates of the hyperbolic face. A 128-group
+`proof/corpus/Numeric/Hadamard/Sylvester.lean:186`): the change to the idempotent coordinates of the hyperbolic face. A 128-group
 is a register of `2^7` real amplitudes; `fwht128` is seven stages of 64 such butterflies, i.e. the circuit `H^⊗7`
 (Clifford, classically simulable: Gottesman–Knill, pointer, not retrieved). Replacing the fixed butterfly with a learned
 elliptic angle per butterfly makes the K factor trainable at no stored-weight cost: `W x = (W T)(Tᵀ x)`, the code
@@ -53,7 +53,7 @@ The learned-K rotation either lowers held-out KL before finishing below 1.1637 b
 Lean verdict; in both cases the register primitive is proved and refined.
 
 ```sh
-cd proof/corpus && lake build Numeric.Register Perf.QuantumRotation
+cd proof/corpus && lake build Numeric.Quantum.Register Perf.QuantumRotation
 cargo test --workspace --all-features --locked register
 proof/regen.sh --check
 ```
@@ -119,8 +119,8 @@ integers.
 | Extraction wrapper | `word_stage_mul` | `proof/extract/lib.rs` |
 | Extracted body | `register.stage_mul` | `proof/ApeironWord.lean` (generated) |
 | Cell multiply | `word_mul_denote` | `proof/corpus/WordRefinement.lean` |
-| Canonical stage | `Numeric.Register.stage` | `proof/corpus/Numeric/Register.lean` |
-| Refinement | `stage_mul_denote` | `proof/corpus/Numeric/RegisterRefinement.lean` |
+| Canonical stage | `Numeric.Register.stage` | `proof/corpus/Numeric/Quantum/Register.lean` |
+| Refinement | `stage_mul_denote` | `proof/corpus/Numeric/Quantum/RegisterRefinement.lean` |
 
 ### Contracts
 
@@ -136,7 +136,7 @@ integers.
 
 ### Evidence plan
 
-1. Lean: `cd proof/corpus && lake build Numeric.Register`; one changed-constant control per theorem.
+1. Lean: `cd proof/corpus && lake build Numeric.Quantum.Register`; one changed-constant control per theorem.
 2. Probe: `kan_probe.py` learns angles per input site on the calibration Grams by minimising the Hessian-weighted error of
    the E8 nearest-point code (straight-through), then re-scores with the real `gptq_e8` solve; receipt JSON, Lean verdict.
 3. Transfer: `fold_transfer.py --rotation kan` re-solves the arm with the learned `T`; held-out KL before finishing vs
@@ -151,9 +151,9 @@ Hardest and highest-contribution first: the measurement decides whether the rest
 | Wave | Task | Files | Owner | Gate | Negative control |
 |---|---|---|---|---|---|
 | W1 | T1 probe: learned K vs fixed Hadamard on the code error | `tools/onebit/kan_probe.py`, receipt, `Perf/QuantumRotation.lean` | lead | `kan_probe.py` exit 0 under its prediction; `lake build Perf.QuantumRotation` | angles at `π/4` reproduce `fwht128` (`< 10⁻¹²`); changed constant per theorem |
-| W1 | T2 register theorems | `proof/corpus/Numeric/Register.lean` | Sonnet lane | `lake build Numeric.Register` | changed constant / swapped `σ` per theorem |
+| W1 | T2 register theorems | `proof/corpus/Numeric/Quantum/Register.lean` | Sonnet lane | `lake build Numeric.Quantum.Register` | changed constant / swapped `σ` per theorem |
 | W2 | T3 transfer with learned `T` (blocked on T1 lowering the error) | `tools/onebit/fold_transfer.py`, receipt, `Perf/QuantumRotation.lean` | lead | held-out KL receipt, three seeds | `--rotation kan` at Hadamard angles equals the `-nb` arm bit for bit |
-| W2 | T4 Rust stage and refinement | `src/numeric/register.rs`, `proof/extract/lib.rs`, `Numeric/RegisterRefinement.lean` | Sonnet lane | `cargo test register`; `proof/regen.sh --check`; `lake build Numeric.RegisterRefinement` | mutate the multiply in a copy: refinement red |
+| W2 | T4 Rust stage and refinement | `src/numeric/register.rs`, `proof/extract/lib.rs`, `Numeric/Quantum/RegisterRefinement.lean` | Sonnet lane | `cargo test register`; `proof/regen.sh --check`; `lake build Numeric.Quantum.RegisterRefinement` | mutate the multiply in a copy: refinement red |
 | W3 | T5 finish on learned `T`, then train N (the corrector); refuted, see W3-T5 result | `tools/onebit/pv_finish.py`, receipts | lead | held-out KL vs the frozen-corrector pair | as `hadmm` controls; step-0 `torch.equal`, `compose_only` loss rel 0 |
 
 Stop: W1 refutes (no error drop beyond the seed spread at fixed bits) → record the verdict theorem, keep T2/T4 (the
@@ -171,7 +171,7 @@ refusals). Controls: lo/hi swap in the write-back fails 2; dropping `σ` from `c
 The extraction root `word_stage_mul` (`proof/extract/lib.rs`, `#[path]` to the real `src/numeric/register.rs`) is added to
 `proof/regen.sh` (`--start-from crate::word_stage_mul`, source list); `proof/regen.sh --check`: `extraction is fresh`,
 1331 → 1339 generated defs, the 8 added being `cell.CellI64.checked_mul`, `register.stage_{mul,block}{,_loop,_loop.body}`
-and the wrapper. `proof/corpus/Numeric/RegisterRefinement.lean` (`lake build Numeric.RegisterRefinement`, 3686 jobs):
+and the wrapper. `proof/corpus/Numeric/Quantum/RegisterRefinement.lean` (`lake build Numeric.Quantum.RegisterRefinement`, 3686 jobs):
 
 | Theorem | Statement |
 |---|---|
@@ -540,7 +540,7 @@ minimiser is larger than the MSE-optimal one. Shrinkage tuning is closed at this
 SCOPE:      tools/onebit/kan_probe.py (new), its receipt, Perf/QuantumRotation.lean; done when the receipt and verdict build
 REGISTER:   measurement; excludes the code solve (fold_transfer), finishing, Rust
 CORPUS:     rep_elliptic_is_rotation, elliptic_one_param (sanguine Apeiron/Physics/Quadratic.lean, sha256 b90770cb6a43e58b…,
-            rev abcf09e3, proved); sylvester_one_channelPair (proof/corpus/Numeric/Sylvester.lean:186, proved)
+            rev abcf09e3, proved); sylvester_one_channelPair (proof/corpus/Numeric/Hadamard/Sylvester.lean:186, proved)
 REFERENCE:  /home/socol/Workspace/apeiron/tools/onebit/fold_transfer.py:440 (fwht128), :266 (gptq_e8)
 GATE:       PREDICTION-admitted kan_probe.py run, cwd repo root, 580 s budget; red: MISSING (gate-first task)
 GRADE:      measured; before = fixed-Hadamard code error from the same run
@@ -554,8 +554,8 @@ state|Gottesman'` over `apeiron sanguine sanguine-ref song fold spinor-ttl inten
 
 - No learned-rotation quantizer, Givens register or Iwasawa factorisation exists in any tree: `not-subsumable` in-tree;
   the empirical incumbents are SpinQuant and OSTQuant (external, to retrieve before W2).
-- Ported, not re-derived: `Numeric/Sylvester.lean`, `Numeric/HadamardStage.lean` (`fwhtRef_getElem`),
-  `Numeric/HadamardRefinement.lean` (`fwht_int_spec`, the lane/base/stage loop pattern `stage_mul` follows),
+- Ported, not re-derived: `Numeric/Hadamard/Sylvester.lean`, `Numeric/Hadamard/Stage.lean` (`fwhtRef_getElem`),
+  `Numeric/Hadamard/Refinement.lean` (`fwht_int_spec`, the lane/base/stage loop pattern `stage_mul` follows),
   `Nous/Model/RotationStage.lean` (`hadamardRef_isometry_l2`), sanguine `Physics/Quadratic.lean` (the three one-parameter
   faces), sanguine `Trichotomy/Derived/Elliptic.lean` (`cayley_isometry`), `src/cell.rs` `Cell::mul`,
   `src/numeric/fixed_trig.rs` `fixed_sin_cos`.
@@ -603,7 +603,7 @@ coordinates and so includes `R″|∇t′|² + R′∇²t′` whatever `t′` is
 - open, in the file's own list: exactness beyond the quadratic amplitude (the `h → 0` limit), minimality, and the
   joint theorem with block 1.
 
-Proved in `proof/corpus/Numeric/BranchLaplacian.lean` (controls: centre weight `4 → 3`, divisor `2h² → h²`, bound `4 → 5`, each red). In ℝ³, where the hydrogen case lives, four branches at
+Proved in `proof/corpus/Numeric/Quantum/BranchLaplacian.lean` (controls: centre weight `4 → 3`, divisor `2h² → h²`, bound `4 → 5`, each red). In ℝ³, where the hydrogen case lives, four branches at
 the vertices of a regular tetrahedron `v ∈ {(1,1,1), (1,−1,−1), (−1,1,−1), (−1,−1,1)}` give
 `Σₖ f(x + h vₖ) − 4 f(x) = 2h² ∇²f` exactly on quadratics, since `Σ vₖ = 0` and `Σ vₖ vₖᵀ = 4I`. Four is also the
 fewest. A weighted stencil needs `Σ wₖ vₖ = 0` and `Σ wₖ vₖ vₖᵀ = cI` with `c ≠ 0`. The second forces three linearly
@@ -623,26 +623,26 @@ Each block, mapped to the corpus (`canonical` = in-tree `proof/canonical`, pin `
 | 3 | harmonic amplitude (`∇²√ρ = 0`) ⇒ Schrödinger ⟺ classical HJ + continuity | L–S reply Lemma 3.1 | superseded by 3a–3d: with four branches the premise is not needed | — |
 | 3a | one branch's 1-jet does not determine `∇²R` | Vattay 2605.02621 | `QuantumClassicalIsomorphism.lean` `single_branch_underdetermines` | proved |
 | 3b | four branches `{±1, ±i}` reconstruct `∇²R` exactly on a quadratic amplitude, 2-D | — (ours) | `QuantumClassicalIsomorphism.lean` `stencil4_reconstructs_laplacian` | proved |
-| 3c | four tetrahedral branches reconstruct `∇²R` exactly on a quadratic amplitude in ℝ³; `k ≥ d + 1` | — (ours) | `Numeric/BranchLaplacian.lean` `tetra_stencil_reconstructs_laplacian`, `branch_count_ge_four`, `tetra_family_attains_four` | proved |
-| 3d | four-branch stencil → `∇²R` as `h → 0` for `R` twice differentiable (beyond quadratics) | — (ours) | `Numeric/BranchLaplacian.lean` `secondDiff_tendsto`, `stencil4_tendsto_laplacian` (limit, no rate); `Numeric/TetraLimit.lean` `tetra4_tendsto_field`: the four-branch tetrahedral stencil of any `C²` field on `ℝ³` (no quadratic premise) tends to the mean of the second derivatives along the four branch lines; `Numeric/TetraLaplacian.lean` `tetra_sum_eq_lap`, `tetra4_tendsto_laplacian`: that mean is `∂xx+∂yy+∂zz`, because `Σₙ vₙ vₙᵀ = 4·1` gives `Σₙ D²F(vₙ, vₙ) = 4 tr D²F` for any bilinear `D²F`, symmetric or not (`line_second_deriv`: `(t ↦ F(p+tv))″(0) = D²F(p)(v, v)`) | proved |
-| 4 | time rescaling leaves `R″(t′)·|∇t′|² + R′·∇²t′` in `∇²R(t′(x))`, and the four-branch stencil of `R ∘ t′` returns it | Vattay 2606.05197 eq. 1–2 | `Numeric/BranchLaplacian.lean` `second_derivative_comp`, `stencil4_quad_comp_affine`, `stencil4_affine_comp_quad` (each term read exactly) | proved |
+| 3c | four tetrahedral branches reconstruct `∇²R` exactly on a quadratic amplitude in ℝ³; `k ≥ d + 1` | — (ours) | `Numeric/Quantum/BranchLaplacian.lean` `tetra_stencil_reconstructs_laplacian`, `branch_count_ge_four`, `tetra_family_attains_four` | proved |
+| 3d | four-branch stencil → `∇²R` as `h → 0` for `R` twice differentiable (beyond quadratics) | — (ours) | `Numeric/Quantum/BranchLaplacian.lean` `secondDiff_tendsto`, `stencil4_tendsto_laplacian` (limit, no rate); `Numeric/Quantum/TetraLimit.lean` `tetra4_tendsto_field`: the four-branch tetrahedral stencil of any `C²` field on `ℝ³` (no quadratic premise) tends to the mean of the second derivatives along the four branch lines; `Numeric/Quantum/TetraLaplacian.lean` `tetra_sum_eq_lap`, `tetra4_tendsto_laplacian`: that mean is `∂xx+∂yy+∂zz`, because `Σₙ vₙ vₙᵀ = 4·1` gives `Σₙ D²F(vₙ, vₙ) = 4 tr D²F` for any bilinear `D²F`, symmetric or not (`line_second_deriv`: `(t ↦ F(p+tv))″(0) = D²F(p)(v, v)`) | proved |
+| 4 | time rescaling leaves `R″(t′)·|∇t′|² + R′·∇²t′` in `∇²R(t′(x))`, and the four-branch stencil of `R ∘ t′` returns it | Vattay 2606.05197 eq. 1–2 | `Numeric/Quantum/BranchLaplacian.lean` `second_derivative_comp`, `stencil4_quad_comp_affine`, `stencil4_affine_comp_quad` (each term read exactly) | proved |
 | 5 | Van Vleck kernel exact on the three quadratic faces | Vattay 2606.05197 §3 | canonical `VanVleck/{Elliptic,Parabolic,Hyperbolic}.lean` `*_vanVleck_pointwise_exact` (pointwise residual, not propagator) | proved |
 | 6 | Van Vleck exact **only if** the Hamiltonian is at most quadratic | Vattay 2606.05197 §3 (cited theorem) | absent; cited, not proved | anchor |
 | 7 | Duru–Kleinert / Kustaanheimo–Stiefel flow equivalence under `dt = |x| dτ` | L–S Example 6, reply Annex | sanguine `Physics/KustaanheimoStiefel.lean` states it is not claimed (points only) | open |
 | 8 | quadratic flow is the face's one-parameter subgroup | L–S Thm 1 on quadratic `H` | canonical `Physics/Quadratic.lean` `flow_is_one_param`, `flow_is_one_param_unique` | proved |
-| 9 | density along a path `ρ(t) = ρ₀ e^{−∫Δφ}` | L–S eq. 12 | `Numeric/PathDensity.lean` `pathDensity_hasDerivAt`, `pathDensity_zero`, `pathDensity_unique` (any `C¹` solution of `ρ' = −ρa`, `a` continuous, equals the closed form), `pathDensity_pos`; `a = Δφ/m` along a Hamiltonian path not linked | proved |
-| 10 | quantization: `Σ_{κ<K} e^{iκφ/ℏ}/K → 0` unless `φ/ℏ ∈ 2πℤ` | L–S Lemma 3 | `Numeric/BranchQuantization.lean` `branchAvg_tendsto_zero`, `branchAvg_tendsto_one`, `norm_branchSum_le` (`‖Σ‖ ≤ 2/‖e^{iθ}−1‖`), `branchSum_eq_zero_iff` (finite `K`: zero exactly at nontrivial `K`-th roots), `exp_eq_one_iff_mem`, `branchSum_four_quarter` (four branches at `θ = π/2` cancel) | proved |
-| 1+3 | `Q` read from the branches, joined to block 1: the 1-D two-branch `Q_h` tends to Bohm's `Q`, and the canonical Schrödinger ⟺ Madelung iff holds with that limit | Vattay 2.1–2.5; L–S Lemma 3.1 | `Numeric/BranchMadelung.lean` `branchQ_tendsto`, `schrodinger_iff_branch_madelung` (1-D; the corpus has no 3-D Madelung) | proved |
-| 11 | spinor ↦ Bloch vector, `|n| = |ψ|²` | L–S Fig. 4, eq. 39 | sanguine `Physics/KustaanheimoStiefel.lean` `ks_norm`; in-tree port `Numeric/Qubit.lean` `bloch_norm`, `bloch_eq_ks` (Bloch vector = KS map of `(Re α, Im β, Re β, Im α)`; KS defs copied from sanguine lines 53–71) | proved |
-| 12 | SU(2) gate on the spinor = SO(3) rotation of the Bloch vector (Hopf equivariance) | L–S eq. 36–37 | `Numeric/Qubit.lean` `bloch_rz`, `bloch_ry`, `suR_blochVec` (any `U(a,b) = [[a,−b̄],[b,ā]]`), `suR_orthogonal` (`|a|²+|b|² = 1`) | proved |
-| 13 | `Σ·n = χ↑χ↑† − χ↓χ↓†`, `(Σ·n)² = 1`; real meridian `[[c,s],[s,−c]] = c·σ_z + s·σ_x` (the `kan_probe` butterfly) | L–S eq. 38 | `Numeric/Qubit.lean` `sigmaN_sq`, `sigmaN_sq_unit`, `projP_idem`, `projP_add_projM`, `projP_mul_projM`, `sigmaN_meridian`, `sigmaN_meridian_pi_four` | proved |
+| 9 | density along a path `ρ(t) = ρ₀ e^{−∫Δφ}` | L–S eq. 12 | `Numeric/Quantum/PathDensity.lean` `pathDensity_hasDerivAt`, `pathDensity_zero`, `pathDensity_unique` (any `C¹` solution of `ρ' = −ρa`, `a` continuous, equals the closed form), `pathDensity_pos`; `a = Δφ/m` along a Hamiltonian path not linked | proved |
+| 10 | quantization: `Σ_{κ<K} e^{iκφ/ℏ}/K → 0` unless `φ/ℏ ∈ 2πℤ` | L–S Lemma 3 | `Numeric/Quantum/BranchQuantization.lean` `branchAvg_tendsto_zero`, `branchAvg_tendsto_one`, `norm_branchSum_le` (`‖Σ‖ ≤ 2/‖e^{iθ}−1‖`), `branchSum_eq_zero_iff` (finite `K`: zero exactly at nontrivial `K`-th roots), `exp_eq_one_iff_mem`, `branchSum_four_quarter` (four branches at `θ = π/2` cancel) | proved |
+| 1+3 | `Q` read from the branches, joined to block 1: the 1-D two-branch `Q_h` tends to Bohm's `Q`, and the canonical Schrödinger ⟺ Madelung iff holds with that limit | Vattay 2.1–2.5; L–S Lemma 3.1 | `Numeric/Quantum/BranchMadelung.lean` `branchQ_tendsto`, `schrodinger_iff_branch_madelung` (1-D; the corpus has no 3-D Madelung) | proved |
+| 11 | spinor ↦ Bloch vector, `|n| = |ψ|²` | L–S Fig. 4, eq. 39 | sanguine `Physics/KustaanheimoStiefel.lean` `ks_norm`; in-tree port `Numeric/Quantum/Qubit.lean` `bloch_norm`, `bloch_eq_ks` (Bloch vector = KS map of `(Re α, Im β, Re β, Im α)`; KS defs copied from sanguine lines 53–71) | proved |
+| 12 | SU(2) gate on the spinor = SO(3) rotation of the Bloch vector (Hopf equivariance) | L–S eq. 36–37 | `Numeric/Quantum/Qubit.lean` `bloch_rz`, `bloch_ry`, `suR_blochVec` (any `U(a,b) = [[a,−b̄],[b,ā]]`), `suR_orthogonal` (`|a|²+|b|² = 1`) | proved |
+| 13 | `Σ·n = χ↑χ↑† − χ↓χ↓†`, `(Σ·n)² = 1`; real meridian `[[c,s],[s,−c]] = c·σ_z + s·σ_x` (the `kan_probe` butterfly) | L–S eq. 38 | `Numeric/Quantum/Qubit.lean` `sigmaN_sq`, `sigmaN_sq_unit`, `projP_idem`, `projP_add_projM`, `projP_mul_projM`, `sigmaN_meridian`, `sigmaN_meridian_pi_four` | proved |
 | 14 | unitary step conserves total Born density | L–S eq. 18 | `Substrate/StationaryPhase/SpinorLoop.lean` `cayley_isometry`, `cayley_conserves_born_density`, `schrodinger_generator_skew` | proved |
-| 15 | single-qubit gate on every pair of a `2^n` register; `H^⊗n` | L–S eq. 53 (product state) | `Numeric/Register.lean` `pairStage`, `register_hadamard`, `register_stage_normForm` | proved |
-| 16 | entangling two-qubit stage (controlled-Z as a sign diagonal) | L–S Example 7 (EPR) | `Numeric/Register.lean` `cz_involutive`, `cz_sum_sq`, `cz_entangles` (`y₀y₃ ≠ y₁y₂` on the all-ones register; every product state has equality) | proved |
-| 17 | measurement: qubit projectors idempotent, sum to identity, Born weights sum to `‖x‖²` | L–S Lemma 2 (Born rule a postulate there) | `Numeric/Register.lean` `measProj_idem`, `measProj_add`, `measProj_orth`, `born_sum` | proved |
-| 18 | reflection stage is an involution, so `Tᵀ` is the stages in reverse order | — (W2 inverse for `fold_transfer`) | `Numeric/Register.lean` `reflPair_involutive`, `reflStage_involutive`, `reflStage_sum_sq`, `reflStages_reverse_cancel`, `refl_quarter` | proved |
+| 15 | single-qubit gate on every pair of a `2^n` register; `H^⊗n` | L–S eq. 53 (product state) | `Numeric/Quantum/Register.lean` `pairStage`, `register_hadamard`, `register_stage_normForm` | proved |
+| 16 | entangling two-qubit stage (controlled-Z as a sign diagonal) | L–S Example 7 (EPR) | `Numeric/Quantum/Register.lean` `cz_involutive`, `cz_sum_sq`, `cz_entangles` (`y₀y₃ ≠ y₁y₂` on the all-ones register; every product state has equality) | proved |
+| 17 | measurement: qubit projectors idempotent, sum to identity, Born weights sum to `‖x‖²` | L–S Lemma 2 (Born rule a postulate there) | `Numeric/Quantum/Register.lean` `measProj_idem`, `measProj_add`, `measProj_orth`, `born_sum` | proved |
+| 18 | reflection stage is an involution, so `Tᵀ` is the stages in reverse order | — (W2 inverse for `fold_transfer`) | `Numeric/Quantum/Register.lean` `reflPair_involutive`, `reflStage_involutive`, `reflStage_sum_sq`, `reflStages_reverse_cancel`, `refl_quarter` | proved |
 
-Landed: 3c, 3d, 4 (`Numeric/BranchLaplacian.lean`, `Numeric/TetraLimit.lean`, `Numeric/TetraLaplacian.lean`), 1+3 (`Numeric/BranchMadelung.lean`), 9 (`Numeric/PathDensity.lean`), 10 (`Numeric/BranchQuantization.lean`), 11–13 (`Numeric/Qubit.lean`), 16–18 (`Numeric/Register.lean`), each
+Landed: 3c, 3d, 4 (`Numeric/Quantum/BranchLaplacian.lean`, `Numeric/Quantum/TetraLimit.lean`, `Numeric/Quantum/TetraLaplacian.lean`), 1+3 (`Numeric/Quantum/BranchMadelung.lean`), 9 (`Numeric/Quantum/PathDensity.lean`), 10 (`Numeric/Quantum/BranchQuantization.lean`), 11–13 (`Numeric/Quantum/Qubit.lean`), 16–18 (`Numeric/Quantum/Register.lean`), each
 with three changed-constant controls red at the edited line and the real file green.
 
 Every row above is registered in `proof/corpus/AxiomAudit.lean` (closed cone).
@@ -698,14 +698,14 @@ The figures in this section from `qreg-attrib`/`qreg-iso` and `G = 3.695` are ob
 |---|---|---|---|---|
 | L1 | `R[x]/(x²−σ)` is the Clifford algebra of the 1-D form `σv²`: `σ = −1 ≅ ℂ`, `σ = 0 ≅ R[ε]`, `σ = +1` the split algebra; two anticommuting generators give `ℍ[R,σ₁,0,σ₂]`: Hamilton (spin, `SU(2)`) at `(−1,−1)`, `M₂(ℝ)` (rebit) at `(+1,+1)` | does not change: the "fourth element" is anticommuting composition, not a fourth face | `CellClifford.lean`: `Cell σ ≃ₐ CliffordAlgebra (σ·x²)` from the three Mathlib equivalences; quaternion pair | `model` |
 | L2 | `ℂ ⊗_ℝ ℂ ≅ ℂ × ℂ`: `(i⊗i)² = +1`, `i⊗i ≠ ±1`, so two elliptic cells composed contain the hyperbolic face; complex QM's tensor rule is the projection by `e = (1 − i⊗i)/2`, on which `i⊗1 = 1⊗i` | changes: this is where real and complex QM part (Renou), and it is a hyperbolic idempotent, not a new number | `EllipticTensor.lean`: `e² = e`, `(i⊗1)e = (1⊗i)e`, `(i⊗i)² = 1` | `model` (checked by hand) |
-| L3 | the tetrahedral stencil identities `Σv = 0`, `Σvvᵀ = 4I` (row 3c) are the qubit SIC conditions: `Π_k = (I + n_k·σ)/2`, `n_k = v_k/√3`, `Σ Π_k/2 = I`, `\|⟨ψ_j\|ψ_k⟩\|² = 1/3` | does not change: k = 4 is the SIC count `d²` (Renes et al.) and the stencil count `d + 1` in ℝ³ | `Numeric/SicStencil.lean` over `Numeric/Qubit.lean` `projP` | `model` |
+| L3 | the tetrahedral stencil identities `Σv = 0`, `Σvvᵀ = 4I` (row 3c) are the qubit SIC conditions: `Π_k = (I + n_k·σ)/2`, `n_k = v_k/√3`, `Σ Π_k/2 = I`, `\|⟨ψ_j\|ψ_k⟩\|² = 1/3` | does not change: k = 4 is the SIC count `d²` (Renes et al.) and the stencil count `d + 1` in ℝ³ | `Numeric/SicStencil.lean` over `Numeric/Quantum/Qubit.lean` `projP` | `model` |
 | L4 | degree ladder: the tetrahedron is a 2-design and not a 3-design (`Σ xyz = 4` over its vertices); the octahedron (the six one-qubit stabilizer states) is a 3-design; the Clifford group stops at 3 (Webb). A stencil reads the spherical mean exactly to the design's degree; past it, finite `h` needs a non-Clifford resource (`π/8`, the eighth roots; the four-branch orbit `{±1, ±i}` is the `S`-phase group) | changes at degree 3 and again at 4: exactness past quadratic costs branches, and past cubic costs magic | `proof/corpus/Numeric/Quantum/Ledger/DesignLadder.lean` (191 lines, `dbfe2727`): `IsDesign X r² t` is the Delsarte–Goethals–Seidel moment form over all 34 monomials of degree ≤ 4 in ℚ; `tetra_design_two`, `tetra_not_design_three` (`Σ xyz = 4`); `octa_design_three`, `octa_not_design_four` (`Σ x⁴ = 2 ≠ 6/5`); `cube_design_three`, `cube_not_design_four` (`Σ x⁴ = 8 ≠ 72/5`); `tetra_union_is_cube` (T ∪ −T = C, the antipodal closure cancels the odd moment); `verdict_l4`; 19 `#audit` rows, closed cone; control `4 → 0` in `tetra_xyz` red at `:120`, restore green; the Clifford/magic reading is the cited `anchor` (Webb), not this file; board `quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs` | `proved` |
-| L5 | **one shift rule on all three faces.** With `exp(sx) = C_σ(s) + S_σ(s)x` in `R[x]/(x²−σ)`, every `f ∈ span{1, S_σ(θ), (C_σ(θ)−1)/σ}` satisfies `f(θ+s) − f(θ−s) = 2S_σ(s)f′(θ)` and `f(θ+s) + f(θ−s) − 2f(θ) = 2((C_σ(s)−1)/σ)f″(θ)`; the span is `{1, sin, cos}` (σ < 0), `{1, sinh, cosh}` (σ > 0), `{1, θ, θ²/2}` (σ = 0, the limit) | does not change: the quantum parameter-shift rule (elliptic, `s = π/2`, tutorial Thm 4.9) and the parabolic stencil exactness (`antithetic_recovers_gradient`) are one σ-indexed theorem; the hyperbolic `sinh` rule is the third face | `proof/corpus/Quantum/FaceShift.lean` (413 lines, `0e25f50a`): with `C σ t`, `S σ t` the slots of the canonical `Apeiron.Trichotomy.Flow.flow` and `K σ t = (C σ t − 1)/σ` (`t²/2` at σ = 0, so the basis is `{1, S, K}` and stays three-dimensional on the parabolic face), `shift_first`, `shift_second` for every σ with no face hypothesis; `parameter_shift_elliptic`, `central_difference_parabolic`, `shift_hyperbolic`; `cubic_violates_shift_first` bounds the span; `verdict_l5` conjoins them; 27 `#audit` rows, closed cone; control `2 → 1` in `shift_first` red, restore green; board `quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs` | `proved` |
-| L6 | `KL(p‖q) ≥ ‖√p − √q‖²` (from `log x ≤ x − 1`); `KL = 2‖δψ‖² + o(‖δψ‖²)`; with `δψ = Σ_l δψ_l` the cross-layer KL is the Gram off-diagonal | changes the objective's coordinates, not the algebra | `proof/corpus/Quantum/AmplitudeKL.lean` (513 lines, `8a97afa3`): `kl_ge_amplitude_sq` (`Σ(√p − √q)² ≤ KL p q` for positive normalised `p`, `q` on a `Fintype`); `kl_second_order`: along `q_s = (√p + s v)²/Z(s)` with `Σ √p·v = 0`, `KL p q_s` and `2‖√q_s − √p‖²` agree at `s = 0` in value (both 0), first derivative (both 0) and second derivative (both `4‖v‖²`), so the factor 2 is exact at second order; `verdict_l6` conjoins clauses 1, 2 and L8; 5 `#audit` rows, closed cone; control `2 → 1` in the clause-2 value red at `AmplitudeKL.lean:480`, restore green; the cross-layer Gram clause is the Q1 measurement, not this file; open: a joint witness inhabiting `kl_second_order`'s premises; board `quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs` | `proved` |
+| L5 | **one shift rule on all three faces.** With `exp(sx) = C_σ(s) + S_σ(s)x` in `R[x]/(x²−σ)`, every `f ∈ span{1, S_σ(θ), (C_σ(θ)−1)/σ}` satisfies `f(θ+s) − f(θ−s) = 2S_σ(s)f′(θ)` and `f(θ+s) + f(θ−s) − 2f(θ) = 2((C_σ(s)−1)/σ)f″(θ)`; the span is `{1, sin, cos}` (σ < 0), `{1, sinh, cosh}` (σ > 0), `{1, θ, θ²/2}` (σ = 0, the limit) | does not change: the quantum parameter-shift rule (elliptic, `s = π/2`, tutorial Thm 4.9) and the parabolic stencil exactness (`antithetic_recovers_gradient`) are one σ-indexed theorem; the hyperbolic `sinh` rule is the third face | `proof/corpus/Numeric/Quantum/Ledger/FaceShift.lean` (413 lines, `0e25f50a`): with `C σ t`, `S σ t` the slots of the canonical `Apeiron.Trichotomy.Flow.flow` and `K σ t = (C σ t − 1)/σ` (`t²/2` at σ = 0, so the basis is `{1, S, K}` and stays three-dimensional on the parabolic face), `shift_first`, `shift_second` for every σ with no face hypothesis; `parameter_shift_elliptic`, `central_difference_parabolic`, `shift_hyperbolic`; `cubic_violates_shift_first` bounds the span; `verdict_l5` conjoins them; 27 `#audit` rows, closed cone; control `2 → 1` in `shift_first` red, restore green; board `quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs` | `proved` |
+| L6 | `KL(p‖q) ≥ ‖√p − √q‖²` (from `log x ≤ x − 1`); `KL = 2‖δψ‖² + o(‖δψ‖²)`; with `δψ = Σ_l δψ_l` the cross-layer KL is the Gram off-diagonal | changes the objective's coordinates, not the algebra | `proof/corpus/Numeric/Quantum/Ledger/AmplitudeKL.lean` (513 lines, `8a97afa3`): `kl_ge_amplitude_sq` (`Σ(√p − √q)² ≤ KL p q` for positive normalised `p`, `q` on a `Fintype`); `kl_second_order`: along `q_s = (√p + s v)²/Z(s)` with `Σ √p·v = 0`, `KL p q_s` and `2‖√q_s − √p‖²` agree at `s = 0` in value (both 0), first derivative (both 0) and second derivative (both `4‖v‖²`), so the factor 2 is exact at second order; `verdict_l6` conjoins clauses 1, 2 and L8; 5 `#audit` rows, closed cone; control `2 → 1` in the clause-2 value red at `AmplitudeKL.lean:480`, restore green; the cross-layer Gram clause is the Q1 measurement, not this file; open: a joint witness inhabiting `kl_second_order`'s premises; board `quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs` | `proved` |
 | L7 | `β = 1`: `I − kkᵀ` idempotent; `β = 2`: involution; extends `Nous/Seq/DeltaCarrier.lean` | does not change: measurement and reflection are the two ends of the proved `β ∈ [0,2]` family | `Nous/Seq/DeltaCarrier.lean` additions | `model` |
-| L8 | `σ(x) = softmax(x, 0)₀` | does not change | `proof/corpus/Quantum/AmplitudeKL.lean`: `logistic_eq_softmax_two` (`1/(1 + e^{−x}) = e^x/(e^x + e^0)`) and its amplitude form `logistic_amplitude_add` (`√σ(x)² + √σ(−x)² = 1`); in `verdict_l6` | `proved` |
+| L8 | `σ(x) = softmax(x, 0)₀` | does not change | `proof/corpus/Numeric/Quantum/Ledger/AmplitudeKL.lean`: `logistic_eq_softmax_two` (`1/(1 + e^{−x}) = e^x/(e^x + e^0)`) and its amplitude form `logistic_amplitude_add` (`√σ(x)² + √σ(−x)² = 1`); in `verdict_l6` | `proved` |
 | L9 | `∫ρQ = (ℏ²/8m) I_F` (Fisher), Hall–Reginatto `δx·ΔN = ℏ/2`, Cramér–Rao ⇒ Heisenberg | changes the reading of rate: a Fisher-weighted quantum is the unit, which `waterfill_opt` already uses | `Numeric/ExactUncertainty.lean` on canonical `Schrodinger.lean` | `model` |
-| L10 | McKague's extra rebit is the elliptic cell as the real `2×2` matrix `[[a, −b],[b, a]]` | does not change: no complex dtype in the register | lemma in `Numeric/Qubit.lean` | `model` |
+| L10 | McKague's extra rebit is the elliptic cell as the real `2×2` matrix `[[a, −b],[b, a]]` | does not change: no complex dtype in the register | lemma in `Numeric/Quantum/Qubit.lean` | `model` |
 | L11 | Gottesman–Knill: the quadratic window is classically simulable | does not change: the window is buildable, and its exactness is free; what is outside it (cubic sign terms, `CCZ`, `π/8`) is where cost appears | pointer, Gottesman Theorem 1 | `anchor` |
 
 The answer to "trichotomy or a fourth element": the trichotomy covers each generator; composition supplies the rest.

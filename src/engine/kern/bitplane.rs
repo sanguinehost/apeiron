@@ -1,4 +1,4 @@
-//! Two-stage bit-plane argmax over a `Q8_0` head, licensed by `proof/corpus/Numeric/BitplaneArgmax.lean`
+//! Two-stage bit-plane argmax over a `Q8_0` head, licensed by `proof/corpus/Numeric/OneBit/BitplaneArgmax.lean`
 //! (`nibble_split`, `lo_interval_sound`, `bitplane_prune_sound`, `bitplane_argmax_exact`).
 //!
 //! # The integers

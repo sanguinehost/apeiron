@@ -57,11 +57,11 @@ states.
 |---|---|---|---|---|
 | 1 | RoPE orbit generation from `ρ(1)` by the group law (`rhoMul` / rotor squaring) instead of one `fixed_sin_cos` per position | `src/engine/rope.rs` | `rotor_compose` proved (`proof/corpus/Substrate/Algebra/Neural/AttentionSpinor.lean`); `fixed_sin_cos_refines_proved` proved (`proof/corpus/Numeric/Rope/Part4.lean`) | anchor — the Q32.32 orbit is not an exact homomorphism (rounding) |
 | 2 | RoPE table hoist through the position index, removing the `n_layers·(n_head+n_head_kv)` recompute | `src/engine/rope.rs`, `src/engine/step.rs` | the angle depends only on `(pos, j)` (`src/engine/rope.rs`, `src/engine/step.rs`); no in-repo theorem states cached = recomputed | anchor |
-| 3 | Fuse `SiLU` into the gate-projection epilogue | `src/engine/ffn.rs`, `src/engine/silu.rs` | `silu_gate_eq_channelWeight`, `siluReal_eq_mul_channelWeight` proved (`proof/corpus/Nous/Model/SiluChannel.lean`); `silu_window_refines` proved (`proof/corpus/Numeric/EngineSiluRefinement.lean`) | anchor |
+| 3 | Fuse `SiLU` into the gate-projection epilogue | `src/engine/ffn.rs`, `src/engine/silu.rs` | `silu_gate_eq_channelWeight`, `siluReal_eq_mul_channelWeight` proved (`proof/corpus/Nous/Model/SiluChannel.lean`); `silu_window_refines` proved (`proof/corpus/Numeric/Engine/Silu.lean`) | anchor |
 | 4 | Linearise the FFN fold to additive natural (log-channel) coordinates | `src/engine/ffn.rs` | `channel_diagonal_fold` proved (`proof/corpus/Nous/Model/Decomposition.lean`); `siluCell_normForm` proved (`proof/corpus/Nous/Model/SiluChannel.lean`) | anchor |
 | 5 | Keep attention on the `O(1)`-state LSE monoid instead of the `O(T)` score/weight tables | `src/engine/attn.rs` | `softmax_attention_is_online_spinor` proved (`proof/corpus/Substrate/Algebra/Neural/AttentionSpinor.lean`) | proved (the law) / anchor (the executing rewrite) |
 | 6 | Vectorise the projection loop | `src/engine/matvec.rs` | `ringMul_assoc` through `token_step_fold` proved (`proof/corpus/Nous/Model/State.lean`) | anchor |
-| 7 | Evaluate `exp` once per fundamental domain of the `ln2·ℤ` cocycle and reuse it | `src/numeric/fixed_exp.rs` | `fixed_exp_refines_proved` proved (`proof/corpus/Numeric/Exp/Part4.lean`) | proved (present body) / anchor (reuse scheme) |
+| 7 | Evaluate `exp` once per fundamental domain of the `ln2·ℤ` cocycle and reuse it | `src/numeric/fixed_exp.rs` | `fixed_exp_refines_proved` proved (`proof/corpus/Numeric/Engine/Exp/Part4.lean`) | proved (present body) / anchor (reuse scheme) |
 
 ## 1 · RoPE: one-parameter subgroup, covering section, diagonal quotient
 
@@ -82,7 +82,7 @@ The native table `(cos(pos·ω_j), sin(pos·ω_j))_j` is a section of the coveri
 `fixed_sin_cos` selects one branch inside the trig window `[-4096, 4096]` radians (`src/numeric/fixed_trig.rs`).
 The correctness obligation of that section is already named and proved as the per-output bound
 `fixed_sin_cos_refines_proved` (`proof/corpus/Numeric/Rope/Part4.lean`), composed into the rotation in
-`proof/corpus/Numeric/EngineRopeRefinement.lean`.
+`proof/corpus/Numeric/Engine/Rope.lean`.
 
 Relative position lives on the diagonal quotient `(ℤ × ℤ)/diag`: the score reads
 `⟨R(θ_q)φ_q, R(θ_k)φ_k⟩ = ⟨φ_q, R(θ_k − θ_q)φ_k⟩` because `R(θ)ᵀR(φ) = R(φ − θ)`. The one-parameter
@@ -143,7 +143,7 @@ regime is the ReLU-like switch. The native code already realises the finite-`β`
 `src/engine/attn.rs` subtracts the exact maximum (`shifted = score − mx`) and saturates the numerator to
 `0` below `-16·ONE`; `src/engine/silu.rs` saturates at `v ≤ -21·ONE → 0` and `v ≥ 16·ONE → v`. The
 saturation arms are proved as `word_silu_fixed_high`, `word_silu_fixed_low` and `silu_window_refines`
-(`proof/corpus/Numeric/EngineSiluRefinement.lean`). The tropical-limit reading itself is an **anchor**:
+(`proof/corpus/Numeric/Engine/Silu.lean`). The tropical-limit reading itself is an **anchor**:
 no in-repo theorem takes `β → ∞`.
 
 The `O(1)`-state LSE monoid is proved: `softmax_attention_is_online_spinor`
@@ -159,7 +159,7 @@ exact `+` in the drag and numerator channels (`oaDen_fuse`, `oaNum_fuse`) and th
 2. **Fundamental-domain `exp`.** `fixed_exp` already reduces by the `ln2·ℤ` cocycle: `exp_reduce`
    (`src/numeric/fixed_exp.rs`) computes `k = round(x / ln2)` and `r = x − k·ln2` with `|r| ≤ ln2/2`, then
    `exp(x) = 2^k · exp(r)`; the degree-7 Horner series is evaluated only on that fundamental domain, and
-   `fixed_exp_refines_proved` (`proof/corpus/Numeric/Exp/Part4.lean`) bounds the result. The improvement
+   `fixed_exp_refines_proved` (`proof/corpus/Numeric/Engine/Exp/Part4.lean`) bounds the result. The improvement
    is a reuse/hoist of `exp(r)` across calls sharing an argument, not a change to the reduction; the
    reuse scheme is an **anchor** and the present body is **proved**.
 3. **LSE monoid for attention.** Replace the materialised `scores`, `exps` and `weights` vectors of
@@ -199,7 +199,7 @@ started by this document, and each is a ≤3-file, one-gate task when opened.
    out of the layer loop / index the cached section). License: `rotor_compose`, `rotor_isometry`
    (proved, `proof/corpus/Substrate/Algebra/Neural/AttentionSpinor.lean`) for the group law;
    `fixed_sin_cos_refines_proved` (proved, `proof/corpus/Numeric/Rope/Part4.lean`) for the Q32.32 bound;
-   the refinement `proof/corpus/Numeric/EngineRopeRefinement.lean` must be re-established for the new
+   the refinement `proof/corpus/Numeric/Engine/Rope.lean` must be re-established for the new
    body. Gate: `cargo test --workspace --all-features --locked`; `cd proof/corpus && lake build
    Numeric.EngineRopeRefinement AxiomAudit`. Control: perturb a frequency → the rotation test and the
    refinement bound are red. Grade: proved for the ℝ group law, anchor for the executing orbit.
@@ -207,21 +207,21 @@ started by this document, and each is a ≤3-file, one-gate task when opened.
    (apply the activation to each gate row as the projection writes it, instead of materialising
    `gate_vec`). License: `silu_gate_eq_channelWeight`, `siluReal_eq_mul_channelWeight` (proved,
    `proof/corpus/Nous/Model/SiluChannel.lean`); `silu_window_refines` (proved,
-   `proof/corpus/Numeric/EngineSiluRefinement.lean`); `channel_diagonal_fold` (proved,
+   `proof/corpus/Numeric/Engine/Silu.lean`); `channel_diagonal_fold` (proved,
    `proof/corpus/Nous/Model/Decomposition.lean`) for the diagonal reading. Gate: `cargo test
-   --workspace --all-features --locked`; `cd proof/corpus && lake build Numeric.EngineSiluRefinement
+   --workspace --all-features --locked`; `cd proof/corpus && lake build Numeric.Engine.Silu
    AxiomAudit`. Control: perturb the epilogue rounding → the in-window refinement is red. Grade: anchor.
 3. **Vectorise the projection loop.** File `src/engine/matvec.rs`. License: `ringMul_assoc` through
    `token_step_fold` (proved, `proof/corpus/Nous/Model/State.lean`) fixes the reassociation the vector
    reduction performs; `word_mul_denote` fixes the per-word product. Gate: `cargo test --workspace
-   --all-features --locked`; `cd proof/corpus && lake build Numeric.EngineDotRefinement AxiomAudit`
+   --all-features --locked`; `cd proof/corpus && lake build Numeric.Engine.Dot AxiomAudit`
    (creation target). Grade: anchor — no per-instruction proof; stays `tested` at best until the
    refinement lands.
 4. **Cheaper `exp` on the fundamental domain.** File `src/numeric/fixed_exp.rs` (a shared `exp(r)` for
    arguments with equal `r`, or a lookup over the `ln2·ℤ` fundamental domain). License:
-   `fixed_exp_refines_proved` (proved, `proof/corpus/Numeric/Exp/Part4.lean`) for the present body; any
+   `fixed_exp_refines_proved` (proved, `proof/corpus/Numeric/Engine/Exp/Part4.lean`) for the present body; any
    replacement needs its own refinement before it can be called proved. Gate: `cargo test --workspace
-   --all-features --locked`; `cd proof/corpus && lake build Numeric.ExpRefinement AxiomAudit`. Control:
+   --all-features --locked`; `cd proof/corpus && lake build Numeric.Engine.Exp AxiomAudit`. Control:
    perturb the Horner coefficient → the refinement bound is red. Grade: proved (present body) / anchor
    (replacement).
 

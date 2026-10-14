@@ -159,7 +159,7 @@ The spinor-ttl and fold records measure parts of this path.
 - **Improvement hypotheses:**
   - an exact integer FWHT with one proved rounding, vs the fork's `log₂ n` float roundings;
   - ternary × integer activations as a multiplier-free inner product;
-  - `H_2 = channelPair 1` at `σ = 1` (`Numeric/Sylvester.lean`), which puts the rotation inside the
+  - `H_2 = channelPair 1` at `σ = 1` (`Numeric/Hadamard/Sylvester.lean`), which puts the rotation inside the
     hyperbolic face.
 - **Falsification:**
   1. Token parity: top-1 agreement with the fork below 99% on a fixed 256-prompt greedy set at equal

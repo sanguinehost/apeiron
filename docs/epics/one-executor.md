@@ -281,7 +281,7 @@ every existing import, declaration and audit command and keep the same default b
 |---|---|---|---|---|
 | APEIRON-INFERENCE-W1-T1 | `src/engine/mixer.rs`, `src/engine/mixer/tests.rs` | Luna heads | `cargo test --locked --lib engine::mixer::tests` | corrupt only the candidate coefficient; dual-traversal/scalar equality must fail |
 | APEIRON-INFERENCE-W1-T2 | `proof/corpus/AxiomAudit.lean`, `proof/corpus/AxiomAudit/{Core,Remaining}.lean` | Luna attention | `cd proof/corpus && lake build AxiomAudit` | forbidden-axiom sentinel must be rejected in a throwaway copy |
-| APEIRON-INFERENCE-W1-T3 | `proof/corpus/Numeric/Pow2Refinement.lean`, then root `proof/corpus/AxiomAudit.lean` after its factoring task | Luna pow2 for theorem, lead for final registration | `cd proof/corpus && lake build Numeric.Pow2Refinement AxiomAudit` | actual fraction-mask mutation plus regeneration must break the named exactness theorem; restore passes |
+| APEIRON-INFERENCE-W1-T3 | `proof/corpus/Numeric/Engine/Pow2.lean`, then root `proof/corpus/AxiomAudit.lean` after its factoring task | Luna pow2 for theorem, lead for final registration | `cd proof/corpus && lake build Numeric.Engine.Pow2 AxiomAudit` | actual fraction-mask mutation plus regeneration must break the named exactness theorem; restore passes |
 
 Tasks use separate worktrees from the committed plan; lead owns commits, merges and all shared
 build products. The proof writer may check its proposed file against freshly built main dependencies
@@ -316,7 +316,7 @@ still fail the retained scalar comparison. No performance improvement is claimed
 The Luna proof slice checks `word_f16_split_nonfinite` but reaches its 540-second stop with the
 finite joint pair/value theorem open. The new bounded question is that exact finite theorem, not
 activation scaling or final rounding. A fresh different-model Astra worker owns only
-`Numeric/Pow2Refinement.lean` in the existing task worktree for a 540-second slice. It uses the
+`Numeric/Engine/Pow2.lean` in the existing task worktree for a 540-second slice. It uses the
 same bounded, locked direct Lean development command and returns a checked proof or smallest
 remaining goal. A different-model verifier then reviews the resulting theorem; the lead registers
 and runs the named build plus actual source mutation control. This does not reset or excuse a gate

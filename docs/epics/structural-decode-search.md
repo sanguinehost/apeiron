@@ -89,7 +89,7 @@ Prefill-state baseline includes the archived diagnostic attn/mixer functions and
 SCOPE: this resumed plan; no production edit.
 REGISTER: planning; new proof, performance and integration acceptance excluded.
 CORPUS: Numeric.ColumnCover.split_ffn_exact: partition preserves one rounding of the exact whole integer sum for generic phi; read declaration, no new kernel run.
-REFERENCE: /home/socol/Workspace/apeiron/proof/corpus/Numeric/ColumnCover.lean and artifacts/structural-prefill-dispatch/evidence.tar.gz, read.
+REFERENCE: /home/socol/Workspace/apeiron/proof/corpus/Numeric/Matvec/ColumnCover.lean and artifacts/structural-prefill-dispatch/evidence.tar.gz, read.
 GATE: MISSING per prefill-state and benchmark setup; gate-first task preparation; eventual whole invocation540s.
 GRADE: planning/anchor; archived tests remain historical scoped receipts, new ratios unmeasured.
 
@@ -111,7 +111,7 @@ Source writer prepares the gate before implementation and requests the lead CPU 
 SCOPE: plan and one isolated cols.rs candidate, completion by actual focused receipt/control.
 REGISTER: representation/test/measurement; compiler, unsafe-container correctness, extraction, formal wrapper link and integration excluded.
 CORPUS: apeiron_word.rms_norm_refines_proved : rms_norm_refines; scalar theorem statement read, no fresh Lean check, no pooled/gain wrapper attribution.
-REFERENCE: /home/socol/Workspace/apeiron/proof/corpus/Numeric/EngineNormRefinement.lean:726 and src/engine/step/cols.rs:843, read.
+REFERENCE: /home/socol/Workspace/apeiron/proof/corpus/Numeric/Engine/Norm.lean:726 and src/engine/step/cols.rs:843, read.
 GATE: MISSING initially; gate-first task; timeout --kill-after=5 540 python3 /tmp/opencode/prefill-resume/norm-destination/gate.py.
 GRADE: untested/unmeasured before run; model pointer only for scalar norm.
 

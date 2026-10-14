@@ -35,11 +35,11 @@ requires.
 |---|---|---|---|---|---|
 | 1 | CL-T1 | `Nous/Combinator/Church.lean` | — | `lake build Nous.Combinator.Church` | drop the `S` in `W`'s term, or shift a numeral |
 | 1 | CL-T2 | `Nous/Combinator/ListHom.lean` | — | `lake build Nous.Combinator.ListHom` | weaken the homomorphism hypothesis, or mutate a witness |
-| 2 | CL-T3 | `Nous/Combinator/Orbit.lean` | CL-T1, `Numeric/RopeTurns.lean` | `lake build Nous.Combinator.Orbit` | off-by-one in the ring period |
+| 2 | CL-T3 | `Nous/Combinator/Orbit.lean` | CL-T1, `Numeric/Rope/Turns.lean` | `lake build Nous.Combinator.Orbit` | off-by-one in the ring period |
 | 2 | CL-T4 | dropped | — | — | — |
 | 2 | CL-T5 | `Nous/Combinator/DoubleCover.lean` | CL-T1 | `lake build Nous.Combinator.DoubleCover` | drop `−z` from the fibre |
 
-CL-T4 (Hadamard as `church k` of the doubling step) is dropped: the Hadamard map is off the decode path on both models, and the link licenses no schedule or byte saving. Status: CL-T1, CL-T2 and `Numeric/RopeTurns.lean` are registered in `AxiomAudit.lean` (build exit 0, 9063 jobs).
+CL-T4 (Hadamard as `church k` of the doubling step) is dropped: the Hadamard map is off the decode path on both models, and the link licenses no schedule or byte saving. Status: CL-T1, CL-T2 and `Numeric/Rope/Turns.lean` are registered in `AxiomAudit.lean` (build exit 0, 9063 jobs).
 
 Worker: `gemini-flash` (AGENTS §9.1). The lead registers each module's headlines in `AxiomAudit.lean`
 and rebuilds it at the wave barrier.

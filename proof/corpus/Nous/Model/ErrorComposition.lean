@@ -4,7 +4,7 @@
 The verified numeric kernels of `Numeric/` each carry a per-operation relative error bound
 (`apeiron_word.epsExp = 2^-20`, `apeiron_word.epsHorner = 2*10^-7`,
 `apeiron_word.trig_floor = 2^-20` in `Numeric.Scale`, `Numeric.ExpRefinement`,
-`Numeric.RopeRefinement`). A token passes through many such operations in sequence, so the
+`Numeric.Rope.Refinement`). A token passes through many such operations in sequence, so the
 per-operation budgets do not by themselves bound the token-level error. This module supplies the
 missing composition step: an abstract, engine-independent layer contract, its `N`-fold
 accumulation and the margin predicate lemma that turns the accumulated budget into a decision
@@ -54,9 +54,9 @@ extracted word denotation or the accuracy of any sampled output.
 import Mathlib.Analysis.Normed.Group.Basic
 import Mathlib.Tactic
 import Numeric.Scale
-import Numeric.ExpRefinement
-import Numeric.RopeRefinement
-import Numeric.EngineNormRefinement
+import Numeric.Engine.Exp
+import Numeric.Rope.Refinement
+import Numeric.Engine.Norm
 
 namespace Nous.Model
 

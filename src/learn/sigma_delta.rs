@@ -17,7 +17,7 @@
 #![allow(
     clippy::many_single_char_names,
     reason = "the sigma-delta block carries the error state `e`, the scale `a`, the step index `t` \
-              and the block length `n` of the recurrence restated in `Numeric/SigmaDelta.lean`; the \
+              and the block length `n` of the recurrence restated in `Numeric/OneBit/SigmaDelta.lean`; the \
               pedantic lints stay on for the rest of the crate."
 )]
 

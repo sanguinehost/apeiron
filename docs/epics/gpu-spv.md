@@ -193,7 +193,7 @@ CORPUS:     proof/corpus/WordRefinement.lean word_mul_denote/word_norm_denote (t
             proof/corpus/Nous/Model/Memory.lean memoryStep;
             proof/corpus/Substrate/Algebra/Neural/AttentionSpinor.lean attention_is_spinor_scan,
             softmax_attention_is_online_spinor, so2_spinor_recurrence;
-            proof/corpus/Numeric/ExpRefinement.lean fixed_exp_refines (refinement pattern);
+            proof/corpus/Numeric/Engine/Exp.lean fixed_exp_refines (refinement pattern);
             proof/corpus/AxiomAudit.lean closed cone {propext, Classical.choice, Quot.sound};
             primary source /tmp/opencode/toolchain-spike-spirv-subset.md (spike, no repository file)
 REFERENCE:  /tmp/opencode/toolchain-spike-spirv-subset.md §1.1-1.3, §2, §4, §5.3, §6;
@@ -334,7 +334,7 @@ target. Likewise `checkFragment_sound` is a target: only the header leg
 The shared spec `dp4a_gemv_spec (face : Face) (M K segs : Nat) (c : Carrier) (scale : ScaleFace)
 (W XQ : Array (ZMod (2^32))) …` is the same face-parameterized instance of the canonical
 `RingCell`/`ringMul`/`ringNormForm` object that both lanes refine; the CPU-side link (Rust CPU body ⊑
-`dp4a_gemv_spec face` via Aeneas, in the style of `proof/corpus/Numeric/ExpRefinement.lean`) and this
+`dp4a_gemv_spec face` via Aeneas, in the style of `proof/corpus/Numeric/Engine/Exp.lean`) and this
 GPU-side link **compose by transitivity of refinement**, not by a second correspondence. Block
 accumulation and host-side split-K are the same fold: `token_step_fold`
 (`proof/corpus/Nous/Model/State.lean`) is `ringMul_assoc` over `ringMul`, and the memory step is
@@ -687,7 +687,7 @@ Run at the wave barrier, not before:
 ### Sequencing and cost
 
 - The shared integer spec `dp4a_gemv_spec` is fixed before W3-T2; the CPU-side refinement
-  (`proof/corpus/Numeric/ExpRefinement.lean` pattern) and the GPU-side refinement compose by
+  (`proof/corpus/Numeric/Engine/Exp.lean` pattern) and the GPU-side refinement compose by
   transitivity.
 - The shared spec is the face-parameterized instance of the canonical
   `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` object; `word_mul_denote`/

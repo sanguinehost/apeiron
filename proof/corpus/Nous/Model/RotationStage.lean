@@ -33,7 +33,7 @@ The axiom cone is `{propext, Classical.choice, Quot.sound}`; no `sorry`, `axiom`
 `decide` over an extracted body appears.
 -/
 import Nous.Model.BlockComposition
-import Numeric.Sylvester
+import Numeric.Hadamard.Sylvester
 
 set_option linter.apeiron.notation false
 set_option linter.apeiron.citation false

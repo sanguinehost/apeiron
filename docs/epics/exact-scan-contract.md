@@ -79,7 +79,7 @@ and, on the same host, `examples/engine_profile` pp200/tg64 with `APEIRON_EXACT_
 | The chunk-boundary rounding error is bounded and does not grow with length | proved | `Nous.Seq.ChunkedRounding.chunked_discrepancy_uniform_bound` (ChunkedRounding.lean:91), `witness_delta_net_100_lsb` (:109), `#audit` Remaining.lean:1029–1034 |
 | The chunk kernel returns the composed step's state and refuses on width | tested | `cargo test --locked --lib engine::mixer::tests` |
 | Online `(m, den, num)` attention is exact softmax | proved (sibling package) | `Substrate.Algebra.Neural.softmax_attention_is_online_spinor`, `oaDen_fuse`, `oaNum_fuse`, `aff_chunked_eq_full` (`../sanguine-ref/proof/Substrate/Algebra/Neural/AttentionSpinor.lean:462,419,424,681`) |
-| The fixed-point attention epilogue matches `attention_channel_form` on `attn_domain` | anchor → proved | `Numeric/EngineAttnRefinement.lean` (`attnScoreInt`, `numeratorReal`, `softmaxWeights`), `Numeric/AttnSoftmaxPerturb.lean:320 attn_output_perturb`; the naive statement is refuted at `not_attn_head_refines` (:92) |
+| The fixed-point attention epilogue matches `attention_channel_form` on `attn_domain` | anchor → proved | `Numeric/Engine/Attn.lean` (`attnScoreInt`, `numeratorReal`, `softmaxWeights`), `Numeric/Attn/SoftmaxPerturb.lean:320 attn_output_perturb`; the naive statement is refuted at `not_attn_head_refines` (:92) |
 | Prefill ratio ≥ 1.00 vs llama.cpp at pp200 | measured | `examples/engine_profile` + `llama-bench`, i9-14900KF, median paired ratio over 5 quiet rounds |
 | Greedy argmax equals llama.cpp at every pp200+tg64 position; max per-logit difference ≤ 256 LSB (1 LSB = 2⁻³²) | tested | oracle test in `src/engine/tests.rs`; the 256 LSB constant is `anchor` until W1-T1 fixes it from the proved bound |
 
@@ -142,7 +142,7 @@ No silent domain reduction: an out-of-domain input is a named refusal, never a c
 | Refinement theorem | `word_delta_head_chunk_denote` (new) | `proof/corpus/Numeric/ExactScanRefinement.lean` (new), registered in `proof/corpus/WordRefinement.lean` |
 | Attention canonical, ring | `channelAttnScan`, `attention_channel_form` | `proof/corpus/Nous/Model/Attention.lean` |
 | Attention canonical, online | `oaFuse`, `oaDen_fuse`, `oaNum_fuse`, `softmax_attention_is_online_spinor` | `../sanguine-ref/proof/Substrate/Algebra/Neural/AttentionSpinor.lean` |
-| Attention fixed point | `attnScoreInt`, `numeratorReal`, `softmaxWeights`, `denseAttnReal`, `attn_domain` | `proof/corpus/Numeric/EngineAttnRefinement.lean` |
+| Attention fixed point | `attnScoreInt`, `numeratorReal`, `softmaxWeights`, `denseAttnReal`, `attn_domain` | `proof/corpus/Numeric/Engine/Attn.lean` |
 
 The wrapper fixes a type; it does not restate the formula. The refinement theorem is a link only if
 it resolves and the axiom audit passes.

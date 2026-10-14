@@ -81,8 +81,8 @@ proved one.
 
 | structure | decomposition | where it pays | exactness |
 |---|---|---|---|
-| **reduction over a cover** | an integer sum over any partition equals the sum of its partial sums. Threads, tiles, k columns and split-K are all covers of one index set (`fold` `Web.preduceAt_schedule_free`; `Numeric/MatvecChunk.lean` `matvec_fixed_chunks`) | any schedule, any batch shape, any fusion | associativity of ℤ addition |
-| **fiber over block scales** | `w = d·q + lo`: the integer core on the small-code fiber, lifted once per block (`chart_factor`, proved) | the i32 `maddubs`/DP4A core with one i128 lift per block (W2) | `Numeric/ChartDot.lean` |
+| **reduction over a cover** | an integer sum over any partition equals the sum of its partial sums. Threads, tiles, k columns and split-K are all covers of one index set (`fold` `Web.preduceAt_schedule_free`; `Numeric/Matvec/Chunk.lean` `matvec_fixed_chunks`) | any schedule, any batch shape, any fusion | associativity of ℤ addition |
+| **fiber over block scales** | `w = d·q + lo`: the integer core on the small-code fiber, lifted once per block (`chart_factor`, proved) | the i32 `maddubs`/DP4A core with one i128 lift per block (W2) | `Numeric/Matvec/ChartDot.lean` |
 | **finite alphabet → table (L6)** | a k-bit code is `Σ_b 2^b·bit_b` (bit planes). For a group of g activations, precompute all 2^g signed partial sums once per token, shared by every output row; each weight group then costs one lookup per plane instead of g multiply-adds (T-MAC, Wei et al., arXiv `2407.00088`; bitnet.cpp lookup-table kernels; pointers, not yet retrieved) | ternary/1–2-bit weights (TQ1_0/TQ2_0/Q1_0/Q2_0, already proved decoders) where multiply-adds, not bytes, bound the row | a finite sum evaluated by cases; the table entry equals the sum it caches |
 | **fixed point in time (L2b)** | greedy decoding is the fixed point of the map `x_{t+1} = argmax f(x_≤t)`. Jacobi iteration updates a whole window at once, and each iteration makes at least one more prefix token final, so it reaches the exact greedy window in ≤ k passes (Jacobi / lookahead decoding, Santilli et al. 2023, Fu et al. 2024; pointers) | with L1, each iteration is one weight pass for k positions: speculation without a draft model | induction on position; the fixed point equals sequential greedy |
 | **lookup as the draft (L2a)** | a context-suffix n-gram → continuation map stored in the proved `Apeiron.Table` (O(1) get/insert); drafts cost no weight bytes | spec decode on repetitive text, code and tool traces; the product's "learns by lookup" | verification makes draft quality affect speed only |
@@ -151,7 +151,7 @@ In floating point this changes results with the thread count, which is why float
 barriers. Here it is bit-identical by construction:
 - the row accumulator is an exact `i128` with one `round_shift_32` (`src/engine/chart/mod.rs:1378`), so partial sums
   over any column cover add exactly;
-- the activation quantizer is per 32-block (`Numeric/ChartDot.lean` `quantBlock`), so a slice aligned to the block
+- the activation quantizer is per 32-block (`Numeric/Matvec/ChartDot.lean` `quantBlock`), so a slice aligned to the block
   grid quantizes locally;
 - SwiGLU is elementwise.
 
@@ -180,7 +180,7 @@ barrier model is wrong.
 
 | task | files | gate | control |
 |---|---|---|---|
-| L8-T1 Lean: column cover, quantizer locality, FFN composition | `proof/corpus/Numeric/ColumnCover.lean` (new) | `lake build Numeric.ColumnCover` | drop one slice from the cover → red |
+| L8-T1 Lean: column cover, quantizer locality, FFN composition | `proof/corpus/Numeric/Matvec/ColumnCover.lean` (new) | `lake build Numeric.Matvec.ColumnCover` | drop one slice from the cover → red |
 | L8-T2 `ffn_tp` for chart types, one dispatch + reduction; FFN timing vs `ffn_q8act_prepared` on Qwen shapes | `src/engine/kern/tp.rs` (new), `src/engine/kern/mod.rs`, `src/engine/chart/mod.rs` (a partial-row `i128` accumulator over a block range) | `cargo test` equality on every family + ignored timing test | offset one slice's column base → red |
 | L8-T3 step integration, attention by head, reduction fused with residual + RMSNorm | `step.rs`, `step/tests.rs`, `chart/ffn.rs` | ids equal on both models; tok/s | — |
 | L8-T4 PQ2_0 partial rows (Bonsai), E-core speed-weighted split | `kern/lut.rs`, `chart/pool.rs` | as above | — |
@@ -215,7 +215,7 @@ reduction. Turns are one: a frequency stored as a `u64` fraction of a turn makes
   Then `|r| ≤ π·2^32 + 1`, so `fixed_sin_cos(r)` never refuses. The rotation of the pair is as before.
 - Rust function `turn_to_radians(phase: u64) -> i64` in `src/numeric/fixed_trig.rs` (already extracted by
   `#[path]`), total.
-- The Lean spec `Numeric/RopeTurns.lean` covers: `phase_add` (homomorphism), the lift's range and
+- The Lean spec `Numeric/Rope/Turns.lean` covers: `phase_add` (homomorphism), the lift's range and
   congruence, `turn_to_radians_window`, `turn_angle_error` (real statement with `Real.pi_gt_d20` and
   `pi_lt_d20`), and a `#guard` witness.
 
@@ -223,7 +223,7 @@ reduction. Turns are one: a frequency stored as a `u64` fraction of a turn makes
 
 | task | files (owner) | gate | control | grade |
 |---|---|---|---|---|
-| L9-T1 | `proof/corpus/Numeric/RopeTurns.lean` (new) | `lake build Numeric.RopeTurns` | break the lift (`< 2^63` → `≤ 2^63`), or mutate a witness | proved (spec) |
+| L9-T1 | `proof/corpus/Numeric/Rope/Turns.lean` (new) | `lake build Numeric.Rope.Turns` | break the lift (`< 2^63` → `≤ 2^63`), or mutate a witness | proved (spec) |
 | L9-T2 | `src/numeric/fixed_trig.rs`, `src/engine/rope.rs`, `src/engine/tests.rs` | `cargo test`; extraction in a copy exits 0 | drop the `mod 2^64` mask, or the rounding bias | tested |
 | L9-T3 | `proof/ApeironWord.lean` (regen), the RoPE refinement modules | `proof/regen.sh --check`, `lake build` of the RoPE modules | per module | proved (Rust link) |
 

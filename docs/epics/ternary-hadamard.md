@@ -73,7 +73,7 @@ Scratch notes: `/home/socol/oc-tmp/spike-prism/FINDINGS.md`.
 | Treat the rotation as a dense `n × n` matmul | O(n²) per block instead of O(n log n). It also hides the Sylvester structure the proof uses. |
 | Dequantize to Q8_0 at load | Doubles to quadruples resident weight memory. That defeats the consumer-device purpose of 1.75–2.25 bits per weight. |
 
-### The algebraic reading (proved: `Numeric/Sylvester.lean`)
+### The algebraic reading (proved: `Numeric/Hadamard/Sylvester.lean`)
 
 The Sylvester Hadamard matrix is `H_{2^k} = H_2^{⊗k}` with `H_2 = [[1, 1], [1, −1]]`.
 
@@ -221,8 +221,8 @@ folded; the matmul path applies `fwht_fixed` to the activation before them.
 | Production Rust | `dequant_<t>_row`, `fwht_fixed` | `src/engine/dequant.rs`, `src/engine/hadamard.rs` |
 | Extraction wrapper | `word_fwht_fixed` (the dequant arms are reached through the existing `dequant_row_fixed` root) | `proof/extract/lib.rs` |
 | Extracted body | `dequant.dequant_<t>_row`, `hadamard.fwht_fixed` | `proof/ApeironWord.lean` (generated) |
-| Canonical definition | `dequantVals`; `sylvesterH k : Matrix (Fin 2^k) (Fin 2^k) ℤ`; `channelPair` | `proof/corpus/Numeric/DequantRefinement.lean`; new `Numeric/Sylvester.lean`; `Nous/Model/Decomposition.lean` |
-| Refinement theorem | `dequant_<t>_row_spec`; `fwht_int_spec`; `fwht_fixed_refines` | new `Numeric/Dequant<T>.lean`, `Numeric/HadamardRefinement.lean` |
+| Canonical definition | `dequantVals`; `sylvesterH k : Matrix (Fin 2^k) (Fin 2^k) ℤ`; `channelPair` | `proof/corpus/Numeric/Dequant/Refinement.lean`; new `Numeric/Hadamard/Sylvester.lean`; `Nous/Model/Decomposition.lean` |
+| Refinement theorem | `dequant_<t>_row_spec`; `fwht_int_spec`; `fwht_fixed_refines` | new `Numeric/Dequant<T>.lean`, `Numeric/Hadamard/Refinement.lean` |
 
 ### Contracts
 
@@ -320,11 +320,11 @@ before the quiet-host session.
 | W2 | T1 extraction | `proof/extract/lib.rs`, `proof/ApeironWord.lean` (generated) | lead | `proof/regen.sh` then `proof/regen.sh --check` | none (identity gate); `regen.sh` audits `axiom`/`sorry` |
 | W3 | T1 `Q1_0` row law | `proof/corpus/Numeric/DequantQ1_0.lean` | worker | `lake build Numeric.DequantQ1_0` | `bit ? −d : d` → red |
 | W3 | T2 `Q2_0` + `PQ2_0` | `Numeric/DequantQ2_0.lean` | worker | `lake build Numeric.DequantQ2_0` | `code − 2` → red |
-| W3 | T3 `TQ2_0` | `Numeric/DequantTQ2_0.lean` | worker | `lake build Numeric.DequantTQ2_0` | out index `32l + m` → `l + 4m` → red |
-| W3 | T4 trit decode, `TQ1_0`, `PTQ1_0` | `Numeric/DequantTQ1_0.lean` | worker | `lake build Numeric.DequantTQ1_0` | swap stages `[32,16]` → red |
-| W3 | T5 Sylvester algebra | `Numeric/Sylvester.lean` | worker | `lake build Numeric.Sylvester` | `H_2 = [[1,1],[1,1]]` → `sylvester_mul_self` red |
-| W3 | T6 FWHT refinement | `Numeric/HadamardRefinement.lean` | worker | `lake build Numeric.HadamardRefinement` | `c` for `k+1` → `fwht_fixed_refines` red |
-| W3 | T7 refusal equalities | `Numeric/DequantLowBitRefusals.lean` | worker | `lake build Numeric.DequantLowBitRefusals` | wrong variant → red |
+| W3 | T3 `TQ2_0` | `Numeric/Dequant/TQ2_0.lean` | worker | `lake build Numeric.Dequant.TQ2_0` | out index `32l + m` → `l + 4m` → red |
+| W3 | T4 trit decode, `TQ1_0`, `PTQ1_0` | `Numeric/Dequant/TQ1_0.lean` | worker | `lake build Numeric.Dequant.TQ1_0` | swap stages `[32,16]` → red |
+| W3 | T5 Sylvester algebra | `Numeric/Hadamard/Sylvester.lean` | worker | `lake build Numeric.Hadamard.Sylvester` | `H_2 = [[1,1],[1,1]]` → `sylvester_mul_self` red |
+| W3 | T6 FWHT refinement | `Numeric/Hadamard/Refinement.lean` | worker | `lake build Numeric.Hadamard.Refinement` | `c` for `k+1` → `fwht_fixed_refines` red |
+| W3 | T7 refusal equalities | `Numeric/Dequant/LowBitRefusals.lean` | worker | `lake build Numeric.Dequant.LowBitRefusals` | wrong variant → red |
 | W4 | T1 loader metadata | `src/engine/loader.rs`, `src/engine/tests.rs` | worker | `cargo test … loader` | accept `sign_mode = "bogus"` → refusal test red |
 | W4 | T2 folded matmul path | `src/engine/matvec.rs` or `step.rs` | worker | `cargo test … hadamard_fold` | skip the transform → parity test red |
 | W4 | T3 rotation stage | `Nous/Model/RotationStage.lean` | worker | `lake build Nous.Model.RotationStage` | `L := 1` in the ℓ∞ norm (true constant `√n`) → red |
@@ -429,7 +429,7 @@ that reads it.
 
 | face | unit group over ℤ | one-bit reading | grade |
 |---|---|---|---|
-| hyperbolic `σ = 1` | `{±1, ±j}` ≅ `ℤ/2 × ℤ/2` | In channel coordinates `channelPair 1 z = (z₁ + z₂, z₁ − z₂)`, a unit is an independent sign on each idempotent channel. The one-bit neuron is a sign per channel. `H_1 = channelPair 1`: `sylvester_one_channelPair` (`Numeric/Sylvester.lean`). | channel link proved; unit action to prove (W6-T1) |
+| hyperbolic `σ = 1` | `{±1, ±j}` ≅ `ℤ/2 × ℤ/2` | In channel coordinates `channelPair 1 z = (z₁ + z₂, z₁ − z₂)`, a unit is an independent sign on each idempotent channel. The one-bit neuron is a sign per channel. `H_1 = channelPair 1`: `sylvester_one_channelPair` (`Numeric/Hadamard/Sylvester.lean`). | channel link proved; unit action to prove (W6-T1) |
 | elliptic `σ = −1` | `{±1, ±i}` ≅ `ℤ/4` | A quarter-turn phase. There are no nontrivial idempotents (`idempotent_iff_trivial_of_disc_nonpos`, `../sanguine/proof/Apeiron/Trichotomy/Idempotents.lean:307`), so the 2-bit phase does not split into two one-bit channels over ℤ. | to prove (W6-T1) |
 | parabolic `σ = 0` | `±1 + bε` (infinite) | Sign plus a nilpotent first-order term: the straight-through derivative carried by dual numbers (Clifford 1873). | model |
 
@@ -532,10 +532,10 @@ is 4864 = 38 × 128.
 
 | wave | task | files (owner) | gate | control |
 |---|---|---|---|---|
-| W6 | T1 units | `Numeric/OneBitUnits.lean` (DeepSeek) | `lake build Numeric.OneBitUnits` | flipped sign red |
-| W6 | T2 planes | `Numeric/SignPlanes.lean` (DeepSeek) | `lake build Numeric.SignPlanes` | flipped plane sign red |
-| W6 | T3 sigma-delta + shaping | `Numeric/SigmaDelta.lean` (Sonnet subagent) | `lake build Numeric.SigmaDelta` | no-feedback quantizer red |
-| W6 | T4 hidden permutation | `Numeric/HiddenPerm.lean` (DeepSeek, after T1/T2 return) | `lake build Numeric.HiddenPerm` | unpermuted gain red |
+| W6 | T1 units | `Numeric/OneBit/Units.lean` (DeepSeek) | `lake build Numeric.OneBit.Units` | flipped sign red |
+| W6 | T2 planes | `Numeric/OneBit/SignPlanes.lean` (DeepSeek) | `lake build Numeric.OneBit.SignPlanes` | flipped plane sign red |
+| W6 | T3 sigma-delta + shaping | `Numeric/OneBit/SigmaDelta.lean` (Sonnet subagent) | `lake build Numeric.OneBit.SigmaDelta` | no-feedback quantizer red |
+| W6 | T4 hidden permutation | `Numeric/Hadamard/HiddenPerm.lean` (DeepSeek, after T1/T2 return) | `lake build Numeric.Hadamard.HiddenPerm` | unpermuted gain red |
 | W7 | arms + measurement | `src/learn/onebit.rs`, `examples/onebit_diag.rs`, `tests/learn_onebit.rs` (DeepSeek) | `cargo test --release --locked --test learn_onebit`; `onebit_diag` table | the three W7 controls |
 | W8 | refinement | extraction root `sd_binary_row` → `Numeric/SigmaDelta` | `proof/regen.sh --check`; `lake build` | mutated body red |
 | W9 | whole model | `Q1_0` writer + paired KLD vs f16, `IQ1_S`, `IQ1_M`, `Q4_K_M` | `llama-perplexity` paired KLD | identical-weights KLD = 0 |
@@ -585,7 +585,7 @@ Qwen2.5-0.5B `ffn_down`, blocks 0–3 of 24, every arm at 1.125 b/w. Grade `test
 
 - Executed body: `src/learn/sigma_delta.rs` `sd_binary_block`, checked `i64`. Shape mismatch or overflow returns
   `None`; `sd1_row` panics on `None`. It is extracted by `#[path]` through `proof/extract/lib.rs` `word_sd_binary_block`.
-- `proof/corpus/Numeric/SigmaDeltaRefinement.lean` (proved, cone `{propext, Classical.choice, Quot.sound}`):
+- `proof/corpus/Numeric/OneBit/SigmaDeltaRefinement.lean` (proved, cone `{propext, Classical.choice, Quot.sound}`):
   - `sd_step_spec`
   - `sd_loop_spec`
   - `sd_binary_block_shape`

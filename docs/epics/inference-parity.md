@@ -142,7 +142,7 @@ CORPUS:     Mathlib v4.31.0 Real.exp_bound, Complex.exp_bound, Real.sin_bound, R
 REFERENCE:  /tmp/opencode/toolchain-spike-integer-transcendentals.md,
             /tmp/opencode/fold-engine-inventory.md,
             /home/socol/Workspace/fold/results/{vs-llamacpp.md,vs-llamacpp-27b.md,h2h-8b-at-the-served-carrier.md}
-GATE:       proof/regen.sh --check; lake build Numeric.ExpRefinement AxiomAudit (lane lock, timeout 540);
+GATE:       proof/regen.sh --check; lake build Numeric.Engine.Exp AxiomAudit (lane lock, timeout 540);
             budgets per §10
 GRADE:      proved for refinements; tested for the differential harness; measured for the comparison
 ```
@@ -170,7 +170,7 @@ under `proof/corpus/Numeric/`.
 | Production Rust | `fixed_exp` | `src/numeric/fixed_exp.rs` |
 | Extraction wrapper | real body, no restatement | `proof/extract/lib.rs` (`#[path]`) |
 | Extracted body | `fixed_exp` | `proof/ApeironWord.lean` (generated) |
-| Real specification | `expRef` | `proof/corpus/Numeric/ExpRefinement.lean` |
+| Real specification | `expRef` | `proof/corpus/Numeric/Engine/Exp.lean` |
 | Refinement theorem | `fixed_exp_refines` | same |
 
 Adding numeric roots **regenerates `proof/ApeironWord.lean`**, moving the identity from
@@ -206,7 +206,7 @@ unconditional token theorem — the decision carries a runtime margin.
 
 1. **Positive tests:** `#guard` differential tables per function against exact rational/real
    evaluations; the engine-wave `gpugate` harness.
-2. **Proof:** `proof/regen.sh --check`; `lake build Numeric.ExpRefinement AxiomAudit` under the lane
+2. **Proof:** `proof/regen.sh --check`; `lake build Numeric.Engine.Exp AxiomAudit` under the lane
    lock, `timeout 540`.
 3. **Axiom cone:** every headline registered in `proof/corpus/AxiomAudit.lean`; closed cone
    `{propext, Classical.choice, Quot.sound}`.
@@ -245,7 +245,7 @@ recorded llama.cpp comparison on the RTX 5080. Barrier commands:
 
 ```sh
 proof/regen.sh --check
-cd proof/corpus && flock -w 600 /tmp/opencode/apeiron-lane.lock timeout 540 bash -c 'LEAN_NUM_THREADS=1 lake build Numeric.ExpRefinement Numeric.RsqrtRefinement Numeric.RopeRefinement AxiomAudit'
+cd proof/corpus && flock -w 600 /tmp/opencode/apeiron-lane.lock timeout 540 bash -c 'LEAN_NUM_THREADS=1 lake build Numeric.Engine.Exp Numeric.Engine.Rsqrt Numeric.Rope.Refinement AxiomAudit'
 cargo test --workspace --all-features --locked
 ```
 
@@ -263,11 +263,11 @@ cargo test --workspace --all-features --locked
 |---|---|---|---|---|---|
 | W1 | fixed-point `exp` Rust implementation (precursor) | `src/numeric/mod.rs`, `src/numeric/fixed_exp.rs`, `src/lib.rs` | gemini-flash | `cargo test --workspace --all-features --locked`; clippy; fmt | perturb one Taylor coefficient -> unit test red |
 | W1 | fixed-point `rsqrt` Rust implementation (precursor) | `src/numeric/mod.rs`, `src/numeric/fixed_rsqrt.rs` | deepseek-flash | cargo trio; live extraction audit `NO_AXIOMS` | perturb a rounding constant -> unit test red |
-| W1 | fixed-point `exp` refinement | `src/numeric/fixed_exp.rs`, `proof/extract/lib.rs`, `proof/corpus/Numeric/ExpRefinement.lean` | gemini-flash | `regen.sh --check`; `lake build Numeric.ExpRefinement AxiomAudit` | perturb one coefficient -> bound goal unsolved |
-| W1 | fixed-point `rsqrt` refinement | `src/numeric/fixed_rsqrt.rs`, `proof/extract/lib.rs`, `proof/corpus/Numeric/RsqrtRefinement.lean` | deepseek-flash | `regen.sh --check`; `lake build Numeric.RsqrtRefinement AxiomAudit` | drop the division step -> bound red |
-| W2 | RoPE reduction + `sin`/`cos` (Q32) | `src/numeric/fixed_trig.rs`, `proof/extract/lib.rs`, `proof/corpus/Numeric/RopeRefinement.lean` | gemini-flash | `regen.sh --check`; `lake build Numeric.RopeRefinement AxiomAudit` | wrong reduction quadrant -> bound red |
+| W1 | fixed-point `exp` refinement | `src/numeric/fixed_exp.rs`, `proof/extract/lib.rs`, `proof/corpus/Numeric/Engine/Exp.lean` | gemini-flash | `regen.sh --check`; `lake build Numeric.Engine.Exp AxiomAudit` | perturb one coefficient -> bound goal unsolved |
+| W1 | fixed-point `rsqrt` refinement | `src/numeric/fixed_rsqrt.rs`, `proof/extract/lib.rs`, `proof/corpus/Numeric/Engine/Rsqrt.lean` | deepseek-flash | `regen.sh --check`; `lake build Numeric.Engine.Rsqrt AxiomAudit` | drop the division step -> bound red |
+| W2 | RoPE reduction + `sin`/`cos` (Q32) | `src/numeric/fixed_trig.rs`, `proof/extract/lib.rs`, `proof/corpus/Numeric/Rope/Refinement.lean` | gemini-flash | `regen.sh --check`; `lake build Numeric.Rope.Refinement AxiomAudit` | wrong reduction quadrant -> bound red |
 | W2 | extraction identity barrier (lead) | `proof/ApeironWord.lean` (regenerated), `AxiomAudit.lean` | lead | `regen.sh --check`; bare `lake build`; `lake build AxiomAudit` | n/a — barrier |
-| W3 | GGUF parser + quant unpack extraction | `src/format/gguf.rs`, `src/format/quant.rs`, `proof/extract/lib.rs` | gemini-flash | `regen.sh --check`; `lake build Numeric.FormatRefinement` | corrupt length field -> refusal proof red |
+| W3 | GGUF parser + quant unpack extraction | `src/format/gguf.rs`, `src/format/quant.rs`, `proof/extract/lib.rs` | gemini-flash | `regen.sh --check`; `lake build Numeric.Packing.Format` | corrupt length field -> refusal proof red |
 | W3 | BPE tokenizer extraction | `src/format/bpe.rs`, new Lean module | deepseek-flash | `regen.sh --check`; module gate | byte-boundary mutation -> red |
 | W4 | engine port + integer kernels + harness | ported `fold` subset under `src/engine/`, harness bin | lead + workers | `lake build`; harness differential gate | layer-order mutation -> `gpugate` mismatch |
 | W4 | comparison receipts | none (measurement) | lead | named machine/metric/interval protocol | n/a — measurement |
@@ -309,13 +309,13 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
 - **Scope:** fixed-point `exp` via range reduction and Horner Taylor (spike: degree 6 reaches
   ~1e-8 relative), extracted through Charon/Aeneas, with `fixed_exp_refines` bounding the relative
   error against `Real.exp` on a documented window; refusal outside it. No float path.
-- **Files:** `src/numeric/fixed_exp.rs`, `proof/extract/lib.rs`, `proof/regen.sh`, `proof/corpus/Numeric/ExpRefinement.lean`
+- **Files:** `src/numeric/fixed_exp.rs`, `proof/extract/lib.rs`, `proof/regen.sh`, `proof/corpus/Numeric/Engine/Exp.lean`
 - **Depends on:** W1-T0, W1-T0B
 - **Integration note:** `proof/regen.sh` carries the source-digest entry and the `--start-from
   crate::word_fixed_exp` root. It was an undeclared fourth file in the W1-T1 slice; the lead
   reviewed and accepted it (additive registration only, audit logic untouched).
 - **Grade:** proved
-- **Gate:** `proof/regen.sh --check`; then `cd proof/corpus && flock -w 600 /tmp/opencode/apeiron-lane.lock timeout 540 bash -c 'LEAN_NUM_THREADS=1 lake build Numeric.ExpRefinement AxiomAudit'`
+- **Gate:** `proof/regen.sh --check`; then `cd proof/corpus && flock -w 600 /tmp/opencode/apeiron-lane.lock timeout 540 bash -c 'LEAN_NUM_THREADS=1 lake build Numeric.Engine.Exp AxiomAudit'`
 - **Negative control:** in a throwaway copy, perturb one Taylor coefficient; the bound goal must be
   unsolved with an attributable diagnostic; restore green. Logs named in the receipt.
 - **Evidence to record:** Rust and Lean sha256, regenerated `ApeironWord.lean` digest, gate exits,
@@ -326,10 +326,10 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
 
 - **Scope:** fixed-point `rsqrt` from `Nat.sqrt` plus one division (spike: cheapest to tighten),
   extracted, with a proved relative bound and refusal outside the window.
-- **Files:** `proof/corpus/Numeric/RsqrtRefinement.lean`
+- **Files:** `proof/corpus/Numeric/Engine/Rsqrt.lean`
 - **Depends on:** W1-T1B, W1-T2A (extraction wired by the lead batch)
 - **Grade:** proved
-- **Gate:** `lake build Numeric.RsqrtRefinement AxiomAudit`
+- **Gate:** `lake build Numeric.Engine.Rsqrt AxiomAudit`
 - **Negative control:** drop the division step in a copy -> bound goal red; restore green.
 - **Evidence to record:** digests, gate exits, control receipts, `ε_rsqrt`, elapsed.
 
@@ -338,10 +338,10 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
 - **Scope:** argument reduction to a Q32 quadrant plus Taylor `sin`/`cos`, extracted, with the
   reduction exactness lemma and the trig bounds from `Real.sin_bound`/`Real.cos_bound`; position range
   documented (Q32 first).
-- **Files:** `proof/corpus/Numeric/RopeRefinement.lean`
+- **Files:** `proof/corpus/Numeric/Rope/Refinement.lean`
 - **Depends on:** W2-T1A (extraction wired by the lead batch)
 - **Grade:** proved
-- **Gate:** `lake build Numeric.RopeRefinement AxiomAudit`
+- **Gate:** `lake build Numeric.Rope.Refinement AxiomAudit`
 - **Negative control:** wrong reduction quadrant -> bound red; restore green.
 - **Evidence to record:** digests, gate exits, control receipts, the reduction lemma and bounds,
   position window, elapsed.
@@ -410,11 +410,11 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `word_fixed_rsqrt` is W1-T2's step.
 - W1-T1 lead setup (before dispatch): `proof/corpus/lakefile.lean`
   `d66a71cc18e7cb5f560916866ab6f5da9bea06eae28508ef5bc20f9fd86d18b6` adds `lean_lib Numeric`
-  (`globs := #[.submodules `Numeric]`); `proof/corpus/Numeric/ExpRefinement.lean` skeleton
+  (`globs := #[.submodules `Numeric]`); `proof/corpus/Numeric/Engine/Exp.lean` skeleton
   `ba1ad45a0756e0ccf995cdd3bfe425a1db2731eda59975971d61ff22993b6370`; `AxiomAudit.lean`
   `318de34046c894cf8554af02a964df053b8b50150e203d810b48bf335eefd870` imports the module (the
   `#audit` line is the lead's step after `fixed_exp_refines` lands). Gate
-  `lake build Numeric.ExpRefinement AxiomAudit` exit 0 (3891 jobs).
+  `lake build Numeric.Engine.Exp AxiomAudit` exit 0 (3891 jobs).
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1` (deepseek-flash, ~12 min of measured work; partial as
   designed): the extraction landed and the identity moved — `proof/ApeironWord.lean`
   `b2841ac7b1e44a05cb2a2b8962dd75433a2574b2f747955a7b411f372d5769a3` (10879 lines; `proof/regen.sh`
@@ -426,19 +426,19 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `6bbc33ac71b53687b6c80a543b2a4d78dd452018aa206e304197314f49b8e156` adds the source-digest entry
   and the `--start-from` root (undeclared fourth file, reviewed and accepted: additive registration
   only, audit logic untouched; it also completes the digest list with `src/table/prepared.rs`, which
-  `src/table.rs:215` `include!`s). `proof/corpus/Numeric/ExpRefinement.lean`
+  `src/table.rs:215` `include!`s). `proof/corpus/Numeric/Engine/Exp.lean`
   `13995ed598e785f043daeb547905afcb1696c4adf9ae78fab4f4b6427c415c5e` (98 lines) defines `q32`,
   `toReal`, `toReal128`, `window`, `epsExp`, `fixed_exp_refuses` and `fixed_exp_refines` (combined
   bound `2^-20·exp + 4/2^32`; the module doc records why the pure relative bound is false at the
   lower window edge where the Q32.32 grid dominates) and proves `word_fixed_exp_refuses_of_lt`/
   `_of_gt` parameterised by the extracted endpoint constants. Gate
-  `lake build Numeric.ExpRefinement AxiomAudit` exit 0 (3891 jobs, 57 s), zero `sorry`; control
+  `lake build Numeric.Engine.Exp AxiomAudit` exit 0 (3891 jobs, 57 s), zero `sorry`; control
   `/tmp/opencode/int-exp-control2/` perturbs `LN2_Q32` by one unit and the re-extracted constant
   differs with no other semantic diff. Lead integration: nine declarations registered in
   `AxiomAudit.lean` `6e3be33e2fd910dc2cab1249496eaf85ad3d8caca6e180d8b8f1f62f58636ecf` (3891 jobs,
   closed cone). Open: the endpoint evaluations (`1#i64 <<< 32#i32 = ok 4294967296#i64`, then
   `LOWER`/`UPPER`) instantiate `fixed_exp_refuses` (`W1-T1B`), and the full bound is its own wave.
-- `APEIRON-INT-TRANSCENDENTAL-W1-T1B` (deepseek-flash, ~20 min of 30): `Numeric/ExpRefinement.lean`
+- `APEIRON-INT-TRANSCENDENTAL-W1-T1B` (deepseek-flash, ~20 min of 30): `Numeric/Engine/Exp.lean`
   `aa1a30f1f804fc504403966bbd6a790cf56fa71daf87376ad83f8baa8e83ad1e` (166 lines) proves
   `fixed_exp_ONE_eq`, `fixed_exp_LOWER_eq`, `fixed_exp_UPPER_eq` (`I64.ShiftLeft_IScalar_spec` and
   `I64.mul_spec`, not `decide`) and `fixed_exp_refuses_proved : fixed_exp_refuses`. Gate exit 0
@@ -458,12 +458,12 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   and `fixed_trig` roots; one regeneration moved the identity to `proof/ApeironWord.lean`
   `b85742bff7161274772d6a4ad8a45d701c77f37fbf1739822210303f94f29916` (11251 lines; `regen.sh` exit
   0; `regen.sh --check` exit 0 after one transient package-build exit 120 that an immediate re-run
-  cleared — recorded as an unreproduced transient on those identities). `Numeric/RsqrtRefinement.lean`
-  `4262798e…` and `Numeric/RopeRefinement.lean` `784ee3a0…` are roots, imported by `AxiomAudit.lean`
+  cleared — recorded as an unreproduced transient on those identities). `Numeric/Engine/Rsqrt.lean`
+  `4262798e…` and `Numeric/Rope/Refinement.lean` `784ee3a0…` are roots, imported by `AxiomAudit.lean`
   `87fd8182…` (3893 jobs). `W1-T1C` (exp bound structure) and `W1-T2` (rsqrt refinement) run on this
   identity; `W2-T1` (trig refinement) is queued.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T2` (deepseek-flash, 30 min of 45; partial as designed):
-  `Numeric/RsqrtRefinement.lean`
+  `Numeric/Engine/Rsqrt.lean`
   `0fd57c82bf3dccecea899783b42b7db9e4ee61b631afd351a7faf9a8ecbfe676` (334 lines) proves the refusal
   surface (`rsqrt_window`, `fixed_rsqrt_refuses`, the two parameterised refusal lemmas, the endpoint
   evaluations `fixed_rsqrt_ONE_eq`, `LOWER_eq` = `2^12`, `UPPER_eq` = `2^52` via
@@ -479,7 +479,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   refinement modules stop importing `ExpRefinement` for scale definitions; scheduled after W1-T1C
   lands, to decouple evidence binding across numeric lanes.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1C` (deepseek-flash, ~14 min of 45; partial):
-  `Numeric/ExpRefinement.lean` `683356b0…` (387 lines, pre-refactor) proves
+  `Numeric/Engine/Exp.lean` `683356b0…` (387 lines, pre-refactor) proves
   `word_fixed_exp_window_past_guards` (rewrite past both evaluated endpoint guards, leaving the four
   inner range refusals), the guard side conditions, `fixed_exp_round_div_2p32_HALF_eq` and
   `fixed_exp_round_div_2p32_spec` (the generated `2^31` rounding step), the reduction budget
@@ -499,7 +499,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   declarations — all inside the closed cone, 3894 jobs. `W1-T1D` (exp range goals) and `W1-T2B`
   (isqrt invariant and composition) run on these digests; `W2-T1` (trig refinement) is next in queue.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T2B` (deepseek-flash, ~50–55 min of a 45-min budget — overrun; no
-  work after the stop): `Numeric/RsqrtRefinement.lean`
+  work after the stop): `Numeric/Engine/Rsqrt.lean`
   `94e816acb03e22f83b3046d347aa9841e04ce8d92edbd961781ca4eb7377c47d` (426 lines) proves the integer
   invariant core of the extracted restoring square root: `IsPow4`, `IsqrtInv` (one-sided coupling
   `res² = 4·bit·(n−rem)`, `rem < 2·res + 4·bit`, terminal `bit = 0 ⇒ res² ≤ n < (res+1)²`),
@@ -512,7 +512,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `473abde3e75d09fc684f141eb4df3a46acf03f1f0faada71a5eb719e89c92a66` (3894 jobs, closed cone).
   `W1-T2C` (same session) runs the lift under a 30/40-min bound.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1D` (deepseek-flash, ~55 min of a 45-min budget — overrun; stopped
-  without wiring): `Numeric/ExpRefinement.lean`
+  without wiring): `Numeric/Engine/Exp.lean`
   `c2be31b262041bb82b28b3561b358f243b549d614f6e832491d6cbbe3b9a73e9` (508 lines) proves six lemmas
   that discharge the seven side conditions arithmetically: `fixed_exp_shift_recip_shift_bound`
   (`k ∈ [-24, 30]` on the window), `fixed_exp_shift_recip_bound_window`
@@ -526,7 +526,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `b0a87ea91f899eafada90248b3aa0f2f647f62baa600705d603a2511da703676` (3894 jobs, closed cone).
   `W1-T1E` (same session) runs the wiring under a 25/35-min bound.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1E` (deepseek-flash, ~40 min of a 25/35 box — overrun; stopped
-  after the wiring): `Numeric/ExpRefinement.lean`
+  after the wiring): `Numeric/Engine/Exp.lean`
   `973d610ba5d7785036c220d3f1f26eadcfad98ba33c200a6e87e56e8ab06b500` (614 lines) adds
   `word_fixed_exp_reduction_arith_safe`: on `window x` the extracted post-guard reduction prefix has
   all its `i128`/`i64` refusal arithmetic safe, discharging the five `step*` goals with the six
@@ -537,7 +537,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   running). Lead registration: `word_fixed_exp_reduction_arith_safe` in `AxiomAudit.lean`
   `b3e4edf5…`.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T2C` (deepseek-flash, ~70 min of a 30/40 box — overrun; stopped
-  after the lift): `Numeric/RsqrtRefinement.lean` `65896e7e…` (666 lines) proves `isqrt_loop1_spec`
+  after the lift): `Numeric/Engine/Rsqrt.lean` `65896e7e…` (666 lines) proves `isqrt_loop1_spec`
   by `loop.spec_decr_nat` (measure `bit.val.toNat`, invariant `IsqrtInv ∩ IsPow4 bit ∧ bit ≤ 2^116`,
   post `out.val² ≤ nz < (out.val+1)²`), splitting the final iteration from the step case and deriving
   the divisibility facts with `pow4_dvd_four` and `Int.prime_two.dvd_of_dvd_pow`; new pure helpers
@@ -554,7 +554,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `AGENTS.md` §10 with the convention that scratch and control copies live under
   `/home/socol/oc-tmp` and only named logs under `/tmp/opencode`.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1F` (deepseek-flash, ~24 min of a 20/30 box — soft stop exceeded,
-  hard stop not breached): `Numeric/ExpRefinement.lean`
+  hard stop not breached): `Numeric/Engine/Exp.lean`
   `5b0109326efa06e173b58b9212b3af80ad7ae24f8891cb0b13f9bfaa57517f78` (812 lines) adds
   `word_fixed_exp_reduction_value`: on `window x` the post-guard reduction prefix returns `Ok r` with
   `∃ k, k.val = (x.val·6196328019 + 2^63) >>> 64 ∧ r.val = x.val − k.val·2977044472`; the witness is
@@ -564,7 +564,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `word_fixed_exp_reduction_value` in `AxiomAudit.lean` `ef5de704…`. Open: the Horner chain value
   (`W1-T1G`, running), then the scaling branches.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T2D` (deepseek-flash, within the 20/30 box):
-  `Numeric/RsqrtRefinement.lean`
+  `Numeric/Engine/Rsqrt.lean`
   `b4ce924deb0cb78244b8e26608d17f54282840f7ccf17e6276a1d9b951b13ec1` (740 lines) proves
   `isqrt_loop0_spec` (`loop.spec_decr_nat`, measure `b.val.toNat`, invariant `IsPow4 b.val ∧ 0 < b.val
   ∧ n.val < 4·b.val`, post `IsPow4 out.val ∧ 0 < out.val ∧ out.val ≤ n.val ∧ n.val < 4·out.val`) and
@@ -575,7 +575,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   registration: two declarations in `AxiomAudit.lean` `2ac66fb9…` (3894 jobs, closed cone). Open: the
   guard/cast/composition (`W1-T2E`, running), after which `fixed_rsqrt_refines` closes.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1G` (deepseek-flash, ~29 min of a 20/30 box — soft exceeded,
-  inside the hard stop): `Numeric/ExpRefinement.lean`
+  inside the hard stop): `Numeric/Engine/Exp.lean`
   `f91ae652ed9925c459af5923cb53cc48b08b768101a54c7c99199825d8620b72` (869 lines) adds the
   round-value machinery — `fixed_exp.round_q32` (the mathematical `round_div_2p32`) and the value
   spec `fixed_exp_round_div_2p32_val` via `spec_mono` and a sign case — the target nested expression
@@ -586,15 +586,15 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `AxiomAudit.lean` `fed6eaef…` (3894 jobs, closed cone). Open: the six further stages to `acc6`
   (`W1-T1H`, running), then the scaling branches.
 - Guard raises inventory (residuals for the wave barrier; policy forbids unbounded or unreported
-  ones): `Numeric/ExpRefinement.lean` carries three bounded, local `set_option maxRecDepth 4000 in`
-  (lines 506, 612, 841; default 1000) and `Numeric/RsqrtRefinement.lean` two bounded, local
+  ones): `Numeric/Engine/Exp.lean` carries three bounded, local `set_option maxRecDepth 4000 in`
+  (lines 506, 612, 841; default 1000) and `Numeric/Engine/Rsqrt.lean` two bounded, local
   `set_option maxHeartbeats 1600000 in` (lines 476, 712; default 200000). None is `maxHeartbeats 0`,
   none is global, each is attached to one theorem, and every gate command stayed inside 540 s.
   W1-T1G's raise was not disclosed in its report — the disclosure gap is noted; later slices must
   report any guard use, and no increase beyond these values is permitted without a lead decision.
   Removing or restructuring the raises is an open obligation at the wave barrier.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T2E` (deepseek-flash, at the 20/25 hard stop — not closed):
-  `Numeric/RsqrtRefinement.lean`
+  `Numeric/Engine/Rsqrt.lean`
   `c98fbf7241de0a9c18bc0efcefacc16df9711f7999d06ceb9ba6ce7acc6dec7f` (770 lines) proves three
   real-analysis helpers — `toReal_pos`, `sqrt_toReal` (`√(toReal x) = √x.val / 2^16`) and
   `one_div_sqrt_toReal` (`1/√(toReal x) = (2^48/√x.val)/2^32`, the Q32.32 denominator the root and
@@ -604,7 +604,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   then item 2 the real composition. Lead registration: three declarations in `AxiomAudit.lean`
   `20cf1400f4e416be37054452d042cafd3b08cd91a9e1edd2d0fad69a401076e8` (3894 jobs, closed cone).
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1H` (deepseek-flash, ~27 min of a 20/30 box — soft exceeded, inside
-  the hard stop): `Numeric/ExpRefinement.lean`
+  the hard stop): `Numeric/Engine/Exp.lean`
   `9a5174bbf94b2a90ce738a0576582ee4cdbd663d6eb9ec4c17cfd0b4cd73e60b` (898 lines) adds
   `fixed_exp.round_q32_abs_le` (`|round_q32 v| ≤ |v|/2^32 + 1`) and `fixed_exp.round_safe`
   (`|x| ≤ 2^100` discharges both `round_div_2p32` overflow premises for Horner intermediates). Gate
@@ -617,7 +617,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   Lead registration: two declarations in `AxiomAudit.lean` `4498efe7…` (3894 jobs, closed cone;
   `round_safe` needs only `{propext, Quot.sound}`).
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1I` (deepseek-flash, ~32 min of a 20/30 box — overrun; not closed):
-  `Numeric/ExpRefinement.lean`
+  `Numeric/Engine/Exp.lean`
   `730304371b72594826079c8a40c0125e63a7e875a206e70c48414c405bf3eb2e` (908 lines) adds
   `fixed_exp.round_q32_abs_le'` (`|v| ≤ C·2^32 → |round_q32 v| ≤ C + 1`, the parameterised bound each
   stage consumes). Findings: `I128.add_spec`/`mul_spec` are already `@[step]`, so `@[step]`
@@ -630,7 +630,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   recomposes. Lead registration: `round_q32_abs_le'` in `AxiomAudit.lean` `6429a481…` (3894 jobs,
   closed cone).
 - `APEIRON-INT-TRANSCENDENTAL-W1-T2F` (deepseek-flash, at the soft stop ≈25 min of a 20/30 box):
-  `Numeric/RsqrtRefinement.lean`
+  `Numeric/Engine/Rsqrt.lean`
   `b70b804af41dfedbcc84f90775a0830b82a92c51534377e323bc1691de3bb107` (968 lines) proves
   `word_fixed_rsqrt_success`: on `rsqrt_window x`, `word_fixed_rsqrt x = ok (Ok v)` with `∃ s,
   s² ≤ x.val·2^64 < (s+1)² ∧ 2^38 ≤ s.val ≤ 2^58 ∧ v.val = (2^80 + s.val/2)/s.val ∧ 0 ≤ v.val ≤
@@ -641,12 +641,12 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `word_fixed_rsqrt_success` in `AxiomAudit.lean` `6ba5c5eb…` (3894 jobs, closed cone). Open: item 2,
   the real composition (`W1-T2G`, running), after which `fixed_rsqrt_refines` closes.
 - Operational note: the rsqrt gate hit a transient failure from the concurrently edited
-  `Numeric/ExpRefinement.lean` (unused-variable warning-as-error) reached through `AxiomAudit`'s
+  `Numeric/Engine/Exp.lean` (unused-variable warning-as-error) reached through `AxiomAudit`'s
   import; the rsqrt module built alone (exit 0) and the owner fixed it, after which the full gate was
   green. The shared `AxiomAudit` import makes each numeric lane's full gate sensitive to the other's
   mid-edit state; both the transient log and the green run are retained.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1J` (deepseek-flash, ~25 min of a 20/30 box — overrun; `acc6` not
-  closed): `Numeric/ExpRefinement.lean`
+  closed): `Numeric/Engine/Exp.lean`
   `f823b6ec248b44f9b61b892353bafad82d153bf6a1dab63d832900f56d281240` (943 lines) proves the factored
   stage lemma `fixed_exp.horner_step` — for `|acc| ≤ B ≤ 2^68`, `|r| ≤ 2^32`, `|c| ≤ 2^32`,
   `(do i ← acc*r; i1 ← round_div_2p32 i; a ← i1 + c; ok a) ⦃ z => z.val = round_q32 (acc.val·r.val)
@@ -662,7 +662,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   already recorded for the rsqrt lift, with no higher value and no other guard. The raise enters the
   same wave-barrier obligation as the existing five: removal or restructuring before closure.
 - **W1-T2 closure** — `APEIRON-INT-TRANSCENDENTAL-W1-T2G` (deepseek-flash, ≈22 min of a 20/30 box —
-  closed before the hard stop): `Numeric/RsqrtRefinement.lean`
+  closed before the hard stop): `Numeric/Engine/Rsqrt.lean`
   `b50c6c59e7f965336e66e68888d3afa80a77350f191d92f1d0cd5169147754a1` (1074 lines) proves
   `isqrt_scaled_real` and `fixed_rsqrt_refines_proved : fixed_rsqrt_refines` — the full real bound
   `|toReal v − 1/√(toReal x)| ≤ epsExp·(1/√(toReal x)) + 4/q32` on `rsqrt_window`, composing
@@ -676,7 +676,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   independent-verifier pass at the wave barrier. `W2-T1` (trig refinement) starts on the freed lane
   with the refusal surface, the statement and the structural unfold.
 - `APEIRON-INT-TRANSCENDENTAL-W2-T1` (deepseek-flash, ≈25 min of a 20/30 box — inside the hard stop):
-  `Numeric/RopeRefinement.lean`
+  `Numeric/Rope/Refinement.lean`
   `7e3dcd6d9c8f67a59925646332aecdf0af90773ed3d6ab64e7e5f8e08a2d750c` (410 lines) proves the trig
   refusal surface (`trig_window`, `fixed_sin_cos_refuses`, `fixed_sin_cos_refuses_proved`, the three
   endpoint evaluations) and the structural reduction facts (`word_fixed_sin_cos_window_past_guards`;
@@ -684,7 +684,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `fixed_trig_shift_bound` (`-652 ≤ k ≤ 652`); `fixed_trig_shift_bound_window`;
   `fixed_trig_reduction_remainder_range` (`|r| ≤ 2^36`, with the note that the `ln 2` module's tight
   `2^-32` bound is false here)), and states `fixed_sin_cos_refines` (relative `2^-20` with an
-  absolute floor `trig_floor = 2^-20`; the module doc records that the reduction displacement
+  absolute floor `trig_floor = 2^-20` (`conditional` on the theorem's input domain); the module doc records that the reduction displacement
   `|k|·2^-33 ≤ 7.6e-8` forces a floor and that the Rust test's `5e-7·|f| + 2^-24` is a dense-grid
   measurement, not the universal statement). Gate exit 0 (3894 jobs), zero `sorry`, no `set_option`
   added; control mutates the lower endpoint and the refusal proof goes red. Lead registration:
@@ -692,7 +692,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   value characterization (`W2-T1B`, running; a single bounded `maxRecDepth 4000` is pre-authorized if
   needed), then the reduction/Taylor error decomposition — the long pole.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1K` (deepseek-flash, ~29 min of a 20/30 box — overrun; `acc6` not
-  closed): `Numeric/ExpRefinement.lean`
+  closed): `Numeric/Engine/Exp.lean`
   `73a9bcb49176f6ab772033518f54a03ff9febddd0a28a3cddf6200e3e6561323` (1025 lines) proves
   `word_fixed_exp_horner_acc1` — the first two Horner stages at the default heartbeat cap via the
   explicit per-operation route. Tier 1 (reassociation) did not land inside its time-box; Tier 2 at
@@ -708,7 +708,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   ceiling, structural reassociation is still preferred, and any landed cap joins the wave-barrier
   removal/restructuring obligation.
 - `APEIRON-INT-TRANSCENDENTAL-W2-T1B` (deepseek-flash, ≈8 min of a 20/30 box — well inside):
-  `Numeric/RopeRefinement.lean`
+  `Numeric/Rope/Refinement.lean`
   `54ae566624ac097ddabaaeabfd8210c6869f6d106280455e99182e7789aeec61` (631 lines) proves
   `word_fixed_sin_cos_reduction_value`: on `trig_window`, the post-guard prefix returns `Ok r` with
   `k.val = (x.val·683565276 + 2^63) >>> 64` and `r.val = x.val − k.val·26986075409`, the twelve side
@@ -721,7 +721,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   this run also cleared the pending `word_fixed_exp_horner_acc1` audit line from W1-T1K. Open: the
   quadrant fold (`W2-T1C`, running), then the Taylor/error decomposition — the long pole.
 - `APEIRON-INT-TRANSCENDENTAL-W2-T1C` (deepseek-flash, ≈7 min of a 20/30 box — well inside):
-  `Numeric/RopeRefinement.lean`
+  `Numeric/Rope/Refinement.lean`
   `ac33bceec42ebd94297fe2147df615d77a040793bf8988f57e3b185ea3431601` (868 lines) proves the pure
   Q32.32 fold functions matching the extracted comparisons (`fixed_trig.fold1`/`fold1_negate`,
   `fold2`/`fold2_swap`), `fixed_trig.fold1_abs_le` (`|r| ≤ 2^36 → |fold1 r| ≤ 2^36`), the no-refusal
@@ -757,7 +757,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `327a4a920c8634d113cfaa4640f53ca103debeeda20619cf4867378a9fe325dd` (3894 jobs, closed cone). Open:
   the nine-stage chain (`W2-T1F`, running), the literal-body bridge, then the error decomposition.
 - **W1-T1L closure** — `APEIRON-INT-TRANSCENDENTAL-W1-T1L` (deepseek-flash, ~47 min of a 20/30 box —
-  overrun; `acc6` closed): `Numeric/ExpRefinement.lean`
+  overrun; `acc6` closed): `Numeric/Engine/Exp.lean`
   `74ea5d23cc13f087723e0403d31fdb26334c5b2b0e64b22751bc9c3f22d7c030` (1311 lines) proves
   `word_fixed_exp_horner_acc` — the full chain from `i12` to `acc6`, post
   `acc6.val = fixed_exp.horner_acc r.val` given `|r.val| ≤ 2^32` — by the explicit per-operation route
@@ -775,9 +775,9 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   instead of `nlinarith` over `abs` products, and reducing `round_safe`'s bound to `2^66`. The
   recommended and dispatched fix is per-stage lemmas so no elaboration sees the whole nested
   continuation (`W2-T1G`, running); a cap bump (≈400k–800k) was judged fragile.
-- Guard inventory (updated): `Numeric/ExpRefinement.lean` carries three bounded local
+- Guard inventory (updated): `Numeric/Engine/Exp.lean` carries three bounded local
   `set_option maxRecDepth 4000 in` and one bounded local `set_option maxHeartbeats 8000000 in` (acc6,
-  167 s compile); `Numeric/RsqrtRefinement.lean` carries two bounded local
+  167 s compile); `Numeric/Engine/Rsqrt.lean` carries two bounded local
   `set_option maxHeartbeats 1600000 in`. All finite, per-theorem and reported; the
   removal/restructuring obligation at the wave barrier now covers six raises.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1M` (deepseek-flash, ~29 min of a 20/30 box — at the hard stop; no
@@ -799,7 +799,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   400000/600000/1000000 in scratch and land the minimal closing value (ceiling **1000000**) on the
   single decomposition theorem; if that fails, a bounded stage-by-stage `change` attempt is allowed.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1N` (deepseek-flash, ~35 min of a 20/30 box — overrun; step 1
-  landed): `Numeric/ExpRefinement.lean`
+  landed): `Numeric/Engine/Exp.lean`
   `80069af62060d513d709a8406ddc7a35787594662196008cdf06d79c09600fdc` (1321 lines) proves
   `fixed_exp_scale_shift_count_lt` (`0 ≤ k.val → k.val < 64 → (hcast .U32 k).val < 128`), fixing the
   numeral-normalization blocker with `norm_num [UScalarTy.numBits]`, `Int.emod_eq_of_lt` and `omega`.
@@ -813,7 +813,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   trig lane's mid-edit `RopeRefinement.lean` breaks the shared import; re-verify when it settles.
   `W1-T1O` (running) tries the comparison-lemma recipes and lands steps 2–4.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1O` (deepseek-flash, ≈26 min of a 20/30 box — soft stop exceeded,
-  hard stop not reached; step 2 landed): `Numeric/ExpRefinement.lean`
+  hard stop not reached; step 2 landed): `Numeric/Engine/Exp.lean`
   `f7f02a50707a5c7ddefd47c3cafcbeaf1596e8f3e0d924dd361e7b888b222aea` (1379 lines) proves
   `fixed_exp_scale_nonneg` — for `0 ≤ k.val`, `k.val < 64`, the `k ≥ 0` branch returns `Err` on `i64`
   overflow, otherwise `Ok v` with `(v.val : ℤ) = (acc6.val <<< k.val.toNat) mod 2^128`. The W1-T1N
@@ -840,7 +840,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   failed, structural route landed): the authorized cap route is **closed as failed** — `set_option
   maxHeartbeats 1000000 in` on `taylor_sin_cos_decomp` (`rfl`) still times out at `isDefEq` (45 s), so
   the decomposition ceiling is above 1000000 and unauthorized; no `set_option` was landed. The
-  structural calc route landed instead: `Numeric/RopeRefinement.lean`
+  structural calc route landed instead: `Numeric/Rope/Refinement.lean`
   `ef533655e601713ca89336633224e55e787600506e700490ceedd93f855df84b` (1427 lines) adds the bound
   helpers (`fixed_trig.abs_mul_le`, `mul_range`, `abs_mul_le_z`, `abs_add_const_le`,
   `abs_sub_const_le`, `round_safe66`) and **`word_taylor_spec`** proving the whole nine-stage Taylor
@@ -855,7 +855,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   cos_poly t.val`) and `fixed_trig_taylor_value` (`W2-T1I`, running), then the literal-body bind-law
   bridge, then the error decomposition.
 - `APEIRON-INT-TRANSCENDENTAL-W2-T1I` (deepseek-flash, ≈13 min of a 20/30 box — inside;
-  `fixed_trig_taylor_value` **closed**): `Numeric/RopeRefinement.lean`
+  `fixed_trig_taylor_value` **closed**): `Numeric/Rope/Refinement.lean`
   `3ef4b3d676bee2b30d186f8bbba924a3f513f9cd68b4d9d9590e1a9a136c2a13` (1457 lines) carries the value
   post on the calc chain (`word_taylor_spec`: `∃ sin_t cos_t, z = (sin_t,cos_t) ∧ sin_t.val =
   sin_poly t.val ∧ cos_t.val = cos_poly t.val`) and derives `fixed_trig_taylor_value_proved` via
@@ -883,7 +883,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   (non-slack) and `omega` finds the counterexample `3373259427 ≤ r ≤ 4294967296`; no `set_option`.
   `W2-T1K` (running) proves the tight bound.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1R` (deepseek-flash, ≈21 min of a 20/30 box — soft stop slightly
-  exceeded; flush and full `k < 0` branch landed): `Numeric/ExpRefinement.lean`
+  exceeded; flush and full `k < 0` branch landed): `Numeric/Engine/Exp.lean`
   `e725881b92d7dc660b878bda263d1c147c57968085e5029386ce5f7aa345a0db` (1533 lines) proves
   `fixed_exp_scale_flush` (`64 ≤ n.val → Ok 0`) and `fixed_exp_scale_neg` — the full `k < 0` branch on
   `1 ≤ n.val`, `|acc6.val| ≤ 2^40`, with the `Ok 0`/round value/refusal post (composed by `by_cases` +
@@ -892,7 +892,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `fixed_exp_scale_flush` and `fixed_exp_scale_neg` verified in `AxiomAudit.lean` `2c44086f…`.
   Remaining: step 4 `word_fixed_exp_scale` (`W1-T1S`, running).
 - `APEIRON-INT-TRANSCENDENTAL-W2-T1K` (deepseek-flash, ≈6 min of a 20/30 box — inside; landed with a
-  correction): `Numeric/RopeRefinement.lean`
+  correction): `Numeric/Rope/Refinement.lean`
   `74022c67ec896ba1f5f15c45a97a3e323c70196dd8ed9ed42317a8fd3a04af18` (1521 lines) proves
   `fixed_trig_reduction_remainder_range_tight` (`|x − s·26986075409| ≤ 2^34` over the window: `|s| ≤
   652` from `fixed_trig_shift_bound`, reciprocal defect `652·11400346268 < 2^43`, the identity `r·R =
@@ -913,9 +913,9 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `omega`, cleared by `simpa`/`norm_num`). `W1-T1T` (running) lands the two helpers and the
   composition.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1T` (deepseek-flash, ~34 min of a 20/30 box — overrun; helpers
-  landed): `Numeric/ExpRefinement.lean`
+  landed): `Numeric/Engine/Exp.lean`
   `f7c174309e25059fb11c6f5058a142a68b5b55664413fcc38bc081601c121106` (1572 lines) proves
-  `fixed_exp_scale_abs` (`k.val < 0` with the `-2^62` floor the `I64.min` negation overflow requires,
+  `fixed_exp_scale_abs` (`k.val < 0` with the `-2^62` floor (`conditional`: a premise) the `I64.min` negation overflow requires,
   giving `n.val = k.val.natAbs`; via `step*` + `IScalar.hcast_val_eq` + `Int.emod_eq_of_lt` + `omega`)
   and `fixed_exp_scale_nonneg_ge64` (`64 ≤ k.val → ok Err`). Module exit 0 (2224 jobs, 171 s); the full
   gate was blocked only by the concurrent trig lane. Control non-slack (post `natAbs + 1`) red
@@ -932,7 +932,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   strengthens the post with the two bounds, updates the single `fixed_trig_taylor_value_proved`
   destructuring, and closes the six cases. No control (no new claim; the W2-T1K control stands).
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1U` (deepseek-flash, ~22 min of a 20/30 box — soft stop slightly
-  exceeded; **`word_fixed_exp_scale` closed**): `Numeric/ExpRefinement.lean` `4949303d…` (1686 lines)
+  exceeded; **`word_fixed_exp_scale` closed**): `Numeric/Engine/Exp.lean` `4949303d…` (1686 lines)
   adds `fixed_exp_scale_abs_raw` (the raw-`if` form `WP.spec_bind` needs; the wrapped
   `fixed_exp_scale_abs` is retained) and `word_fixed_exp_scale` — the full scaling block on `-2^62 ≤
   k.val`, `|acc6.val| ≤ 2^40` with the exact value/refusal post — by the three-case recipe (`spec_mono`
@@ -990,7 +990,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `rw [hb, hkval]` and the same `hbmod` identity. Steps 2–3 unchanged. `W1-T1Z` (running) lands the
   pair chunk unconditionally and proceeds.
 - `APEIRON-INT-TRANSCENDENTAL-W2-T1P` (deepseek-flash, ≈5 min of a 20/30 box — inside;
-  **`word_fixed_sin_cos_value` closed**): `Numeric/RopeRefinement.lean` `c05c15f7…` (1682 lines) lands
+  **`word_fixed_sin_cos_value` closed**): `Numeric/Rope/Refinement.lean` `c05c15f7…` (1682 lines) lands
   the strengthened `word_taylor_spec` post (`|sin_t|, |cos_t| ≤ 2^34`, 7-way `rcases`) and the
   end-to-end value spec of the post-guard body — reduction → fold (`|r| ≤ 2^34`) → `fold_arg_abs_le` →
   `word_taylor_spec` → quadrant swap/negate — with the exact integer output formulas
@@ -1004,7 +1004,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   pending exp lines (`fixed_exp_scale_abs_raw`, `word_fixed_exp_scale`). **Trig's discrete value
   semantics is complete**; `E2a` (argument displacement + Lipschitz) opens the error decomposition.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1Z` (deepseek-flash, ~19 min of a 20/30 box — soft stop reached;
-  **pair chunk landed**): `Numeric/ExpRefinement.lean` `4c3d1db5…` (1891 lines) adds
+  **pair chunk landed**): `Numeric/Engine/Exp.lean` `4c3d1db5…` (1891 lines) adds
   `word_fixed_exp_reduction_value_pair` — the reduction ops verbatim, success
   `ok (core.result.Result.Ok (k, r))` (inner `Result` kept), post `∃ k r, z = Ok (k,r) ∧ k.val =
   (x.val·6196328019 + 2^63) >>> 64 ∧ r.val = x.val − k.val·2977044472` — with bullet 2 closed by
@@ -1047,7 +1047,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   validated pair post bullet), then the composition: resolve the flat body's four guard `if`s,
   reassociate to `(success chunk) >>= K`, `spec_bind`/`spec_mono` Horner/scale. `W1-T1AD` (running).
 - `APEIRON-INT-TRANSCENDENTAL-E2A` (deepseek-flash, ≈10 min of a 20/30 box — inside; **landed**):
-  `Numeric/RopeRefinement.lean` `f8227bf9…` (1755 lines) adds `trig_delta = 326/q32` (the displacement
+  `Numeric/Rope/Refinement.lean` `f8227bf9…` (1755 lines) adds `trig_delta = 326/q32` (the displacement
   budget: `|k| ≤ 652` times the half-unit `TWO_PI_Q32` defect), `two_pi_q32_defect` (`|26986075409 −
   2π·q32| ≤ 1/2`, from `Real.pi_gt_d20`/`pi_lt_d20`; the actual defect is `0.044…`, so the half-unit
   is not tight), the exact identity `trig_reduction_displacement` (`|toReal r − (toReal x −
@@ -1081,7 +1081,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `w20rc-target`, `w05-recheck-target`) — `/tmp` now 329M/32G. Per-slice pruning had not been done;
   recorded as a recurrence of the `AGENTS.md` §10 row. `E2B3` (running) lands the displacements.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1AD` (deepseek-flash, ~34 min of a 20/30 box — overrun;
-  **success-path chunk landed**): `Numeric/ExpRefinement.lean` `f83cc8e8…` (2029 lines) adds
+  **success-path chunk landed**): `Numeric/Engine/Exp.lean` `f83cc8e8…` (2029 lines) adds
   `word_fixed_exp_reduction_pair_succ` — the reduction ops without the four inner range guards,
   returning the pair at the outer level, post `z.1.val = (x.val·6196328019 + 2^63) >>> 64 ∧ z.2.val =
   x.val − z.1.val·2977044472`. Written fresh (`step*` + the seven side conditions from `window x` via
@@ -1113,11 +1113,11 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   shape — `exp_reduce` (window + `k`/`r`, `Result<(i64,i64)>`), `exp_horner` (the seven-step
   accumulator), `exp_scale` (the branch scaling), and `fixed_exp` as the short chain of calls — so the
   extraction has call/bind boundaries; then `proof/regen.sh` (lane-locked) and `--check`, with the
-  Rust gates. `W1-T1AH` re-anchors `Numeric/ExpRefinement.lean` to the new extraction (the landed
+  Rust gates. `W1-T1AH` re-anchors `Numeric/Engine/Exp.lean` to the new extraction (the landed
   stage lemmas keep their bodies; names/wrappers adapt), then the composition follows the trig
   technique and the exp error decomposition (`E1`) is the last piece.
 - `APEIRON-INT-TRANSCENDENTAL-E2B4` (deepseek-flash, ≈6 min of a 20/30 box — inside; **landed with a
-  correction**): `Numeric/RopeRefinement.lean` `ab948c35…` (1987 lines) lands the fold phase identities
+  correction**): `Numeric/Rope/Refinement.lean` `ab948c35…` (1987 lines) lands the fold phase identities
   (`sin_fold1T`/`cos_fold1T`, `sin_fold2T`/`cos_fold2T`) and the phase-select lemmas
   (`sin_phase_select`/`cos_phase_select`) identifying the extracted `negate` flag with the `fold1T`
   jump factor and the `swap` selectors with the `fold2T` branches. **Correction**: the value-level
@@ -1141,22 +1141,22 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   Regenerated `proof/ApeironWord.lean` `328655cd…` (11273 lines; 1708 jobs); `regen.sh --check` exit 0.
   The emitted `fixed_exp.fixed_exp` now has the trig shape (`let r ← exp_reduce x; match r with | Ok kr
   => … | Err e => …`), so `spec_bind` composes at the call boundaries. `W1-T1AH` (running) re-anchors
-  `Numeric/ExpRefinement.lean` and composes `word_fixed_exp_body`.
+  `Numeric/Engine/Exp.lean` and composes `word_fixed_exp_body`.
 - `APEIRON-INT-TRANSCENDENTAL-E2B5` (deepseek-flash, ≈8.6 min of a 20/30 box — inside; **landed**):
-  `Numeric/RopeRefinement.lean` `a0f04645…` (2318 lines) defines the flagged output combinations
+  `Numeric/Rope/Refinement.lean` `a0f04645…` (2318 lines) defines the flagged output combinations
   (`flagSin`/`flagCos`) and proves the fold bounds (`flag_sin_fold_bound`/`flag_cos_fold_bound`,
   `≤ trig_fold_delta`) and the reduction bounds (`flag_sin_reduction_bound`/`flag_cos_reduction_bound`,
   `≤ trig_delta + trig_fold_delta = 327/q32 ≈ 7.61e-8` on `trig_window x`). Mechanism: the fold1 jump
   is absorbed by the `negate` factor (matched via `half_pi_q32_floor`), the fold2 threshold by the
   `swap` case split; no false value-level `arg` displacement is used. Module gate exit 0 (2500 jobs);
-  the combined gate fails only in the concurrently re-anchored `Numeric/ExpRefinement.lean`
+  the combined gate fails only in the concurrently re-anchored `Numeric/Engine/Exp.lean`
   (authorized fallback). Control non-slack (`swap = 2` sign) red; no `set_option`. Lead registration:
   the six declarations appended (`a7fba17e…`), pending the exp re-anchor. `E2C` (running) proves the
   Taylor remainder + round ledger and closes `fixed_sin_cos_refines` — the last trig piece.
 - `APEIRON-INT-TRANSCENDENTAL-E2C` (deepseek-flash, ≈6–10 min of a 25/40 box — inside; no landing,
-  residual fully derived): `Numeric/RopeRefinement.lean` `b03bc862…` (2329 lines) lands
+  residual fully derived): `Numeric/Rope/Refinement.lean` `b03bc862…` (2329 lines) lands
   `fixed_trig.fold_arg_abs_le_quarter` (`|fold2 (fold1 r)| ≤ 3373259426 = floor(π/4·2^32)`, so
-  `|toReal arg| < π/4`) — the hypothesis that makes the degree-7 remainder fit the `2^-20` floor (the
+  `|toReal arg| < π/4`) — the hypothesis that makes the degree-7 remainder fit the `2^-20` floor (`conditional` on that hypothesis; the
   old `≤ 2^32` bound leaves `1/9! > 2^-20(|sin|+1)`). The single-rounding ledger
   `|round_q32 v − v/2^32| ≤ 1/2` was attempted twice and reverted on the ℤ→ℝ `2^32` cast
   normalization; the chain ledgers are derived exactly (sin/cos `7δ`, Horner-vs-exact `≤ 1/q32` each,
@@ -1287,7 +1287,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `xiaomi-pro`** (`E2C14`) per §9.1 — nine slices of `Result`-monad normalization on the speed lane;
   the Lean kernel arbitrates.
 - `APEIRON-INT-TRANSCENDENTAL-E2C14` (xiaomi-pro escalation per §9.1, ~45 min of the resumed 40/60 box
-  — overrun; **closed**): `Numeric/RopeRefinement.lean` `3bd26da3…` (3524 lines, +592) proves
+  — overrun; **closed**): `Numeric/Rope/Refinement.lean` `3bd26da3…` (3524 lines, +592) proves
   `fixed_sin_cos_refines_proved : fixed_sin_cos_refines` — per output `|toReal sc.f − f (toReal x)| ≤
   epsExp·|f (toReal x)| + trig_floor`, `epsExp = trig_floor = 2^-20`, composed worst case 4.92e-7 (4.29e-7 at `|s| = π/4`) ≤
   `trig_floor` = 9.537e-7 (`trig_floor_close`) — with the direct-P value proof `word_fixed_sin_cos_past_guards_value`
@@ -1302,7 +1302,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   headline; restore byte-identical. Lead registration: the twelve E2C14 declarations appended; audit
   `a235b779…` (closed cone). **Trig's real bound is proved.**
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1AJ` (deepseek-flash, ~54 min of the authorized 30/45 box — overrun;
-  **`word_fixed_exp_body` landed**): `Numeric/ExpRefinement.lean` `448abb53…` (2037 lines) adds the
+  **`word_fixed_exp_body` landed**): `Numeric/Engine/Exp.lean` `448abb53…` (2037 lines) adds the
   tight remainder bound (`fixed_exp_reduction_remainder_abs_le`, `|x − s·2977044472| ≤ 2^32`), the
   `|horner_acc| ≤ 2^40` bound as a second conjunct of the `exp_horner` spec (cheaper than a pure lemma;
   from `|i13| ≤ 2^36`), and `word_fixed_exp_body` by the trig call-chain technique (`spec_bind` on
@@ -1312,7 +1312,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   control non-slack (tight bound `2^32 → 2^31`) red; restore cached. **Exp's discrete value semantics
   is complete**; only the real-error composition into `fixed_exp_refines` remains (`E1a`, running).
 - `APEIRON-INT-TRANSCENDENTAL-E1A` (deepseek-flash, ~35 min of a 25/40 box — soft stop slightly
-  exceeded; **landed**): `Numeric/ExpRefinement.lean` `754295f1…` (2103 lines; two Mathlib imports)
+  exceeded; **landed**): `Numeric/Engine/Exp.lean` `754295f1…` (2103 lines; two Mathlib imports)
   proves `fixed_exp_ln2_q32_defect` (`|2977044472/q32 − log 2| ≤ 10^-9`, from
   `Real.log_two_gt_d9`/`log_two_lt_d9`), `fixed_exp_reduction_displacement` (`|toReal r − (toReal x −
   k.val·log 2)| ≤ deltaRed = 31/10^9`; `|k| ≤ 31` from the shift bound), and
@@ -1323,9 +1323,9 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   (running) proves the Horner polynomial error (degree-7 remainder + round ledger + coefficient
   defects); then `E1c` composes into `fixed_exp_refines`.
 - **Reboot and reconciliation**: the machine rebooted mid-slice; the trig escalation lane (`E2C14`) and
-  the exp `E1B` lane died. On resume: `Numeric/ExpRefinement.lean` was `b38375df…` (2160 lines) — the
+  the exp `E1B` lane died. On resume: `Numeric/Engine/Exp.lean` was `b38375df…` (2160 lines) — the
   E1B pieces (`epsHorner = 2·10^-7`, `fixed_exp_taylor7_remainder`, eight `fixed_exp_coeff_defect_*`)
-  had landed and build green (2445 jobs) but no gate/control ran; `Numeric/RopeRefinement.lean`
+  had landed and build green (2445 jobs) but no gate/control ran; `Numeric/Rope/Refinement.lean`
   untouched (`e07bbd74…`, 2932 lines); `AxiomAudit.lean` re-verified after registering the E1B pieces
   (`348b1c63…`, closed cone); probes survive under `/home/socol/oc-tmp/` (`e2c11_probe.lean`,
   `e2c12_probe.lean`, `e2c5_probe.lean`); `/tmp` was wiped (logs gone) and recreated. Both lanes
@@ -1333,7 +1333,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   revision preserved at `/home/socol/oc-tmp/int-exp-e1a-control/ExpRefinementControl.lean`
   (`754295f1…`).
 - `APEIRON-INT-TRANSCENDENTAL-E1B` (deepseek-flash, ~33 min of a 30/45 box — soft stop exceeded; round
-  ledger landed): `Numeric/ExpRefinement.lean` `04f6aeae…` (2200 lines) adds
+  ledger landed): `Numeric/Engine/Exp.lean` `04f6aeae…` (2200 lines) adds
   `fixed_exp_round_q32_int_error` (`|round_q32 v · 2^32 − v| ≤ 2^31`) and
   `fixed_exp_round_q32_real_error` (`|round_q32 v/q32 − v/q32²| ≤ 1/(2q32)`), on top of the truncation
   remainder (`≤ |t|^8·9/322560`) and the eight coefficient defects. Gate exit 0 (2445 jobs, 178 s);
@@ -1342,7 +1342,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   1.11e-7 ≤ epsHorner = 2e-7`), then E1c. Lead registration: the two round lemmas verified in
   `AxiomAudit.lean` `0ecd8162…` (closed cone). `E1B2` (running) lands the assembly.
 - `APEIRON-INT-TRANSCENDENTAL-E1B2` (deepseek-flash, ~44 min of a 30/45 box — at the hard stop; round
-  propagation landed): `Numeric/ExpRefinement.lean` `c20fb4a0…` (2292 lines) adds the exact Horner
+  propagation landed): `Numeric/Engine/Exp.lean` `c20fb4a0…` (2292 lines) adds the exact Horner
   machinery (`hand`, `handReal`, `handRealF`, `horner_acc_eq`, `hornerReal`) and proves the round
   propagation `horner_round_error` (`|(horner_acc r)/q32 − hornerReal t| ≤ 7·(1/(2q32))` for `|t| ≤ 1`)
   from `hand_bound` + `fixed_exp_round_q32_real_error`. Gate exit 0 (2445 jobs, 179 s); control
@@ -1351,7 +1351,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   7/(2q32) + 8/q32 + 2^-8·9/322560 ≈ 1.12e-7 ≤ epsHorner = 2e-7`), then E1c. Lead registration: the
   seven declarations verified in `AxiomAudit.lean` `376a6904…` (closed cone). `E1B3` (running).
 - `APEIRON-INT-TRANSCENDENTAL-E1B3` (deepseek-flash, ~35 min of a 30/45 box — soft stop exceeded;
-  coefficient machinery landed, chain blocked): `Numeric/ExpRefinement.lean` `d404cdc7…` (2347 lines)
+  coefficient machinery landed, chain blocked): `Numeric/Engine/Exp.lean` `d404cdc7…` (2347 lines)
   adds `hornerRealF`, `taylorReal`, `hornerReal_eq_F`, `taylorReal_eq_sum` and the real defect stage
   `handRealF_defect`. The defect chain stalls at stages `e5`/`e6` on the default 200k heartbeats
   (`isDefEq`/`whnf` on the deep `handRealF` nesting) — a structural fix, not a cap: reformulate over an
@@ -1361,7 +1361,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   verified in `AxiomAudit.lean` `10892edb…` (closed cone). `E1B4` (running) reformulates and
   assembles; then E1c.
 - `APEIRON-INT-TRANSCENDENTAL-E1B4` (deepseek-flash, ~30 min of a 30/45 box — soft stop reached;
-  **E1B complete**): `Numeric/ExpRefinement.lean` `7be36e01…` (2467 lines) reformulates the real Horner
+  **E1B complete**): `Numeric/Engine/Exp.lean` `7be36e01…` (2467 lines) reformulates the real Horner
   over a coefficient list (`realHorner`, `hornerReal_eq_list`/`taylorReal_eq_list`) and proves the chain
   by `List` induction (`realHorner_step`, `realHorner_pair_le`, `hornerReal_taylor_error ≤ 8/q32`) and
   the combined `horner_acc_error ≤ epsHorner = 2·10^-7` on `|t| ≤ 1/2` — the deep-nesting heartbeat
@@ -1372,7 +1372,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   2^k·(acc/q32)| ≤ 4/q32` both branches), and the composition with `fixed_exp_exponential_transfer`;
   the relative budget closes at `≈ 3.30e-7 < 2^-20`. `E1C` (running).
 - `APEIRON-INT-TRANSCENDENTAL-E1C` (deepseek-flash, ~45 min of a 30/45 box — at the hard stop; steps
-  1–2 landed, two spec gaps exposed): `Numeric/ExpRefinement.lean` `6bc9a9ed…` (2526 lines) adds the
+  1–2 landed, two spec gaps exposed): `Numeric/Engine/Exp.lean` `6bc9a9ed…` (2526 lines) adds the
   sharpened `fixed_exp_reduction_remainder_abs_le_2p31` (`|x − s·2977044472| ≤ 2^31`, from
   `k ∈ [-24,30]` and `R·D = 2^64 + 1953109352`) and `fixed_exp_reduction_remainder_toReal_half`
   (`|toReal r| ≤ 1/2`, the hypothesis `horner_acc_error` needs — the older `≤ 2^32` bound only gives
@@ -1386,7 +1386,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   Lead registration: the two sharpened lemmas verified in `AxiomAudit.lean` `e8f68776…` (closed cone).
   `E1C2` (running) closes Gap A; then E1C3 composes.
 - `APEIRON-INT-TRANSCENDENTAL-E1C2` (deepseek-flash, ~56 min of a 30/45 box — overrun; **Gap A
-  discharged**): `Numeric/ExpRefinement.lean` `8f8031b3…` (2758 lines) proves the body-level exact
+  discharged**): `Numeric/Engine/Exp.lean` `8f8031b3…` (2758 lines) proves the body-level exact
   values for both `exp_scale` branches under explicit range hypotheses, excluding `Err`:
   `fixed_exp_bmod128_low` (`a.bmod 2^128 = a` on `[0, 2^63−1]`), `fixed_exp_scale_nonneg_exact`
   (k≥0: `v.val = acc·2^k`), `fixed_exp_two_pow_bmod`, `fixed_exp_scale_neg_core_exact` (the `n<64`
@@ -1398,7 +1398,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   Residual (`E1C3`, running): the on-window range budget for the hypotheses, then the composition
   into `fixed_exp_refines` (relative budget `≈ 3.3e-7 < 2^-20`).
 - `APEIRON-INT-TRANSCENDENTAL-E1C3` (deepseek-flash, ~43 min of a 35/50 box — soft stop exceeded;
-  step-1 checkpoint landed): `Numeric/ExpRefinement.lean` `47938976…` (2848 lines) adds
+  step-1 checkpoint landed): `Numeric/Engine/Exp.lean` `47938976…` (2848 lines) adds
   `fixed_exp_exp_half_lt` (`exp (1/2) < 7/4` via `Real.exp_bound` at `n = 5`) and
   `fixed_exp_scale_range_budget` — from the window plus the body characterization: `k.val < 64` (the
   `k ≥ 64` refusal never arises on the window), `0 < acc.val`, and the exact range budgets
@@ -1408,11 +1408,11 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   declarations verified in `AxiomAudit.lean` `249fdd0f…` (closed cone). Residual (`E1C4`, running):
   strengthen the `exp_reduce` spec to Ok-only, prove `word_fixed_exp_body_refines` by `spec_bind`
   over it, `word_fixed_exp_horner_acc` and both exact scale theorems (k≥0 exact, k<0 `≤ 1/(2q32)`;
-  relative closure `3.30e-7 < 2^-20`; rounding under the `4/q32` floor), then close
+  relative closure `3.30e-7 < 2^-20`; rounding under the `4/q32` floor, `conditional`), then close
   `fixed_exp_refines` via `spec_imp_exists` and `word_fixed_exp =ᵈ fixed_exp.fixed_exp` (refusal
   branch already in `fixed_exp_refuses_proved`).
 - `APEIRON-INT-TRANSCENDENTAL-E1C4` (deepseek-flash, ~62 min of a 35/50 box — hard stop exceeded;
-  **exp closed**): `Numeric/ExpRefinement.lean` `33c1efc3…` (3160 lines) lands the composition —
+  **exp closed**): `Numeric/Engine/Exp.lean` `33c1efc3…` (3160 lines) lands the composition —
   `fixed_exp_exp_reduce_spec_ok` (Ok-only reduce), `fixed_exp_exp_u_bounds`,
   `fixed_exp_scale_abs_rel_pos`/`_neg` (relative budget), `fixed_exp_ediv_self_abs`,
   `fixed_exp_round_neg_abs`, `word_fixed_exp_body_refines` (body WP triple), and
@@ -1423,7 +1423,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   registration: the eight declarations verified in `AxiomAudit.lean` `99c83c9e…` (closed cone).
   Overrun note: ℝ/ℤ/natAbs coercion iteration, not a proof failure.
 - `APEIRON-INT-TRANSCENDENTAL-E3B` (deepseek-flash, ~10 min of a 30/45 box — inside; **both rsqrt
-  guards removed**): `Numeric/RsqrtRefinement.lean` `916ca0ef…` (1072 lines) now elaborates
+  guards removed**): `Numeric/Engine/Rsqrt.lean` `916ca0ef…` (1072 lines) now elaborates
   `isqrt_loop1_spec` and `isqrt_spec` at the default 200k heartbeat cap — 22 `nlinarith`/`linarith`
   sites in `isqrt_loop1_spec` restricted to `… only [hyps]` (two needed the explicit set), guard-free
   red run exit 1 with the deterministic `isDefEq` timeout at `:592` before the change. Gate exit 0
@@ -1431,7 +1431,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   with pristine-copy positive exit 0; restore byte-identical; no `set_option` remains. The two rsqrt
   openings are discharged.
 - `APEIRON-INT-TRANSCENDENTAL-E3A` (deepseek-flash, ~28 min of a 30/45 box — at the soft stop; three
-  of four exp guards removed): `Numeric/ExpRefinement.lean` `6c436055…` (3157 lines) drops the three
+  of four exp guards removed): `Numeric/Engine/Exp.lean` `6c436055…` (3157 lines) drops the three
   `maxRecDepth 4000` raises (file byte-identical minus those lines; guard-free elaboration exit 0,
   163 s — they were redundant at the default depth). The `maxHeartbeats 8000000` on
   `word_fixed_exp_horner_acc` is **kept as a named accepted opening**: the guard-free red run (exit 1,
@@ -1442,7 +1442,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   the post explicitly. Gate exit 0 (2445 jobs, 163 s); audit green (98 `fixed_exp` lines, same names);
   control non-slack (`≤ 30 → ≤ 29` in `word_fixed_exp_reduction_value`) red; restore byte-identical.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1AI` (deepseek-flash, ~47 min of the authorized 30/45 box — overrun;
-  **`exp_horner` spec landed**): `Numeric/ExpRefinement.lean` `53182c60…` (1939 lines) rewrites
+  **`exp_horner` spec landed**): `Numeric/Engine/Exp.lean` `53182c60…` (1939 lines) rewrites
   `word_fixed_exp_horner_acc` as the spec on `fixed_exp.exp_horner`'s body (`⦃ z => z.val =
   fixed_exp.horner_acc r.val ⦄`), proved fresh against the new chunked extraction's local names; the
   inline copy is retired in place (same name, so the audit line still resolves). Cap status: the single
@@ -1452,7 +1452,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   copy with a single-pass token rename. Remaining: `word_fixed_exp_body` — the tight `|r| ≤ 2^32`
   lemma, the `|horner_acc| ≤ 2^40` bound, and the composition script (`W1-T1AJ`, running).
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1AH` (deepseek-flash, ~45 min of the authorized 30/45 box — at the
-  hard stop; first half landed): `Numeric/ExpRefinement.lean` `084ba5cc…` (1966 lines) compiles
+  hard stop; first half landed): `Numeric/Engine/Exp.lean` `084ba5cc…` (1966 lines) compiles
   against the regenerated extraction (compile fixes: `exp_reduce.LOWER/UPPER`, refusal proofs unfold
   `exp_reduce`), retires the obsolete `word_fixed_exp_window_past_guards` rewrite and its helpers with
   an in-file note, and lands `fixed_exp_exp_reduce_spec` (the `exp_reduce` pair/refusal post via
@@ -1502,7 +1502,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
    working-tree digests).
 - **Independent verification receipts** (fresh glm sessions, non-writer model; read-only on the repo,
   controls in disposable copies):
-  - trig `RopeRefinement.lean` `3bd26da3…`: verified; `lake build Numeric.RopeRefinement AxiomAudit`
+  - trig `RopeRefinement.lean` `3bd26da3…`: verified; `lake build Numeric.Rope.Refinement AxiomAudit`
     exit 0 (3896 jobs); `#print axioms` cone `[propext, Classical.choice, Quot.sound]`; independent
     mutation `trig_delta 326/q32 → 325/q32` red at `trig_reduction_displacement:1817`; restore
     byte-identical. Prose correction applied: the composed worst case is 4.92e-7 (`|s| ≤ 4/5`),
@@ -1519,7 +1519,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
     `word_fixed_exp_body_refines`); restore byte-identical. Disclosed: the Rust contract's `1e-8` is
     stricter than the proved `2^-20`; the single 8M guard remains the named accepted opening.
 - `APEIRON-INT-TRANSCENDENTAL-W1-T1Q` (deepseek-flash, ~32 min of a 20/30 box — overrun; step 3 core
-  landed): `Numeric/ExpRefinement.lean`
+  landed): `Numeric/Engine/Exp.lean`
   `f7f0efd52fe989f9c3b3a0388ffb01bb646998188c5eebce1cc9511fcf22e3ba` (1479 lines) proves
   `fixed_exp_scale_neg_core` — for `1 ≤ n.val`, `n.val < 64`, `|acc6.val| ≤ 2^40`, the extracted
   round-to-nearest right-shift core returns `Err` or `Ok v` with `(v.val : ℤ) = ((acc6.val +
@@ -1547,7 +1547,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   generated Lean compiles before the root is re-added;
   `word_{q4,q6}_k_dequant` float scaling is outside the integer fragment (consistent route:
   fixed-point dequant rewrite, matching the integer executing-path decision). `W3-T3` refines the two
-  code functions in `Numeric/FormatRefinement.lean` (`word_q4_k_codes_ok` landed; Q6_K `W3-T15` in
+  code functions in `Numeric/Packing/Format.lean` (`word_q4_k_codes_ok` landed; Q6_K `W3-T15` in
   flight).
 - `APEIRON-INT-ENGINE-W4-T1` (deepseek-flash, ~30 min of a 30/45 box — soft stop met): the engine
   skeleton lands — `src/engine/mod.rs` `b7c203a3…` (350 lines), `src/engine/loader.rs` `feb8590b…`
@@ -1621,7 +1621,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   (13066 lines, +1481); regen and `--check` exit 0; package build 1708 jobs. Corpus and audit
   re-verification follow the `W3-T22` lane's settle.
 - `APEIRON-INT-FORMAT-W3-T22` (deepseek-flash, ~44 min of a 30/45 box — at the hard cap; **Q6_K
-  closed**): `Numeric/FormatRefinement.lean` `ae3d48c4…` (1025 lines) proves `word_q6_k_codes_ok :
+  closed**): `Numeric/Packing/Format.lean` `ae3d48c4…` (1025 lines) proves `word_q6_k_codes_ok :
   210 ≤ Slice.len blk → ∃ v : Array I8 256, word_q6_k_codes blk = ok (.Ok v) ∧ ∀ i < 256,
   (v.val.getD i 0#i8).val = q6CodesRef blk.val i` by the `hspec` WP prefix, `step*` over the
   `QK_K/2`/`QK_K/4` divisions and slice reads, `WP.spec_bind` with `q6_outer_spec` + `q6Inv_repeat`,
@@ -1666,7 +1666,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   stochastic draw and temperature are open (need an RNG contract); grade `tested`. `W4-T8`
   (decode-loop integration) running.
 - `APEIRON-INT-FORMAT-W3-T3` (deepseek-flash, ~40 min of a 30/45 box — soft stop exceeded; checkpoint
-  landed): `Numeric/FormatRefinement.lean` `709b7b62…` (113 lines) defines the exact integer references
+  landed): `Numeric/Packing/Format.lean` `709b7b62…` (113 lines) defines the exact integer references
   `q4CodesRef`/`q6CodesRef` for the Q4_K/Q6_K code layouts and proves both block-size constants and the
   **refusal correspondence** (`word_q4_k_codes`/`word_q6_k_codes` return the exact `Truncated`
   `QuantError` below 144/210 bytes). Gate exit 0 (1707 jobs); control non-slack (refusal hypothesis

@@ -10,7 +10,7 @@ pins the *single-head, fixed-KV-state* case:
   attention output component `i` = `denseAttnReal (listAbsMax sc) sc (toRealList vs_i)`
   (`Numeric.EngineAttnRefinement`), where the score list `sc` is the real `<key_j, y> / √head_dim`
   (`Numeric.EngineAttnRefinement.idealScoreList`); `attnScoreList_gridVec` proves the two agree on
-  `gridVec q` (`Numeric/MatvecBridge.lean`) under `q.val.length = head_dim`.
+  `gridVec q` (`Numeric/Matvec/Bridge.lean`) under `q.val.length = head_dim`.
 * `attnRef_lipschitz` — the global expansion bound of `attnRef`, with constant `attnStageL`.
 * `attnStageDom` — the admissible domain: the `gridVec` images of the `attn_domain_v2` slices with a
   component bound `B`.
@@ -44,16 +44,16 @@ global bound; no domain restriction is needed.
 ## Trust boundary
 
 Kernel-checked `ℝ`/`ℤ` algebra plus the `denseAttnReal`/`idealScoreList` denotations of
-`Numeric.EngineAttnRefinement`. No claim here reaches the extracted `word_attn_head` body any more;
+`Numeric.Engine.Attn`. No claim here reaches the extracted `word_attn_head` body any more;
 see "Dropped with the attention-downstream move" above. Does not cover rustc/LLVM codegen
 of `src/engine/attn.rs`, the kernel ABI, GPU/SPIR-V, or the `unsafe` container. The `B` conjunct of
 the domain is a restriction carried for the caller's uniform `δ` bound; it is not used by the
 Lipschitz proof.
 -/
 import Nous.Model.BlockComposition
-import Numeric.AttnSoftmaxPerturb
-import Numeric.AttnScoreStage
-import Numeric.MatvecBridge
+import Numeric.Attn.SoftmaxPerturb
+import Numeric.Attn.ScoreStage
+import Numeric.Matvec.Bridge
 
 namespace Nous.Model
 

@@ -1,5 +1,5 @@
 import AxiomAudit.Remaining
-import Numeric.Pow2Refinement
+import Numeric.Engine.Pow2
 import Flux.Discrete
 import Count.Helpers
 import Count.FreqRep
@@ -75,21 +75,21 @@ import Learn.E8Code
 import Learn.Grad.DenseLinear
 import Learn.Grad.DenseLinearWitness
 import Learn.Grad.Rope
-import Numeric.SigmaDeltaRefinement
+import Numeric.OneBit.SigmaDeltaRefinement
 import Perf.BitsRefine
-import Numeric.Register
-import Numeric.RegisterRefinement
-import Numeric.Qubit
-import Numeric.BranchLaplacian
-import Numeric.BranchMadelung
-import Numeric.TetraLimit
-import Numeric.TetraLaplacian
-import Numeric.BranchQuantization
-import Numeric.PathDensity
+import Numeric.Quantum.Register
+import Numeric.Quantum.RegisterRefinement
+import Numeric.Quantum.Qubit
+import Numeric.Quantum.BranchLaplacian
+import Numeric.Quantum.BranchMadelung
+import Numeric.Quantum.TetraLimit
+import Numeric.Quantum.TetraLaplacian
+import Numeric.Quantum.BranchQuantization
+import Numeric.Quantum.PathDensity
 import Perf.QuantumRotation
 import Perf.SpecDraftKL
-import Quantum.FaceShift
-import Quantum.AmplitudeKL
+import Numeric.Quantum.Ledger.FaceShift
+import Numeric.Quantum.Ledger.AmplitudeKL
 import Numeric.Quantum.Ledger.DesignLadder
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
@@ -759,7 +759,7 @@ import Numeric.Quantum.Ledger.DesignLadder
 #audit apeiron_rope.rope_bwd_witness
 
 -- The extracted checked-`i64` sigma-delta body `sigma_delta.sd_binary_block`
--- refines `Numeric.SigmaDelta.sdState`/`sdSign` (`Numeric/SigmaDeltaRefinement.lean`).
+-- refines `Numeric.SigmaDelta.sdState`/`sdSign` (`Numeric/OneBit/SigmaDeltaRefinement.lean`).
 #audit apeiron_word.sd_step_spec
 #audit apeiron_word.sd_loop_spec
 #audit apeiron_word.sd_binary_block_shape
@@ -1338,7 +1338,7 @@ import Numeric.Quantum.Ledger.DesignLadder
 #audit Quantum.FaceShift.cubic_violates_shift_first
 #audit Quantum.FaceShift.verdict_l5
 
--- Amplitude-form KL divergence (`Quantum/AmplitudeKL.lean`): the Hellinger-type lower bound, the
+-- Amplitude-form KL divergence (`Numeric/Quantum/Ledger/AmplitudeKL.lean`): the Hellinger-type lower bound, the
 -- second-order agreement of `s ↦ KL p (q_s)` with `s ↦ 2 ‖√(q_s) − √p‖²`, the logistic/softmax
 -- identity and its amplitude form, and the unit verdict.
 #audit Quantum.AmplitudeKL.kl_ge_amplitude_sq

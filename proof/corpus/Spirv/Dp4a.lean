@@ -34,7 +34,7 @@ foundation is introduced: every accumulation below is `ringMul`/`ringNormForm` o
 ## What this file does not claim
 
 The CPU *body* (the Rust GEMV) refining `cpu_dp4a_word`/`dp4a_gemv_spec` is the Aeneas lane's
-obligation in the style of `proof/corpus/Numeric/ExpRefinement.lean`; `gpu_dp4a_word_refines_cpu_word`
+obligation in the style of `proof/corpus/Numeric/Engine/Exp.lean`; `gpu_dp4a_word_refines_cpu_word`
 proves the GPU-side link and the transitivity composition with that link, at the shared spec. The
 module-level statement `denote (decode ws) = dp4a_gemv_spec …` over the concrete
 `gemv_dp4a_module_dyn` words is not proved here: the emitter `Kb` is unproved and named, the

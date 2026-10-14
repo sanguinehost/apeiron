@@ -35,7 +35,7 @@ under the closed axiom cone; no claim about rustc/LLVM codegen, the kernel ABI, 
 `unsafe` container, or the dequant-to-ideal-weight reading.
 -/
 import Nous.Model.BlockGrounded
-import Numeric.DequantRefinement
+import Numeric.Dequant.Refinement
 
 set_option linter.apeiron.notation false
 set_option linter.apeiron.citation false

@@ -9,7 +9,7 @@ per-iteration transitions under their guards, the two loop ranks, the exit and r
 and one reachable success witness. Nothing outside these declarations is claimed.
 REGISTER: resource obligation for the unpack loops: per-iteration work, loop rank, exit and
 refusal branch, reachable success witness. Excluded: hardware timing, the code-value refinement
-against a reference (`proof/corpus/Numeric/FormatRefinement.lean`), and any canonical ring
+against a reference (`proof/corpus/Numeric/Packing/Format.lean`), and any canonical ring
 correspondence.
 CORPUS: `src/format/quant.rs:492-507` (`q4_k_codes`), `:497-505` (outer `while b < 4`),
 `:499-503` (inner `while l < 32`), `:221-230` (`need`); extracted to

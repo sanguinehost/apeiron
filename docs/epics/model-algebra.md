@@ -94,9 +94,9 @@ document epic itself closes on the path and whitespace gate in the spec's Eviden
 | Linear attention is the spinor scan; softmax attention is the exact online recurrence | proved | `Sanguine.AttentionSpinor.attention_is_spinor_scan`, `softmax_attention_is_online_spinor` (ℝ; the latter is landed but not yet in `AxiomAudit.lean`) |
 | The normalized channel-form attention equals `Σ_i (w_i / Σ_j w_j) v_i` on the factorizable domain | target (open bet) | planned `Nous.Model.attention_channel_form`, `Nous/Model/Attention.lean` (this plan W3-T1) |
 | The fixed-point transcendental kernels refine their real specifications | proved | `apeiron_word.fixed_exp_refines_proved`, `fixed_rsqrt_refines_proved`, `fixed_sin_cos_refines_proved` |
-| The integer Q4_K/Q6_K unpackers refine their byte-exact references | proved | `apeiron_word.word_q4_k_codes_ok`, `word_q6_k_codes_ok` (`Numeric/FormatRefinement.lean`) |
+| The integer Q4_K/Q6_K unpackers refine their byte-exact references | proved | `apeiron_word.word_q4_k_codes_ok`, `word_q6_k_codes_ok` (`Numeric/Packing/Format.lean`) |
 | The extracted word kernels refine canonical `ringMul`/`ringNormForm` at `ZMod (2^64)` | proved | `apeiron_word.word_mul_denote`, `word_norm_denote` (`proof/corpus/WordRefinement.lean`) |
-| GGUF header parse invariants (`HeaderWF`) refine the extracted parser | target | predicates stated in `Numeric/FormatRefinement.lean`; `word_gguf_parse_header` extracted, `proof/regen.sh` root |
+| GGUF header parse invariants (`HeaderWF`) refine the extracted parser | target | predicates stated in `Numeric/Packing/Format.lean`; `word_gguf_parse_header` extracted, `proof/regen.sh` root |
 | The composed margin refuses the decision below the summed `ε` | proved | `Nous.Model.decision_margin_preserved`, `strictWinner_perturb`, `numeric_fold_margin_usable`, `numeric_decision_unchanged` (`Nous/Model/ErrorComposition.lean`) |
 | The packing grammar admits widths 2/3/4/6/8, the native F16/F32 identity face, and the K-quant blocks | target | `APEIRON-ALGEBRA-D3`/`A5`; current tested instance `src/format/quant.rs` (Q4_K 144 B, Q6_K 210 B) |
 
@@ -112,7 +112,7 @@ programme slices of comparable shape.
 | 1 · reflection | one extraction root and one wrapper per kernel | refinement theorem + refusal theorem + cone registration | 1–2 per kernel | `WordRefinement.lean` (1304 lines) is the canonical face; a fresh word kernel is 1 slice |
 | 2 · composed margin (D2) | `Nous.Model.ErrorComposition` error ledger | per-op `ε`, per-layer aggregation, fold composition, margin predicate | 6–10 | rsqrt closure took ~8 slices to 1074 lines; a bound-only composition is cheaper per slice |
 | 3 · channel attention | `Nous/Model/Attention.lean` | `attention_channel_form` on the factorizable domain | 4–6 | `RopeRefinement` took ~20 slices to 3524 lines; the attention module carries no transcendental remainder, so fewer |
-| 4 · packing (D3) | parameterized grammar + GGUF converter | width/block/scale/min/bit-plane predicates; K-quant instances | 6–10 | `Numeric/FormatRefinement.lean` (1117 lines) lands Q4_K and Q6_K in one wave of ~8 slices |
+| 4 · packing (D3) | parameterized grammar + GGUF converter | width/block/scale/min/bit-plane predicates; K-quant instances | 6–10 | `Numeric/Packing/Format.lean` (1117 lines) lands Q4_K and Q6_K in one wave of ~8 slices |
 | 5 · word/ternary faces | extraction roots per face | face instance `#guard`s and refinements | 2–4 per face | `Nous/Model/Instances.lean` is a small fixed-`σ` instance module (W4-T2, not yet present) |
 
 One-person maintenance claim. A single maintainer can hold the *interfaces*: the canonical names, the
@@ -120,9 +120,9 @@ three source classes, the packing grammar and the reflection directions. The cla
 recorded caveats, each an existing receipt, and is not a throughput claim:
 
 - The two remaining `AGENTS.md` §4 violations are `src/engine/mod.rs` (3477) and
-  `src/format/packing.rs` (1711). After the E2 splits, `Numeric/ExpRefinement.lean` (16) and
-  `Numeric/RopeRefinement.lean` (15) are aggregators over parts ≤1108; `Numeric/FormatRefinement.lean`
-  (1117) and `Numeric/RsqrtRefinement.lean` (1072) are within. Splitting the two remaining files is an
+  `src/format/packing.rs` (1711). After the E2 splits, `Numeric/Engine/Exp.lean` (16) and
+  `Numeric/Rope/Refinement.lean` (15) are aggregators over parts ≤1108; `Numeric/Packing/Format.lean`
+  (1117) and `Numeric/Engine/Rsqrt.lean` (1072) are within. Splitting the two remaining files is an
   open obligation, not a settled property.
 - Six bounded `set_option` raises existed; five were discharged and one
   (`maxHeartbeats 8000000` on `word_fixed_exp_horner_acc`) is a named accepted opening with owner
@@ -231,7 +231,7 @@ denotes and the grade its file carries.
 | Attention (channel form) | streaming normalizer `Σ_i w_i` and weighted sum `Σ_i w_i v_i`, normalize once; normal form `Σ_i (w_i / Σ_j w_j) v_i` on the factorizable domain | channel projections `ringUpper`/`ringLower` and `ringMul` | target, open bet (`Nous.Model.attention_channel_form`, `Nous/Model/Attention.lean`, this plan W3-T1) |
 | FFN pointwise | `Tensor R s → Tensor R s` coordinatewise, composed through `OpSpec` VJP | `Nous.Core.Tensor` pointwise ops; `Nous.Core.Autograd.opSpec_compose_vjp` | proved for the VJP law (`Nous/Core/Autograd.lean`); the activation transcendental is the numeric layer |
 | Norms | scaling by a function of the norm form; `channelPair_normForm` factors it | `Apeiron.Trichotomy.AnyRing.ringNormForm σ z = z.1^2 − σ·z.2^2`; `channelPair r z .1 * channelPair r z .2` | anchor: `ringNormForm` is not nonnegative in general, so the scaling needs a positivity hypothesis; the word ring carries no energy claim (`docs/kernel-boundary.md`) |
-| RoPE | position-indexed `SO(2)` rotor action on the `(q,k)` pair; group law `R(θ) ∘ R(φ) = R(θ+φ)` | `Sanguine.AttentionSpinor.rotor`, `rotor_compose`, `rotor_isometry`, `so2_spinor_recurrence` | proved over ℝ (`AttentionSpinor`); executing integer path proved (`fixed_sin_cos_refines_proved`, `Numeric/RopeRefinement.lean`) |
+| RoPE | position-indexed `SO(2)` rotor action on the `(q,k)` pair; group law `R(θ) ∘ R(φ) = R(θ+φ)` | `Sanguine.AttentionSpinor.rotor`, `rotor_compose`, `rotor_isometry`, `so2_spinor_recurrence` | proved over ℝ (`AttentionSpinor`); executing integer path proved (`fixed_sin_cos_refines_proved`, `Numeric/Rope/Refinement.lean`) |
 | Sampling | total `sample : logits → token`, with a margin predicate refusing when the top-two gap is below the composed `ε` | `StrictWinner`-shaped decision; `strictWinner_perturb`, `decision_margin_preserved` | proved (`Nous/Model/ErrorComposition.lean`); the decision shape is named in [`docs/epics/inference-parity.md`](inference-parity.md) |
 
 Parameterization over the face. The algebraic layers are stated over `[CommRing R]` and `σ : R`, so one
@@ -271,7 +271,7 @@ recomputes a kernel inline is a defect, not a third class.
 | channel ratio as binary softmax | where `u, l > 0`: `u/(u+l) = Real.exp (Real.log u) / (Real.exp (Real.log u) + Real.exp (Real.log l))`, the binary softmax of the log-channel pair | target | restated in [`docs/epics/model-algebra.md`](model-algebra.md) W3-T2; `Weighting.lean:29-30` declines the equivalence as originally phrased; domain `0 < u`, `0 < l` |
 | `attention_channel_form` | normalized output equals `Σ_i (w_i / Σ_j w_j) v_i`, `w_i` the channel weights, on the factorizable domain | target (open bet) | planned `Nous/Model/Attention.lean`; control: drop the normalizer → red |
 | `fixed_*_refines` | per-op combined bound `ε·|F (toReal x)| + floor` against the real specification on the named window | proved | `fixed_exp_refines_proved`, `fixed_rsqrt_refines_proved`, `fixed_sin_cos_refines_proved` |
-| `word_q4_k_codes_ok`, `word_q6_k_codes_ok` | success yields the byte-exact reference code array on `qk ≤ len` | proved | `Numeric/FormatRefinement.lean`; registered in `AxiomAudit.lean` |
+| `word_q4_k_codes_ok`, `word_q6_k_codes_ok` | success yields the byte-exact reference code array on `qk ≤ len` | proved | `Numeric/Packing/Format.lean`; registered in `AxiomAudit.lean` |
 | composed margin | the fold's composed `ε` and the runtime refusal predicate | proved | `Nous.Model.ErrorComposition`: `Layer.budget`, `norm_execComp_sub_refComp_le`, `strictWinner_perturb`, `decision_margin_preserved`, `numeric_fold_margin_usable` |
 | packing grammar | widths 2/3/4/6/8, **F16/F32 (the identity face: no quantisation)**, block, scale kind, optional min, bit-plane order, balanced-trit planes | target | `APEIRON-ALGEBRA-D3`/`A5`; current tested instances Q4_K/Q6_K and the F16/F32 element paths |
 
@@ -305,12 +305,12 @@ One parameterized grammar covers every admitted weight layout; a layout not expr
 is out of domain. The grammar is a class-(b) object: it constrains the converter, it does not prove the
 values. Current tested instances are `src/format/quant.rs` (`q4_k_codes`, `q6_k_codes`;
 `Q4_K_BLOCK_BYTES = 144`, `Q6_K_BLOCK_BYTES = 210`), refined in
-`Numeric/FormatRefinement.lean` (`q4CodesRef`, `q6CodesRef`, `word_q4_k_codes_ok`, `word_q6_k_codes_ok`).
+`Numeric/Packing/Format.lean` (`q4CodesRef`, `q6CodesRef`, `word_q4_k_codes_ok`, `word_q6_k_codes_ok`).
 
 | Grammar axis | Admitted | Current instance | Grade |
 |---|---|---|---|
 | code width | 2, 3, 4, 6, 8 bits; **F16/F32 identity (exact f16; round-to-nearest Q32.32 for f32, with refusals)** | 4 (Q4_K), 6 (Q6_K) | tested; general width + native face target (D3/A5) |
-| block | weights-per-block `qk`, bytes-per-block; stored as `(qk, bb)` | `block_geom` in `Numeric/FormatRefinement.lean` (144, 210) | proved instance |
+| block | weights-per-block `qk`, bytes-per-block; stored as `(qk, bb)` | `block_geom` in `Numeric/Packing/Format.lean` (144, 210) | proved instance |
 | scale kind | per-block f16 scale; K-quant sub-block scales | `f16 d; f16 dmin; u8 scales[12]` | tested |
 | min | optional per-block minimum offset | Q4_K has `dmin`; Q6_K none | tested |
 | bit-plane order | low/high plane split and offset order (`ql`, `qh`) | Q6_K `ql[128]; qh[64]` | proved (`word_q6_k_codes_ok`) |
@@ -319,7 +319,7 @@ values. Current tested instances are `src/format/quant.rs` (`q4_k_codes`, `q6_k_
 GGUF is the tested import converter for class (b): `src/format/gguf.rs` parses the header and tensor
 directory, extracted as `word_gguf_parse_header` (`proof/regen.sh` root; `proof/extract/lib.rs:608`).
 The header/data invariants `HeaderWF`, `TensorRangeWF`, `magic_ok`, `version_ok` and the
-`LengthOverflow`/`UnknownType`/`OutOfBounds` gates are stated in `Numeric/FormatRefinement.lean`; the
+`LengthOverflow`/`UnknownType`/`OutOfBounds` gates are stated in `Numeric/Packing/Format.lean`; the
 refinement theorem for `word_gguf_parse_header` is a residual, not a landed proof. The parallel
 `APEIRON-ALGEBRA-D3` task implements the general grammar and the converter; this specification fixes the
 axes and the domain, not the code.
@@ -344,7 +344,7 @@ An infallible signature over a lossy or partial operation is a defect. `RingCell
 0. **Document gate.** Every cited path resolves (`rg`/`test -f`), and the two documents carry no
    whitespace diagnostics. Command and result in the task receipt; no compiler gate.
 1. **Positive tests.** `cargo test --workspace --all-features --locked` covers the class-(b) converter
-   and the class-(c) driver; the Q4_K/Q6_K unpackers are covered by `Numeric/FormatRefinement.lean`.
+   and the class-(c) driver; the Q4_K/Q6_K unpackers are covered by `Numeric/Packing/Format.lean`.
 2. **Proof.** The proof barrier is `cd proof/corpus && flock -w 600
    /tmp/opencode/apeiron-lane.lock timeout 540 bash -c 'LEAN_NUM_THREADS=1 lake build Nous'` plus
    `lake build AxiomAudit`, on the module set the plan names (`ErrorComposition`, `Attention`). The
@@ -469,10 +469,10 @@ gate whose exit 0 closes it, and a control where soundness is at stake.
 |---|---|---|---|---|---|
 | W0 | G4 plan written | `docs/epics/model-algebra.md` | lead | document gate | n/a — planning |
 | W0 | intent/spec drift correction and G5 rename | `docs/epics/model-algebra.md`, `docs/epics/model-algebra.md` | lead | document gate | n/a — planning |
-| W1 | packing decoder extraction root (G3) | `proof/regen.sh`, `proof/ApeironWord.lean` (regenerated) | lead | `regen.sh --check`; `lake build Numeric.FormatRefinement` | perturb a `packing.rs` constant → regenerated Lean differs → `--check` red |
-| W1 | packing decoder refinement | `proof/corpus/Numeric/PackingRefinement.lean` | deepseek-flash | `lake build Numeric.PackingRefinement AxiomAudit` | perturb the affine constant → exactness goal red |
-| W1 | `rms_norm_fixed` / `rope_fixed` refinement (G3) | `proof/extract/lib.rs`, `src/engine/<kernel>.rs`, `proof/corpus/Numeric/EngineNormRefinement.lean` | deepseek-flash | `regen.sh --check`; module gate | perturb a coefficient → bound red |
-| W1 | `matvec_fixed` / `row_dot_fixed` refinement (G3) | `proof/extract/lib.rs`, `src/engine/<kernel>.rs`, `proof/corpus/Numeric/EngineDotRefinement.lean` | deepseek-flash | `regen.sh --check`; module gate | drop the fixed-point floor → bound red |
+| W1 | packing decoder extraction root (G3) | `proof/regen.sh`, `proof/ApeironWord.lean` (regenerated) | lead | `regen.sh --check`; `lake build Numeric.Packing.Format` | perturb a `packing.rs` constant → regenerated Lean differs → `--check` red |
+| W1 | packing decoder refinement | `proof/corpus/Numeric/Packing/Refinement.lean` | deepseek-flash | `lake build Numeric.Packing.Refinement AxiomAudit` | perturb the affine constant → exactness goal red |
+| W1 | `rms_norm_fixed` / `rope_fixed` refinement (G3) | `proof/extract/lib.rs`, `src/engine/<kernel>.rs`, `proof/corpus/Numeric/Engine/Norm.lean` | deepseek-flash | `regen.sh --check`; module gate | perturb a coefficient → bound red |
+| W1 | `matvec_fixed` / `row_dot_fixed` refinement (G3) | `proof/extract/lib.rs`, `src/engine/<kernel>.rs`, `proof/corpus/Numeric/Engine/Dot.lean` | deepseek-flash | `regen.sh --check`; module gate | drop the fixed-point floor (`conditional` bound term) → bound red |
 | W2 | composed-margin barrier and G7 row | `Nous/Model/ErrorComposition.lean`, `proof/corpus/AxiomAudit.lean` | lead | `lake build Nous.Model.ErrorComposition AxiomAudit` | perturb a per-layer `ε` → `decision_margin_preserved` red |
 | W2 | D2 per-layer hypothesis discharge | `Nous/Model/ErrorComposition.lean` | worker | `lake build Nous.Model.ErrorComposition` | flip an `ε` sign → red |
 | W3 | G1 `attention_channel_form` | `Nous/Model/Attention.lean` | lead | `lake build Nous.Model.Attention` | drop the normalizer → red |
@@ -589,16 +589,16 @@ AENEAS_HOME=/home/socol/Workspace/apeiron/target/aeneas proof/regen.sh --check
 
 #### W1-T2 · packing decoder refinement
 
-- **Scope:** `Numeric/PackingRefinement.lean` proves `decode_block`'s exact integer law (the affine/code law
+- **Scope:** `Numeric/Packing/Refinement.lean` proves `decode_block`'s exact integer law (the affine/code law
   over `ZMod (2^64)`) and its refusal branches, refining the extracted body to the spec's grammar. This is the
   one decoder proof; GGUF stays a tested import boundary.
-- **Files:** `proof/corpus/Numeric/PackingRefinement.lean` (new), `proof/corpus/AxiomAudit.lean`
+- **Files:** `proof/corpus/Numeric/Packing/Refinement.lean` (new), `proof/corpus/AxiomAudit.lean`
 - **Depends on:** W1-T1
 - **Grade:** proved
 - **Gate:**
 
 ```sh
-cd proof/corpus && flock -w 600 /tmp/opencode/apeiron-lane.lock timeout 540 bash -c 'LEAN_NUM_THREADS=1 lake build Numeric.PackingRefinement AxiomAudit'
+cd proof/corpus && flock -w 600 /tmp/opencode/apeiron-lane.lock timeout 540 bash -c 'LEAN_NUM_THREADS=1 lake build Numeric.Packing.Refinement AxiomAudit'
 ```
 
 - **Negative control:** perturb the affine offset or the scale decode in a throwaway copy; the exactness goal
@@ -609,20 +609,20 @@ cd proof/corpus && flock -w 600 /tmp/opencode/apeiron-lane.lock timeout 540 bash
 
 - **Scope:** root the two engine kernels and prove each extracted body denotes its stated fixed-point
   specification; register in the cone.
-- **Files:** `proof/extract/lib.rs`, the engine kernel module the split produces, `proof/corpus/Numeric/EngineNormRefinement.lean` (new)
+- **Files:** `proof/extract/lib.rs`, the engine kernel module the split produces, `proof/corpus/Numeric/Engine/Norm.lean` (new)
 - **Depends on:** the engine split (`docs/epics/inference-parity.md` W4), W1-T1
 - **Grade:** proved
-- **Gate:** `AENEAS_HOME=… proof/regen.sh --check`; `lake build Numeric.EngineNormRefinement AxiomAudit`.
+- **Gate:** `AENEAS_HOME=… proof/regen.sh --check`; `lake build Numeric.Engine.Norm AxiomAudit`.
 - **Negative control:** perturb a coefficient in a throwaway copy → bound red; restore green.
 - **Evidence to record:** kernel source sha256; extraction identity; bound statement; control.
 
 #### W1-T4 · `matvec_fixed` / `row_dot_fixed` refinement
 
 - **Scope:** as W1-T3 for the accumulation kernels, including the fixed-point truncation term.
-- **Files:** `proof/extract/lib.rs`, the engine kernel module, `proof/corpus/Numeric/EngineDotRefinement.lean` (new)
+- **Files:** `proof/extract/lib.rs`, the engine kernel module, `proof/corpus/Numeric/Engine/Dot.lean` (new)
 - **Depends on:** the engine split, W1-T1
 - **Grade:** proved
-- **Gate:** `AENEAS_HOME=… proof/regen.sh --check`; `lake build Numeric.EngineDotRefinement AxiomAudit`.
+- **Gate:** `AENEAS_HOME=… proof/regen.sh --check`; `lake build Numeric.Engine.Dot AxiomAudit`.
 - **Negative control:** drop the floor term in a throwaway copy → bound red; restore green.
 - **Evidence to record:** as W1-T3.
 
@@ -742,9 +742,9 @@ exists, stay inside `{propext, Classical.choice, Quot.sound}`, and carry a mutat
 
 ### Size and cost
 
-- `AGENTS.md` §4 limit is 1,500 owned lines per file. After the E2 splits, `Numeric/ExpRefinement.lean` (16)
-  and `Numeric/RopeRefinement.lean` (15) are aggregators over parts ≤1,108; `Numeric/RsqrtRefinement.lean`
-  (1,072) and `Numeric/FormatRefinement.lean` (1,117) are within. Remaining violations are
+- `AGENTS.md` §4 limit is 1,500 owned lines per file. After the E2 splits, `Numeric/Engine/Exp.lean` (16)
+  and `Numeric/Rope/Refinement.lean` (15) are aggregators over parts ≤1,108; `Numeric/Engine/Rsqrt.lean`
+  (1,072) and `Numeric/Packing/Format.lean` (1,117) are within. Remaining violations are
   `src/engine/mod.rs` (3,477, split under the inference-parity plan) and `src/format/packing.rs`
   (1,711, W4-T2).
 - Slices per wave follow the intent's proof-cost budget (`docs/epics/model-algebra.md:106-112`); a wave
