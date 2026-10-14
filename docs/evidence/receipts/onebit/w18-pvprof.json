@@ -1,0 +1,349 @@
+{
+ "script_sha256": {
+  "pv_finish": "8ece3cedf0f4bc628e58fdaad3231898aa553eb1b4bfdf6b5bf4ca5c341486fd",
+  "fold_transfer": "28b9b4c04e018ae2c1d826ed0c4420f1c576051c29e27034568ca60e58400c49"
+ },
+ "arm": "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb",
+ "args": {
+  "out": "/home/socol/oc-tmp/lanes/w18/pvprof/pvprof.json",
+  "smoke": false,
+  "n_cal": 50,
+  "n_eval": 40,
+  "n_in": 20,
+  "steps": 1000000000,
+  "batch": 8,
+  "lr_lat": 0.001,
+  "lr_norm": 0.0001,
+  "warmup": 10,
+  "v_every": 0,
+  "v_frac": 0.005,
+  "seed": 0,
+  "v_gain": "linear",
+  "obs_lams": "1,4,16,64",
+  "codes": "vstep",
+  "lr_code": 0.1,
+  "code_init": "codeword",
+  "code_opt": "adam",
+  "code_kinds": "all",
+  "rec_every": 25,
+  "regrid": 0,
+  "profile": 10,
+  "train": "r,c,d,norm"
+ },
+ "protocol": "pack sink -> codes (E8/O8 index per 8-block) -> P-step Adam (STE) + V-step linearised code moves, KL(teacher||student)",
+ "v_gain": "linear",
+ "codes": "vstep",
+ "gpu": "NVIDIA GeForce RTX 5080",
+ "controls": {
+  "args_match_reference_receipt": true,
+  "pack_equality": {
+   "linears": 168,
+   "torch_equal": 168,
+   "within_1e6": 0,
+   "max_rel": 0.0
+  },
+  "before_kl_regression": {
+   "ref": 1.1636724948883057,
+   "got": 1.1636724948883057,
+   "ok": true
+  },
+  "codebook_match": {
+   "planes": 288,
+   "inexact_planes": 0,
+   "ok": true
+  },
+  "step0_weights_equal_arm": {
+   "linears": 168,
+   "torch_equal": 168,
+   "max_rel_other": 0.0
+  }
+ },
+ "walls": {
+  "load_s": 3.6506924629211426,
+  "transfer_s": 101.12960648536682,
+  "eval_before_s": 4.363534450531006,
+  "projected_finish_s": 17.018064618110657
+ },
+ "partial": true,
+ "n_cal": 50,
+ "eval_chunks": [
+  50,
+  90
+ ],
+ "insample_chunks": [
+  0,
+  20
+ ],
+ "bits_before": 421541376,
+ "params": 357826560,
+ "bpw_before": 1.1780606112637362,
+ "bits_components": {
+  "bits_sign": 400490496,
+  "bits_r": 15347712,
+  "bits_c": 2128896,
+  "bits_d": 1775616,
+  "bits_corr": 1798656
+ },
+ "kl_heldout_before": 1.1636724948883057,
+ "top1_heldout_before": 0.479736328125,
+ "kl_insample_before": 0.22243813574314117,
+ "top1_insample_before": 0.73603515625,
+ "quick_kl_step0": 0.795434296131134,
+ "train_groups": [
+  "c",
+  "d",
+  "norm",
+  "r"
+ ],
+ "trainable_params": 3906944,
+ "regrid": 0,
+ "r_sat_frac_before": 0.0,
+ "profile": {
+  "steps": 10,
+  "wall_s": 21.797379732131958,
+  "s_per_step": 2.1797379732131956,
+  "self_device_s": 14.383249277000163,
+  "ops": [
+   {
+    "name": "aten::mm",
+    "calls": 9200,
+    "device_s": 2.5139599859999864,
+    "self_device_s": 2.5139599859999864
+   },
+   {
+    "name": "aten::matmul",
+    "calls": 9040,
+    "device_s": 2.3637678480000157,
+    "self_device_s": 0.0
+   },
+   {
+    "name": "autograd::engine::evaluate_function: MmBackward0",
+    "calls": 1840,
+    "device_s": 1.824275161999746,
+    "self_device_s": 0.0
+   },
+   {
+    "name": "MmBackward0",
+    "calls": 1840,
+    "device_s": 1.824275161999746,
+    "self_device_s": 0.0
+   },
+   {
+    "name": "autograd::engine::evaluate_function: MulBackward0",
+    "calls": 24150,
+    "device_s": 1.1556513610000674,
+    "self_device_s": 0.0
+   },
+   {
+    "name": "void cutlass::Kernel2<cutlass_80_tensorop_s1688gemm_256x128_16x3_tn_align4>(cutlass_80_tensorop_s1688gemm_256x128_16x3_tn_align4::Params)",
+    "calls": 1120,
+    "device_s": 1.12248276,
+    "self_device_s": 1.12248276
+   },
+   {
+    "name": "MulBackward0",
+    "calls": 24150,
+    "device_s": 1.0874326920000996,
+    "self_device_s": 0.0
+   },
+   {
+    "name": "aten::mul",
+    "calls": 129370,
+    "device_s": 0.8068269680000069,
+    "self_device_s": 0.8068077050000054
+   },
+   {
+    "name": "autograd::engine::evaluate_function: SelectBackward0",
+    "calls": 80640,
+    "device_s": 0.7573370870000472,
+    "self_device_s": 0.0
+   },
+   {
+    "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul> >(int, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul>)",
+    "calls": 115630,
+    "device_s": 0.555164579999808,
+    "self_device_s": 0.555164579999808
+   },
+   {
+    "name": "aten::copy_",
+    "calls": 155760,
+    "device_s": 0.549698737000341,
+    "self_device_s": 0.5496939690003413
+   },
+   {
+    "name": "SelectBackward0",
+    "calls": 80640,
+    "device_s": 0.5126848900001617,
+    "self_device_s": 0.0
+   },
+   {
+    "name": "aten::select_backward",
+    "calls": 80640,
+    "device_s": 0.5126848900001617,
+    "self_device_s": 0.0
+   },
+   {
+    "name": "aten::index",
+    "calls": 7230,
+    "device_s": 0.4849166670000131,
+    "self_device_s": 0.4849166670000131
+   },
+   {
+    "name": "void at::native::vectorized_gather_kernel<16, long>(char*, char*, long*, int, long, long, long, long, bool)",
+    "calls": 7220,
+    "device_s": 0.4849166670000131,
+    "self_device_s": 0.4849166670000131
+   },
+   {
+    "name": "aten::log_softmax",
+    "calls": 640,
+    "device_s": 0.39612148599999536,
+    "self_device_s": 0.0
+   },
+   {
+    "name": "aten::_log_softmax",
+    "calls": 640,
+    "device_s": 0.39612148599999536,
+    "self_device_s": 0.39612148599999536
+   },
+   {
+    "name": "void at::native::(anonymous namespace)::cunn_SoftMaxForward<4, float, float, float, at::native::(anonymous namespace)::LogSoftMaxForwardEpilogue>(float*, float const*, int)",
+    "calls": 640,
+    "device_s": 0.39612148599999536,
+    "self_device_s": 0.39612148599999536
+   },
+   {
+    "name": "void at::native::vectorized_elementwise_kernel<4, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 3ul> >(int, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 3ul>)",
+    "calls": 57330,
+    "device_s": 0.39071044700012497,
+    "self_device_s": 0.39071044700012497
+   },
+   {
+    "name": "aten::sub",
+    "calls": 86720,
+    "device_s": 0.34453251099995186,
+    "self_device_s": 0.34452867199994985
+   },
+   {
+    "name": "aten::cat",
+    "calls": 41760,
+    "device_s": 0.3290388340000317,
+    "self_device_s": 0.3290348020000318
+   },
+   {
+    "name": "void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_256x128_32x3_tn_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_256x128_32x3_tn_align8::Params)",
+    "calls": 960,
+    "device_s": 0.3283942400000031,
+    "self_device_s": 0.3283942400000031
+   },
+   {
+    "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1} const&)::{lambda(int)#1})",
+    "calls": 89520,
+    "device_s": 0.32584960200025775,
+    "self_device_s": 0.32584960200025775
+   },
+   {
+    "name": "aten::stack",
+    "calls": 40320,
+    "device_s": 0.3085768080000508,
+    "self_device_s": 0.0
+   },
+   {
+    "name": "aten::add_",
+    "calls": 64990,
+    "device_s": 0.2951346589999053,
+    "self_device_s": 0.2951346589999053
+   },
+   {
+    "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<float> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<float> const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<float> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<float> const&)::{lambda(int)#1})",
+    "calls": 117600,
+    "device_s": 0.29147998199985964,
+    "self_device_s": 0.29147998199985964
+   },
+   {
+    "name": "aten::fill_",
+    "calls": 82730,
+    "device_s": 0.2593676429999619,
+    "self_device_s": 0.2593676429999619
+   },
+   {
+    "name": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<float>, std::array<char*, 1ul> >(int, at::native::FillFunctor<float>, std::array<char*, 1ul>)",
+    "calls": 82730,
+    "device_s": 0.2593676429999619,
+    "self_device_s": 0.2593676429999619
+   },
+   {
+    "name": "aten::zero_",
+    "calls": 82720,
+    "device_s": 0.259360088999965,
+    "self_device_s": 0.0
+   },
+   {
+    "name": "aten::zeros",
+    "calls": 82240,
+    "device_s": 0.2552988759999726,
+    "self_device_s": 0.0
+   },
+   {
+    "name": "void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_nn_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_nn_align8::Params)",
+    "calls": 1680,
+    "device_s": 0.2523850349999987,
+    "self_device_s": 0.2523850349999987
+   },
+   {
+    "name": "void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_nt_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_nt_align8::Params)",
+    "calls": 1200,
+    "device_s": 0.24549409499996605,
+    "self_device_s": 0.24549409499996605
+   },
+   {
+    "name": "aten::add",
+    "calls": 85770,
+    "device_s": 0.23993702099981362,
+    "self_device_s": 0.23992866899981283
+   },
+   {
+    "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+    "calls": 43260,
+    "device_s": 0.23959736399992904,
+    "self_device_s": 0.23959736399992904
+   },
+   {
+    "name": "aten::to",
+    "calls": 85200,
+    "device_s": 0.1909914390000343,
+    "self_device_s": 0.0
+   },
+   {
+    "name": "aten::_to_copy",
+    "calls": 64010,
+    "device_s": 0.1909914390000343,
+    "self_device_s": 0.0
+   },
+   {
+    "name": "void cutlass::Kernel2<cutlass_80_tensorop_s1688gemm_128x128_32x3_nn_align4>(cutlass_80_tensorop_s1688gemm_128x128_32x3_nn_align4::Params)",
+    "calls": 160,
+    "device_s": 0.18127475800000153,
+    "self_device_s": 0.18127475800000153
+   },
+   {
+    "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_alignedK_contig<at::native::(anonymous namespace)::OpaqueType<4u>, unsigned int, 3, 128, 1, 16>(at::native::(anonymous namespace)::OpaqueType<4u>*, at::native::(anonymous namespace)::CatArrInputTensorMetadata<at::native::(anonymous namespace)::OpaqueType<4u>, unsigned int, 128, 1>, at::native::(anonymous namespace)::TensorSizeStride<unsigned int, 4u>, int, unsigned int)",
+    "calls": 11520,
+    "device_s": 0.1633113970000151,
+    "self_device_s": 0.1633113970000151
+   },
+   {
+    "name": "void cutlass::Kernel2<cutlass_80_tensorop_s1688gemm_128x128_32x3_tn_align4>(cutlass_80_tensorop_s1688gemm_128x128_32x3_tn_align4::Params)",
+    "calls": 240,
+    "device_s": 0.15747300099999928,
+    "self_device_s": 0.15747300099999928
+   },
+   {
+    "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_vectorized<at::native::(anonymous namespace)::OpaqueType<4u>, unsigned int, 3, 128, 1, 16, 4>(char*, at::native::(anonymous namespace)::CatArrInputTensorMetadata<at::native::(anonymous namespace)::OpaqueType<4u>, unsigned int, 128, 1>, at::native::(anonymous namespace)::TensorSizeStride<unsigned int, 4u>, int, unsigned int)",
+    "calls": 28800,
+    "device_s": 0.145263523000037,
+    "self_device_s": 0.145263523000037
+   }
+  ]
+ }
+}

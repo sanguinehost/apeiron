@@ -80,6 +80,9 @@ W15 = {
     "w18_pvgrid25": "docs/evidence/receipts/onebit/w18-pvgrid25.json",
     "w18_pvtok146": "docs/evidence/receipts/onebit/w18-pvtok146.json",
     "w18_pvtok292": "docs/evidence/receipts/onebit/w18-pvtok292.json",
+    "w18_pvfast": "docs/evidence/receipts/onebit/w18-pvfast.json",
+    "w18_pvprof": "docs/evidence/receipts/onebit/w18-pvprof.json",
+    "w18_pvprof2": "docs/evidence/receipts/onebit/w18-pvprof2.json",
     "w18_guided05": "docs/evidence/receipts/onebit/w18-guided05.json",
     "w18_guidedsweep": "docs/evidence/receipts/onebit/w18-guidedsweep.json",
     "w18_guidedseed": "docs/evidence/receipts/onebit/w18-guidedseed.json",
@@ -93,7 +96,15 @@ GUIDED_SEEDS = {"w18_guidedseed": ["1", "2"]}
 
 # Scale-group ablation of the finishing drop (pv_finish.py --train, V-steps off): namespace -> trained groups.
 PVAB_GROUPS = {"w18_pvabnorm05": ["norm"], "w18_pvabr05": ["r"], "w18_pvaball05v0": ["c", "d", "norm", "r"], "w18_pvabrcd05": ["c", "d", "r"], "w18_pvabcd05": ["c", "d"],
-               "w18_pvgrid25": ["c", "d", "norm", "r"], "w18_pvtok146": ["c", "d", "norm", "r"], "w18_pvtok292": ["c", "d", "norm", "r"]}
+               "w18_pvgrid25": ["c", "d", "norm", "r"], "w18_pvtok146": ["c", "d", "norm", "r"], "w18_pvtok292": ["c", "d", "norm", "r"],
+               "w18_pvfast": ["c", "d", "norm", "r"]}
+
+# Ten-step torch.profiler windows of the finishing loop (pv_finish.py --profile 10): namespace -> (compose, kl) path.
+# `selfDeviceS` is the receipt's own total: pvprof sums aten-op and kernel self time (double counts), pvprof2 kernels only.
+# The aten-level sums below are the same method in both: self device time of the receipt's listed aten ops.
+PROFILES = {"w18_pvprof": ("layer", "ckpt"), "w18_pvprof2": ("step", "fused")}
+PROFILE_ELEMENTWISE = ["aten::mul", "aten::cat", "aten::sub", "aten::add", "aten::add_", "aten::copy_", "aten::fill_", "aten::index",
+                       "aten::gather"]
 
 OUTCOME_ARMS = [("teacher", "teacher"), ("q4km", "q4km"), ("resq", RESQ_ARM)]
 OUTCOME_RAT = [("C4Ppl", "c4_ppl"), ("Wt2Ppl", "wt2_ppl"), ("ArcAcc", "arc_acc"), ("ArcAccNorm", "arc_acc_norm"),
@@ -658,6 +669,20 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
             if data["regrid"]:
                 out.append(("rat", "rSatFracBefore", rat(data["r_sat_frac_before"])))
                 out.append(("rat", "rSatFracAfter", rat(data["r_sat_frac_after"])))
+        if (data["args"].get("compose", "layer"), data["args"].get("kl", "ckpt")) != ("layer", "ckpt"):
+            # Throughput path (PlaneCompose once per step, KLHead): the start-of-training probe compares losses and the
+            # trainable gradient against the (layer, ckpt) path, with a second (layer, ckpt) pass as the noise floor.
+            ge = c["grad_equiv"]
+            if not ge["ok"] or not all(v["loss_equal"] for v in ge["arms"].values()):
+                raise Fail(f"{rel}: grad_equiv control failed")
+            out.append(("str", "compose", data["args"]["compose"]))
+            out.append(("str", "klMode", data["args"]["kl"]))
+            out.append(("bool", "gradEquivOk", bool_value(ge["ok"], ns)))
+            for name, k in [("gradRelFloor", "ref_again"), ("gradRelComposeOnly", "compose_only"), ("gradRelKlOnly", "kl_only"),
+                            ("gradRelRequested", "requested")]:
+                out.append(("rat", name, rat(ge["arms"][k]["grad_rel_l2"])))
+            out.append(("rat", "peakMemGb", rat(data["peak_mem_gb"])))
+        out.append(("rat", "trainS", rat(data["walls"]["train_s"])))
         for name, k in [("bitsR", "bits_r"), ("bitsC", "bits_c"), ("bitsD", "bits_d")]:
             out.append(("nat", name, nat(bc[k])))
         for name, k in [("klHeldoutBefore", "kl_heldout_before"), ("klHeldoutAfter", "kl_heldout_after"),
@@ -665,6 +690,22 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
                         ("klInsampleBefore", "kl_insample_before"), ("klInsampleAfter", "kl_insample_after")]:
             out.append(("rat", name, rat(data[k])))
         out.append(("rat", "wallTotalS", rat(data["walls"]["total_s"])))
+    elif ns in PROFILES:
+        if data["n_cal"] != 50 or data["args"]["v_every"] != 0 or data["codes"] != "vstep":
+            raise Fail(f"{rel}: not the n-cal 50, V-steps-off finishing protocol")
+        if (data["args"].get("compose", "layer"), data["args"].get("kl", "ckpt")) != PROFILES[ns]:
+            raise Fail(f"{rel}: path is not {PROFILES[ns]}")
+        pr, ops = data["profile"], data["profile"]["ops"]
+        aten = [o for o in ops if o["name"].startswith("aten::")]
+        out.append(("str", "arm", RESQ_ARM))
+        out.append(("nat", "steps", nat(pr["steps"])))
+        out.append(("rat", "wallS", rat(pr["wall_s"])))
+        out.append(("rat", "selfDeviceS", rat(pr["self_device_s"])))
+        out.append(("rat", "atenSelfS", sum((rat(o["self_device_s"]) for o in aten), Fraction(0))))
+        out.append(("rat", "elementwiseS", sum((rat(o["self_device_s"]) for o in aten if o["name"] in PROFILE_ELEMENTWISE),
+                                               Fraction(0))))
+        out.append(("rat", "mmS", sum((rat(o["self_device_s"]) for o in aten if o["name"] == "aten::mm"), Fraction(0))))
+        out.append(("nat", "catCalls", nat(sum(o["calls"] for o in aten if o["name"] == "aten::cat"))))
     elif ns in GUIDED:
         # End-loss-weighted Grams (fold_transfer "-guided[a|b]NN"): per variant, prefix `base` for the arm itself and
         # `g<part><NN>` otherwise (part ab = token and row weights, a = token only, b = row only; NN = 100 * gamma).

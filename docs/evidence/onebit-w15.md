@@ -1419,8 +1419,8 @@ which reports Llama-2 7B at 1.58 b/w within 1.43× of fp16 perplexity).
 - Controls: tightening `pvgrid_no_gain`'s spread 75/10000 → 25/10000 and saturation bound 1/10 → 5/100,
   `pvtok_predictions` 0.92 → 0.97 and `pvtok_still_falling` 8/10 → 85/100 each fails; axioms `{propext,
   Classical.choice, Quot.sound}` for the three theorems.
-- Decision: more tokens per box is a measured lever on the scale side (throughput: a step costs about 1.1 s at 4096
-  tokens). The code side, where 400,490,496 of the 421,541,376 bits are, is the larger move: the `-guided` arm token
+- Decision: more tokens per box is a measured lever on the scale side (throughput: a step costs 0.79 s at 4096
+  tokens, `419.1 s / 529`). The code side, where 400,490,496 of the 421,541,376 bits are, is the larger move: the `-guided` arm token
   (gradient-weighted Grams, GuidedQuant, Kim et al., arXiv 2505.07004 §3.2 Eq. 7) is in development.
 - Board row for these runs: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
@@ -1463,6 +1463,64 @@ which reports Llama-2 7B at 1.58 b/w within 1.43× of fp16 perplexity).
 - Decision: the code side keeps the unweighted Gram. Held-out falls only where the code is pulled off the in-sample
   optimum, and the stable way to do that is end-to-end scale finishing on held-apart tokens; its measured limit is
   tokens per box, so its throughput is the next lever.
+- Board row for these runs: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
+### Finishing throughput: one composition per step and a fused KL head (`measured`; `Perf/PVFinish.lean`)
+
+- Method: `pv_finish.py` (sha256 `ce1095bf…`) with the `w18-pvaball05v0` protocol (`--v-every 0 --train r,c,d,norm`,
+  4096 tokens a step, 580 s box) and two path flags. `--compose step`: `PlaneCompose` composes each coded plane once
+  per step outside the layer checkpoints, with an analytic backward, in place of composing in the checkpoint's forward
+  and again in its recompute. `--kl fused`: `KLHead` saves the student-logit adjoint `(softmax(z_s) − p_t) E` in the
+  forward, so no vocabulary-head matmul is recomputed. Defaults `(layer, ckpt)` are the old path. Same arm, bits
+  421,541,376 (1.17806 b/w), before-KL exact, all controls pass. Peak memory 6.68 GB.
+- Cost model (`proved`, `pvfast_cost_model`): 16 KL chunks of 256 rows a step; head matmuls 80 → 48 a step (`5 → 3` per
+  chunk), removing `2.23 · 10¹²` FLOPs a step; composition forwards per plane 2 → 1.
+- Gradient control (`grad_equiv`, two calibration chunks): losses bit-equal on every path; trainable-gradient relative
+  L2 against `(layer, ckpt)` is 5.81e-3 for `(step, fused)`, 4.62e-3 compose-only, 6.07e-3 KL-only, against a rerun
+  noise of 4.34e-3 for the same path twice (`pvfast_grad_floor`). The fast path computes the same gradient to within
+  1.34× the nondeterminism of the old path against itself.
+
+| receipt | path | steps | tokens | s/step | held-out KL | top-1 | in-sample |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `w18-pvaball05v0` | `(layer, ckpt)` | 529 | 2,166,784 | 0.792 | 0.8824 | 0.542 | 0.2379 |
+| `w18-pvfast` | `(step, fused)` | 729 | 2,985,984 | 0.571 | **0.8577** | 0.548 | 0.2398 |
+
+- 1.39× faster a step on the same box (`pvfast_faster`); 1.38× the tokens; held-out KL 0.0247 lower, over three times the
+  0.0075 three-run spread, top-1 up (`pvfast_lower`). From 1.1637 before finishing, the drop is 0.306.
+- Token trend, four points (`pvtok_trend_four`): 0.9653 / 0.9195 / 0.8824 / 0.8577 at 146 / 292 / 529 / 729 steps. The
+  last step is under half a doubling of tokens (`729² < 2 · 529²`) and drops more than half the first doubling's 0.0458:
+  drop per doubling 0.046, 0.043, ≈ 0.053. It does not flatten at 3.0M tokens; in-sample stays at 0.234–0.240, so the
+  gain stays held-out generalisation of the scale correction.
+- Ten-step `torch.profiler` windows (`w18-pvprof`, `w18-pvprof2`): elementwise is
+  `aten::{mul, cat, sub, add, add_, copy_, fill_, index, gather}` self device time.
+
+| receipt | path | profiled s/step | device s/step | elementwise | `aten::mm` | `cat` calls |
+|---|---|---:|---:|---:|---:|---:|
+| `w18-pvprof` | `(layer, ckpt)` | 2.18 | — (op + kernel double-counted) | 3.309 s of 6.219 s aten | 2.514 s | 41,760 |
+| `w18-pvprof2` | `(step, fused)` | 1.33 | 0.527 | 2.234 s, 42.4% of 5.270 s | 2.126 s | 61,920 |
+
+- Where the time went (`pvprof_refuted`, `pvprof_fast_path`): on the old path the elementwise ops of plane composition
+  were over half the aten device time and above every matmul together; the vocabulary head was not the cost. The fast
+  path cuts elementwise under 7/10 and matmul time. The `cat` count rises because the analytic backward runs `fwht128`
+  twice per plane: the 7-stage butterfly is 61,920 `cat` + 60,480 `stack` calls per 10 steps, and `cat + sub + add` is
+  ≈ 1.21 s, 23% of device time. Kernel time 0.527 s/step covers over 9/10 of the unprofiled 0.571 s: the step is
+  device-bound, so the next gain must remove device work.
+- Predictions: `pvprof-1` refuted (profiled step predicted `[0.4, 1.6]` s, measured 2.18; `pvprof_refuted`);
+  `pvfast-1` withdrawn (its one admitted command was the 20-step smoke run; the full run was re-registered as
+  `pvfast-2` with the rerun-noise gradient control); `pvfast-2` refuted on its throughput ranges (s/step predicted
+  `[0.30, 0.50]`, steps `[800, 1300]`), its held-out KL inside the predicted `[0.83, 0.875]`, falsifier not fired
+  (`pvfast_refuted`); `pvprof2-1` refuted (profiled step above 1.2 s, elementwise share above 35%), kernel time inside
+  `[0.35, 0.55]` s and elementwise under the falsifier's 50% (`pvprof2_refuted`).
+- Controls: `pvfast_cost_model` FLOPs `…904 → …905`, `pvfast_same_arm` V-steps 0 → 1, `pvfast_grad_floor` 11/10 → 1,
+  `pvfast_faster` 13 → 14, `pvfast_refuted` 1/2 → 3/5, `pvfast_lower` 2/100 → 3/100, `pvtok_trend_four` 2 → 1,
+  `pvprof_refuted` 2 → 3, `pvprof2_refuted` 6/5 → 7/5 and `pvprof_fast_path` 9/10 → 95/100 each fails at its own line;
+  axioms `{propext, Classical.choice, Quot.sound}` for all ten (`{propext}` for the cost model). `lake build
+  Perf.PVFinish` exit 0 (777 jobs).
+- Decision: throughput converts directly into held-out KL at fixed bits, and the curve is still falling. The next device
+  work to remove is the butterfly: `fwht128` as one `x.reshape(-1, 128) @ H₁₂₈/√128` matmul (Sylvester's `H₁₂₈` is
+  symmetric and its own inverse, so it serves forward and backward), then the Hadamard folded onto activations
+  (`x Wᵀ = (d ⊙ H(c ⊙ x)) (S ⊙ r)ᵀ` per 128-column group), which removes weight composition from the step and is the
+  inference kernel's shape.
 - Board row for these runs: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
 Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.

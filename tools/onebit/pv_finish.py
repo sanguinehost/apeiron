@@ -281,6 +281,54 @@ def add_plane(W, p, Wi):
     return W
 
 
+class PlaneCompose(torch.autograd.Function):
+    """W = compose(fwht128(S * d), r, c) with the code field S fixed (no gradient to S).  The forward is plane_weight's
+    arithmetic (bit-identical W); the backward is the analytic adjoint and recomputes Y = fwht128(S * d) instead of keeping
+    autograd's stage tensors.  With G = dL/dW and W_ij = Y_ij r_{i,g(j)} c_j: dL/dc = sum_i G*Y*r_rep,
+    dL/dr_{i,g} = sum_{j in g} G*Y*c, dL/dd = sum_i S * fwht128(G * r_rep * c) (fwht128 is symmetric orthogonal, its own adjoint).
+    Temporal: forward O*n*(1 + 7 + 2) flops; backward two fwht128 (7 O*n add/sub each) plus ~7 O*n elementwise and three
+    reductions.  Spatial: saves references to S, d, r, c only; ~4 O*n transient words in backward."""
+
+    @staticmethod
+    def forward(ctx, S, d, r, c):
+        ctx.save_for_backward(S, d, r, c)
+        return ft.compose(ft.fwht128(S * d[None, :]), r, c)
+
+    @staticmethod
+    def backward(ctx, G):
+        S, d, r, c = ctx.saved_tensors
+        O, n = S.shape
+        r_rep = r.repeat_interleave(GROUP, 1)
+        GY = G * ft.fwht128(S * d[None, :])
+        gc = (GY * r_rep).sum(0)
+        gr = (GY * c[None, :]).view(O, n // GROUP, GROUP).sum(-1)
+        gd = (S * ft.fwht128(G * r_rep * c[None, :])).sum(0)
+        return None, gd, gr, gc
+
+
+class KLHead(torch.autograd.Function):
+    """sum_t KL(p_t || q_t) over a chunk of rows and the top-1 agreement count, p = softmax(zt E^T) (teacher, no gradient),
+    q = softmax(zs E^T).  The gradient to zs is formed in the forward as (q - p) E (the log-softmax adjoint, sum p = 1) and
+    saved, so neither vocab-head matmul is recomputed in backward.  Temporal 3 * 2 * rows * hid * V flops (two head matmuls
+    and the adjoint matmul; five under checkpoint(kl_chunk)); spatial ~3 * rows * V transient words, rows * hid saved."""
+
+    @staticmethod
+    def forward(ctx, zs, zt, E):
+        lt = F.log_softmax(zt @ E.T, -1)
+        ls = F.log_softmax(zs @ E.T, -1)
+        pt = lt.exp()
+        k = (pt * (lt - ls)).sum()
+        agree = (lt.argmax(-1) == ls.argmax(-1)).sum()
+        ctx.save_for_backward((ls.exp() - pt) @ E)
+        ctx.mark_non_differentiable(agree)
+        return k, agree
+
+    @staticmethod
+    def backward(ctx, gk, _ga):
+        (gz,) = ctx.saved_tensors
+        return gk * gz, None, None
+
+
 # ------------------------------------------------------------------------------------------------ main
 def main():
     ap = argparse.ArgumentParser()
@@ -305,9 +353,17 @@ def main():
     ap.add_argument("--rec-every", type=int, default=25)
     ap.add_argument("--regrid", type=int, default=0,
                     help="0 off; N > 0 re-fits every trainable plane's r grid (lo, sp) to its latents every N steps (training follows every re-fit)")
+    ap.add_argument("--profile", type=int, default=0,
+                    help="0 off; N > 0 records steps 6..5+N under torch.profiler, writes the op table to the receipt and exits")
+    ap.add_argument("--compose", choices=("layer", "step"), default="layer",
+                    help="layer: plane weights composed inside each layer checkpoint (forward and recompute); step: composed once "
+                         "per step through PlaneCompose (frozen codes only: --v-every 0, --codes vstep)")
+    ap.add_argument("--kl", choices=("ckpt", "fused"), default="ckpt",
+                    help="ckpt: checkpoint(kl_chunk) recomputes both head matmuls in backward; fused: KLHead saves dL/dz")
     ap.add_argument("--train", default="r,c,d,norm",
                     help="comma subset of r (pa), c (pb), d (pd), norm (zero-bit d_* tunables and d_fn); unselected tensors are frozen")
     a = ap.parse_args()
+    assert a.compose == "layer" or (a.v_every == 0 and a.codes == "vstep"), "--compose step needs frozen codes"
     train_set = set(a.train.split(","))
     assert train_set and train_set <= {"r", "c", "d", "norm"}, a.train
     LAMS = tuple(float(x) for x in a.obs_lams.split(","))
@@ -419,6 +475,7 @@ def main():
                     qb=t["qb"] + t["d_qb"] * t["qb_s"], kb=t["kb"] + t["d_kb"] * t["kb_s"], vb=t["vb"] + t["d_vb"] * t["vb_s"])
 
     ste_on, pending = [False], {}
+    MODE = dict(compose=a.compose, kl=a.kl)
 
     def ste_S(p):
         """Straight-through code field: the value is the exact codebook row nearest to L among nn[p.idx]; the gradient goes to L.
@@ -451,12 +508,35 @@ def main():
     TLg = [{k: v.to(DEV) for k, v in L.items()} for L in TL]
     Eg, fn_t = cfg.E.to(DEV), cfg.fnorm.to(DEV)
 
+    def layer_dicts_step():
+        """Every layer's weights composed once for the step through PlaneCompose, outside the layer checkpoints, so the
+        recompute re-runs only ft.parts.  Temporal one PlaneCompose forward per coded plane per step (two under --compose
+        layer: forward and recompute); spatial the composed fp32 weights of the model (4 bytes per parameter) held until backward."""
+        out = []
+        for li in range(cfg.nl):
+            Ld = tuned(li)
+            for nm in KINDS:
+                W = None
+                for p in PL[li][nm]:
+                    if p.dense is not None:
+                        W = W + p.dense
+                        continue
+                    r, c, d = p.qvals()
+                    W = add_plane(W, p, PlaneCompose.apply(p.Sc, d, r, c))
+                Ld[nm] = W
+            out.append(Ld)
+        return out
+
     def student_h(idsb, grad, Ss_all):
         h = Eg[idsb]
+        Lds = layer_dicts_step() if grad and MODE["compose"] == "step" and not Ss_all and not ste_on[0] else None
         with torch.autocast("cuda", dtype=torch.bfloat16):
             for li in range(cfg.nl):
                 Ss = Ss_all[li] if Ss_all else ()
-                h = checkpoint(layer_fn, h, li, *Ss, use_reentrant=False) if grad else layer_fn(h, li, *Ss)
+                if Lds is not None:
+                    h = checkpoint(lambda h_, Ld: ft.parts(cfg, Ld, h_)["out"], h, Lds[li], use_reentrant=False)
+                else:
+                    h = checkpoint(layer_fn, h, li, *Ss, use_reentrant=False) if grad else layer_fn(h, li, *Ss)
         return h.float()
 
     @torch.no_grad()
@@ -477,7 +557,13 @@ def main():
         hs, ht = student_h(idsb, grad, Ss_all).reshape(-1, cfg.hid), teacher_h(idsb).reshape(-1, cfg.hid)
         tot, agree = 0.0, 0
         for s0 in range(0, hs.shape[0], 256):
-            if grad:
+            if grad and MODE["kl"] == "fused":
+                with torch.autocast("cuda", enabled=False):
+                    zs = ft.rms(hs[s0:s0 + 256], fn0 * torch.exp(d_fn), cfg.eps)
+                    with torch.no_grad():
+                        zt = ft.rms(ht[s0:s0 + 256], fn_t, cfg.eps)
+                    k, g = KLHead.apply(zs, zt, Eg)
+            elif grad:
                 k, g = checkpoint(kl_chunk, hs[s0:s0 + 256], ht[s0:s0 + 256], use_reentrant=False)
             else:
                 k, g = kl_chunk(hs[s0:s0 + 256], ht[s0:s0 + 256])
@@ -605,6 +691,44 @@ def main():
     res.update(train_groups=sorted(train_set), trainable_params=sum(t.numel() for g in groups for t in g["params"]))
     print(f"train {sorted(train_set)}: {res['trainable_params']} scalar params in {len(groups)} groups", flush=True)
     code_changes = []
+    if a.compose == "step":
+        for li in range(cfg.nl):
+            for nm in KINDS:
+                for p in PL[li][nm]:
+                    if p.dense is None:
+                        p.Sc = p.S(C)
+    if a.compose != "layer" or a.kl != "ckpt":
+        # control: on two calibration chunks, loss and every trainable gradient under the requested (compose, kl) against
+        # (layer, ckpt).  Temporal two forward+backward passes at batch 2; spatial one fp32 copy of the trainable gradients.
+        tparams = [t for g in groups for t in g["params"]]
+
+        def probe(mode):
+            MODE.update(mode)
+            opt.zero_grad(set_to_none=True)
+            loss_, agree_ = kl_batch(ids_cal[:2].to(DEV), True)
+            loss_.backward()
+            gs = torch.cat([(t.grad if t.grad is not None else torch.zeros_like(t)).reshape(-1) for t in tparams])
+            opt.zero_grad(set_to_none=True)
+            return float(loss_.detach()), agree_, gs
+
+        l0, g0, gs0 = probe(dict(compose="layer", kl="ckpt"))
+        arms = {}
+        for nm_, md in (("ref_again", dict(compose="layer", kl="ckpt")), ("compose_only", dict(compose=a.compose, kl="ckpt")),
+                        ("kl_only", dict(compose="layer", kl=a.kl)), ("requested", dict(compose=a.compose, kl=a.kl))):
+            l1, g1, gs1 = probe(md)
+            arms[nm_] = dict(loss=l1, agree=g1, loss_equal=l1 == l0, grad_rel_l2=float((gs1 - gs0).norm() / gs0.norm()),
+                             grad_cos=float(F.cosine_similarity(gs1, gs0, 0)))
+            print(f"grad_equiv {nm_}: loss {l1!r} vs {l0!r}, agree {g1} vs {g0}, grad rel L2 {arms[nm_]['grad_rel_l2']:.3e} "
+                  f"cos {arms[nm_]['grad_cos']:.8f}", flush=True)
+        MODE.update(compose=a.compose, kl=a.kl)
+        floor = arms["ref_again"]["grad_rel_l2"]
+        res["controls"]["grad_equiv"] = dict(mode=dict(compose=a.compose, kl=a.kl), loss_ref=l0, agree_ref=g0, arms=arms,
+                                             noise_floor_rel_l2=floor,
+                                             ok=all(v["loss_equal"] for v in arms.values()) and arms["requested"]["grad_rel_l2"] < 1e-2)
+        dump()
+        assert res["controls"]["grad_equiv"]["ok"], res["controls"]["grad_equiv"]
+        del gs0, gs1
+        torch.cuda.empty_cache()
 
     def rec_codes(step_, loss_):
         """Blocks whose index differs from step 0 (cumulative) and from the last record (window).
@@ -782,8 +906,28 @@ def main():
     # ---- train
     traj, vlog, step, v_frac = [], [], 0, a.v_frac
     last_loss = float("nan")
+    prof = None
     while step < a.steps and time.time() < t_end:
         step += 1
+        if a.profile and step == 6:
+            torch.cuda.synchronize()
+            prof = torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA])
+            prof.__enter__()
+            t_prof0 = time.time()
+        if prof is not None and step == 6 + a.profile:
+            torch.cuda.synchronize()
+            prof.__exit__(None, None, None)
+            wall_p = time.time() - t_prof0
+            ka = sorted(prof.key_averages(), key=lambda e: -e.device_time_total)
+            # kernel events only: an aten op's self device time repeats the time of the kernels it launched
+            dev_total = sum(e.self_device_time_total for e in ka if e.device_type == torch.autograd.DeviceType.CUDA)
+            res["profile"] = dict(steps=a.profile, wall_s=wall_p, s_per_step=wall_p / a.profile, self_device_s=dev_total / 1e6,
+                                  ops=[dict(name=e.key, calls=e.count, device_s=e.device_time_total / 1e6,
+                                            self_device_s=e.self_device_time_total / 1e6) for e in ka[:40]])
+            print(f"profile: {a.profile} steps in {wall_p:.2f}s ({wall_p / a.profile:.3f} s/step), self device {dev_total / 1e6:.2f}s", flush=True)
+            print(prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=30), flush=True)
+            dump()
+            sys.exit(0)
         frac = max(min(1.0, (time.time() - t_train0) / max(t_end - t_train0, 1e-6)), step / a.steps)
         f = min(1.0, step / a.warmup) * (0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * frac)))
         for gi, g in enumerate(opt.param_groups):
@@ -857,6 +1001,7 @@ def main():
     res.update(steps=step, tokens=step * a.batch * CHUNK, batch=a.batch, train_trajectory=traj, v_steps=vlog, quick_kl_step0=kq0,
                quick_kl_final=kq1, train_loss_last=last_loss)
     res["walls"]["train_s"] = wall_train
+    res["peak_mem_gb"] = torch.cuda.max_memory_allocated() / 2 ** 30
     inter = used_hashes & cal_hashes
     res["controls"]["data_disjoint"] = dict(train_chunks_used=len(used_hashes), calib_chunks_checked=len(cal_hashes), overlap=len(inter),
                                             ok=not inter, train_npy_sha256=sha_file(TRAIN_NPY))
