@@ -159,15 +159,33 @@ Hardest and highest-contribution first: the measurement decides whether the rest
 Stop: W1 refutes (no error drop beyond the seed spread at fixed bits) → record the verdict theorem, keep T2/T4 (the
 primitive stands on its own), and move K to the dense Cayley route (`cayley_isometry`) as the next row.
 
-### W2-T4 Rust stage (`tested`; extraction open)
+### W2-T4 Rust stage (`tested`) and its extraction (`proved`)
 
 `src/numeric/register.rs` `stage_mul` multiplies each pair `(x[b+i], x[b+i+span])` by `w` through `Cell::<i64>::checked_mul`
 (`src/cell.rs`, appended after every extracted item so `proof/regen.sh --check` is unchanged): `Err(Overflow)` on any
 `i64` overflow, `Err(NotPowerOfTwo)`, `Err(LengthMismatch)`. Loops are flag loops, one per function, index carried by
 value (the shapes the pinned Aeneas accepts). `cargo test --lib register`: 6 passed (Hadamard-angle pair, `normForm`
 scaling by 25, conjugate stage = `normForm σ w • x` on all three faces, agreement with `Cell::mul`, overflow and domain
-refusals). Controls: lo/hi swap in the write-back fails 2; dropping `σ` from `checked_mul` fails 5. Open: the extraction
-wrapper `word_stage_mul` and `stage_mul_denote` to `Numeric.Register.cellStage`.
+refusals). Controls: lo/hi swap in the write-back fails 2; dropping `σ` from `checked_mul` fails 5.
+
+The extraction root `word_stage_mul` (`proof/extract/lib.rs`, `#[path]` to the real `src/numeric/register.rs`) is added to
+`proof/regen.sh` (`--start-from crate::word_stage_mul`, source list); `proof/regen.sh --check`: `extraction is fresh`,
+1331 → 1339 generated defs, the 8 added being `cell.CellI64.checked_mul`, `register.stage_{mul,block}{,_loop,_loop.body}`
+and the wrapper. `proof/corpus/Numeric/RegisterRefinement.lean` (`lake build Numeric.RegisterRefinement`, 3686 jobs):
+
+| Theorem | Statement |
+|---|---|
+| `checked_mul_spec` | on `MulFits` (the five intermediates fit `i64`) the extracted multiply returns `some c` with `denoteCell c = ringMul σ w p` |
+| `checked_mul_none`, `checked_mul_none_of_a` | an out-of-range product or sum returns `none` |
+| `stage_mul_not_pow`, `stage_mul_too_large`, `stage_mul_length_mismatch` | the three refusals, slice unchanged |
+| `stage_block_spec`, `stageRef_denote` | one block writes each pair's checked product; the block fold denotes `cellStage` at `span = 2^k` |
+| `stage_mul_denote` | span `2^k < 2^16`, length a multiple of `2·span`, every pair in `MulFits`: `Ok ()` and entry `i` denotes `Register.cellStage (denoteSigma σ) (denoteCell w) k` |
+| `stage_mul_denote_witness` | the hypotheses hold jointly on `[3, 5]`, span 1, `w = (2, 1)`, `σ = 1` |
+
+All ten are in `AxiomAudit.lean` (`{propext, Classical.choice, Quot.sound}`). Controls: in a renamed copy of the file,
+swapping `w`'s slots or negating `σ` in `mulCell_denote` fails at line 617 (exit 1 each). Open: the generated-body mutation
+named in the plan row (change the multiply in a copy of `ApeironWord.lean`; `stage_mul_denote` red). Board row
+`quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs`.
 
 ### W1-T1 result (prediction `kan-probe-1`, refuted)
 

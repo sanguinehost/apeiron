@@ -28,13 +28,15 @@ pub mod gguf;
 
 #[path = "../../src/numeric/fixed_exp.rs"]
 pub mod fixed_exp;
+#[path = "../../src/numeric/register.rs"]
+pub mod register;
 
 /// Mirror of `crate::numeric` for the extraction unit: the real `src/engine/{silu,norm}.rs` import
 /// `crate::numeric::fixed_exp::fixed_exp` and `crate::numeric::fixed_rsqrt::{fixed_rsqrt,RsqrtError}`,
 /// and `src/engine/rope.rs` imports `crate::numeric::fixed_trig::fixed_sin_cos`, so the three
 /// `numeric::*` aliases name the modules above.
 pub mod numeric {
-    pub use super::{fixed_exp, fixed_ln, fixed_rsqrt, fixed_trig};
+    pub use super::{fixed_exp, fixed_ln, fixed_rsqrt, fixed_trig, register};
 }
 
 /// Mirror of `crate::format` for the extraction unit: the real `src/engine/error.rs` imports
@@ -855,6 +857,20 @@ pub fn word_fwht_fixed(
     block: usize,
 ) -> Result<(), engine::hadamard::HadamardError> {
     engine::hadamard::fwht_fixed(x, signs, block)
+}
+
+/// The real register stage over `R[x]/(x^2 - sigma)`, rooted at the concrete Q32.32 `i64` word.
+///
+/// This calls the real `src/numeric/register.rs` `stage_mul` body (the span power-of-two check, the
+/// length check, the block loop and the per-lane `Cell::checked_mul`); the wrapper only fixes the
+/// slice and result types. It does not restate the pair map.
+pub fn word_stage_mul(
+    x: &mut [i64],
+    span: usize,
+    w: cell::Cell<i64>,
+    sigma: cell::Sigma,
+) -> Result<(), register::RegisterError> {
+    register::stage_mul(x, span, w, sigma)
 }
 
 /// The real fixed-point projection kernel, rooted at the concrete Q32.32 `i64` word.

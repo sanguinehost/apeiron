@@ -74,6 +74,7 @@ import Learn.GramExact
 import Numeric.SigmaDeltaRefinement
 import Perf.BitsRefine
 import Numeric.Register
+import Numeric.RegisterRefinement
 import Numeric.Qubit
 import Numeric.BranchLaplacian
 import Numeric.BranchMadelung
@@ -1200,3 +1201,13 @@ import Perf.QuantumRotation
 #audit Perf.QuantumRotation.attrib_no_layer_holds_kl
 #audit Perf.QuantumRotation.attrib_kl_nonadditive
 #audit Perf.QuantumRotation.attrib_kinds_coadapted
+#audit apeiron_word.RegisterRefinement.checked_mul_spec
+#audit apeiron_word.RegisterRefinement.checked_mul_none
+#audit apeiron_word.RegisterRefinement.checked_mul_none_of_a
+#audit apeiron_word.RegisterRefinement.stage_mul_not_pow
+#audit apeiron_word.RegisterRefinement.stage_mul_too_large
+#audit apeiron_word.RegisterRefinement.stage_mul_length_mismatch
+#audit apeiron_word.RegisterRefinement.stage_block_spec
+#audit apeiron_word.RegisterRefinement.stageRef_denote
+#audit apeiron_word.RegisterRefinement.stage_mul_denote
+#audit apeiron_word.RegisterRefinement.stage_mul_denote_witness
