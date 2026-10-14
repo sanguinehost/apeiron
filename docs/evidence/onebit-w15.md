@@ -1003,6 +1003,40 @@ Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 Not covered: the cross term is not bounded by a theorem (the receipt gives its value at two points); positions in the
 KL average 512 per chunk against 511 scored targets; one seed.
 
+## Speculative acceptance from KL, and the seed survey (`proved`; `Perf/Pinsker.lean`, `Perf/SpecDraftKL.lean`)
+
+Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
+
+- `Perf.Pinsker.pinsker` (`proved`, cone `{propext, Classical.choice, Quot.sound}`): `(∑|p−q|)² ≤ 2 KL(p‖q)` on
+  `Fin n`, `q > 0`. Route: `scalar_ineq` `3(t−1)² ≤ (2t+4)(t log t − t + 1)` for `t ≥ 0` (monotonicity of the difference,
+  `F' = 4g`, `g' = log t + 1/t − 1 ≥ 0`), then Cauchy–Schwarz with `∑ q(2t+4)/3 = 2` and `∑ q h(t) = KL`
+  (Csiszár 1967; Kemperman 1969). Mathlib at the pinned revision has no Pinsker.
+- `Perf.SpecDraftKL.accept_ge` (`proved`): the speculative-decoding acceptance `∑ min(p,q) = 1 − TV`
+  (`Nous.Model.accept_rate`; Leviathan, Kalman, Matias 2022, arXiv 2211.17192; Chen et al. 2023, arXiv 2302.01318,
+  both retrieved and read) is at least `1 − √(KL(p‖q)/2)`. `mean_accept_ge`: the same bound for the mean over positions
+  from the mean KL (Cauchy–Schwarz as Jensen).
+- Receipt instances (`measured` KL, `proved` bound): Q4_K_M held-out KL 0.0197 gives mean acceptance `> 0.90`
+  (`q4km_accept`); the one-bit arm's 1.2905 gives `> 0.19` and the bound is `< 0.2` (`resq_accept`). The bound is a
+  guarantee, not the rate: the rate is `1 − TV`, measured from logits (not yet run on the arm).
+- Controls: `/home/socol/oc-tmp/lanes/w18/ctl_spec.lean`, 3/3 changed constants fail (`> 0.91`, `> 0.2`, `4(t−1)²`).
+- Seed survey (read, not run). `sanguine-ref/proof/Substrate/Seed.lean`: the generator interface and round trip
+  (`genDecode_genEncode`) are `proved` for any predictor; two instances (`rawGen`, `deltaGen`); the file records that
+  trained transformer weights are full-rank, so a regenerating generator must be nonlinear, and names that rung as not
+  built. `theory/SEED_SPEC.md` (2026-06, GPT-2 / Qwen2.5-0.5B, `measured` there): a low-rank-plus-int4 split was
+  larger than NF4 at equal perplexity; entropy coding the codes saved about 1% (affine fit uniformises codes); the
+  gain came from the function-aware distortion (`‖X(W−Ŵ)‖²`, AWQ-class), +0.1125 vs +0.1584 bits/token at 4.25 b/w.
+  Proved in this repo and usable: `Perf/SideInfo.lean` (`char_coords_norm`, Gaussian side-information saving),
+  `Nous/Combinator/Orbit.lean`, `Nous/Model/RopeOrbit.lean`, `Nous/Model/SpectralTrichotomy.lean` (orbit of a unit
+  under cell multiplication per face: elliptic periodic, hyperbolic and parabolic unbounded). `whispering-tides`
+  `globe.slang` generates a planet from a seed with scale-free FBM (octave gain `2^−H`).
+- Argon (`gemini-4-argon#high`, 101 s, `seed-argon-3`) review, checked: file and theorem citations resolve; its
+  "256×" and "378× at 0.4% MSE" `SEED_SPEC.md` figures occur nowhere in that file (`rg -n "378|256×"` returns nothing)
+  and are discarded. Bare `--agent argon` exits 1 ("Nothing to compact yet"); `-m "google-vertex/gemini-4-argon#high"`
+  is required. Its proposed experiment (rank-`k` plus 1-plane residual at 0.185 b/w) is a `model` hypothesis.
+
+Not covered: acceptance is bounded from the token-level KL(teacher‖draft); no run of the arm's logits against the
+teacher's gives the actual `1 − TV`. The seed generator that regenerates a trained tensor is not built.
+
 ## Argon review outcomes (checked against source)
 
 - `fnorm` is a 0-bit 896-vector Newton-Fisher fit on the final RMSNorm (`fold_transfer.py:877`); the dense 896x896
