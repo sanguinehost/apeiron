@@ -106,6 +106,57 @@ theorem bitsComponents_eq : bits = bitsSign + bitsR + bitsC + bitsD + bitsCorr :
 
 end Receipts.w18_rowsel_resid_3seed
 
+-- Receipt the receipts/onebit/w18-resq-3seed note.json`
+namespace Receipts.w18_resq_3seed
+
+def sha256 : String := "0be0d2274ecd039ce223f702ccda7322c33883e5f1055c5ba0a101f047c7eb14"
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def bits : ℕ := 421541376
+def params : ℕ := 357826560
+def bitsSign : ℕ := 400490496
+def bitsR : ℕ := 15347712
+def bitsC : ℕ := 2128896
+def bitsD : ℕ := 1775616
+def bitsCorr : ℕ := 1798656
+def bpwLinears : ℚ := (5890303056318681 : ℚ) / 5000000000000000
+def klHeldout0 : ℚ := (645226614177227 : ℚ) / 500000000000000
+def klHeldout1 : ℚ := (12874372392892837 : ℚ) / 10000000000000000
+def klHeldout2 : ℚ := (3245370604097843 : ℚ) / 2500000000000000
+def klInsample0 : ℚ := (873446673154831 : ℚ) / 2500000000000000
+def klInsample1 : ℚ := (35140945911407473 : ℚ) / 100000000000000000
+def klInsample2 : ℚ := (3477923035621643 : ℚ) / 10000000000000000
+def top1Heldout0 : ℚ := (8993 : ℚ) / 20480
+def top1Heldout1 : ℚ := (4503 : ℚ) / 10240
+def top1Heldout2 : ℚ := (9021 : ℚ) / 20480
+def top1Insample0 : ℚ := (6901 : ℚ) / 10240
+def top1Insample1 : ℚ := (347 : ℚ) / 512
+def top1Insample2 : ℚ := (3479 : ℚ) / 5120
+def nbSweeps : ℕ := 2
+def nbJSeq : ℚ := (773246228044033 : ℚ) / 125000000
+def nbJNb : ℚ := (712592726596117 : ℚ) / 125000000
+def nbRatio : ℚ := (9215599129382859 : ℚ) / 10000000000000000
+
+def klHeldoutMean : ℚ := (klHeldout0 + klHeldout1 + klHeldout2) / 3
+theorem klHeldoutMean_eq : klHeldoutMean = (38760387092828749 : ℚ) / 30000000000000000 := by
+  norm_num [klHeldoutMean, klHeldout0, klHeldout1, klHeldout2]
+
+def klInsampleMean : ℚ := (klInsample0 + klInsample1 + klInsample2) / 3
+theorem klInsampleMean_eq : klInsampleMean = (104858043193817143 : ℚ) / 300000000000000000 := by
+  norm_num [klInsampleMean, klInsample0, klInsample1, klInsample2]
+
+def top1HeldoutMean : ℚ := (top1Heldout0 + top1Heldout1 + top1Heldout2) / 3
+theorem top1HeldoutMean_eq : top1HeldoutMean = (1351 : ℚ) / 3072 := by
+  norm_num [top1HeldoutMean, top1Heldout0, top1Heldout1, top1Heldout2]
+
+def top1InsampleMean : ℚ := (top1Insample0 + top1Insample1 + top1Insample2) / 3
+theorem top1InsampleMean_eq : top1InsampleMean = (6933 : ℚ) / 10240 := by
+  norm_num [top1InsampleMean, top1Insample0, top1Insample1, top1Insample2]
+
+theorem bitsComponents_eq : bits = bitsSign + bitsR + bitsC + bitsD + bitsCorr := by
+  norm_num [bits, bitsSign, bitsR, bitsC, bitsD, bitsCorr]
+
+end Receipts.w18_resq_3seed
+
 -- Receipt the receipts/onebit/t0b-sinkfnorm-3seed note.json`
 namespace Receipts.t0b_sinkfnorm_3seed
 
