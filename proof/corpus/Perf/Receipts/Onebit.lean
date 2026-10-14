@@ -524,6 +524,75 @@ def wallS : ℚ := (18969856309890747 : ℚ) / 100000000000000
 
 end Receipts.w18_trellis2
 
+-- Receipt the receipts/onebit/w18-size05-n50 note.json`
+namespace Receipts.w18_size05
+
+def sha256 : String := "4eca1548ac006cdba6fa82b8f86d4dada3954b63760e0bb2618e0b4c1e45991f"
+def qmlpRows : ℕ := 416
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def model : String := "Qwen/Qwen2.5-0.5B"
+def layers : ℕ := 24
+def linearParams : ℕ := 357826560
+def params : ℕ := 357826560
+def bits : ℕ := 421541376
+def bitsSign : ℕ := 400490496
+def bpwLinears : ℚ := (5890303056318681 : ℚ) / 5000000000000000
+def klHeldout : ℚ := (11636724948883057 : ℚ) / 10000000000000000
+def klInsample : ℚ := (22243813574314117 : ℚ) / 100000000000000000
+def top1Heldout : ℚ := (1965 : ℚ) / 4096
+def wallTransferS : ℚ := (128295156955719 : ℚ) / 1250000000000
+def q4kmBpw : ℚ := (5520673076923077 : ℚ) / 1000000000000000
+def q4kmKlHeldout : ℚ := (734896320849657 : ℚ) / 40000000000000000
+def q4kmTop1Heldout : ℚ := (3769 : ℚ) / 4096
+def wallTotalS : ℚ := (1182660346031189 : ℚ) / 10000000000000
+
+end Receipts.w18_size05
+
+-- Receipt the receipts/onebit/w18-size15-n50 note.json`
+namespace Receipts.w18_size15
+
+def sha256 : String := "ccc2bb2532986f646cfe0194a27a4dc2c68909e1551069834b8f9ffc23cf1a0a"
+def qmlpRows : ℕ := 416
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def model : String := "Qwen/Qwen2.5-1.5B"
+def layers : ℕ := 28
+def linearParams : ℕ := 1310195712
+def params : ℕ := 1310195712
+def bits : ℕ := 1496418560
+def bitsSign : ℕ := 1434058752
+def bpwLinears : ℚ := (11421336112570029 : ℚ) / 10000000000000000
+def klHeldout : ℚ := (3309205137193203 : ℚ) / 2500000000000000
+def klInsample : ℚ := (9151167497038841 : ℚ) / 50000000000000000
+def top1Heldout : ℚ := (1197 : ℚ) / 2560
+def wallTransferS : ℚ := (7188705906867981 : ℚ) / 20000000000000
+def q4kmBpw : ℚ := (4811974789915967 : ℚ) / 1000000000000000
+def q4kmKlHeldout : ℚ := (1917135212570429 : ℚ) / 100000000000000000
+def q4kmTop1Heldout : ℚ := (18893 : ℚ) / 20480
+def wallTotalS : ℚ := (38908973574638367 : ℚ) / 100000000000000
+
+end Receipts.w18_size15
+
+-- Receipt the receipts/onebit/w18-size15-m792 note.json`
+namespace Receipts.w18_size15m
+
+def sha256 : String := "410f559a8eca66c926248c3c93e2eefe281532f86d6f1ae5c5ef8b94df0370c5"
+def qmlpRows : ℕ := 792
+def arm : String := "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-resq-qmlp-nb"
+def model : String := "Qwen/Qwen2.5-1.5B"
+def layers : ℕ := 28
+def linearParams : ℕ := 1310195712
+def params : ℕ := 1310195712
+def bits : ℕ := 1529939712
+def bitsSign : ℕ := 1466400768
+def bpwLinears : ℚ := (5838592272846639 : ℚ) / 5000000000000000
+def klHeldout : ℚ := (3356441453099251 : ℚ) / 2500000000000000
+def klInsample : ℚ := (17795907706022263 : ℚ) / 100000000000000000
+def top1Heldout : ℚ := (9509 : ℚ) / 20480
+def wallTransferS : ℚ := (3578636543750763 : ℚ) / 10000000000000
+def wallTotalS : ℚ := (7464824824333191 : ℚ) / 20000000000000
+
+end Receipts.w18_size15m
+
 -- Receipt the receipts/onebit/2026-10-11-vladder note.json`
 namespace Receipts.vladder_1011
 

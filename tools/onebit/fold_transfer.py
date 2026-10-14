@@ -1247,7 +1247,7 @@ def run_variant(cfg, TL, ids_cal, name, a):
                         Wp = Wp1 + Wp2
                         nsign += Oi * n; nr += info2["bits_r"]; nc += info2["bits_c"]; nd += info2.get("bits_d", 0)
                     elif (mlp_2plane_k896 or q_mlp_trans) and nm in ("gate", "up"):
-                        k_rows = (SKEW_K_ROWS[l] if use_skew else 416) if q_mlp_trans else 832
+                        k_rows = (SKEW_K_ROWS[l] if use_skew else a.qmlp_rows) if q_mlp_trans else 832
                         if k_rows > 0:
                             row_mass = (Ws_nm ** 2).sum(1)
                             top_idx = torch.topk(row_mass, k_rows).indices
@@ -1860,7 +1860,7 @@ def main():
     ap.add_argument("--dtype", default="fp32", choices=["fp32", "fp64"])
     ap.add_argument("--model", default=MODEL); ap.add_argument("--q4km", default=None, help="Q4_K_M GGUF of --model")
     ap.add_argument("--seeds", default="0", help="comma list; seed s permutes the calibration chunks (identity for 0)")
-    for k, v in [("layers", 24), ("iters", 2), ("n-cal", 100), ("n-eval", 40), ("n-in", 20), ("slab", 10), ("cal-extra", 0)]:
+    for k, v in [("layers", 24), ("iters", 2), ("n-cal", 100), ("n-eval", 40), ("n-in", 20), ("slab", 10), ("cal-extra", 0), ("qmlp-rows", 416)]:
         ap.add_argument(f"--{k}", type=int, default=v)
     for k, v in [("ridge", 1e-3), ("ridge-w0", 0.01), ("ridge-w0-gqa", 0.03), ("quant-ridge", 0.005), ("quant-damp", 0.02),
                  ("zellner-gamma", 0.85), ("corr-gamma", 0.75), ("ridge-intra", 0.045), ("ridge-inter", 0.025),
