@@ -101,6 +101,7 @@ import Numeric.Quantum.Ledger.SicStencil
 import Numeric.Quantum.Measured.InterferenceGram
 import Numeric.Quantum.Ledger.DeltaEnds
 import Numeric.Quantum.Ledger.ExactUncertainty
+import Numeric.Quantum.Ledger.EllipticRebit
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -1582,3 +1583,21 @@ import Numeric.Quantum.Ledger.ExactUncertainty
 #audit Quantum.ExactUncertainty.witness_pointwise
 #audit Quantum.ExactUncertainty.witness_ncMom
 #audit Quantum.ExactUncertainty.verdict_l9
+
+-- : the elliptic cell is the extra rebit (Numeric/Quantum/Ledger/EllipticRebit.lean).
+#audit Quantum.EllipticRebit.rep_mul
+#audit Quantum.EllipticRebit.rep_one
+#audit Quantum.EllipticRebit.rep_add
+#audit Quantum.EllipticRebit.rep_injective
+#audit Quantum.EllipticRebit.det_rep
+#audit Quantum.EllipticRebit.rep_neg_one
+#audit Quantum.EllipticRebit.J_sq
+#audit Quantum.EllipticRebit.J_transpose
+#audit Quantum.EllipticRebit.rep_orthogonal
+#audit Quantum.EllipticRebit.rep_one_x
+#audit Quantum.EllipticRebit.rep_zero_x
+#audit Quantum.EllipticRebit.realify_mul
+#audit Quantum.EllipticRebit.realify_one
+#audit Quantum.EllipticRebit.realify_conjTranspose
+#audit Quantum.EllipticRebit.realify_scalar
+#audit Quantum.EllipticRebit.verdict_l10
