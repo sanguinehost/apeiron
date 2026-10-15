@@ -111,6 +111,9 @@ lean_lib ApeironWordBridge where
     -- W1b backward-pass refinements (`src/learn/grad/dense.rs`): the extracted `learn_port.dense`
     -- `RMSNorm`/`SwiGLU` forward and backward maps against the `ℤ` specification.
     `Learn.Grad.DenseNormSpec, `Learn.Grad.DenseNorm, `Learn.Grad.DenseNormBwd,
+    -- The remaining extracted `_loop` bodies of `learn_port.head` (`Learn/Grad/HeadRows.lean`):
+    -- the `W_head` backward, the TV gradient and the row/logits/softmax loops.
+    `Learn.Grad.HeadRows,
     `AxiomAudit, `Joint.WordBridge,
     `Iota.Audit.Empty,
     `Iota.Syntax, `Iota.Decode,

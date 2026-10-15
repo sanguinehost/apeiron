@@ -80,6 +80,7 @@ import Learn.Grad.Rope
 import Numeric.OneBit.SigmaDeltaRefinement
 import Learn.Grad.Head
 import Learn.Grad.HeadLoop
+import Learn.Grad.HeadRows
 import Perf.BitsRefine
 import Numeric.Quantum.Register
 import Numeric.Quantum.RegisterRefinement
@@ -808,6 +809,45 @@ import Numeric.Quantum.Ledger.EllipticRebit
 #audit apeiron_head.dw_out_fill_loop_spec
 #audit apeiron_head.tv_scan_loop_body_spec
 #audit apeiron_head.tv_scan_loop_spec
+
+-- The remaining extracted `learn_port.head` `_loop` bodies and their public entry points
+-- (`Learn/Grad/HeadRows.lean`): the `W_head` backward (`dh_entry`/`dh_fill`) and the TV gradient
+-- (`tv_dz`), each over `loop.spec_decr_nat` with an explicit non-overflow domain.
+#audit apeiron_head.dhAux_add
+#audit apeiron_head.dhAux_succ
+#audit apeiron_head.dhVals_succ
+#audit apeiron_head.dhVals_length
+#audit apeiron_head.dh_entry_loop_body_spec
+#audit apeiron_head.dh_entry_loop_spec
+#audit apeiron_head.dh_entry_spec
+#audit apeiron_head.dh_fill_loop_body_spec
+#audit apeiron_head.dh_fill_loop_spec
+#audit apeiron_head.dh_fill_spec
+#audit apeiron_head.tvDzNum_eq
+#audit apeiron_head.tvDzVals_succ
+#audit apeiron_head.tvDzVals_length
+#audit apeiron_head.tv_dz_loop_body_spec
+#audit apeiron_head.tv_dz_loop_spec
+#audit apeiron_head.tv_dz_spec
+
+-- The student logits (`logits_row`): the checked dot/round helper, the row model, the `Vec.index_mut`
+-- write and the `v < k` walk, each over `loop.spec_decr_nat` with an explicit non-overflow domain.
+#audit apeiron_head.dot_round_spec
+#audit apeiron_head.logitsVals_succ
+#audit apeiron_head.logitsVals_length
+#audit apeiron_head.vvals_length
+#audit apeiron_head.vec_index_mut_spec
+#audit apeiron_head.logits_row_loop_body_spec
+#audit apeiron_head.logits_row_loop_spec
+#audit apeiron_head.logits_row_spec
+
+-- The softmax numerator fill (`exp_fill`): the flush threshold and the four `exp_entry` arms.
+#audit apeiron_head.head_FLUSH_eq
+#audit apeiron_head.flush_neg_val
+#audit apeiron_head.exp_entry_flush
+#audit apeiron_head.exp_entry_overflow
+#audit apeiron_head.exp_entry_exp_err
+#audit apeiron_head.exp_entry_ok
 
 -- The extracted checked-`i64` sigma-delta body `sigma_delta.sd_binary_block`
 -- refines `Numeric.SigmaDelta.sdState`/`sdSign` (`Numeric/OneBit/SigmaDeltaRefinement.lean`).

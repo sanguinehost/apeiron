@@ -248,11 +248,25 @@ def dwOutVals (dw : List ℤ) (nscale : ℤ) (out : List ℤ) : ℕ → List ℤ
   | 0 => out
   | n + 1 => (dwOutVals dw nscale out n).set n (rndDiv (dw.getD n 0) nscale)
 
-/-- `dh_fill`'s written vector after `n` entries of the `d`-block. -/
+/-- `dh_entry`'s accumulator after `n` terms: `Σ_{k<n} dz[k]·w_head[k·d + j]`.
+
+`logits_row` computes `z_k = Σ_j hidden[r·d+j]·w_head[k·d+j]` with `w_head` row-major (`V × d`), so
+entry `(k, j)` of `W_head` is `w_head[k·d + j]` and the backward `dh[dbase+j] = Σ_{k<v} dz[k]·w_head[k·d+j]`
+runs over `k` at the fixed column `j`. This is the accumulator the extracted `dh_entry` computes. -/
+def dhAux (dz w_head : List ℤ) (d j : ℕ) (acc : ℤ) : ℕ → ℤ
+  | 0 => acc
+  | n + 1 => dhAux dz w_head d j (acc + dz.getD n 0 * w_head.getD (n * d + j) 0) n
+
+/-- `dh_entry`'s value at column `j`: `round((Σ_{k<v} dz[k]·w_head[k·d+j]) / nscale)`, `v = dz.length`. -/
+def dhEntryVal (dz w_head : List ℤ) (d j : ℕ) (nscale : ℤ) : ℤ :=
+  rndDiv (dhAux dz w_head d j 0 dz.length) nscale
+
+/-- `dh_fill`'s written vector after `n` entries of the `d`-block: entry `base + n` is
+`dh_entry`'s value at column `n`. -/
 def dhVals (dz w_head : List ℤ) (d : ℕ) (nscale : ℤ) (base : ℕ) (dh : List ℤ) : ℕ → List ℤ
   | 0 => dh
   | n + 1 => (dhVals dz w_head d nscale base dh n).set (base + n)
-      (rndDiv (dotAux dz 0 w_head (n * d) 0 d) nscale)
+      (dhEntryVal dz w_head d n nscale)
 
 /-! ## 3. Bound lemmas and the non-loop refinements -/
 
