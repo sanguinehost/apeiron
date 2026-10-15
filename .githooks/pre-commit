@@ -279,6 +279,23 @@ else
   run_step coverage-census "$census_budget" bash -c "$census_run"
 fi
 
+# Step 8, the tree structure gate (`docs/contracts/tree.toml`): placement, size, Lean orphans.
+# It reads the staged tree, exported to a private directory, not the working tree, so a file
+# left unstaged neither hides nor causes a refusal. The build runs under the AGENTS.md §6 bound.
+structure_tree() {
+  local dir rc
+  dir=$(mktemp -d) || return 1
+  git checkout-index -a --prefix="$dir/" &&
+    git ls-files >"$dir.files" &&
+    systemd-run --user --scope -q -p MemoryMax=4G -p MemorySwapMax=0 -- \
+      cargo run --release --locked --quiet --manifest-path tools/gate/Cargo.toml -- \
+      structure --check --root "$dir" --files "$dir.files"
+  rc=$?
+  rm -rf "$dir" "$dir.files"
+  return $rc
+}
+run_step structure "$step_budget" bash -c "$(declare -f structure_tree); structure_tree"
+
 if (( status != 0 )); then
   echo "pre-commit: REFUSED; the commit was not created" >&2
 else
