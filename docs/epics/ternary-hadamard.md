@@ -785,7 +785,7 @@ theorems and `norm_num` verdicts over hand-typed literals). Verdict: `/home/soco
   A sandwich violation is an instrument bug.
 - D (`proved`, finite vocabulary): `KL(p‖q) = ½ Var_{p_ξ}(δ)` for `q = softmax(z+δ)`, some `ξ ∈ (0,1)`; Hoeffding range bound `KL ≤ range(δ)²/8`. `kl_eval` computes `KL(teacher‖student)`, so the identity applies. Tilt ratio measured at seed 0.
 - A: receipts copied byte-for-byte to `docs/evidence/receipts/onebit/<prediction-id>.json`, indexed in `docs/evidence/ledger.jsonl` (`index_check.py` E1/E5);
-  `tools/onebit/receipt_lean.py` emits `proof/corpus/Perf/Receipts/Onebit.lean` (per-seed values as exact ℚ from the JSON decimal text, bit components as ℕ, means computed in Lean);
+  `tools/onebit/receipt_lean.py` (removed; at a734cb9a) emits `proof/corpus/Perf/Receipts/Onebit.lean` (removed; at a734cb9a) (per-seed values as exact ℚ from the JSON decimal text, bit components as ℕ, means computed in Lean);
   `--check` regenerates and diffs; verdicts cite `Receipts.<id>`.
 - B: `src/learn/onebit_bits.rs` (config, per-component bit count including the row index), rooted in `proof/extract/lib.rs`, refined in `Perf/BitsRefine.lean` for all configs by loop invariant, then evaluated at Qwen2.5-0.5B: sign `400490496`, r `15347712`, c `2128896`, d `1775616`, corr `1798656`, index `≥ 98106`.
   Python → Rust is a receipt equality (`tested`), not a refinement; no packed format exists.
@@ -795,7 +795,7 @@ theorems and `norm_num` verdicts over hand-typed literals). Verdict: `/home/soco
 
 | task | board row | owns | gate | control | order |
 |---|---|---|---|---|---|
-| A | `onebit-w17-a-receipt-EJG21b4JnOIzadMIc92CZd` | `tools/rooting/receipt_lean.py`, `docs/evidence/receipts/onebit/`, `Perf/Receipts/Onebit.lean` (then `CostCorrespondence.lean` rebind) | `index_check.py --check`; `receipt_lean.py --check`; `lake build` | edit one digit in a receipt → E5 red; edit a generated constant → `--check` red; stale `w15_four_factor_05b_decomposition` red until rebound | parallel with C |
+| A | `onebit-w17-a-receipt-EJG21b4JnOIzadMIc92CZd` | `tools/rooting/receipt_lean.py` (removed; at a734cb9a), `docs/evidence/receipts/onebit/`, `Perf/Receipts/Onebit.lean` (then `CostCorrespondence.lean` rebind) | `index_check.py --check`; `receipt_lean.py --check`; `lake build` | edit one digit in a receipt → E5 red; edit a generated constant → `--check` red; stale `w15_four_factor_05b_decomposition` red until rebound | parallel with C |
 | C | `onebit-w17-c-model-aeILmtZsGbJ8hZYFslWj5` | `Perf/Generalisation.lean`, `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9) (instrument only), `docs/evidence/onebit-w15.md` | `lake build Perf.Generalisation` closed cone; `O/T/Q` and `E_gen(N)` measured, P1–P3 each confirmed or refuted | changed λ constant → verdict red; shuffled `Ĥ` split → sandwich still holds | hardest, first |
 | D | `onebit-w17-d-j-to-kl-FODqnwdkkWselp984dWMO8` | `Perf/Generalisation.lean`, `fold_transfer.py` | identity proved on `Fin V` under the closed cone; tilt `Q` at seed 0 | changed-constant red | after C |
 | B | `onebit-w17-b-bits-cfg-BpyoXO720q3VZEbY0hYN7n` | `src/learn/onebit_bits.rs`, `proof/extract/lib.rs`, `Perf/BitsRefine.lean` | `proof/regen.sh --check`; `lake build`; equality with receipt components | `k_rows` 417 → red; header dropped → red | after A; serialises on `proof/ApeironWord.lean` |
@@ -813,8 +813,8 @@ Stop conditions: C stops at the first sandwich violation; B stops after five ext
   `ffn_down` verdict `w17_c_sandwich_verdict`. Gate on the live tree: `lake build Perf.Generalisation AxiomAudit` exit 0 (9176 jobs), seven
   `#audit`s in `[propext, Classical.choice, Quot.sound]`. Controls: `47/100 → 49/100` red (`linarith failed`), swapped PSD premises red (type mismatch).
   The Marchenko–Pastur edge is an `anchor` input; no random-matrix statement is proved. Measured `O`, `Q`, `μ̂`, `E_gen(N)` are the C-probe task.
-- A2 (`onebit-w17-a-receipt-EJG21b4JnOIzadMIc92CZd`): `tools/rooting/receipt_lean.py` (stdlib; `--check`, `--write`, `--self-test`) generates
-  `proof/corpus/Perf/Receipts/Onebit.lean` from four receipts (`t3-nb-3seed`, `t0b-sinkfnorm-3seed`, `t0-best-3seed`, `t6-sideinfo`): sha256, per-seed
+- A2 (`onebit-w17-a-receipt-EJG21b4JnOIzadMIc92CZd`): `tools/rooting/receipt_lean.py` (removed; at a734cb9a) (stdlib; `--check`, `--write`, `--self-test`) generates
+  `proof/corpus/Perf/Receipts/Onebit.lean` (removed; at a734cb9a) from four receipts (`t3-nb-3seed`, `t0b-sinkfnorm-3seed`, `t0-best-3seed`, `t6-sideinfo`): sha256, per-seed
   KL/top-1 as exact rationals from the JSON text, bit components as ℕ, means defined in Lean with `_eq` theorems, `bitsComponents_eq` (sum of components = `bits`).
   It lives under `tools/rooting/`, not `tools/onebit/`, because the derivation hook treats any `tools/onebit/*.py` run as an experiment.
   Gate on the live tree: `--check` exit 0; `lake build Perf.Receipts.Onebit` exit 0 (776 jobs). Self-test controls red: generated constant edited

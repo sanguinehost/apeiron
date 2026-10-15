@@ -386,11 +386,6 @@ files = ["*"]
 # ---- debt: violations present when this file was written; each entry names the row that removes it ----------
 [[debt]]
 rule = "max_lines"
-path = "proof/corpus/Perf/Receipts/Onebit.lean"
-row = "DEL-RECEIPT-LEAN"
-
-[[debt]]
-rule = "max_lines"
 path = "src/engine/kern/gemm_probe.rs"
 row = "DEL-KERN-PROBES"
 
@@ -782,7 +777,6 @@ frozen = [
   "tools/rooting/check.py",
   "tools/rooting/digest_recheck.py",
   "tools/rooting/doc_reach.py",
-  "tools/rooting/receipt_lean.py",
   "tools/rooting/index_check.py",
   "tools/rooting/limit_check.py",
   "tools/rooting/read_gate.py",
