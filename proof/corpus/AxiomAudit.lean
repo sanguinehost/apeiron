@@ -81,6 +81,7 @@ import Numeric.OneBit.SigmaDeltaRefinement
 import Learn.Grad.Head
 import Learn.Grad.HeadLoop
 import Learn.Grad.HeadRows
+import Learn.Grad.HeadSoftmax
 import Perf.BitsRefine
 import Numeric.Quantum.Register
 import Numeric.Quantum.RegisterRefinement
@@ -848,6 +849,34 @@ import Numeric.Quantum.Ledger.EllipticRebit
 #audit apeiron_head.exp_entry_overflow
 #audit apeiron_head.exp_entry_exp_err
 #audit apeiron_head.exp_entry_ok
+#audit apeiron_head.expSum_succ
+#audit apeiron_head.exp_fill_loop_body_spec
+#audit apeiron_head.exp_fill_loop_spec
+#audit apeiron_head.exp_fill_spec
+#audit apeiron_head.fillInv_set
+#audit apeiron_head.fill_lp_p_loop_body_spec
+#audit apeiron_head.fill_lp_p_loop_spec
+#audit apeiron_head.fill_lp_p_spec
+#audit apeiron_head.rows_loop_loop_body_spec
+#audit apeiron_head.rows_loop_loop_spec
+#audit apeiron_head.rows_loop_spec
+#audit apeiron_head.kl_acc_spec
+#audit apeiron_head.dz_diff_spec
+#audit apeiron_head.tv_scan_spec
+#audit apeiron_head.kl_row_shape
+#audit apeiron_head.tv_row_shape
+#audit apeiron_head.kl_row_spec
+#audit apeiron_head.tv_row_spec
+#audit apeiron_head.dw_out_fill_spec
+#audit apeiron_head.head_chunked_shape_n
+#audit apeiron_head.head_chunked_shape_d
+#audit apeiron_head.head_chunked_shape_v
+#audit apeiron_head.head_chunked_shape_chunk
+#audit apeiron_head.head_chunked_spec
+#audit apeiron_head.dot_round_overflow
+#audit apeiron_head.dot_round_overflow_witness
+#audit apeiron_head.head_chunked_shape_witness
+#audit apeiron_head.head_chunked_domain_witness
 
 -- The extracted checked-`i64` sigma-delta body `sigma_delta.sd_binary_block`
 -- refines `Numeric.SigmaDelta.sdState`/`sdSign` (`Numeric/OneBit/SigmaDeltaRefinement.lean`).
