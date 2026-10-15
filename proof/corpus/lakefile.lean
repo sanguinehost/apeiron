@@ -101,6 +101,13 @@ lean_lib ApeironWordBridge where
     -- against `rotHeadsState`/`RopeTable.rotate_one`, and `learn_port.attn.rope_bwd`/`rope_elem_bwd`
     -- against the transpose kernel `ropeBwdPair` accumulated as `ropeBwdPrefix`.
     `Learn.Grad.Rope,
+    -- Exact-integer head refinement (`Learn/Grad/Head.lean`): the extracted `learn_port.head`
+    -- rounding, narrowing, sign and checked-arithmetic bodies against their `ℤ` specifications,
+    -- and the `log_softmax_row` projection over the conditional `softmax_row`.
+    `Learn.Grad.Head,
+    -- The extracted `_loop` bodies of `learn_port.head` (`Learn/Grad/HeadLoop.lean`) against
+    -- their `ℤ` prefix-sum/accumulator models, over `loop.spec_decr_nat`.
+    `Learn.Grad.HeadLoop,
     `AxiomAudit, `Joint.WordBridge,
     `Iota.Audit.Empty,
     `Iota.Syntax, `Iota.Decode,
