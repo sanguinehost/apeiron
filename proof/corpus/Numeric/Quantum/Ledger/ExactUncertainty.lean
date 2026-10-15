@@ -7,8 +7,10 @@ potential of the amplitude `√ρ`, weighted by `ρ` and integrated, is `(ℏ²/
 `N = (ℏ/2)(ρ'/ρ)` has `∫ ρ N² = (ℏ²/4) I_F` (`rho_ncMom_sq`, `quantum_energy_eq_nc_kinetic`), so
 the product of the Fisher length `1/√I_F` and the nonclassical spread `√(∫ ρ N²)` is `ℏ/2`
 (`exact_uncertainty`). The Cramér–Rao core `1 ≤ V·I` for `c = -1`, `c² ≤ V·I` is
-`cramer_rao_core`; `cramer_rao_integral` proves `∫ (x-μ) ρ' = -1` and keeps the Cauchy–Schwarz
-step `c² ≤ V·I` as a named hypothesis. `verdict_l9` conjoins the headlines.
+`cramer_rao_core`; `cramer_rao_integral` proves `∫ (x-μ) ρ' = -1` from a Cauchy–Schwarz premise,
+which `cauchy_schwarz_fisher` discharges by the discriminant of `∫ ρ (t(x-μ) + ρ'/ρ)² ≥ 0`, so
+`cramer_rao` states `1 ≤ V·I_F` with no such premise. `verdict_l9` and `verdict_l9b` conjoin the
+headlines.
 
 Anchors (not proved here): Madelung (1927); Bohm (1952), the quantum potential; Fisher (1925);
 Reginatto (1998) and Hall and Reginatto, *J. Phys. A* **35** (2002) 3289, the exact uncertainty
@@ -264,6 +266,78 @@ theorem cramer_rao_integral (μ : ℝ) (ρ ρ' : ℝ → ℝ)
   have hc : ∫ x, (x - μ) * ρ' x = -1 := by linarith
   exact ⟨hc, cramer_rao_core _ _ _ (hc ▸ hcs) hc⟩
 
+/-- The discriminant form: for every `t`, `0 ≤ t²·∫(x-μ)²ρ + 2t·∫(x-μ)ρ' + I_F`.
+`ℝ` [the real numbers: every number on the number line]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`∀` [for every single one]
+`∫` [added up continuously over]
+`≤` [is smaller than or equal to]
+`<` [is smaller than]
+-/
+theorem fisher_quad_nonneg (μ : ℝ) (ρ ρ' : ℝ → ℝ) (hpos : ∀ x, 0 < ρ x)
+    (hA : Integrable (fun x => (x - μ) ^ 2 * ρ x)) (hB : Integrable (fun x => (x - μ) * ρ' x))
+    (hC : Integrable (fun x => ρ' x ^ 2 / ρ x)) (t : ℝ) :
+    0 ≤ t ^ 2 * (∫ x, (x - μ) ^ 2 * ρ x) + 2 * t * (∫ x, (x - μ) * ρ' x) + fisher ρ ρ' := by
+  have hpt : ∀ x, ρ x * (t * (x - μ) + ρ' x / ρ x) ^ 2
+      = t ^ 2 * ((x - μ) ^ 2 * ρ x) + 2 * t * ((x - μ) * ρ' x) + ρ' x ^ 2 / ρ x := by
+    intro x
+    have hx : ρ x ≠ 0 := (hpos x).ne'
+    field_simp
+    ring
+  have h1 : Integrable (fun x => t ^ 2 * ((x - μ) ^ 2 * ρ x)) := hA.const_mul _
+  have h2 : Integrable (fun x => 2 * t * ((x - μ) * ρ' x)) := hB.const_mul _
+  have hnn : 0 ≤ ∫ x, ρ x * (t * (x - μ) + ρ' x / ρ x) ^ 2 :=
+    integral_nonneg fun x => mul_nonneg (hpos x).le (sq_nonneg _)
+  have h12 : Integrable (fun x => t ^ 2 * ((x - μ) ^ 2 * ρ x) + 2 * t * ((x - μ) * ρ' x)) :=
+    h1.add h2
+  simp_rw [hpt] at hnn
+  rw [integral_add h12 hC, integral_add h1 h2, integral_const_mul,
+    integral_const_mul] at hnn
+  unfold fisher
+  linarith
+
+/-- Cauchy–Schwarz for the Fisher information: `(∫(x-μ)ρ')² ≤ (∫(x-μ)²ρ)·I_F`, from the
+nonnegativity of the discriminant form `fisher_quad_nonneg`, with no `L²` space.
+`ℝ` [the real numbers: every number on the number line]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`∫` [added up continuously over]
+`≤` [is smaller than or equal to]
+`<` [is smaller than]
+`∀` [for every single one]
+-/
+theorem cauchy_schwarz_fisher (μ : ℝ) (ρ ρ' : ℝ → ℝ) (hpos : ∀ x, 0 < ρ x)
+    (hA : Integrable (fun x => (x - μ) ^ 2 * ρ x)) (hB : Integrable (fun x => (x - μ) * ρ' x))
+    (hC : Integrable (fun x => ρ' x ^ 2 / ρ x)) :
+    (∫ x, (x - μ) * ρ' x) ^ 2 ≤ (∫ x, (x - μ) ^ 2 * ρ x) * fisher ρ ρ' := by
+  have hq := fisher_quad_nonneg μ ρ ρ' hpos hA hB hC
+  have hdisc : discrim (∫ x, (x - μ) ^ 2 * ρ x) (2 * ∫ x, (x - μ) * ρ' x) (fisher ρ ρ') ≤ 0 := by
+    apply discrim_le_zero
+    intro t
+    nlinarith [hq t]
+  unfold discrim at hdisc
+  nlinarith [hdisc]
+
+/-- Integral Cramér–Rao with the Cauchy–Schwarz step discharged: `1 ≤ V·I_F`, with no
+`hcs` hypothesis.
+`ℝ` [the real numbers: every number on the number line]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`∫` [added up continuously over]
+`≤` [is smaller than or equal to]
+`HasDerivAt` [is changing at that rate at that time]
+`<` [is smaller than]
+`∀` [for every single one]
+-/
+theorem cramer_rao (μ : ℝ) (ρ ρ' : ℝ → ℝ) (hpos : ∀ x, 0 < ρ x)
+    (hd : ∀ y, HasDerivAt ρ (ρ' y) y) (hint : Integrable ρ) (hnorm : ∫ x, ρ x = 1)
+    (hA : Integrable (fun x => (x - μ) ^ 2 * ρ x))
+    (hintr : Integrable (fun x => (x - μ) * ρ' x))
+    (hC : Integrable (fun x => ρ' x ^ 2 / ρ x))
+    (htb : Tendsto (fun x => (x - μ) * ρ x) atBot (𝓝 0))
+    (htt : Tendsto (fun x => (x - μ) * ρ x) atTop (𝓝 0)) :
+    1 ≤ (∫ x, (x - μ) ^ 2 * ρ x) * fisher ρ ρ' :=
+  (cramer_rao_integral μ ρ ρ' hd hint hnorm hintr htb htt
+    (cauchy_schwarz_fisher μ ρ ρ' hpos hA hintr hC)).2
+
 /-- Witness at `ρ = 4`, `ρ' = 2`, `ρ'' = 1`, `ℏ = m = 1`: both sides are `-1/8`.
 `ℝ` [the real numbers: every number on the number line]
 `Real.sqrt` [the number that squares to give this]
@@ -317,6 +391,34 @@ theorem verdict_l9 :
     fun V I c hcs hc => cramer_rao_core V I c hcs hc,
     fun V I hbar hV hh h => heisenberg_from_cr V I hbar hV hh h,
     witness_pointwise, witness_ncMom⟩
+
+/-- The verdict with the Cramér–Rao hypothesis discharged: `verdict_l9`, and the
+Cauchy–Schwarz step and the Cramér–Rao bound with no `hcs` hypothesis.
+`ℝ` [the real numbers: every number on the number line]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`∀` [for every single one]
+`∧` [both are true]
+`∫` [added up continuously over]
+`≤` [is smaller than or equal to]
+`HasDerivAt` [is changing at that rate at that time]
+`<` [is smaller than]
+-/
+theorem verdict_l9b :
+    type_of% verdict_l9 ∧
+    (∀ (μ : ℝ) (ρ ρ' : ℝ → ℝ), (∀ x, 0 < ρ x) →
+      Integrable (fun x => (x - μ) ^ 2 * ρ x) → Integrable (fun x => (x - μ) * ρ' x) →
+      Integrable (fun x => ρ' x ^ 2 / ρ x) →
+      (∫ x, (x - μ) * ρ' x) ^ 2 ≤ (∫ x, (x - μ) ^ 2 * ρ x) * fisher ρ ρ') ∧
+    (∀ (μ : ℝ) (ρ ρ' : ℝ → ℝ), (∀ x, 0 < ρ x) → (∀ y, HasDerivAt ρ (ρ' y) y) →
+      Integrable ρ → (∫ x, ρ x = 1) →
+      Integrable (fun x => (x - μ) ^ 2 * ρ x) → Integrable (fun x => (x - μ) * ρ' x) →
+      Integrable (fun x => ρ' x ^ 2 / ρ x) →
+      Tendsto (fun x => (x - μ) * ρ x) atBot (𝓝 0) →
+      Tendsto (fun x => (x - μ) * ρ x) atTop (𝓝 0) →
+      1 ≤ (∫ x, (x - μ) ^ 2 * ρ x) * fisher ρ ρ') :=
+  ⟨verdict_l9, fun μ ρ ρ' hpos hA hB hC => cauchy_schwarz_fisher μ ρ ρ' hpos hA hB hC,
+    fun μ ρ ρ' hpos hd hint hnorm hA hB hC htb htt =>
+      cramer_rao μ ρ ρ' hpos hd hint hnorm hA hB hC htb htt⟩
 
 end ExactUncertainty
 end Quantum
