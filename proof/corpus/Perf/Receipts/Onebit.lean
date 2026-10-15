@@ -2110,6 +2110,93 @@ def verifyModelBytes : ℕ := 5021827072
 
 end Receipts.qreg_spectv
 
+-- Receipt the receipts/onebit/qarch-q1 note.json`
+namespace Receipts.qarch_q1
+
+def sha256 : String := "c7c93f9a7fd3f3eb42e26485332a5be36dcf40347a25cf2b4944f1afde8af5b4"
+def a0Alpha : ℚ := (1 : ℚ) / 8
+def a0W0AllMeas : ℚ := (1107239 : ℚ) / 5000000
+def a0W0AllPred : ℚ := (2043311 : ℚ) / 5000000
+def a0W0Prefix20Meas : ℚ := (1861911 : ℚ) / 10000000
+def a0W0Prefix20Pred : ℚ := (1120871 : ℚ) / 5000000
+def a0W0Suffix16Meas : ℚ := (398953 : ℚ) / 2000000
+def a0W0Suffix16Pred : ℚ := (65483 : ℚ) / 625000
+def a0W1AllMeas : ℚ := (2001929 : ℚ) / 10000000
+def a0W1AllPred : ℚ := (1961981 : ℚ) / 5000000
+def a0W1Prefix20Meas : ℚ := (884709 : ℚ) / 5000000
+def a0W1Prefix20Pred : ℚ := (2392421 : ℚ) / 10000000
+def a0W1Suffix16Meas : ℚ := (709003 : ℚ) / 5000000
+def a0W1Suffix16Pred : ℚ := (202623 : ℚ) / 2000000
+def a0W2AllMeas : ℚ := (317911 : ℚ) / 1250000
+def a0W2AllPred : ℚ := (8283013 : ℚ) / 10000000
+def a0W2Prefix20Meas : ℚ := (464047 : ℚ) / 2000000
+def a0W2Prefix20Pred : ℚ := (3730867 : ℚ) / 10000000
+def a0W2Suffix16Meas : ℚ := (2288499 : ℚ) / 10000000
+def a0W2Suffix16Pred : ℚ := (1523307 : ℚ) / 10000000
+def a0DiagShare : ℚ := (5828849 : ℚ) / 10000000
+def a1Alpha : ℚ := (1 : ℚ) / 4
+def a1W0AllMeas : ℚ := (2580261 : ℚ) / 5000000
+def a1W0AllPred : ℚ := (1101717 : ℚ) / 1250000
+def a1W0Prefix20Meas : ℚ := (1070963 : ℚ) / 2500000
+def a1W0Prefix20Pred : ℚ := (377563 : ℚ) / 625000
+def a1W0Suffix16Meas : ℚ := (361857 : ℚ) / 1000000
+def a1W0Suffix16Pred : ℚ := (1189209 : ℚ) / 5000000
+def a1W1AllMeas : ℚ := (5935041 : ℚ) / 10000000
+def a1W1AllPred : ℚ := (119367 : ℚ) / 100000
+def a1W1Prefix20Meas : ℚ := (1254061 : ℚ) / 2500000
+def a1W1Prefix20Pred : ℚ := (8986507 : ℚ) / 10000000
+def a1W1Suffix16Meas : ℚ := (81447 : ℚ) / 250000
+def a1W1Suffix16Pred : ℚ := (1176001 : ℚ) / 5000000
+def a1W2AllMeas : ℚ := (2308211 : ℚ) / 5000000
+def a1W2AllPred : ℚ := (393397 : ℚ) / 250000
+def a1W2Prefix20Meas : ℚ := (4065709 : ℚ) / 10000000
+def a1W2Prefix20Pred : ℚ := (4592297 : ℚ) / 5000000
+def a1W2Suffix16Meas : ℚ := (790763 : ℚ) / 2500000
+def a1W2Suffix16Pred : ℚ := (1308837 : ℚ) / 5000000
+def a1DiagShare : ℚ := (28247 : ℚ) / 50000
+def a2Alpha : ℚ := (1 : ℚ) / 2
+def a2W0AllMeas : ℚ := (1448653 : ℚ) / 500000
+def a2W0AllPred : ℚ := (4121239 : ℚ) / 1000000
+def a2W0Prefix20Meas : ℚ := (487659 : ℚ) / 200000
+def a2W0Prefix20Pred : ℚ := (1618217 : ℚ) / 500000
+def a2W0Suffix16Meas : ℚ := (4824801 : ℚ) / 5000000
+def a2W0Suffix16Pred : ℚ := (243411 : ℚ) / 312500
+def a2W1AllMeas : ℚ := (485041 : ℚ) / 200000
+def a2W1AllPred : ℚ := (5679679 : ℚ) / 1000000
+def a2W1Prefix20Meas : ℚ := (374607 : ℚ) / 200000
+def a2W1Prefix20Pred : ℚ := (14528 : ℚ) / 3125
+def a2W1Suffix16Meas : ℚ := (9556701 : ℚ) / 10000000
+def a2W1Suffix16Pred : ℚ := (7150937 : ℚ) / 10000000
+def a2W2AllMeas : ℚ := (265177 : ℚ) / 200000
+def a2W2AllPred : ℚ := (1044737 : ℚ) / 200000
+def a2W2Prefix20Meas : ℚ := (297999 : ℚ) / 250000
+def a2W2Prefix20Pred : ℚ := (1996581 : ℚ) / 500000
+def a2W2Suffix16Meas : ℚ := (1211433 : ℚ) / 2000000
+def a2W2Suffix16Pred : ℚ := (738929 : ℚ) / 1250000
+def a2DiagShare : ℚ := (3800773 : ℚ) / 10000000
+def a3Alpha : ℚ := (1 : ℚ) / 1
+def a3W0AllMeas : ℚ := (1118349 : ℚ) / 100000
+def a3W0AllPred : ℚ := (15587 : ℚ) / 625
+def a3W0Prefix20Meas : ℚ := (255081 : ℚ) / 25000
+def a3W0Prefix20Pred : ℚ := (2049027 : ℚ) / 100000
+def a3W0Suffix16Meas : ℚ := (3733971 : ℚ) / 1000000
+def a3W0Suffix16Pred : ℚ := (2846883 : ℚ) / 1000000
+def a3W1AllMeas : ℚ := (44253 : ℚ) / 4000
+def a3W1AllPred : ℚ := (1558221 : ℚ) / 50000
+def a3W1Prefix20Meas : ℚ := (206121 : ℚ) / 20000
+def a3W1Prefix20Pred : ℚ := (2618559 : ℚ) / 100000
+def a3W1Suffix16Meas : ℚ := (943327 : ℚ) / 250000
+def a3W1Suffix16Pred : ℚ := (1223973 : ℚ) / 500000
+def a3W2AllMeas : ℚ := (609737 : ℚ) / 62500
+def a3W2AllPred : ℚ := (1922483 : ℚ) / 100000
+def a3W2Prefix20Meas : ℚ := (1937691 : ℚ) / 200000
+def a3W2Prefix20Pred : ℚ := (165143 : ℚ) / 10000
+def a3W2Suffix16Meas : ℚ := (696447 : ℚ) / 200000
+def a3W2Suffix16Pred : ℚ := (816593 : ℚ) / 500000
+def a3DiagShare : ℚ := (711953 : ℚ) / 2500000
+
+end Receipts.qarch_q1
+
 -- Receipt the receipts/onebit/2026-10-11-vladder note.json`
 namespace Receipts.vladder_1011
 
