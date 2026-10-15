@@ -94,6 +94,7 @@ import Numeric.Quantum.Ledger.FaceShift
 import Numeric.Quantum.Ledger.AmplitudeKL
 import Numeric.Quantum.Ledger.DesignLadder
 import Numeric.Quantum.Ledger.EllipticTensor
+import Numeric.Quantum.Ledger.CellClifford
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -1435,3 +1436,24 @@ import Numeric.Quantum.Ledger.EllipticTensor
 #audit Quantum.EllipticTensor.split_e
 #audit Quantum.EllipticTensor.split_e'
 #audit Quantum.EllipticTensor.verdict_l2
+
+-- The cell `ℝ[x]/(x² − σ)` is the Clifford algebra of the form `Q σ t = σ·t²`
+-- (`Numeric/Quantum/Ledger/CellClifford.lean`): the algebra isomorphism `cliffordEquiv` with
+-- `toCell` carrying Clifford multiplication to `mul σ`, the elliptic face `σ = −1` (`ℂ`) and the
+-- parabolic face `σ = 0` (dual numbers), two anticommuting generators `e1`, `e2` squaring to `c₁`,
+-- `c₂` as a quaternion algebra at `(−1,−1)` and `(+1,+1)`, and the rebit `ℍ[ℝ,1,0,1] ≅ M₂(ℝ)`.
+#audit Quantum.CellClifford.toCell_mul
+#audit Quantum.CellClifford.toCell_one
+#audit Quantum.CellClifford.toCell_ι
+#audit Quantum.CellClifford.toCell_bijective
+#audit Quantum.CellClifford.Q_neg_one
+#audit Quantum.CellClifford.Q_zero
+#audit Quantum.CellClifford.elliptic_complex
+#audit Quantum.CellClifford.parabolic_dual
+#audit Quantum.CellClifford.e1_sq
+#audit Quantum.CellClifford.e2_sq
+#audit Quantum.CellClifford.anticommute
+#audit Quantum.CellClifford.k_sq_hamilton
+#audit Quantum.CellClifford.k_sq_split
+#audit Quantum.CellClifford.rebit_bijective
+#audit Quantum.CellClifford.verdict_l1
