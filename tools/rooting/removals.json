@@ -609,6 +609,35 @@
         }
       ],
       "receipt": "docs/plan.md"
+    },
+    {
+      "id": "strays-retirement",
+      "kind": "retirement",
+      "note": "Board row del-strays-u1-err-u2-err-BPZFtJ9u5utoUdZIFnEaVC. Owner direction (2026-10-15): delete everything that is not the crate, its extraction or its refinements. u1.err and u2.err are captured usage errors of the reg1 example (removed in c9a2d0c); .held-control/ was a hand-run control copy of proof/ApeironWord.lean and a LocatorSpec probe with a run.sh that wrote an untracked olean beside them. No build, gate or hook reads any of them. clippy is a captured cargo error log committed at the root; .held-scratch/T.lean is a scratch import probe.",
+      "removed": [
+        "u1.err",
+        "u2.err",
+        ".held-control/ApeironWord.lean",
+        ".held-control/LocatorSpec.lean",
+        ".held-control/run.sh",
+        "clippy",
+        ".held-scratch/T.lean"
+      ],
+      "replacement": [],
+      "retained_obligation": "None in this tree: no build path, gate or hook read these files; the held control's subject is proof/ApeironWord.lean, checked by proof/regen.sh --check.",
+      "consumers": [
+        "tools/rooting/doc_reach.py"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "proof/regen.sh",
+            "--check"
+          ]
+        }
+      ],
+      "receipt": "docs/plan.md"
     }
   ],
   "self_test": {
