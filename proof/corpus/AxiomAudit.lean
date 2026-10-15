@@ -97,6 +97,7 @@ import Numeric.Quantum.Ledger.AmplitudeKL
 import Numeric.Quantum.Ledger.DesignLadder
 import Numeric.Quantum.Ledger.EllipticTensor
 import Numeric.Quantum.Ledger.CellClifford
+import Numeric.Quantum.Ledger.SicStencil
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -1513,3 +1514,25 @@ import Numeric.Quantum.Ledger.CellClifford
 #audit apeiron_grad.bwdDxValsL_length
 #audit apeiron_grad.bwdDxVals_eq_L
 #audit apeiron_grad.rmsnorm_bwd_spec
+
+-- The tetrahedral stencil is the qubit SIC (`Numeric/Quantum/Ledger/SicStencil.lean`): the four
+-- unit Bloch vectors `nVec k = (1/√3) • tetraV k` with pairwise inner product `-1/3`, the rank-one
+-- projectors `Πₖ = (1 + Σ·nₖ)/2`, the SIC overlap `tr(Πⱼ Πₖ) = 1/3`, the identity resolution
+-- `Σ Πₖ/2 = 1`, the second moment `(4/3)·u`, and `d² = 4` vectors.
+#audit Quantum.SicStencil.nVec_unit
+#audit Quantum.SicStencil.nVec_dot_self
+#audit Quantum.SicStencil.nVec_dot_ne
+#audit Quantum.SicStencil.Pi_idem
+#audit Quantum.SicStencil.sigmaN_conjTranspose
+#audit Quantum.SicStencil.projP_conjTranspose
+#audit Quantum.SicStencil.Pi_herm
+#audit Quantum.SicStencil.trace_projP
+#audit Quantum.SicStencil.trace_projP_mul
+#audit Quantum.SicStencil.sic_overlap
+#audit Quantum.SicStencil.sic_diag
+#audit Quantum.SicStencil.nVec_sum_zero
+#audit Quantum.SicStencil.sigmaN_sum
+#audit Quantum.SicStencil.sic_povm
+#audit Quantum.SicStencil.sic_second_moment
+#audit Quantum.SicStencil.sic_count
+#audit Quantum.SicStencil.verdict_l3
