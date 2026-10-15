@@ -125,7 +125,12 @@ pub fn top_p_fixed(logits: &[i64], p: i64) -> Result<Vec<u32>, SamplerError> {
     }
 
     // Descending logit; an exact tie keeps the lowest index.
-    let mut order: Vec<usize> = (0..len).collect();
+    let mut order: Vec<usize> = Vec::with_capacity(len);
+    i = 0;
+    while i < len {
+        order.push(i);
+        i += 1;
+    }
     order.sort_by(|&a, &b| logits[b].cmp(&logits[a]).then(a.cmp(&b)));
 
     // Shortest prefix whose cumulative probability reaches the threshold.
@@ -144,4 +149,20 @@ pub fn top_p_fixed(logits: &[i64], p: i64) -> Result<Vec<u32>, SamplerError> {
         k += 1;
     }
     Ok(nucleus)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Control for the index fill and the descending sort: the top logit with the lowest index
+    // (index 1 over the tied index 2) comes first, so the first prefix step selects it alone.
+    // The full-mass nucleus is a prefix of the old order `[1, 2, 0, 3]`.
+    #[test]
+    fn top_p_fixed_orders_descending_with_lowest_index_on_ties() {
+        assert_eq!(top_p_fixed(&[5, 9, 9, 1], 1), Ok(vec![1]));
+        let full = top_p_fixed(&[5, 9, 9, 1], ONE).expect("top_p");
+        assert!(!full.is_empty());
+        assert!([1u32, 2, 0, 3].starts_with(&full));
+    }
 }

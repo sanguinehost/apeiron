@@ -51,6 +51,7 @@ use portable::{
 
 pub(crate) mod ffn;
 pub(crate) mod pool;
+pub(crate) mod task;
 
 /// Lanes of one activation quantization block.
 const ACT_QK: usize = 32;
@@ -61,6 +62,9 @@ const ACT_QK: usize = 32;
 /// Produced by [`quant_act`] and consumed by [`matvec_q8act`]. The fields are private: the type is
 /// only meaningful with the invariant `codes.len() == n_in`, `scales.len() == n_in.div_ceil(32)`
 /// and `|codes[j]| ≤ 127`, which [`quant_act`] establishes.
+/// The `Default` value is empty and holds the invariant only for `n_in = 0`; a scratch holder sizes it
+/// before use.
+#[derive(Default)]
 pub(crate) struct QuantAct {
     /// Per activation block `b`, the scale `S_b`.
     scales: Vec<i64>,
@@ -114,25 +118,27 @@ impl QuantAct {
     /// `O(1)` extra space; one checked `i64` multiply per block `b ∈ 0..codes.len().div_ceil(32)`
     /// plus one per element of a block whose bound left `i64`, no allocation.
     pub(crate) fn dequantizes(&self) -> bool {
+        let n_blocks = self.codes.len().div_ceil(ACT_QK);
+        let mut ok = true;
         let mut block = 0usize;
-        while block < self.codes.len().div_ceil(ACT_QK) {
-            let Some(&scale) = self.scales.get(block) else {
-                return false;
-            };
-            if scale.checked_mul(127).is_none() {
-                let base = block * ACT_QK;
-                let end = (base + ACT_QK).min(self.codes.len());
-                let mut lane = base;
-                while lane < end {
-                    if scale.checked_mul(i64::from(self.codes[lane])).is_none() {
-                        return false;
+        while block < n_blocks && ok {
+            if block >= self.scales.len() {
+                ok = false;
+            } else {
+                let scale = self.scales[block];
+                if scale.checked_mul(127).is_none() {
+                    let base = block * ACT_QK;
+                    let end = (base + ACT_QK).min(self.codes.len());
+                    let mut lane = base;
+                    while lane < end && ok {
+                        ok = scale.checked_mul(i64::from(self.codes[lane])).is_some();
+                        lane += 1;
                     }
-                    lane += 1;
                 }
             }
             block += 1;
         }
-        true
+        ok
     }
 
     /// `Σ_j |S_b·xq_j|` in `i128` without materializing `x̂`; the same checked products
@@ -174,11 +180,13 @@ impl QuantAct {
         let mut idx = 0usize;
         let mut ok = true;
         while idx < self.codes.len() && ok {
-            match self.scales.get(idx / ACT_QK) {
-                Some(&scale) => match scale.checked_mul(i64::from(self.codes[idx])) {
-                    Some(value) => out.push(value),
-                    None => ok = false,
-                },
+            let value = if idx / ACT_QK < self.scales.len() {
+                self.scales[idx / ACT_QK].checked_mul(i64::from(self.codes[idx]))
+            } else {
+                None
+            };
+            match value {
+                Some(value) => out.push(value),
                 None => ok = false,
             }
             idx += 1;
@@ -476,6 +484,27 @@ pub(crate) unsafe fn q8_0_row_kcols_avx2(
     Some(())
 }
 
+/// Receiver of the 32-lane groups a [`FastBlockDecoder`] step decodes: `emit(offset, w_scale, w_min,
+/// dot, xsum)` once per group. A named trait, not a closure, so the extraction models the call.
+pub(crate) trait GroupSink {
+    fn emit(&mut self, i: usize, w_scale: i64, w_min: i64, dot: i64, xsum: i32);
+}
+
+/// The row accumulator: `acc += act_scales[base + i] * (w_scale * dot - w_min * xsum)` per group.
+struct RowAcc<'a> {
+    act_scales: &'a [i64],
+    base: usize,
+    acc: i128,
+}
+
+impl GroupSink for RowAcc<'_> {
+    fn emit(&mut self, i: usize, w_scale: i64, w_min: i64, dot: i64, xsum: i32) {
+        let act_scale = self.act_scales[self.base + i];
+        let inner = i128::from(w_scale) * i128::from(dot) - i128::from(w_min) * i128::from(xsum);
+        self.acc += i128::from(act_scale) * inner;
+    }
+}
+
 /// Per-family block decoder for the unified fast row accumulator [`q8act_accumulate_row`].
 pub(crate) trait FastBlockDecoder {
     /// Decode the next step of 32-lane groups using AVX2.
@@ -491,25 +520,25 @@ pub(crate) trait FastBlockDecoder {
     ///
     /// The caller guarantees AVX2 is available, `g < total_groups`, and slice bounds hold.
     #[cfg(target_arch = "x86_64")]
-    unsafe fn decode_step_avx2<F: FnMut(usize, i64, i64, i64, i32)>(
+    unsafe fn decode_step_avx2<S: GroupSink>(
         row: &[u8],
         g: usize,
         total_groups: usize,
         codes: &[i8],
         xsums: &[i32],
-        emit: F,
+        emit: &mut S,
     ) -> Option<usize>;
 
     /// Decode the next step of 32-lane groups using portable scalar logic.
     ///
     /// Invokes `emit(offset, w_scale, w_min, dot, xsum)` for each group in the step.
-    fn decode_step_portable<F: FnMut(usize, i64, i64, i64, i32)>(
+    fn decode_step_portable<S: GroupSink>(
         row: &[u8],
         g: usize,
         total_groups: usize,
         codes: &[i8],
         xsums: &[i32],
-        emit: F,
+        emit: &mut S,
     ) -> Option<usize>;
 }
 
@@ -523,13 +552,13 @@ impl FastBlockDecoder for Q8_0Decoder {
         clippy::many_single_char_names,
         reason = "quantization math uses standard GGML/llama.cpp single-letter names"
     )]
-    unsafe fn decode_step_avx2<F: FnMut(usize, i64, i64, i64, i32)>(
+    unsafe fn decode_step_avx2<S: GroupSink>(
         row: &[u8],
         g: usize,
         total_groups: usize,
         codes: &[i8],
         _xsums: &[i32],
-        mut emit: F,
+        emit: &mut S,
     ) -> Option<usize> {
         let off = g * Q8_0_BLOCK_BYTES;
         if g + 4 <= total_groups {
@@ -549,10 +578,10 @@ impl FastBlockDecoder for Q8_0Decoder {
                     codes.as_ptr().add(g * ACT_QK),
                 )
             };
-            emit(0, d0, 0, i64::from(dots[0]), 0);
-            emit(1, d1, 0, i64::from(dots[1]), 0);
-            emit(2, d2, 0, i64::from(dots[2]), 0);
-            emit(3, d3, 0, i64::from(dots[3]), 0);
+            emit.emit(0, d0, 0, i64::from(dots[0]), 0);
+            emit.emit(1, d1, 0, i64::from(dots[1]), 0);
+            emit.emit(2, d2, 0, i64::from(dots[2]), 0);
+            emit.emit(3, d3, 0, i64::from(dots[3]), 0);
             Some(4)
         } else {
             // SAFETY: `off + 2 <= row.len()` by the caller's length check.
@@ -561,7 +590,7 @@ impl FastBlockDecoder for Q8_0Decoder {
             let dot = unsafe {
                 x86::dot32_ptr(row.as_ptr().add(off + 2), codes.as_ptr().add(g * ACT_QK))
             };
-            emit(0, d, 0, i64::from(dot), 0);
+            emit.emit(0, d, 0, i64::from(dot), 0);
             Some(1)
         }
     }
@@ -571,13 +600,13 @@ impl FastBlockDecoder for Q8_0Decoder {
         clippy::many_single_char_names,
         reason = "quantization math uses standard GGML/llama.cpp single-letter names"
     )]
-    fn decode_step_portable<F: FnMut(usize, i64, i64, i64, i32)>(
+    fn decode_step_portable<S: GroupSink>(
         row: &[u8],
         g: usize,
         _total_groups: usize,
         codes: &[i8],
         _xsums: &[i32],
-        mut emit: F,
+        emit: &mut S,
     ) -> Option<usize> {
         let off = g * Q8_0_BLOCK_BYTES;
         let bits = u16::from_le_bytes([row[off], row[off + 1]]);
@@ -585,7 +614,7 @@ impl FastBlockDecoder for Q8_0Decoder {
         let code_window = &row[off + 2..off + 2 + Q8_0_QK];
         let xbase = g * ACT_QK;
         let dot = portable_u8_i8_dot(code_window, &codes[xbase..xbase + ACT_QK]);
-        emit(0, d, 0, i64::from(dot), 0);
+        emit.emit(0, d, 0, i64::from(dot), 0);
         Some(1)
     }
 }
@@ -600,13 +629,13 @@ impl FastBlockDecoder for Q5_0Decoder {
         clippy::many_single_char_names,
         reason = "quantization math uses standard GGML/llama.cpp single-letter names"
     )]
-    unsafe fn decode_step_avx2<F: FnMut(usize, i64, i64, i64, i32)>(
+    unsafe fn decode_step_avx2<S: GroupSink>(
         row: &[u8],
         g: usize,
         total_groups: usize,
         codes: &[i8],
         _xsums: &[i32],
-        mut emit: F,
+        emit: &mut S,
     ) -> Option<usize> {
         let off = g * Q5_0_BLOCK_BYTES;
         if g + 4 <= total_groups {
@@ -628,10 +657,10 @@ impl FastBlockDecoder for Q5_0Decoder {
                     codes.as_ptr().add(g * ACT_QK),
                 )
             };
-            emit(0, d0, 0, i64::from(dots[0]), 0);
-            emit(1, d1, 0, i64::from(dots[1]), 0);
-            emit(2, d2, 0, i64::from(dots[2]), 0);
-            emit(3, d3, 0, i64::from(dots[3]), 0);
+            emit.emit(0, d0, 0, i64::from(dots[0]), 0);
+            emit.emit(1, d1, 0, i64::from(dots[1]), 0);
+            emit.emit(2, d2, 0, i64::from(dots[2]), 0);
+            emit.emit(3, d3, 0, i64::from(dots[3]), 0);
             Some(4)
         } else {
             // SAFETY: `off + 2 <= row.len()` by the caller's length check.
@@ -644,7 +673,7 @@ impl FastBlockDecoder for Q5_0Decoder {
                     codes.as_ptr().add(g * ACT_QK),
                 )
             };
-            emit(0, d, 0, i64::from(dot), 0);
+            emit.emit(0, d, 0, i64::from(dot), 0);
             Some(1)
         }
     }
@@ -654,13 +683,13 @@ impl FastBlockDecoder for Q5_0Decoder {
         clippy::many_single_char_names,
         reason = "quantization math uses standard GGML/llama.cpp single-letter names"
     )]
-    fn decode_step_portable<F: FnMut(usize, i64, i64, i64, i32)>(
+    fn decode_step_portable<S: GroupSink>(
         row: &[u8],
         g: usize,
         _total_groups: usize,
         codes: &[i8],
         _xsums: &[i32],
-        mut emit: F,
+        emit: &mut S,
     ) -> Option<usize> {
         let off = g * Q5_0_BLOCK_BYTES;
         let bits = u16::from_le_bytes([row[off], row[off + 1]]);
@@ -669,7 +698,7 @@ impl FastBlockDecoder for Q5_0Decoder {
         let qs = &row[off + 6..off + 6 + Q5_0_QK / 2];
         let xbase = g * ACT_QK;
         let dot = portable_q5_0_dot(qh, qs, &codes[xbase..xbase + ACT_QK]);
-        emit(0, d, 0, i64::from(dot), 0);
+        emit.emit(0, d, 0, i64::from(dot), 0);
         Some(1)
     }
 }
@@ -688,13 +717,13 @@ impl FastBlockDecoder for Q4_KDecoder {
         clippy::many_single_char_names,
         reason = "quantization math uses standard GGML/llama.cpp single-letter names"
     )]
-    unsafe fn decode_step_avx2<F: FnMut(usize, i64, i64, i64, i32)>(
+    unsafe fn decode_step_avx2<S: GroupSink>(
         row: &[u8],
         g: usize,
         total_groups: usize,
         codes: &[i8],
         xsums: &[i32],
-        mut emit: F,
+        emit: &mut S,
     ) -> Option<usize> {
         let pp = g / 2;
         let b = pp / 4;
@@ -721,8 +750,8 @@ impl FastBlockDecoder for Q4_KDecoder {
                 let intercept_hi = dmin * i64::from(mh);
                 let x_lo = *xsums.get_unchecked(g + 2 * c);
                 let x_hi = *xsums.get_unchecked(g + 2 * c + 1);
-                emit(2 * c, slope_lo, intercept_lo, i64::from(dots[2 * c]), x_lo);
-                emit(
+                emit.emit(2 * c, slope_lo, intercept_lo, i64::from(dots[2 * c]), x_lo);
+                emit.emit(
                     2 * c + 1,
                     slope_hi,
                     intercept_hi,
@@ -755,8 +784,8 @@ impl FastBlockDecoder for Q4_KDecoder {
             };
             let x_lo = *xsums.get_unchecked(g);
             let x_hi = *xsums.get_unchecked(g + 1);
-            emit(0, slope_lo, intercept_lo, i64::from(dot_lo), x_lo);
-            emit(1, slope_hi, intercept_hi, i64::from(dot_hi), x_hi);
+            emit.emit(0, slope_lo, intercept_lo, i64::from(dot_lo), x_lo);
+            emit.emit(1, slope_hi, intercept_hi, i64::from(dot_hi), x_hi);
             Some(2)
         }
     }
@@ -766,13 +795,13 @@ impl FastBlockDecoder for Q4_KDecoder {
         clippy::many_single_char_names,
         reason = "quantization math uses standard GGML/llama.cpp single-letter names"
     )]
-    fn decode_step_portable<F: FnMut(usize, i64, i64, i64, i32)>(
+    fn decode_step_portable<S: GroupSink>(
         row: &[u8],
         g: usize,
         _total_groups: usize,
         codes: &[i8],
         xsums: &[i32],
-        mut emit: F,
+        emit: &mut S,
     ) -> Option<usize> {
         let pp = g / 2;
         let b = pp / 4;
@@ -794,8 +823,8 @@ impl FastBlockDecoder for Q4_KDecoder {
             &codes[g * ACT_QK..(g + 1) * ACT_QK],
             &codes[(g + 1) * ACT_QK..(g + 2) * ACT_QK],
         );
-        emit(0, slope_lo, intercept_lo, i64::from(dot_lo), xsums[g]);
-        emit(1, slope_hi, intercept_hi, i64::from(dot_hi), xsums[g + 1]);
+        emit.emit(0, slope_lo, intercept_lo, i64::from(dot_lo), xsums[g]);
+        emit.emit(1, slope_hi, intercept_hi, i64::from(dot_hi), xsums[g + 1]);
         Some(2)
     }
 }
@@ -814,13 +843,13 @@ impl FastBlockDecoder for Q6_KDecoder {
         clippy::many_single_char_names,
         reason = "quantization math uses standard GGML/llama.cpp single-letter names"
     )]
-    unsafe fn decode_step_avx2<F: FnMut(usize, i64, i64, i64, i32)>(
+    unsafe fn decode_step_avx2<S: GroupSink>(
         row: &[u8],
         g: usize,
         _total_groups: usize,
         codes: &[i8],
         _xsums: &[i32],
-        mut emit: F,
+        emit: &mut S,
     ) -> Option<usize> {
         let b = g / 8;
         let off = b * Q6_K_BLOCK_BYTES;
@@ -843,7 +872,7 @@ impl FastBlockDecoder for Q6_KDecoder {
                 let sclo = i64::from(unsafe { *base.add(192 + 8 * n + 2 * c) }.cast_signed());
                 let schi = i64::from(unsafe { *base.add(192 + 8 * n + 2 * c + 1) }.cast_signed());
                 let group_dot = sclo * i64::from(dots[2 * c]) + schi * i64::from(dots[2 * c + 1]);
-                emit(4 * n + c, d, 0, group_dot, 0);
+                emit.emit(4 * n + c, d, 0, group_dot, 0);
                 c += 1;
             }
             n += 1;
@@ -856,13 +885,13 @@ impl FastBlockDecoder for Q6_KDecoder {
         clippy::many_single_char_names,
         reason = "quantization math uses standard GGML/llama.cpp single-letter names"
     )]
-    fn decode_step_portable<F: FnMut(usize, i64, i64, i64, i32)>(
+    fn decode_step_portable<S: GroupSink>(
         row: &[u8],
         g: usize,
         _total_groups: usize,
         codes: &[i8],
         _xsums: &[i32],
-        mut emit: F,
+        emit: &mut S,
     ) -> Option<usize> {
         let b = g / 8;
         let off = b * Q6_K_BLOCK_BYTES;
@@ -893,7 +922,7 @@ impl FastBlockDecoder for Q6_KDecoder {
                 l += 1;
             }
             let group_dot = sclo * dot0 + schi * dot1;
-            emit(c, d, 0, group_dot, 0);
+            emit.emit(c, d, 0, group_dot, 0);
             c += 1;
         }
         Some(8)
@@ -938,27 +967,18 @@ pub(crate) unsafe fn q8act_accumulate_row_avx2<D: FastBlockDecoder>(
     xsums: &[i32],
 ) -> Option<i128> {
     let total_groups = cols / ACT_QK;
-    let mut acc: i128 = 0;
+    let mut sink = RowAcc {
+        act_scales,
+        base: 0,
+        acc: 0,
+    };
     let mut g = 0usize;
     while g < total_groups {
-        let step = unsafe {
-            D::decode_step_avx2(
-                row,
-                g,
-                total_groups,
-                codes,
-                xsums,
-                |i, w_scale, w_min, dot, xsum| {
-                    let act_scale = *act_scales.get_unchecked(g + i);
-                    let inner = i128::from(w_scale) * i128::from(dot)
-                        - i128::from(w_min) * i128::from(xsum);
-                    acc += i128::from(act_scale) * inner;
-                },
-            )?
-        };
+        sink.base = g;
+        let step = unsafe { D::decode_step_avx2(row, g, total_groups, codes, xsums, &mut sink)? };
         g += step;
     }
-    Some(acc)
+    Some(sink.acc)
 }
 
 /// Portable accumulator loop over 32-lane groups in per-group order.
@@ -970,25 +990,18 @@ pub(crate) fn q8act_accumulate_row_portable<D: FastBlockDecoder>(
     xsums: &[i32],
 ) -> Option<i128> {
     let total_groups = cols / ACT_QK;
-    let mut acc: i128 = 0;
+    let mut sink = RowAcc {
+        act_scales,
+        base: 0,
+        acc: 0,
+    };
     let mut g = 0usize;
     while g < total_groups {
-        let step = D::decode_step_portable(
-            row,
-            g,
-            total_groups,
-            codes,
-            xsums,
-            |i, w_scale, w_min, dot, xsum| {
-                let act_scale = act_scales[g + i];
-                let inner =
-                    i128::from(w_scale) * i128::from(dot) - i128::from(w_min) * i128::from(xsum);
-                acc += i128::from(act_scale) * inner;
-            },
-        )?;
+        sink.base = g;
+        let step = D::decode_step_portable(row, g, total_groups, codes, xsums, &mut sink)?;
         g += step;
     }
-    Some(acc)
+    Some(sink.acc)
 }
 
 /// AVX2 `Q5_0` fast row.
@@ -1705,6 +1718,32 @@ pub(crate) fn q8act_plan(ggml_type: u32, n_in: usize, q: &QuantAct) -> Q8ActPlan
     })
 }
 
+/// Two tiled rows' exact pre-rounding accumulators, or the one refusal the single-row path also
+/// reports: a non-finite weight scale in one of the two rows.
+#[cfg(target_arch = "x86_64")]
+enum Tiled2 {
+    /// Row `r`'s per-block fold, before the caller's single `round_shift_32`.
+    Accs([i128; 2]),
+    /// A non-finite weight scale: the caller falls the whole payload back to the reference.
+    NonFinite,
+}
+
+/// `round_shift_32(acc)` when it fits `i64`, `None` otherwise.
+#[inline]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "the `rounded as i64` narrowing is immediately preceded by an explicit \
+              `i64::MIN`/`i64::MAX` range check, as in `matvec_q8act`"
+)]
+fn round_to_i64(acc: i128) -> Option<i64> {
+    let rounded = round_shift_32(acc);
+    if rounded > i128::from(i64::MAX) || rounded < i128::from(i64::MIN) {
+        None
+    } else {
+        Some(rounded as i64)
+    }
+}
+
 /// The exact row kernels over `n_out` whole rows of `raw` with a plan shared by the call's chunks.
 ///
 /// `row_bytes` is the row stride and `need` the `n_out·row_bytes` extent the caller validated. The
@@ -1723,11 +1762,9 @@ pub(crate) fn q8act_plan(ggml_type: u32, n_in: usize, q: &QuantAct) -> Q8ActPlan
 /// `O(n_out·n_in)` time in exact integer multiply-adds; `O(n_out)` output.
 #[allow(
     clippy::too_many_arguments,
-    clippy::cast_possible_truncation,
     reason = "the call's geometry (`ggml_type`, `raw`, `n_out`, `n_in`, `row_bytes`, `need`) and the \
               shared plan are the kernel's full input; bundling them would hide which extent is \
-              read. The one `rounded as i64` narrowing is immediately preceded by an explicit \
-              `i64::MIN`/`i64::MAX` range check, as in `matvec_q8act`"
+              read"
 )]
 pub(crate) fn q8act_rows(
     ggml_type: u32,
@@ -1744,39 +1781,38 @@ pub(crate) fn q8act_rows(
     let mut ok = true;
     let mut fallback = false;
     while o < n_out && ok && !fallback {
-        // Cross-row tiling: two or four rows share each weight block's activation code vector and
-        // its per-block `S_b`. Every row keeps its own fold order and its own single rounding, so
-        // the pushed values are the single-row kernels' bit for bit.
+        // Cross-row tiling: two rows share each weight block's activation code vector and its
+        // per-block `S_b`. Every row keeps its own fold order and its own single rounding, so the
+        // pushed values are the single-row kernels' bit for bit.
         #[cfg(target_arch = "x86_64")]
         if plan.fast && plan.fast_avx && o + 2 <= n_out && o * row_bytes <= raw.len() {
             let base = o * row_bytes;
-            // SAFETY: `plan.fast_avx` means AVX2 is present; `try_tiled` bounds every read by the
-            // remaining rows and the bytes available from `base`, and returns `None` otherwise.
-            let tiled = unsafe {
-                x86::try_tiled(
+            if raw.len() - base >= 2 * row_bytes {
+                if let Some(tiled) = x86::tiled2(
                     ggml_type,
-                    raw.as_ptr().add(base),
+                    &raw[base..],
                     row_bytes,
                     n_in,
-                    n_out - o,
-                    raw.len() - base,
-                    &mut out,
-                    &mut ok,
-                    q.codes.as_ptr(),
-                    q.scales.as_ptr(),
-                    plan.xsums.as_ptr(),
-                )
-            };
-            match tiled {
-                x86::TileOutcome::Pushed(rows) => {
-                    o += rows;
+                    &q.codes,
+                    &q.scales,
+                    &plan.xsums,
+                ) {
+                    match tiled {
+                        Tiled2::Accs(accs) => {
+                            match round_to_i64(accs[0]) {
+                                Some(v) => out.push(v),
+                                None => ok = false,
+                            }
+                            match round_to_i64(accs[1]) {
+                                Some(v) => out.push(v),
+                                None => ok = false,
+                            }
+                            o += 2;
+                        }
+                        Tiled2::NonFinite => fallback = true,
+                    }
                     continue;
                 }
-                x86::TileOutcome::NonFinite => {
-                    fallback = true;
-                    continue;
-                }
-                x86::TileOutcome::Unsupported => {}
             }
         }
         let start = o * row_bytes;
@@ -1792,14 +1828,10 @@ pub(crate) fn q8act_rows(
             q8act_row(ggml_type, row, n_in, q, plan.xabs)
         };
         match row_acc {
-            Some(acc) => {
-                let rounded = round_shift_32(acc);
-                if rounded > i128::from(i64::MAX) || rounded < i128::from(i64::MIN) {
-                    ok = false;
-                } else {
-                    out.push(rounded as i64);
-                }
-            }
+            Some(acc) => match round_to_i64(acc) {
+                Some(v) => out.push(v),
+                None => ok = false,
+            },
             None => fallback = true,
         }
         o += 1;

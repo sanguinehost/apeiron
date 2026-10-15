@@ -4,7 +4,7 @@
 //!   [`fixed_sigmoid`](crate::numeric::fixed_ln::fixed_sigmoid) is the oracle: `sigmoid_lanes`
 //!   returns its word for every `i64` input tested (edges, random magnitudes, and a dense sweep of
 //!   `[-18, 18] * ONE` at stride 97 in the tests), with the
-//!   `i128` division replaced by an `f64` quotient estimate corrected against the exact `u64`
+//!   `i128` division replaced by an exact `u128` quotient and a remainder check in `u64`
 //!   remainder and the sign branches of the `i128` rounding shifts made branch-free.
 //! - [`rotate_pair_prefixes`]: `RoPE` on the rotary prefix of every head of a query and a key at
 //!   one position. The rotation angle depends on `(pos, j)` only, so the `fixed_sin_cos` of each
@@ -55,19 +55,42 @@ pub(crate) static REM_NEG_COUNT: std::sync::atomic::AtomicU64 =
 pub(crate) static REM_POS_COUNT: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
+/// `floor(n_wide / den)` saturated to `u64`: the quotient estimate of `sigmoid_lanes`.
+///
+/// # Complexity
+///
+/// `O(1)`: one `u128 / u64` division (the quotient is below `2^33`, `den >= 2^32`).
+#[inline(always)]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "the quotient is checked against u64::MAX on the line above the cast"
+)]
+fn recip_est(n_wide: u128, den: u64) -> u64 {
+    if den == 0 {
+        u64::MAX
+    } else {
+        let qq = n_wide / u128::from(den);
+        if qq > u128::from(u64::MAX) {
+            u64::MAX
+        } else {
+            qq as u64
+        }
+    }
+}
+
 /// The Q32.32 sigmoid words of `L` inputs, each equal to `fixed_sigmoid(x).unwrap()`.
 ///
 /// With `e = exp(-|x|)` (`0` below `-16 * ONE`) and `den = ONE + e`, the oracle's word is
 /// `round(N / den)` for `N = 2^64` (`x >= 0`) or `e * 2^32` (`x < 0`), ties up, clamped to
-/// `[0, ONE]`. The quotient is estimated in `f64` (`N / den < 2^32.1`, so the estimate is within
-/// one of `floor((N + den/2) / den)`) and corrected by the signed remainder, computed modulo `2^64`
+/// `[0, ONE]`. The quotient is `floor(N / den)` computed exactly in integers (`N / den < 2^32.1`), then
+/// corrected by the signed remainder, computed modulo `2^64`
 /// where the true remainder lies in `[-den, 2 * den)` with `den <= 2^33`. The stages run lane by
 /// lane so the `L` independent dependency chains (the Horner recurrence is 7 serial multiplies)
 /// sit adjacent in the instruction stream.
 ///
 /// # Complexity
 ///
-/// `O(L)`: per lane one range reduction, 7 Horner steps and one `f64` division; `O(L)` stack.
+/// `O(L)`: per lane one range reduction, 7 Horner steps and one `u128` division; `O(L)` stack.
 #[inline(always)]
 #[allow(
     clippy::cast_possible_truncation,
@@ -117,7 +140,7 @@ fn sigmoid_lanes<const L: usize>(x: [i64; L]) -> [i64; L] {
         let hi: u64 = if neg[l] { e as u64 } else { 1 << 32 };
         let n_wide = (u128::from(hi) << 32) + u128::from(half);
         let n_low = (hi << 32).wrapping_add(half);
-        let est = (n_wide as f64 / den as f64) as u64;
+        let est = recip_est(n_wide, den);
         let rem = n_low.wrapping_sub(est.wrapping_mul(den)) as i64;
         let q = if rem < 0 {
             #[cfg(test)]
@@ -142,23 +165,42 @@ fn sigmoid_lanes<const L: usize>(x: [i64; L]) -> [i64; L] {
 /// # Complexity
 ///
 /// `O(att.len())` time, no allocation.
+#[allow(
+    clippy::many_single_char_names,
+    reason = "the lane, tail and error bindings of the chunked loop are the gate's own names"
+)]
 pub(crate) fn sigmoid_gate(att: &mut [i64], gate: &[i64]) -> Result<(), StepError> {
     if att.len() != gate.len() {
-        return Err(StepError::BadConfig("gate width"));
+        return Err(StepError::BadConfig(String::from("gate width")));
     }
-    let mut a_chunks = att.chunks_exact_mut(LANES);
-    let g_chunks = gate.chunks_exact(LANES);
-    let g_tail = g_chunks.remainder();
-    for (a, g) in (&mut a_chunks).zip(g_chunks) {
+    let n = att.len();
+    let full = n / LANES * LANES;
+    let mut err: Option<StepError> = None;
+    let mut base = 0usize;
+    while base < full && err.is_none() {
         let mut x = [0i64; LANES];
-        x.copy_from_slice(g);
+        x.copy_from_slice(&gate[base..base + LANES]);
         let s = sigmoid_lanes::<LANES>(x);
-        for l in 0..LANES {
-            a[l] = gate_product(a[l], s[l])?;
+        let mut l = 0usize;
+        while l < LANES && err.is_none() {
+            match gate_product(att[base + l], s[l]) {
+                Ok(v) => att[base + l] = v,
+                Err(e) => err = Some(e),
+            }
+            l += 1;
         }
+        base += LANES;
     }
-    for (a, &g) in a_chunks.into_remainder().iter_mut().zip(g_tail) {
-        *a = gate_product(*a, sigmoid_lanes::<1>([g])[0])?;
+    let mut t = full;
+    while t < n && err.is_none() {
+        match gate_product(att[t], sigmoid_lanes::<1>([gate[t]])[0]) {
+            Ok(v) => att[t] = v,
+            Err(e) => err = Some(e),
+        }
+        t += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(())
 }
@@ -193,52 +235,73 @@ const MAX_PAIRS: usize = 128;
     reason = "the phase is the exact product modulo 2^64, as in `RopeTable::rotate_head`"
 )]
 pub(crate) fn rotate_pair_prefixes(
-    rope: &RopeTable,
+    rt: &RopeTable,
     query: &mut [i64],
     key: &mut [i64],
     hd: usize,
     pos: u32,
 ) -> Result<(), StepError> {
-    let rot = rope.head_dim();
+    let rot = rt.head_dim();
     let d2 = rot / 2;
     if d2 > MAX_PAIRS {
-        super::rotate_head_prefixes(rope, query, hd, pos)?;
-        return super::rotate_head_prefixes(rope, key, hd, pos);
+        super::rotate_head_prefixes(rt, query, hd, pos)?;
+        return super::rotate_head_prefixes(rt, key, hd, pos);
     }
     let mut table: Option<[(i64, i64); MAX_PAIRS]> = None;
-    for x in [query, key] {
+    let mut err: Option<StepError> = None;
+    let mut which = 0usize;
+    while which < 2 && err.is_none() {
+        let x: &mut [i64] = if which == 0 { &mut *query } else { &mut *key };
         if hd == 0 || rot > hd || !x.len().is_multiple_of(hd) {
-            return Err(StepError::Rope(super::RopeError::VectorLength));
+            err = Some(StepError::Rope(super::RopeError::VectorLength));
         }
         let mut base = 0usize;
-        while base < x.len() {
+        while base < x.len() && err.is_none() {
             if table.is_none() {
                 let mut t = [(0i64, 0i64); MAX_PAIRS];
-                for (j, slot) in t.iter_mut().enumerate().take(d2) {
-                    let phase = (u128::from(rope.turns()[j]) * u128::from(pos)) as u64;
-                    let sc = fixed_sin_cos(turn_to_radians(phase))
-                        .map_err(|_| StepError::Rope(super::RopeError::OutOfRange))?;
-                    *slot = (sc.sin, sc.cos);
+                let mut j = 0usize;
+                while j < d2 && err.is_none() {
+                    let phase = (u128::from(rt.turns()[j]) * u128::from(pos)) as u64;
+                    match fixed_sin_cos(turn_to_radians(phase)) {
+                        Ok(sc) => t[j] = (sc.sin, sc.cos),
+                        Err(_) => err = Some(StepError::Rope(super::RopeError::OutOfRange)),
+                    }
+                    j += 1;
                 }
-                table = Some(t);
+                if err.is_none() {
+                    table = Some(t);
+                }
             }
-            let Some(t) = table.as_ref() else {
-                return Err(StepError::Rope(super::RopeError::OutOfRange));
-            };
-            let head = &mut x[base..base + rot];
-            for (j, &(sin, cos)) in t.iter().enumerate().take(d2) {
-                let (x0, x1) = (i128::from(head[j]), i128::from(head[j + d2]));
-                let re = x0 * i128::from(cos) - x1 * i128::from(sin);
-                let im = x1 * i128::from(cos) + x0 * i128::from(sin);
-                let (o0, o1) = (super::round_shift_32(re), super::round_shift_32(im));
-                let (Ok(o0), Ok(o1)) = (i64::try_from(o0), i64::try_from(o1)) else {
-                    return Err(StepError::Rope(super::RopeError::OutOfRange));
-                };
-                head[j] = o0;
-                head[j + d2] = o1;
+            if err.is_none() {
+                match table.as_ref() {
+                    None => err = Some(StepError::Rope(super::RopeError::OutOfRange)),
+                    Some(t) => {
+                        let head = &mut x[base..base + rot];
+                        let mut j = 0usize;
+                        while j < d2 && err.is_none() {
+                            let (sin, cos) = t[j];
+                            let (x0, x1) = (i128::from(head[j]), i128::from(head[j + d2]));
+                            let re = x0 * i128::from(cos) - x1 * i128::from(sin);
+                            let im = x1 * i128::from(cos) + x0 * i128::from(sin);
+                            let (o0, o1) = (super::round_shift_32(re), super::round_shift_32(im));
+                            match (i64::try_from(o0), i64::try_from(o1)) {
+                                (Ok(o0), Ok(o1)) => {
+                                    head[j] = o0;
+                                    head[j + d2] = o1;
+                                }
+                                _ => err = Some(StepError::Rope(super::RopeError::OutOfRange)),
+                            }
+                            j += 1;
+                        }
+                    }
+                }
             }
             base += hd;
         }
+        which += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(())
 }
@@ -261,7 +324,9 @@ pub(crate) fn rotate_pair_prefixes(
 )]
 mod tests {
     use super::*;
+    use crate::engine::fp::F64;
     use crate::numeric::fixed_ln::fixed_sigmoid;
+    use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
     fn lcg(s: &mut u64) -> u64 {
         *s = s
@@ -386,7 +451,7 @@ mod tests {
         assert_eq!(got, want);
         assert!(matches!(
             sigmoid_gate(&mut got, &gate[1..]),
-            Err(StepError::BadConfig("gate width"))
+            Err(StepError::BadConfig(_))
         ));
         let mut ext = vec![i64::MAX, i64::MIN, 1, -1];
         let g = vec![i64::MAX, i64::MAX, i64::MIN, 0];
@@ -402,7 +467,7 @@ mod tests {
     fn rotate_pair_prefixes_equals_two_rotate_head_prefixes() {
         let hd = 256usize;
         for rot in [64usize, 256, 8] {
-            let rope = RopeTable::new(1.0e7, rot).unwrap();
+            let rope = RopeTable::new(F64::from_f64(1.0e7), rot).unwrap();
             let mut s = 0xc0de_u64 + rot as u64;
             for (nq, nk, pos) in [
                 (8usize, 2usize, 0u32),
@@ -432,7 +497,7 @@ mod tests {
 
     #[test]
     fn rotate_pair_prefixes_keeps_the_geometry_and_range_refusals() {
-        let rope = RopeTable::new(1.0e7, 64).unwrap();
+        let rope = RopeTable::new(F64::from_f64(1.0e7), 64).unwrap();
         let mut q = vec![0i64; 300];
         let mut k = vec![0i64; 256];
         assert!(matches!(
@@ -459,6 +524,64 @@ mod tests {
         assert_eq!(format!("{want:?}"), format!("{got:?}"));
     }
 
+    /// The first mismatch of one sigmoid slice task, as atomics the pool task stores into.
+    struct FirstMis {
+        x: AtomicI64,
+        got: AtomicI64,
+        want: AtomicI64,
+    }
+
+    /// The shared borrows of the exhaustive sigmoid dispatch.
+    struct SigmoidSliceCtx<'a> {
+        slice_start: i64,
+        slice_end: i64,
+        slice_len: u64,
+        tasks: usize,
+        chunk_mismatches: &'a [AtomicU64],
+        first_mis: &'a [FirstMis],
+    }
+
+    impl crate::engine::chart::task::IndexTask for SigmoidSliceCtx<'_> {
+        fn run(&self, t: usize) {
+            sigmoid_slice_task(self, t);
+        }
+    }
+
+    /// Compares `sigmoid_q32` with `fixed_sigmoid` over task `t`'s share of the slice and records
+    /// the mismatch count and the lowest mismatching word in the task's own slots.
+    fn sigmoid_slice_task(c: &SigmoidSliceCtx<'_>, t: usize) {
+        let (tasks, slice_len) = (c.tasks, c.slice_len);
+        let t_start: i64 = c.slice_start + (t as u128 * slice_len as u128 / tasks as u128) as i64;
+        let t_end: i64 = if t + 1 == tasks {
+            c.slice_end
+        } else {
+            c.slice_start + ((t + 1) as u128 * slice_len as u128 / tasks as u128) as i64
+        };
+
+        let mut local_mismatches = 0u64;
+        let mut local_first = None;
+
+        for x in t_start..t_end {
+            let got = sigmoid_q32(x);
+            let want = fixed_sigmoid(x).expect("total on domain");
+            if got != want {
+                local_mismatches += 1;
+                if local_first.is_none() {
+                    local_first = Some((x, got, want));
+                }
+            }
+        }
+
+        if local_mismatches > 0 {
+            c.chunk_mismatches[t].store(local_mismatches, Ordering::Relaxed);
+            if let Some((x, got, want)) = local_first {
+                c.first_mis[t].x.store(x, Ordering::Relaxed);
+                c.first_mis[t].got.store(got, Ordering::Relaxed);
+                c.first_mis[t].want.store(want, Ordering::Relaxed);
+            }
+        }
+    }
+
     /// Exhaustive equivalence check of `sigmoid_q32(x) == fixed_sigmoid(x)` for every `x` in the
     /// non-saturating set `[-16 * ONE, 16 * ONE]`, split over `Pool::global()`.
     ///
@@ -473,9 +596,6 @@ mod tests {
     #[test]
     #[ignore = "exhaustive equivalence over non-saturating domain [-16*ONE, 16*ONE]: run in release"]
     fn sigmoid_q32_equals_fixed_sigmoid_exhaustive() {
-        use crate::engine::chart::pool::Pool;
-        use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-
         // Reset branch counters for this run
         REM_NEG_COUNT.store(0, Ordering::Relaxed);
         REM_POS_COUNT.store(0, Ordering::Relaxed);
@@ -517,14 +637,7 @@ mod tests {
             "Running slice {slice_idx}/{slice_count} on [{slice_start}, {slice_end}) ({slice_len} words)"
         );
 
-        let pool = Pool::global();
         let tasks = 256usize;
-
-        struct FirstMis {
-            x: AtomicI64,
-            got: AtomicI64,
-            want: AtomicI64,
-        }
 
         let chunk_mismatches: Vec<AtomicU64> = (0..tasks).map(|_| AtomicU64::new(0)).collect();
         let first_mis: Vec<FirstMis> = (0..tasks)
@@ -537,37 +650,15 @@ mod tests {
 
         let t0 = std::time::Instant::now();
 
-        pool.run(tasks, &|t| {
-            let t_start: i64 = slice_start + (t as u128 * slice_len as u128 / tasks as u128) as i64;
-            let t_end: i64 = if t + 1 == tasks {
-                slice_end
-            } else {
-                slice_start + ((t + 1) as u128 * slice_len as u128 / tasks as u128) as i64
-            };
-
-            let mut local_mismatches = 0u64;
-            let mut local_first = None;
-
-            for x in t_start..t_end {
-                let got = sigmoid_q32(x);
-                let want = fixed_sigmoid(x).expect("total on domain");
-                if got != want {
-                    local_mismatches += 1;
-                    if local_first.is_none() {
-                        local_first = Some((x, got, want));
-                    }
-                }
-            }
-
-            if local_mismatches > 0 {
-                chunk_mismatches[t].store(local_mismatches, Ordering::Relaxed);
-                if let Some((x, got, want)) = local_first {
-                    first_mis[t].x.store(x, Ordering::Relaxed);
-                    first_mis[t].got.store(got, Ordering::Relaxed);
-                    first_mis[t].want.store(want, Ordering::Relaxed);
-                }
-            }
-        });
+        let ctx = SigmoidSliceCtx {
+            slice_start,
+            slice_end,
+            slice_len,
+            tasks,
+            chunk_mismatches: &chunk_mismatches,
+            first_mis: &first_mis,
+        };
+        crate::engine::chart::pool::run_global(tasks, &ctx);
 
         let elapsed = t0.elapsed();
         let secs = elapsed.as_secs_f64();
@@ -683,6 +774,94 @@ mod tests {
         println!(
             "gate_product dense sample passed ({} samples)",
             sample_att.len()
+        );
+    }
+
+    /// Control for the exact quotient: the `f64` estimate that `recip_est` replaced, copied from
+    /// the pre-change body.
+    fn old_recip(n_wide: u128, den: u64) -> u64 {
+        (n_wide as f64 / den as f64) as u64
+    }
+
+    /// The lane tail of `sigmoid_lanes` after the estimate, with the estimator as a parameter.
+    /// Returns the output word and whether the negative / positive correction fired.
+    fn lane_tail(
+        k: i64,
+        acc: i64,
+        live: bool,
+        neg: bool,
+        est_of: fn(u128, u64) -> u64,
+    ) -> (i64, bool, bool) {
+        let n = (-k) as u32;
+        let half = (1_i64 << n) >> 1;
+        let e = if live { (acc + half) >> n } else { 0 };
+        let den = (ONE + e) as u64;
+        let half = den >> 1;
+        let hi: u64 = if neg { e as u64 } else { 1 << 32 };
+        let n_wide = (u128::from(hi) << 32) + u128::from(half);
+        let n_low = (hi << 32).wrapping_add(half);
+        let est = est_of(n_wide, den);
+        let rem = n_low.wrapping_sub(est.wrapping_mul(den)) as i64;
+        let (q, under, over) = if rem < 0 {
+            (est - 1, true, false)
+        } else if rem >= den as i64 {
+            (est + 1, false, true)
+        } else {
+            (est, false, false)
+        };
+        (q.min(ONE as u64) as i64, under, over)
+    }
+
+    /// `recip_est` against `old_recip` over 1M lane inputs in the accepted domain (`k` in
+    /// `[-23, 0]`, `e <= ONE`) plus edge inputs. The outputs must be identical, and the exact
+    /// estimate must never trigger the correction.
+    #[test]
+    fn recip_est_exact_matches_f64_estimate_over_lanes() {
+        let mut s = 0xdec0_de_u64;
+        let (mut mismatches, mut old_fix, mut new_neg, mut new_pos, mut cases) =
+            (0u64, 0u64, 0u64, 0u64, 0u64);
+        let mut check = |k: i64, acc: i64, live: bool, neg: bool| {
+            let (o, ou, oo) = lane_tail(k, acc, live, neg, old_recip);
+            let (w, nu, no) = lane_tail(k, acc, live, neg, recip_est);
+            cases += 1;
+            if o != w {
+                mismatches += 1;
+                assert!(
+                    mismatches < 4,
+                    "k={k} acc={acc} live={live} neg={neg}: old {o} new {w}"
+                );
+            }
+            old_fix += u64::from(ou || oo);
+            new_neg += u64::from(nu);
+            new_pos += u64::from(no);
+        };
+        for _ in 0..1_000_000 {
+            let r = lcg(&mut s);
+            let n = (r >> 59) % 24;
+            let live = (r >> 58) & 1 == 1;
+            let neg = (r >> 57) & 1 == 1;
+            let acc = ((lcg(&mut s) >> 1) % (1_u64 << (32 + n))) as i64;
+            check(-(n as i64), acc, live, neg);
+        }
+        for n in 0..24_u32 {
+            let top = (1_i64 << 32) << n;
+            for acc in [0, 1, top - 1, top, top + 1] {
+                for live in [false, true] {
+                    for neg in [false, true] {
+                        check(-i64::from(n), acc, live, neg);
+                    }
+                }
+            }
+        }
+        assert_eq!(mismatches, 0, "estimate outputs differ");
+        assert_eq!(
+            new_neg + new_pos,
+            0,
+            "exact estimate triggered a correction"
+        );
+        eprintln!(
+            "recip_est control: {cases} lane cases, mismatches {mismatches}, \
+             old-estimate corrections {old_fix}, new REM_NEG {new_neg}, new REM_POS {new_pos}"
         );
     }
 }

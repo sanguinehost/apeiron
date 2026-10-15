@@ -143,6 +143,8 @@ impl Part {
     }
 
     /// Rebase to frame `big ≥ self.m`: scale all four sums by `e^{m−big}` (`≤ 1`).
+    ///
+    /// Complexity: time `O(dim)` multiplies, space `O(dim)` words (the rebased numerator).
     fn rebased(&self, big: f64) -> Part {
         if self.m == f64::NEG_INFINITY {
             // empty part: all sums are zero, any frame holds them
@@ -152,8 +154,14 @@ impl Part {
             };
         }
         let f = (self.m - big).exp();
+        let mut n: Vec<f64> = Vec::with_capacity(self.n.len());
+        let mut i = 0usize;
+        while i < self.n.len() {
+            n.push(self.n[i] * f);
+            i += 1;
+        }
         Part {
-            n: self.n.iter().map(|x| x * f).collect(),
+            n,
             z: self.z * f,
             en: self.en * f,
             ez: self.ez * f,
@@ -182,8 +190,15 @@ impl Part {
             return self.clone();
         }
         let (a, b) = (self.rebased(big), other.rebased(big));
+        let len = a.n.len().min(b.n.len());
+        let mut n: Vec<f64> = Vec::with_capacity(len);
+        let mut i = 0usize;
+        while i < len {
+            n.push(a.n[i] + b.n[i]);
+            i += 1;
+        }
         Part {
-            n: a.n.iter().zip(&b.n).map(|(x, y)| x + y).collect(),
+            n,
             z: a.z + b.z,
             en: a.en + b.en,
             ez: a.ez + b.ez,
@@ -217,5 +232,45 @@ pub fn certified_read(parts: &[Part], v: f64) -> Result<(Vec<f64>, f64), CutErro
     if !bound.is_finite() {
         return Err(CutError::NonFiniteBound);
     }
-    Ok((total.n.iter().map(|x| x / total.z).collect(), bound))
+    let mut out: Vec<f64> = Vec::with_capacity(total.n.len());
+    let mut i = 0usize;
+    while i < total.n.len() {
+        out.push(total.n[i] / total.z);
+        i += 1;
+    }
+    Ok((out, bound))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Control for the `merge` numerator loop and the `certified_read` quotient loop: the inline
+    // formula rebases `a` by e^{a.m−big} and `b` by 1, sums, then divides by the total denominator.
+    #[test]
+    fn certified_read_matches_inline_rebased_formula() {
+        let a = Part {
+            n: vec![1.0, 2.0],
+            z: 3.0,
+            en: 0.0,
+            ez: 0.0,
+            m: 0.5,
+        };
+        let b = Part {
+            n: vec![0.25, -1.0],
+            z: 0.75,
+            en: 0.0,
+            ez: 0.0,
+            m: 2.0,
+        };
+        let fa = (a.m - 2.0).exp();
+        let expect_z = a.z * fa + b.z;
+        let expect = vec![
+            (a.n[0] * fa + b.n[0]) / expect_z,
+            (a.n[1] * fa + b.n[1]) / expect_z,
+        ];
+        let (got, bound) = certified_read(&[a, b], 0.0).expect("read");
+        assert_eq!(got, expect);
+        assert_eq!(bound.to_bits(), 0.0f64.to_bits());
+    }
 }

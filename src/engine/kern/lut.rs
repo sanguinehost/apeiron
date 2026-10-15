@@ -21,14 +21,11 @@
               executing path is `matvec_lut_chunked` via `q8act_projection`"
 )]
 
-use crate::engine::chart::ffn::{swiglu_hidden, PreparedRows, ProjSource, ProjSpec, RowKernel};
+use crate::engine::chart::task::{ChunkTask, Task3};
 use crate::engine::chart::QuantAct;
-use crate::engine::ffn::{FfnError, ProjWeights};
-use crate::engine::par::row_chunk_budget;
 use crate::engine::value::round_shift_32;
 use crate::engine::{f16_to_fixed, matvec_fixed, EngineError, MatvecError};
 use crate::format::quant::{self, PQ2_0_BLOCK_BYTES, PQ2_0_QK};
-use std::sync::Arc;
 
 /// Lanes of one activation quantization block (the group of 4 divides 32 evenly).
 const ACT_QK: usize = 32;
@@ -36,8 +33,8 @@ const ACT_QK: usize = 32;
 /// Rows per lookup tile; one `vpshufb` covers exactly this many rows.
 const TILE_ROWS: usize = 32;
 
-/// The row-boundary multiple the tile-aligned LUT rows need: the [`RowKernel`] for `PQ2_0` reports
-/// it as its [`ProjSpec::row_align`], so a dispatch never starts a chunk mid-tile.
+/// The row-boundary multiple the tile-aligned LUT rows need: [`Pq2Lut`] rows report it as the
+/// [`crate::engine::chart::ffn::ProjSpec::row_align`] of their projection, so a dispatch never starts a chunk mid-tile.
 pub(crate) const LUT_ROW_ALIGN: usize = TILE_ROWS;
 
 /// Activation groups per 32-activation sub-block (`ACT_QK / 4`).
@@ -203,6 +200,35 @@ fn build_tables(codes: &[i8]) -> LutTables {
     LutTables { lo, hi, xs }
 }
 
+/// Pool task context for [`build_tables_pooled`]: the codes and the groups per task (FORM-PARALLEL D5).
+struct BuildTablesTask<'a> {
+    codes: &'a [i8],
+    per: usize,
+}
+
+impl Task3<u8, u8, i16, ()> for BuildTablesTask<'_> {
+    fn run(&self, t: usize, lo: &mut [u8], hi: &mut [u8], xs: &mut [i16]) -> Result<(), ()> {
+        build_tables_task(self.codes, self.per, t, lo, hi, xs)
+    }
+}
+
+/// The body of one [`BuildTablesTask`] piece: groups `[t·per, t·per + xs.len())`.
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "the pool task type is Result; the body is infallible"
+)]
+fn build_tables_task(
+    codes: &[i8],
+    per: usize,
+    t: usize,
+    lo: &mut [u8],
+    hi: &mut [u8],
+    xs: &mut [i16],
+) -> Result<(), ()> {
+    build_tables_range(codes, t * per, t * per + xs.len(), lo, hi, xs);
+    Ok(())
+}
+
 /// Groups a pool task must own for [`build_tables_pooled`]'s dispatch to be worth its wake-up;
 /// below this the serial [`build_tables`] runs.
 const PARALLEL_BUILD_GROUPS_PER_TASK: usize = 64;
@@ -218,37 +244,22 @@ fn build_tables_pooled(codes: &[i8]) -> LutTables {
     let mut lo = vec![0u8; n_groups * 16];
     let mut hi = vec![0u8; n_groups * 16];
     let mut xs = vec![0i16; n_groups];
-    let pool = crate::engine::chart::pool::Pool::global();
-    let tasks = (n_groups / PARALLEL_BUILD_GROUPS_PER_TASK).min(pool.width());
+    let tasks =
+        (n_groups / PARALLEL_BUILD_GROUPS_PER_TASK).min(crate::engine::chart::pool::width_global());
     if tasks <= 1 {
         build_tables_range(codes, 0, n_groups, &mut lo, &mut hi, &mut xs);
         return LutTables { lo, hi, xs };
     }
     let per = n_groups.div_ceil(tasks);
-    // The endpoints travel as `usize` because a `*mut u8` is neither `Send` nor `Sync`; the range
-    // split below is what makes the dereferences sound.
-    let lo_base = lo.as_mut_ptr() as usize;
-    let hi_base = hi.as_mut_ptr() as usize;
-    let xs_base = xs.as_mut_ptr() as usize;
-    pool.run(tasks, &|t| {
-        let g0 = t * per;
-        let g1 = (g0 + per).min(n_groups);
-        if g0 >= g1 {
-            return;
-        }
-        // SAFETY: task `t` owns the group range `[t·per, t·per + per)`, and `per = ⌈n_groups /
-        // tasks⌉` makes those ranges a partition of `0..n_groups`; it writes exactly
-        // `lo[16·g0..16·g1]`, `hi[16·g0..16·g1]` and `xs[g0..g1]`, which are disjoint from every
-        // other task's range, and the three `Vec`s outlive the dispatch.
-        let (l, h, x) = unsafe {
-            (
-                std::slice::from_raw_parts_mut((lo_base as *mut u8).add(16 * g0), 16 * (g1 - g0)),
-                std::slice::from_raw_parts_mut((hi_base as *mut u8).add(16 * g0), 16 * (g1 - g0)),
-                std::slice::from_raw_parts_mut((xs_base as *mut i16).add(g0), g1 - g0),
-            )
-        };
-        build_tables_range(codes, g0, g1, l, h, x);
-    });
+    let _: Result<(), ()> = crate::engine::chart::pool::for_chunks3(
+        &mut lo,
+        16 * per,
+        &mut hi,
+        16 * per,
+        &mut xs,
+        per,
+        &BuildTablesTask { codes, per },
+    );
     LutTables { lo, hi, xs }
 }
 
@@ -1151,27 +1162,76 @@ pub(crate) fn matvec_lut_chunked(
     let tables = build_tables(q.codes());
     let fast = lut_i64_bound_ok(q.scales());
     let avx = avx2();
-    let pool = crate::engine::chart::pool::Pool::global();
-    let tasks = chunks.min(2 * pool.width()).min(n_tiles);
+    let tasks = chunks
+        .min(2 * crate::engine::chart::pool::width_global())
+        .min(n_tiles);
     let per_rows = n_tiles.div_ceil(tasks) * TILE_ROWS;
     let mut out: Vec<i64> = vec![0i64; lut.n_out];
-    let first_err: std::sync::Mutex<Option<(usize, MatvecError)>> = std::sync::Mutex::new(None);
-    pool.chunks_mut(&mut out, per_rows, &|c, lo, dst| {
-        if let Err(e) = rows_core(lut, &tables, &q, lo, lo + dst.len(), dst, fast, avx) {
-            let mut slot = first_err
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if slot.as_ref().is_none_or(|(k, _)| c < *k) {
-                *slot = Some((c, e));
-            }
-        }
-    });
-    match first_err
-        .into_inner()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-    {
+    let first_err: crate::engine::chart::pool::FirstErr<usize, MatvecError> =
+        crate::engine::chart::pool::FirstErr::new();
+    crate::engine::chart::pool::chunks_mut_global(
+        &mut out,
+        per_rows,
+        &MatvecChunkTask {
+            lut,
+            tables: &tables,
+            q: &q,
+            first_err: &first_err,
+            fast,
+            avx,
+        },
+    );
+    match first_err.take() {
         Some((_, e)) => Err(e),
         None => Ok(out),
+    }
+}
+
+/// Pool task context for [`matvec_lut_chunked`]'s row split: shared borrows and flags (FORM-PARALLEL D5).
+struct MatvecChunkTask<'a> {
+    lut: &'a Pq2Lut,
+    tables: &'a LutTables,
+    q: &'a QuantAct,
+    first_err: &'a crate::engine::chart::pool::FirstErr<usize, MatvecError>,
+    fast: bool,
+    avx: bool,
+}
+
+impl ChunkTask<i64> for MatvecChunkTask<'_> {
+    fn run(&self, c: usize, lo: usize, dst: &mut [i64]) {
+        matvec_chunk_task(
+            self.lut,
+            self.tables,
+            self.q,
+            self.first_err,
+            self.fast,
+            self.avx,
+            c,
+            lo,
+            dst,
+        );
+    }
+}
+
+/// The body of one [`MatvecChunkTask`] piece: rows `[lo, lo + dst.len())`; a failure is recorded
+/// under the chunk index `c` so the lowest-index error is the one returned.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the lut, its tables, the activation, the error slot, the two kernel flags, and the chunk index, start and piece"
+)]
+fn matvec_chunk_task(
+    lut: &Pq2Lut,
+    tables: &LutTables,
+    q: &QuantAct,
+    first_err: &crate::engine::chart::pool::FirstErr<usize, MatvecError>,
+    fast: bool,
+    avx: bool,
+    c: usize,
+    lo: usize,
+    dst: &mut [i64],
+) {
+    if let Err(e) = rows_core(lut, tables, q, lo, lo + dst.len(), dst, fast, avx) {
+        first_err.record(c, e);
     }
 }
 
@@ -1186,33 +1246,80 @@ pub(crate) fn matvec_lut_rows(
     matvec_lut_rows_with(lut, q, row_lo, row_hi, out, avx2())
 }
 
-/// A cached `PQ2_0` table as a [`RowKernel`], so the chart N-projection dispatch runs its rows
-/// without naming `Pq2Lut`. A chunk start must be a [`LUT_ROW_ALIGN`] boundary.
-impl RowKernel for Pq2Lut {
-    fn prepare<'a>(&'a self, q: &'a QuantAct) -> Result<Option<PreparedRows<'a>>, MatvecError> {
+/// One `PQ2_0` projection's per-dispatch state: the activation's lookup tables and the kernel
+/// flags. [`PreparedLut::rows`] runs [`rows_core`] over it with the table and activation the
+/// caller passes, so the chart N-projection dispatch builds the tables once per call rather than
+/// once per task. It owns its data and borrows nothing.
+pub(crate) struct PreparedLut {
+    tables: LutTables,
+    fast: bool,
+    avx: bool,
+}
+
+impl PreparedLut {
+    /// Write rows `[lo, hi)` of `lut` into `out` (`out.len() == hi - lo`), as [`Pq2Lut::rows`]
+    /// does with the activation's tables already built. `q` is the activation this value was
+    /// prepared from.
+    ///
+    /// # Errors
+    ///
+    /// The refusals of [`rows_core`] for `[lo, hi)`.
+    pub(crate) fn rows(
+        &self,
+        lut: &Pq2Lut,
+        q: &QuantAct,
+        lo: usize,
+        hi: usize,
+        out: &mut [i64],
+    ) -> Result<(), MatvecError> {
+        rows_core(lut, &self.tables, q, lo, hi, out, self.fast, self.avx)
+    }
+}
+
+/// A cached `PQ2_0` table as a row kernel of the chart N-projection dispatch
+/// ([`crate::engine::chart::ffn::ProjSource::Rows`]). A chunk start must be a [`LUT_ROW_ALIGN`]
+/// boundary.
+impl Pq2Lut {
+    /// Build this projection's per-dispatch kernel for `q`, or `None` when the unprepared
+    /// [`Self::rows`] path should be used (an activation with no Q32.32 value, or a call whose exact
+    /// bound needs the reference fallback).
+    pub(crate) fn prepare(&self, q: &QuantAct) -> Option<PreparedLut> {
         // The reference fallback and the no-Q32 refusal keep the per-task [`Self::rows`] path; the
         // tables for the fast path are the call's, so they are built once here — across the pool by
         // [`build_tables_pooled`], off the caller's serial path — not once per task.
         if !q.dequantizes() || !lut_bound_ok(self.n_in, q.scales()) {
-            return Ok(None);
+            return None;
         }
-        let tables = build_tables_pooled(q.codes());
-        let fast = lut_i64_bound_ok(q.scales());
-        let avx = avx2();
-        Ok(Some(Box::new(move |lo, hi, out| {
-            rows_core(self, &tables, q, lo, hi, out, fast, avx)
-        })))
+        Some(PreparedLut {
+            tables: build_tables_pooled(q.codes()),
+            fast: lut_i64_bound_ok(q.scales()),
+            avx: avx2(),
+        })
     }
 
-    fn rows(&self, q: &QuantAct, lo: usize, hi: usize, out: &mut [i64]) -> Result<(), MatvecError> {
+    /// Write rows `[lo, hi)` of this projection into `out` (`out.len() == hi - lo`), reading the
+    /// shared quantized activation `q`. Rows are independent, so the write is a pure function of `q`
+    /// and the weights.
+    ///
+    /// # Errors
+    ///
+    /// This projection's own refusal for `[lo, hi)`.
+    pub(crate) fn rows(
+        &self,
+        q: &QuantAct,
+        lo: usize,
+        hi: usize,
+        out: &mut [i64],
+    ) -> Result<(), MatvecError> {
         matvec_lut_rows(self, q, lo, hi, out)
     }
 }
 
 /// The `PQ2_0`-projection entry point of the `Q8Act` decode path: the cached lookup-table kernel
 /// when `ggml_type` is `PQ2_0`, else [`crate::engine::chart::ffn::matvec_q8act_chunked`]. The
-/// table is cached on the [`Engine`] by tensor name, so the `O(n_out·n_in)` repack runs once per
-/// tensor per load and non-`PQ2_0` families keep the chart kernel. Errors as those two kernels.
+/// table is the [`Engine`](crate::engine::loader::Engine)'s open-time slot of directory index
+/// `idx`, so the `O(n_out·n_in)` repack runs once per tensor per load and non-`PQ2_0` families
+/// keep the chart kernel. Errors as those two kernels.
 #[allow(
     clippy::too_many_arguments,
     reason = "the engine, tensor identity, payload and shape, activation and dispatch width \
@@ -1220,7 +1327,7 @@ impl RowKernel for Pq2Lut {
 )]
 pub(crate) fn q8act_projection(
     engine: &crate::engine::loader::Engine,
-    name: &str,
+    idx: usize,
     ggml_type: u32,
     raw: &[u8],
     n_out: usize,
@@ -1229,97 +1336,10 @@ pub(crate) fn q8act_projection(
     chunks: usize,
 ) -> Result<Vec<i64>, MatvecError> {
     if ggml_type == quant::GGML_TYPE_PQ2_0 {
-        let lut = engine.pq2_lut(name, raw, n_out, n_in)?;
-        return matvec_lut_chunked(&lut, x, chunks);
+        let lut = engine.pq2_lut(idx)?;
+        return matvec_lut_chunked(lut, x, chunks);
     }
     crate::engine::chart::ffn::matvec_q8act_chunked(ggml_type, raw, n_out, n_in, x, chunks)
-}
-
-/// One token of the dense FFN on the `Q8Act` path: the gate/up pair shares one `quant_act(x)` and
-/// one [`crate::engine::chart::ffn::projections_q8act`] dispatch, the singleton projections route
-/// through [`q8act_projection`], and the `SiLU` elementwise pass is
-/// [`crate::engine::chart::ffn::swiglu_hidden`]. `layer` names the tensors for their cached tables;
-/// `gate` is the `SiLU` argument, as in [`crate::engine::ffn::ffn_fixed`]. Errors as
-/// [`crate::engine::chart::ffn::ffn_q8act`].
-pub(crate) fn ffn_q8act(
-    engine: &crate::engine::loader::Engine,
-    layer: usize,
-    gate: ProjWeights<'_>,
-    up: ProjWeights<'_>,
-    down: ProjWeights<'_>,
-    n_ff: usize,
-    x: &[i64],
-) -> Result<Vec<i64>, FfnError> {
-    let n_embd = x.len();
-    if n_ff == 0 || n_embd == 0 {
-        return Err(FfnError::BadGeometry);
-    }
-    // No `PQ2_0` projection among the three: the chart pair dispatch is unchanged, and keeping
-    // that call reachable is also what stops the read-only chart module going dead.
-    if gate.ggml_type != quant::GGML_TYPE_PQ2_0
-        && up.ggml_type != quant::GGML_TYPE_PQ2_0
-        && down.ggml_type != quant::GGML_TYPE_PQ2_0
-    {
-        return crate::engine::chart::ffn::ffn_q8act(gate, up, down, n_ff, x);
-    }
-    // Gate and up share one `quant_act(x)` and one dispatch; a `PQ2_0` side uses its cached table.
-    let gate_lut = if gate.ggml_type == quant::GGML_TYPE_PQ2_0 {
-        Some(engine.pq2_lut(
-            &format!("blk.{layer}.ffn_gate.weight"),
-            gate.raw,
-            n_ff,
-            n_embd,
-        )?)
-    } else {
-        None
-    };
-    let up_lut = if up.ggml_type == quant::GGML_TYPE_PQ2_0 {
-        Some(engine.pq2_lut(&format!("blk.{layer}.ffn_up.weight"), up.raw, n_ff, n_embd)?)
-    } else {
-        None
-    };
-    let specs = [
-        proj_spec(n_ff, gate_lut.as_ref(), gate.ggml_type, gate.raw),
-        proj_spec(n_ff, up_lut.as_ref(), up.ggml_type, up.raw),
-    ];
-    let mut outs =
-        crate::engine::chart::ffn::projections_q8act(n_embd, x, &specs, row_chunk_budget(n_ff))?;
-    let up_vec = outs.pop().expect("two projections");
-    let gate_vec = outs.pop().expect("two projections");
-    let mut h: Vec<i64> = vec![0; n_ff];
-    swiglu_hidden(&gate_vec, &up_vec, &mut h, true)?;
-    Ok(q8act_projection(
-        engine,
-        &format!("blk.{layer}.ffn_down.weight"),
-        down.ggml_type,
-        down.raw,
-        n_embd,
-        n_ff,
-        &h,
-        row_chunk_budget(n_embd),
-    )?)
-}
-
-/// The [`ProjSpec`] of one projection: the tile-aligned LUT row kernel when `lut` is `Some`, else
-/// the chart row core over `raw`.
-fn proj_spec<'a>(
-    n_out: usize,
-    lut: Option<&'a Arc<Pq2Lut>>,
-    t: u32,
-    raw: &'a [u8],
-) -> ProjSpec<'a> {
-    match lut {
-        Some(l) => ProjSpec {
-            n_out,
-            row_align: LUT_ROW_ALIGN,
-            source: ProjSource::Rows(&**l),
-        },
-        None => ProjSpec {
-            n_out,
-            row_align: 1,
-            source: ProjSource::Chart { ggml_type: t, raw },
-        },
-    }
 }
 
 #[cfg(test)]

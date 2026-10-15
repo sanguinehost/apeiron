@@ -137,13 +137,22 @@ fn ffn_fixed_chunks(
     let up_vec = matvec_rows_chunked(up.ggml_type, up.raw, n_ff, n_embd, x, gate_chunks)?;
     let mut h: Vec<i64> = Vec::with_capacity(n_ff);
     let mut i = 0usize;
-    while i < n_ff {
-        let s = silu_fixed(gate_vec[i])?;
-        let prod = i128::from(s)
-            .checked_mul(i128::from(up_vec[i]))
-            .ok_or(FfnError::Overflow)?;
-        h.push(i64::try_from(round_shift_32(prod)).map_err(|_| FfnError::Overflow)?);
+    let mut err: Option<FfnError> = None;
+    while i < n_ff && err.is_none() {
+        match silu_fixed(gate_vec[i]) {
+            Err(failure) => err = Some(failure),
+            Ok(s) => match i128::from(s).checked_mul(i128::from(up_vec[i])) {
+                None => err = Some(FfnError::Overflow),
+                Some(prod) => match i64::try_from(round_shift_32(prod)) {
+                    Ok(val) => h.push(val),
+                    Err(_) => err = Some(FfnError::Overflow),
+                },
+            },
+        }
         i += 1;
+    }
+    if let Some(failure) = err {
+        return Err(failure);
     }
     Ok(matvec_rows_chunked(
         down.ggml_type,

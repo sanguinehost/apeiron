@@ -22,11 +22,54 @@
 
 use super::{add_assign_fixed, rms_with_gain_slice, LayerIndex, Sched, StepError};
 use crate::engine::chart::ffn::{matvec_q8act_quant_chunked, quant_act_pooled};
+use crate::engine::error::{
+    TensorKey, PART_ATTN_NORM, PART_NEXTN_ENORM, PART_NEXTN_HNORM, PART_OUTPUT_NORM,
+    PART_POST_ATTENTION_NORM,
+};
 use crate::engine::kern::matmat::matmat_q8act;
+use crate::engine::loader::opt_slice;
 use crate::engine::mixer::AffineLayer;
 use crate::engine::trace::{self, Phase};
 use crate::engine::{argmax_fixed, Engine, KernelMode, KvState, MatvecError};
 use crate::format::quant;
+
+use crate::engine::chart::QuantAct;
+
+/// Appends `rms_with_gain_slice(gain, x, eps)` to `out`.
+fn rms_gain_push(
+    gain: &[i64],
+    x: &[i64],
+    eps: i64,
+    out: &mut Vec<Vec<i64>>,
+) -> Result<(), StepError> {
+    let v = rms_with_gain_slice(gain, x, eps)?;
+    out.push(v);
+    Ok(())
+}
+
+/// Appends the pooled `Q8Act` quantization of `x`; a fixed-point overflow refuses.
+fn quant_push(x: &[i64], out: &mut Vec<QuantAct>) -> Result<(), StepError> {
+    match quant_act_pooled(x) {
+        Some(q) => {
+            out.push(q);
+            Ok(())
+        }
+        None => Err(StepError::Matvec(MatvecError::Dequant(
+            crate::engine::EngineError::FixedOverflow,
+        ))),
+    }
+}
+
+/// Appends the greedy id of `logits`; a sampler refusal is [`StepError::Sampler`].
+fn argmax_push(logits: &[i64], out: &mut Vec<u32>) -> Result<(), StepError> {
+    match argmax_fixed(logits) {
+        Ok(t) => {
+            out.push(t);
+            Ok(())
+        }
+        Err(e) => Err(StepError::Sampler(e)),
+    }
+}
 
 /// Counts from one speculative decode.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -52,13 +95,66 @@ impl Engine {
     pub fn mtp_state(&self, cap: usize) -> Result<MtpState, StepError> {
         let cfg = &self.config;
         if cfg.n_nextn == 0 {
-            return Err(StepError::BadConfig(
+            return Err(StepError::BadConfig(String::from(
                 "model has no multi-token-prediction block",
-            ));
+            )));
         }
         let kv =
             KvState::new(1, cfg.n_head, cfg.n_head_kv, cfg.head_dim, cap).map_err(StepError::Kv)?;
         Ok(MtpState { kv })
+    }
+
+    /// Appends the embedding of `id` to `out`; a refusal is [`StepError::Embedding`].
+    ///
+    /// A named per-item body: the column loops carry its `Result` as a value.
+    pub(super) fn embed_push(
+        &self,
+        id: u32,
+        sched: Sched,
+        out: &mut Vec<Vec<i64>>,
+    ) -> Result<(), StepError> {
+        match self.embedding_sched(id, sched) {
+            Ok(h) => {
+                out.push(h);
+                Ok(())
+            }
+            Err(e) => Err(StepError::Embedding(e)),
+        }
+    }
+
+    /// Appends `[enorm(embed id) | hnorm(h)]` to `cats` (the MTP input column).
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one MTP input column: token, schedule, both gains, hidden state, eps and the sink"
+    )]
+    fn mtp_cat_push(
+        &self,
+        id: u32,
+        sched: Sched,
+        enorm: &[i64],
+        hnorm: &[i64],
+        h: &[i64],
+        eps: i64,
+        cats: &mut Vec<Vec<i64>>,
+    ) -> Result<(), StepError> {
+        let mut emb = Vec::new();
+        self.embed_push_into(id, sched, &mut emb)?;
+        let mut cat = rms_with_gain_slice(enorm, &emb, eps)?;
+        let tail = rms_with_gain_slice(hnorm, h, eps)?;
+        cat.extend(tail);
+        cats.push(cat);
+        Ok(())
+    }
+
+    /// The embedding of `id`; a refusal is [`StepError::Embedding`].
+    fn embed_push_into(&self, id: u32, sched: Sched, out: &mut Vec<i64>) -> Result<(), StepError> {
+        match self.embedding_sched(id, sched) {
+            Ok(h) => {
+                *out = h;
+                Ok(())
+            }
+            Err(e) => Err(StepError::Embedding(e)),
+        }
     }
 
     /// The MTP block over columns `(tokens[c], hs[c])`, each at the next MTP-cache position:
@@ -69,6 +165,11 @@ impl Engine {
     /// # Complexity
     ///
     /// One block of the trunk plus the `2·n_embd → n_embd` projection, per pass over `k` columns.
+    #[allow(
+        clippy::too_many_lines,
+        clippy::many_single_char_names,
+        reason = "the MTP block in order: enorm, attention, FFN and head norms over one column set"
+    )]
     fn mtp_cols(
         &self,
         li: Option<&LayerIndex>,
@@ -85,56 +186,90 @@ impl Engine {
         let nv = vectors
             .nextn
             .first()
-            .ok_or(StepError::BadConfig("no MTP vectors"))?;
-        let missing = |what: &str| StepError::MissingTensor(format!("blk.{l}.nextn.{what}"));
-        let enorm = nv[0].as_deref().ok_or_else(|| missing("enorm.weight"))?;
-        let hnorm = nv[1].as_deref().ok_or_else(|| missing("hnorm.weight"))?;
+            .ok_or(StepError::BadConfig(String::from("no MTP vectors")))?;
+        let enorm = opt_slice(&nv[0])
+            .ok_or_else(|| StepError::MissingTensor(TensorKey::blk(l, PART_NEXTN_ENORM)))?;
+        let hnorm = opt_slice(&nv[1])
+            .ok_or_else(|| StepError::MissingTensor(TensorKey::blk(l, PART_NEXTN_HNORM)))?;
         let mut cats = Vec::with_capacity(tokens.len());
-        for (&t, h) in tokens.iter().zip(hs) {
-            let e = self
-                .embedding_sched(t, sched)
-                .map_err(StepError::Embedding)?;
-            let mut cat = rms_with_gain_slice(enorm, &e, eps)?;
-            cat.extend(rms_with_gain_slice(hnorm, h, eps)?);
-            cats.push(cat);
+        let mut res: Result<(), StepError> = Ok(());
+        let mut i = 0usize;
+        while i < tokens.len() && i < hs.len() && res.is_ok() {
+            res = self.mtp_cat_push(tokens[i], sched, enorm, hnorm, &hs[i], eps, &mut cats);
+            i += 1;
         }
+        res?;
         let mut x = self.proj_cols(li, l, 12, n_embd, 2 * n_embd, &cats, sched, mode, None)?;
         let norms = vectors
             .norms_of(l)
-            .ok_or(StepError::BadConfig("no MTP block norms"))?;
-        let attn_gain = norms[0]
-            .as_deref()
-            .ok_or_else(|| StepError::MissingTensor(format!("blk.{l}.attn_norm.weight")))?;
+            .ok_or(StepError::BadConfig(String::from("no MTP block norms")))?;
+        let attn_gain = opt_slice(&norms[0])
+            .ok_or_else(|| StepError::MissingTensor(TensorKey::blk(l, PART_ATTN_NORM)))?;
         let mut normed = Vec::with_capacity(x.len());
-        for v in &x {
-            normed.push(rms_with_gain_slice(attn_gain, v, eps)?);
+        let mut res: Result<(), StepError> = Ok(());
+        let mut i = 0usize;
+        while i < x.len() && res.is_ok() {
+            res = rms_gain_push(attn_gain, &x[i], eps, &mut normed);
+            i += 1;
         }
+        res?;
         let mixed = self.softmax_cols(li, l, 0, &mut mtp.kv, &normed, sched, mode, true)?;
-        for (v, m) in x.iter_mut().zip(&mixed) {
-            add_assign_fixed(v, m)?;
+        let mut err: Option<StepError> = None;
+        let mut i = 0usize;
+        while i < x.len() && i < mixed.len() && err.is_none() {
+            if let Err(e) = add_assign_fixed(&mut x[i], &mixed[i]) {
+                err = Some(e);
+            }
+            i += 1;
         }
-        let ffn_gain = norms[1].as_deref().ok_or_else(|| {
-            StepError::MissingTensor(format!("blk.{l}.post_attention_norm.weight"))
-        })?;
+        if let Some(e) = err {
+            return Err(e);
+        }
+        let ffn_gain = opt_slice(&norms[1])
+            .ok_or_else(|| StepError::MissingTensor(TensorKey::blk(l, PART_POST_ATTENTION_NORM)))?;
         let mut h2 = Vec::with_capacity(x.len());
-        for v in &x {
-            h2.push(rms_with_gain_slice(ffn_gain, v, eps)?);
+        let mut err: Option<StepError> = None;
+        let mut i = 0usize;
+        while i < x.len() && err.is_none() {
+            match rms_with_gain_slice(ffn_gain, &x[i], eps) {
+                Ok(v) => h2.push(v),
+                Err(e) => err = Some(e),
+            }
+            i += 1;
+        }
+        if let Some(e) = err {
+            return Err(e);
         }
         let mut scratch = crate::engine::chart::ffn::FfnScratch::default();
         let f = self.ffn_cols(li, l, &h2, sched, mode, &mut scratch)?;
-        for (v, fv) in x.iter_mut().zip(&f) {
-            add_assign_fixed(v, fv)?;
+        let mut err: Option<StepError> = None;
+        let mut i = 0usize;
+        while i < x.len() && i < f.len() && err.is_none() {
+            if let Err(e) = add_assign_fixed(&mut x[i], &f[i]) {
+                err = Some(e);
+            }
+            i += 1;
         }
-        let head_gain = match nv[2].as_deref() {
+        if let Some(e) = err {
+            return Err(e);
+        }
+        let head_gain = match opt_slice(&nv[2]) {
             Some(g) => g,
-            None => vectors
-                .output_norm
-                .as_deref()
-                .ok_or_else(|| StepError::MissingTensor("output_norm.weight".to_string()))?,
+            None => opt_slice(&vectors.output_norm)
+                .ok_or_else(|| StepError::MissingTensor(TensorKey::top(PART_OUTPUT_NORM)))?,
         };
         let mut out = Vec::with_capacity(x.len());
-        for v in &x {
-            out.push(rms_with_gain_slice(head_gain, v, eps)?);
+        let mut err: Option<StepError> = None;
+        let mut i = 0usize;
+        while i < x.len() && err.is_none() {
+            match rms_with_gain_slice(head_gain, &x[i], eps) {
+                Ok(v) => out.push(v),
+                Err(e) => err = Some(e),
+            }
+            i += 1;
+        }
+        if let Some(e) = err {
+            return Err(e);
         }
         Ok(out)
     }
@@ -160,17 +295,18 @@ impl Engine {
             ggml_type: t.ggml_type,
         })?;
         let row_bytes = n_embd.div_ceil(qk) * bb;
-        let raw = self
-            .payload(t.byte_range.start, (rows * row_bytes) as u64)
-            .map_err(StepError::Read)?;
+        let raw = match self.payload(t.byte_range.start, (rows * row_bytes) as u64) {
+            Ok(raw) => raw,
+            Err(e) => return Err(StepError::Read(e)),
+        };
         let mut qs = Vec::with_capacity(xs.len());
-        for x in xs {
-            qs.push(
-                quant_act_pooled(x).ok_or(StepError::Matvec(MatvecError::Dequant(
-                    crate::engine::EngineError::FixedOverflow,
-                )))?,
-            );
+        let mut res: Result<(), StepError> = Ok(());
+        let mut i = 0usize;
+        while i < xs.len() && res.is_ok() {
+            res = quant_push(&xs[i], &mut qs);
+            i += 1;
         }
+        res?;
         let logits = if qs.len() == 1 {
             vec![matvec_q8act_quant_chunked(
                 t.ggml_type,
@@ -185,9 +321,13 @@ impl Engine {
             matmat_q8act(t.ggml_type, raw, rows, n_embd, &qs).map_err(StepError::Matvec)?
         };
         let mut out = Vec::with_capacity(logits.len());
-        for l in &logits {
-            out.push(argmax_fixed(l).map_err(StepError::Sampler)?);
+        let mut res: Result<(), StepError> = Ok(());
+        let mut i = 0usize;
+        while i < logits.len() && res.is_ok() {
+            res = argmax_push(&logits[i], &mut out);
+            i += 1;
         }
+        res?;
         Ok(out)
     }
 
@@ -216,7 +356,7 @@ impl Engine {
         draft_rows: usize,
     ) -> Result<(Vec<u32>, SpecStats), StepError> {
         if prompt.is_empty() {
-            return Err(StepError::BadConfig("empty prompt"));
+            return Err(StepError::BadConfig(String::from("empty prompt")));
         }
         let (sched, mode) = (Sched::Resident, KernelMode::Q8Act);
         let cap = prompt.len() + n + 4;
@@ -230,21 +370,30 @@ impl Engine {
         // Fill the MTP cache for the prompt: position p reads (prompt[p], h_{p−1}), h_{−1} = 0.
         let zero = vec![0i64; self.config.n_embd];
         let mut p = 0usize;
-        while p < prompt.len() {
+        let mut err: Option<StepError> = None;
+        while p < prompt.len() && err.is_none() {
             let end = (p + super::prefill_block()).min(prompt.len());
-            let prev: Vec<Vec<i64>> = (p..end)
-                .map(|q| {
-                    if q == 0 {
-                        zero.clone()
-                    } else {
-                        hs[q - 1].clone()
-                    }
-                })
-                .collect();
-            self.mtp_cols(li, &mut mtp, &prompt[p..end], &prev)?;
-            p = end;
+            let mut prev: Vec<Vec<i64>> = Vec::with_capacity(end.saturating_sub(p));
+            let mut q = p;
+            while q < end {
+                prev.push(if q == 0 {
+                    zero.clone()
+                } else {
+                    hs[q - 1].clone()
+                });
+                q += 1;
+            }
+            match self.mtp_cols(li, &mut mtp, &prompt[p..end], &prev) {
+                Ok(_) => p = end,
+                Err(e) => err = Some(e),
+            }
         }
-        let last = hs.pop().ok_or(StepError::BadConfig("empty prompt"))?;
+        if let Some(e) = err {
+            return Err(e);
+        }
+        let last = hs
+            .pop()
+            .ok_or(StepError::BadConfig(String::from("empty prompt")))?;
         let mut x = self.head_argmax_cols(std::slice::from_ref(&last), vocab)?[0];
         let mut h_prev = last;
         let mut out = vec![x];
@@ -256,6 +405,7 @@ impl Engine {
             .as_ref()
             .map(|a| a.layers().to_vec())
             .unwrap_or_default();
+        let mut err: Option<StepError> = None;
         while out.len() < n {
             stats.rounds += 1;
             // Draft from (x, h_prev); first fill the MTP entry of an accepted draft if one is due.
@@ -265,11 +415,29 @@ impl Engine {
                 }
                 None => (vec![x], vec![h_prev.clone()]),
             };
-            let y = self.mtp_cols(li, &mut mtp, &tokens, &hidden)?;
-            let d = self.head_argmax_cols(&y[y.len() - 1..], draft_rows)?[0];
+            let y = match self.mtp_cols(li, &mut mtp, &tokens, &hidden) {
+                Ok(y) => y,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
+            let d = match self.head_argmax_cols(&y[y.len() - 1..], draft_rows) {
+                Ok(v) => v[0],
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
             // Verify [x, d] in one trunk pass.
-            let pos = st.kv.occupied(0).map_err(StepError::Kv)?;
-            let xf = self.compose_cols(
+            let pos = match st.kv.occupied(0) {
+                Ok(pos) => pos,
+                Err(e) => {
+                    err = Some(StepError::Kv(e));
+                    break;
+                }
+            };
+            let xf = match self.compose_cols(
                 &mut st.kv,
                 st.affine.as_mut(),
                 &[x, d],
@@ -277,10 +445,31 @@ impl Engine {
                 mode,
                 true,
                 Some(&mut snap[..]),
-            )?;
-            let t = self.head_argmax_cols(&xf, vocab)?;
+            ) {
+                Ok(xf) => xf,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
+            let t = match self.head_argmax_cols(&xf, vocab) {
+                Ok(t) => t,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
             let mut xf = xf.into_iter();
-            let xf0 = xf.next().ok_or(StepError::BadConfig("verify column 0"))?;
+            let xf0 = match xf
+                .next()
+                .ok_or(StepError::BadConfig(String::from("verify column 0")))
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
             if t[0] == d {
                 stats.accepted += 1;
                 out.push(d);
@@ -289,21 +478,46 @@ impl Engine {
                 }
                 fill = Some((d, xf0));
                 x = t[1];
-                h_prev = xf.next().ok_or(StepError::BadConfig("verify column 1"))?;
+                h_prev = match xf
+                    .next()
+                    .ok_or(StepError::BadConfig(String::from("verify column 1")))
+                {
+                    Ok(v) => v,
+                    Err(e) => {
+                        err = Some(e);
+                        break;
+                    }
+                };
             } else {
                 out.push(t[0]);
                 let _restore = trace::span(Phase::Restore, 1, 0, 0);
-                st.kv.truncate(pos + 1).map_err(StepError::Kv)?;
+                if let Err(e) = st.kv.truncate(pos + 1) {
+                    err = Some(StepError::Kv(e));
+                    break;
+                }
                 if let Some(aff) = st.affine.as_mut() {
-                    for (i, layer) in snap.iter().enumerate() {
-                        aff.layer_mut(i)
-                            .ok_or(StepError::BadConfig("affine rollback slot"))?
-                            .clone_from(layer);
+                    let mut j = 0usize;
+                    while j < snap.len() && err.is_none() {
+                        match aff.layer_mut(j) {
+                            Some(dst) => dst.clone_from(&snap[j]),
+                            None => {
+                                err = Some(StepError::BadConfig(String::from(
+                                    "affine rollback slot",
+                                )));
+                            }
+                        }
+                        j += 1;
                     }
+                }
+                if err.is_some() {
+                    break;
                 }
                 x = t[0];
                 h_prev = xf0;
             }
+        }
+        if let Some(e) = err {
+            return Err(e);
         }
         out.truncate(n);
         Ok((out, stats))

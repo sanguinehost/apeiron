@@ -6,6 +6,7 @@
 //! window: the signed lift [`turn_to_radians`] maps it into the `fixed_sin_cos` window for every
 //! `u32` position, so the path admits any position the KV cache can hold.
 
+use super::fp::F64;
 use super::value::round_shift_32;
 use crate::numeric::fixed_trig::{fixed_sin_cos, turn_to_radians};
 
@@ -54,33 +55,21 @@ impl RopeTable {
     /// # Complexity
     ///
     /// `O(head_dim)` time and space: one `powf` and one rounding per rotary dimension.
-    #[allow(
-        clippy::cast_precision_loss,
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "the host f64 powf/round boundary is declared; the range check above `as u64` \
-                  keeps the cast in the u64 phase domain, and `j`/`head_dim` are tiny"
-    )]
-    pub fn new(theta: f64, head_dim: usize) -> Result<RopeTable, RopeError> {
+    pub fn new(theta: F64, head_dim: usize) -> Result<RopeTable, RopeError> {
         if head_dim < 2 || !head_dim.is_multiple_of(2) {
             return Err(RopeError::BadHeadDim);
         }
-        if !theta.is_finite() || theta <= 0.0 {
+        if !crate::engine::fp::prim::f64_positive_finite(theta) {
             return Err(RopeError::BadTheta);
         }
         let n = head_dim / 2;
-        let hd = head_dim as f64;
-        let unit = 18_446_744_073_709_551_616.0_f64; // 2^64: one full turn in phases
-        let two_pi = 2.0 * core::f64::consts::PI;
         let mut turns: Vec<u64> = Vec::with_capacity(n);
         let mut j = 0usize;
         while j < n {
-            let exponent = -2.0 * (j as f64) / hd;
-            let q = (theta.powf(exponent) * unit / two_pi).round();
-            if !(q.is_finite() && (0.0..unit).contains(&q)) {
-                return Err(RopeError::OutOfRange);
+            match crate::engine::fp::prim::rope_turn(theta, j, head_dim) {
+                Some(q) => turns.push(q),
+                None => return Err(RopeError::OutOfRange),
             }
-            turns.push(q as u64);
             j += 1;
         }
         Ok(RopeTable { head_dim, turns })

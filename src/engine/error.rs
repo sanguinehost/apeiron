@@ -11,6 +11,126 @@ use crate::engine::f32_convert::F32Error;
 use crate::format::gguf::GgufError;
 use crate::format::quant::QuantError;
 
+/// A tensor of the GGUF directory named by layer and part, the key the decode path looks up with.
+///
+/// `part` indexes [`TENSOR_PART_BYTES`]: parts below [`N_BLK_PARTS`] render as
+/// `blk.{layer}.{part text}`; the rest are top-level tensors and ignore `layer`. A key is `Copy`
+/// and holds no text, so a refusal that names a tensor is built without allocating on the
+/// extracted path; [`core::fmt::Display`] renders the directory name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TensorKey {
+    /// Block (layer) index; ignored for a top-level part.
+    pub layer: u32,
+    /// Index into [`TENSOR_PART_BYTES`].
+    pub part: u8,
+}
+
+/// `blk.{layer}.attn_q.weight` .. `blk.{layer}.nextn.eh_proj.weight` occupy parts `0..N_LAYER_PARTS`
+/// (the order of `LayerIndex`).
+pub const N_LAYER_PARTS: usize = 13;
+/// Parts below this render as `blk.{layer}.{text}`; parts from it are top-level names.
+pub const N_BLK_PARTS: usize = 22;
+/// Number of named tensor parts.
+pub const N_TENSOR_PARTS: usize = 25;
+/// Part: `blk.{layer}.ffn_norm.weight`.
+pub const PART_FFN_NORM: u8 = 13;
+/// Part: `blk.{layer}.attn_norm.weight`.
+pub const PART_ATTN_NORM: u8 = 14;
+/// Part: `blk.{layer}.post_attention_norm.weight`.
+pub const PART_POST_ATTENTION_NORM: u8 = 15;
+/// Part: `blk.{layer}.nextn.enorm.weight`.
+pub const PART_NEXTN_ENORM: u8 = 16;
+/// Part: `blk.{layer}.nextn.hnorm.weight`.
+pub const PART_NEXTN_HNORM: u8 = 17;
+/// Part: `blk.{layer}.ssm_conv1d.weight`.
+pub const PART_SSM_CONV1D: u8 = 18;
+/// Part: `blk.{layer}.ssm_dt.bias`.
+pub const PART_SSM_DT_BIAS: u8 = 19;
+/// Part: `blk.{layer}.ssm_a`.
+pub const PART_SSM_A: u8 = 20;
+/// Part: `blk.{layer}.ssm_norm.weight`.
+pub const PART_SSM_NORM: u8 = 21;
+/// Part: `token_embd.weight`.
+pub const PART_TOKEN_EMBD: u8 = 22;
+/// Part: `output_norm.weight`.
+pub const PART_OUTPUT_NORM: u8 = 23;
+/// Part: `output.weight`.
+pub const PART_OUTPUT: u8 = 24;
+
+/// The text of each part, NUL-padded to 32 bytes; the first [`TENSOR_PART_LEN`] bytes are the text.
+/// A by-value byte-array table, so the extraction needs no `&str`.
+pub const TENSOR_PART_BYTES: [[u8; 32]; N_TENSOR_PARTS] = [
+    *b"attn_q.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", // attn_q.weight
+    *b"attn_k.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", // attn_k.weight
+    *b"attn_v.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", // attn_v.weight
+    *b"attn_output.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0",      // attn_output.weight
+    *b"ffn_gate.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",   // ffn_gate.weight
+    *b"ffn_up.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", // ffn_up.weight
+    *b"ffn_down.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",   // ffn_down.weight
+    *b"attn_qkv.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",   // attn_qkv.weight
+    *b"attn_gate.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",    // attn_gate.weight
+    *b"ssm_beta.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",   // ssm_beta.weight
+    *b"ssm_alpha.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",    // ssm_alpha.weight
+    *b"ssm_out.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",  // ssm_out.weight
+    *b"nextn.eh_proj.weight\0\0\0\0\0\0\0\0\0\0\0\0",        // nextn.eh_proj.weight
+    *b"ffn_norm.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",   // ffn_norm.weight
+    *b"attn_norm.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",    // attn_norm.weight
+    *b"post_attention_norm.weight\0\0\0\0\0\0",              // post_attention_norm.weight
+    *b"nextn.enorm.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0",      // nextn.enorm.weight
+    *b"nextn.hnorm.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0",      // nextn.hnorm.weight
+    *b"ssm_conv1d.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",     // ssm_conv1d.weight
+    *b"ssm_dt.bias\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", // ssm_dt.bias
+    *b"ssm_a\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", // ssm_a
+    *b"ssm_norm.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",   // ssm_norm.weight
+    *b"token_embd.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",     // token_embd.weight
+    *b"output_norm.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0",      // output_norm.weight
+    *b"output.weight\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", // output.weight
+];
+
+/// The byte length of each [`TENSOR_PART_BYTES`] text.
+pub const TENSOR_PART_LEN: [usize; N_TENSOR_PARTS] = [
+    13, 13, 13, 18, 15, 13, 15, 15, 16, 15, 16, 14, 20, 15, 16, 26, 18, 18, 17, 11, 5, 15, 17, 18,
+    13,
+];
+
+impl TensorKey {
+    /// The key of `blk.{layer}` part `part` (an index below [`N_BLK_PARTS`]).
+    #[must_use]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "guarded: a layer past u32::MAX saturates to a key no directory name matches"
+    )]
+    pub fn blk(layer: usize, part: u8) -> Self {
+        let l = if layer > u32::MAX as usize {
+            u32::MAX
+        } else {
+            layer as u32
+        };
+        TensorKey { layer: l, part }
+    }
+
+    /// The key of top-level part `part`.
+    #[must_use]
+    pub fn top(part: u8) -> Self {
+        TensorKey { layer: 0, part }
+    }
+}
+
+impl core::fmt::Display for TensorKey {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let p = usize::from(self.part);
+        let (Some(text), Some(&len)) = (TENSOR_PART_BYTES.get(p), TENSOR_PART_LEN.get(p)) else {
+            return write!(f, "?");
+        };
+        let text = core::str::from_utf8(&text[..len]).unwrap_or("?");
+        if p < N_BLK_PARTS {
+            write!(f, "blk.{}.{text}", self.layer)
+        } else {
+            write!(f, "{text}")
+        }
+    }
+}
+
 /// A refused engine operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineError {
@@ -27,7 +147,7 @@ pub enum EngineError {
     /// A cross-check between two metadata sources failed.
     ConfigMismatch(String),
     /// A named tensor is absent.
-    MissingTensor(String),
+    MissingTensor(TensorKey),
     /// A tensor's directory extent leaves the file.
     TensorOutOfBounds {
         /// Tensor name.
@@ -83,7 +203,7 @@ pub enum EngineError {
         /// Tensor name.
         name: String,
         /// Static description of the refusal.
-        reason: &'static str,
+        reason: String,
     },
 }
 
@@ -152,4 +272,44 @@ impl From<QuantError> for EngineError {
     fn from(e: QuantError) -> Self {
         EngineError::Quant(e)
     }
+}
+
+// Defined here, not in the opaque `trace` module: extracted code constructs it, and Aeneas has no field list for a type of an opaque module.
+/// A traced phase. The leaf phases partition a pass; [`Phase::Pass`] and [`Phase::Mtp`] enclose.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    /// Token embedding lookup and dequantization.
+    Embed,
+    /// RMS norms (pre-mixer, pre-FFN, output).
+    Norm,
+    /// Residual additions.
+    Residual,
+    /// Softmax-layer Q/K/V (and gate) projections.
+    AttnProjIn,
+    /// Bias, gate split, q/k norm, `RoPE`, cache append and the attention heads.
+    AttnCore,
+    /// Softmax-layer output projection.
+    AttnProjOut,
+    /// Affine-layer input projections (qkv, gate, beta, alpha).
+    AffineProjIn,
+    /// Affine-layer causal convolution.
+    AffineConv,
+    /// Affine-layer per-head state updates and reads.
+    AffineHeads,
+    /// Affine-layer output projection.
+    AffineProjOut,
+    /// The `SwiGLU` FFN: quantization, gate, up, hidden, down.
+    Ffn,
+    /// The output head (dense or bit-plane) and its argmax.
+    Head,
+    /// The MTP draft block (encloses its attention and FFN leaf phases).
+    Mtp,
+    /// Speculative rollback: cache truncation and affine restore.
+    Restore,
+    /// One `compose_cols` pass (encloses the leaf phases).
+    Pass,
+    /// Overlay: the dispatching thread's wait for the pool's other participants after finishing
+    /// its own share, one span per dispatch (`calls` counts dispatches, `cols` their tasks). It
+    /// overlaps the leaf phases and is excluded from the partition.
+    PoolWait,
 }

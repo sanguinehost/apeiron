@@ -56,6 +56,17 @@
 //! receives exactly one chunk, so no two tasks alias. The result equals a sequential loop over the
 //! same chunks for every job whose tasks are independent, which is how the projections use it.
 
+mod chunks;
+#[allow(
+    unused_imports,
+    reason = "re-exports for the FORM-PARALLEL L1-L4 call sites"
+)]
+pub(crate) use chunks::{
+    for_chunks, for_chunks2, for_chunks3, for_chunks4, for_pbands, for_vec_chunks, set_written_len,
+    set_written_lens, PBand,
+};
+
+use super::task::{ChunkTask, IndexTask};
 use std::cell::UnsafeCell;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -467,7 +478,12 @@ impl Pool {
     /// # Complexity
     ///
     /// `n` job calls; `O(1)` dispatch cost plus one wake-up per parked worker.
-    pub(crate) fn run(&self, n: usize, f: &(dyn Fn(usize) + Sync)) {
+    pub(crate) fn run<F: Fn(usize) + Sync>(&self, n: usize, f: &F) {
+        self.run_dyn(n, f);
+    }
+
+    /// The type-erased body of [`Pool::run`]: the one copy of the dispatch protocol.
+    fn run_dyn(&self, n: usize, f: &(dyn Fn(usize) + Sync)) {
         assert!(
             n <= MAX_TASKS,
             "pool dispatch of {n} tasks exceeds {MAX_TASKS}"
@@ -566,7 +582,17 @@ impl Pool {
     /// # Complexity
     ///
     /// `⌈out.len() / chunk⌉` tasks; `O(1)` extra space.
-    pub(crate) fn chunks_mut<T: Send>(
+    pub(crate) fn chunks_mut<T: Send, F: Fn(usize, usize, &mut [T]) + Sync>(
+        &self,
+        out: &mut [T],
+        chunk: usize,
+        f: &F,
+    ) {
+        self.chunks_mut_dyn(out, chunk, f);
+    }
+
+    /// The type-erased body of [`Pool::chunks_mut`].
+    fn chunks_mut_dyn<T: Send>(
         &self,
         out: &mut [T],
         chunk: usize,
@@ -811,6 +837,125 @@ fn worker(sh: &Shared, w: usize) {
     }
 }
 
+/// [`Pool::run`] on the process pool. Free function so callers never name `Pool::global()`: the
+/// extraction cannot translate a call that returns the `&'static` pool, and this module is the thread
+/// trust boundary (opaque).
+pub(crate) fn run_global<K: IndexTask>(n: usize, k: &K) {
+    Pool::global().run(n, &|t| k.run(t));
+}
+
+/// [`Pool::chunks_mut`] on the process pool; see [`run_global`].
+pub(crate) fn chunks_mut_global<T: Send, K: ChunkTask<T>>(out: &mut [T], chunk: usize, k: &K) {
+    Pool::global().chunks_mut(out, chunk, &|c, start, piece| k.run(c, start, piece));
+}
+
+/// [`Pool::width`] of the process pool; see [`run_global`].
+pub(crate) fn width_global() -> usize {
+    Pool::global().width()
+}
+
+/// Lowest-key error collector for pool tasks. Opaque to the extraction with the rest of this module:
+/// its Lean specification is the sequential minimum over the recorded `(key, error)` pairs
+/// (`proof/boundary-axioms.txt`, thread boundary). `record` is the only write; `take` consumes.
+pub(crate) struct FirstErr<K, E> {
+    slot: Mutex<Option<(K, E)>>,
+}
+
+impl<K: Ord, E> FirstErr<K, E> {
+    pub(crate) fn new() -> Self {
+        FirstErr {
+            slot: Mutex::new(None),
+        }
+    }
+
+    /// Keeps `(key, err)` when no error is held or `key` is below the held key.
+    pub(crate) fn record(&self, key: K, err: E) {
+        let mut g = self
+            .slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if g.as_ref().is_none_or(|(k, _)| key < *k) {
+            *g = Some((key, err));
+        }
+    }
+
+    /// The held `(key, error)` pair, if any task recorded one.
+    pub(crate) fn take(self) -> Option<(K, E)> {
+        self.slot
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// One-way flag set by pool tasks and read after the join.
+pub(crate) struct Flag(AtomicBool);
+
+impl Flag {
+    pub(crate) fn new() -> Self {
+        Flag(AtomicBool::new(false))
+    }
+
+    pub(crate) fn set(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    pub(crate) fn get(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
+/// Mutual-exclusion cell whose guard is a by-value handle, so callers never name `MutexGuard`.
+/// Poisoning is ignored: the protected data is plain state with no cross-field invariant a panicking
+/// task can break mid-update.
+#[derive(Debug)]
+pub(crate) struct Excl<T> {
+    m: Mutex<T>,
+}
+
+pub(crate) struct Held<'a, T> {
+    g: std::sync::MutexGuard<'a, T>,
+}
+
+impl<T> Excl<T> {
+    pub(crate) fn new(t: T) -> Self {
+        Excl { m: Mutex::new(t) }
+    }
+
+    pub(crate) fn lock(&self) -> Held<'_, T> {
+        Held {
+            g: self
+                .m
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        }
+    }
+
+    pub(crate) fn get_mut(&mut self) -> &mut T {
+        self.m
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub(crate) fn into_inner(self) -> T {
+        self.m
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+impl<T> std::ops::Deref for Held<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.g
+    }
+}
+
+impl<T> std::ops::DerefMut for Held<'_, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.g
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -843,6 +988,41 @@ mod tests {
             });
             let want: Vec<u64> = (0..97u64).map(|i| i * 3 + round).collect();
             assert_eq!(out, want, "round {round}");
+        }
+    }
+
+    #[test]
+    fn generic_entry_points_equal_the_erased_body() {
+        let pool = Pool::new(4);
+        for n in [0usize, 1, 5, 64, 300] {
+            let generic: Vec<AtomicU64> = (0..n).map(|_| AtomicU64::new(0)).collect();
+            let erased: Vec<AtomicU64> = (0..n).map(|_| AtomicU64::new(0)).collect();
+            pool.run(n, &|i| {
+                generic[i].fetch_add(1, Ordering::Relaxed);
+            });
+            pool.run_dyn(n, &|i| {
+                erased[i].fetch_add(1, Ordering::Relaxed);
+            });
+            for (g, e) in generic.iter().zip(&erased) {
+                assert_eq!(g.load(Ordering::Relaxed), 1, "run, n = {n}");
+                assert_eq!(e.load(Ordering::Relaxed), 1, "run_dyn, n = {n}");
+            }
+        }
+        for chunk in [1usize, 3, 8, 97] {
+            let mut generic = vec![0u64; 97];
+            let mut erased = vec![0u64; 97];
+            pool.chunks_mut(&mut generic, chunk, &|_, _, part| {
+                for v in part.iter_mut() {
+                    *v += 1;
+                }
+            });
+            pool.chunks_mut_dyn(&mut erased, chunk, &|_, _, part| {
+                for v in part.iter_mut() {
+                    *v += 1;
+                }
+            });
+            assert_eq!(generic, vec![1u64; 97], "chunks_mut, chunk = {chunk}");
+            assert_eq!(erased, vec![1u64; 97], "chunks_mut_dyn, chunk = {chunk}");
         }
     }
 

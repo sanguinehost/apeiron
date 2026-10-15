@@ -1,6 +1,6 @@
 //! Exact tensor-parallel FFN: [`ffn_tp`] runs one
 //! [`ffn_q8act`] FFN (`SwiGLU`) block as a column cover of the hidden dimension in one
-//! [`Pool::global`] dispatch.
+//! the process pool dispatch.
 //!
 //! Task `i` owns hidden slice `S_i`, aligned to the down projection's block width; it computes the
 //! gate and up rows of `S_i` with the chart fast row kernels over the shared `quant_act(x)`, applies
@@ -31,17 +31,16 @@
 )]
 
 use crate::engine::chart::ffn::ffn_q8act;
-use crate::engine::chart::pool::Pool;
+use crate::engine::chart::pool::{Excl, Flag};
+use crate::engine::chart::task::IndexTask;
 use crate::engine::chart::{
-    q8act_plan, q8act_row_i128_fast, q8act_rows, quant_act, Q8ActPlan, QuantAct,
+    q8act_plan, q8act_row_i128_fast, q8act_rows, quant_act, Q8ActFast, Q8ActPlan, QuantAct,
 };
 use crate::engine::ffn::{silu_fixed, FfnError, ProjWeights};
 use crate::engine::matvec::MatvecError;
 use crate::engine::value::round_shift_32;
 use crate::engine::EngineError;
 use crate::format::quant;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
 
 /// The `SwiGLU` element of one hidden index, the same arithmetic
 /// [`swiglu_hidden`](crate::engine::chart::ffn::swiglu_hidden) applies:
@@ -144,110 +143,38 @@ pub(crate) fn ffn_tp(
         return delegate();
     };
     let tasks = n_ff.div_ceil(down_block_width);
-    let pool = Pool::global();
-    let slots: Mutex<Vec<(usize, SliceData)>> = Mutex::new(Vec::with_capacity(tasks));
-    let dirty = AtomicBool::new(false);
-    let job = |t: usize| {
-        let c0 = t * down_block_width;
-        let c1 = (c0 + down_block_width).min(n_ff);
-        let cols = c1 - c0;
-        // The slice's gate and up rows, on the same row kernels the whole-projection call uses
-        // (including the cross-row tiled cores), so the sliced and unsliced rows are equal.
-        let (Some(gbytes), Some(ubytes)) = (
-            gate.raw.get(c0 * gate_row_bytes..c1 * gate_row_bytes),
-            up.raw.get(c0 * up_row_bytes..c1 * up_row_bytes),
-        ) else {
-            dirty.store(true, Ordering::Relaxed);
-            return;
-        };
-        let need_g = cols * gate_row_bytes;
-        let need_u = cols * up_row_bytes;
-        let (Ok(gate_rows), Ok(up_rows)) = (
-            q8act_rows(
-                gate.ggml_type,
-                gbytes,
-                cols,
-                n_embd,
-                gate_row_bytes,
-                need_g,
-                &q,
-                gfast,
-            ),
-            q8act_rows(
-                up.ggml_type,
-                ubytes,
-                cols,
-                n_embd,
-                up_row_bytes,
-                need_u,
-                &q,
-                ufast,
-            ),
-        ) else {
-            dirty.store(true, Ordering::Relaxed);
-            return;
-        };
-        let mut hidden: Vec<i64> = Vec::with_capacity(cols);
-        let mut j = 0usize;
-        let mut ok = true;
-        while j < cols && ok {
-            match swiglu_one(gate_rows[j], up_rows[j]) {
-                Ok(hv) => hidden.push(hv),
-                Err(_) => ok = false,
-            }
-            j += 1;
-        }
-        if !ok {
-            dirty.store(true, Ordering::Relaxed);
-            return;
-        }
-        let Some(qh) = quant_act(&hidden) else {
-            dirty.store(true, Ordering::Relaxed);
-            return;
-        };
-        let local_plan = q8act_plan(down.ggml_type, cols, &qh);
-        let Q8ActPlan::Fused(dfast) = &local_plan else {
-            dirty.store(true, Ordering::Relaxed);
-            return;
-        };
-        if !dfast.fast {
-            dirty.store(true, Ordering::Relaxed);
-            return;
-        }
-        let off = (c0 / down_block_width) * down_block_bytes;
-        let slice_bytes = cols.div_ceil(down_block_width) * down_block_bytes;
-        let mut partial: Vec<i128> = Vec::with_capacity(n_embd);
-        let mut row = 0usize;
-        while row < n_embd && ok {
-            let start = row * down_row_bytes + off;
-            match down
-                .raw
-                .get(start..start + slice_bytes)
-                .and_then(|r| q8act_row_i128_fast(down.ggml_type, r, cols, &qh, dfast))
-            {
-                Some(acc) => partial.push(acc),
-                None => ok = false,
-            }
-            row += 1;
-        }
-        if !ok {
-            dirty.store(true, Ordering::Relaxed);
-            return;
-        }
-        slots
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push((t, SliceData { quant: qh, partial }));
+    let slots: Excl<Vec<(usize, SliceData)>> = Excl::new(Vec::with_capacity(tasks));
+    let dirty = crate::engine::chart::pool::Flag::new();
+    let ctx = SliceCtx {
+        gate,
+        up,
+        down,
+        geom: SliceGeom {
+            n_embd,
+            n_ff,
+            gate_row_bytes,
+            up_row_bytes,
+            down_row_bytes,
+            down_block_width,
+            down_block_bytes,
+        },
+        q: &q,
+        gfast,
+        ufast,
+        dirty: &dirty,
+        slots: &slots,
     };
-    pool.run(tasks, &job);
-    if dirty.load(Ordering::Relaxed) {
+    crate::engine::chart::pool::run_global(tasks, &ctx);
+    if dirty.get() {
         return delegate();
     }
-    let mut results: Vec<Option<SliceData>> = (0..tasks).map(|_| None).collect();
-    for (t, d) in slots
-        .into_inner()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-    {
+    let mut results: Vec<Option<SliceData>> = Vec::with_capacity(tasks);
+    let mut t = 0usize;
+    while t < tasks {
+        results.push(None);
+        t += 1;
+    }
+    for (t, d) in slots.into_inner() {
         results[t] = Some(d);
     }
     // The whole-vector quantization is the slices' local quantizations concatenated: the quantizer
@@ -295,6 +222,161 @@ pub(crate) fn ffn_tp(
         out_row += 1;
     }
     Ok(y)
+}
+
+/// The exact geometry of one [`ffn_tp`] slice task: the hidden and output extents and the row and
+/// block byte counts of the three projections. Numbers only, so it is passed by value.
+#[derive(Clone, Copy)]
+struct SliceGeom {
+    n_embd: usize,
+    n_ff: usize,
+    gate_row_bytes: usize,
+    up_row_bytes: usize,
+    down_row_bytes: usize,
+    down_block_width: usize,
+    down_block_bytes: usize,
+}
+
+/// The shared inputs of one [`ffn_tp`] dispatch, borrowed for the pool.
+struct SliceCtx<'a> {
+    gate: ProjWeights<'a>,
+    up: ProjWeights<'a>,
+    down: ProjWeights<'a>,
+    geom: SliceGeom,
+    q: &'a QuantAct,
+    gfast: &'a Q8ActFast,
+    ufast: &'a Q8ActFast,
+    dirty: &'a Flag,
+    slots: &'a Excl<Vec<(usize, SliceData)>>,
+}
+
+impl IndexTask for SliceCtx<'_> {
+    fn run(&self, t: usize) {
+        ffn_slice_task(
+            t,
+            self.geom,
+            self.gate.raw,
+            self.gate.ggml_type,
+            self.up.raw,
+            self.up.ggml_type,
+            self.down.raw,
+            self.down.ggml_type,
+            self.q,
+            self.gfast,
+            self.ufast,
+            self.dirty,
+            self.slots,
+        );
+    }
+}
+
+/// The body of one [`ffn_tp`] slice task: hidden slice `t`, computed and accumulated into `slots`.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "the task's shared inputs travel as one argument each so the trait method is one call"
+)]
+fn ffn_slice_task(
+    t: usize,
+    geom: SliceGeom,
+    gate_raw: &[u8],
+    gate_type: u32,
+    up_raw: &[u8],
+    up_type: u32,
+    down_raw: &[u8],
+    down_type: u32,
+    q: &QuantAct,
+    gfast: &Q8ActFast,
+    ufast: &Q8ActFast,
+    dirty: &Flag,
+    slots: &Excl<Vec<(usize, SliceData)>>,
+) {
+    let c0 = t * geom.down_block_width;
+    let c1 = (c0 + geom.down_block_width).min(geom.n_ff);
+    let cols = c1 - c0;
+    // The slice's gate and up rows, on the same row kernels the whole-projection call uses
+    // (including the cross-row tiled cores), so the sliced and unsliced rows are equal.
+    let (Some(gbytes), Some(ubytes)) = (
+        gate_raw.get(c0 * geom.gate_row_bytes..c1 * geom.gate_row_bytes),
+        up_raw.get(c0 * geom.up_row_bytes..c1 * geom.up_row_bytes),
+    ) else {
+        dirty.set();
+        return;
+    };
+    let need_g = cols * geom.gate_row_bytes;
+    let need_u = cols * geom.up_row_bytes;
+    let (Ok(gate_rows), Ok(up_rows)) = (
+        q8act_rows(
+            gate_type,
+            gbytes,
+            cols,
+            geom.n_embd,
+            geom.gate_row_bytes,
+            need_g,
+            q,
+            gfast,
+        ),
+        q8act_rows(
+            up_type,
+            ubytes,
+            cols,
+            geom.n_embd,
+            geom.up_row_bytes,
+            need_u,
+            q,
+            ufast,
+        ),
+    ) else {
+        dirty.set();
+        return;
+    };
+    let mut hidden: Vec<i64> = Vec::with_capacity(cols);
+    let mut j = 0usize;
+    let mut ok = true;
+    while j < cols && ok {
+        match swiglu_one(gate_rows[j], up_rows[j]) {
+            Ok(hv) => hidden.push(hv),
+            Err(_) => ok = false,
+        }
+        j += 1;
+    }
+    if !ok {
+        dirty.set();
+        return;
+    }
+    let Some(qh) = quant_act(&hidden) else {
+        dirty.set();
+        return;
+    };
+    let local_plan = q8act_plan(down_type, cols, &qh);
+    let Q8ActPlan::Fused(dfast) = &local_plan else {
+        dirty.set();
+        return;
+    };
+    if !dfast.fast {
+        dirty.set();
+        return;
+    }
+    let off = (c0 / geom.down_block_width) * geom.down_block_bytes;
+    let slice_bytes = cols.div_ceil(geom.down_block_width) * geom.down_block_bytes;
+    let mut partial: Vec<i128> = Vec::with_capacity(geom.n_embd);
+    let mut row = 0usize;
+    while row < geom.n_embd && ok {
+        let start = row * geom.down_row_bytes + off;
+        match down_raw
+            .get(start..start + slice_bytes)
+            .and_then(|r| q8act_row_i128_fast(down_type, r, cols, &qh, dfast))
+        {
+            Some(acc) => partial.push(acc),
+            None => ok = false,
+        }
+        row += 1;
+    }
+    if !ok {
+        dirty.set();
+        return;
+    }
+    slots.lock().push((t, SliceData { quant: qh, partial }));
 }
 
 #[cfg(test)]

@@ -1,22 +1,32 @@
 //! The decode step: the rows 0-8 composition and the `Engine` entry points.
 
+#![allow(
+    clippy::manual_let_else,
+    clippy::single_match_else,
+    clippy::ref_option,
+    reason = "match/let forms and a by-ref Option parameter: the pinned Aeneas translates these and rejects the Option::map / let-else / as_deref forms (borrow abstractions)"
+)]
+
 use std::borrow::Cow;
-use std::sync::Arc;
 
 use crate::format::quant;
 
 use super::chart::ffn::{projections_q8act, FfnScratch, ProjSource, ProjSpec};
+use super::chart::task::HeadTask;
 use super::dequant::dequant_row_fixed;
+use super::error::{
+    TensorKey, N_BLK_PARTS, N_LAYER_PARTS, PART_OUTPUT, TENSOR_PART_BYTES, TENSOR_PART_LEN,
+};
 #[cfg(test)]
 use super::kern::lut::q8act_projection;
-use super::kern::lut::{Pq2Lut, LUT_ROW_ALIGN};
-use super::loader::HadamardMeta;
+use super::kern::lut::LUT_ROW_ALIGN;
+use super::loader::{opt_slice, HadamardMeta, PayloadRef};
 use super::mixer::AffineState;
 use super::value::round_shift_32;
 use super::{
     argmax_fixed, fixed_vector_checksum, fwht_fixed, lm_head, rms_norm_fixed, AttnError, Engine,
     EngineError, F32Error, FfnError, HadamardError, KvState, LmHeadError, MatvecError, MixerKind,
-    NormError, ProjWeights, RopeError, RopeTable, SamplerError, TensorEntry,
+    NormError, RopeError, RopeTable, SamplerError, TensorEntry,
 };
 
 // Unchunked kernel: test-only `Sched::Sequential`; executing `Sched::Resident` is `par::matvec_rows_chunked`.
@@ -58,7 +68,7 @@ pub enum StepError {
     /// An `explicit` fold contract carries no sign vector for the activation width.
     MissingHadamardSigns {
         /// Tensor being projected.
-        tensor: String,
+        tensor: TensorKey,
         /// Activation width `x.len()` that needs a sign vector.
         width: usize,
     },
@@ -68,7 +78,7 @@ pub enum StepError {
     /// An `F32` gain or bias refused.
     Gain(F32Error),
     /// A required tensor is absent from the directory.
-    MissingTensor(String),
+    MissingTensor(TensorKey),
     /// A tensor's quant family has no step reader.
     UnsupportedQuant {
         /// ggml type id.
@@ -95,7 +105,7 @@ pub enum StepError {
         kv_head_dim: usize,
     },
     /// A config field cannot form a step quantity.
-    BadConfig(&'static str),
+    BadConfig(String),
     /// A length did not fit the target integer width.
     LengthOverflow,
     /// A checked fixed-point addition or narrowing left its range.
@@ -220,7 +230,7 @@ pub(crate) enum Sched {
 /// Checked `x[i] += y[i]` over two equal-width Q32.32 rows (the residual adds and bias add).
 fn add_assign_fixed(x: &mut [i64], y: &[i64]) -> Result<(), StepError> {
     if x.len() != y.len() {
-        return Err(StepError::BadConfig("residual row width"));
+        return Err(StepError::BadConfig(String::from("residual row width")));
     }
     let mut i = 0usize;
     while i < x.len() {
@@ -234,22 +244,29 @@ fn add_assign_fixed(x: &mut [i64], y: &[i64]) -> Result<(), StepError> {
 /// mismatch refuses with [`StepError::BadConfig`].
 fn rms_with_gain_slice(gain: &[i64], x: &[i64], eps: i64) -> Result<Vec<i64>, StepError> {
     if gain.len() != x.len() {
-        return Err(StepError::BadConfig("norm gain width"));
+        return Err(StepError::BadConfig(String::from("norm gain width")));
     }
     let base = rms_norm_fixed(x, eps).map_err(StepError::Norm)?;
     let mut out: Vec<i64> = Vec::with_capacity(base.len());
     let mut i = 0usize;
-    while i < base.len() {
-        let prod = i128::from(base[i])
-            .checked_mul(i128::from(gain[i]))
-            .ok_or(StepError::Overflow)?;
-        out.push(i64::try_from(round_shift_32(prod)).map_err(|_| StepError::Overflow)?);
+    let mut err: Option<StepError> = None;
+    while i < base.len() && err.is_none() {
+        match i128::from(base[i]).checked_mul(i128::from(gain[i])) {
+            None => err = Some(StepError::Overflow),
+            Some(prod) => match i64::try_from(round_shift_32(prod)) {
+                Ok(v) => out.push(v),
+                Err(_) => err = Some(StepError::Overflow),
+            },
+        }
         i += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(out)
 }
 
-/// The folded-weight activation rotation: `None` when `name` is not in the fold contract, otherwise
+/// The folded-weight activation rotation: `None` when `key` is not in the fold contract, otherwise
 /// a fresh copy of `x` rotated by [`fwht_fixed`] (`x' = round(c·H_{2^k}·(s⊙x)/2^32)`); `x` is never
 /// modified. In `explicit` mode the sign vector is the contract entry whose width equals `x.len()`
 /// (a missing width refuses with [`StepError::MissingHadamardSigns`]); in `identity` mode none is
@@ -260,7 +277,7 @@ fn rms_with_gain_slice(gain: &[i64], x: &[i64], eps: i64) -> Result<Vec<i64>, St
 /// `O(n log block)` time and `O(n)` space; the contract scan is `O(weight_names + signs)` bytes.
 fn folded_activation(
     meta: Option<&HadamardMeta>,
-    name: &str,
+    key: TensorKey,
     x: &[i64],
 ) -> Result<Option<Vec<i64>>, StepError> {
     let Some(meta) = meta else {
@@ -270,7 +287,7 @@ fn folded_activation(
     let mut listed = false;
     let mut i = 0usize;
     while i < meta.weight_names.len() {
-        if meta.weight_names[i].as_bytes() == name.as_bytes() {
+        if key_matches(meta.weight_names[i].as_bytes(), key) {
             listed = true;
         }
         i += 1;
@@ -279,22 +296,28 @@ fn folded_activation(
         return Ok(None);
     }
     // The sign vector, when the mode is explicit, is keyed by the activation width.
-    let mut signs: Option<&[i8]> = None;
+    let mut sign_at: Option<usize> = None;
     if let Some(table) = meta.signs.as_ref() {
         let mut found = false;
         let mut j = 0usize;
         while j < table.len() {
             if table[j].0 as usize == x.len() {
-                signs = Some(table[j].1.as_slice());
+                sign_at = Some(j);
                 found = true;
             }
             j += 1;
         }
         if !found {
             return Err(StepError::MissingHadamardSigns {
-                tensor: name.to_string(),
+                tensor: key,
                 width: x.len(),
             });
+        }
+    }
+    let mut signs: Option<&[i8]> = None;
+    if let Some(j) = sign_at {
+        if let Some(table) = meta.signs.as_ref() {
+            signs = Some(table[j].1.as_slice());
         }
     }
     let mut folded: Vec<i64> = Vec::with_capacity(x.len());
@@ -310,10 +333,10 @@ fn folded_activation(
 /// [`Engine::step_proj_sched`]'s and [`Engine::lm_head_fixed_sched`]'s resident `Q8Act` leaf.
 impl Engine {
     /// One `Q8Act` projection over `x`: one pooled
-    /// [`quant_act_pooled`](super::chart::ffn::quant_act_pooled) of `x`, then the cached `PQ2_0`
-    /// lookup-table row kernel or the chart row kernel split by `chunks`. Same result and refusals
-    /// as `kern::lut::q8act_projection`; taking the quantization here lets a caller that already
-    /// holds `q` skip a second pass.
+    /// [`quant_act_pooled`](super::chart::ffn::quant_act_pooled) of `x`, then the open-time
+    /// `PQ2_0` lookup-table row kernel of directory entry `idx` or the chart row kernel split by
+    /// `chunks`. Same result and refusals as `kern::lut::q8act_projection`; taking the
+    /// quantization here lets a caller that already holds `q` skip a second pass.
     #[allow(
         clippy::too_many_arguments,
         reason = "the engine, tensor identity, payload and shape, activation and dispatch width \
@@ -321,9 +344,9 @@ impl Engine {
     )]
     fn proj_q8act_quantified(
         &self,
-        name: &str,
+        idx: usize,
         ggml_type: u32,
-        raw: &[u8],
+        at: PayloadRef,
         n_out: usize,
         n_in: usize,
         x: &[i64],
@@ -332,15 +355,23 @@ impl Engine {
         let q = super::chart::ffn::quant_act_pooled(x)
             .ok_or(MatvecError::Dequant(EngineError::FixedOverflow))?;
         if ggml_type == quant::GGML_TYPE_PQ2_0 {
-            let lut = self.pq2_lut(name, raw, n_out, n_in)?;
+            self.pq2_lut(idx)?;
             let spec = ProjSpec {
                 n_out,
                 row_align: LUT_ROW_ALIGN,
-                source: ProjSource::Rows(&*lut),
+                source: ProjSource::Rows(idx),
             };
-            let mut out = super::chart::ffn::projections_q8act_prepared(n_in, &q, &[spec], chunks)?;
+            let mut out = super::chart::ffn::projections_q8act_prepared(
+                self.resident(),
+                self.pq2_luts(),
+                n_in,
+                &q,
+                &[spec],
+                chunks,
+            )?;
             Ok(out.pop().expect("one projection"))
         } else {
+            let raw = &self.resident()[at.off..at.off + at.len];
             super::chart::ffn::matvec_q8act_quant_chunked(ggml_type, raw, n_out, n_in, &q, chunks)
         }
     }
@@ -367,6 +398,22 @@ fn bitplane_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("APEIRON_BITPLANE").map_or(true, |v| v != "0"))
 }
 
+/// Number of layers of kind `kind`.
+///
+/// # Complexity
+///
+/// `O(mixers.len())` time and `O(1)` space, counted in comparisons: one per layer.
+fn count_mixers(mixers: &[MixerKind], kind: MixerKind) -> usize {
+    let mut n = 0usize;
+    let mut i = 0usize;
+    while i < mixers.len() {
+        if mixers[i] == kind {
+            n += 1;
+        }
+        i += 1;
+    }
+    n
+}
 /// Each layer's index in the softmax list carrier (`KvState`), `None` for an affine layer. With an
 /// all-softmax schedule this is the identity.
 ///
@@ -414,18 +461,19 @@ fn affine_slots(mixers: &[MixerKind]) -> Vec<Option<usize>> {
 ///
 /// `O(x.len() / hd · rope.head_dim())` multiplications, no allocation.
 fn rotate_head_prefixes(
-    rope: &RopeTable,
+    table: &RopeTable,
     x: &mut [i64],
     hd: usize,
     pos: u32,
 ) -> Result<(), StepError> {
-    let rot = rope.head_dim();
+    let rot = table.head_dim();
     if hd == 0 || rot > hd || !x.len().is_multiple_of(hd) {
         return Err(StepError::Rope(RopeError::VectorLength));
     }
     let mut base = 0usize;
     while base < x.len() {
-        rope.rotate_one(&mut x[base..base + rot], pos)
+        table
+            .rotate_one(&mut x[base..base + rot], pos)
             .map_err(StepError::Rope)?;
         base += hd;
     }
@@ -444,7 +492,7 @@ fn split_query_gate(
     hd: usize,
 ) -> Result<(Vec<i64>, Vec<i64>), StepError> {
     if full.len() != n_head * hd * 2 {
-        return Err(StepError::BadConfig("gated query width"));
+        return Err(StepError::BadConfig(String::from("gated query width")));
     }
     let mut q = Vec::with_capacity(n_head * hd);
     let mut g = Vec::with_capacity(n_head * hd);
@@ -469,6 +517,49 @@ fn apply_sigmoid_gate(att: &mut [i64], gate: &[i64]) -> Result<(), StepError> {
     attn_block::sigmoid_gate(att, gate)
 }
 
+/// One head of [`qk_norm_and_rope`]: its QK `RMSNorm`, then its rotation.
+fn qk_norm_head(
+    gain: &Option<Vec<i64>>,
+    dst: &mut [i64],
+    table: &RopeTable,
+    eps: i64,
+    pos: u32,
+) -> Result<(), StepError> {
+    super::loader::qk_norm_heads(opt_slice(gain), dst, dst.len(), eps)?;
+    rotate_head_prefixes(table, dst, dst.len(), pos)
+}
+
+/// One head of the rotation-only path of [`qk_norm_and_rope`] (no QK-norm tensors).
+fn rope_head(dst: &mut [i64], table: &RopeTable, pos: u32) -> Result<(), StepError> {
+    rotate_head_prefixes(table, dst, dst.len(), pos)
+}
+
+/// The shared borrows of one QK-norm head dispatch; `run` is the single call to [`qk_norm_head`].
+struct QkNormCtx<'a> {
+    gain: &'a Option<Vec<i64>>,
+    table: &'a RopeTable,
+    eps: i64,
+    pos: u32,
+}
+
+impl HeadTask<i64, StepError> for QkNormCtx<'_> {
+    fn run(&self, _h: usize, dst: &mut [i64]) -> Result<(), StepError> {
+        qk_norm_head(self.gain, dst, self.table, self.eps, self.pos)
+    }
+}
+
+/// The shared borrows of one rotation-only head dispatch; `run` is the single call to [`rope_head`].
+struct RopeCtx<'a> {
+    table: &'a RopeTable,
+    pos: u32,
+}
+
+impl HeadTask<i64, StepError> for RopeCtx<'_> {
+    fn run(&self, _h: usize, dst: &mut [i64]) -> Result<(), StepError> {
+        rope_head(dst, self.table, self.pos)
+    }
+}
+
 /// `vectors.apply_qk_norms` plus the two per-vector `RoPE` rotations, over the pool when
 /// `parallel`: every `hd`-wide head of `query` (then of `key`) gets its QK `RMSNorm` and its
 /// rotation in one pool task. Each head's norm and rotation are head-local, so the split is
@@ -481,7 +572,7 @@ fn apply_sigmoid_gate(att: &mut [i64], gate: &[i64]) -> Result<(), StepError> {
 fn qk_norm_and_rope(
     vectors: &super::loader::DecodeVectors,
     layer: usize,
-    rope: &RopeTable,
+    table: &RopeTable,
     query: &mut [i64],
     key: &mut [i64],
     hd: usize,
@@ -493,24 +584,61 @@ fn qk_norm_and_rope(
         // The composed geometry is a whole number of `hd`-wide heads; anything else keeps the
         // serial refusals unchanged.
         vectors.apply_qk_norms(layer, query, key, hd, eps)?;
-        return attn_block::rotate_pair_prefixes(rope, query, key, hd, pos);
+        return attn_block::rotate_pair_prefixes(table, query, key, hd, pos);
     }
-    let qk = vectors.qk_norms_of(layer);
-    let qk_q = qk.and_then(|n| n[0].as_deref());
-    let qk_k = qk.and_then(|n| n[1].as_deref());
-    let one = |gain: Option<&[i64]>, dst: &mut [i64]| -> Result<(), StepError> {
-        super::loader::qk_norm_heads(gain, dst, dst.len(), eps)?;
-        rotate_head_prefixes(rope, dst, dst.len(), pos)
-    };
-    if let Some((_, e)) =
-        super::chart::ffn::attn_heads(query.len() / hd, hd, query, true, |_, dst| one(qk_q, dst))
-    {
-        return Err(e);
-    }
-    if let Some((_, e)) =
-        super::chart::ffn::attn_heads(key.len() / hd, hd, key, true, |_, dst| one(qk_k, dst))
-    {
-        return Err(e);
+    match vectors.qk_norms_of(layer) {
+        Some(n) => {
+            let g_q = &n[0];
+            let g_k = &n[1];
+            if let Some((_, e)) = super::chart::ffn::attn_heads(
+                query.len() / hd,
+                hd,
+                query,
+                true,
+                &QkNormCtx {
+                    gain: g_q,
+                    table,
+                    eps,
+                    pos,
+                },
+            ) {
+                return Err(e);
+            }
+            if let Some((_, e)) = super::chart::ffn::attn_heads(
+                key.len() / hd,
+                hd,
+                key,
+                true,
+                &QkNormCtx {
+                    gain: g_k,
+                    table,
+                    eps,
+                    pos,
+                },
+            ) {
+                return Err(e);
+            }
+        }
+        None => {
+            if let Some((_, e)) = super::chart::ffn::attn_heads(
+                query.len() / hd,
+                hd,
+                query,
+                true,
+                &RopeCtx { table, pos },
+            ) {
+                return Err(e);
+            }
+            if let Some((_, e)) = super::chart::ffn::attn_heads(
+                key.len() / hd,
+                hd,
+                key,
+                true,
+                &RopeCtx { table, pos },
+            ) {
+                return Err(e);
+            }
+        }
     }
     Ok(())
 }
@@ -528,37 +656,127 @@ struct LayerIndex {
     idx: [Option<usize>; N_PARTS],
 }
 
-/// Parts per layer in [`LayerIndex`].
-const N_PARTS: usize = 13;
-
-/// The `blk.{layer}.*` part suffixes of [`LayerIndex`], in consumption order.
-const LAYER_PARTS: [&str; N_PARTS] = [
-    "attn_q",
-    "attn_k",
-    "attn_v",
-    "attn_output",
-    "ffn_gate",
-    "ffn_up",
-    "ffn_down",
-    // The affine mixer's projections: `[q | k | v]` into the convolution, the output gate `z`,
-    // the per-head `β` and decay inputs, and the output.
-    "attn_qkv",
-    "attn_gate",
-    "ssm_beta",
-    "ssm_alpha",
-    "ssm_out",
-    // The multi-token-prediction block's input projection `[enorm(e) | hnorm(h)] → n_embd`.
-    "nextn.eh_proj",
-];
+/// Parts per layer in [`LayerIndex`]: the parts `0..N_PARTS` of [`TENSOR_PART_BYTES`], in
+/// consumption order `[q, k, v, attn_output, ffn_gate, ffn_up, ffn_down]`, then the affine mixer's
+/// projections (`[q | k | v]` into the convolution, the output gate `z`, the per-head `β` and decay
+/// inputs, the output) and the multi-token-prediction block's input projection.
+const N_PARTS: usize = N_LAYER_PARTS;
 
 impl LayerIndex {
-    /// The directory index of part `p`, or the same [`StepError::MissingTensor`] the name-based
+    /// The directory index of part `p`, or the [`StepError::MissingTensor`] the key-based
     /// `tensor_payload` returns.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "p < N_PARTS = 13, so the part number fits u8"
+    )]
     fn at(&self, p: usize, layer: usize) -> Result<usize, StepError> {
-        self.idx[p].ok_or_else(|| {
-            StepError::MissingTensor(format!("blk.{layer}.{}.weight", LAYER_PARTS[p]))
-        })
+        let slot: Option<usize> = self.idx[p];
+        match slot {
+            Some(i) => Ok(i),
+            None => Err(StepError::MissingTensor(TensorKey::blk(layer, p as u8))),
+        }
     }
+}
+
+/// Whether `needle` occurs in `hay` starting at `at`.
+///
+/// # Complexity
+///
+/// `O(needle.len())` byte comparisons, `O(1)` space: one loop, one comparison per iteration.
+pub(crate) fn bytes_at(hay: &[u8], at: usize, needle: &[u8]) -> bool {
+    if at > hay.len() || hay.len() - at < needle.len() {
+        return false;
+    }
+    let mut k = 0usize;
+    let mut same = true;
+    while k < needle.len() {
+        if hay[at + k] != needle[k] {
+            same = false;
+        }
+        k += 1;
+    }
+    same
+}
+
+/// Whether some vector of `xs` has a length other than `n`.
+///
+/// # Complexity
+///
+/// `O(xs.len())` length comparisons, `O(1)` space: one scan, stopping at the first mismatch.
+pub(crate) fn any_vec_len_ne<T>(xs: &[Vec<T>], n: usize) -> bool {
+    let mut i = 0usize;
+    while i < xs.len() {
+        if xs[i].len() != n {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+/// Whether `a` and `b` are the same bytes.
+///
+/// # Complexity
+///
+/// `O(a.len())` byte comparisons, `O(1)` space: the length test, then [`bytes_at`].
+pub(crate) fn bytes_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && bytes_at(a, 0, b)
+}
+
+/// Whether `nm[at..]` starts with the text of tensor part `part` ([`TENSOR_PART_BYTES`]).
+///
+/// # Complexity
+///
+/// `O(len)` byte comparisons, `O(1)` space, `len = TENSOR_PART_LEN[part]`: one loop.
+fn part_at(nm: &[u8], at: usize, part: usize) -> bool {
+    let len = TENSOR_PART_LEN[part];
+    if at > nm.len() || nm.len() - at < len {
+        return false;
+    }
+    let mut k = 0usize;
+    let mut same = true;
+    while k < len {
+        if nm[at + k] != TENSOR_PART_BYTES[part][k] {
+            same = false;
+        }
+        k += 1;
+    }
+    same
+}
+
+/// Whether the directory name `nm` is the name of `key`: `blk.{layer}.{part text}` with `layer` in
+/// plain decimal (no sign, no leading zero) for a layer part, the part text for a top-level part.
+/// Equal to comparing `nm` with the text [`TensorKey`]'s `Display` renders.
+///
+/// # Complexity
+///
+/// `O(nm.len())` byte comparisons, `O(1)` space: the digit scan and one [`part_at`] loop.
+pub(crate) fn key_matches(nm: &[u8], key: TensorKey) -> bool {
+    let p = key.part as usize;
+    if p >= TENSOR_PART_LEN.len() {
+        return false;
+    }
+    if p >= N_BLK_PARTS {
+        return nm.len() == TENSOR_PART_LEN[p] && part_at(nm, 0, p);
+    }
+    if !bytes_at(nm, 0, b"blk.") {
+        return false;
+    }
+    let mut pos = 4usize;
+    let mut layer_no = 0usize;
+    while pos < nm.len() && nm[pos] >= b'0' && nm[pos] <= b'9' {
+        layer_no = layer_no
+            .saturating_mul(10)
+            .saturating_add((nm[pos] - b'0') as usize);
+        pos += 1;
+    }
+    let plain_decimal = pos > 4 && (nm[4] != b'0' || pos == 5);
+    plain_decimal
+        && layer_no == key.layer as usize
+        && pos < nm.len()
+        && nm[pos] == b'.'
+        && nm.len() == pos + 1 + TENSOR_PART_LEN[p]
+        && part_at(nm, pos + 1, p)
 }
 
 impl Engine {
@@ -569,48 +787,54 @@ impl Engine {
     /// `O(directory bytes)` once per step, replacing `O(n_layer · 7 · directory bytes)` scans.
     fn resolve_layers(&self) -> Vec<LayerIndex> {
         let entries = self.table().entries();
-        let n = self.config.n_layer + self.config.n_nextn;
+        let n_layers = self.config.n_layer + self.config.n_nextn;
         let mut out: Vec<LayerIndex> = vec![
             LayerIndex {
                 idx: [None; N_PARTS]
             };
-            n
+            n_layers
         ];
-        let mut i = 0usize;
-        while i < entries.len() {
-            let name = entries[i].name.as_str();
-            if let Some(rest) = name.strip_prefix("blk.") {
-                if let Some((l, tail)) = rest.split_once('.') {
-                    if let Ok(l) = l.parse::<usize>() {
-                        if l < n {
-                            if let Some(part) = tail.strip_suffix(".weight") {
-                                let mut p = 0usize;
-                                while p < LAYER_PARTS.len() {
-                                    if LAYER_PARTS[p] == part {
-                                        out[l].idx[p] = Some(i);
-                                    }
-                                    p += 1;
-                                }
-                            }
+        let mut ei = 0usize;
+        while ei < entries.len() {
+            let nm = entries[ei].name.as_bytes();
+            if bytes_at(nm, 0, b"blk.") {
+                let mut pos = 4usize;
+                let mut layer_no = 0usize;
+                while pos < nm.len() && nm[pos] >= b'0' && nm[pos] <= b'9' {
+                    layer_no = layer_no
+                        .saturating_mul(10)
+                        .saturating_add((nm[pos] - b'0') as usize);
+                    pos += 1;
+                }
+                if pos > 4 && pos < nm.len() && nm[pos] == b'.' && layer_no < n_layers {
+                    pos += 1;
+                    let mut pi = 0usize;
+                    while pi < N_PARTS {
+                        if nm.len() == pos + TENSOR_PART_LEN[pi] && part_at(nm, pos, pi) {
+                            out[layer_no].idx[pi] = Some(ei);
                         }
+                        pi += 1;
                     }
                 }
             }
-            i += 1;
+            ei += 1;
         }
         out
     }
 
-    /// The checked payload of directory entry `idx` for a `[n_in, n_out]` tensor: the same bytes,
-    /// refusals and borrowed lifetime as `tensor_payload`, without the name scan or the up-front
-    /// `expected` allocation (built only on the refusal path).
+    /// The checked payload extent of directory entry `idx` for a `[n_in, n_out]` tensor: the same
+    /// refusals as `tensor_payload`, without the name scan or the up-front `expected` allocation
+    /// (built only on the refusal path), and no borrowed bytes: the caller slices
+    /// [`Engine::resident`] by the returned [`PayloadRef`] at the use. The test-only
+    /// [`Sched::Sequential`] arm still performs its owned `read_range` (same refusals) and asserts
+    /// it equals that slice.
     fn payload_at(
         &self,
         idx: usize,
         n_out: usize,
         n_in: usize,
         sched: Sched,
-    ) -> Result<(u32, Cow<'_, [u8]>), StepError> {
+    ) -> Result<(u32, PayloadRef), StepError> {
         let t = &self.table().entries()[idx];
         if t.dims.len() != 2 || t.dims[0] != n_in as u64 || t.dims[1] != n_out as u64 {
             return Err(StepError::BadShape {
@@ -619,66 +843,69 @@ impl Engine {
                 expected: vec![n_in as u64, n_out as u64],
             });
         }
-        let n_bytes = t.n_bytes.ok_or(StepError::UnsupportedQuant {
-            ggml_type: t.ggml_type,
-        })?;
-        let raw = match sched {
-            Sched::Resident => Cow::Borrowed(
-                self.payload(t.byte_range.start, n_bytes)
-                    .map_err(StepError::Read)?,
-            ),
-            #[cfg(test)]
-            Sched::Sequential => Cow::Owned(
-                self.read_range(t.byte_range.start, n_bytes)
-                    .map_err(StepError::Read)?,
-            ),
+        let n_bytes = match t.n_bytes {
+            Some(n) => n,
+            None => {
+                return Err(StepError::UnsupportedQuant {
+                    ggml_type: t.ggml_type,
+                })
+            }
         };
-        Ok((t.ggml_type, raw))
-    }
-
-    /// The directory entry name of `idx`, for the `pq2_lut` cache key and the fold contract.
-    fn name_at(&self, idx: usize) -> &str {
-        self.table().entries()[idx].name.as_str()
+        #[cfg(test)]
+        let owned = match sched {
+            Sched::Resident => None,
+            Sched::Sequential => match self.read_range(t.byte_range.start, n_bytes) {
+                Ok(p) => Some(p),
+                Err(e) => return Err(StepError::Read(e)),
+            },
+        };
+        #[cfg(not(test))]
+        match sched {
+            Sched::Resident => {}
+        }
+        let at = match self.payload_ref(t.byte_range.start, n_bytes) {
+            Ok(p) => p,
+            Err(e) => return Err(StepError::Read(e)),
+        };
+        #[cfg(test)]
+        if let Some(p) = owned {
+            assert_eq!(p.as_slice(), &self.resident()[at.off..at.off + at.len]);
+        }
+        Ok((t.ggml_type, at))
     }
 
     /// `step_proj_sched`'s resident `Q8Act` arm over a resolved directory index.
     fn proj_q8act_at(
         &self,
         idx: usize,
+        key: TensorKey,
         n_out: usize,
         n_in: usize,
         x: &[i64],
         chunks: usize,
     ) -> Result<Vec<i64>, StepError> {
-        let name = self.name_at(idx);
-        let (ggml_type, raw) = self.payload_at(idx, n_out, n_in, Sched::Resident)?;
-        let folded = folded_activation(self.hadamard(), name, x)?;
-        let activation: &[i64] = folded.as_deref().unwrap_or(x);
-        self.proj_q8act_quantified(
-            name,
-            ggml_type,
-            raw.as_ref(),
-            n_out,
-            n_in,
-            activation,
-            chunks,
-        )
-        .map_err(StepError::Matvec)
+        let (ggml_type, at) = self.payload_at(idx, n_out, n_in, Sched::Resident)?;
+        let folded = folded_activation(self.hadamard(), key, x)?;
+        let activation: &[i64] = opt_slice(&folded).unwrap_or(x);
+        self.proj_q8act_quantified(idx, ggml_type, at, n_out, n_in, activation, chunks)
+            .map_err(StepError::Matvec)
     }
 
-    /// One `Q8Act` projection group: the layer parts `parts` (indices into [`LAYER_PARTS`]) all
-    /// read the same input `x`, so one pooled quantization of `x` feeds every row kernel. Used by
-    /// the attention `q/k/v` group and the affine mixer's four input projections.
+    /// One `Q8Act` projection group: the layer parts `parts` (indices into [`TENSOR_PART_BYTES`])
+    /// all read the same input `x`, so one pooled quantization of `x` feeds every row kernel. Used
+    /// by the attention `q/k/v` group and the affine mixer's four input projections.
     ///
-    /// A `Hadamard`-folded member keeps one name-based `proj_q8act_at` per part, as the name path
+    /// A `Hadamard`-folded member keeps one `proj_q8act_at` per part, as the single-projection path
     /// keeps one `step_proj_sched` per part.
     ///
     /// # Complexity
     ///
-    /// `O(Σ outs · n_in)` multiply-adds over the pool, plus one `O(n_in)` quantization.
+    /// `O(Σ outs · n_in)` multiply-adds over the pool, plus one `O(n_in)` quantization; the
+    /// payloads are `PayloadRef` extents of the resident file (no weight byte is copied).
     #[allow(
         clippy::too_many_arguments,
-        reason = "the layer index, parts, shapes, activation and dispatch width are the group's input"
+        clippy::many_single_char_names,
+        reason = "the layer index, parts, shapes, activation and dispatch width are the group's input; the loop counters are single-character"
     )]
     fn group_q8act_at(
         &self,
@@ -691,54 +918,88 @@ impl Engine {
         chunks: usize,
     ) -> Result<Vec<Vec<i64>>, StepError> {
         if parts.len() != outs.len() {
-            return Err(StepError::BadConfig("projection group shape"));
+            return Err(StepError::BadConfig(String::from("projection group shape")));
         }
         let n = parts.len();
         let mut idxs = Vec::with_capacity(n);
-        for &p in parts {
-            idxs.push(li.at(p, layer)?);
+        let mut err: Option<StepError> = None;
+        let mut i = 0usize;
+        while i < n && err.is_none() {
+            match li.at(parts[i], layer) {
+                Ok(ix) => idxs.push(ix),
+                Err(e) => err = Some(e),
+            }
+            i += 1;
+        }
+        if let Some(e) = err {
+            return Err(e);
         }
         let mut types = Vec::with_capacity(n);
-        let mut raws: Vec<Cow<'_, [u8]>> = Vec::with_capacity(n);
-        for i in 0..n {
-            if folded_activation(self.hadamard(), self.name_at(idxs[i]), x)?.is_some() {
-                let mut out = Vec::with_capacity(n);
-                for j in 0..n {
-                    out.push(self.proj_q8act_at(idxs[j], outs[j], n_in, x, chunks)?);
+        let mut ats: Vec<PayloadRef> = Vec::with_capacity(n);
+        let mut folded_out: Option<Vec<Vec<i64>>> = None;
+        let mut i = 0usize;
+        while i < n && err.is_none() && folded_out.is_none() {
+            match folded_activation(self.hadamard(), part_key(layer, parts[i]), x) {
+                Err(e) => err = Some(e),
+                Ok(Some(_)) => {
+                    let mut out = Vec::with_capacity(n);
+                    let mut j = 0usize;
+                    while j < n && err.is_none() {
+                        match self.proj_q8act_at(
+                            idxs[j],
+                            part_key(layer, parts[j]),
+                            outs[j],
+                            n_in,
+                            x,
+                            chunks,
+                        ) {
+                            Ok(v) => out.push(v),
+                            Err(e) => err = Some(e),
+                        }
+                        j += 1;
+                    }
+                    if err.is_none() {
+                        folded_out = Some(out);
+                    }
                 }
-                return Ok(out);
-            }
-            let (t, raw) = self.payload_at(idxs[i], outs[i], n_in, Sched::Resident)?;
-            types.push(t);
-            raws.push(raw);
-        }
-        let mut luts: Vec<Option<Arc<Pq2Lut>>> = Vec::with_capacity(n);
-        for i in 0..n {
-            luts.push(if types[i] == quant::GGML_TYPE_PQ2_0 {
-                Some(self.pq2_lut(self.name_at(idxs[i]), raws[i].as_ref(), outs[i], n_in)?)
-            } else {
-                None
-            });
-        }
-        let mut specs: Vec<ProjSpec<'_>> = Vec::with_capacity(n);
-        for i in 0..n {
-            specs.push(ProjSpec {
-                n_out: outs[i],
-                row_align: if luts[i].is_some() { LUT_ROW_ALIGN } else { 1 },
-                source: match &luts[i] {
-                    Some(l) => ProjSource::Rows(&**l),
-                    None => ProjSource::Chart {
-                        ggml_type: types[i],
-                        raw: raws[i].as_ref(),
-                    },
+                Ok(None) => match self.payload_at(idxs[i], outs[i], n_in, Sched::Resident) {
+                    Ok((t, at)) => {
+                        types.push(t);
+                        ats.push(at);
+                    }
+                    Err(e) => err = Some(e),
                 },
-            });
+            }
+            i += 1;
         }
-        projections_q8act(n_in, x, &specs, chunks).map_err(StepError::Matvec)
+        if let Some(e) = err {
+            return Err(e);
+        }
+        if let Some(out) = folded_out {
+            return Ok(out);
+        }
+        let mut i = 0usize;
+        while i < n && err.is_none() {
+            if types[i] == quant::GGML_TYPE_PQ2_0 {
+                if let Err(e) = self.pq2_lut(idxs[i]) {
+                    err = Some(e.into());
+                }
+            }
+            i += 1;
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+        let mut specs: Vec<ProjSpec> = Vec::with_capacity(n);
+        for i in 0..n {
+            specs.push(ffn_spec(types[i], ats[i], idxs[i], outs[i]));
+        }
+        projections_q8act(self.resident(), self.pq2_luts(), n_in, x, &specs, chunks)
+            .map_err(StepError::Matvec)
     }
 
     /// `ffn_q8act_step` over resolved directory indices: the same three projections and pooled
-    /// quantizations, with the `pq2_lut` cache key taken from the directory.
+    /// quantizations, with the `PQ2_0` table taken from the open-time slot of the directory index.
     fn ffn_q8act_at(
         &self,
         li: &LayerIndex,
@@ -749,48 +1010,18 @@ impl Engine {
         scratch: &mut FfnScratch,
     ) -> Result<Vec<i64>, StepError> {
         let idxs = [li.at(4, layer)?, li.at(5, layer)?, li.at(6, layer)?];
-        let mut types = [0u32; 3];
-        let mut raws: [Cow<'_, [u8]>; 3] = Default::default();
-        for i in 0..3 {
-            let (n_out, n_in) = if i < 2 {
-                (n_ff, n_embd)
-            } else {
-                (n_embd, n_ff)
-            };
-            let (t, raw) = self.payload_at(idxs[i], n_out, n_in, Sched::Resident)?;
-            types[i] = t;
-            raws[i] = raw;
-        }
-        let mut luts: [Option<Arc<Pq2Lut>>; 3] = [None, None, None];
-        for i in 0..3 {
-            let (n_out, n_in) = if i < 2 {
-                (n_ff, n_embd)
-            } else {
-                (n_embd, n_ff)
-            };
-            if types[i] == quant::GGML_TYPE_PQ2_0 {
-                luts[i] =
-                    Some(self.pq2_lut(self.name_at(idxs[i]), raws[i].as_ref(), n_out, n_in)?);
-            }
-        }
-        let mut specs: Vec<ProjSpec<'_>> = Vec::with_capacity(3);
-        for i in 0..3 {
-            let n_out = if i < 2 { n_ff } else { n_embd };
-            specs.push(ffn_spec(
-                ProjWeights {
-                    ggml_type: types[i],
-                    raw: raws[i].as_ref(),
-                },
-                luts[i].as_deref(),
-                n_out,
-            ));
-        }
-        let mut it = specs.into_iter();
-        let [gate, up, down]: [ProjSpec<'_>; 3] = [it.next(), it.next(), it.next()].map(|s| {
-            s.ok_or(MatvecError::ShapeMismatch { x: 0, n_in: 0 })
-                .expect("three specs")
-        });
+        let (t0, at0) = self.payload_at(idxs[0], n_ff, n_embd, Sched::Resident)?;
+        let (t1, at1) = self.payload_at(idxs[1], n_ff, n_embd, Sched::Resident)?;
+        let (t2, at2) = self.payload_at(idxs[2], n_embd, n_ff, Sched::Resident)?;
+        self.check_pq2_lut(t0, idxs[0])?;
+        self.check_pq2_lut(t1, idxs[1])?;
+        self.check_pq2_lut(t2, idxs[2])?;
+        let gate = ffn_spec(t0, at0, idxs[0], n_ff);
+        let up = ffn_spec(t1, at1, idxs[1], n_ff);
+        let down = ffn_spec(t2, at2, idxs[2], n_embd);
         super::chart::ffn::ffn_q8act_prepared_into(
+            self.resident(),
+            self.pq2_luts(),
             n_embd,
             x,
             gate,
@@ -803,27 +1034,48 @@ impl Engine {
         )
         .map_err(StepError::Ffn)
     }
-}
 
-/// One FFN tensor's row kernel: its cached `PQ2_0` table as a
-/// [`RowKernel`](super::chart::ffn::RowKernel), else the chart row core.
-fn ffn_spec<'a>(w: ProjWeights<'a>, lut: Option<&'a Pq2Lut>, n_out: usize) -> ProjSpec<'a> {
-    ProjSpec {
-        n_out,
-        row_align: if lut.is_some() { LUT_ROW_ALIGN } else { 1 },
-        source: match lut {
-            Some(k) => ProjSource::Rows(k),
-            None => ProjSource::Chart {
-                ggml_type: w.ggml_type,
-                raw: w.raw,
-            },
-        },
+    /// Refuses with the stored table error when the `PQ2_0` tensor at directory index `idx` has
+    /// none; any other quant family passes.
+    fn check_pq2_lut(&self, ggml_type: u32, idx: usize) -> Result<(), MatvecError> {
+        if ggml_type == quant::GGML_TYPE_PQ2_0 {
+            self.pq2_lut(idx)?;
+        }
+        Ok(())
     }
 }
 
+/// One projection's row kernel: its open-time `PQ2_0` table (`Rows(idx)`, the directory index),
+/// else the chart row core over the payload extent `at`.
+fn ffn_spec(ggml_type: u32, at: PayloadRef, idx: usize, n_out: usize) -> ProjSpec {
+    if ggml_type == quant::GGML_TYPE_PQ2_0 {
+        ProjSpec {
+            n_out,
+            row_align: LUT_ROW_ALIGN,
+            source: ProjSource::Rows(idx),
+        }
+    } else {
+        ProjSpec {
+            n_out,
+            row_align: 1,
+            source: ProjSource::Chart { ggml_type, at },
+        }
+    }
+}
+
+/// The key of layer part `part` (an index into [`TENSOR_PART_BYTES`]) of `layer`.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "part < N_LAYER_PARTS = 13, so the part number fits u8"
+)]
+pub(crate) fn part_key(layer: usize, part: usize) -> TensorKey {
+    TensorKey::blk(layer, part as u8)
+}
+
 impl Engine {
-    /// One `Q8Act` FFN block (`SwiGLU`) for `layer`: the `PQ2_0` tensors use their cached lookup
-    /// tables as [`RowKernel`](super::chart::ffn::RowKernel)s, the others the chart row core, and
+    /// One `Q8Act` FFN block (`SwiGLU`) for the directory entries `idxs` (gate, up, down) with the
+    /// payload extents and quant families `ws`: the `PQ2_0` tensors use their open-time lookup
+    /// tables, the others the chart row core, and
     /// [`ffn_q8act_prepared`](super::chart::ffn::ffn_q8act_prepared) takes one pooled `quant_act`
     /// of `x` and one of the hidden.
     ///
@@ -833,48 +1085,27 @@ impl Engine {
     /// the elementwise overflow.
     fn ffn_q8act_step(
         &self,
-        layer: usize,
-        gate: ProjWeights<'_>,
-        up: ProjWeights<'_>,
-        down: ProjWeights<'_>,
+        idxs: [usize; 3],
+        ws: [(u32, PayloadRef); 3],
         n_ff: usize,
         x: &[i64],
     ) -> Result<Vec<i64>, FfnError> {
         let n_embd = x.len();
-        let gate_lut = self.ffn_lut(layer, "ffn_gate", gate, n_ff, n_embd)?;
-        let up_lut = self.ffn_lut(layer, "ffn_up", up, n_ff, n_embd)?;
-        let down_lut = self.ffn_lut(layer, "ffn_down", down, n_embd, n_ff)?;
+        self.check_pq2_lut(ws[0].0, idxs[0])?;
+        self.check_pq2_lut(ws[1].0, idxs[1])?;
+        self.check_pq2_lut(ws[2].0, idxs[2])?;
         super::chart::ffn::ffn_q8act_prepared(
+            self.resident(),
+            self.pq2_luts(),
             n_embd,
             x,
-            ffn_spec(gate, gate_lut.as_deref(), n_ff),
-            ffn_spec(up, up_lut.as_deref(), n_ff),
-            ffn_spec(down, down_lut.as_deref(), n_embd),
+            ffn_spec(ws[0].0, ws[0].1, idxs[0], n_ff),
+            ffn_spec(ws[1].0, ws[1].1, idxs[1], n_ff),
+            ffn_spec(ws[2].0, ws[2].1, idxs[2], n_embd),
             n_ff,
             super::par::row_chunk_budget(n_ff),
             super::par::row_chunk_budget(n_embd),
         )
-    }
-
-    /// `layer`'s cached `PQ2_0` table for the named FFN tensor, or `None` for another quant family.
-    fn ffn_lut(
-        &self,
-        layer: usize,
-        part: &str,
-        w: ProjWeights<'_>,
-        n_out: usize,
-        n_in: usize,
-    ) -> Result<Option<Arc<Pq2Lut>>, MatvecError> {
-        if w.ggml_type == quant::GGML_TYPE_PQ2_0 {
-            Ok(Some(self.pq2_lut(
-                &format!("blk.{layer}.{part}.weight"),
-                w.raw,
-                n_out,
-                n_in,
-            )?))
-        } else {
-            Ok(None)
-        }
     }
 
     /// The Q32.32 embedding vector of token `id`.
@@ -975,6 +1206,15 @@ impl Engine {
             .unwrap_or_else(|| self.token_embd())
     }
 
+    /// The directory index of [`Engine::lm_head`]: `output.weight` when present, else the
+    /// `token_embd.weight` entry.
+    fn lm_head_index(&self) -> usize {
+        match self.index_of(TensorKey::top(PART_OUTPUT)) {
+            Some(i) => i,
+            None => self.token_embd_index(),
+        }
+    }
+
     /// The Q32.32 LM-head logits of a residual activation `x` (port-map row 7).
     ///
     /// The head tensor is [`Engine::lm_head`] (`output.weight` when present, else the tied
@@ -1016,63 +1256,78 @@ impl Engine {
         if need > extent {
             return Err(LmHeadError::ShortPayload { need, have: extent });
         }
-        let raw = match sched {
-            Sched::Resident => Cow::Borrowed(
-                self.payload(t.byte_range.start, need)
-                    .map_err(LmHeadError::Read)?,
-            ),
-            #[cfg(test)]
-            Sched::Sequential => Cow::Owned(
-                self.read_range(t.byte_range.start, need)
-                    .map_err(LmHeadError::Read)?,
-            ),
+        #[cfg(test)]
+        let owned = match sched {
+            Sched::Resident => None,
+            Sched::Sequential => match self.read_range(t.byte_range.start, need) {
+                Ok(p) => Some(p),
+                Err(e) => return Err(LmHeadError::Read(e)),
+            },
         };
+        #[cfg(not(test))]
+        match sched {
+            Sched::Resident => {}
+        }
+        let at = match self.payload_ref(t.byte_range.start, need) {
+            Ok(p) => p,
+            Err(e) => return Err(LmHeadError::Read(e)),
+        };
+        let raw: &[u8] = &self.resident()[at.off..at.off + at.len];
+        #[cfg(test)]
+        if let Some(p) = owned {
+            assert_eq!(p.as_slice(), raw);
+        }
         match (sched, mode) {
             (Sched::Resident, KernelMode::Exact) => {
                 // One row chunk is exactly `lm_head_fixed`'s unchunked body; keep that leaf on
                 // the executing path for the single-chunk case and chunk only when it pays.
                 let budget = super::par::row_chunk_budget(vocab);
                 if budget <= 1 {
-                    lm_head::lm_head_fixed(t.ggml_type, raw.as_ref(), vocab, n_embd, x)
+                    lm_head::lm_head_fixed(t.ggml_type, raw, vocab, n_embd, x)
                 } else {
-                    super::par::matvec_rows_chunked(
+                    match super::par::matvec_rows_chunked(
                         t.ggml_type,
-                        raw.as_ref(),
+                        raw,
                         vocab,
                         n_embd,
                         x,
                         budget,
-                    )
-                    .map_err(LmHeadError::Matvec)
+                    ) {
+                        Ok(v) => Ok(v),
+                        Err(e) => Err(LmHeadError::Matvec(e)),
+                    }
                 }
             }
-            (Sched::Resident, KernelMode::Q8Act) => self
-                .proj_q8act_quantified(
-                    &t.name,
-                    t.ggml_type,
-                    raw.as_ref(),
-                    vocab,
-                    n_embd,
-                    x,
-                    super::par::row_chunk_budget(vocab),
-                )
-                .map_err(LmHeadError::Matvec),
+            (Sched::Resident, KernelMode::Q8Act) => match self.proj_q8act_quantified(
+                self.lm_head_index(),
+                t.ggml_type,
+                at,
+                vocab,
+                n_embd,
+                x,
+                super::par::row_chunk_budget(vocab),
+            ) {
+                Ok(v) => Ok(v),
+                Err(e) => Err(LmHeadError::Matvec(e)),
+            },
             #[cfg(test)]
             (Sched::Sequential, KernelMode::Exact) => {
-                lm_head::lm_head_fixed(t.ggml_type, raw.as_ref(), vocab, n_embd, x)
+                lm_head::lm_head_fixed(t.ggml_type, raw, vocab, n_embd, x)
             }
             #[cfg(test)]
-            (Sched::Sequential, KernelMode::Q8Act) => q8act_projection(
+            (Sched::Sequential, KernelMode::Q8Act) => match q8act_projection(
                 self,
-                &t.name,
+                self.lm_head_index(),
                 t.ggml_type,
-                raw.as_ref(),
+                raw,
                 vocab,
                 n_embd,
                 x,
                 1,
-            )
-            .map_err(LmHeadError::Matvec),
+            ) {
+                Ok(v) => Ok(v),
+                Err(e) => Err(LmHeadError::Matvec(e)),
+            },
         }
     }
 
@@ -1080,117 +1335,104 @@ impl Engine {
     ///
     /// This is the row-2 load-time float boundary for the norm addend. A negative, non-finite or
     /// out-of-`i64` epsilon refuses with [`StepError::BadConfig`].
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "the finite range guard above the cast"
-    )]
     fn eps_fixed(&self) -> Result<i64, StepError> {
-        let v = self.config.rms_eps;
-        if !v.is_finite() || v < 0.0 {
-            return Err(StepError::BadConfig("rms_eps"));
+        match crate::engine::fp::prim::eps_q32(self.config.rms_eps) {
+            Some(q) => Ok(q),
+            None => Err(StepError::BadConfig(String::from("rms_eps"))),
         }
-        let q = (v * 4_294_967_296.0).round();
-        if !(q.is_finite() && (0.0..9_223_372_036_854_775_808.0).contains(&q)) {
-            return Err(StepError::BadConfig("rms_eps"));
-        }
-        Ok(q as i64)
     }
 
-    /// The checked payload of the `[n_in, n_out]` tensor `name` for `sched`.
+    /// The directory index of the first entry named by `key`, or `None`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(Σ name lengths)` byte comparisons, `O(1)` space: one [`key_matches`] per entry until the
+    /// first match. Equal to the first-match scan of `TensorDirectory::get` over the rendered name.
+    pub(crate) fn index_of(&self, key: TensorKey) -> Option<usize> {
+        let entries = self.table().entries();
+        let mut i = 0usize;
+        while i < entries.len() {
+            if key_matches(entries[i].name.as_bytes(), key) {
+                return Some(i);
+            }
+            i += 1;
+        }
+        None
+    }
+
+    /// The checked payload of the `[n_in, n_out]` tensor `key` for `sched`: its directory index,
+    /// quant family and payload extent.
     ///
     /// Refuses a missing tensor, a stored shape that is not `[n_in, n_out]`, and a quant family
-    /// with no geometry (so no byte count). The bytes are a borrowed resident slice under
-    /// [`Sched::Resident`] and an owned `read_range` copy under the test-only [`Sched::Sequential`];
-    /// both are the same checked extent, so the dequantizers see identical bytes.
-    fn tensor_payload<'a>(
-        &'a self,
-        name: &str,
+    /// with no geometry (so no byte count). The extent is a [`PayloadRef`] into the resident file
+    /// under [`Sched::Resident`]; the test-only [`Sched::Sequential`] also reads an owned
+    /// `read_range` copy and asserts it equals that extent, so the dequantizers see identical
+    /// bytes.
+    fn tensor_payload(
+        &self,
+        key: TensorKey,
         n_out: usize,
         n_in: usize,
         sched: Sched,
-    ) -> Result<(u32, Cow<'a, [u8]>), StepError> {
-        let t = self
-            .table()
-            .get(name)
-            .ok_or_else(|| StepError::MissingTensor(name.to_string()))?;
-        let expected = vec![
-            u64::try_from(n_in).map_err(|_| StepError::LengthOverflow)?,
-            u64::try_from(n_out).map_err(|_| StepError::LengthOverflow)?,
-        ];
-        if t.dims != expected {
-            return Err(StepError::BadShape {
-                tensor: name.to_string(),
-                dims: t.dims.clone(),
-                expected,
-            });
-        }
-        let n_bytes = t.n_bytes.ok_or(StepError::UnsupportedQuant {
-            ggml_type: t.ggml_type,
-        })?;
-        let raw = match sched {
-            Sched::Resident => Cow::Borrowed(
-                self.payload(t.byte_range.start, n_bytes)
-                    .map_err(StepError::Read)?,
-            ),
-            #[cfg(test)]
-            Sched::Sequential => Cow::Owned(
-                self.read_range(t.byte_range.start, n_bytes)
-                    .map_err(StepError::Read)?,
-            ),
+    ) -> Result<(usize, u32, PayloadRef), StepError> {
+        let idx = match self.index_of(key) {
+            Some(i) => i,
+            None => return Err(StepError::MissingTensor(key)),
         };
-        Ok((t.ggml_type, raw))
+        let (ggml_type, at) = self.payload_at(idx, n_out, n_in, sched)?;
+        Ok((idx, ggml_type, at))
     }
 
     /// One projection stage with the payload source and row schedule chosen by `sched`.
     ///
     /// A tensor named in `prism.hadamard.weight_names` is projected with its activation rotated by
     /// [`folded_activation`] first; every other tensor projects `x` verbatim. [`Sched::Resident`]
-    /// projects the borrowed payload with [`super::par::matvec_rows_chunked`] over [`super::par::row_chunk_budget`] rows;
-    /// the test-only [`Sched::Sequential`] projects an owned copy with one unchunked
-    /// [`matvec_fixed`].
+    /// projects the resident payload with [`super::par::matvec_rows_chunked`] over [`super::par::row_chunk_budget`] rows;
+    /// the test-only [`Sched::Sequential`] projects it with one unchunked [`matvec_fixed`].
     fn step_proj_sched(
         &self,
-        name: &str,
+        key: TensorKey,
         n_out: usize,
         n_in: usize,
         x: &[i64],
         sched: Sched,
         mode: KernelMode,
     ) -> Result<Vec<i64>, StepError> {
-        let (ggml_type, raw) = self.tensor_payload(name, n_out, n_in, sched)?;
-        let folded = folded_activation(self.hadamard(), name, x)?;
-        let activation: &[i64] = match &folded {
-            Some(v) => v.as_slice(),
-            None => x,
-        };
+        let (idx, ggml_type, at) = self.tensor_payload(key, n_out, n_in, sched)?;
+        let folded = folded_activation(self.hadamard(), key, x)?;
+        let activation: &[i64] = opt_slice(&folded).unwrap_or(x);
         let out = match (sched, mode) {
             (Sched::Resident, KernelMode::Exact) => super::par::matvec_rows_chunked(
                 ggml_type,
-                raw.as_ref(),
+                &self.resident()[at.off..at.off + at.len],
                 n_out,
                 n_in,
                 activation,
                 super::par::row_chunk_budget(n_out),
             ),
             (Sched::Resident, KernelMode::Q8Act) => self.proj_q8act_quantified(
-                name,
+                idx,
                 ggml_type,
-                raw.as_ref(),
+                at,
                 n_out,
                 n_in,
                 activation,
                 super::par::row_chunk_budget(n_out),
             ),
             #[cfg(test)]
-            (Sched::Sequential, KernelMode::Exact) => {
-                matvec_fixed(ggml_type, raw.as_ref(), n_out, n_in, activation)
-            }
+            (Sched::Sequential, KernelMode::Exact) => matvec_fixed(
+                ggml_type,
+                &self.resident()[at.off..at.off + at.len],
+                n_out,
+                n_in,
+                activation,
+            ),
             #[cfg(test)]
             (Sched::Sequential, KernelMode::Q8Act) => q8act_projection(
                 self,
-                name,
+                idx,
                 ggml_type,
-                raw.as_ref(),
+                &self.resident()[at.off..at.off + at.len],
                 n_out,
                 n_in,
                 activation,
@@ -1213,49 +1455,69 @@ impl Engine {
         sched: Sched,
         mode: KernelMode,
     ) -> Result<[Vec<i64>; 3], StepError> {
-        let names = ["q", "k", "v"].map(|p| format!("blk.{layer}.attn_{p}.weight"));
-        let separate = |this: &Self| -> Result<_, StepError> {
-            Ok([
-                this.step_proj_sched(&names[0], outs[0], n_in, x, sched, mode)?,
-                this.step_proj_sched(&names[1], outs[1], n_in, x, sched, mode)?,
-                this.step_proj_sched(&names[2], outs[2], n_in, x, sched, mode)?,
-            ])
-        };
+        let keys = [part_key(layer, 0), part_key(layer, 1), part_key(layer, 2)];
         if !matches!(sched, Sched::Resident) || mode != KernelMode::Q8Act {
-            return separate(self);
+            return self.step_qkv_separate(&keys, outs, n_in, x, sched, mode);
         }
-        let mut types = [0u32; 3];
-        let mut raws: [Cow<'_, [u8]>; 3] = Default::default();
-        for i in 0..3 {
-            // A folded tensor rotates its own activation copy; the three then share no `quant_act`.
-            if folded_activation(self.hadamard(), &names[i], x)?.is_some() {
-                return separate(self);
-            }
-            let (t, raw) = self.tensor_payload(&names[i], outs[i], n_in, Sched::Resident)?;
-            types[i] = t;
-            raws[i] = raw;
+        // A folded tensor rotates its own activation copy; the three then share no `quant_act`.
+        match folded_activation(self.hadamard(), keys[0], x) {
+            Err(e) => return Err(e),
+            Ok(Some(_)) => return self.step_qkv_separate(&keys, outs, n_in, x, sched, mode),
+            Ok(None) => {}
         }
-        let mut luts: [Option<Arc<Pq2Lut>>; 3] = [None, None, None];
-        for i in 0..3 {
-            if types[i] == quant::GGML_TYPE_PQ2_0 {
-                luts[i] = Some(self.pq2_lut(&names[i], raws[i].as_ref(), outs[i], n_in)?);
-            }
+        let (i0, t0, at0) = self.tensor_payload(keys[0], outs[0], n_in, Sched::Resident)?;
+        match folded_activation(self.hadamard(), keys[1], x) {
+            Err(e) => return Err(e),
+            Ok(Some(_)) => return self.step_qkv_separate(&keys, outs, n_in, x, sched, mode),
+            Ok(None) => {}
         }
-        let spec = |i: usize| ProjSpec {
-            n_out: outs[i],
-            row_align: if luts[i].is_some() { LUT_ROW_ALIGN } else { 1 },
-            source: match &luts[i] {
-                Some(l) => ProjSource::Rows(&**l),
-                None => ProjSource::Chart {
-                    ggml_type: types[i],
-                    raw: raws[i].as_ref(),
-                },
-            },
-        };
-        let specs = [spec(0), spec(1), spec(2)];
-        let out = projections_q8act(n_in, x, &specs, super::par::row_chunk_budget(outs[0]))?;
-        let [query, key, value]: [Vec<i64>; 3] = out.try_into().expect("three projections");
+        let (i1, t1, at1) = self.tensor_payload(keys[1], outs[1], n_in, Sched::Resident)?;
+        match folded_activation(self.hadamard(), keys[2], x) {
+            Err(e) => return Err(e),
+            Ok(Some(_)) => return self.step_qkv_separate(&keys, outs, n_in, x, sched, mode),
+            Ok(None) => {}
+        }
+        let (i2, t2, at2) = self.tensor_payload(keys[2], outs[2], n_in, Sched::Resident)?;
+        self.check_pq2_lut(t0, i0)?;
+        self.check_pq2_lut(t1, i1)?;
+        self.check_pq2_lut(t2, i2)?;
+        let specs = [
+            ffn_spec(t0, at0, i0, outs[0]),
+            ffn_spec(t1, at1, i1, outs[1]),
+            ffn_spec(t2, at2, i2, outs[2]),
+        ];
+        let out = projections_q8act(
+            self.resident(),
+            self.pq2_luts(),
+            n_in,
+            x,
+            &specs,
+            super::par::row_chunk_budget(outs[0]),
+        )?;
+        let mut out = out;
+        assert!(out.len() == 3, "three projections");
+        let value = out.pop().unwrap_or_default();
+        let key = out.pop().unwrap_or_default();
+        let query = out.pop().unwrap_or_default();
         Ok([query, key, value])
+    }
+
+    /// The three separate `step_proj_sched` calls, Q/K/V in order: the non-fused arm of
+    /// [`Engine::step_qkv_sched`].
+    fn step_qkv_separate(
+        &self,
+        keys: &[TensorKey; 3],
+        outs: [usize; 3],
+        n_in: usize,
+        x: &[i64],
+        sched: Sched,
+        mode: KernelMode,
+    ) -> Result<[Vec<i64>; 3], StepError> {
+        Ok([
+            self.step_proj_sched(keys[0], outs[0], n_in, x, sched, mode)?,
+            self.step_proj_sched(keys[1], outs[1], n_in, x, sched, mode)?,
+            self.step_proj_sched(keys[2], outs[2], n_in, x, sched, mode)?,
+        ])
     }
 
     /// One projection stage over the resident payload (see [`Engine::step_proj_sched`]).
@@ -1265,12 +1527,12 @@ impl Engine {
     #[cfg(test)]
     fn step_proj(
         &self,
-        name: &str,
+        key: TensorKey,
         n_out: usize,
         n_in: usize,
         x: &[i64],
     ) -> Result<Vec<i64>, StepError> {
-        self.step_proj_sched(name, n_out, n_in, x, Sched::Resident, KernelMode::Exact)
+        self.step_proj_sched(key, n_out, n_in, x, Sched::Resident, KernelMode::Exact)
     }
 
     /// One greedy decode step with a caller-owned KV cache (the stateful rows 0–8 composition).
@@ -1373,7 +1635,8 @@ impl Engine {
     ) -> Result<Vec<i64>, StepError> {
         let mut out =
             self.compose_cols(kv, affine, &[token_id], sched, mode, parallel_heads, None)?;
-        out.pop().ok_or(StepError::BadConfig("empty column block"))
+        out.pop()
+            .ok_or(StepError::BadConfig(String::from("empty column block")))
     }
 
     /// The output-normed trunk state of one decode step: embedding, the first `config.n_layer`
@@ -1443,18 +1706,16 @@ impl Engine {
     /// [`AttnError`] for a geometry [`KvState::new`] refuses.
     pub fn decode_state(&self, cap: usize) -> Result<KvState, StepError> {
         if cap == 0 {
-            return Err(StepError::BadConfig("kv capacity"));
+            return Err(StepError::BadConfig(String::from("kv capacity")));
         }
         let ctx = self.config.context_length;
         if ctx != 0 && cap > ctx {
-            return Err(StepError::BadConfig("kv capacity above context_length"));
+            return Err(StepError::BadConfig(String::from(
+                "kv capacity above context_length",
+            )));
         }
         KvState::new(
-            self.config
-                .mixers
-                .iter()
-                .filter(|m| **m == MixerKind::Softmax)
-                .count(),
+            count_mixers(&self.config.mixers, MixerKind::Softmax),
             self.config.n_head,
             self.config.n_head_kv,
             self.config.head_dim,
@@ -1475,12 +1736,7 @@ impl Engine {
     /// The [`KvState`] planes plus `O(n_affine · state words)`, zeroed once.
     pub fn state(&self, cap: usize) -> Result<DecodeState, StepError> {
         let kv = self.decode_state(cap)?;
-        let n_affine = self
-            .config
-            .mixers
-            .iter()
-            .filter(|m| **m == MixerKind::Affine)
-            .count();
+        let n_affine = count_mixers(&self.config.mixers, MixerKind::Affine);
         let affine = match self.config.affine {
             Some(g) if n_affine > 0 => Some(AffineState::new(&g, n_affine)),
             _ => None,
@@ -1600,7 +1856,7 @@ impl Engine {
         w: usize,
     ) -> Result<u32, StepError> {
         if tokens.is_empty() {
-            return Err(StepError::BadConfig("empty prompt"));
+            return Err(StepError::BadConfig(String::from("empty prompt")));
         }
         let num_blocks = tokens.len().div_ceil(w.max(1));
         let base = tokens.len() / num_blocks;
@@ -1611,7 +1867,7 @@ impl Engine {
             let size = if i < rem { base + 1 } else { base };
             let block = &tokens[start..start + size];
             start += size;
-            let cols = self.compose_cols(
+            let mut cols = self.compose_cols(
                 &mut st.kv,
                 st.affine.as_mut(),
                 block,
@@ -1621,10 +1877,10 @@ impl Engine {
                 None,
             )?;
             if i + 1 == num_blocks {
-                last_col = cols.into_iter().last();
+                last_col = cols.pop();
             }
         }
-        let xf = last_col.ok_or(StepError::BadConfig("empty prompt"))?;
+        let xf = last_col.ok_or(StepError::BadConfig(String::from("empty prompt")))?;
         self.head_greedy_state(&xf, mode)
     }
 

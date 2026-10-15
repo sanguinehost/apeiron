@@ -1,5 +1,6 @@
 use super::dequant::dequant_row_fixed;
 use super::*;
+use crate::engine::fp::F64;
 use crate::engine::testdata::model_path;
 use crate::format::quant::{
     self, Q2_K_BLOCK_BYTES, Q3_K_BLOCK_BYTES, Q4_K_BLOCK_BYTES, Q5_0_BLOCK_BYTES, Q6_K_BLOCK_BYTES,
@@ -146,7 +147,7 @@ fn rms_norm_fixed_refuses_empty_and_out_of_window() {
 #[test]
 fn rope_table_matches_the_load_time_boundary() {
     // theta = 4: turn_0 = round(2^64 / 2pi) and turn_1 = round((1/2) * 2^64 / 2pi).
-    let t = RopeTable::new(4.0, 4).expect("theta 4, head_dim 4");
+    let t = RopeTable::new(F64::from_f64(4.0), 4).expect("theta 4, head_dim 4");
     assert_eq!(t.head_dim(), 4);
     assert_eq!(
         t.turns(),
@@ -156,7 +157,7 @@ fn rope_table_matches_the_load_time_boundary() {
 
 #[test]
 fn rope_zero_angle_is_the_identity() {
-    let t = RopeTable::new(10_000.0, 8).expect("head_dim 8");
+    let t = RopeTable::new(F64::from_f64(10_000.0), 8).expect("head_dim 8");
     assert_eq!(t.turns().len(), 4);
     let q0 = [ONE, -3 * ONE, 5, -7 * ONE, 11, 13, ONE / 3, -(ONE / 3)];
     let k0 = [2, 3, 5, 7, 11, 13, 17, 19];
@@ -207,7 +208,7 @@ fn rope_turn_to_radians_maps_the_named_phases() {
 #[test]
 fn rope_admits_positions_past_the_old_window() {
     // The radian path refused above position 4096; the turn path is total on every u32 position.
-    let t = RopeTable::new(10_000.0, 8).expect("head_dim 8");
+    let t = RopeTable::new(F64::from_f64(10_000.0), 8).expect("head_dim 8");
     let q0 = [ONE, -3 * ONE, 5, -7 * ONE, 11, 13, ONE / 3, -(ONE / 3)];
     let k0 = [2, 3, 5, 7, 11, 13, 17, 19];
     for pos in [4096u32, 4097, 32_767, u32::MAX] {
@@ -223,7 +224,7 @@ fn rope_admits_positions_past_the_old_window() {
 #[test]
 fn rope_turn_phase_is_additive_mod_2_to_64() {
     // The phase is a group homomorphism Z -> Z/2^64: phase(p + q) = phase(p) + phase(q).
-    let t = RopeTable::new(1.0e6, 64).expect("qwen rotary table");
+    let t = RopeTable::new(F64::from_f64(1.0e6), 64).expect("qwen rotary table");
     let (p, q) = (32_767u32, 4097u32);
     for &turn in t.turns() {
         let phase = |pos: u32| turn.wrapping_mul(u64::from(pos));
@@ -243,7 +244,7 @@ fn rope_score_depends_on_the_relative_offset_only() {
     // faces R1 H1 falsifier on the shipped rotation: <R(m)q, R(n)k> = g(n - m). Prediction written
     // before the run: the shifted score differs from the base score by fixed-point rounding only
     // (<= 2^-20 of |q||k|), while moving q alone changes the score by more than 2^-6 of |q||k|.
-    let t = RopeTable::new(1.0e6, 64).expect("qwen rotary table");
+    let t = RopeTable::new(F64::from_f64(1.0e6), 64).expect("qwen rotary table");
     let mut state = 0x9E37_79B9_7F4A_7C15u64;
     let mut draw = || {
         state = state
@@ -296,7 +297,7 @@ fn rope_turn_angle_tracks_theta_within_2_to_the_minus_31() {
     use core::f64::consts::PI;
     const THETA: f64 = 1.0e6;
     const HEAD_DIM: usize = 64;
-    let t = RopeTable::new(THETA, HEAD_DIM).expect("qwen rotary table");
+    let t = RopeTable::new(F64::from_f64(THETA), HEAD_DIM).expect("qwen rotary table");
     let hd = HEAD_DIM as f64;
     let tau = 2.0 * PI;
     let tol = 2.0f64.powi(-31);
@@ -321,9 +322,18 @@ fn rope_turn_angle_tracks_theta_within_2_to_the_minus_31() {
 
 #[test]
 fn rope_refuses_malformed_tables_and_short_vectors() {
-    assert_eq!(RopeTable::new(1e4, 3), Err(RopeError::BadHeadDim));
-    assert_eq!(RopeTable::new(0.0, 4), Err(RopeError::BadTheta));
-    assert_eq!(RopeTable::new(f64::NAN, 4), Err(RopeError::BadTheta));
+    assert_eq!(
+        RopeTable::new(F64::from_f64(1e4), 3),
+        Err(RopeError::BadHeadDim)
+    );
+    assert_eq!(
+        RopeTable::new(F64::from_f64(0.0), 4),
+        Err(RopeError::BadTheta)
+    );
+    assert_eq!(
+        RopeTable::new(F64::from_f64(f64::NAN), 4),
+        Err(RopeError::BadTheta)
+    );
     assert_eq!(
         RopeTable::from_turns(4, vec![0]),
         Err(RopeError::TableLength)
@@ -1504,7 +1514,7 @@ fn engine_step_refuses_bad_token_capacity_and_shapes() {
     );
     let mut m = Engine::open(&missing).expect("load missing");
     match m.step(1) {
-        Err(StepError::MissingTensor(n)) => assert_eq!(n, "blk.0.ffn_gate.weight"),
+        Err(StepError::MissingTensor(n)) => assert_eq!(n.to_string(), "blk.0.ffn_gate.weight"),
         other => panic!("expected a missing-tensor refusal, got {other:?}"),
     }
 

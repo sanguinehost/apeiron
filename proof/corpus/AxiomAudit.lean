@@ -400,6 +400,7 @@ import Numeric.Quantum.Ledger.EllipticRebit
 #audit Perf.slot_move_gain
 #audit Perf.slot_move_gain_sub
 #audit Perf.lever_ceiling
+#audit Perf.upload_convs_token_free
 #audit Perf.loopRes_sharedLB
 #audit Perf.loopRes_issue_strict
 

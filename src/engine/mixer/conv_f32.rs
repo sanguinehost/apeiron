@@ -2,11 +2,21 @@
 //!
 //! Each pool task owns channels `[c0, c1)` of every row: it converts the Q32 inputs it reads to
 //! f32 in registers (each input word once), writes both the f32 column cache the heads dispatch
-//! reads and the Q32 output columns, and advances its own channels of the window. No scratch is
-//! allocated per call except the `k` Q32 output columns the signature returns; the f32 cache is
-//! the state-wide `conv_shared` buffer, reused at its high-water capacity.
+//! reads and the Q32 output columns, and advances its own channels of the window. The call allocates
+//! the `k` Q32 output columns the signature returns, one flat `k · channels` copy of the input rows,
+//! and `O(k + kernel)` scratch words per pool range; the f32 cache is the state-wide `conv_shared`
+//! buffer, reused at its high-water capacity.
 
-use super::{f32_carrier, AffineLayer, ColWriters, ConvState};
+#![allow(
+    clippy::many_single_char_names,
+    clippy::similar_names,
+    reason = "dense numeric kernels name operands as in the recurrences they implement"
+)]
+
+use super::{alloc_cols, col_writers, f32_carrier, AffineLayer, ColWriters, ConvState, Flat};
+use crate::engine::chart::pool::{set_written_len, set_written_lens};
+use crate::engine::chart::task::IndexTask;
+use crate::engine::fp::F32;
 use crate::engine::step::StepError;
 
 #[cfg(test)]
@@ -38,235 +48,457 @@ unsafe impl<T> Send for Shared<T> {}
 // SAFETY: as above.
 unsafe impl<T> Sync for Shared<T> {}
 
-/// Everything a channel-range task reads or writes.
-struct Job<'a> {
-    w: &'a [i64],
-    xs: &'a [&'a [i64]],
+impl<T> Shared<T> {
+    /// Store `value` at element `i`.
+    ///
+    /// # Safety
+    ///
+    /// `i` is inside the allocation and no other live writer targets element `i`.
+    #[inline]
+    unsafe fn write(&self, i: usize, value: T) {
+        // SAFETY: the caller guarantees the index and the disjointness.
+        unsafe { self.0.add(i).write(value) };
+    }
+}
+
+/// History row `r` (`r < cols`: window, else converted input row `r − cols` of the flat `xs`) at
+/// channel `c`.
+#[inline]
+fn hist_at(window: &[F32], xs: &[i64], cols: usize, ch: usize, r: usize, c: usize) -> F32 {
+    if r < cols {
+        return window[r * ch + c];
+    }
+    f32_carrier::q32_to_f32(xs[(r - cols) * ch + c])
+}
+
+/// Channel `c` of all `k` columns: `ys[j]` is the f32 `SiLU` output, `yq[j]` its Q32 readout. `taps`
+/// and `hist` are `kernel`-word scratch. The first refusal is returned; entries before it are
+/// written, later ones are not.
+///
+/// # Complexity
+///
+/// `O(k · kernel)` f32 FMAs plus `k` `SiLU`s and readouts, `O(kernel)` scratch words: the outer loop
+/// runs `k` times, the tap loop `kernel` times.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::many_single_char_names,
+    reason = "w, x, c, t are the convolution's symbols; the geometry is passed as scalars so every \
+              reference parameter is single-level"
+)]
+fn conv_channel(
+    w: &[i64],
+    window: &[F32],
+    xs: &[i64],
     kernel: usize,
     cols: usize,
     ch: usize,
     k: usize,
-    /// History window, `cols` rows of `ch` f32; read only during the dispatch.
-    window: Shared<f32>,
-    out_f32: Shared<f32>,
-    out_q32: &'a ColWriters,
-}
-
-impl Job<'_> {
-    /// History row `r` (`r < cols`: window, else converted input row `r − cols`) at channel `c`.
-    #[inline]
-    fn hist(&self, r: usize, c: usize) -> f32 {
-        if r < self.cols {
-            // SAFETY: `r < cols`, `c < ch`; the window holds `cols · ch` words.
-            unsafe { *self.window.0.add(r * self.ch + c) }
-        } else {
-            f32_carrier::q32_to_f32(self.xs[r - self.cols][c])
-        }
+    c: usize,
+    taps: &mut [F32],
+    hist: &mut [F32],
+    ys: &mut [F32],
+    yq: &mut [i64],
+) -> Result<(), StepError> {
+    let base = c * kernel;
+    let mut tap = 0;
+    while tap < kernel {
+        taps[tap] = f32_carrier::q32_to_f32(w[base + tap]);
+        hist[tap] = hist_at(window, xs, cols, ch, tap, c);
+        tap += 1;
     }
-
-    /// Channels `[c0, c1)` of every column.
-    fn range(&self, c0: usize, c1: usize, avx2: bool) -> Result<(), StepError> {
-        let mut c = c0;
-        #[cfg(target_arch = "x86_64")]
-        if avx2 {
-            let c_end = c0 + (c1 - c0) / 8 * 8;
-            // SAFETY: AVX2 and FMA were detected by the caller; `[c0, c_end)` lies inside `[0, ch)`.
-            unsafe { self.range_avx2(c0, c_end)? };
-            c = c_end;
+    let mut err: Option<StepError> = None;
+    let mut j = 0;
+    while j < k && err.is_none() {
+        let mut acc = F32::ZERO;
+        let mut tap = 0;
+        while tap < kernel {
+            acc = taps[tap].fma(hist[tap], acc);
+            tap += 1;
         }
-        #[cfg(not(target_arch = "x86_64"))]
-        let _ = avx2;
-        if c < c1 {
-            self.range_scalar(c, c1)?;
-        }
-        Ok(())
-    }
-
-    /// Generic per-channel path: any kernel width, channel tail, no AVX2.
-    #[allow(
-        clippy::many_single_char_names,
-        clippy::needless_range_loop,
-        reason = "w, x, c, t are the convolution's symbols"
-    )]
-    fn range_scalar(&self, c0: usize, c1: usize) -> Result<(), StepError> {
-        let kernel = self.kernel;
-        let mut taps = vec![0.0f32; kernel];
-        let mut hist = vec![0.0f32; kernel];
-        for c in c0..c1 {
-            let base = c * kernel;
-            for (slot, &w_val) in taps.iter_mut().zip(&self.w[base..base + kernel]) {
-                *slot = f32_carrier::q32_to_f32(w_val);
-            }
-            for (idx, slot) in hist.iter_mut().enumerate() {
-                *slot = self.hist(idx, c);
-            }
-            for j in 0..self.k {
-                let mut acc = 0.0f32;
-                for tap in 0..kernel {
-                    acc = taps[tap].mul_add(hist[tap], acc);
-                }
-                if !acc.is_finite() {
-                    return Err(StepError::Overflow);
-                }
-                let y = f32_carrier::silu_f32_scalar(acc);
-                let y_q32 = f32_carrier::f32_readout_to_q32(y)?;
-                // SAFETY: `(j, c)` with `c` in this task's range; column `j` reserved `ch` words.
-                unsafe {
-                    self.out_q32.write(j, c, y_q32);
-                    *self.out_f32.0.add(j * self.ch + c) = y;
-                }
-                if j + 1 < self.k {
-                    hist.copy_within(1..kernel, 0);
-                    hist[kernel - 1] = self.hist(j + kernel, c);
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Four-tap path over whole 8-channel groups `[c0, c_end)`. History rows slide through four
-    /// registers, so each input row is converted once per group.
-    ///
-    /// # Safety
-    ///
-    /// AVX2 and FMA are available; `kernel == 4`; `c0 <= c_end <= ch`, `(c_end − c0) % 8 == 0`.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2,fma")]
-    unsafe fn range_avx2(&self, c0: usize, c_end: usize) -> Result<(), StepError> {
-        use std::arch::x86_64::{__m256, _mm256_loadu_ps, _mm256_storeu_ps};
-        let (ch, k) = (self.ch, self.k);
-        let load8 = |r: usize, c: usize| -> __m256 {
-            if r < self.cols {
-                // SAFETY: `r < cols`, `c + 8 <= ch`.
-                unsafe { _mm256_loadu_ps(self.window.0.add(r * ch + c)) }
-            } else {
-                let x = &self.xs[r - self.cols][c..c + 8];
-                let mut b = [0.0f32; 8];
-                for (d, &s) in b.iter_mut().zip(x) {
-                    *d = f32_carrier::q32_to_f32(s);
-                }
-                // SAFETY: `b` holds 8 f32.
-                unsafe { _mm256_loadu_ps(b.as_ptr()) }
-            }
-        };
-        let mut c = c0;
-        while c < c_end {
-            let mut t = [[0.0f32; 8]; 4];
-            for lane in 0..8 {
-                let base = (c + lane) * 4;
-                for (tap, row) in t.iter_mut().enumerate() {
-                    row[lane] = f32_carrier::q32_to_f32(self.w[base + tap]);
-                }
-            }
-            // SAFETY: each `t[i]` holds 8 f32.
-            let (v0, v1, v2, v3) = unsafe {
-                (
-                    _mm256_loadu_ps(t[0].as_ptr()),
-                    _mm256_loadu_ps(t[1].as_ptr()),
-                    _mm256_loadu_ps(t[2].as_ptr()),
-                    _mm256_loadu_ps(t[3].as_ptr()),
-                )
-            };
-            let (mut h0, mut h1, mut h2) = (load8(0, c), load8(1, c), load8(2, c));
-            for j in 0..k {
-                let h3 = load8(j + 3, c);
-                // SAFETY: this function enables AVX2 and FMA.
-                let vy =
-                    unsafe { f32_carrier::conv_silu_tap4_avx2(v0, v1, v2, v3, h0, h1, h2, h3) };
-                (h0, h1, h2) = (h1, h2, h3);
-                // SAFETY: `(j, c..c + 8)` is in this task's channel range; column `j` reserved
-                // `ch` words; the f32 cache holds `k · ch`.
-                unsafe {
-                    _mm256_storeu_ps(self.out_f32.0.add(j * ch + c), vy);
-                    #[cfg(test)]
-                    if seg::SKIP_READOUT.load(std::sync::atomic::Ordering::Relaxed) {
-                        continue;
+        if acc.is_finite() {
+            let y = f32_carrier::silu_f32_scalar(acc);
+            match f32_carrier::f32_readout_to_q32(y) {
+                Ok(y_q32) => {
+                    ys[j] = y;
+                    yq[j] = y_q32;
+                    if j + 1 < k {
+                        hist.copy_within(1..kernel, 0);
+                        hist[kernel - 1] = hist_at(window, xs, cols, ch, j + kernel, c);
                     }
-                    let dst = self.out_q32.0[j].add(c).cast::<i64>();
-                    f32_carrier::readout8_avx2(vy, dst)?;
                 }
+                Err(e) => err = Some(e),
             }
-            c += 8;
+        } else {
+            err = Some(StepError::Overflow);
         }
-        Ok(())
+        j += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Publish channel `c` of every column: the pool's disjoint-write point.
+///
+/// # Safety
+///
+/// `c` is in this task's channel range; every column `j < ys.len()` reserved `ch` words and the f32
+/// cache holds `ys.len() · ch`.
+#[inline]
+unsafe fn scatter(
+    out_f32: &Shared<F32>,
+    out_q32: &ColWriters,
+    ch: usize,
+    c: usize,
+    ys: &[F32],
+    yq: &[i64],
+) {
+    let mut j = 0;
+    while j < ys.len() {
+        // SAFETY: the caller's contract covers `(j, c)`.
+        unsafe {
+            out_q32.write(j, c, yq[j]);
+            out_f32.write(j * ch + c, ys[j]);
+        }
+        j += 1;
     }
 }
 
-/// The new window: the history's last `cols` rows. It moves only on success, so a refusal leaves
-/// the window as it was.
-fn advance_window(conv: &mut ConvState, xs: &[&[i64]], k: usize, cols: usize, ch: usize) {
+/// Channels `[c0, c1)` of every column, any kernel width, channel tail, no AVX2.
+///
+/// # Complexity
+///
+/// `O((c1 − c0) · k · kernel)` f32 FMAs, `O(k + kernel)` scratch words.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the geometry is scalars so every reference parameter is single-level"
+)]
+fn range_scalar(
+    w: &[i64],
+    window: &[F32],
+    xs: &[i64],
+    kernel: usize,
+    cols: usize,
+    ch: usize,
+    k: usize,
+    out_f32: &Shared<F32>,
+    out_q32: &ColWriters,
+    c0: usize,
+    c1: usize,
+) -> Result<(), StepError> {
+    let mut taps = vec![F32::ZERO; kernel];
+    let mut hist = vec![F32::ZERO; kernel];
+    let mut ys = vec![F32::ZERO; k];
+    let mut yq = vec![0i64; k];
+    let mut err: Option<StepError> = None;
+    let mut c = c0;
+    while c < c1 && err.is_none() {
+        match conv_channel(
+            w, window, xs, kernel, cols, ch, k, c, &mut taps, &mut hist, &mut ys, &mut yq,
+        ) {
+            // SAFETY: `c` is in this task's range; column `j` reserved `ch` words.
+            Ok(()) => unsafe { scatter(out_f32, out_q32, ch, c, &ys, &yq) },
+            Err(e) => err = Some(e),
+        }
+        c += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Four-tap path over whole 8-channel groups `[c0, c_end)`. History rows slide through four
+/// registers, so each input row is converted once per group. SIMD twin of [`range_scalar`]: intrinsic
+/// body, opaque to the extraction.
+///
+/// # Safety
+///
+/// AVX2 and FMA are available; `kernel == 4`; `c0 <= c_end <= ch`, `(c_end − c0) % 8 == 0`.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the geometry is scalars so every reference parameter is single-level"
+)]
+unsafe fn range_avx2(
+    w: &[i64],
+    window: &[F32],
+    xs: &[i64],
+    cols: usize,
+    ch: usize,
+    k: usize,
+    out_f32: &Shared<F32>,
+    out_q32: &ColWriters,
+    c0: usize,
+    c_end: usize,
+) -> Result<(), StepError> {
+    use std::arch::x86_64::{__m256, _mm256_loadu_ps, _mm256_storeu_ps};
+    let load8 = |r: usize, c: usize| -> __m256 {
+        if r < cols {
+            // SAFETY: `r < cols`, `c + 8 <= ch`.
+            unsafe { _mm256_loadu_ps(window.as_ptr().add(r * ch + c).cast::<f32>()) }
+        } else {
+            let at = (r - cols) * ch + c;
+            let x = &xs[at..at + 8];
+            let mut b = [F32::ZERO; 8];
+            let mut i = 0;
+            while i < 8 {
+                b[i] = f32_carrier::q32_to_f32(x[i]);
+                i += 1;
+            }
+            // SAFETY: `b` holds 8 f32.
+            unsafe { _mm256_loadu_ps(b.as_ptr().cast::<f32>()) }
+        }
+    };
+    let mut err: Option<StepError> = None;
+    let mut c = c0;
+    while c < c_end && err.is_none() {
+        let mut t = [[F32::ZERO; 8]; 4];
+        #[allow(
+            clippy::needless_range_loop,
+            reason = "a Range iterator is outside the extraction fragment"
+        )]
+        for lane in 0..8 {
+            let base = (c + lane) * 4;
+            let mut tap = 0;
+            while tap < 4 {
+                t[tap][lane] = f32_carrier::q32_to_f32(w[base + tap]);
+                tap += 1;
+            }
+        }
+        // SAFETY: each `t[i]` holds 8 f32.
+        let (v0, v1, v2, v3) = unsafe {
+            (
+                _mm256_loadu_ps(t[0].as_ptr().cast::<f32>()),
+                _mm256_loadu_ps(t[1].as_ptr().cast::<f32>()),
+                _mm256_loadu_ps(t[2].as_ptr().cast::<f32>()),
+                _mm256_loadu_ps(t[3].as_ptr().cast::<f32>()),
+            )
+        };
+        let (mut h0, mut h1, mut h2) = (load8(0, c), load8(1, c), load8(2, c));
+        let mut j = 0;
+        while j < k && err.is_none() {
+            let h3 = load8(j + 3, c);
+            // SAFETY: this function enables AVX2 and FMA.
+            let vy = unsafe { f32_carrier::conv_silu_tap4_avx2(v0, v1, v2, v3, h0, h1, h2, h3) };
+            (h0, h1, h2) = (h1, h2, h3);
+            // SAFETY: `(j, c..c + 8)` is in this task's channel range; column `j` reserved
+            // `ch` words; the f32 cache holds `k · ch`.
+            unsafe {
+                _mm256_storeu_ps(out_f32.0.add(j * ch + c).cast::<f32>(), vy);
+            }
+            #[cfg(test)]
+            let skip = seg::SKIP_READOUT.load(std::sync::atomic::Ordering::Relaxed);
+            #[cfg(not(test))]
+            let skip = false;
+            if !skip {
+                // SAFETY: column `j` reserved `ch` words and `c + 8 <= ch`.
+                let res = unsafe {
+                    let dst = out_q32.0[j].add(c).cast::<i64>();
+                    f32_carrier::readout8_avx2(vy, dst)
+                };
+                if let Err(e) = res {
+                    err = Some(e);
+                }
+            }
+            j += 1;
+        }
+        c += 8;
+    }
+    if let Some(e) = err {
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Channels `[c0, c1)` of every column: AVX2 over whole 8-channel groups when `avx2`, the scalar
+/// path for the rest.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the geometry is scalars so every reference parameter is single-level"
+)]
+fn range(
+    w: &[i64],
+    window: &[F32],
+    xs: &[i64],
+    kernel: usize,
+    cols: usize,
+    ch: usize,
+    k: usize,
+    out_f32: &Shared<F32>,
+    out_q32: &ColWriters,
+    c0: usize,
+    c1: usize,
+    avx2: bool,
+) -> Result<(), StepError> {
+    let mut c = c0;
+    #[cfg(target_arch = "x86_64")]
+    if avx2 {
+        let c_end = c0 + (c1 - c0) / 8 * 8;
+        // SAFETY: AVX2 and FMA were detected by the caller; `[c0, c_end)` lies inside `[0, ch)`.
+        unsafe { range_avx2(w, window, xs, cols, ch, k, out_f32, out_q32, c0, c_end)? };
+        c = c_end;
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    let _ = avx2;
+    if c < c1 {
+        range_scalar(w, window, xs, kernel, cols, ch, k, out_f32, out_q32, c, c1)?;
+    }
+    Ok(())
+}
+
+/// The new window: the history's last `cols` rows of the flat `xs` (`k` rows of `ch`). It moves
+/// only on success, so a refusal leaves the window as it was.
+fn advance_window(conv: &mut ConvState, xs: &[i64], k: usize, cols: usize, ch: usize) {
     match conv {
         ConvState::F32(window) => {
-            for r in 0..cols {
+            let mut r = 0;
+            while r < cols {
                 if k + r < cols {
                     window.copy_within((k + r) * ch..(k + r + 1) * ch, r * ch);
                 } else {
-                    for (d, &s) in window[r * ch..(r + 1) * ch]
-                        .iter_mut()
-                        .zip(xs[k + r - cols])
-                    {
-                        *d = f32_carrier::q32_to_f32(s);
+                    let mut c = 0;
+                    while c < ch {
+                        window[r * ch + c] = f32_carrier::q32_to_f32(xs[(k + r - cols) * ch + c]);
+                        c += 1;
                     }
                 }
+                r += 1;
             }
         }
         ConvState::Q32(window) => {
             let mut next = vec![0i64; cols * ch];
-            for r in 0..cols {
-                for c in 0..ch {
+            let mut r = 0;
+            while r < cols {
+                let mut c = 0;
+                while c < ch {
                     next[r * ch + c] = if k + r < cols {
                         window[(k + r) * ch + c]
                     } else {
-                        xs[k + r - cols][c]
+                        xs[(k + r - cols) * ch + c]
                     };
+                    c += 1;
                 }
+                r += 1;
             }
             *window = next;
         }
     }
 }
 
+/// The shared borrows of the pooled convolution dispatch; `run` is the single call to [`pooled_task`].
+struct PooledCtx<'a> {
+    w: &'a [i64],
+    window: &'a [F32],
+    xs: &'a [i64],
+    /// `[kernel, cols, ch, k, per]`.
+    dims: [usize; 5],
+    out_f32: &'a Shared<F32>,
+    out_q32: &'a ColWriters,
+    avx2: bool,
+    first: &'a crate::engine::chart::pool::FirstErr<usize, StepError>,
+}
+
+impl IndexTask for PooledCtx<'_> {
+    fn run(&self, t: usize) {
+        pooled_task(
+            self.w,
+            self.window,
+            self.xs,
+            self.dims,
+            self.out_f32,
+            self.out_q32,
+            self.avx2,
+            self.first,
+            t,
+        );
+    }
+}
+
+/// Pool task `t`: channels `[t·per, (t+1)·per) ∩ [0, ch)` through [`range`]; a refusal is recorded
+/// under the range's first channel.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the geometry is scalars so every reference parameter is single-level"
+)]
+fn pooled_task(
+    w: &[i64],
+    window: &[F32],
+    xs: &[i64],
+    dims: [usize; 5],
+    out_f32: &Shared<F32>,
+    out_q32: &ColWriters,
+    avx2: bool,
+    first: &crate::engine::chart::pool::FirstErr<usize, StepError>,
+    t: usize,
+) {
+    let [kernel, cols, ch, k, per] = dims;
+    let c0 = t * per;
+    let c1 = (c0 + per).min(ch);
+    if c0 >= c1 {
+        return;
+    }
+    #[cfg(test)]
+    let t_task = std::time::Instant::now();
+    let res = range(
+        w, window, xs, kernel, cols, ch, k, out_f32, out_q32, c0, c1, avx2,
+    );
+    #[cfg(test)]
+    {
+        seg::add(2, t_task);
+        seg::max(3, t_task);
+    }
+    if let Err(e) = res {
+        first.record(c0, e);
+    }
+}
+
 /// One pool dispatch over `max(4 · width, 96)` channel ranges. A range can refuse only with
 /// `Overflow`, so which range's refusal is kept is immaterial.
-fn run_pooled(job: &Job<'_>, avx2: bool) -> Result<(), StepError> {
-    let ch = job.ch;
-    let pool = crate::engine::chart::pool::Pool::global();
-    let target_tasks = (4 * pool.width()).max(96);
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the geometry is scalars so every reference parameter is single-level"
+)]
+fn run_pooled(
+    w: &[i64],
+    window: &[F32],
+    xs: &[i64],
+    kernel: usize,
+    cols: usize,
+    ch: usize,
+    k: usize,
+    out_f32: &Shared<F32>,
+    out_q32: &ColWriters,
+    avx2: bool,
+) -> Result<(), StepError> {
+    let target_tasks = (4 * crate::engine::chart::pool::width_global()).max(96);
     let per = ch.div_ceil(target_tasks).max(8).div_ceil(8) * 8;
     let tasks = ch.div_ceil(per);
-    let first: std::sync::Mutex<Option<StepError>> = std::sync::Mutex::new(None);
+    let first: crate::engine::chart::pool::FirstErr<usize, StepError> =
+        crate::engine::chart::pool::FirstErr::new();
     #[cfg(test)]
     let t_pool = std::time::Instant::now();
-    pool.run(tasks, &|t| {
-        let c0 = t * per;
-        let c1 = (c0 + per).min(ch);
-        if c0 >= c1 {
-            return;
-        }
-        #[cfg(test)]
-        let t_task = std::time::Instant::now();
-        let res = job.range(c0, c1, avx2);
-        #[cfg(test)]
-        {
-            seg::add(2, t_task);
-            seg::max(3, t_task);
-        }
-        if let Err(e) = res {
-            let mut f = first
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if f.is_none() {
-                *f = Some(e);
-            }
-        }
-    });
+    let ctx = PooledCtx {
+        w,
+        window,
+        xs,
+        dims: [kernel, cols, ch, k, per],
+        out_f32,
+        out_q32,
+        avx2,
+        first: &first,
+    };
+    crate::engine::chart::pool::run_global(tasks, &ctx);
     #[cfg(test)]
     seg::add(1, t_pool);
-    first.into_inner().unwrap_or_default().map_or(Ok(()), Err)
+    first.take().map_or(Ok(()), |(_, e)| Err(e))
 }
 
 /// The causal depthwise f32 convolution and `SiLU` of `k > 1` columns; window, output columns and
-/// the f32 column cache as [`super::conv_silu_cols`] describes.
+/// the f32 column cache as [`super::conv_silu_cols`] describes. The input rows arrive as the flat
+/// `k · channels` buffer of [`super::flatten_cols`].
 ///
 /// # Complexity
 ///
@@ -278,31 +510,31 @@ pub(super) fn conv_silu_cols_f32(
     layer: &mut AffineLayer,
     w: &[i64],
     kernel: usize,
-    xs: &[&[i64]],
+    flat: &Flat,
 ) -> Result<Vec<Vec<i64>>, StepError> {
     #[cfg(test)]
     let t_setup = std::time::Instant::now();
-    let k = xs.len();
-    let ch = xs.first().map_or(0, |x| x.len());
+    let (k, ch) = (flat.k, flat.ch);
+    let xs: &[i64] = &flat.data;
     let cols = kernel
         .checked_sub(1)
-        .ok_or(StepError::BadConfig("conv_kernel"))?;
-    if k == 0
-        || xs.iter().any(|x| x.len() != ch)
-        || w.len() != kernel * ch
-        || layer.conv.len() != cols * ch
-    {
-        return Err(StepError::BadConfig("conv geometry"));
+        .ok_or(StepError::BadConfig(String::from("conv_kernel")))?;
+    if k == 0 || flat.ragged || w.len() != kernel * ch || layer.conv.len() != cols * ch {
+        return Err(StepError::BadConfig(String::from("conv geometry")));
     }
 
     // A Q32 window (test and benchmark callers) is converted into scratch and rebuilt serially.
-    let mut window_storage: Vec<f32> = Vec::new();
-    let window_ptr = match &mut layer.conv {
-        ConvState::F32(v) => v.as_mut_ptr(),
-        ConvState::Q32(v) => {
-            window_storage.extend(v.iter().copied().map(f32_carrier::q32_to_f32));
-            window_storage.as_mut_ptr()
+    let mut window_storage: Vec<F32> = Vec::new();
+    if let ConvState::Q32(v) = &layer.conv {
+        let mut wi = 0usize;
+        while wi < v.len() {
+            window_storage.push(f32_carrier::q32_to_f32(v[wi]));
+            wi += 1;
         }
+    }
+    let window: &[F32] = match &layer.conv {
+        ConvState::F32(v) => v.as_slice(),
+        ConvState::Q32(_) => window_storage.as_slice(),
     };
 
     // The f32 column cache is the buffer shared by every layer of the state, locked for the
@@ -310,32 +542,15 @@ pub(super) fn conv_silu_cols_f32(
     // empty, so `reserve_exact` moves no words, and the capacity is reached once and kept. It is
     // never zero-filled because the dispatch writes every word before `set_len`.
     let shared_arc = std::sync::Arc::clone(&layer.conv_shared);
-    let mut shared = shared_arc
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut shared = shared_arc.lock();
     shared.k = 0;
     shared.buf.clear();
     shared.buf.reserve_exact(k * ch);
     let by_col_f32 = &mut shared.buf;
 
-    let mut by_col: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(ch)).collect();
-    let writers = ColWriters(
-        by_col
-            .iter_mut()
-            .map(|v| v.spare_capacity_mut().as_mut_ptr())
-            .collect(),
-    );
-    let job = Job {
-        w,
-        xs,
-        kernel,
-        cols,
-        ch,
-        k,
-        window: Shared(window_ptr),
-        out_f32: Shared(by_col_f32.spare_capacity_mut().as_mut_ptr().cast::<f32>()),
-        out_q32: &writers,
-    };
+    let mut by_col = alloc_cols(k, ch);
+    let writers = col_writers(&mut by_col);
+    let out_f32 = Shared(by_col_f32.spare_capacity_mut().as_mut_ptr().cast::<F32>());
     let avx2 = kernel == 4
         && std::is_x86_feature_detected!("avx2")
         && std::is_x86_feature_detected!("fma");
@@ -343,22 +558,22 @@ pub(super) fn conv_silu_cols_f32(
     seg::add(0, t_setup);
 
     let result = if k == 1 {
-        job.range(0, ch, avx2)
+        range(
+            w, window, xs, kernel, cols, ch, k, &out_f32, &writers, 0, ch, avx2,
+        )
     } else {
-        run_pooled(&job, avx2)
+        run_pooled(w, window, xs, kernel, cols, ch, k, &out_f32, &writers, avx2)
     };
 
     #[cfg(test)]
     let t_end = std::time::Instant::now();
     if result.is_ok() {
-        for col in &mut by_col {
-            // SAFETY: a refusal-free dispatch wrote all `ch` words of every column.
-            unsafe { col.set_len(ch) };
-        }
+        // SAFETY: a refusal-free dispatch wrote all `ch` words of every column.
+        unsafe { set_written_lens(&mut by_col, ch) };
         // SAFETY: `by_col_f32` was cleared (length 0) and `reserve_exact(k · ch)` ran, so its
         // capacity is at least `k · ch` whatever its previous length; the same dispatch wrote all
         // `k · ch` words of the spare capacity, so the new length covers initialised words only.
-        unsafe { by_col_f32.set_len(k * ch) };
+        unsafe { set_written_len(by_col_f32, k * ch) };
         advance_window(&mut layer.conv, xs, k, cols, ch);
         shared.owner = layer.slot;
         shared.k = k;
@@ -376,13 +591,22 @@ pub(super) fn conv_silu_cols_f32(
     reason = "test data generation and oracle indexing"
 )]
 mod tests {
+    use super::super::flatten_cols;
     use super::super::{AffineGeom, AffineState, Carrier, ConvState};
     use super::{conv_silu_cols_f32, seg};
+    use crate::engine::fp::F32;
     use crate::engine::mixer::f32_carrier::{
         conv_silu_tap4_scalar, f32_readout_to_q32, q32_to_f32, readout8_avx2,
     };
     use std::sync::atomic::Ordering::Relaxed;
     use std::time::Instant;
+
+    fn t(x: f32) -> F32 {
+        F32::from_bits(x.to_bits())
+    }
+    fn bits(v: &[F32]) -> Vec<u32> {
+        v.iter().map(|x| x.to_bits()).collect()
+    }
 
     struct Rng(u64);
     impl Rng {
@@ -466,7 +690,7 @@ mod tests {
             blocks.push(b);
         }
         for b in blocks {
-            let expect: Result<Vec<i64>, _> = b.iter().map(|&o| f32_readout_to_q32(o)).collect();
+            let expect: Result<Vec<i64>, _> = b.iter().map(|&o| f32_readout_to_q32(t(o))).collect();
             let mut got = [0i64; 8];
             // SAFETY: AVX2 checked; `got` holds 8 words.
             let res = unsafe {
@@ -495,12 +719,12 @@ mod tests {
         let w: Vec<i64> = (0..4 * ch)
             .map(|_| (rng.unit() * 4_294_967_296.0) as i64)
             .collect();
-        let taps: Vec<[f32; 4]> = (0..ch)
+        let taps: Vec<[F32; 4]> = (0..ch)
             .map(|c| std::array::from_fn(|t| q32_to_f32(w[c * 4 + t])))
             .collect();
         let mut st = AffineState::with_slices_carrier(&g, 1, 1, Carrier::F32);
         let layer = st.layer_mut(0).unwrap();
-        let mut win: Vec<Vec<f32>> = vec![vec![0.0; ch]; 3];
+        let mut win: Vec<Vec<F32>> = vec![vec![F32::ZERO; ch]; 3];
         for &k in &[5usize, 2, 1, 40] {
             let xs: Vec<Vec<i64>> = (0..k)
                 .map(|_| {
@@ -510,14 +734,14 @@ mod tests {
                 })
                 .collect();
             let refs: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
-            let got = conv_silu_cols_f32(layer, &w, 4, &refs).unwrap();
+            let got = conv_silu_cols_f32(layer, &w, 4, &flatten_cols(&refs)).unwrap();
             let mut hist = win.clone();
             hist.extend(
                 xs.iter()
-                    .map(|x| x.iter().map(|&v| q32_to_f32(v)).collect::<Vec<f32>>()),
+                    .map(|x| x.iter().map(|&v| q32_to_f32(v)).collect::<Vec<F32>>()),
             );
             let (cache, tag_k, owner) = {
-                let sh = layer.conv_shared.lock().unwrap();
+                let sh = layer.conv_shared.lock();
                 (sh.buf.clone(), sh.k, sh.owner)
             };
             assert_eq!((tag_k, owner), (k, 0));
@@ -566,7 +790,7 @@ mod tests {
         let layer = st.layer_mut(0).unwrap();
         let mut xs: Vec<Vec<i64>> = vec![vec![1 << 32; ch]; 6];
         let refs: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
-        conv_silu_cols_f32(layer, &w, 4, &refs).unwrap();
+        conv_silu_cols_f32(layer, &w, 4, &flatten_cols(&refs)).unwrap();
         let before = layer.conv.len();
         let ConvState::F32(w0) = &layer.conv else {
             unreachable!()
@@ -575,13 +799,13 @@ mod tests {
         xs[3][ch - 1] = i64::MAX;
         let big = vec![i64::MAX; 4 * ch];
         let refs: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
-        assert!(conv_silu_cols_f32(layer, &big, 4, &refs).is_err());
+        assert!(conv_silu_cols_f32(layer, &big, 4, &flatten_cols(&refs)).is_err());
         let ConvState::F32(w1) = &layer.conv else {
             unreachable!()
         };
         assert_eq!(layer.conv.len(), before);
-        assert_eq!(&w0, w1);
-        assert_eq!(layer.conv_shared.lock().unwrap().k, 0);
+        assert_eq!(bits(&w0), bits(w1));
+        assert_eq!(layer.conv_shared.lock().k, 0);
     }
 
     /// Two layers of one state share one buffer; the tag names the layer that wrote it, and a
@@ -599,8 +823,8 @@ mod tests {
                 .map(|j| vec![(i64::try_from(slot * 100 + j + 1).unwrap()) << 28; ch])
                 .collect();
             let refs: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
-            conv_silu_cols_f32(layer, &w, 4, &refs).unwrap();
-            let sh = layer.conv_shared.lock().unwrap();
+            conv_silu_cols_f32(layer, &w, 4, &flatten_cols(&refs)).unwrap();
+            let sh = layer.conv_shared.lock();
             assert_eq!((sh.owner, sh.k, sh.buf.len()), (slot, k, k * ch));
             assert!(sh.buf.capacity() >= k * ch);
             // the shared buffer is reused (not reallocated) while it is large enough
@@ -612,7 +836,7 @@ mod tests {
             }
         }
         let l0 = st.layer_mut(0).unwrap();
-        let sh = l0.conv_shared.lock().unwrap();
+        let sh = l0.conv_shared.lock();
         assert_eq!(sh.owner, 1, "layer 1 wrote last");
     }
 
@@ -654,7 +878,7 @@ mod tests {
                     n.store(0, Relaxed);
                 }
                 let t0 = Instant::now();
-                let out = conv_silu_cols_f32(layer, &w, kernel, &refs).unwrap();
+                let out = conv_silu_cols_f32(layer, &w, kernel, &flatten_cols(&refs)).unwrap();
                 let total = t0.elapsed().as_secs_f64() * 1e3;
                 let t1 = Instant::now();
                 drop(out);

@@ -85,7 +85,12 @@ where
         }
         // A reverse link the merge path admitted is covered only once the cold assembly has linked
         // its path, so the unresolved sentinel issues no certificate.
-        if self.locator.links.iter().any(|(node, _)| *node == UNRESOLVED_IDENTITY_NODE) {
+        if self
+            .locator
+            .links
+            .iter()
+            .any(|(node, _)| *node == UNRESOLVED_IDENTITY_NODE)
+        {
             return false;
         }
         // Forward: every link names a live payload whose complete path reaches its own terminal.
@@ -162,19 +167,36 @@ where
 /// Temporal `O(slots)`; spatial `O(live)`.
 fn live_locations_of<V, R>(resident: &Flat<R, V>, shards: &[Region<R, V>]) -> Vec<PayloadLocation> {
     let mut locations = Vec::new();
-    for (index, slot) in resident.slots.iter().enumerate() {
-        if slot.live {
+    let mut index = 0usize;
+    while index < resident.slots.len() {
+        if resident.slots[index].live {
             locations.push(PayloadLocation::Resident(index));
         }
+        index += 1;
     }
-    for (shard, region) in shards.iter().enumerate() {
-        for (index, slot) in region.slots.iter().enumerate() {
-            if slot.live() {
-                locations.push(PayloadLocation::Spill(shard, index));
-            }
-        }
+    let mut shard = 0usize;
+    while shard < shards.len() {
+        push_live_spill(&shards[shard], shard, &mut locations);
+        shard += 1;
     }
     locations
+}
+
+/// Appends the live slots of one spill region as `Spill(shard, index)`, in slot order.
+///
+/// Temporal `O(slots)`; spatial `O(live)` in `locations`.
+fn push_live_spill<R, V>(
+    region: &Region<R, V>,
+    shard: usize,
+    locations: &mut Vec<PayloadLocation>,
+) {
+    let mut index = 0usize;
+    while index < region.slots.len() {
+        if region.slots[index].live() {
+            locations.push(PayloadLocation::Spill(shard, index));
+        }
+        index += 1;
+    }
 }
 
 /// Resolves a location to its stored face and held carrier, or `None` when it is not live.
@@ -1247,7 +1269,9 @@ mod locator_tests {
             !table.check_storage_coverage(),
             "an admitted but as-yet unassembled representative issues no certificate"
         );
-        table.assemble_directory().expect("the live payload assembles");
+        table
+            .assemble_directory()
+            .expect("the live payload assembles");
         assert!(
             table.locator.directory.is_some(),
             "the assembly materializes the directory"
@@ -1361,7 +1385,9 @@ mod locator_tests {
         table
             .insert_with_at(&ReplacementMerge, Sigma::Parabolic, 7, 41)
             .unwrap();
-        table.assemble_directory().expect("the first insert assembles");
+        table
+            .assemble_directory()
+            .expect("the first insert assembles");
         let links = table.locator.links.clone();
         table
             .insert_with_at(&ReplacementMerge, Sigma::Parabolic, 7, 99)
@@ -1613,24 +1639,36 @@ mod locator_tests {
         // The commit moved the rebuilt storage in: one more live payload, the planned resident
         // extent, and both payloads readable at their own locations.
         assert_eq!(table.len(), before_len + 1);
-        assert_eq!(table.resident.lanes, lanes, "the committed extent is the planned one");
+        assert_eq!(
+            table.resident.lanes, lanes,
+            "the committed extent is the planned one"
+        );
         assert!(table.resident.lanes > before_lanes, "the extent grew");
-        assert_eq!(*table.get_at(Sigma::Parabolic, &7), 41, "the relocated payload readback");
-        assert_eq!(*table.get_at(Sigma::Parabolic, &99), 99, "the committed payload readback");
+        assert_eq!(
+            *table.get_at(Sigma::Parabolic, &7),
+            41,
+            "the relocated payload readback"
+        );
+        assert_eq!(
+            *table.get_at(Sigma::Parabolic, &99),
+            99,
+            "the committed payload readback"
+        );
 
         // Its only locator effect is the admitted count, one scalar write into the extent the batch
         // reserved before the merge: no path is staged and no reverse link is written.
         assert!(table.locator.staged.is_none(), "the rebuild stages nothing");
         assert_eq!(
-            table.locator.admitted,
-            2,
+            table.locator.admitted, 2,
             "one admitted representative per committed payload"
         );
         assert!(
             table.locator.links.is_empty(),
             "the merge path writes no reverse link; assembly builds the registry"
         );
-        table.assemble_directory().expect("the rebuilt table assembles");
+        table
+            .assemble_directory()
+            .expect("the rebuilt table assembles");
         assert_eq!(
             table.locator.links.len(),
             2,

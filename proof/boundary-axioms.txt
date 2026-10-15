@@ -7,14 +7,224 @@
 #
 # Format: <generated Lean axiom name><TAB><why it is admitted>
 #
-# Each name below is an operation Charon did not translate and the pinned Aeneas Lean model does
-# not define, so Aeneas emits it as an `axiom`. All four are one boundary: the `f32` carrier of
-# the attention path. The carrier's allocation and conversion primitives and `is_finite` are the
-# named boundary, and every claim about their users is relative to it. The consequence for a
-# reader: a theorem below them is proved for whatever these four assert, not for the hardware
-# `f32` path.
+# Every entry is an operation Charon did not translate or the pinned Aeneas Lean model does not
+# define, so Aeneas emits it as an `axiom`. Each class below is a named trust boundary; every claim
+# about an extracted body that calls one is relative to it. Classes marked `shrink-only` are
+# obligations to model or remove, not permanent permissions: the list may lose entries and never
+# gains one without an owner-reviewed class.
 
-core.f32.F32.is_finite	the finite predicate on the modelled `F32` value type. The model carries `F32` as a value and has no `is_finite`, so the predicate is the boundary for "is this f32 finite". Callers are proved relative to it.
-attn.alloc_f32_storage	the `Carrier::F32` allocation of a zeroed binary32 plane per layer, `src/engine/attn.rs` 118:0-123:1. Admitted as the boundary rather than translated, because it is the only operation the `KvState` constructor performs on an `f32` value. `KvState::with_carrier` is transparent: its five zero-parameter guards, the GQA divisibility guard, the `fixed_rsqrt` window, the two checked plane products, the `Carrier::Q32` allocation and the `Ok` record are all translated, so constructor claims are relative to this allocation alone. `KvState::new` and `mixer::carrier_from_env` are recorded non-claims.
-mixer.f32_carrier.q32_to_f32	the single q32-to-f32 conversion primitive of that carrier, `src/engine/mixer/f32_carrier.rs` 826:0-828:1.
-attn.KvState.attn_head_f32	the f32 attention-head body behind that carrier, `src/engine/attn.rs` 1263:4-1398:5.
+## fp.prim (FORM-FLOAT D1)
+# binary32/binary64 primitives behind F32(u32); opaque host float ops. Grade tested (src/engine/fp.rs agreement tests).
+core.f32.F32.from_bits	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.add	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.cpu_avx2_fma	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.div	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.eps_q32	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.eq	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.f64_positive_finite	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.fma	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.from_i64	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.le	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.lt	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.max	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.mul	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.rope_turn	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.round_ties_even	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.sqrt	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.sub	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.to_i32_sat	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+
+## pool (FORM-PAR-POOL)
+# Opaque pool entries, grade tested: each is one dispatch over Pool::run. Spec: sequential fold; lowest-index Err; every task once; tasks write only their own piece.
+chart.pool.chunks.for_chunks	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.chunks.for_chunks2	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.chunks.for_chunks3	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.chunks.for_chunks4	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.chunks.for_pbands	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.chunks.for_vec_chunks	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.chunks_mut_global	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.chunks.PBand	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.chunks.PBand.push	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.chunks.PBand.rows	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.chunks.set_written_len	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.chunks.set_written_lens	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.Excl	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.Excl.get_mut	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.Excl.lock	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.Excl.new	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.FirstErr	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.FirstErr.new	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.FirstErr.record	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.FirstErr.take	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.Flag	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.Flag.get	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.Flag.new	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.Flag.set	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.Held	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.Held.Insts.CoreOpsDerefDeref.deref	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.Held.Insts.CoreOpsDerefDerefMut.deref_mut	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.run_global	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+chart.pool.width_global	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
+
+## SIMD twins and intrinsics
+# AVX2/AVX/SSE2 bodies. Each twin has a scalar Lean body and a *_equals_scalar test; intrinsics are stdarch items. MXCSR and codegen are named boundaries. Grade tested.
+attn.f32_core.attn_core_f32_strided_avx2_inner	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+chart.ffn.swiglu_f32_avx2_8_into	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+chart.Q4_KDecoder.Insts.Apeiron_wordChartFastBlockDecoder.decode_step_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+chart.Q5_0Decoder.Insts.Apeiron_wordChartFastBlockDecoder.decode_step_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+chart.Q6_KDecoder.Insts.Apeiron_wordChartFastBlockDecoder.decode_step_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+chart.Q8_0Decoder.Insts.Apeiron_wordChartFastBlockDecoder.decode_step_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+chart.q8_0_row_kcols_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+chart.x86.avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+chart.x86.dot16_i8	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+chart.x86.dot32_i8	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+chart.x86.q4_k_window_dot	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+chart.x86.tiled2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+core.core_arch.x86.avx2._mm256_abs_epi8	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+core.core_arch.x86.avx2._mm256_extracti128_si256	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+core.core_arch.x86.avx2._mm256_madd_epi16	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+core.core_arch.x86.avx2._mm256_maddubs_epi16	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+core.core_arch.x86.avx2._mm256_sign_epi8	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+core.core_arch.x86.avx._mm256_castsi256_si128	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+core.core_arch.x86.avx._mm256_loadu_ps	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+core.core_arch.x86.avx._mm256_set1_epi16	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+core.core_arch.x86.avx._mm256_storeu_ps	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+core.core_arch.x86.__m256	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+core.core_arch.x86.sse2._mm_add_epi32	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+core.core_arch.x86.sse2._mm_cvtsi128_si32	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+core.core_arch.x86.sse2._mm_shuffle_epi32	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+kern.bitplane.x86.high_dot_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+kern.bitplane.x86.low_dot_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+kern.bitplane.x86.row_interval_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+kern.gemm.x86.rows	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+kern.gemm.x86.rows_swiglu	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+kern.lut.block_inners_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+kern.lut.tile_accs_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+kern.matmat.q5_0_block_kdots_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+mixer.conv_f32.range_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+mixer.delta_head_step_fast	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+mixer.f32_carrier.conv_silu_tap4_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+mixer.f32_carrier.delta_step_f32_avx2_inner	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+mixer.f32_carrier.l2_normalize_f32_in_place_avx2_inner	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+mixer.f32_carrier.stage2_gated_norm_f32_avx2_inner	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+std_detect.detect.arch.x86.__is_feature_detected.avxvnni	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+std_detect.detect.arch.x86.__is_feature_detected.fma	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+
+## host environment
+# Process flags, filesystem, threads, allocator tuning, CPU detection, tracing. Not computation on the model; named trust boundary, grade tested.
+alloc.fmt.format	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+gguf.host_read_all	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+gguf.host_read_at	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+gguf.host_read_prefix	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+libc.unix.linux_like.linux.gnu.mallopt	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+libc.unix.linux_like.linux.gnu.M_MMAP_THRESHOLD	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+libc.unix.linux_like.linux.gnu.M_TRIM_THRESHOLD	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+loader.optional_f64	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+mixer.carrier_from_env	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+mixer.exact_scan	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+mixer.head_slices_setting	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+par.matvec_rows_chunked	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+par.online_threads	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+std.sync.once_lock.OnceLock	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+std.sync.once_lock.OnceLock.get_or_init	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+std.sync.once_lock.OnceLock.new	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+std.sync.once.Once	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+std.sync.once.Once.call_once	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+std.sync.once.Once.new	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+step.bitplane_enabled	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+step.cols.exact_scan_enabled	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+step.prefill_block	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+trace.macs	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+trace.q8_bytes	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+trace.span	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+trace.Span	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+
+## std-model gap (shrink-only)
+# Documented std operations the pinned Aeneas model does not define. Obligation: define in proof/model-patches or remove from the closure.
+alloc.borrow.Cow.Insts.CoreConvertAsRef.as_ref	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.borrow.Cow.into_owned	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.boxed.BoxMaybeUninit.write	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.boxed.Box.new_uninit	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.slice.Slice.sort_by_key	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.string.String.as_bytes	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.string.String.from_utf8_lossy	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.string.String.Insts.CoreBorrowBorrowStr.borrow	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.string.String.Insts.CoreCloneClone.clone	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.string.String.Insts.CoreCmpPartialEqShared0Str.eq	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.string.String.Insts.CoreCmpPartialEqShared0Str.ne	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.string.String.Insts.CoreConvertFromShared0Str.from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.string.String.Insts.CoreFmtDebug.fmt	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.string.String.Insts.CoreFmtDisplay.fmt	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.string.String.Insts.CoreOpsDerefDerefStr.deref	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.string.String.new	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.string.ToString.Blanket.to_string	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.sync.Arc	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.sync.Arc.Insts.CoreCloneClone.clone	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.sync.Arc.Insts.CoreOpsDerefDeref.deref	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.sync.Arc.new	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.vec.Vec.as_mut_ptr	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.vec.Vec.as_ptr	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.vec.Vec.as_slice	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.vec.Vec.Insts.CoreBorrowBorrowSlice.borrow	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.vec.Vec.Insts.CoreCloneClone.clone_from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.vec.Vec.Insts.CoreIterTraitsCollectExtend.extend	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.vec.Vec.reserve	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.vec.Vec.reserve_exact	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+alloc.vec.Vec.spare_capacity_mut	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+Array.Insts.CoreIterTraitsCollectIntoIteratorTIntoIter.into_iter	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.array.iter.IntoIter	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.array.iter.IntoIter.Insts.CoreIterTraitsIteratorIterator.next	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.hint.must_use	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.num.I128.abs	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.num.I128.saturating_mul	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.num.I64.abs	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.num.I64.count_ones	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.num.I64.trailing_zeros	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.num.I64.unsigned_abs	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.num.I8.from_ne_bytes	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.num.U64.div_ceil	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.num.U64.is_power_of_two	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.num.U64.saturating_mul	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.num.U64.trailing_zeros	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.ops.range.RangeInclusive.contains	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.ops.range.Range.Insts.CoreOpsRangeRangeBounds.end_bound	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.ops.range.Range.Insts.CoreOpsRangeRangeBounds.start_bound	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.option.Option.filter	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.option.Option.Insts.CoreCloneClone.clone	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.option.Option.Insts.CoreCloneClone.clone_from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.option.Option.Insts.CoreDefaultDefault.default	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.option.Option.is_none_or	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.option.Option.map	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.option.Option.map_or	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.option.Option.ok_or_else	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.option.OptionShared0T.copied	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.option.Option.unwrap_or_default	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.option.Option.unwrap_or_else	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.ptr.copy_nonoverlapping	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.ptr.mut_ptr.RawPtrMutT.add	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.ptr.mut_ptr.RawPtrMutT.cast	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.ptr.mut_ptr.RawPtrMutT.write	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.result.Result.and_then	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.result.Result.map	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.slice.raw.from_raw_parts	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.slice.raw.from_raw_parts_mut	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.slice.raw.from_ref	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.slice.Slice.as_mut_ptr	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.slice.Slice.copy_within	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.slice.Slice.first	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+core.str.Str.as_bytes	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+I16.Insts.CoreConvertFromU8.from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+I64.Insts.CoreConvertFromU32.from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+I64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+Shared0T.Insts.CoreFmtDisplay.fmt	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+Shared0U32.Insts.CoreOpsArithRemU32U32.rem	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+SharedAVec.Insts.CoreIterTraitsCollectIntoIteratorSharedATIter.into_iter	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+Slice.Insts.AllocBorrowToOwnedVec.to_owned	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+Str.Insts.AllocBorrowToOwnedString.to_owned	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+Str.Insts.CoreFmtDisplay.fmt	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+U32.Insts.CoreConvertTryFromI64TryFromIntError.try_from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+Usize.Insts.CoreConvertTryFromI64TryFromIntError.try_from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+Usize.Insts.CoreConvertTryFromU32TryFromIntError.try_from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
+Usize.Insts.CoreConvertTryFromU64TryFromIntError.try_from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.

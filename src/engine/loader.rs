@@ -14,24 +14,31 @@
 //! RAM (an mmap or streaming path) are a later task.
 
 use core::ops::Range;
-use std::collections::HashMap;
-use std::io::{Read, Seek, SeekFrom};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use crate::format::gguf::{GVal, Gguf, GgufHeader};
+use crate::format::gguf::{host_read_all, host_read_at, GVal, Gguf, GgufHeader};
 use crate::format::quant;
 
 pub use super::error::EngineError;
+use super::error::{
+    TensorKey, PART_SSM_A, PART_SSM_CONV1D, PART_SSM_DT_BIAS, PART_SSM_NORM, PART_TOKEN_EMBD,
+};
 use super::f32_convert::dequant_f32_row;
+use super::fp::F64;
 use super::kern::lut::Pq2Lut;
 use super::value::round_shift_32;
 
+#[path = "loader/hadamard.rs"]
+mod hadamard;
+pub use hadamard::{hadamard_meta, HadamardMeta};
+
 /// The `general.architecture` this loader resolves config keys for.
 pub const QWEN2_ARCH: &str = "qwen2";
-/// Default `RoPE` base when `*.rope.freq_base` is absent.
-pub const DEFAULT_ROPE_THETA: f64 = 10_000.0;
-/// Default `RMSNorm` epsilon when `*.attention.layer_norm_rms_epsilon` is absent.
-pub const DEFAULT_RMS_EPS: f64 = 1e-6;
+/// Bits of the default `RoPE` base (`10_000.0_f64`) when `*.rope.freq_base` is absent. A bit pattern,
+/// not a float constant: the extraction cannot translate float constants.
+pub const DEFAULT_ROPE_THETA_BITS: u64 = 0x40C3_8800_0000_0000;
+/// Bits of the default `RMSNorm` epsilon (`1e-6_f64`) when `*.attention.layer_norm_rms_epsilon` is absent.
+pub const DEFAULT_RMS_EPS_BITS: u64 = 0x3EB0_C6F7_A0B5_ED8D;
 
 /// The ggml quant families this crate names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,15 +76,15 @@ impl QuantKind {
 
     /// The ggml name, for diagnostics.
     #[must_use]
-    pub fn name(self) -> &'static str {
+    pub fn name(self) -> String {
         match self {
-            QuantKind::F32 => "F32",
-            QuantKind::F16 => "F16",
-            QuantKind::Q4K => "Q4_K",
-            QuantKind::Q6K => "Q6_K",
-            QuantKind::Q8_0 => "Q8_0",
-            QuantKind::Q5_0 => "Q5_0",
-            QuantKind::Other(_) => "OTHER",
+            QuantKind::F32 => String::from("F32"),
+            QuantKind::F16 => String::from("F16"),
+            QuantKind::Q4K => String::from("Q4_K"),
+            QuantKind::Q6K => String::from("Q6_K"),
+            QuantKind::Q8_0 => String::from("Q8_0"),
+            QuantKind::Q5_0 => String::from("Q5_0"),
+            QuantKind::Other(_) => String::from("OTHER"),
         }
     }
 }
@@ -131,9 +138,9 @@ pub struct EngineConfig {
     /// `*.context_length`, or `0` when unstated.
     pub context_length: usize,
     /// `*.rope.freq_base`.
-    pub rope_theta: f64,
+    pub rope_theta: F64,
     /// `*.attention.layer_norm_rms_epsilon`.
-    pub rms_eps: f64,
+    pub rms_eps: F64,
     /// `*.attention.key_length` when stated, else `n_embd / n_head` (checked integral).
     pub head_dim: usize,
     /// Per trunk layer, the mixer it runs. `*.full_attention_interval` = `f` makes layer `l` softmax
@@ -180,9 +187,15 @@ impl TensorTable {
     /// The entry with `name`, compared by bytes.
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&TensorEntry> {
-        self.entries
-            .iter()
-            .find(|t| t.name.as_bytes() == name.as_bytes())
+        let mut found: Option<&TensorEntry> = None;
+        let mut i = 0usize;
+        while i < self.entries.len() && found.is_none() {
+            if self.entries[i].name.as_bytes() == name.as_bytes() {
+                found = Some(&self.entries[i]);
+            }
+            i += 1;
+        }
+        found
     }
 
     /// Every entry, in file directory order.
@@ -279,9 +292,32 @@ impl DecodeVectors {
         hd: usize,
         eps: i64,
     ) -> Result<(), super::StepError> {
-        let qk = self.qk_norms_of(layer);
-        qk_norm_heads(qk.and_then(|n| n[0].as_deref()), query, hd, eps)?;
-        qk_norm_heads(qk.and_then(|n| n[1].as_deref()), key, hd, eps)
+        let present = self.qk_norms_of(layer).is_some();
+        let q_gain = if present {
+            opt_slice(&self.qk_norms[layer][0])
+        } else {
+            None
+        };
+        let k_gain = if present {
+            opt_slice(&self.qk_norms[layer][1])
+        } else {
+            None
+        };
+        qk_norm_heads(q_gain, query, hd, eps)?;
+        qk_norm_heads(k_gain, key, hd, eps)
+    }
+}
+
+/// `o` as an optional slice. `Option::as_deref` extracts to a `DerefVec` instance that the Lean model
+/// declares with an implicit type argument, so the extracted call does not elaborate.
+#[allow(
+    clippy::ref_option,
+    reason = "callers hold a borrowed slot of a bias array; Option::as_ref does not change the extracted call shape"
+)]
+pub(crate) fn opt_slice<T>(o: &Option<Vec<T>>) -> Option<&[T]> {
+    match o {
+        Some(v) => Some(v),
+        None => None,
     }
 }
 
@@ -295,6 +331,10 @@ impl DecodeVectors {
 /// # Complexity
 ///
 /// `O(x.len())` time for the norm and the gain, `O(hd)` scratch per head.
+#[allow(
+    clippy::many_single_char_names,
+    reason = "x, i, r, v are the head vector, index, product and narrowed value"
+)]
 pub(crate) fn qk_norm_heads(
     gain: Option<&[i64]>,
     x: &mut [i64],
@@ -305,254 +345,43 @@ pub(crate) fn qk_norm_heads(
         return Ok(());
     };
     if hd == 0 || gain.len() != hd || !x.len().is_multiple_of(hd) {
-        return Err(super::StepError::BadConfig("qk norm geometry"));
+        return Err(super::StepError::BadConfig(String::from(
+            "qk norm geometry",
+        )));
     }
     let heads = x.len() / hd;
     let mut h = 0usize;
-    while h < heads {
+    let mut err: Option<super::StepError> = None;
+    while h < heads && err.is_none() {
         let base = h * hd;
-        let normed = super::norm::rms_norm_fixed(&x[base..base + hd], eps)?;
-        let mut i = 0usize;
-        while i < hd {
-            let prod = i128::from(normed[i])
-                .checked_mul(i128::from(gain[i]))
-                .ok_or(super::StepError::Overflow)?;
-            x[base + i] =
-                i64::try_from(round_shift_32(prod)).map_err(|_| super::StepError::Overflow)?;
-            i += 1;
+        match super::norm::rms_norm_fixed(&x[base..base + hd], eps) {
+            Err(e) => err = Some(super::StepError::from(e)),
+            Ok(normed) => {
+                let mut i = 0usize;
+                while i < hd && err.is_none() {
+                    // |normed[i]·gain[i]| <= 2^126 < 2^127, so the i128 product cannot overflow.
+                    let r = round_shift_32(i128::from(normed[i]) * i128::from(gain[i]));
+                    if (i128::from(i64::MIN)..=i128::from(i64::MAX)).contains(&r) {
+                        #[allow(
+                            clippy::cast_possible_truncation,
+                            reason = "r is in i64 range by the check above"
+                        )]
+                        let v = r as i64;
+                        x[base + i] = v;
+                    } else {
+                        x[base + i] = 0;
+                        err = Some(super::StepError::Overflow);
+                    }
+                    i += 1;
+                }
+            }
         }
         h += 1;
     }
+    if let Some(e) = err {
+        return Err(e);
+    }
     Ok(())
-}
-
-/// The `normalized-sylvester-walsh-hadamard` transform name the fork's runtime accepts.
-const HADAMARD_TRANSFORM: &str = "normalized-sylvester-walsh-hadamard";
-/// The `input-last-dimension` axis name the fork's runtime accepts.
-const HADAMARD_AXIS: &str = "input-last-dimension";
-
-/// The `PrismML` `prism.hadamard.*` fold contract (`llama-model.cpp:1197-1263`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HadamardMeta {
-    /// `prism.hadamard.version`: `1` for an untied output, `2` for a tied output.
-    pub version: u32,
-    /// `prism.hadamard.block_size`: the rotation block width, a nonzero power of two.
-    pub block_size: u32,
-    /// `prism.hadamard.tied_output`: true iff the output head reuses the rotated embedding.
-    pub tied_output: bool,
-    /// `prism.hadamard.weight_names`: folded tensor names, never empty.
-    pub weight_names: Vec<String>,
-    /// `prism.hadamard.sign_widths` paired with `sign_values`; `None` for `sign_mode = "identity"`.
-    pub signs: Option<Vec<(u32, Vec<i8>)>>,
-}
-
-/// `h.meta(key)` as an `i64`; `Ok(None)` when absent, a refusal when present but not an `INT` type
-/// in `i64` range.
-fn hadamard_i64(h: &GgufHeader, key: &str) -> Result<Option<i64>, EngineError> {
-    match h.meta(key) {
-        None => Ok(None),
-        Some(GVal::Int(x, _)) => i64::try_from(*x)
-            .map(Some)
-            .map_err(|_| EngineError::BadMetadata(format!("{key} is not an integer"))),
-        Some(_) => Err(EngineError::BadMetadata(format!("{key} is not an integer"))),
-    }
-}
-
-fn hadamard_require_i64(h: &GgufHeader, key: &str) -> Result<i64, EngineError> {
-    hadamard_i64(h, key)?.ok_or_else(|| EngineError::MissingMetadata(key.to_string()))
-}
-
-fn hadamard_require_string(h: &GgufHeader, key: &str) -> Result<String, EngineError> {
-    match h.meta(key) {
-        None => Err(EngineError::MissingMetadata(key.to_string())),
-        Some(GVal::Str(s)) => Ok(String::from_utf8_lossy(s).into_owned()),
-        Some(_) => Err(EngineError::BadMetadata(format!("{key} is not a string"))),
-    }
-}
-
-/// A string-array key; `Ok(None)` when absent. Cost is O(elements) time and space.
-fn hadamard_string_array(h: &GgufHeader, key: &str) -> Result<Option<Vec<String>>, EngineError> {
-    match h.meta(key) {
-        None => Ok(None),
-        Some(GVal::Arr(_, elems)) => {
-            let mut out: Vec<String> = Vec::with_capacity(elems.len());
-            let mut i = 0usize;
-            while i < elems.len() {
-                match &elems[i] {
-                    GVal::Str(s) => out.push(String::from_utf8_lossy(s).into_owned()),
-                    _ => {
-                        return Err(EngineError::BadMetadata(format!(
-                            "{key}[{i}] is not a string"
-                        )))
-                    }
-                }
-                i += 1;
-            }
-            Ok(Some(out))
-        }
-        Some(_) => Err(EngineError::BadMetadata(format!("{key} is not an array"))),
-    }
-}
-
-fn hadamard_int_array(h: &GgufHeader, key: &str) -> Result<Option<Vec<i64>>, EngineError> {
-    match h.meta(key) {
-        None => Ok(None),
-        Some(GVal::Arr(_, elems)) => {
-            let mut out: Vec<i64> = Vec::with_capacity(elems.len());
-            let mut i = 0usize;
-            while i < elems.len() {
-                match elems[i].as_i64() {
-                    Some(v) => out.push(v),
-                    None => {
-                        return Err(EngineError::BadMetadata(format!(
-                            "{key}[{i}] is not an integer"
-                        )))
-                    }
-                }
-                i += 1;
-            }
-            Ok(Some(out))
-        }
-        Some(_) => Err(EngineError::BadMetadata(format!("{key} is not an array"))),
-    }
-}
-
-/// Validate the `explicit` sign table into `(width, values)` pairs; cost is O(sum of widths).
-fn hadamard_signs(h: &GgufHeader, block_size: u32) -> Result<Vec<(u32, Vec<i8>)>, EngineError> {
-    let widths = hadamard_int_array(h, "prism.hadamard.sign_widths")?.unwrap_or_default();
-    let values = hadamard_int_array(h, "prism.hadamard.sign_values")?.unwrap_or_default();
-    if widths.is_empty() {
-        return Err(EngineError::BadMetadata(
-            "prism.hadamard.sign_mode is explicit but sign_widths is empty".to_string(),
-        ));
-    }
-    let mut out: Vec<(u32, Vec<i8>)> = Vec::with_capacity(widths.len());
-    let mut off = 0usize;
-    let mut i = 0usize;
-    while i < widths.len() {
-        let width = widths[i];
-        let width_u32 = u32::try_from(width)
-            .ok()
-            .filter(|w| *w != 0 && w % block_size == 0);
-        let Some(width_u32) = width_u32 else {
-            return Err(EngineError::BadMetadata(format!(
-                "invalid prism.hadamard sign width {width}: not a positive multiple of block size {block_size}"
-            )));
-        };
-        let width_usize = width_u32 as usize;
-        if off + width_usize > values.len() {
-            return Err(EngineError::BadMetadata(format!(
-                "invalid prism.hadamard sign width {width}: sign_values is too short"
-            )));
-        }
-        let mut vec: Vec<i8> = Vec::with_capacity(width_usize);
-        let mut j = off;
-        while j < off + width_usize {
-            let v = values[j];
-            if v != 1 && v != -1 {
-                return Err(EngineError::BadMetadata(
-                    "prism.hadamard sign values must be +/-1".to_string(),
-                ));
-            }
-            vec.push(if v == 1 { 1i8 } else { -1i8 });
-            j += 1;
-        }
-        out.push((width_u32, vec));
-        off += width_usize;
-        i += 1;
-    }
-    if off != values.len() {
-        return Err(EngineError::BadMetadata(
-            "prism.hadamard.sign_values length mismatch".to_string(),
-        ));
-    }
-    Ok(out)
-}
-
-/// Read and validate the `prism.hadamard.*` metadata: an absent version key is `Ok(None)`, and
-/// otherwise every value the fork's loader rejects is a refusal. Cost is O(metadata size).
-///
-/// # Errors
-///
-/// [`EngineError::MissingMetadata`] or [`EngineError::BadMetadata`] when the fork would refuse.
-pub fn hadamard_meta(h: &GgufHeader) -> Result<Option<HadamardMeta>, EngineError> {
-    let Some(version) = hadamard_i64(h, "prism.hadamard.version")? else {
-        return Ok(None);
-    };
-    let version = u32::try_from(version).map_err(|_| {
-        EngineError::BadMetadata(format!("prism.hadamard.version {version} is not 1 or 2"))
-    })?;
-    if version != 1 && version != 2 {
-        return Err(EngineError::BadMetadata(format!(
-            "prism.hadamard.version {version} is not 1 or 2"
-        )));
-    }
-
-    let tied_output = match h.meta("prism.hadamard.tied_output") {
-        None => false,
-        Some(GVal::Bool(b)) => *b,
-        Some(_) => {
-            return Err(EngineError::BadMetadata(
-                "prism.hadamard.tied_output is not a bool".to_string(),
-            ))
-        }
-    };
-    if (version == 2) != tied_output {
-        return Err(EngineError::BadMetadata(
-            "prism.hadamard version 2 requires tied_output=true; version 1 forbids it".to_string(),
-        ));
-    }
-
-    let block_size = hadamard_require_i64(h, "prism.hadamard.block_size")?;
-    let block_size = u32::try_from(block_size).map_err(|_| {
-        EngineError::BadMetadata("prism.hadamard.block_size is not a positive integer".to_string())
-    })?;
-    if block_size == 0 || (block_size & (block_size - 1)) != 0 {
-        return Err(EngineError::BadMetadata(format!(
-            "prism.hadamard.block_size {block_size} is zero or not a power of two"
-        )));
-    }
-
-    let transform = hadamard_require_string(h, "prism.hadamard.transform")?;
-    if transform != HADAMARD_TRANSFORM {
-        return Err(EngineError::BadMetadata(format!(
-            "unsupported prism.hadamard.transform {transform:?}"
-        )));
-    }
-    let axis = hadamard_require_string(h, "prism.hadamard.axis")?;
-    if axis != HADAMARD_AXIS {
-        return Err(EngineError::BadMetadata(format!(
-            "unsupported prism.hadamard.axis {axis:?}"
-        )));
-    }
-    let sign_mode = hadamard_require_string(h, "prism.hadamard.sign_mode")?;
-    if sign_mode != "identity" && sign_mode != "explicit" {
-        return Err(EngineError::BadMetadata(format!(
-            "unsupported prism.hadamard.sign_mode {sign_mode:?}"
-        )));
-    }
-
-    let weight_names = hadamard_string_array(h, "prism.hadamard.weight_names")?
-        .ok_or_else(|| EngineError::MissingMetadata("prism.hadamard.weight_names".to_string()))?;
-    if weight_names.is_empty() {
-        return Err(EngineError::BadMetadata(
-            "prism.hadamard.weight_names is empty".to_string(),
-        ));
-    }
-
-    let signs = if sign_mode == "explicit" {
-        Some(hadamard_signs(h, block_size)?)
-    } else {
-        None
-    };
-
-    Ok(Some(HadamardMeta {
-        version,
-        block_size,
-        tied_output,
-        weight_names,
-        signs,
-    }))
 }
 
 /// A loaded GGUF: resolved config, checked tensor directory and the resident file bytes.
@@ -571,12 +400,30 @@ pub struct Engine {
     table: TensorTable,
     token_embd: usize,
     vectors: DecodeVectors,
-    /// The `PQ2_0` lookup tables, built once per tensor on first projection and reused for every
-    /// later token. A plain name-keyed map: a decode step reads each tensor's table on every token.
-    pq2_luts: Mutex<HashMap<String, Arc<Pq2Lut>>>,
+    /// The `PQ2_0` lookup table of each rank-2 `PQ2_0` directory entry, indexed by directory index and
+    /// repacked once at [`Engine::open`]; a decode step reads each projection tensor's table every token.
+    pq2_luts: Vec<Option<Result<Pq2Lut, super::MatvecError>>>,
     /// The head split into bit planes, built on first greedy `Q8Act` step; `None` inside when the
     /// head is not `Q8_0` or the model carries a Hadamard fold.
     bitplane: std::sync::OnceLock<Option<Arc<super::kern::bitplane::BitplaneHead>>>,
+}
+
+/// A checked byte extent of the resident file: the payload `resident()[off..off + len]`, resolved
+/// once by [`Engine::payload_ref`] and carried by value (two words) instead of a borrowed slice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PayloadRef {
+    /// Start offset in the resident file.
+    pub off: usize,
+    /// Byte count.
+    pub len: usize,
+}
+
+impl PayloadRef {
+    /// The extent's bytes of `file` (the resident file this reference was resolved against).
+    #[inline]
+    pub(crate) fn bytes(self, file: &[u8]) -> &[u8] {
+        &file[self.off..self.off + self.len]
+    }
 }
 
 /// `header.meta_i64("<arch>.<suffix>")`, refusing when absent or non-integral.
@@ -596,13 +443,21 @@ fn require_i64(h: &GgufHeader, arch: &str, suffix: &str) -> Result<i64, EngineEr
     reason = "the integer-limb arm reproduces the format accessor's prior widening; GGUF stores \
               these keys as FLOAT32/FLOAT64, so the lossy arm is a nonconforming-file fallback"
 )]
-fn optional_f64(h: &GgufHeader, arch: &str, suffix: &str, default: f64) -> f64 {
+fn optional_f64(h: &GgufHeader, arch: &str, suffix: &str, default_bits: u64) -> F64 {
     let key = format!("{arch}.{suffix}");
     match h.meta(&key) {
-        Some(GVal::F32Bits(bits, _)) => f64::from(f32::from_bits(*bits)),
-        Some(GVal::F64Bits(bits, _)) => f64::from_bits(*bits),
-        Some(GVal::Int(v, _)) => *v as f64,
-        _ => default,
+        #[allow(
+            clippy::cast_lossless,
+            reason = "f64::from(f32) is not extractable; the cast is exact"
+        )]
+        #[allow(
+            clippy::cast_lossless,
+            reason = "f64::from(f32) is not extractable; the cast is exact"
+        )]
+        Some(GVal::F32Bits(bits, _)) => F64::from_f64(f32::from_bits(*bits) as f64),
+        Some(GVal::F64Bits(bits, _)) => F64(*bits),
+        Some(GVal::Int(v, _)) => F64::from_f64(*v as f64),
+        _ => F64(default_bits),
     }
 }
 
@@ -616,7 +471,7 @@ fn positive_usize(v: i64, key: &str) -> Result<usize, EngineError> {
 
 /// Resolve the `qwen2.*` metadata and the `token_embd.weight` shape into an [`EngineConfig`].
 fn resolve_config(h: &GgufHeader) -> Result<EngineConfig, EngineError> {
-    let architecture = String::from_utf8_lossy(h.arch()).into_owned();
+    let architecture = h.arch();
     let n_block = positive_usize(require_i64(h, &architecture, "block_count")?, "block_count")?;
     // Multi-token-prediction blocks follow the trunk and are not part of the decode step.
     let n_nextn = match h.meta_i64(&format!("{architecture}.nextn_predict_layers")) {
@@ -666,17 +521,17 @@ fn resolve_config(h: &GgufHeader) -> Result<EngineConfig, EngineError> {
         Some(v) if v > 0 => usize::try_from(v).map_err(|_| EngineError::LengthOverflow)?,
         _ => 0,
     };
-    let rope_theta = optional_f64(h, &architecture, "rope.freq_base", DEFAULT_ROPE_THETA);
+    let rope_theta = optional_f64(h, &architecture, "rope.freq_base", DEFAULT_ROPE_THETA_BITS);
     let rms_eps = optional_f64(
         h,
         &architecture,
         "attention.layer_norm_rms_epsilon",
-        DEFAULT_RMS_EPS,
+        DEFAULT_RMS_EPS_BITS,
     );
 
     let td = h
         .tensor("token_embd.weight")
-        .ok_or_else(|| EngineError::MissingTensor("token_embd.weight".to_string()))?;
+        .ok_or_else(|| EngineError::MissingTensor(TensorKey::top(PART_TOKEN_EMBD)))?;
     if td.dims.len() != 2 {
         return Err(EngineError::ConfigMismatch(format!(
             "token_embd.weight rank {} is not 2",
@@ -821,9 +676,14 @@ fn resolve_attn_gate(
     n_head: usize,
     head_dim: usize,
 ) -> Result<bool, EngineError> {
-    let Some(l) = mixers.iter().position(|m| *m == MixerKind::Softmax) else {
+    let mut first = 0usize;
+    while first < mixers.len() && mixers[first] != MixerKind::Softmax {
+        first += 1;
+    }
+    if first == mixers.len() {
         return Ok(false);
-    };
+    }
+    let l = first;
     let name = format!("blk.{l}.attn_q.weight");
     let Some(t) = h.tensor(&name) else {
         return Ok(false);
@@ -842,6 +702,57 @@ fn resolve_attn_gate(
     }
 }
 
+/// One layer's decode vectors: norm gains, attention biases, QK-norm gains.
+type LayerDecodeVectors = (
+    [Option<Vec<i64>>; 2],
+    [Option<Vec<i64>>; 3],
+    [Option<Vec<i64>>; 2],
+);
+
+/// One directory entry as a [`TensorEntry`], with its extent checks; `Err` at the first failing check.
+fn tensor_entry(
+    desc: &crate::format::gguf::TensorDesc,
+    start: u64,
+    end: u64,
+    file_len: u64,
+) -> Result<TensorEntry, EngineError> {
+    let name = String::from_utf8_lossy(&desc.name).into_owned();
+    let n_elements = desc.n_elements()?;
+    let n_bytes = desc.n_bytes()?;
+    if end < start {
+        return Err(EngineError::ConfigMismatch(format!(
+            "directory offsets out of order at {name}"
+        )));
+    }
+    if let Some(bytes) = n_bytes {
+        let exact = start
+            .checked_add(bytes)
+            .ok_or(EngineError::LengthOverflow)?;
+        if exact > file_len {
+            return Err(EngineError::TensorOutOfBounds {
+                name,
+                at: start,
+                n: bytes,
+                file_len,
+            });
+        }
+        if exact > end {
+            return Err(EngineError::ConfigMismatch(format!(
+                "tensor {name} storage {bytes} overlaps the next directory entry"
+            )));
+        }
+    }
+    Ok(TensorEntry {
+        name,
+        ggml_type: desc.ggml_type,
+        quant: QuantKind::from_ggml(desc.ggml_type),
+        dims: desc.dims.clone(),
+        n_elements,
+        n_bytes,
+        byte_range: start..end,
+    })
+}
+
 /// Walk the directory into a [`TensorTable`], checking every extent against the file.
 ///
 /// A tensor whose type has no geometry in `crate::format::quant` still gets a range: its extent
@@ -852,24 +763,35 @@ fn build_table(header: &GgufHeader, file_len: u64) -> Result<TensorTable, Engine
     let count = header.tensors.len();
     let mut starts: Vec<u64> = Vec::with_capacity(count);
     let mut idx = 0usize;
-    while idx < count {
+    let mut err: Option<EngineError> = None;
+    while idx < count && err.is_none() {
         let desc = &header.tensors[idx];
-        let at = header
-            .data0
-            .checked_add(desc.offset)
-            .ok_or(EngineError::LengthOverflow)?;
-        if at > file_len {
-            return Err(EngineError::TensorOutOfBounds {
-                name: String::from_utf8_lossy(&desc.name).into_owned(),
-                at,
-                n: 0,
-                file_len,
-            });
+        match header.data0.checked_add(desc.offset) {
+            None => err = Some(EngineError::LengthOverflow),
+            Some(at) => {
+                if at > file_len {
+                    err = Some(EngineError::TensorOutOfBounds {
+                        name: String::from_utf8_lossy(&desc.name).into_owned(),
+                        at,
+                        n: 0,
+                        file_len,
+                    });
+                } else {
+                    starts.push(at);
+                }
+            }
         }
-        starts.push(at);
         idx += 1;
     }
-    let mut order: Vec<usize> = (0..count).collect();
+    if let Some(e) = err {
+        return Err(e);
+    }
+    let mut order: Vec<usize> = Vec::with_capacity(count);
+    let mut ord_fill = 0usize;
+    while ord_fill < count {
+        order.push(ord_fill);
+        ord_fill += 1;
+    }
     order.sort_by_key(|&ord| starts[ord]);
     let mut ends: Vec<u64> = vec![file_len; count];
     let mut rank = 0usize;
@@ -880,45 +802,17 @@ fn build_table(header: &GgufHeader, file_len: u64) -> Result<TensorTable, Engine
 
     let mut entries: Vec<TensorEntry> = Vec::with_capacity(count);
     let mut entry_idx = 0usize;
-    while entry_idx < count {
+    while entry_idx < count && err.is_none() {
         let desc = &header.tensors[entry_idx];
-        let name = String::from_utf8_lossy(&desc.name).into_owned();
-        let n_elements = desc.n_elements()?;
-        let n_bytes = desc.n_bytes()?;
         let (start, end) = (starts[entry_idx], ends[entry_idx]);
-        if end < start {
-            return Err(EngineError::ConfigMismatch(format!(
-                "directory offsets out of order at {name}"
-            )));
+        match tensor_entry(desc, start, end, file_len) {
+            Ok(entry) => entries.push(entry),
+            Err(e) => err = Some(e),
         }
-        if let Some(bytes) = n_bytes {
-            let exact = start
-                .checked_add(bytes)
-                .ok_or(EngineError::LengthOverflow)?;
-            if exact > file_len {
-                return Err(EngineError::TensorOutOfBounds {
-                    name,
-                    at: start,
-                    n: bytes,
-                    file_len,
-                });
-            }
-            if exact > end {
-                return Err(EngineError::ConfigMismatch(format!(
-                    "tensor {name} storage {bytes} overlaps the next directory entry"
-                )));
-            }
-        }
-        entries.push(TensorEntry {
-            name,
-            ggml_type: desc.ggml_type,
-            quant: QuantKind::from_ggml(desc.ggml_type),
-            dims: desc.dims.clone(),
-            n_elements,
-            n_bytes,
-            byte_range: start..end,
-        });
         entry_idx += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(TensorTable { entries })
 }
@@ -960,7 +854,7 @@ impl Engine {
         let table = build_table(&g.header, g.file_len)?;
         // Read the file once; every payload slice borrows from this. A file that changed size
         // between the header parse and this read fails closed rather than serving stale extents.
-        let data = std::fs::read(path).map_err(|e| EngineError::Io(e.to_string()))?;
+        let data = host_read_all(path).map_err(EngineError::Io)?;
         if data.len() as u64 != g.file_len {
             return Err(EngineError::ConfigMismatch(format!(
                 "file length changed while opening: {} != {}",
@@ -968,11 +862,16 @@ impl Engine {
                 g.file_len
             )));
         }
-        let token_embd = table
-            .entries()
-            .iter()
-            .position(|t| t.name == "token_embd.weight")
-            .ok_or_else(|| EngineError::MissingTensor("token_embd.weight".to_string()))?;
+        let entries = table.entries();
+        let mut token_embd = 0usize;
+        while token_embd < entries.len()
+            && !super::step::bytes_eq(entries[token_embd].name.as_bytes(), b"token_embd.weight")
+        {
+            token_embd += 1;
+        }
+        if token_embd == entries.len() {
+            return Err(EngineError::MissingTensor(TensorKey::top(PART_TOKEN_EMBD)));
+        }
         let mut engine = Engine {
             path: path.to_string(),
             file_len: g.file_len,
@@ -982,11 +881,12 @@ impl Engine {
             table,
             token_embd,
             vectors: DecodeVectors::default(),
-            pq2_luts: Mutex::new(HashMap::new()),
+            pq2_luts: Vec::new(),
             bitplane: std::sync::OnceLock::new(),
         };
         let vectors = engine.load_decode_vectors()?;
         engine.vectors = vectors;
+        engine.pq2_luts = engine.build_pq2_luts();
         Ok(engine)
     }
 
@@ -1015,18 +915,18 @@ impl Engine {
         if t.dims.len() != 1 || t.dims[0] != expected {
             return Err(EngineError::BadVector {
                 name: name.to_string(),
-                reason: "dims",
+                reason: String::from("dims"),
             });
         }
         if t.ggml_type != quant::GGML_TYPE_F32 {
             return Err(EngineError::BadVector {
                 name: name.to_string(),
-                reason: "type",
+                reason: String::from("type"),
             });
         }
         let n_bytes = t.n_bytes.ok_or(EngineError::BadVector {
             name: name.to_string(),
-            reason: "geometry",
+            reason: String::from("geometry"),
         })?;
         let raw = self.read_range(t.byte_range.start, n_bytes)?;
         let mut out: Vec<i64> = Vec::with_capacity(len);
@@ -1074,24 +974,22 @@ impl Engine {
                 .affine
                 .ok_or_else(|| EngineError::ConfigMismatch("affine geometry".to_string()))?;
             let channels = 2 * g.n_k_heads * g.head_k + g.n_v_heads * g.head_v;
-            let need =
-                |name: String, v: Option<Vec<i64>>| v.ok_or(EngineError::MissingTensor(name));
+            let need = |part: u8, v: Option<Vec<i64>>| {
+                v.ok_or(EngineError::MissingTensor(TensorKey::blk(l, part)))
+            };
             let conv_name = format!("blk.{l}.ssm_conv1d.weight");
             let conv = self.read_f32_matrix(&conv_name, g.conv_kernel, channels)?;
             let dt_name = format!("blk.{l}.ssm_dt.bias");
             let a_name = format!("blk.{l}.ssm_a");
             let norm_name = format!("blk.{l}.ssm_norm.weight");
             out.push(Some(AffineVectors {
-                conv: need(conv_name, conv)?,
+                conv: need(PART_SSM_CONV1D, conv)?,
                 dt: need(
-                    dt_name.clone(),
+                    PART_SSM_DT_BIAS,
                     self.read_f32_vector(&dt_name, g.n_v_heads)?,
                 )?,
-                a: need(a_name.clone(), self.read_f32_vector(&a_name, g.n_v_heads)?)?,
-                norm: need(
-                    norm_name.clone(),
-                    self.read_f32_vector(&norm_name, g.head_v)?,
-                )?,
+                a: need(PART_SSM_A, self.read_f32_vector(&a_name, g.n_v_heads)?)?,
+                norm: need(PART_SSM_NORM, self.read_f32_vector(&norm_name, g.head_v)?)?,
             }));
             l += 1;
         }
@@ -1113,24 +1011,56 @@ impl Engine {
         if t.dims.len() != 2 || t.dims[0] != d0 as u64 || t.dims[1] != d1 as u64 {
             return Err(EngineError::BadVector {
                 name: name.to_string(),
-                reason: "dims",
+                reason: String::from("dims"),
             });
         }
         if t.ggml_type != quant::GGML_TYPE_F32 {
             return Err(EngineError::BadVector {
                 name: name.to_string(),
-                reason: "type",
+                reason: String::from("type"),
             });
         }
         let len = d0.checked_mul(d1).ok_or(EngineError::LengthOverflow)?;
         let n_bytes = t.n_bytes.ok_or(EngineError::BadVector {
             name: name.to_string(),
-            reason: "geometry",
+            reason: String::from("geometry"),
         })?;
         let raw = self.read_range(t.byte_range.start, n_bytes)?;
         let mut out: Vec<i64> = Vec::with_capacity(len);
         dequant_f32_row(&raw, len, &mut out)?;
         Ok(Some(out))
+    }
+
+    /// One layer's decode vectors: the two norm gains, the three attention biases and the two QK-norm gains.
+    fn layer_decode_vectors(
+        &self,
+        layer: usize,
+        q_out: usize,
+        kv_out: usize,
+    ) -> Result<LayerDecodeVectors, EngineError> {
+        let cfg = &self.config;
+        let norms = [
+            self.read_f32_vector(&format!("blk.{layer}.attn_norm.weight"), cfg.n_embd)?,
+            // The pre-FFN norm: `ffn_norm` (Qwen2), `post_attention_norm` (Qwen3.5).
+            match self.read_f32_vector(&format!("blk.{layer}.ffn_norm.weight"), cfg.n_embd)? {
+                Some(v) => Some(v),
+                None => self.read_f32_vector(
+                    &format!("blk.{layer}.post_attention_norm.weight"),
+                    cfg.n_embd,
+                )?,
+            },
+        ];
+        let biases = [
+            self.read_f32_vector(&format!("blk.{layer}.attn_q.bias"), q_out)?,
+            self.read_f32_vector(&format!("blk.{layer}.attn_k.bias"), kv_out)?,
+            self.read_f32_vector(&format!("blk.{layer}.attn_v.bias"), kv_out)?,
+        ];
+        // Qwen3 only: the per-head QK `RMSNorm` gains, absent (`None`) on Qwen2.
+        let qk_norms = [
+            self.read_f32_vector(&format!("blk.{layer}.attn_q_norm.weight"), cfg.head_dim)?,
+            self.read_f32_vector(&format!("blk.{layer}.attn_k_norm.weight"), cfg.head_dim)?,
+        ];
+        Ok((norms, biases, qk_norms))
     }
 
     /// Resolve every decode gain and attention bias the step reads, once.
@@ -1152,29 +1082,20 @@ impl Engine {
         let mut biases: Vec<[Option<Vec<i64>>; 3]> = Vec::with_capacity(cfg.n_layer);
         let mut qk_norms: Vec<[Option<Vec<i64>>; 2]> = Vec::with_capacity(cfg.n_layer);
         let mut layer = 0usize;
-        while layer < cfg.n_layer + cfg.n_nextn {
-            norms.push([
-                self.read_f32_vector(&format!("blk.{layer}.attn_norm.weight"), cfg.n_embd)?,
-                // The pre-FFN norm: `ffn_norm` (Qwen2), `post_attention_norm` (Qwen3.5).
-                match self.read_f32_vector(&format!("blk.{layer}.ffn_norm.weight"), cfg.n_embd)? {
-                    Some(v) => Some(v),
-                    None => self.read_f32_vector(
-                        &format!("blk.{layer}.post_attention_norm.weight"),
-                        cfg.n_embd,
-                    )?,
-                },
-            ]);
-            biases.push([
-                self.read_f32_vector(&format!("blk.{layer}.attn_q.bias"), q_out)?,
-                self.read_f32_vector(&format!("blk.{layer}.attn_k.bias"), kv_out)?,
-                self.read_f32_vector(&format!("blk.{layer}.attn_v.bias"), kv_out)?,
-            ]);
-            // Qwen3 only: the per-head QK `RMSNorm` gains, absent (`None`) on Qwen2.
-            qk_norms.push([
-                self.read_f32_vector(&format!("blk.{layer}.attn_q_norm.weight"), cfg.head_dim)?,
-                self.read_f32_vector(&format!("blk.{layer}.attn_k_norm.weight"), cfg.head_dim)?,
-            ]);
+        let mut err: Option<EngineError> = None;
+        while layer < cfg.n_layer + cfg.n_nextn && err.is_none() {
+            match self.layer_decode_vectors(layer, q_out, kv_out) {
+                Ok((n, b, q)) => {
+                    norms.push(n);
+                    biases.push(b);
+                    qk_norms.push(q);
+                }
+                Err(e) => err = Some(e),
+            }
             layer += 1;
+        }
+        if let Some(e) = err {
+            return Err(e);
         }
         let output_norm = self.read_f32_vector("output_norm.weight", cfg.n_embd)?;
         let affine = self.load_affine_vectors()?;
@@ -1209,39 +1130,58 @@ impl Engine {
             .clone()
     }
 
-    /// The cached `PQ2_0` lookup table of tensor `name`, built once from `raw`.
+    /// The `PQ2_0` lookup table of directory entry `idx`, built at [`Engine::open`].
     ///
-    /// The first projection of a tensor repacks its payload with [`Pq2Lut::from_pq2_0`] and caches
-    /// the result under the tensor name; every later token reuses the same table, so the
-    /// `O(n_out·n_in)` repack is paid once per tensor per load. The map is a `Mutex` because the
-    /// decode step shares `&Engine` across its projection tasks.
+    /// Returns the stored refusal of [`Pq2Lut::from_pq2_0`] (non-finite block scale, short payload,
+    /// row width not a whole number of 128-weight blocks) at the use, as the former lazy cache
+    /// did on the first projection; an entry that is not a rank-2 `PQ2_0` tensor with a readable
+    /// payload has no table and refuses as an unsupported quant (every caller has already checked
+    /// the entry's type and shape, so that arm is not reached).
     ///
     /// # Errors
     ///
-    /// The [`MatvecError`](super::MatvecError) `Pq2Lut::from_pq2_0` returns for a non-finite block
-    /// scale, a short payload or a row width that is not a whole number of 128-weight blocks.
-    pub(crate) fn pq2_lut(
-        &self,
-        name: &str,
-        raw: &[u8],
-        n_out: usize,
-        n_in: usize,
-    ) -> Result<Arc<Pq2Lut>, super::MatvecError> {
-        {
-            let cache = self
-                .pq2_luts
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(lut) = cache.get(name) {
-                return Ok(Arc::clone(lut));
-            }
+    /// The [`MatvecError`](super::MatvecError) stored for `idx`.
+    pub(crate) fn pq2_lut(&self, idx: usize) -> Result<&Pq2Lut, super::MatvecError> {
+        match self.pq2_luts.get(idx) {
+            Some(Some(Ok(lut))) => Ok(lut),
+            Some(Some(Err(e))) => Err(e.clone()),
+            _ => Err(super::MatvecError::UnsupportedQuant {
+                ggml_type: quant::GGML_TYPE_PQ2_0,
+            }),
         }
-        let lut = Arc::new(Pq2Lut::from_pq2_0(raw, n_out, n_in)?);
-        let mut cache = self
-            .pq2_luts
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        Ok(Arc::clone(cache.entry(name.to_string()).or_insert(lut)))
+    }
+
+    /// Every directory entry's `PQ2_0` table, for the dispatch (`ProjSource::Rows(idx)`).
+    pub(crate) fn pq2_luts(&self) -> &[Option<Result<Pq2Lut, super::MatvecError>>] {
+        &self.pq2_luts
+    }
+
+    /// The `PQ2_0` table of each rank-2 `PQ2_0` directory entry, repacked once at open.
+    ///
+    /// # Complexity
+    ///
+    /// Time `O(Σ n_out·n_in)` over the rank-2 `PQ2_0` entries (one [`Pq2Lut::from_pq2_0`] repack
+    /// each, the work the lazy cache did on first use); space the tables, as the lazy cache
+    /// held after the first token; `O(directory)` for the slots.
+    fn build_pq2_luts(&self) -> Vec<Option<Result<Pq2Lut, super::MatvecError>>> {
+        let entries = self.table.entries();
+        let mut out = Vec::with_capacity(entries.len());
+        for t in entries {
+            let mut slot = None;
+            if t.ggml_type == quant::GGML_TYPE_PQ2_0 && t.dims.len() == 2 {
+                if let (Some(nb), Ok(n_in), Ok(n_out)) = (
+                    t.n_bytes,
+                    usize::try_from(t.dims[0]),
+                    usize::try_from(t.dims[1]),
+                ) {
+                    if let Ok(raw) = self.payload(t.byte_range.start, nb) {
+                        slot = Some(Pq2Lut::from_pq2_0(raw, n_out, n_in));
+                    }
+                }
+            }
+            out.push(slot);
+        }
+        out
     }
 
     /// The named tensor directory.
@@ -1254,6 +1194,11 @@ impl Engine {
     #[must_use]
     pub fn token_embd(&self) -> &TensorEntry {
         &self.table.entries()[self.token_embd]
+    }
+
+    /// The directory index of [`Engine::token_embd`].
+    pub(crate) fn token_embd_index(&self) -> usize {
+        self.token_embd
     }
 
     /// Read `n` bytes of the file at absolute offset `at`, refusing past EOF.
@@ -1275,13 +1220,7 @@ impl Engine {
             });
         }
         let len = usize::try_from(n).map_err(|_| EngineError::LengthOverflow)?;
-        let mut f = std::fs::File::open(&self.path).map_err(|e| EngineError::Io(e.to_string()))?;
-        f.seek(SeekFrom::Start(at))
-            .map_err(|e| EngineError::Io(e.to_string()))?;
-        let mut buf = vec![0u8; len];
-        f.read_exact(&mut buf)
-            .map_err(|e| EngineError::Io(e.to_string()))?;
-        Ok(buf)
+        host_read_at(&self.path, at, len).map_err(EngineError::Io)
     }
 
     /// Borrow `n` bytes of the resident file at absolute offset `at`, refusing past EOF.
@@ -1313,6 +1252,38 @@ impl Engine {
         self.data
             .get(start..stop)
             .ok_or(EngineError::LengthOverflow)
+    }
+
+    /// The checked extent `[at, at+n)` of the resident file as a [`PayloadRef`]: the refusals of
+    /// [`Engine::payload`], without borrowing the bytes. The bytes are `resident()[off..off+len]`.
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::RowOutOfBounds`], [`EngineError::LengthOverflow`].
+    pub fn payload_ref(&self, at: u64, n: u64) -> Result<PayloadRef, EngineError> {
+        let end = at.checked_add(n).ok_or(EngineError::LengthOverflow)?;
+        if end > self.file_len {
+            return Err(EngineError::RowOutOfBounds {
+                at,
+                n,
+                end: self.file_len,
+            });
+        }
+        let start = usize::try_from(at).map_err(|_| EngineError::LengthOverflow)?;
+        let stop = usize::try_from(end).map_err(|_| EngineError::LengthOverflow)?;
+        if self.data.get(start..stop).is_none() {
+            return Err(EngineError::LengthOverflow);
+        }
+        Ok(PayloadRef {
+            off: start,
+            len: stop - start,
+        })
+    }
+
+    /// The whole resident file; a [`PayloadRef`] indexes it.
+    #[must_use]
+    pub fn resident(&self) -> &[u8] {
+        &self.data
     }
 }
 

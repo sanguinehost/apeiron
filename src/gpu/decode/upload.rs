@@ -54,8 +54,8 @@ pub fn layer_cfg(
         nkv: ec.n_head_kv as u32,
         hd: ec.head_dim as u32,
         tmax,
-        eps: ec.rms_eps as f32,
-        theta: ec.rope_theta as f32,
+        eps: ec.rms_eps.to_f64() as f32,
+        theta: ec.rope_theta.to_f64() as f32,
         rope_dims: ec.rot_dims as u32,
         carrier,
     };

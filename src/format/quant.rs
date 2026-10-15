@@ -145,23 +145,23 @@ pub fn block_geom(t: u32) -> Option<(usize, usize)> {
 }
 
 /// The human-readable ggml type name, for diagnostics only.
-pub fn ggml_type_name(t: u32) -> &'static str {
+pub fn ggml_type_name(t: u32) -> String {
     match t {
-        GGML_TYPE_F32 => "F32",
-        GGML_TYPE_F16 => "F16",
-        GGML_TYPE_Q8_0 => "Q8_0",
-        GGML_TYPE_Q5_0 => "Q5_0",
-        GGML_TYPE_Q2_K => "Q2_K",
-        GGML_TYPE_Q3_K => "Q3_K",
-        GGML_TYPE_Q4_K => "Q4_K",
-        GGML_TYPE_Q6_K => "Q6_K",
-        GGML_TYPE_Q1_0 => "Q1_0",
-        GGML_TYPE_Q2_0 => "Q2_0",
-        GGML_TYPE_PQ2_0 => "PQ2_0",
-        GGML_TYPE_TQ2_0 => "TQ2_0",
-        GGML_TYPE_TQ1_0 => "TQ1_0",
-        GGML_TYPE_PTQ1_0 => "PTQ1_0",
-        _ => "UNKNOWN",
+        GGML_TYPE_F32 => String::from("F32"),
+        GGML_TYPE_F16 => String::from("F16"),
+        GGML_TYPE_Q8_0 => String::from("Q8_0"),
+        GGML_TYPE_Q5_0 => String::from("Q5_0"),
+        GGML_TYPE_Q2_K => String::from("Q2_K"),
+        GGML_TYPE_Q3_K => String::from("Q3_K"),
+        GGML_TYPE_Q4_K => String::from("Q4_K"),
+        GGML_TYPE_Q6_K => String::from("Q6_K"),
+        GGML_TYPE_Q1_0 => String::from("Q1_0"),
+        GGML_TYPE_Q2_0 => String::from("Q2_0"),
+        GGML_TYPE_PQ2_0 => String::from("PQ2_0"),
+        GGML_TYPE_TQ2_0 => String::from("TQ2_0"),
+        GGML_TYPE_TQ1_0 => String::from("TQ1_0"),
+        GGML_TYPE_PTQ1_0 => String::from("PTQ1_0"),
+        _ => String::from("UNKNOWN"),
     }
 }
 
