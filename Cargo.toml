@@ -52,61 +52,6 @@ libc = "0.2"
 # bench/example digests.
 blake3 = "=1.8.7"
 sha2 = "=0.10.9"
-hashbrown = "=0.15.5"
-rustc-hash = "=2.1.3"
-twox-hash = { version = "=2.1.4", default-features = false, features = ["xxhash3_64", "xxhash64"] }
-
-[[bench]]
-name = "map"
-harness = false
-
-[[bench]]
-name = "count"
-harness = false
-
-# Examples are grouped by kind under `examples/`, so their target paths are declared here rather
-# than auto-discovered from the directory root. The comparison examples (smhasher, fold, the cost
-# probes, support, reg1) are removed with the comparison harness.
-
-# The ported SIMT kernels' GPU gates (need the `gpu` runtime feature).
-[[example]]
-name = "simt_check"
-path = "examples/simt_check.rs"
-required-features = ["gpu"]
-
-[[example]]
-name = "simt_gemv"
-path = "examples/simt_gemv.rs"
-required-features = ["gpu"]
-
-# Matched-shape batch-tiled DP4A GEMM measurement (the CUDA MMQ comparator's shapes/tokens).
-[[example]]
-name = "simt_batch"
-path = "examples/simt_batch.rs"
-required-features = ["gpu"]
-
-# Whole-model GPU decode throughput (the llama-bench `tg` comparator).
-[[example]]
-name = "gpu_decode_bench"
-path = "examples/gpu_decode_bench.rs"
-required-features = ["gpu"]
-
-[[example]]
-name = "gemm_bench"
-path = "examples/gemm_bench.rs"
-required-features = ["gpu"]
-
-# Whole-model GPU perplexity measurement (the llama-perplexity comparator).
-[[example]]
-name = "gpu_ppl"
-path = "examples/gpu_ppl.rs"
-required-features = ["gpu"]
-
-# Whole-model f32 forward-pass dump on the Vulkan device (the GPU `run_dump`).
-[[example]]
-name = "gpu_dump"
-path = "examples/gpu_dump.rs"
-required-features = ["gpu"]
 
 [workspace]
 members = ["derive", "fold-abi"]

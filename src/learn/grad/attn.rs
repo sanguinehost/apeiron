@@ -1,6 +1,6 @@
 //! Causal grouped-query attention with `RoPE`: forward and backward in Q32.32 `i64`.
 //!
-//! Ports `tools/onebit/fold_transfer.py` `rope_tables` (lines 60-64), `rot` (lines 66-68) and `attn_a`
+//! Ports `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9) `rope_tables` (lines 60-64), `rot` (lines 66-68) and `attn_a`
 //! (lines 73-81). The rotation pairs `(i, i + hd/2)`: `rot(x) = cat(-x[h:], x[:h])` with
 //! `out = x*cos + rot(x)*sin` is `out[i] = x[i]cos_i - x[i+h]sin_i`, `out[i+h] = x[i+h]cos_i + x[i]sin_i`,
 //! the engine's `RopeTable::rotate_head` pairing. Query head `h` reads kv head `h / rep`,

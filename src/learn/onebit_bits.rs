@@ -1,6 +1,6 @@
 //! Bit budget of the one-bit transformer arm `...-sink-fnorm-grow-res-qmlp-nb`, split by component.
 //!
-//! Each function is the closed form of one counter in `tools/onebit/fold_transfer.py`
+//! Each function is the closed form of one counter in `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9)
 //! (`nsign`, `nr`, `nc`, `nd`, `ncorr`, accumulated at lines 1214, 1237, 1248 and 1260), evaluated
 //! on the layer-uniform shape `(d_model, kv, ff, layers, k_rows)`. Every layer holds twelve
 //! `fold_fit` calls `(O, n)`:
