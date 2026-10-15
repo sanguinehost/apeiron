@@ -1,9 +1,0 @@
-queued Sun 11 Oct 2026 01:06:38 AEDT
-locked Sun 11 Oct 2026 01:06:38 AEDT
-error: unexpected argument '--release' found
-
-Usage: cargo [+toolchain] [OPTIONS] [COMMAND]
-       cargo [+toolchain] [OPTIONS] -Zscript <MANIFEST_RS> [ARGS]...
-
-For more information, try '--help'.
-GATE_EXIT=1 elapsed=0s Sun 11 Oct 2026 01:06:38 AEDT

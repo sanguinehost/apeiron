@@ -1,1 +1,0 @@
-usage: reg1 --check bootstrap [--controls] | --check correctness --profile smoke [--controls] | --check performance --profile smoke|full [--accept] [--controls] [--json] | --paired --profile smoke|full [--accept] [--paired-runs N] | --check coverage [--controls] | --check history [--controls]
