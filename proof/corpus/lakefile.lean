@@ -114,6 +114,7 @@ lean_lib ApeironWordBridge where
     -- The remaining extracted `_loop` bodies of `learn_port.head` (`Learn/Grad/HeadRows.lean`):
     -- the `W_head` backward, the TV gradient and the row/logits/softmax loops.
     `Learn.Grad.HeadRows,
+    `Learn.Grad.HeadSoftmax,
     `AxiomAudit, `Joint.WordBridge,
     `Iota.Audit.Empty,
     `Iota.Syntax, `Iota.Decode,
