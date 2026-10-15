@@ -12,9 +12,17 @@ which `cauchy_schwarz_fisher` discharges by the discriminant of `∫ ρ (t(x-μ)
 `cramer_rao` states `1 ≤ V·I_F` with no such premise. `verdict_l9` and `verdict_l9b` conjoin the
 headlines.
 
-Anchors (not proved here): Madelung (1927); Bohm (1952), the quantum potential; Fisher (1925);
-Reginatto (1998) and Hall and Reginatto, *J. Phys. A* **35** (2002) 3289, the exact uncertainty
-relation; Cramér (1946) and Rao (1945), the Cramér–Rao bound.
+Anchors (not proved here; full references in `book/src/reference/bibliography.md`): Madelung
+(1927); Bohm (1952), the quantum potential; Fisher (1922, 1925), Fisher information; Reginatto
+(1998), `∫ρQ = (ℏ²/8m) I_F`; Hall and Reginatto, *J. Phys. A* **35** (2002) 3289, eq. 19
+(`δx ΔN = ℏ/2`) and the Cramér–Rao route to Heisenberg. The Cramér–Rao bound was found
+independently by Aitken and Silverstone (1942), Fréchet (1943), Rao (1945), Darmois (1945, several
+parameters) and Cramér (1946). Cauchy–Schwarz: Cauchy (1821, sums), Bunyakovsky (1859, integrals),
+Schwarz (1888, inner products). The position–momentum relation: Heisenberg (1927, heuristic),
+Kennard (1927, `σ_x σ_p ≥ ℏ/2`), Weyl (1928), Robertson (1929, any two observables).
+
+`heisenberg_from_cr` bounds the position spread times the nonclassical spread `ΔN`; Hall and
+Reginatto's step `Δp² = Var(S') + ΔN² ≥ ΔN²` to the full momentum spread is not proved here.
 -/
 
 import Mathlib
