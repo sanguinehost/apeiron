@@ -346,6 +346,7 @@ fn f16_payload(rows: usize, n_in: usize) -> Vec<u8> {
 fn n_projection_dispatch_matches_separate_calls_and_refuses() {
     use crate::engine::chart::ffn::{projections_q8act, ProjSource, ProjSpec};
     use crate::engine::chart::matvec_q8act;
+    use crate::engine::loader::PayloadRef;
     use crate::format::quant::GGML_TYPE_F16;
 
     const N_IN: usize = 256;
@@ -356,27 +357,30 @@ fn n_projection_dispatch_matches_separate_calls_and_refuses() {
     let pq_raw = random_payload(PQ_ROWS, N_IN, 0x3C00, 0xfeed);
     let lut = Pq2Lut::from_pq2_0(&pq_raw, PQ_ROWS, N_IN).expect("well-formed");
     let ch_raw = f16_payload(CH_ROWS, N_IN);
-    let specs = [
-        ProjSpec {
-            n_out: PQ_ROWS,
-            row_align: TILE_ROWS,
-            source: ProjSource::Rows(&lut),
+    // The file holds the chart payload at offset 0; the LUT is slot 0 of the open-time table.
+    let luts = [Some(Ok(
+        Pq2Lut::from_pq2_0(&pq_raw, PQ_ROWS, N_IN).expect("well-formed")
+    ))];
+    let lut_spec = ProjSpec {
+        n_out: PQ_ROWS,
+        row_align: TILE_ROWS,
+        source: ProjSource::Rows(0),
+    };
+    let chart_spec = |len: usize| ProjSpec {
+        n_out: CH_ROWS,
+        row_align: 1,
+        source: ProjSource::Chart {
+            ggml_type: GGML_TYPE_F16,
+            at: PayloadRef { off: 0, len },
         },
-        ProjSpec {
-            n_out: CH_ROWS,
-            row_align: 1,
-            source: ProjSource::Chart {
-                ggml_type: GGML_TYPE_F16,
-                raw: &ch_raw,
-            },
-        },
-    ];
+    };
+    let specs = [lut_spec, chart_spec(ch_raw.len())];
     let want = [
         matvec_lut(&lut, &q).expect("lut"),
         matvec_q8act(GGML_TYPE_F16, &ch_raw, CH_ROWS, N_IN, &q).expect("chart"),
     ];
     for chunks in [2usize, 8, 32] {
-        let got = projections_q8act(N_IN, &x, &specs, chunks).expect("dispatch");
+        let got = projections_q8act(&ch_raw, &luts, N_IN, &x, &specs, chunks).expect("dispatch");
         for (i, (g, w)) in got.iter().zip(want.iter()).enumerate() {
             assert_eq!(g, w, "projection {i}, chunks {chunks}");
         }
@@ -384,27 +388,16 @@ fn n_projection_dispatch_matches_separate_calls_and_refuses() {
     // Projection 0 succeeds; the short projection 1 refuses with the same value the separate
     // unchunked call returns, so the failure is the first in projection order.
     let short = &ch_raw[..ch_raw.len() - 1];
-    let bad = [
-        ProjSpec {
-            n_out: PQ_ROWS,
-            row_align: TILE_ROWS,
-            source: ProjSource::Rows(&lut),
-        },
-        ProjSpec {
-            n_out: CH_ROWS,
-            row_align: 1,
-            source: ProjSource::Chart {
-                ggml_type: GGML_TYPE_F16,
-                raw: short,
-            },
-        },
-    ];
+    let bad = [lut_spec, chart_spec(short.len())];
     let want_err = matvec_q8act(GGML_TYPE_F16, short, CH_ROWS, N_IN, &q).expect_err("short");
     assert!(
         matches!(want_err, MatvecError::ShortPayload { .. }),
         "{want_err:?}"
     );
-    assert_eq!(projections_q8act(N_IN, &x, &bad, 8), Err(want_err));
+    assert_eq!(
+        projections_q8act(&ch_raw, &luts, N_IN, &x, &bad, 8),
+        Err(want_err)
+    );
 }
 
 /// Per-call cost of the serial and pooled table builds, min of many reps. Not part of the

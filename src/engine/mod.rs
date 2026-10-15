@@ -203,6 +203,7 @@ mod dequant;
 mod error;
 mod f32_convert;
 mod ffn;
+pub(crate) mod fp;
 mod fused;
 mod hadamard;
 mod kern;

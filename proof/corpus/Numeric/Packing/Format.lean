@@ -1681,7 +1681,7 @@ lemma core_result_from_residual_err {T E : Type} (e : E) :
 
 theorem word_gguf_parse_header_truncated_magic (buf : Slice Std.U8) (hbuf : buf.val.length < 4) :
     word_gguf_parse_header buf =
-      ok (core.result.Result.Err (gguf.GgufError.Truncated (toStr "magic"))) := by
+      ok (core.result.Result.Err (gguf.GgufError.Truncated gguf.GgufField.Magic)) := by
   have hz : ((0#usize) : Std.Usize).val = 0 := rfl
   have hfour := gguf_cur_four_short { b := buf, i := 0#usize }
     (by show buf.val.length < (0#usize).val + 4; omega)
@@ -1746,7 +1746,7 @@ theorem word_gguf_parse_header_truncated_version (buf : Slice Std.U8) (v0 v1 v2 
       (Array.make 4#usize [v0, v1, v2, v3]) gguf.GGUF_MAGIC = ok false)
     (hlen : buf.val.length < 8) :
     word_gguf_parse_header buf =
-      ok (core.result.Result.Err (gguf.GgufError.Truncated (toStr "version"))) := by
+      ok (core.result.Result.Err (gguf.GgufError.Truncated gguf.GgufField.Version)) := by
   have b4 : ((0#usize) : Std.Usize).val + 4 ≤ Usize.max := by
     have hz : ((0#usize) : Std.Usize).val = 0 := rfl
     obtain ⟨hl, _⟩ := List.getElem?_eq_some_iff.mp h3
@@ -1835,7 +1835,7 @@ theorem word_gguf_parse_header_truncated_tensor_count (buf : Slice Std.U8)
     (hne3 : (core.num.U32.from_le_bytes (Array.make 4#usize [v4, v5, v6, v7]) != 3#u32) = false)
     (hlen : buf.val.length < 16) :
     word_gguf_parse_header buf =
-      ok (core.result.Result.Err (gguf.GgufError.Truncated (toStr "tensor count"))) := by
+      ok (core.result.Result.Err (gguf.GgufError.Truncated gguf.GgufField.TensorCount)) := by
   have b4 : ((0#usize) : Std.Usize).val + 4 ≤ Usize.max := by
     have hz : ((0#usize) : Std.Usize).val = 0 := rfl
     obtain ⟨hl, _⟩ := List.getElem?_eq_some_iff.mp h3
@@ -1901,7 +1901,7 @@ theorem word_gguf_parse_header_truncated_kv_count (buf : Slice Std.U8)
         = ok (some t, gguf.Cur.adv { b := buf, i := 0#usize } 16 b16))
     (hlen : buf.val.length < 24) :
     word_gguf_parse_header buf =
-      ok (core.result.Result.Err (gguf.GgufError.Truncated (toStr "kv count"))) := by
+      ok (core.result.Result.Err (gguf.GgufError.Truncated gguf.GgufField.KvCount)) := by
   have hfour := gguf_cur_four_eq_some { b := buf, i := 0#usize } v0 v1 v2 v3 h0 h1 h2 h3 b4
   have hu32 := gguf_cur_u32_eq_some (gguf.Cur.adv { b := buf, i := 0#usize } 4 b4)
     v4 v5 v6 v7 h4 h5 h6 h7 b8
@@ -1948,27 +1948,16 @@ theorem word_gguf_parse_header_truncated_kv_count (buf : Slice Std.U8)
 `gguf_counts_guard_tail` is the count-guard reduction: message- and continuation-parametric
 (`e : gguf.GgufError`, `K`), proved entirely at the `Result` level, so its axiom cone is exactly
 `{propext, Classical.choice, Quot.sound}`. `word_gguf_parse_header_truncated_kv_tensor_count` is
-the `Truncated "kv/tensor count"` refusal built on it.
+the `Truncated KvTensorCount` refusal built on it.
 
-Cone status of the refusal headline: **unregistrable in the closed cone**. Two independent causes,
-both named here since `AxiomAudit.lean` is lead-owned:
-
-* structural: `apeiron_word.gguf.parse_header` and its callees (`parse_kv`, `parse_tensor`,
-  `parse_tensor_loop.body`) embed Aeneas-native decidability proofs (`toStr`'s auto-bound argument
-  is `by decide +native`, `Aeneas/Std/String.lean:28`, with its own TODO against `+native`), and
-  the dependency is def-transitive: even `word_gguf_parse_header buf = word_gguf_parse_header buf`
-  by `rfl` inherits `*_native.decide.ax_*`. Every statement mentioning `word_gguf_parse_header` is
-  affected until the model patch de-nativizes that auto-bound and the extraction is regenerated.
-* local: each `toStr "…"` occurrence in a statement or proof mints a fresh
-  `<decl>._native.decide.ax_*`, because `String.toByteArray` is extern-opaque and the bound
-  `s.toByteArray.size ≤ U32.max` has no kernel-`decide` proof.
-
-Cursor-side and `Result`-side declarations are unaffected: `gguf_cur_*` and `gguf_counts_guard_tail`
-audit at `{propext, Classical.choice, Quot.sound}`. -/
+Cone status: every refusal headline (`word_gguf_parse_header_truncated_*`) audits at
+`{propext, Classical.choice, Quot.sound}` (`AxiomAudit/Remaining.lean`). The payload of
+`GgufError.Truncated` is the `Copy` enum `GgufField`, so no statement mentions `toStr` and none
+inherits an `_native.decide.ax_*` from a string literal. -/
 
 /-- The `parse_header` count-guard tail: once the reads have produced `t`/`k` and the cursor `c3i`,
 the guard chain terminates in `K (Err e)` whenever the `counts_ok` computation is `ok false`.
-Message-parametric (`e`), continuation-parametric (`K`): no `toStr`, no `decide`. -/
+Error-parametric (`e`), continuation-parametric (`K`): no `decide`. -/
 lemma gguf_counts_guard_tail {α : Type} (buf : Slice Std.U8) (c3i : Std.Usize) (t k : Std.U64)
     (e : gguf.GgufError)
     (K : core.result.Result Unit gguf.GgufError → Std.Result α)
@@ -2011,7 +2000,7 @@ theorem word_gguf_parse_header_truncated_kv_tensor_count (buf : Slice Std.U8)
           (gguf.Cur.adv { b := buf, i := 0#usize } 24 b24).i))))
         else ok false) = ok false) :
     word_gguf_parse_header buf =
-      ok (core.result.Result.Err (gguf.GgufError.Truncated (toStr "kv/tensor count"))) := by
+      ok (core.result.Result.Err (gguf.GgufError.Truncated gguf.GgufField.KvTensorCount)) := by
   have hfour := gguf_cur_four_eq_some { b := buf, i := 0#usize } v0 v1 v2 v3 h0 h1 h2 h3 b4
   have hu32 := gguf_cur_u32_eq_some (gguf.Cur.adv { b := buf, i := 0#usize } 4 b4)
     v4 v5 v6 v7 h4 h5 h6 h7 b8
@@ -2046,7 +2035,7 @@ theorem word_gguf_parse_header_truncated_kv_tensor_count (buf : Slice Std.U8)
   rw [core_result_branch_ok]
   simp only [bind_tc_ok]
   rw [gguf_counts_guard_tail buf ((gguf.Cur.adv { b := buf, i := 0#usize } 24 b24).i) t k
-    (gguf.GgufError.Truncated (toStr "kv/tensor count")) _ hcounts]
+    (gguf.GgufError.Truncated gguf.GgufField.KvTensorCount) _ hcounts]
   simp only [bind_tc_ok, core_result_branch_err, core_result_from_residual_err]
   try rfl
 

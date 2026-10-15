@@ -4,7 +4,10 @@ open Lake DSL
 package apeironWordProof where
   leanOptions := #[
     { name := `autoImplicit, value := false },
-    { name := `warningAsError, value := true }
+    { name := `warningAsError, value := true },
+    -- Generated names follow rustc symbols (`core_arch.x86.__m256`, `__is_feature_detected`); the
+    -- mathlib `__` style rule applies to hand-written names only.
+    { name := `linter.style.nameCheck, value := false }
   ]
 
 -- Aeneas's Lean backend is deliberately not vendored. Install the pinned archive under

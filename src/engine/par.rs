@@ -21,8 +21,10 @@ const MIN_ROWS_PER_CHUNK: usize = 64;
 ///
 /// `O(1)`; the CPU count is resolved once behind a process-wide `OnceLock`.
 pub(crate) fn row_chunk_budget(n_out: usize) -> usize {
-    static THREADS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    let threads = *THREADS.get_or_init(online_cpus);
+    chunk_budget(n_out, online_threads())
+}
+
+pub(crate) fn chunk_budget(n_out: usize, threads: usize) -> usize {
     let by_rows = n_out / MIN_ROWS_PER_CHUNK;
     if by_rows == 0 {
         1
@@ -31,6 +33,16 @@ pub(crate) fn row_chunk_budget(n_out: usize) -> usize {
     } else {
         threads
     }
+}
+
+fn online_threads() -> usize {
+    static THREADS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    if let Some(t) = THREADS.get() {
+        return *t;
+    }
+    let t = online_cpus();
+    let _ = THREADS.set(t);
+    THREADS.get().copied().unwrap_or(t)
 }
 
 /// The machine's online CPU count, independent of the calling thread's affinity.

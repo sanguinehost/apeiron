@@ -3,6 +3,7 @@
 use super::matvec::row_dot_fixed;
 use super::value::{div_round_nearest, round_shift_32};
 use super::ONE;
+use crate::engine::fp::F32;
 use crate::engine::mixer::f32_carrier::q32_to_f32;
 use crate::engine::mixer::{carrier_from_env, Carrier};
 use crate::numeric::fixed_exp::fixed_exp;
@@ -95,9 +96,9 @@ pub enum KvStorage {
     /// Native binary32 floating-point key and value planes.
     F32 {
         /// Position-major key planes, one per layer.
-        k: Vec<Vec<f32>>,
+        k: Vec<Vec<F32>>,
         /// Position-major value planes, one per layer.
-        v: Vec<Vec<f32>>,
+        v: Vec<Vec<F32>>,
     },
 }
 
@@ -116,7 +117,7 @@ pub enum KvStorage {
 /// two `vec![blank; n_layer]` repetitions over a `plane`-element element, so it closes at
 /// `2 · n_layer · plane` writes.
 fn alloc_f32_storage(plane: usize, n_layer: usize) -> KvStorage {
-    let blank = vec![0.0f32; plane];
+    let blank = vec![F32::ZERO; plane];
     let k = vec![blank.clone(); n_layer];
     let v = vec![blank; n_layer];
     KvStorage::F32 { k, v }
@@ -153,6 +154,91 @@ fn plane_at(kv: usize, kvh: usize, hd: usize, s: usize, i: usize) -> Result<usiz
     let base = base.checked_add(kvh).ok_or(AttnError::Overflow)?;
     let base = base.checked_mul(hd).ok_or(AttnError::Overflow)?;
     base.checked_add(i).ok_or(AttnError::Overflow)
+}
+
+/// Fold one key into the fused state: `den += exp_word` and `num[comp] += exp_word · v[comp]` for
+/// each `comp < hd`, every `i128` step checked. Stops at the first failure, which is returned; the
+/// partial update is discarded by the caller. Time `O(hd)` checked multiply-adds, space `O(1)`,
+/// no allocation.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "flat scalar and slice parameters keep the helper free of nested regions for extraction"
+)]
+fn fold_key(
+    score: i64,
+    m: i64,
+    vplane: &[i64],
+    kv: usize,
+    kvh: usize,
+    hd: usize,
+    key: usize,
+    den: &mut i128,
+    num: &mut [i128],
+) -> Result<(), AttnError> {
+    let exp_word = exp_at(score, m)?;
+    let next = den
+        .checked_add(i128::from(exp_word))
+        .ok_or(AttnError::Overflow)?;
+    *den = next;
+    let mut comp = 0usize;
+    let mut res: Result<(), AttnError> = Ok(());
+    while comp < hd && res.is_ok() {
+        res = fold_comp(exp_word, vplane, kv, kvh, hd, key, comp, num);
+        comp += 1;
+    }
+    res
+}
+
+/// The key loop of the fused fold: [`fold_key`] for each `scores[key]`, in index order, stopping at
+/// the first error. Time `O(count · hd)` checked operations, space `O(1)`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "flat scalar and slice parameters keep the helper free of nested regions for extraction"
+)]
+fn fold_keys(
+    scores: &[i64],
+    m: i64,
+    vplane: &[i64],
+    kv: usize,
+    kvh: usize,
+    hd: usize,
+    den: &mut i128,
+    num: &mut [i128],
+) -> Result<(), AttnError> {
+    let count = scores.len();
+    let mut key = 0usize;
+    let mut res: Result<(), AttnError> = Ok(());
+    while key < count && res.is_ok() {
+        res = fold_key(scores[key], m, vplane, kv, kvh, hd, key, den, num);
+        key += 1;
+    }
+    res
+}
+
+/// One component of [`fold_key`]: `num[comp] += exp_word · v[plane_at(comp)]`, checked. Straight
+/// line, no loop; `O(1)` checked operations.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "flat scalar and slice parameters keep the helper free of nested regions for extraction"
+)]
+fn fold_comp(
+    exp_word: i64,
+    vplane: &[i64],
+    kv: usize,
+    kvh: usize,
+    hd: usize,
+    key: usize,
+    comp: usize,
+    num: &mut [i128],
+) -> Result<(), AttnError> {
+    let at = plane_at(kv, kvh, hd, key, comp)?;
+    let vb = *vplane.get(at).ok_or(AttnError::Overflow)?;
+    let term = i128::from(exp_word)
+        .checked_mul(i128::from(vb))
+        .ok_or(AttnError::Overflow)?;
+    let next = num[comp].checked_add(term).ok_or(AttnError::Overflow)?;
+    num[comp] = next;
+    Ok(())
 }
 
 /// The checked `[base, base + head_dim)` bounds of the `head_dim`-wide row of key `s` in a
@@ -505,13 +591,14 @@ impl KvState {
     }
 
     /// Fold the precomputed score prefix into a fused `(m, den, num)` state at the fixed shift
-    /// `m`, in `tile`-key groups. The tile boundaries only re-parenthesise the same `i128` sums,
-    /// so the returned `den`/`num` are the same for every `tile`.
+    /// `m`, one key at a time in index order. `tile` has no effect: the `i128` sums are the same
+    /// for every value, including `0`, which `attn_fused_state` and `attn_head_fused` refuse with
+    /// [`AttnError::BadGeometry`] before this call.
     ///
     /// # Complexity
     ///
     /// `O((pos + 1) · head_dim)` time in checked `i128` multiply-adds and one [`fixed_exp`] per
-    /// key, `O(head_dim)` space for `num` plus `O(1)` for the group cursor; the op count is
+    /// key, `O(head_dim)` space for `num` plus `O(1)` for the key cursor; the op count is
     /// independent of `tile`.
     fn fused_fold(
         &self,
@@ -519,7 +606,7 @@ impl KvState {
         kvh: usize,
         scores: &[i64],
         m: i64,
-        tile: usize,
+        _tile: usize,
     ) -> Result<AttnFusedState, AttnError> {
         let hd = self.head_dim;
         let kv = self.n_head_kv;
@@ -527,70 +614,9 @@ impl KvState {
             KvStorage::Q32 { v, .. } => &v[layer],
             KvStorage::F32 { .. } => return Err(AttnError::BadGeometry),
         };
-        let count = scores.len();
         let mut den: i128 = 0;
         let mut num: Vec<i128> = vec![0i128; hd];
-        let mut start = 0usize;
-        let mut ok = true;
-        let mut err: Option<AttnError> = None;
-        while start < count && ok {
-            let end = match start.checked_add(tile) {
-                Some(last) => last.min(count),
-                None => count,
-            };
-            let mut key = start;
-            while key < end && ok {
-                match exp_at(scores[key], m) {
-                    Ok(exp_word) => {
-                        if let Some(next) = den.checked_add(i128::from(exp_word)) {
-                            den = next;
-                        } else {
-                            err = Some(AttnError::Overflow);
-                            ok = false;
-                        }
-                        let mut comp = 0usize;
-                        while comp < hd && ok {
-                            match plane_at(kv, kvh, hd, key, comp) {
-                                Ok(at) => {
-                                    if let Some(&vb) = vplane.get(at) {
-                                        if let Some(term) =
-                                            i128::from(exp_word).checked_mul(i128::from(vb))
-                                        {
-                                            if let Some(next) = num[comp].checked_add(term) {
-                                                num[comp] = next;
-                                            } else {
-                                                err = Some(AttnError::Overflow);
-                                                ok = false;
-                                            }
-                                        } else {
-                                            err = Some(AttnError::Overflow);
-                                            ok = false;
-                                        }
-                                    } else {
-                                        err = Some(AttnError::Overflow);
-                                        ok = false;
-                                    }
-                                }
-                                Err(geo_err) => {
-                                    err = Some(geo_err);
-                                    ok = false;
-                                }
-                            }
-                            comp += 1;
-                        }
-                    }
-                    Err(exp_err) => {
-                        err = Some(exp_err);
-                        ok = false;
-                    }
-                }
-                key += 1;
-            }
-            start = end;
-        }
-        if let Some(e) = err {
-            return Err(e);
-        }
+        fold_keys(scores, m, &vplane[..], kv, kvh, hd, &mut den, &mut num[..])?;
         if den <= 0 {
             return Err(AttnError::ZeroSum);
         }
@@ -628,8 +654,8 @@ impl KvState {
         Ok(mx)
     }
 
-    /// The fused `(m, den, num)` state of the causal prefix at the fixed shift `m`, folded in
-    /// `tile`-key groups. `m` is caller-supplied: the online read passes the exact maximum from
+    /// The fused `(m, den, num)` state of the causal prefix at the fixed shift `m`, folded key by
+    /// key. `m` is caller-supplied: the online read passes the exact maximum from
     /// [`KvState::attn_max`], so every key is shifted by one common value and the exact `i128`
     /// sums do not depend on `tile`.
     ///
@@ -1316,15 +1342,56 @@ impl KvState {
             return Err(AttnError::Overflow);
         }
 
-        // Convert query q from Q32.32 to f32. Use stack buffer for hd <= 256.
-        let mut q_stack = [0.0f32; 256];
-        let mut q_heap;
-        let q_f32: &mut [f32] = if hd <= 256 {
-            &mut q_stack[..hd]
+        // Each branch lends its scratch buffers to `attn_head_f32_rows`: a join of a stack and a heap
+        // `&mut` is refused by the pinned Aeneas model. Stack for hd <= 256, heap otherwise.
+        if hd <= 256 {
+            let mut q_stack = [F32::ZERO; 256];
+            let mut out_stack = [F32::ZERO; 256];
+            Self::attn_head_f32_rows(
+                &kplane[first..],
+                &vplane[first..],
+                q,
+                hd,
+                stride,
+                pos,
+                out,
+                &mut q_stack[..hd],
+                &mut out_stack[..hd],
+            )
         } else {
-            q_heap = vec![0.0f32; hd];
-            &mut q_heap[..]
-        };
+            let mut q_heap = vec![F32::ZERO; hd];
+            let mut out_heap = vec![F32::ZERO; hd];
+            Self::attn_head_f32_rows(
+                &kplane[first..],
+                &vplane[first..],
+                q,
+                hd,
+                stride,
+                pos,
+                out,
+                &mut q_heap[..],
+                &mut out_heap[..],
+            )
+        }
+    }
+
+    /// Q32.32 query to f32, the f32 core over `kx`/`vx`, and the f32 result back to Q32.32, with the
+    /// two scratch buffers supplied by the caller (`q_f32`, `out_f32`, each of length `hd`).
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one scratch buffer per caller branch keeps the Aeneas-visible borrows single-level"
+    )]
+    fn attn_head_f32_rows(
+        kx: &[F32],
+        vx: &[F32],
+        q: &[i64],
+        hd: usize,
+        stride: usize,
+        pos: usize,
+        out: &mut [i64],
+        q_f32: &mut [F32],
+        out_f32: &mut [F32],
+    ) -> Result<(), AttnError> {
         // Index `while` loop, and the one `Err` raised after it. The removal is forced by the
         // pinned Aeneas model, which refuses this body with `Breaks to outer loops are not
         // supported yet`: the `return Err(AttnError::Overflow)` sat inside the `for` body, and an
@@ -1347,28 +1414,11 @@ impl KvState {
             return Err(AttnError::Overflow);
         }
 
-        let scale = 1.0f32 / (hd as f32).sqrt();
+        // `hd as i64` is exact: `hd` is a head width, far below 2^53.
+        #[allow(clippy::cast_possible_wrap, reason = "head width < 2^53")]
+        let scale = F32::ONE / F32::from_i64(hd as i64).sqrt();
 
-        // Output buffer for f32 core. Use stack buffer for hd <= 256.
-        let mut out_stack = [0.0f32; 256];
-        let mut out_heap;
-        let out_f32: &mut [f32] = if hd <= 256 {
-            &mut out_stack[..hd]
-        } else {
-            out_heap = vec![0.0f32; hd];
-            &mut out_heap[..]
-        };
-
-        f32_core::attn_core_f32_strided(
-            q_f32,
-            &kplane[first..],
-            &vplane[first..],
-            hd,
-            stride,
-            pos,
-            scale,
-            out_f32,
-        )?;
+        f32_core::attn_core_f32_strided(q_f32, kx, vx, hd, stride, pos, scale, out_f32)?;
 
         // Index `while` loop with a failure flag, and the one `Err` raised after it, for the same
         // asserted reason: the `?` inside the `for` body is an early exit from a loop body and is
@@ -1411,7 +1461,15 @@ impl KvState {
     /// `O(n_layer)` time: one check pass and one store pass over the per-layer counters; no
     /// allocation.
     pub fn truncate(&mut self, m: usize) -> Result<(), AttnError> {
-        if let Some(&len) = self.occupied.iter().find(|&&occ| occ < m) {
+        let mut bad: Option<usize> = None;
+        let mut i = 0usize;
+        while i < self.occupied.len() && bad.is_none() {
+            if self.occupied[i] < m {
+                bad = Some(self.occupied[i]);
+            }
+            i += 1;
+        }
+        if let Some(len) = bad {
             return Err(AttnError::PositionOutOfRange { pos: m, len });
         }
         self.occupied.fill(m);

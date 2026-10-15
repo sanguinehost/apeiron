@@ -12,44 +12,7 @@
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::time::Instant;
 
-/// A traced phase. The leaf phases partition a pass; [`Phase::Pass`] and [`Phase::Mtp`] enclose.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Phase {
-    /// Token embedding lookup and dequantization.
-    Embed,
-    /// RMS norms (pre-mixer, pre-FFN, output).
-    Norm,
-    /// Residual additions.
-    Residual,
-    /// Softmax-layer Q/K/V (and gate) projections.
-    AttnProjIn,
-    /// Bias, gate split, q/k norm, `RoPE`, cache append and the attention heads.
-    AttnCore,
-    /// Softmax-layer output projection.
-    AttnProjOut,
-    /// Affine-layer input projections (qkv, gate, beta, alpha).
-    AffineProjIn,
-    /// Affine-layer causal convolution.
-    AffineConv,
-    /// Affine-layer per-head state updates and reads.
-    AffineHeads,
-    /// Affine-layer output projection.
-    AffineProjOut,
-    /// The `SwiGLU` FFN: quantization, gate, up, hidden, down.
-    Ffn,
-    /// The output head (dense or bit-plane) and its argmax.
-    Head,
-    /// The MTP draft block (encloses its attention and FFN leaf phases).
-    Mtp,
-    /// Speculative rollback: cache truncation and affine restore.
-    Restore,
-    /// One `compose_cols` pass (encloses the leaf phases).
-    Pass,
-    /// Overlay: the dispatching thread's wait for the pool's other participants after finishing
-    /// its own share, one span per dispatch (`calls` counts dispatches, `cols` their tasks). It
-    /// overlaps the leaf phases and is excluded from the partition.
-    PoolWait,
-}
+pub use crate::engine::error::Phase;
 
 /// Every phase, in report order.
 pub const PHASES: [Phase; 16] = [
@@ -247,22 +210,24 @@ pub struct PhaseStat {
 /// The counters of every phase, in [`PHASES`] order.
 #[must_use]
 pub fn snapshot() -> Vec<PhaseStat> {
-    PHASES
-        .iter()
-        .map(|&p| {
-            let i = p.index();
-            PhaseStat {
-                name: p.name(),
-                encloses: p.encloses(),
-                overlay: p.overlay(),
-                ns: COUNTERS.ns[i].load(Ordering::Relaxed),
-                calls: COUNTERS.calls[i].load(Ordering::Relaxed),
-                cols: COUNTERS.cols[i].load(Ordering::Relaxed),
-                bytes: COUNTERS.bytes[i].load(Ordering::Relaxed),
-                macs: COUNTERS.macs[i].load(Ordering::Relaxed),
-            }
-        })
-        .collect()
+    let mut out: Vec<PhaseStat> = Vec::with_capacity(PHASES.len());
+    let mut k = 0usize;
+    while k < PHASES.len() {
+        let p = PHASES[k];
+        let i = p.index();
+        out.push(PhaseStat {
+            name: p.name(),
+            encloses: p.encloses(),
+            overlay: p.overlay(),
+            ns: COUNTERS.ns[i].load(Ordering::Relaxed),
+            calls: COUNTERS.calls[i].load(Ordering::Relaxed),
+            cols: COUNTERS.cols[i].load(Ordering::Relaxed),
+            bytes: COUNTERS.bytes[i].load(Ordering::Relaxed),
+            macs: COUNTERS.macs[i].load(Ordering::Relaxed),
+        });
+        k += 1;
+    }
+    out
 }
 
 #[cfg(test)]

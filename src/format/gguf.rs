@@ -21,6 +21,59 @@ pub const MAX_DIMS: usize = 4;
 /// Maximum nesting depth of a metadata array.
 const MAX_ARRAY_DEPTH: u32 = 8;
 
+/// The header or table field a read ran past (the payload of [`GgufError::Truncated`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GgufField {
+    /// Metadata key string.
+    KvKey,
+    /// Metadata value type id.
+    KvType,
+    /// Metadata value.
+    KvValue,
+    /// Tensor name string.
+    TensorName,
+    /// Tensor rank.
+    TensorNDims,
+    /// Tensor dimension list.
+    TensorDims,
+    /// Tensor ggml type id.
+    TensorType,
+    /// Tensor data offset.
+    TensorOffset,
+    /// Leading magic bytes.
+    Magic,
+    /// Format version.
+    Version,
+    /// Tensor count.
+    TensorCount,
+    /// Metadata count.
+    KvCount,
+    /// Metadata and tensor counts together exceed the remaining bytes.
+    KvTensorCount,
+}
+
+impl GgufField {
+    /// The field's display name.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            GgufField::KvKey => "kv key",
+            GgufField::KvType => "kv type",
+            GgufField::KvValue => "kv value",
+            GgufField::TensorName => "tensor name",
+            GgufField::TensorNDims => "tensor n_dims",
+            GgufField::TensorDims => "tensor dims",
+            GgufField::TensorType => "tensor type",
+            GgufField::TensorOffset => "tensor offset",
+            GgufField::Magic => "magic",
+            GgufField::Version => "version",
+            GgufField::TensorCount => "tensor count",
+            GgufField::KvCount => "kv count",
+            GgufField::KvTensorCount => "kv/tensor count",
+        }
+    }
+}
+
 /// A refused GGUF operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GgufError {
@@ -30,8 +83,8 @@ pub enum GgufError {
     BadMagic([u8; 4]),
     /// The version is outside the supported `2..=3`.
     UnsupportedVersion(u32),
-    /// A field ran past the available bytes; the string names the stage.
-    Truncated(&'static str),
+    /// A field ran past the available bytes; the payload names the field.
+    Truncated(GgufField),
     /// A tensor declared more than [`MAX_DIMS`] dimensions.
     TooManyDims {
         /// Rank declared by the file.
@@ -62,7 +115,7 @@ impl core::fmt::Display for GgufError {
             GgufError::Io(e) => write!(f, "io: {e}"),
             GgufError::BadMagic(m) => write!(f, "bad magic {m:?} — not a GGUF file"),
             GgufError::UnsupportedVersion(v) => write!(f, "unsupported GGUF version {v}"),
-            GgufError::Truncated(what) => write!(f, "truncated: {what}"),
+            GgufError::Truncated(what) => write!(f, "truncated: {}", what.name()),
             GgufError::TooManyDims { dims } => write!(f, "tensor rank {dims} > {MAX_DIMS}"),
             GgufError::LengthOverflow => write!(f, "length overflow"),
             GgufError::UnknownType(t) => write!(f, "unknown ggml type {t}"),
@@ -426,26 +479,41 @@ impl GgufHeader {
     }
     /// Metadata as an integer.
     pub fn meta_i64(&self, key: &str) -> Option<i64> {
-        self.meta(key).and_then(GVal::as_i64)
+        match self.meta(key) {
+            Some(v) => v.as_i64(),
+            None => None,
+        }
     }
     /// Metadata as a byte string.
     pub fn meta_str(&self, key: &str) -> Option<&[u8]> {
-        self.meta(key).and_then(GVal::as_bytes)
+        match self.meta(key) {
+            Some(v) => v.as_bytes(),
+            None => None,
+        }
     }
     /// The architecture prefix `general.architecture`.
-    pub fn arch(&self) -> &[u8] {
-        self.meta_str("general.architecture").unwrap_or(b"")
+    pub fn arch(&self) -> String {
+        match self.meta_str("general.architecture") {
+            Some(a) => String::from_utf8_lossy(a).into_owned(),
+            None => String::new(),
+        }
     }
     /// `<arch>.<suffix>` as an integer.
     pub fn arch_i64(&self, suffix: &str) -> Option<i64> {
-        let a = String::from_utf8_lossy(self.arch());
+        let a = self.arch();
         self.meta_i64(&format!("{a}.{suffix}"))
     }
     /// The tensor with `name`.
     pub fn tensor(&self, name: &str) -> Option<&TensorDesc> {
-        self.tensors
-            .iter()
-            .find(|t| t.name.as_slice() == name.as_bytes())
+        let mut found: Option<&TensorDesc> = None;
+        let mut i = 0usize;
+        while i < self.tensors.len() && found.is_none() {
+            if self.tensors[i].name.as_slice() == name.as_bytes() {
+                found = Some(&self.tensors[i]);
+            }
+            i += 1;
+        }
+        found
     }
 }
 
@@ -460,11 +528,11 @@ const ALIGN_LEN: usize = 17;
 /// function rather than lexically inside the header's loops: the extractor rejects returns inside
 /// nested loops.
 fn parse_kv(c: &mut Cur<'_>) -> Result<(Vec<u8>, GVal), GgufError> {
-    let key = c.string().ok_or(GgufError::Truncated("kv key"))?;
-    let t = c.u32().ok_or(GgufError::Truncated("kv type"))?;
+    let key = c.string().ok_or(GgufError::Truncated(GgufField::KvKey))?;
+    let t = c.u32().ok_or(GgufError::Truncated(GgufField::KvType))?;
     let v = c
         .value(t, MAX_ARRAY_DEPTH)
-        .ok_or(GgufError::Truncated("kv value"))?;
+        .ok_or(GgufError::Truncated(GgufField::KvValue))?;
     Ok((key, v))
 }
 
@@ -473,8 +541,12 @@ fn parse_kv(c: &mut Cur<'_>) -> Result<(Vec<u8>, GVal), GgufError> {
 /// Holds the rank loop: keeping it here means the return in the rank loop is not lexically nested
 /// inside the directory loop in [`parse_header`].
 fn parse_tensor(c: &mut Cur<'_>) -> Result<TensorDesc, GgufError> {
-    let name = c.string().ok_or(GgufError::Truncated("tensor name"))?;
-    let nd = c.u32().ok_or(GgufError::Truncated("tensor n_dims"))?;
+    let name = c
+        .string()
+        .ok_or(GgufError::Truncated(GgufField::TensorName))?;
+    let nd = c
+        .u32()
+        .ok_or(GgufError::Truncated(GgufField::TensorNDims))?;
     if nd as usize > MAX_DIMS {
         return Err(GgufError::TooManyDims { dims: nd });
     }
@@ -487,14 +559,16 @@ fn parse_tensor(c: &mut Cur<'_>) -> Result<TensorDesc, GgufError> {
                 dims.push(d);
                 k += 1;
             }
-            None => dim_err = Some(GgufError::Truncated("tensor dims")),
+            None => dim_err = Some(GgufError::Truncated(GgufField::TensorDims)),
         }
     }
     if let Some(e) = dim_err {
         return Err(e);
     }
-    let ggml_type = c.u32().ok_or(GgufError::Truncated("tensor type"))?;
-    let offset = c.u64().ok_or(GgufError::Truncated("tensor offset"))?;
+    let ggml_type = c.u32().ok_or(GgufError::Truncated(GgufField::TensorType))?;
+    let offset = c
+        .u64()
+        .ok_or(GgufError::Truncated(GgufField::TensorOffset))?;
     Ok(TensorDesc {
         name,
         dims,
@@ -507,17 +581,19 @@ fn parse_tensor(c: &mut Cur<'_>) -> Result<TensorDesc, GgufError> {
 /// bounds; the parse itself never reads past `buf`.
 pub fn parse_header(buf: &[u8], file_len: u64) -> Result<GgufHeader, GgufError> {
     let mut c = Cur { b: buf, i: 0 };
-    let m = c.four().ok_or(GgufError::Truncated("magic"))?;
+    let m = c.four().ok_or(GgufError::Truncated(GgufField::Magic))?;
     let magic = m;
     if magic != GGUF_MAGIC {
         return Err(GgufError::BadMagic(magic));
     }
-    let version = c.u32().ok_or(GgufError::Truncated("version"))?;
+    let version = c.u32().ok_or(GgufError::Truncated(GgufField::Version))?;
     if version != 2 && version != 3 {
         return Err(GgufError::UnsupportedVersion(version));
     }
-    let n_tensors = c.u64().ok_or(GgufError::Truncated("tensor count"))?;
-    let n_kv = c.u64().ok_or(GgufError::Truncated("kv count"))?;
+    let n_tensors = c
+        .u64()
+        .ok_or(GgufError::Truncated(GgufField::TensorCount))?;
+    let n_kv = c.u64().ok_or(GgufError::Truncated(GgufField::KvCount))?;
 
     // A count larger than the remaining bytes must not drive an allocation. A metadata entry is at
     // least one byte, so `n_kv > remaining` is impossible in a well-formed file. The guard is
@@ -527,7 +603,7 @@ pub fn parse_header(buf: &[u8], file_len: u64) -> Result<GgufHeader, GgufError> 
     let remaining = buf.len().saturating_sub(c.i) as u64;
     let counts_ok = n_kv <= remaining && n_tensors <= remaining;
     let counts_guard: Option<()> = if counts_ok { Some(()) } else { None };
-    counts_guard.ok_or(GgufError::Truncated("kv/tensor count"))?;
+    counts_guard.ok_or(GgufError::Truncated(GgufField::KvTensorCount))?;
 
     let mut kv: Vec<(Vec<u8>, GVal)> = Vec::with_capacity(n_kv as usize);
     let mut kv_err: Option<GgufError> = None;
@@ -619,12 +695,30 @@ pub struct Gguf {
     pub file_len: u64,
 }
 
-fn read_prefix(path: &str, n: usize) -> std::io::Result<(Vec<u8>, u64)> {
-    let mut f = std::fs::File::open(path)?;
-    let len = f.metadata()?.len();
+// Host file I/O: the opaque boundary of the extraction (`regen.sh` `--opaque`). Each returns the
+// OS error text on failure; the callers wrap it in their own refusal type.
+
+/// The first `min(n, file length)` bytes of `path` and the file length.
+pub fn host_read_prefix(path: &str, n: usize) -> Result<(Vec<u8>, u64), String> {
+    let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let len = f.metadata().map_err(|e| e.to_string())?.len();
     let mut buf = vec![0u8; n.min(len as usize)];
-    f.read_exact(&mut buf)?;
+    f.read_exact(&mut buf).map_err(|e| e.to_string())?;
     Ok((buf, len))
+}
+
+/// `n` bytes of `path` starting at byte offset `at`.
+pub fn host_read_at(path: &str, at: u64, n: usize) -> Result<Vec<u8>, String> {
+    let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    f.seek(SeekFrom::Start(at)).map_err(|e| e.to_string())?;
+    let mut buf = vec![0u8; n];
+    f.read_exact(&mut buf).map_err(|e| e.to_string())?;
+    Ok(buf)
+}
+
+/// The whole file at `path`.
+pub fn host_read_all(path: &str) -> Result<Vec<u8>, String> {
+    std::fs::read(path).map_err(|e| e.to_string())
 }
 
 impl Gguf {
@@ -634,7 +728,7 @@ impl Gguf {
         let mut want = 8usize << 20;
         loop {
             let (buf, len) =
-                read_prefix(path, want).map_err(|e| GgufError::Io(format!("{path}: {e}")))?;
+                host_read_prefix(path, want).map_err(|e| GgufError::Io(format!("{path}: {e}")))?;
             match parse_header(&buf, len) {
                 Ok(header) => {
                     return Ok(Gguf {
@@ -668,13 +762,7 @@ impl Gguf {
                 file_len: self.file_len,
             });
         }
-        let mut f = std::fs::File::open(&self.path).map_err(|e| GgufError::Io(e.to_string()))?;
-        f.seek(SeekFrom::Start(at))
-            .map_err(|e| GgufError::Io(e.to_string()))?;
-        let mut buf = vec![0u8; n as usize];
-        f.read_exact(&mut buf)
-            .map_err(|e| GgufError::Io(e.to_string()))?;
-        Ok(buf)
+        host_read_at(&self.path, at, n as usize).map_err(GgufError::Io)
     }
 
     /// Read a tensor's full payload.
@@ -815,7 +903,7 @@ mod tests {
         w.bytes(b"short");
         assert_eq!(
             parse_header(&w.0, w.0.len() as u64),
-            Err(GgufError::Truncated("kv value"))
+            Err(GgufError::Truncated(GgufField::KvValue))
         );
     }
 
@@ -828,7 +916,7 @@ mod tests {
         // missing second dim / type / offset
         assert_eq!(
             parse_header(&w.0, w.0.len() as u64),
-            Err(GgufError::Truncated("tensor dims"))
+            Err(GgufError::Truncated(GgufField::TensorDims))
         );
     }
 
@@ -864,7 +952,7 @@ mod tests {
         let h = parse_header(&w.0, w.0.len() as u64).unwrap();
         assert_eq!(h.version, 3);
         assert_eq!(h.alignment, 64);
-        assert_eq!(h.arch(), b"llama".as_slice());
+        assert_eq!(h.arch(), "llama");
         assert_eq!(h.arch_i64("block_count"), Some(32));
         let t = h.tensor("blk.0.attn_q.weight").unwrap();
         assert_eq!(t.n_elements().unwrap(), 4096 * 4096);
@@ -924,7 +1012,7 @@ mod tests {
         w.u64(u64::MAX);
         assert_eq!(
             parse_header(&w.0, w.0.len() as u64),
-            Err(GgufError::Truncated("kv/tensor count"))
+            Err(GgufError::Truncated(GgufField::KvTensorCount))
         );
     }
 
@@ -937,7 +1025,7 @@ mod tests {
         w.u64(1 << 30); // absurd element count
         assert_eq!(
             parse_header(&w.0, w.0.len() as u64),
-            Err(GgufError::Truncated("kv value"))
+            Err(GgufError::Truncated(GgufField::KvValue))
         );
     }
 }

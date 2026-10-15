@@ -207,8 +207,9 @@ impl<K: Coord + Eq> KeyStore<K> for Stored<K> {
         K: Clone,
     {
         let mut out = <Self as KeyStore<K>>::alloc(coords.len());
-        for (i, c) in coords.iter().enumerate() {
-            if is_live(*c) {
+        let mut i = 0usize;
+        while i < coords.len() {
+            if is_live(coords[i]) {
                 // SAFETY: live coord ⇒ this slot's key initialized (a tombstone's key was already
                 // taken by `remove` and must NOT be read again); writing an uninit slot.
                 unsafe {
@@ -216,18 +217,21 @@ impl<K: Coord + Eq> KeyStore<K> for Stored<K> {
                         MaybeUninit::new(self.0.get_unchecked(i).assume_init_ref().clone());
                 };
             }
+            i += 1;
         }
         out
     }
     fn drop_live(&mut self, coords: &[u64]) {
         if std::mem::needs_drop::<K>() {
-            for (i, c) in coords.iter().enumerate() {
-                if is_live(*c) {
+            let mut i = 0usize;
+            while i < coords.len() {
+                if is_live(coords[i]) {
                     // SAFETY: the invariant — live coord ⇒ key initialized, dropped once. A
                     // tombstone's key was already moved out by `remove`; dropping it again here
                     // would be a double-drop, so it must be excluded (not just != EMPTY).
                     unsafe { self.0.get_unchecked_mut(i).assume_init_drop() };
                 }
+                i += 1;
             }
         }
     }

@@ -5,13 +5,13 @@
 //! chunks run on scoped threads, concatenated in row order; it is the Q8-activation twin of
 //! `par::matvec_rows_chunked`. [`projections_q8act`] generalizes its gate/up fusion to `n`
 //! projections over one `quant_act(x)` and one pool dispatch, taking either the chart row core or a
-//! caller-supplied [`RowKernel`] so the `PQ2_0` LUT can share the activation without this module
-//! importing `kern`. [`ffn_q8act`] is [`ffn_fixed`](crate::engine::ffn::ffn_fixed)'s arithmetic with
+//! [`Pq2Lut`] so the `PQ2_0` LUT can share the activation. [`ffn_q8act`] is [`ffn_fixed`](crate::engine::ffn::ffn_fixed)'s arithmetic with
 //! each projection replaced by `matvec_q8act` over `quant_act` of its input; the gate and up
 //! projections share one `quant_act` of `x`. The `Exact` path in `ffn.rs` and `par.rs` is not
 //! touched.
 
 #[cfg(target_arch = "x86_64")]
+use crate::engine::fp::F32;
 use crate::engine::mixer::f32_carrier::silu_f32_avx2;
 use crate::engine::mixer::f32_carrier::{q32_to_f32, silu_f32_scalar};
 use crate::engine::mixer::{carrier_from_env, Carrier};
@@ -22,9 +22,10 @@ use super::super::matvec::MatvecError;
 use super::super::par::row_chunk_budget;
 use super::super::value::round_shift_32;
 use super::super::EngineError;
-use super::pool::Pool;
 use super::{matvec_q8act, q8act_plan, q8act_rows, quant_act, Q8ActPlan, QuantAct};
-use std::sync::Mutex;
+use crate::engine::chart::task::{ChunkTask, HeadTask, IndexTask, Task1, VecTask};
+use crate::engine::kern::lut::{Pq2Lut, PreparedLut};
+use crate::engine::loader::PayloadRef;
 
 #[cfg(test)]
 thread_local! {
@@ -63,6 +64,60 @@ impl ActPtr {
     }
 }
 
+/// `dst[off + i] = src[i]` over `src`'s length, for a scale run.
+fn copy_i64_at(dst: &mut [i64], off: usize, src: &[i64]) {
+    let mut i = 0usize;
+    while i < src.len() && off + i < dst.len() {
+        dst[off + i] = src[i];
+        i += 1;
+    }
+}
+
+/// `dst[off + i] = src[i]` over `src`'s length, for a code run.
+fn copy_i8_at(dst: &mut [i8], off: usize, src: &[i8]) {
+    let mut i = 0usize;
+    while i < src.len() && off + i < dst.len() {
+        dst[off + i] = src[i];
+        i += 1;
+    }
+}
+
+/// [`quant_act`] of one block run into `out`; `false` is the [`quantize`] refusal, which the pooled
+/// callers reduce to `None`. Takes one `&mut` output so the extraction sees no `&mut [i64]` and
+/// `&mut [i8]` pair in a definition.
+fn quant_fill(x: &[i64], out: &mut QuantAct) -> bool {
+    match quant_act(x) {
+        Some(qa) => {
+            *out = qa;
+            true
+        }
+        None => false,
+    }
+}
+
+/// Pool context for [`quant_act_pooled`]: the activation and the codes each task quantizes.
+struct QuantSlotsCtx<'a> {
+    x: &'a [i64],
+    per_codes: usize,
+}
+
+impl Task1<QuantAct, ()> for QuantSlotsCtx<'_> {
+    fn run(&self, t: usize, slot: &mut [QuantAct]) -> Result<(), ()> {
+        quant_slot_task(self.x, self.per_codes, t, slot)
+    }
+}
+
+/// Task body of [`QuantSlotsCtx`]: quantizes the codes of task `t` into `slot[0]`.
+fn quant_slot_task(x: &[i64], per_codes: usize, t: usize, slot: &mut [QuantAct]) -> Result<(), ()> {
+    let lo = t * per_codes;
+    let hi = (lo + per_codes).min(x.len());
+    if quant_fill(&x[lo..hi], &mut slot[0]) {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
 /// [`quant_act`] over the pool: `x` is cut into whole 32-element blocks and each contiguous run of
 /// blocks is quantized by one pool task with the same [`quant_act`]. A block's scale and codes
 /// depend only on that block, so the concatenation is exactly the single call's `scales`/`codes`
@@ -80,63 +135,56 @@ pub(crate) fn quant_act_pooled(x: &[i64]) -> Option<QuantAct> {
         return quant_act(x);
     }
     let blocks = x.len().div_ceil(QK);
-    let pool = Pool::global();
-    let tasks = (2 * pool.width()).min(blocks).max(1);
+    let tasks = (2 * super::pool::width_global()).min(blocks).max(1);
     if tasks <= 1 {
         return quant_act(x);
     }
     let per = blocks.div_ceil(tasks);
+    let per_codes = per * QK;
+    let n_tasks = blocks.div_ceil(per);
+    let mut slots: Vec<QuantAct> = Vec::with_capacity(n_tasks);
+    let mut t = 0usize;
+    while t < n_tasks {
+        slots.push(QuantAct {
+            scales: Vec::new(),
+            codes: Vec::new(),
+        });
+        t += 1;
+    }
+    let refused = super::pool::for_chunks(&mut slots, 1, &QuantSlotsCtx { x, per_codes });
+    if refused.is_err() {
+        return None;
+    }
     let mut scales: Vec<i64> = vec![0; blocks];
     let mut codes: Vec<i8> = vec![0; x.len()];
-    let ptr = ActPtr {
-        scales: scales.as_mut_ptr(),
-        codes: codes.as_mut_ptr(),
-    };
-    let act = &ptr;
-    let refused = std::sync::atomic::AtomicBool::new(false);
-    pool.run(tasks, &|t| {
-        let lo_b = (t * per).min(blocks);
-        let hi_b = ((t + 1) * per).min(blocks);
-        if lo_b >= hi_b {
-            return;
-        }
-        let lo = lo_b * QK;
-        let hi = (hi_b * QK).min(x.len());
-        match quant_act(&x[lo..hi]) {
-            Some(qa) => {
-                // SAFETY: task `t` is the only writer of blocks `[lo_b, hi_b)` and of codes
-                // `[lo, hi)`; both writes stay inside the two allocations, which outlive the
-                // dispatch.
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        qa.scales().as_ptr(),
-                        act.scales.add(lo_b),
-                        hi_b - lo_b,
-                    );
-                    std::ptr::copy_nonoverlapping(qa.codes().as_ptr(), act.codes.add(lo), hi - lo);
-                }
-            }
-            None => refused.store(true, std::sync::atomic::Ordering::Relaxed),
-        }
-    });
-    if refused.load(std::sync::atomic::Ordering::Relaxed) {
-        return None;
+    let mut t = 0usize;
+    while t < n_tasks {
+        copy_i64_at(&mut scales, t * per, &slots[t].scales);
+        copy_i8_at(&mut codes, t * per_codes, &slots[t].codes);
+        t += 1;
     }
     Some(QuantAct { scales, codes })
 }
 
-/// Disjoint output ranges of one pooled multi-column quantization: task `c` writes only column
-/// `c`'s two reservations.
-#[derive(Clone, Copy)]
-struct ColActPtr {
-    scales: *mut i64,
-    codes: *mut i8,
+/// Pool context for [`quant_acts_pooled`]: the columns; task `c` quantizes column `c`.
+struct QuantColsCtx<'a> {
+    xs: &'a [Vec<i64>],
 }
-// SAFETY: task `c` writes column `c`'s reserved capacity only, no task reads another column, and
-// the two allocations outlive the dispatch and are not moved while it runs.
-unsafe impl Send for ColActPtr {}
-// SAFETY: as above.
-unsafe impl Sync for ColActPtr {}
+
+impl Task1<QuantAct, ()> for QuantColsCtx<'_> {
+    fn run(&self, c: usize, slot: &mut [QuantAct]) -> Result<(), ()> {
+        quant_col_task(self.xs, c, slot)
+    }
+}
+
+/// Task body of [`QuantColsCtx`]: quantizes column `c` into `slot[0]`.
+fn quant_col_task(xs: &[Vec<i64>], c: usize, slot: &mut [QuantAct]) -> Result<(), ()> {
+    if quant_fill(&xs[c], &mut slot[0]) {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
 
 /// [`quant_act`] over every column at once: one pool task per column, each running the unchanged
 /// single-column quantizer and copying its `scales`/`codes` into column `c`'s reservation of the
@@ -153,52 +201,30 @@ pub(crate) fn quant_acts_pooled(xs: &[Vec<i64>]) -> Option<Vec<QuantAct>> {
     /// The activation quantization block, as in [`quant_act`].
     const QK: usize = 32;
     let k = xs.len();
-    let n = xs.first().map_or(0, Vec::len);
-    if k <= 1 || xs.iter().any(|x| x.len() != n) {
-        return xs.iter().map(|x| quant_act_pooled(x)).collect();
+    let n = if xs.is_empty() { 0 } else { xs[0].len() };
+    if k <= 1 || crate::engine::step::any_vec_len_ne(xs, n) {
+        let mut out: Vec<QuantAct> = Vec::with_capacity(k);
+        let mut i = 0usize;
+        while i < k {
+            out.push(quant_act_pooled(&xs[i])?);
+            i += 1;
+        }
+        return Some(out);
     }
     let per_scales = n.div_ceil(QK);
-    let mut scales: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(per_scales)).collect();
-    let mut codes: Vec<Vec<i8>> = (0..k).map(|_| Vec::with_capacity(n)).collect();
-    let ptrs: Vec<ColActPtr> = scales
-        .iter_mut()
-        .zip(codes.iter_mut())
-        .map(|(s, c)| ColActPtr {
-            scales: s.spare_capacity_mut().as_mut_ptr().cast::<i64>(),
-            codes: c.spare_capacity_mut().as_mut_ptr().cast::<i8>(),
-        })
-        .collect();
-    let ptr = &ptrs;
-    let refused = std::sync::atomic::AtomicBool::new(false);
-    Pool::global().run(k, &|c| match quant_act(&xs[c]) {
-        Some(qa) => {
-            // SAFETY: task `c` is the only writer of column `c`'s reservations, which hold
-            // `per_scales` and `n` elements after the copy — `quant_act`'s invariants are exactly
-            // those lengths — and both allocations outlive the dispatch.
-            unsafe {
-                std::ptr::copy_nonoverlapping(qa.scales().as_ptr(), ptr[c].scales, per_scales);
-                std::ptr::copy_nonoverlapping(qa.codes().as_ptr(), ptr[c].codes, n);
-            }
-        }
-        None => refused.store(true, std::sync::atomic::Ordering::Relaxed),
-    });
-    if refused.load(std::sync::atomic::Ordering::Relaxed) {
-        // As `quant_act_pooled`: a refusal drops every length-0 reservation and the written
-        // columns with it.
-        return None;
-    }
     let mut out: Vec<QuantAct> = Vec::with_capacity(k);
-    for (mut s, mut c) in scales.into_iter().zip(codes) {
-        // SAFETY: reached only on the refusal-free path, which copied each column's exact
-        // `scales.len()` / `codes.len()` into the reservations above.
-        unsafe {
-            s.set_len(per_scales);
-            c.set_len(n);
-        }
+    let mut col = 0usize;
+    while col < k {
         out.push(QuantAct {
-            scales: s,
-            codes: c,
+            scales: vec![0; per_scales],
+            codes: vec![0; n],
         });
+        col += 1;
+    }
+    // As `quant_act_pooled`: a refusal of any column is the whole result's `None`.
+    let refused = super::pool::for_chunks(&mut out, 1, &QuantColsCtx { xs });
+    if refused.is_err() {
+        return None;
     }
     Some(out)
 }
@@ -231,17 +257,11 @@ fn swiglu_one(gate: i64, up: i64) -> Result<i64, FfnError> {
 /// Range check: non-finite (NaN, $\pm\infty$) or values exceeding the signed 64-bit integer
 /// range $[-2^{63}, 2^{63}-1]$ return `Err(FfnError::Overflow)`. No silent clamping is performed.
 #[inline]
-pub(crate) fn f32_to_q32_checked(o: f32) -> Result<i64, FfnError> {
+pub(crate) fn f32_to_q32_checked(o: F32) -> Result<i64, FfnError> {
     if !o.is_finite() {
         return Err(FfnError::Overflow);
     }
-    let scaled = f64::from(o) * 4_294_967_296.0;
-    let rounded = scaled.round();
-    if !(-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&rounded) {
-        return Err(FfnError::Overflow);
-    }
-    #[allow(clippy::cast_possible_truncation, reason = "bounds checked above")]
-    Ok(rounded as i64)
+    o.to_q32().ok_or(FfnError::Overflow)
 }
 
 /// Scalar `SwiGLU` in binary32: `SiLU(q32_to_f32(gate)) * q32_to_f32(up)` converted back to Q32.32.
@@ -273,23 +293,27 @@ pub(crate) unsafe fn swiglu_f32_avx2_8_into(
     out: &mut [i64; 8],
 ) -> Result<(), (usize, FfnError)> {
     use std::arch::x86_64::{_mm256_loadu_ps, _mm256_mul_ps, _mm256_storeu_ps};
-    let mut g_f = [0.0f32; 8];
-    let mut u_f = [0.0f32; 8];
-    for l in 0..8 {
+    let mut g_f = [F32::ZERO; 8];
+    let mut u_f = [F32::ZERO; 8];
+    let mut l = 0usize;
+    while l < 8 {
         g_f[l] = q32_to_f32(gate[l]);
         u_f[l] = q32_to_f32(up[l]);
+        l += 1;
     }
-    let vg = _mm256_loadu_ps(g_f.as_ptr());
-    let vu = _mm256_loadu_ps(u_f.as_ptr());
+    let vg = _mm256_loadu_ps(g_f.as_ptr().cast::<f32>());
+    let vu = _mm256_loadu_ps(u_f.as_ptr().cast::<f32>());
     let vs = silu_f32_avx2(vg);
     let vp = _mm256_mul_ps(vs, vu);
-    let mut prod_f = [0.0f32; 8];
-    _mm256_storeu_ps(prod_f.as_mut_ptr(), vp);
-    for l in 0..8 {
+    let mut prod_f = [F32::ZERO; 8];
+    _mm256_storeu_ps(prod_f.as_mut_ptr().cast::<f32>(), vp);
+    let mut l = 0usize;
+    while l < 8 {
         match f32_to_q32_checked(prod_f[l]) {
             Ok(v) => out[l] = v,
             Err(e) => return Err((l, e)),
         }
+        l += 1;
     }
     Ok(())
 }
@@ -314,14 +338,21 @@ fn swiglu_slice(
     out: &mut [i64],
     carrier: Carrier,
 ) -> Result<(), (usize, FfnError)> {
+    let n = gate.len().min(up.len());
+    let mut err: Option<(usize, FfnError)> = None;
     if carrier == Carrier::Q32 {
-        for (i, (&g, &u)) in gate.iter().zip(up).enumerate() {
-            match swiglu_one(g, u) {
+        let mut i = 0usize;
+        while i < n && err.is_none() {
+            match swiglu_one(gate[i], up[i]) {
                 Ok(v) => out[i] = v,
-                Err(e) => return Err((i, e)),
+                Err(e) => err = Some((i, e)),
             }
+            i += 1;
         }
-        return Ok(());
+        return match err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        };
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -330,11 +361,11 @@ fn swiglu_slice(
     let has_avx2 = false;
 
     let mut i = 0usize;
-    let n = gate.len();
+    let mut done = false;
     #[cfg(target_arch = "x86_64")]
     if has_avx2 {
         let mut buf = [0i64; 8];
-        while i + 8 <= n {
+        while i + 8 <= n && !done {
             let g8: &[i64; 8] = gate[i..i + 8].try_into().expect("8 elements");
             let u8: &[i64; 8] = up[i..i + 8].try_into().expect("8 elements");
             match unsafe { swiglu_f32_avx2_8_into(g8, u8, &mut buf) } {
@@ -343,20 +374,61 @@ fn swiglu_slice(
                 }
                 Err((fail_lane, e)) => {
                     out[i..i + fail_lane].copy_from_slice(&buf[..fail_lane]);
-                    return Err((i + fail_lane, e));
+                    err = Some((i + fail_lane, e));
+                    done = true;
                 }
             }
             i += 8;
         }
     }
-    while i < n {
+    while i < n && !done {
         match swiglu_one_f32_scalar(gate[i], up[i]) {
             Ok(v) => out[i] = v,
-            Err(e) => return Err((i, e)),
+            Err(e) => {
+                err = Some((i, e));
+                done = true;
+            }
         }
         i += 1;
     }
-    Ok(())
+    match err {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// Pool context for [`swiglu_hidden_carrier`]: the shared operands and the refusal slot.
+struct SwigluHiddenCtx<'a> {
+    gate: &'a [i64],
+    up: &'a [i64],
+    carrier: Carrier,
+    first: &'a super::pool::FirstErr<usize, FfnError>,
+}
+
+impl ChunkTask<i64> for SwigluHiddenCtx<'_> {
+    fn run(&self, _c: usize, start: usize, dst: &mut [i64]) {
+        swiglu_hidden_task(self.gate, self.up, self.carrier, self.first, start, dst);
+    }
+}
+
+/// Task body of [`SwigluHiddenCtx`]: `dst` is `h[start..start + dst.len()]`.
+fn swiglu_hidden_task(
+    gate: &[i64],
+    up: &[i64],
+    carrier: Carrier,
+    first: &super::pool::FirstErr<usize, FfnError>,
+    start: usize,
+    dst: &mut [i64],
+) {
+    let len = dst.len();
+    if let Err((lane, e)) = swiglu_slice(
+        &gate[start..start + len],
+        &up[start..start + len],
+        dst,
+        carrier,
+    ) {
+        first.record(start + lane, e);
+    }
 }
 
 /// `h_i = round(silu(gate_i)·up_i / 2^32)` for every `i`, on the pool when `parallel`,
@@ -374,44 +446,47 @@ pub(crate) fn swiglu_hidden_carrier(
     if !parallel {
         return swiglu_slice(gate, up, h, carrier).map_err(|(_, e)| e);
     }
-    let pool = Pool::global();
-    let chunk = h.len().div_ceil(2 * pool.width()).max(1);
-    let first: Mutex<Option<(usize, FfnError)>> = Mutex::new(None);
-    pool.chunks_mut(h, chunk, &|_c, start, dst| {
-        let len = dst.len();
-        if let Err((lane, e)) = swiglu_slice(
-            &gate[start..start + len],
-            &up[start..start + len],
-            dst,
+    let chunk = h.len().div_ceil(2 * super::pool::width_global()).max(1);
+    let first: super::pool::FirstErr<usize, FfnError> = super::pool::FirstErr::new();
+    super::pool::chunks_mut_global(
+        h,
+        chunk,
+        &SwigluHiddenCtx {
+            gate,
+            up,
             carrier,
-        ) {
-            let idx = start + lane;
-            let mut slot = first
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if slot.as_ref().is_none_or(|(k, _)| idx < *k) {
-                *slot = Some((idx, e));
-            }
-        }
-    });
-    match first
-        .into_inner()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-    {
+            first: &first,
+        },
+    );
+    match first.take() {
         Some((_, e)) => Err(e),
         None => Ok(()),
     }
 }
 
-/// Disjoint columns of one pooled `SwiGLU`: every task writes only its own flat elements, each at
-/// its column's base plus the element index.
-#[derive(Clone, Copy)]
-struct SwigluPtr(*mut i64);
-// SAFETY: the tasks partition the flat `k·n_ff` element range and each flat element is one
-// distinct `i64` of one `out` column, which outlives the dispatch.
-unsafe impl Send for SwigluPtr {}
-// SAFETY: as above.
-unsafe impl Sync for SwigluPtr {}
+/// One pooled `SwiGLU` piece: `out[j] = swiglu(gate[offset + j], up[offset + j])` for `j` in
+/// `0..out.len()`, stopping at the first refusal in index order.
+fn swiglu_piece(
+    gate: &[i64],
+    up: &[i64],
+    out: &mut [i64],
+    offset: usize,
+    carrier: Carrier,
+) -> Result<(), FfnError> {
+    let mut err: Option<FfnError> = None;
+    let mut j = 0usize;
+    while j < out.len() && err.is_none() {
+        match swiglu_one_carrier(gate[offset + j], up[offset + j], carrier) {
+            Ok(v) => out[j] = v,
+            Err(e) => err = Some(e),
+        }
+        j += 1;
+    }
+    match err {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
 
 /// `out[c][j] = round(silu(gate[c][j])·up[c][j] / 2^32)` for every column `c` and every `j`: one
 /// pool dispatch over the flat `k·n_ff` element count.
@@ -421,6 +496,31 @@ pub(crate) fn swiglu_cols(
     out: &mut [Vec<i64>],
 ) -> Result<(), FfnError> {
     swiglu_cols_carrier(gate, up, out, carrier_from_env())
+}
+
+/// Pool context for [`swiglu_cols_carrier`]: the shared columns; task `c` is column `c`'s piece.
+struct SwigluColsCtx<'a> {
+    gate: &'a [Vec<i64>],
+    up: &'a [Vec<i64>],
+    carrier: Carrier,
+}
+
+impl VecTask<i64, FfnError> for SwigluColsCtx<'_> {
+    fn run(&self, _t: usize, c: usize, offset: usize, piece: &mut [i64]) -> Result<(), FfnError> {
+        swiglu_col_task(self.gate, self.up, c, offset, piece, self.carrier)
+    }
+}
+
+/// Task body of [`SwigluColsCtx`]: column `c`'s piece at `offset`.
+fn swiglu_col_task(
+    gate: &[Vec<i64>],
+    up: &[Vec<i64>],
+    c: usize,
+    offset: usize,
+    piece: &mut [i64],
+    carrier: Carrier,
+) -> Result<(), FfnError> {
+    swiglu_piece(&gate[c], &up[c], piece, offset, carrier)
 }
 
 /// `out[c][j] = round(silu(gate[c][j])·up[c][j] / 2^32)` for every column `c` and every `j` under
@@ -440,53 +540,23 @@ pub(crate) fn swiglu_cols_carrier(
     if up.len() != k || out.len() != k {
         return Err(FfnError::BadGeometry);
     }
-    let n = gate.first().map_or(0, Vec::len);
-    if up.iter().any(|v| v.len() != n) || out.iter().any(|v| v.len() != n) {
+    #[allow(
+        clippy::len_zero,
+        reason = "slice len compares extract; first()/is_empty do not"
+    )]
+    let n = if gate.len() > 0 { gate[0].len() } else { 0 };
+    if crate::engine::step::any_vec_len_ne(up, n) || crate::engine::step::any_vec_len_ne(out, n) {
         return Err(FfnError::BadGeometry);
     }
     let flat = k.checked_mul(n).ok_or(FfnError::BadGeometry)?;
     if flat == 0 {
         return Ok(());
     }
-    let pool = Pool::global();
-    let chunk = flat.div_ceil(2 * pool.width()).max(1);
-    let tasks = flat.div_ceil(chunk);
-    let ptrs: Vec<SwigluPtr> = out.iter_mut().map(|v| SwigluPtr(v.as_mut_ptr())).collect();
-    let ptr = &ptrs;
-    let first: Mutex<Option<(usize, FfnError)>> = Mutex::new(None);
-    pool.run(tasks, &|t| {
-        let lo = t * chunk;
-        let hi = (lo + chunk).min(flat);
-        let mut f = lo;
-        while f < hi {
-            let (c, j) = (f / n, f % n);
-            match swiglu_one_carrier(gate[c][j], up[c][j], carrier) {
-                Ok(v) => {
-                    // SAFETY: `f < flat`, so `c < k` and `j < n`; flat element `f` maps to the
-                    // single address `ptrs[c] + j`, and the tasks partition `[0, flat)`, so no two
-                    // tasks write the same element.
-                    unsafe { *ptr[c].0.add(j) = v };
-                }
-                Err(e) => {
-                    let mut slot = first
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    if slot.as_ref().is_none_or(|(k0, _)| f < *k0) {
-                        *slot = Some((f, e));
-                    }
-                    return;
-                }
-            }
-            f += 1;
-        }
-    });
-    match first
-        .into_inner()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-    {
-        Some((_, e)) => Err(e),
-        None => Ok(()),
-    }
+    // Each column is cut into `tasks_per_col` pieces, so the dispatch has about `2·width` tasks.
+    let tasks_per_col = (2 * super::pool::width_global()).div_ceil(k).max(1);
+    let chunk = n.div_ceil(tasks_per_col).max(1);
+    let chunks = vec![chunk; k];
+    super::pool::for_vec_chunks(out, &chunks, &SwigluColsCtx { gate, up, carrier })
 }
 
 /// The most scoped threads the Q8-activation row-chunked kernel uses.
@@ -496,6 +566,83 @@ pub(crate) fn swiglu_cols_carrier(
 /// E-core/SMT contention outweigh the added parallelism. This cap was fixed by the chunk-count
 /// sweep recorded in the W2 receipt: the decode tok/s for `[4, 8, 16, 32]` chunks.
 const Q8ACT_MAX_CHUNKS: usize = 8;
+
+/// Pool context for [`matvec_q8act_quant_chunked`]: the shared payload, geometry, plan and refusal slot.
+struct Q8ChunkCtx<'a> {
+    raw: &'a [u8],
+    ggml_type: u32,
+    n_in: usize,
+    row_bytes: usize,
+    need: usize,
+    plan: &'a Q8ActPlan,
+    q: &'a QuantAct,
+    first_err: &'a super::pool::FirstErr<usize, MatvecError>,
+}
+
+impl ChunkTask<i64> for Q8ChunkCtx<'_> {
+    fn run(&self, c: usize, lo: usize, dst: &mut [i64]) {
+        q8act_chunk_task(
+            self.raw,
+            self.ggml_type,
+            self.n_in,
+            self.row_bytes,
+            self.need,
+            self.plan,
+            self.q,
+            self.first_err,
+            c,
+            lo,
+            dst,
+        );
+    }
+}
+
+/// Task body of [`Q8ChunkCtx`]: rows `lo..lo + dst.len()` of the payload into `dst`; a refusal is
+/// recorded at chunk `c`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "each input is passed separately: the task body is extracted with its branches"
+)]
+fn q8act_chunk_task(
+    raw: &[u8],
+    ggml_type: u32,
+    n_in: usize,
+    row_bytes: usize,
+    need: usize,
+    plan: &Q8ActPlan,
+    q: &QuantAct,
+    first_err: &super::pool::FirstErr<usize, MatvecError>,
+    c: usize,
+    lo: usize,
+    dst: &mut [i64],
+) {
+    let rows = dst.len();
+    let res = raw
+        .get(lo * row_bytes..(lo + rows) * row_bytes)
+        .ok_or(MatvecError::ShortPayload {
+            need,
+            have: raw.len(),
+        })
+        .and_then(|bytes| match &plan {
+            Q8ActPlan::Fused(fast) => q8act_rows(
+                ggml_type,
+                bytes,
+                rows,
+                n_in,
+                row_bytes,
+                rows * row_bytes,
+                q,
+                fast,
+            ),
+            Q8ActPlan::Reference => matvec_q8act(ggml_type, bytes, rows, n_in, q),
+        });
+    match res {
+        Ok(v) => dst.copy_from_slice(&v),
+        Err(e) => {
+            first_err.record(c, e);
+        }
+    }
+}
 
 /// [`matvec_q8act`] over `n_out` whole rows split into contiguous row chunks, run on the persistent
 /// [`Pool`] and concatenated in row order; `q` is the already-quantized activation, so a
@@ -555,48 +702,25 @@ pub(crate) fn matvec_q8act_quant_chunked(
     let plan = q8act_plan(ggml_type, n_in, q);
     // Contiguous row chunks of `per` rows (the last may be shorter), one pool task each; every
     // row is independent, so the concatenation equals the single call for any split.
-    let pool = Pool::global();
-    let tasks = actual.max(2 * pool.width()).min(n_out);
+    let tasks = actual.max(2 * super::pool::width_global()).min(n_out);
     let per = n_out.div_ceil(tasks);
     let mut out: Vec<i64> = vec![0; n_out];
-    let first_err: Mutex<Option<(usize, MatvecError)>> = Mutex::new(None);
-    pool.chunks_mut(&mut out, per, &|c, lo, dst| {
-        let rows = dst.len();
-        let res = raw
-            .get(lo * row_bytes..(lo + rows) * row_bytes)
-            .ok_or(MatvecError::ShortPayload {
-                need,
-                have: raw.len(),
-            })
-            .and_then(|bytes| match &plan {
-                Q8ActPlan::Fused(fast) => q8act_rows(
-                    ggml_type,
-                    bytes,
-                    rows,
-                    n_in,
-                    row_bytes,
-                    rows * row_bytes,
-                    q,
-                    fast,
-                ),
-                Q8ActPlan::Reference => matvec_q8act(ggml_type, bytes, rows, n_in, q),
-            });
-        match res {
-            Ok(v) => dst.copy_from_slice(&v),
-            Err(e) => {
-                let mut slot = first_err
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                if slot.as_ref().is_none_or(|(k, _)| c < *k) {
-                    *slot = Some((c, e));
-                }
-            }
-        }
-    });
-    match first_err
-        .into_inner()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-    {
+    let first_err: super::pool::FirstErr<usize, MatvecError> = super::pool::FirstErr::new();
+    super::pool::chunks_mut_global(
+        &mut out,
+        per,
+        &Q8ChunkCtx {
+            raw,
+            ggml_type,
+            n_in,
+            row_bytes,
+            need,
+            plan: &plan,
+            q,
+            first_err: &first_err,
+        },
+    );
+    match first_err.take() {
         Some((_, e)) => Err(e),
         None => Ok(out),
     }
@@ -704,50 +828,42 @@ fn proj_prep(
     }))
 }
 
-/// A per-dispatch prepared row kernel: `(lo, hi, out)`, with the activation already folded in. The
-/// `PQ2_0` LUT builds its lookup tables once here instead of once per task.
-pub(crate) type PreparedRows<'a> =
-    Box<dyn Fn(usize, usize, &mut [i64]) -> Result<(), MatvecError> + Sync + 'a>;
+/// One `PQ2_0` slot of the engine's open-time table, indexed by directory index: `None` for an
+/// entry that is not a rank-2 `PQ2_0` tensor, else the repacked table or its stored refusal.
+pub(crate) type LutSlot = Option<Result<Pq2Lut, MatvecError>>;
 
-/// A caller-supplied per-projection row kernel for [`projections_q8act`]: the `PQ2_0` LUT passes one
-/// so this module runs its rows without importing `kern`.
-pub(crate) trait RowKernel: Sync {
-    /// Build this projection's per-dispatch kernel for `q`, or `None` when the unprepared
-    /// [`RowKernel::rows`] path should be used (an activation with no Q32.32 value, or a call whose
-    /// exact bound needs the reference fallback).
-    ///
-    /// # Errors
-    ///
-    /// This projection's own preparation refusal.
-    fn prepare<'a>(&'a self, q: &'a QuantAct) -> Result<Option<PreparedRows<'a>>, MatvecError>;
-
-    /// Write rows `[lo, hi)` of this projection into `out` (`out.len() == hi - lo`), reading the
-    /// shared quantized activation `q`. Rows are independent, so the write is a pure function of
-    /// `q` and the weights.
-    ///
-    /// # Errors
-    ///
-    /// This projection's own refusal for `[lo, hi)`.
-    fn rows(&self, q: &QuantAct, lo: usize, hi: usize, out: &mut [i64]) -> Result<(), MatvecError>;
+/// The `PQ2_0` table of slot `k`, or the stored refusal (`UnsupportedQuant` for an empty or absent
+/// slot).
+fn lut_at(luts: &[LutSlot], k: usize) -> Result<&Pq2Lut, MatvecError> {
+    match luts.get(k) {
+        Some(Some(Ok(l))) => Ok(l),
+        Some(Some(Err(e))) => Err(e.clone()),
+        _ => Err(MatvecError::UnsupportedQuant {
+            ggml_type: quant::GGML_TYPE_PQ2_0,
+        }),
+    }
 }
 
 /// The row kernel of one projection in a [`projections_q8act`] dispatch.
-pub(crate) enum ProjSource<'a> {
-    /// The chart Q8-activation row core over `raw`.
-    Chart { ggml_type: u32, raw: &'a [u8] },
-    /// A caller-supplied row kernel (the tile-aligned `PQ2_0` LUT).
-    Rows(&'a dyn RowKernel),
+#[derive(Clone, Copy)]
+pub(crate) enum ProjSource {
+    /// The chart Q8-activation row core over the payload `at` of the resident file.
+    Chart { ggml_type: u32, at: PayloadRef },
+    /// The tile-aligned `PQ2_0` lookup-table kernel ([`Pq2Lut::prepare`], [`Pq2Lut::rows`]) of the
+    /// table in slot `k` of the open-time [`LutSlot`] table.
+    Rows(usize),
 }
 
 /// One projection of a [`projections_q8act`] dispatch.
-pub(crate) struct ProjSpec<'a> {
+#[derive(Clone, Copy)]
+pub(crate) struct ProjSpec {
     /// Output rows.
     pub(crate) n_out: usize,
     /// A chunk start must be a multiple of this (`1` for the chart row core, the tile height for a
     /// tile-aligned kernel).
     pub(crate) row_align: usize,
     /// The row kernel.
-    pub(crate) source: ProjSource<'a>,
+    pub(crate) source: ProjSource,
 }
 
 /// The dispatch plan of one projection: a chunkable chart projection, a caller-supplied row kernel,
@@ -764,7 +880,7 @@ enum GroupPrep {
 /// row count); the row count is then re-derived as `⌈n_out / per⌉`, so a `per` that does not divide
 /// `n_out` still covers every row exactly once. A tile-aligned kernel rounds `per` up to
 /// [`ProjSpec::row_align`], so every chunk start is a tile boundary.
-fn proj_split(prep: &GroupPrep, p: &ProjSpec<'_>, chunks: usize, width: usize) -> (usize, usize) {
+fn proj_split(prep: &GroupPrep, p: &ProjSpec, chunks: usize, width: usize) -> (usize, usize) {
     match prep {
         GroupPrep::Chart(pp) => {
             let t = pp.actual.max(2 * width).min(p.n_out.max(1));
@@ -787,8 +903,8 @@ fn proj_split(prep: &GroupPrep, p: &ProjSpec<'_>, chunks: usize, width: usize) -
 }
 
 /// `n` projections over one activation, run as one pool dispatch whose tasks span the row ranges of
-/// all `n` projections in order; each task calls its projection's row kernel — the chart row core,
-/// or the caller's [`RowKernel`] for a tile-aligned LUT.
+/// all `n` projections in order; each task calls its projection's row kernel — the chart row core
+/// over its payload in `file`, or the [`Pq2Lut`] rows of a tile-aligned LUT in `luts`.
 ///
 /// `x` is quantized once with [`quantize`] and the same [`QuantAct`] is read by every task. A chart
 /// projection uses [`matvec_q8act_quant_chunked`]'s row split and shared plan, so the concatenation
@@ -800,48 +916,172 @@ fn proj_split(prep: &GroupPrep, p: &ProjSpec<'_>, chunks: usize, width: usize) -
 /// # Errors
 ///
 /// The first refusal in projection-then-row order: the same value `n` separate
-/// [`matvec_q8act_quant_chunked`] / [`RowKernel::rows`] calls joined left to right would return.
+/// [`matvec_q8act_quant_chunked`] / [`Pq2Lut::rows`] calls joined left to right would return.
 ///
 /// # Complexity
 ///
 /// `O(Σ n_out_i·n_in)` time in checked multiply-adds with one `quant_act` instead of `n`, and
 /// `O(Σ n_out_i)` output, in one synchronization instead of `n`.
-#[allow(
-    clippy::many_single_char_names,
-    clippy::too_many_lines,
-    reason = "the row-groups and their disjoint output pointers are the dispatch's full state; the \
-              index names mirror the factorization"
-)]
 pub(crate) fn projections_q8act(
+    file: &[u8],
+    luts: &[LutSlot],
     n_in: usize,
     x: &[i64],
-    projs: &[ProjSpec<'_>],
+    projs: &[ProjSpec],
     chunks: usize,
 ) -> Result<Vec<Vec<i64>>, MatvecError> {
     if x.len() != n_in {
         return Err(MatvecError::ShapeMismatch { x: x.len(), n_in });
     }
     let q = quantize(x)?;
-    projections_q8act_prepared(n_in, &q, projs, chunks)
+    projections_q8act_prepared(file, luts, n_in, &q, projs, chunks)
 }
 
 /// [`projections_q8act`] over an already-quantized activation: the same dispatch, without the
 /// `quant_act`. `q` must be [`quant_act_pooled`]'s or [`quant_act`]'s result for the activation.
-#[allow(
-    clippy::many_single_char_names,
-    clippy::too_many_lines,
-    reason = "the row-groups and their disjoint output pointers are the dispatch's full state; the \
-              index names mirror the factorization"
-)]
 pub(crate) fn projections_q8act_prepared(
+    file: &[u8],
+    luts: &[LutSlot],
     n_in: usize,
     q: &QuantAct,
-    projs: &[ProjSpec<'_>],
+    projs: &[ProjSpec],
     chunks: usize,
 ) -> Result<Vec<Vec<i64>>, MatvecError> {
     let mut outs: Vec<Vec<i64>> = Vec::new();
-    projections_q8act_prepared_into(n_in, q, projs, chunks, &mut outs)?;
+    projections_q8act_prepared_into(file, luts, n_in, q, projs, chunks, &mut outs)?;
     Ok(outs)
+}
+
+/// One task of the [`projections_q8act_prepared_into`] dispatch: rows `[lo, lo + piece.len())` of
+/// projection `spec` into `piece`. `prep` is the projection's plan and `prepared` its per-dispatch
+/// LUT state (`None` for a chart projection or an unprepared LUT).
+///
+/// # Complexity
+///
+/// `O(piece.len()·n_in)` time in checked multiply-adds; `O(piece.len())` scratch for the chart row
+/// core's result vector.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the payload source, plan, activation and row range are the task's full input"
+)]
+fn proj_task(
+    file: &[u8],
+    luts: &[LutSlot],
+    spec: &ProjSpec,
+    prep: &GroupPrep,
+    prepared: Option<&PreparedLut>,
+    n_in: usize,
+    q: &QuantAct,
+    lo: usize,
+    piece: &mut [i64],
+) -> Result<(), MatvecError> {
+    let rows = piece.len();
+    let hi = lo + rows;
+    match (&spec.source, prep) {
+        (ProjSource::Chart { ggml_type, at }, GroupPrep::Chart(pp)) => {
+            let raw = at.bytes(file);
+            let bytes =
+                raw.get(lo * pp.row_bytes..hi * pp.row_bytes)
+                    .ok_or(MatvecError::ShortPayload {
+                        need: rows * pp.row_bytes,
+                        have: raw.len(),
+                    })?;
+            let v = match &pp.plan {
+                Q8ActPlan::Fused(fast) => q8act_rows(
+                    *ggml_type,
+                    bytes,
+                    rows,
+                    n_in,
+                    pp.row_bytes,
+                    rows * pp.row_bytes,
+                    q,
+                    fast,
+                )?,
+                Q8ActPlan::Reference => matvec_q8act(*ggml_type, bytes, rows, n_in, q)?,
+            };
+            piece.copy_from_slice(&v);
+            Ok(())
+        }
+        (ProjSource::Rows(k), _) => {
+            let lut = lut_at(luts, *k)?;
+            match prepared {
+                Some(p) => p.rows(lut, q, lo, hi, piece),
+                None => lut.rows(q, lo, hi, piece),
+            }
+        }
+        _ => unreachable!("delegated groups returned before the dispatch"),
+    }
+}
+
+/// The plan of one projection of a group: its chart plan, a delegation, or the LUT rows marker.
+fn group_prep_of(
+    file: &[u8],
+    p: &ProjSpec,
+    n_in: usize,
+    q: &QuantAct,
+    chunks: usize,
+) -> Result<GroupPrep, MatvecError> {
+    match &p.source {
+        ProjSource::Chart { ggml_type, at } => {
+            match proj_prep(*ggml_type, at.bytes(file), p.n_out, n_in, q, chunks)? {
+                Some(pp) => Ok(GroupPrep::Chart(pp)),
+                None => Ok(GroupPrep::Delegate),
+            }
+        }
+        ProjSource::Rows(_) => Ok(GroupPrep::Rows),
+    }
+}
+
+/// One projection of a delegated group through the sequential entry points, into `out`.
+///
+/// # Complexity
+///
+/// `O(p.n_out·n_in)` time in checked multiply-adds; `O(p.n_out)` scratch for the chart result.
+fn delegate_one(
+    file: &[u8],
+    luts: &[LutSlot],
+    n_in: usize,
+    q: &QuantAct,
+    p: &ProjSpec,
+    chunks: usize,
+    out: &mut [i64],
+) -> Result<(), MatvecError> {
+    match &p.source {
+        ProjSource::Chart { ggml_type, at } => {
+            let v =
+                matvec_q8act_quant_chunked(*ggml_type, at.bytes(file), p.n_out, n_in, q, chunks)?;
+            out.copy_from_slice(&v);
+            Ok(())
+        }
+        ProjSource::Rows(k) => lut_at(luts, *k)?.rows(q, 0, p.n_out, out),
+    }
+}
+
+/// Pool context for [`projections_q8act_prepared_into`]: the shared projections, plans and activation.
+struct ProjTaskCtx<'a> {
+    file: &'a [u8],
+    luts: &'a [LutSlot],
+    projs: &'a [ProjSpec],
+    preps: &'a [GroupPrep],
+    prepared: &'a [Option<PreparedLut>],
+    n_in: usize,
+    q: &'a QuantAct,
+}
+
+impl VecTask<i64, MatvecError> for ProjTaskCtx<'_> {
+    fn run(&self, _t: usize, i: usize, lo: usize, piece: &mut [i64]) -> Result<(), MatvecError> {
+        proj_task(
+            self.file,
+            self.luts,
+            &self.projs[i],
+            &self.preps[i],
+            self.prepared[i].as_ref(),
+            self.n_in,
+            self.q,
+            lo,
+            piece,
+        )
+    }
 }
 
 /// [`projections_q8act_prepared`] writing into caller-owned row buffers.
@@ -849,133 +1089,184 @@ pub(crate) fn projections_q8act_prepared(
 /// `outs` is resized to one vector per projection of `n_out` rows; a resize is a no-op when the
 /// caller hands back the same buffers, so a decode step that composes the same widths every layer
 /// pays no allocate-and-zero per layer. Every row is written before it is read, so a reused buffer
-/// carries no stale value into the result.
-#[allow(
-    clippy::many_single_char_names,
-    clippy::too_many_lines,
-    reason = "the row-groups and their disjoint output pointers are the dispatch's full state; the \
-              index names mirror the factorization"
-)]
+/// carries no stale value into the result. The tasks are numbered projection-then-row by
+/// [`super::pool::for_vec_chunks`], which returns the lowest-numbered refusal.
+///
+/// # Complexity
+///
+/// As [`projections_q8act`]; `O(projs.len())` extra space for the plans and the task table.
 pub(crate) fn projections_q8act_prepared_into(
+    file: &[u8],
+    luts: &[LutSlot],
     n_in: usize,
     q: &QuantAct,
-    projs: &[ProjSpec<'_>],
+    projs: &[ProjSpec],
     chunks: usize,
     outs: &mut Vec<Vec<i64>>,
 ) -> Result<(), MatvecError> {
     if q.len() != n_in {
         return Err(MatvecError::ShapeMismatch { x: q.len(), n_in });
     }
-    if outs.len() != projs.len() {
-        outs.resize_with(projs.len(), Vec::new);
-    }
-    for (o, p) in outs.iter_mut().zip(projs) {
-        if o.len() != p.n_out {
-            o.resize(p.n_out, 0);
-        }
-    }
-    let mut preps: Vec<GroupPrep> = Vec::with_capacity(projs.len());
-    for p in projs {
-        match &p.source {
-            ProjSource::Chart { ggml_type, raw } => {
-                match proj_prep(*ggml_type, raw, p.n_out, n_in, q, chunks)? {
-                    Some(pp) => preps.push(GroupPrep::Chart(pp)),
-                    None => preps.push(GroupPrep::Delegate),
-                }
-            }
-            ProjSource::Rows(_) => preps.push(GroupPrep::Rows),
-        }
-    }
+    size_outs(projs, outs);
+    let preps = group_preps(file, projs, n_in, q, chunks)?;
     // One chart projection that cannot chunk (or refuses) sends the whole group to the sequential
     // calls, whose join order is the first refusal order.
-    if preps.iter().any(|p| matches!(p, GroupPrep::Delegate)) {
-        for (i, p) in projs.iter().enumerate() {
-            match &p.source {
-                ProjSource::Chart { ggml_type, raw } => {
-                    let v = matvec_q8act_quant_chunked(*ggml_type, raw, p.n_out, n_in, q, chunks)?;
-                    outs[i].copy_from_slice(&v);
-                }
-                ProjSource::Rows(k) => k.rows(q, 0, p.n_out, &mut outs[i])?,
-            }
-        }
-        return Ok(());
+    if any_delegate(&preps) {
+        return delegate_all(file, luts, n_in, q, projs, chunks, outs);
     }
     // The LUT's activation tables are per-dispatch, not per-task: build them once before the run.
-    let prepared: Vec<Option<PreparedRows<'_>>> = projs
-        .iter()
-        .map(|p| match &p.source {
-            ProjSource::Rows(k) => k.prepare(q),
-            ProjSource::Chart { .. } => Ok(None),
-        })
-        .collect::<Result<Vec<_>, MatvecError>>()?;
-    let pool = Pool::global();
-    let width = pool.width();
-    let split: Vec<(usize, usize)> = projs
-        .iter()
-        .zip(&preps)
-        .map(|(p, prep)| proj_split(prep, p, chunks, width))
-        .collect();
-    let mut base: Vec<usize> = Vec::with_capacity(projs.len());
-    let mut total = 0usize;
-    for &(_, t) in &split {
-        base.push(total);
-        total += t;
-    }
-    let ptrs: Vec<RowPtr> = outs.iter_mut().map(|v| RowPtr(v.as_mut_ptr())).collect();
-    let first_err: Mutex<Option<(usize, MatvecError)>> = Mutex::new(None);
-    pool.run(total, &|t| {
-        // `split` is ordered by projection, so the first element with `base <= t` is `t`'s
-        // projection and the task order within it is ascending rows.
-        let i = base.partition_point(|&b| b <= t) - 1;
-        let c = t - base[i];
-        let lo = c * split[i].0;
-        let hi = (lo + split[i].0).min(projs[i].n_out);
-        let rows = hi - lo;
-        // SAFETY: task `t` owns `[lo, hi)` of projection `i`; the ranges partition every output and
-        // the `Vec`s outlive the dispatch.
-        let dst = unsafe { std::slice::from_raw_parts_mut(ptrs[i].0.add(lo), rows) };
-        let res: Result<(), MatvecError> = match (&projs[i].source, &preps[i]) {
-            (ProjSource::Chart { ggml_type, raw }, GroupPrep::Chart(pp)) => raw
-                .get(lo * pp.row_bytes..hi * pp.row_bytes)
-                .ok_or(MatvecError::ShortPayload {
-                    need: rows * pp.row_bytes,
-                    have: raw.len(),
-                })
-                .and_then(|bytes| match &pp.plan {
-                    Q8ActPlan::Fused(fast) => q8act_rows(
-                        *ggml_type,
-                        bytes,
-                        rows,
-                        n_in,
-                        pp.row_bytes,
-                        rows * pp.row_bytes,
-                        q,
-                        fast,
-                    ),
-                    Q8ActPlan::Reference => matvec_q8act(*ggml_type, bytes, rows, n_in, q),
-                })
-                .map(|v| dst.copy_from_slice(&v)),
-            (ProjSource::Rows(k), _) => match &prepared[i] {
-                Some(f) => f(lo, hi, dst),
-                None => k.rows(q, lo, hi, dst),
-            },
-            _ => unreachable!("delegated groups returned before the dispatch"),
-        };
-        if let Err(e) = res {
-            let mut slot = first_err
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if slot.as_ref().is_none_or(|(k, _)| t < *k) {
-                *slot = Some((t, e));
-            }
+    let prepared = prepare_luts(luts, projs, q)?;
+    let per_chunks = split_counts(&preps, projs, chunks, super::pool::width_global());
+    super::pool::for_vec_chunks(
+        outs,
+        &per_chunks,
+        &ProjTaskCtx {
+            file,
+            luts,
+            projs,
+            preps: &preps,
+            prepared: &prepared,
+            n_in,
+            q,
+        },
+    )
+}
+
+/// Resize `outs` to one vector of `n_out` rows per projection.
+///
+/// # Complexity
+///
+/// `O(projs.len())` time and, only when a buffer changes length, `O(n_out)` zeroed words.
+fn size_outs(projs: &[ProjSpec], outs: &mut Vec<Vec<i64>>) {
+    outs.resize(projs.len(), Vec::new());
+    let mut oi = 0usize;
+    while oi < projs.len() {
+        if outs[oi].len() != projs[oi].n_out {
+            outs[oi].resize(projs[oi].n_out, 0);
         }
-    });
-    match first_err
-        .into_inner()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-    {
-        Some((_, e)) => Err(e),
-        None => Ok(()),
+        oi += 1;
+    }
+}
+
+/// The plan of every projection, in order; the first refusal is returned.
+///
+/// # Complexity
+///
+/// `O(projs.len())` plans; `O(projs.len())` space.
+fn group_preps(
+    file: &[u8],
+    projs: &[ProjSpec],
+    n_in: usize,
+    q: &QuantAct,
+    chunks: usize,
+) -> Result<Vec<GroupPrep>, MatvecError> {
+    let mut preps: Vec<GroupPrep> = Vec::with_capacity(projs.len());
+    let mut pj = 0usize;
+    while pj < projs.len() {
+        preps.push(group_prep_of(file, &projs[pj], n_in, q, chunks)?);
+        pj += 1;
+    }
+    Ok(preps)
+}
+
+/// Whether any projection of the group delegates.
+fn any_delegate(preps: &[GroupPrep]) -> bool {
+    let mut delegate = false;
+    let mut pi = 0usize;
+    while pi < preps.len() {
+        if matches!(preps[pi], GroupPrep::Delegate) {
+            delegate = true;
+        }
+        pi += 1;
+    }
+    delegate
+}
+
+/// Every projection of a delegated group through the sequential entry points, in order.
+///
+/// # Complexity
+///
+/// `O(Σ n_out·n_in)` time in checked multiply-adds; `O(max n_out)` scratch.
+fn delegate_all(
+    file: &[u8],
+    luts: &[LutSlot],
+    n_in: usize,
+    q: &QuantAct,
+    projs: &[ProjSpec],
+    chunks: usize,
+    outs: &mut [Vec<i64>],
+) -> Result<(), MatvecError> {
+    let mut di = 0usize;
+    while di < projs.len() {
+        delegate_one(file, luts, n_in, q, &projs[di], chunks, &mut outs[di])?;
+        di += 1;
+    }
+    Ok(())
+}
+
+/// The per-dispatch LUT state of every projection (`None` for a chart projection).
+///
+/// # Complexity
+///
+/// `O(projs.len())` LUT activation preparations; `O(projs.len())` space beyond the tables.
+fn prepare_luts(
+    luts: &[LutSlot],
+    projs: &[ProjSpec],
+    q: &QuantAct,
+) -> Result<Vec<Option<PreparedLut>>, MatvecError> {
+    let mut prepared: Vec<Option<PreparedLut>> = Vec::with_capacity(projs.len());
+    let mut i = 0usize;
+    while i < projs.len() {
+        prepared.push(match &projs[i].source {
+            ProjSource::Rows(k) => lut_at(luts, *k)?.prepare(q),
+            ProjSource::Chart { .. } => None,
+        });
+        i += 1;
+    }
+    Ok(prepared)
+}
+
+/// The chunk count of every projection.
+///
+/// # Complexity
+///
+/// `O(projs.len())` time and space.
+fn split_counts(
+    preps: &[GroupPrep],
+    projs: &[ProjSpec],
+    chunks: usize,
+    width: usize,
+) -> Vec<usize> {
+    let mut per_chunks: Vec<usize> = Vec::with_capacity(projs.len());
+    let mut i = 0usize;
+    while i < projs.len() {
+        per_chunks.push(proj_split(&preps[i], &projs[i], chunks, width).0);
+        i += 1;
+    }
+    per_chunks
+}
+
+/// Pool context for [`attn_heads`]: the head function and the refusal slot.
+struct AttnHeadCtx<'a, E, K> {
+    head: &'a K,
+    first: &'a super::pool::FirstErr<usize, E>,
+}
+
+impl<E: Send, K: HeadTask<i64, E>> ChunkTask<i64> for AttnHeadCtx<'_, E, K> {
+    fn run(&self, c: usize, _start: usize, dst: &mut [i64]) {
+        attn_head_task(self.head, self.first, c, dst);
+    }
+}
+
+/// Task body of [`AttnHeadCtx`]: head `c` writes `dst`; its refusal is recorded at `c`.
+fn attn_head_task<E: Send, K: HeadTask<i64, E>>(
+    head: &K,
+    first: &super::pool::FirstErr<usize, E>,
+    c: usize,
+    dst: &mut [i64],
+) {
+    if let Err(e) = head.run(c, dst) {
+        first.record(c, e);
     }
 }
 
@@ -990,43 +1281,38 @@ pub(crate) fn projections_q8act_prepared_into(
 /// # Complexity
 ///
 /// `O(Σ_h cost(head(h)))` plus `O(n_head)` scheduling; no allocation and no copy of `out`.
-pub(crate) fn attn_heads<E, F>(
+pub(crate) fn attn_heads<E, K>(
     n_head: usize,
     hd: usize,
     out: &mut [i64],
     parallel: bool,
-    head: F,
+    head: &K,
 ) -> Option<(usize, E)>
 where
-    F: Fn(usize, &mut [i64]) -> Result<(), E> + Sync,
+    K: HeadTask<i64, E>,
     E: Send,
 {
     if !parallel {
         let mut h = 0usize;
         while h < n_head {
             let lo = h * hd;
-            if let Err(e) = head(h, &mut out[lo..lo + hd]) {
+            if let Err(e) = head.run(h, &mut out[lo..lo + hd]) {
                 return Some((h, e));
             }
             h += 1;
         }
         return None;
     }
-    let pool = Pool::global();
-    let first: Mutex<Option<(usize, E)>> = Mutex::new(None);
-    pool.chunks_mut(out, hd, &|c, _start, dst| {
-        if let Err(e) = head(c, dst) {
-            let mut slot = first
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if slot.as_ref().is_none_or(|(k, _)| c < *k) {
-                *slot = Some((c, e));
-            }
-        }
-    });
-    first
-        .into_inner()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    let first: super::pool::FirstErr<usize, E> = super::pool::FirstErr::new();
+    super::pool::chunks_mut_global(
+        out,
+        hd,
+        &AttnHeadCtx {
+            head,
+            first: &first,
+        },
+    );
+    first.take()
 }
 
 /// One token of the dense FFN (`SwiGLU`) block on the int8-activation chart path: `ffn_fixed`'s
@@ -1050,7 +1336,9 @@ where
 /// `O(n_ff·n_embd)` time in checked integer multiply-adds over the three projections plus
 /// `O(n_ff)` for the elementwise pass and the quantizations, `O(n_ff + n_embd)` scratch for the
 /// gate, up and hidden vectors and their int8 activation codes, `O(n_embd)` for the output, and
-/// `O(chunks)` scoped-thread handles owned by the chunked kernel; no weight payload is copied.
+/// `O(chunks)` scoped-thread handles owned by the chunked kernel. This entry takes borrowed
+/// payloads, so it concatenates the three into one temporary file (`O(bytes)` copy) for the
+/// offset-addressed dispatch; the engine path ([`ffn_q8act_prepared`]) copies no weight payload.
 pub(crate) fn ffn_q8act(
     gate: ProjWeights<'_>,
     up: ProjWeights<'_>,
@@ -1059,31 +1347,28 @@ pub(crate) fn ffn_q8act(
     x: &[i64],
 ) -> Result<Vec<i64>, FfnError> {
     let n_embd = x.len();
-    let g = ProjSpec {
-        n_out: n_ff,
-        row_align: 1,
-        source: ProjSource::Chart {
-            ggml_type: gate.ggml_type,
-            raw: gate.raw,
-        },
+    let mut file: Vec<u8> = Vec::with_capacity(gate.raw.len() + up.raw.len() + down.raw.len());
+    let mut spec = |w: &ProjWeights<'_>, n_out: usize| {
+        let at = PayloadRef {
+            off: file.len(),
+            len: w.raw.len(),
+        };
+        file.extend_from_slice(w.raw);
+        ProjSpec {
+            n_out,
+            row_align: 1,
+            source: ProjSource::Chart {
+                ggml_type: w.ggml_type,
+                at,
+            },
+        }
     };
-    let u = ProjSpec {
-        n_out: n_ff,
-        row_align: 1,
-        source: ProjSource::Chart {
-            ggml_type: up.ggml_type,
-            raw: up.raw,
-        },
-    };
-    let d = ProjSpec {
-        n_out: n_embd,
-        row_align: 1,
-        source: ProjSource::Chart {
-            ggml_type: down.ggml_type,
-            raw: down.raw,
-        },
-    };
+    let g = spec(&gate, n_ff);
+    let u = spec(&up, n_ff);
+    let d = spec(&down, n_embd);
     ffn_q8act_prepared(
+        &file,
+        &[],
         n_embd,
         x,
         g,
@@ -1132,8 +1417,7 @@ fn chart_rows(
 /// [`ffn_q8act`]'s composition over caller-built [`ProjSpec`]s: one pooled `quant_act` of `x`, the
 /// gate/up pair in one [`projections_q8act_prepared`] dispatch, [`swiglu_hidden`], then the down
 /// spec over a pooled `quant_act` of the hidden. A spec carries either the chart row core or a
-/// caller's [`RowKernel`], so a `PQ2_0` lookup table runs its rows here without this module
-/// importing `kern`.
+/// [`Pq2Lut`], so a `PQ2_0` lookup table runs its rows here.
 ///
 /// # Errors
 ///
@@ -1146,17 +1430,21 @@ fn chart_rows(
               composition's full input"
 )]
 pub(crate) fn ffn_q8act_prepared(
+    file: &[u8],
+    luts: &[LutSlot],
     n_in: usize,
     x: &[i64],
-    gate: ProjSpec<'_>,
-    up: ProjSpec<'_>,
-    down: ProjSpec<'_>,
+    gate: ProjSpec,
+    up: ProjSpec,
+    down: ProjSpec,
     n_ff: usize,
     chunks_gate_up: usize,
     chunks_down: usize,
 ) -> Result<Vec<i64>, FfnError> {
     let mut scratch = FfnScratch::default();
     ffn_q8act_prepared_into(
+        file,
+        luts,
         n_in,
         x,
         gate,
@@ -1183,8 +1471,126 @@ pub(crate) struct FfnScratch {
     hidden: Vec<i64>,
     /// The down projection's row output, taken by each call and re-formed empty.
     down_rows: Vec<Vec<i64>>,
-    /// Pre-allocated [`QuantAct`] for the hidden activation.
-    hidden_quant: Option<QuantAct>,
+    /// Pre-allocated [`QuantAct`] for the hidden activation; empty until the first fused call sizes it.
+    hidden_quant: QuantAct,
+}
+
+/// Pool context for [`ffn_q8act_prepared_into`]: the fused gate/up/SwiGLU/quantize task's inputs.
+struct FusedFfnCtx<'a> {
+    blocks: usize,
+    per_blocks: usize,
+    gate_type: u32,
+    gate_raw: &'a [u8],
+    gate_pp: &'a ProjPrep,
+    up_type: u32,
+    up_raw: &'a [u8],
+    up_pp: &'a ProjPrep,
+    n_in: usize,
+    q: &'a QuantAct,
+    gate_ptr: RowPtr,
+    up_ptr: RowPtr,
+    hidden_ptr: RowPtr,
+    act_ptr: ActPtr,
+    carrier: Carrier,
+    proj_err: &'a super::pool::FirstErr<u128, MatvecError>,
+    swiglu_err: &'a super::pool::FirstErr<usize, FfnError>,
+    quant_err: &'a super::pool::FirstErr<usize, ()>,
+}
+
+impl IndexTask for FusedFfnCtx<'_> {
+    fn run(&self, t: usize) {
+        fused_ffn_task(
+            t,
+            self.blocks,
+            self.per_blocks,
+            self.gate_type,
+            self.gate_raw,
+            self.gate_pp,
+            self.up_type,
+            self.up_raw,
+            self.up_pp,
+            self.n_in,
+            self.q,
+            self.gate_ptr,
+            self.up_ptr,
+            self.hidden_ptr,
+            self.act_ptr,
+            self.carrier,
+            self.proj_err,
+            self.swiglu_err,
+            self.quant_err,
+        );
+    }
+}
+
+/// Task body of [`FusedFfnCtx`]: task `t`'s block run of the fused gate/up projections, `SwiGLU`
+/// and activation quantization.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "each input is passed separately: the task body is extracted with its branches"
+)]
+fn fused_ffn_task(
+    t: usize,
+    blocks: usize,
+    per_blocks: usize,
+    gate_type: u32,
+    gate_raw: &[u8],
+    gate_pp: &ProjPrep,
+    up_type: u32,
+    up_raw: &[u8],
+    up_pp: &ProjPrep,
+    n_in: usize,
+    q: &QuantAct,
+    gate_ptr: RowPtr,
+    up_ptr: RowPtr,
+    hidden_ptr: RowPtr,
+    act_ptr: ActPtr,
+    carrier: Carrier,
+    proj_err: &super::pool::FirstErr<u128, MatvecError>,
+    swiglu_err: &super::pool::FirstErr<usize, FfnError>,
+    quant_err: &super::pool::FirstErr<usize, ()>,
+) {
+    let lo_b = (t * per_blocks).min(blocks);
+    let hi_b = ((t + 1) * per_blocks).min(blocks);
+    if lo_b >= hi_b {
+        return;
+    }
+    let lo = lo_b * 32;
+    let hi = hi_b * 32;
+    let rows = hi - lo;
+
+    let gate_dst = unsafe { gate_ptr.as_mut_slice(lo, rows) };
+    let up_dst = unsafe { up_ptr.as_mut_slice(lo, rows) };
+    let h_dst = unsafe { hidden_ptr.as_mut_slice(lo, rows) };
+
+    // Stage 1a: Gate projection
+    if let Err(e) = chart_rows(gate_type, gate_raw, lo, hi, gate_pp, n_in, q, gate_dst) {
+        proj_err.record(super::task::pair_key(0, lo), e);
+        return;
+    }
+
+    // Stage 1b: Up projection
+    if let Err(e) = chart_rows(up_type, up_raw, lo, hi, up_pp, n_in, q, up_dst) {
+        proj_err.record(super::task::pair_key(1, lo), e);
+        return;
+    }
+
+    // Stage 2: SwiGLU elementwise
+    if let Err((lane, e)) = swiglu_slice(gate_dst, up_dst, h_dst, carrier) {
+        let idx = lo + lane;
+        swiglu_err.record(idx, e);
+        return;
+    }
+
+    // Stage 3: Activation quantization on h_dst
+    if let Some(qa) = quant_act(h_dst) {
+        unsafe {
+            act_ptr.write_scales(lo_b, qa.scales().as_ptr(), hi_b - lo_b);
+            act_ptr.write_codes(lo, qa.codes().as_ptr(), rows);
+        }
+    } else {
+        quant_err.record(lo_b, ());
+    }
 }
 
 /// [`ffn_q8act_prepared`] with caller-owned scratch buffers (`scratch`), returning the down
@@ -1201,11 +1607,13 @@ pub(crate) struct FfnScratch {
               buffers are the composition's full input"
 )]
 pub(crate) fn ffn_q8act_prepared_into(
+    file: &[u8],
+    luts: &[LutSlot],
     n_in: usize,
     x: &[i64],
-    gate: ProjSpec<'_>,
-    up: ProjSpec<'_>,
-    down: ProjSpec<'_>,
+    gate: ProjSpec,
+    up: ProjSpec,
+    down: ProjSpec,
     n_ff: usize,
     chunks_gate_up: usize,
     chunks_down: usize,
@@ -1224,11 +1632,11 @@ pub(crate) fn ffn_q8act_prepared_into(
 
     if can_fuse {
         let (gate_type, gate_raw) = match &gate.source {
-            ProjSource::Chart { ggml_type, raw } => (*ggml_type, *raw),
+            ProjSource::Chart { ggml_type, at } => (*ggml_type, at.bytes(file)),
             ProjSource::Rows(_) => unreachable!(),
         };
         let (up_type, up_raw) = match &up.source {
-            ProjSource::Chart { ggml_type, raw } => (*ggml_type, *raw),
+            ProjSource::Chart { ggml_type, at } => (*ggml_type, at.bytes(file)),
             ProjSource::Rows(_) => unreachable!(),
         };
 
@@ -1238,7 +1646,9 @@ pub(crate) fn ffn_q8act_prepared_into(
         if let (Some(gate_pp), Some(up_pp)) = (gate_prep, up_prep) {
             let blocks = n_ff / 32;
             if scratch.rows.len() < 2 {
-                scratch.rows.resize_with(2, Vec::new);
+                while scratch.rows.len() < 2 {
+                    scratch.rows.push(Vec::new());
+                }
             }
             if scratch.rows[0].len() != n_ff {
                 scratch.rows[0].resize(n_ff, 0);
@@ -1249,13 +1659,7 @@ pub(crate) fn ffn_q8act_prepared_into(
             if scratch.hidden.len() != n_ff {
                 scratch.hidden.resize(n_ff, 0);
             }
-            if scratch.hidden_quant.is_none() {
-                scratch.hidden_quant = Some(QuantAct {
-                    scales: vec![0i64; blocks],
-                    codes: vec![0i8; n_ff],
-                });
-            }
-            let qh = scratch.hidden_quant.as_mut().unwrap();
+            let qh = &mut scratch.hidden_quant;
             if qh.scales.len() != blocks {
                 qh.scales.resize(blocks, 0);
             }
@@ -1263,8 +1667,7 @@ pub(crate) fn ffn_q8act_prepared_into(
                 qh.codes.resize(n_ff, 0);
             }
 
-            let pool = Pool::global();
-            let width = pool.width();
+            let width = super::pool::width_global();
             let target_tasks = (2 * width).min(blocks).max(1);
             let per_blocks = blocks.div_ceil(target_tasks);
             let tasks = blocks.div_ceil(per_blocks);
@@ -1277,87 +1680,55 @@ pub(crate) fn ffn_q8act_prepared_into(
                 codes: qh.codes.as_mut_ptr(),
             };
 
-            let proj_err: Mutex<Option<(usize, usize, MatvecError)>> = Mutex::new(None);
-            let swiglu_err: Mutex<Option<(usize, FfnError)>> = Mutex::new(None);
-            let quant_err: Mutex<Option<usize>> = Mutex::new(None);
+            let proj_err: super::pool::FirstErr<u128, MatvecError> = super::pool::FirstErr::new();
+            let swiglu_err: super::pool::FirstErr<usize, FfnError> = super::pool::FirstErr::new();
+            let quant_err: super::pool::FirstErr<usize, ()> = super::pool::FirstErr::new();
             let carrier = carrier_from_env();
 
-            pool.run(tasks, &|t| {
-                let lo_b = (t * per_blocks).min(blocks);
-                let hi_b = ((t + 1) * per_blocks).min(blocks);
-                if lo_b >= hi_b {
-                    return;
-                }
-                let lo = lo_b * 32;
-                let hi = hi_b * 32;
-                let rows = hi - lo;
-
-                let gate_dst = unsafe { gate_ptr.as_mut_slice(lo, rows) };
-                let up_dst = unsafe { up_ptr.as_mut_slice(lo, rows) };
-                let h_dst = unsafe { hidden_ptr.as_mut_slice(lo, rows) };
-
-                // Stage 1a: Gate projection
-                if let Err(e) =
-                    chart_rows(gate_type, gate_raw, lo, hi, &gate_pp, n_in, &q, gate_dst)
-                {
-                    let mut slot = proj_err.lock().unwrap();
-                    if slot.as_ref().is_none_or(|(p, r, _)| (0, lo) < (*p, *r)) {
-                        *slot = Some((0, lo, e));
-                    }
-                    return;
-                }
-
-                // Stage 1b: Up projection
-                if let Err(e) = chart_rows(up_type, up_raw, lo, hi, &up_pp, n_in, &q, up_dst) {
-                    let mut slot = proj_err.lock().unwrap();
-                    if slot.as_ref().is_none_or(|(p, r, _)| (1, lo) < (*p, *r)) {
-                        *slot = Some((1, lo, e));
-                    }
-                    return;
-                }
-
-                // Stage 2: SwiGLU elementwise
-                if let Err((lane, e)) = swiglu_slice(gate_dst, up_dst, h_dst, carrier) {
-                    let idx = lo + lane;
-                    let mut slot = swiglu_err.lock().unwrap();
-                    if slot.as_ref().is_none_or(|(k, _)| idx < *k) {
-                        *slot = Some((idx, e));
-                    }
-                    return;
-                }
-
-                // Stage 3: Activation quantization on h_dst
-                if let Some(qa) = quant_act(h_dst) {
-                    unsafe {
-                        act_ptr.write_scales(lo_b, qa.scales().as_ptr(), hi_b - lo_b);
-                        act_ptr.write_codes(lo, qa.codes().as_ptr(), rows);
-                    }
-                } else {
-                    let mut slot = quant_err.lock().unwrap();
-                    if slot.as_ref().is_none_or(|k| lo_b < *k) {
-                        *slot = Some(lo_b);
-                    }
-                }
-            });
+            super::pool::run_global(
+                tasks,
+                &FusedFfnCtx {
+                    blocks,
+                    per_blocks,
+                    gate_type,
+                    gate_raw,
+                    gate_pp: &gate_pp,
+                    up_type,
+                    up_raw,
+                    up_pp: &up_pp,
+                    n_in,
+                    q: &q,
+                    gate_ptr,
+                    up_ptr,
+                    hidden_ptr,
+                    act_ptr,
+                    carrier,
+                    proj_err: &proj_err,
+                    swiglu_err: &swiglu_err,
+                    quant_err: &quant_err,
+                },
+            );
 
             // Refusal precedence: projection, then SwiGLU, then quantization
-            if let Some((_, _, e)) = proj_err.into_inner().unwrap() {
+            if let Some((_, e)) = proj_err.take() {
                 return Err(FfnError::Matvec(e));
             }
-            if let Some((_, e)) = swiglu_err.into_inner().unwrap() {
+            if let Some((_, e)) = swiglu_err.take() {
                 return Err(e);
             }
-            if quant_err.into_inner().unwrap().is_some() {
+            if quant_err.take().is_some() {
                 return Err(FfnError::Matvec(MatvecError::Dequant(
                     EngineError::FixedOverflow,
                 )));
             }
 
-            let qh = scratch.hidden_quant.as_ref().unwrap();
+            let qh = &scratch.hidden_quant;
             if scratch.down_rows.is_empty() {
                 scratch.down_rows.push(Vec::new());
             }
             projections_q8act_prepared_into(
+                file,
+                luts,
                 n_ff,
                 qh,
                 &[down],
@@ -1369,7 +1740,15 @@ pub(crate) fn ffn_q8act_prepared_into(
     }
 
     // Fallback path
-    projections_q8act_prepared_into(n_in, &q, &[gate, up], chunks_gate_up, &mut scratch.rows)?;
+    projections_q8act_prepared_into(
+        file,
+        luts,
+        n_in,
+        &q,
+        &[gate, up],
+        chunks_gate_up,
+        &mut scratch.rows,
+    )?;
     if scratch.hidden.len() != n_ff {
         scratch.hidden.resize(n_ff, 0);
     }
@@ -1383,7 +1762,15 @@ pub(crate) fn ffn_q8act_prepared_into(
     if scratch.down_rows.is_empty() {
         scratch.down_rows.push(Vec::new());
     }
-    projections_q8act_prepared_into(n_ff, &qh, &[down], chunks_down, &mut scratch.down_rows)?;
+    projections_q8act_prepared_into(
+        file,
+        luts,
+        n_ff,
+        &qh,
+        &[down],
+        chunks_down,
+        &mut scratch.down_rows,
+    )?;
     Ok(std::mem::take(&mut scratch.down_rows[0]))
 }
 
@@ -1612,13 +1999,17 @@ mod tests {
         let q = quant_act(&x).expect("quantizes");
         let q8 = q8_rows(ROWS, N_IN);
         let f16 = f16_raw(ROWS, N_IN, 0x77);
+        let file = [q8.as_slice(), f16.as_slice()].concat();
         let specs = [
             ProjSpec {
                 n_out: ROWS,
                 row_align: 1,
                 source: ProjSource::Chart {
                     ggml_type: GGML_TYPE_Q8_0,
-                    raw: &q8,
+                    at: PayloadRef {
+                        off: 0,
+                        len: q8.len(),
+                    },
                 },
             },
             ProjSpec {
@@ -1626,7 +2017,10 @@ mod tests {
                 row_align: 1,
                 source: ProjSource::Chart {
                     ggml_type: GGML_TYPE_F16,
-                    raw: &f16,
+                    at: PayloadRef {
+                        off: q8.len(),
+                        len: f16.len(),
+                    },
                 },
             },
         ];
@@ -1635,7 +2029,7 @@ mod tests {
             matvec_q8act(GGML_TYPE_F16, &f16, ROWS, N_IN, &q).expect("f16"),
         ];
         for chunks in [1usize, 2, 8] {
-            let got = projections_q8act(N_IN, &x, &specs, chunks).expect("dispatch");
+            let got = projections_q8act(&file, &[], N_IN, &x, &specs, chunks).expect("dispatch");
             for (i, (g, w)) in got.iter().zip(want.iter()).enumerate() {
                 assert_eq!(g, w, "projection {i}, chunks {chunks}");
             }
@@ -1690,38 +2084,27 @@ mod tests {
         assert_eq!(ffn_q8act(wg, wu, wd, N_FF, &x).expect("ffn_q8act"), want);
     }
 
-    fn make_test_specs<'a>(
+    /// The gate/up/down specs over a file laid out as `gate || up || down`, each payload `full`
+    /// bytes (gate and up) or `d_full` bytes (down); `lens` are the lengths the specs claim, so a
+    /// shorter claim models a truncated payload.
+    fn make_test_specs(
         n_embd: usize,
         n_ff: usize,
-        gate_raw: &'a [u8],
-        up_raw: &'a [u8],
-        down_raw: &'a [u8],
-    ) -> (ProjSpec<'a>, ProjSpec<'a>, ProjSpec<'a>) {
+        full: usize,
+        lens: [usize; 3],
+    ) -> (ProjSpec, ProjSpec, ProjSpec) {
+        let spec = |n_out: usize, off: usize, len: usize| ProjSpec {
+            n_out,
+            row_align: 1,
+            source: ProjSource::Chart {
+                ggml_type: GGML_TYPE_Q8_0,
+                at: PayloadRef { off, len },
+            },
+        };
         (
-            ProjSpec {
-                n_out: n_ff,
-                row_align: 1,
-                source: ProjSource::Chart {
-                    ggml_type: GGML_TYPE_Q8_0,
-                    raw: gate_raw,
-                },
-            },
-            ProjSpec {
-                n_out: n_ff,
-                row_align: 1,
-                source: ProjSource::Chart {
-                    ggml_type: GGML_TYPE_Q8_0,
-                    raw: up_raw,
-                },
-            },
-            ProjSpec {
-                n_out: n_embd,
-                row_align: 1,
-                source: ProjSource::Chart {
-                    ggml_type: GGML_TYPE_Q8_0,
-                    raw: down_raw,
-                },
-            },
+            spec(n_ff, 0, lens[0]),
+            spec(n_ff, full, lens[1]),
+            spec(n_embd, 2 * full, lens[2]),
         )
     }
 
@@ -1739,11 +2122,16 @@ mod tests {
         let g = q8_rows(N_FF, N_EMBD);
         let u = q8_rows(N_FF, N_EMBD);
         let d = q8_rows(N_EMBD, N_FF);
+        let full = g.len();
+        let file = [g.as_slice(), u.as_slice(), d.as_slice()].concat();
+        let ok = [g.len(), u.len(), d.len()];
 
         // 1. Nominal path: fused matches unfused reference
-        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, &g, &u, &d);
+        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, full, ok);
         let mut scratch_fused = FfnScratch::default();
         let got = ffn_q8act_prepared_into(
+            &file,
+            &[],
             N_EMBD,
             &x,
             gate_spec,
@@ -1758,9 +2146,11 @@ mod tests {
 
         // Unfused reference
         let q = quantize(&x).expect("quantize");
-        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, &g, &u, &d);
+        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, full, ok);
         let mut scratch_unfused = FfnScratch::default();
         projections_q8act_prepared_into(
+            &file,
+            &[],
             N_EMBD,
             &q,
             &[gate_spec, up_spec],
@@ -1777,8 +2167,16 @@ mod tests {
         )
         .expect("swiglu");
         let qh = quantize(&scratch_unfused.hidden).expect("quantize hidden");
-        projections_q8act_prepared_into(N_FF, &qh, &[down_spec], 4, &mut scratch_unfused.down_rows)
-            .expect("down");
+        projections_q8act_prepared_into(
+            &file,
+            &[],
+            N_FF,
+            &qh,
+            &[down_spec],
+            4,
+            &mut scratch_unfused.down_rows,
+        )
+        .expect("down");
         let want = std::mem::take(&mut scratch_unfused.down_rows[0]);
 
         assert_eq!(
@@ -1790,9 +2188,12 @@ mod tests {
         // Case A: Gate projection error (truncated payload)
         let mut g_bad = g.clone();
         g_bad.truncate(10);
-        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, &g_bad, &u, &d);
+        let (gate_spec, up_spec, down_spec) =
+            make_test_specs(N_EMBD, N_FF, full, [g_bad.len(), u.len(), d.len()]);
         let mut scratch = FfnScratch::default();
         let res = ffn_q8act_prepared_into(
+            &file,
+            &[],
             N_EMBD,
             &x,
             gate_spec,
@@ -1811,9 +2212,12 @@ mod tests {
         // Case B: Up projection error (truncated payload)
         let mut u_bad = u.clone();
         u_bad.truncate(10);
-        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, &g, &u_bad, &d);
+        let (gate_spec, up_spec, down_spec) =
+            make_test_specs(N_EMBD, N_FF, full, [g.len(), u_bad.len(), d.len()]);
         let mut scratch = FfnScratch::default();
         let res = ffn_q8act_prepared_into(
+            &file,
+            &[],
             N_EMBD,
             &x,
             gate_spec,
@@ -1830,9 +2234,12 @@ mod tests {
         );
 
         // Case C: Both gate and up have errors -> gate error precedes up
-        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, &g_bad, &u_bad, &d);
+        let (gate_spec, up_spec, down_spec) =
+            make_test_specs(N_EMBD, N_FF, full, [g_bad.len(), u_bad.len(), d.len()]);
         let mut scratch = FfnScratch::default();
         let res = ffn_q8act_prepared_into(
+            &file,
+            &[],
             N_EMBD,
             &x,
             gate_spec,
@@ -1851,9 +2258,11 @@ mod tests {
         // Case D: Quantization refusal on input x
         let mut x_bad = activation(N_EMBD, 1);
         x_bad[0] = i64::MAX;
-        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, &g, &u, &d);
+        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, full, ok);
         let mut scratch = FfnScratch::default();
         let res = ffn_q8act_prepared_into(
+            &file,
+            &[],
             N_EMBD,
             &x_bad,
             gate_spec,
@@ -1868,6 +2277,64 @@ mod tests {
             matches!(res, Err(FfnError::Matvec(MatvecError::Dequant(_)))),
             "expected Dequant overflow on x_bad, got {res:?}"
         );
+    }
+
+    #[test]
+    fn f32_to_q32_checked_equals_the_f64_formula() {
+        // The pre-conversion body, copied: `None` where it returned `Err`.
+        fn old(o: f32) -> Option<i64> {
+            if !o.is_finite() {
+                return None;
+            }
+            let rounded = (f64::from(o) * 4_294_967_296.0).round();
+            if !(-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&rounded) {
+                return None;
+            }
+            Some(rounded as i64)
+        }
+        let new = |bits: u32| f32_to_q32_checked(F32::from_bits(bits)).ok();
+        let edges: [f32; 22] = [
+            0.0,
+            -0.0,
+            f32::from_bits(1),
+            -f32::from_bits(1),
+            f32::MIN_POSITIVE,
+            -f32::MIN_POSITIVE,
+            f32::from_bits(0x007f_ffff),
+            2f32.powi(-33),
+            -(2f32.powi(-33)),
+            0.5,
+            -0.5,
+            2f32.powi(31),
+            f32::from_bits(0x4eff_ffff),
+            -(2f32.powi(31)),
+            f32::from_bits(0xcf00_0001),
+            2f32.powi(32),
+            -(2f32.powi(32)),
+            f32::MAX,
+            f32::MIN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NAN,
+        ];
+        for &e in &edges {
+            assert_eq!(new(e.to_bits()), old(e), "edge bits {:#010x}", e.to_bits());
+        }
+        let mut seed = 0x51f0_0d5e_ed00_0001u64;
+        let mut i = 0usize;
+        while i < 200_000 {
+            // Uniform bit patterns, then patterns whose exponent lands in the rounding range.
+            let any = (lcg(&mut seed) >> 32) as u32;
+            assert_eq!(new(any), old(f32::from_bits(any)), "bits {any:#010x}");
+            let e = 100 + (lcg(&mut seed) % 60) as u32;
+            let ranged = (any & 0x8000_0000) | (e << 23) | (any & 0x007f_ffff);
+            assert_eq!(
+                new(ranged),
+                old(f32::from_bits(ranged)),
+                "bits {ranged:#010x}"
+            );
+            i += 1;
+        }
     }
 
     #[test]
@@ -1928,8 +2395,8 @@ mod tests {
             let q32_val = swiglu_one(g_raw, u_raw).expect("q32");
             let f32_val = swiglu_one_f32_scalar(g_raw, u_raw).expect("f32");
 
-            let q_flt = f64::from(q32_to_f32(q32_val));
-            let f_flt = f64::from(q32_to_f32(f32_val));
+            let q_flt = f64::from(f32::from_bits(q32_to_f32(q32_val).to_bits()));
+            let f_flt = f64::from(f32::from_bits(q32_to_f32(f32_val).to_bits()));
 
             let abs_diff = (q_flt - f_flt).abs();
             let mag = q_flt.abs().max(f_flt.abs());

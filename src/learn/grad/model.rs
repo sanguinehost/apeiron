@@ -52,6 +52,7 @@
 
 use super::attn::{self, AttnError};
 use super::dense::{self, DenseError};
+use crate::engine::fp::F64;
 use crate::engine::{dequant_row_fixed, Engine, EngineError, RopeTable};
 
 /// A refused whole-model forward or backward evaluation.
@@ -291,8 +292,8 @@ impl Weights {
             n_ff: ec.n_ff,
             vocab: ec.vocab_size,
             head_dim: ec.head_dim,
-            eps: eps_q32(ec.rms_eps)?,
-            rope_theta: ec.rope_theta,
+            eps: eps_q32(ec.rms_eps.to_f64())?,
+            rope_theta: ec.rope_theta.to_f64(),
         };
         cfg.checked()?;
         let e = cfg.n_embd;
@@ -565,7 +566,7 @@ pub fn forward(w: &Weights, cfg: &Config, tokens: &[u32]) -> Result<(Vec<i64>, T
     let q_out = cfg.q_out()?;
     let kv_out = cfg.kv_out()?;
     let n_ff = cfg.n_ff;
-    let rope = RopeTable::new(cfg.rope_theta, cfg.head_dim)
+    let rope = RopeTable::new(F64::from_f64(cfg.rope_theta), cfg.head_dim)
         .map_err(|err| ModelError::Attn(AttnError::Rope(err)))?;
 
     let mut h: Vec<i64> = Vec::with_capacity(t * e);
@@ -732,7 +733,7 @@ pub fn backward(
         return Err(ModelError::Shape("tape shape".to_string()));
     }
     expect(t, cfg.vocab, dlogits.len(), "dlogits")?;
-    let rope = RopeTable::new(cfg.rope_theta, cfg.head_dim)
+    let rope = RopeTable::new(F64::from_f64(cfg.rope_theta), cfg.head_dim)
         .map_err(|err| ModelError::Attn(AttnError::Rope(err)))?;
 
     let d_normed = dense::linear_bwd_input(dlogits, &w.lm_head, t, e, cfg.vocab)?;

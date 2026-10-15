@@ -14,7 +14,7 @@
 //!
 //! The `*_rows2_*` cores are the cross-row tiled row bodies: two rows per pass share each weight
 //! block's activation code vector and per-block activation scale `S_b`. Every row keeps its own
-//! per-block fold order and its own single `round_shift_32`, so the outputs are the exact values
+//! per-block fold order and its own accumulator, which the caller rounds once, so the outputs are the exact values
 //! the single-row cores return.
 
 use crate::format::quant::{
@@ -22,8 +22,7 @@ use crate::format::quant::{
 };
 
 use super::portable::f16_to_fixed_fast_raw;
-use super::ACT_QK;
-use crate::engine::value::round_shift_32;
+use super::{Tiled2, ACT_QK};
 
 use std::arch::x86_64::{
     __m128i, __m256i, _mm256_abs_epi8, _mm256_and_si256, _mm256_andnot_si256,
@@ -762,138 +761,94 @@ pub(super) unsafe fn q6_k_half_dots(ql: *const u8, qh: *const u8, xq: *const i8)
     }
 }
 
-/// `Some(Some(accs))` for a family with a two-row tiled core,
-/// `Some(None)` on a non-finite weight scale, `None` when the family or width has no tiled core.
+/// The two-row tiled core of `ggml_type` over the first two `row_bytes`-strided rows of `rows`.
 ///
-/// # Safety
+/// `None` when the host lacks AVX2, the family or width has no tiled core (`Q8_0`/`Q5_0` need
+/// `n_in` a multiple of 32, `Q4_K` of 256), or an extent is short: `row_bytes` below the
+/// family's row size, `rows` below `row_bytes` plus one row, `codes` below `n_in` lanes, `scales`
+/// below `n_in / 32` entries, or `xsums` below the family's per-block data (`Q4_K`: `n_in / 32`
+/// raw `Σxq`; `Q5_0`: one `[c(2j), c(2j+1), c(2j), c(2j+1)]` vector per block pair, `c = 16·Σxq`;
+/// `Q8_0`: none). `Some(Tiled2::NonFinite)` is the non-finite-scale refusal.
 ///
-/// A tiled core's accumulators, or the one refusal the single-row path also reports: a non-finite
-/// weight scale in one of the tiled rows.
-pub(super) enum Tiled<const N: usize> {
-    /// The `N` rows' exact per-block folds, before rounding.
-    Accs([i128; N]),
-    /// A non-finite weight scale: the caller falls the whole payload back to the reference.
-    NonFinite,
-}
-
-/// What [`try_tiled`] did: pushed `usize` rounded rows, refused for a non-finite scale, or found
-/// no tiled core for the family and width.
-pub(super) enum TileOutcome {
-    /// That many rows were rounded and pushed onto the caller's output.
-    Pushed(usize),
-    /// A non-finite weight scale; the caller falls the whole payload back.
-    NonFinite,
-    /// No tiled core applies; the caller uses the single-row kernel.
-    Unsupported,
-}
-
-/// `Some(accs)` for a family with a two-row tiled core, `None` when the family or width has no
-/// tiled core; `Tiled::NonFinite` is a non-finite weight scale in one of the two rows.
+/// Twin spec (graded `tested`, `x86::tests::tiled2_equals_scalar`): for `Some(Tiled2::Accs(a))`,
+/// `a[r] == q8act_row_i128_fast(ggml_type, row r, n_in, q, plan)` for `r` in `0..2`, and
+/// `Some(Tiled2::NonFinite)` iff one of those two calls is `None`. The rows' bytes are borrowed;
+/// the raw pointers the cores read are derived here, after the extent checks, so the boundary is
+/// this safe signature.
 ///
-/// # Safety
+/// # Complexity
 ///
-/// AVX2 must be present; `rows` must point at two consecutive rows of `row_bytes` bytes each with
-/// `ggml_type`'s full block geometry for `n_in`, `codes` at `n_in` lanes, `scales` at the full
-/// activation block count and `xsums` holding the family's per-block data: the `Q4_K` rows read
-/// raw `Σxq` at `n_in / ACT_QK` entries, the `Q5_0` rows read one `16·Σxq` block-pair vector (see
-/// [`q5_0_rows2_avx2`]), and the `Q8_0` row reads none.
-pub(super) unsafe fn rows2_avx2(
+/// `O(n_in)` time in exact integer multiply-adds, `O(1)` extra space, no allocation.
+pub(super) fn tiled2(
     ggml_type: u32,
-    rows: *const u8,
+    rows: &[u8],
     row_bytes: usize,
     n_in: usize,
-    codes: *const i8,
-    scales: *const i64,
-    xsums: *const i32,
-) -> Option<Tiled<2>> {
+    codes: &[i8],
+    scales: &[i64],
+    xsums: &[i32],
+) -> Option<Tiled2> {
     let q8 = ggml_type == quant::GGML_TYPE_Q8_0 && n_in.is_multiple_of(ACT_QK);
     let q5 = ggml_type == quant::GGML_TYPE_Q5_0 && n_in.is_multiple_of(ACT_QK);
     let q4 = ggml_type == quant::GGML_TYPE_Q4_K && n_in.is_multiple_of(QK_K);
-    if !(q8 || q5 || q4) {
+    if !(q8 || q5 || q4) || !avx2() {
         return None;
     }
-    // SAFETY: the caller's two rows and block geometry give the chosen core its extents.
+    let groups = n_in / ACT_QK;
+    let (row_len, xsums_len) = if q8 {
+        (groups.checked_mul(Q8_0_BLOCK_BYTES)?, 0)
+    } else if q5 {
+        (
+            groups.checked_mul(Q5_0_BLOCK_BYTES)?,
+            2 * groups.next_multiple_of(2),
+        )
+    } else {
+        ((n_in / QK_K).checked_mul(Q4_K_BLOCK_BYTES)?, groups)
+    };
+    if row_bytes < row_len
+        || rows.len() < row_bytes.checked_add(row_len)?
+        || codes.len() < n_in
+        || scales.len() < groups
+        || xsums.len() < xsums_len
+    {
+        return None;
+    }
+    // SAFETY: AVX2 was detected; the checks above give two rows of the family's full block
+    // geometry at `row_bytes` stride, `n_in` code lanes, `n_in / 32` activation scales and the
+    // family's `xsums` extent, which are the cores' stated obligations.
     let accs = unsafe {
         if q8 {
-            q8_0_rows2_avx2(rows, row_bytes, n_in / ACT_QK, codes, scales)
+            q8_0_rows2_avx2(
+                rows.as_ptr(),
+                row_bytes,
+                groups,
+                codes.as_ptr(),
+                scales.as_ptr(),
+            )
         } else if q5 {
-            q5_0_rows2_avx2(rows, row_bytes, n_in / ACT_QK, codes, scales, xsums)
+            q5_0_rows2_avx2(
+                rows.as_ptr(),
+                row_bytes,
+                groups,
+                codes.as_ptr(),
+                scales.as_ptr(),
+                xsums.as_ptr(),
+            )
         } else {
-            q4_k_rows2_avx2(rows, row_bytes, n_in / QK_K, codes, scales, xsums)
+            q4_k_rows2_avx2(
+                rows.as_ptr(),
+                row_bytes,
+                n_in / QK_K,
+                codes.as_ptr(),
+                scales.as_ptr(),
+                xsums.as_ptr(),
+            )
         }
     };
     Some(match accs {
-        Some(values) => Tiled::Accs(values),
-        None => Tiled::NonFinite,
+        Some(values) => Tiled2::Accs(values),
+        None => Tiled2::NonFinite,
     })
-}
-
-/// Apply the two-row tiled core when `remaining` rows and `avail` bytes cover it, pushing the
-/// rounded results onto `out`.
-///
-/// Every core keeps its rows' own per-block fold order and one final rounding, so the pushed values
-/// are the single-row kernels' bit for bit; an out-of-range row sets `*ok = false` (the caller then
-/// returns `OutputOverflow` and discards `out`).
-///
-/// # Safety
-///
-/// AVX2 must be present; `rows` must point at `avail` readable bytes covering `remaining` whole
-/// rows of `row_bytes` each with `ggml_type`'s full block geometry for `n_in`; `codes`, `scales`
-/// and `xsums` carry the extents [`rows2_avx2`] states.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the call's geometry (`ggml_type`, the row base, pitch, width, remaining rows and \
-              available bytes), the shared activation plan and the output cursor are the tiled \
-              core's full input"
-)]
-pub(super) unsafe fn try_tiled(
-    ggml_type: u32,
-    rows: *const u8,
-    row_bytes: usize,
-    n_in: usize,
-    remaining: usize,
-    avail: usize,
-    out: &mut Vec<i64>,
-    ok: &mut bool,
-    codes: *const i8,
-    scales: *const i64,
-    xsums: *const i32,
-) -> TileOutcome {
-    if remaining >= 2 && avail >= 2 * row_bytes {
-        // SAFETY: AVX2 is present and the caller's two rows are in range.
-        if let Some(tiled) =
-            unsafe { rows2_avx2(ggml_type, rows, row_bytes, n_in, codes, scales, xsums) }
-        {
-            return match tiled {
-                Tiled::Accs(values) => {
-                    push_rows(&values, out, ok);
-                    TileOutcome::Pushed(2)
-                }
-                Tiled::NonFinite => TileOutcome::NonFinite,
-            };
-        }
-    }
-    TileOutcome::Unsupported
-}
-
-/// Round each tiled accumulator exactly as the single-row path does and push it, clearing `*ok` on
-/// an `i64` range violation.
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "the `rounded as i64` narrowing is immediately preceded by an explicit \
-              `i64::MIN`/`i64::MAX` range check, as in `q8act_rows`"
-)]
-fn push_rows<const N: usize>(values: &[i128; N], out: &mut Vec<i64>, ok: &mut bool) {
-    let mut r = 0usize;
-    while r < N {
-        let rounded = round_shift_32(values[r]);
-        if rounded > i128::from(i64::MAX) || rounded < i128::from(i64::MIN) {
-            *ok = false;
-        } else {
-            out.push(rounded as i64);
-        }
-        r += 1;
-    }
 }
 
 /// Two `Q8_0` fast rows in one pass over two blocks each: both blocks' activation vectors and
@@ -1234,4 +1189,159 @@ unsafe fn q4_k_rows2_block_dots(
         r += 1;
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::too_many_lines,
+        reason = "test-only fixture arithmetic on bounded small values; one table-driven test; not extracted"
+    )]
+
+    use super::{tiled2, Tiled2};
+    use crate::engine::chart::{q8act_plan, q8act_row_i128_fast, quant_act, Q8ActPlan};
+    use crate::format::quant;
+
+    fn next(state: &mut u64) -> u64 {
+        let mut s = *state;
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        *state = s;
+        s
+    }
+
+    /// `rows` rows of `row_bytes` stride: random block bytes, every block header `f16` set to
+    /// `1.0` (`Q4_K`: both `d` and `dmin`); `pad` trailing bytes per row are random too.
+    fn payload(ggml_type: u32, n_in: usize, pad: usize, seed: u64) -> (Vec<u8>, usize, usize) {
+        let (qk, bb) = quant::block_geom(ggml_type).expect("supported geometry");
+        let row_len = n_in / qk * bb;
+        let row_bytes = row_len + pad;
+        let mut st = seed;
+        let mut raw: Vec<u8> = (0..2 * row_bytes).map(|_| next(&mut st) as u8).collect();
+        for r in 0..2 {
+            for b in 0..n_in / qk {
+                let at = r * row_bytes + b * bb;
+                raw[at] = 0x00;
+                raw[at + 1] = 0x3c;
+                if ggml_type == quant::GGML_TYPE_Q4_K {
+                    raw[at + 2] = 0x00;
+                    raw[at + 3] = 0x3c;
+                }
+            }
+        }
+        (raw, row_bytes, row_len)
+    }
+
+    /// `tiled2` returns, for each of its three families, the single-row fast kernel's accumulator
+    /// on both rows (and the single-row `None` as `NonFinite`); a short extent is `None`.
+    #[test]
+    fn tiled2_equals_scalar() {
+        const CASES: [(u32, usize); 7] = [
+            (quant::GGML_TYPE_Q8_0, 32),
+            (quant::GGML_TYPE_Q8_0, 96),
+            (quant::GGML_TYPE_Q5_0, 32),
+            (quant::GGML_TYPE_Q5_0, 96),
+            (quant::GGML_TYPE_Q5_0, 128),
+            (quant::GGML_TYPE_Q4_K, 256),
+            (quant::GGML_TYPE_Q4_K, 512),
+        ];
+        if !super::avx2() {
+            return;
+        }
+        let mut seed = 0x1357_9bdf_2468_ace0u64;
+        let mut compared = 0usize;
+        for (ggml_type, n_in) in CASES {
+            for pad in [0usize, 6] {
+                for nonfinite in [false, true] {
+                    seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                    let (mut raw, row_bytes, row_len) = payload(ggml_type, n_in, pad, seed);
+                    if nonfinite {
+                        raw[row_bytes + 1] = 0x7c;
+                    }
+                    let mut st = seed ^ 0xdead_beef;
+                    let x: Vec<i64> = (0..n_in)
+                        .map(|_| (next(&mut st) % 4096) as i64 - 2048)
+                        .collect();
+                    let q = quant_act(&x).expect("dequantizable");
+                    let Q8ActPlan::Fused(plan) = q8act_plan(ggml_type, n_in, &q) else {
+                        panic!("type {ggml_type} n_in {n_in}: plan is the reference");
+                    };
+                    assert!(
+                        plan.fast,
+                        "type {ggml_type} n_in {n_in}: fast path not admitted"
+                    );
+                    let want = [
+                        q8act_row_i128_fast(ggml_type, &raw[..row_len], n_in, &q, &plan),
+                        q8act_row_i128_fast(
+                            ggml_type,
+                            &raw[row_bytes..row_bytes + row_len],
+                            n_in,
+                            &q,
+                            &plan,
+                        ),
+                    ];
+                    let got = tiled2(
+                        ggml_type,
+                        &raw,
+                        row_bytes,
+                        n_in,
+                        &q.codes,
+                        &q.scales,
+                        &plan.xsums,
+                    );
+                    match (got, want) {
+                        (Some(Tiled2::Accs(a)), [Some(w0), Some(w1)]) => {
+                            assert_eq!(a, [w0, w1], "type {ggml_type} n_in {n_in} pad {pad}");
+                        }
+                        (Some(Tiled2::NonFinite), w) => {
+                            assert!(
+                                w[0].is_none() || w[1].is_none(),
+                                "type {ggml_type} n_in {n_in}: refused finite rows"
+                            );
+                            assert!(nonfinite, "type {ggml_type} n_in {n_in}: spurious refusal");
+                        }
+                        _ => panic!("type {ggml_type} n_in {n_in} pad {pad}: shape mismatch"),
+                    }
+                    compared += 1;
+                    // A short extent is refused, never read.
+                    assert!(tiled2(
+                        ggml_type,
+                        &raw[..row_bytes],
+                        row_bytes,
+                        n_in,
+                        &q.codes,
+                        &q.scales,
+                        &plan.xsums
+                    )
+                    .is_none());
+                    assert!(tiled2(
+                        ggml_type,
+                        &raw,
+                        row_bytes,
+                        n_in,
+                        &q.codes[..n_in - 1],
+                        &q.scales,
+                        &plan.xsums
+                    )
+                    .is_none());
+                    if ggml_type != quant::GGML_TYPE_Q8_0 {
+                        assert!(tiled2(
+                            ggml_type,
+                            &raw,
+                            row_bytes,
+                            n_in,
+                            &q.codes,
+                            &q.scales,
+                            &plan.xsums[..plan.xsums.len() - 1]
+                        )
+                        .is_none());
+                    }
+                }
+            }
+        }
+        assert_eq!(compared, CASES.len() * 4);
+    }
 }

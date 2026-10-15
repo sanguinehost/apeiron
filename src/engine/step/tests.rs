@@ -8,6 +8,7 @@
 )]
 
 use super::*;
+use crate::engine::error::{TensorKey, PART_OUTPUT, PART_TOKEN_EMBD};
 use crate::format::quant::GGML_TYPE_F16;
 
 /// Embedding width, rotation block and folded width are all this one value.
@@ -220,11 +221,12 @@ fn hadamard_fold_projection_matches_the_plain_weight() {
         "folded",
         &build_gguf(&folded_w, 1, false, &[name], Some((&width, &signs))),
     );
-    let y_plain = plain.step_proj(name, OUT, N, &X).expect("plain projection");
+    let key = TensorKey::top(PART_TOKEN_EMBD);
+    let y_plain = plain.step_proj(key, OUT, N, &X).expect("plain projection");
     let y_fold = folded
-        .step_proj(name, OUT, N, &X)
+        .step_proj(key, OUT, N, &X)
         .expect("folded projection");
-    let xr = folded_activation(folded.hadamard(), name, &X)
+    let xr = folded_activation(folded.hadamard(), key, &X)
         .expect("rotation")
         .expect("the weight is folded");
     let _ = std::fs::remove_file(&p0);
@@ -254,7 +256,7 @@ fn hadamard_fold_projection_matches_the_plain_weight() {
         signs: None,
     };
     assert_eq!(
-        folded_activation(Some(&meta), "output.weight", &X),
+        folded_activation(Some(&meta), TensorKey::top(PART_OUTPUT), &X),
         Ok(None)
     );
 }
@@ -269,11 +271,11 @@ fn hadamard_fold_missing_sign_width_refuses() {
         "missing",
         &build_gguf(&w, 1, false, &[name], Some((&[16], &values))),
     );
-    let got = e.step_proj(name, OUT, N, &X);
+    let got = e.step_proj(TensorKey::top(PART_TOKEN_EMBD), OUT, N, &X);
     let _ = std::fs::remove_file(&path);
     match got {
         Err(StepError::MissingHadamardSigns { tensor, width }) => {
-            assert_eq!(tensor, name);
+            assert_eq!(tensor.to_string(), name);
             assert_eq!(width, N);
         }
         other => panic!("expected a missing-sign-width refusal, got {other:?}"),

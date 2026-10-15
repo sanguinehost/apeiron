@@ -30,7 +30,11 @@
 //!
 //! [`matvec_q8act`]: crate::engine::chart::matvec_q8act
 
+#[cfg(target_arch = "x86_64")]
+use crate::engine::chart::pool::{set_written_lens, FirstErr, Flag, PBand};
+use crate::engine::chart::task::{BandTask, IndexTask, Task4};
 use crate::engine::chart::{ActMagnitude, QuantAct};
+use crate::engine::loader::PayloadRef;
 use crate::engine::mixer::{carrier_from_env, Carrier};
 use crate::engine::value::round_shift_32;
 use crate::engine::{silu_fixed, FfnError};
@@ -109,101 +113,144 @@ struct Packed {
     spread: Vec<u32>,
 }
 
-/// The packing's output pointers. Task `g` writes only group `g`'s `words`/`shift` slices, its
-/// own columns' `emin` (columns `[8·g, min(8·g + LANES, k))`) and `spread[g]`; the four
-/// allocations outlive the dispatch and no two tasks share a slot.
-struct PackPtr {
-    words: *mut u32,
-    shift: *mut i64,
-    emin: *mut u32,
-    spread: *mut u32,
+/// Packs column group `g` of `qs` into its chunk of each output, or `Err` when a scale is not a
+/// power of two. `words`/`shift` are group `g`'s chunks, `emin` its columns' slots and `spread[0]`
+/// its spread.
+///
+/// # Complexity
+///
+/// `O(LANES·blocks·32)` byte reads and `O(LANES·blocks)` exponents: the loops run `LANES` columns,
+/// `blocks` blocks and 8 quads, each step writing one entry.
+#[allow(
+    clippy::many_single_char_names,
+    clippy::cast_sign_loss,
+    reason = "c, b index the lane-by-block grid; the codes are signed bytes widened to a lane word"
+)]
+fn pack_group(
+    qs: &[QuantAct],
+    blocks: usize,
+    g: usize,
+    words: &mut [u32],
+    shift: &mut [i64],
+    emin: &mut [u32],
+    spread: &mut [u32],
+) -> Result<(), ()> {
+    let lo_c = g * LANES;
+    let hi_c = (lo_c + LANES).min(qs.len());
+    let mut group_spread = 0u32;
+    let mut bad = false;
+    let mut c = lo_c;
+    while c < hi_c && !bad {
+        let q = &qs[c];
+        let scales = q.scales();
+        let mut lo = u32::MAX;
+        let mut si = 0usize;
+        while si < scales.len() && !bad {
+            let s = scales[si];
+            if s < 0 || (s != 0 && s.count_ones() != 1) {
+                bad = true;
+            } else if s != 0 {
+                lo = lo.min(s.trailing_zeros());
+            }
+            si += 1;
+        }
+        if !bad {
+            let lo = if lo == u32::MAX { 0 } else { lo };
+            let lane = c - lo_c;
+            emin[lane] = lo;
+            let codes = q.codes();
+            let nb = scales.len().min(blocks);
+            let mut b = 0usize;
+            while b < nb {
+                let s = scales[b];
+                let sh = if s == 0 { 0 } else { s.trailing_zeros() - lo };
+                shift[b * LANES + lane] = i64::from(sh);
+                group_spread = group_spread.max(sh);
+                let mut quad = 0usize;
+                while quad < 8 {
+                    let at = b * ACT_QK + 4 * quad;
+                    let raw_w = u32::from(codes[at] as u8)
+                        | (u32::from(codes[at + 1] as u8) << 8)
+                        | (u32::from(codes[at + 2] as u8) << 16)
+                        | (u32::from(codes[at + 3] as u8) << 24);
+                    words[(b * 8 + quad) * LANES + lane] = raw_w ^ 0x8080_8080;
+                    quad += 1;
+                }
+                b += 1;
+            }
+        }
+        c += 1;
+    }
+    if bad {
+        return Err(());
+    }
+    let mut pad_lane = hi_c - lo_c;
+    while pad_lane < LANES {
+        let mut b = 0usize;
+        while b < blocks {
+            shift[b * LANES + pad_lane] = 0;
+            let mut quad = 0usize;
+            while quad < 8 {
+                words[(b * 8 + quad) * LANES + pad_lane] = 0x8080_8080;
+                quad += 1;
+            }
+            b += 1;
+        }
+        pad_lane += 1;
+    }
+    // `groups = ⌈k/LANES⌉`, so every group holds a real column and every `spread[g]` is assigned.
+    spread[0] = group_spread;
+    Ok(())
 }
-// SAFETY: `pack` gives each task one disjoint group, so no two tasks write the same `words` or
-// `shift` entry, the same `emin` slot or `spread[g]`; the buffers are not reallocated while the
-// dispatch runs.
-unsafe impl Send for PackPtr {}
-// SAFETY: as above.
-unsafe impl Sync for PackPtr {}
+
+/// The [`pack_group`] task context: the shared activation columns and block count.
+struct PackCtx<'a> {
+    qs: &'a [QuantAct],
+    blocks: usize,
+}
+
+impl Task4<u32, i64, u32, u32, ()> for PackCtx<'_> {
+    fn run(
+        &self,
+        g: usize,
+        w: &mut [u32],
+        s: &mut [i64],
+        e: &mut [u32],
+        sp: &mut [u32],
+    ) -> Result<(), ()> {
+        pack_group(self.qs, self.blocks, g, w, s, e, sp)
+    }
+}
 
 /// Packs the columns, or `None` when a scale is not a power of two.
 ///
 /// # Complexity
 ///
 /// `O(k·n_in)` byte writes and `O(k·blocks)` exponents, split over `groups` pool tasks (one per
-/// `LANES`-wide column group).
+/// `LANES`-wide column group). The outputs are zero-initialised first: `groups·max(blocks, 1)·
+/// 8·LANES` `u32` words, `groups·max(blocks, 1)·LANES` `i64` words, `k + groups` `u32` words.
 fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
     let k = qs.len();
     let groups = k.div_ceil(LANES);
-    let mut words = Vec::with_capacity(groups * blocks * 8 * LANES);
-    let mut shift = Vec::with_capacity(groups * blocks * LANES);
-    let mut emin = Vec::with_capacity(k);
-    let mut spread = Vec::with_capacity(groups);
-    let refused = std::sync::atomic::AtomicBool::new(false);
-    let ptr = PackPtr {
-        words: words.as_mut_ptr(),
-        shift: shift.as_mut_ptr(),
-        emin: emin.as_mut_ptr(),
-        spread: spread.as_mut_ptr(),
-    };
-    let pk = &ptr;
-    crate::engine::chart::pool::Pool::global().run(groups, &|g| {
-        let lo_c = g * LANES;
-        let hi_c = (lo_c + LANES).min(k);
-        let mut group_spread = 0u32;
-        for (c, q) in qs.iter().enumerate().take(hi_c).skip(lo_c) {
-            let scales = q.scales();
-            let mut lo = u32::MAX;
-            for &s in scales {
-                if s < 0 || (s != 0 && s.count_ones() != 1) {
-                    refused.store(true, std::sync::atomic::Ordering::Relaxed);
-                    return;
-                }
-                if s != 0 {
-                    lo = lo.min(s.trailing_zeros());
-                }
-            }
-            let lo = if lo == u32::MAX { 0 } else { lo };
-            // SAFETY: `c` lies in this task's group, so this is `emin[c]`'s only writer.
-            unsafe { *pk.emin.add(c) = lo };
-            let lane = c - lo_c;
-            let codes = q.codes();
-            for (b, &s) in scales.iter().enumerate().take(blocks) {
-                let sh = if s == 0 { 0 } else { s.trailing_zeros() - lo };
-                // SAFETY: `lane` is this task's lane of group `g`; the entry has no other writer.
-                unsafe { *pk.shift.add((g * blocks + b) * LANES + lane) = i64::from(sh) };
-                group_spread = group_spread.max(sh);
-                for quad in 0..8 {
-                    let at = b * ACT_QK + 4 * quad;
-                    let raw_w = unsafe { codes.as_ptr().add(at).cast::<u32>().read_unaligned() };
-                    let w = raw_w ^ 0x8080_8080;
-                    // SAFETY: as for `shift`; the word has no other writer.
-                    unsafe { *pk.words.add(((g * blocks + b) * 8 + quad) * LANES + lane) = w };
-                }
-            }
-        }
-        for pad_lane in (hi_c - lo_c)..LANES {
-            for b in 0..blocks {
-                unsafe {
-                    *pk.shift.add((g * blocks + b) * LANES + pad_lane) = 0;
-                    for quad in 0..8 {
-                        *pk.words
-                            .add(((g * blocks + b) * 8 + quad) * LANES + pad_lane) = 0x8080_8080;
-                    }
-                }
-            }
-        }
-        // SAFETY: `g` is this task's group, so this is `spread[g]`'s only writer. A group with no
-        // real column cannot occur (`groups = ⌈k/LANES⌉`), so every `spread[g]` is assigned.
-        unsafe { *pk.spread.add(g) = group_spread };
-    });
-    if refused.load(std::sync::atomic::Ordering::Relaxed) {
+    // A zero-block pack still gives every group one chunk so the four outputs agree on task count.
+    let bw = blocks.max(1);
+    let mut words = vec![0u32; groups * bw * 8 * LANES];
+    let mut shift = vec![0i64; groups * bw * LANES];
+    let mut emin = vec![0u32; k];
+    let mut spread = vec![0u32; groups];
+    let packed: Result<(), ()> = crate::engine::chart::pool::for_chunks4(
+        &mut words,
+        bw * 8 * LANES,
+        &mut shift,
+        bw * LANES,
+        &mut emin,
+        LANES,
+        &mut spread,
+        1,
+        &PackCtx { qs, blocks },
+    );
+    if packed.is_err() {
         return None;
-    }
-    unsafe {
-        words.set_len(groups * blocks * 8 * LANES);
-        shift.set_len(groups * blocks * LANES);
-        emin.set_len(k);
-        spread.set_len(groups);
     }
     Some(Packed {
         groups,
@@ -232,7 +279,9 @@ fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
 /// `O(1)` space. The removed `magnitude()` pass was `O(k·n_in)` checked `i64`/`i128` operations,
 /// serial ahead of the pool dispatch: 191 µs of a 405 µs `ffn_down` call at k = 64, `n_in` = 3584.
 fn fast_columns_ok(n_in: usize, blocks: usize, qs: &[QuantAct]) -> bool {
-    qs.iter().all(|q| {
+    let mut i = 0usize;
+    while i < qs.len() {
+        let q = &qs[i];
         let ok = q.len() == n_in
             && q.scales().len() == blocks
             && crate::engine::chart::q8act_fast_bound_ok(n_in, 128, q, true);
@@ -240,8 +289,44 @@ fn fast_columns_ok(n_in: usize, blocks: usize, qs: &[QuantAct]) -> bool {
             !ok || matches!(q.magnitude(), ActMagnitude::Exact(_)),
             "the fast bound implies an exact magnitude"
         );
-        ok
-    })
+        if !ok {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// `k` empty columns, each reserved to `cap` elements.
+///
+/// # Complexity
+///
+/// `O(k)` time and allocations (`k + 1` allocations, the outer one with `k` slots), `O(k·cap)`
+/// words reserved. The loop runs `k` times with `c` counting `0..k`, so it closes at `k`.
+fn empty_columns(k: usize, cap: usize) -> Vec<Vec<i64>> {
+    let mut cols = Vec::with_capacity(k);
+    let mut c = 0usize;
+    while c < k {
+        cols.push(Vec::with_capacity(cap));
+        c += 1;
+    }
+    cols
+}
+
+/// The write pointers of `cols`, one per column, each at that column's spare capacity.
+///
+/// # Complexity
+///
+/// `O(cols.len())` time, one allocation of `cols.len()` pointers. The loop runs once per column
+/// and closes at `cols.len()`.
+fn column_ptrs(cols: &mut [Vec<i64>]) -> Vec<*mut std::mem::MaybeUninit<i64>> {
+    let mut ptrs = Vec::with_capacity(cols.len());
+    let mut c = 0usize;
+    while c < cols.len() {
+        ptrs.push(cols[c].spare_capacity_mut().as_mut_ptr());
+        c += 1;
+    }
+    ptrs
 }
 
 /// The row kernel's output pointers, one per column, each into that column's `Vec<i64>` reserved
@@ -260,6 +345,41 @@ unsafe impl Send for ColPtrs {}
 // SAFETY: as above.
 #[cfg(target_arch = "x86_64")]
 unsafe impl Sync for ColPtrs {}
+
+/// Receiver of the row kernel's output values: `put(c, row, v)` is the value of column `c` at weight
+/// row `row`; per column, `row` ascends.
+#[cfg(target_arch = "x86_64")]
+trait RowSink {
+    fn put(&mut self, c: usize, row: usize, v: i64);
+}
+
+/// Stores into column `c`'s reserved allocation at index `row`.
+#[cfg(target_arch = "x86_64")]
+impl RowSink for &ColPtrs {
+    #[inline]
+    fn put(&mut self, c: usize, row: usize, v: i64) {
+        // SAFETY: the caller's task owns rows of `row`'s range, which every column reserved.
+        unsafe { self.ptrs[c].add(row).write(std::mem::MaybeUninit::new(v)) };
+    }
+}
+
+/// Appends to the band's column `c`; the band is filled in ascending row order per column.
+#[cfg(target_arch = "x86_64")]
+impl RowSink for PBand<i64> {
+    #[inline]
+    fn put(&mut self, c: usize, _row: usize, v: i64) {
+        self.push(c, v);
+    }
+}
+
+/// One projection of [`gemm_q8_0_group`]: its `ggml_type`, its payload extent in the resident file
+/// and its output width.
+#[derive(Clone, Copy)]
+pub(crate) struct GemmPart {
+    pub(crate) ggml_type: u32,
+    pub(crate) at: PayloadRef,
+    pub(crate) n_out: usize,
+}
 
 /// The fused `SwiGLU` epilogue's output pointers, one per column, each into that column's
 /// `Vec<i64>` pre-sized to `n_ff`. Task `t` writes hidden indices
@@ -380,53 +500,36 @@ pub(crate) fn gemm_q8_0(
         // The deleted `inter` buffer refused when `n_out·k` overflowed `usize`; keep that refusal
         // without allocating it, so the overflow still routes to the contract path.
         n_out.checked_mul(k)?;
-        let mut cols: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(n_out)).collect();
+        let mut cols = empty_columns(k, n_out);
         let ptrs = ColPtrs {
-            ptrs: cols
-                .iter_mut()
-                .map(|v| v.spare_capacity_mut().as_mut_ptr())
-                .collect(),
+            ptrs: column_ptrs(&mut cols),
         };
-        let bad = std::sync::atomic::AtomicBool::new(false);
+        let bad = crate::engine::chart::pool::Flag::new();
         #[cfg(test)]
         attrib::mark(3);
         #[cfg(test)]
         attrib::dispatch_begin();
         let rpt = task_rows(n_out, 1);
-        crate::engine::chart::pool::Pool::global().run(n_out.div_ceil(rpt), &|t| {
-            let r0 = t * rpt;
-            let r1 = ((t + 1) * rpt).min(n_out);
-            #[cfg(test)]
-            let _rec = attrib::task(t, r1 - r0, (r1 - r0) * row_bytes, packed.words.len() * 4);
-            // SAFETY: AVX2 and AVX-VNNI were detected above; `raw` holds `n_out` rows, the packing
-            // covers `packed.groups` groups of `blocks` blocks, and `ptrs` addresses the rows
-            // `[r0, r1)` of every column in that column's own `Vec`, reserved to `n_out`.
-            let ok = unsafe {
-                x86::rows(
-                    raw,
-                    row_bytes,
-                    blocks,
-                    r0,
-                    r1 - r0,
-                    qs,
-                    &packed,
-                    limit,
-                    &ptrs,
-                )
-            };
-            if !ok {
-                bad.store(true, std::sync::atomic::Ordering::Relaxed);
-            }
-        });
+        let rows_ctx = RowsCtx {
+            raw,
+            n_out,
+            rpt,
+            row_bytes,
+            blocks,
+            qs,
+            packed: &packed,
+            limit,
+            ptrs: &ptrs,
+            bad: &bad,
+        };
+        crate::engine::chart::pool::run_global(n_out.div_ceil(rpt), &rows_ctx);
         #[cfg(test)]
         attrib::dispatch_end();
-        if bad.load(std::sync::atomic::Ordering::Relaxed) {
+        if bad.get() {
             return None;
         }
-        for col in &mut cols {
-            // SAFETY: every index `0..n_out` of every column was written exactly once above.
-            unsafe { col.set_len(n_out) };
-        }
+        // SAFETY: every index `0..n_out` of every column was written exactly once above.
+        unsafe { set_written_lens(&mut cols, n_out) };
         #[cfg(test)]
         attrib::mark(4);
         #[cfg(test)]
@@ -439,34 +542,253 @@ pub(crate) fn gemm_q8_0(
         None
     }
 }
+/// The [`gemm_q8_0`] row-task context: the shared payload, activation columns and output pointers.
+#[cfg(target_arch = "x86_64")]
+struct RowsCtx<'a> {
+    raw: &'a [u8],
+    n_out: usize,
+    rpt: usize,
+    row_bytes: usize,
+    blocks: usize,
+    qs: &'a [QuantAct],
+    packed: &'a Packed,
+    limit: u32,
+    ptrs: &'a ColPtrs,
+    bad: &'a Flag,
+}
 
-/// Several `Q8_0` projections of the same activation with one shared pack and one row dispatch:
-/// `parts[i] = (ggml_type, raw, n_out)` is projection `i` and every part reads the same input width
-/// `n_in` and activation columns `qs`. Returns part `i`'s `k` columns, each equal to the value
-/// [`gemm_q8_0`] produces for that part, or `None` when the caller must run the per-part contract
-/// path (which owns every refusal).
-///
-/// The activation packing depends only on `(qs, blocks)` and every part shares `n_in`, so the pack
-/// is computed once instead of once per part; the parts' row tasks form one pool dispatch through
-/// the prefix sums of `⌈n_out_i / task_rows⌉`. The same `x86::rows` kernel runs on the same
-/// weight bytes and packed activation with the same `limit`, and each part's row ranges partition
-/// that part's outputs, so the interleaving changes no word.
+#[cfg(target_arch = "x86_64")]
+impl IndexTask for RowsCtx<'_> {
+    fn run(&self, t: usize) {
+        gemm_rows_task(
+            t,
+            self.rpt,
+            self.n_out,
+            self.raw,
+            self.row_bytes,
+            self.blocks,
+            self.qs,
+            self.packed,
+            self.limit,
+            self.ptrs,
+            self.bad,
+        );
+    }
+}
+
+/// The body of one [`gemm_q8_0`] row task: rows `[t·rpt, min((t+1)·rpt, n_out))` of every column.
+#[cfg(target_arch = "x86_64")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the task's shared inputs travel as one argument each so the trait method is one call"
+)]
+fn gemm_rows_task(
+    t: usize,
+    rpt: usize,
+    n_out: usize,
+    raw: &[u8],
+    row_bytes: usize,
+    blocks: usize,
+    qs: &[QuantAct],
+    packed: &Packed,
+    limit: u32,
+    ptrs: &ColPtrs,
+    bad: &Flag,
+) {
+    let r0 = t * rpt;
+    let r1 = ((t + 1) * rpt).min(n_out);
+    #[cfg(test)]
+    let _rec = attrib::task(t, r1 - r0, (r1 - r0) * row_bytes, packed.words.len() * 4);
+    // SAFETY: AVX2 and AVX-VNNI were detected by the caller; `raw` holds `n_out` rows, the packing
+    // covers `packed.groups` groups of `blocks` blocks, and `ptrs` addresses the rows `[r0, r1)` of
+    // every column in that column's own `Vec`, reserved to `n_out`.
+    let ok = unsafe {
+        x86::rows(
+            raw,
+            row_bytes,
+            blocks,
+            r0,
+            r1 - r0,
+            qs,
+            packed,
+            limit,
+            &mut &*ptrs,
+        )
+    };
+    if !ok {
+        bad.set();
+    }
+}
+
+/// Whether `part` cannot take the group path: a family other than `Q8_0`, no rows, an extent
+/// outside `file`, or fewer bytes than `n_out` rows of `row_bytes`.
+fn part_refused(file: &[u8], part: GemmPart, row_bytes: usize) -> bool {
+    let end = part.at.off.saturating_add(part.at.len);
+    part.ggml_type != GGML_TYPE_Q8_0
+        || part.n_out == 0
+        || end > file.len()
+        || part.at.len < part.n_out.saturating_mul(row_bytes)
+}
+
+/// The [`gemm_q8_0_group`] band-task context: the shared file, parts, row starts and packed columns.
+#[cfg(target_arch = "x86_64")]
+struct GroupBandCtx<'a> {
+    file: &'a [u8],
+    parts: &'a [GemmPart],
+    rstarts: &'a [usize],
+    row_bytes: usize,
+    blocks: usize,
+    qs: &'a [QuantAct],
+    packed: &'a Packed,
+    limit: u32,
+}
+
+#[cfg(target_arch = "x86_64")]
+impl BandTask<i64, ()> for GroupBandCtx<'_> {
+    fn run(&self, _t: usize, f0: usize, band: &mut PBand<i64>) -> Result<(), ()> {
+        group_band(
+            self.file,
+            self.parts,
+            self.rstarts,
+            self.row_bytes,
+            self.blocks,
+            self.qs,
+            self.packed,
+            self.limit,
+            f0,
+            band,
+        )
+    }
+}
+
+/// Flattened row range of each part: `rstarts[p]..rstarts[p + 1]` is part `p`'s rows in the
+/// concatenation of all parts' rows; `None` when `Σ n_out·k` leaves `usize`.
 ///
 /// # Complexity
 ///
-/// Temporal `O(Σ n_out_i·n_in·k)` byte multiply-adds plus `O(k·n_in)` packing, over one dispatch of
-/// `Σ⌈n_out_i/task_rows⌉` tasks; spatial `O(k·n_in)` packed bytes plus `O((Σ n_out_i)·k)`
-/// output, against one pack and one dispatch per part for the per-part path.
+/// `O(parts.len())` time and one allocation of `parts.len() + 1` words: the loop runs once per
+/// part and closes at `parts.len()`.
+fn part_row_starts(parts: &[GemmPart], k: usize) -> Option<Vec<usize>> {
+    let mut rstarts = Vec::with_capacity(parts.len() + 1);
+    rstarts.push(0usize);
+    let mut overflow = false;
+    let mut p = 0usize;
+    while p < parts.len() {
+        let next = rstarts[p].checked_add(parts[p].n_out);
+        overflow = overflow || next.is_none() || next.and_then(|n| n.checked_mul(k)).is_none();
+        rstarts.push(next.unwrap_or(0));
+        p += 1;
+    }
+    if overflow {
+        None
+    } else {
+        Some(rstarts)
+    }
+}
+
+/// Part `p`'s `k` columns cut from the flattened columns: rows `start..start + n_out` of each.
+///
+/// # Complexity
+///
+/// `O(k)` allocations and `O(k·n_out)` words copied; the loop runs `k = flat.len()` times.
+fn split_part(flat: &[Vec<i64>], start: usize, n_out: usize) -> Vec<Vec<i64>> {
+    let mut cols = Vec::with_capacity(flat.len());
+    let mut c = 0usize;
+    while c < flat.len() {
+        cols.push(flat[c][start..start + n_out].to_vec());
+        c += 1;
+    }
+    cols
+}
+
+/// One `for_pbands` band of [`gemm_q8_0_group`]: flattened rows `f0..f0 + band.rows()`, walked as the
+/// sub-range of each part they overlap, in part order, so each column of `band` receives its rows
+/// in ascending flattened order. `Err(())` when the row kernel refuses.
+///
+/// # Complexity
+///
+/// `O(parts.len())` range tests plus the row kernel over the band's rows. The loop runs once per
+/// part and closes at `parts.len()`.
+#[cfg(target_arch = "x86_64")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the group's shared inputs travel as one argument each so the pool closure is one call"
+)]
+fn group_band(
+    file: &[u8],
+    parts: &[GemmPart],
+    rstarts: &[usize],
+    row_bytes: usize,
+    blocks: usize,
+    qs: &[QuantAct],
+    packed: &Packed,
+    limit: u32,
+    f0: usize,
+    band: &mut PBand<i64>,
+) -> Result<(), ()> {
+    let f1 = f0 + band.rows();
+    let mut ok = true;
+    let mut p = 0usize;
+    while p < parts.len() && ok {
+        let s = rstarts[p];
+        let lo = s.max(f0);
+        let hi = rstarts[p + 1].min(f1);
+        if lo < hi {
+            let raw = parts[p].at.bytes(file);
+            // SAFETY: AVX2 and AVX-VNNI were detected by the caller; `part_refused` checked that
+            // `raw` holds `n_out` rows of `row_bytes`, and `lo - s .. hi - s` lies inside them.
+            ok = unsafe {
+                x86::rows(
+                    raw,
+                    row_bytes,
+                    blocks,
+                    lo - s,
+                    hi - lo,
+                    qs,
+                    packed,
+                    limit,
+                    band,
+                )
+            };
+        }
+        p += 1;
+    }
+    if ok {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
+/// Several `Q8_0` projections of the same activation with one shared pack and one row dispatch:
+/// `parts[i]` is projection `i` (its payload is `file[at.off..at.off + at.len]`) and every part
+/// reads the same input width `n_in` and activation columns `qs`. Returns part `i`'s `k` columns,
+/// each equal to the value [`gemm_q8_0`] produces for that part, or `None` when the caller must
+/// run the per-part contract path (which owns every refusal).
+///
+/// The activation packing depends only on `(qs, blocks)` and every part shares `n_in`, so the pack
+/// is computed once instead of once per part; the parts' rows form one `for_pbands` dispatch over
+/// the concatenated row space. The same `x86::rows` kernel runs on the same weight bytes and packed
+/// activation with the same `limit`, and each row is computed independently, so the partition
+/// changes no word.
+///
+/// # Complexity
+///
+/// Temporal `O(Σ n_out_i·n_in·k)` byte multiply-adds plus `O(k·n_in)` packing, plus `O(k·Σ n_out_i)`
+/// words copied to split the concatenated columns into parts, over one dispatch of
+/// `⌈Σ n_out_i/task_rows⌉` tasks; spatial `O(k·n_in)` packed bytes plus `O(k·Σ n_out_i)` words for
+/// the concatenated columns and the same again for the returned parts.
 #[must_use]
 pub(crate) fn gemm_q8_0_group(
-    parts: &[(u32, &[u8], usize)],
+    file: &[u8],
+    parts: &[GemmPart],
     n_in: usize,
     qs: &[QuantAct],
 ) -> Option<Vec<Vec<Vec<i64>>>> {
     #[cfg(target_arch = "x86_64")]
     {
         #[cfg(test)]
-        let hook = probe_hooks::enter_group(n_in, parts, qs);
+        let hook = probe_hooks::enter_group(n_in, file, parts, qs);
         if qs.is_empty()
             || !n_in.is_multiple_of(ACT_QK)
             || n_in / ACT_QK > MAX_BLOCKS
@@ -477,94 +799,57 @@ pub(crate) fn gemm_q8_0_group(
         }
         let blocks = n_in / ACT_QK;
         let row_bytes = blocks * Q8_0_BLOCK_BYTES;
-        for (ggml_type, raw, n_out) in parts {
-            if *ggml_type != GGML_TYPE_Q8_0
-                || *n_out == 0
-                || raw.len() < n_out.checked_mul(row_bytes)?
-            {
-                return None;
-            }
+        let mut refuse = false;
+        let mut pi = 0usize;
+        while pi < parts.len() {
+            refuse = refuse || part_refused(file, parts[pi], row_bytes);
+            pi += 1;
         }
-        if !fast_columns_ok(n_in, blocks, qs) {
+        if refuse || !fast_columns_ok(n_in, blocks, qs) {
             return None;
         }
         let k = qs.len();
         // The deleted `inter` buffer refused when `n_out·k` overflowed `usize`; keep that refusal
-        // without allocating it, and build the prefix sums the task-to-part map reads.
-        let mut starts = Vec::with_capacity(parts.len() + 1);
-        starts.push(0usize);
-        for (_, _, n_out) in parts {
-            n_out.checked_mul(k)?;
-            let next = starts[starts.len() - 1] + n_out.div_ceil(task_rows(*n_out, parts.len()));
-            starts.push(next);
-        }
-        let total_tasks = starts[parts.len()];
+        // without allocating it, and build the prefix sums of the concatenated row space.
+        let rstarts = part_row_starts(parts, k)?;
+        let total = rstarts[parts.len()];
         let packed = pack(qs, blocks)?;
         let limit = spread_limit(blocks);
-        let mut cols: Vec<Vec<Vec<i64>>> = parts
-            .iter()
-            .map(|(_, _, n_out)| (0..k).map(|_| Vec::with_capacity(*n_out)).collect())
-            .collect();
-        let col_ptrs: Vec<ColPtrs> = cols
-            .iter_mut()
-            .map(|part_cols| ColPtrs {
-                ptrs: part_cols
-                    .iter_mut()
-                    .map(|v| v.spare_capacity_mut().as_mut_ptr())
-                    .collect(),
-            })
-            .collect();
-        let col_ptrs = &col_ptrs;
-        let starts = &starts;
-        let bad = std::sync::atomic::AtomicBool::new(false);
-        crate::engine::chart::pool::Pool::global().run(total_tasks, &|t| {
-            // `t` falls in the first part whose task prefix exceeds it; the row range is the
-            // task's `task_rows` slice of that part.
-            let mut i = 0usize;
-            while i + 1 < parts.len() && t >= starts[i + 1] {
-                i += 1;
-            }
-            let rpt = task_rows(parts[i].2, parts.len());
-            let r0 = (t - starts[i]) * rpt;
-            let r1 = (r0 + rpt).min(parts[i].2);
-            // SAFETY: AVX2 and AVX-VNNI were detected above; `parts[i].1` holds `n_out` rows of
-            // `row_bytes`, the packing covers `blocks` blocks, and `col_ptrs[i]` addresses the rows
-            // `[r0, r1)` of every column of part `i` in that column's own allocation, reserved to
-            // `n_out`.
-            let ok = unsafe {
-                x86::rows(
-                    parts[i].1,
-                    row_bytes,
-                    blocks,
-                    r0,
-                    r1 - r0,
-                    qs,
-                    &packed,
-                    limit,
-                    &col_ptrs[i],
-                )
-            };
-            if !ok {
-                bad.store(true, std::sync::atomic::Ordering::Relaxed);
-            }
-        });
-        if bad.load(std::sync::atomic::Ordering::Relaxed) {
+        let mut flat: Vec<Vec<i64>> = Vec::with_capacity(k);
+        let mut c = 0usize;
+        while c < k {
+            flat.push(Vec::new());
+            c += 1;
+        }
+        let rows_per = task_rows(total, parts.len());
+        let band_ctx = GroupBandCtx {
+            file,
+            parts,
+            rstarts: &rstarts,
+            row_bytes,
+            blocks,
+            qs,
+            packed: &packed,
+            limit,
+        };
+        let dispatched =
+            crate::engine::chart::pool::for_pbands(&mut flat, total, rows_per, &band_ctx);
+        if dispatched.is_err() {
             return None;
         }
-        for (i, part_cols) in cols.iter_mut().enumerate() {
-            let n_out = parts[i].2;
-            for col in part_cols.iter_mut() {
-                // SAFETY: every index `0..n_out` of every column was written exactly once above.
-                unsafe { col.set_len(n_out) };
-            }
+        let mut out: Vec<Vec<Vec<i64>>> = Vec::with_capacity(parts.len());
+        let mut p = 0usize;
+        while p < parts.len() {
+            out.push(split_part(&flat, rstarts[p], parts[p].n_out));
+            p += 1;
         }
         #[cfg(test)]
         hook.ok();
-        Some(cols)
+        Some(out)
     }
     #[cfg(not(target_arch = "x86_64"))]
     {
-        let _ = (parts, n_in, qs);
+        let _ = (file, parts, n_in, qs);
         None
     }
 }
@@ -662,56 +947,52 @@ pub(crate) fn gemm_q8_0_swiglu_carrier(
         }
         let packed = pack(qs, blocks)?;
         let limit = spread_limit(blocks);
-        let mut cols: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(n_ff)).collect();
-        let ptrs = SwigluPtrs {
-            ptrs: cols
-                .iter_mut()
-                .map(|v| v.spare_capacity_mut().as_mut_ptr().cast::<i64>())
-                .collect(),
-        };
+        let mut cols = empty_columns(k, n_ff);
+        let mut col_ptrs: Vec<*mut i64> = Vec::with_capacity(k);
+        let mut c = 0usize;
+        while c < k {
+            col_ptrs.push(cols[c].spare_capacity_mut().as_mut_ptr().cast::<i64>());
+            c += 1;
+        }
+        let ptrs = SwigluPtrs { ptrs: col_ptrs };
         let out = &ptrs;
-        let bad = std::sync::atomic::AtomicBool::new(false);
-        let first: std::sync::Mutex<Option<(usize, usize, FfnError)>> = std::sync::Mutex::new(None);
+        let bad = crate::engine::chart::pool::Flag::new();
+        let first: crate::engine::chart::pool::FirstErr<u128, FfnError> =
+            crate::engine::chart::pool::FirstErr::new();
         let first_ref = &first;
         #[cfg(test)]
         attrib::dispatch_begin();
         let rpt = task_rows(n_ff, 2);
-        crate::engine::chart::pool::Pool::global().run(n_ff.div_ceil(rpt), &|t| {
-            let r0 = t * rpt;
-            let rows = (n_ff - r0).min(rpt);
-            #[cfg(test)]
-            let _rec = attrib::task(t, rows, 2 * rows * row_bytes, packed.words.len() * 4);
-            // SAFETY: AVX2 and AVX-VNNI were detected above; both payloads hold `n_ff` rows and the
-            // packing covers `packed.groups` groups of `blocks` blocks; task `t` owns hidden indices
-            // `[r0, r0 + rows)` and writes each column's own allocation there.
-            let ok = unsafe {
-                x86::rows_swiglu(
-                    raw_gate, raw_up, row_bytes, blocks, r0, rows, qs, &packed, limit, out,
-                    first_ref, carrier,
-                )
-            };
-            if !ok {
-                bad.store(true, std::sync::atomic::Ordering::Relaxed);
-            }
-        });
+        let swiglu_ctx = SwigluRowsCtx {
+            raw_gate,
+            raw_up,
+            n_ff,
+            rpt,
+            row_bytes,
+            blocks,
+            qs,
+            packed: &packed,
+            limit,
+            out,
+            first: first_ref,
+            carrier,
+            bad: &bad,
+        };
+        crate::engine::chart::pool::run_global(n_ff.div_ceil(rpt), &swiglu_ctx);
         #[cfg(test)]
         attrib::dispatch_end();
-        if bad.load(std::sync::atomic::Ordering::Relaxed) {
+        if bad.get() {
             return None;
         }
-        if let Some((_, _, e)) = first
-            .into_inner()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-        {
+        if let Some((_, e)) = first.take() {
             #[cfg(test)]
             hook.ok();
             Some(Err(e))
         } else {
             #[cfg(test)]
             hook.ok();
-            for col in &mut cols {
-                unsafe { col.set_len(n_ff) };
-            }
+            // SAFETY: the dispatch set no refusal, so all `n_ff` words of every column are written.
+            unsafe { set_written_lens(&mut cols, n_ff) };
             Some(Ok(cols))
         }
     }
@@ -719,6 +1000,86 @@ pub(crate) fn gemm_q8_0_swiglu_carrier(
     {
         let _ = (raw_gate, raw_up, n_ff, n_in, qs, carrier);
         None
+    }
+}
+
+/// The [`gemm_q8_0_swiglu_carrier`] row-task context: both payloads, the packed columns and the
+/// output pointers, the first-error slot and the refusal flag.
+#[cfg(target_arch = "x86_64")]
+struct SwigluRowsCtx<'a> {
+    raw_gate: &'a [u8],
+    raw_up: &'a [u8],
+    n_ff: usize,
+    rpt: usize,
+    row_bytes: usize,
+    blocks: usize,
+    qs: &'a [QuantAct],
+    packed: &'a Packed,
+    limit: u32,
+    out: &'a SwigluPtrs,
+    first: &'a FirstErr<u128, FfnError>,
+    carrier: Carrier,
+    bad: &'a Flag,
+}
+
+#[cfg(target_arch = "x86_64")]
+impl IndexTask for SwigluRowsCtx<'_> {
+    fn run(&self, t: usize) {
+        swiglu_rows_task(
+            t,
+            self.rpt,
+            self.n_ff,
+            self.raw_gate,
+            self.raw_up,
+            self.row_bytes,
+            self.blocks,
+            self.qs,
+            self.packed,
+            self.limit,
+            self.out,
+            self.first,
+            self.carrier,
+            self.bad,
+        );
+    }
+}
+
+/// The body of one [`gemm_q8_0_swiglu_carrier`] row task: hidden indices `[t·rpt, t·rpt + rows)`.
+#[cfg(target_arch = "x86_64")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the task's shared inputs travel as one argument each so the trait method is one call"
+)]
+fn swiglu_rows_task(
+    t: usize,
+    rpt: usize,
+    n_ff: usize,
+    raw_gate: &[u8],
+    raw_up: &[u8],
+    row_bytes: usize,
+    blocks: usize,
+    qs: &[QuantAct],
+    packed: &Packed,
+    limit: u32,
+    out: &SwigluPtrs,
+    first: &FirstErr<u128, FfnError>,
+    carrier: Carrier,
+    bad: &Flag,
+) {
+    let r0 = t * rpt;
+    let rows = (n_ff - r0).min(rpt);
+    #[cfg(test)]
+    let _rec = attrib::task(t, rows, 2 * rows * row_bytes, packed.words.len() * 4);
+    // SAFETY: AVX2 and AVX-VNNI were detected by the caller; both payloads hold `n_ff` rows and the
+    // packing covers `packed.groups` groups of `blocks` blocks; task `t` owns hidden indices
+    // `[r0, r0 + rows)` and writes each column's own allocation there.
+    let ok = unsafe {
+        x86::rows_swiglu(
+            raw_gate, raw_up, row_bytes, blocks, r0, rows, qs, packed, limit, out, first, carrier,
+        )
+    };
+    if !ok {
+        bad.set();
     }
 }
 
@@ -1221,15 +1582,13 @@ mod x86 {
         all.then_some(out)
     }
 
-    /// Rows `r0..r0 + rows` against every column, each value stored into its own column's `Vec`
-    /// at index `r0 + r + which`; `false` when an output leaves `i64` or a weight scale is
-    /// non-finite (the caller then runs the contract path).
+    /// Rows `r0..r0 + rows` against every column, each value handed to `sink.put(c, r0 + r + which, v)`
+    /// with, per column, the rows in ascending order; `false` when an output leaves `i64` or a weight
+    /// scale is non-finite (the caller then runs the contract path).
     ///
     /// # Safety
     ///
-    /// AVX2 and AVX-VNNI; `raw` holds rows `r0..r0 + rows` of `row_bytes` bytes; every `cols.ptrs[c]`
-    /// addresses column `c`'s allocation with room for `r0 + rows` elements, and the caller gives
-    /// concurrent invocations disjoint row ranges.
+    /// AVX2 and AVX-VNNI; `raw` holds rows `r0..r0 + rows` of `row_bytes` bytes.
     #[target_feature(enable = "avx2")]
     #[allow(
         clippy::too_many_arguments,
@@ -1239,7 +1598,7 @@ mod x86 {
         clippy::too_many_lines,
         reason = "p/k/r/c/v name the packed inputs, columns, row offset, output column and SIMD value; _mm256_storeu_si256 explicitly accepts the unaligned lane-buffer address; the scalar and vector epilogues read best together"
     )]
-    pub(super) unsafe fn rows(
+    pub(super) unsafe fn rows<S: super::RowSink>(
         raw: &[u8],
         row_bytes: usize,
         blocks: usize,
@@ -1248,7 +1607,7 @@ mod x86 {
         qs: &[QuantAct],
         p: &Packed,
         limit: u32,
-        cols: &super::ColPtrs,
+        sink: &mut S,
     ) -> bool {
         let k = qs.len();
         let mut sa = [const { std::mem::MaybeUninit::<(i32, i64, i32)>::uninit() }; MAX_BLOCKS];
@@ -1376,15 +1735,9 @@ mod x86 {
                             }
                             for lane in 0..nvalid {
                                 let c = base_c + lane;
-                                unsafe {
-                                    cols.ptrs[c]
-                                        .add(r0 + r)
-                                        .write(std::mem::MaybeUninit::new(out_a[lane]));
-                                    if pair {
-                                        cols.ptrs[c]
-                                            .add(r0 + r + 1)
-                                            .write(std::mem::MaybeUninit::new(out_b[lane]));
-                                    }
+                                sink.put(c, r0 + r, out_a[lane]);
+                                if pair {
+                                    sink.put(c, r0 + r + 1, out_b[lane]);
                                 }
                             }
                             #[cfg(test)]
@@ -1422,11 +1775,7 @@ mod x86 {
                             let Some(v) = v else {
                                 return false;
                             };
-                            unsafe {
-                                cols.ptrs[c]
-                                    .add(r0 + r + which)
-                                    .write(std::mem::MaybeUninit::new(v));
-                            }
+                            sink.put(c, r0 + r + which, v);
                         }
                     }
                 }
@@ -1481,15 +1830,9 @@ mod x86 {
                         pc.add(probe_hooks::FAST_OK);
                         for lane in 0..nvalid {
                             let c = g * LANES + lane;
-                            unsafe {
-                                cols.ptrs[c]
-                                    .add(r0 + r)
-                                    .write(std::mem::MaybeUninit::new(va[lane]));
-                                if pair {
-                                    cols.ptrs[c]
-                                        .add(r0 + r + 1)
-                                        .write(std::mem::MaybeUninit::new(vb[lane]));
-                                }
+                            sink.put(c, r0 + r, va[lane]);
+                            if pair {
+                                sink.put(c, r0 + r + 1, vb[lane]);
                             }
                         }
                     } else {
@@ -1511,11 +1854,7 @@ mod x86 {
                                 let Some(v) = v else {
                                     return false;
                                 };
-                                unsafe {
-                                    cols.ptrs[c]
-                                        .add(r0 + r + which)
-                                        .write(std::mem::MaybeUninit::new(v));
-                                }
+                                sink.put(c, r0 + r + which, v);
                             }
                         }
                     }
@@ -1538,11 +1877,7 @@ mod x86 {
                             let Some(v) = v else {
                                 return false;
                             };
-                            unsafe {
-                                cols.ptrs[c]
-                                    .add(r0 + r + which)
-                                    .write(std::mem::MaybeUninit::new(v));
-                            }
+                            sink.put(c, r0 + r + which, v);
                         }
                     }
                 }
@@ -1591,7 +1926,7 @@ mod x86 {
         p: &Packed,
         limit: u32,
         out: &super::SwigluPtrs,
-        first: &std::sync::Mutex<Option<(usize, usize, crate::engine::FfnError)>>,
+        first: &crate::engine::chart::pool::FirstErr<u128, crate::engine::FfnError>,
         carrier: super::Carrier,
     ) -> bool {
         let k = qs.len();
@@ -1649,12 +1984,7 @@ mod x86 {
                             }
                             if fail_lane < active {
                                 let c = sub_g * LANES + fail_lane;
-                                let mut slot = first
-                                    .lock()
-                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                                if slot.as_ref().is_none_or(|(c0, i0, _)| (c, i) < (*c0, *i0)) {
-                                    *slot = Some((c, i, e));
-                                }
+                                first.record(crate::engine::chart::task::pair_key(c, i), e);
                             }
                         }
                     }
@@ -1668,12 +1998,7 @@ mod x86 {
                                 unsafe { *out.ptrs[c].add(i) = h };
                             }
                             Err(e) => {
-                                let mut slot = first
-                                    .lock()
-                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                                if slot.as_ref().is_none_or(|(c0, i0, _)| (c, i) < (*c0, *i0)) {
-                                    *slot = Some((c, i, e));
-                                }
+                                first.record(crate::engine::chart::task::pair_key(c, i), e);
                             }
                         }
                     }
@@ -2100,6 +2425,24 @@ mod tests {
         assert!(gemm_q8_0(GGML_TYPE_Q8_0, &raw, 64, 1024, &qs).is_some());
     }
 
+    /// The parts' payloads laid end to end as one file, and a `GemmPart` over each.
+    fn group_parts(raws: &[Vec<u8>], outs: &[usize]) -> (Vec<u8>, Vec<GemmPart>) {
+        let mut file = Vec::new();
+        let mut parts = Vec::new();
+        for (r, &n_out) in raws.iter().zip(outs) {
+            parts.push(GemmPart {
+                ggml_type: GGML_TYPE_Q8_0,
+                at: PayloadRef {
+                    off: file.len(),
+                    len: r.len(),
+                },
+                n_out,
+            });
+            file.extend_from_slice(r);
+        }
+        (file, parts)
+    }
+
     /// Every part of [`gemm_q8_0_group`] equals [`gemm_q8_0`] on the same part: one shared pack and
     /// one dispatch produce the per-part values bit for bit, across widths, column counts and
     /// weight-scale mixes. A group refusal implies some part would refuse too, so the caller's
@@ -2126,16 +2469,13 @@ mod tests {
                     .map(|&n| payload(n, n_in, scales, &mut seed))
                     .collect();
                 let qs = columns(k, n_in, 8, &mut seed);
-                let parts: Vec<(u32, &[u8], usize)> = raws
+                let (file, parts) = group_parts(&raws, &outs);
+                let want: Vec<Option<Vec<Vec<i64>>>> = raws
                     .iter()
                     .zip(outs)
-                    .map(|(r, n)| (GGML_TYPE_Q8_0, r.as_slice(), n))
+                    .map(|(r, n)| gemm_q8_0(GGML_TYPE_Q8_0, r, n, n_in, &qs))
                     .collect();
-                let want: Vec<Option<Vec<Vec<i64>>>> = parts
-                    .iter()
-                    .map(|&(t, r, n)| gemm_q8_0(t, r, n, n_in, &qs))
-                    .collect();
-                match gemm_q8_0_group(&parts, n_in, &qs) {
+                match gemm_q8_0_group(&file, &parts, n_in, &qs) {
                     Some(cols) => {
                         saw_value = true;
                         for (i, w) in want.iter().enumerate() {
@@ -2177,21 +2517,18 @@ mod tests {
 
         // One byte short of `n_out·row_bytes`.
         let short = &good1[..good1.len() - 1];
-        let parts = [
-            (GGML_TYPE_Q8_0, good0.as_slice(), n_out),
-            (GGML_TYPE_Q8_0, short, n_out),
-        ];
-        assert!(gemm_q8_0_group(&parts, n_in, &qs).is_none(), "short part");
+        let (file, parts) = group_parts(&[good0.clone(), short.to_vec()], &[n_out, n_out]);
+        assert!(
+            gemm_q8_0_group(&file, &parts, n_in, &qs).is_none(),
+            "short part"
+        );
 
         // A non-finite (`f16` +inf) scale in the second part's first block; `rows` refuses it.
         let mut bad = good1.clone();
         bad[0..2].copy_from_slice(&0x7C00u16.to_le_bytes());
-        let parts = [
-            (GGML_TYPE_Q8_0, good0.as_slice(), n_out),
-            (GGML_TYPE_Q8_0, bad.as_slice(), n_out),
-        ];
+        let (file, parts) = group_parts(&[good0.clone(), bad], &[n_out, n_out]);
         assert!(
-            gemm_q8_0_group(&parts, n_in, &qs).is_none(),
+            gemm_q8_0_group(&file, &parts, n_in, &qs).is_none(),
             "non-finite scale"
         );
     }
@@ -2478,8 +2815,12 @@ mod tests {
         let mut max_rel = 0.0f64;
         for (q_col, f_col) in q32_res.iter().zip(&f32_res) {
             for (&q, &f) in q_col.iter().zip(f_col) {
-                let q_flt = f64::from(crate::engine::mixer::f32_carrier::q32_to_f32(q));
-                let f_flt = f64::from(crate::engine::mixer::f32_carrier::q32_to_f32(f));
+                let q_flt = f64::from(f32::from_bits(
+                    crate::engine::mixer::f32_carrier::q32_to_f32(q).to_bits(),
+                ));
+                let f_flt = f64::from(f32::from_bits(
+                    crate::engine::mixer::f32_carrier::q32_to_f32(f).to_bits(),
+                ));
                 let diff = (q_flt - f_flt).abs();
                 if diff > max_abs {
                     max_abs = diff;

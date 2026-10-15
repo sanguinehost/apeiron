@@ -50,9 +50,10 @@
               l, x are the kernel's standard symbols"
 )]
 
-use std::sync::{Arc, Mutex, PoisonError};
+use crate::engine::chart::pool::Excl;
+use crate::engine::chart::task::Task2;
+use std::sync::Arc;
 
-use crate::engine::chart::pool::Pool;
 use crate::engine::chart::QuantAct;
 use crate::engine::f16_to_fixed;
 use crate::engine::value::round_shift_32;
@@ -91,12 +92,6 @@ struct ChunkReduce {
     count: usize,
 }
 
-/// Lock `m`, ignoring poisoning: the pool re-raises a task panic only after every participant has
-/// stopped, so a poisoned slot is never read mid-flight.
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
 /// A `Q8_0` head split into plane-major layout, built once at load.
 ///
 /// Stage 1 streams `stage1` (per row, per block: 2-byte f16 scale followed by 16-byte high plane),
@@ -111,7 +106,47 @@ pub(crate) struct BitplaneHead {
     /// `rows · blocks · 16` bytes: low-plane bytes for stage 2.
     pub(crate) stage2: Vec<u8>,
     /// Reusable bounds buffer holding `round(hi(r))` to avoid per-step heap allocation.
-    bounds_buf: Mutex<Vec<i64>>,
+    bounds_buf: Excl<Vec<i64>>,
+}
+
+/// Pool task context for the stage-1 row scan of [`BitplaneHead`] (FORM-PARALLEL D5).
+struct Stage1Task<'a> {
+    head: &'a BitplaneHead,
+    q: &'a QuantAct,
+    pos: &'a [i64],
+    neg: &'a [i64],
+    avx: bool,
+    per: usize,
+}
+
+impl Task2<i64, ChunkReduce, ()> for Stage1Task<'_> {
+    fn run(&self, t: usize, dst: &mut [i64], slot: &mut [ChunkReduce]) -> Result<(), ()> {
+        self.head.stage1_chunk(
+            self.q,
+            self.pos,
+            self.neg,
+            self.avx,
+            t * self.per,
+            dst,
+            slot,
+        )
+    }
+}
+
+/// Pool task context for the stage-2 count of [`BitplaneHead`] (FORM-PARALLEL D5).
+struct Stage2Task<'a> {
+    head: &'a BitplaneHead,
+    q: &'a QuantAct,
+    tau: i64,
+    avx: bool,
+    per: usize,
+}
+
+impl Task2<i64, ChunkReduce, ()> for Stage2Task<'_> {
+    fn run(&self, t: usize, dst: &mut [i64], slot: &mut [ChunkReduce]) -> Result<(), ()> {
+        self.head
+            .stage2_chunk(self.q, self.tau, self.avx, t * self.per, dst, slot)
+    }
 }
 
 impl BitplaneHead {
@@ -166,7 +201,7 @@ impl BitplaneHead {
             blocks,
             stage1,
             stage2,
-            bounds_buf: Mutex::new(Vec::new()),
+            bounds_buf: Excl::new(Vec::new()),
         }))
     }
 
@@ -254,17 +289,22 @@ impl BitplaneHead {
         reason = "two-stage parallel argmax with certified interval reduction"
     )]
     pub(crate) fn argmax(&self, q: &QuantAct) -> Option<(u32, usize)> {
-        if q.codes().len() != self.blocks * Q8_0_QK || q.scales().len() != self.blocks {
+        if self.rows == 0
+            || q.codes().len() != self.blocks * Q8_0_QK
+            || q.scales().len() != self.blocks
+        {
             return None;
         }
         // Stage 1 forms `s_b·(16·H_b + slack_b)` in `i64`: `|16·H_b + slack_b| ≤ 16·8·127·32 +
         // 15·127·32 = 581 152`, so every activation scale must satisfy `s·581 152 ≤ i64::MAX`.
         // Otherwise the dense head (which carries its own bound) runs.
-        if q.scales()
-            .iter()
-            .any(|&sc| i128::from(sc).abs() * 581_152 > i128::from(i64::MAX))
-        {
-            return None;
+        let scs = q.scales();
+        let mut si = 0usize;
+        while si < scs.len() {
+            if i128::from(scs[si]).abs() * 581_152 > i128::from(i64::MAX) {
+                return None;
+            }
+            si += 1;
         }
         // Per-block activation slack of the unread low plane: 15·Σ max(0, a) and 15·Σ min(0, a).
         let mut pos = Vec::with_capacity(self.blocks);
@@ -283,7 +323,7 @@ impl BitplaneHead {
         }
         // Stage 1: per row, rounded upper bound, tracking best upper and lower bounds.
         // Reuses the pre-allocated bounds buffer to avoid per-step heap allocation.
-        let mut bounds_guard = lock(&self.bounds_buf);
+        let mut bounds_guard = self.bounds_buf.lock();
         if bounds_guard.len() != self.rows {
             bounds_guard.resize(self.rows, 0);
         }
@@ -293,38 +333,33 @@ impl BitplaneHead {
             .rows
             .div_ceil(crate::engine::par::row_chunk_budget(self.rows))
             .max(1);
-        let tasks = self.rows.div_ceil(per).max(1);
+        let tasks = self.rows.div_ceil(per);
         // One slot per chunk, written by that chunk's single task; the calling thread merges the
         // slots in ascending chunk order.
-        let reduced: Vec<Mutex<ChunkReduce>> = (0..tasks)
-            .map(|_| Mutex::new(ChunkReduce::default()))
-            .collect();
+        let mut reduced: Vec<ChunkReduce> = Vec::with_capacity(tasks);
+        let mut t = 0usize;
+        while t < tasks {
+            reduced.push(ChunkReduce::default());
+            t += 1;
+        }
         let avx = avx2();
-        Pool::global().chunks_mut(bounds, per, &|i, start, dst| {
-            let mut hi_best = i128::MIN;
-            let mut hi_row = start;
-            let mut lo_best = i128::MIN;
-            let mut lo_row = start;
-            let mut j = 0usize;
-            while j < dst.len() {
-                let (bound, hi, lo) = self.row_interval(start + j, q, &pos, &neg, avx);
-                dst[j] = bound;
-                if hi > hi_best {
-                    hi_best = hi;
-                    hi_row = start + j;
-                }
-                if lo > lo_best {
-                    lo_best = lo;
-                    lo_row = start + j;
-                }
-                j += 1;
-            }
-            let mut slot = lock(&reduced[i]);
-            slot.hi = hi_best;
-            slot.row = hi_row;
-            slot.lo = lo_best;
-            slot.lo_row = lo_row;
-        });
+        let scanned: Result<(), ()> = crate::engine::chart::pool::for_chunks2(
+            bounds,
+            per,
+            &mut reduced,
+            1,
+            &Stage1Task {
+                head: self,
+                q,
+                pos: &pos,
+                neg: &neg,
+                avx,
+                per,
+            },
+        );
+        if scanned.is_err() {
+            return None;
+        }
         // Seed selection from both bounds: largest upper bound row and largest lower bound row.
         // Merging ascending chunks with strict `>` reproduces lowest-index-first tie-breaking.
         let mut k_hi = 0usize;
@@ -333,14 +368,13 @@ impl BitplaneHead {
         let mut best_lo = i128::MIN;
         let mut i = 0usize;
         while i < tasks {
-            let slot = lock(&reduced[i]);
-            if i == 0 || slot.hi > best_hi {
-                best_hi = slot.hi;
-                k_hi = slot.row;
+            if i == 0 || reduced[i].hi > best_hi {
+                best_hi = reduced[i].hi;
+                k_hi = reduced[i].row;
             }
-            if i == 0 || slot.lo > best_lo {
-                best_lo = slot.lo;
-                k_lo = slot.lo_row;
+            if i == 0 || reduced[i].lo > best_lo {
+                best_lo = reduced[i].lo;
+                k_lo = reduced[i].lo_row;
             }
             i += 1;
         }
@@ -356,43 +390,130 @@ impl BitplaneHead {
 
         // Stage 2: each chunk counts its rows with `bounds[r] >= tau` and keeps its best rounded
         // logit (lowest row); the serial result is the ascending merge of the chunk results.
-        Pool::global().chunks_mut(bounds, per, &|i, start, dst| {
-            let mut count = 0usize;
-            let mut has = false;
-            let mut best = 0i64;
-            let mut best_row = 0usize;
-            let mut j = 0usize;
-            while j < dst.len() {
-                if dst[j] >= tau {
-                    count += 1;
-                    let v = round_logit(self.row_exact(start + j, q, avx));
-                    if !has || v > best {
-                        has = true;
-                        best = v;
-                        best_row = start + j;
-                    }
-                }
-                j += 1;
-            }
-            let mut slot = lock(&reduced[i]);
-            slot.has = has;
-            slot.best = best;
-            slot.best_row = best_row;
-            slot.count = count;
-        });
+        let counted: Result<(), ()> = crate::engine::chart::pool::for_chunks2(
+            bounds,
+            per,
+            &mut reduced,
+            1,
+            &Stage2Task {
+                head: self,
+                q,
+                tau,
+                avx,
+                per,
+            },
+        );
+        if counted.is_err() {
+            return None;
+        }
         let mut best: Option<(i64, usize)> = None;
         let mut survivors = 0usize;
         let mut i = 0usize;
         while i < tasks {
-            let slot = lock(&reduced[i]);
-            survivors += slot.count;
-            if slot.has && best.is_none_or(|(bv, _)| slot.best > bv) {
-                best = Some((slot.best, slot.best_row));
+            survivors += reduced[i].count;
+            if reduced[i].has && best.is_none_or(|(bv, _)| reduced[i].best > bv) {
+                best = Some((reduced[i].best, reduced[i].best_row));
             }
             i += 1;
         }
         let (_, row) = best?;
         Some((u32::try_from(row).ok()?, survivors))
+    }
+
+    /// Stage 1 over the chunk `dst` starting at row `start`: writes each row's rounded upper bound
+    /// and `slot[0]` with the chunk's best upper and lower bounds (lowest row on a tie).
+    ///
+    /// # Complexity
+    ///
+    /// `dst.len()` calls of `row_interval`; `O(1)` space.
+    #[allow(
+        clippy::too_many_arguments,
+        clippy::unnecessary_wraps,
+        reason = "the activation, its two slack tables, the host flag, the chunk start and the two outputs; the pool task type is Result"
+    )]
+    fn stage1_chunk(
+        &self,
+        q: &QuantAct,
+        pos: &[i64],
+        neg: &[i64],
+        avx: bool,
+        start: usize,
+        dst: &mut [i64],
+        slot: &mut [ChunkReduce],
+    ) -> Result<(), ()> {
+        let mut hi_best = i128::MIN;
+        let mut hi_row = start;
+        let mut lo_best = i128::MIN;
+        let mut lo_row = start;
+        let mut j = 0usize;
+        while j < dst.len() {
+            let (bound, hi, lo) = self.row_interval(start + j, q, pos, neg, avx);
+            dst[j] = bound;
+            let (nh, nhr) = if hi > hi_best {
+                (hi, start + j)
+            } else {
+                (hi_best, hi_row)
+            };
+            hi_best = nh;
+            hi_row = nhr;
+            let (nl, nlr) = if lo > lo_best {
+                (lo, start + j)
+            } else {
+                (lo_best, lo_row)
+            };
+            lo_best = nl;
+            lo_row = nlr;
+            j += 1;
+        }
+        slot[0].hi = hi_best;
+        slot[0].row = hi_row;
+        slot[0].lo = lo_best;
+        slot[0].lo_row = lo_row;
+        Ok(())
+    }
+
+    /// Stage 2 over the chunk `dst` starting at row `start`: counts the rows with `dst[j] >= tau`
+    /// into `slot[0]` and keeps their best rounded logit (lowest row on a tie).
+    ///
+    /// # Complexity
+    ///
+    /// `dst.len()` comparisons and `count` calls of `row_exact`; `O(1)` space.
+    #[allow(clippy::unnecessary_wraps, reason = "the pool task type is Result")]
+    fn stage2_chunk(
+        &self,
+        q: &QuantAct,
+        tau: i64,
+        avx: bool,
+        start: usize,
+        dst: &[i64],
+        slot: &mut [ChunkReduce],
+    ) -> Result<(), ()> {
+        let mut count = 0usize;
+        let mut has = false;
+        let mut best = 0i64;
+        let mut best_row = 0usize;
+        let mut j = 0usize;
+        while j < dst.len() {
+            if dst[j] >= tau {
+                count += 1;
+                let v = round_logit(self.row_exact(start + j, q, avx));
+                let take = !has || v > best;
+                let (nb, nbr) = if take {
+                    (v, start + j)
+                } else {
+                    (best, best_row)
+                };
+                has = has || take;
+                best = nb;
+                best_row = nbr;
+            }
+            j += 1;
+        }
+        slot[0].has = has;
+        slot[0].best = best;
+        slot[0].best_row = best_row;
+        slot[0].count = count;
+        Ok(())
     }
 
     /// Row `r`'s rounded upper bound `round(hi(r))`, upper bound `hi(r)`, and lower bound `lo(r)`.

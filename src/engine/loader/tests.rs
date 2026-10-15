@@ -1,3 +1,4 @@
+use super::hadamard::{HADAMARD_AXIS, HADAMARD_TRANSFORM};
 use super::*;
 use crate::format::gguf::{parse_header, DEFAULT_ALIGNMENT};
 use crate::format::quant;
@@ -122,7 +123,7 @@ fn config_resolves_from_qwen2_metadata() {
     assert_eq!(c.n_ff, 8);
     assert_eq!(c.vocab_size, 8);
     assert_eq!(c.head_dim, 2);
-    assert!((c.rope_theta - DEFAULT_ROPE_THETA).abs() < f64::EPSILON);
+    assert!(c.rope_theta.to_bits() == DEFAULT_ROPE_THETA_BITS);
 }
 
 /// A block count above the tensor directory is refused before the per-layer schedule is

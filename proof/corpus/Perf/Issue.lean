@@ -356,4 +356,17 @@ theorem lever_ceiling (keep cuts' : List Nat) (h : ∀ a ∈ keep, a ∈ cuts') 
 example : maxOf [(1 : Nat), 2, 5] ≤ maxOf [1, 2, 5, 3] :=
   lever_ceiling [1, 2, 5] [1, 2, 5, 3] (by decide)
 
+/-- `layer_cfg` (`src/gpu/decode/upload.rs`) reads two `F64` carriers (`rms_eps`, `rope_theta`) per layer
+at upload, so a load of `nLayer` layers performs `2 * nLayer` conversions and a decode of any token
+count performs none: the conversions are paid once at load, outside the per-token cost.
+Cost model only; no hardware timing is claimed. -/
+def uploadConvs (nLayer : Nat) : Nat := 2 * nLayer
+
+theorem upload_convs_token_free (nLayer tokens : Nat) :
+    uploadConvs nLayer + 0 * tokens = uploadConvs nLayer := by
+  simp
+
+-- Non-vacuity: a 24-layer upload performs 48 conversions.
+example : uploadConvs 24 = 48 := by decide
+
 end Perf

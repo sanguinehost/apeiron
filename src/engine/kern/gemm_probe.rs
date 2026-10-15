@@ -28,6 +28,7 @@
 /// Branch counters and the call log the kernels feed under `cfg(test)`.
 pub(crate) mod hooks {
     use crate::engine::chart::QuantAct;
+    use crate::engine::kern::gemm::GemmPart;
     use std::cell::Cell;
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering::Relaxed};
     use std::sync::Mutex;
@@ -198,13 +199,21 @@ pub(crate) mod hooks {
         g
     }
 
-    /// [`enter`] for [`Kind::Group`] parts `(type, payload, n_out)`.
+    /// [`enter`] for [`Kind::Group`] parts: each payload is `file[at.off..at.off + at.len]`, empty
+    /// when the extent leaves `file` (the call then refuses).
     pub(crate) fn enter_group(
         n_in: usize,
-        parts: &[(u32, &[u8], usize)],
+        file: &[u8],
+        parts: &[GemmPart],
         qs: &[QuantAct],
     ) -> Guard {
-        let pr: Vec<(&[u8], usize)> = parts.iter().map(|(_, r, n)| (*r, *n)).collect();
+        let pr: Vec<(&[u8], usize)> = parts
+            .iter()
+            .map(|p| {
+                let raw = file.get(p.at.off..p.at.off.saturating_add(p.at.len));
+                (raw.unwrap_or(&[]), p.n_out)
+            })
+            .collect();
         enter(Kind::Group, n_in, &pr, qs)
     }
 
@@ -225,11 +234,13 @@ pub(crate) mod hooks {
 }
 
 use self::hooks::{Call, Kind, Part, N_CTR};
-use super::gemm::{gemm_q8_0, gemm_q8_0_group, gemm_q8_0_swiglu, probe_limit, probe_pack_ok};
+use super::gemm::{
+    gemm_q8_0, gemm_q8_0_group, gemm_q8_0_swiglu, probe_limit, probe_pack_ok, GemmPart,
+};
 use super::pow2::f16_split;
 use crate::engine::chart::ffn::quant_acts_pooled;
 use crate::engine::chart::{quant_act, QuantAct};
-use crate::engine::loader::Engine;
+use crate::engine::loader::{Engine, PayloadRef};
 use crate::engine::KernelMode;
 use crate::format::quant::{GGML_TYPE_Q8_0, Q8_0_BLOCK_BYTES};
 use std::collections::BTreeMap;
@@ -451,12 +462,23 @@ pub(super) fn run_call(c: &Call, qs: &[QuantAct]) -> bool {
                 ok
             }
             Kind::Group => {
-                let parts: Vec<(u32, &[u8], usize)> = c
+                // The parts lie in one live file buffer: view the span they cover as the file.
+                let lo = c.parts.iter().map(|p| p.ptr).min().unwrap_or(0);
+                let hi = c.parts.iter().map(|p| p.ptr + p.len).max().unwrap_or(0);
+                let file = std::slice::from_raw_parts(lo as *const u8, hi - lo);
+                let parts: Vec<GemmPart> = c
                     .parts
                     .iter()
-                    .map(|p| (GGML_TYPE_Q8_0, raw(p), p.n_out))
+                    .map(|p| GemmPart {
+                        ggml_type: GGML_TYPE_Q8_0,
+                        at: PayloadRef {
+                            off: p.ptr - lo,
+                            len: p.len,
+                        },
+                        n_out: p.n_out,
+                    })
                     .collect();
-                let r = gemm_q8_0_group(&parts, c.n_in, qs);
+                let r = gemm_q8_0_group(file, &parts, c.n_in, qs);
                 let ok = r.is_some();
                 black_box(r);
                 ok

@@ -59,6 +59,8 @@ pub mod rope;
 pub mod error;
 #[path = "../../src/engine/f32_convert.rs"]
 pub mod f32_convert;
+#[path = "../../src/engine/fp.rs"]
+pub mod fp;
 #[path = "../../src/engine/dequant.rs"]
 pub mod dequant;
 #[path = "../../src/engine/matvec.rs"]
@@ -94,7 +96,7 @@ pub mod pow2;
 /// under the engine mirror.
 pub mod engine {
     pub use super::{
-        attn, chart, error, f32_convert, ffn, fused, hadamard, kern, lm_head, loader, matvec, mixer,
+        attn, chart, error, f32_convert, ffn, fp, fused, hadamard, kern, lm_head, loader, matvec, mixer,
         moe, norm, par, rope, sampler, silu, step, trace, value,
     };
     pub use super::rope::{RopeError, RopeTable};
@@ -947,6 +949,46 @@ pub fn word_kv_state_new(
         cap,
         mixer::Carrier::Q32,
     )
+}
+
+/// The real `Engine::open`, the serving-path root that loads a GGUF model. `--start-from` does not
+/// support inherent impls, so the root is this wrapper; it calls the real `src/engine/loader.rs`
+/// body and restates nothing.
+pub fn word_engine_open(path: &str) -> Result<Engine, EngineError> {
+    Engine::open(path)
+}
+
+/// The real `Engine::prefill_state`, the serving-path prompt prefill. Calls the real
+/// `src/engine/step.rs` body.
+pub fn word_engine_prefill_state(
+    engine: &Engine,
+    st: &mut DecodeState,
+    tokens: &[u32],
+    mode: KernelMode,
+) -> Result<u32, StepError> {
+    engine.prefill_state(st, tokens, mode)
+}
+
+/// The real `Engine::next_token_state`, the serving-path decode step. Calls the real
+/// `src/engine/step.rs` body.
+pub fn word_engine_next_token_state(
+    engine: &Engine,
+    st: &mut DecodeState,
+    token_id: u32,
+    mode: KernelMode,
+) -> Result<u32, StepError> {
+    engine.next_token_state(st, token_id, mode)
+}
+
+/// The real `Engine::generate_speculative`, the serving-path speculative decode. Calls the real
+/// `src/engine/step/spec.rs` body.
+pub fn word_engine_generate_speculative(
+    engine: &Engine,
+    prompt: &[u32],
+    n: usize,
+    draft_rows: usize,
+) -> Result<(Vec<u32>, SpecStats), StepError> {
+    engine.generate_speculative(prompt, n, draft_rows)
 }
 
 /// The real `KvState::append`, rooted at the concrete Q32.32 `i64` word.

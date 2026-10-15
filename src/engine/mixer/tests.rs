@@ -650,15 +650,13 @@ where
         let decay = fixed_exp(mul_q32(p.a[h], sp).ok_or(StepError::Overflow)?)
             .map_err(|_| StepError::Overflow)?;
         let o = {
-            let mut head_guard = layer.heads[h]
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut head_guard = layer.heads[h].lock();
             let HeadState::Q32 {
                 ref mut s,
                 ref mut c,
             } = head_guard.state
             else {
-                return Err(StepError::BadConfig("affine carrier"));
+                return Err(StepError::BadConfig(String::from("affine carrier")));
             };
             (step_fn.clone())(s, c, &q_tilde, &k_hat, &v_all[vr.clone()], decay, beta)?
         };
@@ -673,7 +671,13 @@ where
         }
         Ok(())
     };
-    if let Some((_, e)) = attn_heads(g.n_v_heads, g.head_v, &mut out, parallel, head) {
+    if let Some((_, e)) = attn_heads(
+        g.n_v_heads,
+        g.head_v,
+        &mut out,
+        parallel,
+        &crate::engine::chart::task::FnHead(head),
+    ) {
         return Err(e);
     }
     Ok(out)
@@ -985,7 +989,7 @@ fn layer_state_words(
     let mut words = vec![0i64; g.n_v_heads * g.head_k * g.head_v];
     let mut scales = Vec::new();
     for (t, m) in layer.heads.iter().enumerate() {
-        let head = m.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let head = m.lock();
         let (h, sl) = (t / slices, t % slices);
         let HeadState::Q32 { ref s, c } = head.state else {
             panic!("expected Q32 head state");

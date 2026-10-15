@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # The five word_count_* roots below.
 # Regenerate and check the Aeneas extraction of the Apeiron word kernels.
 #
@@ -207,6 +207,47 @@ done
 # shellcheck disable=SC2086
 sha256sum $SOURCE_FILES
 
+# Serving-path items Aeneas cannot yet translate (bodies stay opaque; signatures extract). One reason
+# class per line: simd-intrinsic, f32, thread, ffi, unsafe-ptr, unsupported:<construct>.
+SERVING_OPAQUE=(
+    --opaque 'crate::chart::x86' # simd-twin: AVX2 row kernels, twin = chart::portable
+    --opaque 'crate::kern::gemm::x86' # simd-twin: AVX2 GEMM rows, twin = the scalar gemm path
+    --opaque 'crate::kern::bitplane::x86' # simd-twin: AVX2 bitplane interval, twin = the scalar bitplane path
+    --opaque 'crate::kern::matmat::q5_0_block_kdots_avx2' # simd-twin
+    --opaque 'crate::chart::q8_0_row_kcols_avx2' # simd-twin
+    --opaque 'crate::chart::_::decode_step_avx2' # simd-twin: twin = decode_step_portable
+    --opaque 'crate::mixer::f32_carrier::stage2_gated_norm_f32_avx2_inner' # simd-twin: twin = stage2_gated_norm_f32_scalar
+    --opaque 'crate::mixer::conv_f32::range_avx2' # simd-twin: twin = range_scalar
+    --opaque 'crate::attn::f32_core::attn_tile8_avx2' # simd-twin: tile of attn_core_f32_strided_scalar
+    --opaque 'crate::attn::f32_core::attn_core_f32_strided_avx2_inner' # simd-twin: twin = attn_core_f32_strided_scalar
+    --opaque 'crate::mixer::f32_carrier::delta_step_f32_avx2_inner' # simd-twin: twin = delta_step_f32_scalar
+    --opaque 'crate::kern::lut::block_inners_avx2' # simd-twin: scalar block inner of the Pq2 LUT row
+    --opaque 'crate::kern::lut::tile_accs_avx2' # simd-twin: scalar tile accumulate of the Pq2 LUT
+    --opaque 'crate::mixer::f32_carrier::exp_f32_avx2' # simd-twin: twin = exp_f32_scalar
+    --opaque 'crate::mixer::f32_carrier::silu_f32_avx2' # simd-twin: twin = silu_f32_scalar
+    --opaque 'crate::mixer::f32_carrier::conv_silu_tap4_avx2' # simd-twin: scalar conv_silu tap
+    --opaque 'crate::mixer::f32_carrier::l2_norm_sum_sq_avx2_inner' # simd-twin: twin = l2_norm_sum_sq scalar
+    --opaque 'crate::mixer::f32_carrier::l2_normalize_f32_in_place_avx2_inner' # simd-twin: scalar l2 normalize
+    --opaque 'crate::mixer::f32_carrier::readout8_avx2' # simd-twin: scalar readout
+    --opaque 'crate::attn::f32_core::dot_f32_avx2' # simd-twin: scalar dot_f32
+    --opaque 'crate::chart::ffn::swiglu_f32_avx2_8_into' # simd-twin: scalar swiglu_f32
+    --opaque 'crate::mixer::delta_head_step_fast' # simd-intrinsic
+    --opaque 'crate::par::matvec_rows_chunked' # thread
+    --opaque 'crate::chart::pool' # thread: std::thread worker pool, dyn Fn jobs, transmute (every item)
+    --opaque 'crate::step::prefill_block' # process-flag: APEIRON_PREFILL_COLS
+    --opaque 'crate::step::bitplane_enabled' # process-flag: APEIRON_BITPLANE
+    --opaque 'crate::step::cols::exact_scan_enabled' # process-flag: APEIRON_EXACT_SCAN (thread override)
+    --opaque 'crate::mixer::exact_scan' # process-flag: APEIRON_EXACT_SCAN
+    --opaque 'crate::mixer::carrier_from_env' # process-flag: APEIRON_F32_CARRIER
+    --opaque 'crate::mixer::head_slices_setting' # process-flag: APEIRON_HEAD_SLICES
+    --opaque 'crate::trace' # instrumentation: counters and APEIRON_TRACE; no effect on computed values
+    --opaque 'crate::loader::optional_f64' # load-config: GGUF float metadata (f32/f64/int widening)
+    --opaque 'crate::gguf::host_read_prefix' # host-io: file prefix read
+    --opaque 'crate::gguf::host_read_at' # host-io: ranged file read
+    --opaque 'crate::gguf::host_read_all' # host-io: whole-file read
+    --opaque 'crate::par::online_threads' # host-config: online CPU count
+)
+
 run_extract() {
     dest_dir=$1
     llbc=$2
@@ -216,12 +257,10 @@ run_extract() {
     # `TArray`/`TSlice`. The preset translates the current source.
     "$CHARON" cargo \
         --preset aeneas \
-        --opaque 'crate::attn::f32_core' \
-        --opaque 'crate::mixer::f32_carrier' \
-        --opaque 'crate::attn::_::attn_head_f32' \
-        --opaque 'crate::attn::alloc_f32_storage' \
+        --opaque 'crate::fp::prim' \
         --opaque 'crate::crypto::shake128' \
         --opaque 'crate::crypto::shake256' \
+        "${SERVING_OPAQUE[@]}" \
         --dest-file "$llbc" \
         --start-from crate::word_mul \
         --start-from crate::word_norm \
@@ -342,13 +381,38 @@ run_extract() {
         --start-from crate::learn_port::word_e8_codeword \
         --start-from crate::learn_port::word_e8_nearest \
         --start-from crate::learn_port::word_e8_nearest_scaled \
+        --start-from crate::word_engine_open \
+        --start-from crate::word_engine_prefill_state \
+        --start-from crate::word_engine_next_token_state \
+        --start-from crate::word_engine_generate_speculative \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \
         --offline \
         --lib \
         --target-dir "$EXTRACT_TARGET"
-    "$AENEAS" -backend lean -dest "$dest_dir" -warnings-as-errors -no-progress-bar "$llbc"
+    # Every Aeneas warning is an error except the classes below. Aeneas's std table predates the
+    # pinned rustc's `Iterator::{last,zip}` and `Step::{forward,backward}_overflowing`; a loop over a
+    # range reaches those trait declarations although no extracted body calls the missing items.
+    # An unknown external definition is not waived here: it surfaces as an `axiom` and `audit`
+    # rejects it unless `boundary-axioms.txt` names it.
+    ae_log=$(mktemp)
+    if ! "$AENEAS" -backend lean -dest "$dest_dir" -no-progress-bar "$llbc" >"$ae_log" 2>&1; then
+        cat "$ae_log" >&2
+        rm -f "$ae_log"
+        exit 1
+    fi
+    cat "$ae_log"
+    unwaived=$(sed 's/\x1b\[[0-9;]*m//g' "$ae_log" | sed -n '/^\[Warn/p' |
+        sed "/trait decl 'core::iter::traits::iterator::Iterator', could not find the information for item '\(last\|zip\)'/d" |
+        sed "/trait decl 'core::iter::range::Step', could not find the information for item '\(forward\|backward\)_overflowing'/d" |
+        sed '/The crate contains extracted external, unknown definitions/d')
+    rm -f "$ae_log"
+    if [ -n "$unwaived" ]; then
+        echo "aeneas: warning outside the waived classes (warnings are errors):" >&2
+        echo "$unwaived" >&2
+        exit 1
+    fi
     # Aeneas may leave blanks at line ends; normalize both regeneration and freshness output.
     sed -i 's/[[:blank:]]*$//' "$dest_dir/$GENERATED"
     # The patched model defines the externals in `strip-modeled-axioms.py`; drop their stubs so the

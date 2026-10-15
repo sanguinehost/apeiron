@@ -20,6 +20,7 @@
               batched prefill) are still to be wired, and the tests call them under cfg(test)"
 )]
 
+use crate::engine::chart::task::Task1;
 use crate::engine::chart::{matvec_q8act, ActMagnitude, QuantAct};
 use crate::engine::f16_to_fixed;
 use crate::engine::value::round_shift_32;
@@ -166,10 +167,16 @@ pub(crate) fn matmat_q8act(
             return Ok(cols);
         }
     }
-    let mut columns: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(n_out)).collect();
+    let mut columns: Vec<Vec<i64>> = Vec::with_capacity(k);
+    let mut c = 0usize;
+    while c < k {
+        columns.push(Vec::with_capacity(n_out));
+        c += 1;
+    }
     let mut state = vec![ColumnState::Live; k];
+    let mut bail = false;
     let mut o = 0usize;
-    while o < n_out {
+    while o < n_out && !bail {
         if !state.contains(&ColumnState::Live) {
             break;
         }
@@ -185,7 +192,7 @@ pub(crate) fn matmat_q8act(
                     c += 1;
                 }
             }
-            RowOutcome::Bail => return per_column(ggml_type, raw, n_out, n_in, qs),
+            RowOutcome::Bail => bail = true,
             RowOutcome::Values(accs) => {
                 let mut c = 0usize;
                 while c < k {
@@ -203,19 +210,94 @@ pub(crate) fn matmat_q8act(
         }
         o += 1;
     }
+    if bail {
+        return per_column(ggml_type, raw, n_out, n_in, qs);
+    }
     let mut result: Vec<Vec<i64>> = Vec::with_capacity(k);
+    let mut err: Option<MatvecError> = None;
     let mut c = 0usize;
-    while c < k {
+    while c < k && err.is_none() {
         match state[c] {
             ColumnState::Live => result.push(std::mem::take(&mut columns[c])),
-            ColumnState::Overflow => return Err(MatvecError::OutputOverflow),
-            ColumnState::Fallback => {
-                result.push(matvec_q8act(ggml_type, raw, n_out, n_in, &qs[c])?);
-            }
+            ColumnState::Overflow => err = Some(MatvecError::OutputOverflow),
+            ColumnState::Fallback => match matvec_q8act(ggml_type, raw, n_out, n_in, &qs[c]) {
+                Ok(col) => result.push(col),
+                Err(e) => err = Some(e),
+            },
         }
         c += 1;
     }
+    if let Some(e) = err {
+        return Err(e);
+    }
     Ok(result)
+}
+
+/// Rows `r0..r0 + dst.len() / k` of the interleaved `n_out × k` output, or `Err` when a row hits a
+/// non-finite scale or an output leaves `i64`.
+///
+/// # Complexity
+///
+/// `O(rows·n_in·k)` multiply-adds; `MAX_K` `i128` words of scratch.
+#[cfg(target_arch = "x86_64")]
+#[allow(
+    clippy::many_single_char_names,
+    reason = "k columns, r rows, o and c indices are the kernel's standard symbols"
+)]
+fn pooled_rows(
+    raw: &[u8],
+    geom: Geom,
+    qs: &[QuantAct],
+    r0: usize,
+    dst: &mut [i64],
+) -> Result<(), ()> {
+    let k = qs.len();
+    let mut acc = [0i128; MAX_K];
+    let mut stop = false;
+    let mut r = 0usize;
+    while r < dst.len() / k && !stop {
+        let o = r0 + r;
+        let row = &raw[o * geom.row_bytes..(o + 1) * geom.row_bytes];
+        acc[..k].fill(0);
+        // SAFETY: the caller established AVX2, `raw.len() >= n_out·row_bytes`, and
+        // `fast_family` checked every column's geometry and the narrow overflow bound.
+        let ok = unsafe {
+            crate::engine::chart::q8_0_row_kcols_avx2(row, geom.blocks, qs, &mut acc[..k])
+        };
+        stop = ok.is_none();
+        let mut c = 0usize;
+        while c < k && !stop {
+            if let Ok(v) = i64::try_from(round_shift_32(acc[c])) {
+                dst[r * k + c] = v;
+            } else {
+                stop = true;
+            }
+            c += 1;
+        }
+        r += 1;
+    }
+    if stop {
+        Err(())
+    } else {
+        Ok(())
+    }
+}
+
+/// The [`pooled_q8_0`] piece-task context: the payload, its geometry, the activation columns and the
+/// rows per piece.
+#[cfg(target_arch = "x86_64")]
+struct PooledRowsCtx<'a> {
+    raw: &'a [u8],
+    geom: Geom,
+    qs: &'a [QuantAct],
+    rows_per: usize,
+}
+
+#[cfg(target_arch = "x86_64")]
+impl Task1<i64, ()> for PooledRowsCtx<'_> {
+    fn run(&self, t: usize, dst: &mut [i64]) -> Result<(), ()> {
+        pooled_rows(self.raw, self.geom, self.qs, t * self.rows_per, dst)
+    }
 }
 
 /// The `Q8_0` fast path split by rows across the persistent pool: each task runs
@@ -236,50 +318,28 @@ pub(crate) fn matmat_q8act(
     reason = "k columns, r rows, o and c indices are the kernel's standard symbols"
 )]
 fn pooled_q8_0(raw: &[u8], n_out: usize, geom: Geom, qs: &[QuantAct]) -> Option<Vec<Vec<i64>>> {
-    use std::sync::atomic::{AtomicBool, Ordering};
     let k = qs.len();
     let mut inter = vec![0i64; n_out.checked_mul(k)?];
-    let bad = AtomicBool::new(false);
     let rows_per = n_out
         .div_ceil(crate::engine::par::row_chunk_budget(n_out))
         .max(1);
-    crate::engine::chart::pool::Pool::global().chunks_mut(
-        &mut inter,
-        rows_per * k,
-        &|_, start, dst| {
-            let r0 = start / k;
-            let mut acc = [0i128; MAX_K];
-            let mut r = 0usize;
-            while r < dst.len() / k {
-                let o = r0 + r;
-                let row = &raw[o * geom.row_bytes..(o + 1) * geom.row_bytes];
-                acc[..k].fill(0);
-                // SAFETY: the caller established AVX2, `raw.len() >= n_out·row_bytes`, and
-                // `fast_family` checked every column's geometry and the narrow overflow bound.
-                let ok = unsafe {
-                    crate::engine::chart::q8_0_row_kcols_avx2(row, geom.blocks, qs, &mut acc[..k])
-                };
-                if ok.is_none() {
-                    bad.store(true, Ordering::Relaxed);
-                    return;
-                }
-                let mut c = 0usize;
-                while c < k {
-                    let Ok(v) = i64::try_from(round_shift_32(acc[c])) else {
-                        bad.store(true, Ordering::Relaxed);
-                        return;
-                    };
-                    dst[r * k + c] = v;
-                    c += 1;
-                }
-                r += 1;
-            }
-        },
-    );
-    if bad.load(Ordering::Relaxed) {
+    let rows_ctx = PooledRowsCtx {
+        raw,
+        geom,
+        qs,
+        rows_per,
+    };
+    let pooled: Result<(), ()> =
+        crate::engine::chart::pool::for_chunks(&mut inter, rows_per * k, &rows_ctx);
+    if pooled.is_err() {
         return None;
     }
-    let mut cols: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(n_out)).collect();
+    let mut cols: Vec<Vec<i64>> = Vec::with_capacity(k);
+    let mut c = 0usize;
+    while c < k {
+        cols.push(Vec::with_capacity(n_out));
+        c += 1;
+    }
     let mut o = 0usize;
     while o < n_out {
         let mut c = 0usize;
@@ -360,21 +420,23 @@ fn fast_family(ggml_type: u32, n_in: usize, qs: &[QuantAct]) -> Option<Family> {
         Family::Q5_0 => 16,
     };
     let mut c = 0usize;
-    while c < qs.len() {
+    let mut admitted = true;
+    while c < qs.len() && admitted {
         let q = &qs[c];
-        if q.len() != n_in || q.scales().len() != blocks {
-            return None;
+        admitted = q.len() == n_in && q.scales().len() == blocks && fast_bound_ok(n_in, top, q);
+        if admitted {
+            debug_assert!(
+                matches!(q.magnitude(), ActMagnitude::Exact(_)),
+                "fast_bound_ok implies an exact magnitude"
+            );
         }
-        if !fast_bound_ok(n_in, top, q) {
-            return None;
-        }
-        debug_assert!(
-            matches!(q.magnitude(), ActMagnitude::Exact(_)),
-            "fast_bound_ok implies an exact magnitude"
-        );
         c += 1;
     }
-    Some(family)
+    if admitted {
+        Some(family)
+    } else {
+        None
+    }
 }
 
 /// The chart's `q8act_fast_bound_ok(n_in, top, q, narrow = true)`, re-derived here.
@@ -427,36 +489,42 @@ fn row_accs(
     avx: bool,
 ) -> RowOutcome {
     let mut totals = [0i128; MAX_K];
+    let mut early: Option<RowOutcome> = None;
     let mut blk = 0usize;
-    while blk < geom.blocks {
+    while blk < geom.blocks && early.is_none() {
         let off = blk * geom.block_bytes;
-        let Ok(d) = f16_to_fixed(u16::from_le_bytes([row[off], row[off + 1]])) else {
-            return RowOutcome::NonFinite;
-        };
-        let dots = match family {
-            Family::Q8_0 => q8_0_block_kdots(avx, row, off + 2, acts, blk, k),
-            Family::Q5_0 => q5_0_block_kdots(avx, row, off, acts, blk, k),
-        };
-        let mut c = 0usize;
-        while c < k {
-            if state[c] == ColumnState::Live {
-                let scale = acts[c].scales()[blk];
-                let Some(scaled) = scale.checked_mul(i64::from(dots[c])) else {
-                    return RowOutcome::Bail;
+        match f16_to_fixed(u16::from_le_bytes([row[off], row[off + 1]])) {
+            Err(_) => early = Some(RowOutcome::NonFinite),
+            Ok(d) => {
+                let dots = match family {
+                    Family::Q8_0 => q8_0_block_kdots(avx, row, off + 2, acts, blk, k),
+                    Family::Q5_0 => q5_0_block_kdots(avx, row, off, acts, blk, k),
                 };
-                let Some(term) = i128::from(d).checked_mul(i128::from(scaled)) else {
-                    return RowOutcome::Bail;
-                };
-                match totals[c].checked_add(term) {
-                    Some(total) => totals[c] = total,
-                    None => return RowOutcome::Bail,
+                let mut c = 0usize;
+                while c < k && early.is_none() {
+                    if state[c] == ColumnState::Live {
+                        let scale = acts[c].scales()[blk];
+                        match scale.checked_mul(i64::from(dots[c])) {
+                            None => early = Some(RowOutcome::Bail),
+                            Some(scaled) => match i128::from(d).checked_mul(i128::from(scaled)) {
+                                None => early = Some(RowOutcome::Bail),
+                                Some(term) => match totals[c].checked_add(term) {
+                                    Some(total) => totals[c] = total,
+                                    None => early = Some(RowOutcome::Bail),
+                                },
+                            },
+                        }
+                    }
+                    c += 1;
                 }
             }
-            c += 1;
         }
         blk += 1;
     }
-    RowOutcome::Values(totals)
+    match early {
+        Some(outcome) => outcome,
+        None => RowOutcome::Values(totals),
+    }
 }
 
 /// The `k` exact 32-lane dots of one `Q8_0` weight block: AVX2 when the host has it, else the
