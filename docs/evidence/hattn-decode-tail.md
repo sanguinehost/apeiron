@@ -220,7 +220,7 @@ axiom set except `climb_log`: `propext`, `Quot.sound`).
 | baseline | `grp-fix2048-r8` (T7): one page set per KV head, 2048-token far budget, refreshed every 8 positions, by a flat scan of every 64-key page's Quest bound |
 | `tree-sS` | contiguous fanout-16 tree of Quest boxes (64, 1024, 16384 keys): read every top node, keep the `S` with the highest group bound (max over the 7 query heads), expand their children, repeat down to pages; keep the top 32 pages |
 | `clu-sS` | pages k-means clustered on box centre (8 Lloyd steps) into `⌈n64/16⌉` clusters at the first refresh; later-sealed pages join the nearest centroid's cluster and widen its box; read every cluster box, keep `S` clusters, rank their pages |
-| instrument | `examples/attn_cut_probe.rs` sha256 `45f38096…`, `KV_TAIL_TREE=1`, binary `attn_cut_probe.t8` sha256 `0df17577…`; 41 s; output `/home/socol/oc-tmp/hattn-long/tree.out` sha256 `64b46d6d…` |
+| instrument | `examples/attn_cut_probe.rs` (removed; at 2f15d6a9) sha256 `45f38096…`, `KV_TAIL_TREE=1`, binary `attn_cut_probe.t8` sha256 `0df17577…`; 41 s; output `/home/socol/oc-tmp/hattn-long/tree.out` sha256 `64b46d6d…` |
 | control | dense tail max rel-L2 `1.815e-5`; `HATTN_MUT=2` (ranking reversed at every level) output `tree-m2.out` sha256 `c5c71824…` |
 | predictions | `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8.md`, sha256 `719f0fd1…`, registered before the run |
 | defective run | `tree-prefix.out` (sha256 `cb90ea43…`) built clusters at the first refresh and dropped every page sealed after it (`clu` KLD 0.0245 at 4096 against 0.0053). Fixed by nearest-centroid insertion; its figures are not used. |
@@ -353,7 +353,7 @@ controls red).
 
 | item | value |
 |---|---|
-| dump | `/home/socol/oc-tmp/hattn-long/g7-128k`, 131072 tokens, ids sha256 `9dd57952…` (prefix equals the T3 ids), `examples/gpu_dump.rs` f32 Vulkan, 379 s for 28 layers, 16 GB; `KV_QTAIL=32768,65536,131072` |
+| dump | `/home/socol/oc-tmp/hattn-long/g7-128k`, 131072 tokens, ids sha256 `9dd57952…` (prefix equals the T3 ids), `examples/gpu_dump.rs` (removed; at 2f15d6a9) f32 Vulkan, 379 s for 28 layers, 16 GB; `KV_QTAIL=32768,65536,131072` |
 | instrument | `attn_cut_probe.hd128q` sha256 `e3261748…`; `KV_TAIL=g7-128k KV_TAIL_TREE=1 KV_QTAIL=… KV_TAIL_TS=<t>`, 103 s / 197 s / 409 s per `t` |
 | outputs | `g7t-{32768,65536,131072}.out` (`4be5423a…`, `944ddbb7…`, `4974457d…`), mutation `g7t-m2.out` (`235a6c22…`) |
 | predictions | registered before the run: `PREDICTIONS-T8-7B-128K.md`, sha256 `449ab1b4…` |
@@ -404,7 +404,7 @@ Mean whole-model KLD (gate 0.05) and cost:
 ## HATTN-T8 on Qwen2.5-7B-Instruct-1M at 262144
 
 Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Same arms, same 0.05 mean-KLD gate, 64 tail positions before
-`t = 262144`. Dump: f32 GPU dump `g7-256k` (`examples/gpu_dump.rs`, `KV_T=262144`, `KV_QTAIL=131072,262144`, 28 layers,
+`t = 262144`. Dump: f32 GPU dump `g7-256k` (`examples/gpu_dump.rs` (removed; at 2f15d6a9), `KV_T=262144`, `KV_QTAIL=131072,262144`, 28 layers,
 about 12 min wall, 32 GB). Predictions registered before the run: `PREDICTIONS-T8-7B-256K.md` (sha256 `02a5f3bc…`).
 Instrument `attn_cut_probe.hd128qa`: `KV_TAIL_ARMS=<indices>` keeps the dense reference and the listed arms. Each arm is
 its own whole-model forward, so a subset gives that arm's figures unchanged; one invocation of the six-arm list runs about
@@ -458,7 +458,7 @@ Grade `measured` for the table (one prompt, 64 positions, f32 SIMT dump); `prove
 ## HATTN-T8 on Qwen2.5-7B-Instruct-1M at 524288 and 1048576
 
 Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Same arms, same 0.05 mean-KLD gate, 64 tail positions before `t`.
-Dump: f32 GPU dump `g7-1m` (`examples/gpu_dump.rs`, `KV_T=1048576`, `KV_QTAIL=262144,524288,1048576`, 28 layers; 30 resumable
+Dump: f32 GPU dump `g7-1m` (`examples/gpu_dump.rs` (removed; at 2f15d6a9), `KV_T=1048576`, `KV_QTAIL=262144,524288,1048576`, 28 layers; 30 resumable
 invocations of 480 s budget, about 4.1 h, GPU peak 9.2 GiB, host RSS peak 6.0 GiB, 128 GB on disk). Predictions registered
 before the run: `PREDICTIONS-T8-7B-1M.md` (sha256 `9b221a17…`). Instrument `attn_cut_probe.hd128qf` (commit `d8e9898`), one arm
 plus dense per invocation (`tails1m.sh`, `tails1m-b.sh`, outputs `g9-t<t>-a<arm>.out`, `.time`). Verdicts:
@@ -545,7 +545,7 @@ Not established: other prompts, tree arms, 1M, the Lean `b=2048` bytes entry is 
 
 Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Prior art searched: `fold/SPEC-COLDTIER.md` (Mode 12, proposed, not measured), `Arm::Cert` (T6). Predictions registered first: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-SUM.md`, sha256 `3396f4ba…`.
 
-- Change: `KV_TAIL_SUM=m` on `examples/attn_cut_probe.rs`: the flat arm (`grp-fix2048-r8`, hot = 2048 exact tokens) adds, for each omitted far page, `mass · mean(v)` to the output and `mass` to the softmax denominator. Mode 0 mass `64·exp(mean page score)`; mode 1 exact page mass (ceiling for a scalar-mass summary); mode 2 `64·exp(μ + σ²/2)`.
+- Change: `KV_TAIL_SUM=m` on `examples/attn_cut_probe.rs` (removed; at 2f15d6a9): the flat arm (`grp-fix2048-r8`, hot = 2048 exact tokens) adds, for each omitted far page, `mass · mean(v)` to the output and `mass` to the softmax denominator. Mode 0 mass `64·exp(mean page score)`; mode 1 exact page mass (ceiling for a scalar-mass summary); mode 2 `64·exp(μ + σ²/2)`.
 - Command: `/home/socol/oc-tmp/hattn-long/sum.sh` (`g11-t<t>-sum<m>.out`), 64 tail positions, grade `measured`, one prompt.
 
 | mean KLD | 262144 | 524288 |
@@ -567,7 +567,7 @@ Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Prior art searched:
 
 Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registered first: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-SUMU.md`, sha256 `2f795847…`.
 
-- Change: `KV_TAIL_SUMU=u` on `examples/attn_cut_probe.rs`: the mode-1 summary (exact mass, mean value row) over units of `u` keys instead of 64. Command: `/home/socol/oc-tmp/hattn-long/sumu.sh` (`g12-t524288-sum1-u<u>.out`, 192–298 s each), grade `measured`, one prompt.
+- Change: `KV_TAIL_SUMU=u` on `examples/attn_cut_probe.rs` (removed; at 2f15d6a9): the mode-1 summary (exact mass, mean value row) over units of `u` keys instead of 64. Command: `/home/socol/oc-tmp/hattn-long/sumu.sh` (`g12-t524288-sum1-u<u>.out`, 192–298 s each), grade `measured`, one prompt.
 
 | unit u (keys) | 64 | 16 | 4 | 1 |
 |---|---|---|---|---|
@@ -585,7 +585,7 @@ Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registe
 
 Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registered first: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-LAYER.md`, sha256 `3534046b…`.
 
-- Change: `KV_TAIL_DENSE=l,..` runs the listed layers dense, `KV_TAIL_SPARSE=l,..` runs every other layer dense (`layer_arm`, `examples/attn_cut_probe.rs`). Command: `/home/socol/oc-tmp/hattn-long/layer.sh` (`g13-t524288-<run>.out`, 197–217 s each), flat arm `grp-fix2048-r8`, 64 tail positions, grade `measured`, one prompt.
+- Change: `KV_TAIL_DENSE=l,..` runs the listed layers dense, `KV_TAIL_SPARSE=l,..` runs every other layer dense (`layer_arm`, `examples/attn_cut_probe.rs` (removed; at 2f15d6a9)). Command: `/home/socol/oc-tmp/hattn-long/layer.sh` (`g13-t524288-<run>.out`, 197–217 s each), flat arm `grp-fix2048-r8`, 64 tail positions, grade `measured`, one prompt.
 
 | run | flat in layers | mean KLD at 524288 |
 |---|---|---|
@@ -625,7 +625,7 @@ Second sweep, dense prefixes. Predictions registered first: `/home/socol/oc-tmp/
 
 Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registered first: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-LFARB.md`, sha256 `f435a574…` (addendum `88f08eab…`, registered after B1-B3 and before C1).
 
-- Change: `KV_TAIL_LFARB=lo-hi:n` sets the far budget of layers `lo..=hi` (`layer_budget`, `examples/attn_cut_probe.rs`). Commands: `/home/socol/oc-tmp/hattn-long/lfarb.sh`, `lfarb2.sh` (`g15-t524288-{B1,B2,B3,C1}.out`), instrument `attn_cut_probe.hd128qb`; other layers keep 2048.
+- Change: `KV_TAIL_LFARB=lo-hi:n` sets the far budget of layers `lo..=hi` (`layer_budget`, `examples/attn_cut_probe.rs` (removed; at 2f15d6a9)). Commands: `/home/socol/oc-tmp/hattn-long/lfarb.sh`, `lfarb2.sh` (`g15-t524288-{B1,B2,B3,C1}.out`), instrument `attn_cut_probe.hd128qb`; other layers keep 2048.
 
 | run | far budget | mean KLD at 524288 | reads/t (mean) |
 |---|---|---|---|
@@ -644,7 +644,7 @@ Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registe
 
 Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registered first: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-CODE.md`, sha256 `df3c6740…`.
 
-- Change: `KV_PROSE=path` in `examples/gpu_dump.rs` replaces the prompt text. Prompt `code8.txt` (Lean and Rust sources from `~/Workspace`, sorted, each file headed by its path; 5,021,138 bytes, sha256 `59eaa07e…`), 524288 tokens, same model and instrument (`attn_cut_probe.hd128qb`), `KV_TAIL_ARMS=0,1`. Commands: `dumpgpu-code.sh`, `codeprobe.sh`; output `g16-code-524288.out` (sha256 `1dd23382…`, 173 s).
+- Change: `KV_PROSE=path` in `examples/gpu_dump.rs` (removed; at 2f15d6a9) replaces the prompt text. Prompt `code8.txt` (Lean and Rust sources from `~/Workspace`, sorted, each file headed by its path; 5,021,138 bytes, sha256 `59eaa07e…`), 524288 tokens, same model and instrument (`attn_cut_probe.hd128qb`), `KV_TAIL_ARMS=0,1`. Commands: `dumpgpu-code.sh`, `codeprobe.sh`; output `g16-code-524288.out` (sha256 `1dd23382…`, 173 s).
 
 | prompt | flat mean KLD | median | p90 | positions > 0.05 | top-1 |
 |---|---|---|---|---|---|
@@ -660,7 +660,7 @@ Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registe
 
 Board row: `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Predictions registered first (three rounds appended to one file; round 2 after round 1's results, round 3 after round 2's): `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-TAIL.md`, sha256 `c9d7b8a6…`.
 
-- Change: `KV_TAIL_POS=1` in `examples/attn_cut_probe.rs` prints one `POS` line per arm and tail position: whole-model KLD, mean and max head KL (oracle), two page-bound proxies (`P1 = ln(1 + B/Z_read)`, `P2` = best unread bound minus best read score), and the arm's and dense output entropy and top-1 margin. Instrument `attn_cut_probe.hd128qp` (sha256 `1aa00486…`; two lint-only edits followed the build), dump `g7-code`, `KV_TAIL_ARMS=0,1`. Commands: `tailpos.sh` (`g17-tailpos.out`, sha256 `cd5f88b0…`, 194 s) and `tailwide.sh` (`KV_TAIL_FARB=8192` and `32768`: `g18-tailwide-8192.out` `be3cc349…`, `g18-tailwide-32768.out` `49f8063e…`, about 190 s each).
+- Change: `KV_TAIL_POS=1` in `examples/attn_cut_probe.rs` (removed; at 2f15d6a9) prints one `POS` line per arm and tail position: whole-model KLD, mean and max head KL (oracle), two page-bound proxies (`P1 = ln(1 + B/Z_read)`, `P2` = best unread bound minus best read score), and the arm's and dense output entropy and top-1 margin. Instrument `attn_cut_probe.hd128qp` (sha256 `1aa00486…`; two lint-only edits followed the build), dump `g7-code`, `KV_TAIL_ARMS=0,1`. Commands: `tailpos.sh` (`g17-tailpos.out`, sha256 `cd5f88b0…`, 194 s) and `tailwide.sh` (`KV_TAIL_FARB=8192` and `32768`: `g18-tailwide-8192.out` `be3cc349…`, `g18-tailwide-32768.out` `49f8063e…`, about 190 s each).
 - Control: flat `b=2048` reproduces the code run (mean 0.1273, 15/64 over the gate, dense rel-L2 6.6e-4).
 
 | score per position (15 failing, 49 passing) | deployable | AUC |
@@ -735,7 +735,7 @@ Grade: `model` inputs, `proved` arithmetic over them. Not covered: one prompt, o
 
 ## Token-oracle selection at 524288: ranking versus budget (Qwen2.5-7B-Instruct-1M)
 
-Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Question: is the prose gap a ranking failure or a budget failure. Change: `KV_TAIL_ORACLE=1` on `examples/attn_cut_probe.rs` (`tail_group`): each query head keeps its own exact top-`n_far` far tokens by true score, `n_far` the count the `grp-fix<b>-r8` page set selects; sinks and near window unchanged. Binary `attn_cut_probe.hd128or` sha256 `764e33ebe997` (`PROBE_HD=128`), command `/home/socol/oc-tmp/hattn-long/oracle.sh`, 64 tail positions, 184-185 s per run. Predictions: `PREDICTIONS-T8-ORACLE.md`, sha256 `c6992a2e3d23`. Outputs `g21-or-*.out` sha256 `eb5dcd97de34` (prose 2048), `e87dfebf6433` (prose 8192), `e54f1ef0b602` (code 2048).
+Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Question: is the prose gap a ranking failure or a budget failure. Change: `KV_TAIL_ORACLE=1` on `examples/attn_cut_probe.rs` (removed; at 2f15d6a9) (`tail_group`): each query head keeps its own exact top-`n_far` far tokens by true score, `n_far` the count the `grp-fix<b>-r8` page set selects; sinks and near window unchanged. Binary `attn_cut_probe.hd128or` sha256 `764e33ebe997` (`PROBE_HD=128`), command `/home/socol/oc-tmp/hattn-long/oracle.sh`, 64 tail positions, 184-185 s per run. Predictions: `PREDICTIONS-T8-ORACLE.md`, sha256 `c6992a2e3d23`. Outputs `g21-or-*.out` sha256 `eb5dcd97de34` (prose 2048), `e87dfebf6433` (prose 8192), `e54f1ef0b602` (code 2048).
 
 | prompt, budget | oracle mean KLD | over 0.05 | top-1 | flat Quest-bound arm |
 |---|---:|---:|---:|---:|
@@ -746,12 +746,12 @@ Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Question: is the pro
 - Exact selection at 2048 cuts the prose mean KLD six-fold and lands within 0.0053 of the gate; at 8192 it passes. The flat arm at 32768 (0.1687) is three times worse than oracle 2048.
 - The prose gap is a ranking gap: the Quest-bound ranking loses the keys that matter, and a budget increase buys little because the bound still misses them. A query-conditioned gather that approaches exact top-n is the lever; its target is the oracle column.
 - Verdicts: `Perf/HattnT8Oracle.lean` (sha256 `9dbda5493bed`), `decide`, six rows axiom-free in `AxiomAudit`. OR1 refuted (0.0553 > 0.05), OR2, OR3, OR4, OR5 held. Mutation (prose 2048 set to 0.0453, prose 8192 to 0.5275, scratch copy): 3 errors; committed file 0.
-- Group-union bytes (correction to the earlier version of this section, which listed them as uncovered: the probe's `bytes/dense` already unions the seven heads' sets, `examples/attn_cut_probe.rs` `used`): prose oracle 2048 reads 0.0176 of dense bytes (flat 0.0064, 2.75×), oracle 8192 reads 0.0530 (flat 0.0181, 2.93×). Exact top-8192 passes the gate at 0.0530 of dense (18× below dense); the flat arm at 32768 fails it at 0.1687 and reads 0.0650. Target for a deployable selector: KLD ≤ 0.05 at ≤ 0.053 of dense bytes on prose at 524288. Verdicts `union_cost`, `oracle_dominates_flat` in the same Lean file, board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Grade `measured` (existing outputs `g21-or-prose-2048.out`, `g21-or-prose-8192.out`, `g19-prose-*.out`; one run each, no repeat spread).
+- Group-union bytes (correction to the earlier version of this section, which listed them as uncovered: the probe's `bytes/dense` already unions the seven heads' sets, `examples/attn_cut_probe.rs` (removed; at 2f15d6a9) `used`): prose oracle 2048 reads 0.0176 of dense bytes (flat 0.0064, 2.75×), oracle 8192 reads 0.0530 (flat 0.0181, 2.93×). Exact top-8192 passes the gate at 0.0530 of dense (18× below dense); the flat arm at 32768 fails it at 0.1687 and reads 0.0650. Target for a deployable selector: KLD ≤ 0.05 at ≤ 0.053 of dense bytes on prose at 524288. Verdicts `union_cost`, `oracle_dominates_flat` in the same Lean file, board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Grade `measured` (existing outputs `g21-or-prose-2048.out`, `g21-or-prose-8192.out`, `g19-prose-*.out`; one run each, no repeat spread).
 - Not covered: one prompt per class; the oracle reads all scores (instrument cost, not charged to the bytes); rustc, LLVM.
 
 ## Two-stage gather at 524288: exact rerank inside a Quest pool (Qwen2.5-7B-Instruct-1M)
 
-Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Question: can a query-conditioned token rerank inside the flat Quest pool reach the oracle column. Change: `KV_TAIL_RERANK=c` on `examples/attn_cut_probe.rs` (`tail_group`): the `grp-fix<P>-r8` far set is the pool, each query head keeps its exact top-`c` far tokens inside it. Predictions: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-RERANK.md` (sha256 `25d78316ab49`), registered before the runs. Binary `attn_cut_probe.hd128rr` sha256 `ec27c85d2666`, prose dump `g7-1m`, `t = 524288`, 64 tail positions, `c = 2048`, `lane` 28G, 167-169 s per run, one run each (`g22-rr-prose-<P>.out`).
+Board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Question: can a query-conditioned token rerank inside the flat Quest pool reach the oracle column. Change: `KV_TAIL_RERANK=c` on `examples/attn_cut_probe.rs` (removed; at 2f15d6a9) (`tail_group`): the `grp-fix<P>-r8` far set is the pool, each query head keeps its exact top-`c` far tokens inside it. Predictions: `/home/socol/oc-tmp/hattn-long/PREDICTIONS-T8-RERANK.md` (sha256 `25d78316ab49`), registered before the runs. Binary `attn_cut_probe.hd128rr` sha256 `ec27c85d2666`, prose dump `g7-1m`, `t = 524288`, 64 tail positions, `c = 2048`, `lane` 28G, 167-169 s per run, one run each (`g22-rr-prose-<P>.out`).
 
 | pool P | rerank mean KLD | over 0.05 | top-1 | bytes/dense | flat arm at P | oracle 2048 |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -839,7 +839,7 @@ Lean: `proof/corpus/Perf/HattnT8Cells.lean` (sha256 `ef8325efc1c9`), 16 theorems
 
 ## Hot/cold decode step at 131072, 524288 and 1048576: 4-bit scan, top-8192, measured on CPU (Qwen2.5-7B-Instruct-1M)
 
-Row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Quality: `attn_cut_probe.hd128cl` (sha256 `f248f46584d8`), `KV_TAIL_LOWBIT=4 KV_TAIL_FARB=8192`, prose `g7-1m`, 64 tail positions, outputs `g26-lb4-b8192-t{524288,1048576}.out`. Speed: `examples/hotcold_decode.rs` (binary sha256 `de44066f4b17`), i9-14900KF, 32 threads, 28 layers, one layer's f32 K/V loaded at a time outside the timer, 5 repetitions; outputs `/home/socol/oc-tmp/hc/hc-t*.out`.
+Row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`. Quality: `attn_cut_probe.hd128cl` (sha256 `f248f46584d8`), `KV_TAIL_LOWBIT=4 KV_TAIL_FARB=8192`, prose `g7-1m`, 64 tail positions, outputs `g26-lb4-b8192-t{524288,1048576}.out`. Speed: `examples/hotcold_decode.rs` (removed; at 2f15d6a9) (binary sha256 `de44066f4b17`), i9-14900KF, 32 threads, 28 layers, one layer's f32 K/V loaded at a time outside the timer, 5 repetitions; outputs `/home/socol/oc-tmp/hc/hc-t*.out`.
 
 | t | KLD mean | top-1 | > 0.05 | bytes/dense |
 |---|---|---|---|---|
@@ -872,7 +872,7 @@ the selector in Rust under the Aeneas extraction, and tokens per second against 
 `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`).
 
 Instrument for the 7B (board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`):
-- `PROBE_HD=128` fixes `examples/attn_cut_probe.rs`'s head dim at build time, with `SCALE = 1/sqrt(HD)`. The
+- `PROBE_HD=128` fixes `examples/attn_cut_probe.rs` (removed; at 2f15d6a9)'s head dim at build time, with `SCALE = 1/sqrt(HD)`. The
   default is 64.
 - `KV_TAIL_TS` keeps only the listed tail contexts.
 - Controls:
@@ -884,7 +884,7 @@ Instrument for the 7B (board row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX
   Control: Qwen2.5-0.5B, `KV_T=4096`, `KV_CHUNK=1024`, `KV_BUDGET=6` (5 invocations, 4 forced resumes): q, k, v of
   all 24 layers are byte-identical to the unchunked 32k dump's first 4096 rows (`cmp`). Clippy `-D warnings` exit 0.
   CPU cost is the limit: FFN 73% of a 150 s layer at 32k, attention `O(t^2)`; the 1M dump needs the GPU.
-- Tail instrument speed (`examples/attn_cut_probe.rs`, `tail_group`, row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`):
+- Tail instrument speed (`examples/attn_cut_probe.rs` (removed; at 2f15d6a9), `tail_group`, row `hattn-one-bit-attention-FDfofEhhnRjeMCZBetTGjX`):
   - change: Dense/Near/Grp/Tree/Clu arms run key-tiled per KV group (`TAIL_KT = 256` keys, scores and softmax maximum in pass 1, weights in pass 2), on an atomic work queue over (group, 2 positions); the prelude (RoPE, page boxes, row parse), `index_pages` (per KV head, k-means assignment) and the bytes loop are parallel. Arithmetic is unchanged: `dot32` lane order, separate mul/add (no FMA), sequential accumulation over j.
   - measured: 262144, arm 4 (`clu-s4`) plus dense, 32 logical CPUs (i9-14900KF), one invocation: 399 s before, 102 s after (1.55e3 s user, 1565% CPU, 1M dump running alongside).
   - control (positive): the 262144 `clu-s4` output is identical to the recorded pre-change `g8a-clu4.out` on every line except `elapsed`.

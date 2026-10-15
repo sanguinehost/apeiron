@@ -1,7 +1,7 @@
 //! Head losses over vocabulary logits: `KL(p_t‖p_s)` and `TV = ½Σ|p_s − p_t|` on softmax rows, their
 //! logit gradients, and the chunked head that maps a hidden block through `W_head`.
 //!
-//! Ports the chunked head loss of `tools/onebit/pv_finish.py` (frozen, read only): `KLHead`
+//! Ports the chunked head loss of `tools/onebit/pv_finish.py` (removed; at 2f15d6a9) (frozen, read only): `KLHead`
 //! (lines 829–849, objective `kl`, `sum_t KL(p_t ‖ q_t)`, logit gradient `q − p` formed in the forward)
 //! and `TVHead` (lines 852–874, objective `tv`, `sum_t TV(p_t, q_t)`, logit gradient
 //! `½ q (s − ⟨s, q⟩)` with `s = sign(q − p)`). Here `p` is the teacher (`z_t`) and `q` the student

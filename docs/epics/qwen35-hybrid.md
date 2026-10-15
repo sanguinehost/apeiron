@@ -37,7 +37,7 @@ the constant-size state keeps retrieval, and it is the base the sparse-MoE rung 
 
 `target/release/examples/engine_decode <Qwen3.5-0.8B-Q8_0.gguf> <tokenizer.json> 64` decodes 64 tokens whose ids are
 bit-identical across kernel modes, thread counts and E-core settings, and whose first-divergence index against the
-float reference (`tools/qwen35/reference.py`) is recorded; tok/s measured against llama.cpp CPU on an idle host.
+float reference (`tools/qwen35/reference.py` (removed; at 2f15d6a9)) is recorded; tok/s measured against llama.cpp CPU on an idle host.
 
 ### Invariants
 
@@ -85,19 +85,19 @@ the scalar oracle until an extraction refinement lands. Float reference and llam
 
 | wave | task | owner | files | gate | control |
 |---|---|---|---|---|---|
-| W0 | Q35-T0 float64 reference + llama.cpp agreement | gemini-flash | `tools/qwen35/reference.py` (new), `docs/evidence/qwen35-reference.md` (new) | `python3 tools/qwen35/reference.py --check` exit 0 (ids = llama.cpp for 32 tokens) | swap RoPE pairing → ids diverge |
+| W0 | Q35-T0 float64 reference + llama.cpp agreement | gemini-flash | `tools/qwen35/reference.py` (removed; at 2f15d6a9) (new), `docs/evidence/qwen35-reference.md` (new) | `python3 tools/qwen35/reference.py --check` exit 0 (ids = llama.cpp for 32 tokens) | swap RoPE pairing → ids diverge |
 | W0 | Q35-T1 hybrid config + layer tensor index | deepseek-flash | `src/engine/hybrid/mod.rs` (new), `src/engine/hybrid/tests.rs` (new), `src/engine/mod.rs` | `cargo test --lib engine::hybrid` | drop a layer-kind rule → test red |
 | W0 | Q35-T2 `fixed_ln`, `softplus`, `sigmoid` | gemini-flash | `src/numeric/fixed_ln.rs` (new), `src/numeric/mod.rs` | `cargo test --lib numeric::fixed_ln` | perturb a table constant → bound test red |
 | W1 | Q35-T3 GDN scalar exact step + conv state | after T1, T2 | `src/engine/hybrid/gdn.rs` (new), `src/engine/hybrid/gdn_tests.rs` (new) | layer-0 real-weight step within tolerance of the T0 dump | drop the decay → red |
 | W1 | Q35-T4 gated attention (partial RoPE, q/k norm, sigmoid gate) | after T1, T2 | `src/engine/hybrid/gattn.rs` (new), `src/engine/hybrid/gattn_tests.rs` (new) | layer-3 real-weight output within tolerance of the T0 dump | full-width RoPE → red |
-| W2 | Q35-T5 hybrid step, decode example, ids | lead-assigned | `src/engine/hybrid/step.rs` (new), `examples/engine_decode.rs` | 64 ids identical across kernel modes; first divergence vs T0 recorded | — |
+| W2 | Q35-T5 hybrid step, decode example, ids | lead-assigned | `src/engine/hybrid/step.rs` (new), `examples/engine_decode.rs` (removed; at 2f15d6a9) | 64 ids identical across kernel modes; first divergence vs T0 recorded | — |
 | W3 | speed: pooled GDN heads, chart kernels, LM head | later | — | idle-host A/B | — |
 
 ## Results
 
 | task | artifact | gate | control | grade |
 |---|---|---|---|---|
-| Q35-T0 | `tools/qwen35/reference.py` (`a56c5d32`), `docs/evidence/qwen35-reference.md` | `python3 tools/qwen35/reference.py --check`: 32/32 ids = llama.cpp on both prompts | RoPE pairing adjacent → diverges at index 31 (worker); decay removed → diverges at index 0 (lead) | measured |
+| Q35-T0 | `tools/qwen35/reference.py` (removed; at 2f15d6a9) (`a56c5d32`), `docs/evidence/qwen35-reference.md` | `python3 tools/qwen35/reference.py --check`: 32/32 ids = llama.cpp on both prompts | RoPE pairing adjacent → diverges at index 31 (worker); decay removed → diverges at index 0 (lead) | measured |
 | Q35-T1 | `src/engine/hybrid/{mod,tests}.rs` | `cargo test engine::hybrid` 3 passed | kind rule `il % 4` (worker), KV-head count (lead) → red | tested |
 | Q35-T2 | `src/numeric/fixed_ln.rs` (`e5113e68`) | ln ≤ 7, softplus ≤ 13, sigmoid ≤ 8 units of 2⁻³² on \|x\| ≤ 16 (≤ 484 in the flushed tail) | LN2 perturbed (worker), sigmoid denominator (lead) → red | tested |
 | Q35-T3 | `src/engine/hybrid/gdn.rs` | real layer 0, 8 steps: output 1.3e-6, state 1.3e-9 vs f64; 22.9 ms/layer scalar | decay dropped (worker), q scale dropped (lead) → red | tested |

@@ -1551,7 +1551,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   flight).
 - `APEIRON-INT-ENGINE-W4-T1` (deepseek-flash, ~30 min of a 30/45 box — soft stop met): the engine
   skeleton lands — `src/engine/mod.rs` `b7c203a3…` (350 lines), `src/engine/loader.rs` `feb8590b…`
-  (630), `examples/engine_probe.rs` `f37b6c06…` (102), `src/lib.rs` wiring. The probe loads
+  (630), `examples/engine_probe.rs` (removed; at 2f15d6a9) `f37b6c06…` (102), `src/lib.rs` wiring. The probe loads
   `/home/socol/models/gguf/qwen05b-Q4_K_M.gguf`: 290 tensors, Qwen2.5-0.5B config (`n_layer 24`,
   `n_head 14`, `n_head_kv 2`, `head_dim 64`, `n_embd 896`, `n_ff 4864`, `vocab 151936`, `rope_theta
   1e6`); exact Q32.32 token embedding via `f16_to_fixed` (every finite f16 is a multiple of `2^-32`)

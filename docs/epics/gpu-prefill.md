@@ -335,7 +335,7 @@ artifacts/gpu-prefill/native-prerequisites-acceptance.json.
 ## Wave 5: measured native baseline, matched comparator, source-cost and cooperative-matrix analysis
 
 Source base `b832673`. Live state re-read before dispatch: `src/spirv/q8_tile.comp`,
-`tools/gpu/q8_driver.c`, `tools/gpu/q8_gate.py`, `tools/gpu/quantizer_gate.py` and
+`tools/gpu/q8_driver.c`, `tools/gpu/q8_gate.py` (removed; at 2f15d6a9), `tools/gpu/quantizer_gate.py` (removed; at 2f15d6a9) and
 `proof/native/` are clean at `b832673`; `tools/dispatch/` is untracked in this checkout (its
 `admit.py`, `run`, `contracts.json`, `main.rs` are live but not committed). Fixture identities
 re-validated: `/tmp/opencode/native-real-quantizer/synthetic.bin` sha256 `573a0e1c…` and
@@ -373,7 +373,7 @@ refusal exactly; no contract, corpus pin or numerical semantics change.
 |---|---|
 | Timed region | device compute only, via `vkCmdWriteTimestamp` deltas around the dispatch; host submit→wait wall time reported separately; both recorded per case and aggregated |
 | Timer validity | `VkPhysicalDeviceLimits.timestampPeriod`, `timestampComputeAndGraphics` and queue-family `timestampValidBits` checked before timing; wrap handled by masking to the valid bit width; a zero, negative, wrapped or non-finite delta rejects |
-| Parity | the unchanged `tools/gpu/q8_gate.py` stays green; the bench never changes shader semantics or fixture bytes |
+| Parity | the unchanged `tools/gpu/q8_gate.py` (removed; at 2f15d6a9) stays green; the bench never changes shader semantics or fixture bytes |
 | Identities | source sha256, emitted SPIR-V sha256, device name/driver/api, `timestampPeriod` and valid bits bound in the bench receipt |
 | Comparator | read-only; names the exact llama.cpp CUDA Q8 projection entry at `ece963f41` file:line, derives shapes from `Qwen3.5-0.8B-Q8_0.gguf` tensor table, states the arithmetic difference from Apeiron's exact epilogue; runs no GPU benchmark |
 | Source cost | continues `proof/native/LoopTrace.lean`; model-level lane count only, no whole-function or GPU cost claim |
@@ -389,8 +389,8 @@ and W5-T4 run no GPU benchmark, and W5-T3 uses the serialized Lean lane
 
 | task | owner / files | gate / control |
 |---|---|---|
-| APEIRON-GPU-PREFILL-W5-T1 baseline measurement | worker `gemini-flash`; `tools/gpu/q8_driver.c`, new `tools/gpu/q8_bench.py`, new `tools/gpu/q8_bench_controls.py` | gate `python3 tools/gpu/q8_bench.py --profile synthetic --fixture /tmp/opencode/native-real-quantizer/synthetic.bin --controls` ≤540 s; control corrupts the timestamp path in a throwaway copy and must reject, then restore green; `tools/gpu/q8_gate.py` stays green |
-| APEIRON-GPU-PREFILL-W5-T2 CUDA comparator analysis | worker `deepseek-flash`; new `tools/gpu/gguf_shapes.py`, new `docs/evidence/gpu-prefill/comparator-shapes.md` | gate `python3 tools/gpu/gguf_shapes.py --model /home/socol/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf --check`; an absent/inconsistent tensor or a guessed shape rejects; no GPU run |
+| APEIRON-GPU-PREFILL-W5-T1 baseline measurement | worker `gemini-flash`; `tools/gpu/q8_driver.c`, new `tools/gpu/q8_bench.py` (removed; at 2f15d6a9), new `tools/gpu/q8_bench_controls.py` (removed; at 2f15d6a9) | gate `python3 tools/gpu/q8_bench.py --profile synthetic --fixture /tmp/opencode/native-real-quantizer/synthetic.bin --controls` ≤540 s; control corrupts the timestamp path in a throwaway copy and must reject, then restore green; `tools/gpu/q8_gate.py` (removed; at 2f15d6a9) stays green |
+| APEIRON-GPU-PREFILL-W5-T2 CUDA comparator analysis | worker `deepseek-flash`; new `tools/gpu/gguf_shapes.py` (removed; at 2f15d6a9), new `docs/evidence/gpu-prefill/comparator-shapes.md` | gate `python3 tools/gpu/gguf_shapes.py --model /home/socol/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf --check`; an absent/inconsistent tensor or a guessed shape rejects; no GPU run |
 | APEIRON-GPU-PREFILL-W5-T3 source-cost refinement | worker `gemini-flash` (main checkout lane); new `proof/native/LaneTrace.lean`, new `proof/native/lane_trace_gate.py` | gate `python3 proof/native/lane_trace_gate.py --controls` ≤540 s incl. lane wait; lane accumulation `+=`→`-=` source mutation red, restore green |
 | APEIRON-GPU-PREFILL-W5-T4 cooperative-matrix design | worker `deepseek-flash`; new `docs/evidence/gpu-prefill/coopmat-design.md` | structural review gate; cites the capability query and emitted SPIR-V op; no implementation, no throughput claim, read-only until admission |
 
@@ -428,7 +428,7 @@ this wave.
 | W5-T3 | `python3 proof/native/lane_trace_gate.py --controls` exit 0 in 39.1 s; the actual extracted `exact_dot_loop0_loop0` visits exactly 32 lanes and returns the ordered sum; 63 declarations audit under `{propext, Classical.choice, Quot.sound}`; `+=`→`-=` generated-body mutant red, restore green. | proved (model scope) |
 | W5-T4 | `docs/evidence/gpu-prefill/coopmat-design.md`; 71/71 citations resolve; read-only. | anchor |
 
-Barrier controls: `cargo test --workspace --all-features --locked` green, `cargo fmt --all -- --check` green, `cargo clippy --workspace --all-features --all-targets --locked -- -D warnings` green, `tools/gpu/q8_gate.py` parity green, `proof/native/lane_trace_gate.py --controls` green. W5-T1's control copies a bounded file set, not the 51 GiB `target/`.
+Barrier controls: `cargo test --workspace --all-features --locked` green, `cargo fmt --all -- --check` green, `cargo clippy --workspace --all-features --all-targets --locked -- -D warnings` green, `tools/gpu/q8_gate.py` (removed; at 2f15d6a9) parity green, `proof/native/lane_trace_gate.py --controls` green. W5-T1's control copies a bounded file set, not the 51 GiB `target/`.
 
 Open after the barrier:
 

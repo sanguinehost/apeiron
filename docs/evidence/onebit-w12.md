@@ -10,7 +10,7 @@ sha256 `07143d7068936ae4…`. Status: `subsumed`. Search command:
 | item | value |
 |---|---|
 | source | `src/learn/iq1s.rs` (sha256 `703aaad894c74ed3…`), `src/learn/iq1s_grid.rs` (`db62582133440219…`) |
-| control | `examples/iq1s_check.rs`: quantize `blk.3..23.ffn_down.weight` of `qwen05b-f16.gguf` under the C4 imatrix, compare to the `llama-quantize` `IQ1_S` file |
+| control | `examples/iq1s_check.rs` (removed; at 2f15d6a9): quantize `blk.3..23.ffn_down.weight` of `qwen05b-f16.gguf` under the C4 imatrix, compare to the `llama-quantize` `IQ1_S` file |
 | result | 21 tensors × 17,024 blocks = 357,504 blocks, **0 differ**, 1.9 s on 16 threads (`/home/socol/oc-tmp/escalation/2026-10-11-iq1s-check.log`) |
 | mutation | `d·1.125 → d·1.0` in a throwaway copy: 34,048 of 34,048 blocks differ on `blk.3`, `blk.4`, exit 1 (`/home/socol/oc-tmp/escalation/2026-10-11-iq1s-mutation.log`); copy removed, working tree untouched |
 | tests | `cargo test --release --locked --test learn_iq1s`: 3 passed (grid equals the C table, tables well-formed, decode is scaled grid plus shift) |

@@ -6,7 +6,7 @@ contract and writes ``tools/dispatch/contracts.json`` bound to both, then writes
 proposal and refreshes the q8 proposal's registry digest (the registry now carries two contracts).
 The cooperative contract's identity map covers the shader execution unit, the reused dispatch
 driver and the admission machinery closure the launcher requires; the source-identity gate
-``tools/gpu/coopmat_admission_gate.py`` re-derives the SPIR-V and toolchain identity at check time.
+``tools/gpu/coopmat_admission_gate.py` (removed; at 2f15d6a9)` re-derives the SPIR-V and toolchain identity at check time.
 """
 
 from __future__ import annotations

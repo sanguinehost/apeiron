@@ -43,7 +43,7 @@ One `Engine::compose_logits` runs Qwen2.5-0.5B, Bonsai-1.7B and Qwen3.5-0.8B in 
 - Bonsai ids equal `/tmp/opencode/idle/bonsai-1.txt`.
 - Qwen3.5 ids equal llama.cpp's on both prompts (32/32).
 - `src/engine/hybrid/` is removed once parity holds, with the user's go-ahead.
-- `examples/engine_decode.rs` serves all three models; `examples/hybrid_decode.rs` goes.
+- `examples/engine_decode.rs` (removed; at 2f15d6a9) serves all three models; `examples/hybrid_decode.rs` goes.
 
 ### Invariants
 

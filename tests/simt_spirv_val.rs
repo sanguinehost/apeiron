@@ -1,8 +1,8 @@
 //! Gate 1 for the ported SIMT substrate: every emitted module is accepted by the Khronos validator
 //! (`spirv-val --target-env vulkan1.1`), and a corrupted module is rejected — the validator actually
 //! binds. Honest skip when `spirv-val` is not installed (the `execVia` pattern: a missing external
-//! runner is a skip, never a silent pass). Gate 2 — running on the metal — is `examples/simt_check.rs`
-//! and `examples/simt_gemv.rs`.
+//! runner is a skip, never a silent pass). Gate 2 — running on the metal — is `examples/simt_check.rs` (removed; at 2f15d6a9)
+//! and `examples/simt_gemv.rs` (removed; at 2f15d6a9).
 //!
 //! Faithful port of fold `modelfold/tests/simt.rs`, adapted to `apeiron::simt`.
 

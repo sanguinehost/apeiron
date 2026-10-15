@@ -1,6 +1,6 @@
 //! Dense backward maps in Q32.32 `i64` with `i128` accumulation (W19 task T1).
 //!
-//! Ports the backward passes of the frozen `tools/onebit/fold_transfer.py`: the linear map
+//! Ports the backward passes of the frozen `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9): the linear map
 //! `y = x Wᵀ` (`x` is `n × i`, `W` is `o × i`, `y` is `n × o`), `rms(x, w, eps) = w · x · rsqrt(mean(x²) + eps)`
 //! (`fold_transfer.py` line 70), and `SwiGLU` `m = silu(g) · u` (line 90). The forward bodies are the
 //! engine's extracted kernels (`engine::rms_norm_fixed`, `engine::silu_fixed`,

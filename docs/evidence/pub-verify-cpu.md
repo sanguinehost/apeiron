@@ -11,7 +11,7 @@ apeiron against llama.cpp, same model file.
 | ids | `llama-tokenize --ids` (llama.cpp `ece963f41`, `build-cuda`), sha256 `84081af6e51213be…` |
 | population | first 16 chunks of 512 tokens; each scores tokens 257–511 (255 per chunk, 4080 total) |
 | llama.cpp arm | `llama-perplexity -c 512 -b 512 --chunks 16 -ngl 0 -t 32`, `CUDA_VISIBLE_DEVICES=` (pure CPU) |
-| apeiron arm | `examples/lm_eval_bridge.rs`, `APEIRON_KERNEL=q8act APEIRON_F32_CARRIER=1` (the published decode path); context = chunk[0..257], continuation = chunk[257..512] |
+| apeiron arm | `examples/lm_eval_bridge.rs` (removed; at 2f15d6a9), `APEIRON_KERNEL=q8act APEIRON_F32_CARRIER=1` (the published decode path); context = chunk[0..257], continuation = chunk[257..512] |
 | machine | i9-14900KF, 32 threads |
 | board | `pub-verify-cpu-quality-5-GUlcVBMCjmJC8SAFf9Mqeh` |
 

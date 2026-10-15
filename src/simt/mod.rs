@@ -29,7 +29,7 @@
 //! `extinst.glsl.std.450.grammar.json` for the throne extremum), never from memory. The modules
 //! are SPIR-V 1.3 (`StorageBuffer` storage class, version 1.3 in the grammar) targeting
 //! Vulkan 1.1+; gate with `spirv-val --target-env vulkan1.1` (`tests/simt.rs`) and run on the
-//! metal with `examples/simt_check.rs`.
+//! metal with `examples/simt_check.rs` (removed; at 2f15d6a9).
 //!
 //! Scope, honestly: the encoder, a one-invocation op check, and ONE kernel — the GEMV fold
 //! ([`gemv_module`], licensed by sanguine `SplitReduce`/`FusionCost`/`MemoryLevelParallelism`,

@@ -59,7 +59,6 @@ import Perf.OnebitW10
 import Perf.Iq1s
 import Perf.OnebitW13
 import Perf.OnebitW14
-import Perf.CostCorrespondence
 import Perf.FacesPolarBound
 import Perf.Identity
 import Perf.AttnCoop
@@ -68,7 +67,6 @@ import Perf.Overlap
 import Perf.FaceTyped
 import Perf.FaceTypedE8
 import Perf.SideInfo
-import Perf.Generalisation
 import Perf.KLTilt
 import Learn.GramExact
 import Learn.Grad.DenseNorm
@@ -82,29 +80,8 @@ import Learn.Grad.Head
 import Learn.Grad.HeadLoop
 import Learn.Grad.HeadRows
 import Learn.Grad.HeadSoftmax
-import Perf.BitsRefine
 import Numeric.Quantum.Register
 import Numeric.Quantum.RegisterRefinement
-import Numeric.Quantum.Qubit
-import Numeric.Quantum.BranchLaplacian
-import Numeric.Quantum.BranchMadelung
-import Numeric.Quantum.TetraLimit
-import Numeric.Quantum.TetraLaplacian
-import Numeric.Quantum.BranchQuantization
-import Numeric.Quantum.PathDensity
-import Perf.QuantumRotation
-import Perf.SpecDraftKL
-import Numeric.Quantum.Ledger.FaceShift
-import Numeric.Quantum.Ledger.AmplitudeKL
-import Numeric.Quantum.Ledger.DesignLadder
-import Numeric.Quantum.Ledger.EllipticTensor
-import Numeric.Quantum.Ledger.CellClifford
-import Numeric.Quantum.Ledger.SicStencil
-import Numeric.Quantum.Measured.InterferenceGram
-import Numeric.Quantum.Measured.JointFisher
-import Numeric.Quantum.Ledger.DeltaEnds
-import Numeric.Quantum.Ledger.ExactUncertainty
-import Numeric.Quantum.Ledger.EllipticRebit
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -1046,124 +1023,6 @@ import Numeric.Quantum.Ledger.EllipticRebit
 #audit Perf.OnebitW14.rank_inversion
 #audit Perf.OnebitW14.ratio_band
 #audit Perf.OnebitW14.additivity
-#audit Perf.CostCorrespondence.cover_bound
-#audit Perf.CostCorrespondence.bytes_floor
-#audit Perf.CostCorrespondence.covering_floor
-#audit Perf.CostCorrespondence.stiff_floor
-#audit Perf.CostCorrespondence.q4_bits_per_stiff_dof
-#audit Perf.CostCorrespondence.stiff_fraction_vs_w10
-#audit Perf.CostCorrespondence.gauge_lift_bound
-#audit Perf.CostCorrespondence.perm_gauge_le
-#audit Perf.CostCorrespondence.qwen05b_perm_gauge
-#audit Perf.CostCorrespondence.gauge_null
-#audit Perf.CostCorrespondence.roofline_subadd
-#audit Perf.CostCorrespondence.roofline_nocancel
-#audit Perf.CostCorrespondence.chain_append
-#audit Perf.CostCorrespondence.kl_sqrt_subadd
-#audit Perf.CostCorrespondence.kl_cancels
-#audit Perf.CostCorrespondence.kl_joint_le
-#audit Perf.CostCorrespondence.kl_pair_sub_iff
-#audit Perf.CostCorrespondence.score_form_disc_nonpos
-#audit Perf.CostCorrespondence.w14_within_minkowski
-#audit Perf.CostCorrespondence.greedy_makespan
-#audit Perf.CostCorrespondence.refine_gain_le
-#audit Perf.CostCorrespondence.partition_0bf8b4d
-#audit Perf.CostCorrespondence.fluid_floor
-#audit Perf.CostCorrespondence.fluid_attained
-#audit Perf.CostCorrespondence.waterfill_opt
-#audit Perf.CostCorrespondence.waterfill_level
-#audit Perf.CostCorrespondence.waterfill_floor
-#audit Perf.CostCorrespondence.kron_diag
-#audit Perf.CostCorrespondence.ray_w15a
-#audit Perf.CostCorrespondence.kfac_w15b
-#audit Perf.CostCorrespondence.waterfill_highres
-#audit Perf.CostCorrespondence.waterfill_exclusion
-#audit Perf.CostCorrespondence.slb_gap
-#audit Perf.CostCorrespondence.converse_w15c
-#audit Perf.CostCorrespondence.tg_floor_ratio
-#audit Perf.CostCorrespondence.qwen27b_target_floor
-#audit Perf.CostCorrespondence.disc2_eq
-#audit Perf.CostCorrespondence.disc2_sq
-#audit Perf.CostCorrespondence.face_mul_canonical
-#audit Perf.CostCorrespondence.rotation_elliptic
-#audit Perf.CostCorrespondence.shear_parabolic
-#audit Perf.CostCorrespondence.shear_nilpotent
-#audit Perf.CostCorrespondence.rebalance_hyperbolic
-#audit Perf.CostCorrespondence.rebalance_preserves_product
-#audit Perf.CostCorrespondence.corrector_identity
-#audit Perf.CostCorrespondence.corrector_residual
-#audit Perf.CostCorrespondence.corrector_attained
-#audit Perf.CostCorrespondence.corrector_zero_iff
-#audit Perf.CostCorrespondence.spectrum_conj
-#audit Perf.CostCorrespondence.method_gap_1133
-#audit Perf.CostCorrespondence.waterfill_gain_1133
-#audit Perf.CostCorrespondence.floor_gap_1133
-#audit Perf.CostCorrespondence.variance_ladder_refuted
-#audit Perf.CostCorrespondence.decoupled_ridge_identity
-#audit Perf.CostCorrespondence.decoupled_ridge_opt
-#audit Perf.CostCorrespondence.decoupled_ridge_eq_iff
-#audit Perf.CostCorrespondence.elliptic_filter_conservation
-#audit Perf.CostCorrespondence.orthogonal_corrector_identity
-#audit Perf.CostCorrespondence.orthogonal_corrector_attained
-#audit Perf.CostCorrespondence.gqa_kv_second_plane_budget
-#audit Perf.CostCorrespondence.w15_rstar_8b_oracle_and_had_fp32
-#audit Perf.CostCorrespondence.telescoping_target_split
-#audit Perf.CostCorrespondence.two_component_shrinkage_identity
-#audit Perf.CostCorrespondence.two_component_shrinkage_opt
-#audit Perf.CostCorrespondence.coupled_shrinkage_excess_identity
-#audit Perf.CostCorrespondence.coupled_shrinkage_excess_pos
-#audit Perf.CostCorrespondence.qronos_orth_step_identity
-#audit Perf.CostCorrespondence.cholesky_step_schur_identity
-#audit Perf.CostCorrespondence.act_order_curvature_dominance
-#audit Perf.CostCorrespondence.sign_mag_dispersion_identity
-#audit Perf.CostCorrespondence.subband_scale_excess_identity
-#audit Perf.CostCorrespondence.subband_scale_excess_pos
-#audit Perf.CostCorrespondence.whitened_scale_shift_identity
-#audit Perf.CostCorrespondence.zellner_tikhonov_identity
-#audit Perf.CostCorrespondence.zellner_unit_gamma_excess_pos
-#audit Perf.CostCorrespondence.scale_vs_plane_distortion_dominance
-#audit Perf.CostCorrespondence.full_attn_2plane_hier_scale_budget
-#audit Perf.CostCorrespondence.butterfly_scale_commutation
-#audit Perf.CostCorrespondence.butterfly_d_step_dominance
-#audit Perf.CostCorrespondence.two_plane_backfit_descent
-#audit Perf.CostCorrespondence.butterfly_2plane_attn_budget
-#audit Perf.CostCorrespondence.four_factor_gap_identity
-#audit Perf.CostCorrespondence.w15_four_factor_05b_decomposition
-#audit Perf.CostCorrespondence.butterfly_sign_group_gauge
-#audit Perf.CostCorrespondence.output_weighted_scale_excess_identity
-#audit Perf.CostCorrespondence.output_weighted_scale_dominance
-#audit Perf.CostCorrespondence.reduced_rank_drift_generalization_dominance
-#audit Perf.CostCorrespondence.column_scale_group_gauge
-#audit Perf.CostCorrespondence.butterfly_gptq_metric_invariance
-#audit Perf.CostCorrespondence.rank2_down_corrector_dominance
-#audit Perf.CostCorrespondence.bscale_rank2_down_budget
-#audit Perf.CostCorrespondence.split_butterfly_joint_dominance
-#audit Perf.CostCorrespondence.rmsnorm_gauge_invariance
-#audit Perf.CostCorrespondence.hyperbolic_precond_excess_identity
-#audit Perf.CostCorrespondence.hyperbolic_precond_dominance
-#audit Perf.CostCorrespondence.precond_damping_distortion
-#audit Perf.CostCorrespondence.fnorm_fisher_variance_nonneg
-#audit Perf.CostCorrespondence.fnorm_newton_descent
-#audit Perf.CostCorrespondence.diag_precond_coherent_overshoot
-#audit Perf.CostCorrespondence.e8_o8_codebook_cardinality
-#audit Perf.CostCorrespondence.e8_o8_parabolic_spike_dominance
-#audit Perf.CostCorrespondence.e8_o8_pair_root_dominance
-#audit Perf.CostCorrespondence.delayed_decision_cholesky_dominance
-#audit Perf.CostCorrespondence.beam_wscale_trajectory_dominance
-#audit Perf.CostCorrespondence.e8_icm_global_descent_dominance
-#audit Perf.CostCorrespondence.quantized_scale_icm_dominance
-#audit Perf.CostCorrespondence.stage1_drift_shrinkage_dominance
-#audit Perf.CostCorrespondence.swiglu_bilinear_comp_dominance
-#audit Perf.CostCorrespondence.rmsnorm_pullback_sink_attenuation
-#audit Perf.CostCorrespondence.sink_row_trust_clipping_dominance
-#audit Perf.CostCorrespondence.swiglu_hyperbolic_noise_minimization
-#audit Perf.CostCorrespondence.coupled_schur_crosstalk_dominance
-#audit Perf.CostCorrespondence.q4k_vs_1bit_transfer_floor
-#audit Perf.CostCorrespondence.asymmetric_wiener_target_optimality
-#audit Perf.CostCorrespondence.asymmetric_distortion_penalty_strict
-#audit Perf.CostCorrespondence.w16_t0_best_arm_3seed
-#audit Perf.CostCorrespondence.w16_t0b_matched_seed_baseline
-#audit Perf.CostCorrespondence.w16_t3_nb_paired
 #audit Perf.FaceTyped.null_channels_eq
 #audit Perf.FaceTyped.two_plane_split_complex
 #audit Perf.FaceTyped.two_plane_null_channel
@@ -1183,7 +1042,6 @@ import Numeric.Quantum.Ledger.EllipticRebit
 #audit Perf.FaceTypedE8.spinor_card
 #audit Perf.FaceTypedE8.pair_rate_eq
 #audit Perf.FaceTypedE8.sparse_not_injective
-#audit Perf.CostCorrespondence.w16_t6_sideinfo
 #audit Perf.SideInfo.char_coords_norm
 #audit Perf.SideInfo.norm_boost_blind
 #audit Perf.SideInfo.lone_channel_fiber_card
@@ -1195,32 +1053,6 @@ import Numeric.Quantum.Ledger.EllipticRebit
 #audit Perf.SideInfo.w16_t6_route_b_open
 #audit Perf.SideInfo.w16_t6_route_b_closed_linear
 #audit Perf.SideInfo.w16_t6_route_a_closed
-#audit Perf.Generalisation.J_nonneg
-#audit Perf.Generalisation.J_mono
-#audit Perf.Generalisation.J_smul
-#audit Perf.Generalisation.loewner_sandwich
-#audit Perf.Generalisation.argmin_optimism
-#audit Perf.Generalisation.mp_floor_gt
-#audit Perf.Generalisation.w17_c_sandwich_verdict
-#audit Perf.Generalisation.w17_c_bookkeeping
-#audit Perf.Generalisation.w17_c_q_dominates
-#audit Perf.Generalisation.w17_c_o_decomposition
-#audit Perf.Generalisation.w17_c_p1_aggregate_in_band
-#audit Perf.Generalisation.w17_c_p1_per_kind_refuted
-#audit Perf.Generalisation.w17_c_p2_refuted
-#audit Perf.Generalisation.w17_c_p3_alpha_band
-#audit Perf.Generalisation.w17_c_p3_egen_decreasing
-#audit Perf.Generalisation.w17_c_p3_egen25_refuted
-#audit Perf.Generalisation.w17_c_sandwich_measured
-#audit Perf.Generalisation.w17_c_run100_bits
-#audit Perf.Generalisation.w17_d_q_split
-#audit Perf.Generalisation.w17_d_tilt_ratio
-#audit Perf.Generalisation.w17_d_qlin_ratio
-#audit Perf.Generalisation.w17_d_p_tilt_bands
-#audit Perf.Generalisation.w17_d_falsifier_not_triggered
-#audit Perf.Generalisation.w17_d_lin_dominates
-#audit Perf.Generalisation.w17_d_ratio_dominance_of_log
-#audit Perf.Generalisation.w17_d_ratio_dominance_of_log_fifth
 #audit Perf.KLTilt.kl_sm_eq
 #audit Perf.KLTilt.A_hasDerivAt
 #audit Perf.KLTilt.A_second
@@ -1230,39 +1062,6 @@ import Numeric.Quantum.Ledger.EllipticRebit
 #audit Perf.KLTilt.witness_half_var
 #audit Perf.KLTilt.witness_range
 
--- One-bit bit budget (Perf/BitsRefine.lean): executed bodies refine the closed forms.
-#audit apeiron_word.BitsRefine.sign_layer_spec
-#audit apeiron_word.BitsRefine.bits_sign_spec
-#audit apeiron_word.BitsRefine.params_spec
-#audit apeiron_word.BitsRefine.bits_r_spec
-#audit apeiron_word.BitsRefine.bits_c_spec
-#audit apeiron_word.BitsRefine.bits_d_spec
-#audit apeiron_word.BitsRefine.bits_corr_spec
-#audit apeiron_word.BitsRefine.total_bits_spec
-#audit apeiron_word.BitsRefine.index_bits_spec
-#audit apeiron_word.BitsRefine.qwen_fits
-#audit apeiron_word.BitsRefine.qwen_bits_sign
-#audit apeiron_word.BitsRefine.qwen_bits_r
-#audit apeiron_word.BitsRefine.qwen_bits_c
-#audit apeiron_word.BitsRefine.qwen_bits_d
-#audit apeiron_word.BitsRefine.qwen_bits_corr
-#audit apeiron_word.BitsRefine.qwen_total_is_sum
-#audit apeiron_word.BitsRefine.qwen_total_bits
-#audit apeiron_word.BitsRefine.qwen_total_bits_receipt
-#audit apeiron_word.BitsRefine.qwen_params
-#audit apeiron_word.BitsRefine.qwen_params_receipt
-#audit apeiron_word.BitsRefine.choose_4864_416_le
-#audit apeiron_word.BitsRefine.lt_choose_4864_416
-#audit apeiron_word.BitsRefine.index_bits_per_set_minimal
-#audit apeiron_word.BitsRefine.index_bits_qwen
-#audit apeiron_word.BitsRefine.row_index_cover
-#audit apeiron_word.BitsRefine.headline_bpw_bounds
-#audit apeiron_word.BitsRefine.counted_bpw_bounds
-#audit apeiron_word.BitsRefine.headline_bpw_receipt
-
--- quantum-register (docs/epics/quantum-register.md): register gates, Bloch = KS, branch Laplacian,
--- branch Madelung, tetra limit, branch quantization, path density, learned-angle verdicts.
--- Board: quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs.
 #audit apeiron_word.Register.pairStage_low
 #audit apeiron_word.Register.pairStage_high
 #audit apeiron_word.Register.mod_add_low
@@ -1302,125 +1101,6 @@ import Numeric.Quantum.Ledger.EllipticRebit
 #audit apeiron_word.Register.measProj_add
 #audit apeiron_word.Register.measProj_orth
 #audit apeiron_word.Register.born_sum
-#audit Numeric.Qubit.phase_re
-#audit Numeric.Qubit.phase_im
-#audit Numeric.Qubit.ks_norm
-#audit Numeric.Qubit.bloch_eq_ks
-#audit Numeric.Qubit.bloch_norm
-#audit Numeric.Qubit.bloch_rz
-#audit Numeric.Qubit.bloch_ry
-#audit Numeric.Qubit.suR_blochVec
-#audit Numeric.Qubit.suR_orthogonal
-#audit Numeric.Qubit.sigmaN_sq
-#audit Numeric.Qubit.sigmaN_sq_unit
-#audit Numeric.Qubit.projP_idem
-#audit Numeric.Qubit.projM_idem
-#audit Numeric.Qubit.projP_add_projM
-#audit Numeric.Qubit.projP_sub_projM
-#audit Numeric.Qubit.projP_mul_projM
-#audit Numeric.Qubit.projM_mul_projP
-#audit Numeric.Qubit.sigmaN_meridian
-#audit Numeric.Qubit.sigmaN_meridian_sq
-#audit Numeric.Qubit.sigmaN_meridian_pi_four
-#audit Numeric.BranchLaplacian.tetra_stencil_reconstructs_laplacian
-#audit Numeric.BranchLaplacian.branch_count_ge_four
-#audit Numeric.BranchLaplacian.tetra_family_attains_four
-#audit Numeric.BranchLaplacian.secondDiff_tendsto
-#audit Numeric.BranchLaplacian.stencil4_tendsto_laplacian
-#audit Numeric.BranchLaplacian.second_derivative_comp
-#audit Numeric.BranchLaplacian.stencil4_quad_comp_affine
-#audit Numeric.BranchLaplacian.stencil4_affine_comp_quad
-#audit Numeric.BranchMadelung.branchQ_tendsto
-#audit Numeric.BranchMadelung.schrodinger_iff_branch_madelung
-#audit Numeric.TetraLimit.oneSided_tendsto
-#audit Numeric.TetraLimit.tetra4_tendsto_lines
-#audit Numeric.TetraLimit.tetra4_tendsto_field
-#audit Numeric.TetraLaplacian.line_second_deriv
-#audit Numeric.TetraLaplacian.tetra_sum_eq_lap
-#audit Numeric.TetraLaplacian.tetra4_tendsto_laplacian
-#audit Numeric.BranchQuantization.term_eq_pow
-#audit Numeric.BranchQuantization.branchSum_eq_of_exp_eq_one
-#audit Numeric.BranchQuantization.branchSum_geom
-#audit Numeric.BranchQuantization.norm_branchSum_le
-#audit Numeric.BranchQuantization.branchAvg_tendsto_zero
-#audit Numeric.BranchQuantization.branchAvg_tendsto_one
-#audit Numeric.BranchQuantization.branchSum_eq_zero_iff
-#audit Numeric.BranchQuantization.exp_pi_div_two_mul_I
-#audit Numeric.BranchQuantization.branchSum_four_quarter
-#audit Numeric.BranchQuantization.exp_eq_one_iff_mem
-#audit Numeric.PathDensity.pathDensity_hasDerivAt
-#audit Numeric.PathDensity.pathDensity_zero
-#audit Numeric.PathDensity.pathDensity_unique
-#audit Numeric.PathDensity.pathDensity_pos
-#audit Perf.QuantumRotation.kan_probe_protocol
-#audit Perf.QuantumRotation.kan_probe_angle_budget
-#audit Perf.QuantumRotation.kan_probe_sum_loses
-#audit Perf.QuantumRotation.kan_probe_geo_wins
-#audit Perf.QuantumRotation.kan_probe_attn_out_in
-#audit Perf.QuantumRotation.kan_probe_attn_in
-#audit Perf.QuantumRotation.kan_probe_ffn_loses
-#audit Perf.QuantumRotation.kan_exact_protocol
-#audit Perf.QuantumRotation.kan_exact_step_cost
-#audit Perf.QuantumRotation.kan_exact_loses_wall
-#audit Perf.QuantumRotation.butterfly_curve_convex
-#audit Perf.QuantumRotation.kan_exact_wins_matched_step
-#audit Perf.QuantumRotation.kan_mm_protocol
-#audit Perf.QuantumRotation.kan_mm_step_cost
-#audit Perf.QuantumRotation.kan_mm_loses_wall
-#audit Perf.QuantumRotation.kan_mm_wins_matched_step
-#audit Perf.QuantumRotation.kan_mmb_protocol
-#audit Perf.QuantumRotation.kan_mmb_step_cost
-#audit Perf.QuantumRotation.kan_mmb_beats_butterfly_wall
-#audit Perf.QuantumRotation.kan_mmb_loses_hadmm
-#audit Perf.QuantumRotation.kan_mmb_wins_matched_step
-#audit Perf.QuantumRotation.kan_pair_step_parity
-#audit Perf.QuantumRotation.kan_pair_each
-#audit Perf.QuantumRotation.pair_host_slowdown
-#audit Perf.QuantumRotation.t5_corr_store_refines
-#audit Perf.QuantumRotation.t5_corr_loses
-#audit Perf.QuantumRotation.attrib_no_layer_holds_kl
-#audit Perf.QuantumRotation.attrib_kl_nonadditive
-#audit Perf.QuantumRotation.attrib_kinds_coadapted
-#audit Perf.QuantumRotation.iso_kl_superadditive
-#audit Perf.QuantumRotation.iso_groups_saturate
-#audit Perf.QuantumRotation.iso_finishing_saturates
-#audit Perf.QuantumRotation.iso_every_layer_costs
-#audit Perf.QuantumRotation.blockft_refuted
-#audit Perf.QuantumRotation.blockft_phase_raises_kl
-#audit Perf.QuantumRotation.blockft_block_step_cost
-#audit Perf.QuantumRotation.YaqaBlock.dJ_exact
-#audit Perf.QuantumRotation.YaqaBlock.block_complete_square
-#audit Perf.QuantumRotation.YaqaBlock.block_target_attains
-#audit Perf.QuantumRotation.yaqa_refuted
-#audit Perf.QuantumRotation.yaqa_jo_falls
-#audit Perf.QuantumRotation.yaqa_capture_noise
-#audit Perf.QuantumRotation.yaqaxv_fits_noise
-#audit Perf.QuantumRotation.yaqaxv_shrink_heldout
-#audit Perf.QuantumRotation.yaqas_refuted
-#audit Perf.QuantumRotation.yaqas90_small_move
-#audit Perf.QuantumRotation.yaqab_shrink_wins
-#audit Perf.QuantumRotation.yaqab_alpha_interior
-#audit Perf.QuantumRotation.yaqab_before_misleads
-#audit Perf.QuantumRotation.yaqalw_loses
-#audit Perf.QuantumRotation.yaqalw_intensity_small
-#audit Perf.SpecDraftKL.accept_ge
-#audit Perf.SpecDraftKL.mean_accept_ge
-#audit Perf.SpecDraftKL.q4km_accept
-#audit Perf.SpecDraftKL.resq_accept
-#audit Perf.SpecDraftKL.blockLenAt_const
-#audit Perf.SpecDraftKL.blockLen_geom
-#audit Perf.SpecDraftKL.blockLen_mono
-#audit Perf.SpecDraftKL.blockLen_bounds
-#audit Perf.SpecDraftKL.spec_faster
-#audit Perf.SpecDraftKL.blockLen_witness
-#audit Perf.SpecDraftKL.spec_accept_measured
-#audit Perf.SpecDraftKL.spec_runs_cluster
-#audit Perf.SpecDraftKL.softmax_adjoint
-#audit Perf.SpecDraftKL.spectv_accept
-#audit Perf.SpecDraftKL.spectv_top1_kl
-#audit Perf.SpecDraftKL.verify_curve
-#audit Perf.SpecDraftKL.verify_best_k
-#audit Perf.SpecDraftKL.spec27b_cpu
 #audit apeiron_word.RegisterRefinement.checked_mul_spec
 #audit apeiron_word.RegisterRefinement.checked_mul_none
 #audit apeiron_word.RegisterRefinement.checked_mul_none_of_a
@@ -1431,109 +1111,6 @@ import Numeric.Quantum.Ledger.EllipticRebit
 #audit apeiron_word.RegisterRefinement.stageRef_denote
 #audit apeiron_word.RegisterRefinement.stage_mul_denote
 #audit apeiron_word.RegisterRefinement.stage_mul_denote_witness
-#audit Quantum.FaceShift.C_add
-#audit Quantum.FaceShift.S_add
-#audit Quantum.FaceShift.C_neg
-#audit Quantum.FaceShift.S_neg
-#audit Quantum.FaceShift.C_eq_one_add
-#audit Quantum.FaceShift.hasDerivAt_C
-#audit Quantum.FaceShift.hasDerivAt_S
-#audit Quantum.FaceShift.hasDerivAt_K
-#audit Quantum.FaceShift.hasDerivAt_f
-#audit Quantum.FaceShift.hasDerivAt_f1
-#audit Quantum.FaceShift.S_central
-#audit Quantum.FaceShift.C_central
-#audit Quantum.FaceShift.K_central
-#audit Quantum.FaceShift.S_second
-#audit Quantum.FaceShift.C_second
-#audit Quantum.FaceShift.K_second
-#audit Quantum.FaceShift.shift_first
-#audit Quantum.FaceShift.shift_second
-#audit Quantum.FaceShift.S_neg_one_half_pi
-#audit Quantum.FaceShift.K_neg_one_half_pi
-#audit Quantum.FaceShift.parameter_shift_elliptic
-#audit Quantum.FaceShift.central_difference_parabolic
-#audit Quantum.FaceShift.S_one
-#audit Quantum.FaceShift.K_one
-#audit Quantum.FaceShift.shift_hyperbolic
-#audit Quantum.FaceShift.cubic_violates_shift_first
-#audit Quantum.FaceShift.verdict_l5
-
--- Amplitude-form KL divergence (`Numeric/Quantum/Ledger/AmplitudeKL.lean`): the Hellinger-type lower bound, the
--- second-order agreement of `s ↦ KL p (q_s)` with `s ↦ 2 ‖√(q_s) − √p‖²`, the logistic/softmax
--- identity and its amplitude form, and the unit verdict.
-#audit Quantum.AmplitudeKL.kl_ge_amplitude_sq
-#audit Quantum.AmplitudeKL.kl_second_order
-#audit Quantum.AmplitudeKL.logistic_eq_softmax_two
-#audit Quantum.AmplitudeKL.logistic_amplitude_add
-#audit Quantum.AmplitudeKL.verdict_l6
-
--- Spherical t-design moment ladder in ℤ³ (`Numeric/Quantum/Ledger/DesignLadder.lean`): the
--- tetrahedron 2-design and its odd-moment refusal of order 3, the octahedron 3-design and its
--- refusal of order 4, the cube 3-design and its refusal of order 4, the antipodal closure
--- `T ∪ (−T) = C`, and the unit verdict.
-#audit Quantum.DesignLadder.tetra_deg1
-#audit Quantum.DesignLadder.tetra_deg2
-#audit Quantum.DesignLadder.tetra_xyz
-#audit Quantum.DesignLadder.tetra_design_two
-#audit Quantum.DesignLadder.tetra_not_design_three
-#audit Quantum.DesignLadder.octa_deg1
-#audit Quantum.DesignLadder.octa_deg2
-#audit Quantum.DesignLadder.octa_deg3
-#audit Quantum.DesignLadder.octa_x4
-#audit Quantum.DesignLadder.octa_design_three
-#audit Quantum.DesignLadder.octa_not_design_four
-#audit Quantum.DesignLadder.cube_deg1
-#audit Quantum.DesignLadder.cube_deg2
-#audit Quantum.DesignLadder.cube_deg3
-#audit Quantum.DesignLadder.cube_x4
-#audit Quantum.DesignLadder.cube_design_three
-#audit Quantum.DesignLadder.cube_not_design_four
-#audit Quantum.DesignLadder.tetra_union_is_cube
-#audit Quantum.DesignLadder.verdict_l4
-
--- Two composed elliptic cells `ℂ ⊗_ℝ ℂ = (RingCell ℂ, ringMul (−1))`
--- (`Numeric/Quantum/Ledger/EllipticTensor.lean`): each factor elliptic, the hyperbolic face
--- `j = i ⊗ i` with `j² = +1`, `j ≠ ±1`, the complementary idempotent pair `e`, `e' = 1 − e`,
--- the tensor rule `i ⊗ 1 = 1 ⊗ i` on `e` with its conjugate on `e'`, the ring isomorphism
--- `ℂ ⊗_ℝ ℂ ≅ ℂ × ℂ`, and the unit verdict.
-#audit Quantum.EllipticTensor.iL_sq
-#audit Quantum.EllipticTensor.iR_sq
-#audit Quantum.EllipticTensor.j_eq
-#audit Quantum.EllipticTensor.j_sq
-#audit Quantum.EllipticTensor.j_ne_one
-#audit Quantum.EllipticTensor.j_ne_neg_one
-#audit Quantum.EllipticTensor.e_idem
-#audit Quantum.EllipticTensor.e'_idem
-#audit Quantum.EllipticTensor.e_complementary
-#audit Quantum.EllipticTensor.tensor_rule
-#audit Quantum.EllipticTensor.anti_rule
-#audit Quantum.EllipticTensor.split_mul
-#audit Quantum.EllipticTensor.split_one
-#audit Quantum.EllipticTensor.split_e
-#audit Quantum.EllipticTensor.split_e'
-#audit Quantum.EllipticTensor.verdict_l2
-
--- The cell `ℝ[x]/(x² − σ)` is the Clifford algebra of the form `Q σ t = σ·t²`
--- (`Numeric/Quantum/Ledger/CellClifford.lean`): the algebra isomorphism `cliffordEquiv` with
--- `toCell` carrying Clifford multiplication to `mul σ`, the elliptic face `σ = −1` (`ℂ`) and the
--- parabolic face `σ = 0` (dual numbers), two anticommuting generators `e1`, `e2` squaring to `c₁`,
--- `c₂` as a quaternion algebra at `(−1,−1)` and `(+1,+1)`, and the rebit `ℍ[ℝ,1,0,1] ≅ M₂(ℝ)`.
-#audit Quantum.CellClifford.toCell_mul
-#audit Quantum.CellClifford.toCell_one
-#audit Quantum.CellClifford.toCell_ι
-#audit Quantum.CellClifford.toCell_bijective
-#audit Quantum.CellClifford.Q_neg_one
-#audit Quantum.CellClifford.Q_zero
-#audit Quantum.CellClifford.elliptic_complex
-#audit Quantum.CellClifford.parabolic_dual
-#audit Quantum.CellClifford.e1_sq
-#audit Quantum.CellClifford.e2_sq
-#audit Quantum.CellClifford.anticommute
-#audit Quantum.CellClifford.k_sq_hamilton
-#audit Quantum.CellClifford.k_sq_split
-#audit Quantum.CellClifford.rebit_bijective
-#audit Quantum.CellClifford.verdict_l1
 
 -- The extracted Q32.32 dense-normalisation primitives and the `swiglu_fwd` loop
 -- (`Learn/Grad/DenseNorm.lean`) refine the integer spec `Learn/Grad/DenseNormSpec.lean`.
@@ -1589,112 +1166,9 @@ import Numeric.Quantum.Ledger.EllipticRebit
 #audit apeiron_grad.bwdDxVals_eq_L
 #audit apeiron_grad.rmsnorm_bwd_spec
 
--- The tetrahedral stencil is the qubit SIC (`Numeric/Quantum/Ledger/SicStencil.lean`): the four
--- unit Bloch vectors `nVec k = (1/√3) • tetraV k` with pairwise inner product `-1/3`, the rank-one
--- projectors `Πₖ = (1 + Σ·nₖ)/2`, the SIC overlap `tr(Πⱼ Πₖ) = 1/3`, the identity resolution
--- `Σ Πₖ/2 = 1`, the second moment `(4/3)·u`, and `d² = 4` vectors.
-#audit Quantum.SicStencil.nVec_unit
-#audit Quantum.SicStencil.nVec_dot_self
-#audit Quantum.SicStencil.nVec_dot_ne
-#audit Quantum.SicStencil.Pi_idem
-#audit Quantum.SicStencil.sigmaN_conjTranspose
-#audit Quantum.SicStencil.projP_conjTranspose
-#audit Quantum.SicStencil.Pi_herm
-#audit Quantum.SicStencil.trace_projP
-#audit Quantum.SicStencil.trace_projP_mul
-#audit Quantum.SicStencil.sic_overlap
-#audit Quantum.SicStencil.sic_diag
-#audit Quantum.SicStencil.nVec_sum_zero
-#audit Quantum.SicStencil.sigmaN_sum
-#audit Quantum.SicStencil.sic_povm
-#audit Quantum.SicStencil.sic_second_moment
-#audit Quantum.SicStencil.sic_count
-#audit Quantum.SicStencil.verdict_l3
 
--- Q1 interference Gram, measured (`Numeric/Quantum/Measured/InterferenceGram.lean`, receipt
--- `docs/evidence/receipts/onebit/qarch-q1.json`): the amplitude prediction `2 ‖Σ δψ_l‖²` over-predicts
--- whole-model KL in every cell and misses the prefix and suffix groups with opposite signs (refuted).
-#audit Quantum.InterferenceGram.all_overpredicted
-#audit Quantum.InterferenceGram.prefix_over_suffix_under
-#audit Quantum.InterferenceGram.diagonal_share_falls
-#audit Quantum.InterferenceGram.verdict_q1
 
--- Q2 joint vs separable Fisher-sketch allocation, measured (`Numeric/Quantum/Measured/JointFisher.lean`, receipt
--- `docs/evidence/receipts/onebit/qarch-q2.json`): the joint arm is not below the separable arm at equal rate (refuted).
-#audit Quantum.JointFisher.separable_below_uniform
-#audit Quantum.JointFisher.joint_not_below_separable
-#audit Quantum.JointFisher.joint_below_on_w0
-#audit Quantum.JointFisher.equal_rate
-#audit Quantum.JointFisher.regime_far
-#audit Quantum.JointFisher.verdict_q2
 
--- APEIRON-QARCH-L7: measurement and reflection, the ends of the β family (Numeric/Quantum/Ledger/DeltaEnds.lean).
-#audit Quantum.DeltaEnds.inner_corr_k
-#audit Quantum.DeltaEnds.corr_k
-#audit Quantum.DeltaEnds.corr_orth
-#audit Quantum.DeltaEnds.corr_comp
-#audit Quantum.DeltaEnds.corr_selfadj
-#audit Quantum.DeltaEnds.norm_sq_corr
-#audit Quantum.DeltaEnds.measure_idem
-#audit Quantum.DeltaEnds.measure_born
-#audit Quantum.DeltaEnds.reflect_invol
-#audit Quantum.DeltaEnds.reflect_isometry
-#audit Quantum.DeltaEnds.reflect_k
-#audit Quantum.DeltaEnds.nonexpansive_iff
-#audit Quantum.DeltaEnds.idem_iff
-#audit Quantum.DeltaEnds.invol_iff
-#audit Quantum.DeltaEnds.isometry_iff
-#audit Quantum.DeltaEnds.verdict_l7_general
-#audit Quantum.DeltaEnds.verdict_l7
 
--- APEIRON-QARCH-L9: the exact uncertainty relation (Numeric/Quantum/Ledger/ExactUncertainty.lean).
-#audit Quantum.ExactUncertainty.sqrt_second_deriv
-#audit Quantum.ExactUncertainty.laplacian_sqrt
-#audit Quantum.ExactUncertainty.rho_Q_pointwise
-#audit Quantum.ExactUncertainty.rho_ncMom_sq
-#audit Quantum.ExactUncertainty.integral_second_zero
-#audit Quantum.ExactUncertainty.integral_rho_Q
-#audit Quantum.ExactUncertainty.quantum_energy_eq_nc_kinetic
-#audit Quantum.ExactUncertainty.exact_uncertainty
-#audit Quantum.ExactUncertainty.cramer_rao_core
-#audit Quantum.ExactUncertainty.heisenberg_from_cr
-#audit Quantum.ExactUncertainty.cramer_rao_integral
-#audit Quantum.ExactUncertainty.witness_pointwise
-#audit Quantum.ExactUncertainty.witness_ncMom
-#audit Quantum.ExactUncertainty.verdict_l9
-#audit Quantum.ExactUncertainty.fisher_quad_nonneg
-#audit Quantum.ExactUncertainty.cauchy_schwarz_fisher
-#audit Quantum.ExactUncertainty.cramer_rao
-#audit Quantum.ExactUncertainty.verdict_l9b
 
--- APEIRON-QARCH-L9c: the full Heisenberg relation from the Madelung wavefunction
--- (Numeric/Quantum/Ledger/ExactUncertainty.lean).
-#audit Quantum.ExactUncertainty.star_exp_I
-#audit Quantum.ExactUncertainty.madelung_hasDerivAt
-#audit Quantum.ExactUncertainty.madelung_normSq
-#audit Quantum.ExactUncertainty.madelung_current
-#audit Quantum.ExactUncertainty.weighted_var_nonneg
-#audit Quantum.ExactUncertainty.momentum_spread_sq
-#audit Quantum.ExactUncertainty.ncSpread_eq
-#audit Quantum.ExactUncertainty.nc_le_momSpread
-#audit Quantum.ExactUncertainty.heisenberg
-#audit Quantum.ExactUncertainty.witness_madelung
-#audit Quantum.ExactUncertainty.verdict_l9c
 
--- APEIRON-QARCH-L10: the elliptic cell is the extra rebit (Numeric/Quantum/Ledger/EllipticRebit.lean).
-#audit Quantum.EllipticRebit.rep_mul
-#audit Quantum.EllipticRebit.rep_one
-#audit Quantum.EllipticRebit.rep_add
-#audit Quantum.EllipticRebit.rep_injective
-#audit Quantum.EllipticRebit.det_rep
-#audit Quantum.EllipticRebit.rep_neg_one
-#audit Quantum.EllipticRebit.J_sq
-#audit Quantum.EllipticRebit.J_transpose
-#audit Quantum.EllipticRebit.rep_orthogonal
-#audit Quantum.EllipticRebit.rep_one_x
-#audit Quantum.EllipticRebit.rep_zero_x
-#audit Quantum.EllipticRebit.realify_mul
-#audit Quantum.EllipticRebit.realify_one
-#audit Quantum.EllipticRebit.realify_conjTranspose
-#audit Quantum.EllipticRebit.realify_scalar
-#audit Quantum.EllipticRebit.verdict_l10

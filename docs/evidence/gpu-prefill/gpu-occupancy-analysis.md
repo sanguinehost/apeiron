@@ -13,7 +13,7 @@ unreceipted.
 - Executing artifacts measured (sha256):
   - `src/spirv/q8_tile.comp` `0f971a8aa762676b5b12b32399ef749af7f8e3a7e7722e8ab157693f9f24c60e`
   - `tools/gpu/q8_driver.c` `6668974f92dbc06bc96c9529f09530c132e6521bd517455e9863e66fb6548b6f`
-  - `tools/gpu/q8_occupancy.py` `b377390c948b509a8a942a20caa7265a434501bb0c96f9dacea91c29c211afa7`
+  - `tools/gpu/q8_occupancy.py` (removed; at 2f15d6a9) `b377390c948b509a8a942a20caa7265a434501bb0c96f9dacea91c29c211afa7`
 - Device: NVIDIA GeForce RTX 5080, Vulkan driver `2580660800` (615.71.09), api `1.4.351`,
   `timestampPeriod 1.00 ns`, `timestampValidBits 64`. CUDA device-property probe (same physical
   GPU): 84 SMs, 1536 threads/SM → 2016 resident workgroups at 64 threads each, 256-bit bus,

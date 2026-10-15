@@ -1,5 +1,7 @@
 # ternary and binary GGUF faces with an exact Walsh–Hadamard rotation, and exact one-bit faces
 
+> Removed Lean modules: `Perf.CostCorrespondence`, `Perf.Generalisation` were deleted by DEL-RECEIPT-LEAN (`tools/rooting/removals.json`). Theorems cited from them below resolve at 2f15d6a9 only; in this tree they stand at grade `model`.
+
 Merged epic record: `intent/ternary-hadamard.md`, `spec/ternary-hadamard.md`, `plan/ternary-hadamard.md` (one file per epic; see `docs/README.md`).
 
 ## Status at this revision
@@ -495,7 +497,7 @@ The control for T3: in a copy, replace `sign(w_t + e_t)` with `sign(w_t)`. `sd_s
 fail to build, and a ℚ counterexample shows the state growing linearly. The controls for T1, T2 and
 T4: flip one sign in a statement, and the build is red.
 
-### Rust (`src/learn/onebit.rs`, `examples/onebit_diag.rs`, `tests/learn_onebit.rs`)
+### Rust (`src/learn/onebit.rs`, `examples/onebit_diag.rs` (removed; at 2f15d6a9), `tests/learn_onebit.rs`)
 
 **Arms.** All arms are per row, with groups of 128 (the `Q1_0` block) and the sign scale
 `a = mean|w|` over the group:
@@ -536,7 +538,7 @@ is 4864 = 38 × 128.
 | W6 | T2 planes | `Numeric/OneBit/SignPlanes.lean` (DeepSeek) | `lake build Numeric.OneBit.SignPlanes` | flipped plane sign red |
 | W6 | T3 sigma-delta + shaping | `Numeric/OneBit/SigmaDelta.lean` (Sonnet subagent) | `lake build Numeric.OneBit.SigmaDelta` | no-feedback quantizer red |
 | W6 | T4 hidden permutation | `Numeric/Hadamard/HiddenPerm.lean` (DeepSeek, after T1/T2 return) | `lake build Numeric.Hadamard.HiddenPerm` | unpermuted gain red |
-| W7 | arms + measurement | `src/learn/onebit.rs`, `examples/onebit_diag.rs`, `tests/learn_onebit.rs` (DeepSeek) | `cargo test --release --locked --test learn_onebit`; `onebit_diag` table | the three W7 controls |
+| W7 | arms + measurement | `src/learn/onebit.rs`, `examples/onebit_diag.rs` (removed; at 2f15d6a9), `tests/learn_onebit.rs` (DeepSeek) | `cargo test --release --locked --test learn_onebit`; `onebit_diag` table | the three W7 controls |
 | W8 | refinement | extraction root `sd_binary_row` → `Numeric/SigmaDelta` | `proof/regen.sh --check`; `lake build` | mutated body red |
 | W9 | whole model | `Q1_0` writer + paired KLD vs f16, `IQ1_S`, `IQ1_M`, `Q4_K_M` | `llama-perplexity` paired KLD | identical-weights KLD = 0 |
 
@@ -626,7 +628,7 @@ are proved in Lean.
 
 ### Intent
 
-**Problem.** The W15d coder (`tools/onebit/fold_transfer.py`, best arm
+**Problem.** The W15d coder (`tools/onebit/fold_transfer.py` (removed; at 2f15d6a9), best arm
 `had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp`, 1.178061 b/w, held-out
 1.2798 nats / 43.76% top-1; receipt `docs/evidence/onebit-w15.md` §21, written by T0) applies one quantizer to every
 tensor: an elliptic rotation (`H₁₂₈/√128`) on the input side and parabolic feedback (GPTQ/ICM, unit
@@ -691,7 +693,7 @@ Audits are added to `proof/corpus/AxiomAudit.lean` by the lead at install (close
 statement: in a copy under `/home/socol/oc-tmp/`, `j² = −1` in place of `j² = 1` (or one changed
 measured constant) turns the build red.
 
-Measurement: `tools/onebit/fold_transfer.py` (torch venv
+Measurement: `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9) (torch venv
 `/home/socol/Workspace/spinor-ttl/.venv/bin/python`), calibration chunks 0–99 and held-out chunks
 100–139 of `/home/socol/oc-tmp/seal/calib-c4.txt` (512 tokens each), RTX 5080, ≤ 600 s per run, one
 GPU lane at a time, every run registered with `python3 .claude/hooks/derivation_gate.py predict`.
@@ -702,11 +704,11 @@ receipt path and Lean declaration names.
 
 | wave | task | files (owner) | gate | control |
 |---|---|---|---|---|
-| W16a | T0 receipt for the W15d best arm | `docs/evidence/onebit-w15.md`, `proof/corpus/Perf/CostCorrespondence.lean`, `proof/corpus/AxiomAudit.lean` (Sonnet) | `fold_transfer.py --variants had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp` reproduces 1.2798 at script sha256 `7f87fcc9…`; `cd proof/corpus && lake build Perf.CostCorrespondence AxiomAudit` | changed measured constant red |
+| W16a | T0 receipt for the W15d best arm | `docs/evidence/onebit-w15.md`, `proof/corpus/Perf/CostCorrespondence.lean` (removed; at 2f15d6a9), `proof/corpus/AxiomAudit.lean` (Sonnet) | `fold_transfer.py --variants had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp` reproduces 1.2798 at script sha256 `7f87fcc9…`; `cd proof/corpus && lake build Perf.CostCorrespondence AxiomAudit` | changed measured constant red |
 | W16a | T1 face-typed Lean | `proof/corpus/Perf/FaceTyped.lean` (Sonnet) | `cd proof/corpus && lake build Perf.FaceTyped` | `j² = −1` red |
-| W16a | T2 junction probe | `tools/onebit/face_probe.py` (Haiku) | per tensor on `/home/socol/oc-tmp/best_arm.pt`: `J = tr(E H Eᵀ)` sequential+backfit vs joint null-basis on the 2-plane tensors; diagonal vs off-diagonal share of the plane cross term; junction norm imbalance `‖d_i‖/‖u_i‖`, `‖o_·i‖/‖v_i·‖` | exact synthetic 2-plane matrix: both fits `J = 0` |
-| W16b | T3 `-nb` joint block-ICM 2-plane arm (k/v/o) | `tools/onebit/fold_transfer.py` (Sonnet; after T0 commits it) | seed-0 `J_nb/J_seq` on k/v/o `≤ 0.97`, then 3-seed paired mean `ΔKL < 0` against the T0 per-seed values at `1.178061` b/w | `sweeps = 0` reproduces T0 bit for bit |
-| W16c | T4 `-hjunc` hyperbolic junction gauges (up/down, v/o) and `-asym` | `tools/onebit/fold_transfer.py` (after T3) | held-out KL below the W16b arm | `s = 1` reproduces the W16b arm |
+| W16a | T2 junction probe | `tools/onebit/face_probe.py` (removed; at 2f15d6a9) (Haiku) | per tensor on `/home/socol/oc-tmp/best_arm.pt`: `J = tr(E H Eᵀ)` sequential+backfit vs joint null-basis on the 2-plane tensors; diagonal vs off-diagonal share of the plane cross term; junction norm imbalance `‖d_i‖/‖u_i‖`, `‖o_·i‖/‖v_i·‖` | exact synthetic 2-plane matrix: both fits `J = 0` |
+| W16b | T3 `-nb` joint block-ICM 2-plane arm (k/v/o) | `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9) (Sonnet; after T0 commits it) | seed-0 `J_nb/J_seq` on k/v/o `≤ 0.97`, then 3-seed paired mean `ΔKL < 0` against the T0 per-seed values at `1.178061` b/w | `sweeps = 0` reproduces T0 bit for bit |
+| W16c | T4 `-hjunc` hyperbolic junction gauges (up/down, v/o) and `-asym` | `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9) (after T3) | held-out KL below the W16b arm | `s = 1` reproduces the W16b arm |
 | W16c | T5 per-wave verdicts | `proof/corpus/Perf/FaceTyped.lean` (after T1) | `lake build Perf.FaceTyped AxiomAudit` | changed constant red |
 
 T0, T1 and T2 are file-disjoint; T0 and T2 share the GPU and serialize on it. W16b opens when T0 is
@@ -760,7 +762,7 @@ Evidence: `docs/evidence/onebit-w15.md` item 26. Board row: `onebit-w16-t6-cross
 
 Owner go (2026-10-14): "focus on that shit first" after the gap analysis (Lean held textbook lemmas, scalar sign-of-effect
 theorems and `norm_num` verdicts over hand-typed literals). Verdict: `/home/socol/oc-tmp/escalation/2026-10-14-w17-foundation.md`
-(Opus, brief `/home/socol/oc-tmp/lanes/w17/FOUNDATION-brief.md`). Read first: `Perf/CostCorrespondence.lean`, `tools/onebit/fold_transfer.py`,
+(Opus, brief `/home/socol/oc-tmp/lanes/w17/FOUNDATION-brief.md`). Read first: `Perf/CostCorrespondence.lean`, `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9),
 `docs/evidence/onebit-w15.md` items 20 and 26.
 
 ### Intent
@@ -794,7 +796,7 @@ theorems and `norm_num` verdicts over hand-typed literals). Verdict: `/home/soco
 | task | board row | owns | gate | control | order |
 |---|---|---|---|---|---|
 | A | `onebit-w17-a-receipt-EJG21b4JnOIzadMIc92CZd` | `tools/rooting/receipt_lean.py`, `docs/evidence/receipts/onebit/`, `Perf/Receipts/Onebit.lean` (then `CostCorrespondence.lean` rebind) | `index_check.py --check`; `receipt_lean.py --check`; `lake build` | edit one digit in a receipt → E5 red; edit a generated constant → `--check` red; stale `w15_four_factor_05b_decomposition` red until rebound | parallel with C |
-| C | `onebit-w17-c-model-aeILmtZsGbJ8hZYFslWj5` | `Perf/Generalisation.lean`, `tools/onebit/fold_transfer.py` (instrument only), `docs/evidence/onebit-w15.md` | `lake build Perf.Generalisation` closed cone; `O/T/Q` and `E_gen(N)` measured, P1–P3 each confirmed or refuted | changed λ constant → verdict red; shuffled `Ĥ` split → sandwich still holds | hardest, first |
+| C | `onebit-w17-c-model-aeILmtZsGbJ8hZYFslWj5` | `Perf/Generalisation.lean`, `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9) (instrument only), `docs/evidence/onebit-w15.md` | `lake build Perf.Generalisation` closed cone; `O/T/Q` and `E_gen(N)` measured, P1–P3 each confirmed or refuted | changed λ constant → verdict red; shuffled `Ĥ` split → sandwich still holds | hardest, first |
 | D | `onebit-w17-d-j-to-kl-FODqnwdkkWselp984dWMO8` | `Perf/Generalisation.lean`, `fold_transfer.py` | identity proved on `Fin V` under the closed cone; tilt `Q` at seed 0 | changed-constant red | after C |
 | B | `onebit-w17-b-bits-cfg-BpyoXO720q3VZEbY0hYN7n` | `src/learn/onebit_bits.rs`, `proof/extract/lib.rs`, `Perf/BitsRefine.lean` | `proof/regen.sh --check`; `lake build`; equality with receipt components | `k_rows` 417 → red; header dropped → red | after A; serialises on `proof/ApeironWord.lean` |
 
@@ -829,13 +831,13 @@ Stop conditions: C stops at the first sandwich violation; B stops after five ext
 - D-probe (`onebit-w17-d-j-to-kl-FODqnwdkkWselp984dWMO8`): evidence item 28 in `docs/evidence/onebit-w15.md`. `Q = 3.1229 = Q_tilt × Q_lin = 1.2272 × 2.5448` (product `3.122860` against the item-27 `Q` `3.122860`); tilt = mean KL / mean `q2` is `0.980` in-sample and `1.203` held-out, `q2/J` is `2.24e-5` and `5.70e-5`. `Q` is carried by the `J → q2` step: `J_out/J_in = 1.17` against `q2_out/q2_in = 2.98`. Hoeffding and mean-value checks 0 violations; run100 KL reproduced to `1.2e-8`. Prediction `w17-d-tilt-1-1` confirmed. Receipt `w17-d-tilt` indexed (row 111). Next: `J_out/J_in` per tensor against the weight-error propagation to the logits (proposed, not started).
 - A3 (`onebit-w17-a-receipt-EJG21b4JnOIzadMIc92CZd`): `Perf/CostCorrespondence.lean` §12 and §25-28 verdicts now state their receipt numerals through generated `Receipts.<id>` constants (`t3_nb_3seed`, `t0b_sinkfnorm_3seed`, `t0_best_3seed`, `t6_sideinfo`, and new `w15_backfit_attn`, `t3_base_seeds12`, `t6_sideinfo_ext`); §12 `w15_four_factor_05b_decomposition` is labelled as the `backfit` arm (1.8580 / 0.5929), not the `-nb` arm. A hand-typed receipt numeral in those sections: 18 before, 0 after. Control: `t0_best_3seed.klHeldout1 + 1/10` turns `w16_t0_best_arm_3seed` red. `receipt_lean.py --check` runs per commit in `.githooks/pre-commit` (step `receipt-lean`) and has an `AGENTS.md` §1a row. Unbound: Q4_K_M `0.0197`, `D_sep` `0.2837`, `D_orc` `0.1128` (sources `docs/evidence/onebit-w15.md:175,181,302`; `escalation/2026-10-11-vladder.json`) and the `ray`/`kfac` receipts cited at `CostCorrespondence.lean:411,429`, none committed under `docs/evidence/receipts/onebit/`.
 - A4/A5 (`onebit-w17-a-receipt-EJG21b4JnOIzadMIc92CZd`): the variance-ladder, ray, kfac and fold-transfer receipts are committed under `docs/evidence/receipts/onebit/2026-10-11-*.json` with ledger rows `onebit-receipt-2026-10-11-{vladder,ray,kfac,fold-transfer}` and generated namespaces `Receipts.{vladder,ray,kfac,fold_transfer}_1011`. `CostCorrespondence.lean` `kfac_w15b`, `ray_w15a`, `waterfill_gain_1133`, `floor_gap_1133` and `w15_four_factor_05b_decomposition` state their numerals through those constants: `D_sep` 0.28374 (`sepKL1133`), `D_orc` 0.11281 (`oracleKL1133`), in-sample Q4_K_M 0.015665 (`q4KLTotal`), held-out Q4_K_M 0.019729 (`q4kmKlHeldout`). Two hand-typed bounds did not hold against the exact receipt values and were corrected: `klHeldout/q4kmKlHeldout` `> 94.3` -> `> 94.1` (exact 94.179) and `D_orc/q4kmKlHeldout` `> 5.72` -> `> 5.71` (exact 5.718). Control: `oracleKL1133 + 1/10` turns the `< 5.73` clause red. Still literal: the `ekfac` numerals (`CostCorrespondence.lean:528,536`, a receipt not yet committed) and the prose `0.0197` in the t0/sinkfnorm docstrings.
-- B (`onebit-w17-b-bits-cfg-BpyoXO720q3VZEbY0hYN7n`): the bits accounting of the `-nb` arm is Rust `src/learn/onebit_bits.rs` (`Cfg`, `bits_sign`, `bits_r`, `bits_c`, `bits_d`, `bits_corr`, `params`, `total_bits`, `index_bits`; checked arithmetic, `Option<u64>`), extracted by `proof/extract/lib.rs` (`onebit_bits.*` in `proof/ApeironWord.lean`, `proof/regen.sh --check` fresh). `proof/corpus/Perf/BitsRefine.lean` proves, for every `Cfg`, that each extracted body returns `some x` with `x` equal to its Nat closed form when every intermediate fits in 2^64 and `none` otherwise, never `fail` (`*_spec`, closed cone). At `qwenCfg` the components equal `Receipts.t3_nb_3seed.{bitsSign,bitsR,bitsC,bitsD,bitsCorr}`, `total_bits` = 421541376, `params` = 357826560. Row-index term: `C(4864,416) <= 2^2044 < 2 * C(4864,416)` (`index_bits_per_set_minimal`), 48 x 2044 = 98112 bits, not in `total_bits`; headline `(421541376 + 98112) / 357826560` = 1.17834 b/w (`headline_bpw_bounds`); counted without the index 1.17806. Grade: extracted body to closed form `proved`; closed form to `fold_transfer.py` `tested` via the receipt only; no packed format or decoder exists, so this counts a format that is not implemented. Controls: `k_rows` 416 -> 417, `signLayerN` coefficient 2 -> 3 and bound 2^2044 -> 2^2043 each turn the build red; Rust `k_rows` 417 turns 6 of 8 tests red.
+- B (`onebit-w17-b-bits-cfg-BpyoXO720q3VZEbY0hYN7n`): the bits accounting of the `-nb` arm is Rust `src/learn/onebit_bits.rs` (`Cfg`, `bits_sign`, `bits_r`, `bits_c`, `bits_d`, `bits_corr`, `params`, `total_bits`, `index_bits`; checked arithmetic, `Option<u64>`), extracted by `proof/extract/lib.rs` (`onebit_bits.*` in `proof/ApeironWord.lean`, `proof/regen.sh --check` fresh). `proof/corpus/Perf/BitsRefine.lean` (removed; at 2f15d6a9) proves, for every `Cfg`, that each extracted body returns `some x` with `x` equal to its Nat closed form when every intermediate fits in 2^64 and `none` otherwise, never `fail` (`*_spec`, closed cone). At `qwenCfg` the components equal `Receipts.t3_nb_3seed.{bitsSign,bitsR,bitsC,bitsD,bitsCorr}`, `total_bits` = 421541376, `params` = 357826560. Row-index term: `C(4864,416) <= 2^2044 < 2 * C(4864,416)` (`index_bits_per_set_minimal`), 48 x 2044 = 98112 bits, not in `total_bits`; headline `(421541376 + 98112) / 357826560` = 1.17834 b/w (`headline_bpw_bounds`); counted without the index 1.17806. Grade: extracted body to closed form `proved`; closed form to `fold_transfer.py` `tested` via the receipt only; no packed format or decoder exists, so this counts a format that is not implemented. Controls: `k_rows` 416 -> 417, `signLayerN` coefficient 2 -> 3 and bound 2^2044 -> 2^2043 each turn the build red; Rust `k_rows` 417 turns 6 of 8 tests red.
 
 ## W19 — Rust port of the model scripts, extracted and refined (owner go 2026-10-15)
 
 ### Intent
 
-Every computation W11–W18 rests on ran in torch (`tools/onebit/` 19 files, `tools/hattn/` 4, `tools/qwen35/reference.py`;
+Every computation W11–W18 rests on ran in torch (`tools/onebit/` 19 files, `tools/hattn/` 4, `tools/qwen35/reference.py` (removed; at 2f15d6a9);
 12,349 lines). Nothing extracts Python, so no Lean theorem in Part II binds the crate (§4 obligation 1, failure-register row
 "quantisation programme ran in Python"). Two scripts also break the 1,500-line source limit (`fold_transfer.py` 2,835,
 `pv_finish.py` 2,102). The port moves every script to Rust on the crate's build path, extracted by Aeneas from the real source,
@@ -895,8 +897,8 @@ Hardest first. A wave's Rust tasks run in parallel on disjoint files; extraction
 | 3 | transfer: ICM, r/c/d grids, corrector, sink, fnorm, grow, resq, qmlp, nb | `src/learn/transfer/` (≤ 12 files, each ≤ 1,500 lines), `examples/onebit_transfer.rs` | 0.5B held-out KL, 3 runs | `--dscale 2` mutant moves KL |
 | 4 | finishing: P-step Adam with STE, V-step over E₈, TV objective | `src/learn/finish/` | 0.5B acceptance, 3 runs | as W3 |
 | 5 | SPIR-V matmuls for W3–W4 | `src/simt_nn/` | equality with the CPU body | as T1 |
-| 6+ | remaining probes, `tools/hattn/`, `tools/qwen35/reference.py`; each `.py` deleted on landing (`retire_check.py`) | per script | per script | per script |
-| 7 | gate scripts over 1,500 lines: `tools/check-kepler.py` 3,686, `tools/gpu/q8_occupancy.py` 1,733, `tools/board/checkpoint.py` 1,527 | the Rust gate driver `tools/gate` (AGENTS.md §1a, MISSING), one module per check, each ≤ 1,500 lines | the ported check's verdict equals the script's on the same tree | each check's existing seeded-defect control red |
+| 6+ | remaining probes, `tools/hattn/`, `tools/qwen35/reference.py` (removed; at 2f15d6a9); each `.py` deleted on landing (`retire_check.py`) | per script | per script | per script |
+| 7 | gate scripts over 1,500 lines: `tools/check-kepler.py` 3,686, `tools/gpu/q8_occupancy.py` (removed; at 2f15d6a9) 1,733, `tools/board/checkpoint.py` 1,527 | the Rust gate driver `tools/gate` (AGENTS.md §1a, MISSING), one module per check, each ≤ 1,500 lines | the ported check's verdict equals the script's on the same tree | each check's existing seeded-defect control red |
 
 # Part III — one-bit attention on the hyperbolic face (`LEARN-HATTN`)
 
@@ -1014,7 +1016,7 @@ The thresholds are the lead's and the owner may revise them.
 
 | task | scope | files | gate | control |
 |---|---|---|---|---|
-| `HATTN-T1` (after T2, owner 2026-10-09; cheapest falsifier of compatibility) | **Prior art.** Retrieve and read the pointers above, plus hashing/binary attention, and record each one's relation to the expansion. **Measurement.** On the Qwen2.5-0.5B `q`,`k` dumps (`/home/socol/oc-tmp/faces-qk`, 24 layers, 14 query heads, 2 KV heads, `T = 512`, f32, `cs.bin` RoPE table), RoPE-rotate, apply a fixed normalized Walsh–Hadamard rotation, sign to `b` bits. Report per head the attention KL against float softmax at the best scale `s`, for exact `b ∈ {8, 12, 16}` and truncated `b = 64`, `r ∈ {1, 2, 3}`. Also report distinct-code growth in `t`. The prediction is registered before the run | `tools/hattn/qk_onebit.py`, `docs/evidence/hattn-qk-onebit.md` | `python3 tools/hattn/qk_onebit.py --check` | replace the sign map by the identity in a copy: KL is 0 at every head |
+| `HATTN-T1` (after T2, owner 2026-10-09; cheapest falsifier of compatibility) | **Prior art.** Retrieve and read the pointers above, plus hashing/binary attention, and record each one's relation to the expansion. **Measurement.** On the Qwen2.5-0.5B `q`,`k` dumps (`/home/socol/oc-tmp/faces-qk`, 24 layers, 14 query heads, 2 KV heads, `T = 512`, f32, `cs.bin` RoPE table), RoPE-rotate, apply a fixed normalized Walsh–Hadamard rotation, sign to `b` bits. Report per head the attention KL against float softmax at the best scale `s`, for exact `b ∈ {8, 12, 16}` and truncated `b = 64`, `r ∈ {1, 2, 3}`. Also report distinct-code growth in `t`. The prediction is registered before the run | `tools/hattn/qk_onebit.py` (removed; at 2f15d6a9), `docs/evidence/hattn-qk-onebit.md` | `python3 tools/hattn/qk_onebit.py --check` | replace the sign map by the identity in a copy: KL is 0 at every head |
 | `HATTN-T2` (first, owner 2026-10-09; closed) | The Lean module above and the cost model | `proof/corpus/Nous/Model/OneBitAttention.lean`, `proof/corpus/AxiomAudit/Remaining.lean` | `cd proof/corpus && lake build Nous.Model.OneBitAttention AxiomAudit` | drop the `sinh` term from the factor in a copy: the build fails at the product theorem |
 | `HATTN-T3` (after T1) | Rust exact and truncated carry; tested against float softmax on ±1 inputs; then the fold-trained sign projection of one Qwen layer | `src/learn/hattn.rs`, `src/learn/mod.rs`, `tests/learn_hattn.rs` | `cargo test --release --locked --test learn_hattn` | flip one feature sign in a copy: the carry-vs-scan test fails |
 | `HATTN-T4` (after T3) | Whole-model conversion and paired KLD against f16 and `Q4_K_M`; training cost against softmax on the spinor-ttl race corpus | specified at T3's barrier | specified at T3's barrier | specified at T3's barrier |

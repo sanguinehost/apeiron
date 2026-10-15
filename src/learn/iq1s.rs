@@ -19,7 +19,7 @@
 //! against `d`.
 //!
 //! **Evidence.** `tested`: byte-identity with `llama-quantize` on the tensors of
-//! `/home/socol/oc-tmp/onebit-w9/qwen05b-IQ1_S-imat.gguf` (`examples/iq1s_check.rs`). Not `proved`.
+//! `/home/socol/oc-tmp/onebit-w9/qwen05b-IQ1_S-imat.gguf` (`examples/iq1s_check.rs` (removed; at 2f15d6a9)). Not `proved`.
 //!
 //! **Complexity** (AGENTS §8). [`Grid::new`]: time `O(M · G)` distance evaluations for `M = 43692`
 //! packed 8-vectors and `G = 2048` codewords, plus `M` sorts of `G` pairs (`O(M G log G)` comparisons);

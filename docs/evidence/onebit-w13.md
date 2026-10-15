@@ -23,8 +23,8 @@ above the water level. The Cover & Thomas `R(D)` theorem is not retrieved here: 
 
 | item | command | receipt |
 |---|---|---|
-| per-arm `ρ`, `AM/GM` of `H` | `tools/onebit/arm_compare.py` (`/home/socol/Workspace/spinor-ttl/.venv/bin/python`, 14 s) | `/home/socol/oc-tmp/escalation/2026-10-11-arm-compare.json` |
-| isotropic water-filling floor (`model`) | `tools/onebit/waterfill.py` (17 s) | `/home/socol/oc-tmp/escalation/2026-10-11-waterfill.json` |
+| per-arm `ρ`, `AM/GM` of `H` | `tools/onebit/arm_compare.py` (removed; at 2f15d6a9) (`/home/socol/Workspace/spinor-ttl/.venv/bin/python`, 14 s) | `/home/socol/oc-tmp/escalation/2026-10-11-arm-compare.json` |
+| isotropic water-filling floor (`model`) | `tools/onebit/waterfill.py` (removed; at 2f15d6a9) (17 s) | `/home/socol/oc-tmp/escalation/2026-10-11-waterfill.json` |
 | instrument control | `tools/onebit/waterfill.py --self-test` | white spectrum gives `ρ = 2^{-2R}`; a two-level spectrum matches its closed form to 1e-9; a throwaway copy with `np.minimum → np.maximum` in `rho_of_theta` raises `AssertionError (0.5, 1.0)`, exit 1; copy removed |
 
 ### Arms (`measured`, `ρ` against f16 on `H`)

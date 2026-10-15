@@ -401,7 +401,7 @@ clean (Charon/Aeneas exit 0, no residual `axiom`/`sorry`, no float externals, ge
 by this identity.
 
 Engine wave: `W4-T1` landed the skeleton (`src/engine/mod.rs` `b7c203a3…`, `src/engine/loader.rs`
-`feb8590b…`, `examples/engine_probe.rs` `f37b6c06…`) — the probe loads `qwen05b-Q4_K_M.gguf` (290
+`feb8590b…`, `examples/engine_probe.rs` (removed; at 2f15d6a9) `f37b6c06…`) — the probe loads `qwen05b-Q4_K_M.gguf` (290
 tensors, Qwen2.5-0.5B config resolved), computes exact Q32.32 embeddings for fixed token ids with
 determinism and refusals, and the decode-loop port map is recorded in `src/engine/mod.rs` (rows 0–8).
 Engine rows 0–8 kernels landed (`W4-T2`–`W4-T7`: dequant, RMSNorm, RoPE, projections, attention,
@@ -419,7 +419,7 @@ softmax window (score below −16). Dequant is ruled out (llama.cpp `q5_0`/`q6_K
 and the llama.cpp reference stream is `12095 13 576 6722 315 279 3639 4180 374 6515 11 422 727 13 576 6722`
 (`" Paris. The capital of the United States is Washington, D.C. The capital"`); no tok/s exists because the
 run refuses in <1 s. `loader.rs` `ab182220…` (855), `src/engine/mod.rs` `84ae603d…` (3477),
-`examples/engine_decode.rs` `2645b09e…` (110); all cargo gates green; control (preloaded-gain ×2) red.
+`examples/engine_decode.rs` (removed; at 2f15d6a9) `2645b09e…` (110); all cargo gates green; control (preloaded-gain ×2) red.
 
 The engine split landed (`W4-T9` follow-up): `src/engine/mod.rs` 3477 → 229 plus twelve modules
 (`dequant`, `norm`, `rope`, `matvec`, `attn`, `ffn`, `lm_head`, `sampler`, `step`, `value`,

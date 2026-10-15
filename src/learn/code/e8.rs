@@ -1,7 +1,7 @@
 //! E8 ∪ O8 256-entry codebook of the one-bit fold transfer, in Q32.32 (`i64`, `ONE = 2^32`).
 //!
-//! Port of `e8_o8_codebook` in `tools/onebit/fold_transfer.py` (lines 239–263). Nearest-row rule:
-//! `encode` in `tools/onebit/pv_finish.py` (lines 87–96), the argmax of `2·B·Cᵀ − |C|²`, which is
+//! Port of `e8_o8_codebook` in `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9) (lines 239–263). Nearest-row rule:
+//! `encode` in `tools/onebit/pv_finish.py` (removed; at 2f15d6a9) (lines 87–96), the argmax of `2·B·Cᵀ − |C|²`, which is
 //! the Euclidean argmin of `|B − C|²` with the first index on ties. Scaled rule: the per-row cost
 //! `a²|C|² − 2a·x·C` of `gptq_e8` (`fold_transfer.py` 301–308) and `e8_icm_step` (608), i.e. the
 //! nearest codeword to `a·C_j`. No prior Rust body exists for this codebook (epic W19, Subsumed).

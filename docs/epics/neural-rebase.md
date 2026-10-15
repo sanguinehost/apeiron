@@ -1734,7 +1734,7 @@ Reimplement and verify the six learning track mechanisms in this crate under `sr
 | Wave | Task ID | Owner | Owned files (≤3) | One focused gate | Negative control |
 |---|---|---|---|---|---|
 | W0 | `APEIRON-LEARN-W0-T1` | integrator | `src/learn/gguf.rs`, `src/learn/mod.rs`, `tests/learn_gguf.rs` | `cargo test --release --locked --test learn_gguf` | Flip magic byte in copy: parser fails |
-| W0 | `APEIRON-LEARN-W0-T2` | integrator | `tools/gpu/speed_guard.py` | `python3 tools/gpu/speed_guard.py` | Add sleep in decode loop in copy: gate fails by name |
+| W0 | `APEIRON-LEARN-W0-T2` | integrator | `tools/gpu/speed_guard.py` (removed; at 2f15d6a9) | `python3 tools/gpu/speed_guard.py` | Add sleep in decode loop in copy: gate fails by name |
 | W1 | `APEIRON-LEARN-W1-T1` | worker | `src/learn/seal.rs`, `tests/learn_seal.rs` | `cargo test --release --locked --test learn_seal` | Drop τ weighting in copy: calibrated-error ≤ uncalibrated-error fails |
 | W2 | `APEIRON-LEARN-W2-T1` | worker | `src/learn/foldadapt.rs`, `tests/learn_foldadapt.rs` | `cargo test --release --locked --test learn_foldadapt` | Weight each merge by position in copy: grouping-free test fails |
 | W3 | `APEIRON-LEARN-W3-T1` | worker | `src/learn/ridge.rs`, `tests/learn_ridge.rs` | `cargo test --release --locked --test learn_ridge` | Drop λ in copy: unique-optimum fails on rank-deficient X |
@@ -1756,8 +1756,8 @@ Reimplement and verify the six learning track mechanisms in this crate under `sr
 - **Negative control:** Invert the GGUF header magic in a disposable copy; parser verification must fail. Restore and verify exit 0.
 
 ##### APEIRON-LEARN-W0-T2 · Inference speed guard verification
-- **Scope:** Establish `tools/gpu/speed_guard.py` measuring `tg128` and `pp512` token rates on Qwen2.5-0.5B Q4_K_M, verifying SEQHASH `9092dbbaff119a2e`.
-- **Owned files:** `tools/gpu/speed_guard.py`
+- **Scope:** Establish `tools/gpu/speed_guard.py` (removed; at 2f15d6a9) measuring `tg128` and `pp512` token rates on Qwen2.5-0.5B Q4_K_M, verifying SEQHASH `9092dbbaff119a2e`.
+- **Owned files:** `tools/gpu/speed_guard.py` (removed; at 2f15d6a9)
 - **Depends on:** none
 - **Grade:** `tested`
 - **Gate:** `python3 tools/gpu/speed_guard.py`

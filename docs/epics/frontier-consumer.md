@@ -1,5 +1,7 @@
 # Plan — frontier intelligence on consumer devices (cross-track roadmap)
 
+> Removed Lean modules: `Perf.CostCorrespondence` were deleted by DEL-RECEIPT-LEAN (`tools/rooting/removals.json`). Theorems cited from them below resolve at 2f15d6a9 only; in this tree they stand at grade `model`.
+
 - **Owner:** lead
 - **Status:** draft; a roadmap across epics, not an epic. Each track opens its own intent/spec/plan
   before tasks are allocated (AGENTS §2).
@@ -291,7 +293,7 @@ The spinor-ttl and fold records measure parts of this path.
 - **E0/E1 results (tested; scratch receipts in `/home/socol/oc-tmp/lm-eval/REPORT.md`):**
   - Harness: `lm-eval` 0.4.13 pinned in a Python 3.12 venv.
   - Engine adapter: `Engine::step_logits` (`src/engine/step.rs`), the JSON bridge
-    `examples/lm_eval_bridge.rs`, and an `@register_model("apeiron")` backend.
+    `examples/lm_eval_bridge.rs` (removed; at 2f15d6a9), and an `@register_model("apeiron")` backend.
   - Parity on Qwen2.5-0.5B (`Q4_K_M` GGUF on the proved Q32.32 engine, vs the Hugging Face bf16
     reference at `060db649`): ARC-Easy and PIQA, first 20 documents each, identical accuracy
     (0.70/0.70) and **40/40 identical chosen answers**.
@@ -301,7 +303,7 @@ The spinor-ttl and fold records measure parts of this path.
   - Throughput 1.6 tok/s single-stream on the early CPU path (`E0/E1`); the GPU SPIR-V path has since closed the R0
     throughput gate at CUDA parity (`docs/plan.md` rows `DECODE-ATTRIB` and `INF-RESIDENT-PREFILL`: Qwen2.5-0.5B
     `Q4_K_M` tg128 **`973.8` tok/s = `1.04×` CUDA `llama.cpp` `935.7` tok/s**, pp512 **`70.2k` tok/s**, guarded by
-    `SPEED-GUARD` `tools/gpu/speed_guard.py`).
+    `SPEED-GUARD` `tools/gpu/speed_guard.py` (removed; at 2f15d6a9)).
 - **Falsification:** the harness's own control, a deliberately slowed kernel, must show up in the
   measurement. Otherwise the instrument is invalid (AGENTS §10, instrument-defect row).
 
@@ -310,14 +312,14 @@ The spinor-ttl and fold records measure parts of this path.
 With the SPIR-V execution engine at CUDA parity (`DECODE-ATTRIB` `973.8` tok/s, `INF-RESIDENT-PREFILL` `70.2k` tok/s)
 and forward-only continuous learning (`LEARN-RIDGE` exact-Gram Cholesky fold and `LEARN-FOLDADAPT` exact-key table merge/unlearn
 in `docs/plan.md` rows 244–245), `LEARN-ONEBIT` (`docs/evidence/onebit-w15.md`, `docs/evidence/cost-correspondence.md`,
-`proof/corpus/Perf/CostCorrespondence.lean`) is the remaining piece required to run a local 27B–32B coding and research
+`proof/corpus/Perf/CostCorrespondence.lean` (removed; at 2f15d6a9)) is the remaining piece required to run a local 27B–32B coding and research
 entity (`../intent` RRSI loop) on a single 16 GB consumer GPU:
 
 | Component | Artifact & status (`docs/plan.md`, `docs/evidence/onebit-w15.md`) | Role in local 27B RRSI |
 |---|---|---|
 | **Resident footprint & decode floor (`27B` at `1.18` b/w)** | `Perf.CostCorrespondence.{qwen27b_target_floor, tg_floor_ratio}` (`docs/evidence/cost-correspondence.md`): **`3.9825 GB`** weight footprint (`< 4.15` ms/tok roofline at `960` GB/s, `> 240` tok/s ceiling; `~140–180` tok/s at `60–75%` bandwidth efficiency) | Fits a `27B` model (`Qwen2.5/3-27B/32B`) plus `32k–64k` KV cache and workspace inside `16 GB` VRAM (`Q4_K_M` needs `~16.5 GB` weights alone and cannot fit) |
 | **Scale collapse of the `1.18` b/w K-FAC floor (`0.5B → 8B → 32B`)** | `tools/onebit/rstar_{stream,fast}.py` (`docs/evidence/onebit-w15.md`): against `llama.cpp Q4_K_M` (`1.00×`), the `1.18` b/w separable floor drops from **`16.9× Q4_K_M`** (`0.5B`, `R*_sep = 3.1731` b/w) → **`5.27× Q4_K_M`** (`Qwen3-8B`, `R*_sep = 2.2530` b/w, `0.0989` nats) → **`3.78× Q4_K_M`** (`Qwen3-32B`, `R*_sep = 1.9927` b/w, `0.0913` nats, below 4.5-bit `NF4`'s `4.62× Q4_K_M`), while the 0-side-info oracle floor is **`2.11× Q4_K_M` on 8B** (`R*_orc = 1.5908` b/w) and **`~1.35×–1.50× Q4_K_M` on 27B/32B** | Because `R*_sep` and `R*_orc` fall with model width (`r99 / n` shrinks as width grows from `896` to `5120`), a constructive coder that sits near the K-FAC floor on `0.5B` lands inside the **`1.5×–2.5× Q4_K_M`** (`0.03–0.05` nats, `> 88%` top-1) envelope at `27B/32B` |
-| **Constructive `1.18` b/w coder (`LEARN-ONEBIT` W15d §§9–20)** | `tools/onebit/fold_transfer.py` (`docs/evidence/onebit-w15.md`): 7-component trichotomy pipeline (`had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm` at **`1.1795` b/w**) combining `H₁₂₈/√128`, butterfly sign-group gauge, 2-plane full-attention hierarchical scales, the 1-byte `E₈ ∪ O₈` spinor + parabolic-sparse codebook, `beam=4` Cholesky trajectory search, MP-damped (`λ_icm = 0.20`) global 8-tuple ICM, Stage-1 drift attenuation (`inter_gamma_in = 0.25`), and Riemannian `RMSNorm` pullback sink gating + row-trust radial projection + coherence-anchored readout `fnorm` reaches **`0.3749` nats in-sample (`21.55× Q4_K_M`, `0.9646×` — `3.54%` BELOW the `0.3887` nats uniform-rate separable K-FAC floor)** and **`1.3777` nats held-out (`69.93× Q4_K_M`, `42.19%` top-1, down from `14.86` nats on `gptq1-t` and `3.119` nats on `fold-block`)** in `93.9` s | Closes the in-sample constructive coding factor (`Factor 2: KL_in / D_sep = 0.9646×` uniform-rate); the remaining `0.5B` held-out gap is `72.8%` finite-sample cross-layer target drift (`Factor 1: KL_out / KL_in = 3.675×`) |
+| **Constructive `1.18` b/w coder (`LEARN-ONEBIT` W15d §§9–20)** | `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9) (`docs/evidence/onebit-w15.md`): 7-component trichotomy pipeline (`had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm` at **`1.1795` b/w**) combining `H₁₂₈/√128`, butterfly sign-group gauge, 2-plane full-attention hierarchical scales, the 1-byte `E₈ ∪ O₈` spinor + parabolic-sparse codebook, `beam=4` Cholesky trajectory search, MP-damped (`λ_icm = 0.20`) global 8-tuple ICM, Stage-1 drift attenuation (`inter_gamma_in = 0.25`), and Riemannian `RMSNorm` pullback sink gating + row-trust radial projection + coherence-anchored readout `fnorm` reaches **`0.3749` nats in-sample (`21.55× Q4_K_M`, `0.9646×` — `3.54%` BELOW the `0.3887` nats uniform-rate separable K-FAC floor; that `model` floor is `refuted` by `docs/evidence/receipts/onebit/t3-nb-3seed.json` at `0.35064`)** and **`1.3777` nats held-out (`69.93× Q4_K_M`, `42.19%` top-1, down from `14.86` nats on `gptq1-t` and `3.119` nats on `fold-block`)** in `93.9` s | Closes the in-sample constructive coding factor (`Factor 2: KL_in / D_sep = 0.9646×` uniform-rate); the remaining `0.5B` held-out gap is `72.8%` finite-sample cross-layer target drift (`Factor 1: KL_out / KL_in = 3.675×`) |
 | **SPIR-V execution & forward-only adaptation** | `DECODE-ATTRIB` (`973.8` tok/s), `INF-RESIDENT-PREFILL` (`70.2k` tok/s), `LEARN-RIDGE` (`FoldTrainer` closed-form Gram solve), `LEARN-FOLDADAPT` (`FoldAdapter` exact unlearning `fold(A+B) − fold(B) = fold(A)`) | Serves the `1.18` b/w core on Vulkan/SPIR-V and folds accepted candidate trajectories into the adapter/readout state in seconds without backprop |
 
 ## Sequencing

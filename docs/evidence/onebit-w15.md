@@ -1,12 +1,14 @@
 # ONEBIT W15a: direct KL along the quantisation ray
 
+> Removed Lean modules: `Perf.BitsRefine`, `Perf.CalScaling`, `Perf.CostCorrespondence`, `Perf.KDScaling`, `Perf.PerplexityKL`, `Perf.PVFinish`, `Perf.SizeTrend`, `Perf.SpecDraftKL`, `Perf.Trellis` were deleted by DEL-RECEIPT-LEAN (`tools/rooting/removals.json`). Theorems cited from them below resolve at 2f15d6a9 only; in this tree they stand at grade `model`.
+
 Command (from the repository root, `/home/socol/Workspace/spinor-ttl/.venv/bin/python`, RTX 5080):
 `python tools/onebit/ray_scan.py /home/socol/oc-tmp/escalation/2026-10-11-stiffness.json /home/socol/oc-tmp/escalation/2026-10-11-ray.json 100`.
 100 C4 chunks of 512 tokens (`/home/socol/oc-tmp/seal/calib-c4.txt`), wall 139.6 s. The 21 `ffn_down` tensors of
 Qwen2.5-0.5B move jointly to `W + tD` (`D` the arm's dequantised error, `fisher_capture.load_deltas`), and the
 per-token KL `KL(p_W ‖ p_{W+tD})` is computed in float64.
 
-- Source: `tools/onebit/ray_scan.py` sha256 `ad65df8f0cc58c2d…`; receipt sha256 `40e693d217fdbe6c…`.
+- Source: `tools/onebit/ray_scan.py` (removed; at 2f15d6a9) sha256 `ad65df8f0cc58c2d…`; receipt sha256 `40e693d217fdbe6c…`.
 - Prediction `ray-1` was withdrawn, not scored: the run was launched as `cd tools/onebit && python ray_scan.py`, so the
   derivation gate's run class did not admit it. The numbers below are `measured`; they carry no prediction verdict.
 
@@ -34,7 +36,7 @@ per-token KL `KL(p_W ‖ p_{W+tD})` is computed in float64.
 
 ## Formal record
 
-`Perf.CostCorrespondence.ray_w15a` (`proof/corpus/Perf/CostCorrespondence.lean`, `proved`, closed cone) states the
+`Perf.CostCorrespondence.ray_w15a` (`proof/corpus/Perf/CostCorrespondence.lean` (removed; at 2f15d6a9), `proved`, closed cone) states the
 three verdicts on these figures as ℚ facts; a changed `had-gptq1` bound (`< 1.09`) reddens it
 (`/home/socol/oc-tmp/costcorr-wf-controls.log`).
 
@@ -56,7 +58,7 @@ Command (repository root, same venv and GPU): `python tools/onebit/kfac_floor.py
 /home/socol/oc-tmp/escalation/2026-10-11-kfac.json 100 4`. 100 C4 chunks, 4 sampled targets per token, all 168 linear
 tensors (7 kinds × 24 blocks). Wall 118.3 s (capture 22.0 + 17.8 s in two 12-block halves, analysis 45.0 s).
 
-- Source: `tools/onebit/kfac_floor.py` sha256 `1fb742d7080c0417…`; receipt sha256 `e64115b13698bf50…`; log
+- Source: `tools/onebit/kfac_floor.py` (removed; at 2f15d6a9) sha256 `1fb742d7080c0417…`; receipt sha256 `e64115b13698bf50…`; log
   `/home/socol/oc-tmp/escalation/2026-10-11-kfac.log`.
 - Control: the gguf f16 weights equal the HF weights the factors are captured on, max relative difference 5.0e-8.
 - Prediction `kfac-1-1`: **refuted** on its order clause; its factor, rate, oracle-below-separable and control
@@ -123,8 +125,8 @@ truncation is not the whole of the W14 inversion.
 
 ## Formal record
 
-`Perf.CostCorrespondence.kfac_w15b` (`proved`, closed cone) states the validation band, the refuted order, the
-16×/6× floor factors and the matching rates as ℚ facts. Controls: the order flipped and the separable factor raised to
+`Perf.CostCorrespondence.kfac_w15b` (`proved` at 2f15d6a9; the module was removed by DEL-RECEIPT-LEAN, so the
+statement now stands at `model`) states the validation band, the refuted order, the 16×/6× floor factors and the matching rates as ℚ facts. Controls: the order flipped and the separable factor raised to
 17× each redden it (`/home/socol/oc-tmp/costcorr-kfac-controls.log`).
 
 ## What follows
@@ -143,7 +145,7 @@ truncation is not the whole of the W14 inversion.
 # ONEBIT W15c: the Shannon-bound side (`anchor`) and the K-FAC floor (`model`) against model size
 
 Command (repository root, same venv and GPU): `python tools/onebit/converse.py {controls,main,ekfac,scale} …`.
-Source `tools/onebit/converse.py` sha256 `29034f02d9002f6f…`; receipts
+Source `tools/onebit/converse.py` (removed; at 2f15d6a9) sha256 `29034f02d9002f6f…`; receipts
 `/home/socol/oc-tmp/escalation/2026-10-11-converse-{controls,main,ekfac,scale-*}.json` with `.log`.
 
 ## Measured structure a 1.18 b/w code could exploit (Qwen2.5-0.5B, 168 tensors)
@@ -164,7 +166,7 @@ negentropy `J ≥ R_g(D_Q4) − 1.18`: 1.994 b/w on the separable curve, 1.173 b
 - Eigenvalue-corrected K-FAC moves `had-gptq1` from 0.659 to 0.701 of the exact quadratic; the order inversion
   persists (prediction `conv-ekfac-1` refuted).
 
-## Variance ladder on Qwen2.5-0.5B (`tools/onebit/variance_ladder.py`)
+## Variance ladder on Qwen2.5-0.5B (`tools/onebit/variance_ladder.py` (removed; at 2f15d6a9))
 
 Receipt: `/home/socol/oc-tmp/escalation/2026-10-11-vladder.json` (138.6 s, fp32 tensors). Prediction
 `variance-ladder-1-1` **refuted** (falsifier fired: no structured variance model recovers `≥ 0.1` b/w net of side
@@ -190,7 +192,7 @@ information).
    on 100 C4 chunks at `c = 512`, files in `/home/socol/oc-tmp/converse/`). bf16 vs fp32 on 0.5B changes `R*` by 0.0016
    (`conv-s05b-1` confirmed). Subset control (`subset-bias-1`): 8 stratified layers read `R*` 0.123 b/w low on 0.5B
    (`3.051` vs `3.174`).
-2. **Full-layer streamed capture (`tools/onebit/rstar_stream.py`, sha256 `ba392c24…`)**:
+2. **Full-layer streamed capture (`tools/onebit/rstar_stream.py` (removed; at 2f15d6a9), sha256 `ba392c24…`)**:
    - Control `rstar-ctl-1` (0.5B, 24 layers fp32): bisection `R*` all-in **3.1731** (ref 3.1743, diff `0.0012`), `K0`
      1.1852 (`−0.47%`), `kl_q4` 0.015700, wall 109 s (HF logprob clause `5e-4` vs `< 1e-4` missed).
    - Mutant `rstar-mut-1` (`--dscale 2`, scaling Q4 error `×2`, KL `×4`): bisection `R*` all-in **2.1823** (move
@@ -198,7 +200,7 @@ information).
    - Full-model Qwen3-8B (36 layers fp32, receipt `/home/socol/oc-tmp/escalation/2026-10-11-rstar-qwen3-8b.json`,
      `rstar-8b-1` confirmed) and Qwen3-32B (64 layers fp32, receipt
      `/home/socol/oc-tmp/escalation/2026-10-11-rstar-qwen3-32b.json`, `rstar-32b-1` refuted against `[0.9, 1.9]`).
-3. **Fast one-process instrument (`tools/onebit/rstar_fast.py`, sha256 `96031c3d…`, prior SLQ sha256 `fef86981…`)**:
+3. **Fast one-process instrument (`tools/onebit/rstar_fast.py` (removed; at 2f15d6a9), sha256 `96031c3d…`, prior SLQ sha256 `fef86981…`)**:
    - Own-importance Q4_K_M quantization from captured `diag(H)` (Q1 control: 0 differing rows vs `llama-quantize
      --imatrix`, byte-exact).
    - SLQ mode (`--eig slq`, receipts `/home/socol/oc-tmp/rstar-fast/{dev05-fix2,dev8-fullA}.json`): 0.5B `R*` all-in
@@ -532,7 +534,7 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
     - Command (Qwen2.5-0.5B, 24 layers, 100 calibration / 40 held-out / 20 in-sample chunks, `fp32`, one GPU, under
       `flock /tmp/opencode/gpu.lock`, wall 443.4 s total including model load):
       `flock /tmp/opencode/gpu.lock timeout 580 /home/socol/Workspace/spinor-ttl/.venv/bin/python tools/onebit/fold_transfer.py --out /home/socol/oc-tmp/w16/t0-best-3seed.json --seeds 0,1,2 --variants had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp`.
-    - `tools/onebit/fold_transfer.py` `sha256` `ce1734018f202aa8aa6bace3aad4858cc09b2f0d31d2dc89b2397179bb112309`
+    - `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9) `sha256` `ce1734018f202aa8aa6bace3aad4858cc09b2f0d31d2dc89b2397179bb112309`
       (`--seeds`: seed `s ≠ 0` permutes the calibration chunks with `torch.randperm(n_cal, generator=Generator().manual_seed(s))`
       and seeds `torch.manual_seed(s)`; seed `0` is the identity order; held-out and in-sample chunks never change). Receipt
       `/home/socol/oc-tmp/w16/t0-best-3seed.json`, `sha256` `3715d9b7427dca22f450ff21583e41a5d6bc6d6ba80fdc3544a089ad5fd2b10e`
@@ -549,7 +551,7 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
       Seed `0` reproduces the earlier single run (`1.2798` nats, `43.76%`, `0.3474` nats, `67.81%`): held-out KL differs by
       `3e-5` nats. The wall of seeds `1` and `2` includes contention from other jobs on the machine; it is not a
       throughput figure. Seed `0` is the best of the three by `0.110` nats; seeds `1` and `2` agree to `2e-4` nats.
-    - What the three suffixes do (`tools/onebit/fold_transfer.py`):
+    - What the three suffixes do (`tools/onebit/fold_transfer.py` (removed; at 2f15d6a9)):
       - `-grow` (`use_grow`, `:839`; `:1033-1042`): the scale solve inside `fold_fit` weights output rows by `g_row`
         (`:605`). For `gate`/`up`, `g_row` is the column energy `Σ_j W_down[j, i]²` of the following `down` (mean-normalized);
         for `o`/`down`, `g_row` is the squared RMSNorm gain of the next consumer (`ln2` for `o`, the next layer's `ln1` or
@@ -564,7 +566,7 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
         `q` stays 1-plane) and on the top-`416` rows of `gate` and `up` ranked by row mass `Σ_j W[i, j]²`
         (`topk(row_mass, 416)`; `Wp[top_idx] += fold_fit(W_s[top] − Wp1[top])`); the rank-2 correction targets are
         `("q","down")` (`:1097-1099`). The extra planes are in the `1.178061` b/w count.
-    - `Perf.CostCorrespondence` theorems added with this arm's work (`proof/corpus/Perf/CostCorrespondence.lean`, all
+    - `Perf.CostCorrespondence` theorems added with this arm's work (`proof/corpus/Perf/CostCorrespondence.lean` (removed; at 2f15d6a9), all
       `#audit`ed in `proof/corpus/AxiomAudit.lean`, closed cone):
       - `swiglu_hyperbolic_noise_minimization (u d s : ℝ)`, hypotheses `0 < u`, `0 < d`, `0 < s`: conclusion
         `(su)² + (s⁻¹d)² − 2ud = (su − s⁻¹d)²`, `2ud ≤ (su)² + (s⁻¹d)²`, and equality iff `su = s⁻¹d`. Algebraic model of
@@ -754,7 +756,7 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
 27. **Generalisation factors of the `-nb` gap: `G = O·T·Q` and `E_gen(N)`** (W17-C; grade `measured` for `O`, `Q`, `μ̂` and `E_gen`, `proved` for the
     sandwich in `Perf/Generalisation.lean`; board row `onebit-w17-c-model-aeILmtZsGbJ8hZYFslWj5`). Question: of `G = KL_out/KL_in = 3.653` (seed 0), how
     much is Hessian optimism `O` (finite-sample plus student-input shift), how much is the layer-output MSE ratio `T`, and how much is KL per unit `J`, `Q`?
-    Script `tools/onebit/gen_probe.py` sha256 `43deb35c…`; held-out fixed at chunks `[100, 140)`; receipts under `docs/evidence/receipts/onebit/`
+    Script `tools/onebit/gen_probe.py` (removed; at 2f15d6a9) sha256 `43deb35c…`; held-out fixed at chunks `[100, 140)`; receipts under `docs/evidence/receipts/onebit/`
     (`w17-c-run25`, `-run50`, `-run100`, `-measure100`, `-fit`, sha256 prefixes `99e4200c…`, `4b7236a0…`, `f9e9a412…`, `adb3bced…`, `6fdfa890…`).
     The `N = 100` driver reproduces the 3-seed receipt seed 0 bit-exactly (`dKL = 0.0`, bits `421541376`).
 
@@ -788,7 +790,7 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
 28. **Split of `Q`: exponential tilt against logit-space linearisation** (W17-D; grade `measured`, with the `proved` identity `Perf.KLTilt.kl_eq_half_var`; board row
     `onebit-w17-d-j-to-kl-FODqnwdkkWselp984dWMO8`). Question: `Q = (KL/J)_out/(KL/J)_in = 3.1229` (item 27) factors as `Q_tilt · Q_lin` with
     `Q_tilt = (KL/q2)_out/(KL/q2)_in` and `Q_lin = (q2/J)_out/(q2/J)_in`, `q2 = ½·E_pos Var_p(δ)` (`p` teacher softmax, `δ` student − teacher log-probability).
-    Script `tools/onebit/gen_probe.py` (`tilt`) sha256 `5d227370…`, receipt `w17-d-tilt.json` sha256 `94b6b8ee…`, dump `nb100.pt` sha256 `196568f9…`;
+    Script `tools/onebit/gen_probe.py` (removed; at 2f15d6a9) (`tilt`) sha256 `5d227370…`, receipt `w17-d-tilt.json` sha256 `94b6b8ee…`, dump `nb100.pt` sha256 `196568f9…`;
     `-nb` arm, seed 0, `N = 100`; in-sample chunks `[0, 20)` (10240 positions), held-out chunks `[100, 140)` (20480 positions); wall 87 s (prediction `w17-d-tilt-1-1`).
 
     | | in-sample | held-out |
@@ -855,7 +857,7 @@ Receipts (committed, rows in `docs/evidence/ledger.jsonl`):
   collapse of closed-form PTQ at 1 bit (the rows above).
 - Placement (`model`: perplexity and KL are different metrics): the comparators are measured on perplexity, ours on KL
   and top-1. A bridging measurement, the `-nb` arm on WikiText-2 perplexity or a public 1-bit PTQ code scored by
-  `tools/onebit/fold_transfer.py`, places the two on one axis; it is not run.
+  `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9), places the two on one axis; it is not run.
 
 ## Trajectory (`measured`, `w18-trajectory.tsv`)
 
@@ -1139,7 +1141,7 @@ teacher-forced, not sampled from the draft.
 
 ## Straight-through KL distillation of a single sign plane (`measured`; `Perf/KDScaling.lean`)
 
-Command (prediction `kdmain-1`, `kdlr-1`; script `tools/onebit/kl_distill.py` sha256 `3690026e…`; RTX 5080; train data
+Command (prediction `kdmain-1`, `kdlr-1`; script `tools/onebit/kl_distill.py` (removed; at 2f15d6a9) sha256 `3690026e…`; RTX 5080; train data
 C4 shard 00001, sha256 `77078e5f…`, disjoint from the calibration file):
 
 | run | steps | tokens | lr latent / scale | held-out KL (fp32, chunks 100–140) | top-1 | signs flipped | train wall |
@@ -1170,7 +1172,7 @@ Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
 ## Calibration size and the 2-plane arm (`measured`; `Perf/CalScaling.lean`)
 
-Prediction `calx-1`, refuted. Script `tools/onebit/fold_transfer.py` `--cal-extra 500` appends the first 500 chunks of C4
+Prediction `calx-1`, refuted. Script `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9) `--cal-extra 500` appends the first 500 chunks of C4
 shard 00001 (`train-c4.qwen.npy` sha256 `74945dcc…`) to the 100 `calib-c4` calibration chunks; the run's script sha256
 is `458d6efd…`. The committed file (`9183c172…`) adds `--model`/`--q4km` with unchanged defaults. Held-out chunks
 `[100, 140)` and in-sample chunks `[0, 20)` are the same as the 100-chunk fit. RTX 5080, single chunk order.
@@ -1198,7 +1200,7 @@ Board row: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
 Prediction `trellis-2`, confirmed (`trellis-1` withdrawn: its single command slot went to a debug run). The generator
 form of "generate the weights from a seed" is random coding: a seed fixes a pseudo-random codebook and the encoder
-searches for the seed path whose generated values best match the weights. `tools/onebit/trellis_gen.py` (sha256
+searches for the seed path whose generated values best match the weights. `tools/onebit/trellis_gen.py` (removed; at 2f15d6a9) (sha256
 `a364850b…`) builds the strongest published instance, the bitshift trellis with the 1MAD hash generator (QTIP, Tseng
 et al., arXiv 2406.11235): `L` state bits, one code bit per weight, Viterbi over 16-column blocks with per-survivor
 GPTQ feedback, plus `L/n` start-state bits per row. It is scored on the arm's own objective `J` (Hadamard-rotated
@@ -1272,7 +1274,7 @@ The size-trend section names the per-layer objective `J` as the gap. This run ke
 count fixed and optimises it against end-to-end KL, in the manner of PV-Tuning (Malinovskii et al., arXiv 2405.14852,
 which reports Llama-2 7B at 1.58 b/w within 1.43× of fp16 perplexity).
 
-- Method (`tools/onebit/pv_finish.py`, sha256 `c973b38c…`; `tools/onebit/fold_transfer.py` sha256 `f21e276a…`, whose
+- Method (`tools/onebit/pv_finish.py` (removed; at 2f15d6a9), sha256 `c973b38c…`; `tools/onebit/fold_transfer.py` (removed; at 2f15d6a9) sha256 `f21e276a…`, whose
   `PACK_SINK` records every linear's stored planes `(S_rot, r, c, d, rows)`): build the arm on Qwen2.5-0.5B exactly as
   `w18-size05-n50.json` (n-cal 50, held-out `calib-c4` `[50, 90)`, in-sample `[0, 20)`), then train on forward
   KL(fp32 teacher ‖ student) over C4 training chunks disjoint from calibration.

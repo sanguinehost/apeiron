@@ -63,7 +63,7 @@ python3 tools/rooting/retire_check.py --check
 |---|---|---|
 | the integer carrier dot at width `b ∈ {2,4,8}` refines canonical `ringMul` by one lemma indexed by `b` | proved | W1 theorem (extends `sdot_split_ringMul`); `lake build` |
 | a new width (`b = 2`) is added by instantiating `b` only: no new kernel, no new theorem body | tested + proved | W3 gate: Q2 matches the CPU oracle, same lemma instance |
-| one GEMM source at `b ∈ {4,8}` matches each deleted kernel's pp512 within spread | measured | `examples/gpu_ppl.rs`, `engine_profile`, ≥5 interleaved runs, RTX 5080 |
+| one GEMM source at `b ∈ {4,8}` matches each deleted kernel's pp512 within spread | measured | `examples/gpu_ppl.rs` (removed; at 2f15d6a9), `engine_profile`, ≥5 interleaved runs, RTX 5080 |
 | the prefill attention gain (INF-ATTN-PREFILL) is independent of the weight carrier | measured | INF-CARRIERS table (K and V are f32: inferred from the kernel, not yet measured) |
 | F16/F32 weights fold into the same fold at no measured cost, or the exception is named | measured | W4 table |
 | lines of per-carrier code and number of carrier-specific sources go down | measured | W5 `rg`/`wc` inventory before and after |
