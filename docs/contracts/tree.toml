@@ -1,0 +1,790 @@
+# The final tree of the apeiron repository (owner direction 2026-10-15: decide the final folder and file structure
+# and enforce it). Read by `tools/gate structure` (docs/plan.md, STRUCT-GATE). Lead verdict, listed for owner review.
+#
+# Admission: a tracked path is admitted by the [[dir]] whose `path` is its parent directory, or by the nearest
+# ancestor [[dir]] with `recursive = true`. Its file name must match one of that entry's `files` globs (`*` matches
+# any run of characters except `/`). A path admitted by no entry is refused; a directory gains a place in the tree
+# only by an edit to this file.
+#
+# Limits apply to source files (extensions in `source`): at most `max_lines` physical lines per file and at most
+# `max_dir_files` source files directly in one directory (AGENTS.md section 4). `generated` paths are exempt from
+# `max_lines`. Python is admitted only at a path listed in [python].frozen; the list only shrinks, and an entry that
+# is no longer tracked is refused, so a deletion must also delete its entry.
+#
+# [[debt]] records a violation present when this file was written: rule, path, and the board row that removes it.
+# A debt entry whose violation no longer holds is refused, so the list only shrinks.
+
+schema = 1
+max_lines = 1500
+max_dir_files = 12
+source = ["rs", "lean", "comp", "py", "sh", "c", "cpp"]
+generated = ["proof/ApeironWord.lean"]
+
+# ---- root ---------------------------------------------------------------------------------------------------------
+[[dir]]
+path = "."
+holds = "workspace manifests, licence, and the governing documents"
+files = ["Cargo.toml", "Cargo.lock", "deny.toml", "README.md", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md",
+         "LICENSE", "NOTICE", ".gitignore"]
+
+[[dir]]
+path = ".github"
+holds = "CI workflow and dependency policy"
+recursive = true
+files = ["*.yml"]
+
+[[dir]]
+path = ".githooks"
+holds = "the hooks `tools/hooks/install.sh` installs"
+files = ["pre-commit", "pre-push", "commit-msg"]
+
+[[dir]]
+path = ".claude"
+holds = "the derivation gate and its settings"
+recursive = true
+files = ["settings.json", "*.py"]
+
+[[dir]]
+path = ".intent"
+holds = "prediction and run ledger written by the derivation gate"
+recursive = true
+files = ["*.jsonl", "*.chain", "*.toml", "*.txt"]
+
+[[dir]]
+path = ".apeiron"
+holds = "board checkpoint marker read by .githooks/pre-commit"
+files = ["checkpoint.json"]
+
+[[dir]]
+path = ".licenses"
+holds = "third-party licence texts"
+files = ["*.txt"]
+
+# ---- the crate ----------------------------------------------------------------------------------------------------
+[[dir]]
+path = "src"
+holds = "the crate root and its top-level modules"
+files = ["*.rs"]
+
+[[dir]]
+path = "src/coord"
+holds = "Coord addressing per face"
+recursive = true
+files = ["*.rs"]
+
+[[dir]]
+path = "src/engine"
+holds = "the model engine: loader, step, attention, mixer, kernels"
+recursive = true
+files = ["*.rs"]
+
+[[dir]]
+path = "src/format"
+holds = "file formats: GGUF tensors, BPE"
+recursive = true
+files = ["*.rs"]
+
+[[dir]]
+path = "src/gpu"
+holds = "the GPU stack (DEL-GPU-ONE collapses gpu, simt and simt_nn to one)"
+recursive = true
+files = ["*.rs"]
+
+[[dir]]
+path = "src/simt"
+holds = "SIMT stack, pending DEL-GPU-ONE"
+recursive = true
+files = ["*.rs"]
+
+[[dir]]
+path = "src/simt_nn"
+holds = "SIMT network layers, pending DEL-GPU-ONE"
+recursive = true
+files = ["*.rs"]
+
+[[dir]]
+path = "src/spirv"
+holds = "SPIR-V compute shaders; each has a Rust consumer"
+recursive = true
+files = ["*.comp", "*.rs", "*.spv"]
+
+[[dir]]
+path = "src/hashtrinity"
+holds = "the hash and counting primitives ported from fold/hashtrinity, and crypto (icarus target)"
+recursive = true
+files = ["*.rs"]
+
+[[dir]]
+path = "src/learn"
+holds = "quantizers and model conversion as swap points"
+recursive = true
+files = ["*.rs"]
+
+[[dir]]
+path = "src/numeric"
+holds = "fixed-point and exact numeric primitives"
+recursive = true
+files = ["*.rs"]
+
+[[dir]]
+path = "src/policy"
+holds = "decision policy primitives"
+recursive = true
+files = ["*.rs"]
+
+[[dir]]
+path = "src/table"
+holds = "the growable flat/spill table"
+recursive = true
+files = ["*.rs"]
+
+[[dir]]
+path = "derive"
+holds = "the crate's proc-macro (workspace member)"
+recursive = true
+files = ["Cargo.toml", "*.rs"]
+
+[[dir]]
+path = "fold-abi"
+holds = "C ABI of the fold for SMHasher (workspace member)"
+recursive = true
+files = ["Cargo.toml", "*.rs", "*.md"]
+
+[[dir]]
+path = "tests"
+holds = "integration tests of the crate"
+recursive = true
+files = ["*.rs", "*.ids"]
+
+[[dir]]
+path = "fuzz"
+holds = "cargo-fuzz targets and seeds (sibling project)"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "examples"
+holds = "the measurement instrument only"
+files = ["engine_profile.rs"]
+
+# ---- proofs -------------------------------------------------------------------------------------------------------
+[[dir]]
+path = "proof"
+holds = "the extraction (ApeironWord.lean), its build and its regeneration"
+files = ["*.lean", "*.md", "*.sh", "*.py", "*.txt", "*.json", "*.export", "lean-toolchain", ".gitignore"]
+
+[[dir]]
+path = "proof/extract"
+holds = "the extraction root that #[path]-includes the real source"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "proof/corpus"
+holds = "refinement theorems linking the extraction to the canonical definitions"
+recursive = true
+files = ["*.lean", "*.md", "*.json", "*.sha256", "lean-toolchain", ".gitignore"]
+
+[[dir]]
+path = "proof/canonical"
+holds = "the canonical corpus, pending DEL-CANON"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "proof/resource"
+holds = "resource theorems, pending DEL-RESOURCE"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "proof/dispatch"
+holds = "the extracted dispatch-admission core"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "proof/native"
+holds = "native locator extraction"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "proof/controls"
+holds = "mutation and relocation controls"
+recursive = true
+files = ["*.sh", "*.md"]
+
+[[dir]]
+path = "proof/patches"
+holds = "the Aeneas backend patches proof/model-patches.sh applies"
+recursive = true
+files = ["*"]
+
+# ---- tools --------------------------------------------------------------------------------------------------------
+[[dir]]
+path = "tools"
+holds = "repository checkers (frozen Python until tools/gate replaces them)"
+files = ["*.py", "*.sh", "*.md", "provenance.toml"]
+
+[[dir]]
+path = "tools/gate"
+holds = "the Rust gate driver: hold, structure, and the per-module gates it replaces"
+recursive = true
+files = ["*.rs", "Cargo.toml", "Cargo.lock", "*.json", "*.md"]
+
+[[dir]]
+path = "tools/call-census"
+holds = "call-census instrument (Rust)"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "tools/policy-oracle"
+holds = "policy oracle (Rust)"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "tools/board"
+holds = "board reconciliation (frozen Python)"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "tools/hooks"
+holds = "hook implementations and installer (frozen Python)"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "tools/rooting"
+holds = "claim, removal, reach and limit checkers (frozen Python) and their registries"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "tools/iota"
+holds = "the Iota zero-axiom gate (frozen Python)"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "tools/dispatch"
+holds = "dispatch admission launcher"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "tools/joint"
+holds = "joint acceptance checkers (frozen Python), pending STRUCT-MIGRATE"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "tools/debt"
+holds = "debt ledger checkers (frozen Python), pending STRUCT-MIGRATE"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "tools/gpu"
+holds = "C/C++ comparator sources, pending STRUCT-MIGRATE"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "tools/neural-adapt"
+holds = "patches against external trees, pending STRUCT-MIGRATE"
+recursive = true
+files = ["*"]
+
+# ---- documents ----------------------------------------------------------------------------------------------------
+[[dir]]
+path = "docs"
+holds = "the governing documents and their registries"
+files = ["README.md", "direction.md", "kernel-boundary.md", "plan.md", "moved.tsv", "hash-comparison.md",
+         "roadmap.md", "state-ledger.tsv"]
+
+[[dir]]
+path = "docs/epics"
+holds = "one file per epic: intent, spec, plan"
+recursive = true
+files = ["*.md"]
+
+[[dir]]
+path = "docs/contracts"
+holds = "documents parsed by gates; never merged or reformatted"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "docs/templates"
+holds = "the epic template"
+files = ["*.md"]
+
+[[dir]]
+path = "docs/evidence"
+holds = "receipts, the evidence ledger and the indexed evidence documents"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "docs/call-census"
+holds = "call-census records, pending STRUCT-MIGRATE into docs/evidence"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "docs/rfcs"
+holds = "pending STRUCT-MIGRATE"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "docs/archive"
+holds = "pending STRUCT-MIGRATE"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "docs/reviews"
+holds = "pending STRUCT-MIGRATE"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "docs/study"
+holds = "pending STRUCT-MIGRATE"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "artifacts"
+holds = "measurement receipts, pending STRUCT-MIGRATE into docs/evidence/receipts"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "bench"
+holds = "CPU bench receipts, pending STRUCT-MIGRATE into docs/evidence/bench"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "book"
+holds = "the public book"
+recursive = true
+files = ["*"]
+
+[[dir]]
+path = "release"
+holds = "public-release curation (parked until F2)"
+recursive = true
+files = ["*"]
+
+# ---- debt: violations present when this file was written; each entry names the row that removes it ----------
+[[debt]]
+rule = "max_lines"
+path = "proof/corpus/Perf/Receipts/Onebit.lean"
+row = "DEL-RECEIPT-LEAN"
+
+[[debt]]
+rule = "max_lines"
+path = "src/engine/kern/gemm_probe.rs"
+row = "DEL-KERN-PROBES"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/corpus/Crypto/Keccak/Certificate.lean"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/corpus/Growable/GaplessRead.lean"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/corpus/Growable/Schedule.lean"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/corpus/Map/ExecutedInsertTotal.lean"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/corpus/Map/ExecutedResizeTotal.lean"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/corpus/Native/LocatorSpec.lean"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/corpus/Numeric/Packing/Format.lean"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/resource/ApplyPendingSource.lean"
+row = "DEL-RESOURCE"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/resource/CheckFragmentSource.lean"
+row = "DEL-RESOURCE"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/resource/GgufSource.lean"
+row = "DEL-RESOURCE"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/resource/LmHeadSource.lean"
+row = "DEL-RESOURCE"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/resource/MatvecSource.lean"
+row = "DEL-RESOURCE"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/resource/PackingSource.lean"
+row = "DEL-RESOURCE"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/resource/RegenRelocateAllSource.lean"
+row = "DEL-RESOURCE"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/resource/RegenRelocateEntrySource.lean"
+row = "DEL-RESOURCE"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/resource/RelocateEntrySource.lean"
+row = "DEL-RESOURCE"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/resource/StoredRelocateAllSource.lean"
+row = "DEL-RESOURCE"
+
+[[debt]]
+rule = "max_lines"
+path = "src/coord/locator_core.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/engine/attn.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/engine/chart/ffn.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/engine/chart/mod.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/engine/kern/gemm.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/engine/mixer.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/engine/mixer/tests.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/engine/step.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/engine/tests.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/format/packing.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/gpu/vulkan.rs"
+row = "DEL-GPU-ONE"
+
+[[debt]]
+rule = "max_lines"
+path = "src/hashtrinity/crypto.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/hashtrinity/freq.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/hashtrinity/tregex.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/simt/dp4a.rs"
+row = "DEL-GPU-ONE"
+
+[[debt]]
+rule = "max_lines"
+path = "src/simt/gemv.rs"
+row = "DEL-GPU-ONE"
+
+[[debt]]
+rule = "max_lines"
+path = "src/simt_nn/sparse.rs"
+row = "DEL-GPU-ONE"
+
+[[debt]]
+rule = "max_lines"
+path = "src/simt/superblock.rs"
+row = "DEL-GPU-ONE"
+
+[[debt]]
+rule = "max_lines"
+path = "src/table/locator.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/table.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "src/table/tests.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "tests/table.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "tools/board/checkpoint.py"
+row = "STRUCT-GATE"
+
+[[debt]]
+rule = "max_lines"
+path = "tools/check-kepler.py"
+row = "STRUCT-GATE"
+
+[[debt]]
+rule = "max_dir_files"
+path = "proof/canonical/Apeiron/Combinator"
+row = "DEL-CANON"
+
+[[debt]]
+rule = "max_dir_files"
+path = "proof/corpus/Crypto"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_dir_files"
+path = "proof/corpus/Growable"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_dir_files"
+path = "proof/corpus/Icarus"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_dir_files"
+path = "proof/corpus/Map"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_dir_files"
+path = "proof/corpus/Nous/Model"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_dir_files"
+path = "proof/corpus/Nous/Seq"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_dir_files"
+path = "proof/corpus/Perf"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_dir_files"
+path = "proof/resource"
+row = "DEL-RESOURCE"
+
+[[debt]]
+rule = "max_dir_files"
+path = "src"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_dir_files"
+path = "src/engine"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_dir_files"
+path = "src/learn"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_dir_files"
+path = "src/simt_nn"
+row = "DEL-GPU-ONE"
+
+[[debt]]
+rule = "max_dir_files"
+path = "src/table"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_dir_files"
+path = "tests"
+row = "STRUCT-SPLIT"
+
+# Python admitted until tools/gate replaces it (STRUCT-GATE); shrink-only.
+[python]
+frozen = [
+  ".claude/hooks/derivation_gate.py",
+  "docs/rfcs/0001-core-architecture/render.py",
+  "proof/audit-extraction.py",
+  "proof/dispatch/gate.py",
+  "proof/native/lane_trace_gate.py",
+  "proof/native/loop_trace_gate.py",
+  "proof/native/narrow_gate.py",
+  "proof/native/shader_dot_gate.py",
+  "proof/native/step_gate.py",
+  "proof/resource/ApplyPending_gate.py",
+  "proof/resource/Argmax_gate.py",
+  "proof/resource/Capacity_gate.py",
+  "proof/resource/CheckFragment_gate.py",
+  "proof/resource/CoordFinish_gate.py",
+  "proof/resource/CoordId_gate.py",
+  "proof/resource/CoordPlace_gate.py",
+  "proof/resource/CoordSpread_gate.py",
+  "proof/resource/CoordUnspread_gate.py",
+  "proof/resource/CostAlgebraGate.py",
+  "proof/resource/CostBridgeGate.py",
+  "proof/resource/F16Split_gate.py",
+  "proof/resource/FixedExp_gate.py",
+  "proof/resource/FixedRsqrt_gate.py",
+  "proof/resource/FixedTrig_gate.py",
+  "proof/resource/Fwht_gate.py",
+  "proof/resource/Gguf_gate.py",
+  "proof/resource/I64Codec_gate.py",
+  "proof/resource/I64Decode_gate.py",
+  "proof/resource/KvAppend_gate.py",
+  "proof/resource/LmHead_gate.py",
+  "proof/resource/Matvec_gate.py",
+  "proof/resource/Packing_gate.py",
+  "proof/resource/Policy_gate.py",
+  "proof/resource/PublishPrepared_gate.py",
+  "proof/resource/Q4KCodes_gate.py",
+  "proof/resource/Q6KCodes_gate.py",
+  "proof/resource/RegenRelocateAll_gate.py",
+  "proof/resource/RegenRelocateEntry_gate.py",
+  "proof/resource/RelocateEntry_gate.py",
+  "proof/resource/RmsNorm_gate.py",
+  "proof/resource/Rope_gate.py",
+  "proof/resource/RouteTopk_gate.py",
+  "proof/resource/RowDotAdmission_gate.py",
+  "proof/resource/RowDot_gate.py",
+  "proof/resource/Schedule_gate.py",
+  "proof/resource/Silu_gate.py",
+  "proof/resource/StoredRelocateAll_gate.py",
+  "proof/resource/gate.py",
+  "proof/storage-controls.py",
+  "proof/strip-modeled-axioms.py",
+  "release/cut.py",
+  "tools/board/board.py",
+  "tools/board/board_check.py",
+  "tools/board/board_controls.py",
+  "tools/board/board_core.py",
+  "tools/board/board_fixtures.py",
+  "tools/board/board_model.py",
+  "tools/board/board_rest.py",
+  "tools/board/board_rows.py",
+  "tools/board/checkpoint.py",
+  "tools/board/mutate.py",
+  "tools/board/test_board.py",
+  "tools/board/test_checkpoint.py",
+  "tools/book-check.py",
+  "tools/call-census/audit_reports.py",
+  "tools/check-assurance.py",
+  "tools/check-claims.py",
+  "tools/check-kepler.py",
+  "tools/check-provenance.py",
+  "tools/debt/controls.py",
+  "tools/debt/debt_scan.py",
+  "tools/debt/similarity.py",
+  "tools/dispatch/admit.py",
+  "tools/dispatch/author_coopmat_contract.py",
+  "tools/dispatch/author_q8_contract.py",
+  "tools/hooks/lane.py",
+  "tools/hooks/lane_bundle.py",
+  "tools/hooks/lane_controls.py",
+  "tools/hooks/lane_core.py",
+  "tools/hooks/lane_fetch.py",
+  "tools/hooks/lane_inventory.py",
+  "tools/hooks/lane_modes.py",
+  "tools/hooks/perf_gate_controls.py",
+  "tools/iota/export.py",
+  "tools/iota/export_parts/decode.py",
+  "tools/iota/export_parts/scan.py",
+  "tools/iota/export_parts/table.py",
+  "tools/iota/proof_target.py",
+  "tools/iota/refine.py",
+  "tools/iota/refine_selftest.py",
+  "tools/iota/spec_check.py",
+  "tools/iota/spec_constants.py",
+  "tools/iota/tests/test_source_closure.py",
+  "tools/iota/tests/test_table_outputs.py",
+  "tools/iota/zero_axioms.py",
+  "tools/joint/carrier_profile_check.py",
+  "tools/joint/evaluator_profile_check.py",
+  "tools/joint/jointlib.py",
+  "tools/joint/jointspec.py",
+  "tools/joint/profile_check.py",
+  "tools/joint/source_entry_check.py",
+  "tools/joint/table_profile_check.py",
+  "tools/rooting/check.py",
+  "tools/rooting/digest_recheck.py",
+  "tools/rooting/doc_reach.py",
+  "tools/rooting/receipt_lean.py",
+  "tools/rooting/index_check.py",
+  "tools/rooting/limit_check.py",
+  "tools/rooting/read_gate.py",
+  "tools/rooting/retire_check.py",
+]

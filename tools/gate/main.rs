@@ -27,6 +27,7 @@ mod hold;
 mod registry;
 mod report;
 mod runner;
+mod structure;
 
 #[cfg(test)]
 mod controls;
@@ -47,6 +48,7 @@ fn main() -> ExitCode {
             }
         },
         Some("run") => runner::run_command(&args[1..]),
+        Some("structure") => structure::structure_command(&args[1..]),
         Some(other) => {
             eprintln!("gate: unknown subcommand `{other}`; known: docs, hold, run");
             ExitCode::from(2)
@@ -56,7 +58,8 @@ fn main() -> ExitCode {
                 "usage: gate <subcommand>\n  docs check   load the artefact registry, report refusals, and with\n                \
                  --controls run each selected row's control in a throwaway copy\n  \
                  run <id>     execute one registry row's gate command under its budget\n  \
-                 hold         refuse while a HOLD marker is in force"
+                 hold         refuse while a HOLD marker is in force\n  \
+                 structure --check  refuse a tracked layout that breaks docs/contracts/tree.toml"
             );
             ExitCode::from(2)
         }
