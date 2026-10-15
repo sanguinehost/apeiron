@@ -98,6 +98,9 @@ import Numeric.Quantum.Ledger.DesignLadder
 import Numeric.Quantum.Ledger.EllipticTensor
 import Numeric.Quantum.Ledger.CellClifford
 import Numeric.Quantum.Ledger.SicStencil
+import Numeric.Quantum.Measured.InterferenceGram
+import Numeric.Quantum.Ledger.DeltaEnds
+import Numeric.Quantum.Ledger.ExactUncertainty
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -1536,3 +1539,46 @@ import Numeric.Quantum.Ledger.SicStencil
 #audit Quantum.SicStencil.sic_second_moment
 #audit Quantum.SicStencil.sic_count
 #audit Quantum.SicStencil.verdict_l3
+
+-- Q1 interference Gram, measured (`Numeric/Quantum/Measured/InterferenceGram.lean`, receipt
+-- `docs/evidence/receipts/onebit/qarch-q1.json`): the amplitude prediction `2 ‖Σ δψ_l‖²` over-predicts
+-- whole-model KL in every cell and misses the prefix and suffix groups with opposite signs (refuted).
+#audit Quantum.InterferenceGram.all_overpredicted
+#audit Quantum.InterferenceGram.prefix_over_suffix_under
+#audit Quantum.InterferenceGram.diagonal_share_falls
+#audit Quantum.InterferenceGram.verdict_q1
+
+-- APEIRON-QARCH-L7: measurement and reflection, the ends of the β family (Numeric/Quantum/Ledger/DeltaEnds.lean).
+#audit Quantum.DeltaEnds.inner_corr_k
+#audit Quantum.DeltaEnds.corr_k
+#audit Quantum.DeltaEnds.corr_orth
+#audit Quantum.DeltaEnds.corr_comp
+#audit Quantum.DeltaEnds.corr_selfadj
+#audit Quantum.DeltaEnds.norm_sq_corr
+#audit Quantum.DeltaEnds.measure_idem
+#audit Quantum.DeltaEnds.measure_born
+#audit Quantum.DeltaEnds.reflect_invol
+#audit Quantum.DeltaEnds.reflect_isometry
+#audit Quantum.DeltaEnds.reflect_k
+#audit Quantum.DeltaEnds.nonexpansive_iff
+#audit Quantum.DeltaEnds.idem_iff
+#audit Quantum.DeltaEnds.invol_iff
+#audit Quantum.DeltaEnds.isometry_iff
+#audit Quantum.DeltaEnds.verdict_l7_general
+#audit Quantum.DeltaEnds.verdict_l7
+
+-- APEIRON-QARCH-L9: the exact uncertainty relation (Numeric/Quantum/Ledger/ExactUncertainty.lean).
+#audit Quantum.ExactUncertainty.sqrt_second_deriv
+#audit Quantum.ExactUncertainty.laplacian_sqrt
+#audit Quantum.ExactUncertainty.rho_Q_pointwise
+#audit Quantum.ExactUncertainty.rho_ncMom_sq
+#audit Quantum.ExactUncertainty.integral_second_zero
+#audit Quantum.ExactUncertainty.integral_rho_Q
+#audit Quantum.ExactUncertainty.quantum_energy_eq_nc_kinetic
+#audit Quantum.ExactUncertainty.exact_uncertainty
+#audit Quantum.ExactUncertainty.cramer_rao_core
+#audit Quantum.ExactUncertainty.heisenberg_from_cr
+#audit Quantum.ExactUncertainty.cramer_rao_integral
+#audit Quantum.ExactUncertainty.witness_pointwise
+#audit Quantum.ExactUncertainty.witness_ncMom
+#audit Quantum.ExactUncertainty.verdict_l9

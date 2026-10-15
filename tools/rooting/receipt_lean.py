@@ -101,7 +101,12 @@ W15 = {
     "qreg_yaqalw": "docs/evidence/receipts/onebit/qreg-yaqalw.json",
     "qreg_spec": "docs/evidence/receipts/onebit/qreg-spec.json",
     "qreg_spectv": "docs/evidence/receipts/onebit/qreg-spectv.json",
+    "qarch_q1": "docs/evidence/receipts/onebit/qarch-q1.json",
 }
+
+# QARCH Q1 groups bound per window: receipt group name -> Lean field infix.
+Q1_ALPHAS = ["0.125", "0.25", "0.5", "1"]
+Q1_GROUPS = [("all_24", "All"), ("prefix_0_20", "Prefix20"), ("suffix_16_23", "Suffix16")]
 
 # End-loss-weighted Gram receipts (fold_transfer "-guided[a|b]NN"): namespace -> variant prefixes (see guided_prefix).
 GUIDED = {"w18_guided05": ["base", "gab100", "gab50"], "w18_guidedsweep": ["gab25", "gab75", "ga50", "gb100"],
@@ -1016,6 +1021,23 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
                 for k in ("6", "12", "18"):
                     out.append(("rat", f"{ph}PrefixKl{k}", rat(r["prefix"][k])))
                     out.append(("rat", f"{ph}SuffixKl{k}", rat(r["suffix"][k])))
+    elif ns == "qarch_q1":
+        # Interference Gram (examples/qarch_q1.rs): per alpha index i and held-out window w, the measured group KL and
+        # the Gram prediction 2||sum delta-psi||^2 as `a<i>W<w><Group>Meas` / `...Pred`, and `a<i>DiagShare`.
+        if data["n_layer"] != 24 or data["t"] != 64 or data["window_offsets"] != [0, 20000, 44000]:
+            raise Fail(f"{rel}: not the 24-layer, T = 64, offsets 0/20000/44000 protocol")
+        if [str(p["alpha"]) for p in data["per_alpha"]] != Q1_ALPHAS:
+            raise Fail(f"{rel}: alphas are not {Q1_ALPHAS}")
+        for i, p in enumerate(data["per_alpha"]):
+            out.append(("rat", f"a{i}Alpha", Fraction(str(p["alpha"]))))
+            if [w["window"] for w in p["per_window"]] != [0, 1, 2]:
+                raise Fail(f"{rel}: alpha {p['alpha']} lacks windows 0, 1, 2 in order")
+            for w in p["per_window"]:
+                groups = {g["name"]: g for g in w["groups"]}
+                for name, infix in Q1_GROUPS:
+                    out.append(("rat", f"a{i}W{w['window']}{infix}Meas", rat(groups[name]["kl_measured"])))
+                    out.append(("rat", f"a{i}W{w['window']}{infix}Pred", rat(groups[name]["kl_predicted"])))
+            out.append(("rat", f"a{i}DiagShare", rat(p["gram_mean"]["diagonal_share"])))
     elif ns == "qreg_kan_probe":
         # Learned register angles vs fwht128 (kan_probe.py): J sums over the four input sites of every layer.
         rows, a = data["rows"], data["args"]
