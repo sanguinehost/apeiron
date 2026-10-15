@@ -793,8 +793,7 @@
         "src/learn/grad/attn.rs",
         "src/learn/grad/dense.rs",
         "src/learn/grad/head.rs",
-        "src/learn/onebit_bits.rs",
-        "tools/dispatch/author_coopmat_contract.py"
+        "src/learn/onebit_bits.rs"
       ],
       "reachability": [
         {
@@ -880,6 +879,43 @@
         ".githooks/pre-commit",
         "AGENTS.md",
         "docs/contracts/tree.toml"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--check"
+          ]
+        }
+      ],
+      "receipt": "docs/plan.md"
+    },
+    {
+      "id": "spirv-shader-contract-retirement",
+      "kind": "retirement",
+      "note": "Board row del-shaders-delete-q8-and-CqDPH1fg1QV8HKYUBHbTkP. Owner decision (2026-10-15, answer 2): \"If not used for our actual inference, training or finetuning, drop them\". No Rust code dispatches src/spirv/q8_tile.comp or src/spirv/int8_coopmat_q8.comp (rg over src/). Their admission contracts, the contract Lean modules, the shader-dot model and gate, the proposals, the author scripts and the SPIR-V identity files go with them; tools/dispatch/contracts.json is empty and the shader self-test leg of tools/dispatch/self_test.rs is deleted (it already named tools/gpu/q8_admission_gate.py, absent from the tree).",
+      "removed": [
+        "proof/dispatch/contracts/Int8CoopmatSpirv.lean",
+        "proof/dispatch/contracts/Q8TileSpirv.lean",
+        "proof/native/ShaderDot.lean",
+        "proof/native/shader_dot_gate.py",
+        "src/spirv/int8_coopmat_q8.comp",
+        "src/spirv/q8_tile.comp",
+        "tools/dispatch/author_coopmat_contract.py",
+        "tools/dispatch/author_q8_contract.py",
+        "tools/dispatch/int8-coopmat-spirv.proposal.json",
+        "tools/dispatch/q8-tile-spirv.proposal.json",
+        "tools/gpu/coopmat_spirv_identity.json",
+        "tools/gpu/q8_spirv_identity.json"
+      ],
+      "replacement": [],
+      "retained_obligation": "The shader-spirv admission branch in tools/dispatch/main.rs stays without a self-test leg; its removal is a separate task.",
+      "consumers": [
+        "docs/contracts/tree.toml",
+        "tools/dispatch/contracts.json",
+        "tools/dispatch/self_test.rs"
       ],
       "reachability": [
         {
