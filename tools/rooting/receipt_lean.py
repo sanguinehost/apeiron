@@ -102,6 +102,7 @@ W15 = {
     "qreg_spec": "docs/evidence/receipts/onebit/qreg-spec.json",
     "qreg_spectv": "docs/evidence/receipts/onebit/qreg-spectv.json",
     "qarch_q1": "docs/evidence/receipts/onebit/qarch-q1.json",
+    "qarch_q2": "docs/evidence/receipts/onebit/qarch-q2.json",
 }
 
 # QARCH Q1 groups bound per window: receipt group name -> Lean field infix.
@@ -1038,6 +1039,27 @@ def w15_fields(ns: str, rel: str, sha: str, data: dict) -> list:
                     out.append(("rat", f"a{i}W{w['window']}{infix}Meas", rat(groups[name]["kl_measured"])))
                     out.append(("rat", f"a{i}W{w['window']}{infix}Pred", rat(groups[name]["kl_predicted"])))
             out.append(("rat", f"a{i}DiagShare", rat(p["gram_mean"]["diagonal_share"])))
+    elif ns == "qarch_q2":
+        # Joint vs separable Fisher-sketch allocation (examples/qarch_q2.rs): the uniform, separable and joint arms at
+        # one parameter budget; per arm `<pre>W<i>` (held-out KL, window i), `<pre>Mean`, `<pre>Bpw`, `<pre>Params`, `<pre>Blocks`.
+        if sorted(data["arms"]) != ["joint", "separable", "uniform"]:
+            raise Fail(f"{rel}: arms are not uniform, separable, joint")
+        sk = data["sketch"]
+        if sk["samples"] != 16 or sk["control_a"] is not True or sk["control_b"] is not True:
+            raise Fail(f"{rel}: not the 16-sample sketch with controls a and b true")
+        for arm, pre in [("uniform", "uni"), ("separable", "sep"), ("joint", "joint")]:
+            a = data["arms"][arm]
+            if len(a["kl"]) != 3:
+                raise Fail(f"{rel}: arm {arm} kl is not length 3")
+            for i, v in enumerate(a["kl"]):
+                out.append(("rat", f"{pre}W{i}", rat(v)))
+            out.append(("rat", f"{pre}Mean", rat(a["kl_mean"])))
+            out.append(("rat", f"{pre}Bpw", rat(a["bpw"])))
+            out.append(("nat", f"{pre}Params", nat(a["params"])))
+            out.append(("nat", f"{pre}Blocks", nat(a["blocks"])))
+        out.append(("rat", "uniControlC", rat(data["arms"]["uniform"]["control_c"])))
+        out.append(("nat", "budgetParams", nat(sk["budget_params"])))
+        out.append(("rat", "offdiagShare", rat(sk["offdiag_share"])))
     elif ns == "qreg_kan_probe":
         # Learned register angles vs fwht128 (kan_probe.py): J sums over the four input sites of every layer.
         rows, a = data["rows"], data["args"]
