@@ -810,9 +810,8 @@
     {
       "id": "receipt-lean-generator-retirement",
       "kind": "retirement",
-      "note": "Board row del-receipt-lean-lean-BuRe71rVNeQyls1g5wDsUy. Owner decision (2026-10-15, answer 1: yes): delete the receipt-to-Lean generator, its generated module and its pre-commit step. proof/corpus/Perf/Receipts/Onebit.lean restated committed receipt numbers as Lean constants; no module imports it and nothing links it to extracted Rust. tools/rooting/receipt_lean.py generated and checked it; .githooks/pre-commit step receipt-lean ran the check.",
+      "note": "Board row del-receipt-lean-lean-BuRe71rVNeQyls1g5wDsUy. Owner decision (2026-10-15, answer 1: yes): delete the Python receipt-to-Lean generator and its pre-commit step. The generated module proof/corpus/Perf/Receipts/Onebit.lean is restored as a checked-in Lean file because proof/corpus/Perf/* and Numeric/Quantum/Measured/* import it (2026-10-15, owner: the quantum and perf proofs are kept). tools/rooting/receipt_lean.py generated and checked it; .githooks/pre-commit step receipt-lean ran the check.",
       "removed": [
-        "proof/corpus/Perf/Receipts/Onebit.lean",
         "tools/rooting/receipt_lean.py"
       ],
       "replacement": [],
