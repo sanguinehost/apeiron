@@ -102,6 +102,28 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-features --locked
 
+  structure:
+    name: Tree structure (docs/contracts/tree.toml)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Rust toolchain (nightly-2026-04-14)
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: nightly-2026-04-14
+
+      - name: Gate controls
+        run: cargo test --locked --manifest-path tools/gate/Cargo.toml
+
+      - name: Placement, size and Lean orphans over the committed tree
+        run: |
+          git ls-files > "$RUNNER_TEMP/files"
+          cargo run --release --locked --quiet --manifest-path tools/gate/Cargo.toml -- \
+            structure --check --root . --files "$RUNNER_TEMP/files"
+
   claims:
     name: Claims and citations
     runs-on: ubuntu-latest
