@@ -1,7 +1,5 @@
 # ONEBIT W15a: direct KL along the quantisation ray
 
-> Removed Lean modules: `Perf.BitsRefine`, `Perf.CalScaling`, `Perf.CostCorrespondence`, `Perf.KDScaling`, `Perf.PerplexityKL`, `Perf.PVFinish`, `Perf.SizeTrend`, `Perf.SpecDraftKL`, `Perf.Trellis` were deleted by DEL-RECEIPT-LEAN (`tools/rooting/removals.json`). Theorems cited from them below resolve at 2f15d6a9 only; in this tree they stand at grade `model`.
-
 Command (from the repository root, `/home/socol/Workspace/spinor-ttl/.venv/bin/python`, RTX 5080):
 `python tools/onebit/ray_scan.py /home/socol/oc-tmp/escalation/2026-10-11-stiffness.json /home/socol/oc-tmp/escalation/2026-10-11-ray.json 100`.
 100 C4 chunks of 512 tokens (`/home/socol/oc-tmp/seal/calib-c4.txt`), wall 139.6 s. The 21 `ffn_down` tensors of
@@ -36,7 +34,7 @@ per-token KL `KL(p_W ‖ p_{W+tD})` is computed in float64.
 
 ## Formal record
 
-`Perf.CostCorrespondence.ray_w15a` (`proof/corpus/Perf/CostCorrespondence.lean` (removed; at 2f15d6a9), `proved`, closed cone) states the
+`Perf.CostCorrespondence.ray_w15a` (`proof/corpus/Perf/CostCorrespondence.lean`, `proved`, closed cone) states the
 three verdicts on these figures as ℚ facts; a changed `had-gptq1` bound (`< 1.09`) reddens it
 (`/home/socol/oc-tmp/costcorr-wf-controls.log`).
 
@@ -566,7 +564,7 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
         `q` stays 1-plane) and on the top-`416` rows of `gate` and `up` ranked by row mass `Σ_j W[i, j]²`
         (`topk(row_mass, 416)`; `Wp[top_idx] += fold_fit(W_s[top] − Wp1[top])`); the rank-2 correction targets are
         `("q","down")` (`:1097-1099`). The extra planes are in the `1.178061` b/w count.
-    - `Perf.CostCorrespondence` theorems added with this arm's work (`proof/corpus/Perf/CostCorrespondence.lean` (removed; at 2f15d6a9), all
+    - `Perf.CostCorrespondence` theorems added with this arm's work (`proof/corpus/Perf/CostCorrespondence.lean`, all
       `#audit`ed in `proof/corpus/AxiomAudit.lean`, closed cone):
       - `swiglu_hyperbolic_noise_minimization (u d s : ℝ)`, hypotheses `0 < u`, `0 < d`, `0 < s`: conclusion
         `(su)² + (s⁻¹d)² − 2ud = (su − s⁻¹d)²`, `2ud ≤ (su)² + (s⁻¹d)²`, and equality iff `su = s⁻¹d`. Algebraic model of

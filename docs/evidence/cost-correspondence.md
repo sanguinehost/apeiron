@@ -1,8 +1,6 @@
 # Cost correspondence: the performance model and the quantisation model from one floor
 
-> Removed Lean modules: `Perf.CostCorrespondence` were deleted by DEL-RECEIPT-LEAN (`tools/rooting/removals.json`). Theorems cited from them below resolve at 2f15d6a9 only; in this tree they stand at grade `model`.
-
-Module: `proof/corpus/Perf/CostCorrespondence.lean` (removed; at 2f15d6a9) (`proved`, closed cone, audited in `proof/corpus/AxiomAudit.lean`).
+Module: `proof/corpus/Perf/CostCorrespondence.lean` (`proved`, closed cone, audited in `proof/corpus/AxiomAudit.lean`).
 
 The performance model predicts because it has a floor on the binding resource (`Perf.Roofline.timeLB`). The
 quantisation model had none: it counted bits per weight. This module derives both floors from one lemma and states

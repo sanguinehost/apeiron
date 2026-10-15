@@ -1,7 +1,5 @@
 # Plan — frontier intelligence on consumer devices (cross-track roadmap)
 
-> Removed Lean modules: `Perf.CostCorrespondence` were deleted by DEL-RECEIPT-LEAN (`tools/rooting/removals.json`). Theorems cited from them below resolve at 2f15d6a9 only; in this tree they stand at grade `model`.
-
 - **Owner:** lead
 - **Status:** draft; a roadmap across epics, not an epic. Each track opens its own intent/spec/plan
   before tasks are allocated (AGENTS §2).
@@ -312,7 +310,7 @@ The spinor-ttl and fold records measure parts of this path.
 With the SPIR-V execution engine at CUDA parity (`DECODE-ATTRIB` `973.8` tok/s, `INF-RESIDENT-PREFILL` `70.2k` tok/s)
 and forward-only continuous learning (`LEARN-RIDGE` exact-Gram Cholesky fold and `LEARN-FOLDADAPT` exact-key table merge/unlearn
 in `docs/plan.md` rows 244–245), `LEARN-ONEBIT` (`docs/evidence/onebit-w15.md`, `docs/evidence/cost-correspondence.md`,
-`proof/corpus/Perf/CostCorrespondence.lean` (removed; at 2f15d6a9)) is the remaining piece required to run a local 27B–32B coding and research
+`proof/corpus/Perf/CostCorrespondence.lean`) is the remaining piece required to run a local 27B–32B coding and research
 entity (`../intent` RRSI loop) on a single 16 GB consumer GPU:
 
 | Component | Artifact & status (`docs/plan.md`, `docs/evidence/onebit-w15.md`) | Role in local 27B RRSI |

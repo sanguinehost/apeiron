@@ -808,64 +808,6 @@
       "receipt": "docs/plan.md"
     },
     {
-      "id": "receipt-lean-verdict-retirement",
-      "kind": "retirement",
-      "note": "Board row del-receipt-lean-lean-BuRe71rVNeQyls1g5wDsUy. Removed 30 Lean modules that were verdicts over receipt JSON or on no extraction link (proof/corpus/Perf/*, proof/corpus/Numeric/Quantum/*), and their AxiomAudit import and #audit rows (463 rows). Owner direction 2026-10-15: the deletions are key.",
-      "removed": [
-        "proof/corpus/Perf/BitsRefine.lean",
-        "proof/corpus/Perf/Guided.lean",
-        "proof/corpus/Perf/CostCorrespondence.lean",
-        "proof/corpus/Perf/PerplexityKL.lean",
-        "proof/corpus/Perf/SpecDraftKL.lean",
-        "proof/corpus/Perf/Generalisation.lean",
-        "proof/corpus/Perf/CalScaling.lean",
-        "proof/corpus/Numeric/Quantum/Measured/JointFisher.lean",
-        "proof/corpus/Perf/PVFinish.lean",
-        "proof/corpus/Perf/KDScaling.lean",
-        "proof/corpus/Perf/Trellis.lean",
-        "proof/corpus/Perf/SizeTrend.lean",
-        "proof/corpus/Numeric/Quantum/Measured/InterferenceGram.lean",
-        "proof/corpus/Perf/QuantumRotation.lean",
-        "proof/corpus/Numeric/Quantum/BranchMadelung.lean",
-        "proof/corpus/Numeric/Quantum/BranchQuantization.lean",
-        "proof/corpus/Numeric/Quantum/TetraLaplacian.lean",
-        "proof/corpus/Numeric/Quantum/Ledger/DesignLadder.lean",
-        "proof/corpus/Numeric/Quantum/Ledger/DeltaEnds.lean",
-        "proof/corpus/Numeric/Quantum/TetraLimit.lean",
-        "proof/corpus/Numeric/Quantum/Ledger/SicStencil.lean",
-        "proof/corpus/Numeric/Quantum/Ledger/EllipticTensor.lean",
-        "proof/corpus/Numeric/Quantum/BranchLaplacian.lean",
-        "proof/corpus/Numeric/Quantum/Qubit.lean",
-        "proof/corpus/Numeric/Quantum/Ledger/CellClifford.lean",
-        "proof/corpus/Numeric/Quantum/Ledger/EllipticRebit.lean",
-        "proof/corpus/Numeric/Quantum/Ledger/FaceShift.lean",
-        "proof/corpus/Numeric/Quantum/Ledger/AmplitudeKL.lean",
-        "proof/corpus/Numeric/Quantum/Ledger/ExactUncertainty.lean",
-        "proof/corpus/Numeric/Quantum/PathDensity.lean"
-      ],
-      "replacement": [],
-      "retained_obligation": "each removed verdict was an observation of a script or an example, not of the crate; the quality claim reopens only as QUALITY-118 through F3-green primitives.",
-      "consumers": [
-        "docs/epics/frontier-consumer.md",
-        "docs/epics/quantum-register.md",
-        "docs/epics/ternary-hadamard.md",
-        "docs/evidence/cost-correspondence.md",
-        "docs/evidence/onebit-w15.md",
-        "proof/corpus/AxiomAudit.lean"
-      ],
-      "reachability": [
-        {
-          "cwd": "proof/corpus",
-          "argv": [
-            "lake",
-            "build",
-            "AxiomAudit"
-          ]
-        }
-      ],
-      "receipt": "docs/plan.md"
-    },
-    {
       "id": "receipt-lean-generator-retirement",
       "kind": "retirement",
       "note": "Board row del-receipt-lean-lean-BuRe71rVNeQyls1g5wDsUy. Owner decision (2026-10-15, answer 1: yes): delete the receipt-to-Lean generator, its generated module and its pre-commit step. proof/corpus/Perf/Receipts/Onebit.lean restated committed receipt numbers as Lean constants; no module imports it and nothing links it to extracted Rust. tools/rooting/receipt_lean.py generated and checked it; .githooks/pre-commit step receipt-lean ran the check.",
