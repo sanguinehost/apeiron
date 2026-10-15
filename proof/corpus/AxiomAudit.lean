@@ -1623,6 +1623,10 @@ import Numeric.Quantum.Ledger.EllipticRebit
 #audit Quantum.ExactUncertainty.witness_pointwise
 #audit Quantum.ExactUncertainty.witness_ncMom
 #audit Quantum.ExactUncertainty.verdict_l9
+#audit Quantum.ExactUncertainty.fisher_quad_nonneg
+#audit Quantum.ExactUncertainty.cauchy_schwarz_fisher
+#audit Quantum.ExactUncertainty.cramer_rao
+#audit Quantum.ExactUncertainty.verdict_l9b
 
 -- : the elliptic cell is the extra rebit (Numeric/Quantum/Ledger/EllipticRebit.lean).
 #audit Quantum.EllipticRebit.rep_mul
