@@ -21,8 +21,12 @@ parameters) and Cramér (1946). Cauchy–Schwarz: Cauchy (1821, sums), Bunyakovs
 Schwarz (1888, inner products). The position–momentum relation: Heisenberg (1927, heuristic),
 Kennard (1927, `σ_x σ_p ≥ ℏ/2`), Weyl (1928), Robertson (1929, any two observables).
 
-`heisenberg_from_cr` bounds the position spread times the nonclassical spread `ΔN`; Hall and
-Reginatto's step `Δp² = Var(S') + ΔN² ≥ ΔN²` to the full momentum spread is not proved here.
+`heisenberg_from_cr` bounds the position spread times the nonclassical spread `ΔN`; for the Madelung
+wavefunction `ψ = √ρ·e^{iS/ℏ}` (`madelung`, `madelungDeriv`, whose derivative is
+`madelung_hasDerivAt`) `momentum_spread_sq` proves Hall and Reginatto's step `Δp² = Var(S') + ΔN²`,
+`nc_le_momSpread` lifts it to `ΔN ≤ Δp` (`madelung_normSq`, `madelung_current`,
+`weighted_var_nonneg`, `momMean`, `momSq`, `momSpread`), and `heisenberg` gives the full Kennard
+bound `Δx·Δp ≥ ℏ/2` for every centre `μ` (`cramer_rao`, `ncSpread_eq`).
 -/
 
 import Mathlib
@@ -400,6 +404,323 @@ theorem verdict_l9 :
     fun V I hbar hV hh h => heisenberg_from_cr V I hbar hV hh h,
     witness_pointwise, witness_ncMom⟩
 
+/-- `exp(i·t)` has unit modulus: its conjugate times it is `1`.
+`ℂ` [the complex numbers: pairs a + b·i with i² = −1]
+`ℝ` [the real numbers: every number on the number line]
+`Complex.normSq` [the squared size a² + b², the square of the modulus a + b·i]
+`Complex.exp` [the number e raised to this power]
+`Complex.I` [the square root of −1]
+`starRingEnd ℂ` [the conjugate a + b·i ↦ a − b·i]
+-/
+theorem star_exp_I (t : ℝ) :
+    starRingEnd ℂ (Complex.exp (Complex.I * (t : ℂ))) * Complex.exp (Complex.I * (t : ℂ)) = 1 := by
+  rw [mul_comm, Complex.mul_conj, Complex.normSq_eq_norm_sq, Complex.norm_exp]
+  simp
+
+/-- The Madelung wavefunction `ψ = √ρ · exp(i·S/ℏ)` of the density `ρ` and the phase `S`.
+`ℂ` [the complex numbers: pairs a + b·i with i² = −1]
+`ℝ` [the real numbers: every number on the number line]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`Real.sqrt` [the number that squares to give this]
+`Complex.exp` [the number e raised to this power]
+`Complex.I` [the square root of −1]
+-/
+def madelung (hbar : ℝ) (ρ S : ℝ → ℝ) (x : ℝ) : ℂ :=
+  (Real.sqrt (ρ x) : ℂ) * Complex.exp (Complex.I * ((S x / hbar : ℝ) : ℂ))
+
+/-- The derivative `ψ' = (ρ'/(2√ρ) + i·√ρ·S'/ℏ) · exp(i·S/ℏ)` of the Madelung wavefunction, with
+`ρ'` the derivative of `ρ` and `S'` that of `S`.
+`ℂ` [the complex numbers: pairs a + b·i with i² = −1]
+`ℝ` [the real numbers: every number on the number line]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`Real.sqrt` [the number that squares to give this]
+`Complex.exp` [the number e raised to this power]
+`Complex.I` [the square root of −1]
+-/
+def madelungDeriv (hbar : ℝ) (ρ ρ' S S' : ℝ → ℝ) (x : ℝ) : ℂ :=
+  (((ρ' x / (2 * Real.sqrt (ρ x)) : ℝ) : ℂ) +
+      Complex.I * ((Real.sqrt (ρ x) * S' x / hbar : ℝ) : ℂ)) *
+    Complex.exp (Complex.I * ((S x / hbar : ℝ) : ℂ))
+
+/-- Momentum mean `⟨p⟩ = ∫ Re(conj ψ · (−iℏ ψ'))`, the expectation of `p̂ = −iℏ d/dx`.
+`ℂ` [the complex numbers: pairs a + b·i with i² = −1]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`starRingEnd ℂ` [the conjugate a + b·i ↦ a − b·i]
+`Complex.re` [the real part a of a + b·i]
+`Complex.I` [the square root of −1]
+`ℝ` [the real numbers: every number on the number line]
+`∫` [added up continuously over]
+-/
+def momMean (hbar : ℝ) (ψ ψ' : ℝ → ℂ) : ℝ :=
+  ∫ x, (starRingEnd ℂ (ψ x) * (-Complex.I * hbar * ψ' x)).re
+
+/-- Momentum second moment `⟨p²⟩ = ∫ ℏ²·normSq ψ'` (`‖p̂ ψ‖²` for `p̂ = −iℏ d/dx`).
+`ℂ` [the complex numbers: pairs a + b·i with i² = −1]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`Complex.normSq` [the squared size a² + b², the square of the modulus a + b·i]
+`ℝ` [the real numbers: every number on the number line]
+`∫` [added up continuously over]
+-/
+def momSq (hbar : ℝ) (ψ' : ℝ → ℂ) : ℝ := ∫ x, hbar ^ 2 * Complex.normSq (ψ' x)
+
+/-- Momentum spread `Δp = √(⟨p²⟩ − ⟨p⟩²)`.
+`ℂ` [the complex numbers: pairs a + b·i with i² = −1]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`ℝ` [the real numbers: every number on the number line]
+`Real.sqrt` [the number that squares to give this]
+`∫` [added up continuously over]
+-/
+def momSpread (hbar : ℝ) (ψ ψ' : ℝ → ℂ) : ℝ :=
+  Real.sqrt (momSq hbar ψ' - momMean hbar ψ ψ' ^ 2)
+
+/-- The real derivative of the Madelung wavefunction is `madelungDeriv`: `ψ'` is not assumed, it is
+the derivative of the concrete `ψ`.
+`ℂ` [the complex numbers: pairs a + b·i with i² = −1]
+`ℝ` [the real numbers: every number on the number line]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`≠` [is not equal to]
+`<` [is smaller than]
+`Real.sqrt` [the number that squares to give this]
+`HasDerivAt` [is changing at that rate at that time]
+-/
+theorem madelung_hasDerivAt (hbar : ℝ) (hh : hbar ≠ 0) (ρ ρ' S S' : ℝ → ℝ) (x : ℝ)
+    (hx : 0 < ρ x) (hd : HasDerivAt ρ (ρ' x) x) (hS : HasDerivAt S (S' x) x) :
+    HasDerivAt (madelung hbar ρ S) (madelungDeriv hbar ρ ρ' S S' x) x := by
+  have _ := hh
+  have hs : HasDerivAt (fun y : ℝ => (Real.sqrt (ρ y) : ℂ))
+      ((ρ' x / (2 * Real.sqrt (ρ x)) : ℝ) : ℂ) x :=
+    (hd.sqrt hx.ne').ofReal_comp
+  have hexp : HasDerivAt (fun y : ℝ => Complex.exp (Complex.I * ((S y / hbar : ℝ) : ℂ)))
+      (Complex.exp (Complex.I * ((S x / hbar : ℝ) : ℂ)) *
+        (Complex.I * ((S' x / hbar : ℝ) : ℂ))) x :=
+    (((hS.div_const hbar).ofReal_comp).const_mul Complex.I).cexp
+  convert hs.mul hexp using 1 <;> try rfl
+  rw [madelungDeriv]
+  push_cast
+  ring
+
+/-- Pointwise: `ℏ²·‖ψ'‖² = ρ·S'² + ρ·N²` for the Madelung wavefunction, eliminating the cross term
+(`madelungDeriv` is the derivative of `madelung` by `madelung_hasDerivAt`).
+`ℂ` [the complex numbers: pairs a + b·i with i² = −1]
+`Complex.normSq` [the squared size a² + b², the square of the modulus a + b·i]
+`ℝ` [the real numbers: every number on the number line]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`≠` [is not equal to]
+`<` [is smaller than]
+`Real.sqrt` [the number that squares to give this]
+-/
+theorem madelung_normSq (hbar : ℝ) (hh : hbar ≠ 0) (ρ ρ' S S' : ℝ → ℝ) (x : ℝ) (hx : 0 < ρ x) :
+    hbar ^ 2 * Complex.normSq (madelungDeriv hbar ρ ρ' S S' x)
+      = ρ x * S' x ^ 2 + ρ x * ncMom hbar ρ ρ' x ^ 2 := by
+  rw [madelungDeriv]
+  set s : ℝ := Real.sqrt (ρ x) with hs
+  have hs0 : 0 < s := by rw [hs]; exact Real.sqrt_pos.2 hx
+  have hsq : s ^ 2 = ρ x := by rw [hs]; exact Real.sq_sqrt hx.le
+  have hE : Complex.normSq (Complex.exp (Complex.I * ((S x / hbar : ℝ) : ℂ))) = 1 := by
+    rw [Complex.normSq_eq_norm_sq, Complex.norm_exp]
+    simp
+  rw [Complex.normSq_mul, hE, mul_one, Complex.normSq_apply]
+  simp only [Complex.add_re, Complex.add_im, Complex.I_mul_re, Complex.I_mul_im, Complex.ofReal_re,
+    Complex.ofReal_im]
+  simp
+  rw [rho_ncMom_sq, ← hsq]
+  field_simp
+  ring
+
+/-- Pointwise: `Re(conj ψ · (−iℏ ψ')) = ρ·S'`: the probability current of the Madelung wavefunction.
+`ℂ` [the complex numbers: pairs a + b·i with i² = −1]
+`Complex.re` [the real part a of a + b·i]
+`starRingEnd ℂ` [the conjugate a + b·i ↦ a − b·i]
+`Complex.I` [the square root of −1]
+`ℝ` [the real numbers: every number on the number line]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`≠` [is not equal to]
+`<` [is smaller than]
+`Real.sqrt` [the number that squares to give this]
+-/
+theorem madelung_current (hbar : ℝ) (hh : hbar ≠ 0) (ρ ρ' S S' : ℝ → ℝ) (x : ℝ)
+    (hx : 0 < ρ x) :
+    (starRingEnd ℂ (madelung hbar ρ S x) *
+        (-Complex.I * hbar * madelungDeriv hbar ρ ρ' S S' x)).re = ρ x * S' x := by
+  rw [madelung, madelungDeriv, map_mul, Complex.conj_ofReal]
+  set s : ℝ := Real.sqrt (ρ x) with hs
+  have hsq : s ^ 2 = ρ x := by rw [hs]; exact Real.sq_sqrt hx.le
+  set E : ℂ := Complex.exp (Complex.I * ((S x / hbar : ℝ) : ℂ)) with hEdef
+  set X : ℂ := ((ρ' x / (2 * s) : ℝ) : ℂ) + Complex.I * ((s * S' x / hbar : ℝ) : ℂ) with hX
+  have hE : starRingEnd ℂ E * E = 1 := by rw [hEdef]; exact star_exp_I (S x / hbar)
+  have hZ : (s : ℂ) * starRingEnd ℂ E * (-Complex.I * (hbar : ℂ) * (X * E))
+      = (s : ℂ) * (-Complex.I * (hbar : ℂ)) * X := by
+    calc (s : ℂ) * starRingEnd ℂ E * (-Complex.I * (hbar : ℂ) * (X * E))
+        = ((s : ℂ) * (-Complex.I * (hbar : ℂ)) * X) * (starRingEnd ℂ E * E) := by ring
+      _ = (s : ℂ) * (-Complex.I * (hbar : ℂ)) * X := by rw [hE, mul_one]
+  rw [hZ, hX]
+  simp only [Complex.mul_re, Complex.mul_im, Complex.add_re, Complex.add_im, Complex.neg_re,
+    Complex.neg_im, Complex.I_re, Complex.I_im, Complex.ofReal_re, Complex.ofReal_im]
+  simp
+  rw [← hsq]
+  field_simp
+
+/-- Weighted variance is nonnegative: `(∫ ρ f)² ≤ ∫ ρ f²` for a unit-mass density `ρ`.
+`ℝ` [the real numbers: every number on the number line]
+`∫` [added up continuously over]
+`≤` [is smaller than or equal to]
+`∀` [for every single one]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+-/
+theorem weighted_var_nonneg (ρ f : ℝ → ℝ) (hρ : ∀ x, 0 ≤ ρ x) (hint : Integrable ρ)
+    (hnorm : ∫ x, ρ x = 1) (h1 : Integrable (fun x => ρ x * f x))
+    (h2 : Integrable (fun x => ρ x * f x ^ 2)) :
+    (∫ x, ρ x * f x) ^ 2 ≤ ∫ x, ρ x * f x ^ 2 := by
+  set M : ℝ := ∫ y, ρ y * f y with hM
+  have hpt : ∀ x, ρ x * (f x - M) ^ 2 = ρ x * f x ^ 2 - 2 * M * (ρ x * f x) + M ^ 2 * ρ x := by
+    intro x
+    ring
+  have hnn : 0 ≤ ∫ x, ρ x * (f x - M) ^ 2 :=
+    integral_nonneg fun x => mul_nonneg (hρ x) (sq_nonneg _)
+  rw [show (∫ x, ρ x * (f x - M) ^ 2)
+      = ∫ x, (ρ x * f x ^ 2 - 2 * M * (ρ x * f x) + M ^ 2 * ρ x)
+      from integral_congr_ae (Filter.Eventually.of_forall hpt)] at hnn
+  have hA : Integrable (fun x => ρ x * f x ^ 2 - 2 * M * (ρ x * f x)) :=
+    h2.sub (h1.const_mul (2 * M))
+  rw [integral_add hA (hint.const_mul (M ^ 2)), integral_sub h2 (h1.const_mul (2 * M)),
+    integral_const_mul, integral_const_mul, hnorm, mul_one] at hnn
+  rw [hM] at hnn ⊢
+  nlinarith [hnn]
+
+/-- Hall–Reginatto's step: for the Madelung wavefunction `Δp² = (∫ρS'² − (∫ρS')²) + ∫ρN²`; the
+first bracket is `Var(S') ≥ 0`, so the full momentum spread dominates the nonclassical one.
+`ℂ` [the complex numbers: pairs a + b·i with i² = −1]
+`Complex.normSq` [the squared size a² + b², the square of the modulus a + b·i]
+`ℝ` [the real numbers: every number on the number line]
+`∫` [added up continuously over]
+`≤` [is smaller than or equal to]
+`∀` [for every single one]
+`<` [is smaller than]
+`≠` [is not equal to]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+-/
+theorem momentum_spread_sq (hbar : ℝ) (hh : hbar ≠ 0) (ρ ρ' S S' : ℝ → ℝ)
+    (hpos : ∀ x, 0 < ρ x) (hS2 : Integrable (fun x => ρ x * S' x ^ 2))
+    (hN2 : Integrable (fun x => ρ x * ncMom hbar ρ ρ' x ^ 2)) :
+    momSq hbar (madelungDeriv hbar ρ ρ' S S')
+        - momMean hbar (madelung hbar ρ S) (madelungDeriv hbar ρ ρ' S S') ^ 2
+      = ((∫ x, ρ x * S' x ^ 2) - (∫ x, ρ x * S' x) ^ 2)
+        + ∫ x, ρ x * ncMom hbar ρ ρ' x ^ 2 := by
+  have hpt : ∀ x, hbar ^ 2 * Complex.normSq (madelungDeriv hbar ρ ρ' S S' x)
+      = ρ x * S' x ^ 2 + ρ x * ncMom hbar ρ ρ' x ^ 2 :=
+    fun x => madelung_normSq hbar hh ρ ρ' S S' x (hpos x)
+  have hSq : momSq hbar (madelungDeriv hbar ρ ρ' S S')
+      = (∫ x, ρ x * S' x ^ 2) + ∫ x, ρ x * ncMom hbar ρ ρ' x ^ 2 := by
+    unfold momSq
+    rw [integral_congr_ae (Filter.Eventually.of_forall hpt), integral_add hS2 hN2]
+  have hMn : momMean hbar (madelung hbar ρ S) (madelungDeriv hbar ρ ρ' S S')
+      = ∫ x, ρ x * S' x := by
+    unfold momMean
+    exact integral_congr_ae (Filter.Eventually.of_forall
+      fun x => madelung_current hbar hh ρ ρ' S S' x (hpos x))
+  rw [hSq, hMn]
+  ring
+
+/-- `ncSpread` is `ℏ/2 · √I_F` in closed form, the `hN`/`hsqrt` steps of `exact_uncertainty`.
+`ℝ` [the real numbers: every number on the number line]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`Real.sqrt` [the number that squares to give this]
+`∫` [added up continuously over]
+`≤` [is smaller than or equal to]
+-/
+theorem ncSpread_eq (hbar : ℝ) (ρ ρ' : ℝ → ℝ) (hh : 0 ≤ hbar) :
+    ncSpread hbar ρ ρ' = hbar / 2 * Real.sqrt (fisher ρ ρ') := by
+  have hN : ∫ x, ρ x * ncMom hbar ρ ρ' x ^ 2 = hbar ^ 2 / 4 * fisher ρ ρ' := by
+    simp_rw [rho_ncMom_sq]
+    rw [integral_const_mul]
+    rfl
+  have hsqrt : Real.sqrt (hbar ^ 2 / 4 * fisher ρ ρ') =
+      hbar / 2 * Real.sqrt (fisher ρ ρ') := by
+    rw [show hbar ^ 2 / 4 * fisher ρ ρ' = (hbar / 2) ^ 2 * fisher ρ ρ' by ring,
+      Real.sqrt_mul (sq_nonneg _), Real.sqrt_sq (by positivity)]
+  unfold ncSpread
+  rw [hN, hsqrt]
+
+/-- The momentum spread dominates the nonclassical spread: `ΔN ≤ Δp`.
+`ℂ` [the complex numbers: pairs a + b·i with i² = −1]
+`ℝ` [the real numbers: every number on the number line]
+`∫` [added up continuously over]
+`≤` [is smaller than or equal to]
+`∀` [for every single one]
+`<` [is smaller than]
+`Real.sqrt` [the number that squares to give this]
+`≠` [is not equal to]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+-/
+theorem nc_le_momSpread (hbar : ℝ) (hh : hbar ≠ 0) (ρ ρ' S S' : ℝ → ℝ)
+    (hpos : ∀ x, 0 < ρ x) (hint : Integrable ρ) (hnorm : ∫ x, ρ x = 1)
+    (hS1 : Integrable (fun x => ρ x * S' x)) (hS2 : Integrable (fun x => ρ x * S' x ^ 2))
+    (hN2 : Integrable (fun x => ρ x * ncMom hbar ρ ρ' x ^ 2)) :
+    ncSpread hbar ρ ρ' ≤ momSpread hbar (madelung hbar ρ S) (madelungDeriv hbar ρ ρ' S S') := by
+  have hvar : (∫ x, ρ x * S' x) ^ 2 ≤ ∫ x, ρ x * S' x ^ 2 :=
+    weighted_var_nonneg ρ S' (fun x => (hpos x).le) hint hnorm hS1 hS2
+  have hsq := momentum_spread_sq hbar hh ρ ρ' S S' hpos hS2 hN2
+  unfold ncSpread momSpread
+  apply Real.sqrt_le_sqrt
+  rw [hsq]
+  linarith
+
+/-- The full Kennard relation `ℏ/2 ≤ Δx·Δp` for the Madelung wavefunction: Cramér–Rao gives
+`ℏ/2 ≤ √V·ΔN`, and `ΔN ≤ Δp`. `μ` is any centre, so in particular the mean of `x`.
+`ℂ` [the complex numbers: pairs a + b·i with i² = −1]
+`ℝ` [the real numbers: every number on the number line]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`∀` [for every single one]
+`∫` [added up continuously over]
+`≤` [is smaller than or equal to]
+`<` [is smaller than]
+`Real.sqrt` [the number that squares to give this]
+`HasDerivAt` [is changing at that rate at that time]
+-/
+theorem heisenberg (μ hbar : ℝ) (hh : 0 < hbar) (ρ ρ' S S' : ℝ → ℝ)
+    (hpos : ∀ x, 0 < ρ x) (hd : ∀ y, HasDerivAt ρ (ρ' y) y) (hint : Integrable ρ)
+    (hnorm : ∫ x, ρ x = 1) (hA : Integrable (fun x => (x - μ) ^ 2 * ρ x))
+    (hintr : Integrable (fun x => (x - μ) * ρ' x))
+    (hC : Integrable (fun x => ρ' x ^ 2 / ρ x))
+    (htb : Tendsto (fun x => (x - μ) * ρ x) atBot (𝓝 0))
+    (htt : Tendsto (fun x => (x - μ) * ρ x) atTop (𝓝 0))
+    (hS1 : Integrable (fun x => ρ x * S' x)) (hS2 : Integrable (fun x => ρ x * S' x ^ 2))
+    (hN2 : Integrable (fun x => ρ x * ncMom hbar ρ ρ' x ^ 2)) :
+    hbar / 2 ≤ Real.sqrt (∫ x, (x - μ) ^ 2 * ρ x) *
+      momSpread hbar (madelung hbar ρ S) (madelungDeriv hbar ρ ρ' S S') := by
+  have hcr : 1 ≤ (∫ x, (x - μ) ^ 2 * ρ x) * fisher ρ ρ' :=
+    cramer_rao μ ρ ρ' hpos hd hint hnorm hA hintr hC htb htt
+  have hV : 0 ≤ ∫ x, (x - μ) ^ 2 * ρ x :=
+    integral_nonneg fun x => mul_nonneg (sq_nonneg _) (hpos x).le
+  have h1 : hbar / 2 ≤ Real.sqrt (∫ x, (x - μ) ^ 2 * ρ x) * ncSpread hbar ρ ρ' := by
+    have hcr' := heisenberg_from_cr (∫ x, (x - μ) ^ 2 * ρ x) (fisher ρ ρ') hbar hV hh.le hcr
+    rwa [← ncSpread_eq hbar ρ ρ' hh.le] at hcr'
+  have h2 := nc_le_momSpread hbar hh.ne' ρ ρ' S S' hpos hint hnorm hS1 hS2 hN2
+  calc hbar / 2 ≤ Real.sqrt (∫ x, (x - μ) ^ 2 * ρ x) * ncSpread hbar ρ ρ' := h1
+    _ ≤ Real.sqrt (∫ x, (x - μ) ^ 2 * ρ x) *
+          momSpread hbar (madelung hbar ρ S) (madelungDeriv hbar ρ ρ' S S') :=
+        mul_le_mul_of_nonneg_left h2 (Real.sqrt_nonneg _)
+
+/-- Witness for `madelung_normSq` and `madelung_current` at `ℏ = 1`, `ρ = 4`, `ρ' = 2`, `S = x`,
+`S' = 3`, `x = 0`: the identities at the numbers.
+`ℂ` [the complex numbers: pairs a + b·i with i² = −1]
+`Complex.normSq` [the squared size a² + b², the square of the modulus a + b·i]
+`Complex.re` [the real part a of a + b·i]
+`starRingEnd ℂ` [the conjugate a + b·i ↦ a − b·i]
+`ℝ` [the real numbers: every number on the number line]
+`∧` [both are true]
+-/
+theorem witness_madelung :
+    (1 ^ 2 * Complex.normSq (madelungDeriv 1 (fun _ => 4) (fun _ => 2) (fun x => x) (fun _ => 3) 0)
+        = 4 * 3 ^ 2 + 4 * ncMom 1 (fun _ => 4) (fun _ => 2) 0 ^ 2) ∧
+    ((starRingEnd ℂ (madelung 1 (fun _ => 4) (fun x => x) 0) *
+        (-Complex.I * 1 * madelungDeriv 1 (fun _ => 4) (fun _ => 2) (fun x => x) (fun _ => 3) 0)).re
+      = 4 * 3) :=
+  ⟨madelung_normSq 1 one_ne_zero (fun _ => 4) (fun _ => 2) (fun x => x) (fun _ => 3) 0
+      (by norm_num),
+    madelung_current 1 one_ne_zero (fun _ => 4) (fun _ => 2) (fun x => x) (fun _ => 3) 0
+      (by norm_num)⟩
+
 /-- The verdict with the Cramér–Rao hypothesis discharged: `verdict_l9`, and the
 Cauchy–Schwarz step and the Cramér–Rao bound with no `hcs` hypothesis.
 `ℝ` [the real numbers: every number on the number line]
@@ -427,6 +748,67 @@ theorem verdict_l9b :
   ⟨verdict_l9, fun μ ρ ρ' hpos hA hB hC => cauchy_schwarz_fisher μ ρ ρ' hpos hA hB hC,
     fun μ ρ ρ' hpos hd hint hnorm hA hB hC htb htt =>
       cramer_rao μ ρ ρ' hpos hd hint hnorm hA hB hC htb htt⟩
+
+/-- The verdict of : `verdict_l9b`, the pointwise Madelung norm and current, the
+momentum-spread decomposition, the Kennard relation `Δx·Δp ≥ ℏ/2`, and the closed witness.
+`ℂ` [the complex numbers: pairs a + b·i with i² = −1]
+`Complex.normSq` [the squared size a² + b², the square of the modulus a + b·i]
+`Complex.re` [the real part a of a + b·i]
+`starRingEnd ℂ` [the conjugate a + b·i ↦ a − b·i]
+`ℝ` [the real numbers: every number on the number line]
+`→` [takes the left and gives the right; between statements, if the left holds so does the right]
+`≠` [is not equal to]
+`∀` [for every single one]
+`∧` [both are true]
+`∫` [added up continuously over]
+`≤` [is smaller than or equal to]
+`<` [is smaller than]
+`HasDerivAt` [is changing at that rate at that time]
+`Real.sqrt` [the number that squares to give this]
+-/
+theorem verdict_l9c :
+    type_of% verdict_l9b ∧
+    (∀ (hbar : ℝ) (ρ ρ' S S' : ℝ → ℝ) (x : ℝ), hbar ≠ 0 → 0 < ρ x →
+      HasDerivAt ρ (ρ' x) x → HasDerivAt S (S' x) x →
+      HasDerivAt (madelung hbar ρ S) (madelungDeriv hbar ρ ρ' S S' x) x) ∧
+    (∀ (hbar : ℝ) (ρ ρ' S S' : ℝ → ℝ) (x : ℝ), hbar ≠ 0 → 0 < ρ x →
+      hbar ^ 2 * Complex.normSq (madelungDeriv hbar ρ ρ' S S' x)
+        = ρ x * S' x ^ 2 + ρ x * ncMom hbar ρ ρ' x ^ 2) ∧
+    (∀ (hbar : ℝ) (ρ ρ' S S' : ℝ → ℝ) (x : ℝ), hbar ≠ 0 → 0 < ρ x →
+      (starRingEnd ℂ (madelung hbar ρ S x) *
+        (-Complex.I * hbar * madelungDeriv hbar ρ ρ' S S' x)).re = ρ x * S' x) ∧
+    (∀ (hbar : ℝ) (ρ ρ' S S' : ℝ → ℝ), hbar ≠ 0 → (∀ x, 0 < ρ x) → Integrable ρ →
+      (∫ x, ρ x = 1) → Integrable (fun x => ρ x * S' x) →
+      Integrable (fun x => ρ x * S' x ^ 2) →
+      Integrable (fun x => ρ x * ncMom hbar ρ ρ' x ^ 2) →
+      momSq hbar (madelungDeriv hbar ρ ρ' S S')
+          - momMean hbar (madelung hbar ρ S) (madelungDeriv hbar ρ ρ' S S') ^ 2
+        = ((∫ x, ρ x * S' x ^ 2) - (∫ x, ρ x * S' x) ^ 2)
+          + ∫ x, ρ x * ncMom hbar ρ ρ' x ^ 2) ∧
+    (∀ (μ hbar : ℝ) (ρ ρ' S S' : ℝ → ℝ), 0 < hbar → (∀ x, 0 < ρ x) →
+      (∀ y, HasDerivAt ρ (ρ' y) y) → Integrable ρ → (∫ x, ρ x = 1) →
+      Integrable (fun x => (x - μ) ^ 2 * ρ x) → Integrable (fun x => (x - μ) * ρ' x) →
+      Integrable (fun x => ρ' x ^ 2 / ρ x) →
+      Tendsto (fun x => (x - μ) * ρ x) atBot (𝓝 0) →
+      Tendsto (fun x => (x - μ) * ρ x) atTop (𝓝 0) →
+      Integrable (fun x => ρ x * S' x) → Integrable (fun x => ρ x * S' x ^ 2) →
+      Integrable (fun x => ρ x * ncMom hbar ρ ρ' x ^ 2) →
+      hbar / 2 ≤ Real.sqrt (∫ x, (x - μ) ^ 2 * ρ x) *
+        momSpread hbar (madelung hbar ρ S) (madelungDeriv hbar ρ ρ' S S')) ∧
+    ((1 ^ 2 * Complex.normSq (madelungDeriv 1 (fun _ => 4) (fun _ => 2) (fun x => x)
+          (fun _ => 3) 0) = 4 * 3 ^ 2 + 4 * ncMom 1 (fun _ => 4) (fun _ => 2) 0 ^ 2) ∧
+      ((starRingEnd ℂ (madelung 1 (fun _ => 4) (fun x => x) 0) *
+        (-Complex.I * 1 * madelungDeriv 1 (fun _ => 4) (fun _ => 2) (fun x => x)
+          (fun _ => 3) 0)).re = 4 * 3)) :=
+  ⟨verdict_l9b,
+    fun hbar ρ ρ' S S' x hh hx hd hS => madelung_hasDerivAt hbar hh ρ ρ' S S' x hx hd hS,
+    fun hbar ρ ρ' S S' x hh hx => madelung_normSq hbar hh ρ ρ' S S' x hx,
+    fun hbar ρ ρ' S S' x hh hx => madelung_current hbar hh ρ ρ' S S' x hx,
+    fun hbar ρ ρ' S S' hh hpos _ _ _ hS2 hN2 =>
+      momentum_spread_sq hbar hh ρ ρ' S S' hpos hS2 hN2,
+    fun μ hbar ρ ρ' S S' hh hpos hd hint hnorm hA hintr hC htb htt hS1 hS2 hN2 =>
+      heisenberg μ hbar hh ρ ρ' S S' hpos hd hint hnorm hA hintr hC htb htt hS1 hS2 hN2,
+    witness_madelung⟩
 
 end ExactUncertainty
 end Quantum
