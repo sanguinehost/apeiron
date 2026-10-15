@@ -2197,6 +2197,37 @@ def a3DiagShare : ℚ := (711953 : ℚ) / 2500000
 
 end Receipts.qarch_q1
 
+-- Receipt the receipts/onebit/qarch-q2 note.json`
+namespace Receipts.qarch_q2
+
+def sha256 : String := "5c08074ed988489e79b375ef33f7b54ac0aaf752f8816dfae6351dca1c0e8443"
+def uniW0 : ℚ := (1118349 : ℚ) / 100000
+def uniW1 : ℚ := (44253 : ℚ) / 4000
+def uniW2 : ℚ := (9755773 : ℚ) / 1000000
+def uniMean : ℚ := (4267 : ℚ) / 400
+def uniBpw : ℚ := (9 : ℚ) / 8
+def uniParams : ℕ := 0
+def uniBlocks : ℕ := 0
+def sepW0 : ℚ := (556099 : ℚ) / 50000
+def sepW1 : ℚ := (210129 : ℚ) / 20000
+def sepW2 : ℚ := (8477693 : ℚ) / 1000000
+def sepMean : ℚ := (1003537 : ℚ) / 100000
+def sepBpw : ℚ := (1177973 : ℚ) / 1000000
+def sepParams : ℕ := 16848896
+def sepBlocks : ℕ := 325
+def jointW0 : ℚ := (131839 : ℚ) / 12500
+def jointW1 : ℚ := (1126987 : ℚ) / 100000
+def jointW2 : ℚ := (100219 : ℚ) / 10000
+def jointMean : ℚ := (66331 : ℚ) / 6250
+def jointBpw : ℚ := (235597 : ℚ) / 200000
+def jointParams : ℕ := 16852992
+def jointBlocks : ℕ := 1025
+def uniControlC : ℚ := (0 : ℚ) / 1
+def budgetParams : ℕ := 16857606
+def offdiagShare : ℚ := (-3186417 : ℚ) / 5000000
+
+end Receipts.qarch_q2
+
 -- Receipt the receipts/onebit/2026-10-11-vladder note.json`
 namespace Receipts.vladder_1011
 

@@ -101,6 +101,7 @@ import Numeric.Quantum.Ledger.EllipticTensor
 import Numeric.Quantum.Ledger.CellClifford
 import Numeric.Quantum.Ledger.SicStencil
 import Numeric.Quantum.Measured.InterferenceGram
+import Numeric.Quantum.Measured.JointFisher
 import Numeric.Quantum.Ledger.DeltaEnds
 import Numeric.Quantum.Ledger.ExactUncertainty
 import Numeric.Quantum.Ledger.EllipticRebit
@@ -1617,6 +1618,15 @@ import Numeric.Quantum.Ledger.EllipticRebit
 #audit Quantum.InterferenceGram.prefix_over_suffix_under
 #audit Quantum.InterferenceGram.diagonal_share_falls
 #audit Quantum.InterferenceGram.verdict_q1
+
+-- Q2 joint vs separable Fisher-sketch allocation, measured (`Numeric/Quantum/Measured/JointFisher.lean`, receipt
+-- the receipts/onebit/qarch-q2 note.json`): the joint arm is not below the separable arm at equal rate (refuted).
+#audit Quantum.JointFisher.separable_below_uniform
+#audit Quantum.JointFisher.joint_not_below_separable
+#audit Quantum.JointFisher.joint_below_on_w0
+#audit Quantum.JointFisher.equal_rate
+#audit Quantum.JointFisher.regime_far
+#audit Quantum.JointFisher.verdict_q2
 
 -- : measurement and reflection, the ends of the β family (Numeric/Quantum/Ledger/DeltaEnds.lean).
 #audit Quantum.DeltaEnds.inner_corr_k
