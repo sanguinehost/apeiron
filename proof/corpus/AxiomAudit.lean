@@ -1657,6 +1657,20 @@ import Numeric.Quantum.Ledger.EllipticRebit
 #audit Quantum.ExactUncertainty.cramer_rao
 #audit Quantum.ExactUncertainty.verdict_l9b
 
+-- APEIRON-QARCH-L9c: the full Heisenberg relation from the Madelung wavefunction
+-- (Numeric/Quantum/Ledger/ExactUncertainty.lean).
+#audit Quantum.ExactUncertainty.star_exp_I
+#audit Quantum.ExactUncertainty.madelung_hasDerivAt
+#audit Quantum.ExactUncertainty.madelung_normSq
+#audit Quantum.ExactUncertainty.madelung_current
+#audit Quantum.ExactUncertainty.weighted_var_nonneg
+#audit Quantum.ExactUncertainty.momentum_spread_sq
+#audit Quantum.ExactUncertainty.ncSpread_eq
+#audit Quantum.ExactUncertainty.nc_le_momSpread
+#audit Quantum.ExactUncertainty.heisenberg
+#audit Quantum.ExactUncertainty.witness_madelung
+#audit Quantum.ExactUncertainty.verdict_l9c
+
 -- APEIRON-QARCH-L10: the elliptic cell is the extra rebit (Numeric/Quantum/Ledger/EllipticRebit.lean).
 #audit Quantum.EllipticRebit.rep_mul
 #audit Quantum.EllipticRebit.rep_one
