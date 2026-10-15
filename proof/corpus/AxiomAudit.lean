@@ -76,6 +76,8 @@ import Learn.Grad.DenseLinear
 import Learn.Grad.DenseLinearWitness
 import Learn.Grad.Rope
 import Numeric.OneBit.SigmaDeltaRefinement
+import Learn.Grad.Head
+import Learn.Grad.HeadLoop
 import Perf.BitsRefine
 import Numeric.Quantum.Register
 import Numeric.Quantum.RegisterRefinement
@@ -758,6 +760,46 @@ import Numeric.Quantum.Ledger.EllipticTensor
 #audit apeiron_rope.rope_fwd_refines
 #audit apeiron_rope.rope_fwd_witness
 #audit apeiron_rope.rope_bwd_witness
+-- The extracted vocabulary-head exact-integer bodies `learn_port.head` refine their `ℤ` specs
+-- (`Learn/Grad/Head.lean`): rounding, narrowing, sign, checked arithmetic, the `log p` entry and the
+-- `log_softmax_row` projection.
+#audit apeiron_head.abs128_spec
+#audit apeiron_head.sgn_spec
+#audit apeiron_head.to64_ok
+#audit apeiron_head.to64_low
+#audit apeiron_head.to64_high
+#audit apeiron_head.add128_ok
+#audit apeiron_head.add128_refuse
+#audit apeiron_head.mul128_ok
+#audit apeiron_head.mul128_refuse
+#audit apeiron_head.dim128_spec
+#audit apeiron_head.mul_dims_ok
+#audit apeiron_head.mul_dims_refuse
+#audit apeiron_head.lp_entry_ok
+#audit apeiron_head.round_div_spec
+#audit apeiron_head.log_softmax_row_spec
+#audit apeiron_head.log_softmax_row_err
+#audit apeiron_head.to64_witness_ok
+#audit apeiron_head.add128_witness_ok
+#audit apeiron_head.mul128_witness_ok
+#audit apeiron_head.lp_entry_witness_ok
+
+-- The extracted `learn_port.head` `_loop` bodies refine their `ℤ` accumulator models
+-- (`Learn/Grad/HeadLoop.lean`), each over `loop.spec_decr_nat` with an explicit non-overflow domain.
+#audit apeiron_head.row_max_loop_body_spec
+#audit apeiron_head.row_max_loop_spec
+#audit apeiron_head.kl_acc_loop_body_spec
+#audit apeiron_head.kl_acc_loop_spec
+#audit apeiron_head.dz_diff_loop_body_spec
+#audit apeiron_head.dz_diff_loop_spec
+#audit apeiron_head.dot_round_loop_body_spec
+#audit apeiron_head.dot_round_loop_spec
+#audit apeiron_head.dw_fill_loop_body_spec
+#audit apeiron_head.dw_fill_loop_spec
+#audit apeiron_head.dw_out_fill_loop_body_spec
+#audit apeiron_head.dw_out_fill_loop_spec
+#audit apeiron_head.tv_scan_loop_body_spec
+#audit apeiron_head.tv_scan_loop_spec
 
 -- The extracted checked-`i64` sigma-delta body `sigma_delta.sd_binary_block`
 -- refines `Numeric.SigmaDelta.sdState`/`sdSign` (`Numeric/OneBit/SigmaDeltaRefinement.lean`).
