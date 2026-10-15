@@ -108,6 +108,9 @@ lean_lib ApeironWordBridge where
     -- The extracted `_loop` bodies of `learn_port.head` (`Learn/Grad/HeadLoop.lean`) against
     -- their `ℤ` prefix-sum/accumulator models, over `loop.spec_decr_nat`.
     `Learn.Grad.HeadLoop,
+    -- W1b backward-pass refinements (`src/learn/grad/dense.rs`): the extracted `learn_port.dense`
+    -- `RMSNorm`/`SwiGLU` forward and backward maps against the `ℤ` specification.
+    `Learn.Grad.DenseNormSpec, `Learn.Grad.DenseNorm, `Learn.Grad.DenseNormBwd,
     `AxiomAudit, `Joint.WordBridge,
     `Iota.Audit.Empty,
     `Iota.Syntax, `Iota.Decode,

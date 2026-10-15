@@ -71,6 +71,8 @@ import Perf.SideInfo
 import Perf.Generalisation
 import Perf.KLTilt
 import Learn.GramExact
+import Learn.Grad.DenseNorm
+import Learn.Grad.DenseNormBwd
 import Learn.E8Code
 import Learn.Grad.DenseLinear
 import Learn.Grad.DenseLinearWitness
@@ -1457,3 +1459,57 @@ import Numeric.Quantum.Ledger.CellClifford
 #audit Quantum.CellClifford.k_sq_split
 #audit Quantum.CellClifford.rebit_bijective
 #audit Quantum.CellClifford.verdict_l1
+
+-- The extracted Q32.32 dense-normalisation primitives and the `swiglu_fwd` loop
+-- (`Learn/Grad/DenseNorm.lean`) refine the integer spec `Learn/Grad/DenseNormSpec.lean`.
+#audit apeiron_grad.dense_round32_val
+#audit apeiron_grad.dense_mul_round_some
+#audit apeiron_grad.dense_div_round_some
+#audit apeiron_grad.dense_narrow_some
+#audit apeiron_grad.dense_ov_some
+#audit apeiron_grad.swigluVals_eq_zipWith_len
+#audit apeiron_grad.swiglu_fwd_loop_body_step
+#audit apeiron_grad.swiglu_fwd_loop_spec
+#audit apeiron_grad.swiglu_fwd_spec
+#audit apeiron_grad.swiglu_one_bwd_spec
+#audit apeiron_grad.swiglu_fwd_empty
+#audit apeiron_grad.swiglu_fwd_shape
+
+-- The `silu_deriv`, `swiglu_bwd`, `rmsnorm_fwd` and `inv_rms` entry points, the `rmsnorm_bwd`
+-- accumulator and output loops, and their `ℤ`-specification links
+-- (`Learn/Grad/DenseNorm.lean`, `Learn/Grad/DenseNormBwd.lean`).
+#audit apeiron_grad.silu_deriv_spec
+#audit apeiron_grad.swigluBwdVals_eq_zip_len
+#audit apeiron_grad.swiglu_bwd_loop_body_step
+#audit apeiron_grad.swiglu_bwd_loop_spec
+#audit apeiron_grad.swiglu_bwd_spec
+#audit apeiron_grad.rmsnorm_fwd_loop_body_step
+#audit apeiron_grad.rmsnorm_fwd_loop_spec
+#audit apeiron_grad.rmsnorm_fwd_spec
+#audit apeiron_grad.norm_cast_U64_val
+#audit apeiron_grad.norm_hcast_I64MAX_val
+#audit apeiron_grad.norm_hcast_I64_val
+#audit apeiron_grad.norm_guard_iff
+#audit apeiron_grad.norm_I64_checked_sub_some
+#audit apeiron_grad.inv_rms_loop_body_step
+#audit apeiron_grad.inv_rms_loop_spec
+#audit apeiron_grad.inv_rms_spec
+#audit apeiron_grad.bwdAVals_step
+#audit apeiron_grad.bwdAVals_length
+#audit apeiron_grad.bwdASum_step
+#audit apeiron_grad.rmsnorm_bwd_loop0_body_step
+#audit apeiron_grad.rmsnorm_bwd_loop0_spec
+#audit apeiron_grad.norm_I128_shiftLeft_63
+#audit apeiron_grad.norm_I128_shiftRight_64_eq
+#audit apeiron_grad.norm_I128_shiftRight_64_val
+#audit apeiron_grad.bwdDxVals_step
+#audit apeiron_grad.bwdDxVals_length
+#audit apeiron_grad.bwdDgVals_step
+#audit apeiron_grad.bwdDgVals_length
+#audit apeiron_grad.rmsnorm_bwd_loop1_body_step
+#audit apeiron_grad.rmsnorm_bwd_loop1_spec
+#audit apeiron_grad.bwdDxValsL
+#audit apeiron_grad.bwdDxValsL_step
+#audit apeiron_grad.bwdDxValsL_length
+#audit apeiron_grad.bwdDxVals_eq_L
+#audit apeiron_grad.rmsnorm_bwd_spec
