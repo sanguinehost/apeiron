@@ -168,6 +168,31 @@ pub struct Rules {
     pub dirs: Vec<DirRule>,
     pub debts: Vec<DebtRule>,
     pub frozen: Vec<String>,
+    pub lean: Option<LeanRules>,
+}
+
+/// The `[lean]` table: the Lean corpus under `root`, whose modules must reach an extraction or be
+/// listed in `orphan_debt`. `audit_modules` are aggregators, exempt and never a path of linkage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeanRules {
+    pub root: String,
+    pub audit_modules: Vec<String>,
+    pub orphan_debt: Vec<String>,
+}
+
+/// One tracked Lean file under `[lean].root`: its repository path and its import names in source order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeanModule {
+    pub path: String,
+    pub imports: Vec<String>,
+}
+
+/// The counts the verdict block prints: modules under the root, linked, and support (not linked).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LeanCounts {
+    pub modules: usize,
+    pub linked: usize,
+    pub support: usize,
 }
 
 /// One `[[dir]]` entry: the directory, whether it governs its descendants, and the basename globs
@@ -455,6 +480,158 @@ pub fn structure_verdict(rules: &Rules, files: &[(String, usize)]) -> Vec<Struct
 
     out.sort();
     out
+}
+
+/// The module name of `path` under `root`: the path minus `root/` and `.lean`, `/` read as `.`.
+/// `None` when the path is not a `.lean` file under the root.
+///
+/// Cost: time O(P) over the P bytes of the path, space O(P) for the name.
+fn lean_name(root: &str, path: &str) -> Option<String> {
+    let rest = path
+        .strip_prefix(root)?
+        .strip_prefix('/')?
+        .strip_suffix(".lean")?;
+    Some(rest.replace('/', "."))
+}
+
+/// True for an import of the extraction: `ApeironWord` itself or a name under `ApeironWord.`.
+fn is_word(import: &str) -> bool {
+    import == "ApeironWord" || import.starts_with("ApeironWord.")
+}
+
+/// Decides the Lean reachability rule over `modules` (the tracked files under `[lean].root`). A
+/// module is **linked** when it imports `ApeironWord` directly or imports a linked module. A module
+/// is **support** when a linked module imports it, transitively, along edges whose source is not an
+/// audit module. An **orphan** is neither linked nor support and is not an audit module; each orphan
+/// must be listed in `orphan_debt`. Each debt entry must be a tracked module that is still an orphan.
+/// `tracked` is the full tracked list, used only to tell an untracked debt path from one outside the
+/// root. Returns the refusals, unsorted, and the counts. With no `[lean]` table the rule is absent.
+///
+/// Cost: time O((V + E) log V + T log T + D log T) over V modules, E import edges, T tracked paths
+/// and D debt entries. Name lookup per import is O(log V) (a BTreeMap); the linked pass is a reverse
+/// breadth-first search over the non-audit edges and the support pass a forward one, each O(V + E)
+/// since every module is pushed at most once. Space O(V + E + T) for the graph and the tracked set.
+/// Audit modules are never expanded, so an edge out of one cannot make a module linked or support.
+pub fn lean_verdict(
+    rules: &Rules,
+    tracked: &[String],
+    modules: &[LeanModule],
+) -> (Vec<StructureRefusal>, LeanCounts) {
+    let Some(lean) = &rules.lean else {
+        return (Vec::new(), LeanCounts::default());
+    };
+    let refuse = |rule: &'static str, path: &str, detail: String| StructureRefusal {
+        rule,
+        path: path.to_string(),
+        detail,
+    };
+    let n = modules.len();
+    let names: Vec<Option<String>> = modules
+        .iter()
+        .map(|m| lean_name(&lean.root, &m.path))
+        .collect();
+    let mut by_name = std::collections::BTreeMap::new();
+    let mut by_path = std::collections::BTreeMap::new();
+    for (i, m) in modules.iter().enumerate() {
+        if let Some(name) = &names[i] {
+            by_name.insert(name.as_str(), i);
+        }
+        by_path.insert(m.path.as_str(), i);
+    }
+    let audit: Vec<bool> = names
+        .iter()
+        .map(|nm| nm.as_ref().is_some_and(|s| lean.audit_modules.contains(s)))
+        .collect();
+
+    // Edges: `fwd[i]` lists the population modules i imports; `word[i]` records an extraction import.
+    let mut word = vec![false; n];
+    let mut fwd: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, m) in modules.iter().enumerate() {
+        for imp in &m.imports {
+            if is_word(imp) {
+                word[i] = true;
+            } else if let Some(&j) = by_name.get(imp.as_str()) {
+                fwd[i].push(j);
+            }
+        }
+    }
+    // Reverse edges from non-audit importers only: an aggregator neither links nor supports.
+    let mut rev: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for i in (0..n).filter(|&i| !audit[i]) {
+        for &j in &fwd[i] {
+            rev[j].push(i);
+        }
+    }
+
+    // Linked: seeded by the extraction import, closed under importers.
+    let mut linked = vec![false; n];
+    let mut stack: Vec<usize> = (0..n).filter(|&i| !audit[i] && word[i]).collect();
+    for &i in &stack {
+        linked[i] = true;
+    }
+    while let Some(j) = stack.pop() {
+        for &i in &rev[j] {
+            if !linked[i] {
+                linked[i] = true;
+                stack.push(i);
+            }
+        }
+    }
+
+    // Support: reached forward from linked modules; an audit module is reached but never expanded.
+    let mut support = vec![false; n];
+    let mut stack: Vec<usize> = (0..n).filter(|&i| linked[i]).collect();
+    while let Some(i) = stack.pop() {
+        for &j in &fwd[i] {
+            if !support[j] && !audit[j] {
+                support[j] = true;
+                stack.push(j);
+            }
+        }
+    }
+
+    let counts = LeanCounts {
+        modules: n,
+        linked: linked.iter().filter(|&&b| b).count(),
+        support: (0..n).filter(|&i| support[i] && !linked[i]).count(),
+    };
+    let orphan = |i: usize| !audit[i] && !linked[i] && !support[i];
+    let debt: std::collections::BTreeSet<&str> =
+        lean.orphan_debt.iter().map(String::as_str).collect();
+    let tracked_set: std::collections::BTreeSet<&str> =
+        tracked.iter().map(String::as_str).collect();
+
+    let mut out = Vec::new();
+    for (i, m) in modules.iter().enumerate() {
+        if orphan(i) && !debt.contains(m.path.as_str()) {
+            out.push(refuse(
+                "orphan",
+                &m.path,
+                "imports no extraction and no linked module imports it".into(),
+            ));
+        }
+    }
+    for entry in &lean.orphan_debt {
+        let stale = if !tracked_set.contains(entry.as_str()) {
+            Some("not tracked")
+        } else if let Some(&i) = by_path.get(entry.as_str()) {
+            if audit[i] {
+                Some("audit module")
+            } else if linked[i] {
+                Some("now linked")
+            } else if support[i] {
+                Some("now support")
+            } else {
+                None
+            }
+        } else {
+            Some("not a Lean module under the root")
+        };
+        if let Some(why) = stale {
+            out.push(refuse("orphan-stale", entry, why.into()));
+        }
+    }
+    (out, counts)
 }
 
 #[cfg(test)]

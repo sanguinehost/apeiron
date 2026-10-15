@@ -590,13 +590,7 @@ impl ControlCopy {
     pub fn create(base: &Path, src: &Path, keep: bool) -> io::Result<(ControlCopy, CopyReport)> {
         let dir = control_copy_dir(base);
         match copy_tree(src, &dir) {
-            Ok(report) => Ok((
-                ControlCopy {
-                    root: dir,
-                    keep,
-                },
-                report,
-            )),
+            Ok(report) => Ok((ControlCopy { root: dir, keep }, report)),
             Err(error) => {
                 let _ = fs::remove_dir_all(&dir);
                 Err(error)
@@ -625,7 +619,10 @@ fn control_copy_dir(base: &Path) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
     let seq = RUN_SEQ.fetch_add(1, Ordering::Relaxed);
-    base.join(format!("{CONTROL_COPY_PREFIX}{}-{nanos}-{seq}", std::process::id()))
+    base.join(format!(
+        "{CONTROL_COPY_PREFIX}{}-{nanos}-{seq}",
+        std::process::id()
+    ))
 }
 
 /// Copy `src` to `dst` under the exclusion rule a directory digest already uses: path components
@@ -1324,7 +1321,10 @@ pub(crate) mod controls {
         assert!(dst.join("a.rs").is_file(), "the payload is copied");
         assert!(dst.join("sub/b.rs").is_file(), "a nested payload is copied");
         assert!(!dst.join("target").exists(), "a root `target` is skipped");
-        assert!(!dst.join("sub/target").exists(), "a nested `target` is skipped");
+        assert!(
+            !dst.join("sub/target").exists(),
+            "a nested `target` is skipped"
+        );
         assert!(!dst.join(".hidden").exists(), "a dot component is skipped");
         assert_eq!(report.files, 2, "{report:?}");
         assert_eq!(report.skipped, 3, "{report:?}");
@@ -1365,7 +1365,11 @@ pub(crate) mod controls {
         drop(kept);
         assert!(kept_root.is_dir(), "a kept copy outlives its holder");
         let _ = fs::remove_dir_all(&kept_root);
-        assert_eq!(scratch_dirs(), before, "a removed kept copy leaves no scratch");
+        assert_eq!(
+            scratch_dirs(),
+            before,
+            "a removed kept copy leaves no scratch"
+        );
     }
 
     /// A symlink whose target leaves the copy root is refused, and the refusal names the link and
@@ -1378,7 +1382,8 @@ pub(crate) mod controls {
         let _ = fs::remove_dir_all(&src);
         fs::create_dir_all(&src).expect("src dir");
         fs::write(src.join("a.rs"), b"fn a() {}\n").expect("payload");
-        std::os::unix::fs::symlink("/home/socol/Workspace/apeiron", src.join("escape")).expect("link");
+        std::os::unix::fs::symlink("/home/socol/Workspace/apeiron", src.join("escape"))
+            .expect("link");
 
         let dst = std::env::temp_dir().join(format!("gate-linkdst-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dst);

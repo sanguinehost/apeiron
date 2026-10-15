@@ -1066,7 +1066,10 @@ fn control_flags_are_additive_and_the_identity_path_runs_no_control() {
     );
     let manifest = manifest_of(&root).display().to_string();
 
-    assert_eq!(docs_command(&[manifest.clone()]), ExitCode::SUCCESS);
+    assert_eq!(
+        docs_command(std::slice::from_ref(&manifest)),
+        ExitCode::SUCCESS
+    );
     assert!(
         !sentinel.exists(),
         "the identity check ran the row's control"

@@ -7,7 +7,10 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use gate::{is_source, structure_verdict, DebtRule, DirRule, Rules};
+use gate::{
+    is_source, lean_verdict, structure_verdict, DebtRule, DirRule, LeanCounts, LeanModule,
+    LeanRules, Rules,
+};
 
 use crate::cli::{Verdict, EXIT_ACCEPTED, EXIT_ENVIRONMENT, EXIT_REFUSED};
 
@@ -90,7 +93,11 @@ fn run(opts: &Options) -> Result<ExitCode, String> {
     }
 
     let files = count_lines(&opts.root, &rules, &paths)?;
-    let refusals = structure_verdict(&rules, &files);
+    let lean_modules = read_lean(&opts.root, &rules, &paths)?;
+    let (lean_refusals, lean_counts) = lean_verdict(&rules, &paths, &lean_modules);
+    let mut refusals = structure_verdict(&rules, &files);
+    refusals.extend(lean_refusals);
+    refusals.sort();
     for r in &refusals {
         println!("refuse {} {} {}", r.rule, r.path, r.detail);
     }
@@ -107,6 +114,18 @@ fn run(opts: &Options) -> Result<ExitCode, String> {
     v.fields.push(Verdict::number("debt", rules.debts.len()));
     v.fields
         .push(Verdict::number("frozen_python", rules.frozen.len()));
+    let LeanCounts {
+        modules,
+        linked,
+        support,
+    } = lean_counts;
+    v.fields.push(Verdict::number("lean_modules", modules));
+    v.fields.push(Verdict::number("linked", linked));
+    v.fields.push(Verdict::number("support", support));
+    v.fields.push(Verdict::number(
+        "orphan_debt",
+        rules.lean.as_ref().map_or(0, |l| l.orphan_debt.len()),
+    ));
     v.fields
         .push(Verdict::quoted("rules", &rules_path.display().to_string()));
     print!("{}", v.render());
@@ -205,6 +224,7 @@ enum Kind {
     Dir,
     Debt,
     Python,
+    Lean,
 }
 
 #[derive(Debug)]
@@ -366,6 +386,7 @@ fn parse_tables(src: &str) -> Result<Vec<Table>, String> {
                 (true, "dir") => Kind::Dir,
                 (true, "debt") => Kind::Debt,
                 (false, "python") => Kind::Python,
+                (false, "lean") => Kind::Lean,
                 _ => {
                     return Err(format!(
                         "{}:{}: unknown table header `{}`",
@@ -622,10 +643,86 @@ pub(crate) fn parse_rules(src: &str) -> Result<Rules, String> {
                     rules.frozen = as_list(f)?;
                 }
             }
+            Kind::Lean => {
+                const LEAN: &[&str] = &["root", "audit_modules", "orphan_debt"];
+                if rules.lean.is_some() {
+                    return Err(format!("{}:{}: duplicate [lean] table", t.at.0, t.at.1));
+                }
+                rules.lean = Some(LeanRules {
+                    root: as_str(need(t, LEAN, "root")?)?,
+                    audit_modules: as_list(need(t, LEAN, "audit_modules")?)?,
+                    orphan_debt: as_list(need(t, LEAN, "orphan_debt")?)?,
+                });
+            }
         }
     }
     rules.dirs.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(rules)
+}
+
+/// Each tracked `.lean` file under `[lean].root` with its import names; empty when there is no
+/// `[lean]` table. A file that cannot be read is an environment error.
+///
+/// Cost: time O(L) over the L bytes of the population's files (one read each), space O(L) for one
+/// file at a time plus O(I) for the I import names kept.
+fn read_lean(root: &Path, rules: &Rules, paths: &[String]) -> Result<Vec<LeanModule>, String> {
+    let Some(lean) = &rules.lean else {
+        return Ok(Vec::new());
+    };
+    let prefix = format!("{}/", lean.root);
+    // The package's `lakefile.lean` is build configuration, not a module of the library.
+    let lakefile = format!("{prefix}lakefile.lean");
+    let mut out = Vec::new();
+    for path in paths
+        .iter()
+        .filter(|p| p.starts_with(&prefix) && p.ends_with(".lean") && **p != lakefile)
+    {
+        let text = std::fs::read_to_string(root.join(path))
+            .map_err(|e| format!("cannot read {path}: {e}"))?;
+        out.push(LeanModule {
+            path: path.clone(),
+            imports: lean_imports(&text),
+        });
+    }
+    Ok(out)
+}
+
+/// The import names of a Lean file: the `import` lines before the first line that is neither blank,
+/// a comment, `module`, nor an import. `public`, `meta` and `private` precede `import`; a `/- -/`
+/// block comment may span lines. A trailing `--` comment is dropped.
+///
+/// Cost: time O(H) over the H bytes up to the end of the header, space O(I) for the I names.
+/// Each line is scanned once; the header ends at the first non-import line.
+fn lean_imports(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut in_block = false;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if in_block {
+            in_block = !line.contains("-/");
+            continue;
+        }
+        if line.is_empty() || line.starts_with("--") {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("/-") {
+            in_block = !rest.contains("-/");
+            continue;
+        }
+        let code = line.split("--").next().unwrap_or("").trim();
+        if code == "module" {
+            continue;
+        }
+        let words: Vec<&str> = code
+            .split_whitespace()
+            .skip_while(|w| matches!(*w, "public" | "meta" | "private"))
+            .collect();
+        match words.as_slice() {
+            ["import", name, ..] => out.push((*name).to_string()),
+            _ => break,
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -797,5 +894,98 @@ frozen = ["tools/old.py"]
             "schema = 1\nmax_lines = 1\nmax_dir_files = 1\nsource = []\n[other]\n"
         )
         .is_err());
+    }
+
+    /// A `[lean]` table over `proof/corpus` with the given debt list, appended to `RULES`.
+    fn lean_rules(debt: &[&str]) -> Rules {
+        let list: Vec<String> = debt.iter().map(|d| format!("\"{d}\"")).collect();
+        rules_with(&format!(
+            "\n[lean]\nroot = \"proof/corpus\"\naudit_modules = [\"AxiomAudit\"]\norphan_debt = [{}]\n",
+            list.join(", ")
+        ))
+    }
+
+    /// Runs the Lean rule over `(path, imports)` pairs, every pair tracked; returns `(rule, path)`.
+    fn lean_run(debt: &[&str], mods: &[(&str, &[&str])]) -> Vec<(&'static str, String)> {
+        let tracked: Vec<String> = mods.iter().map(|(p, _)| p.to_string()).collect();
+        let modules: Vec<LeanModule> = mods
+            .iter()
+            .map(|(p, imps)| LeanModule {
+                path: p.to_string(),
+                imports: imps.iter().map(|s| s.to_string()).collect(),
+            })
+            .collect();
+        let (refusals, _) = lean_verdict(&lean_rules(debt), &tracked, &modules);
+        rules_of(&refusals)
+    }
+
+    const BRIDGE: &str = "proof/corpus/Word/Bridge.lean";
+    const UTIL: &str = "proof/corpus/Lib/Util.lean";
+    const STRAY: &str = "proof/corpus/Stray/New.lean";
+
+    #[test]
+    fn control_lean_accept() {
+        // Bridge is linked by ApeironWord; Util is support, imported by the linked Bridge.
+        let mods: &[(&str, &[&str])] = &[(BRIDGE, &["ApeironWord.Basic", "Lib.Util"]), (UTIL, &[])];
+        assert!(lean_run(&[], mods).is_empty());
+    }
+
+    #[test]
+    fn control_lean_support_accepted() {
+        // Negative control: without the link from Bridge, Util is an orphan and is refused.
+        let mods: &[(&str, &[&str])] = &[(BRIDGE, &["Lib.Other"]), (UTIL, &[])];
+        assert_eq!(
+            lean_run(&[], mods),
+            vec![("orphan", BRIDGE.to_string()), ("orphan", UTIL.to_string())]
+        );
+        let linked: &[(&str, &[&str])] = &[(BRIDGE, &["ApeironWord", "Lib.Util"]), (UTIL, &[])];
+        assert!(lean_run(&[], linked).is_empty());
+    }
+
+    #[test]
+    fn control_lean_orphan_refused() {
+        let mods: &[(&str, &[&str])] = &[(STRAY, &["Mathlib.Tactic"])];
+        assert_eq!(lean_run(&[], mods), vec![("orphan", STRAY.to_string())]);
+    }
+
+    #[test]
+    fn control_lean_debt_accepted() {
+        let mods: &[(&str, &[&str])] = &[(STRAY, &["Mathlib.Tactic"])];
+        assert!(lean_run(&[STRAY], mods).is_empty());
+    }
+
+    #[test]
+    fn control_lean_stale_debt() {
+        // Debt on a module that is now linked is refused; the list only shrinks.
+        let mods: &[(&str, &[&str])] = &[(BRIDGE, &["ApeironWord"])];
+        assert_eq!(
+            lean_run(&[BRIDGE], mods),
+            vec![("orphan-stale", BRIDGE.to_string())]
+        );
+    }
+
+    #[test]
+    fn control_lean_audit_only_refused() {
+        // AxiomAudit imports the extraction and Dead, yet it links and supports nothing: Dead is an
+        // orphan. The aggregator itself is exempt.
+        let dead = "proof/corpus/Lib/Dead.lean";
+        let mods: &[(&str, &[&str])] = &[
+            (
+                "proof/corpus/AxiomAudit.lean",
+                &["ApeironWord.Basic", "Lib.Dead"],
+            ),
+            (dead, &[]),
+        ];
+        assert_eq!(lean_run(&[], mods), vec![("orphan", dead.to_string())]);
+    }
+
+    #[test]
+    fn control_lean_imports_header() {
+        let src = "module\n\n/-! doc\n  import Fake\n-/\npublic import ApeironWord.Basic -- note\n\
+                   meta import Lib.Util\nimport Lib.Two\n\ndef x := 1\nimport Late\n";
+        assert_eq!(
+            lean_imports(src),
+            vec!["ApeironWord.Basic", "Lib.Util", "Lib.Two"]
+        );
     }
 }
