@@ -20,7 +20,7 @@
 )]
 
 use apeiron::learn::code::e8::codeword;
-use apeiron::learn::fold::icm::{
+use apeiron::learn::fold::fit::icm::{
     e8_icm_step, e8_joint_icm_2plane, j_rows, nearest_index, plane_w, r_step2, ridged_metric,
     IcmError, Plane, PlaneRef,
 };

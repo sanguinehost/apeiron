@@ -12,7 +12,7 @@
               integer-only."
 )]
 
-use apeiron::learn::fold::budget::{
+use apeiron::learn::fold::stats::budget::{
     bytes_ceil, max_body_bpw, reference_ud_iq2_m, total_bits, TensorClass, WEIGHT_UNIT,
 };
 

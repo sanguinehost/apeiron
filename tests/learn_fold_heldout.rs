@@ -23,7 +23,7 @@
 )]
 
 use apeiron::engine::ONE;
-use apeiron::learn::fold::heldout::{held_out, held_out_seq};
+use apeiron::learn::fold::stats::heldout::{held_out, held_out_seq};
 use apeiron::learn::grad::model::{forward, Config, LayerWeights, Weights};
 
 /// Embedding width, query heads, KV head width, feed-forward width, vocabulary, layers.
