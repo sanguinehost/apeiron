@@ -272,7 +272,8 @@ pub fn j_rows(
 /// row the residual rebuild (`BLOCK²`), the `CODE_LEN`-row argmin (`CODE_LEN·BLOCK`) and the
 /// residual update (`BLOCK·n`), summed over the `n/8` independent blocks. Setup adds `O(o·n²)` for
 /// `Ws@Hl`, the two `fwht128` passes, `B@H_rot` and `CODE_LEN` `Q` values per block. Spatial
-/// `O(n²)` for `H_rot`/`hcc` plus `O(o·n)` for `s`, `F_res`, `G_rot`, `B`.
+/// `O(n²)` for `H_rot`/`hcc` plus `O(o·n)` for `s`, `F_res`, `G_rot`, `B`. The sweeps run in
+/// [`sweep_rows`], rows split across `GEMM_THREADS` workers (rows are independent given `H_rot`).
 pub fn e8_icm_step(
     ws: &[f64],
     hl: &[f64],
@@ -328,62 +329,26 @@ pub fn e8_icm_step(
 
     let mut s_cur = p.s.to_vec();
     let mut idx_cur = p.idx.to_vec();
-    for sw in 0..sweeps {
-        for step in 0..nb {
-            let m = if sw % 2 == 0 { nb - 1 - step } else { step };
-            let b0 = m * BLOCK;
-            let gidx = b0 / GROUP;
-            let hb = block_of(&h_rot, n, m);
-            let mut a = vec![0.0_f64; o];
-            for row in 0..o {
-                a[row] = p.r[row * g + gidx];
-            }
-            let mut diff = vec![0.0_f64; o * BLOCK];
-            let mut arg = vec![0_usize; o];
-            for row in 0..o {
-                let mut f_m = [0.0_f64; BLOCK];
-                for k in 0..BLOCK {
-                    let mut acc = f_res[row * n + b0 + k];
-                    for l in 0..BLOCK {
-                        acc += a[row] * s_cur[row * n + b0 + l] * hb[l][k];
-                    }
-                    f_m[k] = acc;
-                }
-                let mut best = 0_usize;
-                let mut best_cost = f64::INFINITY;
-                for j in 0..CODE_LEN {
-                    let mut dot = 0.0;
-                    for k in 0..BLOCK {
-                        dot += f_m[k] * cb[j][k];
-                    }
-                    let cost = a[row] * a[row] * q_all[m * CODE_LEN + j] - 2.0 * a[row] * dot;
-                    if cost < best_cost {
-                        best_cost = cost;
-                        best = j;
-                    }
-                }
-                arg[row] = best;
-                for k in 0..BLOCK {
-                    diff[row * BLOCK + k] = cb[best][k] - s_cur[row * n + b0 + k];
-                }
-            }
-            for row in 0..o {
-                for k in 0..BLOCK {
-                    s_cur[row * n + b0 + k] = cb[arg[row]][k];
-                }
-                idx_cur[row * nb + m] = arg[row] as u16;
-            }
-            for row in 0..o {
-                for col in 0..n {
-                    let mut acc = 0.0;
-                    for k in 0..BLOCK {
-                        acc += a[row] * diff[row * BLOCK + k] * h_rot[(b0 + k) * n + col];
-                    }
-                    f_res[row * n + col] -= acc;
-                }
-            }
+    let cx = SweepCtx {
+        h_rot: &h_rot,
+        q_all: &q_all,
+        cb: &cb,
+        n,
+        g,
+        sweeps,
+    };
+    let per = o.div_ceil(GEMM_THREADS).max(1);
+    std::thread::scope(|scope| {
+        let parts = f_res
+            .chunks_mut(per * n)
+            .zip(s_cur.chunks_mut(per * n))
+            .zip(idx_cur.chunks_mut(per * nb))
+            .zip(p.r.chunks(per * g));
+        for (((f, sc), ix), r) in parts {
+            let cx = &cx;
+            scope.spawn(move || sweep_rows(cx, f, sc, ix, r));
         }
-    }
+    });
     Ok(Plane {
         s: s_cur,
         idx: idx_cur,
@@ -391,6 +356,87 @@ pub fn e8_icm_step(
         c: p.c.to_vec(),
         d: p.d.to_vec(),
     })
+}
+
+/// The read-only operands of [`sweep_rows`].
+struct SweepCtx<'a> {
+    h_rot: &'a [f64],
+    q_all: &'a [f64],
+    cb: &'a [[f64; BLOCK]; CODE_LEN],
+    n: usize,
+    g: usize,
+    sweeps: usize,
+}
+
+/// Rows per tile of [`sweep_rows`]: the `8 × n` rows of `H_rot` of one block are read once per tile
+/// and reused for every row in it.
+const TILE_ROWS: usize = 16;
+
+/// The block-ICM sweeps over one chunk of rows. Given the residual field the rows are independent,
+/// so a chunk runs every sweep and block without synchronisation; `f_res`, `s_cur` are the chunk's
+/// `rows × n` residual and signs, `idx` its `rows × n/8` codes, `r` its `rows × G` group scales.
+///
+/// # Complexity
+///
+/// Temporal: `sweeps · (n/8) · rows · (CODE_LEN·BLOCK + BLOCK² + 2·BLOCK·n)` multiply-adds (the
+/// residual update dominates, `2·BLOCK·n` per step, in the column loop over eight contiguous
+/// `H_rot` rows). Spatial: `O(BLOCK)` scratch beyond the borrowed chunk.
+fn sweep_rows(cx: &SweepCtx<'_>, f_res: &mut [f64], s_cur: &mut [f64], idx: &mut [u16], r: &[f64]) {
+    let (n, nb) = (cx.n, cx.n / BLOCK);
+    let rows = r.len() / cx.g;
+    let mut row0 = 0;
+    while row0 < rows {
+        let tile = TILE_ROWS.min(rows - row0);
+        for sw in 0..cx.sweeps {
+            for step in 0..nb {
+                let m = if sw % 2 == 0 { nb - 1 - step } else { step };
+                let b0 = m * BLOCK;
+                let hb = block_of(cx.h_rot, n, m);
+                let hrows: [&[f64]; BLOCK] =
+                    std::array::from_fn(|k| &cx.h_rot[(b0 + k) * n..(b0 + k + 1) * n]);
+                for row in row0..row0 + tile {
+                    let a = r[row * cx.g + b0 / GROUP];
+                    let f_row = &mut f_res[row * n..(row + 1) * n];
+                    let s_row = &mut s_cur[row * n..(row + 1) * n];
+                    let mut f_m = [0.0_f64; BLOCK];
+                    for k in 0..BLOCK {
+                        let mut acc = f_row[b0 + k];
+                        for l in 0..BLOCK {
+                            acc += a * s_row[b0 + l] * hb[l][k];
+                        }
+                        f_m[k] = acc;
+                    }
+                    let mut best = 0_usize;
+                    let mut best_cost = f64::INFINITY;
+                    for j in 0..CODE_LEN {
+                        let mut dot = 0.0;
+                        for k in 0..BLOCK {
+                            dot += f_m[k] * cx.cb[j][k];
+                        }
+                        let cost = a * a * cx.q_all[m * CODE_LEN + j] - 2.0 * a * dot;
+                        if cost < best_cost {
+                            best_cost = cost;
+                            best = j;
+                        }
+                    }
+                    let mut coef = [0.0_f64; BLOCK];
+                    for k in 0..BLOCK {
+                        coef[k] = a * (cx.cb[best][k] - s_row[b0 + k]);
+                        s_row[b0 + k] = cx.cb[best][k];
+                    }
+                    idx[row * nb + m] = best as u16;
+                    for (col, fv) in f_row.iter_mut().enumerate() {
+                        let mut acc = 0.0;
+                        for k in 0..BLOCK {
+                            acc += coef[k] * hrows[k][col];
+                        }
+                        *fv -= acc;
+                    }
+                }
+            }
+        }
+        row0 += tile;
+    }
 }
 
 /// Joint block ICM over two planes: `sweeps` passes over the `n / 8` blocks (or the `blocks` subset,

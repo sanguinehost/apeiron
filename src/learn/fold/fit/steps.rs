@@ -298,16 +298,18 @@ pub fn compose(
 }
 
 /// The metric objective `J(Ws, Wp, Hl) = Σ_{o,i,j} D[o,i]·Hl[i,j]·D[o,j] = tr(D·Hl·Dᵀ)` with
-/// `D = Ws − Wp`. `ws`, `wp` are `O × n` row-major; `hl` is `n × n`.
+/// `D = Ws − Wp`. `ws`, `wp` are `O × n` row-major; `hl` is `n × n`. The product `D·Hl` is
+/// [`mul_metric`] (the shared `Q32.32` product [`gemm_nn_f64`]); the trace is one `f64` dot.
 ///
 /// # Errors
 ///
-/// [`StepsError::ShapeMismatch`] if the slice lengths disagree with `O × n`, `O × n`, `n × n`.
+/// [`StepsError::ShapeMismatch`] if the slice lengths disagree with `O × n`, `O × n`, `n × n`, or
+/// if [`mul_metric`] refuses `D` or `hl`. Never a panic.
 ///
 /// # Complexity
 ///
-/// Temporal: `O(O·n²)` multiply-adds — one `n`-term reduction per `(o, j)` entry of `D·Hl`, then one
-/// multiply-add per `(o, j)`. Spatial: `O(1)` in a scalar accumulator.
+/// Temporal: [`mul_metric`] at `m = O`, `k = n`, `n = n` (`O(O·n²)` multiply-adds, threaded), then
+/// `O(O·n)` for the dot. Spatial: `O(O·n)` for `D` and `D·Hl`.
 pub fn objective(
     ws: &[f64],
     wp: &[f64],
@@ -318,17 +320,9 @@ pub fn objective(
     if ws.len() != o * n || wp.len() != o * n || hl.len() != n * n {
         return Err(StepsError::ShapeMismatch);
     }
-    let mut j = 0.0f64;
-    for oo in 0..o {
-        for col in 0..n {
-            let mut y = 0.0f64;
-            for i in 0..n {
-                y += (ws[oo * n + i] - wp[oo * n + i]) * hl[i * n + col];
-            }
-            j += (ws[oo * n + col] - wp[oo * n + col]) * y;
-        }
-    }
-    Ok(j)
+    let d: Vec<f64> = ws.iter().zip(wp).map(|(a, b)| a - b).collect();
+    let y = mul_metric(&d, hl, o, n)?;
+    Ok(d.iter().zip(&y).map(|(a, b)| a * b).sum())
 }
 
 /// The per-group scale `B[o,i] = s[o,i]·r[o, i/128]` of an `O × n` sign matrix and an `O × G` scale.
@@ -521,9 +515,11 @@ pub fn c_step(
 ///
 /// # Complexity
 ///
-/// Temporal: `O(O·G·128·n)` to form the `K` blocks plus `O(O·G²·128)` for `M` and `t`, and
-/// `O(O·G³)` for the per-row solves — `O(O·n²)` in total. Spatial: `O(n)` scratch (`K`, `P1`,
-/// `Ws·Hl` row) plus `O(G²)` per-row system and `O(O·G)` output.
+/// Temporal: `G` shared products [`gemm_nn_f64`] at `m = O`, `k = 128`, `n = n` (`O(O·128·n)`
+/// multiply-adds each, `O(O·n²)` in all, split across [`STEP_THREADS`] workers), `O(O·n)` for each
+/// group's accumulation into `M` (`O(O·G·n)` in all) and for `t`, and `O(O·G³)` for the per-row
+/// solves. Spatial: `O(O·n)` for `P`, the panel, the group product and `Ws·Hl`, `O(O·G²)` for the
+/// systems and `O(O·G)` output.
 pub fn r_step(
     ws: &[f64],
     hl: &[f64],
@@ -540,42 +536,43 @@ pub fn r_step(
         return Err(StepsError::ShapeMismatch);
     }
     let mut out = vec![0.0f64; o * g];
-    let mut p1 = vec![0.0f64; GROUP];
-    let mut kvec = vec![0.0f64; n];
-    let mut m = vec![0.0f64; g * g];
-    let mut t = vec![0.0f64; g];
+    if o == 0 {
+        return Ok(out);
+    }
     let wshl = mul_metric(ws, hl, o, n)?;
+    let p: Vec<f64> = s.iter().zip(c.iter().cycle()).map(|(a, b)| a * b).collect();
+    let mut t = vec![0.0f64; o * g];
     for oo in 0..o {
-        for gg in 0..g {
-            let mut acc = 0.0f64;
-            for k in 0..GROUP {
-                let idx = gg * GROUP + k;
-                acc += s[oo * n + idx] * c[idx] * wshl[oo * n + idx];
-            }
-            t[gg] = acc;
+        for idx in 0..n {
+            t[oo * g + idx / GROUP] += p[oo * n + idx] * wshl[oo * n + idx];
         }
-        for gg in 0..g {
-            for k in 0..GROUP {
-                let idx = gg * GROUP + k;
-                p1[k] = s[oo * n + idx] * c[idx];
-            }
-            // K[m] = Σ_k P1[gg,k]·Hl[gg·128+k, m].
-            for mm in 0..n {
-                let mut acc = 0.0f64;
-                for k in 0..GROUP {
-                    acc += p1[k] * hl[(gg * GROUP + k) * n + mm];
-                }
-                kvec[mm] = acc;
-            }
-            for gg2 in 0..g {
-                let mut acc = 0.0f64;
-                for k in 0..GROUP {
-                    let idx = gg2 * GROUP + k;
-                    acc += kvec[idx] * s[oo * n + idx] * c[idx];
-                }
-                m[gg * g + gg2] = acc;
+    }
+    // `M[o,gg,gg2] = Σ_{k∈gg2} (P[o, block gg]·Hl[block gg, :])[k]·P[o,k]`: per group `gg` one
+    // shared product of the `O × 128` panel of `P` with the contiguous `128 × n` rows of `Hl`.
+    let mut ms = vec![0.0f64; o * g * g];
+    let mut panel = vec![0.0f64; o * GROUP];
+    for gg in 0..g {
+        for oo in 0..o {
+            panel[oo * GROUP..(oo + 1) * GROUP]
+                .copy_from_slice(&p[oo * n + gg * GROUP..oo * n + (gg + 1) * GROUP]);
+        }
+        let kg = gemm_nn_f64(
+            &panel,
+            &hl[gg * GROUP * n..(gg + 1) * GROUP * n],
+            o,
+            GROUP,
+            n,
+            STEP_THREADS,
+        )
+        .map_err(map_gemm)?;
+        for oo in 0..o {
+            for idx in 0..n {
+                ms[(oo * g + gg) * g + idx / GROUP] += kg[oo * n + idx] * p[oo * n + idx];
             }
         }
+    }
+    for oo in 0..o {
+        let m = &mut ms[oo * g * g..(oo + 1) * g * g];
         let mut dmean = 0.0f64;
         for gg in 0..g {
             dmean += m[gg * g + gg];
@@ -585,10 +582,8 @@ pub fn r_step(
         for gg in 0..g {
             m[gg * g + gg] += ridge;
         }
-        let sol = solve_spd(&m, &t, g, 1).map_err(map_ridge)?;
-        for gg in 0..g {
-            out[oo * g + gg] = sol[gg];
-        }
+        let sol = solve_spd(m, &t[oo * g..(oo + 1) * g], g, 1).map_err(map_ridge)?;
+        out[oo * g..(oo + 1) * g].copy_from_slice(&sol);
     }
     Ok(out)
 }
