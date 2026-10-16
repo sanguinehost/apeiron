@@ -34,6 +34,20 @@
 //! `(w_sub − a·s_sel)·U_sub⁻¹`, so only the selection changed with respect to an original-frame
 //! nearest-codeword rule; the feedback was already in this frame.)
 //!
+//! # Beam search
+//!
+//! `beam > 1` ports the Python's delayed-decision branch (`gptq_e8` lines 333–378): per 8-block `m`
+//! every live beam `b` is expanded over the 256 codewords, `tot_err2[b,c] = cum_err2[b] +
+//! |`Z_w[b] − a·Z_c[c]`|²`, and the `K = min(beam, B·256)` smallest cumulative errors are kept with
+//! `B ← K` (lines 350–366); the parent `flat/256` and code `flat%256` reorder the working block,
+//! signs and residuals, the block residual `err_sub = Z_w[parent] − a·Z_c[c]` is fed onto the later
+//! columns, and the winner is the least-`cum_err2` beam (`beam 0` after the ascending selection,
+//! line 378) or, under `wscale`, the beam with the smallest projected residual (lines 367–376). The
+//! `torch.topk(..., largest=False)` order is realised as an ascending partial selection with the tie
+//! rule **smaller flat index first** (`flat = parent·256 + code`, `select_k`). `beam = 1` takes the
+//! Python's `beam <= 1` single path (line 305) unchanged, so it is bit-identical to the result before
+//! the beam branch existed.
+//!
 //! Deviations from the Python, each with its reason:
 //!
 //! - f64 reassociation. The right-solves (`Z_w`, `Z_c`) are back-substitutions against `U_sub`;
@@ -45,8 +59,9 @@
 //!   `n % 128 == 0`.
 //! - The act-order permutation sorts ties (equal block traces) by ascending index; `torch.argsort`
 //!   leaves the tie order unspecified.
-//! - [`GptqE8Error::Unsupported`] for `beam != 1`: the Python beam-delayed-decision branch
-//!   (`gptq_e8` lines 333–378) is not ported.
+//! - [`GptqE8Error::BeamOutOfRange`] for `beam == 0` or `beam > MAX_BEAM` (16). The Python
+//!   accepts any `beam >= 1` (its `K = min(beam, B·256)` saturates at 256); the production arm needs
+//!   `beam = 4` and the range `1..=16` is the ported domain.
 //! - `feedback_u` refuses a non-positive pivot of the damped Hessian; the Python's
 //!   `torch.linalg.cholesky` raises there too.
 
@@ -74,6 +89,10 @@ pub const BLOCK: usize = 8;
 /// The codebook scale factor of `gptq_e8` (line 303): `a = 0.828 · w_rms`.
 pub const E8_SCALE: f64 = 0.828;
 
+/// The largest admitted beam width. `K = min(beam, B·256)` saturates at 256, and the production arm
+/// uses `beam = 4`; the ported domain is `1..=MAX_BEAM`.
+pub const MAX_BEAM: usize = 16;
+
 /// A refusal of [`feedback_u`] or [`gptq_e8`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GptqE8Error {
@@ -93,8 +112,8 @@ pub enum GptqE8Error {
     Overflow,
     /// The code index does not decode: a codebook refusal.
     Codebook,
-    /// `beam != 1`: the Python beam-search branch is not ported.
-    Unsupported,
+    /// `beam` is 0 or greater than [`MAX_BEAM`]: the beam width is outside the ported `1..=16`.
+    BeamOutOfRange,
 }
 
 impl core::fmt::Display for GptqE8Error {
@@ -108,7 +127,7 @@ impl core::fmt::Display for GptqE8Error {
             Self::NonFinite => write!(f, "weight or Hessian entry is not finite"),
             Self::Overflow => write!(f, "Q32.32 value left the i64 range"),
             Self::Codebook => write!(f, "codebook search left its admitted range"),
-            Self::Unsupported => write!(f, "beam > 1 is not ported"),
+            Self::BeamOutOfRange => write!(f, "beam width is outside 1..=16"),
         }
     }
 }
@@ -390,6 +409,264 @@ fn project_scale(
     (a_new, e_new)
 }
 
+/// The `k` smallest `(cost, flat index)` pairs of `cost`, ascending by cost and, on a tie, by the
+/// smaller flat index: the `torch.topk(..., largest=False)` order of the Python line 352 with a
+/// deterministic tie rule.
+///
+/// # Complexity
+/// - Temporal: `O(len·k)` f64 comparisons with `O(k)` element moves per accepted candidate — a
+///   partial selection, not a full `O(len·log len)` sort. Measure: f64 comparisons. Derivation:
+///   `len = B·256` candidates, a `k`-element sorted window kept by binary-search insertion; `k <=
+///   MAX_BEAM`.
+/// - Spatial: `O(k)` pairs in `out`.
+fn select_k(cost: &[f64], k: usize, out: &mut Vec<(usize, f64)>) {
+    out.clear();
+    for (i, &v) in cost.iter().enumerate() {
+        let pos = out.partition_point(|&(oi, ov)| {
+            ov.total_cmp(&v) == core::cmp::Ordering::Less
+                || (ov.total_cmp(&v) == core::cmp::Ordering::Equal && oi < i)
+        });
+        if pos < k {
+            out.insert(pos, (i, v));
+            out.truncate(k);
+        }
+    }
+}
+
+/// One beam pass over the group `[g0, g1)` of the permuted factor `u` and the pristine group block
+/// `w0` under the scale `a`, the Python's `else` branch (lines 333–378): per 8-block expand every
+/// live beam over the 256 codewords, keep the `K = min(beam, B·256)` smallest cumulative whitened
+/// errors ([`select_k`]), reorder the beams by parent and feed each block residual onto the later
+/// columns. The winner is the least-`cum_err2` beam (`wscale == false`, line 378) or the beam with
+/// the smallest projected residual (`wscale == true`, lines 367–376). Returns the winner's per-row
+/// scale `a_new`; `s_out`, `e_out` and `i_out` receive the winner's signs, whitened residuals and
+/// code indices.
+///
+/// # Errors
+/// [`GptqE8Error`] from the codebook decode, or [`GptqE8Error::ShapeMismatch`] on a buffer of the
+/// wrong length.
+///
+/// # Complexity
+/// - Temporal: `O(o·[gs/8]·beam·(256·8 + gs) + o·beam·gs²)` — per 8-block per row the `beam·256·8`
+///   dot scan over the codeword images (each recomputed at `256·8²` per block), the `beam·(gs − b1)`
+///   intra-group feedback, and the `wscale` projection `beam·gs²`. Measure: f64 multiply-subtracts.
+///   The extra work over the single `beam = 1` pass is the factor `beam` on the candidate scan plus
+///   the `select_k` `O(beam·256·beam)` partial selection. Derivation: the per-block expansion of
+///   `B <= beam` beams over the 256 codewords, and the `K <= MAX_BEAM` retained beams.
+/// - Spatial: `O(o·beam·gs + beam·256 + 256·8)` f64 words for the two beam-state buffers, the
+///   per-block candidate costs and the codeword images; the outputs are caller buffers.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the pass writes three output buffers plus the working block and reads the factor; \
+              grouping them into a struct would not reduce the caller's argument count"
+)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the port is kept parallel to the Python's single beam-branch body (lines 333–378)"
+)]
+fn beam_pass(
+    u: &[f64],
+    n: usize,
+    g0: usize,
+    g1: usize,
+    w0: &[f64],
+    a: &[f64],
+    o: usize,
+    beam: usize,
+    wscale: bool,
+    s_out: &mut [f64],
+    e_out: &mut [f64],
+    i_out: &mut [u16],
+) -> Result<Vec<f64>, GptqE8Error> {
+    let gs = g1 - g0;
+    let nb = gs / BLOCK;
+    if w0.len() != o * gs || s_out.len() != o * gs || e_out.len() != o * gs || i_out.len() != o * nb
+    {
+        return Err(GptqE8Error::ShapeMismatch);
+    }
+    let cap = beam.min(e8::CODEBOOK_LEN);
+    let stride = cap * gs;
+    // Two beam-state buffer sets, swapped per block (`B` is `min(beam, B·256)` and never exceeds
+    // `cap`): working weights, signs, whitened residuals, cumulative errors and per-beam code
+    // indices.
+    let mut wk_c = vec![0.0f64; o * stride];
+    let mut s_c = vec![0.0f64; o * stride];
+    let mut e_c = vec![0.0f64; o * stride];
+    let mut cum_c = vec![0.0f64; o * cap];
+    let mut idx_c = vec![0u16; o * cap * nb];
+    let mut wk_x = vec![0.0f64; o * stride];
+    let mut s_x = vec![0.0f64; o * stride];
+    let mut e_x = vec![0.0f64; o * stride];
+    let mut cum_x = vec![0.0f64; o * cap];
+    let mut idx_x = vec![0u16; o * cap * nb];
+    for r in 0..o {
+        wk_c[r * stride..r * stride + gs].copy_from_slice(&w0[r * gs..(r + 1) * gs]);
+    }
+    let mut b_cur = 1usize;
+    let mut cost = vec![0.0f64; o * cap * e8::CODEBOOK_LEN];
+    let mut zw_store = vec![0.0f64; o * cap * BLOCK];
+    let mut zc = vec![0.0f64; e8::CODEBOOK_LEN * BLOCK];
+    let mut zcn = vec![0.0f64; e8::CODEBOOK_LEN];
+    let mut sel: Vec<(usize, f64)> = Vec::with_capacity(cap);
+    for m in 0..nb {
+        let b0 = m * BLOCK;
+        let b1 = b0 + BLOCK;
+        // The block's codeword images `Z_c = C·U_sub⁻¹` and their squared norms (lines 345–347).
+        for k in 0..e8::CODEBOOK_LEN {
+            let cw = e8::codeword(k).map_err(map_e8)?;
+            let row = &mut zc[k * BLOCK..(k + 1) * BLOCK];
+            for t in 0..BLOCK {
+                row[t] = cw[t] as f64 / ONE as f64;
+            }
+            solve_upper_block(u, n, g0 + b0, BLOCK, row);
+            let mut n2 = 0.0f64;
+            for t in 0..BLOCK {
+                n2 += row[t] * row[t];
+            }
+            zcn[k] = n2;
+        }
+        let b_next = beam.min(b_cur * e8::CODEBOOK_LEN);
+        // `tot_err2[b,c] = cum_err2[b] + |Z_w[b] − a·Z_c[c]|²` (lines 344–350).
+        for r in 0..o {
+            let ar = a[r];
+            let a2 = ar * ar;
+            for b in 0..b_cur {
+                let mut zw = [0.0f64; BLOCK];
+                for t in 0..BLOCK {
+                    zw[t] = wk_c[r * stride + b * gs + b0 + t];
+                }
+                solve_upper_block(u, n, g0 + b0, BLOCK, &mut zw);
+                for t in 0..BLOCK {
+                    zw_store[(r * cap + b) * BLOCK + t] = zw[t];
+                }
+                let mut zn2 = 0.0f64;
+                for t in 0..BLOCK {
+                    zn2 += zw[t] * zw[t];
+                }
+                let base = cum_c[r * cap + b];
+                for k in 0..e8::CODEBOOK_LEN {
+                    let zk = &zc[k * BLOCK..(k + 1) * BLOCK];
+                    let mut dot = 0.0f64;
+                    for t in 0..BLOCK {
+                        dot += zw[t] * zk[t];
+                    }
+                    cost[(r * cap + b) * e8::CODEBOOK_LEN + k] =
+                        base + zn2 + a2 * zcn[k] - 2.0 * ar * dot;
+                }
+            }
+        }
+        // Keep the `K` smallest pairs and rebuild the beams from their parents (lines 352–366).
+        for r in 0..o {
+            let ar = a[r];
+            let len = b_cur * e8::CODEBOOK_LEN;
+            select_k(
+                &cost[r * cap * e8::CODEBOOK_LEN..r * cap * e8::CODEBOOK_LEN + len],
+                b_next,
+                &mut sel,
+            );
+            for (bi, &(flat, val)) in sel.iter().enumerate() {
+                let parent = flat / e8::CODEBOOK_LEN;
+                let c = flat % e8::CODEBOOK_LEN;
+                let src = r * stride + parent * gs;
+                let dst = r * stride + bi * gs;
+                wk_x[dst..dst + gs].copy_from_slice(&wk_c[src..src + gs]);
+                s_x[dst..dst + gs].copy_from_slice(&s_c[src..src + gs]);
+                e_x[dst..dst + gs].copy_from_slice(&e_c[src..src + gs]);
+                // `err_sub = Z_w[parent] − a·Z_c[c]` (line 360).
+                let mut err = [0.0f64; BLOCK];
+                for t in 0..BLOCK {
+                    err[t] = zw_store[(r * cap + parent) * BLOCK + t] - ar * zc[c * BLOCK + t];
+                }
+                // Intra-group feedback onto the later columns (line 362).
+                for col in b1..gs {
+                    let mut acc = 0.0f64;
+                    for t in 0..BLOCK {
+                        acc += err[t] * u[(g0 + b0 + t) * n + g0 + col];
+                    }
+                    wk_x[dst + col] -= acc;
+                }
+                let cw = e8::codeword(c).map_err(map_e8)?;
+                for t in 0..BLOCK {
+                    s_x[dst + b0 + t] = cw[t] as f64 / ONE as f64;
+                    e_x[dst + b0 + t] = err[t];
+                }
+                cum_x[r * cap + bi] = val;
+                for mm in 0..m {
+                    idx_x[(r * cap + bi) * nb + mm] = idx_c[(r * cap + parent) * nb + mm];
+                }
+                idx_x[(r * cap + bi) * nb + m] =
+                    u16::try_from(c).map_err(|_| GptqE8Error::Codebook)?;
+            }
+        }
+        core::mem::swap(&mut wk_c, &mut wk_x);
+        core::mem::swap(&mut s_c, &mut s_x);
+        core::mem::swap(&mut e_c, &mut e_x);
+        core::mem::swap(&mut cum_c, &mut cum_x);
+        core::mem::swap(&mut idx_c, &mut idx_x);
+        b_cur = b_next;
+    }
+    let mut a_new = vec![0.0f64; o];
+    if wscale {
+        // `u_S = S_b·U_blk⁻¹`, `a_cand = max(a + ⟨Err_b, u_S⟩/max(|u_S|², 1e-12), 1e-12)`, the
+        // smallest projected residual wins (lines 367–376).
+        let mut us = vec![0.0f64; gs];
+        let mut a_cand = vec![0.0f64; cap];
+        let mut cerr = vec![0.0f64; cap];
+        for r in 0..o {
+            for b in 0..b_cur {
+                let src = r * stride + b * gs;
+                us.copy_from_slice(&s_c[src..src + gs]);
+                solve_upper_block(u, n, g0, gs, &mut us);
+                let mut num = 0.0f64;
+                let mut den = 0.0f64;
+                for j in 0..gs {
+                    num += e_c[src + j] * us[j];
+                    den += us[j] * us[j];
+                }
+                let ac = (a[r] + num / den.max(1e-12)).max(1e-12);
+                a_cand[b] = ac;
+                let d = ac - a[r];
+                let mut ce = 0.0f64;
+                for j in 0..gs {
+                    let v = e_c[src + j] - d * us[j];
+                    ce += v * v;
+                }
+                cerr[b] = ce;
+            }
+            let mut win = 0usize;
+            for b in 1..b_cur {
+                if cerr[b] < cerr[win] {
+                    win = b;
+                }
+            }
+            a_new[r] = a_cand[win];
+            let src = r * stride + win * gs;
+            us.copy_from_slice(&s_c[src..src + gs]);
+            solve_upper_block(u, n, g0, gs, &mut us);
+            let d = a_new[r] - a[r];
+            for j in 0..gs {
+                s_out[r * gs + j] = s_c[src + j];
+                e_out[r * gs + j] = e_c[src + j] - d * us[j];
+            }
+            for mm in 0..nb {
+                i_out[r * nb + mm] = idx_c[(r * cap + win) * nb + mm];
+            }
+        }
+    } else {
+        // The winner is the least-`cum_err2` beam, `beam 0` after the ascending selection (line 378).
+        for r in 0..o {
+            a_new[r] = a[r];
+            let src = r * stride;
+            s_out[r * gs..(r + 1) * gs].copy_from_slice(&s_c[src..src + gs]);
+            e_out[r * gs..(r + 1) * gs].copy_from_slice(&e_c[src..src + gs]);
+            for mm in 0..nb {
+                i_out[r * nb + mm] = idx_c[r * cap * nb + mm];
+            }
+        }
+    }
+    Ok(a_new)
+}
+
 /// The GPTQ error feedback of `gptq_e8` (lines 267–397): per 8-block the block-Cholesky CVP
 /// `argmin_k a²|Z_c[k]|² − 2a⟨Z_w, Z_c[k]⟩` over the 256-entry E8 ∪ O8 codebook, with each block's
 /// whitened residual pushed onto the later columns of the group and the group's residuals pushed
@@ -401,8 +678,13 @@ fn project_scale(
 /// candidates, the smaller whitened residual row wins). The group scale is `a = 0.828·w_rms` in
 /// both settings (the Python line 303).
 ///
+/// `beam = 1` is the single-path block pass; `beam in 2..=MAX_BEAM` runs the delayed-decision beam
+/// search (`beam_pass`), which under `wscale` also runs its second pass as a beam search and keeps
+/// the smaller-residual pass per row.
+///
 /// # Errors
-/// [`GptqE8Error::Unsupported`] if `beam != 1`; [`GptqE8Error::ZeroDim`] if `o == 0` or `n == 0`;
+/// [`GptqE8Error::BeamOutOfRange`] if `beam == 0` or `beam > MAX_BEAM`;
+/// [`GptqE8Error::ZeroDim`] if `o == 0` or `n == 0`;
 /// [`GptqE8Error::ShapeMismatch`] if `w.len() != o·n` or `h.len() != n·n`;
 /// [`GptqE8Error::BlockMisaligned`] if `n % 8 != 0`; [`GptqE8Error::InvalidDamping`] if `damp <= 0`
 /// or `damp` is not finite; [`GptqE8Error::NonFinite`] on a non-finite weight or Hessian entry;
@@ -410,11 +692,13 @@ fn project_scale(
 /// [`GptqE8Error::Codebook`] from the exact code index decode.
 ///
 /// # Complexity
-/// - Temporal: `O(n³ + o·n³/8²·256·8 + o·n²)` — the factor `U` (`n³/3`), the codeword-image
-///   right-solves and the `256·8` scan per 8-block per row, and the two feedback sweeps. Measure:
-///   f64 multiply-subtracts. Derivation: `[n/8]` blocks × `256` rows × `8` coordinates, plus
-///   `Σ_j (n − j)` multiply-subtracts per row per sweep.
-/// - Spatial: `O(n² + o·n)` f64 words — `U`, the working copy of `w`, and the per-group buffers.
+/// - Temporal: `O(n³ + o·n³/8²·256·8·beam + o·n²·beam)` — the factor `U` (`n³/3`), the codeword-image
+///   right-solves and the `256·8` scan per 8-block per row (×`beam` for the candidate expansion),
+///   and the two feedback sweeps. Measure: f64 multiply-subtracts. Derivation: `[n/8]` blocks ×
+///   `256` rows × `8` coordinates × `beam` beams, plus `Σ_j (n − j)` multiply-subtracts per row per
+///   sweep. At `beam = 1` this is the pre-beam cost.
+/// - Spatial: `O(n² + o·n·beam)` f64 words — `U`, the working copy of `w`, and the per-group beam
+///   buffers.
 ///
 /// `gptq_e8` is the direct port of the Python's single 130-line body (lines 267–397); keeping it
 /// one function is what makes a line-by-line audit against the spec possible.
@@ -436,8 +720,8 @@ pub fn gptq_e8(
     wscale: bool,
     beam: usize,
 ) -> Result<GptqE8, GptqE8Error> {
-    if beam != 1 {
-        return Err(GptqE8Error::Unsupported);
+    if beam == 0 || beam > MAX_BEAM {
+        return Err(GptqE8Error::BeamOutOfRange);
     }
     if o == 0 || n == 0 {
         return Err(GptqE8Error::ZeroDim);
@@ -523,46 +807,85 @@ pub fn gptq_e8(
             }
             a[r] = (E8_SCALE * (acc / prec_sum).max(1e-24).sqrt()).max(1e-12);
         }
-        let mut s_cur = vec![0.0f64; o * gs];
-        let mut e_cur = vec![0.0f64; o * gs];
-        let mut i_cur = vec![0u16; o * gb];
-        quantise_pass(
-            &u, n, g0, g1, &w0, &a, o, &mut s_cur, &mut e_cur, &mut i_cur,
-        )?;
-        let mut a_best = a;
-        let mut s_best = s_cur;
-        let mut e_best = e_cur;
-        let mut i_best = i_cur;
-        if wscale {
-            let (a1, e1) = project_scale(&u, n, g0, gs, &s_best, &e_best, &a_best, o);
-            let mut s2 = vec![0.0f64; o * gs];
-            let mut e2 = vec![0.0f64; o * gs];
-            let mut i2 = vec![0u16; o * gb];
-            quantise_pass(&u, n, g0, g1, &w0, &a1, o, &mut s2, &mut e2, &mut i2)?;
-            let (a2, e2b) = project_scale(&u, n, g0, gs, &s2, &e2, &a1, o);
-            // Second pass: keep the candidate with the smaller whitened residual per row.
-            let mut a_fin = vec![0.0f64; o];
-            let mut s_fin = vec![0.0f64; o * gs];
-            let mut e_fin = vec![0.0f64; o * gs];
-            let mut i_fin = vec![0u16; o * gb];
-            for r in 0..o {
-                let n1: f64 = (0..gs).map(|j| e1[r * gs + j] * e1[r * gs + j]).sum();
-                let n2: f64 = (0..gs).map(|j| e2b[r * gs + j] * e2b[r * gs + j]).sum();
-                let (ar, sr, er, ir): (f64, &[f64], &[f64], &[u16]) = if n2 < n1 {
-                    (a2[r], &s2, &e2b, &i2)
-                } else {
-                    (a1[r], &s_best, &e1, &i_best)
-                };
-                a_fin[r] = ar;
-                s_fin[r * gs..(r + 1) * gs].copy_from_slice(&sr[r * gs..(r + 1) * gs]);
-                e_fin[r * gs..(r + 1) * gs].copy_from_slice(&er[r * gs..(r + 1) * gs]);
-                i_fin[r * gb..(r + 1) * gb].copy_from_slice(&ir[r * gb..(r + 1) * gb]);
+        let (a_best, s_best, e_best, i_best) = if beam == 1 {
+            let mut s_cur = vec![0.0f64; o * gs];
+            let mut e_cur = vec![0.0f64; o * gs];
+            let mut i_cur = vec![0u16; o * gb];
+            quantise_pass(
+                &u, n, g0, g1, &w0, &a, o, &mut s_cur, &mut e_cur, &mut i_cur,
+            )?;
+            let mut a_best = a.clone();
+            let mut s_best = s_cur;
+            let mut e_best = e_cur;
+            let mut i_best = i_cur;
+            if wscale {
+                let (a1, e1) = project_scale(&u, n, g0, gs, &s_best, &e_best, &a_best, o);
+                let mut s2 = vec![0.0f64; o * gs];
+                let mut e2 = vec![0.0f64; o * gs];
+                let mut i2 = vec![0u16; o * gb];
+                quantise_pass(&u, n, g0, g1, &w0, &a1, o, &mut s2, &mut e2, &mut i2)?;
+                let (a2, e2b) = project_scale(&u, n, g0, gs, &s2, &e2, &a1, o);
+                // Second pass: keep the candidate with the smaller whitened residual per row.
+                let mut a_fin = vec![0.0f64; o];
+                let mut s_fin = vec![0.0f64; o * gs];
+                let mut e_fin = vec![0.0f64; o * gs];
+                let mut i_fin = vec![0u16; o * gb];
+                for r in 0..o {
+                    let n1: f64 = (0..gs).map(|j| e1[r * gs + j] * e1[r * gs + j]).sum();
+                    let n2: f64 = (0..gs).map(|j| e2b[r * gs + j] * e2b[r * gs + j]).sum();
+                    let (ar, sr, er, ir): (f64, &[f64], &[f64], &[u16]) = if n2 < n1 {
+                        (a2[r], &s2, &e2b, &i2)
+                    } else {
+                        (a1[r], &s_best, &e1, &i_best)
+                    };
+                    a_fin[r] = ar;
+                    s_fin[r * gs..(r + 1) * gs].copy_from_slice(&sr[r * gs..(r + 1) * gs]);
+                    e_fin[r * gs..(r + 1) * gs].copy_from_slice(&er[r * gs..(r + 1) * gs]);
+                    i_fin[r * gb..(r + 1) * gb].copy_from_slice(&ir[r * gb..(r + 1) * gb]);
+                }
+                a_best = a_fin;
+                s_best = s_fin;
+                e_best = e_fin;
+                i_best = i_fin;
             }
-            a_best = a_fin;
-            s_best = s_fin;
-            e_best = e_fin;
-            i_best = i_fin;
-        }
+            (a_best, s_best, e_best, i_best)
+        } else {
+            let mut s1 = vec![0.0f64; o * gs];
+            let mut e1 = vec![0.0f64; o * gs];
+            let mut i1 = vec![0u16; o * gb];
+            let a1 = beam_pass(
+                &u, n, g0, g1, &w0, &a, o, beam, wscale, &mut s1, &mut e1, &mut i1,
+            )?;
+            if wscale {
+                // The second pass is a beam search again, at the projected scale (lines 304, 379–389).
+                let mut s2 = vec![0.0f64; o * gs];
+                let mut e2 = vec![0.0f64; o * gs];
+                let mut i2 = vec![0u16; o * gb];
+                let a2 = beam_pass(
+                    &u, n, g0, g1, &w0, &a1, o, beam, true, &mut s2, &mut e2, &mut i2,
+                )?;
+                let mut a_fin = vec![0.0f64; o];
+                let mut s_fin = vec![0.0f64; o * gs];
+                let mut e_fin = vec![0.0f64; o * gs];
+                let mut i_fin = vec![0u16; o * gb];
+                for r in 0..o {
+                    let n1: f64 = (0..gs).map(|j| e1[r * gs + j] * e1[r * gs + j]).sum();
+                    let n2: f64 = (0..gs).map(|j| e2[r * gs + j] * e2[r * gs + j]).sum();
+                    let (ar, sr, er, ir): (f64, &[f64], &[f64], &[u16]) = if n2 < n1 {
+                        (a2[r], &s2, &e2, &i2)
+                    } else {
+                        (a1[r], &s1, &e1, &i1)
+                    };
+                    a_fin[r] = ar;
+                    s_fin[r * gs..(r + 1) * gs].copy_from_slice(&sr[r * gs..(r + 1) * gs]);
+                    e_fin[r * gs..(r + 1) * gs].copy_from_slice(&er[r * gs..(r + 1) * gs]);
+                    i_fin[r * gb..(r + 1) * gb].copy_from_slice(&ir[r * gb..(r + 1) * gb]);
+                }
+                (a_fin, s_fin, e_fin, i_fin)
+            } else {
+                (a1, s1, e1, i1)
+            }
+        };
         for r in 0..o {
             scale_p[r * ng + gi] = a_best[r];
             s_p[r * n + g0..r * n + g1].copy_from_slice(&s_best[r * gs..(r + 1) * gs]);

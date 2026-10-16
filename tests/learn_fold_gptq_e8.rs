@@ -13,15 +13,17 @@
     clippy::similar_names,
     clippy::needless_range_loop,
     clippy::float_cmp,
+    clippy::unreadable_literal,
     reason = "the test setup mirrors the row-major indices and the Q32.32 casts of the ported kernel; \
               the f64 comparisons are exactness claims (`s` decodes to codeword/ONE, the act order \
-              round-trips bit for bit, the diagonal Hessian reproduces RTN exactly), not tolerances"
+              round-trips bit for bit, the diagonal Hessian reproduces RTN exactly), and the golden \
+              literals are exact captured bit patterns, not tolerances"
 )]
 
 use apeiron::engine::ONE;
 use apeiron::learn::code::e8;
 use apeiron::learn::fold::fit::gptq_e8::{
-    feedback_u, gptq_e8, GptqE8, GptqE8Error, BLOCK, E8_SCALE, GROUP,
+    feedback_u, gptq_e8, GptqE8, GptqE8Error, BLOCK, E8_SCALE, GROUP, MAX_BEAM,
 };
 
 /// xorshift64: deterministic, no crate.
@@ -768,8 +770,8 @@ fn wscale_projections_are_least_squares() {
     }
 }
 
-/// Refusals: not a multiple of 8, non-SPD Hessian, non-positive damping, an unported beam, shape
-/// mismatches and non-finite input.
+/// Refusals: not a multiple of 8, non-SPD Hessian, non-positive damping, a beam width outside
+/// `1..=MAX_BEAM`, shape mismatches and non-finite input.
 #[test]
 fn refusals() {
     let (o, n, damp) = (2usize, 8usize, 0.01);
@@ -801,10 +803,10 @@ fn refusals() {
             "damping {bad} must be refused"
         );
     }
-    for beam in [0usize, 2, 8] {
+    for beam in [0usize, MAX_BEAM + 1] {
         assert_eq!(
             gptq_e8(&w, &id, o, n, damp, false, false, beam),
-            Err(GptqE8Error::Unsupported),
+            Err(GptqE8Error::BeamOutOfRange),
             "beam {beam} must be refused"
         );
     }
@@ -831,5 +833,319 @@ fn refusals() {
     assert_eq!(
         gptq_e8(&w, &inf, o, n, damp, false, false, 1),
         Err(GptqE8Error::NonFinite)
+    );
+}
+
+/// `beam = 1` is bit-identical to the pre-beam port: on five deterministic correlated-Hessian
+/// matrices the code indices and the group scales equal the values captured from the implementation
+/// before the beam branch existed (the `beam = 1` path is the Python's `beam <= 1` single path,
+/// line 305). `assert_eq!` on the bit patterns: the returned vectors are compared exactly.
+#[test]
+#[allow(
+    clippy::items_after_statements,
+    reason = "the golden tables sit next to the test that uses them; lexically they follow two lets"
+)]
+fn beam_one_matches_the_pre_beam_result() {
+    let (o, n, damp) = (3usize, 256usize, 0.01);
+    let seeds = [
+        0x0E11_0001u64,
+        0x0E11_0002,
+        0x0E11_0003,
+        0x0E11_0004,
+        0x0E11_0005,
+    ];
+    const GOLDEN_IDX: [&[u16]; 5] = [
+        &[
+            136, 16, 50, 80, 193, 67, 53, 87, 82, 116, 193, 88, 218, 73, 84, 176, 85, 56, 3, 4,
+            190, 77, 44, 106, 28, 244, 39, 204, 82, 100, 83, 25, 104, 39, 96, 111, 129, 61, 71, 12,
+            12, 28, 95, 20, 189, 69, 32, 47, 6, 83, 52, 148, 19, 93, 82, 75, 232, 133, 113, 63,
+            200, 121, 44, 75, 233, 73, 58, 36, 15, 31, 16, 55, 222, 94, 44, 0, 122, 76, 54, 133,
+            92, 97, 91, 118, 63, 91, 58, 208, 64, 220, 72, 126, 22, 50, 81, 47,
+        ],
+        &[
+            85, 203, 214, 64, 214, 100, 37, 99, 119, 21, 46, 9, 22, 126, 195, 2, 171, 70, 31, 44,
+            123, 201, 30, 185, 154, 67, 93, 201, 49, 80, 11, 63, 158, 91, 4, 117, 68, 37, 96, 224,
+            62, 29, 97, 236, 27, 34, 52, 25, 53, 174, 110, 87, 62, 173, 179, 124, 116, 58, 75, 90,
+            125, 210, 6, 75, 30, 75, 33, 99, 41, 20, 238, 3, 36, 59, 50, 30, 88, 103, 82, 117, 20,
+            180, 84, 110, 225, 35, 9, 95, 38, 117, 81, 41, 228, 29, 35, 190,
+        ],
+        &[
+            74, 61, 230, 33, 44, 66, 69, 168, 63, 58, 3, 32, 26, 123, 63, 70, 5, 101, 95, 17, 26,
+            199, 82, 103, 43, 56, 70, 43, 63, 209, 12, 208, 61, 202, 67, 109, 99, 87, 163, 184, 22,
+            202, 131, 13, 78, 38, 226, 106, 68, 15, 146, 39, 73, 87, 101, 106, 12, 100, 163, 73,
+            47, 29, 130, 88, 71, 66, 117, 70, 45, 139, 127, 8, 223, 31, 97, 226, 31, 12, 76, 221,
+            54, 70, 180, 166, 122, 81, 123, 112, 36, 69, 10, 46, 76, 188, 55, 65,
+        ],
+        &[
+            129, 102, 110, 158, 29, 8, 55, 153, 75, 87, 94, 19, 24, 120, 82, 33, 120, 40, 123, 60,
+            173, 227, 24, 159, 62, 75, 95, 14, 93, 229, 99, 76, 31, 170, 118, 55, 2, 70, 70, 33,
+            118, 215, 19, 100, 63, 113, 76, 34, 9, 5, 108, 79, 108, 238, 28, 45, 106, 176, 2, 56,
+            103, 94, 34, 203, 107, 122, 99, 205, 180, 201, 76, 54, 68, 60, 70, 154, 19, 73, 22, 42,
+            214, 106, 96, 43, 76, 76, 63, 102, 108, 130, 19, 6, 83, 26, 160, 124,
+        ],
+        &[
+            69, 238, 104, 62, 163, 44, 119, 33, 3, 229, 23, 24, 64, 123, 9, 85, 57, 27, 143, 13,
+            79, 110, 76, 57, 63, 58, 135, 76, 119, 188, 102, 56, 85, 140, 49, 35, 33, 5, 22, 72,
+            122, 76, 136, 221, 43, 221, 35, 49, 81, 194, 57, 99, 3, 203, 117, 228, 2, 106, 222,
+            107, 20, 197, 26, 177, 54, 115, 152, 56, 180, 56, 11, 57, 6, 26, 13, 45, 184, 97, 44,
+            35, 49, 48, 57, 40, 99, 62, 75, 73, 98, 17, 40, 88, 44, 113, 125, 84,
+        ],
+    ];
+    const GOLDEN_SCALE: [&[f64]; 5] = [
+        &[
+            0.44635416738891437,
+            0.49946099062675003,
+            0.46280908659566566,
+            0.4255675288429011,
+            0.48290659976301126,
+            0.47237385811445565,
+        ],
+        &[
+            0.49895209043993793,
+            0.49300327233490643,
+            0.49351838323459796,
+            0.5146650065206958,
+            0.4862892671128194,
+            0.5086542824179806,
+        ],
+        &[
+            0.47287350177867715,
+            0.4937544935881887,
+            0.43502286975194493,
+            0.4810089328201062,
+            0.47937835776748966,
+            0.475210138148769,
+        ],
+        &[
+            0.4849587190197238,
+            0.4897957993783389,
+            0.4523557050860777,
+            0.510660738571407,
+            0.45819256647384915,
+            0.5247907457469447,
+        ],
+        &[
+            0.49373817097116424,
+            0.4705507314363644,
+            0.48976966649049325,
+            0.4587354876289194,
+            0.476628599855342,
+            0.5018074031894018,
+        ],
+    ];
+    for (m, seed) in seeds.iter().enumerate() {
+        let w = random_w(o, n, *seed);
+        let h = correlated_h(n, *seed ^ 0x5A5A_5A5A);
+        let r = gptq_e8(&w, &h, o, n, damp, false, false, 1).expect("gptq_e8 beam 1");
+        check_decode(&r, o, n, "beam 1 golden");
+        assert_eq!(r.idx.as_slice(), GOLDEN_IDX[m], "matrix {m}: code indices");
+        assert_eq!(r.scale.as_slice(), GOLDEN_SCALE[m], "matrix {m}: scales");
+    }
+}
+
+/// One 8-block (`n = 8`): the block is decided before any feedback, so the winning beam's first-block
+/// code is the exhaustive argmin of the block objective `a²|Z_c[k]|² − 2a⟨Z_w, Z_c[k]⟩` over all 256
+/// codewords. Checked against the literal 256-codeword loop at `beam = 1`, `2` and `MAX_BEAM`; the
+/// beam search's `beam 0` (least `cum_err2`) is that argmin.
+#[test]
+fn beam_first_block_is_the_exhaustive_argmin() {
+    let (o, n, damp) = (16usize, 8usize, 0.01);
+    let h = correlated_h(n, 0x0B10_C0DE);
+    let mut w = Vec::with_capacity(o * n);
+    for row in 0..o {
+        w.extend_from_slice(&random_w(1, n, 0x0B10_BEEF ^ (0x1000 * (row as u64 + 1))));
+    }
+    let u = feedback_u(&h, n, damp).expect("SPD factor");
+    let u_inv = block_inverse(&u, n, 0);
+    let mut prec = vec![0.0f64; n];
+    for j in 0..n {
+        let d = u[j * n + j];
+        prec[j] = 1.0 / (d * d).max(1e-12);
+    }
+    for beam in [1usize, 2, MAX_BEAM] {
+        let r = gptq_e8(&w, &h, o, n, damp, false, false, beam).expect("gptq_e8");
+        check_decode(&r, o, n, "beam oracle");
+        for row in 0..o {
+            let wr = &w[row * n..(row + 1) * n];
+            let a0 = group_scale(wr, &prec, 0, n);
+            let (_z_w, _zc, d, _q) = objective_scan(wr, &u_inv, a0);
+            let best = argmin(&d);
+            let tol = 1e-12 * a0.abs().max(1.0);
+            assert_eq!(
+                usize::from(r.idx[row]),
+                best,
+                "beam {beam} row {row}: the first-block code is not the objective argmin"
+            );
+            assert!(
+                (r.scale[row] - a0).abs() <= tol,
+                "beam {beam} row {row}: scale {} != {a0}",
+                r.scale[row]
+            );
+        }
+    }
+}
+
+/// The whitened total error of a `gptq_e8` result, recomputed from the returned codes, signs and
+/// scales: for each group, `Err = (w0 − a·S)·U_blk⁻¹` block by block, accumulated as `Σ |err_block|²`
+/// over every row and block, with the same intra- and inter-group feedback the kernel applies. This
+/// equals the kernel's `cum_err2` at the winning beam (`step_err2 = |Z_w − a·Z_c|²`).
+fn whitened_total_error(r: &GptqE8, w: &[f64], h: &[f64], o: usize, n: usize, damp: f64) -> f64 {
+    let u = feedback_u(h, n, damp).expect("SPD factor");
+    let ng = n.div_ceil(GROUP);
+    let nb = n / BLOCK;
+    let mut wk = w.to_vec();
+    let mut tot = 0.0f64;
+    for gi in 0..ng {
+        let g0 = gi * GROUP;
+        let g1 = (g0 + GROUP).min(n);
+        let gs = g1 - g0;
+        let mut err_all = vec![0.0f64; o * gs];
+        for row in 0..o {
+            let a = r.scale[row * ng + gi];
+            let mut blk = 0;
+            while blk < gs / BLOCK {
+                let b0 = blk * BLOCK;
+                let b1 = b0 + BLOCK;
+                let mut zw = [0.0f64; BLOCK];
+                for t in 0..BLOCK {
+                    zw[t] = wk[row * n + g0 + b0 + t];
+                }
+                let mut j = BLOCK;
+                while j > 0 {
+                    j -= 1;
+                    let mut s = zw[j];
+                    for k in (j + 1)..BLOCK {
+                        s -= zw[k] * u[(g0 + b0 + k) * n + g0 + b0 + j];
+                    }
+                    zw[j] = s / u[(g0 + b0 + j) * n + g0 + b0 + j];
+                }
+                let c = usize::from(r.idx[row * nb + (g0 + b0) / BLOCK]);
+                let cw = e8::codeword(c).expect("code index");
+                let mut err = [0.0f64; BLOCK];
+                for t in 0..BLOCK {
+                    err[t] = zw[t] - a * (cw[t] as f64 / ONE as f64);
+                    err_all[row * gs + b0 + t] = err[t];
+                    tot += err[t] * err[t];
+                }
+                let mut cc = b1;
+                while cc < gs {
+                    let mut acc = 0.0f64;
+                    for t in 0..BLOCK {
+                        acc += err[t] * u[(g0 + b0 + t) * n + g0 + cc];
+                    }
+                    wk[row * n + g0 + cc] -= acc;
+                    cc += 1;
+                }
+                blk += 1;
+            }
+        }
+        if g1 < n {
+            for row in 0..o {
+                let mut m = g1;
+                while m < n {
+                    let mut acc = 0.0f64;
+                    for j in 0..gs {
+                        acc += err_all[row * gs + j] * u[(g0 + j) * n + m];
+                    }
+                    wk[row * n + m] -= acc;
+                    m += 1;
+                }
+            }
+        }
+    }
+    tot
+}
+
+/// The whitened total error is not monotone in the beam: the search is greedy per 8-block, and a
+/// wider beam can drop the greedy path (measured, beams `1,2,4,8`, five matrices: matrix 0
+/// `[100.067, 101.785, 101.031, 96.480]`, matrix 2 `[104.529, 107.620, 98.021, 97.278]`). The
+/// tested property is the mean over the five matrices: beams 4 and 8 each fall below beam 1.
+#[test]
+fn beam_mean_objective_falls_below_beam_one() {
+    let (o, n, damp) = (3usize, 256usize, 0.01);
+    let beams = [1usize, 4, 8];
+    let mut mean = [0.0f64; 3];
+    let seeds = [
+        0x0BAD_0001u64,
+        0x0BAD_0002,
+        0x0BAD_0003,
+        0x0BAD_0004,
+        0x0BAD_0005,
+    ];
+    for seed in seeds {
+        let w = random_w(o, n, seed);
+        let h = correlated_h(n, seed ^ 0x5A5A_5A5A);
+        for (i, &beam) in beams.iter().enumerate() {
+            let r = gptq_e8(&w, &h, o, n, damp, false, false, beam).expect("gptq_e8");
+            check_decode(&r, o, n, "beam objective");
+            mean[i] += whitened_total_error(&r, &w, &h, o, n, damp) / 5.0;
+        }
+    }
+    println!("beam mean objective (1,4,8): {mean:?}");
+    assert!(
+        mean[1] < mean[0],
+        "beam 4 mean {} >= beam 1 mean {}",
+        mean[1],
+        mean[0]
+    );
+    assert!(
+        mean[2] < mean[0],
+        "beam 8 mean {} >= beam 1 mean {}",
+        mean[2],
+        mean[0]
+    );
+}
+
+/// `wscale` with `beam > 1`: with `H = I` the feedback factor is diagonal, so the winning beam's
+/// projected scale is the group least-squares scale `⟨w, s⟩/⟨s, s⟩` per row (the Python's
+/// `a_new = a + ⟨Err, u_S⟩/⟨u_S, u_S⟩`, lines 367–376); checked at every beam width. Decodes to `s`.
+#[test]
+fn beam_wscale_projection_is_least_squares() {
+    let (o, n, damp) = (2usize, 128usize, 0.01);
+    let w = random_w(o, n, 0x5CA0_0001);
+    let mut id = vec![0.0f64; n * n];
+    for i in 0..n {
+        id[i * n + i] = 1.0;
+    }
+    for beam in [1usize, 2, 4, 8, MAX_BEAM] {
+        let r = gptq_e8(&w, &id, o, n, damp, false, true, beam).expect("gptq_e8 beam wscale");
+        check_decode(&r, o, n, "beam wscale");
+        for row in 0..o {
+            let mut num = 0.0f64;
+            let mut den = 0.0f64;
+            for j in 0..n {
+                num += w[row * n + j] * r.s[row * n + j];
+                den += r.s[row * n + j] * r.s[row * n + j];
+            }
+            let ls = (num / den.max(1e-12)).max(1e-12);
+            assert!(
+                (r.scale[row] - ls).abs() <= 1e-9 * ls.abs().max(1.0),
+                "beam {beam} row {row}: projected scale {} != least-squares {ls}",
+                r.scale[row]
+            );
+        }
+    }
+}
+
+/// `beam > 1` keeps the shape and refusal contract: a bad buffer length still refuses with
+/// [`GptqE8Error::ShapeMismatch`] and a non-SPD Hessian with [`GptqE8Error::NotPositiveDefinite`].
+#[test]
+fn beam_refusals_are_the_single_beam_refusals() {
+    let (o, n, damp) = (2usize, 8usize, 0.01);
+    let w = random_w(o, n, 0x5EFA_0001);
+    let mut id = vec![0.0f64; n * n];
+    for i in 0..n {
+        id[i * n + i] = 1.0;
+    }
+    assert_eq!(
+        gptq_e8(&w[1..], &id, o, n, damp, false, false, 4),
+        Err(GptqE8Error::ShapeMismatch)
+    );
+    let mut indef = id.clone();
+    indef[1] = 2.0;
+    indef[n] = 2.0;
+    assert_eq!(
+        gptq_e8(&w, &indef, o, n, damp, false, false, 4),
+        Err(GptqE8Error::NotPositiveDefinite)
     );
 }
