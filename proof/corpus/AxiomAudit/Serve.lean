@@ -3,6 +3,7 @@ import Serve.Kern.Bitplane
 import Serve.Kern.Bitplane2
 import Serve.Kern.Gemm2
 import Serve.Kern.Gemm3
+import Serve.Kern.Gemm4
 import Serve.Kern.Gemm
 import Serve.Kern.Lut2
 import Serve.Kern.Lut
@@ -11,6 +12,7 @@ import Serve.Kern.Matmat3
 import Serve.Kern.Matmat4
 import Serve.Kern.Matmat
 import Serve.Block.Attn
+import Serve.Block.Attn2
 import Serve.Block.Cols
 import Serve.Block.Cols2
 import Serve.Block.Ffn2
@@ -112,3 +114,14 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.word_matmat4_fast_family_loop0_ok
 #audit apeiron_word.matmat4_fast_family_loop1_body_admits
 #audit apeiron_word.word_matmat4_fast_family_loop1_ok
+#audit apeiron_word.gemm4_pack_group_loop1_loop0_spec
+#audit apeiron_word.gemm4_pack_group_loop1_spec
+#audit apeiron_word.attn2_round_bound
+#audit apeiron_word.attn2_row_dot_ok
+#audit apeiron_word.attn2_loop0_body_step
+#audit apeiron_word.attn2_loop0_spec
+#audit apeiron_word.attn2_loop1_body_step
+#audit apeiron_word.attn2_loop1_spec
+#audit apeiron_word.attn2_getD_set_val
+#audit apeiron_word.attn2_loop2_loop0_body_step
+#audit apeiron_word.attn2_loop2_loop0_spec
