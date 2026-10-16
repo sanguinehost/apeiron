@@ -11,6 +11,8 @@ import Serve.Kern.R4.Matmat5
 import Serve.Kern.R4.Gemm5
 import Serve.Block.R4.Ffn5
 import Serve.Block.R4.Attn3
+import Serve.Block.R4.Ffn6
+import Serve.Kern.R4.Matmat6
 import Serve.Kern.Lut
 import Serve.Kern.Matmat2
 import Serve.Kern.Matmat3
@@ -195,3 +197,16 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.attn3_weight_at_recip_ok
 #audit apeiron_word.attn3_loop2_spec
 #audit apeiron_word.attn3_loop3_spec
+#audit apeiron_word.word_quant_act_loop0_ok
+#audit apeiron_word.word_dequantizes_loop0_loop0_ok
+#audit apeiron_word.word_dequantizes_loop0_ok
+#audit apeiron_word.word_dequantizes_ok
+#audit apeiron_word.word_dequantizes_refuses
+#audit apeiron_word.word_quant_act_ok
+#audit apeiron_word.word_quant_act_refuses
+#audit apeiron_word.word_matmat6_fill_loop0_ok
+#audit apeiron_word.word_matmat6_fill_loop3_ok
+#audit apeiron_word.word_matmat6_pooled_fill_ok
+#audit apeiron_word.matmat6_colstate_eq_live
+#audit apeiron_word.matmat6_colstate_eq_live_ne
+#audit apeiron_word.word_matmat6_rowaccs_skip_ok
