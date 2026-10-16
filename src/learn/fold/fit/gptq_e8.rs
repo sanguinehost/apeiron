@@ -344,17 +344,26 @@ fn block_order(h: &[f64], n: usize) -> (Vec<usize>, Vec<usize>) {
 /// `Z_c = C·U_sub⁻¹`; the whitened residual `e = Z_w − a·Z_c[idx]`; and the residual propagated onto
 /// the later columns of the group (the Python lines 312–323).
 ///
+/// Rows are independent given the read-only `u`, the block codeword images `Z_c` and the per-row
+/// scale `a[r]`, so the rows are split into [`INV_THREADS`] contiguous ranges and each range runs
+/// the whole block loop on its own scoped worker: one spawn per call, the block loop inside it and
+/// the group's codeword images precomputed once for all blocks. The per-row operation order is
+/// unchanged and no quantity is reduced across rows, so the output — and any refusal — is identical
+/// to the serial loop for every input and every worker count.
+///
 /// # Errors
 /// [`GptqE8Error`] from the codebook decode, or [`GptqE8Error::ShapeMismatch`] on a buffer of the
-/// wrong length.
+/// wrong length. A refusal from a worker is returned from the lowest row range that produced one.
 ///
 /// # Complexity
 /// - Temporal: `O([gs/8]·256·8² + o·[gs/8]·(256·8 + 8·gs))` — the 256 codeword images `Z_c` (one
 ///   8×8 right-solve each) per 8-block, then per row and block the 256×8 scan, the 8×8 solve of
 ///   `Z_w`, and the intra-group propagation `Σ_blocks 8·(gs − b1)`. Measure: f64
-///   multiply-subtracts.
-/// - Spatial: `O(o·gs + 256·8)` f64 words for the working copy `wk` and the block's `Z_c`; the
-///   outputs are caller buffers.
+///   multiply-subtracts. The row term is independent per row, so the wall-clock span is the
+///   codeword-image term plus that row term `/ INV_THREADS` (each worker holds
+///   `ceil(o / INV_THREADS)` rows, and the image term is one serial prefix per call).
+/// - Spatial: `O(o·gs + [gs/8]·256·8)` f64 words for the working copy `wk` and the group's
+///   codeword images `Z_c` (shared read-only across workers); the outputs are caller buffers.
 #[allow(
     clippy::too_many_arguments,
     reason = "the pass writes three separate output buffers plus the working block; grouping them \
@@ -379,16 +388,18 @@ fn quantise_pass(
         return Err(GptqE8Error::ShapeMismatch);
     }
     let mut wk = w0.to_vec();
-    // The block's codeword images `Z_c = C·U_sub⁻¹` (row-major `[256, 8]`) and their squared norms
-    // (the Python's `zc_list[m]` and `zcn_list[m]`, lines 287–288).
-    let mut zc = vec![0.0f64; e8::CODEBOOK_LEN * BLOCK];
-    let mut zcn = vec![0.0f64; e8::CODEBOOK_LEN];
-    let mut m = 0;
-    while m < nb {
+    // The group's codeword images `Z_c = C·U_sub⁻¹` (row-major `[nb, 256, 8]`) and their squared
+    // norms (the Python's `zc_list[m]` and `zcn_list[m]`, lines 287–288), computed once for every
+    // block and every row: read-only inside the workers, and the same values in the same order the
+    // per-block loop below formed them.
+    let mut zc = vec![0.0f64; nb * e8::CODEBOOK_LEN * BLOCK];
+    let mut zcn = vec![0.0f64; nb * e8::CODEBOOK_LEN];
+    for m in 0..nb {
         let b0 = m * BLOCK;
         for k in 0..e8::CODEBOOK_LEN {
             let cw = e8::codeword(k).map_err(map_e8)?;
-            let row = &mut zc[k * BLOCK..(k + 1) * BLOCK];
+            let row =
+                &mut zc[(m * e8::CODEBOOK_LEN + k) * BLOCK..(m * e8::CODEBOOK_LEN + k + 1) * BLOCK];
             for t in 0..BLOCK {
                 row[t] = cw[t] as f64 / ONE as f64;
             }
@@ -397,58 +408,87 @@ fn quantise_pass(
             for t in 0..BLOCK {
                 n2 += row[t] * row[t];
             }
-            zcn[k] = n2;
+            zcn[m * e8::CODEBOOK_LEN + k] = n2;
         }
-        for r in 0..o {
-            // `Z_w = w_sub·U_sub⁻¹` (the Python line 314).
-            let mut zw = [0.0f64; BLOCK];
-            for t in 0..BLOCK {
-                zw[t] = wk[r * gs + b0 + t];
-            }
-            solve_upper_block(u, n, g0 + b0, BLOCK, &mut zw);
-            let ar = a[r];
-            // `cost[k] = a²|Z_c[k]|² − 2a⟨Z_w, Z_c[k]⟩`, first index on ties (the Python 317–319).
-            let mut best = 0usize;
-            let mut best_cost = f64::INFINITY;
-            for k in 0..e8::CODEBOOK_LEN {
-                let zrow = &zc[k * BLOCK..(k + 1) * BLOCK];
-                let mut dot = 0.0f64;
-                for t in 0..BLOCK {
-                    dot += zw[t] * zrow[t];
-                }
-                let cost = ar * ar * zcn[k] - 2.0 * ar * dot;
-                if cost < best_cost {
-                    best_cost = cost;
-                    best = k;
-                }
-            }
-            let cw = e8::codeword(best).map_err(map_e8)?;
-            let zsel = &zc[best * BLOCK..(best + 1) * BLOCK];
-            let mut e = [0.0f64; BLOCK];
-            for t in 0..BLOCK {
-                s_out[r * gs + b0 + t] = cw[t] as f64 / ONE as f64;
-                // `err_sub = Z_w − a·Z_c[idx]` (the Python line 321).
-                e[t] = zw[t] - ar * zsel[t];
-            }
-            i_out[r * nb + m] = u16::try_from(best).map_err(|_| GptqE8Error::Codebook)?;
-            for t in 0..BLOCK {
-                e_out[r * gs + b0 + t] = e[t];
-            }
-            // Intra-group feedback: the block's whitened residual onto every later column of the
-            // group, `wk[:, b1:] -= err_sub @ U_blk[b0:b1, b1:]` (the Python line 323).
-            let mut c = b0 + BLOCK;
-            while c < gs {
-                let mut acc = 0.0f64;
-                for t in 0..BLOCK {
-                    acc += e[t] * u[(g0 + b0 + t) * n + g0 + c];
-                }
-                wk[r * gs + c] -= acc;
-                c += 1;
-            }
-        }
-        m += 1;
     }
-    Ok(())
+    let zc = &zc;
+    let zcn = &zcn;
+    let per = o.div_ceil(INV_THREADS).max(1);
+    std::thread::scope(|scope| -> Result<(), GptqE8Error> {
+        let mut handles = Vec::new();
+        for ((((wkc, ac), sc), ec), ic) in wk
+            .chunks_mut(per * gs)
+            .zip(a.chunks(per))
+            .zip(s_out.chunks_mut(per * gs))
+            .zip(e_out.chunks_mut(per * gs))
+            .zip(i_out.chunks_mut(per * nb))
+        {
+            handles.push(scope.spawn(move || -> Result<(), GptqE8Error> {
+                let rows = ac.len();
+                for lr in 0..rows {
+                    let ar = ac[lr];
+                    for m in 0..nb {
+                        let b0 = m * BLOCK;
+                        let zcm =
+                            &zc[m * e8::CODEBOOK_LEN * BLOCK..(m + 1) * e8::CODEBOOK_LEN * BLOCK];
+                        let zcnm = &zcn[m * e8::CODEBOOK_LEN..(m + 1) * e8::CODEBOOK_LEN];
+                        // `Z_w = w_sub·U_sub⁻¹` (the Python line 314).
+                        let mut zw = [0.0f64; BLOCK];
+                        for t in 0..BLOCK {
+                            zw[t] = wkc[lr * gs + b0 + t];
+                        }
+                        solve_upper_block(u, n, g0 + b0, BLOCK, &mut zw);
+                        // `cost[k] = a²|Z_c[k]|² − 2a⟨Z_w, Z_c[k]⟩`, first index on ties (317–319).
+                        let mut best = 0usize;
+                        let mut best_cost = f64::INFINITY;
+                        for k in 0..e8::CODEBOOK_LEN {
+                            let zrow = &zcm[k * BLOCK..(k + 1) * BLOCK];
+                            let mut dot = 0.0f64;
+                            for t in 0..BLOCK {
+                                dot += zw[t] * zrow[t];
+                            }
+                            let cost = ar * ar * zcnm[k] - 2.0 * ar * dot;
+                            if cost < best_cost {
+                                best_cost = cost;
+                                best = k;
+                            }
+                        }
+                        let cw = e8::codeword(best).map_err(map_e8)?;
+                        let zsel = &zcm[best * BLOCK..(best + 1) * BLOCK];
+                        let mut e = [0.0f64; BLOCK];
+                        for t in 0..BLOCK {
+                            sc[lr * gs + b0 + t] = cw[t] as f64 / ONE as f64;
+                            // `err_sub = Z_w − a·Z_c[idx]` (the Python line 321).
+                            e[t] = zw[t] - ar * zsel[t];
+                        }
+                        ic[lr * nb + m] = u16::try_from(best).map_err(|_| GptqE8Error::Codebook)?;
+                        for t in 0..BLOCK {
+                            ec[lr * gs + b0 + t] = e[t];
+                        }
+                        // Intra-group feedback: the block's whitened residual onto every later
+                        // column of the group, `wk[:, b1:] -= err_sub @ U_blk[b0:b1, b1:]` (line 323).
+                        let mut c = b0 + BLOCK;
+                        while c < gs {
+                            let mut acc = 0.0f64;
+                            for t in 0..BLOCK {
+                                acc += e[t] * u[(g0 + b0 + t) * n + g0 + c];
+                            }
+                            wkc[lr * gs + c] -= acc;
+                            c += 1;
+                        }
+                    }
+                }
+                Ok(())
+            }));
+        }
+        for h in handles {
+            match h.join() {
+                Ok(r) => r?,
+                Err(p) => std::panic::resume_unwind(p),
+            }
+        }
+        Ok(())
+    })
 }
 
 /// The whitened scale projection of the `wscale` branch: `u_s = S·U_blk⁻¹`,
@@ -529,9 +569,17 @@ fn select_k(cost: &[f64], k: usize, out: &mut Vec<(usize, f64)>) {
 /// scale `a_new`; `s_out`, `e_out` and `i_out` receive the winner's signs, whitened residuals and
 /// code indices.
 ///
+/// Rows are independent given the read-only `u`, the block codeword images and the per-row
+/// `a[r]`, and the beam width `B` is a function of the block index alone, so the rows are split into
+/// [`INV_THREADS`] contiguous ranges and each range runs the whole block loop on its own scoped
+/// worker: one spawn per call, the block loop inside it and the group's codeword images precomputed
+/// once for all blocks. Every per-row operation order is unchanged — the ascending block loop, the
+/// `select_k` window, the beam swaps — and no quantity is reduced across rows, so the output is
+/// identical to the serial loop for every input and every worker count.
+///
 /// # Errors
 /// [`GptqE8Error`] from the codebook decode, or [`GptqE8Error::ShapeMismatch`] on a buffer of the
-/// wrong length.
+/// wrong length. A refusal from a worker is returned from the lowest row range that produced one.
 ///
 /// # Complexity
 /// - Temporal: `O(o·[gs/8]·beam·(256·8 + gs) + o·beam·gs²)` — per 8-block per row the `beam·256·8`
@@ -539,9 +587,12 @@ fn select_k(cost: &[f64], k: usize, out: &mut Vec<(usize, f64)>) {
 ///   intra-group feedback, and the `wscale` projection `beam·gs²`. Measure: f64 multiply-subtracts.
 ///   The extra work over the single `beam = 1` pass is the factor `beam` on the candidate scan plus
 ///   the `select_k` `O(beam·256·beam)` partial selection. Derivation: the per-block expansion of
-///   `B <= beam` beams over the 256 codewords, and the `K <= MAX_BEAM` retained beams.
-/// - Spatial: `O(o·beam·gs + beam·256 + 256·8)` f64 words for the two beam-state buffers, the
-///   per-block candidate costs and the codeword images; the outputs are caller buffers.
+///   `B <= beam` beams over the 256 codewords, and the `K <= MAX_BEAM` retained beams. The row term
+///   is independent per row, so the wall-clock span is the codeword-image term plus that row term
+///   `/ INV_THREADS` (each worker holds `ceil(o / INV_THREADS)` rows).
+/// - Spatial: `O(o·gs + [gs/8]·256·8)` f64 words plus `O(ceil(o/INV_THREADS)·beam·gs)` f64 and `u16`
+///   of per-worker beam state — the row state lives inside one worker's range instead of the whole
+///   `O`, and the codeword images are shared read-only; the outputs are caller buffers.
 #[allow(
     clippy::too_many_arguments,
     reason = "the pass writes three output buffers plus the working block and reads the factor; \
@@ -573,35 +624,17 @@ fn beam_pass(
     }
     let cap = beam.min(e8::CODEBOOK_LEN);
     let stride = cap * gs;
-    // Two beam-state buffer sets, swapped per block (`B` is `min(beam, B·256)` and never exceeds
-    // `cap`): working weights, signs, whitened residuals, cumulative errors and per-beam code
-    // indices.
-    let mut wk_c = vec![0.0f64; o * stride];
-    let mut s_c = vec![0.0f64; o * stride];
-    let mut e_c = vec![0.0f64; o * stride];
-    let mut cum_c = vec![0.0f64; o * cap];
-    let mut idx_c = vec![0u16; o * cap * nb];
-    let mut wk_x = vec![0.0f64; o * stride];
-    let mut s_x = vec![0.0f64; o * stride];
-    let mut e_x = vec![0.0f64; o * stride];
-    let mut cum_x = vec![0.0f64; o * cap];
-    let mut idx_x = vec![0u16; o * cap * nb];
-    for r in 0..o {
-        wk_c[r * stride..r * stride + gs].copy_from_slice(&w0[r * gs..(r + 1) * gs]);
-    }
-    let mut b_cur = 1usize;
-    let mut cost = vec![0.0f64; o * cap * e8::CODEBOOK_LEN];
-    let mut zw_store = vec![0.0f64; o * cap * BLOCK];
-    let mut zc = vec![0.0f64; e8::CODEBOOK_LEN * BLOCK];
-    let mut zcn = vec![0.0f64; e8::CODEBOOK_LEN];
-    let mut sel: Vec<(usize, f64)> = Vec::with_capacity(cap);
+    // The group's codeword images `Z_c = C·U_sub⁻¹` (`[nb, 256, 8]`) and their squared norms,
+    // computed once for every block and row (lines 345–347): read-only inside the workers, and the
+    // same values in the same order the per-block loop below formed them.
+    let mut zc = vec![0.0f64; nb * e8::CODEBOOK_LEN * BLOCK];
+    let mut zcn = vec![0.0f64; nb * e8::CODEBOOK_LEN];
     for m in 0..nb {
         let b0 = m * BLOCK;
-        let b1 = b0 + BLOCK;
-        // The block's codeword images `Z_c = C·U_sub⁻¹` and their squared norms (lines 345–347).
         for k in 0..e8::CODEBOOK_LEN {
             let cw = e8::codeword(k).map_err(map_e8)?;
-            let row = &mut zc[k * BLOCK..(k + 1) * BLOCK];
+            let row =
+                &mut zc[(m * e8::CODEBOOK_LEN + k) * BLOCK..(m * e8::CODEBOOK_LEN + k + 1) * BLOCK];
             for t in 0..BLOCK {
                 row[t] = cw[t] as f64 / ONE as f64;
             }
@@ -610,147 +643,191 @@ fn beam_pass(
             for t in 0..BLOCK {
                 n2 += row[t] * row[t];
             }
-            zcn[k] = n2;
-        }
-        let b_next = beam.min(b_cur * e8::CODEBOOK_LEN);
-        // `tot_err2[b,c] = cum_err2[b] + |Z_w[b] − a·Z_c[c]|²` (lines 344–350).
-        for r in 0..o {
-            let ar = a[r];
-            let a2 = ar * ar;
-            for b in 0..b_cur {
-                let mut zw = [0.0f64; BLOCK];
-                for t in 0..BLOCK {
-                    zw[t] = wk_c[r * stride + b * gs + b0 + t];
-                }
-                solve_upper_block(u, n, g0 + b0, BLOCK, &mut zw);
-                for t in 0..BLOCK {
-                    zw_store[(r * cap + b) * BLOCK + t] = zw[t];
-                }
-                let mut zn2 = 0.0f64;
-                for t in 0..BLOCK {
-                    zn2 += zw[t] * zw[t];
-                }
-                let base = cum_c[r * cap + b];
-                for k in 0..e8::CODEBOOK_LEN {
-                    let zk = &zc[k * BLOCK..(k + 1) * BLOCK];
-                    let mut dot = 0.0f64;
-                    for t in 0..BLOCK {
-                        dot += zw[t] * zk[t];
-                    }
-                    cost[(r * cap + b) * e8::CODEBOOK_LEN + k] =
-                        base + zn2 + a2 * zcn[k] - 2.0 * ar * dot;
-                }
-            }
-        }
-        // Keep the `K` smallest pairs and rebuild the beams from their parents (lines 352–366).
-        for r in 0..o {
-            let ar = a[r];
-            let len = b_cur * e8::CODEBOOK_LEN;
-            select_k(
-                &cost[r * cap * e8::CODEBOOK_LEN..r * cap * e8::CODEBOOK_LEN + len],
-                b_next,
-                &mut sel,
-            );
-            for (bi, &(flat, val)) in sel.iter().enumerate() {
-                let parent = flat / e8::CODEBOOK_LEN;
-                let c = flat % e8::CODEBOOK_LEN;
-                let src = r * stride + parent * gs;
-                let dst = r * stride + bi * gs;
-                wk_x[dst..dst + gs].copy_from_slice(&wk_c[src..src + gs]);
-                s_x[dst..dst + gs].copy_from_slice(&s_c[src..src + gs]);
-                e_x[dst..dst + gs].copy_from_slice(&e_c[src..src + gs]);
-                // `err_sub = Z_w[parent] − a·Z_c[c]` (line 360).
-                let mut err = [0.0f64; BLOCK];
-                for t in 0..BLOCK {
-                    err[t] = zw_store[(r * cap + parent) * BLOCK + t] - ar * zc[c * BLOCK + t];
-                }
-                // Intra-group feedback onto the later columns (line 362).
-                for col in b1..gs {
-                    let mut acc = 0.0f64;
-                    for t in 0..BLOCK {
-                        acc += err[t] * u[(g0 + b0 + t) * n + g0 + col];
-                    }
-                    wk_x[dst + col] -= acc;
-                }
-                let cw = e8::codeword(c).map_err(map_e8)?;
-                for t in 0..BLOCK {
-                    s_x[dst + b0 + t] = cw[t] as f64 / ONE as f64;
-                    e_x[dst + b0 + t] = err[t];
-                }
-                cum_x[r * cap + bi] = val;
-                for mm in 0..m {
-                    idx_x[(r * cap + bi) * nb + mm] = idx_c[(r * cap + parent) * nb + mm];
-                }
-                idx_x[(r * cap + bi) * nb + m] =
-                    u16::try_from(c).map_err(|_| GptqE8Error::Codebook)?;
-            }
-        }
-        core::mem::swap(&mut wk_c, &mut wk_x);
-        core::mem::swap(&mut s_c, &mut s_x);
-        core::mem::swap(&mut e_c, &mut e_x);
-        core::mem::swap(&mut cum_c, &mut cum_x);
-        core::mem::swap(&mut idx_c, &mut idx_x);
-        b_cur = b_next;
-    }
-    let mut a_new = vec![0.0f64; o];
-    if wscale {
-        // `u_S = S_b·U_blk⁻¹`, `a_cand = max(a + ⟨Err_b, u_S⟩/max(|u_S|², 1e-12), 1e-12)`, the
-        // smallest projected residual wins (lines 367–376).
-        let mut us = vec![0.0f64; gs];
-        let mut a_cand = vec![0.0f64; cap];
-        let mut cerr = vec![0.0f64; cap];
-        for r in 0..o {
-            for b in 0..b_cur {
-                let src = r * stride + b * gs;
-                us.copy_from_slice(&s_c[src..src + gs]);
-                solve_upper_block(u, n, g0, gs, &mut us);
-                let mut num = 0.0f64;
-                let mut den = 0.0f64;
-                for j in 0..gs {
-                    num += e_c[src + j] * us[j];
-                    den += us[j] * us[j];
-                }
-                let ac = (a[r] + num / den.max(1e-12)).max(1e-12);
-                a_cand[b] = ac;
-                let d = ac - a[r];
-                let mut ce = 0.0f64;
-                for j in 0..gs {
-                    let v = e_c[src + j] - d * us[j];
-                    ce += v * v;
-                }
-                cerr[b] = ce;
-            }
-            let mut win = 0usize;
-            for b in 1..b_cur {
-                if cerr[b] < cerr[win] {
-                    win = b;
-                }
-            }
-            a_new[r] = a_cand[win];
-            let src = r * stride + win * gs;
-            us.copy_from_slice(&s_c[src..src + gs]);
-            solve_upper_block(u, n, g0, gs, &mut us);
-            let d = a_new[r] - a[r];
-            for j in 0..gs {
-                s_out[r * gs + j] = s_c[src + j];
-                e_out[r * gs + j] = e_c[src + j] - d * us[j];
-            }
-            for mm in 0..nb {
-                i_out[r * nb + mm] = idx_c[(r * cap + win) * nb + mm];
-            }
-        }
-    } else {
-        // The winner is the least-`cum_err2` beam, `beam 0` after the ascending selection (line 378).
-        for r in 0..o {
-            a_new[r] = a[r];
-            let src = r * stride;
-            s_out[r * gs..(r + 1) * gs].copy_from_slice(&s_c[src..src + gs]);
-            e_out[r * gs..(r + 1) * gs].copy_from_slice(&e_c[src..src + gs]);
-            for mm in 0..nb {
-                i_out[r * nb + mm] = idx_c[r * cap * nb + mm];
-            }
+            zcn[m * e8::CODEBOOK_LEN + k] = n2;
         }
     }
+    let zc = &zc;
+    let zcn = &zcn;
+    let per = o.div_ceil(INV_THREADS).max(1);
+    let mut a_new = Vec::with_capacity(o);
+    std::thread::scope(|scope| -> Result<(), GptqE8Error> {
+        let mut handles = Vec::new();
+        for ((((w0c, ac), sc), ec), ic) in w0
+            .chunks(per * gs)
+            .zip(a.chunks(per))
+            .zip(s_out.chunks_mut(per * gs))
+            .zip(e_out.chunks_mut(per * gs))
+            .zip(i_out.chunks_mut(per * nb))
+        {
+            handles.push(scope.spawn(move || -> Result<Vec<f64>, GptqE8Error> {
+                let rows = ac.len();
+                // Two beam-state buffer sets for the worker's rows, swapped per block (`B` is
+                // `min(beam, B·256)` and never exceeds `cap`): working weights, signs, whitened
+                // residuals, cumulative errors and per-beam code indices.
+                let mut wk_c = vec![0.0f64; stride];
+                let mut s_c = vec![0.0f64; stride];
+                let mut e_c = vec![0.0f64; stride];
+                let mut cum_c = vec![0.0f64; cap];
+                let mut idx_c = vec![0u16; cap * nb];
+                let mut wk_x = vec![0.0f64; stride];
+                let mut s_x = vec![0.0f64; stride];
+                let mut e_x = vec![0.0f64; stride];
+                let mut cum_x = vec![0.0f64; cap];
+                let mut idx_x = vec![0u16; cap * nb];
+                let mut cost = vec![0.0f64; cap * e8::CODEBOOK_LEN];
+                let mut zw_store = vec![0.0f64; cap * BLOCK];
+                let mut sel: Vec<(usize, f64)> = Vec::with_capacity(cap);
+                let mut us = vec![0.0f64; gs];
+                let mut a_cand = vec![0.0f64; cap];
+                let mut cerr = vec![0.0f64; cap];
+                let mut a_row = vec![0.0f64; rows];
+                for lr in 0..rows {
+                    let ar = ac[lr];
+                    let a2 = ar * ar;
+                    wk_c[..gs].copy_from_slice(&w0c[lr * gs..(lr + 1) * gs]);
+                    // The working sign and residual rows start at zero, as the serial buffers did.
+                    s_c[..gs].fill(0.0);
+                    e_c[..gs].fill(0.0);
+                    let mut b_cur = 1usize;
+                    for m in 0..nb {
+                        let b0 = m * BLOCK;
+                        let b1 = b0 + BLOCK;
+                        let zcm =
+                            &zc[m * e8::CODEBOOK_LEN * BLOCK..(m + 1) * e8::CODEBOOK_LEN * BLOCK];
+                        let zcnm = &zcn[m * e8::CODEBOOK_LEN..(m + 1) * e8::CODEBOOK_LEN];
+                        let b_next = beam.min(b_cur * e8::CODEBOOK_LEN);
+                        // `tot_err2[b,c] = cum_err2[b] + |Z_w[b] − a·Z_c[c]|²` (lines 344–350).
+                        for b in 0..b_cur {
+                            let mut zw = [0.0f64; BLOCK];
+                            for t in 0..BLOCK {
+                                zw[t] = wk_c[b * gs + b0 + t];
+                            }
+                            solve_upper_block(u, n, g0 + b0, BLOCK, &mut zw);
+                            for t in 0..BLOCK {
+                                zw_store[b * BLOCK + t] = zw[t];
+                            }
+                            let mut zn2 = 0.0f64;
+                            for t in 0..BLOCK {
+                                zn2 += zw[t] * zw[t];
+                            }
+                            let base = cum_c[b];
+                            for k in 0..e8::CODEBOOK_LEN {
+                                let zk = &zcm[k * BLOCK..(k + 1) * BLOCK];
+                                let mut dot = 0.0f64;
+                                for t in 0..BLOCK {
+                                    dot += zw[t] * zk[t];
+                                }
+                                cost[b * e8::CODEBOOK_LEN + k] =
+                                    base + zn2 + a2 * zcnm[k] - 2.0 * ar * dot;
+                            }
+                        }
+                        // Keep the `K` smallest pairs and rebuild the beams from their parents
+                        // (lines 352–366).
+                        let len = b_cur * e8::CODEBOOK_LEN;
+                        select_k(&cost[..len], b_next, &mut sel);
+                        for (bi, &(flat, val)) in sel.iter().enumerate() {
+                            let parent = flat / e8::CODEBOOK_LEN;
+                            let c = flat % e8::CODEBOOK_LEN;
+                            let src = parent * gs;
+                            let dst = bi * gs;
+                            wk_x[dst..dst + gs].copy_from_slice(&wk_c[src..src + gs]);
+                            s_x[dst..dst + gs].copy_from_slice(&s_c[src..src + gs]);
+                            e_x[dst..dst + gs].copy_from_slice(&e_c[src..src + gs]);
+                            // `err_sub = Z_w[parent] − a·Z_c[c]` (line 360).
+                            let mut err = [0.0f64; BLOCK];
+                            for t in 0..BLOCK {
+                                err[t] = zw_store[parent * BLOCK + t] - ar * zcm[c * BLOCK + t];
+                            }
+                            // Intra-group feedback onto the later columns (line 362).
+                            for col in b1..gs {
+                                let mut acc = 0.0f64;
+                                for t in 0..BLOCK {
+                                    acc += err[t] * u[(g0 + b0 + t) * n + g0 + col];
+                                }
+                                wk_x[dst + col] -= acc;
+                            }
+                            let cw = e8::codeword(c).map_err(map_e8)?;
+                            for t in 0..BLOCK {
+                                s_x[dst + b0 + t] = cw[t] as f64 / ONE as f64;
+                                e_x[dst + b0 + t] = err[t];
+                            }
+                            cum_x[bi] = val;
+                            for mm in 0..m {
+                                idx_x[bi * nb + mm] = idx_c[parent * nb + mm];
+                            }
+                            idx_x[bi * nb + m] =
+                                u16::try_from(c).map_err(|_| GptqE8Error::Codebook)?;
+                        }
+                        core::mem::swap(&mut wk_c, &mut wk_x);
+                        core::mem::swap(&mut s_c, &mut s_x);
+                        core::mem::swap(&mut e_c, &mut e_x);
+                        core::mem::swap(&mut cum_c, &mut cum_x);
+                        core::mem::swap(&mut idx_c, &mut idx_x);
+                        b_cur = b_next;
+                    }
+                    if wscale {
+                        // `u_S = S_b·U_blk⁻¹`, `a_cand = max(a + ⟨Err_b, u_S⟩/max(|u_S|², 1e-12),
+                        // 1e-12)`, the smallest projected residual wins (lines 367–376).
+                        for b in 0..b_cur {
+                            let src = b * gs;
+                            us.copy_from_slice(&s_c[src..src + gs]);
+                            solve_upper_block(u, n, g0, gs, &mut us);
+                            let mut num = 0.0f64;
+                            let mut den = 0.0f64;
+                            for j in 0..gs {
+                                num += e_c[src + j] * us[j];
+                                den += us[j] * us[j];
+                            }
+                            let ac2 = (ar + num / den.max(1e-12)).max(1e-12);
+                            a_cand[b] = ac2;
+                            let d = ac2 - ar;
+                            let mut ce = 0.0f64;
+                            for j in 0..gs {
+                                let v = e_c[src + j] - d * us[j];
+                                ce += v * v;
+                            }
+                            cerr[b] = ce;
+                        }
+                        let mut win = 0usize;
+                        for b in 1..b_cur {
+                            if cerr[b] < cerr[win] {
+                                win = b;
+                            }
+                        }
+                        a_row[lr] = a_cand[win];
+                        let src = win * gs;
+                        us.copy_from_slice(&s_c[src..src + gs]);
+                        solve_upper_block(u, n, g0, gs, &mut us);
+                        let d = a_row[lr] - ar;
+                        for j in 0..gs {
+                            sc[lr * gs + j] = s_c[src + j];
+                            ec[lr * gs + j] = e_c[src + j] - d * us[j];
+                        }
+                        for mm in 0..nb {
+                            ic[lr * nb + mm] = idx_c[win * nb + mm];
+                        }
+                    } else {
+                        // The winner is the least-`cum_err2` beam, `beam 0` after the ascending
+                        // selection (line 378).
+                        a_row[lr] = ar;
+                        sc[lr * gs..(lr + 1) * gs].copy_from_slice(&s_c[..gs]);
+                        ec[lr * gs..(lr + 1) * gs].copy_from_slice(&e_c[..gs]);
+                        for mm in 0..nb {
+                            ic[lr * nb + mm] = idx_c[mm];
+                        }
+                    }
+                }
+                Ok(a_row)
+            }));
+        }
+        for h in handles {
+            match h.join() {
+                Ok(r) => a_new.extend(r?),
+                Err(p) => std::panic::resume_unwind(p),
+            }
+        }
+        Ok(())
+    })?;
     Ok(a_new)
 }
 
