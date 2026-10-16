@@ -212,6 +212,11 @@ lean_lib Numeric where
 lean_lib Spirv where
   globs := #[.submodules `Spirv]
 
+-- Refinement of the extracted serving kernels and blocks to plain-Lean references
+-- (docs/plan.md `SERVE-REFINE`). Module discovery under Serve/.
+lean_lib Serve where
+  globs := #[.submodules `Serve]
+
 -- Performance theory (docs/epics/resource-guided-evolution.md): the resource carrier `Perf.Res`,
 -- the roofline lower bound, the move theorem and the fusion results. Module discovery under Perf/.
 lean_lib Perf where
