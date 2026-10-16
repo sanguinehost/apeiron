@@ -49,3 +49,6 @@ pub mod code;
 
 /// Backward passes of the ported model: dense adjoints, attention with `RoPE`, KL/TV heads.
 pub mod grad;
+
+/// The fold-transfer pipeline: Grams, corrector, held-out evaluation and byte budget.
+pub mod fold;
