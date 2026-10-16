@@ -115,6 +115,10 @@ lean_lib ApeironWordBridge where
     -- the `W_head` backward, the TV gradient and the row/logits/softmax loops.
     `Learn.Grad.HeadRows,
     `Learn.Grad.HeadSoftmax,
+    -- Extracted `solve_port.gemm` refinement (`Learn/Solve/GemmSpec.lean` is the `ℤ` model and the
+    -- no-overflow arithmetic; `Gemm.lean` refines the bound scans and the refusal chain;
+    -- `GemmWitness.lean` shows the accepted domain and each refusal arm are inhabited).
+    `Learn.Solve.GemmSpec, `Learn.Solve.Gemm, `Learn.Solve.GemmWitness,
     `AxiomAudit, `Joint.WordBridge,
     `Iota.Audit.Empty,
     `Iota.Syntax, `Iota.Decode,
