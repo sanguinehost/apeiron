@@ -41,7 +41,7 @@ pub(super) const BOUND_BITS: u32 = 36;
 /// The largest accepted `o`: `o < 2¹⁸` keeps `o · 2^{3·BOUND_BITS}` inside `i128`.
 const MAX_O: usize = 1 << 18;
 /// The unit weight in raw Q32.32 (`1.0`), the value used when `w` is `None`.
-const UNIT: i128 = 1_i128 << 32;
+const UNIT_RAW: i64 = 1_i64 << 32;
 /// Column-block width of the blocked accumulation (64 Q32.32 words = 512 B: one cache line per
 /// accumulator row).
 const BLOCK: usize = 64;
@@ -104,59 +104,99 @@ pub(super) fn within_bound(x: &[i64], w: Option<&[i64]>) -> bool {
     }
 }
 
-/// Accumulate the block's owned `acc` rows `[lo, hi)` of the column block `[jb, j1)` over every `o`
-/// row: `acc[i−lo, j−jb] += w[o]·x[o,i]·x[o,j]` for `j ≥ max(i, jb)` in checked `i128`. `acc` is
-/// row-major `[hi−lo, j1−jb]`, so worker `t` owns rows `[lo, hi)` of the block and writes disjoint
-/// entries; each entry is accumulated once, in `o` order, so the result is worker-count-independent.
+/// Column-major copy of the row-major `[o, n]` panel `x`: `xt[c·o + r] = x[r·n + c]`, so a column
+/// is a contiguous run of `o` words.
 ///
 /// # Complexity
-/// `o·Σ_{i<lo..hi}(j1 − max(i, jb))` checked multiply-accumulates and `O(1)` extra words; every
-/// index is in range by construction (`hi ≤ j1`, `acc.len() = (hi−lo)·(j1−jb)`).
+/// `o·n` word copies and `o·n` words of space; one pass over `x`.
+fn transpose_panel(x: &[i64], o: usize, n: usize) -> Vec<i64> {
+    let mut xt = vec![0i64; o * n];
+    for r in 0..o {
+        let row = &x[r * n..r * n + n];
+        for (c, &v) in row.iter().enumerate() {
+            xt[c * o + r] = v;
+        }
+    }
+    xt
+}
+
+/// Accumulate the block's owned `acc` rows `[lo, hi)` of the column block `[jb, j1)` over every `o`
+/// row: `acc[i−lo, j−jb] = Σ_o wv[o]·xt[i,o]·xt[j,o]` for the tiles that meet `j ≥ max(i, jb)`, in
+/// checked `i128`. `xt` is the column-major panel (`xt[c·o + oo] = x[oo, c]`), so a tile reads
+/// contiguous runs. `acc` is row-major `[hi−lo, j1−jb]`, so worker `t` owns rows `[lo, hi)` of the
+/// block and writes disjoint entries. Entries are computed in `2×2` register tiles whose `o` sum
+/// stays in registers; a tile on the diagonal also fills the one entry below it, which is never
+/// read. Each entry is the exact integer sum over `o`, so the result is worker-count-independent
+/// and equal to the row-streaming accumulation.
+///
+/// # Complexity
+/// `o·Σ_{i<lo..hi}(j1 − max(i, jb))` checked multiply-accumulates (plus the diagonal tiles' unread
+/// entries, `O(o·(hi−lo))`) and `O(1)` extra words; every index is in range by construction
+/// (`hi ≤ j1`, `acc.len() = (hi−lo)·(j1−jb)`, `xt.len() = n·o`, `wv.len() = o`).
 #[allow(
     clippy::too_many_arguments,
     reason = "the kernel is handed the block accumulator slice plus the read-only panel and the \
-              block geometry (`lo`, `hi`, `o`, `n`, `jb`, `j1`); a struct would only relocate the \
+              block geometry (`lo`, `hi`, `o`, `jb`, `j1`); a struct would only relocate the \
               fields."
 )]
 fn block_rows(
     acc: &mut [i128],
     lo: usize,
     hi: usize,
-    x: &[i64],
-    w: Option<&[i64]>,
+    xt: &[i64],
+    wv: &[i64],
     o: usize,
-    n: usize,
     jb: usize,
     j1: usize,
 ) -> Result<(), SyrkError> {
     let nb = j1 - jb;
-    let mut oo = 0usize;
-    while oo < o {
-        let ww = match w {
-            Some(ws) => i128::from(ws[oo]),
-            None => UNIT,
-        };
-        let xo = &x[oo * n..oo * n + n];
-        let mut i = lo;
-        while i < hi {
-            let Some(a) = ww.checked_mul(i128::from(xo[i])) else {
-                return Err(SyrkError::Overflow);
-            };
-            let row = &mut acc[(i - lo) * nb..(i - lo) * nb + nb];
-            let mut j = if i > jb { i } else { jb };
-            while j < j1 {
-                let Some(t) = a.checked_mul(i128::from(xo[j])) else {
+    let mut i = lo;
+    while i < hi {
+        let i2 = if i + 1 < hi { i + 1 } else { i };
+        let xi0 = &xt[i * o..i * o + o];
+        let xi1 = &xt[i2 * o..i2 * o + o];
+        let mut j = if i > jb { i } else { jb };
+        while j < j1 {
+            let jc = if j + 1 < j1 { j + 1 } else { j };
+            let xj0 = &xt[j * o..j * o + o];
+            let xj1 = &xt[jc * o..jc * o + o];
+            let (mut c00, mut c01, mut c10, mut c11) = (0_i128, 0_i128, 0_i128, 0_i128);
+            let mut oo = 0usize;
+            while oo < o {
+                let ww = i128::from(wv[oo]);
+                let a0 = ww * i128::from(xi0[oo]);
+                let a1 = ww * i128::from(xi1[oo]);
+                let b0 = i128::from(xj0[oo]);
+                let b1 = i128::from(xj1[oo]);
+                let (Some(s00), Some(s01), Some(s10), Some(s11)) = (
+                    c00.checked_add(a0 * b0),
+                    c01.checked_add(a0 * b1),
+                    c10.checked_add(a1 * b0),
+                    c11.checked_add(a1 * b1),
+                ) else {
                     return Err(SyrkError::Overflow);
                 };
-                match row[j - jb].checked_add(t) {
-                    Some(s) => row[j - jb] = s,
-                    None => return Err(SyrkError::Overflow),
-                }
-                j += 1;
+                c00 = s00;
+                c01 = s01;
+                c10 = s10;
+                c11 = s11;
+                oo += 1;
             }
-            i += 1;
+            let r0 = (i - lo) * nb;
+            acc[r0 + (j - jb)] = c00;
+            if jc != j {
+                acc[r0 + (jc - jb)] = c01;
+            }
+            if i2 != i {
+                let r1 = (i2 - lo) * nb;
+                acc[r1 + (j - jb)] = c10;
+                if jc != j {
+                    acc[r1 + (jc - jb)] = c11;
+                }
+            }
+            j += 2;
         }
-        oo += 1;
+        i += 2;
     }
     Ok(())
 }
@@ -180,15 +220,14 @@ fn block_rows_par(
     rows: usize,
     nb: usize,
     parts: usize,
-    x: &[i64],
-    w: Option<&[i64]>,
+    xt: &[i64],
+    wv: &[i64],
     o: usize,
-    n: usize,
     jb: usize,
     j1: usize,
 ) -> Result<(), SyrkError> {
     if parts <= 1 {
-        return block_rows(acc, 0, rows, x, w, o, n, jb, j1);
+        return block_rows(acc, 0, rows, xt, wv, o, jb, j1);
     }
     let base = rows / parts;
     let rem = rows % parts;
@@ -207,7 +246,7 @@ fn block_rows_par(
     let err: Option<SyrkError> = std::thread::scope(|scope| {
         let mut handles = Vec::with_capacity(groups.len());
         for (lo, hi, part) in groups {
-            handles.push(scope.spawn(move || block_rows(part, lo, hi, x, w, o, n, jb, j1)));
+            handles.push(scope.spawn(move || block_rows(part, lo, hi, xt, wv, o, jb, j1)));
         }
         let mut first: Option<SyrkError> = None;
         let mut panicked = None;
@@ -261,7 +300,8 @@ fn block_rows_par(
 /// `⌈n/BLOCK⌉` blocks, accumulates the pairs `(i,j)` with `i ≤ j < j1` once per block, and the blocks
 /// partition the upper triangle, so each of the `n(n+1)/2` pairs is counted exactly once — plus an
 /// `O(o·n)` bound scan and `O(n²)` round/store/mirror. The multiply-accumulates are split across
-/// `threads`. Space: `O(n²)` for `G` and `O(n·BLOCK)` `i128` for the reused block accumulator.
+/// `threads`. Space: `O(n²)` for `G`, `O(o·n)` words for the transposed panel and `O(n·BLOCK)` `i128`
+/// for the reused block accumulator.
 pub fn wsyrk(
     x: &[i64],
     w: Option<&[i64]>,
@@ -296,6 +336,11 @@ pub fn wsyrk(
         return Err(SyrkError::InputBound);
     }
     let nthreads = threads.max(1);
+    let xt = transpose_panel(x, o, n);
+    let wv: Vec<i64> = match w {
+        Some(ws) => ws.to_vec(),
+        None => vec![UNIT_RAW; o],
+    };
     let mut g = vec![0i64; nn];
     let mut acc = vec![0i128; n * BLOCK.min(n)];
     let mut jb = 0usize;
@@ -304,7 +349,7 @@ pub fn wsyrk(
         let nb = j1 - jb;
         let used = j1 * nb;
         acc[..used].fill(0);
-        block_rows_par(&mut acc[..used], j1, nb, nthreads, x, w, o, n, jb, j1)?;
+        block_rows_par(&mut acc[..used], j1, nb, nthreads, &xt, &wv, o, jb, j1)?;
         let mut i = 0usize;
         while i < j1 {
             let jstart = if i > jb { i } else { jb };

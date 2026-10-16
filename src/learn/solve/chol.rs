@@ -169,11 +169,10 @@ fn chol_entry(
     let mut p = 0usize;
     let mut ok = true;
     while p < kb && ok {
-        match i128::from(l[gi * d + kbase + p]).checked_mul(i128::from(l[gj * d + kbase + p])) {
-            Some(pr) => match acc.checked_sub(pr) {
-                Some(s) => acc = s,
-                None => ok = false,
-            },
+        // `i64 × i64` fits `i128` (|product| ≤ 2¹²⁶), so only the subtraction is checked.
+        let pr = i128::from(l[gi * d + kbase + p]) * i128::from(l[gj * d + kbase + p]);
+        match acc.checked_sub(pr) {
+            Some(s) => acc = s,
             None => ok = false,
         }
         p += 1;
@@ -263,12 +262,56 @@ fn chol_trailing_update(
     kb: usize,
 ) -> Result<(), SolveError> {
     let nrows = rows.len() / d;
-    for ri in 0..nrows {
-        let gi = first + ri;
-        for gj in kend..=gi {
-            let w = rows[ri * d + gj];
-            rows[ri * d + gj] = ov(chol_entry(w, l, d, gi, gj, kbase, kb))?;
+    let mut ri = 0usize;
+    while ri < nrows {
+        let r2 = if ri + 1 < nrows { ri + 1 } else { ri };
+        let (gi, gi2) = (first + ri, first + r2);
+        let li0 = &l[gi * d + kbase..gi * d + kbase + kb];
+        let li1 = &l[gi2 * d + kbase..gi2 * d + kbase + kb];
+        let mut gj = kend;
+        while gj <= gi2 {
+            let gc = if gj < gi2 { gj + 1 } else { gj };
+            let lj0 = &l[gj * d + kbase..gj * d + kbase + kb];
+            let lj1 = &l[gc * d + kbase..gc * d + kbase + kb];
+            let mut c00 = i128::from(rows[ri * d + gj]) << 32;
+            let mut c01 = i128::from(rows[ri * d + gc]) << 32;
+            let mut c10 = i128::from(rows[r2 * d + gj]) << 32;
+            let mut c11 = i128::from(rows[r2 * d + gc]) << 32;
+            let mut p = 0usize;
+            while p < kb {
+                let (a0, a1) = (i128::from(li0[p]), i128::from(li1[p]));
+                let (b0, b1) = (i128::from(lj0[p]), i128::from(lj1[p]));
+                // `i64 × i64` fits `i128`, so only the subtractions are checked.
+                let (Some(s00), Some(s01), Some(s10), Some(s11)) = (
+                    c00.checked_sub(a0 * b0),
+                    c01.checked_sub(a0 * b1),
+                    c10.checked_sub(a1 * b0),
+                    c11.checked_sub(a1 * b1),
+                ) else {
+                    return Err(SolveError::Overflow);
+                };
+                c00 = s00;
+                c01 = s01;
+                c10 = s10;
+                c11 = s11;
+                p += 1;
+            }
+            // Store only the lower-triangle entries `gj' ≤ gi'`; clamped duplicates are skipped.
+            if gj <= gi {
+                rows[ri * d + gj] = ov(round_to_i64(c00))?;
+            }
+            if gc != gj && gc <= gi {
+                rows[ri * d + gc] = ov(round_to_i64(c01))?;
+            }
+            if r2 != ri {
+                rows[r2 * d + gj] = ov(round_to_i64(c10))?;
+                if gc != gj {
+                    rows[r2 * d + gc] = ov(round_to_i64(c11))?;
+                }
+            }
+            gj += 2;
         }
+        ri += 2;
     }
     Ok(())
 }
@@ -408,11 +451,9 @@ fn dot_shifted_row(base: i64, xs: &[i64], ys: &[i64]) -> Option<i128> {
     let mut p = 0usize;
     let mut ok = true;
     while p < xs.len() && ok {
-        match i128::from(xs[p]).checked_mul(i128::from(ys[p])) {
-            Some(pr) => match acc.checked_sub(pr) {
-                Some(s) => acc = s,
-                None => ok = false,
-            },
+        let pr = i128::from(xs[p]) * i128::from(ys[p]);
+        match acc.checked_sub(pr) {
+            Some(s) => acc = s,
             None => ok = false,
         }
         p += 1;
@@ -443,11 +484,9 @@ fn dot_shifted_col(
     let mut p = p0;
     let mut ok = true;
     while p < p1 && ok {
-        match i128::from(l[p * d + col]).checked_mul(i128::from(ys[p])) {
-            Some(pr) => match acc.checked_sub(pr) {
-                Some(s) => acc = s,
-                None => ok = false,
-            },
+        let pr = i128::from(l[p * d + col]) * i128::from(ys[p]);
+        match acc.checked_sub(pr) {
+            Some(s) => acc = s,
             None => ok = false,
         }
         p += 1;
