@@ -342,8 +342,9 @@ fn chol_trailing_update(
 
 /// Distribute the trailing update `work[kend.., kend..]` over `threads` scoped workers, each owning
 /// a contiguous row range (disjoint writes, one write per entry, fixed contraction order), so the
-/// factor is bit-identical for every `threads`. `threads <= 1` runs [`chol_trailing_update`] on the
-/// whole trailing block with no spawn.
+/// factor is bit-identical for every worker count. `nt ≥ 2`: the caller runs
+/// [`chol_trailing_update`] on the whole trailing block itself for one worker, so the serial
+/// arithmetic is not behind this thread boundary.
 ///
 /// # Errors
 ///
@@ -360,15 +361,11 @@ fn trailing_update_par(
     n: usize,
     kend: usize,
     kb: usize,
-    threads: usize,
+    nt: usize,
 ) -> Result<(), SolveError> {
     let nr = n - kend;
-    let nt = threads.max(1).min(nr);
     let kbase = kend - kb;
     let trailing = &mut work[kend * n..n * n];
-    if nt <= 1 {
-        return chol_trailing_update(trailing, kend, kbase, kend, l, n, kb);
-    }
     let base = nr / nt;
     let rem = nr % nt;
     let mut rest: &mut [i64] = trailing;
@@ -487,7 +484,13 @@ pub(super) fn factor_scaled(a: &[i64], n: usize, threads: usize) -> Result<Vec<i
         }
         // (3) Trailing update `work[kend.., kend..] -= L21·L21ᵀ` (lower triangle).
         if kend < n && err.is_none() {
-            match trailing_update_par(&mut work, &l, n, kend, kb, threads) {
+            let nt = threads.max(1).min(n - kend);
+            let res = if nt <= 1 {
+                chol_trailing_update(&mut work[kend * n..n * n], kend, kend - kb, kend, &l, n, kb)
+            } else {
+                trailing_update_par(&mut work, &l, n, kend, kb, nt)
+            };
+            match res {
                 Ok(()) => {}
                 Err(e) => err = Some(e),
             }

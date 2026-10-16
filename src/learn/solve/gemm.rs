@@ -314,7 +314,8 @@ fn block_rows(
 /// Split `c` (`m × n`, row stride `n`) into `parts` contiguous row chunks and run [`block_rows`] on
 /// each in scoped threads; returns the first refusal. Every worker owns a disjoint row range of `c`
 /// and is handed the matching `a` row block (`&a[lo·k .. hi·k]`), so no two workers write one output
-/// entry and none reads another's A rows. `parts ≤ 1` runs the serial body with no spawn.
+/// entry and none reads another's A rows. `parts ≥ 2`: the caller runs [`block_rows`] itself for
+/// `threads ≤ 1`, so the serial arithmetic is not behind this thread boundary.
 ///
 /// # Complexity
 /// Time: [`block_rows`] plus `O(m)` split bookkeeping. Space: `O(parts)` chunk descriptors plus each
@@ -338,9 +339,6 @@ fn block_rows_par(
     k: usize,
     nn: bool,
 ) -> Result<(), GemmError> {
-    if parts <= 1 {
-        return block_rows(c, m, a, b, n, k, nn);
-    }
     let base = m / parts;
     let rem = m % parts;
     let mut lo = 0usize;
@@ -596,6 +594,10 @@ fn run(
 ) -> Result<Vec<i64>, GemmError> {
     check(a, b, m, k, n)?;
     let mut c = vec![0i64; m * n];
-    block_rows_par(&mut c, m, n, threads.max(1), a, b, k, nn)?;
+    if threads <= 1 {
+        block_rows(&mut c, m, a, b, n, k, nn)?;
+    } else {
+        block_rows_par(&mut c, m, n, threads, a, b, k, nn)?;
+    }
     Ok(c)
 }

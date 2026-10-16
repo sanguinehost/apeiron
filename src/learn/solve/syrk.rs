@@ -203,8 +203,9 @@ fn block_rows(
 
 /// Split the `rows × nb` block accumulator `acc` into `parts` contiguous row chunks and run
 /// [`block_rows`] on each in scoped threads; returns the first refusal. Every worker owns a
-/// disjoint row range, so no two workers write one entry. `parts ≤ 1` runs the serial body with no
-/// spawn. `O(rows·nb)` split work; `O(parts)` bookkeeping.
+/// disjoint row range, so no two workers write one entry. `parts ≥ 2`: the caller runs
+/// [`block_rows`] itself for one thread, so the serial arithmetic is not behind this thread
+/// boundary. `O(rows·nb)` split work; `O(parts)` bookkeeping.
 ///
 /// # Panics
 /// Re-raises the payload of a worker panic on the calling thread; the kernel does not panic on
@@ -226,9 +227,6 @@ fn block_rows_par(
     jb: usize,
     j1: usize,
 ) -> Result<(), SyrkError> {
-    if parts <= 1 {
-        return block_rows(acc, 0, rows, xt, wv, o, jb, j1);
-    }
     let base = rows / parts;
     let rem = rows % parts;
     let mut lo = 0usize;
@@ -354,7 +352,12 @@ pub fn wsyrk(
         let nb = j1 - jb;
         let used = j1 * nb;
         acc[..used].fill(0);
-        match block_rows_par(&mut acc[..used], j1, nb, nthreads, &xt, &wv, o, jb, j1) {
+        let blk = if nthreads <= 1 {
+            block_rows(&mut acc[..used], 0, j1, &xt, &wv, o, jb, j1)
+        } else {
+            block_rows_par(&mut acc[..used], j1, nb, nthreads, &xt, &wv, o, jb, j1)
+        };
+        match blk {
             Ok(()) => {
                 let mut i = 0usize;
                 while i < j1 && err.is_none() {
