@@ -16,3 +16,8 @@ pub mod gemm;
 /// The `f64` ↔ Q32.32 boundary shared by every caller of the primitives above: the range-checked
 /// rounding, the `wsyrk` panel shift and the power-of-two fill scale.
 pub mod q32;
+
+/// Top-`r` eigenpairs of a symmetric PSD Q32.32 matrix ([`eig::top_eigh`]) by block subspace
+/// iteration with a Rayleigh–Ritz acceleration and an integer Jacobi on the small block — the
+/// corrector's replacement for the full `eigh`.
+pub mod eig;
