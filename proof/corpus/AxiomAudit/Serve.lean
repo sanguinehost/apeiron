@@ -10,6 +10,7 @@ import Serve.Kern.R4.Lut3
 import Serve.Kern.R4.Matmat5
 import Serve.Kern.R4.Gemm5
 import Serve.Block.R4.Ffn5
+import Serve.Block.R4.Attn3
 import Serve.Kern.Lut
 import Serve.Kern.Matmat2
 import Serve.Kern.Matmat3
@@ -190,3 +191,7 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.word_matmat5_fast_family_loop0_eq
 #audit apeiron_word.word_matmat5_fast_family_loop1_eq
 #audit apeiron_word.word_matmat5_fast_family_eq
+#audit apeiron_word.attn3_weight_at_ok
+#audit apeiron_word.attn3_weight_at_recip_ok
+#audit apeiron_word.attn3_loop2_spec
+#audit apeiron_word.attn3_loop3_spec
