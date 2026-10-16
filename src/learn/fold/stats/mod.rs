@@ -11,3 +11,6 @@ pub mod heldout;
 pub mod hocapture;
 /// Analytic shrinkage intensities (Schäfer–Strimmer, Ledoit–Wolf) of the output-side Hessian sketch.
 pub mod lw;
+/// `f64` CPU forward of one `Qwen2` decoder layer, returning every intermediate the fold transfer
+/// reads.
+pub mod parts;
