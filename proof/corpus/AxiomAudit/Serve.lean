@@ -15,6 +15,9 @@ import Serve.Block.Attn
 import Serve.Block.Attn2
 import Serve.Block.Cols
 import Serve.Block.Cols2
+import Serve.Block.Cols3
+import Serve.Block.Ffn4
+import Serve.Engine.Step
 import Serve.Block.Ffn2
 import Serve.Block.Ffn
 import Serve.Block.Ffn3
@@ -125,3 +128,16 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.attn2_getD_set_val
 #audit apeiron_word.attn2_loop2_loop0_body_step
 #audit apeiron_word.attn2_loop2_loop0_spec
+#audit apeiron_word.word_mul_round_2p32_ok
+#audit apeiron_word.word_recip_est_ok
+#audit apeiron_word.word_mul_q32_ok
+#audit apeiron_word.word_gate_product_ok
+#audit apeiron_word.word_gate_product_refuses
+#audit apeiron_word.word_bytes_at_ok
+#audit apeiron_word.word_bytes_eq_ok
+#audit apeiron_word.word_any_vec_len_ne_ok
+#audit apeiron_word.cols3_from_elem_zeros
+#audit apeiron_word.cols3_group_cols_loop2_body_cont
+#audit apeiron_word.cols3_group_cols_loop2_body_done
+#audit apeiron_word.cols3_group_cols_loop2_spec
+#audit apeiron_word.word_group_cols_loop2_ok
