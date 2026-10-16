@@ -152,6 +152,73 @@ fn invert_column_blocks(
     Ok(())
 }
 
+/// Run [`invert_column_blocks`] over the `m = ⌈n/INV_BLOCK⌉` column blocks split across `nt ≥ 2`
+/// scoped workers, each owning a contiguous column range (a contiguous row range of the transposed
+/// buffer `ut`). The caller runs [`invert_column_blocks`] itself for one worker, so the serial
+/// arithmetic is not behind this thread boundary.
+///
+/// # Errors
+///
+/// The lowest-range worker's [`SolveError`]; a worker panic is reported as
+/// [`SolveError::Overflow`].
+///
+/// # Complexity
+///
+/// As [`inverse_upper_par`]'s parallel branch: `O(n³/6)` multiply-adds split across workers,
+/// `O(nt)` range descriptors.
+fn invert_columns_par(
+    v: &[i64],
+    n: usize,
+    ut: &mut [i64],
+    nt: usize,
+    m: usize,
+) -> Result<(), SolveError> {
+    let per = m / nt;
+    let rem = m % nt;
+    let mut ranges: Vec<(usize, usize)> = Vec::with_capacity(nt);
+    let mut start = 0usize;
+    for t in 0..nt {
+        let count = per + usize::from(t < rem);
+        ranges.push((start, start + count));
+        start += count;
+    }
+    let mut rest: &mut [i64] = ut;
+    let mut slices: Vec<(usize, usize, &mut [i64])> = Vec::with_capacity(nt);
+    for &(ja, jb) in &ranges {
+        let c0 = ja * INV_BLOCK;
+        let c1 = (jb * INV_BLOCK).min(n);
+        let (head, tail) = rest.split_at_mut((c1 - c0) * n);
+        slices.push((c0, c1, head));
+        rest = tail;
+    }
+    let mut first: Option<SolveError> = None;
+    std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(nt);
+        for (c0, c1, slice) in slices {
+            handles.push(scope.spawn(move || invert_column_blocks(v, n, slice, c0, c1)));
+        }
+        for h in handles {
+            match h.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    if first.is_none() {
+                        first = Some(e);
+                    }
+                }
+                Err(_) => {
+                    if first.is_none() {
+                        first = Some(SolveError::Overflow);
+                    }
+                }
+            }
+        }
+    });
+    if let Some(e) = first {
+        return Err(e);
+    }
+    Ok(())
+}
+
 /// `V̂⁻¹` of an upper-triangular `v` (row-major `[n, n]` Q32.32, positive diagonal), blocked over
 /// `INV_BLOCK` column blocks and distributed over `threads` scoped workers, each owning a
 /// contiguous range of column blocks. Every entry is written by exactly one worker with a fixed
@@ -181,49 +248,7 @@ fn inverse_upper_par(v: &[i64], n: usize, threads: usize) -> Result<Vec<i64>, So
     if nt <= 1 {
         invert_column_blocks(v, n, &mut ut, 0, n)?;
     } else {
-        let per = m / nt;
-        let rem = m % nt;
-        let mut ranges: Vec<(usize, usize)> = Vec::with_capacity(nt);
-        let mut start = 0usize;
-        for t in 0..nt {
-            let count = per + usize::from(t < rem);
-            ranges.push((start, start + count));
-            start += count;
-        }
-        let mut rest: &mut [i64] = &mut ut;
-        let mut slices: Vec<(usize, usize, &mut [i64])> = Vec::with_capacity(nt);
-        for &(ja, jb) in &ranges {
-            let c0 = ja * INV_BLOCK;
-            let c1 = (jb * INV_BLOCK).min(n);
-            let (head, tail) = rest.split_at_mut((c1 - c0) * n);
-            slices.push((c0, c1, head));
-            rest = tail;
-        }
-        let mut first: Option<SolveError> = None;
-        std::thread::scope(|scope| {
-            let mut handles = Vec::with_capacity(nt);
-            for (c0, c1, slice) in slices {
-                handles.push(scope.spawn(move || invert_column_blocks(v, n, slice, c0, c1)));
-            }
-            for h in handles {
-                match h.join() {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => {
-                        if first.is_none() {
-                            first = Some(e);
-                        }
-                    }
-                    Err(_) => {
-                        if first.is_none() {
-                            first = Some(SolveError::Overflow);
-                        }
-                    }
-                }
-            }
-        });
-        if let Some(e) = first {
-            return Err(e);
-        }
+        invert_columns_par(v, n, &mut ut, nt, m)?;
     }
     let mut u = vec![0i64; nn];
     for c in 0..n {
