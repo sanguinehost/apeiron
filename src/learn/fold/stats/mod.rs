@@ -7,5 +7,7 @@ pub mod budget;
 pub mod capture;
 /// Held-out KL, TV, top-1 and NLL of a student against a teacher on the ported model.
 pub mod heldout;
+/// Output-side Hessian sketch `HO = Σ w_t g_t g_tᵀ` from sampled-label gradients on the ported backward pass.
+pub mod hocapture;
 /// Analytic shrinkage intensities (Schäfer–Strimmer, Ledoit–Wolf) of the output-side Hessian sketch.
 pub mod lw;
