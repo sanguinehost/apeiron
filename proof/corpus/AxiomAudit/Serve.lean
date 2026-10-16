@@ -1,16 +1,20 @@
 import AxiomAudit.Remaining
 import Serve.Kern.Bitplane
+import Serve.Kern.Bitplane2
 import Serve.Kern.Gemm2
+import Serve.Kern.Gemm3
 import Serve.Kern.Gemm
 import Serve.Kern.Lut2
 import Serve.Kern.Lut
 import Serve.Kern.Matmat2
+import Serve.Kern.Matmat3
 import Serve.Kern.Matmat
 import Serve.Block.Attn
 import Serve.Block.Cols
 import Serve.Block.Ffn2
 import Serve.Block.Ffn
 import Serve.Block.Mixer
+import Serve.Block.Mixer2
 
 set_option linter.apeiron.notation false
 set_option linter.apeiron.citation false
@@ -63,3 +67,25 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.word_hist_q32_ok
 #audit apeiron_word.word_head_gates_q32_refuses
 #audit apeiron_word.word_gate_norm_q32_refuses
+#audit apeiron_word.bp2_I128_add_fail
+#audit apeiron_word.bp2_value_round_shift_32_fail
+#audit apeiron_word.bp2_round_logit_ok
+#audit apeiron_word.bp2_round_logit_refuses
+#audit apeiron_word.bp2_high_dot_portable_ok
+#audit apeiron_word.bp2_low_dot_portable_ok
+#audit apeiron_word.bp2_chunkreduce_default_ok
+#audit apeiron_word.word_matmat3_fast_bound_ok_loop_ok
+#audit apeiron_word.matmat3_fast_bound_ok_loop_body_spec
+#audit apeiron_word.mixer2_try_from_val
+#audit apeiron_word.mixer2_try_from_ok
+#audit apeiron_word.mixer2_try_from_refuse
+#audit apeiron_word.mixer2_tryfrom_bind_ok
+#audit apeiron_word.mixer2_round_shift_32_ok
+#audit apeiron_word.mixer2_mul_q32_val
+#audit apeiron_word.mixer2_mul_q32_ok
+#audit apeiron_word.gemm3_part_refused_spec
+#audit apeiron_word.gemm3_gemm_q8_0_group_loop0_spec
+#audit apeiron_word.gemm3_gemm_q8_0_group_loop1_spec
+#audit apeiron_word.gemm3_split_part_spec
+#audit apeiron_word.gemm3_gemm_q8_0_group_loop2_spec
+#audit apeiron_word.gemm3_pack_group_loop1_loop0_loop0_spec
