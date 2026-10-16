@@ -1,6 +1,6 @@
 diff --color -ruN a/Aeneas/Std/Core/Cmp.lean b/Aeneas/Std/Core/Cmp.lean
---- a/Aeneas/Std/Core/Cmp.lean	2026-10-06 08:40:00.000000000 +1100
-+++ b/Aeneas/Std/Core/Cmp.lean	2026-10-06 08:40:00.000000000 +1100
+--- a/Aeneas/Std/Core/Cmp.lean	2026-10-16 08:19:21.326607277 +1100
++++ b/Aeneas/Std/Core/Cmp.lean	2026-10-16 08:19:21.327607299 +1100
 @@ -152,10 +152,12 @@
      core.cmp.Ord.clamp_body partialOrdInst.le partialOrdInst.lt partialOrdInst.gt
  
@@ -18,8 +18,8 @@ diff --color -ruN a/Aeneas/Std/Core/Cmp.lean b/Aeneas/Std/Core/Cmp.lean
  def core.cmp.Ord.min.default {Self : Type} (lt : Self → Self → Result Bool)
    (x y : Self) : Result Self :=
 diff --color -ruN a/Aeneas/Std/Core/CoreOption.lean b/Aeneas/Std/Core/CoreOption.lean
---- a/Aeneas/Std/Core/CoreOption.lean	2026-10-06 08:40:00.000000000 +1100
-+++ b/Aeneas/Std/Core/CoreOption.lean	2026-10-06 08:40:00.000000000 +1100
+--- a/Aeneas/Std/Core/CoreOption.lean	2026-10-16 08:19:21.331607390 +1100
++++ b/Aeneas/Std/Core/CoreOption.lean	2026-10-16 08:19:21.332607412 +1100
 @@ -1,5 +1,7 @@
  import Aeneas.Std.Core.Core
  import Aeneas.Std.Core.Result
@@ -67,8 +67,8 @@ diff --color -ruN a/Aeneas/Std/Core/CoreOption.lean b/Aeneas/Std/Core/CoreOption
 +
  end Aeneas.Std
 diff --color -ruN a/Aeneas/Std/Core/CoreResult.lean b/Aeneas/Std/Core/CoreResult.lean
---- a/Aeneas/Std/Core/CoreResult.lean	2026-10-06 08:40:00.000000000 +1100
-+++ b/Aeneas/Std/Core/CoreResult.lean	2026-10-06 08:40:00.000000000 +1100
+--- a/Aeneas/Std/Core/CoreResult.lean	2026-10-16 08:19:21.338607548 +1100
++++ b/Aeneas/Std/Core/CoreResult.lean	2026-10-16 08:19:21.340607593 +1100
 @@ -32,4 +32,18 @@
      let mapped ← fnOnce.call_once f error
      ok (core.result.Result.Err mapped : core.result.Result T F)) := rfl
@@ -89,8 +89,8 @@ diff --color -ruN a/Aeneas/Std/Core/CoreResult.lean b/Aeneas/Std/Core/CoreResult
 +
  end Aeneas.Std
 diff --color -ruN a/Aeneas/Std/Core/Default.lean b/Aeneas/Std/Core/Default.lean
---- a/Aeneas/Std/Core/Default.lean	2026-10-06 08:40:00.000000000 +1100
-+++ b/Aeneas/Std/Core/Default.lean	2026-10-06 08:40:00.000000000 +1100
+--- a/Aeneas/Std/Core/Default.lean	2026-10-16 08:19:21.346607729 +1100
++++ b/Aeneas/Std/Core/Default.lean	2026-10-16 08:19:21.349607796 +1100
 @@ -9,4 +9,11 @@
  @[rust_fun "core::default::{core::default::Default<bool>}::default"]
  def core.default.DefaultBool.default : Result Bool := .ok false
@@ -104,8 +104,8 @@ diff --color -ruN a/Aeneas/Std/Core/Default.lean b/Aeneas/Std/Core/Default.lean
 +
  end Aeneas.Std
 diff --color -ruN a/Aeneas/Std/RawPtr.lean b/Aeneas/Std/RawPtr.lean
---- a/Aeneas/Std/RawPtr.lean	2026-10-06 08:40:00.000000000 +1100
-+++ b/Aeneas/Std/RawPtr.lean	2026-10-06 08:40:00.000000000 +1100
+--- a/Aeneas/Std/RawPtr.lean	2026-10-16 08:19:21.360608044 +1100
++++ b/Aeneas/Std/RawPtr.lean	2026-10-16 08:19:21.363608112 +1100
 @@ -1,13 +1,22 @@
  import Aeneas.Std.Scalar.Core
 +import Aeneas.Std.Scalar.Casts
@@ -315,8 +315,8 @@ diff --color -ruN a/Aeneas/Std/RawPtr.lean b/Aeneas/Std/RawPtr.lean
 +
  end Aeneas.Std
 diff --color -ruN a/Aeneas/Std/Scalar/Casts.lean b/Aeneas/Std/Scalar/Casts.lean
---- a/Aeneas/Std/Scalar/Casts.lean	2026-10-06 08:40:00.000000000 +1100
-+++ b/Aeneas/Std/Scalar/Casts.lean	2026-10-06 08:40:00.000000000 +1100
+--- a/Aeneas/Std/Scalar/Casts.lean	2026-10-16 08:19:21.373608338 +1100
++++ b/Aeneas/Std/Scalar/Casts.lean	2026-10-16 08:19:21.375608383 +1100
 @@ -6,6 +6,15 @@
  
  open Result Error Arith
@@ -356,9 +356,92 @@ diff --color -ruN a/Aeneas/Std/Scalar/Casts.lean b/Aeneas/Std/Scalar/Casts.lean
  /-!
  # Casts: Theorems
  -/
+diff --color -ruN a/Aeneas/Std/Scalar/CoreConvertNum.lean b/Aeneas/Std/Scalar/CoreConvertNum.lean
+--- a/Aeneas/Std/Scalar/CoreConvertNum.lean	2026-10-16 08:19:26.648727385 +1100
++++ b/Aeneas/Std/Scalar/CoreConvertNum.lean	2026-10-16 08:19:26.661868113 +1100
+@@ -837,6 +837,79 @@
+     exact hcast
+   · refine ⟨fun habsurd => by scalar_tac, fun _ => trivial⟩
+ 
++
++/-- MODEL: `usize::try_from(u64)`: `Ok` when the value fits, else `Err`. -/
++@[rust_fun
++  "core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<usize, u64, core::num::error::TryFromIntError>}::try_from"]
++def Usize.Insts.CoreConvertTryFromU64TryFromIntError.try_from (x : U64) :
++    Result (core.result.Result Usize core.num.error.TryFromIntError) :=
++  if x.val ≤ Usize.max then ok (.Ok ⟨ BitVec.ofNat _ x.val ⟩) else ok (.Err ())
++
++@[rust_fun
++  "core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<u64, usize, core::num::error::TryFromIntError>}::try_from"]
++def U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from (x : Usize) :
++    Result (core.result.Result U64 core.num.error.TryFromIntError) :=
++  if x.val ≤ U64.max then ok (.Ok ⟨ BitVec.ofNat _ x.val ⟩) else ok (.Err ())
++
++@[rust_fun
++  "core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<usize, u32, core::num::error::TryFromIntError>}::try_from"]
++def Usize.Insts.CoreConvertTryFromU32TryFromIntError.try_from (x : U32) :
++    Result (core.result.Result Usize core.num.error.TryFromIntError) :=
++  if x.val ≤ Usize.max then ok (.Ok ⟨ BitVec.ofNat _ x.val ⟩) else ok (.Err ())
++
++@[rust_fun
++  "core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<usize, i64, core::num::error::TryFromIntError>}::try_from"]
++def Usize.Insts.CoreConvertTryFromI64TryFromIntError.try_from (x : I64) :
++    Result (core.result.Result Usize core.num.error.TryFromIntError) :=
++  if 0 ≤ x.val ∧ x.val ≤ (Usize.max : Int) then ok (.Ok ⟨ BitVec.ofNat _ x.val.toNat ⟩)
++  else ok (.Err ())
++
++@[rust_fun
++  "core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<i64, usize, core::num::error::TryFromIntError>}::try_from"]
++def I64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from (x : Usize) :
++    Result (core.result.Result I64 core.num.error.TryFromIntError) :=
++  if (x.val : Int) ≤ I64.max then ok (.Ok ⟨ BitVec.ofNat _ x.val ⟩) else ok (.Err ())
++
++@[rust_fun
++  "core::convert::num::{core::convert::TryFrom<u32, i64, core::num::error::TryFromIntError>}::try_from"]
++def U32.Insts.CoreConvertTryFromI64TryFromIntError.try_from (x : I64) :
++    Result (core.result.Result U32 core.num.error.TryFromIntError) :=
++  if 0 ≤ x.val ∧ x.val ≤ (U32.max : Int) then ok (.Ok ⟨ BitVec.ofNat _ x.val.toNat ⟩)
++  else ok (.Err ())
++
++@[rust_fun
++  "core::convert::num::{core::convert::TryFrom<i64, i128, core::num::error::TryFromIntError>}::try_from"]
++def I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from (x : I128) :
++    Result (core.result.Result I64 core.num.error.TryFromIntError) :=
++  if I64.min ≤ x.val ∧ x.val ≤ I64.max then ok (.Ok ⟨ BitVec.ofInt 64 x.val ⟩)
++  else ok (.Err ())
++
++/-- MODEL: `i128::saturating_mul`, the product clamped to `[i128::MIN, i128::MAX]`. -/
++@[rust_fun "core::num::{i128}::saturating_mul"]
++def core.num.I128.saturating_mul (x y : I128) : Result I128 :=
++  ok ⟨ BitVec.ofInt 128 (max I128.min (min I128.max (x.val * y.val))) ⟩
++
++/-- MODEL: `u64::saturating_mul`. -/
++@[rust_fun "core::num::{u64}::saturating_mul"]
++def core.num.U64.saturating_mul (x y : U64) : Result U64 :=
++  ok ⟨ BitVec.ofNat _ (min (x.val * y.val) U64.max) ⟩
++
++/-- MODEL: `i128::abs`. `i128::MIN` overflows: Rust panics in a debug build, wraps in release; the
++model fails (`integerOverflow`), so a proof that it never fails covers both. -/
++@[rust_fun "core::num::{i128}::abs"]
++def core.num.I128.abs (x : I128) : Result I128 :=
++  if x.val = I128.min then fail .integerOverflow else ok ⟨ BitVec.ofInt 128 x.val.natAbs ⟩
++
++/-- MODEL: `i8::from_ne_bytes`, the two's-complement reinterpretation of the one byte. -/
++@[rust_fun "core::num::{i8}::from_ne_bytes"]
++def core.num.I8.from_ne_bytes (a : Array U8 1#usize) : Result I8 :=
++  ok ⟨ (a.val.headD ⟨ BitVec.ofNat 8 0 ⟩).bv ⟩
++
++theorem core.num.I8.from_ne_bytes_val (a : Array U8 1#usize) (b : U8) (h : a.val = [b]) :
++    core.num.I8.from_ne_bytes a = ok ⟨ b.bv ⟩ := by
++  simp [core.num.I8.from_ne_bytes, h]
++
++
+ end Std
+ 
+ end Aeneas
 diff --color -ruN a/Aeneas/Std/Scalar/Ops.lean b/Aeneas/Std/Scalar/Ops.lean
---- a/Aeneas/Std/Scalar/Ops.lean	2026-10-06 08:40:00.000000000 +1100
-+++ b/Aeneas/Std/Scalar/Ops.lean	2026-10-06 08:40:00.000000000 +1100
+--- a/Aeneas/Std/Scalar/Ops.lean	2026-10-16 08:19:21.385608608 +1100
++++ b/Aeneas/Std/Scalar/Ops.lean	2026-10-16 08:19:21.388608676 +1100
 @@ -4,3 +4,58 @@
  import Aeneas.Std.Scalar.Ops.Neg
  import Aeneas.Std.Scalar.Ops.Rem
@@ -419,8 +502,8 @@ diff --color -ruN a/Aeneas/Std/Scalar/Ops.lean b/Aeneas/Std/Scalar/Ops.lean
 +
 +end Aeneas.Std
 diff --color -ruN a/Aeneas/Std/Scalar/WrappingOps/Shl.lean b/Aeneas/Std/Scalar/WrappingOps/Shl.lean
---- a/Aeneas/Std/Scalar/WrappingOps/Shl.lean	2026-10-06 08:40:00.000000000 +1100
-+++ b/Aeneas/Std/Scalar/WrappingOps/Shl.lean	2026-10-06 08:40:00.000000000 +1100
+--- a/Aeneas/Std/Scalar/WrappingOps/Shl.lean	2026-10-16 08:19:21.398608902 +1100
++++ b/Aeneas/Std/Scalar/WrappingOps/Shl.lean	2026-10-16 08:19:21.401608969 +1100
 @@ -17,6 +17,13 @@
  def IScalar.wrapping_shl {ty} (x : IScalar ty) (s : U32) : IScalar ty :=
    ⟨ x.bv.shiftLeft (s.val % ty.numBits) ⟩
@@ -436,8 +519,8 @@ diff --color -ruN a/Aeneas/Std/Scalar/WrappingOps/Shl.lean b/Aeneas/Std/Scalar/W
  def «%S».wrapping_shl (x : «%S») (s : U32) : «%S» := @UScalar.wrapping_shl UScalarTy.«%S» x s
  
 diff --color -ruN a/Aeneas/Std/Slice.lean b/Aeneas/Std/Slice.lean
---- a/Aeneas/Std/Slice.lean	2026-10-06 08:40:00.000000000 +1100
-+++ b/Aeneas/Std/Slice.lean	2026-10-06 08:40:00.000000000 +1100
+--- a/Aeneas/Std/Slice.lean	2026-10-16 08:19:21.410609173 +1100
++++ b/Aeneas/Std/Slice.lean	2026-10-16 08:19:21.413609240 +1100
 @@ -353,12 +353,31 @@
    (s : Slice T) (i : I) : Result (Option Output) :=
    inst.get i s
@@ -474,8 +557,8 @@ diff --color -ruN a/Aeneas/Std/Slice.lean b/Aeneas/Std/Slice.lean
  @[rust_fun "core::slice::{[@T]}::get_mut"]
  def core.slice.Slice.get_mut
 diff --color -ruN a/Aeneas/Std/String.lean b/Aeneas/Std/String.lean
---- a/Aeneas/Std/String.lean	2026-10-06 08:40:00.000000000 +1100
-+++ b/Aeneas/Std/String.lean	2026-10-06 08:40:00.000000000 +1100
+--- a/Aeneas/Std/String.lean	2026-10-16 08:19:21.423609466 +1100
++++ b/Aeneas/Std/String.lean	2026-10-16 08:19:21.426609534 +1100
 @@ -24,8 +24,10 @@
    rw [loop_length 0 [] (Nat.zero_le _)]
    simp
@@ -490,8 +573,8 @@ diff --color -ruN a/Aeneas/Std/String.lean b/Aeneas/Std/String.lean
      (fun x => ⟨ x.toNat, by cases x; simp only [UInt8.toNat_ofBitVec, UScalarTy.U8_numBits_eq, Nat.reducePow]; omega  ⟩))
      (by
 diff --color -ruN a/Aeneas/Std/Vec.lean b/Aeneas/Std/Vec.lean
---- a/Aeneas/Std/Vec.lean	2026-10-06 08:40:00.000000000 +1100
-+++ b/Aeneas/Std/Vec.lean	2026-10-06 08:40:00.000000000 +1100
+--- a/Aeneas/Std/Vec.lean	2026-10-16 08:19:21.435609737 +1100
++++ b/Aeneas/Std/Vec.lean	2026-10-16 08:19:21.438609804 +1100
 @@ -17,6 +17,13 @@
  local macro_rules
  | `(tactic| get_elem_tactic) => `(tactic| grind)

@@ -216,82 +216,12 @@ axiom I64.Insts.CoreConvertFromU32.from : Std.U32 → Result Std.I64
 @[rust_fun "core::convert::num::{core::convert::From<i16, u8>}::from"]
 axiom I16.Insts.CoreConvertFromU8.from : Std.U8 → Result Std.I16
 
-/-- [core::convert::num::ptr_try_from_impls::{impl core::convert::TryFrom<u64, core::num::error::TryFromIntError> for usize}::try_from]:
-    Source: '/rustc/library/core/src/convert/num.rs', lines 260:12-260:68
-    Name pattern: [core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<usize, u64, core::num::error::TryFromIntError>}::try_from]
-    Visibility: public -/
-@[rust_fun
-  "core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<usize, u64, core::num::error::TryFromIntError>}::try_from"]
-axiom Usize.Insts.CoreConvertTryFromU64TryFromIntError.try_from
-  :
-  Std.U64 → Result (core.result.Result Std.Usize
-    core.num.error.TryFromIntError)
 
-/-- [core::convert::num::ptr_try_from_impls::{impl core::convert::TryFrom<usize, core::num::error::TryFromIntError> for u64}::try_from]:
-    Source: '/rustc/library/core/src/convert/num.rs', lines 260:12-260:68
-    Name pattern: [core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<u64, usize, core::num::error::TryFromIntError>}::try_from]
-    Visibility: public -/
-@[rust_fun
-  "core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<u64, usize, core::num::error::TryFromIntError>}::try_from"]
-axiom U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from
-  :
-  Std.Usize → Result (core.result.Result Std.U64
-    core.num.error.TryFromIntError)
 
-/-- [core::convert::num::ptr_try_from_impls::{impl core::convert::TryFrom<u32, core::num::error::TryFromIntError> for usize}::try_from]:
-    Source: '/rustc/library/core/src/convert/num.rs', lines 260:12-260:68
-    Name pattern: [core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<usize, u32, core::num::error::TryFromIntError>}::try_from]
-    Visibility: public -/
-@[rust_fun
-  "core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<usize, u32, core::num::error::TryFromIntError>}::try_from"]
-axiom Usize.Insts.CoreConvertTryFromU32TryFromIntError.try_from
-  :
-  Std.U32 → Result (core.result.Result Std.Usize
-    core.num.error.TryFromIntError)
 
-/-- [core::convert::num::ptr_try_from_impls::{impl core::convert::TryFrom<i64, core::num::error::TryFromIntError> for usize}::try_from]:
-    Source: '/rustc/library/core/src/convert/num.rs', lines 279:12-279:64
-    Name pattern: [core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<usize, i64, core::num::error::TryFromIntError>}::try_from]
-    Visibility: public -/
-@[rust_fun
-  "core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<usize, i64, core::num::error::TryFromIntError>}::try_from"]
-axiom Usize.Insts.CoreConvertTryFromI64TryFromIntError.try_from
-  :
-  Std.I64 → Result (core.result.Result Std.Usize
-    core.num.error.TryFromIntError)
 
-/-- [core::convert::num::ptr_try_from_impls::{impl core::convert::TryFrom<usize, core::num::error::TryFromIntError> for i64}::try_from]:
-    Source: '/rustc/library/core/src/convert/num.rs', lines 302:12-302:64
-    Name pattern: [core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<i64, usize, core::num::error::TryFromIntError>}::try_from]
-    Visibility: public -/
-@[rust_fun
-  "core::convert::num::ptr_try_from_impls::{core::convert::TryFrom<i64, usize, core::num::error::TryFromIntError>}::try_from"]
-axiom I64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from
-  :
-  Std.Usize → Result (core.result.Result Std.I64
-    core.num.error.TryFromIntError)
 
-/-- [core::convert::num::{impl core::convert::TryFrom<i64, core::num::error::TryFromIntError> for u32}::try_from]:
-    Source: '/rustc/library/core/src/convert/num.rs', lines 325:12-325:64
-    Name pattern: [core::convert::num::{core::convert::TryFrom<u32, i64, core::num::error::TryFromIntError>}::try_from]
-    Visibility: public -/
-@[rust_fun
-  "core::convert::num::{core::convert::TryFrom<u32, i64, core::num::error::TryFromIntError>}::try_from"]
-axiom U32.Insts.CoreConvertTryFromI64TryFromIntError.try_from
-  :
-  Std.I64 → Result (core.result.Result Std.U32
-    core.num.error.TryFromIntError)
 
-/-- [core::convert::num::{impl core::convert::TryFrom<i128, core::num::error::TryFromIntError> for i64}::try_from]:
-    Source: '/rustc/library/core/src/convert/num.rs', lines 325:12-325:64
-    Name pattern: [core::convert::num::{core::convert::TryFrom<i64, i128, core::num::error::TryFromIntError>}::try_from]
-    Visibility: public -/
-@[rust_fun
-  "core::convert::num::{core::convert::TryFrom<i64, i128, core::num::error::TryFromIntError>}::try_from"]
-axiom I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from
-  :
-  Std.I128 → Result (core.result.Result Std.I64
-    core.num.error.TryFromIntError)
 
 /-- [core::fmt::{impl core::fmt::Display for &'_0 T}::fmt]:
     Source: '/rustc/library/core/src/fmt/mod.rs', lines 2887:12-2887:58
@@ -415,12 +345,6 @@ axiom core.num.I64.count_ones : Std.I64 → Result Std.U32
 axiom core.num.I64.trailing_zeros : Std.I64 → Result Std.U32
 
 
-/-- [core::num::{i128}::saturating_mul]:
-    Source: '/rustc/library/core/src/num/int_macros.rs', lines 2112:8-2112:60
-    Name pattern: [core::num::{i128}::saturating_mul]
-    Visibility: public -/
-@[rust_fun "core::num::{i128}::saturating_mul"]
-axiom core.num.I128.saturating_mul : Std.I128 → Std.I128 → Result Std.I128
 
 /-- [core::num::{i64}::unsigned_abs]:
     Source: '/rustc/library/core/src/num/int_macros.rs', lines 2509:8-2509:53
@@ -429,12 +353,6 @@ axiom core.num.I128.saturating_mul : Std.I128 → Std.I128 → Result Std.I128
 @[rust_fun "core::num::{i64}::unsigned_abs"]
 axiom core.num.I64.unsigned_abs : Std.I64 → Result Std.U64
 
-/-- [core::num::{i128}::abs]:
-    Source: '/rustc/library/core/src/num/int_macros.rs', lines 3630:8-3630:38
-    Name pattern: [core::num::{i128}::abs]
-    Visibility: public -/
-@[rust_fun "core::num::{i128}::abs"]
-axiom core.num.I128.abs : Std.I128 → Result Std.I128
 
 /-- [core::num::{i64}::abs]:
     Source: '/rustc/library/core/src/num/int_macros.rs', lines 3630:8-3630:38
@@ -443,12 +361,6 @@ axiom core.num.I128.abs : Std.I128 → Result Std.I128
 @[rust_fun "core::num::{i64}::abs"]
 axiom core.num.I64.abs : Std.I64 → Result Std.I64
 
-/-- [core::num::{i8}::from_ne_bytes]:
-    Source: '/rustc/library/core/src/num/int_macros.rs', lines 3914:8-3914:74
-    Name pattern: [core::num::{i8}::from_ne_bytes]
-    Visibility: public -/
-@[rust_fun "core::num::{i8}::from_ne_bytes"]
-axiom core.num.I8.from_ne_bytes : Array Std.U8 1#usize → Result Std.I8
 
 
 
@@ -461,12 +373,6 @@ axiom core.num.U64.trailing_zeros : Std.U64 → Result Std.U32
 
 
 
-/-- [core::num::{u64}::saturating_mul]:
-    Source: '/rustc/library/core/src/num/uint_macros.rs', lines 2584:8-2584:60
-    Name pattern: [core::num::{u64}::saturating_mul]
-    Visibility: public -/
-@[rust_fun "core::num::{u64}::saturating_mul"]
-axiom core.num.U64.saturating_mul : Std.U64 → Std.U64 → Result Std.U64
 
 
 /-- [core::num::{u64}::div_ceil]:

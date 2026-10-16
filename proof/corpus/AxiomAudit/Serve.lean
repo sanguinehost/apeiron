@@ -1,0 +1,65 @@
+import AxiomAudit.Remaining
+import Serve.Kern.Bitplane
+import Serve.Kern.Gemm2
+import Serve.Kern.Gemm
+import Serve.Kern.Lut2
+import Serve.Kern.Lut
+import Serve.Kern.Matmat2
+import Serve.Kern.Matmat
+import Serve.Block.Attn
+import Serve.Block.Cols
+import Serve.Block.Ffn2
+import Serve.Block.Ffn
+import Serve.Block.Mixer
+
+set_option linter.apeiron.notation false
+set_option linter.apeiron.citation false
+
+-- SERVE-REFINE: refinement theorems of the extracted serving kernels and blocks (closed cone only;
+-- headlines that reach an AVX2, String::from, fp.prim or exact_scan boundary are not audited here).
+#audit apeiron_word.word_HALF_eq
+#audit apeiron_word.word_STAGE1_BLOCK_BYTES_eq
+#audit apeiron_word.word_STAGE2_BLOCK_BYTES_eq
+#audit apeiron_word.word_decode_f16_ok
+#audit apeiron_word.word_block_ok
+#audit apeiron_word.word_empty_columns_ok
+#audit apeiron_word.word_split_part_ok
+#audit apeiron_word.word_part_row_starts_ok
+#audit apeiron_word.word_part_row_starts_refuses
+#audit apeiron_word.word_task_rows_ok
+#audit apeiron_word.word_spread_limit_ok
+#audit apeiron_word.word_part_refused_ok
+#audit apeiron_word.word_build_tables_range_loop0_ok
+#audit apeiron_word.word_split_nibbles_ok
+#audit apeiron_word.word_build_tables_range_loop0_loop1_ok
+#audit apeiron_word.word_build_tables_range_loop0_loop0_ok
+#audit apeiron_word.word_portable_u8_i8_dot_loop_ok
+#audit apeiron_word.word_portable_u8_i8_dot_ok
+#audit apeiron_word.word_q8_0_block_kdots_portable_loop_ok
+#audit apeiron_word.word_q8_0_block_kdots_portable_ok
+#audit apeiron_word.word_q5_0_block_kdots_portable_loop_ok
+#audit apeiron_word.word_q5_0_block_kdots_portable_ok
+#audit apeiron_word.word_portable_u8_i8_dot_refuses
+#audit apeiron_word.word_q8_0_block_kdots_portable_refuses
+#audit apeiron_word.word_q5_0_block_kdots_portable_refuses
+#audit apeiron_word.word_portable_q5_0_dot_loop_ok
+#audit apeiron_word.word_portable_q5_0_dot_ok
+#audit apeiron_word.word_portable_q5_0_dot_refuses
+#audit apeiron_word.word_attn_head_ok_domain_witness
+#audit apeiron_word.word_act_quot_rem_pow2
+#audit apeiron_word.word_act_quot_rem_div
+#audit apeiron_word.word_act_quot_rem_ok
+#audit apeiron_word.word_proj_split_chart_ok
+#audit apeiron_word.word_proj_split_delegate
+#audit apeiron_word.word_proj_split_rows_ok
+#audit apeiron_word.word_swiglu_one_round
+#audit apeiron_word.word_swiglu_one_ok
+#audit apeiron_word.word_swiglu_one_silu_err
+#audit apeiron_word.word_swiglu_one_mul_err
+#audit apeiron_word.word_copy_i64_at_ok
+#audit apeiron_word.word_copy_i8_at_ok
+#audit apeiron_word.word_copy_i64_at_length
+#audit apeiron_word.word_copy_i8_at_length
+#audit apeiron_word.word_hist_q32_ok
+#audit apeiron_word.word_head_gates_q32_refuses
+#audit apeiron_word.word_gate_norm_q32_refuses
