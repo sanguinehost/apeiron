@@ -737,3 +737,27 @@ Q2 result, `refuted`. `examples/qarch_q2.rs` (removed; at 2f15d6a9) (964 lines, 
 Lean tasks, in order: L5 (one theorem, decides the shift-rule unification), L6 (the Q1 objective), L4, L2, L1, L3,
 L7, L8, L9, L10. Each lands with a changed-constant control red and the real file green, audited in `AxiomAudit.lean`.
 Board row `quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs`.
+
+### Exact amplitude form of KL (Lean); the Q1 ratio is a leading-order deficit
+
+Board row `quantum-register-learned-LD7oW6M8EVQgAkWyMtEOs`. Module
+`proof/corpus/Numeric/Quantum/Ledger/AmplitudeKLExact.lean` (sha256 `b692195b…`), audited in `AxiomAudit/Remaining.lean`
+(controls: dropping the factor 2 in `h` breaks `h_deriv`, exit 1). For positive normalised `p`, `q` and
+`u_i = √q_i/√p_i − 1`:
+
+- `kl_eq_amp_sq_add_h`: `KL p q = 2·‖√q − √p‖² + Σ p_i·h(u_i)`, `h(u) = 2u − u² − 2·ln(1+u)` (all orders, no expansion);
+- `h_deriv`, `h_antitone`: `h′(u) = −2u²/(1+u)`, `h` is antitone on `(−1, ∞)`; `h ≥ 0` on `(−1, 0]`, `h ≤ 0` on `[0, ∞)`;
+- `kl_le_two_amp_sq_of_u_nonneg`, `kl_ge_two_amp_sq_of_u_nonpos`: the one-sided corollaries.
+
+Grade `proved` (closed cone). Reading (`model`): the second-order amplitude predictor of Q1 is `2‖δψ‖²`; a measured/predicted
+ratio below 1 on a layer needs error mass at `u > 0`, above 1 needs it at `u < 0`. The `all_24` ratio in
+`docs/evidence/receipts/onebit/qarch-q1.json` is 0.453, 0.459, 0.461, 0.437 at α = 1/8, 1/4, 1/2, 1, flat over an 8× range
+in α; a degree-t correction moves it as α^(t−2), so the deficit sits at leading order. Layers L0, L2, L3, L21, L23 carry 0.407 of
+the 0.482 nats isolated KL sum; the other 19 predict to 0.997–1.029. Lineage search (`rg` over `../sanguine-ref`): the
+Cayley–Dickson results (`Sedenion.through_the_one`, `offmonad_path_unbounded`, `Hurwitz.hurwitz_cap`) are algebra with no
+link to a network or to KL; the K = 4 = ℍ link to the KL stencil is prose (`QuantumClassicalIsomorphism.lean:19`). The K of
+`Perf/Guided.lean` (sampled Fisher targets) and of `BranchLaplacian.lean` (branch count k ≥ d+1) are different objects.
+
+Open (not run): restore `examples/qarch_q1.rs` from `2f15d6a9`, arms α ∈ {1/64, 1/32, 1/16}, 3 windows, extra column
+`−2·Σ p·ln(1+Σ_l u_l)`. Support: `r_all(1/64) ∈ [0.85, 1.15]` with `|1 − r|` shrinking toward 1/64. Refutation:
+`r_all(1/64) ≤ 0.60`. Needs a PREDICTION id, a `--time` projection under 600 s and a quiet host.

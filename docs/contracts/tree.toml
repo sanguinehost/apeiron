@@ -968,7 +968,6 @@ orphan_debt = [
     "proof/corpus/Numeric/Quantum/BranchLaplacian.lean",
     "proof/corpus/Numeric/Quantum/BranchMadelung.lean",
     "proof/corpus/Numeric/Quantum/BranchQuantization.lean",
-    "proof/corpus/Numeric/Quantum/Ledger/AmplitudeKL.lean",
     "proof/corpus/Numeric/Quantum/Ledger/CellClifford.lean",
     "proof/corpus/Numeric/Quantum/Ledger/DeltaEnds.lean",
     "proof/corpus/Numeric/Quantum/Ledger/DesignLadder.lean",
