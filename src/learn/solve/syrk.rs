@@ -35,7 +35,9 @@
 )]
 
 /// Raw Q32.32 magnitude bound exponent: every `x` and `w` entry satisfies `|v| < 2³⁶`.
-const BOUND_BITS: u32 = 36;
+///
+/// Shared with [`crate::learn::solve::gemm`], which derives its contraction bound `MAX_K` from it.
+pub(super) const BOUND_BITS: u32 = 36;
 /// The largest accepted `o`: `o < 2¹⁸` keeps `o · 2^{3·BOUND_BITS}` inside `i128`.
 const MAX_O: usize = 1 << 18;
 /// The unit weight in raw Q32.32 (`1.0`), the value used when `w` is `None`.
@@ -60,8 +62,9 @@ pub enum SyrkError {
 }
 
 /// `(v + 2³¹) >> 32` — round-to-nearest of an `i128` Q64.64 product to Q32.32, or `None` when the
-/// rounding add leaves `i128`.
-fn round32(v: i128) -> Option<i128> {
+/// rounding add leaves `i128`. Shared with [`crate::learn::solve::gemm`], whose single rounding is
+/// the same rule.
+pub(super) fn round32(v: i128) -> Option<i128> {
     v.checked_add(1_i128 << 31).map(|s| s >> 32)
 }
 
@@ -71,8 +74,9 @@ fn round64(v: i128) -> Option<i128> {
     v.checked_add(1_i128 << 63).map(|s| s >> 64)
 }
 
-/// `v` as `i64`, or `None` when it is outside `i64`.
-fn narrow(v: i128) -> Option<i64> {
+/// `v` as `i64`, or `None` when it is outside `i64`. Shared with
+/// [`crate::learn::solve::gemm`].
+pub(super) fn narrow(v: i128) -> Option<i64> {
     if v > i128::from(i64::MAX) || v < i128::from(i64::MIN) {
         None
     } else {
@@ -83,9 +87,13 @@ fn narrow(v: i128) -> Option<i64> {
 /// `true` iff every `x` entry, and every `w` entry when present, is below the magnitude bound
 /// `2^k`. `unsigned_abs` is total, so `i64::MIN` is refused rather than wrapping.
 ///
+/// Shared with [`crate::learn::solve::gemm`], which calls it as `within_bound(a, Some(b))` on its
+/// two operands — the `w` slot carries the second panel and the predicate is then "both panels are
+/// below the bound".
+///
 /// # Complexity
 /// `O(o·n)` comparisons, `O(1)` extra space.
-fn within_bound(x: &[i64], w: Option<&[i64]>) -> bool {
+pub(super) fn within_bound(x: &[i64], w: Option<&[i64]>) -> bool {
     let limit = 1_u64 << BOUND_BITS;
     if !x.iter().all(|&v| v.unsigned_abs() < limit) {
         return false;
