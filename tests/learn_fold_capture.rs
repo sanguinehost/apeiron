@@ -1,0 +1,387 @@
+//! Integration tests for the calibration activation-Gram capture (`src/learn/fold/capture.rs`).
+//!
+//! Grade: `tested`. The positive assertions compare the accumulated Gram against an independent
+//! `Σ_t x_t x_tᵀ` computed in the test, check symmetry, positive semi-definiteness (`Cholesky` of
+//! `H + εI`), additivity over token blocks (two tapes equal one concatenated tape), the token
+//! counter, the shape refusals, and that a `forward` tape on a tiny synthetic model has the expected
+//! dimensions.
+
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_wrap,
+    clippy::similar_names,
+    clippy::many_single_char_names,
+    clippy::too_many_lines,
+    clippy::float_cmp,
+    reason = "test-only arithmetic on a small deterministic Q32.32 fixture and its f64 Gram; the \
+              single-letter names are the geometry's symbols and the float comparisons assert the \
+              exact mirror and the exact f64 division the accumulator performs"
+)]
+
+use apeiron::learn::fold::capture::{CaptureError, Grams, LayerGrams, Normalisation};
+use apeiron::learn::grad::model::{forward, Config, LayerTape, LayerWeights, Tape, Weights};
+use apeiron::learn::ridge::cholesky;
+
+/// Residual width.
+const E: usize = 4;
+/// Query heads.
+const NH: usize = 2;
+/// Per-head width.
+const HD: usize = 2;
+/// `q_out`, chosen equal to `E` so a swapped Gram matrix keeps the same shape.
+const QW: usize = NH * HD;
+/// KV heads.
+const NKV: usize = 1;
+/// `kv_out`.
+const KVW: usize = NKV * HD;
+/// Feed-forward width.
+const FF: usize = 3;
+/// Vocabulary.
+const V: usize = 8;
+/// Trunk layers.
+const L: usize = 2;
+/// `ONE` in Q32.32.
+const ONE: i64 = 65_536;
+
+/// The tiny geometry every test uses.
+fn cfg() -> Config {
+    Config {
+        n_layer: L,
+        n_head: NH,
+        n_head_kv: NKV,
+        n_embd: E,
+        n_ff: FF,
+        vocab: V,
+        head_dim: HD,
+        eps: 42_950,
+        rope_theta: 10_000.0,
+    }
+}
+
+/// Deterministic Q32.32 values in `[-3, 3]` from a fixed `LCG`, so the fixture is reproducible.
+fn lcg(state: &mut u64) -> i64 {
+    *state = state
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1_442_695_040_888_963_407);
+    let v = (*state >> 33) % 7;
+    v as i64 - 3
+}
+
+/// `n` deterministic Q32.32 weights.
+fn buf(n: usize, state: &mut u64) -> Vec<i64> {
+    (0..n).map(|_| lcg(state) * ONE).collect()
+}
+
+/// A `LayerTape` carrying only the four buffers the capture reads.
+fn layer_from(ln1_out: Vec<i64>, attn_out: Vec<i64>, ln2_out: Vec<i64>, m: Vec<i64>) -> LayerTape {
+    LayerTape {
+        ln1_in: Vec::new(),
+        ln1_out,
+        q: Vec::new(),
+        k: Vec::new(),
+        v: Vec::new(),
+        p: Vec::new(),
+        attn_out,
+        h2: Vec::new(),
+        ln2_out,
+        gate: Vec::new(),
+        up: Vec::new(),
+        m,
+    }
+}
+
+/// A `Tape` carrying only the layers and the token count.
+fn tape_from(t: usize, layers: Vec<LayerTape>) -> Tape {
+    Tape {
+        t,
+        tokens: Vec::new(),
+        layers,
+        final_hidden: Vec::new(),
+        final_normed: Vec::new(),
+    }
+}
+
+/// One `t`-token layer of deterministic Q32.32 inputs.
+fn one_layer(state: &mut u64, t: usize) -> LayerTape {
+    layer_from(
+        buf(t * E, state),
+        buf(t * QW, state),
+        buf(t * E, state),
+        buf(t * FF, state),
+    )
+}
+
+/// A two-layer `t`-token tape.
+fn two_layer_tape(state: &mut u64, t: usize) -> Tape {
+    tape_from(t, (0..L).map(|_| one_layer(state, t)).collect())
+}
+
+/// Rows `r0..r1` of a row-major `[_, w]` buffer.
+fn slice_rows(x: &[i64], w: usize, r0: usize, r1: usize) -> Vec<i64> {
+    let mut out = Vec::with_capacity((r1 - r0) * w);
+    for r in r0..r1 {
+        out.extend_from_slice(&x[r * w..r * w + w]);
+    }
+    out
+}
+
+/// Rows `r0..r1` of every capture buffer of `lt`.
+fn slice_layer(lt: &LayerTape, r0: usize, r1: usize) -> LayerTape {
+    layer_from(
+        slice_rows(&lt.ln1_out, E, r0, r1),
+        slice_rows(&lt.attn_out, QW, r0, r1),
+        slice_rows(&lt.ln2_out, E, r0, r1),
+        slice_rows(&lt.m, FF, r0, r1),
+    )
+}
+
+/// The independent `Σ_t x_t x_tᵀ` over a row-major Q32.32 `t × w` buffer, token-outermost order.
+fn naive_gram(x: &[i64], t: usize, w: usize) -> Vec<f64> {
+    let mut g = vec![0.0f64; w * w];
+    for i in 0..w {
+        for j in 0..w {
+            let mut s = 0.0f64;
+            for r in 0..t {
+                let a = x[r * w + i] as f64 / 4_294_967_296.0;
+                let b = x[r * w + j] as f64 / 4_294_967_296.0;
+                s += a * b;
+            }
+            g[i * w + j] = s;
+        }
+    }
+    g
+}
+
+/// Element-wise closeness of two equal-length f64 buffers.
+fn close(a: &[f64], b: &[f64], tol: f64) {
+    assert_eq!(a.len(), b.len(), "length {} != {}", a.len(), b.len());
+    for (i, (x, y)) in a.iter().zip(b).enumerate() {
+        assert!((x - y).abs() <= tol, "index {i}: {x} != {y} (tol {tol})");
+    }
+}
+
+/// All four Grams of two finished layer lists are equal.
+fn layers_close(a: &[LayerGrams], b: &[LayerGrams], tol: f64) {
+    assert_eq!(a.len(), b.len());
+    for (x, y) in a.iter().zip(b) {
+        close(&x.qkv, &y.qkv, tol);
+        close(&x.o, &y.o, tol);
+        close(&x.gate_up, &y.gate_up, tol);
+        close(&x.down, &y.down, tol);
+        assert_eq!(x.tokens, y.tokens);
+    }
+}
+
+#[test]
+fn gram_equals_independent_xtx() {
+    let c = cfg();
+    let mut s = 11u64;
+    let tape = two_layer_tape(&mut s, 3);
+    let mut g = Grams::new(&c).unwrap();
+    g.accumulate(&tape, &c).unwrap();
+    let fin = g.finish(Normalisation::Sum).unwrap();
+    assert_eq!(fin.len(), L);
+    for (fl, lt) in fin.iter().zip(&tape.layers) {
+        close(&fl.qkv, &naive_gram(&lt.ln1_out, 3, E), 1e-12);
+        close(&fl.o, &naive_gram(&lt.attn_out, 3, QW), 1e-12);
+        close(&fl.gate_up, &naive_gram(&lt.ln2_out, 3, E), 1e-12);
+        close(&fl.down, &naive_gram(&lt.m, 3, FF), 1e-12);
+        assert_eq!(fl.tokens, 3);
+    }
+}
+
+#[test]
+fn gram_is_symmetric_and_psd() {
+    let c = cfg();
+    let mut s = 23u64;
+    let tape = two_layer_tape(&mut s, 3);
+    let mut g = Grams::new(&c).unwrap();
+    g.accumulate(&tape, &c).unwrap();
+    let fin = g.finish(Normalisation::Sum).unwrap();
+    for fl in &fin {
+        for (h, d) in [(&fl.qkv, E), (&fl.o, QW), (&fl.gate_up, E), (&fl.down, FF)] {
+            for i in 0..d {
+                for j in 0..d {
+                    assert_eq!(h[i * d + j], h[j * d + i], "asymmetric at ({i},{j})");
+                }
+            }
+            // PSD: `H + 1e-3·I` is positive-definite, so `Cholesky` succeeds.
+            let mut a = h.clone();
+            for i in 0..d {
+                a[i * d + i] += 1e-3;
+            }
+            assert!(
+                cholesky(&a, d).is_ok(),
+                "H + εI is not positive-definite at d={d}"
+            );
+        }
+    }
+}
+
+#[test]
+fn blocks_add_like_concatenated_rows() {
+    let c = cfg();
+    let mut s = 37u64;
+    let whole = two_layer_tape(&mut s, 3);
+    let first = tape_from(
+        2,
+        (0..L)
+            .map(|l| slice_layer(&whole.layers[l], 0, 2))
+            .collect(),
+    );
+    let second = tape_from(
+        1,
+        (0..L)
+            .map(|l| slice_layer(&whole.layers[l], 2, 3))
+            .collect(),
+    );
+    let mut split = Grams::new(&c).unwrap();
+    split.accumulate(&first, &c).unwrap();
+    split.accumulate(&second, &c).unwrap();
+    let mut one = Grams::new(&c).unwrap();
+    one.accumulate(&whole, &c).unwrap();
+    let split_fin = split.finish(Normalisation::Sum).unwrap();
+    let one_fin = one.finish(Normalisation::Sum).unwrap();
+    layers_close(&split_fin, &one_fin, 1e-12);
+    for lg in &split_fin {
+        assert_eq!(lg.tokens, 3);
+    }
+}
+
+#[test]
+fn mean_divides_by_tokens_and_mean_diagonal_is_one() {
+    let c = cfg();
+    let mut s = 53u64;
+    let tape = two_layer_tape(&mut s, 3);
+    let mut g = Grams::new(&c).unwrap();
+    g.accumulate(&tape, &c).unwrap();
+    let sum = g.finish(Normalisation::Sum).unwrap();
+    let mean = g.finish(Normalisation::Mean).unwrap();
+    let md = g.finish(Normalisation::MeanDiagonal { eps: 0.01 }).unwrap();
+    for l in 0..L {
+        for (a, b) in [(&sum[l].qkv, &mean[l].qkv), (&sum[l].down, &mean[l].down)] {
+            let scaled: Vec<f64> = a.iter().map(|v| v / 3.0).collect();
+            close(&scaled, b, 1e-12);
+        }
+        for (h, d) in [
+            (&md[l].qkv, E),
+            (&md[l].o, QW),
+            (&md[l].gate_up, E),
+            (&md[l].down, FF),
+        ] {
+            let mut diag = 0.0f64;
+            for i in 0..d {
+                diag += h[i * d + i];
+                for j in 0..d {
+                    assert_eq!(h[i * d + j], h[j * d + i]);
+                }
+            }
+            assert!(
+                (diag / d as f64 - 1.01).abs() < 1e-9,
+                "mean diagonal {}",
+                diag / d as f64
+            );
+        }
+    }
+}
+
+#[test]
+fn shape_refusals() {
+    let c = cfg();
+    let mut s = 71u64;
+
+    // A tape with fewer layers than the config.
+    let mut g = Grams::new(&c).unwrap();
+    let short = tape_from(2, vec![one_layer(&mut s, 2)]);
+    assert!(matches!(
+        g.accumulate(&short, &c),
+        Err(CaptureError::Shape(_))
+    ));
+
+    // A stage buffer whose length is not `t · w` on the second layer.
+    let mut bad = two_layer_tape(&mut s, 2);
+    bad.layers[1].m.pop();
+    assert!(matches!(
+        g.accumulate(&bad, &c),
+        Err(CaptureError::Shape(_))
+    ));
+
+    // A token count that disagrees with the buffers.
+    let mut bad_t = two_layer_tape(&mut s, 2);
+    bad_t.t = 3;
+    assert!(matches!(
+        g.accumulate(&bad_t, &c),
+        Err(CaptureError::Shape(_))
+    ));
+
+    // A config with different geometry than the accumulator was built for.
+    let good = two_layer_tape(&mut s, 2);
+    let mut other = cfg();
+    other.n_embd = E + 1;
+    assert!(matches!(
+        g.accumulate(&good, &other),
+        Err(CaptureError::Shape(_))
+    ));
+
+    // The mean over no tokens is undefined.
+    let empty = Grams::new(&c).unwrap();
+    assert!(matches!(
+        empty.finish(Normalisation::Mean),
+        Err(CaptureError::Shape(_))
+    ));
+
+    // A `q_out` that leaves `usize`, and a zero model dimension.
+    let mut big = cfg();
+    big.n_head = usize::MAX;
+    assert!(matches!(Grams::new(&big), Err(CaptureError::Overflow)));
+    let mut zero = cfg();
+    zero.n_embd = 0;
+    assert!(matches!(Grams::new(&zero), Err(CaptureError::Shape(_))));
+}
+
+#[test]
+fn forward_tape_has_capture_dims() {
+    let mut s = 97u64;
+    let layer = |s: &mut u64| LayerWeights {
+        attn_norm: buf(E, s),
+        wq: buf(QW * E, s),
+        bq: Some(buf(QW, s)),
+        wk: buf(KVW * E, s),
+        bk: Some(buf(KVW, s)),
+        wv: buf(KVW * E, s),
+        bv: Some(buf(KVW, s)),
+        wo: buf(E * QW, s),
+        ffn_norm: buf(E, s),
+        w_gate: buf(FF * E, s),
+        w_up: buf(FF * E, s),
+        w_down: buf(E * FF, s),
+    };
+    let w = Weights {
+        layers: (0..L).map(|_| layer(&mut s)).collect(),
+        output_norm: buf(E, &mut s),
+        token_embd: buf(V * E, &mut s),
+        lm_head: buf(V * E, &mut s),
+    };
+    let c = cfg();
+    let tokens = [1u32, 2, 3, 4, 5];
+    let (_logits, tape) = forward(&w, &c, &tokens).unwrap();
+    assert_eq!(tape.t, tokens.len());
+    assert_eq!(tape.layers.len(), L);
+
+    let mut g = Grams::new(&c).unwrap();
+    g.accumulate(&tape, &c).unwrap();
+    let fin = g.finish(Normalisation::Mean).unwrap();
+    assert_eq!(fin.len(), L);
+    for lg in &fin {
+        assert_eq!(lg.qkv.len(), E * E);
+        assert_eq!(lg.o.len(), QW * QW);
+        assert_eq!(lg.gate_up.len(), E * E);
+        assert_eq!(lg.down.len(), FF * FF);
+        assert_eq!(lg.tokens, u64::try_from(tokens.len()).unwrap());
+        // The capture reads widths from the same geometry as the tape, so every matrix is full.
+        assert_eq!(
+            naive_gram(&tape.layers[0].ln1_out, tape.t, E).len(),
+            lg.qkv.len()
+        );
+    }
+}
