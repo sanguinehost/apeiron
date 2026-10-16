@@ -129,6 +129,12 @@ fn transpose_panel(x: &[i64], o: usize, n: usize) -> Vec<i64> {
 /// read. Each entry is the exact integer sum over `o`, so the result is worker-count-independent
 /// and equal to the row-streaming accumulation.
 ///
+/// Flag loop: an overflow in the `o` accumulation deposits its first refusal in `err`, which every
+/// enclosing loop condition tests; the `Option`-destructuring `return` form the Aeneas fragment
+/// rejects at nesting depth ≥ 2 is not used. Once `err` is set the remaining tiles are skipped and
+/// the refusal is returned after the outermost loop, so the refusal and the `Ok` output are the
+/// same as the early-return form.
+///
 /// # Complexity
 /// `o·Σ_{i<lo..hi}(j1 − max(i, jb))` checked multiply-accumulates (plus the diagonal tiles' unread
 /// entries, `O(o·(hi−lo))`) and `O(1)` extra words; every index is in range by construction
@@ -150,36 +156,39 @@ fn block_rows(
     j1: usize,
 ) -> Result<(), SyrkError> {
     let nb = j1 - jb;
+    let mut err: Option<SyrkError> = None;
     let mut i = lo;
-    while i < hi {
+    while i < hi && err.is_none() {
         let i2 = if i + 1 < hi { i + 1 } else { i };
         let xi0 = &xt[i * o..i * o + o];
         let xi1 = &xt[i2 * o..i2 * o + o];
         let mut j = if i > jb { i } else { jb };
-        while j < j1 {
+        while j < j1 && err.is_none() {
             let jc = if j + 1 < j1 { j + 1 } else { j };
             let xj0 = &xt[j * o..j * o + o];
             let xj1 = &xt[jc * o..jc * o + o];
             let (mut c00, mut c01, mut c10, mut c11) = (0_i128, 0_i128, 0_i128, 0_i128);
             let mut oo = 0usize;
-            while oo < o {
+            while oo < o && err.is_none() {
                 let ww = i128::from(wv[oo]);
                 let a0 = ww * i128::from(xi0[oo]);
                 let a1 = ww * i128::from(xi1[oo]);
                 let b0 = i128::from(xj0[oo]);
                 let b1 = i128::from(xj1[oo]);
-                let (Some(s00), Some(s01), Some(s10), Some(s11)) = (
+                match (
                     c00.checked_add(a0 * b0),
                     c01.checked_add(a0 * b1),
                     c10.checked_add(a1 * b0),
                     c11.checked_add(a1 * b1),
-                ) else {
-                    return Err(SyrkError::Overflow);
-                };
-                c00 = s00;
-                c01 = s01;
-                c10 = s10;
-                c11 = s11;
+                ) {
+                    (Some(s00), Some(s01), Some(s10), Some(s11)) => {
+                        c00 = s00;
+                        c01 = s01;
+                        c10 = s10;
+                        c11 = s11;
+                    }
+                    _ => err = Some(SyrkError::Overflow),
+                }
                 oo += 1;
             }
             let r0 = (i - lo) * nb;
@@ -197,6 +206,9 @@ fn block_rows(
             j += 2;
         }
         i += 2;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(())
 }

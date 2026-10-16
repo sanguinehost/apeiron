@@ -41,7 +41,9 @@
 //! `O(n³/3)` factor, `O(n²)` `i64` words for the reversed matrix, the transposed inverse and the
 //! result.
 //!
-//! Grade: `tested` (`tests/learn_solve_inv.rs`); no body here is extracted or refined.
+//! Grade: `tested` (`tests/learn_solve_inv.rs`); [`invert_column_blocks`] extracts under the pinned
+//! Charon/Aeneas fragment, and no body here carries a refinement theorem, so nothing here is
+//! `proved`.
 
 #![allow(
     clippy::many_single_char_names,
@@ -110,44 +112,66 @@ fn invert_column_blocks(
     col0: usize,
     col_end: usize,
 ) -> Result<(), SolveError> {
+    // Flag loop: a `return`/`?` inside the two-nested sweeps is not modelled by the pinned
+    // Charon/Aeneas fragment, so the first refusal is carried in `err`, every enclosing loop
+    // condition is guarded by `err.is_none()`, and the single `return` sits after the outermost
+    // loop. The write order, the contraction order and every rounding are unchanged.
+    let mut err: Option<SolveError> = None;
     let mut c0 = col0;
-    while c0 < col_end {
+    while c0 < col_end && err.is_none() {
         let c1 = (c0 + INV_BLOCK).min(col_end);
         let base = (c0 - col0) * n;
         // (1) The diagonal block `V[c0..c1, c0..c1]`.
         let mut c = c0;
-        while c < c1 {
+        while c < c1 && err.is_none() {
             let vcc = v[c * n + c];
             if vcc <= 0 {
-                return Err(SolveError::NotPositiveDefinite);
-            }
-            let row = &mut ut[base + (c - c0) * n..base + (c - c0) * n + n];
-            row[c] = div_to_i64(1_i128 << 64, i128::from(vcc)).ok_or(SolveError::Overflow)?;
-            let mut r = c;
-            while r > c0 {
-                r -= 1;
-                let vrr = v[r * n + r];
-                if vrr <= 0 {
-                    return Err(SolveError::NotPositiveDefinite);
+                err = Some(SolveError::NotPositiveDefinite);
+            } else {
+                let row = &mut ut[base + (c - c0) * n..base + (c - c0) * n + n];
+                match div_to_i64(1_i128 << 64, i128::from(vcc)) {
+                    Some(w) => row[c] = w,
+                    None => err = Some(SolveError::Overflow),
                 }
-                row[r] = inv_row_entry(v, n, r, r + 1, c1, row).ok_or(SolveError::Overflow)?;
+                let mut r = c;
+                while r > c0 && err.is_none() {
+                    r -= 1;
+                    let vrr = v[r * n + r];
+                    if vrr <= 0 {
+                        err = Some(SolveError::NotPositiveDefinite);
+                    } else {
+                        match inv_row_entry(v, n, r, r + 1, c1, row) {
+                            Some(w) => row[r] = w,
+                            None => err = Some(SolveError::Overflow),
+                        }
+                    }
+                }
             }
             c += 1;
         }
         // (2) Every row above the block, against the whole block column.
         let mut r = c0;
-        while r > 0 {
+        while r > 0 && err.is_none() {
             r -= 1;
             let vrr = v[r * n + r];
             if vrr <= 0 {
-                return Err(SolveError::NotPositiveDefinite);
-            }
-            for k in 0..(c1 - c0) {
-                let row = &mut ut[base + k * n..base + k * n + n];
-                row[r] = inv_row_entry(v, n, r, r + 1, c1, row).ok_or(SolveError::Overflow)?;
+                err = Some(SolveError::NotPositiveDefinite);
+            } else {
+                let mut k = 0usize;
+                while k < c1 - c0 && err.is_none() {
+                    let row = &mut ut[base + k * n..base + k * n + n];
+                    match inv_row_entry(v, n, r, r + 1, c1, row) {
+                        Some(w) => row[r] = w,
+                        None => err = Some(SolveError::Overflow),
+                    }
+                    k += 1;
+                }
             }
         }
         c0 = c1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(())
 }

@@ -262,15 +262,20 @@ fn block_rows(
     let mut acc = vec![0i128; MC * NC];
     let mut ap = vec![0i64; MC * KC];
     let mut bp = vec![0i64; NC * KC];
+    // Flag loop: the only refusal source is the rounding/narrowing of an accumulator entry in the
+    // store loop; the packing and the register kernel are total. Every enclosing loop is guarded by
+    // `err.is_none()`, no `return`, `?` or `break` sits inside a loop body, and the `return` sits
+    // after the outermost loop.
+    let mut err: Option<GemmError> = None;
     let mut i0 = 0usize;
-    while i0 < rows {
+    while i0 < rows && err.is_none() {
         let mc = (i0 + MC).min(rows) - i0;
         let mut jb = 0usize;
-        while jb < n {
+        while jb < n && err.is_none() {
             let nc = (jb + NC).min(n) - jb;
             acc[..].fill(0);
             let mut kb = 0usize;
-            while kb < k {
+            while kb < k && err.is_none() {
                 let kc = (kb + KC).min(k) - kb;
                 pack_a(a, k, i0, mc, kb, kc, &mut ap);
                 if nn {
@@ -279,9 +284,9 @@ fn block_rows(
                     pack_b_nt(b, k, jb, nc, kb, kc, &mut bp);
                 }
                 let mut ii = 0usize;
-                while ii < mc {
+                while ii < mc && err.is_none() {
                     let mut jj = 0usize;
-                    while jj < nc {
+                    while jj < nc && err.is_none() {
                         micro_4x4(&ap, &bp, &mut acc, kc, ii, jj);
                         jj += NR;
                     }
@@ -290,16 +295,16 @@ fn block_rows(
                 kb += kc;
             }
             let mut i = 0usize;
-            while i < mc {
+            while i < mc && err.is_none() {
                 let mut j = 0usize;
-                while j < nc {
-                    let Some(r) = round32(acc[i * NC + j]) else {
-                        return Err(GemmError::Overflow);
-                    };
-                    let Some(v) = narrow(r) else {
-                        return Err(GemmError::Overflow);
-                    };
-                    c[(i0 + i) * n + jb + j] = v;
+                while j < nc && err.is_none() {
+                    match round32(acc[i * NC + j]) {
+                        Some(r) => match narrow(r) {
+                            Some(v) => c[(i0 + i) * n + jb + j] = v,
+                            None => err = Some(GemmError::Overflow),
+                        },
+                        None => err = Some(GemmError::Overflow),
+                    }
                     j += 1;
                 }
                 i += 1;
@@ -307,6 +312,9 @@ fn block_rows(
             jb += nc;
         }
         i0 += mc;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(())
 }

@@ -286,14 +286,22 @@ fn chol_trailing_update(
     kb: usize,
 ) -> Result<(), SolveError> {
     let nrows = rows.len() / d;
+    // Flag loop: the contraction overflow and the store narrowing deposit the first refusal in
+    // `err` and every enclosing loop condition and store branch tests `err.is_none()`; the `return`
+    // sits after the outermost loop, so no `return`/`?` targets the function from inside a loop
+    // body (the pinned Aeneas fragment rejects that). The four checked subtractions are applied one
+    // at a time in the original order and all four refusals are `Overflow`, so the carried refusal
+    // is the one the returning form produced. On a refusal the row stores are skipped, as the
+    // returning form skipped them.
+    let mut err: Option<SolveError> = None;
     let mut ri = 0usize;
-    while ri < nrows {
+    while ri < nrows && err.is_none() {
         let r2 = if ri + 1 < nrows { ri + 1 } else { ri };
         let (gi, gi2) = (first + ri, first + r2);
         let li0 = &l[gi * d + kbase..gi * d + kbase + kb];
         let li1 = &l[gi2 * d + kbase..gi2 * d + kbase + kb];
         let mut gj = kend;
-        while gj <= gi2 {
+        while gj <= gi2 && err.is_none() {
             let gc = if gj < gi2 { gj + 1 } else { gj };
             let lj0 = &l[gj * d + kbase..gj * d + kbase + kb];
             let lj1 = &l[gc * d + kbase..gc * d + kbase + kb];
@@ -302,40 +310,61 @@ fn chol_trailing_update(
             let mut c10 = i128::from(rows[r2 * d + gj]) << 32;
             let mut c11 = i128::from(rows[r2 * d + gc]) << 32;
             let mut p = 0usize;
-            while p < kb {
+            while p < kb && err.is_none() {
                 let (a0, a1) = (i128::from(li0[p]), i128::from(li1[p]));
                 let (b0, b1) = (i128::from(lj0[p]), i128::from(lj1[p]));
                 // `i64 × i64` fits `i128`, so only the subtractions are checked.
-                let (Some(s00), Some(s01), Some(s10), Some(s11)) = (
-                    c00.checked_sub(a0 * b0),
-                    c01.checked_sub(a0 * b1),
-                    c10.checked_sub(a1 * b0),
-                    c11.checked_sub(a1 * b1),
-                ) else {
-                    return Err(SolveError::Overflow);
-                };
-                c00 = s00;
-                c01 = s01;
-                c10 = s10;
-                c11 = s11;
+                match c00.checked_sub(a0 * b0) {
+                    Some(s) => c00 = s,
+                    None => err = Some(SolveError::Overflow),
+                }
+                match c01.checked_sub(a0 * b1) {
+                    Some(s) => c01 = s,
+                    None => err = Some(SolveError::Overflow),
+                }
+                match c10.checked_sub(a1 * b0) {
+                    Some(s) => c10 = s,
+                    None => err = Some(SolveError::Overflow),
+                }
+                match c11.checked_sub(a1 * b1) {
+                    Some(s) => c11 = s,
+                    None => err = Some(SolveError::Overflow),
+                }
                 p += 1;
             }
             // Store only the lower-triangle entries `gj' ≤ gi'`; clamped duplicates are skipped.
-            if gj <= gi {
-                rows[ri * d + gj] = ov(round_to_i64(c00))?;
-            }
-            if gc != gj && gc <= gi {
-                rows[ri * d + gc] = ov(round_to_i64(c01))?;
-            }
-            if r2 != ri {
-                rows[r2 * d + gj] = ov(round_to_i64(c10))?;
-                if gc != gj {
-                    rows[r2 * d + gc] = ov(round_to_i64(c11))?;
+            if err.is_none() {
+                if gj <= gi {
+                    match round_to_i64(c00) {
+                        Some(v) => rows[ri * d + gj] = v,
+                        None => err = Some(SolveError::Overflow),
+                    }
+                }
+                if gc != gj && gc <= gi && err.is_none() {
+                    match round_to_i64(c01) {
+                        Some(v) => rows[ri * d + gc] = v,
+                        None => err = Some(SolveError::Overflow),
+                    }
+                }
+                if r2 != ri && err.is_none() {
+                    match round_to_i64(c10) {
+                        Some(v) => rows[r2 * d + gj] = v,
+                        None => err = Some(SolveError::Overflow),
+                    }
+                    if gc != gj && err.is_none() {
+                        match round_to_i64(c11) {
+                            Some(v) => rows[r2 * d + gc] = v,
+                            None => err = Some(SolveError::Overflow),
+                        }
+                    }
                 }
             }
             gj += 2;
         }
         ri += 2;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(())
 }
