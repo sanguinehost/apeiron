@@ -14,6 +14,7 @@ import Serve.Block.R4.Attn3
 import Serve.Block.R4.Ffn6
 import Serve.Block.R4.Mixer4
 import Serve.Kern.R4.Matmat6
+import Serve.Kern.R4.Lut4
 import Serve.Kern.Lut
 import Serve.Kern.Matmat2
 import Serve.Kern.Matmat3
@@ -235,3 +236,8 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.word_l2_normalize_ok
 #audit apeiron_word.mixer4_isqrt_zero
 #audit apeiron_word.word_l2_normalize_refuses_badconfig
+#audit apeiron_word.word_tile_accs_sb_ok
+#audit apeiron_word.word_tile_accs_b_ok
+#audit apeiron_word.lut4_laneInv_set
+#audit apeiron_word.word_tile_accs_lane_ok
+#audit apeiron_word.word_tile_accs_portable_ok
