@@ -52,3 +52,6 @@ pub mod grad;
 
 /// The fold-transfer pipeline: Grams, corrector, held-out evaluation and byte budget.
 pub mod fold;
+
+/// Q32.32 SPD solve and weighted Gram fold shared by the weight-fit steps.
+pub mod solve;
