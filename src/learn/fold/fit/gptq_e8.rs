@@ -754,6 +754,58 @@ fn beam_pass(
     Ok(a_new)
 }
 
+/// Rows per tile of [`inter_group_feedback`]: one row of `U` is read once per tile and reused for
+/// every row in it.
+const FEEDBACK_TILE: usize = 8;
+
+/// `wk[:, g0+gs:] -= E · U[g0:g0+gs, g0+gs:]` for the `O × gs` group error `e` (the inter-group
+/// feedback of the scalar loop it replaces, line 394 of the script). Per entry the `gs` products
+/// are summed in ascending `j` from `0.0` and then subtracted, as the scalar loop did, so the result
+/// is bit-identical to it and independent of the thread count. Rows are independent, so they are
+/// split across [`INV_THREADS`] scoped workers in [`FEEDBACK_TILE`]-row tiles.
+///
+/// # Complexity
+///
+/// Temporal: `O·gs·(n − g0 − gs)` multiply-adds (one contiguous axpy over the tail of each `U` row
+/// per `(row, j)`), split over the workers. Spatial: `FEEDBACK_TILE · (n − g0 − gs)` `f64` of
+/// accumulator per worker.
+fn inter_group_feedback(wk: &mut [f64], e: &[f64], u: &[f64], n: usize, g0: usize, gs: usize) {
+    let g1 = g0 + gs;
+    let o = wk.len() / n;
+    let per = o.div_ceil(INV_THREADS).max(1);
+    std::thread::scope(|scope| {
+        for (w, ec) in wk.chunks_mut(per * n).zip(e.chunks(per * gs)) {
+            scope.spawn(move || {
+                let rows = ec.len() / gs;
+                let mut acc = vec![0.0f64; FEEDBACK_TILE * (n - g1)];
+                let mut r0 = 0;
+                while r0 < rows {
+                    let tile = FEEDBACK_TILE.min(rows - r0);
+                    acc[..tile * (n - g1)].fill(0.0);
+                    for j in 0..gs {
+                        let urow = &u[(g0 + j) * n + g1..(g0 + j + 1) * n];
+                        for t in 0..tile {
+                            let coef = ec[(r0 + t) * gs + j];
+                            let at = &mut acc[t * (n - g1)..(t + 1) * (n - g1)];
+                            for (av, uv) in at.iter_mut().zip(urow) {
+                                *av += coef * uv;
+                            }
+                        }
+                    }
+                    for t in 0..tile {
+                        let wrow = &mut w[(r0 + t) * n + g1..(r0 + t + 1) * n];
+                        for (wv, av) in wrow.iter_mut().zip(&acc[t * (n - g1)..(t + 1) * (n - g1)])
+                        {
+                            *wv -= av;
+                        }
+                    }
+                    r0 += tile;
+                }
+            });
+        }
+    });
+}
+
 /// The GPTQ error feedback of `gptq_e8` (lines 267–397): per 8-block the block-Cholesky CVP
 /// `argmin_k a²|Z_c[k]|² − 2a⟨Z_w, Z_c[k]⟩` over the 256-entry E8 ∪ O8 codebook, with each block's
 /// whitened residual pushed onto the later columns of the group and the group's residuals pushed
@@ -981,17 +1033,7 @@ pub fn gptq_e8(
         }
         // Inter-group feedback: `wk[:, g1:] -= Err_best @ U[g0:g1, g1:]` (line 394).
         if g1 < n {
-            for r in 0..o {
-                let mut m = g1;
-                while m < n {
-                    let mut acc = 0.0f64;
-                    for j in 0..gs {
-                        acc += e_best[r * gs + j] * u[(g0 + j) * n + m];
-                    }
-                    wk[r * n + m] -= acc;
-                    m += 1;
-                }
-            }
+            inter_group_feedback(&mut wk, &e_best, &u, n, g0, gs);
         }
     }
 

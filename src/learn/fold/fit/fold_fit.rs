@@ -491,6 +491,7 @@ pub fn fold_fit(
     let c_ref = c_step(ws, &hl, &s_dh, &rh, o, n, g_row)?;
     let (ch, bits_c) = quant_c_u8(&c_ref, 6)?;
     let mut wp = compose(&s_dh, &rh, &ch, o, n)?;
+    let mut j_wp = objective(ws, &wp, &hl, o, n)?;
     let mut pack_s_rot = s_rot_best.clone();
     let mut pack_rh = rh;
     let mut pack_ch = ch;
@@ -513,7 +514,9 @@ pub fn fold_fit(
         let rh_q = quant_r_hier(&r_step(ws, &hl, &s_dh_q, &pack_ch, o, n)?, o, g)?.rq;
         let ch_q = quant_c_u8(&c_step(ws, &hl, &s_dh_q, &rh_q, o, n, g_row)?, 6)?.0;
         let wp_q = compose(&s_dh_q, &rh_q, &ch_q, o, n)?;
-        if objective(ws, &wp_q, &hl, o, n)? < objective(ws, &wp, &hl, o, n)? {
+        let j_q = objective(ws, &wp_q, &hl, o, n)?;
+        if j_q < j_wp {
+            j_wp = j_q;
             wp = wp_q;
             s_rot_cur.clone_from(&s_rot_q);
             pack_s_rot = s_rot_q;
@@ -529,7 +532,7 @@ pub fn fold_fit(
         let rh_1 = quant_r_hier(&r_1, o, g)?.rq;
         let ch_1 = quant_c_u8(&c_step(ws, &hl, &s_1, &rh_1, o, n, g_row)?, 6)?.0;
         let wp_1 = compose(&s_1, &rh_1, &ch_1, o, n)?;
-        if objective(ws, &wp_1, &hl, o, n)? < objective(ws, &wp, &hl, o, n)? {
+        if objective(ws, &wp_1, &hl, o, n)? < j_wp {
             wp = wp_1;
             pack_s_rot = s_rot_cur;
             pack_rh = rh_1;
