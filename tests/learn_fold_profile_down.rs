@@ -1,0 +1,457 @@
+//! `tests/learn_fold_profile_down.rs` — a MEASUREMENT of where the `down` tensor's
+//! `fit_tensor(o = 896, n = 4864, Kind::Down)` wall-clock goes.
+//!
+//! Not a correctness gate: every test is `#[ignore]`d and prints `std::time::Instant` seconds (mean
+//! of three runs with the min/max spread where the phase fits the budget), the by-hand flop count
+//! and the achieved GFLOP/s. One phase group per test, so a phase that stalls cuts alone.
+//!
+//! Inputs (deterministic LCG, as the measurement brief names): `Ws` `[896, 4864]` with entries
+//! `~ N(0, 1/sqrt(4864))`; `H = XᵀX / rows` (`rows = 2048`) from random activation rows with eight
+//! columns scaled by 20, PSD with a realistic spread; `g_row` positive of mean 1 (the shape the
+//! `down` fit is handed). Production `down` config: `rg_q = 0.005·(4864/896)`,
+//! `damp = 0.02·(4864/896)`, `e8_beam` 4, `icm_ridge` 0.20, `inner_iters` 3, `sweeps` 2, `iters` 1.
+//!
+//! Run one phase group:
+//!
+//! ```text
+//! systemd-run --user --scope -q -p MemoryMax=8G -p MemorySwapMax=0 \
+//!   env -u CARGO_TARGET_DIR timeout 580 \
+//!   ~/bin/cargo test --release --locked --test learn_fold_profile_down t_a \
+//!   -- --ignored --nocapture
+//! ```
+//!
+//! Grade: the printed wall-clock is `measured`; every flop count and the peak are `model`.
+
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::float_cmp,
+    clippy::items_after_statements,
+    clippy::many_single_char_names,
+    clippy::needless_range_loop,
+    clippy::similar_names,
+    clippy::too_many_lines,
+    reason = "a measurement harness: it maps a fixed LCG to f64 by division, indexes the flat \
+              row-major buffers the reference kernels consume, names the tensors `ws/h/ws_rot/s/r/c/d` \
+              and the counters `o/i/j/r` as the reference does, and casts dimension counts \
+              `usize → f64` to form the flop counts"
+)]
+
+use std::time::Instant;
+
+use apeiron::learn::fold::fit::corrector::{lowrank_corrector, Mode};
+use apeiron::learn::fold::fit::eigh::eigh;
+use apeiron::learn::fold::fit::fold_fit::{fold_fit, FoldFitConfig};
+use apeiron::learn::fold::fit::gptq_e8::gptq_e8;
+use apeiron::learn::fold::fit::icm::{e8_icm_step, PlaneRef};
+use apeiron::learn::fold::fit::steps::{c_step, compose, d_step, fwht128, had_gram, r_step};
+use apeiron::learn::fold::layer::stage::metric;
+use apeiron::learn::fold::layer::tensor::{fit_tensor, TensorKind, TensorParams};
+
+/// The `down` tensor's input width (`intermediate_size`).
+const N: usize = 4864;
+/// The `down` tensor's output width (`hidden_size`).
+const O: usize = 896;
+/// Activation rows in the Gram fixture.
+const ROWS: usize = 2048;
+/// The stage reference width (`SolveParams::n_ref`).
+const N_REF: f64 = 896.0;
+/// `a.quant_ridge`.
+const QUANT_RIDGE: f64 = 0.005;
+/// `a.quant_damp`.
+const QUANT_DAMP: f64 = 0.02;
+/// Columns of the activation fixture scaled by [`OUTLIER_SCALE`].
+const OUTLIER_COLS: [usize; 8] = [7, 601, 1207, 1813, 2401, 3001, 3607, 4201];
+/// The outlier column scale.
+const OUTLIER_SCALE: f64 = 20.0;
+
+/// Deterministic 64-bit LCG (Numerical Recipes constants).
+struct Lcg(u64);
+
+impl Lcg {
+    fn new(seed: u64) -> Self {
+        Self(seed)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        self.0
+    }
+
+    /// Uniform in `[lo, hi)` from the top 53 bits.
+    fn uniform(&mut self, lo: f64, hi: f64) -> f64 {
+        let u = (self.next_u64() >> 11) as f64 / 9_007_199_254_740_992.0;
+        lo + (hi - lo) * u
+    }
+}
+
+/// A standard-normal sample (sum of twelve uniforms minus six).
+fn gauss(rng: &mut Lcg) -> f64 {
+    (0..12).map(|_| rng.uniform(0.0, 1.0)).sum::<f64>() - 6.0
+}
+
+/// The synthetic `down` fixture: `Ws`, the PSD Gram `H`, the positive row weight, and the
+/// production scalar config.
+struct Fx {
+    ws: Vec<f64>,
+    h: Vec<f64>,
+    g_row: Vec<f64>,
+    rg_q: f64,
+    damp: f64,
+    fit: FoldFitConfig,
+}
+
+/// The production `down` parameters as [`TensorParams`].
+fn params(fx: &Fx) -> TensorParams {
+    TensorParams {
+        rg_q: fx.rg_q,
+        qmlp_rows: 0,
+        fit: fx.fit,
+        nb_sweeps: 2,
+        nb_rounds: 2,
+    }
+}
+
+/// Build the fixture: `XᵀX/rows` with outlier columns, `Ws`, `g_row`.
+///
+/// # Complexity
+/// Temporal `O(rows·n²)` for the Gram (the dominant term) plus `O(o·n)` samples; spatial `O(n²)`.
+fn fixture() -> Fx {
+    let mut rng = Lcg::new(20_261_016);
+    // X [ROWS, N] ~ N(0,1), eight columns scaled by OUTLIER_SCALE.
+    let mut x = vec![0.0_f64; ROWS * N];
+    for v in x.iter_mut() {
+        *v = gauss(&mut rng);
+    }
+    for &col in &OUTLIER_COLS {
+        for r in 0..ROWS {
+            x[r * N + col] *= OUTLIER_SCALE;
+        }
+    }
+    // H = XᵀX / rows, upper triangle first, then mirrored.
+    let mut h = vec![0.0_f64; N * N];
+    for r in 0..ROWS {
+        let xr = &x[r * N..(r + 1) * N];
+        for i in 0..N {
+            let a = xr[i];
+            let row = &mut h[i * N + i..i * N + N];
+            for (jj, xv) in xr[i..].iter().enumerate() {
+                row[jj] += a * xv;
+            }
+        }
+    }
+    for i in 0..N {
+        for j in 0..i {
+            h[i * N + j] = h[j * N + i];
+        }
+    }
+    let inv_rows = 1.0 / ROWS as f64;
+    for v in h.iter_mut() {
+        *v *= inv_rows;
+    }
+    drop(x);
+    // Ws [O, N] ~ N(0, 1/sqrt(N)).
+    let s = 1.0 / (N as f64).sqrt();
+    let ws: Vec<f64> = (0..O * N).map(|_| s * gauss(&mut rng)).collect();
+    // g_row: positive, mean 1.
+    let mut g_row: Vec<f64> = (0..O).map(|_| (0.35 * gauss(&mut rng)).exp()).collect();
+    let gmean = g_row.iter().sum::<f64>() / O as f64;
+    for v in g_row.iter_mut() {
+        *v /= gmean;
+    }
+    let rg_q = QUANT_RIDGE * (N as f64 / N_REF);
+    let damp = QUANT_DAMP * (N as f64 / N_REF);
+    let fit = FoldFitConfig {
+        iters: 1,
+        ridge: rg_q,
+        damp,
+        inner_iters: 3,
+        e8_beam: 4,
+        icm_ridge: 0.20,
+        sweeps: 2,
+    };
+    Fx {
+        ws,
+        h,
+        g_row,
+        rg_q,
+        damp,
+        fit,
+    }
+}
+
+/// Print the machine context the numbers bind to.
+fn header() {
+    let par = std::thread::available_parallelism().map_or(0, std::num::NonZeroUsize::get);
+    eprintln!("MEAS machine: available_parallelism={par}, single-threaded scalar f64 path");
+    eprintln!(
+        "MEAS geometry: o={O} n={N} rows={ROWS} rg_q={} damp={}",
+        QUANT_RIDGE * (N as f64 / N_REF),
+        QUANT_DAMP * (N as f64 / N_REF)
+    );
+}
+
+/// Time `reps` runs of one phase, print the mean/min/max seconds, the flop count and GFLOP/s.
+fn phase(label: &str, flops: f64, reps: usize, mut f: impl FnMut() -> f64) {
+    let mut v = Vec::with_capacity(reps);
+    let mut chk = 0.0_f64;
+    for _ in 0..reps {
+        let t = Instant::now();
+        chk = f();
+        v.push(t.elapsed().as_secs_f64());
+    }
+    let n = v.len() as f64;
+    let mean = v.iter().sum::<f64>() / n;
+    let mn = v.iter().copied().fold(f64::INFINITY, f64::min);
+    let mx = v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let gflops = flops / mean / 1e9;
+    eprintln!(
+        "MEAS {label}: {mean:.3} s mean (min {mn:.3} max {mx:.3} n={reps}) | flops {flops:.4e} | {gflops:.2} GFLOP/s | chk {chk:.6e}"
+    );
+}
+
+/// `n³/3 + 8.3e9`: `feedback_u`'s two triangular sweeps plus the beam-search scan (see the module
+/// doc; the beam term is the derived `groups·blocks·o·beam·256·8` scan at `beam = 4`).
+fn gptq_flops(o: f64, n: f64) -> f64 {
+    n * n * n / 3.0 + 8.3e9 * (o / 896.0)
+}
+
+/// One `e8_icm_step`: two `O(o·n²)` matmuls, the metrics, and `sweeps` blocks × rows × `8·n`.
+fn icm_flops(o: f64, n: f64, sweeps: f64) -> f64 {
+    2.0 * o * n * n + sweeps * (n / 8.0) * o * 8.0 * n * 2.0 + 8.0 * n * n
+}
+
+/// The sign plane of `ws` (`o × n`), the cheap code plane the ICM/steps phases consume.
+fn sign_plane(ws: &[f64]) -> Vec<f64> {
+    ws.iter()
+        .map(|&v| if v >= 0.0 { 1.0 } else { -1.0 })
+        .collect()
+}
+
+/// `hl = metric(H, rg_q)` and the flat `ones` the closed-form steps hold.
+fn metric_and_ones(fx: &Fx) -> (Vec<f64>, Vec<f64>) {
+    let hl = metric(&fx.h, N, fx.rg_q).expect("metric");
+    (hl, vec![1.0_f64; N])
+}
+
+/// Phase group (1)(2)(3): the transforms, `metric`, and `gptq_e8`.
+#[test]
+#[ignore = "measurement: --release --ignored --nocapture"]
+fn t_a_transforms_metric_gptq() {
+    let fx = fixture();
+    header();
+    let (o, n) = (O as f64, N as f64);
+    phase("(1a) fwht128(Ws) [o=896,n=4864]", o * n * 7.0, 3, || {
+        fwht128(&fx.ws).expect("fwht")[0]
+    });
+    phase(
+        "(1b) had_gram(H) [n=4864]",
+        2.0 * n * n * 7.0 + 2.0 * n * n,
+        3,
+        || had_gram(&fx.h, N).expect("had_gram")[N],
+    );
+    phase("(2) metric(H, rg_q) [n=4864]", n * n, 3, || {
+        metric(&fx.h, N, fx.rg_q).expect("metric")[0]
+    });
+    let ws_rot = fwht128(&fx.ws).expect("fwht");
+    let h_gram = had_gram(&fx.h, N).expect("had_gram");
+    phase(
+        "(3) gptq_e8(ws_rot, h_gram, beam=4)",
+        gptq_flops(o, n),
+        3,
+        || {
+            gptq_e8(&ws_rot, &h_gram, O, N, fx.damp, true, true, 4)
+                .expect("gptq")
+                .scale[0]
+        },
+    );
+}
+
+/// Phase group (4): one `e8_icm_step` at the production `sweeps = 2`, `icm_ridge = 0.20`.
+#[test]
+#[ignore = "measurement: --release --ignored --nocapture"]
+fn t_b_icm_step() {
+    let fx = fixture();
+    header();
+    let (hl, c) = metric_and_ones(&fx);
+    let s = sign_plane(&fx.ws);
+    let idx = vec![0_u16; O * (N / 8)];
+    let r = vec![1.0_f64; O * (N / 128)];
+    let d = vec![1.0_f64; N];
+    let p = PlaneRef {
+        s: &s,
+        idx: &idx,
+        r: &r,
+        c: &c,
+        d: &d,
+    };
+    phase(
+        "(4) e8_icm_step(o=896,n=4864,sweeps=2)",
+        icm_flops(O as f64, N as f64, 2.0),
+        3,
+        || e8_icm_step(&fx.ws, &hl, p, O, N, 2, 0.20).expect("icm").s[0],
+    );
+}
+
+/// Phase group (5): the continuous `c`/`r`/`d` steps `fold_fit` runs.
+#[test]
+#[ignore = "measurement: --release --ignored --nocapture"]
+fn t_c_steps_crd() {
+    let fx = fixture();
+    header();
+    let (hl, ones) = metric_and_ones(&fx);
+    let s = sign_plane(&fx.ws);
+    let r = vec![1.0_f64; O * (N / 128)];
+    let (o, n) = (O as f64, N as f64);
+    let g = Some(fx.g_row.as_slice());
+    // c_step: form A = hl ∘ (Σ_o Sh·Sh_g) `O(o·n²)` + Ws·Hl `O(o·n²)` + Cholesky `n³/6`.
+    phase(
+        "(5a) c_step [O(o n^2) + n^3]",
+        2.0 * o * n * n + n * n * n / 6.0,
+        3,
+        || c_step(&fx.ws, &hl, &s, &r, O, N, g).expect("c_step")[0],
+    );
+    // r_step: the per-row G×G systems, `O(o·n²)` total.
+    phase("(5b) r_step [O(o n^2)]", o * n * n, 3, || {
+        r_step(&fx.ws, &hl, &s, &ones, O, N).expect("r_step")[0]
+    });
+    // d_step: Ws·Hl + A `O(o·n²)` + H_rot + Cholesky `n³/6`.
+    phase(
+        "(5c) d_step [O(o n^2) + n^3]",
+        2.0 * o * n * n + n * n * n / 6.0,
+        3,
+        || d_step(&fx.ws, &hl, &s, &r, &ones, O, N, g).expect("d_step")[0],
+    );
+}
+
+/// Phase group (6): `lowrank_corrector` at the `down` rank/mode (`rank = 1`, `Mode::U8`).
+#[test]
+#[ignore = "measurement: --release --ignored --nocapture"]
+fn t_d_corrector() {
+    let fx = fixture();
+    header();
+    let hl = metric(&fx.h, N, fx.rg_q).expect("metric");
+    let ws_rot = fwht128(&fx.ws).expect("fwht");
+    let h_gram = had_gram(&fx.h, N).expect("had_gram");
+    let q = gptq_e8(&ws_rot, &h_gram, O, N, fx.damp, true, true, 4).expect("gptq");
+    // The gptq candidate weight wq0 = compose(fwht128(s_rot), scale, ones); delta = ws − wq0.
+    let wq0_s = fwht128(&q.s).expect("fwht");
+    let ones_c = vec![1.0_f64; N];
+    let wq0 = compose(&wq0_s, &q.scale, &ones_c, O, N).expect("compose");
+    let delta: Vec<f64> = fx.ws.iter().zip(&wq0).map(|(a, b)| a - b).collect();
+    drop(wq0);
+    let (o, n) = (O as f64, N as f64);
+    // ΔW·Hl `O(o·n²)` + M = w1·ΔWᵀ `O(o²·n)` + eigh(o) `O(o³·sweeps)` + ridge solve/product.
+    let flops = o * n * n + o * o * n + 10.0 * o * o * o / 2.0 + o * n;
+    phase("(6) lowrank_corrector(rank=1, U8)", flops, 3, || {
+        lowrank_corrector(&delta, &hl, O, N, 1, Mode::U8, true)
+            .expect("corrector")
+            .corr[0]
+    });
+}
+
+/// Phase group (7): `eigh` at the size the corrector path calls it (`n = o = 896`).
+#[test]
+#[ignore = "measurement: --release --ignored --nocapture"]
+fn t_e_eigh() {
+    let fx = fixture();
+    header();
+    let hl = metric(&fx.h, N, fx.rg_q).expect("metric");
+    let ws_rot = fwht128(&fx.ws).expect("fwht");
+    let h_gram = had_gram(&fx.h, N).expect("had_gram");
+    let q = gptq_e8(&ws_rot, &h_gram, O, N, fx.damp, true, true, 4).expect("gptq");
+    let wq0_s = fwht128(&q.s).expect("fwht");
+    let ones_c = vec![1.0_f64; N];
+    let wq0 = compose(&wq0_s, &q.scale, &ones_c, O, N).expect("compose");
+    // w1 = ΔW·Hl (o×n), m = w1·ΔWᵀ (o×o), exactly as `eigen_parts` builds it.
+    let mut w1 = vec![0.0_f64; O * N];
+    for i in 0..O {
+        for k in 0..N {
+            let mut acc = 0.0_f64;
+            for j in 0..N {
+                acc += (fx.ws[i * N + j] - wq0[i * N + j]) * hl[j * N + k];
+            }
+            w1[i * N + k] = acc;
+        }
+    }
+    drop(wq0);
+    let mut m = vec![0.0_f64; O * O];
+    for i in 0..O {
+        for l in 0..O {
+            let mut acc = 0.0_f64;
+            for k in 0..N {
+                acc += w1[i * N + k] * (fx.ws[l * N + k]);
+            }
+            m[i * O + l] = acc;
+        }
+    }
+    eprintln!("MEAS (7) eigh called once per corrector, at n = o = {O}");
+    phase(
+        "(7) eigh(o=896)",
+        10.0 * (O as f64).powi(3) / 2.0,
+        3,
+        || eigh(&m, O).expect("eigh").0[0],
+    );
+}
+
+/// Phase group (8): the WHOLE `fold_fit` call. One run only (the phase exceeds three-run budget).
+#[test]
+#[ignore = "measurement: --release --ignored --nocapture"]
+fn t_f_fold_fit() {
+    let fx = fixture();
+    header();
+    eprintln!(
+        "MEAS (8) fold_fit call counts per call (read from fold_fit.rs): gptq_e8 1, \
+         c_step 6, r_step 9, d_step 3, e8_icm_step 4, objective 6, had_gram 4"
+    );
+    let flops = fold_fit_flops();
+    phase("(8) WHOLE fold_fit(down: o=896,n=4864)", flops, 1, || {
+        let f = fold_fit(&fx.ws, &fx.h, O, N, Some(&fx.g_row), &fx.fit).expect("fold_fit");
+        f.wp[0]
+    });
+}
+
+/// Phase group (9): the WHOLE `fit_tensor` call for `Kind::Down`. One run only.
+#[test]
+#[ignore = "measurement: --release --ignored --nocapture"]
+fn t_g_fit_tensor() {
+    let fx = fixture();
+    header();
+    let p = params(&fx);
+    let flops = fold_fit_flops() + (O as f64) * (N as f64) * (N as f64) + 29.0e9;
+    phase("(9) WHOLE fit_tensor(Down: o=896,n=4864)", flops, 1, || {
+        let t = fit_tensor(
+            TensorKind::Down,
+            &fx.ws,
+            &fx.h,
+            O,
+            N,
+            Some(&fx.g_row),
+            &p,
+            None,
+        )
+        .expect("fit_tensor");
+        eprintln!(
+            "MEAS (9) fit_tensor result: planes {} nsign {} ncorr {}",
+            t.planes.len(),
+            t.bits.nsign,
+            t.bits.ncorr
+        );
+        t.wp[0]
+    });
+}
+
+/// The by-hand flop count of one production `fold_fit` (see the module doc for the terms).
+fn fold_fit_flops() -> f64 {
+    let (o, n) = (O as f64, N as f64);
+    let gptq = gptq_flops(o, n);
+    let c = 2.0 * o * n * n + n * n * n / 6.0;
+    let r = o * n * n;
+    let d = 2.0 * o * n * n + n * n * n / 6.0;
+    let icm = icm_flops(o, n, 2.0);
+    let obj = o * n * n;
+    // 3 refit passes of (c, r, d, icm); j0/j1 objectives; pack phase (2 r/c pairs + 1 icm + 6 obj).
+    gptq + 3.0 * (c + r + d + icm) + 2.0 * obj + 3.0 * (c + r) + icm + 6.0 * obj + 4.0 * n * n
+}
