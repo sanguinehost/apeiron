@@ -10,8 +10,8 @@
 //! projections share one `quant_act` of `x`. The `Exact` path in `ffn.rs` and `par.rs` is not
 //! touched.
 
-#[cfg(target_arch = "x86_64")]
 use crate::engine::fp::F32;
+#[cfg(target_arch = "x86_64")]
 use crate::engine::mixer::f32_carrier::silu_f32_avx2;
 use crate::engine::mixer::f32_carrier::{q32_to_f32, silu_f32_scalar};
 use crate::engine::mixer::{carrier_from_env, Carrier};

@@ -2593,7 +2593,10 @@ fn conv_silu_channel_range(
 ) -> Result<(), StepError> {
     let cols = 3usize;
     let width = c1 - c0;
+    #[cfg(target_arch = "x86_64")]
     let is_avx2 = std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma");
+    #[cfg(not(target_arch = "x86_64"))]
+    let is_avx2 = false;
 
     let mut c = c0;
     if is_avx2 && packed_w.len() >= 4 * ch {

@@ -551,9 +551,12 @@ pub(super) fn conv_silu_cols_f32(
     let mut by_col = alloc_cols(k, ch);
     let writers = col_writers(&mut by_col);
     let out_f32 = Shared(by_col_f32.spare_capacity_mut().as_mut_ptr().cast::<F32>());
+    #[cfg(target_arch = "x86_64")]
     let avx2 = kernel == 4
         && std::is_x86_feature_detected!("avx2")
         && std::is_x86_feature_detected!("fma");
+    #[cfg(not(target_arch = "x86_64"))]
+    let avx2 = false;
     #[cfg(test)]
     seg::add(0, t_setup);
 
