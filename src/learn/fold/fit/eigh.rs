@@ -17,12 +17,21 @@
 //! classical Ky Fan / Eckart–Young result; the test compares it against 20 random rank-`rank`
 //! projections rather than reproving it.
 //!
+//! # Gram
+//!
+//! The two products `w1 = ΔW·Hl` and `M = w1·ΔWᵀ` exist once, in [`eigen_gram`], built on the
+//! Q32.32 [`gemm_nn_f64`]/[`gemm_nt_f64`] path and symmetrised; the corrector's `eigen_parts` is the only other consumer.
+//!
 //! # Deviations from the Python
 //!
-//! - `torch.linalg.eigh` is replaced by cyclic Jacobi. The spec's matrix is symmetric by
-//!   construction and small (`o ≤ a few thousand` rows), so the `O(n³)`-per-sweep, bounded-sweep
-//!   Jacobi is a faithful and dependency-free stand-in; the eigenvalues are returned ascending, as
-//!   `torch.linalg.eigh` returns them.
+//! - `torch.linalg.eigh` is replaced by cyclic Jacobi in the exact corrector. The spec's matrix is
+//!   symmetric by construction and small (`o ≤ a few thousand` rows), so the `O(n³)`-per-sweep,
+//!   bounded-sweep Jacobi is a faithful and dependency-free stand-in; the eigenvalues are returned
+//!   ascending, as `torch.linalg.eigh` returns them. The rounded carriers instead consume the
+//!   top-`rank` [`top_eigh`](crate::learn::solve::eig::top_eigh) of the same Gram.
+//! - The Gram is formed in Q32.32 through [`eigen_gram`] rather than in scalar `f64`: each product
+//!   scales its operands by exact powers of two ([`gemm_nn_f64`]'s rule) and undoes them exactly.
+//!   One round-to-nearest per product entry replaces the Python's `f64` accumulation.
 //! - The Python's `rank == 0` (`evecs[:, -0:]` selects *all* columns) is refused as `RankOutOfRange`
 //!   only when `rank > o`; `rank == 0` returns the empty corrector (`Corr = 0`, empty `U`, `V`),
 //!   which is the reading the callers mean. No caller passes `rank == 0`.
@@ -42,6 +51,12 @@
               `f64::EPSILON · n · ‖A‖_F`, a deliberate lossy `usize as f64` of a dimension. The \
               pedantic lints stay on for the rest of the crate."
 )]
+
+use crate::learn::solve::gemm::{gemm_nn_f64, gemm_nt_f64, GemmError};
+use crate::learn::solve::q32::fill_scale;
+
+/// The thread count the Gram products and the top-`rank` extraction share: one named const.
+pub const THREADS: usize = 8;
 
 /// A refusal from the symmetric eigendecomposition or the exact low-rank corrector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -191,6 +206,60 @@ fn sort_ascending(evals: &mut [f64], v: &mut [f64], n: usize) {
     }
 }
 
+/// The exact power of two `s` with `max_mag·s ≤ 8` (half of `gemm`'s input bound `16`), from
+/// [`fill_scale`]'s fill of the top of the grid range divided down by `2²⁸`; `2⁻²⁸` when
+/// `max_mag ≤ 0`. Scaling a matrix by `s` keeps the most significant bits of its largest entry,
+/// and undoing it is an exact division on the eigenvalues.
+///
+/// # Complexity
+/// `O(1)`.
+#[must_use]
+pub fn gram_scale(max_mag: f64) -> f64 {
+    fill_scale(max_mag) * (1.0 / 268_435_456.0)
+}
+
+/// A [`GemmError`] from a product whose shape and contraction depth were already validated here:
+/// an entry the grid cannot hold or a result that leaves `f64` maps to [`EighError::NotConverged`].
+fn gemm_err(_: GemmError) -> EighError {
+    EighError::NotConverged
+}
+
+/// The `o × o` Gram `M = (ΔW·Hl)·ΔWᵀ` of `ΔW` (`o × n`) and `Hl` (`n × n`) through the shared
+/// Q32.32 products [`gemm_nn_f64`] and [`gemm_nt_f64`], symmetrised as `(m_ij + m_ji)/2` and
+/// returned in real units, row-major `[o, o]`.
+///
+/// The operand scaling and its exact undo are the products' (`gemm`'s `panel_shift` rule). `M` is
+/// symmetric only up to the one rounding per entry the `nt` dot products apply, so each pair is
+/// averaged: exactly symmetric, within one grid unit of either raw entry. `Hl` need not be
+/// symmetric.
+///
+/// # Errors
+/// [`EighError::ShapeMismatch`] if `delta_w.len() != o·n` or `hl.len() != n·n`; otherwise the
+/// refusal of the underlying products ([`EighError::NotConverged`]).
+///
+/// # Complexity
+/// Time `O(o·n² + o²·n)` `i128` multiply-accumulates — the `ΔW·Hl` product `o·n·n` and the
+/// `w1·ΔWᵀ` product `o·o·n` — split across [`THREADS`], plus `O(o·n + o²)` scaling and
+/// symmetrisation. Space `O(o·n + o²)` for the intermediate and the matrix.
+pub fn eigen_gram(delta_w: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec<f64>, EighError> {
+    if delta_w.len() != o * n || hl.len() != n * n {
+        return Err(EighError::ShapeMismatch);
+    }
+    if o == 0 || n == 0 {
+        return Ok(vec![0.0f64; o * o]);
+    }
+    let w1 = gemm_nn_f64(delta_w, hl, o, n, n, THREADS).map_err(gemm_err)?;
+    let mut m = gemm_nt_f64(&w1, delta_w, o, n, o, THREADS).map_err(gemm_err)?;
+    for i in 0..o {
+        for j in 0..i {
+            let avg = 0.5 * (m[i * o + j] + m[j * o + i]);
+            m[i * o + j] = avg;
+            m[j * o + i] = avg;
+        }
+    }
+    Ok(m)
+}
+
 /// The exact rank-`rank` corrector in the metric `Hl`: the stored factors and the corrected dense
 /// block `Corr = U·V`.
 #[derive(Clone, Debug)]
@@ -218,16 +287,16 @@ pub struct Corrector {
 ///
 /// # Complexity
 ///
-/// Time `O(o·n·(n + rank) + o²·n + o³·sweeps)` — the `ΔW·Hl` product `O(o·n²)`, the `M` product
-/// `O(o²·n)`, the eigendecomposition `O(o³·sweeps)` ([`eigh`]), `V` `O(rank·o·n)` and `Corr`
-/// `O(o·n·rank)`. Space `O(o·n + o² + o·rank + rank·n)` for the working product, the matrix, the
-/// basis and the returned buffers.
+/// Time `O(o·n² + o²·n + o³·sweeps + rank·o·n)` — the [`eigen_gram`] products `O(o·n² + o²·n)`,
+/// the eigendecomposition `O(o³·sweeps)` ([`eigh`]), `V` `O(rank·o·n)` and `Corr`
+/// `O(o·n·rank)`. Space `O(o·n + o² + o·rank + rank·n)` for the products, the matrix, the basis
+/// and the returned buffers.
 ///
 /// # Errors
 ///
 /// [`EighError::ShapeMismatch`] if `delta_w.len() != o·n` or `hl.len() != n·n`;
-/// [`EighError::RankOutOfRange`] if `rank > o`; otherwise the [`EighError`] of the underlying
-/// [`eigh`].
+/// [`EighError::RankOutOfRange`] if `rank > o`; otherwise the [`EighError`] of [`eigen_gram`] or
+/// the underlying [`eigh`].
 pub fn lowrank_corrector_exact(
     delta_w: &[f64],
     hl: &[f64],
@@ -241,28 +310,17 @@ pub fn lowrank_corrector_exact(
     if rank > o {
         return Err(EighError::RankOutOfRange);
     }
-    // `w1 = ΔW · Hl` (o × n).
-    let mut w1 = vec![0.0f64; o * n];
-    for i in 0..o {
-        for k in 0..n {
-            let mut acc = 0.0f64;
-            for j in 0..n {
-                acc += delta_w[i * n + j] * hl[j * n + k];
-            }
-            w1[i * n + k] = acc;
-        }
+    if rank == 0 {
+        return Ok(Corrector {
+            corr: vec![0.0f64; o * n],
+            top_sum: 0.0,
+            u: Vec::new(),
+            v: Vec::new(),
+        });
     }
-    // `m = w1 · ΔWᵀ` (o × o); `eigh` symmetrises it as the Python does.
-    let mut m = vec![0.0f64; o * o];
-    for i in 0..o {
-        for l in 0..o {
-            let mut acc = 0.0f64;
-            for k in 0..n {
-                acc += w1[i * n + k] * delta_w[l * n + k];
-            }
-            m[i * o + l] = acc;
-        }
-    }
+    // `M = (ΔW·Hl)·ΔWᵀ` (o × o) through the shared Q32.32 Gram; `eigh` symmetrises the small
+    // residual asymmetry as the Python does.
+    let m = eigen_gram(delta_w, hl, o, n)?;
     let (evals, evecs) = eigh(&m, o)?;
     // `U` = the `rank` largest eigenvectors: columns `o − rank .. o` of the ascending-order basis.
     let mut u = vec![0.0f64; o * rank];

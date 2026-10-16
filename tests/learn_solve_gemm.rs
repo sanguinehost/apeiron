@@ -33,7 +33,7 @@ use std::hint::black_box;
 use std::time::Instant;
 
 use apeiron::learn::grad::dense::linear_fwd;
-use apeiron::learn::solve::gemm::{gemm_nn, gemm_nn_f64, gemm_nt, GemmError, MAX_K};
+use apeiron::learn::solve::gemm::{gemm_nn, gemm_nn_f64, gemm_nt, gemm_nt_f64, GemmError, MAX_K};
 
 /// Raw Q32.32 `1.0`.
 const ONE_RAW: i64 = 1 << 32;
@@ -484,6 +484,36 @@ fn gemm_nn_f64_refusals() {
     let big = vec![1e300f64; 6];
     assert_eq!(
         gemm_nn_f64(&big, &big, 2, 3, 2, 1),
+        Err(GemmError::Overflow)
+    );
+}
+
+#[test]
+fn gemm_nt_f64_is_gemm_nn_f64_of_the_transpose_bit_equal() {
+    // `product_f64` scales and undoes identically for both layouts, so `A·Bᵀ` read from `b[n,k]`
+    // equals `A·B` read from `bᵀ` entry for entry.
+    for &(m, k, n) in &[(4usize, 128usize, 33usize), (16, 256, 64), (3, 5, 7)] {
+        for &(ma, mb) in &[(1e-3, 1.0), (1.0, 1.0), (1e3, 1e3)] {
+            let mut rng = Lcg::new(0xD1B5_4A32_D192_ED03 ^ (m * k * n) as u64);
+            let a = reals(&mut rng, m * k, ma);
+            let b = reals(&mut rng, k * n, mb);
+            let mut bt = vec![0.0f64; n * k];
+            for l in 0..k {
+                for j in 0..n {
+                    bt[j * k + l] = b[l * n + j];
+                }
+            }
+            let nn = gemm_nn_f64(&a, &b, m, k, n, 4).expect("in range");
+            let nt = gemm_nt_f64(&a, &bt, m, k, n, 4).expect("in range");
+            assert_eq!(
+                nn.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+                nt.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+                "({m},{k},{n}) mag ({ma},{mb})"
+            );
+        }
+    }
+    assert_eq!(
+        gemm_nt_f64(&[1e300], &[1e300], 1, 1, 1, 1),
         Err(GemmError::Overflow)
     );
 }

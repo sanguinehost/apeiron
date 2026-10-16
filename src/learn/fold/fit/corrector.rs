@@ -19,9 +19,11 @@
 //!
 //! # Reuse
 //!
-//! The `M` Gram is built here and its eigendecomposition is the shared
-//! [`crate::learn::fold::fit::eigh::eigh`] (cyclic Jacobi); the rank×rank ridge system is
-//! [`crate::learn::ridge::solve_spd`] (Cholesky). The `f16` round-trip and the u8 quantizer are
+//! The `M` Gram is [`crate::learn::fold::fit::eigh::eigen_gram`] — the two Q32.32
+//! [`crate::learn::solve::gemm`] products `w1 = ΔW·Hl` and `M = w1·ΔWᵀ`, shared with the exact
+//! corrector — and the rounded carriers' eigenstage is the top-`rank`
+//! [`crate::learn::solve::eig::top_eigh`] of its symmetrised real matrix. The rank×rank ridge system
+//! is [`crate::learn::ridge::solve_spd`] (Cholesky). The `f16` round-trip and the u8 quantizer are
 //! [`crate::learn::fold::fit::quant::f16r`] and [`crate::learn::fold::fit::quant::quant_c_u8`].
 //!
 //! # Deviations from the Python
@@ -33,7 +35,11 @@
 //!   [`solve_spd`](crate::learn::ridge::solve_spd); a non-positive pivot is refused as
 //!   [`CorrectorError::NotPositiveDefinite`] rather than silently producing a result.
 //! - The Python broadcasts a non-finite input through the decomposition; here a non-finite `ΔW` or
-//!   `Hl` entry is refused as [`CorrectorError::NonFinite`].
+//!   `Hl` entry is refused as [`CorrectorError::NonFinite`], and a finite entry outside the Q32.32
+//!   grid's real range (`|x| ≥ 2³¹`) as [`CorrectorError::NotRepresentable`].
+//! - The Gram and its eigenvectors are formed in Q32.32 ([`crate::learn::fold::fit::eigh::eigen_gram`],
+//!   [`crate::learn::solve::eig::top_eigh`]) rather than in scalar `f64` Jacobi; the top-`rank`
+//!   eigenpairs replace the full spectrum, and `M` is symmetrised.
 //!
 //! # Grade
 //!
@@ -51,9 +57,13 @@
               cast in the bit-count formula; the pedantic lints stay on for the rest of the crate."
 )]
 
-use crate::learn::fold::fit::eigh::{eigh, lowrank_corrector_exact, EighError};
+use crate::learn::fold::fit::eigh::{
+    eigen_gram, gram_scale, lowrank_corrector_exact, EighError, THREADS,
+};
 use crate::learn::fold::fit::quant::{f16r, quant_c_u8};
 use crate::learn::ridge::solve_spd;
+use crate::learn::solve::eig::top_eigh;
+use crate::learn::solve::q32::{from_grid, to_grid, GRID_BOUND, INPUT_BOUND};
 
 /// The `1e-6` ridge added to the rank×rank Gram `Uhᵀ Uh` before the `V` solve, the Python's
 /// `torch.eye(rank) * 1e-6`.
@@ -83,6 +93,9 @@ pub enum CorrectorError {
     RankOutOfRange,
     /// An entry of `ΔW` or `Hl` is not finite.
     NonFinite,
+    /// A finite entry of `ΔW` or `Hl` lies at or beyond the Q32.32 grid's real range `2³¹`
+    /// ([`GRID_BOUND`]), so the gemm path cannot represent it even at a unit scale.
+    NotRepresentable,
     /// The underlying eigendecomposition did not converge within its sweep bound.
     NotConverged,
     /// The rank×rank ridge system `Uhᵀ Uh + 1e-6 I` was not positive-definite at some pivot (only
@@ -127,7 +140,9 @@ pub struct LowrankCorrector {
 /// The rank-`rank` corrector of `ΔW` in the metric `Hl`, rounded into the carrier `mode`.
 ///
 /// `ΔW` is row-major `[o, n]`, `Hl` row-major `[n, n]`. Builds `M = (ΔW·Hl)·ΔWᵀ`, takes its top
-/// `rank` eigenvectors as `U` by [`eigh`], and returns `Corr = Uh·Vh` for the carrier:
+/// `rank` eigenvectors as `U` — [`eigen_parts`] ([`top_eigh`] of the symmetrised
+/// [`eigen_gram`]) for the rounded carriers, [`eigh`](crate::learn::fold::fit::eigh::eigh) for
+/// [`Mode::Exact`] — and returns `Corr = Uh·Vh` for the carrier:
 /// [`Mode::Exact`] `(U, Uᵀ ΔW)`, [`Mode::F16`] `Uh = f16r(U)`, `Vh = f16r(solve(Uhᵀ Uh + 1e-6 I,
 /// Uhᵀ ΔW))`, [`Mode::U8`] the same ridge solve on the column-quantized `Uh`, with each row of `V`
 /// then quantized. Returns the bit count of the stored factors and `top_sum`. `factors` also returns
@@ -135,8 +150,8 @@ pub struct LowrankCorrector {
 ///
 /// # Complexity
 ///
-/// Time `O(o·n² + o²·n + o³·sweeps + rank·o·n + rank²·(o + n) + rank³)` — the `ΔW·Hl` product
-/// `O(o·n²)`, the `M` product `O(o²·n)`, the eigendecomposition `O(o³·sweeps)` ([`eigh`]), the
+/// Time `O(o·n² + o²·n + o²·rank·iters + rank·o·n + rank²·(o + n) + rank³)` — the `ΔW·Hl` product
+/// `O(o·n²)`, the `M` product `O(o²·n)`, the top-`rank` extraction `O(o²·rank·iters)`, the
 /// rank×rank ridge Gram/right-hand side `O(rank²·o + rank·o·n)`, the `Cholesky` solve
 /// `O(rank³ + rank²·n)`, and the `Corr` product `O(rank·o·n)`; [`Mode::Exact`] only needs the
 /// eigenvector slice. Space `O(o·n + o² + o·rank + rank·n)`.
@@ -145,7 +160,8 @@ pub struct LowrankCorrector {
 ///
 /// [`CorrectorError::ShapeMismatch`] if `ΔW` is not `o·n` or `Hl` is not `n·n`;
 /// [`CorrectorError::RankOutOfRange`] if `rank > o`; [`CorrectorError::NonFinite`] if any `ΔW` or
-/// `Hl` entry is not finite; otherwise the refusal of the underlying [`eigh`] or ridge solve.
+/// `Hl` entry is not finite; [`CorrectorError::NotRepresentable`] if a finite entry lies at or
+/// beyond the Q32.32 grid's range `2³¹`; otherwise the refusal of the eigenstage or ridge solve.
 pub fn lowrank_corrector(
     delta_w: &[f64],
     hl: &[f64],
@@ -163,6 +179,13 @@ pub fn lowrank_corrector(
     }
     if delta_w.iter().any(|x| !x.is_finite()) || hl.iter().any(|x| !x.is_finite()) {
         return Err(CorrectorError::NonFinite);
+    }
+    if delta_w
+        .iter()
+        .chain(hl.iter())
+        .any(|&x| to_grid(x, GRID_BOUND).is_none())
+    {
+        return Err(CorrectorError::NotRepresentable);
     }
     if rank == 0 {
         return Ok(LowrankCorrector {
@@ -246,57 +269,63 @@ fn u8_bits(o: usize, n: usize, rank: usize) -> u64 {
 
 /// The top-`rank` eigenvectors of `M = (ΔW·Hl)·ΔWᵀ` and `Σ_k max(λ_k, 0)` over them.
 ///
-/// Colours `U` row-major `[o, rank]` with column `k` the eigenvector for the `(rank−k)`-th largest
-/// eigenvalue (ascending order, so column `rank−1` is the largest). The eigendecomposition is the
-/// shared [`eigh`]; the `M` Gram mirrors [`lowrank_corrector_exact`].
+/// The Gram is [`eigen_gram`] — the shared Q32.32 [`crate::learn::solve::gemm`] products,
+/// symmetrised — and its real matrix is scaled by the exact power of two [`gram_scale`]
+/// into [`top_eigh`]'s input bound; the scale is undone exactly on the eigenvalues (eigenvectors are
+/// unit-norm and scale-free). `U` is row-major `[o, rank]` with column `k` the eigenvector for the
+/// `(rank−k)`-th largest eigenvalue (ascending, so column `rank−1` is the largest). `M = 0` returns
+/// the identity columns, the basis the full `eigh` gives the zero matrix.
 ///
 /// # Complexity
 ///
-/// Time `O(o·n² + o²·n + o³·sweeps)`; space `O(o·n + o² + o·rank)`.
+/// Time `O(o·n² + o²·n + o²·rank·iters)` — the two [`crate::learn::solve::gemm`] products
+/// `O(o·n² + o²·n)`, the scaling `O(o²)`, and [`top_eigh`] `O(o²·rank·iters)`; space
+/// `O(o·n + o² + o·rank)`.
 ///
 /// # Errors
 ///
-/// The refusal of [`eigh`] (non-convergence).
-fn eigen_parts(
+/// [`CorrectorError::ShapeMismatch`] if `ΔW` is not `o·n` or `Hl` is not `n·n`;
+/// [`CorrectorError::RankOutOfRange`] if `rank > o`; [`CorrectorError::NotConverged`] for a
+/// [`top_eigh`] refusal (or its `DegenerateBasis` on a rank-deficient `M`).
+pub fn eigen_parts(
     delta_w: &[f64],
     hl: &[f64],
     o: usize,
     n: usize,
     rank: usize,
 ) -> Result<(Vec<f64>, f64), CorrectorError> {
-    // `w1 = ΔW · Hl` (o × n).
-    let mut w1 = vec![0.0f64; o * n];
-    for i in 0..o {
-        for k in 0..n {
-            let mut acc = 0.0f64;
-            for j in 0..n {
-                acc += delta_w[i * n + j] * hl[j * n + k];
-            }
-            w1[i * n + k] = acc;
-        }
+    if rank > o {
+        return Err(CorrectorError::RankOutOfRange);
     }
-    // `m = w1 · ΔWᵀ` (o × o); `eigh` symmetrises it as the Python does.
-    let mut m = vec![0.0f64; o * o];
-    for i in 0..o {
-        for l in 0..o {
-            let mut acc = 0.0f64;
-            for k in 0..n {
-                acc += w1[i * n + k] * delta_w[l * n + k];
+    let m = eigen_gram(delta_w, hl, o, n)?;
+    let mmax = m.iter().fold(0.0f64, |a, &x| a.max(x.abs()));
+    if mmax <= 0.0 {
+        // `M = 0`: the full `eigh` of the zero matrix returns the identity basis; reproduce it.
+        let mut u = vec![0.0f64; o * rank];
+        for i in 0..o {
+            for k in 0..rank {
+                if i == o - rank + k {
+                    u[i * rank + k] = 1.0;
+                }
             }
-            m[i * o + l] = acc;
         }
+        return Ok((u, 0.0));
     }
-    let (evals, evecs) = eigh(&m, o)?;
-    // `U` = the `rank` largest eigenvectors: columns `o − rank .. o` of the ascending-order basis.
+    let s_m = gram_scale(mmax);
+    let m_q: Vec<i64> = m
+        .iter()
+        .map(|&v| to_grid(v * s_m, INPUT_BOUND).ok_or(CorrectorError::NotConverged))
+        .collect::<Result<Vec<i64>, CorrectorError>>()?;
+    let top = top_eigh(&m_q, o, rank, THREADS).map_err(|_| CorrectorError::NotConverged)?;
     let mut u = vec![0.0f64; o * rank];
     for i in 0..o {
         for k in 0..rank {
-            u[i * rank + k] = evecs[i * o + (o - rank + k)];
+            u[i * rank + k] = from_grid(top.evecs[i * rank + k]);
         }
     }
     let mut top_sum = 0.0f64;
     for k in 0..rank {
-        let lam = evals[o - rank + k];
+        let lam = from_grid(top.evals[k]) / s_m;
         if lam > 0.0 {
             top_sum += lam;
         }

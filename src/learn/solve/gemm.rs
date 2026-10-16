@@ -498,9 +498,48 @@ pub fn gemm_nn_f64(
     n: usize,
     threads: usize,
 ) -> Result<Vec<f64>, GemmError> {
+    product_f64(a, b, m, k, n, threads, true)
+}
+
+/// `C[m,n] = A[m,k]·B[n,k]ᵀ` for `f64` operands on the Q32.32 [`gemm_nt`] path: [`gemm_nn_f64`]
+/// with `B` stored row-major `[n, k]`. Same scaling rule and thread independence.
+///
+/// # Errors
+/// As [`gemm_nn_f64`], with `b` of shape `[n, k]`.
+///
+/// # Complexity
+/// As [`gemm_nn_f64`].
+pub fn gemm_nt_f64(
+    a: &[f64],
+    b: &[f64],
+    m: usize,
+    k: usize,
+    n: usize,
+    threads: usize,
+) -> Result<Vec<f64>, GemmError> {
+    product_f64(a, b, m, k, n, threads, false)
+}
+
+/// The shared body of [`gemm_nn_f64`] and [`gemm_nt_f64`]; `nn` selects the `B` layout.
+///
+/// # Complexity
+/// As [`gemm_nn_f64`].
+fn product_f64(
+    a: &[f64],
+    b: &[f64],
+    m: usize,
+    k: usize,
+    n: usize,
+    threads: usize,
+    nn: bool,
+) -> Result<Vec<f64>, GemmError> {
     let (pa, sa) = to_panel(a)?;
     let (pb, sb) = to_panel(b)?;
-    let c = gemm_nn(&pa, &pb, m, k, n, threads)?;
+    let c = if nn {
+        gemm_nn(&pa, &pb, m, k, n, threads)?
+    } else {
+        gemm_nt(&pa, &pb, m, k, n, threads)?
+    };
     let back = sa
         .checked_add(sb)
         .map(|e| 2.0_f64.powi(e))
