@@ -437,7 +437,9 @@ fn feedback_u_is_the_upper_inverse_factor() {
             worst = worst.max(t);
         }
     }
-    assert!(worst < 1e-9, "UᵀUH − I residual {worst}");
+    // The factor is Q32.32 (`solve::inv`): the grid floor of this fixture's residual is 1.1e-9
+    // (the f64 path measured below 1e-9), so the bound is 5e-9.
+    assert!(worst < 5e-9, "UᵀUH − I residual {worst}");
     // Refusals of the factor itself.
     assert_eq!(feedback_u(&h, 0, damp), Err(GptqE8Error::ZeroDim));
     assert_eq!(
@@ -836,10 +838,20 @@ fn refusals() {
     );
 }
 
-/// `beam = 1` is bit-identical to the pre-beam port: on five deterministic correlated-Hessian
+/// `got` and `want` agree entrywise to a relative `1e-9` (the Q32.32 feedback factor's scales
+/// against the f64 capture; measured `4e-11`).
+fn scales_close(got: &[f64], want: &[f64]) -> bool {
+    got.len() == want.len()
+        && got
+            .iter()
+            .zip(want)
+            .all(|(g, w)| (g - w).abs() <= 1e-9 * w.abs().max(1.0))
+}
+
+/// `beam = 1` reproduces the pre-beam port: on five deterministic correlated-Hessian
 /// matrices the code indices and the group scales equal the values captured from the implementation
 /// before the beam branch existed (the `beam = 1` path is the Python's `beam <= 1` single path,
-/// line 305). `assert_eq!` on the bit patterns: the returned vectors are compared exactly.
+/// line 305). Indices are compared exactly; scales to a relative `1e-9` ([`scales_close`]).
 #[test]
 #[allow(
     clippy::items_after_statements,
@@ -939,7 +951,12 @@ fn beam_one_matches_the_pre_beam_result() {
         let r = gptq_e8(&w, &h, o, n, damp, false, false, 1).expect("gptq_e8 beam 1");
         check_decode(&r, o, n, "beam 1 golden");
         assert_eq!(r.idx.as_slice(), GOLDEN_IDX[m], "matrix {m}: code indices");
-        assert_eq!(r.scale.as_slice(), GOLDEN_SCALE[m], "matrix {m}: scales");
+        // Indices exact; scales follow the Q32.32 feedback factor: relative 1e-9 (measured 4e-11).
+        assert!(
+            scales_close(&r.scale, GOLDEN_SCALE[m]),
+            "matrix {m}: scales {:?}",
+            r.scale
+        );
     }
 }
 

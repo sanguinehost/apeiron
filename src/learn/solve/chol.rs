@@ -128,8 +128,9 @@ fn div_round(v: i128, d: i128) -> Option<i128> {
     }
 }
 
-/// [`div_round`] then [`narrow`], the round-to-nearest quotient as a Q32.32 `i64`.
-fn div_to_i64(num: i128, den: i128) -> Option<i64> {
+/// [`div_round`] then [`narrow`], the round-to-nearest quotient as a Q32.32 `i64`. Promoted to
+/// `pub(super)` for [`super::inv`]'s triangular inverse, which rounds one quotient per entry.
+pub(super) fn div_to_i64(num: i128, den: i128) -> Option<i64> {
     match div_round(num, den) {
         Some(q) => narrow(q),
         None => None,
@@ -349,8 +350,9 @@ fn trailing_update_par(
 /// `O(n³/3)` checked `i128` multiply-adds (diagonal block, panel solve and trailing update each
 /// contract over the processed columns) and `O(n²)` space for `L` and the working copy.
 /// Derivation: the trailing update contracts over `kb` per block column for `Σ_blocks (n−k)²`,
-/// which is `n³/3`.
-fn factor_scaled(a: &[i64], n: usize, threads: usize) -> Result<Vec<i64>, SolveError> {
+/// which is `n³/3`. Promoted to `pub(super)` so [`super::inv`] factors the reversed equilibrated
+/// matrix through this body instead of a copy.
+pub(super) fn factor_scaled(a: &[i64], n: usize, threads: usize) -> Result<Vec<i64>, SolveError> {
     if a.len() != n * n {
         return Err(SolveError::ShapeMismatch);
     }

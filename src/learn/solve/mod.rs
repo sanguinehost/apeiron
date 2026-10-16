@@ -21,3 +21,8 @@ pub mod q32;
 /// iteration with a Rayleigh–Ritz acceleration and an integer Jacobi on the small block — the
 /// corrector's replacement for the full `eigh`.
 pub mod eig;
+
+/// The upper-triangular inverse feedback factor `U` with `UᵀU = H⁻¹` ([`inv::inv_factor_upper`]):
+/// diagonal equilibration, the blocked `Cholesky` of [`chol`] on the reversed matrix, and a blocked,
+/// threaded triangular inverse — the primitive behind the GPTQ error feedback's `feedback_u`.
+pub mod inv;
