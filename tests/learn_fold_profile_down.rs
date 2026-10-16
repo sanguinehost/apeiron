@@ -119,50 +119,59 @@ fn params(fx: &Fx) -> TensorParams {
 /// # Complexity
 /// Temporal `O(rows·n²)` for the Gram (the dominant term) plus `O(o·n)` samples; spatial `O(n²)`.
 fn fixture() -> Fx {
+    fixture_dims(O, N, ROWS, &OUTLIER_COLS)
+}
+
+/// [`fixture`] at an arbitrary geometry (`n` a multiple of 128): `o` output rows, `n` input
+/// columns, `rows` activation rows, and the `cols` scaled by [`OUTLIER_SCALE`].
+///
+/// # Complexity
+/// Temporal `O(rows·n²)` for the Gram (the dominant term) plus `O(o·n)` samples; spatial `O(n²)`.
+fn fixture_dims(o: usize, n: usize, rows: usize, cols: &[usize]) -> Fx {
     let mut rng = Lcg::new(20_261_016);
-    // X [ROWS, N] ~ N(0,1), eight columns scaled by OUTLIER_SCALE.
-    let mut x = vec![0.0_f64; ROWS * N];
+    // X [rows, n] ~ N(0,1), the `cols` columns scaled by OUTLIER_SCALE.
+    let mut x = vec![0.0_f64; rows * n];
     for v in x.iter_mut() {
         *v = gauss(&mut rng);
     }
-    for &col in &OUTLIER_COLS {
-        for r in 0..ROWS {
-            x[r * N + col] *= OUTLIER_SCALE;
+    for &col in cols {
+        for r in 0..rows {
+            x[r * n + col] *= OUTLIER_SCALE;
         }
     }
     // H = XᵀX / rows, upper triangle first, then mirrored.
-    let mut h = vec![0.0_f64; N * N];
-    for r in 0..ROWS {
-        let xr = &x[r * N..(r + 1) * N];
-        for i in 0..N {
+    let mut h = vec![0.0_f64; n * n];
+    for r in 0..rows {
+        let xr = &x[r * n..(r + 1) * n];
+        for i in 0..n {
             let a = xr[i];
-            let row = &mut h[i * N + i..i * N + N];
+            let row = &mut h[i * n + i..i * n + n];
             for (jj, xv) in xr[i..].iter().enumerate() {
                 row[jj] += a * xv;
             }
         }
     }
-    for i in 0..N {
+    for i in 0..n {
         for j in 0..i {
-            h[i * N + j] = h[j * N + i];
+            h[i * n + j] = h[j * n + i];
         }
     }
-    let inv_rows = 1.0 / ROWS as f64;
+    let inv_rows = 1.0 / rows as f64;
     for v in h.iter_mut() {
         *v *= inv_rows;
     }
     drop(x);
-    // Ws [O, N] ~ N(0, 1/sqrt(N)).
-    let s = 1.0 / (N as f64).sqrt();
-    let ws: Vec<f64> = (0..O * N).map(|_| s * gauss(&mut rng)).collect();
+    // Ws [o, n] ~ N(0, 1/sqrt(n)).
+    let s = 1.0 / (n as f64).sqrt();
+    let ws: Vec<f64> = (0..o * n).map(|_| s * gauss(&mut rng)).collect();
     // g_row: positive, mean 1.
-    let mut g_row: Vec<f64> = (0..O).map(|_| (0.35 * gauss(&mut rng)).exp()).collect();
-    let gmean = g_row.iter().sum::<f64>() / O as f64;
+    let mut g_row: Vec<f64> = (0..o).map(|_| (0.35 * gauss(&mut rng)).exp()).collect();
+    let gmean = g_row.iter().sum::<f64>() / o as f64;
     for v in g_row.iter_mut() {
         *v /= gmean;
     }
-    let rg_q = QUANT_RIDGE * (N as f64 / N_REF);
-    let damp = QUANT_DAMP * (N as f64 / N_REF);
+    let rg_q = QUANT_RIDGE * (n as f64 / N_REF);
+    let damp = QUANT_DAMP * (n as f64 / N_REF);
     let fit = FoldFitConfig {
         iters: 1,
         ridge: rg_q,
@@ -411,6 +420,46 @@ fn t_f_fold_fit() {
         let f = fold_fit(&fx.ws, &fx.h, O, N, Some(&fx.g_row), &fx.fit).expect("fold_fit");
         f.wp[0]
     });
+}
+
+/// Geometry of the small gate fixture: a `fold_fit` call that finishes in seconds.
+const GATE_O: usize = 64;
+/// Gate fixture input width (four 128-column groups).
+const GATE_N: usize = 512;
+/// Gate fixture activation rows.
+const GATE_ROWS: usize = 256;
+/// Gate fixture outlier columns.
+const GATE_COLS: [usize; 8] = [3, 77, 130, 261, 300, 411, 450, 509];
+
+/// Recorded f64 reference `[J(gptq), J(refit0)]` of the gate fixture, from the source before the
+/// integer-carrier conversion of `src/learn/fold/fit/*` (`measured` at `59370c1a`).
+const GATE_REF_TRACE: [f64; 2] = [23.8468995402399, 11.221175253556261];
+
+/// The integer-carrier conversion gate: `fold_fit` on the small fixture reaches an objective no
+/// worse than the recorded f64 reference by more than `2^-20` relative, for both candidates and
+/// the best, with the bit budgets unchanged. A conversion that degrades `gptq_e8`, the refit
+/// steps, the ICM passes or the scale quantisers moves one of these and reddens this test.
+#[test]
+fn gate_small_fold_fit_objective() {
+    let fx = fixture_dims(GATE_O, GATE_N, GATE_ROWS, &GATE_COLS);
+    let f = fold_fit(&fx.ws, &fx.h, GATE_O, GATE_N, Some(&fx.g_row), &fx.fit).expect("fold_fit");
+    eprintln!(
+        "GATE trace={:?} j_best={:e} tag={:?}",
+        f.trace, f.j_best, f.tag
+    );
+    let tol = 1.0 + 2.0_f64.powi(-20);
+    assert_eq!(f.trace.len(), 2);
+    for (j, r) in f.trace.iter().zip(GATE_REF_TRACE) {
+        assert!(
+            *j <= r * tol,
+            "J {j:e} exceeds the f64 reference {r:e} by more than 2^-20"
+        );
+    }
+    assert!(f.j_best <= GATE_REF_TRACE[0].min(GATE_REF_TRACE[1]) * tol);
+    let g = GATE_N / 128;
+    assert_eq!(f.bits_r, (4 * GATE_O * g + 8 * GATE_O + 64) as u64);
+    assert_eq!(f.bits_c, (6 * GATE_N + 32) as u64);
+    assert_eq!(f.bits_d, (5 * GATE_N + 32) as u64);
 }
 
 /// FNV-1a 64 over the little-endian bytes of `words`.
