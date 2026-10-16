@@ -87,3 +87,38 @@ pub fn word_solve_top_eigh(
 ) -> Result<eig::TopEig, eig::EigError> {
     eig::top_eigh(m, n, r, threads)
 }
+
+/// The real floor-log2 body, rooted at the concrete `u128` word.
+pub fn word_solve_q32_ilog2_pos(x: u128) -> Option<u32> {
+    q32::ilog2_pos(x)
+}
+
+/// The real round-to-nearest-even right shift, rooted at the concrete `i128` value.
+pub fn word_solve_q32_rshift_rne(v: i128, s: u32) -> Option<i128> {
+    q32::rshift_rne(v, s)
+}
+
+/// The real Q64.64 → Q32.32 round-to-nearest-even narrowing, rooted at the concrete `i128`.
+pub fn word_solve_q32_round_even(v: i128) -> Result<i64, q32::Q32Error> {
+    q32::round_q32_even(v)
+}
+
+/// The real [`q32::Fx::from_i128`] body, rooted at the concrete `i128`/`i32`.
+pub fn word_solve_q32_fx_from_i128(v: i128, e: i32) -> Result<q32::Fx, q32::Q32Error> {
+    q32::Fx::from_i128(v, e)
+}
+
+/// The real [`q32::Bfp::from_i128`] body, rooted at the concrete `&[i128]`.
+pub fn word_solve_q32_bfp_from_i128(v: &[i128], e: i32) -> Result<q32::Bfp, q32::Q32Error> {
+    q32::Bfp::from_i128(v, e)
+}
+
+/// The real [`q32::SpdQ::from_q32`] body, rooted at the concrete Q32.32 `i64` word.
+pub fn word_solve_q32_spd_from_q32(h: &[i64], n: usize) -> Result<q32::SpdQ, q32::Q32Error> {
+    q32::SpdQ::from_q32(h, n)
+}
+
+/// The real binary16 round-to-nearest-even body, rooted at the concrete [`q32::Fx`].
+pub fn word_solve_q32_round_f16(x: q32::Fx) -> Result<q32::Fx, q32::Q32Error> {
+    q32::round_f16(x)
+}
