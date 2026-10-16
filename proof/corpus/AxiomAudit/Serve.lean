@@ -18,6 +18,8 @@ import Serve.Kern.R4.Lut4
 import Serve.Kern.R4.Gemm6
 import Serve.Kern.R4.Matmat7
 import Serve.Block.R4.Ffn7
+import Serve.Kern.R4.Matmat8
+import Serve.Kern.R4.Lut5
 import Serve.Kern.Lut
 import Serve.Kern.Matmat2
 import Serve.Kern.Matmat3
@@ -261,3 +263,12 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.ffn7Code_two
 #audit apeiron_word.ffn7Code_is_hinner_lhs
 #audit apeiron_word.ffn7_tail_ok
+#audit apeiron_word.matmat8_rowaccs_body_bail_mul128
+#audit apeiron_word.matmat8_rowaccs_body_bail_add
+#audit apeiron_word.word_matmat8_rowaccs_bail_ok
+#audit apeiron_word.word_matmat8_rowaccs_total_ok
+#audit apeiron_word.word_block_inners_group_ok
+#audit apeiron_word.word_block_inners_sb_ok
+#audit apeiron_word.word_block_inners_lane_ok
+#audit apeiron_word.word_block_inners_portable_ok
+#audit apeiron_word.word_block_inners_portable_refuses
