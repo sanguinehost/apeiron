@@ -7,6 +7,9 @@ import Serve.Kern.Gemm4
 import Serve.Kern.Gemm
 import Serve.Kern.Lut2
 import Serve.Kern.R4.Lut3
+import Serve.Kern.R4.Matmat5
+import Serve.Kern.R4.Gemm5
+import Serve.Block.R4.Ffn5
 import Serve.Kern.Lut
 import Serve.Kern.Matmat2
 import Serve.Kern.Matmat3
@@ -174,3 +177,16 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.ffn4_lane_loop_spec
 #audit apeiron_word.ffn4_lane_loop_ok
 #audit apeiron_word.ffn4_lane_loop_len
+#audit apeiron_word.word_quant_act_loop0_body_ok
+#audit apeiron_word.word_quant_act_loop0_body_refuses
+#audit apeiron_word.ffn5_block_body_done
+#audit apeiron_word.ffn5_block_body_stop
+#audit apeiron_word.ffn5_unsigned_abs_ok
+#audit apeiron_word.ffn5_i64max_abs_val
+#audit apeiron_word.ffn5_act_qk
+#audit apeiron_word.ffn5_act_qk_val
+#audit apeiron_word.gemm5_fromU32U8_spec
+#audit apeiron_word.word_pack_group_loop0_loop1_loop0_ok
+#audit apeiron_word.word_matmat5_fast_family_loop0_eq
+#audit apeiron_word.word_matmat5_fast_family_loop1_eq
+#audit apeiron_word.word_matmat5_fast_family_eq
