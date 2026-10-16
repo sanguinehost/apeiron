@@ -64,6 +64,16 @@
 //!   `beam = 4` and the range `1..=16` is the ported domain.
 //! - `feedback_u` refuses a non-positive pivot of the damped Hessian; the Python's
 //!   `torch.linalg.cholesky` raises there too.
+//! - `feedback_u` factors the damped Hessian through the Q32.32 [`inv_factor_upper`] (one exact
+//!   `i128` accumulation and one round-to-nearest per stored entry) instead of the scalar `f64`
+//!   `ul_cholesky`/`upper_tri_inverse` pair. The returned `U` is the same matrix up to the grid's
+//!   `2^-33` relative floor: measured `≤ 1.7e-8` normwise against the `f64` formula on a `1e6`
+//!   diagonal range, with a raw `UᵀU·H − I` residual of `2e-6 .. 8e-6` there — smaller than the
+//!   `f64` reference factor's own `1.4e-5 .. 2.4e-5`, i.e. set by `κ(H)`, not by the grid — and
+//!   `1.1e-9` on a narrow-range `n = 64` fixture, just above the `1e-9` a 52-bit `f64` inverse
+//!   reached. It is therefore not bit-identical to the `f64` path, and the captured `beam = 1`
+//!   golden scales move with it by `≈ 4e-11` relative (last six digits). Measurements:
+//!   `tests/learn_solve_inv.rs`.
 
 #![allow(
     clippy::many_single_char_names,
@@ -78,7 +88,9 @@
 
 use crate::engine::ONE;
 use crate::learn::code::e8::{self, E8Error};
-use crate::learn::gptq::{ul_cholesky, upper_tri_inverse};
+use crate::learn::solve::chol::SolveError;
+use crate::learn::solve::inv::inv_factor_upper;
+use crate::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
 /// Columns per group: the Python `GROUP`. One scale per (row, group).
 pub const GROUP: usize = 128;
@@ -176,21 +188,80 @@ fn solve_upper_block(u: &[f64], n: usize, b0: usize, m: usize, e: &mut [f64]) {
     }
 }
 
+/// The worker count handed to [`inv_factor_upper`] by [`feedback_u`]. `feedback_u` takes no thread
+/// parameter and its factor is bit-identical for every count, so the count changes only wall-clock;
+/// `8` matches the other solve callers' fixed count and leaves headroom on the shared box.
+const INV_THREADS: usize = 8;
+
+/// The exact power of two `s` that balances the grid representation of `H` against the grid
+/// representation of the factor [`inv_factor_upper`] returns, `U/sqrt(s)`, before the Q32.32
+/// boundary.
+///
+/// A Q32.32 word holds a real `x` with absolute error `2^-33`, so a stored quantity's *relative*
+/// error is `2^-33/|x|`: storing `s·H` costs `2^-33/(s·h_min)` at the smallest magnitude `h_min`,
+/// and storing `(sH)^{-1/2} = U/sqrt(s)` — undone by the exact `×sqrt(s)` below — costs
+/// `2^-33·sqrt(s·h_max)` at the largest `h_max`. Equalizing them gives `s = (h_min²·h_max)^{-1/3}`,
+/// so `s·h_min = (h_min/h_max)^{1/3}`, `s·h_max = (h_max/h_min)^{1/3}` and both relative errors are
+/// `2^-33·(h_max/h_min)^{1/3}`, below `1e-7` for a diagonal range up to `6e8`. Filling the grid
+/// instead (`s ≈ 2^31/h_max`) would leave `U` at `2^-33·sqrt(2^31) ≈ 5.4e-6` relative — over that
+/// requirement — because the undo multiplies the grid's absolute error by `sqrt(s)`.
+///
+/// The exponent is rounded down to an even integer and `s = 2^e` is exact, so `H·s` is an exact
+/// power-of-two scaling and `sqrt(s) = 2^(e/2)` is exact too (the undo adds no rounding). `1.0` if
+/// the diagonal is not all positive, where [`inv_factor_upper`] refuses the matrix anyway.
+///
+/// # Complexity
+///
+/// `O(1)`.
+fn inv_scale(h_min: f64, h_max: f64) -> f64 {
+    if !h_min.is_finite() || !h_max.is_finite() || h_min <= 0.0 || h_max <= 0.0 {
+        return 1.0;
+    }
+    let even = |e: f64| 2.0 * (e / 2.0).floor();
+    let ideal = even(-((2.0 * h_min.log2() + h_max.log2()) / 3.0).round());
+    let hi = even((GRID_BOUND / (2.0 * h_max)).log2().floor());
+    let lo = even((0.25e-270 / h_min).log2().ceil());
+    let e = ideal.clamp(lo.min(hi), hi).clamp(-1022.0, 900.0);
+    2f64.powi(e as i32)
+}
+
+/// [`SolveError`] as a [`GptqE8Error`]: the primitive's refusals onto the variants this module
+/// already returns, with the equilibration's non-positive diagonal and a non-positive `Cholesky`
+/// pivot both reported as [`GptqE8Error::NotPositiveDefinite`] and a grid-range refusal as
+/// [`GptqE8Error::Overflow`].
+fn map_inv(e: SolveError) -> GptqE8Error {
+    match e {
+        SolveError::ShapeMismatch => GptqE8Error::ShapeMismatch,
+        SolveError::Empty => GptqE8Error::ZeroDim,
+        SolveError::NonPositiveDiagonal | SolveError::NotPositiveDefinite => {
+            GptqE8Error::NotPositiveDefinite
+        }
+        SolveError::Overflow => GptqE8Error::Overflow,
+    }
+}
+
 /// The inverse feedback factor `U` of the damped Hessian `H`: upper-triangular with `UᵀU = H⁻¹` for
 /// `H = h + damp·mean(diag(h))·I`, and a zero diagonal entry replaced by `1.0` after damping (the
-/// Python `feedback_u`, lines 148–158). `U = V⁻¹` with the upper factor `V` of `h = V·Vᵀ`; the
-/// Python's `cholesky_upper(sym(H⁻¹))` is the same matrix up to f64 reassociation.
+/// Python `feedback_u`, lines 148–158). The damping and the zero-diagonal rule stay in `f64`; the
+/// damped `H` crosses into Q32.32 once, through the exact power-of-two scale [`inv_scale`], and
+/// [`inv_factor_upper`] (`src/learn/solve/inv.rs`) returns `U/sqrt(s)`, undone here by the exact
+/// `×sqrt(s)`. The grid factor is the same matrix to the grid's relative floor (`2^-33` per entry,
+/// below `1e-7`), so this is not the bit-identical image of the scalar `f64` `ul_cholesky` and
+/// `upper_tri_inverse` pair it replaces.
 ///
 /// # Errors
 /// [`GptqE8Error::ShapeMismatch`] if `h.len() != n·n`; [`GptqE8Error::ZeroDim`] if `n == 0`;
-/// [`GptqE8Error::NonFinite`] if `h` holds a NaN or an infinite entry;
-/// [`GptqE8Error::NotPositiveDefinite`] if the damped matrix has a non-positive Cholesky pivot.
+/// [`GptqE8Error::NonFinite`] if `h`, `mean(diag(h))` or a scaled entry is a NaN or an infinite;
+/// [`GptqE8Error::NotPositiveDefinite`] if the damped matrix has a non-positive diagonal or
+/// `Cholesky` pivot; [`GptqE8Error::Overflow`] if a scaled entry leaves the Q32.32 grid range or a
+/// checked `i128` operation overflows.
 ///
 /// # Complexity
-/// - Temporal: `O(n³)` floating-point operations — `n³/6` for the upper Cholesky and `n³/6` for the
-///   triangular inverse. Measure: arithmetic operations. Derivation: two triangular sweeps, each
-///   summing `Σ_j (n−j)²/2` terms.
-/// - Spatial: `O(n²)` f64 words for `h`'s copy, the factor `V` and the inverse `U`.
+/// - Temporal: `O(n³)` checked `i128` integer operations — the factor `n³/3` ([`inv_factor_upper`]'s
+///   equilibrated `Cholesky`) plus the inverse `n³/6`. Measure: `i128` multiply-adds. Derivation:
+///   one blocked factor and one blocked triangular inverse.
+/// - Spatial: `O(n²)` words — the `f64` damped copy and the `i64` grid, plus `inv_factor_upper`'s
+///   `O(n²)` `i64` buffers.
 pub fn feedback_u(h: &[f64], n: usize, damp: f64) -> Result<Vec<f64>, GptqE8Error> {
     if n == 0 {
         return Err(GptqE8Error::ZeroDim);
@@ -206,12 +277,28 @@ pub fn feedback_u(h: &[f64], n: usize, damp: f64) -> Result<Vec<f64>, GptqE8Erro
         return Err(GptqE8Error::NonFinite);
     }
     let mut hh = h.to_vec();
+    let mut h_min = f64::INFINITY;
     for i in 0..n {
         let v = hh[i * n + i] + damp * mean;
         hh[i * n + i] = if v == 0.0 { 1.0 } else { v };
+        h_min = h_min.min(hh[i * n + i]);
     }
-    let v = ul_cholesky(&hh, n).map_err(|_| GptqE8Error::NotPositiveDefinite)?;
-    upper_tri_inverse(&v, n).map_err(|_| GptqE8Error::NotPositiveDefinite)
+    let mut h_max = 0.0f64;
+    for &x in &hh {
+        h_max = h_max.max(x.abs());
+    }
+    let scale = inv_scale(h_min, h_max);
+    let mut grid = vec![0i64; n * n];
+    for (w, &x) in grid.iter_mut().zip(&hh) {
+        let y = x * scale;
+        if !y.is_finite() {
+            return Err(GptqE8Error::NonFinite);
+        }
+        *w = to_grid(y, GRID_BOUND).ok_or(GptqE8Error::Overflow)?;
+    }
+    let uq = inv_factor_upper(&grid, n, INV_THREADS).map_err(map_inv)?;
+    let undo = scale.sqrt();
+    Ok(uq.iter().map(|&v| from_grid(v) * undo).collect())
 }
 
 /// The act-order permutation of a Hessian diagonal, at 8-block granularity: groups in descending
