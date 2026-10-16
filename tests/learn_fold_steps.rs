@@ -1,7 +1,11 @@
 //! `tests/learn_fold_steps.rs` — the fold-transfer refit steps: `fwht128` involution and
 //! norm-preservation, `compose` shapes, `c_step` / `r_step` planted-parameter recovery, the `d_step`
-//! (Hadamard-domain column scale) forward-model stationarity by central differences and descent, and
-//! the shape / non-SPD refusals. Grade `tested`; nothing here is `proved`.
+//! (Hadamard-domain column scale) forward-model stationarity by central differences and descent, the
+//! agreement of `c_step` and `d_step` with their deleted `f64` bodies, and the shape / non-SPD /
+//! non-finite refusals. Grade `tested`; nothing here is `proved`.
+//!
+//! Mutation controls: flipping the `h_rot`/`hl` factor application in `c_step` or dropping it in
+//! `d_step` turns `c_step_matches_old_f64_formula` / `d_step_matches_old_f64_formula` red.
 
 #![allow(
     clippy::cast_precision_loss,
@@ -279,6 +283,87 @@ fn old_c_step(
     solve_spd(&a, &rhs, n, 1).unwrap()
 }
 
+/// The deleted `f64` `d_step` body, kept here as the reference: `G_rot = fwht128((Ws·Hl)⊙c)`,
+/// `H_rot = had_gram(Hl ⊙ c cᵀ)`, `B = S_rot⊙r_rep`, `A[i,j] = H_rot[i,j]·Σ_o B[o,i]·B[o,j]·g_row[o]`,
+/// the ridge `1e-12·max(mean(diag A), 1e-12)`, `b[i] = Σ_o B[o,i]·g_row[o]·G_rot[o,i]` and
+/// `ridge::solve_spd`, all in `f64`, with no grid boundary and no panel scaling.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the reference body is handed exactly the eight arguments of the public `d_step` it \
+              stands in for; bundling them would not be the same call."
+)]
+fn old_d_step(
+    ws: &[f64],
+    hl: &[f64],
+    s_rot: &[f64],
+    r: &[f64],
+    c: &[f64],
+    o: usize,
+    n: usize,
+    g_row: Option<&[f64]>,
+) -> Vec<f64> {
+    let g = n / GROUP;
+    let weight = |oo: usize| g_row.map_or(1.0f64, |gr| gr[oo]);
+    let mut wshl = vec![0.0f64; o * n];
+    for oo in 0..o {
+        for i in 0..n {
+            let mut acc = 0.0f64;
+            for j in 0..n {
+                acc += ws[oo * n + j] * hl[j * n + i];
+            }
+            wshl[oo * n + i] = acc;
+        }
+    }
+    let mut g_rot = vec![0.0f64; o * n];
+    for oo in 0..o {
+        for i in 0..n {
+            g_rot[oo * n + i] = wshl[oo * n + i] * c[i];
+        }
+    }
+    let g_rot = fwht128(&g_rot).unwrap();
+    let mut hlc = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            hlc[i * n + j] = hl[i * n + j] * c[i] * c[j];
+        }
+    }
+    let h_rot = had_gram(&hlc, n).unwrap();
+    let mut b_scaled = vec![0.0f64; o * n];
+    for oo in 0..o {
+        for i in 0..n {
+            b_scaled[oo * n + i] = s_rot[oo * n + i] * r[oo * g + i / GROUP];
+        }
+    }
+    let mut a = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            let mut acc = 0.0f64;
+            for oo in 0..o {
+                acc += b_scaled[oo * n + i] * b_scaled[oo * n + j] * weight(oo);
+            }
+            a[i * n + j] = h_rot[i * n + j] * acc;
+        }
+    }
+    let mut dmean = 0.0f64;
+    for i in 0..n {
+        dmean += a[i * n + i];
+    }
+    dmean /= n as f64;
+    let ridge = 1e-12 * dmean.max(1e-12);
+    for i in 0..n {
+        a[i * n + i] += ridge;
+    }
+    let mut rhs = vec![0.0f64; n];
+    for i in 0..n {
+        let mut acc = 0.0f64;
+        for oo in 0..o {
+            acc += b_scaled[oo * n + i] * weight(oo) * g_rot[oo * n + i];
+        }
+        rhs[i] = acc;
+    }
+    solve_spd(&a, &rhs, n, 1).unwrap()
+}
+
 /// `max_i |new_i − old_i| / max(|old_i|, 1)`, the mixed absolute/relative agreement the `chol` test
 /// uses.
 fn max_rel_diff(new: &[f64], old: &[f64]) -> f64 {
@@ -367,7 +452,7 @@ fn c_step_refuses_non_finite_and_out_of_bound() {
 /// (d) Timing at the production shape `o = 896`, `n = 4864`, three runs of `c_step` against the
 /// previous profile's single `150.6 s` for the old `f64` body at the same shape (threads: `c_step`
 /// takes none and its caller is single-threaded, so the primitives run at `8`; see
-/// `C_STEP_THREADS`). Run with `--release -- --ignored --nocapture`.
+/// `STEP_THREADS`). Run with `--release -- --ignored --nocapture`.
 #[test]
 #[ignore = "timing campaign at o=896 n=4864: run with --release -- --ignored --nocapture"]
 fn timing_c_step_production_shape() {
@@ -473,5 +558,150 @@ fn refusals_are_reached() {
     assert_eq!(
         c_step(&ws, &hl_bad, &s, &r, O, N, None).unwrap_err(),
         StepsError::NotPositiveDefinite
+    );
+}
+
+/// (b) `d_step` (grid primitives) against the test-local old `f64` formula, relative `1e-7`. Every
+/// shape here is admissible to `d_step` (`n` a whole number of 128-blocks): the brief's `(4,128)`,
+/// `(16,256)`, `(64,384)`, plus `(8,128)` with `r ∈ [10,16)` so the panel crosses `8` and the `2⁻ᵏ`
+/// panel scaling is exercised (`k = 1`), still meeting `1e-7` after the scaling is undone.
+///
+/// Mutation control: dropping the `H_rot`/`hadamard_into` rotation factor in `d_step` (passing the
+/// weighted Gram as `A`) turns this test red at the first shape.
+#[test]
+fn d_step_matches_old_f64_formula() {
+    let cases: [(usize, usize, bool); 4] = [
+        (4, 128, false),
+        (16, 256, false),
+        (64, 384, false),
+        (8, 128, true),
+    ];
+    for &(o, n, big_r) in &cases {
+        let mut rng = Lcg::new(0xd1_0000 + (o * n) as u64);
+        let ws = sym_vec(&mut rng, o * n);
+        let hl = spd_metric(&mut rng, n);
+        let s_rot = sign_vec(&mut rng, o * n);
+        let r: Vec<f64> = if big_r {
+            (0..o * (n / GROUP))
+                .map(|_| 10.0 + 6.0 * rng.unit())
+                .collect()
+        } else {
+            pos_vec(&mut rng, o * (n / GROUP))
+        };
+        let c = pos_vec(&mut rng, n);
+        let gr = pos_vec(&mut rng, o);
+        let new = d_step(&ws, &hl, &s_rot, &r, &c, o, n, Some(&gr)).unwrap();
+        let old = old_d_step(&ws, &hl, &s_rot, &r, &c, o, n, Some(&gr));
+        let rel = max_rel_diff(&new, &old);
+        println!("d_step vs old f64 ({o},{n}) big_r={big_r}: max rel {rel:e}");
+        assert!(rel <= 1e-7, "({o},{n}) relative error {rel:e} > 1e-7");
+    }
+}
+
+/// (c) A non-finite or out-of-bound input to `d_step` returns the step's error, no panic: a `NaN`
+/// metric entry, an infinite `Ws`, a `NaN` rotated sign entry, a row weight at the `2³⁶` raw input
+/// bound, and a `Ws` large enough that the right-hand side leaves the grid `i64` range.
+#[test]
+fn d_step_refuses_non_finite_and_out_of_bound() {
+    let mut rng = Lcg::new(13);
+    let ws = sym_vec(&mut rng, O * N);
+    let hl = spd_metric(&mut rng, N);
+    let s_rot = sign_vec(&mut rng, O * N);
+    let r = pos_vec(&mut rng, O * G);
+    let c = pos_vec(&mut rng, N);
+    let nan_hl = {
+        let mut h = hl.clone();
+        h[5] = f64::NAN;
+        h
+    };
+    assert_eq!(
+        d_step(&ws, &nan_hl, &s_rot, &r, &c, O, N, None).unwrap_err(),
+        StepsError::ShapeMismatch
+    );
+    let inf_ws = {
+        let mut w = ws.clone();
+        w[3] = f64::INFINITY;
+        w
+    };
+    assert_eq!(
+        d_step(&inf_ws, &hl, &s_rot, &r, &c, O, N, None).unwrap_err(),
+        StepsError::ShapeMismatch
+    );
+    let nan_s = {
+        let mut s = s_rot.clone();
+        s[7] = f64::NAN;
+        s
+    };
+    assert_eq!(
+        d_step(&ws, &hl, &nan_s, &r, &c, O, N, None).unwrap_err(),
+        StepsError::ShapeMismatch
+    );
+    // A row weight at the primitive input bound `2³⁶` raw = `16`.
+    let mut gr_bad = pos_vec(&mut rng, O);
+    gr_bad[O - 1] = 16.0;
+    assert_eq!(
+        d_step(&ws, &hl, &s_rot, &r, &c, O, N, Some(&gr_bad)).unwrap_err(),
+        StepsError::ShapeMismatch
+    );
+    // A `Ws` whose right-hand side leaves the grid `i64` range.
+    let big_ws = vec![1.0e30f64; O * N];
+    assert_eq!(
+        d_step(&big_ws, &hl, &s_rot, &r, &c, O, N, None).unwrap_err(),
+        StepsError::ShapeMismatch
+    );
+}
+
+/// (d) Timing at the production shape `o = 896`, `n = 4864`: three runs of `d_step` (the grid
+/// primitives at `8` workers — `d_step` takes no thread parameter; see `STEP_THREADS`) against the
+/// test-local old `f64` body at the same shape (one run, as the brief allows: three old-body runs
+/// plus the three new runs do not fit one budget). Run with
+/// `--release -- --ignored --nocapture`.
+#[test]
+#[ignore = "timing campaign at o=896 n=4864: run with --release -- --ignored --nocapture"]
+fn timing_d_step_production_shape() {
+    let (o, n) = (896usize, 4864usize);
+    let mut rng = Lcg::new(0x5eed_1111_d0d0_1234);
+    let s_rot = sign_vec(&mut rng, o * n);
+    let r = pos_vec(&mut rng, o * (n / GROUP));
+    let ws = sym_vec(&mut rng, o * n);
+    let c = pos_vec(&mut rng, n);
+    let gr = pos_vec(&mut rng, o);
+    // The same well-conditioned Kac–Murdock–Szegő Toeplitz metric the `c_step` timing uses
+    // (`ρ^|i−j|`, `ρ = 0.5`, eigenvalues in `[1/3, 3]`); `o < n`, so the weighted Gram is rank-`o`
+    // and the decaying metric keeps `A` diagonally dominant — a metric the `f64` body also solves.
+    let mut pw = vec![1.0f64; n];
+    for k in 1..n {
+        pw[k] = pw[k - 1] * 0.5;
+    }
+    let mut hl = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            hl[i * n + j] = pw[i.abs_diff(j)];
+        }
+    }
+    let mut times: Vec<f64> = Vec::with_capacity(3);
+    for _ in 0..3 {
+        let t0 = std::time::Instant::now();
+        let d = d_step(&ws, &hl, &s_rot, &r, &c, o, n, Some(&gr)).expect("d_step");
+        let dt = t0.elapsed().as_secs_f64();
+        std::hint::black_box(d);
+        times.push(dt);
+    }
+    let mean = times.iter().sum::<f64>() / (times.len() as f64);
+    let mn = times.iter().copied().fold(f64::INFINITY, f64::min);
+    let mx = times.iter().copied().fold(0.0f64, f64::max);
+    // The old f64 body adds ~157 s; it runs only when `OLD_D_STEP` is set, keeping the default run
+    // inside the 580 s budget.
+    let old_dt = if std::env::var_os("OLD_D_STEP").is_some() {
+        let t0 = std::time::Instant::now();
+        let od = old_d_step(&ws, &hl, &s_rot, &r, &c, o, n, Some(&gr));
+        std::hint::black_box(od);
+        t0.elapsed().as_secs_f64()
+    } else {
+        f64::NAN
+    };
+    println!(
+        "d_step (grid primitives) o={o} n={n} threads=8: mean {mean:.3}s min {mn:.3}s max {mx:.3}s \
+         runs {times:?}; old f64 body at this shape (single run, NaN = not run): {old_dt:.3}s"
     );
 }
