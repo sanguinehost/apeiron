@@ -9,5 +9,7 @@ pub mod finish;
 pub mod fit;
 /// Per-layer production scaling steps these fits feed into (the `-resq` plane row scale).
 pub mod layer;
+/// Run glue: the `Q32.32` engine weights below the `f64` fold driver, in both directions.
+pub mod run;
 /// Statistics: activation Grams, held-out KL, layer-wise intensity and the exact byte budget.
 pub mod stats;
