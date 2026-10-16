@@ -15,6 +15,7 @@ import Serve.Block.R4.Ffn6
 import Serve.Block.R4.Mixer4
 import Serve.Kern.R4.Matmat6
 import Serve.Kern.R4.Lut4
+import Serve.Kern.R4.Gemm6
 import Serve.Kern.Lut
 import Serve.Kern.Matmat2
 import Serve.Kern.Matmat3
@@ -241,3 +242,10 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.lut4_laneInv_set
 #audit apeiron_word.word_tile_accs_lane_ok
 #audit apeiron_word.word_tile_accs_portable_ok
+#audit apeiron_word.gemm6_quantact_impl_scales_spec
+#audit apeiron_word.gemm6_quantact_impl_codes_spec
+#audit apeiron_word.gemm6_quantact_len_spec
+#audit apeiron_word.gemm6_body_cont
+#audit apeiron_word.gemm6_body_done
+#audit apeiron_word.gemm6_sh_calc
+#audit apeiron_word.word_pack_group_loop0_loop1_ok
