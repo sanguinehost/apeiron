@@ -7,3 +7,8 @@ pub mod chol;
 /// Weighted exact-integer SYRK (`G = Σ_o w_o·x_o x_oᵀ` in Q32.32) and the `A ∘ hl` hadamard
 /// factor — the blocked, threaded `A`-formation of the `c_step` metric.
 pub mod syrk;
+
+/// Blocked, threaded, exact-accumulation Q32.32 matrix products `C = A·B` ([`gemm::gemm_nn`]) and
+/// `C = A·Bᵀ` ([`gemm::gemm_nt`]) — the one GEMM the low-rank corrector's `w1 = ΔW·Hl` and
+/// `m = w1·ΔWᵀ` need, with a single round-to-nearest per entry.
+pub mod gemm;
