@@ -25,9 +25,10 @@
 //!   `Sh = S⊙r_rep`, `Sh_g = Sh⊙g_row`, `b[i] = Σ_o (Ws·Hl)[o,i]·Sh_g[o,i]`. The `A`-formation is
 //!   the shared primitive [`crate::learn::solve::syrk::wsyrk`] (the weighted Gram) followed by
 //!   [`crate::learn::solve::syrk::hadamard_into`] (the `hl` factor); the solve is
-//!   [`crate::learn::solve::chol::chol_solve`]. The step stays `f64` and crosses into the `Q32.32`
-//!   grid only at the primitive boundary: `Sh`, the row weight, `Hl` and `b` are rounded to
-//!   `round(x·2³²)`, and the returned `c` is read back with `v/2³²`.
+//!   [`crate::learn::solve::chol::chol_solve`]; the metric product `Ws·Hl` is [`mul_metric`] over
+//!   the shared `Q32.32` product [`crate::learn::solve::gemm::gemm_nn`]. The step stays `f64` and
+//!   crosses into the `Q32.32` grid only at the primitive boundaries: `Sh`, the row weight, `Hl` and
+//!   `b` are rounded to `round(x·2³²)`, and the returned `c` is read back with `v/2³²`.
 //! - `r_step` solves one `G × G` SPD system per out row (`M[o]·r[o] = t[o]`).
 //! - `d_step` solves the `n × n` normal system of the Hadamard-domain column scale, with the rotated
 //!   metric `H_rot = had_gram(Hl ⊙ c cᵀ)` and `G_rot = fwht128((Ws·Hl) ⊙ c)`. Its `A`-formation is
@@ -53,10 +54,11 @@
 //!
 //! The bodies run in `f64` and are `tested` (`tests/learn_fold_steps.rs`); they are not extracted and
 //! no refinement theorem links them, so they are not `proved`. The `c_step` and `d_step` Gram and
-//! solve are the `Q32.32` primitives `wsyrk`, `hadamard_into` and `chol_solve`, themselves `tested`
-//! and not extracted; the `f64` formation around them (`Ws·Hl`, `G_rot`, `H_rot`, the right-hand
-//! side) and `r_step`'s `f64` systems follow the script's arithmetic order; no hardware or
-//! performance claim is made.
+//! solve are the `Q32.32` primitives `wsyrk`, `hadamard_into` and `chol_solve`, the metric product
+//! `Ws·Hl` is [`mul_metric`] over `gemm_nn`, and all of those are themselves `tested` and not
+//! extracted; the `f64` work around them (`G_rot`, `H_rot`, the right-hand side, the scale rule's
+//! operand scans and read-back) and `r_step`'s `f64` systems follow the script's arithmetic order;
+//! no hardware or performance claim is made.
 
 #![allow(
     clippy::many_single_char_names,
@@ -72,6 +74,7 @@
 
 use crate::learn::ridge::{solve_spd, RidgeError};
 use crate::learn::solve::chol::{chol_solve, SolveError};
+use crate::learn::solve::gemm::{gemm_nn, GemmError};
 use crate::learn::solve::q32::{self, from_grid, panel_shift, GRID_BOUND, GRID_SCALE, INPUT_BOUND};
 use crate::learn::solve::syrk::{hadamard_into, wsyrk, SyrkError};
 
@@ -133,6 +136,23 @@ fn map_syrk(e: SyrkError) -> StepsError {
         | SyrkError::ZeroO
         | SyrkError::InputBound
         | SyrkError::Overflow => StepsError::ShapeMismatch,
+    }
+}
+
+/// Map a [`GemmError`] from [`gemm_nn`] onto a [`StepsError`]: every arm is the step's domain
+/// refusal [`StepsError::ShapeMismatch`], as for the other primitives — an empty dimension, a
+/// length disagreeing with the declared shape, an entry at the input bound, or a contraction or
+/// rounded entry that leaves the grid range.
+///
+/// # Complexity
+///
+/// `O(1)`.
+fn map_gemm(e: GemmError) -> StepsError {
+    match e {
+        GemmError::ZeroDim
+        | GemmError::ShapeMismatch
+        | GemmError::InputBound
+        | GemmError::Overflow => StepsError::ShapeMismatch,
     }
 }
 
@@ -323,19 +343,74 @@ fn group_scale(s: &[f64], r: &[f64], o: usize, n: usize, g: usize) -> Vec<f64> {
     b
 }
 
-/// `Ws·Hl`, `O × n` row-major (`ws` is `O × n`, `hl` is `n × n`). `O(O·n²)` time, `O(O·n)` space.
-fn mul_metric(ws: &[f64], hl: &[f64], o: usize, n: usize) -> Vec<f64> {
-    let mut y = vec![0.0f64; o * n];
-    for oo in 0..o {
-        for j in 0..n {
-            let mut acc = 0.0f64;
-            for i in 0..n {
-                acc += ws[oo * n + i] * hl[i * n + j];
-            }
-            y[oo * n + j] = acc;
-        }
+/// The largest magnitude of `x` (`0` for an empty slice) — the scan the operand scale rule reads.
+///
+/// # Complexity
+///
+/// Temporal: `O(x.len())` comparisons. Spatial: `O(1)`.
+fn max_abs(x: &[f64]) -> f64 {
+    x.iter().fold(0.0f64, |m, v| m.max(v.abs()))
+}
+
+/// `Ws·Hl`, `O × n` row-major (`ws` is `O × n`, `hl` is `n × n`), through the shared `Q32.32`
+/// product [`gemm_nn`]: entry `[o,j]` is `round32(Σ_l round(ws[o,l]·2³²)·round(hl[l,j]·2³²))` read
+/// back with the scale of [`mul_metric`]'s scale rule undone, one rounding per entry.
+///
+/// # The scale rule
+///
+/// [`gemm_nn`] accepts an entry only below `2³⁶` raw `Q32.32` (`GemmError::InputBound` at the bound) —
+/// [`INPUT_BOUND`] `= 16` in the reals, the same bound the [`wsyrk`] panels meet. Each operand is
+/// therefore multiplied by the exact power of two `2⁻ᵏ`, `k` read from that operand's largest
+/// magnitude by [`panel_shift`] (the least `k ≥ 0` with `max·2⁻ᵏ ≤ 8`): the scaled entries sit at or
+/// below `2³⁵` raw with a factor of two of head-room, and the shift is an exact scaling of the panel,
+/// not a rounding. The product carries the scale `2⁻(k_ws + k_hl)`, undone exactly by the power of
+/// two `2^(k_ws + k_hl)` on the read-back values. [`q32::fill_scale`] is not usable here: it fills to
+/// `2³¹`, above `gemm_nn`'s bound. The shift comes from the data, so a panel already within `8` — the
+/// tests and the production fixture — is unscaled.
+///
+/// # Errors
+///
+/// [`StepsError::ShapeMismatch`] if `ws.len() != o·n` or `hl.len() != n·n`, if a magnitude is not
+/// finite, if a scaled entry is at or beyond [`INPUT_BOUND`] or is not representable as a `Q32.32`
+/// word, if the exact undo power of two leaves `f64`, or if [`gemm_nn`] refuses the scaled domain
+/// ([`map_gemm`]). Never a panic.
+///
+/// # Complexity
+///
+/// Temporal: `O(O·n²)` checked `i128` multiply-accumulates in [`gemm_nn`], split across
+/// [`STEP_THREADS`] workers and independent of the thread count, plus `O(O·n + n²)` boundary
+/// conversions and `O(O·n)` read-back multiplies. Spatial: `O(O·n)` for the scaled `Ws` panel and
+/// the grid product, `O(n²)` for the scaled `Hl`.
+pub fn mul_metric(ws: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec<f64>, StepsError> {
+    if ws.len() != o * n || hl.len() != n * n {
+        return Err(StepsError::ShapeMismatch);
     }
-    y
+    if o == 0 || n == 0 {
+        return Ok(vec![0.0f64; o * n]);
+    }
+    let (ws_max, hl_max) = (max_abs(ws), max_abs(hl));
+    if !ws_max.is_finite() || !hl_max.is_finite() {
+        return Err(StepsError::ShapeMismatch);
+    }
+    let (k_ws, k_hl) = (panel_shift(ws_max), panel_shift(hl_max));
+    let back = match k_ws.checked_add(k_hl) {
+        Some(e) => 2f64.powi(e),
+        None => f64::INFINITY,
+    };
+    if !back.is_finite() {
+        return Err(StepsError::ShapeMismatch);
+    }
+    let (f_ws, f_hl) = (2f64.powi(-k_ws), 2f64.powi(-k_hl));
+    let ws_grid: Vec<i64> = ws
+        .iter()
+        .map(|&x| to_grid(x * f_ws, INPUT_BOUND))
+        .collect::<Result<Vec<i64>, StepsError>>()?;
+    let hl_grid: Vec<i64> = hl
+        .iter()
+        .map(|&x| to_grid(x * f_hl, INPUT_BOUND))
+        .collect::<Result<Vec<i64>, StepsError>>()?;
+    let c = gemm_nn(&ws_grid, &hl_grid, o, n, n, STEP_THREADS).map_err(map_gemm)?;
+    Ok(c.iter().map(|&v| from_grid(v) * back).collect())
 }
 
 /// The `c_step`: one exact update of the per-column scale against the metric `Hl`, holding `S` and
@@ -349,14 +424,16 @@ fn mul_metric(ws: &[f64], hl: &[f64], o: usize, n: usize) -> Vec<f64> {
 ///
 /// # The `Q32.32` boundary
 ///
-/// The `A`-formation and the solve are the shared primitives [`wsyrk`], [`hadamard_into`] and
+/// The metric product `Ws·Hl` is [`mul_metric`] over the shared product [`gemm_nn`]; the
+/// `A`-formation and the solve are the shared primitives [`wsyrk`], [`hadamard_into`] and
 /// [`chol_solve`], not a second copy of the same math. This step stays `f64`; the primitives are
-/// `Q32.32`, so the boundary is: `Sh`, the row weight and `Hl` are rounded to `round(x·2³²)`;
-/// `wsyrk` forms the weighted Gram (the `hl` factor applied by `hadamard_into`) and `chol_solve`
-/// takes it with the grid right-hand side `b`; the returned `c` is read back with `v/2³²`. The
-/// ridge `1e-12·mean(diag A)` is added on the grid diagonal, so a ridge below one raw unit
-/// (`2⁻³² ≈ 2.3e-10`) is inert — the grid's resolution is the floor; a positive ridge is kept at
-/// one raw unit so the diagonal stays positive. A non-finite or out-of-bound value is refused at
+/// `Q32.32`, so the boundary is: `Ws`, `Hl`, `Sh`, the row weight and `b` are rounded to
+/// `round(x·2³²)` (`Ws` and `Hl` after [`mul_metric`]'s exact power-of-two operand scale, undone on
+/// its read-back); `wsyrk` forms the weighted Gram (the `hl` factor applied by `hadamard_into`) and
+/// `chol_solve` takes it with the grid right-hand side `b`; the returned `c` is read back with
+/// `v/2³²`. The ridge `1e-12·mean(diag A)` is added on the grid diagonal, so a ridge below one raw
+/// unit (`2⁻³² ≈ 2.3e-10`) is inert — the grid's resolution is the floor; a positive ridge is kept
+/// at one raw unit so the diagonal stays positive. A non-finite or out-of-bound value is refused at
 /// the boundary, never wrapped.
 ///
 /// The `Sh` magnitudes set the grid scale: `wsyrk`'s input bound is `|x| < 2³⁶` raw, so the panel
@@ -370,16 +447,18 @@ fn mul_metric(ws: &[f64], hl: &[f64], o: usize, n: usize) -> Vec<f64> {
 ///
 /// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], a slice length
 /// disagrees, `g_row` is present with the wrong length, or a value is non-finite or beyond the
-/// boundary bound (`Sh`/`g_row` at `2³⁶` raw, `Hl`/`b` at the grid `i64` range);
+/// boundary bound (`Ws`/`Hl`/`Sh`/`g_row` at `2³⁶` raw, `b` at the grid `i64` range);
 /// [`StepsError::NotPositiveDefinite`] if the diagonal metric reduces to a non-SPD `A` (a non-SPD
 /// `hl`).
 ///
 /// # Complexity
 ///
-/// Temporal: `O(O·n²)` for `Ws·Hl` (f64), `O(O·n²/2)` for the `wsyrk` weighted Gram `A` measured in
-/// checked `i128` multiply-accumulates (the upper triangle, mirrored), `O(n²)` for the `hl` hadamard
-/// factor, `O(O·n)` for `b`, and `O(n³/3 + n²)` for the `chol_solve` factor and refinement measured
-/// in checked `i128` multiply-accumulates. Spatial: `O(n²)` for the grid `A` (plus the `chol_solve`
+/// Temporal: `O(O·n²)` checked `i128` multiply-accumulates for `Ws·Hl` ([`mul_metric`] over
+/// [`gemm_nn`], split across [`STEP_THREADS`] workers — the term that replaced an `f64` triple loop
+/// at the same shape), `O(O·n²/2)` for the `wsyrk` weighted Gram `A` measured in checked `i128`
+/// multiply-accumulates (the upper triangle, mirrored), `O(n²)` for the `hl` hadamard factor,
+/// `O(O·n)` for `b`, and `O(n³/3 + n²)` for the `chol_solve` factor and refinement measured in
+/// checked `i128` multiply-accumulates. Spatial: `O(n²)` for the grid `A` (plus the `chol_solve`
 /// working copies and factor) and `O(O·n)` for `Sh`, `Ws·Hl` and `b`.
 pub fn c_step(
     ws: &[f64],
@@ -403,7 +482,7 @@ pub fn c_step(
         }
     }
     let mut b_sh = group_scale(s, r, o, n, g);
-    let wshl = mul_metric(ws, hl, o, n);
+    let wshl = mul_metric(ws, hl, o, n)?;
     let weight = |oo: usize| g_row.map_or(1.0f64, |gr| gr[oo]);
     // Scale the panel by the exact power of two `2⁻ᵏ` so it meets the `wsyrk` input bound
     // `|x| < 2³⁶` raw; `k` is read from `max|Sh|` (see [`panel_shift`]). The scaling is undone on
@@ -514,7 +593,7 @@ pub fn r_step(
     let mut kvec = vec![0.0f64; n];
     let mut m = vec![0.0f64; g * g];
     let mut t = vec![0.0f64; g];
-    let wshl = mul_metric(ws, hl, o, n);
+    let wshl = mul_metric(ws, hl, o, n)?;
     for oo in 0..o {
         for gg in 0..g {
             let mut acc = 0.0f64;
@@ -593,17 +672,19 @@ pub fn r_step(
 ///
 /// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], a slice length
 /// disagrees, `g_row` is present with the wrong length, or a value is non-finite or beyond the
-/// boundary bound (`B`/`g_row` at `2³⁶` raw, `H_rot`/`b` at the grid `i64` range);
+/// boundary bound (`Ws`/`Hl`/`B`/`g_row` at `2³⁶` raw, `H_rot`/`b` at the grid `i64` range);
 /// [`StepsError::NotPositiveDefinite`] if the reduced `A` is not SPD.
 ///
 /// # Complexity
 ///
-/// Temporal: `O(O·n²)` for `Ws·Hl` (f64), `O(O·n·log 128)` for the transform and `O(n²·log 128)` for
-/// `H_rot` (f64), `O(O·n²/2)` for the `wsyrk` weighted Gram `A` measured in checked `i128`
-/// multiply-accumulates (the upper triangle, mirrored), `O(n²)` for the `hadamard_into` factor,
-/// `O(O·n)` for `b`, and `O(n³/3 + n²)` for the `chol_solve` factor and refinement measured in
-/// checked `i128` multiply-accumulates. Spatial: `O(n²)` for `H_rot` and the grid `A` (plus the
-/// `chol_solve` working copies and factor), `O(O·n)` for `B`, `Ws·Hl` and `G_rot`.
+/// Temporal: `O(O·n²)` checked `i128` multiply-accumulates for `Ws·Hl` ([`mul_metric`] over
+/// [`gemm_nn`], split across [`STEP_THREADS`] workers), `O(O·n·log 128)` for the transform and
+/// `O(n²·log 128)` for `H_rot` (f64), `O(O·n²/2)` for the `wsyrk` weighted Gram `A` measured in
+/// checked `i128` multiply-accumulates (the upper triangle, mirrored), `O(n²)` for the
+/// `hadamard_into` factor, `O(O·n)` for `b`, and `O(n³/3 + n²)` for the `chol_solve` factor and
+/// refinement measured in checked `i128` multiply-accumulates. Spatial: `O(n²)` for `H_rot` and the
+/// grid `A` (plus the `chol_solve` working copies and factor), `O(O·n)` for `B`, `Ws·Hl` and
+/// `G_rot`.
 #[allow(
     clippy::too_many_arguments,
     reason = "the step is handed the metric, the rotated sign matrix, the two scales, the row \
@@ -636,7 +717,7 @@ pub fn d_step(
             return Err(StepsError::ShapeMismatch);
         }
     }
-    let wshl = mul_metric(ws, hl, o, n);
+    let wshl = mul_metric(ws, hl, o, n)?;
     let weight = |oo: usize| g_row.map_or(1.0f64, |gr| gr[oo]);
     // G_rot[o,i] = fwht128((Ws·Hl) ⊙ c)[o,i].
     let mut g_rot = vec![0.0f64; o * n];
