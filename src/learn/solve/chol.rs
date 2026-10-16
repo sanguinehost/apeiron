@@ -213,21 +213,45 @@ pub fn equilibrate(a: &[i64], n: usize) -> Result<(Vec<i64>, Vec<i64>), SolveErr
     if a.len() != nn {
         return Err(SolveError::ShapeMismatch);
     }
+    // Flag loops: no `return`, `?`, `break` or `continue` may target the function from inside a
+    // loop body (the pinned Aeneas fragment rejects it). Each loop deposits the first refusal in
+    // `err` and later iterations are guarded off by `err.is_none()`; the `return` sits after.
     let mut d = vec![0i64; n];
-    for i in 0..n {
+    let mut err: Option<SolveError> = None;
+    let mut i = 0usize;
+    while i < n && err.is_none() {
         let aii = a[i * n + i];
         if aii <= 0 {
-            return Err(SolveError::NonPositiveDiagonal);
+            err = Some(SolveError::NonPositiveDiagonal);
+        } else {
+            match narrow(isqrt(i128::from(aii) << 32)) {
+                Some(v) => d[i] = v,
+                None => err = Some(SolveError::Overflow),
+            }
         }
-        d[i] = ov(narrow(isqrt(i128::from(aii) << 32)))?;
+        i += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     let mut scaled = vec![0i64; nn];
-    for i in 0..n {
-        for j in 0..n {
+    let mut err: Option<SolveError> = None;
+    let mut i = 0usize;
+    while i < n && err.is_none() {
+        let mut j = 0usize;
+        while j < n && err.is_none() {
             let num = i128::from(a[i * n + j]) << 64;
             let den = i128::from(d[i]) * i128::from(d[j]);
-            scaled[i * n + j] = ov(div_to_i64(num, den))?;
+            match div_to_i64(num, den) {
+                Some(v) => scaled[i * n + j] = v,
+                None => err = Some(SolveError::Overflow),
+            }
+            j += 1;
         }
+        i += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok((scaled, d))
 }
@@ -401,42 +425,77 @@ pub(super) fn factor_scaled(a: &[i64], n: usize, threads: usize) -> Result<Vec<i
     }
     let mut work = a.to_vec();
     let mut l = vec![0i64; n * n];
+    // Flag loop: the diagonal-block factor, the panel solve and the trailing update deposit their
+    // first refusal in `err`; no `return`, `?` or `break` sits inside a loop body.
+    let mut err: Option<SolveError> = None;
     let mut k = 0usize;
-    while k < n {
+    while k < n && err.is_none() {
         let kb = (n - k).min(CHOL_BLOCK);
         // (1) Factor the diagonal block `L[k..k+kb, k..k+kb]` from `work`.
-        for i in 0..kb {
-            for j in 0..=i {
+        let mut i = 0usize;
+        while i < kb && err.is_none() {
+            let mut j = 0usize;
+            while j <= i && err.is_none() {
                 let gi = k + i;
                 let gj = k + j;
-                let s = ov(chol_entry(work[gi * n + gj], &l, n, gi, gj, k, j))?;
-                if i == j {
-                    if s <= 0 {
-                        return Err(SolveError::NotPositiveDefinite);
+                match chol_entry(work[gi * n + gj], &l, n, gi, gj, k, j) {
+                    Some(s) => {
+                        if i == j {
+                            if s <= 0 {
+                                err = Some(SolveError::NotPositiveDefinite);
+                            } else {
+                                match narrow(isqrt(i128::from(s) << 32)) {
+                                    Some(v) => l[gi * n + gj] = v,
+                                    None => err = Some(SolveError::Overflow),
+                                }
+                            }
+                        } else {
+                            let ljj = i128::from(l[gj * n + gj]);
+                            match div_to_i64(i128::from(s) << 32, ljj) {
+                                Some(v) => l[gi * n + gj] = v,
+                                None => err = Some(SolveError::Overflow),
+                            }
+                        }
                     }
-                    l[gi * n + gj] = ov(narrow(isqrt(i128::from(s) << 32)))?;
-                } else {
-                    let ljj = i128::from(l[gj * n + gj]);
-                    l[gi * n + gj] = ov(div_to_i64(i128::from(s) << 32, ljj))?;
+                    None => err = Some(SolveError::Overflow),
                 }
+                j += 1;
             }
+            i += 1;
         }
         let kend = k + kb;
         // (2) Panel solve `L[kend..n, k..kend]`: rows are independent of each other, columns are
         //     sequential (each uses the diagonal-block rows and its own earlier columns).
-        for gi in kend..n {
-            for j in 0..kb {
+        let mut gi = kend;
+        while gi < n && err.is_none() {
+            let mut j = 0usize;
+            while j < kb && err.is_none() {
                 let gj = k + j;
-                let s = ov(chol_entry(work[gi * n + gj], &l, n, gi, gj, k, j))?;
-                let ljj = i128::from(l[gj * n + gj]);
-                l[gi * n + gj] = ov(div_to_i64(i128::from(s) << 32, ljj))?;
+                match chol_entry(work[gi * n + gj], &l, n, gi, gj, k, j) {
+                    Some(s) => {
+                        let ljj = i128::from(l[gj * n + gj]);
+                        match div_to_i64(i128::from(s) << 32, ljj) {
+                            Some(v) => l[gi * n + gj] = v,
+                            None => err = Some(SolveError::Overflow),
+                        }
+                    }
+                    None => err = Some(SolveError::Overflow),
+                }
+                j += 1;
             }
+            gi += 1;
         }
         // (3) Trailing update `work[kend.., kend..] -= L21·L21ᵀ` (lower triangle).
-        if kend < n {
-            trailing_update_par(&mut work, &l, n, kend, kb, threads)?;
+        if kend < n && err.is_none() {
+            match trailing_update_par(&mut work, &l, n, kend, kb, threads) {
+                Ok(()) => {}
+                Err(e) => err = Some(e),
+            }
         }
         k = kend;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(l)
 }
@@ -514,28 +573,58 @@ fn dot_shifted_col(
 /// is `Σ_i i` and the back solve `Σ_i (n−i)`, both `n²/2`.
 fn solve_rhs(l: &[i64], d: &[i64], b: &[i64], n: usize, k: usize) -> Result<Vec<i64>, SolveError> {
     let mut out = vec![0i64; n * k];
-    for j in 0..k {
+    // Flag loop: the four passes per column deposit the first refusal in `err`; the `return` sits
+    // after the loop, so no `return`/`?` targets the function from inside a loop body.
+    let mut err: Option<SolveError> = None;
+    let mut j = 0usize;
+    while j < k && err.is_none() {
         let mut y = vec![0i64; n];
         // B̂ = D⁻¹ B.
-        for i in 0..n {
-            y[i] = ov(div_to_i64(i128::from(b[i * k + j]) << 32, i128::from(d[i])))?;
+        let mut i = 0usize;
+        while i < n && err.is_none() {
+            match div_to_i64(i128::from(b[i * k + j]) << 32, i128::from(d[i])) {
+                Some(v) => y[i] = v,
+                None => err = Some(SolveError::Overflow),
+            }
+            i += 1;
         }
         // Forward: y_i = (B̂_i − Σ_{p<i} L_ip y_p) / L_ii.
-        for i in 0..n {
-            let s = ov(dot_shifted_row(y[i], &l[i * n..i * n + i], &y[0..i]))?;
-            y[i] = ov(div_to_i64(s, i128::from(l[i * n + i])))?;
+        let mut i = 0usize;
+        while i < n && err.is_none() {
+            match dot_shifted_row(y[i], &l[i * n..i * n + i], &y[0..i]) {
+                Some(s) => match div_to_i64(s, i128::from(l[i * n + i])) {
+                    Some(v) => y[i] = v,
+                    None => err = Some(SolveError::Overflow),
+                },
+                None => err = Some(SolveError::Overflow),
+            }
+            i += 1;
         }
         // Back: y_i = (y_i − Σ_{p>i} L_pi y_p) / L_ii, reading Lᵀ.
         let mut i = n;
-        while i > 0 {
+        while i > 0 && err.is_none() {
             i -= 1;
-            let s = ov(dot_shifted_col(y[i], l, n, i, &y, i + 1, n))?;
-            y[i] = ov(div_to_i64(s, i128::from(l[i * n + i])))?;
+            match dot_shifted_col(y[i], l, n, i, &y, i + 1, n) {
+                Some(s) => match div_to_i64(s, i128::from(l[i * n + i])) {
+                    Some(v) => y[i] = v,
+                    None => err = Some(SolveError::Overflow),
+                },
+                None => err = Some(SolveError::Overflow),
+            }
         }
         // X = D⁻¹ Ŷ.
-        for i in 0..n {
-            out[i * k + j] = ov(div_to_i64(i128::from(y[i]) << 32, i128::from(d[i])))?;
+        let mut i = 0usize;
+        while i < n && err.is_none() {
+            match div_to_i64(i128::from(y[i]) << 32, i128::from(d[i])) {
+                Some(v) => out[i * k + j] = v,
+                None => err = Some(SolveError::Overflow),
+            }
+            i += 1;
         }
+        j += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(out)
 }
@@ -560,15 +649,31 @@ fn exact_residual(
     k: usize,
 ) -> Result<Vec<i64>, SolveError> {
     let mut r = vec![0i64; n * k];
-    for j in 0..k {
+    // Flag loop: the gather and the row contractions deposit the first refusal in `err`.
+    let mut err: Option<SolveError> = None;
+    let mut j = 0usize;
+    while j < k && err.is_none() {
         let mut xcol = vec![0i64; n];
-        for t in 0..n {
+        let mut t = 0usize;
+        while t < n {
             xcol[t] = x[t * k + j];
+            t += 1;
         }
-        for i in 0..n {
-            let acc = ov(dot_shifted_row(b[i * k + j], &a[i * n..i * n + n], &xcol))?;
-            r[i * k + j] = ov(round_to_i64(acc))?;
+        let mut i = 0usize;
+        while i < n && err.is_none() {
+            match dot_shifted_row(b[i * k + j], &a[i * n..i * n + n], &xcol) {
+                Some(acc) => match round_to_i64(acc) {
+                    Some(v) => r[i * k + j] = v,
+                    None => err = Some(SolveError::Overflow),
+                },
+                None => err = Some(SolveError::Overflow),
+            }
+            i += 1;
         }
+        j += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(r)
 }
@@ -634,11 +739,18 @@ pub fn chol_solve(
     let r0 = exact_residual(a, b, &x0, n, k)?;
     let delta = solve_rhs(&l, &d, &r0, n, k)?;
     let mut x = vec![0i64; nk];
-    for idx in 0..nk {
-        x[idx] = match x0[idx].checked_add(delta[idx]) {
-            Some(v) => v,
-            None => return Err(SolveError::Overflow),
-        };
+    // Flag loop: the refinement add deposits the first refusal in `err`.
+    let mut err: Option<SolveError> = None;
+    let mut idx = 0usize;
+    while idx < nk && err.is_none() {
+        match x0[idx].checked_add(delta[idx]) {
+            Some(v) => x[idx] = v,
+            None => err = Some(SolveError::Overflow),
+        }
+        idx += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     let rf = exact_residual(a, b, &x, n, k)?;
     let residual_max = ov(max_abs(&rf))?;

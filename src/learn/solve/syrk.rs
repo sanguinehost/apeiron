@@ -343,34 +343,48 @@ pub fn wsyrk(
     };
     let mut g = vec![0i64; nn];
     let mut acc = vec![0i128; n * BLOCK.min(n)];
+    // The block loop carries its refusal in `err` and tests it in every loop condition; the
+    // `?`/`return`-in-a-nested-loop forms the Aeneas fragment rejects are not used. Once `err` is
+    // set the remaining iterations are skipped and the refusal is returned after the loop, so the
+    // first refusal and the `Ok` output are the same as the early-return form.
+    let mut err: Option<SyrkError> = None;
     let mut jb = 0usize;
-    while jb < n {
+    while jb < n && err.is_none() {
         let j1 = (jb + BLOCK).min(n);
         let nb = j1 - jb;
         let used = j1 * nb;
         acc[..used].fill(0);
-        block_rows_par(&mut acc[..used], j1, nb, nthreads, &xt, &wv, o, jb, j1)?;
-        let mut i = 0usize;
-        while i < j1 {
-            let jstart = if i > jb { i } else { jb };
-            let row = i * nb;
-            let mut j = jstart;
-            while j < j1 {
-                let Some(shifted) = round64(acc[row + (j - jb)]) else {
-                    return Err(SyrkError::Overflow);
-                };
-                let Some(v) = narrow(shifted) else {
-                    return Err(SyrkError::Overflow);
-                };
-                g[i * n + j] = v;
-                if i != j {
-                    g[j * n + i] = v;
+        match block_rows_par(&mut acc[..used], j1, nb, nthreads, &xt, &wv, o, jb, j1) {
+            Ok(()) => {
+                let mut i = 0usize;
+                while i < j1 && err.is_none() {
+                    let jstart = if i > jb { i } else { jb };
+                    let row = i * nb;
+                    let mut j = jstart;
+                    while j < j1 && err.is_none() {
+                        match round64(acc[row + (j - jb)]) {
+                            Some(shifted) => match narrow(shifted) {
+                                Some(v) => {
+                                    g[i * n + j] = v;
+                                    if i != j {
+                                        g[j * n + i] = v;
+                                    }
+                                }
+                                None => err = Some(SyrkError::Overflow),
+                            },
+                            None => err = Some(SyrkError::Overflow),
+                        }
+                        j += 1;
+                    }
+                    i += 1;
                 }
-                j += 1;
             }
-            i += 1;
+            Err(e) => err = Some(e),
         }
         jb = j1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(g)
 }

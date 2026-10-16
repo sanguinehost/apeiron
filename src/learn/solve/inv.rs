@@ -299,12 +299,24 @@ pub fn inv_factor_upper(h: &[i64], n: usize, threads: usize) -> Result<Vec<i64>,
     let binv = inverse_upper_par(&v_hat, n, threads)?;
     drop(v_hat);
     // `U = V̂⁻¹·D^{-1/2}`: column `j` of `V̂⁻¹` divided by `d_j`, one rounded quotient per entry.
+    // The checked quotient reports through `err` rather than `?` so no return sits inside the
+    // nested loop; the iteration order and the per-entry rounding are unchanged.
     let mut u = vec![0i64; nn];
-    for i in 0..n {
-        for j in i..n {
-            u[i * n + j] = div_to_i64(i128::from(binv[i * n + j]) << 32, i128::from(d[j]))
-                .ok_or(SolveError::Overflow)?;
+    let mut err: Option<SolveError> = None;
+    let mut i = 0;
+    while i < n && err.is_none() {
+        let mut j = i;
+        while j < n && err.is_none() {
+            match div_to_i64(i128::from(binv[i * n + j]) << 32, i128::from(d[j])) {
+                Some(w) => u[i * n + j] = w,
+                None => err = Some(SolveError::Overflow),
+            }
+            j += 1;
         }
+        i += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(u)
 }
