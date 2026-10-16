@@ -1,4 +1,5 @@
 import AxiomAudit.Core
+import Numeric.Quantum.Ledger.AmplitudeKLExact
 import Nous.Model.HyperbolicAttention
 import Nous.Model.OneBitAttention
 import Numeric.OneBit.SigmaDelta
@@ -1155,3 +1156,11 @@ open apeiron_word
 #audit apeiron_word.SignPlanes.matvec_decomp
 #audit apeiron_word.SignPlanes.q4k_instance
 #audit apeiron_word.SignPlanes.q8_0_instance
+-- Exact amplitude form of KL (`Numeric/Quantum/Ledger/AmplitudeKLExact.lean`): KL = 2 ampDistSq + Σ p·h(u), h antitone on (-1,∞).
+#audit Quantum.AmplitudeKL.h_deriv
+#audit Quantum.AmplitudeKL.h_antitone
+#audit Quantum.AmplitudeKL.h_nonneg_of_le_zero
+#audit Quantum.AmplitudeKL.h_nonpos_of_ge_zero
+#audit Quantum.AmplitudeKL.kl_eq_amp_sq_add_h
+#audit Quantum.AmplitudeKL.kl_le_two_amp_sq_of_u_nonneg
+#audit Quantum.AmplitudeKL.kl_ge_two_amp_sq_of_u_nonpos
