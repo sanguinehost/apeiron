@@ -246,7 +246,8 @@ fn area(a: usize, b: usize) -> Result<usize, PartsError> {
 }
 
 /// `silu(g) = g·sigmoid(g) = g / (1 + exp(-g))`, `O(1)`.
-fn silu(g: f64) -> f64 {
+#[must_use]
+pub fn silu(g: f64) -> f64 {
     g / (1.0 + (-g).exp())
 }
 
@@ -260,7 +261,7 @@ fn silu(g: f64) -> f64 {
 ///
 /// # Errors
 /// [`PartsError::Shape`] if any slice length disagrees with the declared shape.
-fn linear(
+pub fn linear(
     x: &[f64],
     t: usize,
     in_w: usize,
