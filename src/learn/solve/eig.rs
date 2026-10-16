@@ -64,6 +64,34 @@ use super::gemm::{gemm_nn, GemmError};
 use super::syrk::{narrow, round32, within_bound};
 use crate::numeric::fixed_rsqrt::isqrt;
 
+/// The loop-safe form of `?` on a checked `Option`: yield `$o`'s value, or record
+/// [`EigError::Overflow`] in the `$err` flag and yield `0`. The enclosing loop tests `$err`, so no
+/// early `return` or `?` sits inside a loop body — the shape the pinned Aeneas accepts.
+macro_rules! ck {
+    ($err:ident, $o:expr) => {
+        match $o {
+            Some(v) => v,
+            None => {
+                $err = Some(EigError::Overflow);
+                0
+            }
+        }
+    };
+}
+
+/// As [`ck`], for a `Result` carrying an [`EigError`].
+macro_rules! ckr {
+    ($err:ident, $r:expr) => {
+        match $r {
+            Ok(v) => v,
+            Err(e) => {
+                $err = Some(e);
+                0
+            }
+        }
+    };
+}
+
 /// Raw Q32.32 `1.0`.
 const ONE: i64 = 1 << 32;
 /// Oversampling columns beyond `r`: `p = min(OVERSAMPLE, n − r)` carries the gap
@@ -167,15 +195,20 @@ fn to_i64(v: i128) -> Result<i64, EigError> {
 /// # Complexity
 /// `n(n−1)/2` comparisons in `i128`, `O(1)` space.
 fn is_symmetric(m: &[i64], n: usize) -> bool {
-    for i in 0..n {
-        for j in (i + 1)..n {
+    let mut ok = true;
+    let mut i = 0;
+    while i < n && ok {
+        let mut j = i + 1;
+        while j < n && ok {
             let d = i128::from(m[i * n + j]) - i128::from(m[j * n + i]);
             if d.abs() > 1 {
-                return false;
+                ok = false;
             }
+            j += 1;
         }
+        i += 1;
     }
-    true
+    ok
 }
 
 /// Deterministic 64-bit xorshift: the start basis' only randomness (no `rand`, no entropy).
@@ -234,45 +267,70 @@ fn start_basis(n: usize, s: usize) -> Vec<i64> {
 fn orthonormalise(y: &[i64], n: usize, s: usize) -> Result<Vec<i64>, EigError> {
     let mut q = vec![0i64; n * s];
     let mut col = vec![0i64; n];
-    for pass in 0..2 {
-        for j in 0..s {
-            for i in 0..n {
+    let mut err: Option<EigError> = None;
+    let mut pass = 0;
+    while pass < 2 && err.is_none() {
+        let mut j = 0;
+        while j < s && err.is_none() {
+            let mut i = 0;
+            while i < n {
                 col[i] = if pass == 0 {
                     y[i * s + j]
                 } else {
                     q[i * s + j]
                 };
+                i += 1;
             }
             // Columns `k < j` are already unit, so `c = <q_k, col> / 2³²` is the projection
             // coefficient in Q32.32.
-            for k in 0..j {
+            let mut k = 0;
+            while k < j && err.is_none() {
                 let mut acc: i128 = 0;
-                for i in 0..n {
-                    let pr = ov(i128::from(q[i * s + k]).checked_mul(i128::from(col[i])))?;
-                    acc = ov(acc.checked_add(pr))?;
+                let mut i = 0;
+                while i < n {
+                    let pr = ck!(
+                        err,
+                        i128::from(q[i * s + k]).checked_mul(i128::from(col[i]))
+                    );
+                    acc = ck!(err, acc.checked_add(pr));
+                    i += 1;
                 }
-                let c = ov(div_round(acc, i128::from(ONE)))?;
-                for i in 0..n {
-                    let pr = r32(ov(c.checked_mul(i128::from(q[i * s + k])))?)?;
-                    col[i] = to_i64(ov(i128::from(col[i]).checked_sub(pr))?)?;
+                let c = ck!(err, div_round(acc, i128::from(ONE)));
+                let mut i = 0;
+                while i < n && err.is_none() {
+                    let pr = ckr!(err, r32(ck!(err, c.checked_mul(i128::from(q[i * s + k])))));
+                    col[i] = ckr!(err, to_i64(ck!(err, i128::from(col[i]).checked_sub(pr))));
+                    i += 1;
                 }
+                k += 1;
             }
             let mut nrm2: i128 = 0;
-            for i in 0..n {
+            let mut i = 0;
+            while i < n && err.is_none() {
                 let v = i128::from(col[i]);
-                nrm2 = ov(nrm2.checked_add(ov(v.checked_mul(v))?))?;
+                nrm2 = ck!(err, nrm2.checked_add(ck!(err, v.checked_mul(v))));
+                i += 1;
             }
             let nrm = isqrt(nrm2);
-            if nrm <= 0 {
-                return Err(EigError::DegenerateBasis);
+            if err.is_none() && nrm <= 0 {
+                err = Some(EigError::DegenerateBasis);
             }
-            for i in 0..n {
-                let num = ov(i128::from(col[i]).checked_mul(i128::from(ONE)))?;
-                q[i * s + j] = to_i64(ov(div_round(num, nrm))?)?;
+            if err.is_none() {
+                let mut i = 0;
+                while i < n && err.is_none() {
+                    let num = ck!(err, i128::from(col[i]).checked_mul(i128::from(ONE)));
+                    q[i * s + j] = ckr!(err, to_i64(ck!(err, div_round(num, nrm))));
+                    i += 1;
+                }
             }
+            j += 1;
         }
+        pass += 1;
     }
-    Ok(q)
+    match err {
+        Some(e) => Err(e),
+        None => Ok(q),
+    }
 }
 
 /// The `s × s` Rayleigh quotient `T = Qᵀ·Y` of the orthonormal `n × s` `q` against the `n × s`
@@ -287,19 +345,32 @@ fn orthonormalise(y: &[i64], n: usize, s: usize) -> Result<Vec<i64>, EigError> {
 /// Time: `n·s²` checked multiply-adds. Space: `O(s²)`.
 fn rayleigh(q: &[i64], y: &[i64], n: usize, s: usize) -> Result<Vec<i64>, EigError> {
     let mut t = vec![0i64; s * s];
-    for i in 0..s {
-        for j in i..s {
+    let mut err: Option<EigError> = None;
+    let mut i = 0;
+    while i < s && err.is_none() {
+        let mut j = i;
+        while j < s && err.is_none() {
             let mut acc: i128 = 0;
-            for l in 0..n {
-                let pr = ov(i128::from(q[l * s + i]).checked_mul(i128::from(y[l * s + j])))?;
-                acc = ov(acc.checked_add(pr))?;
+            let mut l = 0;
+            while l < n {
+                let pr = ck!(
+                    err,
+                    i128::from(q[l * s + i]).checked_mul(i128::from(y[l * s + j]))
+                );
+                acc = ck!(err, acc.checked_add(pr));
+                l += 1;
             }
-            let v = to_i64(r32(acc)?)?;
+            let v = ckr!(err, to_i64(ckr!(err, r32(acc))));
             t[i * s + j] = v;
             t[j * s + i] = v;
+            j += 1;
         }
+        i += 1;
     }
-    Ok(t)
+    match err {
+        Some(e) => Err(e),
+        None => Ok(t),
+    }
 }
 
 /// The `n × s` product `Q·V` of the `n × s` `q` and the `s × s` `v`: `out[i,j] =
@@ -312,17 +383,30 @@ fn rayleigh(q: &[i64], y: &[i64], n: usize, s: usize) -> Result<Vec<i64>, EigErr
 /// Time: `n·s²` checked multiply-adds. Space: `O(n·s)`.
 fn mul_small(q: &[i64], v: &[i64], n: usize, s: usize) -> Result<Vec<i64>, EigError> {
     let mut out = vec![0i64; n * s];
-    for i in 0..n {
-        for j in 0..s {
+    let mut err: Option<EigError> = None;
+    let mut i = 0;
+    while i < n && err.is_none() {
+        let mut j = 0;
+        while j < s && err.is_none() {
             let mut acc: i128 = 0;
-            for k in 0..s {
-                let pr = ov(i128::from(q[i * s + k]).checked_mul(i128::from(v[k * s + j])))?;
-                acc = ov(acc.checked_add(pr))?;
+            let mut k = 0;
+            while k < s {
+                let pr = ck!(
+                    err,
+                    i128::from(q[i * s + k]).checked_mul(i128::from(v[k * s + j]))
+                );
+                acc = ck!(err, acc.checked_add(pr));
+                k += 1;
             }
-            out[i * s + j] = to_i64(r32(acc)?)?;
+            out[i * s + j] = ckr!(err, to_i64(ckr!(err, r32(acc))));
+            j += 1;
         }
+        i += 1;
     }
-    Ok(out)
+    match err {
+        Some(e) => Err(e),
+        None => Ok(out),
+    }
 }
 
 /// One two-sided Jacobi rotation of the symmetric `s × s` `t` on the pair `(p, q)`, applying the
@@ -377,39 +461,65 @@ fn rotate(t: &mut [i64], v: &mut [i64], s: usize, p: usize, q: usize) -> Result<
     t[q * s + q] = to_i64(ov(aqq.checked_add(tapq))?)?;
     t[p * s + q] = 0;
     t[q * s + p] = 0;
-    for i in 0..s {
-        if i == p || i == q {
-            continue;
+    // The zero-diagonal sweep and the basis rotation below are the two loops of the body; both
+    // carry their checked-arithmetic failure in `err` rather than a `?`, so no early `return` sits
+    // inside a loop.
+    let mut err: Option<EigError> = None;
+    let mut i = 0;
+    while i < s && err.is_none() {
+        if i != p && i != q {
+            let tip = i128::from(t[i * s + p]);
+            let tiq = i128::from(t[i * s + q]);
+            let np = ckr!(
+                err,
+                r32(ck!(
+                    err,
+                    ck!(err, cv.checked_mul(tip)).checked_sub(ck!(err, sv.checked_mul(tiq)))
+                ))
+            );
+            let nq = ckr!(
+                err,
+                r32(ck!(
+                    err,
+                    ck!(err, sv.checked_mul(tip)).checked_add(ck!(err, cv.checked_mul(tiq)))
+                ))
+            );
+            let np = ckr!(err, to_i64(np));
+            let nq = ckr!(err, to_i64(nq));
+            t[i * s + p] = np;
+            t[p * s + i] = np;
+            t[i * s + q] = nq;
+            t[q * s + i] = nq;
         }
-        let tip = i128::from(t[i * s + p]);
-        let tiq = i128::from(t[i * s + q]);
-        let np = r32(ov(
-            ov(cv.checked_mul(tip))?.checked_sub(ov(sv.checked_mul(tiq))?)
-        )?)?;
-        let nq = r32(ov(
-            ov(sv.checked_mul(tip))?.checked_add(ov(cv.checked_mul(tiq))?)
-        )?)?;
-        let np = to_i64(np)?;
-        let nq = to_i64(nq)?;
-        t[i * s + p] = np;
-        t[p * s + i] = np;
-        t[i * s + q] = nq;
-        t[q * s + i] = nq;
+        i += 1;
     }
     // The basis columns `p`, `q` rotate for every row, including `p` and `q` themselves.
-    for i in 0..s {
+    let mut i = 0;
+    while i < s && err.is_none() {
         let vip = i128::from(v[i * s + p]);
         let viq = i128::from(v[i * s + q]);
-        let vp = r32(ov(
-            ov(cv.checked_mul(vip))?.checked_sub(ov(sv.checked_mul(viq))?)
-        )?)?;
-        let vq = r32(ov(
-            ov(sv.checked_mul(vip))?.checked_add(ov(cv.checked_mul(viq))?)
-        )?)?;
-        v[i * s + p] = to_i64(vp)?;
-        v[i * s + q] = to_i64(vq)?;
+        let vp = ckr!(
+            err,
+            r32(ck!(
+                err,
+                ck!(err, cv.checked_mul(vip)).checked_sub(ck!(err, sv.checked_mul(viq)))
+            ))
+        );
+        let vq = ckr!(
+            err,
+            r32(ck!(
+                err,
+                ck!(err, sv.checked_mul(vip)).checked_add(ck!(err, cv.checked_mul(viq)))
+            ))
+        );
+        v[i * s + p] = ckr!(err, to_i64(vp));
+        v[i * s + q] = ckr!(err, to_i64(vq));
+        i += 1;
     }
-    Ok(())
+    match err {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
 }
 
 /// The `s × s` integer Jacobi eigensolver: sweeps of [`rotate`] over the upper triangle until the
@@ -426,36 +536,63 @@ fn rotate(t: &mut [i64], v: &mut [i64], s: usize, p: usize, q: usize) -> Result<
 fn jacobi(t_in: &[i64], s: usize) -> Result<(Vec<i64>, Vec<i64>), EigError> {
     let mut t = t_in.to_vec();
     let mut v = vec![0i64; s * s];
-    for i in 0..s {
+    let mut i = 0;
+    while i < s {
         v[i * s + i] = ONE;
+        i += 1;
     }
-    for _sweep in 0..JACOBI_SWEEPS {
+    let mut err: Option<EigError> = None;
+    let mut sweep = 0;
+    while sweep < JACOBI_SWEEPS && err.is_none() {
         let mut off: i64 = 0;
         let mut scale: i64 = 0;
-        for i in 0..s {
+        let mut i = 0;
+        while i < s {
             let d = t[i * s + i].abs();
             if d > scale {
                 scale = d;
             }
-            for j in (i + 1)..s {
+            let mut j = i + 1;
+            while j < s {
                 let o = t[i * s + j].abs();
                 if o > off {
                     off = o;
                 }
+                j += 1;
             }
+            i += 1;
         }
         let tol = (scale >> OFF_DIAG_SHIFT).max(1i64 << OFF_DIAG_FLOOR);
         if off <= tol {
-            break;
-        }
-        for p in 0..s {
-            for q in (p + 1)..s {
-                rotate(&mut t, &mut v, s, p, q)?;
+            // The convergence exit of the sweep loop, as a loop-counter clamp rather than a
+            // `break` (which Aeneas rejects inside the nested rotation loops).
+            sweep = JACOBI_SWEEPS;
+        } else {
+            let mut p = 0;
+            while p < s && err.is_none() {
+                let mut q = p + 1;
+                while q < s && err.is_none() {
+                    match rotate(&mut t, &mut v, s, p, q) {
+                        Ok(()) => {}
+                        Err(e) => err = Some(e),
+                    }
+                    q += 1;
+                }
+                p += 1;
             }
+            sweep += 1;
         }
     }
-    let vals = (0..s).map(|i| t[i * s + i]).collect();
-    Ok((vals, v))
+    let mut vals = vec![0i64; s];
+    let mut i = 0;
+    while i < s {
+        vals[i] = t[i * s + i];
+        i += 1;
+    }
+    match err {
+        Some(e) => Err(e),
+        None => Ok((vals, v)),
+    }
 }
 
 /// Sort `vals` ascending, carrying the matching columns of the `s × s` row-major `v` through the
@@ -508,19 +645,27 @@ fn residual_max(
 ) -> Result<i64, EigError> {
     let r = vals.len();
     let mut worst: i64 = 0;
-    for k in 0..r {
+    let mut err: Option<EigError> = None;
+    let mut k = 0;
+    while k < r && err.is_none() {
         let lam = i128::from(vals[k]);
-        for i in 0..n {
+        let mut i = 0;
+        while i < n && err.is_none() {
             let idx = i * cols + (col0 + k);
-            let lv = r32(ov(lam.checked_mul(i128::from(q[idx])))?)?;
-            let d = ov(i128::from(w[idx]).checked_sub(lv))?.abs();
-            let d = to_i64(d)?;
+            let lv = ckr!(err, r32(ck!(err, lam.checked_mul(i128::from(q[idx])))));
+            let d = ck!(err, i128::from(w[idx]).checked_sub(lv)).abs();
+            let d = ckr!(err, to_i64(d));
             if d > worst {
                 worst = d;
             }
+            i += 1;
         }
+        k += 1;
     }
-    Ok(worst)
+    match err {
+        Some(e) => Err(e),
+        None => Ok(worst),
+    }
 }
 
 /// Negate each of the `r` columns of the row-major `n × r` `evecs` whose largest-magnitude entry is
@@ -530,21 +675,31 @@ fn residual_max(
 /// # Complexity
 /// `O(n·r)` comparisons and negations, `O(1)` space.
 fn fix_signs(evecs: &mut [i64], n: usize, r: usize) {
-    for k in 0..r {
-        let mut best = 0usize;
+    let mut k = 0;
+    while k < r {
+        // The sign is carried as the value at the first largest-magnitude entry rather than that
+        // entry's index: assigning the loop counter to a local is the one shape whose borrow
+        // fixed point the pinned Aeneas cannot compute (`Could not compute a loop fixed point`).
         let mut best_abs: i128 = -1;
-        for i in 0..n {
-            let a = i128::from(evecs[i * r + k]).abs();
+        let mut best_val: i64 = 0;
+        let mut i = 0;
+        while i < n {
+            let x = evecs[i * r + k];
+            let a = i128::from(x).abs();
             if a > best_abs {
                 best_abs = a;
-                best = i;
+                best_val = x;
             }
+            i += 1;
         }
-        if evecs[best * r + k] < 0 {
-            for i in 0..n {
+        if best_val < 0 {
+            let mut i = 0;
+            while i < n {
                 evecs[i * r + k] = -evecs[i * r + k];
+                i += 1;
             }
         }
+        k += 1;
     }
 }
 
@@ -553,6 +708,73 @@ fn fix_signs(evecs: &mut [i64], n: usize, r: usize) {
 /// [`GemmError::Overflow`], so it maps to [`EigError::Overflow`].
 fn gemm_err(_: GemmError) -> EigError {
     EigError::Overflow
+}
+
+/// The outcome of one subspace-iteration step ([`ritz_step`]).
+enum Ritz {
+    /// The stop test failed: the next basis `q ← orth(Y·V)` and the residual `est` it left.
+    Continue {
+        /// The next orthonormal `n × s` basis.
+        q: Vec<i64>,
+        /// This step's max column residual `‖M v_k − λ_k v_k‖∞` over the kept columns, raw Q32.32.
+        est: i64,
+    },
+    /// The stop test passed and the returned columns were confirmed on a fresh exact image.
+    Done(TopEig),
+}
+
+/// One block subspace-iteration step on the orthonormal `n × s` `q`: `Y = M·q` ([`gemm_nn`]),
+/// `T = qᵀY` ([`rayleigh`]) diagonalised by [`jacobi`], the two rotation products, the residual
+/// test, and — on convergence — the confirmation of the returned columns against a fresh exact
+/// image `M·V`. This is the body of [`top_eigh`]'s sweep, factored into a helper so every `?` sits
+/// outside a loop (the shape the pinned Aeneas accepts).
+///
+/// # Errors
+/// [`EigError::Overflow`] from any checked step, [`EigError::DegenerateBasis`] from the power-step
+/// orthonormalisation.
+///
+/// # Complexity
+/// As one iteration of [`top_eigh`]: `n²·s` [`gemm_nn`] multiply-accumulates plus `O(n·s²)`, and on
+/// the exit the extra `n²·r` image. Space `O(n·s + s²)`.
+fn ritz_step(
+    m: &[i64],
+    q: &[i64],
+    n: usize,
+    r: usize,
+    s: usize,
+    iters: usize,
+    threads: usize,
+) -> Result<Ritz, EigError> {
+    let y = gemm_nn(m, q, n, n, s, threads).map_err(gemm_err)?;
+    let t = rayleigh(q, &y, n, s)?;
+    let (mut vals, mut v) = jacobi(&t, s)?;
+    sort_ascending(&mut vals, &mut v, s);
+    let qv = mul_small(q, &v, n, s)?;
+    let yv = mul_small(&y, &v, n, s)?;
+    let tol = (vals[s - 1] >> RESIDUAL_SHIFT).max(1);
+    let est = residual_max(&yv, &qv, &vals[s - r..], n, s, s - r)?;
+    if est <= tol {
+        // Confirm the object that is returned: the orthonormalised top columns against a fresh
+        // exact image `M·V`, not the rotated candidate pair the loop carries.
+        let vf = orthonormalise(&top_columns(&qv, n, s, r), n, r)?;
+        let w = gemm_nn(m, &vf, n, n, r, threads).map_err(gemm_err)?;
+        let exact = residual_max(&w, &vf, &vals[s - r..], n, r, 0)?;
+        if exact <= tol {
+            let mut evecs = vf;
+            fix_signs(&mut evecs, n, r);
+            return Ok(Ritz::Done(TopEig {
+                evals: vals[s - r..].to_vec(),
+                evecs,
+                iters,
+            }));
+        }
+    }
+    // The power step: the next basis spans `M·Q'`, and the orthonormalisation resets the rounding
+    // drift the rotation products left behind.
+    Ok(Ritz::Continue {
+        q: orthonormalise(&yv, n, s)?,
+        est,
+    })
 }
 
 /// The top `r` eigenpairs of the symmetric PSD `n × n` Q32.32 `m`, ascending, by block subspace
@@ -604,35 +826,25 @@ pub fn top_eigh(m: &[i64], n: usize, r: usize, threads: usize) -> Result<TopEig,
     let s = r + OVERSAMPLE.min(n - r);
     let mut q = orthonormalise(&start_basis(n, s), n, s)?;
     let mut last: i64 = i64::MAX;
-    for iters in 1..=MAX_ITERS {
-        let y = gemm_nn(m, &q, n, n, s, threads).map_err(gemm_err)?;
-        let t = rayleigh(&q, &y, n, s)?;
-        let (mut vals, mut v) = jacobi(&t, s)?;
-        sort_ascending(&mut vals, &mut v, s);
-        let qv = mul_small(&q, &v, n, s)?;
-        let yv = mul_small(&y, &v, n, s)?;
-        let tol = (vals[s - 1] >> RESIDUAL_SHIFT).max(1);
-        let est = residual_max(&yv, &qv, &vals[s - r..], n, s, s - r)?;
-        if est <= tol {
-            // Confirm the object that is returned: the orthonormalised top columns against a fresh
-            // exact image `M·V`, not the rotated candidate pair the loop carries.
-            let vf = orthonormalise(&top_columns(&qv, n, s, r), n, r)?;
-            let w = gemm_nn(m, &vf, n, n, r, threads).map_err(gemm_err)?;
-            let exact = residual_max(&w, &vf, &vals[s - r..], n, r, 0)?;
-            if exact <= tol {
-                let mut evecs = vf;
-                fix_signs(&mut evecs, n, r);
-                return Ok(TopEig {
-                    evals: vals[s - r..].to_vec(),
-                    evecs,
-                    iters,
-                });
+    let mut err: Option<EigError> = None;
+    let mut done: Option<TopEig> = None;
+    let mut iters = 1usize;
+    while iters <= MAX_ITERS && err.is_none() && done.is_none() {
+        match ritz_step(m, &q, n, r, s, iters, threads) {
+            Ok(Ritz::Continue { q: next, est }) => {
+                q = next;
+                last = est;
             }
+            Ok(Ritz::Done(eig)) => done = Some(eig),
+            Err(e) => err = Some(e),
         }
-        last = est;
-        // The power step: the next basis spans `M·Q'`, and the orthonormalisation resets the
-        // rounding drift the rotation products left behind.
-        q = orthonormalise(&yv, n, s)?;
+        iters += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
+    }
+    if let Some(eig) = done {
+        return Ok(eig);
     }
     Err(EigError::NotConverged { residual: last })
 }
