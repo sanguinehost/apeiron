@@ -30,7 +30,12 @@
 //!   `round(x·2³²)`, and the returned `c` is read back with `v/2³²`.
 //! - `r_step` solves one `G × G` SPD system per out row (`M[o]·r[o] = t[o]`).
 //! - `d_step` solves the `n × n` normal system of the Hadamard-domain column scale, with the rotated
-//!   metric `H_rot = had_gram(Hl ⊙ c cᵀ)` and `G_rot = fwht128((Ws·Hl) ⊙ c)`.
+//!   metric `H_rot = had_gram(Hl ⊙ c cᵀ)` and `G_rot = fwht128((Ws·Hl) ⊙ c)`. Its `A`-formation is
+//!   the same shared primitive pair as `c_step` ([`crate::learn::solve::syrk::wsyrk`] then
+//!   [`crate::learn::solve::syrk::hadamard_into`]) with `H_rot` as the elementwise factor, and its
+//!   solve is [`crate::learn::solve::chol::chol_solve`]; the boundary rounding is identical to
+//!   `c_step`'s, and the `f64` `A` loop and the [`crate::learn::ridge::solve_spd`] call are gone with
+//!   no fallback.
 //!
 //! Every step adds the same ridge the script does, `1e-12·mean(diag)` (`d_step` clamps the mean
 //! below at `1e-12`), so a recovery of an exact planted parameter is exact only up to the ridge; the
@@ -47,9 +52,11 @@
 //! # Trust boundary
 //!
 //! The bodies run in `f64` and are `tested` (`tests/learn_fold_steps.rs`); they are not extracted and
-//! no refinement theorem links them, so they are not `proved`. `c_step`'s Gram and solve are the
-//! `Q32.32` primitives, themselves `tested` and not extracted; the `d_step` arithmetic order is the
-//! script's; no hardware or performance claim is made.
+//! no refinement theorem links them, so they are not `proved`. The `c_step` and `d_step` Gram and
+//! solve are the `Q32.32` primitives `wsyrk`, `hadamard_into` and `chol_solve`, themselves `tested`
+//! and not extracted; the `f64` formation around them (`Ws·Hl`, `G_rot`, `H_rot`, the right-hand
+//! side) and `r_step`'s `f64` systems follow the script's arithmetic order; no hardware or
+//! performance claim is made.
 
 #![allow(
     clippy::many_single_char_names,
@@ -87,11 +94,12 @@ const INPUT_BOUND: f64 = 16.0;
 /// `hadamard_into` factor) and the right-hand side `b` (the [`chol_solve`] input).
 const GRID_BOUND: f64 = 2_147_483_648.0;
 
-/// The worker count handed to the two solve primitives. `c_step` takes no thread parameter and its
-/// sole production caller ([`super::fold_fit::fold_fit`]) is single-threaded, so the fold fans out
-/// at `8`; both primitives are documented bit-identical across thread counts, so this changes only
-/// wall-clock, not the returned vector.
-const C_STEP_THREADS: usize = 8;
+/// The worker count handed to the two solve primitives by [`c_step`] and [`d_step`]. Neither step
+/// takes a thread parameter and `c_step`'s sole production caller
+/// ([`super::fold_fit::fold_fit`]) is single-threaded, so both fan out at `8`; both primitives are
+/// documented bit-identical across thread counts, so this changes only wall-clock, not the returned
+/// vector.
+const STEP_THREADS: usize = 8;
 
 /// `round(x·2³²)` as a `Q32.32` word, or the step's [`StepsError::ShapeMismatch`] when `x` is not
 /// finite or `|x|` reaches `bound` (no new error variant: the crate maps a domain violation onto
@@ -397,7 +405,7 @@ fn mul_metric(ws: &[f64], hl: &[f64], o: usize, n: usize) -> Vec<f64> {
 /// `max|Sh|·2⁻ᵏ ≤ 8`). The panel scaling propagates as `A → A·2⁻²ᵏ` and `b → b·2⁻ᵏ`, so the
 /// solution is `c·2ᵏ` and is scaled back by `2⁻ᵏ` before it is returned; `k = 0` when the panel is
 /// already within `8`, which leaves the tests and the production fixture unscaled. The primitives
-/// are handed [`C_STEP_THREADS`] workers; the result is bit-identical for every thread count.
+/// are handed [`STEP_THREADS`] workers; the result is bit-identical for every thread count.
 ///
 /// # Errors
 ///
@@ -468,7 +476,7 @@ pub fn c_step(
         .collect::<Result<Vec<i64>, StepsError>>()?;
     // A = hl ⊙ (Shᵀ diag(g_row) Sh): the weighted Gram by [`wsyrk`], the `hl` factor by
     // [`hadamard_into`].
-    let mut a = wsyrk(&sh_grid, gr_grid.as_deref(), o, n, C_STEP_THREADS).map_err(map_syrk)?;
+    let mut a = wsyrk(&sh_grid, gr_grid.as_deref(), o, n, STEP_THREADS).map_err(map_syrk)?;
     hadamard_into(&mut a, &hl_grid).map_err(map_syrk)?;
     // The ridge `1e-12·mean(diag A)` in the scaled system (`mean(diag A)` shares the `2⁻²ᵏ`
     // factor, so it cancels), at the grid quantum; a positive ridge is floored at one raw unit so
@@ -503,7 +511,7 @@ pub fn c_step(
         .iter()
         .map(|&x| to_grid(x, GRID_BOUND))
         .collect::<Result<Vec<i64>, StepsError>>()?;
-    let solved = chol_solve(&a, &b_grid, n, 1, C_STEP_THREADS).map_err(map_solve)?;
+    let solved = chol_solve(&a, &b_grid, n, 1, STEP_THREADS).map_err(map_solve)?;
     // Undo the `2⁻ᵏ` panel scale on the solution.
     let back = if k == 0 { 1.0 } else { 2f64.powi(-k) };
     Ok(solved.x.iter().map(|&v| from_grid(v) * back).collect())
@@ -606,17 +614,37 @@ pub fn r_step(
 /// and `fwht128` is block-local, `r` commutes with the transform, so
 /// `recon(d) = compose(fwht128(B⊙d), ones, c)` and `A`, `b` are the gradient of `J(Ws, recon(d), Hl)`.
 ///
+/// # The `Q32.32` boundary
+///
+/// The `A`-formation and the solve are the shared primitives [`wsyrk`] (the weighted Gram
+/// `Bᵀ diag(g_row) B`), [`hadamard_into`] (the rotated metric `H_rot` as the elementwise factor) and
+/// [`chol_solve`], not a second copy of the same math. There is no `f64` `A` loop and no
+/// [`solve_spd`] fallback: the step stays `f64` and crosses into the grid only at this boundary.
+/// `B`, the row weight and `H_rot` are rounded to `round(x·2³²)`; `chol_solve` takes the grid `A`
+/// with the grid right-hand side `b`; the returned `d` is read back with `v/2³²`. As in [`c_step`]
+/// the panel is shifted by the exact power of two `2⁻ᵏ` read from `max|B|`, so it meets the `wsyrk`
+/// input bound `|x| < 2³⁶` raw; the shift propagates as `A → A·2⁻²ᵏ` and `b → b·2⁻ᵏ`, so the
+/// solution is `d·2ᵏ` and is scaled back by `2⁻ᵏ` before it is returned (`k = 0` when the panel is
+/// already within `8`). The ridge is the script's `1e-12·max(mean(diag A), 1e-12)`, its clamp
+/// evaluated on the unshifted `mean(diag A)`, and it is added on the grid diagonal; a positive ridge
+/// is floored at one raw unit so the diagonal stays positive. A non-finite or out-of-bound value is
+/// refused at the boundary, never wrapped.
+///
 /// # Errors
 ///
 /// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], a slice length
-/// disagrees, or `g_row` is present with the wrong length; [`StepsError::NotPositiveDefinite`] if the
-/// reduced `A` is not SPD.
+/// disagrees, `g_row` is present with the wrong length, or a value is non-finite or beyond the
+/// boundary bound (`B`/`g_row` at `2³⁶` raw, `H_rot`/`b` at the grid `i64` range);
+/// [`StepsError::NotPositiveDefinite`] if the reduced `A` is not SPD.
 ///
 /// # Complexity
 ///
-/// Temporal: `O(O·n²)` to form `A` and `Ws·Hl`, plus `O(O·n·log 128)` for the transform and
-/// `O(n²·log 128)` for `H_rot`, and `O(n³)` for the `Cholesky` solve. Spatial: `O(n²)` for `A` and
-/// `H_rot`, plus `O(O·n)` for `Ws·Hl` and `G_rot`.
+/// Temporal: `O(O·n²)` for `Ws·Hl` (f64), `O(O·n·log 128)` for the transform and `O(n²·log 128)` for
+/// `H_rot` (f64), `O(O·n²/2)` for the `wsyrk` weighted Gram `A` measured in checked `i128`
+/// multiply-accumulates (the upper triangle, mirrored), `O(n²)` for the `hadamard_into` factor,
+/// `O(O·n)` for `b`, and `O(n³/3 + n²)` for the `chol_solve` factor and refinement measured in
+/// checked `i128` multiply-accumulates. Spatial: `O(n²)` for `H_rot` and the grid `A` (plus the
+/// `chol_solve` working copies and factor), `O(O·n)` for `B`, `Ws·Hl` and `G_rot`.
 #[allow(
     clippy::too_many_arguments,
     reason = "the step is handed the metric, the rotated sign matrix, the two scales, the row \
@@ -667,28 +695,61 @@ pub fn d_step(
         }
     }
     let h_rot = had_gram(&hlc, n)?;
-    let b_scaled = group_scale(s_rot, r, o, n, g);
-    // A[i,j] = H_rot[i,j] · Σ_o B[o,i]·B[o,j]·g_row[o].
-    let mut a = vec![0.0f64; n * n];
-    for i in 0..n {
-        for j in 0..n {
-            let mut acc = 0.0f64;
-            for oo in 0..o {
-                acc += b_scaled[oo * n + i] * b_scaled[oo * n + j] * weight(oo);
-            }
-            a[i * n + j] = h_rot[i * n + j] * acc;
+    let mut b_scaled = group_scale(s_rot, r, o, n, g);
+    // Scale the panel by the exact power of two `2⁻ᵏ` so it meets the `wsyrk` input bound
+    // `|x| < 2³⁶` raw; `k` is read from `max|B|` (see [`panel_shift`]). The scaling is undone on the
+    // returned `d` (`A → A·2⁻²ᵏ`, `b → b·2⁻ᵏ`, so the solution is `d·2ᵏ`).
+    let k = panel_shift(b_scaled.iter().fold(0.0f64, |m, v| m.max(v.abs())));
+    if k != 0 {
+        let f = 2f64.powi(-k);
+        for v in &mut b_scaled {
+            *v *= f;
         }
     }
+    // f64 → Q32.32 grid at the boundary: the panel and the row weight at `wsyrk`'s input bound, the
+    // rotated metric and the right-hand side at the grid's `i64` range.
+    let panel_grid: Vec<i64> = b_scaled
+        .iter()
+        .map(|&x| to_grid(x, INPUT_BOUND))
+        .collect::<Result<Vec<i64>, StepsError>>()?;
+    let gr_grid: Option<Vec<i64>> = match g_row {
+        Some(gr) => Some(
+            gr.iter()
+                .map(|&x| to_grid(x, INPUT_BOUND))
+                .collect::<Result<Vec<i64>, StepsError>>()?,
+        ),
+        None => None,
+    };
+    let h_grid: Vec<i64> = h_rot
+        .iter()
+        .map(|&x| to_grid(x, GRID_BOUND))
+        .collect::<Result<Vec<i64>, StepsError>>()?;
+    // A = H_rot ⊙ (Bᵀ diag(g_row) B): the weighted Gram by [`wsyrk`], the rotated-metric factor by
+    // [`hadamard_into`].
+    let mut a = wsyrk(&panel_grid, gr_grid.as_deref(), o, n, STEP_THREADS).map_err(map_syrk)?;
+    hadamard_into(&mut a, &h_grid).map_err(map_syrk)?;
+    // The ridge `1e-12·max(mean(diag A), 1e-12)` at the grid quantum. The `2⁻²ᵏ` panel factor on `A`
+    // cancels between the diagonal mean and the diagonal it is added to, so the clamp `1e-12` is
+    // written in the scaled system (`1e-12·2⁻²ᵏ`), which is the script's clamp on the unshifted
+    // `mean(diag A)`; a positive ridge is floored at one raw unit so the diagonal stays positive.
     let mut dmean = 0.0f64;
     for i in 0..n {
-        dmean += a[i * n + i];
+        dmean += from_grid(a[i * n + i]);
     }
     dmean /= n as f64;
-    let ridge = EPS * dmean.max(1e-12);
-    for i in 0..n {
-        a[i * n + i] += ridge;
+    let ridge = EPS * dmean.max(EPS * 2f64.powi(-2 * k));
+    let mut ridge_raw = (ridge * GRID_SCALE).round() as i64;
+    if ridge > 0.0 && ridge_raw == 0 {
+        ridge_raw = 1;
     }
-    // b[i] = Σ_o B[o,i]·g_row[o]·G_rot[o,i].
+    for i in 0..n {
+        let diag = a[i * n + i];
+        a[i * n + i] = diag
+            .checked_add(ridge_raw)
+            .ok_or(StepsError::ShapeMismatch)?;
+    }
+    // b[i] = Σ_o B[o,i]·g_row[o]·G_rot[o,i], on the scaled panel; then to the grid at the `i64`
+    // range.
     let mut rhs = vec![0.0f64; n];
     for i in 0..n {
         let mut acc = 0.0f64;
@@ -697,5 +758,12 @@ pub fn d_step(
         }
         rhs[i] = acc;
     }
-    solve_spd(&a, &rhs, n, 1).map_err(map_ridge)
+    let b_grid: Vec<i64> = rhs
+        .iter()
+        .map(|&x| to_grid(x, GRID_BOUND))
+        .collect::<Result<Vec<i64>, StepsError>>()?;
+    let solved = chol_solve(&a, &b_grid, n, 1, STEP_THREADS).map_err(map_solve)?;
+    // Undo the `2⁻ᵏ` panel scale on the solution.
+    let back = if k == 0 { 1.0 } else { 2f64.powi(-k) };
+    Ok(solved.x.iter().map(|&v| from_grid(v) * back).collect())
 }
