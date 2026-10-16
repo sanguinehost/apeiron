@@ -9,5 +9,9 @@ pub mod capture;
 pub mod eigh;
 /// Held-out KL, TV, top-1 and NLL of a student against a teacher on the ported model.
 pub mod heldout;
+/// Per-block nearest-codeword ICM passes over the E8 codes of one and two planes, and the two-plane `r` refit.
+pub mod icm;
 /// Bit-exact binary16 rounding and the hierarchical row/column/diagonal scale quantisers.
 pub mod quant;
+/// `fwht128`, `compose`, the refit objective and the closed-form `c`, `r`, `d` steps.
+pub mod steps;
