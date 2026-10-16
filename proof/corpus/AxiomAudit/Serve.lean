@@ -21,6 +21,8 @@ import Serve.Block.R4.Ffn7
 import Serve.Kern.R4.Matmat8
 import Serve.Kern.R4.Lut5
 import Serve.Block.R4.Ffn8
+import Serve.Kern.R4.Gemm7
+import Serve.Kern.R4.Matmat9
 import Serve.Kern.Lut
 import Serve.Kern.Matmat2
 import Serve.Kern.Matmat3
@@ -279,3 +281,16 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.ffn8_codeOf_spec
 #audit apeiron_word.ffn8_lane_loop_spec_ffn7
 #audit apeiron_word.ffn8_lane_loop_ok_ffn7
+#audit apeiron_word.gemm7_body_cont
+#audit apeiron_word.gemm7_body_done
+#audit apeiron_word.gemm7_body_noq32_scale
+#audit apeiron_word.gemm7_body_noq32_mul
+#audit apeiron_word.gemm7_body_totaloverflow
+#audit apeiron_word.word_quantact_magnitude_loop_ok
+#audit apeiron_word.word_quantact_magnitude_ok
+#audit apeiron_word.word_quantact_magnitude_loop_refuses
+#audit apeiron_word.matmat9_inner_total
+#audit apeiron_word.matmat9_inner_bail
+#audit apeiron_word.matmat9_acc_step
+#audit apeiron_word.matmat9_bailref_step
+#audit apeiron_word.matmat9_deltaN_eq
