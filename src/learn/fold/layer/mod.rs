@@ -8,3 +8,8 @@ pub mod resq;
 /// Sink-gated token weights, the stage Gram/`Cts`/`Cs` accumulator and the split intra/inter ridge
 /// solve of the production `fold_gqa` arm (`student-input path`, `sink_gate`, `split_intra_inter`).
 pub mod stage;
+
+/// The per-tensor assembly after the stage solve: the two-plane fit, the `-nb` joint refinement,
+/// the `q_mlp_trans` rows plane, the low-rank corrector, the bias update, the `-resq` row-scale
+/// fold and the stored-plane reconciliation.
+pub mod tensor;
