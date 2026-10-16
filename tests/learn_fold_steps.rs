@@ -14,7 +14,7 @@
               vocabulary. The pedantic lints stay on for the rest of the crate."
 )]
 
-use apeiron::learn::fold::steps::{
+use apeiron::learn::fold::fit::steps::{
     c_step, compose, d_step, fwht128, had_gram, objective, r_step, StepsError, GROUP,
 };
 

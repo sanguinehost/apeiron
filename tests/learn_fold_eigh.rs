@@ -17,7 +17,7 @@
               arithmetic; the pedantic lints stay on for the crate's non-test code."
 )]
 
-use apeiron::learn::fold::eigh::{eigh, lowrank_corrector_exact, EighError};
+use apeiron::learn::fold::fit::eigh::{eigh, lowrank_corrector_exact, EighError};
 
 /// Deterministic 64-bit LCG (Numerical Recipes constants), the tests' only randomness source.
 struct Lcg(u64);

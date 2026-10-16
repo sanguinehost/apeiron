@@ -24,7 +24,7 @@
               as the reference does"
 )]
 
-use apeiron::learn::fold::quant::{f16r, quant_c_u8, quant_r_hier, QuantError};
+use apeiron::learn::fold::fit::quant::{f16r, quant_c_u8, quant_r_hier, QuantError};
 
 /// Deterministic xorshift64 PRNG, uniform in `[-1, 1)`.
 struct Rng(u64);

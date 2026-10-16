@@ -18,7 +18,7 @@
               exact mirror and the exact f64 division the accumulator performs"
 )]
 
-use apeiron::learn::fold::capture::{CaptureError, Grams, LayerGrams, Normalisation};
+use apeiron::learn::fold::stats::capture::{CaptureError, Grams, LayerGrams, Normalisation};
 use apeiron::learn::grad::model::{forward, Config, LayerTape, LayerWeights, Tape, Weights};
 use apeiron::learn::ridge::cholesky;
 
