@@ -5,7 +5,9 @@
 //! half-ulp bound of the exact correction in the `Hl` metric (and no better than the exact optimum);
 //! the u8 factors lie on the 8-bit grid (re-quantizing is a fixed point) with the exact bit count;
 //! `Uh·Vh == Corr` bit-for-bit; a full-rank `rank = min(o, n)` recovers `ΔW` to each mode's
-//! precision. Boundary: the shape, rank and non-finite refusals. Grade `tested`.
+//! precision. The rounded carriers' eigenstage ([`eigen_parts`] → [`eigen_gram`] + [`top_eigh`])
+//! matches the scalar `f64` loops plus [`eigh`] to `1e-6` relative on random `ΔW`/PSD `Hl` at three
+//! shapes. Boundary: the shape, rank, non-finite and out-of-grid refusals. Grade `tested`.
 
 #![allow(
     clippy::cast_precision_loss,
@@ -13,15 +15,24 @@
     clippy::many_single_char_names,
     clippy::needless_range_loop,
     clippy::similar_names,
+    clippy::too_many_lines,
     reason = "the fixed-seed LCG maps a 24-bit integer field to an f64 in [0, 1), and the test \
               kernels index row-major `[r, c]` buffers by `i/j/k/l` against the spec's \
               `DeltaW[i, j]`/`Uh`/`Vh` arithmetic; the `assert_eq!`s on f64 are the intended \
-              bit-exact fixed-point and factor-product checks, not approximate equality."
+              bit-exact fixed-point and factor-product checks, not approximate equality; the \
+              timing test carries the fixture and the three stage timings in one body."
 )]
 
-use apeiron::learn::fold::fit::corrector::{lowrank_corrector, CorrectorError, Mode};
-use apeiron::learn::fold::fit::eigh::lowrank_corrector_exact;
+use std::hint::black_box;
+use std::time::Instant;
+
+use apeiron::learn::fold::fit::corrector::{eigen_parts, lowrank_corrector, CorrectorError, Mode};
+use apeiron::learn::fold::fit::eigh::{
+    eigen_gram, eigh, gram_scale, lowrank_corrector_exact, THREADS,
+};
 use apeiron::learn::fold::fit::quant::quant_c_u8;
+use apeiron::learn::solve::eig::top_eigh;
+use apeiron::learn::solve::q32::{from_grid, to_grid, INPUT_BOUND};
 
 /// Deterministic 64-bit LCG (Numerical Recipes constants), the tests' only randomness source.
 struct Lcg(u64);
@@ -143,8 +154,12 @@ fn f16_reconstruction_bound() {
     let exact = lowrank_corrector(&dw, &hl, O, N, rank, Mode::Exact, true).expect("exact");
     let f16 = lowrank_corrector(&dw, &hl, O, N, rank, Mode::F16, true).expect("f16");
     assert_eq!(f16.bits, (16 * rank * (O + N)) as u64, "f16 bit count");
+    // `Exact` reads `top_sum` off the f64 Jacobi `eigh` of the Gram; `F16` reads it off the Q32.32
+    // `top_eigh` on the power-of-two-scaled grid, so the two agree to that path's eigenvalue
+    // accuracy (`eigen_stage_matches_f64_reference` fixes it at `1e-6` relative) rather than
+    // bit-for-bit. The observed relative disagreement is ~5e-10.
     assert!(
-        (f16.top_sum - exact.top_sum).abs() <= 1e-12,
+        (f16.top_sum - exact.top_sum).abs() <= 1e-6 * exact.top_sum.abs().max(1e-30),
         "f16 top_sum {} != exact {}",
         f16.top_sum,
         exact.top_sum
@@ -265,4 +280,258 @@ fn refusals() {
     assert!(empty.corr.iter().all(|&x| x == 0.0));
     let f = empty.factors.as_ref().expect("factors requested");
     assert!(f.u.is_empty() && f.v.is_empty());
+}
+
+/// `M = (ΔW·Hl)·ΔWᵀ` by the scalar `f64` triple loops the gemm path replaces, row-major `[o, o]`.
+fn old_gram(dw: &[f64], hl: &[f64], o: usize, n: usize) -> Vec<f64> {
+    let w1 = matmul(dw, hl, o, n, n);
+    let dwt = transpose(dw, o, n);
+    matmul(&w1, &dwt, o, n, o)
+}
+
+/// `aᵀ` for row-major `[r, c]`.
+fn transpose(a: &[f64], r: usize, c: usize) -> Vec<f64> {
+    let mut out = vec![0.0f64; r * c];
+    for i in 0..r {
+        for j in 0..c {
+            out[j * r + i] = a[i * c + j];
+        }
+    }
+    out
+}
+
+/// Columns `o − rank .. o` of the row-major `[o, o]` basis `q` as row-major `[o, rank]` — the top
+/// eigenvectors in ascending order.
+fn top_columns(q: &[f64], o: usize, rank: usize) -> Vec<f64> {
+    let mut out = vec![0.0f64; o * rank];
+    for i in 0..o {
+        for k in 0..rank {
+            out[i * rank + k] = q[i * o + (o - rank + k)];
+        }
+    }
+    out
+}
+
+/// The smallest principal cosine between the `o × rank` column spaces of `a` and `b` (`rank ≤ 2`):
+/// the smallest singular value of `bᵀa`.
+fn subspace_min_cos(a: &[f64], b: &[f64], o: usize, rank: usize) -> f64 {
+    let mut g = [0.0f64; 4];
+    for i in 0..rank {
+        for j in 0..rank {
+            let mut acc = 0.0f64;
+            for p in 0..o {
+                acc += b[p * rank + i] * a[p * rank + j];
+            }
+            g[i * rank + j] = acc;
+        }
+    }
+    let mut gtg = [0.0f64; 4];
+    for i in 0..rank {
+        for j in 0..rank {
+            let mut acc = 0.0f64;
+            for k in 0..rank {
+                acc += g[k * rank + i] * g[k * rank + j];
+            }
+            gtg[i * rank + j] = acc;
+        }
+    }
+    if rank == 1 {
+        return gtg[0].max(0.0).sqrt().min(1.0);
+    }
+    let (a11, a12, a22) = (gtg[0], gtg[1], gtg[3]);
+    let tr = a11 + a22;
+    let det = a11 * a22 - a12 * a12;
+    let disc = (tr * tr - 4.0 * det).max(0.0).sqrt();
+    ((tr - disc) / 2.0).max(0.0).sqrt().min(1.0)
+}
+
+/// A random `ΔW` whose row `i` is scaled by `0.55^i` (so `M` has a clear top-`rank` gap) and a
+/// random SPD `Hl`, from one seed.
+fn gapped_fixture(seed: u64, o: usize, n: usize) -> (Vec<f64>, Vec<f64>) {
+    let mut rng = Lcg::new(seed);
+    let mut dw = vec![0.0f64; o * n];
+    let mut decay = 1.0f64;
+    for i in 0..o {
+        for j in 0..n {
+            dw[i * n + j] = rng.sym() * decay;
+        }
+        decay *= 0.55;
+    }
+    let hl = random_spd(&mut rng, n);
+    (dw, hl)
+}
+
+/// The rounded carriers' eigenstage against the scalar `f64` loops plus [`eigh`]: eigenvalues to
+/// `1e-6` relative, the top-`rank` eigenvector subspace to `|cos| ≥ 1 − 1e-8`, and `Corr = U·(UᵀΔW)`
+/// to `1e-6` max-abs-relative.
+#[test]
+fn eigen_stage_matches_f64_reference() {
+    for &(o, n) in &[(4usize, 6usize), (16, 40), (64, 130)] {
+        for &rank in &[1usize, 2] {
+            let (dw, hl) = gapped_fixture(0xC0FF_EE00_1234 + (o as u64) * 31 + rank as u64, o, n);
+            // Reference: the old scalar loops and `eigh`.
+            let m_ref = old_gram(&dw, &hl, o, n);
+            let (evals_ref, evecs_ref) = eigh(&m_ref, o).expect("eigh reference");
+            let u_ref = top_columns(&evecs_ref, o, rank);
+            let top_sum_ref: f64 = evals_ref[o - rank..].iter().map(|&l| l.max(0.0)).sum();
+            let v_ref = matmul(&transpose(&u_ref, o, rank), &dw, rank, o, n);
+            let corr_ref = matmul(&u_ref, &v_ref, o, rank, n);
+
+            // Wired path: `eigen_parts` (gemm Gram + `top_eigh`).
+            let (u_new, top_sum_new) = eigen_parts(&dw, &hl, o, n, rank).expect("eigen_parts");
+            let rel = (top_sum_new - top_sum_ref).abs() / top_sum_ref.abs().max(1e-30);
+            assert!(
+                rel <= 1e-6,
+                "(o,n)=({o},{n}) rank={rank}: top_sum {top_sum_new:e} vs {top_sum_ref:e} rel {rel:e}"
+            );
+            let cos = subspace_min_cos(&u_new, &u_ref, o, rank);
+            assert!(
+                cos >= 1.0 - 1e-8,
+                "(o,n)=({o},{n}) rank={rank}: subspace min cos {cos:e}"
+            );
+            let v_new = matmul(&transpose(&u_new, o, rank), &dw, rank, o, n);
+            let corr_new = matmul(&u_new, &v_new, o, rank, n);
+            let scale = max_abs(&corr_ref).max(1e-30);
+            let cerr = max_abs(
+                &corr_new
+                    .iter()
+                    .zip(&corr_ref)
+                    .map(|(x, y)| x - y)
+                    .collect::<Vec<f64>>(),
+            );
+            assert!(
+                cerr <= 1e-6 * scale,
+                "(o,n)=({o},{n}) rank={rank}: Corr {cerr:e} over {:.1e} scale",
+                1e-6 * scale
+            );
+
+            // The `top_eigh` stage directly: each returned eigenvalue against the reference.
+            let m = eigen_gram(&dw, &hl, o, n).expect("eigen_gram");
+            let sm = gram_scale(max_abs(&m));
+            let m_q: Vec<i64> = m
+                .iter()
+                .map(|&x| to_grid(x * sm, INPUT_BOUND).expect("grid"))
+                .collect();
+            let top = top_eigh(&m_q, o, rank, THREADS).expect("top_eigh");
+            for k in 0..rank {
+                let have = from_grid(top.evals[k]) / sm;
+                let want = evals_ref[o - rank + k];
+                let rel = (have - want).abs() / want.abs().max(1e-30);
+                assert!(
+                    rel <= 1e-6,
+                    "(o,n)=({o},{n}) rank={rank} k={k}: eigenvalue {have:e} vs {want:e} rel {rel:e}"
+                );
+            }
+        }
+    }
+}
+
+/// The Q32.32 boundary refusals on the gemm path: a finite entry at or beyond the grid's range and a
+/// non-finite entry refuse without a panic.
+#[test]
+fn gemm_path_refusals() {
+    let (dw, hl) = fixture(0x2468_ACE0_1357_9BDF, O, N);
+    let mut big = dw.clone();
+    big[0] = 1e30;
+    assert_eq!(
+        lowrank_corrector(&big, &hl, O, N, 3, Mode::U8, false).err(),
+        Some(CorrectorError::NotRepresentable),
+        "1e30 ΔW entry not refused"
+    );
+    assert_eq!(
+        lowrank_corrector(&big, &hl, O, N, 3, Mode::Exact, false).err(),
+        Some(CorrectorError::NotRepresentable),
+        "1e30 ΔW entry not refused in Exact"
+    );
+    let mut big_h = hl.clone();
+    big_h[0] = -3e9;
+    assert_eq!(
+        lowrank_corrector(&dw, &big_h, O, N, 3, Mode::F16, false).err(),
+        Some(CorrectorError::NotRepresentable),
+        "3e9 Hl entry not refused"
+    );
+    // A non-finite entry is refused as `NonFinite`, not `NotRepresentable`.
+    let mut nan = dw.clone();
+    nan[0] = f64::NEG_INFINITY;
+    assert_eq!(
+        lowrank_corrector(&nan, &hl, O, N, 3, Mode::U8, false).err(),
+        Some(CorrectorError::NonFinite),
+        "infinite ΔW entry not refused as NonFinite"
+    );
+}
+
+/// The production-shape fixture for the timing test: random `ΔW` (`o × n`) and a diagonal PSD `Hl`
+/// whose first four entries dominate (so the top eigenpair of `M` has a clear gap and `top_eigh`
+/// converges), O(n²) to build.
+fn timing_fixture(o: usize, n: usize) -> (Vec<f64>, Vec<f64>) {
+    let mut rng = Lcg::new(0x5EED_5EED_5EED_5EED);
+    let dw: Vec<f64> = (0..o * n).map(|_| rng.sym()).collect();
+    let mut hl = vec![0.0f64; n * n];
+    for i in 0..n {
+        hl[i * n + i] = if i < 4 { 1.0 } else { 1e-3 };
+    }
+    (dw, hl)
+}
+
+/// Timing (`#[ignore]`): `o = 896`, `n = 4864`, rank 1, [`Mode::U8`], three runs, [`THREADS`]
+/// threads, with the stage split `eigen_gram` (the two products, symmetrisation and scaling) versus
+/// `top_eigh` versus the rest of `lowrank_corrector`. Run with `--release --ignored --nocapture`;
+/// the previous scalar-`f64` path measured 140.4 s single-threaded at this shape.
+#[test]
+#[ignore = "timing: o = 896, n = 4864, rank 1, Mode::U8, three runs, threads 8, with the \
+            eigen_gram/top_eigh stage split; run with --release --ignored --nocapture"]
+fn timing_production_shape() {
+    let (o, n) = (896usize, 4864usize);
+    let (dw, hl) = timing_fixture(o, n);
+    let mut gram = [0.0f64; 3];
+    let mut eig = [0.0f64; 3];
+    let mut total = [0.0f64; 3];
+    for run in 0..3 {
+        let t0 = Instant::now();
+        let m = eigen_gram(&dw, &hl, o, n).expect("eigen_gram");
+        gram[run] = t0.elapsed().as_secs_f64();
+        let sm = gram_scale(max_abs(&m));
+        let m_q: Vec<i64> = m
+            .iter()
+            .map(|&x| to_grid(x * sm, INPUT_BOUND).expect("grid"))
+            .collect();
+        let t1 = Instant::now();
+        let top = top_eigh(&m_q, o, 1, THREADS).expect("top_eigh");
+        eig[run] = t1.elapsed().as_secs_f64();
+        black_box(&top);
+        let t2 = Instant::now();
+        let c = lowrank_corrector(&dw, &hl, o, n, 1, Mode::U8, false).expect("corrector");
+        total[run] = t2.elapsed().as_secs_f64();
+        black_box(&c);
+    }
+    let mean = |t: &[f64; 3]| t.iter().sum::<f64>() / 3.0;
+    let min = |t: &[f64; 3]| t.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = |t: &[f64; 3]| t.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    println!(
+        "lowrank_corrector o={o} n={n} rank=1 U8 threads={THREADS}: runs [{:.3}, {:.3}, {:.3}]s \
+         mean {:.3}s min {:.3}s max {:.3}s (old scalar f64 single-thread 140.4 s)",
+        total[0],
+        total[1],
+        total[2],
+        mean(&total),
+        min(&total),
+        max(&total)
+    );
+    println!(
+        "stage eigen_gram (products): runs [{:.3}, {:.3}, {:.3}]s mean {:.3}s min {:.3}s max {:.3}s",
+        gram[0], gram[1], gram[2], mean(&gram), min(&gram), max(&gram)
+    );
+    println!(
+        "stage top_eigh: runs [{:.3}, {:.3}, {:.3}]s mean {:.3}s min {:.3}s max {:.3}s",
+        eig[0],
+        eig[1],
+        eig[2],
+        mean(&eig),
+        min(&eig),
+        max(&eig)
+    );
+    println!(
+        "stage rest (ridge+quant+product): mean {:.3}s",
+        mean(&total) - mean(&gram) - mean(&eig)
+    );
 }
