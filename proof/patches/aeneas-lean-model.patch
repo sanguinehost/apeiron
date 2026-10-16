@@ -103,6 +103,259 @@ diff --color -ruN a/Aeneas/Std/Core/Default.lean b/Aeneas/Std/Core/Default.lean
 +  .ok (x, d)
 +
  end Aeneas.Std
+diff --color -ruN a/Aeneas/Std/Num2.lean b/Aeneas/Std/Num2.lean
+--- a/Aeneas/Std/Num2.lean	1970-01-01 10:00:00.000000000 +1000
++++ b/Aeneas/Std/Num2.lean	2026-10-16 12:07:55.921801504 +1100
+@@ -0,0 +1,249 @@
++import Aeneas.Std.Scalar
++import Aeneas.Std.Core
++import Aeneas.Std.RawPtr
++import Aeneas.Std.Slice
++import Aeneas.Std.Range
++
++open Aeneas Aeneas.Std Result
++
++namespace Aeneas.Std
++
++/-!
++# Models for the `core::num` integer builtins (`i64`/`u64`)
++
++The extraction in `proof/ApeironWord.lean` leaves eight `core::num`/`core::ops::range`
++functions as axioms.  This file gives each a model with the same name and type, together
++with a value lemma (`_val`) and edge-case checks.  The bit-level references are `Nat`
++functions on `BitVec` so that the `_val` statements are closed computations.
++-/
++
++/-! ## Bit-level references over `BitVec`/`Nat` -/
++
++/-- Number of set bits of a `w`-bit word: the number of positions `i < w` that are `1`. -/
++def numGap_popCount {w : Nat} (x : BitVec w) : Nat :=
++  ((List.range w).filter (fun i => x.getLsbD i)).length
++
++/-- The popcount of a `w`-bit word is at most `w`. -/
++theorem numGap_popCount_le {w : Nat} (x : BitVec w) : numGap_popCount x ≤ w := by
++  unfold numGap_popCount
++  calc ((List.range w).filter (fun i => x.getLsbD i)).length
++      ≤ (List.range w).length := List.length_filter_le _ _
++    _ = w := List.length_range
++
++/-- Number of low zero bits.  A zero word has `w` trailing zeros, matching Rust's
++`trailing_zeros` (which returns the word width for zero). -/
++def numGap_trailingZeros {w : Nat} (x : BitVec w) : Nat :=
++  numGap_tzAux x w 0
++where
++  numGap_tzAux {w : Nat} (x : BitVec w) : Nat → Nat → Nat
++    | 0, acc => acc
++    | fuel + 1, acc => if x.getLsbD acc then acc else numGap_tzAux x fuel (acc + 1)
++
++/-- `⌈x / y⌉` over `Nat` (only meaningful when `y ≥ 1`; `Nat` division by zero is `0`). -/
++def numGap_divCeil (x y : Nat) : Nat := (x + y - 1) / y
++
++/-! ## `i64::count_ones` -/
++
++/-- MODEL: `i64::count_ones`, the number of set bits of the two's-complement word. -/
++@[rust_fun "core::num::{i64}::count_ones"]
++def core.num.I64.count_ones (x : I64) : Result U32 :=
++  ok ⟨ BitVec.ofNat 32 (numGap_popCount x.bv) ⟩
++
++theorem core.num.I64.count_ones_val (x : I64) :
++    core.num.I64.count_ones x = ok ⟨ BitVec.ofNat 32 (numGap_popCount x.bv) ⟩ := rfl
++
++/-- The returned `u32` value is the popcount of the word. -/
++theorem core.num.I64.count_ones_valNat (x : I64) (r : U32)
++    (h : core.num.I64.count_ones x = ok r) : r.val = numGap_popCount x.bv := by
++  simp only [core.num.I64.count_ones, Result.ok.injEq] at h
++  rw [← h]
++  simp only [UScalar.val]
++  rw [BitVec.toNat_ofNat (numGap_popCount x.bv) 32,
++      Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt (numGap_popCount_le x.bv) (by norm_num))]
++
++/-! ## `i64::trailing_zeros` -/
++
++/-- MODEL: `i64::trailing_zeros`; `64` for the zero word. -/
++@[rust_fun "core::num::{i64}::trailing_zeros"]
++def core.num.I64.trailing_zeros (x : I64) : Result U32 :=
++  ok ⟨ BitVec.ofNat 32 (numGap_trailingZeros x.bv) ⟩
++
++theorem core.num.I64.trailing_zeros_val (x : I64) :
++    core.num.I64.trailing_zeros x = ok ⟨ BitVec.ofNat 32 (numGap_trailingZeros x.bv) ⟩ := rfl
++
++/-! ## `i64::unsigned_abs` -/
++
++/-- MODEL: `i64::unsigned_abs`, the magnitude of the two's-complement value as a `u64`.
++Total: `i64::MIN` maps to `2^63`. -/
++@[rust_fun "core::num::{i64}::unsigned_abs"]
++def core.num.I64.unsigned_abs (x : I64) : Result U64 :=
++  ok ⟨ BitVec.ofNat 64 x.val.natAbs ⟩
++
++theorem core.num.I64.unsigned_abs_val (x : I64) :
++    core.num.I64.unsigned_abs x = ok ⟨ BitVec.ofNat 64 x.val.natAbs ⟩ := rfl
++
++/-! ## `i64::abs` -/
++
++/-- MODEL: `i64::abs`.  `i64::MIN` overflows: Rust panics in a debug build and wraps in
++release; the model fails (`integerOverflow`), so a proof that it never fails covers both. -/
++@[rust_fun "core::num::{i64}::abs"]
++def core.num.I64.abs (x : I64) : Result I64 :=
++  if x.val = I64.min then fail .integerOverflow else ok ⟨ BitVec.ofInt 64 x.val.natAbs ⟩
++
++theorem core.num.I64.abs_val (x : I64) :
++    core.num.I64.abs x =
++      (if x.val = I64.min then fail .integerOverflow
++       else ok ⟨ BitVec.ofInt 64 x.val.natAbs ⟩) := rfl
++
++/-! ## `u64::trailing_zeros` -/
++
++/-- MODEL: `u64::trailing_zeros`; `64` for the zero word. -/
++@[rust_fun "core::num::{u64}::trailing_zeros"]
++def core.num.U64.trailing_zeros (x : U64) : Result U32 :=
++  ok ⟨ BitVec.ofNat 32 (numGap_trailingZeros x.bv) ⟩
++
++theorem core.num.U64.trailing_zeros_val (x : U64) :
++    core.num.U64.trailing_zeros x = ok ⟨ BitVec.ofNat 32 (numGap_trailingZeros x.bv) ⟩ := rfl
++
++/-! ## `u64::div_ceil` -/
++
++/-- MODEL: `u64::div_ceil`, the quotient rounded towards positive infinity.  A zero divisor
++refuses through the same `divisionByZero` as `/`. -/
++@[rust_fun "core::num::{u64}::div_ceil"]
++def core.num.U64.div_ceil (x y : U64) : Result U64 :=
++  if y.val = 0 then fail .divisionByZero
++  else ok ⟨ BitVec.ofNat 64 (numGap_divCeil x.val y.val) ⟩
++
++theorem core.num.U64.div_ceil_val (x y : U64) :
++    core.num.U64.div_ceil x y =
++      (if y.val = 0 then fail .divisionByZero
++       else ok ⟨ BitVec.ofNat 64 (numGap_divCeil x.val y.val) ⟩) := rfl
++
++/-! ## `u64::is_power_of_two` -/
++
++/-- MODEL: `u64::is_power_of_two`, true exactly when the value is `2^k` for some `k`. -/
++@[rust_fun "core::num::{u64}::is_power_of_two"]
++def core.num.U64.is_power_of_two (x : U64) : Result Bool :=
++  ok (decide x.val.isPowerOfTwo)
++
++theorem core.num.U64.is_power_of_two_val (x : U64) :
++    core.num.U64.is_power_of_two x = ok (decide x.val.isPowerOfTwo) := rfl
++
++/-! ## `RangeInclusive::contains` -/
++
++/-- MODEL: `RangeInclusive::contains`: `start <= x && x <= end`, using the `PartialOrd`
++instances the extraction threads through (`Idx : PartialOrd<U>` for the lower bound and
++`U : PartialOrd<Idx>` for the upper one).  The `exhausted` flag is ignored, as in Rust's
++`RangeBounds::contains`. -/
++@[rust_fun
++  "core::ops::range::{core::ops::range::RangeInclusive<@Idx>}::contains"]
++def core.ops.range.RangeInclusive.contains
++    {Idx : Type} {U : Type} (cmpPartialOrdInst : core.cmp.PartialOrd Idx Idx)
++    (cmpPartialOrdInst1 : core.cmp.PartialOrd Idx U) (cmpPartialOrdInst2 : core.cmp.PartialOrd U Idx) :
++    core.ops.range.RangeInclusive Idx → U → Result Bool :=
++  fun self x => do
++    let b1 ← cmpPartialOrdInst1.le self.start x
++    let b2 ← cmpPartialOrdInst2.le x self.«end»
++    ok (b1 && b2)
++
++theorem core.ops.range.RangeInclusive.contains_val {Idx U : Type}
++    (i0 : core.cmp.PartialOrd Idx Idx) (i1 : core.cmp.PartialOrd Idx U)
++    (i2 : core.cmp.PartialOrd U Idx) (self : core.ops.range.RangeInclusive Idx) (x : U) :
++    core.ops.range.RangeInclusive.contains i0 i1 i2 self x =
++      (do let b1 ← i1.le self.start x
++          let b2 ← i2.le x self.«end»
++          ok (b1 && b2)) := rfl
++
++/-- The result is the conjunction of the two comparisons. -/
++theorem core.ops.range.RangeInclusive.contains_spec {Idx U : Type}
++    (i0 : core.cmp.PartialOrd Idx Idx) (i1 : core.cmp.PartialOrd Idx U)
++    (i2 : core.cmp.PartialOrd U Idx) (self : core.ops.range.RangeInclusive Idx) (x : U)
++    (b1 b2 : Bool) (h1 : i1.le self.start x = ok b1) (h2 : i2.le x self.«end» = ok b2) :
++    core.ops.range.RangeInclusive.contains i0 i1 i2 self x = ok (b1 && b2) := by
++  simp [core.ops.range.RangeInclusive.contains, h1, h2]
++
++/-! ## Concrete scalars and value facts used by the edge checks -/
++
++/-- The `I64` with the bit pattern of `n`. -/
++abbrev numGap_i64 (n : Nat) : I64 := ⟨ BitVec.ofNat 64 n ⟩
++/-- The `U64` with the bit pattern of `n`. -/
++abbrev numGap_u64 (n : Nat) : U64 := ⟨ BitVec.ofNat 64 n ⟩
++/-- `i64::MIN` as a `Std.I64`. -/
++abbrev numGap_i64min : I64 := ⟨ BitVec.ofInt 64 I64.min ⟩
++
++theorem numGap_I64_min_val : numGap_i64min.val = I64.min := by
++  show (⟨ BitVec.ofInt 64 I64.min ⟩ : I64).val = I64.min
++  simp only [IScalar.val, BitVec.toInt_ofInt, I64.min, I64.numBits, IScalarTy.numBits]
++  norm_num [Int.bmod]
++
++theorem numGap_I64_min_natAbs : I64.min.natAbs = 2 ^ 63 := by
++  simp only [I64.min, I64.numBits, IScalarTy.numBits]
++  norm_num
++
++theorem numGap_I64_5_val : (numGap_i64 5).val = 5 := by decide
++
++theorem numGap_I64_5_ne_min : (numGap_i64 5).val ≠ I64.min := by
++  rw [numGap_I64_5_val]
++  norm_num [I64.min, I64.numBits, IScalarTy.numBits]
++
++theorem numGap_u64_zero_val : (numGap_u64 0).val = 0 := by
++  simp [UScalar.val, BitVec.toNat_ofNat]
++
++/-! ## Edge-case checks -/
++
++-- count_ones: 0, 1, 0xFF, -1
++#guard (core.num.I64.count_ones (numGap_i64 0)).reducesTo (⟨ BitVec.ofNat 32 0 ⟩ : U32)
++#guard (core.num.I64.count_ones (numGap_i64 1)).reducesTo (⟨ BitVec.ofNat 32 1 ⟩ : U32)
++#guard (core.num.I64.count_ones (numGap_i64 255)).reducesTo (⟨ BitVec.ofNat 32 8 ⟩ : U32)
++#guard (core.num.I64.count_ones (⟨ BitVec.allOnes 64 ⟩ : I64)).reducesTo
++        (⟨ BitVec.ofNat 32 64 ⟩ : U32)
++#guard numGap_popCount (BitVec.ofNat 64 0) = 0
++#guard numGap_popCount (BitVec.allOnes 64) = 64
++
++-- trailing_zeros: 0 -> 64, 1 -> 0, 8 -> 3
++#guard (core.num.I64.trailing_zeros (numGap_i64 0)).reducesTo (⟨ BitVec.ofNat 32 64 ⟩ : U32)
++#guard (core.num.I64.trailing_zeros (numGap_i64 1)).reducesTo (⟨ BitVec.ofNat 32 0 ⟩ : U32)
++#guard (core.num.I64.trailing_zeros (numGap_i64 8)).reducesTo (⟨ BitVec.ofNat 32 3 ⟩ : U32)
++#guard (core.num.U64.trailing_zeros (numGap_u64 0)).reducesTo (⟨ BitVec.ofNat 32 64 ⟩ : U32)
++#guard (core.num.U64.trailing_zeros (numGap_u64 8)).reducesTo (⟨ BitVec.ofNat 32 3 ⟩ : U32)
++#guard numGap_trailingZeros (BitVec.ofNat 64 0) = 64
++#guard numGap_trailingZeros (BitVec.ofNat 64 8) = 3
++#guard numGap_trailingZeros (BitVec.allOnes 64) = 0
++
++-- unsigned_abs: total, MIN -> 2^63
++#guard (core.num.I64.unsigned_abs (numGap_i64 0)).reducesTo (numGap_u64 0)
++example : core.num.I64.unsigned_abs numGap_i64min = ok (numGap_u64 (2 ^ 63)) := by
++  rw [core.num.I64.unsigned_abs_val, numGap_I64_min_val, numGap_I64_min_natAbs]
++
++-- abs: MIN fails; non-MIN witnesses
++example : core.num.I64.abs numGap_i64min = Result.fail .integerOverflow := by
++  rw [core.num.I64.abs_val, if_pos numGap_I64_min_val]
++example : core.num.I64.abs (numGap_i64 5) = ok ⟨ BitVec.ofInt 64 5 ⟩ := by
++  rw [core.num.I64.abs_val, if_neg numGap_I64_5_ne_min, numGap_I64_5_val]
++  norm_num
++
++-- div_ceil: zero divisor fails; otherwise the ceiling
++example : core.num.U64.div_ceil (numGap_u64 7) (numGap_u64 0) = Result.fail .divisionByZero := by
++  rw [core.num.U64.div_ceil_val, if_pos numGap_u64_zero_val]
++#guard (core.num.U64.div_ceil (numGap_u64 7) (numGap_u64 2)).reducesTo (numGap_u64 4)
++#guard (core.num.U64.div_ceil (numGap_u64 8) (numGap_u64 2)).reducesTo (numGap_u64 4)
++#guard (core.num.U64.div_ceil (numGap_u64 0) (numGap_u64 5)).reducesTo (numGap_u64 0)
++#guard numGap_divCeil 7 2 = 4
++#guard numGap_divCeil 8 2 = 4
++#guard numGap_divCeil 0 5 = 0
++
++-- is_power_of_two: 0, 1, 64 (2^6), 3
++#guard (core.num.U64.is_power_of_two (numGap_u64 0)).reducesTo false
++#guard (core.num.U64.is_power_of_two (numGap_u64 1)).reducesTo true
++#guard (core.num.U64.is_power_of_two (numGap_u64 64)).reducesTo true
++#guard (core.num.U64.is_power_of_two (numGap_u64 3)).reducesTo false
++
++-- contains: [2,5] contains 3, not 7; reversed [5,2] contains nothing
++#guard (core.ops.range.RangeInclusive.contains core.cmp.PartialOrdU64 core.cmp.PartialOrdU64
++        core.cmp.PartialOrdU64 ⟨ numGap_u64 2, numGap_u64 5, false ⟩ (numGap_u64 3)).reducesTo true
++#guard (core.ops.range.RangeInclusive.contains core.cmp.PartialOrdU64 core.cmp.PartialOrdU64
++        core.cmp.PartialOrdU64 ⟨ numGap_u64 2, numGap_u64 5, false ⟩ (numGap_u64 7)).reducesTo false
++#guard (core.ops.range.RangeInclusive.contains core.cmp.PartialOrdU64 core.cmp.PartialOrdU64
++        core.cmp.PartialOrdU64 ⟨ numGap_u64 5, numGap_u64 2, false ⟩ (numGap_u64 3)).reducesTo false
++
++end Aeneas.Std
 diff --color -ruN a/Aeneas/Std/RawPtr.lean b/Aeneas/Std/RawPtr.lean
 --- a/Aeneas/Std/RawPtr.lean	2026-10-16 08:19:21.360608044 +1100
 +++ b/Aeneas/Std/RawPtr.lean	2026-10-16 08:19:21.363608112 +1100
@@ -316,7 +569,7 @@ diff --color -ruN a/Aeneas/Std/RawPtr.lean b/Aeneas/Std/RawPtr.lean
  end Aeneas.Std
 diff --color -ruN a/Aeneas/Std/Scalar/Casts.lean b/Aeneas/Std/Scalar/Casts.lean
 --- a/Aeneas/Std/Scalar/Casts.lean	2026-10-16 08:19:21.373608338 +1100
-+++ b/Aeneas/Std/Scalar/Casts.lean	2026-10-16 08:19:21.375608383 +1100
++++ b/Aeneas/Std/Scalar/Casts.lean	2026-10-16 12:10:58.663869448 +1100
 @@ -6,6 +6,15 @@
  
  open Result Error Arith
@@ -333,7 +586,7 @@ diff --color -ruN a/Aeneas/Std/Scalar/Casts.lean b/Aeneas/Std/Scalar/Casts.lean
  
  /-!
  # Casts: Definitions
-@@ -100,6 +109,22 @@
+@@ -100,6 +109,30 @@
  def IScalar.cast_fromBool (ty : IScalarTy) (x : Bool) : IScalar ty :=
    if x then ⟨ 1#ty.numBits ⟩ else ⟨ 0#ty.numBits ⟩
  
@@ -352,6 +605,14 @@ diff --color -ruN a/Aeneas/Std/Scalar/Casts.lean b/Aeneas/Std/Scalar/Casts.lean
 +/-- SPIKE model: `From<u64> for i128`, a zero-extending widening conversion. -/
 +@[rust_fun "core::convert::num::{core::convert::From<i128, u64>}::from"]
 +def I128.Insts.CoreConvertFromU64.from (x : U64) : Result I128 := ok (UScalar.hcast .I128 x)
++
++/-- MODEL: `From<u8> for i16`, a zero-extending widening conversion. -/
++@[rust_fun "core::convert::num::{core::convert::From<i16, u8>}::from"]
++def I16.Insts.CoreConvertFromU8.from (x : U8) : Result I16 := ok (UScalar.hcast .I16 x)
++
++/-- MODEL: `From<u32> for i64`, a zero-extending widening conversion. -/
++@[rust_fun "core::convert::num::{core::convert::From<i64, u32>}::from"]
++def I64.Insts.CoreConvertFromU32.from (x : U32) : Result I64 := ok (UScalar.hcast .I64 x)
 +
  /-!
  # Casts: Theorems
@@ -518,6 +779,1066 @@ diff --color -ruN a/Aeneas/Std/Scalar/WrappingOps/Shl.lean b/Aeneas/Std/Scalar/W
  uscalar @[step_pure_def]
  def «%S».wrapping_shl (x : «%S») (s : U32) : «%S» := @UScalar.wrapping_shl UScalarTy.«%S» x s
  
+diff --color -ruN a/Aeneas/Std/Simd.lean b/Aeneas/Std/Simd.lean
+--- a/Aeneas/Std/Simd.lean	1970-01-01 10:00:00.000000000 +1000
++++ b/Aeneas/Std/Simd.lean	2026-10-16 11:43:42.038142037 +1100
+@@ -0,0 +1,1056 @@
++import Aeneas.Std.Scalar
++import Aeneas.Std.Slice
++import Aeneas.Std.RawPtr
++
++/-!
++# MODEL: x86 integer SIMD intrinsics (`core::core_arch::x86`)
++
++Lane-wise model of the SSE2/AVX/AVX2 integer intrinsics that the extraction axiomatises and that
++`Aeneas.Std.RawPtr` does not already model.  The vector types `__m128i` / `__m256i` keep the
++structures `RawPtr` declares (16 byte lanes / 4 `u64` lanes); every intrinsic here is the lane-wise
++definition from the Intel Intrinsics Guide, stated on the `BitVec` view `toBV` / `ofBV`, and the
++`#guard` rows below pin the edge-case behaviour (wrapping, saturation, high-bit controls, shift
++counts) to hand-derived values.
++-/
++
++namespace Aeneas.Std
++
++open Result
++
++set_option linter.style.nameCheck false
++
++/-- MODEL: lane `i` (bits `w*i .. w*i+w-1`) of a `w*k`-bit vector, little-endian. -/
++def lanes (w k : Nat) (v : BitVec (w * k)) (i : Fin k) : BitVec w :=
++  v.extractLsb' (w * i.val) w
++
++/-- MODEL: reassemble lanes `f` little-endian into a `w*k`-bit vector (inverse of `lanes`). -/
++def ofLanes (w k : Nat) (f : Fin k → BitVec w) : BitVec (w * k) :=
++  (BitVec.ofBoolListLE (List.ofFn (fun t : Fin (w * k) =>
++    (f ⟨t.val / w, Nat.div_lt_of_lt_mul t.isLt⟩).getLsbD (t.val % w)))).cast
++    (List.length_ofFn)
++
++/-- MODEL: `ofLanes` inverts `lanes`. -/
++theorem lanes_ofLanes {w k : Nat} (f : Fin k → BitVec w) (i : Fin k) :
++    lanes w k (ofLanes w k f) i = f i := by
++  apply BitVec.eq_of_getLsbD_eq
++  intro j hj
++  rcases Nat.eq_zero_or_pos w with hw | hw
++  · subst hw; exact absurd hj (Nat.not_lt_zero _)
++  · simp only [lanes, ofLanes, BitVec.getLsbD_extractLsb', BitVec.getLsbD_cast,
++      BitVec.getLsbD_ofBoolListLE]
++    simp only [hj, decide_true, Bool.true_and]
++    have hlt : w * (i : Nat) + j < w * k := by
++      have h1 : w * (i : Nat) + j < w * ((i : Nat) + 1) := by
++        rw [Nat.mul_add, Nat.mul_one]; omega
++      exact lt_of_lt_of_le h1 (Nat.mul_le_mul_left w (by have := i.isLt; omega))
++    rw [List.getD_eq_getElem _ false (by rw [List.length_ofFn]; exact hlt)]
++    rw [List.getElem_ofFn]
++    have hdiv : (w * (i : Nat) + j) / w = (i : Nat) := by
++      rw [Nat.mul_add_div hw, Nat.div_eq_of_lt hj, Nat.add_zero]
++    have hmod : (w * (i : Nat) + j) % w = j := by
++      rw [Nat.mul_add_mod, Nat.mod_eq_of_lt hj]
++    rw [show (⟨(w * (i : Nat) + j) / w, by rw [hdiv]; exact i.isLt⟩ : Fin k) = i from
++      Fin.ext hdiv]
++    rw [hmod]
++
++/-- MODEL: `lanes` inverts `ofLanes`. -/
++theorem ofLanes_lanes {w k : Nat} (v : BitVec (w * k)) :
++    ofLanes w k (fun i => lanes w k v i) = v := by
++  apply BitVec.eq_of_getLsbD_eq
++  intro j hj
++  rcases Nat.eq_zero_or_pos w with hw | hw
++  · subst hw; omega
++  · simp only [ofLanes, BitVec.getLsbD_cast, BitVec.getLsbD_ofBoolListLE]
++    rw [List.getD_eq_getElem _ false (by rw [List.length_ofFn]; exact hj)]
++    rw [List.getElem_ofFn]
++    simp only [lanes, BitVec.getLsbD_extractLsb', Nat.mod_lt _ hw, decide_true, Bool.true_and]
++    rw [Nat.mul_comm w (j / w), Nat.div_add_mod' j w]
++
++/-- MODEL: lane `i` of a `8*k`-bit vector, as a byte. -/
++def lanes8 (k : Nat) (v : BitVec (8 * k)) (i : Fin k) : BitVec 8 := lanes 8 k v i
++/-- MODEL: lane `i` of a `16*k`-bit vector, as a `u16`. -/
++def lanes16 (k : Nat) (v : BitVec (16 * k)) (i : Fin k) : BitVec 16 := lanes 16 k v i
++/-- MODEL: lane `i` of a `32*k`-bit vector, as a `u32`. -/
++def lanes32 (k : Nat) (v : BitVec (32 * k)) (i : Fin k) : BitVec 32 := lanes 32 k v i
++/-- MODEL: lane `i` of a `64*k`-bit vector, as a `u64`. -/
++def lanes64 (k : Nat) (v : BitVec (64 * k)) (i : Fin k) : BitVec 64 := lanes 64 k v i
++/-- MODEL: `k` byte lanes assembled little-endian. -/
++def ofLanes8 (k : Nat) (f : Fin k → BitVec 8) : BitVec (8 * k) := ofLanes 8 k f
++/-- MODEL: `k` `u16` lanes assembled little-endian. -/
++def ofLanes16 (k : Nat) (f : Fin k → BitVec 16) : BitVec (16 * k) := ofLanes 16 k f
++/-- MODEL: `k` `u32` lanes assembled little-endian. -/
++def ofLanes32 (k : Nat) (f : Fin k → BitVec 32) : BitVec (32 * k) := ofLanes 32 k f
++/-- MODEL: `k` `u64` lanes assembled little-endian. -/
++def ofLanes64 (k : Nat) (f : Fin k → BitVec 64) : BitVec (64 * k) := ofLanes 64 k f
++
++/-- MODEL: the byte view of `__m128i`: byte lane `k` is bits `8k..8k+7`. -/
++def core.core_arch.x86.__m128i.toBV (x : core.core_arch.x86.__m128i) : BitVec 128 :=
++  ofLanes8 16 (fun i => (x.lane i).bv)
++
++/-- MODEL: the `__m128i` whose byte lane `k` is bits `8k..8k+7` of `v`. -/
++def core.core_arch.x86.__m128i.ofBV (v : BitVec 128) : core.core_arch.x86.__m128i :=
++  ⟨ fun i => ⟨ lanes8 16 v i ⟩ ⟩
++
++/-- MODEL: the `u64`-lane view of `__m256i`: lane `k` is bits `64k..64k+63`. -/
++def core.core_arch.x86.__m256i.toBV (x : core.core_arch.x86.__m256i) : BitVec 256 :=
++  ofLanes64 4 (fun i => (x.lane i).bv)
++
++/-- MODEL: the `__m256i` whose `u64` lane `k` is bits `64k..64k+63` of `v`. -/
++def core.core_arch.x86.__m256i.ofBV (v : BitVec 256) : core.core_arch.x86.__m256i :=
++  ⟨ fun i => ⟨ lanes64 4 v i ⟩ ⟩
++
++theorem core.core_arch.x86.__m128i.ofBV_toBV (x : core.core_arch.x86.__m128i) :
++    core.core_arch.x86.__m128i.ofBV (core.core_arch.x86.__m128i.toBV x) = x := by
++  cases x with
++  | mk lane =>
++    simp only [core.core_arch.x86.__m128i.ofBV, core.core_arch.x86.__m128i.toBV]
++    congr 1
++    funext i
++    simp [lanes8, ofLanes8, lanes_ofLanes]
++
++theorem core.core_arch.x86.__m128i.toBV_ofBV (v : BitVec 128) :
++    core.core_arch.x86.__m128i.toBV (core.core_arch.x86.__m128i.ofBV v) = v := by
++  simp [core.core_arch.x86.__m128i.ofBV, core.core_arch.x86.__m128i.toBV, lanes8, ofLanes8,
++    ofLanes_lanes]
++
++theorem core.core_arch.x86.__m256i.ofBV_toBV (x : core.core_arch.x86.__m256i) :
++    core.core_arch.x86.__m256i.ofBV (core.core_arch.x86.__m256i.toBV x) = x := by
++  cases x with
++  | mk lane =>
++    simp only [core.core_arch.x86.__m256i.ofBV, core.core_arch.x86.__m256i.toBV]
++    congr 1
++    funext i
++    simp [lanes64, ofLanes64, lanes_ofLanes]
++
++theorem core.core_arch.x86.__m256i.toBV_ofBV (v : BitVec 256) :
++    core.core_arch.x86.__m256i.toBV (core.core_arch.x86.__m256i.ofBV v) = v := by
++  simp [core.core_arch.x86.__m256i.ofBV, core.core_arch.x86.__m256i.toBV, lanes64, ofLanes64,
++    ofLanes_lanes]
++
++namespace simd
++
++
++/-- MODEL: the `BitVec 256` view of an `__m256i`. -/
++abbrev toB256 (x : core.core_arch.x86.__m256i) : BitVec 256 := x.toBV
++/-- MODEL: the `__m256i` with the `BitVec 256` view `v`. -/
++abbrev ofB256 (v : BitVec 256) : core.core_arch.x86.__m256i := core.core_arch.x86.__m256i.ofBV v
++/-- MODEL: the `BitVec 128` view of an `__m128i`. -/
++abbrev toB128 (x : core.core_arch.x86.__m128i) : BitVec 128 := x.toBV
++/-- MODEL: the `__m128i` with the `BitVec 128` view `v`. -/
++abbrev ofB128 (v : BitVec 128) : core.core_arch.x86.__m128i := core.core_arch.x86.__m128i.ofBV v
++
++/-- MODEL: map a byte function over the 32 byte lanes of a 256-bit vector. -/
++def map1_8_256 (f : BitVec 8 → BitVec 8) (v : BitVec 256) : BitVec 256 :=
++  ofLanes8 32 (fun i => f (lanes8 32 v i))
++/-- MODEL: map a two-byte function over the 32 byte lanes of two 256-bit vectors. -/
++def map2_8_256 (f : BitVec 8 → BitVec 8 → BitVec 8) (u v : BitVec 256) : BitVec 256 :=
++  ofLanes8 32 (fun i => f (lanes8 32 u i) (lanes8 32 v i))
++/-- MODEL: map a three-byte function over the 32 byte lanes of three 256-bit vectors. -/
++def map3_8_256 (f : BitVec 8 → BitVec 8 → BitVec 8 → BitVec 8) (u v w : BitVec 256) :
++    BitVec 256 := ofLanes8 32 (fun i => f (lanes8 32 u i) (lanes8 32 v i) (lanes8 32 w i))
++/-- MODEL: map a `u16` function over the 16 `u16` lanes of a 256-bit vector. -/
++def map1_16_256 (f : BitVec 16 → BitVec 16) (v : BitVec 256) : BitVec 256 :=
++  ofLanes16 16 (fun i => f (lanes16 16 v i))
++/-- MODEL: map a two-`u16` function over the 16 `u16` lanes of two 256-bit vectors. -/
++def map2_16_256 (f : BitVec 16 → BitVec 16 → BitVec 16) (u v : BitVec 256) : BitVec 256 :=
++  ofLanes16 16 (fun i => f (lanes16 16 u i) (lanes16 16 v i))
++/-- MODEL: map a `u32` function over the 8 `u32` lanes of a 256-bit vector. -/
++def map1_32_256 (f : BitVec 32 → BitVec 32) (v : BitVec 256) : BitVec 256 :=
++  ofLanes32 8 (fun i => f (lanes32 8 v i))
++/-- MODEL: map a two-`u32` function over the 8 `u32` lanes of two 256-bit vectors. -/
++def map2_32_256 (f : BitVec 32 → BitVec 32 → BitVec 32) (u v : BitVec 256) : BitVec 256 :=
++  ofLanes32 8 (fun i => f (lanes32 8 u i) (lanes32 8 v i))
++/-- MODEL: map a `u64` function over the 4 `u64` lanes of a 256-bit vector. -/
++def map1_64_256 (f : BitVec 64 → BitVec 64) (v : BitVec 256) : BitVec 256 :=
++  ofLanes64 4 (fun i => f (lanes64 4 v i))
++/-- MODEL: map a two-`u64` function over the 4 `u64` lanes of two 256-bit vectors. -/
++def map2_64_256 (f : BitVec 64 → BitVec 64 → BitVec 64) (u v : BitVec 256) : BitVec 256 :=
++  ofLanes64 4 (fun i => f (lanes64 4 u i) (lanes64 4 v i))
++
++/-- MODEL: map a byte function over the 16 byte lanes of a 128-bit vector. -/
++def map1_8_128 (f : BitVec 8 → BitVec 8) (v : BitVec 128) : BitVec 128 :=
++  ofLanes8 16 (fun i => f (lanes8 16 v i))
++/-- MODEL: map a `u16` function over the 8 `u16` lanes of a 128-bit vector. -/
++def map1_16_128 (f : BitVec 16 → BitVec 16) (v : BitVec 128) : BitVec 128 :=
++  ofLanes16 8 (fun i => f (lanes16 8 v i))
++/-- MODEL: map a `u32` function over the 4 `u32` lanes of a 128-bit vector. -/
++def map1_32_128 (f : BitVec 32 → BitVec 32) (v : BitVec 128) : BitVec 128 :=
++  ofLanes32 4 (fun i => f (lanes32 4 v i))
++/-- MODEL: map a two-`u32` function over the 4 `u32` lanes of two 128-bit vectors. -/
++def map2_32_128 (f : BitVec 32 → BitVec 32 → BitVec 32) (u v : BitVec 128) : BitVec 128 :=
++  ofLanes32 4 (fun i => f (lanes32 4 u i) (lanes32 4 v i))
++/-- MODEL: map a `u64` function over the 2 `u64` lanes of a 128-bit vector. -/
++def map1_64_128 (f : BitVec 64 → BitVec 64) (v : BitVec 128) : BitVec 128 :=
++  ofLanes64 2 (fun i => f (lanes64 2 v i))
++/-- MODEL: map a two-`u64` function over the 2 `u64` lanes of two 128-bit vectors. -/
++def map2_64_128 (f : BitVec 64 → BitVec 64 → BitVec 64) (u v : BitVec 128) : BitVec 128 :=
++  ofLanes64 2 (fun i => f (lanes64 2 u i) (lanes64 2 v i))
++
++/-- MODEL: the low 128 bits. -/
++def lo128 (x : BitVec 256) : BitVec 128 := x.extractLsb' 0 128
++/-- MODEL: the high 128 bits. -/
++def hi128 (x : BitVec 256) : BitVec 128 := x.extractLsb' 128 128
++/-- MODEL: `hi` in the high 128 bits, `lo` in the low 128 bits. -/
++def join128 (hi lo : BitVec 128) : BitVec 256 := hi ++ lo
++
++/-- MODEL: `_mm_abs_epi8` per byte. `dst[i] := |a[i]|` on the signed byte; `-128` maps to `-128`. -/
++def abs8 (x : BitVec 8) : BitVec 8 := if x.getLsbD 7 then -x else x
++/-- MODEL: `_mm_sign_epi8` per byte. `c = 0` gives `0`; `c < 0` negates `a`; `c > 0` keeps `a`. -/
++def sign8 (x c : BitVec 8) : BitVec 8 := if c = 0 then 0 else if c.getLsbD 7 then -x else x
++
++/-- MODEL: `_mm_maddubs_epi16` on one `u16` group of two `u8` from `x` and two `i8` from `y`:
++`saturate_i16 (x0*y0 + x1*y1)`. -/
++def maddubs (x y : BitVec 16) : BitVec 16 :=
++  BitVec.ofInt 16 (max (-32768) (min 32767
++    ((BitVec.setWidth 8 x).toNat * (BitVec.setWidth 8 y).toInt
++     + (x.extractLsb' 8 8).toNat * (y.extractLsb' 8 8).toInt)))
++
++/-- MODEL: `_mm_madd_epi16` on one `u32` group of two `i16` from `x` and two `i16` from `y`:
++`x0*y0 + x1*y1` modulo `2^32`. -/
++def madd16 (x y : BitVec 32) : BitVec 32 :=
++  BitVec.signExtend 32 (BitVec.setWidth 16 x) * BitVec.signExtend 32 (BitVec.setWidth 16 y)
++    + BitVec.signExtend 32 (x.extractLsb' 16 16) * BitVec.signExtend 32 (y.extractLsb' 16 16)
++
++/-- MODEL: the absolute difference of two bytes. -/
++def babs8 (a b : BitVec 8) : Nat :=
++  if a.toNat ≤ b.toNat then b.toNat - a.toNat else a.toNat - b.toNat
++
++/-- MODEL: `_mm_sad_epu8` on one `u64` group: the sum of the eight absolute byte differences. -/
++def sad8 (x y : BitVec 64) : BitVec 64 :=
++  BitVec.ofNat 64 ((List.ofFn (fun i : Fin 8 => babs8 (lanes8 8 x i) (lanes8 8 y i))).foldl
++    (fun a b => a + b) 0)
++
++/-- MODEL: `_mm_shuffle_epi8` within one 128-bit lane: a control byte with its top bit set gives
++`0`, otherwise the byte of `a` at the control's low nibble. -/
++def shuffle8_128 (a b : BitVec 128) : BitVec 128 :=
++  ofLanes8 16 (fun i =>
++    if (lanes8 16 b i).getLsbD 7 then 0
++    else lanes8 16 a ⟨ (lanes8 16 b i).toNat % 16, Nat.mod_lt _ (by norm_num) ⟩)
++
++/-- MODEL: `_mm_unpacklo_epi8` within one 128-bit lane: the low 8 bytes interleaved. -/
++def unpacklo8_128 (a b : BitVec 128) : BitVec 128 :=
++  ofLanes8 16 (fun i =>
++    if i.val % 2 = 0 then lanes8 16 a ⟨ i.val / 2, by have := i.isLt; omega ⟩
++    else lanes8 16 b ⟨ i.val / 2, by have := i.isLt; omega ⟩)
++
++/-- MODEL: `_mm_unpackhi_epi8` within one 128-bit lane: the high 8 bytes interleaved. -/
++def unpackhi8_128 (a b : BitVec 128) : BitVec 128 :=
++  ofLanes8 16 (fun i =>
++    if i.val % 2 = 0 then lanes8 16 a ⟨ i.val / 2 + 8, by have := i.isLt; omega ⟩
++    else lanes8 16 b ⟨ i.val / 2 + 8, by have := i.isLt; omega ⟩)
++
++/-- MODEL: `_mm_unpacklo_epi64` within one 128-bit lane. -/
++def unpacklo64_128 (a b : BitVec 128) : BitVec 128 :=
++  (BitVec.setWidth 64 b) ++ (BitVec.setWidth 64 a)
++/-- MODEL: `_mm_unpackhi_epi64` within one 128-bit lane. -/
++def unpackhi64_128 (a b : BitVec 128) : BitVec 128 :=
++  (b.extractLsb' 64 64) ++ (a.extractLsb' 64 64)
++
++/-- MODEL: `_mm_hadd_epi32` within one 128-bit lane: `a`'s two adjacent pairs then `b`'s two. -/
++def hadd32_128 (a b : BitVec 128) : BitVec 128 :=
++  ofLanes32 4 ![lanes32 4 a 0 + lanes32 4 a 1, lanes32 4 a 2 + lanes32 4 a 3,
++    lanes32 4 b 0 + lanes32 4 b 1, lanes32 4 b 2 + lanes32 4 b 3]
++
++/-- MODEL: `_mm256_cvtepi16_epi32`: eight `i16` sign-extended to `i32`. -/
++def cvtepi16_epi32 (a : BitVec 128) : BitVec 256 :=
++  ofLanes32 8 (fun i => BitVec.signExtend 32 (lanes16 8 a i))
++/-- MODEL: `_mm256_cvtepi32_epi64`: four `i32` sign-extended to `i64`. -/
++def cvtepi32_epi64 (a : BitVec 128) : BitVec 256 :=
++  ofLanes64 4 (fun i => BitVec.signExtend 64 (lanes32 4 a i))
++/-- MODEL: `_mm256_cvtepu32_epi64`: four `u32` zero-extended to `u64`. -/
++def cvtepu32_epi64 (a : BitVec 128) : BitVec 256 :=
++  ofLanes64 4 (fun i => BitVec.setWidth 64 (lanes32 4 a i))
++/-- MODEL: `_mm256_cvtepu8_epi16`: sixteen `u8` zero-extended to `u16`. -/
++def cvtepu8_epi16 (a : BitVec 128) : BitVec 256 :=
++  ofLanes16 16 (fun i => BitVec.setWidth 16 (lanes8 16 a i))
++
++/-- MODEL: `_mm256_set1_epi8`, every byte lane `v`. -/
++def set1_8_256 (v : BitVec 8) : BitVec 256 := ofLanes8 32 (fun _ => v)
++/-- MODEL: `_mm256_set1_epi16`, every `u16` lane `v`. -/
++def set1_16_256 (v : BitVec 16) : BitVec 256 := ofLanes16 16 (fun _ => v)
++/-- MODEL: `_mm256_set1_epi32`, every `u32` lane `v`. -/
++def set1_32_256 (v : BitVec 32) : BitVec 256 := ofLanes32 8 (fun _ => v)
++/-- MODEL: `_mm256_setr_epi8` on the bit patterns of the 32 arguments. -/
++def setr8_256 (e : Fin 32 → BitVec 8) : BitVec 256 := ofLanes8 32 e
++/-- MODEL: `_mm256_setr_epi8` on 32 `i8` arguments, in increasing byte-lane order. -/
++def setr8_256i (e : Fin 32 → I8) : BitVec 256 := ofLanes8 32 (fun i => (e i).bv)
++/-- MODEL: `_mm256_setzero_si256`. -/
++def setzero256 : BitVec 256 := 0
++/-- MODEL: `Clone::clone`. -/
++def clone256 (v : BitVec 256) : BitVec 256 := v
++
++/-- MODEL: `_mm256_testc_si256`: returns CF, `1` iff `(~a) & b` is zero over all 256 bits. -/
++def testc256 (a b : BitVec 256) : BitVec 32 :=
++  if (~~~a) &&& b = 0 then 1 else 0
++
++/-- MODEL: `_mm256_extracti128_si256`, half `imm % 2` (low for even). -/
++def extract128_256 (imm : Nat) (v : BitVec 256) : BitVec 128 :=
++  if imm % 2 = 0 then lo128 v else hi128 v
++/-- MODEL: `_mm256_set_m128i`: `lo` in the low 128 bits, `hi` in the high 128 bits. -/
++def set_m128i_256 (hi lo : BitVec 128) : BitVec 256 := hi ++ lo
++/-- MODEL: `_mm256_broadcastsi128_si256`: the 128-bit lane duplicated. -/
++def broadcast128_256 (a : BitVec 128) : BitVec 256 := a ++ a
++
++/-- MODEL: `_mm_shuffle_epi32`: lane `i` of the result selects lane `(imm >> 2i) % 4`. -/
++def shuffle32_128 (imm : Nat) (v : BitVec 128) : BitVec 128 :=
++  ofLanes32 4 (fun i => lanes32 4 v ⟨ (imm >>> (2 * i.val)) % 4, Nat.mod_lt _ (by norm_num) ⟩)
++/-- MODEL: `_mm_extract_epi64`: `u64` lane `imm % 2`. -/
++def extract64_128 (imm : Nat) (v : BitVec 128) : BitVec 64 := v.extractLsb' (64 * (imm % 2)) 64
++/-- MODEL: `_mm_cvtsi128_si32`: the low 32 bits. -/
++def cvtsi32_128 (v : BitVec 128) : BitVec 32 := BitVec.setWidth 32 v
++/-- MODEL: `_mm_cvtsi128_si64`: the low 64 bits. -/
++def cvtsi64_128 (v : BitVec 128) : BitVec 64 := BitVec.setWidth 64 v
++
++/-- MODEL: `_mm256_storeu_si256` window test: a 32-byte write fits in the buffer. -/
++def storeu256_ok (off len : Nat) : Bool := off + 32 ≤ len
++/-- MODEL: `_mm_storeu_si128` window test: a 16-byte write fits in the buffer. -/
++def storeu128_ok (off len : Nat) : Bool := off + 16 ≤ len
++
++/-- MODEL: `_mm256_abs_epi8`. -/
++def abs_epi8_v256 (v : BitVec 256) : BitVec 256 := map1_8_256 abs8 v
++/-- MODEL: `_mm256_add_epi8`. -/
++def add_epi8_v256 (u v : BitVec 256) : BitVec 256 := map2_8_256 (· + ·) u v
++/-- MODEL: `_mm256_add_epi16`. -/
++def add_epi16_v256 (u v : BitVec 256) : BitVec 256 := map2_16_256 (· + ·) u v
++/-- MODEL: `_mm256_add_epi64`. -/
++def add_epi64_v256 (u v : BitVec 256) : BitVec 256 := map2_64_256 (· + ·) u v
++/-- MODEL: `_mm256_and_si256`. -/
++def and_si256_v256 (u v : BitVec 256) : BitVec 256 := u &&& v
++/-- MODEL: `_mm256_andnot_si256`. -/
++def andnot_si256_v256 (u v : BitVec 256) : BitVec 256 := (~~~u) &&& v
++/-- MODEL: `_mm256_or_si256`. -/
++def or_si256_v256 (u v : BitVec 256) : BitVec 256 := u ||| v
++/-- MODEL: `_mm256_xor_si256`. -/
++def xor_si256_v256 (u v : BitVec 256) : BitVec 256 := u ^^^ v
++/-- MODEL: `_mm256_blendv_epi8`: byte `i` of `v` where the mask byte's top bit is set. -/
++def blendv_epi8_v256 (u v m : BitVec 256) : BitVec 256 :=
++  map3_8_256 (fun a b c => if c.getLsbD 7 then b else a) u v m
++/-- MODEL: `_mm256_cmpeq_epi8`: `0xFF` where the bytes are equal, else `0`. -/
++def cmpeq_epi8_v256 (u v : BitVec 256) : BitVec 256 :=
++  map2_8_256 (fun a b => if a = b then 0xFF#8 else 0) u v
++/-- MODEL: `_mm256_cmpgt_epi64`: all ones where the signed `u64` lanes satisfy `a > b`. -/
++def cmpgt_epi64_v256 (u v : BitVec 256) : BitVec 256 :=
++  map2_64_256 (fun a b => if a.toInt > b.toInt then -1 else 0) u v
++/-- MODEL: `_mm256_hadd_epi32`, within each 128-bit half. -/
++def hadd_epi32_v256 (u v : BitVec 256) : BitVec 256 :=
++  join128 (hadd32_128 (hi128 u) (hi128 v)) (hadd32_128 (lo128 u) (lo128 v))
++/-- MODEL: `_mm256_madd_epi16`. -/
++def madd_epi16_v256 (u v : BitVec 256) : BitVec 256 := map2_32_256 madd16 u v
++/-- MODEL: `_mm256_maddubs_epi16`. -/
++def maddubs_epi16_v256 (u v : BitVec 256) : BitVec 256 := map2_16_256 maddubs u v
++/-- MODEL: `_mm256_mul_epi32`: the low `i32` of each `u64` lane, multiplied into a `u64`. -/
++def mul_epi32_v256 (u v : BitVec 256) : BitVec 256 :=
++  map2_64_256 (fun x y => BitVec.signExtend 64 (BitVec.setWidth 32 x)
++    * BitVec.signExtend 64 (BitVec.setWidth 32 y)) u v
++/-- MODEL: `_mm256_mullo_epi32`. -/
++def mullo_epi32_v256 (u v : BitVec 256) : BitVec 256 := map2_32_256 (· * ·) u v
++/-- MODEL: `_mm256_sad_epu8`, within each `u64` lane. -/
++def sad_epu8_v256 (u v : BitVec 256) : BitVec 256 := map2_64_256 sad8 u v
++/-- MODEL: `_mm256_shuffle_epi8`, within each 128-bit half. -/
++def shuffle_epi8_v256 (u v : BitVec 256) : BitVec 256 :=
++  join128 (shuffle8_128 (hi128 u) (hi128 v)) (shuffle8_128 (lo128 u) (lo128 v))
++/-- MODEL: `_mm256_sign_epi8`. -/
++def sign_epi8_v256 (u v : BitVec 256) : BitVec 256 := map2_8_256 sign8 u v
++/-- MODEL: `_mm256_slli_epi16`. -/
++def slli_epi16_v256 (imm : Nat) (v : BitVec 256) : BitVec 256 := map1_16_256 (fun x => x <<< imm) v
++/-- MODEL: `_mm256_slli_epi64`. -/
++def slli_epi64_v256 (imm : Nat) (v : BitVec 256) : BitVec 256 := map1_64_256 (fun x => x <<< imm) v
++/-- MODEL: `_mm256_sllv_epi64`. -/
++def sllv_epi64_v256 (u v : BitVec 256) : BitVec 256 :=
++  map2_64_256 (fun x c => x <<< c.toNat) u v
++/-- MODEL: `_mm256_srli_epi16`. -/
++def srli_epi16_v256 (imm : Nat) (v : BitVec 256) : BitVec 256 := map1_16_256 (fun x => x >>> imm) v
++/-- MODEL: `_mm256_srli_epi64`. -/
++def srli_epi64_v256 (imm : Nat) (v : BitVec 256) : BitVec 256 := map1_64_256 (fun x => x >>> imm) v
++/-- MODEL: `_mm256_srlv_epi64`. -/
++def srlv_epi64_v256 (u v : BitVec 256) : BitVec 256 :=
++  map2_64_256 (fun x c => x >>> c.toNat) u v
++/-- MODEL: `_mm256_sub_epi8`. -/
++def sub_epi8_v256 (u v : BitVec 256) : BitVec 256 := map2_8_256 (· - ·) u v
++/-- MODEL: `_mm256_sub_epi16`. -/
++def sub_epi16_v256 (u v : BitVec 256) : BitVec 256 := map2_16_256 (· - ·) u v
++/-- MODEL: `_mm256_sub_epi32`. -/
++def sub_epi32_v256 (u v : BitVec 256) : BitVec 256 := map2_32_256 (· - ·) u v
++/-- MODEL: `_mm256_sub_epi64`. -/
++def sub_epi64_v256 (u v : BitVec 256) : BitVec 256 := map2_64_256 (· - ·) u v
++/-- MODEL: `_mm256_unpackhi_epi8`, within each 128-bit half. -/
++def unpackhi_epi8_v256 (u v : BitVec 256) : BitVec 256 :=
++  join128 (unpackhi8_128 (hi128 u) (hi128 v)) (unpackhi8_128 (lo128 u) (lo128 v))
++/-- MODEL: `_mm256_unpacklo_epi8`, within each 128-bit half. -/
++def unpacklo_epi8_v256 (u v : BitVec 256) : BitVec 256 :=
++  join128 (unpacklo8_128 (hi128 u) (hi128 v)) (unpacklo8_128 (lo128 u) (lo128 v))
++/-- MODEL: `_mm256_unpackhi_epi64`, within each 128-bit half. -/
++def unpackhi_epi64_v256 (u v : BitVec 256) : BitVec 256 :=
++  join128 (unpackhi64_128 (hi128 u) (hi128 v)) (unpackhi64_128 (lo128 u) (lo128 v))
++/-- MODEL: `_mm256_unpacklo_epi64`, within each 128-bit half. -/
++def unpacklo_epi64_v256 (u v : BitVec 256) : BitVec 256 :=
++  join128 (unpacklo64_128 (hi128 u) (hi128 v)) (unpacklo64_128 (lo128 u) (lo128 v))
++
++/-- MODEL: `_mm_add_epi32`. -/
++def add_epi32_v128 (u v : BitVec 128) : BitVec 128 := map2_32_128 (· + ·) u v
++/-- MODEL: `_mm_add_epi64`. -/
++def add_epi64_v128 (u v : BitVec 128) : BitVec 128 := map2_64_128 (· + ·) u v
++/-- MODEL: `_mm_sub_epi32`. -/
++def sub_epi32_v128 (u v : BitVec 128) : BitVec 128 := map2_32_128 (· - ·) u v
++/-- MODEL: `_mm_srli_epi16`. -/
++def srli_epi16_v128 (imm : Nat) (v : BitVec 128) : BitVec 128 := map1_16_128 (fun x => x >>> imm) v
++/-- MODEL: `_mm_and_si128`. -/
++def and_si128_v128 (u v : BitVec 128) : BitVec 128 := u &&& v
++/-- MODEL: `_mm_shuffle_epi32`. -/
++def shuffle_epi32_v128 (imm : Nat) (v : BitVec 128) : BitVec 128 := shuffle32_128 imm v
++
++/-- MODEL: `_mm_abs_epi8` maps `abs8` over the byte lanes. -/
++theorem abs8_toNat (x : BitVec 8) :
++    (abs8 x).toNat = if x.toNat < 128 then x.toNat else 256 - x.toNat := by
++  revert x; decide
++
++/-- MODEL: `_mm_sign_epi8` with a zero control byte gives zero. -/
++theorem sign8_zero (x : BitVec 8) : sign8 x 0 = 0 := by unfold sign8; simp
++
++/-- MODEL: `_mm_sign_epi8` with a positive control byte keeps `x`. -/
++theorem sign8_pos (x c : BitVec 8) (h : c.getLsbD 7 = false) (h0 : c ≠ 0) : sign8 x c = x := by
++  unfold sign8
++  rw [if_neg h0, if_neg (by simpa using h)]
++
++/-- MODEL: `_mm_sign_epi8` with a negative control byte negates `x`. -/
++theorem sign8_neg (x c : BitVec 8) (h : c.getLsbD 7 = true) : sign8 x c = -x := by
++  have h0 : c ≠ 0 := by rintro rfl; simp at h
++  unfold sign8
++  rw [if_neg h0, if_pos h]
++
++/-- MODEL: `_mm_maddubs_epi16` is the exact `u8*i8` sum when it fits in `i16`. -/
++theorem maddubs_exact (x y : BitVec 16)
++    (h : -32768 ≤ (BitVec.setWidth 8 x).toNat * (BitVec.setWidth 8 y).toInt
++        + (x.extractLsb' 8 8).toNat * (y.extractLsb' 8 8).toInt
++      ∧ (BitVec.setWidth 8 x).toNat * (BitVec.setWidth 8 y).toInt
++        + (x.extractLsb' 8 8).toNat * (y.extractLsb' 8 8).toInt ≤ 32767) :
++    (maddubs x y).toInt
++      = (BitVec.setWidth 8 x).toNat * (BitVec.setWidth 8 y).toInt
++        + (x.extractLsb' 8 8).toNat * (y.extractLsb' 8 8).toInt := by
++  unfold maddubs
++  rw [max_eq_right (le_min (by norm_num : (-32768 : Int) ≤ 32767) h.1),
++    min_eq_right h.2]
++  exact BitVec.toInt_ofInt_eq_self (show (0 : Nat) < 16 by norm_num) h.1 (by omega)
++
++/-- MODEL: `_mm_madd_epi16` is `x0*y0 + x1*y1` computed modulo `2^32`. -/
++theorem madd16_eq (x y : BitVec 32) :
++    madd16 x y
++      = BitVec.signExtend 32 (BitVec.setWidth 16 x) * BitVec.signExtend 32 (BitVec.setWidth 16 y)
++        + BitVec.signExtend 32 (x.extractLsb' 16 16) * BitVec.signExtend 32 (y.extractLsb' 16 16) :=
++  rfl
++
++/-- MODEL: `_mm_abs_epi8` acts lane-wise. -/
++theorem abs_epi8_lane (x : BitVec 256) (i : Fin 32) :
++    lanes8 32 (abs_epi8_v256 x) i = abs8 (lanes8 32 x i) := by
++  simp only [abs_epi8_v256, map1_8_256]
++  exact lanes_ofLanes _ i
++
++/-- MODEL: `_mm256_set1_epi8` puts `v` in every byte lane. -/
++theorem set1_8_lane (v : BitVec 8) (i : Fin 32) : lanes8 32 (set1_8_256 v) i = v := by
++  simp only [set1_8_256]
++  exact lanes_ofLanes (fun _ : Fin 32 => v) i
++
++/-- MODEL: `_mm256_set1_epi16` puts `v` in every `u16` lane. -/
++theorem set1_16_lane (v : BitVec 16) (i : Fin 16) : lanes16 16 (set1_16_256 v) i = v := by
++  simp only [set1_16_256]
++  exact lanes_ofLanes (fun _ : Fin 16 => v) i
++
++/-- MODEL: `_mm256_set1_epi32` puts `v` in every `u32` lane. -/
++theorem set1_32_lane (v : BitVec 32) (i : Fin 8) : lanes32 8 (set1_32_256 v) i = v := by
++  simp only [set1_32_256]
++  exact lanes_ofLanes (fun _ : Fin 8 => v) i
++
++/-- MODEL: `_mm256_madd_epi16` acts `u32`-lane-wise. -/
++theorem madd16_lane (x y : BitVec 256) (i : Fin 8) :
++    lanes32 8 (madd_epi16_v256 x y) i = madd16 (lanes32 8 x i) (lanes32 8 y i) := by
++  simp only [madd_epi16_v256, map2_32_256]
++  exact lanes_ofLanes _ i
++
++/-- MODEL: `_mm256_maddubs_epi16` acts `u16`-lane-wise. -/
++theorem maddubs_lane (x y : BitVec 256) (i : Fin 16) :
++    lanes16 16 (maddubs_epi16_v256 x y) i = maddubs (lanes16 16 x i) (lanes16 16 y i) := by
++  simp only [maddubs_epi16_v256, map2_16_256]
++  exact lanes_ofLanes _ i
++
++end simd
++
++
++/-! ## The extracted intrinsic definitions -/
++
++/-- MODEL: `Clone::clone` for `__m256i`, the four `u64` lanes copied. -/
++@[rust_fun "core::core_arch::x86::{core::clone::Clone<core::core_arch::x86::__m256i>}::clone"]
++def core.core_arch.x86.__m256i.Insts.CoreCloneClone.clone (a : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok a
++
++/-- MODEL: `_mm256_storeu_si256`, an unaligned 32-byte write. The store is a no-op: the model reads its window (bytes `p.off .. p.off+32` must exist) and leaves the buffer unchanged. Writing outside the buffer is undefined behaviour in Rust; the model fails (`undef`). -/
++@[rust_fun "core::core_arch::x86::avx::_mm256_storeu_si256"]
++def core.core_arch.x86.avx._mm256_storeu_si256 (p : MutRawPtr core.core_arch.x86.__m256i) (_a : core.core_arch.x86.__m256i) :
++    Result Unit :=
++  if simd.storeu256_ok p.off p.bytes.length then ok () else fail .undef
++
++/-- MODEL: `_mm256_testc_si256`: `CF := ((~a) & b) == 0`, returned as the low `i32`. -/
++@[rust_fun "core::core_arch::x86::avx::_mm256_testc_si256"]
++def core.core_arch.x86.avx._mm256_testc_si256 (a b : core.core_arch.x86.__m256i) :
++    Result I32 :=
++  ok ⟨ simd.testc256 (simd.toB256 a) (simd.toB256 b) ⟩
++
++/-- MODEL: `_mm256_setzero_si256`, all 256 bits zero. -/
++@[rust_fun "core::core_arch::x86::avx::_mm256_setzero_si256"]
++def core.core_arch.x86.avx._mm256_setzero_si256 :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 simd.setzero256)
++
++/-- MODEL: `_mm256_setr_epi8`, byte lane `i` the bit pattern of argument `i`. -/
++@[rust_fun "core::core_arch::x86::avx::_mm256_setr_epi8"]
++def core.core_arch.x86.avx._mm256_setr_epi8 (a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 a24 a25 a26 a27 a28 a29 a30 a31 : I8) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.setr8_256i ![a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30, a31]))
++
++/-- MODEL: `_mm256_set1_epi8`, every byte lane the bit pattern of `x`. -/
++@[rust_fun "core::core_arch::x86::avx::_mm256_set1_epi8"]
++def core.core_arch.x86.avx._mm256_set1_epi8 (x : I8) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.set1_8_256 x.bv))
++
++/-- MODEL: `_mm256_set1_epi16`, every `u16` lane the bit pattern of `x`. -/
++@[rust_fun "core::core_arch::x86::avx::_mm256_set1_epi16"]
++def core.core_arch.x86.avx._mm256_set1_epi16 (x : I16) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.set1_16_256 x.bv))
++
++/-- MODEL: `_mm256_set1_epi32`, every `u32` lane the bit pattern of `x`. -/
++@[rust_fun "core::core_arch::x86::avx::_mm256_set1_epi32"]
++def core.core_arch.x86.avx._mm256_set1_epi32 (x : I32) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.set1_32_256 x.bv))
++
++/-- MODEL: `_mm256_castsi256_si128`: the low 128 bits, no instruction emitted. -/
++@[rust_fun "core::core_arch::x86::avx::_mm256_castsi256_si128"]
++def core.core_arch.x86.avx._mm256_castsi256_si128 (a : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m128i :=
++  ok (simd.ofB128 (simd.lo128 (simd.toB256 a)))
++
++/-- MODEL: `_mm256_set_m128i`: `lo` in the low 128 bits, `hi` in the high 128 bits. -/
++@[rust_fun "core::core_arch::x86::avx::_mm256_set_m128i"]
++def core.core_arch.x86.avx._mm256_set_m128i (hi lo : core.core_arch.x86.__m128i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.set_m128i_256 (simd.toB128 hi) (simd.toB128 lo)))
++
++/-- MODEL: `_mm256_abs_epi8`, `dst[i] := |a[i]|` per byte (`-128` stays `-128`). -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_abs_epi8"]
++def core.core_arch.x86.avx2._mm256_abs_epi8 (a : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.abs_epi8_v256 (simd.toB256 a)))
++
++/-- MODEL: `_mm256_add_epi64`, `dst[i] := a[i] + b[i]` per `u64` lane (wrapping). -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_add_epi64"]
++def core.core_arch.x86.avx2._mm256_add_epi64 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.add_epi64_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_add_epi16`, `dst[i] := a[i] + b[i]` per `u16` lane (wrapping). -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_add_epi16"]
++def core.core_arch.x86.avx2._mm256_add_epi16 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.add_epi16_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_add_epi8`, `dst[i] := a[i] + b[i]` per byte (wrapping). -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_add_epi8"]
++def core.core_arch.x86.avx2._mm256_add_epi8 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.add_epi8_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_and_si256`, 256-bit bitwise AND. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_and_si256"]
++def core.core_arch.x86.avx2._mm256_and_si256 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.and_si256_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_andnot_si256`, `(~a) & b` over 256 bits. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_andnot_si256"]
++def core.core_arch.x86.avx2._mm256_andnot_si256 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.andnot_si256_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_blendv_epi8`, byte `i` of `b` where mask byte `m[i] < 0`, else of `a`. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_blendv_epi8"]
++def core.core_arch.x86.avx2._mm256_blendv_epi8 (a b m : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.blendv_epi8_v256 (simd.toB256 a) (simd.toB256 b) (simd.toB256 m)))
++
++/-- MODEL: `_mm256_broadcastsi128_si256`, the 128-bit lane in both halves. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_broadcastsi128_si256"]
++def core.core_arch.x86.avx2._mm256_broadcastsi128_si256 (a : core.core_arch.x86.__m128i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.broadcast128_256 (simd.toB128 a)))
++
++/-- MODEL: `_mm256_cmpeq_epi8`, `0xFF` where the bytes are equal, else `0`. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_cmpeq_epi8"]
++def core.core_arch.x86.avx2._mm256_cmpeq_epi8 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.cmpeq_epi8_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_cmpgt_epi64`, all ones where the signed `u64` lanes satisfy `a[i] > b[i]`. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_cmpgt_epi64"]
++def core.core_arch.x86.avx2._mm256_cmpgt_epi64 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.cmpgt_epi64_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_cvtepi16_epi32`, eight `i16` sign-extended to `i32`. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_cvtepi16_epi32"]
++def core.core_arch.x86.avx2._mm256_cvtepi16_epi32 (a : core.core_arch.x86.__m128i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.cvtepi16_epi32 (simd.toB128 a)))
++
++/-- MODEL: `_mm256_cvtepi32_epi64`, four `i32` sign-extended to `i64`. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_cvtepi32_epi64"]
++def core.core_arch.x86.avx2._mm256_cvtepi32_epi64 (a : core.core_arch.x86.__m128i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.cvtepi32_epi64 (simd.toB128 a)))
++
++/-- MODEL: `_mm256_cvtepu32_epi64`, four `u32` zero-extended to `u64`. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_cvtepu32_epi64"]
++def core.core_arch.x86.avx2._mm256_cvtepu32_epi64 (a : core.core_arch.x86.__m128i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.cvtepu32_epi64 (simd.toB128 a)))
++
++/-- MODEL: `_mm256_cvtepu8_epi16`, sixteen `u8` zero-extended to `u16`. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_cvtepu8_epi16"]
++def core.core_arch.x86.avx2._mm256_cvtepu8_epi16 (a : core.core_arch.x86.__m128i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.cvtepu8_epi16 (simd.toB128 a)))
++
++/-- MODEL: `_mm256_extracti128_si256`, the 128-bit half `IMM1 % 2`. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_extracti128_si256"]
++def core.core_arch.x86.avx2._mm256_extracti128_si256 (IMM1 : I32) (a : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m128i :=
++  ok (simd.ofB128 (simd.extract128_256 IMM1.toNat (simd.toB256 a)))
++
++/-- MODEL: `_mm256_hadd_epi32`, adjacent `i32` pairs summed within each 128-bit half. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_hadd_epi32"]
++def core.core_arch.x86.avx2._mm256_hadd_epi32 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.hadd_epi32_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_madd_epi16`, `dst[i] := a[2i]*b[2i] + a[2i+1]*b[2i+1]` (mod `2^32`). -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_madd_epi16"]
++def core.core_arch.x86.avx2._mm256_madd_epi16 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.madd_epi16_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_maddubs_epi16`, `sat_i16 (u8(a0)*i8(b0) + u8(a1)*i8(b1))` per `u16` lane. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_maddubs_epi16"]
++def core.core_arch.x86.avx2._mm256_maddubs_epi16 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.maddubs_epi16_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_mul_epi32`, the low `i32` of each `u64` lane multiplied into the `u64` lane. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_mul_epi32"]
++def core.core_arch.x86.avx2._mm256_mul_epi32 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.mul_epi32_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_mullo_epi32`, low `i32` of each `i32` product (wrapping). -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_mullo_epi32"]
++def core.core_arch.x86.avx2._mm256_mullo_epi32 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.mullo_epi32_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_or_si256`, 256-bit bitwise OR. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_or_si256"]
++def core.core_arch.x86.avx2._mm256_or_si256 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.or_si256_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_sad_epu8`, each `u64` lane the sum of the eight absolute byte differences. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_sad_epu8"]
++def core.core_arch.x86.avx2._mm256_sad_epu8 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.sad_epu8_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_shuffle_epi8`, within each 128-bit half; a control top bit gives `0`. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_shuffle_epi8"]
++def core.core_arch.x86.avx2._mm256_shuffle_epi8 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.shuffle_epi8_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_sign_epi8`: `0` where `b[i] = 0`, `-a[i]` where `b[i] < 0`, else `a[i]`. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_sign_epi8"]
++def core.core_arch.x86.avx2._mm256_sign_epi8 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.sign_epi8_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_slli_epi16`, each `u16` lane shifted left by `IMM8` (zero when `IMM8 > 15`). -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_slli_epi16"]
++def core.core_arch.x86.avx2._mm256_slli_epi16 (IMM8 : I32) (a : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.slli_epi16_v256 IMM8.toNat (simd.toB256 a)))
++
++/-- MODEL: `_mm256_slli_epi64`, each `u64` lane shifted left by `IMM8` (zero when `IMM8 > 63`). -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_slli_epi64"]
++def core.core_arch.x86.avx2._mm256_slli_epi64 (IMM8 : I32) (a : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.slli_epi64_v256 IMM8.toNat (simd.toB256 a)))
++
++/-- MODEL: `_mm256_sllv_epi64`, each `u64` lane shifted left by its count lane (zero if `≥ 64`). -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_sllv_epi64"]
++def core.core_arch.x86.avx2._mm256_sllv_epi64 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.sllv_epi64_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_srli_epi16`, each `u16` lane shifted right logically by `IMM8`. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_srli_epi16"]
++def core.core_arch.x86.avx2._mm256_srli_epi16 (IMM8 : I32) (a : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.srli_epi16_v256 IMM8.toNat (simd.toB256 a)))
++
++/-- MODEL: `_mm256_srli_epi64`, each `u64` lane shifted right logically by `IMM8`. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_srli_epi64"]
++def core.core_arch.x86.avx2._mm256_srli_epi64 (IMM8 : I32) (a : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.srli_epi64_v256 IMM8.toNat (simd.toB256 a)))
++
++/-- MODEL: `_mm256_srlv_epi64`, each `u64` lane shifted right by its count lane (zero if `≥ 64`). -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_srlv_epi64"]
++def core.core_arch.x86.avx2._mm256_srlv_epi64 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.srlv_epi64_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_sub_epi16`, `dst[i] := a[i] - b[i]` per `u16` lane (wrapping). -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_sub_epi16"]
++def core.core_arch.x86.avx2._mm256_sub_epi16 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.sub_epi16_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_sub_epi32`, `dst[i] := a[i] - b[i]` per `u32` lane (wrapping). -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_sub_epi32"]
++def core.core_arch.x86.avx2._mm256_sub_epi32 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.sub_epi32_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_sub_epi64`, `dst[i] := a[i] - b[i]` per `u64` lane (wrapping). -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_sub_epi64"]
++def core.core_arch.x86.avx2._mm256_sub_epi64 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.sub_epi64_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_sub_epi8`, `dst[i] := a[i] - b[i]` per byte (wrapping). -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_sub_epi8"]
++def core.core_arch.x86.avx2._mm256_sub_epi8 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.sub_epi8_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_unpackhi_epi8`: the high 8 bytes of each 128-bit lane interleaved. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_unpackhi_epi8"]
++def core.core_arch.x86.avx2._mm256_unpackhi_epi8 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.unpackhi_epi8_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_unpacklo_epi8`: the low 8 bytes of each 128-bit lane interleaved. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_unpacklo_epi8"]
++def core.core_arch.x86.avx2._mm256_unpacklo_epi8 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.unpacklo_epi8_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_unpackhi_epi64`: the high `u64` of each 128-bit lane interleaved. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_unpackhi_epi64"]
++def core.core_arch.x86.avx2._mm256_unpackhi_epi64 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.unpackhi_epi64_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_unpacklo_epi64`: the low `u64` of each 128-bit lane interleaved. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_unpacklo_epi64"]
++def core.core_arch.x86.avx2._mm256_unpacklo_epi64 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.unpacklo_epi64_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm256_xor_si256`, 256-bit bitwise XOR. -/
++@[rust_fun "core::core_arch::x86::avx2::_mm256_xor_si256"]
++def core.core_arch.x86.avx2._mm256_xor_si256 (a b : core.core_arch.x86.__m256i) :
++    Result core.core_arch.x86.__m256i :=
++  ok (simd.ofB256 (simd.xor_si256_v256 (simd.toB256 a) (simd.toB256 b)))
++
++/-- MODEL: `_mm_add_epi32`, `dst[i] := a[i] + b[i]` per `u32` lane (wrapping). -/
++@[rust_fun "core::core_arch::x86::sse2::_mm_add_epi32"]
++def core.core_arch.x86.sse2._mm_add_epi32 (a b : core.core_arch.x86.__m128i) :
++    Result core.core_arch.x86.__m128i :=
++  ok (simd.ofB128 (simd.add_epi32_v128 (simd.toB128 a) (simd.toB128 b)))
++
++/-- MODEL: `_mm_add_epi64`, `dst[i] := a[i] + b[i]` per `u64` lane (wrapping). -/
++@[rust_fun "core::core_arch::x86::sse2::_mm_add_epi64"]
++def core.core_arch.x86.sse2._mm_add_epi64 (a b : core.core_arch.x86.__m128i) :
++    Result core.core_arch.x86.__m128i :=
++  ok (simd.ofB128 (simd.add_epi64_v128 (simd.toB128 a) (simd.toB128 b)))
++
++/-- MODEL: `_mm_sub_epi32`, `dst[i] := a[i] - b[i]` per `u32` lane (wrapping). -/
++@[rust_fun "core::core_arch::x86::sse2::_mm_sub_epi32"]
++def core.core_arch.x86.sse2._mm_sub_epi32 (a b : core.core_arch.x86.__m128i) :
++    Result core.core_arch.x86.__m128i :=
++  ok (simd.ofB128 (simd.sub_epi32_v128 (simd.toB128 a) (simd.toB128 b)))
++
++/-- MODEL: `_mm_srli_epi16`, each `u16` lane shifted right logically by `IMM8`. -/
++@[rust_fun "core::core_arch::x86::sse2::_mm_srli_epi16"]
++def core.core_arch.x86.sse2._mm_srli_epi16 (IMM8 : I32) (a : core.core_arch.x86.__m128i) :
++    Result core.core_arch.x86.__m128i :=
++  ok (simd.ofB128 (simd.srli_epi16_v128 IMM8.toNat (simd.toB128 a)))
++
++/-- MODEL: `_mm_and_si128`, 128-bit bitwise AND. -/
++@[rust_fun "core::core_arch::x86::sse2::_mm_and_si128"]
++def core.core_arch.x86.sse2._mm_and_si128 (a b : core.core_arch.x86.__m128i) :
++    Result core.core_arch.x86.__m128i :=
++  ok (simd.ofB128 (simd.and_si128_v128 (simd.toB128 a) (simd.toB128 b)))
++
++/-- MODEL: `_mm_cvtsi128_si32`, the low 32 bits as an `i32`. -/
++@[rust_fun "core::core_arch::x86::sse2::_mm_cvtsi128_si32"]
++def core.core_arch.x86.sse2._mm_cvtsi128_si32 (a : core.core_arch.x86.__m128i) :
++    Result I32 :=
++  ok ⟨ simd.cvtsi32_128 (simd.toB128 a) ⟩
++
++/-- MODEL: `_mm_storeu_si128`, an unaligned 16-byte write. The store is a no-op: the model reads its window (bytes `p.off .. p.off+16` must exist) and leaves the buffer unchanged. Writing outside the buffer is undefined behaviour in Rust; the model fails (`undef`). -/
++@[rust_fun "core::core_arch::x86::sse2::_mm_storeu_si128"]
++def core.core_arch.x86.sse2._mm_storeu_si128 (p : MutRawPtr core.core_arch.x86.__m128i) (_a : core.core_arch.x86.__m128i) :
++    Result Unit :=
++  if simd.storeu128_ok p.off p.bytes.length then ok () else fail .undef
++
++/-- MODEL: `_mm_shuffle_epi32`, result lane `i` selects lane `(IMM8 >> 2i) % 4` of `a`. -/
++@[rust_fun "core::core_arch::x86::sse2::_mm_shuffle_epi32"]
++def core.core_arch.x86.sse2._mm_shuffle_epi32 (IMM8 : I32) (a : core.core_arch.x86.__m128i) :
++    Result core.core_arch.x86.__m128i :=
++  ok (simd.ofB128 (simd.shuffle_epi32_v128 IMM8.toNat (simd.toB128 a)))
++
++/-- MODEL: `_mm_cvtsi128_si64`, the low 64 bits as an `i64`. -/
++@[rust_fun "core::core_arch::x86_64::sse2::_mm_cvtsi128_si64"]
++def core.core_arch.x86_64.sse2._mm_cvtsi128_si64 (a : core.core_arch.x86.__m128i) :
++    Result I64 :=
++  ok ⟨ simd.cvtsi64_128 (simd.toB128 a) ⟩
++
++/-- MODEL: `_mm_extract_epi64`, the `u64` lane `IMM1 % 2`. -/
++@[rust_fun "core::core_arch::x86_64::sse41::_mm_extract_epi64"]
++def core.core_arch.x86_64.sse41._mm_extract_epi64 (IMM1 : I32) (a : core.core_arch.x86.__m128i) :
++    Result I64 :=
++  ok ⟨ simd.extract64_128 IMM1.toNat (simd.toB128 a) ⟩
++
++
++/-! ## Executable checks (`#guard`) -/
++
++#guard simd.clone256 0x00000000000000000000000000000000000000000000000000000000000000AB#256 = 0x00000000000000000000000000000000000000000000000000000000000000AB#256
++#guard simd.clone256 0x0000000000000000000000000000000000000000000000000000000000000000#256 = 0x0000000000000000000000000000000000000000000000000000000000000000#256
++#guard simd.clone256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256
++#guard simd.storeu256_ok 0 32 = true
++#guard simd.storeu256_ok 0 31 = false
++#guard simd.storeu256_ok 8 40 = true
++#guard simd.storeu256_ok 8 39 = false
++#guard simd.testc256 0 0 = 1
++#guard simd.testc256 0 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256 = 0x00000000#32
++#guard simd.testc256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256 = 0x00000001#32
++#guard simd.testc256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256 0 = 0x00000001#32
++#guard simd.setzero256 = 0x0000000000000000000000000000000000000000000000000000000000000000#256
++#guard lanes64 4 simd.setzero256 (0 : Fin 4) = 0x0000000000000000#64
++#guard lanes8 32 simd.setzero256 (7 : Fin 32) = 0x00#8
++#guard lanes8 32 (simd.setr8_256 (fun i => BitVec.ofNat 8 i.val)) (0 : Fin 32) = 0x00#8
++#guard lanes8 32 (simd.setr8_256 (fun i => BitVec.ofNat 8 i.val)) (5 : Fin 32) = 0x05#8
++#guard lanes8 32 (simd.setr8_256 (fun i => BitVec.ofNat 8 i.val)) (31 : Fin 32) = 0x1F#8
++#guard simd.setr8_256 (fun i => BitVec.ofNat 8 (31 - i.val)) = 0x000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F#256
++#guard lanes8 32 (simd.set1_8_256 0xAB#8) (0 : Fin 32) = 0xAB#8
++#guard lanes8 32 (simd.set1_8_256 0xAB#8) (17 : Fin 32) = 0xAB#8
++#guard simd.set1_8_256 0x00#8 = 0x0000000000000000000000000000000000000000000000000000000000000000#256
++#guard simd.set1_8_256 0xAB#8 = 0xABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB#256
++#guard lanes16 16 (simd.set1_16_256 0xABCD#16) (3 : Fin 16) = 0xABCD#16
++#guard lanes8 32 (simd.set1_16_256 0xABCD#16) (0 : Fin 32) = 0xCD#8
++#guard lanes8 32 (simd.set1_16_256 0xABCD#16) (1 : Fin 32) = 0xAB#8
++#guard lanes32 8 (simd.set1_32_256 0xDEADBEEF#32) (5 : Fin 8) = 0xDEADBEEF#32
++#guard lanes8 32 (simd.set1_32_256 0xDEADBEEF#32) (0 : Fin 32) = 0xEF#8
++#guard lanes8 32 (simd.set1_32_256 0xDEADBEEF#32) (7 : Fin 32) = 0xDE#8
++#guard simd.lo128 (simd.join128 0xAA#128 0xBB#128) = 0x000000000000000000000000000000BB#128
++#guard simd.hi128 (simd.join128 0xAA#128 0xBB#128) = 0x000000000000000000000000000000AA#128
++#guard simd.lo128 (simd.join128 0 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#128) = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#128
++#guard simd.lo128 (simd.join128 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#128 0) = 0x00000000000000000000000000000000#128
++#guard simd.hi128 (simd.set_m128i_256 0xAA#128 0xBB#128) = 0x000000000000000000000000000000AA#128
++#guard simd.lo128 (simd.set_m128i_256 0xAA#128 0xBB#128) = 0x000000000000000000000000000000BB#128
++#guard simd.set_m128i_256 0 0 = 0x0000000000000000000000000000000000000000000000000000000000000000#256
++#guard simd.set_m128i_256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#128 0 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000000000000000000000000000#256
++#guard simd.abs8 0x80#8 = 0x80#8
++#guard simd.abs8 0xFF#8 = 0x01#8
++#guard simd.abs8 0x7F#8 = 0x7F#8
++#guard simd.abs_epi8_v256 0x00000000000000000000000000000000000000000000000000000000007FFF80#256 = 0x00000000000000000000000000000000000000000000000000000000007F0180#256
++#guard lanes8 32 (simd.abs_epi8_v256 0x00000000000000000000000000000000000000000000000000000000007FFF80#256) (0 : Fin 32) = 0x80#8
++#guard simd.add_epi8_v256 0x00000000000000000000000000000000000000000000000000000000000000FF#256 0x0000000000000000000000000000000000000000000000000000000000000001#256 = 0x0000000000000000000000000000000000000000000000000000000000000000#256
++#guard simd.add_epi8_v256 0x000000000000000000000000000000000000000000000000000000000000007F#256 0x0000000000000000000000000000000000000000000000000000000000000001#256 = 0x0000000000000000000000000000000000000000000000000000000000000080#256
++#guard simd.add_epi8_v256 0x0000000000000000000000000000000000000000000000000000000000000100#256 0x0000000000000000000000000000000000000000000000000000000000000100#256 = 0x0000000000000000000000000000000000000000000000000000000000000200#256
++#guard lanes8 32 (simd.add_epi8_v256 0x0000000000000000000000000000000000000000000000000000000000000100#256 0x0000000000000000000000000000000000000000000000000000000000000100#256) (1 : Fin 32) = 0x02#8
++#guard simd.add_epi16_v256 0x000000000000000000000000000000000000000000000000000000000000FFFF#256 0x0000000000000000000000000000000000000000000000000000000000000001#256 = 0x0000000000000000000000000000000000000000000000000000000000000000#256
++#guard simd.add_epi16_v256 0x0000000000000000000000000000000000000000000000000000000000008000#256 0x0000000000000000000000000000000000000000000000000000000000000001#256 = 0x0000000000000000000000000000000000000000000000000000000000008001#256
++#guard simd.add_epi16_v256 0x0000000000000000000000000000000000000000000000000000000000000001#256 0x0000000000000000000000000000000000000000000000000000000000000002#256 = 0x0000000000000000000000000000000000000000000000000000000000000003#256
++#guard simd.add_epi64_v256 0x0000000000000000000000000000000000000000000000000000000000000001#256 0x0000000000000000000000000000000000000000000000000000000000000002#256 = 0x0000000000000000000000000000000000000000000000000000000000000003#256
++#guard simd.add_epi64_v256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256 0x0000000000000000000000000000000000000000000000000000000000000001#256 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF0000000000000000#256
++#guard lanes64 4 (simd.add_epi64_v256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256 0x0000000000000000000000000000000000000000000000000000000000000001#256) (2 : Fin 4) = 0xFFFFFFFFFFFFFFFF#64
++#guard simd.and_si256_v256 0x0000000000000000000000000000000000000000000000000000000000000F0F#256 0x000000000000000000000000000000000000000000000000000000000000FF00#256 = 0x0000000000000000000000000000000000000000000000000000000000000F00#256
++#guard simd.and_si256_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256 = 0x0000000000000000000000000000000000000000000000000000000000000000#256
++#guard simd.and_si256_v256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256 0x000000000000000000000000000000000000000000000000000000000000ABCD#256 = 0x000000000000000000000000000000000000000000000000000000000000ABCD#256
++#guard simd.andnot_si256_v256 0x0000000000000000000000000000000000000000000000000000000000000F0F#256 0x000000000000000000000000000000000000000000000000000000000000FFFF#256 = 0x000000000000000000000000000000000000000000000000000000000000F0F0#256
++#guard simd.andnot_si256_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x000000000000000000000000000000000000000000000000000000000000FFFF#256 = 0x000000000000000000000000000000000000000000000000000000000000FFFF#256
++#guard simd.andnot_si256_v256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256 0x000000000000000000000000000000000000000000000000000000000000FFFF#256 = 0x0000000000000000000000000000000000000000000000000000000000000000#256
++#guard simd.blendv_epi8_v256 0x000000000000000000000000000000000000000000000000000000000000AAAA#256 0x000000000000000000000000000000000000000000000000000000000000BBBB#256 0x0000000000000000000000000000000000000000000000000000000000008080#256 = 0x000000000000000000000000000000000000000000000000000000000000BBBB#256
++#guard simd.blendv_epi8_v256 0x000000000000000000000000000000000000000000000000000000000000AAAA#256 0x000000000000000000000000000000000000000000000000000000000000BBBB#256 0x0000000000000000000000000000000000000000000000000000000000000000#256 = 0x000000000000000000000000000000000000000000000000000000000000AAAA#256
++#guard simd.blendv_epi8_v256 0x000000000000000000000000000000000000000000000000000000000000AAAA#256 0x000000000000000000000000000000000000000000000000000000000000BBBB#256 0x0000000000000000000000000000000000000000000000000000000000000080#256 = 0x000000000000000000000000000000000000000000000000000000000000AABB#256
++#guard simd.blendv_epi8_v256 0x000000000000000000000000000000000000000000000000000000000000AAAA#256 0x000000000000000000000000000000000000000000000000000000000000BBBB#256 0x0000000000000000000000000000000000000000000000000000000000008000#256 = 0x000000000000000000000000000000000000000000000000000000000000BBAA#256
++#guard simd.lo128 (simd.broadcast128_256 0xAB#128) = 0x000000000000000000000000000000AB#128
++#guard simd.hi128 (simd.broadcast128_256 0xAB#128) = 0x000000000000000000000000000000AB#128
++#guard simd.broadcast128_256 0 = 0x0000000000000000000000000000000000000000000000000000000000000000#256
++#guard lanes8 32 (simd.cmpeq_epi8_v256 0x0000000000000000000000000000000000000000000000000000000000000001#256 0x0000000000000000000000000000000000000000000000000000000000000002#256) (0 : Fin 32) = 0x00#8
++#guard lanes8 32 (simd.cmpeq_epi8_v256 0x0000000000000000000000000000000000000000000000000000000000000001#256 0x0000000000000000000000000000000000000000000000000000000000000002#256) (1 : Fin 32) = 0xFF#8
++#guard simd.cmpeq_epi8_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x0000000000000000000000000000000000000000000000000000000000000000#256 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256
++#guard lanes8 32 (simd.cmpeq_epi8_v256 0x0100000000000000000000000000000000000000000000000000000000000000#256 0x0200000000000000000000000000000000000000000000000000000000000000#256) (31 : Fin 32) = 0x00#8
++#guard lanes64 4 (simd.cmpgt_epi64_v256 0x0000000000000000000000000000000000000000000000000000000000000001#256 0x0000000000000000000000000000000000000000000000000000000000000000#256) (0 : Fin 4) = 0xFFFFFFFFFFFFFFFF#64
++#guard lanes64 4 (simd.cmpgt_epi64_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x0000000000000000000000000000000000000000000000000000000000000001#256) (0 : Fin 4) = 0x0000000000000000#64
++#guard lanes64 4 (simd.cmpgt_epi64_v256 0x0000000000000000000000000000000000000000000000008000000000000000#256 0x0000000000000000000000000000000000000000000000000000000000000000#256) (0 : Fin 4) = 0x0000000000000000#64
++#guard lanes64 4 (simd.cmpgt_epi64_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x0000000000000000000000000000000000000000000000008000000000000000#256) (0 : Fin 4) = 0xFFFFFFFFFFFFFFFF#64
++#guard lanes64 4 (simd.cmpgt_epi64_v256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256 0x0000000000000000000000000000000000000000000000000000000000000000#256) (3 : Fin 4) = 0x0000000000000000#64
++#guard lanes32 8 (simd.cvtepi16_epi32 0x0001#128) (0 : Fin 8) = 0x00000001#32
++#guard lanes32 8 (simd.cvtepi16_epi32 0xFFFF#128) (0 : Fin 8) = 0xFFFFFFFF#32
++#guard lanes32 8 (simd.cvtepi16_epi32 0x8000#128) (0 : Fin 8) = 0xFFFF8000#32
++#guard lanes32 8 (simd.cvtepi16_epi32 0x00010000#128) (1 : Fin 8) = 0x00000001#32
++#guard lanes64 4 (simd.cvtepi32_epi64 0xFFFFFFFF#128) (0 : Fin 4) = 0xFFFFFFFFFFFFFFFF#64
++#guard lanes64 4 (simd.cvtepi32_epi64 0x80000000#128) (0 : Fin 4) = 0xFFFFFFFF80000000#64
++#guard lanes64 4 (simd.cvtepi32_epi64 0x7FFFFFFF#128) (0 : Fin 4) = 0x000000007FFFFFFF#64
++#guard lanes64 4 (simd.cvtepu32_epi64 0xFFFFFFFF#128) (0 : Fin 4) = 0x00000000FFFFFFFF#64
++#guard lanes64 4 (simd.cvtepu32_epi64 0x80000000#128) (0 : Fin 4) = 0x0000000080000000#64
++#guard lanes64 4 (simd.cvtepu32_epi64 0x00000001#128) (0 : Fin 4) = 0x0000000000000001#64
++#guard lanes16 16 (simd.cvtepu8_epi16 0xFF#128) (0 : Fin 16) = 0x00FF#16
++#guard lanes16 16 (simd.cvtepu8_epi16 0x80#128) (0 : Fin 16) = 0x0080#16
++#guard lanes16 16 (simd.cvtepu8_epi16 0x0100#128) (1 : Fin 16) = 0x0001#16
++#guard simd.extract128_256 0 0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA#256 = 0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA#128
++#guard simd.extract128_256 1 0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA#256 = 0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB#128
++#guard simd.extract128_256 2 0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA#256 = 0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA#128
++#guard simd.extract128_256 3 0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA#256 = 0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB#128
++#guard lanes32 8 (simd.hadd_epi32_v256 0x0000000800000007000000060000000500000004000000030000000200000001#256 0x00000050000000460000003C00000032000000280000001E000000140000000A#256) (0 : Fin 8) = 0x00000003#32
++#guard lanes32 8 (simd.hadd_epi32_v256 0x0000000800000007000000060000000500000004000000030000000200000001#256 0x00000050000000460000003C00000032000000280000001E000000140000000A#256) (1 : Fin 8) = 0x00000007#32
++#guard lanes32 8 (simd.hadd_epi32_v256 0x0000000800000007000000060000000500000004000000030000000200000001#256 0x00000050000000460000003C00000032000000280000001E000000140000000A#256) (2 : Fin 8) = 0x0000001E#32
++#guard lanes32 8 (simd.hadd_epi32_v256 0x0000000800000007000000060000000500000004000000030000000200000001#256 0x00000050000000460000003C00000032000000280000001E000000140000000A#256) (3 : Fin 8) = 0x00000046#32
++#guard lanes32 8 (simd.hadd_epi32_v256 0x0000000800000007000000060000000500000004000000030000000200000001#256 0x00000050000000460000003C00000032000000280000001E000000140000000A#256) (4 : Fin 8) = 0x0000000B#32
++#guard lanes32 8 (simd.hadd_epi32_v256 0x0000000800000007000000060000000500000004000000030000000200000001#256 0x00000050000000460000003C00000032000000280000001E000000140000000A#256) (5 : Fin 8) = 0x0000000F#32
++#guard lanes32 8 (simd.hadd_epi32_v256 0x0000000800000007000000060000000500000004000000030000000200000001#256 0x00000050000000460000003C00000032000000280000001E000000140000000A#256) (6 : Fin 8) = 0x0000006E#32
++#guard lanes32 8 (simd.hadd_epi32_v256 0x0000000800000007000000060000000500000004000000030000000200000001#256 0x00000050000000460000003C00000032000000280000001E000000140000000A#256) (7 : Fin 8) = 0x00000096#32
++#guard lanes32 8 (simd.madd_epi16_v256 0x0000000000000000000000000000000000000000000000000000000000020001#256 0x000000000000000000000000000000000000000000000000000000000014000A#256) (0 : Fin 8) = 0x00000032#32
++#guard lanes32 8 (simd.madd_epi16_v256 0x0000000000000000000000000000000000000000000000000000000000008000#256 0x0000000000000000000000000000000000000000000000000000000000008000#256) (0 : Fin 8) = 0x40000000#32
++#guard lanes32 8 (simd.madd_epi16_v256 0x0000000000000000000000000000000000000000000000000000000080008000#256 0x0000000000000000000000000000000000000000000000000000000080008000#256) (0 : Fin 8) = 0x80000000#32
++#guard lanes32 8 (simd.madd_epi16_v256 0x000000000000000000000000000000000000000000000000000000000001FFFF#256 0x0000000000000000000000000000000000000000000000000000000000010001#256) (0 : Fin 8) = 0x00000000#32
++#guard lanes16 16 (simd.maddubs_epi16_v256 0x000000000000000000000000000000000000000000000000000000000000FFFF#256 0x0000000000000000000000000000000000000000000000000000000000007F7F#256) (0 : Fin 16) = 0x7FFF#16
++#guard lanes16 16 (simd.maddubs_epi16_v256 0x000000000000000000000000000000000000000000000000000000000000FFFF#256 0x0000000000000000000000000000000000000000000000000000000000008080#256) (0 : Fin 16) = 0x8000#16
++#guard lanes16 16 (simd.maddubs_epi16_v256 0x0000000000000000000000000000000000000000000000000000000000000201#256 0x000000000000000000000000000000000000000000000000000000000000140A#256) (0 : Fin 16) = 0x0032#16
++#guard lanes16 16 (simd.maddubs_epi16_v256 0x00000000000000000000000000000000000000000000000000000000000001FF#256 0x000000000000000000000000000000000000000000000000000000000000FF7F#256) (0 : Fin 16) = 0x7E80#16
++#guard lanes64 4 (simd.mul_epi32_v256 0x0000000000000000000000000000000000000000000000000000000000000001#256 0x0000000000000000000000000000000000000000000000000000000000000002#256) (0 : Fin 4) = 0x0000000000000002#64
++#guard lanes64 4 (simd.mul_epi32_v256 0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF#256 0x0000000000000000000000000000000000000000000000000000000000000002#256) (0 : Fin 4) = 0xFFFFFFFFFFFFFFFE#64
++#guard lanes64 4 (simd.mul_epi32_v256 0x000000000000000000000000000000000000000000000000000000007FFFFFFF#256 0x000000000000000000000000000000000000000000000000000000007FFFFFFF#256) (0 : Fin 4) = 0x3FFFFFFF00000001#64
++#guard lanes64 4 (simd.mul_epi32_v256 0x0000000000000000000000000000000000000000000000000000000000000002#256 0x0000000000000000000000000000000000000000000000000000000000000003#256) (1 : Fin 4) = 0x0000000000000000#64
++#guard lanes32 8 (simd.mullo_epi32_v256 0x0000000000000000000000000000000000000000000000000000000000000002#256 0x0000000000000000000000000000000000000000000000000000000000000003#256) (0 : Fin 8) = 0x00000006#32
++#guard lanes32 8 (simd.mullo_epi32_v256 0x0000000000000000000000000000000000000000000000000000000000010000#256 0x0000000000000000000000000000000000000000000000000000000000010000#256) (0 : Fin 8) = 0x00000000#32
++#guard lanes32 8 (simd.mullo_epi32_v256 0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF#256 0x0000000000000000000000000000000000000000000000000000000000000002#256) (0 : Fin 8) = 0xFFFFFFFE#32
++#guard simd.or_si256_v256 0x0000000000000000000000000000000000000000000000000000000000000F0F#256 0x000000000000000000000000000000000000000000000000000000000000F0F0#256 = 0x000000000000000000000000000000000000000000000000000000000000FFFF#256
++#guard simd.or_si256_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x0000000000000000000000000000000000000000000000000000000000000000#256 = 0x0000000000000000000000000000000000000000000000000000000000000000#256
++#guard simd.or_si256_v256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256 0x0000000000000000000000000000000000000000000000000000000000000000#256 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256
++#guard lanes64 4 (simd.sad_epu8_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x0101010101010101010101010101010101010101010101010101010101010101#256) (0 : Fin 4) = 0x0000000000000008#64
++#guard lanes64 4 (simd.sad_epu8_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256) (0 : Fin 4) = 0x00000000000007F8#64
++#guard lanes64 4 (simd.sad_epu8_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x00000000000000000000000000000000000000000000000000000000000000FF#256) (3 : Fin 4) = 0x0000000000000000#64
++#guard lanes64 4 (simd.sad_epu8_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x0101010101010101000000000000000001010101010101010000000000000000#256) (1 : Fin 4) = 0x0000000000000008#64
++#guard lanes8 16 (simd.shuffle8_128 0x0F0E0D0C0B0A09080706050403020100#128 0x0000000000000000000000000000800F#128) (0 : Fin 16) = 0x0F#8
++#guard lanes8 16 (simd.shuffle8_128 0x0F0E0D0C0B0A09080706050403020100#128 0x0000000000000000000000000000800F#128) (1 : Fin 16) = 0x00#8
++#guard lanes8 32 (simd.shuffle_epi8_v256 0x0F0E0D0C0B0A090807060504030201000F0E0D0C0B0A09080706050403020100#256 0x0000000000000000000000000000800F0000000000000000000000000000800F#256) (0 : Fin 32) = 0x0F#8
++#guard lanes8 32 (simd.shuffle_epi8_v256 0x0F0E0D0C0B0A090807060504030201000F0E0D0C0B0A09080706050403020100#256 0x0000000000000000000000000000800F0000000000000000000000000000800F#256) (16 : Fin 32) = 0x0F#8
++#guard lanes8 32 (simd.shuffle_epi8_v256 0x0F0E0D0C0B0A090807060504030201000F0E0D0C0B0A09080706050403020100#256 0x0000000000000000000000000000800F0000000000000000000000000000800F#256) (17 : Fin 32) = 0x00#8
++#guard lanes8 32 (simd.sign_epi8_v256 0x00000000000000000000000000000000000000000000000000000000000000AA#256 0x0000000000000000000000000000000000000000000000000000000000000000#256) (0 : Fin 32) = 0x00#8
++#guard lanes8 32 (simd.sign_epi8_v256 0x00000000000000000000000000000000000000000000000000000000000000AA#256 0x0000000000000000000000000000000000000000000000000000000000000001#256) (0 : Fin 32) = 0xAA#8
++#guard lanes8 32 (simd.sign_epi8_v256 0x00000000000000000000000000000000000000000000000000000000000000AA#256 0x00000000000000000000000000000000000000000000000000000000000000FF#256) (0 : Fin 32) = 0x56#8
++#guard lanes8 32 (simd.sign_epi8_v256 0x0000000000000000000000000000000000000000000000000000000000000080#256 0x00000000000000000000000000000000000000000000000000000000000000FF#256) (0 : Fin 32) = 0x80#8
++#guard lanes16 16 (simd.slli_epi16_v256 0 0x0000000000000000000000000000000000000000000000000000000000001234#256) (0 : Fin 16) = 0x1234#16
++#guard lanes16 16 (simd.slli_epi16_v256 4 0x0000000000000000000000000000000000000000000000000000000000001234#256) (0 : Fin 16) = 0x2340#16
++#guard lanes16 16 (simd.slli_epi16_v256 15 0x0000000000000000000000000000000000000000000000000000000000000001#256) (0 : Fin 16) = 0x8000#16
++#guard lanes16 16 (simd.slli_epi16_v256 16 0x000000000000000000000000000000000000000000000000000000000000FFFF#256) (0 : Fin 16) = 0x0000#16
++#guard lanes16 16 (simd.slli_epi16_v256 1 0x0000000000000000000000000000000000000000000000000000000000008000#256) (0 : Fin 16) = 0x0000#16
++#guard lanes64 4 (simd.slli_epi64_v256 0 0x0000000000000000000000000000000000000000000000000000000000000001#256) (0 : Fin 4) = 0x0000000000000001#64
++#guard lanes64 4 (simd.slli_epi64_v256 63 0x0000000000000000000000000000000000000000000000000000000000000001#256) (0 : Fin 4) = 0x8000000000000000#64
++#guard lanes64 4 (simd.slli_epi64_v256 64 0x0000000000000000000000000000000000000000000000000000000000000001#256) (0 : Fin 4) = 0x0000000000000000#64
++#guard lanes64 4 (simd.slli_epi64_v256 32 0x00000000000000000000000000000000000000000000000000000000FFFFFFFF#256) (0 : Fin 4) = 0xFFFFFFFF00000000#64
++#guard lanes64 4 (simd.sllv_epi64_v256 0x0000000000000000000000000000000000000000000000000000000000000001#256 0x0000000000000000000000000000000000000000000000000000000000000003#256) (0 : Fin 4) = 0x0000000000000008#64
++#guard lanes64 4 (simd.sllv_epi64_v256 0x0000000000000000000000000000000000000000000000000000000000000001#256 0x0000000000000000000000000000000000000000000000000000000000000040#256) (0 : Fin 4) = 0x0000000000000000#64
++#guard lanes64 4 (simd.sllv_epi64_v256 0x0000000000000000000000000000000000000000000000000000000000000001#256 0x000000000000000000000000000000000000000000000000000000000000003F#256) (0 : Fin 4) = 0x8000000000000000#64
++#guard lanes64 4 (simd.sllv_epi64_v256 0x0000000000000000000000000000000000000000000000010000000000000000#256 0x0000000000000000000000000000000000000000000000030000000000000000#256) (1 : Fin 4) = 0x0000000000000008#64
++#guard lanes16 16 (simd.srli_epi16_v256 4 0x000000000000000000000000000000000000000000000000000000000000FFFF#256) (0 : Fin 16) = 0x0FFF#16
++#guard lanes16 16 (simd.srli_epi16_v256 0 0x0000000000000000000000000000000000000000000000000000000000001234#256) (0 : Fin 16) = 0x1234#16
++#guard lanes16 16 (simd.srli_epi16_v256 16 0x000000000000000000000000000000000000000000000000000000000000FFFF#256) (0 : Fin 16) = 0x0000#16
++#guard lanes16 16 (simd.srli_epi16_v256 15 0x0000000000000000000000000000000000000000000000000000000000008000#256) (0 : Fin 16) = 0x0001#16
++#guard lanes64 4 (simd.srli_epi64_v256 32 0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF#256) (0 : Fin 4) = 0x00000000FFFFFFFF#64
++#guard lanes64 4 (simd.srli_epi64_v256 63 0x0000000000000000000000000000000000000000000000008000000000000000#256) (0 : Fin 4) = 0x0000000000000001#64
++#guard lanes64 4 (simd.srli_epi64_v256 64 0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF#256) (0 : Fin 4) = 0x0000000000000000#64
++#guard lanes64 4 (simd.srlv_epi64_v256 0x0000000000000000000000000000000000000000000000000000000000000008#256 0x0000000000000000000000000000000000000000000000000000000000000003#256) (0 : Fin 4) = 0x0000000000000001#64
++#guard lanes64 4 (simd.srlv_epi64_v256 0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF#256 0x0000000000000000000000000000000000000000000000000000000000000040#256) (0 : Fin 4) = 0x0000000000000000#64
++#guard lanes64 4 (simd.srlv_epi64_v256 0x0000000000000000000000000000000000000000000000008000000000000000#256 0x000000000000000000000000000000000000000000000000000000000000003F#256) (0 : Fin 4) = 0x0000000000000001#64
++#guard simd.sub_epi8_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x0000000000000000000000000000000000000000000000000000000000000001#256 = 0x00000000000000000000000000000000000000000000000000000000000000FF#256
++#guard simd.sub_epi8_v256 0x0000000000000000000000000000000000000000000000000000000000000002#256 0x0000000000000000000000000000000000000000000000000000000000000001#256 = 0x0000000000000000000000000000000000000000000000000000000000000001#256
++#guard simd.sub_epi8_v256 0x000000000000000000000000000000000000000000000000000000000000007F#256 0x00000000000000000000000000000000000000000000000000000000000000FF#256 = 0x0000000000000000000000000000000000000000000000000000000000000080#256
++#guard simd.sub_epi16_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x0000000000000000000000000000000000000000000000000000000000000001#256 = 0x000000000000000000000000000000000000000000000000000000000000FFFF#256
++#guard simd.sub_epi16_v256 0x0000000000000000000000000000000000000000000000000000000000000002#256 0x0000000000000000000000000000000000000000000000000000000000000001#256 = 0x0000000000000000000000000000000000000000000000000000000000000001#256
++#guard simd.sub_epi16_v256 0x0000000000000000000000000000000000000000000000000000000000008000#256 0x0000000000000000000000000000000000000000000000000000000000000001#256 = 0x0000000000000000000000000000000000000000000000000000000000007FFF#256
++#guard simd.sub_epi32_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x0000000000000000000000000000000000000000000000000000000000000001#256 = 0x00000000000000000000000000000000000000000000000000000000FFFFFFFF#256
++#guard simd.sub_epi32_v256 0x0000000000000000000000000000000000000000000000000000000000000005#256 0x0000000000000000000000000000000000000000000000000000000000000002#256 = 0x0000000000000000000000000000000000000000000000000000000000000003#256
++#guard simd.sub_epi32_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x0000000000000000000000000000000000000000000000000000000100000000#256 = 0x000000000000000000000000000000000000000000000000FFFFFFFF00000000#256
++#guard simd.sub_epi64_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x0000000000000000000000000000000000000000000000000000000000000001#256 = 0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF#256
++#guard simd.sub_epi64_v256 0x0000000000000000000000000000000000000000000000000000000000000005#256 0x0000000000000000000000000000000000000000000000000000000000000002#256 = 0x0000000000000000000000000000000000000000000000000000000000000003#256
++#guard lanes64 4 (simd.sub_epi64_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x0000000000000000000000000000000000000000000000000000000000000001#256) (3 : Fin 4) = 0x0000000000000000#64
++#guard lanes8 32 (simd.unpackhi_epi8_v256 0x0F0E0D0C0B0A090807060504030201000F0E0D0C0B0A09080706050403020100#256 0x1F1E1D1C1B1A191817161514131211101F1E1D1C1B1A19181716151413121110#256) (0 : Fin 32) = 0x08#8
++#guard lanes8 32 (simd.unpackhi_epi8_v256 0x0F0E0D0C0B0A090807060504030201000F0E0D0C0B0A09080706050403020100#256 0x1F1E1D1C1B1A191817161514131211101F1E1D1C1B1A19181716151413121110#256) (1 : Fin 32) = 0x18#8
++#guard lanes8 32 (simd.unpackhi_epi8_v256 0x0F0E0D0C0B0A090807060504030201000F0E0D0C0B0A09080706050403020100#256 0x1F1E1D1C1B1A191817161514131211101F1E1D1C1B1A19181716151413121110#256) (14 : Fin 32) = 0x0F#8
++#guard lanes8 32 (simd.unpackhi_epi8_v256 0x0F0E0D0C0B0A090807060504030201000F0E0D0C0B0A09080706050403020100#256 0x1F1E1D1C1B1A191817161514131211101F1E1D1C1B1A19181716151413121110#256) (15 : Fin 32) = 0x1F#8
++#guard lanes8 32 (simd.unpackhi_epi8_v256 0x0F0E0D0C0B0A090807060504030201000F0E0D0C0B0A09080706050403020100#256 0x1F1E1D1C1B1A191817161514131211101F1E1D1C1B1A19181716151413121110#256) (16 : Fin 32) = 0x08#8
++#guard lanes8 32 (simd.unpacklo_epi8_v256 0x0F0E0D0C0B0A090807060504030201000F0E0D0C0B0A09080706050403020100#256 0x1F1E1D1C1B1A191817161514131211101F1E1D1C1B1A19181716151413121110#256) (0 : Fin 32) = 0x00#8
++#guard lanes8 32 (simd.unpacklo_epi8_v256 0x0F0E0D0C0B0A090807060504030201000F0E0D0C0B0A09080706050403020100#256 0x1F1E1D1C1B1A191817161514131211101F1E1D1C1B1A19181716151413121110#256) (1 : Fin 32) = 0x10#8
++#guard lanes8 32 (simd.unpacklo_epi8_v256 0x0F0E0D0C0B0A090807060504030201000F0E0D0C0B0A09080706050403020100#256 0x1F1E1D1C1B1A191817161514131211101F1E1D1C1B1A19181716151413121110#256) (14 : Fin 32) = 0x07#8
++#guard lanes8 32 (simd.unpacklo_epi8_v256 0x0F0E0D0C0B0A090807060504030201000F0E0D0C0B0A09080706050403020100#256 0x1F1E1D1C1B1A191817161514131211101F1E1D1C1B1A19181716151413121110#256) (15 : Fin 32) = 0x17#8
++#guard lanes64 4 (simd.unpackhi_epi64_v256 0x0000000000000004000000000000000300000000000000020000000000000001#256 0x0000000000000014000000000000001300000000000000120000000000000011#256) (0 : Fin 4) = 0x0000000000000002#64
++#guard lanes64 4 (simd.unpackhi_epi64_v256 0x0000000000000004000000000000000300000000000000020000000000000001#256 0x0000000000000014000000000000001300000000000000120000000000000011#256) (1 : Fin 4) = 0x0000000000000012#64
++#guard lanes64 4 (simd.unpackhi_epi64_v256 0x0000000000000004000000000000000300000000000000020000000000000001#256 0x0000000000000014000000000000001300000000000000120000000000000011#256) (2 : Fin 4) = 0x0000000000000004#64
++#guard lanes64 4 (simd.unpackhi_epi64_v256 0x0000000000000004000000000000000300000000000000020000000000000001#256 0x0000000000000014000000000000001300000000000000120000000000000011#256) (3 : Fin 4) = 0x0000000000000014#64
++#guard lanes64 4 (simd.unpacklo_epi64_v256 0x0000000000000004000000000000000300000000000000020000000000000001#256 0x0000000000000014000000000000001300000000000000120000000000000011#256) (0 : Fin 4) = 0x0000000000000001#64
++#guard lanes64 4 (simd.unpacklo_epi64_v256 0x0000000000000004000000000000000300000000000000020000000000000001#256 0x0000000000000014000000000000001300000000000000120000000000000011#256) (1 : Fin 4) = 0x0000000000000011#64
++#guard lanes64 4 (simd.unpacklo_epi64_v256 0x0000000000000004000000000000000300000000000000020000000000000001#256 0x0000000000000014000000000000001300000000000000120000000000000011#256) (2 : Fin 4) = 0x0000000000000003#64
++#guard lanes64 4 (simd.unpacklo_epi64_v256 0x0000000000000004000000000000000300000000000000020000000000000001#256 0x0000000000000014000000000000001300000000000000120000000000000011#256) (3 : Fin 4) = 0x0000000000000013#64
++#guard simd.xor_si256_v256 0x0000000000000000000000000000000000000000000000000000000000000F0F#256 0x000000000000000000000000000000000000000000000000000000000000FFFF#256 = 0x000000000000000000000000000000000000000000000000000000000000F0F0#256
++#guard simd.xor_si256_v256 0x0000000000000000000000000000000000000000000000000000000000000000#256 0x0000000000000000000000000000000000000000000000000000000000000000#256 = 0x0000000000000000000000000000000000000000000000000000000000000000#256
++#guard simd.xor_si256_v256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#256 = 0x0000000000000000000000000000000000000000000000000000000000000000#256
++#guard lanes32 4 (simd.add_epi32_v128 0x1#128 0x2#128) (0 : Fin 4) = 0x00000003#32
++#guard lanes32 4 (simd.add_epi32_v128 0xFFFFFFFF#128 0x1#128) (0 : Fin 4) = 0x00000000#32
++#guard lanes32 4 (simd.add_epi32_v128 0x0000000200000001#128 0x0000000200000001#128) (1 : Fin 4) = 0x00000004#32
++#guard lanes64 2 (simd.add_epi64_v128 0x1#128 0x2#128) (0 : Fin 2) = 0x0000000000000003#64
++#guard lanes64 2 (simd.add_epi64_v128 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#128 0x1#128) (1 : Fin 2) = 0xFFFFFFFFFFFFFFFF#64
++#guard lanes64 2 (simd.add_epi64_v128 0x0000000000000001#128 0x0000000000000002#128) (1 : Fin 2) = 0x0000000000000000#64
++#guard lanes32 4 (simd.sub_epi32_v128 0x1#128 0x2#128) (0 : Fin 4) = 0xFFFFFFFF#32
++#guard lanes32 4 (simd.sub_epi32_v128 0x5#128 0x2#128) (0 : Fin 4) = 0x00000003#32
++#guard lanes32 4 (simd.sub_epi32_v128 0x1#128 0x2#128) (1 : Fin 4) = 0x00000000#32
++#guard lanes16 8 (simd.srli_epi16_v128 4 0xFFFF#128) (0 : Fin 8) = 0x0FFF#16
++#guard lanes16 8 (simd.srli_epi16_v128 16 0xFFFF#128) (0 : Fin 8) = 0x0000#16
++#guard lanes16 8 (simd.srli_epi16_v128 0 0x1234#128) (0 : Fin 8) = 0x1234#16
++#guard simd.and_si128_v128 0x0F0F#128 0xFF00#128 = 0x00000000000000000000000000000F00#128
++#guard simd.and_si128_v128 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#128 0xAB#128 = 0x000000000000000000000000000000AB#128
++#guard simd.and_si128_v128 0x0#128 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#128 = 0x00000000000000000000000000000000#128
++#guard simd.cvtsi32_128 0x00000000DEADBEEF#128 = 0xDEADBEEF#32
++#guard simd.cvtsi32_128 0xDECAFBAD0000000012345678#128 = 0x12345678#32
++#guard simd.cvtsi32_128 0xFFFFFFFF#128 = 0xFFFFFFFF#32
++#guard simd.storeu128_ok 0 16 = true
++#guard simd.storeu128_ok 0 15 = false
++#guard simd.storeu128_ok 8 24 = true
++#guard simd.storeu128_ok 8 23 = false
++#guard lanes32 4 (simd.shuffle_epi32_v128 0 0x00000013000000120000001100000010#128) (0 : Fin 4) = 0x00000010#32
++#guard simd.shuffle_epi32_v128 228 0x00000013000000120000001100000010#128 = 0x00000013000000120000001100000010#128
++#guard lanes32 4 (simd.shuffle_epi32_v128 27 0x00000013000000120000001100000010#128) (0 : Fin 4) = 0x00000013#32
++#guard lanes32 4 (simd.shuffle_epi32_v128 255 0x00000013000000120000001100000010#128) (1 : Fin 4) = 0x00000013#32
++#guard simd.cvtsi64_128 0xDEADBEEF#128 = 0x00000000DEADBEEF#64
++#guard simd.cvtsi64_128 0xAAAAAAAAAAAAAAAABBBBBBBBBBBBBBBB#128 = 0xBBBBBBBBBBBBBBBB#64
++#guard simd.cvtsi64_128 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF#128 = 0xFFFFFFFFFFFFFFFF#64
++#guard simd.extract64_128 0 0xAAAAAAAAAAAAAAAABBBBBBBBBBBBBBBB#128 = 0xBBBBBBBBBBBBBBBB#64
++#guard simd.extract64_128 1 0xAAAAAAAAAAAAAAAABBBBBBBBBBBBBBBB#128 = 0xAAAAAAAAAAAAAAAA#64
++#guard simd.extract64_128 2 0xAAAAAAAAAAAAAAAABBBBBBBBBBBBBBBB#128 = 0xBBBBBBBBBBBBBBBB#64
++#guard simd.extract64_128 3 0xAAAAAAAAAAAAAAAABBBBBBBBBBBBBBBB#128 = 0xAAAAAAAAAAAAAAAA#64
++
++
++end Aeneas.Std
 diff --color -ruN a/Aeneas/Std/Slice.lean b/Aeneas/Std/Slice.lean
 --- a/Aeneas/Std/Slice.lean	2026-10-16 08:19:21.410609173 +1100
 +++ b/Aeneas/Std/Slice.lean	2026-10-16 08:19:21.413609240 +1100
@@ -558,8 +1879,16 @@ diff --color -ruN a/Aeneas/Std/Slice.lean b/Aeneas/Std/Slice.lean
  def core.slice.Slice.get_mut
 diff --color -ruN a/Aeneas/Std/String.lean b/Aeneas/Std/String.lean
 --- a/Aeneas/Std/String.lean	2026-10-16 08:19:21.423609466 +1100
-+++ b/Aeneas/Std/String.lean	2026-10-16 08:19:21.426609534 +1100
-@@ -24,8 +24,10 @@
++++ b/Aeneas/Std/String.lean	2026-10-16 11:05:15.732385274 +1100
+@@ -3,6 +3,7 @@
+ import Aeneas.Std.StringDef
+ 
+ namespace Aeneas.Std
++open Result
+ 
+ instance : DecidableEq Str := inferInstanceAs (DecidableEq (Slice U8))
+ 
+@@ -24,8 +25,10 @@
    rw [loop_length 0 [] (Nat.zero_le _)]
    simp
  
@@ -572,6 +1901,55 @@ diff --color -ruN a/Aeneas/Std/String.lean b/Aeneas/Std/String.lean
    .from (s.toByteArray.toList.map
      (fun x => ⟨ x.toNat, by cases x; simp only [UInt8.toNat_ofBitVec, UScalarTy.U8_numBits_eq, Nat.reducePow]; omega  ⟩))
      (by
+@@ -36,4 +39,48 @@
+ 
+ example : Str := toStr "hello"
+ 
++
++/-- MODEL: the bytes of a Rust `&str` as a Lean `String`. A `&str` is valid UTF-8, so the `none`
++branch is unreachable for values the extracted code builds from `toStr`. -/
++def strToString (x : Str) : String :=
++  match String.fromUTF8? (ByteArray.mk (x.val.map (fun b => b.val.toUInt8)).toArray) with
++  | some s => s
++  | none => ""
++
++/-- MODEL: a `String` as the `&str` view of its UTF-8 bytes; fails `panic` past `u32::MAX` bytes. -/
++def stringToStr (s : String) : Result Str :=
++  if h : s.toByteArray.size ≤ U32.max then ok (toStr s h) else fail .panic
++
++@[rust_fun "alloc::string::{alloc::string::String}::new"]
++def alloc.string.String.new : Result String := ok ""
++
++@[rust_fun "alloc::string::{core::convert::From<alloc::string::String, &'0 str>}::from"]
++def alloc.string.String.Insts.CoreConvertFromShared0Str.from (x : Str) : Result String :=
++  ok (strToString x)
++
++@[rust_fun "alloc::string::{core::clone::Clone<alloc::string::String>}::clone"]
++def alloc.string.String.Insts.CoreCloneClone.clone (s : String) : Result String := ok s
++
++@[rust_fun "alloc::str::{alloc::borrow::ToOwned<str, alloc::string::String>}::to_owned"]
++def Str.Insts.AllocBorrowToOwnedString.to_owned (x : Str) : Result String := ok (strToString x)
++
++@[rust_fun "alloc::string::{alloc::string::String}::as_bytes"]
++def alloc.string.String.as_bytes (s : String) : Result (Slice Std.U8) := stringToStr s
++
++@[rust_fun "alloc::str::{core::borrow::Borrow<alloc::string::String, str>}::borrow"]
++def alloc.string.String.Insts.CoreBorrowBorrowStr.borrow (s : String) : Result Str := stringToStr s
++
++@[rust_fun "alloc::string::{core::ops::deref::Deref<alloc::string::String, str>}::deref"]
++def alloc.string.String.Insts.CoreOpsDerefDerefStr.deref (s : String) : Result Str := stringToStr s
++
++@[rust_fun "alloc::string::{core::cmp::PartialEq<alloc::string::String, &'0 str>}::eq"]
++def alloc.string.String.Insts.CoreCmpPartialEqShared0Str.eq (s : String) (x : Str) : Result Bool :=
++  ok (decide (s = strToString x))
++
++@[rust_fun "alloc::string::{core::cmp::PartialEq<alloc::string::String, &'0 str>}::ne"]
++def alloc.string.String.Insts.CoreCmpPartialEqShared0Str.ne (s : String) (x : Str) : Result Bool :=
++  ok (decide (s ≠ strToString x))
++
++example : alloc.string.String.new = ok "" := rfl
++
+ end Aeneas.Std
 diff --color -ruN a/Aeneas/Std/Vec.lean b/Aeneas/Std/Vec.lean
 --- a/Aeneas/Std/Vec.lean	2026-10-16 08:19:21.435609737 +1100
 +++ b/Aeneas/Std/Vec.lean	2026-10-16 08:19:21.438609804 +1100
@@ -865,3 +2243,15 @@ diff --color -ruN a/Aeneas/Std/Vec.lean b/Aeneas/Std/Vec.lean
  
  @[reducible, rust_trait_impl "core::clone::Clone<alloc::vec::Vec<@T>>"
      (keepParams := [true, false]) (keepTraitClauses := [true, false])]
+diff --color -ruN a/Aeneas/Std.lean b/Aeneas/Std.lean
+--- a/Aeneas/Std.lean	2026-10-16 12:07:55.922801526 +1100
++++ b/Aeneas/Std.lean	2026-10-16 12:07:55.922801526 +1100
+@@ -4,6 +4,8 @@
+ import Aeneas.Std.Primitives
+ import Aeneas.Std.PrimitivesLemmas
+ import Aeneas.Std.RawPtr
++import Aeneas.Std.Simd
++import Aeneas.Std.Num2
+ import Aeneas.Std.Scalar
+ import Aeneas.Std.Slice
+ import Aeneas.Std.SliceDef

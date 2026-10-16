@@ -11,7 +11,7 @@
 # both the committed `ApeironWord.lean` cannot elaborate. They are in this one patch so that this
 # script alone reproduces the whole model.
 #
-# The patch touches twelve files under `Aeneas/`: `Std/Scalar/CoreConvertNum.lean` (the seven `try_from`s, `i128::{saturating_mul,abs}`, `u64::saturating_mul`, `i8::from_ne_bytes`), `Std/Vec.lean`, `Std/Slice.lean`, `Std/RawPtr.lean`,
+# The patch touches fifteen files under `Aeneas/` (the new `Std/Simd.lean` and `Std/Num2.lean`, and the `Std.lean` imports that load them): `Std/Scalar/CoreConvertNum.lean` (the seven `try_from`s, `i128::{saturating_mul,abs}`, `u64::saturating_mul`, `i8::from_ne_bytes`), `Std/Vec.lean`, `Std/Slice.lean`, `Std/RawPtr.lean`,
 # `Std/Core/{Cmp,CoreOption,CoreResult}.lean`, `Scalar/{Casts,Ops}.lean`,
 # `Scalar/WrappingOps/Shl.lean` and `String.lean`. `RawPtr.lean` and `Slice.lean` carry the memory
 # model the hash-table bodies reach (SSE2 byte lanes, raw-pointer windows, `MaybeUninit`,
