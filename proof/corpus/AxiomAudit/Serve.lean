@@ -8,13 +8,17 @@ import Serve.Kern.Lut2
 import Serve.Kern.Lut
 import Serve.Kern.Matmat2
 import Serve.Kern.Matmat3
+import Serve.Kern.Matmat4
 import Serve.Kern.Matmat
 import Serve.Block.Attn
 import Serve.Block.Cols
+import Serve.Block.Cols2
 import Serve.Block.Ffn2
 import Serve.Block.Ffn
+import Serve.Block.Ffn3
 import Serve.Block.Mixer
 import Serve.Block.Mixer2
+import Serve.Block.Mixer3
 
 set_option linter.apeiron.notation false
 set_option linter.apeiron.citation false
@@ -89,3 +93,22 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.gemm3_split_part_spec
 #audit apeiron_word.gemm3_gemm_q8_0_group_loop2_spec
 #audit apeiron_word.gemm3_pack_group_loop1_loop0_loop0_spec
+#audit apeiron_word.word_act_scale_ok
+#audit apeiron_word.word_act_scale_zero
+#audit apeiron_word.word_act_scale_total
+#audit apeiron_word.ffn3LaneCodeRef_snd_natAbs_le
+#audit apeiron_word.ffn3LaneCodeRef_fst_iff
+#audit apeiron_word.ffn3_i64_ofInt_val
+#audit apeiron_word.word_swiglu_one_ok_closed
+#audit apeiron_word.mixer3_divQ32Ref_eq
+#audit apeiron_word.mixer3_checked_sub_val
+#audit apeiron_word.mixer3_checked_add_val
+#audit apeiron_word.word_matmat4_fast_bound_ok_ok
+#audit apeiron_word.word_matmat4_fast_bound_ok_refuses
+#audit apeiron_word.word_matmat4_fast_bound_ok_refuses_scale
+#audit apeiron_word.matmat4_saturating_mul_spec
+#audit apeiron_word.matmat4_F16_MAX_FIXED_spec
+#audit apeiron_word.matmat4_fast_family_loop0_body_admits
+#audit apeiron_word.word_matmat4_fast_family_loop0_ok
+#audit apeiron_word.matmat4_fast_family_loop1_body_admits
+#audit apeiron_word.word_matmat4_fast_family_loop1_ok
