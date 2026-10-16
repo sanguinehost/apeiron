@@ -25,6 +25,7 @@ import Serve.Kern.R4.Gemm7
 import Serve.Kern.R4.Matmat9
 import Serve.Block.R4.Mixer5
 import Serve.Kern.R4.Gemm8
+import Serve.Block.R4.Ffn9
 import Serve.Kern.Lut
 import Serve.Kern.Matmat2
 import Serve.Kern.Matmat3
@@ -302,3 +303,6 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.word_q8act_fast_bound_ok
 #audit apeiron_word.word_q8act_fast_bound_ok_refuses
 #audit apeiron_word.word_q8act_fast_bound_ok_refuses_scale
+#audit apeiron_word.word_quant_act_loop0_ok9
+#audit apeiron_word.word_quant_act_ok9
+#audit apeiron_word.word_quant_act_refuses9
