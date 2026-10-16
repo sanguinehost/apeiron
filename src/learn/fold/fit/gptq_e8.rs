@@ -74,6 +74,19 @@
 //!   reached. It is therefore not bit-identical to the `f64` path, and the captured `beam = 1`
 //!   golden scales move with it by `≈ 4e-11` relative (last six digits). Measurements:
 //!   `tests/learn_solve_inv.rs`.
+//!
+//! # Integer carrier (lane `q-l1a`)
+//!
+//! The feedback factor, the act order and the group scale are carried in integers: `feedback_u`
+//! returns a [`UFac`] (`U = Uhat·diag(2^-d)`, `Uhat` the Q32.32 upper factor of the equilibrated
+//! damped Hessian), [`block_order`] orders on `i128` diagonal sums of Q32.32 words, and the group
+//! scale `a = 0.828·w_rms` is an [`Fx`]. The only `f64` inputs that cross into integers are the
+//! damped Hessian ([`h_to_spdq`], which L6 deletes when the caller hands an [`SpdQ`]) and the
+//! weight ([`w_to_rows`]); the `2^-g` global exponent `g` is even and a power of two, so it is an
+//! exact scaling. The still-`f64` selection passes ([`quantise_pass`], [`beam_pass`],
+//! [`project_scale`], [`inter_group_feedback`], [`solve_upper_block`]) receive their `f64` views
+//! through [`ufac_f64`] and [`rows_to_f64`], marked `L1b-L1d delete this`; those two views are the
+//! only `f64` in the executed path of this module and the sibling lanes remove them.
 
 #![allow(
     clippy::many_single_char_names,
@@ -86,11 +99,12 @@
               fold_transfer.py"
 )]
 
+use super::gptq_e8_carrier::{
+    block_order, fx_to_f64, group_scale_int, rows_to_f64, ufac_f64, w_to_rows,
+};
+pub use super::gptq_e8_carrier::{feedback_u, UFac};
 use crate::engine::ONE;
 use crate::learn::code::e8::{self, E8Error};
-use crate::learn::solve::chol::SolveError;
-use crate::learn::solve::inv::inv_factor_upper;
-use crate::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
 /// Columns per group: the Python `GROUP`. One scale per (row, group).
 pub const GROUP: usize = 128;
@@ -100,6 +114,12 @@ pub const BLOCK: usize = 8;
 
 /// The codebook scale factor of `gptq_e8` (line 303): `a = 0.828 · w_rms`.
 pub const E8_SCALE: f64 = 0.828;
+
+/// The [`E8_SCALE`] factor as a Q32.32 word: `round(0.828 · 2^32)`. Derived from
+/// `0.828 · 4_294_967_296 = 3_556_232_921.088`, so the rounded literal is `3_556_232_921`; the
+/// product `E8_SCALE_Q32 · 2^-32` differs from `0.828` by `0.088·2^-32 ≈ 2.0e-11`. The integer
+/// group scale multiplies by this word, so the factor never re-enters `f64`.
+pub const E8_SCALE_Q32: i64 = 3_556_232_921;
 
 /// The largest admitted beam width. `K = min(beam, B·256)` saturates at 256, and the production arm
 /// uses `beam = 4`; the ported domain is `1..=MAX_BEAM`.
@@ -191,152 +211,7 @@ fn solve_upper_block(u: &[f64], n: usize, b0: usize, m: usize, e: &mut [f64]) {
 /// The worker count handed to [`inv_factor_upper`] by [`feedback_u`]. `feedback_u` takes no thread
 /// parameter and its factor is bit-identical for every count, so the count changes only wall-clock;
 /// `8` matches the other solve callers' fixed count and leaves headroom on the shared box.
-const INV_THREADS: usize = 8;
-
-/// The exact power of two `s` that balances the grid representation of `H` against the grid
-/// representation of the factor [`inv_factor_upper`] returns, `U/sqrt(s)`, before the Q32.32
-/// boundary.
-///
-/// A Q32.32 word holds a real `x` with absolute error `2^-33`, so a stored quantity's *relative*
-/// error is `2^-33/|x|`: storing `s·H` costs `2^-33/(s·h_min)` at the smallest magnitude `h_min`,
-/// and storing `(sH)^{-1/2} = U/sqrt(s)` — undone by the exact `×sqrt(s)` below — costs
-/// `2^-33·sqrt(s·h_max)` at the largest `h_max`. Equalizing them gives `s = (h_min²·h_max)^{-1/3}`,
-/// so `s·h_min = (h_min/h_max)^{1/3}`, `s·h_max = (h_max/h_min)^{1/3}` and both relative errors are
-/// `2^-33·(h_max/h_min)^{1/3}`, below `1e-7` for a diagonal range up to `6e8`. Filling the grid
-/// instead (`s ≈ 2^31/h_max`) would leave `U` at `2^-33·sqrt(2^31) ≈ 5.4e-6` relative — over that
-/// requirement — because the undo multiplies the grid's absolute error by `sqrt(s)`.
-///
-/// The exponent is rounded down to an even integer and `s = 2^e` is exact, so `H·s` is an exact
-/// power-of-two scaling and `sqrt(s) = 2^(e/2)` is exact too (the undo adds no rounding). `1.0` if
-/// the diagonal is not all positive, where [`inv_factor_upper`] refuses the matrix anyway.
-///
-/// # Complexity
-///
-/// `O(1)`.
-fn inv_scale(h_min: f64, h_max: f64) -> f64 {
-    if !h_min.is_finite() || !h_max.is_finite() || h_min <= 0.0 || h_max <= 0.0 {
-        return 1.0;
-    }
-    let even = |e: f64| 2.0 * (e / 2.0).floor();
-    let ideal = even(-((2.0 * h_min.log2() + h_max.log2()) / 3.0).round());
-    let hi = even((GRID_BOUND / (2.0 * h_max)).log2().floor());
-    let lo = even((0.25e-270 / h_min).log2().ceil());
-    let e = ideal.clamp(lo.min(hi), hi).clamp(-1022.0, 900.0);
-    2f64.powi(e as i32)
-}
-
-/// [`SolveError`] as a [`GptqE8Error`]: the primitive's refusals onto the variants this module
-/// already returns, with the equilibration's non-positive diagonal and a non-positive `Cholesky`
-/// pivot both reported as [`GptqE8Error::NotPositiveDefinite`] and a grid-range refusal as
-/// [`GptqE8Error::Overflow`].
-fn map_inv(e: SolveError) -> GptqE8Error {
-    match e {
-        SolveError::ShapeMismatch => GptqE8Error::ShapeMismatch,
-        SolveError::Empty => GptqE8Error::ZeroDim,
-        SolveError::NonPositiveDiagonal | SolveError::NotPositiveDefinite => {
-            GptqE8Error::NotPositiveDefinite
-        }
-        SolveError::Overflow => GptqE8Error::Overflow,
-    }
-}
-
-/// The inverse feedback factor `U` of the damped Hessian `H`: upper-triangular with `UᵀU = H⁻¹` for
-/// `H = h + damp·mean(diag(h))·I`, and a zero diagonal entry replaced by `1.0` after damping (the
-/// Python `feedback_u`, lines 148–158). The damping and the zero-diagonal rule stay in `f64`; the
-/// damped `H` crosses into Q32.32 once, through the exact power-of-two scale [`inv_scale`], and
-/// [`inv_factor_upper`] (`src/learn/solve/inv.rs`) returns `U/sqrt(s)`, undone here by the exact
-/// `×sqrt(s)`. The grid factor is the same matrix to the grid's relative floor (`2^-33` per entry,
-/// below `1e-7`), so this is not the bit-identical image of the scalar `f64` `ul_cholesky` and
-/// `upper_tri_inverse` pair it replaces.
-///
-/// # Errors
-/// [`GptqE8Error::ShapeMismatch`] if `h.len() != n·n`; [`GptqE8Error::ZeroDim`] if `n == 0`;
-/// [`GptqE8Error::NonFinite`] if `h`, `mean(diag(h))` or a scaled entry is a NaN or an infinite;
-/// [`GptqE8Error::NotPositiveDefinite`] if the damped matrix has a non-positive diagonal or
-/// `Cholesky` pivot; [`GptqE8Error::Overflow`] if a scaled entry leaves the Q32.32 grid range or a
-/// checked `i128` operation overflows.
-///
-/// # Complexity
-/// - Temporal: `O(n³)` checked `i128` integer operations — the factor `n³/3` ([`inv_factor_upper`]'s
-///   equilibrated `Cholesky`) plus the inverse `n³/6`. Measure: `i128` multiply-adds. Derivation:
-///   one blocked factor and one blocked triangular inverse.
-/// - Spatial: `O(n²)` words — the `f64` damped copy and the `i64` grid, plus `inv_factor_upper`'s
-///   `O(n²)` `i64` buffers.
-pub fn feedback_u(h: &[f64], n: usize, damp: f64) -> Result<Vec<f64>, GptqE8Error> {
-    if n == 0 {
-        return Err(GptqE8Error::ZeroDim);
-    }
-    if h.len() != n * n {
-        return Err(GptqE8Error::ShapeMismatch);
-    }
-    if h.iter().any(|x| !x.is_finite()) {
-        return Err(GptqE8Error::NonFinite);
-    }
-    let mean = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
-    if !mean.is_finite() {
-        return Err(GptqE8Error::NonFinite);
-    }
-    let mut hh = h.to_vec();
-    let mut h_min = f64::INFINITY;
-    for i in 0..n {
-        let v = hh[i * n + i] + damp * mean;
-        hh[i * n + i] = if v == 0.0 { 1.0 } else { v };
-        h_min = h_min.min(hh[i * n + i]);
-    }
-    let mut h_max = 0.0f64;
-    for &x in &hh {
-        h_max = h_max.max(x.abs());
-    }
-    let scale = inv_scale(h_min, h_max);
-    let mut grid = vec![0i64; n * n];
-    for (w, &x) in grid.iter_mut().zip(&hh) {
-        let y = x * scale;
-        if !y.is_finite() {
-            return Err(GptqE8Error::NonFinite);
-        }
-        *w = to_grid(y, GRID_BOUND).ok_or(GptqE8Error::Overflow)?;
-    }
-    let uq = inv_factor_upper(&grid, n, INV_THREADS).map_err(map_inv)?;
-    let undo = scale.sqrt();
-    Ok(uq.iter().map(|&v| from_grid(v) * undo).collect())
-}
-
-/// The act-order permutation of a Hessian diagonal, at 8-block granularity: groups in descending
-/// order of their diagonal sum, and inside a group the 8-blocks in descending order of their
-/// diagonal sum, ties by ascending index. Columns inside an 8-block keep their order.
-fn block_order(h: &[f64], n: usize) -> (Vec<usize>, Vec<usize>) {
-    let nb = n / BLOCK;
-    let per_group = GROUP / BLOCK;
-    let ng = n.div_ceil(GROUP);
-    let mut bt = vec![0.0f64; nb];
-    for b in 0..nb {
-        for k in 0..BLOCK {
-            let i = b * BLOCK + k;
-            bt[b] += h[i * n + i];
-        }
-    }
-    let mut gt = vec![0.0f64; ng];
-    for b in 0..nb {
-        gt[b / per_group] += bt[b];
-    }
-    let mut groups: Vec<usize> = (0..ng).collect();
-    groups.sort_by(|&a, &b| gt[b].total_cmp(&gt[a]).then(a.cmp(&b)));
-    let mut blk_perm = vec![0usize; nb];
-    for (gp, &g) in groups.iter().enumerate() {
-        let s0 = g * per_group;
-        let s1 = ((g + 1) * per_group).min(nb);
-        let mut sub: Vec<usize> = (s0..s1).collect();
-        sub.sort_by(|&a, &b| bt[b].total_cmp(&bt[a]).then(a.cmp(&b)));
-        for (t, &b) in sub.iter().enumerate() {
-            blk_perm[gp * per_group + t] = b;
-        }
-    }
-    let mut inv_blk = vec![0usize; nb];
-    for (p, &b) in blk_perm.iter().enumerate() {
-        inv_blk[b] = p;
-    }
-    (blk_perm, inv_blk)
-}
+pub(super) const INV_THREADS: usize = 8;
 
 /// One quantisation pass over the group `[g0, g1)` of the permuted Hessian factor `u` and the
 /// pristine group block `w0` (`o × (g1−g0)`, row-major): per 8-block the code index of the Python's
@@ -957,10 +832,14 @@ pub fn gptq_e8(
     let nb = n / BLOCK;
     let per_group = GROUP / BLOCK;
     let ng = n.div_ceil(GROUP);
+    // The weight crosses into its per-row integer carrier once; the still-`f64` selection passes
+    // read the transient view `wfull` (`// L1b-L1d delete this`).
+    let (mant, e_row) = w_to_rows(w, o, n)?;
+    let wfull = rows_to_f64(&mant, &e_row, o, n);
     // The act order permutes whole 8-blocks; `perm_col[c]` is the original column at permuted
     // position `c`, `inv_blk[b]` the permuted position of original block `b`.
     let perm = if act_order {
-        let (blk_perm, inv_blk) = block_order(h, n);
+        let (blk_perm, inv_blk) = block_order(h, n)?;
         let mut perm_col = vec![0usize; n];
         for c in 0..n {
             perm_col[c] = blk_perm[c / BLOCK] * BLOCK + c % BLOCK;
@@ -975,7 +854,7 @@ pub fn gptq_e8(
             let mut hp = vec![0.0f64; n * n];
             for r in 0..o {
                 for c in 0..n {
-                    wp[r * n + c] = w[r * n + perm_col[c]];
+                    wp[r * n + c] = wfull[r * n + perm_col[c]];
                 }
             }
             for i in 0..n {
@@ -985,9 +864,10 @@ pub fn gptq_e8(
             }
             (wp, hp)
         }
-        None => (w.to_vec(), h.to_vec()),
+        None => (wfull, h.to_vec()),
     };
-    let u = feedback_u(&hp, n, damp)?;
+    let ufac = feedback_u(&hp, n, damp)?;
+    let u = ufac_f64(&ufac); // L1b-L1d delete this
     let mut wk = wp;
     let mut s_p = vec![0.0f64; o * n];
     let mut idx_p = vec![0u16; o * nb];
@@ -1002,26 +882,13 @@ pub fn gptq_e8(
         for r in 0..o {
             w0[r * gs..(r + 1) * gs].copy_from_slice(&wk[r * n + g0..r * n + g1]);
         }
-        // Inverse-variance weights `w_prec = 1/U_jj²` and the group scale `a = 0.828·w_rms`
-        // (the Python lines 301–303). `wscale` does not change the scale rule here — it only adds
-        // the projection passes below (unlike `gptq_signs`, whose `wscale` branch uses the
-        // inverse-variance weighted mean absolute value, `fold_transfer.py` line 188).
-        let mut prec = vec![0.0f64; gs];
-        let mut prec_sum = 0.0f64;
-        for j in 0..gs {
-            let d = u[(g0 + j) * n + g0 + j];
-            let p = 1.0 / (d * d).max(1e-12);
-            prec[j] = p;
-            prec_sum += p;
-        }
+        // The group scale `a = 0.828·w_rms` with inverse-variance weights `prec_j = 1/U_jj²` (the
+        // Python lines 301–303), integer through [`group_scale_int`]; `wscale` does not change the
+        // scale rule here — it only adds the projection passes below.
         let mut a = vec![0.0f64; o];
         for r in 0..o {
-            let mut acc = 0.0f64;
-            for j in 0..gs {
-                let x = w0[r * gs + j];
-                acc += x * x * prec[j];
-            }
-            a[r] = (E8_SCALE * (acc / prec_sum).max(1e-24).sqrt()).max(1e-12);
+            let a_fx = group_scale_int(&w0[r * gs..(r + 1) * gs], &ufac, g0)?;
+            a[r] = fx_to_f64(&a_fx);
         }
         let (a_best, s_best, e_best, i_best) = if beam == 1 {
             let mut s_cur = vec![0.0f64; o * gs];
