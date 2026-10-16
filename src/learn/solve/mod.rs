@@ -12,3 +12,7 @@ pub mod syrk;
 /// `C = A·Bᵀ` ([`gemm::gemm_nt`]) — the one GEMM the low-rank corrector's `w1 = ΔW·Hl` and
 /// `m = w1·ΔWᵀ` need, with a single round-to-nearest per entry.
 pub mod gemm;
+
+/// The `f64` ↔ Q32.32 boundary shared by every caller of the primitives above: the range-checked
+/// rounding, the `wsyrk` panel shift and the power-of-two fill scale.
+pub mod q32;

@@ -54,7 +54,9 @@
 )]
 
 use crate::learn::fold::stats::hocapture::Kind;
-use crate::learn::ridge::{solve_spd, RidgeError};
+use crate::learn::ridge::RidgeError;
+use crate::learn::solve::chol::{chol_solve, SolveError};
+use crate::learn::solve::q32::{fill_scale, from_grid, to_grid, GRID_BOUND};
 
 /// A refusal from a per-stage statistics or solve operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +69,8 @@ pub enum StageError {
     NonFinite,
     /// The ridged matrix `H + ridge·mean(diag H)·I` was not positive-definite at a `Cholesky` pivot.
     NotPositiveDefinite,
+    /// A Q32.32 boundary conversion, or the primitive's checked `i128` arithmetic, left its range.
+    Overflow,
     /// A split intra/inter solve was requested for an output with no `Cts` accumulator.
     MissingCts,
 }
@@ -76,6 +80,22 @@ impl From<RidgeError> for StageError {
         match e {
             RidgeError::NotPositiveDefinite => Self::NotPositiveDefinite,
             RidgeError::ShapeMismatch | RidgeError::IndexOutOfRange => Self::Shape,
+        }
+    }
+}
+
+impl From<SolveError> for StageError {
+    fn from(e: SolveError) -> Self {
+        match e {
+            // A non-SPD refusal stays a refusal: a non-positive diagonal and a non-positive
+            // `Cholesky` pivot are both "the ridged matrix is not positive-definite".
+            SolveError::NotPositiveDefinite | SolveError::NonPositiveDiagonal => {
+                Self::NotPositiveDefinite
+            }
+            // `n == 0` is refused as `Shape` by `ridge_solve` before the primitive sees it; an
+            // empty primitive shape therefore maps with the other shape refusal.
+            SolveError::ShapeMismatch | SolveError::Empty => Self::Shape,
+            SolveError::Overflow => Self::Overflow,
         }
     }
 }
@@ -490,9 +510,32 @@ pub fn solve_stage(
     Ok(ws)
 }
 
+/// Thread count handed to [`chol_solve`]'s blocked factor from [`ridge_solve`]. The factor is
+/// bit-identical for every count (each trailing row is updated by exactly one worker in a fixed
+/// order), so `threads` changes only the wall-clock cost; `8` is the fixed count the timing receipt
+/// uses, leaving headroom on the shared box.
+const SOLVE_THREADS: usize = 8;
+
 /// The ridge normal-equation solve `ridge_solve(H, C, ridge)` (`fold_transfer.py:426-428`):
-/// `Hr = H` with `diag(Hr) += ridge·mean(diag H)`, then `Hr·X = C` by `Cholesky`, returning
-/// `Xᵀ` (shape `[out, n]`).
+/// `Hr = H` with `diag(Hr) += ridge·mean(diag H)`, then `Hr·X = C`, returning `Xᵀ` (shape
+/// `[out, n]`).
+///
+/// The solve is the shared primitive [`chol_solve`] in Q32.32 `i64` — diagonal-equilibrated blocked
+/// `Cholesky` with one exact-residual refinement step — not a second f64 path. The fold stays f64;
+/// the conversion is at this boundary only.
+///
+/// # Q32.32 boundary rule
+///
+/// `Hr` and `C` are each rounded to nearest Q32.32 with their own exact power-of-two unit,
+/// `unit_h = s_h·2³²` and `unit_c = s_c·2³²`, where [`fill_scale`] picks `s_h` from `max|Hr|` and
+/// `s_c` from `max|C|` so each magnitude fills the primitive's input range `|v| < 2³¹` (a
+/// magnitude that exceeds the bound is scaled down, one that is smaller is scaled up). The
+/// primitive solves `(s_h·Hr)·X_q = (s_c·C)`, so `X_q = (s_c/s_h)·X` and the solution is unscaled
+/// back to `X = (s_h/s_c)·X_q`; the common-factor case `s_h = s_c` leaves `X` invariant (the undo
+/// is the identity). Scaling both sides is what removes the reciprocal factor a one-sided scaling
+/// would leave on `X`, and filling both is what keeps `X_q` near the top of the Q32.32 range so `X`
+/// keeps its fixed-point precision. A NaN or infinite entry is refused rather than scaled; an entry
+/// whose scaled, rounded raw value leaves `i64` is [`StageError::Overflow`].
 ///
 /// `h` is row-major `[n, n]`, `c` row-major `[n, out]`; the returned matrix is row-major `[out, n]`.
 ///
@@ -503,6 +546,8 @@ pub fn solve_stage(
 /// # Errors
 ///
 /// [`StageError::Shape`] if `h.len() != n²` or `c.len() != n·out`;
+/// [`StageError::NonFinite`] if `Hr` or `C` carries a NaN or infinite entry;
+/// [`StageError::Overflow`] on a boundary conversion or checked primitive overflow;
 /// [`StageError::NotPositiveDefinite`] if `Hr` is not positive-definite.
 pub fn ridge_solve(
     h: &[f64],
@@ -520,12 +565,32 @@ pub fn ridge_solve(
     for i in 0..n {
         hr[i * n + i] += add;
     }
-    // x = Hr⁻¹ C, row-major [n, out]; the reference returns xᵀ ([out, n]).
-    let x = solve_spd(&hr, c, n, out)?;
+    if !finite(&hr) || !finite(c) {
+        return Err(StageError::NonFinite);
+    }
+    let max_h = hr.iter().fold(0.0f64, |m, &v| m.max(v.abs()));
+    let max_c = c.iter().fold(0.0f64, |m, &v| m.max(v.abs()));
+    let s_h = fill_scale(max_h);
+    let s_c = fill_scale(max_c);
+    // `v·s` is an exact power-of-two rescale, so `to_grid(v·s)` is `round(v·(s·2³²))`; `None` is a
+    // scaled value outside the grid (finiteness was checked above).
+    let fill = |v: f64, s: f64| to_grid(v * s, GRID_BOUND).ok_or(StageError::Overflow);
+    let mut hq = Vec::with_capacity(hr.len());
+    for &v in &hr {
+        hq.push(fill(v, s_h)?);
+    }
+    let mut cq = Vec::with_capacity(c.len());
+    for &v in c {
+        cq.push(fill(v, s_c)?);
+    }
+    // x = Hr⁻¹ C, row-major [n, out]; the reference returns xᵀ ([out, n]). The primitive solves the
+    // filled system `(s_h·Hr)·X_q = (s_c·C)`, so `X = (s_h/s_c)·X_q`.
+    let solved = chol_solve(&hq, &cq, n, out, SOLVE_THREADS)?;
+    let unscale = s_h / s_c;
     let mut out_t = vec![0.0f64; out * n];
     for i in 0..n {
         for o in 0..out {
-            out_t[o * n + i] = x[i * out + o];
+            out_t[o * n + i] = from_grid(solved.x[i * out + o]) * unscale;
         }
     }
     Ok(out_t)
