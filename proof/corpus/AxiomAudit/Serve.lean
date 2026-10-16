@@ -23,6 +23,7 @@ import Serve.Kern.R4.Lut5
 import Serve.Block.R4.Ffn8
 import Serve.Kern.R4.Gemm7
 import Serve.Kern.R4.Matmat9
+import Serve.Block.R4.Mixer5
 import Serve.Kern.Lut
 import Serve.Kern.Matmat2
 import Serve.Kern.Matmat3
@@ -294,3 +295,5 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.matmat9_acc_step
 #audit apeiron_word.matmat9_bailref_step
 #audit apeiron_word.matmat9_deltaN_eq
+#audit apeiron_word.word_norm_qk_q32_ok
+#audit apeiron_word.word_norm_qk_q32_refuses_of_turn
