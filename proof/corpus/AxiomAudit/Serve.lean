@@ -20,6 +20,7 @@ import Serve.Kern.R4.Matmat7
 import Serve.Block.R4.Ffn7
 import Serve.Kern.R4.Matmat8
 import Serve.Kern.R4.Lut5
+import Serve.Block.R4.Ffn8
 import Serve.Kern.Lut
 import Serve.Kern.Matmat2
 import Serve.Kern.Matmat3
@@ -272,3 +273,9 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.word_block_inners_lane_ok
 #audit apeiron_word.word_block_inners_portable_ok
 #audit apeiron_word.word_block_inners_portable_refuses
+#audit apeiron_word.ffn8_lane_body_turn
+#audit apeiron_word.ffn8_lane_loop_spec
+#audit apeiron_word.ffn8_lane_loop_ok
+#audit apeiron_word.ffn8_codeOf_spec
+#audit apeiron_word.ffn8_lane_loop_spec_ffn7
+#audit apeiron_word.ffn8_lane_loop_ok_ffn7
