@@ -43,6 +43,7 @@
 use crate::engine::ONE;
 use crate::learn::code::e8;
 use crate::learn::ridge::{solve_spd, RidgeError};
+use crate::learn::solve::gemm::{gemm_nn_f64, GemmError};
 
 /// Columns per `E8 ∪ O8` block: the code dimension.
 pub const BLOCK: usize = 8;
@@ -290,7 +291,7 @@ pub fn e8_icm_step(
     let nb = n / BLOCK;
 
     // G_rot = fwht128((Ws @ Hl) * c) * d
-    let mut g_rot = matmul(ws, &metric, o, n, n);
+    let mut g_rot = matmul(ws, &metric, o, n, n)?;
     scale_cols(&mut g_rot, o, n, p.c);
     fwht128(&mut g_rot);
     scale_cols(&mut g_rot, o, n, p.d);
@@ -304,7 +305,7 @@ pub fn e8_icm_step(
             b[row * n + col] *= p.r[row * g + col / GROUP];
         }
     }
-    let bh = matmul(&b, &h_rot, o, n, n);
+    let bh = matmul(&b, &h_rot, o, n, n)?;
     let mut f_res = g_rot;
     for k in 0..o * n {
         f_res[k] -= bh[k];
@@ -473,7 +474,7 @@ pub fn e8_joint_icm_2plane(
     let d1 = p1.d.to_vec();
     let d2 = p2.d.to_vec();
 
-    let wh = matmul(ws, &metric, o, n, n);
+    let wh = matmul(ws, &metric, o, n, n)?;
     let mut g1 = wh.clone();
     scale_cols(&mut g1, o, n, &c1);
     fwht128(&mut g1);
@@ -499,10 +500,10 @@ pub fn e8_joint_icm_2plane(
             b2[row * n + col] *= r2[row * g + col / GROUP];
         }
     }
-    let b1h11 = matmul(&b1, &h11, o, n, n);
-    let b2h21 = matmul(&b2, &h21, o, n, n);
-    let b2h22 = matmul(&b2, &h22, o, n, n);
-    let b1h12 = matmul(&b1, &h12, o, n, n);
+    let b1h11 = matmul(&b1, &h11, o, n, n)?;
+    let b2h21 = matmul(&b2, &h21, o, n, n)?;
+    let b2h22 = matmul(&b2, &h22, o, n, n)?;
+    let b1h12 = matmul(&b1, &h12, o, n, n)?;
     let mut f1 = g1;
     let mut f2 = g2;
     for k in 0..o * n {
@@ -731,7 +732,7 @@ pub fn r_step2(
     }
     let g = n / GROUP;
     let two_g = 2 * g;
-    let wh = matmul(ws, hl, o, n, n);
+    let wh = matmul(ws, hl, o, n, n)?;
     let mut r1_out = vec![0.0_f64; o * g];
     let mut r2_out = vec![0.0_f64; o * g];
     let mut kvec = vec![0.0_f64; g * GROUP];
@@ -868,21 +869,42 @@ fn transpose(a: &[f64], n: usize) -> Vec<f64> {
     t
 }
 
-/// Row-major `[rows, inner] × [inner, cols]` product.
+/// The worker count [`matmul`] hands to [`gemm_nn`]. `gemm_nn` is documented bit-identical across
+/// thread counts, so this changes only wall-clock, not the returned vector.
+const GEMM_THREADS: usize = 8;
+
+/// Map a [`GemmError`] from [`gemm_nn`] onto an [`IcmError`], the module's existing refusal set: an
+/// empty dimension or a length that disagrees with the already-checked shape is [`IcmError::Shape`],
+/// and every magnitude or range refusal is the numeric-range refusal [`IcmError::Overflow`].
 ///
 /// # Complexity
-/// Temporal `O(rows·inner·cols)` multiply-adds; spatial `O(rows·cols)`.
-fn matmul(a: &[f64], b: &[f64], rows: usize, inner: usize, cols: usize) -> Vec<f64> {
-    let mut out = vec![0.0_f64; rows * cols];
-    for r in 0..rows {
-        for k in 0..inner {
-            let av = a[r * inner + k];
-            for c in 0..cols {
-                out[r * cols + c] += av * b[k * cols + c];
-            }
-        }
+///
+/// `O(1)`.
+fn map_gemm(e: GemmError) -> IcmError {
+    match e {
+        GemmError::ZeroDim | GemmError::ShapeMismatch => IcmError::Shape,
+        GemmError::InputBound | GemmError::Overflow => IcmError::Overflow,
     }
-    out
+}
+
+/// Row-major `[rows, inner] × [inner, cols]` product on the shared Q32.32 path
+/// ([`gemm_nn_f64`]): the operand scale rule, the grid rounding and the exact undo are its.
+///
+/// # Errors
+/// [`IcmError::Shape`] for an empty dimension or a length that disagrees with the shape;
+/// [`IcmError::Overflow`] for a non-finite or ungriddable entry or a product that leaves `f64`.
+///
+/// # Complexity
+/// As [`gemm_nn_f64`]: `O(rows·inner·cols)` `i128` multiply-accumulates split across
+/// [`GEMM_THREADS`], `O(rows·inner + inner·cols)` conversions, `O(rows·cols)` space.
+pub fn matmul(
+    a: &[f64],
+    b: &[f64],
+    rows: usize,
+    inner: usize,
+    cols: usize,
+) -> Result<Vec<f64>, IcmError> {
+    gemm_nn_f64(a, b, rows, inner, cols, GEMM_THREADS).map_err(map_gemm)
 }
 
 /// `x[row·n + col] *= v[col]` for every row of an `[o, n]` buffer.

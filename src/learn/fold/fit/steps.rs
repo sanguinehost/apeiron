@@ -74,7 +74,7 @@
 
 use crate::learn::ridge::{solve_spd, RidgeError};
 use crate::learn::solve::chol::{chol_solve, SolveError};
-use crate::learn::solve::gemm::{gemm_nn, GemmError};
+use crate::learn::solve::gemm::{gemm_nn_f64, GemmError};
 use crate::learn::solve::q32::{self, from_grid, panel_shift, GRID_BOUND, GRID_SCALE, INPUT_BOUND};
 use crate::learn::solve::syrk::{hadamard_into, wsyrk, SyrkError};
 
@@ -343,44 +343,17 @@ fn group_scale(s: &[f64], r: &[f64], o: usize, n: usize, g: usize) -> Vec<f64> {
     b
 }
 
-/// The largest magnitude of `x` (`0` for an empty slice) — the scan the operand scale rule reads.
-///
-/// # Complexity
-///
-/// Temporal: `O(x.len())` comparisons. Spatial: `O(1)`.
-fn max_abs(x: &[f64]) -> f64 {
-    x.iter().fold(0.0f64, |m, v| m.max(v.abs()))
-}
-
 /// `Ws·Hl`, `O × n` row-major (`ws` is `O × n`, `hl` is `n × n`), through the shared `Q32.32`
-/// product [`gemm_nn`]: entry `[o,j]` is `round32(Σ_l round(ws[o,l]·2³²)·round(hl[l,j]·2³²))` read
-/// back with the scale of [`mul_metric`]'s scale rule undone, one rounding per entry.
-///
-/// # The scale rule
-///
-/// [`gemm_nn`] accepts an entry only below `2³⁶` raw `Q32.32` (`GemmError::InputBound` at the bound) —
-/// [`INPUT_BOUND`] `= 16` in the reals, the same bound the [`wsyrk`] panels meet. Each operand is
-/// therefore multiplied by the exact power of two `2⁻ᵏ`, `k` read from that operand's largest
-/// magnitude by [`panel_shift`] (the least `k ≥ 0` with `max·2⁻ᵏ ≤ 8`): the scaled entries sit at or
-/// below `2³⁵` raw with a factor of two of head-room, and the shift is an exact scaling of the panel,
-/// not a rounding. The product carries the scale `2⁻(k_ws + k_hl)`, undone exactly by the power of
-/// two `2^(k_ws + k_hl)` on the read-back values. [`q32::fill_scale`] is not usable here: it fills to
-/// `2³¹`, above `gemm_nn`'s bound. The shift comes from the data, so a panel already within `8` — the
-/// tests and the production fixture — is unscaled.
+/// product [`gemm_nn_f64`]: the operand scale rule, the grid rounding and the exact undo are its.
 ///
 /// # Errors
 ///
-/// [`StepsError::ShapeMismatch`] if `ws.len() != o·n` or `hl.len() != n·n`, if a magnitude is not
-/// finite, if a scaled entry is at or beyond [`INPUT_BOUND`] or is not representable as a `Q32.32`
-/// word, if the exact undo power of two leaves `f64`, or if [`gemm_nn`] refuses the scaled domain
-/// ([`map_gemm`]). Never a panic.
+/// [`StepsError::ShapeMismatch`] if a length disagrees, a value is non-finite or beyond the
+/// [`gemm_nn_f64`] bound, or the product leaves `f64` ([`map_gemm`]). Never a panic.
 ///
 /// # Complexity
 ///
-/// Temporal: `O(O·n²)` checked `i128` multiply-accumulates in [`gemm_nn`], split across
-/// [`STEP_THREADS`] workers and independent of the thread count, plus `O(O·n + n²)` boundary
-/// conversions and `O(O·n)` read-back multiplies. Spatial: `O(O·n)` for the scaled `Ws` panel and
-/// the grid product, `O(n²)` for the scaled `Hl`.
+/// As [`gemm_nn_f64`] at `m = O`, `k = n`, `n = n`, split across [`STEP_THREADS`] workers.
 pub fn mul_metric(ws: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec<f64>, StepsError> {
     if ws.len() != o * n || hl.len() != n * n {
         return Err(StepsError::ShapeMismatch);
@@ -388,29 +361,7 @@ pub fn mul_metric(ws: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec<f64>
     if o == 0 || n == 0 {
         return Ok(vec![0.0f64; o * n]);
     }
-    let (ws_max, hl_max) = (max_abs(ws), max_abs(hl));
-    if !ws_max.is_finite() || !hl_max.is_finite() {
-        return Err(StepsError::ShapeMismatch);
-    }
-    let (k_ws, k_hl) = (panel_shift(ws_max), panel_shift(hl_max));
-    let back = match k_ws.checked_add(k_hl) {
-        Some(e) => 2f64.powi(e),
-        None => f64::INFINITY,
-    };
-    if !back.is_finite() {
-        return Err(StepsError::ShapeMismatch);
-    }
-    let (f_ws, f_hl) = (2f64.powi(-k_ws), 2f64.powi(-k_hl));
-    let ws_grid: Vec<i64> = ws
-        .iter()
-        .map(|&x| to_grid(x * f_ws, INPUT_BOUND))
-        .collect::<Result<Vec<i64>, StepsError>>()?;
-    let hl_grid: Vec<i64> = hl
-        .iter()
-        .map(|&x| to_grid(x * f_hl, INPUT_BOUND))
-        .collect::<Result<Vec<i64>, StepsError>>()?;
-    let c = gemm_nn(&ws_grid, &hl_grid, o, n, n, STEP_THREADS).map_err(map_gemm)?;
-    Ok(c.iter().map(|&v| from_grid(v) * back).collect())
+    gemm_nn_f64(ws, hl, o, n, n, STEP_THREADS).map_err(map_gemm)
 }
 
 /// The `c_step`: one exact update of the per-column scale against the metric `Hl`, holding `S` and
