@@ -17,6 +17,7 @@ import Serve.Kern.R4.Matmat6
 import Serve.Kern.R4.Lut4
 import Serve.Kern.R4.Gemm6
 import Serve.Kern.R4.Matmat7
+import Serve.Block.R4.Ffn7
 import Serve.Kern.Lut
 import Serve.Kern.Matmat2
 import Serve.Kern.Matmat3
@@ -254,3 +255,9 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.matmat7_rowaccs_body_bail_mul
 #audit apeiron_word.matmat7_delta_live
 #audit apeiron_word.word_matmat7_rowaccs_live_ok
+#audit apeiron_word.ffn7_lane_code_eq
+#audit apeiron_word.ffn7_hinner_false
+#audit apeiron_word.ffn7Code_one
+#audit apeiron_word.ffn7Code_two
+#audit apeiron_word.ffn7Code_is_hinner_lhs
+#audit apeiron_word.ffn7_tail_ok
