@@ -66,13 +66,13 @@
     clippy::cast_possible_truncation,
     reason = "the flat-slice kernels index row-major `[o, n]` buffers by `o/i/j/gg/k/m`, matching \
               the reference arithmetic's vocabulary, and the `usize`-to-`f64` casts are the shape \
-              means the reference forms (`mean(diag)`, `1/sqrt(128)`). The `f64 as i64` in \
-              `to_grid` and the `f64 as i32` in `panel_shift` are the Q32.32 boundary rounding and \
-              the panel-shift exponent, each range-checked immediately before it."
+              means the reference forms (`mean(diag)`, `1/sqrt(128)`). The `f64 as i64` of \
+              the ridge raw word is the Q32.32 boundary rounding of a ridge the step range-checks."
 )]
 
 use crate::learn::ridge::{solve_spd, RidgeError};
 use crate::learn::solve::chol::{chol_solve, SolveError};
+use crate::learn::solve::q32::{self, from_grid, panel_shift, GRID_BOUND, GRID_SCALE, INPUT_BOUND};
 use crate::learn::solve::syrk::{hadamard_into, wsyrk, SyrkError};
 
 /// Hadamard block width: one normalised `H₁₂₈/√128` block per 128 columns.
@@ -81,19 +81,6 @@ pub const GROUP: usize = 128;
 /// Ridge added to a normal-equation diagonal for `f64` (`eps` in the script).
 const EPS: f64 = 1e-12;
 
-/// The `Q32.32` scale `2³²`: the grid word of a real `x` is `round(x·2³²)` and a word `v` is `v/2³²`.
-const GRID_SCALE: f64 = 4_294_967_296.0;
-
-/// The `wsyrk` input bound in the reals: the primitive's documented bound is `|v| < 2³⁶` in raw
-/// `Q32.32`, i.e. `2³⁶/2³² = 16` on the `f64` side. Held by the `Sh` panel (via [`panel_shift`])
-/// and by the row weight; a finite value at or above it is refused at the grid boundary.
-const INPUT_BOUND: f64 = 16.0;
-
-/// The grid's own real range bound `2³¹`: `|x| < 2³¹` keeps `round(x·2³²)` inside `i64`. Used for
-/// the values the primitives consume without a tighter input bound — the metric `Hl` (the
-/// `hadamard_into` factor) and the right-hand side `b` (the [`chol_solve`] input).
-const GRID_BOUND: f64 = 2_147_483_648.0;
-
 /// The worker count handed to the two solve primitives by [`c_step`] and [`d_step`]. Neither step
 /// takes a thread parameter and `c_step`'s sole production caller
 /// ([`super::fold_fit::fold_fit`]) is single-threaded, so both fan out at `8`; both primitives are
@@ -101,43 +88,15 @@ const GRID_BOUND: f64 = 2_147_483_648.0;
 /// vector.
 const STEP_THREADS: usize = 8;
 
-/// `round(x·2³²)` as a `Q32.32` word, or the step's [`StepsError::ShapeMismatch`] when `x` is not
-/// finite or `|x|` reaches `bound` (no new error variant: the crate maps a domain violation onto
-/// the step's existing shape refusal, as [`super::fold_fit`] does for its own conversions). `bound`
-/// is [`INPUT_BOUND`] for a `wsyrk` input and [`GRID_BOUND`] for a value the solve consumes.
+/// [`q32::to_grid`] with the step's [`StepsError::ShapeMismatch`] for a non-finite or out-of-bound
+/// value (no new error variant: the crate maps a domain violation onto the step's existing shape
+/// refusal, as [`super::fold_fit`] does for its own conversions).
 ///
 /// # Complexity
 ///
 /// `O(1)`.
 fn to_grid(x: f64, bound: f64) -> Result<i64, StepsError> {
-    let q = x * GRID_SCALE;
-    if !x.is_finite() || x.abs() >= bound || q.abs() >= 9_223_372_036_854_775_808.0 {
-        return Err(StepsError::ShapeMismatch);
-    }
-    Ok(q.round() as i64)
-}
-
-/// `v/2³²`, the `Q32.32` word as an `f64`.
-///
-/// # Complexity
-///
-/// `O(1)`.
-fn from_grid(v: i64) -> f64 {
-    v as f64 / GRID_SCALE
-}
-
-/// The least `k ≥ 0` with `max·2⁻ᵏ ≤ 8` — the exact power-of-two shift that brings the `Sh` panel
-/// below the `wsyrk` input bound `16` with head-room; `k = 0` when `max ≤ 8`.
-///
-/// # Complexity
-///
-/// `O(1)`.
-fn panel_shift(max: f64) -> i32 {
-    if max <= 8.0 {
-        0
-    } else {
-        (max / 8.0).log2().ceil() as i32
-    }
+    q32::to_grid(x, bound).ok_or(StepsError::ShapeMismatch)
 }
 
 /// A refusal from a fold-transfer step.

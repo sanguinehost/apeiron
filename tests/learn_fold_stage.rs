@@ -4,7 +4,10 @@
 //! Positive: two slabs fold to the same accumulator as one concatenated slab; `Hm_w = Hm` under
 //! unit weights and `Hm_w = (Xw)ᵀ(Xw)` with the weight applied linearly; the even-count lower-median
 //! rule; the `> thresh·r_med` token weight; a solve with `Cs = H_solve·W0ᵀ` leaves `W0` unchanged;
-//! the solve satisfies the ridge normal equations; the sink clamp caps a row at `τ·‖W0_row‖`.
+//! the solve satisfies the ridge normal equations; the sink clamp caps a row at `τ·‖W0_row‖`; the
+//! Q32.32 `ridge_solve` agrees with the old f64 `solve_spd` path to relative `1e-7` on a wide
+//! diagonal range (`1e-3..1e3`) and under `1e-6`/`1e10` scaling, which exercises the boundary
+//! fill both ways.
 //! Refusals: shape mismatch, non-SPD, non-finite, empty median and missing `Cts`. Grade `tested`.
 
 #![allow(
@@ -23,6 +26,7 @@ use apeiron::learn::fold::layer::stage::{
     StageError,
 };
 use apeiron::learn::fold::stats::hocapture::Kind;
+use apeiron::learn::ridge::solve_spd;
 
 /// Deterministic 64-bit LCG (Numerical Recipes constants), the tests' only randomness source.
 struct Lcg(u64);
@@ -369,5 +373,163 @@ fn refusals() {
     assert_eq!(
         bias_update(&[1.0], &[1.0, 1.0, 1.0], &[1.0, 1.0, 1.0], 0.0),
         Err(StageError::Empty)
+    );
+}
+
+/// A deterministic strictly-diagonally-dominant SPD matrix with diagonals log-spread over
+/// `[1e-3, 1e3]`. The off-diagonal jitter is `0.25·min(diag)/n`, so each row's off-diagonal
+/// magnitude sum is at most `0.25·min(diag) < diag_i`: symmetric and positive-definite.
+fn spd_wide_diag(lcg: &mut Lcg, n: usize) -> Vec<f64> {
+    let mut diag = vec![0.0f64; n];
+    for i in 0..n {
+        let t = if n > 1 {
+            i as f64 / (n - 1) as f64
+        } else {
+            0.0
+        };
+        diag[i] = 1e-3 * 1e6f64.powf(t);
+    }
+    let dmin = diag.iter().copied().fold(f64::INFINITY, f64::min);
+    let jitter = 0.25 * dmin / n as f64;
+    let mut h = vec![0.0f64; n * n];
+    // Symmetric by construction: the `(i, j)` and `(j, i)` entries are the same draw, so the
+    // matrix is genuinely SPD (the previous version drew independent jitter and was not).
+    for i in 0..n {
+        for j in 0..=i {
+            let v = if i == j { diag[i] } else { jitter * lcg.sym() };
+            h[i * n + j] = v;
+            h[j * n + i] = v;
+        }
+    }
+    h
+}
+
+/// The old f64 path: `Hr = H` with `diag += ridge·mean(diag H)`, then `ridge::solve_spd`, returned
+/// as `Xᵀ` (`[out, n]`). The independent reference `ridge_solve` is compared against.
+fn old_ridge_solve(h: &[f64], c: &[f64], n: usize, out: usize, ridge: f64) -> Vec<f64> {
+    let mean = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
+    let mut hr = h.to_vec();
+    for i in 0..n {
+        hr[i * n + i] += ridge * mean;
+    }
+    let x = solve_spd(&hr, c, n, out).unwrap();
+    let mut out_t = vec![0.0f64; out * n];
+    for i in 0..n {
+        for o in 0..out {
+            out_t[o * n + i] = x[i * out + o];
+        }
+    }
+    out_t
+}
+
+/// (i) The Q32.32 `ridge_solve` agrees with the old f64 `solve_spd` path to relative `1e-7` on a
+/// random symmetric SPD `H` with a wide diagonal range (`1e-3..1e3`), for `out ∈ {1, 3}`,
+/// `n ∈ {7, 64, 130}`.
+#[test]
+fn ridge_solve_matches_old_path_wide_diagonal() {
+    for &out in &[1usize, 3] {
+        for &n in &[7usize, 64, 130] {
+            let mut lcg = Lcg::new(0x9e37_79b9 ^ ((n as u64) << 8) ^ out as u64);
+            let h = spd_wide_diag(&mut lcg, n);
+            let c = rand_mat(&mut lcg, n, out);
+            let ridge = 1e-8;
+            let new = ridge_solve(&h, &c, n, out, ridge).unwrap();
+            let old = old_ridge_solve(&h, &c, n, out, ridge);
+            let denom = old.iter().fold(0.0f64, |m, &v| m.max(v.abs())).max(1e-300);
+            let rel = max_abs_diff(&new, &old) / denom;
+            assert!(rel < 1e-7, "n={n} out={out} rel={rel}");
+        }
+    }
+}
+
+/// (i') The boundary scaling is exercised both ways: identical solves for `H`/`C` scaled far below
+/// the Q32.32 input bound (`1e-6`) and far above it (`1e10`), where `q32_fill` scales up and down
+/// respectively. The solution is invariant under a common factor on both sides.
+#[test]
+fn ridge_solve_matches_old_path_extreme_magnitudes() {
+    let (n, out) = (17usize, 2usize);
+    let mut lcg = Lcg::new(0x00c0_ffee);
+    let h0 = spd_wide_diag(&mut lcg, n);
+    let c0 = rand_mat(&mut lcg, n, out);
+    let ridge = 1e-8;
+    for &f in &[1e-6f64, 1e10f64] {
+        let h: Vec<f64> = h0.iter().map(|&v| v * f).collect();
+        let c: Vec<f64> = c0.iter().map(|&v| v * f).collect();
+        let new = ridge_solve(&h, &c, n, out, ridge).unwrap();
+        let old = old_ridge_solve(&h, &c, n, out, ridge);
+        let denom = old.iter().fold(0.0f64, |m, &v| m.max(v.abs())).max(1e-300);
+        let rel = max_abs_diff(&new, &old) / denom;
+        assert!(rel < 1e-7, "f={f} rel={rel}");
+    }
+}
+
+/// (ii) A non-SPD input and a non-finite input both return the refusal, with no panic.
+#[test]
+fn ridge_solve_refusals() {
+    // Indefinite `[[1,2],[2,1]]` (eigenvalues -1 and 3): a non-positive Cholesky pivot.
+    assert_eq!(
+        ridge_solve(&[1.0, 2.0, 2.0, 1.0], &[1.0, 1.0], 2, 1, 0.0),
+        Err(StageError::NotPositiveDefinite)
+    );
+    // NaN in H.
+    assert_eq!(
+        ridge_solve(&[f64::NAN, 0.0, 0.0, 1.0], &[1.0, 1.0], 2, 1, 0.1),
+        Err(StageError::NonFinite)
+    );
+    // Infinite in C.
+    assert_eq!(
+        ridge_solve(&[1.0, 0.0, 0.0, 1.0], &[f64::INFINITY, 1.0], 2, 1, 0.1),
+        Err(StageError::NonFinite)
+    );
+    // Shape mismatch.
+    assert_eq!(
+        ridge_solve(&[1.0, 0.0, 0.0], &[1.0, 1.0], 2, 1, 0.1),
+        Err(StageError::Shape)
+    );
+}
+
+/// (iii) Timing receipt (release): the production down-stage size `n = 4864`, `out = 1`, three
+/// timed `ridge_solve` runs (the primitive's `SOLVE_THREADS = 8`) against one old-path
+/// `ridge::solve_spd` call. `#[ignore]`; run with `--release -- --ignored --nocapture`. Not a
+/// correctness gate.
+#[test]
+#[ignore = "timing receipt; run with --release -- --ignored --nocapture"]
+fn timing_ridge_solve_4864() {
+    use std::time::Instant;
+    let (n, out) = (4864usize, 1usize);
+    let mut lcg = Lcg::new(0x5eed_4864);
+    let jitter = 0.25 / n as f64;
+    let mut h = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            h[i * n + j] = if i == j { 2.0 } else { jitter * lcg.sym() };
+        }
+    }
+    let c = rand_mat(&mut lcg, n, out);
+    let ridge = 0.03;
+    let mut times = Vec::with_capacity(3);
+    for _ in 0..3 {
+        let t = Instant::now();
+        let _ = ridge_solve(&h, &c, n, out, ridge).unwrap();
+        times.push(t.elapsed().as_secs_f64());
+    }
+    let mean = times.iter().sum::<f64>() / times.len() as f64;
+    let min = times.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = times.iter().copied().fold(0.0f64, f64::max);
+    let mean_diag = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
+    let mut hr = h.clone();
+    for i in 0..n {
+        hr[i * n + i] += ridge * mean_diag;
+    }
+    let t = Instant::now();
+    let _ = solve_spd(&hr, &c, n, out).unwrap();
+    let old = t.elapsed().as_secs_f64();
+    println!(
+        "ridge_solve n={n} out={out} threads=8: mean={mean:.3}s min={min:.3}s max={max:.3}s; \
+         old solve_spd={old:.3}s"
+    );
+    assert!(
+        mean < 580.0,
+        "new path exceeded the wall-clock budget: {mean}"
     );
 }
