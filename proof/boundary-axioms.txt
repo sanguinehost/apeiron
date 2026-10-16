@@ -80,19 +80,9 @@ chart.x86.dot16_i8	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar
 chart.x86.dot32_i8	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
 chart.x86.q4_k_window_dot	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
 chart.x86.tiled2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
-core.core_arch.x86.avx2._mm256_abs_epi8	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
-core.core_arch.x86.avx2._mm256_extracti128_si256	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
-core.core_arch.x86.avx2._mm256_madd_epi16	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
-core.core_arch.x86.avx2._mm256_maddubs_epi16	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
-core.core_arch.x86.avx2._mm256_sign_epi8	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
-core.core_arch.x86.avx._mm256_castsi256_si128	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
 core.core_arch.x86.avx._mm256_loadu_ps	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
-core.core_arch.x86.avx._mm256_set1_epi16	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
 core.core_arch.x86.avx._mm256_storeu_ps	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
 core.core_arch.x86.__m256	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
-core.core_arch.x86.sse2._mm_add_epi32	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
-core.core_arch.x86.sse2._mm_cvtsi128_si32	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
-core.core_arch.x86.sse2._mm_shuffle_epi32	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
 kern.bitplane.x86.high_dot_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
 kern.bitplane.x86.low_dot_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
 kern.bitplane.x86.row_interval_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
@@ -146,17 +136,9 @@ alloc.borrow.Cow.into_owned	std operation with documented semantics, absent from
 alloc.boxed.BoxMaybeUninit.write	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 alloc.boxed.Box.new_uninit	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 alloc.slice.Slice.sort_by_key	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-alloc.string.String.as_bytes	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 alloc.string.String.from_utf8_lossy	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-alloc.string.String.Insts.CoreBorrowBorrowStr.borrow	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-alloc.string.String.Insts.CoreCloneClone.clone	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-alloc.string.String.Insts.CoreCmpPartialEqShared0Str.eq	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-alloc.string.String.Insts.CoreCmpPartialEqShared0Str.ne	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-alloc.string.String.Insts.CoreConvertFromShared0Str.from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 alloc.string.String.Insts.CoreFmtDebug.fmt	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 alloc.string.String.Insts.CoreFmtDisplay.fmt	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-alloc.string.String.Insts.CoreOpsDerefDerefStr.deref	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-alloc.string.String.new	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 alloc.string.ToString.Blanket.to_string	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 alloc.sync.Arc	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 alloc.sync.Arc.Insts.CoreCloneClone.clone	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
@@ -175,14 +157,6 @@ Array.Insts.CoreIterTraitsCollectIntoIteratorTIntoIter.into_iter	std operation w
 core.array.iter.IntoIter	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 core.array.iter.IntoIter.Insts.CoreIterTraitsIteratorIterator.next	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 core.hint.must_use	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-core.num.I64.abs	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-core.num.I64.count_ones	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-core.num.I64.trailing_zeros	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-core.num.I64.unsigned_abs	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-core.num.U64.div_ceil	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-core.num.U64.is_power_of_two	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-core.num.U64.trailing_zeros	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-core.ops.range.RangeInclusive.contains	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 core.ops.range.Range.Insts.CoreOpsRangeRangeBounds.end_bound	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 core.ops.range.Range.Insts.CoreOpsRangeRangeBounds.start_bound	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 core.option.Option.filter	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
@@ -209,11 +183,8 @@ core.slice.Slice.as_mut_ptr	std operation with documented semantics, absent from
 core.slice.Slice.copy_within	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 core.slice.Slice.first	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 core.str.Str.as_bytes	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-I16.Insts.CoreConvertFromU8.from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-I64.Insts.CoreConvertFromU32.from	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 Shared0T.Insts.CoreFmtDisplay.fmt	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 Shared0U32.Insts.CoreOpsArithRemU32U32.rem	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 SharedAVec.Insts.CoreIterTraitsCollectIntoIteratorSharedATIter.into_iter	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 Slice.Insts.AllocBorrowToOwnedVec.to_owned	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
-Str.Insts.AllocBorrowToOwnedString.to_owned	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.
 Str.Insts.CoreFmtDisplay.fmt	std operation with documented semantics, absent from the pinned Aeneas model. Shrink-only: model it in the patched Lean backend or rewrite the call out of the extracted closure.

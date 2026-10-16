@@ -48,102 +48,22 @@ axiom core.core_arch.x86.avx._mm256_storeu_ps
 
 
 
-/-- [core::core_arch::x86::avx::_mm256_set1_epi16]:
-    Source: '/rustc/library/core/src/../../stdarch/crates/core_arch/src/x86/avx.rs', lines 2794:0-2794:49
-    Name pattern: [core::core_arch::x86::avx::_mm256_set1_epi16]
-    Visibility: public -/
-@[rust_fun "core::core_arch::x86::avx::_mm256_set1_epi16"]
-axiom core.core_arch.x86.avx._mm256_set1_epi16
-  : Std.I16 → Result core.core_arch.x86.__m256i
-
-
-
-/-- [core::core_arch::x86::avx::_mm256_castsi256_si128]:
-    Source: '/rustc/library/core/src/../../stdarch/crates/core_arch/src/x86/avx.rs', lines 2939:0-2939:58
-    Name pattern: [core::core_arch::x86::avx::_mm256_castsi256_si128]
-    Visibility: public -/
-@[rust_fun "core::core_arch::x86::avx::_mm256_castsi256_si128"]
-axiom core.core_arch.x86.avx._mm256_castsi256_si128
-  : core.core_arch.x86.__m256i → Result core.core_arch.x86.__m128i
-
-/-- [core::core_arch::x86::avx2::_mm256_abs_epi8]:
-    Source: '/rustc/library/core/src/../../stdarch/crates/core_arch/src/x86/avx2.rs', lines 67:0-67:51
-    Name pattern: [core::core_arch::x86::avx2::_mm256_abs_epi8]
-    Visibility: public -/
-@[rust_fun "core::core_arch::x86::avx2::_mm256_abs_epi8"]
-axiom core.core_arch.x86.avx2._mm256_abs_epi8
-  : core.core_arch.x86.__m256i → Result core.core_arch.x86.__m256i
-
-
-/-- [core::core_arch::x86::avx2::_mm256_extracti128_si256]:
-    Source: '/rustc/library/core/src/../../stdarch/crates/core_arch/src/x86/avx2.rs', lines 931:0-931:77
-    Name pattern: [core::core_arch::x86::avx2::_mm256_extracti128_si256]
-    Visibility: public -/
-@[rust_fun "core::core_arch::x86::avx2::_mm256_extracti128_si256"]
-axiom core.core_arch.x86.avx2._mm256_extracti128_si256
-  (IMM1 : Std.I32) :
-  core.core_arch.x86.__m256i → Result core.core_arch.x86.__m128i
-
-/-- [core::core_arch::x86::avx2::_mm256_madd_epi16]:
-    Source: '/rustc/library/core/src/../../stdarch/crates/core_arch/src/x86/avx2.rs', lines 1844:0-1844:59
-    Name pattern: [core::core_arch::x86::avx2::_mm256_madd_epi16]
-    Visibility: public -/
-@[rust_fun "core::core_arch::x86::avx2::_mm256_madd_epi16"]
-axiom core.core_arch.x86.avx2._mm256_madd_epi16
-  :
-  core.core_arch.x86.__m256i → core.core_arch.x86.__m256i → Result
-    core.core_arch.x86.__m256i
-
-/-- [core::core_arch::x86::avx2::_mm256_maddubs_epi16]:
-    Source: '/rustc/library/core/src/../../stdarch/crates/core_arch/src/x86/avx2.rs', lines 1870:0-1870:62
-    Name pattern: [core::core_arch::x86::avx2::_mm256_maddubs_epi16]
-    Visibility: public -/
-@[rust_fun "core::core_arch::x86::avx2::_mm256_maddubs_epi16"]
-axiom core.core_arch.x86.avx2._mm256_maddubs_epi16
-  :
-  core.core_arch.x86.__m256i → core.core_arch.x86.__m256i → Result
-    core.core_arch.x86.__m256i
-
-/-- [core::core_arch::x86::avx2::_mm256_sign_epi8]:
-    Source: '/rustc/library/core/src/../../stdarch/crates/core_arch/src/x86/avx2.rs', lines 2773:0-2773:58
-    Name pattern: [core::core_arch::x86::avx2::_mm256_sign_epi8]
-    Visibility: public -/
-@[rust_fun "core::core_arch::x86::avx2::_mm256_sign_epi8"]
-axiom core.core_arch.x86.avx2._mm256_sign_epi8
-  :
-  core.core_arch.x86.__m256i → core.core_arch.x86.__m256i → Result
-    core.core_arch.x86.__m256i
-
-/-- [core::core_arch::x86::sse2::_mm_add_epi32]:
-    Source: '/rustc/library/core/src/../../stdarch/crates/core_arch/src/x86/sse2.rs', lines 110:0-110:61
-    Name pattern: [core::core_arch::x86::sse2::_mm_add_epi32]
-    Visibility: public -/
-@[rust_fun "core::core_arch::x86::sse2::_mm_add_epi32"]
-axiom core.core_arch.x86.sse2._mm_add_epi32
-  :
-  core.core_arch.x86.__m128i → core.core_arch.x86.__m128i → Result
-    core.core_arch.x86.__m128i
-
-
-/-- [core::core_arch::x86::sse2::_mm_cvtsi128_si32]:
-    Source: '/rustc/library/core/src/../../stdarch/crates/core_arch/src/x86/sse2.rs', lines 1092:0-1092:49
-    Name pattern: [core::core_arch::x86::sse2::_mm_cvtsi128_si32]
-    Visibility: public -/
-@[rust_fun "core::core_arch::x86::sse2::_mm_cvtsi128_si32"]
-axiom core.core_arch.x86.sse2._mm_cvtsi128_si32
-  : core.core_arch.x86.__m128i → Result Std.I32
 
 
 
 
-/-- [core::core_arch::x86::sse2::_mm_shuffle_epi32]:
-    Source: '/rustc/library/core/src/../../stdarch/crates/core_arch/src/x86/sse2.rs', lines 1634:0-1634:70
-    Name pattern: [core::core_arch::x86::sse2::_mm_shuffle_epi32]
-    Visibility: public -/
-@[rust_fun "core::core_arch::x86::sse2::_mm_shuffle_epi32"]
-axiom core.core_arch.x86.sse2._mm_shuffle_epi32
-  (IMM8 : Std.I32) :
-  core.core_arch.x86.__m128i → Result core.core_arch.x86.__m128i
+
+
+
+
+
+
+
+
+
+
+
+
 
 /-- Trait declaration: [core::alloc::AllocatorClone]
     Source: '/rustc/library/core/src/alloc/mod.rs', lines 531:0-531:50
@@ -202,19 +122,7 @@ def Tuple.Insts.CoreCmpEq : core.cmp.Eq Unit := {
 
 
 
-/-- [core::convert::num::{impl core::convert::From<u32> for i64}::from]:
-    Source: '/rustc/library/core/src/convert/num.rs', lines 69:12-69:42
-    Name pattern: [core::convert::num::{core::convert::From<i64, u32>}::from]
-    Visibility: public -/
-@[rust_fun "core::convert::num::{core::convert::From<i64, u32>}::from"]
-axiom I64.Insts.CoreConvertFromU32.from : Std.U32 → Result Std.I64
 
-/-- [core::convert::num::{impl core::convert::From<u8> for i16}::from]:
-    Source: '/rustc/library/core/src/convert/num.rs', lines 69:12-69:42
-    Name pattern: [core::convert::num::{core::convert::From<i16, u8>}::from]
-    Visibility: public -/
-@[rust_fun "core::convert::num::{core::convert::From<i16, u8>}::from"]
-axiom I16.Insts.CoreConvertFromU8.from : Std.U8 → Result Std.I16
 
 
 
@@ -330,77 +238,24 @@ def core.marker.PhantomData (T : Type) := Unit
 @[rust_fun "core::f32::{f32}::from_bits"]
 axiom core.f32.F32.from_bits : Std.U32 → Result F32
 
-/-- [core::num::{i64}::count_ones]:
-    Source: '/rustc/library/core/src/num/int_macros.rs', lines 76:8-76:44
-    Name pattern: [core::num::{i64}::count_ones]
-    Visibility: public -/
-@[rust_fun "core::num::{i64}::count_ones"]
-axiom core.num.I64.count_ones : Std.I64 → Result Std.U32
-
-/-- [core::num::{i64}::trailing_zeros]:
-    Source: '/rustc/library/core/src/num/int_macros.rs', lines 130:8-130:48
-    Name pattern: [core::num::{i64}::trailing_zeros]
-    Visibility: public -/
-@[rust_fun "core::num::{i64}::trailing_zeros"]
-axiom core.num.I64.trailing_zeros : Std.I64 → Result Std.U32
-
-
-
-/-- [core::num::{i64}::unsigned_abs]:
-    Source: '/rustc/library/core/src/num/int_macros.rs', lines 2509:8-2509:53
-    Name pattern: [core::num::{i64}::unsigned_abs]
-    Visibility: public -/
-@[rust_fun "core::num::{i64}::unsigned_abs"]
-axiom core.num.I64.unsigned_abs : Std.I64 → Result Std.U64
-
-
-/-- [core::num::{i64}::abs]:
-    Source: '/rustc/library/core/src/num/int_macros.rs', lines 3630:8-3630:38
-    Name pattern: [core::num::{i64}::abs]
-    Visibility: public -/
-@[rust_fun "core::num::{i64}::abs"]
-axiom core.num.I64.abs : Std.I64 → Result Std.I64
-
-
-
-
-/-- [core::num::{u64}::trailing_zeros]:
-    Source: '/rustc/library/core/src/num/uint_macros.rs', lines 177:8-177:48
-    Name pattern: [core::num::{u64}::trailing_zeros]
-    Visibility: public -/
-@[rust_fun "core::num::{u64}::trailing_zeros"]
-axiom core.num.U64.trailing_zeros : Std.U64 → Result Std.U32
 
 
 
 
 
-/-- [core::num::{u64}::div_ceil]:
-    Source: '/rustc/library/core/src/num/uint_macros.rs', lines 3787:8-3787:54
-    Name pattern: [core::num::{u64}::div_ceil]
-    Visibility: public -/
-@[rust_fun "core::num::{u64}::div_ceil"]
-axiom core.num.U64.div_ceil : Std.U64 → Std.U64 → Result Std.U64
-
-/-- [core::num::{u64}::is_power_of_two]:
-    Source: '/rustc/library/core/src/num/uint_macros.rs', lines 3891:8-3891:50
-    Name pattern: [core::num::{u64}::is_power_of_two]
-    Visibility: public -/
-@[rust_fun "core::num::{u64}::is_power_of_two"]
-axiom core.num.U64.is_power_of_two : Std.U64 → Result Bool
 
 
-/-- [core::ops::range::{core::ops::range::RangeInclusive<Idx>}::contains]:
-    Source: '/rustc/library/core/src/ops/range.rs', lines 534:4-537:44
-    Name pattern: [core::ops::range::{core::ops::range::RangeInclusive<@Idx>}::contains]
-    Visibility: public -/
-@[rust_fun
-  "core::ops::range::{core::ops::range::RangeInclusive<@Idx>}::contains"]
-axiom core.ops.range.RangeInclusive.contains
-  {Idx : Type} {U : Type} (cmpPartialOrdInst : core.cmp.PartialOrd Idx Idx)
-  (cmpPartialOrdInst1 : core.cmp.PartialOrd Idx U) (cmpPartialOrdInst2 :
-  core.cmp.PartialOrd U Idx) :
-  core.ops.range.RangeInclusive Idx → U → Result Bool
+
+
+
+
+
+
+
+
+
+
+
 
 /-- [core::ops::range::Bound]
     Source: '/rustc/library/core/src/ops/range.rs', lines 704:0-704:17
@@ -887,14 +742,6 @@ def Slice.Insts.AllocBorrowToOwnedVec {T : Type} (corecloneCloneInst :
   to_owned := Slice.Insts.AllocBorrowToOwnedVec.to_owned corecloneCloneInst
 }
 
-/-- [alloc::str::{impl core::borrow::Borrow<str> for alloc::string::String}::borrow]:
-    Source: '/rustc/library/alloc/src/str.rs', lines 231:4-231:28
-    Name pattern: [alloc::str::{core::borrow::Borrow<alloc::string::String, str>}::borrow]
-    Visibility: public -/
-@[rust_fun
-  "alloc::str::{core::borrow::Borrow<alloc::string::String, str>}::borrow"]
-axiom alloc.string.String.Insts.CoreBorrowBorrowStr.borrow
-  : String → Result Str
 
 /-- Trait implementation: [alloc::str::{impl core::borrow::Borrow<str> for alloc::string::String}]
     Source: '/rustc/library/alloc/src/str.rs', lines 229:0-229:27
@@ -906,13 +753,6 @@ def alloc.string.String.Insts.CoreBorrowBorrowStr : core.borrow.Borrow String
   borrow := alloc.string.String.Insts.CoreBorrowBorrowStr.borrow
 }
 
-/-- [alloc::str::{impl alloc::borrow::ToOwned<alloc::string::String> for str}::to_owned]:
-    Source: '/rustc/library/alloc/src/str.rs', lines 250:4-250:32
-    Name pattern: [alloc::str::{alloc::borrow::ToOwned<str, alloc::string::String>}::to_owned]
-    Visibility: public -/
-@[rust_fun
-  "alloc::str::{alloc::borrow::ToOwned<str, alloc::string::String>}::to_owned"]
-axiom Str.Insts.AllocBorrowToOwnedString.to_owned : Str → Result String
 
 /-- Trait implementation: [alloc::str::{impl alloc::borrow::ToOwned<alloc::string::String> for str}]
     Source: '/rustc/library/alloc/src/str.rs', lines 246:0-246:20
@@ -924,12 +764,6 @@ def Str.Insts.AllocBorrowToOwnedString : alloc.borrow.ToOwned Str String := {
   to_owned := Str.Insts.AllocBorrowToOwnedString.to_owned
 }
 
-/-- [alloc::string::{alloc::string::String}::new]:
-    Source: '/rustc/library/alloc/src/string.rs', lines 446:4-446:32
-    Name pattern: [alloc::string::{alloc::string::String}::new]
-    Visibility: public -/
-@[rust_fun "alloc::string::{alloc::string::String}::new"]
-axiom alloc.string.String.new : Result String
 
 /-- [alloc::string::{alloc::string::String}::from_utf8_lossy]:
     Source: '/rustc/library/alloc/src/string.rs', lines 628:4-628:52
@@ -939,37 +773,9 @@ axiom alloc.string.String.new : Result String
 axiom alloc.string.String.from_utf8_lossy
   : Slice Std.U8 → Result (alloc.borrow.Cow Str String)
 
-/-- [alloc::string::{alloc::string::String}::as_bytes]:
-    Source: '/rustc/library/alloc/src/string.rs', lines 1461:4-1461:41
-    Name pattern: [alloc::string::{alloc::string::String}::as_bytes]
-    Visibility: public -/
-@[rust_fun "alloc::string::{alloc::string::String}::as_bytes"]
-axiom alloc.string.String.as_bytes : String → Result (Slice Std.U8)
 
-/-- [alloc::string::{impl core::clone::Clone for alloc::string::String}::clone]:
-    Source: '/rustc/library/alloc/src/string.rs', lines 2388:4-2388:27
-    Name pattern: [alloc::string::{core::clone::Clone<alloc::string::String>}::clone]
-    Visibility: public -/
-@[rust_fun "alloc::string::{core::clone::Clone<alloc::string::String>}::clone"]
-axiom alloc.string.String.Insts.CoreCloneClone.clone : String → Result String
 
-/-- [alloc::string::{impl core::cmp::PartialEq<&'_0 str> for alloc::string::String}::eq]:
-    Source: '/rustc/library/alloc/src/string.rs', lines 2703:12-2703:46
-    Name pattern: [alloc::string::{core::cmp::PartialEq<alloc::string::String, &'0 str>}::eq]
-    Visibility: public -/
-@[rust_fun
-  "alloc::string::{core::cmp::PartialEq<alloc::string::String, &'0 str>}::eq"]
-axiom alloc.string.String.Insts.CoreCmpPartialEqShared0Str.eq
-  : String → Str → Result Bool
 
-/-- [alloc::string::{impl core::cmp::PartialEq<&'_0 str> for alloc::string::String}::ne]:
-    Source: '/rustc/library/alloc/src/string.rs', lines 2707:12-2707:46
-    Name pattern: [alloc::string::{core::cmp::PartialEq<alloc::string::String, &'0 str>}::ne]
-    Visibility: public -/
-@[rust_fun
-  "alloc::string::{core::cmp::PartialEq<alloc::string::String, &'0 str>}::ne"]
-axiom alloc.string.String.Insts.CoreCmpPartialEqShared0Str.ne
-  : String → Str → Result Bool
 
 /-- [alloc::string::{impl core::fmt::Display for alloc::string::String}::fmt]:
     Source: '/rustc/library/alloc/src/string.rs', lines 2748:4-2748:60
@@ -1007,14 +813,6 @@ def alloc.string.String.Insts.CoreFmtDebug : core.fmt.Debug String := {
   fmt := alloc.string.String.Insts.CoreFmtDebug.fmt
 }
 
-/-- [alloc::string::{impl core::ops::deref::Deref<str> for alloc::string::String}::deref]:
-    Source: '/rustc/library/alloc/src/string.rs', lines 2859:4-2859:27
-    Name pattern: [alloc::string::{core::ops::deref::Deref<alloc::string::String, str>}::deref]
-    Visibility: public -/
-@[rust_fun
-  "alloc::string::{core::ops::deref::Deref<alloc::string::String, str>}::deref"]
-axiom alloc.string.String.Insts.CoreOpsDerefDerefStr.deref
-  : String → Result Str
 
 /-- [alloc::string::{impl alloc::string::ToString for T}::to_string]:
     Source: '/rustc/library/alloc/src/string.rs', lines 2930:4-2930:33
@@ -1024,14 +822,6 @@ axiom alloc.string.String.Insts.CoreOpsDerefDerefStr.deref
 axiom alloc.string.ToString.Blanket.to_string
   {T : Type} (corefmtDisplayInst : core.fmt.Display T) : T → Result String
 
-/-- [alloc::string::{impl core::convert::From<&'_0 str> for alloc::string::String}::from]:
-    Source: '/rustc/library/alloc/src/string.rs', lines 3150:4-3150:30
-    Name pattern: [alloc::string::{core::convert::From<alloc::string::String, &'0 str>}::from]
-    Visibility: public -/
-@[rust_fun
-  "alloc::string::{core::convert::From<alloc::string::String, &'0 str>}::from"]
-axiom alloc.string.String.Insts.CoreConvertFromShared0Str.from
-  : Str → Result String
 
 /-- [alloc::sync::Arc]
     Source: '/rustc/library/alloc/src/sync.rs', lines 274:0-277:1
