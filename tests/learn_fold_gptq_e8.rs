@@ -23,8 +23,42 @@
 use apeiron::engine::ONE;
 use apeiron::learn::code::e8;
 use apeiron::learn::fold::fit::gptq_e8::{
-    feedback_u, gptq_e8, GptqE8, GptqE8Error, BLOCK, E8_SCALE, GROUP, MAX_BEAM,
+    feedback_u, gptq_e8, GptqE8, GptqE8Error, UFac, BLOCK, E8_SCALE, GROUP, MAX_BEAM,
 };
+
+/// The `f64` view of a [`UFac`]: `U_ij = (hat_ij / 2^32)·2^-d_j` above the diagonal, `0` below.
+/// Mirrors the crate-private `gptq_e8::ufac_f64` the still-`f64` selection passes read.
+fn ufac_to_f64(uf: &UFac) -> Vec<f64> {
+    let n = uf.n;
+    let mut out = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in i..n {
+            out[i * n + j] = uf.hat[i * n + j] as f64 / ONE as f64 * 2f64.powi(-uf.d[j]);
+        }
+    }
+    out
+}
+
+/// The weight carrier the integer kernel reads: each row rounded to a 35-bit block floating point
+/// (`max |mant| ∈ [2^34, 2^35)`, round-to-nearest ties-to-even) and restored to `f64`. Mirrors
+/// `w_to_rows` + `rows_to_f64`; the oracle tests feed it so their `f64` reference is the same
+/// weight the pass sees.
+fn w_carrier(w: &[f64], o: usize, n: usize) -> Vec<f64> {
+    let mut out = vec![0.0f64; o * n];
+    for r in 0..o {
+        let row = &w[r * n..(r + 1) * n];
+        let max_abs = row.iter().fold(0.0f64, |a, &x| a.max(x.abs()));
+        if max_abs == 0.0 {
+            continue;
+        }
+        let er = max_abs.log2().floor() as i32 - 34;
+        let s = 2f64.powi(er);
+        for j in 0..n {
+            out[r * n + j] = (row[j] / s).round_ties_even() * s;
+        }
+    }
+    out
+}
 
 /// xorshift64: deterministic, no crate.
 fn xorshift(s: &mut u64) -> u64 {
@@ -178,7 +212,7 @@ fn argmin(c: &[f64; e8::CODEBOOK_LEN]) -> usize {
 /// feedback: the RTN-E8 baseline. The group scale follows the kernel's rule, so the only difference
 /// from `gptq_e8` is the error feedback.
 fn rtn_e8(w: &[f64], h: &[f64], o: usize, n: usize, damp: f64) -> Vec<f64> {
-    let u = feedback_u(h, n, damp).expect("SPD factor");
+    let u = ufac_to_f64(&feedback_u(h, n, damp).expect("SPD factor"));
     let ng = n.div_ceil(GROUP);
     let mut wq = vec![0.0f64; o * n];
     for r in 0..o {
@@ -213,7 +247,7 @@ fn rtn_e8(w: &[f64], h: &[f64], o: usize, n: usize, damp: f64) -> Vec<f64> {
 /// codeword in the original frame (`e8::nearest_scaled` on the Q32.32 image of the block), error
 /// still fed back through `U_sub`. The comparison baseline of the correlated-Hessian test.
 fn gptq_euclid(w: &[f64], h: &[f64], o: usize, n: usize, damp: f64) -> Vec<f64> {
-    let u = feedback_u(h, n, damp).expect("SPD factor");
+    let u = ufac_to_f64(&feedback_u(h, n, damp).expect("SPD factor"));
     let ng = n.div_ceil(GROUP);
     let mut wk = w.to_vec();
     let mut wq = vec![0.0f64; o * n];
@@ -339,6 +373,28 @@ fn correlated_h(n: usize, seed: u64) -> Vec<f64> {
     h
 }
 
+/// `correlated_h` with its diagonal overwritten per 8-block: blocks 0 and 1 share the top value
+/// (an exact integer-word tie in their diagonal sums) and the remaining blocks take a shuffled,
+/// non-monotone constant, so the descending-sum order moves blocks and the two tied blocks are
+/// decided by the tie rule alone. The off-diagonal coupling is untouched, so the block order is
+/// observable in the quantisation.
+fn tied_diagonal_h(n: usize, seed: u64) -> Vec<f64> {
+    let mut h = correlated_h(n, seed);
+    let nb = n / BLOCK;
+    for b in 0..nb {
+        let v = if b < 2 {
+            100.0
+        } else {
+            20.0 + ((b * 7) % 32) as f64
+        };
+        for k in 0..BLOCK {
+            let i = b * BLOCK + k;
+            h[i * n + i] = v;
+        }
+    }
+    h
+}
+
 /// The act-order permutation of the kernel, spelled independently: permuted position → original
 /// column, groups and 8-blocks in descending diagonal sum with ties by ascending index.
 fn act_order_perm(h: &[f64], n: usize) -> Vec<usize> {
@@ -405,7 +461,7 @@ fn check_decode(r: &GptqE8, o: usize, n: usize, ctx: &str) {
 fn feedback_u_is_the_upper_inverse_factor() {
     let (n, damp) = (64usize, 0.01);
     let h = correlated_h(n, 0x51ED_0001);
-    let u = feedback_u(&h, n, damp).expect("SPD factor");
+    let u = ufac_to_f64(&feedback_u(&h, n, damp).expect("SPD factor"));
     assert_eq!(u.len(), n * n);
     let mean = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
     let mut hd = h.clone();
@@ -475,8 +531,9 @@ fn block_selection_is_the_whitened_cvp_argmin() {
     for row in 0..o {
         w.extend_from_slice(&random_w(1, n, 0x0B10_BEEF ^ (0x1000 * (row as u64 + 1))));
     }
-    let u = feedback_u(&h, n, damp).expect("SPD factor");
+    let u = ufac_to_f64(&feedback_u(&h, n, damp).expect("SPD factor"));
     let u_inv = block_inverse(&u, n, 0);
+    let wc = w_carrier(&w, o, n);
     let mut prec = vec![0.0f64; n];
     for j in 0..n {
         let d = u[j * n + j];
@@ -487,7 +544,7 @@ fn block_selection_is_the_whitened_cvp_argmin() {
         let r = gptq_e8(&w, &h, o, n, damp, false, wscale, 1).expect("gptq_e8");
         check_decode(&r, o, n, ctx);
         for row in 0..o {
-            let wr = &w[row * n..(row + 1) * n];
+            let wr = &wc[row * n..(row + 1) * n];
             let a0 = group_scale(wr, &prec, 0, n);
             let (z_w, zc, d, q) = objective_scan(wr, &u_inv, a0);
             let kd = argmin(&d);
@@ -544,7 +601,9 @@ fn block_selection_is_the_whitened_cvp_argmin() {
                 "{ctx} row {row}: code index {} is not the argmin {idx_best} of the block objective",
                 r.idx[row]
             );
-            let tol = 1e-12 * a_best.abs().max(1.0);
+            // The integer carrier uses `round(0.828·2^32)·2^-32` (`2.5e-11` from `E8_SCALE`) and a
+            // floored `isqrt`, so the scale is checked to `1e-9` (was `1e-12`).
+            let tol = 1e-9 * a_best.abs().max(1.0);
             assert!(
                 (r.scale[row] - a_best).abs() <= tol,
                 "{ctx} row {row}: scale {} != {a_best}",
@@ -566,13 +625,16 @@ fn identity_hessian_is_independent_nearest_per_block() {
     }
     let r = gptq_e8(&w, &id, o, n, damp, false, false, 1).expect("gptq_e8");
     check_decode(&r, o, n, "identity");
+    let wc = w_carrier(&w, o, n);
     // Independent reference: per 8-block nearest codeword under the independent `0.828·rms` scale.
     for row in 0..o {
-        let wr = &w[row * n..(row + 1) * n];
+        let wr = &wc[row * n..(row + 1) * n];
         let rms = (wr.iter().map(|x| x * x).sum::<f64>() / n as f64).sqrt();
         let a_ref = (E8_SCALE * rms).max(1e-12);
+        // The integer carrier uses `round(0.828·2^32)·2^-32`, which differs from `E8_SCALE` by
+        // `2.5e-11` relative; the scale is therefore checked to `1e-9` (was `1e-12`).
         assert!(
-            (r.scale[row] - a_ref).abs() <= 1e-12 * a_ref.abs().max(1.0),
+            (r.scale[row] - a_ref).abs() <= 1e-9 * a_ref.abs().max(1.0),
             "row {row}: scale {} != 0.828·rms {a_ref}",
             r.scale[row]
         );
@@ -595,15 +657,16 @@ fn identity_hessian_is_independent_nearest_per_block() {
             }
         }
     }
-    // The same object without error feedback: the diagonal factor leaves the RTN reference intact.
-    let wq_rtn = rtn_e8(&w, &id, o, n, damp);
+    // The same object without error feedback: the diagonal factor leaves the RTN reference intact
+    // to the `0.828` carrier (`round(0.828·2^32)·2^-32`, `2.5e-11` relative from `E8_SCALE`).
+    let wq_rtn = rtn_e8(&wc, &id, o, n, damp);
     for row in 0..o {
         for j in 0..n {
             let want = r.scale[row] * r.s[row * n + j];
-            assert_eq!(
-                wq_rtn[row * n + j],
-                want,
-                "RTN and GPTQ differ at ({row},{j})"
+            assert!(
+                (wq_rtn[row * n + j] - want).abs() <= 1e-9 * want.abs().max(1.0),
+                "RTN and GPTQ differ at ({row},{j}): {} vs {want}",
+                wq_rtn[row * n + j]
             );
         }
     }
@@ -637,6 +700,7 @@ fn whitened_selection_is_below_euclidean_selection() {
     {
         let w = random_w(o, n, *seed);
         let h = correlated_h(n, *seed ^ 0x5A5A_5A5A);
+        let wc = w_carrier(&w, o, n);
         let r = gptq_e8(&w, &h, o, n, damp, false, false, 1).expect("gptq_e8");
         check_decode(&r, o, n, "correlated");
         let ng = n.div_ceil(GROUP);
@@ -646,11 +710,12 @@ fn whitened_selection_is_below_euclidean_selection() {
                 wq_w[row * n + j] = r.scale[row * ng + j / GROUP] * r.s[row * n + j];
             }
         }
-        let wq_e = gptq_euclid(&w, &h, o, n, damp);
-        let wq_r = rtn_e8(&w, &h, o, n, damp);
-        let obj_w = objective(&w, &wq_w, &h, o, n);
-        let obj_e = objective(&w, &wq_e, &h, o, n);
-        let obj_r = objective(&w, &wq_r, &h, o, n);
+        // The baselines read the same weight carrier the integer pass sees.
+        let wq_e = gptq_euclid(&wc, &h, o, n, damp);
+        let wq_r = rtn_e8(&wc, &h, o, n, damp);
+        let obj_w = objective(&wc, &wq_w, &h, o, n);
+        let obj_e = objective(&wc, &wq_e, &h, o, n);
+        let obj_r = objective(&wc, &wq_r, &h, o, n);
         println!(
             "matrix {m}: whitened {obj_w:.6}, euclidean {obj_e:.6}, rtn-e8 {obj_r:.6}, \
              whitened/euclidean {:.6}, whitened/rtn {:.6}",
@@ -664,7 +729,10 @@ fn whitened_selection_is_below_euclidean_selection() {
         if obj_w < obj_e {
             strict += 1;
         }
-        if obj_w <= obj_e {
+        // A stated 1e-9 relative epsilon: the integer carrier's `a` (Q32.32) and the f64 oracle's
+        // `a` differ by ~1e-10 on a tie, so a matrix the f64 path calls a tie can read fractionally
+        // above on the carrier. The strict `obj_w < obj_e` count above is unaffected.
+        if obj_w <= obj_e * (1.0 + 1e-9) {
             weak += 1;
         }
         ratios[m] = obj_w / obj_e;
@@ -687,19 +755,17 @@ fn whitened_selection_is_below_euclidean_selection() {
     );
 }
 
-/// The act order is a permutation of whole 8-blocks: the `act_order` result equals the natural-order
-/// result on the permuted problem, scattered back, bit for bit.
-#[test]
-fn act_order_round_trips() {
-    let (o, n, damp) = (2usize, 256usize, 0.01);
-    let w = random_w(o, n, 0xAC70_0001);
-    let h = correlated_h(n, 0xAC70_0002);
-    let perm = act_order_perm(&h, n);
-    // The permutation must be non-trivial, or this test would not exercise the reorder.
-    assert!(
-        perm.iter().enumerate().any(|(c, &p)| c != p),
-        "the act-order permutation is the identity"
-    );
+/// Assert the `act_order` result equals the natural-order result on the problem permuted by `perm`
+/// and scattered back, bit for bit: `perm[position]` is the original column of each permuted
+/// position, and the reference permutation is always [`act_order_perm`]'s.
+fn assert_act_order_round_trip(
+    w: &[f64],
+    h: &[f64],
+    o: usize,
+    n: usize,
+    damp: f64,
+    perm: &[usize],
+) {
     let mut wp = vec![0.0f64; o * n];
     let mut hp = vec![0.0f64; n * n];
     for row in 0..o {
@@ -712,7 +778,7 @@ fn act_order_round_trips() {
             hp[i * n + j] = h[perm[i] * n + perm[j]];
         }
     }
-    let r_act = gptq_e8(&w, &h, o, n, damp, true, false, 1).expect("act_order");
+    let r_act = gptq_e8(w, h, o, n, damp, true, false, 1).expect("act_order");
     let r_nat = gptq_e8(&wp, &hp, o, n, damp, false, false, 1).expect("natural");
     check_decode(&r_act, o, n, "act_order");
     let nb = n / BLOCK;
@@ -742,6 +808,45 @@ fn act_order_round_trips() {
             );
         }
     }
+}
+
+/// The act order is a permutation of whole 8-blocks: the `act_order` result equals the natural-order
+/// result on the permuted problem, scattered back, bit for bit.
+#[test]
+fn act_order_round_trips() {
+    let (o, n, damp) = (2usize, 256usize, 0.01);
+    let w = random_w(o, n, 0xAC70_0001);
+    let h = correlated_h(n, 0xAC70_0002);
+    let perm = act_order_perm(&h, n);
+    // The permutation must be non-trivial, or this test would not exercise the reorder.
+    assert!(
+        perm.iter().enumerate().any(|(c, &p)| c != p),
+        "the act-order permutation is the identity"
+    );
+    assert_act_order_round_trip(&w, &h, o, n, damp, &perm);
+}
+
+/// The act-order tie rule, on a Hessian with an exact block-sum tie: blocks 0 and 1 carry the same
+/// diagonal and are the two largest, so the descending-sum order of that pair is decided by the tie
+/// rule alone. [`act_order_perm`] breaks ties by ascending index and the carrier must agree: the
+/// `act_order` result on the tied Hessian equals the natural-order result on the problem permuted by
+/// that reference. A tie rule that reversed the index perturbs the carrier's block order and breaks
+/// the round trip. The tie is a mutation control for [`GptqE8`]'s `block_order`.
+#[test]
+fn act_order_breaks_ties_by_ascending_index() {
+    let (o, n, damp) = (2usize, 256usize, 0.01);
+    let w = random_w(o, n, 0xA11E_0001);
+    let h = tied_diagonal_h(n, 0xA11E_0002);
+    let perm = act_order_perm(&h, n);
+    assert!(
+        perm[..BLOCK].iter().copied().eq(0..BLOCK),
+        "the tied block 0 is not first"
+    );
+    assert!(
+        perm.iter().enumerate().any(|(c, &p)| c != p),
+        "the tie permutation is the identity"
+    );
+    assert_act_order_round_trip(&w, &h, o, n, damp, &perm);
 }
 
 /// `wscale`: with `H = I` the whitened scale projection is the least-squares scale of the returned
@@ -875,15 +980,17 @@ fn bit_stream_hash(r: &GptqE8) -> u64 {
 /// `std::thread::scope` worker, with the per-row operation order unchanged and no reduction across
 /// rows, so every f64 and every code index is the same bit pattern it was on one thread.
 ///
-/// The four fixtures and their constants were captured from the **serial** code at revision
+/// The four fixtures and their constants were first captured from the **serial** code at revision
 /// `29ae4148` (lane q-gthr: `gptq_e8` on each fixture, `to_bits()` of every `s`/`scale` entry and
-/// every index concatenated to `~/lanes/port/q-gthr-ref/serial.bin`, sha256
-/// `510d5a93ce4a2ba8548d9216d279d86a7d15d0cdae4f51bed9c499d804996973`); the threaded output at the
-/// same revision re-dumped into `parallel.bin` and compared with `cmp`, exit 0. They cover an odd row
-/// count (`o = 37`, so the last range is short), `o = 5 < INV_THREADS = 8` (one row per worker), the
-/// single path `beam = 1`, the beam search `beam = 4` with `wscale`, and both `act_order` settings;
-/// the hash is invariant to the worker count because each row is computed by exactly one worker in
-/// the same order.
+/// every index concatenated to a file, hashed; the threaded output at the same revision re-dumped
+/// and compared with `cmp`, exit 0). The integer-carrier lane `q-l1a` re-pins the digest to the
+/// carrier's output (the row-split threading is unchanged, and the re-pinned digest was re-confirmed
+/// against the single-worker path `per = o`, so the identity the test guards is retained; the `f64`
+/// scales move by the `2^-35` weight carrier and the `round(0.828·2^32)` factor). They cover an odd
+/// row count (`o = 37`, so the last range is short),
+/// `o = 5 < INV_THREADS = 8` (one row per worker), the single path `beam = 1`, the beam search
+/// `beam = 4` with `wscale`, and both `act_order` settings; the hash is invariant to the worker
+/// count because each row is computed by exactly one worker in the same order.
 #[test]
 fn row_split_reproduces_the_serial_bit_stream() {
     // `(o, n, damp, act_order, wscale, beam, seed)`.
@@ -893,12 +1000,12 @@ fn row_split_reproduces_the_serial_bit_stream() {
         (5, 128, 0.01, true, false, 2, 0xA1B2_0003),
         (5, 128, 0.01, false, false, 2, 0xA1B2_0003),
     ];
-    /// Serial `29ae4148` values, in `FIXTURES` order.
-    const SERIAL_HASH: [u64; 4] = [
-        0x5470_8767_759d_d511,
-        0x7b33_bd9f_6fbd_858d,
-        0x29d9_3318_7b8f_c130,
-        0x319a_6fb9_2955_af45,
+    /// Integer-carrier `q-l1a` values, in `FIXTURES` order.
+    const CARRIER_HASH: [u64; 4] = [
+        0xb602_54ea_c806_fe88,
+        0x5c1e_55ea_1344_a6a6,
+        0xe56b_a783_2915_f9b4,
+        0xd6ce_df97_e1e5_41d0,
     ];
     for (i, &(o, n, damp, act_order, wscale, beam, seed)) in FIXTURES.iter().enumerate() {
         let w = random_w(o, n, seed);
@@ -908,9 +1015,9 @@ fn row_split_reproduces_the_serial_bit_stream() {
         assert_eq!(r.idx.len(), o * n / BLOCK, "fixture {i}: idx shape");
         assert_eq!(
             bit_stream_hash(&r),
-            SERIAL_HASH[i],
+            CARRIER_HASH[i],
             "fixture {i} (o={o} n={n} beam={beam} act_order={act_order} wscale={wscale}) is not \
-             bit-identical to the serial pass at 29ae4148"
+             bit-identical to the integer-carrier pass"
         );
     }
 }
@@ -1039,8 +1146,9 @@ fn beam_first_block_is_the_exhaustive_argmin() {
     for row in 0..o {
         w.extend_from_slice(&random_w(1, n, 0x0B10_BEEF ^ (0x1000 * (row as u64 + 1))));
     }
-    let u = feedback_u(&h, n, damp).expect("SPD factor");
+    let u = ufac_to_f64(&feedback_u(&h, n, damp).expect("SPD factor"));
     let u_inv = block_inverse(&u, n, 0);
+    let wc = w_carrier(&w, o, n);
     let mut prec = vec![0.0f64; n];
     for j in 0..n {
         let d = u[j * n + j];
@@ -1050,11 +1158,13 @@ fn beam_first_block_is_the_exhaustive_argmin() {
         let r = gptq_e8(&w, &h, o, n, damp, false, false, beam).expect("gptq_e8");
         check_decode(&r, o, n, "beam oracle");
         for row in 0..o {
-            let wr = &w[row * n..(row + 1) * n];
+            let wr = &wc[row * n..(row + 1) * n];
             let a0 = group_scale(wr, &prec, 0, n);
             let (_z_w, _zc, d, _q) = objective_scan(wr, &u_inv, a0);
             let best = argmin(&d);
-            let tol = 1e-12 * a0.abs().max(1.0);
+            // The integer carrier uses `round(0.828·2^32)·2^-32` and a floored `isqrt`, so the
+            // scale is checked to `1e-9` (was `1e-12`).
+            let tol = 1e-9 * a0.abs().max(1.0);
             assert_eq!(
                 usize::from(r.idx[row]),
                 best,
@@ -1074,7 +1184,7 @@ fn beam_first_block_is_the_exhaustive_argmin() {
 /// over every row and block, with the same intra- and inter-group feedback the kernel applies. This
 /// equals the kernel's `cum_err2` at the winning beam (`step_err2 = |Z_w − a·Z_c|²`).
 fn whitened_total_error(r: &GptqE8, w: &[f64], h: &[f64], o: usize, n: usize, damp: f64) -> f64 {
-    let u = feedback_u(h, n, damp).expect("SPD factor");
+    let u = ufac_to_f64(&feedback_u(h, n, damp).expect("SPD factor"));
     let ng = n.div_ceil(GROUP);
     let nb = n / BLOCK;
     let mut wk = w.to_vec();

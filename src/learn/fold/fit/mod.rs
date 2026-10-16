@@ -10,6 +10,8 @@ pub mod fnorm;
 pub mod fold_fit;
 /// Block-Cholesky GPTQ over the E8 codebook (one code index per eight columns, optional per-row scale and act-order).
 pub mod gptq_e8;
+/// The integer-carrier boundary of `gptq_e8`: the feedback factor `UFac`, the act order, the group scale and the `f64` conversions.
+pub mod gptq_e8_carrier;
 /// Per-block nearest-codeword ICM passes over the E8 codes of one and two planes, and the two-plane `r` refit.
 pub mod icm;
 /// Reduced joint block-ICM post-pass on a finished two-plane pair (`nb_refine`).
