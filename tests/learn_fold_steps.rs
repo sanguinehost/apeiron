@@ -24,7 +24,8 @@
 )]
 
 use apeiron::learn::fold::fit::steps::{
-    c_step, compose, d_step, fwht128, had_gram, mul_metric, objective, r_step, StepsError, GROUP,
+    c_step, c_step_wshl, compose, d_step, d_step_wshl, fwht128, had_gram, mul_metric, objective,
+    r_step, r_step_wshl, StepsError, GROUP,
 };
 use apeiron::learn::ridge::solve_spd;
 use apeiron::learn::solve::chol::chol_solve;
@@ -1193,4 +1194,103 @@ fn d_step_stages(
     let chol = t0.elapsed().as_secs_f64();
     std::hint::black_box(&solved);
     [staged_mul, conv, syrk, had, chol, hrot]
+}
+
+/// (b) The `_wshl` variants with a caller-supplied `wshl = mul_metric(ws, hl, o, n)` return the
+/// same vectors as the wrapper steps that form the product internally, element for element under
+/// `f64::to_bits`: `c_step_wshl` against `c_step` with `None` and with a row weight, `r_step_wshl`
+/// against `r_step`, and `d_step_wshl` against `d_step` with `None` and with a row weight.
+///
+/// Mutation control: an off-by-one read in `r_step_wshl` (`wshl[oo·n + idx + 1]`) turns this test
+/// (and `r_step_matches_old_f64_formula`) red.
+#[test]
+fn wshl_variants_are_bit_identical_to_wrappers() {
+    let mut rng = Lcg::new(0x7750_0001);
+    let s = sign_vec(&mut rng, O * N);
+    let s_rot = sign_vec(&mut rng, O * N);
+    let r = pos_vec(&mut rng, O * G);
+    let c = pos_vec(&mut rng, N);
+    let hl = spd_metric(&mut rng, N);
+    let ws = sym_vec(&mut rng, O * N);
+    let gr = pos_vec(&mut rng, O);
+    let wshl = mul_metric(&ws, &hl, O, N).unwrap();
+
+    let c_ref = c_step(&ws, &hl, &s, &r, O, N, None).unwrap();
+    let c_new = c_step_wshl(&ws, &hl, &wshl, &s, &r, O, N, None).unwrap();
+    assert_eq!(c_ref.len(), c_new.len());
+    for k in 0..c_ref.len() {
+        assert_eq!(
+            c_ref[k].to_bits(),
+            c_new[k].to_bits(),
+            "c_step_wshl[{k}] differs from c_step"
+        );
+    }
+    let c_w_ref = c_step(&ws, &hl, &s, &r, O, N, Some(&gr)).unwrap();
+    let c_w_new = c_step_wshl(&ws, &hl, &wshl, &s, &r, O, N, Some(&gr)).unwrap();
+    for k in 0..c_w_ref.len() {
+        assert_eq!(
+            c_w_ref[k].to_bits(),
+            c_w_new[k].to_bits(),
+            "c_step_wshl(weights)[{k}] differs from c_step"
+        );
+    }
+
+    let r_ref = r_step(&ws, &hl, &s, &c, O, N).unwrap();
+    let r_new = r_step_wshl(&ws, &hl, &wshl, &s, &c, O, N).unwrap();
+    assert_eq!(r_ref.len(), r_new.len());
+    for k in 0..r_ref.len() {
+        assert_eq!(
+            r_ref[k].to_bits(),
+            r_new[k].to_bits(),
+            "r_step_wshl[{k}] differs from r_step"
+        );
+    }
+
+    let d_ref = d_step(&ws, &hl, &s_rot, &r, &c, O, N, None).unwrap();
+    let d_new = d_step_wshl(&ws, &hl, &wshl, &s_rot, &r, &c, O, N, None).unwrap();
+    assert_eq!(d_ref.len(), d_new.len());
+    for k in 0..d_ref.len() {
+        assert_eq!(
+            d_ref[k].to_bits(),
+            d_new[k].to_bits(),
+            "d_step_wshl[{k}] differs from d_step"
+        );
+    }
+    let d_w_ref = d_step(&ws, &hl, &s_rot, &r, &c, O, N, Some(&gr)).unwrap();
+    let d_w_new = d_step_wshl(&ws, &hl, &wshl, &s_rot, &r, &c, O, N, Some(&gr)).unwrap();
+    for k in 0..d_w_ref.len() {
+        assert_eq!(
+            d_w_ref[k].to_bits(),
+            d_w_new[k].to_bits(),
+            "d_step_wshl(weights)[{k}] differs from d_step"
+        );
+    }
+}
+
+/// (b) Each `_wshl` variant refuses a product one element short of `o·n` with
+/// [`StepsError::ShapeMismatch`], before any work: `c_step_wshl`, `r_step_wshl` and `d_step_wshl`.
+#[test]
+fn wshl_variants_refuse_a_short_product() {
+    let mut rng = Lcg::new(0x7750_0002);
+    let s = sign_vec(&mut rng, O * N);
+    let s_rot = sign_vec(&mut rng, O * N);
+    let r = pos_vec(&mut rng, O * G);
+    let c = pos_vec(&mut rng, N);
+    let hl = spd_metric(&mut rng, N);
+    let ws = sym_vec(&mut rng, O * N);
+    let wshl = mul_metric(&ws, &hl, O, N).unwrap();
+    let short = &wshl[..wshl.len() - 1];
+    assert_eq!(short.len(), O * N - 1);
+    assert_eq!(
+        c_step_wshl(&ws, &hl, short, &s, &r, O, N, None).unwrap_err(),
+        StepsError::ShapeMismatch
+    );
+    assert_eq!(
+        r_step_wshl(&ws, &hl, short, &s, &c, O, N).unwrap_err(),
+        StepsError::ShapeMismatch
+    );
+    assert_eq!(
+        d_step_wshl(&ws, &hl, short, &s_rot, &r, &c, O, N, None).unwrap_err(),
+        StepsError::ShapeMismatch
+    );
 }

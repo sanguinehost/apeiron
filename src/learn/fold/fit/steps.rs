@@ -398,16 +398,55 @@ pub fn mul_metric(ws: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec<f64>
 ///
 /// # Complexity
 ///
-/// Temporal: `O(O·n²)` checked `i128` multiply-accumulates for `Ws·Hl` ([`mul_metric`] over
-/// [`gemm_nn`], split across [`STEP_THREADS`] workers — the term that replaced an `f64` triple loop
-/// at the same shape), `O(O·n²/2)` for the `wsyrk` weighted Gram `A` measured in checked `i128`
-/// multiply-accumulates (the upper triangle, mirrored), `O(n²)` for the `hl` hadamard factor,
-/// `O(O·n)` for `b`, and `O(n³/3 + n²)` for the `chol_solve` factor and refinement measured in
-/// checked `i128` multiply-accumulates. Spatial: `O(n²)` for the grid `A` (plus the `chol_solve`
-/// working copies and factor) and `O(O·n)` for `Sh`, `Ws·Hl` and `b`.
+/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (split across [`STEP_THREADS`]
+/// workers) plus [`c_step_wshl`]'s cost, which is this body without that product. Spatial:
+/// `O(O·n)` for the product plus [`c_step_wshl`]'s footprint.
 pub fn c_step(
     ws: &[f64],
     hl: &[f64],
+    s: &[f64],
+    r: &[f64],
+    o: usize,
+    n: usize,
+    g_row: Option<&[f64]>,
+) -> Result<Vec<f64>, StepsError> {
+    let wshl = mul_metric(ws, hl, o, n)?;
+    c_step_wshl(ws, hl, &wshl, s, r, o, n, g_row)
+}
+
+/// The [`c_step`] body with the metric product `Ws·Hl` supplied by the caller in place of the
+/// internal [`mul_metric`] call: [`c_step`] is this function plus one `mul_metric`. `wshl` is
+/// `O × n` row-major and must equal `mul_metric(ws, hl, o, n)`; the caller ships the same `ws`, `hl`,
+/// `o`, `n`. The rest of the step — `Sh`, the panel scale, the `Q32.32` grid boundary, the `wsyrk`
+/// weighted Gram, the `hl` hadamard factor, the ridge and the return — is unchanged, so a caller that
+/// hoists one product across repeated steps returns the same vector bit-for-bit as [`c_step`].
+///
+/// # Errors
+///
+/// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], a slice length
+/// disagrees with the declared shape (including `wshl.len() != o·n`), `g_row` is present with the
+/// wrong length, or a value is non-finite or beyond the boundary bound (`Sh`/`g_row` at `2³⁶` raw,
+/// `hl`/`b` at the grid `i64` range); [`StepsError::NotPositiveDefinite`] if the diagonal metric
+/// reduces to a non-SPD `A`.
+///
+/// # Complexity
+///
+/// Temporal: `O(O·n²/2)` for the `wsyrk` weighted Gram `A` measured in checked `i128`
+/// multiply-accumulates (the upper triangle, mirrored), `O(n²)` for the `hl` hadamard factor,
+/// `O(O·n)` for `b`, and `O(n³/3 + n²)` for the `chol_solve` factor and refinement measured in
+/// checked `i128` multiply-accumulates — the `Ws·Hl` product is the caller's, not this body's.
+/// Spatial: `O(n²)` for the grid `A` (plus the `chol_solve` working copies and factor) and `O(O·n)`
+/// for `Sh` and `b`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the step is handed the metric, the precomputed metric product, the sign matrix, the \
+              per-group scale, the row weights and the geometry; bundling them would only relocate \
+              the fields."
+)]
+pub fn c_step_wshl(
+    ws: &[f64],
+    hl: &[f64],
+    wshl: &[f64],
     s: &[f64],
     r: &[f64],
     o: usize,
@@ -418,7 +457,12 @@ pub fn c_step(
         return Err(StepsError::ShapeMismatch);
     }
     let g = n / GROUP;
-    if ws.len() != o * n || hl.len() != n * n || s.len() != o * n || r.len() != o * g {
+    if ws.len() != o * n
+        || hl.len() != n * n
+        || wshl.len() != o * n
+        || s.len() != o * n
+        || r.len() != o * g
+    {
         return Err(StepsError::ShapeMismatch);
     }
     if let Some(gr) = g_row {
@@ -427,7 +471,6 @@ pub fn c_step(
         }
     }
     let mut b_sh = group_scale(s, r, o, n, g);
-    let wshl = mul_metric(ws, hl, o, n)?;
     let weight = |oo: usize| g_row.map_or(1.0f64, |gr| gr[oo]);
     // Scale the panel by the exact power of two `2⁻ᵏ` so it meets the `wsyrk` input bound
     // `|x| < 2³⁶` raw; `k` is read from `max|Sh|` (see [`panel_shift`]). The scaling is undone on
@@ -515,14 +558,45 @@ pub fn c_step(
 ///
 /// # Complexity
 ///
-/// Temporal: `G` shared products [`gemm_nn_f64`] at `m = O`, `k = 128`, `n = n` (`O(O·128·n)`
-/// multiply-adds each, `O(O·n²)` in all, split across [`STEP_THREADS`] workers), `O(O·n)` for each
-/// group's accumulation into `M` (`O(O·G·n)` in all) and for `t`, and `O(O·G³)` for the per-row
-/// solves. Spatial: `O(O·n)` for `P`, the panel, the group product and `Ws·Hl`, `O(O·G²)` for the
-/// systems and `O(O·G)` output.
+/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (split across [`STEP_THREADS`]
+/// workers) plus [`r_step_wshl`]'s cost, which is this body without that product. Spatial:
+/// `O(O·n)` for the product plus [`r_step_wshl`]'s footprint.
 pub fn r_step(
     ws: &[f64],
     hl: &[f64],
+    s: &[f64],
+    c: &[f64],
+    o: usize,
+    n: usize,
+) -> Result<Vec<f64>, StepsError> {
+    let wshl = mul_metric(ws, hl, o, n)?;
+    r_step_wshl(ws, hl, &wshl, s, c, o, n)
+}
+
+/// The [`r_step`] body with the metric product `Ws·Hl` supplied by the caller in place of the
+/// internal [`mul_metric`] call: [`r_step`] is this function plus one `mul_metric`. `wshl` is
+/// `O × n` row-major and must equal `mul_metric(ws, hl, o, n)`; the caller ships the same `ws`, `hl`,
+/// `o`, `n`. The rest of the step — `P = S⊙c_rep`, the per-group [`gemm_nn_f64`] panels, the `M`
+/// systems, the ridge and the per-row solves — is unchanged, so a caller that hoists one product
+/// across repeated steps returns the same vector bit-for-bit as [`r_step`].
+///
+/// # Errors
+///
+/// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], or a slice length
+/// disagrees (including `wshl.len() != o·n`); [`StepsError::NotPositiveDefinite`] if a reduced `M[o]`
+/// is not SPD (a non-SPD `hl`).
+///
+/// # Complexity
+///
+/// Temporal: `G` shared products [`gemm_nn_f64`] at `m = O`, `k = 128`, `n = n` (`O(O·128·n)`
+/// multiply-adds each, `O(O·n²)` in all, split across [`STEP_THREADS`] workers), `O(O·n)` for each
+/// group's accumulation into `M` (`O(O·G·n)` in all) and for `t`, and `O(O·G³)` for the per-row
+/// solves — the `Ws·Hl` product is the caller's, not this body's. Spatial: `O(O·n)` for `P`, the
+/// panel and the group product, `O(O·G²)` for the systems and `O(O·G)` output.
+pub fn r_step_wshl(
+    ws: &[f64],
+    hl: &[f64],
+    wshl: &[f64],
     s: &[f64],
     c: &[f64],
     o: usize,
@@ -532,14 +606,18 @@ pub fn r_step(
         return Err(StepsError::ShapeMismatch);
     }
     let g = n / GROUP;
-    if ws.len() != o * n || hl.len() != n * n || s.len() != o * n || c.len() != n {
+    if ws.len() != o * n
+        || hl.len() != n * n
+        || wshl.len() != o * n
+        || s.len() != o * n
+        || c.len() != n
+    {
         return Err(StepsError::ShapeMismatch);
     }
     let mut out = vec![0.0f64; o * g];
     if o == 0 {
         return Ok(out);
     }
-    let wshl = mul_metric(ws, hl, o, n)?;
     let p: Vec<f64> = s.iter().zip(c.iter().cycle()).map(|(a, b)| a * b).collect();
     let mut t = vec![0.0f64; o * g];
     for oo in 0..o {
@@ -623,14 +701,9 @@ pub fn r_step(
 ///
 /// # Complexity
 ///
-/// Temporal: `O(O·n²)` checked `i128` multiply-accumulates for `Ws·Hl` ([`mul_metric`] over
-/// [`gemm_nn`], split across [`STEP_THREADS`] workers), `O(O·n·log 128)` for the transform and
-/// `O(n²·log 128)` for `H_rot` (f64), `O(O·n²/2)` for the `wsyrk` weighted Gram `A` measured in
-/// checked `i128` multiply-accumulates (the upper triangle, mirrored), `O(n²)` for the
-/// `hadamard_into` factor, `O(O·n)` for `b`, and `O(n³/3 + n²)` for the `chol_solve` factor and
-/// refinement measured in checked `i128` multiply-accumulates. Spatial: `O(n²)` for `H_rot` and the
-/// grid `A` (plus the `chol_solve` working copies and factor), `O(O·n)` for `B`, `Ws·Hl` and
-/// `G_rot`.
+/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (split across [`STEP_THREADS`]
+/// workers) plus [`d_step_wshl`]'s cost, which is this body without that product. Spatial:
+/// `O(O·n)` for the product plus [`d_step_wshl`]'s footprint.
 #[allow(
     clippy::too_many_arguments,
     reason = "the step is handed the metric, the rotated sign matrix, the two scales, the row \
@@ -646,12 +719,58 @@ pub fn d_step(
     n: usize,
     g_row: Option<&[f64]>,
 ) -> Result<Vec<f64>, StepsError> {
+    let wshl = mul_metric(ws, hl, o, n)?;
+    d_step_wshl(ws, hl, &wshl, s_rot, r, c, o, n, g_row)
+}
+
+/// The [`d_step`] body with the metric product `Ws·Hl` supplied by the caller in place of the
+/// internal [`mul_metric`] call: [`d_step`] is this function plus one `mul_metric`. `wshl` is
+/// `O × n` row-major and must equal `mul_metric(ws, hl, o, n)`; the caller ships the same `ws`,
+/// `hl`, `o`, `n`. The rest of the step — `G_rot = fwht128((Ws·Hl)⊙c)`, `H_rot = had_gram(Hl⊙c cᵀ)`,
+/// the panel scale, the `Q32.32` boundary, the `wsyrk`-then-`hadamard_into` `A`, the ridge and the
+/// return — is unchanged, so a caller that hoists one product across repeated steps returns the same
+/// vector bit-for-bit as [`d_step`].
+///
+/// # Errors
+///
+/// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], a slice length
+/// disagrees (including `wshl.len() != o·n`), `g_row` is present with the wrong length, or a value
+/// is non-finite or beyond the boundary bound (`B`/`g_row` at `2³⁶` raw, `H_rot`/`b` at the grid
+/// `i64` range); [`StepsError::NotPositiveDefinite`] if the reduced `A` is not SPD.
+///
+/// # Complexity
+///
+/// Temporal: `O(O·n·log 128)` for the transform and `O(n²·log 128)` for `H_rot` (f64),
+/// `O(O·n²/2)` for the `wsyrk` weighted Gram `A` measured in checked `i128` multiply-accumulates
+/// (the upper triangle, mirrored), `O(n²)` for the `hadamard_into` factor, `O(O·n)` for `b`, and
+/// `O(n³/3 + n²)` for the `chol_solve` factor and refinement measured in checked `i128`
+/// multiply-accumulates — the `Ws·Hl` product is the caller's, not this body's. Spatial: `O(n²)`
+/// for `H_rot` and the grid `A` (plus the `chol_solve` working copies and factor), `O(O·n)` for
+/// `B` and `G_rot`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the step is handed the metric, the precomputed metric product, the rotated sign \
+              matrix, the two scales, the row weights and the geometry; bundling them would only \
+              relocate the fields."
+)]
+pub fn d_step_wshl(
+    ws: &[f64],
+    hl: &[f64],
+    wshl: &[f64],
+    s_rot: &[f64],
+    r: &[f64],
+    c: &[f64],
+    o: usize,
+    n: usize,
+    g_row: Option<&[f64]>,
+) -> Result<Vec<f64>, StepsError> {
     if n == 0 || !n.is_multiple_of(GROUP) {
         return Err(StepsError::ShapeMismatch);
     }
     let g = n / GROUP;
     if ws.len() != o * n
         || hl.len() != n * n
+        || wshl.len() != o * n
         || s_rot.len() != o * n
         || r.len() != o * g
         || c.len() != n
@@ -663,7 +782,6 @@ pub fn d_step(
             return Err(StepsError::ShapeMismatch);
         }
     }
-    let wshl = mul_metric(ws, hl, o, n)?;
     let weight = |oo: usize| g_row.map_or(1.0f64, |gr| gr[oo]);
     // G_rot[o,i] = fwht128((Ws·Hl) ⊙ c)[o,i].
     let mut g_rot = vec![0.0f64; o * n];

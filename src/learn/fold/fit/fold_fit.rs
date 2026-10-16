@@ -59,7 +59,8 @@ use crate::learn::fold::fit::gptq_e8::{gptq_e8, GptqE8Error};
 use crate::learn::fold::fit::icm::{e8_icm_step, IcmError, PlaneRef};
 use crate::learn::fold::fit::quant::{quant_c_u8, quant_r_hier, QuantError};
 use crate::learn::fold::fit::steps::{
-    c_step, compose, d_step, fwht128, had_gram, objective, r_step, StepsError,
+    c_step_wshl, compose, d_step_wshl, fwht128, had_gram, mul_metric, objective, r_step_wshl,
+    StepsError,
 };
 
 /// Columns per `r` group scale: the Python `GROUP`.
@@ -333,12 +334,14 @@ fn parity_signs(d: &[f64], n: usize) -> Vec<f64> {
 /// the winning pack does not recompose to `Wp` bit-for-bit.
 ///
 /// # Complexity
-/// Time `O(gptq + inner_iters·(o·n² + n³ + e8_icm) + q)`: the dominant terms are the `gptq_e8` beam
-/// search (`O(n³ + o·n³/64·256·beam)`), the per-pass `c`/`d` normal systems (`O(o·n²)` to form,
-/// `O(n³)` to factor each) with `r_step` at `O(o·n²)`, and the [`e8_icm_step`] sweeps; the pack
-/// phase adds two more ICM calls and four `r`/`c` refits, so the total carries a small constant
-/// multiple of the refit cost. Measure: f64 multiply-subtracts. Space `O(n² + o·n)` for the plane,
-/// the metric and the reduced systems.
+/// Time `O(o·n² + gptq + inner_iters·(o·n² + n³ + e8_icm) + q)`: the metric product `Ws·Hl` is
+/// formed once (`O(o·n²)` through [`mul_metric`]) and every `c`/`r`/`d` step below consumes it
+/// through its `_wshl` variant instead of re-forming it; the dominant remaining terms are the
+/// `gptq_e8` beam search (`O(n³ + o·n³/64·256·beam)`), the per-pass `c`/`d` normal systems
+/// (`O(o·n²)` to form, `O(n³)` to factor each) with `r_step` at `O(o·n²)`, and the [`e8_icm_step`]
+/// sweeps; the pack phase adds two more ICM calls and four `r`/`c` refits, so the total carries a
+/// small constant multiple of the refit cost. Measure: f64 multiply-subtracts. Space
+/// `O(n² + o·n)` for the plane, the metric, the hoisted product and the reduced systems.
 pub fn fold_fit(
     ws: &[f64],
     h: &[f64],
@@ -376,6 +379,10 @@ pub fn fold_fit(
     let g = n / GROUP;
     let nb = n / BLOCK;
     let hl = metric(h, n, cfg.ridge);
+    // One metric product `Ws·Hl` for the whole fit: every `c`/`r`/`d` step below reuses it, so the
+    // redundant per-step `mul_metric` calls collapse to one. Same refusal path as the first step's
+    // internal product.
+    let wshl = mul_metric(ws, &hl, o, n)?;
     let idx_zero = vec![0_u16; o * nb];
 
     // Step 2: the `gptq_e8` candidate (lines 843–860).
@@ -408,7 +415,7 @@ pub fn fold_fit(
     let mut c_cur = cands[0].c.clone();
     let mut d_cur = cands[0].d.clone();
     for _ in 0..cfg.inner_iters {
-        c_cur = c_step(ws, &hl, &s_cur, &r_cur, o, n, g_row)?;
+        c_cur = c_step_wshl(ws, &hl, &wshl, &s_cur, &r_cur, o, n, g_row)?;
         let smean = c_cur.iter().map(|x| x.abs()).sum::<f64>() / n as f64;
         for v in &mut c_cur {
             *v /= smean;
@@ -416,9 +423,9 @@ pub fn fold_fit(
         for v in &mut r_cur {
             *v *= smean;
         }
-        r_cur = r_step(ws, &hl, &s_cur, &c_cur, o, n)?;
+        r_cur = r_step_wshl(ws, &hl, &wshl, &s_cur, &c_cur, o, n)?;
 
-        let d_new = d_step(ws, &hl, &s_rot, &r_cur, &c_cur, o, n, g_row)?;
+        let d_new = d_step_wshl(ws, &hl, &wshl, &s_rot, &r_cur, &c_cur, o, n, g_row)?;
         let sign = parity_signs(&d_new, n);
         scale_columns(&mut s_rot, o, n, &sign);
         let mut group_max = vec![0.0_f64; g];
@@ -453,7 +460,7 @@ pub fn fold_fit(
         let mut rotated = s_rot.clone();
         scale_columns(&mut rotated, o, n, &d_cur);
         s_cur = fwht128(&rotated)?;
-        r_cur = r_step(ws, &hl, &s_cur, &c_cur, o, n)?;
+        r_cur = r_step_wshl(ws, &hl, &wshl, &s_cur, &c_cur, o, n)?;
     }
     let wq1 = compose(&s_cur, &r_cur, &c_cur, o, n)?;
     let j1 = objective(ws, &wq1, &hl, o, n)?;
@@ -485,10 +492,10 @@ pub fn fold_fit(
     let mut rotated = s_rot_best.clone();
     scale_columns(&mut rotated, o, n, &dh);
     let s_dh = fwht128(&rotated)?;
-    let rh_hier = quant_r_hier(&r_step(ws, &hl, &s_dh, &c_best, o, n)?, o, g)?;
+    let rh_hier = quant_r_hier(&r_step_wshl(ws, &hl, &wshl, &s_dh, &c_best, o, n)?, o, g)?;
     let bits_r = rh_hier.bits;
     let rh = rh_hier.rq;
-    let c_ref = c_step(ws, &hl, &s_dh, &rh, o, n, g_row)?;
+    let c_ref = c_step_wshl(ws, &hl, &wshl, &s_dh, &rh, o, n, g_row)?;
     let (ch, bits_c) = quant_c_u8(&c_ref, 6)?;
     let mut wp = compose(&s_dh, &rh, &ch, o, n)?;
     let mut j_wp = objective(ws, &wp, &hl, o, n)?;
@@ -511,8 +518,12 @@ pub fn fold_fit(
         let mut rotated = s_rot_q.clone();
         scale_columns(&mut rotated, o, n, &pack_dh);
         let s_dh_q = fwht128(&rotated)?;
-        let rh_q = quant_r_hier(&r_step(ws, &hl, &s_dh_q, &pack_ch, o, n)?, o, g)?.rq;
-        let ch_q = quant_c_u8(&c_step(ws, &hl, &s_dh_q, &rh_q, o, n, g_row)?, 6)?.0;
+        let rh_q = quant_r_hier(&r_step_wshl(ws, &hl, &wshl, &s_dh_q, &pack_ch, o, n)?, o, g)?.rq;
+        let ch_q = quant_c_u8(
+            &c_step_wshl(ws, &hl, &wshl, &s_dh_q, &rh_q, o, n, g_row)?,
+            6,
+        )?
+        .0;
         let wp_q = compose(&s_dh_q, &rh_q, &ch_q, o, n)?;
         let j_q = objective(ws, &wp_q, &hl, o, n)?;
         if j_q < j_wp {
@@ -528,9 +539,9 @@ pub fn fold_fit(
     // The un-`d` fallback candidate (lines 960–967).
     {
         let s_1 = fwht128(&s_rot_cur)?;
-        let r_1 = r_step(ws, &hl, &s_1, &c_best, o, n)?;
+        let r_1 = r_step_wshl(ws, &hl, &wshl, &s_1, &c_best, o, n)?;
         let rh_1 = quant_r_hier(&r_1, o, g)?.rq;
-        let ch_1 = quant_c_u8(&c_step(ws, &hl, &s_1, &rh_1, o, n, g_row)?, 6)?.0;
+        let ch_1 = quant_c_u8(&c_step_wshl(ws, &hl, &wshl, &s_1, &rh_1, o, n, g_row)?, 6)?.0;
         let wp_1 = compose(&s_1, &rh_1, &ch_1, o, n)?;
         if objective(ws, &wp_1, &hl, o, n)? < j_wp {
             wp = wp_1;

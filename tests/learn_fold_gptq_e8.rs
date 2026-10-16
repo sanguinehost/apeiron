@@ -848,6 +848,73 @@ fn scales_close(got: &[f64], want: &[f64]) -> bool {
             .all(|(g, w)| (g - w).abs() <= 1e-9 * w.abs().max(1.0))
 }
 
+/// FNV-1a 64 over the result's exact bit patterns: `s`, then `scale`, each entry as its little-endian
+/// `to_bits()`, then every index as two little-endian bytes. No tolerance and no float comparison:
+/// the whole stream, including the last mantissa bit, is pinned.
+fn bit_stream_hash(r: &GptqE8) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let byte = |b: u8, h: &mut u64| {
+        *h ^= u64::from(b);
+        *h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    };
+    for v in r.s.iter().chain(r.scale.iter()) {
+        for b in v.to_bits().to_le_bytes() {
+            byte(b, &mut h);
+        }
+    }
+    for v in &r.idx {
+        for b in v.to_le_bytes() {
+            byte(b, &mut h);
+        }
+    }
+    h
+}
+
+/// The `quantise_pass` / `beam_pass` row split is bit-identical to the serial loop they replace: the
+/// rows are cut into contiguous ranges and each range runs the whole block loop on one
+/// `std::thread::scope` worker, with the per-row operation order unchanged and no reduction across
+/// rows, so every f64 and every code index is the same bit pattern it was on one thread.
+///
+/// The four fixtures and their constants were captured from the **serial** code at revision
+/// `29ae4148` (lane q-gthr: `gptq_e8` on each fixture, `to_bits()` of every `s`/`scale` entry and
+/// every index concatenated to `/home/socol/oc-tmp/lanes/port/q-gthr-ref/serial.bin`, sha256
+/// `510d5a93ce4a2ba8548d9216d279d86a7d15d0cdae4f51bed9c499d804996973`); the threaded output at the
+/// same revision re-dumped into `parallel.bin` and compared with `cmp`, exit 0. They cover an odd row
+/// count (`o = 37`, so the last range is short), `o = 5 < INV_THREADS = 8` (one row per worker), the
+/// single path `beam = 1`, the beam search `beam = 4` with `wscale`, and both `act_order` settings;
+/// the hash is invariant to the worker count because each row is computed by exactly one worker in
+/// the same order.
+#[test]
+fn row_split_reproduces_the_serial_bit_stream() {
+    // `(o, n, damp, act_order, wscale, beam, seed)`.
+    const FIXTURES: [(usize, usize, f64, bool, bool, usize, u64); 4] = [
+        (37, 256, 0.01, false, false, 1, 0xA1B2_0001),
+        (37, 256, 0.01, true, true, 4, 0xA1B2_0002),
+        (5, 128, 0.01, true, false, 2, 0xA1B2_0003),
+        (5, 128, 0.01, false, false, 2, 0xA1B2_0003),
+    ];
+    /// Serial `29ae4148` values, in `FIXTURES` order.
+    const SERIAL_HASH: [u64; 4] = [
+        0x5470_8767_759d_d511,
+        0x7b33_bd9f_6fbd_858d,
+        0x29d9_3318_7b8f_c130,
+        0x319a_6fb9_2955_af45,
+    ];
+    for (i, &(o, n, damp, act_order, wscale, beam, seed)) in FIXTURES.iter().enumerate() {
+        let w = random_w(o, n, seed);
+        let h = correlated_h(n, seed ^ 0x5A5A_5A5A);
+        let r = gptq_e8(&w, &h, o, n, damp, act_order, wscale, beam).expect("gptq_e8");
+        assert_eq!(r.s.len(), o * n, "fixture {i}: s shape");
+        assert_eq!(r.idx.len(), o * n / BLOCK, "fixture {i}: idx shape");
+        assert_eq!(
+            bit_stream_hash(&r),
+            SERIAL_HASH[i],
+            "fixture {i} (o={o} n={n} beam={beam} act_order={act_order} wscale={wscale}) is not \
+             bit-identical to the serial pass at 29ae4148"
+        );
+    }
+}
+
 /// `beam = 1` reproduces the pre-beam port: on five deterministic correlated-Hessian
 /// matrices the code indices and the group scales equal the values captured from the implementation
 /// before the beam branch existed (the `beam = 1` path is the Python's `beam <= 1` single path,
