@@ -95,13 +95,28 @@ pub(super) fn narrow(v: i128) -> Option<i64> {
 /// `O(o·n)` comparisons, `O(1)` extra space.
 pub(super) fn within_bound(x: &[i64], w: Option<&[i64]>) -> bool {
     let limit = 1_u64 << BOUND_BITS;
-    if !x.iter().all(|&v| v.unsigned_abs() < limit) {
+    if !all_below(x, limit) {
         return false;
     }
     match w {
-        Some(ws) => ws.iter().all(|&v| v.unsigned_abs() < limit),
+        Some(ws) => all_below(ws, limit),
         None => true,
     }
+}
+
+/// `true` iff `|v| < limit` for every `v` in `xs`. An index loop rather than `Iterator::all`, which
+/// the pinned Aeneas model lacks.
+///
+/// # Complexity
+/// `O(len)` comparisons, `O(1)` extra space.
+fn all_below(xs: &[i64], limit: u64) -> bool {
+    let mut ok = true;
+    let mut i = 0usize;
+    while i < xs.len() && ok {
+        ok = xs[i].unsigned_abs() < limit;
+        i += 1;
+    }
+    ok
 }
 
 /// Column-major copy of the row-major `[o, n]` panel `x`: `xt[c·o + r] = x[r·n + c]`, so a column
