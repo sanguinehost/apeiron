@@ -16,6 +16,7 @@ import Serve.Block.R4.Mixer4
 import Serve.Kern.R4.Matmat6
 import Serve.Kern.R4.Lut4
 import Serve.Kern.R4.Gemm6
+import Serve.Kern.R4.Matmat7
 import Serve.Kern.Lut
 import Serve.Kern.Matmat2
 import Serve.Kern.Matmat3
@@ -249,3 +250,7 @@ set_option linter.apeiron.citation false
 #audit apeiron_word.gemm6_body_done
 #audit apeiron_word.gemm6_sh_calc
 #audit apeiron_word.word_pack_group_loop0_loop1_ok
+#audit apeiron_word.matmat7_rowaccs_body_live
+#audit apeiron_word.matmat7_rowaccs_body_bail_mul
+#audit apeiron_word.matmat7_delta_live
+#audit apeiron_word.word_matmat7_rowaccs_live_ok
