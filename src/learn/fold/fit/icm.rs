@@ -40,6 +40,7 @@
               functions are long because each is one ported body"
 )]
 
+use super::steps::{fwht_in_place, had_gram, transpose};
 use crate::engine::ONE;
 use crate::learn::code::e8;
 use crate::learn::ridge::{solve_spd, RidgeError};
@@ -204,7 +205,7 @@ pub fn plane_w(p: PlaneRef<'_>, o: usize, n: usize) -> Result<Vec<f64>, IcmError
     let g = n / GROUP;
     let mut t = p.s.to_vec();
     scale_cols(&mut t, o, n, p.d);
-    fwht128(&mut t);
+    fwht_in_place(&mut t);
     scale_cols(&mut t, o, n, p.c);
     for row in 0..o {
         for col in 0..n {
@@ -293,10 +294,10 @@ pub fn e8_icm_step(
     // G_rot = fwht128((Ws @ Hl) * c) * d
     let mut g_rot = matmul(ws, &metric, o, n, n)?;
     scale_cols(&mut g_rot, o, n, p.c);
-    fwht128(&mut g_rot);
+    fwht_in_place(&mut g_rot);
     scale_cols(&mut g_rot, o, n, p.d);
     // H_rot = had_gram(Hl ∘ c c^T) ∘ d d^T
-    let mut h_rot = had_gram(&pair_scaled(&metric, n, p.c, p.c), n);
+    let mut h_rot = had_gram(&pair_scaled(&metric, n, p.c, p.c), n).map_err(|_| IcmError::Width)?;
     pair_scale_in_place(&mut h_rot, n, p.d, p.d);
     // B = s * r_rep, F_res = G_rot - B @ H_rot
     let mut b = p.s.to_vec();
@@ -477,20 +478,20 @@ pub fn e8_joint_icm_2plane(
     let wh = matmul(ws, &metric, o, n, n)?;
     let mut g1 = wh.clone();
     scale_cols(&mut g1, o, n, &c1);
-    fwht128(&mut g1);
+    fwht_in_place(&mut g1);
     scale_cols(&mut g1, o, n, &d1);
     let mut g2 = wh;
     scale_cols(&mut g2, o, n, &c2);
-    fwht128(&mut g2);
+    fwht_in_place(&mut g2);
     scale_cols(&mut g2, o, n, &d2);
 
-    let mut h11 = had_gram(&pair_scaled(&metric, n, &c1, &c1), n);
+    let mut h11 = had_gram(&pair_scaled(&metric, n, &c1, &c1), n).map_err(|_| IcmError::Width)?;
     pair_scale_in_place(&mut h11, n, &d1, &d1);
-    let mut h22 = had_gram(&pair_scaled(&metric, n, &c2, &c2), n);
+    let mut h22 = had_gram(&pair_scaled(&metric, n, &c2, &c2), n).map_err(|_| IcmError::Width)?;
     pair_scale_in_place(&mut h22, n, &d2, &d2);
-    let mut h12 = had_gram(&pair_scaled(&metric, n, &c1, &c2), n);
+    let mut h12 = had_gram(&pair_scaled(&metric, n, &c1, &c2), n).map_err(|_| IcmError::Width)?;
     pair_scale_in_place(&mut h12, n, &d1, &d2);
-    let h21 = transpose(&h12, n);
+    let h21 = transpose(&h12, n, n);
 
     let mut b1 = s1.clone();
     let mut b2 = s2.clone();
@@ -813,60 +814,6 @@ fn check_plane(p: PlaneRef<'_>, o: usize, n: usize) -> Result<(), IcmError> {
         return Err(IcmError::Shape);
     }
     Ok(())
-}
-
-/// The in-place Walsh–Hadamard transform of every consecutive [`GROUP`]-long chunk of `x`, times
-/// `GROUP^{-1/2}` (the orthonormal transform of `fwht128`; `x.len()` must be a multiple of
-/// [`GROUP`]).
-///
-/// # Complexity
-/// Temporal `O(len·log2(GROUP))` additions and `O(len)` multiplies; spatial `O(1)`.
-fn fwht128(x: &mut [f64]) {
-    let mut h = 1_usize;
-    while h < GROUP {
-        let mut base = 0_usize;
-        while base < x.len() {
-            for i in 0..h {
-                let a = x[base + i];
-                let b = x[base + h + i];
-                x[base + i] = a + b;
-                x[base + h + i] = a - b;
-            }
-            base += 2 * h;
-        }
-        h *= 2;
-    }
-    let norm = 1.0 / (GROUP as f64).sqrt();
-    for v in x.iter_mut() {
-        *v *= norm;
-    }
-}
-
-/// `had_gram(H) = W H W` with `W` the orthonormal per-128-block Walsh–Hadamard transform on both
-/// indices (`fwht128(fwht128(H).T).T`).
-///
-/// # Complexity
-/// Temporal `O(n²·log2(GROUP))`; spatial `O(n²)`.
-fn had_gram(h: &[f64], n: usize) -> Vec<f64> {
-    let mut t = h.to_vec();
-    fwht128(&mut t);
-    let mut t = transpose(&t, n);
-    fwht128(&mut t);
-    transpose(&t, n)
-}
-
-/// Row-major transpose of an `n × n` buffer.
-///
-/// # Complexity
-/// Temporal `O(n²)`; spatial `O(n²)`.
-fn transpose(a: &[f64], n: usize) -> Vec<f64> {
-    let mut t = vec![0.0_f64; n * n];
-    for i in 0..n {
-        for j in 0..n {
-            t[j * n + i] = a[i * n + j];
-        }
-    }
-    t
 }
 
 /// The worker count [`matmul`] hands to [`gemm_nn`]. `gemm_nn` is documented bit-identical across

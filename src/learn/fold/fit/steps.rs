@@ -182,7 +182,7 @@ fn map_solve(e: SolveError) -> StepsError {
 /// Temporal: `O(x.len())` — `7` butterfly stages over each 128-chunk, `64` add/sub per stage per
 /// chunk, so `448` add/sub per chunk. The derivation is the radix-2 recurrence
 /// `T(2^k) = 2·T(2^{k-1}) + 2^k` on a chunk with `k = 7`. Spatial: `O(1)` (in place).
-fn fwht_in_place(x: &mut [f64]) {
+pub(super) fn fwht_in_place(x: &mut [f64]) {
     for chunk in x.chunks_mut(GROUP) {
         let mut h = 1;
         while h < GROUP {
@@ -226,7 +226,7 @@ pub fn fwht128(x: &[f64]) -> Result<Vec<f64>, StepsError> {
 }
 
 /// The transpose of a row-major `rows × cols` matrix. `O(rows·cols)` time and space.
-fn transpose(m: &[f64], rows: usize, cols: usize) -> Vec<f64> {
+pub(super) fn transpose(m: &[f64], rows: usize, cols: usize) -> Vec<f64> {
     let mut t = vec![0.0f64; rows * cols];
     for r in 0..rows {
         for c in 0..cols {
