@@ -413,6 +413,81 @@ fn t_f_fold_fit() {
     });
 }
 
+/// FNV-1a 64 over the little-endian bytes of `words`.
+fn fnv_words(words: impl Iterator<Item = u64>) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for w in words {
+        for b in w.to_le_bytes() {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    h
+}
+
+/// FNV-1a 64 of an `f64` slice's bit patterns.
+fn fnv_f64(xs: &[f64]) -> u64 {
+    fnv_words(xs.iter().map(|v| v.to_bits()))
+}
+
+/// Reference receipt for the integer-carrier conversion of `fit/*`: the f64 `gptq_e8` output
+/// (code-index and scale digests) and the `fold_fit` result (`J` per candidate, plane digests,
+/// the metric diagonal range) on the fixture. Every `FIX` line is a `measured` value of the f64
+/// source at the committed revision; the integer lanes compare against it.
+///
+/// Recorded at `861fc239` (release, `available_parallelism` 32, one run, deterministic fixture):
+///
+/// ```text
+/// had_gram diag min=8.759741943956822e-1 max=4.499357199903327e0 digest=e9d82d939e9ca4ec
+/// ws_rot digest=0fa51ff095e1551d
+/// gptq_e8 idx[544768] digest=71693eed28516abf scale[34048] digest=859b6c83e538c179 s digest=16da41ec9411c1e5
+/// fold_fit trace=[157.31321023010784, 148.82239282700925] j_best=1.4882239282700925e2 tag=Refit0
+/// fold_fit s_rot=005c1a6accbbee25 rh=07b96452cb07d2fc ch=a219646401359cda dh=7b926390b236c1a1 wp=12a470da2ada406f
+/// bits r=143424 c=29216 d=24352
+/// ```
+///
+/// The metric diagonal spans a factor 5.1, so this fixture does not exercise the large-condition
+/// outlier columns of a real `H`; the held-out KL arm does.
+#[test]
+#[ignore = "reference receipt: --release --ignored --nocapture"]
+fn t_h_fixture_receipt() {
+    let fx = fixture();
+    let ws_rot = fwht128(&fx.ws).expect("fwht");
+    let h_gram = had_gram(&fx.h, N).expect("had_gram");
+    let dmin = (0..N)
+        .map(|i| h_gram[i * N + i])
+        .fold(f64::INFINITY, f64::min);
+    let dmax = (0..N).map(|i| h_gram[i * N + i]).fold(0.0_f64, f64::max);
+    eprintln!(
+        "FIX had_gram diag min={dmin:e} max={dmax:e} digest={:016x}",
+        fnv_f64(&h_gram)
+    );
+    eprintln!("FIX ws_rot digest={:016x}", fnv_f64(&ws_rot));
+    let g = gptq_e8(&ws_rot, &h_gram, O, N, fx.damp, true, true, 4).expect("gptq");
+    eprintln!(
+        "FIX gptq_e8 idx[{}] digest={:016x} scale[{}] digest={:016x} s digest={:016x}",
+        g.idx.len(),
+        fnv_words(g.idx.iter().map(|&v| u64::from(v))),
+        g.scale.len(),
+        fnv_f64(&g.scale),
+        fnv_f64(&g.s)
+    );
+    let f = fold_fit(&fx.ws, &fx.h, O, N, Some(&fx.g_row), &fx.fit).expect("fold_fit");
+    eprintln!(
+        "FIX fold_fit trace={:?} j_best={:e} tag={:?}",
+        f.trace, f.j_best, f.tag
+    );
+    eprintln!(
+        "FIX fold_fit s_rot={:016x} rh={:016x} ch={:016x} dh={:016x} wp={:016x}",
+        fnv_f64(&f.pack.s_rot),
+        fnv_f64(&f.pack.rh),
+        fnv_f64(&f.pack.ch),
+        fnv_f64(&f.pack.dh),
+        fnv_f64(&f.wp)
+    );
+    eprintln!("FIX bits r={} c={} d={}", f.bits_r, f.bits_c, f.bits_d);
+}
+
 /// Phase group (9): the WHOLE `fit_tensor` call for `Kind::Down`. One run only.
 #[test]
 #[ignore = "measurement: --release --ignored --nocapture"]
