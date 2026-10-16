@@ -171,14 +171,17 @@ fn div_round(v: i128, d: i128) -> Option<i128> {
     if d == 0 {
         return None;
     }
-    let half = d.unsigned_abs() / 2;
+    // `d / 2` truncates toward zero, so `|d / 2| = ⌊|d| / 2⌋`, and `|d / 2| ≤ 2¹²⁶` holds for
+    // every `d` including `i128::MIN`: the negation cannot overflow.
+    let h = d / 2;
+    let half = if h < 0 { -h } else { h };
     if v >= 0 {
-        match v.checked_add(i128::try_from(half).ok()?) {
+        match v.checked_add(half) {
             Some(n) => n.checked_div(d),
             None => None,
         }
     } else {
-        match v.checked_sub(i128::try_from(half).ok()?) {
+        match v.checked_sub(half) {
             Some(n) => n.checked_div(d),
             None => None,
         }
@@ -245,8 +248,10 @@ impl Lcg {
 fn start_basis(n: usize, s: usize) -> Vec<i64> {
     let mut lcg = Lcg::new(START_SEED);
     let mut q = vec![0i64; n * s];
-    for e in &mut q {
-        *e = lcg.next_range(-(1i64 << 30), 1i64 << 30);
+    let mut t = 0usize;
+    while t < q.len() {
+        q[t] = lcg.next_range(-(1i64 << 30), 1i64 << 30);
+        t += 1;
     }
     q
 }

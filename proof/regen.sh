@@ -196,7 +196,14 @@ $REPO_DIR/src/learn/grad/dense.rs
 $REPO_DIR/src/learn/grad/attn.rs
 $REPO_DIR/src/learn/grad/head.rs
 $REPO_DIR/src/learn/code/e8.rs
+$REPO_DIR/src/learn/solve/q32.rs
+$REPO_DIR/src/learn/solve/syrk.rs
+$REPO_DIR/src/learn/solve/gemm.rs
+$REPO_DIR/src/learn/solve/chol.rs
+$REPO_DIR/src/learn/solve/inv.rs
+$REPO_DIR/src/learn/solve/eig.rs
 $EXTRACT_DIR/learn_port.rs
+$EXTRACT_DIR/solve_port.rs
 $EXTRACT_DIR/Cargo.toml
 $EXTRACT_DIR/Cargo.lock
 $EXTRACT_DIR/lib.rs
@@ -233,6 +240,10 @@ SERVING_OPAQUE=(
     --opaque 'crate::chart::ffn::swiglu_f32_avx2_8_into' # simd-twin: scalar swiglu_f32
     --opaque 'crate::mixer::delta_head_step_fast' # simd-intrinsic
     --opaque 'crate::par::matvec_rows_chunked' # thread
+    --opaque 'crate::solve_port::gemm::block_rows_par' # thread: std::thread::scope over disjoint row ranges, src/learn/solve/gemm.rs
+    --opaque 'crate::solve_port::syrk::block_rows_par' # thread: std::thread::scope over disjoint row ranges, src/learn/solve/syrk.rs
+    --opaque 'crate::solve_port::chol::trailing_update_par' # thread: std::thread::scope over disjoint row ranges, src/learn/solve/chol.rs
+    --opaque 'crate::solve_port::inv::invert_columns_par' # thread: std::thread::scope over disjoint column ranges, src/learn/solve/inv.rs
     --opaque 'crate::chart::pool' # thread: std::thread worker pool, dyn Fn jobs, transmute (every item)
     --opaque 'crate::step::prefill_block' # process-flag: APEIRON_PREFILL_COLS
     --opaque 'crate::step::bitplane_enabled' # process-flag: APEIRON_BITPLANE
@@ -381,6 +392,13 @@ run_extract() {
         --start-from crate::learn_port::word_e8_codeword \
         --start-from crate::learn_port::word_e8_nearest \
         --start-from crate::learn_port::word_e8_nearest_scaled \
+        --start-from crate::solve_port::word_solve_gemm_nn \
+        --start-from crate::solve_port::word_solve_gemm_nt \
+        --start-from crate::solve_port::word_solve_wsyrk \
+        --start-from crate::solve_port::word_solve_hadamard_into \
+        --start-from crate::solve_port::word_solve_chol_solve \
+        --start-from crate::solve_port::word_solve_inv_factor_upper \
+        --start-from crate::solve_port::word_solve_top_eigh \
         --start-from crate::word_engine_open \
         --start-from crate::word_engine_prefill_state \
         --start-from crate::word_engine_next_token_state \

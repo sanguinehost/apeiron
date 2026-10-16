@@ -66,6 +66,13 @@ chart.pool.Held.Insts.CoreOpsDerefDerefMut.deref_mut	thread pool boundary, src/e
 chart.pool.run_global	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
 chart.pool.width_global	thread pool boundary, src/engine/chart/pool.rs: dispatch equals the sequential fold, lowest-index Err, every task once, disjoint writes. Grade tested.
 
+## solve thread drivers (QUALITY-PORT)
+# Opaque thread drivers, grade tested: serial arithmetic is extracted; each driver only dispatches it over disjoint chunks.
+solve_port.chol.trailing_update_par	thread-driver boundary, src/learn/solve/chol.rs: std::thread::scope dispatch over disjoint output row chunks equals the serial body (bit-identical across thread counts), lowest-index Err. Grade tested.
+solve_port.gemm.block_rows_par	thread-driver boundary, src/learn/solve/gemm.rs: std::thread::scope dispatch over disjoint output row chunks equals the serial body (bit-identical across thread counts), lowest-index Err. Grade tested.
+solve_port.inv.invert_columns_par	thread-driver boundary, src/learn/solve/inv.rs: std::thread::scope dispatch over disjoint output row chunks equals the serial body (bit-identical across thread counts), lowest-index Err. Grade tested.
+solve_port.syrk.block_rows_par	thread-driver boundary, src/learn/solve/syrk.rs: std::thread::scope dispatch over disjoint output row chunks equals the serial body (bit-identical across thread counts), lowest-index Err. Grade tested.
+
 ## SIMD twins and intrinsics
 # AVX2/AVX/SSE2 bodies. Each twin has a scalar Lean body and a *_equals_scalar test; intrinsics are stdarch items. MXCSR and codegen are named boundaries. Grade tested.
 attn.f32_core.attn_core_f32_strided_avx2_inner	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.

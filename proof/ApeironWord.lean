@@ -92011,6 +92011,7991 @@ def sigma_delta.sd_binary_block
     then ok (some (e, peak), s1)
     else ok (none, s1)
 
+/-- [apeiron_word::solve_port::chol::SolveError]
+    Source: '../../src/learn/solve/chol.rs', lines 56:0-68:1
+    Visibility: public -/
+@[discriminant isize]
+inductive solve_port.chol.SolveError where
+| ShapeMismatch : solve_port.chol.SolveError
+| Empty : solve_port.chol.SolveError
+| NonPositiveDiagonal : solve_port.chol.SolveError
+| NotPositiveDefinite : solve_port.chol.SolveError
+| Overflow : solve_port.chol.SolveError
+
+/-- [apeiron_word::solve_port::chol::Solved]
+    Source: '../../src/learn/solve/chol.rs', lines 72:0-77:1
+    Visibility: public -/
+structure solve_port.chol.Solved where
+  x : alloc.vec.Vec Std.I64
+  residual_max : Std.I64
+
+/-- [apeiron_word::solve_port::chol::CHOL_BLOCK]
+    Source: '../../src/learn/solve/chol.rs', lines 87:0-87:29 -/
+@[global_simps, irreducible]
+def solve_port.chol.CHOL_BLOCK : Std.Usize := 64#usize
+
+/-- [apeiron_word::solve_port::chol::round32]:
+    Source: '../../src/learn/solve/chol.rs', lines 91:0-96:1 -/
+def solve_port.chol.round32 (v : Std.I128) : Result (Option Std.I128) := do
+  let i ← 1#i128 <<< 31#i32
+  let o ← lift (I128.checked_add v i)
+  match o with
+  | none => ok none
+  | some s => let i1 ← s >>> 32#i32
+              ok (some i1)
+
+/-- [apeiron_word::solve_port::chol::narrow]:
+    Source: '../../src/learn/solve/chol.rs', lines 99:0-105:1 -/
+def solve_port.chol.narrow (v : Std.I128) : Result (Option Std.I64) := do
+  let i ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+  if v > i
+  then ok none
+  else
+    let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+    if v < i1
+    then ok none
+    else let i2 ← lift (IScalar.cast .I64 v)
+         ok (some i2)
+
+/-- [apeiron_word::solve_port::chol::ov]:
+    Source: '../../src/learn/solve/chol.rs', lines 108:0-113:1 -/
+def solve_port.chol.ov
+  {T : Type} (o : Option T) :
+  Result (core.result.Result T solve_port.chol.SolveError)
+  := do
+  match o with
+  | none => ok (core.result.Result.Err solve_port.chol.SolveError.Overflow)
+  | some v => ok (core.result.Result.Ok v)
+
+/-- [apeiron_word::solve_port::chol::div_round]:
+    Source: '../../src/learn/solve/chol.rs', lines 117:0-129:1 -/
+def solve_port.chol.div_round
+  (v : Std.I128) (d : Std.I128) : Result (Option Std.I128) := do
+  if v >= 0#i128
+  then
+    let i ← d / 2#i128
+    let o ← lift (I128.checked_add v i)
+    match o with
+    | none => ok none
+    | some n => let i1 ← n / d
+                ok (some i1)
+  else
+    let i ← d / 2#i128
+    let o ← lift (I128.checked_sub v i)
+    match o with
+    | none => ok none
+    | some n => let i1 ← n / d
+                ok (some i1)
+
+/-- [apeiron_word::solve_port::chol::div_to_i64]:
+    Source: '../../src/learn/solve/chol.rs', lines 133:0-138:1 -/
+def solve_port.chol.div_to_i64
+  (num : Std.I128) (den : Std.I128) : Result (Option Std.I64) := do
+  let o ← solve_port.chol.div_round num den
+  match o with
+  | none => ok none
+  | some q => solve_port.chol.narrow q
+
+/-- [apeiron_word::solve_port::chol::round_to_i64]:
+    Source: '../../src/learn/solve/chol.rs', lines 141:0-146:1 -/
+def solve_port.chol.round_to_i64 (v : Std.I128) : Result (Option Std.I64) := do
+  let o ← solve_port.chol.round32 v
+  match o with
+  | none => ok none
+  | some r => solve_port.chol.narrow r
+
+/-- [apeiron_word::solve_port::chol::chol_entry]: loop body 0:
+    Source: '../../src/learn/solve/chol.rs', lines 171:4-179:5 -/
+@[rust_loop_body]
+def solve_port.chol.chol_entry_loop.body
+  (l : Slice Std.I64) (d : Std.Usize) (gi : Std.Usize) (gj : Std.Usize)
+  (kbase : Std.Usize) (kb : Std.Usize) (acc : Std.I128) (p : Std.Usize)
+  (ok1 : Bool) :
+  Result (ControlFlow (Std.I128 × Std.Usize × Bool) (Std.I128 × Bool))
+  := do
+  if p < kb
+  then
+    if ok1
+    then
+      let i ← gi * d
+      let i1 ← i + kbase
+      let i2 ← i1 + p
+      let i3 ← Slice.index_usize l i2
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let i5 ← gj * d
+      let i6 ← i5 + kbase
+      let i7 ← i6 + p
+      let i8 ← Slice.index_usize l i7
+      let i9 ← lift (core.convert.num.FromI128I64.from i8)
+      let pr ← i4 * i9
+      let o ← lift (I128.checked_sub acc pr)
+      let (acc1, ok2) ←
+        match o with
+        | none => ok (acc, false)
+        | some s => ok (s, true)
+      let p1 ← p + 1#usize
+      ok (cont (acc1, p1, ok2))
+    else ok (done (acc, false))
+  else ok (done (acc, ok1))
+
+/-- [apeiron_word::solve_port::chol::chol_entry]: loop 0:
+    Source: '../../src/learn/solve/chol.rs', lines 171:4-179:5 -/
+@[rust_loop]
+def solve_port.chol.chol_entry_loop
+  (l : Slice Std.I64) (d : Std.Usize) (gi : Std.Usize) (gj : Std.Usize)
+  (kbase : Std.Usize) (kb : Std.Usize) (acc : Std.I128) (p : Std.Usize)
+  (ok1 : Bool) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (acc1, p1, ok2) => solve_port.chol.chol_entry_loop.body l d gi gj
+      kbase kb acc1 p1 ok2)
+    (acc, p, ok1)
+
+/-- [apeiron_word::solve_port::chol::chol_entry]:
+    Source: '../../src/learn/solve/chol.rs', lines 159:0-185:1 -/
+def solve_port.chol.chol_entry
+  (work_val : Std.I64) (l : Slice Std.I64) (d : Std.Usize) (gi : Std.Usize)
+  (gj : Std.Usize) (kbase : Std.Usize) (kb : Std.Usize) :
+  Result (Option Std.I64)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from work_val)
+  let acc ← i <<< 32#i32
+  let (acc1, ok1) ←
+    solve_port.chol.chol_entry_loop l d gi gj kbase kb acc 0#usize true
+  if ok1
+  then solve_port.chol.round_to_i64 acc1
+  else ok none
+
+/-- [apeiron_word::solve_port::chol::equilibrate]: loop body 0:
+    Source: '../../src/learn/solve/chol.rs', lines 222:4-233:5
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.chol.equilibrate_loop0.body
+  (a : Slice Std.I64) (n : Std.Usize) (d : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * n
+      let i2 ← i1 + i
+      let aii ← Slice.index_usize a i2
+      let (d1, err1) ←
+        if aii <= 0#i64
+        then ok (d, some solve_port.chol.SolveError.NonPositiveDiagonal)
+        else
+          do
+          let i3 ← lift (core.convert.num.FromI128I64.from aii)
+          let i4 ← i3 <<< 32#i32
+          let i5 ← fixed_rsqrt.isqrt i4
+          let o ← solve_port.chol.narrow i5
+          match o with
+          | none => ok (d, some solve_port.chol.SolveError.Overflow)
+          | some v =>
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) d i
+            let d2 := index_mut_back v
+            ok (d2, err)
+      let i3 ← i + 1#usize
+      ok (cont (d1, err1, i3))
+    else ok (done (d, err))
+  else ok (done (d, err))
+
+/-- [apeiron_word::solve_port::chol::equilibrate]: loop 0:
+    Source: '../../src/learn/solve/chol.rs', lines 222:4-233:5
+    Visibility: public -/
+@[rust_loop]
+def solve_port.chol.equilibrate_loop0
+  (a : Slice Std.I64) (n : Std.Usize) (d : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (d1, err1, i1) => solve_port.chol.equilibrate_loop0.body a n d1 err1
+      i1)
+    (d, err, i)
+
+/-- [apeiron_word::solve_port::chol::equilibrate]: loop body 2:
+    Source: '../../src/learn/solve/chol.rs', lines 242:8-250:9
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.chol.equilibrate_loop1_loop0.body
+  (a : Slice Std.I64) (n : Std.Usize) (d : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) (scaled : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if j < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * n
+      let i2 ← i1 + j
+      let i3 ← Slice.index_usize a i2
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let num ← i4 <<< 64#i32
+      let i5 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) d i
+      let i6 ← lift (core.convert.num.FromI128I64.from i5)
+      let i7 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) d j
+      let i8 ← lift (core.convert.num.FromI128I64.from i7)
+      let den ← i6 * i8
+      let o ← solve_port.chol.div_to_i64 num den
+      let (scaled1, err1) ←
+        match o with
+        | none => ok (scaled, some solve_port.chol.SolveError.Overflow)
+        | some v =>
+          do
+          let i9 ← i1 + j
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) scaled i9
+          let scaled2 := index_mut_back v
+          ok (scaled2, err)
+      let j1 ← j + 1#usize
+      ok (cont (scaled1, err1, j1))
+    else ok (done (scaled, err))
+  else ok (done (scaled, err))
+
+/-- [apeiron_word::solve_port::chol::equilibrate]: loop 2:
+    Source: '../../src/learn/solve/chol.rs', lines 242:8-250:9
+    Visibility: public -/
+@[rust_loop]
+def solve_port.chol.equilibrate_loop1_loop0
+  (a : Slice Std.I64) (n : Std.Usize) (d : alloc.vec.Vec Std.I64)
+  (scaled : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (i : Std.Usize) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (scaled1, err1, j1) => solve_port.chol.equilibrate_loop1_loop0.body a
+      n d i scaled1 err1 j1)
+    (scaled, err, j)
+
+/-- [apeiron_word::solve_port::chol::equilibrate]: loop body 1:
+    Source: '../../src/learn/solve/chol.rs', lines 240:4-252:5
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.chol.equilibrate_loop1.body
+  (a : Slice Std.I64) (n : Std.Usize) (d : alloc.vec.Vec Std.I64)
+  (scaled : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (scaled1, err1) ←
+        solve_port.chol.equilibrate_loop1_loop0 a n d scaled err i 0#usize
+      let i1 ← i + 1#usize
+      ok (cont (scaled1, err1, i1))
+    else ok (done (scaled, err))
+  else ok (done (scaled, err))
+
+/-- [apeiron_word::solve_port::chol::equilibrate]: loop 1:
+    Source: '../../src/learn/solve/chol.rs', lines 240:4-252:5
+    Visibility: public -/
+@[rust_loop]
+def solve_port.chol.equilibrate_loop1
+  (a : Slice Std.I64) (n : Std.Usize) (d : alloc.vec.Vec Std.I64)
+  (scaled : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (scaled1, err1, i1) => solve_port.chol.equilibrate_loop1.body a n d
+      scaled1 err1 i1)
+    (scaled, err, i)
+
+/-- [apeiron_word::solve_port::chol::equilibrate]:
+    Source: '../../src/learn/solve/chol.rs', lines 205:0-257:1
+    Visibility: public -/
+def solve_port.chol.equilibrate
+  (a : Slice Std.I64) (n : Std.Usize) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) solve_port.chol.SolveError)
+  := do
+  if n = 0#usize
+  then ok (core.result.Result.Err solve_port.chol.SolveError.Empty)
+  else
+    let o ← lift (Usize.checked_mul n n)
+    match o with
+    | none => ok (core.result.Result.Err solve_port.chol.SolveError.Overflow)
+    | some v =>
+      let i := Slice.len a
+      if i != v
+      then ok (core.result.Result.Err solve_port.chol.SolveError.ShapeMismatch)
+      else
+        let d ← alloc.vec.from_elem core.clone.CloneI64 0#i64 n
+        let (d1, err) ← solve_port.chol.equilibrate_loop0 a n d none 0#usize
+        match err with
+        | none =>
+          let scaled ← alloc.vec.from_elem core.clone.CloneI64 0#i64 v
+          let (scaled1, err1) ←
+            solve_port.chol.equilibrate_loop1 a n d1 scaled none 0#usize
+          match err1 with
+          | none => ok (core.result.Result.Ok (scaled1, d1))
+          | some e => ok (core.result.Result.Err e)
+        | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::solve_port::chol::chol_trailing_update]: loop body 2:
+    Source: '../../src/learn/solve/chol.rs', lines 313:12-334:13 -/
+@[rust_loop_body]
+def solve_port.chol.chol_trailing_update_loop0_loop0_loop0.body
+  (kb : Std.Usize) (li0 : Slice Std.I64) (li1 : Slice Std.I64)
+  (lj0 : Slice Std.I64) (lj1 : Slice Std.I64)
+  (err : Option solve_port.chol.SolveError) (c00 : Std.I128) (c01 : Std.I128)
+  (c10 : Std.I128) (c11 : Std.I128) (p : Std.Usize) :
+  Result (ControlFlow ((Option solve_port.chol.SolveError) × Std.I128 ×
+    Std.I128 × Std.I128 × Std.I128 × Std.Usize) ((Option
+    solve_port.chol.SolveError) × Std.I128 × Std.I128 × Std.I128 ×
+    Std.I128))
+  := do
+  if p < kb
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← Slice.index_usize li0 p
+      let a0 ← lift (core.convert.num.FromI128I64.from i)
+      let i1 ← Slice.index_usize li1 p
+      let a1 ← lift (core.convert.num.FromI128I64.from i1)
+      let i2 ← Slice.index_usize lj0 p
+      let b0 ← lift (core.convert.num.FromI128I64.from i2)
+      let i3 ← Slice.index_usize lj1 p
+      let b1 ← lift (core.convert.num.FromI128I64.from i3)
+      let i4 ← a0 * b0
+      let o ← lift (I128.checked_sub c00 i4)
+      let (err1, c001) ←
+        match o with
+        | none => ok (some solve_port.chol.SolveError.Overflow, c00)
+        | some s => ok (err, s)
+      let i5 ← a0 * b1
+      let o1 ← lift (I128.checked_sub c01 i5)
+      let (err2, c011) ←
+        match o1 with
+        | none => ok (some solve_port.chol.SolveError.Overflow, c01)
+        | some s => ok (err1, s)
+      let i6 ← a1 * b0
+      let o2 ← lift (I128.checked_sub c10 i6)
+      let (err3, c101) ←
+        match o2 with
+        | none => ok (some solve_port.chol.SolveError.Overflow, c10)
+        | some s => ok (err2, s)
+      let i7 ← a1 * b1
+      let o3 ← lift (I128.checked_sub c11 i7)
+      let (err4, c111) ←
+        match o3 with
+        | none => ok (some solve_port.chol.SolveError.Overflow, c11)
+        | some s => ok (err3, s)
+      let p1 ← p + 1#usize
+      ok (cont (err4, c001, c011, c101, c111, p1))
+    else ok (done (err, c00, c01, c10, c11))
+  else ok (done (err, c00, c01, c10, c11))
+
+/-- [apeiron_word::solve_port::chol::chol_trailing_update]: loop 2:
+    Source: '../../src/learn/solve/chol.rs', lines 313:12-334:13 -/
+@[rust_loop]
+def solve_port.chol.chol_trailing_update_loop0_loop0_loop0
+  (kb : Std.Usize) (err : Option solve_port.chol.SolveError)
+  (li0 : Slice Std.I64) (li1 : Slice Std.I64) (lj0 : Slice Std.I64)
+  (lj1 : Slice Std.I64) (c00 : Std.I128) (c01 : Std.I128) (c10 : Std.I128)
+  (c11 : Std.I128) (p : Std.Usize) :
+  Result ((Option solve_port.chol.SolveError) × Std.I128 × Std.I128 ×
+    Std.I128 × Std.I128)
+  := do
+  loop
+    (fun (err1, c001, c011, c101, c111, p1) =>
+      solve_port.chol.chol_trailing_update_loop0_loop0_loop0.body kb li0 li1
+      lj0 lj1 err1 c001 c011 c101 c111 p1)
+    (err, c00, c01, c10, c11, p)
+
+/-- [apeiron_word::solve_port::chol::chol_trailing_update]: loop body 1:
+    Source: '../../src/learn/solve/chol.rs', lines 304:8-363:9 -/
+@[rust_loop_body]
+def solve_port.chol.chol_trailing_update_loop0_loop0.body
+  (kbase : Std.Usize) (l : Slice Std.I64) (d : Std.Usize) (kb : Std.Usize)
+  (ri : Std.Usize) (r2 : Std.Usize) (gi : Std.Usize) (gi2 : Std.Usize)
+  (li0 : Slice Std.I64) (li1 : Slice Std.I64) (rows : Slice Std.I64)
+  (err : Option solve_port.chol.SolveError) (gj : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option solve_port.chol.SolveError)
+    × Std.Usize) ((Slice Std.I64) × (Option solve_port.chol.SolveError)))
+  := do
+  if gj <= gi2
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let gc ← if gj < gi2
+                 then gj + 1#usize
+                 else ok gj
+      let i ← gj * d
+      let i1 ← i + kbase
+      let i2 ← i + kbase
+      let i3 ← i2 + kb
+      let lj0 ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) l
+          { start := i1, «end» := i3 }
+      let i4 ← gc * d
+      let i5 ← i4 + kbase
+      let i6 ← i4 + kbase
+      let i7 ← i6 + kb
+      let lj1 ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) l
+          { start := i5, «end» := i7 }
+      let i8 ← ri * d
+      let i9 ← i8 + gj
+      let i10 ← Slice.index_usize rows i9
+      let i11 ← lift (core.convert.num.FromI128I64.from i10)
+      let c00 ← i11 <<< 32#i32
+      let i12 ← i8 + gc
+      let i13 ← Slice.index_usize rows i12
+      let i14 ← lift (core.convert.num.FromI128I64.from i13)
+      let c01 ← i14 <<< 32#i32
+      let i15 ← r2 * d
+      let i16 ← i15 + gj
+      let i17 ← Slice.index_usize rows i16
+      let i18 ← lift (core.convert.num.FromI128I64.from i17)
+      let c10 ← i18 <<< 32#i32
+      let i19 ← i15 + gc
+      let i20 ← Slice.index_usize rows i19
+      let i21 ← lift (core.convert.num.FromI128I64.from i20)
+      let c11 ← i21 <<< 32#i32
+      let (err1, c001, c011, c101, c111) ←
+        solve_port.chol.chol_trailing_update_loop0_loop0_loop0 kb err li0 li1
+          lj0 lj1 c00 c01 c10 c11 0#usize
+      let b1 := core.option.Option.is_none err1
+      if b1
+      then
+        if gj <= gi
+        then
+          let o ← solve_port.chol.round_to_i64 c001
+          match o with
+          | none =>
+            if gc != gj
+            then
+              if gc <= gi
+              then
+                let b2 :=
+                  core.option.Option.is_none (some
+                    solve_port.chol.SolveError.Overflow)
+                if b2
+                then
+                  let o1 ← solve_port.chol.round_to_i64 c011
+                  match o1 with
+                  | none =>
+                    if r2 != ri
+                    then
+                      let b3 :=
+                        core.option.Option.is_none (some
+                          solve_port.chol.SolveError.Overflow)
+                      if b3
+                      then
+                        let o2 ← solve_port.chol.round_to_i64 c101
+                        match o2 with
+                        | none =>
+                          if gc != gj
+                          then
+                            let b4 :=
+                              core.option.Option.is_none (some
+                                solve_port.chol.SolveError.Overflow)
+                            if b4
+                            then
+                              let o3 ← solve_port.chol.round_to_i64 c111
+                              match o3 with
+                              | none =>
+                                let gj1 ← gj + 2#usize
+                                ok (cont (rows, some
+                                  solve_port.chol.SolveError.Overflow, gj1))
+                              | some v =>
+                                let i22 ← r2 * d
+                                let i23 ← i22 + gc
+                                let s ← Slice.update rows i23 v
+                                let gj1 ← gj + 2#usize
+                                ok (cont (s, some
+                                  solve_port.chol.SolveError.Overflow, gj1))
+                            else
+                              let gj1 ← gj + 2#usize
+                              ok (cont (rows, some
+                                solve_port.chol.SolveError.Overflow, gj1))
+                          else
+                            let gj1 ← gj + 2#usize
+                            ok (cont (rows, some
+                              solve_port.chol.SolveError.Overflow, gj1))
+                        | some v =>
+                          let i22 ← r2 * d
+                          let i23 ← i22 + gj
+                          let (_, index_mut_back) ←
+                            Slice.index_mut_usize rows i23
+                          let rows1 ←
+                            if gc != gj
+                            then
+                              let b4 :=
+                                core.option.Option.is_none (some
+                                  solve_port.chol.SolveError.Overflow)
+                              if b4
+                              then
+                                do
+                                let o3 ← solve_port.chol.round_to_i64 c111
+                                match o3 with
+                                | none => ok (index_mut_back v)
+                                | some v1 =>
+                                  let i24 ← i22 + gc
+                                  let rows2 := index_mut_back v
+                                  Slice.update rows2 i24 v1
+                              else ok (index_mut_back v)
+                            else ok (index_mut_back v)
+                          let gj1 ← gj + 2#usize
+                          ok (cont (rows1, some
+                            solve_port.chol.SolveError.Overflow, gj1))
+                      else
+                        let gj1 ← gj + 2#usize
+                        ok (cont (rows, some
+                          solve_port.chol.SolveError.Overflow, gj1))
+                    else
+                      let gj1 ← gj + 2#usize
+                      ok (cont (rows, some solve_port.chol.SolveError.Overflow,
+                        gj1))
+                  | some v =>
+                    let i22 ← ri * d
+                    let i23 ← i22 + gc
+                    let (_, index_mut_back) ← Slice.index_mut_usize rows i23
+                    let rows1 ←
+                      if r2 != ri
+                      then
+                        let b3 :=
+                          core.option.Option.is_none (some
+                            solve_port.chol.SolveError.Overflow)
+                        if b3
+                        then
+                          do
+                          let o2 ← solve_port.chol.round_to_i64 c101
+                          let rows2 ←
+                            match o2 with
+                            | none => ok (index_mut_back v)
+                            | some v1 =>
+                              do
+                              let i24 ← r2 * d
+                              let i25 ← i24 + gj
+                              let rows3 := index_mut_back v
+                              Slice.update rows3 i25 v1
+                          if gc != gj
+                          then
+                            let b4 :=
+                              core.option.Option.is_none (some
+                                solve_port.chol.SolveError.Overflow)
+                            if b4
+                            then
+                              let o3 ← solve_port.chol.round_to_i64 c111
+                              match o3 with
+                              | none => ok rows2
+                              | some v1 =>
+                                let i24 ← r2 * d
+                                let i25 ← i24 + gc
+                                Slice.update rows2 i25 v1
+                            else ok rows2
+                          else ok rows2
+                        else ok (index_mut_back v)
+                      else ok (index_mut_back v)
+                    let gj1 ← gj + 2#usize
+                    ok (cont (rows1, some solve_port.chol.SolveError.Overflow,
+                      gj1))
+                else
+                  if r2 != ri
+                  then
+                    let b3 :=
+                      core.option.Option.is_none (some
+                        solve_port.chol.SolveError.Overflow)
+                    if b3
+                    then
+                      let o1 ← solve_port.chol.round_to_i64 c101
+                      match o1 with
+                      | none =>
+                        if gc != gj
+                        then
+                          let b4 :=
+                            core.option.Option.is_none (some
+                              solve_port.chol.SolveError.Overflow)
+                          if b4
+                          then
+                            let o2 ← solve_port.chol.round_to_i64 c111
+                            match o2 with
+                            | none =>
+                              let gj1 ← gj + 2#usize
+                              ok (cont (rows, some
+                                solve_port.chol.SolveError.Overflow, gj1))
+                            | some v =>
+                              let i22 ← r2 * d
+                              let i23 ← i22 + gc
+                              let s ← Slice.update rows i23 v
+                              let gj1 ← gj + 2#usize
+                              ok (cont (s, some
+                                solve_port.chol.SolveError.Overflow, gj1))
+                          else
+                            let gj1 ← gj + 2#usize
+                            ok (cont (rows, some
+                              solve_port.chol.SolveError.Overflow, gj1))
+                        else
+                          let gj1 ← gj + 2#usize
+                          ok (cont (rows, some
+                            solve_port.chol.SolveError.Overflow, gj1))
+                      | some v =>
+                        let i22 ← r2 * d
+                        let i23 ← i22 + gj
+                        let (_, index_mut_back) ←
+                          Slice.index_mut_usize rows i23
+                        let rows1 ←
+                          if gc != gj
+                          then
+                            let b4 :=
+                              core.option.Option.is_none (some
+                                solve_port.chol.SolveError.Overflow)
+                            if b4
+                            then
+                              do
+                              let o2 ← solve_port.chol.round_to_i64 c111
+                              match o2 with
+                              | none => ok (index_mut_back v)
+                              | some v1 =>
+                                let i24 ← i22 + gc
+                                let rows2 := index_mut_back v
+                                Slice.update rows2 i24 v1
+                            else ok (index_mut_back v)
+                          else ok (index_mut_back v)
+                        let gj1 ← gj + 2#usize
+                        ok (cont (rows1, some
+                          solve_port.chol.SolveError.Overflow, gj1))
+                    else
+                      let gj1 ← gj + 2#usize
+                      ok (cont (rows, some solve_port.chol.SolveError.Overflow,
+                        gj1))
+                  else
+                    let gj1 ← gj + 2#usize
+                    ok (cont (rows, some solve_port.chol.SolveError.Overflow,
+                      gj1))
+              else
+                if r2 != ri
+                then
+                  let b2 :=
+                    core.option.Option.is_none (some
+                      solve_port.chol.SolveError.Overflow)
+                  if b2
+                  then
+                    let o1 ← solve_port.chol.round_to_i64 c101
+                    match o1 with
+                    | none =>
+                      if gc != gj
+                      then
+                        let b3 :=
+                          core.option.Option.is_none (some
+                            solve_port.chol.SolveError.Overflow)
+                        if b3
+                        then
+                          let o2 ← solve_port.chol.round_to_i64 c111
+                          match o2 with
+                          | none =>
+                            let gj1 ← gj + 2#usize
+                            ok (cont (rows, some
+                              solve_port.chol.SolveError.Overflow, gj1))
+                          | some v =>
+                            let i22 ← r2 * d
+                            let i23 ← i22 + gc
+                            let s ← Slice.update rows i23 v
+                            let gj1 ← gj + 2#usize
+                            ok (cont (s, some
+                              solve_port.chol.SolveError.Overflow, gj1))
+                        else
+                          let gj1 ← gj + 2#usize
+                          ok (cont (rows, some
+                            solve_port.chol.SolveError.Overflow, gj1))
+                      else
+                        let gj1 ← gj + 2#usize
+                        ok (cont (rows, some
+                          solve_port.chol.SolveError.Overflow, gj1))
+                    | some v =>
+                      let i22 ← r2 * d
+                      let i23 ← i22 + gj
+                      let (_, index_mut_back) ←
+                        Slice.index_mut_usize rows i23
+                      let rows1 ←
+                        if gc != gj
+                        then
+                          let b3 :=
+                            core.option.Option.is_none (some
+                              solve_port.chol.SolveError.Overflow)
+                          if b3
+                          then
+                            do
+                            let o2 ← solve_port.chol.round_to_i64 c111
+                            match o2 with
+                            | none => ok (index_mut_back v)
+                            | some v1 =>
+                              let i24 ← i22 + gc
+                              let rows2 := index_mut_back v
+                              Slice.update rows2 i24 v1
+                          else ok (index_mut_back v)
+                        else ok (index_mut_back v)
+                      let gj1 ← gj + 2#usize
+                      ok (cont (rows1, some
+                        solve_port.chol.SolveError.Overflow, gj1))
+                  else
+                    let gj1 ← gj + 2#usize
+                    ok (cont (rows, some solve_port.chol.SolveError.Overflow,
+                      gj1))
+                else
+                  let gj1 ← gj + 2#usize
+                  ok (cont (rows, some solve_port.chol.SolveError.Overflow,
+                    gj1))
+            else
+              if r2 != ri
+              then
+                let b2 :=
+                  core.option.Option.is_none (some
+                    solve_port.chol.SolveError.Overflow)
+                if b2
+                then
+                  let o1 ← solve_port.chol.round_to_i64 c101
+                  match o1 with
+                  | none =>
+                    if gc != gj
+                    then
+                      let b3 :=
+                        core.option.Option.is_none (some
+                          solve_port.chol.SolveError.Overflow)
+                      if b3
+                      then
+                        let o2 ← solve_port.chol.round_to_i64 c111
+                        match o2 with
+                        | none =>
+                          let gj1 ← gj + 2#usize
+                          ok (cont (rows, some
+                            solve_port.chol.SolveError.Overflow, gj1))
+                        | some v =>
+                          let i22 ← r2 * d
+                          let i23 ← i22 + gc
+                          let s ← Slice.update rows i23 v
+                          let gj1 ← gj + 2#usize
+                          ok (cont (s, some
+                            solve_port.chol.SolveError.Overflow, gj1))
+                      else
+                        let gj1 ← gj + 2#usize
+                        ok (cont (rows, some
+                          solve_port.chol.SolveError.Overflow, gj1))
+                    else
+                      let gj1 ← gj + 2#usize
+                      ok (cont (rows, some solve_port.chol.SolveError.Overflow,
+                        gj1))
+                  | some v =>
+                    let i22 ← r2 * d
+                    let i23 ← i22 + gj
+                    let (_, index_mut_back) ← Slice.index_mut_usize rows i23
+                    let rows1 ←
+                      if gc != gj
+                      then
+                        let b3 :=
+                          core.option.Option.is_none (some
+                            solve_port.chol.SolveError.Overflow)
+                        if b3
+                        then
+                          do
+                          let o2 ← solve_port.chol.round_to_i64 c111
+                          match o2 with
+                          | none => ok (index_mut_back v)
+                          | some v1 =>
+                            let i24 ← i22 + gc
+                            let rows2 := index_mut_back v
+                            Slice.update rows2 i24 v1
+                        else ok (index_mut_back v)
+                      else ok (index_mut_back v)
+                    let gj1 ← gj + 2#usize
+                    ok (cont (rows1, some solve_port.chol.SolveError.Overflow,
+                      gj1))
+                else
+                  let gj1 ← gj + 2#usize
+                  ok (cont (rows, some solve_port.chol.SolveError.Overflow,
+                    gj1))
+              else
+                let gj1 ← gj + 2#usize
+                ok (cont (rows, some solve_port.chol.SolveError.Overflow, gj1))
+          | some v =>
+            let i22 ← ri * d
+            let i23 ← i22 + gj
+            let (_, index_mut_back) ← Slice.index_mut_usize rows i23
+            let (rows1, err2) ←
+              if gc != gj
+              then
+                if gc <= gi
+                then
+                  let b2 := core.option.Option.is_none err1
+                  if b2
+                  then
+                    do
+                    let o1 ← solve_port.chol.round_to_i64 c011
+                    match o1 with
+                    | none =>
+                      let s := index_mut_back v
+                      ok (s, some solve_port.chol.SolveError.Overflow)
+                    | some v1 =>
+                      let i24 ← i22 + gc
+                      let rows2 := index_mut_back v
+                      let s ← Slice.update rows2 i24 v1
+                      ok (s, err1)
+                  else let s := index_mut_back v
+                       ok (s, err1)
+                else let s := index_mut_back v
+                     ok (s, err1)
+              else let s := index_mut_back v
+                   ok (s, err1)
+            let (rows2, err3) ←
+              if r2 != ri
+              then
+                let b2 := core.option.Option.is_none err2
+                if b2
+                then
+                  do
+                  let o1 ← solve_port.chol.round_to_i64 c101
+                  let (rows3, err4) ←
+                    match o1 with
+                    | none =>
+                      ok (rows1, some solve_port.chol.SolveError.Overflow)
+                    | some v1 =>
+                      do
+                      let i24 ← r2 * d
+                      let i25 ← i24 + gj
+                      let s ← Slice.update rows1 i25 v1
+                      ok (s, err2)
+                  if gc != gj
+                  then
+                    let b3 := core.option.Option.is_none err4
+                    if b3
+                    then
+                      let o2 ← solve_port.chol.round_to_i64 c111
+                      match o2 with
+                      | none =>
+                        ok (rows3, some solve_port.chol.SolveError.Overflow)
+                      | some v1 =>
+                        let i24 ← r2 * d
+                        let i25 ← i24 + gc
+                        let s ← Slice.update rows3 i25 v1
+                        ok (s, err4)
+                    else ok (rows3, err4)
+                  else ok (rows3, err4)
+                else ok (rows1, err2)
+              else ok (rows1, err2)
+            let gj1 ← gj + 2#usize
+            ok (cont (rows2, err3, gj1))
+        else
+          if gc != gj
+          then
+            if gc <= gi
+            then
+              let b2 := core.option.Option.is_none err1
+              if b2
+              then
+                let o ← solve_port.chol.round_to_i64 c011
+                match o with
+                | none =>
+                  if r2 != ri
+                  then
+                    let b3 :=
+                      core.option.Option.is_none (some
+                        solve_port.chol.SolveError.Overflow)
+                    if b3
+                    then
+                      let o1 ← solve_port.chol.round_to_i64 c101
+                      match o1 with
+                      | none =>
+                        if gc != gj
+                        then
+                          let b4 :=
+                            core.option.Option.is_none (some
+                              solve_port.chol.SolveError.Overflow)
+                          if b4
+                          then
+                            let o2 ← solve_port.chol.round_to_i64 c111
+                            match o2 with
+                            | none =>
+                              let gj1 ← gj + 2#usize
+                              ok (cont (rows, some
+                                solve_port.chol.SolveError.Overflow, gj1))
+                            | some v =>
+                              let i22 ← r2 * d
+                              let i23 ← i22 + gc
+                              let s ← Slice.update rows i23 v
+                              let gj1 ← gj + 2#usize
+                              ok (cont (s, some
+                                solve_port.chol.SolveError.Overflow, gj1))
+                          else
+                            let gj1 ← gj + 2#usize
+                            ok (cont (rows, some
+                              solve_port.chol.SolveError.Overflow, gj1))
+                        else
+                          let gj1 ← gj + 2#usize
+                          ok (cont (rows, some
+                            solve_port.chol.SolveError.Overflow, gj1))
+                      | some v =>
+                        let i22 ← r2 * d
+                        let i23 ← i22 + gj
+                        let (_, index_mut_back) ←
+                          Slice.index_mut_usize rows i23
+                        let rows1 ←
+                          if gc != gj
+                          then
+                            let b4 :=
+                              core.option.Option.is_none (some
+                                solve_port.chol.SolveError.Overflow)
+                            if b4
+                            then
+                              do
+                              let o2 ← solve_port.chol.round_to_i64 c111
+                              match o2 with
+                              | none => ok (index_mut_back v)
+                              | some v1 =>
+                                let i24 ← i22 + gc
+                                let rows2 := index_mut_back v
+                                Slice.update rows2 i24 v1
+                            else ok (index_mut_back v)
+                          else ok (index_mut_back v)
+                        let gj1 ← gj + 2#usize
+                        ok (cont (rows1, some
+                          solve_port.chol.SolveError.Overflow, gj1))
+                    else
+                      let gj1 ← gj + 2#usize
+                      ok (cont (rows, some solve_port.chol.SolveError.Overflow,
+                        gj1))
+                  else
+                    let gj1 ← gj + 2#usize
+                    ok (cont (rows, some solve_port.chol.SolveError.Overflow,
+                      gj1))
+                | some v =>
+                  let i22 ← ri * d
+                  let i23 ← i22 + gc
+                  let (_, index_mut_back) ← Slice.index_mut_usize rows i23
+                  let (rows1, err2) ←
+                    if r2 != ri
+                    then
+                      let b3 := core.option.Option.is_none err1
+                      if b3
+                      then
+                        do
+                        let o1 ← solve_port.chol.round_to_i64 c101
+                        let (rows2, err3) ←
+                          match o1 with
+                          | none =>
+                            let s := index_mut_back v
+                            ok (s, some solve_port.chol.SolveError.Overflow)
+                          | some v1 =>
+                            do
+                            let i24 ← r2 * d
+                            let i25 ← i24 + gj
+                            let rows3 := index_mut_back v
+                            let s ← Slice.update rows3 i25 v1
+                            ok (s, err1)
+                        if gc != gj
+                        then
+                          let b4 := core.option.Option.is_none err3
+                          if b4
+                          then
+                            let o2 ← solve_port.chol.round_to_i64 c111
+                            match o2 with
+                            | none =>
+                              ok (rows2, some
+                                solve_port.chol.SolveError.Overflow)
+                            | some v1 =>
+                              let i24 ← r2 * d
+                              let i25 ← i24 + gc
+                              let s ← Slice.update rows2 i25 v1
+                              ok (s, err3)
+                          else ok (rows2, err3)
+                        else ok (rows2, err3)
+                      else let s := index_mut_back v
+                           ok (s, err1)
+                    else let s := index_mut_back v
+                         ok (s, err1)
+                  let gj1 ← gj + 2#usize
+                  ok (cont (rows1, err2, gj1))
+              else
+                if r2 != ri
+                then
+                  let b3 := core.option.Option.is_none err1
+                  if b3
+                  then
+                    let o ← solve_port.chol.round_to_i64 c101
+                    match o with
+                    | none =>
+                      if gc != gj
+                      then
+                        let b4 :=
+                          core.option.Option.is_none (some
+                            solve_port.chol.SolveError.Overflow)
+                        if b4
+                        then
+                          let o1 ← solve_port.chol.round_to_i64 c111
+                          match o1 with
+                          | none =>
+                            let gj1 ← gj + 2#usize
+                            ok (cont (rows, some
+                              solve_port.chol.SolveError.Overflow, gj1))
+                          | some v =>
+                            let i22 ← r2 * d
+                            let i23 ← i22 + gc
+                            let s ← Slice.update rows i23 v
+                            let gj1 ← gj + 2#usize
+                            ok (cont (s, some
+                              solve_port.chol.SolveError.Overflow, gj1))
+                        else
+                          let gj1 ← gj + 2#usize
+                          ok (cont (rows, some
+                            solve_port.chol.SolveError.Overflow, gj1))
+                      else
+                        let gj1 ← gj + 2#usize
+                        ok (cont (rows, some
+                          solve_port.chol.SolveError.Overflow, gj1))
+                    | some v =>
+                      let i22 ← r2 * d
+                      let i23 ← i22 + gj
+                      let (_, index_mut_back) ←
+                        Slice.index_mut_usize rows i23
+                      let (rows1, err2) ←
+                        if gc != gj
+                        then
+                          let b4 := core.option.Option.is_none err1
+                          if b4
+                          then
+                            do
+                            let o1 ← solve_port.chol.round_to_i64 c111
+                            match o1 with
+                            | none =>
+                              let s := index_mut_back v
+                              ok (s, some solve_port.chol.SolveError.Overflow)
+                            | some v1 =>
+                              let i24 ← i22 + gc
+                              let rows2 := index_mut_back v
+                              let s ← Slice.update rows2 i24 v1
+                              ok (s, err1)
+                          else let s := index_mut_back v
+                               ok (s, err1)
+                        else let s := index_mut_back v
+                             ok (s, err1)
+                      let gj1 ← gj + 2#usize
+                      ok (cont (rows1, err2, gj1))
+                  else let gj1 ← gj + 2#usize
+                       ok (cont (rows, err1, gj1))
+                else let gj1 ← gj + 2#usize
+                     ok (cont (rows, err1, gj1))
+            else
+              if r2 != ri
+              then
+                let b2 := core.option.Option.is_none err1
+                if b2
+                then
+                  let o ← solve_port.chol.round_to_i64 c101
+                  match o with
+                  | none =>
+                    if gc != gj
+                    then
+                      let b3 :=
+                        core.option.Option.is_none (some
+                          solve_port.chol.SolveError.Overflow)
+                      if b3
+                      then
+                        let o1 ← solve_port.chol.round_to_i64 c111
+                        match o1 with
+                        | none =>
+                          let gj1 ← gj + 2#usize
+                          ok (cont (rows, some
+                            solve_port.chol.SolveError.Overflow, gj1))
+                        | some v =>
+                          let i22 ← r2 * d
+                          let i23 ← i22 + gc
+                          let s ← Slice.update rows i23 v
+                          let gj1 ← gj + 2#usize
+                          ok (cont (s, some
+                            solve_port.chol.SolveError.Overflow, gj1))
+                      else
+                        let gj1 ← gj + 2#usize
+                        ok (cont (rows, some
+                          solve_port.chol.SolveError.Overflow, gj1))
+                    else
+                      let gj1 ← gj + 2#usize
+                      ok (cont (rows, some solve_port.chol.SolveError.Overflow,
+                        gj1))
+                  | some v =>
+                    let i22 ← r2 * d
+                    let i23 ← i22 + gj
+                    let (_, index_mut_back) ← Slice.index_mut_usize rows i23
+                    let (rows1, err2) ←
+                      if gc != gj
+                      then
+                        let b3 := core.option.Option.is_none err1
+                        if b3
+                        then
+                          do
+                          let o1 ← solve_port.chol.round_to_i64 c111
+                          match o1 with
+                          | none =>
+                            let s := index_mut_back v
+                            ok (s, some solve_port.chol.SolveError.Overflow)
+                          | some v1 =>
+                            let i24 ← i22 + gc
+                            let rows2 := index_mut_back v
+                            let s ← Slice.update rows2 i24 v1
+                            ok (s, err1)
+                        else let s := index_mut_back v
+                             ok (s, err1)
+                      else let s := index_mut_back v
+                           ok (s, err1)
+                    let gj1 ← gj + 2#usize
+                    ok (cont (rows1, err2, gj1))
+                else let gj1 ← gj + 2#usize
+                     ok (cont (rows, err1, gj1))
+              else let gj1 ← gj + 2#usize
+                   ok (cont (rows, err1, gj1))
+          else
+            if r2 != ri
+            then
+              let b2 := core.option.Option.is_none err1
+              if b2
+              then
+                let o ← solve_port.chol.round_to_i64 c101
+                match o with
+                | none =>
+                  if gc != gj
+                  then
+                    let b3 :=
+                      core.option.Option.is_none (some
+                        solve_port.chol.SolveError.Overflow)
+                    if b3
+                    then
+                      let o1 ← solve_port.chol.round_to_i64 c111
+                      match o1 with
+                      | none =>
+                        let gj1 ← gj + 2#usize
+                        ok (cont (rows, some
+                          solve_port.chol.SolveError.Overflow, gj1))
+                      | some v =>
+                        let i22 ← r2 * d
+                        let i23 ← i22 + gc
+                        let s ← Slice.update rows i23 v
+                        let gj1 ← gj + 2#usize
+                        ok (cont (s, some solve_port.chol.SolveError.Overflow,
+                          gj1))
+                    else
+                      let gj1 ← gj + 2#usize
+                      ok (cont (rows, some solve_port.chol.SolveError.Overflow,
+                        gj1))
+                  else
+                    let gj1 ← gj + 2#usize
+                    ok (cont (rows, some solve_port.chol.SolveError.Overflow,
+                      gj1))
+                | some v =>
+                  let i22 ← r2 * d
+                  let i23 ← i22 + gj
+                  let (_, index_mut_back) ← Slice.index_mut_usize rows i23
+                  let (rows1, err2) ←
+                    if gc != gj
+                    then
+                      let b3 := core.option.Option.is_none err1
+                      if b3
+                      then
+                        do
+                        let o1 ← solve_port.chol.round_to_i64 c111
+                        match o1 with
+                        | none =>
+                          let s := index_mut_back v
+                          ok (s, some solve_port.chol.SolveError.Overflow)
+                        | some v1 =>
+                          let i24 ← i22 + gc
+                          let rows2 := index_mut_back v
+                          let s ← Slice.update rows2 i24 v1
+                          ok (s, err1)
+                      else let s := index_mut_back v
+                           ok (s, err1)
+                    else let s := index_mut_back v
+                         ok (s, err1)
+                  let gj1 ← gj + 2#usize
+                  ok (cont (rows1, err2, gj1))
+              else let gj1 ← gj + 2#usize
+                   ok (cont (rows, err1, gj1))
+            else let gj1 ← gj + 2#usize
+                 ok (cont (rows, err1, gj1))
+      else let gj1 ← gj + 2#usize
+           ok (cont (rows, err1, gj1))
+    else ok (done (rows, err))
+  else ok (done (rows, err))
+
+/-- [apeiron_word::solve_port::chol::chol_trailing_update]: loop 1:
+    Source: '../../src/learn/solve/chol.rs', lines 304:8-363:9 -/
+@[rust_loop]
+def solve_port.chol.chol_trailing_update_loop0_loop0
+  (rows : Slice Std.I64) (kbase : Std.Usize) (l : Slice Std.I64)
+  (d : Std.Usize) (kb : Std.Usize) (err : Option solve_port.chol.SolveError)
+  (ri : Std.Usize) (r2 : Std.Usize) (gi : Std.Usize) (gi2 : Std.Usize)
+  (li0 : Slice Std.I64) (li1 : Slice Std.I64) (gj : Std.Usize) :
+  Result ((Slice Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (rows1, err1, gj1) =>
+      solve_port.chol.chol_trailing_update_loop0_loop0.body kbase l d kb ri r2
+      gi gi2 li0 li1 rows1 err1 gj1)
+    (rows, err, gj)
+
+/-- [apeiron_word::solve_port::chol::chol_trailing_update]: loop body 0:
+    Source: '../../src/learn/solve/chol.rs', lines 298:4-365:5 -/
+@[rust_loop_body]
+def solve_port.chol.chol_trailing_update_loop0.body
+  (first : Std.Usize) (kbase : Std.Usize) (kend : Std.Usize)
+  (l : Slice Std.I64) (d : Std.Usize) (kb : Std.Usize) (nrows : Std.Usize)
+  (rows : Slice Std.I64) (err : Option solve_port.chol.SolveError)
+  (ri : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option solve_port.chol.SolveError)
+    × Std.Usize) ((Slice Std.I64) × (Option solve_port.chol.SolveError)))
+  := do
+  if ri < nrows
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← ri + 1#usize
+      let r2 ← if i < nrows
+                 then ok i
+                 else ok ri
+      let gi ← first + ri
+      let gi2 ← first + r2
+      let i1 ← gi * d
+      let i2 ← i1 + kbase
+      let i3 ← i1 + kbase
+      let i4 ← i3 + kb
+      let li0 ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) l
+          { start := i2, «end» := i4 }
+      let i5 ← gi2 * d
+      let i6 ← i5 + kbase
+      let i7 ← i5 + kbase
+      let i8 ← i7 + kb
+      let li1 ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) l
+          { start := i6, «end» := i8 }
+      let (rows1, err1) ←
+        solve_port.chol.chol_trailing_update_loop0_loop0 rows kbase l d kb err
+          ri r2 gi gi2 li0 li1 kend
+      let ri1 ← ri + 2#usize
+      ok (cont (rows1, err1, ri1))
+    else ok (done (rows, err))
+  else ok (done (rows, err))
+
+/-- [apeiron_word::solve_port::chol::chol_trailing_update]: loop 0:
+    Source: '../../src/learn/solve/chol.rs', lines 298:4-365:5 -/
+@[rust_loop]
+def solve_port.chol.chol_trailing_update_loop0
+  (rows : Slice Std.I64) (first : Std.Usize) (kbase : Std.Usize)
+  (kend : Std.Usize) (l : Slice Std.I64) (d : Std.Usize) (kb : Std.Usize)
+  (nrows : Std.Usize) (err : Option solve_port.chol.SolveError)
+  (ri : Std.Usize) :
+  Result ((Slice Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (rows1, err1, ri1) => solve_port.chol.chol_trailing_update_loop0.body
+      first kbase kend l d kb nrows rows1 err1 ri1)
+    (rows, err, ri)
+
+/-- [apeiron_word::solve_port::chol::chol_trailing_update]:
+    Source: '../../src/learn/solve/chol.rs', lines 279:0-370:1 -/
+def solve_port.chol.chol_trailing_update
+  (rows : Slice Std.I64) (first : Std.Usize) (kbase : Std.Usize)
+  (kend : Std.Usize) (l : Slice Std.I64) (d : Std.Usize) (kb : Std.Usize) :
+  Result ((core.result.Result Unit solve_port.chol.SolveError) × (Slice
+    Std.I64))
+  := do
+  let i := Slice.len rows
+  let nrows ← i / d
+  let (rows1, err) ←
+    solve_port.chol.chol_trailing_update_loop0 rows first kbase kend l d kb
+      nrows none 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok (), rows1)
+  | some e => ok (core.result.Result.Err e, rows1)
+
+/-- [apeiron_word::solve_port::chol::trailing_update_par]:
+    Source: '../../src/learn/solve/chol.rs', lines 387:0-431:1 -/
+axiom solve_port.chol.trailing_update_par
+  :
+  Slice Std.I64 → Slice Std.I64 → Std.Usize → Std.Usize → Std.Usize →
+    Std.Usize → Result ((core.result.Result Unit solve_port.chol.SolveError)
+    × (Slice Std.I64))
+
+/-- [apeiron_word::solve_port::chol::factor_scaled]: loop body 2:
+    Source: '../../src/learn/solve/chol.rs', lines 464:12-489:13 -/
+@[rust_loop_body]
+def solve_port.chol.factor_scaled_loop0_loop0_loop0.body
+  (n : Std.Usize) (work : alloc.vec.Vec Std.I64) (k : Std.Usize)
+  (i : Std.Usize) (l : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if j <= i
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let gi ← k + i
+      let gj ← k + j
+      let i1 ← gi * n
+      let i2 ← i1 + gj
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          work i2
+      let s := alloc.vec.Vec.deref l
+      let o ← solve_port.chol.chol_entry i3 s n gi gj k j
+      let (l1, err1) ←
+        match o with
+        | none => ok (l, some solve_port.chol.SolveError.Overflow)
+        | some s1 =>
+          if i = j
+          then
+            if s1 <= 0#i64
+            then ok (l, some solve_port.chol.SolveError.NotPositiveDefinite)
+            else
+              do
+              let i4 ← lift (core.convert.num.FromI128I64.from s1)
+              let i5 ← i4 <<< 32#i32
+              let i6 ← fixed_rsqrt.isqrt i5
+              let o1 ← solve_port.chol.narrow i6
+              match o1 with
+              | none => ok (l, some solve_port.chol.SolveError.Overflow)
+              | some v =>
+                let i7 ← i1 + gj
+                let (_, index_mut_back) ←
+                  alloc.vec.Vec.index_mut
+                    (core.slice.index.SliceIndexUsizeSlice Std.I64) l i7
+                let l2 := index_mut_back v
+                ok (l2, err)
+          else
+            do
+            let i4 ← gj * n
+            let i5 ← i4 + gj
+            let i6 ←
+              alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) l i5
+            let ljj ← lift (core.convert.num.FromI128I64.from i6)
+            let i7 ← lift (core.convert.num.FromI128I64.from s1)
+            let i8 ← i7 <<< 32#i32
+            let o1 ← solve_port.chol.div_to_i64 i8 ljj
+            match o1 with
+            | none => ok (l, some solve_port.chol.SolveError.Overflow)
+            | some v =>
+              let i9 ← i1 + gj
+              let (_, index_mut_back) ←
+                alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                  Std.I64) l i9
+              let l2 := index_mut_back v
+              ok (l2, err)
+      let j1 ← j + 1#usize
+      ok (cont (l1, err1, j1))
+    else ok (done (l, err))
+  else ok (done (l, err))
+
+/-- [apeiron_word::solve_port::chol::factor_scaled]: loop 2:
+    Source: '../../src/learn/solve/chol.rs', lines 464:12-489:13 -/
+@[rust_loop]
+def solve_port.chol.factor_scaled_loop0_loop0_loop0
+  (n : Std.Usize) (work : alloc.vec.Vec Std.I64) (l : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (k : Std.Usize) (i : Std.Usize)
+  (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (l1, err1, j1) => solve_port.chol.factor_scaled_loop0_loop0_loop0.body
+      n work k i l1 err1 j1)
+    (l, err, j)
+
+/-- [apeiron_word::solve_port::chol::factor_scaled]: loop body 1:
+    Source: '../../src/learn/solve/chol.rs', lines 462:8-491:9 -/
+@[rust_loop_body]
+def solve_port.chol.factor_scaled_loop0_loop0.body
+  (n : Std.Usize) (work : alloc.vec.Vec Std.I64) (k : Std.Usize)
+  (kb : Std.Usize) (l : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if i < kb
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (l1, err1) ←
+        solve_port.chol.factor_scaled_loop0_loop0_loop0 n work l err k i
+          0#usize
+      let i1 ← i + 1#usize
+      ok (cont (l1, err1, i1))
+    else ok (done (l, err))
+  else ok (done (l, err))
+
+/-- [apeiron_word::solve_port::chol::factor_scaled]: loop 1:
+    Source: '../../src/learn/solve/chol.rs', lines 462:8-491:9 -/
+@[rust_loop]
+def solve_port.chol.factor_scaled_loop0_loop0
+  (n : Std.Usize) (work : alloc.vec.Vec Std.I64) (l : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (k : Std.Usize) (kb : Std.Usize)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (l1, err1, i1) => solve_port.chol.factor_scaled_loop0_loop0.body n
+      work k kb l1 err1 i1)
+    (l, err, i)
+
+/-- [apeiron_word::solve_port::chol::factor_scaled]: loop body 4:
+    Source: '../../src/learn/solve/chol.rs', lines 498:12-511:13 -/
+@[rust_loop_body]
+def solve_port.chol.factor_scaled_loop0_loop1_loop0.body
+  (n : Std.Usize) (work : alloc.vec.Vec Std.I64) (k : Std.Usize)
+  (kb : Std.Usize) (gi : Std.Usize) (l : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if j < kb
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let gj ← k + j
+      let i ← gi * n
+      let i1 ← i + gj
+      let i2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          work i1
+      let s := alloc.vec.Vec.deref l
+      let o ← solve_port.chol.chol_entry i2 s n gi gj k j
+      let (l1, err1) ←
+        match o with
+        | none => ok (l, some solve_port.chol.SolveError.Overflow)
+        | some s1 =>
+          do
+          let i3 ← gj * n
+          let i4 ← i3 + gj
+          let i5 ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+              l i4
+          let ljj ← lift (core.convert.num.FromI128I64.from i5)
+          let i6 ← lift (core.convert.num.FromI128I64.from s1)
+          let i7 ← i6 <<< 32#i32
+          let o1 ← solve_port.chol.div_to_i64 i7 ljj
+          match o1 with
+          | none => ok (l, some solve_port.chol.SolveError.Overflow)
+          | some v =>
+            let i8 ← i + gj
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) l i8
+            let l2 := index_mut_back v
+            ok (l2, err)
+      let j1 ← j + 1#usize
+      ok (cont (l1, err1, j1))
+    else ok (done (l, err))
+  else ok (done (l, err))
+
+/-- [apeiron_word::solve_port::chol::factor_scaled]: loop 4:
+    Source: '../../src/learn/solve/chol.rs', lines 498:12-511:13 -/
+@[rust_loop]
+def solve_port.chol.factor_scaled_loop0_loop1_loop0
+  (n : Std.Usize) (work : alloc.vec.Vec Std.I64) (l : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (k : Std.Usize) (kb : Std.Usize)
+  (gi : Std.Usize) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (l1, err1, j1) => solve_port.chol.factor_scaled_loop0_loop1_loop0.body
+      n work k kb gi l1 err1 j1)
+    (l, err, j)
+
+/-- [apeiron_word::solve_port::chol::factor_scaled]: loop body 3:
+    Source: '../../src/learn/solve/chol.rs', lines 496:8-513:9 -/
+@[rust_loop_body]
+def solve_port.chol.factor_scaled_loop0_loop1.body
+  (n : Std.Usize) (work : alloc.vec.Vec Std.I64) (k : Std.Usize)
+  (kb : Std.Usize) (l : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (gi : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if gi < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (l1, err1) ←
+        solve_port.chol.factor_scaled_loop0_loop1_loop0 n work l err k kb gi
+          0#usize
+      let gi1 ← gi + 1#usize
+      ok (cont (l1, err1, gi1))
+    else ok (done (l, err))
+  else ok (done (l, err))
+
+/-- [apeiron_word::solve_port::chol::factor_scaled]: loop 3:
+    Source: '../../src/learn/solve/chol.rs', lines 496:8-513:9 -/
+@[rust_loop]
+def solve_port.chol.factor_scaled_loop0_loop1
+  (n : Std.Usize) (work : alloc.vec.Vec Std.I64) (l : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (k : Std.Usize) (kb : Std.Usize)
+  (gi : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (l1, err1, gi1) => solve_port.chol.factor_scaled_loop0_loop1.body n
+      work k kb l1 err1 gi1)
+    (l, err, gi)
+
+/-- [apeiron_word::solve_port::chol::factor_scaled]: loop body 0:
+    Source: '../../src/learn/solve/chol.rs', lines 458:4-528:5 -/
+@[rust_loop_body]
+def solve_port.chol.factor_scaled_loop0.body
+  (n : Std.Usize) (threads : Std.Usize) (work : alloc.vec.Vec Std.I64)
+  (l : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64)
+    × (Option solve_port.chol.SolveError)))
+  := do
+  if k < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← n - k
+      let kb ←
+        core.cmp.Ord.min.trait_default core.cmp.OrdUsize i
+          solve_port.chol.CHOL_BLOCK
+      let (l1, err1) ←
+        solve_port.chol.factor_scaled_loop0_loop0 n work l err k kb 0#usize
+      let kend ← k + kb
+      let (l2, err2) ←
+        solve_port.chol.factor_scaled_loop0_loop1 n work l1 err1 k kb kend
+      if kend < n
+      then
+        let b1 := core.option.Option.is_none err2
+        if b1
+        then
+          let i1 ← core.cmp.Ord.max.default core.cmp.OrdUsize threads 1#usize
+          let i2 ← n - kend
+          let nt ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i1 i2
+          let (work1, res) ←
+            if nt <= 1#usize
+            then
+              do
+              let i3 ← kend * n
+              let i4 ← n * n
+              let (s, index_mut_back) ←
+                alloc.vec.Vec.index_mut
+                  (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) work
+                  { start := i3, «end» := i4 }
+              let i5 ← kend - kb
+              let s1 := alloc.vec.Vec.deref l2
+              let (res1, s2) ←
+                solve_port.chol.chol_trailing_update s kend i5 kend s1 n kb
+              let work2 := index_mut_back s2
+              ok (work2, res1)
+            else
+              do
+              let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut work)
+              let s1 := alloc.vec.Vec.deref l2
+              let (res1, s2) ←
+                solve_port.chol.trailing_update_par s s1 n kend kb nt
+              let work2 := deref_mut_back s2
+              ok (work2, res1)
+          match res with
+          | core.result.Result.Ok _ => ok (cont (work1, l2, err2, kend))
+          | core.result.Result.Err e => ok (cont (work1, l2, some e, kend))
+        else ok (cont (work, l2, err2, kend))
+      else ok (cont (work, l2, err2, kend))
+    else ok (done (l, err))
+  else ok (done (l, err))
+
+/-- [apeiron_word::solve_port::chol::factor_scaled]: loop 0:
+    Source: '../../src/learn/solve/chol.rs', lines 458:4-528:5 -/
+@[rust_loop]
+def solve_port.chol.factor_scaled_loop0
+  (n : Std.Usize) (threads : Std.Usize) (work : alloc.vec.Vec Std.I64)
+  (l : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (k : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (work1, l1, err1, k1) => solve_port.chol.factor_scaled_loop0.body n
+      threads work1 l1 err1 k1)
+    (work, l, err, k)
+
+/-- [apeiron_word::solve_port::chol::factor_scaled]:
+    Source: '../../src/learn/solve/chol.rs', lines 448:0-533:1 -/
+def solve_port.chol.factor_scaled
+  (a : Slice Std.I64) (n : Std.Usize) (threads : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    solve_port.chol.SolveError)
+  := do
+  let i := Slice.len a
+  let i1 ← n * n
+  if i != i1
+  then ok (core.result.Result.Err solve_port.chol.SolveError.ShapeMismatch)
+  else
+    let work ← alloc.slice.Slice.to_vec core.clone.CloneI64 a
+    let l ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i1
+    let (l1, err) ←
+      solve_port.chol.factor_scaled_loop0 n threads work l none 0#usize
+    match err with
+    | none => ok (core.result.Result.Ok l1)
+    | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::solve_port::chol::dot_shifted_row]: loop body 0:
+    Source: '../../src/learn/solve/chol.rs', lines 544:4-551:5 -/
+@[rust_loop_body]
+def solve_port.chol.dot_shifted_row_loop.body
+  (xs : Slice Std.I64) (ys : Slice Std.I64) (acc : Std.I128) (p : Std.Usize)
+  (ok1 : Bool) :
+  Result (ControlFlow (Std.I128 × Std.Usize × Bool) (Std.I128 × Bool))
+  := do
+  let i := Slice.len xs
+  if p < i
+  then
+    if ok1
+    then
+      let i1 ← Slice.index_usize xs p
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← Slice.index_usize ys p
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let pr ← i2 * i4
+      let o ← lift (I128.checked_sub acc pr)
+      let (acc1, ok2) ←
+        match o with
+        | none => ok (acc, false)
+        | some s => ok (s, true)
+      let p1 ← p + 1#usize
+      ok (cont (acc1, p1, ok2))
+    else ok (done (acc, false))
+  else ok (done (acc, ok1))
+
+/-- [apeiron_word::solve_port::chol::dot_shifted_row]: loop 0:
+    Source: '../../src/learn/solve/chol.rs', lines 544:4-551:5 -/
+@[rust_loop]
+def solve_port.chol.dot_shifted_row_loop
+  (xs : Slice Std.I64) (ys : Slice Std.I64) (acc : Std.I128) (p : Std.Usize)
+  (ok1 : Bool) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (acc1, p1, ok2) => solve_port.chol.dot_shifted_row_loop.body xs ys
+      acc1 p1 ok2)
+    (acc, p, ok1)
+
+/-- [apeiron_word::solve_port::chol::dot_shifted_row]:
+    Source: '../../src/learn/solve/chol.rs', lines 540:0-557:1 -/
+def solve_port.chol.dot_shifted_row
+  (base : Std.I64) (xs : Slice Std.I64) (ys : Slice Std.I64) :
+  Result (Option Std.I128)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from base)
+  let acc ← i <<< 32#i32
+  let (acc1, ok1) ←
+    solve_port.chol.dot_shifted_row_loop xs ys acc 0#usize true
+  if ok1
+  then ok (some acc1)
+  else ok none
+
+/-- [apeiron_word::solve_port::chol::dot_shifted_col]: loop body 0:
+    Source: '../../src/learn/solve/chol.rs', lines 577:4-584:5 -/
+@[rust_loop_body]
+def solve_port.chol.dot_shifted_col_loop.body
+  (l : Slice Std.I64) (d : Std.Usize) (col : Std.Usize) (ys : Slice Std.I64)
+  (p1 : Std.Usize) (acc : Std.I128) (p : Std.Usize) (ok1 : Bool) :
+  Result (ControlFlow (Std.I128 × Std.Usize × Bool) (Std.I128 × Bool))
+  := do
+  if p < p1
+  then
+    if ok1
+    then
+      let i ← p * d
+      let i1 ← i + col
+      let i2 ← Slice.index_usize l i1
+      let i3 ← lift (core.convert.num.FromI128I64.from i2)
+      let i4 ← Slice.index_usize ys p
+      let i5 ← lift (core.convert.num.FromI128I64.from i4)
+      let pr ← i3 * i5
+      let o ← lift (I128.checked_sub acc pr)
+      let (acc1, ok2) ←
+        match o with
+        | none => ok (acc, false)
+        | some s => ok (s, true)
+      let p2 ← p + 1#usize
+      ok (cont (acc1, p2, ok2))
+    else ok (done (acc, false))
+  else ok (done (acc, ok1))
+
+/-- [apeiron_word::solve_port::chol::dot_shifted_col]: loop 0:
+    Source: '../../src/learn/solve/chol.rs', lines 577:4-584:5 -/
+@[rust_loop]
+def solve_port.chol.dot_shifted_col_loop
+  (l : Slice Std.I64) (d : Std.Usize) (col : Std.Usize) (ys : Slice Std.I64)
+  (p1 : Std.Usize) (acc : Std.I128) (p : Std.Usize) (ok1 : Bool) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (acc1, p2, ok2) => solve_port.chol.dot_shifted_col_loop.body l d col
+      ys p1 acc1 p2 ok2)
+    (acc, p, ok1)
+
+/-- [apeiron_word::solve_port::chol::dot_shifted_col]:
+    Source: '../../src/learn/solve/chol.rs', lines 565:0-590:1 -/
+def solve_port.chol.dot_shifted_col
+  (base : Std.I64) (l : Slice Std.I64) (d : Std.Usize) (col : Std.Usize)
+  (ys : Slice Std.I64) (p0 : Std.Usize) (p1 : Std.Usize) :
+  Result (Option Std.I128)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from base)
+  let acc ← i <<< 32#i32
+  let (acc1, ok1) ←
+    solve_port.chol.dot_shifted_col_loop l d col ys p1 acc p0 true
+  if ok1
+  then ok (some acc1)
+  else ok none
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop body 1:
+    Source: '../../src/learn/solve/chol.rs', lines 616:8-622:9 -/
+@[rust_loop_body]
+def solve_port.chol.solve_rhs_loop0_loop0.body
+  (d : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
+  (j : Std.Usize) (err : Option solve_port.chol.SolveError)
+  (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((Option solve_port.chol.SolveError) × (alloc.vec.Vec
+    Std.I64) × Std.Usize) ((Option solve_port.chol.SolveError) ×
+    (alloc.vec.Vec Std.I64)))
+  := do
+  if i < n
+  then
+    let b1 := core.option.Option.is_none err
+    if b1
+    then
+      let i1 ← i * k
+      let i2 ← i1 + j
+      let i3 ← Slice.index_usize b i2
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let i5 ← i4 <<< 32#i32
+      let i6 ← Slice.index_usize d i
+      let i7 ← lift (core.convert.num.FromI128I64.from i6)
+      let o ← solve_port.chol.div_to_i64 i5 i7
+      let (err1, y1) ←
+        match o with
+        | none => ok (some solve_port.chol.SolveError.Overflow, y)
+        | some v =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) y i
+          let y2 := index_mut_back v
+          ok (err, y2)
+      let i8 ← i + 1#usize
+      ok (cont (err1, y1, i8))
+    else ok (done (err, y))
+  else ok (done (err, y))
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop 1:
+    Source: '../../src/learn/solve/chol.rs', lines 616:8-622:9 -/
+@[rust_loop]
+def solve_port.chol.solve_rhs_loop0_loop0
+  (d : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
+  (err : Option solve_port.chol.SolveError) (j : Std.Usize)
+  (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result ((Option solve_port.chol.SolveError) × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (err1, y1, i1) => solve_port.chol.solve_rhs_loop0_loop0.body d b n k j
+      err1 y1 i1)
+    (err, y, i)
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop body 2:
+    Source: '../../src/learn/solve/chol.rs', lines 625:8-634:9 -/
+@[rust_loop_body]
+def solve_port.chol.solve_rhs_loop0_loop1.body
+  (l : Slice Std.I64) (n : Std.Usize) (err : Option solve_port.chol.SolveError)
+  (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((Option solve_port.chol.SolveError) × (alloc.vec.Vec
+    Std.I64) × Std.Usize) ((Option solve_port.chol.SolveError) ×
+    (alloc.vec.Vec Std.I64)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) y i
+      let i2 ← i * n
+      let i3 ← i2 + i
+      let s ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) l
+          { start := i2, «end» := i3 }
+      let s1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) y { start := 0#usize, «end» := i }
+      let o ← solve_port.chol.dot_shifted_row i1 s s1
+      let (err1, y1) ←
+        match o with
+        | none => ok (some solve_port.chol.SolveError.Overflow, y)
+        | some s2 =>
+          do
+          let i4 ← i2 + i
+          let i5 ← Slice.index_usize l i4
+          let i6 ← lift (core.convert.num.FromI128I64.from i5)
+          let o1 ← solve_port.chol.div_to_i64 s2 i6
+          match o1 with
+          | none => ok (some solve_port.chol.SolveError.Overflow, y)
+          | some v =>
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) y i
+            let y2 := index_mut_back v
+            ok (err, y2)
+      let i4 ← i + 1#usize
+      ok (cont (err1, y1, i4))
+    else ok (done (err, y))
+  else ok (done (err, y))
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop 2:
+    Source: '../../src/learn/solve/chol.rs', lines 625:8-634:9 -/
+@[rust_loop]
+def solve_port.chol.solve_rhs_loop0_loop1
+  (l : Slice Std.I64) (n : Std.Usize) (err : Option solve_port.chol.SolveError)
+  (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result ((Option solve_port.chol.SolveError) × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (err1, y1, i1) => solve_port.chol.solve_rhs_loop0_loop1.body l n err1
+      y1 i1)
+    (err, y, i)
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop body 3:
+    Source: '../../src/learn/solve/chol.rs', lines 637:8-646:9 -/
+@[rust_loop_body]
+def solve_port.chol.solve_rhs_loop0_loop2.body
+  (l : Slice Std.I64) (n : Std.Usize) (err : Option solve_port.chol.SolveError)
+  (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((Option solve_port.chol.SolveError) × (alloc.vec.Vec
+    Std.I64) × Std.Usize) ((Option solve_port.chol.SolveError) ×
+    (alloc.vec.Vec Std.I64)))
+  := do
+  if i > 0#usize
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i - 1#usize
+      let i2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) y
+          i1
+      let s := alloc.vec.Vec.deref y
+      let i3 ← i1 + 1#usize
+      let o ← solve_port.chol.dot_shifted_col i2 l n i1 s i3 n
+      match o with
+      | none => ok (cont (some solve_port.chol.SolveError.Overflow, y, i1))
+      | some s1 =>
+        let i4 ← i1 * n
+        let i5 ← i4 + i1
+        let i6 ← Slice.index_usize l i5
+        let i7 ← lift (core.convert.num.FromI128I64.from i6)
+        let o1 ← solve_port.chol.div_to_i64 s1 i7
+        match o1 with
+        | none => ok (cont (some solve_port.chol.SolveError.Overflow, y, i1))
+        | some v =>
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) y i1
+          let y1 := index_mut_back v
+          ok (cont (err, y1, i1))
+    else ok (done (err, y))
+  else ok (done (err, y))
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop 3:
+    Source: '../../src/learn/solve/chol.rs', lines 637:8-646:9 -/
+@[rust_loop]
+def solve_port.chol.solve_rhs_loop0_loop2
+  (l : Slice Std.I64) (n : Std.Usize) (err : Option solve_port.chol.SolveError)
+  (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result ((Option solve_port.chol.SolveError) × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (err1, y1, i1) => solve_port.chol.solve_rhs_loop0_loop2.body l n err1
+      y1 i1)
+    (err, y, i)
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop body 4:
+    Source: '../../src/learn/solve/chol.rs', lines 649:8-655:9 -/
+@[rust_loop_body]
+def solve_port.chol.solve_rhs_loop0_loop3.body
+  (d : Slice Std.I64) (n : Std.Usize) (k : Std.Usize) (j : Std.Usize)
+  (y : alloc.vec.Vec Std.I64) (out : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) y i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← i2 <<< 32#i32
+      let i4 ← Slice.index_usize d i
+      let i5 ← lift (core.convert.num.FromI128I64.from i4)
+      let o ← solve_port.chol.div_to_i64 i3 i5
+      let (out1, err1) ←
+        match o with
+        | none => ok (out, some solve_port.chol.SolveError.Overflow)
+        | some v =>
+          do
+          let i6 ← i * k
+          let i7 ← i6 + j
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) out i7
+          let out2 := index_mut_back v
+          ok (out2, err)
+      let i6 ← i + 1#usize
+      ok (cont (out1, err1, i6))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop 4:
+    Source: '../../src/learn/solve/chol.rs', lines 649:8-655:9 -/
+@[rust_loop]
+def solve_port.chol.solve_rhs_loop0_loop3
+  (d : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (j : Std.Usize) (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (out1, err1, i1) => solve_port.chol.solve_rhs_loop0_loop3.body d n k j
+      y out1 err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop body 0:
+    Source: '../../src/learn/solve/chol.rs', lines 612:10-613:32 -/
+@[rust_loop_body]
+def solve_port.chol.solve_rhs_loop0.body
+  (l : Slice Std.I64) (d : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize)
+  (k : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if j < k
+  then
+    let b1 := core.option.Option.is_none err
+    if b1
+    then
+      let y ← alloc.vec.from_elem core.clone.CloneI64 0#i64 n
+      let (err1, y1) ←
+        solve_port.chol.solve_rhs_loop0_loop0 d b n k err j y 0#usize
+      let (err2, y2) ←
+        solve_port.chol.solve_rhs_loop0_loop1 l n err1 y1 0#usize
+      let (err3, y3) ← solve_port.chol.solve_rhs_loop0_loop2 l n err2 y2 n
+      let (out1, err4) ←
+        solve_port.chol.solve_rhs_loop0_loop3 d n k out err3 j y3 0#usize
+      let j1 ← j + 1#usize
+      ok (cont (out1, err4, j1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop 0:
+    Source: '../../src/learn/solve/chol.rs', lines 612:10-613:32 -/
+@[rust_loop]
+def solve_port.chol.solve_rhs_loop0
+  (l : Slice Std.I64) (d : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize)
+  (k : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (out1, err1, j1) => solve_port.chol.solve_rhs_loop0.body l d b n k
+      out1 err1 j1)
+    (out, err, j)
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]:
+    Source: '../../src/learn/solve/chol.rs', lines 606:0-662:1 -/
+def solve_port.chol.solve_rhs
+  (l : Slice Std.I64) (d : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize)
+  (k : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    solve_port.chol.SolveError)
+  := do
+  let i ← n * k
+  let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  let (out1, err) ←
+    solve_port.chol.solve_rhs_loop0 l d b n k out none 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok out1)
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::solve_port::chol::exact_residual]: loop body 1:
+    Source: '../../src/learn/solve/chol.rs', lines 690:8-693:9 -/
+@[rust_loop_body]
+def solve_port.chol.exact_residual_loop0_loop0.body
+  (x : Slice Std.I64) (n : Std.Usize) (k : Std.Usize) (j : Std.Usize)
+  (xcol : alloc.vec.Vec Std.I64) (t : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if t < n
+  then
+    let i ← t * k
+    let i1 ← i + j
+    let i2 ← Slice.index_usize x i1
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        xcol t
+    let t1 ← t + 1#usize
+    let xcol1 := index_mut_back i2
+    ok (cont (xcol1, t1))
+  else ok (done xcol)
+
+/-- [apeiron_word::solve_port::chol::exact_residual]: loop 1:
+    Source: '../../src/learn/solve/chol.rs', lines 690:8-693:9 -/
+@[rust_loop]
+def solve_port.chol.exact_residual_loop0_loop0
+  (x : Slice Std.I64) (n : Std.Usize) (k : Std.Usize) (j : Std.Usize)
+  (xcol : alloc.vec.Vec Std.I64) (t : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (xcol1, t1) => solve_port.chol.exact_residual_loop0_loop0.body x n k j
+      xcol1 t1)
+    (xcol, t)
+
+/-- [apeiron_word::solve_port::chol::exact_residual]: loop body 2:
+    Source: '../../src/learn/solve/chol.rs', lines 695:8-704:9 -/
+@[rust_loop_body]
+def solve_port.chol.exact_residual_loop0_loop1.body
+  (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
+  (j : Std.Usize) (xcol : alloc.vec.Vec Std.I64) (r : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if i < n
+  then
+    let b1 := core.option.Option.is_none err
+    if b1
+    then
+      let i1 ← i * k
+      let i2 ← i1 + j
+      let i3 ← Slice.index_usize b i2
+      let i4 ← i * n
+      let i5 ← i4 + n
+      let s ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) a
+          { start := i4, «end» := i5 }
+      let s1 := alloc.vec.Vec.deref xcol
+      let o ← solve_port.chol.dot_shifted_row i3 s s1
+      let (r1, err1) ←
+        match o with
+        | none => ok (r, some solve_port.chol.SolveError.Overflow)
+        | some acc =>
+          do
+          let o1 ← solve_port.chol.round_to_i64 acc
+          match o1 with
+          | none => ok (r, some solve_port.chol.SolveError.Overflow)
+          | some v =>
+            let i6 ← i1 + j
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) r i6
+            let r2 := index_mut_back v
+            ok (r2, err)
+      let i6 ← i + 1#usize
+      ok (cont (r1, err1, i6))
+    else ok (done (r, err))
+  else ok (done (r, err))
+
+/-- [apeiron_word::solve_port::chol::exact_residual]: loop 2:
+    Source: '../../src/learn/solve/chol.rs', lines 695:8-704:9 -/
+@[rust_loop]
+def solve_port.chol.exact_residual_loop0_loop1
+  (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
+  (r : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (j : Std.Usize) (xcol : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (r1, err1, i1) => solve_port.chol.exact_residual_loop0_loop1.body a b
+      n k j xcol r1 err1 i1)
+    (r, err, i)
+
+/-- [apeiron_word::solve_port::chol::exact_residual]: loop body 0:
+    Source: '../../src/learn/solve/chol.rs', lines 687:10-688:35 -/
+@[rust_loop_body]
+def solve_port.chol.exact_residual_loop0.body
+  (a : Slice Std.I64) (b : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize)
+  (k : Std.Usize) (r : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if j < k
+  then
+    let b1 := core.option.Option.is_none err
+    if b1
+    then
+      let xcol ← alloc.vec.from_elem core.clone.CloneI64 0#i64 n
+      let xcol1 ←
+        solve_port.chol.exact_residual_loop0_loop0 x n k j xcol 0#usize
+      let (r1, err1) ←
+        solve_port.chol.exact_residual_loop0_loop1 a b n k r err j xcol1
+          0#usize
+      let j1 ← j + 1#usize
+      ok (cont (r1, err1, j1))
+    else ok (done (r, err))
+  else ok (done (r, err))
+
+/-- [apeiron_word::solve_port::chol::exact_residual]: loop 0:
+    Source: '../../src/learn/solve/chol.rs', lines 687:10-688:35 -/
+@[rust_loop]
+def solve_port.chol.exact_residual_loop0
+  (a : Slice Std.I64) (b : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize)
+  (k : Std.Usize) (r : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (r1, err1, j1) => solve_port.chol.exact_residual_loop0.body a b x n k
+      r1 err1 j1)
+    (r, err, j)
+
+/-- [apeiron_word::solve_port::chol::exact_residual]:
+    Source: '../../src/learn/solve/chol.rs', lines 676:0-711:1 -/
+def solve_port.chol.exact_residual
+  (a : Slice Std.I64) (b : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize)
+  (k : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    solve_port.chol.SolveError)
+  := do
+  let i ← n * k
+  let r ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  let (r1, err) ←
+    solve_port.chol.exact_residual_loop0 a b x n k r none 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok r1)
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::solve_port::chol::max_abs]: loop body 0:
+    Source: '../../src/learn/solve/chol.rs', lines 720:4-725:5 -/
+@[rust_loop_body]
+def solve_port.chol.max_abs_loop.body
+  (iter : core.slice.iter.Iter Std.I64) (mx : Std.I128) :
+  Result (ControlFlow ((core.slice.iter.Iter Std.I64) × Std.I128) Std.I128)
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done mx)
+  | some v =>
+    let i ← lift (core.convert.num.FromI128I64.from v)
+    let a ← core.num.I128.abs i
+    if a > mx
+    then ok (cont (iter1, a))
+    else ok (cont (iter1, mx))
+
+/-- [apeiron_word::solve_port::chol::max_abs]: loop 0:
+    Source: '../../src/learn/solve/chol.rs', lines 720:4-725:5 -/
+@[rust_loop]
+def solve_port.chol.max_abs_loop
+  (iter : core.slice.iter.Iter Std.I64) (mx : Std.I128) : Result Std.I128 := do
+  loop
+    (fun (iter1, mx1) => solve_port.chol.max_abs_loop.body iter1 mx1)
+    (iter, mx)
+
+/-- [apeiron_word::solve_port::chol::max_abs]:
+    Source: '../../src/learn/solve/chol.rs', lines 718:0-727:1 -/
+def solve_port.chol.max_abs
+  (entries : Slice Std.I64) : Result (Option Std.I64) := do
+  let iter ←
+    SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter.into_iter
+      entries
+  let mx ← solve_port.chol.max_abs_loop iter 0#i128
+  solve_port.chol.narrow mx
+
+/-- [apeiron_word::solve_port::chol::chol_solve]: loop body 0:
+    Source: '../../src/learn/solve/chol.rs', lines 777:4-783:5
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.chol.chol_solve_loop.body
+  (nk : Std.Usize) (x0 : alloc.vec.Vec Std.I64) (delta : alloc.vec.Vec Std.I64)
+  (x : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (idx : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if idx < nk
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) x0
+          idx
+      let i1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          delta idx
+      let o ← lift (I64.checked_add i i1)
+      let (x1, err1) ←
+        match o with
+        | none => ok (x, some solve_port.chol.SolveError.Overflow)
+        | some v =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) x idx
+          let x2 := index_mut_back v
+          ok (x2, err)
+      let idx1 ← idx + 1#usize
+      ok (cont (x1, err1, idx1))
+    else ok (done (x, err))
+  else ok (done (x, err))
+
+/-- [apeiron_word::solve_port::chol::chol_solve]: loop 0:
+    Source: '../../src/learn/solve/chol.rs', lines 777:4-783:5
+    Visibility: public -/
+@[rust_loop]
+def solve_port.chol.chol_solve_loop
+  (nk : Std.Usize) (x0 : alloc.vec.Vec Std.I64) (delta : alloc.vec.Vec Std.I64)
+  (x : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (idx : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (x1, err1, idx1) => solve_port.chol.chol_solve_loop.body nk x0 delta
+      x1 err1 idx1)
+    (x, err, idx)
+
+/-- [apeiron_word::solve_port::chol::chol_solve]:
+    Source: '../../src/learn/solve/chol.rs', lines 746:0-790:1
+    Visibility: public -/
+def solve_port.chol.chol_solve
+  (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
+  (threads : Std.Usize) :
+  Result (core.result.Result solve_port.chol.Solved solve_port.chol.SolveError)
+  := do
+  if n = 0#usize
+  then ok (core.result.Result.Err solve_port.chol.SolveError.Empty)
+  else
+    let o ← lift (Usize.checked_mul n n)
+    match o with
+    | none => ok (core.result.Result.Err solve_port.chol.SolveError.Overflow)
+    | some v =>
+      let o1 ← lift (Usize.checked_mul n k)
+      match o1 with
+      | none => ok (core.result.Result.Err solve_port.chol.SolveError.Overflow)
+      | some v1 =>
+        let i := Slice.len a
+        if i != v
+        then
+          ok (core.result.Result.Err solve_port.chol.SolveError.ShapeMismatch)
+        else
+          let i1 := Slice.len b
+          if i1 != v1
+          then
+            ok (core.result.Result.Err
+              solve_port.chol.SolveError.ShapeMismatch)
+          else
+            let r ← solve_port.chol.equilibrate a n
+            let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+            match cf with
+            | core.ops.control_flow.ControlFlow.Continue val =>
+              let (a_hat, d) := val
+              let s := alloc.vec.Vec.deref a_hat
+              let r1 ← solve_port.chol.factor_scaled s n threads
+              let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+              match cf1 with
+              | core.ops.control_flow.ControlFlow.Continue val1 =>
+                let s1 := alloc.vec.Vec.deref val1
+                let s2 := alloc.vec.Vec.deref d
+                let r2 ← solve_port.chol.solve_rhs s1 s2 b n k
+                let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+                match cf2 with
+                | core.ops.control_flow.ControlFlow.Continue val2 =>
+                  let s3 := alloc.vec.Vec.deref val2
+                  let r3 ← solve_port.chol.exact_residual a b s3 n k
+                  let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+                  match cf3 with
+                  | core.ops.control_flow.ControlFlow.Continue val3 =>
+                    let s4 := alloc.vec.Vec.deref val1
+                    let s5 := alloc.vec.Vec.deref d
+                    let s6 := alloc.vec.Vec.deref val3
+                    let r4 ← solve_port.chol.solve_rhs s4 s5 s6 n k
+                    let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r4
+                    match cf4 with
+                    | core.ops.control_flow.ControlFlow.Continue val4 =>
+                      let x ←
+                        alloc.vec.from_elem core.clone.CloneI64 0#i64 v1
+                      let (x1, err) ←
+                        solve_port.chol.chol_solve_loop v1 val2 val4 x none
+                          0#usize
+                      match err with
+                      | none =>
+                        let s7 := alloc.vec.Vec.deref x1
+                        let r5 ← solve_port.chol.exact_residual a b s7 n k
+                        let cf5 ←
+                          core.result.Result.Insts.CoreOpsTry.branch r5
+                        match cf5 with
+                        | core.ops.control_flow.ControlFlow.Continue val5 =>
+                          let s8 := alloc.vec.Vec.deref val5
+                          let o2 ← solve_port.chol.max_abs s8
+                          let r6 ← solve_port.chol.ov o2
+                          let cf6 ←
+                            core.result.Result.Insts.CoreOpsTry.branch r6
+                          match cf6 with
+                          | core.ops.control_flow.ControlFlow.Continue val6 =>
+                            ok (core.result.Result.Ok
+                              { x := x1, residual_max := val6 })
+                          | core.ops.control_flow.ControlFlow.Break residual =>
+                            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                              solve_port.chol.Solved (core.convert.FromSame
+                              solve_port.chol.SolveError) residual
+                        | core.ops.control_flow.ControlFlow.Break residual =>
+                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                            solve_port.chol.Solved (core.convert.FromSame
+                            solve_port.chol.SolveError) residual
+                      | some e => ok (core.result.Result.Err e)
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        solve_port.chol.Solved (core.convert.FromSame
+                        solve_port.chol.SolveError) residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      solve_port.chol.Solved (core.convert.FromSame
+                      solve_port.chol.SolveError) residual
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    solve_port.chol.Solved (core.convert.FromSame
+                    solve_port.chol.SolveError) residual
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  solve_port.chol.Solved (core.convert.FromSame
+                  solve_port.chol.SolveError) residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                solve_port.chol.Solved (core.convert.FromSame
+                solve_port.chol.SolveError) residual
+
+/-- [apeiron_word::solve_port::eig::ONE]
+    Source: '../../src/learn/solve/eig.rs', lines 96:0-96:25 -/
+@[global_simps, irreducible]
+def solve_port.eig.ONE : Result Std.I64 := 1#i64 <<< 32#i32
+
+/-- [apeiron_word::solve_port::eig::OVERSAMPLE]
+    Source: '../../src/learn/solve/eig.rs', lines 99:0-99:28 -/
+@[global_simps, irreducible]
+def solve_port.eig.OVERSAMPLE : Std.Usize := 8#usize
+
+/-- [apeiron_word::solve_port::eig::RESIDUAL_SHIFT]
+    Source: '../../src/learn/solve/eig.rs', lines 101:0-101:31 -/
+@[global_simps, irreducible]
+def solve_port.eig.RESIDUAL_SHIFT : Std.U32 := 20#u32
+
+/-- [apeiron_word::solve_port::eig::MAX_ITERS]
+    Source: '../../src/learn/solve/eig.rs', lines 103:0-103:32
+    Visibility: public -/
+@[global_simps, irreducible]
+def solve_port.eig.MAX_ITERS : Std.Usize := 60#usize
+
+/-- [apeiron_word::solve_port::eig::START_SEED]
+    Source: '../../src/learn/solve/eig.rs', lines 105:0-105:46 -/
+@[global_simps, irreducible]
+def solve_port.eig.START_SEED : Std.U64 := 2685821657736338717#u64
+
+/-- [apeiron_word::solve_port::eig::JACOBI_SWEEPS]
+    Source: '../../src/learn/solve/eig.rs', lines 107:0-107:32 -/
+@[global_simps, irreducible]
+def solve_port.eig.JACOBI_SWEEPS : Std.Usize := 40#usize
+
+/-- [apeiron_word::solve_port::eig::OFF_DIAG_SHIFT]
+    Source: '../../src/learn/solve/eig.rs', lines 109:0-109:31 -/
+@[global_simps, irreducible]
+def solve_port.eig.OFF_DIAG_SHIFT : Std.U32 := 26#u32
+
+/-- [apeiron_word::solve_port::eig::OFF_DIAG_FLOOR]
+    Source: '../../src/learn/solve/eig.rs', lines 111:0-111:30 -/
+@[global_simps, irreducible]
+def solve_port.eig.OFF_DIAG_FLOOR : Std.U32 := 4#u32
+
+/-- [apeiron_word::solve_port::eig::EigError]
+    Source: '../../src/learn/solve/eig.rs', lines 115:0-140:1
+    Visibility: public -/
+@[discriminant isize]
+inductive solve_port.eig.EigError where
+| ShapeMismatch : solve_port.eig.EigError
+| Empty : solve_port.eig.EigError
+| RankZero : solve_port.eig.EigError
+| RankOutOfRange : solve_port.eig.EigError
+| InputBound : solve_port.eig.EigError
+| NotSymmetric : solve_port.eig.EigError
+| Overflow : solve_port.eig.EigError
+| DegenerateBasis : solve_port.eig.EigError
+| NotConverged : Std.I64 → solve_port.eig.EigError
+
+/-- [apeiron_word::solve_port::eig::TopEig]
+    Source: '../../src/learn/solve/eig.rs', lines 144:0-152:1
+    Visibility: public -/
+structure solve_port.eig.TopEig where
+  evals : alloc.vec.Vec Std.I64
+  evecs : alloc.vec.Vec Std.I64
+  iters : Std.Usize
+
+/-- [apeiron_word::solve_port::eig::ov]:
+    Source: '../../src/learn/solve/eig.rs', lines 155:0-160:1 -/
+def solve_port.eig.ov
+  {T : Type} (o : Option T) :
+  Result (core.result.Result T solve_port.eig.EigError)
+  := do
+  match o with
+  | none => ok (core.result.Result.Err solve_port.eig.EigError.Overflow)
+  | some v => ok (core.result.Result.Ok v)
+
+/-- [apeiron_word::solve_port::syrk::round32::{closure}]
+    Source: '../../src/learn/solve/syrk.rs', lines 68:36-68:47 -/
+@[reducible]
+def solve_port.syrk.round32.closure := Unit
+
+/-- [apeiron_word::solve_port::syrk::round32::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::solve_port::syrk::round32::{closure}}::call_once]:
+    Source: '../../src/learn/solve/syrk.rs', lines 68:36-68:47 -/
+def
+  solve_port.syrk.round32.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
+  (c : solve_port.syrk.round32.closure) (tupled_args : Std.I128) :
+  Result Std.I128
+  := do
+  tupled_args >>> 32#i32
+
+/-- Trait implementation: [apeiron_word::solve_port::syrk::round32::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::solve_port::syrk::round32::{closure}}]
+    Source: '../../src/learn/solve/syrk.rs', lines 68:36-68:47 -/
+@[reducible]
+def solve_port.syrk.round32.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128 :
+  core.ops.function.FnOnce solve_port.syrk.round32.closure Std.I128 Std.I128
+  := {
+  call_once :=
+    solve_port.syrk.round32.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
+}
+
+/-- [apeiron_word::solve_port::syrk::round32]:
+    Source: '../../src/learn/solve/syrk.rs', lines 67:0-69:1 -/
+def solve_port.syrk.round32 (v : Std.I128) : Result (Option Std.I128) := do
+  let i ← 1#i128 <<< 31#i32
+  let o ← lift (I128.checked_add v i)
+  core.option.Option.map
+    solve_port.syrk.round32.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128 o
+    ()
+
+/-- [apeiron_word::solve_port::eig::r32]:
+    Source: '../../src/learn/solve/eig.rs', lines 164:0-166:1 -/
+def solve_port.eig.r32
+  (v : Std.I128) :
+  Result (core.result.Result Std.I128 solve_port.eig.EigError)
+  := do
+  let o ← solve_port.syrk.round32 v
+  solve_port.eig.ov o
+
+/-- [apeiron_word::solve_port::eig::div_round]:
+    Source: '../../src/learn/solve/eig.rs', lines 170:0-189:1 -/
+def solve_port.eig.div_round
+  (v : Std.I128) (d : Std.I128) : Result (Option Std.I128) := do
+  if d = 0#i128
+  then ok none
+  else
+    let h ← d / 2#i128
+    let half ← if h < 0#i128
+                 then -. h
+                 else ok h
+    if v >= 0#i128
+    then
+      let o ← lift (I128.checked_add v half)
+      match o with
+      | none => ok none
+      | some n => ok (I128.checked_div n d)
+    else
+      let o ← lift (I128.checked_sub v half)
+      match o with
+      | none => ok none
+      | some n => ok (I128.checked_div n d)
+
+/-- [apeiron_word::solve_port::syrk::narrow]:
+    Source: '../../src/learn/solve/syrk.rs', lines 79:0-85:1 -/
+def solve_port.syrk.narrow (v : Std.I128) : Result (Option Std.I64) := do
+  let i ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+  if v > i
+  then ok none
+  else
+    let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+    if v < i1
+    then ok none
+    else let i2 ← lift (IScalar.cast .I64 v)
+         ok (some i2)
+
+/-- [apeiron_word::solve_port::eig::to_i64]:
+    Source: '../../src/learn/solve/eig.rs', lines 192:0-194:1 -/
+def solve_port.eig.to_i64
+  (v : Std.I128) :
+  Result (core.result.Result Std.I64 solve_port.eig.EigError)
+  := do
+  let o ← solve_port.syrk.narrow v
+  solve_port.eig.ov o
+
+/-- [apeiron_word::solve_port::eig::is_symmetric]: loop body 1:
+    Source: '../../src/learn/solve/eig.rs', lines 205:8-211:9 -/
+@[rust_loop_body]
+def solve_port.eig.is_symmetric_loop0_loop0.body
+  (m : Slice Std.I64) (n : Std.Usize) (i : Std.Usize) (ok1 : Bool)
+  (j : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if j < n
+  then
+    if ok1
+    then
+      let i1 ← i * n
+      let i2 ← i1 + j
+      let i3 ← Slice.index_usize m i2
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let i5 ← j * n
+      let i6 ← i5 + i
+      let i7 ← Slice.index_usize m i6
+      let i8 ← lift (core.convert.num.FromI128I64.from i7)
+      let d ← i4 - i8
+      let i9 ← core.num.I128.abs d
+      let ok2 ← if i9 > 1#i128
+                  then ok false
+                  else ok true
+      let j1 ← j + 1#usize
+      ok (cont (ok2, j1))
+    else ok (done false)
+  else ok (done ok1)
+
+/-- [apeiron_word::solve_port::eig::is_symmetric]: loop 1:
+    Source: '../../src/learn/solve/eig.rs', lines 205:8-211:9 -/
+@[rust_loop]
+def solve_port.eig.is_symmetric_loop0_loop0
+  (m : Slice Std.I64) (n : Std.Usize) (ok1 : Bool) (i : Std.Usize)
+  (j : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (ok2, j1) => solve_port.eig.is_symmetric_loop0_loop0.body m n i ok2
+      j1)
+    (ok1, j)
+
+/-- [apeiron_word::solve_port::eig::is_symmetric]: loop body 0:
+    Source: '../../src/learn/solve/eig.rs', lines 203:4-213:5 -/
+@[rust_loop_body]
+def solve_port.eig.is_symmetric_loop0.body
+  (m : Slice Std.I64) (n : Std.Usize) (ok1 : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if i < n
+  then
+    if ok1
+    then
+      let j ← i + 1#usize
+      let ok2 ← solve_port.eig.is_symmetric_loop0_loop0 m n true i j
+      let i1 ← i + 1#usize
+      ok (cont (ok2, i1))
+    else ok (done false)
+  else ok (done ok1)
+
+/-- [apeiron_word::solve_port::eig::is_symmetric]: loop 0:
+    Source: '../../src/learn/solve/eig.rs', lines 203:4-213:5 -/
+@[rust_loop]
+def solve_port.eig.is_symmetric_loop0
+  (m : Slice Std.I64) (n : Std.Usize) (ok1 : Bool) (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (ok2, i1) => solve_port.eig.is_symmetric_loop0.body m n ok2 i1)
+    (ok1, i)
+
+/-- [apeiron_word::solve_port::eig::is_symmetric]:
+    Source: '../../src/learn/solve/eig.rs', lines 200:0-215:1 -/
+@[reducible]
+def solve_port.eig.is_symmetric
+  (m : Slice Std.I64) (n : Std.Usize) : Result Bool := do
+  solve_port.eig.is_symmetric_loop0 m n true 0#usize
+
+/-- [apeiron_word::solve_port::eig::Lcg]
+    Source: '../../src/learn/solve/eig.rs', lines 218:0-218:16 -/
+@[reducible]
+def solve_port.eig.Lcg := Std.U64
+
+/-- [apeiron_word::solve_port::eig::{apeiron_word::solve_port::eig::Lcg}::new]:
+    Source: '../../src/learn/solve/eig.rs', lines 222:4-224:5 -/
+def solve_port.eig.Lcg.new (seed : Std.U64) : Result solve_port.eig.Lcg := do
+  ok seed
+
+/-- [apeiron_word::solve_port::eig::{apeiron_word::solve_port::eig::Lcg}::next_u64]:
+    Source: '../../src/learn/solve/eig.rs', lines 227:4-232:5 -/
+def solve_port.eig.Lcg.next_u64
+  (self : solve_port.eig.Lcg) : Result (Std.U64 × solve_port.eig.Lcg) := do
+  let i ← self <<< 13#i32
+  let i1 ← lift (self ^^^ i)
+  let i2 ← i1 >>> 7#i32
+  let i3 ← lift (i1 ^^^ i2)
+  let i4 ← i3 <<< 17#i32
+  let i5 ← lift (i3 ^^^ i4)
+  ok (i5, i5)
+
+/-- [apeiron_word::solve_port::eig::{apeiron_word::solve_port::eig::Lcg}::next_range]:
+    Source: '../../src/learn/solve/eig.rs', lines 236:4-239:5 -/
+def solve_port.eig.Lcg.next_range
+  (self : solve_port.eig.Lcg) (lo : Std.I64) (hi : Std.I64) :
+  Result (Std.I64 × solve_port.eig.Lcg)
+  := do
+  let i ← hi - lo
+  let span ← core.num.I64.unsigned_abs i
+  let (i1, self1) ← solve_port.eig.Lcg.next_u64 self
+  let i2 ← i1 >>> 20#i32
+  let i3 ← i2 % span
+  let i4 ← lift (UScalar.hcast .I64 i3)
+  let i5 ← lo + i4
+  ok (i5, self1)
+
+/-- [apeiron_word::solve_port::eig::start_basis]: loop body 0:
+    Source: '../../src/learn/solve/eig.rs', lines 252:4-255:5 -/
+@[rust_loop_body]
+def solve_port.eig.start_basis_loop.body
+  (lcg : solve_port.eig.Lcg) (q : alloc.vec.Vec Std.I64) (t : Std.Usize) :
+  Result (ControlFlow (solve_port.eig.Lcg × (alloc.vec.Vec Std.I64) ×
+    Std.Usize) (alloc.vec.Vec Std.I64))
+  := do
+  let i := alloc.vec.Vec.len q
+  if t < i
+  then
+    let i1 ← 1#i64 <<< 30#i32
+    let i2 ← -. i1
+    let (i3, lcg1) ← solve_port.eig.Lcg.next_range lcg i2 i1
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) q
+        t
+    let t1 ← t + 1#usize
+    let q1 := index_mut_back i3
+    ok (cont (lcg1, q1, t1))
+  else ok (done q)
+
+/-- [apeiron_word::solve_port::eig::start_basis]: loop 0:
+    Source: '../../src/learn/solve/eig.rs', lines 252:4-255:5 -/
+@[rust_loop]
+def solve_port.eig.start_basis_loop
+  (lcg : solve_port.eig.Lcg) (q : alloc.vec.Vec Std.I64) (t : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (lcg1, q1, t1) => solve_port.eig.start_basis_loop.body lcg1 q1 t1)
+    (lcg, q, t)
+
+/-- [apeiron_word::solve_port::eig::start_basis]:
+    Source: '../../src/learn/solve/eig.rs', lines 248:0-257:1 -/
+def solve_port.eig.start_basis
+  (n : Std.Usize) (s : Std.Usize) : Result (alloc.vec.Vec Std.I64) := do
+  let lcg ← solve_port.eig.Lcg.new solve_port.eig.START_SEED
+  let i ← n * s
+  let q ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  solve_port.eig.start_basis_loop lcg q 0#usize
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop body 2:
+    Source: '../../src/learn/solve/eig.rs', lines 281:12-288:13 -/
+@[rust_loop_body]
+def solve_port.eig.orthonormalise_loop0_loop0_loop0.body
+  (y : Slice Std.I64) (n : Std.Usize) (s : Std.Usize)
+  (q : alloc.vec.Vec Std.I64) (pass : Std.I32) (j : Std.Usize)
+  (col : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < n
+  then
+    let i1 ←
+      if pass = 0#i32
+      then do
+           let i2 ← i * s
+           let i3 ← i2 + j
+           Slice.index_usize y i3
+      else
+        do
+        let i2 ← i * s
+        let i3 ← i2 + j
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) q
+          i3
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        col i
+    let i2 ← i + 1#usize
+    let col1 := index_mut_back i1
+    ok (cont (col1, i2))
+  else ok (done col)
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop 2:
+    Source: '../../src/learn/solve/eig.rs', lines 281:12-288:13 -/
+@[rust_loop]
+def solve_port.eig.orthonormalise_loop0_loop0_loop0
+  (y : Slice Std.I64) (n : Std.Usize) (s : Std.Usize)
+  (q : alloc.vec.Vec Std.I64) (col : alloc.vec.Vec Std.I64) (pass : Std.I32)
+  (j : Std.Usize) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (col1, i1) => solve_port.eig.orthonormalise_loop0_loop0_loop0.body y n
+      s q pass j col1 i1)
+    (col, i)
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop body 4:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-302:17 -/
+@[rust_loop_body]
+def solve_port.eig.orthonormalise_loop0_loop0_loop1_loop0.body
+  (n : Std.Usize) (s : Std.Usize) (q : alloc.vec.Vec Std.I64)
+  (col : alloc.vec.Vec Std.I64) (k : Std.Usize)
+  (err : Option solve_port.eig.EigError) (acc : Std.I128) (i : Std.Usize) :
+  Result (ControlFlow ((Option solve_port.eig.EigError) × Std.I128 ×
+    Std.Usize) ((Option solve_port.eig.EigError) × Std.I128))
+  := do
+  if i < n
+  then
+    let i1 ← i * s
+    let i2 ← i1 + k
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) q i2
+    let i4 ← lift (core.convert.num.FromI128I64.from i3)
+    let i5 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) col i
+    let i6 ← lift (core.convert.num.FromI128I64.from i5)
+    let o ← lift (I128.checked_mul i4 i6)
+    let (err1, pr) ←
+      match o with
+      | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+      | some v => ok (err, v)
+    let o1 ← lift (I128.checked_add acc pr)
+    let (err2, acc1) ←
+      match o1 with
+      | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+      | some v => ok (err1, v)
+    let i7 ← i + 1#usize
+    ok (cont (err2, acc1, i7))
+  else ok (done (err, acc))
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop 4:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-302:17 -/
+@[rust_loop]
+def solve_port.eig.orthonormalise_loop0_loop0_loop1_loop0
+  (n : Std.Usize) (s : Std.Usize) (q : alloc.vec.Vec Std.I64)
+  (col : alloc.vec.Vec Std.I64) (err : Option solve_port.eig.EigError)
+  (k : Std.Usize) (acc : Std.I128) (i : Std.Usize) :
+  Result ((Option solve_port.eig.EigError) × Std.I128)
+  := do
+  loop
+    (fun (err1, acc1, i1) =>
+      solve_port.eig.orthonormalise_loop0_loop0_loop1_loop0.body n s q col k
+      err1 acc1 i1)
+    (err, acc, i)
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop body 5:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-309:17 -/
+@[rust_loop_body]
+def solve_port.eig.orthonormalise_loop0_loop0_loop1_loop1.body
+  (n : Std.Usize) (s : Std.Usize) (q : alloc.vec.Vec Std.I64) (k : Std.Usize)
+  (c : Std.I128) (col : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.eig.EigError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * s
+      let i2 ← i1 + k
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) q
+          i2
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let o ← lift (I128.checked_mul c i4)
+      let (err1, v) ←
+        match o with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v1 => ok (err, v1)
+      let r ← solve_port.eig.r32 v
+      let (err2, pr) ←
+        match r with
+        | core.result.Result.Ok v1 => ok (err1, v1)
+        | core.result.Result.Err e => ok (some e, 0#i128)
+      let i5 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) col
+          i
+      let i6 ← lift (core.convert.num.FromI128I64.from i5)
+      let o1 ← lift (I128.checked_sub i6 pr)
+      let (err3, v1) ←
+        match o1 with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v2 => ok (err2, v2)
+      let r1 ← solve_port.eig.to_i64 v1
+      let (err4, v2) ←
+        match r1 with
+        | core.result.Result.Ok v3 => ok (err3, v3)
+        | core.result.Result.Err e => ok (some e, 0#i64)
+      let (_, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          col i
+      let i7 ← i + 1#usize
+      let col1 := index_mut_back v2
+      ok (cont (col1, err4, i7))
+    else ok (done (col, err))
+  else ok (done (col, err))
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop 5:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-309:17 -/
+@[rust_loop]
+def solve_port.eig.orthonormalise_loop0_loop0_loop1_loop1
+  (n : Std.Usize) (s : Std.Usize) (q : alloc.vec.Vec Std.I64)
+  (col : alloc.vec.Vec Std.I64) (err : Option solve_port.eig.EigError)
+  (k : Std.Usize) (c : Std.I128) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.eig.EigError))
+  := do
+  loop
+    (fun (col1, err1, i1) =>
+      solve_port.eig.orthonormalise_loop0_loop0_loop1_loop1.body n s q k c col1
+      err1 i1)
+    (col, err, i)
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop body 3:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-311:13 -/
+@[rust_loop_body]
+def solve_port.eig.orthonormalise_loop0_loop0_loop1.body
+  (n : Std.Usize) (s : Std.Usize) (q : alloc.vec.Vec Std.I64) (j : Std.Usize)
+  (col : alloc.vec.Vec Std.I64) (err : Option solve_port.eig.EigError)
+  (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError)))
+  := do
+  if k < j
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (err1, acc) ←
+        solve_port.eig.orthonormalise_loop0_loop0_loop1_loop0 n s q col err k
+          0#i128 0#usize
+      let i ← solve_port.eig.ONE
+      let i1 ← lift (core.convert.num.FromI128I64.from i)
+      let o ← solve_port.eig.div_round acc i1
+      let (err2, c) ←
+        match o with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v => ok (err1, v)
+      let (col1, err3) ←
+        solve_port.eig.orthonormalise_loop0_loop0_loop1_loop1 n s q col err2 k
+          c 0#usize
+      let k1 ← k + 1#usize
+      ok (cont (col1, err3, k1))
+    else ok (done (col, err))
+  else ok (done (col, err))
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop 3:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-311:13 -/
+@[rust_loop]
+def solve_port.eig.orthonormalise_loop0_loop0_loop1
+  (n : Std.Usize) (s : Std.Usize) (q : alloc.vec.Vec Std.I64)
+  (col : alloc.vec.Vec Std.I64) (err : Option solve_port.eig.EigError)
+  (j : Std.Usize) (k : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.eig.EigError))
+  := do
+  loop
+    (fun (col1, err1, k1) =>
+      solve_port.eig.orthonormalise_loop0_loop0_loop1.body n s q j col1 err1
+      k1)
+    (col, err, k)
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop body 6:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-318:13 -/
+@[rust_loop_body]
+def solve_port.eig.orthonormalise_loop0_loop0_loop2.body
+  (n : Std.Usize) (col : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.eig.EigError) (nrm2 : Std.I128) (i : Std.Usize) :
+  Result (ControlFlow ((Option solve_port.eig.EigError) × Std.I128 ×
+    Std.Usize) ((Option solve_port.eig.EigError) × Std.I128))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) col
+          i
+      let v ← lift (core.convert.num.FromI128I64.from i1)
+      let o ← lift (I128.checked_mul v v)
+      let (err1, v1) ←
+        match o with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v2 => ok (err, v2)
+      let o1 ← lift (I128.checked_add nrm2 v1)
+      let (err2, nrm21) ←
+        match o1 with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v2 => ok (err1, v2)
+      let i2 ← i + 1#usize
+      ok (cont (err2, nrm21, i2))
+    else ok (done (err, nrm2))
+  else ok (done (err, nrm2))
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop 6:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-318:13 -/
+@[rust_loop]
+def solve_port.eig.orthonormalise_loop0_loop0_loop2
+  (n : Std.Usize) (col : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.eig.EigError) (nrm2 : Std.I128) (i : Std.Usize) :
+  Result ((Option solve_port.eig.EigError) × Std.I128)
+  := do
+  loop
+    (fun (err1, nrm21, i1) =>
+      solve_port.eig.orthonormalise_loop0_loop0_loop2.body n col err1 nrm21 i1)
+    (err, nrm2, i)
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop body 7:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-329:17 -/
+@[rust_loop_body]
+def solve_port.eig.orthonormalise_loop0_loop0_loop3.body
+  (n : Std.Usize) (s : Std.Usize) (col : alloc.vec.Vec Std.I64) (j : Std.Usize)
+  (nrm : Std.I128) (q : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.eig.EigError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) col
+          i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← solve_port.eig.ONE
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let o ← lift (I128.checked_mul i2 i4)
+      let (err1, num) ←
+        match o with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v => ok (err, v)
+      let o1 ← solve_port.eig.div_round num nrm
+      let (err2, v) ←
+        match o1 with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v1 => ok (err1, v1)
+      let r ← solve_port.eig.to_i64 v
+      let (err3, v1) ←
+        match r with
+        | core.result.Result.Ok v2 => ok (err2, v2)
+        | core.result.Result.Err e => ok (some e, 0#i64)
+      let i5 ← i * s
+      let i6 ← i5 + j
+      let (_, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          q i6
+      let i7 ← i + 1#usize
+      let q1 := index_mut_back v1
+      ok (cont (q1, err3, i7))
+    else ok (done (q, err))
+  else ok (done (q, err))
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop 7:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-329:17 -/
+@[rust_loop]
+def solve_port.eig.orthonormalise_loop0_loop0_loop3
+  (n : Std.Usize) (s : Std.Usize) (q : alloc.vec.Vec Std.I64)
+  (col : alloc.vec.Vec Std.I64) (err : Option solve_port.eig.EigError)
+  (j : Std.Usize) (nrm : Std.I128) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.eig.EigError))
+  := do
+  loop
+    (fun (q1, err1, i1) => solve_port.eig.orthonormalise_loop0_loop0_loop3.body
+      n s col j nrm q1 err1 i1)
+    (q, err, i)
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop body 1:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-332:9 -/
+@[rust_loop_body]
+def solve_port.eig.orthonormalise_loop0_loop0.body
+  (y : Slice Std.I64) (n : Std.Usize) (s : Std.Usize) (pass : Std.I32)
+  (q : alloc.vec.Vec Std.I64) (col : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.eig.EigError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    (Option solve_port.eig.EigError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64) × (Option solve_port.eig.EigError)))
+  := do
+  if j < s
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let col1 ←
+        solve_port.eig.orthonormalise_loop0_loop0_loop0 y n s q col pass j
+          0#usize
+      let (col2, err1) ←
+        solve_port.eig.orthonormalise_loop0_loop0_loop1 n s q col1 err j
+          0#usize
+      let (err2, nrm2) ←
+        solve_port.eig.orthonormalise_loop0_loop0_loop2 n col2 err1 0#i128
+          0#usize
+      let nrm ← fixed_rsqrt.isqrt nrm2
+      let b1 := core.option.Option.is_none err2
+      let err3 ←
+        if b1
+        then
+          if nrm <= 0#i128
+          then ok (some solve_port.eig.EigError.DegenerateBasis)
+          else ok err2
+        else ok err2
+      let b2 := core.option.Option.is_none err3
+      if b2
+      then
+        let (q1, err4) ←
+          solve_port.eig.orthonormalise_loop0_loop0_loop3 n s q col2 err3 j nrm
+            0#usize
+        let j1 ← j + 1#usize
+        ok (cont (q1, col2, err4, j1))
+      else let j1 ← j + 1#usize
+           ok (cont (q, col2, err3, j1))
+    else ok (done (q, col, err))
+  else ok (done (q, col, err))
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop 1:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-332:9 -/
+@[rust_loop]
+def solve_port.eig.orthonormalise_loop0_loop0
+  (y : Slice Std.I64) (n : Std.Usize) (s : Std.Usize)
+  (q : alloc.vec.Vec Std.I64) (col : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.eig.EigError) (pass : Std.I32) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError))
+  := do
+  loop
+    (fun (q1, col1, err1, j1) => solve_port.eig.orthonormalise_loop0_loop0.body
+      y n s pass q1 col1 err1 j1)
+    (q, col, err, j)
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop body 0:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-334:5 -/
+@[rust_loop_body]
+def solve_port.eig.orthonormalise_loop0.body
+  (y : Slice Std.I64) (n : Std.Usize) (s : Std.Usize)
+  (q : alloc.vec.Vec Std.I64) (col : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.eig.EigError) (pass : Std.I32) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    (Option solve_port.eig.EigError) × Std.I32) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.eig.EigError)))
+  := do
+  if pass < 2#i32
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (q1, col1, err1) ←
+        solve_port.eig.orthonormalise_loop0_loop0 y n s q col err pass 0#usize
+      let pass1 ← pass + 1#i32
+      ok (cont (q1, col1, err1, pass1))
+    else ok (done (q, err))
+  else ok (done (q, err))
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]: loop 0:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-334:5 -/
+@[rust_loop]
+def solve_port.eig.orthonormalise_loop0
+  (y : Slice Std.I64) (n : Std.Usize) (s : Std.Usize)
+  (q : alloc.vec.Vec Std.I64) (col : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.eig.EigError) (pass : Std.I32) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.eig.EigError))
+  := do
+  loop
+    (fun (q1, col1, err1, pass1) => solve_port.eig.orthonormalise_loop0.body y
+      n s q1 col1 err1 pass1)
+    (q, col, err, pass)
+
+/-- [apeiron_word::solve_port::eig::orthonormalise]:
+    Source: '../../src/learn/solve/eig.rs', lines 272:0-339:1 -/
+def solve_port.eig.orthonormalise
+  (y : Slice Std.I64) (n : Std.Usize) (s : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.eig.EigError)
+  := do
+  let i ← n * s
+  let q ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  let col ← alloc.vec.from_elem core.clone.CloneI64 0#i64 n
+  let (q1, err) ← solve_port.eig.orthonormalise_loop0 y n s q col none 0#i32
+  match err with
+  | none => ok (core.result.Result.Ok q1)
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::solve_port::eig::rayleigh]: loop body 2:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-367:13 -/
+@[rust_loop_body]
+def solve_port.eig.rayleigh_loop0_loop0_loop0.body
+  (q : Slice Std.I64) (y : Slice Std.I64) (n : Std.Usize) (s : Std.Usize)
+  (i : Std.Usize) (j : Std.Usize) (err : Option solve_port.eig.EigError)
+  (acc : Std.I128) (l : Std.Usize) :
+  Result (ControlFlow ((Option solve_port.eig.EigError) × Std.I128 ×
+    Std.Usize) ((Option solve_port.eig.EigError) × Std.I128))
+  := do
+  if l < n
+  then
+    let i1 ← l * s
+    let i2 ← i1 + i
+    let i3 ← Slice.index_usize q i2
+    let i4 ← lift (core.convert.num.FromI128I64.from i3)
+    let i5 ← i1 + j
+    let i6 ← Slice.index_usize y i5
+    let i7 ← lift (core.convert.num.FromI128I64.from i6)
+    let o ← lift (I128.checked_mul i4 i7)
+    let (err1, pr) ←
+      match o with
+      | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+      | some v => ok (err, v)
+    let o1 ← lift (I128.checked_add acc pr)
+    let (err2, acc1) ←
+      match o1 with
+      | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+      | some v => ok (err1, v)
+    let l1 ← l + 1#usize
+    ok (cont (err2, acc1, l1))
+  else ok (done (err, acc))
+
+/-- [apeiron_word::solve_port::eig::rayleigh]: loop 2:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-367:13 -/
+@[rust_loop]
+def solve_port.eig.rayleigh_loop0_loop0_loop0
+  (q : Slice Std.I64) (y : Slice Std.I64) (n : Std.Usize) (s : Std.Usize)
+  (err : Option solve_port.eig.EigError) (i : Std.Usize) (j : Std.Usize)
+  (acc : Std.I128) (l : Std.Usize) :
+  Result ((Option solve_port.eig.EigError) × Std.I128)
+  := do
+  loop
+    (fun (err1, acc1, l1) => solve_port.eig.rayleigh_loop0_loop0_loop0.body q y
+      n s i j err1 acc1 l1)
+    (err, acc, l)
+
+/-- [apeiron_word::solve_port::eig::rayleigh]: loop body 1:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-372:9 -/
+@[rust_loop_body]
+def solve_port.eig.rayleigh_loop0_loop0.body
+  (q : Slice Std.I64) (y : Slice Std.I64) (n : Std.Usize) (s : Std.Usize)
+  (i : Std.Usize) (t : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.eig.EigError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError)))
+  := do
+  if j < s
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (err1, acc) ←
+        solve_port.eig.rayleigh_loop0_loop0_loop0 q y n s err i j 0#i128
+          0#usize
+      let r ← solve_port.eig.r32 acc
+      let (err2, v) ←
+        match r with
+        | core.result.Result.Ok v1 => ok (err1, v1)
+        | core.result.Result.Err e => ok (some e, 0#i128)
+      let r1 ← solve_port.eig.to_i64 v
+      let (err3, v1) ←
+        match r1 with
+        | core.result.Result.Ok v2 => ok (err2, v2)
+        | core.result.Result.Err e => ok (some e, 0#i64)
+      let i1 ← i * s
+      let i2 ← i1 + j
+      let (_, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          t i2
+      let t1 := index_mut_back v1
+      let i3 ← j * s
+      let i4 ← i3 + i
+      let (_, index_mut_back1) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          t1 i4
+      let j1 ← j + 1#usize
+      let t2 := index_mut_back1 v1
+      ok (cont (t2, err3, j1))
+    else ok (done (t, err))
+  else ok (done (t, err))
+
+/-- [apeiron_word::solve_port::eig::rayleigh]: loop 1:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-372:9 -/
+@[rust_loop]
+def solve_port.eig.rayleigh_loop0_loop0
+  (q : Slice Std.I64) (y : Slice Std.I64) (n : Std.Usize) (s : Std.Usize)
+  (t : alloc.vec.Vec Std.I64) (err : Option solve_port.eig.EigError)
+  (i : Std.Usize) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.eig.EigError))
+  := do
+  loop
+    (fun (t1, err1, j1) => solve_port.eig.rayleigh_loop0_loop0.body q y n s i
+      t1 err1 j1)
+    (t, err, j)
+
+/-- [apeiron_word::solve_port::eig::rayleigh]: loop body 0:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-374:5 -/
+@[rust_loop_body]
+def solve_port.eig.rayleigh_loop0.body
+  (q : Slice Std.I64) (y : Slice Std.I64) (n : Std.Usize) (s : Std.Usize)
+  (t : alloc.vec.Vec Std.I64) (err : Option solve_port.eig.EigError)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError)))
+  := do
+  if i < s
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (t1, err1) ← solve_port.eig.rayleigh_loop0_loop0 q y n s t err i i
+      let i1 ← i + 1#usize
+      ok (cont (t1, err1, i1))
+    else ok (done (t, err))
+  else ok (done (t, err))
+
+/-- [apeiron_word::solve_port::eig::rayleigh]: loop 0:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-374:5 -/
+@[rust_loop]
+def solve_port.eig.rayleigh_loop0
+  (q : Slice Std.I64) (y : Slice Std.I64) (n : Std.Usize) (s : Std.Usize)
+  (t : alloc.vec.Vec Std.I64) (err : Option solve_port.eig.EigError)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.eig.EigError))
+  := do
+  loop
+    (fun (t1, err1, i1) => solve_port.eig.rayleigh_loop0.body q y n s t1 err1
+      i1)
+    (t, err, i)
+
+/-- [apeiron_word::solve_port::eig::rayleigh]:
+    Source: '../../src/learn/solve/eig.rs', lines 351:0-379:1 -/
+def solve_port.eig.rayleigh
+  (q : Slice Std.I64) (y : Slice Std.I64) (n : Std.Usize) (s : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.eig.EigError)
+  := do
+  let i ← s * s
+  let t ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  let (t1, err) ← solve_port.eig.rayleigh_loop0 q y n s t none 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok t1)
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::solve_port::eig::mul_small]: loop body 2:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-405:13 -/
+@[rust_loop_body]
+def solve_port.eig.mul_small_loop0_loop0_loop0.body
+  (q : Slice Std.I64) (v : Slice Std.I64) (s : Std.Usize) (i : Std.Usize)
+  (j : Std.Usize) (err : Option solve_port.eig.EigError) (acc : Std.I128)
+  (k : Std.Usize) :
+  Result (ControlFlow ((Option solve_port.eig.EigError) × Std.I128 ×
+    Std.Usize) ((Option solve_port.eig.EigError) × Std.I128))
+  := do
+  if k < s
+  then
+    let i1 ← i * s
+    let i2 ← i1 + k
+    let i3 ← Slice.index_usize q i2
+    let i4 ← lift (core.convert.num.FromI128I64.from i3)
+    let i5 ← k * s
+    let i6 ← i5 + j
+    let i7 ← Slice.index_usize v i6
+    let i8 ← lift (core.convert.num.FromI128I64.from i7)
+    let o ← lift (I128.checked_mul i4 i8)
+    let (err1, pr) ←
+      match o with
+      | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+      | some v1 => ok (err, v1)
+    let o1 ← lift (I128.checked_add acc pr)
+    let (err2, acc1) ←
+      match o1 with
+      | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+      | some v1 => ok (err1, v1)
+    let k1 ← k + 1#usize
+    ok (cont (err2, acc1, k1))
+  else ok (done (err, acc))
+
+/-- [apeiron_word::solve_port::eig::mul_small]: loop 2:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-405:13 -/
+@[rust_loop]
+def solve_port.eig.mul_small_loop0_loop0_loop0
+  (q : Slice Std.I64) (v : Slice Std.I64) (s : Std.Usize)
+  (err : Option solve_port.eig.EigError) (i : Std.Usize) (j : Std.Usize)
+  (acc : Std.I128) (k : Std.Usize) :
+  Result ((Option solve_port.eig.EigError) × Std.I128)
+  := do
+  loop
+    (fun (err1, acc1, k1) => solve_port.eig.mul_small_loop0_loop0_loop0.body q
+      v s i j err1 acc1 k1)
+    (err, acc, k)
+
+/-- [apeiron_word::solve_port::eig::mul_small]: loop body 1:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-408:9 -/
+@[rust_loop_body]
+def solve_port.eig.mul_small_loop0_loop0.body
+  (q : Slice Std.I64) (v : Slice Std.I64) (s : Std.Usize) (i : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (err : Option solve_port.eig.EigError)
+  (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError)))
+  := do
+  if j < s
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (err1, acc) ←
+        solve_port.eig.mul_small_loop0_loop0_loop0 q v s err i j 0#i128 0#usize
+      let r ← solve_port.eig.r32 acc
+      let (err2, v1) ←
+        match r with
+        | core.result.Result.Ok v2 => ok (err1, v2)
+        | core.result.Result.Err e => ok (some e, 0#i128)
+      let r1 ← solve_port.eig.to_i64 v1
+      let (err3, v2) ←
+        match r1 with
+        | core.result.Result.Ok v3 => ok (err2, v3)
+        | core.result.Result.Err e => ok (some e, 0#i64)
+      let i1 ← i * s
+      let i2 ← i1 + j
+      let (_, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          out i2
+      let j1 ← j + 1#usize
+      let out1 := index_mut_back v2
+      ok (cont (out1, err3, j1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::solve_port::eig::mul_small]: loop 1:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-408:9 -/
+@[rust_loop]
+def solve_port.eig.mul_small_loop0_loop0
+  (q : Slice Std.I64) (v : Slice Std.I64) (s : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (err : Option solve_port.eig.EigError)
+  (i : Std.Usize) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.eig.EigError))
+  := do
+  loop
+    (fun (out1, err1, j1) => solve_port.eig.mul_small_loop0_loop0.body q v s i
+      out1 err1 j1)
+    (out, err, j)
+
+/-- [apeiron_word::solve_port::eig::mul_small]: loop body 0:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-410:5 -/
+@[rust_loop_body]
+def solve_port.eig.mul_small_loop0.body
+  (q : Slice Std.I64) (v : Slice Std.I64) (n : Std.Usize) (s : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (err : Option solve_port.eig.EigError)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (out1, err1) ←
+        solve_port.eig.mul_small_loop0_loop0 q v s out err i 0#usize
+      let i1 ← i + 1#usize
+      ok (cont (out1, err1, i1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::solve_port::eig::mul_small]: loop 0:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-410:5 -/
+@[rust_loop]
+def solve_port.eig.mul_small_loop0
+  (q : Slice Std.I64) (v : Slice Std.I64) (n : Std.Usize) (s : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (err : Option solve_port.eig.EigError)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.eig.EigError))
+  := do
+  loop
+    (fun (out1, err1, i1) => solve_port.eig.mul_small_loop0.body q v n s out1
+      err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::solve_port::eig::mul_small]:
+    Source: '../../src/learn/solve/eig.rs', lines 389:0-415:1 -/
+def solve_port.eig.mul_small
+  (q : Slice Std.I64) (v : Slice Std.I64) (n : Std.Usize) (s : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.eig.EigError)
+  := do
+  let i ← n * s
+  let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  let (out1, err) ← solve_port.eig.mul_small_loop0 q v n s out none 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok out1)
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::solve_port::eig::rotate]: loop body 0:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-500:5 -/
+@[rust_loop_body]
+def solve_port.eig.rotate_loop0.body
+  (s : Std.Usize) (p : Std.Usize) (q : Std.Usize) (cv : Std.I128)
+  (sv : Std.I128) (t : Slice Std.I64) (err : Option solve_port.eig.EigError)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option solve_port.eig.EigError) ×
+    Std.Usize) ((Slice Std.I64) × (Option solve_port.eig.EigError)))
+  := do
+  if i < s
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (t1, err1) ←
+        if i != p
+        then
+          if i != q
+          then
+            do
+            let i1 ← i * s
+            let i2 ← i1 + p
+            let i3 ← Slice.index_usize t i2
+            let tip ← lift (core.convert.num.FromI128I64.from i3)
+            let i4 ← i1 + q
+            let i5 ← Slice.index_usize t i4
+            let tiq ← lift (core.convert.num.FromI128I64.from i5)
+            let o ← lift (I128.checked_mul cv tip)
+            let (err2, v) ←
+              match o with
+              | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+              | some v1 => ok (err, v1)
+            let o1 ← lift (I128.checked_mul sv tiq)
+            let (err3, v1) ←
+              match o1 with
+              | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+              | some v2 => ok (err2, v2)
+            let o2 ← lift (I128.checked_sub v v1)
+            let (err4, v2) ←
+              match o2 with
+              | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+              | some v3 => ok (err3, v3)
+            let r ← solve_port.eig.r32 v2
+            let (err5, np) ←
+              match r with
+              | core.result.Result.Ok v3 => ok (err4, v3)
+              | core.result.Result.Err e => ok (some e, 0#i128)
+            let o3 ← lift (I128.checked_mul sv tip)
+            let (err6, v3) ←
+              match o3 with
+              | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+              | some v4 => ok (err5, v4)
+            let o4 ← lift (I128.checked_mul cv tiq)
+            let (err7, v4) ←
+              match o4 with
+              | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+              | some v5 => ok (err6, v5)
+            let o5 ← lift (I128.checked_add v3 v4)
+            let (err8, v5) ←
+              match o5 with
+              | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+              | some v6 => ok (err7, v6)
+            let r1 ← solve_port.eig.r32 v5
+            let (err9, nq) ←
+              match r1 with
+              | core.result.Result.Ok v6 => ok (err8, v6)
+              | core.result.Result.Err e => ok (some e, 0#i128)
+            let r2 ← solve_port.eig.to_i64 np
+            let (err10, np1) ←
+              match r2 with
+              | core.result.Result.Ok v6 => ok (err9, v6)
+              | core.result.Result.Err e => ok (some e, 0#i64)
+            let r3 ← solve_port.eig.to_i64 nq
+            let (err11, nq1) ←
+              match r3 with
+              | core.result.Result.Ok v6 => ok (err10, v6)
+              | core.result.Result.Err e => ok (some e, 0#i64)
+            let i6 ← i1 + p
+            let t2 ← Slice.update t i6 np1
+            let i7 ← p * s
+            let i8 ← i7 + i
+            let t3 ← Slice.update t2 i8 np1
+            let i9 ← i1 + q
+            let t4 ← Slice.update t3 i9 nq1
+            let i10 ← q * s
+            let i11 ← i10 + i
+            let s1 ← Slice.update t4 i11 nq1
+            ok (s1, err11)
+          else ok (t, err)
+        else ok (t, err)
+      let i1 ← i + 1#usize
+      ok (cont (t1, err1, i1))
+    else ok (done (t, err))
+  else ok (done (t, err))
+
+/-- [apeiron_word::solve_port::eig::rotate]: loop 0:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-500:5 -/
+@[rust_loop]
+def solve_port.eig.rotate_loop0
+  (t : Slice Std.I64) (s : Std.Usize) (p : Std.Usize) (q : Std.Usize)
+  (cv : Std.I128) (sv : Std.I128) (err : Option solve_port.eig.EigError)
+  (i : Std.Usize) :
+  Result ((Slice Std.I64) × (Option solve_port.eig.EigError))
+  := do
+  loop
+    (fun (t1, err1, i1) => solve_port.eig.rotate_loop0.body s p q cv sv t1 err1
+      i1)
+    (t, err, i)
+
+/-- [apeiron_word::solve_port::eig::rotate]: loop body 1:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-523:5 -/
+@[rust_loop_body]
+def solve_port.eig.rotate_loop1.body
+  (s : Std.Usize) (p : Std.Usize) (q : Std.Usize) (cv : Std.I128)
+  (sv : Std.I128) (v : Slice Std.I64) (err : Option solve_port.eig.EigError)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option solve_port.eig.EigError) ×
+    Std.Usize) ((Slice Std.I64) × (Option solve_port.eig.EigError)))
+  := do
+  if i < s
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * s
+      let i2 ← i1 + p
+      let i3 ← Slice.index_usize v i2
+      let vip ← lift (core.convert.num.FromI128I64.from i3)
+      let i4 ← i1 + q
+      let i5 ← Slice.index_usize v i4
+      let viq ← lift (core.convert.num.FromI128I64.from i5)
+      let o ← lift (I128.checked_mul cv vip)
+      let (err1, v1) ←
+        match o with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v2 => ok (err, v2)
+      let o1 ← lift (I128.checked_mul sv viq)
+      let (err2, v2) ←
+        match o1 with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v3 => ok (err1, v3)
+      let o2 ← lift (I128.checked_sub v1 v2)
+      let (err3, v3) ←
+        match o2 with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v4 => ok (err2, v4)
+      let r ← solve_port.eig.r32 v3
+      let (err4, vp) ←
+        match r with
+        | core.result.Result.Ok v4 => ok (err3, v4)
+        | core.result.Result.Err e => ok (some e, 0#i128)
+      let o3 ← lift (I128.checked_mul sv vip)
+      let (err5, v4) ←
+        match o3 with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v5 => ok (err4, v5)
+      let o4 ← lift (I128.checked_mul cv viq)
+      let (err6, v5) ←
+        match o4 with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v6 => ok (err5, v6)
+      let o5 ← lift (I128.checked_add v4 v5)
+      let (err7, v6) ←
+        match o5 with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v7 => ok (err6, v7)
+      let r1 ← solve_port.eig.r32 v6
+      let (err8, vq) ←
+        match r1 with
+        | core.result.Result.Ok v7 => ok (err7, v7)
+        | core.result.Result.Err e => ok (some e, 0#i128)
+      let r2 ← solve_port.eig.to_i64 vp
+      let (err9, v7) ←
+        match r2 with
+        | core.result.Result.Ok v8 => ok (err8, v8)
+        | core.result.Result.Err e => ok (some e, 0#i64)
+      let i6 ← i1 + p
+      let v8 ← Slice.update v i6 v7
+      let r3 ← solve_port.eig.to_i64 vq
+      let (err10, v9) ←
+        match r3 with
+        | core.result.Result.Ok v10 => ok (err9, v10)
+        | core.result.Result.Err e => ok (some e, 0#i64)
+      let i7 ← i1 + q
+      let s1 ← Slice.update v8 i7 v9
+      let i8 ← i + 1#usize
+      ok (cont (s1, err10, i8))
+    else ok (done (v, err))
+  else ok (done (v, err))
+
+/-- [apeiron_word::solve_port::eig::rotate]: loop 1:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-523:5 -/
+@[rust_loop]
+def solve_port.eig.rotate_loop1
+  (v : Slice Std.I64) (s : Std.Usize) (p : Std.Usize) (q : Std.Usize)
+  (cv : Std.I128) (sv : Std.I128) (err : Option solve_port.eig.EigError)
+  (i : Std.Usize) :
+  Result ((Slice Std.I64) × (Option solve_port.eig.EigError))
+  := do
+  loop
+    (fun (v1, err1, i1) => solve_port.eig.rotate_loop1.body s p q cv sv v1 err1
+      i1)
+    (v, err, i)
+
+/-- [apeiron_word::solve_port::eig::rotate]:
+    Source: '../../src/learn/solve/eig.rs', lines 429:0-528:1 -/
+def solve_port.eig.rotate
+  (t : Slice Std.I64) (v : Slice Std.I64) (s : Std.Usize) (p : Std.Usize)
+  (q : Std.Usize) :
+  Result ((core.result.Result Unit solve_port.eig.EigError) × (Slice Std.I64)
+    × (Slice Std.I64))
+  := do
+  let i ← p * s
+  let i1 ← i + q
+  let i2 ← Slice.index_usize t i1
+  let apq ← lift (core.convert.num.FromI128I64.from i2)
+  if apq = 0#i128
+  then ok (core.result.Result.Ok (), t, v)
+  else
+    let i3 ← i + p
+    let i4 ← Slice.index_usize t i3
+    let app ← lift (core.convert.num.FromI128I64.from i4)
+    let i5 ← q * s
+    let i6 ← i5 + q
+    let i7 ← Slice.index_usize t i6
+    let aqq ← lift (core.convert.num.FromI128I64.from i7)
+    let i8 ← aqq - app
+    let i9 ← 1#i128 <<< 32#i32
+    let o ← lift (I128.checked_mul i8 i9)
+    let r ← solve_port.eig.ov o
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let den ← apq * 2#i128
+      let i10 ← core.num.I128.abs val
+      let i11 ← core.num.I128.abs den
+      let i12 ← 1#i128 <<< 60#i32
+      let o1 ← lift (I128.checked_mul i11 i12)
+      let r1 ← solve_port.eig.ov o1
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        if i10 > val1
+        then ok (core.result.Result.Ok (), t, v)
+        else
+          let o2 ← solve_port.eig.div_round val den
+          let r2 ← solve_port.eig.ov o2
+          let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+          match cf2 with
+          | core.ops.control_flow.ControlFlow.Continue val2 =>
+            let o3 ← lift (I128.checked_mul val2 val2)
+            let r3 ← solve_port.eig.ov o3
+            let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+            match cf3 with
+            | core.ops.control_flow.ControlFlow.Continue val3 =>
+              let r4 ← solve_port.eig.r32 val3
+              let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r4
+              match cf4 with
+              | core.ops.control_flow.ControlFlow.Continue val4 =>
+                let i13 ← solve_port.eig.ONE
+                let i14 ← lift (core.convert.num.FromI128I64.from i13)
+                let o4 ← lift (I128.checked_add val4 i14)
+                let r5 ← solve_port.eig.ov o4
+                let cf5 ← core.result.Result.Insts.CoreOpsTry.branch r5
+                match cf5 with
+                | core.ops.control_flow.ControlFlow.Continue val5 =>
+                  if val5 <= 0#i128
+                  then ok (core.result.Result.Ok (), t, v)
+                  else
+                    let o5 ← lift (I128.checked_mul val5 i9)
+                    let r6 ← solve_port.eig.ov o5
+                    let cf6 ← core.result.Result.Insts.CoreOpsTry.branch r6
+                    match cf6 with
+                    | core.ops.control_flow.ControlFlow.Continue val6 =>
+                      let root ← fixed_rsqrt.isqrt val6
+                      let i15 ← core.num.I128.abs val2
+                      let o6 ← lift (I128.checked_add i15 root)
+                      let r7 ← solve_port.eig.ov o6
+                      let cf7 ← core.result.Result.Insts.CoreOpsTry.branch r7
+                      match cf7 with
+                      | core.ops.control_flow.ControlFlow.Continue val7 =>
+                        if val7 <= 0#i128
+                        then ok (core.result.Result.Ok (), t, v)
+                        else
+                          let sign ←
+                            if val2 < 0#i128
+                            then ok (-1)#i128
+                            else ok 1#i128
+                          let i16 ← 1#i128 <<< 64#i32
+                          let o7 ← lift (I128.checked_mul sign i16)
+                          let r8 ← solve_port.eig.ov o7
+                          let cf8 ←
+                            core.result.Result.Insts.CoreOpsTry.branch r8
+                          match cf8 with
+                          | core.ops.control_flow.ControlFlow.Continue val8 =>
+                            let o8 ← solve_port.eig.div_round val8 val7
+                            let r9 ← solve_port.eig.ov o8
+                            let cf9 ←
+                              core.result.Result.Insts.CoreOpsTry.branch r9
+                            match cf9 with
+                            | core.ops.control_flow.ControlFlow.Continue val9
+                              =>
+                              let o9 ← lift (I128.checked_mul val9 val9)
+                              let r10 ← solve_port.eig.ov o9
+                              let cf10 ←
+                                core.result.Result.Insts.CoreOpsTry.branch r10
+                              match cf10 with
+                              | core.ops.control_flow.ControlFlow.Continue
+                                val10 =>
+                                let r11 ← solve_port.eig.r32 val10
+                                let cf11 ←
+                                  core.result.Result.Insts.CoreOpsTry.branch
+                                    r11
+                                match cf11 with
+                                | core.ops.control_flow.ControlFlow.Continue
+                                  val11 =>
+                                  let i17 ←
+                                    lift (core.convert.num.FromI128I64.from
+                                      i13)
+                                  let o10 ← lift (I128.checked_add val11 i17)
+                                  let r12 ← solve_port.eig.ov o10
+                                  let cf12 ←
+                                    core.result.Result.Insts.CoreOpsTry.branch
+                                      r12
+                                  match cf12 with
+                                  | core.ops.control_flow.ControlFlow.Continue
+                                    val12 =>
+                                    let o11 ←
+                                      lift (I128.checked_mul val12 i9)
+                                    let r13 ← solve_port.eig.ov o11
+                                    let cf13 ←
+                                      core.result.Result.Insts.CoreOpsTry.branch
+                                        r13
+                                    match cf13 with
+                                    |
+                                      core.ops.control_flow.ControlFlow.Continue
+                                      val13 =>
+                                      let root_c ← fixed_rsqrt.isqrt val13
+                                      if root_c <= 0#i128
+                                      then ok (core.result.Result.Ok (), t, v)
+                                      else
+                                        let o12 ←
+                                          solve_port.eig.div_round i16 root_c
+                                        let r14 ← solve_port.eig.ov o12
+                                        let cf14 ←
+                                          core.result.Result.Insts.CoreOpsTry.branch
+                                            r14
+                                        match cf14 with
+                                        |
+                                          core.ops.control_flow.ControlFlow.Continue
+                                          val14 =>
+                                          let o13 ←
+                                            lift (I128.checked_mul val9 val14)
+                                          let r15 ← solve_port.eig.ov o13
+                                          let cf15 ←
+                                            core.result.Result.Insts.CoreOpsTry.branch
+                                              r15
+                                          match cf15 with
+                                          |
+                                            core.ops.control_flow.ControlFlow.Continue
+                                            val15 =>
+                                            let r16 ←
+                                              solve_port.eig.r32 val15
+                                            let cf16 ←
+                                              core.result.Result.Insts.CoreOpsTry.branch
+                                                r16
+                                            match cf16 with
+                                            |
+                                              core.ops.control_flow.ControlFlow.Continue
+                                              val16 =>
+                                              let o14 ←
+                                                lift (I128.checked_mul val9
+                                                  apq)
+                                              let r17 ← solve_port.eig.ov o14
+                                              let cf17 ←
+                                                core.result.Result.Insts.CoreOpsTry.branch
+                                                  r17
+                                              match cf17 with
+                                              |
+                                                core.ops.control_flow.ControlFlow.Continue
+                                                val17 =>
+                                                let r18 ←
+                                                  solve_port.eig.r32 val17
+                                                let cf18 ←
+                                                  core.result.Result.Insts.CoreOpsTry.branch
+                                                    r18
+                                                match cf18 with
+                                                |
+                                                  core.ops.control_flow.ControlFlow.Continue
+                                                  val18 =>
+                                                  let o15 ←
+                                                    lift (I128.checked_sub app
+                                                      val18)
+                                                  let r19 ←
+                                                    solve_port.eig.ov o15
+                                                  let cf19 ←
+                                                    core.result.Result.Insts.CoreOpsTry.branch
+                                                      r19
+                                                  match cf19 with
+                                                  |
+                                                    core.ops.control_flow.ControlFlow.Continue
+                                                    val19 =>
+                                                    let r20 ←
+                                                      solve_port.eig.to_i64
+                                                        val19
+                                                    let cf20 ←
+                                                      core.result.Result.Insts.CoreOpsTry.branch
+                                                        r20
+                                                    match cf20 with
+                                                    |
+                                                      core.ops.control_flow.ControlFlow.Continue
+                                                      val20 =>
+                                                      let i18 ← i + p
+                                                      let (_, index_mut_back)
+                                                        ←
+                                                        Slice.index_mut_usize t
+                                                          i18
+                                                      let o16 ←
+                                                        lift (I128.checked_add
+                                                          aqq val18)
+                                                      let r21 ←
+                                                        solve_port.eig.ov o16
+                                                      let cf21 ←
+                                                        core.result.Result.Insts.CoreOpsTry.branch
+                                                          r21
+                                                      match cf21 with
+                                                      |
+                                                        core.ops.control_flow.ControlFlow.Continue
+                                                        val21 =>
+                                                        let r22 ←
+                                                          solve_port.eig.to_i64
+                                                            val21
+                                                        let cf22 ←
+                                                          core.result.Result.Insts.CoreOpsTry.branch
+                                                            r22
+                                                        match cf22 with
+                                                        |
+                                                          core.ops.control_flow.ControlFlow.Continue
+                                                          val22 =>
+                                                          let i19 ← i5 + q
+                                                          let t1 :=
+                                                            index_mut_back
+                                                              val20
+                                                          let t2 ←
+                                                            Slice.update t1 i19
+                                                              val22
+                                                          let i20 ← i + q
+                                                          let t3 ←
+                                                            Slice.update t2 i20
+                                                              0#i64
+                                                          let i21 ← i5 + p
+                                                          let s1 ←
+                                                            Slice.update t3 i21
+                                                              0#i64
+                                                          let (t4, err) ←
+                                                            solve_port.eig.rotate_loop0
+                                                              s1 s p q val14
+                                                              val16 none
+                                                              0#usize
+                                                          let (v1, err1) ←
+                                                            solve_port.eig.rotate_loop1
+                                                              v s p q val14
+                                                              val16 err 0#usize
+                                                          match err1 with
+                                                          | none =>
+                                                            ok
+                                                              (core.result.Result.Ok
+                                                              (), t4, v1)
+                                                          | some e =>
+                                                            ok
+                                                              (core.result.Result.Err
+                                                              e, t4, v1)
+                                                        |
+                                                          core.ops.control_flow.ControlFlow.Break
+                                                          residual =>
+                                                          let r23 ←
+                                                            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                                              Unit
+                                                              (core.convert.FromSame
+                                                              solve_port.eig.EigError)
+                                                              residual
+                                                          let t1 :=
+                                                            index_mut_back
+                                                              val20
+                                                          ok (r23, t1, v)
+                                                      |
+                                                        core.ops.control_flow.ControlFlow.Break
+                                                        residual =>
+                                                        let r22 ←
+                                                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                                            Unit
+                                                            (core.convert.FromSame
+                                                            solve_port.eig.EigError)
+                                                            residual
+                                                        let t1 :=
+                                                          index_mut_back val20
+                                                        ok (r22, t1, v)
+                                                    |
+                                                      core.ops.control_flow.ControlFlow.Break
+                                                      residual =>
+                                                      let r21 ←
+                                                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                                          Unit
+                                                          (core.convert.FromSame
+                                                          solve_port.eig.EigError)
+                                                          residual
+                                                      ok (r21, t, v)
+                                                  |
+                                                    core.ops.control_flow.ControlFlow.Break
+                                                    residual =>
+                                                    let r20 ←
+                                                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                                        Unit
+                                                        (core.convert.FromSame
+                                                        solve_port.eig.EigError)
+                                                        residual
+                                                    ok (r20, t, v)
+                                                |
+                                                  core.ops.control_flow.ControlFlow.Break
+                                                  residual =>
+                                                  let r19 ←
+                                                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                                      Unit
+                                                      (core.convert.FromSame
+                                                      solve_port.eig.EigError)
+                                                      residual
+                                                  ok (r19, t, v)
+                                              |
+                                                core.ops.control_flow.ControlFlow.Break
+                                                residual =>
+                                                let r18 ←
+                                                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                                    Unit (core.convert.FromSame
+                                                    solve_port.eig.EigError)
+                                                    residual
+                                                ok (r18, t, v)
+                                            |
+                                              core.ops.control_flow.ControlFlow.Break
+                                              residual =>
+                                              let r17 ←
+                                                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                                  Unit (core.convert.FromSame
+                                                  solve_port.eig.EigError)
+                                                  residual
+                                              ok (r17, t, v)
+                                          |
+                                            core.ops.control_flow.ControlFlow.Break
+                                            residual =>
+                                            let r16 ←
+                                              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                                Unit (core.convert.FromSame
+                                                solve_port.eig.EigError)
+                                                residual
+                                            ok (r16, t, v)
+                                        |
+                                          core.ops.control_flow.ControlFlow.Break
+                                          residual =>
+                                          let r15 ←
+                                            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                              Unit (core.convert.FromSame
+                                              solve_port.eig.EigError) residual
+                                          ok (r15, t, v)
+                                    | core.ops.control_flow.ControlFlow.Break
+                                      residual =>
+                                      let r14 ←
+                                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                          Unit (core.convert.FromSame
+                                          solve_port.eig.EigError) residual
+                                      ok (r14, t, v)
+                                  | core.ops.control_flow.ControlFlow.Break
+                                    residual =>
+                                    let r13 ←
+                                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                        Unit (core.convert.FromSame
+                                        solve_port.eig.EigError) residual
+                                    ok (r13, t, v)
+                                | core.ops.control_flow.ControlFlow.Break
+                                  residual =>
+                                  let r12 ←
+                                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                      Unit (core.convert.FromSame
+                                      solve_port.eig.EigError) residual
+                                  ok (r12, t, v)
+                              | core.ops.control_flow.ControlFlow.Break
+                                residual =>
+                                let r11 ←
+                                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                    Unit (core.convert.FromSame
+                                    solve_port.eig.EigError) residual
+                                ok (r11, t, v)
+                            | core.ops.control_flow.ControlFlow.Break residual
+                              =>
+                              let r10 ←
+                                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                  Unit (core.convert.FromSame
+                                  solve_port.eig.EigError) residual
+                              ok (r10, t, v)
+                          | core.ops.control_flow.ControlFlow.Break residual =>
+                            let r9 ←
+                              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                Unit (core.convert.FromSame
+                                solve_port.eig.EigError) residual
+                            ok (r9, t, v)
+                      | core.ops.control_flow.ControlFlow.Break residual =>
+                        let r8 ←
+                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                            Unit (core.convert.FromSame
+                            solve_port.eig.EigError) residual
+                        ok (r8, t, v)
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      let r7 ←
+                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                          Unit (core.convert.FromSame solve_port.eig.EigError)
+                          residual
+                      ok (r7, t, v)
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  let r6 ←
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      Unit (core.convert.FromSame solve_port.eig.EigError)
+                      residual
+                  ok (r6, t, v)
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                let r5 ←
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    Unit (core.convert.FromSame solve_port.eig.EigError)
+                    residual
+                ok (r5, t, v)
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              let r4 ←
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  Unit (core.convert.FromSame solve_port.eig.EigError) residual
+              ok (r4, t, v)
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            let r3 ←
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                Unit (core.convert.FromSame solve_port.eig.EigError) residual
+            ok (r3, t, v)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        let r2 ←
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            Unit (core.convert.FromSame solve_port.eig.EigError) residual
+        ok (r2, t, v)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame solve_port.eig.EigError) residual
+      ok (r1, t, v)
+
+/-- [apeiron_word::solve_port::eig::jacobi]: loop body 0:
+    Source: '../../src/learn/solve/eig.rs', lines 545:4-548:5 -/
+@[rust_loop_body]
+def solve_port.eig.jacobi_loop0.body
+  (s : Std.Usize) (v : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < s
+  then
+    let i1 ← i * s
+    let i2 ← i1 + i
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) v
+        i2
+    let i3 ← solve_port.eig.ONE
+    let i4 ← i + 1#usize
+    let v1 := index_mut_back i3
+    ok (cont (v1, i4))
+  else ok (done v)
+
+/-- [apeiron_word::solve_port::eig::jacobi]: loop 0:
+    Source: '../../src/learn/solve/eig.rs', lines 545:4-548:5 -/
+@[rust_loop]
+def solve_port.eig.jacobi_loop0
+  (s : Std.Usize) (v : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (v1, i1) => solve_port.eig.jacobi_loop0.body s v1 i1)
+    (v, i)
+
+/-- [apeiron_word::solve_port::eig::jacobi]: loop body 3:
+    Source: '../../src/learn/solve/eig.rs', lines 561:12-567:13 -/
+@[rust_loop_body]
+def solve_port.eig.jacobi_loop1_loop0_loop0.body
+  (s : Std.Usize) (t : alloc.vec.Vec Std.I64) (i : Std.Usize) (off : Std.I64)
+  (j : Std.Usize) :
+  Result (ControlFlow (Std.I64 × Std.Usize) Std.I64)
+  := do
+  if j < s
+  then
+    let i1 ← i * s
+    let i2 ← i1 + j
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) t i2
+    let o ← core.num.I64.abs i3
+    let off1 ← if o > off
+                 then ok o
+                 else ok off
+    let j1 ← j + 1#usize
+    ok (cont (off1, j1))
+  else ok (done off)
+
+/-- [apeiron_word::solve_port::eig::jacobi]: loop 3:
+    Source: '../../src/learn/solve/eig.rs', lines 561:12-567:13 -/
+@[rust_loop]
+def solve_port.eig.jacobi_loop1_loop0_loop0
+  (s : Std.Usize) (t : alloc.vec.Vec Std.I64) (off : Std.I64) (i : Std.Usize)
+  (j : Std.Usize) :
+  Result Std.I64
+  := do
+  loop
+    (fun (off1, j1) => solve_port.eig.jacobi_loop1_loop0_loop0.body s t i off1
+      j1)
+    (off, j)
+
+/-- [apeiron_word::solve_port::eig::jacobi]: loop body 2:
+    Source: '../../src/learn/solve/eig.rs', lines 555:8-569:9 -/
+@[rust_loop_body]
+def solve_port.eig.jacobi_loop1_loop0.body
+  (s : Std.Usize) (t : alloc.vec.Vec Std.I64) (off : Std.I64) (scale : Std.I64)
+  (i : Std.Usize) :
+  Result (ControlFlow (Std.I64 × Std.I64 × Std.Usize) (Std.I64 × Std.I64))
+  := do
+  if i < s
+  then
+    let i1 ← i * s
+    let i2 ← i1 + i
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) t i2
+    let d ← core.num.I64.abs i3
+    let scale1 ← if d > scale
+                   then ok d
+                   else ok scale
+    let j ← i + 1#usize
+    let off1 ← solve_port.eig.jacobi_loop1_loop0_loop0 s t off i j
+    let i4 ← i + 1#usize
+    ok (cont (off1, scale1, i4))
+  else ok (done (off, scale))
+
+/-- [apeiron_word::solve_port::eig::jacobi]: loop 2:
+    Source: '../../src/learn/solve/eig.rs', lines 555:8-569:9 -/
+@[rust_loop]
+def solve_port.eig.jacobi_loop1_loop0
+  (s : Std.Usize) (t : alloc.vec.Vec Std.I64) (off : Std.I64) (scale : Std.I64)
+  (i : Std.Usize) :
+  Result (Std.I64 × Std.I64)
+  := do
+  loop
+    (fun (off1, scale1, i1) => solve_port.eig.jacobi_loop1_loop0.body s t off1
+      scale1 i1)
+    (off, scale, i)
+
+/-- [apeiron_word::solve_port::eig::jacobi]: loop body 5:
+    Source: '../../src/learn/solve/eig.rs', lines 579:16-585:17 -/
+@[rust_loop_body]
+def solve_port.eig.jacobi_loop1_loop1_loop0.body
+  (s : Std.Usize) (p : Std.Usize) (t : alloc.vec.Vec Std.I64)
+  (v : alloc.vec.Vec Std.I64) (err : Option solve_port.eig.EigError)
+  (q : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    (Option solve_port.eig.EigError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64) × (Option solve_port.eig.EigError)))
+  := do
+  if q < s
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (s1, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut t)
+      let (s2, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut v)
+      let (r, s3, s4) ← solve_port.eig.rotate s1 s2 s p q
+      let err1 ←
+        match r with
+        | core.result.Result.Ok _ => ok err
+        | core.result.Result.Err e => ok (some e)
+      let q1 ← q + 1#usize
+      let v1 := deref_mut_back1 s4
+      let t1 := deref_mut_back s3
+      ok (cont (t1, v1, err1, q1))
+    else ok (done (t, v, err))
+  else ok (done (t, v, err))
+
+/-- [apeiron_word::solve_port::eig::jacobi]: loop 5:
+    Source: '../../src/learn/solve/eig.rs', lines 579:16-585:17 -/
+@[rust_loop]
+def solve_port.eig.jacobi_loop1_loop1_loop0
+  (s : Std.Usize) (t : alloc.vec.Vec Std.I64) (v : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.eig.EigError) (p : Std.Usize) (q : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError))
+  := do
+  loop
+    (fun (t1, v1, err1, q1) => solve_port.eig.jacobi_loop1_loop1_loop0.body s p
+      t1 v1 err1 q1)
+    (t, v, err, q)
+
+/-- [apeiron_word::solve_port::eig::jacobi]: loop body 4:
+    Source: '../../src/learn/solve/eig.rs', lines 577:12-587:13 -/
+@[rust_loop_body]
+def solve_port.eig.jacobi_loop1_loop1.body
+  (s : Std.Usize) (t : alloc.vec.Vec Std.I64) (v : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.eig.EigError) (p : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    (Option solve_port.eig.EigError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64) × (Option solve_port.eig.EigError)))
+  := do
+  if p < s
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let q ← p + 1#usize
+      let (t1, v1, err1) ←
+        solve_port.eig.jacobi_loop1_loop1_loop0 s t v err p q
+      let p1 ← p + 1#usize
+      ok (cont (t1, v1, err1, p1))
+    else ok (done (t, v, err))
+  else ok (done (t, v, err))
+
+/-- [apeiron_word::solve_port::eig::jacobi]: loop 4:
+    Source: '../../src/learn/solve/eig.rs', lines 577:12-587:13 -/
+@[rust_loop]
+def solve_port.eig.jacobi_loop1_loop1
+  (s : Std.Usize) (t : alloc.vec.Vec Std.I64) (v : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.eig.EigError) (p : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError))
+  := do
+  loop
+    (fun (t1, v1, err1, p1) => solve_port.eig.jacobi_loop1_loop1.body s t1 v1
+      err1 p1)
+    (t, v, err, p)
+
+/-- [apeiron_word::solve_port::eig::jacobi]: loop body 1:
+    Source: '../../src/learn/solve/eig.rs', lines 551:4-590:5 -/
+@[rust_loop_body]
+def solve_port.eig.jacobi_loop1.body
+  (s : Std.Usize) (t : alloc.vec.Vec Std.I64) (v : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.eig.EigError) (sweep : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    (Option solve_port.eig.EigError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64) × (Option solve_port.eig.EigError)))
+  := do
+  if sweep < solve_port.eig.JACOBI_SWEEPS
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (off, scale) ←
+        solve_port.eig.jacobi_loop1_loop0 s t 0#i64 0#i64 0#usize
+      let i ← scale >>> solve_port.eig.OFF_DIAG_SHIFT
+      let i1 ← 1#i64 <<< solve_port.eig.OFF_DIAG_FLOOR
+      let tol ← core.cmp.Ord.max.default core.cmp.OrdI64 i i1
+      if off <= tol
+      then ok (cont (t, v, err, solve_port.eig.JACOBI_SWEEPS))
+      else
+        let (t1, v1, err1) ←
+          solve_port.eig.jacobi_loop1_loop1 s t v err 0#usize
+        let sweep1 ← sweep + 1#usize
+        ok (cont (t1, v1, err1, sweep1))
+    else ok (done (t, v, err))
+  else ok (done (t, v, err))
+
+/-- [apeiron_word::solve_port::eig::jacobi]: loop 1:
+    Source: '../../src/learn/solve/eig.rs', lines 551:4-590:5 -/
+@[rust_loop]
+def solve_port.eig.jacobi_loop1
+  (s : Std.Usize) (t : alloc.vec.Vec Std.I64) (v : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.eig.EigError) (sweep : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    solve_port.eig.EigError))
+  := do
+  loop
+    (fun (t1, v1, err1, sweep1) => solve_port.eig.jacobi_loop1.body s t1 v1
+      err1 sweep1)
+    (t, v, err, sweep)
+
+/-- [apeiron_word::solve_port::eig::jacobi]: loop body 6:
+    Source: '../../src/learn/solve/eig.rs', lines 593:4-596:5 -/
+@[rust_loop_body]
+def solve_port.eig.jacobi_loop2.body
+  (s : Std.Usize) (t : alloc.vec.Vec Std.I64) (vals : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < s
+  then
+    let i1 ← i * s
+    let i2 ← i1 + i
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) t i2
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        vals i
+    let i4 ← i + 1#usize
+    let vals1 := index_mut_back i3
+    ok (cont (vals1, i4))
+  else ok (done vals)
+
+/-- [apeiron_word::solve_port::eig::jacobi]: loop 6:
+    Source: '../../src/learn/solve/eig.rs', lines 593:4-596:5 -/
+@[rust_loop]
+def solve_port.eig.jacobi_loop2
+  (s : Std.Usize) (t : alloc.vec.Vec Std.I64) (vals : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (vals1, i1) => solve_port.eig.jacobi_loop2.body s t vals1 i1)
+    (vals, i)
+
+/-- [apeiron_word::solve_port::eig::jacobi]:
+    Source: '../../src/learn/solve/eig.rs', lines 541:0-601:1 -/
+def solve_port.eig.jacobi
+  (t_in : Slice Std.I64) (s : Std.Usize) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) solve_port.eig.EigError)
+  := do
+  let t ← alloc.slice.Slice.to_vec core.clone.CloneI64 t_in
+  let i ← s * s
+  let v ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  let v1 ← solve_port.eig.jacobi_loop0 s v 0#usize
+  let (t1, v2, err) ← solve_port.eig.jacobi_loop1 s t v1 none 0#usize
+  let vals ← alloc.vec.from_elem core.clone.CloneI64 0#i64 s
+  let vals1 ← solve_port.eig.jacobi_loop2 s t1 vals 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok (vals1, v2))
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::solve_port::eig::sort_ascending]: loop body 2:
+    Source: '../../src/learn/solve/eig.rs', lines 611:12-613:13 -/
+@[rust_loop_body]
+def solve_port.eig.sort_ascending_loop0_loop0_loop0.body
+  (s : Std.Usize) (j : Std.Usize) (iter : core.ops.range.Range Std.Usize)
+  (v : Slice Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (Slice Std.I64))
+    (Slice Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done v)
+  | some r =>
+    let i ← r * s
+    let i1 ← j - 1#usize
+    let i2 ← i + i1
+    let i3 ← i + j
+    let v1 ← core.slice.Slice.swap v i2 i3
+    ok (cont (iter1, v1))
+
+/-- [apeiron_word::solve_port::eig::sort_ascending]: loop 2:
+    Source: '../../src/learn/solve/eig.rs', lines 611:12-613:13 -/
+@[rust_loop]
+def solve_port.eig.sort_ascending_loop0_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (v : Slice Std.I64) (s : Std.Usize)
+  (j : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (iter1, v1) => solve_port.eig.sort_ascending_loop0_loop0_loop0.body s
+      j iter1 v1)
+    (iter, v)
+
+/-- [apeiron_word::solve_port::eig::sort_ascending]: loop body 1:
+    Source: '../../src/learn/solve/eig.rs', lines 609:8-615:9 -/
+@[rust_loop_body]
+def solve_port.eig.sort_ascending_loop0_loop0.body
+  (s : Std.Usize) (vals : Slice Std.I64) (v : Slice Std.I64) (j : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × Std.Usize) ((Slice
+    Std.I64) × (Slice Std.I64)))
+  := do
+  if j > 0#usize
+  then
+    let i ← j - 1#usize
+    let i1 ← Slice.index_usize vals i
+    let i2 ← Slice.index_usize vals j
+    if i1 > i2
+    then
+      let vals1 ← core.slice.Slice.swap vals i j
+      let v1 ←
+        solve_port.eig.sort_ascending_loop0_loop0_loop0
+          { start := 0#usize, «end» := s } v s j
+      let j1 ← j - 1#usize
+      ok (cont (vals1, v1, j1))
+    else ok (done (vals, v))
+  else ok (done (vals, v))
+
+/-- [apeiron_word::solve_port::eig::sort_ascending]: loop 1:
+    Source: '../../src/learn/solve/eig.rs', lines 609:8-615:9 -/
+@[rust_loop]
+def solve_port.eig.sort_ascending_loop0_loop0
+  (vals : Slice Std.I64) (v : Slice Std.I64) (s : Std.Usize) (j : Std.Usize) :
+  Result ((Slice Std.I64) × (Slice Std.I64))
+  := do
+  loop
+    (fun (vals1, v1, j1) => solve_port.eig.sort_ascending_loop0_loop0.body s
+      vals1 v1 j1)
+    (vals, v, j)
+
+/-- [apeiron_word::solve_port::eig::sort_ascending]: loop body 0:
+    Source: '../../src/learn/solve/eig.rs', lines 607:4-616:5 -/
+@[rust_loop_body]
+def solve_port.eig.sort_ascending_loop0.body
+  (s : Std.Usize) (iter : core.ops.range.Range Std.Usize)
+  (vals : Slice Std.I64) (v : Slice Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (Slice Std.I64) ×
+    (Slice Std.I64)) ((Slice Std.I64) × (Slice Std.I64)))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (vals, v))
+  | some i =>
+    let (vals1, v1) ← solve_port.eig.sort_ascending_loop0_loop0 vals v s i
+    ok (cont (iter1, vals1, v1))
+
+/-- [apeiron_word::solve_port::eig::sort_ascending]: loop 0:
+    Source: '../../src/learn/solve/eig.rs', lines 607:4-616:5 -/
+@[rust_loop]
+def solve_port.eig.sort_ascending_loop0
+  (iter : core.ops.range.Range Std.Usize) (vals : Slice Std.I64)
+  (v : Slice Std.I64) (s : Std.Usize) :
+  Result ((Slice Std.I64) × (Slice Std.I64))
+  := do
+  loop
+    (fun (iter1, vals1, v1) => solve_port.eig.sort_ascending_loop0.body s iter1
+      vals1 v1)
+    (iter, vals, v)
+
+/-- [apeiron_word::solve_port::eig::sort_ascending]:
+    Source: '../../src/learn/solve/eig.rs', lines 606:0-617:1 -/
+def solve_port.eig.sort_ascending
+  (vals : Slice Std.I64) (v : Slice Std.I64) (s : Std.Usize) :
+  Result ((Slice Std.I64) × (Slice Std.I64))
+  := do
+  let i := Slice.len vals
+  solve_port.eig.sort_ascending_loop0 { start := 1#usize, «end» := i } vals v
+    s
+
+/-- [apeiron_word::solve_port::eig::top_columns]: loop body 1:
+    Source: '../../src/learn/solve/eig.rs', lines 626:8-628:9 -/
+@[rust_loop_body]
+def solve_port.eig.top_columns_loop0_loop0.body
+  (q : Slice Std.I64) (s : Std.Usize) (r : Std.Usize) (i : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (out : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done out)
+  | some k =>
+    let i1 ← i * s
+    let i2 ← s - r
+    let i3 ← i2 + k
+    let i4 ← i1 + i3
+    let i5 ← Slice.index_usize q i4
+    let i6 ← i * r
+    let i7 ← i6 + k
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        out i7
+    let out1 := index_mut_back i5
+    ok (cont (iter1, out1))
+
+/-- [apeiron_word::solve_port::eig::top_columns]: loop 1:
+    Source: '../../src/learn/solve/eig.rs', lines 626:8-628:9 -/
+@[rust_loop]
+def solve_port.eig.top_columns_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (q : Slice Std.I64) (s : Std.Usize)
+  (r : Std.Usize) (out : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, out1) => solve_port.eig.top_columns_loop0_loop0.body q s r i
+      iter1 out1)
+    (iter, out)
+
+/-- [apeiron_word::solve_port::eig::top_columns]: loop body 0:
+    Source: '../../src/learn/solve/eig.rs', lines 625:4-629:5 -/
+@[rust_loop_body]
+def solve_port.eig.top_columns_loop0.body
+  (q : Slice Std.I64) (s : Std.Usize) (r : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (out : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done out)
+  | some i =>
+    let out1 ←
+      solve_port.eig.top_columns_loop0_loop0 { start := 0#usize, «end» := r }
+        q s r out i
+    ok (cont (iter1, out1))
+
+/-- [apeiron_word::solve_port::eig::top_columns]: loop 0:
+    Source: '../../src/learn/solve/eig.rs', lines 625:4-629:5 -/
+@[rust_loop]
+def solve_port.eig.top_columns_loop0
+  (iter : core.ops.range.Range Std.Usize) (q : Slice Std.I64) (s : Std.Usize)
+  (r : Std.Usize) (out : alloc.vec.Vec Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, out1) => solve_port.eig.top_columns_loop0.body q s r iter1
+      out1)
+    (iter, out)
+
+/-- [apeiron_word::solve_port::eig::top_columns]:
+    Source: '../../src/learn/solve/eig.rs', lines 623:0-631:1 -/
+def solve_port.eig.top_columns
+  (q : Slice Std.I64) (n : Std.Usize) (s : Std.Usize) (r : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  let i ← n * r
+  let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  solve_port.eig.top_columns_loop0 { start := 0#usize, «end» := n } q s r out
+
+/-- [apeiron_word::solve_port::eig::residual_max]: loop body 1:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-667:9 -/
+@[rust_loop_body]
+def solve_port.eig.residual_max_loop0_loop0.body
+  (w : Slice Std.I64) (q : Slice Std.I64) (n : Std.Usize) (cols : Std.Usize)
+  (col0 : Std.Usize) (k : Std.Usize) (lam : Std.I128) (worst : Std.I64)
+  (err : Option solve_port.eig.EigError) (i : Std.Usize) :
+  Result (ControlFlow (Std.I64 × (Option solve_port.eig.EigError) ×
+    Std.Usize) (Std.I64 × (Option solve_port.eig.EigError)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * cols
+      let i2 ← col0 + k
+      let idx ← i1 + i2
+      let i3 ← Slice.index_usize q idx
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let o ← lift (I128.checked_mul lam i4)
+      let (err1, v) ←
+        match o with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v1 => ok (err, v1)
+      let r ← solve_port.eig.r32 v
+      let (err2, lv) ←
+        match r with
+        | core.result.Result.Ok v1 => ok (err1, v1)
+        | core.result.Result.Err e => ok (some e, 0#i128)
+      let i5 ← Slice.index_usize w idx
+      let i6 ← lift (core.convert.num.FromI128I64.from i5)
+      let o1 ← lift (I128.checked_sub i6 lv)
+      let (err3, v1) ←
+        match o1 with
+        | none => ok (some solve_port.eig.EigError.Overflow, 0#i128)
+        | some v2 => ok (err2, v2)
+      let d ← core.num.I128.abs v1
+      let r1 ← solve_port.eig.to_i64 d
+      let (err4, d1) ←
+        match r1 with
+        | core.result.Result.Ok v2 => ok (err3, v2)
+        | core.result.Result.Err e => ok (some e, 0#i64)
+      let worst1 ← if d1 > worst
+                     then ok d1
+                     else ok worst
+      let i7 ← i + 1#usize
+      ok (cont (worst1, err4, i7))
+    else ok (done (worst, err))
+  else ok (done (worst, err))
+
+/-- [apeiron_word::solve_port::eig::residual_max]: loop 1:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-667:9 -/
+@[rust_loop]
+def solve_port.eig.residual_max_loop0_loop0
+  (w : Slice Std.I64) (q : Slice Std.I64) (n : Std.Usize) (cols : Std.Usize)
+  (col0 : Std.Usize) (worst : Std.I64) (err : Option solve_port.eig.EigError)
+  (k : Std.Usize) (lam : Std.I128) (i : Std.Usize) :
+  Result (Std.I64 × (Option solve_port.eig.EigError))
+  := do
+  loop
+    (fun (worst1, err1, i1) => solve_port.eig.residual_max_loop0_loop0.body w q
+      n cols col0 k lam worst1 err1 i1)
+    (worst, err, i)
+
+/-- [apeiron_word::solve_port::eig::residual_max]: loop body 0:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-669:5 -/
+@[rust_loop_body]
+def solve_port.eig.residual_max_loop0.body
+  (w : Slice Std.I64) (q : Slice Std.I64) (vals : Slice Std.I64)
+  (n : Std.Usize) (cols : Std.Usize) (col0 : Std.Usize) (r : Std.Usize)
+  (worst : Std.I64) (err : Option solve_port.eig.EigError) (k : Std.Usize) :
+  Result (ControlFlow (Std.I64 × (Option solve_port.eig.EigError) ×
+    Std.Usize) (Std.I64 × (Option solve_port.eig.EigError)))
+  := do
+  if k < r
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← Slice.index_usize vals k
+      let lam ← lift (core.convert.num.FromI128I64.from i)
+      let (worst1, err1) ←
+        solve_port.eig.residual_max_loop0_loop0 w q n cols col0 worst err k lam
+          0#usize
+      let k1 ← k + 1#usize
+      ok (cont (worst1, err1, k1))
+    else ok (done (worst, err))
+  else ok (done (worst, err))
+
+/-- [apeiron_word::solve_port::eig::residual_max]: loop 0:
+    Source: '../../src/learn/solve/eig.rs', lines 72:8-669:5 -/
+@[rust_loop]
+def solve_port.eig.residual_max_loop0
+  (w : Slice Std.I64) (q : Slice Std.I64) (vals : Slice Std.I64)
+  (n : Std.Usize) (cols : Std.Usize) (col0 : Std.Usize) (r : Std.Usize)
+  (worst : Std.I64) (err : Option solve_port.eig.EigError) (k : Std.Usize) :
+  Result (Std.I64 × (Option solve_port.eig.EigError))
+  := do
+  loop
+    (fun (worst1, err1, k1) => solve_port.eig.residual_max_loop0.body w q vals
+      n cols col0 r worst1 err1 k1)
+    (worst, err, k)
+
+/-- [apeiron_word::solve_port::eig::residual_max]:
+    Source: '../../src/learn/solve/eig.rs', lines 643:0-674:1 -/
+def solve_port.eig.residual_max
+  (w : Slice Std.I64) (q : Slice Std.I64) (vals : Slice Std.I64)
+  (n : Std.Usize) (cols : Std.Usize) (col0 : Std.Usize) :
+  Result (core.result.Result Std.I64 solve_port.eig.EigError)
+  := do
+  let r := Slice.len vals
+  let (worst, err) ←
+    solve_port.eig.residual_max_loop0 w q vals n cols col0 r 0#i64 none 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok worst)
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::solve_port::eig::fix_signs]: loop body 1:
+    Source: '../../src/learn/solve/eig.rs', lines 691:8-699:9 -/
+@[rust_loop_body]
+def solve_port.eig.fix_signs_loop0_loop0.body
+  (evecs : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) (k : Std.Usize)
+  (best_abs : Std.I128) (best_val : Std.I64) (i : Std.Usize) :
+  Result (ControlFlow (Std.I128 × Std.I64 × Std.Usize) Std.I64)
+  := do
+  if i < n
+  then
+    let i1 ← i * r
+    let i2 ← i1 + k
+    let x ← Slice.index_usize evecs i2
+    let i3 ← lift (core.convert.num.FromI128I64.from x)
+    let a ← core.num.I128.abs i3
+    let (best_abs1, best_val1) ←
+      if a > best_abs
+      then ok (a, x)
+      else ok (best_abs, best_val)
+    let i4 ← i + 1#usize
+    ok (cont (best_abs1, best_val1, i4))
+  else ok (done best_val)
+
+/-- [apeiron_word::solve_port::eig::fix_signs]: loop 1:
+    Source: '../../src/learn/solve/eig.rs', lines 691:8-699:9 -/
+@[rust_loop]
+def solve_port.eig.fix_signs_loop0_loop0
+  (evecs : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) (k : Std.Usize)
+  (best_abs : Std.I128) (best_val : Std.I64) (i : Std.Usize) :
+  Result Std.I64
+  := do
+  loop
+    (fun (best_abs1, best_val1, i1) =>
+      solve_port.eig.fix_signs_loop0_loop0.body evecs n r k best_abs1 best_val1
+      i1)
+    (best_abs, best_val, i)
+
+/-- [apeiron_word::solve_port::eig::fix_signs]: loop body 2:
+    Source: '../../src/learn/solve/eig.rs', lines 702:12-705:13 -/
+@[rust_loop_body]
+def solve_port.eig.fix_signs_loop0_loop1.body
+  (n : Std.Usize) (r : Std.Usize) (k : Std.Usize) (evecs : Slice Std.I64)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) (Slice Std.I64))
+  := do
+  if i < n
+  then
+    let i1 ← i * r
+    let i2 ← i1 + k
+    let i3 ← Slice.index_usize evecs i2
+    let i4 ← i1 + k
+    let i5 ← -. i3
+    let s ← Slice.update evecs i4 i5
+    let i6 ← i + 1#usize
+    ok (cont (s, i6))
+  else ok (done evecs)
+
+/-- [apeiron_word::solve_port::eig::fix_signs]: loop 2:
+    Source: '../../src/learn/solve/eig.rs', lines 702:12-705:13 -/
+@[rust_loop]
+def solve_port.eig.fix_signs_loop0_loop1
+  (evecs : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) (k : Std.Usize)
+  (i : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (evecs1, i1) => solve_port.eig.fix_signs_loop0_loop1.body n r k evecs1
+      i1)
+    (evecs, i)
+
+/-- [apeiron_word::solve_port::eig::fix_signs]: loop body 0:
+    Source: '../../src/learn/solve/eig.rs', lines 684:4-708:5 -/
+@[rust_loop_body]
+def solve_port.eig.fix_signs_loop0.body
+  (n : Std.Usize) (r : Std.Usize) (evecs : Slice Std.I64) (k : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) (Slice Std.I64))
+  := do
+  if k < r
+  then
+    let best_val ←
+      solve_port.eig.fix_signs_loop0_loop0 evecs n r k (-1)#i128 0#i64 0#usize
+    if best_val < 0#i64
+    then
+      let evecs1 ← solve_port.eig.fix_signs_loop0_loop1 evecs n r k 0#usize
+      let k1 ← k + 1#usize
+      ok (cont (evecs1, k1))
+    else let k1 ← k + 1#usize
+         ok (cont (evecs, k1))
+  else ok (done evecs)
+
+/-- [apeiron_word::solve_port::eig::fix_signs]: loop 0:
+    Source: '../../src/learn/solve/eig.rs', lines 684:4-708:5 -/
+@[rust_loop]
+def solve_port.eig.fix_signs_loop0
+  (evecs : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) (k : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (evecs1, k1) => solve_port.eig.fix_signs_loop0.body n r evecs1 k1)
+    (evecs, k)
+
+/-- [apeiron_word::solve_port::eig::fix_signs]:
+    Source: '../../src/learn/solve/eig.rs', lines 682:0-709:1 -/
+@[reducible]
+def solve_port.eig.fix_signs
+  (evecs : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  solve_port.eig.fix_signs_loop0 evecs n r 0#usize
+
+/-- [apeiron_word::solve_port::gemm::GemmError]
+    Source: '../../src/learn/solve/gemm.rs', lines 88:0-98:1
+    Visibility: public -/
+@[discriminant isize]
+inductive solve_port.gemm.GemmError where
+| ZeroDim : solve_port.gemm.GemmError
+| ShapeMismatch : solve_port.gemm.GemmError
+| InputBound : solve_port.gemm.GemmError
+| Overflow : solve_port.gemm.GemmError
+
+/-- [apeiron_word::solve_port::eig::gemm_err]:
+    Source: '../../src/learn/solve/eig.rs', lines 714:0-716:1 -/
+def solve_port.eig.gemm_err
+  (ge : solve_port.gemm.GemmError) : Result solve_port.eig.EigError := do
+  ok solve_port.eig.EigError.Overflow
+
+/-- [apeiron_word::solve_port::eig::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::gemm::GemmError,), apeiron_word::solve_port::eig::EigError> for apeiron_word::solve_port::eig::gemm_err}::call_once]:
+    Source: '../../src/learn/solve/eig.rs', lines 714:0-716:1 -/
+def P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorEigError.call_once
+  (state : solve_port.gemm.GemmError → Result solve_port.eig.EigError)
+  (args : solve_port.gemm.GemmError) :
+  Result solve_port.eig.EigError
+  := do
+  solve_port.eig.gemm_err args
+
+/-- Trait implementation: [apeiron_word::solve_port::eig::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::gemm::GemmError,), apeiron_word::solve_port::eig::EigError> for apeiron_word::solve_port::eig::gemm_err}]
+    Source: '../../src/learn/solve/eig.rs', lines 714:0-716:1 -/
+@[reducible]
+def P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorEigError :
+  core.ops.function.FnOnce (solve_port.gemm.GemmError → Result
+  solve_port.eig.EigError) solve_port.gemm.GemmError solve_port.eig.EigError
+  := {
+  call_once := P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorEigError.call_once
+}
+
+/-- [apeiron_word::solve_port::eig::Ritz]
+    Source: '../../src/learn/solve/eig.rs', lines 719:0-729:1 -/
+@[discriminant isize]
+inductive solve_port.eig.Ritz where
+| Continue : alloc.vec.Vec Std.I64 → Std.I64 → solve_port.eig.Ritz
+| Done : solve_port.eig.TopEig → solve_port.eig.Ritz
+
+/-- [apeiron_word::solve_port::syrk::all_below]: loop body 0:
+    Source: '../../src/learn/solve/syrk.rs', lines 115:4-118:5 -/
+@[rust_loop_body]
+def solve_port.syrk.all_below_loop.body
+  (xs : Slice Std.I64) (limit : Std.U64) (ok1 : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  let i1 := Slice.len xs
+  if i < i1
+  then
+    if ok1
+    then
+      let i2 ← Slice.index_usize xs i
+      let i3 ← core.num.I64.unsigned_abs i2
+      let i4 ← i + 1#usize
+      ok (cont (i3 < limit, i4))
+    else ok (done false)
+  else ok (done ok1)
+
+/-- [apeiron_word::solve_port::syrk::all_below]: loop 0:
+    Source: '../../src/learn/solve/syrk.rs', lines 115:4-118:5 -/
+@[rust_loop]
+def solve_port.syrk.all_below_loop
+  (xs : Slice Std.I64) (limit : Std.U64) (ok1 : Bool) (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (ok2, i1) => solve_port.syrk.all_below_loop.body xs limit ok2 i1)
+    (ok1, i)
+
+/-- [apeiron_word::solve_port::syrk::all_below]:
+    Source: '../../src/learn/solve/syrk.rs', lines 112:0-120:1 -/
+@[reducible]
+def solve_port.syrk.all_below
+  (xs : Slice Std.I64) (limit : Std.U64) : Result Bool := do
+  solve_port.syrk.all_below_loop xs limit true 0#usize
+
+/-- [apeiron_word::solve_port::syrk::BOUND_BITS]
+    Source: '../../src/learn/solve/syrk.rs', lines 40:0-40:38 -/
+@[global_simps, irreducible] def solve_port.syrk.BOUND_BITS : Std.U32 := 36#u32
+
+/-- [apeiron_word::solve_port::syrk::within_bound]:
+    Source: '../../src/learn/solve/syrk.rs', lines 96:0-105:1 -/
+def solve_port.syrk.within_bound
+  (x : Slice Std.I64) (w : Option (Slice Std.I64)) : Result Bool := do
+  let limit ← 1#u64 <<< solve_port.syrk.BOUND_BITS
+  let b ← solve_port.syrk.all_below x limit
+  if b
+  then
+    match w with
+    | none => ok true
+    | some ws => solve_port.syrk.all_below ws limit
+  else ok false
+
+/-- [apeiron_word::solve_port::gemm::MAX_K]
+    Source: '../../src/learn/solve/gemm.rs', lines 73:0-73:62
+    Visibility: public -/
+@[global_simps, irreducible]
+def solve_port.gemm.MAX_K : Result Std.Usize := do
+  let i ← lift (UScalar.cast .Usize solve_port.syrk.BOUND_BITS)
+  let i1 ← 2#usize * i
+  let i2 ← 127#usize - i1
+  1#usize <<< i2
+
+/-- [apeiron_word::solve_port::gemm::check]:
+    Source: '../../src/learn/solve/gemm.rs', lines 403:0-426:1 -/
+def solve_port.gemm.check
+  (a : Slice Std.I64) (b : Slice Std.I64) (m : Std.Usize) (k : Std.Usize)
+  (n : Std.Usize) :
+  Result (core.result.Result Unit solve_port.gemm.GemmError)
+  := do
+  if m = 0#usize
+  then ok (core.result.Result.Err solve_port.gemm.GemmError.ZeroDim)
+  else
+    if k = 0#usize
+    then ok (core.result.Result.Err solve_port.gemm.GemmError.ZeroDim)
+    else
+      if n = 0#usize
+      then ok (core.result.Result.Err solve_port.gemm.GemmError.ZeroDim)
+      else
+        let i ← solve_port.gemm.MAX_K
+        if k >= i
+        then ok (core.result.Result.Err solve_port.gemm.GemmError.Overflow)
+        else
+          let o ← lift (Usize.checked_mul m k)
+          match o with
+          | none =>
+            ok (core.result.Result.Err solve_port.gemm.GemmError.Overflow)
+          | some ak =>
+            let o1 ← lift (Usize.checked_mul k n)
+            match o1 with
+            | none =>
+              ok (core.result.Result.Err solve_port.gemm.GemmError.Overflow)
+            | some kn =>
+              let o2 ← lift (Usize.checked_mul n m)
+              let b1 := core.option.Option.is_none o2
+              if b1
+              then
+                ok (core.result.Result.Err solve_port.gemm.GemmError.Overflow)
+              else
+                let i1 := Slice.len a
+                if i1 != ak
+                then
+                  ok (core.result.Result.Err
+                    solve_port.gemm.GemmError.ShapeMismatch)
+                else
+                  let i2 := Slice.len b
+                  if i2 != kn
+                  then
+                    ok (core.result.Result.Err
+                      solve_port.gemm.GemmError.ShapeMismatch)
+                  else
+                    let b2 ← solve_port.syrk.within_bound a (some b)
+                    if b2
+                    then ok (core.result.Result.Ok ())
+                    else
+                      ok (core.result.Result.Err
+                        solve_port.gemm.GemmError.InputBound)
+
+/-- [apeiron_word::solve_port::gemm::block_rows_par]:
+    Source: '../../src/learn/solve/gemm.rs', lines 340:0-395:1 -/
+axiom solve_port.gemm.block_rows_par
+  :
+  Slice Std.I64 → Std.Usize → Std.Usize → Std.Usize → Slice Std.I64 →
+    Slice Std.I64 → Std.Usize → Bool → Result ((core.result.Result Unit
+    solve_port.gemm.GemmError) × (Slice Std.I64))
+
+/-- [apeiron_word::solve_port::gemm::pack_b_nn]: loop body 1:
+    Source: '../../src/learn/solve/gemm.rs', lines 228:8-231:9 -/
+@[rust_loop_body]
+def solve_port.gemm.pack_b_nn_loop0_loop0.body
+  (b : Slice Std.I64) (n : Std.Usize) (j0 : Std.Usize) (kb : Std.Usize)
+  (kc : Std.Usize) (j : Std.Usize) (bp : Slice Std.I64) (kk : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) (Slice Std.I64))
+  := do
+  if kk < kc
+  then
+    let i ← kb + kk
+    let i1 ← i * n
+    let i2 ← i1 + j0
+    let i3 ← i2 + j
+    let i4 ← Slice.index_usize b i3
+    let i5 ← j * kc
+    let i6 ← i5 + kk
+    let s ← Slice.update bp i6 i4
+    let kk1 ← kk + 1#usize
+    ok (cont (s, kk1))
+  else ok (done bp)
+
+/-- [apeiron_word::solve_port::gemm::pack_b_nn]: loop 1:
+    Source: '../../src/learn/solve/gemm.rs', lines 228:8-231:9 -/
+@[rust_loop]
+def solve_port.gemm.pack_b_nn_loop0_loop0
+  (b : Slice Std.I64) (n : Std.Usize) (j0 : Std.Usize) (kb : Std.Usize)
+  (kc : Std.Usize) (bp : Slice Std.I64) (j : Std.Usize) (kk : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (bp1, kk1) => solve_port.gemm.pack_b_nn_loop0_loop0.body b n j0 kb kc
+      j bp1 kk1)
+    (bp, kk)
+
+/-- [apeiron_word::solve_port::gemm::pack_b_nn]: loop body 0:
+    Source: '../../src/learn/solve/gemm.rs', lines 226:4-233:5 -/
+@[rust_loop_body]
+def solve_port.gemm.pack_b_nn_loop0.body
+  (b : Slice Std.I64) (n : Std.Usize) (j0 : Std.Usize) (nc : Std.Usize)
+  (kb : Std.Usize) (kc : Std.Usize) (bp : Slice Std.I64) (j : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) (Slice Std.I64))
+  := do
+  if j < nc
+  then
+    let bp1 ← solve_port.gemm.pack_b_nn_loop0_loop0 b n j0 kb kc bp j 0#usize
+    let j1 ← j + 1#usize
+    ok (cont (bp1, j1))
+  else ok (done bp)
+
+/-- [apeiron_word::solve_port::gemm::pack_b_nn]: loop 0:
+    Source: '../../src/learn/solve/gemm.rs', lines 226:4-233:5 -/
+@[rust_loop]
+def solve_port.gemm.pack_b_nn_loop0
+  (b : Slice Std.I64) (n : Std.Usize) (j0 : Std.Usize) (nc : Std.Usize)
+  (kb : Std.Usize) (kc : Std.Usize) (bp : Slice Std.I64) (j : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (bp1, j1) => solve_port.gemm.pack_b_nn_loop0.body b n j0 nc kb kc bp1
+      j1)
+    (bp, j)
+
+/-- [apeiron_word::solve_port::gemm::pack_b_nn]:
+    Source: '../../src/learn/solve/gemm.rs', lines 224:0-234:1 -/
+@[reducible]
+def solve_port.gemm.pack_b_nn
+  (b : Slice Std.I64) (n : Std.Usize) (j0 : Std.Usize) (nc : Std.Usize)
+  (kb : Std.Usize) (kc : Std.Usize) (bp : Slice Std.I64) :
+  Result (Slice Std.I64)
+  := do
+  solve_port.gemm.pack_b_nn_loop0 b n j0 nc kb kc bp 0#usize
+
+/-- [apeiron_word::solve_port::gemm::pack_b_nt]: loop body 0:
+    Source: '../../src/learn/solve/gemm.rs', lines 209:4-214:5 -/
+@[rust_loop_body]
+def solve_port.gemm.pack_b_nt_loop.body
+  (b : Slice Std.I64) (k : Std.Usize) (j0 : Std.Usize) (nc : Std.Usize)
+  (kb : Std.Usize) (kc : Std.Usize) (bp : Slice Std.I64) (j : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) (Slice Std.I64))
+  := do
+  if j < nc
+  then
+    let i ← j0 + j
+    let i1 ← i * k
+    let src ← i1 + kb
+    let dst ← j * kc
+    let i2 ← dst + kc
+    let (s, index_mut_back) ←
+      core.slice.index.Slice.index_mut
+        (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) bp
+        { start := dst, «end» := i2 }
+    let i3 ← src + kc
+    let s1 ←
+      core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+        Std.I64) b { start := src, «end» := i3 }
+    let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyI64 s s1
+    let j1 ← j + 1#usize
+    let bp1 := index_mut_back s2
+    ok (cont (bp1, j1))
+  else ok (done bp)
+
+/-- [apeiron_word::solve_port::gemm::pack_b_nt]: loop 0:
+    Source: '../../src/learn/solve/gemm.rs', lines 209:4-214:5 -/
+@[rust_loop]
+def solve_port.gemm.pack_b_nt_loop
+  (b : Slice Std.I64) (k : Std.Usize) (j0 : Std.Usize) (nc : Std.Usize)
+  (kb : Std.Usize) (kc : Std.Usize) (bp : Slice Std.I64) (j : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (bp1, j1) => solve_port.gemm.pack_b_nt_loop.body b k j0 nc kb kc bp1
+      j1)
+    (bp, j)
+
+/-- [apeiron_word::solve_port::gemm::pack_b_nt]:
+    Source: '../../src/learn/solve/gemm.rs', lines 207:0-215:1 -/
+@[reducible]
+def solve_port.gemm.pack_b_nt
+  (b : Slice Std.I64) (k : Std.Usize) (j0 : Std.Usize) (nc : Std.Usize)
+  (kb : Std.Usize) (kc : Std.Usize) (bp : Slice Std.I64) :
+  Result (Slice Std.I64)
+  := do
+  solve_port.gemm.pack_b_nt_loop b k j0 nc kb kc bp 0#usize
+
+/-- [apeiron_word::solve_port::gemm::pack_a]: loop body 0:
+    Source: '../../src/learn/solve/gemm.rs', lines 194:4-199:5 -/
+@[rust_loop_body]
+def solve_port.gemm.pack_a_loop.body
+  (a : Slice Std.I64) (k : Std.Usize) (i0 : Std.Usize) (mc : Std.Usize)
+  (kb : Std.Usize) (kc : Std.Usize) (ap : Slice Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) (Slice Std.I64))
+  := do
+  if i < mc
+  then
+    let i1 ← i0 + i
+    let i2 ← i1 * k
+    let src ← i2 + kb
+    let dst ← i * kc
+    let i3 ← dst + kc
+    let (s, index_mut_back) ←
+      core.slice.index.Slice.index_mut
+        (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) ap
+        { start := dst, «end» := i3 }
+    let i4 ← src + kc
+    let s1 ←
+      core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+        Std.I64) a { start := src, «end» := i4 }
+    let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyI64 s s1
+    let i5 ← i + 1#usize
+    let ap1 := index_mut_back s2
+    ok (cont (ap1, i5))
+  else ok (done ap)
+
+/-- [apeiron_word::solve_port::gemm::pack_a]: loop 0:
+    Source: '../../src/learn/solve/gemm.rs', lines 194:4-199:5 -/
+@[rust_loop]
+def solve_port.gemm.pack_a_loop
+  (a : Slice Std.I64) (k : Std.Usize) (i0 : Std.Usize) (mc : Std.Usize)
+  (kb : Std.Usize) (kc : Std.Usize) (ap : Slice Std.I64) (i : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (ap1, i1) => solve_port.gemm.pack_a_loop.body a k i0 mc kb kc ap1 i1)
+    (ap, i)
+
+/-- [apeiron_word::solve_port::gemm::pack_a]:
+    Source: '../../src/learn/solve/gemm.rs', lines 192:0-200:1 -/
+@[reducible]
+def solve_port.gemm.pack_a
+  (a : Slice Std.I64) (k : Std.Usize) (i0 : Std.Usize) (mc : Std.Usize)
+  (kb : Std.Usize) (kc : Std.Usize) (ap : Slice Std.I64) :
+  Result (Slice Std.I64)
+  := do
+  solve_port.gemm.pack_a_loop a k i0 mc kb kc ap 0#usize
+
+/-- [apeiron_word::solve_port::gemm::NC]
+    Source: '../../src/learn/solve/gemm.rs', lines 78:0-78:21 -/
+@[global_simps, irreducible] def solve_port.gemm.NC : Std.Usize := 64#usize
+
+/-- [apeiron_word::solve_port::gemm::micro_4x4]: loop body 0:
+    Source: '../../src/learn/solve/gemm.rs', lines 141:4-167:5 -/
+@[rust_loop_body]
+def solve_port.gemm.micro_4x4_loop.body
+  (kc : Std.Usize) (a0 : Slice Std.I64) (a1 : Slice Std.I64)
+  (a2 : Slice Std.I64) (a3 : Slice Std.I64) (b0 : Slice Std.I64)
+  (b1 : Slice Std.I64) (b2 : Slice Std.I64) (b3 : Slice Std.I64)
+  (c00 : Std.I128) (c01 : Std.I128) (c02 : Std.I128) (c03 : Std.I128)
+  (c10 : Std.I128) (c11 : Std.I128) (c12 : Std.I128) (c13 : Std.I128)
+  (c20 : Std.I128) (c21 : Std.I128) (c22 : Std.I128) (c23 : Std.I128)
+  (c30 : Std.I128) (c31 : Std.I128) (c32 : Std.I128) (c33 : Std.I128)
+  (kk : Std.Usize) :
+  Result (ControlFlow (Std.I128 × Std.I128 × Std.I128 × Std.I128 × Std.I128
+    × Std.I128 × Std.I128 × Std.I128 × Std.I128 × Std.I128 × Std.I128 ×
+    Std.I128 × Std.I128 × Std.I128 × Std.I128 × Std.I128 × Std.Usize)
+    (Std.I128 × Std.I128 × Std.I128 × Std.I128 × Std.I128 × Std.I128 ×
+    Std.I128 × Std.I128 × Std.I128 × Std.I128 × Std.I128 × Std.I128 ×
+    Std.I128 × Std.I128 × Std.I128 × Std.I128))
+  := do
+  if kk < kc
+  then
+    let i ← Slice.index_usize a0 kk
+    let x0 ← lift (core.convert.num.FromI128I64.from i)
+    let i1 ← Slice.index_usize a1 kk
+    let x1 ← lift (core.convert.num.FromI128I64.from i1)
+    let i2 ← Slice.index_usize a2 kk
+    let x2 ← lift (core.convert.num.FromI128I64.from i2)
+    let i3 ← Slice.index_usize a3 kk
+    let x3 ← lift (core.convert.num.FromI128I64.from i3)
+    let i4 ← Slice.index_usize b0 kk
+    let y0 ← lift (core.convert.num.FromI128I64.from i4)
+    let i5 ← Slice.index_usize b1 kk
+    let y1 ← lift (core.convert.num.FromI128I64.from i5)
+    let i6 ← Slice.index_usize b2 kk
+    let y2 ← lift (core.convert.num.FromI128I64.from i6)
+    let i7 ← Slice.index_usize b3 kk
+    let y3 ← lift (core.convert.num.FromI128I64.from i7)
+    let i8 ← x0 * y0
+    let c001 ← c00 + i8
+    let i9 ← x0 * y1
+    let c011 ← c01 + i9
+    let i10 ← x0 * y2
+    let c021 ← c02 + i10
+    let i11 ← x0 * y3
+    let c031 ← c03 + i11
+    let i12 ← x1 * y0
+    let c101 ← c10 + i12
+    let i13 ← x1 * y1
+    let c111 ← c11 + i13
+    let i14 ← x1 * y2
+    let c121 ← c12 + i14
+    let i15 ← x1 * y3
+    let c131 ← c13 + i15
+    let i16 ← x2 * y0
+    let c201 ← c20 + i16
+    let i17 ← x2 * y1
+    let c211 ← c21 + i17
+    let i18 ← x2 * y2
+    let c221 ← c22 + i18
+    let i19 ← x2 * y3
+    let c231 ← c23 + i19
+    let i20 ← x3 * y0
+    let c301 ← c30 + i20
+    let i21 ← x3 * y1
+    let c311 ← c31 + i21
+    let i22 ← x3 * y2
+    let c321 ← c32 + i22
+    let i23 ← x3 * y3
+    let c331 ← c33 + i23
+    let kk1 ← kk + 1#usize
+    ok (cont (c001, c011, c021, c031, c101, c111, c121, c131, c201, c211, c221,
+      c231, c301, c311, c321, c331, kk1))
+  else
+    ok (done (c00, c01, c02, c03, c10, c11, c12, c13, c20, c21, c22, c23, c30,
+      c31, c32, c33))
+
+/-- [apeiron_word::solve_port::gemm::micro_4x4]: loop 0:
+    Source: '../../src/learn/solve/gemm.rs', lines 141:4-167:5 -/
+@[rust_loop]
+def solve_port.gemm.micro_4x4_loop
+  (kc : Std.Usize) (a0 : Slice Std.I64) (a1 : Slice Std.I64)
+  (a2 : Slice Std.I64) (a3 : Slice Std.I64) (b0 : Slice Std.I64)
+  (b1 : Slice Std.I64) (b2 : Slice Std.I64) (b3 : Slice Std.I64)
+  (c00 : Std.I128) (c01 : Std.I128) (c02 : Std.I128) (c03 : Std.I128)
+  (c10 : Std.I128) (c11 : Std.I128) (c12 : Std.I128) (c13 : Std.I128)
+  (c20 : Std.I128) (c21 : Std.I128) (c22 : Std.I128) (c23 : Std.I128)
+  (c30 : Std.I128) (c31 : Std.I128) (c32 : Std.I128) (c33 : Std.I128)
+  (kk : Std.Usize) :
+  Result (Std.I128 × Std.I128 × Std.I128 × Std.I128 × Std.I128 × Std.I128
+    × Std.I128 × Std.I128 × Std.I128 × Std.I128 × Std.I128 × Std.I128 ×
+    Std.I128 × Std.I128 × Std.I128 × Std.I128)
+  := do
+  loop
+    (fun (c001, c011, c021, c031, c101, c111, c121, c131, c201, c211, c221,
+      c231, c301, c311, c321, c331, kk1) => solve_port.gemm.micro_4x4_loop.body
+      kc a0 a1 a2 a3 b0 b1 b2 b3 c001 c011 c021 c031 c101 c111 c121 c131 c201
+      c211 c221 c231 c301 c311 c321 c331 kk1)
+    (c00, c01, c02, c03, c10, c11, c12, c13, c20, c21, c22, c23, c30, c31, c32,
+      c33, kk)
+
+/-- [apeiron_word::solve_port::gemm::micro_4x4]:
+    Source: '../../src/learn/solve/gemm.rs', lines 114:0-184:1 -/
+def solve_port.gemm.micro_4x4
+  (ap : Slice Std.I64) (bp : Slice Std.I64) (acc : Slice Std.I128)
+  (kc : Std.Usize) (ii : Std.Usize) (jj : Std.Usize) :
+  Result (Slice Std.I128)
+  := do
+  let i ← ii * kc
+  let i1 ← i + kc
+  let a0 ←
+    core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+      Std.I64) ap { start := i, «end» := i1 }
+  let i2 ← ii + 1#usize
+  let i3 ← i2 * kc
+  let i4 ← i2 * kc
+  let i5 ← i4 + kc
+  let a1 ←
+    core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+      Std.I64) ap { start := i3, «end» := i5 }
+  let i6 ← ii + 2#usize
+  let i7 ← i6 * kc
+  let i8 ← i6 * kc
+  let i9 ← i8 + kc
+  let a2 ←
+    core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+      Std.I64) ap { start := i7, «end» := i9 }
+  let i10 ← ii + 3#usize
+  let i11 ← i10 * kc
+  let i12 ← i10 * kc
+  let i13 ← i12 + kc
+  let a3 ←
+    core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+      Std.I64) ap { start := i11, «end» := i13 }
+  let i14 ← jj * kc
+  let i15 ← i14 + kc
+  let b0 ←
+    core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+      Std.I64) bp { start := i14, «end» := i15 }
+  let i16 ← jj + 1#usize
+  let i17 ← i16 * kc
+  let i18 ← i16 * kc
+  let i19 ← i18 + kc
+  let b1 ←
+    core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+      Std.I64) bp { start := i17, «end» := i19 }
+  let i20 ← jj + 2#usize
+  let i21 ← i20 * kc
+  let i22 ← i20 * kc
+  let i23 ← i22 + kc
+  let b2 ←
+    core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+      Std.I64) bp { start := i21, «end» := i23 }
+  let i24 ← jj + 3#usize
+  let i25 ← i24 * kc
+  let i26 ← i24 * kc
+  let i27 ← i26 + kc
+  let b3 ←
+    core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+      Std.I64) bp { start := i25, «end» := i27 }
+  let i28 ← ii * solve_port.gemm.NC
+  let base ← i28 + jj
+  let c00 ← Slice.index_usize acc base
+  let i29 ← base + 1#usize
+  let c01 ← Slice.index_usize acc i29
+  let i30 ← base + 2#usize
+  let c02 ← Slice.index_usize acc i30
+  let i31 ← base + 3#usize
+  let c03 ← Slice.index_usize acc i31
+  let i32 ← base + solve_port.gemm.NC
+  let c10 ← Slice.index_usize acc i32
+  let i33 ← i32 + 1#usize
+  let c11 ← Slice.index_usize acc i33
+  let i34 ← i32 + 2#usize
+  let c12 ← Slice.index_usize acc i34
+  let i35 ← i32 + 3#usize
+  let c13 ← Slice.index_usize acc i35
+  let i36 ← 2#usize * solve_port.gemm.NC
+  let i37 ← base + i36
+  let c20 ← Slice.index_usize acc i37
+  let i38 ← base + i36
+  let i39 ← i38 + 1#usize
+  let c21 ← Slice.index_usize acc i39
+  let i40 ← base + i36
+  let i41 ← i40 + 2#usize
+  let c22 ← Slice.index_usize acc i41
+  let i42 ← base + i36
+  let i43 ← i42 + 3#usize
+  let c23 ← Slice.index_usize acc i43
+  let i44 ← 3#usize * solve_port.gemm.NC
+  let i45 ← base + i44
+  let c30 ← Slice.index_usize acc i45
+  let i46 ← base + i44
+  let i47 ← i46 + 1#usize
+  let c31 ← Slice.index_usize acc i47
+  let i48 ← base + i44
+  let i49 ← i48 + 2#usize
+  let c32 ← Slice.index_usize acc i49
+  let i50 ← base + i44
+  let i51 ← i50 + 3#usize
+  let c33 ← Slice.index_usize acc i51
+  let (c001, c011, c021, c031, c101, c111, c121, c131, c201, c211, c221, c231,
+    c301, c311, c321, c331) ←
+    solve_port.gemm.micro_4x4_loop kc a0 a1 a2 a3 b0 b1 b2 b3 c00 c01 c02 c03
+      c10 c11 c12 c13 c20 c21 c22 c23 c30 c31 c32 c33 0#usize
+  let acc1 ← Slice.update acc base c001
+  let i52 ← base + 1#usize
+  let acc2 ← Slice.update acc1 i52 c011
+  let i53 ← base + 2#usize
+  let acc3 ← Slice.update acc2 i53 c021
+  let i54 ← base + 3#usize
+  let acc4 ← Slice.update acc3 i54 c031
+  let i55 ← base + solve_port.gemm.NC
+  let acc5 ← Slice.update acc4 i55 c101
+  let i56 ← i55 + 1#usize
+  let acc6 ← Slice.update acc5 i56 c111
+  let i57 ← i55 + 2#usize
+  let acc7 ← Slice.update acc6 i57 c121
+  let i58 ← i55 + 3#usize
+  let acc8 ← Slice.update acc7 i58 c131
+  let i59 ← base + i36
+  let acc9 ← Slice.update acc8 i59 c201
+  let i60 ← base + i36
+  let i61 ← i60 + 1#usize
+  let acc10 ← Slice.update acc9 i61 c211
+  let i62 ← base + i36
+  let i63 ← i62 + 2#usize
+  let acc11 ← Slice.update acc10 i63 c221
+  let i64 ← base + i36
+  let i65 ← i64 + 3#usize
+  let acc12 ← Slice.update acc11 i65 c231
+  let i66 ← base + i44
+  let acc13 ← Slice.update acc12 i66 c301
+  let i67 ← base + i44
+  let i68 ← i67 + 1#usize
+  let acc14 ← Slice.update acc13 i68 c311
+  let i69 ← base + i44
+  let i70 ← i69 + 2#usize
+  let acc15 ← Slice.update acc14 i70 c321
+  let i71 ← base + i44
+  let i72 ← i71 + 3#usize
+  Slice.update acc15 i72 c331
+
+/-- [apeiron_word::solve_port::gemm::NR]
+    Source: '../../src/learn/solve/gemm.rs', lines 84:0-84:20 -/
+@[global_simps, irreducible] def solve_port.gemm.NR : Std.Usize := 4#usize
+
+/-- [apeiron_word::solve_port::gemm::MR]
+    Source: '../../src/learn/solve/gemm.rs', lines 82:0-82:20 -/
+@[global_simps, irreducible] def solve_port.gemm.MR : Std.Usize := 4#usize
+
+/-- [apeiron_word::solve_port::gemm::KC]
+    Source: '../../src/learn/solve/gemm.rs', lines 80:0-80:22 -/
+@[global_simps, irreducible] def solve_port.gemm.KC : Std.Usize := 128#usize
+
+/-- [apeiron_word::solve_port::gemm::MC]
+    Source: '../../src/learn/solve/gemm.rs', lines 76:0-76:21 -/
+@[global_simps, irreducible] def solve_port.gemm.MC : Std.Usize := 64#usize
+
+/-- [apeiron_word::solve_port::gemm::block_rows]: loop body 4:
+    Source: '../../src/learn/solve/gemm.rs', lines 289:20-292:21 -/
+@[rust_loop_body]
+def solve_port.gemm.block_rows_loop0_loop0_loop0_loop0_loop0.body
+  (ap : alloc.vec.Vec Std.I64) (bp : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.gemm.GemmError) (nc : Std.Usize) (kc : Std.Usize)
+  (ii : Std.Usize) (acc : alloc.vec.Vec Std.I128) (jj : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Std.Usize) (alloc.vec.Vec
+    Std.I128))
+  := do
+  if jj < nc
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let s := alloc.vec.Vec.deref ap
+      let s1 := alloc.vec.Vec.deref bp
+      let (s2, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut acc)
+      let s3 ← solve_port.gemm.micro_4x4 s s1 s2 kc ii jj
+      let jj1 ← jj + solve_port.gemm.NR
+      let acc1 := deref_mut_back s3
+      ok (cont (acc1, jj1))
+    else ok (done acc)
+  else ok (done acc)
+
+/-- [apeiron_word::solve_port::gemm::block_rows]: loop 4:
+    Source: '../../src/learn/solve/gemm.rs', lines 289:20-292:21 -/
+@[rust_loop]
+def solve_port.gemm.block_rows_loop0_loop0_loop0_loop0_loop0
+  (acc : alloc.vec.Vec Std.I128) (ap : alloc.vec.Vec Std.I64)
+  (bp : alloc.vec.Vec Std.I64) (err : Option solve_port.gemm.GemmError)
+  (nc : Std.Usize) (kc : Std.Usize) (ii : Std.Usize) (jj : Std.Usize) :
+  Result (alloc.vec.Vec Std.I128)
+  := do
+  loop
+    (fun (acc1, jj1) =>
+      solve_port.gemm.block_rows_loop0_loop0_loop0_loop0_loop0.body ap bp err
+      nc kc ii acc1 jj1)
+    (acc, jj)
+
+/-- [apeiron_word::solve_port::gemm::block_rows]: loop body 3:
+    Source: '../../src/learn/solve/gemm.rs', lines 287:16-294:17 -/
+@[rust_loop_body]
+def solve_port.gemm.block_rows_loop0_loop0_loop0_loop0.body
+  (ap : alloc.vec.Vec Std.I64) (bp : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.gemm.GemmError) (mc : Std.Usize) (nc : Std.Usize)
+  (kc : Std.Usize) (acc : alloc.vec.Vec Std.I128) (ii : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Std.Usize) (alloc.vec.Vec
+    Std.I128))
+  := do
+  if ii < mc
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let acc1 ←
+        solve_port.gemm.block_rows_loop0_loop0_loop0_loop0_loop0 acc ap bp err
+          nc kc ii 0#usize
+      let ii1 ← ii + solve_port.gemm.MR
+      ok (cont (acc1, ii1))
+    else ok (done acc)
+  else ok (done acc)
+
+/-- [apeiron_word::solve_port::gemm::block_rows]: loop 3:
+    Source: '../../src/learn/solve/gemm.rs', lines 287:16-294:17 -/
+@[rust_loop]
+def solve_port.gemm.block_rows_loop0_loop0_loop0_loop0
+  (acc : alloc.vec.Vec Std.I128) (ap : alloc.vec.Vec Std.I64)
+  (bp : alloc.vec.Vec Std.I64) (err : Option solve_port.gemm.GemmError)
+  (mc : Std.Usize) (nc : Std.Usize) (kc : Std.Usize) (ii : Std.Usize) :
+  Result (alloc.vec.Vec Std.I128)
+  := do
+  loop
+    (fun (acc1, ii1) => solve_port.gemm.block_rows_loop0_loop0_loop0_loop0.body
+      ap bp err mc nc kc acc1 ii1)
+    (acc, ii)
+
+/-- [apeiron_word::solve_port::gemm::block_rows]: loop body 2:
+    Source: '../../src/learn/solve/gemm.rs', lines 278:12-296:13 -/
+@[rust_loop_body]
+def solve_port.gemm.block_rows_loop0_loop0_loop0.body
+  (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
+  (nn : Bool) (err : Option solve_port.gemm.GemmError) (i0 : Std.Usize)
+  (mc : Std.Usize) (jb : Std.Usize) (nc : Std.Usize)
+  (acc : alloc.vec.Vec Std.I128) (ap : alloc.vec.Vec Std.I64)
+  (bp : alloc.vec.Vec Std.I64) (kb : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64) × Std.Usize) ((alloc.vec.Vec Std.I128) ×
+    (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64)))
+  := do
+  if kb < k
+  then
+    let b1 := core.option.Option.is_none err
+    if b1
+    then
+      let i ← kb + solve_port.gemm.KC
+      let i1 ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i k
+      let kc ← i1 - kb
+      let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut ap)
+      let s1 ← solve_port.gemm.pack_a a k i0 mc kb kc s
+      let (ap1, bp1) ←
+        if nn
+        then
+          do
+          let (s2, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut bp)
+          let s3 ← solve_port.gemm.pack_b_nn b n jb nc kb kc s2
+          let bp2 := deref_mut_back1 s3
+          let ap2 := deref_mut_back s1
+          ok (ap2, bp2)
+        else
+          do
+          let (s2, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut bp)
+          let s3 ← solve_port.gemm.pack_b_nt b k jb nc kb kc s2
+          let bp2 := deref_mut_back1 s3
+          let ap2 := deref_mut_back s1
+          ok (ap2, bp2)
+      let acc1 ←
+        solve_port.gemm.block_rows_loop0_loop0_loop0_loop0 acc ap1 bp1 err mc
+          nc kc 0#usize
+      let kb1 ← kb + kc
+      ok (cont (acc1, ap1, bp1, kb1))
+    else ok (done (acc, ap, bp))
+  else ok (done (acc, ap, bp))
+
+/-- [apeiron_word::solve_port::gemm::block_rows]: loop 2:
+    Source: '../../src/learn/solve/gemm.rs', lines 278:12-296:13 -/
+@[rust_loop]
+def solve_port.gemm.block_rows_loop0_loop0_loop0
+  (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
+  (nn : Bool) (acc : alloc.vec.Vec Std.I128) (ap : alloc.vec.Vec Std.I64)
+  (bp : alloc.vec.Vec Std.I64) (err : Option solve_port.gemm.GemmError)
+  (i0 : Std.Usize) (mc : Std.Usize) (jb : Std.Usize) (nc : Std.Usize)
+  (kb : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I128) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64))
+  := do
+  loop
+    (fun (acc1, ap1, bp1, kb1) =>
+      solve_port.gemm.block_rows_loop0_loop0_loop0.body a b n k nn err i0 mc jb
+      nc acc1 ap1 bp1 kb1)
+    (acc, ap, bp, kb)
+
+/-- [apeiron_word::solve_port::gemm::block_rows]: loop body 6:
+    Source: '../../src/learn/solve/gemm.rs', lines 300:16-309:17 -/
+@[rust_loop_body]
+def solve_port.gemm.block_rows_loop0_loop0_loop1_loop0.body
+  (n : Std.Usize) (acc : alloc.vec.Vec Std.I128) (i0 : Std.Usize)
+  (jb : Std.Usize) (nc : Std.Usize) (i : Std.Usize) (c : Slice Std.I64)
+  (err : Option solve_port.gemm.GemmError) (j : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option solve_port.gemm.GemmError) ×
+    Std.Usize) ((Slice Std.I64) × (Option solve_port.gemm.GemmError)))
+  := do
+  if j < nc
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * solve_port.gemm.NC
+      let i2 ← i1 + j
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128)
+          acc i2
+      let o ← solve_port.syrk.round32 i3
+      let (c1, err1) ←
+        match o with
+        | none => ok (c, some solve_port.gemm.GemmError.Overflow)
+        | some r =>
+          do
+          let o1 ← solve_port.syrk.narrow r
+          match o1 with
+          | none => ok (c, some solve_port.gemm.GemmError.Overflow)
+          | some v =>
+            let i4 ← i0 + i
+            let i5 ← i4 * n
+            let i6 ← i5 + jb
+            let i7 ← i6 + j
+            let s ← Slice.update c i7 v
+            ok (s, err)
+      let j1 ← j + 1#usize
+      ok (cont (c1, err1, j1))
+    else ok (done (c, err))
+  else ok (done (c, err))
+
+/-- [apeiron_word::solve_port::gemm::block_rows]: loop 6:
+    Source: '../../src/learn/solve/gemm.rs', lines 300:16-309:17 -/
+@[rust_loop]
+def solve_port.gemm.block_rows_loop0_loop0_loop1_loop0
+  (c : Slice Std.I64) (n : Std.Usize) (acc : alloc.vec.Vec Std.I128)
+  (err : Option solve_port.gemm.GemmError) (i0 : Std.Usize) (jb : Std.Usize)
+  (nc : Std.Usize) (i : Std.Usize) (j : Std.Usize) :
+  Result ((Slice Std.I64) × (Option solve_port.gemm.GemmError))
+  := do
+  loop
+    (fun (c1, err1, j1) =>
+      solve_port.gemm.block_rows_loop0_loop0_loop1_loop0.body n acc i0 jb nc i
+      c1 err1 j1)
+    (c, err, j)
+
+/-- [apeiron_word::solve_port::gemm::block_rows]: loop body 5:
+    Source: '../../src/learn/solve/gemm.rs', lines 298:12-311:13 -/
+@[rust_loop_body]
+def solve_port.gemm.block_rows_loop0_loop0_loop1.body
+  (n : Std.Usize) (acc : alloc.vec.Vec Std.I128) (i0 : Std.Usize)
+  (mc : Std.Usize) (jb : Std.Usize) (nc : Std.Usize) (c : Slice Std.I64)
+  (err : Option solve_port.gemm.GemmError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option solve_port.gemm.GemmError) ×
+    Std.Usize) ((Slice Std.I64) × (Option solve_port.gemm.GemmError)))
+  := do
+  if i < mc
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (c1, err1) ←
+        solve_port.gemm.block_rows_loop0_loop0_loop1_loop0 c n acc err i0 jb nc
+          i 0#usize
+      let i1 ← i + 1#usize
+      ok (cont (c1, err1, i1))
+    else ok (done (c, err))
+  else ok (done (c, err))
+
+/-- [apeiron_word::solve_port::gemm::block_rows]: loop 5:
+    Source: '../../src/learn/solve/gemm.rs', lines 298:12-311:13 -/
+@[rust_loop]
+def solve_port.gemm.block_rows_loop0_loop0_loop1
+  (c : Slice Std.I64) (n : Std.Usize) (acc : alloc.vec.Vec Std.I128)
+  (err : Option solve_port.gemm.GemmError) (i0 : Std.Usize) (mc : Std.Usize)
+  (jb : Std.Usize) (nc : Std.Usize) (i : Std.Usize) :
+  Result ((Slice Std.I64) × (Option solve_port.gemm.GemmError))
+  := do
+  loop
+    (fun (c1, err1, i1) => solve_port.gemm.block_rows_loop0_loop0_loop1.body n
+      acc i0 mc jb nc c1 err1 i1)
+    (c, err, i)
+
+/-- [apeiron_word::solve_port::gemm::block_rows]: loop body 1:
+    Source: '../../src/learn/solve/gemm.rs', lines 274:8-313:9 -/
+@[rust_loop_body]
+def solve_port.gemm.block_rows_loop0_loop0.body
+  (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
+  (nn : Bool) (i0 : Std.Usize) (mc : Std.Usize) (c : Slice Std.I64)
+  (acc : alloc.vec.Vec Std.I128) (ap : alloc.vec.Vec Std.I64)
+  (bp : alloc.vec.Vec Std.I64) (err : Option solve_port.gemm.GemmError)
+  (jb : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (alloc.vec.Vec Std.I128) ×
+    (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    solve_port.gemm.GemmError) × Std.Usize) ((Slice Std.I64) × (alloc.vec.Vec
+    Std.I128) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    solve_port.gemm.GemmError)))
+  := do
+  if jb < n
+  then
+    let b1 := core.option.Option.is_none err
+    if b1
+    then
+      let i ← jb + solve_port.gemm.NC
+      let i1 ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i n
+      let nc ← i1 - jb
+      let (s, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeFullSlice
+          Std.I128) acc ()
+      let s1 ← core.slice.Slice.fill core.clone.CloneI128 s 0#i128
+      let acc1 := index_mut_back s1
+      let (acc2, ap1, bp1) ←
+        solve_port.gemm.block_rows_loop0_loop0_loop0 a b n k nn acc1 ap bp err
+          i0 mc jb nc 0#usize
+      let (c1, err1) ←
+        solve_port.gemm.block_rows_loop0_loop0_loop1 c n acc2 err i0 mc jb nc
+          0#usize
+      let jb1 ← jb + nc
+      ok (cont (c1, acc2, ap1, bp1, err1, jb1))
+    else ok (done (c, acc, ap, bp, err))
+  else ok (done (c, acc, ap, bp, err))
+
+/-- [apeiron_word::solve_port::gemm::block_rows]: loop 1:
+    Source: '../../src/learn/solve/gemm.rs', lines 274:8-313:9 -/
+@[rust_loop]
+def solve_port.gemm.block_rows_loop0_loop0
+  (c : Slice Std.I64) (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize)
+  (k : Std.Usize) (nn : Bool) (acc : alloc.vec.Vec Std.I128)
+  (ap : alloc.vec.Vec Std.I64) (bp : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.gemm.GemmError) (i0 : Std.Usize) (mc : Std.Usize)
+  (jb : Std.Usize) :
+  Result ((Slice Std.I64) × (alloc.vec.Vec Std.I128) × (alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.I64) × (Option solve_port.gemm.GemmError))
+  := do
+  loop
+    (fun (c1, acc1, ap1, bp1, err1, jb1) =>
+      solve_port.gemm.block_rows_loop0_loop0.body a b n k nn i0 mc c1 acc1 ap1
+      bp1 err1 jb1)
+    (c, acc, ap, bp, err, jb)
+
+/-- [apeiron_word::solve_port::gemm::block_rows]: loop body 0:
+    Source: '../../src/learn/solve/gemm.rs', lines 271:4-315:5 -/
+@[rust_loop_body]
+def solve_port.gemm.block_rows_loop0.body
+  (rows : Std.Usize) (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize)
+  (k : Std.Usize) (nn : Bool) (c : Slice Std.I64)
+  (acc : alloc.vec.Vec Std.I128) (ap : alloc.vec.Vec Std.I64)
+  (bp : alloc.vec.Vec Std.I64) (err : Option solve_port.gemm.GemmError)
+  (i0 : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (alloc.vec.Vec Std.I128) ×
+    (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    solve_port.gemm.GemmError) × Std.Usize) ((Slice Std.I64) × (Option
+    solve_port.gemm.GemmError)))
+  := do
+  if i0 < rows
+  then
+    let b1 := core.option.Option.is_none err
+    if b1
+    then
+      let i ← i0 + solve_port.gemm.MC
+      let i1 ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i rows
+      let mc ← i1 - i0
+      let (c1, acc1, ap1, bp1, err1) ←
+        solve_port.gemm.block_rows_loop0_loop0 c a b n k nn acc ap bp err i0 mc
+          0#usize
+      let i01 ← i0 + mc
+      ok (cont (c1, acc1, ap1, bp1, err1, i01))
+    else ok (done (c, err))
+  else ok (done (c, err))
+
+/-- [apeiron_word::solve_port::gemm::block_rows]: loop 0:
+    Source: '../../src/learn/solve/gemm.rs', lines 271:4-315:5 -/
+@[rust_loop]
+def solve_port.gemm.block_rows_loop0
+  (c : Slice Std.I64) (rows : Std.Usize) (a : Slice Std.I64)
+  (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize) (nn : Bool)
+  (acc : alloc.vec.Vec Std.I128) (ap : alloc.vec.Vec Std.I64)
+  (bp : alloc.vec.Vec Std.I64) (err : Option solve_port.gemm.GemmError)
+  (i0 : Std.Usize) :
+  Result ((Slice Std.I64) × (Option solve_port.gemm.GemmError))
+  := do
+  loop
+    (fun (c1, acc1, ap1, bp1, err1, i01) =>
+      solve_port.gemm.block_rows_loop0.body rows a b n k nn c1 acc1 ap1 bp1
+      err1 i01)
+    (c, acc, ap, bp, err, i0)
+
+/-- [apeiron_word::solve_port::gemm::block_rows]:
+    Source: '../../src/learn/solve/gemm.rs', lines 250:0-320:1 -/
+def solve_port.gemm.block_rows
+  (c : Slice Std.I64) (rows : Std.Usize) (a : Slice Std.I64)
+  (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize) (nn : Bool) :
+  Result ((core.result.Result Unit solve_port.gemm.GemmError) × (Slice
+    Std.I64))
+  := do
+  if rows = 0#usize
+  then ok (core.result.Result.Ok (), c)
+  else
+    let i ← solve_port.gemm.MC * solve_port.gemm.NC
+    let acc ← alloc.vec.from_elem core.clone.CloneI128 0#i128 i
+    let i1 ← solve_port.gemm.MC * solve_port.gemm.KC
+    let ap ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i1
+    let i2 ← solve_port.gemm.NC * solve_port.gemm.KC
+    let bp ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i2
+    let (c1, err) ←
+      solve_port.gemm.block_rows_loop0 c rows a b n k nn acc ap bp none 0#usize
+    match err with
+    | none => ok (core.result.Result.Ok (), c1)
+    | some e => ok (core.result.Result.Err e, c1)
+
+/-- [apeiron_word::solve_port::gemm::run]:
+    Source: '../../src/learn/solve/gemm.rs', lines 594:0-611:1 -/
+def solve_port.gemm.run
+  (a : Slice Std.I64) (b : Slice Std.I64) (m : Std.Usize) (k : Std.Usize)
+  (n : Std.Usize) (threads : Std.Usize) (nn : Bool) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.gemm.GemmError)
+  := do
+  let r ← solve_port.gemm.check a b m k n
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let i ← m * n
+    let c ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+    if threads <= 1#usize
+    then
+      let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut c)
+      let (r1, s1) ← solve_port.gemm.block_rows s m a b n k nn
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue _ =>
+        let c1 := deref_mut_back s1
+        ok (core.result.Result.Ok c1)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          solve_port.gemm.GemmError) residual
+    else
+      let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut c)
+      let (r1, s1) ← solve_port.gemm.block_rows_par s m n threads a b k nn
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue _ =>
+        let c1 := deref_mut_back s1
+        ok (core.result.Result.Ok c1)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          solve_port.gemm.GemmError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame solve_port.gemm.GemmError)
+      residual
+
+/-- [apeiron_word::solve_port::gemm::gemm_nn]:
+    Source: '../../src/learn/solve/gemm.rs', lines 445:0-454:1
+    Visibility: public -/
+def solve_port.gemm.gemm_nn
+  (a : Slice Std.I64) (b : Slice Std.I64) (m : Std.Usize) (k : Std.Usize)
+  (n : Std.Usize) (threads : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.gemm.GemmError)
+  := do
+  solve_port.gemm.run a b m k n threads true
+
+/-- [apeiron_word::solve_port::eig::ritz_step]:
+    Source: '../../src/learn/solve/eig.rs', lines 744:0-783:1 -/
+def solve_port.eig.ritz_step
+  (m : Slice Std.I64) (q : Slice Std.I64) (n : Std.Usize) (r : Std.Usize)
+  (s : Std.Usize) (iters : Std.Usize) (threads : Std.Usize) :
+  Result (core.result.Result solve_port.eig.Ritz solve_port.eig.EigError)
+  := do
+  let r1 ← solve_port.gemm.gemm_nn m q n n s threads
+  let r2 ←
+    core.result.Result.map_err
+      P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorEigError r1
+      (solve_port.eig.gemm_err)
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r2
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let s1 := alloc.vec.Vec.deref val
+    let r3 ← solve_port.eig.rayleigh q s1 n s
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r3
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let s2 := alloc.vec.Vec.deref val1
+      let r4 ← solve_port.eig.jacobi s2 s
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r4
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        let (vals, v) := val2
+        let (s3, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut vals)
+        let (s4, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut v)
+        let (s5, s6) ← solve_port.eig.sort_ascending s3 s4 s
+        let v1 := deref_mut_back1 s6
+        let s7 := alloc.vec.Vec.deref v1
+        let r5 ← solve_port.eig.mul_small q s7 n s
+        let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r5
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val3 =>
+          let s8 := alloc.vec.Vec.deref val
+          let s9 := alloc.vec.Vec.deref v1
+          let r6 ← solve_port.eig.mul_small s8 s9 n s
+          let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r6
+          match cf4 with
+          | core.ops.control_flow.ControlFlow.Continue val4 =>
+            let vals1 := deref_mut_back s5
+            let i ← s - 1#usize
+            let i1 ←
+              alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) vals1 i
+            let i2 ← i1 >>> solve_port.eig.RESIDUAL_SHIFT
+            let tol ← core.cmp.Ord.max.default core.cmp.OrdI64 i2 1#i64
+            let s10 := alloc.vec.Vec.deref val4
+            let s11 := alloc.vec.Vec.deref val3
+            let i3 ← s - r
+            let s12 ←
+              alloc.vec.Vec.index
+                (core.slice.index.SliceIndexRangeFromUsizeSlice Std.I64) vals1
+                { start := i3 }
+            let r7 ← solve_port.eig.residual_max s10 s11 s12 n s i3
+            let cf5 ← core.result.Result.Insts.CoreOpsTry.branch r7
+            match cf5 with
+            | core.ops.control_flow.ControlFlow.Continue val5 =>
+              if val5 <= tol
+              then
+                let s13 := alloc.vec.Vec.deref val3
+                let v2 ← solve_port.eig.top_columns s13 n s r
+                let s14 := alloc.vec.Vec.deref v2
+                let r8 ← solve_port.eig.orthonormalise s14 n r
+                let cf6 ← core.result.Result.Insts.CoreOpsTry.branch r8
+                match cf6 with
+                | core.ops.control_flow.ControlFlow.Continue val6 =>
+                  let s15 := alloc.vec.Vec.deref val6
+                  let r9 ← solve_port.gemm.gemm_nn m s15 n n r threads
+                  let r10 ←
+                    core.result.Result.map_err
+                      P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorEigError r9
+                      (solve_port.eig.gemm_err)
+                  let cf7 ← core.result.Result.Insts.CoreOpsTry.branch r10
+                  match cf7 with
+                  | core.ops.control_flow.ControlFlow.Continue val7 =>
+                    let s16 := alloc.vec.Vec.deref val7
+                    let s17 := alloc.vec.Vec.deref val6
+                    let s18 ←
+                      alloc.vec.Vec.index
+                        (core.slice.index.SliceIndexRangeFromUsizeSlice
+                        Std.I64) vals1 { start := i3 }
+                    let r11 ←
+                      solve_port.eig.residual_max s16 s17 s18 n r 0#usize
+                    let cf8 ← core.result.Result.Insts.CoreOpsTry.branch r11
+                    match cf8 with
+                    | core.ops.control_flow.ControlFlow.Continue val8 =>
+                      if val8 <= tol
+                      then
+                        let (s19, deref_mut_back2) ←
+                          lift (alloc.vec.Vec.deref_mut val6)
+                        let s20 ← solve_port.eig.fix_signs s19 n r
+                        let s21 ←
+                          alloc.vec.Vec.index
+                            (core.slice.index.SliceIndexRangeFromUsizeSlice
+                            Std.I64) vals1 { start := i3 }
+                        let v3 ←
+                          alloc.slice.Slice.to_vec core.clone.CloneI64 s21
+                        let val9 := deref_mut_back2 s20
+                        ok (core.result.Result.Ok (solve_port.eig.Ritz.Done
+                          { evals := v3, evecs := val9, iters }))
+                      else
+                        let s19 := alloc.vec.Vec.deref val4
+                        let r12 ← solve_port.eig.orthonormalise s19 n s
+                        let cf9 ←
+                          core.result.Result.Insts.CoreOpsTry.branch r12
+                        match cf9 with
+                        | core.ops.control_flow.ControlFlow.Continue val9 =>
+                          ok (core.result.Result.Ok
+                            (solve_port.eig.Ritz.Continue val9 val5))
+                        | core.ops.control_flow.ControlFlow.Break residual =>
+                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                            solve_port.eig.Ritz (core.convert.FromSame
+                            solve_port.eig.EigError) residual
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        solve_port.eig.Ritz (core.convert.FromSame
+                        solve_port.eig.EigError) residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      solve_port.eig.Ritz (core.convert.FromSame
+                      solve_port.eig.EigError) residual
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    solve_port.eig.Ritz (core.convert.FromSame
+                    solve_port.eig.EigError) residual
+              else
+                let s13 := alloc.vec.Vec.deref val4
+                let r8 ← solve_port.eig.orthonormalise s13 n s
+                let cf6 ← core.result.Result.Insts.CoreOpsTry.branch r8
+                match cf6 with
+                | core.ops.control_flow.ControlFlow.Continue val6 =>
+                  ok (core.result.Result.Ok (solve_port.eig.Ritz.Continue val6
+                    val5))
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    solve_port.eig.Ritz (core.convert.FromSame
+                    solve_port.eig.EigError) residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                solve_port.eig.Ritz (core.convert.FromSame
+                solve_port.eig.EigError) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              solve_port.eig.Ritz (core.convert.FromSame
+              solve_port.eig.EigError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            solve_port.eig.Ritz (core.convert.FromSame solve_port.eig.EigError)
+            residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          solve_port.eig.Ritz (core.convert.FromSame solve_port.eig.EigError)
+          residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        solve_port.eig.Ritz (core.convert.FromSame solve_port.eig.EigError)
+        residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      solve_port.eig.Ritz (core.convert.FromSame solve_port.eig.EigError)
+      residual
+
+/-- [apeiron_word::solve_port::eig::top_eigh]: loop body 0:
+    Source: '../../src/learn/solve/eig.rs', lines 837:4-847:5
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.eig.top_eigh_loop.body
+  (m : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) (threads : Std.Usize)
+  (s : Std.Usize) (q : alloc.vec.Vec Std.I64) (last : Std.I64)
+  (err : Option solve_port.eig.EigError) (done1 : Option solve_port.eig.TopEig)
+  (iters : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.I64 × (Option
+    solve_port.eig.EigError) × (Option solve_port.eig.TopEig) × Std.Usize)
+    (Std.I64 × (Option solve_port.eig.EigError) × (Option
+    solve_port.eig.TopEig)))
+  := do
+  if iters <= solve_port.eig.MAX_ITERS
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let b1 := core.option.Option.is_none done1
+      if b1
+      then
+        let s1 := alloc.vec.Vec.deref q
+        let r1 ← solve_port.eig.ritz_step m s1 n r s iters threads
+        let (q1, last1, err1, done2) ←
+          match r1 with
+          | core.result.Result.Ok r2 =>
+            do
+            let (v, i, o) ←
+              match r2 with
+              | solve_port.eig.Ritz.Continue next est => ok (next, est, done1)
+              | solve_port.eig.Ritz.Done eig => ok (q, last, some eig)
+            ok (v, i, err, o)
+          | core.result.Result.Err e => ok (q, last, some e, done1)
+        let iters1 ← iters + 1#usize
+        ok (cont (q1, last1, err1, done2, iters1))
+      else ok (done (last, err, done1))
+    else ok (done (last, err, done1))
+  else ok (done (last, err, done1))
+
+/-- [apeiron_word::solve_port::eig::top_eigh]: loop 0:
+    Source: '../../src/learn/solve/eig.rs', lines 837:4-847:5
+    Visibility: public -/
+@[rust_loop]
+def solve_port.eig.top_eigh_loop
+  (m : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) (threads : Std.Usize)
+  (s : Std.Usize) (q : alloc.vec.Vec Std.I64) (last : Std.I64)
+  (err : Option solve_port.eig.EigError) (done1 : Option solve_port.eig.TopEig)
+  (iters : Std.Usize) :
+  Result (Std.I64 × (Option solve_port.eig.EigError) × (Option
+    solve_port.eig.TopEig))
+  := do
+  loop
+    (fun (q1, last1, err1, done2, iters1) => solve_port.eig.top_eigh_loop.body
+      m n r threads s q1 last1 err1 done2 iters1)
+    (q, last, err, done1, iters)
+
+/-- [apeiron_word::solve_port::eig::top_eigh]:
+    Source: '../../src/learn/solve/eig.rs', lines 811:0-855:1
+    Visibility: public -/
+def solve_port.eig.top_eigh
+  (m : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) (threads : Std.Usize) :
+  Result (core.result.Result solve_port.eig.TopEig solve_port.eig.EigError)
+  := do
+  if n = 0#usize
+  then ok (core.result.Result.Err solve_port.eig.EigError.Empty)
+  else
+    if r = 0#usize
+    then ok (core.result.Result.Err solve_port.eig.EigError.RankZero)
+    else
+      if r > n
+      then ok (core.result.Result.Err solve_port.eig.EigError.RankOutOfRange)
+      else
+        let o ← lift (Usize.checked_mul n n)
+        let r1 ← solve_port.eig.ov o
+        let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+        match cf with
+        | core.ops.control_flow.ControlFlow.Continue val =>
+          let i := Slice.len m
+          if i != val
+          then
+            ok (core.result.Result.Err solve_port.eig.EigError.ShapeMismatch)
+          else
+            let b ← solve_port.syrk.within_bound m none
+            if b
+            then
+              let b1 ← solve_port.eig.is_symmetric m n
+              if b1
+              then
+                let i1 ← n - r
+                let i2 ←
+                  core.cmp.Ord.min.trait_default core.cmp.OrdUsize
+                    solve_port.eig.OVERSAMPLE i1
+                let s ← r + i2
+                let v ← solve_port.eig.start_basis n s
+                let s1 := alloc.vec.Vec.deref v
+                let r2 ← solve_port.eig.orthonormalise s1 n s
+                let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r2
+                match cf1 with
+                | core.ops.control_flow.ControlFlow.Continue val1 =>
+                  let (last, err, done1) ←
+                    solve_port.eig.top_eigh_loop m n r threads s val1
+                      core.num.I64.MAX none none 1#usize
+                  match err with
+                  | none =>
+                    match done1 with
+                    | none =>
+                      ok (core.result.Result.Err
+                        (solve_port.eig.EigError.NotConverged last))
+                    | some eig => ok (core.result.Result.Ok eig)
+                  | some e => ok (core.result.Result.Err e)
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    solve_port.eig.TopEig (core.convert.FromSame
+                    solve_port.eig.EigError) residual
+              else
+                ok (core.result.Result.Err
+                  solve_port.eig.EigError.NotSymmetric)
+            else ok (core.result.Result.Err solve_port.eig.EigError.InputBound)
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            solve_port.eig.TopEig (core.convert.FromSame
+            solve_port.eig.EigError) residual
+
+/-- [apeiron_word::solve_port::gemm::gemm_nt]:
+    Source: '../../src/learn/solve/gemm.rs', lines 578:0-587:1
+    Visibility: public -/
+def solve_port.gemm.gemm_nt
+  (a : Slice Std.I64) (b : Slice Std.I64) (m : Std.Usize) (k : Std.Usize)
+  (n : Std.Usize) (threads : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.gemm.GemmError)
+  := do
+  solve_port.gemm.run a b m k n threads false
+
+/-- [apeiron_word::solve_port::inv::INV_BLOCK]
+    Source: '../../src/learn/solve/inv.rs', lines 61:0-61:28 -/
+@[global_simps, irreducible]
+def solve_port.inv.INV_BLOCK : Std.Usize := 64#usize
+
+/-- [apeiron_word::solve_port::inv::inv_row_entry]: loop body 0:
+    Source: '../../src/learn/solve/inv.rs', lines 75:4-84:5 -/
+@[rust_loop_body]
+def solve_port.inv.inv_row_entry_loop.body
+  (v : Slice Std.I64) (d : Std.Usize) (r : Std.Usize) (t1 : Std.Usize)
+  (urow : Slice Std.I64) (acc : Std.I128) (t : Std.Usize) (ok1 : Bool) :
+  Result (ControlFlow (Std.I128 × Std.Usize × Bool) (Std.I128 × Bool))
+  := do
+  if t < t1
+  then
+    if ok1
+    then
+      let i ← r * d
+      let i1 ← i + t
+      let i2 ← Slice.index_usize v i1
+      let i3 ← lift (core.convert.num.FromI128I64.from i2)
+      let i4 ← Slice.index_usize urow t
+      let i5 ← lift (core.convert.num.FromI128I64.from i4)
+      let o ← lift (I128.checked_mul i3 i5)
+      let (acc1, ok2) ←
+        match o with
+        | none => ok (acc, false)
+        | some pr =>
+          do
+          let o1 ← lift (I128.checked_add acc pr)
+          match o1 with
+          | none => ok (acc, false)
+          | some s => ok (s, true)
+      let t2 ← t + 1#usize
+      ok (cont (acc1, t2, ok2))
+    else ok (done (acc, false))
+  else ok (done (acc, ok1))
+
+/-- [apeiron_word::solve_port::inv::inv_row_entry]: loop 0:
+    Source: '../../src/learn/solve/inv.rs', lines 75:4-84:5 -/
+@[rust_loop]
+def solve_port.inv.inv_row_entry_loop
+  (v : Slice Std.I64) (d : Std.Usize) (r : Std.Usize) (t1 : Std.Usize)
+  (urow : Slice Std.I64) (acc : Std.I128) (t : Std.Usize) (ok1 : Bool) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (acc1, t2, ok2) => solve_port.inv.inv_row_entry_loop.body v d r t1
+      urow acc1 t2 ok2)
+    (acc, t, ok1)
+
+/-- [apeiron_word::solve_port::inv::inv_row_entry]:
+    Source: '../../src/learn/solve/inv.rs', lines 71:0-90:1 -/
+def solve_port.inv.inv_row_entry
+  (v : Slice Std.I64) (d : Std.Usize) (r : Std.Usize) (t0 : Std.Usize)
+  (t1 : Std.Usize) (urow : Slice Std.I64) :
+  Result (Option Std.I64)
+  := do
+  let (acc, ok1) ←
+    solve_port.inv.inv_row_entry_loop v d r t1 urow 0#i128 t0 true
+  if ok1
+  then
+    let i ← -. acc
+    let i1 ← r * d
+    let i2 ← i1 + r
+    let i3 ← Slice.index_usize v i2
+    let i4 ← lift (core.convert.num.FromI128I64.from i3)
+    solve_port.chol.div_to_i64 i i4
+  else ok none
+
+/-- [apeiron_word::solve_port::inv::invert_column_blocks]: loop body 2:
+    Source: '../../src/learn/solve/inv.rs', lines 137:16-148:17 -/
+@[rust_loop_body]
+def solve_port.inv.invert_column_blocks_loop0_loop0_loop0.body
+  (v : Slice Std.I64) (n : Std.Usize) (c0 : Std.Usize) (c1 : Std.Usize)
+  (err : Option solve_port.chol.SolveError) (row : Slice Std.I64)
+  (r : Std.Usize) :
+  Result (ControlFlow ((Option solve_port.chol.SolveError) × (Slice Std.I64)
+    × Std.Usize) ((Option solve_port.chol.SolveError) × (Slice Std.I64)))
+  := do
+  if r > c0
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let r1 ← r - 1#usize
+      let i ← r1 * n
+      let i1 ← i + r1
+      let vrr ← Slice.index_usize v i1
+      if vrr <= 0#i64
+      then
+        ok (cont (some solve_port.chol.SolveError.NotPositiveDefinite, row,
+          r1))
+      else
+        let i2 ← r1 + 1#usize
+        let o ← solve_port.inv.inv_row_entry v n r1 i2 c1 row
+        match o with
+        | none => ok (cont (some solve_port.chol.SolveError.Overflow, row, r1))
+        | some w => let s ← Slice.update row r1 w
+                    ok (cont (err, s, r1))
+    else ok (done (err, row))
+  else ok (done (err, row))
+
+/-- [apeiron_word::solve_port::inv::invert_column_blocks]: loop 2:
+    Source: '../../src/learn/solve/inv.rs', lines 137:16-148:17 -/
+@[rust_loop]
+def solve_port.inv.invert_column_blocks_loop0_loop0_loop0
+  (v : Slice Std.I64) (n : Std.Usize) (err : Option solve_port.chol.SolveError)
+  (c0 : Std.Usize) (c1 : Std.Usize) (row : Slice Std.I64) (r : Std.Usize) :
+  Result ((Option solve_port.chol.SolveError) × (Slice Std.I64))
+  := do
+  loop
+    (fun (err1, row1, r1) =>
+      solve_port.inv.invert_column_blocks_loop0_loop0_loop0.body v n c0 c1 err1
+      row1 r1)
+    (err, row, r)
+
+/-- [apeiron_word::solve_port::inv::invert_column_blocks]: loop body 1:
+    Source: '../../src/learn/solve/inv.rs', lines 126:8-151:9 -/
+@[rust_loop_body]
+def solve_port.inv.invert_column_blocks_loop0_loop0.body
+  (v : Slice Std.I64) (n : Std.Usize) (c0 : Std.Usize) (c1 : Std.Usize)
+  (base : Std.Usize) (ut : Slice Std.I64)
+  (err : Option solve_port.chol.SolveError) (c : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option solve_port.chol.SolveError)
+    × Std.Usize) ((Slice Std.I64) × (Option solve_port.chol.SolveError)))
+  := do
+  if c < c1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← c * n
+      let i1 ← i + c
+      let vcc ← Slice.index_usize v i1
+      if vcc <= 0#i64
+      then
+        let c2 ← c + 1#usize
+        ok (cont (ut, some solve_port.chol.SolveError.NotPositiveDefinite, c2))
+      else
+        let i2 ← c - c0
+        let i3 ← i2 * n
+        let i4 ← base + i3
+        let i5 ← i2 * n
+        let i6 ← base + i5
+        let i7 ← i6 + n
+        let (row, index_mut_back) ←
+          core.slice.index.Slice.index_mut
+            (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) ut
+            { start := i4, «end» := i7 }
+        let i8 ← 1#i128 <<< 64#i32
+        let i9 ← lift (core.convert.num.FromI128I64.from vcc)
+        let o ← solve_port.chol.div_to_i64 i8 i9
+        let (err1, row1) ←
+          match o with
+          | none => ok (some solve_port.chol.SolveError.Overflow, row)
+          | some w => do
+                      let s ← Slice.update row c w
+                      ok (err, s)
+        let (err2, row2) ←
+          solve_port.inv.invert_column_blocks_loop0_loop0_loop0 v n err1 c0 c1
+            row1 c
+        let c2 ← c + 1#usize
+        let ut1 := index_mut_back row2
+        ok (cont (ut1, err2, c2))
+    else ok (done (ut, err))
+  else ok (done (ut, err))
+
+/-- [apeiron_word::solve_port::inv::invert_column_blocks]: loop 1:
+    Source: '../../src/learn/solve/inv.rs', lines 126:8-151:9 -/
+@[rust_loop]
+def solve_port.inv.invert_column_blocks_loop0_loop0
+  (v : Slice Std.I64) (n : Std.Usize) (ut : Slice Std.I64)
+  (err : Option solve_port.chol.SolveError) (c0 : Std.Usize) (c1 : Std.Usize)
+  (base : Std.Usize) (c : Std.Usize) :
+  Result ((Slice Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (ut1, err1, c2) =>
+      solve_port.inv.invert_column_blocks_loop0_loop0.body v n c0 c1 base ut1
+      err1 c2)
+    (ut, err, c)
+
+/-- [apeiron_word::solve_port::inv::invert_column_blocks]: loop body 4:
+    Source: '../../src/learn/solve/inv.rs', lines 161:16-168:17 -/
+@[rust_loop_body]
+def solve_port.inv.invert_column_blocks_loop0_loop1_loop0.body
+  (v : Slice Std.I64) (n : Std.Usize) (c0 : Std.Usize) (c1 : Std.Usize)
+  (base : Std.Usize) (r : Std.Usize) (ut : Slice Std.I64)
+  (err : Option solve_port.chol.SolveError) (k : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option solve_port.chol.SolveError)
+    × Std.Usize) ((Slice Std.I64) × (Option solve_port.chol.SolveError)))
+  := do
+  let i ← c1 - c0
+  if k < i
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← k * n
+      let i2 ← base + i1
+      let i3 ← base + i1
+      let i4 ← i3 + n
+      let (row, index_mut_back) ←
+        core.slice.index.Slice.index_mut
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) ut
+          { start := i2, «end» := i4 }
+      let i5 ← r + 1#usize
+      let o ← solve_port.inv.inv_row_entry v n r i5 c1 row
+      let (err1, row1) ←
+        match o with
+        | none => ok (some solve_port.chol.SolveError.Overflow, row)
+        | some w => do
+                    let s ← Slice.update row r w
+                    ok (err, s)
+      let k1 ← k + 1#usize
+      let ut1 := index_mut_back row1
+      ok (cont (ut1, err1, k1))
+    else ok (done (ut, err))
+  else ok (done (ut, err))
+
+/-- [apeiron_word::solve_port::inv::invert_column_blocks]: loop 4:
+    Source: '../../src/learn/solve/inv.rs', lines 161:16-168:17 -/
+@[rust_loop]
+def solve_port.inv.invert_column_blocks_loop0_loop1_loop0
+  (v : Slice Std.I64) (n : Std.Usize) (ut : Slice Std.I64)
+  (err : Option solve_port.chol.SolveError) (c0 : Std.Usize) (c1 : Std.Usize)
+  (base : Std.Usize) (r : Std.Usize) (k : Std.Usize) :
+  Result ((Slice Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (ut1, err1, k1) =>
+      solve_port.inv.invert_column_blocks_loop0_loop1_loop0.body v n c0 c1 base
+      r ut1 err1 k1)
+    (ut, err, k)
+
+/-- [apeiron_word::solve_port::inv::invert_column_blocks]: loop body 3:
+    Source: '../../src/learn/solve/inv.rs', lines 154:8-170:9 -/
+@[rust_loop_body]
+def solve_port.inv.invert_column_blocks_loop0_loop1.body
+  (v : Slice Std.I64) (n : Std.Usize) (c0 : Std.Usize) (c1 : Std.Usize)
+  (base : Std.Usize) (ut : Slice Std.I64)
+  (err : Option solve_port.chol.SolveError) (r : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option solve_port.chol.SolveError)
+    × Std.Usize) ((Slice Std.I64) × (Option solve_port.chol.SolveError)))
+  := do
+  if r > 0#usize
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let r1 ← r - 1#usize
+      let i ← r1 * n
+      let i1 ← i + r1
+      let vrr ← Slice.index_usize v i1
+      if vrr <= 0#i64
+      then
+        ok (cont (ut, some solve_port.chol.SolveError.NotPositiveDefinite, r1))
+      else
+        let (ut1, err1) ←
+          solve_port.inv.invert_column_blocks_loop0_loop1_loop0 v n ut err c0
+            c1 base r1 0#usize
+        ok (cont (ut1, err1, r1))
+    else ok (done (ut, err))
+  else ok (done (ut, err))
+
+/-- [apeiron_word::solve_port::inv::invert_column_blocks]: loop 3:
+    Source: '../../src/learn/solve/inv.rs', lines 154:8-170:9 -/
+@[rust_loop]
+def solve_port.inv.invert_column_blocks_loop0_loop1
+  (v : Slice Std.I64) (n : Std.Usize) (ut : Slice Std.I64)
+  (err : Option solve_port.chol.SolveError) (c0 : Std.Usize) (c1 : Std.Usize)
+  (base : Std.Usize) (r : Std.Usize) :
+  Result ((Slice Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (ut1, err1, r1) =>
+      solve_port.inv.invert_column_blocks_loop0_loop1.body v n c0 c1 base ut1
+      err1 r1)
+    (ut, err, r)
+
+/-- [apeiron_word::solve_port::inv::invert_column_blocks]: loop body 0:
+    Source: '../../src/learn/solve/inv.rs', lines 121:4-172:5 -/
+@[rust_loop_body]
+def solve_port.inv.invert_column_blocks_loop0.body
+  (v : Slice Std.I64) (n : Std.Usize) (col0 : Std.Usize) (col_end : Std.Usize)
+  (ut : Slice Std.I64) (err : Option solve_port.chol.SolveError)
+  (c0 : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option solve_port.chol.SolveError)
+    × Std.Usize) ((Slice Std.I64) × (Option solve_port.chol.SolveError)))
+  := do
+  if c0 < col_end
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← c0 + solve_port.inv.INV_BLOCK
+      let c1 ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i col_end
+      let i1 ← c0 - col0
+      let base ← i1 * n
+      let (ut1, err1) ←
+        solve_port.inv.invert_column_blocks_loop0_loop0 v n ut err c0 c1 base
+          c0
+      let (ut2, err2) ←
+        solve_port.inv.invert_column_blocks_loop0_loop1 v n ut1 err1 c0 c1 base
+          c0
+      ok (cont (ut2, err2, c1))
+    else ok (done (ut, err))
+  else ok (done (ut, err))
+
+/-- [apeiron_word::solve_port::inv::invert_column_blocks]: loop 0:
+    Source: '../../src/learn/solve/inv.rs', lines 121:4-172:5 -/
+@[rust_loop]
+def solve_port.inv.invert_column_blocks_loop0
+  (v : Slice Std.I64) (n : Std.Usize) (ut : Slice Std.I64) (col0 : Std.Usize)
+  (col_end : Std.Usize) (err : Option solve_port.chol.SolveError)
+  (c0 : Std.Usize) :
+  Result ((Slice Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (ut1, err1, c01) => solve_port.inv.invert_column_blocks_loop0.body v n
+      col0 col_end ut1 err1 c01)
+    (ut, err, c0)
+
+/-- [apeiron_word::solve_port::inv::invert_column_blocks]:
+    Source: '../../src/learn/solve/inv.rs', lines 108:0-177:1 -/
+def solve_port.inv.invert_column_blocks
+  (v : Slice Std.I64) (n : Std.Usize) (ut : Slice Std.I64) (col0 : Std.Usize)
+  (col_end : Std.Usize) :
+  Result ((core.result.Result Unit solve_port.chol.SolveError) × (Slice
+    Std.I64))
+  := do
+  let (ut1, err) ←
+    solve_port.inv.invert_column_blocks_loop0 v n ut col0 col_end none col0
+  match err with
+  | none => ok (core.result.Result.Ok (), ut1)
+  | some e => ok (core.result.Result.Err e, ut1)
+
+/-- [apeiron_word::solve_port::inv::invert_columns_par]:
+    Source: '../../src/learn/solve/inv.rs', lines 193:0-244:1 -/
+axiom solve_port.inv.invert_columns_par
+  :
+  Slice Std.I64 → Std.Usize → Slice Std.I64 → Std.Usize → Std.Usize →
+    Result ((core.result.Result Unit solve_port.chol.SolveError) × (Slice
+    Std.I64))
+
+/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop body 1:
+    Source: '../../src/learn/solve/inv.rs', lines 279:8-281:9 -/
+@[rust_loop_body]
+def solve_port.inv.inverse_upper_par_loop0_loop0.body
+  (n : Std.Usize) (ut : alloc.vec.Vec Std.I64) (c : Std.Usize)
+  (iter : core.ops.range.RangeInclusive Std.Usize) (u : alloc.vec.Vec Std.I64)
+  :
+  Result (ControlFlow ((core.ops.range.RangeInclusive Std.Usize) ×
+    (alloc.vec.Vec Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.ops.range.RangeInclusive.Insts.CoreIterTraitsIteratorIterator.next
+      core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done u)
+  | some r =>
+    let i ← c * n
+    let i1 ← i + r
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) ut i1
+    let i3 ← r * n
+    let i4 ← i3 + c
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) u
+        i4
+    let u1 := index_mut_back i2
+    ok (cont (iter1, u1))
+
+/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop 1:
+    Source: '../../src/learn/solve/inv.rs', lines 279:8-281:9 -/
+@[rust_loop]
+def solve_port.inv.inverse_upper_par_loop0_loop0
+  (iter : core.ops.range.RangeInclusive Std.Usize) (n : Std.Usize)
+  (ut : alloc.vec.Vec Std.I64) (u : alloc.vec.Vec Std.I64) (c : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, u1) => solve_port.inv.inverse_upper_par_loop0_loop0.body n ut
+      c iter1 u1)
+    (iter, u)
+
+/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop body 0:
+    Source: '../../src/learn/solve/inv.rs', lines 278:4-282:5 -/
+@[rust_loop_body]
+def solve_port.inv.inverse_upper_par_loop0.body
+  (n : Std.Usize) (ut : alloc.vec.Vec Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (u : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done u)
+  | some c =>
+    let iter2 ← core.ops.range.RangeInclusive.new 0#usize c
+    let u1 ← solve_port.inv.inverse_upper_par_loop0_loop0 iter2 n ut u c
+    ok (cont (iter1, u1))
+
+/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop 0:
+    Source: '../../src/learn/solve/inv.rs', lines 278:4-282:5 -/
+@[rust_loop]
+def solve_port.inv.inverse_upper_par_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (ut : alloc.vec.Vec Std.I64) (u : alloc.vec.Vec Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, u1) => solve_port.inv.inverse_upper_par_loop0.body n ut iter1
+      u1)
+    (iter, u)
+
+/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop body 3:
+    Source: '../../src/learn/solve/inv.rs', lines 279:8-281:9 -/
+@[rust_loop_body]
+def solve_port.inv.inverse_upper_par_loop1_loop0.body
+  (n : Std.Usize) (ut : alloc.vec.Vec Std.I64) (c : Std.Usize)
+  (iter : core.ops.range.RangeInclusive Std.Usize) (u : alloc.vec.Vec Std.I64)
+  :
+  Result (ControlFlow ((core.ops.range.RangeInclusive Std.Usize) ×
+    (alloc.vec.Vec Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.ops.range.RangeInclusive.Insts.CoreIterTraitsIteratorIterator.next
+      core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done u)
+  | some r =>
+    let i ← c * n
+    let i1 ← i + r
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) ut i1
+    let i3 ← r * n
+    let i4 ← i3 + c
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) u
+        i4
+    let u1 := index_mut_back i2
+    ok (cont (iter1, u1))
+
+/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop 3:
+    Source: '../../src/learn/solve/inv.rs', lines 279:8-281:9 -/
+@[rust_loop]
+def solve_port.inv.inverse_upper_par_loop1_loop0
+  (iter : core.ops.range.RangeInclusive Std.Usize) (n : Std.Usize)
+  (ut : alloc.vec.Vec Std.I64) (u : alloc.vec.Vec Std.I64) (c : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, u1) => solve_port.inv.inverse_upper_par_loop1_loop0.body n ut
+      c iter1 u1)
+    (iter, u)
+
+/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop body 2:
+    Source: '../../src/learn/solve/inv.rs', lines 278:4-282:5 -/
+@[rust_loop_body]
+def solve_port.inv.inverse_upper_par_loop1.body
+  (n : Std.Usize) (ut : alloc.vec.Vec Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (u : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done u)
+  | some c =>
+    let iter2 ← core.ops.range.RangeInclusive.new 0#usize c
+    let u1 ← solve_port.inv.inverse_upper_par_loop1_loop0 iter2 n ut u c
+    ok (cont (iter1, u1))
+
+/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop 2:
+    Source: '../../src/learn/solve/inv.rs', lines 278:4-282:5 -/
+@[rust_loop]
+def solve_port.inv.inverse_upper_par_loop1
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (ut : alloc.vec.Vec Std.I64) (u : alloc.vec.Vec Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, u1) => solve_port.inv.inverse_upper_par_loop1.body n ut iter1
+      u1)
+    (iter, u)
+
+/-- [apeiron_word::solve_port::inv::inverse_upper_par]:
+    Source: '../../src/learn/solve/inv.rs', lines 263:0-284:1 -/
+def solve_port.inv.inverse_upper_par
+  (v : Slice Std.I64) (n : Std.Usize) (threads : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    solve_port.chol.SolveError)
+  := do
+  let o ← lift (Usize.checked_mul n n)
+  let r ← core.option.Option.ok_or o solve_port.chol.SolveError.Overflow
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let i := Slice.len v
+    if i != val
+    then ok (core.result.Result.Err solve_port.chol.SolveError.ShapeMismatch)
+    else
+      let m ← core.num.Usize.div_ceil n solve_port.inv.INV_BLOCK
+      let i1 ← core.cmp.Ord.max.default core.cmp.OrdUsize threads 1#usize
+      let nt ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i1 m
+      let ut ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+      if nt <= 1#usize
+      then
+        let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut ut)
+        let (r1, s1) ← solve_port.inv.invert_column_blocks v n s 0#usize n
+        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+        match cf1 with
+        | core.ops.control_flow.ControlFlow.Continue _ =>
+          let ut1 := deref_mut_back s1
+          let u ←
+            solve_port.inv.inverse_upper_par_loop0
+              { start := 0#usize, «end» := n } n ut1 ut
+          ok (core.result.Result.Ok u)
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64) (core.convert.FromSame
+            solve_port.chol.SolveError) residual
+      else
+        let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut ut)
+        let (r1, s1) ← solve_port.inv.invert_columns_par v n s nt m
+        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+        match cf1 with
+        | core.ops.control_flow.ControlFlow.Continue _ =>
+          let ut1 := deref_mut_back s1
+          let u ←
+            solve_port.inv.inverse_upper_par_loop1
+              { start := 0#usize, «end» := n } n ut1 ut
+          ok (core.result.Result.Ok u)
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64) (core.convert.FromSame
+            solve_port.chol.SolveError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      solve_port.chol.SolveError) residual
+
+/-- [apeiron_word::solve_port::inv::rotate_180]: loop body 1:
+    Source: '../../src/learn/solve/inv.rs', lines 296:8-298:9 -/
+@[rust_loop_body]
+def solve_port.inv.rotate_180_loop0_loop0.body
+  (n : Std.Usize) (i : Std.Usize) (iter : core.ops.range.Range Std.Usize)
+  (x : Slice Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (Slice Std.I64))
+    (Slice Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done x)
+  | some j =>
+    let i1 ← i * n
+    let i2 ← i1 + j
+    let i3 ← n - 1#usize
+    let i4 ← i3 - i
+    let i5 ← i4 * n
+    let i6 ← i3 - j
+    let i7 ← i5 + i6
+    let x1 ← core.slice.Slice.swap x i2 i7
+    ok (cont (iter1, x1))
+
+/-- [apeiron_word::solve_port::inv::rotate_180]: loop 1:
+    Source: '../../src/learn/solve/inv.rs', lines 296:8-298:9 -/
+@[rust_loop]
+def solve_port.inv.rotate_180_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) (n : Std.Usize)
+  (i : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (iter1, x1) => solve_port.inv.rotate_180_loop0_loop0.body n i iter1
+      x1)
+    (iter, x)
+
+/-- [apeiron_word::solve_port::inv::rotate_180]: loop body 0:
+    Source: '../../src/learn/solve/inv.rs', lines 295:4-299:5 -/
+@[rust_loop_body]
+def solve_port.inv.rotate_180_loop0.body
+  (n : Std.Usize) (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (Slice Std.I64))
+    (Slice Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done x)
+  | some i =>
+    let x1 ←
+      solve_port.inv.rotate_180_loop0_loop0 { start := 0#usize, «end» := n }
+        x n i
+    ok (cont (iter1, x1))
+
+/-- [apeiron_word::solve_port::inv::rotate_180]: loop 0:
+    Source: '../../src/learn/solve/inv.rs', lines 295:4-299:5 -/
+@[rust_loop]
+def solve_port.inv.rotate_180_loop0
+  (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) (n : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (iter1, x1) => solve_port.inv.rotate_180_loop0.body n iter1 x1)
+    (iter, x)
+
+/-- [apeiron_word::solve_port::inv::rotate_180]: loop body 2:
+    Source: '../../src/learn/solve/inv.rs', lines 302:8-304:9 -/
+@[rust_loop_body]
+def solve_port.inv.rotate_180_loop1.body
+  (n : Std.Usize) (i : Std.Usize) (iter : core.ops.range.Range Std.Usize)
+  (x : Slice Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (Slice Std.I64))
+    (Slice Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done x)
+  | some j =>
+    let i1 ← i * n
+    let i2 ← i1 + j
+    let i3 ← n - 1#usize
+    let i4 ← i3 - j
+    let i5 ← i1 + i4
+    let x1 ← core.slice.Slice.swap x i2 i5
+    ok (cont (iter1, x1))
+
+/-- [apeiron_word::solve_port::inv::rotate_180]: loop 2:
+    Source: '../../src/learn/solve/inv.rs', lines 302:8-304:9 -/
+@[rust_loop]
+def solve_port.inv.rotate_180_loop1
+  (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) (n : Std.Usize)
+  (i : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (iter1, x1) => solve_port.inv.rotate_180_loop1.body n i iter1 x1)
+    (iter, x)
+
+/-- [apeiron_word::solve_port::inv::rotate_180]:
+    Source: '../../src/learn/solve/inv.rs', lines 294:0-306:1 -/
+def solve_port.inv.rotate_180
+  (x : Slice Std.I64) (n : Std.Usize) : Result (Slice Std.I64) := do
+  let i ← n / 2#usize
+  let x1 ←
+    solve_port.inv.rotate_180_loop0 { start := 0#usize, «end» := i } x n
+  let i1 ← n % 2#usize
+  if i1 = 1#usize
+  then
+    let i2 ← n / 2#usize
+    solve_port.inv.rotate_180_loop1 { start := 0#usize, «end» := i2 } x1 n i2
+  else ok x1
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop body 1:
+    Source: '../../src/learn/solve/inv.rs', lines 339:8-341:9
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.inv.inv_factor_upper_loop0_loop0.body
+  (n : Std.Usize) (a_hat : alloc.vec.Vec Std.I64) (i : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (rev : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done rev)
+  | some j =>
+    let i1 ← n - 1#usize
+    let i2 ← i1 - i
+    let i3 ← i2 * n
+    let i4 ← i1 - j
+    let i5 ← i3 + i4
+    let i6 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) a_hat
+        i5
+    let i7 ← i * n
+    let i8 ← i7 + j
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        rev i8
+    let rev1 := index_mut_back i6
+    ok (cont (iter1, rev1))
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop 1:
+    Source: '../../src/learn/solve/inv.rs', lines 339:8-341:9
+    Visibility: public -/
+@[rust_loop]
+def solve_port.inv.inv_factor_upper_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (a_hat : alloc.vec.Vec Std.I64) (rev : alloc.vec.Vec Std.I64) (i : Std.Usize)
+  :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, rev1) => solve_port.inv.inv_factor_upper_loop0_loop0.body n
+      a_hat i iter1 rev1)
+    (iter, rev)
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop body 0:
+    Source: '../../src/learn/solve/inv.rs', lines 338:4-342:5
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.inv.inv_factor_upper_loop0.body
+  (n : Std.Usize) (a_hat : alloc.vec.Vec Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (rev : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done rev)
+  | some i =>
+    let rev1 ←
+      solve_port.inv.inv_factor_upper_loop0_loop0
+        { start := 0#usize, «end» := n } n a_hat rev i
+    ok (cont (iter1, rev1))
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop 0:
+    Source: '../../src/learn/solve/inv.rs', lines 338:4-342:5
+    Visibility: public -/
+@[rust_loop]
+def solve_port.inv.inv_factor_upper_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (a_hat : alloc.vec.Vec Std.I64) (rev : alloc.vec.Vec Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, rev1) => solve_port.inv.inv_factor_upper_loop0.body n a_hat
+      iter1 rev1)
+    (iter, rev)
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop body 3:
+    Source: '../../src/learn/solve/inv.rs', lines 358:8-364:9
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.inv.inv_factor_upper_loop1_loop0.body
+  (n : Std.Usize) (d : alloc.vec.Vec Std.I64) (binv : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) (u : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if j < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * n
+      let i2 ← i1 + j
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          binv i2
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let i5 ← i4 <<< 32#i32
+      let i6 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) d j
+      let i7 ← lift (core.convert.num.FromI128I64.from i6)
+      let o ← solve_port.chol.div_to_i64 i5 i7
+      let (u1, err1) ←
+        match o with
+        | none => ok (u, some solve_port.chol.SolveError.Overflow)
+        | some w =>
+          do
+          let i8 ← i1 + j
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) u i8
+          let u2 := index_mut_back w
+          ok (u2, err)
+      let j1 ← j + 1#usize
+      ok (cont (u1, err1, j1))
+    else ok (done (u, err))
+  else ok (done (u, err))
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop 3:
+    Source: '../../src/learn/solve/inv.rs', lines 358:8-364:9
+    Visibility: public -/
+@[rust_loop]
+def solve_port.inv.inv_factor_upper_loop1_loop0
+  (n : Std.Usize) (d : alloc.vec.Vec Std.I64) (binv : alloc.vec.Vec Std.I64)
+  (u : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (i : Std.Usize) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (u1, err1, j1) => solve_port.inv.inv_factor_upper_loop1_loop0.body n d
+      binv i u1 err1 j1)
+    (u, err, j)
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop body 2:
+    Source: '../../src/learn/solve/inv.rs', lines 356:4-366:5
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.inv.inv_factor_upper_loop1.body
+  (n : Std.Usize) (d : alloc.vec.Vec Std.I64) (binv : alloc.vec.Vec Std.I64)
+  (u : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (u1, err1) ←
+        solve_port.inv.inv_factor_upper_loop1_loop0 n d binv u err i i
+      let i1 ← i + 1#usize
+      ok (cont (u1, err1, i1))
+    else ok (done (u, err))
+  else ok (done (u, err))
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop 2:
+    Source: '../../src/learn/solve/inv.rs', lines 356:4-366:5
+    Visibility: public -/
+@[rust_loop]
+def solve_port.inv.inv_factor_upper_loop1
+  (n : Std.Usize) (d : alloc.vec.Vec Std.I64) (binv : alloc.vec.Vec Std.I64)
+  (u : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (u1, err1, i1) => solve_port.inv.inv_factor_upper_loop1.body n d binv
+      u1 err1 i1)
+    (u, err, i)
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]:
+    Source: '../../src/learn/solve/inv.rs', lines 327:0-371:1
+    Visibility: public -/
+def solve_port.inv.inv_factor_upper
+  (h : Slice Std.I64) (n : Std.Usize) (threads : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    solve_port.chol.SolveError)
+  := do
+  if n = 0#usize
+  then ok (core.result.Result.Err solve_port.chol.SolveError.Empty)
+  else
+    let o ← lift (Usize.checked_mul n n)
+    let r ← core.option.Option.ok_or o solve_port.chol.SolveError.Overflow
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let i := Slice.len h
+      if i != val
+      then ok (core.result.Result.Err solve_port.chol.SolveError.ShapeMismatch)
+      else
+        let r1 ← solve_port.chol.equilibrate h n
+        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+        match cf1 with
+        | core.ops.control_flow.ControlFlow.Continue val1 =>
+          let (a_hat, d) := val1
+          let rev ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+          let rev1 ←
+            solve_port.inv.inv_factor_upper_loop0
+              { start := 0#usize, «end» := n } n a_hat rev
+          core.mem.drop a_hat
+          let s := alloc.vec.Vec.deref rev1
+          let r2 ← solve_port.chol.factor_scaled s n threads
+          let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+          match cf2 with
+          | core.ops.control_flow.ControlFlow.Continue val2 =>
+            core.mem.drop rev1
+            let (s1, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut val2)
+            let s2 ← solve_port.inv.rotate_180 s1 n
+            let val3 := deref_mut_back s2
+            let s3 := alloc.vec.Vec.deref val3
+            let r3 ← solve_port.inv.inverse_upper_par s3 n threads
+            let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+            match cf3 with
+            | core.ops.control_flow.ControlFlow.Continue val4 =>
+              core.mem.drop val3
+              let u ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+              let (u1, err) ←
+                solve_port.inv.inv_factor_upper_loop1 n d val4 u none 0#usize
+              match err with
+              | none => ok (core.result.Result.Ok u1)
+              | some e => ok (core.result.Result.Err e)
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                (alloc.vec.Vec Std.I64) (core.convert.FromSame
+                solve_port.chol.SolveError) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64) (core.convert.FromSame
+              solve_port.chol.SolveError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64) (core.convert.FromSame
+            solve_port.chol.SolveError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame
+        solve_port.chol.SolveError) residual
+
+/-- [apeiron_word::solve_port::syrk::MAX_O]
+    Source: '../../src/learn/solve/syrk.rs', lines 42:0-42:29 -/
+@[global_simps, irreducible]
+def solve_port.syrk.MAX_O : Result Std.Usize := 1#usize <<< 18#i32
+
+/-- [apeiron_word::solve_port::syrk::UNIT_RAW]
+    Source: '../../src/learn/solve/syrk.rs', lines 44:0-44:34 -/
+@[global_simps, irreducible]
+def solve_port.syrk.UNIT_RAW : Result Std.I64 := 1#i64 <<< 32#i32
+
+/-- [apeiron_word::solve_port::syrk::BLOCK]
+    Source: '../../src/learn/solve/syrk.rs', lines 47:0-47:24 -/
+@[global_simps, irreducible] def solve_port.syrk.BLOCK : Std.Usize := 64#usize
+
+/-- [apeiron_word::solve_port::syrk::SyrkError]
+    Source: '../../src/learn/solve/syrk.rs', lines 51:0-62:1
+    Visibility: public -/
+@[discriminant isize]
+inductive solve_port.syrk.SyrkError where
+| ShapeMismatch : solve_port.syrk.SyrkError
+| ZeroN : solve_port.syrk.SyrkError
+| ZeroO : solve_port.syrk.SyrkError
+| InputBound : solve_port.syrk.SyrkError
+| Overflow : solve_port.syrk.SyrkError
+
+/-- [apeiron_word::solve_port::syrk::round64::{closure}]
+    Source: '../../src/learn/solve/syrk.rs', lines 74:36-74:47 -/
+@[reducible]
+def solve_port.syrk.round64.closure := Unit
+
+/-- [apeiron_word::solve_port::syrk::round64::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::solve_port::syrk::round64::{closure}}::call_once]:
+    Source: '../../src/learn/solve/syrk.rs', lines 74:36-74:47 -/
+def
+  solve_port.syrk.round64.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
+  (c : solve_port.syrk.round64.closure) (tupled_args : Std.I128) :
+  Result Std.I128
+  := do
+  tupled_args >>> 64#i32
+
+/-- Trait implementation: [apeiron_word::solve_port::syrk::round64::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::solve_port::syrk::round64::{closure}}]
+    Source: '../../src/learn/solve/syrk.rs', lines 74:36-74:47 -/
+@[reducible]
+def solve_port.syrk.round64.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128 :
+  core.ops.function.FnOnce solve_port.syrk.round64.closure Std.I128 Std.I128
+  := {
+  call_once :=
+    solve_port.syrk.round64.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
+}
+
+/-- [apeiron_word::solve_port::syrk::round64]:
+    Source: '../../src/learn/solve/syrk.rs', lines 73:0-75:1 -/
+def solve_port.syrk.round64 (v : Std.I128) : Result (Option Std.I128) := do
+  let i ← 1#i128 <<< 63#i32
+  let o ← lift (I128.checked_add v i)
+  core.option.Option.map
+    solve_port.syrk.round64.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128 o
+    ()
+
+/-- [apeiron_word::solve_port::syrk::transpose_panel]: loop body 1:
+    Source: '../../src/learn/solve/syrk.rs', lines 131:8-133:9 -/
+@[rust_loop_body]
+def solve_port.syrk.transpose_panel_loop0_loop0.body
+  (o : Std.Usize) (r : Std.Usize)
+  (iter : core.iter.adapters.enumerate.Enumerate (core.slice.iter.Iter
+  Std.I64)) (xt : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.iter.adapters.enumerate.Enumerate
+    (core.slice.iter.Iter Std.I64)) × (alloc.vec.Vec Std.I64)) (alloc.vec.Vec
+    Std.I64))
+  := do
+  let (o1, iter1) ←
+    core.iter.adapters.enumerate.IteratorEnumerate.next
+      (core.iter.traits.iterator.IteratorSliceIter Std.I64) iter
+  match o1 with
+  | none => ok (done xt)
+  | some p =>
+    let (c, v) := p
+    let i ← c * o
+    let i1 ← i + r
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        xt i1
+    let xt1 := index_mut_back v
+    ok (cont (iter1, xt1))
+
+/-- [apeiron_word::solve_port::syrk::transpose_panel]: loop 1:
+    Source: '../../src/learn/solve/syrk.rs', lines 131:8-133:9 -/
+@[rust_loop]
+def solve_port.syrk.transpose_panel_loop0_loop0
+  (iter : core.iter.adapters.enumerate.Enumerate (core.slice.iter.Iter
+  Std.I64)) (o : Std.Usize) (xt : alloc.vec.Vec Std.I64) (r : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, xt1) => solve_port.syrk.transpose_panel_loop0_loop0.body o r
+      iter1 xt1)
+    (iter, xt)
+
+/-- [apeiron_word::solve_port::syrk::transpose_panel]: loop body 0:
+    Source: '../../src/learn/solve/syrk.rs', lines 129:4-134:5 -/
+@[rust_loop_body]
+def solve_port.syrk.transpose_panel_loop0.body
+  (x : Slice Std.I64) (o : Std.Usize) (n : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (xt : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o1, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o1 with
+  | none => ok (done xt)
+  | some r =>
+    let i ← r * n
+    let i1 ← i + n
+    let row ←
+      core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+        Std.I64) x { start := i, «end» := i1 }
+    let i2 ← core.slice.Slice.iter row
+    let iter2 ←
+      core.iter.traits.iterator.Iterator.enumerate.trait_default
+        (core.iter.traits.iterator.IteratorSliceIter Std.I64) i2
+    let xt1 ← solve_port.syrk.transpose_panel_loop0_loop0 iter2 o xt r
+    ok (cont (iter1, xt1))
+
+/-- [apeiron_word::solve_port::syrk::transpose_panel]: loop 0:
+    Source: '../../src/learn/solve/syrk.rs', lines 129:4-134:5 -/
+@[rust_loop]
+def solve_port.syrk.transpose_panel_loop0
+  (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) (o : Std.Usize)
+  (n : Std.Usize) (xt : alloc.vec.Vec Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, xt1) => solve_port.syrk.transpose_panel_loop0.body x o n iter1
+      xt1)
+    (iter, xt)
+
+/-- [apeiron_word::solve_port::syrk::transpose_panel]:
+    Source: '../../src/learn/solve/syrk.rs', lines 127:0-136:1 -/
+def solve_port.syrk.transpose_panel
+  (x : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  let i ← o * n
+  let xt ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  solve_port.syrk.transpose_panel_loop0 { start := 0#usize, «end» := o } x o
+    n xt
+
+/-- [apeiron_word::solve_port::syrk::block_rows]: loop body 2:
+    Source: '../../src/learn/solve/syrk.rs', lines 187:12-208:13 -/
+@[rust_loop_body]
+def solve_port.syrk.block_rows_loop0_loop0_loop0.body
+  (wv : Slice Std.I64) (o : Std.Usize) (xi0 : Slice Std.I64)
+  (xi1 : Slice Std.I64) (xj0 : Slice Std.I64) (xj1 : Slice Std.I64)
+  (err : Option solve_port.syrk.SyrkError) (c00 : Std.I128) (c01 : Std.I128)
+  (c10 : Std.I128) (c11 : Std.I128) (oo : Std.Usize) :
+  Result (ControlFlow ((Option solve_port.syrk.SyrkError) × Std.I128 ×
+    Std.I128 × Std.I128 × Std.I128 × Std.Usize) ((Option
+    solve_port.syrk.SyrkError) × Std.I128 × Std.I128 × Std.I128 ×
+    Std.I128))
+  := do
+  if oo < o
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← Slice.index_usize wv oo
+      let ww ← lift (core.convert.num.FromI128I64.from i)
+      let i1 ← Slice.index_usize xi0 oo
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let a0 ← ww * i2
+      let i3 ← Slice.index_usize xi1 oo
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let a1 ← ww * i4
+      let i5 ← Slice.index_usize xj0 oo
+      let b0 ← lift (core.convert.num.FromI128I64.from i5)
+      let i6 ← Slice.index_usize xj1 oo
+      let b1 ← lift (core.convert.num.FromI128I64.from i6)
+      let i7 ← a0 * b0
+      let o1 ← lift (I128.checked_add c00 i7)
+      let i8 ← a0 * b1
+      let o2 ← lift (I128.checked_add c01 i8)
+      let i9 ← a1 * b0
+      let o3 ← lift (I128.checked_add c10 i9)
+      let i10 ← a1 * b1
+      let o4 ← lift (I128.checked_add c11 i10)
+      let (err1, c001, c011, c101, c111) ←
+        match o1 with
+        | none =>
+          ok (some solve_port.syrk.SyrkError.Overflow, c00, c01, c10, c11)
+        | some s00 =>
+          match o2 with
+          | none =>
+            ok (some solve_port.syrk.SyrkError.Overflow, c00, c01, c10, c11)
+          | some s01 =>
+            match o3 with
+            | none =>
+              ok (some solve_port.syrk.SyrkError.Overflow, c00, c01, c10, c11)
+            | some s10 =>
+              match o4 with
+              | none =>
+                ok (some solve_port.syrk.SyrkError.Overflow, c00, c01, c10,
+                  c11)
+              | some s11 => ok (err, s00, s01, s10, s11)
+      let oo1 ← oo + 1#usize
+      ok (cont (err1, c001, c011, c101, c111, oo1))
+    else ok (done (err, c00, c01, c10, c11))
+  else ok (done (err, c00, c01, c10, c11))
+
+/-- [apeiron_word::solve_port::syrk::block_rows]: loop 2:
+    Source: '../../src/learn/solve/syrk.rs', lines 187:12-208:13 -/
+@[rust_loop]
+def solve_port.syrk.block_rows_loop0_loop0_loop0
+  (wv : Slice Std.I64) (o : Std.Usize) (err : Option solve_port.syrk.SyrkError)
+  (xi0 : Slice Std.I64) (xi1 : Slice Std.I64) (xj0 : Slice Std.I64)
+  (xj1 : Slice Std.I64) (c00 : Std.I128) (c01 : Std.I128) (c10 : Std.I128)
+  (c11 : Std.I128) (oo : Std.Usize) :
+  Result ((Option solve_port.syrk.SyrkError) × Std.I128 × Std.I128 ×
+    Std.I128 × Std.I128)
+  := do
+  loop
+    (fun (err1, c001, c011, c101, c111, oo1) =>
+      solve_port.syrk.block_rows_loop0_loop0_loop0.body wv o xi0 xi1 xj0 xj1
+      err1 c001 c011 c101 c111 oo1)
+    (err, c00, c01, c10, c11, oo)
+
+/-- [apeiron_word::solve_port::syrk::block_rows]: loop body 1:
+    Source: '../../src/learn/solve/syrk.rs', lines 181:8-222:9 -/
+@[rust_loop_body]
+def solve_port.syrk.block_rows_loop0_loop0.body
+  (lo : Std.Usize) (xt : Slice Std.I64) (wv : Slice Std.I64) (o : Std.Usize)
+  (jb : Std.Usize) (j1 : Std.Usize) (nb : Std.Usize) (i : Std.Usize)
+  (i2 : Std.Usize) (xi0 : Slice Std.I64) (xi1 : Slice Std.I64)
+  (acc : Slice Std.I128) (err : Option solve_port.syrk.SyrkError)
+  (j : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I128) × (Option solve_port.syrk.SyrkError)
+    × Std.Usize) ((Slice Std.I128) × (Option solve_port.syrk.SyrkError)))
+  := do
+  if j < j1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← j + 1#usize
+      let jc ← if i1 < j1
+                 then ok i1
+                 else ok j
+      let i3 ← j * o
+      let i4 ← i3 + o
+      let xj0 ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) xt
+          { start := i3, «end» := i4 }
+      let i5 ← jc * o
+      let i6 ← i5 + o
+      let xj1 ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) xt
+          { start := i5, «end» := i6 }
+      let (err1, c00, c01, c10, c11) ←
+        solve_port.syrk.block_rows_loop0_loop0_loop0 wv o err xi0 xi1 xj0 xj1
+          0#i128 0#i128 0#i128 0#i128 0#usize
+      let i7 ← i - lo
+      let r0 ← i7 * nb
+      let i8 ← j - jb
+      let i9 ← r0 + i8
+      let (_, index_mut_back) ← Slice.index_mut_usize acc i9
+      let acc1 ←
+        if jc != j
+        then
+          do
+          let i10 ← jc - jb
+          let i11 ← r0 + i10
+          let acc2 := index_mut_back c00
+          Slice.update acc2 i11 c01
+        else ok (index_mut_back c00)
+      let acc2 ←
+        if i2 != i
+        then
+          do
+          let i10 ← i2 - lo
+          let r1 ← i10 * nb
+          let i11 ← r1 + i8
+          let (_, index_mut_back1) ← Slice.index_mut_usize acc1 i11
+          if jc != j
+          then
+            let i12 ← jc - jb
+            let i13 ← r1 + i12
+            let acc3 := index_mut_back1 c10
+            Slice.update acc3 i13 c11
+          else ok (index_mut_back1 c10)
+        else ok acc1
+      let j2 ← j + 2#usize
+      ok (cont (acc2, err1, j2))
+    else ok (done (acc, err))
+  else ok (done (acc, err))
+
+/-- [apeiron_word::solve_port::syrk::block_rows]: loop 1:
+    Source: '../../src/learn/solve/syrk.rs', lines 181:8-222:9 -/
+@[rust_loop]
+def solve_port.syrk.block_rows_loop0_loop0
+  (acc : Slice Std.I128) (lo : Std.Usize) (xt : Slice Std.I64)
+  (wv : Slice Std.I64) (o : Std.Usize) (jb : Std.Usize) (j1 : Std.Usize)
+  (nb : Std.Usize) (err : Option solve_port.syrk.SyrkError) (i : Std.Usize)
+  (i2 : Std.Usize) (xi0 : Slice Std.I64) (xi1 : Slice Std.I64) (j : Std.Usize)
+  :
+  Result ((Slice Std.I128) × (Option solve_port.syrk.SyrkError))
+  := do
+  loop
+    (fun (acc1, err1, j2) => solve_port.syrk.block_rows_loop0_loop0.body lo xt
+      wv o jb j1 nb i i2 xi0 xi1 acc1 err1 j2)
+    (acc, err, j)
+
+/-- [apeiron_word::solve_port::syrk::block_rows]: loop body 0:
+    Source: '../../src/learn/solve/syrk.rs', lines 176:4-224:5 -/
+@[rust_loop_body]
+def solve_port.syrk.block_rows_loop0.body
+  (lo : Std.Usize) (hi : Std.Usize) (xt : Slice Std.I64) (wv : Slice Std.I64)
+  (o : Std.Usize) (jb : Std.Usize) (j1 : Std.Usize) (nb : Std.Usize)
+  (acc : Slice Std.I128) (err : Option solve_port.syrk.SyrkError)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I128) × (Option solve_port.syrk.SyrkError)
+    × Std.Usize) ((Slice Std.I128) × (Option solve_port.syrk.SyrkError)))
+  := do
+  if i < hi
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i + 1#usize
+      let i2 ← if i1 < hi
+                 then ok i1
+                 else ok i
+      let i3 ← i * o
+      let i4 ← i3 + o
+      let xi0 ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) xt
+          { start := i3, «end» := i4 }
+      let i5 ← i2 * o
+      let i6 ← i5 + o
+      let xi1 ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) xt
+          { start := i5, «end» := i6 }
+      let j ← if i > jb
+                then ok i
+                else ok jb
+      let (acc1, err1) ←
+        solve_port.syrk.block_rows_loop0_loop0 acc lo xt wv o jb j1 nb err i i2
+          xi0 xi1 j
+      let i7 ← i + 2#usize
+      ok (cont (acc1, err1, i7))
+    else ok (done (acc, err))
+  else ok (done (acc, err))
+
+/-- [apeiron_word::solve_port::syrk::block_rows]: loop 0:
+    Source: '../../src/learn/solve/syrk.rs', lines 176:4-224:5 -/
+@[rust_loop]
+def solve_port.syrk.block_rows_loop0
+  (acc : Slice Std.I128) (lo : Std.Usize) (hi : Std.Usize) (xt : Slice Std.I64)
+  (wv : Slice Std.I64) (o : Std.Usize) (jb : Std.Usize) (j1 : Std.Usize)
+  (nb : Std.Usize) (err : Option solve_port.syrk.SyrkError) (i : Std.Usize) :
+  Result ((Slice Std.I128) × (Option solve_port.syrk.SyrkError))
+  := do
+  loop
+    (fun (acc1, err1, i1) => solve_port.syrk.block_rows_loop0.body lo hi xt wv
+      o jb j1 nb acc1 err1 i1)
+    (acc, err, i)
+
+/-- [apeiron_word::solve_port::syrk::block_rows]:
+    Source: '../../src/learn/solve/syrk.rs', lines 163:0-229:1 -/
+def solve_port.syrk.block_rows
+  (acc : Slice Std.I128) (lo : Std.Usize) (hi : Std.Usize) (xt : Slice Std.I64)
+  (wv : Slice Std.I64) (o : Std.Usize) (jb : Std.Usize) (j1 : Std.Usize) :
+  Result ((core.result.Result Unit solve_port.syrk.SyrkError) × (Slice
+    Std.I128))
+  := do
+  let nb ← j1 - jb
+  let (acc1, err) ←
+    solve_port.syrk.block_rows_loop0 acc lo hi xt wv o jb j1 nb none lo
+  match err with
+  | none => ok (core.result.Result.Ok (), acc1)
+  | some e => ok (core.result.Result.Err e, acc1)
+
+/-- [apeiron_word::solve_port::syrk::block_rows_par]:
+    Source: '../../src/learn/solve/syrk.rs', lines 246:0-302:1 -/
+axiom solve_port.syrk.block_rows_par
+  :
+  Slice Std.I128 → Std.Usize → Std.Usize → Std.Usize → Slice Std.I64
+    → Slice Std.I64 → Std.Usize → Std.Usize → Std.Usize → Result
+    ((core.result.Result Unit solve_port.syrk.SyrkError) × (Slice Std.I128))
+
+/-- [apeiron_word::solve_port::syrk::wsyrk]: loop body 2:
+    Source: '../../src/learn/solve/syrk.rs', lines 394:20-408:21
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.syrk.wsyrk_loop0_loop0_loop0.body
+  (n : Std.Usize) (acc : alloc.vec.Vec Std.I128) (jb : Std.Usize)
+  (j1 : Std.Usize) (i : Std.Usize) (row : Std.Usize)
+  (g : alloc.vec.Vec Std.I64) (err : Option solve_port.syrk.SyrkError)
+  (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.syrk.SyrkError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.syrk.SyrkError)))
+  := do
+  if j < j1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← j - jb
+      let i2 ← row + i1
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128)
+          acc i2
+      let o ← solve_port.syrk.round64 i3
+      let (g1, err1) ←
+        match o with
+        | none => ok (g, some solve_port.syrk.SyrkError.Overflow)
+        | some shifted =>
+          do
+          let o1 ← solve_port.syrk.narrow shifted
+          match o1 with
+          | none => ok (g, some solve_port.syrk.SyrkError.Overflow)
+          | some v =>
+            let i4 ← i * n
+            let i5 ← i4 + j
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) g i5
+            let v1 ←
+              if i != j
+              then
+                do
+                let g2 := index_mut_back v
+                let i6 ← j * n
+                let i7 ← i6 + i
+                let (_, index_mut_back1) ←
+                  alloc.vec.Vec.index_mut
+                    (core.slice.index.SliceIndexUsizeSlice Std.I64) g2 i7
+                ok (index_mut_back1 v)
+              else ok (index_mut_back v)
+            ok (v1, err)
+      let j2 ← j + 1#usize
+      ok (cont (g1, err1, j2))
+    else ok (done (g, err))
+  else ok (done (g, err))
+
+/-- [apeiron_word::solve_port::syrk::wsyrk]: loop 2:
+    Source: '../../src/learn/solve/syrk.rs', lines 394:20-408:21
+    Visibility: public -/
+@[rust_loop]
+def solve_port.syrk.wsyrk_loop0_loop0_loop0
+  (n : Std.Usize) (g : alloc.vec.Vec Std.I64) (acc : alloc.vec.Vec Std.I128)
+  (err : Option solve_port.syrk.SyrkError) (jb : Std.Usize) (j1 : Std.Usize)
+  (i : Std.Usize) (row : Std.Usize) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.syrk.SyrkError))
+  := do
+  loop
+    (fun (g1, err1, j2) => solve_port.syrk.wsyrk_loop0_loop0_loop0.body n acc
+      jb j1 i row g1 err1 j2)
+    (g, err, j)
+
+/-- [apeiron_word::solve_port::syrk::wsyrk]: loop body 1:
+    Source: '../../src/learn/solve/syrk.rs', lines 390:16-410:17
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.syrk.wsyrk_loop0_loop0.body
+  (n : Std.Usize) (acc : alloc.vec.Vec Std.I128) (jb : Std.Usize)
+  (j1 : Std.Usize) (nb : Std.Usize) (g : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.syrk.SyrkError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.syrk.SyrkError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.syrk.SyrkError)))
+  := do
+  if i < j1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let j ← if i > jb
+                then ok i
+                else ok jb
+      let row ← i * nb
+      let (g1, err1) ←
+        solve_port.syrk.wsyrk_loop0_loop0_loop0 n g acc err jb j1 i row j
+      let i1 ← i + 1#usize
+      ok (cont (g1, err1, i1))
+    else ok (done (g, err))
+  else ok (done (g, err))
+
+/-- [apeiron_word::solve_port::syrk::wsyrk]: loop 1:
+    Source: '../../src/learn/solve/syrk.rs', lines 390:16-410:17
+    Visibility: public -/
+@[rust_loop]
+def solve_port.syrk.wsyrk_loop0_loop0
+  (n : Std.Usize) (g : alloc.vec.Vec Std.I64) (acc : alloc.vec.Vec Std.I128)
+  (err : Option solve_port.syrk.SyrkError) (jb : Std.Usize) (j1 : Std.Usize)
+  (nb : Std.Usize) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.syrk.SyrkError))
+  := do
+  loop
+    (fun (g1, err1, i1) => solve_port.syrk.wsyrk_loop0_loop0.body n acc jb j1
+      nb g1 err1 i1)
+    (g, err, i)
+
+/-- [apeiron_word::solve_port::syrk::wsyrk]: loop body 0:
+    Source: '../../src/learn/solve/syrk.rs', lines 377:4-415:5
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.syrk.wsyrk_loop0.body
+  (o : Std.Usize) (n : Std.Usize) (nthreads : Std.Usize)
+  (xt : alloc.vec.Vec Std.I64) (wv : alloc.vec.Vec Std.I64)
+  (g : alloc.vec.Vec Std.I64) (acc : alloc.vec.Vec Std.I128)
+  (err : Option solve_port.syrk.SyrkError) (jb : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I128) ×
+    (Option solve_port.syrk.SyrkError) × Std.Usize) ((alloc.vec.Vec Std.I64)
+    × (Option solve_port.syrk.SyrkError)))
+  := do
+  if jb < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← jb + solve_port.syrk.BLOCK
+      let j1 ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i n
+      let nb ← j1 - jb
+      let used ← j1 * nb
+      let (s, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeToUsizeSlice
+          Std.I128) acc { «end» := used }
+      let s1 ← core.slice.Slice.fill core.clone.CloneI128 s 0#i128
+      let (acc1, blk) ←
+        if nthreads <= 1#usize
+        then
+          do
+          let acc2 := index_mut_back s1
+          let (s2, index_mut_back1) ←
+            alloc.vec.Vec.index_mut
+              (core.slice.index.SliceIndexRangeToUsizeSlice Std.I128) acc2
+              { «end» := used }
+          let s3 := alloc.vec.Vec.deref xt
+          let s4 := alloc.vec.Vec.deref wv
+          let (blk1, s5) ←
+            solve_port.syrk.block_rows s2 0#usize j1 s3 s4 o jb j1
+          let acc3 := index_mut_back1 s5
+          ok (acc3, blk1)
+        else
+          do
+          let acc2 := index_mut_back s1
+          let (s2, index_mut_back1) ←
+            alloc.vec.Vec.index_mut
+              (core.slice.index.SliceIndexRangeToUsizeSlice Std.I128) acc2
+              { «end» := used }
+          let s3 := alloc.vec.Vec.deref xt
+          let s4 := alloc.vec.Vec.deref wv
+          let (blk1, s5) ←
+            solve_port.syrk.block_rows_par s2 j1 nb nthreads s3 s4 o jb j1
+          let acc3 := index_mut_back1 s5
+          ok (acc3, blk1)
+      match blk with
+      | core.result.Result.Ok _ =>
+        let (g1, err1) ←
+          solve_port.syrk.wsyrk_loop0_loop0 n g acc1 err jb j1 nb 0#usize
+        ok (cont (g1, acc1, err1, j1))
+      | core.result.Result.Err e => ok (cont (g, acc1, some e, j1))
+    else ok (done (g, err))
+  else ok (done (g, err))
+
+/-- [apeiron_word::solve_port::syrk::wsyrk]: loop 0:
+    Source: '../../src/learn/solve/syrk.rs', lines 377:4-415:5
+    Visibility: public -/
+@[rust_loop]
+def solve_port.syrk.wsyrk_loop0
+  (o : Std.Usize) (n : Std.Usize) (nthreads : Std.Usize)
+  (xt : alloc.vec.Vec Std.I64) (wv : alloc.vec.Vec Std.I64)
+  (g : alloc.vec.Vec Std.I64) (acc : alloc.vec.Vec Std.I128)
+  (err : Option solve_port.syrk.SyrkError) (jb : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.syrk.SyrkError))
+  := do
+  loop
+    (fun (g1, acc1, err1, jb1) => solve_port.syrk.wsyrk_loop0.body o n nthreads
+      xt wv g1 acc1 err1 jb1)
+    (g, acc, err, jb)
+
+/-- [apeiron_word::solve_port::syrk::wsyrk]: loop body 5:
+    Source: '../../src/learn/solve/syrk.rs', lines 394:20-408:21
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.syrk.wsyrk_loop1_loop0_loop0.body
+  (n : Std.Usize) (acc : alloc.vec.Vec Std.I128) (jb : Std.Usize)
+  (j1 : Std.Usize) (i : Std.Usize) (row : Std.Usize)
+  (g : alloc.vec.Vec Std.I64) (err : Option solve_port.syrk.SyrkError)
+  (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.syrk.SyrkError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.syrk.SyrkError)))
+  := do
+  if j < j1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← j - jb
+      let i2 ← row + i1
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128)
+          acc i2
+      let o ← solve_port.syrk.round64 i3
+      let (g1, err1) ←
+        match o with
+        | none => ok (g, some solve_port.syrk.SyrkError.Overflow)
+        | some shifted =>
+          do
+          let o1 ← solve_port.syrk.narrow shifted
+          match o1 with
+          | none => ok (g, some solve_port.syrk.SyrkError.Overflow)
+          | some v =>
+            let i4 ← i * n
+            let i5 ← i4 + j
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) g i5
+            let v1 ←
+              if i != j
+              then
+                do
+                let g2 := index_mut_back v
+                let i6 ← j * n
+                let i7 ← i6 + i
+                let (_, index_mut_back1) ←
+                  alloc.vec.Vec.index_mut
+                    (core.slice.index.SliceIndexUsizeSlice Std.I64) g2 i7
+                ok (index_mut_back1 v)
+              else ok (index_mut_back v)
+            ok (v1, err)
+      let j2 ← j + 1#usize
+      ok (cont (g1, err1, j2))
+    else ok (done (g, err))
+  else ok (done (g, err))
+
+/-- [apeiron_word::solve_port::syrk::wsyrk]: loop 5:
+    Source: '../../src/learn/solve/syrk.rs', lines 394:20-408:21
+    Visibility: public -/
+@[rust_loop]
+def solve_port.syrk.wsyrk_loop1_loop0_loop0
+  (n : Std.Usize) (g : alloc.vec.Vec Std.I64) (acc : alloc.vec.Vec Std.I128)
+  (err : Option solve_port.syrk.SyrkError) (jb : Std.Usize) (j1 : Std.Usize)
+  (i : Std.Usize) (row : Std.Usize) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.syrk.SyrkError))
+  := do
+  loop
+    (fun (g1, err1, j2) => solve_port.syrk.wsyrk_loop1_loop0_loop0.body n acc
+      jb j1 i row g1 err1 j2)
+    (g, err, j)
+
+/-- [apeiron_word::solve_port::syrk::wsyrk]: loop body 4:
+    Source: '../../src/learn/solve/syrk.rs', lines 390:16-410:17
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.syrk.wsyrk_loop1_loop0.body
+  (n : Std.Usize) (acc : alloc.vec.Vec Std.I128) (jb : Std.Usize)
+  (j1 : Std.Usize) (nb : Std.Usize) (g : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.syrk.SyrkError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.syrk.SyrkError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.syrk.SyrkError)))
+  := do
+  if i < j1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let j ← if i > jb
+                then ok i
+                else ok jb
+      let row ← i * nb
+      let (g1, err1) ←
+        solve_port.syrk.wsyrk_loop1_loop0_loop0 n g acc err jb j1 i row j
+      let i1 ← i + 1#usize
+      ok (cont (g1, err1, i1))
+    else ok (done (g, err))
+  else ok (done (g, err))
+
+/-- [apeiron_word::solve_port::syrk::wsyrk]: loop 4:
+    Source: '../../src/learn/solve/syrk.rs', lines 390:16-410:17
+    Visibility: public -/
+@[rust_loop]
+def solve_port.syrk.wsyrk_loop1_loop0
+  (n : Std.Usize) (g : alloc.vec.Vec Std.I64) (acc : alloc.vec.Vec Std.I128)
+  (err : Option solve_port.syrk.SyrkError) (jb : Std.Usize) (j1 : Std.Usize)
+  (nb : Std.Usize) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.syrk.SyrkError))
+  := do
+  loop
+    (fun (g1, err1, i1) => solve_port.syrk.wsyrk_loop1_loop0.body n acc jb j1
+      nb g1 err1 i1)
+    (g, err, i)
+
+/-- [apeiron_word::solve_port::syrk::wsyrk]: loop body 3:
+    Source: '../../src/learn/solve/syrk.rs', lines 377:4-415:5
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.syrk.wsyrk_loop1.body
+  (o : Std.Usize) (n : Std.Usize) (nthreads : Std.Usize)
+  (xt : alloc.vec.Vec Std.I64) (wv : alloc.vec.Vec Std.I64)
+  (g : alloc.vec.Vec Std.I64) (acc : alloc.vec.Vec Std.I128)
+  (err : Option solve_port.syrk.SyrkError) (jb : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I128) ×
+    (Option solve_port.syrk.SyrkError) × Std.Usize) ((alloc.vec.Vec Std.I64)
+    × (Option solve_port.syrk.SyrkError)))
+  := do
+  if jb < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← jb + solve_port.syrk.BLOCK
+      let j1 ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i n
+      let nb ← j1 - jb
+      let used ← j1 * nb
+      let (s, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeToUsizeSlice
+          Std.I128) acc { «end» := used }
+      let s1 ← core.slice.Slice.fill core.clone.CloneI128 s 0#i128
+      let (acc1, blk) ←
+        if nthreads <= 1#usize
+        then
+          do
+          let acc2 := index_mut_back s1
+          let (s2, index_mut_back1) ←
+            alloc.vec.Vec.index_mut
+              (core.slice.index.SliceIndexRangeToUsizeSlice Std.I128) acc2
+              { «end» := used }
+          let s3 := alloc.vec.Vec.deref xt
+          let s4 := alloc.vec.Vec.deref wv
+          let (blk1, s5) ←
+            solve_port.syrk.block_rows s2 0#usize j1 s3 s4 o jb j1
+          let acc3 := index_mut_back1 s5
+          ok (acc3, blk1)
+        else
+          do
+          let acc2 := index_mut_back s1
+          let (s2, index_mut_back1) ←
+            alloc.vec.Vec.index_mut
+              (core.slice.index.SliceIndexRangeToUsizeSlice Std.I128) acc2
+              { «end» := used }
+          let s3 := alloc.vec.Vec.deref xt
+          let s4 := alloc.vec.Vec.deref wv
+          let (blk1, s5) ←
+            solve_port.syrk.block_rows_par s2 j1 nb nthreads s3 s4 o jb j1
+          let acc3 := index_mut_back1 s5
+          ok (acc3, blk1)
+      match blk with
+      | core.result.Result.Ok _ =>
+        let (g1, err1) ←
+          solve_port.syrk.wsyrk_loop1_loop0 n g acc1 err jb j1 nb 0#usize
+        ok (cont (g1, acc1, err1, j1))
+      | core.result.Result.Err e => ok (cont (g, acc1, some e, j1))
+    else ok (done (g, err))
+  else ok (done (g, err))
+
+/-- [apeiron_word::solve_port::syrk::wsyrk]: loop 3:
+    Source: '../../src/learn/solve/syrk.rs', lines 377:4-415:5
+    Visibility: public -/
+@[rust_loop]
+def solve_port.syrk.wsyrk_loop1
+  (o : Std.Usize) (n : Std.Usize) (nthreads : Std.Usize)
+  (xt : alloc.vec.Vec Std.I64) (wv : alloc.vec.Vec Std.I64)
+  (g : alloc.vec.Vec Std.I64) (acc : alloc.vec.Vec Std.I128)
+  (err : Option solve_port.syrk.SyrkError) (jb : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.syrk.SyrkError))
+  := do
+  loop
+    (fun (g1, acc1, err1, jb1) => solve_port.syrk.wsyrk_loop1.body o n nthreads
+      xt wv g1 acc1 err1 jb1)
+    (g, acc, err, jb)
+
+/-- [apeiron_word::solve_port::syrk::wsyrk]:
+    Source: '../../src/learn/solve/syrk.rs', lines 330:0-420:1
+    Visibility: public -/
+def solve_port.syrk.wsyrk
+  (x : Slice Std.I64) (w : Option (Slice Std.I64)) (o : Std.Usize)
+  (n : Std.Usize) (threads : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.syrk.SyrkError)
+  := do
+  if n = 0#usize
+  then ok (core.result.Result.Err solve_port.syrk.SyrkError.ZeroN)
+  else
+    if o = 0#usize
+    then ok (core.result.Result.Err solve_port.syrk.SyrkError.ZeroO)
+    else
+      let o1 ← lift (Usize.checked_mul n n)
+      match o1 with
+      | none => ok (core.result.Result.Err solve_port.syrk.SyrkError.Overflow)
+      | some nn =>
+        let o2 ← lift (Usize.checked_mul o n)
+        match o2 with
+        | none =>
+          ok (core.result.Result.Err solve_port.syrk.SyrkError.ShapeMismatch)
+        | some on =>
+          let i := Slice.len x
+          if i != on
+          then
+            ok (core.result.Result.Err solve_port.syrk.SyrkError.ShapeMismatch)
+          else
+            match w with
+            | none =>
+              let i1 ← solve_port.syrk.MAX_O
+              if o >= i1
+              then
+                ok (core.result.Result.Err solve_port.syrk.SyrkError.Overflow)
+              else
+                let b ← solve_port.syrk.within_bound x none
+                if b
+                then
+                  let nthreads ←
+                    core.cmp.Ord.max.default core.cmp.OrdUsize threads 1#usize
+                  let xt ← solve_port.syrk.transpose_panel x o n
+                  let i2 ← solve_port.syrk.UNIT_RAW
+                  let wv ← alloc.vec.from_elem core.clone.CloneI64 i2 o
+                  let g ← alloc.vec.from_elem core.clone.CloneI64 0#i64 nn
+                  let i3 ←
+                    core.cmp.Ord.min.trait_default core.cmp.OrdUsize
+                      solve_port.syrk.BLOCK n
+                  let i4 ← n * i3
+                  let acc ←
+                    alloc.vec.from_elem core.clone.CloneI128 0#i128 i4
+                  let (g1, err) ←
+                    solve_port.syrk.wsyrk_loop0 o n nthreads xt wv g acc none
+                      0#usize
+                  match err with
+                  | none => ok (core.result.Result.Ok g1)
+                  | some e => ok (core.result.Result.Err e)
+                else
+                  ok (core.result.Result.Err
+                    solve_port.syrk.SyrkError.InputBound)
+            | some ws =>
+              let i1 := Slice.len ws
+              if i1 != o
+              then
+                ok (core.result.Result.Err
+                  solve_port.syrk.SyrkError.ShapeMismatch)
+              else
+                let i2 ← solve_port.syrk.MAX_O
+                if o >= i2
+                then
+                  ok (core.result.Result.Err
+                    solve_port.syrk.SyrkError.Overflow)
+                else
+                  let b ← solve_port.syrk.within_bound x w
+                  if b
+                  then
+                    let nthreads ←
+                      core.cmp.Ord.max.default core.cmp.OrdUsize threads
+                        1#usize
+                    let xt ← solve_port.syrk.transpose_panel x o n
+                    let wv ← alloc.slice.Slice.to_vec core.clone.CloneI64 ws
+                    let g ← alloc.vec.from_elem core.clone.CloneI64 0#i64 nn
+                    let i3 ←
+                      core.cmp.Ord.min.trait_default core.cmp.OrdUsize
+                        solve_port.syrk.BLOCK n
+                    let i4 ← n * i3
+                    let acc ←
+                      alloc.vec.from_elem core.clone.CloneI128 0#i128 i4
+                    let (g1, err) ←
+                      solve_port.syrk.wsyrk_loop1 o n nthreads xt wv g acc none
+                        0#usize
+                    match err with
+                    | none => ok (core.result.Result.Ok g1)
+                    | some e => ok (core.result.Result.Err e)
+                  else
+                    ok (core.result.Result.Err
+                      solve_port.syrk.SyrkError.InputBound)
+
+/-- [apeiron_word::solve_port::syrk::hadamard_into]: loop body 0:
+    Source: '../../src/learn/solve/syrk.rs', lines 438:4-452:1
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.syrk.hadamard_into_loop.body
+  (h : Slice Std.I64) (n : Std.Usize) (a : Slice Std.I64) (k : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) ((core.result.Result Unit
+    solve_port.syrk.SyrkError) × (Slice Std.I64)))
+  := do
+  if k < n
+  then
+    let i ← Slice.index_usize a k
+    let i1 ← lift (core.convert.num.FromI128I64.from i)
+    let i2 ← Slice.index_usize h k
+    let i3 ← lift (core.convert.num.FromI128I64.from i2)
+    let o ← lift (I128.checked_mul i1 i3)
+    match o with
+    | none =>
+      ok (done (core.result.Result.Err solve_port.syrk.SyrkError.Overflow, a))
+    | some p =>
+      let o1 ← solve_port.syrk.round32 p
+      match o1 with
+      | none =>
+        ok (done (core.result.Result.Err solve_port.syrk.SyrkError.Overflow,
+          a))
+      | some r =>
+        let o2 ← solve_port.syrk.narrow r
+        match o2 with
+        | none =>
+          ok (done (core.result.Result.Err solve_port.syrk.SyrkError.Overflow,
+            a))
+        | some v =>
+          let s ← Slice.update a k v
+          let k1 ← k + 1#usize
+          ok (cont (s, k1))
+  else ok (done (core.result.Result.Ok (), a))
+
+/-- [apeiron_word::solve_port::syrk::hadamard_into]: loop 0:
+    Source: '../../src/learn/solve/syrk.rs', lines 438:4-452:1
+    Visibility: public -/
+@[rust_loop]
+def solve_port.syrk.hadamard_into_loop
+  (a : Slice Std.I64) (h : Slice Std.I64) (n : Std.Usize) (k : Std.Usize) :
+  Result ((core.result.Result Unit solve_port.syrk.SyrkError) × (Slice
+    Std.I64))
+  := do
+  loop
+    (fun (a1, k1) => solve_port.syrk.hadamard_into_loop.body h n a1 k1)
+    (a, k)
+
+/-- [apeiron_word::solve_port::syrk::hadamard_into]:
+    Source: '../../src/learn/solve/syrk.rs', lines 432:0-452:1
+    Visibility: public -/
+def solve_port.syrk.hadamard_into
+  (a : Slice Std.I64) (h : Slice Std.I64) :
+  Result ((core.result.Result Unit solve_port.syrk.SyrkError) × (Slice
+    Std.I64))
+  := do
+  let i := Slice.len a
+  let i1 := Slice.len h
+  if i != i1
+  then ok (core.result.Result.Err solve_port.syrk.SyrkError.ShapeMismatch, a)
+  else let n := Slice.len a
+       solve_port.syrk.hadamard_into_loop a h n 0#usize
+
 /-- [apeiron_word::register::RegisterError]
     Source: '../../src/numeric/register.rs', lines 13:0-20:1
     Visibility: public -/
@@ -102942,5 +110927,74 @@ def word_onebit_params (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
 def word_onebit_index_bits
   (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.index_bits c
+
+/-- [apeiron_word::solve_port::word_solve_gemm_nn]:
+    Source: 'solve_port.rs', lines 22:0-31:1
+    Visibility: public -/
+def solve_port.word_solve_gemm_nn
+  (a : Slice Std.I64) (b : Slice Std.I64) (m : Std.Usize) (k : Std.Usize)
+  (n : Std.Usize) (threads : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.gemm.GemmError)
+  := do
+  solve_port.gemm.gemm_nn a b m k n threads
+
+/-- [apeiron_word::solve_port::word_solve_gemm_nt]:
+    Source: 'solve_port.rs', lines 34:0-43:1
+    Visibility: public -/
+def solve_port.word_solve_gemm_nt
+  (a : Slice Std.I64) (b : Slice Std.I64) (m : Std.Usize) (k : Std.Usize)
+  (n : Std.Usize) (threads : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.gemm.GemmError)
+  := do
+  solve_port.gemm.gemm_nt a b m k n threads
+
+/-- [apeiron_word::solve_port::word_solve_wsyrk]:
+    Source: 'solve_port.rs', lines 46:0-54:1
+    Visibility: public -/
+def solve_port.word_solve_wsyrk
+  (x : Slice Std.I64) (w : Option (Slice Std.I64)) (o : Std.Usize)
+  (n : Std.Usize) (threads : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.syrk.SyrkError)
+  := do
+  solve_port.syrk.wsyrk x w o n threads
+
+/-- [apeiron_word::solve_port::word_solve_hadamard_into]:
+    Source: 'solve_port.rs', lines 57:0-59:1
+    Visibility: public -/
+def solve_port.word_solve_hadamard_into
+  (a : Slice Std.I64) (h : Slice Std.I64) :
+  Result ((core.result.Result Unit solve_port.syrk.SyrkError) × (Slice
+    Std.I64))
+  := do
+  solve_port.syrk.hadamard_into a h
+
+/-- [apeiron_word::solve_port::word_solve_chol_solve]:
+    Source: 'solve_port.rs', lines 62:0-70:1
+    Visibility: public -/
+def solve_port.word_solve_chol_solve
+  (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
+  (threads : Std.Usize) :
+  Result (core.result.Result solve_port.chol.Solved solve_port.chol.SolveError)
+  := do
+  solve_port.chol.chol_solve a b n k threads
+
+/-- [apeiron_word::solve_port::word_solve_inv_factor_upper]:
+    Source: 'solve_port.rs', lines 73:0-79:1
+    Visibility: public -/
+def solve_port.word_solve_inv_factor_upper
+  (h : Slice Std.I64) (n : Std.Usize) (threads : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    solve_port.chol.SolveError)
+  := do
+  solve_port.inv.inv_factor_upper h n threads
+
+/-- [apeiron_word::solve_port::word_solve_top_eigh]:
+    Source: 'solve_port.rs', lines 82:0-89:1
+    Visibility: public -/
+def solve_port.word_solve_top_eigh
+  (m : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) (threads : Std.Usize) :
+  Result (core.result.Result solve_port.eig.TopEig solve_port.eig.EigError)
+  := do
+  solve_port.eig.top_eigh m n r threads
 
 end apeiron_word

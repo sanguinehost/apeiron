@@ -1445,3 +1445,6 @@ pub fn word_onebit_index_bits(c: &onebit_bits::Cfg) -> Option<u64> {
 // (`src/learn/code/e8.rs`), reached through `learn_port.rs`.
 #[path = "learn_port.rs"]
 pub mod learn_port;
+// The Q32.32 linear-algebra primitives (`src/learn/solve/`), reached through `solve_port.rs`.
+#[path = "solve_port.rs"]
+pub mod solve_port;
