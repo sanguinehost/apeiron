@@ -7,5 +7,7 @@ pub mod finish;
 /// Weight-fit steps: Jacobi eigendecomposition, scale quantisers, closed-form steps, ICM passes and
 /// the low-rank corrector.
 pub mod fit;
+/// Per-layer production scaling steps these fits feed into (the `-resq` plane row scale).
+pub mod layer;
 /// Statistics: activation Grams, held-out KL, layer-wise intensity and the exact byte budget.
 pub mod stats;
