@@ -13,3 +13,7 @@ pub mod stage;
 /// the `q_mlp_trans` rows plane, the low-rank corrector, the bias update, the `-resq` row-scale
 /// fold and the stored-plane reconciliation.
 pub mod tensor;
+
+/// The production `fold_gqa` layer driver: the four stage folds (`qkv`, `o`, `ffn`, `down`), the
+/// student-path propagation, the per-layer model loop and the final norm fit.
+pub mod driver;
