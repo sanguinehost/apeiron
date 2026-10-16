@@ -10,6 +10,8 @@ pub mod fnorm;
 pub mod gptq_e8;
 /// Per-block nearest-codeword ICM passes over the E8 codes of one and two planes, and the two-plane `r` refit.
 pub mod icm;
+/// Reduced joint block-ICM post-pass on a finished two-plane pair (`nb_refine`).
+pub mod nb_refine;
 /// Bit-exact binary16 rounding and the hierarchical row/column/diagonal scale quantisers.
 pub mod quant;
 /// `fwht128`, `compose`, the refit objective and the closed-form `c`, `r`, `d` steps.
