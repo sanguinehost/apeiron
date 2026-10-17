@@ -72,6 +72,13 @@ fn uw(x: &[i64]) -> Vec<f64> {
     x.iter().map(|&v| from_grid(v)).collect()
 }
 
+/// [`eigh`] at an `f64` fixture: quantise once on entry, view the words on exit (the test-only
+/// boundary the removed `f64` face supplied).
+fn eigh_f64(a: &[f64], n: usize) -> Result<(Vec<f64>, Vec<f64>), EighError> {
+    let (l, q) = eigh(&qv(a), n)?;
+    Ok((uw(&l), uw(&q)))
+}
+
 /// `a · b` for row-major `[r, k] · [k, c]`.
 fn matmul(a: &[f64], b: &[f64], r: usize, k: usize, c: usize) -> Vec<f64> {
     let mut out = vec![0.0f64; r * c];
@@ -360,7 +367,7 @@ fn agrees_with_f64_oracle_on_planted_spectrum() {
         let mut rng = Lcg::new(0x9E37_79B9_7F4A_7C15 ^ (n as u64));
         let q0 = random_orthonormal(&mut rng, n, n);
         let a = q_diag_qt(&q0, d, n);
-        let (l, q) = eigh(&a, n).expect("eigh must converge on a planted spectrum");
+        let (l, q) = eigh_f64(&a, n).expect("eigh must converge on a planted spectrum");
         let (lr, qr) = ref_eigh(&a, n);
         let lam_max = d[n - 1];
         let qq = quantum(max_abs(&a));
@@ -397,7 +404,7 @@ fn agrees_with_f64_oracle_on_random_spd() {
     for &n in &[5usize, 10, 24] {
         let mut rng = Lcg::new(0xDEAD_BEEF_0BAD_F00D ^ (n as u64));
         let a = random_spd(&mut rng, n);
-        let (l, _) = eigh(&a, n).expect("eigh must converge on a random SPD matrix");
+        let (l, _) = eigh_f64(&a, n).expect("eigh must converge on a random SPD matrix");
         let (lr, _) = ref_eigh(&a, n);
         let bound = eig_bound(n, max_abs(&lr), quantum(max_abs(&a)));
         for k in 0..n {
@@ -417,7 +424,7 @@ fn reconstruction_and_orthonormality() {
     for &n in &[3usize, 8, 24] {
         let mut rng = Lcg::new(0x9E37_79B9_7F4A_7C15 ^ (n as u64));
         let a = random_spd(&mut rng, n);
-        let (l, q) = eigh(&a, n).expect("eigh must converge on an SPD input");
+        let (l, q) = eigh_f64(&a, n).expect("eigh must converge on an SPD input");
         assert_eq!(l.len(), n);
         assert_eq!(q.len(), n * n);
         for i in 1..n {
@@ -453,7 +460,7 @@ fn repeated_eigenvalues() {
     let q0 = random_orthonormal(&mut rng, n, n);
     let d = [1.5f64, 1.5, 4.0, 4.0, 7.0];
     let a = q_diag_qt(&q0, &d, n);
-    let (l, q) = eigh(&a, n).expect("eigh must converge on a repeated spectrum");
+    let (l, q) = eigh_f64(&a, n).expect("eigh must converge on a repeated spectrum");
     let bound = eig_bound(n, d[4], quantum(max_abs(&a)));
     for i in 0..n {
         assert!(
@@ -479,7 +486,7 @@ fn repeated_eigenvalues() {
 fn zero_matrix() {
     let n = 4usize;
     let a = vec![0.0f64; n * n];
-    let (l, q) = eigh(&a, n).expect("the zero matrix converges immediately");
+    let (l, q) = eigh_f64(&a, n).expect("the zero matrix converges immediately");
     for i in 0..n {
         assert!(
             l[i].abs() <= 2f64.powi(-32),
@@ -500,7 +507,7 @@ fn diagonal_matrix() {
     // non-negativity bound must accept it.
     let n = 3usize;
     let a = vec![3.0f64, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0];
-    let (l, q) = eigh(&a, n).expect("a semidefinite diagonal matrix converges immediately");
+    let (l, q) = eigh_f64(&a, n).expect("a semidefinite diagonal matrix converges immediately");
     let want = [0.0f64, 2.0, 3.0];
     let bound = eig_bound(n, 3.0, quantum(3.0));
     for i in 0..n {
@@ -524,13 +531,16 @@ fn diagonal_matrix() {
 fn indefinite_input_refused() {
     // A negative diagonal is outside the one-word bound and is refused before the sweep.
     let a = vec![3.0f64, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 2.0];
-    assert_eq!(eigh(&a, 3).err(), Some(EighError::NotConverged));
+    assert_eq!(eigh_f64(&a, 3).err(), Some(EighError::NotConverged));
     // A negative-definite input has no positive eigenvalue to iterate on: refused, not shifted.
     let d = vec![-3.0f64, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, -2.0];
-    assert!(eigh(&d, 3).is_err(), "negative definite must be refused");
+    assert!(
+        eigh_f64(&d, 3).is_err(),
+        "negative definite must be refused"
+    );
     // Zero diagonal, spectrum `±1`: only the full-spectrum bound can see it, and it refuses.
     let s = vec![0.0f64, 1.0, 1.0, 0.0];
-    assert_eq!(eigh(&s, 2).err(), Some(EighError::NotConverged));
+    assert_eq!(eigh_f64(&s, 2).err(), Some(EighError::NotConverged));
 }
 
 #[test]
@@ -676,9 +686,6 @@ fn refusals() {
         Some(EighError::ShapeMismatch)
     );
     // eigh shape refusal.
-    assert_eq!(eigh(&uw(&dw), n).err(), Some(EighError::ShapeMismatch));
-    // A non-finite entry has no grid word.
-    let mut nan = vec![0.0f64; n * n];
-    nan[0] = f64::NAN;
-    assert_eq!(eigh(&nan, n).err(), Some(EighError::NotConverged));
+    assert_eq!(eigh(&dw, n).err(), Some(EighError::ShapeMismatch));
+    // A non-finite entry has no word representation, so the word boundary cannot express it.
 }

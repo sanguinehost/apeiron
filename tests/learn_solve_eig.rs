@@ -161,8 +161,8 @@ fn planted_spectrum_matches_f64_eigh() {
     for &n in &[8usize, 64, 130] {
         let spec = planted_spectrum(n);
         let m = planted_psd(n, &spec, 0x1234_5678_9abc_def0);
-        let mf = to_f64(&m);
-        let (evals_ref, evecs_ref) = eigh(&mf, n).expect("eigh");
+        let (evals_ref, evecs_ref) = eigh(&m, n).expect("eigh");
+        let (evals_ref, evecs_ref) = (to_f64(&evals_ref), to_f64(&evecs_ref));
         for &r in &[1usize, 2, 4] {
             let got = top_eigh(&m, n, r).expect("top_eigh");
             assert_eq!(got.evals.len(), r, "n={n} r={r} eval count");
@@ -404,11 +404,11 @@ fn timing_production_shape() {
             times[0], times[1], times[2], iters[0], iters[1], iters[2]
         );
     }
-    let mf = to_f64(&mat);
     let start = Instant::now();
-    let (evals, _) = eigh(&mf, n).expect("eigh");
+    let (evals, _) = eigh(&mat, n).expect("eigh");
+    let evals = to_f64(&evals);
     let secs = start.elapsed().as_secs_f64();
-    println!("f64 eigh n={n}: {secs:.1}s");
+    println!("eigh n={n}: {secs:.1}s");
     // Instrument check: both routines must agree on the top four eigenvalues before either time is
     // quoted.
     let mut worst = 0.0f64;

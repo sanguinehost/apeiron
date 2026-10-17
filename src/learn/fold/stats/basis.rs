@@ -4,8 +4,9 @@
 //!
 //! # Model (grade `model`)
 //!
-//! For `W` (row-major `O × n`, Q32.32 at the `f64` boundary), a per-input orthogonal `Q` (block
-//! diagonal in [`GROUP`] columns, like `fwht128`), the damped Gram `H + 0.01·mean(diag H)·I` and
+//! For `W` (row-major `O × n`, Q32.32 words), a per-input orthogonal `Q` (block
+//! diagonal in [`GROUP`] columns, like the 128-block Hadamard transform), the damped Gram
+//! `H + 0.01·mean(diag H)·I` and
 //! `B = W·Q`:
 //!
 //! - `M = Qᵀ·H·Q`; the feedback weights `d_j` are the `LDLᵀ` pivots of `M` (`d_j = L_jj²` with
@@ -51,14 +52,12 @@
 //! # Trust boundary
 //!
 //! The activation Gram is the crate forward's Q32.32 tape and the weights are the engine's Q32.32
-//! parameters, both entering through the `f64` grid boundary. Not covered: the quantiser's own
-//! accumulation, `fwht128`'s and `eigh`'s internal `f64` arithmetic (their output is quantised once
-//! here), any output-side rotation, any real coder, and any quality effect.
+//! parameters; every entry point takes and returns Q32.32 words. Not covered: the quantiser's own
+//! accumulation, any output-side rotation, any real coder, and any quality effect.
 
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
-    clippy::cast_precision_loss,
     clippy::cast_sign_loss,
     clippy::doc_markdown,
     clippy::many_single_char_names,
@@ -68,26 +67,24 @@
     clippy::similar_names,
     clippy::too_many_lines,
     reason = "the module's arithmetic is over Q32.32 words and bit budgets, so `usize → i64/i128` \
-              enters the exact accumulator domain and the `f64` maps are the documented grid \
-              boundary; the single-letter names are the matrix symbols of the model (O, n, Q, H, \
-              B, M, d, c, r, λ, θ); the flat row-major loops keep the multiply-add count visible"
+              enters the exact accumulator domain; the single-letter names are the matrix symbols \
+              of the model (O, n, Q, H, B, M, d, c, r, λ, θ); the flat row-major loops keep the \
+              multiply-add count visible"
 )]
 
 use crate::engine::chart::pool::{chunks_mut_global, FirstErr};
 use crate::engine::chart::task::ChunkTask;
 use crate::learn::fold::fit::eigh::{eigh, EighError};
-use crate::learn::fold::fit::steps::fwht128;
+use crate::learn::fold::fit::steps::fwht_words;
 use crate::learn::solve::chol::{equilibrate, factor_scaled, SolveError};
 use crate::learn::solve::gemm::{gemm_nn, GemmError};
-use crate::learn::solve::q32::{
-    div_rne, from_grid, narrow, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
-};
+use crate::learn::solve::q32::{div_rne, narrow, round_q32_even, rshift_rne};
 use crate::learn::solve::syrk::{wsyrk, SyrkError};
 use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_ln::{fixed_ln, LN2_Q32, ONE};
 use crate::numeric::fixed_trig::{fixed_atan2, fixed_sin_cos};
 
-use super::parts::{mul, panel, shift, words_grid};
+use super::parts::{mul, panel, shift};
 
 /// `log₂ x` for `x > 0`: the numeric `ln` kernel divided by `ln 2`, one rounding. `None` for
 /// `x <= 0`. `O(1)`.
@@ -114,11 +111,11 @@ fn exp2(t: i64) -> Option<i64> {
 }
 
 /// Side of one transform block. Every linear of the `Qwen2.5 0.5B` model has an input width that is
-/// a multiple of this, matching `fit::steps::fwht128`'s own block width.
+/// a multiple of this, matching the `fwht_words` block width.
 pub const GROUP: usize = 128;
 
 /// Diagonal damping of the input Gram: `H + DAMP·mean(diag H)·I`.
-pub const DAMP: f64 = 0.01;
+pub const DAMP_Q: i64 = 42_949_673;
 
 /// Side of one coefficient-variance tile in [`Density::Tile`].
 pub const TILE: usize = 16;
@@ -128,9 +125,6 @@ const BISECTION_ITERS: usize = 200;
 
 /// The rate-convergence threshold per coefficient, `|ΔR| < RATE_TOL_Q·N`, as a `Q32.32` word.
 const RATE_TOL_Q: i64 = 4;
-
-/// [`DAMP`] as a `Q32.32` word.
-const DAMP_Q: i64 = 42_949_673;
 
 /// The relative fall of `Σ log c_j` that ends the butterfly's extra sweeps, as a `Q32.32` word.
 const SWEEP_TOL_Q: i64 = 4_295;
@@ -185,16 +179,6 @@ fn expect_blocks(n: usize) -> Result<usize, BasisError> {
         )));
     }
     Ok(n / GROUP)
-}
-
-/// One `f64` value as a `Q32.32` word; a value off the grid is refused, never clamped.
-fn grid1(x: f64) -> Result<i64, BasisError> {
-    to_grid(x, GRID_BOUND).ok_or(BasisError::OutOfRange)
-}
-
-/// A whole `f64` slice as `Q32.32` words. `O(len)` time and space.
-fn grid(x: &[f64]) -> Result<Vec<i64>, BasisError> {
-    x.iter().map(|&v| grid1(v)).collect()
 }
 
 /// The exact `i128` `Q64` accumulator rounded once to a `Q32.32` word. `O(1)`.
@@ -254,14 +238,14 @@ fn copy_block(
     out
 }
 
-/// The damped input Gram `H + [`DAMP`]·mean(diag H)·I`, a fresh row-major `n × n` matrix; time and
-/// space `O(n²)`.
+/// The damped input Gram `H + DAMP_Q·mean(diag H)·I`, a fresh row-major `n × n` matrix of
+/// words; time and space `O(n²)`.
 /// # Errors
 /// [`BasisError::Shape`] when `h.len() != n·n`, `n == 0`, or the mean diagonal is not positive;
 /// [`BasisError::OutOfRange`] when a value or the damped entry leaves the grid.
-pub fn damped_gram(h: &[f64], n: usize) -> Result<Vec<f64>, BasisError> {
+pub fn damped_gram(h: &[i64], n: usize) -> Result<Vec<i64>, BasisError> {
     expect(h.len(), n, n, "H")?;
-    let mut out = grid(h)?;
+    let mut out = h.to_vec();
     let mut sum: i128 = 0;
     for i in 0..n {
         sum += i128::from(out[i * n + i]);
@@ -271,8 +255,7 @@ pub fn damped_gram(h: &[f64], n: usize) -> Result<Vec<f64>, BasisError> {
         .ok_or(BasisError::Overflow)?;
     if mean <= 0 {
         return Err(BasisError::Shape(format!(
-            "mean(diag H) = {} is not positive",
-            from_grid(mean)
+            "mean(diag H) word {mean} is not positive"
         )));
     }
     let delta = mul(DAMP_Q, mean).ok_or(BasisError::OutOfRange)?;
@@ -281,42 +264,42 @@ pub fn damped_gram(h: &[f64], n: usize) -> Result<Vec<f64>, BasisError> {
             .checked_add(delta)
             .ok_or(BasisError::OutOfRange)?;
     }
-    Ok(words_grid(&out))
+    Ok(out)
 }
 
 /// The `n × n` identity basis, row-major.
 /// # Errors
 /// [`BasisError::Overflow`] when `n·n` leaves `usize`; time and space `O(n²)`.
-pub fn identity_basis(n: usize) -> Result<Vec<f64>, BasisError> {
-    let mut q = vec![0.0f64; square(n, n)?];
+pub fn identity_basis(n: usize) -> Result<Vec<i64>, BasisError> {
+    let mut q = vec![0_i64; square(n, n)?];
     for i in 0..n {
-        q[i * n + i] = 1.0;
+        q[i * n + i] = ONE;
     }
     Ok(q)
 }
 
 /// The normalised 128-block Hadamard basis `H₁₂₈/√128`, block diagonal, row-major `n × n`: column
-/// `j` is `fwht128(e_j)` for the block-local unit vector.
+/// `j` is `fwht_words(e_j)` for the block-local unit vector.
 /// # Errors
-/// [`BasisError::Shape`] when `n` is not a positive multiple of [`GROUP`] or `fwht128` refuses;
-/// [`BasisError::Overflow`] when `n·n` leaves `usize`; [`BasisError::OutOfRange`] off the grid.
+/// [`BasisError::Shape`] when `n` is not a positive multiple of [`GROUP`] or the transform refuses;
+/// [`BasisError::Overflow`] when `n·n` leaves `usize`.
 /// Costs `O(n·GROUP)` time (one 128-point transform per column) and `O(n²)` space.
-pub fn hadamard_basis(n: usize) -> Result<Vec<f64>, BasisError> {
+pub fn hadamard_basis(n: usize) -> Result<Vec<i64>, BasisError> {
     let blocks = expect_blocks(n)?;
     let mut q = vec![0_i64; square(n, n)?];
-    let mut e = vec![0.0f64; GROUP];
+    let mut e = vec![0_i64; GROUP];
     for b in 0..blocks {
         let off = b * GROUP;
         for j in 0..GROUP {
-            e.fill(0.0);
-            e[j] = 1.0;
-            let col = fwht128(&e).map_err(|err| BasisError::Shape(format!("fwht128: {err:?}")))?;
+            e.fill(0);
+            e[j] = ONE;
+            fwht_words(&mut e).map_err(|err| BasisError::Shape(format!("fwht: {err:?}")))?;
             for i in 0..GROUP {
-                q[(off + i) * n + off + j] = grid1(col[i])?;
+                q[(off + i) * n + off + j] = e[i];
             }
         }
     }
-    Ok(words_grid(&q))
+    Ok(q)
 }
 
 /// Every entry of `q` outside a [`GROUP`]×[`GROUP`] diagonal block is zero.
@@ -343,24 +326,23 @@ fn expect_block_diagonal(q: &[i64], n: usize) -> Result<(), BasisError> {
 /// # Errors
 /// [`BasisError::Shape`] on a length or block-structure disagreement; [`BasisError::OutOfRange`] on
 /// a value or a rounded entry off the grid, or a bound refusal.
-pub fn apply_basis(w: &[f64], o: usize, n: usize, q: &[f64]) -> Result<Vec<f64>, BasisError> {
-    let (w, q) = (grid(w)?, grid(q)?);
+pub fn apply_basis(w: &[i64], o: usize, n: usize, q: &[i64]) -> Result<Vec<i64>, BasisError> {
     expect(w.len(), o, n, "W")?;
     let blocks = expect_blocks(n)?;
-    expect_block_diagonal(&q, n)?;
+    expect_block_diagonal(q, n)?;
     let mut b = vec![0_i64; square(o, n)?];
     for blk in 0..blocks {
         let off = blk * GROUP;
-        let (ws, kp) = panel(&copy_block(&w, n, 0, off, o, GROUP)).ok_or(BasisError::OutOfRange)?;
+        let (ws, kp) = panel(&copy_block(w, n, 0, off, o, GROUP)).ok_or(BasisError::OutOfRange)?;
         let (qs, kq) =
-            panel(&copy_block(&q, n, off, off, GROUP, GROUP)).ok_or(BasisError::OutOfRange)?;
+            panel(&copy_block(q, n, off, off, GROUP, GROUP)).ok_or(BasisError::OutOfRange)?;
         let mut c = gemm_nn(&ws, &qs, o, GROUP, GROUP).map_err(map_gemm)?;
         shift(&mut c, -(kp + kq)).ok_or(BasisError::OutOfRange)?;
         for r in 0..o {
             b[r * n + off..][..GROUP].copy_from_slice(&c[r * GROUP..][..GROUP]);
         }
     }
-    Ok(words_grid(&b))
+    Ok(b)
 }
 
 /// One block-row of `M = Qᵀ·H·Q`: rows `[b1·GROUP, b1·GROUP+GROUP)` against every block of `H`.
@@ -420,26 +402,24 @@ impl ChunkTask<i64> for MetricRows<'_> {
 /// # Errors
 /// [`BasisError::Shape`] on a length or block-structure disagreement; [`BasisError::OutOfRange`]
 /// when a value or a rounded entry leaves the grid.
-pub fn block_metric(q: &[f64], h: &[f64], n: usize) -> Result<Vec<f64>, BasisError> {
-    let (q, h) = (grid(q)?, grid(h)?);
+pub fn block_metric(q: &[i64], h: &[i64], n: usize) -> Result<Vec<i64>, BasisError> {
     expect(h.len(), n, n, "H")?;
     let blocks = expect_blocks(n)?;
-    expect_block_diagonal(&q, n)?;
+    expect_block_diagonal(q, n)?;
     let mut m = vec![0_i64; square(n, n)?];
     let first = FirstErr::new();
     chunks_mut_global(
         &mut m,
         GROUP * n,
         &MetricRows {
-            h: &h,
-            q: &q,
+            h,
+            q,
             n,
             blocks,
             first: &first,
         },
     );
-    let m = pooled(m, first)?;
-    Ok(words_grid(&m))
+    pooled(m, first)
 }
 
 /// The successive-coding feedback weights `d_j = L_jj²` of the Cholesky factor of `m`:
@@ -449,20 +429,19 @@ pub fn block_metric(q: &[f64], h: &[f64], n: usize) -> Result<Vec<f64>, BasisErr
 /// # Errors
 /// [`BasisError::Shape`] when `m.len() != n·n`; [`BasisError::NotPositiveDefinite`] when `M` is not
 /// SPD; [`BasisError::OutOfRange`] when a value or a rounded result leaves the grid.
-pub fn cholesky_pivots(m: &[f64], n: usize) -> Result<Vec<f64>, BasisError> {
-    let m = grid(m)?;
+pub fn cholesky_pivots(m: &[i64], n: usize) -> Result<Vec<i64>, BasisError> {
     expect(m.len(), n, n, "M")?;
     if n == 0 {
         return Ok(Vec::new());
     }
-    let (hat, d) = equilibrate(&m, n).map_err(map_solve)?;
+    let (hat, d) = equilibrate(m, n).map_err(map_solve)?;
     let l = factor_scaled(&hat, n).map_err(map_solve)?;
     let mut out = vec![0_i64; n];
     for j in 0..n {
         let dl = mul(d[j], l[j * n + j]).ok_or(BasisError::OutOfRange)?;
         out[j] = mul(dl, dl).ok_or(BasisError::OutOfRange)?;
     }
-    Ok(words_grid(&out))
+    Ok(out)
 }
 
 /// Row (`axis = 0`) or column (`axis = 1`) energies `Σ B²`, length `O` or `n`, as words: one serial
@@ -489,31 +468,28 @@ fn energy_words(b: &[i64], o: usize, n: usize, axis: usize) -> Result<Vec<i64>, 
 /// Row energies `r_i = Σ_j B_ij²`, length `O`; `O(O·n)` time, `O(O)` space.
 /// # Errors
 /// [`BasisError::Shape`] when `b.len() != O·n`; [`BasisError::OutOfRange`] on a rounded entry.
-pub fn row_energies(b: &[f64], o: usize, n: usize) -> Result<Vec<f64>, BasisError> {
-    Ok(words_grid(&energy_words(&grid(b)?, o, n, 0)?))
+pub fn row_energies(b: &[i64], o: usize, n: usize) -> Result<Vec<i64>, BasisError> {
+    energy_words(b, o, n, 0)
 }
 
 /// Column energies `c_j = Σ_i B_ij²`, length `n`; `O(O·n)` time, `O(n)` space.
 /// # Errors
 /// [`BasisError::Shape`] when `b.len() != O·n`; [`BasisError::OutOfRange`] on a rounded entry.
-pub fn column_energies(b: &[f64], o: usize, n: usize) -> Result<Vec<f64>, BasisError> {
-    Ok(words_grid(&energy_words(&grid(b)?, o, n, 1)?))
+pub fn column_energies(b: &[i64], o: usize, n: usize) -> Result<Vec<i64>, BasisError> {
+    energy_words(b, o, n, 1)
 }
 
-/// `Σ_j ln c_j` over the positive column energies; a zero or negative energy is floored at the
-/// grid's least positive word `2⁻³²` so the sum stays finite and deterministic.
+/// `Σ_j ln c_j` over the positive column energies, as a `Q32.32` word; a zero or negative energy is
+/// floored at the grid's least positive word `2⁻³²` so the sum stays finite and deterministic.
 /// # Complexity
 /// Time `O(n)`; space `O(1)`.
-pub fn sum_log_column_energies(c: &[f64]) -> f64 {
+pub fn sum_log_column_energies(c: &[i64]) -> i64 {
     let mut acc: i128 = 0;
-    for &v in c {
-        let word = match grid1(v) {
-            Ok(w) if w > 0 => w,
-            _ => 1,
-        };
+    for &word in c {
+        let word = if word > 0 { word } else { 1 };
         acc += i128::from(fixed_ln(word).unwrap_or(LN2_Q32 * -32));
     }
-    from_grid(narrow(acc).unwrap_or(i64::MAX))
+    narrow(acc).unwrap_or(i64::MAX)
 }
 
 /// The `128 × 128` Gram `W_blockᵀ·W_block` of one column block: [`wsyrk`] on the block panel with
@@ -591,8 +567,8 @@ fn rotate_block(
 enum AngleRule {
     /// The Jacobi angle that diagonalises the node's current 2×2 Gram block.
     Jacobi,
-    /// A fixed angle; `π/4` reproduces `fwht128/√128` up to column signs.
-    Fixed(f64),
+    /// A fixed angle; `π/4` reproduces `fwht_words/√128` up to column signs.
+    Fixed(i64),
 }
 
 /// One pass over the seven-stage butterfly graph of one block: `7·64` nodes in WHT order, each
@@ -623,7 +599,7 @@ fn sweep(
                         let ang = fixed_atan2(y, x).map_err(|_| BasisError::OutOfRange)?;
                         narrow(i128::from(ang) >> 1).ok_or(BasisError::OutOfRange)?
                     }
-                    AngleRule::Fixed(t) => grid1(t)?,
+                    AngleRule::Fixed(t) => t,
                 };
                 let turn = fixed_sin_cos(theta).map_err(|_| BasisError::OutOfRange)?;
                 let (s, c) = (turn.sin, turn.cos);
@@ -688,76 +664,67 @@ fn butterfly_words(w: &[i64], o: usize, n: usize, rule: AngleRule) -> Result<Vec
 
 /// The adapted butterfly basis: each WHT node is a Givens rotation by the Jacobi angle of the
 /// current column Gram `G_c = BᵀB`, one mandatory pass plus up to three sweeps while `Σ log c_j`
-/// falls by more than `1e-6` relative.
+/// falls by more than `1e-6` relative. `w` and the result are row-major Q32.32 words.
 /// # Errors
 /// [`BasisError::Shape`] when `w.len() != O·n` or `n` is not a positive multiple of [`GROUP`];
 /// [`BasisError::OutOfRange`] on a value or a `wsyrk` bound refusal.
 /// # Complexity
 /// Time `O(O·n·GROUP + n·GROUP²·sweeps)`; space `O(n² + O·n)`.
-pub fn butterfly_basis(w: &[f64], o: usize, n: usize) -> Result<Vec<f64>, BasisError> {
-    Ok(words_grid(&butterfly_words(
-        &grid(w)?,
-        o,
-        n,
-        AngleRule::Jacobi,
-    )?))
+pub fn butterfly_basis(w: &[i64], o: usize, n: usize) -> Result<Vec<i64>, BasisError> {
+    butterfly_words(w, o, n, AngleRule::Jacobi)
 }
 
-/// The butterfly basis with every node fixed at `angle` radians. With `angle = π/4` the result is
-/// `fwht128/√128` up to column signs; the seam exists so the test can assert that identity.
+/// The butterfly basis with every node fixed at `angle` radians (a Q32.32 word). With
+/// `angle = π/4` the result is `fwht_words/√128` up to column signs; the seam exists so the test can
+/// assert that identity.
 /// # Errors
 /// As [`butterfly_basis`].
 /// # Complexity
 /// Time `O(O·n·GROUP + n·GROUP²)` (one pass, no extra sweeps); space `O(n²)`.
 pub fn butterfly_basis_fixed(
-    w: &[f64],
+    w: &[i64],
     o: usize,
     n: usize,
-    angle: f64,
-) -> Result<Vec<f64>, BasisError> {
-    Ok(words_grid(&butterfly_words(
-        &grid(w)?,
-        o,
-        n,
-        AngleRule::Fixed(angle),
-    )?))
+    angle: i64,
+) -> Result<Vec<i64>, BasisError> {
+    butterfly_words(w, o, n, AngleRule::Fixed(angle))
 }
 
 /// The angle side information of the adapted butterfly: 8 bits per node, `7·64` nodes per block,
-/// shared across the block's rows, `28·n` bits for an `n`-column tensor. `O(1)`.
-pub fn butterfly_side_bits(n: usize) -> f64 {
+/// shared across the block's rows, `28·n` bits for an `n`-column tensor, as a word. `O(1)`.
+pub fn butterfly_side_bits(n: usize) -> i64 {
     let nodes = (7 * (GROUP / 2)).saturating_mul(n.div_ceil(GROUP));
-    f64::from(u32::try_from(nodes).unwrap_or(u32::MAX)) * 8.0
+    i64::try_from(nodes)
+        .ok()
+        .and_then(|v| v.checked_shl(35))
+        .unwrap_or(i64::MAX)
 }
 
 /// The dense per-block eigenbasis of the `128 × 128` diagonal blocks of `WᵀW`, using
-/// [`eigh`](crate::learn::fold::fit::eigh::eigh) (column order ascending eigenvalue); its `f64`
-/// output vectors are quantised once on the way into the basis. Side bits are not counted: this arm
-/// is an upper reference.
+/// [`eigh`](crate::learn::fold::fit::eigh::eigh) (column order ascending eigenvalue), on words in
+/// and out. Side bits are not counted: this arm is an upper reference.
 /// # Errors
 /// [`BasisError::Shape`] when `w.len() != O·n` or `n` is not a positive multiple of [`GROUP`];
-/// [`BasisError::Eigh`] when a block does not converge; [`BasisError::OutOfRange`] off the grid.
+/// [`BasisError::Eigh`] when a block does not converge; [`BasisError::OutOfRange`] on an overflow.
 /// # Complexity
 /// Time `O(O·n·GROUP + (n/GROUP)·GROUP³·sweeps)`; space `O(n²)`.
-pub fn eigen_basis(w: &[f64], o: usize, n: usize) -> Result<Vec<f64>, BasisError> {
-    let ww = grid(w)?;
-    expect(ww.len(), o, n, "W")?;
+pub fn eigen_basis(w: &[i64], o: usize, n: usize) -> Result<Vec<i64>, BasisError> {
+    expect(w.len(), o, n, "W")?;
     let blocks = expect_blocks(n)?;
     let mut q = vec![0_i64; square(n, n)?];
     for blk in 0..blocks {
-        let gf = words_grid(&block_gram(&ww, o, n, blk)?);
-        let (_, vecs) = eigh(&gf, GROUP).map_err(|err| match err {
+        let (_, vecs) = eigh(&block_gram(w, o, n, blk)?, GROUP).map_err(|err| match err {
             EighError::NotConverged => BasisError::Eigh("block did not converge".to_string()),
             other => BasisError::Shape(format!("eigh: {other:?}")),
         })?;
         let off = blk * GROUP;
         for i in 0..GROUP {
             for j in 0..GROUP {
-                q[(off + i) * n + off + j] = grid1(vecs[i * GROUP + j])?;
+                q[(off + i) * n + off + j] = vecs[i * GROUP + j];
             }
         }
     }
-    Ok(words_grid(&q))
+    Ok(q)
 }
 
 /// One coefficient-variance density model and its measured side-information charge.
@@ -772,14 +739,15 @@ pub enum Density {
 }
 
 impl Density {
-    /// The model's own side-information charge in bits, counting rows/columns or tiles for the
-    /// whole `O × n` coefficient matrix. `O(1)`.
-    pub fn side_bits(self, o: usize, n: usize) -> f64 {
-        match self {
-            Density::Separable => 16.0 * (o + n) as f64,
-            Density::Tile => 8.0 * o.div_ceil(TILE) as f64 * n.div_ceil(TILE) as f64,
-            Density::Oracle => 0.0,
-        }
+    /// The model's own side-information charge in bits, as a `Q32.32` word, counting rows/columns
+    /// or tiles for the whole `O × n` coefficient matrix. `O(1)`.
+    pub fn side_bits(self, o: usize, n: usize) -> i64 {
+        let bits: i128 = match self {
+            Density::Separable => 16 * (o as i128 + n as i128),
+            Density::Tile => 8 * o.div_ceil(TILE) as i128 * n.div_ceil(TILE) as i128,
+            Density::Oracle => 0,
+        };
+        narrow(bits << 32).unwrap_or(i64::MAX)
     }
 
     /// The `O × n` coefficient-variance matrix of `b = W·Q`, as words: serial passes for the
@@ -849,23 +817,24 @@ impl Density {
 
     /// The `O × n` coefficient-variance matrix of `b = W·Q`.
     /// # Errors
-    /// As [`Density::sigma_words`], plus a value outside the grid on the way in.
+    /// As [`Density::sigma_words`].
     /// # Complexity
-    /// As [`Density::sigma_words`], plus `O(O·n)` for the boundary copy.
-    pub fn sigma(self, b: &[f64], o: usize, n: usize) -> Result<Vec<f64>, BasisError> {
-        Ok(words_grid(&self.sigma_words(&grid(b)?, o, n)?))
+    /// As [`Density::sigma_words`].
+    pub fn sigma(self, b: &[i64], o: usize, n: usize) -> Result<Vec<i64>, BasisError> {
+        self.sigma_words(b, o, n)
     }
 }
 
-/// A reverse water-filling solution at the target rate.
+/// A reverse water-filling solution at the target rate. Every field is a `Q32.32` word: `theta` is
+/// in the `λ` units, `distortion` in the `D` units, `rate` in bits.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WaterFill {
     /// The water level `θ`.
-    pub theta: f64,
+    pub theta: i64,
     /// `D(θ) = Σ min(λ_ij, θ)`.
-    pub distortion: f64,
-    /// `R(θ) = Σ max(0, ½·log₂(λ_ij/θ))`.
-    pub rate: f64,
+    pub distortion: i64,
+    /// `R(θ) = Σ max(0, ½·log₂(λ_ij/θ))` in bits.
+    pub rate: i64,
 }
 
 /// `D(θ) = Σ min(λ, θ)` over words; `θ ≤ 0` gives zero. `O(N)` time, `O(1)` space.
@@ -924,9 +893,9 @@ fn water_fill_words(lambda: &[i64], budget: i64, side: i64) -> Result<WaterFill,
     }
     if lambda.is_empty() || max <= 0 {
         return Ok(WaterFill {
-            theta: 0.0,
-            distortion: 0.0,
-            rate: 0.0,
+            theta: 0,
+            distortion: 0,
+            rate: 0,
         });
     }
     let mut sum_lambda: i128 = 0;
@@ -935,9 +904,9 @@ fn water_fill_words(lambda: &[i64], budget: i64, side: i64) -> Result<WaterFill,
     }
     if target <= 0 {
         return Ok(WaterFill {
-            theta: from_grid(max),
-            distortion: from_grid(narrow(sum_lambda).unwrap_or(i64::MAX)),
-            rate: 0.0,
+            theta: max,
+            distortion: narrow(sum_lambda).unwrap_or(i64::MAX),
+            rate: 0,
         });
     }
     // R(t) from the precomputed logs: ½·Σ max(0, log₂ λ_i − t).
@@ -981,44 +950,39 @@ fn water_fill_words(lambda: &[i64], budget: i64, side: i64) -> Result<WaterFill,
     }
     let theta = exp2(t).ok_or(BasisError::OutOfRange)?;
     Ok(WaterFill {
-        theta: from_grid(theta),
-        distortion: from_grid(distortion_words(lambda, theta)?),
-        rate: from_grid(rate_words(lambda, theta)?),
+        theta,
+        distortion: distortion_words(lambda, theta)?,
+        rate: rate_words(lambda, theta)?,
     })
 }
 
-/// The reverse water-filling solution with `R(θ) + side_bits = budget_bits`; a refused scalar
-/// returns the zero [`WaterFill`], as the entry point is infallible.
+/// The reverse water-filling solution with `R(θ) + side_bits = budget_bits`, all in Q32.32 words; a
+/// refused scalar returns the zero [`WaterFill`], as the entry point is infallible.
 /// # Complexity
-/// As [`water_fill_words`], plus `O(N)` for the boundary copy.
-pub fn solve_water_fill(lambda: &[f64], budget_bits: f64, side_bits: f64) -> WaterFill {
+/// As [`water_fill_words`].
+pub fn solve_water_fill(lambda: &[i64], budget_bits: i64, side_bits: i64) -> WaterFill {
     let fallback = WaterFill {
-        theta: 0.0,
-        distortion: 0.0,
-        rate: 0.0,
+        theta: 0,
+        distortion: 0,
+        rate: 0,
     };
-    let (Ok(lw), Ok(b), Ok(s)) = (grid(lambda), grid1(budget_bits), grid1(side_bits)) else {
-        return fallback;
-    };
-    water_fill_words(&lw, b, s).unwrap_or(fallback)
+    water_fill_words(lambda, budget_bits, side_bits).unwrap_or(fallback)
 }
 
 /// `D(θ) = Σ min(λ, θ)`; `θ ≤ 0` gives zero. `O(N)` time, `O(1)` space.
-pub fn distortion_at(lambda: &[f64], theta: f64) -> f64 {
-    match (grid(lambda), grid1(theta)) {
-        (Ok(l), Ok(t)) => distortion_words(&l, t).map_or(f64::NAN, from_grid),
-        _ => f64::NAN,
-    }
+/// # Errors
+/// [`BasisError::OutOfRange`] when the sum leaves `i64`.
+pub fn distortion_at(lambda: &[i64], theta: i64) -> Result<i64, BasisError> {
+    distortion_words(lambda, theta)
 }
 
 /// `R(θ) = Σ max(0, ½·log₂(λ/θ))`; `θ ≤ 0` gives an infinite rate when any `λ > 0`.
 /// # Complexity
 /// Time `O(N·S)`; space `O(1)`.
-pub fn rate_at(lambda: &[f64], theta: f64) -> f64 {
-    match (grid(lambda), grid1(theta)) {
-        (Ok(l), Ok(t)) => rate_words(&l, t).map_or(f64::NAN, from_grid),
-        _ => f64::NAN,
-    }
+/// # Errors
+/// [`BasisError::OutOfRange`] when the sum leaves `i64`.
+pub fn rate_at(lambda: &[i64], theta: i64) -> Result<i64, BasisError> {
+    rate_words(lambda, theta)
 }
 
 /// The fixed-rate distortion `D_u = Σ λ·2^{−2·(budget/N − side/N)}` over words. `O(N)` time, `O(1)`
@@ -1045,15 +1009,19 @@ fn uniform_words(lambda: &[i64], budget: i64, side: i64) -> Result<i64, BasisErr
     round64(acc)
 }
 
-/// The fixed-rate distortion `D_u = Σ λ·2^{−2·(budget/N − side/N)}`. `O(N)` time, `O(1)` space.
-pub fn uniform_distortion(lambda: &[f64], budget_bits: f64, side_bits: f64) -> f64 {
-    match (grid(lambda), grid1(budget_bits), grid1(side_bits)) {
-        (Ok(l), Ok(b), Ok(s)) => uniform_words(&l, b, s).map_or(f64::NAN, from_grid),
-        _ => f64::NAN,
-    }
+/// The fixed-rate distortion `D_u = Σ λ·2^{−2·(budget/N − side/N)}`, a word. `O(N)` time, `O(1)`
+/// space.
+/// # Errors
+/// [`BasisError::OutOfRange`] when an intermediate leaves the grid.
+pub fn uniform_distortion(
+    lambda: &[i64],
+    budget_bits: i64,
+    side_bits: i64,
+) -> Result<i64, BasisError> {
+    uniform_words(lambda, budget_bits, side_bits)
 }
 
-/// The basis-independent part of one arm: coefficients `B = W·Q` and feedback weights `d`.
+/// The basis-independent part of one arm: coefficients `B = W·Q` and feedback weights `d`, words.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Coefficients {
     /// `O`.
@@ -1061,34 +1029,35 @@ pub struct Coefficients {
     /// `n`.
     pub n: usize,
     /// `B = W·Q`, row-major `O × n`.
-    pub b: Vec<f64>,
+    pub b: Vec<i64>,
     /// The Cholesky pivots `d_j` of `QᵀHQ`, length `n`.
-    pub d: Vec<f64>,
+    pub d: Vec<i64>,
 }
 
 /// One arm's distortion at the registered rate: uniform (`D_u`) and reverse water-filling (`D_wf`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Arm {
-    /// `D_u = Σ λ·2^{−2·(1.18 − side/(O·n))}`, the fixed-rate coder.
-    pub uniform: f64,
-    /// `D_wf`, the reverse water-filling distortion.
-    pub water_filled: f64,
+    /// `D_u = Σ λ·2^{−2·(1.18 − side/(O·n))}`, the fixed-rate coder, a word.
+    pub uniform: i64,
+    /// `D_wf`, the reverse water-filling distortion, a word.
+    pub water_filled: i64,
     /// The achieved `R + side`, in bits, for the water-filling solution.
-    pub rate: f64,
+    pub rate: i64,
 }
 
 impl Coefficients {
-    /// Form `B = W·Q`, `M = Qᵀ·H·Q` and the pivots `d` of `M` for one basis.
+    /// Form `B = W·Q`, `M = Qᵀ·H·Q` and the pivots `d` of `M` for one basis; every operand and
+    /// result is a Q32.32 word.
     /// # Errors
     /// The [`apply_basis`], [`block_metric`] and [`cholesky_pivots`] refusals.
     /// # Complexity
     /// Dominated by the metric `O(n²·GROUP)` and the Cholesky `O(n³/3)`; space `O(O·n + n²)`.
     pub fn from_basis(
-        w: &[f64],
+        w: &[i64],
         o: usize,
         n: usize,
-        h: &[f64],
-        q: &[f64],
+        h: &[i64],
+        q: &[i64],
     ) -> Result<Coefficients, BasisError> {
         let b = apply_basis(w, o, n, q)?;
         let d = cholesky_pivots(&block_metric(q, h, n)?, n)?;
@@ -1096,7 +1065,8 @@ impl Coefficients {
     }
 
     /// Evaluate one density model at `budget_bits` (the pipeline's `1.18·O·n`) with the density's
-    /// side information plus `basis_side_bits` charged against it.
+    /// side information plus `basis_side_bits` charged against it; the two scalars are Q32.32
+    /// words.
     /// # Errors
     /// [`BasisError::Shape`] when the stored geometry is inconsistent; [`BasisError::OutOfRange`]
     /// when a value leaves the grid.
@@ -1105,23 +1075,24 @@ impl Coefficients {
     pub fn evaluate(
         &self,
         density: Density,
-        basis_side_bits: f64,
-        budget_bits: f64,
+        basis_side_bits: i64,
+        budget_bits: i64,
     ) -> Result<Arm, BasisError> {
-        let sigma = density.sigma_words(&grid(&self.b)?, self.o, self.n)?;
-        let dw = grid(&self.d)?;
+        let sigma = density.sigma_words(&self.b, self.o, self.n)?;
         let mut lambda = vec![0_i64; square(self.o, self.n)?];
         for i in 0..self.o {
             for j in 0..self.n {
                 lambda[i * self.n + j] =
-                    mul(dw[j], sigma[i * self.n + j]).ok_or(BasisError::OutOfRange)?;
+                    mul(self.d[j], sigma[i * self.n + j]).ok_or(BasisError::OutOfRange)?;
             }
         }
-        let side = grid1(density.side_bits(self.o, self.n) + basis_side_bits)?;
-        let budget = grid1(budget_bits)?;
-        let wf = water_fill_words(&lambda, budget, side)?;
+        let side = density
+            .side_bits(self.o, self.n)
+            .checked_add(basis_side_bits)
+            .ok_or(BasisError::OutOfRange)?;
+        let wf = water_fill_words(&lambda, budget_bits, side)?;
         Ok(Arm {
-            uniform: from_grid(uniform_words(&lambda, budget, side)?),
+            uniform: uniform_words(&lambda, budget_bits, side)?,
             water_filled: wf.distortion,
             rate: wf.rate,
         })

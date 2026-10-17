@@ -32,13 +32,13 @@ use apeiron::learn::fold::fit::gptq_e8::gptq_e8;
 use apeiron::learn::fold::fit::icm::{e8_icm_step, nearest_index, plane_w, PlaneRef};
 use apeiron::learn::fold::fit::quant::{f16r, quant_c_u8, quant_r_hier};
 use apeiron::learn::fold::fit::steps::{
-    c_step_wshl, compose, d_step_wshl, fwht128, had_gram, mul_metric, objective, r_step_wshl,
+    c_step_wshl, compose, d_step_wshl, had_gram, mul_metric, objective, r_step_wshl,
 };
 use apeiron::learn::solve::q32::{from_grid, round_q32_even, to_grid, GRID_BOUND};
+include!("support/fwht_oracle.rs");
 
 /// Deterministic xorshift64 LCG.
 struct Lcg(u64);
-
 impl Lcg {
     fn new(seed: u64) -> Self {
         Self(seed)

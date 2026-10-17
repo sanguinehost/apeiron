@@ -447,7 +447,8 @@ fn eigen_stage_matches_f64_reference() {
             let (dw, hl) = gapped_fixture(0xC0FF_EE00_1234 + (o as u64) * 31 + rank as u64, o, n);
             // Reference: the old scalar loops and `eigh`.
             let m_ref = old_gram(&dw, &hl, o, n);
-            let (evals_ref, evecs_ref) = eigh(&m_ref, o).expect("eigh reference");
+            let (evals_ref, evecs_ref) = eigh(&qv(&m_ref), o).expect("eigh reference");
+            let (evals_ref, evecs_ref) = (uw(&evals_ref), uw(&evecs_ref));
             let u_ref = top_columns(&evecs_ref, o, rank);
             let top_sum_ref: f64 = evals_ref[o - rank..].iter().map(|&l| l.max(0.0)).sum();
             let v_ref = matmul(&transpose(&u_ref, o, rank), &dw, rank, o, n);

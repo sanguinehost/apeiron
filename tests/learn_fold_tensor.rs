@@ -21,13 +21,18 @@
 
 use apeiron::learn::fold::fit::corrector::{lowrank_corrector, Mode};
 use apeiron::learn::fold::fit::fold_fit::{fold_fit, FoldFitConfig};
-use apeiron::learn::fold::fit::steps::{compose, fwht128, objective};
+use apeiron::learn::fold::fit::steps::{compose, objective};
 use apeiron::learn::fold::layer::stage::metric;
 use apeiron::learn::fold::layer::tensor::{
     fit_tensor, fold_row_scale, recon, BiasStats, SinkPlane, TensorError, TensorFit, TensorKind,
     TensorParams,
 };
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
+
+#[path = "support/fwht_oracle.rs"]
+mod fwht_oracle;
+
+use fwht_oracle::fwht128;
 
 const N: usize = 256;
 const O: usize = 4;
