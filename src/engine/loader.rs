@@ -470,11 +470,46 @@ fn positive_usize(v: i64, key: &str) -> Result<usize, EngineError> {
 }
 
 /// Resolve the `qwen2.*` metadata and the `token_embd.weight` shape into an [`EngineConfig`].
+///
+/// Each stage below is its own function so no single extracted body carries the whole resolver's
+/// live set; the stages run in the order the checks were written, so the first refusal is unchanged.
 fn resolve_config(h: &GgufHeader) -> Result<EngineConfig, EngineError> {
     let architecture = h.arch();
-    let n_block = positive_usize(require_i64(h, &architecture, "block_count")?, "block_count")?;
+    let (n_layer, n_nextn) = resolve_layer_count(h, &architecture)?;
+    let [n_head, n_head_kv, n_embd, n_ff] = resolve_core_dims(h, &architecture)?;
+    let meta = resolve_attention_meta(h, &architecture, [n_embd, n_head], n_layer)?;
+    let (context_length, rope_theta, rms_eps) = resolve_numeric_meta(h, &architecture)?;
+    let vocab_size = resolve_vocab(h, n_embd)?;
+
+    Ok(EngineConfig {
+        architecture,
+        n_layer,
+        n_head,
+        n_head_kv,
+        n_embd,
+        n_ff,
+        vocab_size,
+        context_length,
+        rope_theta,
+        rms_eps,
+        head_dim: meta.head_dim,
+        mixers: meta.mixers,
+        rot_dims: meta.rot_dims,
+        attn_gate: meta.attn_gate,
+        affine: meta.affine,
+        n_nextn,
+    })
+}
+
+/// The trunk layer count and the trailing multi-token-prediction block count, as
+/// `(n_layer, n_nextn)`. Every trunk layer owns at least one `blk.<l>.*` tensor, so a count above
+/// the directory is unrunnable; refusing it here bounds [`resolve_mixers`] by the parsed
+/// directory, which `parse_header` bounds by the file length (fuzz `gguf_open`: `block_count =
+/// u32::MAX` in a 9600-byte file asked for a 4 GiB schedule).
+fn resolve_layer_count(h: &GgufHeader, arch: &str) -> Result<(usize, usize), EngineError> {
+    let n_block = positive_usize(require_i64(h, arch, "block_count")?, "block_count")?;
     // Multi-token-prediction blocks follow the trunk and are not part of the decode step.
-    let n_nextn = match h.meta_i64(&format!("{architecture}.nextn_predict_layers")) {
+    let n_nextn = match h.meta_i64(&format!("{arch}.nextn_predict_layers")) {
         Some(v) if v >= 0 => usize::try_from(v).map_err(|_| EngineError::LengthOverflow)?,
         Some(_) => return Err(EngineError::BadMetadata("nextn_predict_layers".to_string())),
         None => 0,
@@ -483,52 +518,80 @@ fn resolve_config(h: &GgufHeader) -> Result<EngineConfig, EngineError> {
         .checked_sub(n_nextn)
         .filter(|&n| n > 0)
         .ok_or_else(|| EngineError::BadMetadata("block_count".to_string()))?;
-    // Every trunk layer owns at least one `blk.<l>.*` tensor, so a count above the directory is
-    // unrunnable; refusing it here bounds `resolve_mixers` by the parsed directory, which
-    // `parse_header` bounds by the file length (fuzz `gguf_open`: `block_count = u32::MAX` in a
-    // 9600-byte file asked for a 4 GiB schedule).
     if n_layer > h.tensors.len() {
         return Err(EngineError::ConfigMismatch(format!(
             "block_count {n_layer} exceeds {} tensors",
             h.tensors.len()
         )));
     }
+    Ok((n_layer, n_nextn))
+}
+
+/// `[n_head, n_head_kv, n_embd, n_ff]` from the four required positive metadata counts.
+fn resolve_core_dims(h: &GgufHeader, arch: &str) -> Result<[usize; 4], EngineError> {
     let n_head = positive_usize(
-        require_i64(h, &architecture, "attention.head_count")?,
+        require_i64(h, arch, "attention.head_count")?,
         "attention.head_count",
     )?;
     let n_head_kv = positive_usize(
-        require_i64(h, &architecture, "attention.head_count_kv")?,
+        require_i64(h, arch, "attention.head_count_kv")?,
         "attention.head_count_kv",
     )?;
     let n_embd = positive_usize(
-        require_i64(h, &architecture, "embedding_length")?,
+        require_i64(h, arch, "embedding_length")?,
         "embedding_length",
     )?;
     let n_ff = positive_usize(
-        require_i64(h, &architecture, "feed_forward_length")?,
+        require_i64(h, arch, "feed_forward_length")?,
         "feed_forward_length",
     )?;
-    let (head_dim, rot_dims) = resolve_head_geometry(h, &architecture, n_embd, n_head)?;
-    let mixers = resolve_mixers(h, &architecture, n_layer)?;
+    Ok([n_head, n_head_kv, n_embd, n_ff])
+}
+
+/// The head geometry, mixer schedule and gate geometry of [`EngineConfig`]. `dims` is
+/// `[n_embd, n_head]`.
+fn resolve_attention_meta(
+    h: &GgufHeader,
+    arch: &str,
+    dims: [usize; 2],
+    n_layer: usize,
+) -> Result<AttentionMeta, EngineError> {
+    let [n_embd, n_head] = dims;
+    let (head_dim, rot_dims) = resolve_head_geometry(h, arch, n_embd, n_head)?;
+    let mixers = resolve_mixers(h, arch, n_layer)?;
     let affine = if mixers.contains(&MixerKind::Affine) {
-        Some(resolve_affine(h, &architecture)?)
+        Some(resolve_affine(h, arch)?)
     } else {
         None
     };
     let attn_gate = resolve_attn_gate(h, &mixers, n_head, head_dim)?;
-    let context_length = match h.meta_i64(&format!("{architecture}.context_length")) {
+    Ok(AttentionMeta {
+        head_dim,
+        rot_dims,
+        mixers,
+        affine,
+        attn_gate,
+    })
+}
+
+/// `(context_length, rope_theta, rms_eps)`; an unstated context length is `0`.
+fn resolve_numeric_meta(h: &GgufHeader, arch: &str) -> Result<(usize, F64, F64), EngineError> {
+    let context_length = match h.meta_i64(&format!("{arch}.context_length")) {
         Some(v) if v > 0 => usize::try_from(v).map_err(|_| EngineError::LengthOverflow)?,
         _ => 0,
     };
-    let rope_theta = optional_f64(h, &architecture, "rope.freq_base", DEFAULT_ROPE_THETA_BITS);
+    let rope_theta = optional_f64(h, arch, "rope.freq_base", DEFAULT_ROPE_THETA_BITS);
     let rms_eps = optional_f64(
         h,
-        &architecture,
+        arch,
         "attention.layer_norm_rms_epsilon",
         DEFAULT_RMS_EPS_BITS,
     );
+    Ok((context_length, rope_theta, rms_eps))
+}
 
+/// The vocabulary size from the `token_embd.weight` shape, cross-checked against the token array.
+fn resolve_vocab(h: &GgufHeader, n_embd: usize) -> Result<usize, EngineError> {
     let td = h
         .tensor("token_embd.weight")
         .ok_or_else(|| EngineError::MissingTensor(TensorKey::top(PART_TOKEN_EMBD)))?;
@@ -553,25 +616,16 @@ fn resolve_config(h: &GgufHeader) -> Result<EngineConfig, EngineError> {
             )));
         }
     }
+    Ok(vocab_size)
+}
 
-    Ok(EngineConfig {
-        architecture,
-        n_layer,
-        n_head,
-        n_head_kv,
-        n_embd,
-        n_ff,
-        vocab_size,
-        context_length,
-        rope_theta,
-        rms_eps,
-        head_dim,
-        mixers,
-        rot_dims,
-        attn_gate,
-        affine,
-        n_nextn,
-    })
+/// The resolved head, mixer and gate geometry of [`EngineConfig`].
+struct AttentionMeta {
+    head_dim: usize,
+    rot_dims: usize,
+    mixers: Vec<MixerKind>,
+    affine: Option<AffineGeom>,
+    attn_gate: bool,
 }
 
 /// `(head_dim, rot_dims)`: `*.attention.key_length` (checked equal to `value_length` when stated)
