@@ -1,151 +1,139 @@
 //! Fold-transfer refit steps over the 128-block Hadamard basis.
 //!
-//! The one-bit transfer refits a quantized weight `Wq = compose(S, r, c)` by alternating exact
-//! continuous updates with a discrete one. This module ports the continuous steps and the
-//! transforms they run on.
-//!
-//! # Port
-//!
-//! Ports the refit steps of the frozen one-bit transfer script `fold_transfer.py` (read-only,
-//! `spec/fold_transfer.py:426-490`): the objective `J` (434), `compose` (438), `fwht128` (441),
-//! `had_gram` (449), `c_step` (453), `r_step` (463) and `d_step` (478). The d step's forward model
-//! is the one `run_variant` refits (`spec/fold_transfer.py:886`), `S = fwht128(S_rot * d[None, :])`,
-//! i.e. `recon(d) = compose(fwht128(S_rot ⊙ d), r, c)`.
-//!
-//! # The steps
-//!
-//! `W`, `Ws` are `O × n` (`O` out rows, `n` in columns, row-major); `n = G·128` for the Hadamard
-//! steps, `G = n / 128`. `Ws`, `S` and the metric `Hl` (`n × n`, symmetric positive-definite) are
-//! the calibration data; `S` is a sign matrix, `r` an `O × G` per-group scale and `c` a length-`n`
-//! per-column scale.
+//! Ports the continuous steps of the frozen `fold_transfer.py` (`spec/fold_transfer.py:426-490`) and
+//! their transforms: `J` (434), `compose` (438), `fwht128` (441), `had_gram` (449), `c_step` (453),
+//! `r_step` (463), `d_step` (478), with the `run_variant` forward model (886)
+//! `recon(d) = compose(fwht128(S_rot ⊙ d), r, c)`. `W`, `Ws` are `O × n` row-major, `n = G·128`;
+//! `S` is a sign matrix, `r` an `O × G` per-group scale, `c` a length-`n` column scale, `Hl` an
+//! `n × n` metric.
 //!
 //! - `compose(S, r, c)[o,i] = S[o,i]·r[o, i/128]·c[i]`.
 //! - `objective(Ws, Wp, Hl) = tr((Ws−Wp)·Hl·(Ws−Wp)ᵀ)`.
-//! - `c_step` solves the `n × n` normal system `A·c = b`, `A[i,j] = Hl[i,j]·(Shᵀ·Sh_g)[i,j]`,
-//!   `Sh = S⊙r_rep`, `Sh_g = Sh⊙g_row`, `b[i] = Σ_o (Ws·Hl)[o,i]·Sh_g[o,i]`. The `A`-formation is
-//!   the shared primitive [`crate::learn::solve::syrk::wsyrk`] (the weighted Gram) followed by
-//!   [`crate::learn::solve::syrk::hadamard_into`] (the `hl` factor); the solve is
-//!   [`crate::learn::solve::chol::chol_solve`]; the metric product `Ws·Hl` is [`mul_metric`] over
-//!   the shared `Q32.32` product [`crate::learn::solve::gemm::gemm_nn`]. The step stays `f64` and
-//!   crosses into the `Q32.32` grid only at the primitive boundaries: `Sh`, the row weight, `Hl` and
-//!   `b` are rounded to `round(x·2³²)`, and the returned `c` is read back with `v/2³²`.
-//! - `r_step` solves one `G × G` SPD system per out row (`M[o]·r[o] = t[o]`).
-//! - `d_step` solves the `n × n` normal system of the Hadamard-domain column scale, with the rotated
-//!   metric `H_rot = had_gram(Hl ⊙ c cᵀ)` and `G_rot = fwht128((Ws·Hl) ⊙ c)`. Its `A`-formation is
-//!   the same shared primitive pair as `c_step` ([`crate::learn::solve::syrk::wsyrk`] then
-//!   [`crate::learn::solve::syrk::hadamard_into`]) with `H_rot` as the elementwise factor, and its
-//!   solve is [`crate::learn::solve::chol::chol_solve`]; the boundary rounding is identical to
-//!   `c_step`'s, and the `f64` `A` loop and the [`crate::learn::ridge::solve_spd`] call are gone with
-//!   no fallback.
+//! - `c_step`: `A·c = b`, `A[i,j] = Hl[i,j]·(Shᵀ diag(g) Sh)[i,j]`, `Sh = S⊙r_rep`,
+//!   `b[i] = Σ_o (Ws·Hl)[o,i]·Sh[o,i]·g[o]`; `r_step`: one `G × G` system per out row.
+//! - `d_step`: `H_rot = had_gram(Hl ⊙ c cᵀ)`, `G_rot = fwht128((Ws·Hl) ⊙ c)`,
+//!   `A[i,j] = H_rot[i,j]·(Bᵀ diag(g) B)[i,j]` with `B = S_rot⊙r_rep`.
+//! # The `Q32.32` carrier and the pool
+//! Every computed value is a `Q32.32` `i64` word (`v/2³²` is the real): a product of two words is
+//! exact in `i128`, rounded once by [`crate::learn::solve::q32::round_q32_even`]; [`to_grid_vec`] and
+//! [`read_back`] are the only floating-point operations. Pool dispatch is reserved for matrix-sized
+//! work: [`wsyrk`], [`hadamard_into`], [`chol_solve`] and [`gemm_nn`] pool in their own drivers (a
+//! nested dispatch would deadlock), and the `n × n` transform and transpose ([`fwht_grid`],
+//! [`transpose`]) run on the pool; every per-row, per-column and per-entry loop is serial.
 //!
-//! Every step adds the same ridge the script does, `1e-12·mean(diag)` (`d_step` clamps the mean
-//! below at `1e-12`), so a recovery of an exact planted parameter is exact only up to the ridge; the
-//! tests state that bound. `c_step` adds it to the `Q32.32` diagonal, where the grid's own quantum
-//! `2⁻³²` floors it: a ridge below one raw unit is inert (see [`c_step`]).
-//!
-//! # Partiality
-//!
-//! Every function refuses a shape that disagrees with the declared dims, and a Hadamard function
-//! refuses an `n` that is not a whole number of 128-blocks, with [`StepsError::ShapeMismatch`]. A
-//! non-SPD `Hl` reaches the `Cholesky` pivot and is refused with [`StepsError::NotPositiveDefinite`].
-//! No function here panics on caller input.
-//!
-//! # Trust boundary
-//!
-//! The bodies run in `f64` and are `tested` (`tests/learn_fold_steps.rs`); they are not extracted and
-//! no refinement theorem links them, so they are not `proved`. The `c_step` and `d_step` Gram and
-//! solve are the `Q32.32` primitives `wsyrk`, `hadamard_into` and `chol_solve`, the metric product
-//! `Ws·Hl` is [`mul_metric`] over `gemm_nn`, and all of those are themselves `tested` and not
-//! extracted; the `f64` work around them (`G_rot`, `H_rot`, the right-hand side, the scale rule's
-//! operand scans and read-back) and `r_step`'s `f64` systems follow the script's arithmetic order;
-//! no hardware or performance claim is made.
+//! # Partiality and trust boundary
+//! A shape disagreement, `n` not a multiple of 128, `|x| ≥ 2³¹` and a checked overflow are refused
+//! with [`StepsError::ShapeMismatch`]; a non-SPD `Hl` is refused with
+//! [`StepsError::NotPositiveDefinite`]. No function panics on caller input. The bodies are `tested`
+//! (`tests/learn_fold_steps.rs`), not extracted, so not `proved`; the primitives are `tested` too.
+//! The pool is the thread trust boundary; no performance claim is made.
 
 #![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
     clippy::many_single_char_names,
     clippy::similar_names,
     clippy::needless_range_loop,
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    reason = "the flat-slice kernels index row-major `[o, n]` buffers by `o/i/j/gg/k/m`, matching \
-              the reference arithmetic's vocabulary, and the `usize`-to-`f64` casts are the shape \
-              means the reference forms (`mean(diag)`, `1/sqrt(128)`). The `f64 as i64` of \
-              the ridge raw word is the Q32.32 boundary rounding of a ridge the step range-checks."
+    clippy::too_many_arguments,
+    reason = "flat grid kernels index `[o, n]` buffers by `o/i/j/gg/k/m`; the boundary divides a \
+              word by 2³² and narrows a checked `i128`; a shift exponent is a small `i32`; steps take \
+              their operands directly rather than through a bundle struct."
 )]
 
-use crate::learn::ridge::{solve_spd, RidgeError};
+use crate::engine::chart::pool::{chunks_mut_global, FirstErr};
+use crate::engine::chart::task::ChunkTask;
 use crate::learn::solve::chol::{chol_solve, SolveError};
-use crate::learn::solve::gemm::{gemm_nn_f64, GemmError};
-use crate::learn::solve::q32::{self, from_grid, panel_shift, GRID_BOUND, GRID_SCALE, INPUT_BOUND};
+use crate::learn::solve::gemm::{gemm_nn, GemmError};
+use crate::learn::solve::q32::{self, from_grid, ilog2_pos, rshift_rne, GRID_BOUND};
 use crate::learn::solve::syrk::{hadamard_into, wsyrk, SyrkError};
 
 /// Hadamard block width: one normalised `H₁₂₈/√128` block per 128 columns.
 pub const GROUP: usize = 128;
 
-/// Ridge added to a normal-equation diagonal for `f64` (`eps` in the script).
-const EPS: f64 = 1e-12;
+/// Exponent a shifted panel is filled to: `max|v| ∈ (2³⁴, 2³⁵]` raw, one bit below `wsyrk`'s
+/// bound `2³⁶`, whether that is a down-shift or an up-shift.
+const BOUND_BITS: u32 = 35;
+/// `1.0` as a raw word: the unit row weight.
+const UNIT_RAW: i64 = 1_i64 << 32;
+/// `round(2³²/√128)`: the grid word of the transform normalisation (one rounding per entry).
+const INV_SQRT128: i64 = 379_625_062;
+/// `round(1e-12·2⁶²)`: the ridge coefficient in fixed point one scale coarser than `Q32.32`.
+const EPS_Q: i64 = 4_611_686;
 
-/// [`q32::to_grid`] with the step's [`StepsError::ShapeMismatch`] for a non-finite or out-of-bound
-/// value (no new error variant: the crate maps a domain violation onto the step's existing shape
-/// refusal, as [`super::fold_fit`] does for its own conversions).
-///
-/// # Complexity
-///
-/// `O(1)`.
-fn to_grid(x: f64, bound: f64) -> Result<i64, StepsError> {
-    q32::to_grid(x, bound).ok_or(StepsError::ShapeMismatch)
+// Grid scalar ops, `O(1)` each.
+
+/// `x` as a `Q32.32` word at the grid's `i64` range, or the shape refusal.
+fn to_grid(x: f64) -> Result<i64, StepsError> {
+    q32::to_grid(x, GRID_BOUND).ok_or(StepsError::ShapeMismatch)
 }
 
-/// The row weight on the `wsyrk` grid with the exact power-of-two factor `2⁻ᵏ` that brings it
-/// there: `g_row[i]·2⁻ᵏ` rounded to `Q32.32` at [`INPUT_BOUND`], `k` the least shift with
-/// `max|g_row|·2⁻ᵏ ≤ 8` — the [`panel_shift`] rule the panel uses. `A = Bᵀ diag(g_row) B` and
-/// `b = Σ_o B·g_row·G` both carry the factor, so the solved scale is unchanged and no undo
-/// applies; `k = 0` when `max|g_row| ≤ 8` leaves every in-range word unchanged, and a larger
-/// weight's shifted words equal those of the caller's `g_row·2⁻ᵏ` bit for bit.
-///
-/// # Errors
-///
-/// [`StepsError::ShapeMismatch`] on a non-finite entry. `O(o)` time and space.
-fn g_row_shifted_grid(g_row: &[f64]) -> Result<(Vec<i64>, f64), StepsError> {
-    let max = g_row.iter().fold(0.0f64, |m, v| m.max(v.abs()));
-    if !max.is_finite() {
-        return Err(StepsError::ShapeMismatch);
+/// `v` as `i64`, or the shape refusal when it is outside `i64`.
+fn narrow(v: i128) -> Result<i64, StepsError> {
+    i64::try_from(v).map_err(|_| StepsError::ShapeMismatch)
+}
+
+/// `a·b` for two words: the exact `i128` product rounded once to `Q32.32`.
+fn mul_word(a: i64, b: i64) -> Result<i64, StepsError> {
+    q32::round_q32_even(i128::from(a) * i128::from(b)).map_err(|_| StepsError::ShapeMismatch)
+}
+
+/// A `Q64.64` accumulator rounded once to a `Q32.32` word.
+fn round_q64(v: i128) -> Result<i64, StepsError> {
+    q32::round_q32_even(v).map_err(|_| StepsError::ShapeMismatch)
+}
+
+/// `v·2⁻ᵏ`: a round-to-nearest shift for `k > 0`, an exact checked left shift for `k < 0`.
+fn shift_word(v: i64, k: i32) -> Result<i64, StepsError> {
+    match k.signum() {
+        1 => match rshift_rne(i128::from(v), k as u32) {
+            Some(x) => narrow(x),
+            None => Err(StepsError::ShapeMismatch),
+        },
+        -1 => match i128::from(v).checked_shl((-k) as u32) {
+            Some(x) => narrow(x),
+            None => Err(StepsError::ShapeMismatch),
+        },
+        _ => Ok(v),
     }
-    let k = panel_shift(max);
-    let f = if k == 0 { 1.0 } else { 2f64.powi(-k) };
-    let grid = g_row
-        .iter()
-        .map(|&x| to_grid(x * f, INPUT_BOUND))
-        .collect::<Result<Vec<i64>, StepsError>>()?;
-    Ok((grid, f))
+}
+
+/// The signed `k` with `max·2⁻ᵏ ∈ (2³⁴, 2³⁵]` raw: the integer twin of the `f64` panel-shift rule,
+/// extended to fill the range from below (`k < 0`). The shift is an exact power of two on the stored
+/// words, so no product changes; filling from either side is what keeps a squared entry (`Sh²`,
+/// still `Q32.32`) above the grid quantum: a panel left under-filled loses those squares to one
+/// rounding. A panel with `max = 0` needs no shift.
+fn panel_shift_words(max_mag: u128) -> i32 {
+    match ilog2_pos(max_mag) {
+        Some(bits) => bits as i32 + 1 - BOUND_BITS as i32,
+        None => 0,
+    }
+}
+
+/// The ridge `round(eps·mean)` in raw units for a mean diagonal word `mean`.
+fn ridge_word(mean: i128) -> Result<i64, StepsError> {
+    let scaled = mean
+        .checked_mul(i128::from(EPS_Q))
+        .ok_or(StepsError::ShapeMismatch)?;
+    match rshift_rne(scaled, 62) {
+        Some(v) => narrow(v),
+        None => Err(StepsError::ShapeMismatch),
+    }
 }
 
 /// A refusal from a fold-transfer step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StepsError {
-    /// A slice length disagrees with the declared shape, or a dimension is not a multiple of
-    /// [`GROUP`] where a Hadamard step needs one.
+    /// A length or dimension disagrees with the declared shape (a Hadamard step needs a multiple of
+    /// [`GROUP`]), or a value left the grid's `i64` range.
     ShapeMismatch,
     /// A reduced matrix was not positive-definite: a non-SPD metric `hl`, or a rank-deficient
     /// normal system.
     NotPositiveDefinite,
 }
 
-/// Map a [`RidgeError`] from [`solve_spd`] onto a [`StepsError`]; the caller shape-checks first, so
-/// the shape arm is the already-validated `cholesky` mismatch, kept total.
-fn map_ridge(e: RidgeError) -> StepsError {
-    match e {
-        RidgeError::NotPositiveDefinite => StepsError::NotPositiveDefinite,
-        RidgeError::ShapeMismatch | RidgeError::IndexOutOfRange => StepsError::ShapeMismatch,
-    }
-}
-
-/// Map a [`SyrkError`] from [`wsyrk`]/[`hadamard_into`] onto a [`StepsError`]: a shape or empty
-/// dimension keeps the shape refusal, and an input-bound or checked-`i128` overflow refusal is the
-/// step's domain refusal [`StepsError::ShapeMismatch`].
-///
-/// # Complexity
-///
-/// `O(1)`.
+/// [`SyrkError`] as a [`StepsError`]: every arm is the domain refusal.
 fn map_syrk(e: SyrkError) -> StepsError {
     match e {
         SyrkError::ShapeMismatch
@@ -156,14 +144,7 @@ fn map_syrk(e: SyrkError) -> StepsError {
     }
 }
 
-/// Map a [`GemmError`] from [`gemm_nn`] onto a [`StepsError`]: every arm is the step's domain
-/// refusal [`StepsError::ShapeMismatch`], as for the other primitives — an empty dimension, a
-/// length disagreeing with the declared shape, an entry at the input bound, or a contraction or
-/// rounded entry that leaves the grid range.
-///
-/// # Complexity
-///
-/// `O(1)`.
+/// [`GemmError`] as a [`StepsError`]: every arm is the domain refusal.
 fn map_gemm(e: GemmError) -> StepsError {
     match e {
         GemmError::ZeroDim
@@ -173,13 +154,7 @@ fn map_gemm(e: GemmError) -> StepsError {
     }
 }
 
-/// Map a [`SolveError`] from [`chol_solve`] onto a [`StepsError`]: a non-positive equilibration
-/// diagonal or `Cholesky` pivot is the step's non-SPD refusal, and a shape, empty or overflow
-/// refusal is the shape refusal.
-///
-/// # Complexity
-///
-/// `O(1)`.
+/// [`SolveError`] as a [`StepsError`]: a pivot or equilibration refusal is non-SPD, the rest shape.
 fn map_solve(e: SolveError) -> StepsError {
     match e {
         SolveError::NotPositiveDefinite | SolveError::NonPositiveDiagonal => {
@@ -191,106 +166,301 @@ fn map_solve(e: SolveError) -> StepsError {
     }
 }
 
-/// The in-place normalised 128-block Walsh–Hadamard transform: each contiguous 128-chunk of `x` is
-/// replaced by its `H₁₂₈/√128` image. `x.len()` must be a multiple of [`GROUP`] (the caller checks).
+/// The row weight on the grid: `None` is the unit weight `1` in raw words, `Some` is converted and
+/// brought by the exact `2⁻ᵏ` shift into the `wsyrk` bound. The shift cancels between `A` and `b`.
+/// The shift is down-only: a weight at or below the unit weight keeps its raw words, so the
+/// all-ones weight is `UNIT_RAW` in both arms and `Some(&[1; o])` is the unweighted step bit for
+/// bit. A tiny weight therefore multiplies an already-resolved Gram, where the panel fill is what
+/// keeps the square; up-shifting it would only change the relative size of the ridge floor.
 ///
 /// # Complexity
+/// `O(o)` conversions and shifts, `O(o)` words.
+fn row_weight(g_row: Option<&[f64]>, o: usize) -> Result<Vec<i64>, StepsError> {
+    let Some(g) = g_row else {
+        return Ok(vec![UNIT_RAW; o]);
+    };
+    let mut v = to_grid_vec(g)?;
+    let k = panel_shift_words(max_mag(&v)).max(0);
+    shift_in_place(&mut v, k)?;
+    Ok(v)
+}
+
+/// # Complexity
+/// Add `ridge` to the diagonal of a row-major `n × n` matrix: `O(n)` checked adds, `O(1)` space.
+fn add_ridge(a: &mut [i64], n: usize, ridge: i64) -> Result<(), StepsError> {
+    for i in 0..n {
+        let d = &mut a[i * n + i];
+        *d = d.checked_add(ridge).ok_or(StepsError::ShapeMismatch)?;
+    }
+    Ok(())
+}
+
+/// `x` in `Q32.32` words, refusing a non-finite or out-of-range entry.
 ///
-/// Temporal: `O(x.len())` — `7` butterfly stages over each 128-chunk, `64` add/sub per stage per
-/// chunk, so `448` add/sub per chunk. The derivation is the radix-2 recurrence
-/// `T(2^k) = 2·T(2^{k-1}) + 2^k` on a chunk with `k = 7`. Spatial: `O(1)` (in place).
-pub(super) fn fwht_in_place(x: &mut [f64]) {
-    for chunk in x.chunks_mut(GROUP) {
-        let mut h = 1;
-        while h < GROUP {
-            let mut i = 0;
-            while i < GROUP {
-                for j in i..(i + h) {
-                    let a = chunk[j];
-                    let b = chunk[j + h];
-                    chunk[j] = a + b;
-                    chunk[j + h] = a - b;
-                }
-                i += 2 * h;
+/// # Complexity
+/// `O(len)` conversions, one `round(x·2³²)` per entry; `O(len)` words of output.
+fn to_grid_vec(x: &[f64]) -> Result<Vec<i64>, StepsError> {
+    x.iter().copied().map(to_grid).collect()
+}
+
+/// # Complexity
+/// `g` as `f64` through `v/2³²`: `O(len)` divisions, `O(len)` words of output.
+fn read_back(g: &[i64]) -> Vec<f64> {
+    g.iter().copied().map(from_grid).collect()
+}
+
+/// # Complexity
+/// `max |x[i]|`: `O(len)` comparisons, `O(1)` extra space.
+fn max_mag(x: &[i64]) -> u128 {
+    x.iter()
+        .fold(0u128, |m, &v| m.max(u128::from(v.unsigned_abs())))
+}
+
+/// # Complexity
+/// `v·2⁻ᵏ` in place: `O(len)` shifts, `O(1)` extra space.
+fn shift_in_place(x: &mut [i64], k: i32) -> Result<(), StepsError> {
+    if k == 0 {
+        return Ok(());
+    }
+    for v in x {
+        *v = shift_word(*v, k)?;
+    }
+    Ok(())
+}
+
+/// # Complexity
+/// `v·2⁻ᵏ` into a fresh slice: one copy plus [`shift_in_place`], `O(len)` time and words.
+fn shift_copy(x: &[i64], k: i32) -> Result<Vec<i64>, StepsError> {
+    let mut y = x.to_vec();
+    shift_in_place(&mut y, k)?;
+    Ok(y)
+}
+
+/// `Σ a[i]·b[i]` in `Q64.64`, exact except for the checked-overflow refusal.
+///
+/// # Complexity
+/// `O(len)` checked multiplies and adds, `O(1)` extra space.
+fn dot_grid(a: &[i64], b: &[i64]) -> Result<i128, StepsError> {
+    let mut acc = 0i128;
+    for i in 0..a.len() {
+        let p = i128::from(a[i])
+            .checked_mul(i128::from(b[i]))
+            .ok_or(StepsError::ShapeMismatch)?;
+        acc = acc.checked_add(p).ok_or(StepsError::ShapeMismatch)?;
+    }
+    Ok(acc)
+}
+
+/// # Complexity
+/// `Σ_i a[i·n + i]`: `O(n)` additions, `O(1)` space. No overflow: `n ≤ 2⁶³` `i64` terms fit `i128`.
+fn diag_sum(a: &[i64], n: usize) -> i128 {
+    (0..n).map(|i| i128::from(a[i * n + i])).sum()
+}
+
+/// # Complexity
+/// The normalised `H₁₂₈/√128` transform of one 128-word chunk, in place: `448` add/sub and `128`
+/// rounded multiplies (`7` radix-2 stages of `64` butterflies); spatial `O(1)`.
+fn fwht_block(chunk: &mut [i64]) -> Result<(), StepsError> {
+    let mut h = 1;
+    while h < GROUP {
+        let mut i = 0;
+        while i < GROUP {
+            for j in i..i + h {
+                let (a, c) = (chunk[j], chunk[j + h]);
+                let s = a.checked_add(c).ok_or(StepsError::ShapeMismatch)?;
+                let d = a.checked_sub(c).ok_or(StepsError::ShapeMismatch)?;
+                chunk[j] = s;
+                chunk[j + h] = d;
             }
-            h *= 2;
+            i += 2 * h;
         }
-        let inv = 1.0 / (GROUP as f64).sqrt();
-        for v in chunk.iter_mut() {
-            *v *= inv;
+        h *= 2;
+    }
+    for v in chunk {
+        *v = mul_word(*v, INV_SQRT128)?;
+    }
+    Ok(())
+}
+
+/// A pooled 128-block transform: one piece is a whole number of `GROUP`-word blocks.
+struct FwhtTask<'a> {
+    first: &'a FirstErr<usize, StepsError>,
+}
+
+impl ChunkTask<i64> for FwhtTask<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [i64]) {
+        for (b, chunk) in piece.chunks_mut(GROUP).enumerate() {
+            if let Err(e) = fwht_block(chunk) {
+                self.first.record(start + b * GROUP, e);
+                return;
+            }
         }
     }
 }
 
-/// The normalised 128-block Walsh–Hadamard transform of `x` (a fresh buffer), `H₁₂₈/√128` applied to
-/// each contiguous 128-chunk. The transform is its own inverse and preserves the Euclidean norm
-/// (`(H/√128)ᵀ(H/√128) = I`), so `fwht128(fwht128(x)) = x`.
+/// The normalised 128-block transform on words, one `H₁₂₈/√128` image per 128-chunk: one chunk
+/// takes [`fwht_block`] inline, a larger buffer is split by block across the pool.
 ///
 /// # Errors
-///
-/// [`StepsError::ShapeMismatch`] if `x.len()` is not a multiple of [`GROUP`].
+/// [`StepsError::ShapeMismatch`] on a non-multiple length, a butterfly overflow or a rounding.
 ///
 /// # Complexity
+/// Temporal: `O(x.len())` — `448` add/sub plus `128` rounded multiplies per 128-chunk. One
+/// `had_gram` pass at production `n = 4864` is `n²/128 ≈ 1.8·10^5` chunks × `576` word ops ≈
+/// `1.1·10^8` word ops per call, which is why this loop stays on the pool. Spatial: `O(1)` in
+/// place plus `O(width)` dispatch bookkeeping.
+fn fwht_grid(x: &mut [i64]) -> Result<(), StepsError> {
+    if !x.len().is_multiple_of(GROUP) {
+        return Err(StepsError::ShapeMismatch);
+    }
+    if x.len() == GROUP {
+        return fwht_block(x);
+    }
+    if x.is_empty() {
+        return Ok(());
+    }
+    let first = FirstErr::new();
+    chunks_mut_global(x, 8 * GROUP, &FwhtTask { first: &first });
+    match first.take() {
+        Some((_, e)) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// The in-place 128-block transform, `f64` face; a buffer with a non-finite or out-of-range entry,
+/// or one whose transform leaves the grid, is left unchanged.
 ///
-/// Temporal: `O(x.len())` (see [`fwht_in_place`]). Spatial: `O(x.len())` f64 words for the copy.
+/// # Complexity
+/// Temporal: `O(x.len())` (see [`fwht_grid`]) plus two boundary maps. Spatial: `O(x.len())` words.
+pub(super) fn fwht_in_place(x: &mut [f64]) {
+    let Ok(mut g) = to_grid_vec(x) else {
+        return;
+    };
+    if fwht_grid(&mut g).is_err() {
+        return;
+    }
+    x.copy_from_slice(&read_back(&g));
+}
+
+/// The normalised 128-block Walsh–Hadamard transform of `x` (fresh buffer); its own inverse and
+/// orthonormal in exact arithmetic, a grid round trip returns `x` within the tests' stated bound.
+///
+/// # Errors
+/// [`StepsError::ShapeMismatch`] on a non-multiple length, a grid-range or a butterfly refusal.
+///
+/// # Complexity
+/// Temporal: `O(x.len())` (see [`fwht_grid`]). Spatial: `O(x.len())` words for the copy.
 pub fn fwht128(x: &[f64]) -> Result<Vec<f64>, StepsError> {
     if !x.len().is_multiple_of(GROUP) {
         return Err(StepsError::ShapeMismatch);
     }
-    let mut y = x.to_vec();
-    fwht_in_place(&mut y);
-    Ok(y)
+    let mut y = to_grid_vec(x)?;
+    fwht_grid(&mut y)?;
+    Ok(read_back(&y))
 }
 
-/// The transpose of a row-major `rows × cols` matrix. `O(rows·cols)` time and space.
-pub(super) fn transpose(m: &[f64], rows: usize, cols: usize) -> Vec<f64> {
-    let mut t = vec![0.0f64; rows * cols];
-    for r in 0..rows {
-        for c in 0..cols {
-            t[c * rows + r] = m[r * cols + c];
+/// One output row of a transpose; the caller's chunk is a whole row.
+struct TransposeTask<'a, T> {
+    m: &'a [T],
+    rows: usize,
+    cols: usize,
+}
+
+impl<T: Copy + Send + Sync> ChunkTask<T> for TransposeTask<'_, T> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [T]) {
+        let r = start / self.cols;
+        for (c, slot) in piece.iter_mut().enumerate() {
+            *slot = self.m[c * self.rows + r];
         }
+    }
+}
+
+/// # Complexity
+/// Transpose of a row-major `rows × cols` matrix, one output row per pool task: `rows·cols` copies
+/// per call, pooled; an `n × n` transpose at production `n = 4864` is `2.4·10^7` copies, two calls
+/// per [`had_gram`]. Spatial: `rows·cols` words.
+fn transpose_grid(m: &[i64], rows: usize, cols: usize) -> Vec<i64> {
+    let mut t = vec![0i64; rows * cols];
+    if rows > 0 && cols > 0 {
+        chunks_mut_global(&mut t, cols, &TransposeTask { m, rows, cols });
     }
     t
 }
 
-/// The congruent Gram `R·H·R` where `R` is the block-diagonal `H₁₂₈/√128` (`h` an `n × n` matrix,
-/// row-major, `n = G·128`): transform the columns of `h` (right multiply by `R`), then its rows
-/// (left multiply by `R`). `R` orthogonal makes the congruence norm-preserving; the script's
-/// `had_gram(H) = fwht128(fwht128(H).T).T` is this same matrix.
+/// # Complexity
+/// [`transpose_grid`]'s `f64` face (a pure copy): `O(rows·cols)` word copies and words of output.
+pub(super) fn transpose(m: &[f64], rows: usize, cols: usize) -> Vec<f64> {
+    let mut t = vec![0.0f64; rows * cols];
+    if rows > 0 && cols > 0 {
+        chunks_mut_global(&mut t, cols, &TransposeTask { m, rows, cols });
+    }
+    t
+}
+
+/// The congruent Gram `R·H·R`, `R` the block-diagonal `H₁₂₈/√128`: two transforms about a transpose.
 ///
 /// # Errors
-///
-/// [`StepsError::ShapeMismatch`] if `h.len() != n·n`, `n == 0`, or `n` is not a multiple of
-/// [`GROUP`].
+/// [`StepsError::ShapeMismatch`] from a transform.
 ///
 /// # Complexity
+/// Temporal: `O(n²·log 128)` — `7` stages over each of the `n²/128` row-blocks and column-blocks,
+/// pooled. Spatial: `O(n²)` words per copy and transpose.
+fn had_gram_grid(h: &[i64], n: usize) -> Result<Vec<i64>, StepsError> {
+    let mut t = h.to_vec();
+    fwht_grid(&mut t)?;
+    let mut u = transpose_grid(&t, n, n);
+    fwht_grid(&mut u)?;
+    Ok(transpose_grid(&u, n, n))
+}
+
+/// The `f64` face of [`had_gram_grid`]; the script's `had_gram(H) = fwht128(fwht128(H).T).T`.
 ///
-/// Temporal: `O(n²·log 128)` — `7` butterfly stages over each of the `n²/128` row-blocks and the
-/// `n²/128` column-blocks. Spatial: `O(n²)` f64 words for the copy and the transpose.
+/// # Errors
+/// [`StepsError::ShapeMismatch`] on a length, a non-multiple `n`, a grid-range or a transform refusal.
+///
+/// # Complexity
+/// Temporal: `O(n²·log 128)` plus two boundary maps; spatial `O(n²)` words.
 pub fn had_gram(h: &[f64], n: usize) -> Result<Vec<f64>, StepsError> {
     if n == 0 || !n.is_multiple_of(GROUP) || h.len() != n * n {
         return Err(StepsError::ShapeMismatch);
     }
-    // Rows: h ← h·R.
-    let mut t = h.to_vec();
-    fwht_in_place(&mut t);
-    // Columns: transpose, transform rows, transpose back → R·h·R.
-    let mut u = transpose(&t, n, n);
-    fwht_in_place(&mut u);
-    Ok(transpose(&u, n, n))
+    let g = to_grid_vec(h)?;
+    Ok(read_back(&had_gram_grid(&g, n)?))
 }
 
-/// The reconstruction `compose(S, r, c)[o,i] = S[o,i]·r[o, i/128]·c[i]`, `O × n` row-major. `S` is
-/// `O × n`, `r` is `O × G` (`G = n / 128`) and `c` is length `n`.
+/// # Complexity
+/// `B[o,i] = s[o,i]·r[o, i/128]`: `O(o·n)` rounded multiplies, `O(o·n)` words of output.
+fn group_scale(s: &[i64], r: &[i64], o: usize, n: usize, g: usize) -> Result<Vec<i64>, StepsError> {
+    let mut b = vec![0i64; o * n];
+    for oo in 0..o {
+        for i in 0..n {
+            b[oo * n + i] = mul_word(s[oo * n + i], r[oo * g + i / GROUP])?;
+        }
+    }
+    Ok(b)
+}
+
+/// # Complexity
+/// [`group_scale`] then the column scale (`s·r` then `(s·r)·c`): two `O(o·n)` passes, `O(o·n)` words.
+fn compose_grid(
+    s: &[i64],
+    r: &[i64],
+    c: &[i64],
+    o: usize,
+    n: usize,
+    g: usize,
+) -> Result<Vec<i64>, StepsError> {
+    col_scale(&group_scale(s, r, o, n, g)?, c, n)
+}
+
+/// The reconstruction `compose(S, r, c)[o,i] = S[o,i]·r[o, i/128]·c[i]`, `O × n` row-major: `S` is
+/// `O × n`, `r` is `O × G` and `c` is length `n`, each entry the three-word product rounded once.
 ///
 /// # Errors
-///
-/// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], or the slice
-/// lengths disagree with `O × n`, `O × G`, `n`.
+/// [`StepsError::ShapeMismatch`] on a shape, length or grid-range refusal.
 ///
 /// # Complexity
-///
-/// Temporal: `O(O·n)` multiply-adds. Spatial: `O(O·n)` f64 words for the output.
+/// Temporal: `O(O·n)` rounded multiplies. Spatial: `O(O·n)` words.
 pub fn compose(
     s: &[f64],
     r: &[f64],
@@ -305,120 +475,119 @@ pub fn compose(
     if s.len() != o * n || r.len() != o * g || c.len() != n {
         return Err(StepsError::ShapeMismatch);
     }
-    let mut w = vec![0.0f64; o * n];
-    for oi in 0..o {
-        for i in 0..n {
-            w[oi * n + i] = s[oi * n + i] * r[oi * g + i / GROUP] * c[i];
+    let s_g = to_grid_vec(s)?;
+    let r_g = to_grid_vec(r)?;
+    let c_g = to_grid_vec(c)?;
+    Ok(read_back(&compose_grid(&s_g, &r_g, &c_g, o, n, g)?))
+}
+
+/// # Complexity
+/// `x ⊙ c`, `c` broadcast down the columns: `O(len)` rounded multiplies, `O(len)` words.
+fn col_scale(x: &[i64], c: &[i64], n: usize) -> Result<Vec<i64>, StepsError> {
+    let mut out = vec![0i64; x.len()];
+    for i in 0..x.len() {
+        out[i] = mul_word(x[i], c[i % n])?;
+    }
+    Ok(out)
+}
+
+/// # Complexity
+/// `hl ⊙ c cᵀ`, one rounding per factor: `O(n²)` rounded multiplies, `O(n²)` words of output.
+fn metric_scale(hl: &[i64], c: &[i64], n: usize) -> Result<Vec<i64>, StepsError> {
+    let mut out = vec![0i64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            out[i * n + j] = mul_word(mul_word(hl[i * n + j], c[i])?, c[j])?;
         }
     }
-    Ok(w)
+    Ok(out)
 }
 
-/// The metric objective `J(Ws, Wp, Hl) = Σ_{o,i,j} D[o,i]·Hl[i,j]·D[o,j] = tr(D·Hl·Dᵀ)` with
-/// `D = Ws − Wp`. `ws`, `wp` are `O × n` row-major; `hl` is `n × n`. The product `D·Hl` is
-/// [`mul_metric`] (the shared `Q32.32` product [`gemm_nn_f64`]); the trace is one `f64` dot.
-///
-/// # Errors
-///
-/// [`StepsError::ShapeMismatch`] if the slice lengths disagree with `O × n`, `O × n`, `n × n`, or
-/// if [`mul_metric`] refuses `D` or `hl`. Never a panic.
-///
 /// # Complexity
-///
-/// Temporal: [`mul_metric`] at `m = O`, `k = n`, `n = n` (`O(O·n²)` multiply-adds, pooled), then
-/// `O(O·n)` for the dot. Spatial: `O(O·n)` for `D` and `D·Hl`.
-pub fn objective(
-    ws: &[f64],
-    wp: &[f64],
-    hl: &[f64],
-    o: usize,
-    n: usize,
-) -> Result<f64, StepsError> {
-    if ws.len() != o * n || wp.len() != o * n || hl.len() != n * n {
-        return Err(StepsError::ShapeMismatch);
+/// `b[i] = Σ_o x[o,i]·y[o,i]·w[o]`, each `x·y` rounded once: `O(o·n)` multiplies, `O(n)` words.
+fn rhs_grid(x: &[i64], y: &[i64], w: &[i64], o: usize, n: usize) -> Result<Vec<i64>, StepsError> {
+    let mut out = vec![0i64; n];
+    for i in 0..n {
+        let mut acc = 0i128;
+        for oo in 0..o {
+            let p = mul_word(x[oo * n + i], y[oo * n + i])?;
+            acc = i128::from(p)
+                .checked_mul(i128::from(w[oo]))
+                .and_then(|v| acc.checked_add(v))
+                .ok_or(StepsError::ShapeMismatch)?;
+        }
+        out[i] = round_q64(acc)?;
     }
-    let d: Vec<f64> = ws.iter().zip(wp).map(|(a, b)| a - b).collect();
-    let y = mul_metric(&d, hl, o, n)?;
-    Ok(d.iter().zip(&y).map(|(a, b)| a * b).sum())
+    Ok(out)
 }
 
-/// The per-group scale `B[o,i] = s[o,i]·r[o, i/128]` of an `O × n` sign matrix and an `O × G` scale.
-/// `O(O·n)` time and space.
-fn group_scale(s: &[f64], r: &[f64], o: usize, n: usize, g: usize) -> Vec<f64> {
-    let mut b = vec![0.0f64; o * n];
+/// # Complexity
+/// `t[o,g] = Σ_k p[o,g·128+k]·wshl[o,g·128+k]`: `O(o·n)` checked multiplies, `O(o·G)` words.
+fn t_rows(p: &[i64], wshl: &[i64], o: usize, n: usize, g: usize) -> Result<Vec<i64>, StepsError> {
+    let mut t = vec![0i64; o * g];
     for oo in 0..o {
-        for i in 0..n {
-            b[oo * n + i] = s[oo * n + i] * r[oo * g + i / GROUP];
+        for gg in 0..g {
+            let mut acc = 0i128;
+            for k in 0..GROUP {
+                let idx = oo * n + gg * GROUP + k;
+                acc = i128::from(p[idx])
+                    .checked_mul(i128::from(wshl[idx]))
+                    .and_then(|v| acc.checked_add(v))
+                    .ok_or(StepsError::ShapeMismatch)?;
+            }
+            t[oo * g + gg] = round_q64(acc)?;
         }
     }
-    b
+    Ok(t)
 }
 
-/// `Ws·Hl`, `O × n` row-major (`ws` is `O × n`, `hl` is `n × n`), through the shared `Q32.32`
-/// product [`gemm_nn_f64`]: the operand scale rule, the grid rounding and the exact undo are its.
-///
-/// # Errors
-///
-/// [`StepsError::ShapeMismatch`] if a length disagrees, a value is non-finite or beyond the
-/// [`gemm_nn_f64`] bound, or the product leaves `f64` ([`map_gemm`]). Never a panic.
-///
 /// # Complexity
-///
-/// As [`gemm_nn_f64`] at `m = O`, `k = n`, `n = n`, on the engine pool.
-pub fn mul_metric(ws: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec<f64>, StepsError> {
-    if ws.len() != o * n || hl.len() != n * n {
-        return Err(StepsError::ShapeMismatch);
+/// Accumulate one group's `kg·p` into the `[gg][o][gg2]` bands: `O(o·n)` checked multiply-adds.
+fn m_band(band: &mut [i128], kg: &[i64], p: &[i64], n: usize, g: usize) -> Result<(), StepsError> {
+    for oo in 0..band.len() / g {
+        for gg2 in 0..g {
+            let mut acc = band[oo * g + gg2];
+            for k in 0..GROUP {
+                let idx = oo * n + gg2 * GROUP + k;
+                acc = i128::from(kg[idx])
+                    .checked_mul(i128::from(p[idx]))
+                    .and_then(|v| acc.checked_add(v))
+                    .ok_or(StepsError::ShapeMismatch)?;
+            }
+            band[oo * g + gg2] = acc;
+        }
     }
-    if o == 0 || n == 0 {
-        return Ok(vec![0.0f64; o * n]);
-    }
-    gemm_nn_f64(ws, hl, o, n, n).map_err(map_gemm)
+    Ok(())
 }
 
-/// The `c_step`: one exact update of the per-column scale against the metric `Hl`, holding `S` and
-/// `r`. Solves `A·c = b` with `Sh = S⊙r_rep`, `Sh_g = Sh⊙g_row`,
-/// `A[i,j] = Hl[i,j]·Σ_o Sh[o,i]·Sh_g[o,j]` and `b[i] = Σ_o (Ws·Hl)[o,i]·Sh_g[o,i]`, adding the
-/// ridge `1e-12·mean(diag(A))` to the diagonal. `g_row[i]` is the row weight (`1` when `None`).
+/// The `c_step`: one exact update of the per-column scale against `Hl`, holding `S` and `r`.
+/// Solves `A·c = b` with `Sh = S⊙r_rep`, `A[i,j] = Hl[i,j]·Σ_o g[o]·Sh[o,i]·Sh[o,j]` and
+/// `b[i] = Σ_o (Ws·Hl)[o,i]·Sh[o,i]·g[o]`, adding the ridge `1e-12·mean(diag(A))`; `g_row` is the
+/// row weight (`1` when `None`). `A` is symmetric, so the `Cholesky` solve is valid; when
+/// `Ws = compose(S, r, c0)` the un-ridged system has `c0` as its exact solution.
 ///
-/// `A` is symmetric — `Σ_o g_row[o]·Sh[o,i]·Sh[o,j]` and `Hl` are — so the `Cholesky` solve is valid.
-/// When `Ws = compose(S, r, c0)` the un-ridged system has `c0` as its exact solution; the ridge moves
-/// the returned `c` off `c0` by `λ·(A+λI)⁻¹c0`.
+/// # The algebra of `A` across steps
+/// `A` depends on `S`, `r`, the row weight and `Hl` only — not on `c` or `Ws` — so two `c_step`s
+/// with the same `(S, r, g, Hl)` are the same system bit for bit. A diagonal similarity
+/// `A' = D A D`, `D = diag(ρ_{i/128})`, would need `r'[o,gg] = ρ_gg·r[o,gg]` for every out row,
+/// and `r_step` solves one system per row, so the ratios are row-dependent and no such `ρ` exists.
+/// With `Δ = Sh' − Sh` the weighted Gram changes by `Shᵀ diag(g) Δ + Δᵀ diag(g) Sh + Δᵀ diag(g) Δ`,
+/// a rank `≤ 2·min(o, n)` update (`n` once `o ≥ n/2`), and `A' − A = Hl ⊙ (G' − G)`; the Hadamard
+/// factor does not preserve rank. Each step factors its own `A`.
 ///
 /// # The `Q32.32` boundary
-///
-/// The metric product `Ws·Hl` is [`mul_metric`] over the shared product [`gemm_nn`]; the
-/// `A`-formation and the solve are the shared primitives [`wsyrk`], [`hadamard_into`] and
-/// [`chol_solve`], not a second copy of the same math. This step stays `f64`; the primitives are
-/// `Q32.32`, so the boundary is: `Ws`, `Hl`, `Sh`, the row weight and `b` are rounded to
-/// `round(x·2³²)` (`Ws` and `Hl` after [`mul_metric`]'s exact power-of-two operand scale, undone on
-/// its read-back); `wsyrk` forms the weighted Gram (the `hl` factor applied by `hadamard_into`) and
-/// `chol_solve` takes it with the grid right-hand side `b`; the returned `c` is read back with
-/// `v/2³²`. The ridge `1e-12·mean(diag A)` is added on the grid diagonal, so a ridge below one raw
-/// unit (`2⁻³² ≈ 2.3e-10`) is inert — the grid's resolution is the floor; a positive ridge is kept
-/// at one raw unit so the diagonal stays positive. A non-finite or out-of-bound value is refused at
-/// the boundary, never wrapped.
-///
-/// The `Sh` magnitudes set the grid scale: `wsyrk`'s input bound is `|x| < 2³⁶` raw, so the panel
-/// is multiplied by the exact power of two `2⁻ᵏ`, `k` read from `max|Sh|` (the least `k` with
-/// `max|Sh|·2⁻ᵏ ≤ 8`). The panel scaling propagates as `A → A·2⁻²ᵏ` and `b → b·2⁻ᵏ`, so the
-/// solution is `c·2ᵏ` and is scaled back by `2⁻ᵏ` before it is returned; `k = 0` when the panel is
-/// already within `8`, which leaves the tests and the production fixture unscaled. The primitives
-/// run on the engine pool; the result is bit-identical to the serial body.
+/// `A` and `b` are built **directly on the grid**: `Sh` and `b` are words, no `f64` panel. The ridge
+/// is `2⁻⁶²` fixed point ([`ridge_word`]) on the grid diagonal, floored at one raw unit where
+/// positive. `A` and `b` carry the exact `2⁻²ᵏ`/`2⁻ᵏ` shift with `k` from `max|Sh|`, the solution
+/// `c·2ᵏ` is shifted back, and the row-weight shift cancels.
 ///
 /// # Errors
-///
-/// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], a slice length
-/// disagrees, `g_row` is present with the wrong length, or a value is non-finite or beyond the
-/// boundary bound (`Ws`/`Hl`/`Sh` at `2³⁶` raw, `b` at the grid `i64` range; `g_row` is shifted
-/// into the bound by [`g_row_shifted_grid`] and refused only when it is non-finite);
-/// [`StepsError::NotPositiveDefinite`] if the diagonal metric reduces to a non-SPD `A` (a non-SPD
-/// `hl`).
+/// [`StepsError::ShapeMismatch`] on a shape, length, grid-range or overflow refusal;
+/// [`StepsError::NotPositiveDefinite`] if the metric reduces to a non-SPD `A`.
 ///
 /// # Complexity
-///
-/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (on the engine pool
-/// workers) plus [`c_step_wshl`]'s cost, which is this body without that product. Spatial:
-/// `O(O·n)` for the product plus [`c_step_wshl`]'s footprint.
+/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (pooled) plus [`c_step_wshl`]'s cost.
+/// Spatial: `O(O·n)` words for the product plus [`c_step_wshl`]'s footprint.
 pub fn c_step(
     ws: &[f64],
     hl: &[f64],
@@ -432,36 +601,18 @@ pub fn c_step(
     c_step_wshl(ws, hl, &wshl, s, r, o, n, g_row)
 }
 
-/// The [`c_step`] body with the metric product `Ws·Hl` supplied by the caller in place of the
-/// internal [`mul_metric`] call: [`c_step`] is this function plus one `mul_metric`. `wshl` is
-/// `O × n` row-major and must equal `mul_metric(ws, hl, o, n)`; the caller ships the same `ws`, `hl`,
-/// `o`, `n`. The rest of the step — `Sh`, the panel scale, the `Q32.32` grid boundary, the `wsyrk`
-/// weighted Gram, the `hl` hadamard factor, the ridge and the return — is unchanged, so a caller that
-/// hoists one product across repeated steps returns the same vector bit-for-bit as [`c_step`].
+/// The [`c_step`] body with `wshl = mul_metric(ws, hl, o, n)` supplied: the same body, so a hoisted
+/// product returns [`c_step`]'s vector bit for bit.
 ///
 /// # Errors
-///
-/// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], a slice length
-/// disagrees with the declared shape (including `wshl.len() != o·n`), `g_row` is present with the
-/// wrong length, or a value is non-finite or beyond the boundary bound (`Sh` at `2³⁶` raw,
-/// `hl`/`b` at the grid `i64` range; `g_row` is shifted into the bound by [`g_row_shifted_grid`]
-/// and refused only when it is non-finite); [`StepsError::NotPositiveDefinite`] if the diagonal metric
-/// reduces to a non-SPD `A`.
+/// [`StepsError::ShapeMismatch`] on a shape, length, grid-range or overflow refusal;
+/// [`StepsError::NotPositiveDefinite`] if the reduced `A` is not SPD.
 ///
 /// # Complexity
-///
-/// Temporal: `O(O·n²/2)` for the `wsyrk` weighted Gram `A` measured in checked `i128`
-/// multiply-accumulates (the upper triangle, mirrored), `O(n²)` for the `hl` hadamard factor,
-/// `O(O·n)` for `b`, and `O(n³/3 + n²)` for the `chol_solve` factor and refinement measured in
-/// checked `i128` multiply-accumulates — the `Ws·Hl` product is the caller's, not this body's.
-/// Spatial: `O(n²)` for the grid `A` (plus the `chol_solve` working copies and factor) and `O(O·n)`
-/// for `Sh` and `b`.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the step is handed the metric, the precomputed metric product, the sign matrix, the \
-              per-group scale, the row weights and the geometry; bundling them would only relocate \
-              the fields."
-)]
+/// Temporal: one `wsyrk` at `O(O·n²/2)` checked multiply-accumulates, one `hadamard_into` at `O(n²)`,
+/// one `rhs_grid` at `O(O·n)`, one `chol_solve` at `O(n³/3 + n²)`, `O(O·n²)` for the `Sh` scan. The
+/// four primitives pool inside their own drivers; the drivers here stay serial (a nested dispatch
+/// would deadlock). Spatial: `O(n²)` for `A` and `O(O·n)` for `Sh`/`b`.
 pub fn c_step_wshl(
     ws: &[f64],
     hl: &[f64],
@@ -484,103 +635,50 @@ pub fn c_step_wshl(
     {
         return Err(StepsError::ShapeMismatch);
     }
-    if let Some(gr) = g_row {
-        if gr.len() != o {
-            return Err(StepsError::ShapeMismatch);
-        }
+    if g_row.is_some_and(|gr| gr.len() != o) {
+        return Err(StepsError::ShapeMismatch);
     }
-    let mut b_sh = group_scale(s, r, o, n, g);
-    // The row weight carries its own exact power-of-two shift into the input bound (see
-    // [`g_row_shifted_grid`]); the same factor is applied to the right-hand-side weight below.
-    let (gr_grid, g_scale) = match g_row {
-        Some(gr) => {
-            let (grid, f) = g_row_shifted_grid(gr)?;
-            (Some(grid), f)
-        }
-        None => (None, 1.0),
-    };
-    let weight = |oo: usize| g_row.map_or(1.0f64, |gr| gr[oo] * g_scale);
-    // Scale the panel by the exact power of two `2⁻ᵏ` so it meets the `wsyrk` input bound
-    // `|x| < 2³⁶` raw; `k` is read from `max|Sh|` (see [`panel_shift`]). The scaling is undone on
-    // the returned `c` (`A → A·2⁻²ᵏ`, `b → b·2⁻ᵏ`, so the solution is `c·2ᵏ`).
-    let k = panel_shift(b_sh.iter().fold(0.0f64, |m, v| m.max(v.abs())));
-    if k != 0 {
-        let f = 2f64.powi(-k);
-        for v in &mut b_sh {
-            *v *= f;
-        }
+    let s_g = to_grid_vec(s)?;
+    let r_g = to_grid_vec(r)?;
+    let hl_g = to_grid_vec(hl)?;
+    let w_g = to_grid_vec(wshl)?;
+    // Sh = S⊙r_rep on the grid, then the exact `2⁻ᵏ` panel shift into the `wsyrk` bound.
+    let mut sh = group_scale(&s_g, &r_g, o, n, g)?;
+    let k = panel_shift_words(max_mag(&sh));
+    shift_in_place(&mut sh, k)?;
+    // The row weight carries its own exact power-of-two shift; `1` is the raw unit.
+    let gr_g = row_weight(g_row, o)?;
+    // A = hl ⊙ (Shᵀ diag(g_row) Sh) on the grid; nothing here is `f64`.
+    let mut a = wsyrk(&sh, Some(&gr_g), o, n).map_err(map_syrk)?;
+    hadamard_into(&mut a, &hl_g).map_err(map_syrk)?;
+    // The ridge `eps·mean(diag A)` on the grid diagonal.
+    let mean = diag_sum(&a, n) / n as i128;
+    let mut ridge = ridge_word(mean)?;
+    if mean > 0 && ridge == 0 {
+        ridge = 1;
     }
-    // f64 → Q32.32 grid at the boundary: the panel and the row weight at `wsyrk`'s input bound, the
-    // metric and the right-hand side at the grid's `i64` range.
-    let sh_grid: Vec<i64> = b_sh
-        .iter()
-        .map(|&x| to_grid(x, INPUT_BOUND))
-        .collect::<Result<Vec<i64>, StepsError>>()?;
-    let hl_grid: Vec<i64> = hl
-        .iter()
-        .map(|&x| to_grid(x, GRID_BOUND))
-        .collect::<Result<Vec<i64>, StepsError>>()?;
-    // A = hl ⊙ (Shᵀ diag(g_row) Sh): the weighted Gram by [`wsyrk`], the `hl` factor by
-    // [`hadamard_into`].
-    let mut a = wsyrk(&sh_grid, gr_grid.as_deref(), o, n).map_err(map_syrk)?;
-    hadamard_into(&mut a, &hl_grid).map_err(map_syrk)?;
-    // The ridge `1e-12·mean(diag A)` in the scaled system (`mean(diag A)` shares the `2⁻²ᵏ`
-    // factor, so it cancels), at the grid quantum; a positive ridge is floored at one raw unit so
-    // the diagonal stays positive.
-    let mut dmean = 0.0f64;
-    for i in 0..n {
-        dmean += from_grid(a[i * n + i]);
-    }
-    dmean /= n as f64;
-    let ridge = EPS * dmean;
-    let mut ridge_raw = (ridge * GRID_SCALE).round() as i64;
-    if ridge > 0.0 && ridge_raw == 0 {
-        ridge_raw = 1;
-    }
-    for i in 0..n {
-        let diag = a[i * n + i];
-        a[i * n + i] = diag
-            .checked_add(ridge_raw)
-            .ok_or(StepsError::ShapeMismatch)?;
-    }
-    // b[i] = Σ_o (Ws·Hl)[o,i]·Sh_g[o,i]·g_row[o], on the scaled panel; then to the grid at the
-    // `i64` range.
-    let mut rhs = vec![0.0f64; n];
-    for i in 0..n {
-        let mut acc = 0.0f64;
-        for oo in 0..o {
-            acc += wshl[oo * n + i] * b_sh[oo * n + i] * weight(oo);
-        }
-        rhs[i] = acc;
-    }
-    let b_grid: Vec<i64> = rhs
-        .iter()
-        .map(|&x| to_grid(x, GRID_BOUND))
-        .collect::<Result<Vec<i64>, StepsError>>()?;
-    let solved = chol_solve(&a, &b_grid, n, 1).map_err(map_solve)?;
-    // Undo the `2⁻ᵏ` panel scale on the solution.
-    let back = if k == 0 { 1.0 } else { 2f64.powi(-k) };
-    Ok(solved.x.iter().map(|&v| from_grid(v) * back).collect())
+    add_ridge(&mut a, n, ridge)?;
+    // b = Σ_o (Ws·Hl)⊙Sh·g_row, built on the grid.
+    let b = rhs_grid(&w_g, &sh, &gr_g, o, n)?;
+    let solved = chol_solve(&a, &b, n, 1).map_err(map_solve)?;
+    let mut out = solved.x;
+    shift_in_place(&mut out, k)?;
+    Ok(read_back(&out))
 }
 
-/// The `r_step`: one exact update of the per-group scale `r` (`O × G`), holding the un-rotated sign
-/// matrix `S` and the column scale `c`. Per out row `o` it solves the `G × G` SPD system
-/// `M[o]·r[o] = t[o]` with `P[o,g,k] = S[o,g·128+k]·c[g·128+k]`,
-/// `M[o,g,g'] = Σ_{k,k'} P[o,g,k]·Hl[g·128+k, g'·128+k']·P[o,g',k']` and
-/// `t[o,g] = Σ_k P[o,g,k]·(Ws·Hl)[o, g·128+k]`, adding the ridge `1e-12·mean(diag(M[o]))`.
-///
+/// The `r_step`: one exact update of the per-group scale `r` (`O × G`), holding `S` and `c`. Per out
+/// row `o` it solves the `G × G` SPD system `M[o]·r[o] = t[o]` with
+/// `P[o,g,k] = S[o,g·128+k]·c[g·128+k]`, `M[o,g,g'] = Σ_{k,k'} P[o,g,k]·Hl[g·128+k, g'·128+k']·P[o,g',k']`
+/// and `t[o,g] = Σ_k P[o,g,k]·(Ws·Hl)[o, g·128+k]`, adding the ridge `1e-12·mean(diag(M[o]))`.
 /// When `Ws = compose(S, r0, c)` each `r0[o]` is the un-ridged solution of its system.
 ///
 /// # Errors
-///
-/// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], or a slice length
-/// disagrees; [`StepsError::NotPositiveDefinite`] if a reduced `M[o]` is not SPD (a non-SPD `hl`).
+/// [`StepsError::ShapeMismatch`] on a shape or length refusal;
+/// [`StepsError::NotPositiveDefinite`] if a reduced `M[o]` is not SPD.
 ///
 /// # Complexity
-///
-/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (on the engine pool
-/// workers) plus [`r_step_wshl`]'s cost, which is this body without that product. Spatial:
-/// `O(O·n)` for the product plus [`r_step_wshl`]'s footprint.
+/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (pooled) plus [`r_step_wshl`]'s cost.
+/// Spatial: `O(O·n)` words plus [`r_step_wshl`]'s footprint.
 pub fn r_step(
     ws: &[f64],
     hl: &[f64],
@@ -593,26 +691,18 @@ pub fn r_step(
     r_step_wshl(ws, hl, &wshl, s, c, o, n)
 }
 
-/// The [`r_step`] body with the metric product `Ws·Hl` supplied by the caller in place of the
-/// internal [`mul_metric`] call: [`r_step`] is this function plus one `mul_metric`. `wshl` is
-/// `O × n` row-major and must equal `mul_metric(ws, hl, o, n)`; the caller ships the same `ws`, `hl`,
-/// `o`, `n`. The rest of the step — `P = S⊙c_rep`, the per-group [`gemm_nn_f64`] panels, the `M`
-/// systems, the ridge and the per-row solves — is unchanged, so a caller that hoists one product
-/// across repeated steps returns the same vector bit-for-bit as [`r_step`].
+/// The [`r_step`] body with `wshl = mul_metric(ws, hl, o, n)` supplied: the same body, so a hoisted
+/// product returns [`r_step`]'s vector bit for bit.
 ///
 /// # Errors
-///
-/// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], or a slice length
-/// disagrees (including `wshl.len() != o·n`); [`StepsError::NotPositiveDefinite`] if a reduced `M[o]`
-/// is not SPD (a non-SPD `hl`).
+/// [`StepsError::ShapeMismatch`] on a shape, length, grid-range or overflow refusal;
+/// [`StepsError::NotPositiveDefinite`] if a reduced `M[o]` is not SPD.
 ///
 /// # Complexity
-///
-/// Temporal: `G` shared products [`gemm_nn_f64`] at `m = O`, `k = 128`, `n = n` (`O(O·128·n)`
-/// multiply-adds each, `O(O·n²)` in all, on the engine pool), `O(O·n)` for each
-/// group's accumulation into `M` (`O(O·G·n)` in all) and for `t`, and `O(O·G³)` for the per-row
-/// solves — the `Ws·Hl` product is the caller's, not this body's. Spatial: `O(O·n)` for `P`, the
-/// panel and the group product, `O(O·G²)` for the systems and `O(O·G)` output.
+/// Temporal: `G` `gemm_nn` calls at `m = O`, `k = 128`, `n = n` (`O(O·n²)` in all, pooled), the
+/// `t`/`M` accumulations at `O(O·n)`, and `O(O·G³)` for the per-row solves (`chol_solve` pools the
+/// factor; its driver is serial here). Spatial: `O(O·n)` words for `P` and the panel, `O(O·G²)`
+/// `i128` for the systems and `O(O·G)` output.
 pub fn r_step_wshl(
     ws: &[f64],
     hl: &[f64],
@@ -634,55 +724,57 @@ pub fn r_step_wshl(
     {
         return Err(StepsError::ShapeMismatch);
     }
-    let mut out = vec![0.0f64; o * g];
     if o == 0 {
-        return Ok(out);
+        return Ok(Vec::new());
     }
-    let p: Vec<f64> = s.iter().zip(c.iter().cycle()).map(|(a, b)| a * b).collect();
-    let mut t = vec![0.0f64; o * g];
-    for oo in 0..o {
-        for idx in 0..n {
-            t[oo * g + idx / GROUP] += p[oo * n + idx] * wshl[oo * n + idx];
-        }
-    }
-    // `M[o,gg,gg2] = Σ_{k∈gg2} (P[o, block gg]·Hl[block gg, :])[k]·P[o,k]`: per group `gg` one
-    // shared product of the `O × 128` panel of `P` with the contiguous `128 × n` rows of `Hl`.
-    let mut ms = vec![0.0f64; o * g * g];
-    let mut panel = vec![0.0f64; o * GROUP];
-    for gg in 0..g {
+    let s_g = to_grid_vec(s)?;
+    let c_g = to_grid_vec(c)?;
+    let hl_g = to_grid_vec(hl)?;
+    let w_g = to_grid_vec(wshl)?;
+    // P = S⊙c and `Hl` scaled once: `M' = M·2⁻⁽²ᵏᵖ⁺ᵏʰ⁾`, `t' = t·2⁻ᵏᵖ`, so the solution carries
+    // `2^⁽ᵏᵖ⁺ᵏʰ⁾` and is shifted back at the end.
+    let mut p = col_scale(&s_g, &c_g, n)?;
+    let kp = panel_shift_words(max_mag(&p));
+    shift_in_place(&mut p, kp)?;
+    let kh = panel_shift_words(max_mag(&hl_g));
+    let hl_s = shift_copy(&hl_g, kh)?;
+    let t = t_rows(&p, &w_g, o, n, g)?;
+    // M per out row in `Q64.64`: `ms[gg][o][gg2]`, so a group band is contiguous across rows.
+    let mut ms = vec![0i128; g * o * g];
+    let mut panel = vec![0i64; o * GROUP];
+    let mut gg = 0;
+    while gg < g {
         for oo in 0..o {
             panel[oo * GROUP..(oo + 1) * GROUP]
                 .copy_from_slice(&p[oo * n + gg * GROUP..oo * n + (gg + 1) * GROUP]);
         }
-        let kg = gemm_nn_f64(
+        let kg = gemm_nn(
             &panel,
-            &hl[gg * GROUP * n..(gg + 1) * GROUP * n],
+            &hl_s[gg * GROUP * n..(gg + 1) * GROUP * n],
             o,
             GROUP,
             n,
         )
         .map_err(map_gemm)?;
-        for oo in 0..o {
-            for idx in 0..n {
-                ms[(oo * g + gg) * g + idx / GROUP] += kg[oo * n + idx] * p[oo * n + idx];
+        m_band(&mut ms[gg * o * g..(gg + 1) * o * g], &kg, &p, n, g)?;
+        gg += 1;
+    }
+    // The per-row solves: the driver is serial (see the complexity note), the factor is pooled.
+    let mut out = vec![0i64; o * g];
+    let mut m = vec![0i64; g * g];
+    for oo in 0..o {
+        for r0 in 0..g {
+            for c0 in 0..g {
+                m[r0 * g + c0] = round_q64(ms[(r0 * o + oo) * g + c0])?;
             }
         }
+        let ridge = ridge_word(diag_sum(&m, g) / g as i128)?;
+        add_ridge(&mut m, g, ridge)?;
+        let solved = chol_solve(&m, &t[oo * g..(oo + 1) * g], g, 1).map_err(map_solve)?;
+        out[oo * g..(oo + 1) * g].copy_from_slice(&solved.x);
     }
-    for oo in 0..o {
-        let m = &mut ms[oo * g * g..(oo + 1) * g * g];
-        let mut dmean = 0.0f64;
-        for gg in 0..g {
-            dmean += m[gg * g + gg];
-        }
-        dmean /= g as f64;
-        let ridge = EPS * dmean;
-        for gg in 0..g {
-            m[gg * g + gg] += ridge;
-        }
-        let sol = solve_spd(m, &t[oo * g..(oo + 1) * g], g, 1).map_err(map_ridge)?;
-        out[oo * g..(oo + 1) * g].copy_from_slice(&sol);
-    }
-    Ok(out)
+    shift_in_place(&mut out, kp + kh)?;
+    Ok(read_back(&out))
 }
 
 /// The `d_step`: the exact Hadamard-domain column-scale minimizer, holding `S_rot`, `r` and `c`.
@@ -690,45 +782,26 @@ pub fn r_step_wshl(
 /// `H_rot = had_gram(Hl⊙c cᵀ)`, `A[i,j] = H_rot[i,j]·Σ_o B[o,i]·B_g[o,j]` and
 /// `b[i] = Σ_o B_g[o,i]·G_rot[o,i]`, adding the ridge `1e-12·max(mean(diag(A)), 1e-12)`.
 ///
-/// The forward model it minimizes is `recon(d) = compose(fwht128(S_rot⊙d), r, c)` — the script's
-/// `run_variant` refit (`spec/fold_transfer.py:886`). Because `r_rep` is constant on each 128-block
-/// and `fwht128` is block-local, `r` commutes with the transform, so
-/// `recon(d) = compose(fwht128(B⊙d), ones, c)` and `A`, `b` are the gradient of `J(Ws, recon(d), Hl)`.
+/// The forward model is `recon(d) = compose(fwht128(S_rot⊙d), r, c)` (`spec/fold_transfer.py:886`).
+/// Since `r_rep` is constant on each 128-block and `fwht128` is block-local, `r` commutes with the
+/// transform, so `recon(d) = compose(fwht128(B⊙d), ones, c)` and `A`, `b` are the gradient of
+/// `J(Ws, recon(d), Hl)`. `A` depends on `c` via `H_rot` and on `r` via `B`; every alternation
+/// changes `c`, so no consecutive `d_step` pair shares the matrix (contrast [`c_step`]'s note).
 ///
 /// # The `Q32.32` boundary
-///
-/// The `A`-formation and the solve are the shared primitives [`wsyrk`] (the weighted Gram
-/// `Bᵀ diag(g_row) B`), [`hadamard_into`] (the rotated metric `H_rot` as the elementwise factor) and
-/// [`chol_solve`], not a second copy of the same math. There is no `f64` `A` loop and no
-/// [`solve_spd`] fallback: the step stays `f64` and crosses into the grid only at this boundary.
-/// `B`, the row weight and `H_rot` are rounded to `round(x·2³²)`; `chol_solve` takes the grid `A`
-/// with the grid right-hand side `b`; the returned `d` is read back with `v/2³²`. As in [`c_step`]
-/// the panel is shifted by the exact power of two `2⁻ᵏ` read from `max|B|`, so it meets the `wsyrk`
-/// input bound `|x| < 2³⁶` raw; the shift propagates as `A → A·2⁻²ᵏ` and `b → b·2⁻ᵏ`, so the
-/// solution is `d·2ᵏ` and is scaled back by `2⁻ᵏ` before it is returned (`k = 0` when the panel is
-/// already within `8`). The ridge is the script's `1e-12·max(mean(diag A), 1e-12)`, its clamp
-/// evaluated on the unshifted `mean(diag A)`, and it is added on the grid diagonal; a positive ridge
-/// is floored at one raw unit so the diagonal stays positive. A non-finite or out-of-bound value is
-/// refused at the boundary, never wrapped.
+/// `G_rot`, `H_rot`, `A` and `b` are built **directly on the grid**: `B`, the rotated metric and `b`
+/// are words, no `f64` panel. The solve is [`chol_solve`], the `f64` `A` loop and `solve_spd`
+/// fallback gone. `B` carries the exact `2⁻ᵏ` panel shift with `k` from `max|B|`, so the solution
+/// `d·2ᵏ` is shifted back; the ridge is the script's `1e-12·max(mean(diag A), 1e-12)`, floored at
+/// one raw unit where it is positive.
 ///
 /// # Errors
-///
-/// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], a slice length
-/// disagrees, `g_row` is present with the wrong length, or a value is non-finite or beyond the
-/// boundary bound (`Ws`/`Hl`/`B` at `2³⁶` raw, `H_rot`/`b` at the grid `i64` range; `g_row` is
-/// shifted into the bound by [`g_row_shifted_grid`] and refused only when it is non-finite);
+/// [`StepsError::ShapeMismatch`] on a shape, length, grid-range or overflow refusal;
 /// [`StepsError::NotPositiveDefinite`] if the reduced `A` is not SPD.
 ///
 /// # Complexity
-///
-/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (on the engine pool
-/// workers) plus [`d_step_wshl`]'s cost, which is this body without that product. Spatial:
-/// `O(O·n)` for the product plus [`d_step_wshl`]'s footprint.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the step is handed the metric, the rotated sign matrix, the two scales, the row \
-              weights and the geometry; bundling them would only relocate the fields."
-)]
+/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (pooled) plus [`d_step_wshl`]'s cost.
+/// Spatial: `O(O·n)` words plus [`d_step_wshl`]'s footprint.
 pub fn d_step(
     ws: &[f64],
     hl: &[f64],
@@ -743,37 +816,17 @@ pub fn d_step(
     d_step_wshl(ws, hl, &wshl, s_rot, r, c, o, n, g_row)
 }
 
-/// The [`d_step`] body with the metric product `Ws·Hl` supplied by the caller in place of the
-/// internal [`mul_metric`] call: [`d_step`] is this function plus one `mul_metric`. `wshl` is
-/// `O × n` row-major and must equal `mul_metric(ws, hl, o, n)`; the caller ships the same `ws`,
-/// `hl`, `o`, `n`. The rest of the step — `G_rot = fwht128((Ws·Hl)⊙c)`, `H_rot = had_gram(Hl⊙c cᵀ)`,
-/// the panel scale, the `Q32.32` boundary, the `wsyrk`-then-`hadamard_into` `A`, the ridge and the
-/// return — is unchanged, so a caller that hoists one product across repeated steps returns the same
-/// vector bit-for-bit as [`d_step`].
+/// The [`d_step`] body with `wshl = mul_metric(ws, hl, o, n)` supplied: the same body, so a hoisted
+/// product returns [`d_step`]'s vector bit for bit.
 ///
 /// # Errors
-///
-/// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], a slice length
-/// disagrees (including `wshl.len() != o·n`), `g_row` is present with the wrong length, or a value
-/// is non-finite or beyond the boundary bound (`B` at `2³⁶` raw, `H_rot`/`b` at the grid `i64`
-/// range; `g_row` is shifted into the bound by [`g_row_shifted_grid`] and refused only when it is
-/// non-finite); [`StepsError::NotPositiveDefinite`] if the reduced `A` is not SPD.
+/// [`StepsError::ShapeMismatch`] on a shape, length, grid-range or overflow refusal;
+/// [`StepsError::NotPositiveDefinite`] if the reduced `A` is not SPD.
 ///
 /// # Complexity
-///
-/// Temporal: `O(O·n·log 128)` for the transform and `O(n²·log 128)` for `H_rot` (f64),
-/// `O(O·n²/2)` for the `wsyrk` weighted Gram `A` measured in checked `i128` multiply-accumulates
-/// (the upper triangle, mirrored), `O(n²)` for the `hadamard_into` factor, `O(O·n)` for `b`, and
-/// `O(n³/3 + n²)` for the `chol_solve` factor and refinement measured in checked `i128`
-/// multiply-accumulates — the `Ws·Hl` product is the caller's, not this body's. Spatial: `O(n²)`
-/// for `H_rot` and the grid `A` (plus the `chol_solve` working copies and factor), `O(O·n)` for
-/// `B` and `G_rot`.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the step is handed the metric, the precomputed metric product, the rotated sign \
-              matrix, the two scales, the row weights and the geometry; bundling them would only \
-              relocate the fields."
-)]
+/// Temporal: `O(O·n·log 128)` for `G_rot`'s transform (pooled) and `O(n²·log 128)` for `H_rot`
+/// (pooled), `wsyrk` at `O(O·n²/2)` and `hadamard_into` at `O(n²)` (pooled), `rhs_grid` at
+/// `O(O·n)`, `chol_solve` at `O(n³/3 + n²)` (pooled); spatial `O(n²)` for `H_rot`/`A`.
 pub fn d_step_wshl(
     ws: &[f64],
     hl: &[f64],
@@ -798,98 +851,109 @@ pub fn d_step_wshl(
     {
         return Err(StepsError::ShapeMismatch);
     }
-    if let Some(gr) = g_row {
-        if gr.len() != o {
-            return Err(StepsError::ShapeMismatch);
-        }
+    if g_row.is_some_and(|gr| gr.len() != o) {
+        return Err(StepsError::ShapeMismatch);
     }
-    // The row weight carries its own exact power-of-two shift into the input bound (see
-    // [`g_row_shifted_grid`]); the same factor is applied to the right-hand-side weight below.
-    let (gr_grid, g_scale) = match g_row {
-        Some(gr) => {
-            let (grid, f) = g_row_shifted_grid(gr)?;
-            (Some(grid), f)
-        }
-        None => (None, 1.0),
-    };
-    let weight = |oo: usize| g_row.map_or(1.0f64, |gr| gr[oo] * g_scale);
-    // G_rot[o,i] = fwht128((Ws·Hl) ⊙ c)[o,i].
-    let mut g_rot = vec![0.0f64; o * n];
-    for oo in 0..o {
-        for i in 0..n {
-            g_rot[oo * n + i] = wshl[oo * n + i] * c[i];
-        }
+    let s_g = to_grid_vec(s_rot)?;
+    let r_g = to_grid_vec(r)?;
+    let c_g = to_grid_vec(c)?;
+    let hl_g = to_grid_vec(hl)?;
+    let w_g = to_grid_vec(wshl)?;
+    // G_rot = fwht128((Ws·Hl) ⊙ c) and H_rot = had_gram(Hl ⊙ c cᵀ), both on the grid.
+    let mut g_rot = col_scale(&w_g, &c_g, n)?;
+    fwht_grid(&mut g_rot)?;
+    let h_rot = had_gram_grid(&metric_scale(&hl_g, &c_g, n)?, n)?;
+    // B = S_rot⊙r_rep on the grid, then the exact `2⁻ᵏ` panel shift.
+    let mut b_scaled = group_scale(&s_g, &r_g, o, n, g)?;
+    let k = panel_shift_words(max_mag(&b_scaled));
+    shift_in_place(&mut b_scaled, k)?;
+    let gr_g = row_weight(g_row, o)?;
+    let mut a = wsyrk(&b_scaled, Some(&gr_g), o, n).map_err(map_syrk)?;
+    hadamard_into(&mut a, &h_rot).map_err(map_syrk)?;
+    // The ridge `eps·max(mean(diag A), eps·2⁻²ᵏ)`: the clamp is below one raw unit for every shift,
+    // so a non-positive mean still floors the ridge at one raw unit.
+    let mean = diag_sum(&a, n) / n as i128;
+    let ridge = ridge_word(mean.max(0))?.max(1);
+    add_ridge(&mut a, n, ridge)?;
+    let b = rhs_grid(&b_scaled, &g_rot, &gr_g, o, n)?;
+    let solved = chol_solve(&a, &b, n, 1).map_err(map_solve)?;
+    let mut out = solved.x;
+    shift_in_place(&mut out, k)?;
+    Ok(read_back(&out))
+}
+
+/// `C[m,n] = A[m,k]·B[k,n]` for word operands: one exact power-of-two shift per operand into the
+/// [`gemm_nn`] input bound, the grid product, the exact undo.
+///
+/// # Errors
+/// As [`gemm_nn`] for the shape, plus an undo shift or a rounded entry leaving `i64`.
+///
+/// # Complexity
+/// Temporal: `m·k·n` `i128` multiply-accumulates in [`gemm_nn`] plus `O(m·k + k·n + m·n)` shift
+/// bookkeeping; the product pools inside `gemm_nn`, the shifts serial. Space: `O(m·n)`.
+fn metric_grid(a: &[i64], b: &[i64], o: usize, n: usize) -> Result<Vec<i64>, StepsError> {
+    let ka = panel_shift_words(max_mag(a));
+    let kb = panel_shift_words(max_mag(b));
+    let as_ = shift_copy(a, ka)?;
+    let bs = shift_copy(b, kb)?;
+    let mut out = gemm_nn(&as_, &bs, o, n, n).map_err(map_gemm)?;
+    shift_in_place(&mut out, -(ka + kb))?;
+    Ok(out)
+}
+
+/// The metric objective `J(Ws, Wp, Hl) = Σ_{o,i,j} D[o,i]·Hl[i,j]·D[o,j] = tr(D·Hl·Dᵀ)`, `D =
+/// Ws − Wp`. `ws`, `wp` are `O × n` row-major, `hl` is `n × n`; `D·Hl` is [`metric_grid`] and the
+/// trace one exact `i128` dot.
+///
+/// # Errors
+/// [`StepsError::ShapeMismatch`] on a length, grid-range or product refusal. Never a panic.
+///
+/// # Complexity
+/// Temporal: [`metric_grid`] at `m = O`, `k = n`, `n = n` (`O(O·n²)` multiply-adds, pooled inside
+/// `gemm_nn`), then `O(O·n)` for the subtraction and dot; spatial `O(O·n)` words.
+pub fn objective(
+    ws: &[f64],
+    wp: &[f64],
+    hl: &[f64],
+    o: usize,
+    n: usize,
+) -> Result<f64, StepsError> {
+    if ws.len() != o * n || wp.len() != o * n || hl.len() != n * n {
+        return Err(StepsError::ShapeMismatch);
     }
-    fwht_in_place(&mut g_rot);
-    // H_rot = had_gram(Hl ⊙ c cᵀ).
-    let mut hlc = vec![0.0f64; n * n];
-    for i in 0..n {
-        for j in 0..n {
-            hlc[i * n + j] = hl[i * n + j] * c[i] * c[j];
-        }
-    }
-    let h_rot = had_gram(&hlc, n)?;
-    let mut b_scaled = group_scale(s_rot, r, o, n, g);
-    // Scale the panel by the exact power of two `2⁻ᵏ` so it meets the `wsyrk` input bound
-    // `|x| < 2³⁶` raw; `k` is read from `max|B|` (see [`panel_shift`]). The scaling is undone on the
-    // returned `d` (`A → A·2⁻²ᵏ`, `b → b·2⁻ᵏ`, so the solution is `d·2ᵏ`).
-    let k = panel_shift(b_scaled.iter().fold(0.0f64, |m, v| m.max(v.abs())));
-    if k != 0 {
-        let f = 2f64.powi(-k);
-        for v in &mut b_scaled {
-            *v *= f;
-        }
-    }
-    // f64 → Q32.32 grid at the boundary: the panel and the row weight at `wsyrk`'s input bound, the
-    // rotated metric and the right-hand side at the grid's `i64` range.
-    let panel_grid: Vec<i64> = b_scaled
-        .iter()
-        .map(|&x| to_grid(x, INPUT_BOUND))
-        .collect::<Result<Vec<i64>, StepsError>>()?;
-    let h_grid: Vec<i64> = h_rot
-        .iter()
-        .map(|&x| to_grid(x, GRID_BOUND))
-        .collect::<Result<Vec<i64>, StepsError>>()?;
-    // A = H_rot ⊙ (Bᵀ diag(g_row) B): the weighted Gram by [`wsyrk`], the rotated-metric factor by
-    // [`hadamard_into`].
-    let mut a = wsyrk(&panel_grid, gr_grid.as_deref(), o, n).map_err(map_syrk)?;
-    hadamard_into(&mut a, &h_grid).map_err(map_syrk)?;
-    // The ridge `1e-12·max(mean(diag A), 1e-12)` at the grid quantum. The `2⁻²ᵏ` panel factor on `A`
-    // cancels between the diagonal mean and the diagonal it is added to, so the clamp `1e-12` is
-    // written in the scaled system (`1e-12·2⁻²ᵏ`), which is the script's clamp on the unshifted
-    // `mean(diag A)`; a positive ridge is floored at one raw unit so the diagonal stays positive.
-    let mut dmean = 0.0f64;
-    for i in 0..n {
-        dmean += from_grid(a[i * n + i]);
-    }
-    dmean /= n as f64;
-    let ridge = EPS * dmean.max(EPS * g_scale * 2f64.powi(-2 * k));
-    let mut ridge_raw = (ridge * GRID_SCALE).round() as i64;
-    if ridge > 0.0 && ridge_raw == 0 {
-        ridge_raw = 1;
-    }
-    for i in 0..n {
-        let diag = a[i * n + i];
-        a[i * n + i] = diag
-            .checked_add(ridge_raw)
+    let wsg = to_grid_vec(ws)?;
+    let wpg = to_grid_vec(wp)?;
+    let hlg = to_grid_vec(hl)?;
+    let mut d = vec![0i64; o * n];
+    for i in 0..d.len() {
+        d[i] = wsg[i]
+            .checked_sub(wpg[i])
             .ok_or(StepsError::ShapeMismatch)?;
     }
-    // b[i] = Σ_o B[o,i]·g_row[o]·G_rot[o,i], on the scaled panel; then to the grid at the `i64`
-    // range.
-    let mut rhs = vec![0.0f64; n];
-    for i in 0..n {
-        let mut acc = 0.0f64;
-        for oo in 0..o {
-            acc += b_scaled[oo * n + i] * weight(oo) * g_rot[oo * n + i];
-        }
-        rhs[i] = acc;
+    if o == 0 || n == 0 {
+        return Ok(0.0);
     }
-    let b_grid: Vec<i64> = rhs
-        .iter()
-        .map(|&x| to_grid(x, GRID_BOUND))
-        .collect::<Result<Vec<i64>, StepsError>>()?;
-    let solved = chol_solve(&a, &b_grid, n, 1).map_err(map_solve)?;
-    // Undo the `2⁻ᵏ` panel scale on the solution.
-    let back = if k == 0 { 1.0 } else { 2f64.powi(-k) };
-    Ok(solved.x.iter().map(|&v| from_grid(v) * back).collect())
+    let y = metric_grid(&d, &hlg, o, n)?;
+    // The dot is `Q64.64`; the boundary read-back is the one division by `2⁶⁴`.
+    Ok((dot_grid(&d, &y)? as f64) / 18_446_744_073_709_551_616.0)
+}
+
+/// `Ws·Hl` through [`gemm_nn`], with [`metric_grid`]'s operand shift and exact undo.
+///
+/// # Errors
+/// [`StepsError::ShapeMismatch`] on a length, grid-range or product refusal. Never a panic.
+///
+/// # Complexity
+/// As [`gemm_nn`] at `m = O`, `k = n`, `n = n` (`O(O·n²)` multiply-accumulates), pooled inside
+/// `gemm_nn`; one call per step. Spatial `O(O·n)` words.
+pub fn mul_metric(ws: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec<f64>, StepsError> {
+    if ws.len() != o * n || hl.len() != n * n {
+        return Err(StepsError::ShapeMismatch);
+    }
+    if o == 0 || n == 0 {
+        return Ok(vec![0.0f64; o * n]);
+    }
+    let wsg = to_grid_vec(ws)?;
+    let hlg = to_grid_vec(hl)?;
+    Ok(read_back(&metric_grid(&wsg, &hlg, o, n)?))
 }
