@@ -75,7 +75,7 @@
 //!   golden scales move with it by `≈ 4e-11` relative (last six digits). Measurements:
 //!   `tests/learn_solve_inv.rs`.
 //!
-//! # Integer carrier (lane `q-l1a`)
+//! # Integer carrier (lanes `q-l1a`, `q-l1b`)
 //!
 //! The feedback factor, the act order and the group scale are carried in integers: `feedback_u`
 //! returns a [`UFac`] (`U = Uhat·diag(2^-d)`, `Uhat` the Q32.32 upper factor of the equilibrated
@@ -83,10 +83,12 @@
 //! scale `a = 0.828·w_rms` is an [`Fx`]. The only `f64` inputs that cross into integers are the
 //! damped Hessian ([`h_to_spdq`], which L6 deletes when the caller hands an [`SpdQ`]) and the
 //! weight ([`w_to_rows`]); the `2^-g` global exponent `g` is even and a power of two, so it is an
-//! exact scaling. The still-`f64` selection passes ([`quantise_pass`], [`beam_pass`],
-//! [`project_scale`], [`inter_group_feedback`], [`solve_upper_block`]) receive their `f64` views
-//! through [`ufac_f64`] and [`rows_to_f64`], marked `L1b-L1d delete this`; those two views are the
-//! only `f64` in the executed path of this module and the sibling lanes remove them.
+//! exact scaling. Under `beam = 1` the block selection ([`quantise_pass`]) is integer as well: the
+//! block objective is evaluated as an exact `i128` scan over the codebook and the residual and
+//! codeword image are [`Fx`]. The still-`f64` passes are the `beam > 1` search ([`beam_pass`]), the
+//! scale projection ([`project_scale`]), the group feedback ([`inter_group_feedback`]) and
+//! [`solve_upper_block`]; those receive their `f64` views through [`ufac_f64`] and [`rows_to_f64`],
+//! marked `L1b-L1d delete this`, and the sibling lanes remove them.
 
 #![allow(
     clippy::many_single_char_names,
@@ -100,11 +102,13 @@
 )]
 
 use super::gptq_e8_carrier::{
-    block_order, fx_to_f64, group_scale_int, rows_to_f64, ufac_f64, w_to_rows,
+    block_order, div_rne_i128, f64_int_exp, fx_to_f64, group_scale_int, mag_u128, narrow_q,
+    rows_to_f64, ufac_f64, w_to_rows,
 };
 pub use super::gptq_e8_carrier::{feedback_u, UFac};
 use crate::engine::ONE;
 use crate::learn::code::e8::{self, E8Error};
+use crate::learn::solve::q32::{ilog2_pos, rshift_rne, Fx};
 
 /// Columns per group: the Python `GROUP`. One scale per (row, group).
 pub const GROUP: usize = 128;
@@ -213,142 +217,364 @@ fn solve_upper_block(u: &[f64], n: usize, b0: usize, m: usize, e: &mut [f64]) {
 /// `8` matches the other solve callers' fixed count and leaves headroom on the shared box.
 pub(super) const INV_THREADS: usize = 8;
 
-/// One quantisation pass over the group `[g0, g1)` of the permuted Hessian factor `u` and the
-/// pristine group block `w0` (`o × (g1−g0)`, row-major): per 8-block the code index of the Python's
-/// block-Cholesky CVP, `idx = argmin_k a²|Z_c[k]|² − 2a⟨Z_w, Z_c[k]⟩` with `Z_w = w_sub·U_sub⁻¹` and
-/// `Z_c = C·U_sub⁻¹`; the whitened residual `e = Z_w − a·Z_c[idx]`; and the residual propagated onto
-/// the later columns of the group (the Python lines 312–323).
-///
-/// Rows are independent given the read-only `u`, the block codeword images `Z_c` and the per-row
-/// scale `a[r]`, so the rows are split into [`INV_THREADS`] contiguous ranges and each range runs
-/// the whole block loop on its own scoped worker: one spawn per call, the block loop inside it and
-/// the group's codeword images precomputed once for all blocks. The per-row operation order is
-/// unchanged and no quantity is reduced across rows, so the output — and any refusal — is identical
-/// to the serial loop for every input and every worker count.
-///
-/// # Errors
-/// [`GptqE8Error`] from the codebook decode, or [`GptqE8Error::ShapeMismatch`] on a buffer of the
-/// wrong length. A refusal from a worker is returned from the lowest row range that produced one.
+/// The magnitude class `⌈log2(|v| + 1)⌉` of an `i128`: `0` for `0`, else `ilog2_pos(|v|) + 1`, so
+/// `2^(b − 1) ≤ |v| < 2^b`.
 ///
 /// # Complexity
-/// - Temporal: `O([gs/8]·256·8² + o·[gs/8]·(256·8 + 8·gs))` — the 256 codeword images `Z_c` (one
-///   8×8 right-solve each) per 8-block, then per row and block the 256×8 scan, the 8×8 solve of
-///   `Z_w`, and the intra-group propagation `Σ_blocks 8·(gs − b1)`. Measure: f64
-///   multiply-subtracts. The row term is independent per row, so the wall-clock span is the
-///   codeword-image term plus that row term `/ INV_THREADS` (each worker holds
-///   `ceil(o / INV_THREADS)` rows, and the image term is one serial prefix per call).
-/// - Spatial: `O(o·gs + [gs/8]·256·8)` f64 words for the working copy `wk` and the group's
-///   codeword images `Z_c` (shared read-only across workers); the outputs are caller buffers.
+///
+/// `O(1)`.
+fn blen(v: i128) -> i32 {
+    if v == 0 {
+        0
+    } else {
+        match ilog2_pos(mag_u128(v)) {
+            Some(b) => b.cast_signed() + 1,
+            None => 0,
+        }
+    }
+}
+
+/// `RNE(v · 2^s / d)` for `d > 0`: an exact checked left shift of the numerator when `s ≥ 0`, the
+/// exact denominator `d · 2^-s` when `s < 0`, and one round-to-nearest quotient ([`div_rne_i128`]).
+/// `0` for `v == 0`.
+///
+/// # Errors
+///
+/// [`GptqE8Error::Overflow`] on a shift or quotient that leaves `i128`.
+///
+/// # Complexity
+///
+/// `O(1)`.
+fn div_shift_rne(v: i128, s: i64, d: i128) -> Result<i128, GptqE8Error> {
+    if v == 0 {
+        return Ok(0);
+    }
+    let q = if s >= 0 {
+        match u32::try_from(s).ok().and_then(|k| 1_i128.checked_shl(k)) {
+            Some(p) => match v.checked_mul(p) {
+                Some(num) => div_rne_i128(num, d),
+                None => None,
+            },
+            None => None,
+        }
+    } else {
+        match u32::try_from(-s).ok().and_then(|k| d.checked_shl(k)) {
+            Some(den) => div_rne_i128(v, den),
+            None => None,
+        }
+    };
+    q.ok_or(GptqE8Error::Overflow)
+}
+
+/// The `f64` view of an integer-carrier slice (`m · 2^e`): one rounding when `|m| ≥ 2^53`, exact
+/// below it.
+///
+/// `// L1c-L1d delete this` — the transient boundary the still-`f64` [`project_scale`] and
+/// [`inter_group_feedback`] read; it is a conversion, not a second path.
+fn fx_slice_to_f64(x: &[Fx]) -> Vec<f64> {
+    x.iter().map(fx_to_f64).collect()
+}
+
+/// The [`Fx`] of a finite `f64`, exact (`|significand| ≤ 2^53`).
+///
+/// `// L1c-L1d delete this` — the transient boundary the still-`f64` [`project_scale`] scale
+/// returns through.
+///
+/// # Errors
+///
+/// [`GptqE8Error::NonFinite`] on a NaN or an infinite; [`GptqE8Error::Overflow`] on a carrier that
+/// leaves the `i64` significand.
+fn f64_slice_to_fx(x: &[f64]) -> Result<Vec<Fx>, GptqE8Error> {
+    let mut out = Vec::with_capacity(x.len());
+    for &v in x {
+        if !v.is_finite() {
+            return Err(GptqE8Error::NonFinite);
+        }
+        let (m, e) = f64_int_exp(v);
+        out.push(Fx::from_i128(m, e).map_err(|_| GptqE8Error::Overflow)?);
+    }
+    Ok(out)
+}
+
+/// One quantisation pass over the group `[g0, g1)` of the permuted Hessian factor `u` and the
+/// group's per-row integer weight rows `mant`/`e_row` (row-major `o × (g1 − g0)`, the real weight
+/// is `mant[r·gs + c] · 2^e_row[r]`), at the per-row group scale `a` (the [`group_scale_int`]
+/// outputs).
+///
+/// # The block right-solve
+///
+/// The stored factor is `U_ij = u.hat[i·n + j] · 2^-32 · 2^-d_j`, row-major `[n, n]` and upper
+/// triangular (`u.hat[i·n + j] = 0` for `j < i`). The pre-lane `solve_upper_block` contraction
+/// `Σ_{k>j} e[k] · u[(b0 + k)·n + (b0 + j)]` reads the strictly below-diagonal entries of that
+/// block — all zero — so the block right-solve it performs is the per-coordinate quotient
+/// `Z[t] = w_sub[t] / U_tt = w_sub[t] · 2^(32 + d_j) / u.hat[j·n + j]`, `j = g0 + b0 + t`. This pass
+/// carries that quotient; a full 8×8 triangular inverse is **not** what the pass computes and would
+/// move every code (measured on the f64 arm at this revision: the quotient reproduces the arm's
+/// argmin 16/16 on the `n = 8` fixture, the full inverse 14/16).
+///
+/// # The exact cost
+///
+/// With the block's alignment exponent `K` and `S_t = 2^(K + 32 + d_j) / u.hat[j·n + j]`, the pair
+/// `G_t = RNE(a · 2^-32 · S_t)` and `H_t = RNE(w_sub[t] · S_t)` makes the Python's block objective
+/// (line 318)
+/// `a²|Z_c[k]|² − 2a⟨Z_w, Z_c[k]⟩ = Σ_t ((cw[k][t]·G_t − H_t)·2^-K)² − |Z_w|²`, so its argmin is the
+/// argmin of the exact `i128` sum `Σ_t (cw[k][t]·G_t − H_t)²` with no rounding inside the 256-way
+/// scan and ties to the smaller index. `K` is chosen per (row, block) as `58 − kb`, where `kb` is
+/// the magnitude class of the largest whitened term of the block, which holds
+/// `|cw[k][t]·G_t| < 2^58` and `|H_t| < 2^58`; hence `Σ_t (…)² < 8·2^118` and every accumulation
+/// below stays inside `i128` (all of them checked, [`GptqE8Error::Overflow`] otherwise). The
+/// residual is **not** `cw[idx][t]·G_t − H_t` (that carries `G_t`'s `2^-26` rounding); it is
+/// recomputed exactly from the numerator form,
+/// `E[t] = 2^K·err_sub[t] = 2^K·(Z_w[t] − a·Z_c[idx][t])`, so `err_sub[t] = E[t]·2^-K` and the
+/// codeword image `s[t] = cw[idx][t]·2^-32` are written on the integer carrier (`Fx`) at full
+/// precision.
+///
+/// # The intra-group feedback
+///
+/// `wk[:, b1:] -= err_sub @ U_blk[b0:b1, b1:]` (line 323): per later column `c` the contraction
+/// `Σ_t E[t] · u.hat[(b0 + t)·n + (g0 + c)]` is accumulated in `i128` and applied to the working
+/// mantissa with a **single** RNE rounding to the row's grid `2^e_row`. One rounding per stored
+/// entry bounds the update's absolute error by `2^(e_row − 1)`, i.e. `2^-35` of the row's maximum
+/// magnitude; the per-entry errors of one group (at most `gs/BLOCK` of them per column) move the
+/// objective by `≈ 2^-31` relative, far inside the `2^-20` the `J` gate allows.
+///
+/// # Threading
+///
+/// Rows are independent given the read-only `u`, `a` and codebook, so the rows are split into
+/// `threads` contiguous ranges and each range runs the whole block loop on its own scoped worker:
+/// one spawn per call. The per-row operation order is unchanged and no quantity is reduced across
+/// rows, so the output — and any refusal — is identical for every `threads`, including `1`.
+///
+/// # Errors
+///
+/// [`GptqE8Error::ShapeMismatch`] on a buffer of the wrong length, [`GptqE8Error::Codebook`] from
+/// the exact code index decode, [`GptqE8Error::NotPositiveDefinite`] on a non-positive feedback
+/// diagonal and [`GptqE8Error::Overflow`] on a checked `i128` operation. A refusal from a worker is
+/// returned from the lowest row range that produced one.
+///
+/// # Complexity
+///
+/// - Temporal: `O(o·[gs/8]·256·8 + o·Σ_blocks (gs − b1))` checked `i128` multiply-adds — the
+///   `256·8` scan of the block objective and the intra-group propagation `Σ_blocks 8·(gs − b1)`,
+///   plus the `O([gs/8]·8)` per-row alignment and pair computation. Measure: `i128` multiply-adds.
+///   The row term is independent per row, so the wall-clock span is that term `/ threads`.
+/// - Spatial: `O(o·gs)` working `i64` mantissas (one copy per worker of its own rows) plus the
+///   `256·8` `i64` codebook; the outputs are caller buffers.
 #[allow(
     clippy::too_many_arguments,
-    reason = "the pass writes three separate output buffers plus the working block; grouping them \
-              into a struct would not reduce the argument count in the caller"
+    clippy::too_many_lines,
+    reason = "the pass writes three separate output buffers plus the working mantissas and reads \
+              the factor, the rows and the scale; grouping them into a struct would not reduce the \
+              caller's argument count, and the body is kept one block loop parallel to the Python's \
+              lines 312–323"
 )]
 fn quantise_pass(
-    u: &[f64],
+    u: &UFac,
     n: usize,
     g0: usize,
     g1: usize,
-    w0: &[f64],
-    a: &[f64],
+    mant: &[i64],
+    e_row: &[i32],
+    a: &[Fx],
     o: usize,
-    s_out: &mut [f64],
-    e_out: &mut [f64],
+    s_out: &mut [Fx],
+    e_out: &mut [Fx],
     i_out: &mut [u16],
+    threads: usize,
 ) -> Result<(), GptqE8Error> {
+    // The alignment ceiling: `58` keeps `|cw_t·G_t|` and `|H_t|` below `2^58`, so the block's
+    // sum of squares stays below `8·2^118` and every `i128` accumulation below is in range.
+    const ALIGN: i32 = 58;
     let gs = g1 - g0;
     let nb = gs / BLOCK;
-    if w0.len() != o * gs || s_out.len() != o * gs || e_out.len() != o * gs || i_out.len() != o * nb
+    if mant.len() != o * gs
+        || e_row.len() != o
+        || a.len() != o
+        || s_out.len() != o * gs
+        || e_out.len() != o * gs
+        || i_out.len() != o * nb
     {
         return Err(GptqE8Error::ShapeMismatch);
     }
-    let mut wk = w0.to_vec();
-    // The group's codeword images `Z_c = C·U_sub⁻¹` (row-major `[nb, 256, 8]`) and their squared
-    // norms (the Python's `zc_list[m]` and `zcn_list[m]`, lines 287–288), computed once for every
-    // block and every row: read-only inside the workers, and the same values in the same order the
-    // per-block loop below formed them.
-    let mut zc = vec![0.0f64; nb * e8::CODEBOOK_LEN * BLOCK];
-    let mut zcn = vec![0.0f64; nb * e8::CODEBOOK_LEN];
-    for m in 0..nb {
-        let b0 = m * BLOCK;
-        for k in 0..e8::CODEBOOK_LEN {
-            let cw = e8::codeword(k).map_err(map_e8)?;
-            let row =
-                &mut zc[(m * e8::CODEBOOK_LEN + k) * BLOCK..(m * e8::CODEBOOK_LEN + k + 1) * BLOCK];
-            for t in 0..BLOCK {
-                row[t] = cw[t] as f64 / ONE as f64;
-            }
-            solve_upper_block(u, n, g0 + b0, BLOCK, row);
-            let mut n2 = 0.0f64;
-            for t in 0..BLOCK {
-                n2 += row[t] * row[t];
-            }
-            zcn[m * e8::CODEBOOK_LEN + k] = n2;
-        }
+    // The 256 codebook rows once per call, read-only inside the workers.
+    let mut cw = [[0i64; BLOCK]; e8::CODEBOOK_LEN];
+    for (k, row) in cw.iter_mut().enumerate() {
+        *row = e8::codeword(k).map_err(map_e8)?;
     }
-    let zc = &zc;
-    let zcn = &zcn;
-    let per = o.div_ceil(INV_THREADS).max(1);
+    let cw = &cw;
+    let per = o.div_ceil(threads.max(1)).max(1);
     std::thread::scope(|scope| -> Result<(), GptqE8Error> {
         let mut handles = Vec::new();
-        for ((((wkc, ac), sc), ec), ic) in wk
-            .chunks_mut(per * gs)
+        for (((((mc, ec), ac), sc), eoc), ic) in mant
+            .chunks(per * gs)
+            .zip(e_row.chunks(per))
             .zip(a.chunks(per))
             .zip(s_out.chunks_mut(per * gs))
             .zip(e_out.chunks_mut(per * gs))
             .zip(i_out.chunks_mut(per * nb))
         {
             handles.push(scope.spawn(move || -> Result<(), GptqE8Error> {
-                let rows = ac.len();
+                let rows = ec.len();
+                // The group's working mantissas for this worker's rows: the pristine rows, which
+                // only this worker's intra-group feedback below updates.
+                let mut wk = mc.to_vec();
+                let mut gvec = [0i128; BLOCK];
+                let mut hvec = [0i128; BLOCK];
                 for lr in 0..rows {
-                    let ar = ac[lr];
+                    let er = i64::from(ec[lr]);
+                    let am = i128::from(ac[lr].m);
+                    let ae = i64::from(ac[lr].e);
+                    // `Δ = er + 32 − ae`, the relative scale of the row grid and the `a·2^32` image;
+                    // `≈ 62..66` for every fixture, and the sign picks which term of `I_t` shifts.
+                    let delta = er + 32 - ae;
                     for m in 0..nb {
                         let b0 = m * BLOCK;
-                        let zcm =
-                            &zc[m * e8::CODEBOOK_LEN * BLOCK..(m + 1) * e8::CODEBOOK_LEN * BLOCK];
-                        let zcnm = &zcn[m * e8::CODEBOOK_LEN..(m + 1) * e8::CODEBOOK_LEN];
-                        // `Z_w = w_sub·U_sub⁻¹` (the Python line 314).
-                        let mut zw = [0.0f64; BLOCK];
+                        // (1) The block's alignment exponent `K = ALIGN − kb`, `kb` the magnitude
+                        // class of the largest whitened term of the block. `kb` stays `0` when the
+                        // row and the scale are both zero, which makes every cost `0` and leaves
+                        // the decision to the tie rule.
+                        let mut kb = 0i32;
                         for t in 0..BLOCK {
-                            zw[t] = wkc[lr * gs + b0 + t];
-                        }
-                        solve_upper_block(u, n, g0 + b0, BLOCK, &mut zw);
-                        // `cost[k] = a²|Z_c[k]|² − 2a⟨Z_w, Z_c[k]⟩`, first index on ties (317–319).
-                        let mut best = 0usize;
-                        let mut best_cost = f64::INFINITY;
-                        for k in 0..e8::CODEBOOK_LEN {
-                            let zrow = &zcm[k * BLOCK..(k + 1) * BLOCK];
-                            let mut dot = 0.0f64;
-                            for t in 0..BLOCK {
-                                dot += zw[t] * zrow[t];
+                            let j = g0 + b0 + t;
+                            let hjj = u.hat[j * n + j];
+                            if hjj <= 0 {
+                                return Err(GptqE8Error::NotPositiveDefinite);
                             }
-                            let cost = ar * ar * zcnm[k] - 2.0 * ar * dot;
+                            let bh = blen(i128::from(hjj));
+                            let bm = blen(i128::from(wk[lr * gs + b0 + t]));
+                            if bm > 0 {
+                                kb = kb.max(bm + ec[lr] + 32 + u.d[j] - bh + 1);
+                            }
+                            if am != 0 {
+                                // The `34` is the magnitude class of the largest codebook word
+                                // (`sqrt8·2^32`), which multiplies `G_t`.
+                                kb = kb.max(34 + blen(am) + ac[lr].e + u.d[j] - bh + 1);
+                            }
+                        }
+                        let kal = i64::from(ALIGN - kb);
+                        // (2) `G_t = RNE(a·2^-32·S_t)`, `H_t = RNE(w_t·S_t)`.
+                        for t in 0..BLOCK {
+                            let j = g0 + b0 + t;
+                            let hjj = i128::from(u.hat[j * n + j]);
+                            let dj = i64::from(u.d[j]);
+                            gvec[t] = div_shift_rne(am, kal + dj + ae, hjj)?;
+                            hvec[t] = div_shift_rne(
+                                i128::from(wk[lr * gs + b0 + t]),
+                                er + kal + 32 + dj,
+                                hjj,
+                            )?;
+                        }
+                        // (3) The exact 256-way scan, ties to the smaller index.
+                        let mut best = 0usize;
+                        let mut best_cost = i128::MAX;
+                        for (k, row) in cw.iter().enumerate() {
+                            let mut cost: i128 = 0;
+                            for t in 0..BLOCK {
+                                let Some(e) = i128::from(row[t])
+                                    .checked_mul(gvec[t])
+                                    .and_then(|v| v.checked_sub(hvec[t]))
+                                else {
+                                    return Err(GptqE8Error::Overflow);
+                                };
+                                let Some(e2) = e.checked_mul(e) else {
+                                    return Err(GptqE8Error::Overflow);
+                                };
+                                let Some(next) = cost.checked_add(e2) else {
+                                    return Err(GptqE8Error::Overflow);
+                                };
+                                cost = next;
+                            }
                             if cost < best_cost {
                                 best_cost = cost;
                                 best = k;
                             }
                         }
-                        let cw = e8::codeword(best).map_err(map_e8)?;
-                        let zsel = &zcm[best * BLOCK..(best + 1) * BLOCK];
-                        let mut e = [0.0f64; BLOCK];
+                        // (4) The exact residual `E_t = 2^K·e[t]` from the numerator form — the
+                        // rounded `G_t`/`H_t` above decide the argmin but must **not** leak their
+                        // `2^-26` rounding into the residual the projection and the feedback read.
+                        // `E_t = [wk·2^(er+32+dj) − a.m·row[t]·2^(ae+dj)]/hat_jj`; factor the common
+                        // `2^(min(er+32,ae)+dj+K)`, so `I_t = wk·2^Δ − a.m·row[t]` (`Δ = er+32−ae`)
+                        // when `Δ ≥ 0`, else `wk − a.m·row[t]·2^(−Δ)`, and `E_t = RNE(I_t·2^φ/hat_jj)`.
+                        let row = &cw[best];
+                        let mut esel = [0i128; BLOCK];
                         for t in 0..BLOCK {
-                            sc[lr * gs + b0 + t] = cw[t] as f64 / ONE as f64;
-                            // `err_sub = Z_w − a·Z_c[idx]` (the Python line 321).
-                            e[t] = zw[t] - ar * zsel[t];
+                            let j = g0 + b0 + t;
+                            let dj = i64::from(u.d[j]);
+                            let va = am
+                                .checked_mul(i128::from(row[t]))
+                                .ok_or(GptqE8Error::Overflow)?;
+                            let (iv, phi) = if delta >= 0 {
+                                let sh = u32::try_from(delta).map_err(|_| GptqE8Error::Overflow)?;
+                                let vw = i128::from(wk[lr * gs + b0 + t])
+                                    .checked_shl(sh)
+                                    .ok_or(GptqE8Error::Overflow)?;
+                                (
+                                    vw.checked_sub(va).ok_or(GptqE8Error::Overflow)?,
+                                    kal + ae + dj,
+                                )
+                            } else {
+                                let sh =
+                                    u32::try_from(-delta).map_err(|_| GptqE8Error::Overflow)?;
+                                let sh = va.checked_shl(sh).ok_or(GptqE8Error::Overflow)?;
+                                (
+                                    i128::from(wk[lr * gs + b0 + t])
+                                        .checked_sub(sh)
+                                        .ok_or(GptqE8Error::Overflow)?,
+                                    kal + er + 32 + dj,
+                                )
+                            };
+                            let e = div_shift_rne(iv, phi, i128::from(u.hat[j * n + j]))?;
+                            esel[t] = e;
+                            sc[lr * gs + b0 + t] = Fx { m: row[t], e: -32 };
+                            // `E_t` is already `2^K·e[t] = 2^K·(Z_w − a·Z_c)` in the positive
+                            // convention the Python's `err_sub` uses, so it is stored unnegated.
+                            eoc[lr * gs + b0 + t] = Fx::from_i128(
+                                e,
+                                -i32::try_from(kal).map_err(|_| GptqE8Error::Overflow)?,
+                            )
+                            .map_err(|_| GptqE8Error::Overflow)?;
                         }
                         ic[lr * nb + m] = u16::try_from(best).map_err(|_| GptqE8Error::Codebook)?;
-                        for t in 0..BLOCK {
-                            ec[lr * gs + b0 + t] = e[t];
-                        }
-                        // Intra-group feedback: the block's whitened residual onto every later
-                        // column of the group, `wk[:, b1:] -= err_sub @ U_blk[b0:b1, b1:]` (line 323).
                         let mut c = b0 + BLOCK;
                         while c < gs {
-                            let mut acc = 0.0f64;
+                            let mut acc: i128 = 0;
                             for t in 0..BLOCK {
-                                acc += e[t] * u[(g0 + b0 + t) * n + g0 + c];
+                                let Some(pr) = esel[t]
+                                    .checked_mul(i128::from(u.hat[(g0 + b0 + t) * n + g0 + c]))
+                                else {
+                                    return Err(GptqE8Error::Overflow);
+                                };
+                                let Some(next) = acc.checked_add(pr) else {
+                                    return Err(GptqE8Error::Overflow);
+                                };
+                                acc = next;
                             }
-                            wkc[lr * gs + c] -= acc;
+                            // `Δw = −acc · 2^(−K − 32 − d_c)`, one RNE rounding to the row's grid
+                            // `2^e_row`.
+                            let sh = -(kal + 32 + i64::from(u.d[g0 + c]) + er);
+                            let Some(neg) = acc.checked_neg() else {
+                                return Err(GptqE8Error::Overflow);
+                            };
+                            let dm = if sh >= 0 {
+                                match u32::try_from(sh)
+                                    .ok()
+                                    .and_then(|k| 1_i128.checked_shl(k))
+                                    .and_then(|p| neg.checked_mul(p))
+                                {
+                                    Some(v) => v,
+                                    None => return Err(GptqE8Error::Overflow),
+                                }
+                            } else {
+                                match u32::try_from(-sh).ok().and_then(|k| rshift_rne(neg, k)) {
+                                    Some(v) => v,
+                                    None => return Err(GptqE8Error::Overflow),
+                                }
+                            };
+                            let cur = i128::from(wk[lr * gs + c]);
+                            let Some(next) = cur.checked_add(dm) else {
+                                return Err(GptqE8Error::Overflow);
+                            };
+                            wk[lr * gs + c] = narrow_q(next)?;
                             c += 1;
                         }
                     }
@@ -886,28 +1112,62 @@ pub fn gptq_e8(
         // Python lines 301–303), integer through [`group_scale_int`]; `wscale` does not change the
         // scale rule here — it only adds the projection passes below.
         let mut a = vec![0.0f64; o];
+        let mut a_fx = Vec::with_capacity(o);
         for r in 0..o {
-            let a_fx = group_scale_int(&w0[r * gs..(r + 1) * gs], &ufac, g0)?;
-            a[r] = fx_to_f64(&a_fx);
+            let af = group_scale_int(&w0[r * gs..(r + 1) * gs], &ufac, g0)?;
+            a[r] = fx_to_f64(&af);
+            a_fx.push(af);
         }
         let (a_best, s_best, e_best, i_best) = if beam == 1 {
-            let mut s_cur = vec![0.0f64; o * gs];
-            let mut e_cur = vec![0.0f64; o * gs];
+            // The group block's per-row integer rows `w = mant·2^e_row` ([`w_to_rows`]), the only
+            // `f64` → integer conversion of the weight on this branch; the pass carries them.
+            let (gm, ge) = w_to_rows(&w0, o, gs)?;
+            let mut s_cur = vec![Fx { m: 0, e: 0 }; o * gs];
+            let mut e_cur = vec![Fx { m: 0, e: 0 }; o * gs];
             let mut i_cur = vec![0u16; o * gb];
             quantise_pass(
-                &u, n, g0, g1, &w0, &a, o, &mut s_cur, &mut e_cur, &mut i_cur,
+                &ufac,
+                n,
+                g0,
+                g1,
+                &gm,
+                &ge,
+                &a_fx,
+                o,
+                &mut s_cur,
+                &mut e_cur,
+                &mut i_cur,
+                INV_THREADS,
             )?;
             let mut a_best = a.clone();
-            let mut s_best = s_cur;
-            let mut e_best = e_cur;
+            let mut s_best = fx_slice_to_f64(&s_cur);
+            let mut e_best = fx_slice_to_f64(&e_cur);
             let mut i_best = i_cur;
             if wscale {
+                // `project_scale` still reads and returns `f64` (`// L1c-L1d delete this`); the
+                // projected scale re-enters the integer pass through [`f64_slice_to_fx`].
                 let (a1, e1) = project_scale(&u, n, g0, gs, &s_best, &e_best, &a_best, o);
-                let mut s2 = vec![0.0f64; o * gs];
-                let mut e2 = vec![0.0f64; o * gs];
+                let a1_fx = f64_slice_to_fx(&a1)?;
+                let mut s2 = vec![Fx { m: 0, e: 0 }; o * gs];
+                let mut e2 = vec![Fx { m: 0, e: 0 }; o * gs];
                 let mut i2 = vec![0u16; o * gb];
-                quantise_pass(&u, n, g0, g1, &w0, &a1, o, &mut s2, &mut e2, &mut i2)?;
-                let (a2, e2b) = project_scale(&u, n, g0, gs, &s2, &e2, &a1, o);
+                quantise_pass(
+                    &ufac,
+                    n,
+                    g0,
+                    g1,
+                    &gm,
+                    &ge,
+                    &a1_fx,
+                    o,
+                    &mut s2,
+                    &mut e2,
+                    &mut i2,
+                    INV_THREADS,
+                )?;
+                let s2f = fx_slice_to_f64(&s2);
+                let e2f = fx_slice_to_f64(&e2);
+                let (a2, e2b) = project_scale(&u, n, g0, gs, &s2f, &e2f, &a1, o);
                 // Second pass: keep the candidate with the smaller whitened residual per row.
                 let mut a_fin = vec![0.0f64; o];
                 let mut s_fin = vec![0.0f64; o * gs];
@@ -917,7 +1177,7 @@ pub fn gptq_e8(
                     let n1: f64 = (0..gs).map(|j| e1[r * gs + j] * e1[r * gs + j]).sum();
                     let n2: f64 = (0..gs).map(|j| e2b[r * gs + j] * e2b[r * gs + j]).sum();
                     let (ar, sr, er, ir): (f64, &[f64], &[f64], &[u16]) = if n2 < n1 {
-                        (a2[r], &s2, &e2b, &i2)
+                        (a2[r], &s2f, &e2b, &i2)
                     } else {
                         (a1[r], &s_best, &e1, &i_best)
                     };
@@ -1004,4 +1264,53 @@ pub fn gptq_e8(
         }
     };
     Ok(GptqE8 { s, idx, scale })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::gptq_e8_carrier::{group_scale_int, w_to_rows};
+    use super::{feedback_u, quantise_pass, Fx, BLOCK};
+
+    /// The block pass is bit-identical for `threads = 1` and `threads = 8`: rows are independent and
+    /// no quantity is reduced across rows, so the split changes only wall-clock. Exercises the
+    /// `o = 37 > 8` split with a short last range.
+    #[test]
+    fn q_l1b_worker_count_is_invariant() {
+        let (o, n) = (37usize, 128usize);
+        let mut h = vec![0.0f64; n * n];
+        for i in 0..n {
+            h[i * n + i] = 1.0;
+        }
+        let ufac = feedback_u(&h, n, 0.01).expect("SPD factor");
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut w = vec![0.0f64; o * n];
+        for x in &mut w {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            *x = (state >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0;
+        }
+        let mut a = Vec::with_capacity(o);
+        for r in 0..o {
+            a.push(group_scale_int(&w[r * n..(r + 1) * n], &ufac, 0).expect("scale"));
+        }
+        let (mant, e_row) = w_to_rows(&w, o, n).expect("rows");
+        let gb = n / BLOCK;
+        let mut prev: Option<(Vec<Fx>, Vec<Fx>, Vec<u16>)> = None;
+        for threads in [1usize, 8] {
+            let mut s = vec![Fx { m: 0, e: 0 }; o * n];
+            let mut e = vec![Fx { m: 0, e: 0 }; o * n];
+            let mut idx = vec![0u16; o * gb];
+            quantise_pass(
+                &ufac, n, 0, n, &mant, &e_row, &a, o, &mut s, &mut e, &mut idx, threads,
+            )
+            .expect("quantise_pass");
+            if let Some((ps, pe, pi)) = &prev {
+                assert_eq!(&s, ps, "worker count changed `s`");
+                assert_eq!(&e, pe, "worker count changed `e`");
+                assert_eq!(&idx, pi, "worker count changed `idx`");
+            }
+            prev = Some((s, e, idx));
+        }
+    }
 }

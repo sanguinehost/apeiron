@@ -986,7 +986,10 @@ fn bit_stream_hash(r: &GptqE8) -> u64 {
 /// and compared with `cmp`, exit 0). The integer-carrier lane `q-l1a` re-pins the digest to the
 /// carrier's output (the row-split threading is unchanged, and the re-pinned digest was re-confirmed
 /// against the single-worker path `per = o`, so the identity the test guards is retained; the `f64`
-/// scales move by the `2^-35` weight carrier and the `round(0.828·2^32)` factor). They cover an odd
+/// scales move by the `2^-35` weight carrier and the `round(0.828·2^32)` factor). Lane `q-l1b`
+/// re-pins the `beam = 1` fixture to the integer block pass, whose exact `i128` scan and
+/// numerator-form residual are bit-identical to the `f64` arm on it; the `beam > 1` fixtures keep
+/// their `q-l1a` values. They cover an odd
 /// row count (`o = 37`, so the last range is short),
 /// `o = 5 < INV_THREADS = 8` (one row per worker), the single path `beam = 1`, the beam search
 /// `beam = 4` with `wscale`, and both `act_order` settings; the hash is invariant to the worker
@@ -1000,9 +1003,12 @@ fn row_split_reproduces_the_serial_bit_stream() {
         (5, 128, 0.01, true, false, 2, 0xA1B2_0003),
         (5, 128, 0.01, false, false, 2, 0xA1B2_0003),
     ];
-    /// Integer-carrier `q-l1a` values, in `FIXTURES` order.
+    /// Integer-carrier values, in `FIXTURES` order: fixture 0 (the `beam = 1` path) is re-pinned
+    /// by `q-l1b` to the integer block pass, whose exact `i128` scan and exact numerator-form
+    /// residual reproduce the `f64` arm's codes and scales here to the last bit; the other three
+    /// (the `beam > 1` `beam_pass` path, untouched by `q-l1b`) keep the `q-l1a` values.
     const CARRIER_HASH: [u64; 4] = [
-        0xb602_54ea_c806_fe88,
+        0xba2b_375b_05f7_2e0e,
         0x5c1e_55ea_1344_a6a6,
         0xe56b_a783_2915_f9b4,
         0xd6ce_df97_e1e5_41d0,
@@ -1342,4 +1348,143 @@ fn beam_refusals_are_the_single_beam_refusals() {
         gptq_e8(&w, &indef, o, n, damp, false, false, 4),
         Err(GptqE8Error::NotPositiveDefinite)
     );
+}
+
+/// The pre-lane `f64` block pass of a single group `[0, n)` (`q-l1a`), kept test-only after lane
+/// `q-l1b`: per 8-block the whitened CVP `argmin_k a²|Z_c[k]|² − 2a⟨Z_w, Z_c[k]⟩` over the literal
+/// 256 codewords, the residual `e = Z_w − a·Z_c[idx]`, and the residual pushed onto the later
+/// columns of the group. The `U_sub` right-solves are per-coordinate quotients (the stored factor is
+/// upper triangular), so `Z_w[t] = w_sub[t]/U_tt` and `Z_c[k][t] = (C[k][t]/2^32)/U_tt`. Rows are
+/// independent. `idx_out` receives the code of each block, `e` the residual row-major `[o, n]`.
+#[allow(clippy::too_many_arguments)]
+fn f64_group_pass(
+    u: &[f64],
+    n: usize,
+    w0: &[f64],
+    a: &[f64],
+    o: usize,
+    idx_out: &mut [u16],
+    e_out: &mut [f64],
+) {
+    let nb = n / BLOCK;
+    let mut wk = w0.to_vec();
+    for r in 0..o {
+        for m in 0..nb {
+            let b0 = m * BLOCK;
+            let mut zw = [0.0f64; BLOCK];
+            for t in 0..BLOCK {
+                zw[t] = wk[r * n + b0 + t] / u[(b0 + t) * n + b0 + t];
+            }
+            let mut best = 0usize;
+            let mut best_cost = f64::INFINITY;
+            for k in 0..e8::CODEBOOK_LEN {
+                let cw = e8::codeword(k).expect("code index");
+                let mut cost = 0.0f64;
+                for t in 0..BLOCK {
+                    let zc = cw[t] as f64 / ONE as f64 / u[(b0 + t) * n + b0 + t];
+                    let dv = zw[t] - a[r] * zc;
+                    cost += dv * dv;
+                }
+                if cost < best_cost {
+                    best_cost = cost;
+                    best = k;
+                }
+            }
+            let cw = e8::codeword(best).expect("code index");
+            let mut e = [0.0f64; BLOCK];
+            for t in 0..BLOCK {
+                let zc = cw[t] as f64 / ONE as f64 / u[(b0 + t) * n + b0 + t];
+                e[t] = zw[t] - a[r] * zc;
+                e_out[r * n + b0 + t] = e[t];
+            }
+            idx_out[r * nb + m] = u16::try_from(best).expect("code index");
+            let mut c = b0 + BLOCK;
+            while c < n {
+                let mut acc = 0.0f64;
+                for t in 0..BLOCK {
+                    acc += e[t] * u[(b0 + t) * n + c];
+                }
+                wk[r * n + c] -= acc;
+                c += 1;
+            }
+        }
+    }
+}
+
+/// The integer block pass of `q-l1b` versus the live `f64` oracle [`f64_group_pass`] on a single
+/// `n = 128` group: the code of every block agrees, so the agreement is the strongest case of the
+/// `≥ 99.9%` the lane requires, and the loop still checks the `|dcost| ≤ 2^-20·|cost|` bound on any
+/// block that does differ.
+#[test]
+fn integer_pass_agrees_with_the_f64_oracle() {
+    let (o, n, damp) = (3usize, 128usize, 0.01);
+    for seed in [0x0ACC_0001u64, 0x0ACC_0002, 0x0ACC_0003] {
+        let w = random_w(o, n, seed);
+        let h = correlated_h(n, seed ^ 0x5A5A_5A5A);
+        let wc = w_carrier(&w, o, n);
+        let u = ufac_to_f64(&feedback_u(&h, n, damp).expect("SPD factor"));
+        let mut prec = vec![0.0f64; n];
+        for j in 0..n {
+            let d = u[j * n + j];
+            prec[j] = 1.0 / (d * d).max(1e-12);
+        }
+        let mut a = vec![0.0f64; o];
+        for r in 0..o {
+            a[r] = group_scale(&wc[r * n..(r + 1) * n], &prec, 0, n);
+        }
+        let gb = n / BLOCK;
+        let mut idx_o = vec![0u16; o * gb];
+        let mut e_o = vec![0.0f64; o * n];
+        f64_group_pass(&u, n, &wc, &a, o, &mut idx_o, &mut e_o);
+        let r = gptq_e8(&w, &h, o, n, damp, false, false, 1).expect("gptq_e8");
+        check_decode(&r, o, n, "oracle agreement");
+        let mut diff = 0usize;
+        for (i, (&io, &ii)) in idx_o.iter().zip(&r.idx).enumerate() {
+            if io == ii {
+                continue;
+            }
+            diff += 1;
+            let (row, b0) = (i / gb, i % gb * BLOCK);
+            let cost = |k: u16| {
+                let cw = e8::codeword(usize::from(k)).expect("code index");
+                let mut c = 0.0f64;
+                for t in 0..BLOCK {
+                    let zc = cw[t] as f64 / ONE as f64 / u[(b0 + t) * n + b0 + t];
+                    let zw = wc[row * n + b0 + t] / u[(b0 + t) * n + b0 + t];
+                    let dv = zw - a[row] * zc;
+                    c += dv * dv;
+                }
+                c
+            };
+            let dc = (cost(ii) - cost(io)).abs();
+            assert!(
+                dc <= (2.0f64).powi(-20) * cost(io).abs(),
+                "seed {seed:#x} row {row} block {}: code {ii} vs {io} moves the cost by {dc}",
+                b0 / BLOCK
+            );
+        }
+        assert!(
+            1000 * diff <= idx_o.len(),
+            "seed {seed:#x}: {diff} of {} codes differ from the f64 oracle (below 99.9%)",
+            idx_o.len()
+        );
+    }
+}
+
+/// A zero weight row is decided by the objective's exact ties: with the damped identity Hessian
+/// every whitened term vanishes, so all 240 spinor/D8 codewords (`norm² = 8·2^64`) reach the same
+/// exact `i128` cost and the argmin must return the **smaller** index, block by block. The O8 rows
+/// (`sqrt8² > 8`) are not minima. Catches the `cost < best` → `cost <= best` argmin mutation.
+#[test]
+fn zero_row_ties_take_the_smaller_code_index() {
+    let (o, n, damp) = (1usize, 128usize, 0.01);
+    let w = vec![0.0f64; o * n];
+    let mut id = vec![0.0f64; n * n];
+    for i in 0..n {
+        id[i * n + i] = 1.0;
+    }
+    let r = gptq_e8(&w, &id, o, n, damp, false, false, 1).expect("gptq_e8");
+    for (b, &idx) in r.idx.iter().enumerate() {
+        assert_eq!(idx, 0, "block {b}: tie must take the smaller code index");
+    }
 }
