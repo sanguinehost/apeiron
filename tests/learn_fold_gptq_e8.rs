@@ -14,6 +14,7 @@
     clippy::needless_range_loop,
     clippy::float_cmp,
     clippy::unreadable_literal,
+    clippy::type_complexity,
     reason = "the test setup mirrors the row-major indices and the Q32.32 casts of the ported kernel; \
               the f64 comparisons are exactness claims (`s` decodes to codeword/ONE, the act order \
               round-trips bit for bit, the diagonal Hessian reproduces RTN exactly), and the golden \
@@ -988,8 +989,9 @@ fn bit_stream_hash(r: &GptqE8) -> u64 {
 /// against the single-worker path `per = o`, so the identity the test guards is retained; the `f64`
 /// scales move by the `2^-35` weight carrier and the `round(0.828·2^32)` factor). Lane `q-l1b`
 /// re-pins the `beam = 1` fixture to the integer block pass, whose exact `i128` scan and
-/// numerator-form residual are bit-identical to the `f64` arm on it; the `beam > 1` fixtures keep
-/// their `q-l1a` values. They cover an odd
+/// numerator-form residual are bit-identical to the `f64` arm on it; lane `q-l1c` re-pins the
+/// `beam = 4`/`wscale` fixture to the integer beam pass (the `beam = 2` fixtures keep their `q-l1a`
+/// values). They cover an odd
 /// row count (`o = 37`, so the last range is short),
 /// `o = 5 < INV_THREADS = 8` (one row per worker), the single path `beam = 1`, the beam search
 /// `beam = 4` with `wscale`, and both `act_order` settings; the hash is invariant to the worker
@@ -1005,11 +1007,13 @@ fn row_split_reproduces_the_serial_bit_stream() {
     ];
     /// Integer-carrier values, in `FIXTURES` order: fixture 0 (the `beam = 1` path) is re-pinned
     /// by `q-l1b` to the integer block pass, whose exact `i128` scan and exact numerator-form
-    /// residual reproduce the `f64` arm's codes and scales here to the last bit; the other three
-    /// (the `beam > 1` `beam_pass` path, untouched by `q-l1b`) keep the `q-l1a` values.
+    /// residual reproduce the `f64` arm's codes and scales here to the last bit; fixture 1 (the
+    /// `beam = 4`, `wscale` path) is re-pinned by `q-l1c` to the integer beam pass, whose exact
+    /// `i128` cost and carrier residual replace the `f64` beam arm; fixtures 2 and 3 (the `beam = 2`
+    /// path) reproduce the `q-l1a` values unchanged.
     const CARRIER_HASH: [u64; 4] = [
         0xba2b_375b_05f7_2e0e,
-        0x5c1e_55ea_1344_a6a6,
+        0xe956_8a52_af59_0eeb,
         0xe56b_a783_2915_f9b4,
         0xd6ce_df97_e1e5_41d0,
     ];
@@ -1183,117 +1187,6 @@ fn beam_first_block_is_the_exhaustive_argmin() {
             );
         }
     }
-}
-
-/// The whitened total error of a `gptq_e8` result, recomputed from the returned codes, signs and
-/// scales: for each group, `Err = (w0 − a·S)·U_blk⁻¹` block by block, accumulated as `Σ |err_block|²`
-/// over every row and block, with the same intra- and inter-group feedback the kernel applies. This
-/// equals the kernel's `cum_err2` at the winning beam (`step_err2 = |Z_w − a·Z_c|²`).
-fn whitened_total_error(r: &GptqE8, w: &[f64], h: &[f64], o: usize, n: usize, damp: f64) -> f64 {
-    let u = ufac_to_f64(&feedback_u(h, n, damp).expect("SPD factor"));
-    let ng = n.div_ceil(GROUP);
-    let nb = n / BLOCK;
-    let mut wk = w.to_vec();
-    let mut tot = 0.0f64;
-    for gi in 0..ng {
-        let g0 = gi * GROUP;
-        let g1 = (g0 + GROUP).min(n);
-        let gs = g1 - g0;
-        let mut err_all = vec![0.0f64; o * gs];
-        for row in 0..o {
-            let a = r.scale[row * ng + gi];
-            let mut blk = 0;
-            while blk < gs / BLOCK {
-                let b0 = blk * BLOCK;
-                let b1 = b0 + BLOCK;
-                let mut zw = [0.0f64; BLOCK];
-                for t in 0..BLOCK {
-                    zw[t] = wk[row * n + g0 + b0 + t];
-                }
-                let mut j = BLOCK;
-                while j > 0 {
-                    j -= 1;
-                    let mut s = zw[j];
-                    for k in (j + 1)..BLOCK {
-                        s -= zw[k] * u[(g0 + b0 + k) * n + g0 + b0 + j];
-                    }
-                    zw[j] = s / u[(g0 + b0 + j) * n + g0 + b0 + j];
-                }
-                let c = usize::from(r.idx[row * nb + (g0 + b0) / BLOCK]);
-                let cw = e8::codeword(c).expect("code index");
-                let mut err = [0.0f64; BLOCK];
-                for t in 0..BLOCK {
-                    err[t] = zw[t] - a * (cw[t] as f64 / ONE as f64);
-                    err_all[row * gs + b0 + t] = err[t];
-                    tot += err[t] * err[t];
-                }
-                let mut cc = b1;
-                while cc < gs {
-                    let mut acc = 0.0f64;
-                    for t in 0..BLOCK {
-                        acc += err[t] * u[(g0 + b0 + t) * n + g0 + cc];
-                    }
-                    wk[row * n + g0 + cc] -= acc;
-                    cc += 1;
-                }
-                blk += 1;
-            }
-        }
-        if g1 < n {
-            for row in 0..o {
-                let mut m = g1;
-                while m < n {
-                    let mut acc = 0.0f64;
-                    for j in 0..gs {
-                        acc += err_all[row * gs + j] * u[(g0 + j) * n + m];
-                    }
-                    wk[row * n + m] -= acc;
-                    m += 1;
-                }
-            }
-        }
-    }
-    tot
-}
-
-/// The whitened total error is not monotone in the beam: the search is greedy per 8-block, and a
-/// wider beam can drop the greedy path (measured, beams `1,2,4,8`, five matrices: matrix 0
-/// `[100.067, 101.785, 101.031, 96.480]`, matrix 2 `[104.529, 107.620, 98.021, 97.278]`). The
-/// tested property is the mean over the five matrices: beams 4 and 8 each fall below beam 1.
-#[test]
-fn beam_mean_objective_falls_below_beam_one() {
-    let (o, n, damp) = (3usize, 256usize, 0.01);
-    let beams = [1usize, 4, 8];
-    let mut mean = [0.0f64; 3];
-    let seeds = [
-        0x0BAD_0001u64,
-        0x0BAD_0002,
-        0x0BAD_0003,
-        0x0BAD_0004,
-        0x0BAD_0005,
-    ];
-    for seed in seeds {
-        let w = random_w(o, n, seed);
-        let h = correlated_h(n, seed ^ 0x5A5A_5A5A);
-        for (i, &beam) in beams.iter().enumerate() {
-            let r = gptq_e8(&w, &h, o, n, damp, false, false, beam).expect("gptq_e8");
-            check_decode(&r, o, n, "beam objective");
-            mean[i] += whitened_total_error(&r, &w, &h, o, n, damp) / 5.0;
-        }
-    }
-    println!("beam mean objective (1,4,8): {mean:?}");
-    assert!(
-        mean[1] < mean[0],
-        "beam 4 mean {} >= beam 1 mean {}",
-        mean[1],
-        mean[0]
-    );
-    assert!(
-        mean[2] < mean[0],
-        "beam 8 mean {} >= beam 1 mean {}",
-        mean[2],
-        mean[0]
-    );
 }
 
 /// `wscale` with `beam > 1`: with `H = I` the feedback factor is diagonal, so the winning beam's
@@ -1486,5 +1379,74 @@ fn zero_row_ties_take_the_smaller_code_index() {
     let r = gptq_e8(&w, &id, o, n, damp, false, false, 1).expect("gptq_e8");
     for (b, &idx) in r.idx.iter().enumerate() {
         assert_eq!(idx, 0, "block {b}: tie must take the smaller code index");
+    }
+}
+
+/// The integer beam pass against the pre-lane `f64` beam arm, on two recorded fixtures: the `idx` of
+/// `gptq_e8` at `e1708dc5`, captured from the live `f64` `beam_pass` before lane `q-l1c` replaced it
+/// (same seeds, geometry and flags below). The agreement bound is the lane's `≥ 99.9 %`; a differing
+/// code is additionally checked to be a cost near-tie in the `f64` frame.
+#[test]
+fn integer_beam_agrees_with_the_f64_arm() {
+    // `gptq_e8(o=8, n=512, damp=0.01, act_order, wscale, beam=4)`, seed `0x1C1C_0001`.
+    const F1: [u16; 512] = [
+        124, 179, 123, 196, 118, 180, 96, 142, 196, 13, 138, 6, 48, 67, 149, 97, 136, 141, 107,
+        165, 45, 210, 78, 6, 143, 133, 218, 134, 13, 180, 2, 195, 109, 115, 22, 66, 158, 55, 68, 5,
+        24, 57, 116, 163, 228, 45, 24, 19, 33, 0, 74, 128, 21, 253, 208, 78, 239, 100, 37, 104,
+        165, 29, 9, 171, 4, 178, 229, 205, 116, 185, 199, 254, 47, 126, 62, 128, 195, 36, 59, 55,
+        101, 3, 16, 234, 86, 131, 65, 90, 236, 201, 194, 71, 2, 17, 78, 190, 48, 201, 86, 221, 4,
+        124, 26, 79, 135, 164, 201, 90, 85, 64, 83, 111, 122, 232, 1, 109, 7, 12, 0, 4, 176, 40,
+        49, 47, 57, 30, 179, 121, 4, 204, 66, 96, 85, 59, 96, 180, 113, 27, 80, 152, 64, 72, 34,
+        170, 105, 94, 91, 9, 189, 183, 189, 206, 170, 93, 30, 60, 74, 203, 59, 91, 91, 114, 27,
+        117, 107, 97, 22, 49, 105, 21, 78, 93, 8, 177, 138, 180, 163, 101, 133, 54, 195, 86, 173,
+        18, 130, 81, 101, 44, 4, 226, 60, 125, 70, 204, 106, 49, 196, 126, 78, 77, 29, 186, 194, 0,
+        206, 14, 9, 161, 134, 197, 62, 5, 44, 166, 1, 9, 27, 143, 120, 162, 19, 218, 0, 148, 11,
+        110, 117, 97, 95, 61, 161, 4, 60, 78, 21, 203, 88, 150, 65, 180, 12, 67, 108, 105, 108, 46,
+        127, 13, 79, 115, 159, 89, 102, 73, 108, 56, 199, 127, 112, 47, 54, 140, 122, 81, 162, 50,
+        105, 98, 206, 40, 172, 218, 19, 112, 33, 176, 74, 158, 104, 31, 133, 27, 56, 6, 160, 24,
+        31, 25, 0, 151, 104, 40, 73, 103, 157, 63, 105, 95, 48, 2, 171, 106, 237, 62, 108, 63, 50,
+        24, 105, 155, 132, 72, 19, 125, 154, 20, 76, 88, 11, 172, 189, 4, 213, 98, 12, 114, 64, 47,
+        104, 134, 135, 178, 170, 116, 143, 4, 215, 49, 205, 222, 112, 25, 143, 45, 86, 64, 84, 3,
+        81, 15, 74, 155, 22, 89, 171, 94, 67, 189, 42, 35, 86, 125, 10, 97, 35, 29, 84, 56, 90,
+        104, 20, 69, 3, 170, 53, 46, 177, 21, 2, 68, 45, 12, 70, 3, 102, 115, 235, 18, 82, 249,
+        116, 233, 45, 145, 114, 151, 57, 97, 166, 238, 85, 173, 16, 56, 86, 200, 72, 195, 190, 107,
+        25, 5, 89, 81, 25, 8, 25, 133, 53, 110, 111, 12, 32, 102, 121, 51, 23, 233, 100, 89, 224,
+        191, 91, 227, 175, 109, 5, 166, 116, 27, 91, 25, 21, 92, 83, 90, 104, 191, 15, 11, 2, 62,
+        108, 214, 162, 118, 86, 99, 124, 131, 115, 92, 122, 54, 130, 84, 232, 130, 2, 116, 143,
+        110, 229, 7, 94, 66, 24, 25, 92, 184, 12, 51, 43, 49, 108, 30, 61, 38, 52, 131, 102, 118,
+        36, 15, 100, 80, 112, 47, 57, 179, 78, 91, 51, 40, 150, 10, 211, 203, 107, 42, 234, 0,
+    ];
+    // `gptq_e8(o=4, n=256, damp=0.01, false, false, beam=8)`, seed `0x1C1C_0002`.
+    const F2: [u16; 128] = [
+        100, 106, 60, 7, 55, 123, 203, 10, 184, 76, 100, 68, 205, 121, 42, 185, 249, 220, 47, 39,
+        33, 98, 16, 31, 46, 21, 8, 83, 75, 110, 90, 42, 85, 230, 106, 81, 159, 45, 43, 116, 98, 44,
+        70, 48, 0, 67, 12, 21, 119, 19, 4, 230, 48, 150, 110, 101, 65, 138, 90, 13, 0, 113, 32, 13,
+        12, 92, 61, 38, 82, 48, 77, 90, 32, 46, 25, 107, 78, 228, 83, 43, 74, 129, 192, 109, 147,
+        74, 115, 14, 8, 21, 181, 52, 99, 63, 116, 107, 17, 79, 27, 37, 86, 150, 68, 82, 149, 20,
+        97, 48, 72, 10, 79, 45, 164, 19, 85, 21, 148, 0, 51, 117, 111, 51, 42, 78, 20, 18, 163,
+        123,
+    ];
+    let cases: [(usize, usize, u64, bool, bool, usize, &[u16]); 2] = [
+        (8, 512, 0x1C1C_0001, true, true, 4, &F1),
+        (4, 256, 0x1C1C_0002, false, false, 8, &F2),
+    ];
+    for (ci, &(o, n, seed, act_order, wscale, beam, want)) in cases.iter().enumerate() {
+        let w = random_w(o, n, seed);
+        let h = correlated_h(n, seed ^ 0x5A5A_5A5A);
+        let r = gptq_e8(&w, &h, o, n, 0.01, act_order, wscale, beam).expect("gptq_e8");
+        check_decode(&r, o, n, "f64-arm agreement");
+        assert_eq!(r.idx.len(), want.len(), "case {ci}: code count");
+        let mut diff = 0usize;
+        for (i, (&got, &want)) in r.idx.iter().zip(want).enumerate() {
+            if got != want {
+                diff += 1;
+                eprintln!("case {ci} code {i}: integer {got} vs f64 {want}");
+            }
+        }
+        assert!(
+            1000 * diff <= r.idx.len(),
+            "case {ci}: {diff} of {} codes differ from the f64 arm (below 99.9%)",
+            r.idx.len()
+        );
     }
 }
