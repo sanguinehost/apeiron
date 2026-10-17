@@ -12,8 +12,10 @@
 //! back by one [`rshift_rne`] rounding, and block/pair costs compare as exact Q96.96 `i128`, so an
 //! argmin is the integer argmin and a tie goes to the first index. The 128-point transform is the
 //! engine's [`fwht_fixed`]; `gemm`/`chol` own the products and the solves; row bands of matrix-sized
-//! work run on the pool and every elementwise/transform pass is a serial integer loop. The `pub` f64
-//! signatures are the wave-1 call boundary: one [`q32::to_grid`] in, one [`q32::from_grid`] out.
+//! work run on the pool and every elementwise/transform pass is a serial integer loop. Every `pub`
+//! entry here takes and returns words: the planes, the metric and both `J` values are `Q32.32`, so
+//! a caller that holds reals converts once at its own boundary ([`codebook`] and [`JointStats`] are
+//! the read-out exceptions). No step pays a `from_grid`/`to_grid` round trip.
 //!
 //! Grade: `tested` (`tests/learn_fold_icm.rs`); nothing here is extracted or refined to the canonical
 //! corpus, so no statement here is `proved`.
@@ -67,34 +69,34 @@ pub enum IcmError {
     NotPositiveDefinite,
 }
 
-/// A borrowed plane `(s, idx, r, c, d)`.
+/// A borrowed plane `(s, idx, r, c, d)` on the `Q32.32` grid.
 #[derive(Clone, Copy, Debug)]
 pub struct PlaneRef<'a> {
-    /// Plane code values (real, not `Q32.32`), row-major `[o, n]`: block `m` of row `o` is `s[o*n+8m .. +8]`.
-    pub s: &'a [f64],
+    /// Plane code values (`Q32.32` words), row-major `[o, n]`: block `m` of row `o` is `s[o*n+8m .. +8]`.
+    pub s: &'a [i64],
     /// Codebook row per block, row-major `[o, n / 8]`, each in `0..256`.
     pub idx: &'a [u16],
     /// Group scale, row-major `[o, n / GROUP]`.
-    pub r: &'a [f64],
+    pub r: &'a [i64],
     /// Column scale, length `n`.
-    pub c: &'a [f64],
+    pub c: &'a [i64],
     /// Hadamard column scale, length `n`.
-    pub d: &'a [f64],
+    pub d: &'a [i64],
 }
 
 /// An owned plane: the result of a refinement, with `r`, `c`, `d` passed through unchanged.
 #[derive(Clone, Debug)]
 pub struct Plane {
-    /// Plane code values, row-major `[o, n]`.
-    pub s: Vec<f64>,
+    /// Plane code values (`Q32.32` words), row-major `[o, n]`.
+    pub s: Vec<i64>,
     /// Codebook row per block, row-major `[o, n / 8]`.
     pub idx: Vec<u16>,
     /// Group scale, row-major `[o, n / GROUP]`.
-    pub r: Vec<f64>,
+    pub r: Vec<i64>,
     /// Column scale, length `n`.
-    pub c: Vec<f64>,
+    pub c: Vec<i64>,
     /// Hadamard column scale, length `n`.
-    pub d: Vec<f64>,
+    pub d: Vec<i64>,
 }
 
 /// Counters from [`e8_joint_icm_2plane`].
@@ -106,14 +108,6 @@ pub struct JointStats {
     pub j_after: f64,
     /// Sum over blocks of the rows in which at least one plane's block code changed.
     pub moves: usize,
-}
-
-/// A plane on the `Q32.32` grid.
-struct PlaneQ {
-    s: Vec<i64>,
-    r: Vec<i64>,
-    c: Vec<i64>,
-    d: Vec<i64>,
 }
 
 /// `round(x·2³²)` at the grid range bound, or [`IcmError::Overflow`] off it.
@@ -301,16 +295,6 @@ fn rows_per_task(rows: usize) -> usize {
     rows.div_ceil(width_global()).max(1)
 }
 
-/// The `f64` boundary read in: one [`q32::to_grid`] per entry, `O(len)` time and space.
-pub(super) fn to_q_slice(x: &[f64]) -> Result<Vec<i64>, IcmError> {
-    x.iter().map(|&v| to_q(v)).collect()
-}
-
-/// The `f64` boundary read out: one exact scaling per entry, `O(len)` time and space.
-pub(super) fn real_slice(x: &[i64]) -> Vec<f64> {
-    x.iter().map(|&v| from_grid(v)).collect()
-}
-
 /// The elementwise binary op of [`bin_into`].
 #[derive(Clone, Copy)]
 pub(super) enum BinOp {
@@ -440,11 +424,11 @@ fn cross_metric_q(
 
 /// Validate `ws`, `hl` and `g` against `o`/`n`.
 fn check_inputs(
-    ws: &[f64],
-    hl: &[f64],
+    ws: &[i64],
+    hl: &[i64],
     o: usize,
     n: usize,
-    g: Option<&[f64]>,
+    g: Option<&[i64]>,
 ) -> Result<(), IcmError> {
     if ws.len() != o * n || hl.len() != n * n || g.is_some_and(|g| g.len() != o) {
         return Err(IcmError::Shape);
@@ -455,7 +439,7 @@ fn check_inputs(
 /// An owned [`Plane`] from its refined code and the input's unchanged scales; `O(o·n)` time and space.
 fn into_plane(s: &[i64], idx: Vec<u16>, p: PlaneRef<'_>) -> Plane {
     Plane {
-        s: real_slice(s),
+        s: s.to_vec(),
         idx,
         r: p.r.to_vec(),
         c: p.c.to_vec(),
@@ -470,19 +454,15 @@ pub fn codebook() -> [[f64; BLOCK]; CODE_LEN] {
     core::array::from_fn(|j| core::array::from_fn(|k| from_grid(cb[j][k])))
 }
 
-/// Euclidean nearest codebook row of a real-valued 8-vector, first index on ties, via the codebook's own
+/// Euclidean nearest codebook row of a grid 8-vector, first index on ties, via the codebook's own
 /// `Q32.32` rule ([`e8::nearest`]). The ICM block argmin is not this rule: it minimises the block cost
 /// in the `H_blk`-weighted metric.
 /// # Errors
-/// [`IcmError::Overflow`] for a non-finite or ungriddable entry, or exact `i128` distance overflow.
+/// [`IcmError::Overflow`] for an exact `i128` distance overflow.
 /// # Complexity
 /// `O(256·8)` exact `i128` operations, `O(1)` space: constant in the caller's dimensions.
-pub fn nearest_index(code: &[f64; BLOCK]) -> Result<usize, IcmError> {
-    let mut q = [0_i64; BLOCK];
-    for k in 0..BLOCK {
-        q[k] = to_q(code[k])?;
-    }
-    e8::nearest(&q).map_err(|_| IcmError::Overflow)
+pub fn nearest_index(code: &[i64; BLOCK]) -> Result<usize, IcmError> {
+    e8::nearest(code).map_err(|_| IcmError::Overflow)
 }
 
 /// The metric the ICM cost is minimised in: `Hl`, or `Hl` plus the `icm_ridge` diagonal shift
@@ -492,12 +472,11 @@ pub fn nearest_index(code: &[f64; BLOCK]) -> Result<usize, IcmError> {
 /// [`IcmError::Shape`] if `hl.len() != n*n` or `n == 0`; [`IcmError::Overflow`] off the grid.
 /// # Complexity
 /// `O(n²)` time and space: one copy, then `n` diagonal adds.
-pub fn ridged_metric(hl: &[f64], n: usize, icm_ridge: f64) -> Result<Vec<f64>, IcmError> {
+pub fn ridged_metric(hl: &[i64], n: usize, icm_ridge: f64) -> Result<Vec<i64>, IcmError> {
     if n == 0 || hl.len() != n * n {
         return Err(IcmError::Shape);
     }
-    let h = ridged_metric_q(&to_q_slice(hl)?, n, to_q(icm_ridge)?)?;
-    Ok(real_slice(&h))
+    ridged_metric_q(hl, n, to_q(icm_ridge)?)
 }
 
 /// # Complexity
@@ -542,15 +521,16 @@ fn narrow(v: i128) -> Result<i64, IcmError> {
     i64::try_from(v).map_err(|_| IcmError::Overflow)
 }
 
-/// `plane_w(P) = fwht128(s·d) · r_rep · c`, the plane's weight matrix, row-major `[o, n]`.
+/// `plane_w(P) = fwht128(s·d) · r_rep · c`, the plane's weight matrix, row-major `[o, n]`, on the
+/// `Q32.32` grid.
 /// # Errors
 /// [`IcmError::Shape`] on a slice length that disagrees with `o`/`n`, or a value the grid cannot carry;
 /// [`IcmError::Width`] if `n` is not a positive multiple of [`BLOCK`] and [`GROUP`].
 /// # Complexity
 /// `O(o·n·log2(GROUP))` additions for the transform plus `O(o·n)` checked multiplies; `O(o·n)` space.
-pub fn plane_w(p: PlaneRef<'_>, o: usize, n: usize) -> Result<Vec<f64>, IcmError> {
-    let q = plane_q(p, o, n)?;
-    Ok(real_slice(&plane_w_q(&q.s, &q.r, &q.c, &q.d, o, n)?))
+pub fn plane_w(p: PlaneRef<'_>, o: usize, n: usize) -> Result<Vec<i64>, IcmError> {
+    check_plane(p, o, n)?;
+    plane_w_q(p.s, p.r, p.c, p.d, o, n)
 }
 
 /// # Complexity
@@ -584,36 +564,25 @@ fn plane_w_q(
     Ok(t)
 }
 
-/// `J(Ws, W, Hl) = Σ_o g_row[o] · (D_o Hl · D_o)`, `D = Ws − W`; unweighted when `g_row` is `None`.
+/// `J(Ws, W, Hl) = Σ_o g_row[o] · (D_o Hl · D_o)`, `D = Ws − W` on the grid, as the `Q32.32`
+/// word of the sum; unweighted when `g_row` is `None`.
 /// # Errors
 /// [`IcmError::Shape`] on a slice length that disagrees with `o`/`n`; [`IcmError::Overflow`] off the grid.
 /// # Complexity
 /// `O(o·n²)` multiply-adds (the `D·Hl` product runs on the engine pool), `O(o·n)` space.
 pub fn j_rows(
-    ws: &[f64],
-    w: &[f64],
-    hl: &[f64],
+    ws: &[i64],
+    w: &[i64],
+    hl: &[i64],
     o: usize,
     n: usize,
-    g_row: Option<&[f64]>,
-) -> Result<f64, IcmError> {
+    g_row: Option<&[i64]>,
+) -> Result<i64, IcmError> {
     check_inputs(ws, hl, o, n, g_row)?;
     if w.len() != o * n {
         return Err(IcmError::Shape);
     }
-    let (ws_q, w_q, hl_q) = (to_q_slice(ws)?, to_q_slice(w)?, to_q_slice(hl)?);
-    let g_q = match g_row {
-        Some(g) => Some(to_q_slice(g)?),
-        None => None,
-    };
-    Ok(from_grid(j_rows_q(
-        &ws_q,
-        &w_q,
-        &hl_q,
-        o,
-        n,
-        g_q.as_deref(),
-    )?))
+    j_rows_q(ws, w, hl, o, n, g_row)
 }
 
 /// # Complexity
@@ -653,8 +622,8 @@ fn j_rows_q(
 /// independent blocks of each row, plus `O(o·n²)` setup for `Ws@Hl` and the transforms; `O(n²)` for
 /// `H_rot`/`q_all` plus `O(o·n)`.
 pub fn e8_icm_step(
-    ws: &[f64],
-    hl: &[f64],
+    ws: &[i64],
+    hl: &[i64],
     p: PlaneRef<'_>,
     o: usize,
     n: usize,
@@ -662,19 +631,18 @@ pub fn e8_icm_step(
     icm_ridge: f64,
 ) -> Result<Plane, IcmError> {
     check_inputs(ws, hl, o, n, None)?;
-    let q = plane_q(p, o, n)?;
-    let (ws_q, hl_q) = (to_q_slice(ws)?, to_q_slice(hl)?);
-    let metric = ridged_metric_q(&hl_q, n, to_q(icm_ridge)?)?;
+    check_plane(p, o, n)?;
+    let metric = ridged_metric_q(hl, n, to_q(icm_ridge)?)?;
     let (g, nb, cb) = (n / GROUP, n / BLOCK, codebook_q());
     // G_rot = fwht128((Ws @ Hl) * c) * d, H_rot = had_gram(Hl ∘ c c^T) ∘ d d^T
-    let mut g_rot = matmul_q(&ws_q, &metric, o, n, n, false)?;
-    scale_by(&mut g_rot, o, n, &q.c, g, ScaleBy::Column)?;
+    let mut g_rot = matmul_q(ws, &metric, o, n, n, false)?;
+    scale_by(&mut g_rot, o, n, p.c, g, ScaleBy::Column)?;
     fwht_rows(&mut g_rot, o, n)?;
-    scale_by(&mut g_rot, o, n, &q.d, g, ScaleBy::Column)?;
-    let h_rot = cross_metric_q(&metric, n, &q.c, &q.c, &q.d, &q.d)?;
+    scale_by(&mut g_rot, o, n, p.d, g, ScaleBy::Column)?;
+    let h_rot = cross_metric_q(&metric, n, p.c, p.c, p.d, p.d)?;
     // B = s * r_rep, F_res = G_rot - B @ H_rot
-    let mut b = q.s.clone();
-    scale_by(&mut b, o, n, &q.r, g, ScaleBy::Group)?;
+    let mut b = p.s.to_vec();
+    scale_by(&mut b, o, n, p.r, g, ScaleBy::Group)?;
     let mut f_res = g_rot;
     bin_into(
         &mut f_res,
@@ -682,7 +650,7 @@ pub fn e8_icm_step(
         BinOp::Sub,
     )?;
     let q_all = block_quads_q(&h_rot, &cb, nb, n)?;
-    let (mut s_cur, mut idx_cur) = (q.s.clone(), p.idx.to_vec());
+    let (mut s_cur, mut idx_cur) = (p.s.to_vec(), p.idx.to_vec());
     let cx = SweepCtx {
         h_rot: &h_rot,
         q_all: &q_all,
@@ -701,7 +669,7 @@ pub fn e8_icm_step(
         per * nb,
         &SweepTask {
             cx: &cx,
-            r: &q.r,
+            r: p.r,
             per,
         },
     )?;
@@ -851,20 +819,21 @@ fn sweep_rows(
               shapes"
 )]
 pub fn e8_joint_icm_2plane(
-    ws: &[f64],
-    hl: &[f64],
+    ws: &[i64],
+    hl: &[i64],
     p1: PlaneRef<'_>,
     p2: PlaneRef<'_>,
     o: usize,
     n: usize,
     sweeps: usize,
     icm_ridge: f64,
-    g_row: Option<&[f64]>,
+    g_row: Option<&[i64]>,
     row_chunk: usize,
     blocks: Option<&[usize]>,
 ) -> Result<(Plane, Plane, JointStats), IcmError> {
     check_inputs(ws, hl, o, n, g_row)?;
-    let (q1, q2) = (plane_q(p1, o, n)?, plane_q(p2, o, n)?);
+    check_plane(p1, o, n)?;
+    check_plane(p2, o, n)?;
     if row_chunk == 0 {
         return Err(IcmError::ZeroChunk);
     }
@@ -876,41 +845,36 @@ pub fn e8_joint_icm_2plane(
             }
         }
     }
-    let (ws_q, hl_q) = (to_q_slice(ws)?, to_q_slice(hl)?);
-    let g_q = match g_row {
-        Some(g) => Some(to_q_slice(g)?),
-        None => None,
-    };
-    let metric = ridged_metric_q(&hl_q, n, to_q(icm_ridge)?)?;
+    let metric = ridged_metric_q(hl, n, to_q(icm_ridge)?)?;
     let (g, cb) = (n / GROUP, codebook_q());
-    let mut wsum = plane_w_q(&q1.s, &q1.r, &q1.c, &q1.d, o, n)?;
+    let mut wsum = plane_w_q(p1.s, p1.r, p1.c, p1.d, o, n)?;
     bin_into(
         &mut wsum,
-        &plane_w_q(&q2.s, &q2.r, &q2.c, &q2.d, o, n)?,
+        &plane_w_q(p2.s, p2.r, p2.c, p2.d, o, n)?,
         BinOp::Add,
     )?;
-    let j_before = j_rows_q(&ws_q, &wsum, &metric, o, n, g_q.as_deref())?;
-    let (mut s1, mut s2) = (q1.s.clone(), q2.s.clone());
+    let j_before = j_rows_q(ws, &wsum, &metric, o, n, g_row)?;
+    let (mut s1, mut s2) = (p1.s.to_vec(), p2.s.to_vec());
     let (mut idx1, mut idx2) = (p1.idx.to_vec(), p2.idx.to_vec());
     // G_k = fwht128((Ws @ Hl) * c_k) * d_k
-    let wh = matmul_q(&ws_q, &metric, o, n, n, false)?;
+    let wh = matmul_q(ws, &metric, o, n, n, false)?;
     let mut g1 = wh.clone();
-    scale_by(&mut g1, o, n, &q1.c, g, ScaleBy::Column)?;
+    scale_by(&mut g1, o, n, p1.c, g, ScaleBy::Column)?;
     fwht_rows(&mut g1, o, n)?;
-    scale_by(&mut g1, o, n, &q1.d, g, ScaleBy::Column)?;
+    scale_by(&mut g1, o, n, p1.d, g, ScaleBy::Column)?;
     let mut g2 = wh;
-    scale_by(&mut g2, o, n, &q2.c, g, ScaleBy::Column)?;
+    scale_by(&mut g2, o, n, p2.c, g, ScaleBy::Column)?;
     fwht_rows(&mut g2, o, n)?;
-    scale_by(&mut g2, o, n, &q2.d, g, ScaleBy::Column)?;
+    scale_by(&mut g2, o, n, p2.d, g, ScaleBy::Column)?;
     // H_jk = had_gram(Hl ∘ c_j c_k^T) ∘ d_j d_k^T
-    let h11 = cross_metric_q(&metric, n, &q1.c, &q1.c, &q1.d, &q1.d)?;
-    let h22 = cross_metric_q(&metric, n, &q2.c, &q2.c, &q2.d, &q2.d)?;
-    let h12 = cross_metric_q(&metric, n, &q1.c, &q2.c, &q1.d, &q2.d)?;
+    let h11 = cross_metric_q(&metric, n, p1.c, p1.c, p1.d, p1.d)?;
+    let h22 = cross_metric_q(&metric, n, p2.c, p2.c, p2.d, p2.d)?;
+    let h12 = cross_metric_q(&metric, n, p1.c, p2.c, p1.d, p2.d)?;
     // F_1 = G_1 - B_1 H_11 - B_2 H_12^T, F_2 = G_2 - B_2 H_22 - B_1 H_12
     let mut b1 = s1.clone();
-    scale_by(&mut b1, o, n, &q1.r, g, ScaleBy::Group)?;
+    scale_by(&mut b1, o, n, p1.r, g, ScaleBy::Group)?;
     let mut b2 = s2.clone();
-    scale_by(&mut b2, o, n, &q2.r, g, ScaleBy::Group)?;
+    scale_by(&mut b2, o, n, p2.r, g, ScaleBy::Group)?;
     let mut f1 = g1;
     bin_into(&mut f1, &matmul_q(&b1, &h11, o, n, n, false)?, BinOp::Sub)?;
     bin_into(&mut f1, &matmul_q(&b2, &h12, o, n, n, true)?, BinOp::Sub)?;
@@ -948,8 +912,8 @@ pub fn e8_joint_icm_2plane(
         q2: &q2v,
         x_all: &x_all,
         cb: &cb,
-        r1: &q1.r,
-        r2: &q2.r,
+        r1: p1.r,
+        r2: p2.r,
         blocks,
         n,
         g,
@@ -962,15 +926,15 @@ pub fn e8_joint_icm_2plane(
     if let Some((_, e)) = first.take() {
         return Err(e);
     }
-    let mut wsum = plane_w_q(&s1, &q1.r, &q1.c, &q1.d, o, n)?;
+    let mut wsum = plane_w_q(&s1, p1.r, p1.c, p1.d, o, n)?;
     bin_into(
         &mut wsum,
-        &plane_w_q(&s2, &q2.r, &q2.c, &q2.d, o, n)?,
+        &plane_w_q(&s2, p2.r, p2.c, p2.d, o, n)?,
         BinOp::Add,
     )?;
     let stats = JointStats {
         j_before: from_grid(j_before),
-        j_after: from_grid(j_rows_q(&ws_q, &wsum, &metric, o, n, g_q.as_deref())?),
+        j_after: from_grid(j_rows_q(ws, &wsum, &metric, o, n, g_row)?),
         moves: moves.load(Ordering::Relaxed),
     };
     Ok((into_plane(&s1, idx1, p1), into_plane(&s2, idx2, p2), stats))
@@ -1121,38 +1085,39 @@ fn joint_row(cx: &JointSweep<'_>, row: &mut JointRow<'_>, rowno: usize) -> Resul
 /// solves of `2G × 2G` (`o·(2G)³/3`), rows split across the pool; `O(o·(2G)²)` for the per-row normal
 /// matrix plus `O(o·n)`.
 pub fn r_step2(
-    ws: &[f64],
-    hl: &[f64],
+    ws: &[i64],
+    hl: &[i64],
     p1: PlaneRef<'_>,
     p2: PlaneRef<'_>,
     o: usize,
     n: usize,
-) -> Result<(Vec<f64>, Vec<f64>), IcmError> {
+) -> Result<(Vec<i64>, Vec<i64>), IcmError> {
     check_inputs(ws, hl, o, n, None)?;
-    let (q1, q2) = (plane_q(p1, o, n)?, plane_q(p2, o, n)?);
-    let (ws_q, hl_q) = (to_q_slice(ws)?, to_q_slice(hl)?);
+    check_plane(p1, o, n)?;
+    check_plane(p2, o, n)?;
     let (g, per) = (n / GROUP, rows_per_task(o));
-    let wh = matmul_q(&ws_q, &hl_q, o, n, n, false)?;
-    let (mut r1_out, mut r2_out) = (vec![0_i64; o * g], vec![0_i64; o * g]);
+    let wh = matmul_q(ws, hl, o, n, n, false)?;
+    let mut r1_out = vec![0_i64; o * g];
+    let mut r2_out = vec![0_i64; o * g];
     let task = RStepRows {
-        hl: &hl_q,
+        hl,
         wh: &wh,
-        p1: &q1,
-        p2: &q2,
+        p1,
+        p2,
         n,
         g,
         per,
     };
     for_chunks2(&mut r1_out, per * g, &mut r2_out, per * g, &task)?;
-    Ok((real_slice(&r1_out), real_slice(&r2_out)))
+    Ok((r1_out, r2_out))
 }
 
 /// The pool task of [`r_step2`]: one band of rows of the two normal systems.
 struct RStepRows<'a> {
     hl: &'a [i64],
     wh: &'a [i64],
-    p1: &'a PlaneQ,
-    p2: &'a PlaneQ,
+    p1: PlaneRef<'a>,
+    p2: PlaneRef<'a>,
     n: usize,
     g: usize,
     per: usize,
@@ -1185,8 +1150,8 @@ fn dot_window(a: &[i64], h: &[i64], stride: usize) -> Result<i64, IcmError> {
 fn r_row_q(
     hl: &[i64],
     wh: &[i64],
-    p1: &PlaneQ,
-    p2: &PlaneQ,
+    p1: PlaneRef<'_>,
+    p2: PlaneRef<'_>,
     n: usize,
     g: usize,
     row: usize,
@@ -1199,11 +1164,7 @@ fn r_row_q(
     // at the grid quantum.
     let mut prod = vec![0_i128; two_g * GROUP];
     for a_ in 0..two_g {
-        let (s, c) = if a_ < g {
-            (&p1.s, &p1.c)
-        } else {
-            (&p2.s, &p2.c)
-        };
+        let (s, c) = if a_ < g { (p1.s, p1.c) } else { (p2.s, p2.c) };
         let aa = a_ % g;
         for j in 0..GROUP {
             prod[a_ * GROUP + j] =
@@ -1283,45 +1244,20 @@ fn check_plane(p: PlaneRef<'_>, o: usize, n: usize) -> Result<(), IcmError> {
     Ok(())
 }
 
-/// # Complexity
-/// `O(o·n)` time and space: four grid conversions.
-fn plane_q(p: PlaneRef<'_>, o: usize, n: usize) -> Result<PlaneQ, IcmError> {
-    check_plane(p, o, n)?;
-    let (s, r, c, d) = (
-        to_q_slice(p.s)?,
-        to_q_slice(p.r)?,
-        to_q_slice(p.c)?,
-        to_q_slice(p.d)?,
-    );
-    Ok(PlaneQ { s, r, c, d })
-}
-
-/// Row-major `[rows, inner] × [inner, cols]` product on the shared Q32.32 path, returned as reals.
-/// The panel scale rule and the grid rounding are [`product_panels`]'s; the read-back multiplies by an
-/// exact power of two, so a product outside the `i64` grid range is still representable.
+/// Row-major `[rows, inner] × [inner, cols]` product on the shared `Q32.32` path. The panel scale
+/// rule and the grid rounding are [`product_panels`]'s, and the exact power-of-two undo is
+/// [`shl_q32`], so a product outside the `i64` grid range is still representable.
 /// # Errors
 /// [`IcmError::Shape`] for an empty dimension or a length that disagrees with the shape;
-/// [`IcmError::Overflow`] for a non-finite or ungriddable entry or a product that leaves `f64`.
+/// [`IcmError::Overflow`] for a product that leaves the grid.
 /// # Complexity
 /// As [`product_panels`]: `O(rows·inner·cols)` pool multiply-accumulates, `O(rows·cols)` space.
 pub fn matmul(
-    a: &[f64],
-    b: &[f64],
+    a: &[i64],
+    b: &[i64],
     rows: usize,
     inner: usize,
     cols: usize,
-) -> Result<Vec<f64>, IcmError> {
-    let (aq, bq) = (to_q_slice(a)?, to_q_slice(b)?);
-    let (c, back) = product_panels(&aq, &bq, rows, inner, cols, false)?;
-    let scale = 2.0_f64.powi(i32::try_from(back).map_err(|_| IcmError::Overflow)?);
-    c.into_iter()
-        .map(|v| {
-            let x = from_grid(v) * scale;
-            if x.is_finite() {
-                Ok(x)
-            } else {
-                Err(IcmError::Overflow)
-            }
-        })
-        .collect()
+) -> Result<Vec<i64>, IcmError> {
+    matmul_q(a, b, rows, inner, cols, false)
 }

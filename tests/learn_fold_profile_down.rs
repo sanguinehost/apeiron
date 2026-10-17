@@ -46,6 +46,7 @@ use apeiron::learn::fold::fit::icm::{e8_icm_step, PlaneRef};
 use apeiron::learn::fold::fit::steps::{c_step, compose, d_step, fwht128, had_gram, r_step};
 use apeiron::learn::fold::layer::stage::metric;
 use apeiron::learn::fold::layer::tensor::{fit_tensor, TensorKind, TensorParams};
+use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
 /// The `down` tensor's input width (`intermediate_size`).
 const N: usize = 4864;
@@ -232,17 +233,30 @@ fn icm_flops(o: f64, n: f64, sweeps: f64) -> f64 {
     2.0 * o * n * n + sweeps * (n / 8.0) * o * 8.0 * n * 2.0 + 8.0 * n * n
 }
 
-/// The sign plane of `ws` (`o × n`), the cheap code plane the ICM/steps phases consume.
-fn sign_plane(ws: &[f64]) -> Vec<f64> {
-    ws.iter()
-        .map(|&v| if v >= 0.0 { 1.0 } else { -1.0 })
+/// `x` as Q32.32 words, the carrier the fit steps take. `O(len)`.
+fn q(x: &[f64]) -> Vec<i64> {
+    x.iter()
+        .map(|&v| to_grid(v, GRID_BOUND).expect("grid"))
         .collect()
 }
 
-/// `hl = metric(H, rg_q)` and the flat `ones` the closed-form steps hold.
-fn metric_and_ones(fx: &Fx) -> (Vec<f64>, Vec<f64>) {
+/// Words read back as `f64`. `O(len)`.
+fn unq(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&v| from_grid(v)).collect()
+}
+
+/// The sign plane of `ws` (`o × n`) as words, the cheap code plane the ICM/steps phases consume.
+fn sign_plane(ws: &[f64]) -> Vec<i64> {
+    q(&ws
+        .iter()
+        .map(|&v| if v >= 0.0 { 1.0 } else { -1.0 })
+        .collect::<Vec<f64>>())
+}
+
+/// `hl = metric(H, rg_q)` and the flat `ones` the closed-form steps hold, as words.
+fn metric_and_ones(fx: &Fx) -> (Vec<i64>, Vec<i64>) {
     let hl = metric(&fx.h, N, fx.rg_q).expect("metric");
-    (hl, vec![1.0_f64; N])
+    (q(&hl), q(&vec![1.0_f64; N]))
 }
 
 /// Phase group (1)(2)(3): the transforms, `metric`, and `gptq_e8`.
@@ -255,17 +269,18 @@ fn t_a_transforms_metric_gptq() {
     phase("(1a) fwht128(Ws) [o=896,n=4864]", o * n * 7.0, 3, || {
         fwht128(&fx.ws).expect("fwht")[0]
     });
+    let hq = q(&fx.h);
     phase(
         "(1b) had_gram(H) [n=4864]",
         2.0 * n * n * 7.0 + 2.0 * n * n,
         3,
-        || had_gram(&fx.h, N).expect("had_gram")[N],
+        || from_grid(had_gram(&hq, N).expect("had_gram")[N]),
     );
     phase("(2) metric(H, rg_q) [n=4864]", n * n, 3, || {
         metric(&fx.h, N, fx.rg_q).expect("metric")[0]
     });
     let ws_rot = fwht128(&fx.ws).expect("fwht");
-    let h_gram = had_gram(&fx.h, N).expect("had_gram");
+    let h_gram = unq(&had_gram(&q(&fx.h), N).expect("had_gram"));
     phase(
         "(3) gptq_e8(ws_rot, h_gram, beam=4)",
         gptq_flops(o, n),
@@ -287,8 +302,9 @@ fn t_b_icm_step() {
     let (hl, c) = metric_and_ones(&fx);
     let s = sign_plane(&fx.ws);
     let idx = vec![0_u16; O * (N / 8)];
-    let r = vec![1.0_f64; O * (N / 128)];
-    let d = vec![1.0_f64; N];
+    let r = q(&vec![1.0_f64; O * (N / 128)]);
+    let d = q(&vec![1.0_f64; N]);
+    let wsq = q(&fx.ws);
     let p = PlaneRef {
         s: &s,
         idx: &idx,
@@ -300,7 +316,7 @@ fn t_b_icm_step() {
         "(4) e8_icm_step(o=896,n=4864,sweeps=2)",
         icm_flops(O as f64, N as f64, 2.0),
         3,
-        || e8_icm_step(&fx.ws, &hl, p, O, N, 2, 0.20).expect("icm").s[0],
+        || from_grid(e8_icm_step(&wsq, &hl, p, O, N, 2, 0.20).expect("icm").s[0]),
     );
 }
 
@@ -312,26 +328,27 @@ fn t_c_steps_crd() {
     header();
     let (hl, ones) = metric_and_ones(&fx);
     let s = sign_plane(&fx.ws);
-    let r = vec![1.0_f64; O * (N / 128)];
+    let r = q(&vec![1.0_f64; O * (N / 128)]);
     let (o, n) = (O as f64, N as f64);
-    let g = Some(fx.g_row.as_slice());
+    let (wsq, gq) = (q(&fx.ws), q(&fx.g_row));
+    let g = Some(gq.as_slice());
     // c_step: form A = hl ∘ (Σ_o Sh·Sh_g) `O(o·n²)` + Ws·Hl `O(o·n²)` + Cholesky `n³/6`.
     phase(
         "(5a) c_step [O(o n^2) + n^3]",
         2.0 * o * n * n + n * n * n / 6.0,
         3,
-        || c_step(&fx.ws, &hl, &s, &r, O, N, g).expect("c_step")[0],
+        || from_grid(c_step(&wsq, &hl, &s, &r, O, N, g).expect("c_step")[0]),
     );
     // r_step: the per-row G×G systems, `O(o·n²)` total.
     phase("(5b) r_step [O(o n^2)]", o * n * n, 3, || {
-        r_step(&fx.ws, &hl, &s, &ones, O, N).expect("r_step")[0]
+        from_grid(r_step(&wsq, &hl, &s, &ones, O, N).expect("r_step")[0])
     });
     // d_step: Ws·Hl + A `O(o·n²)` + H_rot + Cholesky `n³/6`.
     phase(
         "(5c) d_step [O(o n^2) + n^3]",
         2.0 * o * n * n + n * n * n / 6.0,
         3,
-        || d_step(&fx.ws, &hl, &s, &r, &ones, O, N, g).expect("d_step")[0],
+        || from_grid(d_step(&wsq, &hl, &s, &r, &ones, O, N, g).expect("d_step")[0]),
     );
 }
 
@@ -343,12 +360,12 @@ fn t_d_corrector() {
     header();
     let hl = metric(&fx.h, N, fx.rg_q).expect("metric");
     let ws_rot = fwht128(&fx.ws).expect("fwht");
-    let h_gram = had_gram(&fx.h, N).expect("had_gram");
-    let q = gptq_e8(&ws_rot, &h_gram, O, N, fx.damp, true, true, 4).expect("gptq");
+    let h_gram = unq(&had_gram(&q(&fx.h), N).expect("had_gram"));
+    let qe8 = gptq_e8(&ws_rot, &h_gram, O, N, fx.damp, true, true, 4).expect("gptq");
     // The gptq candidate weight wq0 = compose(fwht128(s_rot), scale, ones); delta = ws − wq0.
-    let wq0_s = fwht128(&q.s).expect("fwht");
+    let wq0_s = fwht128(&qe8.s).expect("fwht");
     let ones_c = vec![1.0_f64; N];
-    let wq0 = compose(&wq0_s, &q.scale, &ones_c, O, N).expect("compose");
+    let wq0 = unq(&compose(&q(&wq0_s), &q(&qe8.scale), &q(&ones_c), O, N).expect("compose"));
     let delta: Vec<f64> = fx.ws.iter().zip(&wq0).map(|(a, b)| a - b).collect();
     drop(wq0);
     let (o, n) = (O as f64, N as f64);
@@ -369,11 +386,11 @@ fn t_e_eigh() {
     header();
     let hl = metric(&fx.h, N, fx.rg_q).expect("metric");
     let ws_rot = fwht128(&fx.ws).expect("fwht");
-    let h_gram = had_gram(&fx.h, N).expect("had_gram");
-    let q = gptq_e8(&ws_rot, &h_gram, O, N, fx.damp, true, true, 4).expect("gptq");
-    let wq0_s = fwht128(&q.s).expect("fwht");
+    let h_gram = unq(&had_gram(&q(&fx.h), N).expect("had_gram"));
+    let qe8 = gptq_e8(&ws_rot, &h_gram, O, N, fx.damp, true, true, 4).expect("gptq");
+    let wq0_s = fwht128(&qe8.s).expect("fwht");
     let ones_c = vec![1.0_f64; N];
-    let wq0 = compose(&wq0_s, &q.scale, &ones_c, O, N).expect("compose");
+    let wq0 = unq(&compose(&q(&wq0_s), &q(&qe8.scale), &q(&ones_c), O, N).expect("compose"));
     // w1 = ΔW·Hl (o×n), m = w1·ΔWᵀ (o×o), exactly as `eigen_parts` builds it.
     let mut w1 = vec![0.0_f64; O * N];
     for i in 0..O {
@@ -502,7 +519,7 @@ fn fnv_f64(xs: &[f64]) -> u64 {
 fn t_h_fixture_receipt() {
     let fx = fixture();
     let ws_rot = fwht128(&fx.ws).expect("fwht");
-    let h_gram = had_gram(&fx.h, N).expect("had_gram");
+    let h_gram = unq(&had_gram(&q(&fx.h), N).expect("had_gram"));
     let dmin = (0..N)
         .map(|i| h_gram[i * N + i])
         .fold(f64::INFINITY, f64::min);
