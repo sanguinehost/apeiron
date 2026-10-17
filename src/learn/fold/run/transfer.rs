@@ -952,7 +952,9 @@ fn split_layer(
 ///
 /// The line carries the completed-stage count, the five `bits` fields, the layer geometry (four
 /// widths), and the length and SHA-256 of the `lq`, fits and `hs_mid` buffers. The fits are the
-/// `fits-<l>.bin` word form, so `wp`, `nb` and `factors` come back empty/`None`.
+/// `fits-<l>.bin` word form, so `wp`, `nb` and `factors` come back empty/`None`. The layer's
+/// forward cache is not in the checkpoint: it comes back `None` and the next stage rebuilds it
+/// once.
 ///
 /// # Complexity
 /// Time and space `O(bytes read)` = `O((hidden² + hidden·inter + fits + n_seq·t·hidden)·8)`, plus
@@ -1032,6 +1034,8 @@ fn parse_progress(
         fits,
         bits,
         hs_mid: mid,
+        // The forward cache is not checkpointed: `quantise_layer_staged` rebuilds it once.
+        forward: None,
     })
 }
 

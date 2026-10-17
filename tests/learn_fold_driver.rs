@@ -850,6 +850,10 @@ fn i_stage_resume_matches_one_shot() {
         if k < 4 {
             assert!(prog.is_some(), "stage {k} cleared its progress");
             assert_eq!(prog.as_ref().map(|p| p.stage), Some(k), "stage {k}");
+            assert!(
+                prog.as_ref().is_some_and(|p| p.forward.is_some()),
+                "stage {k} dropped the layer's forward cache"
+            );
             assert_eq!(hs2, hs_in, "stage {k} touched `hs`");
         }
     }
@@ -877,6 +881,27 @@ fn i_stage_resume_matches_one_shot() {
     fnv_words(&mut h3, &hs3);
     assert_eq!(h3, d_hs, "3+1 hs digest");
 
+    // A progress restored from a checkpoint carries no forward cache: the next stage rebuilds it
+    // once, and the layer stays bit-identical.
+    let mut hs5 = hs_in.clone();
+    let mut prog: Option<LayerProgress> = None;
+    let mut resumed = None;
+    for _ in 1..=4 {
+        if let Some(p) = prog.as_mut() {
+            p.forward = None;
+        }
+        resumed = quantise_layer_staged(&cfg, &rope, &lt, &ln_next, &ht, &mut hs5, &mut prog, 1)
+            .expect("resumed stage");
+    }
+    assert_eq!(
+        result_digest(&resumed.expect("resumed layer")),
+        d_res,
+        "resumed result digest"
+    );
+    let mut h5 = 0xcbf2_9ce4_8422_2325_u64;
+    fnv_words(&mut h5, &hs5);
+    assert_eq!(h5, d_hs, "resumed hs digest");
+
     // A progress whose stage, `fits` count or `hs_mid` length disagrees is refused.
     let total = N_SEQ * T * HID;
     let mut hs4 = hs_in.clone();
@@ -886,6 +911,7 @@ fn i_stage_resume_matches_one_shot() {
         fits: Vec::new(),
         bits: TensorBits::default(),
         hs_mid: vec![0; total],
+        forward: None,
     });
     assert_eq!(
         unwrap_err(quantise_layer_staged(
@@ -900,6 +926,7 @@ fn i_stage_resume_matches_one_shot() {
         fits: Vec::new(),
         bits: TensorBits::default(),
         hs_mid: vec![0; total],
+        forward: None,
     });
     assert_eq!(
         unwrap_err(quantise_layer_staged(
@@ -914,6 +941,7 @@ fn i_stage_resume_matches_one_shot() {
         fits: one.fits.iter().take(4).cloned().collect(),
         bits: TensorBits::default(),
         hs_mid: vec![0; total - 1],
+        forward: None,
     });
     assert_eq!(
         unwrap_err(quantise_layer_staged(

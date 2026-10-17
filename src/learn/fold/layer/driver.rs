@@ -55,6 +55,8 @@
               types repeat `driver::`; the pub boundary flips to slices in wave 2"
 )]
 
+use std::borrow::Cow;
+
 use crate::learn::fold::fit::fnorm::{fnorm_fit, FnormError};
 use crate::learn::fold::fit::fold_fit::FoldFitConfig;
 use crate::learn::fold::layer::resq::{resq_scale, ResqError, ResqInputs};
@@ -705,13 +707,122 @@ fn stage_scale(base: i64, n: usize, n_ref: usize) -> Result<i64, DriverError> {
     i64::try_from(q).map_err(|_| DriverError::Grid)
 }
 
-/// One stage of a layer: the slab Gram accumulation (`:1538-1648`), the `fold_gqa` solve
-/// (`:1652-1682`) and the per-tensor fit (`:1692-1957`), writing each fit into `lq`. The word-form
-/// `hs_mid` feeds `ffn`/`down`, materialised per slab for `stats::parts`; the sink weights of every
-/// stage read `hs`. Temporal `O(Σ_slabs rows·n² + Σ_j n³)`, dominated by the seven [`fit_tensor`]
-/// calls; spatial `O(n² + Σ_j n·outs_j + Σ_slabs rows·n)`.
+/// The layer's forward products that every stage reads: the teacher forward, the two post-norm
+/// student inputs and the two sink-weight sets. Each is a pure function of `(cfg, rope, lt, ht)`
+/// and of `hs`/`hs_mid`, none of which a stage writes; [`LayerProgress`] carries them across a
+/// stage boundary and a resumed run rebuilds them once. Bytes at the production shape (`k = 50`,
+/// `t = 512`, hidden 896, inter 4864): `pt` 2.595 GB, `ln1`/`ln2` 183.5 MB each, sink 0.2 MB.
+#[derive(Clone, Default)]
+pub struct LayerForward {
+    /// The teacher forward, one `keep_keys` slab per slab (`:1532-1535`).
+    pt: Vec<SlabParts>,
+    /// `rms(hs, ln1)`, `[n_seq·t, hidden]`: the `qkv` and `o` stage input.
+    ln1: Vec<i64>,
+    /// `rms(hs_mid, ln2)`, `[n_seq·t, hidden]`: the `ffn`/`down` input, built once `hs_mid` exists.
+    ln2: Vec<i64>,
+    /// The sink token weights without the student mid term (`qkv`, `o`), one `[rows]` per slab.
+    w_tok: Option<Vec<Vec<i64>>>,
+    /// The sink token weights with the student mid term (`ffn`, `down`), one `[rows]` per slab.
+    w_tok_mid: Option<Vec<Vec<i64>>>,
+}
+
+impl core::fmt::Debug for LayerForward {
+    /// Counts, not words: the buffers are gigabytes at the production shape.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let (s, n) = (self.pt.len(), self.ln1.len() + self.ln2.len());
+        write!(f, "LayerForward({s} slabs, {n} words)")
+    }
+}
+
+/// Fill one post-norm input of `fwd` and its sink weights over the slab partition: `ln1`/`w_tok`
+/// from `hs` (the `qkv`/`o` pair) or `ln2`/`w_tok_mid` from `hs_mid` (the `ffn`/`down` pair, valid
+/// only once stage `o` has run). Temporal `O(n_seq·t·hidden)`; spatial `O(n_seq·t·(hidden + 1))`.
 /// # Errors
-/// [`DriverError::Shape`] on a length mismatch, and every refusal of [`sink_token_weights`],
+/// [`DriverError::Shape`] on a length disagreement; [`DriverError::Grid`] if `eps` leaves the grid.
+fn fill_norm(
+    fwd: &mut LayerForward,
+    cfg: &DriverCfg,
+    ht: &[i64],
+    hs: &[i64],
+    x: &[i64],
+    w_ln: &[i64],
+    with_mid: bool,
+    geom: &[(usize, usize, usize)],
+) -> Result<(), DriverError> {
+    let hid = cfg.layer.hidden;
+    let eps = to_grid(cfg.layer.eps, GRID_BOUND).ok_or(DriverError::Grid)?;
+    if fwd.pt.len() != geom.len() || x.len() != hs.len() {
+        return Err(DriverError::Shape);
+    }
+    let mut norm = Vec::with_capacity(x.len());
+    let mut w = Vec::with_capacity(geom.len());
+    for (i, &(row0, rows, seqs)) in geom.iter().enumerate() {
+        let (lo, hi) = (row0 * hid, row0 * hid + rows * hid);
+        norm.extend_from_slice(&rms(&x[lo..hi], w_ln, eps, rows, hid)?);
+        w.push(sink_token_weights(
+            &ht[lo..hi],
+            &fwd.pt[i].mid,
+            &fwd.pt[i].out,
+            &hs[lo..hi],
+            if with_mid { Some(&x[lo..hi]) } else { None },
+            seqs,
+            cfg.t,
+            hid,
+            cfg.sink_thresh,
+        )?);
+    }
+    let (norm_slot, w_slot) = if with_mid {
+        (&mut fwd.ln2, &mut fwd.w_tok_mid)
+    } else {
+        (&mut fwd.ln1, &mut fwd.w_tok)
+    };
+    *norm_slot = norm;
+    *w_slot = Some(w);
+    Ok(())
+}
+
+/// Build the layer's reused [`LayerForward`]: the teacher forward always, the `qkv`/`o` terms when
+/// `start <= 1`, the `ffn`/`down` terms when `start >= 2` ([`fill_norm`]). Temporal
+/// `O(teacher forward)`; spatial `O(n_seq·t·(hidden + head widths + inter))`.
+/// # Errors
+/// [`DriverError::Shape`] on a length disagreement; every refusal of [`fill_norm`].
+fn layer_forward(
+    cfg: &DriverCfg,
+    rope: &RopeTables,
+    lt: &LayerWeights,
+    lq: &LayerWeights,
+    ht: &[i64],
+    hs: &[i64],
+    hs_mid: &[i64],
+    geom: &[(usize, usize, usize)],
+    start: usize,
+) -> Result<LayerForward, DriverError> {
+    let hid = cfg.layer.hidden;
+    let mut pt: Vec<SlabParts> = Vec::with_capacity(geom.len());
+    for &(row0, rows, seqs) in geom {
+        let hb = &ht[row0 * hid..row0 * hid + rows * hid];
+        pt.push(batch_parts(cfg, rope, lt, hb, seqs, cfg.t)?);
+    }
+    let mut fwd = LayerForward {
+        pt,
+        ..LayerForward::default()
+    };
+    if start <= 1 {
+        fill_norm(&mut fwd, cfg, ht, hs, hs, &lq.attn_norm, false, geom)?;
+    }
+    if start >= 2 {
+        fill_norm(&mut fwd, cfg, ht, hs, hs_mid, &lq.ffn_norm, true, geom)?;
+    }
+    Ok(fwd)
+}
+
+/// One stage of a layer: the slab Gram accumulation (`:1538-1648`), the `fold_gqa` solve
+/// (`:1652-1682`) and the per-tensor fit (`:1692-1957`), writing each fit into `lq`. The stage
+/// inputs are the once-computed [`LayerForward`] activations; the sink weights arrive per slab.
+/// Temporal `O(Σ_slabs rows·n² + Σ_j n³)`, dominated by the seven [`fit_tensor`] calls; spatial
+/// `O(n² + Σ_j n·outs_j + Σ_slabs rows·n)`.
+/// # Errors
+/// [`DriverError::Shape`] on a length mismatch, and every refusal of
 /// [`StageAccum::add_slab`], [`solve_stage`], [`fit_tensor`], [`resq_scale`] and
 /// [`fold_row_scale`].
 fn run_stage(
@@ -721,7 +832,8 @@ fn run_stage(
     lq: &mut LayerWeights,
     ln_next: &[i64],
     stage: StageId,
-    pt_cache: &[SlabParts],
+    fwd: &LayerForward,
+    w_tok: &[Vec<i64>],
     ht: &[i64],
     hs: &[i64],
     hs_mid: &[i64],
@@ -729,8 +841,6 @@ fn run_stage(
     let hid = cfg.layer.hidden;
     let inter = cfg.layer.inter;
     let t = cfg.t;
-    let eps = to_grid(cfg.layer.eps, GRID_BOUND).ok_or(DriverError::Grid)?;
-    let thresh = cfg.sink_thresh;
     let qo = q_out(cfg);
     let kvo = kv_out(cfg);
     let n = stage.input_width(cfg);
@@ -740,75 +850,53 @@ fn run_stage(
     let geom = slab_geometry(cfg.n_seq, t, cfg.slab)?;
     let mut accum = StageAccum::new(n, &outs, with_ts)?;
     let mut slab_in: Vec<Vec<i64>> = Vec::with_capacity(geom.len());
-    let (ln1, ln2) = (&lq.attn_norm, &lq.ffn_norm);
     // The per-stage `quant_ridge`/`quant_damp` scale `base·(n/n_ref)` as Q32.32 words.
     let n_ref = width_n(cfg.solve.n_ref)?;
     let rg_q = stage_scale(cfg.quant_ridge, n, n_ref)?;
     let damp = stage_scale(cfg.quant_damp, n, n_ref)?;
 
     for (i, &(row0, rows, seqs)) in geom.iter().enumerate() {
-        let pt = &pt_cache[i];
-        let hts = &ht[row0 * hid..row0 * hid + rows * hid];
-        let hss = &hs[row0 * hid..row0 * hid + rows * hid];
-        let mut pin_mid: Option<&[i64]> = None;
-        let mut pin_xa: Option<Vec<i64>> = None;
-        let mut pin_xf: Option<Vec<i64>> = None;
+        let pt = fwd.pt.get(i).ok_or(DriverError::Shape)?;
+        let w_slab = w_tok.get(i).ok_or(DriverError::Shape)?;
+        let lo = row0 * hid;
+        let hi = lo + rows * hid;
+        let hts = &ht[lo..hi];
+        let hss = &hs[lo..hi];
 
-        let pin_in: Vec<i64> = match stage {
-            StageId::Qkv => rms(hss, ln1, eps, rows, hid)?,
+        // The stage input: cached post-norm rows for `qkv`/`ffn`, the student attention output for
+        // `o`, the `silu` product of the fitted `gate`/`up` for `down`.
+        let pin_in: Cow<'_, [i64]> = match stage {
+            StageId::Qkv => fwd.ln1.get(lo..hi).ok_or(DriverError::Shape)?.into(),
+            StageId::Ffn => fwd.ln2.get(lo..hi).ok_or(DriverError::Shape)?.into(),
             StageId::O => {
-                let xa = rms(hss, ln1, eps, rows, hid)?;
-                let bq = lq.bq.as_deref();
-                let bk = lq.bk.as_deref();
-                let bv = lq.bv.as_deref();
-                let q = linear(&xa, rows, hid, &lq.wq, bq, qo)?;
-                let k = linear(&xa, rows, hid, &lq.wk, bk, kvo)?;
-                let v = linear(&xa, rows, hid, &lq.wv, bv, kvo)?;
-                let a = attn_batch(cfg, rope, &q, &k, &v, seqs, t)?;
-                pin_xa = Some(xa);
-                a
-            }
-            StageId::Ffn => {
-                let mid = &hs_mid[row0 * hid..row0 * hid + rows * hid];
-                let x = rms(mid, ln2, eps, rows, hid)?;
-                pin_mid = Some(mid);
-                x
+                let xa = fwd.ln1.get(lo..hi).ok_or(DriverError::Shape)?;
+                let q = linear(xa, rows, hid, &lq.wq, lq.bq.as_deref(), qo)?;
+                let k = linear(xa, rows, hid, &lq.wk, lq.bk.as_deref(), kvo)?;
+                let v = linear(xa, rows, hid, &lq.wv, lq.bv.as_deref(), kvo)?;
+                attn_batch(cfg, rope, &q, &k, &v, seqs, t)?.into()
             }
             StageId::Down => {
-                let mid = &hs_mid[row0 * hid..row0 * hid + rows * hid];
-                let xf = rms(mid, ln2, eps, rows, hid)?;
-                let g = linear(&xf, rows, hid, &lq.w_gate, None, inter)?;
-                let u = linear(&xf, rows, hid, &lq.w_up, None, inter)?;
-                let m = silu_mul(&g, &u)?;
-                pin_mid = Some(mid);
-                pin_xf = Some(xf);
-                m
+                let xf = fwd.ln2.get(lo..hi).ok_or(DriverError::Shape)?;
+                let g = linear(xf, rows, hid, &lq.w_gate, None, inter)?;
+                let u = linear(xf, rows, hid, &lq.w_up, None, inter)?;
+                silu_mul(&g, &u)?.into()
             }
         };
 
-        let w_tok = sink_token_weights(hts, &pt.mid, &pt.out, hss, pin_mid, seqs, t, hid, thresh)?;
-
         let (ys, y_ts): (Vec<Vec<i64>>, Vec<Option<Vec<i64>>>) = match stage {
-            StageId::Qkv => (
-                vec![
-                    sub_bias(&pt.q, lt.bq.as_deref().ok_or(DriverError::Shape)?, rows, qo)?,
-                    sub_bias(
-                        &pt.k,
-                        lt.bk.as_deref().ok_or(DriverError::Shape)?,
-                        rows,
-                        kvo,
-                    )?,
-                    sub_bias(
-                        &pt.v,
-                        lt.bv.as_deref().ok_or(DriverError::Shape)?,
-                        rows,
-                        kvo,
-                    )?,
-                ],
-                vec![None, None, None],
-            ),
+            StageId::Qkv => {
+                let (bk, bv) = (lt.bk.as_deref(), lt.bv.as_deref());
+                (
+                    vec![
+                        sub_bias(&pt.q, lt.bq.as_deref().ok_or(DriverError::Shape)?, rows, qo)?,
+                        sub_bias(&pt.k, bk.ok_or(DriverError::Shape)?, rows, kvo)?,
+                        sub_bias(&pt.v, bv.ok_or(DriverError::Shape)?, rows, kvo)?,
+                    ],
+                    vec![None, None, None],
+                )
+            }
             StageId::O => {
-                let xa = pin_xa.as_deref().ok_or(DriverError::Shape)?;
+                let xa = fwd.ln1.get(lo..hi).ok_or(DriverError::Shape)?;
                 let y = tri_sub(&pt.mid, hts, hss)?;
                 let qt = linear(xa, rows, hid, &lt.wq, lt.bq.as_deref(), qo)?;
                 let kt = linear(xa, rows, hid, &lt.wk, lt.bk.as_deref(), kvo)?;
@@ -819,8 +907,8 @@ fn run_stage(
             }
             StageId::Ffn => (vec![pt.g.clone(), pt.u.clone()], vec![None, None]),
             StageId::Down => {
-                let xf = pin_xf.as_deref().ok_or(DriverError::Shape)?;
-                let mid = pin_mid.ok_or(DriverError::Shape)?;
+                let xf = fwd.ln2.get(lo..hi).ok_or(DriverError::Shape)?;
+                let mid = &hs_mid[lo..hi];
                 let y = tri_sub(&pt.out, &pt.mid, mid)?;
                 let mg = linear(xf, rows, hid, &lt.w_gate, None, inter)?;
                 let mu = linear(xf, rows, hid, &lt.w_up, None, inter)?;
@@ -832,9 +920,9 @@ fn run_stage(
 
         let ys_ref: Vec<&[i64]> = ys.iter().map(Vec::as_slice).collect();
         let yts_ref: Vec<Option<&[i64]>> = y_ts.iter().map(|o| o.as_deref()).collect();
-        accum.add_slab(&pin_in, &w_tok, &ys_ref, &yts_ref)?;
+        accum.add_slab(pin_in.as_ref(), w_slab, &ys_ref, &yts_ref)?;
         if stage != StageId::Qkv {
-            slab_in.push(pin_in);
+            slab_in.push(pin_in.into_owned());
         }
     }
 
@@ -994,8 +1082,8 @@ pub(crate) fn fit_count(stage: usize) -> usize {
 }
 
 /// The resumable state of one layer between stage boundaries: the partially quantised layer, its
-/// fits and bit sum, `stage` (completed stages, `1 ..= 3`) and the student mid state (`hs` is only
-/// replaced at the end of stage `down`; the teacher cache is recomputed on resume).
+/// fits and bit sum, `stage` (completed stages), the student mid state (`hs` is only replaced at
+/// the end of stage `down`) and the layer's reused forward products.
 #[derive(Clone, Debug)]
 pub struct LayerProgress {
     /// Completed stages (`1 ..= 3`); the next call runs stage `stage`.
@@ -1009,6 +1097,11 @@ pub struct LayerProgress {
     /// The student mid state `hs + a·Lq.oᵀ` after stage `o`, row-major `[n_seq·t, hidden]`; all
     /// zeros after stage `qkv`.
     pub hs_mid: Vec<i64>,
+    /// The layer's forward products ([`LayerForward`]), carried in memory so a later stage reuses
+    /// them. Not part of the checkpoint: a resumed run restores it as `None` and the next call
+    /// rebuilds it once. `None` is always valid.
+    #[doc(hidden)]
+    pub forward: Option<LayerForward>,
 }
 
 /// Quantise at most `max_stages` of `lt`'s remaining stages from `progress` (`None` starts at
@@ -1016,9 +1109,11 @@ pub struct LayerProgress {
 /// stage returns the one-shot [`quantise_layer`] result and clears it.
 ///
 /// `hs` carries the student input and is replaced only by the `down` stage. The teacher forward
-/// cache and `ht_next` are recomputed from `(cfg, rope, lt, ht)` on every call. Temporal
-/// `O(Σ_slabs t·parts + Σ_{stages run} rows·n² + Σ_{fits run} fit)`, dominated by that cache and
-/// the [`fit_tensor`] calls; spatial `O(n_seq·t·hidden + Σ_slabs rows·hidden + n²)`.
+/// and the post-norm student inputs are computed once per layer ([`LayerForward`]) and carried in
+/// [`LayerProgress`] across a stage boundary; a `progress` with `forward: None` (a resumed run)
+/// rebuilds them once. Temporal `O(Σ_slabs t·parts + Σ_{stages run} rows·n² + Σ_{fits run} fit)`,
+/// dominated by that forward and the [`fit_tensor`] calls; spatial
+/// `O(n_seq·t·hidden + Σ_slabs rows·(hidden + inter) + n²)`.
 ///
 /// # Errors
 /// [`DriverError::Shape`] for a length mismatch or a `progress` whose `stage`, `fits` count or
@@ -1063,30 +1158,36 @@ pub fn quantise_layer_staged(
         return Ok(None);
     }
 
-    // The teacher forward cache, one `keep_keys` slab per slab (`:1532-1535`), and the teacher layer
-    // output `ht_next`.
     let geom = slab_geometry(cfg.n_seq, t, cfg.slab)?;
-    let mut pt_cache: Vec<SlabParts> = Vec::with_capacity(geom.len());
-    let mut ht_next = Vec::with_capacity(total);
-    for &(row0, rows, seqs) in &geom {
-        let hts = &ht[row0 * hid..row0 * hid + rows * hid];
-        let p = batch_parts(cfg, rope, lt, hts, seqs, t)?;
-        ht_next.extend_from_slice(&p.out);
-        pt_cache.push(p);
-    }
-
-    let (mut lq, mut fits, mut bits, mut hs_mid) = match progress.take() {
+    let (mut lq, mut fits, mut bits, mut hs_mid, cached) = match progress.take() {
         None => (
             lt.clone(),
             Vec::new(),
             TensorBits::default(),
             vec![0_i64; total],
+            None,
         ),
-        Some(p) => (p.lq, p.fits, p.bits, p.hs_mid),
+        Some(p) => (p.lq, p.fits, p.bits, p.hs_mid, p.forward),
+    };
+    // One teacher forward and one set of post-norm student inputs per layer, not one per stage; a
+    // resumed run (`cached == None`) rebuilds them exactly once here.
+    let mut fwd = match cached {
+        Some(f) => f,
+        None => layer_forward(cfg, rope, lt, &lq, ht, hs, &hs_mid, &geom, start)?,
     };
     let end = start.saturating_add(max_stages).min(STAGES);
 
     for stage in start..end {
+        // `hs_mid` is written by stage `o`, so the `ffn`/`down` post-norm input is built at `ffn`.
+        if stage >= 2 && fwd.ln2.is_empty() {
+            fill_norm(&mut fwd, cfg, ht, hs, &hs_mid, &lq.ffn_norm, true, &geom)?;
+        }
+        let w_tok = if stage < 2 {
+            fwd.w_tok.as_deref()
+        } else {
+            fwd.w_tok_mid.as_deref()
+        }
+        .ok_or(DriverError::Shape)?;
         let s = run_stage(
             cfg,
             rope,
@@ -1094,7 +1195,8 @@ pub fn quantise_layer_staged(
             &mut lq,
             ln_next,
             STAGE_IDS[stage],
-            &pt_cache,
+            &fwd,
+            w_tok,
             ht,
             hs,
             &hs_mid,
@@ -1132,10 +1234,13 @@ pub fn quantise_layer_staged(
             fits,
             bits,
             hs_mid,
+            forward: Some(fwd),
         });
         return Ok(None);
     }
     *progress = None;
+    // `ht_next`: the teacher output concatenated over the slabs, `[n_seq·t, hidden]`.
+    let ht_next: Vec<i64> = fwd.pt.iter().flat_map(|p| p.out.iter().copied()).collect();
     Ok(Some(LayerResult {
         lq,
         fits,
@@ -1148,7 +1253,6 @@ pub fn quantise_layer_staged(
 /// fits, the bit budget and the teacher layer output: [`quantise_layer_staged`] with `max_stages =
 /// 4`. `ln_next` is the `down` stage's `g_row` source (the next layer's `ln1`, or the final norm
 /// weight).
-///
 /// # Errors
 /// Every refusal of [`quantise_layer_staged`].
 pub fn quantise_layer(
@@ -1268,10 +1372,10 @@ pub fn model_step(
 /// `max_stages = 1` makes the unit of resumption one stage. [`model_step`] is this function with no
 /// cap and an `until` bound.
 ///
-/// Temporal `O(Σ_{stages run} (teacher forward + stage fold))`; the teacher forward cache is
-/// recomputed per call (see [`quantise_layer_staged`]), so `n` one-stage calls pay that cache `n`
-/// times. Spatial `O(layers.len()·hidden² + n_seq·t·hidden)` plus one layer's fit scratch.
-///
+/// Temporal `O(Σ_{layers started} teacher forward + Σ_{stages run} stage fold + Σ_{fits run} fit)`:
+/// `n` one-stage calls of one layer pay that forward once (it is carried in [`LayerProgress`]);
+/// only a progress restored from a checkpoint (`forward: None`) rebuilds it. Spatial
+/// `O(layers.len()·hidden² + n_seq·t·hidden + Σ_slabs rows·(hidden + inter))` plus fit scratch.
 /// # Errors
 /// [`DriverError::Shape`] for a hidden-state length that disagrees with `n_seq·t·hidden`, a
 /// `fnorm_w` that is not `hidden` wide, or a progress layer at or past the model's last layer; and
