@@ -4,7 +4,7 @@
 //! The Aeneas control-flow restructure of `src/learn/solve/inv.rs` must leave the executed words
 //! and the typed refusals unchanged. This test folds every output word and every error variant of
 //! `inv_factor_upper` over deterministic fixtures — sizes including `1`, odd, and the values around
-//! `INV_BLOCK = 64`, an SPD matrix at `threads ∈ {1, 2, 8}`, and the refusal inputs — into an
+//! `INV_BLOCK = 64`, an SPD matrix over three repeated calls, and the refusal inputs — into an
 //! FNV-1a 64 hash and asserts the constant. The constant is taken from the pre-change code at
 //! `29ae4148`; the restructured code must reproduce it bit for bit.
 
@@ -102,28 +102,28 @@ fn spd(n: usize, seed: u64) -> Vec<i64> {
 /// Hash `inv_factor_upper` over the fixture set; the constant is the pre-change value.
 fn xref_hash() -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    // SPD matrices: `1`, odd, and around `INV_BLOCK = 64`, at `threads ∈ {1, 2, 8}`.
+    // SPD matrices: `1`, odd, and around `INV_BLOCK = 64`, folded over three repeated calls.
     for &n in &[1usize, 3, 63, 64, 65, 128, 130] {
         let hq = spd(n, 0x51ED_0000 ^ n as u64);
-        for &threads in &[1usize, 2, 8] {
-            h = fold(h, &inv_factor_upper(&hq, n, threads));
+        for _ in 0..3 {
+            h = fold(h, &inv_factor_upper(&hq, n));
         }
     }
     // Refusals: empty, wrong shape, non-positive diagonal.
-    h = fold(h, &inv_factor_upper(&[], 0, 1));
-    h = fold(h, &inv_factor_upper(&[1i64 << 32], 2, 1));
+    h = fold(h, &inv_factor_upper(&[], 0));
+    h = fold(h, &inv_factor_upper(&[1i64 << 32], 2));
     let nneg = 16usize;
     let mut neg = vec![0i64; nneg * nneg];
     for i in 0..nneg {
         neg[i * nneg + i] = -(1i64 << 32);
     }
-    h = fold(h, &inv_factor_upper(&neg, nneg, 1));
+    h = fold(h, &inv_factor_upper(&neg, nneg));
     // A non-SPD (indefinite) symmetric matrix: `[[1, 2], [2, 1]]` on the grid.
     let indef = vec![1i64 << 32, 2i64 << 32, 2i64 << 32, 1i64 << 32];
-    h = fold(h, &inv_factor_upper(&indef, 2, 1));
+    h = fold(h, &inv_factor_upper(&indef, 2));
     // Large-magnitude SPD: exercises the `i128` path near the narrowing bound.
     let big = vec![1i64 << 40, (1i64 << 40) - 1, (1i64 << 40) - 1, 1i64 << 40];
-    h = fold(h, &inv_factor_upper(&big, 2, 1));
+    h = fold(h, &inv_factor_upper(&big, 2));
     h
 }
 

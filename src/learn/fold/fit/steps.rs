@@ -84,13 +84,6 @@ pub const GROUP: usize = 128;
 /// Ridge added to a normal-equation diagonal for `f64` (`eps` in the script).
 const EPS: f64 = 1e-12;
 
-/// The worker count handed to the two solve primitives by [`c_step`] and [`d_step`]. Neither step
-/// takes a thread parameter and `c_step`'s sole production caller
-/// ([`super::fold_fit::fold_fit`]) is single-threaded, so both fan out at `8`; both primitives are
-/// documented bit-identical across thread counts, so this changes only wall-clock, not the returned
-/// vector.
-const STEP_THREADS: usize = 8;
-
 /// [`q32::to_grid`] with the step's [`StepsError::ShapeMismatch`] for a non-finite or out-of-bound
 /// value (no new error variant: the crate maps a domain violation onto the step's existing shape
 /// refusal, as [`super::fold_fit`] does for its own conversions).
@@ -100,6 +93,30 @@ const STEP_THREADS: usize = 8;
 /// `O(1)`.
 fn to_grid(x: f64, bound: f64) -> Result<i64, StepsError> {
     q32::to_grid(x, bound).ok_or(StepsError::ShapeMismatch)
+}
+
+/// The row weight on the `wsyrk` grid with the exact power-of-two factor `2⁻ᵏ` that brings it
+/// there: `g_row[i]·2⁻ᵏ` rounded to `Q32.32` at [`INPUT_BOUND`], `k` the least shift with
+/// `max|g_row|·2⁻ᵏ ≤ 8` — the [`panel_shift`] rule the panel uses. `A = Bᵀ diag(g_row) B` and
+/// `b = Σ_o B·g_row·G` both carry the factor, so the solved scale is unchanged and no undo
+/// applies; `k = 0` when `max|g_row| ≤ 8` leaves every in-range word unchanged, and a larger
+/// weight's shifted words equal those of the caller's `g_row·2⁻ᵏ` bit for bit.
+///
+/// # Errors
+///
+/// [`StepsError::ShapeMismatch`] on a non-finite entry. `O(o)` time and space.
+fn g_row_shifted_grid(g_row: &[f64]) -> Result<(Vec<i64>, f64), StepsError> {
+    let max = g_row.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+    if !max.is_finite() {
+        return Err(StepsError::ShapeMismatch);
+    }
+    let k = panel_shift(max);
+    let f = if k == 0 { 1.0 } else { 2f64.powi(-k) };
+    let grid = g_row
+        .iter()
+        .map(|&x| to_grid(x * f, INPUT_BOUND))
+        .collect::<Result<Vec<i64>, StepsError>>()?;
+    Ok((grid, f))
 }
 
 /// A refusal from a fold-transfer step.
@@ -308,7 +325,7 @@ pub fn compose(
 ///
 /// # Complexity
 ///
-/// Temporal: [`mul_metric`] at `m = O`, `k = n`, `n = n` (`O(O·n²)` multiply-adds, threaded), then
+/// Temporal: [`mul_metric`] at `m = O`, `k = n`, `n = n` (`O(O·n²)` multiply-adds, pooled), then
 /// `O(O·n)` for the dot. Spatial: `O(O·n)` for `D` and `D·Hl`.
 pub fn objective(
     ws: &[f64],
@@ -347,7 +364,7 @@ fn group_scale(s: &[f64], r: &[f64], o: usize, n: usize, g: usize) -> Vec<f64> {
 ///
 /// # Complexity
 ///
-/// As [`gemm_nn_f64`] at `m = O`, `k = n`, `n = n`, split across [`STEP_THREADS`] workers.
+/// As [`gemm_nn_f64`] at `m = O`, `k = n`, `n = n`, on the engine pool.
 pub fn mul_metric(ws: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec<f64>, StepsError> {
     if ws.len() != o * n || hl.len() != n * n {
         return Err(StepsError::ShapeMismatch);
@@ -355,7 +372,7 @@ pub fn mul_metric(ws: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec<f64>
     if o == 0 || n == 0 {
         return Ok(vec![0.0f64; o * n]);
     }
-    gemm_nn_f64(ws, hl, o, n, n, STEP_THREADS).map_err(map_gemm)
+    gemm_nn_f64(ws, hl, o, n, n).map_err(map_gemm)
 }
 
 /// The `c_step`: one exact update of the per-column scale against the metric `Hl`, holding `S` and
@@ -386,19 +403,20 @@ pub fn mul_metric(ws: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec<f64>
 /// `max|Sh|·2⁻ᵏ ≤ 8`). The panel scaling propagates as `A → A·2⁻²ᵏ` and `b → b·2⁻ᵏ`, so the
 /// solution is `c·2ᵏ` and is scaled back by `2⁻ᵏ` before it is returned; `k = 0` when the panel is
 /// already within `8`, which leaves the tests and the production fixture unscaled. The primitives
-/// are handed [`STEP_THREADS`] workers; the result is bit-identical for every thread count.
+/// run on the engine pool; the result is bit-identical to the serial body.
 ///
 /// # Errors
 ///
 /// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], a slice length
 /// disagrees, `g_row` is present with the wrong length, or a value is non-finite or beyond the
-/// boundary bound (`Ws`/`Hl`/`Sh`/`g_row` at `2³⁶` raw, `b` at the grid `i64` range);
+/// boundary bound (`Ws`/`Hl`/`Sh` at `2³⁶` raw, `b` at the grid `i64` range; `g_row` is shifted
+/// into the bound by [`g_row_shifted_grid`] and refused only when it is non-finite);
 /// [`StepsError::NotPositiveDefinite`] if the diagonal metric reduces to a non-SPD `A` (a non-SPD
 /// `hl`).
 ///
 /// # Complexity
 ///
-/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (split across [`STEP_THREADS`]
+/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (on the engine pool
 /// workers) plus [`c_step_wshl`]'s cost, which is this body without that product. Spatial:
 /// `O(O·n)` for the product plus [`c_step_wshl`]'s footprint.
 pub fn c_step(
@@ -425,8 +443,9 @@ pub fn c_step(
 ///
 /// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], a slice length
 /// disagrees with the declared shape (including `wshl.len() != o·n`), `g_row` is present with the
-/// wrong length, or a value is non-finite or beyond the boundary bound (`Sh`/`g_row` at `2³⁶` raw,
-/// `hl`/`b` at the grid `i64` range); [`StepsError::NotPositiveDefinite`] if the diagonal metric
+/// wrong length, or a value is non-finite or beyond the boundary bound (`Sh` at `2³⁶` raw,
+/// `hl`/`b` at the grid `i64` range; `g_row` is shifted into the bound by [`g_row_shifted_grid`]
+/// and refused only when it is non-finite); [`StepsError::NotPositiveDefinite`] if the diagonal metric
 /// reduces to a non-SPD `A`.
 ///
 /// # Complexity
@@ -471,7 +490,16 @@ pub fn c_step_wshl(
         }
     }
     let mut b_sh = group_scale(s, r, o, n, g);
-    let weight = |oo: usize| g_row.map_or(1.0f64, |gr| gr[oo]);
+    // The row weight carries its own exact power-of-two shift into the input bound (see
+    // [`g_row_shifted_grid`]); the same factor is applied to the right-hand-side weight below.
+    let (gr_grid, g_scale) = match g_row {
+        Some(gr) => {
+            let (grid, f) = g_row_shifted_grid(gr)?;
+            (Some(grid), f)
+        }
+        None => (None, 1.0),
+    };
+    let weight = |oo: usize| g_row.map_or(1.0f64, |gr| gr[oo] * g_scale);
     // Scale the panel by the exact power of two `2⁻ᵏ` so it meets the `wsyrk` input bound
     // `|x| < 2³⁶` raw; `k` is read from `max|Sh|` (see [`panel_shift`]). The scaling is undone on
     // the returned `c` (`A → A·2⁻²ᵏ`, `b → b·2⁻ᵏ`, so the solution is `c·2ᵏ`).
@@ -488,21 +516,13 @@ pub fn c_step_wshl(
         .iter()
         .map(|&x| to_grid(x, INPUT_BOUND))
         .collect::<Result<Vec<i64>, StepsError>>()?;
-    let gr_grid: Option<Vec<i64>> = match g_row {
-        Some(gr) => Some(
-            gr.iter()
-                .map(|&x| to_grid(x, INPUT_BOUND))
-                .collect::<Result<Vec<i64>, StepsError>>()?,
-        ),
-        None => None,
-    };
     let hl_grid: Vec<i64> = hl
         .iter()
         .map(|&x| to_grid(x, GRID_BOUND))
         .collect::<Result<Vec<i64>, StepsError>>()?;
     // A = hl ⊙ (Shᵀ diag(g_row) Sh): the weighted Gram by [`wsyrk`], the `hl` factor by
     // [`hadamard_into`].
-    let mut a = wsyrk(&sh_grid, gr_grid.as_deref(), o, n, STEP_THREADS).map_err(map_syrk)?;
+    let mut a = wsyrk(&sh_grid, gr_grid.as_deref(), o, n).map_err(map_syrk)?;
     hadamard_into(&mut a, &hl_grid).map_err(map_syrk)?;
     // The ridge `1e-12·mean(diag A)` in the scaled system (`mean(diag A)` shares the `2⁻²ᵏ`
     // factor, so it cancels), at the grid quantum; a positive ridge is floored at one raw unit so
@@ -537,7 +557,7 @@ pub fn c_step_wshl(
         .iter()
         .map(|&x| to_grid(x, GRID_BOUND))
         .collect::<Result<Vec<i64>, StepsError>>()?;
-    let solved = chol_solve(&a, &b_grid, n, 1, STEP_THREADS).map_err(map_solve)?;
+    let solved = chol_solve(&a, &b_grid, n, 1).map_err(map_solve)?;
     // Undo the `2⁻ᵏ` panel scale on the solution.
     let back = if k == 0 { 1.0 } else { 2f64.powi(-k) };
     Ok(solved.x.iter().map(|&v| from_grid(v) * back).collect())
@@ -558,7 +578,7 @@ pub fn c_step_wshl(
 ///
 /// # Complexity
 ///
-/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (split across [`STEP_THREADS`]
+/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (on the engine pool
 /// workers) plus [`r_step_wshl`]'s cost, which is this body without that product. Spatial:
 /// `O(O·n)` for the product plus [`r_step_wshl`]'s footprint.
 pub fn r_step(
@@ -589,7 +609,7 @@ pub fn r_step(
 /// # Complexity
 ///
 /// Temporal: `G` shared products [`gemm_nn_f64`] at `m = O`, `k = 128`, `n = n` (`O(O·128·n)`
-/// multiply-adds each, `O(O·n²)` in all, split across [`STEP_THREADS`] workers), `O(O·n)` for each
+/// multiply-adds each, `O(O·n²)` in all, on the engine pool), `O(O·n)` for each
 /// group's accumulation into `M` (`O(O·G·n)` in all) and for `t`, and `O(O·G³)` for the per-row
 /// solves — the `Ws·Hl` product is the caller's, not this body's. Spatial: `O(O·n)` for `P`, the
 /// panel and the group product, `O(O·G²)` for the systems and `O(O·G)` output.
@@ -640,7 +660,6 @@ pub fn r_step_wshl(
             o,
             GROUP,
             n,
-            STEP_THREADS,
         )
         .map_err(map_gemm)?;
         for oo in 0..o {
@@ -696,12 +715,13 @@ pub fn r_step_wshl(
 ///
 /// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], a slice length
 /// disagrees, `g_row` is present with the wrong length, or a value is non-finite or beyond the
-/// boundary bound (`Ws`/`Hl`/`B`/`g_row` at `2³⁶` raw, `H_rot`/`b` at the grid `i64` range);
+/// boundary bound (`Ws`/`Hl`/`B` at `2³⁶` raw, `H_rot`/`b` at the grid `i64` range; `g_row` is
+/// shifted into the bound by [`g_row_shifted_grid`] and refused only when it is non-finite);
 /// [`StepsError::NotPositiveDefinite`] if the reduced `A` is not SPD.
 ///
 /// # Complexity
 ///
-/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (split across [`STEP_THREADS`]
+/// Temporal: one [`mul_metric`] at `m = O`, `k = n`, `n = n` (on the engine pool
 /// workers) plus [`d_step_wshl`]'s cost, which is this body without that product. Spatial:
 /// `O(O·n)` for the product plus [`d_step_wshl`]'s footprint.
 #[allow(
@@ -735,8 +755,9 @@ pub fn d_step(
 ///
 /// [`StepsError::ShapeMismatch`] if `n == 0`, `n` is not a multiple of [`GROUP`], a slice length
 /// disagrees (including `wshl.len() != o·n`), `g_row` is present with the wrong length, or a value
-/// is non-finite or beyond the boundary bound (`B`/`g_row` at `2³⁶` raw, `H_rot`/`b` at the grid
-/// `i64` range); [`StepsError::NotPositiveDefinite`] if the reduced `A` is not SPD.
+/// is non-finite or beyond the boundary bound (`B` at `2³⁶` raw, `H_rot`/`b` at the grid `i64`
+/// range; `g_row` is shifted into the bound by [`g_row_shifted_grid`] and refused only when it is
+/// non-finite); [`StepsError::NotPositiveDefinite`] if the reduced `A` is not SPD.
 ///
 /// # Complexity
 ///
@@ -782,7 +803,16 @@ pub fn d_step_wshl(
             return Err(StepsError::ShapeMismatch);
         }
     }
-    let weight = |oo: usize| g_row.map_or(1.0f64, |gr| gr[oo]);
+    // The row weight carries its own exact power-of-two shift into the input bound (see
+    // [`g_row_shifted_grid`]); the same factor is applied to the right-hand-side weight below.
+    let (gr_grid, g_scale) = match g_row {
+        Some(gr) => {
+            let (grid, f) = g_row_shifted_grid(gr)?;
+            (Some(grid), f)
+        }
+        None => (None, 1.0),
+    };
+    let weight = |oo: usize| g_row.map_or(1.0f64, |gr| gr[oo] * g_scale);
     // G_rot[o,i] = fwht128((Ws·Hl) ⊙ c)[o,i].
     let mut g_rot = vec![0.0f64; o * n];
     for oo in 0..o {
@@ -816,21 +846,13 @@ pub fn d_step_wshl(
         .iter()
         .map(|&x| to_grid(x, INPUT_BOUND))
         .collect::<Result<Vec<i64>, StepsError>>()?;
-    let gr_grid: Option<Vec<i64>> = match g_row {
-        Some(gr) => Some(
-            gr.iter()
-                .map(|&x| to_grid(x, INPUT_BOUND))
-                .collect::<Result<Vec<i64>, StepsError>>()?,
-        ),
-        None => None,
-    };
     let h_grid: Vec<i64> = h_rot
         .iter()
         .map(|&x| to_grid(x, GRID_BOUND))
         .collect::<Result<Vec<i64>, StepsError>>()?;
     // A = H_rot ⊙ (Bᵀ diag(g_row) B): the weighted Gram by [`wsyrk`], the rotated-metric factor by
     // [`hadamard_into`].
-    let mut a = wsyrk(&panel_grid, gr_grid.as_deref(), o, n, STEP_THREADS).map_err(map_syrk)?;
+    let mut a = wsyrk(&panel_grid, gr_grid.as_deref(), o, n).map_err(map_syrk)?;
     hadamard_into(&mut a, &h_grid).map_err(map_syrk)?;
     // The ridge `1e-12·max(mean(diag A), 1e-12)` at the grid quantum. The `2⁻²ᵏ` panel factor on `A`
     // cancels between the diagonal mean and the diagonal it is added to, so the clamp `1e-12` is
@@ -841,7 +863,7 @@ pub fn d_step_wshl(
         dmean += from_grid(a[i * n + i]);
     }
     dmean /= n as f64;
-    let ridge = EPS * dmean.max(EPS * 2f64.powi(-2 * k));
+    let ridge = EPS * dmean.max(EPS * g_scale * 2f64.powi(-2 * k));
     let mut ridge_raw = (ridge * GRID_SCALE).round() as i64;
     if ridge > 0.0 && ridge_raw == 0 {
         ridge_raw = 1;
@@ -866,7 +888,7 @@ pub fn d_step_wshl(
         .iter()
         .map(|&x| to_grid(x, GRID_BOUND))
         .collect::<Result<Vec<i64>, StepsError>>()?;
-    let solved = chol_solve(&a, &b_grid, n, 1, STEP_THREADS).map_err(map_solve)?;
+    let solved = chol_solve(&a, &b_grid, n, 1).map_err(map_solve)?;
     // Undo the `2⁻ᵏ` panel scale on the solution.
     let back = if k == 0 { 1.0 } else { 2f64.powi(-k) };
     Ok(solved.x.iter().map(|&v| from_grid(v) * back).collect())

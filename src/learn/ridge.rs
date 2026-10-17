@@ -464,8 +464,9 @@ impl FoldTrainer {
     ///   `gram_stack` monoid). Chosen when `rows·nnz` dwarfs `d²`, where reading each sample once
     ///   beats re-scanning it `T` times.
     ///
-    /// Both paths shape-check and range-check every index before a worker writes, so a refusal leaves
-    /// `self` unmodified. With `threads <= 1` this delegates to [`fold_sparse`](Self::fold_sparse).
+    /// Both paths run on the engine pool, one row range per `width_global()` participant, and every
+    /// index is checked before any task writes, so a refusal leaves `self` unmodified. Both paths are
+    /// bit-identical to [`fold_sparse`](Self::fold_sparse) up to the documented f64 summation order.
     ///
     /// # Errors
     /// [`RidgeError::ShapeMismatch`] if `idxs.len() != rows·nnz`, `vals.len() != rows·nnz`, or
@@ -473,7 +474,7 @@ impl FoldTrainer {
     /// `idxs[r·nnz + k] >= in_features`.
     ///
     /// # Panics
-    /// If a worker thread panics; the workers call only kernels that do not panic on caller input, so
+    /// If a pool task panics it is re-raised by the dispatch; the tasks call only kernels that do not panic on caller input, so
     /// a panic here is an internal bug.
     pub fn fold_sparse_par(
         &mut self,
@@ -482,26 +483,21 @@ impl FoldTrainer {
         y: &[f32],
         rows: usize,
         nnz: usize,
-        threads: usize,
     ) -> Result<(), RidgeError> {
         let (d, out, di) = (self.d, self.out_features, self.in_features);
         if idxs.len() != rows * nnz || vals.len() != rows * nnz || y.len() != rows * out {
             return Err(RidgeError::ShapeMismatch);
         }
-        let threads = threads.max(1).min(d.max(1));
-        if threads <= 1 {
-            return self.fold_sparse(idxs, vals, y, rows, nnz);
-        }
-        // Range-check every index before a worker writes, preserving the serial refusal guarantee
-        // (`self` stays unmodified when a bad index is refused). Fanned over the workers so the
-        // shared pass is not a serial `rows·nnz` scan ahead of the parallel fold.
-        if !Self::indices_in_range_par(idxs, di, threads) {
+        // Range-check every index before a task writes, preserving the serial refusal guarantee
+        // (`self` stays unmodified when a bad index is refused). Fanned over the pool so the shared
+        // pass is not a serial `rows·nnz` scan ahead of the pooled fold.
+        if !Self::indices_in_range(idxs, di) {
             return Err(RidgeError::IndexOutOfRange);
         }
         if Self::owner_partition(d, rows, nnz) {
-            self.fold_sparse_par_owner(idxs, vals, y, rows, nnz, threads)
+            self.fold_sparse_par_owner(idxs, vals, y, rows, nnz)
         } else {
-            self.fold_sparse_par_partials(idxs, vals, y, rows, nnz, threads)
+            self.fold_sparse_par_partials(idxs, vals, y, rows, nnz)
         }
     }
 
@@ -517,38 +513,54 @@ impl FoldTrainer {
         rows.saturating_mul(nnz) <= 5usize.saturating_mul(d).saturating_mul(d)
     }
 
-    /// `true` iff every `idxs` entry is `< di`, checked in parallel over `threads` scoped workers
-    /// (each scans a contiguous chunk and stops on the first out-of-range entry, setting a shared
-    /// flag). The result validates the whole input before any accumulator write, so a refusal leaves
-    /// `self` unmodified. `O(idxs.len())` time.
-    fn indices_in_range_par(idxs: &[u32], di: usize, threads: usize) -> bool {
+    /// `true` iff every `idxs` entry is `< di`, checked over the engine pool (each task scans a
+    /// contiguous chunk and stops on the first out-of-range entry, clearing a shared flag). The
+    /// result validates the whole input before any accumulator write, so a refusal leaves `self`
+    /// unmodified. `O(idxs.len())` time.
+    fn indices_in_range(idxs: &[u32], di: usize) -> bool {
         use std::sync::atomic::{AtomicBool, Ordering};
+        struct Scan<'a> {
+            idxs: &'a [u32],
+            di: usize,
+            ok: &'a AtomicBool,
+            chunk: usize,
+        }
+        impl crate::engine::chart::task::IndexTask for Scan<'_> {
+            fn run(&self, t: usize) {
+                let lo = t * self.chunk;
+                let hi = (lo + self.chunk).min(self.idxs.len());
+                for &raw in &self.idxs[lo..hi] {
+                    if (raw as usize) >= self.di {
+                        self.ok.store(false, Ordering::Relaxed);
+                        return;
+                    }
+                }
+            }
+        }
         let n = idxs.len();
-        let workers = threads.max(1).min(n.max(1));
-        if workers <= 1 {
-            return idxs.iter().all(|&raw| (raw as usize) < di);
+        if n == 0 {
+            return true;
         }
         let ok = AtomicBool::new(true);
-        let chunk = n.div_ceil(workers);
-        std::thread::scope(|scope| {
-            for part in idxs.chunks(chunk) {
-                let ok = &ok;
-                scope.spawn(move || {
-                    for &raw in part {
-                        if (raw as usize) >= di {
-                            ok.store(false, Ordering::Relaxed);
-                            return;
-                        }
-                    }
-                });
-            }
-        });
+        let chunk = n
+            .div_ceil(crate::engine::chart::pool::width_global())
+            .max(1);
+        let tasks = n.div_ceil(chunk);
+        crate::engine::chart::pool::run_global(
+            tasks,
+            &Scan {
+                idxs,
+                di,
+                ok: &ok,
+                chunk,
+            },
+        );
         ok.load(Ordering::Relaxed)
     }
 
     /// Output-row-partitioned parallel fold ([`fold_sparse_par`](Self::fold_sparse_par)): split the
-    /// `d` `U`/`C` rows into `threads` contiguous ranges, scan every sample per worker, and apply the
-    /// pairs whose first index is in the worker's range, in place.
+    /// `d` `U`/`C` rows into one contiguous range per `width_global()` pool participant, scan every
+    /// sample per task, and apply the pairs whose first index is in the task's range, in place.
     ///
     /// Cost. Work `O(rows·(nnz² + nnz·out_features))` — the same total applied updates as the serial
     /// fold, split across owners. Scan cost `T·rows·nnz`: every owner re-reads every sample to test
@@ -557,10 +569,10 @@ impl FoldTrainer {
     /// `O(rows·nnz + rows·(nnz² + nnz·out)/T)`: each owner scans all `rows·nnz` indices and applies its
     /// `1/T` share of the in-range updates (uniform distinct-index convention, where the expected
     /// updates to any row are `rows·nnz²/(2d)`). Extra space `O(1)` beyond the trainer's
-    /// `O(d² + d·out_features)` accumulators; no per-worker partial.
+    /// `O(d² + d·out_features)` accumulators; no per-task partial.
     ///
     /// # Panics
-    /// If a worker thread panics.
+    /// A pool task panic is re-raised by the dispatch; the body does not panic on caller input.
     ///
     /// # Errors
     /// [`RidgeError::ShapeMismatch`] if `rows` exceeds `i64::MAX` (unreachable for a slice input).
@@ -571,60 +583,69 @@ impl FoldTrainer {
         y: &[f32],
         rows: usize,
         nnz: usize,
-        threads: usize,
     ) -> Result<(), RidgeError> {
+        struct OwnerTask<'a> {
+            idxs: &'a [u32],
+            vals: &'a [f32],
+            y: &'a [f32],
+            rows: usize,
+            nnz: usize,
+            d: usize,
+            out: usize,
+            bias: bool,
+            bias_row: usize,
+            per: usize,
+        }
+        impl crate::engine::chart::task::Task2<f64, f64, RidgeError> for OwnerTask<'_> {
+            fn run(&self, t: usize, u: &mut [f64], c: &mut [f64]) -> Result<(), RidgeError> {
+                let lo = t * self.per;
+                let hi = lo + u.len() / self.d;
+                FoldTrainer::sparse_accumulate_owner(
+                    u,
+                    c,
+                    lo,
+                    hi,
+                    self.d,
+                    self.out,
+                    self.bias,
+                    self.bias_row,
+                    self.idxs,
+                    self.vals,
+                    self.y,
+                    0,
+                    self.rows,
+                    self.nnz,
+                );
+                Ok(())
+            }
+        }
         let (d, out) = (self.d, self.out_features);
-        // Contiguous row ranges, split evenly: under the uniform distinct-index convention the
+        // Contiguous row ranges of equal count: under the uniform distinct-index convention the
         // expected number of lower-triangle updates to a row is `rows·nnz²/(2d)`, the same for every
         // row, so equal row counts balance the expected work.
-        let base = d / threads;
-        let rem = d % threads;
-        let mut bounds = Vec::with_capacity(threads + 1);
-        bounds.push(0usize);
-        let mut acc = 0usize;
-        for t in 0..threads {
-            acc += base + usize::from(t < rem);
-            bounds.push(acc);
-        }
+        let per = d
+            .div_ceil(crate::engine::chart::pool::width_global())
+            .max(1);
         let bias = self.bias;
         let bias_row = d - usize::from(bias);
-        // Carve the `U` and `C` accumulators into the workers' contiguous row slices.
-        let mut u_parts: Vec<&mut [f64]> = Vec::with_capacity(threads);
-        let mut rest: &mut [f64] = &mut self.u;
-        let mut prev = 0usize;
-        for t in 0..threads {
-            let (lo, hi) = (bounds[t], bounds[t + 1]);
-            let (_, tail) = rest.split_at_mut((lo - prev) * d);
-            let (head, tail) = tail.split_at_mut((hi - lo) * d);
-            u_parts.push(head);
-            rest = tail;
-            prev = hi;
-        }
-        let mut c_parts: Vec<&mut [f64]> = Vec::with_capacity(threads);
-        let mut rest: &mut [f64] = &mut self.c;
-        let mut prev = 0usize;
-        for t in 0..threads {
-            let (lo, hi) = (bounds[t], bounds[t + 1]);
-            let (_, tail) = rest.split_at_mut((lo - prev) * out);
-            let (head, tail) = tail.split_at_mut((hi - lo) * out);
-            c_parts.push(head);
-            rest = tail;
-            prev = hi;
-        }
-        std::thread::scope(|scope| {
-            let mut handles = Vec::with_capacity(threads);
-            for (t, (u_part, c_part)) in u_parts.into_iter().zip(c_parts).enumerate() {
-                let (lo, hi) = (bounds[t], bounds[t + 1]);
-                handles.push(scope.spawn(move || {
-                    Self::sparse_accumulate_owner(
-                        u_part, c_part, lo, hi, d, out, bias, bias_row, idxs, vals, y, 0, rows, nnz,
-                    );
-                }));
-            }
-            for h in handles {
-                h.join().expect("fold_sparse_par worker panicked");
-            }
-        });
+        crate::engine::chart::pool::for_chunks2(
+            &mut self.u,
+            per * d,
+            &mut self.c,
+            per * out,
+            &OwnerTask {
+                idxs,
+                vals,
+                y,
+                rows,
+                nnz,
+                d,
+                out,
+                bias,
+                bias_row,
+                per,
+            },
+        )?;
         let dn = i64::try_from(rows).map_err(|_| RidgeError::ShapeMismatch)?;
         self.n += dn;
         // The owners wrote the lower triangle only; fill the upper once for the whole state.
@@ -633,19 +654,19 @@ impl FoldTrainer {
     }
 
     /// Row-partitioned parallel fold ([`fold_sparse_par`](Self::fold_sparse_par)): split the `rows`
-    /// into `threads` contiguous chunks, fold each into a private `U`/`C`, and merge the partials by
-    /// entrywise addition. The merge is licensed by the Gram monoid
-    /// `Sanguine.TrainingCollapse.gram_stack` — the Gram of a stacked batch is the sum of its blocks'
-    /// Grams, `(stack X₁ X₂)ᵀ·stack X₁ X₂ = X₁ᵀX₁ + X₂ᵀX₂` (the in-repo chain is
-    /// `apeiron_gram.gram_fold_i8_stack`, `proof/corpus/Learn/GramExact.lean`) — so the chunk partials
-    /// sum to the whole batch's normal equations, up to f64 summation order.
+    /// into one contiguous chunk per `width_global()` pool participant, fold each into a private
+    /// `U`/`C`, and merge the partials by entrywise addition. The merge is licensed by the Gram
+    /// monoid `Sanguine.TrainingCollapse.gram_stack` — the Gram of a stacked batch is the sum of its
+    /// blocks' Grams, `(stack X₁ X₂)ᵀ·stack X₁ X₂ = X₁ᵀX₁ + X₂ᵀX₂` (the in-repo chain is
+    /// `apeiron_gram.gram_fold_i8_stack`, `proof/corpus/Learn/GramExact.lean`) — so the chunk
+    /// partials sum to the whole batch's normal equations, up to f64 summation order.
     ///
-    /// Cost. Work `O(rows·(nnz² + nnz·out_features))`; span `O(rows/threads·(nnz² + nnz·out) +
-    /// threads·(d² + d·out))` (the final merge is serial); extra space
-    /// `threads·(d² + d·out_features)` for the private accumulators.
+    /// Cost. Work `O(rows·(nnz² + nnz·out_features))`; span `O(rows/T·(nnz² + nnz·out) +
+    /// T·(d² + d·out))` (the final merge is a pooled reduction); extra space
+    /// `T·(d² + d·out_features)` for the private accumulators.
     ///
     /// # Panics
-    /// If a worker thread panics.
+    /// A pool task panic is re-raised by the dispatch; the body does not panic on caller input.
     ///
     /// # Errors
     /// [`RidgeError::ShapeMismatch`] if `rows` exceeds `i64::MAX` (unreachable for a slice input).
@@ -656,89 +677,103 @@ impl FoldTrainer {
         y: &[f32],
         rows: usize,
         nnz: usize,
-        threads: usize,
     ) -> Result<(), RidgeError> {
+        struct PartialsTask<'a> {
+            idxs: &'a [u32],
+            vals: &'a [f32],
+            y: &'a [f32],
+            rows: usize,
+            nnz: usize,
+            out: usize,
+            per: usize,
+            first: &'a crate::engine::chart::pool::FirstErr<usize, RidgeError>,
+        }
+        impl crate::engine::chart::task::ChunkTask<FoldTrainer> for PartialsTask<'_> {
+            fn run(&self, t: usize, _start: usize, piece: &mut [FoldTrainer]) {
+                let lo = t * self.per;
+                let hi = (lo + self.per).min(self.rows);
+                let Some(part) = piece.first_mut() else {
+                    return;
+                };
+                if let Err(e) = part.sparse_accumulate(
+                    &self.idxs[lo * self.nnz..hi * self.nnz],
+                    &self.vals[lo * self.nnz..hi * self.nnz],
+                    &self.y[lo * self.out..hi * self.out],
+                    hi - lo,
+                    self.nnz,
+                ) {
+                    self.first.record(t, e);
+                }
+            }
+        }
         let (out, di) = (self.out_features, self.in_features);
-        let threads = threads.max(1).min(rows.max(1));
-        if threads <= 1 {
-            // Caller validated the shape and indices; the serial fold is the deterministic reference.
-            return self.fold_sparse(idxs, vals, y, rows, nnz);
-        }
-        // Even split of the row range; the first `rows % threads` chunks take one extra row.
-        let base = rows / threads;
-        let rem = rows % threads;
-        let mut bounds = Vec::with_capacity(threads + 1);
-        bounds.push(0usize);
-        let mut acc = 0usize;
-        for t in 0..threads {
-            acc += base + usize::from(t < rem);
-            bounds.push(acc);
-        }
+        let per = rows
+            .div_ceil(crate::engine::chart::pool::width_global())
+            .max(1);
+        let tasks = rows.div_ceil(per).max(1);
         let (in_features, out_features, ridge, bias) = (di, out, self.ridge, self.bias);
-        let partials: Vec<FoldTrainer> = std::thread::scope(|scope| {
-            let handles: Vec<_> = (0..threads)
-                .map(|t| {
-                    let (lo, hi) = (bounds[t], bounds[t + 1]);
-                    scope.spawn(move || {
-                        let mut part = FoldTrainer::new(in_features, out_features, ridge, bias);
-                        part.sparse_accumulate(
-                            &idxs[lo * nnz..hi * nnz],
-                            &vals[lo * nnz..hi * nnz],
-                            &y[lo * out_features..hi * out_features],
-                            hi - lo,
-                            nnz,
-                        )
-                        .map(|()| part)
-                    })
-                })
-                .collect();
-            handles
-                .into_iter()
-                .map(|h| h.join().expect("fold_sparse_par_partials worker panicked"))
-                .collect::<Result<Vec<FoldTrainer>, RidgeError>>()
-        })?;
+        let mut partials: Vec<FoldTrainer> = (0..tasks)
+            .map(|_| FoldTrainer::new(in_features, out_features, ridge, bias))
+            .collect();
+        let first: crate::engine::chart::pool::FirstErr<usize, RidgeError> =
+            crate::engine::chart::pool::FirstErr::new();
+        crate::engine::chart::pool::chunks_mut_global(
+            &mut partials,
+            1,
+            &PartialsTask {
+                idxs,
+                vals,
+                y,
+                rows,
+                nnz,
+                out,
+                per,
+                first: &first,
+            },
+        );
+        if let Some((_, e)) = first.take() {
+            return Err(e);
+        }
         // The reduction over the `T` partials is memory-bound, so fan it over index ranges too.
-        self.merge_partials_par(&partials, threads);
+        self.merge_partials_par(&partials);
         // The partials accumulated the lower triangle only; fill the upper once for the whole state.
         self.mirror_lower();
         Ok(())
     }
 
     /// Add `parts` into `self` entrywise (the `gram_stack` merge), splitting the `d² + d·out` index
-    /// range over up to `threads` scoped workers. The serial `merge` re-reads and rewrites `self.u`
-    /// once per partial (`T·d²` read-modify-writes); this reads each partial once and writes `self`
-    /// once, in parallel. `O(T·(d² + d·out))` time, `O(T·(d² + d·out))` read traffic, `O(1)` extra
-    /// space.
-    fn merge_partials_par(&mut self, parts: &[Self], threads: usize) {
-        let merge_threads = threads.max(1);
-        let cu = self.u.len().div_ceil(merge_threads).max(1);
-        std::thread::scope(|scope| {
-            for (ci, dst) in self.u.chunks_mut(cu).enumerate() {
-                let off = ci * cu;
-                scope.spawn(move || {
-                    for p in parts {
-                        let n = dst.len();
-                        for (a, b) in dst.iter_mut().zip(&p.u[off..off + n]) {
-                            *a += b;
-                        }
+    /// range over one range per `width_global()` pool participant. The serial `merge` re-reads and
+    /// rewrites `self.u` once per partial (`T·d²` read-modify-writes); this reads each partial once
+    /// and writes `self` once, on the pool. `O(T·(d² + d·out))` time, `O(T·(d² + d·out))` read
+    /// traffic, `O(1)` extra space.
+    fn merge_partials_par(&mut self, parts: &[Self]) {
+        struct MergeTask<'a> {
+            srcs: &'a [&'a [f64]],
+        }
+        impl crate::engine::chart::task::ChunkTask<f64> for MergeTask<'_> {
+            fn run(&self, _c: usize, start: usize, dst: &mut [f64]) {
+                let n = dst.len();
+                for src in self.srcs {
+                    for (a, b) in dst.iter_mut().zip(&src[start..start + n]) {
+                        *a += b;
                     }
-                });
+                }
             }
-        });
-        let cc = self.c.len().div_ceil(merge_threads).max(1);
-        std::thread::scope(|scope| {
-            for (ci, dst) in self.c.chunks_mut(cc).enumerate() {
-                let off = ci * cc;
-                scope.spawn(move || {
-                    for p in parts {
-                        let n = dst.len();
-                        for (a, b) in dst.iter_mut().zip(&p.c[off..off + n]) {
-                            *a += b;
-                        }
-                    }
-                });
-            }
-        });
+        }
+        let us: Vec<&[f64]> = parts.iter().map(|p| p.u.as_slice()).collect();
+        let cu = self
+            .u
+            .len()
+            .div_ceil(crate::engine::chart::pool::width_global())
+            .max(1);
+        crate::engine::chart::pool::chunks_mut_global(&mut self.u, cu, &MergeTask { srcs: &us });
+        let cs: Vec<&[f64]> = parts.iter().map(|p| p.c.as_slice()).collect();
+        let cc = self
+            .c
+            .len()
+            .div_ceil(crate::engine::chart::pool::width_global())
+            .max(1);
+        crate::engine::chart::pool::chunks_mut_global(&mut self.c, cc, &MergeTask { srcs: &cs });
         let dn: i64 = parts.iter().map(|p| p.n).sum();
         self.n = self.n.saturating_add(dn);
     }
@@ -776,27 +811,15 @@ impl FoldTrainer {
 
     /// The unique ridge head (`ridgeHead_unique`): `W = (U + λI)⁻¹ C`, one SPD solve.
     /// The drag `U + λI` is positive-definite for `λ > 0` (`drag_posDef`), so the `Cholesky` solve
-    /// does not fail. `ridge` overrides the trainer's `λ` when `Some`. Uses the blocked, parallel
-    /// `Cholesky` ([`solve_spd_blocked_par`]) with the process's available parallelism.
+    /// does not fail. `ridge` overrides the trainer's `λ` when `Some`. Uses the blocked, pooled
+    /// `Cholesky` ([`solve_spd_blocked`]); each trailing row is updated by exactly one task, so the
+    /// head is independent of the pool width.
     /// `O(d³ + d²·out_features)` time; `O(d² + d·out_features)` space.
     ///
     /// # Errors
     /// [`RidgeError::NotPositiveDefinite`] if `U + λI` is not positive-definite (only possible with
     /// `λ ≤ 0`).
     pub fn solve(&self, ridge: Option<f64>) -> Result<LinearHead, RidgeError> {
-        let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
-        self.solve_par(ridge, threads)
-    }
-
-    /// [`solve`](Self::solve) with an explicit thread count for the blocked `Cholesky` factor; the
-    /// factorisation is thread-count-independent (each trailing row is updated by exactly one
-    /// worker in a fixed order), so `threads` changes only the wall-clock cost, not the head.
-    /// `O(d³ + d²·out_features)` time; `O(d² + d·out_features)` space.
-    ///
-    /// # Errors
-    /// [`RidgeError::NotPositiveDefinite`] if `U + λI` is not positive-definite (only possible with
-    /// `λ ≤ 0`).
-    pub fn solve_par(&self, ridge: Option<f64>, threads: usize) -> Result<LinearHead, RidgeError> {
         let lam = ridge.unwrap_or(self.ridge);
         let (d, out) = (self.d, self.out_features);
         // A = U + λI (the drag), row-major [d, d].
@@ -805,7 +828,7 @@ impl FoldTrainer {
             a[i * d + i] += lam;
         }
         // Solve A · W = C for W (row-major [d, out]).
-        let w = solve_spd_blocked_par(&a, &self.c, d, out, threads)?;
+        let w = solve_spd_blocked(&a, &self.c, d, out)?;
         // W's first `in_features` rows are the weights; the last row (if bias) is the bias.
         let di = self.in_features;
         let mut weight = vec![0.0f64; out * di];
@@ -1016,7 +1039,7 @@ fn pack_panel(
 /// `j = 0..=(gi−col0)` — the lower-triangle entries. The inner loop is contiguous in `j` (both the
 /// destination row and the packed source), so it lowers to vector multiply-and-subtract; the outer
 /// `p` order is fixed, so splitting the rows across workers is a disjoint write with
-/// thread-count-independent arithmetic. `O(nrows²·kb)` multiply-adds, the same as the dot-product
+/// pool-width-independent arithmetic. `O(nrows²·kb)` multiply-adds, the same as the dot-product
 /// form, but feeding a vector operation per `(row, p)` instead of a scalar latency-bound reduction.
 /// Time and space `O(nrows²·kb)`; `O(1)` scratch.
 #[allow(
@@ -1051,57 +1074,55 @@ fn trailing_update_packed(
     }
 }
 
-/// Dispatch the packed trailing update `work[kend..d, kend..d] -= L21 · L21ᵀ` (lower triangle) to
-/// scoped workers. Rows are split contiguously and weighted by their triangular work (`ri + 1`
-/// multiply-adds), so no worker carries ~2x the mean and every entry is written once with
-/// thread-count-independent arithmetic.
-fn trailing_update_par(
-    work: &mut [f64],
-    pk: &[f64],
-    kend: usize,
-    d: usize,
-    kb: usize,
-    threads: usize,
-) {
+/// Dispatch the packed trailing update `work[kend..d, kend..d] -= L21 · L21ᵀ` (lower triangle) over
+/// the engine pool, one contiguous row range per `width_global()` participant. Every entry is
+/// written once by exactly one task with a fixed `p` order, so the factor is bit-identical to the
+/// serial body.
+///
+/// # Complexity
+///
+/// `O(nr²·kb)` multiply-subtracts split across the pool, `O(1)` extra space.
+fn trailing_update_pool(work: &mut [f64], pk: &[f64], kend: usize, d: usize, kb: usize) {
+    struct TrailingTask<'a> {
+        pk: &'a [f64],
+        nr: usize,
+        d: usize,
+        kend: usize,
+        kb: usize,
+        per: usize,
+    }
+    impl crate::engine::chart::task::ChunkTask<f64> for TrailingTask<'_> {
+        fn run(&self, t: usize, start: usize, group: &mut [f64]) {
+            let first = self.kend + t * self.per;
+            let _ = start;
+            trailing_update_packed(
+                group,
+                first,
+                group.len() / self.d,
+                self.pk,
+                self.nr,
+                self.d,
+                self.kend,
+                self.kb,
+            );
+        }
+    }
     let nr = d - kend;
-    let nthreads = threads.min(nr);
-    let trailing = &mut work[kend * d..d * d];
-    if nthreads <= 1 {
-        trailing_update_packed(trailing, kend, nr, pk, nr, d, kend, kb);
-        return;
-    }
-    let total = nr * (nr + 1) / 2;
-    let target = total.div_ceil(nthreads);
-    let mut lens: Vec<usize> = Vec::with_capacity(nthreads);
-    let (mut cur, mut acc) = (0usize, 0usize);
-    for ri in 0..nr {
-        cur += 1;
-        acc += ri + 1;
-        if acc >= target && lens.len() + 1 < nthreads {
-            lens.push(cur);
-            cur = 0;
-            acc = 0;
-        }
-    }
-    if cur > 0 {
-        lens.push(cur);
-    }
-    let mut rest: &mut [f64] = trailing;
-    let mut groups: Vec<(usize, &mut [f64])> = Vec::with_capacity(lens.len());
-    let mut local = 0usize;
-    for len in lens {
-        let (head, tail) = rest.split_at_mut(len * d);
-        groups.push((kend + local, head));
-        local += len;
-        rest = tail;
-    }
-    std::thread::scope(|scope| {
-        for (first, group) in groups {
-            scope.spawn(move || {
-                trailing_update_packed(group, first, group.len() / d, pk, nr, d, kend, kb);
-            });
-        }
-    });
+    let per = nr
+        .div_ceil(crate::engine::chart::pool::width_global())
+        .max(1);
+    crate::engine::chart::pool::chunks_mut_global(
+        &mut work[kend * d..d * d],
+        per * d,
+        &TrailingTask {
+            pk,
+            nr,
+            d,
+            kend,
+            kb,
+            per,
+        },
+    );
 }
 
 /// Forward-substitution panel solve `L[first .. first+nrows, k .. k+kb]` of the blocked
@@ -1131,26 +1152,16 @@ fn panel_solve_rows(
     }
 }
 
-/// Blocked, cache-friendly right-looking `Cholesky` factor `L` of SPD `a`, single-threaded.
-/// Same factor as [`cholesky`] up to f64 summation order; same refusal semantics.
-/// `O(d³)` time; `O(d²)` extra space for the working copy and `L`.
+/// Blocked, cache-friendly right-looking `Cholesky` factor `L` of SPD `a`, with the panel solve and
+/// the trailing-block update distributed over the engine pool (one contiguous row range per
+/// `width_global()` participant, so the factorisation is independent of the pool width). Blocks of
+/// [`CHOLESKY_BLOCK`]. Same factor as [`cholesky`] up to f64 summation order; same refusal
+/// semantics. `O(d³)` time; `O(d²)` extra space.
 ///
 /// # Errors
 /// [`RidgeError::ShapeMismatch`] if `a.len() != d*d`; [`RidgeError::NotPositiveDefinite`] if a
 /// diagonal pivot of a block is non-positive or NaN.
 pub fn cholesky_blocked(a: &[f64], d: usize) -> Result<Vec<f64>, RidgeError> {
-    cholesky_blocked_par(a, d, 1)
-}
-
-/// Blocked right-looking `Cholesky` factor with the trailing-block update distributed over
-/// `threads` scoped workers (one contiguous row range each, so the factorisation is
-/// thread-count-independent). Blocks of [`CHOLESKY_BLOCK`]; `threads <= 1` runs serial.
-/// `O(d³)` time; `O(d²)` extra space.
-///
-/// # Errors
-/// [`RidgeError::ShapeMismatch`] if `a.len() != d*d`; [`RidgeError::NotPositiveDefinite`] if a
-/// diagonal pivot of a block is non-positive or NaN.
-pub fn cholesky_blocked_par(a: &[f64], d: usize, threads: usize) -> Result<Vec<f64>, RidgeError> {
     if a.len() != d * d {
         return Err(RidgeError::ShapeMismatch);
     }
@@ -1159,7 +1170,6 @@ pub fn cholesky_blocked_par(a: &[f64], d: usize, threads: usize) -> Result<Vec<f
     // Scratch for the transposed panel of one block; reused across blocks so the packing is not a
     // per-block allocation (and its page faults).
     let mut pk = vec![0.0f64; CHOLESKY_BLOCK * d];
-    let threads = threads.max(1);
     let mut k = 0usize;
     while k < d {
         let kb = (d - k).min(CHOLESKY_BLOCK);
@@ -1184,50 +1194,65 @@ pub fn cholesky_blocked_par(a: &[f64], d: usize, threads: usize) -> Result<Vec<f
         }
         let kend = k + kb;
         // (2) Panel solve `L[kend..d, k..kend]`: rows are independent and each costs `kb(kb-1)/2`
-        // multiply-adds, so split the rows evenly across workers.
+        // multiply-adds, so split the rows evenly across the pool.
         {
+            struct PanelTask<'a> {
+                work: &'a [f64],
+                l11: &'a [f64],
+                k: usize,
+                d: usize,
+                kb: usize,
+                kend: usize,
+                cp: usize,
+            }
+            impl crate::engine::chart::task::ChunkTask<f64> for PanelTask<'_> {
+                fn run(&self, t: usize, _start: usize, group: &mut [f64]) {
+                    panel_solve_rows(
+                        group,
+                        self.kend + t * self.cp,
+                        group.len() / self.d,
+                        self.work,
+                        self.l11,
+                        (self.k, self.d, self.kb),
+                    );
+                }
+            }
             let nr_p = d - kend;
-            let np = threads.min(nr_p);
+            let cp = nr_p
+                .div_ceil(crate::engine::chart::pool::width_global())
+                .max(1);
             let (diag, panel) = l.split_at_mut(kend * d);
             let l11: &[f64] = diag;
-            if np <= 1 {
-                panel_solve_rows(panel, kend, nr_p, &work, l11, (k, d, kb));
-            } else {
-                let cp = nr_p.div_ceil(np).max(1);
-                std::thread::scope(|scope| {
-                    for (ci, group) in panel.chunks_mut(cp * d).enumerate() {
-                        let first = kend + ci * cp;
-                        let l11: &[f64] = l11;
-                        let work_ref: &[f64] = &work;
-                        scope.spawn(move || {
-                            panel_solve_rows(
-                                group,
-                                first,
-                                group.len() / d,
-                                work_ref,
-                                l11,
-                                (k, d, kb),
-                            );
-                        });
-                    }
-                });
-            }
+            crate::engine::chart::pool::chunks_mut_global(
+                panel,
+                cp * d,
+                &PanelTask {
+                    work: &work,
+                    l11,
+                    k,
+                    d,
+                    kb,
+                    kend,
+                    cp,
+                },
+            );
         }
         // (3) Pack the panel `L21 = L[kend..d, k..kend]` (transposed) and run the trailing update
         // `work[kend..d, kend..d] -= L21 · L21ᵀ` (lower triangle), fanned out.
         if kend < d {
             let nr = d - kend;
             pack_panel(&mut pk, &l, k, kend, d, kb, nr);
-            trailing_update_par(&mut work, &pk, kend, d, kb, threads);
+            trailing_update_pool(&mut work, &pk, kend, d, kb);
         }
         k = kend;
     }
     Ok(l)
 }
 
-/// Solve the SPD system `A · X = Bmat` with the blocked, single-threaded `Cholesky`
-/// ([`cholesky_blocked`]). Same solution and refusal semantics as [`solve_spd`], up to f64
-/// summation order. `O(d³ + d²·out)` time; `O(d² + d·out)` space.
+/// Solve the SPD system `A · X = Bmat` with the blocked, pooled `Cholesky`
+/// ([`cholesky_blocked`]) then a forward and a back substitution per right-hand-side column.
+/// Same solution and refusal semantics as [`solve_spd`], up to f64 summation order.
+/// `O(d³ + d²·out)` time; `O(d² + d·out)` space.
 ///
 /// # Errors
 /// [`RidgeError::ShapeMismatch`] if `a.len() != d*d` or `bmat.len() != d*out`;
@@ -1238,28 +1263,10 @@ pub fn solve_spd_blocked(
     d: usize,
     out: usize,
 ) -> Result<Vec<f64>, RidgeError> {
-    solve_spd_blocked_par(a, bmat, d, out, 1)
-}
-
-/// Solve the SPD system `A · X = Bmat` with the blocked, parallel `Cholesky`
-/// ([`cholesky_blocked_par`]) then a forward and a back substitution per right-hand-side column.
-/// Same solution and refusal semantics as [`solve_spd`], up to f64 summation order.
-/// `O(d³ + d²·out)` time; `O(d² + d·out)` space.
-///
-/// # Errors
-/// [`RidgeError::ShapeMismatch`] if `a.len() != d*d` or `bmat.len() != d*out`;
-/// [`RidgeError::NotPositiveDefinite`] if `a` has a non-positive pivot.
-pub fn solve_spd_blocked_par(
-    a: &[f64],
-    bmat: &[f64],
-    d: usize,
-    out: usize,
-    threads: usize,
-) -> Result<Vec<f64>, RidgeError> {
     if a.len() != d * d || bmat.len() != d * out {
         return Err(RidgeError::ShapeMismatch);
     }
-    let l = cholesky_blocked_par(a, d, threads)?;
+    let l = cholesky_blocked(a, d)?;
     let mut x = bmat.to_vec();
     // Forward: x[i] = (b[i] - Σ_{k<i} L[i,k] x[k]) / L[i,i].
     for i in 0..d {

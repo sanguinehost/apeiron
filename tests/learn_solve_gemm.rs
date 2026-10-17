@@ -120,12 +120,12 @@ fn gemm_nn_and_nt_match_the_naive_i128_triple_loop() {
             .map(|_| lcg.next_range(-(1i64 << 35), 1i64 << 35))
             .collect();
         assert_eq!(
-            gemm_nn(&a, &b, m, k, n, 3).expect("nn"),
+            gemm_nn(&a, &b, m, k, n).expect("nn"),
             naive_nn(&a, &b, m, k, n),
             "nn shape ({m},{k},{n})"
         );
         assert_eq!(
-            gemm_nt(&a, &b, m, k, n, 3).expect("nt"),
+            gemm_nt(&a, &b, m, k, n).expect("nt"),
             naive_nt(&a, &b, m, k, n),
             "nt shape ({m},{k},{n})"
         );
@@ -146,45 +146,9 @@ fn gemm_nt_equals_gemm_nn_of_the_transpose() {
             .collect();
         let bt = transpose_nk_to_kn(&b, k, n);
         assert_eq!(
-            gemm_nt(&a, &b, m, k, n, 2).expect("nt"),
-            gemm_nn(&a, &bt, m, k, n, 5).expect("nn of transpose"),
+            gemm_nt(&a, &b, m, k, n).expect("nt"),
+            gemm_nn(&a, &bt, m, k, n).expect("nn of transpose"),
             "nt vs nn∘transpose shape ({m},{k},{n})"
-        );
-    }
-}
-
-#[test]
-fn gemm_thread_counts_are_bit_identical() {
-    let shapes: [(usize, usize, usize); 2] = [(17, 70, 33), (64, 130, 65)];
-    let mut lcg = Lcg::new(0x0bad_f00d_5eed_1234);
-    for (m, k, n) in shapes {
-        let a: Vec<i64> = (0..m * k)
-            .map(|_| lcg.next_range(-(1i64 << 35), 1i64 << 35))
-            .collect();
-        let b: Vec<i64> = (0..k * n)
-            .map(|_| lcg.next_range(-(1i64 << 35), 1i64 << 35))
-            .collect();
-        let nn1 = gemm_nn(&a, &b, m, k, n, 1).expect("nn 1");
-        assert_eq!(
-            nn1,
-            gemm_nn(&a, &b, m, k, n, 2).expect("nn 2"),
-            "nn threads 1 vs 2 ({m},{k},{n})"
-        );
-        assert_eq!(
-            nn1,
-            gemm_nn(&a, &b, m, k, n, 8).expect("nn 8"),
-            "nn threads 1 vs 8 ({m},{k},{n})"
-        );
-        let nt1 = gemm_nt(&a, &b, m, k, n, 1).expect("nt 1");
-        assert_eq!(
-            nt1,
-            gemm_nt(&a, &b, m, k, n, 2).expect("nt 2"),
-            "nt threads 1 vs 2 ({m},{k},{n})"
-        );
-        assert_eq!(
-            nt1,
-            gemm_nt(&a, &b, m, k, n, 8).expect("nt 8"),
-            "nt threads 1 vs 8 ({m},{k},{n})"
         );
     }
 }
@@ -206,10 +170,10 @@ fn gemm_nt_agrees_bit_equal_with_dense_linear_fwd() {
             .collect();
         let want = linear_fwd(&x, &w, rows, inner, out).expect("linear_fwd");
         for threads in [1usize, 3, 8] {
-            let got = gemm_nt(&x, &w, rows, inner, out, threads).expect("gemm_nt");
+            let got = gemm_nt(&x, &w, rows, inner, out).expect("gemm_nt");
             assert_eq!(
                 got, want,
-                "linear_fwd vs gemm_nt ({rows},{inner},{out}) threads {threads}"
+                "linear_fwd vs gemm_nt ({rows},{inner}) threads {threads}"
             );
         }
     }
@@ -218,53 +182,53 @@ fn gemm_nt_agrees_bit_equal_with_dense_linear_fwd() {
 #[test]
 fn gemm_refusals_reach_every_arm() {
     // Zero dimension, on each of `m`, `k`, `n`.
-    assert_eq!(gemm_nn(&[], &[], 0, 1, 1, 1), Err(GemmError::ZeroDim));
-    assert_eq!(gemm_nn(&[], &[], 1, 0, 1, 1), Err(GemmError::ZeroDim));
-    assert_eq!(gemm_nn(&[], &[], 1, 1, 0, 1), Err(GemmError::ZeroDim));
-    assert_eq!(gemm_nt(&[], &[], 1, 1, 0, 1), Err(GemmError::ZeroDim));
+    assert_eq!(gemm_nn(&[], &[], 0, 1, 1), Err(GemmError::ZeroDim));
+    assert_eq!(gemm_nn(&[], &[], 1, 0, 1), Err(GemmError::ZeroDim));
+    assert_eq!(gemm_nn(&[], &[], 1, 1, 0), Err(GemmError::ZeroDim));
+    assert_eq!(gemm_nt(&[], &[], 1, 1, 0), Err(GemmError::ZeroDim));
     // Contraction-domain bound `k < MAX_K`, refused before any slice is materialised.
-    assert_eq!(gemm_nn(&[], &[], 1, MAX_K, 1, 1), Err(GemmError::Overflow));
-    assert_eq!(gemm_nt(&[], &[], 1, MAX_K, 1, 1), Err(GemmError::Overflow));
+    assert_eq!(gemm_nn(&[], &[], 1, MAX_K, 1), Err(GemmError::Overflow));
+    assert_eq!(gemm_nt(&[], &[], 1, MAX_K, 1), Err(GemmError::Overflow));
     // A dimension product that leaves `usize` (`m·k`).
     assert_eq!(
-        gemm_nn(&[], &[], usize::MAX / 2, 4, 1, 1),
+        gemm_nn(&[], &[], usize::MAX / 2, 4, 1),
         Err(GemmError::Overflow)
     );
     // Shape: `a.len() != m·k`, then `b.len() != k·n`, in either layout.
     assert_eq!(
-        gemm_nn(&[ONE_RAW; 5], &[ONE_RAW; 3], 2, 3, 1, 1),
+        gemm_nn(&[ONE_RAW; 5], &[ONE_RAW; 3], 2, 3, 1),
         Err(GemmError::ShapeMismatch)
     );
     assert_eq!(
-        gemm_nn(&[ONE_RAW; 6], &[ONE_RAW; 2], 2, 3, 1, 1),
+        gemm_nn(&[ONE_RAW; 6], &[ONE_RAW; 2], 2, 3, 1),
         Err(GemmError::ShapeMismatch)
     );
     assert_eq!(
-        gemm_nt(&[ONE_RAW; 6], &[ONE_RAW; 2], 2, 3, 1, 1),
+        gemm_nt(&[ONE_RAW; 6], &[ONE_RAW; 2], 2, 3, 1),
         Err(GemmError::ShapeMismatch)
     );
     // Input bound `2³⁶` (strict) on `a` and on `b`.
     assert_eq!(
-        gemm_nn(&[1i64 << 36], &[ONE_RAW], 1, 1, 1, 1),
+        gemm_nn(&[1i64 << 36], &[ONE_RAW], 1, 1, 1),
         Err(GemmError::InputBound)
     );
     assert_eq!(
-        gemm_nn(&[-(1i64 << 36)], &[ONE_RAW], 1, 1, 1, 1),
+        gemm_nn(&[-(1i64 << 36)], &[ONE_RAW], 1, 1, 1),
         Err(GemmError::InputBound)
     );
     assert_eq!(
-        gemm_nn(&[ONE_RAW], &[1i64 << 36], 1, 1, 1, 1),
+        gemm_nn(&[ONE_RAW], &[1i64 << 36], 1, 1, 1),
         Err(GemmError::InputBound)
     );
     assert_eq!(
-        gemm_nt(&[ONE_RAW], &[-(1i64 << 36)], 1, 1, 1, 1),
+        gemm_nt(&[ONE_RAW], &[-(1i64 << 36)], 1, 1, 1),
         Err(GemmError::InputBound)
     );
     // One entry at the bound inside a longer panel is still refused.
     let mut ab = vec![0i64; 4];
     ab[3] = 1i64 << 36;
     assert_eq!(
-        gemm_nn(&ab, &[ONE_RAW; 4], 2, 2, 2, 1),
+        gemm_nn(&ab, &[ONE_RAW; 4], 2, 2, 2),
         Err(GemmError::InputBound)
     );
 }
@@ -287,8 +251,8 @@ fn scalar_eigen_w1(delta_w: &[f64], hl: &[f64], o: usize, n: usize) -> Vec<f64> 
 }
 
 #[test]
-#[ignore = "timing: nt (896,4864,896) and nn (896,4864,4864), threads 1 and 8, three runs each, \
-            plus the scalar f64 eigen_parts w1 loop; run with --release --ignored --nocapture"]
+#[ignore = "timing: nt (896,4864,896) and nn (896,4864,4864), three pooled runs each, plus the \
+            scalar f64 eigen_parts w1 loop; run with --release --ignored --nocapture"]
 fn timing_nt_and_nn() {
     let mut lcg = Lcg::new(0x5eed_0f0f_a5a5_1234);
     let (m, k, n) = (896usize, 4864usize, 896usize);
@@ -299,26 +263,22 @@ fn timing_nt_and_nn() {
         .map(|_| lcg.next_range(-(1i64 << 33), 1i64 << 33))
         .collect();
     let macs_nt = (m as f64) * (k as f64) * (n as f64);
-    let mut means_nt = [0.0f64; 2];
-    for (idx, &threads) in [1usize, 8usize].iter().enumerate() {
-        let mut times = [0.0f64; 3];
-        for t in &mut times {
-            let start = Instant::now();
-            let c = gemm_nt(&a, &b_nt, m, k, n, threads).expect("nt");
-            *t = start.elapsed().as_secs_f64();
-            black_box(&c);
-        }
-        let mean = times.iter().sum::<f64>() / 3.0;
-        let min = times.iter().copied().fold(f64::INFINITY, f64::min);
-        let max = times.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        means_nt[idx] = mean;
-        println!(
-            "gemm_nt ({m},{k},{n}) threads={threads}: runs [{}] mean {mean:.3}s min {min:.3}s max \
-             {max:.3}s {:.3} GMAC/s",
-            times.map(|v| format!("{v:.3}")).join(", "),
-            macs_nt / mean / 1e9
-        );
+    let mut times = [0.0f64; 3];
+    for t in &mut times {
+        let start = Instant::now();
+        let c = gemm_nt(&a, &b_nt, m, k, n).expect("nt");
+        *t = start.elapsed().as_secs_f64();
+        black_box(&c);
     }
+    let mean_nt = times.iter().sum::<f64>() / 3.0;
+    let min = times.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = times.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    println!(
+        "gemm_nt ({m},{k}) pooled: runs [{}] mean {mean_nt:.3}s min {min:.3}s max {max:.3}s \
+         {:.3} GMAC/s",
+        times.map(|v| format!("{v:.3}")).join(", "),
+        macs_nt / mean_nt / 1e9
+    );
     drop(b_nt);
 
     let (m2, k2, n2) = (896usize, 4864usize, 4864usize);
@@ -326,26 +286,22 @@ fn timing_nt_and_nn() {
         .map(|_| lcg.next_range(-(1i64 << 33), 1i64 << 33))
         .collect();
     let macs_nn = (m2 as f64) * (k2 as f64) * (n2 as f64);
-    let mut means_nn = [0.0f64; 2];
-    for (idx, &threads) in [1usize, 8usize].iter().enumerate() {
-        let mut times = [0.0f64; 3];
-        for t in &mut times {
-            let start = Instant::now();
-            let c = gemm_nn(&a, &b_nn, m2, k2, n2, threads).expect("nn");
-            *t = start.elapsed().as_secs_f64();
-            black_box(&c);
-        }
-        let mean = times.iter().sum::<f64>() / 3.0;
-        let min = times.iter().copied().fold(f64::INFINITY, f64::min);
-        let max = times.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        means_nn[idx] = mean;
-        println!(
-            "gemm_nn ({m2},{k2},{n2}) threads={threads}: runs [{}] mean {mean:.3}s min {min:.3}s max \
-             {max:.3}s {:.3} GMAC/s",
-            times.map(|v| format!("{v:.3}")).join(", "),
-            macs_nn / mean / 1e9
-        );
+    let mut times = [0.0f64; 3];
+    for t in &mut times {
+        let start = Instant::now();
+        let c = gemm_nn(&a, &b_nn, m2, k2, n2).expect("nn");
+        *t = start.elapsed().as_secs_f64();
+        black_box(&c);
     }
+    let mean_nn = times.iter().sum::<f64>() / 3.0;
+    let min = times.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = times.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    println!(
+        "gemm_nn ({m2},{k2}) pooled: runs [{}] mean {mean_nn:.3}s min {min:.3}s max {max:.3}s \
+         {:.3} GMAC/s",
+        times.map(|v| format!("{v:.3}")).join(", "),
+        macs_nn / mean_nn / 1e9
+    );
 
     // The scalar f64 `eigen_parts` `w1 = ΔW·Hl` reference at the same shape.
     let dw: Vec<f64> = a.iter().map(|&v| (v as f64) * 2f64.powi(-32)).collect();
@@ -358,18 +314,14 @@ fn timing_nt_and_nn() {
         macs_nn / scalar / 1e9
     );
     println!(
-        "ratio scalar/gemm_nn(1) {:.2}x  scalar/gemm_nn(8) {:.2}x",
-        scalar / means_nn[0],
-        scalar / means_nn[1]
-    );
-    println!(
-        "nt/gemm_nn: nt(1) {:.3} GMAC/s, nn(1) {:.3} GMAC/s",
-        macs_nt / means_nt[0] / 1e9,
-        macs_nn / means_nn[0] / 1e9
+        "ratio scalar/gemm_nn {:.2}x; nt {:.3} GMAC/s, nn {:.3} GMAC/s",
+        scalar / mean_nn,
+        macs_nt / mean_nt / 1e9,
+        macs_nn / mean_nn / 1e9
     );
 
     // Instrument check: the two computations must agree before either timing is quoted.
-    let c_nn = gemm_nn(&a, &b_nn, m2, k2, n2, 8).expect("nn check");
+    let c_nn = gemm_nn(&a, &b_nn, m2, k2, n2).expect("nn check");
     let mut max_abs = 0.0f64;
     let mut scale = 0.0f64;
     for idx in 0..m2 * n2 {
@@ -421,7 +373,7 @@ fn gemm_nn_f64_matches_the_f64_product_within_the_rounding_bound() {
             let mut rng = Lcg::new(0x9E37_79B9_7F4A_7C15 ^ (m * k * n) as u64);
             let a = reals(&mut rng, m * k, ma);
             let b = reals(&mut rng, k * n, mb);
-            let got = gemm_nn_f64(&a, &b, m, k, n, 4).expect("in range");
+            let got = gemm_nn_f64(&a, &b, m, k, n).expect("in range");
             let want = f64_nn(&a, &b, m, k, n);
             let sh = |x: f64| {
                 if x <= 8.0 {
@@ -446,46 +398,24 @@ fn gemm_nn_f64_matches_the_f64_product_within_the_rounding_bound() {
 }
 
 #[test]
-fn gemm_nn_f64_is_thread_count_independent() {
-    let (m, k, n) = (16usize, 130usize, 70usize);
-    let mut rng = Lcg::new(0xD1B5_4A32_D192_ED03);
-    let a = reals(&mut rng, m * k, 40.0);
-    let b = reals(&mut rng, k * n, 0.5);
-    let c1 = gemm_nn_f64(&a, &b, m, k, n, 1).expect("in range");
-    for t in [2usize, 8] {
-        let ct = gemm_nn_f64(&a, &b, m, k, n, t).expect("in range");
-        assert!(
-            c1.iter().zip(&ct).all(|(x, y)| x.to_bits() == y.to_bits()),
-            "threads {t}"
-        );
-    }
-}
-
-#[test]
 fn gemm_nn_f64_refusals() {
     let a = vec![1.0f64; 6];
     let b = vec![1.0f64; 6];
-    assert!(gemm_nn_f64(&a, &b, 2, 3, 2, 1).is_ok());
-    assert_eq!(gemm_nn_f64(&a, &b, 0, 3, 2, 1), Err(GemmError::ZeroDim));
-    assert_eq!(
-        gemm_nn_f64(&a, &b, 2, 3, 3, 1),
-        Err(GemmError::ShapeMismatch)
-    );
+    assert!(gemm_nn_f64(&a, &b, 2, 3, 2).is_ok());
+    assert_eq!(gemm_nn_f64(&a, &b, 0, 3, 2), Err(GemmError::ZeroDim));
+    assert_eq!(gemm_nn_f64(&a, &b, 2, 3, 3), Err(GemmError::ShapeMismatch));
     for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
         let mut a2 = a.clone();
         a2[4] = bad;
         assert_eq!(
-            gemm_nn_f64(&a2, &b, 2, 3, 2, 1),
+            gemm_nn_f64(&a2, &b, 2, 3, 2),
             Err(GemmError::InputBound),
             "{bad}"
         );
     }
     // Both operands near 1e300: the undo exponent 2^(sa+sb) leaves f64.
     let big = vec![1e300f64; 6];
-    assert_eq!(
-        gemm_nn_f64(&big, &big, 2, 3, 2, 1),
-        Err(GemmError::Overflow)
-    );
+    assert_eq!(gemm_nn_f64(&big, &big, 2, 3, 2), Err(GemmError::Overflow));
 }
 
 #[test]
@@ -503,8 +433,8 @@ fn gemm_nt_f64_is_gemm_nn_f64_of_the_transpose_bit_equal() {
                     bt[j * k + l] = b[l * n + j];
                 }
             }
-            let nn = gemm_nn_f64(&a, &b, m, k, n, 4).expect("in range");
-            let nt = gemm_nt_f64(&a, &bt, m, k, n, 4).expect("in range");
+            let nn = gemm_nn_f64(&a, &b, m, k, n).expect("in range");
+            let nt = gemm_nt_f64(&a, &bt, m, k, n).expect("in range");
             assert_eq!(
                 nn.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
                 nt.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
@@ -513,7 +443,7 @@ fn gemm_nt_f64_is_gemm_nn_f64_of_the_transpose_bit_equal() {
         }
     }
     assert_eq!(
-        gemm_nt_f64(&[1e300], &[1e300], 1, 1, 1, 1),
+        gemm_nt_f64(&[1e300], &[1e300], 1, 1, 1),
         Err(GemmError::Overflow)
     );
 }

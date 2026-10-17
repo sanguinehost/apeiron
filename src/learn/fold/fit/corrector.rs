@@ -57,9 +57,7 @@
               cast in the bit-count formula; the pedantic lints stay on for the rest of the crate."
 )]
 
-use crate::learn::fold::fit::eigh::{
-    eigen_gram, gram_scale, lowrank_corrector_exact, EighError, THREADS,
-};
+use crate::learn::fold::fit::eigh::{eigen_gram, gram_scale, lowrank_corrector_exact, EighError};
 use crate::learn::fold::fit::quant::{f16r, quant_c_u8};
 use crate::learn::ridge::solve_spd;
 use crate::learn::solve::eig::top_eigh;
@@ -316,7 +314,7 @@ pub fn eigen_parts(
         .iter()
         .map(|&v| to_grid(v * s_m, INPUT_BOUND).ok_or(CorrectorError::NotConverged))
         .collect::<Result<Vec<i64>, CorrectorError>>()?;
-    let top = top_eigh(&m_q, o, rank, THREADS).map_err(|_| CorrectorError::NotConverged)?;
+    let top = top_eigh(&m_q, o, rank).map_err(|_| CorrectorError::NotConverged)?;
     let mut u = vec![0.0f64; o * rank];
     for i in 0..o {
         for k in 0..rank {

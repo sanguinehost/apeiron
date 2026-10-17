@@ -6,6 +6,8 @@
 //! equal as maps. The merge is deliberately non-commutative, so a worker that reorders one key's
 //! values changes the compared value and the test fails.
 
+#![cfg_attr(not(feature = "injection"), allow(dead_code))]
+
 use apeiron::coord::address::{
     EllipticPacking, FaceCoord, FaceHome, FaceResidueCapability, LocatorSigma, ParabolicDual,
     Residue, H3_40,
@@ -1204,6 +1206,7 @@ use apeiron::table::parallel::reservation_failure::{arm_finalize, disarm, Finali
 /// crossover, so `build_parallel` takes the scoped path and reaches
 /// `finalize_recorded_locations`, and the default face is `Sigma::Parabolic`, so every entry
 /// carries a handle and one placement record.
+#[cfg(feature = "injection")]
 fn finalize_witness_input() -> Vec<(i64, i64)> {
     skewed_input(5_000)
 }

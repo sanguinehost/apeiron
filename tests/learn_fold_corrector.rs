@@ -27,9 +27,7 @@ use std::hint::black_box;
 use std::time::Instant;
 
 use apeiron::learn::fold::fit::corrector::{eigen_parts, lowrank_corrector, CorrectorError, Mode};
-use apeiron::learn::fold::fit::eigh::{
-    eigen_gram, eigh, gram_scale, lowrank_corrector_exact, THREADS,
-};
+use apeiron::learn::fold::fit::eigh::{eigen_gram, eigh, gram_scale, lowrank_corrector_exact};
 use apeiron::learn::fold::fit::quant::quant_c_u8;
 use apeiron::learn::solve::eig::top_eigh;
 use apeiron::learn::solve::q32::{from_grid, to_grid, INPUT_BOUND};
@@ -412,7 +410,7 @@ fn eigen_stage_matches_f64_reference() {
                 .iter()
                 .map(|&x| to_grid(x * sm, INPUT_BOUND).expect("grid"))
                 .collect();
-            let top = top_eigh(&m_q, o, rank, THREADS).expect("top_eigh");
+            let top = top_eigh(&m_q, o, rank).expect("top_eigh");
             for k in 0..rank {
                 let have = from_grid(top.evals[k]) / sm;
                 let want = evals_ref[o - rank + k];
@@ -473,12 +471,13 @@ fn timing_fixture(o: usize, n: usize) -> (Vec<f64>, Vec<f64>) {
     (dw, hl)
 }
 
-/// Timing (`#[ignore]`): `o = 896`, `n = 4864`, rank 1, [`Mode::U8`], three runs, [`THREADS`]
-/// threads, with the stage split `eigen_gram` (the two products, symmetrisation and scaling) versus
-/// `top_eigh` versus the rest of `lowrank_corrector`. Run with `--release --ignored --nocapture`;
-/// the previous scalar-`f64` path measured 140.4 s single-threaded at this shape.
+/// Timing (`#[ignore]`): `o = 896`, `n = 4864`, rank 1, [`Mode::U8`], three runs on the shared
+/// engine pool, with the stage split `eigen_gram` (the two products, symmetrisation and scaling)
+/// versus `top_eigh` versus the rest of `lowrank_corrector`. Run with
+/// `--release --ignored --nocapture`; the previous scalar-`f64` path measured 140.4 s
+/// single-threaded at this shape.
 #[test]
-#[ignore = "timing: o = 896, n = 4864, rank 1, Mode::U8, three runs, threads 8, with the \
+#[ignore = "timing: o = 896, n = 4864, rank 1, Mode::U8, three runs on the engine pool, with the \
             eigen_gram/top_eigh stage split; run with --release --ignored --nocapture"]
 fn timing_production_shape() {
     let (o, n) = (896usize, 4864usize);
@@ -496,7 +495,7 @@ fn timing_production_shape() {
             .map(|&x| to_grid(x * sm, INPUT_BOUND).expect("grid"))
             .collect();
         let t1 = Instant::now();
-        let top = top_eigh(&m_q, o, 1, THREADS).expect("top_eigh");
+        let top = top_eigh(&m_q, o, 1).expect("top_eigh");
         eig[run] = t1.elapsed().as_secs_f64();
         black_box(&top);
         let t2 = Instant::now();
@@ -508,7 +507,7 @@ fn timing_production_shape() {
     let min = |t: &[f64; 3]| t.iter().copied().fold(f64::INFINITY, f64::min);
     let max = |t: &[f64; 3]| t.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     println!(
-        "lowrank_corrector o={o} n={n} rank=1 U8 threads={THREADS}: runs [{:.3}, {:.3}, {:.3}]s \
+        "lowrank_corrector o={o} n={n} rank=1 U8 pooled: runs [{:.3}, {:.3}, {:.3}]s \
          mean {:.3}s min {:.3}s max {:.3}s (old scalar f64 single-thread 140.4 s)",
         total[0],
         total[1],

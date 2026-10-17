@@ -39,11 +39,6 @@ const N: usize = 256;
 /// Group count along `n`.
 const G: usize = N / GROUP;
 
-/// The worker count `c_step`/`d_step` hand their primitives (`steps.rs`'s private `STEP_THREADS`),
-/// repeated here because the stage split has to call the primitives with the same width; both are
-/// documented bit-identical across thread counts.
-const STEP_THREADS: usize = 8;
-
 /// The run count of the `#[ignore]` timing campaign: `3`, or the value of `Q_MM_STEP_RUNS` when set
 /// (the `580 s` gate budget decides; the brief allows `2` and requires it be said).
 fn step_runs() -> usize {
@@ -496,8 +491,9 @@ fn c_step_matches_old_f64_formula() {
 }
 
 /// (c) A non-finite input and an out-of-bound input return the step's error, no panic: a `NaN`
-/// metric entry, an infinite weight, a row weight at the `2³⁶` raw input bound, and a weight large
-/// enough that the right-hand side leaves the grid `i64` range.
+/// metric entry, an infinite weight, a non-finite row weight (the row weight itself is shifted into
+/// the input bound, so only finiteness refuses), and a weight large enough that the right-hand side
+/// leaves the grid `i64` range.
 #[test]
 fn c_step_refuses_non_finite_and_out_of_bound() {
     let mut rng = Lcg::new(12);
@@ -523,9 +519,9 @@ fn c_step_refuses_non_finite_and_out_of_bound() {
         c_step(&inf_ws, &hl, &s, &r, O, N, None).unwrap_err(),
         StepsError::ShapeMismatch
     );
-    // A row weight at the primitive input bound `2³⁶` raw = `16`.
+    // A non-finite row weight.
     let mut gr_bad = pos_vec(&mut rng, O);
-    gr_bad[O - 1] = 16.0;
+    gr_bad[O - 1] = f64::INFINITY;
     assert_eq!(
         c_step(&ws, &hl, &s, &r, O, N, Some(&gr_bad)).unwrap_err(),
         StepsError::ShapeMismatch
@@ -538,10 +534,40 @@ fn c_step_refuses_non_finite_and_out_of_bound() {
     );
 }
 
+/// A `g_row` magnitude above the `wsyrk` input bound (`2³⁶` raw = `16`) is shifted into it by an
+/// exact power of two, as the panel is, instead of refused: `c_step` and `d_step` accept `18.475`,
+/// `1e3` and the former boundary `16.0`, and return the words of the same call with `g_row`
+/// prescaled by that power of two (`16` was the first value the unshifted boundary refused), bit
+/// for bit. Dropping the row-weight factor from the right-hand-side `weight` (or the `g_scale`
+/// clamp in `d_step`) turns this red at the shifted magnitudes.
+#[test]
+fn large_g_row_is_shifted_not_refused() {
+    let mut rng = Lcg::new(0x6_9000_0001);
+    let s = sign_vec(&mut rng, O * N);
+    let s_rot = sign_vec(&mut rng, O * N);
+    let r = pos_vec(&mut rng, O * G);
+    let c = pos_vec(&mut rng, N);
+    let hl = spd_metric(&mut rng, N);
+    let ws = sym_vec(&mut rng, O * N);
+    let base = pos_vec(&mut rng, O);
+    for (big, down) in [(18.475f64, 4.0f64), (1.0e3, 128.0), (16.0, 2.0)] {
+        let mut gr = base.clone();
+        gr[0] = big;
+        let gr_down: Vec<f64> = gr.iter().map(|&v| v / down).collect();
+        let got = c_step(&ws, &hl, &s, &r, O, N, Some(&gr)).expect("shifted c_step");
+        let want = c_step(&ws, &hl, &s, &r, O, N, Some(&gr_down)).expect("prescaled c_step");
+        assert_eq!(got, want, "c_step g_row {big} vs /{down}");
+        let got_d = d_step(&ws, &hl, &s_rot, &r, &c, O, N, Some(&gr)).expect("shifted d_step");
+        let want_d =
+            d_step(&ws, &hl, &s_rot, &r, &c, O, N, Some(&gr_down)).expect("prescaled d_step");
+        assert_eq!(got_d, want_d, "d_step g_row {big} vs /{down}");
+    }
+}
+
 /// (d) Timing at the production shape `o = 896`, `n = 4864`, three runs of `c_step` against the
-/// previous profile's single `150.6 s` for the old `f64` body at the same shape (threads: `c_step`
-/// takes none and its caller is single-threaded, so the primitives run at `8`; see
-/// `STEP_THREADS`). Run with `--release -- --ignored --nocapture`.
+/// previous profile's single `150.6 s` for the old `f64` body at the same shape (the primitives
+/// run on the shared engine pool at `width_global()`; the output is invariant to that width). Run
+/// with `--release -- --ignored --nocapture`.
 #[test]
 #[ignore = "timing campaign at o=896 n=4864: run with --release -- --ignored --nocapture"]
 #[allow(
@@ -647,7 +673,7 @@ fn c_step_stages(
         .collect();
     let conv = t0.elapsed().as_secs_f64();
     let t0 = std::time::Instant::now();
-    let mut a = wsyrk(&sh_grid, Some(&gr_grid), o, n, STEP_THREADS).expect("wsyrk");
+    let mut a = wsyrk(&sh_grid, Some(&gr_grid), o, n).expect("wsyrk");
     let syrk = t0.elapsed().as_secs_f64();
     let t0 = std::time::Instant::now();
     hadamard_into(&mut a, &hl_grid).expect("hadamard_into");
@@ -677,7 +703,7 @@ fn c_step_stages(
         .map(|&x| q32::to_grid(x, q32::GRID_BOUND).expect("b grid"))
         .collect();
     let t0 = std::time::Instant::now();
-    let solved = chol_solve(&a, &b_grid, n, 1, STEP_THREADS).expect("chol_solve");
+    let solved = chol_solve(&a, &b_grid, n, 1).expect("chol_solve");
     let chol = t0.elapsed().as_secs_f64();
     std::hint::black_box(&solved);
     [staged_mul, conv, syrk, had, chol]
@@ -964,8 +990,9 @@ fn mul_metric_refuses_non_finite_and_out_of_bound() {
 }
 
 /// (c) A non-finite or out-of-bound input to `d_step` returns the step's error, no panic: a `NaN`
-/// metric entry, an infinite `Ws`, a `NaN` rotated sign entry, a row weight at the `2³⁶` raw input
-/// bound, and a `Ws` large enough that the right-hand side leaves the grid `i64` range.
+/// metric entry, an infinite `Ws`, a `NaN` rotated sign entry, a non-finite row weight (the row
+/// weight itself is shifted into the input bound, so only finiteness refuses), and a `Ws` large
+/// enough that the right-hand side leaves the grid `i64` range.
 #[test]
 fn d_step_refuses_non_finite_and_out_of_bound() {
     let mut rng = Lcg::new(13);
@@ -1001,9 +1028,9 @@ fn d_step_refuses_non_finite_and_out_of_bound() {
         d_step(&ws, &hl, &nan_s, &r, &c, O, N, None).unwrap_err(),
         StepsError::ShapeMismatch
     );
-    // A row weight at the primitive input bound `2³⁶` raw = `16`.
+    // A non-finite row weight.
     let mut gr_bad = pos_vec(&mut rng, O);
-    gr_bad[O - 1] = 16.0;
+    gr_bad[O - 1] = f64::INFINITY;
     assert_eq!(
         d_step(&ws, &hl, &s_rot, &r, &c, O, N, Some(&gr_bad)).unwrap_err(),
         StepsError::ShapeMismatch
@@ -1016,8 +1043,8 @@ fn d_step_refuses_non_finite_and_out_of_bound() {
     );
 }
 
-/// (d) Timing at the production shape `o = 896`, `n = 4864`: `d_step`'s runs at `8` workers —
-/// `d_step` takes no thread parameter; see `STEP_THREADS` — its stage split (the same shared
+/// (d) Timing at the production shape `o = 896`, `n = 4864`: `d_step`'s runs on the shared engine
+/// pool — `d_step` takes no thread parameter — its stage split (the same shared
 /// primitives as `c_step` plus the rotated-metric `had_gram`), and, only when `OLD_D_STEP` is set,
 /// one run of the test-local old `f64` body (its `mul_metric` triple loop alone is ~65 s at this
 /// shape, so it does not fit the budget beside the runs). Run with
@@ -1159,7 +1186,7 @@ fn d_step_stages(
         .collect();
     let conv = t0.elapsed().as_secs_f64();
     let t0 = std::time::Instant::now();
-    let mut a = wsyrk(&panel_grid, Some(&gr_grid), o, n, STEP_THREADS).expect("wsyrk");
+    let mut a = wsyrk(&panel_grid, Some(&gr_grid), o, n).expect("wsyrk");
     let syrk = t0.elapsed().as_secs_f64();
     let t0 = std::time::Instant::now();
     hadamard_into(&mut a, &h_grid).expect("hadamard_into");
@@ -1190,7 +1217,7 @@ fn d_step_stages(
         .map(|&x| q32::to_grid(x, q32::GRID_BOUND).expect("b grid"))
         .collect();
     let t0 = std::time::Instant::now();
-    let solved = chol_solve(&a, &b_grid, n, 1, STEP_THREADS).expect("chol_solve");
+    let solved = chol_solve(&a, &b_grid, n, 1).expect("chol_solve");
     let chol = t0.elapsed().as_secs_f64();
     std::hint::black_box(&solved);
     [staged_mul, conv, syrk, had, chol, hrot]

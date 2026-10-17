@@ -151,7 +151,7 @@ fn xref_bit_identity_holds() {
                 hs = fnv_u64(hs, n as u64);
                 hs = fnv_u64(hs, k as u64);
                 hs = fnv_u64(hs, threads as u64);
-                let r = chol_solve(&a, &b, n, k, threads);
+                let r = chol_solve(&a, &b, n, k);
                 hs = fnv_solved(hs, &r);
             }
         }
@@ -168,20 +168,20 @@ fn xref_bit_identity_holds() {
     // NotPositiveDefinite, Overflow.
     let mut hr = FNV_OFFSET;
     hr = fnv_equil(hr, &equilibrate(&[], 0));
-    hr = fnv_solved(hr, &chol_solve(&[], &[], 0, 0, 1));
+    hr = fnv_solved(hr, &chol_solve(&[], &[], 0, 0));
     hr = fnv_equil(hr, &equilibrate(&[ONE], 2));
-    hr = fnv_solved(hr, &chol_solve(&[ONE], &[ONE], 2, 1, 1));
-    hr = fnv_solved(hr, &chol_solve(&[ONE, 0, 0, ONE], &[ONE, ONE], 2, 2, 1));
-    hr = fnv_solved(hr, &chol_solve(&[-ONE, 0, 0, ONE], &[ONE, 0], 2, 1, 1));
-    hr = fnv_solved(hr, &chol_solve(&[0, 0, 0, ONE], &[ONE, 0], 2, 1, 1));
+    hr = fnv_solved(hr, &chol_solve(&[ONE], &[ONE], 2, 1));
+    hr = fnv_solved(hr, &chol_solve(&[ONE, 0, 0, ONE], &[ONE, ONE], 2, 2));
+    hr = fnv_solved(hr, &chol_solve(&[-ONE, 0, 0, ONE], &[ONE, 0], 2, 1));
+    hr = fnv_solved(hr, &chol_solve(&[0, 0, 0, ONE], &[ONE, 0], 2, 1));
     hr = fnv_solved(
         hr,
-        &chol_solve(&[ONE, 2 * ONE, 2 * ONE, ONE], &[ONE, ONE], 2, 1, 1),
+        &chol_solve(&[ONE, 2 * ONE, 2 * ONE, ONE], &[ONE, ONE], 2, 1),
     );
     let big = 1i64 << 62;
-    hr = fnv_solved(hr, &chol_solve(&[1, big, big, 1], &[ONE, ONE], 2, 1, 1));
+    hr = fnv_solved(hr, &chol_solve(&[1, big, big, 1], &[ONE, ONE], 2, 1));
     // A 1-entry SPD solve that must succeed, so a failing refusal fold is distinguishable.
-    hr = fnv_solved(hr, &chol_solve(&[4 * ONE], &[2 * ONE], 1, 1, 1));
+    hr = fnv_solved(hr, &chol_solve(&[4 * ONE], &[2 * ONE], 1, 1));
 
     println!("CHOL_XREF solve={hs:#018x} equilibrate={he:#018x} refusal={hr:#018x}");
     assert_eq!(hs, HASH_CHOL_SOLVE, "chol_solve bit-identity");

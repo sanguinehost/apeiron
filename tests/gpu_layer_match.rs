@@ -3,7 +3,7 @@
 //! `config.n_layer = 1`, Q32.32 converted to f64.
 //!
 //! The CPU side is the engine's own layer loop (`compose_cols`); nothing is reimplemented. Both
-//! sides end in the output RMSNorm, so the compared vectors are the output-normed layer-0 states.
+//! sides end in the output `RMSNorm`, so the compared vectors are the output-normed layer-0 states.
 #![cfg(feature = "gpu")]
 #![allow(
     clippy::all,

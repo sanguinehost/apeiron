@@ -1,7 +1,7 @@
 //! `tests/learn_solve_inv.rs` — the Q32.32 upper-triangular inverse factor `U` (`UᵀU = H⁻¹`):
 //! agreement with a test-local `f64` upper-`Cholesky`/back-substitution reference and the
 //! `UᵀU·H = I` residual on SPD matrices of a `1e6` diagonal range, exact upper-triangularity and
-//! positive diagonal, bit-identical output for threads 1, 2 and 8, the typed refusals, the
+//! positive diagonal, bit-identical output across repeated pooled calls, the typed refusals, the
 //! `feedback_u` boundary (new grid path against the old `f64` formula, damping and the
 //! zero-diagonal-replaced-by-1 branch), and an ignored timing table at `n = 4864`. Grade `tested`
 //! for correctness, `measured` for the timing run.
@@ -28,13 +28,26 @@
               stay on for the crate's non-test code."
 )]
 
-use apeiron::learn::fold::fit::gptq_e8::{feedback_u, GptqE8Error};
+use apeiron::engine::ONE;
+use apeiron::learn::fold::fit::gptq_e8::{feedback_u, GptqE8Error, UFac};
 use apeiron::learn::solve::chol::SolveError;
 use apeiron::learn::solve::inv::inv_factor_upper;
 use apeiron::learn::solve::q32::{fill_scale, from_grid, GRID_BOUND};
 
 /// `2^32`, the Q32.32 scale factor.
 const SCALE: f64 = 4_294_967_296.0;
+
+/// The `f64` view of a [`UFac`]: `U_ij = (hat_ij / 2^32)·2^-d_j` above the diagonal, `0` below.
+fn ufac_to_f64(uf: &UFac) -> Vec<f64> {
+    let n = uf.n;
+    let mut out = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in i..n {
+            out[i * n + j] = uf.hat[i * n + j] as f64 / ONE as f64 * 2f64.powi(-uf.d[j]);
+        }
+    }
+    out
+}
 
 /// Deterministic 64-bit LCG (Numerical Recipes constants): the tests' only randomness source.
 struct Lcg(u64);
@@ -270,7 +283,7 @@ fn matches_the_f64_reference_on_a_wide_diagonal_range() {
         let scale = balanced_scale(&h, n);
         let hq: Vec<i64> = h.iter().map(|&x| to_q32(x * scale)).collect();
         let hd: Vec<f64> = hq.iter().map(|&v| from_grid(v)).collect();
-        let u = inv_factor_upper(&hq, n, 1).expect("SPD factor");
+        let u = inv_factor_upper(&hq, n).expect("SPD factor");
         assert_eq!(u.len(), n * n);
         let ug: Vec<f64> = u.iter().map(|&v| from_grid(v)).collect();
         let (res, norm) = residual(&ug, &hd, n);
@@ -289,7 +302,7 @@ fn matches_the_f64_reference_on_a_wide_diagonal_range() {
         let fill = fill_scale(h.iter().fold(0.0f64, |a, &x| a.max(x.abs())));
         let hf: Vec<i64> = h.iter().map(|&x| to_q32(x * fill)).collect();
         let hdf: Vec<f64> = hf.iter().map(|&v| from_grid(v)).collect();
-        let uf: Vec<f64> = inv_factor_upper(&hf, n, 1)
+        let uf: Vec<f64> = inv_factor_upper(&hf, n)
             .expect("SPD factor")
             .iter()
             .map(|&v| from_grid(v))
@@ -299,7 +312,7 @@ fn matches_the_f64_reference_on_a_wide_diagonal_range() {
         let ss = balanced_scale(&hs, n);
         let hsq: Vec<i64> = hs.iter().map(|&x| to_q32(x * ss)).collect();
         let hsd: Vec<f64> = hsq.iter().map(|&v| from_grid(v)).collect();
-        let us: Vec<f64> = inv_factor_upper(&hsq, n, 1)
+        let us: Vec<f64> = inv_factor_upper(&hsq, n)
             .expect("SPD factor")
             .iter()
             .map(|&v| from_grid(v))
@@ -337,7 +350,7 @@ fn u_is_upper_triangular_with_a_positive_diagonal() {
     let h = spd_wide(0x0B10_6000, n);
     let scale = balanced_scale(&h, n);
     let hq: Vec<i64> = h.iter().map(|&x| to_q32(x * scale)).collect();
-    let u = inv_factor_upper(&hq, n, 1).expect("SPD factor");
+    let u = inv_factor_upper(&hq, n).expect("SPD factor");
     for i in 0..n {
         for j in 0..n {
             if j < i {
@@ -349,21 +362,6 @@ fn u_is_upper_triangular_with_a_positive_diagonal() {
             "U({i},{i}) = {} is not positive",
             u[i * n + i]
         );
-    }
-}
-
-/// (c) The factor is bit-identical for `threads ∈ {1, 2, 8}`: each column block is written by one
-/// worker with a fixed contraction order.
-#[test]
-fn threads_do_not_change_the_factor() {
-    let n = 130usize;
-    let h = spd_wide(0x7E44_0001, n);
-    let scale = balanced_scale(&h, n);
-    let hq: Vec<i64> = h.iter().map(|&x| to_q32(x * scale)).collect();
-    let u1 = inv_factor_upper(&hq, n, 1).expect("factor");
-    for threads in [2usize, 8] {
-        let ut = inv_factor_upper(&hq, n, threads).expect("factor");
-        assert_eq!(u1, ut, "threads {threads} changed the factor");
     }
 }
 
@@ -395,9 +393,9 @@ fn refusals_are_typed() {
         Err(GptqE8Error::NotPositiveDefinite)
     );
     // The primitive's own refusals.
-    assert_eq!(inv_factor_upper(&[], 0, 1), Err(SolveError::Empty));
+    assert_eq!(inv_factor_upper(&[], 0), Err(SolveError::Empty));
     assert_eq!(
-        inv_factor_upper(&[1i64 << 32], 2, 1),
+        inv_factor_upper(&[1i64 << 32], 2),
         Err(SolveError::ShapeMismatch)
     );
     let mut negq = vec![0i64; n * n];
@@ -405,7 +403,7 @@ fn refusals_are_typed() {
         negq[i * n + i] = -(1i64 << 32);
     }
     assert_eq!(
-        inv_factor_upper(&negq, n, 1),
+        inv_factor_upper(&negq, n),
         Err(SolveError::NonPositiveDiagonal)
     );
 }
@@ -419,7 +417,7 @@ fn feedback_u_agrees_with_the_old_f64_formula() {
     for &n in &[8usize, 64, 130] {
         let h = spd_wide(0xFEED_0000 ^ n as u64, n);
         for &damp in &[0.01f64, 0.0] {
-            let u = feedback_u(&h, n, damp).expect("SPD factor");
+            let u = ufac_to_f64(&feedback_u(&h, n, damp).expect("SPD factor"));
             let r = ref_feedback_u(&h, n, damp);
             let mut diff = 0.0f64;
             let mut mag = 0.0f64;
@@ -449,7 +447,7 @@ fn feedback_u_agrees_with_the_old_f64_formula() {
     for i in 1..n {
         h[i * n + i] = 1.0;
     }
-    let u = feedback_u(&h, n, 0.0).expect("SPD factor");
+    let u = ufac_to_f64(&feedback_u(&h, n, 0.0).expect("SPD factor"));
     let r = ref_feedback_u(&h, n, 0.0);
     for i in 0..n {
         for j in 0..n {
@@ -494,7 +492,7 @@ fn scale_sweep_grid_residual_floor() {
     for e in [-8i32, -6, -4, -2, 0, 2, 4, 6, 8, 12] {
         let s = 2f64.powi(e);
         let g: Vec<i64> = hd.iter().map(|&x| to_q32(x * s)).collect();
-        let u = inv_factor_upper(&g, n, 1).expect("factor");
+        let u = inv_factor_upper(&g, n).expect("factor");
         let undo = s.sqrt();
         let ug: Vec<f64> = u.iter().map(|&v| from_grid(v) * undo).collect();
         let (res, norm) = residual(&ug, &hd, n);
@@ -580,7 +578,7 @@ fn timing_feedback_u() {
         let t0 = std::time::Instant::now();
         let u = feedback_u(&h, n, 0.01).expect("SPD factor");
         let dt = t0.elapsed().as_secs_f64();
-        std::hint::black_box(u[0]);
+        std::hint::black_box(u.hat[0]);
         ts.push(dt);
     }
     let mean = ts.iter().sum::<f64>() / (ts.len() as f64);
@@ -591,7 +589,7 @@ fn timing_feedback_u() {
     let old = t0.elapsed().as_secs_f64();
     std::hint::black_box(r[0]);
     println!(
-        "feedback_u n={n}: new threads=8 mean {mean:.3}s min {mn:.3}s max {mx:.3}s runs {ts:?}; \
+        "feedback_u n={n}: new pooled mean {mean:.3}s min {mn:.3}s max {mx:.3}s runs {ts:?}; \
          old f64 once {old:.3}s"
     );
 }

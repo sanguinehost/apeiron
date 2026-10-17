@@ -8,7 +8,7 @@
 //! of 8 greedy continuation tokens (decoding on from the prefilled KV cache) agree with the
 //! token-by-token path.
 //!
-//!   cargo test --release --locked --features gpu --test gpu_prefill_match -- --ignored --nocapture
+//!   cargo test --release --locked --features gpu --test `gpu_prefill_match` -- --ignored --nocapture
 #![cfg(feature = "gpu")]
 #![allow(
     clippy::all,

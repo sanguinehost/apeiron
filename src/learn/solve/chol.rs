@@ -1,6 +1,6 @@
 //! Direct SPD solve in Q32.32 `i64`: diagonal (Jacobi) equilibration, a blocked right-looking
 //! `Cholesky` factor, triangular substitution and one exact-residual refinement step, plus a
-//! threaded entry that splits the trailing update across scoped workers.
+//! pooled entry that splits the trailing update across the engine pool.
 //!
 //! `i64` values are Q32.32: `v` denotes `v / 2^32`, so `ONE = 1 << 32`. Every product of two
 //! Q32.32 values is formed in `i128` (Q64.64); a contraction over the contraction index is
@@ -49,6 +49,8 @@
               `chol`; the pedantic lints stay on for the rest of the crate."
 )]
 
+use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
+use crate::engine::chart::task::ChunkTask;
 use crate::numeric::fixed_rsqrt::isqrt;
 
 /// A refusal from a Q32.32 SPD solve.
@@ -261,7 +263,7 @@ pub fn equilibrate(a: &[i64], n: usize) -> Result<(Vec<i64>, Vec<i64>), SolveErr
 /// `gj ∈ [kend, gi]`, `gi = first + ri`. The contraction runs over the just-factored block columns
 /// `[kbase, kbase+kb) = [k, kend)`; the trailing columns updated are `[kend, n)`. `rows` is a
 /// contiguous block of trailing rows each of stride `d`, columns indexed globally. A plain function
-/// with slices in and out, so the threaded entry spawns it without a closure capture in the body.
+/// with slices in and out, so the pooled entry hands it to a task without a closure capture in the body.
 ///
 /// # Errors
 ///
@@ -369,69 +371,78 @@ fn chol_trailing_update(
     Ok(())
 }
 
-/// Distribute the trailing update `work[kend.., kend..]` over `threads` scoped workers, each owning
-/// a contiguous row range (disjoint writes, one write per entry, fixed contraction order), so the
-/// factor is bit-identical for every worker count. `nt ≥ 2`: the caller runs
-/// [`chol_trailing_update`] on the whole trailing block itself for one worker, so the serial
-/// arithmetic is not behind this thread boundary.
+/// The pool task context of [`trailing_update_pool`]: the factor and the block geometry.
+struct TrailingRows<'a> {
+    /// The factor `L`, row-major `[n, n]`.
+    l: &'a [i64],
+    /// Row stride of `l` and of the trailing block.
+    n: usize,
+    /// Column origin of the processed block (`kend − kb`).
+    kbase: usize,
+    /// First trailing row of the block.
+    kend: usize,
+    /// Width of the processed block.
+    kb: usize,
+    /// Lowest-offset refusal recorded by the tasks.
+    first: &'a FirstErr<usize, SolveError>,
+}
+
+impl ChunkTask<i64> for TrailingRows<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [i64]) {
+        let first = self.kend + start / self.n;
+        if let Err(e) =
+            chol_trailing_update(piece, first, self.kbase, self.kend, self.l, self.n, self.kb)
+        {
+            self.first.record(start, e);
+        }
+    }
+}
+
+/// Distribute the trailing update `work[kend.., kend..]` over the engine pool, one contiguous row
+/// chunk per `width_global()` participant (disjoint writes, one write per entry, fixed contraction
+/// order), so the factor is bit-identical to the serial body. Each entry is written by exactly one
+/// task in the same `p` order the serial [`chol_trailing_update`] uses.
 ///
 /// # Errors
 ///
-/// [`SolveError::Overflow`] from any worker; a worker panic is also reported as
-/// [`SolveError::Overflow`] (the body does not panic on caller input).
+/// [`SolveError::Overflow`] from the lowest offset that refused.
 ///
 /// # Complexity
 ///
 /// Same total work as the serial trailing update, `O((n−kend)²·kb)` multiply-subtracts, split
-/// across workers; span `O((n−kend)²·kb/threads)`; `O(threads)` row-group descriptors.
-fn trailing_update_par(
+/// across the pool; `O(1)` extra space (the pool hands each task its slice in place).
+fn trailing_update_pool(
     work: &mut [i64],
     l: &[i64],
     n: usize,
     kend: usize,
     kb: usize,
-    nt: usize,
 ) -> Result<(), SolveError> {
     let nr = n - kend;
     let kbase = kend - kb;
     let trailing = &mut work[kend * n..n * n];
-    let base = nr / nt;
-    let rem = nr % nt;
-    let mut rest: &mut [i64] = trailing;
-    let mut groups: Vec<(usize, &mut [i64])> = Vec::with_capacity(nt);
-    let mut local = 0usize;
-    for t in 0..nt {
-        let len = base + usize::from(t < rem);
-        let (head, tail) = rest.split_at_mut(len * n);
-        groups.push((kend + local, head));
-        local += len;
-        rest = tail;
-    }
-    let all_ok = std::thread::scope(|scope| {
-        let mut handles = Vec::with_capacity(nt);
-        for (first, group) in groups {
-            handles.push(
-                scope.spawn(move || chol_trailing_update(group, first, kbase, kend, l, n, kb)),
-            );
-        }
-        let mut all = true;
-        for h in handles {
-            match h.join() {
-                Ok(Ok(())) => {}
-                _ => all = false,
-            }
-        }
-        all
-    });
-    if all_ok {
-        Ok(())
-    } else {
-        Err(SolveError::Overflow)
+    let chunk_rows = nr.div_ceil(width_global()).max(1);
+    let first: FirstErr<usize, SolveError> = FirstErr::new();
+    chunks_mut_global(
+        trailing,
+        chunk_rows * n,
+        &TrailingRows {
+            l,
+            n,
+            kbase,
+            kend,
+            kb,
+            first: &first,
+        },
+    );
+    match first.take() {
+        Some((_, e)) => Err(e),
+        None => Ok(()),
     }
 }
 
 /// Blocked right-looking `Cholesky` factor `L` (lower-triangular, row-major `[n, n]`, Q32.32) of the
-/// equilibrated SPD `a` (already `D⁻¹ A D⁻¹`). `threads` is threaded through to the trailing update.
+/// equilibrated SPD `a` (already `D⁻¹ A D⁻¹`). The trailing update runs on the engine pool.
 ///
 /// # Errors
 ///
@@ -445,7 +456,7 @@ fn trailing_update_par(
 /// Derivation: the trailing update contracts over `kb` per block column for `Σ_blocks (n−k)²`,
 /// which is `n³/3`. Promoted to `pub(super)` so [`super::inv`] factors the reversed equilibrated
 /// matrix through this body instead of a copy.
-pub(super) fn factor_scaled(a: &[i64], n: usize, threads: usize) -> Result<Vec<i64>, SolveError> {
+pub(super) fn factor_scaled(a: &[i64], n: usize) -> Result<Vec<i64>, SolveError> {
     if a.len() != n * n {
         return Err(SolveError::ShapeMismatch);
     }
@@ -513,13 +524,7 @@ pub(super) fn factor_scaled(a: &[i64], n: usize, threads: usize) -> Result<Vec<i
         }
         // (3) Trailing update `work[kend.., kend..] -= L21·L21ᵀ` (lower triangle).
         if kend < n && err.is_none() {
-            let nt = threads.max(1).min(n - kend);
-            let res = if nt <= 1 {
-                chol_trailing_update(&mut work[kend * n..n * n], kend, kend - kb, kend, &l, n, kb)
-            } else {
-                trailing_update_par(&mut work, &l, n, kend, kb, nt)
-            };
-            match res {
+            match trailing_update_pool(&mut work, &l, n, kend, kb) {
                 Ok(()) => {}
                 Err(e) => err = Some(e),
             }
@@ -728,8 +733,8 @@ fn max_abs(entries: &[i64]) -> Option<i64> {
 
 /// Solve the SPD system `A X = B` in Q32.32: equilibrate, blocked `Cholesky`, substitute, then one
 /// exact-residual refinement step. `a` is row-major `[n, n]`, `b` is row-major `[n, k]`, the result
-/// [`Solved::x`] is row-major `[n, k]`. `threads` splits the factor's trailing update; `threads = 1`
-/// runs the same code with no spawn and the result is bit-identical for every `threads`.
+/// [`Solved::x`] is row-major `[n, k]`. The factor's trailing update runs on the engine pool; each
+/// entry is accumulated once in a fixed order, so the result is bit-identical to the serial body.
 ///
 /// # Errors
 ///
@@ -743,13 +748,7 @@ fn max_abs(entries: &[i64]) -> Option<i64> {
 /// `O(n³ + n²·k)` checked multiply-adds and `O(n² + n·k)` space. Derivation: one `O(n³/3)` factor
 /// ([`factor_scaled`]), two `O(n²·k)` triangular solves ([`solve_rhs`], for the solution and the
 /// correction) and two exact residuals `O(n²·k)` ([`exact_residual`]).
-pub fn chol_solve(
-    a: &[i64],
-    b: &[i64],
-    n: usize,
-    k: usize,
-    threads: usize,
-) -> Result<Solved, SolveError> {
+pub fn chol_solve(a: &[i64], b: &[i64], n: usize, k: usize) -> Result<Solved, SolveError> {
     if n == 0 {
         return Err(SolveError::Empty);
     }
@@ -765,7 +764,7 @@ pub fn chol_solve(
         return Err(SolveError::ShapeMismatch);
     }
     let (a_hat, d) = equilibrate(a, n)?;
-    let l = factor_scaled(&a_hat, n, threads)?;
+    let l = factor_scaled(&a_hat, n)?;
     let x0 = solve_rhs(&l, &d, b, n, k)?;
     // One refinement step: exact residual, solve the correction through the same factor, add.
     let r0 = exact_residual(a, b, &x0, n, k)?;

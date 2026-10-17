@@ -16,8 +16,7 @@
 )]
 
 use apeiron::learn::ridge::{
-    cholesky, cholesky_blocked, cholesky_blocked_par, solve_spd, solve_spd_blocked,
-    solve_spd_blocked_par, FoldTrainer, RidgeError,
+    cholesky, cholesky_blocked, solve_spd, solve_spd_blocked, FoldTrainer, RidgeError,
 };
 
 /// Deterministic xorshift64 PRNG, uniform in `[-1, 1)`.
@@ -418,7 +417,7 @@ fn fold_sparse_par_equals_serial_at_uneven_chunks() {
         let hs = serial.solve(None).unwrap();
         for t in [1usize, 3, 8] {
             let mut par = FoldTrainer::new(di, out, lam, bias);
-            par.fold_sparse_par(&idxs, &vals, &y, rows, nnz, t).unwrap();
+            par.fold_sparse_par(&idxs, &vals, &y, rows, nnz).unwrap();
             assert!(
                 max_rel_diff(par.drag(), serial.drag()) <= 1e-9,
                 "drag differs (bias={bias}, T={t})"
@@ -455,7 +454,7 @@ fn fold_sparse_par_owner_is_bit_identical_to_serial() {
         serial.fold_sparse(&idxs, &vals, &y, rows, nnz).unwrap();
         for t in [1usize, 2, 3, 4, 8, 16] {
             let mut par = FoldTrainer::new(di, out, lam, bias);
-            par.fold_sparse_par(&idxs, &vals, &y, rows, nnz, t).unwrap();
+            par.fold_sparse_par(&idxs, &vals, &y, rows, nnz).unwrap();
             assert_eq!(par.drag(), serial.drag(), "U differs (bias={bias}, T={t})");
             assert_eq!(
                 par.cross_term(),
@@ -501,7 +500,7 @@ fn blocked_cholesky_solve_equals_scalar() {
             "blocked serial solve differs from scalar at d={d}"
         );
         for t in [1usize, 8] {
-            let xp = solve_spd_blocked_par(&a, &b, d, out, t).unwrap();
+            let xp = solve_spd_blocked(&a, &b, d, out).unwrap();
             assert!(
                 max_rel_diff(&xs, &xp) <= 1e-9,
                 "blocked parallel solve differs from scalar at d={d}, T={t}"
@@ -521,7 +520,7 @@ fn blocked_cholesky_refuses_non_spd() {
         Err(RidgeError::NotPositiveDefinite)
     );
     assert_eq!(
-        cholesky_blocked_par(&a, 2, 8),
+        cholesky_blocked(&a, 2),
         Err(RidgeError::NotPositiveDefinite)
     );
     let b = [1.0f64, 0.0, 0.0, 1.0];
@@ -530,7 +529,7 @@ fn blocked_cholesky_refuses_non_spd() {
         Err(RidgeError::NotPositiveDefinite)
     );
     assert_eq!(
-        solve_spd_blocked_par(&a, &b, 2, 2, 8),
+        solve_spd_blocked(&a, &b, 2, 2),
         Err(RidgeError::NotPositiveDefinite)
     );
 
@@ -540,12 +539,12 @@ fn blocked_cholesky_refuses_non_spd() {
     }
     big[70 * 100 + 70] = 0.0;
     assert_eq!(
-        cholesky_blocked_par(&big, 100, 8),
+        cholesky_blocked(&big, 100),
         Err(RidgeError::NotPositiveDefinite)
     );
     let zero_b = vec![0.0f64; 100];
     assert_eq!(
-        solve_spd_blocked_par(&big, &zero_b, 100, 1, 8),
+        solve_spd_blocked(&big, &zero_b, 100, 1),
         Err(RidgeError::NotPositiveDefinite)
     );
 }

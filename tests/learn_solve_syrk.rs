@@ -2,10 +2,10 @@
 //! hadamard factor [`hadamard_into`].
 //!
 //! Positive: bit-equal agreement with a naive test-local `i128` triple loop (same single rounding)
-//! over five shapes, weighted and unweighted; exact symmetry; bit-identical output for 1, 2 and 8
-//! threads; agreement to relative `1e-9` with an f64 evaluation of the `c_step` formula including
+//! over five shapes, weighted and unweighted; exact symmetry; deterministic output on the engine
+//! pool; agreement to relative `1e-9` with an f64 evaluation of the `c_step` formula including
 //! the `hl` factor. Boundary: every refusal arm (shape, `n == 0`, `o == 0`, input bound, overflow,
-//! hadamard shape/overflow). Timing (`#[ignore]`): `o = 896`, `n = 4864`, threads 1 and 8, three
+//! hadamard shape/overflow). Timing (`#[ignore]`): `o = 896`, `n = 4864`, three pooled
 //! runs each, against the scalar `c_step` `A`-formation loop copied here.
 //!
 //! Grade `tested`; nothing here is `proved`.
@@ -87,10 +87,10 @@ fn wsyrk_matches_naive_triple_loop_bit_equal() {
             .map(|_| lcg.next_range(-(1i64 << 34), 1i64 << 34))
             .collect();
         let want = naive_wsyrk(&x, Some(&w), o, n);
-        let got = wsyrk(&x, Some(&w), o, n, 3).expect("weighted wsyrk");
+        let got = wsyrk(&x, Some(&w), o, n).expect("weighted wsyrk");
         assert_eq!(got, want, "weighted shape ({o},{n})");
         let want_none = naive_wsyrk(&x, None, o, n);
-        let got_none = wsyrk(&x, None, o, n, 1).expect("unweighted wsyrk");
+        let got_none = wsyrk(&x, None, o, n).expect("unweighted wsyrk");
         assert_eq!(got_none, want_none, "unweighted shape ({o},{n})");
     }
 }
@@ -103,29 +103,12 @@ fn wsyrk_result_is_bit_symmetric() {
         .map(|_| lcg.next_range(-(1i64 << 35), 1i64 << 35))
         .collect();
     let w: Vec<i64> = (0..o).map(|_| lcg.next_range(0, 1i64 << 34)).collect();
-    let g = wsyrk(&x, Some(&w), o, n, 4).expect("wsyrk");
+    let g = wsyrk(&x, Some(&w), o, n).expect("wsyrk");
     for i in 0..n {
         for j in 0..n {
             assert_eq!(g[i * n + j], g[j * n + i], "mirror ({i},{j})");
         }
     }
-}
-
-#[test]
-fn wsyrk_thread_counts_are_bit_identical() {
-    let (o, n) = (33usize, 137usize);
-    let mut lcg = Lcg::new(0x0bad_f00d_5eed_1234);
-    let x: Vec<i64> = (0..o * n)
-        .map(|_| lcg.next_range(-(1i64 << 35), 1i64 << 35))
-        .collect();
-    let w: Vec<i64> = (0..o)
-        .map(|_| lcg.next_range(1i64 << 20, 1i64 << 34))
-        .collect();
-    let g1 = wsyrk(&x, Some(&w), o, n, 1).expect("threads 1");
-    let g2 = wsyrk(&x, Some(&w), o, n, 2).expect("threads 2");
-    let g8 = wsyrk(&x, Some(&w), o, n, 8).expect("threads 8");
-    assert_eq!(g1, g2, "threads 1 vs 2");
-    assert_eq!(g1, g8, "threads 1 vs 8");
 }
 
 #[test]
@@ -142,7 +125,7 @@ fn wsyrk_matches_f64_c_step_formula() {
     let hl: Vec<i64> = (0..n * n)
         .map(|_| lcg.next_range(1i64 << 31, 3i64 << 30))
         .collect();
-    let g = wsyrk(&x, Some(&w), o, n, 3).expect("wsyrk");
+    let g = wsyrk(&x, Some(&w), o, n).expect("wsyrk");
     let mut a = g.clone();
     hadamard_into(&mut a, &hl).expect("hadamard");
     let pow = |v: i64| (v as f64) * 2f64.powi(-32);
@@ -172,38 +155,35 @@ fn wsyrk_matches_f64_c_step_formula() {
 fn wsyrk_refusals_reach_every_arm() {
     // Shape: `x.len() != o·n`, then `w.len() != o`.
     assert_eq!(
-        wsyrk(&[ONE_RAW; 5], None, 2, 3, 1),
+        wsyrk(&[ONE_RAW; 5], None, 2, 3),
         Err(SyrkError::ShapeMismatch)
     );
     assert_eq!(
-        wsyrk(&[ONE_RAW; 6], Some(&[ONE_RAW; 3]), 2, 3, 1),
+        wsyrk(&[ONE_RAW; 6], Some(&[ONE_RAW; 3]), 2, 3),
         Err(SyrkError::ShapeMismatch)
     );
     // `n == 0`, `o == 0`.
-    assert_eq!(wsyrk(&[], None, 3, 0, 1), Err(SyrkError::ZeroN));
-    assert_eq!(wsyrk(&[], None, 0, 3, 1), Err(SyrkError::ZeroO));
+    assert_eq!(wsyrk(&[], None, 3, 0), Err(SyrkError::ZeroN));
+    assert_eq!(wsyrk(&[], None, 0, 3), Err(SyrkError::ZeroO));
     // Input bound `2³⁶` (strict) on `x` and on `w`.
+    assert_eq!(wsyrk(&[1i64 << 36], None, 1, 1), Err(SyrkError::InputBound));
     assert_eq!(
-        wsyrk(&[1i64 << 36], None, 1, 1, 1),
-        Err(SyrkError::InputBound)
-    );
-    assert_eq!(
-        wsyrk(&[-(1i64 << 36)], None, 1, 1, 1),
+        wsyrk(&[-(1i64 << 36)], None, 1, 1),
         Err(SyrkError::InputBound)
     );
     let mut xb = vec![0i64; 3];
     xb[1] = 1i64 << 36;
-    assert_eq!(wsyrk(&xb, None, 1, 3, 1), Err(SyrkError::InputBound));
+    assert_eq!(wsyrk(&xb, None, 1, 3), Err(SyrkError::InputBound));
     assert_eq!(
-        wsyrk(&[ONE_RAW], Some(&[1i64 << 36]), 1, 1, 1),
+        wsyrk(&[ONE_RAW], Some(&[1i64 << 36]), 1, 1),
         Err(SyrkError::InputBound)
     );
     // Overflow: `o` at the `2¹⁸` domain bound (`x` is a valid `o × 1` panel).
     let xo = vec![0i64; 1 << 18];
-    assert_eq!(wsyrk(&xo, None, 1 << 18, 1, 1), Err(SyrkError::Overflow));
+    assert_eq!(wsyrk(&xo, None, 1 << 18, 1), Err(SyrkError::Overflow));
     // Overflow: `n·n` leaves `usize` before any slice is touched.
     assert_eq!(
-        wsyrk(&[], None, 1, usize::MAX / 2, 1),
+        wsyrk(&[], None, 1, usize::MAX / 2),
         Err(SyrkError::Overflow)
     );
     // `hadamard_into`: shape and overflow arms.
@@ -250,26 +230,22 @@ fn timing_o896_n4864() {
         .map(|_| lcg.next_range(1i64 << 28, 1i64 << 35))
         .collect();
     let upper = (o as f64) * (n as f64) * ((n + 1) as f64) / 2.0;
-    let mut means = [0.0f64; 2];
-    for (k, &threads) in [1usize, 8usize].iter().enumerate() {
-        let mut times = [0.0f64; 3];
-        for t in &mut times {
-            let start = Instant::now();
-            let g = wsyrk(&x, Some(&w), o, n, threads).expect("wsyrk");
-            *t = start.elapsed().as_secs_f64();
-            black_box(&g);
-        }
-        let mean = times.iter().sum::<f64>() / 3.0;
-        let min = times.iter().copied().fold(f64::INFINITY, f64::min);
-        let max = times.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        means[k] = mean;
-        println!(
-            "wsyrk threads={threads}: runs [{}] mean {mean:.3}s min {min:.3}s max {max:.3}s \
-             {:.3} GMAC/s (upper-triangle MACs)",
-            times.map(|v| format!("{v:.3}")).join(", "),
-            upper / mean / 1e9
-        );
+    let mut times = [0.0f64; 3];
+    for t in &mut times {
+        let start = Instant::now();
+        let g = wsyrk(&x, Some(&w), o, n).expect("wsyrk");
+        *t = start.elapsed().as_secs_f64();
+        black_box(&g);
     }
+    let mean = times.iter().sum::<f64>() / 3.0;
+    let min = times.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = times.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    println!(
+        "wsyrk pooled: runs [{}] mean {mean:.3}s min {min:.3}s max {max:.3}s {:.3} GMAC/s \
+         (upper-triangle MACs)",
+        times.map(|v| format!("{v:.3}")).join(", "),
+        upper / mean / 1e9
+    );
     let bsh: Vec<f64> = x.iter().map(|&v| (v as f64) * 2f64.powi(-32)).collect();
     let wr: Vec<f64> = w.iter().map(|&v| (v as f64) * 2f64.powi(-32)).collect();
     let start = Instant::now();
@@ -280,13 +256,9 @@ fn timing_o896_n4864() {
         "scalar c_step A-formation loop (f64, full n×n): {scalar:.3}s {:.3} GMAC/s",
         full / scalar / 1e9
     );
-    println!(
-        "ratio scalar/wsyrk(1) {:.2}x  scalar/wsyrk(8) {:.2}x",
-        scalar / means[0],
-        scalar / means[1]
-    );
+    println!("ratio scalar/wsyrk {:.2}x", scalar / mean);
     // Instrument check: the two computations must agree before either timing is quoted.
-    let g8 = wsyrk(&x, Some(&w), o, n, 8).expect("wsyrk check");
+    let g8 = wsyrk(&x, Some(&w), o, n).expect("wsyrk check");
     let mut max_abs = 0.0f64;
     let mut scale = 0.0f64;
     for k in 0..n * n {

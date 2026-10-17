@@ -5,7 +5,7 @@
 //! control-flow-only restructure (the Aeneas extraction rework of `block_rows`). Deterministic
 //! inline xorshift fixtures feed shapes below and above the `64`-wide output block (`mc < 64`,
 //! `mc > 64`) whose `nc` is never a multiple of `4`, plus one `k ≥ MAX_K` overflow refusal; every
-//! output word is folded into one FNV-1a 64 hash at threads `1` and `3`. The same hash must hold
+//! output word is folded into one FNV-1a 64 hash over two repeated calls. The same hash must hold
 //! before and after the restructure.
 //!
 //! Grade `tested`; nothing here is `proved`.
@@ -99,16 +99,16 @@ fn gemm_xref_hash() {
         let b_nt: Vec<i64> = (0..n * k)
             .map(|_| lcg.next_range(-(1i64 << 35), 1i64 << 35))
             .collect();
-        // Thread-count invariance is part of the pinned behaviour: `1` and `3`.
-        for threads in [1usize, 3] {
-            fold(&mut h, &gemm_nn(&a, &b_nn, m, k, n, threads));
-            fold(&mut h, &gemm_nt(&a, &b_nt, m, k, n, threads));
+        // Repeated calls are part of the pinned behaviour: the pooled kernel is deterministic.
+        for _ in 0..2 {
+            fold(&mut h, &gemm_nn(&a, &b_nn, m, k, n));
+            fold(&mut h, &gemm_nt(&a, &b_nt, m, k, n));
         }
     }
 
     // Overflow refusal: `k ≥ MAX_K`, refused before any slice is materialised, in either layout.
-    fold(&mut h, &gemm_nn(&[], &[], 1, MAX_K, 1, 1));
-    fold(&mut h, &gemm_nt(&[], &[], 1, MAX_K, 1, 1));
+    fold(&mut h, &gemm_nn(&[], &[], 1, MAX_K, 1));
+    fold(&mut h, &gemm_nt(&[], &[], 1, MAX_K, 1));
 
     println!("gemm xref hash = 0x{h:016x}");
     // taken from the pre-change code at d775efc7
