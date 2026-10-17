@@ -285,6 +285,31 @@ pub struct LayerResult {
     pub ht_next: Vec<f64>,
 }
 
+/// The resumable state of a model-level transfer run: the layers quantised so far, the teacher and
+/// student hidden states they leave, the bit sum and the per-layer fits.
+///
+/// [`quantise_model`] is [`model_init`] + one [`model_step`] + the untouched-layer copy +
+/// [`model_finish`]; a checkpointed run is the same calls split across invocations. The checkpoint
+/// ([`crate::learn::fold::run::transfer::save`]) writes the weights, the hidden states and `bits`,
+/// not `fits`, so a loaded state carries one empty fit vector per finished layer.
+#[derive(Clone, Debug)]
+pub struct ModelState {
+    /// Index of the next layer to quantise (`0 ..= layers.len()`).
+    pub next: usize,
+    /// The teacher hidden state entering layer `next` (the last quantised layer's `ht_next`),
+    /// row-major `[n_seq·t, hidden]`.
+    pub ht: Vec<f64>,
+    /// The student hidden state entering layer `next`, row-major `[n_seq·t, hidden]`.
+    pub hs: Vec<f64>,
+    /// The quantised layers `0 .. next`, in order.
+    pub layers: Vec<LayerWeights>,
+    /// The bit budget summed over the quantised layers.
+    pub bits: TensorBits,
+    /// The tensor fits of each quantised layer (`fits[l]` for layer `l < next`), kept so that
+    /// [`model_finish`] returns the same [`ModelResult`] as a one-shot run.
+    pub fits: Vec<Vec<TensorFit>>,
+}
+
 /// The quantised model and the evidence of one [`quantise_model`] call.
 #[derive(Clone, Debug)]
 pub struct ModelResult {
@@ -1139,32 +1164,132 @@ pub fn quantise_model(
         return Err(DriverError::NonFinite);
     }
 
-    let mut ht = h0.to_vec();
-    let mut hs = h0.to_vec();
-    let mut out_layers: Vec<LayerWeights> = Vec::with_capacity(layers.len());
-    let mut fits: Vec<Vec<TensorFit>> = Vec::with_capacity(layers.len());
-    let mut bits = TensorBits::default();
-    for l in 0..layers.len() {
-        if l >= n_layers {
-            out_layers.push(layers[l].clone());
-            fits.push(Vec::new());
-            continue;
-        }
+    let mut st = model_init(h0);
+    model_step(cfg, rope, layers, fnorm_w, &mut st, n_layers)?;
+    let mut l = n_layers;
+    while l < layers.len() {
+        st.layers.push(layers[l].clone());
+        st.fits.push(Vec::new());
+        l += 1;
+    }
+    model_finish(cfg, st, fnorm_w, embed, vocab, fnorm_lr)
+}
+
+/// The state of a model transfer before its first layer: `next = 0`, both hidden states equal to the
+/// embedded calibration batch `h0`, no layers, a zero bit budget. `O(h0.len())` time and space (the
+/// two hidden-state copies); the geometry is checked by [`model_step`].
+#[must_use]
+pub fn model_init(h0: &[f64]) -> ModelState {
+    ModelState {
+        next: 0,
+        ht: h0.to_vec(),
+        hs: h0.to_vec(),
+        layers: Vec::new(),
+        bits: TensorBits::default(),
+        fits: Vec::new(),
+    }
+}
+
+/// Quantise the layers `st.next .. until` against the teacher slice `layers`, propagating the
+/// teacher and student hidden states through `st` exactly as the [`quantise_model`] loop does.
+///
+/// `fnorm_w` is the final norm gain (the last layer's `down` `g_row` source). `st.next` must not
+/// exceed `until` and `until` must not exceed `layers.len()`, so a resumed state continues where its
+/// checkpoint left it and a one-shot run passes `until = n_layers`.
+///
+/// # Complexity
+/// Temporal `O(Σ_{l = next}^{until-1} quantise_layer + until − next)`; spatial `O(layers.len() ·
+/// hidden² + n_seq·t·hidden)` for the retained layers and hidden states, plus one layer's fit
+/// scratch. Derivation: the loop is the model loop's body, once per layer.
+///
+/// # Errors
+/// [`DriverError::Shape`] for `until > layers.len()`, `until < st.next`, a hidden-state length that
+/// disagrees with `n_seq·t·hidden`, or a `fnorm_w` that is not `hidden` wide;
+/// [`DriverError::NonFinite`] for a non-finite hidden state or norm gain; and every refusal of
+/// [`quantise_layer`].
+pub fn model_step(
+    cfg: &DriverCfg,
+    rope: &RopeTables,
+    layers: &[LayerWeights],
+    fnorm_w: &[f64],
+    st: &mut ModelState,
+    until: usize,
+) -> Result<(), DriverError> {
+    validate(cfg)?;
+    if until > layers.len() || until < st.next {
+        return Err(DriverError::Shape);
+    }
+    let hid = cfg.layer.hidden;
+    let rows = cfg.n_seq.checked_mul(cfg.t).ok_or(DriverError::Shape)?;
+    let total = rows.checked_mul(hid).ok_or(DriverError::Shape)?;
+    if st.ht.len() != total || st.hs.len() != total || fnorm_w.len() != hid {
+        return Err(DriverError::Shape);
+    }
+    if !finite(&st.ht) || !finite(&st.hs) || !finite(fnorm_w) {
+        return Err(DriverError::NonFinite);
+    }
+    let mut l = st.next;
+    while l < until {
         let ln_next: &[f64] = if l + 1 < layers.len() {
             &layers[l + 1].ln1
         } else {
             fnorm_w
         };
-        let r = quantise_layer(cfg, rope, &layers[l], ln_next, &ht, &mut hs)?;
-        ht = r.ht_next;
-        bits = add_bits(bits, &r.bits);
-        out_layers.push(r.lq);
-        fits.push(r.fits);
+        let r = quantise_layer(cfg, rope, &layers[l], ln_next, &st.ht, &mut st.hs)?;
+        st.ht = r.ht_next;
+        st.bits = add_bits(st.bits, &r.bits);
+        st.layers.push(r.lq);
+        st.fits.push(r.fits);
+        l += 1;
+        st.next = l;
     }
+    Ok(())
+}
 
+/// Finish a transfer: the final RMSNorm-gain fit over the state's teacher and student hidden
+/// states (`fnorm_fit(ht, hs, …, steps = 2, ridge = 0.10, lr = fnorm_lr, coh_prior = true)`,
+/// `fold_transfer.py:2037`), returning the quantised layers, `fnorm`, the bit sum and the fits.
+///
+/// `st.layers` must already hold one entry per model layer: the quantised prefix `0 .. st.next`
+/// from [`model_step`] and, from [`quantise_model`], the untouched tail copies (`st.next` is then
+/// the quantised count, below `st.layers.len()`).
+///
+/// # Complexity
+/// Temporal `O(fnorm_fit + layers.len() · hidden²)` (one final-norm fit over `n_seq·t` rows and
+/// `vocab` classes); spatial `O(vocab·hidden + n_seq·t·hidden)`, the state moved in, not copied.
+/// Derivation: a single fit call over the two hidden states.
+///
+/// # Errors
+/// [`DriverError::Shape`] for a hidden-state or embedding length that disagrees with the geometry,
+/// or a fit vector count that disagrees with the layer count; [`DriverError::NonFinite`] for a
+/// non-finite input; and every refusal of [`fnorm_fit`].
+pub fn model_finish(
+    cfg: &DriverCfg,
+    st: ModelState,
+    fnorm_w: &[f64],
+    embed: &[f64],
+    vocab: usize,
+    fnorm_lr: f64,
+) -> Result<ModelResult, DriverError> {
+    validate(cfg)?;
+    let hid = cfg.layer.hidden;
+    let rows = cfg.n_seq.checked_mul(cfg.t).ok_or(DriverError::Shape)?;
+    let total = rows.checked_mul(hid).ok_or(DriverError::Shape)?;
+    if st.ht.len() != total || st.hs.len() != total || fnorm_w.len() != hid {
+        return Err(DriverError::Shape);
+    }
+    if embed.len() != vocab.checked_mul(hid).ok_or(DriverError::Shape)? {
+        return Err(DriverError::Shape);
+    }
+    if st.fits.len() != st.layers.len() || st.next > st.layers.len() {
+        return Err(DriverError::Shape);
+    }
+    if !finite(&st.ht) || !finite(&st.hs) || !finite(fnorm_w) || !finite(embed) {
+        return Err(DriverError::NonFinite);
+    }
     let fnorm = fnorm_fit(
-        &ht,
-        &hs,
+        &st.ht,
+        &st.hs,
         cfg.n_seq,
         cfg.t,
         hid,
@@ -1178,9 +1303,9 @@ pub fn quantise_model(
         true,
     )?;
     Ok(ModelResult {
-        layers: out_layers,
+        layers: st.layers,
         fnorm,
-        bits,
-        fits,
+        bits: st.bits,
+        fits: st.fits,
     })
 }

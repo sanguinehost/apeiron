@@ -7,3 +7,7 @@
 pub mod convert;
 /// The NumPy `.npy` token reader and the calibration / in-sample / held-out chunk split.
 pub mod npy;
+/// The resumable model-level transfer run: `h0` from the calibration chunks, the crash-safe
+/// checkpoint of the driver's [`crate::learn::fold::layer::driver::ModelState`], and the student
+/// `GGUF` writer.
+pub mod transfer;
