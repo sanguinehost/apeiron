@@ -15,6 +15,7 @@
     clippy::float_cmp,
     clippy::many_single_char_names,
     clippy::needless_range_loop,
+    clippy::too_many_lines,
     reason = "the test's fixed-seed LCG maps an integer word into a Q32.32 weight, and the f64 \
               softmax-KL reference is the independent recomputation the port is checked against; the \
               exact float comparisons are the point of the identical-model test (equal logits give 0 \
@@ -22,8 +23,11 @@
               the crate"
 )]
 
-use apeiron::engine::ONE;
-use apeiron::learn::fold::stats::heldout::{held_out, held_out_seq};
+use apeiron::engine::{Engine, ONE};
+use apeiron::learn::fold::run::npy::{chunks, read_npy_i4, split};
+use apeiron::learn::fold::stats::heldout::{
+    held_out, held_out_engines, held_out_engines_per_seq_timed, held_out_seq, EngineWalls, HeldOut,
+};
 use apeiron::learn::grad::model::{forward, Config, LayerWeights, Weights};
 
 /// Embedding width, query heads, KV head width, feed-forward width, vocabulary, layers.
@@ -253,4 +257,347 @@ fn refusals() {
     );
     let empty: [&[u32]; 0] = [];
     assert!(held_out(&w, &w, &cfg, &empty).is_err(), "no sequences");
+}
+
+/// The C4 token file the measurement's chunk 50 is read from.
+const C4_TOKENS: &str = "~/lanes/w18/kd/c4data/train-c4.qwen.npy";
+/// The f16 teacher.
+const QWEN05B_F16: &str = "~/models/gguf/qwen05b-f16.gguf";
+/// The `Q4_K_M` student.
+const QWEN05B_Q4KM: &str = "~/models/gguf/qwen05b-Q4_K_M.gguf";
+
+/// The C4 token stream cut into the protocol's `512`-token chunks.
+fn c4_chunks() -> Vec<Vec<u32>> {
+    let bytes = std::fs::read(C4_TOKENS).expect("read C4 token file");
+    let ids = read_npy_i4(&bytes).expect("parse C4 token file");
+    chunks(&ids, 512).expect("chunk C4 tokens")
+}
+
+/// The first `n` ids of the protocol's first held-out chunk (chunk `50`).
+fn held_chunk_head(all: &[Vec<u32>], n: usize) -> Vec<u32> {
+    all.get(50)
+        .expect("C4 chunk 50")
+        .iter()
+        .take(n)
+        .copied()
+        .collect()
+}
+
+/// The token-weighted pooling of the per-sequence scores, the same aggregation
+/// [`held_out`]/[`held_out_engines`] perform in exact integers (the per-sequence values are
+/// already the rounded means, so this recomputation carries `f64` rounding the accumulator does
+/// not; it is used only to print and to check the engine path's own pooling).
+fn pool(scores: &[HeldOut]) -> HeldOut {
+    let tokens: u64 = scores.iter().map(|h| h.tokens).sum();
+    let pairs: u64 = scores.iter().map(|h| h.tokens.saturating_sub(1)).sum();
+    let tn = tokens as f64;
+    let pn = pairs as f64;
+    HeldOut {
+        tokens,
+        kl: scores.iter().map(|h| h.kl * h.tokens as f64).sum::<f64>() / tn,
+        tv: scores.iter().map(|h| h.tv * h.tokens as f64).sum::<f64>() / tn,
+        top1: scores.iter().map(|h| h.top1 * h.tokens as f64).sum::<f64>() / tn,
+        nll_student: scores
+            .iter()
+            .map(|h| h.nll_student * h.tokens.saturating_sub(1) as f64)
+            .sum::<f64>()
+            / pn,
+        nll_teacher: scores
+            .iter()
+            .map(|h| h.nll_teacher * h.tokens.saturating_sub(1) as f64)
+            .sum::<f64>()
+            / pn,
+    }
+}
+
+/// The top-1 agreement count of a score (the means carry the same denominator).
+fn top1_count(h: &HeldOut) -> u64 {
+    (h.top1 * h.tokens as f64).round() as u64
+}
+
+/// Peak resident set size in KiB, read from `/proc/self/status` (`VmHWM`).
+fn rss_peak_kib() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    status.lines().find_map(|line| {
+        line.strip_prefix("VmHWM:")
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|kib| kib.parse().ok())
+    })
+}
+
+/// Print one measured set: pooled figures, per-chunk KL list with its mean ± `sd/√n`, and the
+/// per-chunk trunk/head wall split.
+fn report_set(label: &str, scores: &[HeldOut], phase_walls: &[EngineWalls], wall_s: f64) {
+    let p = pool(scores);
+    let n = scores.len() as f64;
+    let mean = scores.iter().map(|h| h.kl).sum::<f64>() / n;
+    let var = if scores.len() > 1 {
+        scores.iter().map(|h| (h.kl - mean).powi(2)).sum::<f64>() / (n - 1.0)
+    } else {
+        0.0
+    };
+    let se = (var / n).sqrt();
+    let list: Vec<String> = scores.iter().map(|h| format!("{:.6}", h.kl)).collect();
+    println!(
+        "{label}: n {} tokens {} KL {:.6} TV {:.6} top-1 {:.6} NLL_s {:.4} NLL_t {:.4}",
+        scores.len(),
+        p.tokens,
+        p.kl,
+        p.tv,
+        p.top1,
+        p.nll_student,
+        p.nll_teacher
+    );
+    println!("  per-chunk KL: [{}]", list.join(", "));
+    println!("  per-chunk KL mean {mean:.6} ± {se:.6} (sd/sqrt n)");
+    println!("  wall {wall_s:.3} s total, {:.3} s/chunk", wall_s / n);
+    for (i, (h, w)) in scores.iter().zip(phase_walls).enumerate() {
+        println!(
+            "  chunk {i}: total {:.3} s (trunk {:.3} s, head {:.3} s), KL {:.6}, top-1 {:.3}",
+            (w.trunk_ns + w.head_ns) as f64 / 1e9,
+            w.trunk_ns as f64 / 1e9,
+            w.head_ns as f64 / 1e9,
+            h.kl,
+            h.top1
+        );
+    }
+}
+
+/// The exactness link between the two logit sources: on the real `qwen05b` f16 / `Q4_K_M` pair and
+/// the first 16 ids of held-out chunk 50, [`held_out_engines`] (engine `prefill_cols` +
+/// `lm_head_fixed`) must agree with [`held_out`] (grad `forward`) to `1e-3` relative KL, an
+/// identical top-1 count, and the same next-token NLL to `1e-6` (the off-by-one control's target).
+/// `APEIRON_F32_CARRIER=0` selects the Q32 `KvState` carrier the grad forward refines; the engine's
+/// default f32 carrier is a different documented path.
+#[test]
+#[ignore = "loads two GGUFs (~1.4 GB) and the C4 token file; run explicitly with --ignored"]
+fn heldout_engine_matches_grad_qwen05b() {
+    std::env::set_var("APEIRON_F32_CARRIER", "0");
+    let all = c4_chunks();
+    let tokens = held_chunk_head(&all, 16);
+    let teacher = Engine::open(QWEN05B_F16).expect("open f16 teacher");
+    let student = Engine::open(QWEN05B_Q4KM).expect("open Q4_K_M student");
+    let eng = held_out_engines(&teacher, &student, &[&tokens]).expect("engine path");
+    let (wt, cfg) = Weights::from_engine(&teacher).expect("teacher weights");
+    let (ws, _) = Weights::from_engine(&student).expect("student weights");
+    let grad = held_out(&wt, &ws, &cfg, &[&tokens]).expect("grad path");
+
+    let rel = (eng.kl - grad.kl).abs() / grad.kl.abs().max(f64::MIN_POSITIVE);
+    let dtv = (eng.tv - grad.tv).abs();
+    let dnll_s = (eng.nll_student - grad.nll_student).abs();
+    let dnll_t = (eng.nll_teacher - grad.nll_teacher).abs();
+    let (et1, gt1) = (top1_count(&eng), top1_count(&grad));
+    println!(
+        "parity: tokens {}/{} |dKL|/KL {rel:.3e} (engine {:.9} grad {:.9}) |dTV| {dtv:.3e} \
+         |dNLL_s| {dnll_s:.3e} |dNLL_t| {dnll_t:.3e} top-1 {et1}/{} vs {gt1}/{}",
+        eng.tokens, grad.tokens, eng.kl, grad.kl, eng.tokens, grad.tokens
+    );
+
+    if rel > 1e-3 || et1 != gt1 {
+        for k in 2..=tokens.len() {
+            let prefix = &tokens[..k];
+            let e = held_out_engines(&teacher, &student, &[prefix]);
+            let g = held_out(&wt, &ws, &cfg, &[prefix]);
+            if let (Ok(e), Ok(g)) = (e, g) {
+                let r = (e.kl - g.kl).abs() / g.kl.abs().max(f64::MIN_POSITIVE);
+                if r > 1e-3 || top1_count(&e) != top1_count(&g) {
+                    println!(
+                        "first divergence: prefix {k} (position {}): engine KL {:.9} grad {:.9} \
+                         rel {r:.3e}, top-1 {}/{} vs {}/{}",
+                        k - 1,
+                        e.kl,
+                        g.kl,
+                        top1_count(&e),
+                        e.tokens,
+                        top1_count(&g),
+                        g.tokens
+                    );
+                    break;
+                }
+            }
+        }
+    }
+
+    assert_eq!(eng.tokens, grad.tokens, "scored position count");
+    assert!(
+        rel <= 1e-3,
+        "relative KL {rel:.3e} > 1e-3 (engine {:.9} grad {:.9})",
+        eng.kl,
+        grad.kl
+    );
+    assert_eq!(et1, gt1, "top-1 agreement count");
+    assert!(
+        dnll_s <= 1e-6,
+        "|dNLL_student| {dnll_s:.3e} > 1e-6: the engine path's next-token alignment disagrees"
+    );
+    assert!(
+        dnll_t <= 1e-6,
+        "|dNLL_teacher| {dnll_t:.3e} > 1e-6: the engine path's next-token alignment disagrees"
+    );
+}
+
+/// The engine path's identity: the same engine as teacher and student gives zero KL, zero TV, unit
+/// top-1 and equal NLLs exactly, because the two logit buffers are the same bytes.
+#[test]
+#[ignore = "loads qwen05b-f16 (~1 GB); run explicitly with --ignored"]
+fn heldout_engine_identity_qwen05b() {
+    let all = c4_chunks();
+    let tokens = held_chunk_head(&all, 16);
+    let engine = Engine::open(QWEN05B_F16).expect("open f16");
+    let t0 = std::time::Instant::now();
+    let (per, walls) =
+        held_out_engines_per_seq_timed(&engine, &engine, &[&tokens]).expect("per-seq eval");
+    println!(
+        "identity eval wall {:.3} s (trunk {:.3} s, head {:.3} s)",
+        t0.elapsed().as_secs_f64(),
+        walls[0].trunk_ns as f64 / 1e9,
+        walls[0].head_ns as f64 / 1e9
+    );
+    assert_eq!(per.len(), 1);
+    let h = per[0];
+    println!("identity: {h:?}");
+    let t1 = std::time::Instant::now();
+    let (per2, walls2) =
+        held_out_engines_per_seq_timed(&engine, &engine, &[&tokens]).expect("second eval");
+    println!(
+        "second eval wall {:.3} s (trunk {:.3} s, head {:.3} s)",
+        t1.elapsed().as_secs_f64(),
+        walls2[0].trunk_ns as f64 / 1e9,
+        walls2[0].head_ns as f64 / 1e9
+    );
+    assert_eq!(per2, per);
+    assert_eq!(h.kl, 0.0, "equal logits give 0 exactly");
+    assert_eq!(h.tv, 0.0);
+    assert_eq!(h.top1, 1.0);
+    assert_eq!(h.nll_student, h.nll_teacher);
+}
+
+/// The measurement on the engine's fast prefill path: C4 chunks of 512 tokens, held-out `[50, 90)`
+/// and in-sample `[0, 20)`, teacher f16 against student `Q4_K_M`. The first 16 positions of the
+/// first held-out chunk are timed as the anchor; the 512-token pilot is projected from it as
+/// `32 × anchor` (the head is one row per position, the trunk one column per token) and run only
+/// when that projection fits the 560 s stop bound. Then the largest `n_h = n_i <= 20` under a
+/// 500 s projection runs (at least 4 each; 4+4 runs only when it projects at or under 560 s).
+#[test]
+#[ignore = "loads two GGUFs and scores many C4 chunks; run explicitly with --ignored"]
+fn heldout_q4km_qwen05b() {
+    let all = c4_chunks();
+    let sp = split(all.len(), 50, 20, 40).expect("protocol split");
+    let teacher = Engine::open(QWEN05B_F16).expect("open f16 teacher");
+    let student = Engine::open(QWEN05B_Q4KM).expect("open Q4_K_M student");
+
+    let pilot_idx = sp.heldout[0];
+    let anchor: Vec<u32> = all[pilot_idx].iter().take(16).copied().collect();
+    let t0 = std::time::Instant::now();
+    let (anchor_scores, anchor_walls) =
+        held_out_engines_per_seq_timed(&teacher, &student, &[&anchor])
+            .expect("16-position anchor of the first held-out chunk");
+    let anchor_s = t0.elapsed().as_secs_f64();
+    let aw = anchor_walls[0];
+    let scale = 512.0 / anchor.len() as f64;
+    let per_chunk = scale * anchor_s;
+    let trunk_chunk = scale * aw.trunk_ns as f64 / 1e9;
+    let head_chunk = scale * aw.head_ns as f64 / 1e9;
+    println!(
+        "anchor: {} positions of held-out chunk {pilot_idx}: {anchor_s:.3} s (trunk {:.3} s, \
+         head {:.3} s), KL {:.6}, top-1 {:.6}",
+        anchor.len(),
+        aw.trunk_ns as f64 / 1e9,
+        aw.head_ns as f64 / 1e9,
+        anchor_scores[0].kl,
+        anchor_scores[0].top1
+    );
+    println!(
+        "projection: one 512-token chunk = 512/16 x anchor = {per_chunk:.1} s (trunk {trunk_chunk:.1} \
+         s, head {head_chunk:.1} s); 4+4 chunks = {:.0} s",
+        8.0 * per_chunk
+    );
+    if per_chunk > 560.0 {
+        println!(
+            "STOP: a 512-token pilot projects {per_chunk:.1} s > the 560 s stop bound and 4+4 \
+             projects {:.0} s; no campaign is run. Trunk/head split at 512 positions: \
+             {trunk_chunk:.1} s / {head_chunk:.1} s per chunk (16-position anchor x 32)",
+            8.0 * per_chunk
+        );
+        panic!("engine campaign cannot fit the 580 s gate: per-chunk projection {per_chunk:.1} s");
+    }
+
+    let t_pilot = std::time::Instant::now();
+    let (pilot, pilot_walls) =
+        held_out_engines_per_seq_timed(&teacher, &student, &[all[pilot_idx].as_slice()])
+            .expect("pilot chunk");
+    let pilot_s = t_pilot.elapsed().as_secs_f64();
+    let w = pilot_walls[0];
+    println!(
+        "pilot: held-out chunk {pilot_idx}: total {pilot_s:.3} s (trunk {:.3} s, head {:.3} s), \
+         KL {:.6}, top-1 {:.6}",
+        w.trunk_ns as f64 / 1e9,
+        w.head_ns as f64 / 1e9,
+        pilot[0].kl,
+        pilot[0].top1
+    );
+
+    let mut n = (500.0 / (2.0 * pilot_s)).floor() as usize;
+    n = n.min(sp.heldout.len()).min(sp.in_sample.len());
+    if n < 4 {
+        if 2.0 * 4.0 * pilot_s <= 560.0 {
+            n = 4;
+        } else {
+            println!(
+                "STOP: 4+4 chunks project {:.1} s > 560 s; per-chunk trunk {:.3} s, head {:.3} s",
+                8.0 * pilot_s,
+                w.trunk_ns as f64 / 1e9,
+                w.head_ns as f64 / 1e9
+            );
+            panic!("engine campaign projection exceeds the 560 s stop bound");
+        }
+    }
+    println!(
+        "projection: n_h = n_i = {n} ({} chunks) -> {:.1} s from {:.3} s/chunk",
+        2 * n,
+        2.0 * n as f64 * pilot_s,
+        pilot_s
+    );
+
+    let held: Vec<&[u32]> = sp.heldout[..n].iter().map(|&c| all[c].as_slice()).collect();
+    let in_s: Vec<&[u32]> = sp.in_sample[..n]
+        .iter()
+        .map(|&c| all[c].as_slice())
+        .collect();
+
+    let t1 = std::time::Instant::now();
+    let (held_scores, held_walls) =
+        held_out_engines_per_seq_timed(&teacher, &student, &held).expect("held-out campaign");
+    let held_s = t1.elapsed().as_secs_f64();
+    let t2 = std::time::Instant::now();
+    let (in_scores, in_walls) =
+        held_out_engines_per_seq_timed(&teacher, &student, &in_s).expect("in-sample campaign");
+    let in_s_wall = t2.elapsed().as_secs_f64();
+
+    println!(
+        "reference (torch, f32-dequantised Q4_K_M, n = 40/20; the onebit-w15 note): \
+         in-sample 0.0174, held-out 0.0197"
+    );
+    report_set("held-out", &held_scores, &held_walls, held_s);
+    report_set("in-sample", &in_scores, &in_walls, in_s_wall);
+    if let Some(kib) = rss_peak_kib() {
+        println!("RSS peak: {kib} KiB ({:.1} MiB)", kib as f64 / 1024.0);
+    }
+    println!(
+        "campaign wall {:.3} s (pilot {:.3} s separate)",
+        held_s + in_s_wall,
+        pilot_s
+    );
+
+    assert_eq!(
+        pool(&held_scores).tokens,
+        held_scores.len() as u64 * 512,
+        "held-out token count"
+    );
+    assert_eq!(
+        pool(&in_scores).tokens,
+        in_scores.len() as u64 * 512,
+        "in-sample token count"
+    );
+    assert!(held_scores.iter().all(|h| h.kl > 0.0));
 }
