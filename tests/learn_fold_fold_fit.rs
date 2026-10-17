@@ -167,13 +167,18 @@ fn uw(x: &[i64]) -> Vec<f64> {
     x.iter().copied().map(from_grid).collect()
 }
 
+/// The migrated [`f16r`] at an `f64` value of the test's own data: grid it, round, read back.
+fn h16(x: f64) -> f64 {
+    from_grid(f16r(to_grid(x, GRID_BOUND).expect("grid")).expect("in binary16 range"))
+}
+
 /// A value is on the affine `bits`-grid `[f16r(min), f16r(max)]` with `2^bits − 1` levels — the
 /// `quant_c_u8` grid of the carrier — up to the Q32.32 boundary: `quant_c_u8` emits the level value
 /// `lo + (q/levels)·span` in `f64`, and the pack stores its round-to-nearest grid image, so each
 /// entry sits within half a grid quantum of its level. `tol` is that bound.
 fn on_affine_grid(values: &[f64], bits: u32, tol: f64) -> bool {
-    let lo = f16r(values.iter().copied().fold(f64::INFINITY, f64::min));
-    let hi = f16r(values.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+    let lo = h16(values.iter().copied().fold(f64::INFINITY, f64::min));
+    let hi = h16(values.iter().copied().fold(f64::NEG_INFINITY, f64::max));
     let span = (hi - lo).max(1e-12);
     let levels = f64::from((1_u32 << bits) - 1);
     values.iter().all(|&v| {
@@ -322,15 +327,11 @@ fn learn_fold_fold_fit_pack_carriers_are_in_stored_format() {
     assert_eq!(fit.bits_c, (6 * n + 32) as u64);
     assert_eq!(fit.bits_d, (5 * n + 32) as u64);
     // rh is the hier carrier's `rq`: the stored-format decode of its own re-quantisation is exact.
-    let h2 = quant_r_hier(&fit.pack.rh, o, g).expect("rh hier");
+    let h2 = quant_r_hier(&qw(&fit.pack.rh), o, g).expect("rh hier");
     assert_eq!(h2.bits, fit.bits_r);
     let decoded = h2.reconstruct();
     for k in 0..decoded.len() {
-        assert_eq!(
-            decoded[k].to_bits(),
-            h2.rq[k].to_bits(),
-            "rh hier decode mismatch at {k}"
-        );
+        assert_eq!(decoded[k], h2.rq[k], "rh hier decode mismatch at {k}");
     }
     // The 8-block sign/parity structure: every block of the code plane is exactly an `E8 ∪ O8`
     // codeword, so `icm::nearest_index` returns its own row with distance 0 (`codeword` reproduces
@@ -761,12 +762,13 @@ fn ref_fold_fit(
     let d_best = cands[best].d.clone();
 
     // The `bscale and had` arm (lines 932–968).
-    let (dh, bits_d) = quant_c_u8(&d_best, 5)?;
+    let (dh, bits_d) = quant_c_u8(&qw(&d_best), 5)?;
+    let dh = uw(&dh);
     let mut rotated = s_rot_best.clone();
     ref_scale_columns(&mut rotated, o, n, &dh);
     let s_dh = fwht128(&rotated)?;
     let rh_hier = quant_r_hier(
-        &uw(&r_step_wshl(
+        &r_step_wshl(
             &qw(ws),
             &qw(&hl),
             &qw(&wshl),
@@ -774,12 +776,12 @@ fn ref_fold_fit(
             &qw(&c_best),
             o,
             n,
-        )?),
+        )?,
         o,
         g,
     )?;
     let bits_r = rh_hier.bits;
-    let rh = rh_hier.rq;
+    let rh = uw(&rh_hier.rq);
     let c_ref = uw(&c_step_wshl(
         &qw(ws),
         &qw(&hl),
@@ -790,7 +792,8 @@ fn ref_fold_fit(
         n,
         g_word.as_deref(),
     )?);
-    let (ch, bits_c) = quant_c_u8(&c_ref, 6)?;
+    let (ch, bits_c) = quant_c_u8(&qw(&c_ref), 6)?;
+    let ch = uw(&ch);
     let mut wp = uw(&compose(&qw(&s_dh), &qw(&rh), &qw(&ch), o, n)?);
     let mut j_wp = from_grid(objective(&qw(ws), &qw(&wp), &qw(&hl), o, n)?);
     let mut pack_s_rot = s_rot_best.clone();
@@ -817,7 +820,7 @@ fn ref_fold_fit(
         ref_scale_columns(&mut rotated, o, n, &pack_dh);
         let s_dh_q = fwht128(&rotated)?;
         let rh_q = quant_r_hier(
-            &uw(&r_step_wshl(
+            &r_step_wshl(
                 &qw(ws),
                 &qw(&hl),
                 &qw(&wshl),
@@ -825,13 +828,14 @@ fn ref_fold_fit(
                 &qw(&pack_ch),
                 o,
                 n,
-            )?),
+            )?,
             o,
             g,
         )?
         .rq;
+        let rh_q = uw(&rh_q);
         let ch_q = quant_c_u8(
-            &uw(&c_step_wshl(
+            &c_step_wshl(
                 &qw(ws),
                 &qw(&hl),
                 &qw(&wshl),
@@ -840,10 +844,11 @@ fn ref_fold_fit(
                 o,
                 n,
                 g_word.as_deref(),
-            )?),
+            )?,
             6,
         )?
         .0;
+        let ch_q = uw(&ch_q);
         let wp_q = uw(&compose(&qw(&s_dh_q), &qw(&rh_q), &qw(&ch_q), o, n)?);
         let j_q = from_grid(objective(&qw(ws), &qw(&wp_q), &qw(&hl), o, n)?);
         if j_q < j_wp {
@@ -868,9 +873,9 @@ fn ref_fold_fit(
             o,
             n,
         )?);
-        let rh_1 = quant_r_hier(&r_1, o, g)?.rq;
+        let rh_1 = uw(&quant_r_hier(&qw(&r_1), o, g)?.rq);
         let ch_1 = quant_c_u8(
-            &uw(&c_step_wshl(
+            &c_step_wshl(
                 &qw(ws),
                 &qw(&hl),
                 &qw(&wshl),
@@ -879,10 +884,11 @@ fn ref_fold_fit(
                 o,
                 n,
                 g_word.as_deref(),
-            )?),
+            )?,
             6,
         )?
         .0;
+        let ch_1 = uw(&ch_1);
         let wp_1 = uw(&compose(&qw(&s_1), &qw(&rh_1), &qw(&ch_1), o, n)?);
         if from_grid(objective(&qw(ws), &qw(&wp_1), &qw(&hl), o, n)?) < j_wp {
             wp = wp_1;

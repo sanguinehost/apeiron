@@ -28,7 +28,8 @@
 )]
 
 use apeiron::format::quant::f16_to_f32;
-use apeiron::learn::fold::fit::quant::{f16r, quant_c_u8, quant_r_hier, QuantError, RHier};
+use apeiron::learn::fold::fit::quant::{f16r, quant_c_u8, quant_r_hier, QuantError};
+use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
 /// Deterministic xorshift64 PRNG, uniform in `[-1, 1)`.
 struct Rng(u64);
@@ -61,6 +62,24 @@ fn make_rows(o: usize, g: usize, seed: u64) -> Vec<f64> {
         }
     }
     r
+}
+
+/// The f64 fixture as Q32.32 words: the test's own data crosses to the carrier once, exactly as
+/// the `src` callers do.
+fn words(x: &[f64]) -> Vec<i64> {
+    x.iter()
+        .map(|&v| to_grid(v, GRID_BOUND).expect("fixture on the grid"))
+        .collect()
+}
+
+/// The word grid as reals, for the oracle-bound comparisons.
+fn reals(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&w| from_grid(w)).collect()
+}
+
+/// The migrated [`f16r`] at an `f64` value of the test's own fixture: grid it, round, read back.
+fn h16(x: f64) -> f64 {
+    from_grid(f16r(to_grid(x, GRID_BOUND).expect("grid")).expect("in binary16 range"))
 }
 
 /// The largest binary16 spacing over `values`: one representable step of the same magnitude is at
@@ -157,7 +176,18 @@ fn ref_quant_c_u8(c: &[f64], bits: u32) -> (Vec<f64>, u64) {
 }
 
 /// The retired `hier_header` + candidate search + decode, one `f64` body returning the same fields.
-fn ref_quant_r_hier(r: &[f64], o: usize, g: usize) -> RHier {
+///
+/// The pre-migration `RHier` on reals; the shipped `RHier` is word-carried, so the oracle keeps its
+/// own `f64` record.
+struct RefHier {
+    rq: Vec<f64>,
+    bits: u64,
+    k: Vec<u8>,
+    u6: Vec<u8>,
+    sp_idx: Vec<u8>,
+}
+
+fn ref_quant_r_hier(r: &[f64], o: usize, g: usize) -> RefHier {
     let mut rm = vec![0.0_f64; o];
     for i in 0..o {
         let mut s = 0.0_f64;
@@ -205,8 +235,6 @@ fn ref_quant_r_hier(r: &[f64], o: usize, g: usize) -> RHier {
 
     let n = o * g;
     let mut best_err = vec![f64::INFINITY; o];
-    let mut best_lo = vec![0.0_f64; o];
-    let mut best_sp = vec![1.0_f64; o];
     let mut best_u6 = vec![0_u8; o];
     let mut best_sp_idx = vec![0_u8; o];
     let mut best_k = vec![0_u8; n];
@@ -234,8 +262,6 @@ fn ref_quant_r_hier(r: &[f64], o: usize, g: usize) -> RHier {
                 }
                 if err < best_err[i] {
                     best_err[i] = err;
-                    best_lo[i] = r_lo;
-                    best_sp[i] = r_sp;
                     best_u6[i] = u6 as u8;
                     best_sp_idx[i] = s_idx as u8;
                     for j in 0..g {
@@ -246,11 +272,9 @@ fn ref_quant_r_hier(r: &[f64], o: usize, g: usize) -> RHier {
             }
         }
     }
-    RHier {
+    RefHier {
         rq: best_rq,
         bits: 4 * n as u64 + 8 * o as u64 + 64,
-        r_lo: best_lo,
-        r_sp: best_sp,
         k: best_k,
         u6: best_u6,
         sp_idx: best_sp_idx,
@@ -305,22 +329,27 @@ fn ref_row_err(r: &[f64], o: usize, g: usize, i: usize) -> f64 {
 // Tests
 // ---------------------------------------------------------------------------------------------
 
-/// `f16r` on the named binary16 landmarks: exact normals, the largest finite value, overflow to
-/// `±∞`, the smallest normal and subnormal, underflow to `0`, and the two ties-to-even cases.
+/// `f16r` on the named binary16 landmarks: exact normals, the largest finite value, the `2¹⁶`
+/// overflow the grid cannot carry, the smallest normal and subnormal, underflow to `0`, and the two
+/// ties-to-even cases. The carrier has no signed zero: `−0.0` is the word `0`.
 #[test]
 fn f16r_known_values() {
-    assert_eq!(f16r(1.0), 1.0);
-    assert_eq!(f16r(65504.0), 65504.0);
-    assert!(f16r(65520.0).is_infinite() && f16r(65520.0) > 0.0);
-    assert!(f16r(-65520.0).is_infinite() && f16r(-65520.0) < 0.0);
-    assert_eq!(f16r(2f64.powi(-14)), 2f64.powi(-14));
-    assert_eq!(f16r(6.1035156e-5), 2f64.powi(-14));
-    assert_eq!(f16r(2f64.powi(-24)), 2f64.powi(-24));
-    assert_eq!(f16r(5.96e-8), 2f64.powi(-24));
-    assert_eq!(f16r(1e-8), 0.0);
-    assert_eq!(f16r(1.0 + 2f64.powi(-11)), 1.0);
-    assert_eq!(f16r(1.0 + 3.0 * 2f64.powi(-11)), 1.0 + 2f64.powi(-9));
-    assert_eq!(f16r(-0.0_f64).to_bits(), (-0.0_f64).to_bits());
+    let w = |x: f64| to_grid(x, GRID_BOUND).expect("grid");
+    assert_eq!(f16r(w(1.0)), Ok(w(1.0)));
+    assert_eq!(f16r(w(65504.0)), Ok(w(65504.0)));
+    assert_eq!(f16r(w(65520.0)), Err(QuantError::LengthOverflow));
+    assert_eq!(f16r(w(-65520.0)), Err(QuantError::LengthOverflow));
+    assert_eq!(f16r(w(2f64.powi(-14))), Ok(w(2f64.powi(-14))));
+    assert_eq!(f16r(w(6.1035156e-5)), Ok(w(2f64.powi(-14))));
+    assert_eq!(f16r(w(2f64.powi(-24))), Ok(w(2f64.powi(-24))));
+    assert_eq!(f16r(w(5.96e-8)), Ok(w(2f64.powi(-24))));
+    assert_eq!(f16r(w(1e-8)), Ok(0));
+    assert_eq!(f16r(w(1.0 + 2f64.powi(-11))), Ok(w(1.0)));
+    assert_eq!(
+        f16r(w(1.0 + 3.0 * 2f64.powi(-11))),
+        Ok(w(1.0 + 2f64.powi(-9)))
+    );
+    assert_eq!(f16r(0), Ok(0));
 }
 
 /// `f16r` is idempotent on its own image and nondecreasing over a sorted sweep.
@@ -329,14 +358,15 @@ fn f16r_idempotent_and_monotone() {
     let mut rng = Rng::new(11);
     for _ in 0..500 {
         let v = rng.next_f64() * 1.0e3;
-        let h = f16r(v);
-        assert_eq!(f16r(h).to_bits(), h.to_bits(), "not idempotent at {v}");
+        let w = to_grid(v, GRID_BOUND).expect("grid");
+        let h = f16r(w).expect("in binary16 range");
+        assert_eq!(f16r(h), Ok(h), "not idempotent at {v}");
     }
     let mut sorted: Vec<f64> = (0..400).map(|i| (i as f64 - 200.0) * 0.5).collect();
     sorted.sort_by(f64::total_cmp);
-    let mut prev = f64::NEG_INFINITY;
+    let mut prev = i64::MIN;
     for &v in &sorted {
-        let h = f16r(v);
+        let h = f16r(to_grid(v, GRID_BOUND).expect("grid")).expect("in range");
         assert!(h >= prev, "f16r not monotone at {v}");
         prev = h;
     }
@@ -349,11 +379,12 @@ fn quant_c_u8_error_and_bits() {
     let mut rng = Rng::new(7);
     let c: Vec<f64> = (0..200).map(|_| rng.next_f64() * 3.0 - 1.0).collect();
     let bits = 8_u32;
-    let (out, total) = quant_c_u8(&c, bits).expect("non-empty input");
+    let (out, total) = quant_c_u8(&words(&c), bits).expect("non-empty input");
+    let out = reals(&out);
     let true_min = c.iter().copied().fold(f64::INFINITY, f64::min);
     let true_max = c.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let c_min = f16r(true_min);
-    let c_max = f16r(true_max);
+    let c_min = h16(true_min);
+    let c_max = h16(true_max);
     let span = (c_max - c_min).max(1e-12);
     let levels = f64::from((1_u32 << bits) - 1);
     let slack = (c_min - true_min).max(0.0) + (true_max - c_max).max(0.0);
@@ -374,8 +405,10 @@ fn quant_c_u8_error_and_bits() {
 fn quant_c_u8_requantises_to_itself() {
     let mut rng = Rng::new(23);
     let c: Vec<f64> = (0..150).map(|_| rng.next_f64() * 2.0 + 0.5).collect();
-    let (out, _) = quant_c_u8(&c, 8).expect("non-empty input");
+    let (out, _) = quant_c_u8(&words(&c), 8).expect("non-empty input");
     let (out2, _) = quant_c_u8(&out, 8).expect("non-empty input");
+    let out = reals(&out);
+    let out2 = reals(&out2);
     let tol = 2.0 * f16_ulp(&out) + 4.0 * 2f64.powi(-32);
     for i in 0..out.len() {
         let e = (out[i] - out2[i]).abs();
@@ -389,28 +422,29 @@ fn quant_c_u8_requantises_to_itself() {
 fn quant_c_u8_agrees_with_the_f64_oracle() {
     let mut rng = Rng::new(0x5EED_1234);
     let c: Vec<f64> = (0..180).map(|_| rng.next_f64() * 2.5 - 0.5).collect();
-    let (out, out_bits) = quant_c_u8(&c, 7).expect("non-empty input");
+    let (out, out_bits) = quant_c_u8(&words(&c), 7).expect("non-empty input");
     let (want, want_bits) = ref_quant_c_u8(&c, 7);
     assert_eq!(out_bits, want_bits);
     let tol = 3.0 * f16_ulp(&c) + 2f64.powi(-31);
     for i in 0..c.len() {
-        let e = (out[i] - want[i]).abs();
+        let e = (from_grid(out[i]) - want[i]).abs();
         assert!(e <= tol, "col {i}: {e} > {tol}");
     }
 }
 
-/// `quant_c_u8` refusals: empty input, an out-of-range bit width, and a value off the Q32.32 grid.
+/// `quant_c_u8` refusals: empty input, an out-of-range bit width, and an f16 endpoint at the binary16
+/// infinity the grid cannot carry. The non-finite / out-of-grid arm moved to the caller's
+/// `to_grid` boundary and is pinned here on that map.
 #[test]
 fn quant_c_u8_refusals() {
     assert!(matches!(quant_c_u8(&[], 8), Err(QuantError::Empty)));
-    assert!(matches!(quant_c_u8(&[1.0], 0), Err(QuantError::BadBits)));
-    assert!(matches!(quant_c_u8(&[1.0], 33), Err(QuantError::BadBits)));
+    assert!(matches!(quant_c_u8(&[1], 0), Err(QuantError::BadBits)));
+    assert!(matches!(quant_c_u8(&[1], 33), Err(QuantError::BadBits)));
+    assert_eq!(to_grid(f64::NAN, GRID_BOUND), None);
+    assert_eq!(to_grid(1e12, GRID_BOUND), None);
+    let big = to_grid(65520.0, GRID_BOUND).expect("grid");
     assert!(matches!(
-        quant_c_u8(&[f64::NAN], 8),
-        Err(QuantError::LengthOverflow)
-    ));
-    assert!(matches!(
-        quant_c_u8(&[1.0, 1e12], 8),
+        quant_c_u8(&[big], 8),
         Err(QuantError::LengthOverflow)
     ));
 }
@@ -422,17 +456,17 @@ fn quant_c_u8_refusals() {
 fn quant_r_hier_reconstructs_bitwise() {
     let (o, g) = (6, 32);
     let r = make_rows(o, g, 3);
-    let h = quant_r_hier(&r, o, g).expect("well-shaped input");
+    let h = quant_r_hier(&words(&r), o, g).expect("well-shaped input");
     let rec = h.reconstruct();
     assert_eq!(rec.len(), h.rq.len());
     for i in 0..rec.len() {
-        assert_eq!(rec[i].to_bits(), h.rq[i].to_bits(), "element {i}");
+        assert_eq!(rec[i], h.rq[i], "element {i}");
         // The decode is the stored formula `r_lo + (k / 15) * r_sp`; the f64 evaluation rounds the
         // quotient and the product-add, the Q32 decode rounds the product once.
         let row = i / g;
         let k = f64::from(h.k[i]);
-        let direct = h.r_lo[row] + (k / 15.0) * h.r_sp[row];
-        let e = (rec[i] - direct).abs();
+        let direct = from_grid(h.r_lo[row]) + (k / 15.0) * from_grid(h.r_sp[row]);
+        let e = (from_grid(rec[i]) - direct).abs();
         assert!(e <= 2.0 * 2f64.powi(-32), "element {i}: {e} > 2 quanta");
     }
 }
@@ -444,7 +478,7 @@ fn quant_r_hier_agrees_with_the_f64_oracle() {
     let (o, g) = (8, 24);
     for seed in [29_u64, 101, 0xABCD_1234] {
         let r = make_rows(o, g, seed);
-        let got = quant_r_hier(&r, o, g).expect("well-shaped input");
+        let got = quant_r_hier(&words(&r), o, g).expect("well-shaped input");
         let want = ref_quant_r_hier(&r, o, g);
         assert_eq!(got.bits, want.bits, "seed {seed}: bit count");
         assert_eq!(got.u6, want.u6, "seed {seed}: 6-bit mean codes");
@@ -452,7 +486,7 @@ fn quant_r_hier_agrees_with_the_f64_oracle() {
         assert_eq!(got.k, want.k, "seed {seed}: 4-bit codes");
         let tol = 2.0 * f16_ulp(&r) + 4.0 * 2f64.powi(-32);
         for i in 0..got.rq.len() {
-            let e = (got.rq[i] - want.rq[i]).abs();
+            let e = (from_grid(got.rq[i]) - want.rq[i]).abs();
             assert!(e <= tol, "seed {seed} element {i}: {e} > {tol}");
         }
     }
@@ -465,11 +499,11 @@ fn quant_r_hier_agrees_with_the_f64_oracle() {
 fn quant_r_hier_error_within_rtn_bound() {
     let (o, g) = (6, 32);
     let r = make_rows(o, g, 29);
-    let h = quant_r_hier(&r, o, g).expect("well-shaped input");
+    let h = quant_r_hier(&words(&r), o, g).expect("well-shaped input");
     for i in 0..o {
         let mut err = 0.0_f64;
         for j in 0..g {
-            let d = r[i * g + j] - h.rq[i * g + j];
+            let d = r[i * g + j] - from_grid(h.rq[i * g + j]);
             err += d * d;
         }
         let ref_err = ref_row_err(&r, o, g, i);
@@ -485,7 +519,7 @@ fn quant_r_hier_error_within_rtn_bound() {
 fn quant_r_hier_bit_count_and_code_ranges() {
     let (o, g) = (4, 16);
     let r = make_rows(o, g, 101);
-    let h = quant_r_hier(&r, o, g).expect("well-shaped input");
+    let h = quant_r_hier(&words(&r), o, g).expect("well-shaped input");
     assert_eq!(h.bits, (4 * o * g + 8 * o + 64) as u64);
     assert_eq!(h.u6.len(), o);
     assert_eq!(h.sp_idx.len(), o);
@@ -495,21 +529,59 @@ fn quant_r_hier_bit_count_and_code_ranges() {
     assert!(h.k.iter().all(|&v| v <= 15), "k out of range");
 }
 
-/// `quant_r_hier` refusals: empty, ragged shapes, and values off the Q32.32 grid.
+/// `quant_r_hier` refusals: empty, ragged shapes, and an f16 row-mean endpoint at the binary16
+/// infinity the grid cannot carry.
 #[test]
 fn quant_r_hier_refusals() {
     assert!(matches!(quant_r_hier(&[], 0, 4), Err(QuantError::Empty)));
     assert!(matches!(quant_r_hier(&[], 0, 0), Err(QuantError::Empty)));
     assert!(matches!(
-        quant_r_hier(&[1.0, 2.0], 1, 3),
+        quant_r_hier(&[1, 2], 1, 3),
         Err(QuantError::ShapeMismatch)
     ));
     assert!(matches!(
-        quant_r_hier(&[1.0, 2.0, 3.0, 4.0], 2, 3),
+        quant_r_hier(&[1, 2, 3, 4], 2, 3),
         Err(QuantError::ShapeMismatch)
     ));
+    let big = to_grid(65520.0, GRID_BOUND).expect("grid");
     assert!(matches!(
-        quant_r_hier(&[1.0, f64::INFINITY], 1, 2),
+        quant_r_hier(&[big], 1, 1),
         Err(QuantError::LengthOverflow)
     ));
+}
+
+/// FNV-1a over a word sequence, the bit-identity witness's digest.
+fn words_hash(ws: &[i64]) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325_u64;
+    for &w in ws {
+        for b in w.to_le_bytes() {
+            h = (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3);
+        }
+    }
+    h
+}
+
+#[test]
+fn quant_words_are_bit_identical_to_the_recorded_f64_wrapper() {
+    // The digests were recorded from the retired `&[f64]` API on the same seeded inputs before the
+    // flip, where the wrapper was `to_grid` -> word body -> `from_grid` and its outputs are exact
+    // grid words. Equality here is word-for-word, so the API flip moves no bit of either carrier.
+    let golden = [
+        (7_u64, 0x92d2_87d4_0692_4754, 0xe8cd_62c1_3455_4f5a),
+        (23, 0x98b2_e561_84ce_c3ef, 0x1a03_11e9_b942_f696),
+        (0x51ed, 0x8f57_fffb_6bf5_06c5, 0x6a71_9ddb_fa12_4dd8),
+    ];
+    for (seed, want_c, want_r) in golden {
+        let mut rng = Rng::new(seed);
+        let c: Vec<f64> = (0..64).map(|_| rng.next_f64() * 2.5 - 0.5).collect();
+        let (q, _) = quant_c_u8(&words(&c), 7).expect("quant_c_u8");
+        assert_eq!(words_hash(&q), want_c, "seed {seed}: quant_c_u8 words");
+
+        let h = quant_r_hier(&words(&make_rows(6, 16, seed)), 6, 16).expect("quant_r_hier");
+        let mut mix: Vec<i64> = h.rq.iter().chain(&h.r_lo).chain(&h.r_sp).copied().collect();
+        mix.extend(h.k.iter().map(|&v| i64::from(v)));
+        mix.extend(h.u6.iter().map(|&v| i64::from(v)));
+        mix.extend(h.sp_idx.iter().map(|&v| i64::from(v)));
+        assert_eq!(words_hash(&mix), want_r, "seed {seed}: quant_r_hier words");
+    }
 }

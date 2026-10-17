@@ -864,7 +864,7 @@ pub fn fold_row_scale(
         return Err(TensorError::PlaneShape);
     }
 
-    let rh1 = rescale_hier(&full.rh, s_sol, o, g)?.rq;
+    let rh1 = reals(&rescale_hier(&full.rh, s_sol, o, g)?.rq);
     let mut next = vec![plane_of(
         full.s_rot.clone(),
         rh1,
@@ -881,7 +881,7 @@ pub fn fold_row_scale(
         if !plane_shape(p2, rlen, n) {
             return Err(TensorError::PlaneShape);
         }
-        let rh2 = rescale_hier_top(&p2.rh, s_sol, &rows, g)?.rq;
+        let rh2 = reals(&rescale_hier_top(&p2.rh, s_sol, &rows, g)?.rq);
         let mut top = plane_of(p2.s_rot.clone(), rh2, p2.ch.clone(), p2.dh.clone());
         top.rows = Some(rows);
         next.push(top);

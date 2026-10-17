@@ -355,28 +355,26 @@ pub fn lowrank_corrector(
             (uh, vh, f16_bits(o, n, rank))
         }
         Mode::U8 => {
-            // Column `k` of `U` is quantized independently; `quant_c_u8` returns the grid value.
+            // Column `k` of `U` is quantized independently on the word carrier.
             let mut uh = vec![0_i64; o * rank];
+            let mut col = vec![0_i64; o];
             for k in 0..rank {
-                let col: Vec<f64> = (0..o).map(|i| from_grid(uq[i * rank + k])).collect();
+                for (i, c) in col.iter_mut().enumerate() {
+                    *c = uq[i * rank + k];
+                }
                 let (q, _) =
                     quant_c_u8(&col, U8_BITS).map_err(|_| CorrectorError::ShapeMismatch)?;
                 for i in 0..o {
-                    uh[i * rank + k] =
-                        to_grid(q[i], GRID_BOUND).ok_or(CorrectorError::NotRepresentable)?;
+                    uh[i * rank + k] = q[i];
                 }
             }
             let v = ridge_solve(&uh, &dw, o, n, rank)?;
             // Row `k` of `V` is quantized independently.
             let mut vh = vec![0_i64; rank * n];
-            for k in 0..rank {
-                let row: Vec<f64> = (0..n).map(|j| from_grid(v[k * n + j])).collect();
-                let (q, _) =
-                    quant_c_u8(&row, U8_BITS).map_err(|_| CorrectorError::ShapeMismatch)?;
-                for j in 0..n {
-                    vh[k * n + j] =
-                        to_grid(q[j], GRID_BOUND).ok_or(CorrectorError::NotRepresentable)?;
-                }
+            for (k, slot) in vh.chunks_mut(n).enumerate() {
+                let (q, _) = quant_c_u8(&v[k * n..k * n + n], U8_BITS)
+                    .map_err(|_| CorrectorError::ShapeMismatch)?;
+                slot.copy_from_slice(&q);
             }
             (uh, vh, u8_bits(o, n, rank))
         }

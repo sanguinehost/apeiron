@@ -317,16 +317,16 @@ fn learn_fold_nb_refine_output_stays_in_the_stored_formats() {
     let g = f.n / GROUP;
     for p in [&out.p1, &out.p2] {
         // The column scale is a `6`-bit `quant_c_u8` value: re-quantising it is the identity.
-        let (cq, _) = quant_c_u8(&uw(&p.c), C_BITS).expect("quant_c_u8");
+        let (cq, _) = quant_c_u8(&p.c, C_BITS).expect("quant_c_u8");
         assert_eq!(cq.len(), p.c.len());
         for i in 0..p.c.len() {
-            assert_eq!(q1(cq[i]), p.c[i], "c[{i}] is not on the {C_BITS}-bit grid");
+            assert_eq!(cq[i], p.c[i], "c[{i}] is not on the {C_BITS}-bit grid");
         }
         // The returned row scale is a valid quantiser input. The quantiser is *not* idempotent on
         // its own output in general (a second pass rebuilds the row-mean grid from the decoded
         // values, so it can shift the per-row grid), which is why the format bound below is stated
         // on the values themselves, not on a second pass.
-        assert!(quant_r_hier(&uw(&p.r), f.o, g).is_ok());
+        assert!(quant_r_hier(&p.r, f.o, g).is_ok());
         // The row scale stays in the stored format: every row's entries are a subset of one equally
         // spaced grid of at most 16 points, `r_lo + (k / 15)·r_sp` with `k` an integer in `0..=15`
         // (4-bit codes), so the row writes no value finer than the format carries.

@@ -65,7 +65,6 @@
               returns are already `#[must_use]`."
 )]
 
-use super::q32::{from_grid, panel_shift, to_grid, INPUT_BOUND};
 use super::syrk::{narrow, round32, within_bound, BOUND_BITS};
 use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
 use crate::engine::chart::task::ChunkTask;
@@ -437,112 +436,6 @@ fn check(a: &[i64], b: &[i64], m: usize, k: usize, n: usize) -> Result<(), GemmE
 /// `O(MC·KC + NC·KC + MC·NC)` scratch.
 pub fn gemm_nn(a: &[i64], b: &[i64], m: usize, k: usize, n: usize) -> Result<Vec<i64>, GemmError> {
     run(a, b, m, k, n, true)
-}
-
-/// `x` as a Q32.32 panel below the [`gemm_nn`] input bound, with the exponent `s` it was scaled by.
-///
-/// `s = `[`panel_shift`]`(max|x|)` is the least `s ≥ 0` with `max|x|·2⁻ˢ ≤ 8`, an exact scaling, so
-/// the only loss is the one grid rounding of [`to_grid`]. A non-finite entry is
-/// [`GemmError::InputBound`].
-///
-/// # Complexity
-/// Time `O(x.len())`: one magnitude scan, one scale and one rounding per entry. Space `O(x.len())`.
-fn to_panel(x: &[f64]) -> Result<(Vec<i64>, i32), GemmError> {
-    let mut max = 0.0_f64;
-    for &v in x {
-        if !v.is_finite() {
-            return Err(GemmError::InputBound);
-        }
-        max = max.max(v.abs());
-    }
-    let shift = panel_shift(max);
-    let scale = 2.0_f64.powi(-shift);
-    let mut out = Vec::with_capacity(x.len());
-    for &v in x {
-        out.push(to_grid(v * scale, INPUT_BOUND).ok_or(GemmError::InputBound)?);
-    }
-    Ok((out, shift))
-}
-
-/// `C[m,n] = A[m,k]·B[k,n]` for `f64` operands on the Q32.32 [`gemm_nn`] path: the one place an
-/// `f64` matrix product crosses the grid.
-///
-/// Each operand is scaled by the exact power of two `2⁻ˢ` with `s = `[`panel_shift`]`(max|·|)`, the
-/// least `s ≥ 0` that brings its largest entry to `≤ 8`, below the [`gemm_nn`] bound `16` with
-/// head-room ([`super::q32::fill_scale`] fills to `2³¹`, above that bound, so it is not used). The
-/// grid product carries the scale `2⁻(sₐ+s_b)`, undone exactly by `2^(sₐ+s_b)` on the read-back.
-/// Entries are rounded to the `2⁻³²` grid once on the way in and the product once per entry on the
-/// way out; a panel already within `8` is not scaled. Bit-identical to the serial body.
-///
-/// # Errors
-/// As [`gemm_nn`] for the shape, with a non-finite entry or an entry that does not fit the grid
-/// after scaling as [`GemmError::InputBound`], and an undo exponent or a read-back entry that
-/// leaves `f64`'s finite range as [`GemmError::Overflow`].
-///
-/// # Complexity
-/// Time `m·k·n` `i128` multiply-accumulates in [`gemm_nn`] plus `O(m·k + k·n)` grid conversions and
-/// `O(m·n)` exact undo multiplies. Space `O(m·n)` for the result plus the two `i64` panels.
-pub fn gemm_nn_f64(
-    a: &[f64],
-    b: &[f64],
-    m: usize,
-    k: usize,
-    n: usize,
-) -> Result<Vec<f64>, GemmError> {
-    product_f64(a, b, m, k, n, true)
-}
-
-/// `C[m,n] = A[m,k]·B[n,k]ᵀ` for `f64` operands on the Q32.32 [`gemm_nt`] path: [`gemm_nn_f64`]
-/// with `B` stored row-major `[n, k]`. Same scaling rule and pool-width independence.
-///
-/// # Errors
-/// As [`gemm_nn_f64`], with `b` of shape `[n, k]`.
-///
-/// # Complexity
-/// As [`gemm_nn_f64`].
-pub fn gemm_nt_f64(
-    a: &[f64],
-    b: &[f64],
-    m: usize,
-    k: usize,
-    n: usize,
-) -> Result<Vec<f64>, GemmError> {
-    product_f64(a, b, m, k, n, false)
-}
-
-/// The shared body of [`gemm_nn_f64`] and [`gemm_nt_f64`]; `nn` selects the `B` layout.
-///
-/// # Complexity
-/// As [`gemm_nn_f64`].
-fn product_f64(
-    a: &[f64],
-    b: &[f64],
-    m: usize,
-    k: usize,
-    n: usize,
-    nn: bool,
-) -> Result<Vec<f64>, GemmError> {
-    let (pa, sa) = to_panel(a)?;
-    let (pb, sb) = to_panel(b)?;
-    let c = if nn {
-        gemm_nn(&pa, &pb, m, k, n)?
-    } else {
-        gemm_nt(&pa, &pb, m, k, n)?
-    };
-    let back = sa
-        .checked_add(sb)
-        .map(|e| 2.0_f64.powi(e))
-        .filter(|v| v.is_finite())
-        .ok_or(GemmError::Overflow)?;
-    let mut out = Vec::with_capacity(c.len());
-    for &v in &c {
-        let x = from_grid(v) * back;
-        if !x.is_finite() {
-            return Err(GemmError::Overflow);
-        }
-        out.push(x);
-    }
-    Ok(out)
 }
 
 /// `C[m,n] = A[m,k]·B[n,k]ᵀ` in Q32.32: `a` row-major `[m, k]`, `b` row-major `[n, k]`, `c`

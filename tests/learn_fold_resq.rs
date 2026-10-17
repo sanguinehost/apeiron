@@ -32,6 +32,19 @@ use apeiron::learn::fold::fit::quant::{quant_r_hier, RHier};
 use apeiron::learn::fold::layer::resq::{
     rescale_hier, rescale_hier_top, resq_scale, resq_solve, ResqError, ResqInputs,
 };
+use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
+
+/// The f64 fixture as Q32.32 words, the quantiser's input at the test's own data.
+fn words(x: &[f64]) -> Vec<i64> {
+    x.iter()
+        .map(|&v| to_grid(v, GRID_BOUND).expect("fixture on the grid"))
+        .collect()
+}
+
+/// The word grid as reals, the test's own read-back for its f64 arithmetic.
+fn reals(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&w| from_grid(w)).collect()
+}
 
 #[path = "support/ridge_oracle.rs"]
 mod ridge_oracle;
@@ -259,7 +272,7 @@ fn rescale_hier_folds_into_row_scale() {
             product[i * g + j] = rh[i * g + j] * s[i];
         }
     }
-    let direct = quant_r_hier(&product, o, g).expect("shape ok");
+    let direct = quant_r_hier(&words(&product), o, g).expect("shape ok");
     assert_same_hier(&folded, &direct);
 
     // Partial (`pk2_top`) plane: same s gathered at the plane's global rows.
@@ -275,7 +288,7 @@ fn rescale_hier_folds_into_row_scale() {
             product2[i * g + j] = rh2[i * g + j] * s[r];
         }
     }
-    let direct2 = quant_r_hier(&product2, og, g).expect("shape ok");
+    let direct2 = quant_r_hier(&words(&product2), og, g).expect("shape ok");
     assert_same_hier(&folded2, &direct2);
 }
 
@@ -495,7 +508,7 @@ fn ref_rescale_hier(rh: &[f64], s: &[f64], o: usize, g: usize) -> RHier {
             scaled[i * g + j] = rh[i * g + j] * si;
         }
     }
-    quant_r_hier(&scaled, o, g).expect("quant_r_hier")
+    quant_r_hier(&words(&scaled), o, g).expect("quant_r_hier")
 }
 
 /// `max |a[i] − b[i]|`.
@@ -575,7 +588,10 @@ fn agrees_with_f64_oracle() {
     assert_eq!(got.k, want.k);
     assert_eq!(got.u6, want.u6);
     assert_eq!(got.sp_idx, want.sp_idx);
-    let dq = max_diff(&got.rq, &want.rq);
+    let dq = max_diff(&reals(&got.rq), &reals(&want.rq));
     println!("rescale_hier: rq {dq:.3e}");
-    assert!(dq <= BOUND * max_abs(&want.rq).max(1.0), "rq {dq:e}");
+    assert!(
+        dq <= BOUND * max_abs(&reals(&want.rq)).max(1.0),
+        "rq {dq:e}"
+    );
 }
