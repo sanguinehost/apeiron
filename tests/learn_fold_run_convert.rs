@@ -17,11 +17,12 @@
 )]
 
 use apeiron::learn::fold::run::convert::{
-    encode_f16, encode_f32, f64_to_q32, q32_to_f64, student_to_grad, teacher_from_grad,
-    ConvertError, Teacher,
+    decode_bf16, decode_f16, decode_f32, encode_f16, encode_f32, f64_to_q32, q32_to_f64,
+    student_to_grad, teacher_from_grad, ConvertError, Teacher,
 };
 use apeiron::learn::fold::run::transfer::{h0_from_chunks, TransferError};
 use apeiron::learn::grad::model::{self, Config, LayerWeights as GradLayer, Weights};
+use apeiron::learn::solve::q32::{to_grid, GRID_BOUND};
 
 const HID: usize = 128;
 const NH: usize = 2;
@@ -134,23 +135,54 @@ fn off_grid_rounds_to_nearest() {
     }
 }
 
-/// (b, through the layer path) A layer built from off-grid `f64` lowers within `2^-33` per element.
+/// (b, through the loader) An off-grid `f32` decodes to the nearest `Q32.32` word within `2^-33`.
 #[test]
-fn off_grid_layer_rounds_within_half_ulp() {
-    let w = build_weights(7);
-    let c = cfg();
-    let teacher = teacher_from_grad(&w, &c).expect("teacher");
-    let mut layers = teacher.layers.clone();
+fn off_grid_f32_rounds_within_half_ulp() {
     let mut rng = Lcg::new(0xF00D);
-    for j in 0..HID {
-        layers[0].ln1[j] = (rng.next_u64() >> 40) as f64 * 1e-6 - 1.0;
-    }
-    let back = student_to_grad(&w, &layers, &teacher.fnorm).expect("grad");
     let eps = 2f64.powi(-33);
-    for j in 0..HID {
-        let got = q32_to_f64(back.layers[0].attn_norm[j]);
-        assert!((got - layers[0].ln1[j]).abs() <= eps);
+    for _ in 0..2000 {
+        let x = (rng.next_u64() >> 40) as f64 * 1e-6 - 1.0;
+        let raw = (x as f32).to_le_bytes();
+        let got = decode_f32(&raw).expect("in range");
+        let back = q32_to_f64(got[0]);
+        assert!(
+            (back - f64::from(x as f32)).abs() <= eps,
+            "x={x} back={back}"
+        );
     }
+}
+
+/// (a) The loader's `f16`/`bf16`/`f32` decode is exactly `to_grid` of the decoded value: the word a
+/// weight tensor carries is the value the format holds, rounded once at `2^-32` half-even.
+#[test]
+fn decode_words_equal_to_grid_of_the_decoded_value() {
+    let grid = |x: f64| to_grid(x, GRID_BOUND).expect("on grid");
+    for &bits in &[0x3c00u16, 0xbe00, 0x3400, 0x0001, 0x5800, 0x7bff, 0x8001] {
+        let got = decode_f16(&bits.to_le_bytes()).expect("f16");
+        assert_eq!(got, vec![grid(half_to_f64(bits))], "f16 {bits:#06x}");
+    }
+    for &bits in &[0x3f80u16, 0xbfc0, 0x3e80, 0x3dcc, 0x8001, 0x0000] {
+        let wide = f64::from(f32::from_bits(u32::from(bits) << 16));
+        let got = decode_bf16(&bits.to_le_bytes()).expect("bf16");
+        assert_eq!(got, vec![grid(wide)], "bf16 {bits:#06x}");
+    }
+    let mut rng = Lcg::new(0x00DE_C0DE);
+    for _ in 0..2000 {
+        let x = (rng.next_u64() >> 40) as f64 * 1e-6 - 1.0;
+        let x32 = x as f32;
+        let got = decode_f32(&x32.to_le_bytes()).expect("f32");
+        assert_eq!(got, vec![grid(f64::from(x32))], "f32 {x32}");
+    }
+    // A non-finite element and an out-of-range one are refused by name.
+    assert!(matches!(
+        decode_bf16(&0x7f80u16.to_le_bytes()),
+        Err(ConvertError::NonFinite(_))
+    ));
+    assert!(matches!(decode_f16(&[0u8; 3]), Err(ConvertError::Shape(_))));
+    assert!(matches!(
+        decode_f32(&3.0e9f32.to_bits().to_le_bytes()),
+        Err(ConvertError::Range(_))
+    ));
 }
 
 /// (c) The engine forward on the round-tripped weights equals the forward on the original, exactly.
@@ -188,7 +220,7 @@ fn wrong_length_is_refused() {
     let c = cfg();
     let teacher = teacher_from_grad(&w, &c).expect("teacher");
     let mut layers = teacher.layers.clone();
-    layers[0].q.pop();
+    layers[0].wq.pop();
     match student_to_grad(&w, &layers, &teacher.fnorm) {
         Err(ConvertError::Shape(m)) => assert!(m.contains("attn_q.weight"), "{m}"),
         other => panic!("expected Shape, got {other:?}"),
@@ -206,13 +238,8 @@ fn non_finite_is_refused() {
         f64_to_q32(f64::INFINITY),
         Err(ConvertError::NonFinite(_))
     ));
-    let w = build_weights(5);
-    let c = cfg();
-    let teacher = teacher_from_grad(&w, &c).expect("teacher");
-    let mut layers = teacher.layers.clone();
-    layers[0].ln1[0] = f64::NAN;
     assert!(matches!(
-        student_to_grad(&w, &layers, &teacher.fnorm),
+        f64_to_q32(f64::NEG_INFINITY),
         Err(ConvertError::NonFinite(_))
     ));
 }
@@ -236,15 +263,6 @@ fn out_of_range_is_refused() {
         f64_to_q32(-(2_147_483_648.0 - 2f64.powi(-21))).expect("in range"),
         i64::MIN + 2048
     );
-    let w = build_weights(6);
-    let c = cfg();
-    let teacher = teacher_from_grad(&w, &c).expect("teacher");
-    let mut layers = teacher.layers.clone();
-    layers[1].down[0] = 5.0e9;
-    assert!(matches!(
-        student_to_grad(&w, &layers, &teacher.fnorm),
-        Err(ConvertError::Range(_))
-    ));
 }
 
 /// (d) A student layer count that disagrees with the teacher is refused.

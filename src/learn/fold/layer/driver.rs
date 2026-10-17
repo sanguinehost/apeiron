@@ -16,11 +16,13 @@
 //!
 //! # The carrier
 //!
-//! Every computed value is a Q32.32 `i64` word, rounded once per step
-//! ([`crate::learn::solve::q32`]); leaving the range is [`DriverError::Grid`]. The `f64` arguments,
-//! returns and [`LayerWeights`] fields are the boundary, converted once per call; a kernel is one
-//! serial pass, and a stage's tensors are fitted serially because the pool dispatcher is not
-//! reentrant.
+//! Every weight, hidden state and computed value is a Q32.32 `i64` word, rounded once per step
+//! ([`crate::learn::solve::q32`]); leaving the range is [`DriverError::Grid`]. The [`LayerWeights`]
+//! fields, [`ModelState::ht`]/[`ModelState::hs`] and [`LayerResult::ht_next`] are words from the
+//! loader to here, so no `f64` buffer carries a weight or an activation on this path; the `f64`
+//! arguments that remain are the configuration scalars and the `layer::tensor`, `layer::resq`
+//! boundaries, converted once per call. A kernel is one serial pass, and a stage's tensors are
+//! fitted serially because the pool dispatcher is not reentrant.
 //!
 //! # Grade
 //!
@@ -58,7 +60,7 @@ use crate::learn::fold::layer::stage::{
     param_q64, sink_token_weights, solve_stage, width_n, SolveParams, StageAccum, StageError,
 };
 use crate::learn::fold::layer::tensor::carrier::{
-    col_squares, eval, grids, ratio, ratio_words, reals, silu_grid, sum_i128, Elem,
+    col_squares, eval, grids, ratio, ratio_words, reals, sum_i128, Elem,
 };
 use crate::learn::fold::layer::tensor::{
     fit_tensor, fold_row_scale, BiasStats, TensorBits, TensorError, TensorFit, TensorKind,
@@ -66,7 +68,8 @@ use crate::learn::fold::layer::tensor::{
 };
 use crate::learn::fold::stats::hocapture::Kind;
 use crate::learn::fold::stats::parts::{
-    attn_a, linear, parts, rms, LayerCfg, LayerF64, PartsError, RopeTables,
+    attn_a, linear, parts, rms, silu_mul as silu_mul_word, LayerCfg, LayerWords, PartsError,
+    RopeTables,
 };
 use crate::learn::solve::q32::{div_rne, to_grid, Q32Error, GRID_BOUND, GRID_SCALE};
 
@@ -80,7 +83,7 @@ pub enum DriverError {
     Geometry,
     /// `t < 2`: a slab of one token per sequence has no median population for the sink weights.
     TinySeq,
-    /// An input entry (a weight, a hidden state or the `ln_next` source) is not finite.
+    /// An input scalar (`eps` or `theta`) is not finite.
     NonFinite,
     /// A value reaches the Q32.32 grid bound `|x| < 2³¹`, or a checked `i128`/`i64` operation
     /// leaves its range.
@@ -142,7 +145,7 @@ impl core::fmt::Display for DriverError {
             Self::Shape => write!(f, "a slice length disagrees with the declared geometry"),
             Self::Geometry => write!(f, "invalid slab, sequence count or layer geometry"),
             Self::TinySeq => write!(f, "t < 2: no sink median population"),
-            Self::NonFinite => write!(f, "an input entry is not finite"),
+            Self::NonFinite => write!(f, "a scalar input is not finite"),
             Self::Grid => write!(f, "a value or operation left the Q32.32 carrier's range"),
             Self::Parts(e) => write!(f, "the layer forward refused: {e:?}"),
             Self::Stage(e) => write!(f, "the stage statistics refused: {e:?}"),
@@ -155,56 +158,31 @@ impl core::fmt::Display for DriverError {
 
 impl std::error::Error for DriverError {}
 
-/// The twelve owned `f64` weight tensors of one `Qwen2` decoder layer, each row-major `[out, in]`
-/// (the Python transfer-layer dictionary `TL[l]`, `:117-122`).
-#[derive(Clone, Debug, PartialEq)]
-pub struct LayerWeights {
-    /// `input_layernorm.weight`, length `hidden`.
-    pub ln1: Vec<f64>,
-    /// `post_attention_layernorm.weight`, length `hidden`.
-    pub ln2: Vec<f64>,
-    /// `self_attn.q_proj.weight`, row-major `[n_head·head_dim, hidden]`.
-    pub q: Vec<f64>,
-    /// `self_attn.q_proj.bias`, length `n_head·head_dim`.
-    pub qb: Vec<f64>,
-    /// `self_attn.k_proj.weight`, row-major `[n_kv_head·head_dim, hidden]`.
-    pub k: Vec<f64>,
-    /// `self_attn.k_proj.bias`, length `n_kv_head·head_dim`.
-    pub kb: Vec<f64>,
-    /// `self_attn.v_proj.weight`, row-major `[n_kv_head·head_dim, hidden]`.
-    pub v: Vec<f64>,
-    /// `self_attn.v_proj.bias`, length `n_kv_head·head_dim`.
-    pub vb: Vec<f64>,
-    /// `self_attn.o_proj.weight`, row-major `[hidden, n_head·head_dim]`.
-    pub o: Vec<f64>,
-    /// `mlp.gate_proj.weight`, row-major `[inter, hidden]`.
-    pub gate: Vec<f64>,
-    /// `mlp.up_proj.weight`, row-major `[inter, hidden]`.
-    pub up: Vec<f64>,
-    /// `mlp.down_proj.weight`, row-major `[hidden, inter]`.
-    pub down: Vec<f64>,
-}
+/// The twelve owned `Q32.32` weight tensors of one `Qwen2` decoder layer, each row-major `[out, in]`
+/// (the Python transfer-layer dictionary `TL[l]`, `:117-122`). This is
+/// [`crate::learn::grad::model::LayerWeights`]: the field map is `ln1 = attn_norm`,
+/// `ln2 = ffn_norm`, `q/k/v = wq/wk/wv`, `qb/kb/vb = bq/bk/bv` (the fold driver requires the
+/// attention biases, so it reads them as present), `o = wo`, `gate/up/down = w_gate/w_up/w_down`.
+pub use crate::learn::grad::model::LayerWeights;
 
-impl LayerWeights {
-    /// A borrowed [`LayerF64`] view of this layer, for the forward and the helper signatures that
-    /// take `&[f64]`. `O(1)`.
-    #[must_use]
-    pub fn as_f64(&self) -> LayerF64<'_> {
-        LayerF64 {
-            ln1: &self.ln1,
-            ln2: &self.ln2,
-            q: &self.q,
-            qb: &self.qb,
-            k: &self.k,
-            kb: &self.kb,
-            v: &self.v,
-            vb: &self.vb,
-            o: &self.o,
-            gate: &self.gate,
-            up: &self.up,
-            down: &self.down,
-        }
-    }
+/// The twelve tensors of a [`LayerWeights`] as borrowed word slices for [`parts`].
+/// # Errors
+/// [`DriverError::Shape`] if a `Qwen2` attention bias the forward needs is absent.
+pub fn layer_words(lt: &LayerWeights) -> Result<LayerWords<'_>, DriverError> {
+    Ok(LayerWords {
+        ln1: &lt.attn_norm,
+        ln2: &lt.ffn_norm,
+        q: &lt.wq,
+        qb: lt.bq.as_deref().ok_or(DriverError::Shape)?,
+        k: &lt.wk,
+        kb: lt.bk.as_deref().ok_or(DriverError::Shape)?,
+        v: &lt.wv,
+        vb: lt.bv.as_deref().ok_or(DriverError::Shape)?,
+        o: &lt.wo,
+        gate: &lt.w_gate,
+        up: &lt.w_up,
+        down: &lt.w_down,
+    })
 }
 
 /// The driver's geometry, hyper-parameters and per-stage fit configuration.
@@ -282,7 +260,7 @@ pub struct LayerResult {
     /// The bit budget summed over the seven fits.
     pub bits: TensorBits,
     /// The teacher layer output (`Pt.out` concatenated over slabs), row-major `[n_seq·t, hidden]`.
-    pub ht_next: Vec<f64>,
+    pub ht_next: Vec<i64>,
 }
 
 /// The resumable state of a model-level transfer run: the layers quantised so far, the teacher and
@@ -298,9 +276,9 @@ pub struct ModelState {
     pub next: usize,
     /// The teacher hidden state entering layer `next` (the last quantised layer's `ht_next`),
     /// row-major `[n_seq·t, hidden]`.
-    pub ht: Vec<f64>,
+    pub ht: Vec<i64>,
     /// The student hidden state entering layer `next`, row-major `[n_seq·t, hidden]`.
-    pub hs: Vec<f64>,
+    pub hs: Vec<i64>,
     /// The quantised layers `0 .. next`, in order.
     pub layers: Vec<LayerWeights>,
     /// The bit budget summed over the quantised layers.
@@ -316,7 +294,7 @@ pub struct ModelResult {
     /// One entry per input layer; layers `>= n_layers` are copied unchanged.
     pub layers: Vec<LayerWeights>,
     /// The fitted final RMSNorm gain, length `hidden`.
-    pub fnorm: Vec<f64>,
+    pub fnorm: Vec<i64>,
     /// The bit budget summed over the quantised layers.
     pub bits: TensorBits,
     /// The tensor fits of each layer (empty for a copied layer).
@@ -384,15 +362,16 @@ impl StageId {
         }
     }
 
-    /// The teacher's stage tensors, the solve's `w0` (`:1658`), on the grid.
-    fn teacher_tensors(self, lt: &LayerWeights) -> Result<Vec<Vec<i64>>, DriverError> {
-        let src: &[&[f64]] = match self {
-            Self::Qkv => &[&lt.q, &lt.k, &lt.v],
-            Self::O => &[&lt.o],
-            Self::Ffn => &[&lt.gate, &lt.up],
-            Self::Down => &[&lt.down],
+    /// The teacher's stage tensors, the solve's `w0` (`:1658`), on the grid. Temporal and spatial
+    /// `O(Σ_j n·outs_j)`: one copy per teacher tensor.
+    fn teacher_tensors(self, lt: &LayerWeights) -> Vec<Vec<i64>> {
+        let src: &[&[i64]] = match self {
+            Self::Qkv => &[&lt.wq, &lt.wk, &lt.wv],
+            Self::O => &[&lt.wo],
+            Self::Ffn => &[&lt.w_gate, &lt.w_up],
+            Self::Down => &[&lt.w_down],
         };
-        src.iter().map(|s| Ok(grids(s)?)).collect()
+        src.iter().map(|s| s.to_vec()).collect()
     }
 }
 
@@ -459,11 +438,6 @@ fn slab_geometry(
         s0 += seqs;
     }
     Ok(v)
-}
-
-/// `true` iff every entry is finite.
-fn finite(a: &[f64]) -> bool {
-    a.iter().all(|v| v.is_finite())
 }
 
 /// The sum of two [`TensorBits`].
@@ -541,7 +515,7 @@ fn batch_parts(
     if h.len() != rows * hid {
         return Err(DriverError::Shape);
     }
-    let lt_f = lt.as_f64();
+    let lt_w = layer_words(lt)?;
     let mut out = SlabParts {
         q: Vec::with_capacity(rows * qo),
         k: Vec::with_capacity(rows * kvo),
@@ -554,7 +528,7 @@ fn batch_parts(
     // The pool dispatch is inside `parts` (its GEMMs); a sequence here is one serial call.
     for s in 0..seqs {
         let hb = &h[s * t * hid..(s + 1) * t * hid];
-        let p = parts(&cfg.layer, rope, &lt_f, hb, t)?;
+        let p = parts(&cfg.layer, rope, &lt_w, hb, t)?;
         out.q.extend_from_slice(&p.q);
         out.k.extend_from_slice(&p.k);
         out.v.extend_from_slice(&p.v);
@@ -630,8 +604,7 @@ fn tri_sub(a: &[i64], b: &[i64], c: &[i64]) -> Result<Vec<i64>, DriverError> {
 }
 
 /// `silu(g)·u` elementwise on the carrier: the `down` stage's gate/up product (`:1904`), one
-/// rounded product per entry. `silu` is `tensor`'s `f64` entry [`silu_grid`], so the gate crosses
-/// the grid once out and back at that module boundary; the `u` factor stays words.
+/// rounded `exp`, division and product per entry, all in [`silu_mul_word`] — no `f64` crossing.
 /// # Errors
 /// [`DriverError::Shape`] on a length mismatch; [`DriverError::Grid`] from the `silu` or the
 /// product. Temporal `O(len)`, spatial `O(len)`.
@@ -639,8 +612,11 @@ fn silu_mul(g: &[i64], u: &[i64]) -> Result<Vec<i64>, DriverError> {
     if g.len() != u.len() {
         return Err(DriverError::Shape);
     }
-    let sq = silu_grid(&reals(g))?;
-    Ok(eval(g.len(), Elem::Mul(&sq, u))?)
+    let mut out = Vec::with_capacity(g.len());
+    for (&gi, &ui) in g.iter().zip(u) {
+        out.push(silu_mul_word(gi, ui).ok_or(DriverError::Grid)?);
+    }
+    Ok(out)
 }
 
 /// `base + add` in words, no `f64` round trip: `hs_mid = hs + a·Lq.oᵀ` and
@@ -668,36 +644,43 @@ fn apply_fit(
 ) -> Result<(), DriverError> {
     match kind {
         TensorKind::Q => {
-            lq.q.clone_from(&fit.wp);
-            set_bias(&mut lq.qb, &lt.qb, fit.db.as_deref())?;
+            lq.wq = grids(&fit.wp)?;
+            set_bias(&mut lq.bq, lt.bq.as_deref(), fit.db.as_deref())?;
         }
         TensorKind::K => {
-            lq.k.clone_from(&fit.wp);
-            set_bias(&mut lq.kb, &lt.kb, fit.db.as_deref())?;
+            lq.wk = grids(&fit.wp)?;
+            set_bias(&mut lq.bk, lt.bk.as_deref(), fit.db.as_deref())?;
         }
         TensorKind::V => {
-            lq.v.clone_from(&fit.wp);
-            set_bias(&mut lq.vb, &lt.vb, fit.db.as_deref())?;
+            lq.wv = grids(&fit.wp)?;
+            set_bias(&mut lq.bv, lt.bv.as_deref(), fit.db.as_deref())?;
         }
-        TensorKind::O => lq.o.clone_from(&fit.wp),
-        TensorKind::Gate => lq.gate.clone_from(&fit.wp),
-        TensorKind::Up => lq.up.clone_from(&fit.wp),
-        TensorKind::Down => lq.down.clone_from(&fit.wp),
+        TensorKind::O => lq.wo = grids(&fit.wp)?,
+        TensorKind::Gate => lq.w_gate = grids(&fit.wp)?,
+        TensorKind::Up => lq.w_up = grids(&fit.wp)?,
+        TensorKind::Down => lq.w_down = grids(&fit.wp)?,
     }
     Ok(())
 }
 
 /// `dst[i] = base[i] + db[i]` on the carrier: the `Lq[nm + "b"]` write (`:1879-1881`), one bias
-/// wide, so it takes the `f64` boundary itself.
+/// wide. The teacher bias and the fitted correction cross the `layer::tensor` `f64` boundary here.
 ///
 /// # Errors
-/// [`DriverError::Shape`] if a bias is missing or a length disagrees; else as [`add_words`].
-fn set_bias(dst: &mut [f64], base: &[f64], db: Option<&[f64]>) -> Result<(), DriverError> {
-    let w = add_words(&grids(base)?, &grids(db.ok_or(DriverError::Shape)?)?)?;
-    if w.len() != dst.len() {
-        return Err(DriverError::Shape);
+/// [`DriverError::Shape`] if a bias is missing or a length disagrees; [`DriverError::Grid`] from
+/// the conversion or a checked add.
+fn set_bias(
+    dst: &mut Option<Vec<i64>>,
+    base: Option<&[i64]>,
+    db: Option<&[f64]>,
+) -> Result<(), DriverError> {
+    let base = base.ok_or(DriverError::Shape)?;
+    let db = grids(db.ok_or(DriverError::Shape)?)?;
+    let w = add_words(base, &db)?;
+    match dst {
+        Some(v) if v.len() != w.len() => return Err(DriverError::Shape),
+        _ => *dst = Some(w),
     }
-    dst.copy_from_slice(&reals(&w));
     Ok(())
 }
 
@@ -718,15 +701,15 @@ fn stage_scale(base_q64: i128, n: usize, n_ref: usize) -> Result<f64, DriverErro
 /// stage read `hs`. Temporal `O(Σ_slabs rows·n² + Σ_j n³)`, dominated by the seven [`fit_tensor`]
 /// calls; spatial `O(n² + Σ_j n·outs_j + Σ_slabs rows·n)`.
 /// # Errors
-/// [`DriverError::Shape`]/[`DriverError::NonFinite`] on a length or finiteness mismatch, and every
-/// refusal of [`sink_token_weights`], [`StageAccum::add_slab`], [`solve_stage`], [`fit_tensor`],
-/// [`resq_scale`] and [`fold_row_scale`].
+/// [`DriverError::Shape`] on a length mismatch, and every refusal of [`sink_token_weights`],
+/// [`StageAccum::add_slab`], [`solve_stage`], [`fit_tensor`], [`resq_scale`] and
+/// [`fold_row_scale`].
 fn run_stage(
     cfg: &DriverCfg,
     rope: &RopeTables,
     lt: &LayerWeights,
     lq: &mut LayerWeights,
-    ln_next: &[f64],
+    ln_next: &[i64],
     stage: StageId,
     pt_cache: &[SlabParts],
     ht: &[i64],
@@ -747,7 +730,7 @@ fn run_stage(
     let geom = slab_geometry(cfg.n_seq, t, cfg.slab)?;
     let mut accum = StageAccum::new(n, &outs, with_ts)?;
     let mut slab_in: Vec<Vec<i64>> = Vec::with_capacity(geom.len());
-    let (ln1, ln2) = (grids(&lq.ln1)?, grids(&lq.ln2)?);
+    let (ln1, ln2) = (&lq.attn_norm, &lq.ffn_norm);
     // The per-stage `quant_ridge`/`quant_damp` scale `base·(n/n_ref)`, integer on the carrier.
     let n_ref = width_n(cfg.solve.n_ref)?;
     let rg_q = stage_scale(param_q64(cfg.quant_ridge)?, n, n_ref)?;
@@ -762,27 +745,30 @@ fn run_stage(
         let mut pin_xf: Option<Vec<i64>> = None;
 
         let pin_in: Vec<i64> = match stage {
-            StageId::Qkv => rms(hss, &ln1, eps, rows, hid)?,
+            StageId::Qkv => rms(hss, ln1, eps, rows, hid)?,
             StageId::O => {
-                let xa = rms(hss, &ln1, eps, rows, hid)?;
-                let q = linear(&xa, rows, hid, &grids(&lq.q)?, Some(&grids(&lq.qb)?), qo)?;
-                let k = linear(&xa, rows, hid, &grids(&lq.k)?, Some(&grids(&lq.kb)?), kvo)?;
-                let v = linear(&xa, rows, hid, &grids(&lq.v)?, Some(&grids(&lq.vb)?), kvo)?;
+                let xa = rms(hss, ln1, eps, rows, hid)?;
+                let bq = lq.bq.as_deref();
+                let bk = lq.bk.as_deref();
+                let bv = lq.bv.as_deref();
+                let q = linear(&xa, rows, hid, &lq.wq, bq, qo)?;
+                let k = linear(&xa, rows, hid, &lq.wk, bk, kvo)?;
+                let v = linear(&xa, rows, hid, &lq.wv, bv, kvo)?;
                 let a = attn_batch(cfg, rope, &q, &k, &v, seqs, t)?;
                 pin_xa = Some(xa);
                 a
             }
             StageId::Ffn => {
                 let mid = &hs_mid[row0 * hid..row0 * hid + rows * hid];
-                let x = rms(mid, &ln2, eps, rows, hid)?;
+                let x = rms(mid, ln2, eps, rows, hid)?;
                 pin_mid = Some(mid);
                 x
             }
             StageId::Down => {
                 let mid = &hs_mid[row0 * hid..row0 * hid + rows * hid];
-                let xf = rms(mid, &ln2, eps, rows, hid)?;
-                let g = linear(&xf, rows, hid, &grids(&lq.gate)?, None, inter)?;
-                let u = linear(&xf, rows, hid, &grids(&lq.up)?, None, inter)?;
+                let xf = rms(mid, ln2, eps, rows, hid)?;
+                let g = linear(&xf, rows, hid, &lq.w_gate, None, inter)?;
+                let u = linear(&xf, rows, hid, &lq.w_up, None, inter)?;
                 let m = silu_mul(&g, &u)?;
                 pin_mid = Some(mid);
                 pin_xf = Some(xf);
@@ -795,20 +781,30 @@ fn run_stage(
         let (ys, y_ts): (Vec<Vec<i64>>, Vec<Option<Vec<i64>>>) = match stage {
             StageId::Qkv => (
                 vec![
-                    sub_bias(&pt.q, &grids(&lt.qb)?, rows, qo)?,
-                    sub_bias(&pt.k, &grids(&lt.kb)?, rows, kvo)?,
-                    sub_bias(&pt.v, &grids(&lt.vb)?, rows, kvo)?,
+                    sub_bias(&pt.q, lt.bq.as_deref().ok_or(DriverError::Shape)?, rows, qo)?,
+                    sub_bias(
+                        &pt.k,
+                        lt.bk.as_deref().ok_or(DriverError::Shape)?,
+                        rows,
+                        kvo,
+                    )?,
+                    sub_bias(
+                        &pt.v,
+                        lt.bv.as_deref().ok_or(DriverError::Shape)?,
+                        rows,
+                        kvo,
+                    )?,
                 ],
                 vec![None, None, None],
             ),
             StageId::O => {
                 let xa = pin_xa.as_deref().ok_or(DriverError::Shape)?;
                 let y = tri_sub(&pt.mid, hts, hss)?;
-                let qt = linear(xa, rows, hid, &grids(&lt.q)?, Some(&grids(&lt.qb)?), qo)?;
-                let kt = linear(xa, rows, hid, &grids(&lt.k)?, Some(&grids(&lt.kb)?), kvo)?;
-                let vt = linear(xa, rows, hid, &grids(&lt.v)?, Some(&grids(&lt.vb)?), kvo)?;
+                let qt = linear(xa, rows, hid, &lt.wq, lt.bq.as_deref(), qo)?;
+                let kt = linear(xa, rows, hid, &lt.wk, lt.bk.as_deref(), kvo)?;
+                let vt = linear(xa, rows, hid, &lt.wv, lt.bv.as_deref(), kvo)?;
                 let a_ts = attn_batch(cfg, rope, &qt, &kt, &vt, seqs, t)?;
-                let y_ts = linear(&a_ts, rows, qo, &grids(&lt.o)?, None, hid)?;
+                let y_ts = linear(&a_ts, rows, qo, &lt.wo, None, hid)?;
                 (vec![y], vec![Some(y_ts)])
             }
             StageId::Ffn => (vec![pt.g.clone(), pt.u.clone()], vec![None, None]),
@@ -816,10 +812,10 @@ fn run_stage(
                 let xf = pin_xf.as_deref().ok_or(DriverError::Shape)?;
                 let mid = pin_mid.ok_or(DriverError::Shape)?;
                 let y = tri_sub(&pt.out, &pt.mid, mid)?;
-                let mg = linear(xf, rows, hid, &grids(&lt.gate)?, None, inter)?;
-                let mu = linear(xf, rows, hid, &grids(&lt.up)?, None, inter)?;
+                let mg = linear(xf, rows, hid, &lt.w_gate, None, inter)?;
+                let mu = linear(xf, rows, hid, &lt.w_up, None, inter)?;
                 let m_ts = silu_mul(&mg, &mu)?;
-                let y_ts = linear(&m_ts, rows, inter, &grids(&lt.down)?, None, hid)?;
+                let y_ts = linear(&m_ts, rows, inter, &lt.w_down, None, hid)?;
                 (vec![y], vec![Some(y_ts)])
             }
         };
@@ -832,16 +828,16 @@ fn run_stage(
         }
     }
 
-    let w0 = stage.teacher_tensors(lt)?;
+    let w0 = stage.teacher_tensors(lt);
     let w0r: Vec<&[i64]> = w0.iter().map(Vec::as_slice).collect();
     let ws = solve_stage(&accum, &w0r, stage.solve_kinds(), &cfg.solve)?;
 
-    // The row weight is one per stage; its `f64` view is the `fit_tensor` boundary.
+    // The row weight is one per stage; its `f64` view crosses the `fit_tensor` boundary.
     let g_row: Option<Vec<f64>> = match stage {
         StageId::Qkv => None,
-        StageId::O => Some(reals(&g_row_from_vec(&grids(&lt.ln2)?)?)),
-        StageId::Ffn => Some(reals(&g_row_from_matrix(&grids(&lt.down)?, hid, inter)?)),
-        StageId::Down => Some(reals(&g_row_from_vec(&grids(ln_next)?)?)),
+        StageId::O => Some(reals(&g_row_from_vec(&lt.ffn_norm)?)),
+        StageId::Ffn => Some(reals(&g_row_from_matrix(&lt.w_down, hid, inter)?)),
+        StageId::Down => Some(reals(&g_row_from_vec(ln_next)?)),
     };
     let hm_f = reals(&accum.hm);
 
@@ -884,17 +880,24 @@ fn run_stage(
             bias,
         )?;
         if kind == TensorKind::Up {
-            // `resq` is another module's `f64` contract: convert its slabs at that boundary.
+            // `resq` is another module's `f64` contract: convert its slabs and `f64` weights at
+            // that boundary, once per `up` fit.
             let slab_f: Vec<Vec<f64>> = slab_in.iter().map(|s| reals(s)).collect();
             let refs: Vec<&[f64]> = slab_f.iter().map(Vec::as_slice).collect();
+            let (g0, u0, qg, down) = (
+                reals(&lt.w_gate),
+                reals(&lt.w_up),
+                reals(&lq.w_gate),
+                reals(&lt.w_down),
+            );
             let s_sol = resq_scale(&ResqInputs {
                 x_slabs: &refs,
                 n: hid,
-                w_g0: &lt.gate,
-                w_u0: &lt.up,
-                wq_g: &lq.gate,
+                w_g0: &g0,
+                w_u0: &u0,
+                wq_g: &qg,
                 wq_u: &fit.wp,
-                w_down: &lt.down,
+                w_down: &down,
                 inter,
                 hidden: hid,
             })?;
@@ -949,35 +952,32 @@ fn validate(cfg: &DriverCfg) -> Result<(), DriverError> {
 }
 
 /// The owned length of every tensor of `lt` at `cfg`'s geometry, or a [`DriverError::Shape`] if a
-/// field disagrees or is not finite.
+/// field disagrees. Every word is on the `Q32.32` grid by construction, so there is no finite check.
 fn check_layer(lt: &LayerWeights, cfg: &DriverCfg) -> Result<(), DriverError> {
     let l = &cfg.layer;
     let hid = l.hidden;
     let qo = q_out(cfg);
     let kvo = kv_out(cfg);
     let inter = l.inter;
-    let ok = lt.ln1.len() == hid
-        && lt.ln2.len() == hid
-        && lt.q.len() == qo * hid
-        && lt.qb.len() == qo
-        && lt.k.len() == kvo * hid
-        && lt.kb.len() == kvo
-        && lt.v.len() == kvo * hid
-        && lt.vb.len() == kvo
-        && lt.o.len() == hid * qo
-        && lt.gate.len() == inter * hid
-        && lt.up.len() == inter * hid
-        && lt.down.len() == hid * inter;
+    let (bq, bk, bv) = (
+        lt.bq.as_deref().ok_or(DriverError::Shape)?,
+        lt.bk.as_deref().ok_or(DriverError::Shape)?,
+        lt.bv.as_deref().ok_or(DriverError::Shape)?,
+    );
+    let ok = lt.attn_norm.len() == hid
+        && lt.ffn_norm.len() == hid
+        && lt.wq.len() == qo * hid
+        && bq.len() == qo
+        && lt.wk.len() == kvo * hid
+        && bk.len() == kvo
+        && lt.wv.len() == kvo * hid
+        && bv.len() == kvo
+        && lt.wo.len() == hid * qo
+        && lt.w_gate.len() == inter * hid
+        && lt.w_up.len() == inter * hid
+        && lt.w_down.len() == hid * inter;
     if !ok {
         return Err(DriverError::Shape);
-    }
-    for slice in [
-        &lt.ln1, &lt.ln2, &lt.q, &lt.qb, &lt.k, &lt.kb, &lt.v, &lt.vb, &lt.o, &lt.gate, &lt.up,
-        &lt.down,
-    ] {
-        if !finite(slice) {
-            return Err(DriverError::NonFinite);
-        }
     }
     Ok(())
 }
@@ -985,24 +985,23 @@ fn check_layer(lt: &LayerWeights, cfg: &DriverCfg) -> Result<(), DriverError> {
 /// Quantise `lt` against the teacher/student hidden states, propagate the student path and return
 /// the quantised layer, the seven fits, the bit budget and the teacher layer output.
 ///
-/// `ht`/`hs` are row-major `[n_seq·t, hidden]`; `hs` is the student input and is replaced by the
-/// student layer output. `ln_next` (length `hidden`) is the `down` stage's `g_row` source: the next
-/// layer's `ln1`, or the final norm weight (`:1709`). Temporal `O(Σ_slabs t·parts + Σ_stages rows·n²
-/// + Σ_7 fits)`, dominated by the teacher forward cache, the stage Gram and solve and the seven
-/// [`fit_tensor`] calls; spatial `O(n_seq·t·hidden + Σ_slabs rows·hidden + n²)`.
+/// `ht`/`hs` are row-major `[n_seq·t, hidden]` words; `hs` is the student input and is replaced by
+/// the student layer output. `ln_next` (length `hidden`) is the `down` stage's `g_row` source: the
+/// next layer's `ln1`, or the final norm weight (`:1709`). Temporal `O(Σ_slabs t·parts + Σ_stages
+/// rows·n² + Σ_7 fits)`, dominated by the teacher forward cache, the stage Gram and solve and the
+/// seven [`fit_tensor`] calls; spatial `O(n_seq·t·hidden + Σ_slabs rows·hidden + n²)`.
 ///
 /// # Errors
 /// [`DriverError::Geometry`] for an invalid geometry or a zero `slab`; [`DriverError::TinySeq`] for
 /// `t < 2`; [`DriverError::Shape`] for a length or width mismatch; [`DriverError::NonFinite`] for a
-/// non-finite weight or hidden state; and every refusal of the stage, tensor, `-resq` and forward
-/// helpers.
+/// non-finite `eps`/`theta`; and every refusal of the stage, tensor, `-resq` and forward helpers.
 pub fn quantise_layer(
     cfg: &DriverCfg,
     rope: &RopeTables,
     lt: &LayerWeights,
-    ln_next: &[f64],
-    ht: &[f64],
-    hs: &mut Vec<f64>,
+    ln_next: &[i64],
+    ht: &[i64],
+    hs: &mut Vec<i64>,
 ) -> Result<LayerResult, DriverError> {
     validate(cfg)?;
     check_layer(lt, cfg)?;
@@ -1016,23 +1015,16 @@ pub fn quantise_layer(
     if ln_next.len() != hid {
         return Err(DriverError::Shape);
     }
-    if !finite(ht) || !finite(hs) || !finite(ln_next) {
-        return Err(DriverError::NonFinite);
-    }
 
     // The teacher forward cache, one `keep_keys` slab per slab (`:1532-1535`), and the teacher layer
     // output `ht_next`.
     let geom = slab_geometry(cfg.n_seq, t, cfg.slab)?;
     let mut pt_cache: Vec<SlabParts> = Vec::with_capacity(geom.len());
     let mut ht_next = Vec::with_capacity(total);
-    // `ht` and `hs` cross onto the carrier once per call; `ht_next` and the student output leave
-    // it once (their `f64` fields are the `ModelState`/`LayerResult` boundary).
-    let ht_w = grids(ht)?;
-    let hs_w = grids(hs)?;
     for &(row0, rows, seqs) in &geom {
-        let hts = &ht_w[row0 * hid..row0 * hid + rows * hid];
+        let hts = &ht[row0 * hid..row0 * hid + rows * hid];
         let p = batch_parts(cfg, rope, lt, hts, seqs, t)?;
-        ht_next.extend_from_slice(&reals(&p.out));
+        ht_next.extend_from_slice(&p.out);
         pt_cache.push(p);
     }
 
@@ -1050,8 +1042,8 @@ pub fn quantise_layer(
         ln_next,
         StageId::Qkv,
         &pt_cache,
-        &ht_w,
-        &hs_w,
+        ht,
+        hs,
         &hs_mid,
     )?;
     bits = add_bits(bits, &sum_bits(&s_qkv.fits));
@@ -1066,15 +1058,15 @@ pub fn quantise_layer(
         ln_next,
         StageId::O,
         &pt_cache,
-        &ht_w,
-        &hs_w,
+        ht,
+        hs,
         &hs_mid,
     )?;
     for (i, &(row0, rows, _)) in geom.iter().enumerate() {
-        let add = linear(&s_o.slabs[i], rows, q_out(cfg), &grids(&lq.o)?, None, hid)?;
+        let add = linear(&s_o.slabs[i], rows, q_out(cfg), &lq.wo, None, hid)?;
         let lo = row0 * hid;
         let hi = lo + rows * hid;
-        hs_mid[lo..hi].copy_from_slice(&add_words(&hs_w[lo..hi], &add)?);
+        hs_mid[lo..hi].copy_from_slice(&add_words(&hs[lo..hi], &add)?);
     }
     bits = add_bits(bits, &sum_bits(&s_o.fits));
     fits.extend(s_o.fits);
@@ -1088,8 +1080,8 @@ pub fn quantise_layer(
         ln_next,
         StageId::Ffn,
         &pt_cache,
-        &ht_w,
-        &hs_w,
+        ht,
+        hs,
         &hs_mid,
     )?;
     bits = add_bits(bits, &sum_bits(&s_ffn.fits));
@@ -1104,8 +1096,8 @@ pub fn quantise_layer(
         ln_next,
         StageId::Down,
         &pt_cache,
-        &ht_w,
-        &hs_w,
+        ht,
+        hs,
         &hs_mid,
     )?;
     for (i, &(row0, rows, _)) in geom.iter().enumerate() {
@@ -1113,13 +1105,13 @@ pub fn quantise_layer(
             &s_down.slabs[i],
             rows,
             cfg.layer.inter,
-            &grids(&lq.down)?,
+            &lq.w_down,
             None,
             hid,
         )?;
         let lo = row0 * hid;
         let hi = lo + rows * hid;
-        hs[lo..hi].copy_from_slice(&reals(&add_words(&hs_mid[lo..hi], &add)?));
+        hs[lo..hi].copy_from_slice(&add_words(&hs_mid[lo..hi], &add)?);
     }
     bits = add_bits(bits, &sum_bits(&s_down.fits));
     fits.extend(s_down.fits);
@@ -1156,10 +1148,10 @@ pub fn quantise_model(
     cfg: &DriverCfg,
     rope: &RopeTables,
     layers: &[LayerWeights],
-    fnorm_w: &[f64],
-    embed: &[f64],
+    fnorm_w: &[i64],
+    embed: &[i64],
     vocab: usize,
-    h0: &[f64],
+    h0: &[i64],
     n_layers: usize,
     fnorm_lr: f64,
 ) -> Result<ModelResult, DriverError> {
@@ -1176,10 +1168,6 @@ pub fn quantise_model(
     if embed.len() != vocab.checked_mul(hid).ok_or(DriverError::Shape)? {
         return Err(DriverError::Shape);
     }
-    if !finite(h0) || !finite(fnorm_w) || !finite(embed) {
-        return Err(DriverError::NonFinite);
-    }
-
     let mut st = model_init(h0);
     model_step(cfg, rope, layers, fnorm_w, &mut st, n_layers)?;
     let mut l = n_layers;
@@ -1195,7 +1183,7 @@ pub fn quantise_model(
 /// embedded calibration batch `h0`, no layers, a zero bit budget. `O(h0.len())` time and space (the
 /// two hidden-state copies); the geometry is checked by [`model_step`].
 #[must_use]
-pub fn model_init(h0: &[f64]) -> ModelState {
+pub fn model_init(h0: &[i64]) -> ModelState {
     ModelState {
         next: 0,
         ht: h0.to_vec(),
@@ -1216,14 +1204,13 @@ pub fn model_init(h0: &[f64]) -> ModelState {
 ///
 /// # Errors
 /// [`DriverError::Shape`] for `until > layers.len()`, `until < st.next`, a hidden-state length that
-/// disagrees with `n_seq·t·hidden`, or a `fnorm_w` that is not `hidden` wide;
-/// [`DriverError::NonFinite`] for a non-finite hidden state or norm gain; and every refusal of
+/// disagrees with `n_seq·t·hidden`, or a `fnorm_w` that is not `hidden` wide; and every refusal of
 /// [`quantise_layer`].
 pub fn model_step(
     cfg: &DriverCfg,
     rope: &RopeTables,
     layers: &[LayerWeights],
-    fnorm_w: &[f64],
+    fnorm_w: &[i64],
     st: &mut ModelState,
     until: usize,
 ) -> Result<(), DriverError> {
@@ -1237,13 +1224,10 @@ pub fn model_step(
     if st.ht.len() != total || st.hs.len() != total || fnorm_w.len() != hid {
         return Err(DriverError::Shape);
     }
-    if !finite(&st.ht) || !finite(&st.hs) || !finite(fnorm_w) {
-        return Err(DriverError::NonFinite);
-    }
     let mut l = st.next;
     while l < until {
-        let ln_next: &[f64] = if l + 1 < layers.len() {
-            &layers[l + 1].ln1
+        let ln_next: &[i64] = if l + 1 < layers.len() {
+            &layers[l + 1].attn_norm
         } else {
             fnorm_w
         };
@@ -1269,12 +1253,12 @@ pub fn model_step(
 /// # Errors
 /// [`DriverError::Shape`] for a hidden-state or embedding length that disagrees with the geometry,
 /// or a fit vector count that disagrees with the layer count; [`DriverError::NonFinite`] for a
-/// non-finite input; and every refusal of [`fnorm_fit`].
+/// non-finite `eps`/`theta`; and every refusal of [`fnorm_fit`].
 pub fn model_finish(
     cfg: &DriverCfg,
     st: ModelState,
-    fnorm_w: &[f64],
-    embed: &[f64],
+    fnorm_w: &[i64],
+    embed: &[i64],
     vocab: usize,
     fnorm_lr: f64,
 ) -> Result<ModelResult, DriverError> {
@@ -1291,30 +1275,15 @@ pub fn model_finish(
     if st.fits.len() != st.layers.len() || st.next > st.layers.len() {
         return Err(DriverError::Shape);
     }
-    if !finite(&st.ht) || !finite(&st.hs) || !finite(fnorm_w) || !finite(embed) {
-        return Err(DriverError::NonFinite);
-    }
     let eps = to_grid(cfg.layer.eps, GRID_BOUND).ok_or(DriverError::Grid)?;
     let ridge = to_grid(0.10, GRID_BOUND).ok_or(DriverError::Grid)?;
     let lr = to_grid(fnorm_lr, GRID_BOUND).ok_or(DriverError::Grid)?;
     let g = fnorm_fit(
-        &grids(&st.ht)?,
-        &grids(&st.hs)?,
-        cfg.n_seq,
-        cfg.t,
-        hid,
-        &grids(fnorm_w)?,
-        &grids(embed)?,
-        vocab,
-        eps,
-        2,
-        ridge,
-        lr,
-        true,
+        &st.ht, &st.hs, cfg.n_seq, cfg.t, hid, fnorm_w, embed, vocab, eps, 2, ridge, lr, true,
     )?;
     Ok(ModelResult {
         layers: st.layers,
-        fnorm: reals(&g),
+        fnorm: g,
         bits: st.bits,
         fits: st.fits,
     })

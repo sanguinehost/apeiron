@@ -7,20 +7,21 @@
 //! - [`h0_from_chunks`] is `ht = cfg.E[ids_cal.cpu()]` (`fold_transfer.py:1514`; the same embedding
 //!   gather is `h = cfg.E[ids.cpu()]` at `:94`): one token-embedding row per calibration token,
 //!   row-major `[n_seq·t, hidden]`.
-//! - [`save`]/[`load`] make the [`ModelState`] loop resumable: raw little-endian `f64` per finished
-//!   layer (`layer-<l>.bin`) and per hidden state (`ht.bin`, `hs.bin`), with a text manifest naming
-//!   each file's shape and SHA-256. A load refuses a digest or shape mismatch, and every data file
-//!   is written to a temporary name and renamed, so a killed run leaves the previous checkpoint
-//!   valid.
+//! - [`save`]/[`load`] make the [`ModelState`] loop resumable: raw little-endian `i64` `Q32.32`
+//!   words per finished layer (`layer-<l>.bin`) and per hidden state (`ht.bin`, `hs.bin`), with a
+//!   text manifest naming each file's shape and SHA-256. A load refuses a digest or shape mismatch,
+//!   and every data file is written to a temporary name and renamed, so a killed run leaves the
+//!   previous checkpoint valid.
 //! - [`write_student_gguf`] re-encodes the fitted `Q32.32` [`Weights`] into the teacher's own `GGUF`
 //!   directory: every tensor keeps its name, dimensions, `ggml` type and offset, so the directory
 //!   is byte-unchanged and only payloads move. The payload is the
 //!   [`crate::learn::fold::run::convert`] scalar encoder for the tensor's type (binary16 RNE,
 //!   binary32 integer map), refusing a value outside that type's finite range and never clamping.
 //!
-//! The checkpoint keeps the driver's `f64` [`ModelState`] as its format (`ht.bin`, `hs.bin`,
-//! `layer-<l>.bin`, eight bytes per value); that boundary belongs to
-//! [`crate::learn::fold::layer::driver`] and is not a computation here.
+//! The checkpoint keeps the driver's word [`ModelState`] as its format (`ht.bin`, `hs.bin`,
+//! `layer-<l>.bin`, eight bytes per `i64` word). That is a **format change**: the previous
+//! checkpoint stored `f64` values, so `MANIFEST_MAGIC` is `v2` and a `v1` manifest is refused
+//! rather than misread.
 //!
 //! # Subsumption
 //!
@@ -69,11 +70,12 @@ use crate::sha256::sha256;
 /// The checkpoint manifest file name.
 const MANIFEST: &str = "manifest.txt";
 
-/// The manifest's first line: format identity and version.
-const MANIFEST_MAGIC: &str = "apeiron-fold-transfer v1";
+/// The manifest's first line: format identity and version. `v2` stores `i64` `Q32.32` words; `v1`
+/// stored `f64` values and is refused.
+const MANIFEST_MAGIC: &str = "apeiron-fold-transfer v2";
 
-/// The field count of one serialized [`LayerWeights`]: `ln1, ln2, q, qb, k, kb, v, vb, o, gate,
-/// up, down`.
+/// The field count of one serialized [`LayerWeights`]: `attn_norm, ffn_norm, wq, bq, wk, bk, wv,
+/// bv, wo, w_gate, w_up, w_down`.
 const LAYER_FIELDS: usize = 12;
 
 /// A refused transfer-run operation.
@@ -101,7 +103,7 @@ pub enum TransferError {
     Type(u32),
     /// The teacher `GGUF` was refused.
     Gguf(GgufError),
-    /// A fitted `f64` weight could not be lowered into `Q32.32`.
+    /// A `GGUF` encoder refused a `Q32.32` word.
     Convert(ConvertError),
     /// The driver refused a layer.
     Driver(DriverError),
@@ -166,8 +168,8 @@ fn hex(d: &[u8; 32]) -> String {
     s
 }
 
-/// The little-endian bytes of an `f64` vector.
-fn f64_bytes(v: &[f64]) -> Vec<u8> {
+/// The little-endian bytes of an `i64` word vector.
+fn word_bytes(v: &[i64]) -> Vec<u8> {
     let mut out = Vec::with_capacity(v.len() * 8);
     for &x in v {
         out.extend_from_slice(&x.to_le_bytes());
@@ -175,11 +177,11 @@ fn f64_bytes(v: &[f64]) -> Vec<u8> {
     out
 }
 
-/// Decode little-endian `f64`s from whole 8-byte words.
-fn f64_from_bytes(b: &[u8]) -> Result<Vec<f64>, TransferError> {
+/// Decode little-endian `i64` words from whole 8-byte groups.
+fn words_from_bytes(b: &[u8]) -> Result<Vec<i64>, TransferError> {
     if !b.len().is_multiple_of(8) {
         return Err(TransferError::Shape(format!(
-            "{} bytes is not a whole number of f64 words",
+            "{} bytes is not a whole number of i64 words",
             b.len()
         )));
     }
@@ -187,7 +189,7 @@ fn f64_from_bytes(b: &[u8]) -> Result<Vec<f64>, TransferError> {
     for c in b.chunks_exact(8) {
         let mut w = [0u8; 8];
         w.copy_from_slice(c);
-        out.push(f64::from_le_bytes(w));
+        out.push(i64::from_le_bytes(w));
     }
     Ok(out)
 }
@@ -210,7 +212,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), TransferError> {
 /// over every token of every chunk, in chunk order (`ht = cfg.E[ids_cal.cpu()]`,
 /// `fold_transfer.py:1514`; the same gather is `:94`).
 ///
-/// A row copy, not a computed map: each output row is one `memcpy` of `hidden` `f64`s, so the pass
+/// A row copy, not a computed map: each output row is one `memcpy` of `hidden` words, so the pass
 /// is memory-bound and a pool dispatch costs about what the copy saves. It stays a serial checked
 /// copy; every token id is bounds-checked before its row is read.
 ///
@@ -221,7 +223,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), TransferError> {
 /// # Errors
 /// [`TransferError::Shape`] for a token id `>= teacher.vocab`, an embedding row past the table, or a
 /// length product that overflows.
-pub fn h0_from_chunks(teacher: &Teacher, chunks: &[Vec<u32>]) -> Result<Vec<f64>, TransferError> {
+pub fn h0_from_chunks(teacher: &Teacher, chunks: &[Vec<u32>]) -> Result<Vec<i64>, TransferError> {
     let hid = teacher.layer_cfg.hidden;
     let n_tok = chunks
         .iter()
@@ -277,28 +279,41 @@ fn layer_lens(
     ])
 }
 
-/// The twelve vectors of a layer in the manifest's fixed order.
-fn layer_fields(l: &LayerWeights) -> [&[f64]; LAYER_FIELDS] {
-    [
-        &l.ln1, &l.ln2, &l.q, &l.qb, &l.k, &l.kb, &l.v, &l.vb, &l.o, &l.gate, &l.up, &l.down,
-    ]
+/// The twelve vectors of a layer in the manifest's fixed order. The fold driver requires the three
+/// attention biases, so a layer without them is refused here.
+fn layer_fields(l: &LayerWeights) -> Result<[&[i64]; LAYER_FIELDS], TransferError> {
+    let missing = || TransferError::Shape("a layer bias is absent".to_string());
+    Ok([
+        &l.attn_norm,
+        &l.ffn_norm,
+        &l.wq,
+        l.bq.as_deref().ok_or_else(missing)?,
+        &l.wk,
+        l.bk.as_deref().ok_or_else(missing)?,
+        &l.wv,
+        l.bv.as_deref().ok_or_else(missing)?,
+        &l.wo,
+        &l.w_gate,
+        &l.w_up,
+        &l.w_down,
+    ])
 }
 
 /// The geometry one checkpoint layer file declares: `(hidden, q_out, kv_out, inter)`.
 fn layer_geometry(l: &LayerWeights) -> Result<(usize, usize, usize, usize), TransferError> {
-    let hidden = l.ln1.len();
-    if hidden == 0 || l.ln2.len() != hidden {
+    let hidden = l.attn_norm.len();
+    if hidden == 0 || l.ffn_norm.len() != hidden {
         return Err(TransferError::Shape("layer norm widths".to_string()));
     }
-    if !l.q.len().is_multiple_of(hidden)
-        || !l.k.len().is_multiple_of(hidden)
-        || !l.gate.len().is_multiple_of(hidden)
+    if !l.wq.len().is_multiple_of(hidden)
+        || !l.wk.len().is_multiple_of(hidden)
+        || !l.w_gate.len().is_multiple_of(hidden)
     {
         return Err(TransferError::Shape("layer weight width".to_string()));
     }
-    let q_out = l.q.len() / hidden;
-    let kv_out = l.k.len() / hidden;
-    let inter = l.gate.len() / hidden;
+    let q_out = l.wq.len() / hidden;
+    let kv_out = l.wk.len() / hidden;
+    let inter = l.w_gate.len() / hidden;
     Ok((hidden, q_out, kv_out, inter))
 }
 
@@ -346,7 +361,7 @@ pub fn save(dir: &str, st: &ModelState) -> Result<(), TransferError> {
     );
 
     for (name, v) in [("ht.bin", &st.ht), ("hs.bin", &st.hs)] {
-        let bytes = f64_bytes(v);
+        let bytes = word_bytes(v);
         write_atomic(&dirp.join(name), &bytes)?;
         let _ = writeln!(
             manifest,
@@ -360,7 +375,7 @@ pub fn save(dir: &str, st: &ModelState) -> Result<(), TransferError> {
     if let Some((hid, q_out, kv_out, inter)) = geom {
         let want = layer_lens(hid, q_out, kv_out, inter)?;
         for (l, lw) in st.layers.iter().enumerate() {
-            let fields = layer_fields(lw);
+            let fields = layer_fields(lw)?;
             let mut bytes = Vec::new();
             for (i, f) in fields.iter().enumerate() {
                 if f.len() != want[i] {
@@ -370,7 +385,7 @@ pub fn save(dir: &str, st: &ModelState) -> Result<(), TransferError> {
                         want[i]
                     )));
                 }
-                bytes.extend_from_slice(&f64_bytes(f));
+                bytes.extend_from_slice(&word_bytes(f));
             }
             let name = format!("layer-{l}.bin");
             write_atomic(&dirp.join(&name), &bytes)?;
@@ -415,7 +430,7 @@ fn num_u64(tok: &str, what: &str) -> Result<u64, TransferError> {
 
 /// Parse the manifest head (`next`, `hidden`, `bits`, the two hidden-state lines).
 fn parse_head(lines: &[&str]) -> Result<ManifestHead, TransferError> {
-    if lines.len() < 5 || lines[0] != MANIFEST_MAGIC {
+    if lines.len() < 6 || lines[0] != MANIFEST_MAGIC {
         return Err(TransferError::Manifest("header".to_string()));
     }
     let t = tokens(lines[1]);
@@ -513,28 +528,28 @@ fn split_layer(
         )));
     }
     let mut at = 0usize;
-    let mut parts: Vec<Vec<f64>> = Vec::with_capacity(LAYER_FIELDS);
+    let mut parts: Vec<Vec<i64>> = Vec::with_capacity(LAYER_FIELDS);
     for &n in lens {
         let b = bytes
             .get(at..at + n * 8)
             .ok_or_else(|| TransferError::Shape(format!("layer {l} field split")))?;
-        parts.push(f64_from_bytes(b)?);
+        parts.push(words_from_bytes(b)?);
         at += n * 8;
     }
-    let take = |i: usize| -> Vec<f64> { parts[i].clone() };
+    let take = |i: usize| -> Vec<i64> { parts[i].clone() };
     Ok(LayerWeights {
-        ln1: take(0),
-        ln2: take(1),
-        q: take(2),
-        qb: take(3),
-        k: take(4),
-        kb: take(5),
-        v: take(6),
-        vb: take(7),
-        o: take(8),
-        gate: take(9),
-        up: take(10),
-        down: take(11),
+        attn_norm: take(0),
+        ffn_norm: take(1),
+        wq: take(2),
+        bq: Some(take(3)),
+        wk: take(4),
+        bk: Some(take(5)),
+        wv: take(6),
+        bv: Some(take(7)),
+        wo: take(8),
+        w_gate: take(9),
+        w_up: take(10),
+        w_down: take(11),
     })
 }
 
@@ -561,13 +576,13 @@ pub fn load(dir: &str) -> Result<ModelState, TransferError> {
             head.next
         )));
     }
-    let ht = f64_from_bytes(&read_checked(
+    let ht = words_from_bytes(&read_checked(
         dirp,
         "ht.bin",
         head.ht_len,
         Some(&head.ht_sha),
     )?)?;
-    let hs = f64_from_bytes(&read_checked(
+    let hs = words_from_bytes(&read_checked(
         dirp,
         "hs.bin",
         head.hs_len,

@@ -29,9 +29,9 @@
 //! this module's agreement (`fixed_sin_cos` is within `16·2⁻³²` absolute).
 //!
 //! Grade `tested` (`tests/learn_fold_parts.rs`); no Lean refinement links this file. Trust boundary:
-//! the `Q32.32` arithmetic on `&[i64]` words, the `f64` [`LayerF64`] weight dictionary and the
-//! [`RopeTables`] `f64` view only, not the model loader, the `f64` oracle, `torch`/CUDA codegen, or
-//! the rest of the transfer.
+//! the `Q32.32` arithmetic on `&[i64]` words, the [`LayerWords`] weight view and the [`RopeTables`]
+//! `f64` view only, not the model loader, the `f64` oracle, `torch`/CUDA codegen, or the rest of
+//! the transfer.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -168,34 +168,34 @@ pub enum PartsError {
     OutOfRange,
 }
 
-/// The twelve `f64` weight tensors of one `Qwen2` decoder layer, each row-major as the transfer
-/// dictionary holds it.
+/// Borrowed `Q32.32` views of the twelve weight tensors of one `Qwen2` decoder layer, each
+/// row-major as the transfer dictionary holds it.
 #[derive(Clone, Copy, Debug)]
-pub struct LayerF64<'a> {
+pub struct LayerWords<'a> {
     /// `input_layernorm.weight`, length `hidden`.
-    pub ln1: &'a [f64],
+    pub ln1: &'a [i64],
     /// `post_attention_layernorm.weight`, length `hidden`.
-    pub ln2: &'a [f64],
+    pub ln2: &'a [i64],
     /// `q_proj.weight`, `[n_head·head_dim, hidden]`.
-    pub q: &'a [f64],
+    pub q: &'a [i64],
     /// `q_proj.bias`, length `n_head·head_dim`.
-    pub qb: &'a [f64],
+    pub qb: &'a [i64],
     /// `k_proj.weight`, `[n_kv_head·head_dim, hidden]`.
-    pub k: &'a [f64],
+    pub k: &'a [i64],
     /// `k_proj.bias`, length `n_kv_head·head_dim`.
-    pub kb: &'a [f64],
+    pub kb: &'a [i64],
     /// `v_proj.weight`, `[n_kv_head·head_dim, hidden]`.
-    pub v: &'a [f64],
+    pub v: &'a [i64],
     /// `v_proj.bias`, length `n_kv_head·head_dim`.
-    pub vb: &'a [f64],
+    pub vb: &'a [i64],
     /// `o_proj.weight`, `[hidden, n_head·head_dim]`.
-    pub o: &'a [f64],
+    pub o: &'a [i64],
     /// `gate_proj.weight`, `[inter, hidden]`.
-    pub gate: &'a [f64],
+    pub gate: &'a [i64],
     /// `up_proj.weight`, `[inter, hidden]`.
-    pub up: &'a [f64],
+    pub up: &'a [i64],
     /// `down_proj.weight`, `[hidden, inter]`.
-    pub down: &'a [f64],
+    pub down: &'a [i64],
 }
 
 /// The half-rotation tables [`attn_a`] applies to `q` and `k`, each row-major `[t_max, head_dim]`.
@@ -302,11 +302,6 @@ fn area(a: usize, b: usize) -> Result<usize, PartsError> {
 /// One `f64` value as a `Q32.32` word; a value off the grid is refused, never clamped.
 fn grid1(x: f64) -> Result<i64, PartsError> {
     to_grid(x, GRID_BOUND).ok_or(PartsError::OutOfRange)
-}
-
-/// A whole `f64` slice as `Q32.32` words. `O(len)` time and space.
-fn grid_words(x: &[f64]) -> Result<Vec<i64>, PartsError> {
-    x.iter().map(|&v| grid1(v)).collect()
 }
 
 /// A `Q32.32` slice back across the `f64` boundary. `O(len)` time and space.
@@ -622,9 +617,9 @@ pub(crate) fn silu_mul(g: i64, u: i64) -> Option<i64> {
 
 /// One `Qwen2` decoder layer on a whole sequence (`parts`, lines 83-91) in `Q32.32`: the two
 /// pre-norms, causal GQA attention and the `SwiGLU` feed-forward, returning every intermediate. `h`
-/// is row-major `[t, hidden]` in words; the twelve weight tensors cross the grid once here (the
-/// `f64` [`LayerF64`] dictionary is the loader's format). Every weight is checked against the
-/// geometry before any arithmetic, so a malformed layer is refused without touching an index.
+/// is row-major `[t, hidden]` in words and the twelve weight tensors are [`LayerWords`] words, so
+/// nothing here re-quantises a weight. Every weight is checked against the geometry before any
+/// arithmetic, so a malformed layer is refused without touching an index.
 /// # Errors
 /// [`PartsError::Shape`] for an invalid geometry or a slice that is not the stated shape;
 /// [`PartsError::NonFinite`] for non-finite `eps`/`theta`; [`PartsError::RopeTooShort`] if `t >
@@ -638,7 +633,7 @@ pub(crate) fn silu_mul(g: i64, u: i64) -> Option<i64> {
 pub fn parts(
     cfg: &LayerCfg,
     rope: &RopeTables,
-    layer: &LayerF64,
+    layer: &LayerWords<'_>,
     h: &[i64],
     t: usize,
 ) -> Result<Parts, PartsError> {
@@ -675,49 +670,27 @@ pub fn parts(
     }
 
     let eps = grid1(cfg.eps)?;
-    let (ln1, ln2) = (grid_words(layer.ln1)?, grid_words(layer.ln2)?);
-    let xa = rms(h, &ln1, eps, t, hid)?;
-    let q = linear(
-        &xa,
-        t,
-        hid,
-        &grid_words(layer.q)?,
-        Some(&grid_words(layer.qb)?),
-        qw,
-    )?;
-    let k = linear(
-        &xa,
-        t,
-        hid,
-        &grid_words(layer.k)?,
-        Some(&grid_words(layer.kb)?),
-        kw,
-    )?;
-    let v = linear(
-        &xa,
-        t,
-        hid,
-        &grid_words(layer.v)?,
-        Some(&grid_words(layer.vb)?),
-        kw,
-    )?;
+    let xa = rms(h, layer.ln1, eps, t, hid)?;
+    let q = linear(&xa, t, hid, layer.q, Some(layer.qb), qw)?;
+    let k = linear(&xa, t, hid, layer.k, Some(layer.kb), kw)?;
+    let v = linear(&xa, t, hid, layer.v, Some(layer.vb), kw)?;
     let a = attn_words(cfg, rope, &q, &k, &v, t)?;
 
-    let attn_out = linear(&a, t, qw, &grid_words(layer.o)?, None, hid)?;
+    let attn_out = linear(&a, t, qw, layer.o, None, hid)?;
     let mut mid = vec![0_i64; area(t, hid)?];
     for (slot, (&x, &y)) in mid.iter_mut().zip(h.iter().zip(&attn_out)) {
         *slot = x.checked_add(y).ok_or(PartsError::OutOfRange)?;
     }
 
-    let xf = rms(&mid, &ln2, eps, t, hid)?;
-    let g = linear(&xf, t, hid, &grid_words(layer.gate)?, None, inter)?;
-    let u = linear(&xf, t, hid, &grid_words(layer.up)?, None, inter)?;
+    let xf = rms(&mid, layer.ln2, eps, t, hid)?;
+    let g = linear(&xf, t, hid, layer.gate, None, inter)?;
+    let u = linear(&xf, t, hid, layer.up, None, inter)?;
     let mut m = vec![0_i64; area(t, inter)?];
     for (slot, (&gv, &uv)) in m.iter_mut().zip(g.iter().zip(&u)) {
         *slot = silu_mul(gv, uv).ok_or(PartsError::OutOfRange)?;
     }
 
-    let down_out = linear(&m, t, inter, &grid_words(layer.down)?, None, hid)?;
+    let down_out = linear(&m, t, inter, layer.down, None, hid)?;
     let mut out = vec![0_i64; area(t, hid)?];
     for (slot, (&x, &y)) in out.iter_mut().zip(mid.iter().zip(&down_out)) {
         *slot = x.checked_add(y).ok_or(PartsError::OutOfRange)?;

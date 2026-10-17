@@ -25,7 +25,7 @@ use std::time::Instant;
 
 use apeiron::engine::{Engine, KernelMode};
 use apeiron::learn::fold::layer::driver::{
-    model_finish, model_init, model_step, quantise_model, DriverCfg, LayerWeights,
+    layer_words, model_finish, model_init, model_step, quantise_model, DriverCfg, LayerWeights,
 };
 use apeiron::learn::fold::run::convert::teacher_from_grad;
 use apeiron::learn::fold::run::npy::{chunks, read_npy_i4, split};
@@ -84,6 +84,16 @@ fn gauss(rng: &mut Lcg) -> f64 {
     (0..12).map(|_| rng.uniform(0.0, 1.0)).sum::<f64>() - 6.0
 }
 
+/// `x` as a `Q32.32` word.
+fn q(x: f64) -> i64 {
+    to_grid(x, GRID_BOUND).expect("on grid")
+}
+
+/// A slice as words.
+fn qv(x: &[f64]) -> Vec<i64> {
+    x.iter().map(|&v| q(v)).collect()
+}
+
 fn rand_mat(o: usize, n: usize, scale: f64, rng: &mut Lcg) -> Vec<f64> {
     (0..o * n).map(|_| scale * gauss(rng)).collect()
 }
@@ -108,11 +118,19 @@ fn layer_cfg() -> LayerCfg {
     }
 }
 
-/// The production driver configuration at the test geometry.
+/// The production driver configuration at the test geometry, at the minimal fit step count: these
+/// tests compare two runs of the same fit (one-shot against checkpoint-resumed), so a converged fit
+/// buys nothing and the full pass would put the binary over the gate's 30 s budget. `fold_fit`'s own
+/// test carries the refit pass.
 fn driver_cfg() -> DriverCfg {
     let mut cfg = DriverCfg::production(layer_cfg(), T, N_SEQ);
     cfg.slab = SLAB;
     cfg.qmlp_rows = QMLP;
+    cfg.fit.inner_iters = 0;
+    cfg.fit.sweeps = 1;
+    cfg.fit.e8_beam = 1;
+    cfg.nb_sweeps = 1;
+    cfg.nb_rounds = 1;
     cfg
 }
 
@@ -121,23 +139,23 @@ fn make_layer(cfg: &LayerCfg, rng: &mut Lcg) -> LayerWeights {
     let kvo = cfg.n_kv_head * cfg.head_dim;
     let s = 1.0 / (cfg.hidden as f64).sqrt();
     LayerWeights {
-        ln1: rand_ln(cfg.hidden, rng),
-        ln2: rand_ln(cfg.hidden, rng),
-        q: rand_mat(qo, cfg.hidden, s, rng),
-        qb: rand_bias(qo, rng),
-        k: rand_mat(kvo, cfg.hidden, s, rng),
-        kb: rand_bias(kvo, rng),
-        v: rand_mat(kvo, cfg.hidden, s, rng),
-        vb: rand_bias(kvo, rng),
-        o: rand_mat(cfg.hidden, qo, s, rng),
-        gate: rand_mat(cfg.inter, cfg.hidden, s, rng),
-        up: rand_mat(cfg.inter, cfg.hidden, s, rng),
-        down: rand_mat(cfg.hidden, cfg.inter, s, rng),
+        attn_norm: qv(&rand_ln(cfg.hidden, rng)),
+        ffn_norm: qv(&rand_ln(cfg.hidden, rng)),
+        wq: qv(&rand_mat(qo, cfg.hidden, s, rng)),
+        bq: Some(qv(&rand_bias(qo, rng))),
+        wk: qv(&rand_mat(kvo, cfg.hidden, s, rng)),
+        bk: Some(qv(&rand_bias(kvo, rng))),
+        wv: qv(&rand_mat(kvo, cfg.hidden, s, rng)),
+        bv: Some(qv(&rand_bias(kvo, rng))),
+        wo: qv(&rand_mat(cfg.hidden, qo, s, rng)),
+        w_gate: qv(&rand_mat(cfg.inter, cfg.hidden, s, rng)),
+        w_up: qv(&rand_mat(cfg.inter, cfg.hidden, s, rng)),
+        w_down: qv(&rand_mat(cfg.hidden, cfg.inter, s, rng)),
     }
 }
 
-fn rand_hidden(rows: usize, hid: usize, scale: f64, rng: &mut Lcg) -> Vec<f64> {
-    (0..rows * hid).map(|_| scale * gauss(rng)).collect()
+fn rand_hidden(rows: usize, hid: usize, scale: f64, rng: &mut Lcg) -> Vec<i64> {
+    (0..rows * hid).map(|_| q(scale * gauss(rng))).collect()
 }
 
 /// A scratch directory under the lane's disk, never the tmpfs.
@@ -150,19 +168,15 @@ fn scratch(name: &str) -> String {
     dir
 }
 
-fn bits_of(v: &[f64]) -> Vec<u64> {
-    v.iter().map(|x| x.to_bits()).collect()
-}
-
 /// The three-layer fixture: config, `RoPE` tables, the teacher layers, the final norm, `h0` and the
 /// tied embedding.
 fn model_fixture() -> (
     DriverCfg,
     RopeTables,
     Vec<LayerWeights>,
-    Vec<f64>,
-    Vec<f64>,
-    Vec<f64>,
+    Vec<i64>,
+    Vec<i64>,
+    Vec<i64>,
     usize,
 ) {
     let cfg = driver_cfg();
@@ -173,8 +187,8 @@ fn model_fixture() -> (
         make_layer(&cfg.layer, &mut rng),
         make_layer(&cfg.layer, &mut rng),
     ];
-    let fnorm: Vec<f64> = (0..HID)
-        .map(|i| if i % 2 == 0 { 0.5 } else { 2.0 })
+    let fnorm: Vec<i64> = (0..HID)
+        .map(|i| q(if i % 2 == 0 { 0.5 } else { 2.0 }))
         .collect();
     let h0 = rand_hidden(N_SEQ * T, HID, 1.0, &mut rng);
     let vocab = 7;
@@ -182,24 +196,27 @@ fn model_fixture() -> (
     (cfg, rope, layers, fnorm, h0, embed, vocab)
 }
 
-/// Assert two layers are bit-identical, field by field.
+/// Assert two layers are word-identical, field by field.
 fn assert_layer_bits(got: &LayerWeights, want: &LayerWeights, l: usize) {
     for (name, a, b) in [
-        ("ln1", &got.ln1, &want.ln1),
-        ("ln2", &got.ln2, &want.ln2),
-        ("q", &got.q, &want.q),
-        ("qb", &got.qb, &want.qb),
-        ("k", &got.k, &want.k),
-        ("kb", &got.kb, &want.kb),
-        ("v", &got.v, &want.v),
-        ("vb", &got.vb, &want.vb),
-        ("o", &got.o, &want.o),
-        ("gate", &got.gate, &want.gate),
-        ("up", &got.up, &want.up),
-        ("down", &got.down, &want.down),
+        ("attn_norm", &got.attn_norm, &want.attn_norm),
+        ("ffn_norm", &got.ffn_norm, &want.ffn_norm),
+        ("wq", &got.wq, &want.wq),
+        ("wk", &got.wk, &want.wk),
+        ("wv", &got.wv, &want.wv),
+        ("wo", &got.wo, &want.wo),
+        ("w_gate", &got.w_gate, &want.w_gate),
+        ("w_up", &got.w_up, &want.w_up),
+        ("w_down", &got.w_down, &want.w_down),
     ] {
-        assert_eq!(a.len(), b.len(), "layer {l} {name} length");
-        assert_eq!(bits_of(a), bits_of(b), "layer {l} {name} bits");
+        assert_eq!(a, b, "layer {l} {name} words");
+    }
+    for (name, a, b) in [
+        ("bq", &got.bq, &want.bq),
+        ("bk", &got.bk, &want.bk),
+        ("bv", &got.bv, &want.bv),
+    ] {
+        assert_eq!(a, b, "layer {l} {name} words");
     }
 }
 
@@ -229,8 +246,8 @@ fn resume_equivalence() {
     assert_eq!(resumed.bits, bits_after_0);
     assert_eq!(resumed.layers.len(), 1);
     assert_layer_bits(&resumed.layers[0], &one.layers[0], 0);
-    assert_eq!(bits_of(&resumed.ht), bits_of(&st.ht), "ht round trip");
-    assert_eq!(bits_of(&resumed.hs), bits_of(&st.hs), "hs round trip");
+    assert_eq!(resumed.ht, st.ht, "ht round trip");
+    assert_eq!(resumed.hs, st.hs, "hs round trip");
 
     model_step(&cfg, &rope, &layers, &fnorm, &mut resumed, 3).expect("layers 1..3");
     let res = model_finish(&cfg, resumed, &fnorm, &embed, vocab, lr).expect("finish");
@@ -238,9 +255,9 @@ fn resume_equivalence() {
     for l in 0..one.layers.len() {
         assert_layer_bits(&res.layers[l], &one.layers[l], l);
     }
-    assert_eq!(bits_of(&res.fnorm), bits_of(&one.fnorm), "fnorm bits");
+    assert_eq!(res.fnorm, one.fnorm, "fnorm words");
     assert_eq!(res.bits, one.bits, "bit budget");
-    assert!(res.fnorm.iter().all(|x| x.is_finite()));
+    assert_eq!(res.fnorm.len(), HID);
 
     fs::remove_dir_all(&dir).expect("clean scratch");
     eprintln!("[1] resume equivalence ok in {:?}", t0.elapsed());
@@ -439,8 +456,8 @@ fn transfer_qwen05b() {
             let _ = parts(
                 &cfg.layer,
                 &rope,
-                &teacher.layers[l].as_f64(),
-                &words(&st.ht[row..row + t * hid]),
+                &layer_words(&teacher.layers[l]).expect("teacher words"),
+                &st.ht[row..row + t * hid],
                 t,
             )
             .expect("propagation probe");
@@ -494,13 +511,13 @@ fn transfer_qwen05b() {
             .layers
             .iter()
             .map(|l| {
-                (l.q.len()
-                    + l.k.len()
-                    + l.v.len()
-                    + l.o.len()
-                    + l.gate.len()
-                    + l.up.len()
-                    + l.down.len()) as u64
+                (l.wq.len()
+                    + l.wk.len()
+                    + l.wv.len()
+                    + l.wo.len()
+                    + l.w_gate.len()
+                    + l.w_up.len()
+                    + l.w_down.len()) as u64
             })
             .sum();
         let bits = res.bits.nsign + res.bits.nr + res.bits.nc + res.bits.nd + res.bits.ncorr;
@@ -570,8 +587,8 @@ fn layer_wall_probe() {
     let _ = parts(
         &cfg.layer,
         &rope,
-        &teacher.layers[0].as_f64(),
-        &words(&st.ht[0..t * hid]),
+        &layer_words(&teacher.layers[0]).expect("teacher words"),
+        &st.ht[0..t * hid],
         t,
     )
     .expect("propagation probe");
@@ -625,11 +642,4 @@ fn hex(d: &[u8; 32]) -> String {
         s.push(char::from_digit(u32::from(b & 0x0f), 16).unwrap_or('0'));
     }
     s
-}
-
-/// The Q32.32 words of an `f64` checkpoint slice, for the word-typed `parts`.
-fn words(x: &[f64]) -> Vec<i64> {
-    x.iter()
-        .map(|&v| to_grid(v, GRID_BOUND).expect("on grid"))
-        .collect()
 }
