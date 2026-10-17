@@ -215,7 +215,9 @@ done
 sha256sum $SOURCE_FILES
 
 # Serving-path items Aeneas cannot yet translate (bodies stay opaque; signatures extract). One reason
-# class per line: simd-intrinsic, f32, thread, ffi, unsafe-ptr, unsupported:<construct>.
+# class per line: simd-intrinsic, f32, thread, ffi, unsafe-ptr, unsupported:<construct>,
+# extraction-cost (a body whose translation drives Aeneas past the extraction memory bound; the
+# resulting axiom is recorded in `boundary-axioms.txt`).
 SERVING_OPAQUE=(
     --opaque 'crate::chart::x86' # simd-twin: AVX2 row kernels, twin = chart::portable
     --opaque 'crate::kern::gemm::x86' # simd-twin: AVX2 GEMM rows, twin = the scalar gemm path
@@ -247,7 +249,7 @@ SERVING_OPAQUE=(
     --opaque 'crate::chart::pool' # thread: std::thread worker pool, dyn Fn jobs, transmute (every item)
     --opaque 'crate::step::prefill_block' # process-flag: APEIRON_PREFILL_COLS
     --opaque 'crate::step::bitplane_enabled' # process-flag: APEIRON_BITPLANE
-    --opaque 'crate::step::cols::exact_scan_enabled' # process-flag: APEIRON_EXACT_SCAN (thread override)
+    --opaque 'crate::step::softmax::exact_scan_enabled' # process-flag: APEIRON_EXACT_SCAN (thread override)
     --opaque 'crate::mixer::exact_scan' # process-flag: APEIRON_EXACT_SCAN
     --opaque 'crate::mixer::carrier_from_env' # process-flag: APEIRON_F32_CARRIER
     --opaque 'crate::mixer::head_slices_setting' # process-flag: APEIRON_HEAD_SLICES

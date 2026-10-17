@@ -28,8 +28,8 @@ fp.prim.le	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.
 fp.prim.lt	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
 fp.prim.max	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
 fp.prim.mul	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
-fp.prim.rope_turn	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
 fp.prim.round_ties_even	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
+fp.prim.rope_turn	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
 fp.prim.sqrt	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
 fp.prim.sub	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
 fp.prim.to_i32_sat	fp::prim host float primitive on the F32(u32) carrier, src/engine/fp.rs. Grade tested.
@@ -129,8 +129,8 @@ std.sync.once.Once	host boundary: process flag, file, thread, allocator, CPU fea
 std.sync.once.Once.call_once	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 std.sync.once.Once.new	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 step.bitplane_enabled	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
-step.cols.exact_scan_enabled	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 step.prefill_block	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
+step.softmax.exact_scan_enabled	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 trace.macs	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 trace.q8_bytes	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 trace.span	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.

@@ -1955,6 +1955,8 @@ pub struct DecodeState {
 pub(crate) mod attn_block;
 #[path = "step/cols.rs"]
 mod cols;
+#[path = "step/softmax.rs"]
+mod softmax;
 #[path = "step/spec.rs"]
 mod spec;
 pub use spec::{MtpState, SpecStats};

@@ -14,11 +14,11 @@
 //! its bits are unchanged.
 
 use super::{
-    add_assign_fixed, affine_slots, apply_sigmoid_gate, count_mixers, qk_norm_and_rope,
-    rms_with_gain_slice, softmax_slots, split_query_gate, LayerIndex, Sched, StepError,
+    add_assign_fixed, affine_slots, count_mixers, rms_with_gain_slice, softmax_slots, LayerIndex,
+    Sched, StepError,
 };
 use crate::engine::chart::ffn::{quant_acts_pooled, swiglu_cols};
-use crate::engine::chart::task::{HeadTask, Task2};
+use crate::engine::chart::task::HeadTask;
 use crate::engine::chart::QuantAct;
 use crate::engine::error::{
     TensorKey, PART_ATTN_NORM, PART_FFN_NORM, PART_OUTPUT_NORM, PART_SSM_CONV1D,
@@ -28,26 +28,8 @@ use crate::engine::kern::matmat::matmat_q8act;
 use crate::engine::loader::{opt_slice, DecodeVectors};
 use crate::engine::mixer::{AffineLayer, AffineState};
 use crate::engine::trace::{self, Phase};
-use crate::engine::{
-    ffn_fixed, AttnError, Engine, KernelMode, KvState, MatvecError, MixerKind, ProjWeights,
-};
+use crate::engine::{ffn_fixed, Engine, KernelMode, KvState, MatvecError, MixerKind, ProjWeights};
 use crate::format::quant;
-use std::sync::OnceLock;
-
-/// The `APEIRON_EXACT_SCAN` flag: the per-thread test override, else the process value parsed once
-/// (`OnceLock`) and defaulting to off. [`Engine::softmax_core_block`] reads it on the calling
-/// thread before any pool dispatch, so every worker in a dispatch sees one value.
-fn exact_scan_enabled() -> bool {
-    crate::engine::attn::exact_scan_override().unwrap_or_else(|| {
-        static FLAG: OnceLock<bool> = OnceLock::new();
-        *FLAG.get_or_init(|| std::env::var("APEIRON_EXACT_SCAN").is_ok_and(|v| v == "1"))
-    })
-}
-
-/// The key-tile width of the fused exact-scan attention read. The fold's tile boundaries only
-/// re-parenthesise the exact `i128` `den`/`num` sums, so the value changes no result; 32 keys keep
-/// the `head_dim`-wide numerator hot through a tile.
-const EXACT_SCAN_TILE: usize = 32;
 
 impl Engine {
     /// [`Engine::compose_cols_in`] with the optional affine state and rollback sink resolved once
@@ -354,7 +336,7 @@ impl Engine {
         clippy::too_many_arguments,
         reason = "the layer index, parts, shapes, columns, schedule and kernel are the input"
     )]
-    fn group_cols(
+    pub(super) fn group_cols(
         &self,
         li: Option<&LayerIndex>,
         layer: usize,
@@ -519,269 +501,17 @@ impl Engine {
             trace::q8_bytes(q_proj + 2 * kv_out, n_embd),
             trace::macs(q_proj + 2 * kv_out, n_embd, k),
         );
-        let qkv = if xs.len() == 1 && li.is_none() {
-            let mut r =
-                self.step_qkv_sched(layer, [q_proj, kv_out, kv_out], n_embd, &xs[0], sched, mode)?;
-            let q = std::mem::take(&mut r[0]);
-            let k = std::mem::take(&mut r[1]);
-            let v = std::mem::take(&mut r[2]);
-            vec![vec![q], vec![k], vec![v]]
-        } else {
-            self.group_cols(
-                li,
-                layer,
-                &[0, 1, 2],
-                &[q_proj, kv_out, kv_out],
-                n_embd,
-                xs,
-                sched,
-                mode,
-            )?
-        };
+        let qkv = self.softmax_qkv(li, layer, xs, [q_proj, kv_out, n_embd], sched, mode)?;
         drop(t_in);
         let t_core = trace::span(Phase::AttnCore, k, 0, 0);
         if k > 1 && parallel_heads {
             let atts = self.softmax_core_block(layer, slot, kv, &qkv, eps, &table)?;
             drop(t_core);
-            let _out = trace::span(
-                Phase::AttnProjOut,
-                k,
-                trace::q8_bytes(n_embd, q_out),
-                trace::macs(n_embd, q_out, k),
-            );
-            return self.proj_cols(li, layer, 3, n_embd, q_out, &atts, sched, mode, None);
+            return self.softmax_proj_out(li, layer, n_embd, q_out, &atts, sched, mode);
         }
-        let mut atts = Vec::with_capacity(k);
-        let mut err: Option<StepError> = None;
-        let mut c = 0usize;
-        while c < k && err.is_none() {
-            match self.softmax_col(layer, slot, kv, &qkv, c, eps, &table, parallel_heads) {
-                Ok(att) => atts.push(att),
-                Err(e) => err = Some(e),
-            }
-            c += 1;
-        }
-        if let Some(e) = err {
-            return Err(e);
-        }
+        let atts = self.softmax_serial_cols(layer, slot, kv, &qkv, eps, &table, parallel_heads)?;
         drop(t_core);
-        let _out = trace::span(
-            Phase::AttnProjOut,
-            k,
-            trace::q8_bytes(n_embd, q_out),
-            trace::macs(n_embd, q_out, k),
-        );
-        self.proj_cols(li, layer, 3, n_embd, q_out, &atts, sched, mode, None)
-    }
-
-    /// One column of [`Engine::softmax_cols`]: bias, gate split, q/k norm and `RoPE` at its position,
-    /// append, then attention over the prefix including itself.
-    #[allow(
-        clippy::too_many_arguments,
-        clippy::index_refutable_slice,
-        reason = "the per-column inputs of softmax_cols: layer, slot, cache, columns, column, eps, table, dispatch; the three biases are read by constant index because an array pattern does not extract"
-    )]
-    fn softmax_col(
-        &self,
-        layer: usize,
-        slot: usize,
-        kv: &mut KvState,
-        qkv: &[Vec<Vec<i64>>],
-        c: usize,
-        eps: i64,
-        table: &crate::engine::rope::RopeTable,
-        parallel_heads: bool,
-    ) -> Result<Vec<i64>, StepError> {
-        let cfg = &self.config;
-        let (n_head, hd) = (cfg.n_head, cfg.head_dim);
-        let q_out = n_head.checked_mul(hd).ok_or(StepError::LengthOverflow)?;
-        let vectors = self.decode_vectors();
-        let (mut query, mut key, mut value) =
-            (qkv[0][c].clone(), qkv[1][c].clone(), qkv[2][c].clone());
-        if let Some(bs) = vectors.biases_of(layer) {
-            if let Some(bias) = opt_slice(&bs[0]) {
-                add_assign_fixed(&mut query, bias)?;
-            }
-        }
-        if let Some(bs) = vectors.biases_of(layer) {
-            if let Some(bias) = opt_slice(&bs[1]) {
-                add_assign_fixed(&mut key, bias)?;
-            }
-        }
-        if let Some(bs) = vectors.biases_of(layer) {
-            if let Some(bias) = opt_slice(&bs[2]) {
-                add_assign_fixed(&mut value, bias)?;
-            }
-        }
-        let gate = if cfg.attn_gate {
-            let (q, g) = split_query_gate(&query, n_head, hd)?;
-            query = q;
-            Some(g)
-        } else {
-            None
-        };
-        let pos = kv.occupied(slot).map_err(StepError::Kv)?;
-        let pos_u32 = u32::try_from(pos).map_err(|_| StepError::LengthOverflow)?;
-        qk_norm_and_rope(
-            vectors,
-            layer,
-            table,
-            &mut query,
-            &mut key,
-            hd,
-            eps,
-            pos_u32,
-            parallel_heads,
-        )?;
-        let appended = kv.append(slot, &key, &value).map_err(StepError::Kv)?;
-        let mut att: Vec<i64> = vec![0i64; q_out];
-        let kv_ro: &KvState = kv;
-        let head = QueryHeadCtx {
-            kv: kv_ro,
-            slot,
-            query: &query,
-            hd,
-            appended,
-        };
-        if let Some((_, e)) =
-            crate::engine::chart::ffn::attn_heads(n_head, hd, &mut att, parallel_heads, &head)
-        {
-            return Err(StepError::Kv(e));
-        }
-        if let Some(g) = gate {
-            apply_sigmoid_gate(&mut att, &g)?;
-        }
-        Ok(att)
-    }
-
-    /// The attention core of a block of `k > 1` columns in three pooled stages, each column equal
-    /// to the per-column loop in [`Engine::softmax_cols`]:
-    /// 1. per column (one task each): bias, gate split, q/k norm and `RoPE` at position
-    ///    `pos₀ + c`;
-    /// 2. in token order: append each column's key and value;
-    /// 3. per (column, head) (`k·n_head` tasks): attention over positions `0..=pos₀ + c`, then
-    ///    that head's slice of the sigmoid output gate. The pool task index runs over the fold
-    ///    order ([`fold_col`]) so a contiguous speed-weighted range alternates cheap and expensive
-    ///    columns; a gather restores the block order.
-    ///
-    /// Column `c` sees exactly the keys the per-column loop had appended when it attended, so the
-    /// block is causal and bit-identical (`qwen35_two_columns_equal_two_single_steps`). With
-    /// `APEIRON_EXACT_SCAN=1` stage 3 reads each head through [`KvState::attn_head_fused`]
-    /// instead of [`KvState::attn_head`]; that read is not bit-identical to the per-position path,
-    /// and the deviation is bounded (`qwen35_exact_scan_attention_block_matches_baseline_within_bound`).
-    /// A refusal leaves the cache unspecified.
-    ///
-    /// # Complexity
-    ///
-    /// `O(k·n_head·(pos₀ + k)·head_dim)` for the attention over `k·n_head` pool tasks, plus
-    /// `O(k·(q_proj + 2·kv_out))` for stages 1–2; three dispatches instead of `k`.
-    #[allow(
-        clippy::too_many_lines,
-        clippy::many_single_char_names,
-        reason = "the three stages read in order; c, h, n, q are the column, head, fold and query \
-                  words"
-    )]
-    fn softmax_core_block(
-        &self,
-        layer: usize,
-        slot: usize,
-        kv: &mut KvState,
-        qkv: &[Vec<Vec<i64>>],
-        eps: i64,
-        table: &crate::engine::rope::RopeTable,
-    ) -> Result<Vec<Vec<i64>>, StepError> {
-        let cfg = &self.config;
-        let (n_head, hd) = (cfg.n_head, cfg.head_dim);
-        let q_out = n_head * hd;
-        let kv_out = cfg.n_head_kv * hd;
-        let k = qkv[0].len();
-        let gated = cfg.attn_gate;
-        let vectors = self.decode_vectors();
-        let pos0 = kv.occupied(slot).map_err(StepError::Kv)?;
-        // Stage 1: per column `[query | key | value | gate]`.
-        let stride = 2 * q_out + 2 * kv_out;
-        let mut prep = vec![0i64; k * stride];
-        let one = PrepColCtx {
-            qkv,
-            vectors,
-            layer,
-            dims: [n_head, hd, q_out, kv_out, pos0],
-            gated,
-            eps,
-            table,
-        };
-        if let Some((_, e)) =
-            crate::engine::chart::ffn::attn_heads(k, stride, &mut prep, true, &one)
-        {
-            return Err(e);
-        }
-        // Stage 2: append in token order.
-        let mut last = Vec::with_capacity(k);
-        let mut err: Option<StepError> = None;
-        let mut c = 0usize;
-        while c < k && err.is_none() {
-            let base = c * stride;
-            let key = &prep[base + q_out..base + q_out + kv_out];
-            let value = &prep[base + q_out + kv_out..base + q_out + 2 * kv_out];
-            match kv.append(slot, key, value) {
-                Ok(appended) => last.push(appended),
-                Err(e) => err = Some(StepError::Kv(e)),
-            }
-            c += 1;
-        }
-        if let Some(e) = err {
-            return Err(e);
-        }
-        // Stage 3: per (column, head) attention and gate. With `APEIRON_EXACT_SCAN=1` the read is
-        // the fused `(m, den, num)` fold; the flag is resolved here, on the calling thread, so the
-        // pool workers run one path for the whole dispatch.
-        //
-        // Pool task `t = n·n_head + h` owns fold position `n`, whose key column is `fold_col(n, k)`.
-        // A contiguous range of the speed-weighted split then alternates cheap and expensive columns
-        // instead of taking a monotone run of the cheapest. Each `(c, h)` reads only `prep`, the
-        // read-only KV cache and `last[c]`, so the permutation leaves every word bit-identical; the
-        // gather after the dispatch restores the tip's block order.
-        let fused = exact_scan_enabled();
-        let mut att = vec![0i64; k * q_out];
-        let kv_ro: &KvState = kv;
-        // One status slot per task, written only by that task; the slots are reduced after the
-        // dispatch (`first_by_key`), so no shared error cell crosses the pool boundary.
-        let tasks = att.len().div_ceil(hd.max(1));
-        let mut status: Vec<Option<StepError>> = Vec::with_capacity(tasks);
-        let mut s = 0usize;
-        while s < tasks {
-            status.push(None);
-            s += 1;
-        }
-        let dims = [n_head, hd, kv_out, q_out, stride, k];
-        let ctx = AttnHeadCtx {
-            kv: kv_ro,
-            layer: slot,
-            flags: [fused, gated],
-            prep: &prep,
-            last: &last,
-            dims,
-        };
-        let dispatched: Result<(), ()> =
-            crate::engine::chart::pool::for_chunks2(&mut att, hd, &mut status, 1, &ctx);
-        if dispatched.is_err() {
-            return Err(StepError::BadConfig(String::from("attention dispatch")));
-        }
-        if let Some(e) = first_by_key(&mut status, k, n_head) {
-            return Err(e);
-        }
-        // Block `n` holds column `fold_col(n, k)`; gather it back to index `c` with the same `k`
-        // `q_out`-wide contiguous copies the tip's `chunks(q_out).map(to_vec)` performed.
-        let mut atts: Vec<Vec<i64>> = Vec::with_capacity(k);
-        let mut j = 0usize;
-        while j < k {
-            atts.push(Vec::new());
-            j += 1;
-        }
-        for n in 0..k {
-            atts[fold_col(n, k)] = att[n * q_out..(n + 1) * q_out].to_vec();
-        }
-        Ok(atts)
+        self.softmax_proj_out(li, layer, n_embd, q_out, &atts, sched, mode)
     }
 
     /// One affine-mixer layer over the columns: the four input projections as one group (weights
@@ -1011,205 +741,12 @@ impl Engine {
 /// # Complexity
 ///
 /// `O(1)`.
-fn fold_col(n: usize, k: usize) -> usize {
+pub(super) fn fold_col(n: usize, k: usize) -> usize {
     if n.is_multiple_of(2) {
         n / 2
     } else {
         k - 1 - n / 2
     }
-}
-
-/// Stage-3 pool task `t = n·n_head + h`: head `h` of key column `c = fold_col(n, k)`, written into
-/// `dst` (`hd` words), gated when `flags[1]`. `flags = [fused, gated]`, `dims = [n_head, hd,
-/// kv_out, q_out, stride, k]`. A refusal goes to `status[0]` and the task returns `Ok`, so the pool
-/// never sees an error and every task runs once.
-///
-/// # Complexity
-///
-/// Time `O(hd · (pos + 1))` words of KV read for the head; no allocation.
-#[allow(
-    clippy::too_many_arguments,
-    clippy::unnecessary_wraps,
-    reason = "flat scalar parameters keep the pool closure one call (Aeneas R2) with no nested region; the pool closure type is Result"
-)]
-fn attn_head_task(
-    kv: &KvState,
-    layer: usize,
-    flags: [bool; 2],
-    prep: &[i64],
-    last: &[usize],
-    dims: [usize; 6],
-    task: usize,
-    dst: &mut [i64],
-    status: &mut [Option<StepError>],
-) -> Result<(), ()> {
-    let [n_head, hd, kv_out, q_out, stride, cols] = dims;
-    let (fold_pos, head) = (task / n_head.max(1), task % n_head.max(1));
-    let col = fold_col(fold_pos, cols);
-    let base = col * stride;
-    let query = &prep[base + head * hd..base + (head + 1) * hd];
-    let read = if flags[0] {
-        kv.attn_head_fused(layer, head, query, last[col], EXACT_SCAN_TILE, dst)
-            .map_err(StepError::Kv)
-    } else {
-        kv.attn_head(layer, head, query, last[col], dst)
-            .map_err(StepError::Kv)
-    };
-    let done = match read {
-        Ok(()) if flags[1] => {
-            let g0 = base + 2 * kv_out + q_out + head * hd;
-            apply_sigmoid_gate(dst, &prep[g0..g0 + hd])
-        }
-        Ok(()) => Ok(()),
-        Err(e) => Err(e),
-    };
-    if let Err(e) = done {
-        status[0] = Some(e);
-    }
-    Ok(())
-}
-
-/// The shared borrows of one attention-head dispatch; `run` is the single call to [`attn_head_task`].
-struct AttnHeadCtx<'a> {
-    kv: &'a KvState,
-    layer: usize,
-    flags: [bool; 2],
-    prep: &'a [i64],
-    last: &'a [usize],
-    dims: [usize; 6],
-}
-
-impl Task2<i64, Option<StepError>, ()> for AttnHeadCtx<'_> {
-    fn run(&self, t: usize, dst: &mut [i64], st: &mut [Option<StepError>]) -> Result<(), ()> {
-        attn_head_task(
-            self.kv, self.layer, self.flags, self.prep, self.last, self.dims, t, dst, st,
-        )
-    }
-}
-
-/// The shared borrows of one query-head attention read; `run` is the single call to [`query_head_attn`].
-struct QueryHeadCtx<'a> {
-    kv: &'a KvState,
-    slot: usize,
-    query: &'a [i64],
-    hd: usize,
-    appended: usize,
-}
-
-impl HeadTask<i64, AttnError> for QueryHeadCtx<'_> {
-    fn run(&self, h: usize, dst: &mut [i64]) -> Result<(), AttnError> {
-        query_head_attn(
-            self.kv,
-            self.slot,
-            self.query,
-            self.hd,
-            self.appended,
-            h,
-            dst,
-        )
-    }
-}
-
-/// One head of the query read: the `hd`-wide slice of `query` for head `h`, attended over `appended` positions.
-fn query_head_attn(
-    kv: &KvState,
-    slot: usize,
-    query: &[i64],
-    hd: usize,
-    appended: usize,
-    h: usize,
-    dst: &mut [i64],
-) -> Result<(), AttnError> {
-    kv.attn_head(slot, h, &query[h * hd..(h + 1) * hd], appended, dst)
-}
-
-/// The shared borrows of one column's stage-1 preparation; `run` is the single call to [`prep_column`].
-struct PrepColCtx<'a> {
-    qkv: &'a [Vec<Vec<i64>>],
-    vectors: &'a DecodeVectors,
-    layer: usize,
-    /// `[n_head, hd, q_out, kv_out, pos0]`.
-    dims: [usize; 5],
-    gated: bool,
-    eps: i64,
-    table: &'a crate::engine::rope::RopeTable,
-}
-
-impl HeadTask<i64, StepError> for PrepColCtx<'_> {
-    fn run(&self, c: usize, dst: &mut [i64]) -> Result<(), StepError> {
-        prep_column(
-            c,
-            dst,
-            self.qkv,
-            self.vectors,
-            self.layer,
-            self.dims,
-            self.gated,
-            self.eps,
-            self.table,
-        )
-    }
-}
-
-/// Stage 1 for column `c`: the biases, the optional gate split, the QK-norm and rotation, written to
-/// `dst` as `[query | key | value | gate]`. The body is the former pool closure, unchanged.
-#[allow(
-    clippy::too_many_arguments,
-    clippy::index_refutable_slice,
-    reason = "the column's inputs are the call's full state, the geometry is packed in dims; the three biases are read by constant index because an array pattern does not extract"
-)]
-fn prep_column(
-    c: usize,
-    dst: &mut [i64],
-    qkv: &[Vec<Vec<i64>>],
-    vectors: &DecodeVectors,
-    layer: usize,
-    dims: [usize; 5],
-    gated: bool,
-    eps: i64,
-    table: &crate::engine::rope::RopeTable,
-) -> Result<(), StepError> {
-    let [n_head, hd, q_out, kv_out, pos0] = dims;
-    let (mut query, mut key, mut value) = (qkv[0][c].clone(), qkv[1][c].clone(), qkv[2][c].clone());
-    if let Some(bs) = vectors.biases_of(layer) {
-        if let Some(bias) = opt_slice(&bs[0]) {
-            add_assign_fixed(&mut query, bias)?;
-        }
-    }
-    if let Some(bs) = vectors.biases_of(layer) {
-        if let Some(bias) = opt_slice(&bs[1]) {
-            add_assign_fixed(&mut key, bias)?;
-        }
-    }
-    if let Some(bs) = vectors.biases_of(layer) {
-        if let Some(bias) = opt_slice(&bs[2]) {
-            add_assign_fixed(&mut value, bias)?;
-        }
-    }
-    let gate = if gated {
-        let (q, g) = split_query_gate(&query, n_head, hd)?;
-        query = q;
-        g
-    } else {
-        Vec::new()
-    };
-    let pos = u32::try_from(pos0 + c).map_err(|_| StepError::LengthOverflow)?;
-    qk_norm_and_rope(
-        vectors, layer, table, &mut query, &mut key, hd, eps, pos, false,
-    )?;
-    let (dq, rest) = dst.split_at_mut(q_out);
-    let (dk, rest) = rest.split_at_mut(kv_out);
-    let (dv, dg) = rest.split_at_mut(kv_out);
-    if query.len() != q_out || key.len() != kv_out || value.len() != kv_out {
-        return Err(StepError::BadConfig(String::from("attention block widths")));
-    }
-    dq.copy_from_slice(&query);
-    dk.copy_from_slice(&key);
-    dv.copy_from_slice(&value);
-    if gated {
-        dg.copy_from_slice(&gate);
-    }
-    Ok(())
 }
 
 /// The shared borrows of one column's RMS norm; `run` is the single call to [`norm_col`].
@@ -1244,7 +781,11 @@ fn norm_col(
 /// # Complexity
 ///
 /// Time `O(status.len())` key comparisons in one pass; space `O(1)` words (best index and key).
-fn first_by_key(status: &mut [Option<StepError>], k: usize, n_head: usize) -> Option<StepError> {
+pub(super) fn first_by_key(
+    status: &mut [Option<StepError>],
+    k: usize,
+    n_head: usize,
+) -> Option<StepError> {
     match lowest_key(status, k, n_head) {
         Some(best) => status[best].take(),
         None => None,

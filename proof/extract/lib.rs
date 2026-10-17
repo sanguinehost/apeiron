@@ -1448,3 +1448,12 @@ pub mod learn_port;
 // The Q32.32 linear-algebra primitives (`src/learn/solve/`), reached through `solve_port.rs`.
 #[path = "solve_port.rs"]
 pub mod solve_port;
+
+/// Mirror of `crate::learn::solve` for this extraction unit: `src/learn/grad/dense.rs` names
+/// `crate::learn::solve::q32::narrow`, which resolves to the `solve_port` copy of `q32`.
+pub mod learn {
+    /// The real `learn::solve` modules, re-exported at their crate paths.
+    pub mod solve {
+        pub use crate::solve_port::q32;
+    }
+}
