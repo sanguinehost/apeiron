@@ -274,7 +274,9 @@ fn mean_divides_by_tokens_and_mean_diagonal_is_one() {
     g.accumulate(&tape, &c).unwrap();
     let sum = g.finish(Normalisation::Sum).unwrap();
     let mean = g.finish(Normalisation::Mean).unwrap();
-    let md = g.finish(Normalisation::MeanDiagonal { eps: 0.01 }).unwrap();
+    let md = g
+        .finish(Normalisation::MeanDiagonal { eps: 42_949_673 })
+        .unwrap();
     for l in 0..L {
         for (a, b) in [(&sum[l].qkv, &mean[l].qkv), (&sum[l].down, &mean[l].down)] {
             let scaled: Vec<f64> = a.iter().map(|v| v / 3.0).collect();

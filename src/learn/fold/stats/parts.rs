@@ -28,10 +28,13 @@
 //! after it, and the attention scale's root is the floored [`isqrt`]. Their documented bounds set
 //! this module's agreement (`fixed_sin_cos` is within `16·2⁻³²` absolute).
 //!
+//! Every value this module computes is a `Q32.32` word, the rotation tables included. The only
+//! real-arithmetic input is the [`LayerCfg`] pair `eps`/`theta`, the model configuration's own
+//! payload: [`grid1`] decodes each once per call and nothing downstream sees a real.
+//!
 //! Grade `tested` (`tests/learn_fold_parts.rs`); no Lean refinement links this file. Trust boundary:
-//! the `Q32.32` arithmetic on `&[i64]` words, the [`LayerWords`] weight view and the [`RopeTables`]
-//! `f64` view only, not the model loader, the `f64` oracle, `torch`/CUDA codegen, or the rest of
-//! the transfer.
+//! the `Q32.32` arithmetic on `&[i64]` words and the [`LayerWords`] weight view only, not the model
+//! loader, the test's real-arithmetic oracle, `torch`/CUDA codegen, or the rest of the transfer.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -52,7 +55,7 @@ use crate::engine::chart::task::ChunkTask;
 use crate::engine::{rms_norm_fixed, NormError};
 use crate::learn::solve::gemm::{gemm_nt, GemmError};
 use crate::learn::solve::q32::{
-    div_rne, from_grid, ilog2_pos, narrow, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
+    div_rne, ilog2_pos, narrow, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
 };
 use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_ln::{fixed_ln, ONE};
@@ -118,9 +121,9 @@ pub struct LayerCfg {
     pub hidden: usize,
     /// Feed-forward width.
     pub inter: usize,
-    /// `RMSNorm` epsilon.
+    /// `RMSNorm` epsilon, the configuration payload; [`grid1`] decodes it once per call.
     pub eps: f64,
-    /// `RoPE` base; finite and positive.
+    /// `RoPE` base, the configuration payload; finite and positive, decoded by [`grid1`].
     pub theta: f64,
 }
 
@@ -193,19 +196,17 @@ pub struct LayerWords<'a> {
     pub down: &'a [i64],
 }
 
-/// The half-rotation tables [`attn_a`] applies to `q` and `k`, each row-major `[t_max, head_dim]`.
-/// The grid words the forward reads sit beside the `f64` copies, so no entry is re-quantised per
-/// token.
+/// The half-rotation tables [`attn_a`] applies to `q` and `k`, each row-major `[t_max, head_dim]` of
+/// `Q32.32` words straight from [`fixed_sin_cos`]: the forward reads the table with no real-valued
+/// copy beside it, so no entry is re-quantised per token.
 #[derive(Clone, Debug)]
 pub struct RopeTables {
     /// `cos(emb)`, row-major `[t_max, head_dim]`.
-    pub cos: Vec<f64>,
+    pub cos: Vec<i64>,
     /// `sin(emb)`, row-major `[t_max, head_dim]`.
-    pub sin: Vec<f64>,
+    pub sin: Vec<i64>,
     head_dim: usize,
     t_max: usize,
-    cosq: Vec<i64>,
-    sinq: Vec<i64>,
 }
 
 impl RopeTables {
@@ -229,23 +230,20 @@ impl RopeTables {
             *slot = fixed_exp(mul(ln_theta, frac).ok_or(PartsError::OutOfRange)?)
                 .map_err(|_| PartsError::OutOfRange)?;
         }
-        let (mut cosq, mut sinq) = (vec![0_i64; n], vec![0_i64; n]);
+        let (mut cos, mut sin) = (vec![0_i64; n], vec![0_i64; n]);
         for p in 0..t_max {
             let pos = i64::try_from(p).map_err(|_| PartsError::Shape)? << 32;
             for j in 0..hd {
                 let emb = mul(pos, inv[j % half]).ok_or(PartsError::OutOfRange)?;
                 let (s, c) = sin_cos(emb).ok_or(PartsError::OutOfRange)?;
-                (cosq[p * hd + j], sinq[p * hd + j]) = (c, s);
+                (cos[p * hd + j], sin[p * hd + j]) = (c, s);
             }
         }
-        let (cos, sin) = (words_grid(&cosq), words_grid(&sinq));
         Ok(Self {
             cos,
             sin,
             head_dim: hd,
             t_max,
-            cosq,
-            sinq,
         })
     }
 
@@ -294,14 +292,10 @@ fn area(a: usize, b: usize) -> Result<usize, PartsError> {
     a.checked_mul(b).ok_or(PartsError::Shape)
 }
 
-/// One `f64` value as a `Q32.32` word; a value off the grid is refused, never clamped.
+/// One `f64` configuration value as a `Q32.32` word: the model loader's single decode edge, refusing
+/// an off-grid value rather than clamping it.
 fn grid1(x: f64) -> Result<i64, PartsError> {
     to_grid(x, GRID_BOUND).ok_or(PartsError::OutOfRange)
-}
-
-/// A `Q32.32` slice back across the `f64` boundary. `O(len)` time and space.
-pub(crate) fn words_grid(x: &[i64]) -> Vec<f64> {
-    x.iter().map(|&v| from_grid(v)).collect()
 }
 
 /// An exact `i128` `Q64` accumulator rounded once to a `Q32.32` word.
@@ -444,8 +438,8 @@ fn rope_apply(
                 } else {
                     src[base + d - half]
                 };
-                dst[base + d] = mul(src[base + d], rope.cosq[cb + d])
-                    .and_then(|a| mul(r, rope.sinq[cb + d]).and_then(|b| a.checked_add(b)))
+                dst[base + d] = mul(src[base + d], rope.cos[cb + d])
+                    .and_then(|a| mul(r, rope.sin[cb + d]).and_then(|b| a.checked_add(b)))
                     .ok_or(PartsError::OutOfRange)?;
             }
         }
@@ -589,25 +583,17 @@ pub fn attn_a(
     attn_words(cfg, rope, q, k, v, t)
 }
 
-/// `silu(g) = g/(1 + exp(−g))` in `Q32.32`; the exponent saturates at `e²¹`, so a large negative
-/// `g` gives `g·(1+e²¹)⁻¹` with an error below `8·10⁻¹⁰·|g|`.
+/// `silu(g) = g/(1 + exp(−g))` on one `Q32.32` word; the exponent saturates at `e²¹`, so a large
+/// negative `g` gives `g·(1+e²¹)⁻¹` with an error below `8·10⁻¹⁰·|g|`. `None` off the grid. `O(1)`.
 #[must_use]
-pub fn silu(g: f64) -> f64 {
-    match grid1(g) {
-        Ok(x) => silu_word(x).map_or(f64::NAN, from_grid),
-        Err(_) => f64::NAN,
-    }
-}
-
-/// [`silu`] on one `Q32.32` word. `O(1)`.
-fn silu_word(g: i64) -> Option<i64> {
+pub fn silu(g: i64) -> Option<i64> {
     let den = exp_sat(g.checked_neg()?)?.checked_add(ONE)?;
     div(g, den)
 }
 
 /// `silu(g)·u` on words: one `exp`, one division and one product, each rounded once. `O(1)`.
 pub(crate) fn silu_mul(g: i64, u: i64) -> Option<i64> {
-    mul(silu_word(g)?, u)
+    mul(silu(g)?, u)
 }
 
 /// One `Qwen2` decoder layer on a whole sequence (`parts`, lines 83-91) in `Q32.32`: the two

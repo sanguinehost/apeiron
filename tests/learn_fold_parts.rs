@@ -204,6 +204,9 @@ fn naive_attention(
     let scale = 1.0 / (hd as f64).sqrt();
     let mut qr = vec![0.0f64; q.len()];
     let mut kr = vec![0.0f64; k.len()];
+    // The table's words as reals: the single conversion at the rotation boundary.
+    let cs = |i: usize| from_grid(rope.cos[i]);
+    let sn = |i: usize| from_grid(rope.sin[i]);
     for p in 0..t {
         for h in 0..nh {
             let base = p * nh * hd + h * hd;
@@ -213,7 +216,7 @@ fn naive_attention(
                 } else {
                     q[base + d - half]
                 };
-                qr[base + d] = q[base + d] * rope.cos[p * hd + d] + r * rope.sin[p * hd + d];
+                qr[base + d] = q[base + d] * cs(p * hd + d) + r * sn(p * hd + d);
             }
         }
         for h in 0..nkv {
@@ -224,7 +227,7 @@ fn naive_attention(
                 } else {
                     k[base + d - half]
                 };
-                kr[base + d] = k[base + d] * rope.cos[p * hd + d] + r * rope.sin[p * hd + d];
+                kr[base + d] = k[base + d] * cs(p * hd + d) + r * sn(p * hd + d);
             }
         }
     }
@@ -342,8 +345,8 @@ fn rope_at_position_zero_is_the_identity() {
     let rope = RopeTables::new(&cfg, TMAX).unwrap();
     // emb[0, :] = 0, so cos = 1 and sin = 0: x·1 + rot(x)·0 = x. These are exact grid values.
     for j in 0..HD {
-        assert_eq!(rope.cos[j], 1.0);
-        assert_eq!(rope.sin[j], 0.0);
+        assert_eq!(rope.cos[j], ONE);
+        assert_eq!(rope.sin[j], 0);
     }
     // Every other entry is the `f64` oracle within the table's derived bound. Derivation: the
     // frequency `inv[i] = exp(-(2i/hd)·ln theta)` costs the numeric `ln` kernel's 7-unit absolute
@@ -357,7 +360,10 @@ fn rope_at_position_zero_is_the_identity() {
         for j in 0..HD {
             let inv = 1.0 / THETA.powf(2.0 * (j % half) as f64 / HD as f64);
             let emb = p as f64 * inv;
-            let (c, s) = (rope.cos[p * HD + j], rope.sin[p * HD + j]);
+            let (c, s) = (
+                from_grid(rope.cos[p * HD + j]),
+                from_grid(rope.sin[p * HD + j]),
+            );
             assert!(
                 (c - emb.cos()).abs() <= tol,
                 "cos[{p},{j}] {c} vs oracle {} (tol {tol})",
@@ -636,10 +642,10 @@ fn word_path_agrees_with_f64_oracle() {
 
     for _ in 0..16 {
         let g = 3.0 * rng.next_f64();
+        let got = from_grid(silu(q(g)).expect("silu word"));
         assert!(
-            (silu(g) - ref_silu(g)).abs() <= 32.0 * Q,
-            "silu({g}) {} vs oracle {}",
-            silu(g),
+            (got - ref_silu(g)).abs() <= 32.0 * Q,
+            "silu({g}) {got} vs oracle {}",
             ref_silu(g)
         );
     }

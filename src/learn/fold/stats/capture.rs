@@ -66,7 +66,7 @@
 use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
 use crate::engine::chart::task::ChunkTask;
 use crate::learn::grad::model::{Config, Tape};
-use crate::learn::solve::q32::{from_grid, round_q32_even, to_grid, GRID_BOUND};
+use crate::learn::solve::q32::{from_grid, round_q32_even};
 
 /// A refusal from the Gram capture.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,13 +87,17 @@ pub enum Normalisation {
     /// `(Σ_t x_t x_tᵀ) / mean(diag) + eps·I` — the mean-diagonal-1 normalisation `gq_capture` applies
     /// to its output-gradient `HO` (`fold_transfer.py:1322-1323`).
     MeanDiagonal {
-        /// Added to every diagonal entry after the division, as a real value.
-        eps: f64,
+        /// Added to every diagonal entry after the division, as a `Q32.32` word (`0.01` is
+        /// `42_949_673`).
+        eps: i64,
     },
 }
 
 /// One layer's four activation Grams, each row-major `w × w` (`[LayerGrams]`'s field docs name the
 /// width), plus the token count summed into them.
+///
+/// The entries are the accumulator's words rendered once by `from_grid`; `tests/learn_fold_basis.rs`
+/// converts them straight back with `to_grid`, so word-valued fields are what that consumer can take.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LayerGrams {
     /// `Σ_t ln1_out_t ln1_out_tᵀ`, row-major `n_embd × n_embd`.
@@ -226,9 +230,7 @@ impl Grams {
     /// `O(n_layer·(n_embd² + q_out² + n_ff²))` time, one `i64` copy of the accumulator.
     pub fn finish(&self, normalisation: Normalisation) -> Result<Vec<LayerGrams>, CaptureError> {
         let eps_word = match normalisation {
-            Normalisation::MeanDiagonal { eps } => {
-                to_grid(eps, GRID_BOUND).ok_or(CaptureError::Overflow)?
-            }
+            Normalisation::MeanDiagonal { eps } => eps,
             Normalisation::Sum | Normalisation::Mean => 0,
         };
         let mut out = Vec::with_capacity(self.layers.len());
