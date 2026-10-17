@@ -1,82 +1,267 @@
-//! `f64` CPU forward pass of ONE `Qwen2` decoder layer, returning every intermediate the
-//! fold-transfer reads.
-//!
-//! Port of `parts`, `attn_a`, `rms` and `rope_tables` from the read-only spec
+//! `Q32.32` forward pass of ONE `Qwen2` decoder layer, returning every intermediate the
+//! fold-transfer reads: port of `parts`, `attn_a`, `rms` and `rope_tables` in
 //! `~/lanes/port/spec/fold_transfer.py` (`rope_tables:60-64`, `rot:66-68`,
-//! `rms:70-71`, `attn_a:73-81`, `parts:83-92`). On one sequence of `t` tokens and a residual input
-//! `h` (row-major `[t, hidden]`), [`parts`] runs:
+//! `rms:70-71`, `attn_a:73-81`, `parts:83-92`).
 //!
 //! ```text
-//! xa  = rms(h, ln1)                       # [t, hidden]
-//! q   = xa·qᵀ + qb                        # [t, n_head·head_dim]
-//! k   = xa·kᵀ + kb,  v = xa·vᵀ + vb       # [t, n_kv_head·head_dim]
-//! a   = attn_a(q, k, v)                   # rotate-half RoPE, GQA repeat_interleave, causal softmax
-//! mid = h + a·oᵀ                          # [t, hidden]
-//! xf  = rms(mid, ln2)
-//! m   = silu(xf·gateᵀ) · (xf·upᵀ)         # [t, inter]
-//! out = mid + m·downᵀ                     # [t, hidden]
+//! xa = rms(h, ln1); q = xa·qᵀ + qb; k/v likewise          # [t, hidden] → [t, head widths]
+//! a  = attn_a(q, k, v)                   # rotate-half RoPE, GQA repeat, causal softmax
+//! mid = h + a·oᵀ; xf = rms(mid, ln2)
+//! m   = silu(xf·gateᵀ) · (xf·upᵀ); out = mid + m·downᵀ
 //! ```
 //!
-//! Every weight is row-major `[out, in]` exactly as the Python transfer-layer dictionary `TL[l]`
-//! holds it (`fold_transfer.py:117-122`). [`RopeTables`] reproduces `rope_tables`: with
+//! Every weight is row-major `[out, in]` as the transfer-layer dictionary holds it. With
 //! `inv[i] = theta^(-2i/head_dim)` and `emb[t, j] = t · inv[j mod (head_dim/2)]`, the half-rotation
-//! is `x ↦ x·cos(emb) + rot(x)·sin(emb)` with `rot(x) = cat(-x[upper], x[lower])` (`rot`, line 68).
+//! is `x ↦ x·cos(emb) + rot(x)·sin(emb)`, `rot(x) = cat(-x[upper], x[lower])`.
 //!
-//! # Deviations from the Python
+//! The projections are [`gemm_nt`] on the grid, each operand's exact `2⁻ᵏ` panel shift keeping it
+//! inside the primitive's `2³⁶` bound and cancelling on the read-back. Norms, rotation, `SwiGLU` and
+//! the residual adds are serial integer loops: `O(t·width)` is one pass over a projection's output,
+//! so a pool dispatch does not pay. The attention rows are the one pooled task, at
+//! `O(t²·n_head·head_dim)`.
 //!
-//! - The reference computes in `torch.float64` on CUDA (`DEV = "cuda"`), which contracts some
-//!   multiply-adds and evaluates `exp`/`cos`/`sin` in a device library. This port is a portable
-//!   scalar `f64` CPU path with no FMA contraction and the host libm; the recurrence and operand
-//!   order are the reference's, so results agree to `f64` round-off, not bit-for-bit across
-//!   platforms.
-//! - `rope_tables` builds `CHUNK = 512` rows once for the whole run; [`RopeTables::new`] builds
-//!   `t_max` rows for the caller's sequence.
-//! - Refusals are typed ([`PartsError`]) where the reference would raise an opaque `torch`
-//!   broadcasting error or produce a non-finite value from a non-finite `eps`/`theta`. The
-//!   admissible domain is otherwise unchanged.
+//! Deviations: the reference (`torch.float64`, CUDA) contracts multiply-adds and evaluates
+//! `exp`/`cos`/`sin` in a device library, so this carrier agrees to the grid quantum times the
+//! operation's condition growth, not bit-for-bit; refusals are typed ([`PartsError`]).
 //!
-//! # Evidence grade
-//!
-//! `tested`: the gate's `cargo test` on the build path (`tests/learn_fold_parts.rs`). No Lean
-//! refinement links this file; it is not on the extracted fragment.
-//!
-//! # Trust boundary
-//!
-//! Covers the `f64` arithmetic of [`rms`], [`attn_a`], [`parts`] and [`RopeTables::new`] on
-//! `&[f64]` inputs. Not covered: the model loader that produces the weight tensors, any
-//! `torch`/CUDA codegen, and the rest of the transfer (`gptq_*`, the refit steps, KL). Those are
-//! other modules' contracts.
+//! Grade `tested` (`tests/learn_fold_parts.rs`); no Lean refinement links this file. Trust boundary:
+//! the `Q32.32` arithmetic on `&[f64]` inputs and the `f64` grid map only, not the model loader, the
+//! `f64` oracle, `torch`/CUDA codegen, or the rest of the transfer.
 
 #![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
     clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
     clippy::many_single_char_names,
     clippy::needless_range_loop,
     clippy::similar_names,
-    clippy::suboptimal_flops,
     clippy::too_many_lines,
-    reason = "the dense kernels index the row-major `[t, width]` buffers by `r/i/j/k/o/d/h`, name the \
-              head geometry `nh`/`nkv`/`hd` and the residual width `hid` as the reference does, \
-              accumulate `Σ x²` as `x*x` (not `mul_add`) to keep the elementwise arithmetic the \
-              reference's, and cast the position and dimension counts `usize → f64`, a deliberate \
-              lossy cast of a dimension"
+    reason = "the dense kernels index the row-major buffers by `r/i/j/k/o/d/h`, name the head \
+              geometry `nh`/`nkv`/`hd` as the reference does, and cast the position and dimension \
+              counts into the exact `i128` accumulator domain"
 )]
+
+use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
+use crate::engine::chart::task::ChunkTask;
+use crate::learn::solve::gemm::{gemm_nt, GemmError};
+use crate::learn::solve::q32::{
+    from_grid, ilog2_pos, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
+};
+
+/// The integer `Q32.32` scalar kernel the `stats` lanes share: only the series `q32` does not
+/// carry. A real `x` is the word `round(x·2³²)`; products are exact `i128` and every reported word
+/// is rounded once by [`rshift_rne`] (ties to even). Each transcendental is an integer series whose
+/// truncation is stated at its definition.
+pub(crate) mod fx {
+    use super::{ilog2_pos, rshift_rne};
+
+    /// `2³²`, the `Q32.32` scale; `ln 2`, `log₂ e`, `π`, `π/2` rounded; `π/2` in `Q64`.
+    pub(crate) const ONE: i64 = 1 << 32;
+    pub(crate) const LN2: i64 = 2_977_044_472;
+    const LOG2E: i64 = 6_196_328_019;
+    const PI: i64 = 13_493_037_705;
+    const HALF_PI: i64 = 6_746_518_852;
+    const HALF_PI_Q64: i128 = 28_976_077_832_308_490_240;
+    /// `(2n+1)!` and `(2n)!` for `n = 1..=6`.
+    const SIN_F: [i64; 6] = [6, 120, 5_040, 362_880, 39_916_800, 6_227_020_800];
+    const COS_F: [i64; 6] = [2, 24, 720, 40_320, 3_628_800, 479_001_600];
+
+    /// `v` as `i64`, or `None` when it leaves the grid.
+    pub(crate) fn narrow(v: i128) -> Option<i64> {
+        i64::try_from(v).ok()
+    }
+
+    /// `num/den` rounded to nearest, ties to even; `None` when `den == 0`. `O(1)`.
+    pub(crate) fn div_rne(num: i128, den: i128) -> Option<i128> {
+        if den == 0 || num % den == 0 {
+            return if den == 0 { None } else { Some(num / den) };
+        }
+        let (q, r) = (num / den, num % den);
+        let (twice, mag) = (r.checked_mul(2)?.abs(), den.abs());
+        let step = i128::from(twice > mag || (twice == mag && q % 2 != 0));
+        Some(if r > 0 { q + step } else { q - step })
+    }
+
+    /// `a·b` in `Q32.32`, rounded once. `O(1)`.
+    pub(crate) fn mul(a: i64, b: i64) -> Option<i64> {
+        narrow(rshift_rne(i128::from(a) * i128::from(b), 32)?)
+    }
+
+    /// `a/b` in `Q32.32`, rounded once; `None` on a zero divisor or a quotient off the grid.
+    /// `O(1)`.
+    pub(crate) fn div(a: i64, b: i64) -> Option<i64> {
+        narrow(div_rne(i128::from(a) << 32, i128::from(b))?)
+    }
+
+    /// `floor(sqrt v)` by Newton descent from a power-of-two over-estimate: at most seven steps.
+    /// `O(1)`.
+    fn isqrt(v: u128) -> u128 {
+        let Some(b) = ilog2_pos(v) else { return 0 };
+        let mut x: u128 = 1_u128 << (b + 1).div_ceil(2);
+        loop {
+            let y = x.midpoint(v / x);
+            if y >= x {
+                return x;
+            }
+            x = y;
+        }
+    }
+
+    /// `sqrt x` for `x ≥ 0`: the exact integer root of `x·2³²`, truncated by one grid quantum.
+    /// `O(1)`.
+    pub(crate) fn sqrt(x: i64) -> Option<i64> {
+        if x < 0 {
+            return None;
+        }
+        narrow(i128::try_from(isqrt((x as u128) << 32)).ok()?)
+    }
+
+    /// `log₂ x` for `x > 0`: the exponent plus `ln(1+f)/ln 2` from the `atanh` series at `z =
+    /// f/(2+f) ≤ 1/3`, eleven terms, first omitted `2·z²¹/21 < 2⁻³⁵`. `O(1)`.
+    pub(crate) fn log2(x: i64) -> Option<i64> {
+        if x <= 0 {
+            return None;
+        }
+        let e = i64::from(ilog2_pos(x as u128)?);
+        let mant = if e >= 32 {
+            narrow(rshift_rne(i128::from(x), (e - 32) as u32)?)?
+        } else {
+            narrow(i128::from(x) << (32 - e))?
+        };
+        let whole = e.checked_sub(32)?;
+        let u = mant - ONE;
+        if u == 0 {
+            return whole.checked_mul(ONE);
+        }
+        let z = narrow(div_rne(i128::from(u) << 32, i128::from(2 * ONE + u))?)?;
+        let z2 = mul(z, z)?;
+        let (mut term, mut sum) = (z, z);
+        for k in 1..=10_i64 {
+            term = mul(term, z2)?;
+            sum = sum.checked_add(narrow(div_rne(i128::from(term), i128::from(2 * k + 1))?)?)?;
+        }
+        whole
+            .checked_mul(ONE)?
+            .checked_add(mul(sum.checked_mul(2)?, LOG2E)?)
+    }
+
+    /// `2^t`: an exact shift of the `e^y` series at `y = frac·ln 2 ∈ [0, ln 2)`, fourteen terms,
+    /// first omitted below `2⁻³⁹`. `O(1)`.
+    pub(crate) fn exp2(t: i64) -> Option<i64> {
+        let k = t >> 32;
+        let y = mul(t - (k << 32), LN2)?;
+        let (mut term, mut sum) = (ONE, ONE);
+        for n in 1..=14_i64 {
+            term = narrow(div_rne(i128::from(mul(term, y)?), i128::from(n))?)?;
+            sum = sum.checked_add(term)?;
+        }
+        if k >= 0 {
+            narrow(i128::from(sum).checked_shl(u32::try_from(k).ok()?)?)
+        } else {
+            narrow(rshift_rne(
+                i128::from(sum),
+                u32::try_from(k.unsigned_abs()).ok()?,
+            )?)
+        }
+    }
+
+    /// `eˣ`, saturating at `e²¹` (`x ≥ 21`); the saturation costs at most `e⁻²¹ < 8·10⁻¹⁰` of the
+    /// logistic it feeds. `O(1)`.
+    pub(crate) fn exp_sat(x: i64) -> Option<i64> {
+        exp2(mul(x.min(21_i64.checked_mul(ONE)?), LOG2E)?)
+    }
+
+    /// `(sin t, cos t)`: `t` reduced to `r ∈ [−π/4, π/4]` and a quadrant, then the two Taylor
+    /// series to `r¹³/13!` and `r¹²/12!` (first omitted `7·10⁻¹²` and `4·10⁻¹³`). `O(1)`.
+    pub(crate) fn sin_cos(t: i64) -> Option<(i64, i64)> {
+        let t64 = i128::from(t) << 32;
+        let k = div_rne(t64, HALF_PI_Q64)?;
+        let r = narrow(div_rne(t64 - k * HALF_PI_Q64, 1 << 32)?)?;
+        let r2 = mul(r, r)?;
+        let (mut p, mut q, mut s, mut c) = (r, r2, r, ONE);
+        for i in 0..6 {
+            p = mul(p, r2)?;
+            let ts = narrow(div_rne(i128::from(p), i128::from(SIN_F[i]))?)?;
+            let tc = narrow(div_rne(i128::from(q), i128::from(COS_F[i]))?)?;
+            if i % 2 == 0 {
+                s = s.checked_sub(ts)?;
+                c = c.checked_sub(tc)?;
+            } else {
+                s = s.checked_add(ts)?;
+                c = c.checked_add(tc)?;
+            }
+            q = mul(q, r2)?;
+        }
+        Some(match k.rem_euclid(4) {
+            0 => (s, c),
+            1 => (c, s.checked_neg()?),
+            2 => (s.checked_neg()?, c.checked_neg()?),
+            _ => (c.checked_neg()?, s),
+        })
+    }
+
+    /// `atan2(y, x)` on `(−π, π]`: `atan r` for `r ∈ [0, 1]` is reduced twice by `atan r =
+    /// 2·atan(r/(1 + √(1+r²)))` to `t ≤ tan(π/16)` and summed to `t¹⁹`. `O(1)`.
+    pub(crate) fn atan2(y: i64, x: i64) -> Option<i64> {
+        if x == 0 && y == 0 {
+            return Some(0);
+        }
+        let (ax, ay) = (x.checked_abs()?, y.checked_abs()?);
+        let (mut r, flip) = if ax >= ay {
+            (div(ay, ax)?, false)
+        } else {
+            (div(ax, ay)?, true)
+        };
+        for _ in 0..2 {
+            let s = sqrt(ONE.checked_add(mul(r, r)?)?)?;
+            r = div(r, ONE.checked_add(s)?)?;
+        }
+        let (r2, mut p, mut sum) = (mul(r, r)?, r, r);
+        for k in 1..=9_i64 {
+            p = mul(p, r2)?;
+            let term = narrow(div_rne(i128::from(p), i128::from(2 * k + 1))?)?;
+            sum = if k % 2 == 0 {
+                sum.checked_add(term)?
+            } else {
+                sum.checked_sub(term)?
+            };
+        }
+        let mut a = sum.checked_mul(4)?;
+        if flip {
+            a = HALF_PI.checked_sub(a)?;
+        }
+        if x < 0 {
+            a = PI.checked_sub(a)?;
+        }
+        if y < 0 {
+            a = a.checked_neg()?;
+        }
+        Some(a)
+    }
+
+    /// `min(1, max(0, x))` over grid words. `O(1)`.
+    pub(crate) fn clamp01(x: i64) -> i64 {
+        x.clamp(0, ONE)
+    }
+}
 
 /// The geometry of one `Qwen2` decoder layer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LayerCfg {
-    /// Query head count (`num_attention_heads`).
+    /// Query head count.
     pub n_head: usize,
-    /// Key/value head count (`num_key_value_heads`); `n_head % n_kv_head == 0` is required.
+    /// Key/value head count; `n_head % n_kv_head == 0` is required.
     pub n_kv_head: usize,
-    /// Per-head width (`head_dim`); even.
+    /// Per-head width; even.
     pub head_dim: usize,
-    /// Residual stream width; `hidden == n_head * head_dim` is required.
+    /// Residual width; `hidden == n_head * head_dim` is required.
     pub hidden: usize,
-    /// Feed-forward width (`intermediate_size`).
+    /// Feed-forward width.
     pub inter: usize,
     /// `RMSNorm` epsilon.
     pub eps: f64,
-    /// `RoPE` base (`rope_theta`); finite and positive.
+    /// `RoPE` base; finite and positive.
     pub theta: f64,
 }
 
@@ -108,54 +293,50 @@ impl LayerCfg {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PartsError {
     /// A slice length disagrees with the declared shape, a dimension product left `usize`, or the
-    /// head geometry is invalid (`n_kv_head == 0`, `n_head % n_kv_head != 0`, an odd `head_dim`, or
-    /// `hidden != n_head * head_dim`).
+    /// head geometry is invalid.
     Shape,
     /// `eps` is not finite, or `theta` is not a finite positive value.
     NonFinite,
     /// The sequence length `t` exceeds the `t_max` the [`RopeTables`] were built for.
     RopeTooShort,
+    /// A value is outside the `Q32.32` grid or a rounded result left it, including the `gemm` bound
+    /// refusal. The entry points refuse instead of saturating.
+    OutOfRange,
 }
 
-/// The twelve `f64` weight tensors of one `Qwen2` decoder layer, each row-major `[out, in]`.
-///
-/// The fields mirror the Python transfer-layer dictionary keys (`fold_transfer.py:117-122`); the
-/// output-projection, gate, up and down tensors have no bias in `Qwen2`, so only `q`/`k`/`v` carry
-/// one.
+/// The twelve `f64` weight tensors of one `Qwen2` decoder layer, each row-major as the transfer
+/// dictionary holds it.
 #[derive(Clone, Copy, Debug)]
 pub struct LayerF64<'a> {
     /// `input_layernorm.weight`, length `hidden`.
     pub ln1: &'a [f64],
     /// `post_attention_layernorm.weight`, length `hidden`.
     pub ln2: &'a [f64],
-    /// `self_attn.q_proj.weight`, row-major `[n_head·head_dim, hidden]`.
+    /// `q_proj.weight`, `[n_head·head_dim, hidden]`.
     pub q: &'a [f64],
-    /// `self_attn.q_proj.bias`, length `n_head·head_dim`.
+    /// `q_proj.bias`, length `n_head·head_dim`.
     pub qb: &'a [f64],
-    /// `self_attn.k_proj.weight`, row-major `[n_kv_head·head_dim, hidden]`.
+    /// `k_proj.weight`, `[n_kv_head·head_dim, hidden]`.
     pub k: &'a [f64],
-    /// `self_attn.k_proj.bias`, length `n_kv_head·head_dim`.
+    /// `k_proj.bias`, length `n_kv_head·head_dim`.
     pub kb: &'a [f64],
-    /// `self_attn.v_proj.weight`, row-major `[n_kv_head·head_dim, hidden]`.
+    /// `v_proj.weight`, `[n_kv_head·head_dim, hidden]`.
     pub v: &'a [f64],
-    /// `self_attn.v_proj.bias`, length `n_kv_head·head_dim`.
+    /// `v_proj.bias`, length `n_kv_head·head_dim`.
     pub vb: &'a [f64],
-    /// `self_attn.o_proj.weight`, row-major `[hidden, n_head·head_dim]`.
+    /// `o_proj.weight`, `[hidden, n_head·head_dim]`.
     pub o: &'a [f64],
-    /// `mlp.gate_proj.weight`, row-major `[inter, hidden]`.
+    /// `gate_proj.weight`, `[inter, hidden]`.
     pub gate: &'a [f64],
-    /// `mlp.up_proj.weight`, row-major `[inter, hidden]`.
+    /// `up_proj.weight`, `[inter, hidden]`.
     pub up: &'a [f64],
-    /// `mlp.down_proj.weight`, row-major `[hidden, inter]`.
+    /// `down_proj.weight`, `[hidden, inter]`.
     pub down: &'a [f64],
 }
 
-/// The half-rotation tables [`attn_a`] applies to `q` and `k`.
-///
-/// `cos` and `sin` are each row-major `[t_max, head_dim]`, with
-/// `emb[t, j] = t · theta^(-2·(j mod head_dim/2)/head_dim)` (`rope_tables`, lines 60-64): the
-/// frequency vector is concatenated with itself, so the second half of a head rotates with the same
-/// angle as the first.
+/// The half-rotation tables [`attn_a`] applies to `q` and `k`, each row-major `[t_max, head_dim]`.
+/// The grid words the forward reads sit beside the `f64` copies, so no entry is re-quantised per
+/// token.
 #[derive(Clone, Debug)]
 pub struct RopeTables {
     /// `cos(emb)`, row-major `[t_max, head_dim]`.
@@ -164,39 +345,47 @@ pub struct RopeTables {
     pub sin: Vec<f64>,
     head_dim: usize,
     t_max: usize,
+    cosq: Vec<i64>,
+    sinq: Vec<i64>,
 }
 
 impl RopeTables {
     /// Build the tables for `t_max` positions. `O(t_max·head_dim)` time and space.
-    ///
     /// # Errors
-    /// [`PartsError::Shape`] if the geometry is invalid or `t_max·head_dim` leaves `usize`;
-    /// [`PartsError::NonFinite`] if `eps`/`theta` is not a finite positive value.
+    /// [`PartsError::Shape`] on an invalid geometry; [`PartsError::NonFinite`] for a non-finite
+    /// `eps`/`theta`; [`PartsError::OutOfRange`] for `theta` or an entry outside the grid.
     pub fn new(cfg: &LayerCfg, t_max: usize) -> Result<Self, PartsError> {
         cfg.validate()?;
-        let hd = cfg.head_dim;
-        let half = hd / 2;
+        let (hd, half) = (cfg.head_dim, cfg.head_dim / 2);
         let n = t_max.checked_mul(hd).ok_or(PartsError::Shape)?;
-        let mut cos = vec![0.0f64; n];
-        let mut sin = vec![0.0f64; n];
-        let mut inv = vec![0.0f64; half];
-        for i in 0..half {
-            let e = (2.0 * i as f64) / (hd as f64);
-            inv[i] = 1.0 / cfg.theta.powf(e);
+        let log_theta = fx::log2(grid1(cfg.theta)?).ok_or(PartsError::OutOfRange)?;
+        let mut inv = vec![0_i64; half];
+        for (i, slot) in inv.iter_mut().enumerate() {
+            // theta^(-2i/head_dim) = 2^(-(2i/head_dim)·log₂ theta)
+            let e = i128::from(2 * i as i64) << 32;
+            let frac = fx::div_rne(-e, i128::try_from(hd).map_err(|_| PartsError::Shape)?)
+                .and_then(fx::narrow)
+                .ok_or(PartsError::OutOfRange)?;
+            *slot = fx::exp2(fx::mul(log_theta, frac).ok_or(PartsError::OutOfRange)?)
+                .ok_or(PartsError::OutOfRange)?;
         }
+        let (mut cosq, mut sinq) = (vec![0_i64; n], vec![0_i64; n]);
         for p in 0..t_max {
-            let base = p * hd;
+            let pos = i64::try_from(p).map_err(|_| PartsError::Shape)? << 32;
             for j in 0..hd {
-                let emb = (p as f64) * inv[j % half];
-                cos[base + j] = emb.cos();
-                sin[base + j] = emb.sin();
+                let emb = fx::mul(pos, inv[j % half]).ok_or(PartsError::OutOfRange)?;
+                let (s, c) = fx::sin_cos(emb).ok_or(PartsError::OutOfRange)?;
+                (cosq[p * hd + j], sinq[p * hd + j]) = (c, s);
             }
         }
+        let (cos, sin) = (words_grid(&cosq), words_grid(&sinq));
         Ok(Self {
             cos,
             sin,
             head_dim: hd,
             t_max,
+            cosq,
+            sinq,
         })
     }
 
@@ -218,25 +407,25 @@ impl RopeTables {
 pub struct Parts {
     /// `rms(h, ln1)`, `[t, hidden]`.
     pub xa: Vec<f64>,
-    /// Query projection `xa·qᵀ + qb`, `[t, n_head·head_dim]`.
+    /// Query projection, `[t, n_head·head_dim]`.
     pub q: Vec<f64>,
-    /// Key projection `xa·kᵀ + kb`, `[t, n_kv_head·head_dim]`.
+    /// Key projection, `[t, n_kv_head·head_dim]`.
     pub k: Vec<f64>,
-    /// Value projection `xa·vᵀ + vb`, `[t, n_kv_head·head_dim]`.
+    /// Value projection, `[t, n_kv_head·head_dim]`.
     pub v: Vec<f64>,
     /// Causal GQA attention output, `[t, n_head·head_dim]`.
     pub a: Vec<f64>,
-    /// Residual after attention, `h + a·oᵀ`, `[t, hidden]`.
+    /// Residual after attention, `[t, hidden]`.
     pub mid: Vec<f64>,
     /// `rms(mid, ln2)`, `[t, hidden]`.
     pub xf: Vec<f64>,
-    /// Gate projection `xf·gateᵀ`, `[t, inter]`.
+    /// Gate projection, `[t, inter]`.
     pub g: Vec<f64>,
-    /// Up projection `xf·upᵀ`, `[t, inter]`.
+    /// Up projection, `[t, inter]`.
     pub u: Vec<f64>,
     /// `silu(g)·u`, `[t, inter]`.
     pub m: Vec<f64>,
-    /// Layer output `mid + m·downᵀ`, `[t, hidden]`.
+    /// Layer output, `[t, hidden]`.
     pub out: Vec<f64>,
 }
 
@@ -245,22 +434,76 @@ fn area(a: usize, b: usize) -> Result<usize, PartsError> {
     a.checked_mul(b).ok_or(PartsError::Shape)
 }
 
-/// `silu(g) = g·sigmoid(g) = g / (1 + exp(-g))`, `O(1)`.
-#[must_use]
-pub fn silu(g: f64) -> f64 {
-    g / (1.0 + (-g).exp())
+/// One `f64` value as a `Q32.32` word; a value off the grid is refused, never clamped.
+fn grid1(x: f64) -> Result<i64, PartsError> {
+    to_grid(x, GRID_BOUND).ok_or(PartsError::OutOfRange)
 }
 
-/// Row-major dense projection `out[r, o] = bias[o] + Σ_i w[o, i]·x[r, i]`.
-///
-/// # Complexity
-///
-/// Time `O(t·out_w·in_w)` multiply-adds; space `O(t·out_w)` for the output. Derivation: per output
-/// row `r` and column `o` the inner loop is a length-`in_w` dot product, and the `t·out_w` rows and
-/// columns are independent.
-///
+/// A whole `f64` slice as `Q32.32` words. `O(len)` time and space.
+fn grid_words(x: &[f64]) -> Result<Vec<i64>, PartsError> {
+    x.iter().map(|&v| grid1(v)).collect()
+}
+
+/// A `Q32.32` slice back across the `f64` boundary. `O(len)` time and space.
+pub(crate) fn words_grid(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&v| from_grid(v)).collect()
+}
+
+/// An exact `i128` `Q64` accumulator rounded once to a `Q32.32` word.
+fn round64(acc: i128) -> Result<i64, PartsError> {
+    round_q32_even(acc).map_err(|_| PartsError::OutOfRange)
+}
+
+/// The least `k ≥ 0` with `max·2⁻ᵏ < 2³⁵` raw: one bit below the `gemm`/`wsyrk` bound `2³⁶`.
+fn panel_shift(max_mag: u128) -> u32 {
+    ilog2_pos(max_mag).map_or(0, |b| (b + 1).saturating_sub(35))
+}
+
+/// A power-of-two shift of a grid slice: right by `k > 0` (round-to-nearest, ties to even), an
+/// exact checked left shift by `−k`, the identity at `0`. `None` when a result leaves `i64`;
+/// `O(len)`.
+pub(crate) fn shift(a: &mut [i64], k: i32) -> Option<()> {
+    if k == 0 {
+        return Some(());
+    }
+    for v in a {
+        *v = if k > 0 {
+            fx::narrow(rshift_rne(i128::from(*v), u32::try_from(k).ok()?)?)?
+        } else {
+            fx::narrow(i128::from(*v).checked_shl(k.unsigned_abs())?)?
+        };
+    }
+    Some(())
+}
+
+/// `v` brought inside the `gemm` input bound: the exact `2⁻ᵏ` shift from [`panel_shift`], and `k`
+/// to undo on the product. `O(len)` time and space.
+pub(crate) fn panel(v: &[i64]) -> Option<(Vec<i64>, i32)> {
+    let max = v
+        .iter()
+        .fold(0_u128, |m, &x| m.max(i128::from(x).unsigned_abs()));
+    let k = i32::try_from(panel_shift(max)).ok()?;
+    let mut out = v.to_vec();
+    shift(&mut out, k)?;
+    Some((out, k))
+}
+
+/// [`GemmError`] as a [`PartsError`]: a shape or zero dimension is [`PartsError::Shape`], a bound
+/// or overflow refusal is [`PartsError::OutOfRange`].
+pub(crate) fn map_gemm(e: GemmError) -> PartsError {
+    match e {
+        GemmError::ZeroDim | GemmError::ShapeMismatch => PartsError::Shape,
+        GemmError::InputBound | GemmError::Overflow => PartsError::OutOfRange,
+    }
+}
+
+/// Row-major dense projection `out[r,o] = bias[o] + Σ_i w[o,i]·x[r,i]` at the `f64` boundary.
 /// # Errors
-/// [`PartsError::Shape`] if any slice length disagrees with the declared shape.
+/// [`PartsError::Shape`] on a length disagreement; [`PartsError::OutOfRange`] when a value or a
+/// rounded entry leaves the grid.
+/// # Complexity
+/// Time `O(t·out_w·in_w)` multiply-adds pooled over rows inside [`gemm_nt`]; space `O(t·out_w +
+/// t·in_w + out_w·in_w)`.
 pub fn linear(
     x: &[f64],
     t: usize,
@@ -269,6 +512,30 @@ pub fn linear(
     bias: Option<&[f64]>,
     out_w: usize,
 ) -> Result<Vec<f64>, PartsError> {
+    let bw = match bias {
+        Some(b) => Some(grid_words(b)?),
+        None => None,
+    };
+    let out = linear_words(
+        &grid_words(x)?,
+        t,
+        in_w,
+        &grid_words(w)?,
+        bw.as_deref(),
+        out_w,
+    )?;
+    Ok(words_grid(&out))
+}
+
+/// `linear` on `Q32.32` words: the two shifted panels through [`gemm_nt`], the shift undone once.
+fn linear_words(
+    x: &[i64],
+    t: usize,
+    in_w: usize,
+    w: &[i64],
+    bias: Option<&[i64]>,
+    out_w: usize,
+) -> Result<Vec<i64>, PartsError> {
     if x.len() != area(t, in_w)? || w.len() != area(out_w, in_w)? {
         return Err(PartsError::Shape);
     }
@@ -277,107 +544,224 @@ pub fn linear(
             return Err(PartsError::Shape);
         }
     }
-    let mut out = vec![0.0f64; area(t, out_w)?];
-    for r in 0..t {
-        let xrow = &x[r * in_w..r * in_w + in_w];
-        let orow = &mut out[r * out_w..r * out_w + out_w];
-        for o in 0..out_w {
-            let wrow = &w[o * in_w..o * in_w + in_w];
-            let mut acc = bias.map_or(0.0, |b| b[o]);
-            for i in 0..in_w {
-                acc += wrow[i] * xrow[i];
-            }
-            orow[o] = acc;
+    let (xs, kx) = panel(x).ok_or(PartsError::OutOfRange)?;
+    let (ws, kw) = panel(w).ok_or(PartsError::OutOfRange)?;
+    let mut out = gemm_nt(&xs, &ws, t, in_w, out_w).map_err(map_gemm)?;
+    shift(&mut out, -(kx + kw)).ok_or(PartsError::OutOfRange)?;
+    if let Some(b) = bias {
+        for (slot, &bias) in out.iter_mut().zip(b.iter().cycle().take(t * out_w)) {
+            *slot = slot.checked_add(bias).ok_or(PartsError::OutOfRange)?;
         }
     }
     Ok(out)
 }
 
-/// `RMSNorm` over rows: `out[r, j] = w[j] · x[r, j] / sqrt(mean_j(x[r, :]²) + eps)` (`rms`, line 71).
-///
-/// # Complexity
-///
-/// Time `O(t·width)` multiply-adds plus `t` square roots and `t` divisions; space `O(t·width)` for
-/// the output. Derivation: one length-`width` sum of squares and one `width` scale per row, rows
-/// independent.
-///
+/// `RMSNorm` over rows: `out[r,j] = w[j]·x[r,j]/sqrt(mean_j(x[r,:]²) + eps)`. One serial pass per
+/// row, an order below one projection.
 /// # Errors
-/// [`PartsError::Shape`] if `x.len() != t·width`, `w.len() != width`, or `width == 0`;
-/// [`PartsError::NonFinite`] if `eps` is not finite.
+/// [`PartsError::Shape`] when a length disagrees with `t`×`width` or `width == 0`;
+/// [`PartsError::NonFinite`] if `eps` is not finite; [`PartsError::OutOfRange`] when a value or a
+/// rounded result leaves the grid.
+/// # Complexity
+/// Time `O(t·width)` multiply-adds plus `t` integer roots and reciprocals; space `O(t·width)`.
+fn rms_words(
+    x: &[i64],
+    w: &[i64],
+    eps: f64,
+    t: usize,
+    width: usize,
+) -> Result<Vec<i64>, PartsError> {
+    let n = area(t, width)?;
+    if width == 0 || x.len() != n || w.len() != width {
+        return Err(PartsError::Shape);
+    }
+    let eps = grid1(eps)?;
+    let mut out = vec![0_i64; n];
+    for r in 0..t {
+        let row = &x[r * width..][..width];
+        let mut ss: i128 = 0;
+        for &v in row {
+            ss += i128::from(v) * i128::from(v);
+        }
+        // mean = ss/(2³²·width) in Q32.32, one rounding, then + eps.
+        let mean = fx::div_rne(
+            ss,
+            i128::try_from(width).map_err(|_| PartsError::Shape)? << 32,
+        )
+        .and_then(fx::narrow)
+        .ok_or(PartsError::OutOfRange)?;
+        let denom = fx::sqrt(mean.checked_add(eps).ok_or(PartsError::OutOfRange)?)
+            .and_then(|s| fx::div(fx::ONE, s))
+            .ok_or(PartsError::OutOfRange)?;
+        for (slot, (&v, &wj)) in out[r * width..][..width].iter_mut().zip(row.iter().zip(w)) {
+            *slot = fx::mul(wj, fx::mul(v, denom).ok_or(PartsError::OutOfRange)?)
+                .ok_or(PartsError::OutOfRange)?;
+        }
+    }
+    Ok(out)
+}
+
+/// `RMSNorm` over rows at the `f64` boundary of [`rms_words`].
+/// # Errors
+/// As [`rms_words`].
+/// # Complexity
+/// As [`rms_words`], plus `O(t·width)` grid conversions.
 pub fn rms(x: &[f64], w: &[f64], eps: f64, t: usize, width: usize) -> Result<Vec<f64>, PartsError> {
     if !eps.is_finite() {
         return Err(PartsError::NonFinite);
     }
-    if width == 0 {
-        return Err(PartsError::Shape);
-    }
-    let n = area(t, width)?;
-    if x.len() != n || w.len() != width {
-        return Err(PartsError::Shape);
-    }
-    let mut out = vec![0.0f64; n];
-    let wf = width as f64;
-    for r in 0..t {
-        let row = &x[r * width..r * width + width];
-        let mut ss = 0.0f64;
-        for &v in row {
-            ss += v * v;
-        }
-        let inv = 1.0 / (ss / wf + eps).sqrt();
-        let dst = &mut out[r * width..r * width + width];
-        for j in 0..width {
-            dst[j] = w[j] * (row[j] * inv);
-        }
-    }
-    Ok(out)
+    let out = rms_words(&grid_words(x)?, &grid_words(w)?, eps, t, width)?;
+    Ok(words_grid(&out))
 }
 
-/// Apply the `RoPE` half-rotation in place to `src` (row-major `[t, n_head·head_dim]`), writing
-/// `dst`: `dst = src·cos(emb) + rot(src)·sin(emb)` with `rot(x) = cat(-x[upper], x[lower])`
-/// (`rot`, line 68). `O(t·n_head·head_dim)`; `dst` and `src` are the same shape.
-fn rope_apply(dst: &mut [f64], src: &[f64], t: usize, n_head: usize, hd: usize, rope: &RopeTables) {
+/// The `RoPE` half-rotation: `dst = src·cos(emb) + rot(src)·sin(emb)`, two rounded products and one
+/// rounded sum per entry. `O(t·n_head·head_dim)`, serial as one pass over a projection's output.
+fn rope_apply(
+    dst: &mut [i64],
+    src: &[i64],
+    t: usize,
+    n_head: usize,
+    hd: usize,
+    rope: &RopeTables,
+) -> Result<(), PartsError> {
     let half = hd / 2;
     for p in 0..t {
-        let row = p * n_head * hd;
         let cb = p * hd;
         for h in 0..n_head {
-            let base = row + h * hd;
+            let base = p * n_head * hd + h * hd;
             for d in 0..hd {
-                let c = rope.cos[cb + d];
-                let s = rope.sin[cb + d];
-                let x = src[base + d];
                 let r = if d < half {
                     -src[base + d + half]
                 } else {
                     src[base + d - half]
                 };
-                dst[base + d] = x * c + r * s;
+                dst[base + d] = fx::mul(src[base + d], rope.cosq[cb + d])
+                    .and_then(|a| fx::mul(r, rope.sinq[cb + d]).and_then(|b| a.checked_add(b)))
+                    .ok_or(PartsError::OutOfRange)?;
             }
+        }
+    }
+    Ok(())
+}
+
+/// One contiguous `(query position, head)` row chunk of [`attn_words`]: the row owns its scores and
+/// its value accumulator, and reads only the rotated `q`/`k` and the values.
+struct AttnRows<'a> {
+    cfg: &'a LayerCfg,
+    qr: &'a [i64],
+    kr: &'a [i64],
+    v: &'a [i64],
+    t: usize,
+    scale: i64,
+    first: &'a FirstErr<usize, PartsError>,
+}
+
+impl AttnRows<'_> {
+    /// The rows of `piece`, each scoring keys `j ≤ i` and normalising by its softmax denominator.
+    fn rows(&self, start: usize, piece: &mut [i64]) -> Result<(), PartsError> {
+        let (hd, nh, nkv) = (self.cfg.head_dim, self.cfg.n_head, self.cfg.n_kv_head);
+        let (rep, row0) = (nh / nkv, start / hd);
+        let mut scores = vec![0_i64; self.t];
+        let mut acc = vec![0_i64; hd];
+        for (r, out) in piece.chunks_mut(hd).enumerate() {
+            let (i, h) = ((row0 + r) / nh, (row0 + r) % nh);
+            let (gbase, qbase) = ((h / rep) * hd, i * nh * hd + h * hd);
+            let mut row_max = i64::MIN;
+            for (j, slot) in scores.iter_mut().enumerate().take(i + 1) {
+                let kbase = j * nkv * hd + gbase;
+                let mut dot: i128 = 0;
+                for d in 0..hd {
+                    dot += i128::from(self.qr[qbase + d]) * i128::from(self.kr[kbase + d]);
+                }
+                *slot = fx::mul(round64(dot)?, self.scale).ok_or(PartsError::OutOfRange)?;
+                row_max = row_max.max(*slot);
+            }
+            acc.fill(0);
+            let mut denom: i64 = 0;
+            for j in 0..=i {
+                let e = scores[j]
+                    .checked_sub(row_max)
+                    .and_then(fx::exp_sat)
+                    .ok_or(PartsError::OutOfRange)?;
+                denom = denom.checked_add(e).ok_or(PartsError::OutOfRange)?;
+                let vbase = j * nkv * hd + gbase;
+                for (a, &v) in acc.iter_mut().zip(&self.v[vbase..][..hd]) {
+                    let t = fx::mul(e, v).ok_or(PartsError::OutOfRange)?;
+                    *a = a.checked_add(t).ok_or(PartsError::OutOfRange)?;
+                }
+            }
+            for (o, &a) in out.iter_mut().zip(&acc) {
+                *o = fx::div(a, denom).ok_or(PartsError::OutOfRange)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl ChunkTask<i64> for AttnRows<'_> {
+    fn run(&self, c: usize, start: usize, piece: &mut [i64]) {
+        if let Err(e) = self.rows(start, piece) {
+            self.first.record(c, e);
         }
     }
 }
 
-/// Causal grouped-query attention with rotate-half `RoPE` (`attn_a`, lines 73-81).
-///
-/// `q` is row-major `[t, n_head·head_dim]`, `k` and `v` are `[t, n_kv_head·head_dim]`. Each query
-/// and key head is rotated with [`RopeTables`]; the `n_kv_head` key/value heads are expanded to
-/// `n_head` by `repeat_interleave(n_head / n_kv_head)`, so head `h` reads kv head
-/// `h / (n_head / n_kv_head)`. Attention is the scaled dot product with scale
-/// `1/sqrt(head_dim)` and a causal mask: query position `i` attends to key positions `j ≤ i` only.
-/// Returns row-major `[t, n_head·head_dim]`.
-///
-/// # Complexity
-///
-/// Time `O(t·(n_head + n_kv_head)·head_dim)` for the two rotations plus
-/// `O(t²·n_head·head_dim)` for the scores and the value accumulation; space `O(t·(n_head +
-/// n_kv_head)·head_dim + t + head_dim)` beyond the output. Derivation: rotation is linear in the
-/// token count; for each head the query `i` scores against `i + 1` keys, each a length-`head_dim`
-/// dot product and a length-`head_dim` value update, and `Σ_{i<t}(i + 1) = t(t + 1)/2`.
-///
+/// [`attn_a`] on `Q32.32` words: the rotated `q`/`k`, one pooled pass over the row chunks.
+fn attn_words(
+    cfg: &LayerCfg,
+    rope: &RopeTables,
+    q: &[i64],
+    k: &[i64],
+    v: &[i64],
+    t: usize,
+) -> Result<Vec<i64>, PartsError> {
+    let (nh, nkv, hd) = (cfg.n_head, cfg.n_kv_head, cfg.head_dim);
+    let qt = area(area(t, nh)?, hd)?;
+    let kt = area(area(t, nkv)?, hd)?;
+    if q.len() != qt || k.len() != kt || v.len() != kt {
+        return Err(PartsError::Shape);
+    }
+    let root = fx::sqrt(i64::try_from(hd).map_err(|_| PartsError::Shape)? << 32)
+        .ok_or(PartsError::OutOfRange)?;
+    let scale = fx::div(fx::ONE, root).ok_or(PartsError::OutOfRange)?;
+    let (mut qr, mut kr) = (vec![0_i64; qt], vec![0_i64; kt]);
+    rope_apply(&mut qr, q, t, nh, hd, rope)?;
+    rope_apply(&mut kr, k, t, nkv, hd, rope)?;
+    let mut out = vec![0_i64; qt];
+    let first = FirstErr::new();
+    let chunk = (t * nh).div_ceil(width_global()).max(1) * hd;
+    chunks_mut_global(
+        &mut out,
+        chunk,
+        &AttnRows {
+            cfg,
+            qr: &qr,
+            kr: &kr,
+            v,
+            t,
+            scale,
+            first: &first,
+        },
+    );
+    match first.take() {
+        Some((_, e)) => Err(e),
+        None => Ok(out),
+    }
+}
+
+/// Causal grouped-query attention with rotate-half `RoPE` (`attn_a`, lines 73-81) in `Q32.32`. `q`
+/// is row-major `[t, n_head·head_dim]`, `k` and `v` are `[t, n_kv_head·head_dim]`. Head `h` reads
+/// kv head `h / (n_head / n_kv_head)`, the scale is `1/sqrt(head_dim)`, and query position `i`
+/// attends to `j ≤ i`. Returns row-major `[t, n_head·head_dim]`.
 /// # Errors
 /// [`PartsError::Shape`] for an invalid geometry or a slice that is not the stated shape;
-/// [`PartsError::NonFinite`] for non-finite `eps`/`theta`; [`PartsError::RopeTooShort`] if
-/// `t > rope.t_max`, or if `rope.head_dim` differs from `cfg.head_dim`.
+/// [`PartsError::NonFinite`] for non-finite `eps`/`theta`; [`PartsError::RopeTooShort`] if `t >
+/// rope.t_max` or `rope.head_dim` differs from `cfg.head_dim`; [`PartsError::OutOfRange`] when a
+/// value or a rounded result leaves the grid.
+/// # Complexity
+/// Time `O(t²·n_head·head_dim + t·(n_head + n_kv_head)·head_dim)` over `width_global()` contiguous
+/// `(position, head)` chunks (each row scores `i+1` keys and updates `i+1` values); space
+/// `O(t·(n_head + n_kv_head)·head_dim + t + head_dim)`.
 pub fn attn_a(
     cfg: &LayerCfg,
     rope: &RopeTables,
@@ -393,79 +777,52 @@ pub fn attn_a(
     if t > rope.t_max {
         return Err(PartsError::RopeTooShort);
     }
-    let nh = cfg.n_head;
-    let nkv = cfg.n_kv_head;
-    let hd = cfg.head_dim;
-    let qt = area(area(t, nh)?, hd)?;
-    let kt = area(area(t, nkv)?, hd)?;
-    if q.len() != qt || k.len() != kt || v.len() != kt {
-        return Err(PartsError::Shape);
-    }
-    let scale = 1.0 / (hd as f64).sqrt();
-    let mut qr = vec![0.0f64; qt];
-    let mut kr = vec![0.0f64; kt];
-    rope_apply(&mut qr, q, t, nh, hd, rope);
-    rope_apply(&mut kr, k, t, nkv, hd, rope);
-    let rep = nh / nkv;
-    let mut out = vec![0.0f64; qt];
-    let mut scores = vec![0.0f64; t];
-    let mut acc = vec![0.0f64; hd];
-    for h in 0..nh {
-        let g = h / rep;
-        let gbase = g * hd;
-        for i in 0..t {
-            let qbase = i * nh * hd + h * hd;
-            let mut row_max = f64::NEG_INFINITY;
-            for j in 0..=i {
-                let kbase = j * nkv * hd + gbase;
-                let mut dot = 0.0f64;
-                for d in 0..hd {
-                    dot += qr[qbase + d] * kr[kbase + d];
-                }
-                let s = scale * dot;
-                scores[j] = s;
-                if s > row_max {
-                    row_max = s;
-                }
-            }
-            let mut denom = 0.0f64;
-            acc.fill(0.0);
-            for j in 0..=i {
-                let e = (scores[j] - row_max).exp();
-                denom += e;
-                let vbase = j * nkv * hd + gbase;
-                for d in 0..hd {
-                    acc[d] += e * v[vbase + d];
-                }
-            }
-            let obase = i * nh * hd + h * hd;
-            for d in 0..hd {
-                out[obase + d] = acc[d] / denom;
-            }
-        }
-    }
-    Ok(out)
+    let out = attn_words(
+        cfg,
+        rope,
+        &grid_words(q)?,
+        &grid_words(k)?,
+        &grid_words(v)?,
+        t,
+    )?;
+    Ok(words_grid(&out))
 }
 
-/// One `Qwen2` decoder layer on a whole sequence (`parts`, lines 83-91): the sandwich of the two
-/// pre-norms, causal GQA attention and the `SwiGLU` feed-forward, returning every intermediate.
-///
-/// `h` is row-major `[t, hidden]`. The weights are checked against the geometry before any
-/// arithmetic, so a malformed layer is refused without touching an index.
-///
-/// # Complexity
-///
-/// Time `O(t·(n_head·head_dim·hidden + inter·hidden) + t²·n_head·head_dim)`: the four attention
-/// projections each cost a `[t, hidden]·[w, hidden]ᵀ` product, the two `SwiGLU` projections a
-/// `[t, hidden]·[inter, hidden]ᵀ` product, `down` a `[t, inter]·[hidden, inter]ᵀ` product, the two
-/// norms `O(t·hidden)`, and [`attn_a`] as documented. Space `O(t·(hidden + n_head·head_dim +
-/// n_kv_head·head_dim + inter))` for [`Parts`] plus the rope scratch inside [`attn_a`]. Derivation:
-/// each product is a `t × out × in` triple loop; the intermediates are one `[t, width]` buffer each.
-///
+/// `silu(g) = g/(1 + exp(−g))` in `Q32.32`; the exponent saturates at `e²¹`, so a large negative
+/// `g` gives `g·(1+e²¹)⁻¹` with an error below `8·10⁻¹⁰·|g|`.
+#[must_use]
+pub fn silu(g: f64) -> f64 {
+    match grid1(g) {
+        Ok(x) => silu_word(x).map_or(f64::NAN, from_grid),
+        Err(_) => f64::NAN,
+    }
+}
+
+/// [`silu`] on one `Q32.32` word. `O(1)`.
+fn silu_word(g: i64) -> Option<i64> {
+    let den = fx::exp_sat(g.checked_neg()?)?.checked_add(fx::ONE)?;
+    fx::div(g, den)
+}
+
+/// `silu(g)·u` on words: one `exp`, one division and one product, each rounded once. `O(1)`.
+fn silu_mul(g: i64, u: i64) -> Option<i64> {
+    fx::mul(silu_word(g)?, u)
+}
+
+/// One `Qwen2` decoder layer on a whole sequence (`parts`, lines 83-91) in `Q32.32`: the two
+/// pre-norms, causal GQA attention and the `SwiGLU` feed-forward, returning every intermediate. `h`
+/// is row-major `[t, hidden]`; every weight is checked against the geometry before any arithmetic,
+/// so a malformed layer is refused without touching an index.
 /// # Errors
-/// [`PartsError::Shape`] for an invalid geometry or a weight/input slice that is not the stated
-/// shape; [`PartsError::NonFinite`] for non-finite `eps`/`theta`; [`PartsError::RopeTooShort`] if
-/// `t > rope.t_max` or `rope.head_dim` differs from `cfg.head_dim`.
+/// [`PartsError::Shape`] for an invalid geometry or a slice that is not the stated shape;
+/// [`PartsError::NonFinite`] for non-finite `eps`/`theta`; [`PartsError::RopeTooShort`] if `t >
+/// rope.t_max`; [`PartsError::OutOfRange`] when a value, a rounded result or a projection operand
+/// outside the shared `2³⁶` bound is refused.
+/// # Complexity
+/// Time `O(t·(hidden·n_head·head_dim + inter·hidden) + t²·n_head·head_dim)`: the six projections
+/// are `t × out × in` triples pooled inside [`gemm_nt`], the norms and the `SwiGLU` product are
+/// `O(t·width)` serial passes, and [`attn_a`] as documented; space `O(t·(hidden + head widths +
+/// inter))` for [`Parts`] plus the rope scratch.
 pub fn parts(
     cfg: &LayerCfg,
     rope: &RopeTables,
@@ -480,58 +837,94 @@ pub fn parts(
     if t > rope.t_max {
         return Err(PartsError::RopeTooShort);
     }
-    let hid = cfg.hidden;
-    let nh = cfg.n_head;
-    let nkv = cfg.n_kv_head;
-    let hd = cfg.head_dim;
-    let inter = cfg.inter;
-    let qw = area(nh, hd)?;
-    let kw = area(nkv, hd)?;
-    if h.len() != area(t, hid)? {
+    let (hid, nh, hd, nkv, inter) = (
+        cfg.hidden,
+        cfg.n_head,
+        cfg.head_dim,
+        cfg.n_kv_head,
+        cfg.inter,
+    );
+    let (qw, kw) = (area(nh, hd)?, area(nkv, hd)?);
+    let shapes = h.len() == area(t, hid)?
+        && layer.ln1.len() == hid
+        && layer.ln2.len() == hid
+        && layer.q.len() == area(qw, hid)?
+        && layer.qb.len() == qw
+        && layer.k.len() == area(kw, hid)?
+        && layer.kb.len() == kw
+        && layer.v.len() == area(kw, hid)?
+        && layer.vb.len() == kw
+        && layer.o.len() == area(hid, qw)?
+        && layer.gate.len() == area(inter, hid)?
+        && layer.up.len() == area(inter, hid)?
+        && layer.down.len() == area(hid, inter)?;
+    if !shapes {
         return Err(PartsError::Shape);
     }
 
-    let xa = rms(h, layer.ln1, cfg.eps, t, hid)?;
-    let q = linear(&xa, t, hid, layer.q, Some(layer.qb), qw)?;
-    let k = linear(&xa, t, hid, layer.k, Some(layer.kb), kw)?;
-    let v = linear(&xa, t, hid, layer.v, Some(layer.vb), kw)?;
-    let a = attn_a(cfg, rope, &q, &k, &v, t)?;
+    let (hw, ln1, ln2) = (
+        grid_words(h)?,
+        grid_words(layer.ln1)?,
+        grid_words(layer.ln2)?,
+    );
+    let xa = rms_words(&hw, &ln1, cfg.eps, t, hid)?;
+    let q = linear_words(
+        &xa,
+        t,
+        hid,
+        &grid_words(layer.q)?,
+        Some(&grid_words(layer.qb)?),
+        qw,
+    )?;
+    let k = linear_words(
+        &xa,
+        t,
+        hid,
+        &grid_words(layer.k)?,
+        Some(&grid_words(layer.kb)?),
+        kw,
+    )?;
+    let v = linear_words(
+        &xa,
+        t,
+        hid,
+        &grid_words(layer.v)?,
+        Some(&grid_words(layer.vb)?),
+        kw,
+    )?;
+    let a = attn_words(cfg, rope, &q, &k, &v, t)?;
 
-    let attn_out = linear(&a, t, qw, layer.o, None, hid)?;
-    let mut mid = vec![0.0f64; area(t, hid)?];
-    for r in 0..t {
-        for c in 0..hid {
-            mid[r * hid + c] = h[r * hid + c] + attn_out[r * hid + c];
-        }
+    let attn_out = linear_words(&a, t, qw, &grid_words(layer.o)?, None, hid)?;
+    let mut mid = vec![0_i64; area(t, hid)?];
+    for (slot, (&x, &y)) in mid.iter_mut().zip(hw.iter().zip(&attn_out)) {
+        *slot = x.checked_add(y).ok_or(PartsError::OutOfRange)?;
     }
 
-    let xf = rms(&mid, layer.ln2, cfg.eps, t, hid)?;
-    let g = linear(&xf, t, hid, layer.gate, None, inter)?;
-    let u = linear(&xf, t, hid, layer.up, None, inter)?;
-    let mut m = vec![0.0f64; area(t, inter)?];
-    for i in 0..t * inter {
-        m[i] = silu(g[i]) * u[i];
+    let xf = rms_words(&mid, &ln2, cfg.eps, t, hid)?;
+    let g = linear_words(&xf, t, hid, &grid_words(layer.gate)?, None, inter)?;
+    let u = linear_words(&xf, t, hid, &grid_words(layer.up)?, None, inter)?;
+    let mut m = vec![0_i64; area(t, inter)?];
+    for (slot, (&gv, &uv)) in m.iter_mut().zip(g.iter().zip(&u)) {
+        *slot = silu_mul(gv, uv).ok_or(PartsError::OutOfRange)?;
     }
 
-    let down_out = linear(&m, t, inter, layer.down, None, hid)?;
-    let mut out = vec![0.0f64; area(t, hid)?];
-    for r in 0..t {
-        for c in 0..hid {
-            out[r * hid + c] = mid[r * hid + c] + down_out[r * hid + c];
-        }
+    let down_out = linear_words(&m, t, inter, &grid_words(layer.down)?, None, hid)?;
+    let mut out = vec![0_i64; area(t, hid)?];
+    for (slot, (&x, &y)) in out.iter_mut().zip(mid.iter().zip(&down_out)) {
+        *slot = x.checked_add(y).ok_or(PartsError::OutOfRange)?;
     }
 
     Ok(Parts {
-        xa,
-        q,
-        k,
-        v,
-        a,
-        mid,
-        xf,
-        g,
-        u,
-        m,
-        out,
+        xa: words_grid(&xa),
+        q: words_grid(&q),
+        k: words_grid(&k),
+        v: words_grid(&v),
+        a: words_grid(&a),
+        mid: words_grid(&mid),
+        xf: words_grid(&xf),
+        g: words_grid(&g),
+        u: words_grid(&u),
+        m: words_grid(&m),
+        out: words_grid(&out),
     })
 }

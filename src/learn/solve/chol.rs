@@ -456,7 +456,7 @@ fn trailing_update_pool(
 /// Derivation: the trailing update contracts over `kb` per block column for `Σ_blocks (n−k)²`,
 /// which is `n³/3`. Promoted to `pub(super)` so [`super::inv`] factors the reversed equilibrated
 /// matrix through this body instead of a copy.
-pub(super) fn factor_scaled(a: &[i64], n: usize) -> Result<Vec<i64>, SolveError> {
+pub(crate) fn factor_scaled(a: &[i64], n: usize) -> Result<Vec<i64>, SolveError> {
     if a.len() != n * n {
         return Err(SolveError::ShapeMismatch);
     }
