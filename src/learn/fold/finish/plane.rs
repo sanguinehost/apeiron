@@ -6,12 +6,14 @@
 //! # Representation
 //!
 //! Every stored value and intermediate is Q32.32 `i64`; products are `i128` Q64.64 rounded once
-//! ([`round_q32_even`], ties to even); a reduction accumulates in `i128` and rounds once. The `f64`
-//! boundary is the pack and [`encode`]. Against an `f64` evaluation the forward applies four
-//! roundings (the `S ⊙ d` product, the transform's scale, the two scale products) while the
-//! butterfly is exact addition, so `|w_q − w_ref| ≤ 8·2^-32·max(1, max|w_ref|)`; the `r` snap
-//! produces exactly [`crate::learn::fold::fit::quant::r_level`]'s integer level. Bases are
-//! canonicalised through the plane's own quantizers, so `qvals() == latents()` at zero offsets.
+//! ([`round_q32_even`], ties to even); a reduction accumulates in `i128` and rounds once. The pack,
+//! the offsets and [`encode`]'s field are words too: the loader decodes the checkpoint to Q32.32
+//! ([`crate::learn::fold::run::convert`] refuses a non-finite or off-grid decode) before a plane is
+//! built, so no `f64` enters here. Against an `f64` evaluation the forward applies four roundings
+//! (the `S ⊙ d` product, the transform's scale, the two scale products) while the butterfly is
+//! exact addition, so `|w_q − w_ref| ≤ 8·2^-32·max(1, max|w_ref|)`; the `r` snap produces exactly
+//! [`crate::learn::fold::fit::quant::r_level`]'s integer level. Bases are canonicalised through the
+//! plane's own quantizers, so `qvals() == latents()` at zero offsets.
 //!
 //! # Execution
 //!
@@ -52,9 +54,7 @@ use crate::engine::chart::task::ChunkTask;
 use crate::learn::code::e8::codeword;
 use crate::learn::fold::fit::icm::{BLOCK, CODE_LEN};
 use crate::learn::fold::fit::steps::GROUP;
-use crate::learn::solve::q32::{
-    narrow, round_f16, round_q32_even, rshift_rne, to_grid, Fx, GRID_BOUND,
-};
+use crate::learn::solve::q32::{narrow, round_f16, round_q32_even, rshift_rne, Fx};
 use crate::numeric::fixed_exp::fixed_exp;
 
 /// `ONE`, the Q32.32 unit: the word `1 << 32` denotes `1.0`.
@@ -94,19 +94,6 @@ pub(crate) fn div(a: i64, b: i64) -> Option<i64> {
     narrow(div_ne(i128::from(a) << 32, i128::from(b))?)
 }
 
-/// `round(x·2^32)` for a boundary value; `NotFinite`/`Range` otherwise. `O(1)`.
-fn q32(x: f64) -> Result<i64, PlaneError> {
-    if !x.is_finite() {
-        return Err(PlaneError::NotFinite);
-    }
-    to_grid(x, GRID_BOUND).ok_or(PlaneError::Range)
-}
-
-/// A row-major `f64` buffer converted once to Q32.32; as [`q32`] on a refusal. `O(len)`.
-fn q32_vec(x: &[f64]) -> Result<Vec<i64>, PlaneError> {
-    x.iter().map(|&v| q32(v)).collect()
-}
-
 /// A refusal from a [`CodedPlane`] constructor or method.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlaneError {
@@ -115,9 +102,7 @@ pub enum PlaneError {
     Shape,
     /// An output row index in `rows` is not below the receiving weight's row count.
     RowOutOfRange,
-    /// A base value, a grid endpoint or an offset is not finite.
-    NotFinite,
-    /// A value leaves the Q32.32 grid (`|x| ≥ 2^31`), or a checked word left `i64`.
+    /// A checked word left the Q32.32 carrier: a quantizer, `exp` or `i128 → i64` narrowing.
     Range,
 }
 
@@ -161,18 +146,18 @@ impl CodedPlane {
     /// Build a plane from its pack: the rotated code field (`o × n`), the frozen `r` grid `(lo, sp)`,
     /// the scales `r` (`o × n/128`), `c`, `d` and an optional row restriction `rows`, canonicalised
     /// through the plane's own quantizers; the field becomes `idx` when every block equals its
-    /// nearest codebook row, else `s_fix`.
+    /// nearest codebook row, else `s_fix`. Every argument is a Q32.32 word.
     ///
     /// # Errors
-    /// [`PlaneError::Shape`] on a shape or length disagreement; [`PlaneError::NotFinite`] on a
-    /// non-finite value; [`PlaneError::Range`] off the grid or from a quantizer. `O(o·n·CODE_LEN)`.
+    /// [`PlaneError::Shape`] on a shape or length disagreement; [`PlaneError::Range`] from a
+    /// quantizer. `O(o·n·CODE_LEN)`.
     pub fn from_pack(
-        s_rot: &[f64],
-        lo: &[f64],
-        sp: &[f64],
-        r: &[f64],
-        c: &[f64],
-        d: &[f64],
+        s_rot: &[i64],
+        lo: &[i64],
+        sp: &[i64],
+        r: &[i64],
+        c: &[i64],
+        d: &[i64],
         rows: Option<&[usize]>,
         o: usize,
         n: usize,
@@ -187,12 +172,11 @@ impl CodedPlane {
         if lens != [on, o, o, og, n, n] || rows.is_some_and(|rw| rw.len() != o) {
             return Err(PlaneError::Shape);
         }
-        let s_q = q32_vec(s_rot)?;
-        let (idx_all, exact) = encode_q32(&s_q, o, n)?;
+        let (idx_all, exact) = encode(s_rot, o, n)?;
         let (idx, s_fix) = if exact {
             (idx_all, None)
         } else {
-            (Vec::new(), Some(s_q))
+            (Vec::new(), Some(s_rot.to_vec()))
         };
         let mut plane = Self {
             o,
@@ -200,11 +184,11 @@ impl CodedPlane {
             idx,
             s_fix,
             rows: rows.map(<[usize]>::to_vec),
-            lo: q32_vec(lo)?,
-            sp: q32_vec(sp)?,
-            r0: q32_vec(r)?,
-            c0: q32_vec(c)?,
-            d0: q32_vec(d)?,
+            lo: lo.to_vec(),
+            sp: sp.to_vec(),
+            r0: r.to_vec(),
+            c0: c.to_vec(),
+            d0: d.to_vec(),
             pa: vec![0_i64; og],
             pb: vec![0_i64; n],
             pd: vec![0_i64; n],
@@ -219,11 +203,11 @@ impl CodedPlane {
         Ok(plane)
     }
 
-    /// Overwrite the log offsets `(pa, pb, pd)`, each rounding once to Q32.32.
+    /// Overwrite the log offsets `(pa, pb, pd)` with Q32.32 words.
     ///
     /// # Errors
-    /// As [`CodedPlane::from_pack`]. Serial `O(o·n/128 + n)`.
-    pub fn set_offsets(&mut self, pa: &[f64], pb: &[f64], pd: &[f64]) -> Result<(), PlaneError> {
+    /// [`PlaneError::Shape`] on a length disagreement. Serial `O(o·n/128 + n)`.
+    pub fn set_offsets(&mut self, pa: &[i64], pb: &[i64], pd: &[i64]) -> Result<(), PlaneError> {
         if self.o == 0 || self.n == 0 || !self.n.is_multiple_of(GROUP) {
             return Err(PlaneError::Shape);
         }
@@ -231,9 +215,9 @@ impl CodedPlane {
         if pa.len() != self.o * g || pb.len() != self.n || pd.len() != self.n {
             return Err(PlaneError::Shape);
         }
-        self.pa.copy_from_slice(&q32_vec(pa)?);
-        self.pb.copy_from_slice(&q32_vec(pb)?);
-        self.pd.copy_from_slice(&q32_vec(pd)?);
+        self.pa.copy_from_slice(pa);
+        self.pb.copy_from_slice(pb);
+        self.pd.copy_from_slice(pd);
         Ok(())
     }
 
@@ -668,23 +652,14 @@ fn f16_q32(v: i64) -> Option<i64> {
     narrow(wide)
 }
 
-/// Nearest codebook row per 8-column block of an `o × n` field: for block `b` the index
+/// Nearest codebook row per 8-column block of an `o × n` Q32.32 field: for block `b` the index
 /// `argmax_j (2·⟨b, C_j⟩ − |C_j|²)`, lowest index on an exact tie (torch `argmax` semantics); the
 /// second value is the exactness flag.
 ///
 /// # Errors
 /// [`PlaneError::Shape`] for `o == 0`, `n` not a multiple of [`BLOCK`], or a length disagreement;
 /// serial `O(o·n·CODE_LEN)` multiply-adds, construction-time only.
-pub fn encode(s: &[f64], o: usize, n: usize) -> Result<(Vec<u8>, bool), PlaneError> {
-    let on = o.checked_mul(n).ok_or(PlaneError::Shape)?;
-    if o == 0 || n == 0 || !n.is_multiple_of(BLOCK) || s.len() != on {
-        return Err(PlaneError::Shape);
-    }
-    encode_q32(&q32_vec(s)?, o, n)
-}
-
-/// [`encode`] over an already-converted Q32.32 field; as [`encode`].
-fn encode_q32(s: &[i64], o: usize, n: usize) -> Result<(Vec<u8>, bool), PlaneError> {
+pub fn encode(s: &[i64], o: usize, n: usize) -> Result<(Vec<u8>, bool), PlaneError> {
     let on = o.checked_mul(n).ok_or(PlaneError::Shape)?;
     if o == 0 || n == 0 || !n.is_multiple_of(BLOCK) || s.len() != on {
         return Err(PlaneError::Shape);

@@ -2,8 +2,8 @@
 //! trip and exactness flag, the frozen-code forward against the pre-migration `f64` oracle
 //! (`ref_forward`), the straight-through gradient against central differences of the Q32.32
 //! unquantized forward and against the `f64` oracle backward (`ref_backward`), the row-restricted
-//! `add_into` / `backward`, and the shape / finiteness refusals. Grade `tested`; nothing here is
-//! `proved`.
+//! `add_into` / `backward`, the recorded word digests of every entry point on two seeds, and the
+//! shape refusals. Grade `tested`; nothing here is `proved`.
 //!
 //! The two `ref_*` bodies are the `f64` implementation this lane replaced, kept verbatim in
 //! structure as the oracle. They run on `f64` copies of the Q32.32 state (`from_grid`), so the
@@ -25,8 +25,8 @@
               short `o/i/j/k/m` indices and the `r`/`c`/`d` carrier names are the reference \
               arithmetic's vocabulary; the `f64` oracle is the pre-migration body and its \
               tolerance literals are the derived Q32.32 bounds; the refusal test enumerates every \
-              shape and finiteness arm in one body; the `ref_*` oracles take one parameter per \
-              plane field so they read as the pre-migration signatures they copy."
+              shape arm in one body; the `ref_*` oracles take one parameter per plane field so \
+              they read as the pre-migration signatures they copy."
 )]
 
 use apeiron::learn::fold::finish::plane::{encode, CodedPlane, PlaneError};
@@ -64,8 +64,9 @@ const BLOCK: usize = 8;
 const NB: usize = N / BLOCK;
 /// Out rows of the row-restricted fixture.
 const O_P: usize = 2;
-/// Central-difference step for the straight-through gradient check.
-const H: f64 = 1e-5;
+/// The central-difference step of the straight-through gradient check, as a Q32.32 word
+/// (`round(1e-5·2^32)`).
+const H_Q32: i64 = 42_950;
 /// One Q32.32 unit.
 const Q: f64 = 1.0 / 4_294_967_296.0;
 
@@ -96,27 +97,27 @@ impl Lcg {
     }
 }
 
-/// The quantized base pack of one plane: the `r` grid `(lo, sp)` and the quantized scales `r`, `c`,
-/// `d`. `r` is a fixed point of the row-grid snap and `c`/`d` of `quant_c_u8`.
+/// The quantized base pack of one plane, in Q32.32: the `r` grid `(lo, sp)` and the quantized scales
+/// `r`, `c`, `d`. `r` is a fixed point of the row-grid snap and `c`/`d` of `quant_c_u8`.
 struct Pack {
-    lo: Vec<f64>,
-    sp: Vec<f64>,
-    r: Vec<f64>,
-    c: Vec<f64>,
-    d: Vec<f64>,
+    lo: Vec<i64>,
+    sp: Vec<i64>,
+    r: Vec<i64>,
+    c: Vec<i64>,
+    d: Vec<i64>,
 }
 
 fn build_pack(rng: &mut Lcg, o: usize) -> Pack {
     let r_raw: Vec<f64> = (0..o * G).map(|_| rng.pos()).collect();
     let rh = quant_r_hier(&words(&r_raw), o, G).unwrap();
     let c_raw: Vec<f64> = (0..N).map(|_| 0.5 + 0.5 * rng.unit()).collect();
-    let c0 = reals(&quant_c_u8(&words(&c_raw), 6).unwrap().0);
+    let c0 = quant_c_u8(&words(&c_raw), 6).unwrap().0;
     let d_raw: Vec<f64> = (0..N).map(|_| 0.5 + 0.5 * rng.unit()).collect();
-    let d0 = reals(&quant_c_u8(&words(&d_raw), 5).unwrap().0);
+    let d0 = quant_c_u8(&words(&d_raw), 5).unwrap().0;
     Pack {
-        lo: reals(&rh.r_lo),
-        sp: reals(&rh.r_sp),
-        r: reals(&rh.rq),
+        lo: rh.r_lo,
+        sp: rh.r_sp,
+        r: rh.rq,
         c: c0,
         d: d0,
     }
@@ -127,16 +128,16 @@ fn indices(rng: &mut Lcg, o: usize) -> Vec<u8> {
     (0..o * NB).map(|_| (rng.next_u64() % 256) as u8).collect()
 }
 
-/// The exact code field from a list of codebook indices, `o × n` row-major.
-fn code_field(idx: &[u8], o: usize, n: usize) -> Vec<f64> {
+/// The exact code field from a list of codebook indices, `o × n` row-major, as Q32.32 words.
+fn code_field(idx: &[u8], o: usize, n: usize) -> Vec<i64> {
     let cb = codebook();
     let nb = n / BLOCK;
-    let mut s = vec![0.0_f64; o * n];
+    let mut s = vec![0_i64; o * n];
     for oi in 0..o {
         for m in 0..nb {
             let j = idx[oi * nb + m] as usize;
             for k in 0..BLOCK {
-                s[oi * n + m * BLOCK + k] = from_grid(cb[j][k]);
+                s[oi * n + m * BLOCK + k] = cb[j][k];
             }
         }
     }
@@ -299,13 +300,13 @@ fn loss(plane: &CodedPlane, m: &[f64]) -> f64 {
 }
 
 /// Set the offsets to `base` with `delta` added to coordinate `t` of axis `which` (`0 = pa`,
-/// `1 = pb`, `2 = pd`). The offset boundary is `f64`; the plane converts once.
+/// `1 = pb`, `2 = pd`). The offset boundary is a Q32.32 word.
 fn apply(
     plane: &mut CodedPlane,
-    base: (&[f64], &[f64], &[f64]),
+    base: (&[i64], &[i64], &[i64]),
     which: usize,
     t: usize,
-    delta: f64,
+    delta: i64,
 ) {
     let (pa0, pb0, pd0) = base;
     let mut pa = pa0.to_vec();
@@ -322,17 +323,17 @@ fn apply(
 /// The central difference of the loss in coordinate `t` of axis `which`.
 fn central(
     plane: &mut CodedPlane,
-    base: (&[f64], &[f64], &[f64]),
+    base: (&[i64], &[i64], &[i64]),
     which: usize,
     t: usize,
     m: &[f64],
 ) -> f64 {
-    apply(plane, base, which, t, H);
+    apply(plane, base, which, t, H_Q32);
     let plus = loss(plane, m);
-    apply(plane, base, which, t, -H);
+    apply(plane, base, which, t, -H_Q32);
     let minus = loss(plane, m);
-    apply(plane, base, which, t, 0.0);
-    (plus - minus) / (2.0 * H)
+    apply(plane, base, which, t, 0);
+    (plus - minus) / (2.0 * from_grid(H_Q32))
 }
 
 fn rel(fd: f64, an: i64, name: &str, idx: usize) {
@@ -344,6 +345,135 @@ fn rel(fd: f64, an: i64, name: &str, idx: usize) {
         "{name}[{idx}]: fd {fd:e} analytic {an:e} rel {:.3e}",
         d / scale
     );
+}
+
+/// FNV-1a over a word's eight little-endian bytes, the recorded-witness hash.
+fn fnv_word(d: &mut u64, v: i64) {
+    for b in v.to_le_bytes() {
+        *d ^= u64::from(b);
+        *d = d.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+}
+
+/// FNV-1a over a buffer, length-prefixed so a truncation moves the digest.
+fn fnv_buf(d: &mut u64, xs: &[i64]) {
+    fnv_word(d, i64::try_from(xs.len()).unwrap_or(i64::MAX));
+    for &v in xs {
+        fnv_word(d, v);
+    }
+}
+
+const FNV0: u64 = 0xcbf2_9ce4_8422_2325;
+
+/// The recorded word digests of every plane entry point on two seeds: the pack in, the parsed
+/// fields, the forward, the offsets and backward, `add_into` and `encode`.
+#[test]
+fn recorded_plane_digests() {
+    let names = ["pack", "fields", "forward", "offsets", "add_into", "encode"];
+    for seed in [7_u64, 23] {
+        // Recorded on the pre-migration f64 boundary; the words API reproduces them exactly.
+        let want: [u64; 6] = if seed == 7 {
+            [
+                0xaa71_31af_72a6_fccc,
+                0xc41e_5469_fc1e_3105,
+                0xba74_5d70_d411_78b4,
+                0x0c06_5213_743d_136f,
+                0xfa5b_c32d_a185_724c,
+                0xb675_ad3c_3aac_2124,
+            ]
+        } else {
+            [
+                0x1db1_49cc_4942_8912,
+                0x12e6_b6ee_ff3a_dd7c,
+                0x2a86_2462_6b41_5967,
+                0x2edd_6683_d6ca_c5d3,
+                0x70cf_bbaf_2326_e506,
+                0x3b18_5e6d_0cfd_2024,
+            ]
+        };
+        let mut got = [0_u64; 6];
+        let mut rng = Lcg::new(seed);
+        let pack = build_pack(&mut rng, O);
+        let idx = indices(&mut rng, O);
+        let s = code_field(&idx, O, N);
+        let mut plane = CodedPlane::from_pack(
+            &s, &pack.lo, &pack.sp, &pack.r, &pack.c, &pack.d, None, O, N,
+        )
+        .unwrap();
+        let mut d = FNV0;
+        fnv_buf(&mut d, &s);
+        for &b in &idx {
+            fnv_word(&mut d, i64::from(b));
+        }
+        for v in [&pack.lo, &pack.sp, &pack.r, &pack.c, &pack.d] {
+            fnv_buf(&mut d, v);
+        }
+        got[0] = d;
+
+        let mut d = FNV0;
+        for &b in &plane.idx {
+            fnv_word(&mut d, i64::from(b));
+        }
+        fnv_word(&mut d, i64::from(plane.s_fix.is_some()));
+        for v in [&plane.lo, &plane.sp, &plane.r0, &plane.c0, &plane.d0] {
+            fnv_buf(&mut d, v);
+        }
+        got[1] = d;
+
+        let mut d = FNV0;
+        fnv_buf(&mut d, &plane.code_field());
+        let (r_l, c_l, d_l) = plane.latents();
+        let (r_q, c_q, d_q) = plane.qvals();
+        for v in [&r_l, &c_l, &d_l, &r_q, &c_q, &d_q] {
+            fnv_buf(&mut d, v);
+        }
+        fnv_buf(&mut d, &plane.weight());
+        fnv_buf(&mut d, &plane.weight_unquantized());
+        got[2] = d;
+
+        let pa_raw: Vec<f64> = (0..O * G).map(|_| 0.1 * (rng.unit() - 0.5)).collect();
+        let pb_raw: Vec<f64> = (0..N).map(|_| 0.1 * (rng.unit() - 0.5)).collect();
+        let pd_raw: Vec<f64> = (0..N).map(|_| 0.1 * (rng.unit() - 0.5)).collect();
+        let (pa, pb, pd) = (words(&pa_raw), words(&pb_raw), words(&pd_raw));
+        plane.set_offsets(&pa, &pb, &pd).unwrap();
+        let g: Vec<i64> = (0..O * N)
+            .map(|_| ((rng.unit() - 0.5) * 4_294_967_296.0) as i64)
+            .collect();
+        let (dpa, dpb, dpd) = plane.backward(&g).unwrap();
+        let mut d = FNV0;
+        for v in [&plane.pa, &plane.pb, &plane.pd] {
+            fnv_buf(&mut d, v);
+        }
+        let (r_l, c_l, d_l) = plane.latents();
+        let (r_q, c_q, d_q) = plane.qvals();
+        for v in [&r_l, &c_l, &d_l, &r_q, &c_q, &d_q] {
+            fnv_buf(&mut d, v);
+        }
+        fnv_buf(&mut d, &plane.weight());
+        for v in [&dpa, &dpb, &dpd] {
+            fnv_buf(&mut d, v);
+        }
+        got[3] = d;
+
+        let pw = plane.weight();
+        let mut w = vec![0_i64; 4 * N];
+        plane.add_into(&mut w, &pw, 4).unwrap();
+        let mut d = FNV0;
+        fnv_buf(&mut d, &w);
+        got[4] = d;
+
+        let (enc, exact) = encode(&s, O, N).unwrap();
+        let mut d = FNV0;
+        for &b in &enc {
+            fnv_word(&mut d, i64::from(b));
+        }
+        fnv_word(&mut d, i64::from(exact));
+        got[5] = d;
+
+        for (i, name) in names.iter().enumerate() {
+            assert_eq!(got[i], want[i], "seed {seed} {name} word digest");
+        }
+    }
 }
 
 #[test]
@@ -396,13 +526,7 @@ fn backward_matches_finite_differences_of_the_unquantized_forward() {
     let (dpa, dpb, dpd) = plane.backward(&gvec).unwrap();
 
     let base = (plane.pa.clone(), plane.pb.clone(), plane.pd.clone());
-    let to_f = |v: &[i64]| -> Vec<f64> { v.iter().map(|&x| from_grid(x)).collect() };
-    let base_f = (to_f(&base.0), to_f(&base.1), to_f(&base.2));
-    let base_ref = (
-        base_f.0.as_slice(),
-        base_f.1.as_slice(),
-        base_f.2.as_slice(),
-    );
+    let base_ref = (base.0.as_slice(), base.1.as_slice(), base.2.as_slice());
     for &t in &pick(O * G, 6, &mut rng) {
         rel(central(&mut plane, base_ref, 0, t, &m), dpa[t], "pa", t);
     }
@@ -425,9 +549,10 @@ fn backward_agrees_with_the_f64_oracle_within_the_derived_bound() {
     )
     .unwrap();
     // Nonzero offsets so the `exp` chain and the latent products are exercised.
-    let pa: Vec<f64> = (0..O * G).map(|_| 0.1 * (rng.unit() - 0.5)).collect();
-    let pb: Vec<f64> = (0..N).map(|_| 0.1 * (rng.unit() - 0.5)).collect();
-    let pd: Vec<f64> = (0..N).map(|_| 0.1 * (rng.unit() - 0.5)).collect();
+    let pa_raw: Vec<f64> = (0..O * G).map(|_| 0.1 * (rng.unit() - 0.5)).collect();
+    let pb_raw: Vec<f64> = (0..N).map(|_| 0.1 * (rng.unit() - 0.5)).collect();
+    let pd_raw: Vec<f64> = (0..N).map(|_| 0.1 * (rng.unit() - 0.5)).collect();
+    let (pa, pb, pd) = (words(&pa_raw), words(&pb_raw), words(&pd_raw));
     plane.set_offsets(&pa, &pb, &pd).unwrap();
     let gvec: Vec<i64> = (0..O * N)
         .map(|_| (0.25 * (rng.unit() - 0.5) * 4_294_967_296.0) as i64)
@@ -462,10 +587,10 @@ fn encode_round_trips_indices_and_falls_back_to_s_fix() {
     );
     assert_eq!(enc, idx);
 
-    // Perturb one 8-block: it is no longer a codebook row, so encode is inexact and from_pack keeps
-    // the whole field verbatim.
+    // Perturb one 8-block by one grid quantum: it is no longer a codebook row, so encode is inexact
+    // and from_pack keeps the whole field verbatim.
     let mut s2 = s.clone();
-    s2[5 * BLOCK + 3] += 0.37;
+    s2[5 * BLOCK + 3] += 1;
     let (_, exact2) = encode(&s2, O, N).unwrap();
     assert!(!exact2, "a perturbed block must clear the exactness flag");
 
@@ -544,7 +669,7 @@ fn rows_restrict_add_into_and_backward() {
 }
 
 #[test]
-fn shape_and_finiteness_refusals() {
+fn shape_refusals() {
     let mut rng = Lcg::new(41);
     let pack = build_pack(&mut rng, O);
     let idx = indices(&mut rng, O);
@@ -555,7 +680,7 @@ fn shape_and_finiteness_refusals() {
     .unwrap();
 
     // s_rot length disagrees with o·n.
-    let short = vec![0.0_f64; O * N - 1];
+    let short = vec![0_i64; O * N - 1];
     assert_eq!(
         CodedPlane::from_pack(&short, &pack.lo, &pack.sp, &pack.r, &pack.c, &pack.d, None, O, N)
             .unwrap_err(),
@@ -563,12 +688,12 @@ fn shape_and_finiteness_refusals() {
     );
     // n is not a multiple of GROUP (128).
     let n2 = 192usize;
-    let s2 = vec![0.5_f64; O * n2];
-    let lo2 = vec![1.0_f64; O];
-    let sp2 = vec![1.0_f64; O];
-    let r2 = vec![1.0_f64; O * (n2 / GROUP)];
-    let c2 = vec![1.0_f64; n2];
-    let d2 = vec![1.0_f64; n2];
+    let s2 = vec![1_i64 << 31; O * n2];
+    let lo2 = vec![1_i64 << 32; O];
+    let sp2 = vec![1_i64 << 32; O];
+    let r2 = vec![1_i64 << 32; O * (n2 / GROUP)];
+    let c2 = vec![1_i64 << 32; n2];
+    let d2 = vec![1_i64 << 32; n2];
     assert_eq!(
         CodedPlane::from_pack(&s2, &lo2, &sp2, &r2, &c2, &d2, None, O, n2).unwrap_err(),
         PlaneError::Shape
@@ -589,34 +714,9 @@ fn shape_and_finiteness_refusals() {
         .unwrap_err(),
         PlaneError::Shape
     );
-    // a non-finite base value is refused.
-    let mut c_bad = pack.c.clone();
-    c_bad[0] = f64::NAN;
-    assert_eq!(
-        CodedPlane::from_pack(&s, &pack.lo, &pack.sp, &pack.r, &c_bad, &pack.d, None, O, N)
-            .unwrap_err(),
-        PlaneError::NotFinite
-    );
-    // a value outside the Q32.32 grid is refused.
-    let mut c_wide = pack.c.clone();
-    c_wide[0] = 3.0e9;
-    assert_eq!(
-        CodedPlane::from_pack(&s, &pack.lo, &pack.sp, &pack.r, &c_wide, &pack.d, None, O, N)
-            .unwrap_err(),
-        PlaneError::Range
-    );
-    // a non-finite offset is refused.
-    let mut pa_bad = vec![0.0_f64; O * G];
-    pa_bad[0] = f64::INFINITY;
     assert_eq!(
         plane
-            .set_offsets(&pa_bad, &[0.0_f64; N], &[0.0_f64; N])
-            .unwrap_err(),
-        PlaneError::NotFinite
-    );
-    assert_eq!(
-        plane
-            .set_offsets(&[0.0_f64; O * G - 1], &[0.0_f64; N], &[0.0_f64; N])
+            .set_offsets(&[0_i64; O * G - 1], &[0_i64; N], &[0_i64; N])
             .unwrap_err(),
         PlaneError::Shape
     );

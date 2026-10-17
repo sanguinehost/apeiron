@@ -19,17 +19,20 @@
 //!
 //! # Representation
 //!
-//! Latents, gradients, Adam moments and solver operands are Q32.32 `i64`; products are `i128`
-//! Q64.64 rounded once ([`crate::learn::solve::q32::round_q32_even`]); `exp` is
+//! Latents, gradients, Adam moments, the schedule factor, the learning rate and the reported KL are
+//! Q32.32 `i64`; products are `i128` Q64.64 rounded once
+//! ([`crate::learn::solve::q32::round_q32_even`]); `exp` is
 //! [`crate::numeric::fixed_exp::fixed_exp`], `sqrt` the exact [`crate::numeric::fixed_rsqrt::isqrt`],
-//! `cos` [`crate::numeric::fixed_trig::fixed_sin_cos`]. The `f64` boundary is the loader
-//! ([`LayerTunables::new`], [`Tunables::new`], [`Frozen::new`], [`Linear::extra`]), the learning
-//! rate, [`Schedule::factor`]'s return and [`kl_mean`]'s mean. Nothing else touches a float.
+//! `cos` [`crate::numeric::fixed_trig::fixed_sin_cos`]. The frozen tensors arrive as words from the
+//! loader (whose decode refuses a non-finite or off-grid value), so the finisher's whole surface is
+//! integer: nothing here converts a float.
 //!
 //! Agreement bounds against an `f64` evaluation of the same recurrence: a word operation rounds
 //! once (`≤ 2^-33` relative, so `k` chained products `≤ k·2^-33`); `exp` is `≤ 1e-8` relative for
 //! `x ≥ 0`; `sqrt` is floored (`2^-32`); `Adam`'s `eps = 1e-8` is 43 grid units, whose effect on a
-//! step is `eps/(sqrt(v)+eps)`; the schedule's cosine carries `≤ 2^-20` plus three roundings.
+//! step is `eps/(sqrt(v)+eps)`; the learning rate is carried at Q64.64 (`≤ 2^-64` from the Python's
+//! decimal constant) and rounded onto the grid once per step; the schedule's cosine carries
+//! `≤ 2^-20` plus three roundings.
 //!
 //! # Execution
 //!
@@ -78,16 +81,17 @@ use crate::learn::grad::head::{kl_row, HeadError};
 use crate::learn::grad::model::{
     backward, forward, Config, Grads, LayerGrads, LayerWeights, ModelError, Weights,
 };
-use crate::learn::solve::q32::{from_grid, narrow, rshift_rne, to_grid, GRID_BOUND};
+use crate::learn::solve::q32::{div_rne_pos, narrow, rshift_rne};
 use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_rsqrt::isqrt;
 use crate::numeric::fixed_trig::fixed_sin_cos;
 
-/// The latent group's learning rate (the Python `--lr-lat`).
-pub const LR_LAT: f64 = 1e-3;
+/// The latent group's learning rate (the Python `--lr-lat`), `round(1e-3·2^64)`: carried at Q64.64
+/// so one step's `lr·factor` product rounds once, onto Q32.32.
+const LR_LAT_Q64: i64 = 18_446_744_073_709_552;
 
-/// The norm/bias group's learning rate (the Python `--lr-norm`).
-pub const LR_NORM: f64 = 1e-4;
+/// The norm/bias group's learning rate (the Python `--lr-norm`), `round(1e-4·2^64)`.
+const LR_NORM_Q64: i64 = 1_844_674_407_370_955;
 
 /// Adam `beta_1` (torch default), `round(0.9·2^32)`.
 const BETA1_Q32: i64 = 3_865_470_566;
@@ -128,8 +132,6 @@ pub const KIND_NAMES: [&str; N_KINDS] = ["q", "k", "v", "o", "gate", "up", "down
 pub enum TrainError {
     /// A dimension, a buffer length or a plane shape disagrees with the model geometry.
     Shape(String),
-    /// A named value is not finite (`NaN` or `±∞`).
-    NotFinite(String),
     /// A value does not fit the Q32.32 carrier.
     Range(String),
     /// A checked `i64` add or a length product left its range.
@@ -160,20 +162,14 @@ impl From<HeadError> for TrainError {
     }
 }
 
-/// `round(v·2^32)` at the loader boundary, refusing a non-finite or out-of-grid value.
-///
-/// # Errors
-/// [`TrainError::NotFinite`] for `NaN`/`±∞`; [`TrainError::Range`] outside `|v| < 2^31`. `O(1)`.
-fn to_q32(v: f64, what: &str) -> Result<i64, TrainError> {
-    if !v.is_finite() {
-        return Err(TrainError::NotFinite(format!("{what} = {v}")));
-    }
-    to_grid(v, GRID_BOUND).ok_or_else(|| TrainError::Range(format!("{what} = {v}")))
-}
-
-/// A loader buffer converted once to Q32.32; as [`to_q32`] on a refusal, serial `O(len)`.
-fn q32_vec(x: &[f64], what: &str) -> Result<Vec<i64>, TrainError> {
-    x.iter().map(|&v| to_q32(v, what)).collect()
+/// The step's learning rate `lr·factor` as a Q32.32 word: the rate is carried at Q64.64, so the
+/// product is one rounded quotient by `2^64` onto the grid. `O(1)`.
+fn lr_word(base_q64: i64, factor: i64) -> Result<i64, TrainError> {
+    narrow(div_rne_pos(
+        i128::from(base_q64) * i128::from(factor),
+        1_i128 << 64,
+    ))
+    .ok_or_else(|| TrainError::Range("learning rate".to_string()))
 }
 
 /// `(o_total, n)` of linear `k`: `q` is `q_out × n_embd`, `k`/`v` are `kv_out × n_embd`, `o` is
@@ -293,8 +289,8 @@ fn bias_scale(base: &[i64]) -> i64 {
 pub struct Linear {
     /// The frozen-code planes, summed in order by [`CodedPlane::add_into`].
     pub planes: Vec<CodedPlane>,
-    /// An optional frozen dense addend, row-major `o_total × n` (the corrector on `q`/`down`).
-    pub extra: Option<Vec<f64>>,
+    /// An optional frozen dense addend, row-major `o_total × n` Q32.32 (the corrector on `q`/`down`).
+    pub extra: Option<Vec<i64>>,
     /// Out rows of the stored weight.
     pub o_total: usize,
     /// In columns of the stored weight.
@@ -398,23 +394,16 @@ pub struct LayerTunables {
 }
 
 impl LayerTunables {
-    /// Build a layer's tunables from the frozen bases, converted once to Q32.32, every latent zero.
+    /// Build a layer's tunables from the frozen base words, every latent zero.
     ///
-    /// # Errors
-    /// As [`to_q32`] for any base value; `O(n_embd + q_out + kv_out)`, serial.
-    pub fn new(
-        ln1: &[f64],
-        ln2: &[f64],
-        qb: &[f64],
-        kb: &[f64],
-        vb: &[f64],
-    ) -> Result<Self, TrainError> {
-        let q_ln1 = q32_vec(ln1, "attn_norm")?;
-        let q_ln2 = q32_vec(ln2, "ffn_norm")?;
-        let q_qb = q32_vec(qb, "attn_q.bias")?;
-        let q_kb = q32_vec(kb, "attn_k.bias")?;
-        let q_vb = q32_vec(vb, "attn_v.bias")?;
-        Ok(Self {
+    /// `O(n_embd + q_out + kv_out)`, serial.
+    pub fn new(ln1: &[i64], ln2: &[i64], qb: &[i64], kb: &[i64], vb: &[i64]) -> Self {
+        let q_ln1 = ln1.to_vec();
+        let q_ln2 = ln2.to_vec();
+        let q_qb = qb.to_vec();
+        let q_kb = kb.to_vec();
+        let q_vb = vb.to_vec();
+        Self {
             ln1_d: vec![0_i64; q_ln1.len()],
             ln2_d: vec![0_i64; q_ln2.len()],
             qb_d: vec![0_i64; q_qb.len()],
@@ -425,7 +414,7 @@ impl LayerTunables {
             qb: q_qb,
             kb: q_kb,
             vb: q_vb,
-        })
+        }
     }
 
     /// The frozen bias scale of `qb`/`kb`/`vb` (`0`/`1`/`2`); `O(width)`, serial.
@@ -463,17 +452,16 @@ pub struct Tunables {
 }
 
 impl Tunables {
-    /// Build the tunables from the frozen bases, converted once to Q32.32, every latent zero.
+    /// Build the tunables from the frozen base words, every latent zero.
     ///
-    /// # Errors
-    /// As [`to_q32`] for any base value; `O(n_layer·(n_embd + q_out + kv_out) + n_embd)`, serial.
-    pub fn new(layers: Vec<LayerTunables>, fn_base: &[f64]) -> Result<Self, TrainError> {
-        let base = q32_vec(fn_base, "output_norm")?;
-        Ok(Self {
+    /// `O(n_layer·(n_embd + q_out + kv_out) + n_embd)`, serial.
+    pub fn new(layers: Vec<LayerTunables>, fn_base: &[i64]) -> Self {
+        let base = fn_base.to_vec();
+        Self {
             fn_d: vec![0_i64; base.len()],
             layers,
             fn_base: base,
-        })
+        }
     }
 
     /// The final `output_norm` gain `fn_base · exp(fn_d)`; `O(n_embd)`, serial.
@@ -493,15 +481,14 @@ pub struct Frozen {
 }
 
 impl Frozen {
-    /// Convert the frozen embedding and head once to Q32.32.
+    /// Take the frozen embedding and head words.
     ///
-    /// # Errors
-    /// As [`to_q32`] for any element; `O(vocab·n_embd)`, serial.
-    pub fn new(token_embd: &[f64], lm_head: &[f64]) -> Result<Self, TrainError> {
-        Ok(Self {
-            token_embd: q32_vec(token_embd, "token_embd")?,
-            lm_head: q32_vec(lm_head, "lm_head")?,
-        })
+    /// `O(vocab·n_embd)`, serial.
+    pub fn new(token_embd: &[i64], lm_head: &[i64]) -> Self {
+        Self {
+            token_embd: token_embd.to_vec(),
+            lm_head: lm_head.to_vec(),
+        }
     }
 }
 
@@ -522,9 +509,9 @@ impl Schedule {
         Self { warmup, steps }
     }
 
-    /// The learning-rate factor at `step`, evaluated in Q32.32 and converted once. The operands are
-    /// bounded, so no refusal is reachable; a refused word returns `0.0`. `O(1)`.
-    pub fn factor(&self, step: u64) -> f64 {
+    /// The learning-rate factor at `step` as a Q32.32 word. The operands are bounded, so no refusal
+    /// is reachable; a refused word returns `0`. `O(1)`.
+    pub fn factor(&self, step: u64) -> i64 {
         // `step/den` in Q32.32; a zero denominator is the full fraction.
         let frac_of = |den: u64| -> i64 {
             if den == 0 {
@@ -541,7 +528,7 @@ impl Schedule {
             let term = mul(COS_AMPL_Q32, ONE.checked_add(sc.cos)?)?;
             mul(wu, TENTH_Q32.checked_add(term)?)
         };
-        word().map_or(0.0, from_grid)
+        word().unwrap_or(0)
     }
 }
 
@@ -580,17 +567,15 @@ impl Adam {
     }
 
     /// One Adam update in place: `m ← β₁m + (1−β₁)g`, `v ← β₂v + (1−β₂)g²`,
-    /// `p ← p − lr·m̂/(√v̂ + ε)`. `lr` is converted once at the boundary; every other operand is
-    /// Q32.32.
+    /// `p ← p − lr·m̂/(√v̂ + ε)`. Every operand is a Q32.32 word.
     ///
     /// # Errors
-    /// [`TrainError::Shape`] on a width disagreement; [`TrainError::Range`] on a refused word
-    /// or a learning rate off the grid.
+    /// [`TrainError::Shape`] on a width disagreement; [`TrainError::Range`] on a refused word.
     ///
     /// # Complexity
     /// Temporal `O(p.len())` serial (three words per element, below the dispatch threshold);
     /// spatial `O(1)` in place.
-    pub fn apply(&mut self, lr: f64, p: &mut [i64], g: &[i64]) -> Result<(), TrainError> {
+    pub fn apply(&mut self, lr: i64, p: &mut [i64], g: &[i64]) -> Result<(), TrainError> {
         if p.len() != g.len() || p.len() != self.m.len() || p.len() != self.v.len() {
             return Err(TrainError::Shape(format!(
                 "adam width {} vs {} vs {}",
@@ -600,7 +585,6 @@ impl Adam {
             )));
         }
         self.t = self.t.saturating_add(1);
-        let lr_q = to_q32(lr, "learning rate")?;
         let Some(b1) = pow_q32(BETA1_Q32, self.t) else {
             return Err(TrainError::Range("beta_1^t".to_string()));
         };
@@ -646,7 +630,7 @@ impl Adam {
             let root_v = ok(narrow(isqrt(vi)))?;
             let root = ok(div(root_v, root_bc2))?;
             let denom = ok(root.checked_add(ADAM_EPS_Q32))?;
-            let num = ok(mul(lr_q, mhat))?;
+            let num = ok(mul(lr, mhat))?;
             let step = if denom == 0 { 0 } else { ok(div(num, denom))? };
             p[i] = ok(p[i].checked_sub(step))?;
         }
@@ -752,8 +736,7 @@ fn linear_weight(lin: &Linear, quantized: bool) -> Result<Vec<i64>, TrainError> 
             )));
         }
         for (d, &v) in w.iter_mut().zip(e) {
-            let q = to_q32(v, "extra")?;
-            *d = d.checked_add(q).ok_or(TrainError::Overflow)?;
+            *d = d.checked_add(v).ok_or(TrainError::Overflow)?;
         }
     }
     Ok(w)
@@ -876,8 +859,8 @@ fn assemble_with(
 }
 
 /// The batch mean KL of the teacher's distribution against the student's Q32.32 logits, with the
-/// row-summed logit gradient `dL/dz` (`t · vocab`, Q32.32): `mean_kl` in real units (the boundary
-/// conversion), `dz` the sum over rows of `p_s − p_t`. Serial `O(t·vocab)`.
+/// row-summed logit gradient `dL/dz` (`t · vocab`, Q32.32): `mean_kl` is the Q32.32 mean word, `dz`
+/// the sum over rows of `p_s − p_t`. Serial `O(t·vocab)`.
 ///
 /// # Errors
 /// [`TrainError::Shape`] for a length that is not `t·vocab` with `t > 0`; [`TrainError::Head`] from
@@ -886,7 +869,7 @@ pub fn kl_mean(
     cfg: &Config,
     logits: &[i64],
     teacher: &[i64],
-) -> Result<(f64, Vec<i64>), TrainError> {
+) -> Result<(i64, Vec<i64>), TrainError> {
     let v = cfg.vocab;
     if v == 0 || logits.len() != teacher.len() || !logits.len().is_multiple_of(v) {
         return Err(TrainError::Shape(format!(
@@ -911,7 +894,7 @@ pub fn kl_mean(
     }
     let mean = div_ne(acc, t as i128).ok_or(TrainError::Overflow)?;
     let mean = narrow(mean).ok_or(TrainError::Overflow)?;
-    Ok((from_grid(mean), dz))
+    Ok((mean, dz))
 }
 
 /// The gradients of the batch mean KL with respect to one layer's zero-bit latents, Q32.32.
@@ -940,8 +923,8 @@ pub struct Gradients {
     pub norms: Vec<LayerNormGrad>,
     /// `∂L/∂ output_norm` log latent.
     pub fn_d: Vec<i64>,
-    /// The batch mean KL the gradients are taken at (real units).
-    pub mean_kl: f64,
+    /// The batch mean KL the gradients are taken at, Q32.32.
+    pub mean_kl: i64,
 }
 
 /// The P-step state: the coded planes, the zero-bit tunables, the frozen tensors, one Adam state
@@ -1118,12 +1101,12 @@ impl Finisher {
         self.step
     }
 
-    /// The batch mean KL at the current latents over the stored forward, in real units.
+    /// The batch mean KL at the current latents over the stored forward, as a Q32.32 word.
     ///
     /// # Errors
     /// As [`assemble`], [`forward`] and [`kl_mean`]; cost as [`Finisher::gradients`] without the
     /// backward.
-    pub fn loss(&self, tokens: &[u32], teacher: &[i64]) -> Result<f64, TrainError> {
+    pub fn loss(&self, tokens: &[u32], teacher: &[i64]) -> Result<i64, TrainError> {
         let w = assemble(&self.cfg, &self.planes, &self.tun, &self.frozen)?;
         let (logits, _) = forward(&w, &self.cfg, tokens)?;
         Ok(kl_mean(&self.cfg, &logits, teacher)?.0)
@@ -1172,15 +1155,15 @@ impl Finisher {
         })
     }
 
-    /// One Adam update of every latent at the current step's factor; nothing changes on a shape
-    /// disagreement.
+    /// One Adam update of every latent at the current step's factor word; nothing changes on a
+    /// shape disagreement.
     ///
     /// # Errors
     /// [`TrainError::Shape`] on a gradient width, [`TrainError::Range`] on a refused gradient or
     /// word. `O(Σ plane (o·n/128 + n) + n_layer·(n_embd + q_out + kv_out))`, serial, in place.
-    pub fn apply(&mut self, g: &Gradients, factor: f64) -> Result<(), TrainError> {
-        let lr_lat = LR_LAT * factor;
-        let lr_norm = LR_NORM * factor;
+    pub fn apply(&mut self, g: &Gradients, factor: i64) -> Result<(), TrainError> {
+        let lr_lat = lr_word(LR_LAT_Q64, factor)?;
+        let lr_norm = lr_word(LR_NORM_Q64, factor)?;
         for l in 0..self.cfg.n_layer {
             let row = self
                 .planes
@@ -1231,7 +1214,7 @@ impl Finisher {
     /// # Errors
     /// As [`Finisher::gradients`] and [`Finisher::apply`]; cost as those plus
     /// `O(Σ plane (o·n/128 + n))`.
-    pub fn step(&mut self, tokens: &[u32], teacher: &[i64]) -> Result<f64, TrainError> {
+    pub fn step(&mut self, tokens: &[u32], teacher: &[i64]) -> Result<i64, TrainError> {
         let g = self.gradients(tokens, teacher)?;
         self.step += 1;
         let f = self.schedule.factor(self.step);
