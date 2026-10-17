@@ -129,7 +129,7 @@ theorem rmsnorm_bwd_loop1_body_step
         (core.convert.num.FromI128I64.from r2) = some xp)
     (hxmr : xp.checked_mul (core.convert.num.FromI128I64.from r) = some xpr)
     (hadd : xpr.checked_add (9223372036854775808#i128) = some sum)
-    (hnarrow : learn_port.dense.narrow (⟨sum.bv.sshiftRight 64⟩ : I128) = ok (some tv))
+    (hnarrow : solve_port.q32.narrow (⟨sum.bv.sshiftRight 64⟩ : I128) = ok (some tv))
     (htv : tv.val = bwdT (x.val.getD k.val default).val r.val r2.val)
     (hqm : learn_port.dense.mul_round tv s = ok (some ts))
     (hdiv : learn_port.dense.div_round ts nd = ok (some qv))
@@ -195,7 +195,7 @@ theorem rmsnorm_bwd_loop1_spec
             (core.convert.num.FromI128I64.from r2) = some xp ∧
           xp.checked_mul (core.convert.num.FromI128I64.from r) = some xpr ∧
           xpr.checked_add (9223372036854775808#i128) = some sum ∧
-          learn_port.dense.narrow (⟨sum.bv.sshiftRight 64⟩ : I128) = ok (some tv) ∧
+          solve_port.q32.narrow (⟨sum.bv.sshiftRight 64⟩ : I128) = ok (some tv) ∧
           tv.val = bwdT (x.val.getD k default).val r.val r2.val ∧
           learn_port.dense.mul_round tv s = ok (some ts) ∧
           learn_port.dense.div_round ts nd = ok (some qv) ∧
@@ -307,7 +307,7 @@ theorem rmsnorm_bwd_spec (x gamma dy : Slice I64) (eps r r2 : I64)
             (core.convert.num.FromI128I64.from r2a) = some xp ∧
           xp.checked_mul (core.convert.num.FromI128I64.from r) = some xpr ∧
           xpr.checked_add (9223372036854775808#i128) = some sum ∧
-          learn_port.dense.narrow (⟨sum.bv.sshiftRight 64⟩ : I128) = ok (some tv) ∧
+          solve_port.q32.narrow (⟨sum.bv.sshiftRight 64⟩ : I128) = ok (some tv) ∧
           tv.val = apeiron_norm.bwdT (x.val.getD k default).val r.val r2a.val ∧
           learn_port.dense.mul_round tv sa = ok (some ts) ∧
           learn_port.dense.div_round ts (UScalar.hcast IScalarTy.I64 (Slice.len x)) = ok (some qv) ∧
@@ -367,7 +367,7 @@ theorem rmsnorm_bwd_spec (x gamma dy : Slice I64) (eps r r2 : I64)
     (by rw [haccv']; exact hroundS.1) (by rw [haccv']; exact hroundS.2)
   have hsyv' : sy.val =
       apeiron_norm.round32 (bwdASum x.val gamma.val dy.val x.val.length) := by rw [hsyv, haccv']
-  have hnarrow_sy : learn_port.dense.narrow sy =
+  have hnarrow_sy : solve_port.q32.narrow sy =
       ok (some (IScalar.cast IScalarTy.I64 sy)) :=
     dense_narrow_some sy (by rw [hsyv']; exact not_lt.2 hnarrowS.2)
       (by rw [hsyv']; exact not_lt.2 hnarrowS.1)

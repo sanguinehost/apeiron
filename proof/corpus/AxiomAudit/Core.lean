@@ -974,60 +974,57 @@ elab "#audit " id:ident : command => do
 #audit apeiron_word.isqrt_scaled_real
 #audit apeiron_word.fixed_rsqrt_refines_proved
 
--- APEIRON-INT-TRANSCENDENTAL-W2-T1: trig refusal surface, statement and reduction facts
+-- APEIRON-INT-TRANSCENDENTAL-W2-T1: trig refusal surface (Part1) and the Part2/Part3/Part5
+-- re-proof headlines that carry the retired reduction, rounding and series rows below. Part2
+-- `narrow_spec`, `q_rne_spec`, `q_mul_spec`, `div_fac_spec`; Part3 `q_mul_step`, `div_fac_step`,
+-- `sin_remainder`, `cos_remainder`, `sin_cos_series_spec`; Part5 `pi_red_bound`, `k_bound`,
+-- `reduction_spec`, `q_rne_half_spec`.
 #audit apeiron_word.trig_window
 #audit apeiron_word.fixed_sin_cos_refuses
 #audit apeiron_word.trig_floor
 #audit apeiron_word.fixed_sin_cos_refines
 #audit apeiron_word.fixed_sin_cos_refuses_proved
 #audit apeiron_word.word_fixed_sin_cos_window_past_guards
-#audit apeiron_word.toReal_two_pi
-#audit apeiron_word.toReal_two_pi_recip
-#audit apeiron_word.toReal_pi
-#audit apeiron_word.toReal_half_pi
-#audit apeiron_word.toReal_quarter_pi
-#audit apeiron_word.two_pi_recip_defect
-#audit apeiron_word.fixed_trig_shift_bound
-#audit apeiron_word.fixed_trig_shift_bound_window
-#audit apeiron_word.fixed_trig_reduction_remainder_range
 #audit apeiron_word.fixed_trig_ONE_eq
 #audit apeiron_word.fixed_trig_LOWER_eq
 #audit apeiron_word.fixed_trig_UPPER_eq
+#audit apeiron_word.narrow_spec
+#audit apeiron_word.q_rne_spec
+#audit apeiron_word.q_mul_spec
+#audit apeiron_word.div_fac_spec
+#audit apeiron_word.q_mul_step
+#audit apeiron_word.div_fac_step
+#audit apeiron_word.sin_remainder
+#audit apeiron_word.cos_remainder
+#audit apeiron_word.sin_cos_series_spec
+#audit apeiron_word.pi_red_bound
+#audit apeiron_word.k_bound
+#audit apeiron_word.reduction_spec
+#audit apeiron_word.q_rne_half_spec
+
+-- Removed with the old `fixed_sin_cos` body (`1c00b28b`) and the Part1/2/3 re-proof; retired
+-- names with no counterpart, kept here only as a receipt. Top level:
+-- `toReal_{two_pi,two_pi_recip,pi,half_pi,quarter_pi}`, `two_pi_recip_defect`,
+-- `{two_pi,pi,half_pi,quarter_pi}_q32_defect`, `{half_pi,quarter_pi}_q32_floor`,
+-- `fixed_trig_shift_bound{,_window}`, `fixed_trig_reduction_remainder_range{,_tight}`,
+-- `word_fixed_sin_cos_reduction_value`, `word_fixed_sin_cos_fold_value`,
+-- `word_fixed_sin_cos_reduction_fold_value`, `word_fixed_sin_cos_value`,
+-- `word_fixed_taylor_first`, `word_taylor_spec`, `fixed_trig_taylor_value{,_proved}`,
+-- `trig_delta`, `trig_reduction_displacement`, `trig_sin_reduction_transfer`,
+-- `trig_cos_reduction_transfer`, `trig_fold_delta`, `fold{1,2}T`, `fold{1,2}_displacement`,
+-- `{sin,cos}_fold{1,2}T`, `{sin,cos}_phase_select`, `flag{Sin,Cos}`,
+-- `flag_{sin,cos}_{fold,reduction}_bound`, `fixed_trig_fold{1,2}_spec`,
+-- `fixed_trig_fold_step_spec`, `fixed_trig_int_shiftRight_nonneg`,
+-- `fixed_trig_round_div_2p32{HALF_eq,_spec,_val}`. In `fixed_trig`: `fold1`, `fold1_negate`,
+-- `fold2`, `fold2_swap`, `fold1_abs_le`, `fold_arg_abs_le`, `fold_arg_abs_le_quarter`,
+-- `fold_step`, `round_q32`, `round_q32_abs_le`, `round_q32_abs_le'`, `round_q32_half`,
+-- `round_q32_ledger`, `round_safe`, `round_safe66`, `abs_mul_le`, `abs_mul_le_z`,
+-- `abs_add_const_le`, `abs_sub_const_le`, `mul_range`, `{sin,cos}_poly`,
+-- `{sin,cos}_poly_horner`, `{sin,cos}Horner`, `{sin,cos}Horner_taylor`, `{sin,cos}Taylor`,
+-- `{sin,cos}Taylor_remainder`.
 
 -- APEIRON-INT-TRANSCENDENTAL-W1-T1K: two-stage Horner prefix
 #audit apeiron_word.word_fixed_exp_horner_acc1
-
--- APEIRON-INT-TRANSCENDENTAL-W2-T1B: trig reduction value characterization
-#audit apeiron_word.word_fixed_sin_cos_reduction_value
-
--- APEIRON-INT-TRANSCENDENTAL-W2-T1C: quadrant fold values and composition
-#audit apeiron_word.fixed_trig.fold1
-#audit apeiron_word.fixed_trig.fold1_negate
-#audit apeiron_word.fixed_trig.fold2
-#audit apeiron_word.fixed_trig.fold2_swap
-#audit apeiron_word.fixed_trig.fold1_abs_le
-#audit apeiron_word.fixed_trig_fold1_spec
-#audit apeiron_word.fixed_trig_fold2_spec
-#audit apeiron_word.word_fixed_sin_cos_fold_value
-
--- APEIRON-INT-TRANSCENDENTAL-W2-T1D: reduction-fold bridge and the Taylor head
-#audit apeiron_word.fixed_trig.fold_step
-#audit apeiron_word.fixed_trig_fold_step_spec
-#audit apeiron_word.word_fixed_sin_cos_reduction_fold_value
-#audit apeiron_word.fixed_trig_int_shiftRight_nonneg
-#audit apeiron_word.fixed_trig_round_div_2p32_HALF_eq
-#audit apeiron_word.fixed_trig_round_div_2p32_spec
-#audit apeiron_word.fixed_trig.round_q32
-#audit apeiron_word.fixed_trig_round_div_2p32_val
-#audit apeiron_word.fixed_trig.sin_poly
-#audit apeiron_word.fixed_trig.cos_poly
-#audit apeiron_word.fixed_trig_taylor_value
-#audit apeiron_word.word_fixed_taylor_first
-
--- APEIRON-INT-TRANSCENDENTAL-W2-T1E: Taylor stage bounds and the corrected domain
-#audit apeiron_word.fixed_trig.round_q32_abs_le
-#audit apeiron_word.fixed_trig.round_q32_abs_le'
-#audit apeiron_word.fixed_trig.round_safe
 
 -- APEIRON-INT-TRANSCENDENTAL-W1-T1L: full Horner chain (bounded cap)
 #audit apeiron_word.word_fixed_exp_horner_acc
@@ -1038,30 +1035,12 @@ elab "#audit " id:ident : command => do
 -- APEIRON-INT-TRANSCENDENTAL-W1-T1O: k >= 0 scaling branch
 #audit apeiron_word.fixed_exp_scale_nonneg
 
--- APEIRON-INT-TRANSCENDENTAL-W2-T1H: Taylor totality and the bound helpers
-#audit apeiron_word.fixed_trig.abs_mul_le
-#audit apeiron_word.fixed_trig.mul_range
-#audit apeiron_word.fixed_trig.abs_mul_le_z
-#audit apeiron_word.fixed_trig.abs_add_const_le
-#audit apeiron_word.fixed_trig.abs_sub_const_le
-#audit apeiron_word.fixed_trig.round_safe66
-#audit apeiron_word.word_taylor_spec
-
--- APEIRON-INT-TRANSCENDENTAL-W2-T1I: Taylor value closure
-#audit apeiron_word.fixed_trig_taylor_value_proved
-
 -- APEIRON-INT-TRANSCENDENTAL-W1-T1Q: k < 0 rounding core
 #audit apeiron_word.fixed_exp_scale_neg_core
-
--- APEIRON-INT-TRANSCENDENTAL-W2-T1J: fold argument bound
-#audit apeiron_word.fixed_trig.fold_arg_abs_le
 
 -- APEIRON-INT-TRANSCENDENTAL-W1-T1R: flush and full k < 0 branch
 #audit apeiron_word.fixed_exp_scale_flush
 #audit apeiron_word.fixed_exp_scale_neg
-
--- APEIRON-INT-TRANSCENDENTAL-W2-T1K: tight reduction remainder bound
-#audit apeiron_word.fixed_trig_reduction_remainder_range_tight
 
 -- APEIRON-INT-TRANSCENDENTAL-W1-T1T: scaling helpers
 #audit apeiron_word.fixed_exp_scale_abs
@@ -1071,72 +1050,11 @@ elab "#audit " id:ident : command => do
 #audit apeiron_word.fixed_exp_scale_abs_raw
 #audit apeiron_word.word_fixed_exp_scale
 
--- APEIRON-INT-TRANSCENDENTAL-W2-T1P: end-to-end trig value
-#audit apeiron_word.word_fixed_sin_cos_value
-
 -- APEIRON-INT-TRANSCENDENTAL-W1-T1Z: pair-returning reduction chunk
 #audit apeiron_word.word_fixed_exp_reduction_value_pair
 
--- APEIRON-INT-TRANSCENDENTAL-E2A: trig displacement and transfers
-#audit apeiron_word.trig_delta
-#audit apeiron_word.two_pi_q32_defect
-#audit apeiron_word.trig_reduction_displacement
-#audit apeiron_word.trig_sin_reduction_transfer
-#audit apeiron_word.trig_cos_reduction_transfer
-
--- APEIRON-INT-TRANSCENDENTAL-E2B: fold constant defects
-#audit apeiron_word.pi_q32_defect
-#audit apeiron_word.half_pi_q32_defect
-#audit apeiron_word.quarter_pi_q32_defect
-#audit apeiron_word.trig_fold_delta
-
 -- APEIRON-INT-TRANSCENDENTAL-W1-T1AD: success-path pair chunk
 #audit apeiron_word.word_fixed_exp_reduction_pair_succ
-
--- APEIRON-INT-TRANSCENDENTAL-E2B3: fold thresholds and displacements
-#audit apeiron_word.half_pi_q32_floor
-#audit apeiron_word.quarter_pi_q32_floor
-#audit apeiron_word.fold1T
-#audit apeiron_word.fold2T
-#audit apeiron_word.fold1_displacement
-#audit apeiron_word.fold2_displacement
-
--- APEIRON-INT-TRANSCENDENTAL-E2B4: fold phase identities and flag selection
-#audit apeiron_word.sin_fold1T
-#audit apeiron_word.cos_fold1T
-#audit apeiron_word.sin_fold2T
-#audit apeiron_word.cos_fold2T
-#audit apeiron_word.sin_phase_select
-#audit apeiron_word.cos_phase_select
-
--- APEIRON-INT-TRANSCENDENTAL-E2B5: flagged output bounds
-#audit apeiron_word.flagSin
-#audit apeiron_word.flagCos
-#audit apeiron_word.flag_sin_fold_bound
-#audit apeiron_word.flag_cos_fold_bound
-#audit apeiron_word.flag_sin_reduction_bound
-#audit apeiron_word.flag_cos_reduction_bound
-
--- APEIRON-INT-TRANSCENDENTAL-E2C: quarter-angle bound
-#audit apeiron_word.fixed_trig.fold_arg_abs_le_quarter
-
--- APEIRON-INT-TRANSCENDENTAL-E2C2: rounding ledger
-#audit apeiron_word.fixed_trig.round_q32_half
-#audit apeiron_word.fixed_trig.round_q32_ledger
-
--- APEIRON-INT-TRANSCENDENTAL-E2C3: Horner chain ledgers
-#audit apeiron_word.fixed_trig.sinHorner
-#audit apeiron_word.fixed_trig.cosHorner
-#audit apeiron_word.fixed_trig.sin_poly_horner
-#audit apeiron_word.fixed_trig.cos_poly_horner
-
--- APEIRON-INT-TRANSCENDENTAL-E2C4: Taylor defects and remainders
-#audit apeiron_word.fixed_trig.sinTaylor
-#audit apeiron_word.fixed_trig.cosTaylor
-#audit apeiron_word.fixed_trig.sinHorner_taylor
-#audit apeiron_word.fixed_trig.cosHorner_taylor
-#audit apeiron_word.fixed_trig.sinTaylor_remainder
-#audit apeiron_word.fixed_trig.cosTaylor_remainder
 
 -- APEIRON-INT-TRANSCENDENTAL-W1-T1AJ: whole-body exp value
 #audit apeiron_word.fixed_exp_reduction_remainder_abs_le
@@ -1195,18 +1113,11 @@ elab "#audit " id:ident : command => do
 -- APEIRON-INT-TRANSCENDENTAL-E1C: sharpened exp remainder
 #audit apeiron_word.fixed_exp_reduction_remainder_abs_le_2p31
 #audit apeiron_word.fixed_exp_reduction_remainder_toReal_half
-#audit apeiron_word.word_fixed_sin_cos_past_guards_value
 #audit apeiron_word.fixed_sin_cos_refines_proved
-#audit apeiron_word.sin_out_flagSin_le
-#audit apeiron_word.cos_out_flagCos_le
-#audit apeiron_word.trig_floor_close
-#audit apeiron_word.sin_poly_close_le
-#audit apeiron_word.cos_poly_close_le
-#audit apeiron_word.cos_poly_rem_le
-#audit apeiron_word.abs_smul_cancel
-#audit apeiron_word.c10_let_push
-#audit apeiron_word.c10_let_prod_push
-#audit apeiron_word.c10_pair_bind
+-- Removed with the old `fixed_sin_cos` body (`1c00b28b`); no counterpart:
+-- `word_fixed_sin_cos_past_guards_value`, `sin_out_flagSin_le`, `cos_out_flagCos_le`,
+-- `trig_floor_close`, `sin_poly_close_le`, `cos_poly_close_le`, `cos_poly_rem_le`,
+-- `abs_smul_cancel`, `c10_let_push`, `c10_let_prod_push`, `c10_pair_bind`.
 
 -- APEIRON-INT-TRANSCENDENTAL-E1C2: exp_scale body exact values (Gap A)
 #audit apeiron_word.fixed_exp_bmod128_low

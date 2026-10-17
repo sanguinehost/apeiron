@@ -7,7 +7,8 @@ import Apeiron.Linter.Citation
 /-!
 # The extracted `src/learn/solve/syrk.rs`: refinement
 
-`solve_port.syrk.{all_below, within_bound, narrow, round32, round64, hadamard_into, wsyrk}` are
+`solve_port.syrk.{all_below, within_bound, round32, round64, hadamard_into, wsyrk}` and the shared
+`solve_port.q32.narrow` are
 refined to the independent `ℤ`/`List ℤ` model in `Learn.Solve.WsyrkSpec`: the accepted-domain bound
 check (`wsyrkAllBelowRef`, `withinBoundRef`) against the strict `±2³⁶` boundary, the Q32.32 / Q96.96
 rounders, and the elementwise in-place Hadamard fold. The loop refinements are stated over the
@@ -384,7 +385,7 @@ theorem syrk_i64min_val :
 `i128 → i64` cast is total. -/
 theorem syrk_narrow_ok (v : I128)
     (h : -((2 : ℤ) ^ 63) ≤ v.val ∧ v.val ≤ (2 : ℤ) ^ 63 - 1) :
-    ∃ q : I64, solve_port.syrk.narrow v = ok (some q) ∧ q.val = v.val := by
+    ∃ q : I64, solve_port.q32.narrow v = ok (some q) ∧ q.val = v.val := by
   refine ⟨IScalar.cast .I64 v, ?_, dense_cast_i64_val v h⟩
   have hnotmax : ¬ (v > core.convert.num.FromI128I64.from core.num.I64.MAX) := by
     intro hc
@@ -394,21 +395,21 @@ theorem syrk_narrow_ok (v : I128)
     intro hc
     rw [IScalar.lt_equiv, syrk_i64min_val] at hc
     omega
-  unfold solve_port.syrk.narrow
+  unfold solve_port.q32.narrow
   simp only [lift, bind_tc_ok, hnotmax, hnotmin, ↓reduceIte]
 
 /-- `narrow` refuses above the `i64` window. -/
 theorem syrk_narrow_none_hi (v : I128) (h : (2 : ℤ) ^ 63 - 1 < v.val) :
-    solve_port.syrk.narrow v = ok none := by
+    solve_port.q32.narrow v = ok none := by
   have hgt : v > core.convert.num.FromI128I64.from core.num.I64.MAX := by
     rw [gt_iff_lt, IScalar.lt_equiv, syrk_i64max_val]
     exact h
-  unfold solve_port.syrk.narrow
+  unfold solve_port.q32.narrow
   simp only [lift, bind_tc_ok, hgt, ↓reduceIte]
 
 /-- `narrow` refuses below the `i64` window. -/
 theorem syrk_narrow_none_lo (v : I128) (h : v.val < -((2 : ℤ) ^ 63)) :
-    solve_port.syrk.narrow v = ok none := by
+    solve_port.q32.narrow v = ok none := by
   have hnotmax : ¬ (v > core.convert.num.FromI128I64.from core.num.I64.MAX) := by
     intro hc
     rw [gt_iff_lt, IScalar.lt_equiv, syrk_i64max_val] at hc
@@ -416,7 +417,7 @@ theorem syrk_narrow_none_lo (v : I128) (h : v.val < -((2 : ℤ) ^ 63)) :
   have hlt : v < core.convert.num.FromI128I64.from core.num.I64.MIN := by
     rw [IScalar.lt_equiv, syrk_i64min_val]
     exact h
-  unfold solve_port.syrk.narrow
+  unfold solve_port.q32.narrow
   simp only [lift, bind_tc_ok, hnotmax, hlt, ↓reduceIte]
 
 /-! ## 6. The in-place Hadamard factor -/
@@ -588,27 +589,27 @@ theorem syrk_bne_len_x {x : Slice I64} {on : Usize} (h : Slice.len x = on) :
   exact fun hc => (bne_iff_ne.mp hc) h
 
 /-- `wsyrk` refuses `n = 0` with `ZeroN`. -/
-theorem syrk_wsyrk_refuse_zeroN (x : Slice I64) (w : Option (Slice I64)) (o n threads : Usize)
+theorem syrk_wsyrk_refuse_zeroN (x : Slice I64) (w : Option (Slice I64)) (o n : Usize)
     (h : n = 0#usize) :
-    solve_port.syrk.wsyrk x w o n threads =
+    solve_port.syrk.wsyrk x w o n =
       ok (core.result.Result.Err solve_port.syrk.SyrkError.ZeroN) := by
   unfold solve_port.syrk.wsyrk
   dsimp only
   rw [if_pos h]
 
 /-- `wsyrk` refuses `o = 0` with `ZeroO`. -/
-theorem syrk_wsyrk_refuse_zeroO (x : Slice I64) (w : Option (Slice I64)) (o n threads : Usize)
+theorem syrk_wsyrk_refuse_zeroO (x : Slice I64) (w : Option (Slice I64)) (o n : Usize)
     (hn : n ≠ 0#usize) (h : o = 0#usize) :
-    solve_port.syrk.wsyrk x w o n threads =
+    solve_port.syrk.wsyrk x w o n =
       ok (core.result.Result.Err solve_port.syrk.SyrkError.ZeroO) := by
   unfold solve_port.syrk.wsyrk
   dsimp only
   rw [if_neg hn, if_pos h]
 
 /-- `wsyrk` refuses an overflowing `n·n` with `Overflow`. -/
-theorem syrk_wsyrk_refuse_mulNN (x : Slice I64) (w : Option (Slice I64)) (o n threads : Usize)
+theorem syrk_wsyrk_refuse_mulNN (x : Slice I64) (w : Option (Slice I64)) (o n : Usize)
     (hn : n ≠ 0#usize) (ho : o ≠ 0#usize) (h : Usize.checked_mul n n = none) :
-    solve_port.syrk.wsyrk x w o n threads =
+    solve_port.syrk.wsyrk x w o n =
       ok (core.result.Result.Err solve_port.syrk.SyrkError.Overflow) := by
   unfold solve_port.syrk.wsyrk
   dsimp only
@@ -616,10 +617,10 @@ theorem syrk_wsyrk_refuse_mulNN (x : Slice I64) (w : Option (Slice I64)) (o n th
   simp only [lift, h, bind_tc_ok]
 
 /-- `wsyrk` refuses an overflowing `o·n` with `ShapeMismatch`. -/
-theorem syrk_wsyrk_refuse_mulON (x : Slice I64) (w : Option (Slice I64)) (o n threads : Usize)
+theorem syrk_wsyrk_refuse_mulON (x : Slice I64) (w : Option (Slice I64)) (o n : Usize)
     {nn : Usize} (hn : n ≠ 0#usize) (ho : o ≠ 0#usize)
     (hnn : Usize.checked_mul n n = some nn) (h : Usize.checked_mul o n = none) :
-    solve_port.syrk.wsyrk x w o n threads =
+    solve_port.syrk.wsyrk x w o n =
       ok (core.result.Result.Err solve_port.syrk.SyrkError.ShapeMismatch) := by
   unfold solve_port.syrk.wsyrk
   dsimp only
@@ -627,11 +628,11 @@ theorem syrk_wsyrk_refuse_mulON (x : Slice I64) (w : Option (Slice I64)) (o n th
   simp only [lift, hnn, h, bind_tc_ok]
 
 /-- `wsyrk` refuses an `x` length that does not match `o·n` with `ShapeMismatch`. -/
-theorem syrk_wsyrk_refuse_len_x (x : Slice I64) (w : Option (Slice I64)) (o n threads : Usize)
+theorem syrk_wsyrk_refuse_len_x (x : Slice I64) (w : Option (Slice I64)) (o n : Usize)
     {nn on : Usize} (hn : n ≠ 0#usize) (ho : o ≠ 0#usize)
     (hnn : Usize.checked_mul n n = some nn) (hon : Usize.checked_mul o n = some on)
     (h : Slice.len x ≠ on) :
-    solve_port.syrk.wsyrk x w o n threads =
+    solve_port.syrk.wsyrk x w o n =
       ok (core.result.Result.Err solve_port.syrk.SyrkError.ShapeMismatch) := by
   have hb : (Slice.len x != on) = true := bne_iff_ne.mpr h
   unfold solve_port.syrk.wsyrk
@@ -640,11 +641,11 @@ theorem syrk_wsyrk_refuse_len_x (x : Slice I64) (w : Option (Slice I64)) (o n th
   simp only [lift, hnn, hon, bind_tc_ok, hb, if_true]
 
 /-- `wsyrk` refuses a weight slice whose length does not match `o` with `ShapeMismatch`. -/
-theorem syrk_wsyrk_refuse_len_w (x ws : Slice I64) (o n threads : Usize)
+theorem syrk_wsyrk_refuse_len_w (x ws : Slice I64) (o n : Usize)
     {nn on : Usize} (hn : n ≠ 0#usize) (ho : o ≠ 0#usize)
     (hnn : Usize.checked_mul n n = some nn) (hon : Usize.checked_mul o n = some on)
     (hlen : Slice.len x = on) (hw : Slice.len ws ≠ o) :
-    solve_port.syrk.wsyrk x (some ws) o n threads =
+    solve_port.syrk.wsyrk x (some ws) o n =
       ok (core.result.Result.Err solve_port.syrk.SyrkError.ShapeMismatch) := by
   have hb : (Slice.len x != on) = false := syrk_bne_len_x hlen
   have hbw : (Slice.len ws != o) = true := bne_iff_ne.mpr hw
@@ -658,12 +659,12 @@ theorem syrk_wsyrk_refuse_len_w (x ws : Slice I64) (o n threads : Usize)
   simp only [if_true]
 
 /-- `wsyrk` refuses `o ≥ MAX_O = 2¹⁸` with `Overflow` once the shape checks pass. -/
-theorem syrk_wsyrk_refuse_maxO (x : Slice I64) (w : Option (Slice I64)) (o n threads : Usize)
+theorem syrk_wsyrk_refuse_maxO (x : Slice I64) (w : Option (Slice I64)) (o n : Usize)
     {nn on : Usize} (hn : n ≠ 0#usize) (ho : o ≠ 0#usize)
     (hnn : Usize.checked_mul n n = some nn) (hon : Usize.checked_mul o n = some on)
     (hlen : Slice.len x = on) (hwlen : ∀ ws, w = some ws → Slice.len ws = o)
     (h18 : 2 ^ 18 ≤ o.val) :
-    solve_port.syrk.wsyrk x w o n threads =
+    solve_port.syrk.wsyrk x w o n =
       ok (core.result.Result.Err solve_port.syrk.SyrkError.Overflow) := by
   obtain ⟨m, hm, hmv⟩ := syrk_max_o
   have hge : o ≥ m := by
@@ -694,12 +695,12 @@ theorem syrk_wsyrk_refuse_maxO (x : Slice I64) (w : Option (Slice I64)) (o n thr
 
 /-- `wsyrk` refuses an input outside the strict `±2³⁶` boundary with `InputBound` once every shape
 and size check passes. -/
-theorem syrk_wsyrk_refuse_bound (x : Slice I64) (w : Option (Slice I64)) (o n threads : Usize)
+theorem syrk_wsyrk_refuse_bound (x : Slice I64) (w : Option (Slice I64)) (o n : Usize)
     {nn on : Usize} (hn : n ≠ 0#usize) (ho : o ≠ 0#usize)
     (hnn : Usize.checked_mul n n = some nn) (hon : Usize.checked_mul o n = some on)
     (hlen : Slice.len x = on) (hwlen : ∀ ws, w = some ws → Slice.len ws = o)
     (h18 : o.val < 2 ^ 18) (hwb : ¬ withinBoundRef x w) :
-    solve_port.syrk.wsyrk x w o n threads =
+    solve_port.syrk.wsyrk x w o n =
       ok (core.result.Result.Err solve_port.syrk.SyrkError.InputBound) := by
   obtain ⟨m, hm, hmv⟩ := syrk_max_o
   have hlt : ¬ (o ≥ m) := by
@@ -737,19 +738,19 @@ theorem syrk_wsyrk_refuse_bound (x : Slice I64) (w : Option (Slice I64)) (o n th
 
 /-- `wsyrk` on the refusal surface: outside `wsyrkDomain` the driver returns an error, never a
 result. -/
-theorem word_wsyrk_refuses (x : Slice I64) (w : Option (Slice I64)) (o n threads : Usize)
+theorem word_wsyrk_refuses (x : Slice I64) (w : Option (Slice I64)) (o n : Usize)
     (h : ¬ wsyrkDomain x w o n) :
     ∃ e : solve_port.syrk.SyrkError,
-      solve_port.syrk.wsyrk x w o n threads = ok (core.result.Result.Err e) := by
+      solve_port.syrk.wsyrk x w o n = ok (core.result.Result.Err e) := by
   by_cases hn : n = 0#usize
-  · exact ⟨_, syrk_wsyrk_refuse_zeroN x w o n threads hn⟩
+  · exact ⟨_, syrk_wsyrk_refuse_zeroN x w o n hn⟩
   by_cases ho : o = 0#usize
-  · exact ⟨_, syrk_wsyrk_refuse_zeroO x w o n threads hn ho⟩
+  · exact ⟨_, syrk_wsyrk_refuse_zeroO x w o n hn ho⟩
   cases hnn : Usize.checked_mul n n with
-  | none => exact ⟨_, syrk_wsyrk_refuse_mulNN x w o n threads hn ho hnn⟩
+  | none => exact ⟨_, syrk_wsyrk_refuse_mulNN x w o n hn ho hnn⟩
   | some nn =>
     cases hon : Usize.checked_mul o n with
-    | none => exact ⟨_, syrk_wsyrk_refuse_mulON x w o n threads hn ho hnn hon⟩
+    | none => exact ⟨_, syrk_wsyrk_refuse_mulON x w o n hn ho hnn hon⟩
     | some on =>
       by_cases hlen : Slice.len x = on
       · have hon' : ∀ on', Usize.checked_mul o n = some on' → Slice.len x = on' := by
@@ -764,9 +765,9 @@ theorem word_wsyrk_refuses (x : Slice I64) (w : Option (Slice I64)) (o n threads
           by_cases h18 : o.val < 2 ^ 18
           · by_cases hwb : withinBoundRef x none
             · exact absurd ⟨hn, ho, (by rw [hnn]; simp), hon', hwn, h18, hwb⟩ h
-            · exact ⟨_, syrk_wsyrk_refuse_bound x none o n threads hn ho hnn hon hlen hwn
+            · exact ⟨_, syrk_wsyrk_refuse_bound x none o n hn ho hnn hon hlen hwn
                 h18 hwb⟩
-          · exact ⟨_, syrk_wsyrk_refuse_maxO x none o n threads hn ho hnn hon hlen hwn
+          · exact ⟨_, syrk_wsyrk_refuse_maxO x none o n hn ho hnn hon hlen hwn
               (by omega)⟩
         | some ws =>
           by_cases hwl : Slice.len ws = o
@@ -777,11 +778,11 @@ theorem word_wsyrk_refuses (x : Slice I64) (w : Option (Slice I64)) (o n threads
             by_cases h18 : o.val < 2 ^ 18
             · by_cases hwb : withinBoundRef x (some ws)
               · exact absurd ⟨hn, ho, (by rw [hnn]; simp), hon', hws', h18, hwb⟩ h
-              · exact ⟨_, syrk_wsyrk_refuse_bound x (some ws) o n threads hn ho hnn hon hlen
+              · exact ⟨_, syrk_wsyrk_refuse_bound x (some ws) o n hn ho hnn hon hlen
                   hws' h18 hwb⟩
-            · exact ⟨_, syrk_wsyrk_refuse_maxO x (some ws) o n threads hn ho hnn hon hlen hws'
+            · exact ⟨_, syrk_wsyrk_refuse_maxO x (some ws) o n hn ho hnn hon hlen hws'
                 (by omega)⟩
-          · exact ⟨_, syrk_wsyrk_refuse_len_w x ws o n threads hn ho hnn hon hlen hwl⟩
-      · exact ⟨_, syrk_wsyrk_refuse_len_x x w o n threads hn ho hnn hon hlen⟩
+          · exact ⟨_, syrk_wsyrk_refuse_len_w x ws o n hn ho hnn hon hlen hwl⟩
+      · exact ⟨_, syrk_wsyrk_refuse_len_x x w o n hn ho hnn hon hlen⟩
 
 end apeiron_word

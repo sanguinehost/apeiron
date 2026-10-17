@@ -1,8 +1,8 @@
 /-
 Aggregator for the fixed-point `sin`/`cos` refinement. The original 3524-line body is split by
-section into `Numeric.Rope.Part1` .. `Numeric.Rope.Part4`; every declaration, statement, constant,
+section into `Numeric.Rope.Part1` .. `Numeric.Rope.Part5`; every declaration, statement, constant,
 namespace and declaration order is unchanged. Load order is the linear chain
-`Part1 <- Part2 <- Part3 <- Part4`.
+`Part1 <- Part2 <- Part3 <- Part5 <- Part4`.
 -/
 import Mathlib.Analysis.Complex.Exponential
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.Basic
@@ -12,4 +12,5 @@ import Numeric.Scale
 import Numeric.Rope.Part1
 import Numeric.Rope.Part2
 import Numeric.Rope.Part3
+import Numeric.Rope.Part5
 import Numeric.Rope.Part4
