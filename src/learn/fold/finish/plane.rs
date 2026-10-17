@@ -66,7 +66,7 @@
 )]
 
 use crate::learn::fold::fit::icm::{codebook, BLOCK, CODE_LEN};
-use crate::learn::fold::fit::quant::quant_c_u8;
+use crate::learn::fold::fit::quant::{quant_c_u8, r_level};
 use crate::learn::fold::fit::steps::{compose, fwht128, GROUP};
 
 /// A refusal from a [`CodedPlane`] constructor or method.
@@ -561,7 +561,7 @@ fn compose_plane(s: &[f64], r: &[f64], c: &[f64], d: &[f64], o: usize, n: usize)
     compose(&y, r, c, o, n).unwrap_or_default()
 }
 
-/// The `r` snap of [`CodedPlane::qvals`]: `lo[o] + (k/15)·sp[o]` with
+/// The `r` snap of [`CodedPlane::qvals`]: [`r_level`] `lo[o] + (k/15)·sp[o]` on the Q32.32 grid with
 /// `k = round_ties_even(clamp((r_l − lo[o])/sp[o]·15, 0, 15))` per element of an `o × n/128` latent.
 ///
 /// # Complexity
@@ -574,7 +574,8 @@ fn snap_r(r_l: &[f64], lo: &[f64], sp: &[f64], o: usize, n: usize) -> Vec<f64> {
         for gg in 0..g {
             let x = ((r_l[oi * g + gg] - lo[oi]) / sp[oi] * 15.0).clamp(0.0, 15.0);
             let k = x.round_ties_even();
-            out[oi * g + gg] = lo[oi] + (k / 15.0) * sp[oi];
+            out[oi * g + gg] =
+                r_level(lo[oi], sp[oi], u8::try_from(k as i64).unwrap_or(0)).unwrap_or(f64::NAN);
         }
     }
     out
