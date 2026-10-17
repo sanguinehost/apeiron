@@ -102,6 +102,20 @@ fn panel_shift_words(max_mag: u128) -> i32 {
     }
 }
 
+/// The exact power-of-two down-shift `s` that keeps a Hadamard product `A ⊙ H` a `Q32.32` word:
+/// with `bl_a`, `bl_h` the bit lengths of the two maxima, the product's word needs
+/// `bl_a + bl_h − 32` bits and `s = max(0, bl_a + bl_h − 94)` leaves it at most `2^62`, one bit
+/// below `i64::MAX`. `0` when the product already fits, so such an input is unchanged bit for bit.
+/// The caller rescales the normal system's matrix and right-hand side by the same `2^-s`, which
+/// leaves the solution unchanged: a rescale, never a clamp.
+///
+/// # Complexity
+/// `O(1)`.
+fn product_shift(a: u128, h: u128) -> i32 {
+    let bl = |m: u128| ilog2_pos(m).map_or(0, |b| b as i32 + 1);
+    (bl(a) + bl(h) - 32 - 62).max(0)
+}
+
 /// The ridge `round(eps·mean)` in raw units for a mean diagonal word `mean`.
 fn ridge_word(mean: i128) -> Result<i64, StepsError> {
     let scaled = mean
@@ -575,6 +589,11 @@ pub fn c_step_wshl(
     let gr_g = row_weight(g_row, o)?;
     // A = hl ⊙ (Shᵀ diag(g_row) Sh) on the grid, column-filled to D·A·D; nothing here is `f64`.
     let mut a = wsyrk(&sh, Some(&gr_g), o, n).map_err(map_syrk)?;
+    // A production Gram (`2^46` words at `o = 4864`) times the production metric (`2^53`) needs a
+    // 67-bit product word, five above `i64`; the exact `2^-s` rescale of the whole system below
+    // keeps the solution and leaves a fit whose product already fits (`s = 0`) bit for bit.
+    let s = product_shift(max_mag(&a), max_mag(hl));
+    shift_in_place(&mut a, s)?;
     hadamard_into(&mut a, hl).map_err(map_syrk)?;
     // The ridge `eps·mean(diag A)` on the grid diagonal, carried through `D²`.
     let mean = filled_diag_mean(&a, &e, n)?;
@@ -583,8 +602,9 @@ pub fn c_step_wshl(
         ridge = 1;
     }
     add_filled_ridge(&mut a, &e, n, ridge)?;
-    // b = D·Σ_o (Ws·Hl)⊙Sh·g_row, built on the grid.
-    let b = rhs_grid(wshl, &sh, &gr_g, o, n)?;
+    // b = D·Σ_o (Ws·Hl)⊙Sh·g_row, on the grid, at the matrix's `2^-s`.
+    let mut b = rhs_grid(wshl, &sh, &gr_g, o, n)?;
+    shift_in_place(&mut b, s)?;
     let solved = chol_solve(&a, &b, n, 1).map_err(map_solve)?;
     // x = D·y, then the global shift: one rounding per entry.
     (0..n)
@@ -787,13 +807,18 @@ pub fn d_step_wshl(
     let e = fill_columns(&mut b_scaled, o, n)?;
     let gr_g = row_weight(g_row, o)?;
     let mut a = wsyrk(&b_scaled, Some(&gr_g), o, n).map_err(map_syrk)?;
+    // The same `2^-s` rescale as [`c_step_wshl`]: `Bᵀ diag(g) B` reaches `2^46` and `H_rot`
+    // `2^53` at production, a 67-bit product word.
+    let s = product_shift(max_mag(&a), max_mag(&h_rot));
+    shift_in_place(&mut a, s)?;
     hadamard_into(&mut a, &h_rot).map_err(map_syrk)?;
     // The ridge `eps·max(mean(diag A), eps·2⁻²ᵏ)`: the clamp is below one raw unit for every shift,
     // so a non-positive mean still floors the ridge at one raw unit; carried through `D²`.
     let mean = filled_diag_mean(&a, &e, n)?;
     let ridge = ridge_word(mean.max(0))?.max(1);
     add_filled_ridge(&mut a, &e, n, ridge)?;
-    let b = rhs_grid(&b_scaled, &g_rot, &gr_g, o, n)?;
+    let mut b = rhs_grid(&b_scaled, &g_rot, &gr_g, o, n)?;
+    shift_in_place(&mut b, s)?;
     let solved = chol_solve(&a, &b, n, 1).map_err(map_solve)?;
     (0..n)
         .map(|j| shift_word(solved.x[j], k - e[j]))

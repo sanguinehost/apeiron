@@ -41,15 +41,25 @@ pub(super) fn narrow_q(v: i128) -> Result<i64, GptqE8Error> {
     }
 }
 
-/// The even global exponent `g` that scales a positive Q32.32 magnitude `max_abs` (a word) into
-/// `[2^29, 2^31)`: `floor(log2 (max_abs·2⁻³²)) − g ∈ {29, 30}` by that floor-log's parity. Even `g`
-/// keeps the half-exponent `g/2` an integer for the [`SpdQ`] fold; `0` for a zero magnitude. `O(1)`.
+/// The lowest even global exponent [`even_g`] returns: `32 − g ≤ 62` keeps `1.0` at the
+/// renormalised scale a representable word.
+const MIN_G: i32 = -30;
+
+/// The even global exponent `g` that scales a positive Q32.32 magnitude `max_abs` (a word) so the
+/// largest renormalised word is `2^61`, one bit below `i64::MAX`; `0` for a zero magnitude. Even
+/// `g` keeps the half-exponent `g/2` an integer for the [`SpdQ`] fold.
+///
+/// The exponent is floored at [`MIN_G`] so that `1.0` at the renormalised scale, `2^(32−g)`
+/// (`feedback_u`'s zero-damped-diagonal sentinel), stays a word: `g < −30` needs
+/// `2^(32−g) > 2^62`, outside `i64`. The floor engages only for a Hessian whose largest entry is
+/// below `2⁻²` (the production `o`-stage Gram), where the words sit at `2^58..2^60` instead of
+/// `2^61`; either register carries one rounding of `2⁻³²` per entry. `O(1)`.
 pub(super) fn even_g(max_abs: u64) -> i32 {
     if max_abs == 0 {
         return 0;
     }
     let l = blen(i128::from(max_abs)) - 33; // floor(log2 (max_abs·2⁻³²))
-    (l - 29) & !1
+    ((l - 29) & !1).max(MIN_G)
 }
 
 /// Pool task context for [`to_words`]: the source words, the shift and the entries per task.
