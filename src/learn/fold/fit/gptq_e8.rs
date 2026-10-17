@@ -96,6 +96,8 @@ use super::gptq_e8_carrier::{
     narrow_q, project_scale_int, project_scale_row, shift_left_i128, sum_sq_at, w_to_rows,
 };
 pub use super::gptq_e8_carrier::{feedback_u, UFac};
+use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
+use crate::engine::chart::task::ChunkTask;
 use crate::learn::code::e8::{self, E8Error};
 use crate::learn::solve::q32::{rshift_rne, Fx};
 
@@ -414,9 +416,9 @@ pub(super) fn second_pass_wins(n1: i128, n2: i128) -> bool {
     n2 < n1
 }
 
-/// One beam pass over the group `[g0, g1)` of the permuted factor `u` and the group's per-row
-/// integer weight rows `mant`/`e_row` (real weight `mant[r·gs + c]·2^e_row[r]`) at the per-row group
-/// scale `a` (the [`group_scale_int`] outputs): the Python's lines 333–378.
+/// One row of the beam pass over the group `[g0, g0+gs)` of the permuted factor `u`: the row's
+/// integer weight row `wk_row` at exponent `er` (real weight `wk_row[c]·2^er`) and its group scale
+/// `a` (a [`group_scale_int`] output), written to `out`: the Python's lines 333–378.
 ///
 /// # The exact step cost
 ///
@@ -461,61 +463,46 @@ pub(super) fn second_pass_wins(n1: i128, n2: i128) -> bool {
 /// the beams are compared on their exact `i128` residual norms at a shared exponent
 /// ([`sum_sq_at`], [`min_exp`]).
 ///
-/// Rows are processed serially; `B` depends on the block index alone, so each row's beam state is
-/// independent.
+/// One row: `B` depends on the block index alone and every buffer below is row-local, so a row's
+/// beam state is independent of every other row. The feedback is sequential in the **column** order
+/// inside a row (the block loop `m` is ascending and writes the later columns of `wk_c`), which this
+/// body keeps exactly; only the row dispatch is split across the pool ([`beam_pass`]).
 ///
 /// # Errors
 ///
-/// [`GptqE8Error::ShapeMismatch`] on a wrong-length buffer, [`GptqE8Error::Codebook`] from the code
-/// index decode, [`GptqE8Error::NotPositiveDefinite`] on a non-positive diagonal and
-/// [`GptqE8Error::Overflow`] on a checked `i128` operation.
+/// [`GptqE8Error::Codebook`] from the code index decode,
+/// [`GptqE8Error::NotPositiveDefinite`] on a non-positive diagonal and [`GptqE8Error::Overflow`] on
+/// a checked `i128` operation.
 ///
 /// # Complexity
 ///
-/// Temporal `O(o·[gs/8]·beam·256·8 + o·Σ_blocks beam·(gs − b1) + o·beam·gs²)` `i128` multiply-adds;
-/// spatial `O(beam·gs + beam·256)` row-local beam state plus the `256·8` `i64` codebook.
+/// Temporal `O([gs/8]·beam·256·8 + Σ_blocks beam·(gs − b1) + beam·gs²)` `i128` multiply-adds per
+/// row (the caller multiplies by `o`); spatial `O(beam·gs + beam·256)` row-local beam state.
 #[allow(
     clippy::too_many_arguments,
-    reason = "the pass writes three output buffers plus the working rows and reads the factor, the \
-              rows and the scale; grouping them into a struct would not reduce the caller's \
-              argument count"
+    reason = "the row body reads the factor, the row, its scale and the codebook and writes one row \
+              record; a struct would only relocate the same fields"
 )]
 #[allow(
     clippy::too_many_lines,
     reason = "the port is kept parallel to the Python's single beam-branch body (lines 333–378)"
 )]
-pub(super) fn beam_pass(
+fn beam_row(
     u: &UFac,
     n: usize,
     g0: usize,
-    g1: usize,
-    mant: &[i64],
-    e_row: &[i32],
-    a: &[Fx],
-    o: usize,
+    gs: usize,
+    nb: usize,
+    cw: &[[i64; BLOCK]; e8::CODEBOOK_LEN],
+    wk_row: &[i64],
+    er: i32,
+    a: &Fx,
     beam: usize,
     wscale: bool,
-    s_out: &mut [Fx],
-    e_out: &mut [Fx],
-    i_out: &mut [u16],
-) -> Result<Vec<Fx>, GptqE8Error> {
-    let gs = g1 - g0;
-    let nb = gs / BLOCK;
-    if mant.len() != o * gs
-        || e_row.len() != o
-        || a.len() != o
-        || s_out.len() != o * gs
-        || e_out.len() != o * gs
-        || i_out.len() != o * nb
-    {
-        return Err(GptqE8Error::ShapeMismatch);
-    }
+    out: &mut RowBeam,
+) -> Result<(), GptqE8Error> {
     let cap = beam.min(e8::CODEBOOK_LEN);
     let stride = cap * gs;
-    let mut cw = [[0i64; BLOCK]; e8::CODEBOOK_LEN];
-    for (k, row) in cw.iter_mut().enumerate() {
-        *row = e8::codeword(k).map_err(map_e8)?;
-    }
     let mut wk_c = vec![0i64; stride];
     let mut s_c = vec![Fx { m: 0, e: 0 }; stride];
     let mut e_c = vec![Fx { m: 0, e: 0 }; stride];
@@ -535,13 +522,12 @@ pub(super) fn beam_pass(
     let mut gvec = [0i128; BLOCK];
     let mut hvec = [0i128; BLOCK];
     let mut esel = [0i128; BLOCK];
-    let mut a_new = vec![Fx { m: 0, e: 0 }; o];
-    for lr in 0..o {
-        let am = i128::from(a[lr].m);
-        let ae = i64::from(a[lr].e);
-        let er = i64::from(e_row[lr]);
-        let delta = er + 32 - ae;
-        wk_c[..gs].copy_from_slice(&mant[lr * gs..(lr + 1) * gs]);
+    {
+        let am = i128::from(a.m);
+        let ae = i64::from(a.e);
+        let er_q = i64::from(er);
+        let delta = er_q + 32 - ae;
+        wk_c[..gs].copy_from_slice(wk_row);
         s_c[..gs].fill(Fx { m: 0, e: 0 });
         e_c[..gs].fill(Fx { m: 0, e: 0 });
         let mut kal_prev: Option<i64> = None;
@@ -563,10 +549,10 @@ pub(super) fn beam_pass(
                     let bh = blen(i128::from(hjj));
                     let bm = blen(i128::from(wk_c[b * gs + b0 + t]));
                     if bm > 0 {
-                        kb = kb.max(bm + e_row[lr] + 32 + u.d[j] - bh + 1);
+                        kb = kb.max(bm + er + 32 + u.d[j] - bh + 1);
                     }
                     if am != 0 {
-                        kb = kb.max(34 + blen(am) + a[lr].e + u.d[j] - bh + 1);
+                        kb = kb.max(34 + blen(am) + a.e + u.d[j] - bh + 1);
                     }
                 }
             }
@@ -602,7 +588,7 @@ pub(super) fn beam_pass(
                     let j = g0 + b0 + t;
                     hvec[t] = div_shift_rne(
                         i128::from(wk_c[b * gs + b0 + t]),
-                        er + kal + 32 + i64::from(u.d[j]),
+                        er_q + kal + 32 + i64::from(u.d[j]),
                         i128::from(u.hat[j * n + j]),
                     )?;
                 }
@@ -663,7 +649,7 @@ pub(super) fn beam_pass(
                             i128::from(wk_c[src + b0 + t])
                                 .checked_sub(sh)
                                 .ok_or(GptqE8Error::Overflow)?,
-                            kal + er + 32 + dj,
+                            kal + er_q + 32 + dj,
                         )
                     };
                     let e = div_shift_rne(iv, phi, i128::from(u.hat[j * n + j]))?;
@@ -688,7 +674,7 @@ pub(super) fn beam_pass(
                         };
                         acc = next;
                     }
-                    let sh = -(kal + 32 + i64::from(u.d[g0 + col]) + er);
+                    let sh = -(kal + 32 + i64::from(u.d[g0 + col]) + er_q);
                     let neg = acc.checked_neg().ok_or(GptqE8Error::Overflow)?;
                     let dm = if sh >= 0 {
                         match u32::try_from(sh)
@@ -734,7 +720,7 @@ pub(super) fn beam_pass(
                     gs,
                     &s_c[src..src + gs],
                     &e_c[src..src + gs],
-                    &a[lr],
+                    a,
                     &mut eproj[src..src + gs],
                 )?;
             }
@@ -754,23 +740,204 @@ pub(super) fn beam_pass(
                     win = b;
                 }
             }
-            a_new[lr] = a_cand[win].clone();
+            out.a = a_cand[win].clone();
             let src = win * gs;
-            for j in 0..gs {
-                s_out[lr * gs + j] = s_c[src + j].clone();
-                e_out[lr * gs + j] = eproj[src + j].clone();
-            }
-            for mm in 0..nb {
-                i_out[lr * nb + mm] = idx_c[win * nb + mm];
-            }
+            out.s.clone_from_slice(&s_c[src..src + gs]);
+            out.e.clone_from_slice(&eproj[src..src + gs]);
+            out.i.copy_from_slice(&idx_c[win * nb..win * nb + nb]);
         } else {
-            a_new[lr] = a[lr].clone();
-            s_out[lr * gs..(lr + 1) * gs].clone_from_slice(&s_c[..gs]);
-            e_out[lr * gs..(lr + 1) * gs].clone_from_slice(&e_c[..gs]);
-            for mm in 0..nb {
-                i_out[lr * nb + mm] = idx_c[mm];
+            out.a = a.clone();
+            out.s.clone_from_slice(&s_c[..gs]);
+            out.e.clone_from_slice(&e_c[..gs]);
+            out.i.copy_from_slice(&idx_c[..nb]);
+        }
+    }
+    Ok(())
+}
+
+/// One row's beam-pass result: the codeword image and whitened residual (`gs` entries each), the
+/// `nb` code indices and the row's chosen scale. Owned per row so a pool task writes only its own
+/// rows through a `&mut [RowBeam]` split.
+struct RowBeam {
+    s: Vec<Fx>,
+    e: Vec<Fx>,
+    i: Vec<u16>,
+    a: Fx,
+}
+
+impl RowBeam {
+    /// A zeroed row record of a `gs`-column group (`nb = gs/8` codes). `O(gs)` space.
+    fn zeroed(gs: usize) -> Self {
+        RowBeam {
+            s: vec![Fx { m: 0, e: 0 }; gs],
+            e: vec![Fx { m: 0, e: 0 }; gs],
+            i: vec![0u16; gs / BLOCK],
+            a: Fx { m: 0, e: 0 },
+        }
+    }
+}
+
+/// The per-row candidate work below which [`beam_pass`] keeps its rows on the calling thread: one
+/// dispatch costs 86–292 µs on the 32-thread box, about `2^20` checked `i128` multiply-adds at the
+/// crate's measured single-thread rate, so below that product the pool cannot repay it. Production
+/// layer-0 calls carry `o·[gs/8]·beam·256·8 ≈ 6·10^8` (o = 4864, gs = 128, beam = 4), three orders
+/// above the threshold.
+const BEAM_POOL_MIN_OPS: usize = 1 << 20;
+
+/// The pool task context of [`beam_pass`]: the factor, the group geometry, the read-only codebook
+/// and rows, and the refusal cell.
+struct BeamRows<'a> {
+    u: &'a UFac,
+    n: usize,
+    g0: usize,
+    gs: usize,
+    nb: usize,
+    cw: &'a [[i64; BLOCK]; e8::CODEBOOK_LEN],
+    mant: &'a [i64],
+    e_row: &'a [i32],
+    a: &'a [Fx],
+    beam: usize,
+    wscale: bool,
+    first: &'a FirstErr<usize, GptqE8Error>,
+}
+
+impl ChunkTask<RowBeam> for BeamRows<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [RowBeam]) {
+        for (k, out) in piece.iter_mut().enumerate() {
+            let lr = start + k;
+            let wk = &self.mant[lr * self.gs..(lr + 1) * self.gs];
+            if let Err(e) = beam_row(
+                self.u,
+                self.n,
+                self.g0,
+                self.gs,
+                self.nb,
+                self.cw,
+                wk,
+                self.e_row[lr],
+                &self.a[lr],
+                self.beam,
+                self.wscale,
+                out,
+            ) {
+                self.first.record(lr, e);
+                return;
             }
         }
+    }
+}
+
+/// The beam pass over the group `[g0, g1)` of the permuted factor `u`: every row of `mant`/`e_row`
+/// at its group scale `a` (the Python's lines 333–378), returned as the per-row scales and written
+/// into the group-local `s_out` (`o × gs`), `e_out` (`o × gs`) and `i_out` (`o × nb`).
+///
+/// Rows are independent (see [`beam_row`]), so the rows are split into `width_global()` contiguous
+/// chunks of [`RowBeam`] records through [`chunks_mut_global`]; each record holds exactly the values
+/// the serial row loop wrote at its row offset, so the scatter below writes the same bits. The
+/// column order inside a row — and therefore the error feedback — is untouched.
+///
+/// # Errors
+///
+/// [`GptqE8Error::ShapeMismatch`] on a wrong-length buffer; otherwise the lowest-row row error of
+/// [`beam_row`](`GptqE8Error::Codebook`, `NotPositiveDefinite`, `Overflow`).
+///
+/// # Complexity
+///
+/// Temporal: `o` × [`beam_row`] — `O(o·[gs/8]·beam·256·8 + o·Σ_blocks beam·(gs − b1) +
+/// o·beam·gs²)` `i128` multiply-adds — plus `O(o·gs)` scatter, split across the pool. The product
+/// `o·[gs/8]·beam·256·8` is the pool admission unit: at `o = 4864`, `gs = 128`, `beam = 4` it is
+/// `≈ 6·10^8` per call and 2 calls per group per layer, far above [`BEAM_POOL_MIN_OPS`]; below the
+/// threshold the same rows run serially (no second body).
+/// Space: `O(o·(gs + nb))` row records plus each task's row-local beam state.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the pass writes three group planes plus the working rows and reads the factor, the \
+              rows and the scale; the caller's signature is fixed by gptq_e8"
+)]
+pub(super) fn beam_pass(
+    u: &UFac,
+    n: usize,
+    g0: usize,
+    g1: usize,
+    mant: &[i64],
+    e_row: &[i32],
+    a: &[Fx],
+    o: usize,
+    beam: usize,
+    wscale: bool,
+    s_out: &mut [Fx],
+    e_out: &mut [Fx],
+    i_out: &mut [u16],
+) -> Result<Vec<Fx>, GptqE8Error> {
+    let gs = g1 - g0;
+    let nb = gs / BLOCK;
+    if mant.len() != o * gs
+        || e_row.len() != o
+        || a.len() != o
+        || s_out.len() != o * gs
+        || e_out.len() != o * gs
+        || i_out.len() != o * nb
+    {
+        return Err(GptqE8Error::ShapeMismatch);
+    }
+    let cap = beam.min(e8::CODEBOOK_LEN);
+    let mut cw = [[0i64; BLOCK]; e8::CODEBOOK_LEN];
+    for (k, row) in cw.iter_mut().enumerate() {
+        *row = e8::codeword(k).map_err(map_e8)?;
+    }
+    let mut rows: Vec<RowBeam> = (0..o).map(|_| RowBeam::zeroed(gs)).collect();
+    let ops = o
+        .checked_mul(nb)
+        .and_then(|v| v.checked_mul(cap))
+        .and_then(|v| v.checked_mul(e8::CODEBOOK_LEN * BLOCK));
+    if ops.is_none_or(|v| v < BEAM_POOL_MIN_OPS) {
+        for (lr, out) in rows.iter_mut().enumerate() {
+            beam_row(
+                u,
+                n,
+                g0,
+                gs,
+                nb,
+                &cw,
+                &mant[lr * gs..(lr + 1) * gs],
+                e_row[lr],
+                &a[lr],
+                beam,
+                wscale,
+                out,
+            )?;
+        }
+    } else {
+        let chunk_rows = o.div_ceil(width_global()).max(1);
+        let first: FirstErr<usize, GptqE8Error> = FirstErr::new();
+        chunks_mut_global(
+            &mut rows,
+            chunk_rows,
+            &BeamRows {
+                u,
+                n,
+                g0,
+                gs,
+                nb,
+                cw: &cw,
+                mant,
+                e_row,
+                a,
+                beam,
+                wscale,
+                first: &first,
+            },
+        );
+        if let Some((_, e)) = first.take() {
+            return Err(e);
+        }
+    }
+    let mut a_new = vec![Fx { m: 0, e: 0 }; o];
+    for (lr, r) in rows.iter().enumerate() {
+        a_new[lr] = r.a.clone();
+        s_out[lr * gs..(lr + 1) * gs].clone_from_slice(&r.s);
+        e_out[lr * gs..(lr + 1) * gs].clone_from_slice(&r.e);
+        i_out[lr * nb..(lr + 1) * nb].copy_from_slice(&r.i);
     }
     Ok(a_new)
 }
