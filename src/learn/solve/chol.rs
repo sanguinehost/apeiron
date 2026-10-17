@@ -49,6 +49,7 @@
               `chol`; the pedantic lints stay on for the rest of the crate."
 )]
 
+use super::q32::narrow;
 use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
 use crate::engine::chart::task::ChunkTask;
 use crate::numeric::fixed_rsqrt::isqrt;
@@ -94,15 +95,6 @@ fn round32(v: i128) -> Option<i128> {
     match v.checked_add(1_i128 << 31) {
         Some(s) => Some(s >> 32),
         None => None,
-    }
-}
-
-/// `v` as `i64`, or `None` if it is outside `i64`.
-fn narrow(v: i128) -> Option<i64> {
-    if v > i128::from(i64::MAX) || v < i128::from(i64::MIN) {
-        None
-    } else {
-        Some(v as i64)
     }
 }
 

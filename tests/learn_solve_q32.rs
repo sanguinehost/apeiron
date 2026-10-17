@@ -19,9 +19,32 @@
 
 use apeiron::format::quant::f16_to_f32;
 use apeiron::learn::solve::q32::{
-    fill_scale, from_grid, ilog2_pos, panel_shift, round_f16, round_q32_even, rshift_rne, to_grid,
-    Bfp, Fx, Q32Error, SpdQ, GRID_BOUND, GRID_SCALE, INPUT_BOUND,
+    fill_scale, from_grid, ilog2_pos, narrow, panel_shift, round_f16, round_q32_even, rshift_rne,
+    to_grid, Bfp, Fx, Q32Error, SpdQ, GRID_BOUND, GRID_SCALE, INPUT_BOUND,
 };
+
+#[test]
+fn narrow_is_the_checked_i64_cast_at_both_edges() {
+    assert_eq!(narrow(i128::from(i64::MAX)), Some(i64::MAX));
+    assert_eq!(narrow(i128::from(i64::MIN)), Some(i64::MIN));
+    assert_eq!(narrow(i128::from(i64::MAX) + 1), None);
+    assert_eq!(narrow(i128::from(i64::MIN) - 1), None);
+    // The deleted copies spelled the same predicate `i64::try_from(v).ok()` (`plane`, `parts`),
+    // `…map_err(..)` (`lw`) and `i64::MAX as i128` (`dense`); this pins the survivor to that form.
+    for &v in &[
+        i128::MIN,
+        i128::from(i64::MIN),
+        i128::from(i64::MIN) - 1,
+        -1,
+        0,
+        1,
+        i128::from(i64::MAX),
+        i128::from(i64::MAX) + 1,
+        i128::MAX,
+    ] {
+        assert_eq!(narrow(v), i64::try_from(v).ok(), "v={v}");
+    }
+}
 
 #[test]
 fn round_trip_is_within_half_ulp_of_the_grid() {

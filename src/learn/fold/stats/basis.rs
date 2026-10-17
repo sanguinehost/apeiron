@@ -80,14 +80,14 @@ use crate::learn::fold::fit::steps::fwht128;
 use crate::learn::solve::chol::{equilibrate, factor_scaled, SolveError};
 use crate::learn::solve::gemm::{gemm_nn, GemmError};
 use crate::learn::solve::q32::{
-    div_rne, from_grid, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
+    div_rne, from_grid, narrow, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
 };
 use crate::learn::solve::syrk::{wsyrk, SyrkError};
 use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_ln::{fixed_ln, LN2_Q32, ONE};
 use crate::numeric::fixed_trig::{fixed_atan2, fixed_sin_cos};
 
-use super::parts::{mul, narrow, panel, shift, words_grid};
+use super::parts::{mul, panel, shift, words_grid};
 
 /// `log₂ x` for `x > 0`: the numeric `ln` kernel divided by `ln 2`, one rounding. `None` for
 /// `x <= 0`. `O(1)`.

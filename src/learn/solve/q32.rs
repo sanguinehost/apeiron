@@ -37,6 +37,8 @@
               the row-major loops index by `i/j`"
 )]
 
+use std::cmp::Ordering;
+
 /// The `Q32.32` scale `2³²`: the grid word of a real `x` is `round(x·2³²)` and a word `v` is `v/2³²`.
 pub const GRID_SCALE: f64 = 4_294_967_296.0;
 
@@ -209,8 +211,15 @@ pub fn rshift_rne(v: i128, s: u32) -> Option<i128> {
     Some(q + step)
 }
 
-/// `v` as `i64`, or `None` when it is outside `i64`.
-fn narrow_i64(v: i128) -> Option<i64> {
+/// `v` as `i64`, or `None` when it is outside `i64` — the one `i128 → i64` narrowing of the
+/// `Q32.32` path. The bound test is written out and the extraction follows the `as` cast;
+/// `i64::try_from` emits an unmodeled external the audit rejects (see `numeric::fixed_trig`).
+///
+/// # Complexity
+///
+/// `O(1)`.
+#[must_use]
+pub fn narrow(v: i128) -> Option<i64> {
     if v > i128::from(i64::MAX) || v < i128::from(i64::MIN) {
         None
     } else {
@@ -240,7 +249,7 @@ fn magnitude_i128(v: i128) -> u128 {
 /// `O(1)`.
 pub fn round_q32_even(v: i128) -> Result<i64, Q32Error> {
     match rshift_rne(v, 32) {
-        Some(r) => narrow_i64(r).ok_or(Q32Error::Overflow),
+        Some(r) => narrow(r).ok_or(Q32Error::Overflow),
         None => Err(Q32Error::Overflow),
     }
 }
@@ -253,6 +262,30 @@ pub fn round_q32_even(v: i128) -> Result<i64, Q32Error> {
 /// unit compiles `numeric` standalone (`proof/extract/lib.rs`), so the quotient is defined there and
 /// re-exported here as the shared name the fold and solve code calls.
 pub use crate::numeric::fixed_ln::div_rne;
+
+/// `num / den` rounded to nearest, ties to even, for a strictly positive `den` whose doubled
+/// remainder fits `i128`: the infallible variant of [`div_rne`] the fit quantizer carried, kept
+/// because its operands make the checked arms unreachable. Every divisor is a span floored at one
+/// grid quantum by the quantizer, a level count `>= 1`, or a literal; the quotient stays an exact
+/// `i128`, so [`narrow`] is applied by the caller that stores a word.
+///
+/// # Panics
+///
+/// `den == 0` or a `2|r|` leaving `i128`; the quantizer's divisors and grid-word remainders make
+/// both unreachable, so the function is crate-private.
+///
+/// # Complexity
+///
+/// `O(1)`.
+#[must_use]
+pub(crate) fn div_rne_pos(num: i128, den: i128) -> i128 {
+    let (q, r) = (num / den, num % den);
+    q + match (2 * r.abs()).cmp(&den) {
+        Ordering::Greater => r.signum(),
+        Ordering::Equal if q % 2 != 0 => r.signum(),
+        _ => 0,
+    }
+}
 
 /// A scaled-integer real `m · 2^e`: the scalar carrier a `f64` fold-fit quantity moves to.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -300,7 +333,7 @@ impl Fx {
                 Some(x) => x,
                 None => return Err(Q32Error::Overflow),
             };
-            let mm = match narrow_i64(m2) {
+            let mm = match narrow(m2) {
                 Some(x) => x,
                 None => return Err(Q32Error::Overflow),
             };
@@ -309,7 +342,7 @@ impl Fx {
                 e: e + s2 as i32,
             });
         }
-        let mm = match narrow_i64(m) {
+        let mm = match narrow(m) {
             Some(x) => x,
             None => return Err(Q32Error::Overflow),
         };
@@ -415,7 +448,7 @@ impl Bfp {
 fn scale_q32(v: i64, shift: i32) -> Result<i64, Q32Error> {
     if shift > 0 {
         match rshift_rne(i128::from(v), shift as u32) {
-            Some(x) => narrow_i64(x).ok_or(Q32Error::Overflow),
+            Some(x) => narrow(x).ok_or(Q32Error::Overflow),
             None => Err(Q32Error::Overflow),
         }
     } else if shift < 0 {
@@ -423,7 +456,7 @@ fn scale_q32(v: i64, shift: i32) -> Result<i64, Q32Error> {
         if k > 64 {
             return Err(Q32Error::Overflow);
         }
-        narrow_i64(i128::from(v) << k).ok_or(Q32Error::Overflow)
+        narrow(i128::from(v) << k).ok_or(Q32Error::Overflow)
     } else {
         Ok(v)
     }
@@ -613,7 +646,7 @@ pub fn round_f16(x: Fx) -> Result<Fx, Q32Error> {
             return Err(Q32Error::Overflow);
         }
     }
-    let r = match narrow_i64(r128) {
+    let r = match narrow(r128) {
         Some(v) => v,
         None => return Err(Q32Error::Overflow),
     };

@@ -34,6 +34,7 @@
               `j1`, `nb`), which reads closer to the arithmetic than spelled-out names."
 )]
 
+use super::q32::narrow;
 use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
 use crate::engine::chart::task::ChunkTask;
 /// Raw Q32.32 magnitude bound exponent: every `x` and `w` entry satisfies `|v| < 2³⁶`.
@@ -74,16 +75,6 @@ pub(super) fn round32(v: i128) -> Option<i128> {
 /// `None` when the rounding add leaves `i128`.
 fn round64(v: i128) -> Option<i128> {
     v.checked_add(1_i128 << 63).map(|s| s >> 64)
-}
-
-/// `v` as `i64`, or `None` when it is outside `i64`. Shared with
-/// [`crate::learn::solve::gemm`].
-pub(super) fn narrow(v: i128) -> Option<i64> {
-    if v > i128::from(i64::MAX) || v < i128::from(i64::MIN) {
-        None
-    } else {
-        Some(v as i64)
-    }
 }
 
 /// `true` iff every `x` entry, and every `w` entry when present, is below the magnitude bound

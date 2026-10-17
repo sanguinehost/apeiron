@@ -52,7 +52,7 @@ use crate::engine::chart::task::ChunkTask;
 use crate::engine::{rms_norm_fixed, NormError};
 use crate::learn::solve::gemm::{gemm_nt, GemmError};
 use crate::learn::solve::q32::{
-    div_rne, from_grid, ilog2_pos, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
+    div_rne, from_grid, ilog2_pos, narrow, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
 };
 use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_ln::{fixed_ln, ONE};
@@ -73,11 +73,6 @@ pub(crate) fn mul(a: i64, b: i64) -> Option<i64> {
 /// off the grid.
 fn div(a: i64, b: i64) -> Option<i64> {
     div_rne(i128::from(a) << 32, i128::from(b)).and_then(narrow)
-}
-
-/// `v` as an `i64`, or `None` when it leaves the grid.
-pub(crate) fn narrow(v: i128) -> Option<i64> {
-    i64::try_from(v).ok()
 }
 
 /// `sqrt x` for `x >= 0`: the floored integer root of `x*2^32` from the numeric root kernel, at

@@ -52,7 +52,9 @@ use crate::engine::chart::task::ChunkTask;
 use crate::learn::code::e8::codeword;
 use crate::learn::fold::fit::icm::{BLOCK, CODE_LEN};
 use crate::learn::fold::fit::steps::GROUP;
-use crate::learn::solve::q32::{round_f16, round_q32_even, rshift_rne, to_grid, Fx, GRID_BOUND};
+use crate::learn::solve::q32::{
+    narrow, round_f16, round_q32_even, rshift_rne, to_grid, Fx, GRID_BOUND,
+};
 use crate::numeric::fixed_exp::fixed_exp;
 
 /// `ONE`, the Q32.32 unit: the word `1 << 32` denotes `1.0`.
@@ -90,11 +92,6 @@ pub(crate) fn div_ne(n: i128, d: i128) -> Option<i128> {
 /// `round(a / b)` as a Q32.32 word, or `None` when `b == 0` or the result leaves `i64`. `O(1)`.
 pub(crate) fn div(a: i64, b: i64) -> Option<i64> {
     narrow(div_ne(i128::from(a) << 32, i128::from(b))?)
-}
-
-/// `v` as `i64`, or `None` when it is outside `i64`. `O(1)`.
-pub(crate) fn narrow(v: i128) -> Option<i64> {
-    i64::try_from(v).ok()
 }
 
 /// `round(x·2^32)` for a boundary value; `NotFinite`/`Range` otherwise. `O(1)`.
