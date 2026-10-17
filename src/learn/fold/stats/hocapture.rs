@@ -64,10 +64,10 @@
 //! `i128` product of two words, rounded once — and the entry accumulates `Σ_t a·g_tj` in exact
 //! `i128`, rounded once per entry, so an entry carries at most `t` half-quanta of intermediate
 //! rounding (`t·2⁻³³`) plus its own half quantum. The mean-diagonal finish divides `HO` in fixed
-//! point (`round(H·O·2³²/Σdiag)` words) and converts each word to `f64` once, at the [`KindStats`]
-//! boundary; the floor `1e-30` is sub-quantum, so only a zero diagonal is reachable and it has the
-//! zero quotient (a nonzero scatter whose mean diagonal underflows the grid refuses
-//! [`HocaptureError::Overflow`] rather than inventing a value).
+//! point (`round(H·O·2³²/Σdiag)` words) and adds the caller's `eps` word on the diagonal; the floor
+//! `1e-30` is sub-quantum, so only a zero diagonal is reachable and it has the zero quotient (a
+//! nonzero scatter whose mean diagonal underflows the grid refuses [`HocaptureError::Overflow`]
+//! rather than inventing a value).
 //!
 //! `S4` and `Q` are fourth powers of Q32.32 quantities, so their real magnitude reaches `2⁶⁴` times
 //! the grid's `|x| < 2³¹` bound and they are carried by [`Fx`] (`m·2^e`, `|m| < 2⁶²`) rather than by
@@ -129,11 +129,12 @@ use crate::learn::grad::attn::{self, AttnError};
 use crate::learn::grad::dense::{self, DenseError};
 use crate::learn::grad::head;
 use crate::learn::grad::model::{Config, Grads, LayerGrads, ModelError, Tape, Weights};
-use crate::learn::solve::q32::{round_q32_even, rshift_rne, to_grid, Fx, GRID_BOUND};
+use crate::learn::solve::q32::{round_q32_even, rshift_rne, Fx};
 use crate::numeric::fixed_exp::fixed_exp;
 
-/// The diagonal the reference adds after the mean-diagonal normalisation (`fold_transfer.py:1323`).
-pub const DEFAULT_EPS: f64 = 0.01;
+/// The diagonal the reference adds after the mean-diagonal normalisation (`fold_transfer.py:1323`):
+/// `0.01` as a `Q32.32` word, `round(0.01·2³²) = 42_949_673`.
+pub const DEFAULT_EPS: i64 = 42_949_673;
 
 /// Lower edge of the `fixed_exp` window, `-16·ONE`: a shifted logit below it has `p = 0`.
 const FLUSH: i128 = -16 * (1_i128 << 32);
@@ -1287,8 +1288,7 @@ impl Hocapture {
     ///
     /// # Complexity
     /// `O(n_layer·Σ_kind O_kind²)` time, one `ho` copy per `(layer, kind)`.
-    pub fn finish(&self, eps: f64) -> Result<Vec<LayerStats>, HocaptureError> {
-        let eps_word = to_grid(eps, GRID_BOUND).ok_or(HocaptureError::Overflow)?;
+    pub fn finish(&self, eps: i64) -> Result<Vec<LayerStats>, HocaptureError> {
         let mut out = Vec::with_capacity(self.layers.len());
         for ls in &self.layers {
             let mut kinds: Vec<KindStats> = Vec::with_capacity(N_KINDS);
@@ -1318,7 +1318,7 @@ impl Hocapture {
                             to64(round_div(raw, diag))?
                         };
                         let v = if i == j {
-                            w.checked_add(eps_word).ok_or(HocaptureError::Overflow)?
+                            w.checked_add(eps).ok_or(HocaptureError::Overflow)?
                         } else {
                             w
                         };

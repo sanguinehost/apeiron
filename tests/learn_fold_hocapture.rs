@@ -299,7 +299,7 @@ fn ho_is_symmetric_psd_and_finishes_to_mean_diagonal_one() {
             }
             // The finish rounds the fixed-point division and the `eps` word: one quantum each.
             assert!(
-                (diag / o as f64 - (1.0 + DEFAULT_EPS)).abs() < 2.0 * quantum(),
+                (diag / o as f64 - (1.0 + from_grid(DEFAULT_EPS))).abs() < 2.0 * quantum(),
                 "{kind:?} mean diagonal {}",
                 diag / o as f64
             );
