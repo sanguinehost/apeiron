@@ -55,9 +55,6 @@
 use crate::learn::solve::gemm::{gemm_nn_f64, gemm_nt_f64, GemmError};
 use crate::learn::solve::q32::fill_scale;
 
-/// The thread count the Gram products and the top-`rank` extraction share: one named const.
-pub const THREADS: usize = 8;
-
 /// A refusal from the symmetric eigendecomposition or the exact low-rank corrector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EighError {
@@ -239,7 +236,7 @@ fn gemm_err(_: GemmError) -> EighError {
 ///
 /// # Complexity
 /// Time `O(o·n² + o²·n)` `i128` multiply-accumulates — the `ΔW·Hl` product `o·n·n` and the
-/// `w1·ΔWᵀ` product `o·o·n` — split across [`THREADS`], plus `O(o·n + o²)` scaling and
+/// `w1·ΔWᵀ` product `o·o·n` — on the engine pool, plus `O(o·n + o²)` scaling and
 /// symmetrisation. Space `O(o·n + o²)` for the intermediate and the matrix.
 pub fn eigen_gram(delta_w: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec<f64>, EighError> {
     if delta_w.len() != o * n || hl.len() != n * n {
@@ -248,8 +245,8 @@ pub fn eigen_gram(delta_w: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec
     if o == 0 || n == 0 {
         return Ok(vec![0.0f64; o * o]);
     }
-    let w1 = gemm_nn_f64(delta_w, hl, o, n, n, THREADS).map_err(gemm_err)?;
-    let mut m = gemm_nt_f64(&w1, delta_w, o, n, o, THREADS).map_err(gemm_err)?;
+    let w1 = gemm_nn_f64(delta_w, hl, o, n, n).map_err(gemm_err)?;
+    let mut m = gemm_nt_f64(&w1, delta_w, o, n, o).map_err(gemm_err)?;
     for i in 0..o {
         for j in 0..i {
             let avg = 0.5 * (m[i * o + j] + m[j * o + i]);

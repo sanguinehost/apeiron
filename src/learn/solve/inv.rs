@@ -1,6 +1,6 @@
 //! The upper-triangular inverse feedback factor `U` of an SPD matrix, `UᵀU = H⁻¹`, in Q32.32 `i64`:
 //! [`inv_factor_upper`] runs the diagonal-equilibrated `Cholesky` of [`super::chol`] and inverts its
-//! upper factor with a blocked, threaded triangular inverse.
+//! upper factor with a blocked, pooled triangular inverse.
 //!
 //! # Object
 //!
@@ -24,8 +24,8 @@
 //!    `V̂ = P (P L P) P` is upper with `V̂ V̂ᵀ = P (P Ĥ P) P = Ĥ`. One `O(n²)` reversal in, one out.
 //! 3. `V̂⁻¹` by a blocked back-substitution, one round-to-nearest per stored entry: the columns of
 //!    `U` are independent (`U[r, c]` for `r < c` reads only column `c`), so the `INV_BLOCK`-wide
-//!    column blocks are independent and are handed to the workers, each owning a contiguous column
-//!    range; the result is bit-identical for every `threads`.
+//!    column blocks are independent and are handed to the pool, one contiguous column range per
+//!    participant; the result is bit-identical to the serial body.
 //! 4. `U = V̂⁻¹ D^{-1/2}`, one rounded `i128` quotient per entry.
 //!
 //! # Partiality
@@ -54,6 +54,8 @@
 )]
 
 use super::chol::{div_to_i64, equilibrate, factor_scaled, SolveError};
+use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
+use crate::engine::chart::task::ChunkTask;
 
 /// Column-block width of the blocked triangular inverse; the inverse is column-parallel, so the
 /// block is only a locality unit (one `64 × 64` diagonal block and the rows below it stay resident
@@ -176,78 +178,63 @@ fn invert_column_blocks(
     Ok(())
 }
 
-/// Run [`invert_column_blocks`] over the `m = ⌈n/INV_BLOCK⌉` column blocks split across `nt ≥ 2`
-/// scoped workers, each owning a contiguous column range (a contiguous row range of the transposed
-/// buffer `ut`). The caller runs [`invert_column_blocks`] itself for one worker, so the serial
-/// arithmetic is not behind this thread boundary.
+/// The pool task context of [`invert_columns_pool`]: the factor, the row stride and the refusal
+/// cell.
+struct InvertColumns<'a> {
+    /// The upper-triangular factor `V̂`, row-major `[n, n]`.
+    v: &'a [i64],
+    /// Row and column stride.
+    n: usize,
+    /// Lowest-offset refusal recorded by the tasks.
+    first: &'a FirstErr<usize, SolveError>,
+}
+
+impl ChunkTask<i64> for InvertColumns<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [i64]) {
+        let c0 = start / self.n;
+        let c1 = c0 + piece.len() / self.n;
+        if let Err(e) = invert_column_blocks(self.v, self.n, piece, c0, c1) {
+            self.first.record(start, e);
+        }
+    }
+}
+
+/// Run [`invert_column_blocks`] over the `m = ⌈n/INV_BLOCK⌉` column blocks through the engine pool,
+/// one contiguous range of column blocks per `width_global()` participant (a contiguous row range of
+/// the transposed buffer `ut`). Each entry is written by exactly one task in a fixed order, so the
+/// result is bit-identical to the serial body.
 ///
 /// # Errors
 ///
-/// The lowest-range worker's [`SolveError`]; a worker panic is reported as
-/// [`SolveError::Overflow`].
+/// The lowest-offset [`SolveError`].
 ///
 /// # Complexity
 ///
-/// As [`inverse_upper_par`]'s parallel branch: `O(n³/6)` multiply-adds split across workers,
-/// `O(nt)` range descriptors.
-fn invert_columns_par(
-    v: &[i64],
-    n: usize,
-    ut: &mut [i64],
-    nt: usize,
-    m: usize,
-) -> Result<(), SolveError> {
-    let per = m / nt;
-    let rem = m % nt;
-    let mut ranges: Vec<(usize, usize)> = Vec::with_capacity(nt);
-    let mut start = 0usize;
-    for t in 0..nt {
-        let count = per + usize::from(t < rem);
-        ranges.push((start, start + count));
-        start += count;
+/// As [`inverse_upper_par`]: `O(n³/6)` multiply-adds split across the pool, `O(1)` extra space beyond
+/// the buffer.
+fn invert_columns_pool(v: &[i64], n: usize, ut: &mut [i64]) -> Result<(), SolveError> {
+    let blocks = n.div_ceil(INV_BLOCK);
+    let per_task = blocks.div_ceil(width_global()).max(1);
+    let first: FirstErr<usize, SolveError> = FirstErr::new();
+    chunks_mut_global(
+        ut,
+        per_task * INV_BLOCK * n,
+        &InvertColumns {
+            v,
+            n,
+            first: &first,
+        },
+    );
+    match first.take() {
+        Some((_, e)) => Err(e),
+        None => Ok(()),
     }
-    let mut rest: &mut [i64] = ut;
-    let mut slices: Vec<(usize, usize, &mut [i64])> = Vec::with_capacity(nt);
-    for &(ja, jb) in &ranges {
-        let c0 = ja * INV_BLOCK;
-        let c1 = (jb * INV_BLOCK).min(n);
-        let (head, tail) = rest.split_at_mut((c1 - c0) * n);
-        slices.push((c0, c1, head));
-        rest = tail;
-    }
-    let mut first: Option<SolveError> = None;
-    std::thread::scope(|scope| {
-        let mut handles = Vec::with_capacity(nt);
-        for (c0, c1, slice) in slices {
-            handles.push(scope.spawn(move || invert_column_blocks(v, n, slice, c0, c1)));
-        }
-        for h in handles {
-            match h.join() {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    if first.is_none() {
-                        first = Some(e);
-                    }
-                }
-                Err(_) => {
-                    if first.is_none() {
-                        first = Some(SolveError::Overflow);
-                    }
-                }
-            }
-        }
-    });
-    if let Some(e) = first {
-        return Err(e);
-    }
-    Ok(())
 }
 
 /// `V̂⁻¹` of an upper-triangular `v` (row-major `[n, n]` Q32.32, positive diagonal), blocked over
-/// `INV_BLOCK` column blocks and distributed over `threads` scoped workers, each owning a
-/// contiguous range of column blocks. Every entry is written by exactly one worker with a fixed
-/// contraction order, so the result is bit-identical for every `threads`; `threads <= 1` runs the
-/// same body with no spawn.
+/// `INV_BLOCK` column blocks and distributed over the engine pool, one contiguous range of column
+/// blocks per `width_global()` participant. Every entry is written by exactly one task with a fixed
+/// contraction order, so the result is bit-identical to the serial body.
 ///
 /// # Errors
 ///
@@ -257,23 +244,16 @@ fn invert_columns_par(
 ///
 /// # Complexity
 ///
-/// `O(n³/6 + 64·n²)` checked multiply-adds, split across workers; span
-/// `O((n³/6)/threads)`; `O(n²)` `i64` words for the transposed buffer plus the `O(n²)` result.
+/// `O(n³/6 + 64·n²)` checked multiply-adds, split across the pool; `O(n²)` `i64` words for the transposed buffer plus the `O(n²)` result.
 /// Derivation: [`invert_column_blocks`] over the whole `n` columns, plus the `O(n²)` transpose.
-fn inverse_upper_par(v: &[i64], n: usize, threads: usize) -> Result<Vec<i64>, SolveError> {
+fn inverse_upper_par(v: &[i64], n: usize) -> Result<Vec<i64>, SolveError> {
     let nn = n.checked_mul(n).ok_or(SolveError::Overflow)?;
     if v.len() != nn {
         return Err(SolveError::ShapeMismatch);
     }
-    let m = n.div_ceil(INV_BLOCK);
-    let nt = threads.max(1).min(m);
     // `ut[c·n + r] = U[r, c]`, so a column range of `U` is a contiguous row range of `ut`.
     let mut ut = vec![0i64; nn];
-    if nt <= 1 {
-        invert_column_blocks(v, n, &mut ut, 0, n)?;
-    } else {
-        invert_columns_par(v, n, &mut ut, nt, m)?;
-    }
+    invert_columns_pool(v, n, &mut ut)?;
     let mut u = vec![0i64; nn];
     for c in 0..n {
         for r in 0..=c {
@@ -307,8 +287,8 @@ fn rotate_180(x: &mut [i64], n: usize) {
 
 /// The upper-triangular `U` with `UᵀU = H⁻¹` of an SPD `h` (row-major `[n, n]` Q32.32): equilibrate
 /// `Ĥ = D⁻¹HD⁻¹`, factor `Ĥ = V̂V̂ᵀ` through [`super::chol::factor_scaled`] on the reversed matrix,
-/// invert `V̂` ([`inverse_upper_par`], blocked and threaded) and scale the columns by `D^{-1/2}`.
-/// `threads` splits the inverse's column blocks; the result is bit-identical for every `threads`.
+/// invert `V̂` ([`inverse_upper_par`], blocked and pooled) and scale the columns by `D^{-1/2}`.
+/// The result is bit-identical to the serial body.
 ///
 /// # Errors
 ///
@@ -324,7 +304,7 @@ fn rotate_180(x: &mut [i64], n: usize) {
 /// `O(n²)` `i64` words: the reversed matrix, the factor, the transposed inverse and the result.
 /// Derivation: [`super::chol::equilibrate`] `O(n²)`, [`super::chol::factor_scaled`] `O(n³/3)`,
 /// [`inverse_upper_par`] `O(n³/6)`, the `O(n²)` reversal, rotation and column scaling.
-pub fn inv_factor_upper(h: &[i64], n: usize, threads: usize) -> Result<Vec<i64>, SolveError> {
+pub fn inv_factor_upper(h: &[i64], n: usize) -> Result<Vec<i64>, SolveError> {
     if n == 0 {
         return Err(SolveError::Empty);
     }
@@ -341,11 +321,11 @@ pub fn inv_factor_upper(h: &[i64], n: usize, threads: usize) -> Result<Vec<i64>,
         }
     }
     drop(a_hat);
-    let mut v_hat = factor_scaled(&rev, n, threads)?;
+    let mut v_hat = factor_scaled(&rev, n)?;
     drop(rev);
     // `V̂ = P·(P L P)·P`, the 180° rotation of the reversed lower factor.
     rotate_180(&mut v_hat, n);
-    let binv = inverse_upper_par(&v_hat, n, threads)?;
+    let binv = inverse_upper_par(&v_hat, n)?;
     drop(v_hat);
     // `U = V̂⁻¹·D^{-1/2}`: column `j` of `V̂⁻¹` divided by `d_j`, one rounded quotient per entry.
     // The checked quotient reports through `err` rather than `?` so no return sits inside the

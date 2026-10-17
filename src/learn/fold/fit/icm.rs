@@ -41,6 +41,8 @@
 )]
 
 use super::steps::{fwht_in_place, had_gram, transpose};
+use crate::engine::chart::pool::{for_chunks3, width_global};
+use crate::engine::chart::task::Task3;
 use crate::engine::ONE;
 use crate::learn::code::e8;
 use crate::learn::ridge::{solve_spd, RidgeError};
@@ -273,7 +275,7 @@ pub fn j_rows(
 /// residual update (`BLOCK·n`), summed over the `n/8` independent blocks. Setup adds `O(o·n²)` for
 /// `Ws@Hl`, the two `fwht128` passes, `B@H_rot` and `CODE_LEN` `Q` values per block. Spatial
 /// `O(n²)` for `H_rot`/`hcc` plus `O(o·n)` for `s`, `F_res`, `G_rot`, `B`. The sweeps run in
-/// [`sweep_rows`], rows split across `GEMM_THREADS` workers (rows are independent given `H_rot`).
+/// [`sweep_rows`], rows split across the engine pool (rows are independent given `H_rot`).
 pub fn e8_icm_step(
     ws: &[f64],
     hl: &[f64],
@@ -337,18 +339,20 @@ pub fn e8_icm_step(
         g,
         sweeps,
     };
-    let per = o.div_ceil(GEMM_THREADS).max(1);
-    std::thread::scope(|scope| {
-        let parts = f_res
-            .chunks_mut(per * n)
-            .zip(s_cur.chunks_mut(per * n))
-            .zip(idx_cur.chunks_mut(per * nb))
-            .zip(p.r.chunks(per * g));
-        for (((f, sc), ix), r) in parts {
-            let cx = &cx;
-            scope.spawn(move || sweep_rows(cx, f, sc, ix, r));
-        }
-    });
+    let per = o.div_ceil(width_global()).max(1);
+    for_chunks3(
+        &mut f_res,
+        per * n,
+        &mut s_cur,
+        per * n,
+        &mut idx_cur,
+        per * nb,
+        &SweepTask {
+            cx: &cx,
+            r: p.r,
+            per,
+        },
+    )?;
     Ok(Plane {
         s: s_cur,
         idx: idx_cur,
@@ -366,6 +370,24 @@ struct SweepCtx<'a> {
     n: usize,
     g: usize,
     sweeps: usize,
+}
+
+/// Pool task context for [`e8_icm_step`]'s row split: the read-only sweep inputs `cx`, the per-row
+/// scales `r` (row-major `[o, g]`) and the rows per task `per`.
+struct SweepTask<'a> {
+    cx: &'a SweepCtx<'a>,
+    r: &'a [f64],
+    per: usize,
+}
+
+impl Task3<f64, f64, u16, IcmError> for SweepTask<'_> {
+    fn run(&self, t: usize, f: &mut [f64], sc: &mut [f64], ix: &mut [u16]) -> Result<(), IcmError> {
+        let rows = f.len() / self.cx.n;
+        let lo = t * self.per;
+        let r = &self.r[lo * self.cx.g..(lo + rows) * self.cx.g];
+        sweep_rows(self.cx, f, sc, ix, r);
+        Ok(())
+    }
 }
 
 /// Rows per tile of [`sweep_rows`]: the `8 × n` rows of `H_rot` of one block are read once per tile
@@ -862,10 +884,6 @@ fn check_plane(p: PlaneRef<'_>, o: usize, n: usize) -> Result<(), IcmError> {
     Ok(())
 }
 
-/// The worker count [`matmul`] hands to [`gemm_nn`]. `gemm_nn` is documented bit-identical across
-/// thread counts, so this changes only wall-clock, not the returned vector.
-const GEMM_THREADS: usize = 8;
-
 /// Map a [`GemmError`] from [`gemm_nn`] onto an [`IcmError`], the module's existing refusal set: an
 /// empty dimension or a length that disagrees with the already-checked shape is [`IcmError::Shape`],
 /// and every magnitude or range refusal is the numeric-range refusal [`IcmError::Overflow`].
@@ -888,8 +906,8 @@ fn map_gemm(e: GemmError) -> IcmError {
 /// [`IcmError::Overflow`] for a non-finite or ungriddable entry or a product that leaves `f64`.
 ///
 /// # Complexity
-/// As [`gemm_nn_f64`]: `O(rows·inner·cols)` `i128` multiply-accumulates split across
-/// [`GEMM_THREADS`], `O(rows·inner + inner·cols)` conversions, `O(rows·cols)` space.
+/// As [`gemm_nn_f64`]: `O(rows·inner·cols)` `i128` multiply-accumulates on the engine pool,
+/// `O(rows·inner + inner·cols)` conversions, `O(rows·cols)` space.
 pub fn matmul(
     a: &[f64],
     b: &[f64],
@@ -897,7 +915,7 @@ pub fn matmul(
     inner: usize,
     cols: usize,
 ) -> Result<Vec<f64>, IcmError> {
-    gemm_nn_f64(a, b, rows, inner, cols, GEMM_THREADS).map_err(map_gemm)
+    gemm_nn_f64(a, b, rows, inner, cols).map_err(map_gemm)
 }
 
 /// `x[row·n + col] *= v[col]` for every row of an `[o, n]` buffer.

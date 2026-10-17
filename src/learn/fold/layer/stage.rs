@@ -510,12 +510,6 @@ pub fn solve_stage(
     Ok(ws)
 }
 
-/// Thread count handed to [`chol_solve`]'s blocked factor from [`ridge_solve`]. The factor is
-/// bit-identical for every count (each trailing row is updated by exactly one worker in a fixed
-/// order), so `threads` changes only the wall-clock cost; `8` is the fixed count the timing receipt
-/// uses, leaving headroom on the shared box.
-const SOLVE_THREADS: usize = 8;
-
 /// The ridge normal-equation solve `ridge_solve(H, C, ridge)` (`fold_transfer.py:426-428`):
 /// `Hr = H` with `diag(Hr) += ridge·mean(diag H)`, then `Hr·X = C`, returning `Xᵀ` (shape
 /// `[out, n]`).
@@ -585,7 +579,7 @@ pub fn ridge_solve(
     }
     // x = Hr⁻¹ C, row-major [n, out]; the reference returns xᵀ ([out, n]). The primitive solves the
     // filled system `(s_h·Hr)·X_q = (s_c·C)`, so `X = (s_h/s_c)·X_q`.
-    let solved = chol_solve(&hq, &cq, n, out, SOLVE_THREADS)?;
+    let solved = chol_solve(&hq, &cq, n, out)?;
     let unscale = s_h / s_c;
     let mut out_t = vec![0.0f64; out * n];
     for i in 0..n {

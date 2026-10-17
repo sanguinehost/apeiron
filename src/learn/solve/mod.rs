@@ -1,14 +1,14 @@
 //! Direct SPD solve and weighted Gram fold in Q32.32 `i64`: the primitives the weight-fit steps share.
 
 /// Diagonal-equilibrated blocked `Cholesky` SPD solve in Q32.32 `i64` with one exact-residual
-/// refinement step and a threaded trailing update.
+/// refinement step and a pooled trailing update.
 pub mod chol;
 
 /// Weighted exact-integer SYRK (`G = Σ_o w_o·x_o x_oᵀ` in Q32.32) and the `A ∘ hl` hadamard
-/// factor — the blocked, threaded `A`-formation of the `c_step` metric.
+/// factor — the blocked, pooled `A`-formation of the `c_step` metric.
 pub mod syrk;
 
-/// Blocked, threaded, exact-accumulation Q32.32 matrix products `C = A·B` ([`gemm::gemm_nn`]) and
+/// Blocked, pooled, exact-accumulation Q32.32 matrix products `C = A·B` ([`gemm::gemm_nn`]) and
 /// `C = A·Bᵀ` ([`gemm::gemm_nt`]) — the one GEMM the low-rank corrector's `w1 = ΔW·Hl` and
 /// `m = w1·ΔWᵀ` need, with a single round-to-nearest per entry.
 pub mod gemm;
@@ -24,5 +24,5 @@ pub mod eig;
 
 /// The upper-triangular inverse feedback factor `U` with `UᵀU = H⁻¹` ([`inv::inv_factor_upper`]):
 /// diagonal equilibration, the blocked `Cholesky` of [`chol`] on the reversed matrix, and a blocked,
-/// threaded triangular inverse — the primitive behind the GPTQ error feedback's `feedback_u`.
+/// pooled triangular inverse — the primitive behind the GPTQ error feedback's `feedback_u`.
 pub mod inv;

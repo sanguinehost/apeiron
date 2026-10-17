@@ -115,7 +115,7 @@ fn solves_agree_with_f64_reference() {
         let bq: Vec<i64> = b.iter().map(|&x| to_q32(x)).collect();
         let a_f: Vec<f64> = aq.iter().map(|&v| to_f64(v)).collect();
         let b_f: Vec<f64> = bq.iter().map(|&v| to_f64(v)).collect();
-        let solved = chol_solve(&aq, &bq, n, k, 1).expect("solve");
+        let solved = chol_solve(&aq, &bq, n, k).expect("solve");
         let xref = solve_spd(&a_f, &b_f, n, k).expect("f64 reference");
         let rel = max_rel_diff(&solved.x, &xref);
         println!("n={n} rel={rel:e} residual_max={}", solved.residual_max);
@@ -131,7 +131,7 @@ fn residual_max_is_bit_exact() {
         let (a, b) = build_system(0x77 + n as u64, n, k);
         let aq: Vec<i64> = a.iter().map(|&x| to_q32(x)).collect();
         let bq: Vec<i64> = b.iter().map(|&x| to_q32(x)).collect();
-        let solved = chol_solve(&aq, &bq, n, k, 1).expect("solve");
+        let solved = chol_solve(&aq, &bq, n, k).expect("solve");
         let rf = exact_residual_test(&aq, &bq, &solved.x, n, k);
         let mx = rf
             .iter()
@@ -142,58 +142,41 @@ fn residual_max_is_bit_exact() {
     }
 }
 
-/// (c) `threads = 1, 2, 8` give bit-identical `x` and `residual_max`.
-#[test]
-fn thread_count_is_bit_identical() {
-    for &n in &[7usize, 64, 130] {
-        let k = 2usize;
-        let (a, b) = build_system(0x33 + n as u64, n, k);
-        let aq: Vec<i64> = a.iter().map(|&x| to_q32(x)).collect();
-        let bq: Vec<i64> = b.iter().map(|&x| to_q32(x)).collect();
-        let s1 = chol_solve(&aq, &bq, n, k, 1).expect("t1");
-        let s2 = chol_solve(&aq, &bq, n, k, 2).expect("t2");
-        let s8 = chol_solve(&aq, &bq, n, k, 8).expect("t8");
-        assert_eq!(s1.x, s2.x, "n={n} t1 vs t2");
-        assert_eq!(s1.x, s8.x, "n={n} t1 vs t8");
-        assert_eq!(s1.residual_max, s8.residual_max, "n={n} residual_max");
-    }
-}
-
 /// (d) Every refusal arm is reachable: empty, shape, non-positive diagonal, zero diagonal, a
 /// non-SPD matrix with a positive diagonal, and an overflow with entries near `2^62`.
 #[test]
 fn refusals_reach_every_arm() {
-    assert_eq!(chol_solve(&[], &[], 0, 0, 1), Err(SolveError::Empty));
+    assert_eq!(chol_solve(&[], &[], 0, 0), Err(SolveError::Empty));
     assert_eq!(equilibrate(&[], 0), Err(SolveError::Empty));
     assert_eq!(
-        chol_solve(&[ONE], &[ONE], 2, 1, 1),
+        chol_solve(&[ONE], &[ONE], 2, 1),
         Err(SolveError::ShapeMismatch)
     );
     assert_eq!(
-        chol_solve(&[ONE, 0, 0, ONE], &[ONE, ONE], 2, 2, 1),
+        chol_solve(&[ONE, 0, 0, ONE], &[ONE, ONE], 2, 2),
         Err(SolveError::ShapeMismatch)
     );
     assert_eq!(equilibrate(&[ONE], 2), Err(SolveError::ShapeMismatch));
     // A negative diagonal.
     assert_eq!(
-        chol_solve(&[-ONE, 0, 0, ONE], &[ONE, 0], 2, 1, 1),
+        chol_solve(&[-ONE, 0, 0, ONE], &[ONE, 0], 2, 1),
         Err(SolveError::NonPositiveDiagonal)
     );
     // A zero diagonal.
     assert_eq!(
-        chol_solve(&[0, 0, 0, ONE], &[ONE, 0], 2, 1, 1),
+        chol_solve(&[0, 0, 0, ONE], &[ONE, 0], 2, 1),
         Err(SolveError::NonPositiveDiagonal)
     );
     // Non-SPD `[[1, 2], [2, 1]]` with a positive diagonal: a non-positive Cholesky pivot.
     assert_eq!(
-        chol_solve(&[ONE, 2 * ONE, 2 * ONE, ONE], &[ONE, ONE], 2, 1, 1),
+        chol_solve(&[ONE, 2 * ONE, 2 * ONE, ONE], &[ONE, ONE], 2, 1),
         Err(SolveError::NotPositiveDefinite)
     );
     // Overflow: an off-diagonal entry near 2^62 against a unit-magnitude diagonal, so the
     // equilibrated entry `a·2^64/(d_i·d_j)` leaves i64.
     let big = 1i64 << 62;
     assert_eq!(
-        chol_solve(&[1, big, big, 1], &[ONE, ONE], 2, 1, 1),
+        chol_solve(&[1, big, big, 1], &[ONE, ONE], 2, 1),
         Err(SolveError::Overflow)
     );
 }
@@ -224,7 +207,7 @@ fn conditioning_equilibration_holds_unit_diagonal() {
         }
         let a_f: Vec<f64> = aq.iter().map(|&v| to_f64(v)).collect();
         let b_f: Vec<f64> = bq.iter().map(|&v| to_f64(v)).collect();
-        let solved = chol_solve(&aq, &bq, n, k, 1).expect("solve");
+        let solved = chol_solve(&aq, &bq, n, k).expect("solve");
         let xref = solve_spd(&a_f, &b_f, n, k).expect("f64 reference");
         let rel = max_rel_diff(&solved.x, &xref);
         println!("conditioned n={n} rel={rel:e}");
@@ -233,7 +216,7 @@ fn conditioning_equilibration_holds_unit_diagonal() {
 }
 
 /// (f) Timing at `n = 4864`, `k = 1`: a well-conditioned SPD from the Gram of 2048 LCG rows plus
-/// ridge, `threads = 1` and `8`, three runs each: mean and min–max wall seconds.
+/// ridge, three pooled runs: mean and min–max wall seconds.
 #[test]
 #[ignore = "timing campaign at n=4864: run with --release -- --ignored --nocapture"]
 fn timing_large_spd() {
@@ -265,20 +248,18 @@ fn timing_large_spd() {
     }
     let aq: Vec<i64> = a.iter().map(|&x| to_q32(x)).collect();
     let bq: Vec<i64> = (0..n * k).map(|_| to_q32(lcg.sym())).collect();
-    for &threads in &[1usize, 8] {
-        let mut ts: Vec<f64> = Vec::new();
-        for _ in 0..3 {
-            let t0 = std::time::Instant::now();
-            let solved = chol_solve(&aq, &bq, n, k, threads).expect("solve");
-            let dt = t0.elapsed().as_secs_f64();
-            std::hint::black_box(solved.residual_max);
-            ts.push(dt);
-        }
-        let mean = ts.iter().sum::<f64>() / (ts.len() as f64);
-        let mn = ts.iter().copied().fold(f64::INFINITY, f64::min);
-        let mx = ts.iter().copied().fold(0.0f64, f64::max);
-        println!(
-            "chol_solve n={n} k={k} threads={threads}: mean {mean:.3}s min {mn:.3}s max {mx:.3}s runs {ts:?}"
-        );
+    let mut ts: Vec<f64> = Vec::new();
+    for _ in 0..3 {
+        let t0 = std::time::Instant::now();
+        let solved = chol_solve(&aq, &bq, n, k).expect("solve");
+        let dt = t0.elapsed().as_secs_f64();
+        std::hint::black_box(solved.residual_max);
+        ts.push(dt);
     }
+    let mean = ts.iter().sum::<f64>() / (ts.len() as f64);
+    let mn = ts.iter().copied().fold(f64::INFINITY, f64::min);
+    let mx = ts.iter().copied().fold(0.0f64, f64::max);
+    println!(
+        "chol_solve n={n} k={k} pooled: mean {mean:.3}s min {mn:.3}s max {mx:.3}s runs {ts:?}"
+    );
 }

@@ -18,7 +18,9 @@
               Q32.32 words, their binary exponents and the f64 boundary views"
 )]
 
-use super::gptq_e8::{GptqE8Error, BLOCK, E8_SCALE_Q32, GROUP, INV_THREADS};
+use super::gptq_e8::{GptqE8Error, BLOCK, E8_SCALE_Q32, GROUP};
+use crate::engine::chart::pool::{for_chunks2, width_global};
+use crate::engine::chart::task::Task2;
 use crate::learn::solve::chol::SolveError;
 use crate::learn::solve::inv::inv_factor_upper;
 use crate::learn::solve::q32::{ilog2_pos, round_q32_even, rshift_rne, Fx, Q32Error, SpdQ};
@@ -261,7 +263,7 @@ pub fn feedback_u(h: &[f64], n: usize, damp: f64) -> Result<UFac, GptqE8Error> {
         }
     }
     let (spdq, g) = h_to_spdq(&hh, n)?;
-    let hat = inv_factor_upper(&spdq.hat, n, INV_THREADS).map_err(map_inv)?;
+    let hat = inv_factor_upper(&spdq.hat, n).map_err(map_inv)?;
     let half = g / 2;
     let mut d = vec![0i32; n];
     for (di, &d0) in d.iter_mut().zip(&spdq.d) {
@@ -573,6 +575,83 @@ pub(super) fn project_scale_int(
     Ok((a_new, e_new))
 }
 
+/// Pool task context for [`inter_group_feedback`]'s row split: the factor `u`, the group's residual
+/// `e` (row-major `[o, gs]`), matrix order `n`, the group `[g0, g0 + gs)` and the rows per task
+/// `per`.
+struct FeedbackTask<'a> {
+    u: &'a UFac,
+    e: &'a [Fx],
+    n: usize,
+    g0: usize,
+    gs: usize,
+    per: usize,
+}
+
+impl Task2<i64, i32, GptqE8Error> for FeedbackTask<'_> {
+    /// The per-row contraction of [`inter_group_feedback`] over this task's rows.
+    fn run(&self, t: usize, wchunk: &mut [i64], echunk: &mut [i32]) -> Result<(), GptqE8Error> {
+        let r0 = t * self.per;
+        let (u, e, n, g0, gs) = (self.u, self.e, self.n, self.g0, self.gs);
+        let g1 = g0 + gs;
+        let tail = n - g1;
+        let rows = echunk.len();
+        for r in 0..rows {
+            // The shared exponent of this row's residual terms.
+            let mut emin = i32::MAX;
+            for j in 0..gs {
+                let x = &e[(r0 + r) * gs + j];
+                if x.m != 0 {
+                    emin = emin.min(x.e);
+                }
+            }
+            let emin = if emin == i32::MAX { 0 } else { emin };
+            for t in 0..tail {
+                let c = g1 + t;
+                let dc = u.d[c];
+                let mut sum: i128 = 0;
+                for j in 0..gs {
+                    let h = u.hat[(g0 + j) * n + c];
+                    let x = &e[(r0 + r) * gs + j];
+                    if h == 0 || x.m == 0 {
+                        continue;
+                    }
+                    let pr = i128::from(x.m)
+                        .checked_mul(i128::from(h))
+                        .ok_or(GptqE8Error::Overflow)?;
+                    let term = shift_left_i128(pr, x.e - emin).ok_or(GptqE8Error::Overflow)?;
+                    sum = sum.checked_add(term).ok_or(GptqE8Error::Overflow)?;
+                }
+                // `Δw = −sum·2^(emin − 32 − d_c)`, one RNE to the row grid.
+                let mut sh = i64::from(emin) - 32 - i64::from(dc) - i64::from(echunk[r]);
+                let mut v = i128::from(wchunk[r * n + c])
+                    .checked_add(round_at(
+                        sum.checked_neg().ok_or(GptqE8Error::Overflow)?,
+                        sh,
+                    )?)
+                    .ok_or(GptqE8Error::Overflow)?;
+                if blen(v) > 62 {
+                    // The headroom rule: halve the whole row (RNE) and re-round this entry.
+                    for q in 0..n {
+                        let cur = i128::from(wchunk[r * n + q]);
+                        let half = rshift_rne(cur, 1).ok_or(GptqE8Error::Overflow)?;
+                        wchunk[r * n + q] = narrow_q(half)?;
+                    }
+                    echunk[r] = echunk[r].checked_add(1).ok_or(GptqE8Error::Overflow)?;
+                    sh -= 1;
+                    v = i128::from(wchunk[r * n + c])
+                        .checked_add(round_at(
+                            sum.checked_neg().ok_or(GptqE8Error::Overflow)?,
+                            sh,
+                        )?)
+                        .ok_or(GptqE8Error::Overflow)?;
+                }
+                wchunk[r * n + c] = narrow_q(v)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// `wk[:, g1:] -= E·U[g0:g1, g1:]` on the integer working rows: `e` is the group's `Fx` residual
 /// (`o × gs`), `wm` the row-major `o × n` mantissas at the per-row exponents `e_row` and
 /// `U_jc = hat[(g0+j)·n + c]·2^-32·2^-d_c`. Per stored entry `c` the `gs` products are summed in an
@@ -586,9 +665,9 @@ pub(super) fn project_scale_int(
 /// needs no shift (all fixtures: the update is a contraction of the row's own magnitude) is never
 /// rounded a second time.
 ///
-/// Rows are independent given the read-only `u` and `e`, so they are split into contiguous ranges
-/// across `threads` scoped workers; each row is computed by one worker in the same order for every
-/// count, so the output is bit-identical for `threads = 1` and `threads = 8`.
+/// Rows are independent given the read-only `u` and `e`, so they are split into contiguous ranges,
+/// one per `width_global()` pool participant; each row is computed by one task in the same order, so
+/// the output is bit-identical to the serial body.
 ///
 /// # Errors
 ///
@@ -598,7 +677,7 @@ pub(super) fn project_scale_int(
 /// # Complexity
 ///
 /// Temporal `O(o·gs·(n − g1))` checked `i128` multiply-adds (one contraction per stored entry),
-/// split across the workers; spatial `O((n − g1))` `i128` accumulator per worker row.
+/// split across the pool; spatial `O((n − g1))` `i128` accumulator per task row.
 #[allow(
     clippy::too_many_arguments,
     reason = "one distinct buffer and geometry value per parameter; the call sites name them"
@@ -611,7 +690,6 @@ pub(super) fn inter_group_feedback(
     n: usize,
     g0: usize,
     gs: usize,
-    threads: usize,
 ) -> Result<(), GptqE8Error> {
     let g1 = g0 + gs;
     if g1 > n
@@ -623,83 +701,21 @@ pub(super) fn inter_group_feedback(
         return Err(GptqE8Error::ShapeMismatch);
     }
     let o = e_row.len();
-    let per = o.div_ceil(threads.max(1)).max(1);
-    let tail = n - g1;
-    std::thread::scope(|scope| -> Result<(), GptqE8Error> {
-        let mut handles = Vec::new();
-        for (ci, (wchunk, echunk)) in wm
-            .chunks_mut(per * n)
-            .zip(e_row.chunks_mut(per))
-            .enumerate()
-        {
-            let r0 = ci * per;
-            handles.push(scope.spawn(move || -> Result<(), GptqE8Error> {
-                let rows = echunk.len();
-                for r in 0..rows {
-                    // The shared exponent of this row's residual terms.
-                    let mut emin = i32::MAX;
-                    for j in 0..gs {
-                        let x = &e[(r0 + r) * gs + j];
-                        if x.m != 0 {
-                            emin = emin.min(x.e);
-                        }
-                    }
-                    let emin = if emin == i32::MAX { 0 } else { emin };
-                    for t in 0..tail {
-                        let c = g1 + t;
-                        let dc = u.d[c];
-                        let mut sum: i128 = 0;
-                        for j in 0..gs {
-                            let h = u.hat[(g0 + j) * n + c];
-                            let x = &e[(r0 + r) * gs + j];
-                            if h == 0 || x.m == 0 {
-                                continue;
-                            }
-                            let pr = i128::from(x.m)
-                                .checked_mul(i128::from(h))
-                                .ok_or(GptqE8Error::Overflow)?;
-                            let term =
-                                shift_left_i128(pr, x.e - emin).ok_or(GptqE8Error::Overflow)?;
-                            sum = sum.checked_add(term).ok_or(GptqE8Error::Overflow)?;
-                        }
-                        // `Δw = −sum·2^(emin − 32 − d_c)`, one RNE to the row grid.
-                        let mut sh = i64::from(emin) - 32 - i64::from(dc) - i64::from(echunk[r]);
-                        let mut v = i128::from(wchunk[r * n + c])
-                            .checked_add(round_at(
-                                sum.checked_neg().ok_or(GptqE8Error::Overflow)?,
-                                sh,
-                            )?)
-                            .ok_or(GptqE8Error::Overflow)?;
-                        if blen(v) > 62 {
-                            // The headroom rule: halve the whole row (RNE) and re-round this entry.
-                            for q in 0..n {
-                                let cur = i128::from(wchunk[r * n + q]);
-                                let half = rshift_rne(cur, 1).ok_or(GptqE8Error::Overflow)?;
-                                wchunk[r * n + q] = narrow_q(half)?;
-                            }
-                            echunk[r] = echunk[r].checked_add(1).ok_or(GptqE8Error::Overflow)?;
-                            sh -= 1;
-                            v = i128::from(wchunk[r * n + c])
-                                .checked_add(round_at(
-                                    sum.checked_neg().ok_or(GptqE8Error::Overflow)?,
-                                    sh,
-                                )?)
-                                .ok_or(GptqE8Error::Overflow)?;
-                        }
-                        wchunk[r * n + c] = narrow_q(v)?;
-                    }
-                }
-                Ok(())
-            }));
-        }
-        for h in handles {
-            match h.join() {
-                Ok(r) => r?,
-                Err(p) => std::panic::resume_unwind(p),
-            }
-        }
-        Ok(())
-    })
+    let per = o.div_ceil(width_global()).max(1);
+    for_chunks2(
+        wm,
+        per * n,
+        e_row,
+        per,
+        &FeedbackTask {
+            u,
+            e,
+            n,
+            g0,
+            gs,
+            per,
+        },
+    )
 }
 
 /// Signed `round(v / d)` for `d > 0`, nearest with ties away from zero, or `None` if the result or

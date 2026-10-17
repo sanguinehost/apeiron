@@ -1,7 +1,7 @@
 // The cooperative-matrix GEMM equals the DP4A batch GEMM exactly.
 //! The cooperative-matrix chart GEMM (`simt_nn::coopmat_gemm`) against the DP4A batch GEMM the
 //! prefill path runs (`simt::gemv_dp4a_batch_rt_bytes` at `prefill_tile`'s tile), on the real
-//! Qwen2.5-0.5B layer-0 projections (qkv, o, gate/up, down, plus the first Q4_K `ffn_down`) at the
+//! Qwen2.5-0.5B layer-0 projections (qkv, o, gate/up, down, plus the first `Q4_K` `ffn_down`) at the
 //! Q8, Q4 and Q2 charts, over a 512-token random int8 activation block.
 //!
 //! Two checks per projection, every output cell:

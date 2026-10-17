@@ -198,7 +198,7 @@ pub const ONE: i64 = 1 << FIXED_FRAC_BITS;
 // One module per port-map row plus the shared value-path helpers and the decode step. Every item
 // stays reachable at its previous `crate::engine::*` path through the re-exports below.
 mod attn;
-mod chart;
+pub(crate) mod chart;
 mod dequant;
 mod error;
 mod f32_convert;

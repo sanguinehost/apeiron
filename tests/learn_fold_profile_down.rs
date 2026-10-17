@@ -131,7 +131,7 @@ fn fixture_dims(o: usize, n: usize, rows: usize, cols: &[usize]) -> Fx {
     let mut rng = Lcg::new(20_261_016);
     // X [rows, n] ~ N(0,1), the `cols` columns scaled by OUTLIER_SCALE.
     let mut x = vec![0.0_f64; rows * n];
-    for v in x.iter_mut() {
+    for v in &mut x {
         *v = gauss(&mut rng);
     }
     for &col in cols {
@@ -157,7 +157,7 @@ fn fixture_dims(o: usize, n: usize, rows: usize, cols: &[usize]) -> Fx {
         }
     }
     let inv_rows = 1.0 / rows as f64;
-    for v in h.iter_mut() {
+    for v in &mut h {
         *v *= inv_rows;
     }
     drop(x);
@@ -167,7 +167,7 @@ fn fixture_dims(o: usize, n: usize, rows: usize, cols: &[usize]) -> Fx {
     // g_row: positive, mean 1.
     let mut g_row: Vec<f64> = (0..o).map(|_| (0.35 * gauss(&mut rng)).exp()).collect();
     let gmean = g_row.iter().sum::<f64>() / o as f64;
-    for v in g_row.iter_mut() {
+    for v in &mut g_row {
         *v /= gmean;
     }
     let rg_q = QUANT_RIDGE * (n as f64 / N_REF);
@@ -433,7 +433,7 @@ const GATE_COLS: [usize; 8] = [3, 77, 130, 261, 300, 411, 450, 509];
 
 /// Recorded f64 reference `[J(gptq), J(refit0)]` of the gate fixture, from the source before the
 /// integer-carrier conversion of `src/learn/fold/fit/*` (`measured` at `59370c1a`).
-const GATE_REF_TRACE: [f64; 2] = [23.8468995402399, 11.221175253556261];
+const GATE_REF_TRACE: [f64; 2] = [23.846_899_540_239_9, 11.221_175_253_556_261];
 
 /// The integer-carrier conversion gate: `fold_fit` on the small fixture reaches an objective no
 /// worse than the recorded f64 reference by more than `2^-20` relative, for both candidates and

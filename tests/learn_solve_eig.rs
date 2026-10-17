@@ -164,7 +164,7 @@ fn planted_spectrum_matches_f64_eigh() {
         let mf = to_f64(&m);
         let (evals_ref, evecs_ref) = eigh(&mf, n).expect("eigh");
         for &r in &[1usize, 2, 4] {
-            let got = top_eigh(&m, n, r, 4).expect("top_eigh");
+            let got = top_eigh(&m, n, r).expect("top_eigh");
             assert_eq!(got.evals.len(), r, "n={n} r={r} eval count");
             assert_eq!(got.evecs.len(), n * r, "n={n} r={r} evec count");
             for k in 0..r {
@@ -212,7 +212,7 @@ fn returned_basis_is_orthonormal_and_sign_fixed() {
             planted.to_vec()
         };
         let m = planted_psd(n, &spec, 0xfeed_0f0f_0f0f_0f0f);
-        let got = top_eigh(&m, n, r, 1).expect("top_eigh");
+        let got = top_eigh(&m, n, r).expect("top_eigh");
         let mut worst = 0.0f64;
         for a in 0..r {
             for b in 0..r {
@@ -256,41 +256,21 @@ fn returned_basis_is_orthonormal_and_sign_fixed() {
 }
 
 #[test]
-fn deterministic_across_thread_counts() {
-    let n = 64usize;
-    let spec = planted_spectrum(n);
-    let m = planted_psd(n, &spec, 0x0bad_c0de_0bad_c0de);
-    for &r in &[1usize, 4] {
-        let base = top_eigh(&m, n, r, 1).expect("threads 1");
-        for &threads in &[2usize, 8] {
-            let got = top_eigh(&m, n, r, threads).expect("threads");
-            assert_eq!(
-                got, base,
-                "n={n} r={r} threads {threads} differs from threads 1"
-            );
-        }
-    }
-}
-
-#[test]
 fn refusals_reach_every_arm() {
     // Shape: `m.len() != n·n`.
-    assert_eq!(top_eigh(&[0i64; 5], 2, 1, 1), Err(EigError::ShapeMismatch));
+    assert_eq!(top_eigh(&[0i64; 5], 2, 1), Err(EigError::ShapeMismatch));
     // `r == 0` (the empty corrector, not an eigenproblem) and `r > n`.
-    assert_eq!(top_eigh(&[ONE_RAW; 4], 2, 0, 1), Err(EigError::RankZero));
-    assert_eq!(
-        top_eigh(&[ONE_RAW; 4], 2, 3, 1),
-        Err(EigError::RankOutOfRange)
-    );
+    assert_eq!(top_eigh(&[ONE_RAW; 4], 2, 0), Err(EigError::RankZero));
+    assert_eq!(top_eigh(&[ONE_RAW; 4], 2, 3), Err(EigError::RankOutOfRange));
     // `n == 0`.
-    assert_eq!(top_eigh(&[], 0, 1, 1), Err(EigError::Empty));
+    assert_eq!(top_eigh(&[], 0, 1), Err(EigError::Empty));
     // Input bound `2³⁶` (strict), on the diagonal and off it.
     let mut over = vec![0i64; 4];
     over[0] = 1i64 << 36;
     over[3] = ONE_RAW;
-    assert_eq!(top_eigh(&over, 2, 1, 1), Err(EigError::InputBound));
+    assert_eq!(top_eigh(&over, 2, 1), Err(EigError::InputBound));
     // Dimension product that leaves `usize`.
-    assert_eq!(top_eigh(&[], usize::MAX, 1, 1), Err(EigError::Overflow));
+    assert_eq!(top_eigh(&[], usize::MAX, 1), Err(EigError::Overflow));
     // Non-symmetric beyond one raw unit is refused.
     let mut bad = vec![0i64; 9];
     for i in 0..3 {
@@ -298,7 +278,7 @@ fn refusals_reach_every_arm() {
     }
     bad[1] = 2;
     bad[3] = 0;
-    assert_eq!(top_eigh(&bad, 3, 1, 1), Err(EigError::NotSymmetric));
+    assert_eq!(top_eigh(&bad, 3, 1), Err(EigError::NotSymmetric));
     // Exactly one raw unit of asymmetry is inside the accepted domain.
     let mut near = vec![0i64; 9];
     for i in 0..3 {
@@ -306,17 +286,17 @@ fn refusals_reach_every_arm() {
     }
     near[1] = 1;
     near[3] = 0;
-    assert!(top_eigh(&near, 3, 1, 1).is_ok());
+    assert!(top_eigh(&near, 3, 1).is_ok());
     // The all-zero matrix converges on the first pass (λ = 0, an arbitrary orthonormal vector).
     assert_eq!(
-        top_eigh(&[0i64; 16], 4, 1, 1).expect("zero matrix").evals,
+        top_eigh(&[0i64; 16], 4, 1).expect("zero matrix").evals,
         vec![0i64]
     );
     // A rank-2 diagonal of order 16 has rank < s = 9, so the power step's span collapses.
     let mut low = vec![0i64; 256];
     low[0] = ONE_RAW;
     low[17] = ONE_RAW;
-    assert_eq!(top_eigh(&low, 16, 1, 1), Err(EigError::DegenerateBasis));
+    assert_eq!(top_eigh(&low, 16, 1), Err(EigError::DegenerateBasis));
 }
 
 #[test]
@@ -335,7 +315,7 @@ fn near_degenerate_spectrum_is_not_converged() {
         };
         m[k * n + k] = if k == s { (0.955 * ONE_F) as i64 } else { slow };
     }
-    match top_eigh(&m, n, 1, 1) {
+    match top_eigh(&m, n, 1) {
         Err(EigError::NotConverged { residual }) => {
             assert!(
                 residual > ONE_RAW >> 20,
@@ -354,7 +334,7 @@ fn production_shape_rank_twenty() {
     let mat = planted_psd(n, &spec, 0x5eed_5eed_5eed_5eed);
     let mf = to_f64(&mat);
     for &r in &[1usize, 4] {
-        let got = top_eigh(&mat, n, r, 4).expect("top_eigh");
+        let got = top_eigh(&mat, n, r).expect("top_eigh");
         for k in 0..r {
             // `spec` is descending, the returned eigenvalues ascending.
             let want = spec[r - 1 - k];
@@ -394,8 +374,8 @@ fn production_shape_rank_twenty() {
 }
 
 #[test]
-#[ignore = "timing: n = 896, r = 1 and 4, threads 1 and 8, three runs each, plus the f64 eigh at \
-            n = 896 once (the 31.1 s profile); run with --release --ignored --nocapture"]
+#[ignore = "timing: n = 896, r = 1 and 4, three pooled runs each, plus the f64 eigh at n = 896 \
+            once (the 31.1 s profile); run with --release --ignored --nocapture"]
 fn timing_production_shape() {
     let n = 896usize;
     let m = 20usize;
@@ -403,28 +383,26 @@ fn timing_production_shape() {
     let mat = planted_psd(n, &spec, 0x5eed_5eed_5eed_5eed);
     let mut top4: Vec<i64> = Vec::new();
     for &r in &[1usize, 4] {
-        for &threads in &[1usize, 8] {
-            let mut times = [0.0f64; 3];
-            let mut iters = [0usize; 3];
-            for (t, it) in times.iter_mut().zip(iters.iter_mut()) {
-                let start = Instant::now();
-                let got = top_eigh(&mat, n, r, threads).expect("top_eigh");
-                *t = start.elapsed().as_secs_f64();
-                *it = got.iters;
-                if r == 4 && threads == 1 {
-                    top4 = got.evals.clone();
-                }
-                black_box(&got);
+        let mut times = [0.0f64; 3];
+        let mut iters = [0usize; 3];
+        for (t, it) in times.iter_mut().zip(iters.iter_mut()) {
+            let start = Instant::now();
+            let got = top_eigh(&mat, n, r).expect("top_eigh");
+            *t = start.elapsed().as_secs_f64();
+            *it = got.iters;
+            if r == 4 {
+                top4 = got.evals.clone();
             }
-            let mean = times.iter().sum::<f64>() / 3.0;
-            let min = times.iter().copied().fold(f64::INFINITY, f64::min);
-            let max = times.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-            println!(
-                "top_eigh n={n} r={r} threads={threads}: runs [{:.3}, {:.3}, {:.3}]s mean \
-                 {mean:.3}s min {min:.3}s max {max:.3}s iters [{}, {}, {}]",
-                times[0], times[1], times[2], iters[0], iters[1], iters[2]
-            );
+            black_box(&got);
         }
+        let mean = times.iter().sum::<f64>() / 3.0;
+        let min = times.iter().copied().fold(f64::INFINITY, f64::min);
+        let max = times.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        println!(
+            "top_eigh n={n} r={r} pooled: runs [{:.3}, {:.3}, {:.3}]s mean {mean:.3}s min \
+             {min:.3}s max {max:.3}s iters [{}, {}, {}]",
+            times[0], times[1], times[2], iters[0], iters[1], iters[2]
+        );
     }
     let mf = to_f64(&mat);
     let start = Instant::now();

@@ -1,7 +1,7 @@
 //! Weighted exact-integer SYRK: `G = Σ_o w_o · x_o x_oᵀ` over Q32.32 rows with one rounding.
 //!
 //! [`wsyrk`] forms the weighted Gram `G[i,j] = round(Σ_o w[o]·x[o,i]·x[o,j] / 2⁶⁴)` of an
-//! `o × n` Q32.32 panel in blocked, threaded, checked `i128` arithmetic; [`hadamard_into`] applies
+//! `o × n` Q32.32 panel in blocked, pooled, checked `i128` arithmetic; [`hadamard_into`] applies
 //! the elementwise `A ∘ hl` factor. Both are the exact-integer body of the `A`-formation in
 //! `crate::learn::fold::fit::steps::c_step` (`A[i,j] = hl[i,j]·Σ_o Sh[o,i]·Sh[o,j]·g_row[o]`),
 //! where the Python-ported loop accumulates in f64 with a strided scalar reduction.
@@ -34,6 +34,8 @@
               `j1`, `nb`), which reads closer to the arithmetic than spelled-out names."
 )]
 
+use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
+use crate::engine::chart::task::ChunkTask;
 /// Raw Q32.32 magnitude bound exponent: every `x` and `w` entry satisfies `|v| < 2³⁶`.
 ///
 /// Shared with [`crate::learn::solve::gemm`], which derives its contraction bound `MAX_K` from it.
@@ -228,75 +230,70 @@ fn block_rows(
     Ok(())
 }
 
-/// Split the `rows × nb` block accumulator `acc` into `parts` contiguous row chunks and run
-/// [`block_rows`] on each in scoped threads; returns the first refusal. Every worker owns a
-/// disjoint row range, so no two workers write one entry. `parts ≥ 2`: the caller runs
-/// [`block_rows`] itself for one thread, so the serial arithmetic is not behind this thread
-/// boundary. `O(rows·nb)` split work; `O(parts)` bookkeeping.
+/// The pool task context of [`block_rows_pool`]: the read-only panel and the block geometry.
+struct SyrkRows<'a> {
+    /// The transposed `o × n` panel (`xt[j·o + oo] = x[oo, j]`).
+    xt: &'a [i64],
+    /// The `o` weights, raw Q32.32.
+    wv: &'a [i64],
+    /// Rows of `xt` (the `o` contraction).
+    o: usize,
+    /// First column of the current block.
+    jb: usize,
+    /// One past the last column of the current block.
+    j1: usize,
+    /// Block width `j1 − jb`.
+    nb: usize,
+    /// Lowest-offset refusal recorded by the tasks.
+    first: &'a FirstErr<usize, SyrkError>,
+}
+
+impl ChunkTask<i128> for SyrkRows<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [i128]) {
+        let rows = piece.len() / self.nb;
+        let lo = start / self.nb;
+        let hi = lo + rows;
+        if let Err(e) = block_rows(piece, lo, hi, self.xt, self.wv, self.o, self.jb, self.j1) {
+            self.first.record(start, e);
+        }
+    }
+}
+
+/// Split the `rows × nb` block accumulator `acc` into `width_global()` contiguous row chunks and run
+/// [`block_rows`] on each through the engine pool; returns the first refusal. Every task owns a
+/// disjoint row range, so no two tasks write one entry, and each entry is accumulated in the same
+/// `o` order as the serial body, so the result is bit-identical.
 ///
-/// # Panics
-/// Re-raises the payload of a worker panic on the calling thread; the kernel does not panic on
-/// caller input, so a worker panic is an internal bug.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the kernel is handed the block accumulator slice plus the read-only panel and the \
-              block geometry (`rows`, `nb`, `parts`, `o`, `n`, `jb`, `j1`); a struct would only \
-              relocate the fields."
-)]
-fn block_rows_par(
+/// # Complexity
+/// Time: [`block_rows`] plus `O(rows)` split bookkeeping. Space: `O(1)` extra beyond the accumulator
+/// (the pool hands each task its slice in place).
+fn block_rows_pool(
     acc: &mut [i128],
     rows: usize,
-    nb: usize,
-    parts: usize,
     xt: &[i64],
     wv: &[i64],
     o: usize,
     jb: usize,
     j1: usize,
 ) -> Result<(), SyrkError> {
-    let base = rows / parts;
-    let rem = rows % parts;
-    let mut lo = 0usize;
-    let mut rest: &mut [i128] = acc;
-    let mut groups: Vec<(usize, usize, &mut [i128])> = Vec::with_capacity(parts);
-    let mut t = 0usize;
-    while t < parts {
-        let hi = lo + base + usize::from(t < rem);
-        let (head, tail) = rest.split_at_mut((hi - lo) * nb);
-        groups.push((lo, hi, head));
-        rest = tail;
-        lo = hi;
-        t += 1;
-    }
-    let err: Option<SyrkError> = std::thread::scope(|scope| {
-        let mut handles = Vec::with_capacity(groups.len());
-        for (lo, hi, part) in groups {
-            handles.push(scope.spawn(move || block_rows(part, lo, hi, xt, wv, o, jb, j1)));
-        }
-        let mut first: Option<SyrkError> = None;
-        let mut panicked = None;
-        for h in handles {
-            match h.join() {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    if first.is_none() {
-                        first = Some(e);
-                    }
-                }
-                Err(p) => {
-                    if panicked.is_none() {
-                        panicked = Some(p);
-                    }
-                }
-            }
-        }
-        if let Some(p) = panicked {
-            std::panic::resume_unwind(p);
-        }
-        first
-    });
-    match err {
-        Some(e) => Err(e),
+    let nb = j1 - jb;
+    let chunk_rows = rows.div_ceil(width_global()).max(1);
+    let first: FirstErr<usize, SyrkError> = FirstErr::new();
+    chunks_mut_global(
+        acc,
+        chunk_rows * nb,
+        &SyrkRows {
+            xt,
+            wv,
+            o,
+            jb,
+            j1,
+            nb,
+            first: &first,
+        },
+    );
+    match first.take() {
+        Some((_, e)) => Err(e),
         None => Ok(()),
     }
 }
@@ -306,10 +303,9 @@ fn block_rows_par(
 ///
 /// Only the upper triangle is accumulated, in column blocks of [`BLOCK`]; the lower triangle is
 /// mirrored from it, so `G` is exactly symmetric (`G[i,j] == G[j,i]` bit-for-bit) and each
-/// upper-triangle pair is accumulated once. `threads` splits the output-block rows across
-/// `std::thread::scope` workers; `threads ≤ 1` runs the same body with no spawn. Because each entry
-/// is accumulated by exactly one worker in `o` order, the result is identical for every thread
-/// count.
+/// upper-triangle pair is accumulated once. The output-block rows are split across the engine pool,
+/// one chunk per `width_global()` participant. Because each entry is accumulated by exactly one task
+/// in `o` order, the result is bit-identical to the serial body.
 ///
 /// `w = None` is the unit weight (raw `2³²`). The accepted domain, the intermediate width, and the
 /// single rounding are stated in the module documentation.
@@ -324,16 +320,10 @@ fn block_rows_par(
 /// Time: `o·n(n+1)/2` checked multiply-accumulates — the block loop partitions the columns into
 /// `⌈n/BLOCK⌉` blocks, accumulates the pairs `(i,j)` with `i ≤ j < j1` once per block, and the blocks
 /// partition the upper triangle, so each of the `n(n+1)/2` pairs is counted exactly once — plus an
-/// `O(o·n)` bound scan and `O(n²)` round/store/mirror. The multiply-accumulates are split across
-/// `threads`. Space: `O(n²)` for `G`, `O(o·n)` words for the transposed panel and `O(n·BLOCK)` `i128`
+/// `O(o·n)` bound scan and `O(n²)` round/store/mirror. The multiply-accumulates are split across the
+/// engine pool. Space: `O(n²)` for `G`, `O(o·n)` words for the transposed panel and `O(n·BLOCK)` `i128`
 /// for the reused block accumulator.
-pub fn wsyrk(
-    x: &[i64],
-    w: Option<&[i64]>,
-    o: usize,
-    n: usize,
-    threads: usize,
-) -> Result<Vec<i64>, SyrkError> {
+pub fn wsyrk(x: &[i64], w: Option<&[i64]>, o: usize, n: usize) -> Result<Vec<i64>, SyrkError> {
     if n == 0 {
         return Err(SyrkError::ZeroN);
     }
@@ -360,7 +350,6 @@ pub fn wsyrk(
     if !within_bound(x, w) {
         return Err(SyrkError::InputBound);
     }
-    let nthreads = threads.max(1);
     let xt = transpose_panel(x, o, n);
     let wv: Vec<i64> = match w {
         Some(ws) => ws.to_vec(),
@@ -379,11 +368,7 @@ pub fn wsyrk(
         let nb = j1 - jb;
         let used = j1 * nb;
         acc[..used].fill(0);
-        let blk = if nthreads <= 1 {
-            block_rows(&mut acc[..used], 0, j1, &xt, &wv, o, jb, j1)
-        } else {
-            block_rows_par(&mut acc[..used], j1, nb, nthreads, &xt, &wv, o, jb, j1)
-        };
+        let blk = block_rows_pool(&mut acc[..used], j1, &xt, &wv, o, jb, j1);
         match blk {
             Ok(()) => {
                 let mut i = 0usize;

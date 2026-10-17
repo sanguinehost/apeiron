@@ -10,7 +10,7 @@
 //! Block subspace iteration on an `n × s` orthonormal basis `Q`, `s = r + p` with the oversampling
 //! `p = min(8, n − r)`:
 //!
-//! 1. `Y = M·Q` through [`gemm_nn`] (one blocked, threaded Q32.32 product per iteration).
+//! 1. `Y = M·Q` through [`gemm_nn`] (one blocked, pooled Q32.32 product per iteration).
 //! 2. Rayleigh–Ritz on the current basis: `T = Qᵀ·Y` (`s × s`, exact `i128` accumulation, one
 //!    round-to-nearest per entry), diagonalised by the integer Jacobi [`jacobi`] — rotations from
 //!    exact integer arithmetic (`t = sign(θ)/(|θ| + √(1+θ²))` with [`isqrt`]), no float.
@@ -748,9 +748,8 @@ fn ritz_step(
     r: usize,
     s: usize,
     iters: usize,
-    threads: usize,
 ) -> Result<Ritz, EigError> {
-    let y = gemm_nn(m, q, n, n, s, threads).map_err(gemm_err)?;
+    let y = gemm_nn(m, q, n, n, s).map_err(gemm_err)?;
     let t = rayleigh(q, &y, n, s)?;
     let (mut vals, mut v) = jacobi(&t, s)?;
     sort_ascending(&mut vals, &mut v, s);
@@ -762,7 +761,7 @@ fn ritz_step(
         // Confirm the object that is returned: the orthonormalised top columns against a fresh
         // exact image `M·V`, not the rotated candidate pair the loop carries.
         let vf = orthonormalise(&top_columns(&qv, n, s, r), n, r)?;
-        let w = gemm_nn(m, &vf, n, n, r, threads).map_err(gemm_err)?;
+        let w = gemm_nn(m, &vf, n, n, r).map_err(gemm_err)?;
         let exact = residual_max(&w, &vf, &vals[s - r..], n, r, 0)?;
         if exact <= tol {
             let mut evecs = vf;
@@ -788,8 +787,8 @@ fn ritz_step(
 /// `Q ← orth(Y·V)`, and the stop test `‖M v_k − λ_k v_k‖∞ ≤ λ_max·2⁻`[`RESIDUAL_SHIFT`].
 /// [`MAX_ITERS`] iterations without reaching it is [`EigError::NotConverged`].
 ///
-/// `threads` is handed to [`gemm_nn`]; every other step is serial and the accumulation order is
-/// fixed, so the result is bit-identical for every `threads`.
+/// The two [`gemm_nn`] products run on the engine pool; every other step is serial and the
+/// accumulation order is fixed, so the result is bit-identical to the serial body.
 ///
 /// # Errors
 /// [`EigError::Empty`] if `n == 0`; [`EigError::RankZero`] if `r == 0`; [`EigError::RankOutOfRange`]
@@ -808,7 +807,7 @@ fn ritz_step(
 /// `s × s` Ritz problem. The iteration count is the first `k` with `(λ_{s+1}/λ_r)^k ≤ 2⁻`
 /// [`RESIDUAL_SHIFT`] (up to the initial coefficients and the rounding floor), the linear
 /// convergence rate of subspace iteration with the gap the `p` oversampling columns carry.
-pub fn top_eigh(m: &[i64], n: usize, r: usize, threads: usize) -> Result<TopEig, EigError> {
+pub fn top_eigh(m: &[i64], n: usize, r: usize) -> Result<TopEig, EigError> {
     if n == 0 {
         return Err(EigError::Empty);
     }
@@ -835,7 +834,7 @@ pub fn top_eigh(m: &[i64], n: usize, r: usize, threads: usize) -> Result<TopEig,
     let mut done: Option<TopEig> = None;
     let mut iters = 1usize;
     while iters <= MAX_ITERS && err.is_none() && done.is_none() {
-        match ritz_step(m, &q, n, r, s, iters, threads) {
+        match ritz_step(m, &q, n, r, s, iters) {
             Ok(Ritz::Continue { q: next, est }) => {
                 q = next;
                 last = est;

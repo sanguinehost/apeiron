@@ -91,59 +91,64 @@ fn gram(n: usize, m: usize, hi: i64, seed: u64) -> Vec<i64> {
     out
 }
 
-/// The fixtures: `(label, m, n, r, threads)`.
-fn fixtures() -> Vec<(String, Vec<i64>, usize, usize, usize)> {
-    let mut f: Vec<(String, Vec<i64>, usize, usize, usize)> = Vec::new();
+/// The fixtures: `(label, m, n, r)`.
+fn fixtures() -> Vec<(String, Vec<i64>, usize, usize)> {
+    let mut f: Vec<(String, Vec<i64>, usize, usize)> = Vec::new();
     for &n in &[1usize, 3, 8, 9, 16, 17] {
         for &r in &[1usize, 2, 4] {
             if r > n {
                 continue;
             }
-            for &threads in &[1usize, 4] {
-                f.push((
-                    format!("spd n={n} r={r} t={threads}"),
-                    spd(n, 1 << 14, 0x1234_5678 ^ n as u64),
-                    n,
-                    r,
-                    threads,
-                ));
-            }
+            // The pre-change fixture list ran each matrix twice (threads `1` and `4`); the hash
+            // pins that sequence, so the matrix is folded twice with no thread axis.
+            f.push((
+                format!("spd n={n} r={r}"),
+                spd(n, 1 << 14, 0x1234_5678 ^ n as u64),
+                n,
+                r,
+            ));
+            f.push((
+                format!("spd n={n} r={r} again"),
+                spd(n, 1 << 14, 0x1234_5678 ^ n as u64),
+                n,
+                r,
+            ));
         }
     }
     for &n in &[8usize, 16, 32] {
         let m = gram(n, n.min(4), 1 << 12, 0xdead_beef ^ n as u64);
-        f.push((format!("gram n={n}"), m.clone(), n, 1, 4));
-        f.push((format!("gram n={n} r=2"), m, n, 2, 1));
+        f.push((format!("gram n={n}"), m.clone(), n, 1));
+        f.push((format!("gram n={n} r=2"), m, n, 2));
     }
     // All-zero.
-    f.push(("zero n=4".into(), vec![0i64; 16], 4, 1, 1));
+    f.push(("zero n=4".into(), vec![0i64; 16], 4, 1));
     // Refusals.
-    f.push(("shape".into(), vec![0i64; 5], 2, 1, 1));
-    f.push(("empty".into(), vec![], 0, 1, 1));
-    f.push(("rank zero".into(), vec![ONE; 4], 2, 0, 1));
-    f.push(("rank range".into(), vec![ONE; 4], 2, 3, 1));
-    f.push(("overflow n".into(), vec![], usize::MAX, 1, 1));
+    f.push(("shape".into(), vec![0i64; 5], 2, 1));
+    f.push(("empty".into(), vec![], 0, 1));
+    f.push(("rank zero".into(), vec![ONE; 4], 2, 0));
+    f.push(("rank range".into(), vec![ONE; 4], 2, 3));
+    f.push(("overflow n".into(), vec![], usize::MAX, 1));
     let mut over = vec![0i64; 4];
     over[0] = 1i64 << 36;
     over[3] = ONE;
-    f.push(("input bound".into(), over, 2, 1, 1));
+    f.push(("input bound".into(), over, 2, 1));
     let mut bad = vec![0i64; 9];
     for i in 0..3 {
         bad[i * 3 + i] = ONE;
     }
     bad[1] = 2;
-    f.push(("not symmetric".into(), bad, 3, 1, 1));
+    f.push(("not symmetric".into(), bad, 3, 1));
     let mut near = vec![0i64; 9];
     for i in 0..3 {
         near[i * 3 + i] = ONE;
     }
     near[1] = 1;
-    f.push(("near symmetric".into(), near, 3, 1, 1));
+    f.push(("near symmetric".into(), near, 3, 1));
     // Rank-2 diagonal of order 16: rank < s = 9 → DegenerateBasis.
     let mut low = vec![0i64; 256];
     low[0] = ONE;
     low[17] = ONE;
-    f.push(("degenerate".into(), low, 16, 1, 1));
+    f.push(("degenerate".into(), low, 16, 1));
     // A near-degenerate spectrum that cannot reach tolerance at MAX_ITERS.
     let n = 16usize;
     let mut slow = vec![0i64; n * n];
@@ -155,7 +160,7 @@ fn fixtures() -> Vec<(String, Vec<i64>, usize, usize, usize)> {
         };
         slow[k * n + k] = v;
     }
-    f.push(("not converged".into(), slow, n, 1, 1));
+    f.push(("not converged".into(), slow, n, 1));
     f
 }
 
@@ -170,8 +175,8 @@ fn fold(h: &mut u64, v: u64) {
 #[test]
 fn top_eigh_bit_identity() {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for (label, m, n, r, threads) in fixtures() {
-        match apeiron::learn::solve::eig::top_eigh(&m, n, r, threads) {
+    for (label, m, n, r) in fixtures() {
+        match apeiron::learn::solve::eig::top_eigh(&m, n, r) {
             Ok(t) => {
                 fold(&mut h, 0);
                 fold(&mut h, t.evals.len() as u64);

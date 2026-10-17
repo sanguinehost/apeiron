@@ -1,6 +1,6 @@
 // Split-K down GEMM + reduction against the unsplit coopmat GEMM.
 //! The split-K coopmat down GEMM (`coopmat_gemm_split_bytes`, grid z = splits) followed by
-//! `splitk_reduce_bytes`, on the real Qwen2.5-0.5B layer-0 `ffn_down` (Q8) and the first Q4_K `ffn_down`
+//! `splitk_reduce_bytes`, on the real Qwen2.5-0.5B layer-0 `ffn_down` (Q8) and the first `Q4_K` `ffn_down`
 //! (Q4), `m = 896`, `k = 4864`, over a 512-token random int8 activation block.
 //!
 //! 1. **integer** (unit scales: each output is `Σ_b q_b`, an integer the f32 sum holds exactly while

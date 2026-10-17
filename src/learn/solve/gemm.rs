@@ -1,4 +1,4 @@
-//! Blocked, threaded, exact-accumulation Q32.32 matrix products: [`gemm_nn`] (`C = A·B`) and
+//! Blocked, pooled, exact-accumulation Q32.32 matrix products: [`gemm_nn`] (`C = A·B`) and
 //! [`gemm_nt`] (`C = A·Bᵀ`), the one GEMM the fold's low-rank corrector needs.
 //!
 //! Entry for entry, `C[i,j] = round32(Σ_l A[i,l]·B[l,j])` ([`gemm_nn`]) or
@@ -15,16 +15,16 @@
 //! The rounding ([`super::syrk::round32`]), the `i64` narrowing ([`super::syrk::narrow`]) and the
 //! magnitude-bound scan ([`super::syrk::within_bound`] over [`super::syrk::BOUND_BITS`]) are the
 //! `syrk` module's, promoted to `pub(super)` rather than copied, and [`MAX_K`] is derived from that
-//! same `BOUND_BITS`. The blocked/threaded shape is `syrk`'s too: a plain `fn` block body driven by
-//! `std::thread::scope` over disjoint output row chunks, one first-error return, `threads ≤ 1` the
-//! same body with no spawn.
+//! same `BOUND_BITS`. The blocked shape is `syrk`'s too: a plain `fn` block body driven by the engine
+//! pool over disjoint output row chunks, one first-error return, the chunk count from
+//! [`crate::engine::chart::pool::width_global`].
 //!
 //! # Relation to `dense::linear_fwd`
 //!
 //! `crate::learn::grad::dense::linear_fwd(x, w, n, i, o)` already computes exactly
 //! `gemm_nt(x, w, n, i, o)`: `round32(Σ_k x[r,k]·w[c,k])` with `x` `n×i`, `w` `o×i`, the same
 //! Q32.32 product, the same `(v + 2³¹) >> 32` rounding and the same `k`-ascending accumulation — as
-//! a single-threaded, unbounded triple loop. [`gemm_nt`] is its blocked, threaded, bound-checked
+//! a single-threaded, unbounded triple loop. [`gemm_nt`] is its blocked, pooled, bound-checked
 //! generalisation and returns the same bits on the shared domain, so **`linear_fwd` should delegate
 //! to `gemm_nt(x, w, n, i, o, 1)`** and map [`GemmError`], keeping only its `Empty`
 //! zero-dimension policy; `dense.rs` is not edited here.
@@ -67,6 +67,8 @@
 
 use super::q32::{from_grid, panel_shift, to_grid, INPUT_BOUND};
 use super::syrk::{narrow, round32, within_bound, BOUND_BITS};
+use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
+use crate::engine::chart::task::ChunkTask;
 
 /// The largest accepted contraction length: `k < MAX_K` keeps the exact `i128` sum plus the
 /// round-half add inside `i128` (`(MAX_K−1)·(2³⁶−1)² + 2³¹ < 2¹²⁷`). `127 − 2·BOUND_BITS = 55`.
@@ -240,7 +242,7 @@ fn pack_b_nn(b: &[i64], n: usize, j0: usize, nc: usize, kb: usize, kc: usize, bp
 ///
 /// A given output entry is accumulated over the `k`-blocks in order and within a block over `kk`
 /// in order — that is ascending `k`, exactly once and by this worker alone — so the result is
-/// independent of the block geometry and the thread count. `c.len()` must be `rows·n`.
+/// independent of the block geometry and the pool width. `c.len()` must be `rows·n`.
 ///
 /// # Complexity
 /// Time: `rows·k·n` `i128` multiply-accumulates plus `rows·k·n·(1/MC + 1/NC)` `i64` panel copies
@@ -319,77 +321,68 @@ fn block_rows(
     Ok(())
 }
 
-/// Split `c` (`m × n`, row stride `n`) into `parts` contiguous row chunks and run [`block_rows`] on
-/// each in scoped threads; returns the first refusal. Every worker owns a disjoint row range of `c`
-/// and is handed the matching `a` row block (`&a[lo·k .. hi·k]`), so no two workers write one output
-/// entry and none reads another's A rows. `parts ≥ 2`: the caller runs [`block_rows`] itself for
-/// `threads ≤ 1`, so the serial arithmetic is not behind this thread boundary.
+/// The pool task context of [`block_rows_pool`]: the shared operands and geometry, the row stride
+/// and the refusal cell.
+struct GemmRows<'a> {
+    /// The `A` panel, row-major `[m, k]`.
+    a: &'a [i64],
+    /// The `B` panel, row-major `[k, n]` (`nn`) or `[n, k]` (`!nn`).
+    b: &'a [i64],
+    /// Contraction depth.
+    k: usize,
+    /// Output row stride.
+    n: usize,
+    /// The `B` panel layout: `true` for `A·B`, `false` for `A·Bᵀ`.
+    nn: bool,
+    /// Lowest-offset refusal recorded by the tasks.
+    first: &'a FirstErr<usize, GemmError>,
+}
+
+impl ChunkTask<i64> for GemmRows<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [i64]) {
+        let rows = piece.len() / self.n;
+        let row0 = start / self.n;
+        let ablock = &self.a[row0 * self.k..(row0 + rows) * self.k];
+        if let Err(e) = block_rows(piece, rows, ablock, self.b, self.n, self.k, self.nn) {
+            self.first.record(start, e);
+        }
+    }
+}
+
+/// Split `c` (`m × n`, row stride `n`) into `width_global()` contiguous row chunks and run
+/// [`block_rows`] on each through the engine pool; returns the first refusal. Every task owns a
+/// disjoint row range of `c` and is handed the matching `a` row block (`&a[lo·k .. hi·k]`), so no
+/// two tasks write one output entry and none reads another's A rows. Each entry is accumulated by
+/// exactly one task in ascending `k`, so the result is bit-identical to the serial body.
 ///
 /// # Complexity
-/// Time: [`block_rows`] plus `O(m)` split bookkeeping. Space: `O(parts)` chunk descriptors plus each
-/// worker's `O(MC·KC + NC·KC + MC·NC)` scratch.
-///
-/// # Panics
-/// Re-raises the payload of a worker panic on the calling thread; the body does not panic on caller
-/// input, so a worker panic is an internal bug.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the driver takes the output slice plus the two operands and the `m`, `n`, `k` geometry \
-              and the layout flag; a struct would only relocate the fields."
-)]
-fn block_rows_par(
+/// Time: [`block_rows`] plus `O(m)` split bookkeeping. Space: `O(1)` extra (the pool hands each task
+/// its slice in place) plus each task's `O(MC·KC + NC·KC + MC·NC)` scratch.
+fn block_rows_pool(
     c: &mut [i64],
     m: usize,
     n: usize,
-    parts: usize,
     a: &[i64],
     b: &[i64],
     k: usize,
     nn: bool,
 ) -> Result<(), GemmError> {
-    let base = m / parts;
-    let rem = m % parts;
-    let mut lo = 0usize;
-    let mut rest: &mut [i64] = c;
-    let mut groups: Vec<(&[i64], usize, &mut [i64])> = Vec::with_capacity(parts);
-    let mut t = 0usize;
-    while t < parts {
-        let hi = lo + base + usize::from(t < rem);
-        let (head, tail) = rest.split_at_mut((hi - lo) * n);
-        groups.push((&a[lo * k..hi * k], hi - lo, head));
-        rest = tail;
-        lo = hi;
-        t += 1;
-    }
-    let err: Option<GemmError> = std::thread::scope(|scope| {
-        let mut handles = Vec::with_capacity(groups.len());
-        for (ablock, rows, part) in groups {
-            handles.push(scope.spawn(move || block_rows(part, rows, ablock, b, n, k, nn)));
-        }
-        let mut first: Option<GemmError> = None;
-        let mut panicked = None;
-        for h in handles {
-            match h.join() {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    if first.is_none() {
-                        first = Some(e);
-                    }
-                }
-                Err(p) => {
-                    if panicked.is_none() {
-                        panicked = Some(p);
-                    }
-                }
-            }
-        }
-        if let Some(p) = panicked {
-            std::panic::resume_unwind(p);
-        }
-        first
-    });
-    match err {
-        Some(e) => Err(e),
+    let chunk_rows = m.div_ceil(width_global()).max(1);
+    let first: FirstErr<usize, GemmError> = FirstErr::new();
+    chunks_mut_global(
+        c,
+        chunk_rows * n,
+        &GemmRows {
+            a,
+            b,
+            k,
+            n,
+            nn,
+            first: &first,
+        },
+    );
+    match first.take() {
+        Some((_, e)) => Err(e),
         None => Ok(()),
     }
 }
@@ -428,9 +421,9 @@ fn check(a: &[i64], b: &[i64], m: usize, k: usize, n: usize) -> Result<(), GemmE
 /// `C[m,n] = A[m,k]·B[k,n]` in Q32.32: `a` row-major `[m, k]`, `b` row-major `[k, n]`, `c`
 /// row-major `[m, n]` with `C[i,j] = round32(Σ_l a[i,l]·b[l,j])`, one rounding per entry.
 ///
-/// `threads` splits the output rows across `std::thread::scope` workers; `threads ≤ 1` runs the same
-/// body with no spawn. Each entry is accumulated by exactly one worker over ascending `k`, so the
-/// result is identical for every thread count.
+/// The output rows are split across the engine pool, one chunk per `width_global()` participants.
+/// Each entry is accumulated by exactly one task over ascending `k`, so the result is bit-identical
+/// to the serial body.
 ///
 /// # Errors
 /// [`GemmError::ZeroDim`] if `m`, `k` or `n` is zero; [`GemmError::ShapeMismatch`] if `a.len() !=
@@ -440,17 +433,10 @@ fn check(a: &[i64], b: &[i64], m: usize, k: usize, n: usize) -> Result<(), GemmE
 ///
 /// # Complexity
 /// Time: `m·k·n` `i128` multiply-accumulates plus `m·k·n·(1/MC + 1/NC)` panel copies, split across
-/// `threads`; the derivation is in [`block_rows`]. Space: `O(m·n)` for `c` plus each worker's
+/// pool; the derivation is in [`block_rows`]. Space: `O(m·n)` for `c` plus each worker's
 /// `O(MC·KC + NC·KC + MC·NC)` scratch.
-pub fn gemm_nn(
-    a: &[i64],
-    b: &[i64],
-    m: usize,
-    k: usize,
-    n: usize,
-    threads: usize,
-) -> Result<Vec<i64>, GemmError> {
-    run(a, b, m, k, n, threads, true)
+pub fn gemm_nn(a: &[i64], b: &[i64], m: usize, k: usize, n: usize) -> Result<Vec<i64>, GemmError> {
+    run(a, b, m, k, n, true)
 }
 
 /// `x` as a Q32.32 panel below the [`gemm_nn`] input bound, with the exponent `s` it was scaled by.
@@ -486,7 +472,7 @@ fn to_panel(x: &[f64]) -> Result<(Vec<i64>, i32), GemmError> {
 /// head-room ([`super::q32::fill_scale`] fills to `2³¹`, above that bound, so it is not used). The
 /// grid product carries the scale `2⁻(sₐ+s_b)`, undone exactly by `2^(sₐ+s_b)` on the read-back.
 /// Entries are rounded to the `2⁻³²` grid once on the way in and the product once per entry on the
-/// way out; a panel already within `8` is not scaled. Bit-identical for every `threads`.
+/// way out; a panel already within `8` is not scaled. Bit-identical to the serial body.
 ///
 /// # Errors
 /// As [`gemm_nn`] for the shape, with a non-finite entry or an entry that does not fit the grid
@@ -502,13 +488,12 @@ pub fn gemm_nn_f64(
     m: usize,
     k: usize,
     n: usize,
-    threads: usize,
 ) -> Result<Vec<f64>, GemmError> {
-    product_f64(a, b, m, k, n, threads, true)
+    product_f64(a, b, m, k, n, true)
 }
 
 /// `C[m,n] = A[m,k]·B[n,k]ᵀ` for `f64` operands on the Q32.32 [`gemm_nt`] path: [`gemm_nn_f64`]
-/// with `B` stored row-major `[n, k]`. Same scaling rule and thread independence.
+/// with `B` stored row-major `[n, k]`. Same scaling rule and pool-width independence.
 ///
 /// # Errors
 /// As [`gemm_nn_f64`], with `b` of shape `[n, k]`.
@@ -521,9 +506,8 @@ pub fn gemm_nt_f64(
     m: usize,
     k: usize,
     n: usize,
-    threads: usize,
 ) -> Result<Vec<f64>, GemmError> {
-    product_f64(a, b, m, k, n, threads, false)
+    product_f64(a, b, m, k, n, false)
 }
 
 /// The shared body of [`gemm_nn_f64`] and [`gemm_nt_f64`]; `nn` selects the `B` layout.
@@ -536,15 +520,14 @@ fn product_f64(
     m: usize,
     k: usize,
     n: usize,
-    threads: usize,
     nn: bool,
 ) -> Result<Vec<f64>, GemmError> {
     let (pa, sa) = to_panel(a)?;
     let (pb, sb) = to_panel(b)?;
     let c = if nn {
-        gemm_nn(&pa, &pb, m, k, n, threads)?
+        gemm_nn(&pa, &pb, m, k, n)?
     } else {
-        gemm_nt(&pa, &pb, m, k, n, threads)?
+        gemm_nt(&pa, &pb, m, k, n)?
     };
     let back = sa
         .checked_add(sb)
@@ -567,27 +550,19 @@ fn product_f64(
 /// operand rows are contiguous in the contraction index, so this is the cache-friendly form and the
 /// one `m = w1·ΔWᵀ` needs.
 ///
-/// `threads` splits the output rows exactly as [`gemm_nn`] does, with the same thread-count
-/// independence.
+/// The output rows are split exactly as [`gemm_nn`] does, with the same bit-identity.
 ///
 /// # Errors
 /// As [`gemm_nn`], with `b` of shape `[n, k]`.
 ///
 /// # Complexity
 /// Time and space as [`gemm_nn`], with `B` read as contiguous rows.
-pub fn gemm_nt(
-    a: &[i64],
-    b: &[i64],
-    m: usize,
-    k: usize,
-    n: usize,
-    threads: usize,
-) -> Result<Vec<i64>, GemmError> {
-    run(a, b, m, k, n, threads, false)
+pub fn gemm_nt(a: &[i64], b: &[i64], m: usize, k: usize, n: usize) -> Result<Vec<i64>, GemmError> {
+    run(a, b, m, k, n, false)
 }
 
 /// The shared body of [`gemm_nn`] and [`gemm_nt`]: validate, allocate `C`, and drive
-/// [`block_rows_par`] with `nn` selecting the B-panel layout.
+/// [`block_rows_pool`] with `nn` selecting the B-panel layout.
 ///
 /// # Complexity
 /// As [`gemm_nn`].
@@ -597,15 +572,10 @@ fn run(
     m: usize,
     k: usize,
     n: usize,
-    threads: usize,
     nn: bool,
 ) -> Result<Vec<i64>, GemmError> {
     check(a, b, m, k, n)?;
     let mut c = vec![0i64; m * n];
-    if threads <= 1 {
-        block_rows(&mut c, m, a, b, n, k, nn)?;
-    } else {
-        block_rows_par(&mut c, m, n, threads, a, b, k, nn)?;
-    }
+    block_rows_pool(&mut c, m, n, a, b, k, nn)?;
     Ok(c)
 }

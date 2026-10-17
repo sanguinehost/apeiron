@@ -117,23 +117,23 @@ fn syrk_xref_hash() {
             .map(|_| lcg.next_range(-(1i64 << 34), 1i64 << 34))
             .collect();
         let wref = if weighted { Some(w.as_slice()) } else { None };
-        fold_wsyrk(&mut h, &wsyrk(&x, wref, o, n, 3));
+        fold_wsyrk(&mut h, &wsyrk(&x, wref, o, n));
         // Thread-count invariance is part of the pinned behaviour.
-        fold_wsyrk(&mut h, &wsyrk(&x, wref, o, n, 1));
-        fold_wsyrk(&mut h, &wsyrk(&x, wref, o, n, 8));
+        fold_wsyrk(&mut h, &wsyrk(&x, wref, o, n));
+        fold_wsyrk(&mut h, &wsyrk(&x, wref, o, n));
     }
 
     // Refusal arms: shape (x and w), zero n, zero o, input bound (x and w), domain overflow, n·n.
     let mut h2 = h;
-    fold_wsyrk(&mut h2, &wsyrk(&[ONE_RAW; 5], None, 2, 3, 1));
-    fold_wsyrk(&mut h2, &wsyrk(&[ONE_RAW; 6], Some(&[ONE_RAW; 3]), 2, 3, 1));
-    fold_wsyrk(&mut h2, &wsyrk(&[], None, 3, 0, 1));
-    fold_wsyrk(&mut h2, &wsyrk(&[], None, 0, 3, 1));
-    fold_wsyrk(&mut h2, &wsyrk(&[1i64 << 36], None, 1, 1, 1));
-    fold_wsyrk(&mut h2, &wsyrk(&[-(1i64 << 36)], None, 1, 1, 1));
-    fold_wsyrk(&mut h2, &wsyrk(&[ONE_RAW], Some(&[1i64 << 36]), 1, 1, 1));
-    fold_wsyrk(&mut h2, &wsyrk(&vec![0i64; 1 << 18], None, 1 << 18, 1, 1));
-    fold_wsyrk(&mut h2, &wsyrk(&[], None, 1, usize::MAX / 2, 1));
+    fold_wsyrk(&mut h2, &wsyrk(&[ONE_RAW; 5], None, 2, 3));
+    fold_wsyrk(&mut h2, &wsyrk(&[ONE_RAW; 6], Some(&[ONE_RAW; 3]), 2, 3));
+    fold_wsyrk(&mut h2, &wsyrk(&[], None, 3, 0));
+    fold_wsyrk(&mut h2, &wsyrk(&[], None, 0, 3));
+    fold_wsyrk(&mut h2, &wsyrk(&[1i64 << 36], None, 1, 1));
+    fold_wsyrk(&mut h2, &wsyrk(&[-(1i64 << 36)], None, 1, 1));
+    fold_wsyrk(&mut h2, &wsyrk(&[ONE_RAW], Some(&[1i64 << 36]), 1, 1));
+    fold_wsyrk(&mut h2, &wsyrk(&vec![0i64; 1 << 18], None, 1 << 18, 1));
+    fold_wsyrk(&mut h2, &wsyrk(&[], None, 1, usize::MAX / 2));
     h = h2;
 
     // hadamard: positive elementwise factor, then shape and overflow refusals.
