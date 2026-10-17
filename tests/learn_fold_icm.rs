@@ -54,6 +54,11 @@ fn q(x: &[f64]) -> Vec<i64> {
         .collect()
 }
 
+/// A scalar as a `Q32.32` word.
+fn qw(x: f64) -> i64 {
+    q32::to_grid(x, q32::GRID_BOUND).expect("scalar inside the grid")
+}
+
 /// A word slice read back to the reals, for the `f64` oracles and bounds.
 fn unq(x: &[i64]) -> Vec<f64> {
     x.iter().copied().map(q32::from_grid).collect()
@@ -139,21 +144,12 @@ fn run_arm(
     o: usize,
     n: usize,
     sweeps: usize,
-    ridge: f64,
+    ridge: i64,
     hj: &[i64],
 ) -> (Plane, Plane, f64, Option<JointStats>) {
     match arm {
         Arm::Step => {
-            let out = e8_icm_step(
-                ws,
-                hl,
-                pref(p1),
-                o,
-                n,
-                sweeps,
-                q32::to_grid(ridge, q32::GRID_BOUND).expect("ridge inside the grid"),
-            )
-            .expect("step");
+            let out = e8_icm_step(ws, hl, pref(p1), o, n, sweeps, ridge).expect("step");
             let j = plane_j(ws, &out, hj, o, n);
             (out, p2.clone(), j, None)
         }
@@ -212,7 +208,7 @@ fn joint(
     o: usize,
     n: usize,
     sweeps: usize,
-    ridge: f64,
+    ridge: i64,
 ) -> (Plane, Plane, JointStats) {
     e8_joint_icm_2plane(ws, hl, p1, p2, o, n, sweeps, ridge, None, 256, None).expect("joint")
 }
@@ -912,7 +908,7 @@ fn learn_fold_icm_decision_safety_matches_the_pre_change_planes() {
              {j_before} -> {j_after}"
         );
         let (b1, b2) = (unhex(h1), unhex(h2));
-        let (q1, q2, st) = joint(&ws, &hl, pref(&p1), pref(&p2), o, n, 3, 0.0);
+        let (q1, q2, st) = joint(&ws, &hl, pref(&p1), pref(&p2), o, n, 3, 0);
         let diffs = idx_diffs(&q1.idx, &b1) + idx_diffs(&q2.idx, &b2);
         let j_after = pair_j(&ws, &q1, &q2, &hl, o, n);
         let j_before = pair_j(
@@ -929,10 +925,11 @@ fn learn_fold_icm_decision_safety_matches_the_pre_change_planes() {
              {j_before} -> {j_after}"
         );
         assert!(
-            st.j_after <= st.j_before + tol(st.j_before),
+            q32::from_grid(st.j_after)
+                <= q32::from_grid(st.j_before) + tol(q32::from_grid(st.j_before)),
             "{o}x{n} joint stats: J {} -> {}",
-            st.j_before,
-            st.j_after
+            q32::from_grid(st.j_before),
+            q32::from_grid(st.j_after)
         );
     }
 }
@@ -991,7 +988,7 @@ fn learn_fold_icm_refuses_unrepresentable_products_and_shapes() {
     let ws = vec![i64::MAX; o * n];
     assert_eq!(e8_icm_step(&ws, &hl, pref(&p), o, n, 1, 0).err(), ov);
     assert_eq!(
-        e8_joint_icm_2plane(&ws, &hl, pref(&p), pref(&p), o, n, 1, 0.0, None, 256, None).err(),
+        e8_joint_icm_2plane(&ws, &hl, pref(&p), pref(&p), o, n, 1, 0, None, 256, None).err(),
         ov
     );
     assert_eq!(r_step2(&ws, &hl, pref(&p), pref(&p), o, n).err(), ov);
@@ -1066,22 +1063,23 @@ fn learn_fold_icm_j_is_non_increasing_per_sweep() {
             };
             let mut prev = j_init;
             for sweeps in 1..=3 {
-                let (_, _, j, st) = run_arm(arm, &ws, &hl, &p1, &p2, o, 256, sweeps, 0.0, &hl);
+                let (_, _, j, st) = run_arm(arm, &ws, &hl, &p1, &p2, o, 256, sweeps, 0, &hl);
                 assert!(
                     j <= prev + tol(prev),
                     "{arm:?} o={o} sweeps={sweeps}: J rose {prev} -> {j}"
                 );
                 if let Some(st) = st {
                     assert!(
-                        st.j_after <= st.j_before + tol(st.j_before),
+                        q32::from_grid(st.j_after)
+                            <= q32::from_grid(st.j_before) + tol(q32::from_grid(st.j_before)),
                         "{arm:?} o={o} sweeps={sweeps}: stats J {} -> {}",
-                        st.j_before,
-                        st.j_after
+                        q32::from_grid(st.j_before),
+                        q32::from_grid(st.j_after)
                     );
                     assert!(
-                        (st.j_after - j).abs() <= tol(j),
+                        (q32::from_grid(st.j_after) - j).abs() <= tol(j),
                         "{arm:?} o={o} sweeps={sweeps}: stats J {} != measured {j}",
-                        st.j_after
+                        q32::from_grid(st.j_after)
                     );
                 }
                 prev = j;
@@ -1113,7 +1111,7 @@ fn learn_fold_icm_g_row_weights_the_reported_j() {
         o,
         n,
         0,
-        0.0,
+        0,
         Some(&q(&g_row)),
         256,
         None,
@@ -1123,8 +1121,8 @@ fn learn_fold_icm_g_row_weights_the_reported_j() {
     assert_eq!(st.j_after, st.j_before);
     assert_eq!(st.moves, 0);
     let expect = ref_j_rows(&ws, &unq(&pair_w(&p1, &p2, o, n)), &hl, o, n, Some(&g_row));
-    assert!((st.j_before - expect).abs() <= tol(expect));
-    assert!(st.j_before > 0.0 && unweighted > 0.0);
+    assert!((q32::from_grid(st.j_before) - expect).abs() <= tol(expect));
+    assert!(st.j_before > 0 && unweighted > 0.0);
 }
 
 /// `p` with block `m` of row 0 set to codebook row `j`.
@@ -1164,14 +1162,14 @@ fn learn_fold_icm_recovers_a_representable_target() {
             j_init > 1e-6,
             "{arm:?}: the perturbation must be visible, got {j_init}"
         );
-        let (out1, out2, j_out, st) = run_arm(arm, &ws, &hl, &init, &truth2, o, n, 2, 0.0, &hl);
+        let (out1, out2, j_out, st) = run_arm(arm, &ws, &hl, &init, &truth2, o, n, 2, 0, &hl);
         assert!(
             j_out < 1e-6 * (1.0 + j_init),
             "{arm:?}: J {j_init} -> {j_out}, expected ~0"
         );
         if let Some(st) = st {
             assert!(
-                st.j_after < 1e-6 * (1.0 + st.j_before),
+                q32::from_grid(st.j_after) < 1e-6 * (1.0 + q32::from_grid(st.j_before)),
                 "{arm:?}: stats J after {j_out}"
             );
         }
@@ -1234,7 +1232,7 @@ fn learn_fold_icm_block_argmin_is_exact() {
             o,
             n,
             1,
-            0.0,
+            0,
             None,
             256,
             Some(&[m]),
@@ -1265,9 +1263,9 @@ fn learn_fold_icm_block_argmin_is_exact() {
             (out1.idx[m], out2.idx[m])
         );
         assert!(
-            (st.j_after - best_j).abs() <= tol(best_j),
+            (q32::from_grid(st.j_after) - best_j).abs() <= tol(best_j),
             "joint J {} != brute-force block minimum {best_j}",
-            st.j_after
+            q32::from_grid(st.j_after)
         );
     }
 }
@@ -1347,17 +1345,17 @@ fn learn_fold_icm_icm_ridge_metric_is_non_increasing() {
     let ws = q(&rand_mat(o, n, &mut rng));
     let mut prev = plane_j(&ws, &p0, &hr, o, n);
     for sweeps in 1..=2 {
-        let (_, _, j, _) = run_arm(Arm::Step, &ws, &hl, &p0, &p0, o, n, sweeps, 0.2, &hr);
+        let (_, _, j, _) = run_arm(Arm::Step, &ws, &hl, &p0, &p0, o, n, sweeps, qw(0.2), &hr);
         assert!(
             j <= prev + tol(prev),
             "ridged sweeps={sweeps}: J rose {prev} -> {j}"
         );
         prev = j;
     }
-    let (_, _, j, st) = run_arm(Arm::Joint, &ws, &hl, &p0, &p0, o, n, 1, 0.2, &hr);
+    let (_, _, j, st) = run_arm(Arm::Joint, &ws, &hl, &p0, &p0, o, n, 1, qw(0.2), &hr);
     let st = st.expect("joint stats");
-    assert!(j <= st.j_before + tol(st.j_before));
-    assert!((st.j_after - j).abs() <= tol(j));
+    assert!(j <= q32::from_grid(st.j_before) + tol(q32::from_grid(st.j_before)));
+    assert!((q32::from_grid(st.j_after) - j).abs() <= tol(j));
 }
 
 #[test]
@@ -1369,9 +1367,9 @@ fn learn_fold_icm_row_chunk_does_not_change_the_result() {
     let p2 = rand_plane(o, n, &mut rng);
     let ws = q(&rand_mat(o, n, &mut rng));
     let (a1, a2, ast) =
-        e8_joint_icm_2plane(&ws, &hl, pref(&p1), pref(&p2), o, n, 2, 0.0, None, 1, None)
+        e8_joint_icm_2plane(&ws, &hl, pref(&p1), pref(&p2), o, n, 2, 0, None, 1, None)
             .expect("chunk 1");
-    let (b1, b2, bst) = joint(&ws, &hl, pref(&p1), pref(&p2), o, n, 2, 0.0);
+    let (b1, b2, bst) = joint(&ws, &hl, pref(&p1), pref(&p2), o, n, 2, 0);
     assert_eq!(a1.s, b1.s);
     assert_eq!(a1.idx, b1.idx);
     assert_eq!(a2.s, b2.s);
@@ -1399,7 +1397,7 @@ fn learn_fold_icm_refuses_ragged_shapes() {
     let step_err =
         |pp: PlaneRef<'_>, ws: &[i64], hl: &[i64]| e8_icm_step(ws, hl, pp, o, n, 1, 0).err();
     let joint_err = |pp: PlaneRef<'_>| {
-        e8_joint_icm_2plane(&ws, &hl, pp, pref(&p), o, n, 1, 0.0, None, 256, None).err()
+        e8_joint_icm_2plane(&ws, &hl, pp, pref(&p), o, n, 1, 0, None, 256, None).err()
     };
     let r_err = |pp: PlaneRef<'_>, hl: &[i64]| r_step2(&ws, hl, pp, pref(&p), o, n).err();
     // A short `ws`, `hl`, or any plane slice is a shape refusal.
@@ -1450,7 +1448,7 @@ fn learn_fold_icm_refuses_ragged_shapes() {
     assert_eq!(plane_w(pref(&q), o, bad_n).err(), wd);
     // Zero chunk and out-of-range block subset.
     assert_eq!(
-        e8_joint_icm_2plane(&ws, &hl, pref(&p), pref(&p), o, n, 1, 0.0, None, 0, None).err(),
+        e8_joint_icm_2plane(&ws, &hl, pref(&p), pref(&p), o, n, 1, 0, None, 0, None).err(),
         Some(IcmError::ZeroChunk)
     );
     assert_eq!(
@@ -1462,7 +1460,7 @@ fn learn_fold_icm_refuses_ragged_shapes() {
             o,
             n,
             1,
-            0.0,
+            0,
             None,
             256,
             Some(&[n / BLOCK])

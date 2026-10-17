@@ -793,14 +793,14 @@ fn metric_matches_f64_oracle() {
     let x = rand_mat(&mut lcg, rows, n);
     let hm = matmul(&transpose(&x, rows, n), &x, n, rows, n);
     let ridge = 0.25;
-    let got = metric(&hm, n, ridge).unwrap();
+    let got = metric(&qv(&hm), n, q(ridge)).unwrap();
     let mut want = hm.clone();
     let shift = ridge * diag_mean(&hm, n);
     for i in 0..n {
         want[i * n + i] += shift;
     }
     // `H` and the shift each cross the grid once (≤ q/2 per entry), then the diagonal sum rounds.
-    let err = max_abs_diff(&got, &want);
+    let (err, _) = grid_error(&got, &want);
     println!("metric: err={err:.3e} bound={:.3e}", 4.0 * Q);
     assert!(err <= 4.0 * Q, "metric err {err:e}");
 }
@@ -814,7 +814,7 @@ fn bias_update_matches_f64_oracle() {
     let x_sum = rand_mat(&mut lcg, n, 1);
     let wp = rand_mat(&mut lcg, out, n);
     let n_toks = 137.0f64;
-    let got = bias_update(&y_sum, &x_sum, &wp, n_toks).unwrap();
+    let got = bias_update(&qv(&y_sum), &qv(&x_sum), &qv(&wp), q(n_toks)).unwrap();
     let want: Vec<f64> = (0..out)
         .map(|o| {
             let dot: f64 = (0..n).map(|i| wp[o * n + i] * x_sum[i]).sum();
@@ -822,10 +822,73 @@ fn bias_update_matches_f64_oracle() {
         })
         .collect();
     // `n` products of two rounded entries plus one rounding of the difference: `(n+1)·q`.
-    let err = max_abs_diff(&got, &want);
+    let (err, _) = grid_error(&got, &want);
     let bound = 2.0 * (n + 1) as f64 * Q;
     println!("bias_update: err={err:.3e} bound={bound:.3e}");
     assert!(err <= bound, "bias err {err:e}");
+}
+
+/// A deterministic symmetric matrix with a dominant diagonal (positive definite).
+fn rand_spd(n: usize, lcg: &mut Lcg) -> Vec<f64> {
+    let mut h = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let v = lcg.sym();
+            h[i * n + j] = v;
+            h[j * n + i] = v;
+        }
+    }
+    for i in 0..n {
+        let mut off = 0.0f64;
+        for j in 0..n {
+            if j != i {
+                off += h[i * n + j].abs();
+            }
+        }
+        h[i * n + i] = off + 1.0 + lcg.sym().abs();
+    }
+    h
+}
+
+/// FNV-1a over the little-endian bytes of a word buffer.
+fn fnv_words(d: &mut u64, xs: &[i64]) {
+    for &v in xs {
+        for b in v.to_le_bytes() {
+            *d ^= u64::from(b);
+            *d = d.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+}
+
+/// The word `metric` is bit-identical to the `f64` wrapper it replaced on these fixtures: the
+/// digests were recorded through the old `f64` entry before the flip.
+#[test]
+fn metric_words_are_bit_identical_to_the_recorded_wrapper() {
+    for (seed, n, mag, want) in [
+        (0x51ab_0001u64, 16usize, 1.0f64, 0xb7a3_909a_ca2c_31b1u64),
+        (0x5eed_0042, 32, 1.0, 0xa7eb_4107_ed33_23b6),
+    ] {
+        let mut lcg = Lcg::new(seed ^ ((n as u64) << 32));
+        let hm: Vec<f64> = rand_spd(n, &mut lcg).iter().map(|&v| v * mag).collect();
+        let got = metric(&qv(&hm), n, q(0.045)).unwrap();
+        let mut d = 0xcbf2_9ce4_8422_2325u64;
+        fnv_words(&mut d, &got);
+        assert_eq!(d, want, "metric seed={seed:x} n={n}");
+    }
+}
+
+/// The word `bias_update` is bit-identical to the `f64` wrapper it replaced on this fixture.
+#[test]
+fn bias_update_words_are_bit_identical_to_the_recorded_wrapper() {
+    let (n, out) = (7usize, 3usize);
+    let mut lcg = Lcg::new(0xb1a5);
+    let y_sum = rand_mat(&mut lcg, out, 1);
+    let x_sum = rand_mat(&mut lcg, n, 1);
+    let wp = rand_mat(&mut lcg, out, n);
+    let got = bias_update(&qv(&y_sum), &qv(&x_sum), &qv(&wp), q(137.0)).unwrap();
+    let mut d = 0xcbf2_9ce4_8422_2325u64;
+    fnv_words(&mut d, &got);
+    assert_eq!(d, 0x9add_15fc_2267_fd60);
 }
 
 /// A deterministic strictly-diagonally-dominant SPD matrix with diagonals log-spread over
@@ -963,9 +1026,9 @@ fn refusals() {
         ridge_solve(&[0.0; 9], &[1.0; 3], 3, 1, 0.0),
         Err(StageError::NotPositiveDefinite)
     );
-    assert_eq!(metric(&[1.0; 3], 3, 0.1), Err(StageError::Shape));
+    assert_eq!(metric(&[1_i64; 3], 3, q(0.1)), Err(StageError::Shape));
     assert_eq!(
-        bias_update(&[1.0], &[1.0, 1.0, 1.0], &[1.0, 1.0, 1.0], 0.0),
+        bias_update(&[1], &[1, 1, 1], &[1, 1, 1], 0),
         Err(StageError::Empty)
     );
 }

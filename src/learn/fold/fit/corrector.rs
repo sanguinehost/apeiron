@@ -19,15 +19,15 @@
 //!
 //! # Q32.32 carrier
 //!
-//! Every private body works on the Q32.32 `i64` grid: the inputs cross once at the public entry
-//! ([`to_words`], `round(x·2³²)` with the range test) and the results once at the return
-//! (`from_grid`). The Gram `M` is the shared [`eigen_gram`] (two pooled Q32.32 products under one
-//! exact power-of-two panel scale), the eigenstage is [`top_eigh`], the ridge Gram is the pooled
-//! [`wsyrk`] and the right-hand side the pooled [`gemm_nn`] on the transposed `Uh`, the ridge solve
-//! is [`chol_solve`], the factor product `Corr = Uh·Vh` is the pooled [`gemm_nn`], the `f16`
-//! round-trip is [`crate::learn::solve::q32::round_f16`], and the u8 quantizer is
-//! [`crate::learn::fold::fit::quant::quant_c_u8`] — the same carriers the store uses. The only
-//! `f64` is those shared products' exact power-of-two scaling and grid crossing.
+//! Every body works on the Q32.32 `i64` grid: [`lowrank_corrector`] takes `ΔW` and `Hl` as words and
+//! returns `Corr`, `top_sum` and the stored factors as words; the only `f64` left is the
+//! [`crate::learn::fold::fit::eigh`] Gram/eigenstage boundary those words are handed to (that module
+//! still has an `f64` entry) and its read-back. The Gram `M` is the shared [`eigen_gram`] (two
+//! pooled Q32.32 products under one exact power-of-two panel scale), the eigenstage is [`top_eigh`],
+//! the ridge Gram is the pooled [`wsyrk`] and the right-hand side the pooled [`gemm_nn`] on the
+//! transposed `Uh`, the ridge solve is [`chol_solve`], the factor product `Corr = Uh·Vh` is the
+//! pooled [`gemm_nn`], the `f16` round-trip is [`crate::learn::solve::q32::round_f16`], and the u8
+//! quantizer is [`crate::learn::fold::fit::quant::quant_c_u8`] — the same carriers the store uses.
 //!
 //! # Deviations from the Python
 //!
@@ -36,9 +36,9 @@
 //!   [`crate::learn::fold::fit::eigh::lowrank_corrector_exact`] gives it; no caller passes `rank == 0`.
 //! - `torch.linalg.solve` on the possibly-indefinite `Uhᵀ Uh + 1e-6 I` is replaced by the SPD
 //!   [`chol_solve`]; a non-positive pivot is [`CorrectorError::NotPositiveDefinite`], not a result.
-//! - The Python broadcasts a non-finite input through the decomposition; here a non-finite `ΔW` or
-//!   `Hl` entry is refused as [`CorrectorError::NonFinite`], and a finite entry outside the Q32.32
-//!   grid's real range (`|x| ≥ 2³¹`) as [`CorrectorError::NotRepresentable`].
+//! - The inputs are Q32.32 words, so a non-finite or off-grid `ΔW`/`Hl` entry cannot reach this
+//!   module; [`CorrectorError::NonFinite`]/[`CorrectorError::NotRepresentable`] remain only for the
+//!   `f64` read-back of [`crate::learn::fold::fit::eigh`].
 //! - The ridge `1e-6` is the grid word `round(1e-6·2³²) = 4295`, i.e. `1.000013e-6`: the carrier
 //!   cannot hold a finer value, and the relative change of the ridge is `1.3e-5`.
 //! - `f16r(U)` rounds once from the exact integer significand ([`round_f16`]) instead of the
@@ -122,23 +122,23 @@ impl From<EighError> for CorrectorError {
 /// The stored factors `(Uh, Vh)` of a rounded corrector, with `Corr = Uh·Vh`.
 #[derive(Clone, Debug)]
 pub struct Factors {
-    /// `Uh`, row-major `[o, rank]` (column `k` is the `k`-th stored basis vector), as Q32.32 reals.
-    pub u: Vec<f64>,
-    /// `Vh`, row-major `[rank, n]`, as Q32.32 reals.
-    pub v: Vec<f64>,
+    /// `Uh`, row-major `[o, rank]` (column `k` is the `k`-th stored basis vector), as Q32.32 words.
+    pub u: Vec<i64>,
+    /// `Vh`, row-major `[rank, n]`, as Q32.32 words.
+    pub v: Vec<i64>,
 }
 
 /// A rank-`rank` corrector in the metric `Hl`: the dense correction, its bit count, the top-`rank`
 /// eigenvalue sum, and (optionally) the stored factors.
 #[derive(Clone, Debug)]
 pub struct LowrankCorrector {
-    /// The dense correction `Corr = Uh·Vh`, row-major `[o, n]`, as Q32.32 reals.
-    pub corr: Vec<f64>,
+    /// The dense correction `Corr = Uh·Vh`, row-major `[o, n]`, as Q32.32 words.
+    pub corr: Vec<i64>,
     /// The stored-factor bit count: `16·rank·(o + n)` for [`Mode::Exact`]/[`Mode::F16`],
     /// `rank·(8·(o + n) + 64)` for [`Mode::U8`].
     pub bits: u64,
-    /// `Σ_k max(λ_k, 0)` over the top `rank` eigenvalues of `M = (ΔW·Hl)·ΔWᵀ`.
-    pub top_sum: f64,
+    /// `Σ_k max(λ_k, 0)` over the top `rank` eigenvalues of `M = (ΔW·Hl)·ΔWᵀ`, as a Q32.32 word.
+    pub top_sum: i64,
     /// The stored factors, present iff the caller requested them.
     pub factors: Option<Factors>,
 }
@@ -160,6 +160,11 @@ fn to_words(x: &[f64]) -> Result<Vec<i64>, CorrectorError> {
 /// The Q32.32 words `x` as reals (exact). Time and space `O(len)`.
 fn to_real(x: &[i64]) -> Vec<f64> {
     x.iter().map(|&v| from_grid(v)).collect()
+}
+
+/// `x` as the Q32.32 word `round(x·2³²)`; `NotRepresentable` off the grid. `O(1)`.
+fn to_word(x: f64) -> Result<i64, CorrectorError> {
+    to_grid(x, GRID_BOUND).ok_or(CorrectorError::NotRepresentable)
 }
 
 /// `16·rank·(o + n)`: the stored-factor bit count of the [`Mode::Exact`] and [`Mode::F16`] carriers
@@ -287,12 +292,13 @@ fn ridge_solve(
 
 /// The rank-`rank` corrector of `ΔW` in the metric `Hl`, rounded into the carrier `mode`.
 ///
-/// `ΔW` is row-major `[o, n]`, `Hl` row-major `[n, n]`. Builds `M = (ΔW·Hl)·ΔWᵀ` on the Q32.32
-/// grid, takes its top `rank` eigenvectors as `U` — [`eigen_parts`] for the rounded carriers,
-/// [`crate::learn::fold::fit::eigh::eigh`] for [`Mode::Exact`] — and returns `Corr = Uh·Vh`, the
-/// carrier's stored `(Uh, Vh)` when requested, the bit count and `top_sum`: [`Mode::Exact`]
-/// `(U, Uᵀ ΔW)`, [`Mode::F16`] `Uh = f16r(U)`, `Vh = f16r(chol_solve(Uhᵀ Uh + 1e-6 I, Uhᵀ ΔW))`,
-/// [`Mode::U8`] the same ridge solve on the column-quantized `Uh` with each row of `V` quantized.
+/// `ΔW` is row-major `[o, n]` and `Hl` row-major `[n, n]`, both Q32.32 words. Builds
+/// `M = (ΔW·Hl)·ΔWᵀ` on the Q32.32 grid, takes its top `rank` eigenvectors as `U` —
+/// [`eigen_parts`] for the rounded carriers, [`crate::learn::fold::fit::eigh::eigh`] for
+/// [`Mode::Exact`] — and returns `Corr = Uh·Vh`, the carrier's stored `(Uh, Vh)` when requested, the
+/// bit count and `top_sum`: [`Mode::Exact`] `(U, Uᵀ ΔW)`, [`Mode::F16`] `Uh = f16r(U)`,
+/// `Vh = f16r(chol_solve(Uhᵀ Uh + 1e-6 I, Uhᵀ ΔW))`, [`Mode::U8`] the same ridge solve on the
+/// column-quantized `Uh` with each row of `V` quantized. Every returned buffer is a Q32.32 word.
 ///
 /// # Complexity
 /// Time `O(o·n² + o²·n + o²·rank·iters + rank·o·n + rank²·(o + n) + rank³)`: the pooled `ΔW·Hl`,
@@ -301,12 +307,11 @@ fn ridge_solve(
 ///
 /// # Errors
 /// [`CorrectorError::ShapeMismatch`] for a wrong `ΔW`/`Hl` length,
-/// [`CorrectorError::RankOutOfRange`] for `rank > o`, [`CorrectorError::NonFinite`] /
-/// [`CorrectorError::NotRepresentable`] for an input entry outside the carrier, and the refusals of
-/// the eigenstage and ridge solve.
+/// [`CorrectorError::RankOutOfRange`] for `rank > o`, and the refusals of the eigenstage and ridge
+/// solve.
 pub fn lowrank_corrector(
-    delta_w: &[f64],
-    hl: &[f64],
+    delta_w: &[i64],
+    hl: &[i64],
     o: usize,
     n: usize,
     rank: usize,
@@ -320,37 +325,44 @@ pub fn lowrank_corrector(
         return Err(CorrectorError::RankOutOfRange);
     }
 
-    // The carrier's domain, checked for every mode: `NonFinite`, or `NotRepresentable` past `2³¹`.
-    let dw = to_words(delta_w)?;
-    to_words(hl)?;
-
     if rank == 0 {
         return Ok(LowrankCorrector {
-            corr: vec![0.0; o * n],
+            corr: vec![0; o * n],
             bits: 0,
-            top_sum: 0.0,
+            top_sum: 0,
             factors: factors.then_some(Factors {
                 u: Vec::new(),
                 v: Vec::new(),
             }),
         });
     }
+    // The `eigh` entry is still `f64`; the words round-trip through `from_grid` exactly and the
+    // results are read back onto the same grid.
     if mode == Mode::Exact {
-        let c = lowrank_corrector_exact(delta_w, hl, o, n, rank)?;
+        let c = lowrank_corrector_exact(&to_real(delta_w), &to_real(hl), o, n, rank)?;
+        let f = if factors {
+            Some(Factors {
+                u: to_words(&c.u)?,
+                v: to_words(&c.v)?,
+            })
+        } else {
+            None
+        };
         return Ok(LowrankCorrector {
-            corr: c.corr,
+            corr: to_words(&c.corr)?,
             bits: f16_bits(o, n, rank),
-            top_sum: c.top_sum,
-            factors: factors.then_some(Factors { u: c.u, v: c.v }),
+            top_sum: to_word(c.top_sum)?,
+            factors: f,
         });
     }
 
-    let (u, top_sum) = eigen_parts(delta_w, hl, o, n, rank)?;
+    let (u, top_sum) = eigen_parts(&to_real(delta_w), &to_real(hl), o, n, rank)?;
     let uq = to_words(&u)?;
+    let top_sum = to_word(top_sum)?;
     let (uh, vh, bits) = match mode {
         Mode::F16 => {
             let uh: Vec<i64> = uq.iter().map(|&x| f16_word(x)).collect::<Result<_, _>>()?;
-            let v = ridge_solve(&uh, &dw, o, n, rank)?;
+            let v = ridge_solve(&uh, delta_w, o, n, rank)?;
             let vh: Vec<i64> = v.iter().map(|&x| f16_word(x)).collect::<Result<_, _>>()?;
             (uh, vh, f16_bits(o, n, rank))
         }
@@ -368,7 +380,7 @@ pub fn lowrank_corrector(
                     uh[i * rank + k] = q[i];
                 }
             }
-            let v = ridge_solve(&uh, &dw, o, n, rank)?;
+            let v = ridge_solve(&uh, delta_w, o, n, rank)?;
             // Row `k` of `V` is quantized independently.
             let mut vh = vec![0_i64; rank * n];
             for (k, slot) in vh.chunks_mut(n).enumerate() {
@@ -383,20 +395,17 @@ pub fn lowrank_corrector(
     let corr = if n == 0 {
         Vec::new()
     } else {
-        // `Corr = Uh·Vh` on the pooled `gemm_nn` under one exact `2⁻ᵏ` panel, undone on read-back.
+        // `Corr = Uh·Vh` on the pooled `gemm_nn` under one exact `2⁻ᵏ` panel, undone on the words.
         let (uh_p, ku) = panel(&uh).ok_or(CorrectorError::Overflow)?;
         let (vh_p, kv) = panel(&vh).ok_or(CorrectorError::Overflow)?;
-        let c = gemm_nn(&uh_p, &vh_p, o, rank, n).map_err(|_| CorrectorError::Overflow)?;
-        let back = 2.0f64.powi(ku + kv);
-        c.iter().map(|&w| from_grid(w) * back).collect()
+        let mut c = gemm_nn(&uh_p, &vh_p, o, rank, n).map_err(|_| CorrectorError::Overflow)?;
+        shift(&mut c, ku + kv).ok_or(CorrectorError::Overflow)?;
+        c
     };
     Ok(LowrankCorrector {
         corr,
         bits,
         top_sum,
-        factors: factors.then_some(Factors {
-            u: to_real(&uh),
-            v: to_real(&vh),
-        }),
+        factors: factors.then_some(Factors { u: uh, v: vh }),
     })
 }

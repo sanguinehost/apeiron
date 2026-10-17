@@ -256,7 +256,7 @@ fn second_plane_never_worsens_j_on_k() {
     let p = params(N, K_ROWS);
 
     let f = fit(TensorKind::K, O, N, &ws, &hm, &p);
-    let hl = metric(&hm, N, from_grid(p.rg_q)).expect("metric");
+    let hl = uw(&metric(&qw(&hm), N, p.rg_q).expect("metric"));
     let wp1 = uw(&fold_fit(&qw(&ws), &qw(&hm), O, N, None, &cfg(N))
         .expect("Wp1 fit")
         .wp);
@@ -274,7 +274,8 @@ fn corrector_acceptance_predicate_and_bits() {
     let mut rng = Lcg::new(0x5eed_0004);
     let hm = rand_spd(N, &mut rng);
     let p = params(N, K_ROWS);
-    let hl = metric(&hm, N, from_grid(p.rg_q)).expect("metric");
+    let hlq = metric(&qw(&hm), N, p.rg_q).expect("metric");
+    let hl = uw(&hlq);
 
     for (kind, rk) in [(TensorKind::Q, 2_usize), (TensorKind::Down, 1)] {
         let ws = rand_weight(O, N, &mut rng);
@@ -284,9 +285,9 @@ fn corrector_acceptance_predicate_and_bits() {
         let pre = uw(&fold_fit(&qw(&ws), &qw(&hm), O, N, None, &cfg(N))
             .expect("pre fit")
             .wp);
-        let delta: Vec<f64> = ws.iter().zip(&pre).map(|(a, b)| a - b).collect();
-        let corr = lowrank_corrector(&delta, &hl, O, N, rk, Mode::U8, true).expect("corrector");
-        let j_new = j_obj(&ws, &add(&pre, &corr.corr), &hl);
+        let delta: Vec<i64> = qw(&ws).iter().zip(&qw(&pre)).map(|(a, b)| a - b).collect();
+        let corr = lowrank_corrector(&delta, &hlq, O, N, rk, Mode::U8, true).expect("corrector");
+        let j_new = j_obj(&ws, &add(&pre, &uw(&corr.corr)), &hl);
         let j_old = j_obj(&ws, &pre, &hl);
         let applied = f.planes.iter().any(|pl| pl.dense.is_some());
 
@@ -304,7 +305,7 @@ fn corrector_acceptance_predicate_and_bits() {
             // The carrier's `Wp = reals(add_words(grids(Wp1), grids(Corr)))`: each entry is two
             // round-to-nearest grid conversions and one exact word add from the test's f64
             // `add(Wp1, Corr)`, so the derived bound is `2·2⁻³³ = 2⁻³²`.
-            let want = add(&pre, &corr.corr);
+            let want = add(&pre, &uw(&corr.corr));
             let mut max = 0.0_f64;
             for k in 0..fwp.len() {
                 max = max.max((fwp[k] - want[k]).abs());
@@ -325,7 +326,8 @@ fn down_corrector_rejected_still_counts_bits() {
     let mut rng = Lcg::new(0x5eed_0005);
     let hm = rand_spd(N, &mut rng);
     let p = params(N, K_ROWS);
-    let hl = metric(&hm, N, from_grid(p.rg_q)).expect("metric");
+    let hlq = metric(&qw(&hm), N, p.rg_q).expect("metric");
+    let hl = uw(&hlq);
 
     let mut r = Lcg::new(0x5eed_0005);
     let ws: Vec<f64> = (0..O * N).map(|_| 2e-4 * r.uniform(-1.0, 1.0)).collect();
@@ -335,17 +337,17 @@ fn down_corrector_rejected_still_counts_bits() {
     let pre = uw(&fold_fit(&qw(&ws), &qw(&hm), O, N, None, &cfg(N))
         .expect("pre")
         .wp);
-    let delta: Vec<f64> = ws.iter().zip(&pre).map(|(a, b)| a - b).collect();
-    let corr = lowrank_corrector(&delta, &hl, O, N, 1, Mode::U8, true).expect("corrector");
-    let j_new = j_obj(&ws, &add(&pre, &corr.corr), &hl);
+    let delta: Vec<i64> = qw(&ws).iter().zip(&qw(&pre)).map(|(a, b)| a - b).collect();
+    let corr = lowrank_corrector(&delta, &hlq, O, N, 1, Mode::U8, true).expect("corrector");
+    let j_new = j_obj(&ws, &add(&pre, &uw(&corr.corr)), &hl);
     let j_old = j_obj(&ws, &pre, &hl);
 
     assert_eq!(applied, j_new < j_old, "acceptance predicate");
     assert!(corr.bits > 0, "the corrector spends stored-factor bits");
     // `ncorr += b_corr` sits outside the acceptance test (`:1884`), and `b_corr` is the stored
     // factors' structural count: a zero residual yields the zero `Corr` with the same bits.
-    let zero = vec![0.0_f64; O * N];
-    let z = lowrank_corrector(&zero, &hl, O, N, 1, Mode::U8, true).expect("zero corrector");
+    let zero = vec![0_i64; O * N];
+    let z = lowrank_corrector(&zero, &hlq, O, N, 1, Mode::U8, true).expect("zero corrector");
     assert_eq!(z.bits, corr.bits, "the bit count does not depend on Corr");
     assert_eq!(f.bits.ncorr, corr.bits, "ncorr counted even when rejected");
 }

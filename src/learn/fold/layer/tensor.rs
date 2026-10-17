@@ -45,7 +45,7 @@
               `fit_tensor` takes the reference's eight arguments, measured in f64 multiply-adds"
 )]
 
-use self::carrier::{eval, grids, reals, Elem};
+use self::carrier::{eval, Elem};
 use crate::learn::fold::fit::corrector::{lowrank_corrector, CorrectorError, Factors, Mode};
 use crate::learn::fold::fit::fold_fit::{fold_fit, FoldFitConfig, FoldFitError, PackOut, GROUP};
 use crate::learn::fold::fit::icm::{nearest_index, IcmError, Plane, PlaneRef, BLOCK};
@@ -54,7 +54,7 @@ use crate::learn::fold::fit::quant::QuantError;
 use crate::learn::fold::fit::steps::{compose, fwht_words, objective, StepsError};
 use crate::learn::fold::layer::resq::{rescale_hier, rescale_hier_top, ResqError};
 use crate::learn::fold::layer::stage::{bias_update, metric, StageError};
-use crate::learn::solve::q32::{from_grid, Q32Error, GRID_SCALE};
+use crate::learn::solve::q32::{Q32Error, GRID_SCALE};
 
 /// `n/128`, the number of hierarchical row-scale groups.
 const fn groups(n: usize) -> usize {
@@ -638,19 +638,16 @@ pub fn fit_tensor(
         }
     }
 
-    // Hl_m = metric(Hm, rg_q); fold_fit's internal metric uses the same rg_q. `metric` is
-    // `layer::stage`'s `f64` contract, so the Gram and the ridge cross once here; `hlq` is the one
-    // read-in to the carrier for the `J` evaluations below.
-    let hl = metric(&reals(hm), n, from_grid(params.rg_q))?;
-    let hlq = grids(&hl)?;
+    // Hl_m = metric(Hm, rg_q); fold_fit's internal metric uses the same rg_q. Every operand here is
+    // already a Q32.32 word, so the Gram, the ridge and `hlq` cross no `f64` boundary.
+    let hlq = metric(hm, n, params.rg_q)?;
     let cfg = FoldFitConfig {
         ridge: params.rg_q,
         ..params.fit
     };
 
     // The stage weight, the Gram and the row weight are Q32.32 words; the residuals, plane sums,
-    // plane weights and `J` evaluations below are word operations, while `nb_refine`,
-    // `lowrank_corrector` and `bias_update` keep their declared `f64` boundaries.
+    // plane weights, `J` evaluations and every downstream step below are word operations.
     let wsq = ws_nm;
     let hmq = hm;
     let g_rowq = g_row;
@@ -703,10 +700,9 @@ pub fn fit_tensor(
         // nb_refine on the two packs; the returned packs and weights replace the pair.
         let pl1 = pack_to_plane(&p1, o, n)?;
         let pl2 = pack_to_plane(&p2, o, n)?;
-        let g_row_f: Option<Vec<f64>> = g_row.map(reals);
         let refined = nb_refine(
-            &reals(ws_nm),
-            &hl,
+            ws_nm,
+            &hlq,
             PlaneRef {
                 s: &pl1.s,
                 idx: &pl1.idx,
@@ -723,12 +719,12 @@ pub fn fit_tensor(
             },
             o,
             n,
-            g_row_f.as_deref(),
-            from_grid(params.fit.icm_ridge),
+            g_row,
+            params.fit.icm_ridge,
             params.nb_sweeps,
             params.nb_rounds,
         )?;
-        wp = add_words(&grids(&refined.w1)?, &grids(&refined.w2)?)?;
+        wp = add_words(&refined.w1, &refined.w2)?;
         planes = vec![owned_plane(&refined.p1), owned_plane(&refined.p2)];
         nb_log = Some(refined.log);
         // Bits of the accepted Wp2 fit (`info2`), plus the second sign plane.
@@ -773,11 +769,11 @@ pub fn fit_tensor(
     if kind_corr {
         // Step 5: the low-rank corrector (rank 2 for `q`, 1 for `down`), applied only if it lowers J.
         let rk = if kind == TensorKind::Q { 2 } else { 1 };
-        let delta = reals(&sub_words(wsq, &wp)?);
-        let corr = lowrank_corrector(&delta, &hl, o, n, rk, Mode::U8, true)?;
+        let delta = sub_words(wsq, &wp)?;
+        let corr = lowrank_corrector(&delta, &hlq, o, n, rk, Mode::U8, true)?;
         // The corrector's stored-factor bits are spent whether or not it is applied (`:1884`).
         bits.ncorr += corr.bits;
-        let corr_q = grids(&corr.corr)?;
+        let corr_q = corr.corr;
         let cand = add_words(&wp, &corr_q)?;
         let j_new = j_words(wsq, &cand, &hlq, o, n)?;
         let j_old = j_words(wsq, &wp, &hlq, o, n)?;
@@ -797,12 +793,7 @@ pub fn fit_tensor(
 
     // Step 6: the q/k/v bias from the final Wp.
     let db = match (has_bias, &bias) {
-        (true, Some(b)) => Some(grids(&bias_update(
-            &reals(b.y_sum),
-            &reals(b.x_sum),
-            &reals(&wp),
-            from_grid(b.n_toks),
-        )?)?),
+        (true, Some(b)) => Some(bias_update(b.y_sum, b.x_sum, &wp, b.n_toks)?),
         _ => None,
     };
 
@@ -891,12 +882,12 @@ pub fn fold_row_scale(
 
 /// The layer's Q32.32 boundary and elementwise kernels, shared with [`super::driver`].
 ///
-/// `f64` enters once through [`grids`], every elementwise step is one [`Elem`] pass over `i64` words
-/// with `i128` products and one round-to-nearest-even, and [`reals`] is the boundary back to the
-/// `f64` signatures the other modules still take. A refusal is a [`Q32Error`], mapped once at each
-/// caller. One pass is `o·n` words, at most ~10⁷, so every kernel here is serial.
+/// Every elementwise step is one [`Elem`] pass over `i64` words with `i128` products and one
+/// round-to-nearest-even; the layer's public entry and exit are words, so no `f64` conversion sits
+/// on this path. A refusal is a [`Q32Error`], mapped once at each caller. One pass is `o·n` words,
+/// at most ~10⁷, so every kernel here is serial.
 pub(crate) mod carrier {
-    use crate::learn::solve::q32::{from_grid, round_q32_even, to_grid, Q32Error, GRID_BOUND};
+    use crate::learn::solve::q32::{round_q32_even, Q32Error};
 
     /// `a·b` as one rounded word.
     pub(crate) fn mul(a: i64, b: i64) -> Result<i64, Q32Error> {
@@ -922,19 +913,6 @@ pub(crate) mod carrier {
     /// `num/den` as a Q32.32 word — the real ratio of two words — rounded once.
     pub(crate) fn ratio(num: i128, den: i128) -> Result<i64, Q32Error> {
         div_rne(num.checked_shl(32).ok_or(Q32Error::Overflow)?, den).ok_or(Q32Error::Overflow)
-    }
-
-    /// `x` as Q32.32 words; `Overflow` when an entry is not finite or reaches `2³¹`.
-    pub(crate) fn grids(x: &[f64]) -> Result<Vec<i64>, Q32Error> {
-        x.iter()
-            .map(|&v| to_grid(v, GRID_BOUND))
-            .collect::<Option<Vec<_>>>()
-            .ok_or(Q32Error::Overflow)
-    }
-
-    /// `x` as reals, the boundary out of the carrier.
-    pub(crate) fn reals(x: &[i64]) -> Vec<f64> {
-        x.iter().map(|&v| from_grid(v)).collect()
     }
 
     /// `Σ x`, exact in `i128`; `Overflow` if the sum leaves `i128`.
