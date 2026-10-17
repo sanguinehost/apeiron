@@ -666,11 +666,6 @@ row = "STRUCT-SPLIT"
 
 [[debt]]
 rule = "max_dir_files"
-path = "src/learn"
-row = "STRUCT-SPLIT"
-
-[[debt]]
-rule = "max_dir_files"
 path = "src/simt_nn"
 row = "DEL-GPU-ONE"
 

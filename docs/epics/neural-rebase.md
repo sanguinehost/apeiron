@@ -1300,13 +1300,13 @@ All six learning track mechanisms ((a) seal quantizer, (b) FoldAdapter, (c) ridg
 |---|---|---|
 | Seal activation-calibrated quantization reaches bits/token parity | tested | `cargo test --release --locked --test learn_seal` |
 | Seal output distortion minimizes function distortion $\sum \tau_j r_j^2$ | proved | `MLPrimitivesBridge.output_error_is_function_distortion` (`proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:304`) |
-| FoldAdapter forward-only finetuning achieves target b/B | tested | `cargo test --release --locked --test learn_foldadapt` |
+| FoldAdapter forward-only finetuning achieves target b/B | tested | `cargo test --release --locked --test learn_foldadapt` (removed; at 9f440192) |
 | FoldAdapter additive merge and unlearning commute | proved | `MLPrimitivesBridge.osFuse_is_add` (`proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:174`), `osFuse_grouping_free` (`:182`), `MirasCountLM.forget_hebb` (`proof/corpus/Substrate/Algebra/Neural/MirasCountLM.lean:101`) |
 | Ridge fold streaming Gram accumulation and SPD solve reach optimum | tested | `cargo test --release --locked --test learn_ridge` |
 | Ridge normal equations yield unique optimum | proved | `TrainingCollapse.ridgeHead_unique` (`proof/corpus/Substrate/Algebra/Neural/TrainingCollapse.lean:223`), `gram_stack` (`:245`) |
-| KN count-LM achieves $\le 2.205$ b/B | tested | `cargo test --release --locked --test learn_count` |
+| KN count-LM achieves $\le 2.205$ b/B | tested | `cargo test --release --locked --test learn_count` (removed; at 9f440192) |
 | Kneser–Ney distribution normalizes | proved | `KneserNey.kn_normalizes` (`proof/corpus/Substrate/Algebra/Neural/KneserNey.lean:98`), `MirasCountLM.countlm_is_exact_miras` (`proof/corpus/Substrate/Algebra/Neural/MirasCountLM.lean:138`) |
-| GPTQ error-feedback produces lower output distortion than naive rounding | tested | `cargo test --release --locked --test learn_gptq` |
+| GPTQ error-feedback produces lower output distortion than naive rounding | tested | `cargo test --release --locked --test learn_gptq` (removed; at 9f440192) |
 | FoldNet nonlinear random feature expansion solves non-linear benchmarks | tested | `cargo test --release --locked --test learn_foldnet` |
 
 #### Non-goals
@@ -1372,10 +1372,10 @@ This specification covers six learning, finetuning, and quantization mechanisms 
 | Contract | Statement | Grade target | Evidence |
 |---|---|---|---|
 | `seal_calibrated_distortion` | At equal bits/weight, the seal grid's calibrated distortion $\sum \tau_j r_j^2$ is no larger than round-to-nearest's on the same calibration set | tested | `cargo test --release --locked --test learn_seal` |
-| `foldadapter_unlearning` | Exact unlearning holds: $\text{fold}(A + B) - \text{fold}(B) = \text{fold}(A)$ bit-for-bit | tested + proved | `tests/learn_foldadapt.rs`; `MirasCountLM.forget_hebb` |
+| `foldadapter_unlearning` | Exact unlearning holds: $\text{fold}(A + B) - \text{fold}(B) = \text{fold}(A)$ bit-for-bit | tested + proved | `tests/learn_foldadapt.rs` (removed; at 9f440192); `MirasCountLM.forget_hebb` |
 | `ridge_unique_optimum` | Regularized drag $U = X^T X + \lambda I$ is strictly positive definite for $\lambda > 0$ | proved | `TrainingCollapse.ridgeHead_unique` |
 | `countlm_normalization` | KN backoff distribution sums to 1: $\sum_w p_{KN}(w \mid \text{ctx}) = 1$ | proved | `KneserNey.kn_normalizes` |
-| `gptq_error_feedback` | Column error-feedback achieves lower output distortion than naive rounding | tested | `tests/learn_gptq.rs` |
+| `gptq_error_feedback` | Column error-feedback achieves lower output distortion than naive rounding | tested | `tests/learn_gptq.rs` (removed; at 9f440192) |
 | `foldnet_nonlinearity` | Fixed random nonlinear expansion separates XOR benchmark (>99% accuracy) | tested | `tests/learn_foldnet.rs` |
 
 #### Failure semantics
@@ -1494,7 +1494,7 @@ This specification covers six learning, finetuning, and quantization mechanisms 
      ```
 4. **Admissible domain:**
    - **Exact:** context token IDs (`u32`), context order $k \le 4$, packed context keys (`u128`), integer counts $c_j \in \mathbb{N}$, integer count additions (`hebb`) and exact unlearning via subtraction (`forget`). Aeneas-extractable.
-   - **Float:** absolute discounts $D_1, D_2, D_3 \in \mathbb{R}$, probability refinement blending mass $\gamma = \sum_i D(c_i)/\text{tot}$, and next-token distribution calculation $q_j = \gamma p_j + (c_j - D(c_j))/\text{tot}$. Tested in `tests/learn_foldadapt.rs`.
+   - **Float:** absolute discounts $D_1, D_2, D_3 \in \mathbb{R}$, probability refinement blending mass $\gamma = \sum_i D(c_i)/\text{tot}$, and next-token distribution calculation $q_j = \gamma p_j + (c_j - D(c_j))/\text{tot}$. Tested in `tests/learn_foldadapt.rs` (removed; at 9f440192).
    - **Representation relation:** Rust count table `FreqMap` / `Table` mapped to Lean `Memory K` (`K → ℤ`) in `MirasCountLM.lean`, and refined distribution mapped to `kn_floor_refinement` in `MLPrimitivesBridge.lean`.
 5. **Lineage search:**
    - Command: `rg -c "FoldAdapter" /home/socol/Workspace/{sanguine,sanguine,fold,spinor-ttl,apeiron}`
@@ -1504,9 +1504,9 @@ This specification covers six learning, finetuning, and quantization mechanisms 
      - `sanguine`: 1 file (`theory/THE_GPU_TRINITY.md`).
      - `apeiron`: 5 files (`docs/plan.md`, `docs/epics/neural-rebase.md`, call-census tables).
 6. **Rust target:**
-   - Proposed module: `src/learn/foldadapt.rs`.
-   - Test file: `tests/learn_foldadapt.rs`.
-   - Gate: `cargo test --release --locked --test learn_foldadapt`.
+   - Proposed module: `src/learn/foldadapt.rs` (removed; at 9f440192).
+   - Test file: `tests/learn_foldadapt.rs` (removed; at 9f440192).
+   - Gate: `cargo test --release --locked --test learn_foldadapt` (removed; at 9f440192).
    - Negative control (verbatim from `docs/plan.md`): weight each merge by its position in a copy: the grouping-free test fails.
    - Metric: b/B on finetune race corpus: $\le 0.724$ b/B against frozen base (0.910 b/B).
 
@@ -1605,7 +1605,7 @@ This specification covers six learning, finetuning, and quantization mechanisms 
      ```
 4. **Admissible domain:**
    - **Exact:** Byte n-gram contexts, count table $c: \text{Fin } 256 \to \mathbb{N}$, order $k \le 4$, counts of counts $N_1, N_2, N_3, N_4 \in \mathbb{N}$, sovereign binary container `HTCLM01`. Aeneas-extractable.
-   - **Float:** absolute discounts $D_k = k - (k+1) \frac{N_{k+1}}{N_k} \frac{N_1}{N_1 + 2 N_2}$, continuation probabilities $p_{KN} \in [0, 1]$, log-loss / b/B evaluation $- \log_2 p$. Tested in `tests/learn_count.rs`.
+   - **Float:** absolute discounts $D_k = k - (k+1) \frac{N_{k+1}}{N_k} \frac{N_1}{N_1 + 2 N_2}$, continuation probabilities $p_{KN} \in [0, 1]$, log-loss / b/B evaluation $- \log_2 p$. Tested in `tests/learn_count.rs` (removed; at 9f440192).
    - **Representation relation:** Rust `CountLM` state mapped to Lean `c : Fin V → ℕ` and `pKN c pLower D` in `KneserNey.lean`.
 5. **Lineage search:**
    - Command: `rg -c "countlm_is_exact_miras|kn_normalizes" /home/socol/Workspace/{sanguine,sanguine,fold,spinor-ttl,apeiron}`
@@ -1614,9 +1614,9 @@ This specification covers six learning, finetuning, and quantization mechanisms 
      - `fold`: 4 files (`docs/SYNTHESIS.md`, `docs/STATE-ARCHIVE.md`, `STATE.md`, `modelfold/src/countlm.rs`).
      - `apeiron`: 3 files (`docs/plan.md`, `docs/epics/neural-rebase.md`, `proof/corpus/AxiomAudit/Core.lean`).
 6. **Rust target:**
-   - Proposed module: `src/learn/countlm.rs`.
-   - Test file: `tests/learn_count.rs`.
-   - Gate: `cargo test --release --locked --test learn_count`.
+   - Proposed module: `src/learn/countlm.rs` (removed; at 9f440192).
+   - Test file: `tests/learn_count.rs` (removed; at 9f440192).
+   - Gate: `cargo test --release --locked --test learn_count` (removed; at 9f440192).
    - Negative control (verbatim from `docs/plan.md`): drop the KN discount in a copy: the normalisation test fails.
    - Metric: b/B on C4 / WikiText stream: $\le 2.205$ b/B; training 1M bytes, held-out 100K bytes.
 
@@ -1644,7 +1644,7 @@ This specification covers six learning, finetuning, and quantization mechanisms 
      *(Note: the distortion metric itself refines `proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:304`, `output_error_is_function_distortion`).*
 4. **Admissible domain:**
    - **Exact:** Balanced ternary values $\{-1, 0, +1\}$, 2-bit packing (4 trits/byte), radix-3 place-value reconstruction $\{1, 3, 9\}$, plane index. Aeneas-extractable.
-   - **Float:** Hessian $H = X^T X + \lambda I$, Cholesky decomposition of $H^{-1}$, column error-feedback updates, output distortion metric. Tested in `tests/learn_gptq.rs`.
+   - **Float:** Hessian $H = X^T X + \lambda I$, Cholesky decomposition of $H^{-1}$, column error-feedback updates, output distortion metric. Tested in `tests/learn_gptq.rs` (removed; at 9f440192).
    - **Representation relation:** Rust `Q2Plane` (`Vec<u8>`) and place values mapped to Lean balanced ternary vectors `Fin L → Fin n → {-1, 0, 1}`.
 5. **Lineage search:**
    - Command: `rg -c "gptq_ternary" /home/socol/Workspace/{sanguine,sanguine,fold,spinor-ttl,apeiron}`
@@ -1653,9 +1653,9 @@ This specification covers six learning, finetuning, and quantization mechanisms 
      - `fold`: 4 files (`modelfold/src/quant.rs`, `modelfold/src/arch.rs`, `modelfold/tests/gptq.rs`, `bedrock/src/serve/model/quant.rs`).
      - `apeiron`: 1 file (`docs/call-census/models.md`).
 6. **Rust target:**
-   - Proposed module: `src/learn/gptq.rs`.
-   - Test file: `tests/learn_gptq.rs`.
-   - Gate: `cargo test --release --locked --test learn_gptq`.
+   - Proposed module: `src/learn/gptq.rs` (removed; at 9f440192).
+   - Test file: `tests/learn_gptq.rs` (removed; at 9f440192).
+   - Gate: `cargo test --release --locked --test learn_gptq` (removed; at 9f440192).
    - Negative control: zero the error-feedback residual push in a copy: the output-error < naive-round test fails.
    - Metric: Output distortion $\| X(W - \hat{W}) \|_F^2 \le 9.83 \times 10^{-4}$ on calibration activations $T=128, N=96$.
 
@@ -1736,10 +1736,10 @@ Reimplement and verify the six learning track mechanisms in this crate under `sr
 | W0 | `APEIRON-LEARN-W0-T1` | integrator | `src/learn/gguf.rs`, `src/learn/mod.rs`, `tests/learn_gguf.rs` | `cargo test --release --locked --test learn_gguf` | Flip magic byte in copy: parser fails |
 | W0 | `APEIRON-LEARN-W0-T2` | integrator | `tools/gpu/speed_guard.py` (removed; at 2f15d6a9) | `python3 tools/gpu/speed_guard.py` | Add sleep in decode loop in copy: gate fails by name |
 | W1 | `APEIRON-LEARN-W1-T1` | worker | `src/learn/seal.rs`, `tests/learn_seal.rs` | `cargo test --release --locked --test learn_seal` | Drop τ weighting in copy: calibrated-error ≤ uncalibrated-error fails |
-| W2 | `APEIRON-LEARN-W2-T1` | worker | `src/learn/foldadapt.rs`, `tests/learn_foldadapt.rs` | `cargo test --release --locked --test learn_foldadapt` | Weight each merge by position in copy: grouping-free test fails |
+| W2 | `APEIRON-LEARN-W2-T1` | worker | `src/learn/foldadapt.rs` (removed; at 9f440192), `tests/learn_foldadapt.rs` (removed; at 9f440192) | `cargo test --release --locked --test learn_foldadapt` (removed; at 9f440192) | Weight each merge by position in copy: grouping-free test fails |
 | W3 | `APEIRON-LEARN-W3-T1` | worker | `src/learn/ridge.rs`, `tests/learn_ridge.rs` | `cargo test --release --locked --test learn_ridge` | Drop λ in copy: unique-optimum fails on rank-deficient X |
-| W4 | `APEIRON-LEARN-W4-T1` | worker | `src/learn/countlm.rs`, `tests/learn_count.rs` | `cargo test --release --locked --test learn_count` | Drop the backoff term (keep the discount) in copy: normalisation test fails (mass < 1) |
-| W5 | `APEIRON-LEARN-W5-T1` | worker | `src/learn/gptq.rs`, `tests/learn_gptq.rs` | `cargo test --release --locked --test learn_gptq` | Zero error-feedback push in copy: output-error < naive-round fails |
+| W4 | `APEIRON-LEARN-W4-T1` | worker | `src/learn/countlm.rs` (removed; at 9f440192), `tests/learn_count.rs` (removed; at 9f440192) | `cargo test --release --locked --test learn_count` (removed; at 9f440192) | Drop the backoff term (keep the discount) in copy: normalisation test fails (mass < 1) |
+| W5 | `APEIRON-LEARN-W5-T1` | worker | `src/learn/gptq.rs` (removed; at 9f440192), `tests/learn_gptq.rs` (removed; at 9f440192) | `cargo test --release --locked --test learn_gptq` (removed; at 9f440192) | Zero error-feedback push in copy: output-error < naive-round fails |
 | W2 | `APEIRON-LEARN-W2-T2` | worker | `proof/extract/learn_merge.rs`, `proof/corpus/Learn/FoldMerge.lean`, `proof/corpus/AxiomAudit.lean` | `cd proof/corpus && lake build Learn.FoldMerge AxiomAudit` | Make the extracted merge non-commutative in copy: refinement to `osFuse_is_add` fails |
 | W4 | `APEIRON-LEARN-W4-T2` | worker | `proof/extract/learn_count.rs`, `proof/corpus/Learn/CountLM.lean`, `proof/corpus/AxiomAudit.lean` | `cd proof/corpus && lake build Learn.CountLM AxiomAudit` | Off-by-one in the extracted count update in copy: refinement to `countlm_is_exact_miras` fails |
 | W5 | `APEIRON-LEARN-W5-T2` | worker | `proof/extract/learn_trit.rs`, `proof/corpus/Learn/TritPlanes.lean`, `proof/corpus/AxiomAudit.lean` | `cd proof/corpus && lake build Learn.TritPlanes AxiomAudit` | Swap two trit planes in the extracted recombination in copy: exact-reconstruction theorem fails |
@@ -1773,10 +1773,10 @@ Reimplement and verify the six learning track mechanisms in this crate under `sr
 
 ##### APEIRON-LEARN-W2-T1 · Port and verify FoldAdapter forward-only finetuning (`LEARN-FOLDADAPT`)
 - **Scope:** Port forward-only FoldAdapter with exact additive unlearning and Kneser–Ney distribution blending from `../spinor-ttl/src/spinor_ttl/finetune.py`. Refines `MLPrimitivesBridge.osFuse_is_add`, `osFuse_grouping_free`, and `MirasCountLM.forget_hebb`.
-- **Owned files:** `src/learn/foldadapt.rs`, `tests/learn_foldadapt.rs`
+- **Owned files:** `src/learn/foldadapt.rs` (removed; at 9f440192), `tests/learn_foldadapt.rs` (removed; at 9f440192)
 - **Depends on:** none (no GGUF output)
 - **Grade:** `tested`
-- **Gate:** `cargo test --release --locked --test learn_foldadapt`
+- **Gate:** `cargo test --release --locked --test learn_foldadapt` (removed; at 9f440192)
 - **Negative control:** Weight each merge by its position in a disposable copy; the grouping-free test must fail. Restore and verify exit 0.
 
 ##### APEIRON-LEARN-W3-T1 · Port and verify ridge fold streaming Gram and SPD solve (`LEARN-RIDGE`)
@@ -1789,18 +1789,18 @@ Reimplement and verify the six learning track mechanisms in this crate under `sr
 
 ##### APEIRON-LEARN-W4-T1 · Port and verify KN count-LM byte model (`LEARN-COUNT`)
 - **Scope:** Port KN-smoothed byte count language model over the coordinate-keyed counting face from `../fold/modelfold/src/countlm.rs`. Refines `KneserNey.kn_normalizes` and `MirasCountLM.countlm_is_exact_miras`.
-- **Owned files:** `src/learn/countlm.rs`, `tests/learn_count.rs`
+- **Owned files:** `src/learn/countlm.rs` (removed; at 9f440192), `tests/learn_count.rs` (removed; at 9f440192)
 - **Depends on:** none (no GGUF output)
 - **Grade:** `tested`
-- **Gate:** `cargo test --release --locked --test learn_count`
+- **Gate:** `cargo test --release --locked --test learn_count` (removed; at 9f440192)
 - **Negative control:** Drop the backoff term while keeping the discount in a disposable copy; the discounted mass is lost and the normalisation test must fail. (Dropping the discount alone leaves the maximum-likelihood estimate, which still normalises.) Restore and verify exit 0.
 
 ##### APEIRON-LEARN-W5-T1 · Port and verify GPTQ error feedback and balanced-trit planes (`LEARN-GPTQ`)
 - **Scope:** Port 4-bit to 3-trit error-feedback post-hoc quantizer and balanced-trit plane decomposition from `../fold/modelfold/src/quant.rs`. Refines `MLPrimitivesBridge.output_error_is_function_distortion`.
-- **Owned files:** `src/learn/gptq.rs`, `tests/learn_gptq.rs`
+- **Owned files:** `src/learn/gptq.rs` (removed; at 9f440192), `tests/learn_gptq.rs` (removed; at 9f440192)
 - **Depends on:** `APEIRON-LEARN-W3-T1`
 - **Grade:** `tested`
-- **Gate:** `cargo test --release --locked --test learn_gptq`
+- **Gate:** `cargo test --release --locked --test learn_gptq` (removed; at 9f440192)
 - **Negative control:** Zero the error-feedback residual push in a disposable copy; the output-error < naive-round test must fail. Restore and verify exit 0.
 
 ##### APEIRON-LEARN-W6-T1 · Port and verify FoldNet deep streaming multimodal learner (`LEARN-FOLDNET`)
@@ -1818,10 +1818,10 @@ Reimplement and verify the six learning track mechanisms in this crate under `sr
 | W0 GGUF container | `cargo test --release --locked --test learn_gguf` | Serialization format | 0 |
 | W0 Speed guard | `python3 tools/gpu/speed_guard.py` | Non-regression check | 0 |
 | W1 Seal quantizer | `cargo test --release --locked --test learn_seal` | Activation-calibrated quantizer | 0 |
-| W2 FoldAdapter | `cargo test --release --locked --test learn_foldadapt` | Forward-only finetuning | 0 |
+| W2 FoldAdapter | `cargo test --release --locked --test learn_foldadapt` (removed; at 9f440192) | Forward-only finetuning | 0 |
 | W3 Ridge fold | `cargo test --release --locked --test learn_ridge` | Streaming Gram and SPD solve | 0 |
-| W4 KN count-LM | `cargo test --release --locked --test learn_count` | Byte count model | 0 |
-| W5 GPTQ 4→3-trit | `cargo test --release --locked --test learn_gptq` | Error-feedback trit planes | 0 |
+| W4 KN count-LM | `cargo test --release --locked --test learn_count` (removed; at 9f440192) | Byte count model | 0 |
+| W5 GPTQ 4→3-trit | `cargo test --release --locked --test learn_gptq` (removed; at 9f440192) | Error-feedback trit planes | 0 |
 | W6 FoldNet | `cargo test --release --locked --test learn_foldnet` | Deep streaming learner | 0 |
 | W2/W4/W5 refinements | `cd proof/corpus && lake build Learn.FoldMerge Learn.CountLM Learn.TritPlanes AxiomAudit` | Exact kernels extracted from the real Rust and refined, closed cone | 0 |
 | **Stage 3 Barrier** | `cargo test --release --locked --test 'learn_*'` | Full learning test suite | **0** |

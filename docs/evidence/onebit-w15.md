@@ -813,7 +813,7 @@ per-row 128-group `f16` scale `r` and per-column `f16` scale `c` at **1.1331 b/w
 
 ## Not covered (W15d)
 
-- Constructive transfer evaluated on 0.5B only; `src/learn/ridge.rs` and `src/learn/onebit.rs` remain `f64` on CPU.
+- Constructive transfer evaluated on 0.5B only; `src/learn/ridge.rs` and `src/learn/onebit.rs` (removed; at 9f440192) remain `f64` on CPU.
 
 Board row: `onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1` (LEARN-ONEBIT, `docs/plan.md` row 248).
 

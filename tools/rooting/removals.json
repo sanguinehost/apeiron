@@ -869,6 +869,40 @@
         }
       ],
       "receipt": "docs/plan.md"
+    },
+    {
+      "id": "learn-legacy-f64-retirement",
+      "kind": "retirement",
+      "note": "Board row quality-port-rust-port-of-DJrcWxwrX3Z3nODtWkOzxg. Lane INT-LEGACY: rg over src/ examples/ tools/ proof/extract finds no non-test consumer of learn::onebit or learn::foldadapt; learn::gptq is consumed only by onebit.rs:59 and learn::countlm only by foldadapt.rs:49. The fold path (src/learn/fold/fit/{gptq_e8,fold_fit}.rs) is the live quantiser; these f64 single-thread modules are retired rather than migrated to Q32.32.",
+      "removed": [
+        "src/learn/onebit.rs",
+        "src/learn/gptq.rs",
+        "src/learn/countlm.rs",
+        "src/learn/foldadapt.rs",
+        "tests/learn_onebit.rs",
+        "tests/learn_gptq.rs",
+        "tests/learn_count.rs",
+        "tests/learn_foldadapt.rs"
+      ],
+      "replacement": [],
+      "retained_obligation": "The KN count-LM and FoldAdapter rows in docs/epics/neural-rebase.md lose their tested gate; any return of either is a new task on the Q32.32 carrier and the engine pool.",
+      "consumers": [
+        "src/learn/mod.rs",
+        "docs/epics/ternary-hadamard.md",
+        "docs/epics/neural-rebase.md",
+        "proof/corpus/Numeric/OneBit/SigmaDeltaRefinement.lean"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--check"
+          ]
+        }
+      ],
+      "receipt": "docs/plan.md"
     }
   ],
   "self_test": {

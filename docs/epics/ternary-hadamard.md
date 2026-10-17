@@ -405,7 +405,7 @@ rᵀ x = εᵀ (Uᵀ x)          first order (U = difference operator, Abel summ
 
 The one-bit error therefore reaches the output only through `Uᵀx`:
 - In first order, `Uᵀx` is the activation's variation along the input order `π`.
-- With `U` the Cholesky factor of `H = E[xxᵀ]` (GPTQ's feedback, `src/learn/gptq.rs`
+- With `U` the Cholesky factor of `H = E[xxᵀ]` (GPTQ's feedback, `src/learn/gptq.rs` (removed; at 9f440192)
   `ul_cholesky`, `upper_tri_inverse`), `Uᵀx` is the activation's innovation in that order.
 - Where the innovation vanishes the error vanishes exactly.
 
@@ -445,7 +445,7 @@ that reads it.
 
 ### Empirical best (§3a)
 
-- **In-tree.** `src/learn/gptq.rs` (sha256 `f27ab5d7…`) ports fold `modelfold/src/quant.rs` `gptq`
+- **In-tree.** `src/learn/gptq.rs` (removed; at 9f440192) (sha256 `f27ab5d7…`) ports fold `modelfold/src/quant.rs` `gptq`
   (`d497161f`, sha256 `40424687…`): error feedback under the calibration Gram, with a ternary grid
   and Q4_K/Q5_0/Q6_K grids. It is subsumed and is the base of every W7 arm.
 - **External comparator.** llama.cpp `IQ1_S` (1.5625 b/w) and `IQ1_M` (1.75 b/w) with an imatrix,
@@ -455,7 +455,7 @@ that reads it.
 
 1. The W6 Lean rows build and are audited in `AxiomAudit.lean`.
 2. W7 reports, on the 24 held-out `ffn_down` Grams of Qwen2.5-0.5B, the relative output error of
-   every arm. It runs on the build path (`src/learn/onebit.rs`) with its controls red/green.
+   every arm. It runs on the build path (`src/learn/onebit.rs` (removed; at 9f440192)) with its controls red/green.
 3. W9 (planned after W7) reports a whole-model one-bit conversion (`Q1_0`, 1.125 b/w) by paired KLD
    against f16, beside `IQ1_S`/`IQ1_M` and `Q4_K_M`.
 
@@ -495,7 +495,7 @@ The control for T3: in a copy, replace `sign(w_t + e_t)` with `sign(w_t)`. `sd_s
 fail to build, and a ℚ counterexample shows the state growing linearly. The controls for T1, T2 and
 T4: flip one sign in a statement, and the build is red.
 
-### Rust (`src/learn/onebit.rs`, `examples/onebit_diag.rs` (removed; at 2f15d6a9), `tests/learn_onebit.rs`)
+### Rust (`src/learn/onebit.rs` (removed; at 9f440192), `examples/onebit_diag.rs` (removed; at 2f15d6a9), `tests/learn_onebit.rs` (removed; at 9f440192))
 
 **Arms.** All arms are per row, with groups of 128 (the `Q1_0` block) and the sign scale
 `a = mean|w|` over the group:
@@ -536,7 +536,7 @@ is 4864 = 38 × 128.
 | W6 | T2 planes | `Numeric/OneBit/SignPlanes.lean` (DeepSeek) | `lake build Numeric.OneBit.SignPlanes` | flipped plane sign red |
 | W6 | T3 sigma-delta + shaping | `Numeric/OneBit/SigmaDelta.lean` (Sonnet subagent) | `lake build Numeric.OneBit.SigmaDelta` | no-feedback quantizer red |
 | W6 | T4 hidden permutation | `Numeric/Hadamard/HiddenPerm.lean` (DeepSeek, after T1/T2 return) | `lake build Numeric.Hadamard.HiddenPerm` | unpermuted gain red |
-| W7 | arms + measurement | `src/learn/onebit.rs`, `examples/onebit_diag.rs` (removed; at 2f15d6a9), `tests/learn_onebit.rs` (DeepSeek) | `cargo test --release --locked --test learn_onebit`; `onebit_diag` table | the three W7 controls |
+| W7 | arms + measurement | `src/learn/onebit.rs` (removed; at 9f440192), `examples/onebit_diag.rs` (removed; at 2f15d6a9), `tests/learn_onebit.rs` (removed; at 9f440192) (DeepSeek) | `cargo test --release --locked --test learn_onebit` (removed; at 9f440192); `onebit_diag` table | the three W7 controls |
 | W8 | refinement | extraction root `sd_binary_row` → `Numeric/SigmaDelta` | `proof/regen.sh --check`; `lake build` | mutated body red |
 | W9 | whole model | `Q1_0` writer + paired KLD vs f16, `IQ1_S`, `IQ1_M`, `Q4_K_M` | `llama-perplexity` paired KLD | identical-weights KLD = 0 |
 
@@ -770,7 +770,7 @@ theorems and `norm_num` verdicts over hand-typed literals). Verdict: `/home/soco
   (`w15_four_factor_05b_decomposition` carries the sink-fnorm values `1.8580/0.5929` against evidence item 20's `1.3777/0.3749`);
   the bit count `421541376` has no Lean function and omits the `qmlp` gate/up row index (`fold_transfer.py:1241-1248`, `48·log₂ C(4864,416) = 98106` bits, `1.17833` b/w).
 - Success: each item closes on its gate and control below, and each retires one hand-typed or assumed quantity from the decision path.
-- Non-goals: a new quantiser arm; rooting `src/learn/onebit.rs` (holds only the Q1_0 arms, not the active arm).
+- Non-goals: a new quantiser arm; rooting `src/learn/onebit.rs` (removed; at 9f440192) (holds only the Q1_0 arms, not the active arm).
 
 ### Spec
 
@@ -862,7 +862,7 @@ Non-goals: new arms during the port; dead variants of `fold_transfer.py` (only t
 | scalar | `numeric/fixed_rsqrt.rs` (`RsqrtRefinement`), `numeric/fixed_exp.rs` (`ExpRefinement`), `numeric/fixed_ln.rs`, `engine/silu.rs` (`EngineSiluRefinement`) | derivatives: `silu'`, `rsqrt'` |
 | vector | `engine/norm.rs` (`EngineNormRefinement`), `engine/matvec.rs` (`EngineMatvecRefinement`), `engine/hadamard.rs` (`HadamardFixed`), RoPE (`EngineRopeRefinement`) | backward of each: `Xᵀ·dY`, `dY·W`, rmsnorm, swiglu, RoPE, causal GQA attention |
 | head | `numeric/fixed_exp.rs`, `fixed_ln.rs` | `KL(p_t‖p_s)` and `½Σ|q−p|` with gradients, vocab-chunked |
-| code | `learn/onebit.rs` (gptq_row), `learn/ridge.rs`, `learn/sigma_delta.rs` (`SigmaDeltaRefinement`) | `E₈ ∪ O₈` 256-codebook, nearest codeword, ICM sweep, 2-plane compose, r/c/d grids |
+| code | `learn/onebit.rs` (removed; at 9f440192) (gptq_row), `learn/ridge.rs`, `learn/sigma_delta.rs` (`SigmaDeltaRefinement`) | `E₈ ∪ O₈` 256-codebook, nearest codeword, ICM sweep, 2-plane compose, r/c/d grids |
 
 - Representation relation: each backward body refines the exact integer Jacobian-transpose product of its forward body at the
   stated rounding (the Lean spec is the `ℤ` formula, `divRoundNearest` as in `EngineNormRefinement`), and a second theorem bounds

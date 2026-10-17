@@ -8,7 +8,7 @@ Board row `onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1`. Lean: `proof/corpus
 | text | wikitext-2-raw `wiki.test.raw`, sha256 `173c87a53759e020…`; 64 chunks of 512 |
 | eval | llama.cpp `ece963f41` `build-cuda/bin/llama-perplexity -c 512 -b 512 --chunks 64 -ngl 0 -t 32`, `CUDA_VISIBLE_DEVICES=` (CPU), `--kl-divergence-base f16-wt64.kld --kl-divergence` |
 | calibration | C4 (`/home/socol/oc-tmp/seal/calib-c4.txt`) for both sides: our Grams (51200 tokens, `/home/socol/oc-tmp/gptq-w2/gram`, 24 blocks × 4 inputs) and llama.cpp's imatrix (100 chunks) |
-| writer | `examples/onebit_model.rs` (removed; at 2f15d6a9) sha256 `3eb76645b0808704…`, over `src/learn/onebit.rs` `47d0d42f9dd2c474…` |
+| writer | `examples/onebit_model.rs` (removed; at 2f15d6a9) sha256 `3eb76645b0808704…`, over `src/learn/onebit.rs` (removed; at 9f440192) `47d0d42f9dd2c474…` |
 | machine | i9-14900KF |
 
 ## Population

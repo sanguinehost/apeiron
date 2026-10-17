@@ -13,18 +13,6 @@ pub mod imatrix;
 /// [`crate::format::quant::dequant_q4_k_block`] reads unchanged.
 pub mod seal;
 
-/// Kneser–Ney byte count language model over the ported counting face [`crate::freq::FreqMap`].
-pub mod countlm;
-
-/// Forward-only finetuning adapter over token contexts via Kneser–Ney count refinement.
-pub mod foldadapt;
-
-/// GPTQ error-feedback quantization to balanced-trit planes and affine carriers.
-pub mod gptq;
-
-/// One-bit arms on the calibration Gram: `Q1_0` sign planes, sigma-delta, GPTQ and Hadamard.
-pub mod onebit;
-
 /// Bit budget of the one-bit `-nb` arm, split by component (sign, r, c, d, corrector, row index).
 pub mod onebit_bits;
 
