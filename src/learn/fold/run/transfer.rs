@@ -8,10 +8,12 @@
 //!   gather is `h = cfg.E[ids.cpu()]` at `:94`): one token-embedding row per calibration token,
 //!   row-major `[n_seq·t, hidden]`.
 //! - [`save`]/[`load`] make the [`ModelState`] loop resumable: raw little-endian `i64` `Q32.32`
-//!   words per finished layer (`layer-<l>.bin`), per layer's finisher fits (`fits-<l>.bin`) and per
-//!   hidden state (`ht.bin`, `hs.bin`), with a text manifest naming each file's shape and SHA-256.
-//!   A load refuses a digest or shape mismatch, and every data file is written to a temporary name
-//!   and renamed, so a killed run leaves the previous checkpoint valid.
+//!   words per finished layer (`layer-<l>.bin`), per layer's finisher fits (`fits-<l>.bin`), per
+//!   hidden state (`ht.bin`, `hs.bin`) and, when a round stopped inside a layer, the in-progress
+//!   layer's state (`progress-lq.bin`, `progress-fits.bin`, `progress-hs-mid.bin`), with a text
+//!   manifest naming each file's shape and SHA-256. A load refuses a digest or shape mismatch, and
+//!   every data file is written to a temporary name and renamed, so a killed run leaves the
+//!   previous checkpoint valid.
 //! - [`write_student_gguf`] re-encodes the fitted `Q32.32` [`Weights`] into the teacher's own `GGUF`
 //!   directory: every tensor keeps its name, dimensions, `ggml` type and offset, so the directory
 //!   is byte-unchanged and only payloads move. The payload is the
@@ -19,10 +21,13 @@
 //!   binary32 integer map), refusing a value outside that type's finite range and never clamping.
 //!
 //! The checkpoint keeps the driver's word [`ModelState`] as its format (`ht.bin`, `hs.bin`,
-//! `layer-<l>.bin`, `fits-<l>.bin`, eight bytes per `i64` word). That is a **format change**: `v1`
-//! stored eight-byte IEEE-754 binary64 values, `v2` stored `i64` words but omitted the fits, so a
-//! resumed run could not be finished; `MANIFEST_MAGIC` is `v3` and a `v1` or `v2` manifest is
-//! refused rather than misread.
+//! `layer-<l>.bin`, `fits-<l>.bin`, the optional `progress-*.bin`, eight bytes per `i64` word).
+//! That is a **format change**: `v1` stored eight-byte IEEE-754 binary64 values, `v2` stored `i64`
+//! words but omitted the fits, so a resumed run could not be finished; `MANIFEST_MAGIC` is `v3` and
+//! a `v1` or `v2` manifest is refused rather than misread. The optional `progress` line is an
+//! additive v3 extension: a manifest without it (a layer boundary, or a v3 checkpoint written
+//! before the extension) loads the finished prefix exactly as it did, while a manifest with it
+//! additionally restores [`ModelState::partial`].
 //!
 //! # Subsumption
 //!
@@ -62,7 +67,9 @@ use std::path::Path;
 
 use crate::format::gguf::{Gguf, GgufError};
 use crate::format::quant;
-use crate::learn::fold::layer::driver::{DriverError, LayerWeights, ModelState};
+use crate::learn::fold::layer::driver::{
+    fit_count, DriverError, LayerProgress, LayerWeights, ModelState, STAGES,
+};
 use crate::learn::fold::layer::tensor::{SinkPlane, TensorBits, TensorFit, TensorKind};
 use crate::learn::fold::run::convert::{encode_f16, encode_f32, ConvertError, Teacher};
 use crate::learn::gguf::write_file;
@@ -74,8 +81,18 @@ const MANIFEST: &str = "manifest.txt";
 
 /// The manifest's first line: format identity and version. `v3` stores `i64` `Q32.32` words and
 /// the per-layer fits; `v1` stored eight-byte IEEE-754 binary64 values and `v2` omitted the fits,
-/// so both are refused.
+/// so both are refused. The optional `progress` line is an additive v3 extension (absent at a layer
+/// boundary).
 const MANIFEST_MAGIC: &str = "apeiron-fold-transfer v3";
+
+/// The in-progress layer's twelve vectors, in [`LAYER_FIELDS`] order.
+const PROGRESS_LQ: &str = "progress-lq.bin";
+
+/// The in-progress layer's completed-stage fits, in the `fits-<l>.bin` word form.
+const PROGRESS_FITS: &str = "progress-fits.bin";
+
+/// The in-progress layer's student mid state, one `[n_seq·t, hidden]` word buffer.
+const PROGRESS_MID: &str = "progress-hs-mid.bin";
 
 /// The field count of one serialized [`LayerWeights`]: `attn_norm, ffn_norm, wq, bq, wk, bk, wv,
 /// bv, wo, w_gate, w_up, w_down`.
@@ -618,21 +635,31 @@ fn layer_geometry(l: &LayerWeights) -> Result<(usize, usize, usize, usize), Tran
 }
 
 /// Write `st` as a checkpoint under `dir`: `ht.bin`, `hs.bin`, one `layer-<l>.bin` and one
-/// `fits-<l>.bin` per finished layer, and `manifest.txt` last (each through [`write_atomic`]).
+/// `fits-<l>.bin` per finished layer, the `progress-*.bin` files when a layer is part-finished, and
+/// `manifest.txt` last (each through [`write_atomic`]).
 ///
 /// The manifest records `next`, the layer geometry, the five `bits` fields, and every file's length
 /// and SHA-256; each layer's `fits` are written so a resumed run can be finished by
 /// [`crate::learn::fold::run::finish::finish_model`]. A state with `next == 0` writes the two
 /// hidden-state files and a manifest with no layer lines (the geometry is unknown until the first
-/// layer is quantised).
+/// layer is quantised). A state with `partial` set appends one `progress` line and the three
+/// progress files, so a round resumed after a stage reads the same stage boundary back.
+///
+/// `lq` and the fits' `wp` are not duplicated in the persisted form: `fits_words` stores the planes,
+/// bits, `top_rows` and `db`, and both the layer file and the progress file carry the twelve
+/// vectors (including the weight matrices) that the driver continues from. Rebuilding `wp` from
+/// `lq` on load is not done: the existing fits format leaves `wp` empty (`nb` and `factors` too),
+/// and `checkpoint_round_trips_fits` pins that.
 ///
 /// # Complexity
-/// Time and space `O(bytes written)` = `O((next·(hidden² + hidden·inter + fits) + n_seq·t·hidden)·8)`;
-/// the per-layer buffers are built one at a time.
+/// Time and space `O(bytes written)` =
+/// `O((next·(hidden² + hidden·inter + fits) + partial·(hidden² + hidden·inter + fits + n_seq·t·hidden)
+/// + n_seq·t·hidden)·8)`; the per-layer buffers are built one at a time.
 ///
 /// # Errors
-/// [`TransferError::Shape`] when `next`, `layers` and `fits` disagree or a layer's vectors do not
-/// match the geometry its first layer declares; [`TransferError::Io`] on a write failure.
+/// [`TransferError::Shape`] when `next`, `layers` and `fits` disagree, a layer's vectors do not
+/// match the geometry its first layer declares, or `partial`'s stage/fit count/`hs_mid`/geometry
+/// disagrees; [`TransferError::Io`] on a write failure.
 pub fn save(dir: &str, st: &ModelState) -> Result<(), TransferError> {
     if st.next != st.layers.len() || st.fits.len() != st.layers.len() {
         return Err(TransferError::Shape(format!(
@@ -702,6 +729,68 @@ pub fn save(dir: &str, st: &ModelState) -> Result<(), TransferError> {
             write_atomic(&dirp.join(&fname), &fbytes)?;
             let _ = writeln!(manifest, "fits {l} {} {}", fw.len(), hex(&sha256(&fbytes)));
         }
+    }
+
+    // The in-progress layer, when a round stopped inside one: its twelve vectors, its completed-stage
+    // fits (the `fits-<l>.bin` form: `wp`, `nb` and `factors` are not in the format, and the
+    // finisher rebuilds `wp` from the planes) and the student mid state.
+    if let Some(p) = &st.partial {
+        if p.stage == 0
+            || p.stage >= STAGES
+            || p.fits.len() != fit_count(p.stage)
+            || p.hs_mid.len() != st.ht.len()
+        {
+            return Err(TransferError::Shape(format!(
+                "progress stage {} / fits {} / hs_mid {} vs ht {}",
+                p.stage,
+                p.fits.len(),
+                p.hs_mid.len(),
+                st.ht.len()
+            )));
+        }
+        let g = layer_geometry(&p.lq)?;
+        if geom.is_some_and(|f| f != g) {
+            return Err(TransferError::Shape("progress layer geometry".to_string()));
+        }
+        let lens = layer_lens(g.0, g.1, g.2, g.3)?;
+        let fields = layer_fields(&p.lq)?;
+        let mut lq_bytes = Vec::new();
+        for (i, f) in fields.iter().enumerate() {
+            if f.len() != lens[i] {
+                return Err(TransferError::Shape(format!(
+                    "progress field {i}: {} != {}",
+                    f.len(),
+                    lens[i]
+                )));
+            }
+            lq_bytes.extend_from_slice(&word_bytes(f));
+        }
+        write_atomic(&dirp.join(PROGRESS_LQ), &lq_bytes)?;
+        let fw = fits_words(&p.fits)?;
+        let fbytes = word_bytes(&fw);
+        write_atomic(&dirp.join(PROGRESS_FITS), &fbytes)?;
+        let mid = word_bytes(&p.hs_mid);
+        write_atomic(&dirp.join(PROGRESS_MID), &mid)?;
+        let _ = writeln!(
+            manifest,
+            "progress {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+            p.stage,
+            p.bits.nsign,
+            p.bits.nr,
+            p.bits.nc,
+            p.bits.nd,
+            p.bits.ncorr,
+            g.0,
+            g.1,
+            g.2,
+            g.3,
+            lq_bytes.len() / 8,
+            hex(&sha256(&lq_bytes)),
+            fw.len(),
+            hex(&sha256(&fbytes)),
+            mid.len() / 8,
+            hex(&sha256(&mid))
+        );
     }
     write_atomic(&dirp.join(MANIFEST), manifest.as_bytes())
 }
@@ -859,26 +948,116 @@ fn split_layer(
     })
 }
 
+/// Parse the manifest's `progress` line and read its three files back into a [`LayerProgress`].
+///
+/// The line carries the completed-stage count, the five `bits` fields, the layer geometry (four
+/// widths), and the length and SHA-256 of the `lq`, fits and `hs_mid` buffers. The fits are the
+/// `fits-<l>.bin` word form, so `wp`, `nb` and `factors` come back empty/`None`.
+///
+/// # Complexity
+/// Time and space `O(bytes read)` = `O((hidden² + hidden·inter + fits + n_seq·t·hidden)·8)`, plus
+/// one SHA-256 pass per file.
+///
+/// # Errors
+/// [`TransferError::Manifest`] on a malformed line; [`TransferError::Shape`] on a stage outside
+/// `1 ..= STAGES-1`, a fit count that disagrees with the stage, a `hs_mid` length that disagrees
+/// with `ht.bin`, or a layer geometry that disagrees with the manifest head; [`TransferError::Io`]
+/// or [`TransferError::Digest`] as [`read_checked`].
+fn parse_progress(
+    dir: &Path,
+    line: &str,
+    head: &ManifestHead,
+    ht_len: usize,
+) -> Result<LayerProgress, TransferError> {
+    let t = tokens(line);
+    if t.len() != 17 || t[0] != "progress" {
+        return Err(TransferError::Manifest("progress".to_string()));
+    }
+    let stage = num(t[1], "progress stage")?;
+    if stage == 0 || stage >= STAGES {
+        return Err(TransferError::Shape(format!("progress stage {stage}")));
+    }
+    let bits = TensorBits {
+        nsign: num_u64(t[2], "progress nsign")?,
+        nr: num_u64(t[3], "progress nr")?,
+        nc: num_u64(t[4], "progress nc")?,
+        nd: num_u64(t[5], "progress nd")?,
+        ncorr: num_u64(t[6], "progress ncorr")?,
+    };
+    let hid = num(t[7], "progress hidden")?;
+    let q_out = num(t[8], "progress q_out")?;
+    let kv_out = num(t[9], "progress kv_out")?;
+    let inter = num(t[10], "progress inter")?;
+    if head.hidden != 0 && head.hidden != hid {
+        return Err(TransferError::Shape(format!(
+            "progress hidden {hid} != {}",
+            head.hidden
+        )));
+    }
+    let lens = layer_lens(hid, q_out, kv_out, inter)?;
+    let n = num(t[11], "progress lq length")?;
+    let bytes = n
+        .checked_mul(8)
+        .ok_or_else(|| TransferError::Shape("progress lq byte count".to_string()))?;
+    let raw = read_checked(dir, PROGRESS_LQ, bytes, Some(t[12]))?;
+    let lq = split_layer(&raw, &lens, head.next)?;
+
+    let n = num(t[13], "progress fits length")?;
+    let bytes = n
+        .checked_mul(8)
+        .ok_or_else(|| TransferError::Shape("progress fits byte count".to_string()))?;
+    let raw = read_checked(dir, PROGRESS_FITS, bytes, Some(t[14]))?;
+    let fits = fits_from_words(&words_from_bytes(&raw)?)?;
+    if fits.len() != fit_count(stage) {
+        return Err(TransferError::Shape(format!(
+            "progress stage {stage} has {} fits",
+            fits.len()
+        )));
+    }
+
+    let n = num(t[15], "progress hs_mid length")?;
+    let bytes = n
+        .checked_mul(8)
+        .ok_or_else(|| TransferError::Shape("progress hs_mid byte count".to_string()))?;
+    let mid = words_from_bytes(&read_checked(dir, PROGRESS_MID, bytes, Some(t[16]))?)?;
+    if mid.len() != ht_len {
+        return Err(TransferError::Shape(format!(
+            "progress hs_mid {} != ht {ht_len}",
+            mid.len()
+        )));
+    }
+    Ok(LayerProgress {
+        stage,
+        lq,
+        fits,
+        bits,
+        hs_mid: mid,
+    })
+}
+
 /// Read the checkpoint under `dir` back into a [`ModelState`] whose `next` is the manifest's, whose
-/// layers are the finished prefix, and whose `fits` are the written per-layer fits (with `wp`,
-/// `nb` and `factors` absent, as [`fits_words`] records).
+/// layers are the finished prefix, whose `fits` are the written per-layer fits (with `wp`, `nb` and
+/// `factors` absent, as [`fits_words`] records), and whose `partial` is the written in-progress
+/// layer when the manifest carries a `progress` line.
 ///
 /// # Complexity
 /// Time and space `O(bytes read)` = `O((next·(hidden² + hidden·inter + fits) + n_seq·t·hidden)·8)`,
-/// plus one SHA-256 pass per file.
+/// plus one SHA-256 pass per file; the `progress` line adds
+/// `O((hidden² + hidden·inter + fits + n_seq·t·hidden)·8)` when present.
 ///
 /// # Errors
 /// [`TransferError::Io`] on a missing or unreadable file; [`TransferError::Manifest`] on a malformed
 /// manifest (including a `v1`/`v2` magic); [`TransferError::Shape`] on a length, layer count,
-/// geometry or fits-word disagreement; [`TransferError::Digest`] on a file whose SHA-256 is not the
-/// manifest's.
+/// geometry, fits-word or progress disagreement; [`TransferError::Digest`] on a file whose SHA-256
+/// is not the manifest's.
 pub fn load(dir: &str) -> Result<ModelState, TransferError> {
     let dirp = Path::new(dir);
     let manifest_path = dirp.join(MANIFEST);
     let text = fs::read_to_string(&manifest_path).map_err(|e| io_err(&manifest_path, &e))?;
     let lines: Vec<&str> = text.lines().collect();
     let head = parse_head(&lines)?;
-    if lines.len() != 6 + 2 * head.next {
+    let base = 6 + 2 * head.next;
+    if lines.len() != base && lines.len() != base + 1 {
         return Err(TransferError::Manifest(format!(
             "{} lines for next {}",
             lines.len(),
@@ -943,6 +1122,11 @@ pub fn load(dir: &str) -> Result<ModelState, TransferError> {
         let raw = read_checked(dirp, &name, bytes, Some(t[3]))?;
         fits.push(fits_from_words(&words_from_bytes(&raw)?)?);
     }
+    let partial = if lines.len() == base + 1 {
+        Some(parse_progress(dirp, lines[base], &head, ht.len())?)
+    } else {
+        None
+    };
     Ok(ModelState {
         next: head.next,
         ht,
@@ -950,6 +1134,7 @@ pub fn load(dir: &str) -> Result<ModelState, TransferError> {
         layers,
         bits: head.bits,
         fits,
+        partial,
     })
 }
 

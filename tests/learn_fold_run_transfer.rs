@@ -30,7 +30,8 @@ use apeiron::learn::fold::fit::icm::{codebook, BLOCK};
 use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
 use apeiron::learn::fold::fit::steps::GROUP;
 use apeiron::learn::fold::layer::driver::{
-    layer_words, model_finish, model_init, model_step, quantise_model, DriverCfg, ModelState,
+    layer_words, model_finish, model_init, model_step, model_step_stages, quantise_model,
+    DriverCfg, ModelState,
 };
 use apeiron::learn::fold::layer::tensor::{SinkPlane, TensorBits, TensorFit, TensorKind};
 use apeiron::learn::fold::run::convert::{student_to_grad, teacher_from_grad, Teacher};
@@ -227,6 +228,129 @@ fn assert_layer_bits(got: &LayerWeights, want: &LayerWeights, l: usize) {
     }
 }
 
+/// The bit code of a [`TensorKind`], in the checkpoint's `q, k, v, o, gate, up, down` order.
+fn kind_code(k: TensorKind) -> u64 {
+    match k {
+        TensorKind::Q => 0,
+        TensorKind::K => 1,
+        TensorKind::V => 2,
+        TensorKind::O => 3,
+        TensorKind::Gate => 4,
+        TensorKind::Up => 5,
+        TensorKind::Down => 6,
+    }
+}
+
+/// FNV-1a over every fit field the checkpoint format carries: kind, bits, planes (their four
+/// buffers, `rows`, `dense`), `top_rows` and `db`. `wp`, `nb` and `factors` are not in the
+/// `fits-<l>.bin` form (the finisher rebuilds `wp` from the planes), so they are not part of the
+/// state a `save`/`load` round trip defines.
+fn fits_digest(fits: &[Vec<TensorFit>]) -> u64 {
+    let mut d = fnv1a(0xcbf2_9ce4_8422_2325, b"fits");
+    d = fnv1a(d, &u64::try_from(fits.len()).expect("fits").to_le_bytes());
+    for layer in fits {
+        d = fnv1a(d, &u64::try_from(layer.len()).expect("fits").to_le_bytes());
+        for f in layer {
+            d = fnv1a(d, &kind_code(f.kind).to_le_bytes());
+            for b in [f.bits.nsign, f.bits.nr, f.bits.nc, f.bits.nd, f.bits.ncorr] {
+                d = fnv1a(d, &b.to_le_bytes());
+            }
+            d = fnv1a(
+                d,
+                &u64::try_from(f.planes.len()).expect("planes").to_le_bytes(),
+            );
+            for p in &f.planes {
+                for v in [&p.s_rot, &p.rh, &p.ch, &p.dh] {
+                    d = fnv_buf(d, v);
+                }
+                d = fnv1a(
+                    d,
+                    &[u8::from(p.rows.is_some()), u8::from(p.dense.is_some())],
+                );
+                if let Some(rows) = &p.rows {
+                    d = fnv1a(d, &u64::try_from(rows.len()).expect("rows").to_le_bytes());
+                    for &i in rows {
+                        d = fnv1a(d, &u64::try_from(i).expect("row").to_le_bytes());
+                    }
+                }
+                if let Some(dense) = &p.dense {
+                    d = fnv_buf(d, dense);
+                }
+            }
+            d = fnv1a(
+                d,
+                &[u8::from(f.top_rows.is_some()), u8::from(f.db.is_some())],
+            );
+            if let Some(rows) = &f.top_rows {
+                d = fnv1a(d, &u64::try_from(rows.len()).expect("top").to_le_bytes());
+                for &i in rows {
+                    d = fnv1a(d, &u64::try_from(i).expect("top").to_le_bytes());
+                }
+            }
+            if let Some(db) = &f.db {
+                d = fnv_buf(d, db);
+            }
+        }
+    }
+    d
+}
+
+/// Assert two fit lists agree on every field the checkpoint carries, and on their digest.
+fn assert_fits_persisted(got: &[Vec<TensorFit>], want: &[Vec<TensorFit>], what: &str) {
+    assert_eq!(got.len(), want.len(), "{what}: layer count");
+    for (l, (gl, wl)) in got.iter().zip(want).enumerate() {
+        assert_eq!(gl.len(), wl.len(), "{what}: layer {l} fit count");
+        for (a, b) in gl.iter().zip(wl) {
+            assert_eq!(a.kind, b.kind, "{what}: layer {l} kind");
+            assert_eq!(a.bits, b.bits, "{what}: layer {l} bits");
+            assert_eq!(a.top_rows, b.top_rows, "{what}: layer {l} top_rows");
+            assert_eq!(a.db, b.db, "{what}: layer {l} db");
+            assert!(a.wp.is_empty(), "{what}: wp is not in the fits form");
+            assert!(a.nb.is_none(), "{what}: nb is not in the fits form");
+            assert_eq!(a.planes.len(), b.planes.len(), "{what}: layer {l} planes");
+            for (pa, pb) in a.planes.iter().zip(&b.planes) {
+                assert_eq!(pa.s_rot, pb.s_rot, "{what}: layer {l} s_rot");
+                assert_eq!(pa.rh, pb.rh, "{what}: layer {l} rh");
+                assert_eq!(pa.ch, pb.ch, "{what}: layer {l} ch");
+                assert_eq!(pa.dh, pb.dh, "{what}: layer {l} dh");
+                assert_eq!(pa.rows, pb.rows, "{what}: layer {l} rows");
+                assert_eq!(pa.dense, pb.dense, "{what}: layer {l} dense");
+            }
+        }
+    }
+    assert_eq!(fits_digest(got), fits_digest(want), "{what}: fits digest");
+}
+
+/// Assert a loaded state equals the state it was saved from on the persisted projection: the next
+/// index, both hidden states, the bit sums, every layer word, the fits' checkpoint fields and, when
+/// set, the in-progress layer's stage, `lq`, fits, bits and `hs_mid`.
+fn assert_state_persisted(got: &ModelState, want: &ModelState, what: &str) {
+    assert_eq!(got.next, want.next, "{what}: next");
+    assert_eq!(got.ht, want.ht, "{what}: ht");
+    assert_eq!(got.hs, want.hs, "{what}: hs");
+    assert_eq!(got.bits, want.bits, "{what}: bits");
+    assert_eq!(got.layers.len(), want.layers.len(), "{what}: layers");
+    for (l, (a, b)) in got.layers.iter().zip(&want.layers).enumerate() {
+        assert_layer_bits(a, b, l);
+    }
+    assert_fits_persisted(&got.fits, &want.fits, what);
+    match (&got.partial, &want.partial) {
+        (None, None) => {}
+        (Some(a), Some(b)) => {
+            assert_eq!(a.stage, b.stage, "{what}: progress stage");
+            assert_eq!(a.bits, b.bits, "{what}: progress bits");
+            assert_eq!(a.hs_mid, b.hs_mid, "{what}: progress hs_mid");
+            assert_layer_bits(&a.lq, &b.lq, want.next);
+            assert_fits_persisted(
+                std::slice::from_ref(&a.fits),
+                std::slice::from_ref(&b.fits),
+                what,
+            );
+        }
+        _ => panic!("{what}: progress presence differs"),
+    }
+}
+
 /// [1] resume equivalence: one-shot `quantise_model` against `model_step(0..1)` → `save` → `load`
 /// → `model_step(1..3)` → `model_finish`: every output tensor and `fnorm` bit-identical.
 #[test]
@@ -295,6 +419,121 @@ fn checkpoint_digest_refusal() {
     let back = load(&dir).expect("restored checkpoint");
     assert_eq!(back.next, 1);
     assert_layer_bits(&back.layers[0], &st.layers[0], 0);
+
+    fs::remove_dir_all(&dir).expect("clean scratch");
+}
+
+/// The byte length of every file in a scratch directory.
+fn dir_bytes(dir: &str) -> u64 {
+    fs::read_dir(dir)
+        .expect("scratch dir")
+        .filter_map(Result::ok)
+        .filter_map(|e| e.metadata().ok())
+        .map(|m| m.len())
+        .sum()
+}
+
+/// [1a] stage-granular resume: the model fixture run as one-stage rounds with `save` + `load`
+/// between EVERY stage reaches the one-shot `model_step` state, word for word on the populated
+/// projection (the fits' `wp`/`nb`/`factors` are not in the checkpoint form), and every pause reads
+/// its progress back exactly.
+#[test]
+fn stage_resume_equivalence() {
+    let t0 = Instant::now();
+    let (cfg, rope, layers, fnorm, h0, _, _) = model_fixture();
+    let stages_per_layer = 4usize;
+    let total_stages = stages_per_layer * layers.len();
+
+    let mut one = model_init(&h0);
+    model_step(&cfg, &rope, &layers, &fnorm, &mut one, layers.len()).expect("one-shot model");
+    assert!(one.partial.is_none(), "a finished model keeps no progress");
+    assert_eq!(one.next, layers.len());
+
+    let dir = scratch("stage-resume");
+    let mut st = model_init(&h0);
+    let mut pauses = 0usize;
+    let mut max_pause_bytes = 0usize;
+    let mut max_checkpoint_bytes = 0u64;
+    let mut io = std::time::Duration::ZERO;
+    for k in 0..total_stages {
+        model_step_stages(&cfg, &rope, &layers, &fnorm, &mut st, 1).expect("one stage");
+        let done = st.next == layers.len() && st.partial.is_none();
+        assert_eq!(
+            done,
+            k + 1 == total_stages,
+            "stage {k} finished the model early"
+        );
+        if done {
+            break;
+        }
+        // The unit of resumption is a stage: every boundary is written and read back.
+        let t_io = Instant::now();
+        save(&dir, &st).expect("save stage");
+        let back = load(&dir).expect("load stage");
+        io += t_io.elapsed();
+        assert_state_persisted(&back, &st, &format!("stage pause {k}"));
+        st = back;
+        pauses += 1;
+        let bytes: u64 = [
+            "progress-lq.bin",
+            "progress-fits.bin",
+            "progress-hs-mid.bin",
+        ]
+        .iter()
+        .map(|n| {
+            fs::metadata(format!("{dir}/{n}"))
+                .expect("progress file")
+                .len()
+        })
+        .sum();
+        max_pause_bytes = max_pause_bytes.max(usize::try_from(bytes).expect("pause bytes"));
+        max_checkpoint_bytes = max_checkpoint_bytes.max(dir_bytes(&dir));
+    }
+    assert_eq!(pauses, total_stages - 1, "one save/load per stage boundary");
+
+    // The finished state round-trips through the layer-boundary format (no progress line).
+    save(&dir, &st).expect("save finished");
+    let back = load(&dir).expect("load finished");
+    assert!(back.partial.is_none(), "no progress at a layer boundary");
+    assert_state_persisted(&back, &st, "finished checkpoint");
+    assert_state_persisted(&back, &one, "one-shot state");
+    eprintln!(
+        "[1a] {total_stages} stages, {pauses} pause round trips, largest pause {max_pause_bytes} \
+         bytes, largest checkpoint {max_checkpoint_bytes} bytes, save+load {:.1} ms, one-shot \
+         state matched in {:?}",
+        io.as_secs_f64() * 1e3,
+        t0.elapsed()
+    );
+
+    fs::remove_dir_all(&dir).expect("clean scratch");
+}
+
+/// [1b] progress refusal: one flipped byte in `progress-hs-mid.bin` makes `load` refuse on the
+/// digest, and the restore loads the stage boundary back.
+#[test]
+fn stage_progress_digest_refusal() {
+    let (cfg, rope, layers, fnorm, h0, _, _) = model_fixture();
+    let dir = scratch("stage-digest");
+    let mut st = model_init(&h0);
+    model_step_stages(&cfg, &rope, &layers, &fnorm, &mut st, 1).expect("stage 0");
+    assert_eq!(st.partial.as_ref().map(|p| p.stage), Some(1));
+    save(&dir, &st).expect("save stage");
+
+    let path = format!("{dir}/progress-hs-mid.bin");
+    let mut bytes = fs::read(&path).expect("read progress");
+    bytes[0] ^= 0x40;
+    fs::write(&path, &bytes).expect("write progress");
+    match load(&dir).expect_err("a flipped progress byte must refuse") {
+        TransferError::Digest { file, .. } => assert_eq!(file, "progress-hs-mid.bin"),
+        other => panic!("expected a digest refusal, got {other:?}"),
+    }
+
+    bytes[0] ^= 0x40;
+    fs::write(&path, &bytes).expect("restore progress");
+    let back = load(&dir).expect("restored stage");
+    assert_state_persisted(&back, &st, "restored progress");
+    assert_eq!(back.next, 0);
+    assert_eq!(back.partial.as_ref().map(|p| p.stage), Some(1));
 
     fs::remove_dir_all(&dir).expect("clean scratch");
 }
@@ -579,6 +818,7 @@ fn checkpoint_round_trips_fits() {
         layers: layers.clone(),
         bits: TensorBits::default(),
         fits: fits.clone(),
+        partial: None,
     };
 
     let dir = scratch("fits");
@@ -781,7 +1021,6 @@ fn transfer_qwen05b() {
     );
     let cfg = DriverCfg::production(teacher.layer_cfg, t, n_seq);
     let rope = RopeTables::new(&cfg.layer, t).expect("rope");
-    let hid = cfg.layer.hidden;
 
     let mut st = if checkpoint_present(&dir) {
         let st = load(&dir).expect("resume checkpoint");
@@ -799,57 +1038,36 @@ fn transfer_qwen05b() {
         st
     };
 
-    let budget = 520.0_f64;
+    // A round runs whole stages while the elapsed wall plus 1.25x the longest stage seen stays under
+    // the budget; the progress of a layer left mid-way is checkpointed and resumed by the next round.
+    let budget = 500.0_f64;
     let t_loop = Instant::now();
-    let mut last_wall: Option<f64> = None;
+    let mut stage_max = 0.0_f64;
     while st.next < teacher.n_layer {
-        if let Some(last) = last_wall {
-            if t_loop.elapsed().as_secs_f64() + last > budget {
-                eprintln!(
-                    "[4] stop: {:.1}s + last layer {last:.1}s > {budget:.0}s budget",
-                    t_loop.elapsed().as_secs_f64()
-                );
-                break;
-            }
+        if t_loop.elapsed().as_secs_f64() + 1.25 * stage_max > budget {
+            eprintln!(
+                "[4] stop: {:.1}s + 1.25 x longest stage {stage_max:.1}s > {budget:.0}s budget",
+                t_loop.elapsed().as_secs_f64()
+            );
+            break;
         }
-        let l = st.next;
-        let t_layer = Instant::now();
-        // Propagation proxy: the teacher forward of this layer over four sequences, scaled.
-        let probe = 4.min(n_seq);
-        let t_fwd = Instant::now();
-        for s in 0..probe {
-            let row = s * t * hid;
-            let _ = parts(
-                &cfg.layer,
-                &rope,
-                &layer_words(&teacher.layers[l]).expect("teacher words"),
-                &st.ht[row..row + t * hid],
-                t,
-            )
-            .expect("propagation probe");
-        }
-        let fwd = t_fwd.elapsed().as_secs_f64() * (n_seq as f64 / probe as f64);
-        model_step(&cfg, &rope, &teacher.layers, &teacher.fnorm, &mut st, l + 1)
-            .expect("layer step");
-        save(&dir, &st).expect("checkpoint");
-        let wall = t_layer.elapsed().as_secs_f64();
-        last_wall = Some(wall);
-        let layer_bytes = fs::metadata(format!("{dir}/layer-{l}.bin"))
-            .expect("layer file")
-            .len();
+        let (l, stage0) = (st.next, st.partial.as_ref().map_or(0, |p| p.stage));
+        let t_stage = Instant::now();
+        model_step_stages(&cfg, &rope, &teacher.layers, &teacher.fnorm, &mut st, 1)
+            .expect("stage step");
+        let wall = t_stage.elapsed().as_secs_f64();
+        stage_max = stage_max.max(wall);
         eprintln!(
-            "[4] layer {l}: wall {wall:.1}s (propagation {fwd:.1}s, stage folds {:.1}s), \
-             rss {:.2} GB, bits {} {} {} {} {}, checkpoint {:.1} MB",
-            (wall - fwd).max(0.0),
+            "[4] layer {l} stage {stage0}: wall {wall:.1}s, rss {:.2} GB, bits {} {} {} {} {}",
             rss_gb(),
             st.bits.nsign,
             st.bits.nr,
             st.bits.nc,
             st.bits.nd,
-            st.bits.ncorr,
-            layer_bytes as f64 / 1e6
+            st.bits.ncorr
         );
     }
+    save(&dir, &st).expect("checkpoint");
     eprintln!(
         "[4] loop end at next {} after {:.1}s ({:.1}s total)",
         st.next,

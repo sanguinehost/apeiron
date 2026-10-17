@@ -271,7 +271,12 @@ pub struct LayerResult {
 /// [`quantise_model`] is [`model_init`] + [`model_step`] + the untouched-layer copy +
 /// [`model_finish`]; a checkpointed run is the same calls split across invocations. The checkpoint
 /// ([`crate::learn::fold::run::transfer::save`]) writes the weights, the hidden states and `bits`,
-/// not `fits`, so a loaded state carries one empty fit vector per finished layer.
+/// not the fits' `wp`/`nb`/`factors`, so a loaded state carries one empty fit vector per finished
+/// layer.
+///
+/// [`partial`](Self::partial) is the in-progress layer `next`: a round may stop at a stage boundary
+/// inside a layer, and the next round continues from it ([`model_step_stages`]). The unit of
+/// resumption is therefore one stage, not one layer.
 #[derive(Clone, Debug)]
 pub struct ModelState {
     /// Index of the next layer to quantise (`0 ..= layers.len()`).
@@ -288,6 +293,8 @@ pub struct ModelState {
     /// The tensor fits of each quantised layer (`fits[l]` for layer `l < next`), kept so that
     /// [`model_finish`] returns the same [`ModelResult`] as a one-shot run.
     pub fits: Vec<Vec<TensorFit>>,
+    /// The in-progress layer `next` after its last completed stage, or `None` at a layer boundary.
+    pub partial: Option<LayerProgress>,
 }
 
 /// The quantised model and the evidence of one [`quantise_model`] call.
@@ -975,13 +982,14 @@ fn check_layer(lt: &LayerWeights, cfg: &DriverCfg) -> Result<(), DriverError> {
 }
 
 /// The number of stages in a layer: `qkv`, `o`, `ffn`, `down`.
-const STAGES: usize = 4;
+pub(crate) const STAGES: usize = 4;
 
 /// The stage order, indexed by [`LayerProgress::stage`].
 const STAGE_IDS: [StageId; STAGES] = [StageId::Qkv, StageId::O, StageId::Ffn, StageId::Down];
 
 /// The tensor count after `stage` completed stages (`qkv` 3, `o` 1, `ffn` 2, `down` 1).
-fn fit_count(stage: usize) -> usize {
+/// `O(1)`; the checkpoint reads it to validate a restored [`LayerProgress`].
+pub(crate) fn fit_count(stage: usize) -> usize {
     *[0, 3, 4, 6, 7].get(stage).unwrap_or(&7)
 }
 
@@ -1211,8 +1219,9 @@ pub fn quantise_model(
 }
 
 /// The state of a model transfer before its first layer: `next = 0`, both hidden states equal to the
-/// embedded calibration batch `h0`, no layers, a zero bit budget. `O(h0.len())` time and space (the
-/// two hidden-state copies); the geometry is checked by [`model_step`].
+/// embedded calibration batch `h0`, no layers, a zero bit budget and no in-progress layer.
+/// `O(h0.len())` time and space (the two hidden-state copies); the geometry is checked by
+/// [`model_step`].
 #[must_use]
 pub fn model_init(h0: &[i64]) -> ModelState {
     ModelState {
@@ -1222,6 +1231,7 @@ pub fn model_init(h0: &[i64]) -> ModelState {
         layers: Vec::new(),
         bits: TensorBits::default(),
         fits: Vec::new(),
+        partial: None,
     }
 }
 
@@ -1230,13 +1240,15 @@ pub fn model_init(h0: &[i64]) -> ModelState {
 ///
 /// `fnorm_w` is the final norm gain (the last layer's `down` `g_row` source); `until` must lie in
 /// `st.next ..= layers.len()`, so a resumed state continues where its checkpoint left it and a
-/// one-shot run passes `until = n_layers`. Temporal `O(Σ_{l = next}^{until-1} quantise_layer)`;
-/// spatial `O(layers.len()·hidden² + n_seq·t·hidden)` plus one layer's fit scratch.
+/// one-shot run passes `until = n_layers`. A state whose [`ModelState::partial`] is set finishes
+/// that layer's remaining stages first. [`model_step_stages`] is the same path with a stage cap.
+/// Temporal `O(Σ_{l = next}^{until-1} quantise_layer)`; spatial
+/// `O(layers.len()·hidden² + n_seq·t·hidden)` plus one layer's fit scratch.
 ///
 /// # Errors
 /// [`DriverError::Shape`] for `until > layers.len()`, `until < st.next`, a hidden-state length that
-/// disagrees with `n_seq·t·hidden`, or a `fnorm_w` that is not `hidden` wide; and every refusal of
-/// [`quantise_layer`].
+/// disagrees with `n_seq·t·hidden`, a `fnorm_w` that is not `hidden` wide, or a progress layer at
+/// or past the model's last layer; and every refusal of [`quantise_layer_staged`].
 pub fn model_step(
     cfg: &DriverCfg,
     rope: &RopeTables,
@@ -1245,8 +1257,51 @@ pub fn model_step(
     st: &mut ModelState,
     until: usize,
 ) -> Result<(), DriverError> {
+    model_step_until(cfg, rope, layers, fnorm_w, st, until, usize::MAX)
+}
+
+/// Quantise at most `max_stages` stages from `st`, continuing [`ModelState::partial`] if it is set,
+/// and return `Ok(())` when the cap or the model's last layer is reached.
+///
+/// Each completed layer pushes its `lq`, fits and bit sum and advances `next`, exactly as
+/// [`model_step`] does; a layer that stops part-way leaves its state in `st.partial`, so
+/// `max_stages = 1` makes the unit of resumption one stage. [`model_step`] is this function with no
+/// cap and an `until` bound.
+///
+/// Temporal `O(Σ_{stages run} (teacher forward + stage fold))`; the teacher forward cache is
+/// recomputed per call (see [`quantise_layer_staged`]), so `n` one-stage calls pay that cache `n`
+/// times. Spatial `O(layers.len()·hidden² + n_seq·t·hidden)` plus one layer's fit scratch.
+///
+/// # Errors
+/// [`DriverError::Shape`] for a hidden-state length that disagrees with `n_seq·t·hidden`, a
+/// `fnorm_w` that is not `hidden` wide, or a progress layer at or past the model's last layer; and
+/// every refusal of [`quantise_layer_staged`].
+pub fn model_step_stages(
+    cfg: &DriverCfg,
+    rope: &RopeTables,
+    layers: &[LayerWeights],
+    fnorm_w: &[i64],
+    st: &mut ModelState,
+    max_stages: usize,
+) -> Result<(), DriverError> {
+    model_step_until(cfg, rope, layers, fnorm_w, st, layers.len(), max_stages)
+}
+
+/// The one layer loop behind [`model_step`] and [`model_step_stages`].
+fn model_step_until(
+    cfg: &DriverCfg,
+    rope: &RopeTables,
+    layers: &[LayerWeights],
+    fnorm_w: &[i64],
+    st: &mut ModelState,
+    until: usize,
+    max_stages: usize,
+) -> Result<(), DriverError> {
     validate(cfg)?;
     if until > layers.len() || until < st.next {
+        return Err(DriverError::Shape);
+    }
+    if st.partial.is_some() && st.next >= layers.len() {
         return Err(DriverError::Shape);
     }
     let hid = cfg.layer.hidden;
@@ -1255,20 +1310,38 @@ pub fn model_step(
     if st.ht.len() != total || st.hs.len() != total || fnorm_w.len() != hid {
         return Err(DriverError::Shape);
     }
-    let mut l = st.next;
-    while l < until {
+    let mut ran = 0usize;
+    while st.next < until && ran < max_stages {
+        let l = st.next;
         let ln_next: &[i64] = if l + 1 < layers.len() {
             &layers[l + 1].attn_norm
         } else {
             fnorm_w
         };
-        let r = quantise_layer(cfg, rope, &layers[l], ln_next, &st.ht, &mut st.hs)?;
-        st.ht = r.ht_next;
-        st.bits = add_bits(st.bits, &r.bits);
-        st.layers.push(r.lq);
-        st.fits.push(r.fits);
-        l += 1;
-        st.next = l;
+        let start = st.partial.as_ref().map_or(0, |p| p.stage);
+        let r = quantise_layer_staged(
+            cfg,
+            rope,
+            &layers[l],
+            ln_next,
+            &st.ht,
+            &mut st.hs,
+            &mut st.partial,
+            max_stages - ran,
+        )?;
+        let end = st.partial.as_ref().map_or(STAGES, |p| p.stage);
+        ran += end.saturating_sub(start);
+        match r {
+            Some(r) => {
+                st.ht = r.ht_next;
+                st.bits = add_bits(st.bits, &r.bits);
+                st.layers.push(r.lq);
+                st.fits.push(r.fits);
+                st.next = l + 1;
+            }
+            // The cap stopped inside the layer; `st.partial` holds the boundary.
+            None => break,
+        }
     }
     Ok(())
 }
