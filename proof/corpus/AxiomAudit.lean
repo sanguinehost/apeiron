@@ -1890,3 +1890,40 @@ elab "#audit_boundary " id:ident : command => do
 #audit_boundary apeiron_word.wsyrk_refuse_bound_witness
 #audit_boundary apeiron_word.wsyrk_refuses_witness
 #audit_boundary apeiron_word.hadamard_refuses_witness
+
+open Lean Elab Command in
+/-- Axioms of the `solve_port.chol` extraction admitted in `proof/boundary-axioms.txt`: the engine-pool
+    dispatch `chart.pool.chunks_mut_global`, its width query, and the refusal cell
+    (`FirstErr.new`/`record`/`take`), all opaque with the rest of `crate::chart::pool` (`tested`), plus
+    the std operation `core.option.Option.is_none_or` (absent from the pinned Aeneas model).
+    The per-column serial arithmetic (`solve_cols`) calls none of them and audits closed. -/
+def auditCholBoundaryAxioms : Lean.NameSet :=
+  auditClosedAxioms |>.insert `apeiron_word.chart.pool.chunks_mut_global
+    |>.insert `apeiron_word.chart.pool.width_global
+    |>.insert `apeiron_word.chart.pool.FirstErr
+    |>.insert `apeiron_word.chart.pool.FirstErr.new
+    |>.insert `apeiron_word.chart.pool.FirstErr.record
+    |>.insert `apeiron_word.chart.pool.FirstErr.take
+    |>.insert `apeiron_word.core.option.Option.is_none_or
+
+open Lean Elab Command in
+/-- `#audit_chol_boundary foo`: as `#audit`, but the cone may also contain exactly the registered
+    `chart.pool` rows the pooled `chol::solve_rhs` body calls. Any other axiom, `sorryAx` included,
+    is a build failure. -/
+elab "#audit_chol_boundary " id:ident : command => do
+  let cs ← liftCoreM <| realizeGlobalConstWithInfos id
+  for c in cs do
+    let axioms ← liftTermElabM <| Lean.collectAxioms c
+    let bad := axioms.filter (fun a => !auditCholBoundaryAxioms.contains a)
+    if bad.isEmpty then
+      logInfo m!"'{c}' depends on axioms (chol boundary rows included): {axioms.toList}"
+    else
+      throwError m!"'{c}' depends on axioms outside the cone plus the chol boundary: {bad.toList}"
+
+-- The pooled `solve_port.chol` right-hand-side solve: `solve_cols` (the per-column serial body) is
+-- extracted in full; `solve_rhs` adds the dispatch, the serial-fallback threshold and the transpose,
+-- and reaches only the registered `chart.pool` rows. The bit-identity of the split is the
+-- `learn_fold_gptq_pool` digest (`tested`), not a theorem.
+#audit apeiron_word.solve_port.chol.solve_cols
+#audit_chol_boundary apeiron_word.solve_port.chol.solve_rhs
+#audit_chol_boundary apeiron_word.solve_port.chol.RhsColumns.Insts.Apeiron_wordChartTaskChunkTaskI64.run
