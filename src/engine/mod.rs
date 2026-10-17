@@ -206,7 +206,7 @@ mod ffn;
 pub(crate) mod fp;
 mod fused;
 mod hadamard;
-mod kern;
+pub(crate) mod kern;
 mod lm_head;
 mod matvec;
 mod mixer;
