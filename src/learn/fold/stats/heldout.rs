@@ -6,9 +6,9 @@
 //! `spec_stats` (lines 2151–2220) and the true-label NLL of `~/lanes/port/spec/
 //! pv_finish.py` (`c4_nll`, `n = B·(T − 1)`). Two logit sources feed one evaluator
 //! ([`Acc::score_logits`]): the whole-model [`crate::learn::grad::model::forward`] ([`held_out`],
-//! [`held_out_seq`]) and the engine's fast prefill path ([`held_out_engines`],
-//! [`held_out_engines_per_seq`]). Each row carries the next-token distribution
-//! `p = softmax(z)`. Over every scored position the port returns the mean
+//! [`held_out_seq`]) and the engine's shipped [`KernelMode::Q8Act`] decode step
+//! ([`held_out_engines`], [`held_out_engines_per_seq`]). Each row carries the next-token
+//! distribution `p = softmax(z)`. Over every scored position the port returns the mean
 //!
 //! - forward KL `Σ_x p_t(x)·(log p_t(x) − log p_s(x))` (`kls/n`, nats/token), read from
 //!   [`kl_row`]`(z_s, z_t)`;
@@ -32,24 +32,26 @@
 //! The evaluator refuses, through [`HeldOutError`], an empty sequence list, a sequence shorter than
 //! two tokens (no next-token position exists, so the NLL is undefined), a zero vocabulary, a logits
 //! buffer that is not `t × vocab`, a whole-model `forward` refusal (empty sequence, token past the
-//! vocabulary, shape, overflow) and a head-row refusal. It never panics and takes no `unsafe`.
+//! vocabulary, shape, overflow), an engine `state`/`step_logits_state` refusal and a head-row
+//! refusal. It never panics and takes no `unsafe`.
 //!
 //! # Evidence grade
 //!
 //! `tested`: `tests/learn_fold_heldout.rs` on the crate's build path — identical models give zero
 //! KL/TV and unit top-1, a perturbed `lm_head` row matches an independent `f64` softmax-KL
 //! recomputation to `1e-6` relative, the mean over several sequences is the token-weighted mean of
-//! the per-sequence values, and the named refusals hold. The engine source's parity control
-//! (`heldout_engine_matches_grad_qwen05b`) compares [`held_out_engines`] with [`held_out`] on the
-//! real `qwen05b` pair under the Q32 carrier to `1e-3` relative KL and an identical top-1 count.
+//! the per-sequence values, and the named refusals hold. `heldout_engine_matches_grad_qwen05b` is a
+//! **measurement**, not a parity control: it prints the `Q8Act` engine path's `|ΔKL|`, `|ΔTV|` and
+//! top-1 against the `forward` path on the same 16 real tokens and asserts only that it ran.
 //! No Lean refinement links this file; it is not on the extracted fragment.
 //!
 //! # Engine source and subsumption
 //!
-//! The engine source runs `Engine::prefill_cols` (`src/engine/step.rs`) for every position's
-//! output-normed final state and `Engine::lm_head_fixed` (`src/engine/step.rs`) per position, so
-//! the measured logits are the engine's own, not a second forward. The empirical best for this
-//! comparison outside the crate is llama.cpp's `llama-perplexity --kl-divergence`
+//! The engine source runs [`Engine::step_logits_state`] under [`KernelMode::Q8Act`] over the
+//! sequence in token order: the shipped decode step (`Engine::next_token_state`, the CPU speed
+//! receipts' `tg` workload) with the `Q8Act` head, so the measured logits are the engine's own
+//! arithmetic, not a second forward. The empirical best for this comparison outside the crate is
+//! llama.cpp's `llama-perplexity --kl-divergence`
 //! (`~/llama.cpp/tools/perplexity/perplexity.cpp:1695`, mean at `:1949`); it is
 //! `not-subsumable` — C++, outside this crate's build path, and the head arithmetic under test is
 //! the crate's own, which that tool cannot substitute.
@@ -85,14 +87,12 @@ pub enum HeldOutError {
     Engine(String),
 }
 
-/// The per-sequence wall split of the engine source, in nanoseconds: the two trunk prefills and the
-/// per-position head projections plus row scoring.
+/// The per-sequence wall of the engine source, in nanoseconds: the shipped
+/// [`Engine::step_logits_state`] decode step over every position, teacher and student.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct EngineWalls {
-    /// `Engine::prefill_cols` wall for the teacher and the student, summed.
-    pub trunk_ns: u64,
-    /// `Engine::lm_head_fixed` and [`Acc::score_logits`] wall, summed over the position blocks.
-    pub head_ns: u64,
+    /// Teacher and student [`Engine::step_logits_state`] wall plus row scoring, summed.
+    pub wall_ns: u64,
 }
 
 /// The scored held-out quality of a student against a teacher.
@@ -156,22 +156,15 @@ fn add(a: i128, b: i128) -> Result<i128, HeldOutError> {
     }
 }
 
-/// Positions projected through the head per block. The reference caps this at 64; 8 keeps the
-/// two logit buffers at `2·8·vocab·8` bytes (18.6 MiB at `vocab = 151936`) and makes a block
-/// boundary fall inside a 16-token parity sequence, so the next-token alignment control is
-/// shape-valid. The head is projected one position at a time either way.
-const ENGINE_BLOCK: usize = 8;
-
 impl Acc {
-    /// Accumulate one block of paired logit rows: the per-row forward KL and total variation, the
-    /// top-1 agreement, and the next-token log-probabilities.
+    /// Accumulate paired logit rows: the per-row forward KL and total variation, the top-1
+    /// agreement, and the next-token log-probabilities.
     ///
     /// `zt` and `zs` are `rows × vocab` Q32.32 row-major buffers; `tokens` covers the scored rows
     /// and is indexed at `r + 1` for the next-token position of row `r`, so a caller scoring a
-    /// suffix of a sequence passes the suffix's first token onward and every row but the block's
-    /// last one still sees its successor. A block that ends at the sequence end has no successor
-    /// for its last row, which is therefore excluded from the NLL exactly as a whole sequence's
-    /// final position is.
+    /// suffix of a sequence passes the suffix's first token onward and every row but the last still
+    /// sees its successor. A row with no successor is excluded from the NLL exactly as a whole
+    /// sequence's final position is.
     ///
     /// # Errors
     ///
@@ -281,26 +274,25 @@ impl Acc {
         self.score_logits(&lt, &ls, v, tokens)
     }
 
-    /// Score one sequence on the engine path: the teacher's and the student's `prefill_cols`
-    /// produce every position's output-normed final state, then each position's state is projected
-    /// by that engine's `lm_head_fixed`, row-block by row-block, into the same [`Acc::score_logits`]
-    /// the [`forward`] source uses.
+    /// Score one sequence on the shipped engine path: the teacher's and the student's
+    /// [`Engine::step_logits_state`] under [`KernelMode::Q8Act`] — the decode step behind
+    /// `Engine::next_token_state` and the CPU speed receipts' `tg` workload — run over the sequence
+    /// in token order, each row pair entering the same [`Acc::score_logits`] the [`forward`] source
+    /// uses.
     ///
     /// # Errors
     ///
     /// [`HeldOutError::Shape`] for a sequence shorter than two tokens or a zero vocabulary;
-    /// [`HeldOutError::Engine`] for a `state`/`prefill_cols`/`lm_head_fixed` refusal, a
-    /// teacher/student vocabulary or embedding-width disagreement, a state row count that is not
-    /// the sequence length, or a head row of the wrong width; plus [`Acc::score_logits`]'s refusals.
+    /// [`HeldOutError::Engine`] for a `state`/`step_logits_state` refusal, a teacher/student
+    /// vocabulary or embedding-width disagreement, or a logits row of the wrong width; plus
+    /// [`Acc::score_logits`]'s refusals.
     ///
     /// # Complexity
     ///
-    /// Time `O(cost(prefill_t) + cost(prefill_s) + t·vocab·n_embd + t·vocab)`: the two prefills in
-    /// `⌈t / prefill_block()⌉` passes each, the head as `t` checked matvecs of `vocab·n_embd`
-    /// multiply-adds, the scoring `O(t·vocab)`. Space `O(t·n_embd + ENGINE_BLOCK·vocab)`:
-    /// `2·t·n_embd` Q32.32 state words (7.0 MiB at 512 positions, `n_embd = 896`) plus the two
-    /// `ENGINE_BLOCK`-row logit buffers (18.6 MiB peak at `vocab = 151936`); no `t·vocab` buffer
-    /// is ever live.
+    /// Time `O(cost(step_t) + cost(step_s) + t·vocab)`: `t` single-column `Q8Act` decode steps per
+    /// engine, each `O(n_layer·(n_embd² + n_embd·n_ff) + pos·n_head·head_dim + vocab·n_embd)` for
+    /// its position `pos`, then the scoring `O(t·vocab)`. Space `O(t·n_embd)` for the two KV
+    /// caches plus one `O(vocab)` logit row per engine; no `t·vocab` buffer is live.
     fn score_engines(
         &mut self,
         teacher: &Engine,
@@ -317,85 +309,42 @@ impl Acc {
         if v == 0 {
             return Err(HeldOutError::Shape("zero vocabulary".to_string()));
         }
-        if student.config.vocab_size != v {
+        if student.config.vocab_size != v || student.config.n_embd != teacher.config.n_embd {
             return Err(HeldOutError::Engine(format!(
-                "student vocab {} != teacher vocab {v}",
-                student.config.vocab_size
-            )));
-        }
-        if student.config.n_embd != teacher.config.n_embd {
-            return Err(HeldOutError::Engine(format!(
-                "student n_embd {} != teacher n_embd {}",
-                student.config.n_embd, teacher.config.n_embd
+                "student geometry {}×{} != teacher {v}×{}",
+                student.config.vocab_size, student.config.n_embd, teacher.config.n_embd
             )));
         }
 
-        let trunk_start = std::time::Instant::now();
         let mut st_t = teacher
             .state(t)
             .map_err(|e| HeldOutError::Engine(format!("teacher state: {e}")))?;
-        let states_t = teacher
-            .prefill_cols(&mut st_t, tokens, KernelMode::Exact)
-            .map_err(|e| HeldOutError::Engine(format!("teacher prefill: {e}")))?;
         let mut st_s = student
             .state(t)
             .map_err(|e| HeldOutError::Engine(format!("student state: {e}")))?;
-        let states_s = student
-            .prefill_cols(&mut st_s, tokens, KernelMode::Exact)
-            .map_err(|e| HeldOutError::Engine(format!("student prefill: {e}")))?;
-        let trunk_ns = u64::try_from(trunk_start.elapsed().as_nanos()).unwrap_or(u64::MAX);
-        if states_t.len() != t || states_s.len() != t {
-            return Err(HeldOutError::Engine(format!(
-                "prefill rows {} / {} != sequence {t}",
-                states_t.len(),
-                states_s.len()
-            )));
-        }
-
-        let head_start = std::time::Instant::now();
-        let mut start = 0usize;
-        while start < t {
-            let end = (start + ENGINE_BLOCK).min(t);
-            let block_rows = end - start;
-            let cap = block_rows.checked_mul(v).ok_or(HeldOutError::Overflow)?;
-            let mut zt = Vec::with_capacity(cap);
-            let mut zs = Vec::with_capacity(cap);
-            for r in start..end {
-                let xt = states_t
-                    .get(r)
-                    .ok_or_else(|| HeldOutError::Engine(format!("teacher state {r} missing")))?;
-                let projected_teacher = teacher.lm_head_fixed(xt).map_err(|e| {
-                    HeldOutError::Engine(format!("teacher lm_head position {r}: {e:?}"))
-                })?;
-                if projected_teacher.len() != v {
-                    return Err(HeldOutError::Engine(format!(
-                        "teacher head row {} != vocab {v}",
-                        projected_teacher.len()
-                    )));
-                }
-                zt.extend_from_slice(&projected_teacher);
-                let xs = states_s
-                    .get(r)
-                    .ok_or_else(|| HeldOutError::Engine(format!("student state {r} missing")))?;
-                let projected_student = student.lm_head_fixed(xs).map_err(|e| {
-                    HeldOutError::Engine(format!("student lm_head position {r}: {e:?}"))
-                })?;
-                if projected_student.len() != v {
-                    return Err(HeldOutError::Engine(format!(
-                        "student head row {} != vocab {v}",
-                        projected_student.len()
-                    )));
-                }
-                zs.extend_from_slice(&projected_student);
+        let start = std::time::Instant::now();
+        for (r, &tok) in tokens.iter().enumerate() {
+            let zt = teacher
+                .step_logits_state(&mut st_t, tok, KernelMode::Q8Act)
+                .map_err(|e| HeldOutError::Engine(format!("teacher step {r}: {e}")))?;
+            let zs = student
+                .step_logits_state(&mut st_s, tok, KernelMode::Q8Act)
+                .map_err(|e| HeldOutError::Engine(format!("student step {r}: {e}")))?;
+            if zt.len() != v || zs.len() != v {
+                return Err(HeldOutError::Engine(format!(
+                    "logits rows {} / {} != vocab {v}",
+                    zt.len(),
+                    zs.len()
+                )));
             }
             let tail = tokens
-                .get(start..)
-                .ok_or_else(|| HeldOutError::Shape(format!("block {start} past sequence")))?;
+                .get(r..)
+                .ok_or_else(|| HeldOutError::Shape(format!("position {r} past sequence")))?;
             self.score_logits(&zt, &zs, v, tail)?;
-            start = end;
         }
-        let head_ns = u64::try_from(head_start.elapsed().as_nanos()).unwrap_or(u64::MAX);
-        Ok(EngineWalls { trunk_ns, head_ns })
+        Ok(EngineWalls {
+            wall_ns: u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX),
+        })
     }
 
     /// Divide the exact accumulators into the `f64` means, the one point of conversion.
@@ -477,18 +426,17 @@ pub fn held_out(
     acc.finish()
 }
 
-/// [`held_out`] on the engine's fast prefill path: the teacher's and the student's
-/// [`Engine::prefill_cols`](crate::engine::Engine) produce every position's output-normed final
-/// state and [`Engine::lm_head_fixed`](crate::engine::Engine) projects each state, row-block by
-/// row-block, into the same [`Acc::score_logits`] accumulator. Values pool exactly as [`held_out`]
-/// pools them: token-weighted means over the per-sequence scores.
+/// [`held_out`] on the engine's shipped path: the teacher's and the student's
+/// [`Engine::step_logits_state`](crate::engine::Engine) under [`KernelMode::Q8Act`] produce each
+/// position's logits, which enter the same [`Acc::score_logits`] accumulator. Values pool exactly
+/// as [`held_out`] pools them: token-weighted means over the per-sequence scores.
 ///
 /// # Errors
 ///
 /// [`HeldOutError::Shape`] when `sequences` is empty, plus every refusal of the engine source
-/// ([`HeldOutError::Engine`] for a state, prefill or head refusal and for a teacher/student
-/// vocabulary or embedding-width disagreement; [`HeldOutError::Head`] and
-/// [`HeldOutError::Overflow`] from the row accumulation).
+/// ([`HeldOutError::Engine`] for a state or step refusal and for a teacher/student vocabulary or
+/// embedding-width disagreement; [`HeldOutError::Head`] and [`HeldOutError::Overflow`] from the row
+/// accumulation).
 ///
 /// # Complexity
 ///
@@ -526,7 +474,7 @@ pub fn held_out_engines_per_seq(
     Ok(held_out_engines_per_seq_timed(teacher, student, sequences)?.0)
 }
 
-/// [`held_out_engines_per_seq`] plus each sequence's [`EngineWalls`] split.
+/// [`held_out_engines_per_seq`] plus each sequence's [`EngineWalls`] wall.
 ///
 /// # Errors
 ///
