@@ -43,10 +43,15 @@ use apeiron::learn::fold::fit::eigh::eigh;
 use apeiron::learn::fold::fit::fold_fit::{fold_fit, FoldFitConfig};
 use apeiron::learn::fold::fit::gptq_e8::gptq_e8;
 use apeiron::learn::fold::fit::icm::{e8_icm_step, PlaneRef};
-use apeiron::learn::fold::fit::steps::{c_step, compose, d_step, fwht128, had_gram, r_step};
+use apeiron::learn::fold::fit::steps::{c_step, compose, d_step, had_gram, r_step};
 use apeiron::learn::fold::layer::stage::metric;
 use apeiron::learn::fold::layer::tensor::{fit_tensor, TensorKind, TensorParams};
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
+
+#[path = "support/fwht_oracle.rs"]
+mod fwht_oracle;
+
+use fwht_oracle::fwht128;
 
 /// The `down` tensor's input width (`intermediate_size`).
 const N: usize = 4864;
@@ -428,7 +433,7 @@ fn t_e_eigh() {
         "(7) eigh(o=896)",
         10.0 * (O as f64).powi(3) / 2.0,
         3,
-        || eigh(&m, O).expect("eigh").0[0],
+        || from_grid(eigh(&q(&m), O).expect("eigh").0[0]),
     );
 }
 

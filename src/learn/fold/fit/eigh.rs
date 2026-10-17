@@ -3,10 +3,10 @@
 //! (`fold_transfer.py:560–583`, read-only spec outside this repository): `M = (ΔW·Hl)·ΔWᵀ`, the
 //! `rank` largest eigenpairs of `½(M + Mᵀ)`, `Corr = U·(Uᵀ ΔW)`, `top_sum = Σ_k max(λ_k, 0)`.
 //!
-//! Carrier: Q32.32 `i64`/`i128`; `f64` only at the `pub` boundaries, across one exact power-of-two
-//! scale and one `to_grid`/`from_grid` rounding per entry. [`top_eigh`] supplies the spectrum, the
-//! pooled `gemm` kernels the products, and the `O(n²)` symmetrisation is serial (≈10⁶ word
-//! operations at `o = 896`, about one pool dispatch's cost).
+//! Carrier: Q32.32 `i64`/`i128` in and out. [`eigh`] takes and returns words; the exact power-of-two
+//! panel shift is applied to the words and undone on the returned eigenvalue words. [`top_eigh`]
+//! supplies the spectrum, the pooled `gemm` kernels the products, and the `O(n²)` symmetrisation is
+//! serial (≈10⁶ word operations at `o = 896`, about one pool dispatch's cost).
 //!
 //! Accepted domain: `a` is PSD — both callers pass a Gram matrix. A diagonal word below `-1`, or a
 //! spectrum below [`check_psd`]'s bound, is [`EighError::NotConverged`], never shifted. The
@@ -26,9 +26,7 @@ use crate::learn::fold::fit::corrector::{eigen_parts, CorrectorError};
 use crate::learn::fold::stats::parts::panel;
 use crate::learn::solve::eig::{top_eigh, EigError, TopEig};
 use crate::learn::solve::gemm::{gemm_nn, gemm_nt, GemmError};
-use crate::learn::solve::q32::{
-    fill_scale, from_grid, ilog2_pos, rshift_rne, to_grid, INPUT_BOUND,
-};
+use crate::learn::solve::q32::{ilog2_pos, rshift_rne};
 
 /// A refusal from the symmetric eigendecomposition or the exact low-rank corrector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,8 +40,32 @@ pub enum EighError {
     RankOutOfRange,
 }
 
-/// `2⁻²⁸`: the [`fill_scale`] fill `2³¹` divided down below [`top_eigh`]'s `2³⁶`-raw input bound.
-const FILL_DOWN: f64 = 1.0 / 268_435_456.0;
+/// The exact power-of-two exponent `e` with `max·2^e ≤ 2³⁵ − 16` maximal, the word form of the
+/// deleted `fill_scale(max)·2⁻²⁸` boundary (`2³¹ − 1` at `2⁻²⁸` is `2³⁵ − 16` raw), so a word panel
+/// reproduces the old scaled input bit for bit from grid-exact operands. `e = 0` for the zero
+/// matrix. `O(1)`.
+fn input_scale(max: u128) -> i32 {
+    const BOUND: u128 = (1u128 << 35) - 16;
+    let Some(bits) = ilog2_pos(max) else {
+        return 0;
+    };
+    let mut e = 34 - bits.cast_signed();
+    loop {
+        let fits = if e >= 0 {
+            u32::try_from(e)
+                .ok()
+                .and_then(|k| max.checked_shl(k))
+                .is_some_and(|v| v <= BOUND)
+        } else {
+            let k = u32::try_from(-e).unwrap_or(u32::MAX);
+            max.checked_shr(k).is_some_and(|v| v <= BOUND)
+        };
+        if fits {
+            return e;
+        }
+        e -= 1;
+    }
+}
 
 /// The exact power-of-two exponent `e` with the word maximum `max·2^e ∈ (2³⁴, 2³⁵]` — the total
 /// shift [`eigen_parts`] applies to the raw Gram words before [`top_eigh`] (`34 − ⌊log₂ max⌋` and
@@ -169,19 +191,11 @@ fn check_psd(evals: &[i64], n: usize) -> Result<(), EighError> {
     Ok(())
 }
 
-/// The `f64` read-back of [`eigh`]'s retained boundary: `evals[k] = μ_k/(2³²·scale)` and the
-/// scale-free eigenvectors.
-/// # Complexity
-/// `O(n + n²)` conversions; `O(n²)` space.
-fn read_back(top: &TopEig, scale: f64) -> (Vec<f64>, Vec<f64>) {
-    let evals = top.evals.iter().map(|&mu| from_grid(mu) / scale).collect();
-    let evecs = top.evecs.iter().map(|&v| from_grid(v)).collect();
-    (evals, evecs)
-}
-
-/// Symmetric eigendecomposition of the PSD `a` (row-major `[n, n]`): eigenvalues ascending,
-/// `eigenvectors` row-major `[n, n]` with column `k` for `eigenvalues[k]` (`Qᵀ Q = I`,
-/// largest-magnitude entry positive). Only `½(a + aᵀ)` is decomposed, as the Python does.
+/// Symmetric eigendecomposition of the PSD `a` (row-major `[n, n]`, Q32.32 words): eigenvalues
+/// ascending as words, `eigenvectors` row-major `[n, n]` with column `k` for `eigenvalues[k]`
+/// (`Qᵀ Q = I`, largest-magnitude entry positive). Only `½(a + aᵀ)` is decomposed, as the Python
+/// does. The input panel is the exact `2^e` shift of [`input_scale`], undone on the eigenvalue
+/// words; the eigenvectors are scale-free.
 ///
 /// # Complexity
 /// `O(MAX_ITERS·n³)` checked multiply-accumulates (`M·Q`, the Rayleigh quotient, the two rotation
@@ -189,23 +203,22 @@ fn read_back(top: &TopEig, scale: f64) -> (Vec<f64>, Vec<f64>) {
 /// spectrum in the first Rayleigh–Ritz step.
 ///
 /// # Errors
-/// [`EighError::ShapeMismatch`] on a length mismatch; [`EighError::NotConverged`] on a non-finite
-/// entry, an out-of-grid entry, a non-PSD spectrum, or the iteration bound.
-pub fn eigh(a: &[f64], n: usize) -> Result<(Vec<f64>, Vec<f64>), EighError> {
+/// [`EighError::ShapeMismatch`] on a length mismatch; [`EighError::NotConverged`] on a scaled entry
+/// or eigenvalue that leaves `i64`, a non-PSD spectrum, or the iteration bound.
+pub fn eigh(a: &[i64], n: usize) -> Result<(Vec<i64>, Vec<i64>), EighError> {
     if a.len() != n * n {
         return Err(EighError::ShapeMismatch);
     }
     if n == 0 {
         return Ok((Vec::new(), Vec::new()));
     }
-    if a.iter().any(|x| !x.is_finite()) {
-        return Err(EighError::NotConverged);
-    }
-    let max_mag = a.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
-    let scale = fill_scale(max_mag) * FILL_DOWN;
+    let max = a
+        .iter()
+        .fold(0u128, |m, &v| m.max(u128::from(v.unsigned_abs())));
+    let e = input_scale(max);
     let mut q = a
         .iter()
-        .map(|&v| to_grid(v * scale, INPUT_BOUND))
+        .map(|&v| scale_away(v, e))
         .collect::<Option<Vec<i64>>>()
         .ok_or(EighError::NotConverged)?;
     symmetrise(&mut q, n)?;
@@ -213,9 +226,16 @@ pub fn eigh(a: &[f64], n: usize) -> Result<(Vec<f64>, Vec<f64>), EighError> {
     if (0..n).any(|i| q[i * n + i] < -1) {
         return Err(EighError::NotConverged);
     }
-    let top = top_eigh(&q, n, n).map_err(eig_err)?;
-    check_psd(&top.evals, n)?;
-    Ok(read_back(&top, scale))
+    let TopEig { evals, evecs, .. } = top_eigh(&q, n, n).map_err(eig_err)?;
+    check_psd(&evals, n)?;
+    // `μ·2⁻ᵉ` is the eigenvalue word in the input's own units; one rounding, ties away from zero,
+    // as the deleted `to_grid` read-back applied.
+    let evals = evals
+        .iter()
+        .map(|&mu| scale_away(mu, -e))
+        .collect::<Option<Vec<i64>>>()
+        .ok_or(EighError::NotConverged)?;
+    Ok((evals, evecs))
 }
 
 /// The `o × o` Gram `M = (ΔW·Hl)·ΔWᵀ`: two pooled [`gemm_nn`]/[`gemm_nt`] products on Q32.32

@@ -32,8 +32,13 @@
 use apeiron::learn::fold::finish::plane::{encode, CodedPlane, PlaneError};
 use apeiron::learn::fold::fit::icm::codebook;
 use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
-use apeiron::learn::fold::fit::steps::{compose, fwht128, GROUP};
+use apeiron::learn::fold::fit::steps::{compose, GROUP};
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
+
+#[path = "support/fwht_oracle.rs"]
+mod fwht_oracle;
+
+use fwht_oracle::fwht128;
 
 /// The f64 fixture as Q32.32 words, the quantiser's input at the test's own data.
 fn words(x: &[f64]) -> Vec<i64> {

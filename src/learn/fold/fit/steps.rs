@@ -16,9 +16,9 @@
 //! # The `Q32.32` carrier and the pool
 //! Every operand, intermediate and result is a `Q32.32` `i64` word (`v/2³²` is the real): a product
 //! of two words is exact in `i128`, rounded once by
-//! [`crate::learn::solve::q32::round_q32_even`]. The only floating-point operations are the two
-//! outer boundaries: [`fwht128`], kept for the caller that still takes reals, and its
-//! [`to_grid_vec`]/[`read_back`] conversion. Pool dispatch is reserved for matrix-sized work:
+//! [`crate::learn::solve::q32::round_q32_even`]. There is no floating-point operation on the
+//! computing path: the module's boundary is words in and words out. Pool dispatch is reserved for
+//! matrix-sized work:
 //! [`wsyrk`], [`hadamard_into`], [`chol_solve`] and [`gemm_nn`] pool in their own drivers (a nested
 //! dispatch would deadlock), and the `n × n` transpose ([`transpose_grid`]) runs on the pool; the
 //! 128-block transform is the engine's [`crate::engine::fwht_fixed`]; every per-row, per-column and
@@ -40,9 +40,8 @@
     clippy::similar_names,
     clippy::needless_range_loop,
     clippy::too_many_arguments,
-    reason = "flat grid kernels index `[o, n]` buffers by `o/i/j/gg/k/m`; the boundary divides a \
-              word by 2³² and narrows a checked `i128`; a shift exponent is a small `i32`; steps take \
-              their operands directly rather than through a bundle struct."
+    reason = "flat grid kernels index `[o, n]` buffers by `o/i/j/gg/k/m`; a shift exponent is a \
+              small `i32`; steps take their operands directly rather than through a bundle struct."
 )]
 
 use crate::engine::chart::pool::chunks_mut_global;
@@ -50,7 +49,7 @@ use crate::engine::chart::task::ChunkTask;
 use crate::engine::{fwht_fixed, HadamardError};
 use crate::learn::solve::chol::{chol_solve, SolveError};
 use crate::learn::solve::gemm::{gemm_nn, GemmError};
-use crate::learn::solve::q32::{self, from_grid, ilog2_pos, rshift_rne, GRID_BOUND};
+use crate::learn::solve::q32::{self, ilog2_pos, rshift_rne};
 use crate::learn::solve::syrk::{hadamard_into, wsyrk, SyrkError};
 
 /// Hadamard block width: one normalised `H₁₂₈/√128` block per 128 columns.
@@ -65,11 +64,6 @@ const UNIT_RAW: i64 = 1_i64 << 32;
 const EPS_Q: i64 = 4_611_686;
 
 // Grid scalar ops, `O(1)` each.
-
-/// `x` as a `Q32.32` word at the grid's `i64` range, or the shape refusal.
-fn to_grid(x: f64) -> Result<i64, StepsError> {
-    q32::to_grid(x, GRID_BOUND).ok_or(StepsError::ShapeMismatch)
-}
 
 /// `a·b` for two words: the exact `i128` product rounded once to `Q32.32`.
 fn mul_word(a: i64, b: i64) -> Result<i64, StepsError> {
@@ -195,20 +189,6 @@ fn add_ridge(a: &mut [i64], n: usize, ridge: i64) -> Result<(), StepsError> {
     Ok(())
 }
 
-/// `x` in `Q32.32` words, refusing a non-finite or out-of-range entry.
-///
-/// # Complexity
-/// `O(len)` conversions, one `round(x·2³²)` per entry; `O(len)` words of output.
-fn to_grid_vec(x: &[f64]) -> Result<Vec<i64>, StepsError> {
-    x.iter().copied().map(to_grid).collect()
-}
-
-/// # Complexity
-/// `g` as `f64` through `v/2³²`: `O(len)` divisions, `O(len)` words of output.
-fn read_back(g: &[i64]) -> Vec<f64> {
-    g.iter().copied().map(from_grid).collect()
-}
-
 /// # Complexity
 /// `max |x[i]|`: `O(len)` comparisons, `O(1)` extra space.
 fn max_mag(x: &[i64]) -> u128 {
@@ -319,22 +299,6 @@ pub fn fwht_words(x: &mut [i64]) -> Result<(), StepsError> {
 /// [`HadamardError`] as a [`StepsError`]: every arm is the shape/range refusal.
 fn map_hadamard(_: HadamardError) -> StepsError {
     StepsError::ShapeMismatch
-}
-
-/// The normalised 128-block Walsh–Hadamard transform of `x` (fresh buffer); its own inverse and
-/// orthonormal in exact arithmetic, a grid round trip returns `x` within the tests' stated bound.
-/// The thin `f64` boundary over [`fwht_words`], kept for the caller that reads reals
-/// ([`crate::learn::fold::stats::basis`]).
-///
-/// # Errors
-/// [`StepsError::ShapeMismatch`] on a non-multiple length or a grid-range/butterfly refusal.
-///
-/// # Complexity
-/// Temporal: `O(x.len())` (see [`fwht_words`]). Spatial: `O(x.len())` words for the copy.
-pub fn fwht128(x: &[f64]) -> Result<Vec<f64>, StepsError> {
-    let mut y = to_grid_vec(x)?;
-    fwht_words(&mut y)?;
-    Ok(read_back(&y))
 }
 
 /// One output row of a transpose; the caller's chunk is a whole row.

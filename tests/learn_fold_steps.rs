@@ -24,15 +24,19 @@
 )]
 
 use apeiron::learn::fold::fit::steps::{
-    c_step, c_step_wshl, compose, d_step, d_step_wshl, fwht128, had_gram, mul_metric, objective,
-    r_step, r_step_wshl, StepsError, GROUP,
+    c_step, c_step_wshl, compose, d_step, d_step_wshl, had_gram, mul_metric, objective, r_step,
+    r_step_wshl, StepsError, GROUP,
 };
 use apeiron::learn::solve::chol::chol_solve;
 use apeiron::learn::solve::q32;
 use apeiron::learn::solve::syrk::{hadamard_into, wsyrk};
 
+#[path = "support/fwht_oracle.rs"]
+mod fwht_oracle;
 #[path = "support/ridge_oracle.rs"]
 mod ridge_oracle;
+
+use fwht_oracle::fwht128;
 
 /// Out rows of the fixtures.
 const O: usize = 4;

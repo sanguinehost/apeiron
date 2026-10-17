@@ -25,8 +25,13 @@ use apeiron::learn::fold::fit::nb_refine::{
     nb_refine, NbError, NbRefined, C_BITS, NB_SWEEPS, ROW_CHUNK,
 };
 use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
-use apeiron::learn::fold::fit::steps::{compose, fwht128, objective};
+use apeiron::learn::fold::fit::steps::{compose, objective};
 use apeiron::learn::solve::q32::{from_grid, round_q32_even, to_grid, GRID_BOUND};
+
+#[path = "support/fwht_oracle.rs"]
+mod fwht_oracle;
+
+use fwht_oracle::fwht128;
 
 /// Deterministic xorshift64 LCG.
 struct Lcg(u64);
