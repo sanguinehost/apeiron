@@ -75635,16 +75635,16 @@ def solve_port.chol.dot_shifted_col
   then ok (some acc1)
   else ok none
 
-/-- [apeiron_word::solve_port::chol::solve_rhs]: loop body 1:
-    Source: '../../src/learn/solve/chol.rs', lines 613:8-619:9 -/
+/-- [apeiron_word::solve_port::chol::solve_cols]: loop body 1:
+    Source: '../../src/learn/solve/chol.rs', lines 624:8-630:9 -/
 @[rust_loop_body]
-def solve_port.chol.solve_rhs_loop0_loop0.body
+def solve_port.chol.solve_cols_loop0_loop0.body
   (d : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
-  (j : Std.Usize) (err : Option solve_port.chol.SolveError)
-  (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
-  Result (ControlFlow ((Option solve_port.chol.SolveError) × (alloc.vec.Vec
-    Std.I64) × Std.Usize) ((Option solve_port.chol.SolveError) ×
-    (alloc.vec.Vec Std.I64)))
+  (j : Std.Usize) (y : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
   := do
   if i < n
   then
@@ -75659,44 +75659,44 @@ def solve_port.chol.solve_rhs_loop0_loop0.body
       let i6 ← Slice.index_usize d i
       let i7 ← lift (core.convert.num.FromI128I64.from i6)
       let o ← solve_port.chol.div_to_i64 i5 i7
-      let (err1, y1) ←
+      let (y1, err1) ←
         match o with
-        | none => ok (some solve_port.chol.SolveError.Overflow, y)
+        | none => ok (y, some solve_port.chol.SolveError.Overflow)
         | some v =>
           do
           let (_, index_mut_back) ←
             alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
               Std.I64) y i
           let y2 := index_mut_back v
-          ok (err, y2)
+          ok (y2, err)
       let i8 ← i + 1#usize
-      ok (cont (err1, y1, i8))
-    else ok (done (err, y))
-  else ok (done (err, y))
+      ok (cont (y1, err1, i8))
+    else ok (done (y, err))
+  else ok (done (y, err))
 
-/-- [apeiron_word::solve_port::chol::solve_rhs]: loop 1:
-    Source: '../../src/learn/solve/chol.rs', lines 613:8-619:9 -/
+/-- [apeiron_word::solve_port::chol::solve_cols]: loop 1:
+    Source: '../../src/learn/solve/chol.rs', lines 624:8-630:9 -/
 @[rust_loop]
-def solve_port.chol.solve_rhs_loop0_loop0
+def solve_port.chol.solve_cols_loop0_loop0
   (d : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
-  (err : Option solve_port.chol.SolveError) (j : Std.Usize)
-  (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
-  Result ((Option solve_port.chol.SolveError) × (alloc.vec.Vec Std.I64))
+  (y : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (j : Std.Usize) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
   := do
   loop
-    (fun (err1, y1, i1) => solve_port.chol.solve_rhs_loop0_loop0.body d b n k j
-      err1 y1 i1)
-    (err, y, i)
+    (fun (y1, err1, i1) => solve_port.chol.solve_cols_loop0_loop0.body d b n k
+      j y1 err1 i1)
+    (y, err, i)
 
-/-- [apeiron_word::solve_port::chol::solve_rhs]: loop body 2:
-    Source: '../../src/learn/solve/chol.rs', lines 622:8-631:9 -/
+/-- [apeiron_word::solve_port::chol::solve_cols]: loop body 2:
+    Source: '../../src/learn/solve/chol.rs', lines 633:8-642:9 -/
 @[rust_loop_body]
-def solve_port.chol.solve_rhs_loop0_loop1.body
-  (l : Slice Std.I64) (n : Std.Usize) (err : Option solve_port.chol.SolveError)
-  (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
-  Result (ControlFlow ((Option solve_port.chol.SolveError) × (alloc.vec.Vec
-    Std.I64) × Std.Usize) ((Option solve_port.chol.SolveError) ×
-    (alloc.vec.Vec Std.I64)))
+def solve_port.chol.solve_cols_loop0_loop1.body
+  (l : Slice Std.I64) (n : Std.Usize) (y : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
   := do
   if i < n
   then
@@ -75715,9 +75715,9 @@ def solve_port.chol.solve_rhs_loop0_loop1.body
         alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
           Std.I64) y { start := 0#usize, «end» := i }
       let o ← solve_port.chol.dot_shifted_row i1 s s1
-      let (err1, y1) ←
+      let (y1, err1) ←
         match o with
-        | none => ok (some solve_port.chol.SolveError.Overflow, y)
+        | none => ok (y, some solve_port.chol.SolveError.Overflow)
         | some s2 =>
           do
           let i4 ← i2 + i
@@ -75725,40 +75725,40 @@ def solve_port.chol.solve_rhs_loop0_loop1.body
           let i6 ← lift (core.convert.num.FromI128I64.from i5)
           let o1 ← solve_port.chol.div_to_i64 s2 i6
           match o1 with
-          | none => ok (some solve_port.chol.SolveError.Overflow, y)
+          | none => ok (y, some solve_port.chol.SolveError.Overflow)
           | some v =>
             let (_, index_mut_back) ←
               alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
                 Std.I64) y i
             let y2 := index_mut_back v
-            ok (err, y2)
+            ok (y2, err)
       let i4 ← i + 1#usize
-      ok (cont (err1, y1, i4))
-    else ok (done (err, y))
-  else ok (done (err, y))
+      ok (cont (y1, err1, i4))
+    else ok (done (y, err))
+  else ok (done (y, err))
 
-/-- [apeiron_word::solve_port::chol::solve_rhs]: loop 2:
-    Source: '../../src/learn/solve/chol.rs', lines 622:8-631:9 -/
+/-- [apeiron_word::solve_port::chol::solve_cols]: loop 2:
+    Source: '../../src/learn/solve/chol.rs', lines 633:8-642:9 -/
 @[rust_loop]
-def solve_port.chol.solve_rhs_loop0_loop1
-  (l : Slice Std.I64) (n : Std.Usize) (err : Option solve_port.chol.SolveError)
-  (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
-  Result ((Option solve_port.chol.SolveError) × (alloc.vec.Vec Std.I64))
+def solve_port.chol.solve_cols_loop0_loop1
+  (l : Slice Std.I64) (n : Std.Usize) (y : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
   := do
   loop
-    (fun (err1, y1, i1) => solve_port.chol.solve_rhs_loop0_loop1.body l n err1
-      y1 i1)
-    (err, y, i)
+    (fun (y1, err1, i1) => solve_port.chol.solve_cols_loop0_loop1.body l n y1
+      err1 i1)
+    (y, err, i)
 
-/-- [apeiron_word::solve_port::chol::solve_rhs]: loop body 3:
-    Source: '../../src/learn/solve/chol.rs', lines 634:8-643:9 -/
+/-- [apeiron_word::solve_port::chol::solve_cols]: loop body 3:
+    Source: '../../src/learn/solve/chol.rs', lines 645:8-654:9 -/
 @[rust_loop_body]
-def solve_port.chol.solve_rhs_loop0_loop2.body
-  (l : Slice Std.I64) (n : Std.Usize) (err : Option solve_port.chol.SolveError)
-  (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
-  Result (ControlFlow ((Option solve_port.chol.SolveError) × (alloc.vec.Vec
-    Std.I64) × Std.Usize) ((Option solve_port.chol.SolveError) ×
-    (alloc.vec.Vec Std.I64)))
+def solve_port.chol.solve_cols_loop0_loop2.body
+  (l : Slice Std.I64) (n : Std.Usize) (y : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
   := do
   if i > 0#usize
   then
@@ -75773,7 +75773,7 @@ def solve_port.chol.solve_rhs_loop0_loop2.body
       let i3 ← i1 + 1#usize
       let o ← solve_port.chol.dot_shifted_col i2 l n i1 s i3 n
       match o with
-      | none => ok (cont (some solve_port.chol.SolveError.Overflow, y, i1))
+      | none => ok (cont (y, some solve_port.chol.SolveError.Overflow, i1))
       | some s1 =>
         let i4 ← i1 * n
         let i5 ← i4 + i1
@@ -75781,39 +75781,38 @@ def solve_port.chol.solve_rhs_loop0_loop2.body
         let i7 ← lift (core.convert.num.FromI128I64.from i6)
         let o1 ← solve_port.chol.div_to_i64 s1 i7
         match o1 with
-        | none => ok (cont (some solve_port.chol.SolveError.Overflow, y, i1))
+        | none => ok (cont (y, some solve_port.chol.SolveError.Overflow, i1))
         | some v =>
           let (_, index_mut_back) ←
             alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
               Std.I64) y i1
           let y1 := index_mut_back v
-          ok (cont (err, y1, i1))
-    else ok (done (err, y))
-  else ok (done (err, y))
+          ok (cont (y1, err, i1))
+    else ok (done (y, err))
+  else ok (done (y, err))
 
-/-- [apeiron_word::solve_port::chol::solve_rhs]: loop 3:
-    Source: '../../src/learn/solve/chol.rs', lines 634:8-643:9 -/
+/-- [apeiron_word::solve_port::chol::solve_cols]: loop 3:
+    Source: '../../src/learn/solve/chol.rs', lines 645:8-654:9 -/
 @[rust_loop]
-def solve_port.chol.solve_rhs_loop0_loop2
-  (l : Slice Std.I64) (n : Std.Usize) (err : Option solve_port.chol.SolveError)
-  (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
-  Result ((Option solve_port.chol.SolveError) × (alloc.vec.Vec Std.I64))
+def solve_port.chol.solve_cols_loop0_loop2
+  (l : Slice Std.I64) (n : Std.Usize) (y : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
   := do
   loop
-    (fun (err1, y1, i1) => solve_port.chol.solve_rhs_loop0_loop2.body l n err1
-      y1 i1)
-    (err, y, i)
+    (fun (y1, err1, i1) => solve_port.chol.solve_cols_loop0_loop2.body l n y1
+      err1 i1)
+    (y, err, i)
 
-/-- [apeiron_word::solve_port::chol::solve_rhs]: loop body 4:
-    Source: '../../src/learn/solve/chol.rs', lines 646:8-652:9 -/
+/-- [apeiron_word::solve_port::chol::solve_cols]: loop body 4:
+    Source: '../../src/learn/solve/chol.rs', lines 657:8-663:9 -/
 @[rust_loop_body]
-def solve_port.chol.solve_rhs_loop0_loop3.body
-  (d : Slice Std.I64) (n : Std.Usize) (k : Std.Usize) (j : Std.Usize)
-  (y : alloc.vec.Vec Std.I64) (out : alloc.vec.Vec Std.I64)
-  (err : Option solve_port.chol.SolveError) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
-    (Option solve_port.chol.SolveError)))
+def solve_port.chol.solve_cols_loop0_loop3.body
+  (d : Slice Std.I64) (n : Std.Usize) (y : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (yt : Slice Std.I64)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Option solve_port.chol.SolveError) × (Slice Std.I64)
+    × Std.Usize) ((Option solve_port.chol.SolveError) × (Slice Std.I64)))
   := do
   if i < n
   then
@@ -75827,98 +75826,371 @@ def solve_port.chol.solve_rhs_loop0_loop3.body
       let i4 ← Slice.index_usize d i
       let i5 ← lift (core.convert.num.FromI128I64.from i4)
       let o ← solve_port.chol.div_to_i64 i3 i5
-      let (out1, err1) ←
+      let (err1, yt1) ←
         match o with
-        | none => ok (out, some solve_port.chol.SolveError.Overflow)
-        | some v =>
-          do
-          let i6 ← i * k
-          let i7 ← i6 + j
-          let (_, index_mut_back) ←
-            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-              Std.I64) out i7
-          let out2 := index_mut_back v
-          ok (out2, err)
+        | none => ok (some solve_port.chol.SolveError.Overflow, yt)
+        | some v => do
+                    let s ← Slice.update yt i v
+                    ok (err, s)
       let i6 ← i + 1#usize
-      ok (cont (out1, err1, i6))
-    else ok (done (out, err))
-  else ok (done (out, err))
+      ok (cont (err1, yt1, i6))
+    else ok (done (err, yt))
+  else ok (done (err, yt))
 
-/-- [apeiron_word::solve_port::chol::solve_rhs]: loop 4:
-    Source: '../../src/learn/solve/chol.rs', lines 646:8-652:9 -/
+/-- [apeiron_word::solve_port::chol::solve_cols]: loop 4:
+    Source: '../../src/learn/solve/chol.rs', lines 657:8-663:9 -/
 @[rust_loop]
-def solve_port.chol.solve_rhs_loop0_loop3
-  (d : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
-  (out : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
-  (j : Std.Usize) (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+def solve_port.chol.solve_cols_loop0_loop3
+  (d : Slice Std.I64) (n : Std.Usize) (y : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (yt : Slice Std.I64)
+  (i : Std.Usize) :
+  Result ((Option solve_port.chol.SolveError) × (Slice Std.I64))
   := do
   loop
-    (fun (out1, err1, i1) => solve_port.chol.solve_rhs_loop0_loop3.body d n k j
-      y out1 err1 i1)
-    (out, err, i)
+    (fun (err1, yt1, i1) => solve_port.chol.solve_cols_loop0_loop3.body d n y
+      err1 yt1 i1)
+    (err, yt, i)
 
-/-- [apeiron_word::solve_port::chol::solve_rhs]: loop body 0:
-    Source: '../../src/learn/solve/chol.rs', lines 609:10-610:32 -/
+/-- [apeiron_word::solve_port::chol::solve_cols]: loop body 0:
+    Source: '../../src/learn/solve/chol.rs', lines 619:4-665:5 -/
 @[rust_loop_body]
-def solve_port.chol.solve_rhs_loop0.body
+def solve_port.chol.solve_cols_loop0.body
   (l : Slice Std.I64) (d : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize)
-  (k : Std.Usize) (out : alloc.vec.Vec Std.I64)
-  (err : Option solve_port.chol.SolveError) (j : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
-    (Option solve_port.chol.SolveError)))
+  (k : Std.Usize) (c0 : Std.Usize) (cols : Std.Usize) (piece : Slice Std.I64)
+  (y : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (t : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((Slice Std.I64) × (Option
+    solve_port.chol.SolveError)))
   := do
-  if j < k
+  if t < cols
   then
     let b1 := core.option.Option.is_none err
     if b1
     then
-      let y ← alloc.vec.from_elem core.clone.CloneI64 0#i64 n
-      let (err1, y1) ←
-        solve_port.chol.solve_rhs_loop0_loop0 d b n k err j y 0#usize
-      let (err2, y2) ←
-        solve_port.chol.solve_rhs_loop0_loop1 l n err1 y1 0#usize
-      let (err3, y3) ← solve_port.chol.solve_rhs_loop0_loop2 l n err2 y2 n
-      let (out1, err4) ←
-        solve_port.chol.solve_rhs_loop0_loop3 d n k out err3 j y3 0#usize
-      let j1 ← j + 1#usize
-      ok (cont (out1, err4, j1))
-    else ok (done (out, err))
-  else ok (done (out, err))
+      let j ← c0 + t
+      let i ← t * n
+      let i1 ← t + 1#usize
+      let i2 ← i1 * n
+      let (yt, index_mut_back) ←
+        core.slice.index.Slice.index_mut
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) piece
+          { start := i, «end» := i2 }
+      let (y1, err1) ←
+        solve_port.chol.solve_cols_loop0_loop0 d b n k y err j 0#usize
+      let (y2, err2) ←
+        solve_port.chol.solve_cols_loop0_loop1 l n y1 err1 0#usize
+      let (y3, err3) ← solve_port.chol.solve_cols_loop0_loop2 l n y2 err2 n
+      let (err4, yt1) ←
+        solve_port.chol.solve_cols_loop0_loop3 d n y3 err3 yt 0#usize
+      let t1 ← t + 1#usize
+      let piece1 := index_mut_back yt1
+      ok (cont (piece1, y3, err4, t1))
+    else ok (done (piece, err))
+  else ok (done (piece, err))
 
-/-- [apeiron_word::solve_port::chol::solve_rhs]: loop 0:
-    Source: '../../src/learn/solve/chol.rs', lines 609:10-610:32 -/
+/-- [apeiron_word::solve_port::chol::solve_cols]: loop 0:
+    Source: '../../src/learn/solve/chol.rs', lines 619:4-665:5 -/
 @[rust_loop]
-def solve_port.chol.solve_rhs_loop0
+def solve_port.chol.solve_cols_loop0
   (l : Slice Std.I64) (d : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize)
-  (k : Std.Usize) (out : alloc.vec.Vec Std.I64)
-  (err : Option solve_port.chol.SolveError) (j : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  (k : Std.Usize) (c0 : Std.Usize) (piece : Slice Std.I64) (cols : Std.Usize)
+  (y : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (t : Std.Usize) :
+  Result ((Slice Std.I64) × (Option solve_port.chol.SolveError))
   := do
   loop
-    (fun (out1, err1, j1) => solve_port.chol.solve_rhs_loop0.body l d b n k
-      out1 err1 j1)
-    (out, err, j)
+    (fun (piece1, y1, err1, t1) => solve_port.chol.solve_cols_loop0.body l d b
+      n k c0 cols piece1 y1 err1 t1)
+    (piece, y, err, t)
+
+/-- [apeiron_word::solve_port::chol::solve_cols]:
+    Source: '../../src/learn/solve/chol.rs', lines 604:0-670:1 -/
+def solve_port.chol.solve_cols
+  (l : Slice Std.I64) (d : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize)
+  (k : Std.Usize) (c0 : Std.Usize) (piece : Slice Std.I64) :
+  Result ((core.result.Result Unit solve_port.chol.SolveError) × (Slice
+    Std.I64))
+  := do
+  let i := Slice.len piece
+  let cols ← i / n
+  let y ← alloc.vec.from_elem core.clone.CloneI64 0#i64 n
+  let (piece1, err) ←
+    solve_port.chol.solve_cols_loop0 l d b n k c0 piece cols y none 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok (), piece1)
+  | some e => ok (core.result.Result.Err e, piece1)
+
+/-- [apeiron_word::solve_port::chol::RHS_POOL_MIN_OPS]
+    Source: '../../src/learn/solve/chol.rs', lines 676:0-676:40 -/
+@[global_simps, irreducible]
+def solve_port.chol.RHS_POOL_MIN_OPS : Result Std.Usize := 1#usize <<< 20#i32
+
+/-- [apeiron_word::solve_port::chol::RhsColumns]
+    Source: '../../src/learn/solve/chol.rs', lines 680:0-687:1 -/
+structure solve_port.chol.RhsColumns where
+  l : Slice Std.I64
+  d : Slice Std.I64
+  b : Slice Std.I64
+  n : Std.Usize
+  k : Std.Usize
+  first : chart.pool.FirstErr Std.Usize solve_port.chol.SolveError
+
+/-- [apeiron_word::solve_port::chol::{impl apeiron_word::chart::task::ChunkTask<i64> for apeiron_word::solve_port::chol::RhsColumns<'_0>}::run]:
+    Source: '../../src/learn/solve/chol.rs', lines 690:4-702:5 -/
+def solve_port.chol.RhsColumns.Insts.Apeiron_wordChartTaskChunkTaskI64.run
+  (self : solve_port.chol.RhsColumns) (_c : Std.Usize) (start : Std.Usize)
+  (piece : Slice Std.I64) :
+  Result (Slice Std.I64)
+  := do
+  let i ← start / self.n
+  let (r, piece1) ←
+    solve_port.chol.solve_cols self.l self.d self.b self.n self.k i piece
+  match r with
+  | core.result.Result.Ok _ => ok piece1
+  | core.result.Result.Err e =>
+    chart.pool.FirstErr.record core.cmp.OrdUsize self.first start e
+    ok piece1
+
+/-- Trait implementation: [apeiron_word::solve_port::chol::{impl apeiron_word::chart::task::ChunkTask<i64> for apeiron_word::solve_port::chol::RhsColumns<'_0>}]
+    Source: '../../src/learn/solve/chol.rs', lines 689:0-703:1 -/
+@[reducible]
+def solve_port.chol.RhsColumns.Insts.Apeiron_wordChartTaskChunkTaskI64 :
+  chart.task.ChunkTask solve_port.chol.RhsColumns Std.I64 := {
+  run := solve_port.chol.RhsColumns.Insts.Apeiron_wordChartTaskChunkTaskI64.run
+}
+
+/-- [apeiron_word::solve_port::chol::solve_rhs::{closure}]
+    Source: '../../src/learn/solve/chol.rs', lines 727:22-727:46 -/
+@[reducible]
+def solve_port.chol.solve_rhs.closure := Unit
+
+/-- [apeiron_word::solve_port::chol::solve_rhs::{impl core::ops::function::FnOnce<(usize,), bool> for apeiron_word::solve_port::chol::solve_rhs::{closure}}::call_once]:
+    Source: '../../src/learn/solve/chol.rs', lines 727:22-727:46 -/
+def
+  solve_port.chol.solve_rhs.closure.Insts.CoreOpsFunctionFnOnceTupleUsizeBool.call_once
+  (c : solve_port.chol.solve_rhs.closure) (tupled_args : Std.Usize) :
+  Result Bool
+  := do
+  let i ← solve_port.chol.RHS_POOL_MIN_OPS
+  ok (tupled_args < i)
+
+/-- Trait implementation: [apeiron_word::solve_port::chol::solve_rhs::{impl core::ops::function::FnOnce<(usize,), bool> for apeiron_word::solve_port::chol::solve_rhs::{closure}}]
+    Source: '../../src/learn/solve/chol.rs', lines 727:22-727:46 -/
+@[reducible]
+def solve_port.chol.solve_rhs.closure.Insts.CoreOpsFunctionFnOnceTupleUsizeBool
+  : core.ops.function.FnOnce solve_port.chol.solve_rhs.closure Std.Usize Bool
+  := {
+  call_once :=
+    solve_port.chol.solve_rhs.closure.Insts.CoreOpsFunctionFnOnceTupleUsizeBool.call_once
+}
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop body 1:
+    Source: '../../src/learn/solve/chol.rs', lines 750:8-752:9 -/
+@[rust_loop_body]
+def solve_port.chol.solve_rhs_loop0_loop0.body
+  (n : Std.Usize) (k : Std.Usize) (yt : alloc.vec.Vec Std.I64) (c : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (out : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done out)
+  | some i =>
+    let i1 ← c * n
+    let i2 ← i1 + i
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) yt i2
+    let i4 ← i * k
+    let i5 ← i4 + c
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        out i5
+    let out1 := index_mut_back i3
+    ok (cont (iter1, out1))
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop 1:
+    Source: '../../src/learn/solve/chol.rs', lines 750:8-752:9 -/
+@[rust_loop]
+def solve_port.chol.solve_rhs_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize) (k : Std.Usize)
+  (yt : alloc.vec.Vec Std.I64) (out : alloc.vec.Vec Std.I64) (c : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, out1) => solve_port.chol.solve_rhs_loop0_loop0.body n k yt c
+      iter1 out1)
+    (iter, out)
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop body 0:
+    Source: '../../src/learn/solve/chol.rs', lines 749:4-753:5 -/
+@[rust_loop_body]
+def solve_port.chol.solve_rhs_loop0.body
+  (n : Std.Usize) (k : Std.Usize) (yt : alloc.vec.Vec Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (out : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done out)
+  | some c =>
+    let out1 ←
+      solve_port.chol.solve_rhs_loop0_loop0 { start := 0#usize, «end» := n }
+        n k yt out c
+    ok (cont (iter1, out1))
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop 0:
+    Source: '../../src/learn/solve/chol.rs', lines 749:4-753:5 -/
+@[rust_loop]
+def solve_port.chol.solve_rhs_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize) (k : Std.Usize)
+  (yt : alloc.vec.Vec Std.I64) (out : alloc.vec.Vec Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, out1) => solve_port.chol.solve_rhs_loop0.body n k yt iter1
+      out1)
+    (iter, out)
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop body 3:
+    Source: '../../src/learn/solve/chol.rs', lines 750:8-752:9 -/
+@[rust_loop_body]
+def solve_port.chol.solve_rhs_loop1_loop0.body
+  (n : Std.Usize) (k : Std.Usize) (yt : alloc.vec.Vec Std.I64) (c : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (out : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done out)
+  | some i =>
+    let i1 ← c * n
+    let i2 ← i1 + i
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) yt i2
+    let i4 ← i * k
+    let i5 ← i4 + c
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        out i5
+    let out1 := index_mut_back i3
+    ok (cont (iter1, out1))
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop 3:
+    Source: '../../src/learn/solve/chol.rs', lines 750:8-752:9 -/
+@[rust_loop]
+def solve_port.chol.solve_rhs_loop1_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize) (k : Std.Usize)
+  (yt : alloc.vec.Vec Std.I64) (out : alloc.vec.Vec Std.I64) (c : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, out1) => solve_port.chol.solve_rhs_loop1_loop0.body n k yt c
+      iter1 out1)
+    (iter, out)
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop body 2:
+    Source: '../../src/learn/solve/chol.rs', lines 749:4-753:5 -/
+@[rust_loop_body]
+def solve_port.chol.solve_rhs_loop1.body
+  (n : Std.Usize) (k : Std.Usize) (yt : alloc.vec.Vec Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (out : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done out)
+  | some c =>
+    let out1 ←
+      solve_port.chol.solve_rhs_loop1_loop0 { start := 0#usize, «end» := n }
+        n k yt out c
+    ok (cont (iter1, out1))
+
+/-- [apeiron_word::solve_port::chol::solve_rhs]: loop 2:
+    Source: '../../src/learn/solve/chol.rs', lines 749:4-753:5 -/
+@[rust_loop]
+def solve_port.chol.solve_rhs_loop1
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize) (k : Std.Usize)
+  (yt : alloc.vec.Vec Std.I64) (out : alloc.vec.Vec Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, out1) => solve_port.chol.solve_rhs_loop1.body n k yt iter1
+      out1)
+    (iter, out)
 
 /-- [apeiron_word::solve_port::chol::solve_rhs]:
-    Source: '../../src/learn/solve/chol.rs', lines 603:0-659:1 -/
+    Source: '../../src/learn/solve/chol.rs', lines 723:0-755:1 -/
 def solve_port.chol.solve_rhs
   (l : Slice Std.I64) (d : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize)
   (k : Std.Usize) :
   Result (core.result.Result (alloc.vec.Vec Std.I64)
     solve_port.chol.SolveError)
   := do
-  let i ← n * k
-  let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
-  let (out1, err) ←
-    solve_port.chol.solve_rhs_loop0 l d b n k out none 0#usize
-  match err with
-  | none => ok (core.result.Result.Ok out1)
-  | some e => ok (core.result.Result.Err e)
+  let o ← lift (Usize.checked_mul n k)
+  let r ← core.option.Option.ok_or o solve_port.chol.SolveError.Overflow
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let yt ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+    let ops ← lift (Usize.checked_mul n val)
+    let b1 ←
+      core.option.Option.is_none_or
+        solve_port.chol.solve_rhs.closure.Insts.CoreOpsFunctionFnOnceTupleUsizeBool
+        ops ()
+    if b1
+    then
+      let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut yt)
+      let (r1, s1) ← solve_port.chol.solve_cols l d b n k 0#usize s
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue _ =>
+        let yt1 := deref_mut_back s1
+        let out ←
+          solve_port.chol.solve_rhs_loop0 { start := 0#usize, «end» := k } n
+            k yt1 yt
+        ok (core.result.Result.Ok out)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          solve_port.chol.SolveError) residual
+    else
+      let i ← chart.pool.width_global
+      let i1 ← core.num.Usize.div_ceil k i
+      let chunk_cols ← core.cmp.Ord.max.default core.cmp.OrdUsize i1 1#usize
+      let first ←
+        chart.pool.FirstErr.new solve_port.chol.SolveError core.cmp.OrdUsize
+      let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut yt)
+      let i2 ← chunk_cols * n
+      let s1 ←
+        chart.pool.chunks_mut_global
+          solve_port.chol.RhsColumns.Insts.Apeiron_wordChartTaskChunkTaskI64 s
+          i2 { l, d, b, n, k, first }
+      let o1 ← chart.pool.FirstErr.take core.cmp.OrdUsize first
+      match o1 with
+      | none =>
+        let yt1 := deref_mut_back s1
+        let out ←
+          solve_port.chol.solve_rhs_loop1 { start := 0#usize, «end» := k } n
+            k yt1 yt
+        ok (core.result.Result.Ok out)
+      | some p => let (_, e) := p
+                  ok (core.result.Result.Err e)
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      solve_port.chol.SolveError) residual
 
 /-- [apeiron_word::solve_port::chol::exact_residual]: loop body 1:
-    Source: '../../src/learn/solve/chol.rs', lines 687:8-690:9 -/
+    Source: '../../src/learn/solve/chol.rs', lines 783:8-786:9 -/
 @[rust_loop_body]
 def solve_port.chol.exact_residual_loop0_loop0.body
   (x : Slice Std.I64) (n : Std.Usize) (k : Std.Usize) (j : Std.Usize)
@@ -75940,7 +76212,7 @@ def solve_port.chol.exact_residual_loop0_loop0.body
   else ok (done xcol)
 
 /-- [apeiron_word::solve_port::chol::exact_residual]: loop 1:
-    Source: '../../src/learn/solve/chol.rs', lines 687:8-690:9 -/
+    Source: '../../src/learn/solve/chol.rs', lines 783:8-786:9 -/
 @[rust_loop]
 def solve_port.chol.exact_residual_loop0_loop0
   (x : Slice Std.I64) (n : Std.Usize) (k : Std.Usize) (j : Std.Usize)
@@ -75953,7 +76225,7 @@ def solve_port.chol.exact_residual_loop0_loop0
     (xcol, t)
 
 /-- [apeiron_word::solve_port::chol::exact_residual]: loop body 2:
-    Source: '../../src/learn/solve/chol.rs', lines 692:8-701:9 -/
+    Source: '../../src/learn/solve/chol.rs', lines 788:8-797:9 -/
 @[rust_loop_body]
 def solve_port.chol.exact_residual_loop0_loop1.body
   (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
@@ -76000,7 +76272,7 @@ def solve_port.chol.exact_residual_loop0_loop1.body
   else ok (done (r, err))
 
 /-- [apeiron_word::solve_port::chol::exact_residual]: loop 2:
-    Source: '../../src/learn/solve/chol.rs', lines 692:8-701:9 -/
+    Source: '../../src/learn/solve/chol.rs', lines 788:8-797:9 -/
 @[rust_loop]
 def solve_port.chol.exact_residual_loop0_loop1
   (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize)
@@ -76014,7 +76286,7 @@ def solve_port.chol.exact_residual_loop0_loop1
     (r, err, i)
 
 /-- [apeiron_word::solve_port::chol::exact_residual]: loop body 0:
-    Source: '../../src/learn/solve/chol.rs', lines 684:10-685:35 -/
+    Source: '../../src/learn/solve/chol.rs', lines 780:10-781:35 -/
 @[rust_loop_body]
 def solve_port.chol.exact_residual_loop0.body
   (a : Slice Std.I64) (b : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize)
@@ -76041,7 +76313,7 @@ def solve_port.chol.exact_residual_loop0.body
   else ok (done (r, err))
 
 /-- [apeiron_word::solve_port::chol::exact_residual]: loop 0:
-    Source: '../../src/learn/solve/chol.rs', lines 684:10-685:35 -/
+    Source: '../../src/learn/solve/chol.rs', lines 780:10-781:35 -/
 @[rust_loop]
 def solve_port.chol.exact_residual_loop0
   (a : Slice Std.I64) (b : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize)
@@ -76055,7 +76327,7 @@ def solve_port.chol.exact_residual_loop0
     (r, err, j)
 
 /-- [apeiron_word::solve_port::chol::exact_residual]:
-    Source: '../../src/learn/solve/chol.rs', lines 673:0-708:1 -/
+    Source: '../../src/learn/solve/chol.rs', lines 769:0-804:1 -/
 def solve_port.chol.exact_residual
   (a : Slice Std.I64) (b : Slice Std.I64) (x : Slice Std.I64) (n : Std.Usize)
   (k : Std.Usize) :
@@ -76071,7 +76343,7 @@ def solve_port.chol.exact_residual
   | some e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::solve_port::chol::max_abs]: loop body 0:
-    Source: '../../src/learn/solve/chol.rs', lines 717:4-722:5 -/
+    Source: '../../src/learn/solve/chol.rs', lines 813:4-818:5 -/
 @[rust_loop_body]
 def solve_port.chol.max_abs_loop.body
   (iter : core.slice.iter.Iter Std.I64) (mx : Std.I128) :
@@ -76088,7 +76360,7 @@ def solve_port.chol.max_abs_loop.body
     else ok (cont (iter1, mx))
 
 /-- [apeiron_word::solve_port::chol::max_abs]: loop 0:
-    Source: '../../src/learn/solve/chol.rs', lines 717:4-722:5 -/
+    Source: '../../src/learn/solve/chol.rs', lines 813:4-818:5 -/
 @[rust_loop]
 def solve_port.chol.max_abs_loop
   (iter : core.slice.iter.Iter Std.I64) (mx : Std.I128) : Result Std.I128 := do
@@ -76097,7 +76369,7 @@ def solve_port.chol.max_abs_loop
     (iter, mx)
 
 /-- [apeiron_word::solve_port::chol::max_abs]:
-    Source: '../../src/learn/solve/chol.rs', lines 715:0-724:1 -/
+    Source: '../../src/learn/solve/chol.rs', lines 811:0-820:1 -/
 def solve_port.chol.max_abs
   (entries : Slice Std.I64) : Result (Option Std.I64) := do
   let iter ←
@@ -76107,7 +76379,7 @@ def solve_port.chol.max_abs
   solve_port.q32.narrow mx
 
 /-- [apeiron_word::solve_port::chol::chol_solve]: loop body 0:
-    Source: '../../src/learn/solve/chol.rs', lines 768:4-774:5
+    Source: '../../src/learn/solve/chol.rs', lines 864:4-870:5
     Visibility: public -/
 @[rust_loop_body]
 def solve_port.chol.chol_solve_loop.body
@@ -76146,7 +76418,7 @@ def solve_port.chol.chol_solve_loop.body
   else ok (done (x, err))
 
 /-- [apeiron_word::solve_port::chol::chol_solve]: loop 0:
-    Source: '../../src/learn/solve/chol.rs', lines 768:4-774:5
+    Source: '../../src/learn/solve/chol.rs', lines 864:4-870:5
     Visibility: public -/
 @[rust_loop]
 def solve_port.chol.chol_solve_loop
@@ -76161,7 +76433,7 @@ def solve_port.chol.chol_solve_loop
     (x, err, idx)
 
 /-- [apeiron_word::solve_port::chol::chol_solve]:
-    Source: '../../src/learn/solve/chol.rs', lines 743:0-781:1
+    Source: '../../src/learn/solve/chol.rs', lines 839:0-877:1
     Visibility: public -/
 def solve_port.chol.chol_solve
   (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (k : Std.Usize) :

@@ -586,10 +586,12 @@ fn dot_shifted_col(
     }
 }
 
-/// Solve `A X = B` given an equilibration `d` and the factor `L` of `Â`: equilibrate the right-hand
-/// side `B̂ = D⁻¹ B`, forward then back substitute `L Lᵀ Ŷ = B̂`, then unscale `X = D⁻¹ Ŷ`.
-/// `b` is row-major `[n, k]` in the **original** scale; the result `x` is too. One column at a time,
-/// so the strided right-hand-side reads become a contiguous gather.
+/// Solve the columns `[c0, c0 + piece.len()/n)` of `A X = B` given the equilibration `d` and the
+/// factor `L` of `Â`: equilibrate the right-hand side `B̂ = D⁻¹ B`, forward then back substitute
+/// `L Lᵀ Ŷ = B̂`, then unscale `X = D⁻¹ Ŷ`. `b` is row-major `[n, k]` in the **original** scale;
+/// the transposed solution `Xᵀ[c·n + i] = X_ic` is written to `piece`, one contiguous `n`-word
+/// column per position, so a pool task owns a contiguous column range. The columns are independent:
+/// each reads only `L`, `d` and its own gather of `b`, so the split changes no arithmetic.
 ///
 /// # Errors
 ///
@@ -597,17 +599,26 @@ fn dot_shifted_col(
 ///
 /// # Complexity
 ///
-/// `O(n²·k)` checked multiply-subtracts (two triangular solves of `n²/2` per column) and `O(n·k)`
-/// space for the result plus `O(n)` per-column scratch. Derivation: per column, the forward solve
-/// is `Σ_i i` and the back solve `Σ_i (n−i)`, both `n²/2`.
-fn solve_rhs(l: &[i64], d: &[i64], b: &[i64], n: usize, k: usize) -> Result<Vec<i64>, SolveError> {
-    let mut out = vec![0i64; n * k];
+/// Time: `O((cols)·n²)` checked multiply-subtracts — per column the forward solve is `Σ_i i` and
+/// the back solve `Σ_i (n−i)`, both `n²/2`. Space: `O(n)` per-task scratch; the output is in place.
+fn solve_cols(
+    l: &[i64],
+    d: &[i64],
+    b: &[i64],
+    n: usize,
+    k: usize,
+    c0: usize,
+    piece: &mut [i64],
+) -> Result<(), SolveError> {
+    let cols = piece.len() / n;
+    let mut y = vec![0i64; n];
     // Flag loop: the four passes per column deposit the first refusal in `err`; the `return` sits
     // after the loop, so no `return`/`?` targets the function from inside a loop body.
     let mut err: Option<SolveError> = None;
-    let mut j = 0usize;
-    while j < k && err.is_none() {
-        let mut y = vec![0i64; n];
+    let mut t = 0usize;
+    while t < cols && err.is_none() {
+        let j = c0 + t;
+        let yt = &mut piece[t * n..(t + 1) * n];
         // B̂ = D⁻¹ B.
         let mut i = 0usize;
         while i < n && err.is_none() {
@@ -645,15 +656,100 @@ fn solve_rhs(l: &[i64], d: &[i64], b: &[i64], n: usize, k: usize) -> Result<Vec<
         let mut i = 0usize;
         while i < n && err.is_none() {
             match div_to_i64(i128::from(y[i]) << 32, i128::from(d[i])) {
-                Some(v) => out[i * k + j] = v,
+                Some(v) => yt[i] = v,
                 None => err = Some(SolveError::Overflow),
             }
             i += 1;
         }
-        j += 1;
+        t += 1;
     }
     if let Some(e) = err {
         return Err(e);
+    }
+    Ok(())
+}
+
+/// The per-call checked multiply-subtract product below which [`solve_rhs`] keeps its columns on
+/// the calling thread: one dispatch costs 86–292 µs on the 32-thread box, about `2^20` `i128`
+/// multiply-subtracts, so a smaller system cannot repay it. The fit's production call carries
+/// `n = 896`, `k = 4864` (`≈ 3.9·10^9`), four orders above the threshold.
+const RHS_POOL_MIN_OPS: usize = 1 << 20;
+
+/// The pool task context of [`solve_rhs`]: the factor, the equilibration, the right-hand side and
+/// the refusal cell.
+struct RhsColumns<'a> {
+    l: &'a [i64],
+    d: &'a [i64],
+    b: &'a [i64],
+    n: usize,
+    k: usize,
+    first: &'a FirstErr<usize, SolveError>,
+}
+
+impl ChunkTask<i64> for RhsColumns<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [i64]) {
+        if let Err(e) = solve_cols(
+            self.l,
+            self.d,
+            self.b,
+            self.n,
+            self.k,
+            start / self.n,
+            piece,
+        ) {
+            self.first.record(start, e);
+        }
+    }
+}
+
+/// Solve `A X = B` given an equilibration `d` and the factor `L` of `Â`: [`solve_cols`] over every
+/// right-hand-side column, split into `width_global()` contiguous column chunks through
+/// [`chunks_mut_global`], then transposed into the row-major `[n, k]` result. Each column is
+/// computed once by one task in the serial order, so the result is bit-identical to the serial body.
+///
+/// # Errors
+///
+/// [`SolveError::Overflow`] on any checked operation or narrowing, from the lowest refusing
+/// column chunk.
+///
+/// # Complexity
+///
+/// Time: `O(n²·k)` checked multiply-subtracts (two triangular solves of `n²/2` per column) plus
+/// `O(n·k)` transpose copies, split across the pool. The admission product `n²·k` is
+/// [`RHS_POOL_MIN_OPS`]: `n = 512`, `k = 1536` (`4.0·10^8`, the digest fixture) and the production
+/// `n = 896`, `k = 4864` both dispatch; a smaller solve runs [`solve_cols`] serially.
+/// Space: `O(n·k)` for the transposed solution plus `O(n·k)` for the row-major result and `O(n)`
+/// per-task scratch.
+fn solve_rhs(l: &[i64], d: &[i64], b: &[i64], n: usize, k: usize) -> Result<Vec<i64>, SolveError> {
+    let nk = n.checked_mul(k).ok_or(SolveError::Overflow)?;
+    let mut yt = vec![0i64; nk];
+    let ops = n.checked_mul(nk);
+    if ops.is_none_or(|v| v < RHS_POOL_MIN_OPS) {
+        solve_cols(l, d, b, n, k, 0, &mut yt)?;
+    } else {
+        let chunk_cols = k.div_ceil(width_global()).max(1);
+        let first: FirstErr<usize, SolveError> = FirstErr::new();
+        chunks_mut_global(
+            &mut yt,
+            chunk_cols * n,
+            &RhsColumns {
+                l,
+                d,
+                b,
+                n,
+                k,
+                first: &first,
+            },
+        );
+        if let Some((_, e)) = first.take() {
+            return Err(e);
+        }
+    }
+    let mut out = vec![0i64; nk];
+    for c in 0..k {
+        for i in 0..n {
+            out[i * k + c] = yt[c * n + i];
+        }
     }
     Ok(out)
 }
