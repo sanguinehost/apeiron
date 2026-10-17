@@ -146,7 +146,9 @@ fn on_affine_grid(values: &[f64], bits: u32) -> bool {
         let q = (((v - lo) / span) * levels)
             .round_ties_even()
             .clamp(0.0, levels);
-        lo + (q / levels) * span == v
+        // quant_c_u8 rounds each level once to the Q32.32 grid: one quantum 2^-32 plus f64 rounding of
+        // this recomputation, far below the level spacing span/levels.
+        (lo + (q / levels) * span - v).abs() <= 2.0_f64.powi(-31)
     })
 }
 
