@@ -6,9 +6,10 @@
 //! multiplier into `quant_r_hier`'s row scale for the full and partial (`pk2_top`) planes; and the
 //! shape/non-finite refusals.
 //!
-//! Mutation control (see the lane return): dropping the `+ lam` term from `rhs` in
-//! [`resq_solve`](apeiron::learn::fold::layer::resq::resq_solve) turns `teacher_equals_student_gives_unit`
-//! red.
+//! Mutation control (see the lane return): changing the ridge divisor `20` to `21` in
+//! [`resq_solve`](apeiron::learn::fold::layer::resq::resq_solve) turns
+//! `agrees_with_f64_oracle` red (the reported `gop`/`lam` leave the derived `2⁻²⁸` bound); restoring
+//! `20` is green.
 
 #![allow(
     clippy::float_cmp,
@@ -509,10 +510,12 @@ fn max_abs(a: &[f64]) -> f64 {
 /// The migrated Q32.32 `-resq` step against the `f64` oracle on the shared fixture.
 ///
 /// Bounds `2⁻²⁸` relative for the system entries and the solution, derived: the inputs cross the
-/// Q32.32 grid once (relative `2⁻³³`), every `G`/`P_mat`/`C_mat`/`GoP` entry is rounded once more
-/// (`2⁻³³`), the Hadamard product once, and the `Cholesky` solve's exact-residual refinement leaves
-/// the solution within the system's condition times `2⁻³³`; nine such roundings at a measured
-/// condition below `2²` bound the disagreement at `2⁻²⁸`. The observed maxima are printed.
+/// Q32.32 grid once (relative `2⁻³³`), a product operand above the `2³⁶` raw bound is scaled by one
+/// exact power of two (one `2⁻³³` rounding of its largest entry) and the product shifted back
+/// exactly, every `G`/`P_mat`/`C_mat`/`GoP` entry is rounded once more (`2⁻³³`), the Hadamard
+/// product once, and the `Cholesky` solve's exact-residual refinement leaves the solution within the
+/// system's condition times `2⁻³³`; nine such roundings at a measured condition below `2²` bound the
+/// disagreement at `2⁻²⁸`. The observed maxima are printed.
 #[test]
 fn agrees_with_f64_oracle() {
     const BOUND: f64 = 3.725_290_298_461_914e-9; // 2⁻²⁸
