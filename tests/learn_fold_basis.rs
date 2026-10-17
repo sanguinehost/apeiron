@@ -31,8 +31,8 @@ use apeiron::learn::fold::run::npy::read_npy_i4;
 use apeiron::learn::fold::stats::basis::{
     apply_basis, block_metric, butterfly_basis, butterfly_basis_fixed, butterfly_side_bits,
     cholesky_pivots, column_energies, damped_gram, distortion_at, eigen_basis, hadamard_basis,
-    identity_basis, rate_at, solve_water_fill, sum_log_column_energies, uniform_distortion,
-    Coefficients, Density, GROUP,
+    identity_basis, rate_at, row_energies, solve_water_fill, sum_log_column_energies,
+    uniform_distortion, Coefficients, Density, GROUP,
 };
 use apeiron::learn::fold::stats::capture::{Grams, Normalisation};
 use apeiron::learn::grad::model::{forward, Config, Weights};
@@ -65,6 +65,220 @@ impl Lcg {
     }
 }
 
+/// One grid quantum, `2⁻³²`: the bound the `Q32.32` carrier rounds to at every reported word.
+const Q: f64 = 1.0 / 4_294_967_296.0;
+
+/// The pre-migration `f64` body of [`damped_gram`], kept as the agreement oracle.
+fn ref_damped_gram(h: &[f64], n: usize) -> Vec<f64> {
+    let mean = h.iter().step_by(n + 1).sum::<f64>() / n as f64;
+    let mut out = h.to_vec();
+    for i in 0..n {
+        out[i * n + i] += 0.01 * mean;
+    }
+    out
+}
+
+/// The pre-migration `f64` body of [`apply_basis`].
+fn ref_apply_basis(w: &[f64], o: usize, n: usize, q: &[f64]) -> Vec<f64> {
+    let mut b = vec![0.0f64; o * n];
+    for blk in 0..n / GROUP {
+        let off = blk * GROUP;
+        for i in 0..o {
+            for k in 0..GROUP {
+                let a = w[i * n + off + k];
+                for c in 0..GROUP {
+                    b[i * n + off + c] += a * q[(off + k) * n + off + c];
+                }
+            }
+        }
+    }
+    b
+}
+
+/// The pre-migration `f64` body of [`block_metric`]: `Qᵀ·(H·Q)`, `O(n³)`.
+fn ref_block_metric(q: &[f64], h: &[f64], n: usize) -> Vec<f64> {
+    let mut hq = vec![0.0f64; n * n];
+    for i in 0..n {
+        for c in 0..n {
+            hq[i * n + c] = (0..n).map(|k| h[i * n + k] * q[k * n + c]).sum();
+        }
+    }
+    let mut m = vec![0.0f64; n * n];
+    for a in 0..n {
+        for c in 0..n {
+            m[a * n + c] = (0..n).map(|i| q[i * n + a] * hq[i * n + c]).sum();
+        }
+    }
+    m
+}
+
+/// The pre-migration `f64` body of [`row_energies`].
+fn ref_row_energies(b: &[f64], o: usize, n: usize) -> Vec<f64> {
+    let mut r = vec![0.0f64; o];
+    for i in 0..o {
+        for j in 0..n {
+            r[i] += b[i * n + j] * b[i * n + j];
+        }
+    }
+    r
+}
+
+/// The pre-migration `f64` body of [`column_energies`].
+fn ref_column_energies(b: &[f64], o: usize, n: usize) -> Vec<f64> {
+    let mut c = vec![0.0f64; n];
+    for i in 0..o {
+        for j in 0..n {
+            c[j] += b[i * n + j] * b[i * n + j];
+        }
+    }
+    c
+}
+
+/// The pre-migration `f64` body of [`sum_log_column_energies`].
+fn ref_sum_log_column_energies(c: &[f64]) -> f64 {
+    c.iter().map(|&v| v.max(f64::MIN_POSITIVE).ln()).sum()
+}
+
+/// The pre-migration `f64` body of [`cholesky_pivots`] (with the previous `ridge::cholesky`).
+fn ref_cholesky_pivots(m: &[f64], n: usize) -> Vec<f64> {
+    let mut l = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in 0..=i {
+            let mut s = m[i * n + j];
+            for k in 0..j {
+                s -= l[i * n + k] * l[j * n + k];
+            }
+            if i == j {
+                assert!(s > 0.0, "ref cholesky: pivot {s}");
+                l[i * n + j] = s.sqrt();
+            } else {
+                l[i * n + j] = s / l[j * n + j];
+            }
+        }
+    }
+    (0..n).map(|j| l[j * n + j] * l[j * n + j]).collect()
+}
+
+/// The pre-migration `f64` body of [`Density::sigma`] for the separable model.
+fn ref_separable(b: &[f64], o: usize, n: usize) -> Vec<f64> {
+    let r = ref_row_energies(b, o, n);
+    let c = ref_column_energies(b, o, n);
+    let m: f64 = r.iter().sum();
+    let mut out = vec![0.0f64; o * n];
+    if m > 0.0 {
+        for i in 0..o {
+            for j in 0..n {
+                out[i * n + j] = r[i] * c[j] / m;
+            }
+        }
+    }
+    out
+}
+
+/// The pre-migration `f64` body of [`Density::sigma`] for the tile model.
+fn ref_tile(b: &[f64], o: usize, n: usize) -> Vec<f64> {
+    let nti = o.div_ceil(16);
+    let ntj = n.div_ceil(16);
+    let mut mean = vec![0.0f64; nti * ntj];
+    let mut count = vec![0usize; nti * ntj];
+    for i in 0..o {
+        for j in 0..n {
+            let k = (i / 16) * ntj + j / 16;
+            mean[k] += b[i * n + j] * b[i * n + j];
+            count[k] += 1;
+        }
+    }
+    for k in 0..mean.len() {
+        if count[k] > 0 {
+            mean[k] /= count[k] as f64;
+        }
+    }
+    (0..o * n)
+        .map(|k| mean[(k / n / 16) * ntj + (k % n) / 16])
+        .collect()
+}
+
+/// The pre-migration `f64` body of [`distortion_at`].
+fn ref_distortion(lambda: &[f64], theta: f64) -> f64 {
+    if theta <= 0.0 {
+        return 0.0;
+    }
+    lambda.iter().map(|&l| l.min(theta)).sum()
+}
+
+/// The pre-migration `f64` body of [`rate_at`].
+fn ref_rate(lambda: &[f64], theta: f64) -> f64 {
+    if theta <= 0.0 {
+        return if lambda.iter().any(|&l| l > 0.0) {
+            f64::INFINITY
+        } else {
+            0.0
+        };
+    }
+    let t = theta.log2();
+    lambda
+        .iter()
+        .filter(|&&l| l > theta)
+        .map(|&l| 0.5 * (l.log2() - t))
+        .sum()
+}
+
+/// The pre-migration `f64` body of [`solve_water_fill`].
+fn ref_solve_water_fill(lambda: &[f64], budget: f64, side: f64) -> (f64, f64, f64) {
+    let target = budget - side;
+    let max = lambda.iter().copied().fold(0.0f64, f64::max);
+    if lambda.is_empty() || max <= 0.0 {
+        return (0.0, 0.0, 0.0);
+    }
+    let mut t_hi = max.log2() + 1.0;
+    let min_pos = lambda
+        .iter()
+        .copied()
+        .filter(|&l| l > 0.0)
+        .fold(f64::INFINITY, f64::min);
+    let mut t_lo = min_pos.log2() - 1.0;
+    let mut gap = 1.0f64;
+    while ref_rate(lambda, 2.0f64.powf(t_lo)) < target {
+        t_lo -= gap;
+        gap *= 2.0;
+    }
+    let mut t = t_hi;
+    for _ in 0..200 {
+        t = 0.5 * (t_lo + t_hi);
+        let r = ref_rate(lambda, 2.0f64.powf(t));
+        if (r - target).abs() <= 1e-9 * lambda.len() as f64 {
+            break;
+        }
+        if r > target {
+            t_lo = t;
+        } else {
+            t_hi = t;
+        }
+    }
+    let theta = 2.0f64.powf(t);
+    (
+        theta,
+        ref_distortion(lambda, theta),
+        ref_rate(lambda, theta),
+    )
+}
+
+/// The pre-migration `f64` body of [`uniform_distortion`].
+fn ref_uniform(lambda: &[f64], budget: f64, side: f64) -> f64 {
+    let bits = (budget - side) / lambda.len() as f64;
+    let factor = 2.0f64.powf(-2.0 * bits);
+    lambda.iter().map(|&l| l * factor).sum()
+}
+
+/// Relative-plus-absolute agreement assertion with the bound stated at the call.
+fn close(a: f64, b: f64, rel: f64, abs: f64, what: &str) {
+    let d = (a - b).abs();
+    assert!(
+        d <= rel * b.abs() + abs,
+        "{what}: {a} vs oracle {b} differs by {d} > {rel}·|{b}| + {abs}"
+    );
+}
+
 /// (1) The closed-form `D(θ)` and `R(θ)` of a geometric `λ`, and the side-information budget.
 #[test]
 fn a_water_filling_closed_form_and_side_bits() {
@@ -75,8 +289,10 @@ fn a_water_filling_closed_form_and_side_bits() {
     let d = distortion_at(&lam, theta);
     let r = rate_at(&lam, theta);
     let want_d = 1.0 + 1.0 + 0.25 + 0.0625;
-    assert!((d - want_d).abs() < 1e-9, "D = {d} != {want_d}");
-    assert!((r - 1.0).abs() < 1e-9, "R = {r} != 1");
+    // `D` sums exact grid minima and rounds the sum once (≤ ½q); `R` adds four `log₂` words, each
+    // within 2q of the series bound, halves, then rounds: ≤ 16q.
+    assert!((d - want_d).abs() < 4.0 * Q, "D = {d} != {want_d}");
+    assert!((r - 1.0).abs() < 16.0 * Q, "R = {r} != 1");
 
     // Side information is charged against the rate budget: budget 1.18·4 = 4.72, side 1.0 bits
     // leaves 3.72 bits of coefficient rate. Dropping the subtraction would solve for 4.72.
@@ -84,13 +300,14 @@ fn a_water_filling_closed_form_and_side_bits() {
     let side = 1.0;
     let sol = solve_water_fill(&lam, budget, side);
     let target = budget - side;
+    // The solve stops at `|R − target| ≤ 4q·N`; the four `log₂` words add ≤ 8q.
     assert!(
-        (sol.rate - target).abs() < 1e-9 * lam.len() as f64,
+        (sol.rate - target).abs() < 16.0 * Q * lam.len() as f64,
         "rate {} != target {target}",
         sol.rate
     );
     assert!(
-        (sol.distortion - distortion_at(&lam, sol.theta)).abs() < 1e-9,
+        (sol.distortion - distortion_at(&lam, sol.theta)).abs() < 16.0 * Q,
         "D {} != D(θ) {}",
         sol.distortion,
         distortion_at(&lam, sol.theta)
@@ -106,7 +323,11 @@ fn a_water_filling_closed_form_and_side_bits() {
         .map(|l| l * 2.0f64.powf(-2.0 * (1.18 - side / 4.0)))
         .sum();
     let u = uniform_distortion(&lam, budget, side);
-    assert!((u - want_u).abs() < 1e-12, "D_u = {u} != {want_u}");
+    // `bits` rounds once (≤ ½q), `2^x` adds ≤ 2q relative, and `Σ λ·factor` rounds once (≤ ½q·N).
+    assert!(
+        (u - want_u).abs() < 16.0 * Q * want_u + 4.0 * Q * lam.len() as f64,
+        "D_u = {u} != {want_u}"
+    );
 }
 
 /// A deterministic dense symmetric positive-definite Gram.
@@ -146,7 +367,10 @@ fn b_pivot_product_is_basis_invariant() {
     let s_h: f64 = dh.iter().map(|d| d.ln()).sum();
     let d_ref = cholesky_pivots(&h, n).expect("pivots H");
     let s_ref: f64 = d_ref.iter().map(|d| d.ln()).sum();
-    let tol = 1e-6 * n as f64;
+    // Each `d_j` is one exact `i128` sum rounded once, but the `L_jk` it subtracts carry their own
+    // ≤½q rounding, so a pivot's relative error is bounded by `j·q`; the log sums over `n` pivots
+    // are within `n²·q/2` of the f64 reference, and three such sums are compared.
+    let tol = 2.0 * (n * n) as f64 * Q;
     assert!((s_i - s_h).abs() < tol, "log Πd_i {s_i} != log Πd_h {s_h}");
     assert!(
         (s_i - s_ref).abs() < tol,
@@ -180,10 +404,14 @@ fn c_butterfly_orthogonal_and_fixed_angle_is_hadamard() {
             worst = worst.max((s - want).abs());
         }
     }
-    assert!(worst < 1e-12, "‖QᵀQ − I‖_max = {worst}");
+    // `Q` is a product of at most 28 Givens rotations (one mandatory pass plus three sweeps), each
+    // with `c² + s² − 1 ≤ 4q` from its two rounded words and the two rounded products.
+    assert!(worst < 128.0 * Q, "‖QᵀQ − I‖_max = {worst}");
 
     let qf = butterfly_basis_fixed(&w, o, n, std::f64::consts::FRAC_PI_4).expect("fixed");
     let qh = hadamard_basis(n).expect("hadamard");
+    // Seven stages of `cos θ = sin θ = 2^{-1/2}` rounded to grid words: ≤ 7·(2q) per entry.
+    let tol = 64.0 * Q;
     for j in 0..n {
         let a = column(&qf, n, j);
         let b = column(&qh, n, j);
@@ -193,15 +421,16 @@ fn c_butterfly_orthogonal_and_fixed_angle_is_hadamard() {
         for (x, y) in a.iter().zip(&b) {
             diff = diff.max((sign * x - y).abs());
         }
-        assert!(diff < 1e-12, "column {j} differs by {diff} beyond a sign");
+        assert!(diff < tol, "column {j} differs by {diff} beyond a sign");
     }
 
-    // The seam is the WHT body: one fixed transform of a unit vector is the Hadamard column.
+    // The seam is the WHT body: one fixed transform of a unit vector is the Hadamard column, and the
+    // basis entry is that `f64` value quantised once (≤ ½q).
     let e = column(&identity_basis(GROUP).expect("I"), GROUP, 5);
     let f = fwht128(&e).expect("fwht");
     for i in 0..GROUP {
         assert!(
-            (f[i] - qh[i * n + 5]).abs() < 1e-15,
+            (f[i] - qh[i * n + 5]).abs() < Q,
             "fwht128 column mismatch at {i}"
         );
     }
@@ -280,6 +509,152 @@ fn d_adapted_butterfly_concentrates_a_planted_subspace() {
         aj.water_filled,
         ah.water_filled
     );
+}
+
+/// (5) The `Q32.32` carrier agrees with the pre-migration `f64` bodies on a fixed LCG sample. Each
+/// bound is the number of grid roundings the path performs, times `Q`; the `f64` oracle's own
+/// rounding is `2⁻⁵³`-level and does not enter a bound above `Q`.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn e_q32_agrees_with_f64_oracle() {
+    let mut rng = Lcg::new(0x00a9_9e11);
+
+    // Damped Gram (n = 8): the mean diagonal is one rounding, `DAMP·mean` one more, and `DAMP_Q`
+    // itself is within 4q of 0.01.
+    let n0 = 8;
+    let h0 = spd(n0, 0x1234_5678);
+    let dg = damped_gram(&h0, n0).expect("damped");
+    let rdg = ref_damped_gram(&h0, n0);
+    for (k, (a, b)) in dg.iter().zip(&rdg).enumerate() {
+        close(*a, *b, 8.0 * Q, Q, &format!("damped_gram[{k}]"));
+    }
+
+    // The pivot recurrence: `L_jk` carries its own ≤ ½q rounding and is subtracted from `m_jj`, so a
+    // pivot's relative error is ≤ `j·q`; the factor is `n = 8`.
+    let gp = cholesky_pivots(&dg, n0).expect("pivots");
+    let rp = ref_cholesky_pivots(&dg, n0);
+    for (j, (a, b)) in gp.iter().zip(&rp).enumerate() {
+        close(*a, *b, 8.0 * n0 as f64 * Q, 8.0 * Q, &format!("pivot[{j}]"));
+    }
+
+    // `D` and `R` at a fixed θ over 64 geometric-ish rates: every input word rounds once (≤ ½q) and
+    // each `log₂` adds ≤ 2q.
+    let lam: Vec<f64> = (0..64).map(|_| 0.05 + 4.0 * rng.uniform()).collect();
+    let nn = lam.len() as f64;
+    let theta = 0.7;
+    close(
+        distortion_at(&lam, theta),
+        ref_distortion(&lam, theta),
+        4.0 * Q,
+        2.0 * nn * Q,
+        "distortion_at",
+    );
+    close(
+        rate_at(&lam, theta),
+        ref_rate(&lam, theta),
+        4.0 * Q,
+        4.0 * nn * Q,
+        "rate_at",
+    );
+
+    // The solve stops at `|R − target| ≤ 4q·N`; with `dR/dt = −N/2` that is `|Δlog₂θ| ≤ 8q`, so
+    // `|ΔD| ≤ N·θ·6q + N·q/2` and `|ΔR| ≤ 4q·N + 2q·N`.
+    let budget = 1.18 * nn;
+    let sol = solve_water_fill(&lam, budget, 1.0);
+    let (_, rd, rr) = ref_solve_water_fill(&lam, budget, 1.0);
+    close(
+        sol.distortion,
+        rd,
+        8.0 * Q,
+        32.0 * nn * Q,
+        "solve_water_fill distortion",
+    );
+    close(
+        sol.rate,
+        rr,
+        8.0 * Q,
+        32.0 * nn * Q,
+        "solve_water_fill rate",
+    );
+
+    // `bits` rounds once (≤ ½q), `2^x` adds ≤ 2q relative, `Σ λ·factor` rounds once.
+    close(
+        uniform_distortion(&lam, budget, 1.0),
+        ref_uniform(&lam, budget, 1.0),
+        8.0 * Q,
+        4.0 * nn * Q,
+        "uniform_distortion",
+    );
+
+    // Row and column energies: every `b` word rounds once (≤ ½q), the `i128` sum is exact, one
+    // output rounding; `o = 6`, `n = 128`.
+    let (o, nb) = (6, GROUP);
+    let b: Vec<f64> = (0..o * nb).map(|_| rng.gauss()).collect();
+    let r = row_energies(&b, o, nb).expect("rows");
+    let rr_ = ref_row_energies(&b, o, nb);
+    for (i, (a, w)) in r.iter().zip(&rr_).enumerate() {
+        close(*a, *w, 4.0 * Q, 2.0 * nb as f64 * Q, &format!("row[{i}]"));
+    }
+    let c = column_energies(&b, o, nb).expect("cols");
+    let rc = ref_column_energies(&b, o, nb);
+    for (j, (a, w)) in c.iter().zip(&rc).enumerate() {
+        close(*a, *w, 4.0 * Q, 2.0 * o as f64 * Q, &format!("col[{j}]"));
+    }
+
+    // `Σ ln c_j` over the quantised energies: one `log₂` and one `ln 2` product per column, ≤ 4q.
+    close(
+        sum_log_column_energies(&c),
+        ref_sum_log_column_energies(&rc),
+        8.0 * Q,
+        4.0 * nb as f64 * Q,
+        "sum_log_column_energies",
+    );
+
+    // The two density models over `6 × 128`: `r_i·c_j/m` and the 16×16 tile mean, one rounding per
+    // output word.
+    let sig = Density::Separable.sigma(&b, o, nb).expect("separable");
+    let rsig = ref_separable(&b, o, nb);
+    for (k, (a, w)) in sig.iter().zip(&rsig).enumerate() {
+        close(
+            *a,
+            *w,
+            16.0 * Q,
+            4.0 * nb as f64 * Q,
+            &format!("separable[{k}]"),
+        );
+    }
+    let til = Density::Tile.sigma(&b, o, nb).expect("tile");
+    let rtil = ref_tile(&b, o, nb);
+    for (k, (a, w)) in til.iter().zip(&rtil).enumerate() {
+        close(*a, *w, 16.0 * Q, 4.0 * nb as f64 * Q, &format!("tile[{k}]"));
+    }
+
+    // `B = W·Q` and `M = Qᵀ·H·Q` with the Hadamard basis: each input word rounds once, so the
+    // relative error is ≤ `GROUP·q` per accumulation of `GROUP` terms.
+    let qh = hadamard_basis(nb).expect("hadamard");
+    let bq = apply_basis(&b, o, nb, &qh).expect("apply");
+    let rbq = ref_apply_basis(&b, o, nb, &qh);
+    for (k, (a, w)) in bq.iter().zip(&rbq).enumerate() {
+        close(
+            *a,
+            *w,
+            4.0 * nb as f64 * Q,
+            4.0 * nb as f64 * Q,
+            &format!("apply[{k}]"),
+        );
+    }
+    let hh = damped_gram(&spd(nb, 0x0bad_5eed), nb).expect("damped 128");
+    let m = block_metric(&qh, &hh, nb).expect("metric");
+    let rm = ref_block_metric(&qh, &hh, nb);
+    for (k, (a, w)) in m.iter().zip(&rm).enumerate() {
+        close(
+            *a,
+            *w,
+            8.0 * nb as f64 * Q,
+            8.0 * nb as f64 * Q,
+            &format!("metric[{k}]"),
+        );
+    }
 }
 
 /// The real-model gate's constants.

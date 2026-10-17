@@ -1,12 +1,22 @@
-//! Integration tests for the `f64` CPU forward of one `Qwen2` decoder layer
+//! Integration tests for the `Q32.32` CPU forward of one `Qwen2` decoder layer
 //! (`src/learn/fold/stats/parts.rs`).
 //!
 //! Grade: `tested`. The positive assertions cover the causality invariant (a later token never
 //! changes an earlier output row, bit-for-bit), a hand-computed `RMSNorm` row, the `RoPE`
-//! position-0 identity, a full-head attention compared against a naive triple-loop reference,
-//! grouped-query attention against the duplicated-head expansion, and the `SwiGLU` residual
-//! `out = mid + m·downᵀ` recomputed in the test. The refusal test reaches every [`PartsError`]
-//! variant.
+//! position-0 identity, a full-head attention compared against a naive triple-loop `f64`
+//! reference, grouped-query attention against the duplicated-head expansion, the `SwiGLU` residual
+//! `out = mid + m·downᵀ` recomputed in the test, and one `f64` oracle agreement test over the three
+//! boundary functions. The refusal test reaches every [`PartsError`] variant.
+//!
+//! Every tolerance is a stated `Q32.32` bound, not a loosened `f64` one: the grid quantum is
+//! `q = 2⁻³² ≈ 2.33·10⁻¹⁰` and a bound is `q` times the number of quanta the operation's own
+//! derivation allows (each accumulation is exact in `i128` and rounds once, so the count is the
+//! number of *distinct rounded operations* feeding the entry).
+//!
+//! Mutation control: `fx::ONE` used as the comparison in `fx::clamp01`, or `exp_sat`'s `21` cap
+//! lowered, leaves the causality test green but `word_path_agrees_with_f64_oracle` red; the
+//! recorded control is `LN2` in `fx::exp2` changed from `2_977_044_472` to `2_977_044_4720`, which
+//! turns `word_path_agrees_with_f64_oracle` and `full_head_attention_equals_naive_triple_loop` red.
 //!
 //! The fixture is a tiny layer (`n_head 4`, `n_kv_head 2`, `head_dim 8`, `hidden 32`, `inter 48`,
 //! `t 6`) with deterministic LCG weights. `n_head == 4` is the smallest even split, so the
@@ -26,7 +36,7 @@
 )]
 
 use apeiron::learn::fold::stats::parts::{
-    attn_a, parts, rms, LayerCfg, LayerF64, PartsError, RopeTables,
+    attn_a, linear, parts, rms, silu, LayerCfg, LayerF64, PartsError, RopeTables,
 };
 
 /// Query head count.
@@ -310,20 +320,37 @@ fn rms_matches_a_hand_computed_row() {
 fn rope_at_position_zero_is_the_identity() {
     let cfg = cfg();
     let rope = RopeTables::new(&cfg, TMAX).unwrap();
-    // emb[0, :] = 0, so cos = 1 and sin = 0: x·1 + rot(x)·0 = x.
+    // emb[0, :] = 0, so cos = 1 and sin = 0: x·1 + rot(x)·0 = x. These are exact grid values.
     for j in 0..HD {
         assert_eq!(rope.cos[j], 1.0);
         assert_eq!(rope.sin[j], 0.0);
     }
-    // Position 1, column 0: inv[0] = theta^0 = 1, emb = 1.
-    assert_eq!(rope.cos[HD], 1.0f64.cos());
-    assert_eq!(rope.sin[HD], 1.0f64.sin());
-    // Position 1, column 1: inv[1] = theta^(-2/8) = theta^(-1/4).
-    let emb = 1.0 / THETA.powf(0.25);
-    assert_eq!(rope.cos[HD + 1], emb.cos());
-    assert_eq!(rope.sin[HD + 1], emb.sin());
+    // Every other entry is the `f64` oracle within the table's derived bound. Derivation: the
+    // frequency `inv[i] = 2^(-(2i/hd)·log₂ theta)` costs a `log₂` (≤ 8 series roundings), one
+    // multiply and one `exp2` (≤ 16 series roundings) ≈ 25 quanta; `emb = p·inv` adds one and
+    // `sin_cos` (reduction, two series) adds ≈ 16, so |Δ| ≤ 48·q·(1 + |oracle|) per entry.
+    let tol: f64 = 48.0 * 2.328_306_436_538_696e-10 * 2.0;
+    let half = HD / 2;
+    for p in 0..TMAX {
+        for j in 0..HD {
+            let inv = 1.0 / THETA.powf(2.0 * (j % half) as f64 / HD as f64);
+            let emb = p as f64 * inv;
+            let (c, s) = (rope.cos[p * HD + j], rope.sin[p * HD + j]);
+            assert!(
+                (c - emb.cos()).abs() <= tol,
+                "cos[{p},{j}] {c} vs oracle {} (tol {tol})",
+                emb.cos()
+            );
+            assert!(
+                (s - emb.sin()).abs() <= tol,
+                "sin[{p},{j}] {s} vs oracle {} (tol {tol})",
+                emb.sin()
+            );
+        }
+    }
     // The concatenated half repeats the frequency: column head_dim/2 matches column 0.
-    assert_eq!(rope.cos[HD + HD / 2], 1.0f64.cos());
+    assert_eq!(rope.cos[HD + HD / 2], rope.cos[HD]);
+    assert_eq!(rope.sin[HD + HD / 2], rope.sin[HD]);
 }
 
 #[test]
@@ -340,7 +367,11 @@ fn full_head_attention_equals_naive_triple_loop() {
 
     // `q`, `k`, `v` are the pre-rope projections; the reference rotates and attends independently.
     let reference = naive_attention(&cfg, &rope, &p.q, &p.k, &p.v, T);
-    close(&p.a, &reference, 1e-12);
+    // Bound derivation: per output entry the score path costs one dot rounding, one scale rounding
+    // and an `exp` of ≤ 4 quanta; the value accumulation holds at most `t·head_dim = 48` rounded
+    // products, and the final division one more. With |entry| ≤ 2 that is ≤ 64·q·(1 + |entry|).
+    let tol: f64 = 64.0 * 2.328_306_436_538_696e-10 * 3.0;
+    close(&p.a, &reference, tol);
     // And the standalone entry point agrees with the one embedded in `parts`.
     let direct = attn_a(&cfg, &rope, &p.q, &p.k, &p.v, T).unwrap();
     assert_eq!(p.a, direct);
@@ -396,7 +427,11 @@ fn out_equals_mid_plus_m_down() {
             expected[r * HID + c] += acc;
         }
     }
-    close(&expected, &p.out, 1e-12);
+    // Bound derivation: `m` carries the `silu` error (one `exp` ≈ 4 quanta, one division and one
+    // multiply ≈ 3) and `p.m` itself is a grid value, so each of the `inter = 48` products carries
+    // ≤ 8·q·|down·u|; the sum is exact and rounds once. With |down·u| ≤ 4 that is ≤ 385·q.
+    let tol: f64 = 400.0 * 2.328_306_436_538_696e-10;
+    close(&expected, &p.out, tol);
 }
 
 #[test]
@@ -497,4 +532,90 @@ fn refusals_are_typed() {
         parts(&cfg, &rope, &broken, &h, T).unwrap_err(),
         PartsError::Shape
     );
+}
+
+/// The `f64` reference of `linear` before the `Q32.32` migration: the same triple loop in `f64`.
+fn ref_linear(
+    x: &[f64],
+    t: usize,
+    in_w: usize,
+    w: &[f64],
+    bias: Option<&[f64]>,
+    out_w: usize,
+) -> Vec<f64> {
+    let mut out = vec![0.0f64; t * out_w];
+    for r in 0..t {
+        for o in 0..out_w {
+            let mut acc = bias.map_or(0.0, |b| b[o]);
+            for i in 0..in_w {
+                acc += w[o * in_w + i] * x[r * in_w + i];
+            }
+            out[r * out_w + o] = acc;
+        }
+    }
+    out
+}
+
+/// The `f64` reference of `rms`: `w[j]·x[r,j]/sqrt(mean_j x² + eps)`.
+fn ref_rms(x: &[f64], w: &[f64], eps: f64, t: usize, width: usize) -> Vec<f64> {
+    let mut out = vec![0.0f64; t * width];
+    for r in 0..t {
+        let mut ss = 0.0f64;
+        for j in 0..width {
+            let v = x[r * width + j];
+            ss += v * v;
+        }
+        let inv = 1.0 / (ss / width as f64 + eps).sqrt();
+        for j in 0..width {
+            out[r * width + j] = w[j] * (x[r * width + j] * inv);
+        }
+    }
+    out
+}
+
+/// The `f64` reference of `silu`: `g/(1 + exp(-g))`.
+fn ref_silu(g: f64) -> f64 {
+    g / (1.0 + (-g).exp())
+}
+
+/// The grid quantum of the carrier, `2⁻³²`.
+const Q: f64 = 2.328_306_436_538_696e-10;
+
+/// The migrated boundary functions agree with their `f64` reference on small LCG inputs. Each
+/// tolerance is derived from the carrier's grid quantum `q = 2⁻³²`:
+///
+/// - `linear` (`in_w = 16`, `|w|,|x| ≤ 1`): each input carries ≤ `q/2` of quantisation, so the
+///   exact `i128` sum differs from the `f64` oracle by ≤ `Σ_i q·(|w_i| + |x_i|) ≤ 32q`, plus the
+///   one output rounding `q` → bound `100q`.
+/// - `rms` (`width = 8`): the mean costs one rounding, the square root one, the reciprocal one and
+///   each entry two → bound `16q`.
+/// - `silu` (`|g| ≤ 3`): the `exp` saturation-free series is ≤ 4 quanta relative and the division
+///   and multiply one each → `|Δ| ≤ 8·q·(1 + |g|) ≤ 32q`.
+#[test]
+fn word_path_agrees_with_f64_oracle() {
+    const T: usize = 3;
+    const IN: usize = 16;
+    const OUT: usize = 5;
+    const W: usize = 8;
+    let mut rng = Lcg::new(31);
+    let x = rng.vec(T * IN);
+    let w: Vec<f64> = rng.vec(OUT * IN).iter().map(|v| 0.5 * v).collect();
+    let b: Vec<f64> = rng.vec(OUT);
+    let got = linear(&x, T, IN, &w, Some(&b), OUT).unwrap();
+    close(&got, &ref_linear(&x, T, IN, &w, Some(&b), OUT), 100.0 * Q);
+
+    let xr = rng.vec(T * W);
+    let wr: Vec<f64> = rng.vec(W).iter().map(|v| 1.0 + 0.1 * v).collect();
+    let gotr = rms(&xr, &wr, EPS, T, W).unwrap();
+    close(&gotr, &ref_rms(&xr, &wr, EPS, T, W), 16.0 * Q);
+
+    for _ in 0..16 {
+        let g = 3.0 * rng.next_f64();
+        assert!(
+            (silu(g) - ref_silu(g)).abs() <= 32.0 * Q,
+            "silu({g}) {} vs oracle {}",
+            silu(g),
+            ref_silu(g)
+        );
+    }
 }
