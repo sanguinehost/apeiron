@@ -382,14 +382,14 @@ fn add_slab_matches_f64_oracle() {
     // Contraction: `rows` terms of two rounded factors plus one final rounding, times the linear
     // weight pass's extra rounding; `8·(rows+1)·q` is the asserted first-order bound with headroom.
     let bound = 8.0 * (rows + 1.0) * Q;
-    let e_hm = max_abs_diff(&acc.hm, &r.hm);
+    let e_hm = grid_error(&acc.hm, &r.hm).0;
     let (e_hmw, m_hmw) = grid_error(&acc.hm_w, &r.hm_w);
     let e_cs0 = grid_error(&acc.cs[0], &r.cs[0]).0;
     let e_cs1 = grid_error(&acc.cs[1], &r.cs[1]).0;
     let e_cts = grid_error(&acc.cts[0], &r.cts[0]).0;
-    let e_xs = max_abs_diff(&acc.x_sum, &r.x_sum);
-    let e_ys0 = max_abs_diff(&acc.y_sum[0], &r.y_sum[0]);
-    let e_ys1 = max_abs_diff(&acc.y_sum[1], &r.y_sum[1]);
+    let e_xs = grid_error(&acc.x_sum, &r.x_sum).0;
+    let e_ys0 = grid_error(&acc.y_sum[0], &r.y_sum[0]).0;
+    let e_ys1 = grid_error(&acc.y_sum[1], &r.y_sum[1]).0;
     println!(
         "add_slab: hm={e_hm:.3e} hm_w={e_hmw:.3e} (|.|max {m_hmw:.3e}) cs=({e_cs0:.3e},{e_cs1:.3e}) \
          cts={e_cts:.3e} x_sum={e_xs:.3e} y_sum=({e_ys0:.3e},{e_ys1:.3e}) bound={bound:.3e}"
@@ -404,7 +404,7 @@ fn add_slab_matches_f64_oracle() {
         e_ys0 <= 2.0 * Q && e_ys1 <= 2.0 * Q,
         "y_sum {e_ys0:e} {e_ys1:e}"
     );
-    assert_eq!(acc.n_toks, r.n_toks);
+    assert_eq!(acc.n_toks as f64, r.n_toks);
 }
 
 /// (b) Folding two slabs equals folding their concatenation: the `i64` accumulators differ by at
@@ -443,10 +443,10 @@ fn two_slabs_equal_concatenation() {
     ] {
         assert!(word_gap(a, b) <= 1, "word gap {}", word_gap(a, b));
     }
-    assert!(max_abs_diff(&split.hm, &one.hm) <= 2.0 * Q);
-    assert!(max_abs_diff(&split.x_sum, &one.x_sum) <= 2.0 * Q);
-    assert!(max_abs_diff(&split.y_sum[0], &one.y_sum[0]) <= 2.0 * Q);
-    assert!(max_abs_diff(&split.y_sum[1], &one.y_sum[1]) <= 2.0 * Q);
+    assert!(word_gap(&split.hm, &one.hm) <= 2);
+    assert!(word_gap(&split.x_sum, &one.x_sum) <= 2);
+    assert!(word_gap(&split.y_sum[0], &one.y_sum[0]) <= 2);
+    assert!(word_gap(&split.y_sum[1], &one.y_sum[1]) <= 2);
     assert_eq!(split.n_toks, one.n_toks);
 }
 
@@ -457,7 +457,7 @@ fn hm_w_equals_hm_under_unit_weights() {
     let (n, outs, with_ts) = (5usize, [2usize], [false]);
     let slabs = two_slab_fixture(11, n, &outs, &with_ts, [6, 0], 1.0);
     let acc = fold_accum(n, &outs, &with_ts, &slabs[..1]);
-    assert_eq!(words(&acc.hm_w), acc.hm);
+    assert_eq!(acc.hm_w, acc.hm);
 }
 
 /// (c') `Hm_w = (Xw)ᵀ(Xw)` with `Xw = X·w` applied linearly (not `√w`) — the oracle comparison

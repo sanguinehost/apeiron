@@ -30,6 +30,21 @@ fn h16(x: f64) -> f64 {
     from_grid(f16r(to_grid(x, GRID_BOUND).expect("grid")).expect("in binary16 range"))
 }
 
+/// `x` as a `Q32.32` word, the fnorm boundary the tests cross.
+fn q(x: f64) -> i64 {
+    to_grid(x, GRID_BOUND).expect("grid")
+}
+
+/// A slice as words.
+fn qv(x: &[f64]) -> Vec<i64> {
+    x.iter().map(|&v| q(v)).collect()
+}
+
+/// A word slice as reals.
+fn unq(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&v| from_grid(v)).collect()
+}
+
 /// Deterministic 64-bit LCG (Knuth's MMIX constants); the crate's test drift.
 struct Lcg(u64);
 
@@ -144,10 +159,22 @@ fn identical_hidden_at_the_start_keeps_g_fixed() {
     for &x in &g0 {
         assert_eq!(h16(x), x, "start channel {x} is not f16-exact");
     }
-    let out = fnorm_fit(
-        &ht, &hs, N, T, HID, &g0, &e, VOCAB, EPS, 8, 0.05, 1.0, false,
+    let out = unq(&fnorm_fit(
+        &qv(&ht),
+        &qv(&hs),
+        N,
+        T,
+        HID,
+        &qv(&g0),
+        &qv(&e),
+        VOCAB,
+        q(EPS),
+        8,
+        q(0.05),
+        q(1.0),
+        false,
     )
-    .unwrap();
+    .unwrap());
     assert_eq!(out.len(), HID);
     assert_eq!(out, g0, "zero gradient must not move the gain");
 }
@@ -173,10 +200,22 @@ fn planted() -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
 fn planted_diagonal_moves_g_and_cuts_kl() {
     let (ht, hs, g0, e) = planted();
     let steps = 200usize;
-    let out = fnorm_fit(
-        &ht, &hs, N, T, HID, &g0, &e, VOCAB, EPS, steps, 0.05, 0.3, false,
+    let out = unq(&fnorm_fit(
+        &qv(&ht),
+        &qv(&hs),
+        N,
+        T,
+        HID,
+        &qv(&g0),
+        &qv(&e),
+        VOCAB,
+        q(EPS),
+        steps,
+        q(0.05),
+        q(0.3),
+        false,
     )
-    .expect("fit");
+    .expect("fit"));
 
     // The student's normalized hidden is `diag(c·s)` times the teacher's, for the common scalar
     // `c = rsqrt(mean(hs²)+eps) / rsqrt(mean(ht²)+eps)`, so matching readout logits requires
@@ -199,10 +238,22 @@ fn planted_diagonal_moves_g_and_cuts_kl() {
     let mut prev = readout_kl(&ht, &hs, &g0, &g0, &e, N, T, HID, VOCAB, EPS, false);
     let start = prev;
     for k in 1..=12usize {
-        let gk = fnorm_fit(
-            &ht, &hs, N, T, HID, &g0, &e, VOCAB, EPS, k, 0.05, 0.3, false,
+        let gk = unq(&fnorm_fit(
+            &qv(&ht),
+            &qv(&hs),
+            N,
+            T,
+            HID,
+            &qv(&g0),
+            &qv(&e),
+            VOCAB,
+            q(EPS),
+            k,
+            q(0.05),
+            q(0.3),
+            false,
         )
-        .unwrap();
+        .unwrap());
         let kl = readout_kl(&ht, &hs, &gk, &g0, &e, N, T, HID, VOCAB, EPS, false);
         assert!(kl < prev, "step {k}: KL did not fall {prev} -> {kl}");
         prev = kl;
@@ -213,7 +264,22 @@ fn planted_diagonal_moves_g_and_cuts_kl() {
 #[test]
 fn coh_prior_scores_positions_one_onward() {
     let (ht, hs, g0, e) = fixture();
-    let a = fnorm_fit(&ht, &hs, N, T, HID, &g0, &e, VOCAB, EPS, 6, 0.05, 1.0, true).unwrap();
+    let a = unq(&fnorm_fit(
+        &qv(&ht),
+        &qv(&hs),
+        N,
+        T,
+        HID,
+        &qv(&g0),
+        &qv(&e),
+        VOCAB,
+        q(EPS),
+        6,
+        q(0.05),
+        q(1.0),
+        true,
+    )
+    .unwrap());
     assert_eq!(a.len(), HID);
     assert!(
         a.iter().all(|x| x.is_finite()),
@@ -230,66 +296,112 @@ fn coh_prior_scores_positions_one_onward() {
             hs2[base + j] -= 1.3;
         }
     }
-    let b = fnorm_fit(
-        &ht2, &hs2, N, T, HID, &g0, &e, VOCAB, EPS, 6, 0.05, 1.0, true,
+    let b = unq(&fnorm_fit(
+        &qv(&ht2),
+        &qv(&hs2),
+        N,
+        T,
+        HID,
+        &qv(&g0),
+        &qv(&e),
+        VOCAB,
+        q(EPS),
+        6,
+        q(0.05),
+        q(1.0),
+        true,
     )
-    .unwrap();
+    .unwrap());
     assert_eq!(a, b, "position 0 must not enter the coh-prior fit");
 }
 
 #[test]
 fn refusals_are_reached() {
     let (ht, hs, g0, e) = fixture();
-    let call = |ht: &[f64], hs: &[f64], g0: &[f64], e: &[f64], eps: f64, coh: bool| {
-        fnorm_fit(ht, hs, N, T, HID, g0, e, VOCAB, eps, 4, 0.05, 1.0, coh)
+    let (htq, hsq, g0q, eq) = (qv(&ht), qv(&hs), qv(&g0), qv(&e));
+    let call = |ht: &[i64], hs: &[i64], g0: &[i64], e: &[i64], eps: i64, coh: bool| {
+        fnorm_fit(
+            ht,
+            hs,
+            N,
+            T,
+            HID,
+            g0,
+            e,
+            VOCAB,
+            eps,
+            4,
+            q(0.05),
+            q(1.0),
+            coh,
+        )
     };
 
     // Shape mismatches: a short hidden, embedding or gain, a zero width.
     assert_eq!(
-        call(&ht[1..], &hs, &g0, &e, EPS, false).unwrap_err(),
+        call(&htq[1..], &hsq, &g0q, &eq, q(EPS), false).unwrap_err(),
         FnormError::ShapeMismatch
     );
     assert_eq!(
-        call(&ht, &hs, &g0[1..], &e, EPS, false).unwrap_err(),
+        call(&htq, &hsq, &g0q[1..], &eq, q(EPS), false).unwrap_err(),
         FnormError::ShapeMismatch
     );
     assert_eq!(
-        call(&ht, &hs, &g0, &e[1..], EPS, false).unwrap_err(),
+        call(&htq, &hsq, &g0q, &eq[1..], q(EPS), false).unwrap_err(),
         FnormError::ShapeMismatch
     );
     assert_eq!(
-        fnorm_fit(&[], &[], N, T, 0, &[], &[], VOCAB, EPS, 4, 0.05, 1.0, false).unwrap_err(),
+        fnorm_fit(
+            &[],
+            &[],
+            N,
+            T,
+            0,
+            &[],
+            &[],
+            VOCAB,
+            q(EPS),
+            4,
+            q(0.05),
+            q(1.0),
+            false
+        )
+        .unwrap_err(),
         FnormError::ShapeMismatch
     );
     // coh_prior with a single position has no scored token.
-    let flat_t = lcg_vec(N * HID, 0x5eed);
+    let flat_t = qv(&lcg_vec(N * HID, 0x5eed));
     assert_eq!(
-        fnorm_fit(&flat_t, &flat_t, N, 1, HID, &g0, &e, VOCAB, EPS, 4, 0.05, 1.0, true)
-            .unwrap_err(),
+        fnorm_fit(
+            &flat_t,
+            &flat_t,
+            N,
+            1,
+            HID,
+            &g0q,
+            &eq,
+            VOCAB,
+            q(EPS),
+            4,
+            q(0.05),
+            q(1.0),
+            true
+        )
+        .unwrap_err(),
         FnormError::ShapeMismatch
     );
 
-    // Non-finite inputs.
-    let mut bad = ht.clone();
-    bad[0] = f64::NAN;
-    assert_eq!(
-        call(&bad, &hs, &g0, &e, EPS, false).unwrap_err(),
-        FnormError::NonFinite
-    );
-    let mut bad_e = e.clone();
-    bad_e[0] = f64::INFINITY;
-    assert_eq!(
-        call(&ht, &hs, &g0, &bad_e, EPS, false).unwrap_err(),
-        FnormError::NonFinite
-    );
+    // A non-finite input is refused at the caller's `to_grid` boundary, before the word fit.
+    assert_eq!(to_grid(f64::NAN, GRID_BOUND), None);
+    assert_eq!(to_grid(f64::INFINITY, GRID_BOUND), None);
 
-    // The RMSNorm epsilon must be finite and positive.
+    // The RMSNorm epsilon must be a positive word.
     assert_eq!(
-        call(&ht, &hs, &g0, &e, 0.0, false).unwrap_err(),
+        call(&htq, &hsq, &g0q, &eq, q(0.0), false).unwrap_err(),
         FnormError::BadEps
     );
     assert_eq!(
-        call(&ht, &hs, &g0, &e, -1.0, false).unwrap_err(),
+        call(&htq, &hsq, &g0q, &eq, q(-1.0), false).unwrap_err(),
         FnormError::BadEps
     );
 }
@@ -327,6 +439,14 @@ fn ref_softmax_row(z: &mut [f64]) {
     }
 }
 
+/// The oracle's own refusal, independent of the migrated [`FnormError`] (which no longer carries a
+/// non-finite arm: the word entry cannot see a non-finite value).
+#[derive(Debug, PartialEq, Eq)]
+enum RefError {
+    Shape,
+    NonFinite,
+}
+
 /// The `f64` descent at base `9f440192` (`fnorm.rs`), verbatim: the agreement oracle.
 #[allow(
     clippy::too_many_arguments,
@@ -348,32 +468,32 @@ fn ref_fnorm_fit(
     ridge: f64,
     lr: f64,
     coh_prior: bool,
-) -> Result<Vec<f64>, FnormError> {
+) -> Result<Vec<f64>, RefError> {
     if n == 0 || t == 0 || hid == 0 || vocab == 0 {
-        return Err(FnormError::ShapeMismatch);
+        return Err(RefError::Shape);
     }
     let nt = n
         .checked_mul(t)
         .and_then(|x| x.checked_mul(hid))
-        .ok_or(FnormError::ShapeMismatch)?;
-    let vh = vocab.checked_mul(hid).ok_or(FnormError::ShapeMismatch)?;
+        .ok_or(RefError::Shape)?;
+    let vh = vocab.checked_mul(hid).ok_or(RefError::Shape)?;
     if ht.len() != nt || hs.len() != nt || g0.len() != hid || e.len() != vh {
-        return Err(FnormError::ShapeMismatch);
+        return Err(RefError::Shape);
     }
     if !eps.is_finite() || eps <= 0.0 {
-        return Err(FnormError::BadEps);
+        return Err(RefError::NonFinite);
     }
     if ht.iter().any(|x| !x.is_finite())
         || hs.iter().any(|x| !x.is_finite())
         || g0.iter().any(|x| !x.is_finite())
         || e.iter().any(|x| !x.is_finite())
     {
-        return Err(FnormError::NonFinite);
+        return Err(RefError::NonFinite);
     }
     let pos_start = usize::from(coh_prior);
     let t_eff = t - pos_start;
     if t_eff == 0 {
-        return Err(FnormError::ShapeMismatch);
+        return Err(RefError::Shape);
     }
     let n_tok = (n as f64) * (t_eff as f64);
 
@@ -495,10 +615,22 @@ fn q32_agrees_with_the_f64_oracle_within_the_grid_bound() {
         &ht, &hs, N, T, HID, &g0, &e, VOCAB, EPS, steps, 0.05, 1.0, false,
     )
     .expect("oracle");
-    let got = fnorm_fit(
-        &ht, &hs, N, T, HID, &g0, &e, VOCAB, EPS, steps, 0.05, 1.0, false,
+    let got = unq(&fnorm_fit(
+        &qv(&ht),
+        &qv(&hs),
+        N,
+        T,
+        HID,
+        &qv(&g0),
+        &qv(&e),
+        VOCAB,
+        q(EPS),
+        steps,
+        q(0.05),
+        q(1.0),
+        false,
     )
-    .expect("migrated");
+    .expect("migrated"));
     let mut worst = 0.0_f64;
     for j in 0..HID {
         let bound = 1e-7 * (1.0 + want[j].abs());
