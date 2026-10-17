@@ -12,7 +12,7 @@
 //! # Carrier
 //!
 //! Every value is a `Q32.32` word: the squares and dot products are exact `i128` accumulations and
-//! each reported scalar is rounded once ([`fx::div_rne`], ties to even). The `f64` parameters and
+//! each reported scalar is rounded once ([`div_rne`], ties to even). The `f64` parameters and
 //! returned pairs are the cross-file boundary (`to_grid`/`from_grid`); no arithmetic runs in `f64`.
 //! With `H = Σ_t s_t s_tᵀ` the raw scatter, `S4 = Σ_t ‖s_t‖⁴`, `Q = Σ_t s_t⁴`, `M = H/n` and
 //! `off(X) = ‖X‖_F² − Σ_i X_ii²`:
@@ -52,10 +52,11 @@
               widening into the exact accumulator domain"
 )]
 
-use crate::learn::solve::q32::{from_grid, round_q32_even, to_grid, GRID_BOUND};
+use crate::learn::solve::q32::{div_rne, from_grid, round_q32_even, to_grid, GRID_BOUND};
 use crate::learn::solve::syrk::{wsyrk, SyrkError};
+use crate::numeric::fixed_ln::ONE;
 
-use super::parts::{fx, panel, shift};
+use super::parts::{panel, shift};
 
 /// A refusal from the shrinkage-intensity estimators.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,7 +74,7 @@ pub enum LwError {
 
 /// `v` as `i64`, or [`LwError::OutOfRange`] when it leaves the grid.
 fn narrow(v: i128) -> Result<i64, LwError> {
-    fx::narrow(v).ok_or(LwError::OutOfRange)
+    i64::try_from(v).map_err(|_| LwError::OutOfRange)
 }
 
 /// One `f64` input as a `Q32.32` word; a value outside the grid is refused, never clamped.
@@ -114,7 +115,7 @@ fn off_of(h: &[i64], o: usize, n: usize) -> Result<i64, LwError> {
         .and_then(|v| v.checked_mul(v))
         .and_then(|v| v.checked_mul(1_i128 << 32))
         .ok_or(LwError::OutOfRange)?;
-    narrow(fx::div_rne(total, n2).ok_or(LwError::OutOfRange)?)
+    narrow(div_rne(total, n2).ok_or(LwError::OutOfRange)?)
 }
 
 /// Schäfer–Strimmer (2005) intensity of the raw scatter `H` toward its diagonal, from the capture's
@@ -150,9 +151,11 @@ pub fn lw_intensity(
     }
     let nf = i128::try_from(n).map_err(|_| LwError::OutOfRange)?;
     let acc = i128::from(s4w) - q_sum - nf * i128::from(off);
-    let num = narrow(fx::div_rne(acc, nf * (nf - 1)).ok_or(LwError::OutOfRange)?)?;
-    let lambda = fx::div(num, off).ok_or(LwError::OutOfRange)?;
-    Ok((from_grid(num), from_grid(fx::clamp01(lambda))))
+    let num = narrow(div_rne(acc, nf * (nf - 1)).ok_or(LwError::OutOfRange)?)?;
+    let lambda = div_rne(i128::from(num) << 32, i128::from(off))
+        .and_then(|v| i64::try_from(v).ok())
+        .ok_or(LwError::OutOfRange)?;
+    Ok((from_grid(num), from_grid(lambda.clamp(0, ONE))))
 }
 
 /// `off(H_b) = ‖H_b‖_F² − Σ_i (H_b)_ii²` of ONE block, with `H_b = Σ_k S_kᵀ S_k`
@@ -231,7 +234,9 @@ pub fn lw_block_intensity(
     }
     let bf = i128::try_from(b).map_err(|_| LwError::OutOfRange)?;
     let acc = i128::from(pw) - bf * i128::from(off);
-    let num = narrow(fx::div_rne(acc, bf * (bf - 1)).ok_or(LwError::OutOfRange)?)?;
-    let lambda = fx::div(num, off).ok_or(LwError::OutOfRange)?;
-    Ok((from_grid(num), from_grid(fx::clamp01(lambda))))
+    let num = narrow(div_rne(acc, bf * (bf - 1)).ok_or(LwError::OutOfRange)?)?;
+    let lambda = div_rne(i128::from(num) << 32, i128::from(off))
+        .and_then(|v| i64::try_from(v).ok())
+        .ok_or(LwError::OutOfRange)?;
+    Ok((from_grid(num), from_grid(lambda.clamp(0, ONE))))
 }

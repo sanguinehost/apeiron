@@ -13,10 +13,11 @@
 //! derivation allows (each accumulation is exact in `i128` and rounds once, so the count is the
 //! number of *distinct rounded operations* feeding the entry).
 //!
-//! Mutation control: `fx::ONE` used as the comparison in `fx::clamp01`, or `exp_sat`'s `21` cap
-//! lowered, leaves the causality test green but `word_path_agrees_with_f64_oracle` red; the
-//! recorded control is `LN2` in `fx::exp2` changed from `2_977_044_472` to `2_977_044_4720`, which
-//! turns `word_path_agrees_with_f64_oracle` and `full_head_attention_equals_naive_triple_loop` red.
+//! Mutation control: one constant in `crate::numeric::fixed_trig::fixed_atan2` — its `4` scale to
+//! `6` — turns `numeric::fixed_trig::tests::atan2_matches_f64_within_the_derived_bound` red; the
+//! scalar kernels this module calls carry their own controls (`numeric::fixed_exp`,
+//! `numeric::fixed_ln`, `numeric::fixed_trig`), and `exp_sat`'s `21` cap lowered still reddens
+//! `word_path_agrees_with_f64_oracle` through the attention weights.
 //!
 //! The fixture is a tiny layer (`n_head 4`, `n_kv_head 2`, `head_dim 8`, `hidden 32`, `inter 48`,
 //! `t 6`) with deterministic LCG weights. `n_head == 4` is the smallest even split, so the
@@ -326,10 +327,12 @@ fn rope_at_position_zero_is_the_identity() {
         assert_eq!(rope.sin[j], 0.0);
     }
     // Every other entry is the `f64` oracle within the table's derived bound. Derivation: the
-    // frequency `inv[i] = 2^(-(2i/hd)·log₂ theta)` costs a `log₂` (≤ 8 series roundings), one
-    // multiply and one `exp2` (≤ 16 series roundings) ≈ 25 quanta; `emb = p·inv` adds one and
-    // `sin_cos` (reduction, two series) adds ≈ 16, so |Δ| ≤ 48·q·(1 + |oracle|) per entry.
-    let tol: f64 = 48.0 * 2.328_306_436_538_696e-10 * 2.0;
+    // frequency `inv[i] = exp(-(2i/hd)·ln theta)` costs the numeric `ln` kernel's 7-unit absolute
+    // bound (≈ 10 quanta after the `log₂` conversion), one multiply and the `exp` kernel's
+    // `1e-8·eˣ + 4q` (≈ 47 quanta) ≈ 60 quanta; `emb = p·inv` and the turn conversion add ≈ 3; the
+    // `sin`/`cos` kernel's asserted bound is 16 quanta absolute, so |Δ| ≤ 79·q per entry, asserted
+    // at 96·q.
+    let tol: f64 = 96.0 * 2.328_306_436_538_696e-10;
     let half = HD / 2;
     for p in 0..TMAX {
         for j in 0..HD {

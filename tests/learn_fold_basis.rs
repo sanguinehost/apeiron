@@ -405,7 +405,10 @@ fn c_butterfly_orthogonal_and_fixed_angle_is_hadamard() {
         }
     }
     // `Q` is a product of at most 28 Givens rotations (one mandatory pass plus three sweeps), each
-    // with `c² + s² − 1 ≤ 4q` from its two rounded words and the two rounded products.
+    // with `c² + s² − 1 ≤ 4q` from its two rounded words and the two rounded products: the
+    // `sin`/`cos` kernel returns the rounded value (analytic truncation `4e-13 ≪ q`, dense-sample
+    // maximum `2.5q`), and each block product rounds once. The measured maximum of
+    // `‖QᵀQ − I‖_max` on this fixture is `19.3q`, asserted at `128q`.
     assert!(worst < 128.0 * Q, "‖QᵀQ − I‖_max = {worst}");
 
     let qf = butterfly_basis_fixed(&w, o, n, std::f64::consts::FRAC_PI_4).expect("fixed");

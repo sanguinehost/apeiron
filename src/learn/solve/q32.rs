@@ -245,6 +245,15 @@ pub fn round_q32_even(v: i128) -> Result<i64, Q32Error> {
     }
 }
 
+/// `num / den` rounded to nearest, ties to even, or `None` when `den <= 0` or the doubled remainder
+/// leaves `i128`.
+///
+/// The one rounded quotient of the `Q32.32` path: a `Q32.32` division is `div_rne(num << 32, den)`
+/// followed by one narrowing. The body is [`crate::numeric::fixed_ln::div_rne`] — the extraction
+/// unit compiles `numeric` standalone (`proof/extract/lib.rs`), so the quotient is defined there and
+/// re-exported here as the shared name the fold and solve code calls.
+pub use crate::numeric::fixed_ln::div_rne;
+
 /// A scaled-integer real `m · 2^e`: the scalar carrier a `f64` fold-fit quantity moves to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fx {

@@ -82,6 +82,50 @@ const fn round_div_i128(num: i128, den: i128) -> i128 {
     }
 }
 
+/// `num / den` rounded to nearest, ties to even; `None` when the divisor is not positive or the
+/// doubled remainder leaves `i128`.
+///
+/// The one rounded quotient of the Q32.32 path: a Q32.32 division is `div_rne(num << 32, den)`
+/// followed by one narrowing, and a series coefficient `p / (2k+1)` is `div_rne(p, 2k+1)`.
+/// [`crate::learn::solve::q32`] re-exports it as the shared name, and
+/// [`super::fixed_trig::fixed_atan2`] calls it directly, so the body lives here: the extraction
+/// unit compiles `numeric` standalone (`proof/extract/lib.rs`), where a `crate::learn` path would
+/// not resolve.
+///
+/// # Complexity
+///
+/// `O(1)`: one truncating quotient, one remainder and one magnitude comparison.
+#[allow(
+    clippy::manual_let_else,
+    clippy::question_mark,
+    clippy::bool_to_int_with_if,
+    reason = "explicit `match` forms stay in place of `let .. else` and `?` because they are what \
+              the pinned Charon/Aeneas extraction fragment models, and the `if`-returned `0/1` \
+              step keeps the rounding branch visible to that fragment instead of `i128::from(bool)`"
+)]
+#[must_use]
+pub fn div_rne(num: i128, den: i128) -> Option<i128> {
+    if den <= 0 {
+        return None;
+    }
+    let q = num / den;
+    let r = num % den;
+    if r == 0 {
+        return Some(q);
+    }
+    let twice = match r.checked_mul(2) {
+        Some(v) => v,
+        None => return None,
+    };
+    let (mag, den_mag) = (twice.unsigned_abs(), den.unsigned_abs());
+    let step: i128 = if mag > den_mag || (mag == den_mag && q % 2 != 0) {
+        1
+    } else {
+        0
+    };
+    Some(if r > 0 { q + step } else { q - step })
+}
+
 /// Evaluate `2 * atanh(s)` for `s in [-0.1716, 0.1716]` in Q32.32.
 ///
 /// Degree-13 polynomial in `y = s^2`:
