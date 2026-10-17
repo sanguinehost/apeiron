@@ -9,8 +9,7 @@
 //! migrated Q32.32 pipeline against the pre-migration `f64` body copied in as [`ref_corrector`]
 //! within the bound derived there. The rounded carriers' eigenstage ([`eigen_parts`] →
 //! [`eigen_gram`] + [`top_eigh`]) matches the scalar `f64` loops plus [`eigh`] to `1e-6` relative on
-//! random `ΔW`/PSD `Hl` at three shapes. Boundary: the shape, rank, non-finite and out-of-grid
-//! refusals. Grade `tested`.
+//! random `ΔW`/PSD `Hl` at three shapes. Boundary: the shape and rank refusals. Grade `tested`.
 
 #![allow(
     clippy::cast_precision_loss,
@@ -46,6 +45,39 @@ const PRODUCT_TOL: f64 = 4.656_612_873_077_393e-10;
 /// The migrated [`f16r`] at an `f64` value of the oracle's own data: grid it, round, read back.
 fn h16(x: f64) -> f64 {
     from_grid(f16r(to_grid(x, GRID_BOUND).expect("grid")).expect("in binary16 range"))
+}
+
+/// `x` as a Q32.32 word (the boundary the word APIs take).
+fn q(x: f64) -> i64 {
+    to_grid(x, GRID_BOUND).expect("grid")
+}
+
+/// `x` as words.
+fn qv(x: &[f64]) -> Vec<i64> {
+    x.iter().map(|&v| q(v)).collect()
+}
+
+/// The `f64` view of a word buffer.
+fn uw(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&v| from_grid(v)).collect()
+}
+
+/// FNV-1a over the little-endian bytes of a word buffer.
+fn fnv_words(d: &mut u64, xs: &[i64]) {
+    for &v in xs {
+        for b in v.to_le_bytes() {
+            *d ^= u64::from(b);
+            *d = d.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+}
+
+/// FNV-1a over the little-endian bytes of a scalar.
+fn fnv_u64(d: &mut u64, v: u64) {
+    for b in v.to_le_bytes() {
+        *d ^= u64::from(b);
+        *d = d.wrapping_mul(0x0000_0100_0000_01b3);
+    }
 }
 
 /// Deterministic 64-bit LCG (Numerical Recipes constants), the tests' only randomness source.
@@ -146,41 +178,44 @@ const N: usize = 10;
 fn exact_equals_reference() {
     let rank = 3usize;
     let (dw, hl) = fixture(0x1111_2222_3333_4444, O, N);
-    let mine = lowrank_corrector(&dw, &hl, O, N, rank, Mode::Exact, true).expect("exact");
-    let reference = lowrank_corrector_exact(&dw, &hl, O, N, rank).expect("reference");
+    let (dwq, hlq) = (qv(&dw), qv(&hl));
+    let mine = lowrank_corrector(&dwq, &hlq, O, N, rank, Mode::Exact, true).expect("exact");
+    // The `eigh` entry is `f64`; the words round-trip through `from_grid` exactly.
+    let reference = lowrank_corrector_exact(&uw(&dwq), &uw(&hlq), O, N, rank).expect("reference");
     assert_eq!(mine.bits, (16 * rank * (O + N)) as u64, "exact bit count");
-    assert_eq!(mine.corr, reference.corr, "Corr != reference Corr");
-    assert!(
-        (mine.top_sum - reference.top_sum).abs() <= 1e-12,
-        "top_sum {} != {}",
+    assert_eq!(uw(&mine.corr), reference.corr, "Corr != reference Corr");
+    assert_eq!(
         mine.top_sum,
+        q(reference.top_sum),
+        "top_sum {} != {}",
+        from_grid(mine.top_sum),
         reference.top_sum
     );
     let f = mine.factors.as_ref().expect("factors requested");
-    assert_eq!(f.u, reference.u, "Uh != reference U");
-    assert_eq!(f.v, reference.v, "Vh != reference V");
+    assert_eq!(uw(&f.u), reference.u, "Uh != reference U");
+    assert_eq!(uw(&f.v), reference.v, "Vh != reference V");
 }
 
 #[test]
 fn f16_reconstruction_bound() {
     let rank = 3usize;
     let (dw, hl) = fixture(0x5555_6666_7777_8888, O, N);
-    let exact = lowrank_corrector(&dw, &hl, O, N, rank, Mode::Exact, true).expect("exact");
-    let f16 = lowrank_corrector(&dw, &hl, O, N, rank, Mode::F16, true).expect("f16");
+    let (dwq, hlq) = (qv(&dw), qv(&hl));
+    let exact = lowrank_corrector(&dwq, &hlq, O, N, rank, Mode::Exact, true).expect("exact");
+    let f16 = lowrank_corrector(&dwq, &hlq, O, N, rank, Mode::F16, true).expect("f16");
     assert_eq!(f16.bits, (16 * rank * (O + N)) as u64, "f16 bit count");
     // `Exact` reads `top_sum` off the f64 Jacobi `eigh` of the Gram; `F16` reads it off the Q32.32
     // `top_eigh` on the power-of-two-scaled grid, so the two agree to that path's eigenvalue
     // accuracy (`eigen_stage_matches_f64_reference` fixes it at `1e-6` relative) rather than
     // bit-for-bit. The observed relative disagreement is ~5e-10.
+    let (ts_exact, ts_f16) = (from_grid(exact.top_sum), from_grid(f16.top_sum));
     assert!(
-        (f16.top_sum - exact.top_sum).abs() <= 1e-6 * exact.top_sum.abs().max(1e-30),
-        "f16 top_sum {} != exact {}",
-        f16.top_sum,
-        exact.top_sum
+        (ts_f16 - ts_exact).abs() <= 1e-6 * ts_exact.abs().max(1e-30),
+        "f16 top_sum {ts_f16} != exact {ts_exact}"
     );
     let err = |corr: &[f64]| trace_r_hl_rt(&residual(&dw, corr), &hl, O, N);
-    let e_exact = err(&exact.corr);
-    let e_f16 = err(&f16.corr);
+    let e_exact = err(&uw(&exact.corr));
+    let e_f16 = err(&uw(&f16.corr));
     // ||ΔW||²_Hl, the scale the half-ulp of the binary16 factors propagates at.
     let s = trace_r_hl_rt(&dw, &hl, O, N);
     let half_ulp = 2f64.powi(-11);
@@ -200,7 +235,7 @@ fn f16_reconstruction_bound() {
 fn u8_bits_and_grid() {
     let rank = 3usize;
     let (dw, hl) = fixture(0x9999_AAAA_BBBB_CCCC, O, N);
-    let u8 = lowrank_corrector(&dw, &hl, O, N, rank, Mode::U8, true).expect("u8");
+    let u8 = lowrank_corrector(&qv(&dw), &qv(&hl), O, N, rank, Mode::U8, true).expect("u8");
     assert_eq!(
         u8.bits,
         (rank as u64) * (8 * (O + N) as u64 + 64),
@@ -216,13 +251,11 @@ fn u8_bits_and_grid() {
     // unchanged and the stored point re-quantizes to its own grid value. The observed displacement
     // is ≤ 0.4 quantum.
     for k in 0..rank {
-        let col: Vec<i64> = (0..O)
-            .map(|i| to_grid(f.u[i * rank + k], GRID_BOUND).expect("grid"))
-            .collect();
+        let col: Vec<i64> = (0..O).map(|i| f.u[i * rank + k]).collect();
         let (q, bits) = quant_c_u8(&col, 8).expect("column quantizes");
         assert_eq!(bits, 8 * O as u64 + 32, "column header bits");
         for i in 0..O {
-            let drift = (from_grid(q[i]) - f.u[i * rank + k]).abs();
+            let drift = (from_grid(q[i]) - from_grid(f.u[i * rank + k])).abs();
             assert!(
                 drift <= QUANTUM,
                 "Uh[{i}, {k}] moved {drift:e} off the u8 grid (one quantum is {QUANTUM:e})"
@@ -231,14 +264,11 @@ fn u8_bits_and_grid() {
     }
     // Each row of Vh is on the 8-bit grid, to the same bound.
     for k in 0..rank {
-        let row: Vec<i64> = f.v[k * N..k * N + N]
-            .iter()
-            .map(|&x| to_grid(x, GRID_BOUND).expect("grid"))
-            .collect();
+        let row: Vec<i64> = f.v[k * N..k * N + N].to_vec();
         let (q, bits) = quant_c_u8(&row, 8).expect("row quantizes");
         assert_eq!(bits, 8 * N as u64 + 32, "row header bits");
         for j in 0..N {
-            let drift = (from_grid(q[j]) - f.v[k * N + j]).abs();
+            let drift = (from_grid(q[j]) - from_grid(f.v[k * N + j])).abs();
             assert!(
                 drift <= QUANTUM,
                 "Vh[{k}, {j}] moved {drift:e} off the u8 grid (one quantum is {QUANTUM:e})"
@@ -257,10 +287,10 @@ fn factors_product_within_two_quanta() {
     // (`PRODUCT_TOL`) is two quanta of slack. Before the Q32.32 migration the two were bit-identical
     // by construction.
     for mode in [Mode::Exact, Mode::F16, Mode::U8] {
-        let c = lowrank_corrector(&dw, &hl, O, N, rank, mode, true).expect("corrector");
+        let c = lowrank_corrector(&qv(&dw), &qv(&hl), O, N, rank, mode, true).expect("corrector");
         let f = c.factors.as_ref().expect("factors requested");
-        let prod = matmul(&f.u, &f.v, O, rank, N);
-        for (i, (p, q)) in prod.iter().zip(&c.corr).enumerate() {
+        let prod = matmul(&uw(&f.u), &uw(&f.v), O, rank, N);
+        for (i, (p, q)) in prod.iter().zip(&uw(&c.corr)).enumerate() {
             assert!(
                 (p - q).abs() <= PRODUCT_TOL,
                 "{mode:?}: Uh·Vh entry {i} = {p} vs Corr {q} beyond {PRODUCT_TOL:e}"
@@ -277,8 +307,8 @@ fn full_rank_recovery() {
     // Per-mode precision of the recovery `Corr ≈ ΔW` at full rank.
     let tolerances = [(Mode::Exact, 1e-9), (Mode::F16, 1e-2), (Mode::U8, 5e-2)];
     for (mode, tol) in tolerances {
-        let c = lowrank_corrector(&dw, &hl, O, N, rank, mode, false).expect("corrector");
-        let e = max_abs(&residual(&dw, &c.corr));
+        let c = lowrank_corrector(&qv(&dw), &qv(&hl), O, N, rank, mode, false).expect("corrector");
+        let e = max_abs(&residual(&dw, &uw(&c.corr)));
         assert!(
             e <= tol * scale,
             "{mode:?}: full-rank recovery error {e} exceeds {tol}·scale {}",
@@ -290,38 +320,32 @@ fn full_rank_recovery() {
 #[test]
 fn refusals() {
     let (dw, hl) = fixture(0xBEEF_C0DE_1234_5678, O, N);
+    let (dwq, hlq) = (qv(&dw), qv(&hl));
     // ΔW length disagrees with o·n.
-    let dw_bad = vec![0.0f64; O * N + 1];
+    let dw_bad = vec![0_i64; O * N + 1];
     assert_eq!(
-        lowrank_corrector(&dw_bad, &hl, O, N, 3, Mode::F16, false).err(),
+        lowrank_corrector(&dw_bad, &hlq, O, N, 3, Mode::F16, false).err(),
         Some(CorrectorError::ShapeMismatch)
     );
     // Hl length disagrees with n·n.
-    let hl_bad = vec![0.0f64; N * N - 1];
+    let hl_bad = vec![0_i64; N * N - 1];
     assert_eq!(
-        lowrank_corrector(&dw, &hl_bad, O, N, 3, Mode::U8, false).err(),
+        lowrank_corrector(&dwq, &hl_bad, O, N, 3, Mode::U8, false).err(),
         Some(CorrectorError::ShapeMismatch)
     );
     // rank > o, in each mode.
     for mode in [Mode::Exact, Mode::F16, Mode::U8] {
         assert_eq!(
-            lowrank_corrector(&dw, &hl, O, N, O + 1, mode, false).err(),
+            lowrank_corrector(&dwq, &hlq, O, N, O + 1, mode, false).err(),
             Some(CorrectorError::RankOutOfRange),
             "{mode:?}: rank > o not refused"
         );
     }
-    // Non-finite ΔW entry.
-    let mut dw_nan = dw.clone();
-    dw_nan[0] = f64::NAN;
-    assert_eq!(
-        lowrank_corrector(&dw_nan, &hl, O, N, 3, Mode::F16, false).err(),
-        Some(CorrectorError::NonFinite)
-    );
     // Rank 0 returns the empty corrector.
-    let empty = lowrank_corrector(&dw, &hl, O, N, 0, Mode::F16, true).expect("rank 0");
+    let empty = lowrank_corrector(&dwq, &hlq, O, N, 0, Mode::F16, true).expect("rank 0");
     assert_eq!(empty.bits, 0);
-    assert_eq!(empty.top_sum, 0.0);
-    assert!(empty.corr.iter().all(|&x| x == 0.0));
+    assert_eq!(empty.top_sum, 0);
+    assert!(empty.corr.iter().all(|&x| x == 0));
     let f = empty.factors.as_ref().expect("factors requested");
     assert!(f.u.is_empty() && f.v.is_empty());
 }
@@ -515,38 +539,91 @@ fn eigen_gram_agrees_with_f64_oracle() {
     }
 }
 
-/// The Q32.32 boundary refusals on the gemm path: a finite entry at or beyond the grid's range and a
-/// non-finite entry refuse without a panic.
+/// The word corrector is bit-identical to the `f64` wrapper it replaced on these fixtures: the
+/// factor and `Corr` digests were recorded through the old `f64` entry before the flip.
 #[test]
-fn gemm_path_refusals() {
-    let (dw, hl) = fixture(0x2468_ACE0_1357_9BDF, O, N);
-    let mut big = dw.clone();
-    big[0] = 1e30;
-    assert_eq!(
-        lowrank_corrector(&big, &hl, O, N, 3, Mode::U8, false).err(),
-        Some(CorrectorError::NotRepresentable),
-        "1e30 ΔW entry not refused"
-    );
-    assert_eq!(
-        lowrank_corrector(&big, &hl, O, N, 3, Mode::Exact, false).err(),
-        Some(CorrectorError::NotRepresentable),
-        "1e30 ΔW entry not refused in Exact"
-    );
-    let mut big_h = hl.clone();
-    big_h[0] = -3e9;
-    assert_eq!(
-        lowrank_corrector(&dw, &big_h, O, N, 3, Mode::F16, false).err(),
-        Some(CorrectorError::NotRepresentable),
-        "3e9 Hl entry not refused"
-    );
-    // A non-finite entry is refused as `NonFinite`, not `NotRepresentable`.
-    let mut nan = dw.clone();
-    nan[0] = f64::NEG_INFINITY;
-    assert_eq!(
-        lowrank_corrector(&nan, &hl, O, N, 3, Mode::U8, false).err(),
-        Some(CorrectorError::NonFinite),
-        "infinite ΔW entry not refused as NonFinite"
-    );
+fn corrector_words_are_bit_identical_to_the_recorded_wrapper() {
+    /// A symmetric matrix with a dominant diagonal, the witness fixtures' `Hl`.
+    fn spd(n: usize, rng: &mut Lcg) -> Vec<f64> {
+        let mut h = vec![0.0f64; n * n];
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let v = rng.sym();
+                h[i * n + j] = v;
+                h[j * n + i] = v;
+            }
+        }
+        for i in 0..n {
+            let mut off = 0.0f64;
+            for j in 0..n {
+                if j != i {
+                    off += h[i * n + j].abs();
+                }
+            }
+            h[i * n + i] = off + 1.0 + rng.sym().abs();
+        }
+        h
+    }
+    let (o, n, rank) = (8usize, 16usize, 2usize);
+    for (seed, mode, top, want_f, want_c) in [
+        (
+            0x7c0_0001u64,
+            Mode::Exact,
+            836_674_506_448i64,
+            0x213e_c4d4_348c_38b7u64,
+            0x6a70_d2e1_a56d_7a7cu64,
+        ),
+        (
+            0x7c0_0001,
+            Mode::F16,
+            836_674_506_448,
+            0x6ad7_848f_4345_3d86,
+            0x5a21_81f6_f97f_e6af,
+        ),
+        (
+            0x7c0_0001,
+            Mode::U8,
+            836_674_506_448,
+            0xffb1_7e24_8877_02ab,
+            0xd561_f5ca_0a07_67da,
+        ),
+        (
+            0x7c0_0002,
+            Mode::Exact,
+            881_856_304_080,
+            0x54c0_e579_2501_fa61,
+            0x7b4b_a60d_bbe6_f80f,
+        ),
+        (
+            0x7c0_0002,
+            Mode::F16,
+            881_856_304_080,
+            0x53ce_2d36_663d_a6d6,
+            0xffa4_eceb_1266_182d,
+        ),
+        (
+            0x7c0_0002,
+            Mode::U8,
+            881_856_304_080,
+            0x9568_ba6b_085e_0122,
+            0x9ad9_b924_30a5_f0d5,
+        ),
+    ] {
+        let mut rng = Lcg::new(seed);
+        let dw: Vec<f64> = (0..o * n).map(|_| rng.sym()).collect();
+        let hl = spd(n, &mut rng);
+        let c = lowrank_corrector(&qv(&dw), &qv(&hl), o, n, rank, mode, true).expect("corrector");
+        assert_eq!(c.top_sum, top, "top_sum seed={seed:x} {mode:?}");
+        let f = c.factors.as_ref().expect("factors requested");
+        let mut d = 0xcbf2_9ce4_8422_2325u64;
+        fnv_words(&mut d, &f.u);
+        fnv_words(&mut d, &f.v);
+        assert_eq!(d, want_f, "factors seed={seed:x} {mode:?}");
+        let mut dc = 0xcbf2_9ce4_8422_2325u64;
+        fnv_words(&mut dc, &c.corr);
+        fnv_u64(&mut dc, c.bits);
+        assert_eq!(dc, want_c, "Corr seed={seed:x} {mode:?}");
+    }
 }
 
 // ---- the pre-migration `f64` body, copied verbatim as the agreement oracle -------------------
@@ -685,14 +762,16 @@ fn agrees_with_f64_oracle() {
     for seed in [0xA1B2_C3D4_E5F6_0718u64, 0x0F1E_2D3C_4B5A_6978] {
         let (dw, hl) = fixture(seed, O, N);
         for mode in [Mode::F16, Mode::U8] {
-            let got = lowrank_corrector(&dw, &hl, O, N, rank, mode, true).expect("q32 corrector");
+            let got = lowrank_corrector(&qv(&dw), &qv(&hl), O, N, rank, mode, true)
+                .expect("q32 corrector");
             let (corr, u, v, top_sum) = ref_corrector(&dw, &hl, O, N, rank, mode);
             let f = got.factors.as_ref().expect("factors requested");
             let scale = max_abs(&corr).max(f64::MIN_POSITIVE);
-            let dc = max_abs(&residual(&corr, &got.corr));
-            let du = max_abs(&residual(&u, &f.u));
-            let dv = max_abs(&residual(&v, &f.v));
-            let dt = (got.top_sum - top_sum).abs() / top_sum.abs().max(f64::MIN_POSITIVE);
+            let dc = max_abs(&residual(&corr, &uw(&got.corr)));
+            let du = max_abs(&residual(&u, &uw(&f.u)));
+            let dv = max_abs(&residual(&v, &uw(&f.v)));
+            let dt =
+                (from_grid(got.top_sum) - top_sum).abs() / top_sum.abs().max(f64::MIN_POSITIVE);
             println!(
                 "oracle seed {seed:x} {mode:?}: Corr {:.3e} (rel {:.3e}) Uh {:.3e} Vh {:.3e} \
                  top_sum rel {:.3e}",
@@ -764,7 +843,7 @@ fn timing_production_shape() {
         eig[run] = t1.elapsed().as_secs_f64();
         black_box(&top);
         let t2 = Instant::now();
-        let c = lowrank_corrector(&dw, &hl, o, n, 1, Mode::U8, false).expect("corrector");
+        let c = lowrank_corrector(&qv(&dw), &qv(&hl), o, n, 1, Mode::U8, false).expect("corrector");
         total[run] = t2.elapsed().as_secs_f64();
         black_box(&c);
     }

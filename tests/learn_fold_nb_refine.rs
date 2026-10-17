@@ -2,7 +2,7 @@
 //! finished two-plane pair: `J` falls when a round is kept and never rises, a run on its own output
 //! reaches a round that keeps nothing, the stored-format bounds hold (row scale a `quant_r_hier`
 //! value, column scale on the `6`-bit grid), `rounds = 0` is the identity, the returned weights are
-//! the returned packs' `compose`, and shape / width / non-finite inputs are refused. Grade `tested`.
+//! the returned packs' `compose`, and shape / width inputs are refused. Grade `tested`.
 
 #![allow(
     clippy::cast_precision_loss,
@@ -210,14 +210,14 @@ impl Fixture {
     /// The post-pass from an explicit pack pair at the ported `sweeps = NB_SWEEPS`, `icm_ridge = 0`.
     fn run_from(&self, a: &Plane, b: &Plane, rounds: usize) -> NbRefined {
         nb_refine(
-            &self.ws,
-            &self.hl,
+            &qw(&self.ws),
+            &qw(&self.hl),
             pref(a),
             pref(b),
             self.o,
             self.n,
             None,
-            0.0,
+            0,
             NB_SWEEPS,
             rounds,
         )
@@ -234,8 +234,14 @@ fn learn_fold_nb_refine_lowers_j_and_keeps_a_round() {
     let f = Fixture::new(0x4E42_5EED, 4, 256);
     let out = f.run(2);
     println!(
-        "learn_fold_nb_refine: o={} n={} j_seq={:.12e} j_nb={:.12e} rounds_kept={} moves={} per_round={:?}",
-        f.o, f.n, out.log.j_seq, out.log.j_nb, out.log.rounds_kept, out.log.moves, out.log.per_round
+        "learn_fold_nb_refine: o={} n={} j_seq={} j_nb={} rounds_kept={} moves={} per_round={:?}",
+        f.o,
+        f.n,
+        out.log.j_seq,
+        out.log.j_nb,
+        out.log.rounds_kept,
+        out.log.moves,
+        out.log.per_round
     );
     // The acceptance rule of the port: a round is kept only when J strictly falls, so the returned
     // pair's J can never exceed the input pair's, and a fixture with a kept round is strictly below.
@@ -264,9 +270,9 @@ fn learn_fold_nb_refine_lowers_j_and_keeps_a_round() {
     let sum = pair_w(&out.p1, &out.p2, f.o, f.n);
     let bound = j_grid_bound(&f.ws, &sum, &f.hl, f.o, f.n);
     assert!(
-        (j_ret - out.log.j_nb).abs() <= bound,
+        (j_ret - from_grid(out.log.j_nb)).abs() <= bound,
         "log j_nb {} != measured {j_ret} within {bound}",
-        out.log.j_nb
+        from_grid(out.log.j_nb)
     );
 }
 
@@ -280,11 +286,11 @@ fn learn_fold_nb_refine_reaches_a_round_that_keeps_nothing() {
     for _ in 0..8 {
         let out = f.run_from(&cur_a, &cur_b, 2);
         assert!(
-            out.log.j_nb <= j_prev,
+            from_grid(out.log.j_nb) <= j_prev,
             "J rose {j_prev} -> {} across runs",
-            out.log.j_nb
+            from_grid(out.log.j_nb)
         );
-        j_prev = out.log.j_nb;
+        j_prev = from_grid(out.log.j_nb);
         if out.log.rounds_kept == 0 {
             // Nothing was kept, so the returned packs are the input packs: the run's map is at a
             // fixed point and j_nb is exactly j_seq.
@@ -385,20 +391,16 @@ fn learn_fold_nb_refine_rounds_zero_returns_the_input() {
         assert_eq!(got.c, want.c);
         assert_eq!(got.d, want.d);
     }
-    assert_eq!(out.w1, uw(&plane_w(pref(&f.p1), f.o, f.n).expect("w1")));
-    assert_eq!(out.w2, uw(&plane_w(pref(&f.p2), f.o, f.n).expect("w2")));
+    assert_eq!(out.w1, plane_w(pref(&f.p1), f.o, f.n).expect("w1"));
+    assert_eq!(out.w2, plane_w(pref(&f.p2), f.o, f.n).expect("w2"));
     let mut ws = out.w1.clone();
     for k in 0..f.o * f.n {
         ws[k] += out.w2[k];
     }
-    let bound = j_grid_bound(&f.ws, &ws, &f.hl, f.o, f.n);
-    assert!(
-        (out.log.j_seq
-            - from_grid(objective(&qw(&f.ws), &qw(&ws), &qw(&f.hl), f.o, f.n).expect("J")))
-        .abs()
-            <= bound,
-        "j_seq {} is not the exact-sum objective within {bound}",
-        out.log.j_seq
+    assert_eq!(
+        out.log.j_seq,
+        objective(&qw(&f.ws), &ws, &qw(&f.hl), f.o, f.n).expect("J"),
+        "j_seq is not the exact-sum objective"
     );
 }
 
@@ -417,7 +419,8 @@ fn learn_fold_nb_refine_weights_are_the_packs_compose() {
     // `(√128·U·(1 + max|s·d|) + U)·max|r|·max|c|` — the grid quantum times the condition growth,
     // with `U` a full unit so the two half-unit roundings are covered.
     let u = 2f64.powi(-32);
-    for (pack, w) in [(&out.p1, &out.w1), (&out.p2, &out.w2)] {
+    let (w1, w2) = (uw(&out.w1), uw(&out.w2));
+    for (pack, w) in [(&out.p1, &w1), (&out.p2, &w2)] {
         let mut prod = vec![0.0_f64; f.o * f.n];
         let mut sd_max = 0.0_f64;
         for row in 0..f.o {
@@ -453,31 +456,30 @@ fn learn_fold_nb_refine_weights_are_the_packs_compose() {
     }
     let sum = pair_w(&out.p1, &out.p2, f.o, f.n);
     let bound = j_grid_bound(&f.ws, &sum, &f.hl, f.o, f.n);
+    let j_meas = objective(&qw(&f.ws), &qw(&sum), &qw(&f.hl), f.o, f.n).expect("J");
     assert!(
-        (out.log.j_nb
-            - from_grid(objective(&qw(&f.ws), &qw(&sum), &qw(&f.hl), f.o, f.n).expect("J")))
-        .abs()
-            <= bound,
+        (out.log.j_nb - j_meas).unsigned_abs() as f64 <= bound,
         "log j_nb {} is not the exact-sum objective within {bound}",
         out.log.j_nb
     );
 }
 
 #[test]
-fn learn_fold_nb_refine_refuses_bad_shapes_widths_and_non_finite() {
+fn learn_fold_nb_refine_refuses_bad_shapes_and_widths() {
     let f = Fixture::new(0x4E42_EA00, 4, 256);
-    let good = |ws: &[f64], hl: &[f64], a: &Plane, b: &Plane| {
-        nb_refine(ws, hl, pref(a), pref(b), f.o, f.n, None, 0.0, 2, 2)
+    let (wsq, hlq) = (qw(&f.ws), qw(&f.hl));
+    let good = |ws: &[i64], hl: &[i64], a: &Plane, b: &Plane| {
+        nb_refine(ws, hl, pref(a), pref(b), f.o, f.n, None, 0, 2, 2)
     };
-    assert!(good(&f.ws, &f.hl, &f.p1, &f.p2).is_ok());
+    assert!(good(&wsq, &hlq, &f.p1, &f.p2).is_ok());
 
     // A short `ws`, `hl`, `s`, `idx`, `r`, `c` or `d` is a shape refusal.
     assert_eq!(
-        good(&f.ws[1..], &f.hl, &f.p1, &f.p2).err(),
+        good(&wsq[1..], &hlq, &f.p1, &f.p2).err(),
         Some(NbError::Shape)
     );
     assert_eq!(
-        good(&f.ws, &f.hl[1..], &f.p1, &f.p2).err(),
+        good(&wsq, &hlq[1..], &f.p1, &f.p2).err(),
         Some(NbError::Shape)
     );
     let short_s = Plane {
@@ -485,7 +487,7 @@ fn learn_fold_nb_refine_refuses_bad_shapes_widths_and_non_finite() {
         ..f.p1.clone()
     };
     assert_eq!(
-        good(&f.ws, &f.hl, &short_s, &f.p2).err(),
+        good(&wsq, &hlq, &short_s, &f.p2).err(),
         Some(NbError::Shape)
     );
     let short_idx = Plane {
@@ -493,7 +495,7 @@ fn learn_fold_nb_refine_refuses_bad_shapes_widths_and_non_finite() {
         ..f.p1.clone()
     };
     assert_eq!(
-        good(&f.ws, &f.hl, &short_idx, &f.p2).err(),
+        good(&wsq, &hlq, &short_idx, &f.p2).err(),
         Some(NbError::Shape)
     );
     let short_r = Plane {
@@ -501,7 +503,7 @@ fn learn_fold_nb_refine_refuses_bad_shapes_widths_and_non_finite() {
         ..f.p1.clone()
     };
     assert_eq!(
-        good(&f.ws, &f.hl, &short_r, &f.p2).err(),
+        good(&wsq, &hlq, &short_r, &f.p2).err(),
         Some(NbError::Shape)
     );
     let short_c = Plane {
@@ -509,7 +511,7 @@ fn learn_fold_nb_refine_refuses_bad_shapes_widths_and_non_finite() {
         ..f.p1.clone()
     };
     assert_eq!(
-        good(&f.ws, &f.hl, &short_c, &f.p2).err(),
+        good(&wsq, &hlq, &short_c, &f.p2).err(),
         Some(NbError::Shape)
     );
     let short_d = Plane {
@@ -517,36 +519,32 @@ fn learn_fold_nb_refine_refuses_bad_shapes_widths_and_non_finite() {
         ..f.p1.clone()
     };
     assert_eq!(
-        good(&f.ws, &f.hl, &short_d, &f.p2).err(),
+        good(&wsq, &hlq, &short_d, &f.p2).err(),
         Some(NbError::Shape)
     );
 
-    // A `g_row` of the wrong length is a shape refusal; a non-finite one is a non-finite refusal.
-    let with_gr = |gr: &[f64]| {
+    // A `g_row` of the wrong length is a shape refusal.
+    let with_gr = |gr: &[i64]| {
         nb_refine(
-            &f.ws,
-            &f.hl,
+            &wsq,
+            &hlq,
             pref(&f.p1),
             pref(&f.p2),
             f.o,
             f.n,
             Some(gr),
-            0.0,
+            0,
             2,
             2,
         )
     };
-    assert_eq!(with_gr(&[1.0_f64; 1]).err(), Some(NbError::Shape));
-    assert!(with_gr(&[1.0_f64; 4]).is_ok());
-    assert_eq!(
-        with_gr(&[1.0, f64::NAN, 1.0, 1.0]).err(),
-        Some(NbError::NotFinite)
-    );
+    assert_eq!(with_gr(&[1_i64; 1]).err(), Some(NbError::Shape));
+    assert!(with_gr(&[1_i64; 4]).is_ok());
 
     // `n` not a multiple of 128 is a width refusal, with the slices scaled to agree.
     let n2 = 100;
-    let ws2 = vec![0.0_f64; f.o * n2];
-    let hl2 = vec![0.0_f64; n2 * n2];
+    let ws2 = vec![0_i64; f.o * n2];
+    let hl2 = vec![0_i64; n2 * n2];
     let p2 = Plane {
         s: vec![0_i64; f.o * n2],
         idx: vec![0_u16; f.o * (n2 / BLOCK)],
@@ -555,34 +553,15 @@ fn learn_fold_nb_refine_refuses_bad_shapes_widths_and_non_finite() {
         d: vec![0_i64; n2],
     };
     assert_eq!(
-        nb_refine(&ws2, &hl2, pref(&p2), pref(&p2), f.o, n2, None, 0.0, 2, 2).err(),
+        nb_refine(&ws2, &hl2, pref(&p2), pref(&p2), f.o, n2, None, 0, 2, 2).err(),
         Some(NbError::Width)
     );
     // A zero row count is a shape refusal.
     assert_eq!(
-        nb_refine(&[], &[], pref(&f.p1), pref(&f.p2), 0, f.n, None, 0.0, 2, 2).err(),
+        nb_refine(&[], &[], pref(&f.p1), pref(&f.p2), 0, f.n, None, 0, 2, 2).err(),
         Some(NbError::Shape)
     );
 
-    // A non-finite entry of the target, the metric, a pack scale or `icm_ridge` is refused.
-    let mut ws_nan = f.ws.clone();
-    ws_nan[7] = f64::NAN;
-    assert_eq!(
-        good(&ws_nan, &f.hl, &f.p1, &f.p2).err(),
-        Some(NbError::NotFinite)
-    );
-    let mut ws_inf = f.ws.clone();
-    ws_inf[7] = f64::INFINITY;
-    assert_eq!(
-        good(&ws_inf, &f.hl, &f.p1, &f.p2).err(),
-        Some(NbError::NotFinite)
-    );
-    let mut hl_nan = f.hl.clone();
-    hl_nan[3] = f64::NAN;
-    assert_eq!(
-        good(&f.ws, &hl_nan, &f.p1, &f.p2).err(),
-        Some(NbError::NotFinite)
-    );
     // A pack scale outside the `i64` product range is refused. The word-domain `Plane` cannot carry
     // a NaN or an infinity, so the pack-scale refusal exercised here is an off-grid product: `r`
     // overflows inside `plane_w`'s group scaling, `c` survives `plane_w` and overflows in the entry
@@ -595,7 +574,7 @@ fn learn_fold_nb_refine_refuses_bad_shapes_widths_and_non_finite() {
         },
         ..f.p1.clone()
     };
-    let err = good(&f.ws, &f.hl, &bad_r, &f.p2).unwrap_err();
+    let err = good(&wsq, &hlq, &bad_r, &f.p2).unwrap_err();
     assert!(
         matches!(err, NbError::Icm(_) | NbError::Steps(_)),
         "an off-grid group scale must be refused, got {err:?}"
@@ -608,26 +587,10 @@ fn learn_fold_nb_refine_refuses_bad_shapes_widths_and_non_finite() {
         },
         ..f.p2.clone()
     };
-    let err = good(&f.ws, &f.hl, &f.p1, &bad_c).unwrap_err();
+    let err = good(&wsq, &hlq, &f.p1, &bad_c).unwrap_err();
     assert!(
         matches!(err, NbError::Icm(_) | NbError::Steps(_)),
         "an off-grid column scale must be refused, got {err:?}"
-    );
-    assert_eq!(
-        nb_refine(
-            &f.ws,
-            &f.hl,
-            pref(&f.p1),
-            pref(&f.p2),
-            f.o,
-            f.n,
-            None,
-            f64::NAN,
-            2,
-            2
-        )
-        .err(),
-        Some(NbError::NotFinite)
     );
 }
 
@@ -640,4 +603,133 @@ fn learn_fold_nb_refine_row_chunk_is_the_documented_constant() {
     assert_eq!(C_BITS, 6);
     let f = Fixture::new(0x4E42_C4A2, 4, 256);
     assert!(f.o <= ROW_CHUNK);
+}
+
+/// FNV-1a over the little-endian bytes of a word buffer.
+fn fnv_words(d: &mut u64, xs: &[i64]) {
+    for &v in xs {
+        for b in v.to_le_bytes() {
+            *d ^= u64::from(b);
+            *d = d.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+}
+
+/// FNV-1a over the little-endian bytes of a scalar.
+fn fnv_u64(d: &mut u64, v: u64) {
+    for b in v.to_le_bytes() {
+        *d ^= u64::from(b);
+        *d = d.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+}
+
+/// The word `nb_refine` is bit-identical to the `f64` wrapper it replaced on these fixtures: the
+/// digests were recorded through the old `f64` entry before the flip. The fixture generator is the
+/// one the recording used, kept verbatim so the inputs are the same words.
+#[test]
+fn learn_fold_nb_refine_words_are_bit_identical_to_the_recorded_wrapper() {
+    /// The recorder's LCG (Numerical Recipes constants) and its `[-1, 1)` draw.
+    struct Recorder(u64);
+    impl Recorder {
+        fn new(seed: u64) -> Self {
+            Self(seed)
+        }
+        fn next_u64(&mut self) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            self.0
+        }
+        fn sym(&mut self) -> f64 {
+            ((self.next_u64() >> 11) as f64) / (1u64 << 53) as f64 * 2.0 - 1.0
+        }
+    }
+    /// A symmetric matrix with a dominant diagonal.
+    fn spd(n: usize, rng: &mut Recorder) -> Vec<f64> {
+        let mut h = vec![0.0_f64; n * n];
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let v = rng.sym();
+                h[i * n + j] = v;
+                h[j * n + i] = v;
+            }
+        }
+        for i in 0..n {
+            let mut off = 0.0_f64;
+            for j in 0..n {
+                if j != i {
+                    off += h[i * n + j].abs();
+                }
+            }
+            h[i * n + i] = off + 1.0 + rng.sym().abs();
+        }
+        h
+    }
+    /// A random-code plane: codebook rows, `r = q(0.5 + |sym|)`, the given `c`, `d = 1`.
+    fn plane(o: usize, n: usize, c: &[i64], rng: &mut Recorder) -> Plane {
+        let nb = n / BLOCK;
+        let cb = codebook();
+        let mut s = vec![0_i64; o * n];
+        let mut idx = vec![0_u16; o * nb];
+        for row in 0..o {
+            for m in 0..nb {
+                let j = (rng.next_u64() % 256) as usize;
+                idx[row * nb + m] = j as u16;
+                for k in 0..BLOCK {
+                    s[row * n + m * BLOCK + k] = cb[j][k];
+                }
+            }
+        }
+        Plane {
+            s,
+            idx,
+            r: (0..o * n / GROUP)
+                .map(|_| q1(0.5 + rng.sym().abs()))
+                .collect(),
+            c: c.to_vec(),
+            d: vec![1_i64 << 32; n],
+        }
+    }
+    let (o, n) = (8usize, 128usize);
+    for (seed, want, moves) in [
+        (0x9b0_0001u64, 0xd837_5ee3_af49_df9bu64, 170usize),
+        (0x9b0_0002, 0xa037_2afc_ee43_289a, 171),
+    ] {
+        let mut rng = Recorder::new(seed);
+        let hl = spd(n, &mut rng);
+        let ct: Vec<i64> = (0..n).map(|_| q1(0.5 + rng.sym().abs())).collect();
+        let truth1 = plane(o, n, &ct, &mut rng);
+        let truth2 = plane(o, n, &ct, &mut rng);
+        let p1 = plane(o, n, &vec![1_i64 << 32; n], &mut rng);
+        let p2 = plane(o, n, &vec![1_i64 << 32; n], &mut rng);
+        let w1 = plane_w(pref(&truth1), o, n).expect("truth1");
+        let w2 = plane_w(pref(&truth2), o, n).expect("truth2");
+        let ws: Vec<f64> = w1
+            .iter()
+            .zip(&w2)
+            .map(|(&a, &b)| from_grid(a) + from_grid(b) + 0.1 * rng.sym())
+            .collect();
+        let out = nb_refine(
+            &qw(&ws),
+            &qw(&hl),
+            pref(&p1),
+            pref(&p2),
+            o,
+            n,
+            None,
+            q1(0.2),
+            1,
+            2,
+        )
+        .expect("nb_refine");
+        let mut d = 0xcbf2_9ce4_8422_2325u64;
+        fnv_words(&mut d, &out.w1);
+        fnv_words(&mut d, &out.w2);
+        fnv_u64(&mut d, out.log.j_seq as u64);
+        fnv_u64(&mut d, out.log.j_nb as u64);
+        assert_eq!(d, want, "seed={seed:x}");
+        assert_eq!(out.log.rounds_kept, 2, "seed={seed:x}");
+        assert_eq!(out.log.moves, moves, "seed={seed:x}");
+    }
 }

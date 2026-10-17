@@ -102,10 +102,11 @@ pub struct Plane {
 /// Counters from [`e8_joint_icm_2plane`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct JointStats {
-    /// `J` of the two planes before the sweeps, in the ICM-ridged metric, row-weighted by `g_row`.
-    pub j_before: f64,
-    /// `J` after the sweeps, same metric.
-    pub j_after: f64,
+    /// `J` of the two planes before the sweeps, in the ICM-ridged metric, row-weighted by `g_row`,
+    /// as a Q32.32 word.
+    pub j_before: i64,
+    /// `J` after the sweeps, same metric, as a Q32.32 word.
+    pub j_after: i64,
     /// Sum over blocks of the rows in which at least one plane's block code changed.
     pub moves: usize,
 }
@@ -826,7 +827,7 @@ pub fn e8_joint_icm_2plane(
     o: usize,
     n: usize,
     sweeps: usize,
-    icm_ridge: f64,
+    icm_ridge: i64,
     g_row: Option<&[i64]>,
     row_chunk: usize,
     blocks: Option<&[usize]>,
@@ -845,7 +846,7 @@ pub fn e8_joint_icm_2plane(
             }
         }
     }
-    let metric = ridged_metric_q(hl, n, to_q(icm_ridge)?)?;
+    let metric = ridged_metric_q(hl, n, icm_ridge)?;
     let (g, cb) = (n / GROUP, codebook_q());
     let mut wsum = plane_w_q(p1.s, p1.r, p1.c, p1.d, o, n)?;
     bin_into(
@@ -933,8 +934,8 @@ pub fn e8_joint_icm_2plane(
         BinOp::Add,
     )?;
     let stats = JointStats {
-        j_before: from_grid(j_before),
-        j_after: from_grid(j_rows_q(ws, &wsum, &metric, o, n, g_row)?),
+        j_before,
+        j_after: j_rows_q(ws, &wsum, &metric, o, n, g_row)?,
         moves: moves.load(Ordering::Relaxed),
     };
     Ok((into_plane(&s1, idx1, p1), into_plane(&s2, idx2, p2), stats))

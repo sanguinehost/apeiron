@@ -222,11 +222,6 @@ fn scaled(src: &[f64], s: f64) -> Result<Vec<i64>, StageError> {
     src.iter().map(|&v| word(v * s)).collect()
 }
 
-/// `src` on the grid at unit scale.
-fn words(src: &[f64]) -> Result<Vec<i64>, StageError> {
-    scaled(src, 1.0)
-}
-
 /// `src` row-major `[rows, out]` as a `Q32.32` transpose `[out, rows]`, the same panel weighted
 /// linearly by `w`, and the exact unweighted column sums.
 #[allow(
@@ -702,59 +697,51 @@ pub fn ridge_solve(
 
 /// The metric matrix `Hl = H` with `diag += ridge·mean(diag H)` (`fold_transfer.py:430-432`), added
 /// on the grid by [`diag_shift`]; unlike [`crate::learn::fold::fit::icm::ridged_metric`] the shift
-/// is not scaled by `n/896`.
+/// is not scaled by `n/896`. `hm` is row-major `[n, n]` Q32.32; `ridge` is the Q32.32 word the
+/// caller's `rg_q` already is, so no `f64` crosses this entry.
 /// # Complexity
 /// Time and space `O(n²)`, serial.
 /// # Errors
 /// [`StageError::Shape`] if `hm.len() != n²` or `n == 0`; [`StageError::Overflow`] on a checked
 /// step.
-pub fn metric(hm: &[f64], n: usize, ridge: f64) -> Result<Vec<f64>, StageError> {
+pub fn metric(hm: &[i64], n: usize, ridge: i64) -> Result<Vec<i64>, StageError> {
     if n == 0 || hm.len() != n * n {
         return Err(StageError::Shape);
     }
-    let s = fill_scale(max_abs(hm));
-    let ridge_q = param_q64(ridge)?;
-    let h = ridged(&scaled(hm, s)?, n, ridge_q, None)?;
-    let e = -pow2_exp(s);
-    h.iter().map(|&v| shift_word(v, e).map(from_grid)).collect()
+    ridged(hm, n, i128::from(ridge) << 32, None)
 }
 
 /// The post-quantisation bias update `db = (y_sum − Wp·x_sum)/n_toks` (`fold_transfer.py:1880`) for
 /// the `q`/`k`/`v` biases after `Wp` (`[out, n]`) is fixed: the exact `i128` dot product subtracted
-/// from `y_sum·2³²` is `Q64.64`, divided by the `Q32.32` token count.
+/// from `y_sum·2³²` is `Q64.64`, divided by the `Q32.32` token count. Every operand and the result
+/// are Q32.32 words.
 /// # Complexity
 /// Time and space `O(out·n)`, serial.
 /// # Errors
-/// [`StageError::Shape`] on a length mismatch or a non-finite `n_toks`, [`StageError::Empty`] for
-/// `n_toks == 0`, [`StageError::NonFinite`] on a NaN/∞ entry, [`StageError::Overflow`] on a
-/// checked step.
+/// [`StageError::Shape`] on a length mismatch or a non-positive `n_toks`, [`StageError::Empty`] for
+/// `n_toks == 0`, [`StageError::Overflow`] on a checked step.
 pub fn bias_update(
-    y_sum: &[f64],
-    x_sum: &[f64],
-    wp: &[f64],
-    n_toks: f64,
-) -> Result<Vec<f64>, StageError> {
+    y_sum: &[i64],
+    x_sum: &[i64],
+    wp: &[i64],
+    n_toks: i64,
+) -> Result<Vec<i64>, StageError> {
     let (n, out) = (x_sum.len(), y_sum.len());
-    if n == 0 || out == 0 || wp.len() != out * n || !n_toks.is_finite() {
+    if n == 0 || out == 0 || wp.len() != out * n {
         return Err(StageError::Shape);
     }
-    if !finite(x_sum) || !finite(y_sum) || !finite(wp) {
-        return Err(StageError::NonFinite);
-    }
-    if n_toks == 0.0 {
+    if n_toks == 0 {
         return Err(StageError::Empty);
     }
-    let (ys, xs, wq) = (words(y_sum)?, words(x_sum)?, words(wp)?);
-    let toks = word(n_toks)?;
-    let mut db = vec![0.0f64; out];
+    let mut db = vec![0i64; out];
     for o in 0..out {
         let mut acc: i128 = 0;
-        for (&p, &q) in wq[o * n..(o + 1) * n].iter().zip(&xs) {
+        for (&p, &q) in wp[o * n..(o + 1) * n].iter().zip(x_sum) {
             let t = i128::from(p) * i128::from(q);
             acc = acc.checked_add(t).ok_or(StageError::Overflow)?;
         }
-        let num = (i128::from(ys[o]) << 32) - acc;
-        db[o] = from_grid(narrow(div_round(num, i128::from(toks))?)?);
+        let num = (i128::from(y_sum[o]) << 32) - acc;
+        db[o] = narrow(div_round(num, i128::from(n_toks))?)?;
     }
     Ok(db)
 }

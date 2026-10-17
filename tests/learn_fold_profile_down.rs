@@ -255,8 +255,8 @@ fn sign_plane(ws: &[f64]) -> Vec<i64> {
 
 /// `hl = metric(H, rg_q)` and the flat `ones` the closed-form steps hold, as words.
 fn metric_and_ones(fx: &Fx) -> (Vec<i64>, Vec<i64>) {
-    let hl = metric(&fx.h, N, from_grid(fx.rg_q)).expect("metric");
-    (q(&hl), q(&vec![1.0_f64; N]))
+    let hl = metric(&q(&fx.h), N, fx.rg_q).expect("metric");
+    (hl, q(&vec![1.0_f64; N]))
 }
 
 /// Phase group (1)(2)(3): the transforms, `metric`, and `gptq_e8`.
@@ -277,7 +277,7 @@ fn t_a_transforms_metric_gptq() {
         || from_grid(had_gram(&hq, N).expect("had_gram")[N]),
     );
     phase("(2) metric(H, rg_q) [n=4864]", n * n, 3, || {
-        metric(&fx.h, N, from_grid(fx.rg_q)).expect("metric")[0]
+        from_grid(metric(&q(&fx.h), N, fx.rg_q).expect("metric")[0])
     });
     let ws_rot = fwht128(&fx.ws).expect("fwht");
     let h_gram = unq(&had_gram(&q(&fx.h), N).expect("had_gram"));
@@ -366,7 +366,7 @@ fn t_c_steps_crd() {
 fn t_d_corrector() {
     let fx = fixture();
     header();
-    let hl = metric(&fx.h, N, from_grid(fx.rg_q)).expect("metric");
+    let hl = metric(&q(&fx.h), N, fx.rg_q).expect("metric");
     let ws_rot = fwht128(&fx.ws).expect("fwht");
     let h_gram = unq(&had_gram(&q(&fx.h), N).expect("had_gram"));
     let qe8 = gptq_e8(&q(&ws_rot), &q(&h_gram), O, N, fx.damp, true, true, 4).expect("gptq");
@@ -380,9 +380,11 @@ fn t_d_corrector() {
     // ΔW·Hl `O(o·n²)` + M = w1·ΔWᵀ `O(o²·n)` + eigh(o) `O(o³·sweeps)` + ridge solve/product.
     let flops = o * n * n + o * o * n + 10.0 * o * o * o / 2.0 + o * n;
     phase("(6) lowrank_corrector(rank=1, U8)", flops, 3, || {
-        lowrank_corrector(&delta, &hl, O, N, 1, Mode::U8, true)
-            .expect("corrector")
-            .corr[0]
+        from_grid(
+            lowrank_corrector(&q(&delta), &hl, O, N, 1, Mode::U8, true)
+                .expect("corrector")
+                .corr[0],
+        )
     });
 }
 
@@ -392,7 +394,7 @@ fn t_d_corrector() {
 fn t_e_eigh() {
     let fx = fixture();
     header();
-    let hl = metric(&fx.h, N, from_grid(fx.rg_q)).expect("metric");
+    let hl = unq(&metric(&q(&fx.h), N, fx.rg_q).expect("metric"));
     let ws_rot = fwht128(&fx.ws).expect("fwht");
     let h_gram = unq(&had_gram(&q(&fx.h), N).expect("had_gram"));
     let qe8 = gptq_e8(&q(&ws_rot), &q(&h_gram), O, N, fx.damp, true, true, 4).expect("gptq");
