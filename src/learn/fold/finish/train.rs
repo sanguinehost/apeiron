@@ -1,56 +1,57 @@
 //! The finishing P-step: Adam on the coded planes' continuous latents and on the zero-bit
 //! norm/bias tunables, driven by the KL teacher objective.
 //!
-//! Port of the production training step of `spec/pv_finish.py` (the tunables at 1206-1218, `tuned`
-//! at 1220-1223, the `Adam` groups at 1410-1496 and the learning-rate schedule at 1886-1889) over
-//! the frozen-code plane of [`crate::learn::fold::finish::plane`] and the Q32.32 whole-model
-//! forward/backward of [`crate::learn::grad::model`].
+//! Port of the production training step of `spec/pv_finish.py` (tunables 1206-1223, `Adam` groups
+//! 1410-1496, schedule 1886-1889) over the plane of [`crate::learn::fold::finish::plane`] and the
+//! Q32.32 whole-model forward/backward of [`crate::learn::grad::model`].
 //!
-//! # What is assembled
-//!
-//! The stored weight of each coded linear is the sum of its planes'
-//! [`CodedPlane::weight`]`(s)` plus an optional frozen dense `extra` term (the accepted corrector
-//! on `q`/`down`); the student's norm gains and attention biases come from the zero-bit tunables:
-//! `gamma = base · exp(d)` for `attn_norm`, `ffn_norm` and `output_norm`, and
-//! `b = base + d · max(mean|base|, 1e-3)` for `qb`, `kb`, `vb`. Every assembled value is rounded
-//! once to Q32.32 (`round(v · 2^32)`) and refuses a non-finite or out-of-range value.
-//!
-//! # Gradient
+//! Each coded linear's stored weight is the sum of its planes' [`CodedPlane::weight`] plus an
+//! optional frozen dense `extra` (the corrector on `q`/`down`); the zero-bit tunables resolve as
+//! `gamma = base · exp(d)` for the norms and `b = base + d · max(mean|base|, 1e-3)` for the
+//! attention biases.
 //!
 //! The objective is the batch mean KL of the teacher's next-token distribution against the
-//! student's, `Σ_rows KL(p_t ‖ p_s) / rows`, from [`kl_row`] on the student's Q32.32 logits. The
-//! teacher's logits are an input. [`Finisher::gradients`] runs the Q32.32 backward once per step
-//! and maps `dL/dW` back to
-//! * the plane latents through [`CodedPlane::backward`] (the straight-through Jacobian of the
-//!   unquantized forward), with `dL/dW` taken in real weight units (`grad_q32 / 2^32`);
-//! * `d_ln1`/`d_ln2`/`d_fn` through `∂gamma/∂d = base · exp(d) = gamma`, and `d_qb`/`d_kb`/`d_vb`
-//!   through the frozen bias scale `max(mean|base|, 1e-3)`.
+//! student's, `Σ_rows KL(p_t ‖ p_s) / rows`, from [`kl_row`] on the student's logits.
+//! [`Finisher::gradients`] runs the Q32.32 backward and maps `dL/dW` to the plane latents (the
+//! straight-through Jacobian, per batch element as `grad_q32 / rows`), to `d_ln1`/`d_ln2`/`d_fn`
+//! through `∂gamma/∂d = gamma`, and to `d_qb`/`d_kb`/`d_vb` through the frozen bias scale.
+//! [`Finisher::step`] applies one Adam update and returns the mean KL measured **before** it.
 //!
-//! [`Finisher::step`] applies one `Adam` update to each group and returns the mean KL measured
-//! **before** the update (the Python's own per-step `loss`).
+//! # Representation
+//!
+//! Latents, gradients, Adam moments and solver operands are Q32.32 `i64`; products are `i128`
+//! Q64.64 rounded once ([`crate::learn::solve::q32::round_q32_even`]); `exp` is
+//! [`crate::numeric::fixed_exp::fixed_exp`], `sqrt` the exact [`crate::numeric::fixed_rsqrt::isqrt`],
+//! `cos` [`crate::numeric::fixed_trig::fixed_sin_cos`]. The `f64` boundary is the loader
+//! ([`LayerTunables::new`], [`Tunables::new`], [`Frozen::new`], [`Linear::extra`]), the learning
+//! rate, [`Schedule::factor`]'s return and [`kl_mean`]'s mean. Nothing else touches a float.
+//!
+//! Agreement bounds against an `f64` evaluation of the same recurrence: a word operation rounds
+//! once (`≤ 2^-33` relative, so `k` chained products `≤ k·2^-33`); `exp` is `≤ 1e-8` relative for
+//! `x ≥ 0`; `sqrt` is floored (`2^-32`); `Adam`'s `eps = 1e-8` is 43 grid units, whose effect on a
+//! step is `eps/(sqrt(v)+eps)`; the schedule's cosine carries `≤ 2^-20` plus three roundings.
+//!
+//! # Execution
+//!
+//! Every loop here is a serial integer loop: the per-row, per-parameter and per-element vector
+//! updates are `≤ ~10^5` word ops per call, below the ~10^6 at which a pool dispatch pays. Tensor
+//! work over `o × n` is the plane's, which pools it. Loops over layers, kinds and planes are
+//! structural and serial.
 //!
 //! # Deviations from the Python
 //!
-//! * The cosine learning-rate schedule uses the **step** count, `frac = step / steps`, where the
-//!   Python uses wall-clock `frac = (time − t0) / (t_end − t0)` with a `max(·, step/steps)` floor.
-//!   Step-counted fractions make the port deterministic; the brief states this deviation.
-//! * `amp`, the V-step, the `ste` code latents, the `corr` factor group, the `kan` register, the
-//!   `block-s` AQLM warm-up and the `regrid` re-fit are out of scope and absent: the codes are
-//!   frozen, and the training groups are the latents and the zero-bit norm/bias tunables.
-//! * The forward and backward run in f64/Q32.32 on the CPU, not `bfloat16` on CUDA, so the loss is
-//!   the Q32.32 pipeline's, not the reference's bf16 sample.
-//! * [`Finisher::gradients`] accumulates the per-row logit gradient as the **sum** over rows and
-//!   divides the mapped `dL/dW` by the row count once, in f64, where the Python's autograd
-//!   divides the loss before the graph; the two agree up to that single rounding.
+//! * The schedule uses `frac = step / steps` (deterministic), where the Python uses wall-clock
+//!   with a step floor.
+//! * `amp`, the V-step, the `ste` code latents, the `corr` group, `kan`, `block-s` AQLM warm-up
+//!   and the `regrid` refit are out of scope: the codes are frozen.
+//! * The forward and backward run in Q32.32 on the CPU, not `bfloat16` on CUDA, and
+//!   [`Finisher::gradients`] divides the summed logit gradient once by the row count.
 //!
-//! # Grade
-//!
-//! `tested` (`tests/learn_fold_train.rs`); nothing here is extracted or refined to the canonical
-//! corpus, so no statement here is `proved`.
+//! Grade `tested` (`tests/learn_fold_train.rs`); nothing here is extracted or refined.
 
 #![allow(
-    clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
     clippy::cast_sign_loss,
     clippy::many_single_char_names,
     clippy::similar_names,
@@ -60,25 +61,27 @@
     clippy::doc_markdown,
     clippy::float_cmp,
     clippy::must_use_candidate,
+    clippy::items_after_statements,
+    clippy::unreadable_literal,
     reason = "the flat-slice kernels index row-major `[rows, cols]` buffers by single letters and \
               use the reference's `pa`/`pb`/`pd`, `ln1`/`ln2`, `qb`/`kb`/`vb` and `fn` carrier \
-              names; the `i64 → f64` and `i64 → usize` casts are the Q32.32 boundary and are \
-              range-checked or dimension-checked before use; `gradients`/`apply`/`assemble` are \
-              each one linear composition over the seven kinds."
+              names; the `i64` literals are Q32.32 constants; every `i128` narrowing is checked by \
+              `narrow`; `gradients`/`apply`/`assemble` are each one linear composition over the \
+              seven kinds."
 )]
 
-use crate::learn::fold::finish::plane::{CodedPlane, LatentGrad, PlaneError};
+use crate::learn::fold::finish::plane::{
+    div, div_ne, mul, narrow, CodedPlane, LatentGrad, PlaneError, ONE,
+};
 use crate::learn::fold::fit::steps::GROUP;
 use crate::learn::grad::head::{kl_row, HeadError};
 use crate::learn::grad::model::{
     backward, forward, Config, Grads, LayerGrads, LayerWeights, ModelError, Weights,
 };
-
-/// `2^32`, the Q32.32 unit.
-const TWO32: f64 = 4_294_967_296.0;
-
-/// `2^63`, the exclusive bound of an `i64` value.
-const I64_LIMIT: f64 = 9_223_372_036_854_775_808.0;
+use crate::learn::solve::q32::{from_grid, rshift_rne, to_grid, GRID_BOUND};
+use crate::numeric::fixed_exp::fixed_exp;
+use crate::numeric::fixed_rsqrt::isqrt;
+use crate::numeric::fixed_trig::fixed_sin_cos;
 
 /// The latent group's learning rate (the Python `--lr-lat`).
 pub const LR_LAT: f64 = 1e-3;
@@ -86,17 +89,32 @@ pub const LR_LAT: f64 = 1e-3;
 /// The norm/bias group's learning rate (the Python `--lr-norm`).
 pub const LR_NORM: f64 = 1e-4;
 
-/// Adam `beta_1` (torch default).
-const BETA1: f64 = 0.9;
+/// Adam `beta_1` (torch default), `round(0.9·2^32)`.
+const BETA1_Q32: i64 = 3_865_470_566;
 
-/// Adam `beta_2` (torch default).
-const BETA2: f64 = 0.999;
+/// `1 − beta_1`, `round(0.1·2^32)`; with [`BETA1_Q32`] it sums to exactly `2^32`.
+const ONE_MINUS_BETA1_Q32: i64 = 429_496_730;
 
-/// Adam `eps` (torch default).
-const ADAM_EPS: f64 = 1e-8;
+/// Adam `beta_2` (torch default), `round(0.999·2^32)`.
+const BETA2_Q32: i64 = 4_290_672_329;
 
-/// The floor of the bias scale (the Python `clamp_min(1e-3)`).
-const BIAS_SCALE_MIN: f64 = 1e-3;
+/// `1 − beta_2`, `round(0.001·2^32)`.
+const ONE_MINUS_BETA2_Q32: i64 = 4_294_967;
+
+/// Adam `eps` (torch default), `round(1e-8·2^32) = 43`.
+const ADAM_EPS_Q32: i64 = 43;
+
+/// The floor of the bias scale (the Python `clamp_min(1e-3)`), `round(1e-3·2^32)`.
+const BIAS_SCALE_MIN_Q32: i64 = 4_294_967;
+
+/// `0.1`, `round(0.1·2^32)`.
+const TENTH_Q32: i64 = 429_496_730;
+
+/// `0.45 = 0.9/2`, `round(0.45·2^32)`.
+const COS_AMPL_Q32: i64 = 1_932_735_283;
+
+/// `round(π·2^32)`, the angle of one half cosine period.
+const PI_Q32: i64 = 13_493_037_705;
 
 /// The number of coded linears per trunk layer.
 pub const N_KINDS: usize = 7;
@@ -112,7 +130,7 @@ pub enum TrainError {
     Shape(String),
     /// A named value is not finite (`NaN` or `±∞`).
     NotFinite(String),
-    /// A value does not fit the Q32.32 `i64` carrier.
+    /// A value does not fit the Q32.32 carrier.
     Range(String),
     /// A checked `i64` add or a length product left its range.
     Overflow,
@@ -142,17 +160,27 @@ impl From<HeadError> for TrainError {
     }
 }
 
-/// `(o_total, n)` of linear `k` in the model geometry: `q` is `q_out × n_embd`, `k`/`v` are
-/// `kv_out × n_embd`, `o` is `n_embd × q_out`, `gate`/`up` are `n_ff × n_embd` and `down` is
-/// `n_embd × n_ff`.
+/// `round(v·2^32)` at the loader boundary, refusing a non-finite or out-of-grid value.
 ///
 /// # Errors
+/// [`TrainError::NotFinite`] for `NaN`/`±∞`; [`TrainError::Range`] outside `|v| < 2^31`. `O(1)`.
+fn to_q32(v: f64, what: &str) -> Result<i64, TrainError> {
+    if !v.is_finite() {
+        return Err(TrainError::NotFinite(format!("{what} = {v}")));
+    }
+    to_grid(v, GRID_BOUND).ok_or_else(|| TrainError::Range(format!("{what} = {v}")))
+}
+
+/// A loader buffer converted once to Q32.32; as [`to_q32`] on a refusal, serial `O(len)`.
+fn q32_vec(x: &[f64], what: &str) -> Result<Vec<i64>, TrainError> {
+    x.iter().map(|&v| to_q32(v, what)).collect()
+}
+
+/// `(o_total, n)` of linear `k`: `q` is `q_out × n_embd`, `k`/`v` are `kv_out × n_embd`, `o` is
+/// `n_embd × q_out`, `gate`/`up` are `n_ff × n_embd` and `down` is `n_embd × n_ff`.
 ///
-/// [`TrainError::Shape`] for an index at or past [`N_KINDS`]; [`TrainError::Model`] from the
-/// `q_out`/`kv_out` products.
-///
-/// # Complexity
-/// `O(1)`.
+/// # Errors
+/// [`TrainError::Shape`] past [`N_KINDS`]; [`TrainError::Model`] from the `q_out`/`kv_out` products.
 fn kind_dims(cfg: &Config, k: usize) -> Result<(usize, usize), TrainError> {
     let e = cfg.n_embd;
     let q_out = cfg.q_out()?;
@@ -167,10 +195,7 @@ fn kind_dims(cfg: &Config, k: usize) -> Result<(usize, usize), TrainError> {
     }
 }
 
-/// The `k`th weight gradient of a layer, in [`KIND_NAMES`] order.
-///
-/// # Complexity
-/// `O(1)`.
+/// The `k`th weight gradient of a layer, in [`KIND_NAMES`] order. `O(1)`.
 fn kind_grad(lg: &LayerGrads, k: usize) -> &Vec<i64> {
     match k {
         0 => &lg.wq,
@@ -183,57 +208,83 @@ fn kind_grad(lg: &LayerGrads, k: usize) -> &Vec<i64> {
     }
 }
 
-/// `round(v · 2^32)` as `i64`, refusing a non-finite or out-of-range value.
-///
-/// # Errors
-///
-/// [`TrainError::Range`] if `v` is not finite or `round(v · 2^32)` does not fit `i64`.
-///
-/// # Complexity
-/// `O(1)`.
-fn to_q32(v: f64, what: &str) -> Result<i64, TrainError> {
-    let q = (v * TWO32).round();
-    if !(q.is_finite() && q > -I64_LIMIT && q < I64_LIMIT) {
-        return Err(TrainError::Range(format!("{what} = {v}")));
+/// `round(a[i] / t)` over a Q32.32 buffer; an empty result signals a refused division, serial
+/// `O(a.len())`.
+fn over(a: &[i64], t: i64) -> Vec<i64> {
+    if a.is_empty() || t <= 0 {
+        return Vec::new();
     }
-    Ok(q as i64)
-}
-
-/// A row-major f64 buffer rounded elementwise to Q32.32.
-///
-/// # Errors
-///
-/// As [`to_q32`] for an element out of range; [`TrainError::NotFinite`] for a `NaN`.
-///
-/// # Complexity
-///
-/// Temporal `O(x.len())`; spatial `O(x.len())` `i64` words.
-fn q32_vec(x: &[f64], what: &str) -> Result<Vec<i64>, TrainError> {
-    let mut out = Vec::with_capacity(x.len());
-    for (i, &v) in x.iter().enumerate() {
-        if v.is_nan() {
-            return Err(TrainError::NotFinite(format!("{what}[{i}]")));
+    let mut out = Vec::with_capacity(a.len());
+    for &v in a {
+        match div_ne(i128::from(v), i128::from(t)).and_then(narrow) {
+            Some(w) => out.push(w),
+            None => return Vec::new(),
         }
-        out.push(to_q32(v, what)?);
     }
-    Ok(out)
+    out
 }
 
-/// The bias scale `max(mean|base|, 1e-3)` of one zero-bit bias vector; the frozen multiplier of its
-/// additive latent. An empty base gives the floor.
+/// `dst[j] = (a[j]/t)·b[j]·exp(c[j])` (a norm gain's latent gradient), Q32.32; an empty result
+/// signals a length, `exp` or word refusal. Serial `O(len)`.
+fn norm_grad(a: &[i64], b: &[i64], c: &[i64], t: i64) -> Vec<i64> {
+    let len = a.len().min(b.len()).min(c.len());
+    if len == 0 || t <= 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(len);
+    for i in 0..len {
+        let q = div_ne(i128::from(a[i]), i128::from(t)).and_then(narrow);
+        let e = fixed_exp(c[i]).ok();
+        match q
+            .zip(e)
+            .and_then(|(q, e)| mul(q, b[i]).and_then(|x| mul(x, e)))
+        {
+            Some(v) => out.push(v),
+            None => return Vec::new(),
+        }
+    }
+    out
+}
+
+/// `dst[j] = (a[j]/t)·s` (a bias latent's gradient), Q32.32; an empty result signals a refusal,
+/// serial `O(len)`.
+fn bias_grad(a: &[i64], s: i64, t: i64) -> Vec<i64> {
+    if a.is_empty() || t <= 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(a.len());
+    for &v in a {
+        match div_ne(i128::from(v), i128::from(t))
+            .and_then(narrow)
+            .and_then(|q| mul(q, s))
+        {
+            Some(w) => out.push(w),
+            None => return Vec::new(),
+        }
+    }
+    out
+}
+
+/// `Σ|base[i]|` in `i128`, serial `O(n)`.
+fn abs_sum(base: &[i64]) -> i128 {
+    base.iter()
+        .fold(0_i128, |acc, &v| acc + i128::from(v).abs())
+}
+
+/// The bias scale `max(mean|base|, 1e-3)` of one zero-bit bias vector, Q32.32; an empty base gives
+/// the floor.
 ///
 /// # Complexity
-///
-/// Temporal `O(base.len())`; spatial `O(1)`.
-fn bias_scale(base: &[f64]) -> f64 {
+/// Temporal `O(base.len())`, serial; spatial `O(1)`.
+fn bias_scale(base: &[i64]) -> i64 {
     if base.is_empty() {
-        return BIAS_SCALE_MIN;
+        return BIAS_SCALE_MIN_Q32;
     }
-    let mut acc = 0.0_f64;
-    for &v in base {
-        acc += v.abs();
+    let mean = div_ne(abs_sum(base), base.len() as i128).unwrap_or(0);
+    match narrow(mean) {
+        Some(v) if v > BIAS_SCALE_MIN_Q32 => v,
+        _ => BIAS_SCALE_MIN_Q32,
     }
-    (acc / base.len() as f64).max(BIAS_SCALE_MIN)
 }
 
 /// One coded linear: the planes whose weights sum into its stored weight, the optional frozen dense
@@ -242,8 +293,7 @@ fn bias_scale(base: &[f64]) -> f64 {
 pub struct Linear {
     /// The frozen-code planes, summed in order by [`CodedPlane::add_into`].
     pub planes: Vec<CodedPlane>,
-    /// An optional frozen dense addend, row-major `o_total × n` (the accepted corrector on
-    /// `q`/`down`); never trained.
+    /// An optional frozen dense addend, row-major `o_total × n` (the corrector on `q`/`down`).
     pub extra: Option<Vec<f64>>,
     /// Out rows of the stored weight.
     pub o_total: usize,
@@ -252,11 +302,7 @@ pub struct Linear {
 }
 
 impl Linear {
-    /// An empty linear of the given shape; add planes with [`Linear::planes`] and set
-    /// [`Linear::extra`] before use.
-    ///
-    /// # Complexity
-    /// `O(1)`.
+    /// An empty linear of the given shape. `O(1)`.
     pub fn new(o_total: usize, n: usize) -> Self {
         Self {
             planes: Vec::new(),
@@ -276,10 +322,7 @@ pub struct Planes {
 }
 
 impl Planes {
-    /// Wrap a per-layer, per-kind table.
-    ///
-    /// # Complexity
-    /// `O(1)`.
+    /// Wrap a per-layer, per-kind table. `O(1)`.
     pub fn new(layers: Vec<Vec<Linear>>) -> Self {
         Self { layers }
     }
@@ -287,11 +330,7 @@ impl Planes {
     /// Linear `k` of layer `l`.
     ///
     /// # Errors
-    ///
-    /// [`TrainError::Shape`] if `l` or `k` is past the table.
-    ///
-    /// # Complexity
-    /// `O(1)`.
+    /// [`TrainError::Shape`] if `l` or `k` is past the table. `O(1)`.
     pub fn linear(&self, l: usize, k: usize) -> Result<&Linear, TrainError> {
         if k >= N_KINDS {
             return Err(TrainError::Shape(format!("linear kind {k} >= {N_KINDS}")));
@@ -305,11 +344,7 @@ impl Planes {
     /// Linear `k` of layer `l`, mutable.
     ///
     /// # Errors
-    ///
-    /// As [`Planes::linear`].
-    ///
-    /// # Complexity
-    /// `O(1)`.
+    /// As [`Planes::linear`]. `O(1)`.
     pub fn linear_mut(&mut self, l: usize, k: usize) -> Result<&mut Linear, TrainError> {
         if k >= N_KINDS {
             return Err(TrainError::Shape(format!("linear kind {k} >= {N_KINDS}")));
@@ -322,73 +357,79 @@ impl Planes {
 }
 
 /// One layer's resolved zero-bit values: `gamma = base · exp(d)` for the two norm gains, and
-/// `b = base + d · max(mean|base|, 1e-3)` for the three attention biases.
+/// `b = base + d · max(mean|base|, 1e-3)` for the three attention biases. Q32.32.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayerTuned {
     /// `attn_norm` gain, `n_embd` wide.
-    pub ln1: Vec<f64>,
+    pub ln1: Vec<i64>,
     /// `ffn_norm` gain, `n_embd` wide.
-    pub ln2: Vec<f64>,
+    pub ln2: Vec<i64>,
     /// `attn_q.bias`, `n_head·head_dim` wide.
-    pub qb: Vec<f64>,
+    pub qb: Vec<i64>,
     /// `attn_k.bias`, `n_head_kv·head_dim` wide.
-    pub kb: Vec<f64>,
+    pub kb: Vec<i64>,
     /// `attn_v.bias`, `n_head_kv·head_dim` wide.
-    pub vb: Vec<f64>,
+    pub vb: Vec<i64>,
 }
 
-/// One layer's zero-bit bases and their trainable latents.
+/// One layer's zero-bit bases and their trainable latents; latents and bases are Q32.32.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayerTunables {
     /// `attn_norm` base gain, `n_embd` wide.
-    pub ln1: Vec<f64>,
+    pub ln1: Vec<i64>,
     /// `attn_norm` log latent; `gamma = ln1 · exp(ln1_d)`.
-    pub ln1_d: Vec<f64>,
+    pub ln1_d: Vec<i64>,
     /// `ffn_norm` base gain, `n_embd` wide.
-    pub ln2: Vec<f64>,
+    pub ln2: Vec<i64>,
     /// `ffn_norm` log latent.
-    pub ln2_d: Vec<f64>,
+    pub ln2_d: Vec<i64>,
     /// `attn_q.bias` base.
-    pub qb: Vec<f64>,
-    /// `attn_q.bias` additive latent, scaled by [`LayerTunables::qb_scale`].
-    pub qb_d: Vec<f64>,
+    pub qb: Vec<i64>,
+    /// `attn_q.bias` additive latent, scaled by [`LayerTunables::bias_scale`].
+    pub qb_d: Vec<i64>,
     /// `attn_k.bias` base.
-    pub kb: Vec<f64>,
+    pub kb: Vec<i64>,
     /// `attn_k.bias` additive latent.
-    pub kb_d: Vec<f64>,
+    pub kb_d: Vec<i64>,
     /// `attn_v.bias` base.
-    pub vb: Vec<f64>,
+    pub vb: Vec<i64>,
     /// `attn_v.bias` additive latent.
-    pub vb_d: Vec<f64>,
+    pub vb_d: Vec<i64>,
 }
 
 impl LayerTunables {
-    /// Build a layer's tunables from the frozen bases with every latent zero (the Python's
-    /// `torch.zeros_like` initialisation).
+    /// Build a layer's tunables from the frozen bases, converted once to Q32.32, every latent zero.
     ///
-    /// # Complexity
-    ///
-    /// Temporal `O(n_embd + q_out + kv_out)`; spatial the same.
-    pub fn new(ln1: &[f64], ln2: &[f64], qb: &[f64], kb: &[f64], vb: &[f64]) -> Self {
-        Self {
-            ln1: ln1.to_vec(),
-            ln1_d: vec![0.0_f64; ln1.len()],
-            ln2: ln2.to_vec(),
-            ln2_d: vec![0.0_f64; ln2.len()],
-            qb: qb.to_vec(),
-            qb_d: vec![0.0_f64; qb.len()],
-            kb: kb.to_vec(),
-            kb_d: vec![0.0_f64; kb.len()],
-            vb: vb.to_vec(),
-            vb_d: vec![0.0_f64; vb.len()],
-        }
+    /// # Errors
+    /// As [`to_q32`] for any base value; `O(n_embd + q_out + kv_out)`, serial.
+    pub fn new(
+        ln1: &[f64],
+        ln2: &[f64],
+        qb: &[f64],
+        kb: &[f64],
+        vb: &[f64],
+    ) -> Result<Self, TrainError> {
+        let q_ln1 = q32_vec(ln1, "attn_norm")?;
+        let q_ln2 = q32_vec(ln2, "ffn_norm")?;
+        let q_qb = q32_vec(qb, "attn_q.bias")?;
+        let q_kb = q32_vec(kb, "attn_k.bias")?;
+        let q_vb = q32_vec(vb, "attn_v.bias")?;
+        Ok(Self {
+            ln1_d: vec![0_i64; q_ln1.len()],
+            ln2_d: vec![0_i64; q_ln2.len()],
+            qb_d: vec![0_i64; q_qb.len()],
+            kb_d: vec![0_i64; q_kb.len()],
+            vb_d: vec![0_i64; q_vb.len()],
+            ln1: q_ln1,
+            ln2: q_ln2,
+            qb: q_qb,
+            kb: q_kb,
+            vb: q_vb,
+        })
     }
 
-    /// The frozen bias scale of `qb`/`kb`/`vb` (`0`/`1`/`2`).
-    ///
-    /// # Complexity
-    /// `O(width)`.
-    pub fn bias_scale(&self, which: usize) -> f64 {
+    /// The frozen bias scale of `qb`/`kb`/`vb` (`0`/`1`/`2`); `O(width)`, serial.
+    pub fn bias_scale(&self, which: usize) -> i64 {
         match which {
             0 => bias_scale(&self.qb),
             1 => bias_scale(&self.kb),
@@ -396,25 +437,15 @@ impl LayerTunables {
         }
     }
 
-    /// The resolved gains and biases `(ln1, ln2, qb, kb, vb)` of [`LayerTunables`]; the Python's
-    /// `tuned(li)`.
-    ///
-    /// # Complexity
-    ///
-    /// Temporal `O(n_embd + q_out + kv_out)` multiplies and `exp` calls; spatial the same.
+    /// The resolved gains and biases `(ln1, ln2, qb, kb, vb)`; a refused `exp` leaves an empty
+    /// vector. `O(n_embd + q_out + kv_out)`, serial.
     pub fn tuned(&self) -> LayerTuned {
-        let exp = |base: &[f64], d: &[f64]| -> Vec<f64> {
-            base.iter().zip(d).map(|(&b, &p)| b * p.exp()).collect()
-        };
-        let add = |base: &[f64], d: &[f64], s: f64| -> Vec<f64> {
-            base.iter().zip(d).map(|(&b, &p)| b + p * s).collect()
-        };
         LayerTuned {
-            ln1: exp(&self.ln1, &self.ln1_d),
-            ln2: exp(&self.ln2, &self.ln2_d),
-            qb: add(&self.qb, &self.qb_d, bias_scale(&self.qb)),
-            kb: add(&self.kb, &self.kb_d, bias_scale(&self.kb)),
-            vb: add(&self.vb, &self.vb_d, bias_scale(&self.vb)),
+            ln1: scale_exp(&self.ln1, &self.ln1_d),
+            ln2: scale_exp(&self.ln2, &self.ln2_d),
+            qb: add_scaled(&self.qb, &self.qb_d, bias_scale(&self.qb)),
+            kb: add_scaled(&self.kb, &self.kb_d, bias_scale(&self.kb)),
+            vb: add_scaled(&self.vb, &self.vb_d, bias_scale(&self.vb)),
         }
     }
 }
@@ -426,53 +457,57 @@ pub struct Tunables {
     /// Per trunk layer.
     pub layers: Vec<LayerTunables>,
     /// `output_norm` base gain, `n_embd` wide.
-    pub fn_base: Vec<f64>,
+    pub fn_base: Vec<i64>,
     /// `output_norm` log latent.
-    pub fn_d: Vec<f64>,
+    pub fn_d: Vec<i64>,
 }
 
 impl Tunables {
-    /// Build the tunables from the frozen bases with every latent zero.
+    /// Build the tunables from the frozen bases, converted once to Q32.32, every latent zero.
     ///
-    /// # Complexity
-    ///
-    /// Temporal `O(n_layer·(n_embd + q_out + kv_out) + n_embd)`; spatial the same.
-    pub fn new(layers: Vec<LayerTunables>, fn_base: &[f64]) -> Self {
-        Self {
+    /// # Errors
+    /// As [`to_q32`] for any base value; `O(n_layer·(n_embd + q_out + kv_out) + n_embd)`, serial.
+    pub fn new(layers: Vec<LayerTunables>, fn_base: &[f64]) -> Result<Self, TrainError> {
+        let base = q32_vec(fn_base, "output_norm")?;
+        Ok(Self {
+            fn_d: vec![0_i64; base.len()],
             layers,
-            fn_base: fn_base.to_vec(),
-            fn_d: vec![0.0_f64; fn_base.len()],
-        }
+            fn_base: base,
+        })
     }
 
-    /// The final `output_norm` gain `fn_base · exp(fn_d)`.
-    ///
-    /// # Complexity
-    /// `O(n_embd)`.
-    pub fn output_norm(&self) -> Vec<f64> {
-        self.fn_base
-            .iter()
-            .zip(&self.fn_d)
-            .map(|(&b, &p)| b * p.exp())
-            .collect()
+    /// The final `output_norm` gain `fn_base · exp(fn_d)`; `O(n_embd)`, serial.
+    pub fn output_norm(&self) -> Vec<i64> {
+        scale_exp(&self.fn_base, &self.fn_d)
     }
 }
 
 /// The frozen model tensors outside the coded planes: the token embedding and the head, both
-/// row-major `vocab × n_embd` in f64.
+/// row-major `vocab × n_embd` in Q32.32.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Frozen {
     /// `token_embd.weight`.
-    pub token_embd: Vec<f64>,
+    pub token_embd: Vec<i64>,
     /// `output.weight` (or the tied `token_embd.weight`).
-    pub lm_head: Vec<f64>,
+    pub lm_head: Vec<i64>,
 }
 
-/// The step-counted cosine learning-rate schedule:
-/// `f(step) = min(1, step/warmup) · (0.1 + 0.9·(1 + cos(π·step/steps))/2)`.
-///
-/// The Python's `frac` is `(time − t0)/(t_end − t0)` floored at `step/steps`; this port uses the
-/// step fraction alone so the schedule is a function of the update index.
+impl Frozen {
+    /// Convert the frozen embedding and head once to Q32.32.
+    ///
+    /// # Errors
+    /// As [`to_q32`] for any element; `O(vocab·n_embd)`, serial.
+    pub fn new(token_embd: &[f64], lm_head: &[f64]) -> Result<Self, TrainError> {
+        Ok(Self {
+            token_embd: q32_vec(token_embd, "token_embd")?,
+            lm_head: q32_vec(lm_head, "lm_head")?,
+        })
+    }
+}
+
+/// The step-counted cosine schedule
+/// `f(step) = min(1, step/warmup) · (0.1 + 0.9·(1 + cos(π·step/steps))/2)`; the Python's `frac`
+/// is wall-clock floored at `step/steps`, and the step fraction alone is deterministic.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Schedule {
     /// Linear ramp length in steps.
@@ -482,92 +517,81 @@ pub struct Schedule {
 }
 
 impl Schedule {
-    /// The schedule with the given ramp and period.
-    ///
-    /// # Complexity
-    /// `O(1)`.
+    /// The schedule with the given ramp and period. `O(1)`.
     pub fn new(warmup: u64, steps: u64) -> Self {
         Self { warmup, steps }
     }
 
-    /// The learning-rate factor at `step` (`step = 0` is before the first update).
-    ///
-    /// # Complexity
-    /// `O(1)`.
+    /// The learning-rate factor at `step`, evaluated in Q32.32 and converted once. The operands are
+    /// bounded, so no refusal is reachable; a refused word returns `0.0`. `O(1)`.
     pub fn factor(&self, step: u64) -> f64 {
-        let wu = if self.warmup == 0 {
-            1.0
-        } else {
-            (step as f64 / self.warmup as f64).min(1.0)
+        // `step/den` in Q32.32; a zero denominator is the full fraction.
+        let frac_of = |den: u64| -> i64 {
+            if den == 0 {
+                return ONE;
+            }
+            div_ne(i128::from(step) << 32, i128::from(den))
+                .and_then(narrow)
+                .unwrap_or(ONE)
         };
-        let frac = if self.steps == 0 {
-            1.0
-        } else {
-            step as f64 / self.steps as f64
+        let word = || -> Option<i64> {
+            let wu = frac_of(self.warmup).clamp(0, ONE);
+            let angle = mul(PI_Q32, frac_of(self.steps))?;
+            let sc = fixed_sin_cos(angle).ok()?;
+            let term = mul(COS_AMPL_Q32, ONE.checked_add(sc.cos)?)?;
+            mul(wu, TENTH_Q32.checked_add(term)?)
         };
-        wu.min(1.0) * (0.1 + 0.9 * 0.5 * (1.0 + (core::f64::consts::PI * frac).cos()))
+        word().map_or(0.0, from_grid)
     }
 }
 
 /// One parameter vector's Adam state (torch defaults: `beta = (0.9, 0.999)`, `eps = 1e-8`, no
-/// weight decay).
+/// weight decay): the first moment is Q32.32, the second `Q64.64` in `i128`.
+///
+/// The second moment carries twice the fractional width because `v = (1−β₂)·g²` squares the
+/// gradient: at `Q32.32` a gradient below `2^-16` rounds `v` to zero and the update degenerates to
+/// `lr·m̂/eps`. Taking the square root from the `Q64.64` word keeps `Q32.32` precision down to
+/// gradients of order `2^-32`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Adam {
-    m: Vec<f64>,
-    v: Vec<f64>,
+    m: Vec<i64>,
+    v: Vec<i128>,
     t: u64,
 }
 
 impl Adam {
-    /// Zero state for a parameter vector of `n` elements.
-    ///
-    /// # Complexity
-    /// `O(n)`.
+    /// Zero state for a parameter vector of `n` elements. `O(n)`.
     pub fn zeros(n: usize) -> Self {
         Self {
-            m: vec![0.0_f64; n],
-            v: vec![0.0_f64; n],
+            m: vec![0_i64; n],
+            v: vec![0_i128; n],
             t: 0,
         }
     }
 
-    /// The number of parameters this state covers.
-    ///
-    /// # Complexity
-    /// `O(1)`.
+    /// The number of parameters this state covers. `O(1)`.
     pub fn len(&self) -> usize {
         self.m.len()
     }
 
-    /// Whether the state covers no parameter.
-    ///
-    /// # Complexity
-    /// `O(1)`.
+    /// Whether the state covers no parameter. `O(1)`.
     pub fn is_empty(&self) -> bool {
         self.m.is_empty()
     }
 
-    /// The number of completed updates.
-    ///
-    /// # Complexity
-    /// `O(1)`.
-    pub fn t(&self) -> u64 {
-        self.t
-    }
-
     /// One Adam update in place: `m ← β₁m + (1−β₁)g`, `v ← β₂v + (1−β₂)g²`,
-    /// `p ← p − lr·m̂/(√v̂ + ε)`.
+    /// `p ← p − lr·m̂/(√v̂ + ε)`. `lr` is converted once at the boundary; every other operand is
+    /// Q32.32.
     ///
     /// # Errors
-    ///
-    /// [`TrainError::Shape`] if `p.len()`, `g.len()` and the state disagree.
+    /// [`TrainError::Shape`] on a width disagreement; [`TrainError::Range`] on a refused word
+    /// or a learning rate off the grid.
     ///
     /// # Complexity
-    ///
-    /// Temporal `O(p.len())` (two moment updates and one parameter update per element); spatial
-    /// `O(1)` in place.
-    pub fn apply(&mut self, lr: f64, p: &mut [f64], g: &[f64]) -> Result<(), TrainError> {
-        if p.len() != g.len() || p.len() != self.m.len() {
+    /// Temporal `O(p.len())` serial (three words per element, below the dispatch threshold);
+    /// spatial `O(1)` in place.
+    pub fn apply(&mut self, lr: f64, p: &mut [i64], g: &[i64]) -> Result<(), TrainError> {
+        if p.len() != g.len() || p.len() != self.m.len() || p.len() != self.v.len() {
             return Err(TrainError::Shape(format!(
                 "adam width {} vs {} vs {}",
                 p.len(),
@@ -575,50 +599,147 @@ impl Adam {
                 self.m.len()
             )));
         }
-        self.t += 1;
-        let bc1 = 1.0 - BETA1.powi(i32::try_from(self.t).unwrap_or(i32::MAX));
-        let bc2 = 1.0 - BETA2.powi(i32::try_from(self.t).unwrap_or(i32::MAX));
+        self.t = self.t.saturating_add(1);
+        let lr_q = to_q32(lr, "learning rate")?;
+        let Some(b1) = pow_q32(BETA1_Q32, self.t) else {
+            return Err(TrainError::Range("beta_1^t".to_string()));
+        };
+        let Some(b2) = pow_q32(BETA2_Q32, self.t) else {
+            return Err(TrainError::Range("beta_2^t".to_string()));
+        };
+        let Some(bc1) = ONE.checked_sub(b1) else {
+            return Err(TrainError::Range("1 - beta_1^t".to_string()));
+        };
+        let Some(bc2) = ONE.checked_sub(b2) else {
+            return Err(TrainError::Range("1 - beta_2^t".to_string()));
+        };
+        if bc2 <= 0 {
+            return Err(TrainError::Range("1 - beta_2^t".to_string()));
+        }
+        // `√(1 − β₂^t)` in Q32.32, so the denominator is `√v/√bc2 + ε` rather than
+        // `√(v/bc2) + ε`: the division is deferred until after the square root, where the
+        // exponent no longer underflows.
+        let root_bc2 = narrow(isqrt(i128::from(bc2) << 32))
+            .ok_or_else(|| TrainError::Range("sqrt(1 - beta_2^t)".to_string()))?;
         for i in 0..p.len() {
             let gi = g[i];
-            self.m[i] = BETA1 * self.m[i] + (1.0 - BETA1) * gi;
-            self.v[i] = BETA2 * self.v[i] + (1.0 - BETA2) * gi * gi;
-            let mhat = self.m[i] / bc1;
-            let vhat = self.v[i] / bc2;
-            p[i] -= lr * mhat / (vhat.sqrt() + ADAM_EPS);
+            let mi = ok(mul(BETA1_Q32, self.m[i]))?;
+            let m2 = ok(mul(ONE_MINUS_BETA1_Q32, gi))?;
+            let mi = ok(mi.checked_add(m2))?;
+            self.m[i] = mi;
+            // Second moment in Q64.64: `β₂·v + (1−β₂)·g²`, where `g²` is the exact `i128` square
+            // of the Q32.32 word.
+            let g2 = i128::from(gi) * i128::from(gi);
+            let t1 = ok(i128::from(BETA2_Q32)
+                .checked_mul(self.v[i])
+                .and_then(|x| rshift_rne(x, 32)))?;
+            let t2 = ok(i128::from(ONE_MINUS_BETA2_Q32)
+                .checked_mul(g2)
+                .and_then(|x| rshift_rne(x, 32)))?;
+            let vi = ok(t1.checked_add(t2))?;
+            if vi < 0 {
+                return Err(TrainError::Range("adam second moment".to_string()));
+            }
+            self.v[i] = vi;
+            let mhat = ok(div(mi, bc1))?;
+            // `√v̂ = √v / √bc2`, both square roots in Q32.32 from the Q64.64 word.
+            let root_v = ok(narrow(isqrt(vi)))?;
+            let root = ok(div(root_v, root_bc2))?;
+            let denom = ok(root.checked_add(ADAM_EPS_Q32))?;
+            let num = ok(mul(lr_q, mhat))?;
+            let step = if denom == 0 { 0 } else { ok(div(num, denom))? };
+            p[i] = ok(p[i].checked_sub(step))?;
         }
         Ok(())
     }
 }
 
-/// The summed plane weight of one linear plus its optional frozen dense addend, in f64.
-///
-/// `quantized` selects the stored forward [`CodedPlane::weight`] (the training forward) or the
-/// differentiable [`CodedPlane::weight_unquantized`] (the straight-through reference the
-/// finite-difference control differentiates).
+/// `result` or [`TrainError::Range`], for the checked-word chains above.
+fn ok<T>(v: Option<T>) -> Result<T, TrainError> {
+    v.ok_or_else(|| TrainError::Range("q32 word".to_string()))
+}
+
+/// [`TrainError::Shape`] for an absent table entry `what` at `i`.
+fn absent(what: &str, i: usize) -> TrainError {
+    TrainError::Shape(format!("{what} {i} absent"))
+}
+
+/// `base^e` in Q32.32 by exponentiation by squaring; `O(log e)`.
+fn pow_q32(base: i64, mut e: u64) -> Option<i64> {
+    let mut acc = ONE;
+    let mut b = base;
+    while e > 0 {
+        if e & 1 == 1 {
+            acc = mul(acc, b)?;
+        }
+        e >>= 1;
+        if e > 0 {
+            b = mul(b, b)?;
+        }
+    }
+    Some(acc)
+}
+
+/// `base[i]·exp(off[i])` over `min` of the two lengths; an empty vector signals a refusal, serial
+/// `O(len)`.
+fn scale_exp(base: &[i64], off: &[i64]) -> Vec<i64> {
+    let len = base.len().min(off.len());
+    if len == 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(len);
+    for i in 0..len {
+        match fixed_exp(off[i]).ok().and_then(|e| mul(base[i], e)) {
+            Some(v) => out.push(v),
+            None => return Vec::new(),
+        }
+    }
+    out
+}
+
+/// `base[i] + off[i]·s`; an empty vector signals a word refusal, serial `O(len)`.
+fn add_scaled(base: &[i64], off: &[i64], s: i64) -> Vec<i64> {
+    let len = base.len().min(off.len());
+    if len == 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(len);
+    for i in 0..len {
+        match mul(off[i], s).and_then(|v| base[i].checked_add(v)) {
+            Some(v) => out.push(v),
+            None => return Vec::new(),
+        }
+    }
+    out
+}
+
+/// The summed plane weight of one linear plus its optional frozen dense addend, in Q32.32;
+/// `quantized` selects the stored [`CodedPlane::weight`] or the differentiable
+/// [`CodedPlane::weight_unquantized`].
 ///
 /// # Errors
-///
-/// [`TrainError::Shape`] for a plane width that disagrees with the linear or an `extra` of the
-/// wrong length; [`TrainError::Plane`] from [`CodedPlane::add_into`].
-///
-/// # Complexity
-///
-/// Temporal `O(Σ_p o_p·n·log2(GROUP) + o_total·n)`; spatial `O(o_total·n)` f64 words.
-fn linear_weight(lin: &Linear, quantized: bool) -> Result<Vec<f64>, TrainError> {
+/// [`TrainError::Shape`] on a plane or `extra` width, [`TrainError::Plane`] from a plane,
+/// [`TrainError::Range`] on a plane refusal; `O(Σ_p o_p·n·log2(GROUP) + o_total·n)`, the plane
+/// tensors pooled.
+fn linear_weight(lin: &Linear, quantized: bool) -> Result<Vec<i64>, TrainError> {
     let on = lin.o_total.checked_mul(lin.n).ok_or(TrainError::Overflow)?;
-    let mut w = vec![0.0_f64; on];
+    let mut w = vec![0_i64; on];
     for p in &lin.planes {
         if p.n != lin.n || p.o == 0 || !p.n.is_multiple_of(GROUP) {
-            return Err(TrainError::Shape(format!(
-                "plane {}x{} in linear {}x{}",
-                p.o, p.n, lin.o_total, lin.n
-            )));
+            let m = format!("plane {}x{} in linear {}x{}", p.o, p.n, lin.o_total, lin.n);
+            return Err(TrainError::Shape(m));
         }
         let pw = if quantized {
             p.weight()
         } else {
             p.weight_unquantized()
         };
+        if pw.len() != p.o * p.n {
+            return Err(TrainError::Range(format!(
+                "plane {}x{} weight refused",
+                p.o, p.n
+            )));
+        }
         p.add_into(&mut w, &pw, lin.o_total)?;
     }
     if let Some(e) = &lin.extra {
@@ -630,19 +751,16 @@ fn linear_weight(lin: &Linear, quantized: bool) -> Result<Vec<f64>, TrainError> 
                 lin.n
             )));
         }
-        for (a, b) in w.iter_mut().zip(e) {
-            *a += b;
+        for (d, &v) in w.iter_mut().zip(e) {
+            let q = to_q32(v, "extra")?;
+            *d = d.checked_add(q).ok_or(TrainError::Overflow)?;
         }
     }
     Ok(w)
 }
 
-/// The Q32.32 `LayerWeights` of every kind of one layer, from the assembled linears and the tuned
-/// zero-bit values.
-///
-/// # Complexity
-///
-/// Temporal `O(Σ_k (o_k·n_k·log2(GROUP) + o_k·n_k))`; spatial `O(Σ_k o_k·n_k)` Q32.32 words.
+/// The `LayerWeights` of every kind of one layer; `O(Σ_k (o_k·n_k·log2(GROUP) + o_k·n_k))`, the
+/// kind loop serial over each weight's pooled plane tensors.
 fn assemble_layer(
     cfg: &Config,
     planes: &Planes,
@@ -660,32 +778,21 @@ fn assemble_layer(
                 KIND_NAMES[k], lin.o_total, lin.n
             )));
         }
-        let w = linear_weight(lin, quantized)?;
-        weights.push(q32_vec(&w, &format!("layer {l} {}", KIND_NAMES[k]))?);
+        weights.push(linear_weight(lin, quantized)?);
     }
     let t = tun.tuned();
-    let mut it = weights.into_iter();
-    let mut next = |what: &str| -> Result<Vec<i64>, TrainError> {
-        it.next()
-            .ok_or_else(|| TrainError::Shape(format!("layer {l} {what} absent")))
-    };
-    let wq = next(KIND_NAMES[0])?;
-    let wk = next(KIND_NAMES[1])?;
-    let wv = next(KIND_NAMES[2])?;
-    let wo = next(KIND_NAMES[3])?;
-    let w_gate = next(KIND_NAMES[4])?;
-    let w_up = next(KIND_NAMES[5])?;
-    let w_down = next(KIND_NAMES[6])?;
+    let [wq, wk, wv, wo, w_gate, w_up, w_down] = <[Vec<i64>; N_KINDS]>::try_from(weights)
+        .map_err(|_| TrainError::Shape(format!("layer {l} kinds absent")))?;
     Ok(LayerWeights {
-        attn_norm: q32_vec(&t.ln1, "attn_norm")?,
+        attn_norm: t.ln1,
         wq,
-        bq: Some(q32_vec(&t.qb, "attn_q.bias")?),
+        bq: Some(t.qb),
         wk,
-        bk: Some(q32_vec(&t.kb, "attn_k.bias")?),
+        bk: Some(t.kb),
         wv,
-        bv: Some(q32_vec(&t.vb, "attn_v.bias")?),
+        bv: Some(t.vb),
         wo,
-        ffn_norm: q32_vec(&t.ln2, "ffn_norm")?,
+        ffn_norm: t.ln2,
         w_gate,
         w_up,
         w_down,
@@ -693,18 +800,12 @@ fn assemble_layer(
 }
 
 /// Assemble the whole-model Q32.32 [`Weights`]: the stored forward weight of every coded linear
-/// plus the tuned norms and biases, the frozen embedding and the frozen head.
+/// plus the tuned norms and biases and the frozen embedding and head.
 ///
 /// # Errors
-///
-/// [`TrainError::Shape`] for a plane or tunable shape that disagrees with the model geometry;
-/// [`TrainError::Plane`] from a plane's forward; [`TrainError::Range`] or [`TrainError::NotFinite`]
-/// for a value outside the Q32.32 carrier.
-///
-/// # Complexity
-///
-/// Temporal `O(n_layer·Σ_k o_k·n_k·log2(GROUP) + vocab·n_embd)`; spatial
-/// `O(n_layer·Σ_k o_k·n_k + vocab·n_embd)` Q32.32 words.
+/// [`TrainError::Shape`] on a plane or tunable shape, [`TrainError::Plane`] from a plane,
+/// [`TrainError::Range`] outside the carrier; `O(n_layer·Σ_k o_k·n_k·log2(GROUP) + vocab·n_embd)`,
+/// the layer loop serial over the pooled plane tensors.
 pub fn assemble(
     cfg: &Config,
     planes: &Planes,
@@ -714,15 +815,9 @@ pub fn assemble(
     assemble_with(cfg, planes, tun, frozen, true)
 }
 
-/// As [`assemble`], over the differentiable [`CodedPlane::weight_unquantized`] forward: the
-/// straight-through reference whose latents' Jacobian is the one the plane backward returns.
+/// As [`assemble`], over the differentiable [`CodedPlane::weight_unquantized`] forward.
 ///
 /// # Errors
-///
-/// As [`assemble`].
-///
-/// # Complexity
-///
 /// As [`assemble`].
 pub fn assemble_unquantized(
     cfg: &Config,
@@ -733,11 +828,7 @@ pub fn assemble_unquantized(
     assemble_with(cfg, planes, tun, frozen, false)
 }
 
-/// [`assemble`]/[`assemble_unquantized`]'s shared body.
-///
-/// # Complexity
-///
-/// As [`assemble`].
+/// [`assemble`]'s shared body. `O(assemble)`.
 fn assemble_with(
     cfg: &Config,
     planes: &Planes,
@@ -762,33 +853,35 @@ fn assemble_with(
             frozen.lm_head.len()
         )));
     }
+    let output_norm = tun.output_norm();
+    if output_norm.len() != e {
+        return Err(TrainError::Range("output_norm refused".to_string()));
+    }
+    // The layer loop is structural: each layer's kinds and planes dispatch their own tensor work to
+    // the pool, and the pool is not re-entrant (a task that dispatches deadlocks the dispatcher).
     let mut layers: Vec<LayerWeights> = Vec::with_capacity(cfg.n_layer);
     for l in 0..cfg.n_layer {
-        layers.push(assemble_layer(cfg, planes, &tun.layers[l], l, quantized)?);
+        let lt = tun
+            .layers
+            .get(l)
+            .ok_or_else(|| TrainError::Shape(format!("tunable layer {l} absent")))?;
+        layers.push(assemble_layer(cfg, planes, lt, l, quantized)?);
     }
     Ok(Weights {
         layers,
-        output_norm: q32_vec(&tun.output_norm(), "output_norm")?,
-        token_embd: q32_vec(&frozen.token_embd, "token_embd")?,
-        lm_head: q32_vec(&frozen.lm_head, "lm_head")?,
+        output_norm,
+        token_embd: frozen.token_embd.clone(),
+        lm_head: frozen.lm_head.clone(),
     })
 }
 
 /// The batch mean KL of the teacher's distribution against the student's Q32.32 logits, with the
-/// row-summed logit gradient `dL/dz` (`t · vocab`, Q32.32).
-///
-/// The returned `(mean_kl, dz)` are the Python's `kl_batch` pair for one chunk: `mean_kl` is
-/// `Σ_rows KL / rows` in real units and `dz` is the sum over rows of `p_s − p_t`.
+/// row-summed logit gradient `dL/dz` (`t · vocab`, Q32.32): `mean_kl` in real units (the boundary
+/// conversion), `dz` the sum over rows of `p_s − p_t`. Serial `O(t·vocab)`.
 ///
 /// # Errors
-///
-/// [`TrainError::Shape`] for a logits/teacher length that is not `t·vocab` with `t > 0`;
-/// [`TrainError::Head`] from [`kl_row`]; [`TrainError::Overflow`] when the summed loss or gradient
-/// leaves `i64`.
-///
-/// # Complexity
-///
-/// Temporal `O(t·vocab)` for `t` [`kl_row`] calls; spatial `O(t·vocab)` `i64` words for `dz`.
+/// [`TrainError::Shape`] for a length that is not `t·vocab` with `t > 0`; [`TrainError::Head`] from
+/// [`kl_row`]; [`TrainError::Range`] when the summed loss leaves `i64`.
 pub fn kl_mean(
     cfg: &Config,
     logits: &[i64],
@@ -807,32 +900,33 @@ pub fn kl_mean(
         return Err(TrainError::Shape("empty batch".to_string()));
     }
     let mut dz = vec![0_i64; logits.len()];
-    let mut acc: i64 = 0;
+    let mut acc = 0_i128;
     for r in 0..t {
-        let (loss, g) = kl_row(&logits[r * v..r * v + v], &teacher[r * v..r * v + v])?;
-        acc = acc.checked_add(loss).ok_or(TrainError::Overflow)?;
-        for k in 0..v {
-            dz[r * v + k] = dz[r * v + k]
-                .checked_add(g[k])
-                .ok_or(TrainError::Overflow)?;
-        }
+        let base = r * v;
+        let (loss, g) = kl_row(&logits[base..base + v], &teacher[base..base + v])?;
+        acc = acc
+            .checked_add(i128::from(loss))
+            .ok_or(TrainError::Overflow)?;
+        dz[base..base + v].copy_from_slice(&g[..v]);
     }
-    Ok((acc as f64 / (t as f64 * TWO32), dz))
+    let mean = div_ne(acc, t as i128).ok_or(TrainError::Overflow)?;
+    let mean = narrow(mean).ok_or(TrainError::Overflow)?;
+    Ok((from_grid(mean), dz))
 }
 
-/// The gradients of the batch mean KL with respect to one layer's zero-bit latents.
-#[derive(Clone, Debug, PartialEq)]
+/// The gradients of the batch mean KL with respect to one layer's zero-bit latents, Q32.32.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct LayerNormGrad {
     /// `∂L/∂ attn_norm` log latent.
-    pub ln1: Vec<f64>,
+    pub ln1: Vec<i64>,
     /// `∂L/∂ ffn_norm` log latent.
-    pub ln2: Vec<f64>,
+    pub ln2: Vec<i64>,
     /// `∂L/∂ attn_q.bias` additive latent.
-    pub qb: Vec<f64>,
+    pub qb: Vec<i64>,
     /// `∂L/∂ attn_k.bias` additive latent.
-    pub kb: Vec<f64>,
+    pub kb: Vec<i64>,
     /// `∂L/∂ attn_v.bias` additive latent.
-    pub vb: Vec<f64>,
+    pub vb: Vec<i64>,
 }
 
 /// The gradients of the batch mean KL with respect to every trainable latent of the finishing
@@ -845,7 +939,7 @@ pub struct Gradients {
     /// Per layer, the zero-bit norm/bias latents' gradients.
     pub norms: Vec<LayerNormGrad>,
     /// `∂L/∂ output_norm` log latent.
-    pub fn_d: Vec<f64>,
+    pub fn_d: Vec<i64>,
     /// The batch mean KL the gradients are taken at (real units).
     pub mean_kl: f64,
 }
@@ -862,34 +956,24 @@ pub struct Finisher {
     pub tun: Tunables,
     /// The frozen embedding and head.
     pub frozen: Frozen,
-    /// The learning-rate schedule.
+    /// The learning rate's schedule, the Adam state per parameter and the step count.
     pub schedule: Schedule,
-    /// The Adam state of every plane's `pa`/`pb`/`pd`.
     moments: Vec<Vec<Vec<PlaneMoments>>>,
-    /// The Adam state of every layer's zero-bit latents.
     norm_moments: Vec<[Adam; 5]>,
-    /// The Adam state of the final-norm latent.
     fn_moment: Adam,
-    /// Completed updates.
     step: u64,
 }
 
 /// The Adam state of one plane's three latent axes.
 #[derive(Clone, Debug, PartialEq)]
 struct PlaneMoments {
-    /// `pa` state.
     pa: Adam,
-    /// `pb` state.
     pb: Adam,
-    /// `pd` state.
     pd: Adam,
 }
 
 impl PlaneMoments {
-    /// Zero state sized to the plane's three latents.
-    ///
-    /// # Complexity
-    /// `O(o·n/128 + n)`.
+    /// Zero state sized to the plane's three latents; `O(o·n/128 + n)`.
     fn zeros(p: &CodedPlane) -> Self {
         Self {
             pa: Adam::zeros(p.pa.len()),
@@ -903,14 +987,8 @@ impl Finisher {
     /// Build the P-step: validate the geometry against `cfg` and allocate the Adam state.
     ///
     /// # Errors
-    ///
-    /// [`TrainError::Shape`] for a plane, tunable or frozen tensor that disagrees with the model
-    /// geometry; [`TrainError::Model`] from [`Config::checked`].
-    ///
-    /// # Complexity
-    ///
-    /// Temporal `O(n_layer·(Σ_k o_k·n_k/128 + n_embd + q_out + kv_out))` for the validation and the
-    /// state allocation; spatial the same.
+    /// [`TrainError::Shape`] on a disagreeing plane, tunable or frozen tensor;
+    /// [`TrainError::Model`] from [`Config::checked`]. `O(n_layer·Σ_k o_k·n_k/128)`, serial.
     pub fn new(
         cfg: Config,
         planes: Planes,
@@ -999,7 +1077,7 @@ impl Finisher {
                 frozen.lm_head.len()
             )));
         }
-        let moments: Vec<Vec<Vec<PlaneMoments>>> = planes
+        let moments = planes
             .layers
             .iter()
             .map(|row| {
@@ -1008,7 +1086,7 @@ impl Finisher {
                     .collect()
             })
             .collect();
-        let norm_moments: Vec<[Adam; 5]> = tun
+        let norm_moments = tun
             .layers
             .iter()
             .map(|lt| {
@@ -1035,43 +1113,33 @@ impl Finisher {
         })
     }
 
-    /// The completed updates.
-    ///
-    /// # Complexity
-    /// `O(1)`.
+    /// The completed updates. `O(1)`.
     pub fn step_index(&self) -> u64 {
         self.step
     }
 
-    /// The batch mean KL at the current latents, over the stored (quantized) forward.
+    /// The batch mean KL at the current latents over the stored forward, in real units.
     ///
     /// # Errors
-    ///
-    /// As [`assemble`], [`forward`] and [`kl_mean`].
-    ///
-    /// # Complexity
-    ///
-    /// As [`Finisher::gradients`] without the backward.
+    /// As [`assemble`], [`forward`] and [`kl_mean`]; cost as [`Finisher::gradients`] without the
+    /// backward.
     pub fn loss(&self, tokens: &[u32], teacher: &[i64]) -> Result<f64, TrainError> {
         let w = assemble(&self.cfg, &self.planes, &self.tun, &self.frozen)?;
         let (logits, _) = forward(&w, &self.cfg, tokens)?;
         Ok(kl_mean(&self.cfg, &logits, teacher)?.0)
     }
 
-    /// The gradients of the batch mean KL with respect to every trainable latent; no parameter is
-    /// changed.
+    /// The gradients of the batch mean KL with respect to every trainable latent; nothing changes.
     ///
     /// # Errors
-    ///
-    /// [`TrainError::Shape`] for a teacher/logits geometry mismatch; [`TrainError::Model`],
+    /// [`TrainError::Shape`] on a teacher/logits geometry mismatch; [`TrainError::Model`],
     /// [`TrainError::Head`], [`TrainError::Plane`] from the forward, head and plane backward;
-    /// [`TrainError::Overflow`] on a checked accumulate.
+    /// [`TrainError::Overflow`]/[`TrainError::Range`] on a checked accumulate or word.
     ///
     /// # Complexity
-    ///
-    /// Temporal: per layer one Q32.32 forward and backward
-    /// `O(t·(n_embd² + n_embd·n_ff) + n_head·t²·head_dim)` plus the head `O(t·vocab·n_embd)`; the
-    /// latent map is `O(Σ plane o·n·log2(GROUP))`. Spatial `O(t·vocab + Σ plane o·n)`.
+    /// Per layer one forward and backward `O(t·(n_embd² + n_embd·n_ff) + n_head·t²·head_dim)` plus
+    /// the head `O(t·vocab·n_embd)` and the latent map `O(Σ plane o·n·log2(GROUP))`; the tensor
+    /// passes are the plane's pooled ones, the layer loop serial.
     pub fn gradients(&self, tokens: &[u32], teacher: &[i64]) -> Result<Gradients, TrainError> {
         let w = assemble(&self.cfg, &self.planes, &self.tun, &self.frozen)?;
         let (logits, tape) = forward(&w, &self.cfg, tokens)?;
@@ -1081,62 +1149,20 @@ impl Finisher {
         if t == 0 {
             return Err(TrainError::Shape("empty batch".to_string()));
         }
-        let inv = 1.0 / (t as f64 * TWO32);
+        let rows = i64::try_from(t).map_err(|_| TrainError::Overflow)?;
         let e = self.cfg.n_embd;
-
-        let mut planes: Vec<Vec<Vec<LatentGrad>>> = Vec::with_capacity(self.cfg.n_layer);
-        let mut norms: Vec<LayerNormGrad> = Vec::with_capacity(self.cfg.n_layer);
+        let mut planes: Vec<Vec<Vec<LatentGrad>>> =
+            vec![vec![Vec::new(); N_KINDS]; self.cfg.n_layer];
+        let mut norms = vec![LayerNormGrad::default(); self.cfg.n_layer];
+        // Structural layer loop: the plane backwards pool, and the pool is not re-entrant.
         for l in 0..self.cfg.n_layer {
-            let lg = grads
-                .layers
-                .get(l)
-                .ok_or_else(|| TrainError::Shape(format!("grad layer {l} absent")))?;
-            let lt = &self.tun.layers[l];
-            let row = self
-                .planes
-                .layers
-                .get(l)
-                .ok_or_else(|| TrainError::Shape(format!("plane layer {l} absent")))?;
-            let mut per_kind: Vec<Vec<LatentGrad>> = Vec::with_capacity(N_KINDS);
-            for (k, lin) in row.iter().enumerate() {
-                let gw = kind_grad(lg, k);
-                let gf: Vec<f64> = gw.iter().map(|&x| x as f64 * inv).collect();
-                let mut per_plane: Vec<LatentGrad> = Vec::with_capacity(lin.planes.len());
-                for p in &lin.planes {
-                    per_plane.push(p.backward(&gf)?);
-                }
-                per_kind.push(per_plane);
-            }
-            planes.push(per_kind);
-            let mut dn = LayerNormGrad {
-                ln1: vec![0.0_f64; e],
-                ln2: vec![0.0_f64; e],
-                qb: vec![0.0_f64; lt.qb.len()],
-                kb: vec![0.0_f64; lt.kb.len()],
-                vb: vec![0.0_f64; lt.vb.len()],
-            };
-            let s_qb = lt.bias_scale(0);
-            let s_kb = lt.bias_scale(1);
-            let s_vb = lt.bias_scale(2);
-            for j in 0..e {
-                dn.ln1[j] = lg.attn_norm[j] as f64 * inv * lt.ln1[j] * lt.ln1_d[j].exp();
-                dn.ln2[j] = lg.ffn_norm[j] as f64 * inv * lt.ln2[j] * lt.ln2_d[j].exp();
-            }
-            for j in 0..dn.qb.len() {
-                dn.qb[j] = lg.bq[j] as f64 * inv * s_qb;
-            }
-            for j in 0..dn.kb.len() {
-                dn.kb[j] = lg.bk[j] as f64 * inv * s_kb;
-            }
-            for j in 0..dn.vb.len() {
-                dn.vb[j] = lg.bv[j] as f64 * inv * s_vb;
-            }
-            norms.push(dn);
+            let (per_kind, ln) = layer_grads(&grads, &self.tun, &self.planes, l, rows)?;
+            planes[l] = per_kind;
+            norms[l] = ln;
         }
-        let mut fn_d = vec![0.0_f64; e];
-        for j in 0..e {
-            fn_d[j] =
-                grads.output_norm[j] as f64 * inv * self.tun.fn_base[j] * self.tun.fn_d[j].exp();
+        let fn_d = norm_grad(&grads.output_norm, &self.tun.fn_base, &self.tun.fn_d, rows);
+        if fn_d.len() != e {
+            return Err(TrainError::Range("output_norm gradient".to_string()));
         }
         Ok(Gradients {
             planes,
@@ -1146,17 +1172,12 @@ impl Finisher {
         })
     }
 
-    /// One Adam update of every latent at the current step's learning-rate factor; nothing is
-    /// changed on a shape disagreement.
+    /// One Adam update of every latent at the current step's factor; nothing changes on a shape
+    /// disagreement.
     ///
     /// # Errors
-    ///
-    /// [`TrainError::Shape`] if a gradient width disagrees with its parameter.
-    ///
-    /// # Complexity
-    ///
-    /// Temporal `O(Σ plane (o·n/128 + n) + n_layer·(n_embd + q_out + kv_out))`; spatial `O(1)` in
-    /// place.
+    /// [`TrainError::Shape`] on a gradient width, [`TrainError::Range`] on a refused gradient or
+    /// word. `O(Σ plane (o·n/128 + n) + n_layer·(n_embd + q_out + kv_out))`, serial, in place.
     pub fn apply(&mut self, g: &Gradients, factor: f64) -> Result<(), TrainError> {
         let lr_lat = LR_LAT * factor;
         let lr_norm = LR_NORM * factor;
@@ -1165,69 +1186,51 @@ impl Finisher {
                 .planes
                 .layers
                 .get_mut(l)
-                .ok_or_else(|| TrainError::Shape(format!("plane layer {l} absent")))?;
+                .ok_or_else(|| absent("plane layer", l))?;
             let gk = g
                 .planes
                 .get(l)
-                .ok_or_else(|| TrainError::Shape(format!("grad plane layer {l} absent")))?;
+                .ok_or_else(|| absent("grad plane layer", l))?;
             let ml = self
                 .moments
                 .get_mut(l)
-                .ok_or_else(|| TrainError::Shape(format!("moment layer {l} absent")))?;
+                .ok_or_else(|| absent("moment layer", l))?;
             for (k, lin) in row.iter_mut().enumerate() {
-                let gp = gk
-                    .get(k)
-                    .ok_or_else(|| TrainError::Shape(format!("grad kind {k} absent")))?;
-                let mk = ml
-                    .get_mut(k)
-                    .ok_or_else(|| TrainError::Shape(format!("moment kind {k} absent")))?;
+                let gp = gk.get(k).ok_or_else(|| absent("grad kind", k))?;
+                let mk = ml.get_mut(k).ok_or_else(|| absent("moment kind", k))?;
                 for (i, p) in lin.planes.iter_mut().enumerate() {
-                    let (dpa, dpb, dpd) = gp
-                        .get(i)
-                        .ok_or_else(|| TrainError::Shape(format!("grad plane {i} absent")))?;
-                    let m = mk
-                        .get_mut(i)
-                        .ok_or_else(|| TrainError::Shape(format!("moment plane {i} absent")))?;
+                    let (dpa, dpb, dpd) = gp.get(i).ok_or_else(|| absent("grad plane", i))?;
+                    let m = mk.get_mut(i).ok_or_else(|| absent("moment plane", i))?;
                     m.pa.apply(lr_lat, &mut p.pa, dpa)?;
                     m.pb.apply(lr_lat, &mut p.pb, dpb)?;
                     m.pd.apply(lr_lat, &mut p.pd, dpd)?;
                 }
             }
-            let gn = g
-                .norms
-                .get(l)
-                .ok_or_else(|| TrainError::Shape(format!("grad norm layer {l} absent")))?;
+            let gn = g.norms.get(l).ok_or_else(|| absent("grad norm layer", l))?;
             let lt = self
                 .tun
                 .layers
                 .get_mut(l)
-                .ok_or_else(|| TrainError::Shape(format!("tunable layer {l} absent")))?;
+                .ok_or_else(|| absent("tunable layer", l))?;
             let ml = self
                 .norm_moments
                 .get_mut(l)
-                .ok_or_else(|| TrainError::Shape(format!("norm moment layer {l} absent")))?;
+                .ok_or_else(|| absent("norm moment layer", l))?;
             ml[0].apply(lr_norm, &mut lt.ln1_d, &gn.ln1)?;
             ml[1].apply(lr_norm, &mut lt.ln2_d, &gn.ln2)?;
             ml[2].apply(lr_norm, &mut lt.qb_d, &gn.qb)?;
             ml[3].apply(lr_norm, &mut lt.kb_d, &gn.kb)?;
             ml[4].apply(lr_norm, &mut lt.vb_d, &gn.vb)?;
         }
-        let mut fnd = self.tun.fn_d.clone();
-        self.fn_moment.apply(lr_norm, &mut fnd, &g.fn_d)?;
-        self.tun.fn_d = fnd;
+        self.fn_moment.apply(lr_norm, &mut self.tun.fn_d, &g.fn_d)?;
         Ok(())
     }
 
-    /// One finishing P-step: the mean KL at the current latents, then one Adam update of every
-    /// latent at the step's learning-rate factor.
+    /// One finishing P-step: the gradients, then one Adam update at the step's factor.
     ///
     /// # Errors
-    ///
-    /// As [`Finisher::gradients`] and [`Finisher::apply`].
-    ///
-    /// # Complexity
-    ///
-    /// As [`Finisher::gradients`] plus `O(Σ plane (o·n/128 + n))` for the update.
+    /// As [`Finisher::gradients`] and [`Finisher::apply`]; cost as those plus
+    /// `O(Σ plane (o·n/128 + n))`.
     pub fn step(&mut self, tokens: &[u32], teacher: &[i64]) -> Result<f64, TrainError> {
         let g = self.gradients(tokens, teacher)?;
         self.step += 1;
@@ -1235,4 +1238,63 @@ impl Finisher {
         self.apply(&g, f)?;
         Ok(g.mean_kl)
     }
+}
+
+/// The plane and zero-bit latent gradients of one layer, Q32.32.
+///
+/// # Errors
+/// [`TrainError::Shape`] on an absent gradient or width, [`TrainError::Range`] on a refusal.
+/// `O(Σ plane o·n·log2(GROUP) + n_embd + q_out + kv_out)`, the per-plane backward pooled.
+fn layer_grads(
+    grads: &Grads,
+    tun: &Tunables,
+    planes: &Planes,
+    l: usize,
+    rows: i64,
+) -> Result<(Vec<Vec<LatentGrad>>, LayerNormGrad), TrainError> {
+    let e = tun
+        .layers
+        .get(l)
+        .ok_or_else(|| absent("tunable layer", l))?
+        .ln1
+        .len();
+    let lg = grads.layers.get(l).ok_or_else(|| absent("grad layer", l))?;
+    let lt = &tun.layers[l];
+    let row = planes
+        .layers
+        .get(l)
+        .ok_or_else(|| absent("plane layer", l))?;
+    let mut per_kind: Vec<Vec<LatentGrad>> = Vec::with_capacity(N_KINDS);
+    for (k, lin) in row.iter().enumerate() {
+        let gw = kind_grad(lg, k);
+        let gf = over(gw, rows);
+        if gf.len() != gw.len() {
+            return Err(TrainError::Range(format!(
+                "layer {l} kind {k} gradient refused"
+            )));
+        }
+        let mut per_plane: Vec<LatentGrad> = Vec::with_capacity(lin.planes.len());
+        for p in &lin.planes {
+            per_plane.push(p.backward(&gf)?);
+        }
+        per_kind.push(per_plane);
+    }
+    let dn = LayerNormGrad {
+        ln1: norm_grad(&lg.attn_norm, &lt.ln1, &lt.ln1_d, rows),
+        ln2: norm_grad(&lg.ffn_norm, &lt.ln2, &lt.ln2_d, rows),
+        qb: bias_grad(&lg.bq, lt.bias_scale(0), rows),
+        kb: bias_grad(&lg.bk, lt.bias_scale(1), rows),
+        vb: bias_grad(&lg.bv, lt.bias_scale(2), rows),
+    };
+    if dn.ln1.len() != e
+        || dn.ln2.len() != e
+        || dn.qb.len() != lt.qb.len()
+        || dn.kb.len() != lt.kb.len()
+        || dn.vb.len() != lt.vb.len()
+    {
+        return Err(TrainError::Range(format!(
+            "layer {l} norm gradient refused"
+        )));
+    }
+    Ok((per_kind, dn))
 }
