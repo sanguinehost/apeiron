@@ -17,7 +17,7 @@
               crate's non-test code."
 )]
 
-use apeiron::learn::fold::fit::quant::f16r;
+use apeiron::format::quant::f16_to_f32;
 use apeiron::learn::solve::q32::{
     fill_scale, from_grid, ilog2_pos, panel_shift, round_f16, round_q32_even, rshift_rne, to_grid,
     Bfp, Fx, Q32Error, SpdQ, GRID_BOUND, GRID_SCALE, INPUT_BOUND,
@@ -319,8 +319,38 @@ fn round_f16_is_identity_on_finite_binary16_patterns() {
     assert_eq!(finite, 63_488);
 }
 
+/// `f32` → nearest-even binary16 bits (the retired `quant::f16_bits`).
+fn ref_f16_bits(x: f32) -> u16 {
+    let b = x.to_bits();
+    let sign = ((b >> 16) & 0x8000) as u16;
+    let e = ((b >> 23) & 0xFF) as i32;
+    let m = b & 0x007F_FFFF;
+    if e == 0xFF {
+        return sign | if m == 0 { 0x7C00 } else { 0x7E00 };
+    }
+    let he = e - 112;
+    if he >= 31 {
+        return sign | 0x7C00;
+    }
+    if he <= 0 {
+        let r = (f32::from_bits(b & 0x7FFF_FFFF) * 16_777_216.0).round_ties_even() as u32;
+        return sign | r as u16;
+    }
+    let half = ((he as u32) << 10) | (m >> 13);
+    let rem = m & 0x1FFF;
+    sign | (half + u32::from(rem > 0x1000 || (rem == 0x1000 && half & 1 == 1))) as u16
+}
+
+/// The retired `quant::f16r`: the `f64 → f32 → f16 → f64` double rounding.
+fn ref_f16r(x: f64) -> f64 {
+    f64::from(f16_to_f32(ref_f16_bits(x as f32)))
+}
+
 #[test]
 fn round_f16_matches_the_f64_reference_on_24_bit_significands() {
+    // The retired f64 reference, kept here: `f64 → f32 → f16` double rounding. A 24-bit
+    // significand is exact in `f32`, so this is the single-rounding reference the migrated
+    // `round_f16` must equal.
     let mut lcg = Lcg::new(0x9e37_79b9_7f4a_7c15);
     for _ in 0..20_000 {
         let m = (lcg.next() % (1_u64 << 24)) as i64;
@@ -328,7 +358,7 @@ fn round_f16_matches_the_f64_reference_on_24_bit_significands() {
         let e = (lcg.next() % 81) as i32 - 60; // -60..=20
         let x = Fx { m, e };
         let value = m as f64 * 2_f64.powi(e);
-        let want = f16r(value);
+        let want = ref_f16r(value);
         match round_f16(x) {
             Ok(r) => {
                 let got = r.m as f64 * 2_f64.powi(r.e);

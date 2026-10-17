@@ -383,15 +383,14 @@ pub fn nb_refine(
             o,
             n,
         )?;
-        // The quantisers declare reals; convert at their call, not per step.
-        let rh1 = to_words(&quant_r_hier(&to_reals(&r1), o, g)?.rq)?;
-        let rh2 = to_words(&quant_r_hier(&to_reals(&r2), o, g)?.rq)?;
+        // The quantisers carry words; the row scale and the column scale are read in place.
+        let rh1 = quant_r_hier(&r1, o, g)?.rq;
+        let rh2 = quant_r_hier(&r2, o, g)?.rq;
         // c1n = quant_c_u8(c_step(ws - compose(S2e, rh2, c2), hl, S1e, rh1), 6).0
         let other2 = compose(&s2e, &rh2, &na2.c, o, n)?;
         let resid1 = combine(&wsq, &other2, BinOp::Sub)?;
         let c1_raw = c_step(&resid1, &hlq, &s1e, &rh1, o, n, grq.as_deref())?;
-        let (c1n, _) = quant_c_u8(&to_reals(&c1_raw), C_BITS)?;
-        let c1n = to_words(&c1n)?;
+        let (c1n, _) = quant_c_u8(&c1_raw, C_BITS)?;
         // The two round packs, and their weights re-derived from those packs through `plane_w`: the
         // same determination the next call's entry `J` enumerates, so a kept round's logged `J` is
         // the returned pair's own value and repeated runs are non-increasing exactly.
@@ -406,8 +405,7 @@ pub fn nb_refine(
         // c2n = quant_c_u8(c_step(ws - W1n, hl, S2e, rh2), 6).0
         let resid2 = combine(&wsq, &w1n, BinOp::Sub)?;
         let c2_raw = c_step(&resid2, &hlq, &s2e, &rh2, o, n, grq.as_deref())?;
-        let (c2n, _) = quant_c_u8(&to_reals(&c2_raw), C_BITS)?;
-        let c2n = to_words(&c2n)?;
+        let (c2n, _) = quant_c_u8(&c2_raw, C_BITS)?;
         let np2 = Plane {
             s: na2.s,
             idx: na2.idx,

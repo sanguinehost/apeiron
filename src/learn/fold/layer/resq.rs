@@ -7,7 +7,7 @@
 //! # Q32.32 carrier
 //!
 //! Every internal value is a Q32.32 `i64` word; only [`ResqInputs`]/[`ResqSolution`]'s `f64` fields
-//! and [`quant_r_hier`]'s argument cross the grid. Products are the pooled
+//! and [`rescale_hier`]'s `rh`/`s` arguments cross the grid. Products are the pooled
 //! [`gemm_nt`]/[`gemm_nn`], Grams [`wsyrk`], the Hadamard [`hadamard_into`], `rhs = GoC·1`
 //! [`row_dot_fixed`], and the solve [`chol_solve`] with its exact `sqrt(A_ii)` Jacobi column
 //! scaling. An operand above `2³⁶` raw (`16` real) is scaled by one exact power of two and shifted
@@ -358,8 +358,8 @@ pub fn resq_solve(inputs: &ResqInputs<'_>) -> Result<ResqSolution, ResqError> {
 }
 
 /// Fold a per-row multiplier into a plane's stored hierarchical row scale: `rh = quant_r_hier(rh·s)`
-/// with `rh` row-major `[o, g]`, `s` length `o`, the product exact-integer on the Q32.32 grid and
-/// crossing back to `f64` only at `quant_r_hier`'s argument.
+/// with `rh` row-major `[o, g]`, `s` length `o`; the product is exact-integer on the Q32.32 grid and
+/// feeds [`quant_r_hier`] as words, so no value crosses to `f64` between them.
 ///
 /// # Errors
 /// [`ResqError::Empty`] for a zero `o`/`g`; [`ResqError::ShapeMismatch`] for a length against the
@@ -379,10 +379,10 @@ pub fn rescale_hier(rh: &[f64], s: &[f64], o: usize, g: usize) -> Result<RHier, 
     }
     let rhw = to_words(rh)?;
     let sw = to_words(s)?;
-    let mut scaled = vec![0.0_f64; n];
+    let mut scaled = vec![0_i64; n];
     for i in 0..o {
         for j in 0..g {
-            scaled[i * g + j] = from_grid(mul_q32(rhw[i * g + j], sw[i])?);
+            scaled[i * g + j] = mul_q32(rhw[i * g + j], sw[i])?;
         }
     }
     Ok(quant_r_hier(&scaled, o, g)?)
@@ -416,10 +416,10 @@ pub fn rescale_hier_top(
     }
     let rhw = to_words(rh)?;
     let sw = to_words(s)?;
-    let mut scaled = vec![0.0_f64; n];
+    let mut scaled = vec![0_i64; n];
     for (i, &r) in rows.iter().enumerate() {
         for j in 0..g {
-            scaled[i * g + j] = from_grid(mul_q32(rhw[i * g + j], sw[r])?);
+            scaled[i * g + j] = mul_q32(rhw[i * g + j], sw[r])?;
         }
     }
     Ok(quant_r_hier(&scaled, o, g)?)

@@ -23,6 +23,12 @@
 
 use apeiron::learn::fold::fit::fnorm::{fnorm_fit, FnormError};
 use apeiron::learn::fold::fit::quant::f16r;
+use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
+
+/// The migrated [`f16r`] at an `f64` value of the test's own data: grid it, round, read back.
+fn h16(x: f64) -> f64 {
+    from_grid(f16r(to_grid(x, GRID_BOUND).expect("grid")).expect("in binary16 range"))
+}
 
 /// Deterministic 64-bit LCG (Knuth's MMIX constants); the crate's test drift.
 struct Lcg(u64);
@@ -136,7 +142,7 @@ fn identical_hidden_at_the_start_keeps_g_fixed() {
     let hs = ht.clone();
     // The start is f16-exact, so the per-step `f16r` round is the identity on it.
     for &x in &g0 {
-        assert_eq!(f16r(x), x, "start channel {x} is not f16-exact");
+        assert_eq!(h16(x), x, "start channel {x} is not f16-exact");
     }
     let out = fnorm_fit(
         &ht, &hs, N, T, HID, &g0, &e, VOCAB, EPS, 8, 0.05, 1.0, false,
@@ -461,7 +467,7 @@ fn ref_fnorm_fit(
         }
         let reg = ridge * (fsum / (hid as f64)).max(1e-6);
         for j in 0..hid {
-            g[j] = f16r(g[j] - lr * (grad[j] + reg * (g[j] - g_target[j])) / (fisher[j] + reg));
+            g[j] = h16(g[j] - lr * (grad[j] + reg * (g[j] - g_target[j])) / (fisher[j] + reg));
         }
     }
     Ok(g)

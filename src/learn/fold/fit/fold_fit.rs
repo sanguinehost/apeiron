@@ -479,11 +479,10 @@ fn pack_words(f: &Fit, s_rot: &[i64], c: &[i64], dh: &[i64]) -> Result<Refit, Fo
     scale_columns(&mut rotated, f.o, f.n, dh)?;
     let s_dh = rotate(rotated)?;
     let r = r_step_wshl(f.wsq, f.hlq, f.wshlq, &s_dh, c, f.o, f.n)?;
-    let hier = quant_r_hier(&to_reals(&r), f.o, f.g)?;
-    let rh = words_in(&hier.rq)?;
+    let hier = quant_r_hier(&r, f.o, f.g)?;
+    let rh = hier.rq;
     let c_ref = c_step_wshl(f.wsq, f.hlq, f.wshlq, &s_dh, &rh, f.o, f.n, f.grq)?;
-    let (ch, bits_c) = quant_c_u8(&to_reals(&c_ref), 6)?;
-    let ch = words_in(&ch)?;
+    let (ch, bits_c) = quant_c_u8(&c_ref, 6)?;
     let wp = compose(&s_dh, &rh, &ch, f.o, f.n)?;
     let j = objective(f.wsq, &wp, f.hlq, f.o, f.n)?;
     Ok(Refit {
@@ -683,8 +682,7 @@ pub fn fold_fit(
     // The `bscale and had` arm (lines 932–968): quantise the winning `d` to 5 bits, refit `r` and
     // `c` against the re-materialised `S_dh`, then the `e8_icm` re-quantisation and un-`d`
     // candidates.
-    let (dh, bits_d) = quant_c_u8(&to_reals(&d_best), 5)?;
-    let dh = words_in(&dh)?;
+    let (dh, bits_d) = quant_c_u8(&d_best, 5)?;
     let ones = vec![ONE; n];
     let first = pack_words(&f, &s_rot_best, &c_best, &dh)?;
     let (bits_r, bits_c) = (first.bits_r, first.bits_c);

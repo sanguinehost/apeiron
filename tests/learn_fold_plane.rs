@@ -35,6 +35,18 @@ use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
 use apeiron::learn::fold::fit::steps::{compose, fwht128, GROUP};
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
+/// The f64 fixture as Q32.32 words, the quantiser's input at the test's own data.
+fn words(x: &[f64]) -> Vec<i64> {
+    x.iter()
+        .map(|&v| to_grid(v, GRID_BOUND).expect("fixture on the grid"))
+        .collect()
+}
+
+/// The word grid as reals, the test's own read-back for its f64 arithmetic.
+fn reals(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&w| from_grid(w)).collect()
+}
+
 /// Out rows of the main fixtures.
 const O: usize = 4;
 /// In columns (a whole number of 128-blocks).
@@ -91,15 +103,15 @@ struct Pack {
 
 fn build_pack(rng: &mut Lcg, o: usize) -> Pack {
     let r_raw: Vec<f64> = (0..o * G).map(|_| rng.pos()).collect();
-    let rh = quant_r_hier(&r_raw, o, G).unwrap();
+    let rh = quant_r_hier(&words(&r_raw), o, G).unwrap();
     let c_raw: Vec<f64> = (0..N).map(|_| 0.5 + 0.5 * rng.unit()).collect();
-    let c0 = quant_c_u8(&c_raw, 6).unwrap().0;
+    let c0 = reals(&quant_c_u8(&words(&c_raw), 6).unwrap().0);
     let d_raw: Vec<f64> = (0..N).map(|_| 0.5 + 0.5 * rng.unit()).collect();
-    let d0 = quant_c_u8(&d_raw, 5).unwrap().0;
+    let d0 = reals(&quant_c_u8(&words(&d_raw), 5).unwrap().0);
     Pack {
-        lo: rh.r_lo,
-        sp: rh.r_sp,
-        r: rh.rq,
+        lo: reals(&rh.r_lo),
+        sp: reals(&rh.r_sp),
+        r: reals(&rh.rq),
         c: c0,
         d: d0,
     }
@@ -181,8 +193,8 @@ fn ref_backward(
             rq[oi * g + gg] = lof[oi] + (k / 15.0) * spf[oi];
         }
     }
-    let cq = quant_c_u8(&cl, 6).unwrap().0;
-    let dq = quant_c_u8(&dl, 5).unwrap().0;
+    let cq = reals(&quant_c_u8(&words(&cl), 6).unwrap().0);
+    let dq = reals(&quant_c_u8(&words(&dl), 5).unwrap().0);
     let x = fwht128(&scale_cols(&sf, &dq, o, n)).unwrap();
     let mut gy = vec![0.0_f64; o * n];
     for k in 0..o * n {

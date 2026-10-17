@@ -28,7 +28,19 @@ use apeiron::learn::fold::fit::icm::{codebook, BLOCK};
 use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
 use apeiron::learn::fold::fit::steps::GROUP;
 use apeiron::learn::grad::model::{forward, Config, Weights};
-use apeiron::learn::solve::q32::from_grid;
+use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
+
+/// The f64 fixture as Q32.32 words, the quantiser's input at the test's own data.
+fn words(x: &[f64]) -> Vec<i64> {
+    x.iter()
+        .map(|&v| to_grid(v, GRID_BOUND).expect("fixture on the grid"))
+        .collect()
+}
+
+/// The word grid as reals, the test's own read-back for its f64 arithmetic.
+fn reals(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&w| from_grid(w)).collect()
+}
 
 /// Trunk layers of the tiny configuration.
 const L: usize = 2;
@@ -141,13 +153,23 @@ fn make_plane(rng: &mut Lcg, o: usize, n: usize) -> CodedPlane {
     let s = code_field(&idx, o, n);
     let g = n / GROUP;
     let r_raw: Vec<f64> = (0..o * g).map(|_| 0.5 + 0.5 * rng.unit()).collect();
-    let rh = quant_r_hier(&r_raw, o, g).unwrap();
+    let rh = quant_r_hier(&words(&r_raw), o, g).unwrap();
     let c_raw: Vec<f64> = (0..n).map(|_| 0.1 + 0.1 * rng.unit()).collect();
-    let c0 = quant_c_u8(&c_raw, 6).unwrap().0;
+    let c0 = quant_c_u8(&words(&c_raw), 6).unwrap().0;
     let d_raw: Vec<f64> = (0..n).map(|_| 0.5 + 0.5 * rng.unit()).collect();
-    let d0 = quant_c_u8(&d_raw, 5).unwrap().0;
-    let plane =
-        CodedPlane::from_pack(&s, &rh.r_lo, &rh.r_sp, &rh.rq, &c0, &d0, None, o, n).unwrap();
+    let d0 = quant_c_u8(&words(&d_raw), 5).unwrap().0;
+    let plane = CodedPlane::from_pack(
+        &s,
+        &reals(&rh.r_lo),
+        &reals(&rh.r_sp),
+        &reals(&rh.rq),
+        &reals(&c0),
+        &reals(&d0),
+        None,
+        o,
+        n,
+    )
+    .unwrap();
     assert!(plane.s_fix.is_none(), "an exact field keeps idx");
     plane
 }

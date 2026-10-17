@@ -33,7 +33,7 @@ use apeiron::learn::fold::fit::corrector::{eigen_parts, lowrank_corrector, Corre
 use apeiron::learn::fold::fit::eigh::{eigen_gram, eigh, gram_scale, lowrank_corrector_exact};
 use apeiron::learn::fold::fit::quant::{f16r, quant_c_u8};
 use apeiron::learn::solve::eig::top_eigh;
-use apeiron::learn::solve::q32::{from_grid, panel_shift, to_grid, INPUT_BOUND};
+use apeiron::learn::solve::q32::{from_grid, panel_shift, to_grid, GRID_BOUND, INPUT_BOUND};
 
 #[path = "support/ridge_oracle.rs"]
 mod ridge_oracle;
@@ -42,6 +42,11 @@ mod ridge_oracle;
 const QUANTUM: f64 = 2.328_306_436_538_696_3e-10;
 /// Two quanta, `2⁻³¹`: the slack on a re-summed one-rounding product.
 const PRODUCT_TOL: f64 = 4.656_612_873_077_393e-10;
+
+/// The migrated [`f16r`] at an `f64` value of the oracle's own data: grid it, round, read back.
+fn h16(x: f64) -> f64 {
+    from_grid(f16r(to_grid(x, GRID_BOUND).expect("grid")).expect("in binary16 range"))
+}
 
 /// Deterministic 64-bit LCG (Numerical Recipes constants), the tests' only randomness source.
 struct Lcg(u64);
@@ -211,11 +216,13 @@ fn u8_bits_and_grid() {
     // unchanged and the stored point re-quantizes to its own grid value. The observed displacement
     // is ≤ 0.4 quantum.
     for k in 0..rank {
-        let col: Vec<f64> = (0..O).map(|i| f.u[i * rank + k]).collect();
+        let col: Vec<i64> = (0..O)
+            .map(|i| to_grid(f.u[i * rank + k], GRID_BOUND).expect("grid"))
+            .collect();
         let (q, bits) = quant_c_u8(&col, 8).expect("column quantizes");
         assert_eq!(bits, 8 * O as u64 + 32, "column header bits");
         for i in 0..O {
-            let drift = (q[i] - f.u[i * rank + k]).abs();
+            let drift = (from_grid(q[i]) - f.u[i * rank + k]).abs();
             assert!(
                 drift <= QUANTUM,
                 "Uh[{i}, {k}] moved {drift:e} off the u8 grid (one quantum is {QUANTUM:e})"
@@ -224,11 +231,14 @@ fn u8_bits_and_grid() {
     }
     // Each row of Vh is on the 8-bit grid, to the same bound.
     for k in 0..rank {
-        let row = &f.v[k * N..k * N + N];
-        let (q, bits) = quant_c_u8(row, 8).expect("row quantizes");
+        let row: Vec<i64> = f.v[k * N..k * N + N]
+            .iter()
+            .map(|&x| to_grid(x, GRID_BOUND).expect("grid"))
+            .collect();
+        let (q, bits) = quant_c_u8(&row, 8).expect("row quantizes");
         assert_eq!(bits, 8 * N as u64 + 32, "row header bits");
         for j in 0..N {
-            let drift = (q[j] - row[j]).abs();
+            let drift = (from_grid(q[j]) - f.v[k * N + j]).abs();
             assert!(
                 drift <= QUANTUM,
                 "Vh[{k}, {j}] moved {drift:e} off the u8 grid (one quantum is {QUANTUM:e})"
@@ -625,25 +635,33 @@ fn ref_corrector(
     let (u, top_sum) = ref_eigen_parts(dw, hl, o, n, rank);
     let (uh, vh) = match mode {
         Mode::F16 => {
-            let uh: Vec<f64> = u.iter().map(|&x| f16r(x)).collect();
+            let uh: Vec<f64> = u.iter().map(|&x| h16(x)).collect();
             let v = ref_ridge_solve(&uh, dw, o, n, rank);
-            let vh: Vec<f64> = v.iter().map(|&x| f16r(x)).collect();
+            let vh: Vec<f64> = v.iter().map(|&x| h16(x)).collect();
             (uh, vh)
         }
         Mode::U8 => {
             let mut uh = vec![0.0f64; o * rank];
             for k in 0..rank {
-                let col: Vec<f64> = (0..o).map(|i| u[i * rank + k]).collect();
+                let col: Vec<i64> = (0..o)
+                    .map(|i| to_grid(u[i * rank + k], GRID_BOUND).expect("grid"))
+                    .collect();
                 let (q, _) = quant_c_u8(&col, 8).expect("quantize");
                 for i in 0..o {
-                    uh[i * rank + k] = q[i];
+                    uh[i * rank + k] = from_grid(q[i]);
                 }
             }
             let v = ref_ridge_solve(&uh, dw, o, n, rank);
             let mut vh = vec![0.0f64; rank * n];
             for k in 0..rank {
-                let (q, _) = quant_c_u8(&v[k * n..k * n + n], 8).expect("quantize");
-                vh[k * n..k * n + n].copy_from_slice(&q);
+                let row: Vec<i64> = v[k * n..k * n + n]
+                    .iter()
+                    .map(|&x| to_grid(x, GRID_BOUND).expect("grid"))
+                    .collect();
+                let (q, _) = quant_c_u8(&row, 8).expect("quantize");
+                for (slot, &w) in vh[k * n..k * n + n].iter_mut().zip(&q) {
+                    *slot = from_grid(w);
+                }
             }
             (uh, vh)
         }

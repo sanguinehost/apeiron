@@ -10,9 +10,6 @@
 //! three runs each, plus the scalar `f64` `eigen_parts` `w1 = ΔW·Hl` loop at `(896, 4864, 4864)`
 //! once as the reference.
 //!
-//! `gemm_nn_f64`: agreement with an `f64` triple loop within the stated rounding bound at operand
-//! magnitudes `1e-3`, `1` and `1e3`, thread-count independence, and its refusals.
-//!
 //! Grade `tested`; nothing here is `proved`.
 
 #![allow(
@@ -33,7 +30,7 @@ use std::hint::black_box;
 use std::time::Instant;
 
 use apeiron::learn::grad::dense::linear_fwd;
-use apeiron::learn::solve::gemm::{gemm_nn, gemm_nn_f64, gemm_nt, gemm_nt_f64, GemmError, MAX_K};
+use apeiron::learn::solve::gemm::{gemm_nn, gemm_nt, GemmError, MAX_K};
 
 /// Raw Q32.32 `1.0`.
 const ONE_RAW: i64 = 1 << 32;
@@ -337,113 +334,5 @@ fn timing_nt_and_nn() {
     assert!(
         max_abs <= 1e-6 * scale.max(1.0),
         "instrument mismatch {max_abs:e} at scale {scale:e}"
-    );
-}
-
-/// `n` reals uniform in `(-mag, mag)` from the shared xorshift.
-fn reals(rng: &mut Lcg, n: usize, mag: f64) -> Vec<f64> {
-    (0..n)
-        .map(|_| (rng.next_range(-(1 << 40), 1 << 40) as f64 / (1u64 << 40) as f64) * mag)
-        .collect()
-}
-
-fn f64_nn(a: &[f64], b: &[f64], m: usize, k: usize, n: usize) -> Vec<f64> {
-    let mut c = vec![0.0f64; m * n];
-    for i in 0..m {
-        for l in 0..k {
-            for j in 0..n {
-                c[i * n + j] += a[i * k + l] * b[l * n + j];
-            }
-        }
-    }
-    c
-}
-
-fn max_abs(x: &[f64]) -> f64 {
-    x.iter().fold(0.0f64, |m, v| m.max(v.abs()))
-}
-
-#[test]
-fn gemm_nn_f64_matches_the_f64_product_within_the_rounding_bound() {
-    // Entry error: each operand is rounded to the 2^-32 grid after an exact power-of-two scale
-    // 2^-s (s = 0 when max <= 8), so |da| <= 2^-33 * 2^sa, |db| <= 2^-33 * 2^sb; the contraction
-    // adds k * (|a| |db| + |b| |da|), and the product rounds once more by 2^-33 * 2^(sa+sb).
-    for &(m, k, n) in &[(4usize, 128usize, 128usize), (16, 256, 64), (3, 5, 7)] {
-        for &(ma, mb) in &[(1e-3, 1e-3), (1.0, 1.0), (1e3, 1.0), (1.0, 1e3), (1e3, 1e3)] {
-            let mut rng = Lcg::new(0x9E37_79B9_7F4A_7C15 ^ (m * k * n) as u64);
-            let a = reals(&mut rng, m * k, ma);
-            let b = reals(&mut rng, k * n, mb);
-            let got = gemm_nn_f64(&a, &b, m, k, n).expect("in range");
-            let want = f64_nn(&a, &b, m, k, n);
-            let sh = |x: f64| {
-                if x <= 8.0 {
-                    0
-                } else {
-                    (x / 8.0).log2().ceil() as i32
-                }
-            };
-            let (sa, sb) = (2f64.powi(sh(max_abs(&a))), 2f64.powi(sh(max_abs(&b))));
-            let half_ulp = 0.5 / 4_294_967_296.0;
-            let bound = 2.0
-                * (k as f64 * (max_abs(&a) * half_ulp * sb + max_abs(&b) * half_ulp * sa)
-                    + half_ulp * sa * sb);
-            for (idx, (g, w)) in got.iter().zip(&want).enumerate() {
-                assert!(
-                    (g - w).abs() <= bound,
-                    "({m},{k},{n}) mag ({ma},{mb}) idx {idx}: got {g} want {w} bound {bound}"
-                );
-            }
-        }
-    }
-}
-
-#[test]
-fn gemm_nn_f64_refusals() {
-    let a = vec![1.0f64; 6];
-    let b = vec![1.0f64; 6];
-    assert!(gemm_nn_f64(&a, &b, 2, 3, 2).is_ok());
-    assert_eq!(gemm_nn_f64(&a, &b, 0, 3, 2), Err(GemmError::ZeroDim));
-    assert_eq!(gemm_nn_f64(&a, &b, 2, 3, 3), Err(GemmError::ShapeMismatch));
-    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-        let mut a2 = a.clone();
-        a2[4] = bad;
-        assert_eq!(
-            gemm_nn_f64(&a2, &b, 2, 3, 2),
-            Err(GemmError::InputBound),
-            "{bad}"
-        );
-    }
-    // Both operands near 1e300: the undo exponent 2^(sa+sb) leaves f64.
-    let big = vec![1e300f64; 6];
-    assert_eq!(gemm_nn_f64(&big, &big, 2, 3, 2), Err(GemmError::Overflow));
-}
-
-#[test]
-fn gemm_nt_f64_is_gemm_nn_f64_of_the_transpose_bit_equal() {
-    // `product_f64` scales and undoes identically for both layouts, so `A·Bᵀ` read from `b[n,k]`
-    // equals `A·B` read from `bᵀ` entry for entry.
-    for &(m, k, n) in &[(4usize, 128usize, 33usize), (16, 256, 64), (3, 5, 7)] {
-        for &(ma, mb) in &[(1e-3, 1.0), (1.0, 1.0), (1e3, 1e3)] {
-            let mut rng = Lcg::new(0xD1B5_4A32_D192_ED03 ^ (m * k * n) as u64);
-            let a = reals(&mut rng, m * k, ma);
-            let b = reals(&mut rng, k * n, mb);
-            let mut bt = vec![0.0f64; n * k];
-            for l in 0..k {
-                for j in 0..n {
-                    bt[j * k + l] = b[l * n + j];
-                }
-            }
-            let nn = gemm_nn_f64(&a, &b, m, k, n).expect("in range");
-            let nt = gemm_nt_f64(&a, &bt, m, k, n).expect("in range");
-            assert_eq!(
-                nn.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
-                nt.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
-                "({m},{k},{n}) mag ({ma},{mb})"
-            );
-        }
-    }
-    assert_eq!(
-        gemm_nt_f64(&[1e300], &[1e300], 1, 1, 1),
-        Err(GemmError::Overflow)
     );
 }
