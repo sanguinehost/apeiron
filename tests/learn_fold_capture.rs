@@ -136,6 +136,14 @@ fn slice_layer(lt: &LayerTape, r0: usize, r1: usize) -> LayerTape {
 }
 
 /// The independent `Σ_t x_t x_tᵀ` over a row-major Q32.32 `t × w` buffer, token-outermost order.
+/// The agreement oracle: the pre-migration `fold_rows_upper` body in `f64` — `Σ_t x_t x_tᵀ` over the
+/// full matrix (`src/learn/fold/stats/capture.rs` at base `9f440192`), with each Q32.32 word scaled
+/// by the exact power of two `2⁻³²`. Test-only `f64`.
+///
+/// Derived agreement bound, used by [`tol`]: our entry is `Σ_t round_q32_even(x_ti·x_tj)` words, so
+/// each of the `t` terms rounds by at most half a grid quantum (`2⁻³³` real) and the integer sum adds
+/// nothing; the oracle adds `t` exact `f64` products, each with relative error at most `2⁻⁵³`, so at
+/// most `t·M·2⁻⁵³` with `M = max |x_ti·x_tj|`. The two differ by at most `t·(2⁻³³ + M·2⁻⁵³)`.
 fn naive_gram(x: &[i64], t: usize, w: usize) -> Vec<f64> {
     let mut g = vec![0.0f64; w * w];
     for i in 0..w {
@@ -150,6 +158,11 @@ fn naive_gram(x: &[i64], t: usize, w: usize) -> Vec<f64> {
         }
     }
     g
+}
+
+/// The derived bound of [`naive_gram`]: `t` terms, operands bounded by `m` in magnitude.
+fn tol(t: usize, m: f64) -> f64 {
+    t as f64 * (2f64.powi(-33) + m * 2f64.powi(-53))
 }
 
 /// Element-wise closeness of two equal-length f64 buffers.
@@ -182,10 +195,10 @@ fn gram_equals_independent_xtx() {
     let fin = g.finish(Normalisation::Sum).unwrap();
     assert_eq!(fin.len(), L);
     for (fl, lt) in fin.iter().zip(&tape.layers) {
-        close(&fl.qkv, &naive_gram(&lt.ln1_out, 3, E), 1e-12);
-        close(&fl.o, &naive_gram(&lt.attn_out, 3, QW), 1e-12);
-        close(&fl.gate_up, &naive_gram(&lt.ln2_out, 3, E), 1e-12);
-        close(&fl.down, &naive_gram(&lt.m, 3, FF), 1e-12);
+        close(&fl.qkv, &naive_gram(&lt.ln1_out, 3, E), tol(3, 9.0));
+        close(&fl.o, &naive_gram(&lt.attn_out, 3, QW), tol(3, 9.0));
+        close(&fl.gate_up, &naive_gram(&lt.ln2_out, 3, E), tol(3, 9.0));
+        close(&fl.down, &naive_gram(&lt.m, 3, FF), tol(3, 9.0));
         assert_eq!(fl.tokens, 3);
     }
 }
@@ -242,7 +255,9 @@ fn blocks_add_like_concatenated_rows() {
     one.accumulate(&whole, &c).unwrap();
     let split_fin = split.finish(Normalisation::Sum).unwrap();
     let one_fin = one.finish(Normalisation::Sum).unwrap();
-    layers_close(&split_fin, &one_fin, 1e-12);
+    // The carrier's terms are the same rounded words in both groupings and the `i64` sum is exact,
+    // so additivity over token blocks is bit-exact, not merely close.
+    layers_close(&split_fin, &one_fin, 0.0);
     for lg in &split_fin {
         assert_eq!(lg.tokens, 3);
     }
@@ -261,7 +276,9 @@ fn mean_divides_by_tokens_and_mean_diagonal_is_one() {
     for l in 0..L {
         for (a, b) in [(&sum[l].qkv, &mean[l].qkv), (&sum[l].down, &mean[l].down)] {
             let scaled: Vec<f64> = a.iter().map(|v| v / 3.0).collect();
-            close(&scaled, b, 1e-12);
+            // The division by the token count is `round(H·1/3)` words: the sum's `tol(3, 9)` bound
+            // divided by 3, plus at most half a quantum from the quotient's own rounding.
+            close(&scaled, b, tol(3, 9.0) / 3.0 + 2f64.powi(-33));
         }
         for (h, d) in [
             (&md[l].qkv, E),
@@ -277,7 +294,7 @@ fn mean_divides_by_tokens_and_mean_diagonal_is_one() {
                 }
             }
             assert!(
-                (diag / d as f64 - 1.01).abs() < 1e-9,
+                (diag / d as f64 - 1.01).abs() < 2.0 * tol(3, 9.0) / 3.0,
                 "mean diagonal {}",
                 diag / d as f64
             );

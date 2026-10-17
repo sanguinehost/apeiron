@@ -27,29 +27,23 @@
 //! its output-gradient `HO` (mean diagonal 1, then `0.01` added to the diagonal,
 //! `~/lanes/port/spec/fold_transfer.py:1322-1323`).
 //!
-//! Accumulation here is `f64`. The reference accumulates `fp32` (`Gram.acc`, `rstar_fast.py:231`);
-//! its optional `fp16s` mode additionally fixes a per-column scale from the first batch
-//! (`rstar_fast.py:238-241`). Neither rounding is reproduced: the operands are exact Q32.32→`f64`
-//! (`x / 2^32`, an exact scaling by a power of two, so only `f64`'s 53-bit mantissa limits it) and
-//! the f64 scatter removes the fp32 accumulation error the `--gram tf32` reference warns about.
+//! Accumulation is Q32.32 `i64` words, the tape's own carrier: each entry sums the exact `i128`
+//! product of two words rounded once by [`round_q32_even`], so a term carries at most half a grid
+//! quantum (`2⁻³³` real) and a `t`-token entry at most `t·2⁻³³`. The reference accumulates `fp32`
+//! (`Gram.acc`, `rstar_fast.py:231`) and its `fp16s` mode fixes a per-column scale from the first
+//! batch (`:238-241`); neither rounding is reproduced. [`Grams::finish`] converts each finished
+//! word to `f64` once, at the `LayerGrams` boundary.
+//!
+//! The reference's mean-diagonal floor `1e-30` is sub-quantum here: the smallest positive mean a
+//! nonzero diagonal can produce is `2⁻³²/d` real, above `1e-30` for every `d < 2⁶⁸`, so the only
+//! reachable branch is a zero diagonal, whose quotient is zero.
 //!
 //! # Residual: what `gq_capture` captures that this module does not
 //!
 //! Only the activation Gram is ported. `gq_capture` (`fold_transfer.py:1163-1341`) additionally
-//! captures: `A` (per layer and stage, the per-token mean-1 first-moment statistics), `B` (per
-//! layer and kind, the mean-1 second moment of the output gradient), `HO` (the output-side
-//! Hessian `Σ_t w_t g_t g_tᵀ`, `w_t = ‖x_t‖²` of the *input*, `g_t` the sampled-label gradient of
-//! the linear's *output*), `S4`/`Q4` and `ho_lw` (the Schäfer–Strimmer intensity of `HO_raw`),
-//! `PB` and `ho_lb` (the block/sequence-unit intensity), `max_dlogit` (the teacher-forward check)
-//! and the `K` per-position sampled softmax targets. Those require a backward pass this forward-only
-//! capture does not run; none is stubbed.
-//!
-//! # Symmetry and cost
-//!
-//! `H` is symmetric, so [`Grams::accumulate`] writes only the upper triangle (`i ≤ j`) of each
-//! accumulator and [`Grams::finish`] mirrors it once. Per token and matrix that is `w·(w+1)/2`
-//! multiply-adds instead of `w²`. Accumulation is `f64` and deterministic: fixed loop order, no
-//! threading, no `rand`.
+//! captures `A`, `B`, `HO`, `S4`/`Q4`, `ho_lw`, `PB`, `ho_lb`, `max_dlogit` and the `K` sampled
+//! targets; those need a backward pass this forward-only capture does not run, and none is stubbed.
+//! (The output-gradient half is [`super::hocapture`].)
 //!
 //! # Evidence grade
 //!
@@ -58,29 +52,28 @@
 //!
 //! # Trust boundary
 //!
-//! The capture reads the Q32.32 `i64` tape only; the `f64` Gram is a CPU artifact and is not the
-//! quantiser's own accumulation. `rmsnorm`, attention and the dense kernels are
-//! [`crate::learn::grad::model`]'s contracts. Not covered: the output-gradient Grams above, and any
-//! activation the tape does not carry.
+//! The capture reads the Q32.32 `i64` tape only and accumulates in the same carrier; the finished
+//! `f64` Gram is the caller's representation of those words. `rmsnorm`, attention and the dense
+//! kernels are [`crate::learn::grad::model`]'s contracts. Not covered: the output-gradient Grams
+//! above, the thread pool's scheduling, and any activation the tape does not carry.
 
 #![allow(
-    clippy::cast_precision_loss,
-    reason = "the Q32.32 `i64` operands and the `u64` token counter are converted to `f64` at the \
-              capture boundary; the conversion is exact for the value ranges Q32.32 activations \
-              carry and the accumulator is deliberately f64"
+    clippy::many_single_char_names,
+    reason = "the single-letter names are the matrix entry's row and column `i`/`j`, the token `r` \
+              and the row width `w`; the accumulator `x` is the tape's row block"
 )]
 
+use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
+use crate::engine::chart::task::ChunkTask;
 use crate::learn::grad::model::{Config, Tape};
-
-/// `2^-32`: the Q32.32 → `f64` scale. Division by a power of two is exact in binary floating point.
-const INV_ONE: f64 = 1.0 / 4_294_967_296.0;
+use crate::learn::solve::q32::{from_grid, round_q32_even, to_grid, GRID_BOUND};
 
 /// A refusal from the Gram capture.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CaptureError {
     /// The tape or configuration disagrees with the accumulator's geometry.
     Shape(String),
-    /// A length product left `usize`, or the token counter left `u64`.
+    /// A length product left `usize`, a word sum left `i64`, or a rounded product left the grid.
     Overflow,
 }
 
@@ -92,10 +85,9 @@ pub enum Normalisation {
     /// `(Σ_t x_t x_tᵀ) / tokens`, the reference `Gram.result(nt)` (`rstar_fast.py:247-254`).
     Mean,
     /// `(Σ_t x_t x_tᵀ) / mean(diag) + eps·I` — the mean-diagonal-1 normalisation `gq_capture` applies
-    /// to its output-gradient `HO` (`fold_transfer.py:1322-1323`). The mean diagonal is clamped up to
-    /// `1e-30` before the division, as the reference does.
+    /// to its output-gradient `HO` (`fold_transfer.py:1322-1323`).
     MeanDiagonal {
-        /// Added to every diagonal entry after the division.
+        /// Added to every diagonal entry after the division, as a real value.
         eps: f64,
     },
 }
@@ -116,31 +108,35 @@ pub struct LayerGrams {
     pub tokens: u64,
 }
 
+/// One layer's four Q32.32 accumulators, upper triangle only, plus the token count.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LayerGramQ {
+    qkv: Vec<i64>,
+    o: Vec<i64>,
+    gate_up: Vec<i64>,
+    down: Vec<i64>,
+    tokens: u64,
+}
+
 /// The per-layer activation-Gram accumulator for one calibration pass.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Grams {
-    /// Per trunk layer, in forward order.
-    pub layers: Vec<LayerGrams>,
-    /// Residual width, fixed by [`Grams::new`].
+    /// Per trunk layer, in forward order, as Q32.32 words.
+    layers: Vec<LayerGramQ>,
     n_embd: usize,
-    /// `n_head · head_dim`, fixed by [`Grams::new`].
     q_out: usize,
-    /// Feed-forward width, fixed by [`Grams::new`].
     n_ff: usize,
 }
 
 impl Grams {
-    /// Allocate the zero accumulator for `cfg`'s geometry: one [`LayerGrams`] per trunk layer, the
-    /// four matrices zeroed and the token counter at zero.
+    /// The zero accumulator for `cfg`'s geometry.
     ///
     /// # Errors
-    ///
     /// [`CaptureError::Shape`] for a zero model dimension; [`CaptureError::Overflow`] when
     /// `n_head · head_dim` or a squared width leaves `usize`.
     ///
     /// # Complexity
-    /// `O(1)` time; space `O(n_layer·(n_embd² + q_out² + n_ff²))` `f64` words, one allocation per
-    /// matrix.
+    /// `O(n_layer)` time; space `O(n_layer·(n_embd² + q_out² + n_ff²))` `i64` words.
     pub fn new(cfg: &Config) -> Result<Grams, CaptureError> {
         let n_embd = cfg.n_embd;
         let n_ff = cfg.n_ff;
@@ -151,11 +147,11 @@ impl Grams {
         let e2 = square(n_embd)?;
         let q2 = square(q_out)?;
         let f2 = square(n_ff)?;
-        let blank = || LayerGrams {
-            qkv: vec![0.0; e2],
-            o: vec![0.0; q2],
-            gate_up: vec![0.0; e2],
-            down: vec![0.0; f2],
+        let blank = || LayerGramQ {
+            qkv: vec![0; e2],
+            o: vec![0; q2],
+            gate_up: vec![0; e2],
+            down: vec![0; f2],
             tokens: 0,
         };
         Ok(Grams {
@@ -169,14 +165,15 @@ impl Grams {
     /// Fold `tape`'s four per-layer linear inputs into the accumulator, upper triangle only.
     ///
     /// # Errors
-    ///
     /// [`CaptureError::Shape`] when `cfg` disagrees with the geometry [`Grams::new`] fixed, when
-    /// `tape.layers.len() != cfg.n_layer`, or when a stage buffer's length is not `tape.t · w`;
-    /// [`CaptureError::Overflow`] when `tape.t · w` or the token counter leaves its range.
+    /// `tape.layers.len() != cfg.n_layer`, or when a stage buffer is not `tape.t · w`;
+    /// [`CaptureError::Overflow`] when a length product, a rounded `i128` product or a word sum
+    /// leaves its range.
     ///
     /// # Complexity
-    /// Per token `n_embd·(n_embd+1)/2 + q_out·(q_out+1)/2 + n_ff·(n_ff+1)/2` `f64` multiply-adds;
-    /// `O(t)` conversions plus `O(w_max)` scratch space, no per-token allocation.
+    /// Unit cost `t·w·(w+1)/2` grid-quantised multiply-adds per matrix, once per `(layer, matrix)`
+    /// per call: `≥ 10⁶` word ops at any model width, so each matrix is split by upper-triangle row
+    /// across [`width_global`] pool tasks. `O(1)` scratch.
     pub fn accumulate(&mut self, tape: &Tape, cfg: &Config) -> Result<(), CaptureError> {
         let q_out = cfg.q_out().map_err(|_| CaptureError::Overflow)?;
         if cfg.n_embd != self.n_embd
@@ -209,28 +206,31 @@ impl Grams {
             expect(t, self.q_out, lt.attn_out.len(), "attn_out")?;
             expect(t, self.n_embd, lt.ln2_out.len(), "ln2_out")?;
             expect(t, self.n_ff, lt.m.len(), "m")?;
-            fold_rows_upper(&mut acc.qkv, &lt.ln1_out, t, self.n_embd);
-            fold_rows_upper(&mut acc.o, &lt.attn_out, t, self.q_out);
-            fold_rows_upper(&mut acc.gate_up, &lt.ln2_out, t, self.n_embd);
-            fold_rows_upper(&mut acc.down, &lt.m, t, self.n_ff);
+            fold_rows(&mut acc.qkv, &lt.ln1_out, t, self.n_embd)?;
+            fold_rows(&mut acc.o, &lt.attn_out, t, self.q_out)?;
+            fold_rows(&mut acc.gate_up, &lt.ln2_out, t, self.n_embd)?;
+            fold_rows(&mut acc.down, &lt.m, t, self.n_ff)?;
             let rows = u64::try_from(t).map_err(|_| CaptureError::Overflow)?;
             acc.tokens = acc.tokens.checked_add(rows).ok_or(CaptureError::Overflow)?;
         }
         Ok(())
     }
 
-    /// The mirrored, normalised copy of the accumulator: one [`LayerGrams`] per layer, every matrix
-    /// full and symmetric.
+    /// The mirrored, normalised copy of the accumulator, each word converted to `f64` once here.
     ///
     /// # Errors
-    ///
     /// [`CaptureError::Shape`] for [`Normalisation::Mean`] or [`Normalisation::MeanDiagonal`] on a
-    /// zero token count (a mean over no tokens is undefined, not zero).
+    /// zero token count; [`CaptureError::Overflow`] when a scaled word or `eps` leaves its range.
     ///
     /// # Complexity
-    /// `O(n_layer·(n_embd² + q_out² + n_ff²))` time and one `f64` copy of the accumulator; one
-    /// `d·(d+1)/2` pass per matrix.
+    /// `O(n_layer·(n_embd² + q_out² + n_ff²))` time, one `i64` copy of the accumulator.
     pub fn finish(&self, normalisation: Normalisation) -> Result<Vec<LayerGrams>, CaptureError> {
+        let eps_word = match normalisation {
+            Normalisation::MeanDiagonal { eps } => {
+                to_grid(eps, GRID_BOUND).ok_or(CaptureError::Overflow)?
+            }
+            Normalisation::Sum | Normalisation::Mean => 0,
+        };
         let mut out = Vec::with_capacity(self.layers.len());
         for lg in &self.layers {
             if lg.tokens == 0 && normalisation != Normalisation::Sum {
@@ -238,23 +238,27 @@ impl Grams {
                     "normalisation over zero tokens".to_string(),
                 ));
             }
-            let normalise = |a: &[f64], d: usize| -> Result<Vec<f64>, CaptureError> {
-                let (scale, diag_add) = match normalisation {
-                    Normalisation::Sum => (1.0, 0.0),
-                    Normalisation::Mean => (1.0 / lg.tokens as f64, 0.0),
-                    Normalisation::MeanDiagonal { eps } => {
-                        let mean = mean_diagonal(a, d);
-                        let denom = if mean > 1e-30 { mean } else { 1e-30 };
-                        (1.0 / denom, eps)
-                    }
-                };
-                mirror(a, d, scale, diag_add)
+            // `H/mean(diag)` as a grid word is `round(word·d·2³²/Σ diag word)`; a zero diagonal
+            // has the zero quotient.
+            let scale = |a: &[i64], d: usize| -> Result<(i128, i128, i64), CaptureError> {
+                Ok(match normalisation {
+                    Normalisation::Sum => (1, 1, 0),
+                    Normalisation::Mean => (1, i128::from(lg.tokens), 0),
+                    Normalisation::MeanDiagonal { .. } => (
+                        i128::try_from(d)
+                            .ok()
+                            .and_then(|d| d.checked_shl(32))
+                            .ok_or(CaptureError::Overflow)?,
+                        diagonal_sum(a, d),
+                        eps_word,
+                    ),
+                })
             };
             out.push(LayerGrams {
-                qkv: normalise(&lg.qkv, self.n_embd)?,
-                o: normalise(&lg.o, self.q_out)?,
-                gate_up: normalise(&lg.gate_up, self.n_embd)?,
-                down: normalise(&lg.down, self.n_ff)?,
+                qkv: mirror(&lg.qkv, self.n_embd, scale(&lg.qkv, self.n_embd)?)?,
+                o: mirror(&lg.o, self.q_out, scale(&lg.o, self.q_out)?)?,
+                gate_up: mirror(&lg.gate_up, self.n_embd, scale(&lg.gate_up, self.n_embd)?)?,
+                down: mirror(&lg.down, self.n_ff, scale(&lg.down, self.n_ff)?)?,
                 tokens: lg.tokens,
             });
         }
@@ -263,17 +267,11 @@ impl Grams {
 }
 
 /// `x · x`, or [`CaptureError::Overflow`].
-///
-/// # Complexity
-/// `O(1)`.
 fn square(x: usize) -> Result<usize, CaptureError> {
     x.checked_mul(x).ok_or(CaptureError::Overflow)
 }
 
 /// `.len() == t · w` or [`CaptureError::Shape`].
-///
-/// # Complexity
-/// `O(1)`.
 fn expect(t: usize, w: usize, len: usize, what: &str) -> Result<usize, CaptureError> {
     match t.checked_mul(w) {
         Some(n) if n == len => Ok(n),
@@ -284,64 +282,140 @@ fn expect(t: usize, w: usize, len: usize, what: &str) -> Result<usize, CaptureEr
     }
 }
 
-/// Add `Σ_{r<t} x_r x_rᵀ` to the upper triangle (`i ≤ j`) of the row-major `w × w` accumulator
-/// `acc`, `x` row-major `t × w` with Q32.32 entries.
+/// The pool task of [`fold_rows`]: one contiguous band of upper-triangle rows.
+struct FoldRows<'a> {
+    x: &'a [i64],
+    t: usize,
+    w: usize,
+    first: &'a FirstErr<usize, CaptureError>,
+}
+
+impl ChunkTask<i64> for FoldRows<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [i64]) {
+        let row0 = start / self.w;
+        let band = piece.len() / self.w;
+        if let Err(e) = fold_upper_rows(piece, self.x, row0, band, self.t, self.w) {
+            self.first.record(row0, e);
+        }
+    }
+}
+
+/// Split the `w × w` accumulator into contiguous row bands and fold each through the pool.
+///
+/// Every entry `(i, j)`, `i ≤ j`, is written by the one task owning row `i` and summed over the
+/// tokens in ascending order there, so the result is bit-identical to the serial body.
 ///
 /// # Complexity
-/// `O(t·w²)` upper-triangle writes, of which `t·w·(w+1)/2` are multiply-adds; `O(w)` scratch
-/// `f64` rows.
-fn fold_rows_upper(acc: &mut [f64], x: &[i64], t: usize, w: usize) {
-    let mut row_f = vec![0.0f64; w];
-    for r in 0..t {
-        let row = &x[r * w..r * w + w];
-        for (d, v) in row_f.iter_mut().zip(row) {
-            *d = *v as f64 * INV_ONE;
-        }
-        for i in 0..w {
-            let xi = row_f[i];
-            for j in i..w {
-                acc[i * w + j] += xi * row_f[j];
+/// Time `t·w·(w+1)/2` multiply-adds, once per matrix; space `O(1)` beyond the in-place bands.
+fn fold_rows(acc: &mut [i64], x: &[i64], t: usize, w: usize) -> Result<(), CaptureError> {
+    let chunk_rows = w.div_ceil(width_global()).max(1);
+    let first: FirstErr<usize, CaptureError> = FirstErr::new();
+    chunks_mut_global(
+        acc,
+        chunk_rows * w,
+        &FoldRows {
+            x,
+            t,
+            w,
+            first: &first,
+        },
+    );
+    match first.take() {
+        Some((_, e)) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// Add `Σ_{r<t} x_r x_rᵀ` to the upper triangle of rows `row0 .. row0 + band`, `x` row-major
+/// `t × w`.
+///
+/// # Errors
+/// [`CaptureError::Overflow`] when a rounded product leaves the grid or a row sum leaves `i64`.
+///
+/// # Complexity
+/// Time `O(band·t·w)`; space `O(1)`.
+fn fold_upper_rows(
+    acc: &mut [i64],
+    x: &[i64],
+    row0: usize,
+    band: usize,
+    t: usize,
+    w: usize,
+) -> Result<(), CaptureError> {
+    for i in 0..band {
+        let gi = row0 + i;
+        for j in gi..w {
+            let mut s: i64 = 0;
+            for r in 0..t {
+                let p = i128::from(x[r * w + gi]) * i128::from(x[r * w + j]);
+                s = s
+                    .checked_add(round_q32_even(p).map_err(|_| CaptureError::Overflow)?)
+                    .ok_or(CaptureError::Overflow)?;
+            }
+            if let Some(slot) = acc.get_mut(i * w + j) {
+                *slot = slot.checked_add(s).ok_or(CaptureError::Overflow)?;
             }
         }
     }
+    Ok(())
 }
 
-/// The mean of the diagonal of the row-major `d × d` accumulator `a`, read from its upper triangle.
+/// The sum of the diagonal words of the row-major `d × d` accumulator `a`, in `i128`.
 ///
 /// # Complexity
 /// `O(d)`.
-fn mean_diagonal(a: &[f64], d: usize) -> f64 {
-    let mut s = 0.0f64;
-    for i in 0..d {
-        if let Some(v) = a.get(i * d + i) {
-            s += *v;
-        }
-    }
-    s / d as f64
+fn diagonal_sum(a: &[i64], d: usize) -> i128 {
+    (0..d)
+        .filter_map(|i| a.get(i * d + i))
+        .map(|&v| i128::from(v))
+        .sum()
 }
 
-/// The mirrored, scaled copy of the upper-triangle accumulator `a` (row-major `d × d`): every entry
-/// `(i, j)` is `a[min·d+max] · scale`, plus `diag_add` on the diagonal.
+/// `n / d` rounded to nearest, ties away from zero; `d > 0`, `n ≥ 0`. `q32` has no general
+/// divide-and-round, so this is the one such rule in the file (it is `grad::head`'s private one).
+fn round_div(n: i128, d: i128) -> i128 {
+    if d == 0 {
+        return 0;
+    }
+    let (q, r) = (n / d, n % d);
+    if 2 * r >= d {
+        q + 1
+    } else {
+        q
+    }
+}
+
+/// The mirrored, scaled copy of the upper-triangle accumulator `a` (row-major `d × d`): entry
+/// `(i, j)` is `round_div(a[max·d+min]·num, den)` words, plus `diag_add` on the diagonal.
 ///
 /// # Errors
-///
-/// [`CaptureError::Shape`] when `a.len() != d·d` or `d·d` leaves `usize`.
+/// [`CaptureError::Shape`] when `a.len() != d²`; [`CaptureError::Overflow`] when a word leaves
+/// `i64`.
 ///
 /// # Complexity
-/// `O(d²)` time and space.
-fn mirror(a: &[f64], d: usize, scale: f64, diag_add: f64) -> Result<Vec<f64>, CaptureError> {
+/// `O(d²)` time and space: one division and one conversion per entry.
+fn mirror(
+    a: &[i64],
+    d: usize,
+    (num, den, diag_add): (i128, i128, i64),
+) -> Result<Vec<f64>, CaptureError> {
     if a.len() != square(d)? {
         return Err(CaptureError::Shape(format!("gram {} != {d}²", a.len())));
     }
     let mut out = vec![0.0f64; a.len()];
     for i in 0..d {
         for j in i..d {
-            let mut v = a[i * d + j] * scale;
+            let mut w = if den <= 0 {
+                0
+            } else {
+                round_div(i128::from(a[i * d + j]) * num, den)
+            };
             if i == j {
-                v += diag_add;
+                w += i128::from(diag_add);
             }
-            out[i * d + j] = v;
-            out[j * d + i] = v;
+            let v = i64::try_from(w).map_err(|_| CaptureError::Overflow)?;
+            out[i * d + j] = from_grid(v);
+            out[j * d + i] = from_grid(v);
         }
     }
     Ok(out)
