@@ -67,9 +67,22 @@ use crate::numeric::fixed_trig::{fixed_sin_cos, turn_to_radians};
 /// converted to a turn phase here before the series.
 const TWO_PI_Q32: i64 = 26_986_075_409;
 
-/// `a*b` in `Q32.32`, rounded once by [`round_q32_even`] (ties to even); `None` off the grid.
+/// `a*b` in `Q32.32`, rounded once to nearest, ties to even; `None` off the grid.
+///
+/// The product is a `Q64.64` word and this is [`round_q32_even`]'s value, written branchlessly:
+/// with `q = p >> 32` the floor quotient and `r = p & (2³²−1)` the non-negative floor remainder,
+/// round-half-to-even is `q + [r > 2³¹ ∨ (r = 2³¹ ∧ q odd)]`. The truncating form rounds a tie
+/// away from zero — `q + 1` for `p ≥ 0`, `q` for `p < 0` — and `q + 1` is the even neighbour
+/// exactly when `q` is odd, so both forms choose the same word; the branchless form removes the
+/// sign-dependent branches the product's sign makes unpredictable. The `i128` product of two
+/// words is below `2¹²⁶`; [`narrow`] keeps the off-grid refusal.
 pub(crate) fn mul(a: i64, b: i64) -> Option<i64> {
-    round_q32_even(i128::from(a) * i128::from(b)).ok()
+    let p = i128::from(a) * i128::from(b);
+    let q = p >> 32;
+    let r = p & 0xffff_ffff;
+    let half = 1_i128 << 31;
+    let bump = i128::from(r > half || (r == half && (q & 1) != 0));
+    narrow(q + bump)
 }
 
 /// `a/b` in `Q32.32`, rounded once by [`div_rne`]; `None` on a non-positive divisor or a quotient
@@ -469,12 +482,13 @@ impl AttnRows<'_> {
         for (r, out) in piece.chunks_mut(hd).enumerate() {
             let (i, h) = ((row0 + r) / nh, (row0 + r) % nh);
             let (gbase, qbase) = ((h / rep) * hd, i * nh * hd + h * hd);
+            let qrow = &self.qr[qbase..][..hd];
             let mut row_max = i64::MIN;
             for (j, slot) in scores.iter_mut().enumerate().take(i + 1) {
-                let kbase = j * nkv * hd + gbase;
+                let krow = &self.kr[j * nkv * hd + gbase..][..hd];
                 let mut dot: i128 = 0;
                 for d in 0..hd {
-                    dot += i128::from(self.qr[qbase + d]) * i128::from(self.kr[kbase + d]);
+                    dot += i128::from(qrow[d]) * i128::from(krow[d]);
                 }
                 *slot = mul(round64(dot)?, self.scale).ok_or(PartsError::OutOfRange)?;
                 row_max = row_max.max(*slot);
