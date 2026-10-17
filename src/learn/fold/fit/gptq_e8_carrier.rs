@@ -1,7 +1,10 @@
 //! The integer-carrier boundary of [`super::gptq_e8`]: the feedback factor [`UFac`], the act order
-//! [`block_order`], the group scale [`group_scale_int`] and the `f64` → integer conversions of the
-//! damped Hessian ([`h_to_spdq`]) and of the weight ([`w_to_rows`]). The still-`f64` selection
-//! passes receive their views through [`ufac_f64`] and [`rows_to_f64`]; lanes L1b–L1d delete both.
+//! [`block_order`], the group scale [`group_scale_int`], the triangular solve [`tri_upper_solve`],
+//! the whitened scale projection [`project_scale_int`], the inter-group feedback
+//! [`inter_group_feedback`], and the `f64` → integer conversions of the damped Hessian
+//! ([`h_to_spdq`]) and of the weight ([`w_to_rows`]). Everything downstream of those conversions is
+//! exact integer arithmetic; the only `f64` left is the public input boundary and the [`fx_to_f64`]
+//! output boundary.
 
 #![allow(
     clippy::many_single_char_names,
@@ -16,7 +19,6 @@
 )]
 
 use super::gptq_e8::{GptqE8Error, BLOCK, E8_SCALE_Q32, GROUP, INV_THREADS};
-use crate::engine::ONE;
 use crate::learn::solve::chol::SolveError;
 use crate::learn::solve::inv::inv_factor_upper;
 use crate::learn::solve::q32::{ilog2_pos, round_q32_even, rshift_rne, Fx, Q32Error, SpdQ};
@@ -268,19 +270,81 @@ pub fn feedback_u(h: &[f64], n: usize, damp: f64) -> Result<UFac, GptqE8Error> {
     Ok(UFac { hat, d, n })
 }
 
-/// The `f64` view of a [`UFac`]: `U_ij = (hat_ij / 2^32)·2^-d_j` above the diagonal, `0` below.
+/// Solve `x·U_blk = e` in place for the group's upper-triangular block `U_blk = U[g0:g0+gs,
+/// g0:g0+gs]` of the carrier: with `U_kj = hat[(g0+k)·n + g0+j]·2^-32·2^-d_j` the back substitution
+/// is `x_j = (e_j − Σ_{k>j} x_k·U_kj)/U_jj` for `j` descending. Every term is aligned exactly at the
+/// common exponent of the row's `U_kj` factors and the whole contraction is one checked `i128`
+/// accumulation; the single stored `x_j` is one round-to-nearest quotient of that `i128`
+/// ([`div_shift_rne`]) with the output exponent chosen so the quotient needs at most 62 bits, so
+/// no second rounding enters.
 ///
-/// `// L1b-L1d delete this` — the transient `f64` boundary while the selection passes are still
-/// `f64`; it is a conversion step, not a second path.
-pub(super) fn ufac_f64(u: &UFac) -> Vec<f64> {
-    let n = u.n;
-    let mut out = vec![0.0f64; n * n];
-    for i in 0..n {
-        for j in i..n {
-            out[i * n + j] = u.hat[i * n + j] as f64 / ONE as f64 * pow2i(-u.d[j]);
-        }
+/// The contraction over `k > j` reads the strictly below-diagonal entries of the stored factor,
+/// which are zero: for an upper-triangular `U` the split `Σ_i x_i U_ij = x_j U_jj + Σ_{i<j} x_i
+/// U_ij` runs over the *earlier* columns, so `x·U = e` is the per-coordinate quotient
+/// `x_j = e_j/U_jj`. The recurrence is kept explicit (and is exercised on a dense `UFac` by the
+/// carrier test) so a factor whose below-diagonal entries are ever non-zero is solved as written.
+///
+/// # Errors
+///
+/// [`GptqE8Error::ShapeMismatch`] if `e.len() != gs`; [`GptqE8Error::NotPositiveDefinite`] on a
+/// non-positive block diagonal; [`GptqE8Error::Overflow`] on a checked `i128` operation.
+///
+/// # Complexity
+///
+/// Temporal `O(gs²)` checked `i128` multiply-adds per call (`gs/8` block columns of the group loop),
+/// spatial `O(1)` beyond the in-place row.
+pub(super) fn tri_upper_solve(
+    u: &UFac,
+    n: usize,
+    g0: usize,
+    gs: usize,
+    e: &mut [Fx],
+) -> Result<(), GptqE8Error> {
+    if e.len() != gs || g0 + gs > n || g0 + gs > u.n {
+        return Err(GptqE8Error::ShapeMismatch);
     }
-    out
+    let mut j = gs;
+    while j > 0 {
+        j -= 1;
+        let dj = u.d[g0 + j];
+        // The common exponent of the contraction terms `x_k·U_kj` (zero factors are skipped).
+        let mut emin = e[j].e;
+        for k in (j + 1)..gs {
+            let h = u.hat[(g0 + k) * n + g0 + j];
+            if h != 0 && e[k].m != 0 {
+                emin = emin.min(e[k].e - 32 - dj);
+            }
+        }
+        let mut acc =
+            shift_left_i128(i128::from(e[j].m), e[j].e - emin).ok_or(GptqE8Error::Overflow)?;
+        for k in (j + 1)..gs {
+            let h = u.hat[(g0 + k) * n + g0 + j];
+            if h == 0 || e[k].m == 0 {
+                continue;
+            }
+            let te = e[k].e - 32 - dj;
+            let pr = i128::from(e[k].m)
+                .checked_mul(i128::from(h))
+                .ok_or(GptqE8Error::Overflow)?;
+            let pr = shift_left_i128(pr, te - emin).ok_or(GptqE8Error::Overflow)?;
+            acc = acc.checked_sub(pr).ok_or(GptqE8Error::Overflow)?;
+        }
+        let hjj = u.hat[(g0 + j) * n + g0 + j];
+        if hjj <= 0 {
+            return Err(GptqE8Error::NotPositiveDefinite);
+        }
+        // `x_j = acc·2^(emin + 32 + d_j)/hjj`; the quotient is scaled to at most 62 bits so the one
+        // division is the only rounding.
+        let s = i64::from(emin) + 32 + i64::from(dj);
+        let est = blen(acc) - blen(i128::from(hjj)) + i32::try_from(s).unwrap_or(i32::MAX);
+        let shift = est - 61;
+        let q = div_shift_rne(acc, s - i64::from(shift), i128::from(hjj))?;
+        e[j] = Fx {
+            m: narrow_q(q)?,
+            e: shift,
+        };
+    }
+    Ok(())
 }
 
 /// The exact power of two `2^e` as an `f64` (the exponent field), or `0.0`/`INFINITY` outside the
@@ -346,19 +410,296 @@ pub(super) fn w_to_rows(
     Ok((mant, e_row))
 }
 
-/// The `f64` view of a [`w_to_rows`] pair: `mant · 2^e_row` per row.
-///
-/// `// L1b-L1d delete this` — the transient `f64` boundary while the selection passes are still
-/// `f64`.
-pub(super) fn rows_to_f64(mant: &[i64], e_row: &[i32], o: usize, n: usize) -> Vec<f64> {
-    let mut out = vec![0.0f64; o * n];
-    for r in 0..o {
-        let s = pow2i(e_row[r]);
-        for j in 0..n {
-            out[r * n + j] = mant[r * n + j] as f64 * s;
+/// The renormalisation precision of a row that enters an inner product, a sum of squares or the
+/// inter-group contraction: 56 significant bits, so a product of two mantissas is below `2^114` and
+/// a 128-term sum stays below `2^121` inside `i128` with no exponent-alignment shift.
+pub(super) const ROW_BITS: i32 = 56;
+
+/// The coarsest exponent `e` at which every non-zero entry of `x` keeps at most [`ROW_BITS`]
+/// significand bits: `e = max_j(e_j + ⌈log2|m_j|⌉) − ROW_BITS`; `0` for an all-zero slice.
+/// `O(len)`.
+pub(super) fn row_exp(x: &[Fx]) -> i32 {
+    let mut e = i32::MIN;
+    for v in x {
+        if v.m != 0 {
+            e = e.max(v.e + blen(i128::from(v.m)) - ROW_BITS);
         }
     }
-    out
+    if e == i32::MIN {
+        0
+    } else {
+        e
+    }
+}
+
+/// The mantissas of `x` on the row exponent `e` (from [`row_exp`]): `m_j = RNE(x_j·2^-e)`, one
+/// rounding per entry, each `|m_j| ≤ 2^(ROW_BITS+1)`.
+///
+/// # Errors
+///
+/// [`GptqE8Error::Overflow`] on a shift that leaves `i128`.
+///
+/// # Complexity
+///
+/// `O(len)`, `O(len)` output.
+pub(super) fn renorm_row(x: &[Fx], e: i32) -> Result<Vec<i128>, GptqE8Error> {
+    let mut out = Vec::with_capacity(x.len());
+    for v in x {
+        out.push(round_at(i128::from(v.m), i64::from(v.e - e))?);
+    }
+    Ok(out)
+}
+
+/// The whitened scale projection of the `wscale` branch: the row `u_s = S·U_blk⁻¹` by
+/// [`tri_upper_solve`], then `a_new = max(a + ⟨e, u_s⟩/⟨u_s, u_s⟩, floor)` and
+/// `e_new = e − (a_new − a)·u_s`. The input residual and `u_s` are renormalised to one
+/// [`ROW_BITS`]-bit exponent per row (one rounding per entry), so both inner products are exact
+/// `i128` sums with no alignment shift. Their ratio `num/den` is formed at 61 bits — each operand is
+/// normalised to 62 bits (one RNE each) so the division's numerator stays inside `i128` — and one
+/// [`div_rne_i128`] rounds the quotient. `e_new` is stored on the row's own [`ROW_BITS`]-bit
+/// exponent with one rounding per entry.
+///
+/// `floor` is the smallest positive [`Fx`] at the scale's own exponent, `Fx { m: 1, e: a.e }` (the
+/// grid unit of `a`; `A_CLAMP` when `a` is zero). The `f64` `1e-12` clamp has no carrier meaning, so
+/// the floor states the representable-positive bound instead of a decimal constant.
+/// `⟨u_s,u_s⟩ = 0` returns `a` unchanged with `e_new = e`.
+///
+/// # Errors
+///
+/// [`GptqE8Error::ShapeMismatch`] on a buffer of the wrong length; [`GptqE8Error::Overflow`] on a
+/// checked `i128` operation.
+///
+/// # Complexity
+///
+/// Temporal `O(o·gs²)` `i128` multiply-adds — the `o` triangular solves `o·gs²/2` and the two inner
+/// products `O(o·gs)`; spatial `O(o·gs)` [`Fx`] for `u_s` and `e_new`.
+pub(super) fn project_scale_int(
+    u: &UFac,
+    n: usize,
+    g0: usize,
+    gs: usize,
+    s_cur: &[Fx],
+    e_cur: &[Fx],
+    a: &[Fx],
+) -> Result<(Vec<Fx>, Vec<Fx>), GptqE8Error> {
+    let o = a.len();
+    if s_cur.len() != o * gs || e_cur.len() != o * gs {
+        return Err(GptqE8Error::ShapeMismatch);
+    }
+    let mut a_new = Vec::with_capacity(o);
+    let mut e_new = vec![Fx { m: 0, e: 0 }; o * gs];
+    let mut us = vec![Fx { m: 0, e: 0 }; gs];
+    for r in 0..o {
+        us.clone_from_slice(&s_cur[r * gs..(r + 1) * gs]);
+        tri_upper_solve(u, n, g0, gs, &mut us)?;
+        // Both operands of the inner products on one row exponent each: exact `i128` sums.
+        let e_us = row_exp(&us);
+        let um = renorm_row(&us, e_us)?;
+        let er = &e_cur[r * gs..(r + 1) * gs];
+        let e_e = row_exp(er);
+        let em = renorm_row(er, e_e)?;
+        let mut num: i128 = 0;
+        let mut den: i128 = 0;
+        for j in 0..gs {
+            let pr = em[j].checked_mul(um[j]).ok_or(GptqE8Error::Overflow)?;
+            num = num.checked_add(pr).ok_or(GptqE8Error::Overflow)?;
+            let sq = um[j].checked_mul(um[j]).ok_or(GptqE8Error::Overflow)?;
+            den = den.checked_add(sq).ok_or(GptqE8Error::Overflow)?;
+        }
+        let floor = if a[r].m > 0 {
+            Fx { m: 1, e: a[r].e }
+        } else {
+            A_CLAMP
+        };
+        let an = if den == 0 || num == 0 {
+            a[r].clone()
+        } else {
+            // `delta = (num/den)·2^(e_e − e_us)`: each operand is normalised to 62 bits (one RNE)
+            // so the one division's numerator `n·2^61` stays inside `i128`, then one RNE on the
+            // quotient at 61 bits and the exact exponent `sigma`.
+            let bn = blen(num);
+            let bd = blen(den);
+            let n62 = round_at(num, i64::from(62 - bn))?;
+            let d62 = round_at(den, i64::from(62 - bd))?;
+            let num_q = shift_left_i128(n62, 61).ok_or(GptqE8Error::Overflow)?;
+            let q = div_rne_i128(num_q, d62).ok_or(GptqE8Error::Overflow)?;
+            let sigma = i64::from(e_e) - i64::from(e_us) + i64::from(bn) - i64::from(bd) - 61;
+            if q == 0 {
+                a[r].clone()
+            } else {
+                let dlt =
+                    Fx::from_i128(q, i32::try_from(sigma).map_err(|_| GptqE8Error::Overflow)?)
+                        .map_err(|_| GptqE8Error::Overflow)?;
+                let cand = fx_add(&a[r], &dlt)?;
+                if cand.m <= 0 || fx_lt(&cand, &floor) {
+                    floor
+                } else {
+                    cand
+                }
+            }
+        };
+        let dlt = fx_sub(&an, &a[r])?;
+        a_new.push(an);
+        // `e_new = e − dlt·u_s`, exact per entry, then one rounding to the output row exponent.
+        let mut ve = vec![0i128; gs];
+        let mut ex = vec![0i32; gs];
+        for j in 0..gs {
+            let pe = dlt.e + e_us;
+            let p = i128::from(dlt.m)
+                .checked_mul(um[j])
+                .ok_or(GptqE8Error::Overflow)?;
+            let e0 = e_e.min(pe);
+            let ea = shift_left_i128(em[j], e_e - e0).ok_or(GptqE8Error::Overflow)?;
+            let eb = shift_left_i128(p, pe - e0).ok_or(GptqE8Error::Overflow)?;
+            ve[j] = ea.checked_sub(eb).ok_or(GptqE8Error::Overflow)?;
+            ex[j] = e0;
+        }
+        let mut eout = i32::MIN;
+        for j in 0..gs {
+            if ve[j] != 0 {
+                eout = eout.max(ex[j] + blen(ve[j]) - ROW_BITS);
+            }
+        }
+        let eout = if eout == i32::MIN { 0 } else { eout };
+        for j in 0..gs {
+            let m = if ve[j] == 0 {
+                0
+            } else {
+                narrow_q(round_at(ve[j], i64::from(ex[j] - eout))?)?
+            };
+            e_new[r * gs + j] = Fx { m, e: eout };
+        }
+    }
+    Ok((a_new, e_new))
+}
+
+/// `wk[:, g1:] -= E·U[g0:g1, g1:]` on the integer working rows: `e` is the group's `Fx` residual
+/// (`o × gs`), `wm` the row-major `o × n` mantissas at the per-row exponents `e_row` and
+/// `U_jc = hat[(g0+j)·n + c]·2^-32·2^-d_c`. Per stored entry `c` the `gs` products are summed in an
+/// exact `i128` accumulation aligned at the common exponent of the residual terms, and the update is
+/// **one** round-to-nearest to the row's grid `2^e_row`, so the update's absolute error is at most
+/// `2^(e_row − 1)`.
+///
+/// The row exponent rises by one — every mantissa of that row halved with round-to-nearest — only
+/// when an updated entry would reach the 62-bit headroom bound `|m| < 2^62`; the halving keeps the
+/// row's real values and the one-rounding-per-entry rule applies to the shifted entry, so a row that
+/// needs no shift (all fixtures: the update is a contraction of the row's own magnitude) is never
+/// rounded a second time.
+///
+/// Rows are independent given the read-only `u` and `e`, so they are split into contiguous ranges
+/// across `threads` scoped workers; each row is computed by one worker in the same order for every
+/// count, so the output is bit-identical for `threads = 1` and `threads = 8`.
+///
+/// # Errors
+///
+/// [`GptqE8Error::ShapeMismatch`] on a wrong-length buffer; [`GptqE8Error::Overflow`] on a checked
+/// `i128` operation.
+///
+/// # Complexity
+///
+/// Temporal `O(o·gs·(n − g1))` checked `i128` multiply-adds (one contraction per stored entry),
+/// split across the workers; spatial `O((n − g1))` `i128` accumulator per worker row.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one distinct buffer and geometry value per parameter; the call sites name them"
+)]
+pub(super) fn inter_group_feedback(
+    wm: &mut [i64],
+    e_row: &mut [i32],
+    e: &[Fx],
+    u: &UFac,
+    n: usize,
+    g0: usize,
+    gs: usize,
+    threads: usize,
+) -> Result<(), GptqE8Error> {
+    let g1 = g0 + gs;
+    if g1 > n
+        || n == 0
+        || !wm.len().is_multiple_of(n)
+        || e_row.len() != wm.len() / n
+        || e.len() != e_row.len() * gs
+    {
+        return Err(GptqE8Error::ShapeMismatch);
+    }
+    let o = e_row.len();
+    let per = o.div_ceil(threads.max(1)).max(1);
+    let tail = n - g1;
+    std::thread::scope(|scope| -> Result<(), GptqE8Error> {
+        let mut handles = Vec::new();
+        for (ci, (wchunk, echunk)) in wm
+            .chunks_mut(per * n)
+            .zip(e_row.chunks_mut(per))
+            .enumerate()
+        {
+            let r0 = ci * per;
+            handles.push(scope.spawn(move || -> Result<(), GptqE8Error> {
+                let rows = echunk.len();
+                for r in 0..rows {
+                    // The shared exponent of this row's residual terms.
+                    let mut emin = i32::MAX;
+                    for j in 0..gs {
+                        let x = &e[(r0 + r) * gs + j];
+                        if x.m != 0 {
+                            emin = emin.min(x.e);
+                        }
+                    }
+                    let emin = if emin == i32::MAX { 0 } else { emin };
+                    for t in 0..tail {
+                        let c = g1 + t;
+                        let dc = u.d[c];
+                        let mut sum: i128 = 0;
+                        for j in 0..gs {
+                            let h = u.hat[(g0 + j) * n + c];
+                            let x = &e[(r0 + r) * gs + j];
+                            if h == 0 || x.m == 0 {
+                                continue;
+                            }
+                            let pr = i128::from(x.m)
+                                .checked_mul(i128::from(h))
+                                .ok_or(GptqE8Error::Overflow)?;
+                            let term =
+                                shift_left_i128(pr, x.e - emin).ok_or(GptqE8Error::Overflow)?;
+                            sum = sum.checked_add(term).ok_or(GptqE8Error::Overflow)?;
+                        }
+                        // `Δw = −sum·2^(emin − 32 − d_c)`, one RNE to the row grid.
+                        let mut sh = i64::from(emin) - 32 - i64::from(dc) - i64::from(echunk[r]);
+                        let mut v = i128::from(wchunk[r * n + c])
+                            .checked_add(round_at(
+                                sum.checked_neg().ok_or(GptqE8Error::Overflow)?,
+                                sh,
+                            )?)
+                            .ok_or(GptqE8Error::Overflow)?;
+                        if blen(v) > 62 {
+                            // The headroom rule: halve the whole row (RNE) and re-round this entry.
+                            for q in 0..n {
+                                let cur = i128::from(wchunk[r * n + q]);
+                                let half = rshift_rne(cur, 1).ok_or(GptqE8Error::Overflow)?;
+                                wchunk[r * n + q] = narrow_q(half)?;
+                            }
+                            echunk[r] = echunk[r].checked_add(1).ok_or(GptqE8Error::Overflow)?;
+                            sh -= 1;
+                            v = i128::from(wchunk[r * n + c])
+                                .checked_add(round_at(
+                                    sum.checked_neg().ok_or(GptqE8Error::Overflow)?,
+                                    sh,
+                                )?)
+                                .ok_or(GptqE8Error::Overflow)?;
+                        }
+                        wchunk[r * n + c] = narrow_q(v)?;
+                    }
+                }
+                Ok(())
+            }));
+        }
+        for h in handles {
+            match h.join() {
+                Ok(r) => r?,
+                Err(p) => std::panic::resume_unwind(p),
+            }
+        }
+        Ok(())
+    })
 }
 
 /// Signed `round(v / d)` for `d > 0`, nearest with ties away from zero, or `None` if the result or
@@ -387,10 +728,186 @@ pub(super) fn shift_rne(v: i128, k: i32) -> Option<i128> {
     }
 }
 
-/// The real value of an [`Fx`] as an `f64` (`m · 2^e`), the transient boundary the still-`f64`
-/// passes read.
+/// The magnitude class `⌈log2(|v| + 1)⌉` of an `i128`: `0` for `0`, else `ilog2_pos(|v|) + 1`, so
+/// `2^(b − 1) ≤ |v| < 2^b`.
+///
+/// # Complexity
+///
+/// `O(1)`.
+pub(super) fn blen(v: i128) -> i32 {
+    if v == 0 {
+        0
+    } else {
+        match ilog2_pos(mag_u128(v)) {
+            Some(b) => b.cast_signed() + 1,
+            None => 0,
+        }
+    }
+}
+
+/// `v · 2^k` for `k ≥ 0` in `i128`, `Some(0)` for `v == 0`, `None` when the product leaves `i128`.
+///
+/// # Complexity
+///
+/// `O(1)`.
+fn shift_left_i128(v: i128, k: i32) -> Option<i128> {
+    if v == 0 {
+        return Some(0);
+    }
+    if !(0..127).contains(&k) {
+        return None;
+    }
+    v.checked_mul(1_i128 << k)
+}
+
+/// `RNE(v · 2^k)` with the shift taken as `i64`: the [`shift_rne`] rule with an overflow check on
+/// the cast. `O(1)`.
+fn round_at(v: i128, k: i64) -> Result<i128, GptqE8Error> {
+    if k >= 0 {
+        shift_left_i128(v, i32::try_from(k).map_err(|_| GptqE8Error::Overflow)?)
+            .ok_or(GptqE8Error::Overflow)
+    } else {
+        rshift_rne(v, u32::try_from(-k).map_err(|_| GptqE8Error::Overflow)?)
+            .ok_or(GptqE8Error::Overflow)
+    }
+}
+
+/// `RNE(v · 2^s / d)` for `d > 0`: an exact checked left shift of the numerator when `s ≥ 0`, the
+/// exact denominator `d · 2^-s` when `s < 0`, and one round-to-nearest quotient ([`div_rne_i128`]).
+/// `0` for `v == 0`.
+///
+/// # Errors
+///
+/// [`GptqE8Error::Overflow`] on a shift or quotient that leaves `i128`.
+///
+/// # Complexity
+///
+/// `O(1)`.
+pub(super) fn div_shift_rne(v: i128, s: i64, d: i128) -> Result<i128, GptqE8Error> {
+    if v == 0 {
+        return Ok(0);
+    }
+    let q = if s >= 0 {
+        match u32::try_from(s).ok().and_then(|k| 1_i128.checked_shl(k)) {
+            Some(p) => match v.checked_mul(p) {
+                Some(num) => div_rne_i128(num, d),
+                None => None,
+            },
+            None => None,
+        }
+    } else {
+        match u32::try_from(-s).ok().and_then(|k| d.checked_shl(k)) {
+            Some(den) => div_rne_i128(v, den),
+            None => None,
+        }
+    };
+    q.ok_or(GptqE8Error::Overflow)
+}
+
+/// `x + y` as an [`Fx`]: both terms aligned exactly at the finer exponent and one
+/// [`Fx::from_i128`] normalisation. `O(1)`.
+fn fx_add(x: &Fx, y: &Fx) -> Result<Fx, GptqE8Error> {
+    let e = x.e.min(y.e);
+    let a = shift_left_i128(i128::from(x.m), x.e - e).ok_or(GptqE8Error::Overflow)?;
+    let b = shift_left_i128(i128::from(y.m), y.e - e).ok_or(GptqE8Error::Overflow)?;
+    Fx::from_i128(a.checked_add(b).ok_or(GptqE8Error::Overflow)?, e)
+        .map_err(|_| GptqE8Error::Overflow)
+}
+
+/// `x − y` as an [`Fx`], aligned exactly at the finer exponent with one [`Fx::from_i128`]
+/// normalisation. `O(1)`.
+fn fx_sub(x: &Fx, y: &Fx) -> Result<Fx, GptqE8Error> {
+    let e = x.e.min(y.e);
+    let a = shift_left_i128(i128::from(x.m), x.e - e).ok_or(GptqE8Error::Overflow)?;
+    let b = shift_left_i128(i128::from(y.m), y.e - e).ok_or(GptqE8Error::Overflow)?;
+    Fx::from_i128(a.checked_sub(b).ok_or(GptqE8Error::Overflow)?, e)
+        .map_err(|_| GptqE8Error::Overflow)
+}
+
+/// `x < y` exactly for two positive [`Fx`] (`x.m > 0`, `y.m > 0`): a common-exponent `i128`
+/// comparison, with a magnitude class deciding only when both aligned values leave `i128`.
+/// `O(1)`.
+fn fx_lt(x: &Fx, y: &Fx) -> bool {
+    let e = x.e.min(y.e);
+    match (
+        shift_left_i128(i128::from(x.m), x.e - e),
+        shift_left_i128(i128::from(y.m), y.e - e),
+    ) {
+        (Some(a), Some(b)) => a < b,
+        (None, Some(_)) => false,
+        (Some(_), None) => true,
+        (None, None) => x.e < y.e,
+    }
+}
+
+/// The smallest exponent over the non-zero entries of every slice in `rows`, or `0` when all of
+/// them are zero; the shared exponent of [`sum_sq_at`]. `O(Σ len)`.
+pub(super) fn min_exp(rows: &[&[Fx]]) -> i32 {
+    let mut e = i32::MAX;
+    for row in rows {
+        for x in *row {
+            if x.m != 0 && x.e < e {
+                e = x.e;
+            }
+        }
+    }
+    if e == i32::MAX {
+        0
+    } else {
+        e
+    }
+}
+
+/// `Σ m_i²·2^(2(e_i − e0))` for a shared exponent `e0 ≤ min_i e_i`: an exact checked `i128`
+/// accumulation. The sum is `Σ v_i² · 2^(-2 e0)` of the represented values.
+///
+/// # Errors
+///
+/// [`GptqE8Error::Overflow`] when an aligned square or the sum leaves `i128`. The headroom bound is
+/// `2·(e_i − e0) + 2·blen(m_i) ≤ 126` for every term.
+///
+/// # Complexity
+///
+/// `O(len)` checked `i128` multiply-adds, `O(1)` space.
+pub(super) fn sum_sq_at(e: &[Fx], e0: i32) -> Result<i128, GptqE8Error> {
+    let mut acc: i128 = 0;
+    for x in e {
+        if x.m == 0 {
+            continue;
+        }
+        let m2 = i128::from(x.m)
+            .checked_mul(i128::from(x.m))
+            .ok_or(GptqE8Error::Overflow)?;
+        let t = shift_left_i128(m2, 2 * (x.e - e0)).ok_or(GptqE8Error::Overflow)?;
+        acc = acc.checked_add(t).ok_or(GptqE8Error::Overflow)?;
+    }
+    Ok(acc)
+}
+
+/// The real value of an [`Fx`] as an `f64` at the public output boundary: the significand is rounded
+/// once to 53 bits (RNE) and the power of two is exact, so the conversion is exact after that
+/// rounding and `|m| ≤ 2^53` holds by construction.
 pub(super) fn fx_to_f64(x: &Fx) -> f64 {
-    x.m as f64 * pow2i(x.e)
+    if x.m == 0 {
+        return 0.0;
+    }
+    let bits = match ilog2_pos(mag_u128(i128::from(x.m))) {
+        Some(b) => b + 1,
+        None => return 0.0,
+    };
+    let s = bits.saturating_sub(53);
+    let (m, e) = if s == 0 {
+        (x.m, x.e)
+    } else {
+        match rshift_rne(i128::from(x.m), s) {
+            Some(v) => (v as i64, x.e + s.cast_signed()),
+            None => (x.m, x.e),
+        }
+    };
+    // `|m| ≤ 2^53` here, so `m as f64` is exact and the product is exact (the exponent is in range
+    // for every scale this kernel produces; an out-of-range one is the `pow2i` 0/INFINITY edge).
+    debug_assert!(m.unsigned_abs() <= 1u64 << 53);
+    m as f64 * pow2i(e)
 }
 
 /// `x < 2^k` for a positive-mantissa [`Fx`] (used by the group scale's lower clamp).
@@ -412,51 +929,30 @@ pub(super) fn fx_below_pow2(x: &Fx, k: i32) -> bool {
 /// Q32.32 unit's worth of mantissa (`Fx { m: 1, e: -40 }`, `2^-40 ≈ 9.1e-13`).
 pub(super) const A_CLAMP: Fx = Fx { m: 1, e: -40 };
 
-/// The integer group scale `a = 0.828·w_rms` of the working row `w_row` (the group's `g1−g0`
-/// columns of the current `wk`) with inverse-variance weights `prec_j = 2^(2 d_j)/Uhat_jj²`:
-/// `w_rms² = Σ_j w_j²·prec_j / Σ_j prec_j`, accumulated in `i128` with every term aligned to the
-/// common exponent `2 d_j` (the `m_j = round(2^96/Uhat_jj²)` scale below, so `z_j = RNE(m_j·2^{2d_j})`
-/// is `prec_j·2^96/2^64`, ~`2^32` bits of resolution at `d_j = 0`), `sqrt` by [`isqrt`] and the
-/// `0.828` by [`E8_SCALE_Q32`]. A term or sum that leaves `i128` is [`GptqE8Error::Overflow`].
+/// The integer group scale `a = 0.828·w_rms` of the working row: `mant_row` is the group's `g1−g0`
+/// mantissas at the row exponent `e_row` (`w = mant·2^e_row`, the [`w_to_rows`] form) and `prec_j =
+/// 2^(2 d_j)/Uhat_jj²` the inverse-variance weights. `w_rms² = Σ_j m_j²·prec_j / Σ_j prec_j` is
+/// accumulated in `i128` with every term aligned to the common exponent `2 d_j` (the `z_j =
+/// RNE(m_ĵ·2^{2d_j})` scale below, so the term is `prec_j·2^96/2^64`), `sqrt` by [`isqrt`] and the
+/// `0.828` by [`E8_SCALE_Q32`]. The result's exponent carries `e_row`: no re-normalisation of the
+/// row happens here because the caller already holds the row on its integer grid.
 ///
 /// # Errors
 ///
-/// [`GptqE8Error::NonFinite`] on a non-finite weight; [`GptqE8Error::NotPositiveDefinite`] if a
-/// feedback diagonal is non-positive; [`GptqE8Error::Overflow`] on a checked `i128` operation.
+/// [`GptqE8Error::NotPositiveDefinite`] if a feedback diagonal is non-positive;
+/// [`GptqE8Error::Overflow`] on a checked `i128` operation.
 ///
 /// # Complexity
 ///
-/// Time `O(gs)` checked `i128` operations (one scan, one accumulation pass), space `O(gs)` for the
-/// mantissas.
-pub(super) fn group_scale_int(w_row: &[f64], u: &UFac, g0: usize) -> Result<Fx, GptqE8Error> {
-    let gs = w_row.len();
+/// Time `O(gs)` checked `i128` operations (one accumulation pass), space `O(1)` beyond the input.
+pub(super) fn group_scale_int(
+    mant_row: &[i64],
+    e_row: i32,
+    u: &UFac,
+    g0: usize,
+) -> Result<Fx, GptqE8Error> {
+    let gs = mant_row.len();
     let n = u.n;
-    let mut max_abs = 0.0f64;
-    for &x in w_row {
-        if !x.is_finite() {
-            return Err(GptqE8Error::NonFinite);
-        }
-        let a = x.abs();
-        if a > max_abs {
-            max_abs = a;
-        }
-    }
-    let mut mant = vec![0i64; gs];
-    let e_row = if max_abs == 0.0 {
-        0
-    } else {
-        let (m, e) = f64_int_exp(max_abs);
-        let bl = match ilog2_pos(mag_u128(m)) {
-            Some(b) => b + 1,
-            None => return Err(GptqE8Error::Overflow),
-        };
-        let l = e + bl.cast_signed() - 1;
-        let er = l - 34;
-        for j in 0..gs {
-            mant[j] = rne_scaled_i64(w_row[j], -er)?;
-        }
-        er
-    };
     let mut num: i128 = 0;
     let mut den: i128 = 0;
     for j in 0..gs {
@@ -474,7 +970,7 @@ pub(super) fn group_scale_int(w_row: &[f64], u: &UFac, g0: usize) -> Result<Fx, 
         if z <= 0 {
             continue;
         }
-        let m2 = i128::from(mant[j]) * i128::from(mant[j]);
+        let m2 = i128::from(mant_row[j]) * i128::from(mant_row[j]);
         let Some(term) = m2.checked_mul(z) else {
             return Err(GptqE8Error::Overflow);
         };

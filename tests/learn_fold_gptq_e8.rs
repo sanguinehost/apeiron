@@ -1005,15 +1005,15 @@ fn row_split_reproduces_the_serial_bit_stream() {
         (5, 128, 0.01, true, false, 2, 0xA1B2_0003),
         (5, 128, 0.01, false, false, 2, 0xA1B2_0003),
     ];
-    /// Integer-carrier values, in `FIXTURES` order: fixture 0 (the `beam = 1` path) is re-pinned
-    /// by `q-l1b` to the integer block pass, whose exact `i128` scan and exact numerator-form
-    /// residual reproduce the `f64` arm's codes and scales here to the last bit; fixture 1 (the
-    /// `beam = 4`, `wscale` path) is re-pinned by `q-l1c` to the integer beam pass, whose exact
-    /// `i128` cost and carrier residual replace the `f64` beam arm; fixtures 2 and 3 (the `beam = 2`
-    /// path) reproduce the `q-l1a` values unchanged.
+    /// Integer-carrier values, in `FIXTURES` order. Fixture 0 (the `beam = 1` path) is the integer
+    /// block pass with the integer inter-group feedback: `q-l1b` pinned it against the `f64` arm,
+    /// and the `q-l1d` integer feedback rounds the later groups to the row grid instead of in
+    /// `f64`, so its hash moves (codes and scales still agree with the `f64` arm to `2.7e-11`
+    /// relative on the gate-(c) fixtures). Fixture 1 (the `beam = 4`, `wscale` path) is the integer
+    /// beam pass; fixtures 2 and 3 (the `beam = 2` path) reproduce the `q-l1a` values unchanged.
     const CARRIER_HASH: [u64; 4] = [
-        0xba2b_375b_05f7_2e0e,
-        0xe956_8a52_af59_0eeb,
+        0x38c8_7804_335c_b380,
+        0xfac1_36fc_a70a_34e3,
         0xe56b_a783_2915_f9b4,
         0xd6ce_df97_e1e5_41d0,
     ];

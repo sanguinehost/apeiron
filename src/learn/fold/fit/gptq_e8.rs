@@ -58,18 +58,22 @@
 //!   `i128` accumulation and one round-to-nearest per stored entry); the captured `beam = 1` golden
 //!   scales move with it by `≈ 4e-11` relative. Measurements: `tests/learn_solve_inv.rs`.
 //!
-//! # Integer carrier (lanes `q-l1a`–`q-l1c`)
+//! # Integer carrier (lanes `q-l1a`–`q-l1d`)
 //!
-//! The feedback factor, the act order, the group scale and both block passes are carried in
-//! integers: `feedback_u` returns a [`UFac`] (`U = Uhat·diag(2^-d)`), [`block_order`] orders on
-//! `i128` diagonal sums, the group scale is an [`Fx`], and [`quantise_pass`] and [`beam_pass`]
-//! evaluate the block objective as an exact `i128` scan, carrying the residual and codeword image as
-//! [`Fx`]. The only `f64` inputs that cross into integers are the damped Hessian ([`h_to_spdq`],
+//! The selection is integer end to end. The feedback factor, the act order, the group scale, both
+//! block passes, the whitened scale projection, the second-pass choice and the inter-group feedback
+//! are all carried in integers: `feedback_u` returns a [`UFac`] (`U = Uhat·diag(2^-d)`),
+//! [`block_order`] orders on `i128` diagonal sums, the group scale is an [`Fx`], and
+//! [`quantise_pass`] and [`beam_pass`] evaluate the block objective as an exact `i128` scan,
+//! carrying the residual and codeword image as [`Fx`]. The `wscale` projection is
+//! `project_scale_int` ([`tri_upper_solve`] then exact `i128` inner products, one division), the
+//! second-pass choice compares the two candidates' exact `i128` residual norms, and
+//! `inter_group_feedback` updates the integer working rows with one round-to-nearest per stored
+//! entry. The only `f64` inputs that cross into integers are the damped Hessian ([`h_to_spdq`],
 //! which L6 deletes when the caller hands an [`SpdQ`]) and the weight ([`w_to_rows`]); the `2^-g`
-//! global exponent `g` is even, so it is an exact scaling. What remains `f64` is the scale projection
-//! ([`project_scale`]), the group feedback ([`inter_group_feedback`]) and the beam pass's `wscale`
-//! tail, which L1d replaces; they receive their views through [`ufac_f64`], [`rows_to_f64`],
-//! [`fx_slice_to_f64`] and [`f64_slice_to_fx`], marked `L1b-L1d delete this`.
+//! global exponent `g` is even, so it is an exact scaling. The only `f64` outputs are the public
+//! [`GptqE8::s`] and [`GptqE8::scale`], converted once at the end; both are exact after the
+//! significand is rounded to the 53-bit `f64` precision.
 
 #![allow(
     clippy::many_single_char_names,
@@ -83,13 +87,12 @@
 )]
 
 use super::gptq_e8_carrier::{
-    block_order, div_rne_i128, f64_int_exp, fx_to_f64, group_scale_int, mag_u128, narrow_q, pow2i,
-    rows_to_f64, ufac_f64, w_to_rows,
+    blen, block_order, div_shift_rne, fx_to_f64, group_scale_int, inter_group_feedback, min_exp,
+    narrow_q, project_scale_int, sum_sq_at, w_to_rows,
 };
 pub use super::gptq_e8_carrier::{feedback_u, UFac};
-use crate::engine::ONE;
 use crate::learn::code::e8::{self, E8Error};
-use crate::learn::solve::q32::{ilog2_pos, rshift_rne, Fx};
+use crate::learn::solve::q32::{rshift_rne, Fx};
 
 /// Columns per group: the Python `GROUP`. One scale per (row, group).
 pub const GROUP: usize = 128;
@@ -171,97 +174,10 @@ fn map_e8(e: E8Error) -> GptqE8Error {
     }
 }
 
-/// Solve `x·U_sub = e` in place for the row `e` (length `m`), `U_sub` the trailing upper-triangular
-/// block of the row-major `[stride, stride]` upper-triangular `u`: `x_j = (e_j − Σ_{k>j}
-/// x_k·U_kj)/U_jj`. Temporal `O(m²)` f64 multiply-subtracts, spatial `O(1)`.
-fn solve_upper_block(u: &[f64], stride: usize, b0: usize, m: usize, e: &mut [f64]) {
-    let mut j = m;
-    while j > 0 {
-        j -= 1;
-        let mut s = e[j];
-        let mut k = j + 1;
-        while k < m {
-            s -= e[k] * u[(b0 + k) * stride + b0 + j];
-            k += 1;
-        }
-        e[j] = s / u[(b0 + j) * stride + b0 + j];
-    }
-}
-
 /// The worker count handed to [`inv_factor_upper`] by [`feedback_u`]. `feedback_u` takes no thread
 /// parameter and its factor is bit-identical for every count, so the count changes only wall-clock;
 /// `8` matches the other solve callers' fixed count and leaves headroom on the shared box.
 pub(super) const INV_THREADS: usize = 8;
-
-/// The magnitude class `⌈log2(|v| + 1)⌉` of an `i128`: `0` for `0`, else `ilog2_pos(|v|) + 1`, so
-/// `2^(b − 1) ≤ |v| < 2^b`.
-///
-/// # Complexity
-///
-/// `O(1)`.
-fn blen(v: i128) -> i32 {
-    if v == 0 {
-        0
-    } else {
-        match ilog2_pos(mag_u128(v)) {
-            Some(b) => b.cast_signed() + 1,
-            None => 0,
-        }
-    }
-}
-
-/// `RNE(v · 2^s / d)` for `d > 0`: an exact checked left shift of the numerator when `s ≥ 0`, the
-/// exact denominator `d · 2^-s` when `s < 0`, and one round-to-nearest quotient ([`div_rne_i128`]).
-/// `0` for `v == 0`.
-///
-/// # Errors
-///
-/// [`GptqE8Error::Overflow`] on a shift or quotient that leaves `i128`.
-///
-/// # Complexity
-///
-/// `O(1)`.
-fn div_shift_rne(v: i128, s: i64, d: i128) -> Result<i128, GptqE8Error> {
-    if v == 0 {
-        return Ok(0);
-    }
-    let q = if s >= 0 {
-        match u32::try_from(s).ok().and_then(|k| 1_i128.checked_shl(k)) {
-            Some(p) => match v.checked_mul(p) {
-                Some(num) => div_rne_i128(num, d),
-                None => None,
-            },
-            None => None,
-        }
-    } else {
-        match u32::try_from(-s).ok().and_then(|k| d.checked_shl(k)) {
-            Some(den) => div_rne_i128(v, den),
-            None => None,
-        }
-    };
-    q.ok_or(GptqE8Error::Overflow)
-}
-
-/// The `f64` view (`m · 2^e`) of a carrier slice: `// L1b-L1d delete this`, the transient boundary
-/// the still-`f64` passes read (a conversion, not a second path).
-fn fx_slice_to_f64(x: &[Fx]) -> Vec<f64> {
-    x.iter().map(fx_to_f64).collect()
-}
-
-/// The [`Fx`] of a finite `f64`, exact (`|significand| ≤ 2^53`): `// L1b-L1d delete this`, the
-/// transient boundary the projected scale returns through; [`GptqE8Error::NonFinite`] on a NaN or an
-/// infinite, [`GptqE8Error::Overflow`] on a carrier outside `i64`.
-fn f64_slice_to_fx(x: &[f64]) -> Result<Vec<Fx>, GptqE8Error> {
-    let mut out = Vec::with_capacity(x.len());
-    for &v in x {
-        if !v.is_finite() {
-            return Err(GptqE8Error::NonFinite);
-        }
-        let (m, e) = f64_int_exp(v);
-        out.push(Fx::from_i128(m, e).map_err(|_| GptqE8Error::Overflow)?);
-    }
-    Ok(out)
-}
 
 /// One quantisation pass over the group `[g0, g1)` of the permuted Hessian factor `u` and the
 /// group's per-row integer weight rows `mant`/`e_row` (row-major `o × (g1 − g0)`, the real weight
@@ -271,7 +187,7 @@ fn f64_slice_to_fx(x: &[f64]) -> Result<Vec<Fx>, GptqE8Error> {
 /// # The block right-solve
 ///
 /// The stored factor is `U_ij = u.hat[i·n + j] · 2^-32 · 2^-d_j`, row-major `[n, n]` and upper
-/// triangular (`u.hat[i·n + j] = 0` for `j < i`). The pre-lane `solve_upper_block` contraction
+/// triangular (`u.hat[i·n + j] = 0` for `j < i`). The `Σ_{k>j}` contraction
 /// `Σ_{k>j} e[k] · u[(b0 + k)·n + (b0 + j)]` reads the strictly below-diagonal entries of that
 /// block — all zero — so the block right-solve it performs is the per-coordinate quotient
 /// `Z[t] = w_sub[t] / U_tt = w_sub[t] · 2^(32 + d_j) / u.hat[j·n + j]`, `j = g0 + b0 + t`. This pass
@@ -559,51 +475,6 @@ fn quantise_pass(
     })
 }
 
-/// The whitened scale projection of the `wscale` branch: `u_s = S·U_blk⁻¹`,
-/// `a_new = max(a + ⟨e, u_s⟩/⟨u_s, u_s⟩, 1e-12)` and `e_new = e − (a_new − a)·u_s`
-/// (the Python lines 327–332). Returns `(a_new, e_new)`.
-///
-/// # Complexity
-/// - Temporal: `O(o·gs²)` — the triangular solve `o·gs²/2` multiply-subtracts and the two inner
-///   products `O(o·gs)`. Measure: arithmetic operations on f64.
-/// - Spatial: `O(o·gs)` f64 words for `u_s` and `e_new`.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the projection reads the pass's four buffers and writes two; a tuple-in/tuple-out \
-              signature would not make the call site clearer"
-)]
-fn project_scale(
-    u: &[f64],
-    n: usize,
-    g0: usize,
-    gs: usize,
-    s_cur: &[f64],
-    e_cur: &[f64],
-    a: &[f64],
-    o: usize,
-) -> (Vec<f64>, Vec<f64>) {
-    let mut u_s = s_cur.to_vec();
-    for r in 0..o {
-        solve_upper_block(u, n, g0, gs, &mut u_s[r * gs..(r + 1) * gs]);
-    }
-    let mut a_new = vec![0.0f64; o];
-    let mut e_new = vec![0.0f64; o * gs];
-    for r in 0..o {
-        let mut num = 0.0f64;
-        let mut den = 0.0f64;
-        for j in 0..gs {
-            num += e_cur[r * gs + j] * u_s[r * gs + j];
-            den += u_s[r * gs + j] * u_s[r * gs + j];
-        }
-        let an = (a[r] + num / den.max(1e-12)).max(1e-12);
-        a_new[r] = an;
-        for j in 0..gs {
-            e_new[r * gs + j] = e_cur[r * gs + j] - (an - a[r]) * u_s[r * gs + j];
-        }
-    }
-    (a_new, e_new)
-}
-
 /// The `k` smallest `(cost, flat index)` pairs of `cost` by ascending cost, ties to the smaller index:
 /// the `torch.topk(..., largest=False)` order of the Python line 352 (`O(len·k)` `i128`
 /// comparisons on a sorted `k`-window, `O(k)` space; `len = B·256`, `k ≤ MAX_BEAM`).
@@ -616,6 +487,13 @@ fn select_k(cost: &[i128], k: usize, out: &mut Vec<(usize, i128)>) {
             out.truncate(k);
         }
     }
+}
+
+/// The `wscale` second-pass tie rule: the second candidate replaces the first only on a **strictly**
+/// smaller exact `i128` whitened residual norm, so equal norms keep pass 1 (the Python's
+/// `(Err_new*Err_new).sum < (Err1*Err1).sum`). `O(1)`.
+fn second_pass_wins(n1: i128, n2: i128) -> bool {
+    n2 < n1
 }
 
 /// `v·2^s` for `s ≥ 0`, `Some(0)` for zero, `None` when the product leaves `i128` (`O(1)`).
@@ -670,10 +548,11 @@ fn shift_left_checked(v: i128, s: u32) -> Option<i128> {
 /// one round-to-nearest per stored mantissa to the row grid `2^e_row`.
 ///
 /// `wscale` projects the final `≤ MAX_BEAM` beams: `u_S = S_b·U_blk⁻¹`,
-/// `a_cand = max(a + ⟨E, u_S⟩/max(|u_S|², 1e-12), 1e-12)`, the smallest projected residual wins
-/// (lines 367–376). It reads `s`/`e` through [`fx_slice_to_f64`] and writes the residual back
-/// through [`f64_slice_to_fx`]: the pass's only `f64` part
-/// (`// L1d: replaced by the integer project helper`); everything before it is integer.
+/// `a_cand = max(a + ⟨E, u_S⟩/⟨u_S, u_S⟩, floor)`, the smallest projected residual wins
+/// (lines 367–376). The projection is `project_scale_int` on the carrier: the triangular solve, the
+/// two exact `i128` inner products, one division and one `Fx` rounding per stored residual entry;
+/// the beams are compared on their exact `i128` residual norms at a shared exponent
+/// ([`sum_sq_at`], [`min_exp`]).
 ///
 /// Rows are independent given the read-only `u`, the per-row `a[r]` and the codebook, and `B`
 /// depends on the block index alone, so the rows are split into `threads` contiguous ranges, each
@@ -718,7 +597,7 @@ fn beam_pass(
     e_out: &mut [Fx],
     i_out: &mut [u16],
     threads: usize,
-) -> Result<Vec<f64>, GptqE8Error> {
+) -> Result<Vec<Fx>, GptqE8Error> {
     // The alignment ceiling: `58` keeps `|cw_t·G_t|` and `|H_t|` below `2^58` for every live beam,
     // so the block's sum of squares stays below `2^121` and the carried `cum` below `2^126`.
     const ALIGN: i32 = 58;
@@ -740,21 +619,8 @@ fn beam_pass(
         *row = e8::codeword(k).map_err(map_e8)?;
     }
     let cw = &cw;
-    // `// L1d: replaced by the integer project helper` — the group block of the feedback factor as
-    // an `f64` view for the `wscale` tail only: `gs²` words, not the full `[n, n]`.
-    let mut ublk = Vec::new();
-    if wscale {
-        ublk = vec![0.0f64; gs * gs];
-        for i in 0..gs {
-            for j in i..gs {
-                ublk[i * gs + j] =
-                    u.hat[(g0 + i) * n + g0 + j] as f64 / ONE as f64 * pow2i(-u.d[g0 + j]);
-            }
-        }
-    }
-    let ublk = &ublk;
     let per = o.div_ceil(threads.max(1)).max(1);
-    let mut a_new = Vec::with_capacity(o);
+    let mut a_new: Vec<Fx> = Vec::with_capacity(o);
     std::thread::scope(|scope| -> Result<(), GptqE8Error> {
         let mut handles = Vec::new();
         for (((((mc, ec), ac), sc), eoc), ic) in mant
@@ -765,7 +631,7 @@ fn beam_pass(
             .zip(e_out.chunks_mut(per * gs))
             .zip(i_out.chunks_mut(per * nb))
         {
-            handles.push(scope.spawn(move || -> Result<Vec<f64>, GptqE8Error> {
+            handles.push(scope.spawn(move || -> Result<Vec<Fx>, GptqE8Error> {
                 let rows = ec.len();
                 // Two beam-state buffer sets for the worker's rows, swapped per block.
                 let mut wk_c = vec![0i64; stride];
@@ -781,16 +647,14 @@ fn beam_pass(
                 let mut cost = vec![0i128; cap * e8::CODEBOOK_LEN];
                 let mut base = vec![0i128; cap];
                 let mut sel: Vec<(usize, i128)> = Vec::with_capacity(cap);
-                let mut us = vec![0.0f64; gs];
-                let mut eproj = vec![0.0f64; stride];
-                let mut a_cand = vec![0.0f64; cap];
-                let mut cerr = vec![0.0f64; cap];
-                let mut a_row = vec![0.0f64; rows];
+                let mut eproj = vec![Fx { m: 0, e: 0 }; stride];
+                let mut a_cand = vec![Fx { m: 0, e: 0 }; cap];
+                let mut cerr = vec![0i128; cap];
+                let mut a_row = vec![Fx { m: 0, e: 0 }; rows];
                 let mut gvec = [0i128; BLOCK];
                 let mut hvec = [0i128; BLOCK];
                 let mut esel = [0i128; BLOCK];
                 for lr in 0..rows {
-                    let ar = fx_to_f64(&ac[lr]);
                     let am = i128::from(ac[lr].m);
                     let ae = i64::from(ac[lr].e);
                     let er = i64::from(ec[lr]);
@@ -991,29 +855,30 @@ fn beam_pass(
                         b_cur = b_next;
                     }
                     if wscale {
-                        // `// L1d: replaced by the integer project helper` — the projected scale of
-                        // the final beams of this row, through the transient `f64` views.
+                        // The integer project helper: one `u_s` solve and one division per beam.
                         for b in 0..b_cur {
                             let src = b * gs;
-                            us.copy_from_slice(&fx_slice_to_f64(&s_c[src..src + gs]));
-                            solve_upper_block(ublk, gs, 0, gs, &mut us);
-                            let ev = fx_slice_to_f64(&e_c[src..src + gs]);
-                            let mut num = 0.0f64;
-                            let mut den = 0.0f64;
-                            for j in 0..gs {
-                                num += ev[j] * us[j];
-                                den += us[j] * us[j];
-                            }
-                            let ac2 = (ar + num / den.max(1e-12)).max(1e-12);
-                            a_cand[b] = ac2;
-                            let dlt = ac2 - ar;
-                            let mut ce = 0.0f64;
-                            for j in 0..gs {
-                                let v = ev[j] - dlt * us[j];
-                                eproj[src + j] = v;
-                                ce += v * v;
-                            }
-                            cerr[b] = ce;
+                            let (ac2, ec2) = project_scale_int(
+                                u,
+                                n,
+                                g0,
+                                gs,
+                                &s_c[src..src + gs],
+                                &e_c[src..src + gs],
+                                &ac[lr..=lr],
+                            )?;
+                            a_cand[b] = ac2[0].clone();
+                            eproj[src..src + gs].clone_from_slice(&ec2);
+                        }
+                        // The smallest projected residual wins, on the exact `i128` norms at one
+                        // shared exponent over the row's beams.
+                        let mut rows: Vec<&[Fx]> = Vec::with_capacity(b_cur);
+                        for b in 0..b_cur {
+                            rows.push(&eproj[b * gs..(b + 1) * gs]);
+                        }
+                        let e0 = min_exp(&rows);
+                        for b in 0..b_cur {
+                            cerr[b] = sum_sq_at(&eproj[b * gs..(b + 1) * gs], e0)?;
                         }
                         let mut win = 0usize;
                         for b in 1..b_cur {
@@ -1021,18 +886,17 @@ fn beam_pass(
                                 win = b;
                             }
                         }
-                        a_row[lr] = a_cand[win];
+                        a_row[lr] = a_cand[win].clone();
                         let src = win * gs;
-                        let efx = f64_slice_to_fx(&eproj[src..src + gs])?;
                         for j in 0..gs {
                             sc[lr * gs + j] = s_c[src + j].clone();
-                            eoc[lr * gs + j] = efx[j].clone();
+                            eoc[lr * gs + j] = eproj[src + j].clone();
                         }
                         for mm in 0..nb {
                             ic[lr * nb + mm] = idx_c[win * nb + mm];
                         }
                     } else {
-                        a_row[lr] = ar;
+                        a_row[lr] = ac[lr].clone();
                         sc[lr * gs..(lr + 1) * gs].clone_from_slice(&s_c[..gs]);
                         eoc[lr * gs..(lr + 1) * gs].clone_from_slice(&e_c[..gs]);
                         for mm in 0..nb {
@@ -1053,57 +917,6 @@ fn beam_pass(
     })?;
     Ok(a_new)
 }
-/// every row in it.
-const FEEDBACK_TILE: usize = 8;
-
-/// `wk[:, g0+gs:] -= E · U[g0:g0+gs, g0+gs:]` for the `O × gs` group error `e` (the inter-group
-/// feedback of the scalar loop it replaces, line 394 of the script). Per entry the `gs` products
-/// are summed in ascending `j` from `0.0` and then subtracted, as the scalar loop did, so the result
-/// is bit-identical to it and independent of the thread count. Rows are independent, so they are
-/// split across [`INV_THREADS`] scoped workers in [`FEEDBACK_TILE`]-row tiles.
-///
-/// # Complexity
-///
-/// Temporal: `O·gs·(n − g0 − gs)` multiply-adds (one contiguous axpy over the tail of each `U` row
-/// per `(row, j)`), split over the workers. Spatial: `FEEDBACK_TILE · (n − g0 − gs)` `f64` of
-/// accumulator per worker.
-fn inter_group_feedback(wk: &mut [f64], e: &[f64], u: &[f64], n: usize, g0: usize, gs: usize) {
-    let g1 = g0 + gs;
-    let o = wk.len() / n;
-    let per = o.div_ceil(INV_THREADS).max(1);
-    std::thread::scope(|scope| {
-        for (w, ec) in wk.chunks_mut(per * n).zip(e.chunks(per * gs)) {
-            scope.spawn(move || {
-                let rows = ec.len() / gs;
-                let mut acc = vec![0.0f64; FEEDBACK_TILE * (n - g1)];
-                let mut r0 = 0;
-                while r0 < rows {
-                    let tile = FEEDBACK_TILE.min(rows - r0);
-                    acc[..tile * (n - g1)].fill(0.0);
-                    for j in 0..gs {
-                        let urow = &u[(g0 + j) * n + g1..(g0 + j + 1) * n];
-                        for t in 0..tile {
-                            let coef = ec[(r0 + t) * gs + j];
-                            let at = &mut acc[t * (n - g1)..(t + 1) * (n - g1)];
-                            for (av, uv) in at.iter_mut().zip(urow) {
-                                *av += coef * uv;
-                            }
-                        }
-                    }
-                    for t in 0..tile {
-                        let wrow = &mut w[(r0 + t) * n + g1..(r0 + t + 1) * n];
-                        for (wv, av) in wrow.iter_mut().zip(&acc[t * (n - g1)..(t + 1) * (n - g1)])
-                        {
-                            *wv -= av;
-                        }
-                    }
-                    r0 += tile;
-                }
-            });
-        }
-    });
-}
-
 /// The GPTQ error feedback of `gptq_e8` (lines 267–397): per 8-block the block-Cholesky CVP
 /// `argmin_k a²|Z_c[k]|² − 2a⟨Z_w, Z_c[k]⟩` over the 256-entry E8 ∪ O8 codebook, with each block's
 /// whitened residual pushed onto the later columns of the group and the group's residuals pushed
@@ -1178,10 +991,8 @@ pub fn gptq_e8(
     let nb = n / BLOCK;
     let per_group = GROUP / BLOCK;
     let ng = n.div_ceil(GROUP);
-    // The weight crosses into its per-row integer carrier once; the still-`f64` selection passes
-    // read the transient view `wfull` (`// L1b-L1d delete this`).
+    // The weight crosses into its per-row integer carrier once and never leaves it.
     let (mant, e_row) = w_to_rows(w, o, n)?;
-    let wfull = rows_to_f64(&mant, &e_row, o, n);
     // The act order permutes whole 8-blocks; `perm_col[c]` is the original column at permuted
     // position `c`, `inv_blk[b]` the permuted position of original block `b`.
     let perm = if act_order {
@@ -1194,80 +1005,73 @@ pub fn gptq_e8(
     } else {
         None
     };
-    let (wp, hp) = match &perm {
+    // The permuted working rows are an exact copy of the integer mantissas (`act_order` copies
+    // columns and performs no arithmetic); only the Hessian's column order is rebuilt.
+    let (mut wk, mut er, hp) = match &perm {
         Some((perm_col, _)) => {
-            let mut wp = vec![0.0f64; o * n];
-            let mut hp = vec![0.0f64; n * n];
+            let mut wk = vec![0i64; o * n];
             for r in 0..o {
                 for c in 0..n {
-                    wp[r * n + c] = wfull[r * n + perm_col[c]];
+                    wk[r * n + c] = mant[r * n + perm_col[c]];
                 }
             }
+            let mut hp = vec![0.0f64; n * n];
             for i in 0..n {
                 for j in 0..n {
                     hp[i * n + j] = h[perm_col[i] * n + perm_col[j]];
                 }
             }
-            (wp, hp)
+            (wk, e_row, hp)
         }
-        None => (wfull, h.to_vec()),
+        None => (mant, e_row, h.to_vec()),
     };
     let ufac = feedback_u(&hp, n, damp)?;
-    let u = ufac_f64(&ufac); // L1b-L1d delete this
-    let mut wk = wp;
-    let mut s_p = vec![0.0f64; o * n];
+    let mut s_p = vec![Fx { m: 0, e: 0 }; o * n];
     let mut idx_p = vec![0u16; o * nb];
-    let mut scale_p = vec![0.0f64; o * ng];
+    let mut scale_fx = vec![Fx { m: 0, e: 0 }; o * ng];
 
     for gi in 0..ng {
         let g0 = gi * GROUP;
         let g1 = (g0 + GROUP).min(n);
         let gs = g1 - g0;
         let gb = gs / BLOCK;
-        let mut w0 = vec![0.0f64; o * gs];
+        // The group's integer row slice at the row's exponent: an exact copy, no re-normalisation.
+        let mut gm = vec![0i64; o * gs];
         for r in 0..o {
-            w0[r * gs..(r + 1) * gs].copy_from_slice(&wk[r * n + g0..r * n + g1]);
+            gm[r * gs..(r + 1) * gs].copy_from_slice(&wk[r * n + g0..r * n + g1]);
         }
         // The group scale `a = 0.828·w_rms` with inverse-variance weights `prec_j = 1/U_jj²` (the
         // Python lines 301–303), integer through [`group_scale_int`]; `wscale` does not change the
         // scale rule here — it only adds the projection passes below.
-        let mut a = vec![0.0f64; o];
         let mut a_fx = Vec::with_capacity(o);
         for r in 0..o {
-            let af = group_scale_int(&w0[r * gs..(r + 1) * gs], &ufac, g0)?;
-            a[r] = fx_to_f64(&af);
-            a_fx.push(af);
+            a_fx.push(group_scale_int(
+                &gm[r * gs..(r + 1) * gs],
+                er[r],
+                &ufac,
+                g0,
+            )?);
         }
-        // The group block's per-row integer rows `w = mant·2^e_row` ([`w_to_rows`]), the only
-        // `f64` → integer conversion of the weight on either branch; the passes carry them.
-        let (gm, ge) = w_to_rows(&w0, o, gs)?;
         let (a_best, s_best, e_best, i_best) = if beam == 1 {
-            let mut s_cur = vec![Fx { m: 0, e: 0 }; o * gs];
-            let mut e_cur = vec![Fx { m: 0, e: 0 }; o * gs];
-            let mut i_cur = vec![0u16; o * gb];
+            let mut s_best = vec![Fx { m: 0, e: 0 }; o * gs];
+            let mut e_best = vec![Fx { m: 0, e: 0 }; o * gs];
+            let mut i_best = vec![0u16; o * gb];
             quantise_pass(
                 &ufac,
                 n,
                 g0,
                 g1,
                 &gm,
-                &ge,
+                &er,
                 &a_fx,
                 o,
-                &mut s_cur,
-                &mut e_cur,
-                &mut i_cur,
+                &mut s_best,
+                &mut e_best,
+                &mut i_best,
                 INV_THREADS,
             )?;
-            let mut a_best = a.clone();
-            let mut s_best = fx_slice_to_f64(&s_cur);
-            let mut e_best = fx_slice_to_f64(&e_cur);
-            let mut i_best = i_cur;
             if wscale {
-                // `project_scale` still reads and returns `f64` (`// L1c-L1d delete this`); the
-                // projected scale re-enters the integer pass through [`f64_slice_to_fx`].
-                let (a1, e1) = project_scale(&u, n, g0, gs, &s_best, &e_best, &a_best, o);
-                let a1_fx = f64_slice_to_fx(&a1)?;
+                let (a1, e1) = project_scale_int(&ufac, n, g0, gs, &s_best, &e_best, &a_fx)?;
                 let mut s2 = vec![Fx { m: 0, e: 0 }; o * gs];
                 let mut e2 = vec![Fx { m: 0, e: 0 }; o * gs];
                 let mut i2 = vec![0u16; o * gb];
@@ -1277,41 +1081,43 @@ pub fn gptq_e8(
                     g0,
                     g1,
                     &gm,
-                    &ge,
-                    &a1_fx,
+                    &er,
+                    &a1,
                     o,
                     &mut s2,
                     &mut e2,
                     &mut i2,
                     INV_THREADS,
                 )?;
-                let s2f = fx_slice_to_f64(&s2);
-                let e2f = fx_slice_to_f64(&e2);
-                let (a2, e2b) = project_scale(&u, n, g0, gs, &s2f, &e2f, &a1, o);
-                // Second pass: keep the candidate with the smaller whitened residual per row.
-                let mut a_fin = vec![0.0f64; o];
-                let mut s_fin = vec![0.0f64; o * gs];
-                let mut e_fin = vec![0.0f64; o * gs];
+                let (a2, e2b) = project_scale_int(&ufac, n, g0, gs, &s2, &e2, &a1)?;
+                // Second pass: keep the candidate with the smaller whitened residual per row, on
+                // the exact `i128` norms at a shared exponent; equal norms keep pass 1.
+                let mut a_fin = Vec::with_capacity(o);
+                let mut s_fin = vec![Fx { m: 0, e: 0 }; o * gs];
+                let mut e_fin = vec![Fx { m: 0, e: 0 }; o * gs];
                 let mut i_fin = vec![0u16; o * gb];
                 for r in 0..o {
-                    let n1: f64 = (0..gs).map(|j| e1[r * gs + j] * e1[r * gs + j]).sum();
-                    let n2: f64 = (0..gs).map(|j| e2b[r * gs + j] * e2b[r * gs + j]).sum();
-                    let (ar, sr, er, ir): (f64, &[f64], &[f64], &[u16]) = if n2 < n1 {
-                        (a2[r], &s2f, &e2b, &i2)
+                    let e1r = &e1[r * gs..(r + 1) * gs];
+                    let e2r = &e2b[r * gs..(r + 1) * gs];
+                    let e0 = min_exp(&[e1r, e2r]);
+                    let n1 = sum_sq_at(e1r, e0)?;
+                    let n2 = sum_sq_at(e2r, e0)?;
+                    if second_pass_wins(n1, n2) {
+                        a_fin.push(a2[r].clone());
+                        s_fin[r * gs..(r + 1) * gs].clone_from_slice(&s2[r * gs..(r + 1) * gs]);
+                        e_fin[r * gs..(r + 1) * gs].clone_from_slice(e2r);
+                        i_fin[r * gb..(r + 1) * gb].copy_from_slice(&i2[r * gb..(r + 1) * gb]);
                     } else {
-                        (a1[r], &s_best, &e1, &i_best)
-                    };
-                    a_fin[r] = ar;
-                    s_fin[r * gs..(r + 1) * gs].copy_from_slice(&sr[r * gs..(r + 1) * gs]);
-                    e_fin[r * gs..(r + 1) * gs].copy_from_slice(&er[r * gs..(r + 1) * gs]);
-                    i_fin[r * gb..(r + 1) * gb].copy_from_slice(&ir[r * gb..(r + 1) * gb]);
+                        a_fin.push(a1[r].clone());
+                        s_fin[r * gs..(r + 1) * gs].clone_from_slice(&s_best[r * gs..(r + 1) * gs]);
+                        e_fin[r * gs..(r + 1) * gs].clone_from_slice(e1r);
+                        i_fin[r * gb..(r + 1) * gb].copy_from_slice(&i_best[r * gb..(r + 1) * gb]);
+                    }
                 }
-                a_best = a_fin;
-                s_best = s_fin;
-                e_best = e_fin;
-                i_best = i_fin;
+                (a_fin, s_fin, e_fin, i_fin)
+            } else {
+                (a_fx, s_best, e_best, i_best)
             }
-            (a_best, s_best, e_best, i_best)
         } else {
             let mut s1 = vec![Fx { m: 0, e: 0 }; o * gs];
             let mut e1 = vec![Fx { m: 0, e: 0 }; o * gs];
@@ -1322,7 +1128,7 @@ pub fn gptq_e8(
                 g0,
                 g1,
                 &gm,
-                &ge,
+                &er,
                 &a_fx,
                 o,
                 beam,
@@ -1332,12 +1138,9 @@ pub fn gptq_e8(
                 &mut i1,
                 INV_THREADS,
             )?;
-            let s1f = fx_slice_to_f64(&s1);
-            let e1f = fx_slice_to_f64(&e1);
             if wscale {
                 // The second pass is a beam search again, at the projected scale (lines 304,
-                // 379–389); the projected scale re-enters the integer pass through an [`Fx`].
-                let a1_fx = f64_slice_to_fx(&a1)?;
+                // 379–389); the projected scale stays on the carrier as an [`Fx`].
                 let mut s2 = vec![Fx { m: 0, e: 0 }; o * gs];
                 let mut e2 = vec![Fx { m: 0, e: 0 }; o * gs];
                 let mut i2 = vec![0u16; o * gb];
@@ -1347,8 +1150,8 @@ pub fn gptq_e8(
                     g0,
                     g1,
                     &gm,
-                    &ge,
-                    &a1_fx,
+                    &er,
+                    &a1,
                     o,
                     beam,
                     true,
@@ -1357,78 +1160,89 @@ pub fn gptq_e8(
                     &mut i2,
                     INV_THREADS,
                 )?;
-                let s2f = fx_slice_to_f64(&s2);
-                let e2f = fx_slice_to_f64(&e2);
-                let mut a_fin = vec![0.0f64; o];
-                let mut s_fin = vec![0.0f64; o * gs];
-                let mut e_fin = vec![0.0f64; o * gs];
+                let mut a_fin = Vec::with_capacity(o);
+                let mut s_fin = vec![Fx { m: 0, e: 0 }; o * gs];
+                let mut e_fin = vec![Fx { m: 0, e: 0 }; o * gs];
                 let mut i_fin = vec![0u16; o * gb];
                 for r in 0..o {
-                    let n1: f64 = (0..gs).map(|j| e1f[r * gs + j] * e1f[r * gs + j]).sum();
-                    let n2: f64 = (0..gs).map(|j| e2f[r * gs + j] * e2f[r * gs + j]).sum();
-                    let (ar, sr, er, ir): (f64, &[f64], &[f64], &[u16]) = if n2 < n1 {
-                        (a2[r], &s2f, &e2f, &i2)
+                    let e1r = &e1[r * gs..(r + 1) * gs];
+                    let e2r = &e2[r * gs..(r + 1) * gs];
+                    let e0 = min_exp(&[e1r, e2r]);
+                    let n1 = sum_sq_at(e1r, e0)?;
+                    let n2 = sum_sq_at(e2r, e0)?;
+                    if second_pass_wins(n1, n2) {
+                        a_fin.push(a2[r].clone());
+                        s_fin[r * gs..(r + 1) * gs].clone_from_slice(&s2[r * gs..(r + 1) * gs]);
+                        e_fin[r * gs..(r + 1) * gs].clone_from_slice(e2r);
+                        i_fin[r * gb..(r + 1) * gb].copy_from_slice(&i2[r * gb..(r + 1) * gb]);
                     } else {
-                        (a1[r], &s1f, &e1f, &i1)
-                    };
-                    a_fin[r] = ar;
-                    s_fin[r * gs..(r + 1) * gs].copy_from_slice(&sr[r * gs..(r + 1) * gs]);
-                    e_fin[r * gs..(r + 1) * gs].copy_from_slice(&er[r * gs..(r + 1) * gs]);
-                    i_fin[r * gb..(r + 1) * gb].copy_from_slice(&ir[r * gb..(r + 1) * gb]);
+                        a_fin.push(a1[r].clone());
+                        s_fin[r * gs..(r + 1) * gs].clone_from_slice(&s1[r * gs..(r + 1) * gs]);
+                        e_fin[r * gs..(r + 1) * gs].clone_from_slice(e1r);
+                        i_fin[r * gb..(r + 1) * gb].copy_from_slice(&i1[r * gb..(r + 1) * gb]);
+                    }
                 }
                 (a_fin, s_fin, e_fin, i_fin)
             } else {
-                (a1, s1f, e1f, i1)
+                (a1, s1, e1, i1)
             }
         };
         for r in 0..o {
-            scale_p[r * ng + gi] = a_best[r];
-            s_p[r * n + g0..r * n + g1].copy_from_slice(&s_best[r * gs..(r + 1) * gs]);
+            scale_fx[r * ng + gi] = a_best[r].clone();
+            s_p[r * n + g0..r * n + g1].clone_from_slice(&s_best[r * gs..(r + 1) * gs]);
             idx_p[r * nb + gi * per_group..r * nb + gi * per_group + gb]
                 .copy_from_slice(&i_best[r * gb..(r + 1) * gb]);
         }
-        // Inter-group feedback: `wk[:, g1:] -= Err_best @ U[g0:g1, g1:]` (line 394).
+        // Inter-group feedback: `wk[:, g1:] -= Err_best @ U[g0:g1, g1:]` (line 394), on the integer
+        // rows with one round-to-nearest per stored entry.
         if g1 < n {
-            inter_group_feedback(&mut wk, &e_best, &u, n, g0, gs);
+            inter_group_feedback(&mut wk, &mut er, &e_best, &ufac, n, g0, gs, INV_THREADS)?;
         }
     }
 
-    let (s, idx, scale) = match &perm {
-        None => (s_p, idx_p, scale_p),
+    let (s_fx, idx, scale_fx) = match &perm {
+        None => (s_p, idx_p, scale_fx),
         Some((_, inv_blk)) => {
-            let mut s = vec![0.0f64; o * n];
+            let mut s = vec![Fx { m: 0, e: 0 }; o * n];
             let mut idx = vec![0u16; o * nb];
-            let mut scale = vec![0.0f64; o * ng];
+            let mut scale = vec![Fx { m: 0, e: 0 }; o * ng];
             for r in 0..o {
                 for c in 0..n {
                     // The permuted position of original column `c`.
                     let p = inv_blk[c / BLOCK] * BLOCK + c % BLOCK;
-                    s[r * n + c] = s_p[r * n + p];
+                    s[r * n + c] = s_p[r * n + p].clone();
                 }
                 for b in 0..nb {
                     idx[r * nb + b] = idx_p[r * nb + inv_blk[b]];
                 }
                 for g in 0..ng {
-                    scale[r * ng + g] = scale_p[r * ng + inv_blk[g * per_group] / per_group];
+                    scale[r * ng + g] =
+                        scale_fx[r * ng + inv_blk[g * per_group] / per_group].clone();
                 }
             }
             (s, idx, scale)
         }
     };
+    // The only `f64` conversion of the run: `s` is exact (`|m| ≤ 2^34`) and `scale` is rounded once
+    // to the 53-bit `f64` significand.
+    let s: Vec<f64> = s_fx.iter().map(fx_to_f64).collect();
+    let scale: Vec<f64> = scale_fx.iter().map(fx_to_f64).collect();
     Ok(GptqE8 { s, idx, scale })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::gptq_e8_carrier::{group_scale_int, w_to_rows};
-    use super::{beam_pass, feedback_u, quantise_pass, Fx, BLOCK};
+    use super::super::gptq_e8_carrier::{
+        fx_to_f64, group_scale_int, inter_group_feedback, tri_upper_solve, w_to_rows, UFac,
+    };
+    use super::{beam_pass, feedback_u, quantise_pass, second_pass_wins, Fx, BLOCK};
 
     /// The block passes are bit-identical for `threads = 1` and `threads = 8`: rows are independent
     /// and no quantity is reduced across rows, so the split changes only wall-clock. Exercises the
     /// `o = 37 > 8` split with a short last range, the `beam = 1` pass and the `beam = 4` beam pass
     /// under both `wscale` settings.
     #[test]
-    fn q_l1b_l1c_worker_count_is_invariant() {
+    fn worker_count_is_invariant() {
         let (o, n) = (37usize, 128usize);
         let mut h = vec![0.0f64; n * n];
         for i in 0..n {
@@ -1443,11 +1257,11 @@ mod tests {
                 .wrapping_add(1_442_695_040_888_963_407);
             *x = (state >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0;
         }
+        let (mant, e_row) = w_to_rows(&w, o, n).expect("rows");
         let mut a = Vec::with_capacity(o);
         for r in 0..o {
-            a.push(group_scale_int(&w[r * n..(r + 1) * n], &ufac, 0).expect("scale"));
+            a.push(group_scale_int(&mant[r * n..(r + 1) * n], e_row[r], &ufac, 0).expect("scale"));
         }
-        let (mant, e_row) = w_to_rows(&w, o, n).expect("rows");
         let gb = n / BLOCK;
         let mut prev: Option<(Vec<Fx>, Vec<Fx>, Vec<u16>)> = None;
         for threads in [1usize, 8] {
@@ -1466,7 +1280,7 @@ mod tests {
             prev = Some((s, e, idx));
         }
         for wscale in [false, true] {
-            let mut prev: Option<(Vec<Fx>, Vec<Fx>, Vec<u16>, Vec<f64>)> = None;
+            let mut prev: Option<(Vec<Fx>, Vec<Fx>, Vec<u16>, Vec<Fx>)> = None;
             for threads in [1usize, 8] {
                 let mut s = vec![Fx { m: 0, e: 0 }; o * n];
                 let mut e = vec![Fx { m: 0, e: 0 }; o * n];
@@ -1481,8 +1295,7 @@ mod tests {
                     assert_eq!(&e, pe, "worker count changed `e` (wscale={wscale})");
                     assert_eq!(&idx, pi, "worker count changed `idx` (wscale={wscale})");
                     assert_eq!(
-                        a_row.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-                        pa.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                        &a_row, pa,
                         "worker count changed the scale (wscale={wscale})"
                     );
                 }
@@ -1496,5 +1309,100 @@ mod tests {
         let mut out = Vec::new();
         super::select_k(&[7_i128, 2, 2, 7, 2], 3, &mut out);
         assert_eq!(out, [(1, 2), (2, 2), (4, 2)]); // ties: smaller flat index
+    }
+
+    /// `tri_upper_solve` on a synthetic factor whose `k > j` row-major entries are non-zero (the
+    /// stored feedback factor has zeros there): it recovers the exact `x` of `x·U = e`, so the
+    /// contraction recurrence — not the elementwise quotient — is what the test exercises.
+    #[test]
+    fn tri_upper_solve_inverts_a_dense_factor() {
+        let n = 4usize;
+        let u = UFac {
+            hat: vec![
+                10, 0, 0, 0, //
+                2, 11, 0, 0, //
+                3, 4, 12, 0, //
+                -1, 5, 6, 13,
+            ],
+            d: vec![0; n],
+            n,
+        };
+        let x = [1_i64, -2, 3, -1];
+        let mut e = Vec::with_capacity(n);
+        for j in 0..n {
+            let mut v: i64 = 0;
+            for k in j..n {
+                v += x[k] * u.hat[k * n + j];
+            }
+            // `U_kj = hat_kj·2^-32`, so `e_j = v·2^-32`.
+            e.push(Fx { m: v, e: -32 });
+        }
+        tri_upper_solve(&u, n, 0, n, &mut e).expect("solve");
+        for (j, xj) in x.iter().enumerate() {
+            assert_eq!(fx_to_f64(&e[j]), *xj as f64, "x[{j}]");
+        }
+    }
+
+    /// The second pass replaces the first only on a strictly smaller whitened norm: equal norms keep
+    /// the first pass.
+    #[test]
+    fn second_pass_needs_a_strictly_smaller_norm() {
+        assert!(second_pass_wins(5, 4));
+        assert!(!second_pass_wins(5, 5));
+        assert!(!second_pass_wins(5, 6));
+    }
+
+    /// The inter-group feedback is bit-identical for `threads = 1` and `threads = 8`: each row reads
+    /// and writes only its own `wm`/`e_row` slice.
+    #[test]
+    fn inter_group_feedback_is_worker_invariant() {
+        let (o, n, gs) = (16usize, 32usize, 8usize);
+        let mut h = vec![0.0f64; n * n];
+        for i in 0..n {
+            h[i * n + i] = 8.0;
+            // A diagonally dominant band, so `U` has non-zero inter-group entries.
+            for j in i.saturating_sub(3)..=i {
+                if j != i {
+                    h[i * n + j] = 1.0;
+                    h[j * n + i] = 1.0;
+                }
+            }
+        }
+        let ufac = feedback_u(&h, n, 0.01).expect("SPD factor");
+        let mut state = 0x1234_5678_9ABC_DEF0u64;
+        let mut next = || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (state >> 33) as i64
+        };
+        let mut wm = vec![0_i64; o * n];
+        let mut er = vec![0_i32; o];
+        let mut e = vec![Fx { m: 0, e: 0 }; o * gs];
+        for r in 0..o {
+            er[r] = -30;
+            for c in 0..n {
+                wm[r * n + c] = next() - (1_i64 << 30);
+            }
+            for j in 0..gs {
+                // A residual large enough that the update moves the row grid `2^-30` (otherwise
+                // every rounding is zero and the test cannot see a wrong row).
+                e[r * gs + j] = Fx {
+                    m: (1_i64 << 24) + (next() & 0xff_ffff),
+                    e: 0,
+                };
+            }
+        }
+        let mut w1 = wm.clone();
+        let mut er1 = er.clone();
+        inter_group_feedback(&mut w1, &mut er1, &e, &ufac, n, 0, gs, 1)
+            .expect("feedback, 1 thread");
+        let mut w8 = wm.clone();
+        let mut er8 = er.clone();
+        inter_group_feedback(&mut w8, &mut er8, &e, &ufac, n, 0, gs, 8)
+            .expect("feedback, 8 threads");
+        assert_ne!(w1, wm, "the feedback did not move the rows");
+        assert_eq!(w1, w8, "worker count changed `wm`");
+        assert_eq!(er1, er8, "worker count changed `e_row`");
     }
 }
