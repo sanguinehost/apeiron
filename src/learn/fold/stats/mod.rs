@@ -11,6 +11,8 @@ pub mod capture;
 pub mod heldout;
 /// Output-side Hessian sketch `HO = Σ w_t g_t g_tᵀ` from sampled-label gradients on the ported backward pass.
 pub mod hocapture;
+/// Reader of llama.cpp's `--kl-divergence-base` log-probability file, one chunk at a time.
+pub mod kldbase;
 /// Analytic shrinkage intensities (Schäfer–Strimmer, Ledoit–Wolf) of the output-side Hessian sketch.
 pub mod lw;
 /// `f64` CPU forward of one `Qwen2` decoder layer, returning every intermediate the fold transfer
