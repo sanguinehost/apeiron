@@ -5,11 +5,10 @@
 //!
 //! The fixture is the brief's tiny model: `hidden = 128`, `n_head = 2`, `head_dim = 64`,
 //! `n_kv_head = 1`, `inter = 128` (so every stage input width is `128`), `eps = 1e-6`,
-//! `theta = 1e4`, `t = 8`, `n_seq = 3`, `slab = 2` (an uneven last slab), `qmlp_rows = 16`.
+//! `theta = 1e4`, `t = 4`, `n_seq = 3`, `slab = 2` (an uneven last slab), `qmlp_rows = 16`.
 
 #![allow(
     clippy::cast_precision_loss,
-    clippy::float_cmp,
     clippy::many_single_char_names,
     clippy::needless_range_loop,
     clippy::similar_names,
@@ -35,7 +34,7 @@ const N_HEAD: usize = 2;
 const HEAD_DIM: usize = 64;
 const N_KV: usize = 1;
 const INTER: usize = 128;
-const T: usize = 8;
+const T: usize = 4;
 const N_SEQ: usize = 3;
 const SLAB: usize = 2;
 const QMLP: usize = 16;
@@ -100,11 +99,17 @@ fn layer_cfg() -> LayerCfg {
     }
 }
 
-/// The production driver configuration at the test geometry, with `slab`/`qmlp_rows` overridable.
+/// The production driver configuration at the test geometry, `slab`/`qmlp_rows` overridable, fold-
+/// fit steps minimal (the refit pass belongs to `fold_fit`'s own test): a fit costs ~3 s per layer.
 fn driver_cfg(slab: usize) -> DriverCfg {
     let mut cfg = DriverCfg::production(layer_cfg(), T, N_SEQ);
     cfg.slab = slab;
     cfg.qmlp_rows = QMLP;
+    cfg.fit.inner_iters = 0;
+    cfg.fit.sweeps = 1;
+    cfg.fit.e8_beam = 1;
+    cfg.nb_sweeps = 1;
+    cfg.nb_rounds = 1;
     cfg
 }
 

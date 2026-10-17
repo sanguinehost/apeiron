@@ -36,20 +36,19 @@
 #![allow(
     clippy::cast_precision_loss,
     clippy::doc_markdown,
-    clippy::implicit_clone,
     clippy::many_single_char_names,
     clippy::module_name_repetitions,
     clippy::must_use_candidate,
     clippy::needless_range_loop,
+    clippy::ptr_arg,
     clippy::similar_names,
-    clippy::suboptimal_flops,
     clippy::too_many_arguments,
     clippy::too_many_lines,
     reason = "the driver is the ported `run_variant` body: it indexes row-major `[rows, width]` \
               buffers by `r/i/j/k/o`, names the tensors `q/k/v/o/gate/up/down` and the carriers \
               `lt`/`lq`/`hs`/`hs_mid`/`ht` as the reference does, casts dimension counts \
               `usize → f64`, and its stage functions take the reference's argument set; the public \
-              types repeat `driver::` by the brief's naming"
+              types repeat `driver::`; the pub boundary flips to slices in wave 2"
 )]
 
 use crate::learn::fold::fit::fnorm::{fnorm_fit, FnormError};
@@ -650,19 +649,16 @@ fn silu_mul(g: &[f64], u: &[f64]) -> Result<Vec<f64>, DriverError> {
     Ok(reals(&eval(g.len(), Elem::Mul(&sq, &uq))?))
 }
 
-/// `dst = base + add` on the carrier: the student-path accumulations `hs_mid = hs + a·Lq.oᵀ` and
-/// `hs = hs_mid + m·Lq.downᵀ` (`:1960-1967`), and the bias write `Lq[nm + "b"] = Lt[nm + "b"] + db`
-/// (`:1879-1881`).
+/// `base + add` in words, no `f64` round trip: `hs_mid = hs + a·Lq.oᵀ` and
+/// `hs = hs_mid + m·Lq.downᵀ` (`:1960-1967`), which carry `hs_mid` in words between them.
 /// # Errors
-/// [`DriverError::Shape`] on a length mismatch; [`DriverError::Grid`] from a conversion or the
-/// checked sum. Temporal `O(dst.len())`, spatial `O(dst.len())`.
-fn add_into(dst: &mut [f64], base: &[f64], add: &[f64]) -> Result<(), DriverError> {
-    if dst.len() != base.len() || dst.len() != add.len() {
+/// [`DriverError::Shape`] on a length mismatch; [`DriverError::Grid`] from the sum. Temporal and
+/// spatial `O(base.len())`.
+fn add_words(base: &[i64], add: &[i64]) -> Result<Vec<i64>, DriverError> {
+    if base.len() != add.len() {
         return Err(DriverError::Shape);
     }
-    let (bq, aq) = (grids(base)?, grids(add)?);
-    dst.copy_from_slice(&reals(&eval(dst.len(), Elem::Add(&bq, &aq))?));
-    Ok(())
+    Ok(eval(base.len(), Elem::Add(base, add))?)
 }
 
 /// Write the fitted tensor into `lq`: `Lq[nm] = Wp`, and for `q`/`k`/`v` the bias
@@ -697,19 +693,25 @@ fn apply_fit(
     Ok(())
 }
 
-/// `dst[i] = base[i] + db[i]` on the carrier: the `Lq[nm + "b"]` write (`:1879-1881`).
+/// `dst[i] = base[i] + db[i]` on the carrier: the `Lq[nm + "b"]` write (`:1879-1881`), one bias
+/// wide, so it takes the `f64` boundary itself.
 ///
 /// # Errors
-/// [`DriverError::Shape`] if a bias is missing or a length disagrees; else as [`add_into`].
+/// [`DriverError::Shape`] if a bias is missing or a length disagrees; else as [`add_words`].
 fn set_bias(dst: &mut [f64], base: &[f64], db: Option<&[f64]>) -> Result<(), DriverError> {
-    add_into(dst, base, db.ok_or(DriverError::Shape)?)
+    let w = add_words(&grids(base)?, &grids(db.ok_or(DriverError::Shape)?)?)?;
+    if w.len() != dst.len() {
+        return Err(DriverError::Shape);
+    }
+    dst.copy_from_slice(&reals(&w));
+    Ok(())
 }
 
 /// One stage of a layer: the slab Gram accumulation (`:1538-1648`), the `fold_gqa` solve
-/// (`:1652-1682`) and the per-tensor fit (`:1692-1957`), writing each fit into `lq`. `hs_mid` feeds
-/// the `ffn`/`down` stage input; the sink weights of every stage read `hs`. Temporal
-/// `O(Σ_slabs rows·n² + Σ_j n³)`, dominated by the seven [`fit_tensor`] calls; spatial
-/// `O(n² + Σ_j n·outs_j + Σ_slabs rows·n)`.
+/// (`:1652-1682`) and the per-tensor fit (`:1692-1957`), writing each fit into `lq`. The word-form
+/// `hs_mid` feeds `ffn`/`down`, materialised per slab for `stats::parts`; the sink weights of every
+/// stage read `hs`. Temporal `O(Σ_slabs rows·n² + Σ_j n³)`, dominated by the seven [`fit_tensor`]
+/// calls; spatial `O(n² + Σ_j n·outs_j + Σ_slabs rows·n)`.
 /// # Errors
 /// [`DriverError::Shape`]/[`DriverError::NonFinite`] on a length or finiteness mismatch, and every
 /// refusal of [`sink_token_weights`], [`StageAccum::add_slab`], [`solve_stage`], [`fit_tensor`],
@@ -724,7 +726,7 @@ fn run_stage(
     pt_cache: &[SlabParts],
     ht: &[f64],
     hs: &[f64],
-    hs_mid: &[f64],
+    hs_mid: &[i64],
 ) -> Result<StageOut, DriverError> {
     let hid = cfg.layer.hidden;
     let inter = cfg.layer.inter;
@@ -760,13 +762,13 @@ fn run_stage(
                 a
             }
             StageId::Ffn => {
-                let mid = hs_mid[row0 * hid..row0 * hid + rows * hid].to_vec();
+                let mid = reals(&hs_mid[row0 * hid..row0 * hid + rows * hid]);
                 let x = rms(&mid, &lq.ln2, eps, rows, hid)?;
                 pin_mid = Some(mid);
                 x
             }
             StageId::Down => {
-                let mid = hs_mid[row0 * hid..row0 * hid + rows * hid].to_vec();
+                let mid = reals(&hs_mid[row0 * hid..row0 * hid + rows * hid]);
                 let xf = rms(&mid, &lq.ln2, eps, rows, hid)?;
                 let g = linear(&xf, rows, hid, &lq.gate, None, inter)?;
                 let u = linear(&xf, rows, hid, &lq.up, None, inter)?;
@@ -1025,8 +1027,9 @@ pub fn quantise_layer(
     }
 
     let mut lq = lt.clone();
-    let hs_in = hs.clone();
-    let mut hs_mid = vec![0.0_f64; total];
+    // The student path crosses the carrier once each way: `hs` in words here, the output back out.
+    let hs_w = grids(hs)?;
+    let mut hs_mid = vec![0_i64; total];
     let mut fits: Vec<TensorFit> = Vec::with_capacity(7);
     let mut bits = TensorBits::default();
 
@@ -1040,7 +1043,7 @@ pub fn quantise_layer(
         StageId::Qkv,
         &pt_cache,
         ht,
-        &hs_in,
+        hs,
         &hs_mid,
     )?;
     bits = add_bits(bits, &sum_bits(&s_qkv.fits));
@@ -1056,17 +1059,14 @@ pub fn quantise_layer(
         StageId::O,
         &pt_cache,
         ht,
-        &hs_in,
+        hs,
         &hs_mid,
     )?;
     for (i, &(row0, rows, _)) in geom.iter().enumerate() {
         let add = linear(&s_o.slabs[i], rows, q_out(cfg), &lq.o, None, hid)?;
         let lo = row0 * hid;
-        add_into(
-            &mut hs_mid[lo..lo + rows * hid],
-            &hs_in[lo..lo + rows * hid],
-            &add,
-        )?;
+        let hi = lo + rows * hid;
+        hs_mid[lo..hi].copy_from_slice(&add_words(&hs_w[lo..hi], &grids(&add)?)?);
     }
     bits = add_bits(bits, &sum_bits(&s_o.fits));
     fits.extend(s_o.fits);
@@ -1081,7 +1081,7 @@ pub fn quantise_layer(
         StageId::Ffn,
         &pt_cache,
         ht,
-        &hs_in,
+        hs,
         &hs_mid,
     )?;
     bits = add_bits(bits, &sum_bits(&s_ffn.fits));
@@ -1097,23 +1097,18 @@ pub fn quantise_layer(
         StageId::Down,
         &pt_cache,
         ht,
-        &hs_in,
+        hs,
         &hs_mid,
     )?;
-    let mut hs_out = vec![0.0_f64; total];
     for (i, &(row0, rows, _)) in geom.iter().enumerate() {
         let add = linear(&s_down.slabs[i], rows, cfg.layer.inter, &lq.down, None, hid)?;
         let lo = row0 * hid;
-        add_into(
-            &mut hs_out[lo..lo + rows * hid],
-            &hs_mid[lo..lo + rows * hid],
-            &add,
-        )?;
+        let hi = lo + rows * hid;
+        hs[lo..hi].copy_from_slice(&reals(&add_words(&hs_mid[lo..hi], &grids(&add)?)?));
     }
     bits = add_bits(bits, &sum_bits(&s_down.fits));
     fits.extend(s_down.fits);
 
-    *hs = hs_out;
     Ok(LayerResult {
         lq,
         fits,
