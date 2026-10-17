@@ -68,7 +68,7 @@ use crate::learn::fold::stats::hocapture::Kind;
 use crate::learn::fold::stats::parts::{
     attn_a, linear, parts, rms, LayerCfg, LayerF64, PartsError, RopeTables,
 };
-use crate::learn::solve::q32::Q32Error;
+use crate::learn::solve::q32::{to_grid, Q32Error, GRID_BOUND};
 
 /// A refusal from the layer driver.
 #[derive(Clone, Debug, PartialEq)]
@@ -384,14 +384,15 @@ impl StageId {
         }
     }
 
-    /// The teacher's stage tensors, the solve's `w0` (`:1658`).
-    fn teacher_tensors(self, lt: &LayerWeights) -> Vec<&[f64]> {
-        match self {
-            Self::Qkv => vec![&lt.q, &lt.k, &lt.v],
-            Self::O => vec![&lt.o],
-            Self::Ffn => vec![&lt.gate, &lt.up],
-            Self::Down => vec![&lt.down],
-        }
+    /// The teacher's stage tensors, the solve's `w0` (`:1658`), on the grid.
+    fn teacher_tensors(self, lt: &LayerWeights) -> Result<Vec<Vec<i64>>, DriverError> {
+        let src: &[&[f64]] = match self {
+            Self::Qkv => &[&lt.q, &lt.k, &lt.v],
+            Self::O => &[&lt.o],
+            Self::Ffn => &[&lt.gate, &lt.up],
+            Self::Down => &[&lt.down],
+        };
+        src.iter().map(|s| Ok(grids(s)?)).collect()
     }
 }
 
@@ -403,28 +404,28 @@ impl StageId {
 struct StageOut {
     /// The stage's tensor fits, in fit order.
     fits: Vec<TensorFit>,
-    /// The stage inputs, one flattened `[rows, n]` buffer per slab.
-    slabs: Vec<Vec<f64>>,
+    /// The stage inputs, one flattened `[rows, n]` word buffer per slab.
+    slabs: Vec<Vec<i64>>,
 }
 
 /// The teacher intermediates one slab of the forward keeps (`keep_keys`, `:1526`): the fields the
-/// stage targets read. Row-major `[rows, width]`.
+/// stage targets read. Row-major `[rows, width]` as `Q32.32` words.
 #[derive(Clone, Debug)]
 struct SlabParts {
     /// `xa·qᵀ + qb`, `[rows, q_out]`.
-    q: Vec<f64>,
+    q: Vec<i64>,
     /// `xa·kᵀ + kb`, `[rows, kv_out]`.
-    k: Vec<f64>,
+    k: Vec<i64>,
     /// `xa·vᵀ + vb`, `[rows, kv_out]`.
-    v: Vec<f64>,
+    v: Vec<i64>,
     /// `h + a·oᵀ`, `[rows, hidden]`.
-    mid: Vec<f64>,
+    mid: Vec<i64>,
     /// `xf·gateᵀ`, `[rows, inter]`.
-    g: Vec<f64>,
+    g: Vec<i64>,
     /// `xf·upᵀ`, `[rows, inter]`.
-    u: Vec<f64>,
+    u: Vec<i64>,
     /// the layer output, `[rows, hidden]`.
-    out: Vec<f64>,
+    out: Vec<i64>,
 }
 
 /// `n_head · head_dim`, the query/attention output width. `O(1)`.
@@ -536,7 +537,7 @@ fn batch_parts(
     cfg: &DriverCfg,
     rope: &RopeTables,
     lt: &LayerWeights,
-    h: &[f64],
+    h: &[i64],
     seqs: usize,
     t: usize,
 ) -> Result<SlabParts, DriverError> {
@@ -582,12 +583,12 @@ fn batch_parts(
 fn attn_batch(
     cfg: &DriverCfg,
     rope: &RopeTables,
-    q: &[f64],
-    k: &[f64],
-    v: &[f64],
+    q: &[i64],
+    k: &[i64],
+    v: &[i64],
     seqs: usize,
     t: usize,
-) -> Result<Vec<f64>, DriverError> {
+) -> Result<Vec<i64>, DriverError> {
     let qo = q_out(cfg);
     let kvo = kv_out(cfg);
     if q.len() != seqs * t * qo || k.len() != seqs * t * kvo || v.len() != seqs * t * kvo {
@@ -614,39 +615,40 @@ fn attn_batch(
 /// # Errors
 /// [`DriverError::Shape`] if a length disagrees with `rows`/`w`; [`DriverError::Grid`] from a
 /// conversion or a checked subtraction. Temporal `O(rows·w)`, spatial `O(rows·w)`.
-fn sub_bias(y: &[f64], b: &[f64], rows: usize, w: usize) -> Result<Vec<f64>, DriverError> {
+fn sub_bias(y: &[i64], b: &[f64], rows: usize, w: usize) -> Result<Vec<i64>, DriverError> {
     let rw = rows.checked_mul(w).ok_or(DriverError::Shape)?;
     if w == 0 || y.len() != rw || b.len() != w {
         return Err(DriverError::Shape);
     }
-    let e = Elem::SubBias(&grids(y)?, &grids(b)?, w);
-    Ok(reals(&eval(rw, e)?))
+    let e = Elem::SubBias(y, &grids(b)?, w);
+    Ok(eval(rw, e)?)
 }
 
 /// `(a − b) + (b − c)` on the carrier: the `o` stage's `(Pt.mid − Ht) + (Ht − Hs)` and the `down`
 /// stage's `(Pt.out − Pt.mid) + (Pt.mid − mid)` residual (`:1630`).
 /// # Errors
-/// [`DriverError::Shape`] on a length mismatch; [`DriverError::Grid`] from a conversion or a checked
-/// step. Temporal `O(len)`, spatial `O(len)`.
-fn tri_sub(a: &[f64], b: &[f64], c: &[f64]) -> Result<Vec<f64>, DriverError> {
+/// [`DriverError::Shape`] on a length mismatch; [`DriverError::Grid`] from a checked step.
+/// Temporal `O(len)`, spatial `O(len)`.
+fn tri_sub(a: &[i64], b: &[i64], c: &[i64]) -> Result<Vec<i64>, DriverError> {
     if a.len() != b.len() || a.len() != c.len() {
         return Err(DriverError::Shape);
     }
-    let e = Elem::TriSub(&grids(a)?, &grids(b)?, &grids(c)?);
-    Ok(reals(&eval(a.len(), e)?))
+    let e = Elem::TriSub(a, b, c);
+    Ok(eval(a.len(), e)?)
 }
 
-/// `silu(g)·u` elementwise on the carrier: the `down` stage's gate/up product (`:1904`).
-/// [`crate::learn::fold::stats::parts::silu`] is evaluated here, then rounded once.
+/// `silu(g)·u` elementwise on the carrier: the `down` stage's gate/up product (`:1904`), one
+/// rounded product per entry. `silu` is `tensor`'s `f64` entry [`silu_grid`], so the gate crosses
+/// the grid once out and back at that module boundary; the `u` factor stays words.
 /// # Errors
-/// [`DriverError::Shape`] on a length mismatch; [`DriverError::Grid`] from a conversion or the
+/// [`DriverError::Shape`] on a length mismatch; [`DriverError::Grid`] from the `silu` or the
 /// product. Temporal `O(len)`, spatial `O(len)`.
-fn silu_mul(g: &[f64], u: &[f64]) -> Result<Vec<f64>, DriverError> {
+fn silu_mul(g: &[i64], u: &[i64]) -> Result<Vec<i64>, DriverError> {
     if g.len() != u.len() {
         return Err(DriverError::Shape);
     }
-    let (sq, uq) = (silu_grid(g)?, grids(u)?);
-    Ok(reals(&eval(g.len(), Elem::Mul(&sq, &uq))?))
+    let sq = silu_grid(&reals(g))?;
+    Ok(eval(g.len(), Elem::Mul(&sq, u))?)
 }
 
 /// `base + add` in words, no `f64` round trip: `hs_mid = hs + a·Lq.oᵀ` and
@@ -724,14 +726,15 @@ fn run_stage(
     ln_next: &[f64],
     stage: StageId,
     pt_cache: &[SlabParts],
-    ht: &[f64],
-    hs: &[f64],
+    ht: &[i64],
+    hs: &[i64],
     hs_mid: &[i64],
 ) -> Result<StageOut, DriverError> {
     let hid = cfg.layer.hidden;
     let inter = cfg.layer.inter;
     let t = cfg.t;
-    let eps = cfg.layer.eps;
+    let eps = to_grid(cfg.layer.eps, GRID_BOUND).ok_or(DriverError::Grid)?;
+    let thresh = to_grid(cfg.sink_thresh, GRID_BOUND).ok_or(DriverError::Grid)?;
     let qo = q_out(cfg);
     let kvo = kv_out(cfg);
     let n = stage.input_width(cfg);
@@ -740,38 +743,39 @@ fn run_stage(
     let with_ts = stage.with_ts();
     let geom = slab_geometry(cfg.n_seq, t, cfg.slab)?;
     let mut accum = StageAccum::new(n, &outs, with_ts)?;
-    let mut slab_in: Vec<Vec<f64>> = Vec::with_capacity(geom.len());
+    let mut slab_in: Vec<Vec<i64>> = Vec::with_capacity(geom.len());
+    let (ln1, ln2) = (grids(&lq.ln1)?, grids(&lq.ln2)?);
 
     for (i, &(row0, rows, seqs)) in geom.iter().enumerate() {
         let pt = &pt_cache[i];
         let hts = &ht[row0 * hid..row0 * hid + rows * hid];
         let hss = &hs[row0 * hid..row0 * hid + rows * hid];
-        let mut pin_mid: Option<Vec<f64>> = None;
-        let mut pin_xa: Option<Vec<f64>> = None;
-        let mut pin_xf: Option<Vec<f64>> = None;
+        let mut pin_mid: Option<&[i64]> = None;
+        let mut pin_xa: Option<Vec<i64>> = None;
+        let mut pin_xf: Option<Vec<i64>> = None;
 
-        let pin_in: Vec<f64> = match stage {
-            StageId::Qkv => rms(hss, &lq.ln1, eps, rows, hid)?,
+        let pin_in: Vec<i64> = match stage {
+            StageId::Qkv => rms(hss, &ln1, eps, rows, hid)?,
             StageId::O => {
-                let xa = rms(hss, &lq.ln1, eps, rows, hid)?;
-                let q = linear(&xa, rows, hid, &lq.q, Some(&lq.qb), qo)?;
-                let k = linear(&xa, rows, hid, &lq.k, Some(&lq.kb), kvo)?;
-                let v = linear(&xa, rows, hid, &lq.v, Some(&lq.vb), kvo)?;
+                let xa = rms(hss, &ln1, eps, rows, hid)?;
+                let q = linear(&xa, rows, hid, &grids(&lq.q)?, Some(&grids(&lq.qb)?), qo)?;
+                let k = linear(&xa, rows, hid, &grids(&lq.k)?, Some(&grids(&lq.kb)?), kvo)?;
+                let v = linear(&xa, rows, hid, &grids(&lq.v)?, Some(&grids(&lq.vb)?), kvo)?;
                 let a = attn_batch(cfg, rope, &q, &k, &v, seqs, t)?;
                 pin_xa = Some(xa);
                 a
             }
             StageId::Ffn => {
-                let mid = reals(&hs_mid[row0 * hid..row0 * hid + rows * hid]);
-                let x = rms(&mid, &lq.ln2, eps, rows, hid)?;
+                let mid = &hs_mid[row0 * hid..row0 * hid + rows * hid];
+                let x = rms(mid, &ln2, eps, rows, hid)?;
                 pin_mid = Some(mid);
                 x
             }
             StageId::Down => {
-                let mid = reals(&hs_mid[row0 * hid..row0 * hid + rows * hid]);
-                let xf = rms(&mid, &lq.ln2, eps, rows, hid)?;
-                let g = linear(&xf, rows, hid, &lq.gate, None, inter)?;
-                let u = linear(&xf, rows, hid, &lq.up, None, inter)?;
+                let mid = &hs_mid[row0 * hid..row0 * hid + rows * hid];
+                let xf = rms(mid, &ln2, eps, rows, hid)?;
+                let g = linear(&xf, rows, hid, &grids(&lq.gate)?, None, inter)?;
+                let u = linear(&xf, rows, hid, &grids(&lq.up)?, None, inter)?;
                 let m = silu_mul(&g, &u)?;
                 pin_mid = Some(mid);
                 pin_xf = Some(xf);
@@ -779,19 +783,9 @@ fn run_stage(
             }
         };
 
-        let w_tok = sink_token_weights(
-            hts,
-            &pt.mid,
-            &pt.out,
-            hss,
-            pin_mid.as_deref(),
-            seqs,
-            t,
-            hid,
-            cfg.sink_thresh,
-        )?;
+        let w_tok = sink_token_weights(hts, &pt.mid, &pt.out, hss, pin_mid, seqs, t, hid, thresh)?;
 
-        let (ys, y_ts): (Vec<Vec<f64>>, Vec<Option<Vec<f64>>>) = match stage {
+        let (ys, y_ts): (Vec<Vec<i64>>, Vec<Option<Vec<i64>>>) = match stage {
             StageId::Qkv => (
                 vec![
                     sub_bias(&pt.q, &lt.qb, rows, qo)?,
@@ -803,36 +797,37 @@ fn run_stage(
             StageId::O => {
                 let xa = pin_xa.as_deref().ok_or(DriverError::Shape)?;
                 let y = tri_sub(&pt.mid, hts, hss)?;
-                let qt = linear(xa, rows, hid, &lt.q, Some(&lt.qb), qo)?;
-                let kt = linear(xa, rows, hid, &lt.k, Some(&lt.kb), kvo)?;
-                let vt = linear(xa, rows, hid, &lt.v, Some(&lt.vb), kvo)?;
+                let qt = linear(xa, rows, hid, &grids(&lt.q)?, Some(&grids(&lt.qb)?), qo)?;
+                let kt = linear(xa, rows, hid, &grids(&lt.k)?, Some(&grids(&lt.kb)?), kvo)?;
+                let vt = linear(xa, rows, hid, &grids(&lt.v)?, Some(&grids(&lt.vb)?), kvo)?;
                 let a_ts = attn_batch(cfg, rope, &qt, &kt, &vt, seqs, t)?;
-                let y_ts = linear(&a_ts, rows, qo, &lt.o, None, hid)?;
+                let y_ts = linear(&a_ts, rows, qo, &grids(&lt.o)?, None, hid)?;
                 (vec![y], vec![Some(y_ts)])
             }
             StageId::Ffn => (vec![pt.g.clone(), pt.u.clone()], vec![None, None]),
             StageId::Down => {
                 let xf = pin_xf.as_deref().ok_or(DriverError::Shape)?;
-                let mid = pin_mid.as_deref().ok_or(DriverError::Shape)?;
+                let mid = pin_mid.ok_or(DriverError::Shape)?;
                 let y = tri_sub(&pt.out, &pt.mid, mid)?;
-                let mg = linear(xf, rows, hid, &lt.gate, None, inter)?;
-                let mu = linear(xf, rows, hid, &lt.up, None, inter)?;
+                let mg = linear(xf, rows, hid, &grids(&lt.gate)?, None, inter)?;
+                let mu = linear(xf, rows, hid, &grids(&lt.up)?, None, inter)?;
                 let m_ts = silu_mul(&mg, &mu)?;
-                let y_ts = linear(&m_ts, rows, inter, &lt.down, None, hid)?;
+                let y_ts = linear(&m_ts, rows, inter, &grids(&lt.down)?, None, hid)?;
                 (vec![y], vec![Some(y_ts)])
             }
         };
 
-        let ys_ref: Vec<&[f64]> = ys.iter().map(Vec::as_slice).collect();
-        let yts_ref: Vec<Option<&[f64]>> = y_ts.iter().map(|o| o.as_deref()).collect();
+        let ys_ref: Vec<&[i64]> = ys.iter().map(Vec::as_slice).collect();
+        let yts_ref: Vec<Option<&[i64]>> = y_ts.iter().map(|o| o.as_deref()).collect();
         accum.add_slab(&pin_in, &w_tok, &ys_ref, &yts_ref)?;
         if stage != StageId::Qkv {
             slab_in.push(pin_in);
         }
     }
 
-    let w0 = stage.teacher_tensors(lt);
-    let ws = solve_stage(&accum, &w0, stage.solve_kinds(), &cfg.solve)?;
+    let w0 = stage.teacher_tensors(lt)?;
+    let w0r: Vec<&[i64]> = w0.iter().map(Vec::as_slice).collect();
+    let ws = solve_stage(&accum, &w0r, stage.solve_kinds(), &cfg.solve)?;
 
     let mut fits = Vec::with_capacity(outs.len());
     for (j, &kind) in kinds.iter().enumerate() {
@@ -871,7 +866,7 @@ fn run_stage(
         };
         let mut fit = fit_tensor(
             kind,
-            &ws[j],
+            &reals(&ws[j]),
             &accum.hm,
             o,
             n,
@@ -880,7 +875,9 @@ fn run_stage(
             bias,
         )?;
         if kind == TensorKind::Up {
-            let refs: Vec<&[f64]> = slab_in.iter().map(Vec::as_slice).collect();
+            // `resq` is another module's `f64` contract: convert its slabs at that boundary.
+            let slab_f: Vec<Vec<f64>> = slab_in.iter().map(|s| reals(s)).collect();
+            let refs: Vec<&[f64]> = slab_f.iter().map(Vec::as_slice).collect();
             let s_sol = resq_scale(&ResqInputs {
                 x_slabs: &refs,
                 n: hid,
@@ -1019,16 +1016,18 @@ pub fn quantise_layer(
     let geom = slab_geometry(cfg.n_seq, t, cfg.slab)?;
     let mut pt_cache: Vec<SlabParts> = Vec::with_capacity(geom.len());
     let mut ht_next = Vec::with_capacity(total);
+    // `ht` and `hs` cross onto the carrier once per call; `ht_next` and the student output leave
+    // it once (their `f64` fields are the `ModelState`/`LayerResult` boundary).
+    let ht_w = grids(ht)?;
+    let hs_w = grids(hs)?;
     for &(row0, rows, seqs) in &geom {
-        let hts = &ht[row0 * hid..row0 * hid + rows * hid];
+        let hts = &ht_w[row0 * hid..row0 * hid + rows * hid];
         let p = batch_parts(cfg, rope, lt, hts, seqs, t)?;
-        ht_next.extend_from_slice(&p.out);
+        ht_next.extend_from_slice(&reals(&p.out));
         pt_cache.push(p);
     }
 
     let mut lq = lt.clone();
-    // The student path crosses the carrier once each way: `hs` in words here, the output back out.
-    let hs_w = grids(hs)?;
     let mut hs_mid = vec![0_i64; total];
     let mut fits: Vec<TensorFit> = Vec::with_capacity(7);
     let mut bits = TensorBits::default();
@@ -1042,8 +1041,8 @@ pub fn quantise_layer(
         ln_next,
         StageId::Qkv,
         &pt_cache,
-        ht,
-        hs,
+        &ht_w,
+        &hs_w,
         &hs_mid,
     )?;
     bits = add_bits(bits, &sum_bits(&s_qkv.fits));
@@ -1058,15 +1057,15 @@ pub fn quantise_layer(
         ln_next,
         StageId::O,
         &pt_cache,
-        ht,
-        hs,
+        &ht_w,
+        &hs_w,
         &hs_mid,
     )?;
     for (i, &(row0, rows, _)) in geom.iter().enumerate() {
-        let add = linear(&s_o.slabs[i], rows, q_out(cfg), &lq.o, None, hid)?;
+        let add = linear(&s_o.slabs[i], rows, q_out(cfg), &grids(&lq.o)?, None, hid)?;
         let lo = row0 * hid;
         let hi = lo + rows * hid;
-        hs_mid[lo..hi].copy_from_slice(&add_words(&hs_w[lo..hi], &grids(&add)?)?);
+        hs_mid[lo..hi].copy_from_slice(&add_words(&hs_w[lo..hi], &add)?);
     }
     bits = add_bits(bits, &sum_bits(&s_o.fits));
     fits.extend(s_o.fits);
@@ -1080,8 +1079,8 @@ pub fn quantise_layer(
         ln_next,
         StageId::Ffn,
         &pt_cache,
-        ht,
-        hs,
+        &ht_w,
+        &hs_w,
         &hs_mid,
     )?;
     bits = add_bits(bits, &sum_bits(&s_ffn.fits));
@@ -1096,15 +1095,22 @@ pub fn quantise_layer(
         ln_next,
         StageId::Down,
         &pt_cache,
-        ht,
-        hs,
+        &ht_w,
+        &hs_w,
         &hs_mid,
     )?;
     for (i, &(row0, rows, _)) in geom.iter().enumerate() {
-        let add = linear(&s_down.slabs[i], rows, cfg.layer.inter, &lq.down, None, hid)?;
+        let add = linear(
+            &s_down.slabs[i],
+            rows,
+            cfg.layer.inter,
+            &grids(&lq.down)?,
+            None,
+            hid,
+        )?;
         let lo = row0 * hid;
         let hi = lo + rows * hid;
-        hs[lo..hi].copy_from_slice(&reals(&add_words(&hs_mid[lo..hi], &grids(&add)?)?));
+        hs[lo..hi].copy_from_slice(&reals(&add_words(&hs_mid[lo..hi], &add)?));
     }
     bits = add_bits(bits, &sum_bits(&s_down.fits));
     fits.extend(s_down.fits);

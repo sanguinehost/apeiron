@@ -28,6 +28,25 @@ use apeiron::learn::fold::layer::driver::{
 use apeiron::learn::fold::layer::stage::sink_token_weights;
 use apeiron::learn::fold::layer::tensor::TensorKind;
 use apeiron::learn::fold::stats::parts::{parts, LayerCfg, RopeTables};
+use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
+
+/// The `Q32.32` word of `1.0`.
+const ONE: i64 = 1 << 32;
+
+/// `x` as a `Q32.32` word.
+fn q(x: f64) -> i64 {
+    to_grid(x, GRID_BOUND).expect("grid")
+}
+
+/// A slice as words.
+fn qv(x: &[f64]) -> Vec<i64> {
+    x.iter().map(|&v| q(v)).collect()
+}
+
+/// A word slice as reals.
+fn unq(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&v| from_grid(v)).collect()
+}
 
 const HID: usize = 128;
 const N_HEAD: usize = 2;
@@ -273,22 +292,28 @@ fn b_student_path_equals_forward() {
     let seq_len = T * hid;
     for s in 0..N_SEQ {
         let row = s * seq_len;
-        let want = parts(
+        let want = unq(&parts(
             &cfg.layer,
             &rope,
             &res.lq.as_f64(),
-            &hs_in[row..row + seq_len],
+            &qv(&hs_in[row..row + seq_len]),
             T,
         )
         .expect("forward")
-        .out;
+        .out);
         let got = &hs[row..row + seq_len];
         let e = rel_err(got, &want);
         assert!(e <= 1e-9, "student seq {s}: rel {e:e}");
 
-        let want_t = parts(&cfg.layer, &rope, &lt.as_f64(), &ht[row..row + seq_len], T)
-            .expect("teacher forward")
-            .out;
+        let want_t = unq(&parts(
+            &cfg.layer,
+            &rope,
+            &lt.as_f64(),
+            &qv(&ht[row..row + seq_len]),
+            T,
+        )
+        .expect("teacher forward")
+        .out);
         let got_t = &res.ht_next[row..row + seq_len];
         let et = rel_err(got_t, &want_t);
         assert!(et <= 1e-9, "teacher seq {s}: rel {et:e}");
@@ -524,10 +549,20 @@ fn e_slab_size_matters() {
         let row = s0 * T * HID;
         let hts = &ht[row..row + T * HID];
         let hss = &hs_in[row..row + T * HID];
-        let p = parts(&cfg3.layer, &rope, &lt.as_f64(), hts, T).expect("teacher");
-        let w = sink_token_weights(hts, &p.mid, &p.out, hss, None, 1, T, HID, cfg3.sink_thresh)
-            .expect("weights");
-        sink_counts.push(w.iter().filter(|x| **x < 1.0).count());
+        let p = parts(&cfg3.layer, &rope, &lt.as_f64(), &qv(hts), T).expect("teacher");
+        let w = sink_token_weights(
+            &qv(hts),
+            &p.mid,
+            &p.out,
+            &qv(hss),
+            None,
+            1,
+            T,
+            HID,
+            q(cfg3.sink_thresh),
+        )
+        .expect("weights");
+        sink_counts.push(w.iter().filter(|x| **x < ONE).count());
         mid_all.extend_from_slice(&p.mid);
         out_all.extend_from_slice(&p.out);
     }
@@ -536,18 +571,18 @@ fn e_slab_size_matters() {
     // The same weights on the whole slab in one call (`seqs = N_SEQ`): the median is taken over
     // every sequence at once, so the scaled sequence's positions fall below the threshold.
     let w_all = sink_token_weights(
-        &ht,
+        &qv(&ht),
         &mid_all,
         &out_all,
-        &hs_in,
+        &qv(&hs_in),
         None,
         N_SEQ,
         T,
         HID,
-        cfg3.sink_thresh,
+        q(cfg3.sink_thresh),
     )
     .expect("weights");
-    let total_all = w_all.iter().filter(|x| **x < 1.0).count();
+    let total_all = w_all.iter().filter(|x| **x < ONE).count();
 
     let diff = r1
         .fits

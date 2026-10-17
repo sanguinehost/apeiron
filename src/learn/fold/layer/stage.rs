@@ -189,10 +189,10 @@ fn norm_row(row: &[i64]) -> Result<i64, StageError> {
     narrow(isqrt(acc))
 }
 
-/// The `Q32.32` L2 norm of the `f64` row `a[base..base + width]`, converted on the fly.
-fn norm_at(a: &[f64], base: usize, width: usize) -> Result<i64, StageError> {
+/// The `Q32.32` L2 norm of the word row `a[base..base + width]`.
+fn norm_at(a: &[i64], base: usize, width: usize) -> Result<i64, StageError> {
     let acc = (base..base + width).try_fold(0i128, |acc, k| {
-        let v = i128::from(word(a[k])?);
+        let v = i128::from(a[k]);
         acc.checked_add(v * v).ok_or(StageError::Overflow)
     })?;
     narrow(isqrt(acc))
@@ -225,7 +225,7 @@ fn words(src: &[f64]) -> Result<Vec<i64>, StageError> {
     reason = "the three panels are produced and consumed together by every caller."
 )]
 fn panels(
-    src: &[f64],
+    src: &[i64],
     w: &[i64],
     rows: usize,
     out: usize,
@@ -235,7 +235,7 @@ fn panels(
     let mut col = vec![0i128; out];
     for r in 0..rows {
         for o in 0..out {
-            let v = word(src[r * out + o])?;
+            let v = src[r * out + o];
             plain[o * rows + r] = v;
             let c = col[o].checked_add(i128::from(v));
             col[o] = c.ok_or(StageError::Overflow)?;
@@ -367,39 +367,37 @@ fn dot(
 /// `r_tok > thresh·r_med ? r_med/max(r_tok, 1e-6) : 1` per token (`fold_transfer.py:1592-1597`).
 /// `r_t = max(‖h_t‖, ‖p_mid‖, ‖p_out‖)`, `r_s = max(‖h_s‖, ‖p_in_mid‖)`, `r_tok = max(r_t, r_s)`;
 /// `r_med` is the median of `r_t` over positions `>= 1` of every sequence (`torch.median`'s lower
-/// middle element). Inputs are row-major `[seqs·t, width]`.
+/// middle element). Inputs are row-major `[seqs·t, width]` `Q32.32` words, `thresh` a word; the
+/// result is one weight word per token.
 /// # Complexity
 /// Time `O(seqs·t·width + k·log k)`, `k = seqs·(t−1)`, serial; space `O(seqs·t + k)`.
 /// # Errors
 /// [`StageError::Empty`] for `t < 2`, [`StageError::Shape`] on a length mismatch,
-/// [`StageError::NonFinite`] on a NaN/∞ entry, [`StageError::Overflow`] on a checked step.
+/// [`StageError::Overflow`] on a checked step.
 #[allow(
     clippy::too_many_arguments,
     reason = "the reference passes the tapped tensors, the stage input, the optional mid input, the \
               geometry and the threshold separately (`fold_transfer.py:1592-1597`)."
 )]
 pub fn sink_token_weights(
-    h_t: &[f64],
-    p_mid: &[f64],
-    p_out: &[f64],
-    h_s: &[f64],
-    p_in_mid: Option<&[f64]>,
+    h_t: &[i64],
+    p_mid: &[i64],
+    p_out: &[i64],
+    h_s: &[i64],
+    p_in_mid: Option<&[i64]>,
     seqs: usize,
     t: usize,
     width: usize,
-    thresh: f64,
-) -> Result<Vec<f64>, StageError> {
+    thresh: i64,
+) -> Result<Vec<i64>, StageError> {
     let rows = seqs * t;
     if rows == 0 || width == 0 || t < 2 {
         return Err(StageError::Empty);
     }
     let ins = [h_t, p_mid, p_out, h_s];
-    let bad = |s: &[f64]| s.len() != rows * width;
+    let bad = |s: &[i64]| s.len() != rows * width;
     if ins.iter().any(|s| bad(s)) || p_in_mid.is_some_and(bad) {
         return Err(StageError::Shape);
-    }
-    if !ins.iter().all(|s| finite(s)) || p_in_mid.is_some_and(|p| !finite(p)) {
-        return Err(StageError::NonFinite);
     }
     let mut r_t = vec![0i64; rows];
     for r in 0..rows {
@@ -417,8 +415,7 @@ pub fn sink_token_weights(
     }
     med.sort_unstable();
     let r_med = med[(med.len() - 1) / 2];
-    let thresh_q = word(thresh)?;
-    let mut w = vec![0.0f64; rows];
+    let mut w = vec![0i64; rows];
     for r in 0..rows {
         let base = r * width;
         let mut rs = norm_at(h_s, base, width)?;
@@ -427,10 +424,10 @@ pub fn sink_token_weights(
         }
         let tok = r_t[r].max(rs).max(MIN_ROW_NORM);
         let num = i128::from(r_med) << 32;
-        w[r] = if i128::from(tok) * i128::from(ONE) > i128::from(thresh_q) * i128::from(r_med) {
-            from_grid(narrow(div_round(num, i128::from(tok))?)?)
+        w[r] = if i128::from(tok) * i128::from(ONE) > i128::from(thresh) * i128::from(r_med) {
+            narrow(div_round(num, i128::from(tok))?)?
         } else {
-            1.0
+            ONE
         };
     }
     Ok(w)
@@ -495,22 +492,23 @@ impl StageAccum {
         })
     }
 
-    /// Fold one slab: `x` row-major `[rows, n]`, `w_tok` length `rows`, `ys[j]` row-major
-    /// `[rows, outs[j]]`, `y_ts[j]` the `o`/`down` target block (`None` where `with_ts[j]` is
-    /// `false`). Accumulates `Hm`, `Hm_w`, `Cs`, `Cts`, `x_sum`, `y_sum` and the token count
+    /// Fold one slab, every tensor `Q32.32` words: `x` row-major `[rows, n]`, `w_tok` length
+    /// `rows`, `ys[j]` row-major `[rows, outs[j]]`, `y_ts[j]` the `o`/`down` target block (`None`
+    /// where `with_ts[j]` is `false`). Accumulates `Hm`, `Hm_w`, `Cs`, `Cts`, `x_sum`, `y_sum` and
+    /// the token count
     /// (`fold_transfer.py:1590-1647`) with every contraction an exact `i128` sum rounded once.
     /// # Complexity
     /// Time `O(rows·(n² + n·Σ outs))` `i128` multiply-adds; the pooled Gram (`rows·n²`) dominates;
     /// space `O(rows·(n + Σ outs) + n²)`.
     /// # Errors
     /// [`StageError::Shape`] on a length or geometry mismatch (including a missing `y_ts[j]`),
-    /// [`StageError::NonFinite`] on a NaN/∞ entry, [`StageError::Overflow`] on a checked step.
+    /// [`StageError::Overflow`] on a checked step.
     pub fn add_slab(
         &mut self,
-        x: &[f64],
-        w_tok: &[f64],
-        ys: &[&[f64]],
-        y_ts: &[Option<&[f64]>],
+        x: &[i64],
+        w_tok: &[i64],
+        ys: &[&[i64]],
+        y_ts: &[Option<&[i64]>],
     ) -> Result<(), StageError> {
         let rows = w_tok.len();
         let n = self.n;
@@ -525,15 +523,7 @@ impl StageAccum {
         {
             return Err(StageError::Shape);
         }
-        if !finite(x)
-            || !finite(w_tok)
-            || ys.iter().any(|s| !finite(s))
-            || (0..m).any(|j| self.with_ts[j] && y_ts[j].is_some_and(|s| !finite(s)))
-        {
-            return Err(StageError::NonFinite);
-        }
-        let wq = words(w_tok)?;
-        let (xt, xwt, xsum) = panels(x, &wq, rows, n)?;
+        let (xt, xwt, xsum) = panels(x, w_tok, rows, n)?;
         let mut g = vec![0i64; n * n];
         dot(&mut g, &xt, &xt, rows, n, true)?;
         for (h, &v) in self.hm.iter_mut().zip(&g) {
@@ -548,13 +538,13 @@ impl StageAccum {
         }
         for j in 0..m {
             let out = self.outs[j];
-            let (_, ywt, ysum) = panels(ys[j], &wq, rows, out)?;
+            let (_, ywt, ysum) = panels(ys[j], w_tok, rows, out)?;
             dot(&mut self.cs[j], &xwt, &ywt, rows, out, false)?;
             for (s, &v) in self.y_sum[j].iter_mut().zip(&ysum) {
                 *s += from_grid(narrow(v)?);
             }
             if let Some(yts) = y_ts[j].filter(|_| self.with_ts[j]) {
-                let twt = panels(yts, &wq, rows, out)?.1;
+                let twt = panels(yts, w_tok, rows, out)?.1;
                 dot(&mut self.cts[j], &xwt, &twt, rows, out, false)?;
             }
         }
@@ -568,7 +558,8 @@ impl StageAccum {
 /// `C_intra = Cts − H_solve·W0ᵀ` and `C_inter = Cs − Cts`, solved at `ridge_intra·(n/n_ref)` and
 /// `ridge_inter·(n/n_ref)`, combined as `dW = dW_intra + inter_gamma·dW_inter` and row-capped at
 /// `sink_tau·max(‖W0_row‖, 1e-6)` under `sink_tau > 0`. Other kinds solve the direct residual
-/// `Cs − H_solve·W0ᵀ` at `ridge_w0_gqa·(n/n_ref)` and step by `gin`.
+/// `Cs − H_solve·W0ᵀ` at `ridge_w0_gqa·(n/n_ref)` and step by `gin`. `w0` and the returned `Ws`
+/// are `Q32.32` words; the caller converts at the fit's `f64` boundary.
 /// # Complexity
 /// Time `O(Σ_j (n³ + n²·outs[j]))` `i128` multiply-adds: one pooled `H·W0ᵀ`, one `Cholesky`
 /// (`n³/3`) and one or two triangular solves per residual; space `O(n² + Σ_j n·outs[j])`.
@@ -578,10 +569,10 @@ impl StageAccum {
 /// [`StageError::Overflow`] on a checked step.
 pub fn solve_stage(
     accum: &StageAccum,
-    w0: &[&[f64]],
+    w0: &[&[i64]],
     kinds: &[Kind],
     p: &SolveParams,
-) -> Result<Vec<Vec<f64>>, StageError> {
+) -> Result<Vec<Vec<i64>>, StageError> {
     let n = accum.n;
     let m = accum.outs.len();
     let bad = |j: usize| w0[j].len() != accum.outs[j] * n;
@@ -591,9 +582,9 @@ pub fn solve_stage(
     let mut ws = Vec::with_capacity(m);
     for j in 0..m {
         let out = accum.outs[j];
-        let wq = words(w0[j])?;
+        let wq = w0[j];
         let mut c0 = vec![0i64; n * out];
-        dot(&mut c0, &accum.hm_w, &wq, n, out, false)?;
+        dot(&mut c0, &accum.hm_w, wq, n, out, false)?;
         let d = if matches!(kinds[j], Kind::O | Kind::Down) {
             if !accum.with_ts[j] {
                 return Err(StageError::MissingCts);
@@ -641,9 +632,9 @@ pub fn solve_stage(
             }
             dw
         };
-        let mut wsj = vec![0.0f64; out * n];
+        let mut wsj = vec![0i64; out * n];
         for at in 0..out * n {
-            wsj[at] = from_grid(wq[at].checked_add(d[at]).ok_or(StageError::Overflow)?);
+            wsj[at] = wq[at].checked_add(d[at]).ok_or(StageError::Overflow)?;
         }
         ws.push(wsj);
     }

@@ -34,6 +34,7 @@ use apeiron::learn::fold::run::transfer::{
 };
 use apeiron::learn::fold::stats::parts::{parts, LayerCfg, RopeTables};
 use apeiron::learn::grad::model::Weights;
+use apeiron::learn::solve::q32::{to_grid, GRID_BOUND};
 use apeiron::sha256::sha256;
 
 const HID: usize = 128;
@@ -439,7 +440,7 @@ fn transfer_qwen05b() {
                 &cfg.layer,
                 &rope,
                 &teacher.layers[l].as_f64(),
-                &st.ht[row..row + t * hid],
+                &words(&st.ht[row..row + t * hid]),
                 t,
             )
             .expect("propagation probe");
@@ -570,7 +571,7 @@ fn layer_wall_probe() {
         &cfg.layer,
         &rope,
         &teacher.layers[0].as_f64(),
-        &st.ht[0..t * hid],
+        &words(&st.ht[0..t * hid]),
         t,
     )
     .expect("propagation probe");
@@ -624,4 +625,11 @@ fn hex(d: &[u8; 32]) -> String {
         s.push(char::from_digit(u32::from(b & 0x0f), 16).unwrap_or('0'));
     }
     s
+}
+
+/// The Q32.32 words of an `f64` checkpoint slice, for the word-typed `parts`.
+fn words(x: &[f64]) -> Vec<i64> {
+    x.iter()
+        .map(|&v| to_grid(v, GRID_BOUND).expect("on grid"))
+        .collect()
 }

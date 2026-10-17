@@ -39,6 +39,25 @@
 use apeiron::learn::fold::stats::parts::{
     attn_a, linear, parts, rms, silu, LayerCfg, LayerF64, PartsError, RopeTables,
 };
+use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
+
+/// `x` as a `Q32.32` word (the boundary the functions now take).
+fn q(x: f64) -> i64 {
+    to_grid(x, GRID_BOUND).expect("grid")
+}
+
+/// A slice as words.
+fn qv(x: &[f64]) -> Vec<i64> {
+    x.iter().map(|&v| q(v)).collect()
+}
+
+/// A word slice as reals, for the `f64` oracle comparisons.
+fn unq(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&v| from_grid(v)).collect()
+}
+
+/// The `Q32.32` word of `1.0`.
+const ONE: i64 = 1 << 32;
 
 /// Query head count.
 const NH: usize = 4;
@@ -164,7 +183,7 @@ fn close(a: &[f64], b: &[f64], tol: f64) {
 }
 
 /// `true` iff the first `rows` rows (width `width`) of `a` and `b` are bitwise equal.
-fn prefix_eq(a: &[f64], b: &[f64], rows: usize, width: usize) -> bool {
+fn prefix_eq(a: &[i64], b: &[i64], rows: usize, width: usize) -> bool {
     a[..rows * width] == b[..rows * width]
 }
 
@@ -252,7 +271,7 @@ fn parts_shapes_are_stated() {
     let mut rng = Lcg::new(1);
     let w = Weights::new(&mut rng, &cfg);
     let h = rng.vec(T * HID);
-    let p = parts(&cfg, &rope, &w.layer(), &h, T).unwrap();
+    let p = parts(&cfg, &rope, &w.layer(), &qv(&h), T).unwrap();
     assert_eq!(
         (p.xa.len(), p.q.len(), p.k.len(), p.v.len()),
         (T * HID, T * HID, T * 16, T * 16)
@@ -275,14 +294,14 @@ fn changing_a_later_token_leaves_earlier_rows_bitwise_unchanged() {
     let mut rng = Lcg::new(2);
     let w = Weights::new(&mut rng, &cfg);
     let h = rng.vec(T * HID);
-    let p0 = parts(&cfg, &rope, &w.layer(), &h, T).unwrap();
+    let p0 = parts(&cfg, &rope, &w.layer(), &qv(&h), T).unwrap();
 
     // Perturb only the last token.
     let mut h2 = h.clone();
     for c in 0..HID {
         h2[(T - 1) * HID + c] += 1.0;
     }
-    let p1 = parts(&cfg, &rope, &w.layer(), &h2, T).unwrap();
+    let p1 = parts(&cfg, &rope, &w.layer(), &qv(&h2), T).unwrap();
 
     // Every part's rows `0..T-1` are unchanged. Rows <= i < T-1 depend only on tokens <= i.
     for i in 0..T - 1 {
@@ -307,14 +326,14 @@ fn changing_a_later_token_leaves_earlier_rows_bitwise_unchanged() {
 #[test]
 fn rms_matches_a_hand_computed_row() {
     // x = [1, -1, 1, -1]: mean square 1, so rsqrt(mean + 0) = 1 and out = w∘x exactly.
-    let x = [1.0, -1.0, 1.0, -1.0];
-    let w = [1.0, 2.0, 3.0, 4.0];
-    let out = rms(&x, &w, 0.0, 1, 4).unwrap();
-    assert_eq!(out, vec![1.0, -2.0, 3.0, -4.0]);
+    let x = [ONE, -ONE, ONE, -ONE];
+    let w = [ONE, 2 * ONE, 3 * ONE, 4 * ONE];
+    let out = rms(&x, &w, 0, 1, 4).unwrap();
+    assert_eq!(out, vec![ONE, -2 * ONE, 3 * ONE, -4 * ONE]);
     // A constant row of ±2 over a width-4 vector: mean square 4, rsqrt = 0.5, out = w∘x/2.
-    let x2 = [2.0, -2.0, 2.0, -2.0];
-    let out2 = rms(&x2, &w, 0.0, 1, 4).unwrap();
-    assert_eq!(out2, vec![1.0, -2.0, 3.0, -4.0]);
+    let x2 = [2 * ONE, -2 * ONE, 2 * ONE, -2 * ONE];
+    let out2 = rms(&x2, &w, 0, 1, 4).unwrap();
+    assert_eq!(out2, vec![ONE, -2 * ONE, 3 * ONE, -4 * ONE]);
 }
 
 #[test]
@@ -366,15 +385,15 @@ fn full_head_attention_equals_naive_triple_loop() {
     let mut rng = Lcg::new(5);
     let w = Weights::new(&mut rng, &cfg);
     let h = rng.vec(T * HID);
-    let p = parts(&cfg, &rope, &w.layer(), &h, T).unwrap();
+    let p = parts(&cfg, &rope, &w.layer(), &qv(&h), T).unwrap();
 
     // `q`, `k`, `v` are the pre-rope projections; the reference rotates and attends independently.
-    let reference = naive_attention(&cfg, &rope, &p.q, &p.k, &p.v, T);
+    let reference = naive_attention(&cfg, &rope, &unq(&p.q), &unq(&p.k), &unq(&p.v), T);
     // Bound derivation: per output entry the score path costs one dot rounding, one scale rounding
     // and an `exp` of ≤ 4 quanta; the value accumulation holds at most `t·head_dim = 48` rounded
     // products, and the final division one more. With |entry| ≤ 2 that is ≤ 64·q·(1 + |entry|).
     let tol: f64 = 64.0 * 2.328_306_436_538_696e-10 * 3.0;
-    close(&p.a, &reference, tol);
+    close(&unq(&p.a), &reference, tol);
     // And the standalone entry point agrees with the one embedded in `parts`.
     let direct = attn_a(&cfg, &rope, &p.q, &p.k, &p.v, T).unwrap();
     assert_eq!(p.a, direct);
@@ -387,11 +406,11 @@ fn gqa_equals_duplicated_kv_heads() {
     let mut rng = Lcg::new(9);
     let w = Weights::new(&mut rng, &cfg);
     let h = rng.vec(T * HID);
-    let p = parts(&cfg, &rope, &w.layer(), &h, T).unwrap();
+    let p = parts(&cfg, &rope, &w.layer(), &qv(&h), T).unwrap();
 
     // Expand the two kv heads to four, duplicating head `hh` from kv head `hh / rep`.
-    let mut k4 = vec![0.0f64; T * HID];
-    let mut v4 = vec![0.0f64; T * HID];
+    let mut k4 = vec![0_i64; T * HID];
+    let mut v4 = vec![0_i64; T * HID];
     for row in 0..T {
         for hh in 0..NH {
             let src = row * (NKV * HD) + (hh / (NH / NKV)) * HD;
@@ -418,14 +437,15 @@ fn out_equals_mid_plus_m_down() {
     let mut rng = Lcg::new(13);
     let w = Weights::new(&mut rng, &cfg);
     let h = rng.vec(T * HID);
-    let p = parts(&cfg, &rope, &w.layer(), &h, T).unwrap();
+    let p = parts(&cfg, &rope, &w.layer(), &qv(&h), T).unwrap();
 
-    let mut expected = p.mid.clone();
+    let (mid, m) = (unq(&p.mid), unq(&p.m));
+    let mut expected = mid;
     for r in 0..T {
         for c in 0..HID {
             let mut acc = 0.0f64;
             for k in 0..INTER {
-                acc += w.down[c * INTER + k] * p.m[r * INTER + k];
+                acc += w.down[c * INTER + k] * m[r * INTER + k];
             }
             expected[r * HID + c] += acc;
         }
@@ -434,7 +454,7 @@ fn out_equals_mid_plus_m_down() {
     // multiply ≈ 3) and `p.m` itself is a grid value, so each of the `inter = 48` products carries
     // ≤ 8·q·|down·u|; the sum is exact and rounds once. With |down·u| ≤ 4 that is ≤ 385·q.
     let tol: f64 = 400.0 * 2.328_306_436_538_696e-10;
-    close(&expected, &p.out, tol);
+    close(&expected, &unq(&p.out), tol);
 }
 
 #[test]
@@ -492,17 +512,15 @@ fn refusals_are_typed() {
 
     // rms refusals.
     assert_eq!(
-        rms(&[0.0; 3], &[1.0; 4], EPS, 1, 4).unwrap_err(),
+        rms(&[0; 3], &[ONE; 4], q(EPS), 1, 4).unwrap_err(),
         PartsError::Shape
     );
     assert_eq!(
-        rms(&[0.0; 4], &[1.0; 3], EPS, 1, 4).unwrap_err(),
+        rms(&[0; 4], &[ONE; 3], q(EPS), 1, 4).unwrap_err(),
         PartsError::Shape
     );
-    assert_eq!(
-        rms(&[0.0; 4], &[1.0; 4], f64::NAN, 1, 4).unwrap_err(),
-        PartsError::NonFinite
-    );
+    // A non-finite `eps` is refused where the caller now converts it (`to_grid`).
+    assert_eq!(to_grid(f64::NAN, GRID_BOUND), None);
 
     // t > t_max, and a layer whose head_dim disagrees with the tables.
     let short = RopeTables::new(&cfg, T).unwrap();
@@ -510,7 +528,7 @@ fn refusals_are_typed() {
     let w = Weights::new(&mut rng, &cfg);
     let h_long = rng.vec((T + 1) * HID);
     assert_eq!(
-        parts(&cfg, &short, &w.layer(), &h_long, T + 1).unwrap_err(),
+        parts(&cfg, &short, &w.layer(), &qv(&h_long), T + 1).unwrap_err(),
         PartsError::RopeTooShort
     );
     let other = LayerCfg {
@@ -520,7 +538,7 @@ fn refusals_are_typed() {
     };
     let rope_other = RopeTables::new(&other, TMAX).unwrap();
     assert_eq!(
-        attn_a(&cfg, &rope_other, &w.q, &w.k, &w.v, T).unwrap_err(),
+        attn_a(&cfg, &rope_other, &qv(&w.q), &qv(&w.k), &qv(&w.v), T).unwrap_err(),
         PartsError::Shape
     );
 
@@ -532,7 +550,7 @@ fn refusals_are_typed() {
     let rope = RopeTables::new(&cfg, TMAX).unwrap();
     let h = rng.vec(T * HID);
     assert_eq!(
-        parts(&cfg, &rope, &broken, &h, T).unwrap_err(),
+        parts(&cfg, &rope, &broken, &qv(&h), T).unwrap_err(),
         PartsError::Shape
     );
 }
@@ -604,13 +622,17 @@ fn word_path_agrees_with_f64_oracle() {
     let x = rng.vec(T * IN);
     let w: Vec<f64> = rng.vec(OUT * IN).iter().map(|v| 0.5 * v).collect();
     let b: Vec<f64> = rng.vec(OUT);
-    let got = linear(&x, T, IN, &w, Some(&b), OUT).unwrap();
-    close(&got, &ref_linear(&x, T, IN, &w, Some(&b), OUT), 100.0 * Q);
+    let got = linear(&qv(&x), T, IN, &qv(&w), Some(&qv(&b)), OUT).unwrap();
+    close(
+        &unq(&got),
+        &ref_linear(&x, T, IN, &w, Some(&b), OUT),
+        100.0 * Q,
+    );
 
     let xr = rng.vec(T * W);
     let wr: Vec<f64> = rng.vec(W).iter().map(|v| 1.0 + 0.1 * v).collect();
-    let gotr = rms(&xr, &wr, EPS, T, W).unwrap();
-    close(&gotr, &ref_rms(&xr, &wr, EPS, T, W), 16.0 * Q);
+    let gotr = rms(&qv(&xr), &qv(&wr), q(EPS), T, W).unwrap();
+    close(&unq(&gotr), &ref_rms(&xr, &wr, EPS, T, W), 16.0 * Q);
 
     for _ in 0..16 {
         let g = 3.0 * rng.next_f64();
