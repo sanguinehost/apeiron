@@ -88,11 +88,9 @@
 
 use super::gptq_e8_carrier::{
     blen, block_order, div_shift_rne, fx_to_f64, group_scale_int, inter_group_feedback, min_exp,
-    narrow_q, project_scale_int, sum_sq_at, w_to_rows,
+    narrow_q, project_scale_int, project_scale_row, shift_left_i128, sum_sq_at, w_to_rows,
 };
 pub use super::gptq_e8_carrier::{feedback_u, UFac};
-use crate::engine::chart::pool::{for_chunks3, for_chunks4, width_global};
-use crate::engine::chart::task::{Task3, Task4};
 use crate::learn::code::e8::{self, E8Error};
 use crate::learn::solve::q32::{rshift_rne, Fx};
 
@@ -181,266 +179,31 @@ fn map_e8(e: E8Error) -> GptqE8Error {
     }
 }
 
-/// Pool task context for [`quantise_pass`]'s row split: the factor `u`, matrix order `n`, the group
-/// `[g0, g0 + gs)` and its block count `nb`, the codebook `cw`, the read-only row sources
-/// `mant`/`e_row`/`a`, and the rows per task `per`.
-struct QuantiseTask<'a> {
-    u: &'a UFac,
-    n: usize,
-    g0: usize,
-    gs: usize,
-    nb: usize,
-    cw: &'a [[i64; BLOCK]; e8::CODEBOOK_LEN],
-    mant: &'a [i64],
-    e_row: &'a [i32],
-    a: &'a [Fx],
-    per: usize,
-}
-
-impl Task3<Fx, Fx, u16, GptqE8Error> for QuantiseTask<'_> {
-    /// The block loop of [`quantise_pass`] over this task's rows.
-    #[allow(
-        clippy::too_many_lines,
-        reason = "the body is the ported Python block loop, kept line-parallel to it"
-    )]
-    fn run(
-        &self,
-        t: usize,
-        sc: &mut [Fx],
-        eoc: &mut [Fx],
-        ic: &mut [u16],
-    ) -> Result<(), GptqE8Error> {
-        let (u, n, g0, gs, nb, cw) = (self.u, self.n, self.g0, self.gs, self.nb, self.cw);
-        let rows = sc.len() / gs;
-        let lo = t * self.per;
-        let mc = &self.mant[lo * gs..(lo + rows) * gs];
-        let (ec, ac) = (&self.e_row[lo..lo + rows], &self.a[lo..lo + rows]);
-        // The group's working mantissas for this worker's rows: the pristine rows, which
-        // only this worker's intra-group feedback below updates.
-        let mut wk = mc.to_vec();
-        let mut gvec = [0i128; BLOCK];
-        let mut hvec = [0i128; BLOCK];
-        for lr in 0..rows {
-            let er = i64::from(ec[lr]);
-            let am = i128::from(ac[lr].m);
-            let ae = i64::from(ac[lr].e);
-            // `Δ = er + 32 − ae`, the relative scale of the row grid and the `a·2^32` image;
-            // `≈ 62..66` for every fixture, and the sign picks which term of `I_t` shifts.
-            let delta = er + 32 - ae;
-            for m in 0..nb {
-                let b0 = m * BLOCK;
-                // (1) The block's alignment exponent `K = ALIGN − kb`, `kb` the magnitude
-                // class of the largest whitened term of the block. `kb` stays `0` when the
-                // row and the scale are both zero, which makes every cost `0` and leaves
-                // the decision to the tie rule.
-                let mut kb = 0i32;
-                for t in 0..BLOCK {
-                    let j = g0 + b0 + t;
-                    let hjj = u.hat[j * n + j];
-                    if hjj <= 0 {
-                        return Err(GptqE8Error::NotPositiveDefinite);
-                    }
-                    let bh = blen(i128::from(hjj));
-                    let bm = blen(i128::from(wk[lr * gs + b0 + t]));
-                    if bm > 0 {
-                        kb = kb.max(bm + ec[lr] + 32 + u.d[j] - bh + 1);
-                    }
-                    if am != 0 {
-                        // The `34` is the magnitude class of the largest codebook word
-                        // (`sqrt8·2^32`), which multiplies `G_t`.
-                        kb = kb.max(34 + blen(am) + ac[lr].e + u.d[j] - bh + 1);
-                    }
-                }
-                let kal = i64::from(ALIGN - kb);
-                // (2) `G_t = RNE(a·2^-32·S_t)`, `H_t = RNE(w_t·S_t)`.
-                for t in 0..BLOCK {
-                    let j = g0 + b0 + t;
-                    let hjj = i128::from(u.hat[j * n + j]);
-                    let dj = i64::from(u.d[j]);
-                    gvec[t] = div_shift_rne(am, kal + dj + ae, hjj)?;
-                    hvec[t] =
-                        div_shift_rne(i128::from(wk[lr * gs + b0 + t]), er + kal + 32 + dj, hjj)?;
-                }
-                // (3) The exact 256-way scan, ties to the smaller index.
-                let mut best = 0usize;
-                let mut best_cost = i128::MAX;
-                for (k, row) in cw.iter().enumerate() {
-                    let mut cost: i128 = 0;
-                    for t in 0..BLOCK {
-                        let Some(e) = i128::from(row[t])
-                            .checked_mul(gvec[t])
-                            .and_then(|v| v.checked_sub(hvec[t]))
-                        else {
-                            return Err(GptqE8Error::Overflow);
-                        };
-                        let Some(e2) = e.checked_mul(e) else {
-                            return Err(GptqE8Error::Overflow);
-                        };
-                        let Some(next) = cost.checked_add(e2) else {
-                            return Err(GptqE8Error::Overflow);
-                        };
-                        cost = next;
-                    }
-                    if cost < best_cost {
-                        best_cost = cost;
-                        best = k;
-                    }
-                }
-                // (4) The exact residual `E_t = 2^K·e[t]` from the numerator form — the
-                // rounded `G_t`/`H_t` above decide the argmin but must **not** leak their
-                // `2^-26` rounding into the residual the projection and the feedback read.
-                // `E_t = [wk·2^(er+32+dj) − a.m·row[t]·2^(ae+dj)]/hat_jj`; factor the common
-                // `2^(min(er+32,ae)+dj+K)`, so `I_t = wk·2^Δ − a.m·row[t]` (`Δ = er+32−ae`)
-                // when `Δ ≥ 0`, else `wk − a.m·row[t]·2^(−Δ)`, and `E_t = RNE(I_t·2^φ/hat_jj)`.
-                let row = &cw[best];
-                let mut esel = [0i128; BLOCK];
-                for t in 0..BLOCK {
-                    let j = g0 + b0 + t;
-                    let dj = i64::from(u.d[j]);
-                    let va = am
-                        .checked_mul(i128::from(row[t]))
-                        .ok_or(GptqE8Error::Overflow)?;
-                    let (iv, phi) = if delta >= 0 {
-                        let sh = u32::try_from(delta).map_err(|_| GptqE8Error::Overflow)?;
-                        let vw = i128::from(wk[lr * gs + b0 + t])
-                            .checked_shl(sh)
-                            .ok_or(GptqE8Error::Overflow)?;
-                        (
-                            vw.checked_sub(va).ok_or(GptqE8Error::Overflow)?,
-                            kal + ae + dj,
-                        )
-                    } else {
-                        let sh = u32::try_from(-delta).map_err(|_| GptqE8Error::Overflow)?;
-                        let sh = va.checked_shl(sh).ok_or(GptqE8Error::Overflow)?;
-                        (
-                            i128::from(wk[lr * gs + b0 + t])
-                                .checked_sub(sh)
-                                .ok_or(GptqE8Error::Overflow)?,
-                            kal + er + 32 + dj,
-                        )
-                    };
-                    let e = div_shift_rne(iv, phi, i128::from(u.hat[j * n + j]))?;
-                    esel[t] = e;
-                    sc[lr * gs + b0 + t] = Fx { m: row[t], e: -32 };
-                    // `E_t` is already `2^K·e[t] = 2^K·(Z_w − a·Z_c)` in the positive
-                    // convention the Python's `err_sub` uses, so it is stored unnegated.
-                    eoc[lr * gs + b0 + t] =
-                        Fx::from_i128(e, -i32::try_from(kal).map_err(|_| GptqE8Error::Overflow)?)
-                            .map_err(|_| GptqE8Error::Overflow)?;
-                }
-                ic[lr * nb + m] = u16::try_from(best).map_err(|_| GptqE8Error::Codebook)?;
-                let mut c = b0 + BLOCK;
-                while c < gs {
-                    let mut acc: i128 = 0;
-                    for t in 0..BLOCK {
-                        let Some(pr) =
-                            esel[t].checked_mul(i128::from(u.hat[(g0 + b0 + t) * n + g0 + c]))
-                        else {
-                            return Err(GptqE8Error::Overflow);
-                        };
-                        let Some(next) = acc.checked_add(pr) else {
-                            return Err(GptqE8Error::Overflow);
-                        };
-                        acc = next;
-                    }
-                    // `Δw = −acc · 2^(−K − 32 − d_c)`, one RNE rounding to the row's grid
-                    // `2^e_row`.
-                    let sh = -(kal + 32 + i64::from(u.d[g0 + c]) + er);
-                    let Some(neg) = acc.checked_neg() else {
-                        return Err(GptqE8Error::Overflow);
-                    };
-                    let dm = if sh >= 0 {
-                        match u32::try_from(sh)
-                            .ok()
-                            .and_then(|k| 1_i128.checked_shl(k))
-                            .and_then(|p| neg.checked_mul(p))
-                        {
-                            Some(v) => v,
-                            None => return Err(GptqE8Error::Overflow),
-                        }
-                    } else {
-                        match u32::try_from(-sh).ok().and_then(|k| rshift_rne(neg, k)) {
-                            Some(v) => v,
-                            None => return Err(GptqE8Error::Overflow),
-                        }
-                    };
-                    let cur = i128::from(wk[lr * gs + c]);
-                    let Some(next) = cur.checked_add(dm) else {
-                        return Err(GptqE8Error::Overflow);
-                    };
-                    wk[lr * gs + c] = narrow_q(next)?;
-                    c += 1;
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
 /// One quantisation pass over the group `[g0, g1)` of the permuted Hessian factor `u` and the
 /// group's per-row integer weight rows `mant`/`e_row` (row-major `o × (g1 − g0)`, the real weight
 /// is `mant[r·gs + c] · 2^e_row[r]`), at the per-row group scale `a` (the [`group_scale_int`]
 /// outputs).
 ///
-/// # The block right-solve
+/// # The exact step cost
 ///
-/// The stored factor is `U_ij = u.hat[i·n + j] · 2^-32 · 2^-d_j`, row-major `[n, n]` and upper
-/// triangular (`u.hat[i·n + j] = 0` for `j < i`). The `Σ_{k>j}` contraction
-/// `Σ_{k>j} e[k] · u[(b0 + k)·n + (b0 + j)]` reads the strictly below-diagonal entries of that
-/// block — all zero — so the block right-solve it performs is the per-coordinate quotient
-/// `Z[t] = w_sub[t] / U_tt = w_sub[t] · 2^(32 + d_j) / u.hat[j·n + j]`, `j = g0 + b0 + t`. This pass
-/// carries that quotient; a full 8×8 triangular inverse is **not** what the pass computes and would
-/// move every code (measured on the f64 arm at this revision: the quotient reproduces the arm's
-/// argmin 16/16 on the `n = 8` fixture, the full inverse 14/16).
-///
-/// # The exact cost
-///
-/// With the block's alignment exponent `K` and `S_t = 2^(K + 32 + d_j) / u.hat[j·n + j]`, the pair
-/// `G_t = RNE(a · 2^-32 · S_t)` and `H_t = RNE(w_sub[t] · S_t)` makes the Python's block objective
-/// (line 318)
-/// `a²|Z_c[k]|² − 2a⟨Z_w, Z_c[k]⟩ = Σ_t ((cw[k][t]·G_t − H_t)·2^-K)² − |Z_w|²`, so its argmin is the
-/// argmin of the exact `i128` sum `Σ_t (cw[k][t]·G_t − H_t)²` with no rounding inside the 256-way
-/// scan and ties to the smaller index. `K` is chosen per (row, block) as `58 − kb`, where `kb` is
-/// the magnitude class of the largest whitened term of the block, which holds
-/// `|cw[k][t]·G_t| < 2^58` and `|H_t| < 2^58`; hence `Σ_t (…)² < 8·2^118` and every accumulation
-/// below stays inside `i128` (all of them checked, [`GptqE8Error::Overflow`] otherwise). The
-/// residual is **not** `cw[idx][t]·G_t − H_t` (that carries `G_t`'s `2^-26` rounding); it is
-/// recomputed exactly from the numerator form,
-/// `E[t] = 2^K·err_sub[t] = 2^K·(Z_w[t] − a·Z_c[idx][t])`, so `err_sub[t] = E[t]·2^-K` and the
-/// codeword image `s[t] = cw[idx][t]·2^-32` are written on the integer carrier (`Fx`) at full
-/// precision.
-///
-/// # The intra-group feedback
-///
-/// `wk[:, b1:] -= err_sub @ U_blk[b0:b1, b1:]` (line 323): per later column `c` the contraction
-/// `Σ_t E[t] · u.hat[(b0 + t)·n + (g0 + c)]` is accumulated in `i128` and applied to the working
-/// mantissa with a **single** RNE rounding to the row's grid `2^e_row`. One rounding per stored
-/// entry bounds the update's absolute error by `2^(e_row − 1)`, i.e. `2^-35` of the row's maximum
-/// magnitude; the per-entry errors of one group (at most `gs/BLOCK` of them per column) move the
-/// objective by `≈ 2^-31` relative, far inside the `2^-20` the `J` gate allows.
-///
-/// # Threading
-///
-/// Rows are independent given the read-only `u`, `a` and codebook, so the rows are split into
-/// contiguous ranges, one per `width_global()` pool participant, and each range runs the whole block
-/// loop as one pool task. The per-row operation order is unchanged and no quantity is reduced across
-/// rows, so the output — and any refusal — is bit-identical to the serial body.
+/// The block's strictly below-diagonal factor entries are zero, so the block right-solve is the
+/// per-coordinate quotient `Z[t] = w[t]·2^(32 + d_j)/u.hat[j·n + j]`. With the block's alignment
+/// exponent `K` the argmin of `Σ_t (cw[k][t]·G_t − H_t)²` is the Python's block objective argmin,
+/// exactly, in `i128`; the residual `E[t] = 2^K·err_sub[t]` is recomputed from the numerator form so
+/// the rounded `G_t`/`H_t` never enter it. The intra-group feedback `wk[:, b1:] -= E @ U[b0:b1,
+/// b1:]` is one `i128` contraction and one RNE to the row grid per later column. Rows are processed
+/// serially, each independent of the others.
 ///
 /// # Errors
 ///
 /// [`GptqE8Error::ShapeMismatch`] on a buffer of the wrong length, [`GptqE8Error::Codebook`] from
-/// the exact code index decode, [`GptqE8Error::NotPositiveDefinite`] on a non-positive feedback
-/// diagonal and [`GptqE8Error::Overflow`] on a checked `i128` operation. A refusal from a worker is
-/// returned from the lowest row range that produced one.
+/// the code index decode, [`GptqE8Error::NotPositiveDefinite`] on a non-positive diagonal and
+/// [`GptqE8Error::Overflow`] on a checked `i128` operation.
 ///
 /// # Complexity
 ///
-/// - Temporal: `O(o·[gs/8]·256·8 + o·Σ_blocks (gs − b1))` checked `i128` multiply-adds — the
-///   `256·8` scan of the block objective and the intra-group propagation `Σ_blocks 8·(gs − b1)`,
-///   plus the `O([gs/8]·8)` per-row alignment and pair computation. Measure: `i128` multiply-adds.
-///   The row term is independent per row, so the wall-clock span is that term split across the pool.
-/// - Spatial: `O(o·gs)` working `i64` mantissas (one copy per task of its own rows) plus the
-///   `256·8` `i64` codebook; the outputs are caller buffers.
+/// Temporal `O(o·[gs/8]·(256·8 + gs))` checked `i128` multiply-adds; spatial `O(gs)` working words
+/// plus the `256·8` `i64` codebook.
 #[allow(
     clippy::too_many_arguments,
     clippy::too_many_lines,
@@ -449,7 +212,7 @@ impl Task3<Fx, Fx, u16, GptqE8Error> for QuantiseTask<'_> {
               caller's argument count, and the body is kept one block loop parallel to the Python's \
               lines 312–323"
 )]
-fn quantise_pass(
+pub(super) fn quantise_pass(
     u: &UFac,
     n: usize,
     g0: usize,
@@ -473,39 +236,162 @@ fn quantise_pass(
     {
         return Err(GptqE8Error::ShapeMismatch);
     }
-    // The 256 codebook rows once per call, read-only inside the workers.
+    // The 256 codebook rows once per call.
     let mut cw = [[0i64; BLOCK]; e8::CODEBOOK_LEN];
     for (k, row) in cw.iter_mut().enumerate() {
         *row = e8::codeword(k).map_err(map_e8)?;
     }
-    let cw = &cw;
-    let per = o.div_ceil(width_global()).max(1);
-    for_chunks3(
-        s_out,
-        per * gs,
-        e_out,
-        per * gs,
-        i_out,
-        per * nb,
-        &QuantiseTask {
-            u,
-            n,
-            g0,
-            gs,
-            nb,
-            cw,
-            mant,
-            e_row,
-            a,
-            per,
-        },
-    )
+    let mut wk = vec![0i64; gs];
+    let mut gvec = [0i128; BLOCK];
+    let mut hvec = [0i128; BLOCK];
+    let mut esel = [0i128; BLOCK];
+    for lr in 0..o {
+        wk.copy_from_slice(&mant[lr * gs..(lr + 1) * gs]);
+        let er = i64::from(e_row[lr]);
+        let am = i128::from(a[lr].m);
+        let ae = i64::from(a[lr].e);
+        // `Δ = er + 32 − ae`, the relative scale of the row grid and the `a·2^32` image.
+        let delta = er + 32 - ae;
+        for m in 0..nb {
+            let b0 = m * BLOCK;
+            // (1) The block's alignment exponent `K = ALIGN − kb`, `kb` the magnitude class of
+            // the largest whitened term of the block.
+            let mut kb = 0i32;
+            for t in 0..BLOCK {
+                let j = g0 + b0 + t;
+                let hjj = u.hat[j * n + j];
+                if hjj <= 0 {
+                    return Err(GptqE8Error::NotPositiveDefinite);
+                }
+                let bh = blen(i128::from(hjj));
+                let bm = blen(i128::from(wk[b0 + t]));
+                if bm > 0 {
+                    kb = kb.max(bm + e_row[lr] + 32 + u.d[j] - bh + 1);
+                }
+                if am != 0 {
+                    // The `34` is the magnitude class of the largest codebook word
+                    // (`sqrt8·2^32`), which multiplies `G_t`.
+                    kb = kb.max(34 + blen(am) + a[lr].e + u.d[j] - bh + 1);
+                }
+            }
+            let kal = i64::from(ALIGN - kb);
+            // (2) `G_t = RNE(a·2^-32·S_t)`, `H_t = RNE(w_t·S_t)`.
+            for t in 0..BLOCK {
+                let j = g0 + b0 + t;
+                let hjj = i128::from(u.hat[j * n + j]);
+                let dj = i64::from(u.d[j]);
+                gvec[t] = div_shift_rne(am, kal + dj + ae, hjj)?;
+                hvec[t] = div_shift_rne(i128::from(wk[b0 + t]), er + kal + 32 + dj, hjj)?;
+            }
+            // (3) The exact 256-way scan, ties to the smaller index.
+            let mut best = 0usize;
+            let mut best_cost = i128::MAX;
+            for (k, row) in cw.iter().enumerate() {
+                let mut cost: i128 = 0;
+                for t in 0..BLOCK {
+                    let Some(e) = i128::from(row[t])
+                        .checked_mul(gvec[t])
+                        .and_then(|v| v.checked_sub(hvec[t]))
+                    else {
+                        return Err(GptqE8Error::Overflow);
+                    };
+                    let Some(e2) = e.checked_mul(e) else {
+                        return Err(GptqE8Error::Overflow);
+                    };
+                    let Some(next) = cost.checked_add(e2) else {
+                        return Err(GptqE8Error::Overflow);
+                    };
+                    cost = next;
+                }
+                if cost < best_cost {
+                    best_cost = cost;
+                    best = k;
+                }
+            }
+            // (4) The exact residual `E_t = 2^K·e[t]` from the numerator form: the rounded
+            // `G_t`/`H_t` above decide the argmin but must **not** leak their `2^-26` rounding
+            // into the residual the projection and the feedback read.
+            let row = &cw[best];
+            for t in 0..BLOCK {
+                let j = g0 + b0 + t;
+                let dj = i64::from(u.d[j]);
+                let va = am
+                    .checked_mul(i128::from(row[t]))
+                    .ok_or(GptqE8Error::Overflow)?;
+                let (iv, phi) = if delta >= 0 {
+                    let sh = u32::try_from(delta).map_err(|_| GptqE8Error::Overflow)?;
+                    let vw = i128::from(wk[b0 + t])
+                        .checked_shl(sh)
+                        .ok_or(GptqE8Error::Overflow)?;
+                    (
+                        vw.checked_sub(va).ok_or(GptqE8Error::Overflow)?,
+                        kal + ae + dj,
+                    )
+                } else {
+                    let sh = u32::try_from(-delta).map_err(|_| GptqE8Error::Overflow)?;
+                    let sh = va.checked_shl(sh).ok_or(GptqE8Error::Overflow)?;
+                    (
+                        i128::from(wk[b0 + t])
+                            .checked_sub(sh)
+                            .ok_or(GptqE8Error::Overflow)?,
+                        kal + er + 32 + dj,
+                    )
+                };
+                let e = div_shift_rne(iv, phi, i128::from(u.hat[j * n + j]))?;
+                esel[t] = e;
+                s_out[lr * gs + b0 + t] = Fx { m: row[t], e: -32 };
+                // `E_t` is already `2^K·(Z_w − a·Z_c)` in the positive convention the Python's
+                // `err_sub` uses, so it is stored unnegated.
+                e_out[lr * gs + b0 + t] =
+                    Fx::from_i128(e, -i32::try_from(kal).map_err(|_| GptqE8Error::Overflow)?)
+                        .map_err(|_| GptqE8Error::Overflow)?;
+            }
+            i_out[lr * nb + m] = u16::try_from(best).map_err(|_| GptqE8Error::Codebook)?;
+            let mut c = b0 + BLOCK;
+            while c < gs {
+                let mut acc: i128 = 0;
+                for t in 0..BLOCK {
+                    let Some(pr) =
+                        esel[t].checked_mul(i128::from(u.hat[(g0 + b0 + t) * n + g0 + c]))
+                    else {
+                        return Err(GptqE8Error::Overflow);
+                    };
+                    let Some(next) = acc.checked_add(pr) else {
+                        return Err(GptqE8Error::Overflow);
+                    };
+                    acc = next;
+                }
+                // `Δw = −acc · 2^(−K − 32 − d_c)`, one RNE rounding to the row's grid.
+                let sh = -(kal + 32 + i64::from(u.d[g0 + c]) + er);
+                let neg = acc.checked_neg().ok_or(GptqE8Error::Overflow)?;
+                let dm = if sh >= 0 {
+                    match u32::try_from(sh)
+                        .ok()
+                        .and_then(|k| 1_i128.checked_shl(k))
+                        .and_then(|p| neg.checked_mul(p))
+                    {
+                        Some(v) => v,
+                        None => return Err(GptqE8Error::Overflow),
+                    }
+                } else {
+                    match u32::try_from(-sh).ok().and_then(|k| rshift_rne(neg, k)) {
+                        Some(v) => v,
+                        None => return Err(GptqE8Error::Overflow),
+                    }
+                };
+                let cur = i128::from(wk[c]);
+                wk[c] = narrow_q(cur.checked_add(dm).ok_or(GptqE8Error::Overflow)?)?;
+                c += 1;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The `k` smallest `(cost, flat index)` pairs of `cost` by ascending cost, ties to the smaller index:
 /// the `torch.topk(..., largest=False)` order of the Python line 352 (`O(len·k)` `i128`
 /// comparisons on a sorted `k`-window, `O(k)` space; `len = B·256`, `k ≤ MAX_BEAM`).
-fn select_k(cost: &[i128], k: usize, out: &mut Vec<(usize, i128)>) {
+pub(super) fn select_k(cost: &[i128], k: usize, out: &mut Vec<(usize, i128)>) {
     out.clear();
     for (i, &v) in cost.iter().enumerate() {
         let pos = out.partition_point(|&(oi, ov)| ov < v || (ov == v && oi < i));
@@ -519,338 +405,8 @@ fn select_k(cost: &[i128], k: usize, out: &mut Vec<(usize, i128)>) {
 /// The `wscale` second-pass tie rule: the second candidate replaces the first only on a **strictly**
 /// smaller exact `i128` whitened residual norm, so equal norms keep pass 1 (the Python's
 /// `(Err_new*Err_new).sum < (Err1*Err1).sum`). `O(1)`.
-fn second_pass_wins(n1: i128, n2: i128) -> bool {
+pub(super) fn second_pass_wins(n1: i128, n2: i128) -> bool {
     n2 < n1
-}
-
-/// `v·2^s` for `s ≥ 0`, `Some(0)` for zero, `None` when the product leaves `i128` (`O(1)`).
-fn shift_left_checked(v: i128, s: u32) -> Option<i128> {
-    if v == 0 {
-        return Some(0);
-    }
-    if s >= 127 {
-        return None;
-    }
-    v.checked_mul(1_i128 << s)
-}
-
-/// Pool task context for [`beam_pass`]'s row split: the factor `u`, matrix order `n`, the group
-/// `[g0, g0 + gs)` with `nb` blocks, the beam request and its retained width/stride, `wscale`, the
-/// codebook `cw`, the read-only row sources `mant`/`e_row`/`a`, and the rows per task `per`.
-struct BeamTask<'a> {
-    u: &'a UFac,
-    n: usize,
-    g0: usize,
-    gs: usize,
-    nb: usize,
-    beam: usize,
-    cap: usize,
-    stride: usize,
-    wscale: bool,
-    cw: &'a [[i64; BLOCK]; e8::CODEBOOK_LEN],
-    mant: &'a [i64],
-    e_row: &'a [i32],
-    a: &'a [Fx],
-    per: usize,
-}
-
-impl Task4<Fx, Fx, u16, Fx, GptqE8Error> for BeamTask<'_> {
-    /// The block loop of [`beam_pass`] over this task's rows; `an` takes the selected row scale.
-    #[allow(
-        clippy::too_many_lines,
-        reason = "the body is the ported Python beam branch, kept line-parallel to it"
-    )]
-    fn run(
-        &self,
-        t: usize,
-        sc: &mut [Fx],
-        eoc: &mut [Fx],
-        ic: &mut [u16],
-        an: &mut [Fx],
-    ) -> Result<(), GptqE8Error> {
-        let (u, n, g0, gs, nb, beam, cap, stride, wscale, cw) = (
-            self.u,
-            self.n,
-            self.g0,
-            self.gs,
-            self.nb,
-            self.beam,
-            self.cap,
-            self.stride,
-            self.wscale,
-            self.cw,
-        );
-        let rows = sc.len() / gs;
-        let lo = t * self.per;
-        let mc = &self.mant[lo * gs..(lo + rows) * gs];
-        let (ec, ac) = (&self.e_row[lo..lo + rows], &self.a[lo..lo + rows]);
-        let mut wk_c = vec![0i64; stride];
-        let mut s_c = vec![Fx { m: 0, e: 0 }; stride];
-        let mut e_c = vec![Fx { m: 0, e: 0 }; stride];
-        let mut cum_c = vec![0i128; cap];
-        let mut idx_c = vec![0u16; cap * nb];
-        let mut wk_x = vec![0i64; stride];
-        let mut s_x = vec![Fx { m: 0, e: 0 }; stride];
-        let mut e_x = vec![Fx { m: 0, e: 0 }; stride];
-        let mut cum_x = vec![0i128; cap];
-        let mut idx_x = vec![0u16; cap * nb];
-        let mut cost = vec![0i128; cap * e8::CODEBOOK_LEN];
-        let mut base = vec![0i128; cap];
-        let mut sel: Vec<(usize, i128)> = Vec::with_capacity(cap);
-        let mut eproj = vec![Fx { m: 0, e: 0 }; stride];
-        let mut a_cand = vec![Fx { m: 0, e: 0 }; cap];
-        let mut cerr = vec![0i128; cap];
-        let mut a_row = vec![Fx { m: 0, e: 0 }; rows];
-        let mut gvec = [0i128; BLOCK];
-        let mut hvec = [0i128; BLOCK];
-        let mut esel = [0i128; BLOCK];
-        for lr in 0..rows {
-            let am = i128::from(ac[lr].m);
-            let ae = i64::from(ac[lr].e);
-            let er = i64::from(ec[lr]);
-            let delta = er + 32 - ae;
-            wk_c[..gs].copy_from_slice(&mc[lr * gs..(lr + 1) * gs]);
-            s_c[..gs].fill(Fx { m: 0, e: 0 });
-            e_c[..gs].fill(Fx { m: 0, e: 0 });
-            let mut kal_prev: Option<i64> = None;
-            let mut b_cur = 1usize;
-            for m in 0..nb {
-                let b0 = m * BLOCK;
-                let b1 = b0 + BLOCK;
-                let b_next = beam.min(b_cur * e8::CODEBOOK_LEN);
-                // (1) The block's alignment exponent from the largest whitened term over
-                // ALL live beams, so every beam of the block shares `K` and its scale.
-                let mut kb = 0i32;
-                for b in 0..b_cur {
-                    for t in 0..BLOCK {
-                        let j = g0 + b0 + t;
-                        let hjj = u.hat[j * n + j];
-                        if hjj <= 0 {
-                            return Err(GptqE8Error::NotPositiveDefinite);
-                        }
-                        let bh = blen(i128::from(hjj));
-                        let bm = blen(i128::from(wk_c[b * gs + b0 + t]));
-                        if bm > 0 {
-                            kb = kb.max(bm + ec[lr] + 32 + u.d[j] - bh + 1);
-                        }
-                        if am != 0 {
-                            kb = kb.max(34 + blen(am) + ac[lr].e + u.d[j] - bh + 1);
-                        }
-                    }
-                }
-                let kal = i64::from(ALIGN - kb);
-                // (2) `G_t = RNE(a·2^-32·S_t)`, the same for every beam of the row.
-                for t in 0..BLOCK {
-                    let j = g0 + b0 + t;
-                    gvec[t] = div_shift_rne(
-                        am,
-                        kal + i64::from(u.d[j]) + ae,
-                        i128::from(u.hat[j * n + j]),
-                    )?;
-                }
-                // (3) The carried `cum` rescaled to this block's `2^(2K)`: an exact checked
-                // left shift for an increasing `K`, one RNE shift for a decreasing one.
-                for b in 0..b_cur {
-                    base[b] = match kal_prev {
-                        None => 0,
-                        Some(kp) => {
-                            let de = 2 * (kal - kp);
-                            if de >= 0 {
-                                let sh = u32::try_from(de).map_err(|_| GptqE8Error::Overflow)?;
-                                shift_left_checked(cum_c[b], sh).ok_or(GptqE8Error::Overflow)?
-                            } else {
-                                let sh = u32::try_from(-de).map_err(|_| GptqE8Error::Overflow)?;
-                                rshift_rne(cum_c[b], sh).ok_or(GptqE8Error::Overflow)?
-                            }
-                        }
-                    };
-                }
-                // (4) The exact 256-way scan per live beam: `cum + |Z_w − a·Z_c[k]|²` at
-                // the shared scale `2^(2K)`, ties by the selection order.
-                for b in 0..b_cur {
-                    for t in 0..BLOCK {
-                        let j = g0 + b0 + t;
-                        hvec[t] = div_shift_rne(
-                            i128::from(wk_c[b * gs + b0 + t]),
-                            er + kal + 32 + i64::from(u.d[j]),
-                            i128::from(u.hat[j * n + j]),
-                        )?;
-                    }
-                    let bb = base[b];
-                    for (k, row) in cw.iter().enumerate() {
-                        let mut c: i128 = 0;
-                        for t in 0..BLOCK {
-                            let Some(e) = i128::from(row[t])
-                                .checked_mul(gvec[t])
-                                .and_then(|v| v.checked_sub(hvec[t]))
-                            else {
-                                return Err(GptqE8Error::Overflow);
-                            };
-                            let Some(e2) = e.checked_mul(e) else {
-                                return Err(GptqE8Error::Overflow);
-                            };
-                            let Some(next) = c.checked_add(e2) else {
-                                return Err(GptqE8Error::Overflow);
-                            };
-                            c = next;
-                        }
-                        cost[b * e8::CODEBOOK_LEN + k] =
-                            bb.checked_add(c).ok_or(GptqE8Error::Overflow)?;
-                    }
-                }
-                // (5) Keep the `K` smallest pairs and rebuild the beams from their parents.
-                let len = b_cur * e8::CODEBOOK_LEN;
-                select_k(&cost[..len], b_next, &mut sel);
-                for (bi, &(flat, val)) in sel.iter().enumerate() {
-                    let parent = flat / e8::CODEBOOK_LEN;
-                    let c = flat % e8::CODEBOOK_LEN;
-                    let src = parent * gs;
-                    let dst = bi * gs;
-                    wk_x[dst..dst + gs].copy_from_slice(&wk_c[src..src + gs]);
-                    s_x[dst..dst + gs].clone_from_slice(&s_c[src..src + gs]);
-                    e_x[dst..dst + gs].clone_from_slice(&e_c[src..src + gs]);
-                    let row = &cw[c];
-                    // The exact residual `E_t` from the parent's block, as in
-                    // `quantise_pass`: the rounded `G_t`/`H_t` decide the argmin but do not
-                    // enter the residual the projection and the feedback read.
-                    for t in 0..BLOCK {
-                        let j = g0 + b0 + t;
-                        let dj = i64::from(u.d[j]);
-                        let va = am
-                            .checked_mul(i128::from(row[t]))
-                            .ok_or(GptqE8Error::Overflow)?;
-                        let (iv, phi) = if delta >= 0 {
-                            let sh = u32::try_from(delta).map_err(|_| GptqE8Error::Overflow)?;
-                            let vw = i128::from(wk_c[src + b0 + t])
-                                .checked_shl(sh)
-                                .ok_or(GptqE8Error::Overflow)?;
-                            (
-                                vw.checked_sub(va).ok_or(GptqE8Error::Overflow)?,
-                                kal + ae + dj,
-                            )
-                        } else {
-                            let sh = u32::try_from(-delta).map_err(|_| GptqE8Error::Overflow)?;
-                            let sh = va.checked_shl(sh).ok_or(GptqE8Error::Overflow)?;
-                            (
-                                i128::from(wk_c[src + b0 + t])
-                                    .checked_sub(sh)
-                                    .ok_or(GptqE8Error::Overflow)?,
-                                kal + er + 32 + dj,
-                            )
-                        };
-                        let e = div_shift_rne(iv, phi, i128::from(u.hat[j * n + j]))?;
-                        esel[t] = e;
-                        s_x[dst + b0 + t] = Fx { m: row[t], e: -32 };
-                        e_x[dst + b0 + t] = Fx::from_i128(
-                            e,
-                            -i32::try_from(kal).map_err(|_| GptqE8Error::Overflow)?,
-                        )
-                        .map_err(|_| GptqE8Error::Overflow)?;
-                    }
-                    // The intra-group feedback, one RNE rounding per stored entry.
-                    let mut col = b1;
-                    while col < gs {
-                        let mut acc: i128 = 0;
-                        for t in 0..BLOCK {
-                            let Some(pr) = esel[t]
-                                .checked_mul(i128::from(u.hat[(g0 + b0 + t) * n + g0 + col]))
-                            else {
-                                return Err(GptqE8Error::Overflow);
-                            };
-                            let Some(next) = acc.checked_add(pr) else {
-                                return Err(GptqE8Error::Overflow);
-                            };
-                            acc = next;
-                        }
-                        let sh = -(kal + 32 + i64::from(u.d[g0 + col]) + er);
-                        let neg = acc.checked_neg().ok_or(GptqE8Error::Overflow)?;
-                        let dm = if sh >= 0 {
-                            match u32::try_from(sh)
-                                .ok()
-                                .and_then(|k| 1_i128.checked_shl(k))
-                                .and_then(|p| neg.checked_mul(p))
-                            {
-                                Some(v) => v,
-                                None => return Err(GptqE8Error::Overflow),
-                            }
-                        } else {
-                            match u32::try_from(-sh).ok().and_then(|k| rshift_rne(neg, k)) {
-                                Some(v) => v,
-                                None => return Err(GptqE8Error::Overflow),
-                            }
-                        };
-                        let cur = i128::from(wk_c[src + col]);
-                        wk_x[dst + col] =
-                            narrow_q(cur.checked_add(dm).ok_or(GptqE8Error::Overflow)?)?;
-                        col += 1;
-                    }
-                    cum_x[bi] = val;
-                    for mm in 0..m {
-                        idx_x[bi * nb + mm] = idx_c[parent * nb + mm];
-                    }
-                    idx_x[bi * nb + m] = u16::try_from(c).map_err(|_| GptqE8Error::Codebook)?;
-                }
-                core::mem::swap(&mut wk_c, &mut wk_x);
-                core::mem::swap(&mut s_c, &mut s_x);
-                core::mem::swap(&mut e_c, &mut e_x);
-                core::mem::swap(&mut cum_c, &mut cum_x);
-                core::mem::swap(&mut idx_c, &mut idx_x);
-                kal_prev = Some(kal);
-                b_cur = b_next;
-            }
-            if wscale {
-                // The integer project helper: one `u_s` solve and one division per beam.
-                for b in 0..b_cur {
-                    let src = b * gs;
-                    let (ac2, ec2) = project_scale_int(
-                        u,
-                        n,
-                        g0,
-                        gs,
-                        &s_c[src..src + gs],
-                        &e_c[src..src + gs],
-                        &ac[lr..=lr],
-                    )?;
-                    a_cand[b] = ac2[0].clone();
-                    eproj[src..src + gs].clone_from_slice(&ec2);
-                }
-                // The smallest projected residual wins, on the exact `i128` norms at one
-                // shared exponent over the row's beams.
-                let mut rows: Vec<&[Fx]> = Vec::with_capacity(b_cur);
-                for b in 0..b_cur {
-                    rows.push(&eproj[b * gs..(b + 1) * gs]);
-                }
-                let e0 = min_exp(&rows);
-                for b in 0..b_cur {
-                    cerr[b] = sum_sq_at(&eproj[b * gs..(b + 1) * gs], e0)?;
-                }
-                let mut win = 0usize;
-                for b in 1..b_cur {
-                    if cerr[b] < cerr[win] {
-                        win = b;
-                    }
-                }
-                a_row[lr] = a_cand[win].clone();
-                let src = win * gs;
-                for j in 0..gs {
-                    sc[lr * gs + j] = s_c[src + j].clone();
-                    eoc[lr * gs + j] = eproj[src + j].clone();
-                }
-                for mm in 0..nb {
-                    ic[lr * nb + mm] = idx_c[win * nb + mm];
-                }
-            } else {
-                a_row[lr] = ac[lr].clone();
-                sc[lr * gs..(lr + 1) * gs].clone_from_slice(&s_c[..gs]);
-                eoc[lr * gs..(lr + 1) * gs].clone_from_slice(&e_c[..gs]);
-                for mm in 0..nb {
-                    ic[lr * nb + mm] = idx_c[mm];
-                }
-            }
-        }
-        an.clone_from_slice(&a_row);
-        Ok(())
-    }
 }
 
 /// One beam pass over the group `[g0, g1)` of the permuted factor `u` and the group's per-row
@@ -900,24 +456,19 @@ impl Task4<Fx, Fx, u16, Fx, GptqE8Error> for BeamTask<'_> {
 /// the beams are compared on their exact `i128` residual norms at a shared exponent
 /// ([`sum_sq_at`], [`min_exp`]).
 ///
-/// Rows are independent given the read-only `u`, the per-row `a[r]` and the codebook, and `B`
-/// depends on the block index alone, so the rows are split into contiguous ranges, one per
-/// `width_global()` pool participant, each running the whole block loop as one pool task. The
-/// per-row operation order is unchanged and nothing is reduced across rows, so the output — and any
-/// refusal — is bit-identical to the serial body.
+/// Rows are processed serially; `B` depends on the block index alone, so each row's beam state is
+/// independent.
 ///
 /// # Errors
 ///
 /// [`GptqE8Error::ShapeMismatch`] on a wrong-length buffer, [`GptqE8Error::Codebook`] from the code
-/// index decode, [`GptqE8Error::NotPositiveDefinite`] on a non-positive feedback diagonal and
-/// [`GptqE8Error::Overflow`] on a checked `i128` operation; a worker refusal names its lowest row.
+/// index decode, [`GptqE8Error::NotPositiveDefinite`] on a non-positive diagonal and
+/// [`GptqE8Error::Overflow`] on a checked `i128` operation.
 ///
 /// # Complexity
 ///
-/// Temporal `O(o·[gs/8]·beam·256·8 + o·Σ_blocks beam·(gs − b1) + o·beam·gs²)` `i128` multiply-adds
-/// (256-codeword expansion, retained-beam intra-group feedback, `wscale` projection; row term split
-/// across the pool); spatial `O(ceil(o/tasks)·beam·gs)` beam state, a `beam·256` cost buffer per
-/// task, the shared `256·8` `i64` codebook and caller-owned outputs.
+/// Temporal `O(o·[gs/8]·beam·256·8 + o·Σ_blocks beam·(gs − b1) + o·beam·gs²)` `i128` multiply-adds;
+/// spatial `O(beam·gs + beam·256)` row-local beam state plus the `256·8` `i64` codebook.
 #[allow(
     clippy::too_many_arguments,
     reason = "the pass writes three output buffers plus the working rows and reads the factor, the \
@@ -928,7 +479,7 @@ impl Task4<Fx, Fx, u16, Fx, GptqE8Error> for BeamTask<'_> {
     clippy::too_many_lines,
     reason = "the port is kept parallel to the Python's single beam-branch body (lines 333–378)"
 )]
-fn beam_pass(
+pub(super) fn beam_pass(
     u: &UFac,
     n: usize,
     g0: usize,
@@ -960,36 +511,314 @@ fn beam_pass(
     for (k, row) in cw.iter_mut().enumerate() {
         *row = e8::codeword(k).map_err(map_e8)?;
     }
-    let cw = &cw;
-    let per = o.div_ceil(width_global()).max(1);
+    let mut wk_c = vec![0i64; stride];
+    let mut s_c = vec![Fx { m: 0, e: 0 }; stride];
+    let mut e_c = vec![Fx { m: 0, e: 0 }; stride];
+    let mut cum_c = vec![0i128; cap];
+    let mut idx_c = vec![0u16; cap * nb];
+    let mut wk_x = vec![0i64; stride];
+    let mut s_x = vec![Fx { m: 0, e: 0 }; stride];
+    let mut e_x = vec![Fx { m: 0, e: 0 }; stride];
+    let mut cum_x = vec![0i128; cap];
+    let mut idx_x = vec![0u16; cap * nb];
+    let mut cost = vec![0i128; cap * e8::CODEBOOK_LEN];
+    let mut base = vec![0i128; cap];
+    let mut sel: Vec<(usize, i128)> = Vec::with_capacity(cap);
+    let mut eproj = vec![Fx { m: 0, e: 0 }; stride];
+    let mut a_cand = vec![Fx { m: 0, e: 0 }; cap];
+    let mut cerr = vec![0i128; cap];
+    let mut gvec = [0i128; BLOCK];
+    let mut hvec = [0i128; BLOCK];
+    let mut esel = [0i128; BLOCK];
     let mut a_new = vec![Fx { m: 0, e: 0 }; o];
-    for_chunks4(
-        s_out,
-        per * gs,
-        e_out,
-        per * gs,
-        i_out,
-        per * nb,
-        &mut a_new,
-        per,
-        &BeamTask {
-            u,
-            n,
-            g0,
-            gs,
-            nb,
-            beam,
-            cap,
-            stride,
-            wscale,
-            cw,
-            mant,
-            e_row,
-            a,
-            per,
-        },
-    )?;
+    for lr in 0..o {
+        let am = i128::from(a[lr].m);
+        let ae = i64::from(a[lr].e);
+        let er = i64::from(e_row[lr]);
+        let delta = er + 32 - ae;
+        wk_c[..gs].copy_from_slice(&mant[lr * gs..(lr + 1) * gs]);
+        s_c[..gs].fill(Fx { m: 0, e: 0 });
+        e_c[..gs].fill(Fx { m: 0, e: 0 });
+        let mut kal_prev: Option<i64> = None;
+        let mut b_cur = 1usize;
+        for m in 0..nb {
+            let b0 = m * BLOCK;
+            let b1 = b0 + BLOCK;
+            let b_next = beam.min(b_cur * e8::CODEBOOK_LEN);
+            // (1) The block's alignment exponent from the largest whitened term over ALL live
+            // beams, so every beam of the block shares `K` and its scale.
+            let mut kb = 0i32;
+            for b in 0..b_cur {
+                for t in 0..BLOCK {
+                    let j = g0 + b0 + t;
+                    let hjj = u.hat[j * n + j];
+                    if hjj <= 0 {
+                        return Err(GptqE8Error::NotPositiveDefinite);
+                    }
+                    let bh = blen(i128::from(hjj));
+                    let bm = blen(i128::from(wk_c[b * gs + b0 + t]));
+                    if bm > 0 {
+                        kb = kb.max(bm + e_row[lr] + 32 + u.d[j] - bh + 1);
+                    }
+                    if am != 0 {
+                        kb = kb.max(34 + blen(am) + a[lr].e + u.d[j] - bh + 1);
+                    }
+                }
+            }
+            let kal = i64::from(ALIGN - kb);
+            // (2) `G_t = RNE(a·2^-32·S_t)`, the same for every beam of the row.
+            for t in 0..BLOCK {
+                let j = g0 + b0 + t;
+                gvec[t] = div_shift_rne(
+                    am,
+                    kal + i64::from(u.d[j]) + ae,
+                    i128::from(u.hat[j * n + j]),
+                )?;
+            }
+            // (3) The carried `cum` rescaled to this block's `2^(2K)`.
+            for b in 0..b_cur {
+                base[b] = match kal_prev {
+                    None => 0,
+                    Some(kp) => {
+                        let de = 2 * (kal - kp);
+                        if de >= 0 {
+                            let sh = i32::try_from(de).map_err(|_| GptqE8Error::Overflow)?;
+                            shift_left_i128(cum_c[b], sh).ok_or(GptqE8Error::Overflow)?
+                        } else {
+                            let sh = u32::try_from(-de).map_err(|_| GptqE8Error::Overflow)?;
+                            rshift_rne(cum_c[b], sh).ok_or(GptqE8Error::Overflow)?
+                        }
+                    }
+                };
+            }
+            // (4) The exact 256-way scan per live beam.
+            for b in 0..b_cur {
+                for t in 0..BLOCK {
+                    let j = g0 + b0 + t;
+                    hvec[t] = div_shift_rne(
+                        i128::from(wk_c[b * gs + b0 + t]),
+                        er + kal + 32 + i64::from(u.d[j]),
+                        i128::from(u.hat[j * n + j]),
+                    )?;
+                }
+                let bb = base[b];
+                for (k, row) in cw.iter().enumerate() {
+                    let mut c: i128 = 0;
+                    for t in 0..BLOCK {
+                        let Some(e) = i128::from(row[t])
+                            .checked_mul(gvec[t])
+                            .and_then(|v| v.checked_sub(hvec[t]))
+                        else {
+                            return Err(GptqE8Error::Overflow);
+                        };
+                        let Some(e2) = e.checked_mul(e) else {
+                            return Err(GptqE8Error::Overflow);
+                        };
+                        let Some(next) = c.checked_add(e2) else {
+                            return Err(GptqE8Error::Overflow);
+                        };
+                        c = next;
+                    }
+                    cost[b * e8::CODEBOOK_LEN + k] =
+                        bb.checked_add(c).ok_or(GptqE8Error::Overflow)?;
+                }
+            }
+            // (5) Keep the `K` smallest pairs and rebuild the beams from their parents.
+            let len = b_cur * e8::CODEBOOK_LEN;
+            select_k(&cost[..len], b_next, &mut sel);
+            for (bi, &(flat, val)) in sel.iter().enumerate() {
+                let parent = flat / e8::CODEBOOK_LEN;
+                let c = flat % e8::CODEBOOK_LEN;
+                let src = parent * gs;
+                let dst = bi * gs;
+                wk_x[dst..dst + gs].copy_from_slice(&wk_c[src..src + gs]);
+                s_x[dst..dst + gs].clone_from_slice(&s_c[src..src + gs]);
+                e_x[dst..dst + gs].clone_from_slice(&e_c[src..src + gs]);
+                let row = &cw[c];
+                // The exact residual `E_t` from the parent's block, as in `quantise_pass`.
+                for t in 0..BLOCK {
+                    let j = g0 + b0 + t;
+                    let dj = i64::from(u.d[j]);
+                    let va = am
+                        .checked_mul(i128::from(row[t]))
+                        .ok_or(GptqE8Error::Overflow)?;
+                    let (iv, phi) = if delta >= 0 {
+                        let sh = u32::try_from(delta).map_err(|_| GptqE8Error::Overflow)?;
+                        let vw = i128::from(wk_c[src + b0 + t])
+                            .checked_shl(sh)
+                            .ok_or(GptqE8Error::Overflow)?;
+                        (
+                            vw.checked_sub(va).ok_or(GptqE8Error::Overflow)?,
+                            kal + ae + dj,
+                        )
+                    } else {
+                        let sh = u32::try_from(-delta).map_err(|_| GptqE8Error::Overflow)?;
+                        let sh = va.checked_shl(sh).ok_or(GptqE8Error::Overflow)?;
+                        (
+                            i128::from(wk_c[src + b0 + t])
+                                .checked_sub(sh)
+                                .ok_or(GptqE8Error::Overflow)?,
+                            kal + er + 32 + dj,
+                        )
+                    };
+                    let e = div_shift_rne(iv, phi, i128::from(u.hat[j * n + j]))?;
+                    esel[t] = e;
+                    s_x[dst + b0 + t] = Fx { m: row[t], e: -32 };
+                    e_x[dst + b0 + t] =
+                        Fx::from_i128(e, -i32::try_from(kal).map_err(|_| GptqE8Error::Overflow)?)
+                            .map_err(|_| GptqE8Error::Overflow)?;
+                }
+                // The intra-group feedback, one RNE rounding per stored entry.
+                let mut col = b1;
+                while col < gs {
+                    let mut acc: i128 = 0;
+                    for t in 0..BLOCK {
+                        let Some(pr) =
+                            esel[t].checked_mul(i128::from(u.hat[(g0 + b0 + t) * n + g0 + col]))
+                        else {
+                            return Err(GptqE8Error::Overflow);
+                        };
+                        let Some(next) = acc.checked_add(pr) else {
+                            return Err(GptqE8Error::Overflow);
+                        };
+                        acc = next;
+                    }
+                    let sh = -(kal + 32 + i64::from(u.d[g0 + col]) + er);
+                    let neg = acc.checked_neg().ok_or(GptqE8Error::Overflow)?;
+                    let dm = if sh >= 0 {
+                        match u32::try_from(sh)
+                            .ok()
+                            .and_then(|k| 1_i128.checked_shl(k))
+                            .and_then(|p| neg.checked_mul(p))
+                        {
+                            Some(v) => v,
+                            None => return Err(GptqE8Error::Overflow),
+                        }
+                    } else {
+                        match u32::try_from(-sh).ok().and_then(|k| rshift_rne(neg, k)) {
+                            Some(v) => v,
+                            None => return Err(GptqE8Error::Overflow),
+                        }
+                    };
+                    let cur = i128::from(wk_c[src + col]);
+                    wk_x[dst + col] = narrow_q(cur.checked_add(dm).ok_or(GptqE8Error::Overflow)?)?;
+                    col += 1;
+                }
+                cum_x[bi] = val;
+                for mm in 0..m {
+                    idx_x[bi * nb + mm] = idx_c[parent * nb + mm];
+                }
+                idx_x[bi * nb + m] = u16::try_from(c).map_err(|_| GptqE8Error::Codebook)?;
+            }
+            core::mem::swap(&mut wk_c, &mut wk_x);
+            core::mem::swap(&mut s_c, &mut s_x);
+            core::mem::swap(&mut e_c, &mut e_x);
+            core::mem::swap(&mut cum_c, &mut cum_x);
+            core::mem::swap(&mut idx_c, &mut idx_x);
+            kal_prev = Some(kal);
+            b_cur = b_next;
+        }
+        if wscale {
+            // The integer project row body: one `u_s` solve and one division per beam.
+            for b in 0..b_cur {
+                let src = b * gs;
+                a_cand[b] = project_scale_row(
+                    u,
+                    n,
+                    g0,
+                    gs,
+                    &s_c[src..src + gs],
+                    &e_c[src..src + gs],
+                    &a[lr],
+                    &mut eproj[src..src + gs],
+                )?;
+            }
+            // The smallest projected residual wins, on the exact `i128` norms at one shared
+            // exponent over the row's beams.
+            let mut rows: Vec<&[Fx]> = Vec::with_capacity(b_cur);
+            for b in 0..b_cur {
+                rows.push(&eproj[b * gs..(b + 1) * gs]);
+            }
+            let e0 = min_exp(&rows);
+            for b in 0..b_cur {
+                cerr[b] = sum_sq_at(&eproj[b * gs..(b + 1) * gs], e0)?;
+            }
+            let mut win = 0usize;
+            for b in 1..b_cur {
+                if cerr[b] < cerr[win] {
+                    win = b;
+                }
+            }
+            a_new[lr] = a_cand[win].clone();
+            let src = win * gs;
+            for j in 0..gs {
+                s_out[lr * gs + j] = s_c[src + j].clone();
+                e_out[lr * gs + j] = eproj[src + j].clone();
+            }
+            for mm in 0..nb {
+                i_out[lr * nb + mm] = idx_c[win * nb + mm];
+            }
+        } else {
+            a_new[lr] = a[lr].clone();
+            s_out[lr * gs..(lr + 1) * gs].clone_from_slice(&s_c[..gs]);
+            e_out[lr * gs..(lr + 1) * gs].clone_from_slice(&e_c[..gs]);
+            for mm in 0..nb {
+                i_out[lr * nb + mm] = idx_c[mm];
+            }
+        }
+    }
     Ok(a_new)
+}
+
+/// One `wscale` candidate of a group: the per-row scale, codeword image, whitened residual and
+/// codes. Referenced, not owned, so the two passes keep their buffers until the pick.
+struct Cand<'a> {
+    a: &'a [Fx],
+    s: &'a [Fx],
+    e: &'a [Fx],
+    i: &'a [u16],
+}
+
+/// The `wscale` second-pass choice over the `o` rows: the candidate with the strictly smaller exact
+/// `i128` whitened residual norm at the row's shared exponent ([`min_exp`], [`sum_sq_at`]), equal
+/// norms keeping pass 1. `(a, s, e, i)` of the winner is returned in the candidate order.
+///
+/// # Errors
+///
+/// [`GptqE8Error::Overflow`] on a checked `i128` operation.
+///
+/// # Complexity
+///
+/// Temporal `O(o·gs)` checked `i128` multiply-adds (the two norms) plus the `O(o·(gs + gb))`
+/// copies; spatial `O(o·(gs + gb))` for the winner's buffers.
+#[allow(clippy::type_complexity, reason = "the caller's four group buffers")]
+fn second_pass_pick(
+    c1: &Cand<'_>,
+    c2: &Cand<'_>,
+    o: usize,
+    gs: usize,
+    gb: usize,
+) -> Result<(Vec<Fx>, Vec<Fx>, Vec<Fx>, Vec<u16>), GptqE8Error> {
+    let mut a = vec![Fx { m: 0, e: 0 }; o];
+    let mut s = vec![Fx { m: 0, e: 0 }; o * gs];
+    let mut e = vec![Fx { m: 0, e: 0 }; o * gs];
+    let mut i = vec![0u16; o * gb];
+    for r in 0..o {
+        let (e1, e2) = (&c1.e[r * gs..(r + 1) * gs], &c2.e[r * gs..(r + 1) * gs]);
+        let e0 = min_exp(&[e1, e2]);
+        let n1 = sum_sq_at(e1, e0)?;
+        let n2 = sum_sq_at(e2, e0)?;
+        let (c, e_win) = if second_pass_wins(n1, n2) {
+            (&c2, e2)
+        } else {
+            (&c1, e1)
+        };
+        a[r] = c.a[r].clone();
+        s[r * gs..(r + 1) * gs].clone_from_slice(&c.s[r * gs..(r + 1) * gs]);
+        i[r * gb..(r + 1) * gb].copy_from_slice(&c.i[r * gb..(r + 1) * gb]);
+        e[r * gs..(r + 1) * gs].clone_from_slice(e_win);
+    }
+    Ok((a, s, e, i))
 }
 
 /// The GPTQ error feedback of `gptq_e8` (lines 267–397): per 8-block the block-Cholesky CVP
@@ -1092,8 +921,9 @@ pub fn gptq_e8(
             }
             let mut hp = vec![0.0f64; n * n];
             for i in 0..n {
-                for j in 0..n {
-                    hp[i * n + j] = h[perm_col[i] * n + perm_col[j]];
+                let ri = perm_col[i];
+                for c in 0..n {
+                    hp[i * n + c] = h[ri * n + perm_col[c]];
                 }
             }
             (wk, e_row, hp)
@@ -1110,22 +940,15 @@ pub fn gptq_e8(
         let g1 = (g0 + GROUP).min(n);
         let gs = g1 - g0;
         let gb = gs / BLOCK;
-        // The group's integer row slice at the row's exponent: an exact copy, no re-normalisation.
-        let mut gm = vec![0i64; o * gs];
-        for r in 0..o {
-            gm[r * gs..(r + 1) * gs].copy_from_slice(&wk[r * n + g0..r * n + g1]);
-        }
-        // The group scale `a = 0.828·w_rms` with inverse-variance weights `prec_j = 1/U_jj²` (the
+        // The group's integer row slice at the row's exponent (an exact copy, no re-normalisation)
+        // and its scale `a = 0.828·w_rms` with inverse-variance weights `prec_j = 1/U_jj²` (the
         // Python lines 301–303), integer through [`group_scale_int`]; `wscale` does not change the
         // scale rule here — it only adds the projection passes below.
-        let mut a_fx = Vec::with_capacity(o);
+        let mut gm = vec![0i64; o * gs];
+        let mut a_fx = vec![Fx { m: 0, e: 0 }; o];
         for r in 0..o {
-            a_fx.push(group_scale_int(
-                &gm[r * gs..(r + 1) * gs],
-                er[r],
-                &ufac,
-                g0,
-            )?);
+            gm[r * gs..(r + 1) * gs].copy_from_slice(&wk[r * n + g0..r * n + g0 + gs]);
+            a_fx[r] = group_scale_int(&gm[r * gs..(r + 1) * gs], er[r], &ufac, g0)?;
         }
         let (a_best, s_best, e_best, i_best) = if beam == 1 {
             let mut s_best = vec![Fx { m: 0, e: 0 }; o * gs];
@@ -1155,29 +978,23 @@ pub fn gptq_e8(
                 let (a2, e2b) = project_scale_int(&ufac, n, g0, gs, &s2, &e2, &a1)?;
                 // Second pass: keep the candidate with the smaller whitened residual per row, on
                 // the exact `i128` norms at a shared exponent; equal norms keep pass 1.
-                let mut a_fin = Vec::with_capacity(o);
-                let mut s_fin = vec![Fx { m: 0, e: 0 }; o * gs];
-                let mut e_fin = vec![Fx { m: 0, e: 0 }; o * gs];
-                let mut i_fin = vec![0u16; o * gb];
-                for r in 0..o {
-                    let e1r = &e1[r * gs..(r + 1) * gs];
-                    let e2r = &e2b[r * gs..(r + 1) * gs];
-                    let e0 = min_exp(&[e1r, e2r]);
-                    let n1 = sum_sq_at(e1r, e0)?;
-                    let n2 = sum_sq_at(e2r, e0)?;
-                    if second_pass_wins(n1, n2) {
-                        a_fin.push(a2[r].clone());
-                        s_fin[r * gs..(r + 1) * gs].clone_from_slice(&s2[r * gs..(r + 1) * gs]);
-                        e_fin[r * gs..(r + 1) * gs].clone_from_slice(e2r);
-                        i_fin[r * gb..(r + 1) * gb].copy_from_slice(&i2[r * gb..(r + 1) * gb]);
-                    } else {
-                        a_fin.push(a1[r].clone());
-                        s_fin[r * gs..(r + 1) * gs].clone_from_slice(&s_best[r * gs..(r + 1) * gs]);
-                        e_fin[r * gs..(r + 1) * gs].clone_from_slice(e1r);
-                        i_fin[r * gb..(r + 1) * gb].copy_from_slice(&i_best[r * gb..(r + 1) * gb]);
-                    }
-                }
-                (a_fin, s_fin, e_fin, i_fin)
+                second_pass_pick(
+                    &Cand {
+                        a: &a1,
+                        s: &s_best,
+                        e: &e1,
+                        i: &i_best,
+                    },
+                    &Cand {
+                        a: &a2,
+                        s: &s2,
+                        e: &e2b,
+                        i: &i2,
+                    },
+                    o,
+                    gs,
+                    gb,
+                )?
             } else {
                 (a_fx, s_best, e_best, i_best)
             }
@@ -1197,29 +1014,23 @@ pub fn gptq_e8(
                 let a2 = beam_pass(
                     &ufac, n, g0, g1, &gm, &er, &a1, o, beam, true, &mut s2, &mut e2, &mut i2,
                 )?;
-                let mut a_fin = Vec::with_capacity(o);
-                let mut s_fin = vec![Fx { m: 0, e: 0 }; o * gs];
-                let mut e_fin = vec![Fx { m: 0, e: 0 }; o * gs];
-                let mut i_fin = vec![0u16; o * gb];
-                for r in 0..o {
-                    let e1r = &e1[r * gs..(r + 1) * gs];
-                    let e2r = &e2[r * gs..(r + 1) * gs];
-                    let e0 = min_exp(&[e1r, e2r]);
-                    let n1 = sum_sq_at(e1r, e0)?;
-                    let n2 = sum_sq_at(e2r, e0)?;
-                    if second_pass_wins(n1, n2) {
-                        a_fin.push(a2[r].clone());
-                        s_fin[r * gs..(r + 1) * gs].clone_from_slice(&s2[r * gs..(r + 1) * gs]);
-                        e_fin[r * gs..(r + 1) * gs].clone_from_slice(e2r);
-                        i_fin[r * gb..(r + 1) * gb].copy_from_slice(&i2[r * gb..(r + 1) * gb]);
-                    } else {
-                        a_fin.push(a1[r].clone());
-                        s_fin[r * gs..(r + 1) * gs].clone_from_slice(&s1[r * gs..(r + 1) * gs]);
-                        e_fin[r * gs..(r + 1) * gs].clone_from_slice(e1r);
-                        i_fin[r * gb..(r + 1) * gb].copy_from_slice(&i1[r * gb..(r + 1) * gb]);
-                    }
-                }
-                (a_fin, s_fin, e_fin, i_fin)
+                second_pass_pick(
+                    &Cand {
+                        a: &a1,
+                        s: &s1,
+                        e: &e1,
+                        i: &i1,
+                    },
+                    &Cand {
+                        a: &a2,
+                        s: &s2,
+                        e: &e2,
+                        i: &i2,
+                    },
+                    o,
+                    gs,
+                    gb,
+                )?
             } else {
                 (a1, s1, e1, i1)
             }
@@ -1245,7 +1056,6 @@ pub fn gptq_e8(
             let mut scale = vec![Fx { m: 0, e: 0 }; o * ng];
             for r in 0..o {
                 for c in 0..n {
-                    // The permuted position of original column `c`.
                     let p = inv_blk[c / BLOCK] * BLOCK + c % BLOCK;
                     s[r * n + c] = s_p[r * n + p].clone();
                 }
@@ -1260,229 +1070,9 @@ pub fn gptq_e8(
             (s, idx, scale)
         }
     };
-    // The only `f64` conversion of the run: `s` is exact (`|m| ≤ 2^34`) and `scale` is rounded once
-    // to the 53-bit `f64` significand.
-    let s: Vec<f64> = s_fx.iter().map(fx_to_f64).collect();
-    let scale: Vec<f64> = scale_fx.iter().map(fx_to_f64).collect();
+    // The only `f64` conversion of the run, on the output boundary: `s` is exact (`|m| ≤ 2^34`) and
+    // `scale` is rounded once to the 53-bit `f64` significand.
+    let s = s_fx.iter().map(fx_to_f64).collect();
+    let scale = scale_fx.iter().map(fx_to_f64).collect();
     Ok(GptqE8 { s, idx, scale })
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(
-        clippy::cast_possible_wrap,
-        clippy::float_cmp,
-        reason = "the tests compare exact grid images (`assert_eq!` on f64 is the intended \
-                  exactness check) and the LCG maps a shifted `u64` state to the `i64` row words"
-    )]
-
-    use super::super::gptq_e8_carrier::{
-        fx_to_f64, group_scale_int, inter_group_feedback, tri_upper_solve, w_to_rows, UFac,
-    };
-    use super::{beam_pass, feedback_u, quantise_pass, second_pass_wins, Fx, BLOCK};
-
-    /// The pooled block passes are bit-identical to the per-row body: rows are independent and no
-    /// quantity is reduced across rows, so the pool split changes only wall-clock. Exercises the
-    /// `o = 37 > 8` split with a short last range, the `beam = 1` pass and the `beam = 4` beam pass
-    /// under both `wscale` settings.
-    #[test]
-    fn pooled_passes_equal_the_per_row_body() {
-        let (o, n) = (37usize, 128usize);
-        let mut h = vec![0.0f64; n * n];
-        for i in 0..n {
-            h[i * n + i] = 1.0;
-        }
-        let ufac = feedback_u(&h, n, 0.01).expect("SPD factor");
-        let mut state = 0x9E37_79B9_7F4A_7C15u64;
-        let mut w = vec![0.0f64; o * n];
-        for x in &mut w {
-            state = state
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1_442_695_040_888_963_407);
-            *x = (state >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0;
-        }
-        let (mant, e_row) = w_to_rows(&w, o, n).expect("rows");
-        let mut a = Vec::with_capacity(o);
-        for r in 0..o {
-            a.push(group_scale_int(&mant[r * n..(r + 1) * n], e_row[r], &ufac, 0).expect("scale"));
-        }
-        let gb = n / BLOCK;
-        let mut s = vec![Fx { m: 0, e: 0 }; o * n];
-        let mut e = vec![Fx { m: 0, e: 0 }; o * n];
-        let mut idx = vec![0u16; o * gb];
-        quantise_pass(
-            &ufac, n, 0, n, &mant, &e_row, &a, o, &mut s, &mut e, &mut idx,
-        )
-        .expect("quantise_pass");
-        let mut s1 = vec![Fx { m: 0, e: 0 }; o * n];
-        let mut e1 = vec![Fx { m: 0, e: 0 }; o * n];
-        let mut i1 = vec![0u16; o * gb];
-        for r in 0..o {
-            quantise_pass(
-                &ufac,
-                n,
-                0,
-                n,
-                &mant[r * n..(r + 1) * n],
-                &e_row[r..=r],
-                &a[r..=r],
-                1,
-                &mut s1[r * n..(r + 1) * n],
-                &mut e1[r * n..(r + 1) * n],
-                &mut i1[r * gb..(r + 1) * gb],
-            )
-            .expect("quantise_pass, one row");
-        }
-        assert_eq!(s, s1, "pool split changed `s`");
-        assert_eq!(e, e1, "pool split changed `e`");
-        assert_eq!(idx, i1, "pool split changed `idx`");
-        for wscale in [false, true] {
-            let mut s = vec![Fx { m: 0, e: 0 }; o * n];
-            let mut e = vec![Fx { m: 0, e: 0 }; o * n];
-            let mut idx = vec![0u16; o * gb];
-            let a_row = beam_pass(
-                &ufac, n, 0, n, &mant, &e_row, &a, o, 4, wscale, &mut s, &mut e, &mut idx,
-            )
-            .expect("beam_pass");
-            let mut s1 = vec![Fx { m: 0, e: 0 }; o * n];
-            let mut e1 = vec![Fx { m: 0, e: 0 }; o * n];
-            let mut i1 = vec![0u16; o * gb];
-            let mut a1 = Vec::with_capacity(o);
-            for r in 0..o {
-                a1.extend(
-                    beam_pass(
-                        &ufac,
-                        n,
-                        0,
-                        n,
-                        &mant[r * n..(r + 1) * n],
-                        &e_row[r..=r],
-                        &a[r..=r],
-                        1,
-                        4,
-                        wscale,
-                        &mut s1[r * n..(r + 1) * n],
-                        &mut e1[r * n..(r + 1) * n],
-                        &mut i1[r * gb..(r + 1) * gb],
-                    )
-                    .expect("beam_pass, one row"),
-                );
-            }
-            assert_eq!(s, s1, "pool split changed `s` (wscale={wscale})");
-            assert_eq!(e, e1, "pool split changed `e` (wscale={wscale})");
-            assert_eq!(idx, i1, "pool split changed `idx` (wscale={wscale})");
-            assert_eq!(a_row, a1, "pool split changed the scale (wscale={wscale})");
-        }
-    }
-
-    #[test]
-    fn select_k_ties_take_the_smaller_flat_index() {
-        let mut out = Vec::new();
-        super::select_k(&[7_i128, 2, 2, 7, 2], 3, &mut out);
-        assert_eq!(out, [(1, 2), (2, 2), (4, 2)]); // ties: smaller flat index
-    }
-
-    /// `tri_upper_solve` on a synthetic factor whose `k > j` row-major entries are non-zero (the
-    /// stored feedback factor has zeros there): it recovers the exact `x` of `x·U = e`, so the
-    /// contraction recurrence — not the elementwise quotient — is what the test exercises.
-    #[test]
-    fn tri_upper_solve_inverts_a_dense_factor() {
-        let n = 4usize;
-        let u = UFac {
-            hat: vec![
-                10, 0, 0, 0, //
-                2, 11, 0, 0, //
-                3, 4, 12, 0, //
-                -1, 5, 6, 13,
-            ],
-            d: vec![0; n],
-            n,
-        };
-        let x = [1_i64, -2, 3, -1];
-        let mut e = Vec::with_capacity(n);
-        for j in 0..n {
-            let mut v: i64 = 0;
-            for k in j..n {
-                v += x[k] * u.hat[k * n + j];
-            }
-            // `U_kj = hat_kj·2^-32`, so `e_j = v·2^-32`.
-            e.push(Fx { m: v, e: -32 });
-        }
-        tri_upper_solve(&u, n, 0, n, &mut e).expect("solve");
-        for (j, xj) in x.iter().enumerate() {
-            assert_eq!(fx_to_f64(&e[j]), *xj as f64, "x[{j}]");
-        }
-    }
-
-    /// The second pass replaces the first only on a strictly smaller whitened norm: equal norms keep
-    /// the first pass.
-    #[test]
-    fn second_pass_needs_a_strictly_smaller_norm() {
-        assert!(second_pass_wins(5, 4));
-        assert!(!second_pass_wins(5, 5));
-        assert!(!second_pass_wins(5, 6));
-    }
-
-    /// The pooled inter-group feedback is bit-identical to the per-row body: each row reads and
-    /// writes only its own `wm`/`e_row` slice.
-    #[test]
-    fn inter_group_feedback_equals_the_per_row_body() {
-        let (o, n, gs) = (16usize, 32usize, 8usize);
-        let mut h = vec![0.0f64; n * n];
-        for i in 0..n {
-            h[i * n + i] = 8.0;
-            // A diagonally dominant band, so `U` has non-zero inter-group entries.
-            for j in i.saturating_sub(3)..=i {
-                if j != i {
-                    h[i * n + j] = 1.0;
-                    h[j * n + i] = 1.0;
-                }
-            }
-        }
-        let ufac = feedback_u(&h, n, 0.01).expect("SPD factor");
-        let mut state = 0x1234_5678_9ABC_DEF0u64;
-        let mut next = || {
-            state = state
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1_442_695_040_888_963_407);
-            (state >> 33) as i64
-        };
-        let mut wm = vec![0_i64; o * n];
-        let mut er = vec![0_i32; o];
-        let mut e = vec![Fx { m: 0, e: 0 }; o * gs];
-        for r in 0..o {
-            er[r] = -30;
-            for c in 0..n {
-                wm[r * n + c] = next() - (1_i64 << 30);
-            }
-            for j in 0..gs {
-                // A residual large enough that the update moves the row grid `2^-30` (otherwise
-                // every rounding is zero and the test cannot see a wrong row).
-                e[r * gs + j] = Fx {
-                    m: (1_i64 << 24) + (next() & 0xff_ffff),
-                    e: 0,
-                };
-            }
-        }
-        let mut w1 = wm.clone();
-        let mut er1 = er.clone();
-        inter_group_feedback(&mut w1, &mut er1, &e, &ufac, n, 0, gs).expect("pooled feedback");
-        let mut w2 = wm.clone();
-        let mut er2 = er.clone();
-        for r in 0..o {
-            inter_group_feedback(
-                &mut w2[r * n..(r + 1) * n],
-                &mut er2[r..=r],
-                &e[r * gs..(r + 1) * gs],
-                &ufac,
-                n,
-                0,
-                gs,
-            )
-            .expect("feedback, one row");
-        }
-        assert_ne!(w1, wm, "the feedback did not move the rows");
-        assert_eq!(w1, w2, "pool split changed `wm`");
-        assert_eq!(er1, er2, "pool split changed `e_row`");
-    }
 }

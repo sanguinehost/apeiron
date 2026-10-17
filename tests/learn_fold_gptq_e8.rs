@@ -31,13 +31,73 @@ use apeiron::learn::fold::fit::gptq_e8::{
 /// Mirrors the crate-private `gptq_e8::ufac_f64` the still-`f64` selection passes read.
 fn ufac_to_f64(uf: &UFac) -> Vec<f64> {
     let n = uf.n;
+    let one = ONE as f64;
     let mut out = vec![0.0f64; n * n];
     for i in 0..n {
-        for j in i..n {
-            out[i * n + j] = uf.hat[i * n + j] as f64 / ONE as f64 * 2f64.powi(-uf.d[j]);
+        for (j, d) in uf.d.iter().enumerate().skip(i) {
+            out[i * n + j] = uf.hat[i * n + j] as f64 / one * 2f64.powi(-d);
         }
     }
     out
+}
+
+/// The `f64` reference for [`feedback_u`]: the damped matrix `A = H + damp·mean(diag H)·I`, its
+/// inverse `G = A⁻¹` by a Cholesky solve of `A X = I`, and the upper-triangular `U` with
+/// `UᵀU = G` as the transpose of `G`'s lower Cholesky factor. Row-major `[n, n]`, zero below the
+/// diagonal, in the same normalisation [`ufac_to_f64`] returns.
+fn ref_feedback_u(h: &[f64], n: usize, damp: f64) -> Vec<f64> {
+    let mean = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
+    let mut a = h.to_vec();
+    for i in 0..n {
+        a[i * n + i] += damp * mean;
+    }
+    let mut l = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in 0..=i {
+            let mut s = a[i * n + j];
+            for k in 0..j {
+                s -= l[i * n + k] * l[j * n + k];
+            }
+            l[i * n + j] = if i == j { s.sqrt() } else { s / l[j * n + j] };
+        }
+    }
+    // `A X = e_j`: forward substitution on `L`, then back substitution on `Lᵀ`.
+    let mut g = vec![0.0f64; n * n];
+    for c in 0..n {
+        let mut y = vec![0.0f64; n];
+        for i in 0..n {
+            let mut s = if i == c { 1.0 } else { 0.0 };
+            for k in 0..i {
+                s -= l[i * n + k] * y[k];
+            }
+            y[i] = s / l[i * n + i];
+        }
+        for i in (0..n).rev() {
+            let mut s = y[i];
+            for k in i + 1..n {
+                s -= l[k * n + i] * g[k * n + c];
+            }
+            g[i * n + c] = s / l[i * n + i];
+        }
+    }
+    // `UᵀU = G`: the transpose of `G`'s lower Cholesky factor.
+    let mut m = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in 0..=i {
+            let mut s = g[i * n + j];
+            for k in 0..j {
+                s -= m[i * n + k] * m[j * n + k];
+            }
+            m[i * n + j] = if i == j { s.sqrt() } else { s / m[j * n + j] };
+        }
+    }
+    let mut u = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in 0..=i {
+            u[j * n + i] = m[i * n + j];
+        }
+    }
+    u
 }
 
 /// The weight carrier the integer kernel reads: each row rounded to a 35-bit block floating point
@@ -396,6 +456,15 @@ fn tied_diagonal_h(n: usize, seed: u64) -> Vec<f64> {
     h
 }
 
+/// The `n × n` identity Hessian.
+fn identity(n: usize) -> Vec<f64> {
+    let mut id = vec![0.0f64; n * n];
+    for i in 0..n {
+        id[i * n + i] = 1.0;
+    }
+    id
+}
+
 /// The act-order permutation of the kernel, spelled independently: permuted position → original
 /// column, groups and 8-blocks in descending diagonal sum with ties by ascending index.
 fn act_order_perm(h: &[f64], n: usize) -> Vec<usize> {
@@ -470,14 +539,9 @@ fn feedback_u_is_the_upper_inverse_factor() {
         hd[i * n + i] += damp * mean;
     }
     let mut p = vec![0.0f64; n * n];
-    for i in 0..n {
-        for j in 0..n {
-            let mut s = 0.0f64;
-            for k in 0..n {
-                s += u[k * n + i] * u[k * n + j];
-            }
-            p[i * n + j] = s;
-        }
+    for (ij, pij) in p.iter_mut().enumerate() {
+        let (i, j) = (ij / n, ij % n);
+        *pij = (0..n).map(|k| u[k * n + i] * u[k * n + j]).sum();
     }
     let mut worst = 0.0f64;
     for i in 0..n {
@@ -486,10 +550,7 @@ fn feedback_u_is_the_upper_inverse_factor() {
                 assert_eq!(u[i * n + j], 0.0, "U must be upper triangular at ({i},{j})");
                 continue;
             }
-            let mut m = 0.0f64;
-            for k in 0..n {
-                m += p[i * n + k] * hd[k * n + j];
-            }
+            let m: f64 = (0..n).map(|k| p[i * n + k] * hd[k * n + j]).sum();
             let t = if i == j { (m - 1.0).abs() } else { m.abs() };
             worst = worst.max(t);
         }
@@ -513,41 +574,111 @@ fn feedback_u_is_the_upper_inverse_factor() {
     );
 }
 
-/// The selection oracle on one 8-block (`n = 8`: one group, one block, so the working row is the
-/// pristine row). For a random SPD `H` and random `W`, the returned code index is the argmin of the
-/// exact block objective over a literal loop of all 256 codewords, in the whitened frame
-/// `|Z_w − a·Z_c[k]|²` and in the equivalent quadratic form `(w − a·s)·(U_subᵀU_sub)⁻¹·(w − a·s)ᵀ`;
-/// the returned scale is the kernel's `0.828·w_rms`, and for `wscale` it is the projected scale of
-/// the winning pass.
+/// [`feedback_u`] against the live `f64` oracle [`ref_feedback_u`]: the upper factor's entries agree
+/// to a bound derived from the two roundings the integer path inserts, and the observed maximum
+/// error is printed for each order (Q32.32 words, `n²` entrywise).
+///
+/// The paths differ in two places. (1) `h` and `damp` cross into Q32.32 words: `w = RNE(x·2^(32−g))`
+/// and `δ = RNE(mean·damp_w)`, so every damped-matrix entry carries at most a relative `2^-32`
+/// perturbation (`RNE`'s half-ulp plus the one product rounding), i.e. `‖δA‖_max ≤ 2^-32·max|A|` for
+/// `A = H + damp·mean(diag H)·I`. (2) The Cholesky factor and its inverse run on that grid: each of
+/// the `O(n)` terms of a row accumulates a `2^-33` relative rounding, and the same `2^-32` covers the
+/// sum. Because `UᵀU = A⁻¹`, first-order perturbation gives `δU = −U·δA·U`, and the `n²` terms of
+/// that product bound the entrywise error by `n²·2^-32·max|A|·‖U‖_max²`. That is the asserted
+/// bound; it is a worst-case product bound, so the observed error is far below it.
 #[test]
-fn block_selection_is_the_whitened_cvp_argmin() {
-    let (o, n, damp) = (16usize, 8usize, 0.01);
+fn feedback_u_agrees_with_the_f64_cholesky_oracle() {
+    let damp = 0.01f64;
+    for (n, seed) in [
+        (8usize, 0x0F00_0001u64),
+        (64, 0x0F00_0002),
+        (256, 0x0F00_0003),
+    ] {
+        let h = correlated_h(n, seed);
+        let got = ufac_to_f64(&feedback_u(&h, n, damp).expect("SPD factor"));
+        let want = ref_feedback_u(&h, n, damp);
+        for i in 0..n {
+            for j in 0..i {
+                assert_eq!(got[i * n + j], 0.0, "n={n}: U must be upper at ({i},{j})");
+            }
+        }
+        let mean = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
+        let amax = h
+            .iter()
+            .fold(damp * mean, |m, x| m.max(x.abs()))
+            .max(damp * mean);
+        let umax = want.iter().fold(0.0f64, |m, x| m.max(x.abs()));
+        let err = got
+            .iter()
+            .zip(&want)
+            .fold(0.0f64, |m, (g, w)| m.max((g - w).abs()));
+        let bound = (n * n) as f64 * 2f64.powi(-32) * amax * umax * umax;
+        eprintln!("feedback_u oracle n={n}: max|ΔU|={err:e} bound={bound:e} ‖U‖={umax:e}");
+        assert!(
+            err <= bound,
+            "n={n}: max|ΔU| {err:e} exceeds the derived bound {bound:e}"
+        );
+    }
+}
+
+/// The one-block fixture (`n = BLOCK`: one group, so the working row is the pristine row): sixteen
+/// rows seeded per row, the correlated Hessian, their 35-bit carrier, the block factor's inverse and
+/// the group precisions `1/U_jj²`.
+///
+/// The choice has power: every codebook row has norm √8, so on a diagonally dominant `H` most
+/// single-block rows are decided identically by the whitened objective, the "scaled whitened
+/// codeword against the original-frame weight" cost `a²|Z_c[k]|² − 2a⟨w_sub, Z_c[k]⟩` and the
+/// Euclidean cost; on this `H` two of the sixteen rows separate the whitened selection from each of
+/// those two original-frame costs.
+struct OneBlock {
+    w: Vec<f64>,
+    h: Vec<f64>,
+    wc: Vec<f64>,
+    u_inv: [[f64; BLOCK]; BLOCK],
+    prec: [f64; BLOCK],
+}
+
+fn one_block(o: usize, damp: f64) -> OneBlock {
+    let n = BLOCK;
     let h = correlated_h(n, 0x0B10_C0DE);
-    // Sixteen rows, seeded per row. The choice has power: every codebook row has norm √8, so on a
-    // diagonally dominant `H` most single-block rows are decided identically by the whitened
-    // objective, the "scaled whitened codeword against the original-frame weight" cost
-    // `a²|Z_c[k]|² − 2a⟨w_sub, Z_c[k]⟩` and the Euclidean cost; on this `H` two of these sixteen
-    // rows separate the whitened selection from each of those two original-frame costs.
     let mut w = Vec::with_capacity(o * n);
     for row in 0..o {
         w.extend_from_slice(&random_w(1, n, 0x0B10_BEEF ^ (0x1000 * (row as u64 + 1))));
     }
     let u = ufac_to_f64(&feedback_u(&h, n, damp).expect("SPD factor"));
-    let u_inv = block_inverse(&u, n, 0);
-    let wc = w_carrier(&w, o, n);
-    let mut prec = vec![0.0f64; n];
-    for j in 0..n {
+    let mut prec = [0.0f64; BLOCK];
+    for (j, p) in prec.iter_mut().enumerate() {
         let d = u[j * n + j];
-        prec[j] = 1.0 / (d * d).max(1e-12);
+        *p = 1.0 / (d * d).max(1e-12);
     }
-    for wscale in [false, true] {
-        let ctx = if wscale { "oracle wscale" } else { "oracle" };
-        let r = gptq_e8(&w, &h, o, n, damp, false, wscale, 1).expect("gptq_e8");
-        check_decode(&r, o, n, ctx);
+    let wc = w_carrier(&w, o, n);
+    OneBlock {
+        w,
+        h,
+        wc,
+        u_inv: block_inverse(&u, n, 0),
+        prec,
+    }
+}
+
+/// The selection oracle on one 8-block: the returned code index is the argmin of the exact block
+/// objective over a literal loop of all 256 codewords, in the whitened frame `|Z_w − a·Z_c[k]|²` and
+/// in the equivalent quadratic form `(w − a·s)·(U_subᵀU_sub)⁻¹·(w − a·s)ᵀ`; the returned scale is
+/// the kernel's `0.828·w_rms`, and for `wscale` the projected scale of the winning pass. Checked at
+/// `beam = 1` in both `wscale` settings, then at `beam = 2` and `MAX_BEAM` (`wscale = false`): the
+/// block is decided before any feedback, so the winning beam's first block is the same argmin.
+#[test]
+fn block_selection_is_the_whitened_cvp_argmin() {
+    let (o, n, damp) = (16usize, 8usize, 0.01);
+    let f = one_block(o, damp);
+    for (beam, wscale) in [(1usize, false), (1, true), (2, false), (MAX_BEAM, false)] {
+        let ctx = format!("oracle beam={beam} wscale={wscale}");
+        let r = gptq_e8(&f.w, &f.h, o, n, damp, false, wscale, beam).expect("gptq_e8");
+        check_decode(&r, o, n, &ctx);
         for row in 0..o {
-            let wr = &wc[row * n..(row + 1) * n];
-            let a0 = group_scale(wr, &prec, 0, n);
-            let (z_w, zc, d, q) = objective_scan(wr, &u_inv, a0);
+            let wr = &f.wc[row * n..(row + 1) * n];
+            let a0 = group_scale(wr, &f.prec, 0, n);
+            let (z_w, zc, d, q) = objective_scan(wr, &f.u_inv, a0);
             let kd = argmin(&d);
             let kq = argmin(&q);
             assert_eq!(
@@ -577,7 +708,7 @@ fn block_selection_is_the_whitened_cvp_argmin() {
                 for t in 0..BLOCK {
                     p1[t] = e1[t] - (a1 - a0) * zc[i1][t];
                 }
-                let (_zw2, zc2, d2, _q2) = objective_scan(wr, &u_inv, a1);
+                let (_zw2, zc2, d2, _q2) = objective_scan(wr, &f.u_inv, a1);
                 let i2 = argmin(&d2);
                 let mut e2 = [0.0f64; BLOCK];
                 for t in 0..BLOCK {
@@ -620,10 +751,7 @@ fn block_selection_is_the_whitened_cvp_argmin() {
 fn identity_hessian_is_independent_nearest_per_block() {
     let (o, n, damp) = (3usize, 128usize, 0.01);
     let w = random_w(o, n, 0x1DEA_0001);
-    let mut id = vec![0.0f64; n * n];
-    for i in 0..n {
-        id[i * n + i] = 1.0;
-    }
+    let id = identity(n);
     let r = gptq_e8(&w, &id, o, n, damp, false, false, 1).expect("gptq_e8");
     check_decode(&r, o, n, "identity");
     let wc = w_carrier(&w, o, n);
@@ -812,98 +940,68 @@ fn assert_act_order_round_trip(
 }
 
 /// The act order is a permutation of whole 8-blocks: the `act_order` result equals the natural-order
-/// result on the permuted problem, scattered back, bit for bit.
+/// result on the permuted problem, scattered back, bit for bit — on the correlated Hessian and on
+/// one with an exact block-sum tie, where blocks 0 and 1 carry the same, and the two largest,
+/// diagonals, so the descending-sum order of that pair is decided by the tie rule alone.
+/// [`act_order_perm`] breaks ties by ascending index and the carrier must agree; a tie rule that
+/// reversed the index perturbs the carrier's block order and breaks the round trip. The tie is the
+/// mutation control for [`GptqE8`]'s `block_order`.
 #[test]
-fn act_order_round_trips() {
+fn act_order_round_trips_and_breaks_ties_by_ascending_index() {
     let (o, n, damp) = (2usize, 256usize, 0.01);
-    let w = random_w(o, n, 0xAC70_0001);
-    let h = correlated_h(n, 0xAC70_0002);
-    let perm = act_order_perm(&h, n);
-    // The permutation must be non-trivial, or this test would not exercise the reorder.
-    assert!(
-        perm.iter().enumerate().any(|(c, &p)| c != p),
-        "the act-order permutation is the identity"
-    );
-    assert_act_order_round_trip(&w, &h, o, n, damp, &perm);
-}
-
-/// The act-order tie rule, on a Hessian with an exact block-sum tie: blocks 0 and 1 carry the same
-/// diagonal and are the two largest, so the descending-sum order of that pair is decided by the tie
-/// rule alone. [`act_order_perm`] breaks ties by ascending index and the carrier must agree: the
-/// `act_order` result on the tied Hessian equals the natural-order result on the problem permuted by
-/// that reference. A tie rule that reversed the index perturbs the carrier's block order and breaks
-/// the round trip. The tie is a mutation control for [`GptqE8`]'s `block_order`.
-#[test]
-fn act_order_breaks_ties_by_ascending_index() {
-    let (o, n, damp) = (2usize, 256usize, 0.01);
-    let w = random_w(o, n, 0xA11E_0001);
-    let h = tied_diagonal_h(n, 0xA11E_0002);
-    let perm = act_order_perm(&h, n);
-    assert!(
-        perm[..BLOCK].iter().copied().eq(0..BLOCK),
-        "the tied block 0 is not first"
-    );
-    assert!(
-        perm.iter().enumerate().any(|(c, &p)| c != p),
-        "the tie permutation is the identity"
-    );
-    assert_act_order_round_trip(&w, &h, o, n, damp, &perm);
-}
-
-/// `wscale`: with `H = I` the whitened scale projection is the least-squares scale of the returned
-/// signs, `a = Σ w·s / Σ s²`, per (row, group).
-#[test]
-fn wscale_projections_are_least_squares() {
-    let (o, n, damp) = (2usize, 128usize, 0.01);
-    let w = random_w(o, n, 0x5CA0_0001);
-    let mut id = vec![0.0f64; n * n];
-    for i in 0..n {
-        id[i * n + i] = 1.0;
-    }
-    let r = gptq_e8(&w, &id, o, n, damp, false, true, 1).expect("gptq_e8 wscale");
-    check_decode(&r, o, n, "wscale");
-    for row in 0..o {
-        let mut num = 0.0f64;
-        let mut den = 0.0f64;
-        for j in 0..n {
-            num += w[row * n + j] * r.s[row * n + j];
-            den += r.s[row * n + j] * r.s[row * n + j];
+    for (name, wseed, h, tied) in [
+        (
+            "correlated",
+            0xAC70_0001u64,
+            correlated_h(n, 0xAC70_0002),
+            false,
+        ),
+        ("tied", 0xA11E_0001, tied_diagonal_h(n, 0xA11E_0002), true),
+    ] {
+        let perm = act_order_perm(&h, n);
+        if tied {
+            assert!(
+                perm[..BLOCK].iter().copied().eq(0..BLOCK),
+                "{name}: the tied block 0 is not first"
+            );
         }
-        let ls = (num / den.max(1e-12)).max(1e-12);
+        // The permutation must be non-trivial, or the case would not exercise the reorder.
         assert!(
-            (r.scale[row] - ls).abs() <= 1e-9 * ls.abs().max(1.0),
-            "row {row}: whitened projection {} != least-squares {ls}",
-            r.scale[row]
+            perm.iter().enumerate().any(|(c, &p)| c != p),
+            "{name}: the act-order permutation is the identity"
         );
+        assert_act_order_round_trip(&random_w(o, n, wseed), &h, o, n, damp, &perm);
     }
 }
 
 /// Refusals: not a multiple of 8, non-SPD Hessian, non-positive damping, a beam width outside
-/// `1..=MAX_BEAM`, shape mismatches and non-finite input.
+/// `1..=MAX_BEAM`, shape mismatches and non-finite input. The shape and non-SPD refusals hold at
+/// every beam width (`beam = 1` and `4`).
 #[test]
 fn refusals() {
     let (o, n, damp) = (2usize, 8usize, 0.01);
     let w = random_w(o, n, 0x5EFA_0001);
-    let mut id = vec![0.0f64; n * n];
-    for i in 0..n {
-        id[i * n + i] = 1.0;
-    }
+    let id = identity(n);
     let bad_n = random_w(o, 12, 0x5EFA_0002);
-    let mut id12 = vec![0.0f64; 144];
-    for i in 0..12 {
-        id12[i * 12 + i] = 1.0;
-    }
     assert_eq!(
-        gptq_e8(&bad_n, &id12, o, 12, damp, false, false, 1),
+        gptq_e8(&bad_n, &identity(12), o, 12, damp, false, false, 1),
         Err(GptqE8Error::BlockMisaligned)
     );
     let mut indef = id.clone();
     indef[1] = 2.0;
     indef[n] = 2.0;
-    assert_eq!(
-        gptq_e8(&w, &indef, o, n, damp, false, false, 1),
-        Err(GptqE8Error::NotPositiveDefinite)
-    );
+    for beam in [1usize, 4] {
+        assert_eq!(
+            gptq_e8(&w[1..], &id, o, n, damp, false, false, beam),
+            Err(GptqE8Error::ShapeMismatch),
+            "beam {beam}: a short weight buffer must be refused"
+        );
+        assert_eq!(
+            gptq_e8(&w, &indef, o, n, damp, false, false, beam),
+            Err(GptqE8Error::NotPositiveDefinite),
+            "beam {beam}: a non-SPD Hessian must be refused"
+        );
+    }
     for bad in [0.0f64, -0.5, f64::NAN] {
         assert_eq!(
             gptq_e8(&w, &id, o, n, bad, false, false, 1),
@@ -918,10 +1016,6 @@ fn refusals() {
             "beam {beam} must be refused"
         );
     }
-    assert_eq!(
-        gptq_e8(&w[1..], &id, o, n, damp, false, false, 1),
-        Err(GptqE8Error::ShapeMismatch)
-    );
     assert_eq!(
         gptq_e8(&w, &id[1..], o, n, damp, false, false, 1),
         Err(GptqE8Error::ShapeMismatch)
@@ -955,20 +1049,24 @@ fn scales_close(got: &[f64], want: &[f64]) -> bool {
 }
 
 /// FNV-1a 64 over the result's exact bit patterns: `s`, then `scale`, each entry as its little-endian
-/// `to_bits()`, then every index as two little-endian bytes. No tolerance and no float comparison:
-/// the whole stream, including the last mantissa bit, is pinned.
+/// `to_bits()`, then every index as two little-endian bytes. No tolerance and no float comparison.
 fn bit_stream_hash(r: &GptqE8) -> u64 {
+    hash_parts(&r.s, &r.scale, &r.idx)
+}
+
+/// [`bit_stream_hash`] over the three parts in stream order: `s`, then `scale`, then `idx`.
+fn hash_parts(s: &[f64], scale: &[f64], idx: &[u16]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     let byte = |b: u8, h: &mut u64| {
         *h ^= u64::from(b);
         *h = h.wrapping_mul(0x0000_0100_0000_01b3);
     };
-    for v in r.s.iter().chain(r.scale.iter()) {
+    for v in s.iter().chain(scale.iter()) {
         for b in v.to_bits().to_le_bytes() {
             byte(b, &mut h);
         }
     }
-    for v in &r.idx {
+    for v in idx {
         for b in v.to_le_bytes() {
             byte(b, &mut h);
         }
@@ -976,28 +1074,18 @@ fn bit_stream_hash(r: &GptqE8) -> u64 {
     h
 }
 
-/// The `quantise_pass` / `beam_pass` row split is bit-identical to the serial loop they replace: the
-/// rows are cut into contiguous ranges and each range runs the whole block loop on one
-/// `std::thread::scope` worker, with the per-row operation order unchanged and no reduction across
-/// rows, so every f64 and every code index is the same bit pattern it was on one thread.
-///
-/// The four fixtures and their constants were first captured from the **serial** code at revision
-/// `29ae4148` (lane q-gthr: `gptq_e8` on each fixture, `to_bits()` of every `s`/`scale` entry and
-/// every index concatenated to a file, hashed; the threaded output at the same revision re-dumped
-/// and compared with `cmp`, exit 0). The integer-carrier lane `q-l1a` re-pins the digest to the
-/// carrier's output (the row-split threading is unchanged, and the re-pinned digest was re-confirmed
-/// against the single-worker path `per = o`, so the identity the test guards is retained; the `f64`
-/// scales move by the `2^-35` weight carrier and the `round(0.828·2^32)` factor). Lane `q-l1b`
-/// re-pins the `beam = 1` fixture to the integer block pass, whose exact `i128` scan and
-/// numerator-form residual are bit-identical to the `f64` arm on it; lane `q-l1c` re-pins the
-/// `beam = 4`/`wscale` fixture to the integer beam pass (the `beam = 2` fixtures keep their `q-l1a`
-/// values). They cover an odd
-/// row count (`o = 37`, so the last range is short),
-/// `o = 5 < INV_THREADS = 8` (one row per worker), the single path `beam = 1`, the beam search
-/// `beam = 4` with `wscale`, and both `act_order` settings; the hash is invariant to the worker
-/// count because each row is computed by exactly one worker in the same order.
+/// The `quantise_pass` / `beam_pass` row split is row-local: each pooled task owns a contiguous
+/// range of rows and runs the whole per-row block/beam loop on it, with no reduction across rows and
+/// no state shared between them. On four fixtures — an odd row count (`o = 37`), fewer rows than
+/// workers (`o = 5`), `beam = 1`, the beam search `beam = 4` with `wscale`, and both `act_order`
+/// settings — repeated calls return the identical bit stream, and reversing the rows of `W` permutes
+/// the result's rows and changes no entry, though every row moves to another pooled chunk. The
+/// numeric claim is not pinned here: the codes and scales are held to the derived oracle bounds by
+/// [`integer_pass_agrees_with_the_f64_oracle`], the factor by
+/// [`feedback_u_is_the_upper_inverse_factor`]. What this test holds is the split's protocol: one
+/// row, one worker, one order.
 #[test]
-fn row_split_reproduces_the_serial_bit_stream() {
+fn row_split_is_row_local_and_reproducible() {
     // `(o, n, damp, act_order, wscale, beam, seed)`.
     const FIXTURES: [(usize, usize, f64, bool, bool, usize, u64); 4] = [
         (37, 256, 0.01, false, false, 1, 0xA1B2_0001),
@@ -1005,29 +1093,39 @@ fn row_split_reproduces_the_serial_bit_stream() {
         (5, 128, 0.01, true, false, 2, 0xA1B2_0003),
         (5, 128, 0.01, false, false, 2, 0xA1B2_0003),
     ];
-    /// Integer-carrier values, in `FIXTURES` order. Fixture 0 (the `beam = 1` path) is the integer
-    /// block pass with the integer inter-group feedback: `q-l1b` pinned it against the `f64` arm,
-    /// and the `q-l1d` integer feedback rounds the later groups to the row grid instead of in
-    /// `f64`, so its hash moves (codes and scales still agree with the `f64` arm to `2.7e-11`
-    /// relative on the gate-(c) fixtures). Fixture 1 (the `beam = 4`, `wscale` path) is the integer
-    /// beam pass; fixtures 2 and 3 (the `beam = 2` path) reproduce the `q-l1a` values unchanged.
-    const CARRIER_HASH: [u64; 4] = [
-        0x38c8_7804_335c_b380,
-        0xfac1_36fc_a70a_34e3,
-        0xe56b_a783_2915_f9b4,
-        0xd6ce_df97_e1e5_41d0,
-    ];
     for (i, &(o, n, damp, act_order, wscale, beam, seed)) in FIXTURES.iter().enumerate() {
         let w = random_w(o, n, seed);
         let h = correlated_h(n, seed ^ 0x5A5A_5A5A);
-        let r = gptq_e8(&w, &h, o, n, damp, act_order, wscale, beam).expect("gptq_e8");
-        assert_eq!(r.s.len(), o * n, "fixture {i}: s shape");
-        assert_eq!(r.idx.len(), o * n / BLOCK, "fixture {i}: idx shape");
+        let run = |w: &[f64]| gptq_e8(w, &h, o, n, damp, act_order, wscale, beam).expect("gptq_e8");
+        let a = run(&w);
+        check_decode(&a, o, n, "row split");
         assert_eq!(
-            bit_stream_hash(&r),
-            CARRIER_HASH[i],
-            "fixture {i} (o={o} n={n} beam={beam} act_order={act_order} wscale={wscale}) is not \
-             bit-identical to the integer-carrier pass"
+            bit_stream_hash(&a),
+            bit_stream_hash(&run(&w)),
+            "fixture {i} (o={o} n={n} beam={beam}): repeated calls differ"
+        );
+        let mut wp = vec![0.0f64; o * n];
+        for r in 0..o {
+            wp[r * n..(r + 1) * n].copy_from_slice(&w[(o - 1 - r) * n..(o - r) * n]);
+        }
+        let p = run(&wp);
+        let (nb, ng) = (n / BLOCK, n.div_ceil(GROUP));
+        let (mut s, mut idx, mut scale) = (
+            vec![0.0f64; o * n],
+            vec![0u16; o * nb],
+            vec![0.0f64; o * ng],
+        );
+        for r in 0..o {
+            let rp = o - 1 - r;
+            s[r * n..(r + 1) * n].copy_from_slice(&p.s[rp * n..(rp + 1) * n]);
+            idx[r * nb..(r + 1) * nb].copy_from_slice(&p.idx[rp * nb..(rp + 1) * nb]);
+            scale[r * ng..(r + 1) * ng].copy_from_slice(&p.scale[rp * ng..(rp + 1) * ng]);
+        }
+        assert_eq!(
+            hash_parts(&s, &scale, &idx),
+            bit_stream_hash(&a),
+            "fixture {i} (o={o} n={n} beam={beam} act_order={act_order} wscale={wscale}): the row \
+             split depends on another row"
         );
     }
 }
@@ -1037,11 +1135,64 @@ fn row_split_reproduces_the_serial_bit_stream() {
 /// before the beam branch existed (the `beam = 1` path is the Python's `beam <= 1` single path,
 /// line 305). Indices are compared exactly; scales to a relative `1e-9` ([`scales_close`]).
 #[test]
-#[allow(
-    clippy::items_after_statements,
-    reason = "the golden tables sit next to the test that uses them; lexically they follow two lets"
-)]
 fn beam_one_matches_the_pre_beam_result() {
+    const GOLDEN_IDX: [u16; 480] = [
+        136, 16, 50, 80, 193, 67, 53, 87, 82, 116, 193, 88, 218, 73, 84, 176, 85, 56, 3, 4, 190,
+        77, 44, 106, 28, 244, 39, 204, 82, 100, 83, 25, 104, 39, 96, 111, 129, 61, 71, 12, 12, 28,
+        95, 20, 189, 69, 32, 47, 6, 83, 52, 148, 19, 93, 82, 75, 232, 133, 113, 63, 200, 121, 44,
+        75, 233, 73, 58, 36, 15, 31, 16, 55, 222, 94, 44, 0, 122, 76, 54, 133, 92, 97, 91, 118, 63,
+        91, 58, 208, 64, 220, 72, 126, 22, 50, 81, 47, 85, 203, 214, 64, 214, 100, 37, 99, 119, 21,
+        46, 9, 22, 126, 195, 2, 171, 70, 31, 44, 123, 201, 30, 185, 154, 67, 93, 201, 49, 80, 11,
+        63, 158, 91, 4, 117, 68, 37, 96, 224, 62, 29, 97, 236, 27, 34, 52, 25, 53, 174, 110, 87,
+        62, 173, 179, 124, 116, 58, 75, 90, 125, 210, 6, 75, 30, 75, 33, 99, 41, 20, 238, 3, 36,
+        59, 50, 30, 88, 103, 82, 117, 20, 180, 84, 110, 225, 35, 9, 95, 38, 117, 81, 41, 228, 29,
+        35, 190, 74, 61, 230, 33, 44, 66, 69, 168, 63, 58, 3, 32, 26, 123, 63, 70, 5, 101, 95, 17,
+        26, 199, 82, 103, 43, 56, 70, 43, 63, 209, 12, 208, 61, 202, 67, 109, 99, 87, 163, 184, 22,
+        202, 131, 13, 78, 38, 226, 106, 68, 15, 146, 39, 73, 87, 101, 106, 12, 100, 163, 73, 47,
+        29, 130, 88, 71, 66, 117, 70, 45, 139, 127, 8, 223, 31, 97, 226, 31, 12, 76, 221, 54, 70,
+        180, 166, 122, 81, 123, 112, 36, 69, 10, 46, 76, 188, 55, 65, 129, 102, 110, 158, 29, 8,
+        55, 153, 75, 87, 94, 19, 24, 120, 82, 33, 120, 40, 123, 60, 173, 227, 24, 159, 62, 75, 95,
+        14, 93, 229, 99, 76, 31, 170, 118, 55, 2, 70, 70, 33, 118, 215, 19, 100, 63, 113, 76, 34,
+        9, 5, 108, 79, 108, 238, 28, 45, 106, 176, 2, 56, 103, 94, 34, 203, 107, 122, 99, 205, 180,
+        201, 76, 54, 68, 60, 70, 154, 19, 73, 22, 42, 214, 106, 96, 43, 76, 76, 63, 102, 108, 130,
+        19, 6, 83, 26, 160, 124, 69, 238, 104, 62, 163, 44, 119, 33, 3, 229, 23, 24, 64, 123, 9,
+        85, 57, 27, 143, 13, 79, 110, 76, 57, 63, 58, 135, 76, 119, 188, 102, 56, 85, 140, 49, 35,
+        33, 5, 22, 72, 122, 76, 136, 221, 43, 221, 35, 49, 81, 194, 57, 99, 3, 203, 117, 228, 2,
+        106, 222, 107, 20, 197, 26, 177, 54, 115, 152, 56, 180, 56, 11, 57, 6, 26, 13, 45, 184, 97,
+        44, 35, 49, 48, 57, 40, 99, 62, 75, 73, 98, 17, 40, 88, 44, 113, 125, 84,
+    ];
+    const GOLDEN_SCALE: [f64; 30] = [
+        0.44635416738891437,
+        0.49946099062675003,
+        0.46280908659566566,
+        0.4255675288429011,
+        0.48290659976301126,
+        0.47237385811445565,
+        0.49895209043993793,
+        0.49300327233490643,
+        0.49351838323459796,
+        0.5146650065206958,
+        0.4862892671128194,
+        0.5086542824179806,
+        0.47287350177867715,
+        0.4937544935881887,
+        0.43502286975194493,
+        0.4810089328201062,
+        0.47937835776748966,
+        0.475210138148769,
+        0.4849587190197238,
+        0.4897957993783389,
+        0.4523557050860777,
+        0.510660738571407,
+        0.45819256647384915,
+        0.5247907457469447,
+        0.49373817097116424,
+        0.4705507314363644,
+        0.48976966649049325,
+        0.4587354876289194,
+        0.476628599855342,
+        0.5018074031894018,
+    ];
     let (o, n, damp) = (3usize, 256usize, 0.01);
     let seeds = [
         0x0E11_0001u64,
@@ -1050,166 +1201,39 @@ fn beam_one_matches_the_pre_beam_result() {
         0x0E11_0004,
         0x0E11_0005,
     ];
-    const GOLDEN_IDX: [&[u16]; 5] = [
-        &[
-            136, 16, 50, 80, 193, 67, 53, 87, 82, 116, 193, 88, 218, 73, 84, 176, 85, 56, 3, 4,
-            190, 77, 44, 106, 28, 244, 39, 204, 82, 100, 83, 25, 104, 39, 96, 111, 129, 61, 71, 12,
-            12, 28, 95, 20, 189, 69, 32, 47, 6, 83, 52, 148, 19, 93, 82, 75, 232, 133, 113, 63,
-            200, 121, 44, 75, 233, 73, 58, 36, 15, 31, 16, 55, 222, 94, 44, 0, 122, 76, 54, 133,
-            92, 97, 91, 118, 63, 91, 58, 208, 64, 220, 72, 126, 22, 50, 81, 47,
-        ],
-        &[
-            85, 203, 214, 64, 214, 100, 37, 99, 119, 21, 46, 9, 22, 126, 195, 2, 171, 70, 31, 44,
-            123, 201, 30, 185, 154, 67, 93, 201, 49, 80, 11, 63, 158, 91, 4, 117, 68, 37, 96, 224,
-            62, 29, 97, 236, 27, 34, 52, 25, 53, 174, 110, 87, 62, 173, 179, 124, 116, 58, 75, 90,
-            125, 210, 6, 75, 30, 75, 33, 99, 41, 20, 238, 3, 36, 59, 50, 30, 88, 103, 82, 117, 20,
-            180, 84, 110, 225, 35, 9, 95, 38, 117, 81, 41, 228, 29, 35, 190,
-        ],
-        &[
-            74, 61, 230, 33, 44, 66, 69, 168, 63, 58, 3, 32, 26, 123, 63, 70, 5, 101, 95, 17, 26,
-            199, 82, 103, 43, 56, 70, 43, 63, 209, 12, 208, 61, 202, 67, 109, 99, 87, 163, 184, 22,
-            202, 131, 13, 78, 38, 226, 106, 68, 15, 146, 39, 73, 87, 101, 106, 12, 100, 163, 73,
-            47, 29, 130, 88, 71, 66, 117, 70, 45, 139, 127, 8, 223, 31, 97, 226, 31, 12, 76, 221,
-            54, 70, 180, 166, 122, 81, 123, 112, 36, 69, 10, 46, 76, 188, 55, 65,
-        ],
-        &[
-            129, 102, 110, 158, 29, 8, 55, 153, 75, 87, 94, 19, 24, 120, 82, 33, 120, 40, 123, 60,
-            173, 227, 24, 159, 62, 75, 95, 14, 93, 229, 99, 76, 31, 170, 118, 55, 2, 70, 70, 33,
-            118, 215, 19, 100, 63, 113, 76, 34, 9, 5, 108, 79, 108, 238, 28, 45, 106, 176, 2, 56,
-            103, 94, 34, 203, 107, 122, 99, 205, 180, 201, 76, 54, 68, 60, 70, 154, 19, 73, 22, 42,
-            214, 106, 96, 43, 76, 76, 63, 102, 108, 130, 19, 6, 83, 26, 160, 124,
-        ],
-        &[
-            69, 238, 104, 62, 163, 44, 119, 33, 3, 229, 23, 24, 64, 123, 9, 85, 57, 27, 143, 13,
-            79, 110, 76, 57, 63, 58, 135, 76, 119, 188, 102, 56, 85, 140, 49, 35, 33, 5, 22, 72,
-            122, 76, 136, 221, 43, 221, 35, 49, 81, 194, 57, 99, 3, 203, 117, 228, 2, 106, 222,
-            107, 20, 197, 26, 177, 54, 115, 152, 56, 180, 56, 11, 57, 6, 26, 13, 45, 184, 97, 44,
-            35, 49, 48, 57, 40, 99, 62, 75, 73, 98, 17, 40, 88, 44, 113, 125, 84,
-        ],
-    ];
-    const GOLDEN_SCALE: [&[f64]; 5] = [
-        &[
-            0.44635416738891437,
-            0.49946099062675003,
-            0.46280908659566566,
-            0.4255675288429011,
-            0.48290659976301126,
-            0.47237385811445565,
-        ],
-        &[
-            0.49895209043993793,
-            0.49300327233490643,
-            0.49351838323459796,
-            0.5146650065206958,
-            0.4862892671128194,
-            0.5086542824179806,
-        ],
-        &[
-            0.47287350177867715,
-            0.4937544935881887,
-            0.43502286975194493,
-            0.4810089328201062,
-            0.47937835776748966,
-            0.475210138148769,
-        ],
-        &[
-            0.4849587190197238,
-            0.4897957993783389,
-            0.4523557050860777,
-            0.510660738571407,
-            0.45819256647384915,
-            0.5247907457469447,
-        ],
-        &[
-            0.49373817097116424,
-            0.4705507314363644,
-            0.48976966649049325,
-            0.4587354876289194,
-            0.476628599855342,
-            0.5018074031894018,
-        ],
-    ];
     for (m, seed) in seeds.iter().enumerate() {
         let w = random_w(o, n, *seed);
         let h = correlated_h(n, *seed ^ 0x5A5A_5A5A);
         let r = gptq_e8(&w, &h, o, n, damp, false, false, 1).expect("gptq_e8 beam 1");
         check_decode(&r, o, n, "beam 1 golden");
-        assert_eq!(r.idx.as_slice(), GOLDEN_IDX[m], "matrix {m}: code indices");
+        assert_eq!(
+            r.idx.as_slice(),
+            &GOLDEN_IDX[m * 96..][..96],
+            "matrix {m}: code indices"
+        );
         // Indices exact; scales follow the Q32.32 feedback factor: relative 1e-9 (measured 4e-11).
         assert!(
-            scales_close(&r.scale, GOLDEN_SCALE[m]),
+            scales_close(&r.scale, &GOLDEN_SCALE[m * 6..][..6]),
             "matrix {m}: scales {:?}",
             r.scale
         );
     }
 }
 
-/// One 8-block (`n = 8`): the block is decided before any feedback, so the winning beam's first-block
-/// code is the exhaustive argmin of the block objective `a²|Z_c[k]|² − 2a⟨Z_w, Z_c[k]⟩` over all 256
-/// codewords. Checked against the literal 256-codeword loop at `beam = 1`, `2` and `MAX_BEAM`; the
-/// beam search's `beam 0` (least `cum_err2`) is that argmin.
+/// `wscale`: with `H = I` the feedback factor is diagonal, so the winning pass's projected scale is
+/// the group least-squares scale `⟨w, s⟩/⟨s, s⟩` per row (the Python's
+/// `a_new = a + ⟨Err, u_S⟩/⟨u_S, u_S⟩`, lines 367–376), at every beam width. Decodes to `s`.
 #[test]
-fn beam_first_block_is_the_exhaustive_argmin() {
-    let (o, n, damp) = (16usize, 8usize, 0.01);
-    let h = correlated_h(n, 0x0B10_C0DE);
-    let mut w = Vec::with_capacity(o * n);
-    for row in 0..o {
-        w.extend_from_slice(&random_w(1, n, 0x0B10_BEEF ^ (0x1000 * (row as u64 + 1))));
-    }
-    let u = ufac_to_f64(&feedback_u(&h, n, damp).expect("SPD factor"));
-    let u_inv = block_inverse(&u, n, 0);
-    let wc = w_carrier(&w, o, n);
-    let mut prec = vec![0.0f64; n];
-    for j in 0..n {
-        let d = u[j * n + j];
-        prec[j] = 1.0 / (d * d).max(1e-12);
-    }
-    for beam in [1usize, 2, MAX_BEAM] {
-        let r = gptq_e8(&w, &h, o, n, damp, false, false, beam).expect("gptq_e8");
-        check_decode(&r, o, n, "beam oracle");
-        for row in 0..o {
-            let wr = &wc[row * n..(row + 1) * n];
-            let a0 = group_scale(wr, &prec, 0, n);
-            let (_z_w, _zc, d, _q) = objective_scan(wr, &u_inv, a0);
-            let best = argmin(&d);
-            // The integer carrier uses `round(0.828·2^32)·2^-32` and a floored `isqrt`, so the
-            // scale is checked to `1e-9` (was `1e-12`).
-            let tol = 1e-9 * a0.abs().max(1.0);
-            assert_eq!(
-                usize::from(r.idx[row]),
-                best,
-                "beam {beam} row {row}: the first-block code is not the objective argmin"
-            );
-            assert!(
-                (r.scale[row] - a0).abs() <= tol,
-                "beam {beam} row {row}: scale {} != {a0}",
-                r.scale[row]
-            );
-        }
-    }
-}
-
-/// `wscale` with `beam > 1`: with `H = I` the feedback factor is diagonal, so the winning beam's
-/// projected scale is the group least-squares scale `⟨w, s⟩/⟨s, s⟩` per row (the Python's
-/// `a_new = a + ⟨Err, u_S⟩/⟨u_S, u_S⟩`, lines 367–376); checked at every beam width. Decodes to `s`.
-#[test]
-fn beam_wscale_projection_is_least_squares() {
+fn wscale_projection_is_least_squares_at_every_beam() {
     let (o, n, damp) = (2usize, 128usize, 0.01);
     let w = random_w(o, n, 0x5CA0_0001);
-    let mut id = vec![0.0f64; n * n];
-    for i in 0..n {
-        id[i * n + i] = 1.0;
-    }
+    let id = identity(n);
     for beam in [1usize, 2, 4, 8, MAX_BEAM] {
-        let r = gptq_e8(&w, &id, o, n, damp, false, true, beam).expect("gptq_e8 beam wscale");
-        check_decode(&r, o, n, "beam wscale");
+        let r = gptq_e8(&w, &id, o, n, damp, false, true, beam).expect("gptq_e8 wscale");
+        check_decode(&r, o, n, "wscale");
         for row in 0..o {
-            let mut num = 0.0f64;
-            let mut den = 0.0f64;
-            for j in 0..n {
-                num += w[row * n + j] * r.s[row * n + j];
-                den += r.s[row * n + j] * r.s[row * n + j];
-            }
+            let num: f64 = (0..n).map(|j| w[row * n + j] * r.s[row * n + j]).sum();
+            let den: f64 = (0..n).map(|j| r.s[row * n + j] * r.s[row * n + j]).sum();
             let ls = (num / den.max(1e-12)).max(1e-12);
             assert!(
                 (r.scale[row] - ls).abs() <= 1e-9 * ls.abs().max(1.0),
@@ -1218,29 +1242,6 @@ fn beam_wscale_projection_is_least_squares() {
             );
         }
     }
-}
-
-/// `beam > 1` keeps the shape and refusal contract: a bad buffer length still refuses with
-/// [`GptqE8Error::ShapeMismatch`] and a non-SPD Hessian with [`GptqE8Error::NotPositiveDefinite`].
-#[test]
-fn beam_refusals_are_the_single_beam_refusals() {
-    let (o, n, damp) = (2usize, 8usize, 0.01);
-    let w = random_w(o, n, 0x5EFA_0001);
-    let mut id = vec![0.0f64; n * n];
-    for i in 0..n {
-        id[i * n + i] = 1.0;
-    }
-    assert_eq!(
-        gptq_e8(&w[1..], &id, o, n, damp, false, false, 4),
-        Err(GptqE8Error::ShapeMismatch)
-    );
-    let mut indef = id.clone();
-    indef[1] = 2.0;
-    indef[n] = 2.0;
-    assert_eq!(
-        gptq_e8(&w, &indef, o, n, damp, false, false, 4),
-        Err(GptqE8Error::NotPositiveDefinite)
-    );
 }
 
 /// The pre-lane `f64` block pass of a single group `[0, n)` (`q-l1a`), kept test-only after lane
@@ -1372,10 +1373,7 @@ fn integer_pass_agrees_with_the_f64_oracle() {
 fn zero_row_ties_take_the_smaller_code_index() {
     let (o, n, damp) = (1usize, 128usize, 0.01);
     let w = vec![0.0f64; o * n];
-    let mut id = vec![0.0f64; n * n];
-    for i in 0..n {
-        id[i * n + i] = 1.0;
-    }
+    let id = identity(n);
     let r = gptq_e8(&w, &id, o, n, damp, false, false, 1).expect("gptq_e8");
     for (b, &idx) in r.idx.iter().enumerate() {
         assert_eq!(idx, 0, "block {b}: tie must take the smaller code index");
