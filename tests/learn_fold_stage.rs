@@ -1090,3 +1090,157 @@ fn ridge_solve_words_are_bit_identical_to_the_recorded_wrapper() {
         assert_eq!(d, want[i], "ridge_solve n={n} out={out} words");
     }
 }
+
+// ---------------------------------------------------------------------------
+// `Dot` (the pooled contraction inside `add_slab`): output digests and unit cost
+// ---------------------------------------------------------------------------
+
+/// FNV-1a 64 over the little-endian bytes of a word buffer.
+fn digest_words(xs: &[i64]) -> u64 {
+    let mut d = 0xcbf2_9ce4_8422_2325u64;
+    fnv_words(&mut d, xs);
+    d
+}
+
+/// `(x, w_tok, ys, y_ts)` of one seeded `Dot` slab.
+type DotSlab = (Vec<i64>, Vec<i64>, Vec<Vec<i64>>, Vec<Vec<i64>>);
+
+/// A seeded slab for the `Dot` digests: `x` row-major `[rows, n]`, unit token weights and
+/// `ys`/`ts` row-major `[rows, out]`, every entry `q(4·u)` for `u ∈ [-1, 1)`.
+fn dot_slab(lcg: &mut Lcg, rows: usize, n: usize, outs: &[usize]) -> DotSlab {
+    let words4 = |lcg: &mut Lcg, len: usize| -> Vec<i64> {
+        rand_mat(lcg, 1, len).iter().map(|&v| q(4.0 * v)).collect()
+    };
+    let x = words4(lcg, rows * n);
+    let w = vec![ONE; rows];
+    let ys = outs.iter().map(|&o| words4(lcg, rows * o)).collect();
+    let ts = outs.iter().map(|&o| words4(lcg, rows * o)).collect();
+    (x, w, ys, ts)
+}
+
+fn add_dot_slab(acc: &mut StageAccum, s: &DotSlab, with_ts: &[bool]) -> Result<(), StageError> {
+    let ys: Vec<&[i64]> = s.2.iter().map(Vec::as_slice).collect();
+    let yts: Vec<Option<&[i64]>> =
+        s.3.iter()
+            .zip(with_ts)
+            .map(|(t, &m)| m.then_some(t.as_slice()))
+            .collect();
+    acc.add_slab(&s.0, &s.1, &ys, &yts)
+}
+
+/// The `Dot` kernel's output is bit-identical to the recorded pre-blocking one: `hm`/`hm_w`
+/// (`replace = true`, `x = y` for `hm`; digests 0 and 1) and, after a second slab, the
+/// accumulated `cs`/`cts` (`replace = false` onto a non-zero destination; digests 2–4).
+/// Fixture 1 has `rows = 37, n = 13, outs = [5, 7]`, fixture 2 `rows = 5001, n = 17,
+/// outs = [5, 9]`: neither `n` nor any `out` is a multiple of the tile sizes.
+#[test]
+fn dot_output_digests_reproduce() {
+    type Case = (u64, usize, usize, [usize; 2], [u64; 5]);
+    let cases: [Case; 2] = [
+        (
+            0x5eed_0001,
+            37,
+            13,
+            [5, 7],
+            [
+                16_569_049_911_569_093_702,
+                16_569_049_911_569_093_702,
+                17_543_790_876_757_816_417,
+                14_615_254_248_315_779_465,
+                3_824_674_395_350_365_230,
+            ],
+        ),
+        (
+            0x5eed_0002,
+            5_001,
+            17,
+            [5, 9],
+            [
+                18_445_603_161_551_762_225,
+                18_445_603_161_551_762_225,
+                10_001_645_956_510_728_616,
+                10_547_155_953_807_213_401,
+                13_477_187_751_660_977_786,
+            ],
+        ),
+    ];
+    let with_ts = [true, false];
+    let mut found = [[0u64; 5]; 2];
+    for (i, &(seed, rows, n, outs, _)) in cases.iter().enumerate() {
+        let mut lcg = Lcg::new(seed);
+        let s1 = dot_slab(&mut lcg, rows, n, &outs);
+        let s2 = dot_slab(&mut lcg, rows, n, &outs);
+        let mut acc = StageAccum::new(n, &outs, &with_ts).unwrap();
+        let t = std::time::Instant::now();
+        add_dot_slab(&mut acc, &s1, &with_ts).unwrap();
+        let first = t.elapsed().as_secs_f64();
+        let t = std::time::Instant::now();
+        add_dot_slab(&mut acc, &s2, &with_ts).unwrap();
+        let second = t.elapsed().as_secs_f64();
+        let got = [
+            digest_words(&acc.hm),
+            digest_words(&acc.hm_w),
+            digest_words(&acc.cs[0]),
+            digest_words(&acc.cs[1]),
+            digest_words(&acc.cts[0]),
+        ];
+        println!(
+            "dot seed={seed:#x} rows={rows} n={n} outs={outs:?} wall={first:.6}s/{second:.6}s \
+             digest={got:?}"
+        );
+        let _ = (first, second);
+        found[i] = got;
+    }
+    for (&(seed, _, _, _, want), got) in cases.iter().zip(&found) {
+        assert_eq!(*got, want, "dot digest seed={seed:#x}");
+    }
+}
+
+/// An `i128` accumulator that leaves range is reported as [`StageError::Overflow`] from the
+/// pooled entry (`i64::MAX² + i64::MAX²` on the Gram's `(0, 0)` entry).
+#[test]
+fn dot_overflow_reports_stage_error() {
+    let (rows, n) = (2usize, 2usize);
+    let mut x = vec![0i64; rows * n];
+    x[0] = i64::MAX;
+    x[1] = i64::MAX;
+    let w = vec![ONE; rows];
+    let y = vec![0i64; rows];
+    let mut acc = StageAccum::new(n, &[1], &[false]).unwrap();
+    assert_eq!(
+        acc.add_slab(&x, &w, &[y.as_slice()], &[None]),
+        Err(StageError::Overflow)
+    );
+}
+
+/// Unit cost of the pooled `Dot`: one `add_slab` at `rows = 8192, n = out = 1024` is two
+/// `rows·n²` Gram contractions and one `rows·n·out` cross contraction (`3·8.59·10⁹`
+/// multiply-adds). Three timed runs; `#[ignore]`, a receipt, not a gate.
+#[test]
+#[ignore = "unit-cost receipt; run with --release -- --ignored --nocapture"]
+fn dot_unit_cost() {
+    let (rows, n, out) = (8_192usize, 1_024usize, 1_024usize);
+    let mut lcg = Lcg::new(0xd07_0001);
+    let x = qv(&rand_mat(&mut lcg, rows, n));
+    let y = qv(&rand_mat(&mut lcg, rows, out));
+    let w = vec![ONE; rows];
+    let mut acc = StageAccum::new(n, &[out], &[false]).unwrap();
+    let madds = (2 * rows * n * n + rows * n * out) as f64;
+    let mut runs = Vec::with_capacity(3);
+    for _ in 0..3 {
+        let t = std::time::Instant::now();
+        acc.add_slab(&x, &w, &[y.as_slice()], &[None]).unwrap();
+        runs.push(t.elapsed().as_secs_f64());
+    }
+    let mean = runs.iter().sum::<f64>() / runs.len() as f64;
+    let (min, max) = runs.iter().fold((f64::INFINITY, 0.0f64), |(lo, hi), &v| {
+        (lo.min(v), hi.max(v))
+    });
+    println!(
+        "dot unit cost rows={rows} n={n} out={out}: runs={runs:?}s mean={mean:.3}s \
+         ns/madd={:.3} spread={:.3}..{:.3} ns",
+        mean * 1e9 / madds,
+        min * 1e9 / madds,
+        max * 1e9 / madds
+    );
+}

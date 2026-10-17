@@ -309,26 +309,54 @@ struct Dot<'a> {
     replace: bool,
     first: &'a FirstErr<usize, StageError>,
 }
+/// `y` output-column tile: `DOT_O_TILE` rows of the `y` panel, the block reused by every output
+/// row of the chunk.
+const DOT_O_TILE: usize = 128;
+/// `t` block: one `DOT_O_TILE × DOT_T_TILE` panel of `y` is re-read from L2 for every chunk row.
+const DOT_T_TILE: usize = 512;
+// Tiled nest; every accumulator's `t` order and `checked_add` order are the untiled loop's, so
+// the sum, the overflow point and `rnd` are unchanged. DRAM traffic per chunk falls from
+// `2·rows·8 B·piece_rows·out` to `rows·8 B·(piece_rows·out/DOT_O_TILE + out)`; the `i128` tile
+// accumulator is `O(piece_rows·DOT_O_TILE)`, 16 B per entry.
+// `(128, 512)` measured fastest of `O ∈ {64, 128, 256}` at `T = 1024` and `T ∈ {512, 1024, 2048}`
+// at `O = 128` on the `Dot` unit-cost fixture, and its `x` block (`chunk_rows·512·8`) plus `y`
+// panel (`128·512·8`) plus accumulator stays under the 2 MB L2 at the Gram's ~102 chunk rows.
 impl ChunkTask<i64> for Dot<'_> {
     fn run(&self, _c: usize, start: usize, piece: &mut [i64]) {
         let (out, rows) = (self.out, self.rows);
         let lo = start / out;
-        for r in 0..piece.len() / out {
-            for o in 0..out {
-                let mut acc: i128 = 0;
-                for t in 0..rows {
-                    let p =
-                        i128::from(self.x[(lo + r) * rows + t]) * i128::from(self.y[o * rows + t]);
-                    acc = match acc.checked_add(p) {
-                        Some(s) => s,
-                        None => return self.first.record(start, StageError::Overflow),
-                    };
+        let nr = piece.len() / out;
+        for ob in (0..out).step_by(DOT_O_TILE) {
+            let on = (out - ob).min(DOT_O_TILE);
+            let mut acc = vec![0i128; nr * on];
+            for tb in (0..rows).step_by(DOT_T_TILE) {
+                let th = (rows - tb).min(DOT_T_TILE);
+                for o in 0..on {
+                    let yo = (ob + o) * rows + tb;
+                    let ys = &self.y[yo..yo + th];
+                    for r in 0..nr {
+                        let xr = (lo + r) * rows + tb;
+                        let mut a = acc[r * on + o];
+                        for (&xa, &ya) in self.x[xr..xr + th].iter().zip(ys) {
+                            a = match a.checked_add(i128::from(xa) * i128::from(ya)) {
+                                Some(v) => v,
+                                None => return self.first.record(start, StageError::Overflow),
+                            };
+                        }
+                        acc[r * on + o] = a;
+                    }
                 }
-                let at = r * out + o;
-                let base = if self.replace { 0 } else { piece[at] };
-                match rnd(acc).and_then(|w| base.checked_add(w).ok_or(StageError::Overflow)) {
-                    Ok(v) => piece[at] = v,
-                    Err(e) => return self.first.record(start, e),
+            }
+            for r in 0..nr {
+                for o in 0..on {
+                    let at = r * out + ob + o;
+                    let base = if self.replace { 0 } else { piece[at] };
+                    match rnd(acc[r * on + o])
+                        .and_then(|w| base.checked_add(w).ok_or(StageError::Overflow))
+                    {
+                        Ok(v) => piece[at] = v,
+                        Err(e) => return self.first.record(start, e),
+                    }
                 }
             }
         }
