@@ -26,7 +26,7 @@ the cast to `ℚ`. Landed here:
   causes are inhabited.
 
 Trust boundary: rustc/LLVM codegen, the kernel ABI and the `f64` weight-to-fixed-point rounding in
-`sd1_row` (`src/learn/onebit.rs`) are not covered; only the integer body is.
+`sd1_row` (`src/learn/onebit.rs` (removed; at 9f440192)) are not covered; only the integer body is.
 -/
 
 set_option linter.apeiron.notation false
