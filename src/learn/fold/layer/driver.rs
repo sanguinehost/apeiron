@@ -55,7 +55,7 @@ use crate::learn::fold::fit::fnorm::{fnorm_fit, FnormError};
 use crate::learn::fold::fit::fold_fit::FoldFitConfig;
 use crate::learn::fold::layer::resq::{resq_scale, ResqError, ResqInputs};
 use crate::learn::fold::layer::stage::{
-    sink_token_weights, solve_stage, SolveParams, StageAccum, StageError,
+    param_q64, sink_token_weights, solve_stage, width_n, SolveParams, StageAccum, StageError,
 };
 use crate::learn::fold::layer::tensor::carrier::{
     col_squares, eval, grids, ratio, ratio_words, reals, silu_grid, sum_i128, Elem,
@@ -68,7 +68,7 @@ use crate::learn::fold::stats::hocapture::Kind;
 use crate::learn::fold::stats::parts::{
     attn_a, linear, parts, rms, LayerCfg, LayerF64, PartsError, RopeTables,
 };
-use crate::learn::solve::q32::{to_grid, Q32Error, GRID_BOUND};
+use crate::learn::solve::q32::{div_rne, to_grid, Q32Error, GRID_BOUND, GRID_SCALE};
 
 /// A refusal from the layer driver.
 #[derive(Clone, Debug, PartialEq)]
@@ -478,51 +478,43 @@ fn add_bits(a: TensorBits, b: &TensorBits) -> TensorBits {
 }
 
 /// `g_row = sq / mean(sq)` (`fold_transfer.py:1706`, `:1710`): the per-row weight normalised to mean
-/// `1`, floored at one grid quantum so an all-zero input gives zeros, never a NaN.
+/// `1`, floored at one grid quantum so an all-zero input gives zeros, never a NaN. Input and result
+/// are `Q32.32` words.
 ///
 /// # Errors
-/// [`DriverError::Shape`] if `v` is empty; [`DriverError::NonFinite`] on a non-finite entry;
-/// [`DriverError::Grid`] if an entry or an operation leaves the carrier's range. Temporal `O(len)`
-/// (one square pass, one `i128` sum, one divide, one ratio pass); spatial `O(len)`.
-pub fn g_row_from_vec(v: &[f64]) -> Result<Vec<f64>, DriverError> {
+/// [`DriverError::Shape`] if `v` is empty; [`DriverError::Grid`] if an entry or an operation leaves
+/// the carrier's range. Temporal `O(len)` (one square pass, one `i128` sum, one divide, one ratio
+/// pass); spatial `O(len)`.
+pub fn g_row_from_vec(v: &[i64]) -> Result<Vec<i64>, DriverError> {
     if v.is_empty() {
         return Err(DriverError::Shape);
     }
-    if !finite(v) {
-        return Err(DriverError::NonFinite);
-    }
-    let q = grids(v)?;
-    let sq = eval(q.len(), Elem::Square(&q))?;
-    let len = i128::try_from(q.len()).map_err(|_| DriverError::Shape)?;
+    let sq = eval(v.len(), Elem::Square(v))?;
+    let len = i128::try_from(v.len()).map_err(|_| DriverError::Shape)?;
     // `len` as a word, so the ratio is `Σ sq / len` (a mean) rather than `Σ sq / len·2³²`.
     let mean = ratio(sum_i128(&sq)?, len << 32)?;
-    Ok(reals(&eval(sq.len(), Elem::Ratio(&sq, mean.max(1)))?))
+    Ok(eval(sq.len(), Elem::Ratio(&sq, mean.max(1)))?)
 }
 
 /// `g_row` for the `gate`/`up` stage: the column sums of squares of the teacher `down`
-/// (`(Lt["down"] ** 2).sum(0)`, `:1705`), normalised to mean `1`. `w` is row-major `[rows, cols]`;
-/// the result has length `cols`, the column sums exact in `i128`.
+/// (`(Lt["down"] ** 2).sum(0)`, `:1705`), normalised to mean `1`. `w` is row-major `[rows, cols]`
+/// `Q32.32` words; the result has length `cols`, the column sums exact in `i128`.
 ///
 /// # Errors
-/// [`DriverError::Shape`] if `w.len() != rows·cols` or `cols == 0`; [`DriverError::NonFinite`] on a
-/// non-finite entry; [`DriverError::Grid`] if an entry, a sum or a division leaves the range.
-/// Temporal `O(rows·cols)`; spatial `O(cols)`.
-pub fn g_row_from_matrix(w: &[f64], rows: usize, cols: usize) -> Result<Vec<f64>, DriverError> {
+/// [`DriverError::Shape`] if `w.len() != rows·cols` or `cols == 0`; [`DriverError::Grid`] if an
+/// entry, a sum or a division leaves the range. Temporal `O(rows·cols)`; spatial `O(cols)`.
+pub fn g_row_from_matrix(w: &[i64], rows: usize, cols: usize) -> Result<Vec<i64>, DriverError> {
     let rc = rows.checked_mul(cols).ok_or(DriverError::Shape)?;
     if cols == 0 || w.len() != rc {
         return Err(DriverError::Shape);
     }
-    if !finite(w) {
-        return Err(DriverError::NonFinite);
-    }
-    let wq = grids(w)?;
-    let sums = col_squares(&wq, rows, cols)?;
+    let sums = col_squares(w, rows, cols)?;
     let mut total = 0_i128;
     for &s in &sums {
         total = total.checked_add(s).ok_or(DriverError::Grid)?;
     }
     let den = i128::try_from(cols).map_err(|_| DriverError::Grid)? << 32;
-    Ok(reals(&ratio_words(&sums, ratio(total, den)?.max(1))?))
+    Ok(ratio_words(&sums, ratio(total, den)?.max(1))?)
 }
 
 /// The batched teacher forward: [`parts`] per sequence of the slab, concatenated (`:1533`). `h` is
@@ -611,16 +603,16 @@ fn attn_batch(
 }
 
 /// `y[r, j] − b[j]` broadcast over the rows: the `q`/`k`/`v` target `Pt[nm] − Lt[nm + "b"]`
-/// (`:1630`).
+/// (`:1630`). `y` and `b` are `Q32.32` words.
 /// # Errors
 /// [`DriverError::Shape`] if a length disagrees with `rows`/`w`; [`DriverError::Grid`] from a
-/// conversion or a checked subtraction. Temporal `O(rows·w)`, spatial `O(rows·w)`.
-fn sub_bias(y: &[i64], b: &[f64], rows: usize, w: usize) -> Result<Vec<i64>, DriverError> {
+/// checked subtraction. Temporal `O(rows·w)`, spatial `O(rows·w)`.
+fn sub_bias(y: &[i64], b: &[i64], rows: usize, w: usize) -> Result<Vec<i64>, DriverError> {
     let rw = rows.checked_mul(w).ok_or(DriverError::Shape)?;
     if w == 0 || y.len() != rw || b.len() != w {
         return Err(DriverError::Shape);
     }
-    let e = Elem::SubBias(y, &grids(b)?, w);
+    let e = Elem::SubBias(y, b, w);
     Ok(eval(rw, e)?)
 }
 
@@ -709,6 +701,17 @@ fn set_bias(dst: &mut [f64], base: &[f64], db: Option<&[f64]>) -> Result<(), Dri
     Ok(())
 }
 
+/// `base·(n/n_ref)` for the `FoldFitConfig` boundary: one `i128` product and [`div_rne`] quotient
+/// on the `Q64.64` base, then the exact power-of-two rescale. `O(1)`. [`width_n`] refuses `n_ref` 0.
+fn stage_scale(base_q64: i128, n: usize, n_ref: usize) -> Result<f64, DriverError> {
+    let num = base_q64
+        .checked_mul(i128::try_from(n).map_err(|_| DriverError::Grid)?)
+        .ok_or(DriverError::Grid)?;
+    let den = i128::try_from(n_ref).map_err(|_| DriverError::Grid)?;
+    let q = div_rne(num, den).ok_or(DriverError::Grid)?;
+    Ok(q as f64 / (GRID_SCALE * GRID_SCALE))
+}
+
 /// One stage of a layer: the slab Gram accumulation (`:1538-1648`), the `fold_gqa` solve
 /// (`:1652-1682`) and the per-tensor fit (`:1692-1957`), writing each fit into `lq`. The word-form
 /// `hs_mid` feeds `ffn`/`down`, materialised per slab for `stats::parts`; the sink weights of every
@@ -745,6 +748,10 @@ fn run_stage(
     let mut accum = StageAccum::new(n, &outs, with_ts)?;
     let mut slab_in: Vec<Vec<i64>> = Vec::with_capacity(geom.len());
     let (ln1, ln2) = (grids(&lq.ln1)?, grids(&lq.ln2)?);
+    // The per-stage `quant_ridge`/`quant_damp` scale `base·(n/n_ref)`, integer on the carrier.
+    let n_ref = width_n(cfg.solve.n_ref)?;
+    let rg_q = stage_scale(param_q64(cfg.quant_ridge)?, n, n_ref)?;
+    let damp = stage_scale(param_q64(cfg.quant_damp)?, n, n_ref)?;
 
     for (i, &(row0, rows, seqs)) in geom.iter().enumerate() {
         let pt = &pt_cache[i];
@@ -788,9 +795,9 @@ fn run_stage(
         let (ys, y_ts): (Vec<Vec<i64>>, Vec<Option<Vec<i64>>>) = match stage {
             StageId::Qkv => (
                 vec![
-                    sub_bias(&pt.q, &lt.qb, rows, qo)?,
-                    sub_bias(&pt.k, &lt.kb, rows, kvo)?,
-                    sub_bias(&pt.v, &lt.vb, rows, kvo)?,
+                    sub_bias(&pt.q, &grids(&lt.qb)?, rows, qo)?,
+                    sub_bias(&pt.k, &grids(&lt.kb)?, rows, kvo)?,
+                    sub_bias(&pt.v, &grids(&lt.vb)?, rows, kvo)?,
                 ],
                 vec![None, None, None],
             ),
@@ -829,11 +836,18 @@ fn run_stage(
     let w0r: Vec<&[i64]> = w0.iter().map(Vec::as_slice).collect();
     let ws = solve_stage(&accum, &w0r, stage.solve_kinds(), &cfg.solve)?;
 
+    // The row weight is one per stage; its `f64` view is the `fit_tensor` boundary.
+    let g_row: Option<Vec<f64>> = match stage {
+        StageId::Qkv => None,
+        StageId::O => Some(reals(&g_row_from_vec(&grids(&lt.ln2)?)?)),
+        StageId::Ffn => Some(reals(&g_row_from_matrix(&grids(&lt.down)?, hid, inter)?)),
+        StageId::Down => Some(reals(&g_row_from_vec(&grids(ln_next)?)?)),
+    };
+    let hm_f = reals(&accum.hm);
+
     let mut fits = Vec::with_capacity(outs.len());
     for (j, &kind) in kinds.iter().enumerate() {
         let o = outs[j];
-        let rg_q = cfg.quant_ridge * (n as f64 / cfg.solve.n_ref);
-        let damp = cfg.quant_damp * (n as f64 / cfg.solve.n_ref);
         let fit_cfg = FoldFitConfig {
             iters: cfg.fit.iters,
             ridge: rg_q,
@@ -843,17 +857,12 @@ fn run_stage(
             icm_ridge: cfg.fit.icm_ridge,
             sweeps: cfg.fit.sweeps,
         };
-        let g_row: Option<Vec<f64>> = match stage {
-            StageId::Qkv => None,
-            StageId::O => Some(g_row_from_vec(&lt.ln2)?),
-            StageId::Ffn => Some(g_row_from_matrix(&lt.down, hid, inter)?),
-            StageId::Down => Some(g_row_from_vec(ln_next)?),
-        };
+        let (xs_f, ys_f) = (reals(&accum.x_sum), reals(&accum.y_sum[j]));
         let bias = match kind {
             TensorKind::Q | TensorKind::K | TensorKind::V => Some(BiasStats {
-                x_sum: &accum.x_sum,
-                y_sum: &accum.y_sum[j],
-                n_toks: accum.n_toks,
+                x_sum: &xs_f,
+                y_sum: &ys_f,
+                n_toks: accum.n_toks as f64,
             }),
             _ => None,
         };
@@ -867,7 +876,7 @@ fn run_stage(
         let mut fit = fit_tensor(
             kind,
             &reals(&ws[j]),
-            &accum.hm,
+            &hm_f,
             o,
             n,
             g_row.as_deref(),
@@ -1285,24 +1294,27 @@ pub fn model_finish(
     if !finite(&st.ht) || !finite(&st.hs) || !finite(fnorm_w) || !finite(embed) {
         return Err(DriverError::NonFinite);
     }
-    let fnorm = fnorm_fit(
-        &st.ht,
-        &st.hs,
+    let eps = to_grid(cfg.layer.eps, GRID_BOUND).ok_or(DriverError::Grid)?;
+    let ridge = to_grid(0.10, GRID_BOUND).ok_or(DriverError::Grid)?;
+    let lr = to_grid(fnorm_lr, GRID_BOUND).ok_or(DriverError::Grid)?;
+    let g = fnorm_fit(
+        &grids(&st.ht)?,
+        &grids(&st.hs)?,
         cfg.n_seq,
         cfg.t,
         hid,
-        fnorm_w,
-        embed,
+        &grids(fnorm_w)?,
+        &grids(embed)?,
         vocab,
-        cfg.layer.eps,
+        eps,
         2,
-        0.10,
-        fnorm_lr,
+        ridge,
+        lr,
         true,
     )?;
     Ok(ModelResult {
         layers: st.layers,
-        fnorm,
+        fnorm: reals(&g),
         bits: st.bits,
         fits: st.fits,
     })

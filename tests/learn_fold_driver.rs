@@ -386,7 +386,7 @@ fn c_bits_and_sign_count() {
 #[test]
 fn d_g_row_helper() {
     let v = [1.0_f64, 2.0, 3.0, 4.0];
-    let g = g_row_from_vec(&v).expect("g_row");
+    let g = unq(&g_row_from_vec(&qv(&v)).expect("g_row"));
     let mean = g.iter().sum::<f64>() / g.len() as f64;
     // The four squares and their sum are exact on the grid (`k²·2³²` fits `i64`), `30/4` is exact in
     // one Q32 word, and each ratio rounds to nearest: `|Δ| ≤ 2⁻³³` per entry, and the mean of four
@@ -398,7 +398,7 @@ fn d_g_row_helper() {
         assert!((g[i] - v[i] * v[i] / 7.5).abs() <= GRID_QUANTUM, "g at {i}");
     }
     // all-zero input: the clamp gives an all-zero vector, never NaN.
-    let z = g_row_from_vec(&[0.0, 0.0, 0.0, 0.0]).expect("g_row zero");
+    let z = unq(&g_row_from_vec(&qv(&[0.0, 0.0, 0.0, 0.0])).expect("g_row zero"));
     assert!(
         z.iter().all(|x| *x == 0.0),
         "all-zero g_row must be all zeros"
@@ -406,7 +406,7 @@ fn d_g_row_helper() {
 
     // The matrix form: column sums of squares, normalised.
     let m = [1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0];
-    let gm = g_row_from_matrix(&m, 2, 3).expect("g_row matrix");
+    let gm = unq(&g_row_from_matrix(&qv(&m), 2, 3).expect("g_row matrix"));
     let mean_m = gm.iter().sum::<f64>() / gm.len() as f64;
     assert!((mean_m - 1.0).abs() <= GRID_QUANTUM, "mean_m {mean_m}");
     let col: Vec<f64> = (0..3).map(|c| m[c] * m[c] + m[3 + c] * m[3 + c]).collect();
@@ -417,7 +417,7 @@ fn d_g_row_helper() {
         assert!((gm[c] - col[c] / denom).abs() <= GRID_QUANTUM, "gm at {c}");
     }
     assert_eq!(
-        g_row_from_matrix(&m, 2, 4),
+        g_row_from_matrix(&qv(&m), 2, 4),
         Err(DriverError::Shape),
         "a wrong matrix length must refuse"
     );
@@ -478,7 +478,7 @@ fn d2_g_row_oracle_agreement() {
     let vmax = v.iter().fold(0.0_f64, |a, x| a.max(x.abs()));
     let sq: Vec<f64> = v.iter().map(|x| x * x).collect();
     let bound = g_row_bound(&sq, vmax, 1);
-    let g = g_row_from_vec(&v).expect("g_row");
+    let g = unq(&g_row_from_vec(&qv(&v)).expect("g_row"));
     let want = ref_g_row_from_vec(&v);
     let mut max = 0.0_f64;
     for i in 0..v.len() {
@@ -501,7 +501,7 @@ fn d2_g_row_oracle_agreement() {
     }
     let wmax = w.iter().fold(0.0_f64, |a, x| a.max(x.abs()));
     let bound_m = g_row_bound(&col, wmax, HID);
-    let gm = g_row_from_matrix(&w, HID, INTER).expect("g_row matrix");
+    let gm = unq(&g_row_from_matrix(&qv(&w), HID, INTER).expect("g_row matrix"));
     let want_m = ref_g_row_from_matrix(&w, HID, INTER);
     let mut max_m = 0.0_f64;
     for c in 0..INTER {
@@ -642,8 +642,8 @@ fn f_model_loop_and_final_norm() {
     assert!(all_finite(&m1.fnorm), "the final norm is not finite");
 
     // The `ln_next` source is read: `g_row` of layer 1's `ln1` differs from `g_row` of `fnorm`.
-    let g_l1 = g_row_from_vec(&layers[1].ln1).expect("g ln1");
-    let g_fn = g_row_from_vec(&fnorm).expect("g fnorm");
+    let g_l1 = unq(&g_row_from_vec(&qv(&layers[1].ln1)).expect("g ln1"));
+    let g_fn = unq(&g_row_from_vec(&qv(&fnorm)).expect("g fnorm"));
     let gdiff = g_l1
         .iter()
         .zip(&g_fn)

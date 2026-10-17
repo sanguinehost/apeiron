@@ -5,8 +5,8 @@
 //! [`crate::learn::solve::q32::round_q32_even`], the binary16 step round is
 //! [`crate::learn::solve::q32::round_f16`], and the softmax is
 //! [`crate::learn::fold::stats::hocapture::softmax_row`] (the crate's `fixed_exp` per shifted
-//! logit, one rounding per probability). `f64` crosses only the `pub` boundary, through
-//! [`crate::learn::solve::q32::to_grid`] and [`crate::learn::solve::q32::from_grid`].
+//! logit, one rounding per probability). The function takes and returns words: the caller converts
+//! its `f64` inputs at its own boundary, once.
 //!
 //! `ht`/`hs` are the teacher/student final hidden states (`n·t·hid`, row-major), `g0` the fixed
 //! teacher gain (`hid`), `e` the tied embedding (`vocab·hid`), `eps` the RMSNorm epsilon; `steps`,
@@ -23,11 +23,11 @@
 //!
 //! # Partiality
 //!
-//! Refuses a shape disagreement or a zero dimension ([`FnormError::ShapeMismatch`]), a non-finite
-//! input ([`FnormError::NonFinite`]), an `eps` that is not finite and positive or that rounds to
-//! the zero word ([`FnormError::BadEps`]) and a checked quantity out of range
+//! Refuses a shape disagreement or a zero dimension ([`FnormError::ShapeMismatch`]), an `eps` word
+//! that is not positive ([`FnormError::BadEps`]) and a checked quantity out of range
 //! ([`FnormError::Overflow`]); the Python propagates `NaN` and wraps. A `0/0` coh-prior ratio is
-//! `0`: the integer path has no `NaN`.
+//! `0`: the integer path has no `NaN`. A non-finite input is refused by the caller's
+//! `to_grid` boundary, not here.
 //!
 //! # Grade
 //!
@@ -51,9 +51,7 @@
 use core::cmp::Ordering;
 
 use crate::learn::fold::stats::hocapture::softmax_row;
-use crate::learn::solve::q32::{
-    from_grid, round_f16, round_q32_even, rshift_rne, to_grid, Fx, GRID_BOUND,
-};
+use crate::learn::solve::q32::{round_f16, round_q32_even, rshift_rne, Fx};
 use crate::numeric::fixed_rsqrt::isqrt;
 
 /// The Q32.32 unit `1.0`.
@@ -71,10 +69,7 @@ pub enum FnormError {
     /// A slice length that is not the declared shape, or a zero dimension (`n`, `t`, `hid`,
     /// `vocab`, or the `coh_prior` scored-position count).
     ShapeMismatch,
-    /// A non-finite entry of `ht`, `hs`, `g0` or `e`.
-    NonFinite,
-    /// `eps` is not finite and positive, or it rounds to the zero Q32.32 word, so
-    /// `rsqrt(mean(h²) + eps)` is undefined.
+    /// `eps` is not a positive Q32.32 word, so `rsqrt(mean(h²) + eps)` is undefined.
     BadEps,
     /// A finite input outside the Q32.32 grid range, or a checked integer quantity that left its
     /// range.
@@ -142,27 +137,6 @@ fn f16_word(v: i64) -> Result<i64, FnormError> {
     i64::try_from(w).map_err(|_| FnormError::Overflow)
 }
 
-/// The `f64` inputs as Q32.32 words: one conversion per entry. A non-finite entry is
-/// [`FnormError::NonFinite`], a finite one outside the grid range [`FnormError::Overflow`].
-/// Time `O(len)`, space `O(len)`.
-fn to_words(xs: &[f64]) -> Result<Vec<i64>, FnormError> {
-    if xs.iter().any(|x| !x.is_finite()) {
-        return Err(FnormError::NonFinite);
-    }
-    xs.iter()
-        .map(|&x| to_grid(x, GRID_BOUND).ok_or(FnormError::Overflow))
-        .collect()
-}
-
-/// One `f64` scalar as a Q32.32 word; a non-finite or out-of-grid value is
-/// [`FnormError::Overflow`]. `O(1)`.
-fn to_word(x: f64) -> Result<i64, FnormError> {
-    if !x.is_finite() {
-        return Err(FnormError::Overflow);
-    }
-    to_grid(x, GRID_BOUND).ok_or(FnormError::Overflow)
-}
-
 /// RMS-normalize row `h[base..base+hid]`: `out[j] = h[base+j] · rsqrt(mean(h²) + eps)`, the mean
 /// by one rounded quotient of the exact `i128` sum of squares, the root by [`sqrt_q`] and the
 /// reciprocal root by one rounded quotient. Time `O(hid)`, space the caller's `out`.
@@ -189,13 +163,13 @@ fn rms_row(
 
 /// Fit the final RMSNorm gain `g` by damped Newton-Fisher descent on the readout KL.
 ///
-/// The `f64` arguments and the returned `Vec<f64>` are the wave-1 boundary; every computation
-/// between them is Q32.32 `i64`.
+/// Every argument and the returned `Vec<i64>` are Q32.32 words: the caller converts its `f64`
+/// inputs at its own boundary, once. `eps`, `ridge` and `lr` are words too.
 ///
 /// # Errors
 ///
-/// As the module's partiality note: [`FnormError::ShapeMismatch`], [`FnormError::NonFinite`],
-/// [`FnormError::BadEps`] or [`FnormError::Overflow`].
+/// As the module's partiality note: [`FnormError::ShapeMismatch`], [`FnormError::BadEps`] or
+/// [`FnormError::Overflow`].
 ///
 /// # Complexity
 ///
@@ -208,20 +182,20 @@ fn rms_row(
               and the coh-prior flag are the Python signature, and the body is that one descent"
 )]
 pub fn fnorm_fit(
-    ht: &[f64],
-    hs: &[f64],
+    htq: &[i64],
+    hsq: &[i64],
     n: usize,
     t: usize,
     hid: usize,
-    g0: &[f64],
-    e: &[f64],
+    g0q: &[i64],
+    eq: &[i64],
     vocab: usize,
-    eps: f64,
+    eps_q: i64,
     steps: usize,
-    ridge: f64,
-    lr: f64,
+    ridge_q: i64,
+    lr_q: i64,
     coh_prior: bool,
-) -> Result<Vec<f64>, FnormError> {
+) -> Result<Vec<i64>, FnormError> {
     if n == 0 || t == 0 || hid == 0 || vocab == 0 {
         return Err(FnormError::ShapeMismatch);
     }
@@ -230,14 +204,10 @@ pub fn fnorm_fit(
         .and_then(|x| x.checked_mul(hid))
         .ok_or(FnormError::ShapeMismatch)?;
     let vh = vocab.checked_mul(hid).ok_or(FnormError::ShapeMismatch)?;
-    if ht.len() != nt || hs.len() != nt || g0.len() != hid || e.len() != vh {
+    if htq.len() != nt || hsq.len() != nt || g0q.len() != hid || eq.len() != vh {
         return Err(FnormError::ShapeMismatch);
     }
-    if !eps.is_finite() || eps <= 0.0 {
-        return Err(FnormError::BadEps);
-    }
-    let eps_q = to_grid(eps, GRID_BOUND).ok_or(FnormError::BadEps)?;
-    if eps_q == 0 {
+    if eps_q <= 0 {
         return Err(FnormError::BadEps);
     }
     let pos_start = usize::from(coh_prior);
@@ -246,20 +216,13 @@ pub fn fnorm_fit(
         return Err(FnormError::ShapeMismatch);
     }
 
-    // The wave-1 boundary: every `f64` input becomes a Q32.32 word once, here.
-    let htq = to_words(ht)?;
-    let hsq = to_words(hs)?;
-    let g0q = to_words(g0)?;
-    let eq = to_words(e)?;
-    let ridge_q = to_word(ridge)?;
-    let lr_q = to_word(lr)?;
     let n_tok = i128::from(
         i64::try_from(n.checked_mul(t_eff).ok_or(FnormError::Overflow)?)
             .map_err(|_| FnormError::Overflow)?,
     );
 
     // coh-prior target (Python lines 989–1003).
-    let mut g_target = g0q.clone();
+    let mut g_target = g0q.to_vec();
     if coh_prior {
         let (mut num, mut den_t, mut den_s) =
             (vec![0_i128; hid], vec![0_i128; hid], vec![0_i128; hid]);
@@ -267,8 +230,8 @@ pub fn fnorm_fit(
         for s in 0..n {
             for p in pos_start..t {
                 let base = (s * t + p) * hid;
-                rms_row(&htq, base, hid, eps_q, &mut ut)?;
-                rms_row(&hsq, base, hid, eps_q, &mut us)?;
+                rms_row(htq, base, hid, eps_q, &mut ut)?;
+                rms_row(hsq, base, hid, eps_q, &mut us)?;
                 for j in 0..hid {
                     let (a, b) = (i128::from(ut[j]), i128::from(us[j]));
                     num[j] = num[j].checked_add(a * b).ok_or(FnormError::Overflow)?;
@@ -296,7 +259,7 @@ pub fn fnorm_fit(
         }
     }
 
-    let mut g = g0q.clone();
+    let mut g = g0q.to_vec();
     let (mut ut, mut us) = (vec![0_i64; hid], vec![0_i64; hid]);
     let (mut pt, mut ps) = (vec![0_i64; vocab], vec![0_i64; vocab]);
     let (mut utg, mut usg) = (vec![0_i64; hid], vec![0_i64; hid]);
@@ -305,8 +268,8 @@ pub fn fnorm_fit(
         for s in 0..n {
             for p in pos_start..t {
                 let base = (s * t + p) * hid;
-                rms_row(&htq, base, hid, eps_q, &mut ut)?;
-                rms_row(&hsq, base, hid, eps_q, &mut us)?;
+                rms_row(htq, base, hid, eps_q, &mut ut)?;
+                rms_row(hsq, base, hid, eps_q, &mut us)?;
                 for j in 0..hid {
                     utg[j] = mul_q(ut[j], g0q[j])?;
                     usg[j] = mul_q(us[j], g[j])?;
@@ -379,5 +342,5 @@ pub fn fnorm_fit(
             g[j] = f16_word(g[j].checked_sub(step).ok_or(FnormError::Overflow)?)?;
         }
     }
-    Ok(g.iter().map(|&w| from_grid(w)).collect())
+    Ok(g)
 }
