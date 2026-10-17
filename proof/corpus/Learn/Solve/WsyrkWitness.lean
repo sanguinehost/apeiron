@@ -278,27 +278,27 @@ theorem hadFit_witness : hadFit (qvals wOne) (qvals wOne) 0 := by
 /-- `n = 0` refuses with `ZeroN`. -/
 theorem wsyrk_refuse_zeroN_witness :
     ¬ wsyrkDomain wNil none 1#usize 0#usize ∧
-      solve_port.syrk.wsyrk wNil none 1#usize 0#usize 1#usize =
+      solve_port.syrk.wsyrk wNil none 1#usize 0#usize =
         ok (core.result.Result.Err solve_port.syrk.SyrkError.ZeroN) := by
-  refine ⟨?_, syrk_wsyrk_refuse_zeroN wNil none 1#usize 0#usize 1#usize rfl⟩
+  refine ⟨?_, syrk_wsyrk_refuse_zeroN wNil none 1#usize 0#usize rfl⟩
   intro h
   exact h.1 rfl
 
 /-- `o = 0` refuses with `ZeroO`. -/
 theorem wsyrk_refuse_zeroO_witness :
     ¬ wsyrkDomain wNil none 0#usize 1#usize ∧
-      solve_port.syrk.wsyrk wNil none 0#usize 1#usize 1#usize =
+      solve_port.syrk.wsyrk wNil none 0#usize 1#usize =
         ok (core.result.Result.Err solve_port.syrk.SyrkError.ZeroO) := by
-  refine ⟨?_, syrk_wsyrk_refuse_zeroO wNil none 0#usize 1#usize 1#usize w_one_ne_zero rfl⟩
+  refine ⟨?_, syrk_wsyrk_refuse_zeroO wNil none 0#usize 1#usize w_one_ne_zero rfl⟩
   intro h
   exact h.2.1 rfl
 
 /-- `n = Usize::MAX` overflows `n·n`, refusing with `Overflow`. -/
 theorem wsyrk_refuse_mulNN_witness :
     ¬ wsyrkDomain wNil none 1#usize core.num.Usize.MAX ∧
-      solve_port.syrk.wsyrk wNil none 1#usize core.num.Usize.MAX 1#usize =
+      solve_port.syrk.wsyrk wNil none 1#usize core.num.Usize.MAX =
         ok (core.result.Result.Err solve_port.syrk.SyrkError.Overflow) := by
-  refine ⟨?_, syrk_wsyrk_refuse_mulNN wNil none 1#usize core.num.Usize.MAX 1#usize
+  refine ⟨?_, syrk_wsyrk_refuse_mulNN wNil none 1#usize core.num.Usize.MAX
     w_max_ne_zero w_one_ne_zero w_max_max_none⟩
   intro h
   exact h.2.2.1 w_max_max_none
@@ -306,9 +306,9 @@ theorem wsyrk_refuse_mulNN_witness :
 /-- `o = Usize::MAX`, `n = 2` overflows `o·n`, refusing with `ShapeMismatch` (check order). -/
 theorem wsyrk_refuse_mulON_witness :
     ¬ wsyrkDomain wNil none core.num.Usize.MAX 2#usize ∧
-      solve_port.syrk.wsyrk wNil none core.num.Usize.MAX 2#usize 1#usize =
+      solve_port.syrk.wsyrk wNil none core.num.Usize.MAX 2#usize =
         ok (core.result.Result.Err solve_port.syrk.SyrkError.ShapeMismatch) := by
-  refine ⟨?_, syrk_wsyrk_refuse_mulON wNil none core.num.Usize.MAX 2#usize 1#usize
+  refine ⟨?_, syrk_wsyrk_refuse_mulON wNil none core.num.Usize.MAX 2#usize
     w_two_ne_zero w_max_ne_zero w_mul22 w_max_two_none⟩
   intro h
   exact absurd h.2.2.2.2.2.1 (by
@@ -320,9 +320,9 @@ theorem wsyrk_refuse_mulON_witness :
 /-- `Slice.len x ≠ o·n` (`x` empty, `o·n = 4`) refuses with `ShapeMismatch`. -/
 theorem wsyrk_refuse_len_x_witness :
     ¬ wsyrkDomain wNil none 2#usize 2#usize ∧
-      solve_port.syrk.wsyrk wNil none 2#usize 2#usize 1#usize =
+      solve_port.syrk.wsyrk wNil none 2#usize 2#usize =
         ok (core.result.Result.Err solve_port.syrk.SyrkError.ShapeMismatch) := by
-  refine ⟨?_, syrk_wsyrk_refuse_len_x wNil none 2#usize 2#usize 1#usize
+  refine ⟨?_, syrk_wsyrk_refuse_len_x wNil none 2#usize 2#usize
     w_two_ne_zero w_two_ne_zero w_mul22 w_mul22 w_nil_len_ne_four⟩
   intro h
   exact w_nil_len_ne_four (h.2.2.2.1 4#usize w_mul22)
@@ -330,9 +330,9 @@ theorem wsyrk_refuse_len_x_witness :
 /-- A present `w` with `Slice.len w ≠ o` refuses with `ShapeMismatch`. -/
 theorem wsyrk_refuse_len_w_witness :
     ¬ wsyrkDomain wOne (some wNil) 1#usize 1#usize ∧
-      solve_port.syrk.wsyrk wOne (some wNil) 1#usize 1#usize 1#usize =
+      solve_port.syrk.wsyrk wOne (some wNil) 1#usize 1#usize =
         ok (core.result.Result.Err solve_port.syrk.SyrkError.ShapeMismatch) := by
-  refine ⟨?_, syrk_wsyrk_refuse_len_w wOne wNil 1#usize 1#usize 1#usize
+  refine ⟨?_, syrk_wsyrk_refuse_len_w wOne wNil 1#usize 1#usize
     w_one_ne_zero w_one_ne_zero w_mul11 w_mul11 w_one_len w_nil_len_ne_one⟩
   intro h
   exact w_nil_len_ne_one (h.2.2.2.2.1 wNil rfl)
@@ -340,9 +340,9 @@ theorem wsyrk_refuse_len_w_witness :
 /-- `o = 2¹⁸ ≥ MAX_O` refuses with `Overflow` once every shape check passes. -/
 theorem wsyrk_refuse_maxO_witness :
     ¬ wsyrkDomain wBig none (Slice.len wBig) 1#usize ∧
-      solve_port.syrk.wsyrk wBig none (Slice.len wBig) 1#usize 1#usize =
+      solve_port.syrk.wsyrk wBig none (Slice.len wBig) 1#usize =
         ok (core.result.Result.Err solve_port.syrk.SyrkError.Overflow) := by
-  refine ⟨?_, syrk_wsyrk_refuse_maxO wBig none (Slice.len wBig) 1#usize 1#usize
+  refine ⟨?_, syrk_wsyrk_refuse_maxO wBig none (Slice.len wBig) 1#usize
     w_one_ne_zero w_big_ne_zero w_mul11 (w_mul_one (Slice.len wBig)) rfl
     (fun ws hws => absurd hws (by simp)) w_big_ge18⟩
   intro h
@@ -351,9 +351,9 @@ theorem wsyrk_refuse_maxO_witness :
 /-- An entry outside the strict `±2³⁶` boundary (`i64::MAX`) refuses with `InputBound`. -/
 theorem wsyrk_refuse_bound_witness :
     ¬ wsyrkDomain wWide none 1#usize 1#usize ∧
-      solve_port.syrk.wsyrk wWide none 1#usize 1#usize 1#usize =
+      solve_port.syrk.wsyrk wWide none 1#usize 1#usize =
         ok (core.result.Result.Err solve_port.syrk.SyrkError.InputBound) := by
-  refine ⟨?_, syrk_wsyrk_refuse_bound wWide none 1#usize 1#usize 1#usize
+  refine ⟨?_, syrk_wsyrk_refuse_bound wWide none 1#usize 1#usize
     w_one_ne_zero w_one_ne_zero w_mul11 w_mul11 w_wide_len
     (fun ws hws => absurd hws (by simp))
     (by rw [show (1#usize).val = 1 from rfl]; norm_num) w_wide_not_bound⟩
@@ -365,9 +365,9 @@ theorem wsyrk_refuse_bound_witness :
 /-- `word_wsyrk_refuses` fires on the `n = 0` input. -/
 theorem wsyrk_refuses_witness :
     ∃ e : solve_port.syrk.SyrkError,
-      solve_port.syrk.wsyrk wNil none 1#usize 0#usize 1#usize =
+      solve_port.syrk.wsyrk wNil none 1#usize 0#usize =
         ok (core.result.Result.Err e) :=
-  word_wsyrk_refuses wNil none 1#usize 0#usize 1#usize wsyrk_refuse_zeroN_witness.1
+  word_wsyrk_refuses wNil none 1#usize 0#usize wsyrk_refuse_zeroN_witness.1
 
 /-- `word_hadamard_refuses` fires on a length mismatch, returning its first argument unwritten. -/
 theorem hadamard_refuses_witness :

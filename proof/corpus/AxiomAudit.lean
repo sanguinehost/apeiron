@@ -1761,10 +1761,10 @@ import Numeric.Quantum.Ledger.EllipticRebit
 open Lean Elab Command in
 /-- Axioms of the `solve_port.syrk` extraction admitted in `proof/boundary-axioms.txt`: the std operation
     `core.option.Option.map` (absent from the pinned Aeneas model) and the thread driver
-    `solve_port.syrk.block_rows_par` (opaque, `tested`). -/
+    `solve_port.syrk.block_rows_pool` (opaque, `tested`). -/
 def auditSyrkBoundaryAxioms : Lean.NameSet :=
   auditClosedAxioms |>.insert `apeiron_word.core.option.Option.map
-    |>.insert `apeiron_word.solve_port.syrk.block_rows_par
+    |>.insert `apeiron_word.solve_port.syrk.block_rows_pool
 
 open Lean Elab Command in
 /-- `#audit_boundary foo`: as `#audit`, but the cone may also contain exactly the two named

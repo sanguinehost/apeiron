@@ -1,9 +1,24 @@
+/-
+Refinement of the fixed-point `sin`/`cos` body `src/numeric/fixed_trig.rs` against the real
+trigonometric functions (statement in `Numeric.Rope.Part1`).
+
+The body is `t64 = x <<< 32` (`i128`), a nearest-even quotient `k = q_rne(t64, HALF_PI_Q64)`, the
+narrowed remainder `r` (`|r| <= 1`), the Taylor series of `Part3` (`|err| <= 2^-23`), and the
+quadrant swap/negate on `((k % 4) + 4) % 4`. `Part5` proves the reduction head: every checked
+`i128` op succeeds on the window, `|k| <= 2608`, `|r - (x - k·pi/2)| <= 2^-30` and `|r| <= 1`.
+
+The assembly composes the two stages. The reduction error `2^-30` propagates through the
+1-Lipschitz `sin`/`cos`; the series error is `2^-23`; on `k = 4m + q` the quadrant is an exact
+`sin`/`cos` addition identity. Total `2^-23 + 2^-30 < 2^-20 = trig_floor <= epsExp·|f| + trig_floor`.
+The measured relative error of the body is `1.1e-9`; this proof is deliberately coarse.
+-/
 import Mathlib.Analysis.Complex.Exponential
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.Basic
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.Bounds
 import Mathlib.Analysis.Real.Pi.Bounds
 import Numeric.Scale
 import Numeric.Rope.Part3
+import Numeric.Rope.Part5
 
 namespace apeiron_word
 
@@ -11,589 +26,411 @@ open Aeneas Aeneas.Std Result
 
 noncomputable section
 
-/-! ## Monadic kit
+/-! ## Elementary analytic kit -/
 
-Three conversion lemmas for the do-notation bind shapes the extraction emits: the `bind`
-congruence kit used by the value proofs below. -/
+/-- Triangle inequality in the form the two error stages need. -/
+theorem abs_sub_le_add (a b c : ℝ) : |a - c| ≤ |a - b| + |b - c| := by
+  rw [show a - c = (a - b) + (b - c) by ring]
+  exact abs_add_le _ _
 
-theorem c10_let_push {α β γ : Type} (e : α) (rest : Result β) (g : β → Result γ) :
-    ((let _y := e; rest) >>= g) = (let _y := e; rest >>= g) := rfl
+/-- `sin` is 1-Lipschitz. -/
+theorem sin_shift_le (y d : ℝ) : |Real.sin (y + d) - Real.sin y| ≤ |d| := by
+  have h := Real.abs_sin_sub_sin_le (y + d) y
+  rwa [show y + d - y = d by ring] at h
 
-theorem c10_let_prod_push {α₁ α₂ β γ : Type} (e : α₁ × α₂) (rest : Result β)
-    (g : β → Result γ) :
-    ((let (_a, _b) := e; rest) >>= g) = (let (_a, _b) := e; rest >>= g) := by
-  cases e
-  rfl
+/-- `cos` is 1-Lipschitz. -/
+theorem cos_shift_le (y d : ℝ) : |Real.cos (y + d) - Real.cos y| ≤ |d| := by
+  have h := Real.abs_cos_sub_cos_le (y + d) y
+  rwa [show y + d - y = d by ring] at h
 
-theorem c10_pair_bind {α β γ : Type} (m : Aeneas.Std.Result (α × β))
-    (K : α → β → Aeneas.Std.Result γ) :
-    (m >>= fun p => K p.1 p.2) = (do let (a, b) ← m; K a b) := by
-  apply congrArg (fun k => m >>= k)
-  funext p
-  cases p
-  rfl
+theorem epsExp_nonneg : (0 : ℝ) ≤ epsExp := by unfold epsExp; norm_num
 
-theorem word_fixed_sin_cos_past_guards_value (x : I64) (hx : trig_window x) :
-          (do
-        let i2 ← lift (core.convert.num.FromI128I64.from x)
-        let i3 ←
-          lift (core.convert.num.FromI128I64.from fixed_trig.TWO_PI_RECIP_Q32)
-        let product ← i2 * i3
-        let i4 ← 1#i128 <<< 63#i32
-        let i5 ← product + i4
-        let k_wide ← i5 >>> 64#i32
-        let i6 ← lift (IScalar.cast .I128 core.num.I64.MAX)
-        if k_wide > i6
-        then ok (core.result.Result.Err fixed_trig.TrigError.OutOfRange)
-        else
-          let i7 ← lift (IScalar.cast .I128 core.num.I64.MIN)
-          if k_wide < i7
-          then ok (core.result.Result.Err fixed_trig.TrigError.OutOfRange)
-          else
-            let k ← lift (IScalar.cast .I64 k_wide)
-            let i8 ← lift (core.convert.num.FromI128I64.from x)
-            let i9 ← lift (core.convert.num.FromI128I64.from k)
-            let i10 ←
-              lift (core.convert.num.FromI128I64.from fixed_trig.TWO_PI_Q32)
-            let i11 ← i9 * i10
-            let r_wide ← i8 - i11
-            let i12 ← lift (IScalar.cast .I128 core.num.I64.MAX)
-            if r_wide > i12
-            then ok (core.result.Result.Err fixed_trig.TrigError.OutOfRange)
-            else
-              let i13 ← lift (IScalar.cast .I128 core.num.I64.MIN)
-              if r_wide < i13
-              then ok (core.result.Result.Err fixed_trig.TrigError.OutOfRange)
-              else
-                let r ← lift (IScalar.cast .I64 r_wide)
-                let (s, negate) ←
-                  if r > fixed_trig.HALF_PI_Q32
-                  then do
-                       let i14 ← r - fixed_trig.PI_Q32
-                       ok (i14, true)
-                  else
-                    do
-                    let i14 ← -. fixed_trig.HALF_PI_Q32
-                    if r < i14
-                    then let i15 ← r + fixed_trig.PI_Q32
-                         ok (i15, true)
-                    else ok (r, false)
-                let (arg, swap) ←
-                  if s > fixed_trig.QUARTER_PI_Q32
-                  then do
-                       let i14 ← fixed_trig.HALF_PI_Q32 - s
-                       ok (i14, 1#i32)
-                  else
-                    do
-                    let i14 ← -. fixed_trig.QUARTER_PI_Q32
-                    if s < i14
-                    then let i15 ← s + fixed_trig.HALF_PI_Q32
-                         ok (i15, 2#i32)
-                    else ok (s, 0#i32)
-                let (sin_t, cos_t) ← fixed_trig.taylor_sin_cos arg
-                let (sin_out, cos_out) ←
-                  if swap = 1#i32
-                  then ok (cos_t, sin_t)
-                  else
-                    if swap = 2#i32
-                    then do
-                         let i14 ← -. cos_t
-                         ok (i14, sin_t)
-                    else ok (sin_t, cos_t)
-                if negate
-                then
-                  let sin_out1 ← -. sin_out
-                  let cos_out1 ← -. cos_out
-                  ok (core.result.Result.Ok ({ sin := sin_out1, cos := cos_out1 } : fixed_trig.SinCos))
-                else
-                  ok (core.result.Result.Ok ({ sin := sin_out, cos := cos_out } : fixed_trig.SinCos))) ⦃ z =>
-      ∃ k r s arg sin_v cos_v : I64, ∃ negate : Bool, ∃ swap : I32,
-        z = core.result.Result.Ok ({ sin := sin_v, cos := cos_v } : fixed_trig.SinCos) ∧
-        k.val = (x.val * 683565276 + 2 ^ 63) >>> 64 ∧
-        r.val = x.val - k.val * 26986075409 ∧
-        s.val = fixed_trig.fold1 r.val ∧
-        negate = fixed_trig.fold1_negate r.val ∧
-        arg.val = fixed_trig.fold2 (fixed_trig.fold1 r.val) ∧
-        swap.val = fixed_trig.fold2_swap (fixed_trig.fold1 r.val) ∧
-        sin_v.val = (if negate then -1 else 1) *
-          (if swap.val = 1 then fixed_trig.cos_poly arg.val
-           else if swap.val = 2 then -fixed_trig.cos_poly arg.val
-           else fixed_trig.sin_poly arg.val) ∧
-        cos_v.val = (if negate then -1 else 1) *
-          (if swap.val = 1 then fixed_trig.sin_poly arg.val
-           else if swap.val = 2 then fixed_trig.sin_poly arg.val
-           else fixed_trig.cos_poly arg.val) ⦄ := by
-  rw [trig_window] at hx
-  simp only [lift, bind_tc_ok]
-  step*
-  all_goals (try norm_num at *)
-  · norm_num [I128.min, I128.numBits, fixed_trig.TWO_PI_RECIP_Q32] at *
-    nlinarith [hx.1, hx.2]
-  · norm_num [I128.max, I128.numBits, fixed_trig.TWO_PI_RECIP_Q32] at *
-    nlinarith [hx.1, hx.2]
-  · have hi4 : (↑i4 : ℤ) = 2 ^ 63 := by
-      rw [i4_post]; norm_num [I128.size, I128.numBits, Int.shiftLeft_eq, Int.bmod]
-    rw [product_post, hi4]
-    norm_num [I128.max, I128.numBits, fixed_trig.TWO_PI_RECIP_Q32]
-    nlinarith [hx.1, hx.2]
-  · have hsv : k_wide.val = (x.val * 683565276 + 2 ^ 63) >>> 64 := by
-      have h1 : (↑k_wide : ℤ) = (↑x * 683565276 + 2 ^ 63) / ↑(2 ^ 64) := by
-        rw [k_wide_post, i5_post, i4_post, product_post, Int.shiftRight_eq_div_pow]
-        norm_num [I128.size, I128.numBits, Int.shiftLeft_eq, Int.bmod, fixed_trig.TWO_PI_RECIP_Q32]
-      rw [Int.shiftRight_eq_div_pow]
-      exact h1
-    have hsb := fixed_trig_shift_bound x.val k_wide.val hx.1 hx.2 hsv
-    have hkmax : (↑k_wide : ℤ) ≤ 652 := hsb.2
-    norm_num [I64.rMax, I64.numBits] at *
-    exfalso; omega
-  · have hsv : k_wide.val = (x.val * 683565276 + 2 ^ 63) >>> 64 := by
-      have h1 : (↑k_wide : ℤ) = (↑x * 683565276 + 2 ^ 63) / ↑(2 ^ 64) := by
-        rw [k_wide_post, i5_post, i4_post, product_post, Int.shiftRight_eq_div_pow]
-        norm_num [I128.size, I128.numBits, Int.shiftLeft_eq, Int.bmod, fixed_trig.TWO_PI_RECIP_Q32]
-      rw [Int.shiftRight_eq_div_pow]
-      exact h1
-    have hsb := fixed_trig_shift_bound x.val k_wide.val hx.1 hx.2 hsv
-    have hkmin : -652 ≤ (↑k_wide : ℤ) := hsb.1
-    norm_num [I64.rMin, I64.numBits] at *
-    exfalso; omega
-  · norm_num [I128.min, I128.numBits, fixed_trig.TWO_PI_Q32] at *
-    have h1 := int_bmod_64_lower (k_wide : ℤ)
-    have h2 := int_bmod_64_upper (k_wide : ℤ)
-    norm_num at h1 h2
-    nlinarith [h1, h2]
-  · norm_num [I128.max, I128.numBits, fixed_trig.TWO_PI_Q32] at *
-    have h1 := int_bmod_64_lower (k_wide : ℤ)
-    have h2 := int_bmod_64_upper (k_wide : ℤ)
-    norm_num at h1 h2
-    nlinarith [h1, h2]
-  · rw [i11_post]
-    norm_num [I128.min, I128.numBits, fixed_trig.TWO_PI_Q32] at *
-    have h1 := int_bmod_64_lower (k_wide : ℤ)
-    have h2 := int_bmod_64_upper (k_wide : ℤ)
-    norm_num at h1 h2
-    nlinarith [h1, h2, hx.1, hx.2]
-  · rw [i11_post]
-    norm_num [I128.max, I128.numBits, fixed_trig.TWO_PI_Q32] at *
-    have h1 := int_bmod_64_lower (k_wide : ℤ)
-    have h2 := int_bmod_64_upper (k_wide : ℤ)
-    norm_num at h1 h2
-    nlinarith [h1, h2, hx.1, hx.2]
-  · have hsv : k_wide.val = (x.val * 683565276 + 2 ^ 63) >>> 64 := by
-      have h1 : (↑k_wide : ℤ) = (↑x * 683565276 + 2 ^ 63) / ↑(2 ^ 64) := by
-        rw [k_wide_post, i5_post, i4_post, product_post, Int.shiftRight_eq_div_pow]
-        norm_num [I128.size, I128.numBits, Int.shiftLeft_eq, Int.bmod, fixed_trig.TWO_PI_RECIP_Q32]
-      rw [Int.shiftRight_eq_div_pow]
-      exact h1
-    have hsb := fixed_trig_shift_bound x.val k_wide.val hx.1 hx.2 hsv
-    have hsr := fixed_trig_shift_bound_window x.val k_wide.val hx.1 hx.2 hsv
-    have hkmod : (↑k_wide : ℤ).bmod 18446744073709551616 = k_wide.val := by
-      have h := int_bmod_self_64 k_wide.val (by omega) (by omega)
-      simpa [show (18446744073709551616 : ℤ) = 2 ^ 64 by norm_num] using h
-    have hrv : r_wide.val = x.val - k_wide.val * 26986075409 := by
-      rw [r_wide_post, i11_post]
-      norm_num [fixed_trig.TWO_PI_Q32]
-      rw [hkmod]
-    have hrr := fixed_trig_reduction_remainder_range x.val k_wide.val hsv hsr
-    norm_num [I64.rMax, I64.numBits] at *
-    exfalso; omega
-  · have hsv : k_wide.val = (x.val * 683565276 + 2 ^ 63) >>> 64 := by
-      have h1 : (↑k_wide : ℤ) = (↑x * 683565276 + 2 ^ 63) / ↑(2 ^ 64) := by
-        rw [k_wide_post, i5_post, i4_post, product_post, Int.shiftRight_eq_div_pow]
-        norm_num [I128.size, I128.numBits, Int.shiftLeft_eq, Int.bmod, fixed_trig.TWO_PI_RECIP_Q32]
-      rw [Int.shiftRight_eq_div_pow]
-      exact h1
-    have hsb := fixed_trig_shift_bound x.val k_wide.val hx.1 hx.2 hsv
-    have hsr := fixed_trig_shift_bound_window x.val k_wide.val hx.1 hx.2 hsv
-    have hkmod : (↑k_wide : ℤ).bmod 18446744073709551616 = k_wide.val := by
-      have h := int_bmod_self_64 k_wide.val (by omega) (by omega)
-      simpa [show (18446744073709551616 : ℤ) = 2 ^ 64 by norm_num] using h
-    have hrv : r_wide.val = x.val - k_wide.val * 26986075409 := by
-      rw [r_wide_post, i11_post]
-      norm_num [fixed_trig.TWO_PI_Q32]
-      rw [hkmod]
-    have hrr := fixed_trig_reduction_remainder_range x.val k_wide.val hsv hsr
-    norm_num [I64.rMin, I64.numBits] at *
-    exfalso; omega
-  · -- success: value characterization, then fold/taylor/quadrant
-    have hsv : k_wide.val = (x.val * 683565276 + 2 ^ 63) >>> 64 := by
-      have h1 : (↑k_wide : ℤ) = (↑x * 683565276 + 2 ^ 63) / ↑(2 ^ 64) := by
-        rw [k_wide_post, i5_post, i4_post, product_post, Int.shiftRight_eq_div_pow]
-        norm_num [I128.size, I128.numBits, Int.shiftLeft_eq, Int.bmod, fixed_trig.TWO_PI_RECIP_Q32]
-      rw [Int.shiftRight_eq_div_pow]
-      exact h1
-    have hsb := fixed_trig_shift_bound x.val k_wide.val hx.1 hx.2 hsv
-    have hsr := fixed_trig_shift_bound_window x.val k_wide.val hx.1 hx.2 hsv
-    have hkmod : (↑k_wide : ℤ).bmod 18446744073709551616 = k_wide.val := by
-      have h := int_bmod_self_64 k_wide.val (by omega) (by omega)
-      simpa [show (18446744073709551616 : ℤ) = 2 ^ 64 by norm_num] using h
-    have hrval : r_wide.val = x.val - k_wide.val * 26986075409 := by
-      rw [r_wide_post, i11_post]
-      norm_num [fixed_trig.TWO_PI_Q32]
-      rw [hkmod]
-    have hrt := fixed_trig_reduction_remainder_range_tight x.val k_wide.val hx.1 hx.2 hsv
-    have hcast : (IScalar.cast IScalarTy.I64 r_wide).val = r_wide.val := by
-      rw [IScalar.cast_val_eq]; norm_num
-      exact int_bmod_self_64 r_wide.val (by omega) (by omega)
-    have hr36 : |(IScalar.cast IScalarTy.I64 r_wide).val| ≤ 2 ^ 36 := by
-      rw [hcast, hrval, abs_le]
-      exact ⟨by linarith [hrt.1], by linarith [hrt.2]⟩
-    have hcastmod : (IScalar.cast IScalarTy.I64 r_wide).val = (↑r_wide : ℤ).bmod 18446744073709551616 := by
-      rw [IScalar.cast_val_eq]; norm_num
-    rw [← hcastmod]
-    have hr34 : |(IScalar.cast IScalarTy.I64 r_wide).val| ≤ 2 ^ 34 := by
-      rw [hcast, hrval, abs_le]
-      exact ⟨hrt.1, hrt.2⟩
-    have hkcast : (IScalar.cast IScalarTy.I64 k_wide).val = k_wide.val := by
-      rw [IScalar.cast_val_eq]; norm_num
-      exact int_bmod_self_64 k_wide.val (by omega) (by omega)
-    have hkval : (↑(IScalar.cast IScalarTy.I64 k_wide) : ℤ) = (x.val * 683565276 + 2 ^ 63) >>> 64 := by
-      rw [hkcast]; exact hsv
-    have hrval2 : (↑(IScalar.cast IScalarTy.I64 r_wide) : ℤ) =
-        x.val - (↑(IScalar.cast IScalarTy.I64 k_wide)) * 26986075409 := by
-      rw [hcast, hkcast]; exact hrval
-    apply Aeneas.Std.WP.spec_bind (fixed_trig_fold1_spec (IScalar.cast IScalarTy.I64 r_wide) hr36)
-    intro pp hp
-    obtain ⟨s, negate⟩ := pp
-    have hs : s.val = fixed_trig.fold1 (↑(IScalar.cast IScalarTy.I64 r_wide)) := hp.1
-    have hneg : negate = fixed_trig.fold1_negate (↑(IScalar.cast IScalarTy.I64 r_wide)) := hp.2
-    have hs36 : |s.val| ≤ 2 ^ 36 := by rw [hs]; exact fixed_trig.fold1_abs_le _ hr36
-    apply Aeneas.Std.WP.spec_bind (fixed_trig_fold2_spec s hs36)
-    intro qq hq
-    obtain ⟨arg, swap⟩ := qq
-    have harg : arg.val = fixed_trig.fold2 (fixed_trig.fold1 (↑(IScalar.cast IScalarTy.I64 r_wide))) := by
-      rw [hq.1, hs]
-    have hswap : swap.val = fixed_trig.fold2_swap (fixed_trig.fold1 (↑(IScalar.cast IScalarTy.I64 r_wide))) := by
-      rw [hq.2, hs]
-    have harg32 : |arg.val| ≤ 2 ^ 32 := by
-      rw [harg]; exact fixed_trig.fold_arg_abs_le _ hr34
-    apply Aeneas.Std.WP.spec_bind (word_taylor_spec arg harg32)
-    intro sc hsc
-    obtain ⟨sin_t, cos_t, rfl, hsin, hcos, hsinB, hcosB⟩ := hsc
-    have hsinNeg : (↑sin_t : ℤ) ≠ IScalar.min IScalarTy.I64 := by
-      intro hh
-      have := abs_le.mp hsinB
-      rw [hh] at this
-      norm_num [IScalar.min, I64.min, I64.numBits] at this
-    have hcosNeg : (↑cos_t : ℤ) ≠ IScalar.min IScalarTy.I64 := by
-      intro hh
-      have := abs_le.mp hcosB
-      rw [hh] at this
-      norm_num [IScalar.min, I64.min, I64.numBits] at this
-    by_cases h1 : swap = 1#i32
-    · -- swap = 1: output is (cos_t, sin_t)
-      have hsw1 : (swap : ℤ) = 1 := by rw [h1]; rfl
-      simp only [if_pos h1]
-      by_cases hnt : negate = true
-      · have hfn : fixed_trig.fold1_negate ↑(IScalar.cast IScalarTy.I64 r_wide) = true := by
-          rw [← hneg]; exact hnt
-        simp only [if_pos hnt]
-        step*
-        refine ⟨IScalar.cast IScalarTy.I64 k_wide, IScalar.cast IScalarTy.I64 r_wide, s, arg,
-          sin_out1, cos_out1, rfl, hkval, hrval2, hs, harg, swap, hswap, ?_, ?_⟩
-        · rw [if_pos hsw1, if_pos hfn]; simp [sin_out1_post, ← hcos]
-        · rw [if_pos hsw1, if_pos hfn]; simp [cos_out1_post, ← hsin]
-      · have hfn : ¬(fixed_trig.fold1_negate ↑(IScalar.cast IScalarTy.I64 r_wide) = true) := by
-          rw [← hneg]; exact hnt
-        simp only [if_neg hnt]
-        step*
-        refine ⟨IScalar.cast IScalarTy.I64 k_wide, IScalar.cast IScalarTy.I64 r_wide, s, arg,
-          cos_t, sin_t, rfl, hkval, hrval2, hs, harg, swap, hswap, ?_, ?_⟩
-        · rw [if_pos hsw1, if_neg hfn]; exact hcos
-        · rw [if_pos hsw1, if_neg hfn]; exact hsin
-    · by_cases h2 : swap = 2#i32
-      · -- swap = 2: output is (-cos_t, sin_t) after negation bookkeeping
-        have hsw2 : (swap : ℤ) = 2 := by rw [h2]; rfl
-        have hsw1n : ¬((swap : ℤ) = 1) := by
-          intro hh
-          apply h1
-          rw [IScalar.eq_equiv]
-          rw [hh]
-          norm_num
-        simp only [if_neg h1, if_pos h2]
-        by_cases hnt : negate = true
-        · have hfn : fixed_trig.fold1_negate ↑(IScalar.cast IScalarTy.I64 r_wide) = true := by
-            rw [← hneg]; exact hnt
-          simp only [if_pos hnt]
-          step*
-          refine ⟨IScalar.cast IScalarTy.I64 k_wide, IScalar.cast IScalarTy.I64 r_wide, s, arg,
-            _, _, rfl, hkval, hrval2, hs, harg, swap, hswap, ?_, ?_⟩
-          · rw [if_neg hsw1n, if_pos hsw2, if_pos hfn]; simp [sin_out1_post, x_post, ← hcos]
-          · rw [if_neg hsw1n, if_pos hsw2, if_pos hfn]; simp [cos_out1_post, ← hsin]
-        · have hfn : ¬(fixed_trig.fold1_negate ↑(IScalar.cast IScalarTy.I64 r_wide) = true) := by
-            rw [← hneg]; exact hnt
-          simp only [if_neg hnt]
-          step*
-          refine ⟨IScalar.cast IScalarTy.I64 k_wide, IScalar.cast IScalarTy.I64 r_wide, s, arg,
-            _, _, rfl, hkval, hrval2, hs, harg, swap, hswap, ?_, ?_⟩
-          · rw [if_neg hsw1n, if_pos hsw2, if_neg hfn]; simp [x_post, ← hcos]
-          · rw [if_neg hsw1n, if_pos hsw2, if_neg hfn]; exact hsin
-      · -- swap = 0: output is (sin_t, cos_t)
-        have hsw1n : ¬((swap : ℤ) = 1) := by
-          intro hh
-          apply h1
-          rw [IScalar.eq_equiv]
-          rw [hh]
-          norm_num
-        have hsw2n : ¬((swap : ℤ) = 2) := by
-          intro hh
-          apply h2
-          rw [IScalar.eq_equiv]
-          rw [hh]
-          norm_num
-        simp only [if_neg h1, if_neg h2]
-        by_cases hnt : negate = true
-        · have hfn : fixed_trig.fold1_negate ↑(IScalar.cast IScalarTy.I64 r_wide) = true := by
-            rw [← hneg]; exact hnt
-          simp only [if_pos hnt]
-          step*
-          refine ⟨IScalar.cast IScalarTy.I64 k_wide, IScalar.cast IScalarTy.I64 r_wide, s, arg,
-            sin_out1, cos_out1, rfl, hkval, hrval2, hs, harg, swap, hswap, ?_, ?_⟩
-          · rw [if_neg hsw1n, if_neg hsw2n, if_pos hfn]; simp [sin_out1_post, ← hsin]
-          · rw [if_neg hsw1n, if_neg hsw2n, if_pos hfn]; simp [cos_out1_post, ← hcos]
-        · have hfn : ¬(fixed_trig.fold1_negate ↑(IScalar.cast IScalarTy.I64 r_wide) = true) := by
-            rw [← hneg]; exact hnt
-          simp only [if_neg hnt]
-          step*
-          refine ⟨IScalar.cast IScalarTy.I64 k_wide, IScalar.cast IScalarTy.I64 r_wide, s, arg,
-            sin_t, cos_t, rfl, hkval, hrval2, hs, harg, swap, hswap, ?_, ?_⟩
-          · rw [if_neg hsw1n, if_neg hsw2n, if_neg hfn]; exact hsin
-          · rw [if_neg hsw1n, if_neg hsw2n, if_neg hfn]; exact hcos
+/-- The two-stage budget `2^-23 + 2^-30` is inside the target `epsExp·|s| + trig_floor`. -/
+theorem trig_budget (s : ℝ) :
+    (2 : ℝ) ^ (-23 : ℤ) + (2 : ℝ) ^ (-30 : ℤ) ≤ epsExp * |s| + trig_floor := by
+  have h1 : (0 : ℝ) ≤ epsExp * |s| := mul_nonneg epsExp_nonneg (abs_nonneg s)
+  have h2 : (2 : ℝ) ^ (-23 : ℤ) + (2 : ℝ) ^ (-30 : ℤ) ≤ trig_floor := by
+    unfold trig_floor
+    norm_num
+  linarith
 
-/-! ## Analytic composition: the value bounds against `Real.sin`/`Real.cos` -/
+/-- A Q32.32 value whose integer value is the negation of another denotes the negated real. -/
+theorem toReal_neg_of_val (v w : I64) (h : w.val = -v.val) : toReal w = -toReal v := by
+  rw [toReal, toReal, h]
+  push_cast
+  ring
 
-theorem sin_poly_close_le (t : I64) (ht : |t.val| ≤ 2 ^ 32) (h1 : |(t.val : ℝ) / q32| ≤ 1) :
-    |((fixed_trig.sin_poly t.val : ℤ) : ℝ) / q32 - Real.sin ((t.val : ℝ) / q32)| ≤
-      15 / (2 * q32) + 1 / q32 + |(t.val : ℝ) / q32| ^ 9 * (10 / 3265920) := by
-  have hled := fixed_trig.sin_poly_horner t ht
-  have hdef := fixed_trig.sinHorner_taylor ((t.val : ℝ) / q32) h1
-  have hrem := fixed_trig.sinTaylor_remainder ((t.val : ℝ) / q32) h1
-  calc |((fixed_trig.sin_poly t.val : ℤ) : ℝ) / q32 - Real.sin ((t.val : ℝ) / q32)|
-      ≤ |((fixed_trig.sin_poly t.val : ℤ) : ℝ) / q32 - fixed_trig.sinHorner ((t.val : ℝ) / q32)| +
-        |fixed_trig.sinHorner ((t.val : ℝ) / q32) - Real.sin ((t.val : ℝ) / q32)| := abs_sub_le _ _ _
-    _ ≤ 15 / (2 * q32) + (1 / q32 + |(t.val : ℝ) / q32| ^ 9 * (10 / 3265920)) := by
-        apply add_le_add hled
-        calc |fixed_trig.sinHorner ((t.val : ℝ) / q32) - Real.sin ((t.val : ℝ) / q32)|
-            ≤ |fixed_trig.sinHorner ((t.val : ℝ) / q32) - fixed_trig.sinTaylor ((t.val : ℝ) / q32)| +
-              |fixed_trig.sinTaylor ((t.val : ℝ) / q32) - Real.sin ((t.val : ℝ) / q32)| :=
-              abs_sub_le _ _ _
-          _ ≤ 1 / q32 + |(t.val : ℝ) / q32| ^ 9 * (10 / 3265920) := add_le_add hdef hrem
-    _ = 15 / (2 * q32) + 1 / q32 + |(t.val : ℝ) / q32| ^ 9 * (10 / 3265920) := by ring
+/-! ## The quadrant identities
 
-theorem cos_poly_close_le (t : I64) (ht : |t.val| ≤ 2 ^ 32) (h1 : |(t.val : ℝ) / q32| ≤ 1) :
-    |((fixed_trig.cos_poly t.val : ℤ) : ℝ) / q32 - Real.cos ((t.val : ℝ) / q32)| ≤
-      40 / (2 * q32) + 1 / q32 + |(t.val : ℝ) / q32| ^ 10 * (11 / 36288000) := by
-  have hled := fixed_trig.cos_poly_horner t ht
-  have hdef := fixed_trig.cosHorner_taylor ((t.val : ℝ) / q32) h1
-  have hrem := fixed_trig.cosTaylor_remainder ((t.val : ℝ) / q32) h1
-  calc |((fixed_trig.cos_poly t.val : ℤ) : ℝ) / q32 - Real.cos ((t.val : ℝ) / q32)|
-      ≤ |((fixed_trig.cos_poly t.val : ℤ) : ℝ) / q32 - fixed_trig.cosHorner ((t.val : ℝ) / q32)| +
-        |fixed_trig.cosHorner ((t.val : ℝ) / q32) - Real.cos ((t.val : ℝ) / q32)| := abs_sub_le _ _ _
-    _ ≤ 40 / (2 * q32) + (1 / q32 + |(t.val : ℝ) / q32| ^ 10 * (11 / 36288000)) := by
-        apply add_le_add hled
-        calc |fixed_trig.cosHorner ((t.val : ℝ) / q32) - Real.cos ((t.val : ℝ) / q32)|
-            ≤ |fixed_trig.cosHorner ((t.val : ℝ) / q32) - fixed_trig.cosTaylor ((t.val : ℝ) / q32)| +
-              |fixed_trig.cosTaylor ((t.val : ℝ) / q32) - Real.cos ((t.val : ℝ) / q32)| :=
-              abs_sub_le _ _ _
-          _ ≤ 1 / q32 + |(t.val : ℝ) / q32| ^ 10 * (11 / 36288000) := add_le_add hdef hrem
-    _ = 40 / (2 * q32) + 1 / q32 + |(t.val : ℝ) / q32| ^ 10 * (11 / 36288000) := by ring
+`k·(pi/2) = 4m·(pi/2) + q·(pi/2) = m·(2·pi) + q·(pi/2)`; each `q` selects the `sin`/`cos` value at
+`y + d` up to sign. -/
 
-theorem cos_poly_rem_le (s : ℝ) (hs : |s| ≤ 1) :
-    |s| ^ 10 * (11 / 36288000) ≤ |s| ^ 9 * (10 / 3265920) := by
-  have h1 : |s| * (11 / 36288000) ≤ 10 / 3265920 := by
-    calc |s| * (11 / 36288000) ≤ 1 * (11 / 36288000) :=
-          mul_le_mul_of_nonneg_right hs (by norm_num)
-      _ ≤ 10 / 3265920 := by norm_num
-  calc |s| ^ 10 * (11 / 36288000) = |s| ^ 9 * (|s| * (11 / 36288000)) := by ring
-    _ ≤ |s| ^ 9 * (10 / 3265920) := mul_le_mul_of_nonneg_left h1 (by positivity)
+theorem sin_quad_0 (y d : ℝ) (k m : ℤ) (hk : (k : ℝ) = 4 * (m : ℝ)) :
+    Real.sin (y + (k : ℝ) * (Real.pi / 2) + d) = Real.sin (y + d) := by
+  have h : (k : ℝ) * (Real.pi / 2) = (m : ℝ) * (2 * Real.pi) := by
+    rw [hk]; ring
+  rw [h, show y + (m : ℝ) * (2 * Real.pi) + d = (y + d) + m * (2 * Real.pi) by ring]
+  rw [Real.sin_add_int_mul_two_pi]
 
-theorem trig_floor_close (s : ℝ) (hs : |s| ≤ Real.pi / 4) :
-    (trig_delta + trig_fold_delta) + (40 / (2 * q32) + 1 / q32 + |s| ^ 9 * (10 / 3265920)) ≤
-      trig_floor := by
-  have hrem : |s| ^ 9 * (10 / 3265920) ≤ 1 / 2000000 := by
-    have hpi : Real.pi / 4 ≤ 4 / 5 := by linarith [Real.pi_lt_d20]
-    have h9 : |s| ^ 9 ≤ (4 / 5 : ℝ) ^ 9 :=
-      le_trans (pow_le_pow_left₀ (abs_nonneg s) hs 9)
-        (pow_le_pow_left₀ (by positivity : (0 : ℝ) ≤ Real.pi / 4) hpi 9)
-    exact le_trans (mul_le_mul_of_nonneg_right h9 (by norm_num)) (by norm_num)
-  have hq : (trig_delta + trig_fold_delta) + (40 / (2 * q32) + 1 / q32 + 1 / 2000000) ≤
-      trig_floor := by
-    rw [trig_delta, trig_fold_delta, trig_floor]
-    norm_num [q32]
-  linarith [hrem, hq]
+theorem sin_quad_1 (y d : ℝ) (k m : ℤ) (hk : (k : ℝ) = 4 * (m : ℝ) + 1) :
+    Real.sin (y + (k : ℝ) * (Real.pi / 2) + d) = Real.cos (y + d) := by
+  have h : (k : ℝ) * (Real.pi / 2) = (m : ℝ) * (2 * Real.pi) + Real.pi / 2 := by
+    rw [hk]; ring
+  rw [h, show y + ((m : ℝ) * (2 * Real.pi) + Real.pi / 2) + d
+      = (y + d + Real.pi / 2) + m * (2 * Real.pi) by ring]
+  rw [Real.sin_add_int_mul_two_pi, Real.sin_add_pi_div_two]
 
-theorem abs_smul_cancel (b : Bool) (A B : ℝ) :
-    |(if b then (-1 : ℝ) else 1) * A - (if b then (-1 : ℝ) else 1) * B| = |A - B| := by
-  rw [← mul_sub, abs_mul]
-  cases b <;> simp
+theorem sin_quad_2 (y d : ℝ) (k m : ℤ) (hk : (k : ℝ) = 4 * (m : ℝ) + 2) :
+    Real.sin (y + (k : ℝ) * (Real.pi / 2) + d) = -Real.sin (y + d) := by
+  have h : (k : ℝ) * (Real.pi / 2) = (m : ℝ) * (2 * Real.pi) + Real.pi := by
+    rw [hk]; ring
+  rw [h, show y + ((m : ℝ) * (2 * Real.pi) + Real.pi) + d
+      = (y + d + Real.pi) + m * (2 * Real.pi) by ring]
+  rw [Real.sin_add_int_mul_two_pi, Real.sin_add_pi]
 
-theorem sin_out_flagSin_le (negate : Bool) (swapv : ℤ) (arg sin_v : I64) (ht : |arg.val| ≤ 2 ^ 32)
-    (h1 : |(arg.val : ℝ) / q32| ≤ 1)
-    (hrel : sin_v.val = (if negate then -1 else 1) *
-      (if swapv = 1 then fixed_trig.cos_poly arg.val
-       else if swapv = 2 then -fixed_trig.cos_poly arg.val else fixed_trig.sin_poly arg.val)) :
-    |(sin_v.val : ℝ) / q32 - flagSin negate swapv ((arg.val : ℝ) / q32)| ≤
-      40 / (2 * q32) + 1 / q32 + |(arg.val : ℝ) / q32| ^ 9 * (10 / 3265920) := by
-  have hpS := sin_poly_close_le arg ht h1
-  have hpC := cos_poly_close_le arg ht h1
-  have hrC := cos_poly_rem_le ((arg.val : ℝ) / q32) h1
-  have hC : |((fixed_trig.cos_poly arg.val : ℤ) : ℝ) / q32 - Real.cos ((arg.val : ℝ) / q32)| ≤
-      40 / (2 * q32) + 1 / q32 + |(arg.val : ℝ) / q32| ^ 9 * (10 / 3265920) := by
-    refine le_trans hpC ?_; linarith [hrC]
-  have h1540 : (15 : ℝ) / (2 * q32) ≤ 40 / (2 * q32) :=
-    div_le_div_of_nonneg_right (by norm_num) (by nlinarith [q32_pos])
-  have hS : |((fixed_trig.sin_poly arg.val : ℤ) : ℝ) / q32 - Real.sin ((arg.val : ℝ) / q32)| ≤
-      40 / (2 * q32) + 1 / q32 + |(arg.val : ℝ) / q32| ^ 9 * (10 / 3265920) := by
-    refine le_trans hpS ?_; linarith [h1540]
-  rw [hrel, flagSin]
-  by_cases hb1 : swapv = 1
-  · rw [if_pos hb1]
-    rw [show (((if negate then (-1 : ℤ) else 1) * fixed_trig.cos_poly arg.val : ℤ) : ℝ) / q32 =
-        (if negate then (-1 : ℝ) else 1) * (((fixed_trig.cos_poly arg.val : ℤ) : ℝ) / q32) by
-      push_cast; ring]
-    rw [abs_smul_cancel, if_pos hb1]; exact hC
-  · by_cases hb2 : swapv = 2
-    · rw [if_neg hb1, if_pos hb2]
-      rw [show (((if negate then (-1 : ℤ) else 1) * (-fixed_trig.cos_poly arg.val) : ℤ) : ℝ) / q32 =
-          (if negate then (-1 : ℝ) else 1) * (((-fixed_trig.cos_poly arg.val : ℤ) : ℝ) / q32) by
-        push_cast; ring]
-      rw [abs_smul_cancel, if_neg hb1, if_pos hb2]
-      rw [show |(((-fixed_trig.cos_poly arg.val : ℤ) : ℝ)) / q32 - (-Real.cos ((arg.val : ℝ) / q32))| =
-          |((fixed_trig.cos_poly arg.val : ℤ) : ℝ) / q32 - Real.cos ((arg.val : ℝ) / q32)| by
-        rw [show (((-fixed_trig.cos_poly arg.val : ℤ) : ℝ)) / q32 - (-Real.cos ((arg.val : ℝ) / q32)) =
-            -((((fixed_trig.cos_poly arg.val : ℤ) : ℝ)) / q32 - Real.cos ((arg.val : ℝ) / q32)) by
-          push_cast; ring, abs_neg]]
-      exact hC
-    · rw [if_neg hb1, if_neg hb2]
-      rw [show (((if negate then (-1 : ℤ) else 1) * fixed_trig.sin_poly arg.val : ℤ) : ℝ) / q32 =
-          (if negate then (-1 : ℝ) else 1) * (((fixed_trig.sin_poly arg.val : ℤ) : ℝ) / q32) by
-        push_cast; ring]
-      rw [abs_smul_cancel, if_neg hb1, if_neg hb2]; exact hS
+theorem sin_quad_3 (y d : ℝ) (k m : ℤ) (hk : (k : ℝ) = 4 * (m : ℝ) + 3) :
+    Real.sin (y + (k : ℝ) * (Real.pi / 2) + d) = -Real.cos (y + d) := by
+  have h : (k : ℝ) * (Real.pi / 2)
+      = (m : ℝ) * (2 * Real.pi) + Real.pi + Real.pi / 2 := by
+    rw [hk]; ring
+  rw [h, show y + ((m : ℝ) * (2 * Real.pi) + Real.pi + Real.pi / 2) + d
+      = (y + d + Real.pi + Real.pi / 2) + m * (2 * Real.pi) by ring]
+  rw [Real.sin_add_int_mul_two_pi, Real.sin_add_pi_div_two, Real.cos_add_pi]
 
-theorem cos_out_flagCos_le (negate : Bool) (swapv : ℤ) (arg cos_v : I64) (ht : |arg.val| ≤ 2 ^ 32)
-    (h1 : |(arg.val : ℝ) / q32| ≤ 1)
-    (hrel : cos_v.val = (if negate then -1 else 1) *
-      (if swapv = 1 then fixed_trig.sin_poly arg.val
-       else if swapv = 2 then fixed_trig.sin_poly arg.val else fixed_trig.cos_poly arg.val)) :
-    |(cos_v.val : ℝ) / q32 - flagCos negate swapv ((arg.val : ℝ) / q32)| ≤
-      40 / (2 * q32) + 1 / q32 + |(arg.val : ℝ) / q32| ^ 9 * (10 / 3265920) := by
-  have hpS := sin_poly_close_le arg ht h1
-  have hpC := cos_poly_close_le arg ht h1
-  have hrC := cos_poly_rem_le ((arg.val : ℝ) / q32) h1
-  have hC : |((fixed_trig.cos_poly arg.val : ℤ) : ℝ) / q32 - Real.cos ((arg.val : ℝ) / q32)| ≤
-      40 / (2 * q32) + 1 / q32 + |(arg.val : ℝ) / q32| ^ 9 * (10 / 3265920) := by
-    refine le_trans hpC ?_; linarith [hrC]
-  have h1540 : (15 : ℝ) / (2 * q32) ≤ 40 / (2 * q32) :=
-    div_le_div_of_nonneg_right (by norm_num) (by nlinarith [q32_pos])
-  have hS : |((fixed_trig.sin_poly arg.val : ℤ) : ℝ) / q32 - Real.sin ((arg.val : ℝ) / q32)| ≤
-      40 / (2 * q32) + 1 / q32 + |(arg.val : ℝ) / q32| ^ 9 * (10 / 3265920) := by
-    refine le_trans hpS ?_; linarith [h1540]
-  rw [hrel, flagCos]
-  by_cases hb1 : swapv = 1
-  · rw [if_pos hb1]
-    rw [show (((if negate then (-1 : ℤ) else 1) * fixed_trig.sin_poly arg.val : ℤ) : ℝ) / q32 =
-        (if negate then (-1 : ℝ) else 1) * (((fixed_trig.sin_poly arg.val : ℤ) : ℝ) / q32) by
-      push_cast; ring]
-    rw [abs_smul_cancel, if_pos hb1]; exact hS
-  · by_cases hb2 : swapv = 2
-    · rw [if_neg hb1, if_pos hb2]
-      rw [show (((if negate then (-1 : ℤ) else 1) * fixed_trig.sin_poly arg.val : ℤ) : ℝ) / q32 =
-          (if negate then (-1 : ℝ) else 1) * (((fixed_trig.sin_poly arg.val : ℤ) : ℝ) / q32) by
-        push_cast; ring]
-      rw [abs_smul_cancel, if_neg hb1, if_pos hb2]; exact hS
-    · rw [if_neg hb1, if_neg hb2]
-      rw [show (((if negate then (-1 : ℤ) else 1) * fixed_trig.cos_poly arg.val : ℤ) : ℝ) / q32 =
-          (if negate then (-1 : ℝ) else 1) * (((fixed_trig.cos_poly arg.val : ℤ) : ℝ) / q32) by
-        push_cast; ring]
-      rw [abs_smul_cancel, if_neg hb1, if_neg hb2]; exact hC
+theorem cos_quad_0 (y d : ℝ) (k m : ℤ) (hk : (k : ℝ) = 4 * (m : ℝ)) :
+    Real.cos (y + (k : ℝ) * (Real.pi / 2) + d) = Real.cos (y + d) := by
+  have h : (k : ℝ) * (Real.pi / 2) = (m : ℝ) * (2 * Real.pi) := by
+    rw [hk]; ring
+  rw [h, show y + (m : ℝ) * (2 * Real.pi) + d = (y + d) + m * (2 * Real.pi) by ring]
+  rw [Real.cos_add_int_mul_two_pi]
+
+theorem cos_quad_1 (y d : ℝ) (k m : ℤ) (hk : (k : ℝ) = 4 * (m : ℝ) + 1) :
+    Real.cos (y + (k : ℝ) * (Real.pi / 2) + d) = -Real.sin (y + d) := by
+  have h : (k : ℝ) * (Real.pi / 2) = (m : ℝ) * (2 * Real.pi) + Real.pi / 2 := by
+    rw [hk]; ring
+  rw [h, show y + ((m : ℝ) * (2 * Real.pi) + Real.pi / 2) + d
+      = (y + d + Real.pi / 2) + m * (2 * Real.pi) by ring]
+  rw [Real.cos_add_int_mul_two_pi, Real.cos_add_pi_div_two]
+
+theorem cos_quad_2 (y d : ℝ) (k m : ℤ) (hk : (k : ℝ) = 4 * (m : ℝ) + 2) :
+    Real.cos (y + (k : ℝ) * (Real.pi / 2) + d) = -Real.cos (y + d) := by
+  have h : (k : ℝ) * (Real.pi / 2) = (m : ℝ) * (2 * Real.pi) + Real.pi := by
+    rw [hk]; ring
+  rw [h, show y + ((m : ℝ) * (2 * Real.pi) + Real.pi) + d
+      = (y + d + Real.pi) + m * (2 * Real.pi) by ring]
+  rw [Real.cos_add_int_mul_two_pi, Real.cos_add_pi]
+
+theorem cos_quad_3 (y d : ℝ) (k m : ℤ) (hk : (k : ℝ) = 4 * (m : ℝ) + 3) :
+    Real.cos (y + (k : ℝ) * (Real.pi / 2) + d) = Real.sin (y + d) := by
+  have h : (k : ℝ) * (Real.pi / 2)
+      = (m : ℝ) * (2 * Real.pi) + Real.pi + Real.pi / 2 := by
+    rw [hk]; ring
+  rw [h, show y + ((m : ℝ) * (2 * Real.pi) + Real.pi + Real.pi / 2) + d
+      = (y + d + Real.pi + Real.pi / 2) + m * (2 * Real.pi) by ring]
+  rw [Real.cos_add_int_mul_two_pi, Real.cos_add_pi_div_two, Real.sin_add_pi]
+  ring
+
+/-! ## The quadrant selector -/
+
+/-- `((k % 4) + 4) % 4` is in `[0, 4)`. -/
+theorem quarter_cases (q : ℤ) (h0 : 0 ≤ q) (h4 : q < 4) :
+    q = 0 ∨ q = 1 ∨ q = 2 ∨ q = 3 := by omega
+
+/-- The Rust Euclidean-modulo idiom equals `k % 4`: the inner remainder is in `(-4, 4)`, so
+adding `4` lands in `(0, 8)` and the outer remainder is the nonnegative representative. -/
+theorem emod_quarter (k : ℤ) (i5 qv : ℤ) (hi5 : 0 < i5) (hqv : qv = Int.tmod i5 4)
+    (hbridge : i5 = k.tmod 4 + 4) : k % 4 = qv := by
+  have h1 : qv = i5 % 4 := by
+    rw [hqv, Int.tmod_eq_emod_of_nonneg (le_of_lt hi5)]
+  have h2 : i5 % 4 = (k.tmod 4) % 4 := by
+    rw [hbridge, show k.tmod 4 + 4 = k.tmod 4 + 1 * 4 by norm_num,
+      Int.add_mul_emod_self_right]
+  have h3 : (k.tmod 4) % 4 = k % 4 := by
+    have e : k = k.tmod 4 + k.tdiv 4 * 4 := by
+      have h := Int.mul_tdiv_add_tmod k 4
+      omega
+    conv_rhs => rw [e]
+    rw [Int.add_mul_emod_self_right]
+  rw [← h3, ← h2, ← h1]
+
+/-- The three checked `i128` operations of the quadrant selector succeed; the quarter is in
+`[0, 4)`; and `k = 4m + q` for the narrowed quarter `q`. -/
+theorem quarter_range (k : I128) :
+    ∃ i4 i5 qv : I128,
+      k % (4#i128) = ok i4 ∧ i4 + (4#i128) = ok i5 ∧
+      (i5 % (4#i128)) = ok qv ∧ 0 ≤ qv.val ∧ qv.val < 4 ∧
+      ∃ m : ℤ, k.val = 4 * m + qv.val := by
+  obtain ⟨i4, hi4, hi4v⟩ :=
+    WP.spec_imp_exists (IScalar.rem_spec (x := k) (y := (4#i128)) (by norm_num))
+  have hi4v' : i4.val = Int.tmod k.val 4 := by simpa using hi4v
+  have hi4lo : -4 < i4.val := by
+    rw [hi4v']; exact Int.lt_tmod_of_pos _ (by norm_num)
+  have hi4hi : i4.val < 4 := by
+    rw [hi4v']; exact Int.tmod_lt_of_pos _ (by norm_num)
+  have h4 : ((4#i128).val : ℤ) = 4 := by norm_num
+  obtain ⟨i5, hi5, hi5v⟩ := WP.spec_imp_exists
+    (IScalar.add_spec (x := i4) (y := (4#i128))
+      (by
+        rw [IScalar.min_IScalarTy_I128_eq, I128.min_eq, h4]; omega)
+      (by
+        rw [IScalar.max_IScalarTy_I128_eq, I128.max_eq, h4]; omega))
+  have hi5v' : i5.val = i4.val + 4 := by
+    have := hi5v
+    rw [h4] at this
+    exact this
+  obtain ⟨qv, hqv, hqvv⟩ :=
+    WP.spec_imp_exists (IScalar.rem_spec (x := i5) (y := (4#i128)) (by norm_num))
+  have hqvv' : qv.val = Int.tmod i5.val 4 := by
+    have := hqvv
+    rw [h4] at this
+    exact this
+  have hi5pos : 0 < i5.val := by rw [hi5v']; omega
+  have hqv0 : 0 ≤ qv.val := by
+    rw [hqvv']
+    exact Int.tmod_nonneg 4 (le_of_lt hi5pos)
+  have hqv4 : qv.val < 4 := by
+    rw [hqvv']
+    exact Int.tmod_lt_of_pos _ (by norm_num)
+  have hbridge : i5.val = k.val.tmod 4 + 4 := by rw [hi5v', hi4v']
+  have hqmod : k.val % 4 = qv.val :=
+    emod_quarter k.val i5.val qv.val hi5pos hqvv' hbridge
+  refine ⟨i4, i5, qv, hi4, hi5, hqv, hqv0, hqv4, k.val / 4, ?_⟩
+  rw [← hqmod, Int.mul_ediv_add_emod]
+
+/-! ## The assembly -/
+
+/-- The guard-free tail of the extracted body on the window: success and the target bound. The head
+is `Part5.reduction_spec`, the series is `Part3.sin_cos_series_spec`, and the quadrant is the
+`k = 4m + q` decomposition of `quarter_range`. -/
+theorem trigPastGuards_refines (x : I64) (hx : trig_window x) :
+    ∃ sc : fixed_trig.SinCos,
+      trigPastGuards x = ok (core.result.Result.Ok sc) ∧
+        |toReal sc.sin - Real.sin (toReal x)| ≤
+          epsExp * |Real.sin (toReal x)| + trig_floor ∧
+        |toReal sc.cos - Real.cos (toReal x)| ≤
+          epsExp * |Real.cos (toReal x)| + trig_floor := by
+  obtain ⟨t, k, p, num2, dd, q2, r, ht, htv, hk, hkabs, hp, hsub, hd, hdval, hq2, hrn, herr,
+    hr1⟩ := reduction_spec x hx
+  obtain ⟨sc, hser, hserrS, hserrC⟩ := sin_cos_series_spec r hr1
+  obtain ⟨i4, i5, qv, hi4, hi5, hqv, hqv0, hqv4, m, hm⟩ := quarter_range k
+  -- the series outputs are bounded, so both negations are in range
+  have hsin2 : |toReal sc.sin| ≤ 2 := by
+    have h1 := Real.abs_sin_le_one (toReal r)
+    have h3 : |toReal sc.sin| ≤ |toReal sc.sin - Real.sin (toReal r)| + |Real.sin (toReal r)| := by
+      simpa using abs_sub_le_add (toReal sc.sin) (Real.sin (toReal r)) 0
+    have h23 : (2 : ℝ) ^ (-23 : ℤ) ≤ 1 := by norm_num
+    linarith [hserrS, h1, h3, h23]
+  have hcos2 : |toReal sc.cos| ≤ 2 := by
+    have h1 := Real.abs_cos_le_one (toReal r)
+    have h3 : |toReal sc.cos| ≤ |toReal sc.cos - Real.cos (toReal r)| + |Real.cos (toReal r)| := by
+      simpa using abs_sub_le_add (toReal sc.cos) (Real.cos (toReal r)) 0
+    have h23 : (2 : ℝ) ^ (-23 : ℤ) ≤ 1 := by norm_num
+    linarith [hserrC, h1, h3, h23]
+  have hsin40 : |sc.sin.val| ≤ 2 ^ 40 := val_abs_le_of_abs_toReal_le sc.sin hsin2
+  have hcos40 : |sc.cos.val| ≤ 2 ^ 40 := val_abs_le_of_abs_toReal_le sc.cos hcos2
+  have hminval : IScalar.min .I64 = -(2 : ℤ) ^ 63 := by
+    rw [IScalar.min_IScalarTy_I64_eq, I64.min_eq]
+    norm_num
+  have hsin_ne : sc.sin ≠ IScalar.min .I64 := by
+    intro h
+    rw [h, hminval] at hsin40
+    norm_num at hsin40
+  have hcos_ne : sc.cos ≠ IScalar.min .I64 := by
+    intro h
+    rw [h, hminval] at hcos40
+    norm_num at hcos40
+  obtain ⟨n1, hn1, hn1v⟩ := WP.spec_imp_exists (HNeg.hNeg.step sc.sin hsin_ne)
+  obtain ⟨n2, hn2, hn2v⟩ := WP.spec_imp_exists (HNeg.hNeg.step sc.cos hcos_ne)
+  have hn1v' : n1.val = -sc.sin.val := by simpa using hn1v
+  have hn2v' : n2.val = -sc.cos.val := by simpa using hn2v
+  have hn1t : toReal n1 = -toReal sc.sin := toReal_neg_of_val sc.sin n1 hn1v'
+  have hn2t : toReal n2 = -toReal sc.cos := toReal_neg_of_val sc.cos n2 hn2v'
+  -- the real reduction error
+  set X : ℝ := toReal x with hXdef
+  set Y : ℝ := toReal r with hYdef
+  have hd30 : |X - (Y + (k.val : ℝ) * (Real.pi / 2))| ≤ (2 : ℝ) ^ (-30 : ℤ) := by
+    have h := herr
+    rw [show X - (Y + (k.val : ℝ) * (Real.pi / 2))
+        = -(Y - (X - (k.val : ℝ) * (Real.pi / 2))) by ring, abs_neg]
+    exact h
+  set del : ℝ := X - (Y + (k.val : ℝ) * (Real.pi / 2)) with hdeldef
+  have hdel : |del| ≤ (2 : ℝ) ^ (-30 : ℤ) := hd30
+  have hX : X = Y + (k.val : ℝ) * (Real.pi / 2) + del := by rw [hdeldef]; ring
+  -- the head, then the quadrant tail step by step
+  simp only [trigPastGuards, lift, bind_tc_ok, ht, hk, hp, hsub, hd, hq2, hrn, hser]
+  rw [hi4]; simp only [bind_tc_ok]
+  rw [hi5]; simp only [bind_tc_ok]
+  rw [hqv]; simp only [bind_tc_ok]
+  rcases quarter_cases qv.val hqv0 hqv4 with hq0 | hq1 | hq2 | hq3
+  · have hqv0' : qv = 0#i128 := by
+      apply IScalar.eq_of_val_eq; rw [hq0]; norm_num
+    have hkm : (k.val : ℝ) = 4 * (m : ℝ) := by rw [hm, hq0]; push_cast; ring
+    refine ⟨sc, ?_, ?_, ?_⟩
+    · rw [hqv0']
+      split
+      · rfl
+      · exfalso
+        have hv := congrArg IScalar.val ‹(0#i128 : I128) = 1#i128›
+        norm_num at hv
+      · exfalso
+        have hv := congrArg IScalar.val ‹(0#i128 : I128) = 2#i128›
+        norm_num at hv
+      · exact absurd rfl ‹(0#i128 : I128) = 0#i128 → False›
+    · rw [hX, sin_quad_0 Y del k.val m hkm]
+      calc |toReal sc.sin - Real.sin (Y + del)|
+          ≤ |toReal sc.sin - Real.sin Y| + |Real.sin Y - Real.sin (Y + del)| :=
+            abs_sub_le_add _ _ _
+        _ ≤ (2 : ℝ) ^ (-23 : ℤ) + (2 : ℝ) ^ (-30 : ℤ) := by
+            have h2 : |Real.sin Y - Real.sin (Y + del)| ≤ (2 : ℝ) ^ (-30 : ℤ) := by
+              have h := sin_shift_le Y del
+              rw [abs_sub_comm] at h
+              exact le_trans h hdel
+            linarith [hserrS]
+        _ ≤ epsExp * |Real.sin (Y + del)| + trig_floor := by simpa using trig_budget _
+    · rw [hX, cos_quad_0 Y del k.val m hkm]
+      calc |toReal sc.cos - Real.cos (Y + del)|
+          ≤ |toReal sc.cos - Real.cos Y| + |Real.cos Y - Real.cos (Y + del)| :=
+            abs_sub_le_add _ _ _
+        _ ≤ (2 : ℝ) ^ (-23 : ℤ) + (2 : ℝ) ^ (-30 : ℤ) := by
+            have h2 : |Real.cos Y - Real.cos (Y + del)| ≤ (2 : ℝ) ^ (-30 : ℤ) := by
+              have h := cos_shift_le Y del
+              rw [abs_sub_comm] at h
+              exact le_trans h hdel
+            linarith [hserrC]
+        _ ≤ epsExp * |Real.cos (Y + del)| + trig_floor := by simpa using trig_budget _
+  · have hqv1' : qv = 1#i128 := by
+      apply IScalar.eq_of_val_eq; rw [hq1]; norm_num
+    have hkm : (k.val : ℝ) = 4 * (m : ℝ) + 1 := by rw [hm, hq1]; push_cast; ring
+    refine ⟨{ sin := sc.cos, cos := n1 }, ?_, ?_, ?_⟩
+    · rw [hqv1']
+      split
+      · exfalso
+        have hv := congrArg IScalar.val ‹(1#i128 : I128) = 0#i128›
+        norm_num at hv
+      · rw [hn1]; simp only [bind_tc_ok]
+      · exfalso
+        have hv := congrArg IScalar.val ‹(1#i128 : I128) = 2#i128›
+        norm_num at hv
+      · exact absurd rfl ‹(1#i128 : I128) = 1#i128 → False›
+    · rw [hX, sin_quad_1 Y del k.val m hkm]
+      calc |toReal sc.cos - Real.cos (Y + del)|
+          ≤ |toReal sc.cos - Real.cos Y| + |Real.cos Y - Real.cos (Y + del)| :=
+            abs_sub_le_add _ _ _
+        _ ≤ (2 : ℝ) ^ (-23 : ℤ) + (2 : ℝ) ^ (-30 : ℤ) := by
+            have h2 : |Real.cos Y - Real.cos (Y + del)| ≤ (2 : ℝ) ^ (-30 : ℤ) := by
+              have h := cos_shift_le Y del
+              rw [abs_sub_comm] at h
+              exact le_trans h hdel
+            linarith [hserrC]
+        _ ≤ epsExp * |Real.cos (Y + del)| + trig_floor := by simpa using trig_budget _
+    · rw [hX, cos_quad_1 Y del k.val m hkm]
+      calc |toReal n1 - -Real.sin (Y + del)|
+          = |toReal sc.sin - Real.sin (Y + del)| := by
+            rw [hn1t]
+            rw [show -toReal sc.sin - -Real.sin (Y + del)
+                = -(toReal sc.sin - Real.sin (Y + del)) by ring, abs_neg]
+        _ ≤ |toReal sc.sin - Real.sin Y| + |Real.sin Y - Real.sin (Y + del)| :=
+            abs_sub_le_add _ _ _
+        _ ≤ (2 : ℝ) ^ (-23 : ℤ) + (2 : ℝ) ^ (-30 : ℤ) := by
+            have h2 : |Real.sin Y - Real.sin (Y + del)| ≤ (2 : ℝ) ^ (-30 : ℤ) := by
+              have h := sin_shift_le Y del
+              rw [abs_sub_comm] at h
+              exact le_trans h hdel
+            linarith [hserrS]
+        _ ≤ epsExp * |(-Real.sin (Y + del))| + trig_floor := by simpa using trig_budget _
+  · have hqv2' : qv = 2#i128 := by
+      apply IScalar.eq_of_val_eq; rw [hq2]; norm_num
+    have hkm : (k.val : ℝ) = 4 * (m : ℝ) + 2 := by rw [hm, hq2]; push_cast; ring
+    refine ⟨{ sin := n1, cos := n2 }, ?_, ?_, ?_⟩
+    · rw [hqv2']
+      split
+      · exfalso
+        have hv := congrArg IScalar.val ‹(2#i128 : I128) = 0#i128›
+        norm_num at hv
+      · exfalso
+        have hv := congrArg IScalar.val ‹(2#i128 : I128) = 1#i128›
+        norm_num at hv
+      · rw [hn1]; simp only [bind_tc_ok]; rw [hn2]; simp only [bind_tc_ok]
+      · exact absurd rfl ‹(2#i128 : I128) = 2#i128 → False›
+    · rw [hX, sin_quad_2 Y del k.val m hkm]
+      calc |toReal n1 - -Real.sin (Y + del)|
+          = |toReal sc.sin - Real.sin (Y + del)| := by
+            rw [hn1t]
+            rw [show -toReal sc.sin - -Real.sin (Y + del)
+                = -(toReal sc.sin - Real.sin (Y + del)) by ring, abs_neg]
+        _ ≤ |toReal sc.sin - Real.sin Y| + |Real.sin Y - Real.sin (Y + del)| :=
+            abs_sub_le_add _ _ _
+        _ ≤ (2 : ℝ) ^ (-23 : ℤ) + (2 : ℝ) ^ (-30 : ℤ) := by
+            have h2 : |Real.sin Y - Real.sin (Y + del)| ≤ (2 : ℝ) ^ (-30 : ℤ) := by
+              have h := sin_shift_le Y del
+              rw [abs_sub_comm] at h
+              exact le_trans h hdel
+            linarith [hserrS]
+        _ ≤ epsExp * |(-Real.sin (Y + del))| + trig_floor := by simpa using trig_budget _
+    · rw [hX, cos_quad_2 Y del k.val m hkm]
+      calc |toReal n2 - -Real.cos (Y + del)|
+          = |toReal sc.cos - Real.cos (Y + del)| := by
+            rw [hn2t]
+            rw [show -toReal sc.cos - -Real.cos (Y + del)
+                = -(toReal sc.cos - Real.cos (Y + del)) by ring, abs_neg]
+        _ ≤ |toReal sc.cos - Real.cos Y| + |Real.cos Y - Real.cos (Y + del)| :=
+            abs_sub_le_add _ _ _
+        _ ≤ (2 : ℝ) ^ (-23 : ℤ) + (2 : ℝ) ^ (-30 : ℤ) := by
+            have h2 : |Real.cos Y - Real.cos (Y + del)| ≤ (2 : ℝ) ^ (-30 : ℤ) := by
+              have h := cos_shift_le Y del
+              rw [abs_sub_comm] at h
+              exact le_trans h hdel
+            linarith [hserrC]
+        _ ≤ epsExp * |(-Real.cos (Y + del))| + trig_floor := by simpa using trig_budget _
+  · have hqv3' : qv = 3#i128 := by
+      apply IScalar.eq_of_val_eq; rw [hq3]; norm_num
+    have hkm : (k.val : ℝ) = 4 * (m : ℝ) + 3 := by rw [hm, hq3]; push_cast; ring
+    refine ⟨{ sin := n2, cos := sc.sin }, ?_, ?_, ?_⟩
+    · rw [hqv3']
+      split
+      · exfalso
+        have hv := congrArg IScalar.val ‹(3#i128 : I128) = 0#i128›
+        norm_num at hv
+      · exfalso
+        have hv := congrArg IScalar.val ‹(3#i128 : I128) = 1#i128›
+        norm_num at hv
+      · exfalso
+        have hv := congrArg IScalar.val ‹(3#i128 : I128) = 2#i128›
+        norm_num at hv
+      · rw [hn2]; simp only [bind_tc_ok]
+    · rw [hX, sin_quad_3 Y del k.val m hkm]
+      calc |toReal n2 - -Real.cos (Y + del)|
+          = |toReal sc.cos - Real.cos (Y + del)| := by
+            rw [hn2t]
+            rw [show -toReal sc.cos - -Real.cos (Y + del)
+                = -(toReal sc.cos - Real.cos (Y + del)) by ring, abs_neg]
+        _ ≤ |toReal sc.cos - Real.cos Y| + |Real.cos Y - Real.cos (Y + del)| :=
+            abs_sub_le_add _ _ _
+        _ ≤ (2 : ℝ) ^ (-23 : ℤ) + (2 : ℝ) ^ (-30 : ℤ) := by
+            have h2 : |Real.cos Y - Real.cos (Y + del)| ≤ (2 : ℝ) ^ (-30 : ℤ) := by
+              have h := cos_shift_le Y del
+              rw [abs_sub_comm] at h
+              exact le_trans h hdel
+            linarith [hserrC]
+        _ ≤ epsExp * |(-Real.cos (Y + del))| + trig_floor := by simpa using trig_budget _
+    · rw [hX, cos_quad_3 Y del k.val m hkm]
+      calc |toReal sc.sin - Real.sin (Y + del)|
+          ≤ |toReal sc.sin - Real.sin Y| + |Real.sin Y - Real.sin (Y + del)| :=
+            abs_sub_le_add _ _ _
+        _ ≤ (2 : ℝ) ^ (-23 : ℤ) + (2 : ℝ) ^ (-30 : ℤ) := by
+            have h2 : |Real.sin Y - Real.sin (Y + del)| ≤ (2 : ℝ) ^ (-30 : ℤ) := by
+              have h := sin_shift_le Y del
+              rw [abs_sub_comm] at h
+              exact le_trans h hdel
+            linarith [hserrS]
+        _ ≤ epsExp * |Real.sin (Y + del)| + trig_floor := by simpa using trig_budget _
 
 /-- Refinement on the window: success with the combined absolute/relative bound
-`2^-20 · |f (toReal x)| + 2^-20` per output. The extraction identity comes from
-`word_fixed_sin_cos_window_past_guards`; the value equations from
-`word_fixed_sin_cos_past_guards_value`; the analytic budget is
-`trig_delta + trig_fold_delta + 15/(2q32) + 1/q32 + |arg/q32|^9 · 10/3265920 ≤ trig_floor`. -/
+`2^-20·|f (toReal x)| + 2^-20` per output. -/
 theorem fixed_sin_cos_refines_proved : fixed_sin_cos_refines := by
   intro x hx
-  rcases (Aeneas.Std.WP.spec_equiv_exists _ _).1 (word_fixed_sin_cos_past_guards_value x hx) with
-    ⟨y, hy, hyv⟩
-  rcases hyv with ⟨k, r, s, arg, sin_v, cos_v, negate, swap, h1, hk, hr, hs, hneg, harg, hswap,
-    hsinv, hcosv⟩
-  refine ⟨⟨sin_v, cos_v⟩, ?_, ?_, ?_⟩
-  · rw [word_fixed_sin_cos_window_past_guards x hx]
-    exact hy.trans (by rw [h1])
-  · have hrt := fixed_trig_reduction_remainder_range_tight x.val k.val hx.1 hx.2 hk
-    have hr34 : |r.val| ≤ 2 ^ 34 := by
-      rw [abs_le]; exact ⟨by rw [hr]; exact hrt.1, by rw [hr]; exact hrt.2⟩
-    have harg32 : |arg.val| ≤ 2 ^ 32 := by rw [harg]; exact fixed_trig.fold_arg_abs_le r.val hr34
-    have hargq : |arg.val| ≤ 3373259426 := by
-      rw [harg]; exact fixed_trig.fold_arg_abs_le_quarter r.val hr34
-    have hΦ : |(arg.val : ℝ) / q32| ≤ Real.pi / 4 := by
-      have h : |(arg.val : ℝ) / q32| ≤ (3373259426 : ℝ) / q32 := by
-        rw [abs_div, abs_of_pos q32_pos]
-        exact div_le_div_of_nonneg_right (by exact_mod_cast hargq) (le_of_lt q32_pos)
-      exact le_trans h (le_of_lt quarter_pi_q32_floor.1)
-    have h1' : |(arg.val : ℝ) / q32| ≤ 1 := le_trans hΦ (by linarith [Real.pi_lt_d20])
-    have hrel : sin_v.val = (if negate then -1 else 1) *
-        (if fixed_trig.fold2_swap (fixed_trig.fold1 r.val) = 1 then fixed_trig.cos_poly arg.val
-         else if fixed_trig.fold2_swap (fixed_trig.fold1 r.val) = 2 then -fixed_trig.cos_poly arg.val
-         else fixed_trig.sin_poly arg.val) := by rw [hsinv, hswap]
-    have hout := sin_out_flagSin_le negate (fixed_trig.fold2_swap (fixed_trig.fold1 r.val)) arg sin_v
-      harg32 h1' hrel
-    rw [hneg] at hout
-    have hflag := flag_sin_reduction_bound x r k hx hk hr
-    rw [← harg] at hflag
-    have hfloor := trig_floor_close ((arg.val : ℝ) / q32) hΦ
-    rw [show toReal sin_v = (sin_v.val : ℝ) / q32 from rfl]
-    calc |(sin_v.val : ℝ) / q32 - Real.sin (toReal x)|
-        ≤ |(sin_v.val : ℝ) / q32 - flagSin (fixed_trig.fold1_negate r.val)
-              (fixed_trig.fold2_swap (fixed_trig.fold1 r.val)) ((arg.val : ℝ) / q32)| +
-          |flagSin (fixed_trig.fold1_negate r.val)
-              (fixed_trig.fold2_swap (fixed_trig.fold1 r.val)) ((arg.val : ℝ) / q32) -
-            Real.sin (toReal x)| := abs_sub_le _ _ _
-      _ ≤ (40 / (2 * q32) + 1 / q32 + |(arg.val : ℝ) / q32| ^ 9 * (10 / 3265920)) +
-          (trig_delta + trig_fold_delta) := add_le_add hout hflag
-      _ ≤ trig_floor := by linarith [hfloor]
-      _ ≤ epsExp * |Real.sin (toReal x)| + trig_floor := by
-          have : (0 : ℝ) ≤ epsExp * |Real.sin (toReal x)| :=
-            mul_nonneg (by norm_num [epsExp]) (abs_nonneg _)
-          linarith
-  · have hrt := fixed_trig_reduction_remainder_range_tight x.val k.val hx.1 hx.2 hk
-    have hr34 : |r.val| ≤ 2 ^ 34 := by
-      rw [abs_le]; exact ⟨by rw [hr]; exact hrt.1, by rw [hr]; exact hrt.2⟩
-    have harg32 : |arg.val| ≤ 2 ^ 32 := by rw [harg]; exact fixed_trig.fold_arg_abs_le r.val hr34
-    have hargq : |arg.val| ≤ 3373259426 := by
-      rw [harg]; exact fixed_trig.fold_arg_abs_le_quarter r.val hr34
-    have hΦ : |(arg.val : ℝ) / q32| ≤ Real.pi / 4 := by
-      have h : |(arg.val : ℝ) / q32| ≤ (3373259426 : ℝ) / q32 := by
-        rw [abs_div, abs_of_pos q32_pos]
-        exact div_le_div_of_nonneg_right (by exact_mod_cast hargq) (le_of_lt q32_pos)
-      exact le_trans h (le_of_lt quarter_pi_q32_floor.1)
-    have h1' : |(arg.val : ℝ) / q32| ≤ 1 := le_trans hΦ (by linarith [Real.pi_lt_d20])
-    have hrel : cos_v.val = (if negate then -1 else 1) *
-        (if fixed_trig.fold2_swap (fixed_trig.fold1 r.val) = 1 then fixed_trig.sin_poly arg.val
-         else if fixed_trig.fold2_swap (fixed_trig.fold1 r.val) = 2 then fixed_trig.sin_poly arg.val
-         else fixed_trig.cos_poly arg.val) := by rw [hcosv, hswap]
-    have hout := cos_out_flagCos_le negate (fixed_trig.fold2_swap (fixed_trig.fold1 r.val)) arg cos_v
-      harg32 h1' hrel
-    rw [hneg] at hout
-    have hflag := flag_cos_reduction_bound x r k hx hk hr
-    rw [← harg] at hflag
-    have hfloor := trig_floor_close ((arg.val : ℝ) / q32) hΦ
-    rw [show toReal cos_v = (cos_v.val : ℝ) / q32 from rfl]
-    calc |(cos_v.val : ℝ) / q32 - Real.cos (toReal x)|
-        ≤ |(cos_v.val : ℝ) / q32 - flagCos (fixed_trig.fold1_negate r.val)
-              (fixed_trig.fold2_swap (fixed_trig.fold1 r.val)) ((arg.val : ℝ) / q32)| +
-          |flagCos (fixed_trig.fold1_negate r.val)
-              (fixed_trig.fold2_swap (fixed_trig.fold1 r.val)) ((arg.val : ℝ) / q32) -
-            Real.cos (toReal x)| := abs_sub_le _ _ _
-      _ ≤ (40 / (2 * q32) + 1 / q32 + |(arg.val : ℝ) / q32| ^ 9 * (10 / 3265920)) +
-          (trig_delta + trig_fold_delta) := add_le_add hout hflag
-      _ ≤ trig_floor := by linarith [hfloor]
-      _ ≤ epsExp * |Real.cos (toReal x)| + trig_floor := by
-          have : (0 : ℝ) ≤ epsExp * |Real.cos (toReal x)| :=
-            mul_nonneg (by norm_num [epsExp]) (abs_nonneg _)
-          linarith
-
-
+  obtain ⟨sc, hsc, h1, h2⟩ := trigPastGuards_refines x hx
+  exact ⟨sc, by rw [word_fixed_sin_cos_window_past_guards x hx]; exact hsc, h1, h2⟩
 
 end
 

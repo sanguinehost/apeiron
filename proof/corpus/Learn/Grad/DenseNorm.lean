@@ -101,6 +101,11 @@ theorem cast_I64_val (v : I128)
   rw [show min 64 128 = 64 from rfl]
   rw [Int.bmod_eq_of_le (n := v.val) (m := 2 ^ 64) (by omega) (by omega)]
 
+/-- The extracted `i64 → i128` widening and the `.I64 → .I128` signed cast are the same
+    sign-extension of the source bit-vector. -/
+theorem fromI64_eq_cast (z : I64) :
+    core.convert.num.FromI128I64.from z = IScalar.cast IScalarTy.I128 z := rfl
+
 /-- The `dense::narrow` upper guard, as a value comparison. -/
 theorem narrow_guard_high (v : I128) :
     (v > IScalar.cast IScalarTy.I128 core.num.I64.MAX) ↔ 9223372036854775807 < v.val := by
@@ -136,22 +141,22 @@ is the mathematical `i128` argument. -/
 theorem dense_narrow_some (v : I128)
     (hmax : ¬ (9223372036854775807 < v.val))
     (hmin : ¬ (v.val < -9223372036854775808)) :
-    learn_port.dense.narrow v = ok (some (IScalar.cast IScalarTy.I64 v)) := by
-  rw [learn_port.dense.narrow]
+    solve_port.q32.narrow v = ok (some (IScalar.cast IScalarTy.I64 v)) := by
+  rw [solve_port.q32.narrow]
   simp only [lift, bind_tc_ok]
-  rw [if_neg (by rw [narrow_guard_high]; exact hmax),
-    if_neg (by rw [narrow_guard_low]; exact hmin)]
+  rw [if_neg (by rw [fromI64_eq_cast, narrow_guard_high]; exact hmax),
+    if_neg (by rw [fromI64_eq_cast, narrow_guard_low]; exact hmin)]
 
 /-- **`dense::narrow`, refusal arm.** Outside either guard the body returns `none` exactly. -/
 theorem dense_narrow_none (v : I128)
     (h : 9223372036854775807 < v.val ∨ v.val < -9223372036854775808) :
-    learn_port.dense.narrow v = ok none := by
-  rw [learn_port.dense.narrow]
+    solve_port.q32.narrow v = ok none := by
+  rw [solve_port.q32.narrow]
   simp only [lift, bind_tc_ok]
   rcases h with h | h
-  · rw [if_pos (by rw [narrow_guard_high]; exact h)]
-  · rw [if_neg (by rw [narrow_guard_high]; omega),
-      if_pos (by rw [narrow_guard_low]; exact h)]
+  · rw [if_pos (by rw [fromI64_eq_cast, narrow_guard_high]; exact h)]
+  · rw [if_neg (by rw [fromI64_eq_cast, narrow_guard_high]; omega),
+      if_pos (by rw [fromI64_eq_cast, narrow_guard_low]; exact h)]
 
 /-- **`dense::round32`.** With the half-biased add inside `i128` the body returns `some` of the
 specification value `round32 v.val`. -/
@@ -236,7 +241,7 @@ theorem dense_mul_round_none (a b : I64)
   obtain ⟨q, hq, hqv⟩ := dense_round32_val p hlo hhi
   have hqv' : q.val = apeiron_norm.mulRound a.val b.val := by
     rw [hqv, hpv', apeiron_norm.mulRound]
-  have hn : learn_port.dense.narrow q = ok none := by
+  have hn : solve_port.q32.narrow q = ok none := by
     apply dense_narrow_none
     rw [hqv']
     rcases h with h | h
@@ -660,7 +665,7 @@ theorem silu_deriv_spec (g s : I64)
     (by rw [hpv']; simpa only [I128_max_eq] using hround.2)
   have hyv' : y.val = apeiron_norm.round32 (s.val * ((2 : ℤ) ^ (32 : ℕ) +
       apeiron_norm.mulRound g.val ((2 : ℤ) ^ (32 : ℕ) - s.val))) := by rw [hyv, hpv']
-  have hv1 : learn_port.dense.narrow y = ok (some (IScalar.cast IScalarTy.I64 y)) :=
+  have hv1 : solve_port.q32.narrow y = ok (some (IScalar.cast IScalarTy.I64 y)) :=
     dense_narrow_some y (by rw [hyv']; exact not_lt.2 hfit.2) (by rw [hyv']; exact not_lt.2 hfit.1)
   refine ⟨IScalar.cast IScalarTy.I64 y, ?_, ?_⟩
   · simp only [learn_port.dense.silu_deriv, engine_ONE_eq, lift, bind_tc_ok,
@@ -1254,7 +1259,7 @@ theorem inv_rms_spec (x : Slice I64) (eps : I64)
     (by rw [hfromeps, hme]; exact hadd2.2)
   have ha_v : a.val = apeiron_norm.rmsMean (x.val.map (fun y => y.val)) eps.val := by
     rw [hav, hfromeps, hme]
-  have hnarrow_some : learn_port.dense.narrow a = ok (some (IScalar.cast IScalarTy.I64 a)) :=
+  have hnarrow_some : solve_port.q32.narrow a = ok (some (IScalar.cast IScalarTy.I64 a)) :=
     dense_narrow_some a (by rw [ha_v]; exact not_lt.2 hnarrow.2)
       (by rw [ha_v]; exact not_lt.2 hnarrow.1)
   have ha1v : (IScalar.cast IScalarTy.I64 a).val =

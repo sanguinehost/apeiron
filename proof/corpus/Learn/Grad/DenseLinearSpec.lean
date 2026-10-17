@@ -60,6 +60,11 @@ theorem dense_checked_add_some {a b : I128}
 theorem dense_fromI64_val (z : I64) : (core.convert.num.FromI128I64.from z).val = z.val :=
   core.convert.num.FromI128I64.from_val_eq z
 
+/-- The extracted `i64 → i128` widening and the `.I64 → .I128` signed cast are the same
+    sign-extension of the source bit-vector. -/
+theorem dense_fromI64_eq_cast (z : I64) :
+    core.convert.num.FromI128I64.from z = IScalar.cast IScalarTy.I128 z := rfl
+
 /-- Two `i64` values multiply into `i128` (`|a·b| ≤ 2¹²⁶`). -/
 theorem dense_i64_mul_fits (a b : I64) :
     I128.min ≤ a.val * b.val ∧ a.val * b.val ≤ I128.max := by
@@ -138,7 +143,7 @@ theorem dense_cast_i64_val (v : I128)
 /-- The extracted `narrow` returns the value exactly on the `i64` window. -/
 theorem dense_narrow_spec (v : I128)
     (h : -((2 : ℤ) ^ 63) ≤ v.val ∧ v.val ≤ (2 : ℤ) ^ 63 - 1) :
-    ∃ q : I64, learn_port.dense.narrow v = ok (some q) ∧ q.val = v.val := by
+    ∃ q : I64, solve_port.q32.narrow v = ok (some q) ∧ q.val = v.val := by
   refine ⟨IScalar.cast .I64 v, ?_, dense_cast_i64_val v h⟩
   have hnotmax : ¬ (v > IScalar.cast .I128 core.num.I64.MAX) := by
     intro hc
@@ -148,8 +153,8 @@ theorem dense_narrow_spec (v : I128)
     intro hc
     rw [IScalar.lt_equiv, dense_i64min_val] at hc
     omega
-  unfold learn_port.dense.narrow
-  simp only [lift, bind_tc_ok, hnotmax, hnotmin, ↓reduceIte]
+  unfold solve_port.q32.narrow
+  simp only [lift, bind_tc_ok, dense_fromI64_eq_cast, hnotmax, hnotmin, ↓reduceIte]
 
 /-- A `usize` `checked_mul` that fits returns its mathematical product. -/
 theorem dense_usize_checked_mul_some (a b : Usize) (h : a.val * b.val ≤ Usize.max) :
@@ -411,7 +416,7 @@ theorem round_all_loop_body_exec
     (hk : k < n)
     (hidx : Slice.index_usize acc k = ok (acc.val.getD k.val 0#i128))
     (hr : learn_port.dense.round32 (acc.val.getD k.val 0#i128) = ok (some v))
-    (hn : learn_port.dense.narrow v = ok (some q))
+    (hn : solve_port.q32.narrow v = ok (some q))
     (hp : alloc.vec.Vec.push out q = ok out1)
     (hk1 : k + 1#usize = ok k1) :
     learn_port.dense.round_all_loop.body acc n out k true =
