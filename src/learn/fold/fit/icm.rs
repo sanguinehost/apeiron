@@ -628,11 +628,11 @@ pub fn e8_icm_step(
     o: usize,
     n: usize,
     sweeps: usize,
-    icm_ridge: f64,
+    icm_ridge: i64,
 ) -> Result<Plane, IcmError> {
     check_inputs(ws, hl, o, n, None)?;
     check_plane(p, o, n)?;
-    let metric = ridged_metric_q(hl, n, to_q(icm_ridge)?)?;
+    let metric = ridged_metric_q(hl, n, icm_ridge)?;
     let (g, nb, cb) = (n / GROUP, n / BLOCK, codebook_q());
     // G_rot = fwht128((Ws @ Hl) * c) * d, H_rot = had_gram(Hl ∘ c c^T) ∘ d d^T
     let mut g_rot = matmul_q(ws, &metric, o, n, n, false)?;

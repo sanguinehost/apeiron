@@ -66,11 +66,14 @@ fn rg_q(n: usize) -> f64 {
     QUANT_RIDGE * (n as f64 / 896.0)
 }
 
+/// One value on the Q32.32 grid.
+fn q(x: f64) -> i64 {
+    to_grid(x, GRID_BOUND).expect("value inside the Q32.32 grid range")
+}
+
 /// A fixture as the `Q32.32` words the migrated steps consume.
 fn qw(x: &[f64]) -> Vec<i64> {
-    x.iter()
-        .map(|&v| to_grid(v, GRID_BOUND).expect("value inside the Q32.32 grid range"))
-        .collect()
+    x.iter().map(|&v| q(v)).collect()
 }
 
 /// A word slice read back through the grid map, the migrated boundary's read-out.
@@ -87,18 +90,18 @@ fn j_obj(ws: &[f64], wp: &[f64], hl: &[f64]) -> f64 {
 fn cfg(n: usize) -> FoldFitConfig {
     FoldFitConfig {
         iters: 1,
-        ridge: rg_q(n),
-        damp: 0.01,
+        ridge: q(rg_q(n)),
+        damp: q(0.01),
         inner_iters: 3,
         e8_beam: 4,
-        icm_ridge: 0.20,
+        icm_ridge: q(0.20),
         sweeps: 2,
     }
 }
 
 fn params(n: usize, qmlp_rows: usize) -> TensorParams {
     TensorParams {
-        rg_q: rg_q(n),
+        rg_q: q(rg_q(n)),
         qmlp_rows,
         fit: cfg(n),
         nb_sweeps: 2,
@@ -155,17 +158,14 @@ fn add(a: &[f64], b: &[f64]) -> Vec<f64> {
 /// `max|recon − wp| / max|wp|`, and whether `recon == wp` bit-for-bit.
 fn recon_deviation(fit: &TensorFit, o: usize, n: usize) -> (f64, bool) {
     let r = recon(&fit.planes, o, n).expect("planes reconstruct");
-    let mut equal = true;
-    let mut maxd = 0.0_f64;
-    let mut maxw = 0.0_f64;
-    for k in 0..fit.wp.len() {
-        if r[k].to_bits() != fit.wp[k].to_bits() {
-            equal = false;
-        }
-        maxd = maxd.max((r[k] - fit.wp[k]).abs());
-        maxw = maxw.max(fit.wp[k].abs());
+    let equal = r == fit.wp;
+    let (mut maxd, mut maxw) = (0_i128, 0_i128);
+    for (&a, &b) in r.iter().zip(&fit.wp) {
+        maxd = maxd.max((i128::from(a) - i128::from(b)).abs());
+        maxw = maxw.max(i128::from(b).abs());
     }
-    let rel = if maxw > 0.0 { maxd / maxw } else { maxd };
+    // The words' ratio is the reals' ratio (the common `2³²` scale cancels).
+    let rel = maxd as f64 / maxw.max(1) as f64;
     (rel, equal)
 }
 
@@ -188,7 +188,7 @@ fn fit(
     hm: &[f64],
     p: &TensorParams,
 ) -> TensorFit {
-    fit_tensor(kind, ws, hm, o, n, None, p, None).expect("fit succeeds")
+    fit_tensor(kind, &qw(ws), &qw(hm), o, n, None, p, None).expect("fit succeeds")
 }
 
 #[test]
@@ -256,11 +256,12 @@ fn second_plane_never_worsens_j_on_k() {
     let p = params(N, K_ROWS);
 
     let f = fit(TensorKind::K, O, N, &ws, &hm, &p);
-    let hl = metric(&hm, N, rg_q(N)).expect("metric");
+    let hl = metric(&hm, N, from_grid(p.rg_q)).expect("metric");
     let wp1 = uw(&fold_fit(&qw(&ws), &qw(&hm), O, N, None, &cfg(N))
         .expect("Wp1 fit")
         .wp);
-    let j_two = j_obj(&ws, &f.wp, &hl);
+    let fwp = uw(&f.wp);
+    let j_two = j_obj(&ws, &fwp, &hl);
     let j_one = j_obj(&ws, &wp1, &hl);
     assert!(
         j_two <= j_one,
@@ -273,7 +274,7 @@ fn corrector_acceptance_predicate_and_bits() {
     let mut rng = Lcg::new(0x5eed_0004);
     let hm = rand_spd(N, &mut rng);
     let p = params(N, K_ROWS);
-    let hl = metric(&hm, N, rg_q(N)).expect("metric");
+    let hl = metric(&hm, N, from_grid(p.rg_q)).expect("metric");
 
     for (kind, rk) in [(TensorKind::Q, 2_usize), (TensorKind::Down, 1)] {
         let ws = rand_weight(O, N, &mut rng);
@@ -293,7 +294,8 @@ fn corrector_acceptance_predicate_and_bits() {
         // The corrector bits are counted whether or not it is applied.
         assert_eq!(f.bits.ncorr, corr.bits, "{kind:?}: ncorr");
         // The applied corrector never raises J.
-        let j_wp = j_obj(&ws, &f.wp, &hl);
+        let fwp = uw(&f.wp);
+        let j_wp = j_obj(&ws, &fwp, &hl);
         assert!(
             j_wp <= j_old,
             "{kind:?}: J(wp)={j_wp:.6e} > J(pre)={j_old:.6e}"
@@ -304,8 +306,8 @@ fn corrector_acceptance_predicate_and_bits() {
             // `add(Wp1, Corr)`, so the derived bound is `2·2⁻³³ = 2⁻³²`.
             let want = add(&pre, &corr.corr);
             let mut max = 0.0_f64;
-            for k in 0..f.wp.len() {
-                max = max.max((f.wp[k] - want[k]).abs());
+            for k in 0..fwp.len() {
+                max = max.max((fwp[k] - want[k]).abs());
             }
             assert!(
                 max <= 2.0 * GRID_HALF,
@@ -323,11 +325,11 @@ fn down_corrector_rejected_still_counts_bits() {
     let mut rng = Lcg::new(0x5eed_0005);
     let hm = rand_spd(N, &mut rng);
     let p = params(N, K_ROWS);
-    let hl = metric(&hm, N, rg_q(N)).expect("metric");
+    let hl = metric(&hm, N, from_grid(p.rg_q)).expect("metric");
 
     let mut r = Lcg::new(0x5eed_0005);
     let ws: Vec<f64> = (0..O * N).map(|_| 2e-4 * r.uniform(-1.0, 1.0)).collect();
-    let f = fit_tensor(TensorKind::Down, &ws, &hm, O, N, None, &p, None).expect("fit");
+    let f = fit_tensor(TensorKind::Down, &qw(&ws), &qw(&hm), O, N, None, &p, None).expect("fit");
     let applied = f.planes.iter().any(|pl| pl.dense.is_some());
 
     let pre = uw(&fold_fit(&qw(&ws), &qw(&hm), O, N, None, &cfg(N))
@@ -353,29 +355,33 @@ fn bias_matches_hand_formula() {
     let mut rng = Lcg::new(0x5eed_0006);
     let hm = rand_spd(N, &mut rng);
     let p = params(N, K_ROWS);
-    let n_toks = 37.0_f64;
-    let x_sum: Vec<f64> = (0..N).map(|_| rng.uniform(-1.0, 1.0)).collect();
+    let n_toks = q(37.0);
+    let n_toks_f = from_grid(n_toks);
+    let x_sum: Vec<i64> = (0..N).map(|_| q(rng.uniform(-1.0, 1.0))).collect();
+    let xf = uw(&x_sum);
 
     for kind in [TensorKind::Q, TensorKind::K, TensorKind::V] {
         let o = O;
         let ws = rand_weight(o, N, &mut rng);
-        let y_sum: Vec<f64> = (0..o).map(|_| rng.uniform(-1.0, 1.0)).collect();
+        let y_sum: Vec<i64> = (0..o).map(|_| q(rng.uniform(-1.0, 1.0))).collect();
+        let yf = uw(&y_sum);
         let bias = BiasStats {
             x_sum: &x_sum,
             y_sum: &y_sum,
             n_toks,
         };
-        let f = fit_tensor(kind, &ws, &hm, o, N, None, &p, Some(bias)).expect("fit");
-        let db = f.db.expect("db");
+        let f = fit_tensor(kind, &qw(&ws), &qw(&hm), o, N, None, &p, Some(bias)).expect("fit");
+        let db = uw(&f.db.expect("db"));
+        let fwp = uw(&f.wp);
         for r in 0..o {
             let (mut s, mut mag) = (0.0_f64, 0.0_f64);
             for i in 0..N {
-                s += f.wp[r * N + i] * x_sum[i];
-                mag += f.wp[r * N + i].abs() + x_sum[i].abs();
+                s += fwp[r * N + i] * xf[i];
+                mag += fwp[r * N + i].abs() + xf[i].abs();
             }
-            let hand = (y_sum[r] - s) / n_toks;
+            let hand = (yf[r] - s) / n_toks_f;
             // Each input reads onto the grid within GRID_HALF, the quotient rounds once more.
-            let tol = GRID_HALF * (1.0 + mag) / n_toks + GRID_HALF + 2.0 * f64::EPSILON;
+            let tol = GRID_HALF * (1.0 + mag) / n_toks_f + GRID_HALF + 2.0 * f64::EPSILON;
             assert!(
                 (db[r] - hand).abs() <= tol,
                 "{kind:?} row {r}: {} vs {hand}",
@@ -386,11 +392,11 @@ fn bias_matches_hand_formula() {
 
     // A bias supplied for a kind without one is refused.
     let ws = rand_weight(O, N, &mut rng);
-    let y_sum = vec![0.0_f64; O];
+    let y_sum = vec![0_i64; O];
     let bad = fit_tensor(
         TensorKind::O,
-        &ws,
-        &hm,
+        &qw(&ws),
+        &qw(&hm),
         O,
         N,
         None,
@@ -436,7 +442,17 @@ fn qmlp_top_rows_and_boundaries() {
     // k_rows > o is refused.
     let p9 = params(N, MLP_O + 1);
     assert_eq!(
-        fit_tensor(TensorKind::Up, &ws, &hm, MLP_O, N, None, &p9, None).unwrap_err(),
+        fit_tensor(
+            TensorKind::Up,
+            &qw(&ws),
+            &qw(&hm),
+            MLP_O,
+            N,
+            None,
+            &p9,
+            None
+        )
+        .unwrap_err(),
         TensorError::QmlpRowsOutOfRange {
             k_rows: MLP_O + 1,
             o: MLP_O
@@ -452,14 +468,14 @@ fn row_scale_fold() {
     let ws = rand_weight(MLP_O, N, &mut rng);
     let base = fit(TensorKind::Up, MLP_O, N, &ws, &hm, &p);
 
-    let ones = vec![1.0_f64; MLP_O];
+    let ones = vec![q(1.0); MLP_O];
     let mut a = base.clone();
     fold_row_scale(&mut a, &ones, MLP_O, N).expect("ones fold");
     assert_eq!(recon(&a.planes, MLP_O, N).expect("recon"), a.wp);
 
-    let mut var = vec![0.5_f64; MLP_O];
+    let mut var = vec![q(0.5); MLP_O];
     for (i, v) in var.iter_mut().enumerate() {
-        *v = 0.5 + 1.5 * (i as f64) / (MLP_O as f64 - 1.0);
+        *v = q(0.5 + 1.5 * (i as f64) / (MLP_O as f64 - 1.0));
     }
     let mut b = base.clone();
     fold_row_scale(&mut b, &var, MLP_O, N).expect("varying fold");
@@ -470,7 +486,7 @@ fn row_scale_fold() {
     let fk = fit(TensorKind::K, O, N, &ws[..O * N], &hm, &p);
     let mut fk = fk;
     assert_eq!(
-        fold_row_scale(&mut fk, &[1.0_f64; O], O, N).unwrap_err(),
+        fold_row_scale(&mut fk, &[q(1.0); O], O, N).unwrap_err(),
         TensorError::NotUp
     );
 
@@ -489,25 +505,26 @@ fn refusals() {
     let p = params(N, K_ROWS);
     let ws = rand_weight(O, N, &mut rng);
 
+    let (wsq, hmq) = (qw(&ws), qw(&hm));
     // Wrong `ws` length.
     assert_eq!(
-        fit_tensor(TensorKind::Q, &ws[..O * N - 1], &hm, O, N, None, &p, None).unwrap_err(),
+        fit_tensor(TensorKind::Q, &wsq[..O * N - 1], &hmq, O, N, None, &p, None).unwrap_err(),
         TensorError::ShapeMismatch
     );
     // Wrong `hm` length.
     assert_eq!(
-        fit_tensor(TensorKind::Q, &ws, &hm[..N * N - 1], O, N, None, &p, None).unwrap_err(),
+        fit_tensor(TensorKind::Q, &wsq, &hmq[..N * N - 1], O, N, None, &p, None).unwrap_err(),
         TensorError::ShapeMismatch
     );
     // Wrong `g_row` length.
     assert_eq!(
         fit_tensor(
             TensorKind::Q,
-            &ws,
-            &hm,
+            &wsq,
+            &hmq,
             O,
             N,
-            Some(&[1.0_f64; O - 1]),
+            Some(&[q(1.0); O - 1]),
             &p,
             None
         )
@@ -518,48 +535,47 @@ fn refusals() {
     let hm100 = rand_spd(100, &mut rng);
     let ws100 = rand_weight(O, 100, &mut rng);
     assert_eq!(
-        fit_tensor(TensorKind::Q, &ws100, &hm100, O, 100, None, &p, None).unwrap_err(),
+        fit_tensor(
+            TensorKind::Q,
+            &qw(&ws100),
+            &qw(&hm100),
+            O,
+            100,
+            None,
+            &p,
+            None
+        )
+        .unwrap_err(),
         TensorError::Width
     );
     // Zero `o`.
     assert_eq!(
-        fit_tensor(TensorKind::Q, &[], &hm, 0, N, None, &p, None).unwrap_err(),
+        fit_tensor(TensorKind::Q, &[], &hmq, 0, N, None, &p, None).unwrap_err(),
         TensorError::ZeroDim
     );
-    // A NaN weight.
-    let mut nan_ws = ws.clone();
-    nan_ws[0] = f64::NAN;
-    assert_eq!(
-        fit_tensor(TensorKind::Q, &nan_ws, &hm, O, N, None, &p, None).unwrap_err(),
-        TensorError::NonFinite
-    );
-    // A NaN Gram.
-    let mut nan_hm = hm.clone();
-    nan_hm[0] = f64::INFINITY;
-    assert_eq!(
-        fit_tensor(TensorKind::Q, &ws, &nan_hm, O, N, None, &p, None).unwrap_err(),
-        TensorError::NonFinite
-    );
+    // A non-finite weight or Gram has no Q32.32 word, so `TensorError` admits no finiteness arm
+    // here: every `i64` is a value of the carrier.
 }
 
 /// The reference `plane_weight` of the f64 implementation at `9f440192`, copied here as the oracle:
 /// `rot = s_rot ⊙ dh`, the normalised Hadamard transform, `compose`, then a scatter-add at `rows`.
 fn ref_plane_weight(p: &SinkPlane, o: usize, n: usize) -> Vec<f64> {
     if let Some(dense) = &p.dense {
-        return dense.clone();
+        return uw(dense);
     }
     let (rlen, rows) = match &p.rows {
         Some(rs) => (rs.len(), Some(rs.as_slice())),
         None => (o, None),
     };
-    let mut rot = p.s_rot.clone();
+    let dh = uw(&p.dh);
+    let mut rot = uw(&p.s_rot);
     for row in 0..rlen {
         for col in 0..n {
-            rot[row * n + col] *= p.dh[col];
+            rot[row * n + col] *= dh[col];
         }
     }
     let t = fwht128(&rot).expect("reference transform");
-    let wi = uw(&compose(&qw(&t), &qw(&p.rh), &qw(&p.ch), rlen, n).expect("reference compose"));
+    let wi = uw(&compose(&qw(&t), &p.rh, &p.ch, rlen, n).expect("reference compose"));
     match rows {
         None => wi,
         Some(rs) => {
@@ -598,7 +614,7 @@ fn recon_bound(planes: &[SinkPlane], n: usize) -> f64 {
         let amp = if p.dense.is_some() {
             1.0
         } else {
-            (n as f64).sqrt() * scale(&p.rh) * scale(&p.ch)
+            (n as f64).sqrt() * scale(&uw(&p.rh)) * scale(&uw(&p.ch))
         };
         b += GRID_HALF * (amp + 1.0);
     }
@@ -616,7 +632,7 @@ fn recon_matches_oracle_at_the_grid_bound() {
     let f = fit(TensorKind::Up, MLP_O, N, &ws, &hm, &p);
     assert_eq!(f.planes.len(), 2, "a full plane and a rows plane");
 
-    let got = recon(&f.planes, MLP_O, N).expect("recon");
+    let got = uw(&recon(&f.planes, MLP_O, N).expect("recon"));
     let want = ref_recon(&f.planes, MLP_O, N);
     assert_eq!(got.len(), want.len());
     let bound = recon_bound(&f.planes, N);
@@ -629,4 +645,67 @@ fn recon_matches_oracle_at_the_grid_bound() {
         "recon max |carrier - oracle| {max:e} > {bound:e}"
     );
     eprintln!("(recon) max {max:e} (bound {bound:e})");
+}
+
+/// FNV-1a over words' little-endian bytes; the witness digest.
+fn fnv_words(d: &mut u64, xs: &[i64]) {
+    for &v in xs {
+        for b in v.to_le_bytes() {
+            *d ^= u64::from(b);
+            *d = d.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+}
+
+/// The witness: `fit_tensor`'s (wp, db, plane codes) words, hashed for one sink-weighted and one
+/// unweighted `k` tensor on two seeds. The digests were recorded on the pre-flip source, where the
+/// wrapper read the same words back through `qw`; the word API must reproduce them exactly.
+const WITNESS: [[u64; 2]; 2] = [
+    [0xaab6_21a5_21ce_577b, 0x4de7_91ef_b4ec_f1f3],
+    [0x2ef6_2592_2dbf_90c5, 0x091b_e9c1_6eb0_82e7],
+];
+
+#[test]
+fn tensor_words_are_bit_identical_to_the_recorded_wrapper() {
+    for (i, seed) in [0x5eed_0010_u64, 0x5eed_0011].into_iter().enumerate() {
+        let mut rng = Lcg::new(seed);
+        let hm = rand_spd(N, &mut rng);
+        let ws = rand_weight(O, N, &mut rng);
+        let x_sum: Vec<f64> = (0..N).map(|_| rng.uniform(-1.0, 1.0)).collect();
+        let y_sum: Vec<f64> = (0..O).map(|_| rng.uniform(-1.0, 1.0)).collect();
+        let p = params(N, K_ROWS);
+        for (name, g_row) in [
+            ("sink", Some(vec![0.5_f64, 1.0, 2.0, 4.0])),
+            ("nosink", None),
+        ] {
+            let (xq, yq) = (qw(&x_sum), qw(&y_sum));
+            let bias = BiasStats {
+                x_sum: &xq,
+                y_sum: &yq,
+                n_toks: q(37.0),
+            };
+            let g_row_q: Option<Vec<i64>> = g_row.as_deref().map(qw);
+            let f = fit_tensor(
+                TensorKind::K,
+                &qw(&ws),
+                &qw(&hm),
+                O,
+                N,
+                g_row_q.as_deref(),
+                &p,
+                Some(bias),
+            )
+            .expect("fit");
+            let mut d = 0xcbf2_9ce4_8422_2325_u64;
+            fnv_words(&mut d, &f.wp);
+            fnv_words(&mut d, f.db.as_deref().expect("db"));
+            for pl in &f.planes {
+                for v in [&pl.s_rot, &pl.rh, &pl.ch, &pl.dh] {
+                    fnv_words(&mut d, v);
+                }
+            }
+            let want = WITNESS[i][usize::from(name == "nosink")];
+            assert_eq!(d, want, "witness {i} {name} moved: {d:016x} != {want:016x}");
+        }
+    }
 }

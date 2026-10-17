@@ -89,8 +89,8 @@ pub enum TensorKind {
 /// [`crate::learn::fold::fit::nb_refine::NB_SWEEPS`] and `2`).
 #[derive(Clone, Copy, Debug)]
 pub struct TensorParams {
-    /// `quant_ridge · (n/896)`, the metric ridge the script threads as `rg_q`.
-    pub rg_q: f64,
+    /// `quant_ridge · (n/896)` as a Q32.32 word, the metric ridge the script threads as `rg_q`.
+    pub rg_q: i64,
     /// `a.qmlp_rows`: rows of the `q_mlp_trans` second plane for `gate`/`up`.
     pub qmlp_rows: usize,
     /// The `fold_fit` configuration (its `ridge` is ignored; `rg_q` governs).
@@ -106,11 +106,11 @@ pub struct TensorParams {
 #[derive(Clone, Copy, Debug)]
 pub struct BiasStats<'a> {
     /// `Σ_t x_t`, length `n`.
-    pub x_sum: &'a [f64],
+    pub x_sum: &'a [i64],
     /// `Σ_t y_t`, length `o`.
-    pub y_sum: &'a [f64],
-    /// The token count the moments are divided by.
-    pub n_toks: f64,
+    pub y_sum: &'a [i64],
+    /// The token count the moments are divided by, a Q32.32 word.
+    pub n_toks: i64,
 }
 
 /// The bit budget of one tensor's fit (`fold_transfer.py`'s `nsign`/`nr`/`nc`/`nd`/`ncorr`).
@@ -137,18 +137,19 @@ pub struct TensorBits {
 #[derive(Clone, Debug)]
 pub struct SinkPlane {
     /// Hadamard-domain code plane, `[rows.len() or o, n]`.
-    pub s_rot: Vec<f64>,
+    pub s_rot: Vec<i64>,
     /// Per-group row scale, `[rows.len() or o, n/128]`.
-    pub rh: Vec<f64>,
+    pub rh: Vec<i64>,
     /// Column scale, length `n`.
-    pub ch: Vec<f64>,
+    pub ch: Vec<i64>,
     /// Hadamard column scale, length `n`.
-    pub dh: Vec<f64>,
+    pub dh: Vec<i64>,
     /// The global row indices of a partial (rows) plane; `None` for a full plane.
     pub rows: Option<Vec<usize>>,
     /// The dense corrector `Corr` `[o, n]`, present only on a corrector plane.
-    pub dense: Option<Vec<f64>>,
-    /// The corrector's stored factors `(Uh, Vh)`, present only on a corrector plane.
+    pub dense: Option<Vec<i64>>,
+    /// The corrector's stored factors `(Uh, Vh)`, present only on a corrector plane; the
+    /// `lowrank_corrector` boundary's own `f64` records.
     pub factors: Option<Factors>,
 }
 
@@ -159,8 +160,9 @@ pub struct SinkPlane {
 pub struct TensorFit {
     /// The kind this fit serves.
     pub kind: TensorKind,
-    /// The dequantised weight `Wp`, row-major `[o, n]`; equal to `recon(planes)` within `1e-6`.
-    pub wp: Vec<f64>,
+    /// The dequantised weight `Wp`, row-major `[o, n]`, Q32.32 words; equal to `recon(planes)`
+    /// bit-for-bit after the store check (within `1e-6` when it is not).
+    pub wp: Vec<i64>,
     /// The sink planes, in the script's `_sink_recon` order.
     pub planes: Vec<SinkPlane>,
     /// The bit budget.
@@ -169,8 +171,8 @@ pub struct TensorFit {
     pub nb: Option<NbLog>,
     /// The `q_mlp_trans` second plane's global rows, for `gate`/`up` with `k_rows > 0`.
     pub top_rows: Option<Vec<usize>>,
-    /// `db = (y_sum − Wp·x_sum)/n_toks`, for `q`/`k`/`v`.
-    pub db: Option<Vec<f64>>,
+    /// `db = (y_sum − Wp·x_sum)/n_toks` as Q32.32 words, for `q`/`k`/`v`.
+    pub db: Option<Vec<i64>>,
 }
 
 /// A refusal from the per-tensor assembly.
@@ -182,8 +184,8 @@ pub enum TensorError {
     ZeroDim,
     /// `n` is not a positive multiple of `128`.
     Width,
-    /// A weight, Gram, row weight, rescale or bias input is not finite.
-    NonFinite,
+    /// A word input carries no finite check: every `i64` is an admissible Q32.32 value, so a
+    /// non-finite input has no representation here.
     /// The requested `qmlp_rows` exceeds the row count `o`.
     QmlpRowsOutOfRange {
         /// The requested `k_rows`.
@@ -231,7 +233,6 @@ impl core::fmt::Display for TensorError {
             Self::ShapeMismatch => write!(f, "a slice length disagrees with the declared shape"),
             Self::ZeroDim => write!(f, "output or column count must be non-zero"),
             Self::Width => write!(f, "column count is not a positive multiple of 128"),
-            Self::NonFinite => write!(f, "an input entry is not finite"),
             Self::QmlpRowsOutOfRange { k_rows, o } => {
                 write!(f, "qmlp_rows {k_rows} exceeds the row count {o}")
             }
@@ -319,19 +320,13 @@ fn add_words(a: &[i64], b: &[i64]) -> Result<Vec<i64>, TensorError> {
     Ok(eval(a.len().min(b.len()), Elem::Add(a, b))?)
 }
 
-/// Whether every entry is finite.
-fn all_finite(x: &[f64]) -> bool {
-    x.iter().all(|v| v.is_finite())
-}
-
 /// `row_mass[i] = Σ_j ws[i, j]²`, the `(Ws_nm ** 2).sum(1)` the `q_mlp_trans` row choice ranks by;
 /// the squares are carrier words and each row sum is exact in `i128`. Temporal and spatial `O(o·n)`.
-fn row_mass(ws: &[f64], o: usize, n: usize) -> Result<Vec<i128>, TensorError> {
+fn row_mass(ws: &[i64], o: usize, n: usize) -> Result<Vec<i128>, TensorError> {
     if ws.len() != o.checked_mul(n).ok_or(TensorError::ShapeMismatch)? {
         return Err(TensorError::ShapeMismatch);
     }
-    let wq = grids(ws)?;
-    let sq = eval(wq.len(), Elem::Square(&wq))?;
+    let sq = eval(ws.len(), Elem::Square(ws))?;
     sq.chunks(n)
         .map(|row| {
             row.iter()
@@ -416,7 +411,7 @@ fn pack_to_plane(pack: &PackOut, rlen: usize, n: usize) -> Result<Plane, TensorE
 }
 
 /// A full-plane [`SinkPlane`] (no `rows`, no `dense`, no factors) from its four stored buffers.
-fn plane_of(s_rot: Vec<f64>, rh: Vec<f64>, ch: Vec<f64>, dh: Vec<f64>) -> SinkPlane {
+fn plane_of(s_rot: Vec<i64>, rh: Vec<i64>, ch: Vec<i64>, dh: Vec<i64>) -> SinkPlane {
     SinkPlane {
         s_rot,
         rh,
@@ -437,16 +432,16 @@ fn plane_shape(p: &SinkPlane, rlen: usize, n: usize) -> bool {
 /// A full pack plane (rows `None`) of a `fold_fit` pack.
 fn pack_plane(pack: &PackOut) -> SinkPlane {
     plane_of(
-        reals(&pack.s_rot),
-        reals(&pack.rh),
-        reals(&pack.ch),
-        reals(&pack.dh),
+        pack.s_rot.clone(),
+        pack.rh.clone(),
+        pack.ch.clone(),
+        pack.dh.clone(),
     )
 }
 
 /// A pack plane from an owned [`Plane`] (the `-nb` output).
 fn owned_plane(p: &Plane) -> SinkPlane {
-    plane_of(reals(&p.s), reals(&p.r), reals(&p.c), reals(&p.d))
+    plane_of(p.s.clone(), p.r.clone(), p.c.clone(), p.d.clone())
 }
 
 /// The full `[o, n]` weight of one sink plane: a dense plane is itself; a pack plane is
@@ -461,7 +456,7 @@ fn plane_weight(p: &SinkPlane, o: usize, n: usize) -> Result<Vec<i64>, TensorErr
         if p.rows.is_some() || dense.len() != o * n {
             return Err(TensorError::PlaneShape);
         }
-        return Ok(grids(dense)?);
+        return Ok(dense.clone());
     }
     if !n.is_multiple_of(GROUP) {
         return Err(TensorError::Width);
@@ -481,10 +476,9 @@ fn plane_weight(p: &SinkPlane, o: usize, n: usize) -> Result<Vec<i64>, TensorErr
     }
     // rot = s_rot ⊙ dh (repeated down the rows), one rounding per entry on the carrier; the
     // transform and the composition are the word forms, so no real is read back between them.
-    let sq = grids(&p.s_rot)?;
-    let mut rot = eval(sq.len(), Elem::MulCol(&sq, &grids(&p.dh)?, n))?;
+    let mut rot = eval(p.s_rot.len(), Elem::MulCol(&p.s_rot, &p.dh, n))?;
     fwht_words(&mut rot)?;
-    let wq = compose(&rot, &grids(&p.rh)?, &grids(&p.ch)?, rlen, n)?;
+    let wq = compose(&rot, &p.rh, &p.ch, rlen, n)?;
     match rows {
         None => Ok(wq),
         Some(rs) => {
@@ -536,8 +530,8 @@ fn scatter_add(dst: &mut [i64], src: &[i64], rows: &[usize], n: usize) -> Result
 /// [`TensorError::ZeroDim`] for `o == 0` or `n == 0`; [`TensorError::Width`] if `n` is not a
 /// multiple of `128`; [`TensorError::PlaneShape`] for an empty plane list or a plane shape that
 /// disagrees with `o`/`n`; [`TensorError::Steps`] from a transform.
-pub fn recon(planes: &[SinkPlane], o: usize, n: usize) -> Result<Vec<f64>, TensorError> {
-    Ok(reals(&recon_words(planes, o, n)?))
+pub fn recon(planes: &[SinkPlane], o: usize, n: usize) -> Result<Vec<i64>, TensorError> {
+    recon_words(planes, o, n)
 }
 
 /// [`recon`] on the carrier: `Σ_p plane_weight(p)` as Q32.32 words, one checked add per entry per
@@ -587,10 +581,10 @@ fn sink_check(recon_wp: &[i64], wp: &[i64]) -> Result<(), TensorError> {
     }
 }
 
-/// `J(Ws, W, Hl)` (unweighted, the script's `J`) on the carrier, read once to `f64` for the
+/// `J(Ws, W, Hl)` (unweighted, the script's `J`) on the carrier, as a Q32.32 word for the
 /// caller's comparison.
-fn j_words(ws: &[i64], w: &[i64], hl: &[i64], o: usize, n: usize) -> Result<f64, TensorError> {
-    Ok(from_grid(objective(ws, w, hl, o, n)?))
+fn j_words(ws: &[i64], w: &[i64], hl: &[i64], o: usize, n: usize) -> Result<i64, TensorError> {
+    Ok(objective(ws, w, hl, o, n)?)
 }
 
 /// The per-tensor assembly after the stage solve.
@@ -605,17 +599,16 @@ fn j_words(ws: &[i64], w: &[i64], hl: &[i64], o: usize, n: usize) -> Result<f64,
 /// # Errors
 /// [`TensorError::ZeroDim`] for `o == 0` or `n == 0`; [`TensorError::Width`] if `n` is not a
 /// positive multiple of `128`; [`TensorError::ShapeMismatch`] on a length, `g_row` or bias-sum
-/// disagreement; [`TensorError::NonFinite`] on a non-finite input; [`TensorError::BiasKind`] if
-/// `bias` is supplied for a kind without one; [`TensorError::QmlpRowsOutOfRange`] if
-/// `qmlp_rows > o`; [`TensorError::SinkMismatch`] if the planes do not recompose to `Wp`; else the
-/// failed helper's arm.
+/// disagreement; [`TensorError::BiasKind`] if `bias` is supplied for a kind without one;
+/// [`TensorError::QmlpRowsOutOfRange`] if `qmlp_rows > o`; [`TensorError::SinkMismatch`] if the
+/// planes do not recompose to `Wp`; else the failed helper's arm.
 pub fn fit_tensor(
     kind: TensorKind,
-    ws_nm: &[f64],
-    hm: &[f64],
+    ws_nm: &[i64],
+    hm: &[i64],
     o: usize,
     n: usize,
-    g_row: Option<&[f64]>,
+    g_row: Option<&[i64]>,
     params: &TensorParams,
     bias: Option<BiasStats<'_>>,
 ) -> Result<TensorFit, TensorError> {
@@ -634,48 +627,37 @@ pub fn fit_tensor(
         if g.len() != o {
             return Err(TensorError::ShapeMismatch);
         }
-        if !all_finite(g) {
-            return Err(TensorError::NonFinite);
-        }
-    }
-    if !all_finite(ws_nm) || !all_finite(hm) {
-        return Err(TensorError::NonFinite);
     }
     let has_bias = matches!(kind, TensorKind::Q | TensorKind::K | TensorKind::V);
     if bias.is_some() && !has_bias {
         return Err(TensorError::BiasKind);
     }
     if let Some(b) = &bias {
-        if !all_finite(b.x_sum) || !all_finite(b.y_sum) || !b.n_toks.is_finite() {
-            return Err(TensorError::NonFinite);
-        }
         if b.x_sum.len() != n || b.y_sum.len() != o {
             return Err(TensorError::ShapeMismatch);
         }
     }
 
-    // Hl_m = metric(Hm, rg_q); fold_fit's internal metric uses the same rg_q. `hlq` is the one
+    // Hl_m = metric(Hm, rg_q); fold_fit's internal metric uses the same rg_q. `metric` is
+    // `layer::stage`'s `f64` contract, so the Gram and the ridge cross once here; `hlq` is the one
     // read-in to the carrier for the `J` evaluations below.
-    let hl = metric(hm, n, params.rg_q)?;
+    let hl = metric(&reals(hm), n, from_grid(params.rg_q))?;
     let hlq = grids(&hl)?;
     let cfg = FoldFitConfig {
         ridge: params.rg_q,
         ..params.fit
     };
 
-    // The stage weight enters the carrier once; the residuals, plane sums, plane weights and `J`
-    // evaluations below are word operations, while `fold_fit`, `nb_refine`, `lowrank_corrector` and
-    // `bias_update` keep their declared `f64` boundaries.
-    let wsq = grids(ws_nm)?;
-    let hmq = grids(hm)?;
-    let g_rowq: Option<Vec<i64>> = match g_row {
-        Some(g) => Some(grids(g)?),
-        None => None,
-    };
+    // The stage weight, the Gram and the row weight are Q32.32 words; the residuals, plane sums,
+    // plane weights and `J` evaluations below are word operations, while `nb_refine`,
+    // `lowrank_corrector` and `bias_update` keep their declared `f64` boundaries.
+    let wsq = ws_nm;
+    let hmq = hm;
+    let g_rowq = g_row;
 
     // Step 2: Wp1, the first full plane; `fold_fit` takes and returns words, so the code plane is
     // carried from here to the pack without a grid round trip.
-    let f1 = fold_fit(&wsq, &hmq, o, n, g_rowq.as_deref(), &cfg)?;
+    let f1 = fold_fit(wsq, hmq, o, n, g_rowq, &cfg)?;
     let wp1 = f1.wp.clone();
     let mut bits = TensorBits {
         nsign: on as u64,
@@ -695,7 +677,7 @@ pub fn fit_tensor(
 
     if kind_two_plane {
         // Step 3: the second plane, the backfit candidate and the `-nb` pass.
-        let f2 = fold_fit(&sub_words(&wsq, &wp1)?, &hmq, o, n, g_rowq.as_deref(), &cfg)?;
+        let f2 = fold_fit(&sub_words(wsq, &wp1)?, hmq, o, n, g_rowq, &cfg)?;
         let wp2 = f2.wp.clone();
         let mut p1 = f1.pack.clone();
         let mut p2 = f2.pack.clone();
@@ -704,21 +686,14 @@ pub fn fit_tensor(
         // backfit_2plane: Wp1_b against the frozen Wp2, then Wp2_b against the (possibly new) Wp1.
         // Only the accepted packs and the accepted Wp2 bits survive; the `-nb` pass re-derives the
         // weights from the packs, so the intermediate weight buffers are not kept.
-        let j_cur = j_words(&wsq, &add_words(&wp1, &wp2)?, &hlq, o, n)?;
-        let f1b = fold_fit(&sub_words(&wsq, &wp2)?, &hmq, o, n, g_rowq.as_deref(), &cfg)?;
+        let j_cur = j_words(wsq, &add_words(&wp1, &wp2)?, &hlq, o, n)?;
+        let f1b = fold_fit(&sub_words(wsq, &wp2)?, hmq, o, n, g_rowq, &cfg)?;
         let wp1b = f1b.wp.clone();
-        let j_1b = j_words(&wsq, &add_words(&wp1b, &wp2)?, &hlq, o, n)?;
+        let j_1b = j_words(wsq, &add_words(&wp1b, &wp2)?, &hlq, o, n)?;
         if j_1b < j_cur {
             p1 = f1b.pack.clone();
-            let f2b = fold_fit(
-                &sub_words(&wsq, &wp1b)?,
-                &hmq,
-                o,
-                n,
-                g_rowq.as_deref(),
-                &cfg,
-            )?;
-            let j_2b = j_words(&wsq, &add_words(&wp1b, &f2b.wp)?, &hlq, o, n)?;
+            let f2b = fold_fit(&sub_words(wsq, &wp1b)?, hmq, o, n, g_rowq, &cfg)?;
+            let j_2b = j_words(wsq, &add_words(&wp1b, &f2b.wp)?, &hlq, o, n)?;
             if j_2b < j_1b {
                 p2 = f2b.pack.clone();
                 info2 = (f2b.bits_r, f2b.bits_c, f2b.bits_d);
@@ -728,8 +703,9 @@ pub fn fit_tensor(
         // nb_refine on the two packs; the returned packs and weights replace the pair.
         let pl1 = pack_to_plane(&p1, o, n)?;
         let pl2 = pack_to_plane(&p2, o, n)?;
+        let g_row_f: Option<Vec<f64>> = g_row.map(reals);
         let refined = nb_refine(
-            ws_nm,
+            &reals(ws_nm),
             &hl,
             PlaneRef {
                 s: &pl1.s,
@@ -747,8 +723,8 @@ pub fn fit_tensor(
             },
             o,
             n,
-            g_row,
-            params.fit.icm_ridge,
+            g_row_f.as_deref(),
+            from_grid(params.fit.icm_ridge),
             params.nb_sweeps,
             params.nb_rounds,
         )?;
@@ -771,12 +747,11 @@ pub fn fit_tensor(
         } else {
             let mass = row_mass(ws_nm, o, n)?;
             let top = topk_desc(&mass, k_rows)?;
-            let ws_top = gather_rows(&wsq, &top, n)?;
+            let ws_top = gather_rows(wsq, &top, n)?;
             let wp1_top = gather_rows(&wp1, &top, n)?;
             let resid = sub_words(&ws_top, &wp1_top)?;
-            let g_topq: Option<Vec<i64>> =
-                g_rowq.as_ref().map(|g| top.iter().map(|&i| g[i]).collect());
-            let f2 = fold_fit(&resid, &hmq, k_rows, n, g_topq.as_deref(), &cfg)?;
+            let g_topq: Option<Vec<i64>> = g_rowq.map(|g| top.iter().map(|&i| g[i]).collect());
+            let f2 = fold_fit(&resid, hmq, k_rows, n, g_topq.as_deref(), &cfg)?;
             wp = wp1.clone();
             scatter_add(&mut wp, &f2.wp, &top, n)?;
             planes = vec![pack_plane(&f1.pack), pack_plane(&f2.pack)];
@@ -798,13 +773,14 @@ pub fn fit_tensor(
     if kind_corr {
         // Step 5: the low-rank corrector (rank 2 for `q`, 1 for `down`), applied only if it lowers J.
         let rk = if kind == TensorKind::Q { 2 } else { 1 };
-        let delta = reals(&sub_words(&wsq, &wp)?);
+        let delta = reals(&sub_words(wsq, &wp)?);
         let corr = lowrank_corrector(&delta, &hl, o, n, rk, Mode::U8, true)?;
         // The corrector's stored-factor bits are spent whether or not it is applied (`:1884`).
         bits.ncorr += corr.bits;
-        let cand = add_words(&wp, &grids(&corr.corr)?)?;
-        let j_new = j_words(&wsq, &cand, &hlq, o, n)?;
-        let j_old = j_words(&wsq, &wp, &hlq, o, n)?;
+        let corr_q = grids(&corr.corr)?;
+        let cand = add_words(&wp, &corr_q)?;
+        let j_new = j_words(wsq, &cand, &hlq, o, n)?;
+        let j_old = j_words(wsq, &wp, &hlq, o, n)?;
         if j_new < j_old {
             wp = cand;
             planes.push(SinkPlane {
@@ -813,7 +789,7 @@ pub fn fit_tensor(
                 ch: Vec::new(),
                 dh: Vec::new(),
                 rows: None,
-                dense: Some(corr.corr.clone()),
+                dense: Some(corr_q),
                 factors: corr.factors.clone(),
             });
         }
@@ -821,7 +797,12 @@ pub fn fit_tensor(
 
     // Step 6: the q/k/v bias from the final Wp.
     let db = match (has_bias, &bias) {
-        (true, Some(b)) => Some(bias_update(b.y_sum, b.x_sum, &reals(&wp), b.n_toks)?),
+        (true, Some(b)) => Some(grids(&bias_update(
+            &reals(b.y_sum),
+            &reals(b.x_sum),
+            &reals(&wp),
+            from_grid(b.n_toks),
+        )?)?),
         _ => None,
     };
 
@@ -831,7 +812,7 @@ pub fn fit_tensor(
 
     Ok(TensorFit {
         kind,
-        wp: reals(&wp),
+        wp,
         planes,
         bits,
         nb: nb_log,
@@ -847,11 +828,11 @@ pub fn fit_tensor(
 ///
 /// # Errors
 /// [`TensorError::NotUp`] if `fit.kind != Up`; [`TensorError::ZeroDim`]/[`TensorError::Width`] on the
-/// geometry; [`TensorError::ShapeMismatch`] if `s_sol.len() != o`; [`TensorError::NonFinite`] on a
-/// non-finite `s_sol`; [`TensorError::PlaneShape`] on an unaccepted plane; else the rescale's arm.
+/// geometry; [`TensorError::ShapeMismatch`] if `s_sol.len() != o`; [`TensorError::PlaneShape`] on an
+/// unaccepted plane; else the rescale's arm.
 pub fn fold_row_scale(
     fit: &mut TensorFit,
-    s_sol: &[f64],
+    s_sol: &[i64],
     o: usize,
     n: usize,
 ) -> Result<(), TensorError> {
@@ -867,9 +848,6 @@ pub fn fold_row_scale(
     if s_sol.len() != o {
         return Err(TensorError::ShapeMismatch);
     }
-    if !all_finite(s_sol) {
-        return Err(TensorError::NonFinite);
-    }
     let g = groups(n);
     if fit.planes.len() > 2 {
         return Err(TensorError::PlaneShape);
@@ -879,7 +857,7 @@ pub fn fold_row_scale(
         return Err(TensorError::PlaneShape);
     }
 
-    let rh1 = reals(&rescale_hier(&full.rh, s_sol, o, g)?.rq);
+    let rh1 = rescale_hier(&full.rh, s_sol, o, g)?.rq;
     let mut next = vec![plane_of(
         full.s_rot.clone(),
         rh1,
@@ -896,7 +874,7 @@ pub fn fold_row_scale(
         if !plane_shape(p2, rlen, n) {
             return Err(TensorError::PlaneShape);
         }
-        let rh2 = reals(&rescale_hier_top(&p2.rh, s_sol, &rows, g)?.rq);
+        let rh2 = rescale_hier_top(&p2.rh, s_sol, &rows, g)?.rq;
         let mut top = plane_of(p2.s_rot.clone(), rh2, p2.ch.clone(), p2.dh.clone());
         top.rows = Some(rows);
         next.push(top);
@@ -907,7 +885,7 @@ pub fn fold_row_scale(
     let recon_wp = recon_words(&next, o, n)?;
     sink_check(&recon_wp, &recon_wp)?;
     fit.planes = next;
-    fit.wp = reals(&recon_wp);
+    fit.wp = recon_wp;
     Ok(())
 }
 

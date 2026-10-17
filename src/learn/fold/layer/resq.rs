@@ -6,8 +6,8 @@
 //!
 //! # Q32.32 carrier
 //!
-//! Every internal value is a Q32.32 `i64` word; only [`ResqInputs`]/[`ResqSolution`]'s `f64` fields
-//! and [`rescale_hier`]'s `rh`/`s` arguments cross the grid. Products are the pooled
+//! Every value is a Q32.32 `i64` word: [`ResqInputs`], [`ResqSolution`] and [`rescale_hier`]'s
+//! `rh`/`s` arguments included, so nothing here reads or writes an `f64`. Products are the pooled
 //! [`gemm_nt`]/[`gemm_nn`], Grams [`wsyrk`], the Hadamard [`hadamard_into`], `rhs = GoC·1`
 //! [`row_dot_fixed`], and the solve [`chol_solve`] with its exact `sqrt(A_ii)` Jacobi column
 //! scaling. An operand above `2³⁶` raw (`16` real) is scaled by one exact power of two and shifted
@@ -16,10 +16,10 @@
 //! `G` and `P_mat` are Grams, so `G ⊙ P_mat` is PSD (Schur product theorem) and `GoP + lam·I` is
 //! positive-definite for `lam > 0`; a non-positive pivot is [`ResqError::NotPositiveDefinite`].
 //!
-//! A shape against the declared dims, a zero `inter`/`n`/`hidden`, a non-finite or out-of-grid
-//! entry, and any checked integer leaving range are [`ResqError`] refusals. The `1e-12` `lam` floor
-//! is below the quantum `2⁻³² ≈ 2.3e-10`, the grid's zero: a zero diagonal is `lam == 0` and the
-//! solve's own positivity refusal. No function here panics on caller input. Grade: `tested`
+//! A shape against the declared dims, a zero `inter`/`n`/`hidden`, and any checked integer leaving
+//! range are [`ResqError`] refusals; the word domain admits no non-finite value. The `1e-12` `lam`
+//! floor is below the quantum `2⁻³² ≈ 2.3e-10`, the grid's zero: a zero diagonal is `lam == 0` and
+//! the solve's own positivity refusal. No function here panics on caller input. Grade: `tested`
 //! (`tests/learn_fold_resq.rs`); nothing here is `proved`.
 #![allow(
     clippy::many_single_char_names,
@@ -35,9 +35,7 @@ use crate::engine::silu_fixed;
 use crate::learn::fold::fit::quant::{quant_r_hier, QuantError, RHier};
 use crate::learn::solve::chol::{chol_solve, SolveError};
 use crate::learn::solve::gemm::{gemm_nn, gemm_nt};
-use crate::learn::solve::q32::{
-    from_grid, ilog2_pos, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
-};
+use crate::learn::solve::q32::{ilog2_pos, round_q32_even, rshift_rne};
 use crate::learn::solve::syrk::{hadamard_into, wsyrk};
 
 /// `1.0` in raw Q32.32.
@@ -50,10 +48,6 @@ pub enum ResqError {
     Empty,
     /// A slice length that disagrees with the declared shape.
     ShapeMismatch,
-    /// A non-finite entry in an input.
-    NonFinite,
-    /// A finite entry at or beyond the Q32.32 grid's real range `2³¹` ([`GRID_BOUND`]).
-    NotRepresentable,
     /// The elementwise-Gram system had a non-positive `Cholesky` pivot.
     NotPositiveDefinite,
     /// A checked integer accumulation, product or narrowing left its range.
@@ -73,20 +67,20 @@ impl From<QuantError> for ResqError {
 /// (`hidden × inter`), all row-major.
 #[derive(Clone, Copy, Debug)]
 pub struct ResqInputs<'a> {
-    /// The ffn-stage input slabs, each flattened row-major `[rows, n]`.
-    pub x_slabs: &'a [&'a [f64]],
+    /// The ffn-stage input slabs, each flattened row-major `[rows, n]`, Q32.32 words.
+    pub x_slabs: &'a [&'a [i64]],
     /// The input width `n`.
     pub n: usize,
-    /// The teacher gate weight, row-major `[inter, n]`.
-    pub w_g0: &'a [f64],
-    /// The teacher up weight, row-major `[inter, n]`.
-    pub w_u0: &'a [f64],
-    /// The student quantised gate weight, row-major `[inter, n]`.
-    pub wq_g: &'a [f64],
-    /// The current up reconstruction, row-major `[inter, n]`.
-    pub wq_u: &'a [f64],
-    /// The teacher down weight, row-major `[hidden, inter]`.
-    pub w_down: &'a [f64],
+    /// The teacher gate weight, row-major `[inter, n]`, Q32.32 words.
+    pub w_g0: &'a [i64],
+    /// The teacher up weight, row-major `[inter, n]`, Q32.32 words.
+    pub w_u0: &'a [i64],
+    /// The student quantised gate weight, row-major `[inter, n]`, Q32.32 words.
+    pub wq_g: &'a [i64],
+    /// The current up reconstruction, row-major `[inter, n]`, Q32.32 words.
+    pub wq_u: &'a [i64],
+    /// The teacher down weight, row-major `[hidden, inter]`, Q32.32 words.
+    pub w_down: &'a [i64],
     /// The intermediate width `inter`.
     pub inter: usize,
     /// The hidden width `hidden`.
@@ -97,34 +91,16 @@ pub struct ResqInputs<'a> {
 /// solves `gop·s = rhs`, `s_clamped` clamps it to `[0.5, 2.0]`.
 #[derive(Clone, Debug)]
 pub struct ResqSolution {
-    /// `G ⊙ P_mat + lam·I`, row-major `[inter, inter]`.
-    pub gop: Vec<f64>,
-    /// `GoC·1 + lam`, length `inter`.
-    pub rhs: Vec<f64>,
-    /// The ridge `0.05·max(mean(diag(G ⊙ P_mat)), 1e-12)`.
-    pub lam: f64,
-    /// The unclamped solution `gop⁻¹·rhs`, length `inter`.
-    pub s_raw: Vec<f64>,
-    /// The solution clamped to `[0.5, 2.0]`, length `inter`.
-    pub s_clamped: Vec<f64>,
-}
-
-/// `x` as Q32.32 words `round(x·2³²)`; `NonFinite`/`NotRepresentable` name the refusal; `O(len)`.
-fn to_words(x: &[f64]) -> Result<Vec<i64>, ResqError> {
-    x.iter()
-        .map(|&v| {
-            to_grid(v, GRID_BOUND).ok_or(if v.is_finite() {
-                ResqError::NotRepresentable
-            } else {
-                ResqError::NonFinite
-            })
-        })
-        .collect()
-}
-
-/// The Q32.32 words as reals, the return boundary. `O(len)`.
-fn to_real(x: &[i64]) -> Vec<f64> {
-    x.iter().map(|&v| from_grid(v)).collect()
+    /// `G ⊙ P_mat + lam·I`, row-major `[inter, inter]`, Q32.32 words.
+    pub gop: Vec<i64>,
+    /// `GoC·1 + lam`, length `inter`, Q32.32 words.
+    pub rhs: Vec<i64>,
+    /// The ridge `0.05·max(mean(diag(G ⊙ P_mat)), 1e-12)`, Q32.32.
+    pub lam: i64,
+    /// The unclamped solution `gop⁻¹·rhs`, length `inter`, Q32.32 words.
+    pub s_raw: Vec<i64>,
+    /// The solution clamped to `[0.5, 2.0]`, length `inter`, Q32.32 words.
+    pub s_clamped: Vec<i64>,
 }
 
 /// `a` (row-major `[r, c]`) transposed to `[c, r]` on the word grid. `O(r·c)` moves and space.
@@ -233,7 +209,7 @@ fn project(
 ///
 /// # Errors
 /// As [`resq_solve`].
-pub fn resq_scale(inputs: &ResqInputs<'_>) -> Result<Vec<f64>, ResqError> {
+pub fn resq_scale(inputs: &ResqInputs<'_>) -> Result<Vec<i64>, ResqError> {
     Ok(resq_solve(inputs)?.s_clamped)
 }
 
@@ -243,8 +219,7 @@ pub fn resq_scale(inputs: &ResqInputs<'_>) -> Result<Vec<f64>, ResqError> {
 ///
 /// # Errors
 /// [`ResqError::Empty`] for a zero `inter`/`n`/`hidden`; [`ResqError::ShapeMismatch`] for a length
-/// against the declared dims; [`ResqError::NonFinite`]/[`ResqError::NotRepresentable`] for an input
-/// outside the carrier; [`ResqError::NotPositiveDefinite`] on a non-positive `Cholesky` pivot;
+/// against the declared dims; [`ResqError::NotPositiveDefinite`] on a non-positive `Cholesky` pivot;
 /// [`ResqError::Overflow`] on checked arithmetic.
 ///
 /// # Complexity
@@ -274,19 +249,17 @@ pub fn resq_solve(inputs: &ResqInputs<'_>) -> Result<ResqSolution, ResqError> {
         if slab.len() % n != 0 {
             return Err(ResqError::ShapeMismatch);
         }
-        if slab.iter().any(|v| !v.is_finite()) {
-            return Err(ResqError::NonFinite);
-        }
     }
 
-    // The one `f64 → Q32.32` crossing of the weights.
-    let down = to_words(inputs.w_down)?;
-    let g0 = to_words(inputs.w_g0)?;
-    let u0 = to_words(inputs.w_u0)?;
-    let qg = to_words(inputs.wq_g)?;
-    let qu = to_words(inputs.wq_u)?;
+    let (down, g0, u0, qg, qu) = (
+        inputs.w_down,
+        inputs.w_g0,
+        inputs.w_u0,
+        inputs.wq_g,
+        inputs.wq_u,
+    );
 
-    let g = gram(&down, hidden, inter)?;
+    let g = gram(down, hidden, inter)?;
 
     let mut p_mat = vec![0_i64; inter2];
     let mut c_mat = vec![0_i64; inter2];
@@ -295,9 +268,8 @@ pub fn resq_solve(inputs: &ResqInputs<'_>) -> Result<ResqSolution, ResqError> {
         if rows == 0 {
             continue;
         }
-        let x = to_words(slab)?;
-        let p0 = project(&x, rows, n, inter, &g0, &u0)?;
-        let pq = project(&x, rows, n, inter, &qg, &qu)?;
+        let p0 = project(slab, rows, n, inter, g0, u0)?;
+        let pq = project(slab, rows, n, inter, qg, qu)?;
         let pp = gram(&pq, rows, inter)?;
         let pqt = transpose(&pq, rows, inter);
         let pc = product(&pqt, &p0, inter, rows, inter, false)?;
@@ -345,31 +317,26 @@ pub fn resq_solve(inputs: &ResqInputs<'_>) -> Result<ResqSolution, ResqError> {
     let half = ONE / 2;
     let twice = 2 * ONE;
     Ok(ResqSolution {
-        gop: to_real(&gop),
-        rhs: to_real(&rhs),
-        lam: from_grid(lam),
-        s_raw: to_real(&solved.x),
-        s_clamped: solved
-            .x
-            .iter()
-            .map(|&v| from_grid(v.clamp(half, twice)))
-            .collect(),
+        gop,
+        rhs,
+        lam,
+        s_raw: solved.x.clone(),
+        s_clamped: solved.x.iter().map(|&v| v.clamp(half, twice)).collect(),
     })
 }
 
 /// Fold a per-row multiplier into a plane's stored hierarchical row scale: `rh = quant_r_hier(rh·s)`
-/// with `rh` row-major `[o, g]`, `s` length `o`; the product is exact-integer on the Q32.32 grid and
-/// feeds [`quant_r_hier`] as words, so no value crosses to `f64` between them.
+/// with `rh` row-major `[o, g]` and `s` length `o`, both Q32.32 words; the product is exact-integer
+/// on the grid and feeds [`quant_r_hier`] as words.
 ///
 /// # Errors
 /// [`ResqError::Empty`] for a zero `o`/`g`; [`ResqError::ShapeMismatch`] for a length against the
-/// shape; [`ResqError::NonFinite`]/[`ResqError::NotRepresentable`] for an input outside the
-/// carrier; [`ResqError::Quant`] if [`quant_r_hier`] refuses.
+/// shape; [`ResqError::Quant`] if [`quant_r_hier`] refuses.
 ///
 /// # Complexity
 /// Temporal: `O(o·g)` serial products plus `quant_r_hier`'s `O(o·g)` — one product per stored entry,
 /// which a pool dispatch does not repay; spatial `O(o·g)`.
-pub fn rescale_hier(rh: &[f64], s: &[f64], o: usize, g: usize) -> Result<RHier, ResqError> {
+pub fn rescale_hier(rh: &[i64], s: &[i64], o: usize, g: usize) -> Result<RHier, ResqError> {
     if o == 0 || g == 0 {
         return Err(ResqError::Empty);
     }
@@ -377,12 +344,10 @@ pub fn rescale_hier(rh: &[f64], s: &[f64], o: usize, g: usize) -> Result<RHier, 
     if rh.len() != n || s.len() != o {
         return Err(ResqError::ShapeMismatch);
     }
-    let rhw = to_words(rh)?;
-    let sw = to_words(s)?;
     let mut scaled = vec![0_i64; n];
     for i in 0..o {
         for j in 0..g {
-            scaled[i * g + j] = mul_q32(rhw[i * g + j], sw[i])?;
+            scaled[i * g + j] = mul_q32(rh[i * g + j], s[i])?;
         }
     }
     Ok(quant_r_hier(&scaled, o, g)?)
@@ -398,8 +363,8 @@ pub fn rescale_hier(rh: &[f64], s: &[f64], o: usize, g: usize) -> Result<RHier, 
 /// Temporal: `O(rows.len()·g)` serial products plus `quant_r_hier`'s `O(rows.len()·g)`; spatial
 /// `O(rows.len()·g)`.
 pub fn rescale_hier_top(
-    rh: &[f64],
-    s: &[f64],
+    rh: &[i64],
+    s: &[i64],
     rows: &[usize],
     g: usize,
 ) -> Result<RHier, ResqError> {
@@ -414,12 +379,10 @@ pub fn rescale_hier_top(
     if rows.iter().any(|&r| r >= s.len()) {
         return Err(ResqError::ShapeMismatch);
     }
-    let rhw = to_words(rh)?;
-    let sw = to_words(s)?;
     let mut scaled = vec![0_i64; n];
     for (i, &r) in rows.iter().enumerate() {
         for j in 0..g {
-            scaled[i * g + j] = mul_q32(rhw[i * g + j], sw[r])?;
+            scaled[i * g + j] = mul_q32(rh[i * g + j], s[r])?;
         }
     }
     Ok(quant_r_hier(&scaled, o, g)?)

@@ -80,11 +80,11 @@ fn rand_mat(rows: usize, cols: usize, rng: &mut Lcg) -> Vec<f64> {
 fn production_cfg() -> FoldFitConfig {
     FoldFitConfig {
         iters: 1,
-        ridge: 1.0e-3,
-        damp: 0.01,
+        ridge: 4_294_967,
+        damp: 42_949_673,
         inner_iters: 3,
         e8_beam: 4,
-        icm_ridge: 0.20,
+        icm_ridge: 858_993_459,
         sweeps: 2,
     }
 }
@@ -184,7 +184,7 @@ fn metric(h: &[f64], n: usize, ridge: f64) -> Vec<f64> {
 
 /// `J(Ws, Wp, Hl)` of a returned `Wp`.
 fn wp_objective(ws: &[f64], h: &[f64], o: usize, n: usize, wp: &[f64]) -> f64 {
-    let hl = metric(h, n, production_cfg().ridge);
+    let hl = metric(h, n, from_grid(production_cfg().ridge));
     from_grid(objective(&qw(ws), &qw(wp), &qw(&hl), o, n).expect("objective"))
 }
 
@@ -645,7 +645,7 @@ fn ref_fold_fit(
     let g = n / GROUP;
     let nb = n / BLOCK;
     let g_word = g_row.map(qw);
-    let hl = ref_metric(h, n, cfg.ridge);
+    let hl = ref_metric(h, n, from_grid(cfg.ridge));
     // One metric product `Ws·Hl` for the whole fit: every `c`/`r`/`d` step below reuses it, so the
     // redundant per-step `mul_metric` calls collapse to one. Same refusal path as the first step's
     // internal product.
@@ -660,7 +660,7 @@ fn ref_fold_fit(
         &qw(&h_gram),
         o,
         n,
-        grid(cfg.damp),
+        cfg.damp,
         true,
         true,
         cfg.e8_beam,
