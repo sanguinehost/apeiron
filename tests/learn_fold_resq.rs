@@ -33,6 +33,9 @@ use apeiron::learn::fold::layer::resq::{
     rescale_hier, rescale_hier_top, resq_scale, resq_solve, ResqError, ResqInputs,
 };
 
+#[path = "support/ridge_oracle.rs"]
+mod ridge_oracle;
+
 const INTER: usize = 16;
 const HIDDEN: usize = 8;
 const N: usize = 128;
@@ -467,7 +470,7 @@ fn ref_resq_solve(inputs: &ResqInputs<'_>) -> RefSolution {
         }
         rhs[i] = s + lam;
     }
-    let s_raw = apeiron::learn::ridge::solve_spd(&gop, &rhs, inter, 1).expect("solve_spd");
+    let s_raw = ridge_oracle::solve_spd(&gop, &rhs, inter, 1).expect("solve_spd");
     let s_clamped: Vec<f64> = s_raw.iter().map(|&v| v.clamp(0.5, 2.0)).collect();
     RefSolution {
         gop,

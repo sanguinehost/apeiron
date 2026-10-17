@@ -16,8 +16,10 @@
               row-major buffers by i/j/k/t; the pedantic lints stay on for the crate's non-test code."
 )]
 
-use apeiron::learn::ridge::solve_spd;
 use apeiron::learn::solve::chol::{chol_solve, equilibrate, SolveError};
+
+#[path = "support/ridge_oracle.rs"]
+mod ridge_oracle;
 
 /// The Q32.32 unit.
 const ONE: i64 = 1 << 32;
@@ -116,7 +118,7 @@ fn solves_agree_with_f64_reference() {
         let a_f: Vec<f64> = aq.iter().map(|&v| to_f64(v)).collect();
         let b_f: Vec<f64> = bq.iter().map(|&v| to_f64(v)).collect();
         let solved = chol_solve(&aq, &bq, n, k).expect("solve");
-        let xref = solve_spd(&a_f, &b_f, n, k).expect("f64 reference");
+        let xref = ridge_oracle::solve_spd(&a_f, &b_f, n, k).expect("f64 reference");
         let rel = max_rel_diff(&solved.x, &xref);
         println!("n={n} rel={rel:e} residual_max={}", solved.residual_max);
         assert!(rel <= 1e-7, "n={n} relative error {rel:e} > 1e-7");
@@ -208,7 +210,7 @@ fn conditioning_equilibration_holds_unit_diagonal() {
         let a_f: Vec<f64> = aq.iter().map(|&v| to_f64(v)).collect();
         let b_f: Vec<f64> = bq.iter().map(|&v| to_f64(v)).collect();
         let solved = chol_solve(&aq, &bq, n, k).expect("solve");
-        let xref = solve_spd(&a_f, &b_f, n, k).expect("f64 reference");
+        let xref = ridge_oracle::solve_spd(&a_f, &b_f, n, k).expect("f64 reference");
         let rel = max_rel_diff(&solved.x, &xref);
         println!("conditioned n={n} rel={rel:e}");
         assert!(rel <= 1e-7, "conditioned n={n} relative error {rel:e}");

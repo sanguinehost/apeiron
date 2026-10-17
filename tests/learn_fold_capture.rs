@@ -20,7 +20,9 @@
 
 use apeiron::learn::fold::stats::capture::{CaptureError, Grams, LayerGrams, Normalisation};
 use apeiron::learn::grad::model::{forward, Config, LayerTape, LayerWeights, Tape, Weights};
-use apeiron::learn::ridge::cholesky;
+
+#[path = "support/ridge_oracle.rs"]
+mod ridge_oracle;
 
 /// Residual width.
 const E: usize = 4;
@@ -224,7 +226,7 @@ fn gram_is_symmetric_and_psd() {
                 a[i * d + i] += 1e-3;
             }
             assert!(
-                cholesky(&a, d).is_ok(),
+                ridge_oracle::cholesky(&a, d).is_ok(),
                 "H + εI is not positive-definite at d={d}"
             );
         }

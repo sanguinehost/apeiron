@@ -35,8 +35,10 @@ use apeiron::learn::fold::layer::stage::{
     StageError,
 };
 use apeiron::learn::fold::stats::hocapture::Kind;
-use apeiron::learn::ridge::solve_spd;
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
+
+#[path = "support/ridge_oracle.rs"]
+mod ridge_oracle;
 
 /// The `Q32.32` grid quantum, `2⁻³²`.
 const Q: f64 = 1.0 / 4_294_967_296.0;
@@ -222,7 +224,7 @@ fn solve_with(h: &[f64], c: &[f64], n: usize, out: usize, shift: f64) -> Vec<f64
     for i in 0..n {
         hr[i * n + i] += shift;
     }
-    let x = solve_spd(&hr, c, n, out).unwrap();
+    let x = ridge_oracle::solve_spd(&hr, c, n, out).unwrap();
     let mut out_t = vec![0.0f64; out * n];
     for i in 0..n {
         for o in 0..out {

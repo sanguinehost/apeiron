@@ -35,6 +35,9 @@ use apeiron::learn::fold::fit::quant::{f16r, quant_c_u8};
 use apeiron::learn::solve::eig::top_eigh;
 use apeiron::learn::solve::q32::{from_grid, panel_shift, to_grid, INPUT_BOUND};
 
+#[path = "support/ridge_oracle.rs"]
+mod ridge_oracle;
+
 /// One Q32.32 quantum, `2⁻³²`.
 const QUANTUM: f64 = 2.328_306_436_538_696_3e-10;
 /// Two quanta, `2⁻³¹`: the slack on a re-summed one-rounding product.
@@ -606,7 +609,7 @@ fn ref_ridge_solve(u: &[f64], delta_w: &[f64], o: usize, n: usize, rank: usize) 
             b[k * n + j] = acc;
         }
     }
-    apeiron::learn::ridge::solve_spd(&a, &b, rank, n).expect("solve_spd")
+    ridge_oracle::solve_spd(&a, &b, rank, n).expect("solve_spd")
 }
 
 /// The old `product` and the two rounded carriers, assembled as the pre-migration
