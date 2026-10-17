@@ -36,10 +36,23 @@ use apeiron::learn::fold::layer::stage::{
 };
 use apeiron::learn::fold::stats::hocapture::Kind;
 use apeiron::learn::ridge::solve_spd;
-use apeiron::learn::solve::q32::from_grid;
+use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
 /// The `Q32.32` grid quantum, `2⁻³²`.
 const Q: f64 = 1.0 / 4_294_967_296.0;
+
+/// The `Q32.32` word of `1.0`.
+const ONE: i64 = 1 << 32;
+
+/// `x` as a `Q32.32` word (the boundary the word APIs take).
+fn q(x: f64) -> i64 {
+    to_grid(x, GRID_BOUND).expect("grid")
+}
+
+/// `x` as words.
+fn qv(x: &[f64]) -> Vec<i64> {
+    x.iter().map(|&v| q(v)).collect()
+}
 
 /// Deterministic 64-bit LCG (Numerical Recipes constants), the tests' only randomness source.
 struct Lcg(u64);
@@ -333,8 +346,12 @@ fn slab_refs(s: &Slab) -> (Vec<&[f64]>, Vec<Option<&[f64]>>) {
 fn fold_accum(n: usize, outs: &[usize], with_ts: &[bool], slabs: &[Slab]) -> StageAccum {
     let mut acc = StageAccum::new(n, outs, with_ts).unwrap();
     for s in slabs {
-        let (ys, y_ts) = slab_refs(s);
-        acc.add_slab(&s.0, &s.1, &ys, &y_ts).unwrap();
+        let (x, w) = (qv(&s.0), qv(&s.1));
+        let ys: Vec<Vec<i64>> = s.2.iter().map(|v| qv(v)).collect();
+        let y_ts: Vec<Option<Vec<i64>>> = s.3.iter().map(|o| o.as_ref().map(|v| qv(v))).collect();
+        let ys_r: Vec<&[i64]> = ys.iter().map(Vec::as_slice).collect();
+        let yts_r: Vec<Option<&[i64]>> = y_ts.iter().map(|o| o.as_deref()).collect();
+        acc.add_slab(&x, &w, &ys_r, &yts_r).unwrap();
     }
     acc
 }
@@ -529,10 +546,21 @@ fn ref_sink(
 fn lower_median_on_even_count() {
     let h_t = [0.0f64, 1.0, 2.0, 3.0, 4.0];
     let zeros = [0.0f64; 5];
-    let w = sink_token_weights(&h_t, &zeros, &zeros, &zeros, None, 1, 5, 1, 0.5).unwrap();
+    let w = sink_token_weights(
+        &qv(&h_t),
+        &qv(&zeros),
+        &qv(&zeros),
+        &qv(&zeros),
+        None,
+        1,
+        5,
+        1,
+        q(0.5),
+    )
+    .unwrap();
     let expect = ref_sink(&h_t, &zeros, &zeros, &zeros, None, 1, 5, 1, 0.5);
     // `r_t` is exact on integers; the only rounding is the `2/3` quotient (one quantum).
-    let err = max_abs_diff(&w, &expect);
+    let err = max_abs_diff(&words(&w), &expect);
     println!("lower_median: err={err:.3e} bound={:.3e}", 2.0 * Q);
     assert!(err <= 2.0 * Q, "err {err:e}");
 }
@@ -546,12 +574,23 @@ fn token_weight_rule_and_mid_input() {
     let p_out = [0.0f64; 3];
     let h_s = [3.0f64, 0.0, 0.0];
     let p_in_mid = [0.0f64, 5.0, 0.0];
-    let w = sink_token_weights(&h_t, &p_mid, &p_out, &h_s, Some(&p_in_mid), 1, 3, 1, 2.0).unwrap();
+    let w = sink_token_weights(
+        &qv(&h_t),
+        &qv(&p_mid),
+        &qv(&p_out),
+        &qv(&h_s),
+        Some(&qv(&p_in_mid)),
+        1,
+        3,
+        1,
+        q(2.0),
+    )
+    .unwrap();
     let expect = ref_sink(&h_t, &p_mid, &p_out, &h_s, Some(&p_in_mid), 1, 3, 1, 2.0);
-    let err = max_abs_diff(&w, &expect);
+    let err = max_abs_diff(&words(&w), &expect);
     println!("token_rule: err={err:.3e} bound={:.3e}", 2.0 * Q);
     assert!(err <= 2.0 * Q, "err {err:e}");
-    assert!((w[0] - 1.0).abs() <= 2.0 * Q);
+    assert!((from_grid(w[0]) - 1.0).abs() <= 2.0 * Q);
 }
 
 /// (e) The sink weights agree with the oracle on an LCG slab with a real width.
@@ -566,15 +605,15 @@ fn sink_weights_match_f64_oracle() {
     let h_s = rand_mat(&mut lcg, rows, width);
     let p_in_mid = rand_mat(&mut lcg, rows, width);
     let w = sink_token_weights(
-        &h_t,
-        &p_mid,
-        &p_out,
-        &h_s,
-        Some(&p_in_mid),
+        &qv(&h_t),
+        &qv(&p_mid),
+        &qv(&p_out),
+        &qv(&h_s),
+        Some(&qv(&p_in_mid)),
         seqs,
         t,
         width,
-        1.0,
+        ONE,
     )
     .unwrap();
     let expect = ref_sink(
@@ -592,7 +631,7 @@ fn sink_weights_match_f64_oracle() {
     // ≤ q/2 in the norm); the quotient adds one quantum. Four norms and one division bound it by
     // `4·width·q`, asserted with a factor of two.
     let bound = 8.0 * width as f64 * Q;
-    let err = max_abs_diff(&w, &expect);
+    let err = max_abs_diff(&words(&w), &expect);
     println!("sink oracle: err={err:.3e} bound={bound:.3e}");
     assert!(err <= bound, "err {err:e}");
 }
@@ -639,11 +678,12 @@ fn solve_stage_matches_f64_oracle() {
     let r = fold_ref(n, &outs, &with_ts, &slabs);
     let kinds = [Kind::O, Kind::Q];
     let p = SolveParams::default();
-    let got = solve_stage(&acc, &[w0[0].as_slice(), w0[1].as_slice()], &kinds, &p).unwrap();
+    let w0q = [qv(&w0[0]), qv(&w0[1])];
+    let got = solve_stage(&acc, &[w0q[0].as_slice(), w0q[1].as_slice()], &kinds, &p).unwrap();
     let want = ref_solve_stage(&r, &[w0[0].as_slice(), w0[1].as_slice()], &kinds, &p);
     let mut m = 0.0f64;
     for j in 0..2 {
-        let e = max_abs_diff(&got[j], &want[j]);
+        let e = max_abs_diff(&words(&got[j]), &want[j]);
         println!("solve[{j}]: err={e:.3e} |w|max={:.3e}", max_abs(&want[j]));
         m = m.max(e);
     }
@@ -662,6 +702,7 @@ fn solve_with_anchor_residual_is_identity() {
     let outs = [1usize];
     let with_ts = [true];
     let w0 = [0.5f64, -0.25, 0.1, 0.3];
+    let w0q = qv(&w0);
     let mut x = vec![0.0f64; n * n];
     for i in 0..n {
         x[i * n + i] = 1.0;
@@ -669,13 +710,14 @@ fn solve_with_anchor_residual_is_identity() {
     let y = w0.to_vec();
     let w = vec![1.0f64; n];
     let mut acc = StageAccum::new(n, &outs, &with_ts).unwrap();
-    acc.add_slab(&x, &w, &[y.as_slice()], &[Some(y.as_slice())])
+    let (xq, wq, yq) = (qv(&x), qv(&w), qv(&y));
+    acc.add_slab(&xq, &wq, &[yq.as_slice()], &[Some(yq.as_slice())])
         .unwrap();
     let params = SolveParams::default();
-    let ws = solve_stage(&acc, &[w0.as_slice()], &[Kind::O], &params).unwrap();
+    let ws = solve_stage(&acc, &[w0q.as_slice()], &[Kind::O], &params).unwrap();
     // `W0` crosses onto the grid once (≤ q/2 per entry, `0.1` is not representable) and the
     // residual solve adds at most one quantum of contention, so `8·q` bounds the difference.
-    let err = max_abs_diff(&ws[0], &w0);
+    let err = max_abs_diff(&words(&ws[0]), &w0);
     println!("identity: err={err:.3e} bound={:.3e}", 8.0 * Q);
     assert!(err <= 8.0 * Q, "err {err:e}");
 }
@@ -714,6 +756,7 @@ fn sink_clamp_caps_row_ratio() {
     let outs = [1usize];
     let with_ts = [true];
     let w0 = [0.5f64, 0.0, 0.0, 0.0];
+    let w0q = qv(&w0);
     let mut x = vec![0.0f64; n * n];
     for i in 0..n {
         x[i * n + i] = 1.0;
@@ -721,11 +764,13 @@ fn sink_clamp_caps_row_ratio() {
     let y = [10.5f64, 0.0, 0.0, 0.0];
     let w = vec![1.0f64; n];
     let mut acc = StageAccum::new(n, &outs, &with_ts).unwrap();
-    acc.add_slab(&x, &w, &[y.as_slice()], &[Some(y.as_slice())])
+    let (xq, wq, yq) = (qv(&x), qv(&w), qv(&y));
+    acc.add_slab(&xq, &wq, &[yq.as_slice()], &[Some(yq.as_slice())])
         .unwrap();
     let params = SolveParams::default();
-    let ws = solve_stage(&acc, &[w0.as_slice()], &[Kind::O], &params).unwrap();
-    let dw_row = [ws[0][0] - w0[0], ws[0][1], ws[0][2], ws[0][3]];
+    let ws = solve_stage(&acc, &[w0q.as_slice()], &[Kind::O], &params).unwrap();
+    let ws = words(&ws[0]);
+    let dw_row = [ws[0] - w0[0], ws[1], ws[2], ws[3]];
     let dw_rn = dw_row.iter().map(|v| v * v).sum::<f64>().sqrt();
     let w0_rn = w0.iter().map(|v| v * v).sum::<f64>().sqrt();
     let ratio = dw_rn / w0_rn;
@@ -878,50 +923,35 @@ fn ridge_solve_refusals() {
 /// (n) Refusals: shape mismatch, empty median, non-SPD, non-finite and missing `Cts`.
 #[test]
 fn refusals() {
-    let z = [0.0f64; 4];
+    let z = [0i64; 4];
     assert_eq!(
-        sink_token_weights(&[1.0, 2.0], &[0.0], &z, &z, None, 1, 2, 1, 1.0),
+        sink_token_weights(&[ONE, 2 * ONE], &[0], &z, &z, None, 1, 2, 1, ONE),
         Err(StageError::Shape)
     );
     assert_eq!(
-        sink_token_weights(&[1.0], &[0.0], &[0.0], &[0.0], None, 1, 1, 1, 1.0),
+        sink_token_weights(&[ONE], &[0], &[0], &[0], None, 1, 1, 1, ONE),
         Err(StageError::Empty)
     );
-    assert_eq!(
-        sink_token_weights(
-            &[f64::NAN, 1.0],
-            &[0.0, 0.0],
-            &[0.0, 0.0],
-            &[0.0, 0.0],
-            None,
-            1,
-            2,
-            1,
-            1.0
-        ),
-        Err(StageError::NonFinite)
-    );
+    // A non-finite input is refused where the caller now converts it (`to_grid`).
+    assert_eq!(to_grid(f64::NAN, GRID_BOUND), None);
     let mut acc = StageAccum::new(3, &[2], &[false]).unwrap();
     assert_eq!(
-        acc.add_slab(&[1.0, 2.0], &[1.0], &[&[1.0, 2.0]], &[None]),
+        acc.add_slab(&[ONE, 2 * ONE], &[ONE], &[&[ONE, 2 * ONE]], &[None]),
         Err(StageError::Shape)
     );
-    assert_eq!(
-        acc.add_slab(&[f64::INFINITY; 3], &[1.0], &[&[1.0, 2.0]], &[None]),
-        Err(StageError::NonFinite)
-    );
+    assert_eq!(to_grid(f64::INFINITY, GRID_BOUND), None);
     let mut acc2 = StageAccum::new(3, &[2], &[false]).unwrap();
-    acc2.add_slab(&[1.0, 0.0, 0.0], &[1.0], &[&[1.0, 2.0]], &[None])
+    acc2.add_slab(&[ONE, 0, 0], &[ONE], &[&[ONE, 2 * ONE]], &[None])
         .unwrap();
     let params = SolveParams::default();
     assert_eq!(
-        solve_stage(&acc2, &[&[1.0, 2.0]], &[Kind::Q], &params),
+        solve_stage(&acc2, &[&[ONE, 2 * ONE]], &[Kind::Q], &params),
         Err(StageError::Shape)
     );
     assert_eq!(
         solve_stage(
             &acc2,
-            &[&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]],
+            &[&[ONE, 2 * ONE, 3 * ONE, 4 * ONE, 5 * ONE, 6 * ONE]],
             &[Kind::O],
             &params
         ),
