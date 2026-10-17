@@ -45473,13 +45473,13 @@ def mixer.ConvState.len (self : mixer.ConvState) : Result Std.Usize := do
   | mixer.ConvState.F32 v => ok (alloc.vec.Vec.len v)
 
 /-- [apeiron_word::mixer::conv_f32::conv_silu_cols_f32::{closure}]
-    Source: '../../src/engine/mixer/conv_f32.rs', lines 583:15-583:26 -/
+    Source: '../../src/engine/mixer/conv_f32.rs', lines 586:15-586:26 -/
 @[reducible]
 def mixer.conv_f32.conv_silu_cols_f32.closure :=
   alloc.vec.Vec (alloc.vec.Vec Std.I64)
 
 /-- [apeiron_word::mixer::conv_f32::conv_silu_cols_f32::{impl core::ops::function::FnOnce<((),), alloc::vec::Vec<alloc::vec::Vec<i64>>> for apeiron_word::mixer::conv_f32::conv_silu_cols_f32::{closure}}::call_once]:
-    Source: '../../src/engine/mixer/conv_f32.rs', lines 583:15-583:26 -/
+    Source: '../../src/engine/mixer/conv_f32.rs', lines 586:15-586:26 -/
 def
   mixer.conv_f32.conv_silu_cols_f32.closure.Insts.CoreOpsFunctionFnOnceTupleTupleVecVecI64.call_once
   (c : mixer.conv_f32.conv_silu_cols_f32.closure) (_ : Unit) :
@@ -45488,7 +45488,7 @@ def
   ok c
 
 /-- Trait implementation: [apeiron_word::mixer::conv_f32::conv_silu_cols_f32::{impl core::ops::function::FnOnce<((),), alloc::vec::Vec<alloc::vec::Vec<i64>>> for apeiron_word::mixer::conv_f32::conv_silu_cols_f32::{closure}}]
-    Source: '../../src/engine/mixer/conv_f32.rs', lines 583:15-583:26 -/
+    Source: '../../src/engine/mixer/conv_f32.rs', lines 586:15-586:26 -/
 @[reducible]
 def
   mixer.conv_f32.conv_silu_cols_f32.closure.Insts.CoreOpsFunctionFnOnceTupleTupleVecVecI64
@@ -45532,7 +45532,7 @@ def mixer.conv_f32.conv_silu_cols_f32_loop
     (window_storage, wi)
 
 /-- [apeiron_word::mixer::conv_f32::conv_silu_cols_f32]:
-    Source: '../../src/engine/mixer/conv_f32.rs', lines 509:0-584:1 -/
+    Source: '../../src/engine/mixer/conv_f32.rs', lines 509:0-587:1 -/
 def mixer.conv_f32.conv_silu_cols_f32
   (layer : mixer.AffineLayer) (w : Slice Std.I64) (kernel : Std.Usize)
   (flat : mixer.Flat) :
@@ -47792,7 +47792,7 @@ def mixer.conv_silu_cols_q32
     ok (r1, layer)
 
 /-- [apeiron_word::mixer::{apeiron_word::mixer::AffineLayer}::ensure_packed_w]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 4619:8-4625:9 -/
+    Source: '../../src/engine/mixer.rs', lines 4622:8-4628:9 -/
 @[rust_loop_body]
 def mixer.AffineLayer.ensure_packed_w_loop0.body
   (w : Slice Std.I64) (iter : core.ops.range.Range Std.Usize)
@@ -47836,7 +47836,7 @@ def mixer.AffineLayer.ensure_packed_w_loop0.body
     ok (cont (iter1, s4))
 
 /-- [apeiron_word::mixer::{apeiron_word::mixer::AffineLayer}::ensure_packed_w]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 4619:8-4625:9 -/
+    Source: '../../src/engine/mixer.rs', lines 4622:8-4628:9 -/
 @[rust_loop]
 def mixer.AffineLayer.ensure_packed_w_loop0
   (iter : core.ops.range.Range Std.Usize) (w : Slice Std.I64)
@@ -47849,7 +47849,7 @@ def mixer.AffineLayer.ensure_packed_w_loop0
     (iter, s)
 
 /-- [apeiron_word::mixer::{apeiron_word::mixer::AffineLayer}::ensure_packed_w]: loop body 2:
-    Source: '../../src/engine/mixer.rs', lines 4628:12-4635:13 -/
+    Source: '../../src/engine/mixer.rs', lines 4631:12-4638:13 -/
 @[rust_loop_body]
 def mixer.AffineLayer.ensure_packed_w_loop1_loop0.body
   (s : alloc.vec.Vec fp.F32) (b : Std.Usize)
@@ -47903,7 +47903,7 @@ def mixer.AffineLayer.ensure_packed_w_loop1_loop0.body
     ok (cont (iter1, p4))
 
 /-- [apeiron_word::mixer::{apeiron_word::mixer::AffineLayer}::ensure_packed_w]: loop 2:
-    Source: '../../src/engine/mixer.rs', lines 4628:12-4635:13 -/
+    Source: '../../src/engine/mixer.rs', lines 4631:12-4638:13 -/
 @[rust_loop]
 def mixer.AffineLayer.ensure_packed_w_loop1_loop0
   (iter : core.ops.range.Range Std.Usize) (p : alloc.vec.Vec fp.F32)
@@ -47916,7 +47916,7 @@ def mixer.AffineLayer.ensure_packed_w_loop1_loop0
     (iter, p)
 
 /-- [apeiron_word::mixer::{apeiron_word::mixer::AffineLayer}::ensure_packed_w]: loop body 1:
-    Source: '../../src/engine/mixer.rs', lines 4627:8-4636:9 -/
+    Source: '../../src/engine/mixer.rs', lines 4630:8-4639:9 -/
 @[rust_loop_body]
 def mixer.AffineLayer.ensure_packed_w_loop1.body
   (s : alloc.vec.Vec fp.F32) (iter : core.ops.range.Range Std.Usize)
@@ -47935,7 +47935,7 @@ def mixer.AffineLayer.ensure_packed_w_loop1.body
     ok (cont (iter1, p1))
 
 /-- [apeiron_word::mixer::{apeiron_word::mixer::AffineLayer}::ensure_packed_w]: loop 1:
-    Source: '../../src/engine/mixer.rs', lines 4627:8-4636:9 -/
+    Source: '../../src/engine/mixer.rs', lines 4630:8-4639:9 -/
 @[rust_loop]
 def mixer.AffineLayer.ensure_packed_w_loop1
   (iter : core.ops.range.Range Std.Usize) (p : alloc.vec.Vec fp.F32)
@@ -47948,7 +47948,7 @@ def mixer.AffineLayer.ensure_packed_w_loop1
     (iter, p)
 
 /-- [apeiron_word::mixer::{apeiron_word::mixer::AffineLayer}::ensure_packed_w]:
-    Source: '../../src/engine/mixer.rs', lines 4606:4-4640:5 -/
+    Source: '../../src/engine/mixer.rs', lines 4609:4-4643:5 -/
 def mixer.AffineLayer.ensure_packed_w
   (self : mixer.AffineLayer) (w : Slice Std.I64) (ch : Std.Usize)
   (kernel : Std.Usize) :
@@ -47978,7 +47978,7 @@ def mixer.AffineLayer.ensure_packed_w
       ok ()
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop body 1:
-    Source: '../../src/engine/mixer.rs', lines 2611:16-2642:17 -/
+    Source: '../../src/engine/mixer.rs', lines 2614:16-2645:17 -/
 @[rust_loop_body]
 def mixer.conv_silu_channel_range_loop0_loop0.body
   (window : Slice fp.F32) (xs : Slice fp.F32) (ch : Std.Usize)
@@ -48081,7 +48081,7 @@ def mixer.conv_silu_channel_range_loop0_loop0.body
     ok (cont (iter1, out1))
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop 1:
-    Source: '../../src/engine/mixer.rs', lines 2611:16-2642:17 -/
+    Source: '../../src/engine/mixer.rs', lines 2614:16-2645:17 -/
 @[rust_loop]
 def mixer.conv_silu_channel_range_loop0_loop0
   (iter : core.ops.range.Range Std.Usize) (window : Slice fp.F32)
@@ -48097,7 +48097,7 @@ def mixer.conv_silu_channel_range_loop0_loop0
     (iter, out)
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 2600:8-2645:9 -/
+    Source: '../../src/engine/mixer.rs', lines 2603:8-2648:9 -/
 @[rust_loop_body]
 def mixer.conv_silu_channel_range_loop0.body
   (packed_w : Slice fp.F32) (window : Slice fp.F32) (xs : Slice fp.F32)
@@ -48137,7 +48137,7 @@ def mixer.conv_silu_channel_range_loop0.body
   else ok (done (out, c))
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 2600:8-2645:9 -/
+    Source: '../../src/engine/mixer.rs', lines 2603:8-2648:9 -/
 @[rust_loop]
 def mixer.conv_silu_channel_range_loop0
   (packed_w : Slice fp.F32) (window : Slice fp.F32) (xs : Slice fp.F32)
@@ -48151,7 +48151,7 @@ def mixer.conv_silu_channel_range_loop0
     (out, c)
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop body 3:
-    Source: '../../src/engine/mixer.rs', lines 2659:8-2688:9 -/
+    Source: '../../src/engine/mixer.rs', lines 2662:8-2691:9 -/
 @[rust_loop_body]
 def mixer.conv_silu_channel_range_loop1_loop0.body
   (window : Slice fp.F32) (xs : Slice fp.F32) (ch : Std.Usize) (k : Std.Usize)
@@ -48237,7 +48237,7 @@ def mixer.conv_silu_channel_range_loop1_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop 3:
-    Source: '../../src/engine/mixer.rs', lines 2659:8-2688:9 -/
+    Source: '../../src/engine/mixer.rs', lines 2662:8-2691:9 -/
 @[rust_loop]
 def mixer.conv_silu_channel_range_loop1_loop0
   (window : Slice fp.F32) (xs : Slice fp.F32) (ch : Std.Usize) (k : Std.Usize)
@@ -48252,7 +48252,7 @@ def mixer.conv_silu_channel_range_loop1_loop0
     (out, err, j)
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop body 2:
-    Source: '../../src/engine/mixer.rs', lines 2649:4-2690:5 -/
+    Source: '../../src/engine/mixer.rs', lines 2652:4-2693:5 -/
 @[rust_loop_body]
 def mixer.conv_silu_channel_range_loop1.body
   (scalar_w : Slice fp.F32) (window : Slice fp.F32) (xs : Slice fp.F32)
@@ -48285,7 +48285,7 @@ def mixer.conv_silu_channel_range_loop1.body
   else ok (done (out, err))
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop 2:
-    Source: '../../src/engine/mixer.rs', lines 2649:4-2690:5 -/
+    Source: '../../src/engine/mixer.rs', lines 2652:4-2693:5 -/
 @[rust_loop]
 def mixer.conv_silu_channel_range_loop1
   (scalar_w : Slice fp.F32) (window : Slice fp.F32) (xs : Slice fp.F32)
@@ -48300,7 +48300,7 @@ def mixer.conv_silu_channel_range_loop1
     (out, c, err)
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop body 5:
-    Source: '../../src/engine/mixer.rs', lines 2659:8-2688:9 -/
+    Source: '../../src/engine/mixer.rs', lines 2662:8-2691:9 -/
 @[rust_loop_body]
 def mixer.conv_silu_channel_range_loop2_loop0.body
   (window : Slice fp.F32) (xs : Slice fp.F32) (ch : Std.Usize) (k : Std.Usize)
@@ -48386,7 +48386,7 @@ def mixer.conv_silu_channel_range_loop2_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop 5:
-    Source: '../../src/engine/mixer.rs', lines 2659:8-2688:9 -/
+    Source: '../../src/engine/mixer.rs', lines 2662:8-2691:9 -/
 @[rust_loop]
 def mixer.conv_silu_channel_range_loop2_loop0
   (window : Slice fp.F32) (xs : Slice fp.F32) (ch : Std.Usize) (k : Std.Usize)
@@ -48401,7 +48401,7 @@ def mixer.conv_silu_channel_range_loop2_loop0
     (out, err, j)
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop body 4:
-    Source: '../../src/engine/mixer.rs', lines 2649:4-2690:5 -/
+    Source: '../../src/engine/mixer.rs', lines 2652:4-2693:5 -/
 @[rust_loop_body]
 def mixer.conv_silu_channel_range_loop2.body
   (scalar_w : Slice fp.F32) (window : Slice fp.F32) (xs : Slice fp.F32)
@@ -48434,7 +48434,7 @@ def mixer.conv_silu_channel_range_loop2.body
   else ok (done (out, err))
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop 4:
-    Source: '../../src/engine/mixer.rs', lines 2649:4-2690:5 -/
+    Source: '../../src/engine/mixer.rs', lines 2652:4-2693:5 -/
 @[rust_loop]
 def mixer.conv_silu_channel_range_loop2
   (scalar_w : Slice fp.F32) (window : Slice fp.F32) (xs : Slice fp.F32)
@@ -48449,7 +48449,7 @@ def mixer.conv_silu_channel_range_loop2
     (out, c, err)
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop body 7:
-    Source: '../../src/engine/mixer.rs', lines 2659:8-2688:9 -/
+    Source: '../../src/engine/mixer.rs', lines 2662:8-2691:9 -/
 @[rust_loop_body]
 def mixer.conv_silu_channel_range_loop3_loop0.body
   (window : Slice fp.F32) (xs : Slice fp.F32) (ch : Std.Usize) (k : Std.Usize)
@@ -48535,7 +48535,7 @@ def mixer.conv_silu_channel_range_loop3_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop 7:
-    Source: '../../src/engine/mixer.rs', lines 2659:8-2688:9 -/
+    Source: '../../src/engine/mixer.rs', lines 2662:8-2691:9 -/
 @[rust_loop]
 def mixer.conv_silu_channel_range_loop3_loop0
   (window : Slice fp.F32) (xs : Slice fp.F32) (ch : Std.Usize) (k : Std.Usize)
@@ -48550,7 +48550,7 @@ def mixer.conv_silu_channel_range_loop3_loop0
     (out, err, j)
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop body 6:
-    Source: '../../src/engine/mixer.rs', lines 2649:4-2690:5 -/
+    Source: '../../src/engine/mixer.rs', lines 2652:4-2693:5 -/
 @[rust_loop_body]
 def mixer.conv_silu_channel_range_loop3.body
   (scalar_w : Slice fp.F32) (window : Slice fp.F32) (xs : Slice fp.F32)
@@ -48583,7 +48583,7 @@ def mixer.conv_silu_channel_range_loop3.body
   else ok (done (out, err))
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]: loop 6:
-    Source: '../../src/engine/mixer.rs', lines 2649:4-2690:5 -/
+    Source: '../../src/engine/mixer.rs', lines 2652:4-2693:5 -/
 @[rust_loop]
 def mixer.conv_silu_channel_range_loop3
   (scalar_w : Slice fp.F32) (window : Slice fp.F32) (xs : Slice fp.F32)
@@ -48598,7 +48598,7 @@ def mixer.conv_silu_channel_range_loop3
     (out, c, err)
 
 /-- [apeiron_word::mixer::conv_silu_channel_range]:
-    Source: '../../src/engine/mixer.rs', lines 2583:0-2696:1 -/
+    Source: '../../src/engine/mixer.rs', lines 2583:0-2699:1 -/
 def mixer.conv_silu_channel_range
   (packed_w : Slice fp.F32) (scalar_w : Slice fp.F32) (window : Slice fp.F32)
   (xs : Slice fp.F32) (ch : Std.Usize) (k : Std.Usize) (c0 : Std.Usize)
@@ -51891,12 +51891,12 @@ def mixer.delta_head_step
   else mixer.delta_head_step_ref s c q k v decay beta
 
 /-- [apeiron_word::mixer::delta_heads_q32::{closure#1}]
-    Source: '../../src/engine/mixer.rs', lines 4434:52-4434:75 -/
+    Source: '../../src/engine/mixer.rs', lines 4437:52-4437:75 -/
 @[reducible]
 def mixer.delta_heads_q32.closure_1 := Unit
 
 /-- [apeiron_word::mixer::delta_heads_q32::{impl core::ops::function::FnOnce<(apeiron_word::fixed_rsqrt::RsqrtError,), apeiron_word::step::StepError> for apeiron_word::mixer::delta_heads_q32::{closure#1}}::call_once]:
-    Source: '../../src/engine/mixer.rs', lines 4434:52-4434:75 -/
+    Source: '../../src/engine/mixer.rs', lines 4437:52-4437:75 -/
 def
   mixer.delta_heads_q32.closure_1.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorStepError.call_once
   (c : mixer.delta_heads_q32.closure_1) (tupled_args : fixed_rsqrt.RsqrtError)
@@ -51906,7 +51906,7 @@ def
   ok step.StepError.Overflow
 
 /-- Trait implementation: [apeiron_word::mixer::delta_heads_q32::{impl core::ops::function::FnOnce<(apeiron_word::fixed_rsqrt::RsqrtError,), apeiron_word::step::StepError> for apeiron_word::mixer::delta_heads_q32::{closure#1}}]
-    Source: '../../src/engine/mixer.rs', lines 4434:52-4434:75 -/
+    Source: '../../src/engine/mixer.rs', lines 4437:52-4437:75 -/
 @[reducible]
 def
   mixer.delta_heads_q32.closure_1.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorStepError
@@ -51917,12 +51917,12 @@ def
 }
 
 /-- [apeiron_word::mixer::delta_heads_q32::{closure}]
-    Source: '../../src/engine/mixer.rs', lines 4432:18-4432:39 -/
+    Source: '../../src/engine/mixer.rs', lines 4435:18-4435:39 -/
 @[reducible]
 def mixer.delta_heads_q32.closure := Unit
 
 /-- [apeiron_word::mixer::delta_heads_q32::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::mixer::delta_heads_q32::{closure}}::call_once]:
-    Source: '../../src/engine/mixer.rs', lines 4432:18-4432:39 -/
+    Source: '../../src/engine/mixer.rs', lines 4435:18-4435:39 -/
 def
   mixer.delta_heads_q32.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
   (c : mixer.delta_heads_q32.closure) (tupled_args : Std.I64) :
@@ -51931,7 +51931,7 @@ def
   core.num.I64.checked_shl tupled_args 32#u32
 
 /-- Trait implementation: [apeiron_word::mixer::delta_heads_q32::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::mixer::delta_heads_q32::{closure}}]
-    Source: '../../src/engine/mixer.rs', lines 4432:18-4432:39 -/
+    Source: '../../src/engine/mixer.rs', lines 4435:18-4435:39 -/
 @[reducible]
 def mixer.delta_heads_q32.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
   : core.ops.function.FnOnce mixer.delta_heads_q32.closure Std.I64 (Option
@@ -51941,7 +51941,7 @@ def mixer.delta_heads_q32.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
 }
 
 /-- [apeiron_word::mixer::snapshot_or]:
-    Source: '../../src/engine/mixer.rs', lines 3757:0-3762:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3760:0-3765:1 -/
 def mixer.snapshot_or
   (snapshot : Option mixer.AffineLayer) (layer : mixer.AffineLayer) :
   Result mixer.AffineLayer
@@ -51951,7 +51951,7 @@ def mixer.snapshot_or
   | some s => ok s
 
 /-- [apeiron_word::mixer::FlatAffine]
-    Source: '../../src/engine/mixer.rs', lines 2702:0-2709:1 -/
+    Source: '../../src/engine/mixer.rs', lines 2705:0-2712:1 -/
 structure mixer.FlatAffine where
   conv : alloc.vec.Vec Std.I64
   z : alloc.vec.Vec Std.I64
@@ -51961,7 +51961,7 @@ structure mixer.FlatAffine where
   bad : Bool
 
 /-- [apeiron_word::mixer::gate_norm_q32]: loop body 1:
-    Source: '../../src/engine/mixer.rs', lines 4369:8-4373:9 -/
+    Source: '../../src/engine/mixer.rs', lines 4372:8-4376:9 -/
 @[rust_loop_body]
 def mixer.gate_norm_q32_loop0_loop0.body
   (fa : mixer.FlatAffine) (slices : Std.Usize) (raw : Slice Std.I64)
@@ -51994,7 +51994,7 @@ def mixer.gate_norm_q32_loop0_loop0.body
   else ok (done o)
 
 /-- [apeiron_word::mixer::gate_norm_q32]: loop 1:
-    Source: '../../src/engine/mixer.rs', lines 4369:8-4373:9 -/
+    Source: '../../src/engine/mixer.rs', lines 4372:8-4376:9 -/
 @[rust_loop]
 def mixer.gate_norm_q32_loop0_loop0
   (fa : mixer.FlatAffine) (slices : Std.Usize) (raw : Slice Std.I64)
@@ -52008,7 +52008,7 @@ def mixer.gate_norm_q32_loop0_loop0
     (o, sl)
 
 /-- [apeiron_word::mixer::gate_norm_q32]: loop body 2:
-    Source: '../../src/engine/mixer.rs', lines 4378:16-4390:17 -/
+    Source: '../../src/engine/mixer.rs', lines 4381:16-4393:17 -/
 @[rust_loop_body]
 def mixer.gate_norm_q32_loop0_loop1.body
   (v : alloc.vec.Vec Std.I64) (p : loader.AffineVectors) (head_v : Std.Usize)
@@ -52056,7 +52056,7 @@ def mixer.gate_norm_q32_loop0_loop1.body
   else ok (done (p, dst, err))
 
 /-- [apeiron_word::mixer::gate_norm_q32]: loop 2:
-    Source: '../../src/engine/mixer.rs', lines 4378:16-4390:17 -/
+    Source: '../../src/engine/mixer.rs', lines 4381:16-4393:17 -/
 @[rust_loop]
 def mixer.gate_norm_q32_loop0_loop1
   (v : alloc.vec.Vec Std.I64) (p : loader.AffineVectors) (head_v : Std.Usize)
@@ -52070,7 +52070,7 @@ def mixer.gate_norm_q32_loop0_loop1
     (dst, err, j)
 
 /-- [apeiron_word::mixer::gate_norm_q32]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 4366:4-4394:5 -/
+    Source: '../../src/engine/mixer.rs', lines 4369:4-4397:5 -/
 @[rust_loop_body]
 def mixer.gate_norm_q32_loop0.body
   (fa : mixer.FlatAffine) (v : alloc.vec.Vec Std.I64) (head_v : Std.Usize)
@@ -52107,7 +52107,7 @@ def mixer.gate_norm_q32_loop0.body
   else ok (done (dst, err))
 
 /-- [apeiron_word::mixer::gate_norm_q32]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 4366:4-4394:5 -/
+    Source: '../../src/engine/mixer.rs', lines 4369:4-4397:5 -/
 @[rust_loop]
 def mixer.gate_norm_q32_loop0
   (fa : mixer.FlatAffine) (v : alloc.vec.Vec Std.I64)
@@ -52123,7 +52123,7 @@ def mixer.gate_norm_q32_loop0
     (p, dst, o, err, c)
 
 /-- [apeiron_word::mixer::gate_norm_q32]:
-    Source: '../../src/engine/mixer.rs', lines 4350:0-4399:1 -/
+    Source: '../../src/engine/mixer.rs', lines 4353:0-4402:1 -/
 def mixer.gate_norm_q32
   (fa : mixer.FlatAffine) (p : loader.AffineVectors) (head_v : Std.Usize)
   (val_dim : Std.Usize) (slices : Std.Usize) (raw : Slice Std.I64)
@@ -52140,7 +52140,7 @@ def mixer.gate_norm_q32
   | some e => ok (core.result.Result.Err e, dst1)
 
 /-- [apeiron_word::mixer::GateNormQ32Ctx]
-    Source: '../../src/engine/mixer.rs', lines 3406:0-3414:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3409:0-3417:1 -/
 structure mixer.GateNormQ32Ctx where
   fa : mixer.FlatAffine
   p : loader.AffineVectors
@@ -52151,7 +52151,7 @@ structure mixer.GateNormQ32Ctx where
   eps : Std.I64
 
 /-- [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<i64, apeiron_word::step::StepError> for apeiron_word::mixer::GateNormQ32Ctx<'_0>}::run]:
-    Source: '../../src/engine/mixer.rs', lines 3417:4-3429:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3420:4-3432:5 -/
 def mixer.GateNormQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError.run
   (self : mixer.GateNormQ32Ctx) (h : Std.Usize) (dst : Slice Std.I64) :
   Result ((core.result.Result Unit step.StepError) × (Slice Std.I64))
@@ -52160,7 +52160,7 @@ def mixer.GateNormQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError.run
     self.raw self.eps h dst
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<i64, apeiron_word::step::StepError> for apeiron_word::mixer::GateNormQ32Ctx<'_0>}]
-    Source: '../../src/engine/mixer.rs', lines 3416:0-3430:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3419:0-3433:1 -/
 @[reducible]
 def mixer.GateNormQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError :
   chart.task.HeadTask mixer.GateNormQ32Ctx Std.I64 step.StepError := {
@@ -52169,7 +52169,7 @@ def mixer.GateNormQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError :
 }
 
 /-- [apeiron_word::mixer::update_q32]: loop body 1:
-    Source: '../../src/engine/mixer.rs', lines 4262:12-4273:13 -/
+    Source: '../../src/engine/mixer.rs', lines 4265:12-4276:13 -/
 @[rust_loop_body]
 def mixer.update_q32_loop0_loop0.body
   (g : loader.AffineGeom) (fa : mixer.FlatAffine) (v : alloc.vec.Vec Std.I64)
@@ -52253,7 +52253,7 @@ def mixer.update_q32_loop0_loop0.body
   else ok (done (q_buf, k_buf, v_buf, beta_buf, decay_buf))
 
 /-- [apeiron_word::mixer::update_q32]: loop 1:
-    Source: '../../src/engine/mixer.rs', lines 4262:12-4273:13 -/
+    Source: '../../src/engine/mixer.rs', lines 4265:12-4276:13 -/
 @[rust_loop]
 def mixer.update_q32_loop0_loop0
   (g : loader.AffineGeom) (fa : mixer.FlatAffine) (v : alloc.vec.Vec Std.I64)
@@ -52273,7 +52273,7 @@ def mixer.update_q32_loop0_loop0
     (q_buf, k_buf, v_buf, beta_buf, decay_buf, c)
 
 /-- [apeiron_word::mixer::update_q32]: loop body 2:
-    Source: '../../src/engine/mixer.rs', lines 4289:20-4293:21 -/
+    Source: '../../src/engine/mixer.rs', lines 4292:20-4296:21 -/
 @[rust_loop_body]
 def mixer.update_q32_loop0_loop1.body
   (w : Std.Usize) (start : Std.Usize) (len : Std.Usize)
@@ -52302,7 +52302,7 @@ def mixer.update_q32_loop0_loop1.body
   else ok (done dst)
 
 /-- [apeiron_word::mixer::update_q32]: loop 2:
-    Source: '../../src/engine/mixer.rs', lines 4289:20-4293:21 -/
+    Source: '../../src/engine/mixer.rs', lines 4292:20-4296:21 -/
 @[rust_loop]
 def mixer.update_q32_loop0_loop1
   (dst : Slice Std.I64) (w : Std.Usize) (start : Std.Usize) (len : Std.Usize)
@@ -52314,7 +52314,7 @@ def mixer.update_q32_loop0_loop1
     (dst, c)
 
 /-- [apeiron_word::mixer::update_q32]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 4259:8-4297:9 -/
+    Source: '../../src/engine/mixer.rs', lines 4262:8-4300:9 -/
 @[rust_loop_body]
 def mixer.update_q32_loop0.body
   (g : loader.AffineGeom) (fa : mixer.FlatAffine) (v : alloc.vec.Vec Std.I64)
@@ -52378,7 +52378,7 @@ def mixer.update_q32_loop0.body
   else ok (done (dst, err))
 
 /-- [apeiron_word::mixer::update_q32]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 4259:8-4297:9 -/
+    Source: '../../src/engine/mixer.rs', lines 4262:8-4300:9 -/
 @[rust_loop]
 def mixer.update_q32_loop0
   (g : loader.AffineGeom) (fa : mixer.FlatAffine) (v : alloc.vec.Vec Std.I64)
@@ -52399,7 +52399,7 @@ def mixer.update_q32_loop0
     (dst, err, s, scale, q_buf, k_buf, v_buf, beta_buf, decay_buf, start)
 
 /-- [apeiron_word::mixer::update_q32]: loop body 3:
-    Source: '../../src/engine/mixer.rs', lines 4304:4-4333:5 -/
+    Source: '../../src/engine/mixer.rs', lines 4307:4-4336:5 -/
 @[rust_loop_body]
 def mixer.update_q32_loop1.body
   (g : loader.AffineGeom) (fa : mixer.FlatAffine) (v : alloc.vec.Vec Std.I64)
@@ -52514,7 +52514,7 @@ def mixer.update_q32_loop1.body
   else ok (done (dst, err))
 
 /-- [apeiron_word::mixer::update_q32]: loop 3:
-    Source: '../../src/engine/mixer.rs', lines 4304:4-4333:5 -/
+    Source: '../../src/engine/mixer.rs', lines 4307:4-4336:5 -/
 @[rust_loop]
 def mixer.update_q32_loop1
   (g : loader.AffineGeom) (fa : mixer.FlatAffine) (v : alloc.vec.Vec Std.I64)
@@ -52532,7 +52532,7 @@ def mixer.update_q32_loop1
     (snap, has_snap, dst, guard, err, c)
 
 /-- [apeiron_word::mixer::update_q32]:
-    Source: '../../src/engine/mixer.rs', lines 4221:0-4338:1 -/
+    Source: '../../src/engine/mixer.rs', lines 4224:0-4341:1 -/
 def mixer.update_q32
   (layer : mixer.AffineLayer) (g : loader.AffineGeom) (fa : mixer.FlatAffine)
   (snap : mixer.AffineLayer) (has_snap : Bool) (qk : Slice Std.I64)
@@ -52586,7 +52586,7 @@ def mixer.update_q32
     | some e1 => ok (core.result.Result.Err e1, dst1)
 
 /-- [apeiron_word::mixer::UpdateQ32Ctx]
-    Source: '../../src/engine/mixer.rs', lines 3377:0-3386:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3380:0-3389:1 -/
 structure mixer.UpdateQ32Ctx where
   layer : mixer.AffineLayer
   g : loader.AffineGeom
@@ -52598,7 +52598,7 @@ structure mixer.UpdateQ32Ctx where
   chunked : Bool
 
 /-- [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<i64, apeiron_word::step::StepError> for apeiron_word::mixer::UpdateQ32Ctx<'_0>}::run]:
-    Source: '../../src/engine/mixer.rs', lines 3389:4-3402:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3392:4-3405:5 -/
 def mixer.UpdateQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError.run
   (self : mixer.UpdateQ32Ctx) (t : Std.Usize) (dst : Slice Std.I64) :
   Result ((core.result.Result Unit step.StepError) × (Slice Std.I64))
@@ -52607,7 +52607,7 @@ def mixer.UpdateQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError.run
     self.qk self.bd self.chunked t dst
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<i64, apeiron_word::step::StepError> for apeiron_word::mixer::UpdateQ32Ctx<'_0>}]
-    Source: '../../src/engine/mixer.rs', lines 3388:0-3403:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3391:0-3406:1 -/
 @[reducible]
 def mixer.UpdateQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError :
   chart.task.HeadTask mixer.UpdateQ32Ctx Std.I64 step.StepError := {
@@ -52861,7 +52861,7 @@ def fixed_ln.fixed_softplus
     | some v => fixed_ln.fixed_ln v
 
 /-- [apeiron_word::mixer::head_gates_q32]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 4173:4-4200:5 -/
+    Source: '../../src/engine/mixer.rs', lines 4176:4-4203:5 -/
 @[rust_loop_body]
 def mixer.head_gates_q32_loop.body
   (fa : mixer.FlatAffine) (nv : Std.Usize) (h : Std.Usize)
@@ -52942,7 +52942,7 @@ def mixer.head_gates_q32_loop.body
   else ok (done (dst, err))
 
 /-- [apeiron_word::mixer::head_gates_q32]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 4173:4-4200:5 -/
+    Source: '../../src/engine/mixer.rs', lines 4176:4-4203:5 -/
 @[rust_loop]
 def mixer.head_gates_q32_loop
   (fa : mixer.FlatAffine) (p : loader.AffineVectors) (nv : Std.Usize)
@@ -52956,7 +52956,7 @@ def mixer.head_gates_q32_loop
     (p, dst, err, c)
 
 /-- [apeiron_word::mixer::head_gates_q32]:
-    Source: '../../src/engine/mixer.rs', lines 4164:0-4205:1 -/
+    Source: '../../src/engine/mixer.rs', lines 4167:0-4208:1 -/
 def mixer.head_gates_q32
   (fa : mixer.FlatAffine) (p : loader.AffineVectors) (nv : Std.Usize)
   (h : Std.Usize) (dst : Slice Std.I64) :
@@ -52968,14 +52968,14 @@ def mixer.head_gates_q32
   | some e => ok (core.result.Result.Err e, dst1)
 
 /-- [apeiron_word::mixer::GatesQ32Ctx]
-    Source: '../../src/engine/mixer.rs', lines 3364:0-3368:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3367:0-3371:1 -/
 structure mixer.GatesQ32Ctx where
   fa : mixer.FlatAffine
   p : loader.AffineVectors
   nv : Std.Usize
 
 /-- [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<i64, apeiron_word::step::StepError> for apeiron_word::mixer::GatesQ32Ctx<'_0>}::run]:
-    Source: '../../src/engine/mixer.rs', lines 3371:4-3373:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3374:4-3376:5 -/
 def mixer.GatesQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError.run
   (self : mixer.GatesQ32Ctx) (h : Std.Usize) (dst : Slice Std.I64) :
   Result ((core.result.Result Unit step.StepError) × (Slice Std.I64))
@@ -52983,7 +52983,7 @@ def mixer.GatesQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError.run
   mixer.head_gates_q32 self.fa self.p self.nv h dst
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<i64, apeiron_word::step::StepError> for apeiron_word::mixer::GatesQ32Ctx<'_0>}]
-    Source: '../../src/engine/mixer.rs', lines 3370:0-3374:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3373:0-3377:1 -/
 @[reducible]
 def mixer.GatesQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError :
   chart.task.HeadTask mixer.GatesQ32Ctx Std.I64 step.StepError := {
@@ -52991,7 +52991,7 @@ def mixer.GatesQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError :
 }
 
 /-- [apeiron_word::mixer::norm_qk_q32]: loop body 1:
-    Source: '../../src/engine/mixer.rs', lines 4136:20-4142:21 -/
+    Source: '../../src/engine/mixer.rs', lines 4139:20-4145:21 -/
 @[rust_loop_body]
 def mixer.norm_qk_q32_loop0_loop0.body
   (hk : Std.Usize) (q_scale : Std.I64) (q_hat : alloc.vec.Vec Std.I64)
@@ -53020,7 +53020,7 @@ def mixer.norm_qk_q32_loop0_loop0.body
   else ok (done (err, d))
 
 /-- [apeiron_word::mixer::norm_qk_q32]: loop 1:
-    Source: '../../src/engine/mixer.rs', lines 4136:20-4142:21 -/
+    Source: '../../src/engine/mixer.rs', lines 4139:20-4145:21 -/
 @[rust_loop]
 def mixer.norm_qk_q32_loop0_loop0
   (hk : Std.Usize) (q_scale : Std.I64) (err : Option step.StepError)
@@ -53033,7 +53033,7 @@ def mixer.norm_qk_q32_loop0_loop0
     (err, d, i)
 
 /-- [apeiron_word::mixer::norm_qk_q32]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 4124:4-4150:5 -/
+    Source: '../../src/engine/mixer.rs', lines 4127:4-4153:5 -/
 @[rust_loop_body]
 def mixer.norm_qk_q32_loop0.body
   (fa : mixer.FlatAffine) (key_dim : Std.Usize) (cdim : Std.Usize)
@@ -53104,7 +53104,7 @@ def mixer.norm_qk_q32_loop0.body
   else ok (done (dst, err))
 
 /-- [apeiron_word::mixer::norm_qk_q32]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 4124:4-4150:5 -/
+    Source: '../../src/engine/mixer.rs', lines 4127:4-4153:5 -/
 @[rust_loop]
 def mixer.norm_qk_q32_loop0
   (fa : mixer.FlatAffine) (key_dim : Std.Usize) (cdim : Std.Usize)
@@ -53118,7 +53118,7 @@ def mixer.norm_qk_q32_loop0
     (dst, err, c)
 
 /-- [apeiron_word::mixer::norm_qk_q32]:
-    Source: '../../src/engine/mixer.rs', lines 4111:0-4155:1 -/
+    Source: '../../src/engine/mixer.rs', lines 4114:0-4158:1 -/
 def mixer.norm_qk_q32
   (fa : mixer.FlatAffine) (key_dim : Std.Usize) (cdim : Std.Usize)
   (hk : Std.Usize) (eps : Std.I64) (q_scale : Std.I64) (kh : Std.Usize)
@@ -53133,7 +53133,7 @@ def mixer.norm_qk_q32
   | some e => ok (core.result.Result.Err e, dst1)
 
 /-- [apeiron_word::mixer::NormQkQ32Ctx]
-    Source: '../../src/engine/mixer.rs', lines 3339:0-3346:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3342:0-3349:1 -/
 structure mixer.NormQkQ32Ctx where
   fa : mixer.FlatAffine
   key_dim : Std.Usize
@@ -53143,7 +53143,7 @@ structure mixer.NormQkQ32Ctx where
   q_scale : Std.I64
 
 /-- [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<i64, apeiron_word::step::StepError> for apeiron_word::mixer::NormQkQ32Ctx<'_0>}::run]:
-    Source: '../../src/engine/mixer.rs', lines 3349:4-3360:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3352:4-3363:5 -/
 def mixer.NormQkQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError.run
   (self : mixer.NormQkQ32Ctx) (h : Std.Usize) (dst : Slice Std.I64) :
   Result ((core.result.Result Unit step.StepError) × (Slice Std.I64))
@@ -53152,7 +53152,7 @@ def mixer.NormQkQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError.run
     self.q_scale h dst
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<i64, apeiron_word::step::StepError> for apeiron_word::mixer::NormQkQ32Ctx<'_0>}]
-    Source: '../../src/engine/mixer.rs', lines 3348:0-3361:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3351:0-3364:1 -/
 @[reducible]
 def mixer.NormQkQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError :
   chart.task.HeadTask mixer.NormQkQ32Ctx Std.I64 step.StepError := {
@@ -53160,7 +53160,7 @@ def mixer.NormQkQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError :
 }
 
 /-- [apeiron_word::mixer::delta_heads_q32]: loop body 1:
-    Source: '../../src/engine/mixer.rs', lines 4495:8-4499:9 -/
+    Source: '../../src/engine/mixer.rs', lines 4498:8-4502:9 -/
 @[rust_loop_body]
 def mixer.delta_heads_q32_loop0_loop0.body
   (fa : mixer.FlatAffine) (i : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -53189,7 +53189,7 @@ def mixer.delta_heads_q32_loop0_loop0.body
   else ok (done cols_out)
 
 /-- [apeiron_word::mixer::delta_heads_q32]: loop 1:
-    Source: '../../src/engine/mixer.rs', lines 4495:8-4499:9 -/
+    Source: '../../src/engine/mixer.rs', lines 4498:8-4502:9 -/
 @[rust_loop]
 def mixer.delta_heads_q32_loop0_loop0
   (fa : mixer.FlatAffine) (i : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -53203,7 +53203,7 @@ def mixer.delta_heads_q32_loop0_loop0
     (cols_out, c)
 
 /-- [apeiron_word::mixer::delta_heads_q32]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 4493:4-4501:5 -/
+    Source: '../../src/engine/mixer.rs', lines 4496:4-4504:5 -/
 @[rust_loop_body]
 def mixer.delta_heads_q32_loop0.body
   (fa : mixer.FlatAffine) (nv : Std.Usize) (i : Std.Usize)
@@ -53221,7 +53221,7 @@ def mixer.delta_heads_q32_loop0.body
   else ok (done cols_out)
 
 /-- [apeiron_word::mixer::delta_heads_q32]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 4493:4-4501:5 -/
+    Source: '../../src/engine/mixer.rs', lines 4496:4-4504:5 -/
 @[rust_loop]
 def mixer.delta_heads_q32_loop0
   (fa : mixer.FlatAffine) (nv : Std.Usize) (i : Std.Usize)
@@ -53235,7 +53235,7 @@ def mixer.delta_heads_q32_loop0
     (cols_out, h)
 
 /-- [apeiron_word::mixer::delta_heads_q32]:
-    Source: '../../src/engine/mixer.rs', lines 4411:0-4503:1 -/
+    Source: '../../src/engine/mixer.rs', lines 4414:0-4506:1 -/
 def mixer.delta_heads_q32
   (layer : mixer.AffineLayer) (g : loader.AffineGeom)
   (p : loader.AffineVectors) (fa : mixer.FlatAffine) (eps : Std.I64)
@@ -53350,7 +53350,7 @@ def mixer.delta_heads_q32
       (core.convert.FromSame step.StepError) residual
 
 /-- [apeiron_word::mixer::FusedStagedCtx]
-    Source: '../../src/engine/mixer.rs', lines 3196:0-3207:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3199:0-3210:1 -/
 structure mixer.FusedStagedCtx where
   layer : mixer.AffineLayer
   g : loader.AffineGeom
@@ -53364,7 +53364,7 @@ structure mixer.FusedStagedCtx where
   q_scale : fp.F32
 
 /-- [apeiron_word::mixer::fused_head_staged]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 3171:4-3184:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3174:4-3187:5 -/
 @[rust_loop_body]
 def mixer.fused_head_staged_loop.body
   (layer : mixer.AffineLayer)
@@ -53416,7 +53416,7 @@ def mixer.fused_head_staged_loop.body
   else ok (done (o_slice, carrier_err))
 
 /-- [apeiron_word::mixer::fused_head_staged]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 3171:4-3184:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3174:4-3187:5 -/
 @[rust_loop]
 def mixer.fused_head_staged_loop
   (layer : mixer.AffineLayer)
@@ -53432,7 +53432,7 @@ def mixer.fused_head_staged_loop
     (o_slice, sl, carrier_err)
 
 /-- [apeiron_word::mixer::fused_head_staged]:
-    Source: '../../src/engine/mixer.rs', lines 3066:0-3193:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3069:0-3196:1 -/
 def mixer.fused_head_staged
   (layer : mixer.AffineLayer) (g : loader.AffineGeom)
   (p : loader.AffineVectors) (fa : mixer.FlatAffine)
@@ -53626,7 +53626,7 @@ def mixer.fused_head_staged
     ok (core.result.Result.Err (step.StepError.BadConfig s), dst)
 
 /-- [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<i64, apeiron_word::step::StepError> for apeiron_word::mixer::FusedStagedCtx<'_0>}::run]:
-    Source: '../../src/engine/mixer.rs', lines 3210:4-3225:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3213:4-3228:5 -/
 def mixer.FusedStagedCtx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError.run
   (self : mixer.FusedStagedCtx) (h : Std.Usize) (dst : Slice Std.I64) :
   Result ((core.result.Result Unit step.StepError) × (Slice Std.I64))
@@ -53635,7 +53635,7 @@ def mixer.FusedStagedCtx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError.run
     self.packed self.scalar self.ssm_norm_f self.eps_f self.q_scale h dst
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<i64, apeiron_word::step::StepError> for apeiron_word::mixer::FusedStagedCtx<'_0>}]
-    Source: '../../src/engine/mixer.rs', lines 3209:0-3226:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3212:0-3229:1 -/
 @[reducible]
 def mixer.FusedStagedCtx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError :
   chart.task.HeadTask mixer.FusedStagedCtx Std.I64 step.StepError := {
@@ -53644,7 +53644,7 @@ def mixer.FusedStagedCtx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError :
 }
 
 /-- [apeiron_word::mixer::f32_decode_staged]:
-    Source: '../../src/engine/mixer.rs', lines 3442:0-3479:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3445:0-3482:1 -/
 def mixer.f32_decode_staged
   (layer : mixer.AffineLayer) (g : loader.AffineGeom)
   (p : loader.AffineVectors) (fa : mixer.FlatAffine)
@@ -53683,7 +53683,7 @@ def mixer.f32_decode_staged
                ok (core.result.Result.Err e)
 
 /-- [apeiron_word::mixer::staged_v_col]:
-    Source: '../../src/engine/mixer.rs', lines 3778:0-3803:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3781:0-3806:1 -/
 def mixer.staged_v_col
   (layer : mixer.AffineLayer) (staged_opt : Option mixer.StagedConv)
   (k : Std.Usize) (w : Std.Usize) (lo : Std.Usize) :
@@ -53716,7 +53716,7 @@ def mixer.staged_v_col
         (alloc.vec.Vec fp.F32) (core.convert.FromSame step.StepError) residual
 
 /-- [apeiron_word::mixer::snapshot_f32_state]:
-    Source: '../../src/engine/mixer.rs', lines 3765:0-3770:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3768:0-3773:1 -/
 def mixer.snapshot_f32_state
   (snap : mixer.AffineLayer) (t : Std.Usize) (s : alloc.vec.Vec fp.F32) :
   Result Unit
@@ -53736,7 +53736,7 @@ def mixer.snapshot_f32_state
     ok ()
 
 /-- [apeiron_word::mixer::update_f32_body]: loop body 1:
-    Source: '../../src/engine/mixer.rs', lines 3865:12-3868:13 -/
+    Source: '../../src/engine/mixer.rs', lines 3868:12-3871:13 -/
 @[rust_loop_body]
 def mixer.update_f32_body_loop0_loop0.body
   (v : alloc.vec.Vec Std.I64) (w : Std.Usize) (v_at : Std.Usize)
@@ -53755,7 +53755,7 @@ def mixer.update_f32_body_loop0_loop0.body
   else ok (done v_slice)
 
 /-- [apeiron_word::mixer::update_f32_body]: loop 1:
-    Source: '../../src/engine/mixer.rs', lines 3865:12-3868:13 -/
+    Source: '../../src/engine/mixer.rs', lines 3868:12-3871:13 -/
 @[rust_loop]
 def mixer.update_f32_body_loop0_loop0
   (v : alloc.vec.Vec Std.I64) (v_slice : Slice fp.F32) (w : Std.Usize)
@@ -53768,7 +53768,7 @@ def mixer.update_f32_body_loop0_loop0
     (v_slice, i)
 
 /-- [apeiron_word::mixer::update_f32_body]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 3852:4-3884:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3855:4-3887:5 -/
 @[rust_loop_body]
 def mixer.update_f32_body_loop0.body
   (g : loader.AffineGeom) (fa : mixer.FlatAffine) (v : alloc.vec.Vec Std.I64)
@@ -53932,7 +53932,7 @@ def mixer.update_f32_body_loop0.body
   else ok (done (dst, v_slice))
 
 /-- [apeiron_word::mixer::update_f32_body]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 3852:4-3884:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3855:4-3887:5 -/
 @[rust_loop]
 def mixer.update_f32_body_loop0
   (g : loader.AffineGeom) (fa : mixer.FlatAffine) (v : alloc.vec.Vec Std.I64)
@@ -53951,7 +53951,7 @@ def mixer.update_f32_body_loop0
     (use_cf, has_snap, dst, v_slice, s_f32, has_vc, c)
 
 /-- [apeiron_word::mixer::update_f32_body]:
-    Source: '../../src/engine/mixer.rs', lines 3818:0-3886:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3821:0-3889:1 -/
 def mixer.update_f32_body
   (layer : mixer.AffineLayer) (g : loader.AffineGeom) (fa : mixer.FlatAffine)
   (staged_opt : Option mixer.StagedConv) (cf : Slice fp.F32) (use_cf : Bool)
@@ -54001,7 +54001,7 @@ def mixer.update_f32_body
       ok (r1, dst, v_slice)
 
 /-- [apeiron_word::mixer::update_f32]:
-    Source: '../../src/engine/mixer.rs', lines 3893:0-3932:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3896:0-3935:1 -/
 def mixer.update_f32
   (layer : mixer.AffineLayer) (g : loader.AffineGeom) (fa : mixer.FlatAffine)
   (staged_opt : Option mixer.StagedConv) (cf : Slice fp.F32) (use_cf : Bool)
@@ -54030,7 +54030,7 @@ def mixer.update_f32
     ok (r, dst1)
 
 /-- [apeiron_word::mixer::UpdateF32Ctx]
-    Source: '../../src/engine/mixer.rs', lines 3306:0-3317:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3309:0-3320:1 -/
 structure mixer.UpdateF32Ctx where
   layer : mixer.AffineLayer
   g : loader.AffineGeom
@@ -54044,7 +54044,7 @@ structure mixer.UpdateF32Ctx where
   bd_f32 : Slice fp.F32
 
 /-- [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<apeiron_word::fp::F32, apeiron_word::step::StepError> for apeiron_word::mixer::UpdateF32Ctx<'_0>}::run]:
-    Source: '../../src/engine/mixer.rs', lines 3320:4-3335:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3323:4-3338:5 -/
 def mixer.UpdateF32Ctx.Insts.Apeiron_wordChartTaskHeadTaskF32StepError.run
   (self : mixer.UpdateF32Ctx) (t : Std.Usize) (dst : Slice fp.F32) :
   Result ((core.result.Result Unit step.StepError) × (Slice fp.F32))
@@ -54053,7 +54053,7 @@ def mixer.UpdateF32Ctx.Insts.Apeiron_wordChartTaskHeadTaskF32StepError.run
     self.use_cf self.snap self.has_snap self.qk_f32 self.bd_f32 t dst
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<apeiron_word::fp::F32, apeiron_word::step::StepError> for apeiron_word::mixer::UpdateF32Ctx<'_0>}]
-    Source: '../../src/engine/mixer.rs', lines 3319:0-3336:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3322:0-3339:1 -/
 @[reducible]
 def mixer.UpdateF32Ctx.Insts.Apeiron_wordChartTaskHeadTaskF32StepError :
   chart.task.HeadTask mixer.UpdateF32Ctx fp.F32 step.StepError := {
@@ -54061,7 +54061,7 @@ def mixer.UpdateF32Ctx.Insts.Apeiron_wordChartTaskHeadTaskF32StepError :
 }
 
 /-- [apeiron_word::mixer::fused_head_body]: loop body 1:
-    Source: '../../src/engine/mixer.rs', lines 3684:12-3687:13 -/
+    Source: '../../src/engine/mixer.rs', lines 3687:12-3690:13 -/
 @[rust_loop_body]
 def mixer.fused_head_body_loop0_loop0.body
   (fa : mixer.FlatAffine) (key_dim : Std.Usize) (w : Std.Usize)
@@ -54084,7 +54084,7 @@ def mixer.fused_head_body_loop0_loop0.body
   else ok (done (fa, v_slice))
 
 /-- [apeiron_word::mixer::fused_head_body]: loop 1:
-    Source: '../../src/engine/mixer.rs', lines 3684:12-3687:13 -/
+    Source: '../../src/engine/mixer.rs', lines 3687:12-3690:13 -/
 @[rust_loop]
 def mixer.fused_head_body_loop0_loop0
   (fa : mixer.FlatAffine) (v_slice : Slice fp.F32) (key_dim : Std.Usize)
@@ -54097,7 +54097,7 @@ def mixer.fused_head_body_loop0_loop0
     (v_slice, i)
 
 /-- [apeiron_word::mixer::fused_head_body]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 3673:4-3706:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3676:4-3709:1 -/
 @[rust_loop_body]
 def mixer.fused_head_body_loop0.body
   (layer : mixer.AffineLayer) (g : loader.AffineGeom)
@@ -54213,7 +54213,7 @@ def mixer.fused_head_body_loop0.body
       ok (done (r1, dst1, o_slice, v_slice))
 
 /-- [apeiron_word::mixer::fused_head_body]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 3673:4-3706:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3676:4-3709:1 -/
 @[rust_loop]
 def mixer.fused_head_body_loop0
   (layer : mixer.AffineLayer) (g : loader.AffineGeom)
@@ -54233,7 +54233,7 @@ def mixer.fused_head_body_loop0
     (fa, use_cf, o_slice, v_slice, sl)
 
 /-- [apeiron_word::mixer::fused_head_body]:
-    Source: '../../src/engine/mixer.rs', lines 3648:0-3706:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3651:0-3709:1 -/
 def mixer.fused_head_body
   (layer : mixer.AffineLayer) (g : loader.AffineGeom) (fa : mixer.FlatAffine)
   (cf : Slice fp.F32) (use_cf : Bool) (ssm_norm_f : Slice fp.F32)
@@ -54257,7 +54257,7 @@ def mixer.fused_head_body
     decay_f 0#usize
 
 /-- [apeiron_word::mixer::fused_head_nostage]:
-    Source: '../../src/engine/mixer.rs', lines 3714:0-3754:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3717:0-3757:1 -/
 def mixer.fused_head_nostage
   (layer : mixer.AffineLayer) (g : loader.AffineGeom) (fa : mixer.FlatAffine)
   (cf : Slice fp.F32) (use_cf : Bool) (ssm_norm_f : Slice fp.F32)
@@ -54307,7 +54307,7 @@ def mixer.fused_head_nostage
     ok (r, dst1)
 
 /-- [apeiron_word::mixer::FusedNoStageCtx]
-    Source: '../../src/engine/mixer.rs', lines 3275:0-3285:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3278:0-3288:1 -/
 structure mixer.FusedNoStageCtx where
   layer : mixer.AffineLayer
   g : loader.AffineGeom
@@ -54320,7 +54320,7 @@ structure mixer.FusedNoStageCtx where
   bd_f32 : Slice fp.F32
 
 /-- [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<i64, apeiron_word::step::StepError> for apeiron_word::mixer::FusedNoStageCtx<'_0>}::run]:
-    Source: '../../src/engine/mixer.rs', lines 3288:4-3302:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3291:4-3305:5 -/
 def mixer.FusedNoStageCtx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError.run
   (self : mixer.FusedNoStageCtx) (h : Std.Usize) (dst : Slice Std.I64) :
   Result ((core.result.Result Unit step.StepError) × (Slice Std.I64))
@@ -54329,7 +54329,7 @@ def mixer.FusedNoStageCtx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError.run
     self.ssm_norm_f self.eps_f self.qk_f32 self.bd_f32 h dst
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<i64, apeiron_word::step::StepError> for apeiron_word::mixer::FusedNoStageCtx<'_0>}]
-    Source: '../../src/engine/mixer.rs', lines 3287:0-3303:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3290:0-3306:1 -/
 @[reducible]
 def mixer.FusedNoStageCtx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError :
   chart.task.HeadTask mixer.FusedNoStageCtx Std.I64 step.StepError := {
@@ -54338,7 +54338,7 @@ def mixer.FusedNoStageCtx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError :
 }
 
 /-- [apeiron_word::mixer::head_gates_f32]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 3622:4-3636:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3625:4-3639:1 -/
 @[rust_loop_body]
 def mixer.head_gates_f32_loop.body
   (fa : mixer.FlatAffine) (nv : Std.Usize) (h : Std.Usize) (dt_f : fp.F32)
@@ -54381,7 +54381,7 @@ def mixer.head_gates_f32_loop.body
   else ok (done (core.result.Result.Ok (), dst))
 
 /-- [apeiron_word::mixer::head_gates_f32]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 3622:4-3636:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3625:4-3639:1 -/
 @[rust_loop]
 def mixer.head_gates_f32_loop
   (fa : mixer.FlatAffine) (nv : Std.Usize) (h : Std.Usize) (dst : Slice fp.F32)
@@ -54394,7 +54394,7 @@ def mixer.head_gates_f32_loop
     (dst, c)
 
 /-- [apeiron_word::mixer::head_gates_f32]:
-    Source: '../../src/engine/mixer.rs', lines 3612:0-3636:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3615:0-3639:1 -/
 def mixer.head_gates_f32
   (fa : mixer.FlatAffine) (p : loader.AffineVectors) (nv : Std.Usize)
   (h : Std.Usize) (dst : Slice fp.F32) :
@@ -54409,14 +54409,14 @@ def mixer.head_gates_f32
   mixer.head_gates_f32_loop fa nv h dst dt_f ssm_a_f 0#usize
 
 /-- [apeiron_word::mixer::GatesF32Ctx]
-    Source: '../../src/engine/mixer.rs', lines 3262:0-3266:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3265:0-3269:1 -/
 structure mixer.GatesF32Ctx where
   fa : mixer.FlatAffine
   p : loader.AffineVectors
   nv : Std.Usize
 
 /-- [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<apeiron_word::fp::F32, apeiron_word::step::StepError> for apeiron_word::mixer::GatesF32Ctx<'_0>}::run]:
-    Source: '../../src/engine/mixer.rs', lines 3269:4-3271:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3272:4-3274:5 -/
 def mixer.GatesF32Ctx.Insts.Apeiron_wordChartTaskHeadTaskF32StepError.run
   (self : mixer.GatesF32Ctx) (h : Std.Usize) (dst : Slice fp.F32) :
   Result ((core.result.Result Unit step.StepError) × (Slice fp.F32))
@@ -54424,7 +54424,7 @@ def mixer.GatesF32Ctx.Insts.Apeiron_wordChartTaskHeadTaskF32StepError.run
   mixer.head_gates_f32 self.fa self.p self.nv h dst
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<apeiron_word::fp::F32, apeiron_word::step::StepError> for apeiron_word::mixer::GatesF32Ctx<'_0>}]
-    Source: '../../src/engine/mixer.rs', lines 3268:0-3272:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3271:0-3275:1 -/
 @[reducible]
 def mixer.GatesF32Ctx.Insts.Apeiron_wordChartTaskHeadTaskF32StepError :
   chart.task.HeadTask mixer.GatesF32Ctx fp.F32 step.StepError := {
@@ -54432,7 +54432,7 @@ def mixer.GatesF32Ctx.Insts.Apeiron_wordChartTaskHeadTaskF32StepError :
 }
 
 /-- [apeiron_word::mixer::norm_qk_f32]: loop body 1:
-    Source: '../../src/engine/mixer.rs', lines 3568:12-3575:13 -/
+    Source: '../../src/engine/mixer.rs', lines 3571:12-3578:13 -/
 @[rust_loop_body]
 def mixer.norm_qk_f32_loop0_loop0.body
   (v : alloc.vec.Vec Std.I64) (cf : Slice fp.F32) (use_cf : Bool)
@@ -54461,7 +54461,7 @@ def mixer.norm_qk_f32_loop0_loop0.body
   else ok (done dst)
 
 /-- [apeiron_word::mixer::norm_qk_f32]: loop 1:
-    Source: '../../src/engine/mixer.rs', lines 3568:12-3575:13 -/
+    Source: '../../src/engine/mixer.rs', lines 3571:12-3578:13 -/
 @[rust_loop]
 def mixer.norm_qk_f32_loop0_loop0
   (v : alloc.vec.Vec Std.I64) (cf : Slice fp.F32) (use_cf : Bool)
@@ -54475,7 +54475,7 @@ def mixer.norm_qk_f32_loop0_loop0
     (dst, i)
 
 /-- [apeiron_word::mixer::norm_qk_f32]: loop body 2:
-    Source: '../../src/engine/mixer.rs', lines 3580:16-3587:17 -/
+    Source: '../../src/engine/mixer.rs', lines 3583:16-3590:17 -/
 @[rust_loop_body]
 def mixer.norm_qk_f32_loop0_loop1.body
   (v : alloc.vec.Vec Std.I64) (cf : Slice fp.F32) (use_cf : Bool)
@@ -54505,7 +54505,7 @@ def mixer.norm_qk_f32_loop0_loop1.body
   else ok (done dst)
 
 /-- [apeiron_word::mixer::norm_qk_f32]: loop 2:
-    Source: '../../src/engine/mixer.rs', lines 3580:16-3587:17 -/
+    Source: '../../src/engine/mixer.rs', lines 3583:16-3590:17 -/
 @[rust_loop]
 def mixer.norm_qk_f32_loop0_loop1
   (v : alloc.vec.Vec Std.I64) (cf : Slice fp.F32) (use_cf : Bool)
@@ -54519,7 +54519,7 @@ def mixer.norm_qk_f32_loop0_loop1
     (dst, i)
 
 /-- [apeiron_word::mixer::norm_qk_f32]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 3563:8-3598:9 -/
+    Source: '../../src/engine/mixer.rs', lines 3566:8-3601:9 -/
 @[rust_loop_body]
 def mixer.norm_qk_f32_loop0.body
   (fa : mixer.FlatAffine) (v : alloc.vec.Vec Std.I64) (cf : Slice fp.F32)
@@ -54589,7 +54589,7 @@ def mixer.norm_qk_f32_loop0.body
   else ok (done (dst, err))
 
 /-- [apeiron_word::mixer::norm_qk_f32]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 3563:8-3598:9 -/
+    Source: '../../src/engine/mixer.rs', lines 3566:8-3601:9 -/
 @[rust_loop]
 def mixer.norm_qk_f32_loop0
   (fa : mixer.FlatAffine) (v : alloc.vec.Vec Std.I64) (cf : Slice fp.F32)
@@ -54604,7 +54604,7 @@ def mixer.norm_qk_f32_loop0
     (dst, err, c)
 
 /-- [apeiron_word::mixer::norm_qk_f32]: loop body 3:
-    Source: '../../src/engine/mixer.rs', lines 3539:8-3556:9 -/
+    Source: '../../src/engine/mixer.rs', lines 3542:8-3559:9 -/
 @[rust_loop_body]
 def mixer.norm_qk_f32_loop1.body
   (fa : mixer.FlatAffine) (hk : Std.Usize) (eps_f : fp.F32) (q_scale : fp.F32)
@@ -54679,7 +54679,7 @@ def mixer.norm_qk_f32_loop1.body
   else ok (done (dst, err))
 
 /-- [apeiron_word::mixer::norm_qk_f32]: loop 3:
-    Source: '../../src/engine/mixer.rs', lines 3539:8-3556:9 -/
+    Source: '../../src/engine/mixer.rs', lines 3542:8-3559:9 -/
 @[rust_loop]
 def mixer.norm_qk_f32_loop1
   (fa : mixer.FlatAffine) (hk : Std.Usize) (eps_f : fp.F32) (q_scale : fp.F32)
@@ -54694,7 +54694,7 @@ def mixer.norm_qk_f32_loop1
     (dst, err, c)
 
 /-- [apeiron_word::mixer::norm_qk_f32]:
-    Source: '../../src/engine/mixer.rs', lines 3493:0-3604:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3496:0-3607:1 -/
 def mixer.norm_qk_f32
   (layer : mixer.AffineLayer) (fa : mixer.FlatAffine)
   (staged_opt : Option mixer.StagedConv) (cf : Slice fp.F32) (use_cf : Bool)
@@ -54765,7 +54765,7 @@ def mixer.norm_qk_f32
       ok (r1, dst)
 
 /-- [apeiron_word::mixer::NormQkF32Ctx]
-    Source: '../../src/engine/mixer.rs', lines 3229:0-3240:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3232:0-3243:1 -/
 structure mixer.NormQkF32Ctx where
   layer : mixer.AffineLayer
   fa : mixer.FlatAffine
@@ -54779,7 +54779,7 @@ structure mixer.NormQkF32Ctx where
   q_scale : fp.F32
 
 /-- [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<apeiron_word::fp::F32, apeiron_word::step::StepError> for apeiron_word::mixer::NormQkF32Ctx<'_0>}::run]:
-    Source: '../../src/engine/mixer.rs', lines 3243:4-3258:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3246:4-3261:5 -/
 def mixer.NormQkF32Ctx.Insts.Apeiron_wordChartTaskHeadTaskF32StepError.run
   (self : mixer.NormQkF32Ctx) (h : Std.Usize) (dst : Slice fp.F32) :
   Result ((core.result.Result Unit step.StepError) × (Slice fp.F32))
@@ -54788,7 +54788,7 @@ def mixer.NormQkF32Ctx.Insts.Apeiron_wordChartTaskHeadTaskF32StepError.run
     self.key_dim self.cdim self.hk self.eps_f self.q_scale h dst
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<apeiron_word::fp::F32, apeiron_word::step::StepError> for apeiron_word::mixer::NormQkF32Ctx<'_0>}]
-    Source: '../../src/engine/mixer.rs', lines 3242:0-3259:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3245:0-3262:1 -/
 @[reducible]
 def mixer.NormQkF32Ctx.Insts.Apeiron_wordChartTaskHeadTaskF32StepError :
   chart.task.HeadTask mixer.NormQkF32Ctx fp.F32 step.StepError := {
@@ -54796,7 +54796,7 @@ def mixer.NormQkF32Ctx.Insts.Apeiron_wordChartTaskHeadTaskF32StepError :
 }
 
 /-- [apeiron_word::mixer::Stage2Geom]
-    Source: '../../src/engine/mixer.rs', lines 2767:0-2774:1 -/
+    Source: '../../src/engine/mixer.rs', lines 2770:0-2777:1 -/
 structure mixer.Stage2Geom where
   val_dim : Std.Usize
   head_v : Std.Usize
@@ -54806,7 +54806,7 @@ structure mixer.Stage2Geom where
   per_col : Std.Usize
 
 /-- [apeiron_word::mixer::stage2_cols]: loop body 1:
-    Source: '../../src/engine/mixer.rs', lines 2807:8-2811:9 -/
+    Source: '../../src/engine/mixer.rs', lines 2810:8-2814:9 -/
 @[rust_loop_body]
 def mixer.stage2_cols_loop0_loop0.body
   (sg : mixer.Stage2Geom) (raw_f32 : Slice fp.F32) (h : Std.Usize)
@@ -54839,7 +54839,7 @@ def mixer.stage2_cols_loop0_loop0.body
   else ok (done o_slice)
 
 /-- [apeiron_word::mixer::stage2_cols]: loop 1:
-    Source: '../../src/engine/mixer.rs', lines 2807:8-2811:9 -/
+    Source: '../../src/engine/mixer.rs', lines 2810:8-2814:9 -/
 @[rust_loop]
 def mixer.stage2_cols_loop0_loop0
   (sg : mixer.Stage2Geom) (raw_f32 : Slice fp.F32) (h : Std.Usize)
@@ -54852,7 +54852,7 @@ def mixer.stage2_cols_loop0_loop0
     (o_slice, sl)
 
 /-- [apeiron_word::mixer::stage2_cols]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 2805:4-2827:5 -/
+    Source: '../../src/engine/mixer.rs', lines 2808:4-2830:5 -/
 @[rust_loop_body]
 def mixer.stage2_cols_loop0.body
   (sg : mixer.Stage2Geom) (raw_f32 : Slice fp.F32) (z : Slice Std.I64)
@@ -54895,7 +54895,7 @@ def mixer.stage2_cols_loop0.body
   else ok (done (o_slice, dcol_slice, err))
 
 /-- [apeiron_word::mixer::stage2_cols]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 2805:4-2827:5 -/
+    Source: '../../src/engine/mixer.rs', lines 2808:4-2830:5 -/
 @[rust_loop]
 def mixer.stage2_cols_loop0
   (sg : mixer.Stage2Geom) (raw_f32 : Slice fp.F32) (z : Slice Std.I64)
@@ -54912,7 +54912,7 @@ def mixer.stage2_cols_loop0
     (o_slice, dcol_slice, err, c)
 
 /-- [apeiron_word::mixer::stage2_cols]:
-    Source: '../../src/engine/mixer.rs', lines 2786:0-2832:1 -/
+    Source: '../../src/engine/mixer.rs', lines 2789:0-2835:1 -/
 def mixer.stage2_cols
   (raw_f32 : Slice fp.F32) (z : Slice Std.I64) (ssm_norm_f : Slice fp.F32)
   (eps_f : fp.F32) (sg : mixer.Stage2Geom) (h : Std.Usize) (c0 : Std.Usize)
@@ -54930,7 +54930,7 @@ def mixer.stage2_cols
   | some e => ok (core.result.Result.Err e, o_slice1, dcol_slice1)
 
 /-- [apeiron_word::mixer::stage2_task]:
-    Source: '../../src/engine/mixer.rs', lines 2881:0-2921:1 -/
+    Source: '../../src/engine/mixer.rs', lines 2884:0-2924:1 -/
 def mixer.stage2_task
   (raw_f32 : Slice fp.F32) (z : Slice Std.I64) (ssm_norm_f : Slice fp.F32)
   (eps_f : fp.F32) (sg : mixer.Stage2Geom) (t : Std.Usize)
@@ -54971,7 +54971,7 @@ def mixer.stage2_task
       ok r
 
 /-- [apeiron_word::mixer::stage2_pool_task]:
-    Source: '../../src/engine/mixer.rs', lines 2865:0-2878:1 -/
+    Source: '../../src/engine/mixer.rs', lines 2868:0-2881:1 -/
 def mixer.stage2_pool_task
   (raw_f32 : Slice fp.F32) (z : Slice Std.I64) (ssm_norm_f : Slice fp.F32)
   (eps_f : fp.F32) (sg : mixer.Stage2Geom) (t : Std.Usize)
@@ -54988,7 +54988,7 @@ def mixer.stage2_pool_task
     chart.pool.FirstErr.record core.cmp.OrdU128 first i2 se
 
 /-- [apeiron_word::mixer::Stage2Ctx]
-    Source: '../../src/engine/mixer.rs', lines 2835:0-2843:1 -/
+    Source: '../../src/engine/mixer.rs', lines 2838:0-2846:1 -/
 structure mixer.Stage2Ctx where
   raw_f32 : Slice fp.F32
   z : Slice Std.I64
@@ -54999,14 +54999,14 @@ structure mixer.Stage2Ctx where
   first : chart.pool.FirstErr Std.U128 step.StepError
 
 /-- [apeiron_word::mixer::{impl apeiron_word::chart::task::IndexTask for apeiron_word::mixer::Stage2Ctx<'_0>}::run]:
-    Source: '../../src/engine/mixer.rs', lines 2846:4-2857:5 -/
+    Source: '../../src/engine/mixer.rs', lines 2849:4-2860:5 -/
 def mixer.Stage2Ctx.Insts.Apeiron_wordChartTaskIndexTask.run
   (self : mixer.Stage2Ctx) (t : Std.Usize) : Result Unit := do
   mixer.stage2_pool_task self.raw_f32 self.z self.ssm_norm_f self.eps_f
     self.sg t self.writers self.first
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::IndexTask for apeiron_word::mixer::Stage2Ctx<'_0>}]
-    Source: '../../src/engine/mixer.rs', lines 2845:0-2858:1 -/
+    Source: '../../src/engine/mixer.rs', lines 2848:0-2861:1 -/
 @[reducible]
 def mixer.Stage2Ctx.Insts.Apeiron_wordChartTaskIndexTask : chart.task.IndexTask
   mixer.Stage2Ctx := {
@@ -55014,7 +55014,7 @@ def mixer.Stage2Ctx.Insts.Apeiron_wordChartTaskIndexTask : chart.task.IndexTask
 }
 
 /-- [apeiron_word::mixer::stage2_dispatch]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 2954:4-2961:1 -/
+    Source: '../../src/engine/mixer.rs', lines 2957:4-2964:1 -/
 @[rust_loop_body]
 def mixer.stage2_dispatch_loop.body
   (raw_f32 : Slice fp.F32) (z : Slice Std.I64) (ssm_norm_f : Slice fp.F32)
@@ -55034,7 +55034,7 @@ def mixer.stage2_dispatch_loop.body
   else ok (done (core.result.Result.Ok ()))
 
 /-- [apeiron_word::mixer::stage2_dispatch]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 2954:4-2961:1 -/
+    Source: '../../src/engine/mixer.rs', lines 2957:4-2964:1 -/
 @[rust_loop]
 def mixer.stage2_dispatch_loop
   (raw_f32 : Slice fp.F32) (z : Slice Std.I64) (ssm_norm_f : Slice fp.F32)
@@ -55048,7 +55048,7 @@ def mixer.stage2_dispatch_loop
     t
 
 /-- [apeiron_word::mixer::stage2_dispatch]:
-    Source: '../../src/engine/mixer.rs', lines 2925:0-2961:1 -/
+    Source: '../../src/engine/mixer.rs', lines 2928:0-2964:1 -/
 def mixer.stage2_dispatch
   (raw_f32 : Slice fp.F32) (z : Slice Std.I64) (ssm_norm_f : Slice fp.F32)
   (eps_f : fp.F32) (sg : mixer.Stage2Geom) (n_tasks : Std.Usize)
@@ -55070,7 +55070,7 @@ def mixer.stage2_dispatch
       0#usize
 
 /-- [apeiron_word::mixer::stage2_heads_flat]:
-    Source: '../../src/engine/mixer.rs', lines 2990:0-3027:1 -/
+    Source: '../../src/engine/mixer.rs', lines 2993:0-3030:1 -/
 def mixer.stage2_heads_flat
   (raw_f32 : Slice fp.F32) (z : Slice Std.I64) (ssm_norm_f : Slice fp.F32)
   (eps_f : fp.F32) (n_v_heads : Std.Usize) (head_v : Std.Usize)
@@ -55209,7 +55209,7 @@ def mixer.attn_heads_f32
       0#usize
 
 /-- [apeiron_word::mixer::delta_heads_f32]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 3996:4-3999:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3999:4-4002:5 -/
 @[rust_loop_body]
 def mixer.delta_heads_f32_loop.body
   (v : alloc.vec.Vec Std.I64) (ssm_norm_f : alloc.vec.Vec fp.F32)
@@ -55229,7 +55229,7 @@ def mixer.delta_heads_f32_loop.body
   else ok (done ssm_norm_f)
 
 /-- [apeiron_word::mixer::delta_heads_f32]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 3996:4-3999:5 -/
+    Source: '../../src/engine/mixer.rs', lines 3999:4-4002:5 -/
 @[rust_loop]
 def mixer.delta_heads_f32_loop
   (v : alloc.vec.Vec Std.I64) (ssm_norm_f : alloc.vec.Vec fp.F32)
@@ -55242,7 +55242,7 @@ def mixer.delta_heads_f32_loop
     (ssm_norm_f, ni)
 
 /-- [apeiron_word::mixer::delta_heads_f32]:
-    Source: '../../src/engine/mixer.rs', lines 3947:0-4100:1 -/
+    Source: '../../src/engine/mixer.rs', lines 3950:0-4103:1 -/
 def mixer.delta_heads_f32
   (layer : mixer.AffineLayer) (g : loader.AffineGeom)
   (p : loader.AffineVectors) (fa : mixer.FlatAffine) (eps : Std.I64)
@@ -55588,7 +55588,7 @@ def mixer.delta_heads_f32
     ok (core.result.Result.Err (step.StepError.BadConfig s))
 
 /-- [apeiron_word::mixer::delta_heads_flat]:
-    Source: '../../src/engine/mixer.rs', lines 4510:0-4536:1 -/
+    Source: '../../src/engine/mixer.rs', lines 4513:0-4539:1 -/
 def mixer.delta_heads_flat
   (layer : mixer.AffineLayer) (g : loader.AffineGeom)
   (p : loader.AffineVectors) (fa : mixer.FlatAffine) (eps : Std.I64)
@@ -55634,7 +55634,7 @@ def mixer.delta_heads_flat
         else mixer.delta_heads_q32 layer g p fa eps parallel snapshot1 chunked
 
 /-- [apeiron_word::mixer::flatten_affine_vecs]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 2738:4-2752:5 -/
+    Source: '../../src/engine/mixer.rs', lines 2741:4-2755:5 -/
 @[rust_loop_body]
 def mixer.flatten_affine_vecs_loop.body
   (conv_cols : Slice (alloc.vec.Vec Std.I64))
@@ -55691,7 +55691,7 @@ def mixer.flatten_affine_vecs_loop.body
   else ok (done (v, v1, v2, v3, b))
 
 /-- [apeiron_word::mixer::flatten_affine_vecs]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 2738:4-2752:5 -/
+    Source: '../../src/engine/mixer.rs', lines 2741:4-2755:5 -/
 @[rust_loop]
 def mixer.flatten_affine_vecs_loop
   (conv_cols : Slice (alloc.vec.Vec Std.I64))
@@ -55711,7 +55711,7 @@ def mixer.flatten_affine_vecs_loop
     (v, v1, v2, v3, b, i)
 
 /-- [apeiron_word::mixer::flatten_affine_vecs]:
-    Source: '../../src/engine/mixer.rs', lines 2719:0-2754:1 -/
+    Source: '../../src/engine/mixer.rs', lines 2722:0-2757:1 -/
 def mixer.flatten_affine_vecs
   (conv_cols : Slice (alloc.vec.Vec Std.I64))
   (z_cols : Slice (alloc.vec.Vec Std.I64))
@@ -55744,7 +55744,7 @@ def mixer.flatten_affine_vecs
   ok { conv := v4, z := v5, b := v6, a := v7, k, bad := b1 }
 
 /-- [apeiron_word::mixer::delta_heads_vecs_impl]:
-    Source: '../../src/engine/mixer.rs', lines 4549:0-4575:1 -/
+    Source: '../../src/engine/mixer.rs', lines 4552:0-4578:1 -/
 def mixer.delta_heads_vecs_impl
   (layer : mixer.AffineLayer) (g : loader.AffineGeom)
   (p : loader.AffineVectors) (conv_cols : Slice (alloc.vec.Vec Std.I64))
@@ -55851,7 +55851,7 @@ def mixer.delta_heads_cols_vecs
     parallel snapshot carrier
 
 /-- [apeiron_word::mixer::{apeiron_word::mixer::AffineLayer}::snapshot_conv_after]: loop body 0:
-    Source: '../../src/engine/mixer.rs', lines 4659:20-4661:21 -/
+    Source: '../../src/engine/mixer.rs', lines 4662:20-4664:21 -/
 @[rust_loop_body]
 def mixer.AffineLayer.snapshot_conv_after_loop.body
   (iter : core.slice.iter.Iter Std.I64) (dst : alloc.vec.Vec fp.F32) :
@@ -55867,7 +55867,7 @@ def mixer.AffineLayer.snapshot_conv_after_loop.body
     ok (cont (iter1, dst1))
 
 /-- [apeiron_word::mixer::{apeiron_word::mixer::AffineLayer}::snapshot_conv_after]: loop 0:
-    Source: '../../src/engine/mixer.rs', lines 4659:20-4661:21 -/
+    Source: '../../src/engine/mixer.rs', lines 4662:20-4664:21 -/
 @[rust_loop]
 def mixer.AffineLayer.snapshot_conv_after_loop
   (iter : core.slice.iter.Iter Std.I64) (dst : alloc.vec.Vec fp.F32) :
@@ -55879,7 +55879,7 @@ def mixer.AffineLayer.snapshot_conv_after_loop
     (iter, dst)
 
 /-- [apeiron_word::mixer::{apeiron_word::mixer::AffineLayer}::snapshot_conv_after]:
-    Source: '../../src/engine/mixer.rs', lines 4644:4-4666:5 -/
+    Source: '../../src/engine/mixer.rs', lines 4647:4-4669:5 -/
 def mixer.AffineLayer.snapshot_conv_after
   (self : mixer.AffineLayer) (src : mixer.AffineLayer) (x0 : Slice Std.I64) :
   Result mixer.AffineLayer
@@ -99056,6 +99056,691 @@ def solve_port.inv.inv_factor_upper
         (alloc.vec.Vec Std.I64) (core.convert.FromSame
         solve_port.chol.SolveError) residual
 
+/-- [apeiron_word::solve_port::q32::Q32Error]
+    Source: '../../src/learn/solve/q32.rs', lines 140:0-149:1
+    Visibility: public -/
+@[discriminant isize]
+inductive solve_port.q32.Q32Error where
+| Overflow : solve_port.q32.Q32Error
+| NotSpd : solve_port.q32.Q32Error
+| Asymmetric : solve_port.q32.Q32Error
+| ShapeMismatch : solve_port.q32.Q32Error
+
+/-- [apeiron_word::solve_port::q32::ilog2_pos]: loop body 0:
+    Source: '../../src/learn/solve/q32.rs', lines 163:4-166:5
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.q32.ilog2_pos_loop.body
+  (v : Std.U128) (n : Std.U32) :
+  Result (ControlFlow (Std.U128 × Std.U32) Std.U32)
+  := do
+  if v > 1#u128
+  then let v1 ← v >>> 1#i32
+       let n1 ← n + 1#u32
+       ok (cont (v1, n1))
+  else ok (done n)
+
+/-- [apeiron_word::solve_port::q32::ilog2_pos]: loop 0:
+    Source: '../../src/learn/solve/q32.rs', lines 163:4-166:5
+    Visibility: public -/
+@[rust_loop]
+def solve_port.q32.ilog2_pos_loop
+  (v : Std.U128) (n : Std.U32) : Result Std.U32 := do
+  loop
+    (fun (v1, n1) => solve_port.q32.ilog2_pos_loop.body v1 n1)
+    (v, n)
+
+/-- [apeiron_word::solve_port::q32::ilog2_pos]:
+    Source: '../../src/learn/solve/q32.rs', lines 157:0-168:1
+    Visibility: public -/
+def solve_port.q32.ilog2_pos (x : Std.U128) : Result (Option Std.U32) := do
+  if x = 0#u128
+  then ok none
+  else let n ← solve_port.q32.ilog2_pos_loop x 0#u32
+       ok (some n)
+
+/-- [apeiron_word::solve_port::q32::rshift_rne]:
+    Source: '../../src/learn/solve/q32.rs', lines 181:0-210:1
+    Visibility: public -/
+def solve_port.q32.rshift_rne
+  (v : Std.I128) (s : Std.U32) : Result (Option Std.I128) := do
+  if s > 126#u32
+  then ok none
+  else
+    if s = 0#u32
+    then ok (some v)
+    else
+      let d ← 1#i128 <<< s
+      let i ← s - 1#u32
+      let half ← 1#i128 <<< i
+      let q ← v / d
+      let r ← v % d
+      if r = 0#i128
+      then ok (some q)
+      else
+        let mag ← if r > 0#i128
+                    then ok r
+                    else -. r
+        let step ←
+          if mag > half
+          then if r > 0#i128
+               then ok 1#i128
+               else ok (-1)#i128
+          else
+            if mag < half
+            then ok 0#i128
+            else
+              do
+              let i1 ← q % 2#i128
+              if i1 = 0#i128
+              then ok 0#i128
+              else if r > 0#i128
+                   then ok 1#i128
+                   else ok (-1)#i128
+        let i1 ← q + step
+        ok (some i1)
+
+/-- [apeiron_word::solve_port::q32::narrow_i64]:
+    Source: '../../src/learn/solve/q32.rs', lines 213:0-219:1 -/
+def solve_port.q32.narrow_i64 (v : Std.I128) : Result (Option Std.I64) := do
+  let i ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+  if v > i
+  then ok none
+  else
+    let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+    if v < i1
+    then ok none
+    else let i2 ← lift (IScalar.cast .I64 v)
+         ok (some i2)
+
+/-- [apeiron_word::solve_port::q32::magnitude_i128]:
+    Source: '../../src/learn/solve/q32.rs', lines 222:0-228:1 -/
+def solve_port.q32.magnitude_i128 (v : Std.I128) : Result Std.U128 := do
+  if v < 0#i128
+  then
+    let i ← lift (IScalar.hcast .U128 v)
+    let i1 ← lift (~~~ i)
+    i1 + 1#u128
+  else ok (IScalar.hcast .U128 v)
+
+/-- [apeiron_word::solve_port::q32::round_q32_even]:
+    Source: '../../src/learn/solve/q32.rs', lines 241:0-246:1
+    Visibility: public -/
+def solve_port.q32.round_q32_even
+  (v : Std.I128) :
+  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
+  := do
+  let o ← solve_port.q32.rshift_rne v 32#u32
+  match o with
+  | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+  | some r =>
+    let o1 ← solve_port.q32.narrow_i64 r
+    core.option.Option.ok_or o1 solve_port.q32.Q32Error.Overflow
+
+/-- [apeiron_word::solve_port::q32::Fx]
+    Source: '../../src/learn/solve/q32.rs', lines 250:0-255:1
+    Visibility: public -/
+structure solve_port.q32.Fx where
+  m : Std.I64
+  e : Std.I32
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Fx}::from_i128]:
+    Source: '../../src/learn/solve/q32.rs', lines 274:4-311:5
+    Visibility: public -/
+def solve_port.q32.Fx.from_i128
+  (v : Std.I128) (e : Std.I32) :
+  Result (core.result.Result solve_port.q32.Fx solve_port.q32.Q32Error)
+  := do
+  if v = 0#i128
+  then ok (core.result.Result.Ok { m := 0#i64, e := 0#i32 })
+  else
+    let i ← solve_port.q32.magnitude_i128 v
+    let o ← solve_port.q32.ilog2_pos i
+    match o with
+    | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+    | some b =>
+      let bits ← b + 1#u32
+      let s ← if bits > 62#u32
+                then bits - 62#u32
+                else ok 0#u32
+      let o1 ← solve_port.q32.rshift_rne v s
+      match o1 with
+      | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+      | some x =>
+        let bound ← 1#i128 <<< 62#i32
+        if x >= bound
+        then
+          let s2 ← s + 1#u32
+          let o2 ← solve_port.q32.rshift_rne v s2
+          match o2 with
+          | none =>
+            ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+          | some x1 =>
+            let o3 ← solve_port.q32.narrow_i64 x1
+            match o3 with
+            | none =>
+              ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+            | some x2 =>
+              let i1 ← lift (UScalar.hcast .I32 s2)
+              let i2 ← e + i1
+              ok (core.result.Result.Ok { m := x2, e := i2 })
+        else
+          let i1 ← -. bound
+          if x <= i1
+          then
+            let s2 ← s + 1#u32
+            let o2 ← solve_port.q32.rshift_rne v s2
+            match o2 with
+            | none =>
+              ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+            | some x1 =>
+              let o3 ← solve_port.q32.narrow_i64 x1
+              match o3 with
+              | none =>
+                ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+              | some x2 =>
+                let i2 ← lift (UScalar.hcast .I32 s2)
+                let i3 ← e + i2
+                ok (core.result.Result.Ok { m := x2, e := i3 })
+          else
+            let o2 ← solve_port.q32.narrow_i64 x
+            match o2 with
+            | none =>
+              ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+            | some x1 =>
+              let i2 ← lift (UScalar.hcast .I32 s)
+              let i3 ← e + i2
+              ok (core.result.Result.Ok { m := x1, e := i3 })
+
+/-- [apeiron_word::solve_port::q32::Bfp]
+    Source: '../../src/learn/solve/q32.rs', lines 316:0-322:1
+    Visibility: public -/
+structure solve_port.q32.Bfp where
+  m : alloc.vec.Vec Std.I64
+  e : Std.I32
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Bfp}::from_i128]: loop body 0:
+    Source: '../../src/learn/solve/q32.rs', lines 348:8-355:9
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.q32.Bfp.from_i128_loop0.body
+  (v : Slice Std.I128) (n : Std.Usize) (max_mag : Std.U128)
+  (max_val : Std.I128) (i : Std.Usize) :
+  Result (ControlFlow (Std.U128 × Std.I128 × Std.Usize) (Std.U128 ×
+    Std.I128))
+  := do
+  if i < n
+  then
+    let i1 ← Slice.index_usize v i
+    let mag ← solve_port.q32.magnitude_i128 i1
+    let (max_mag1, max_val1) ←
+      if mag > max_mag
+      then ok (mag, i1)
+      else ok (max_mag, max_val)
+    let i2 ← i + 1#usize
+    ok (cont (max_mag1, max_val1, i2))
+  else ok (done (max_mag, max_val))
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Bfp}::from_i128]: loop 0:
+    Source: '../../src/learn/solve/q32.rs', lines 348:8-355:9
+    Visibility: public -/
+@[rust_loop]
+def solve_port.q32.Bfp.from_i128_loop0
+  (v : Slice Std.I128) (n : Std.Usize) (max_mag : Std.U128)
+  (max_val : Std.I128) (i : Std.Usize) :
+  Result (Std.U128 × Std.I128)
+  := do
+  loop
+    (fun (max_mag1, max_val1, i1) => solve_port.q32.Bfp.from_i128_loop0.body v
+      n max_mag1 max_val1 i1)
+    (max_mag, max_val, i)
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Bfp}::from_i128]: loop body 1:
+    Source: '../../src/learn/solve/q32.rs', lines 370:12-373:13
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.q32.Bfp.from_i128_loop1.body
+  (v : Slice Std.I128) (n : Std.Usize) (k : Std.U32)
+  (out : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < n
+  then
+    let i1 ← Slice.index_usize v i
+    let i2 ← i1 <<< k
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        out i
+    let i3 ← lift (IScalar.cast .I64 i2)
+    let i4 ← i + 1#usize
+    let out1 := index_mut_back i3
+    ok (cont (out1, i4))
+  else ok (done out)
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Bfp}::from_i128]: loop 1:
+    Source: '../../src/learn/solve/q32.rs', lines 370:12-373:13
+    Visibility: public -/
+@[rust_loop]
+def solve_port.q32.Bfp.from_i128_loop1
+  (v : Slice Std.I128) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (k : Std.U32) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (out1, i1) => solve_port.q32.Bfp.from_i128_loop1.body v n k out1 i1)
+    (out, i)
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Bfp}::from_i128]: loop body 2:
+    Source: '../../src/learn/solve/q32.rs', lines 387:8-393:9
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.q32.Bfp.from_i128_loop2.body
+  (v : Slice Std.I128) (n : Std.Usize) (s : Std.U32)
+  (out : alloc.vec.Vec Std.I64) (err : Option solve_port.q32.Q32Error)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← Slice.index_usize v i
+      let o ← solve_port.q32.rshift_rne i1 s
+      let (out1, err1) ←
+        match o with
+        | none => ok (out, some solve_port.q32.Q32Error.Overflow)
+        | some x =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) out i
+          let i2 ← lift (IScalar.cast .I64 x)
+          let out2 := index_mut_back i2
+          ok (out2, err)
+      let i2 ← i + 1#usize
+      ok (cont (out1, err1, i2))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Bfp}::from_i128]: loop 2:
+    Source: '../../src/learn/solve/q32.rs', lines 387:8-393:9
+    Visibility: public -/
+@[rust_loop]
+def solve_port.q32.Bfp.from_i128_loop2
+  (v : Slice Std.I128) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (s : Std.U32) (err : Option solve_port.q32.Q32Error) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.q32.Q32Error))
+  := do
+  loop
+    (fun (out1, err1, i1) => solve_port.q32.Bfp.from_i128_loop2.body v n s out1
+      err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Bfp}::from_i128]:
+    Source: '../../src/learn/solve/q32.rs', lines 343:4-401:5
+    Visibility: public -/
+def solve_port.q32.Bfp.from_i128
+  (v : Slice Std.I128) (e : Std.I32) :
+  Result (core.result.Result solve_port.q32.Bfp solve_port.q32.Q32Error)
+  := do
+  let n := Slice.len v
+  let (max_mag, max_val) ←
+    solve_port.q32.Bfp.from_i128_loop0 v n 0#u128 0#i128 0#usize
+  if max_mag = 0#u128
+  then
+    let v1 ← alloc.vec.from_elem core.clone.CloneI64 0#i64 n
+    ok (core.result.Result.Ok { m := v1, e })
+  else
+    let o ← solve_port.q32.ilog2_pos max_mag
+    match o with
+    | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+    | some b =>
+      let bits ← b + 1#u32
+      let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 n
+      if bits <= 35#u32
+      then
+        let k ← 35#u32 - bits
+        let out1 ← solve_port.q32.Bfp.from_i128_loop1 v n out k 0#usize
+        ok (core.result.Result.Ok { m := out1, e })
+      else
+        let s ← bits - 35#u32
+        let bound ← 1#i128 <<< 35#i32
+        let o1 ← solve_port.q32.rshift_rne max_val s
+        match o1 with
+        | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+        | some x =>
+          let s1 ←
+            if x >= bound
+            then s + 1#u32
+            else do
+                 let i ← -. bound
+                 if x <= i
+                 then s + 1#u32
+                 else ok s
+          let (out1, err) ←
+            solve_port.q32.Bfp.from_i128_loop2 v n out s1 none 0#usize
+          match err with
+          | none =>
+            let i ← lift (UScalar.hcast .I32 s1)
+            let i1 ← e + i
+            ok (core.result.Result.Ok { m := out1, e := i1 })
+          | some er => ok (core.result.Result.Err er)
+
+/-- [apeiron_word::solve_port::q32::scale_q32]:
+    Source: '../../src/learn/solve/q32.rs', lines 406:0-421:1 -/
+def solve_port.q32.scale_q32
+  (v : Std.I64) (shift : Std.I32) :
+  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
+  := do
+  if shift > 0#i32
+  then
+    let i ← lift (core.convert.num.FromI128I64.from v)
+    let i1 ← lift (IScalar.hcast .U32 shift)
+    let o ← solve_port.q32.rshift_rne i i1
+    match o with
+    | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+    | some x =>
+      let o1 ← solve_port.q32.narrow_i64 x
+      core.option.Option.ok_or o1 solve_port.q32.Q32Error.Overflow
+  else
+    if shift < 0#i32
+    then
+      let k ← -. shift
+      if k > 64#i32
+      then ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+      else
+        let i ← lift (core.convert.num.FromI128I64.from v)
+        let i1 ← i <<< k
+        let o ← solve_port.q32.narrow_i64 i1
+        core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
+    else ok (core.result.Result.Ok v)
+
+/-- [apeiron_word::solve_port::q32::SpdQ]
+    Source: '../../src/learn/solve/q32.rs', lines 426:0-431:1
+    Visibility: public -/
+structure solve_port.q32.SpdQ where
+  hat : alloc.vec.Vec Std.I64
+  d : alloc.vec.Vec Std.I32
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop body 0:
+    Source: '../../src/learn/solve/q32.rs', lines 468:8-475:9
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.q32.SpdQ.from_q32_loop0.body
+  (h : Slice Std.I64) (n : Std.Usize) (nn : Std.Usize) (symmetric : Bool)
+  (idx : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if idx < nn
+  then
+    let i ← idx / n
+    let j ← idx % n
+    let symmetric1 ←
+      if i < j
+      then
+        do
+        let i1 ← Slice.index_usize h idx
+        let i2 ← j * n
+        let i3 ← i2 + i
+        let i4 ← Slice.index_usize h i3
+        if i1 != i4
+        then ok false
+        else ok symmetric
+      else ok symmetric
+    let idx1 ← idx + 1#usize
+    ok (cont (symmetric1, idx1))
+  else ok (done symmetric)
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop 0:
+    Source: '../../src/learn/solve/q32.rs', lines 468:8-475:9
+    Visibility: public -/
+@[rust_loop]
+def solve_port.q32.SpdQ.from_q32_loop0
+  (h : Slice Std.I64) (n : Std.Usize) (nn : Std.Usize) (symmetric : Bool)
+  (idx : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (symmetric1, idx1) => solve_port.q32.SpdQ.from_q32_loop0.body h n nn
+      symmetric1 idx1)
+    (symmetric, idx)
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop body 1:
+    Source: '../../src/learn/solve/q32.rs', lines 482:8-493:9
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.q32.SpdQ.from_q32_loop1.body
+  (h : Slice Std.I64) (n : Std.Usize) (d : alloc.vec.Vec Std.I32)
+  (err : Option solve_port.q32.Q32Error) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I32) × (Option
+    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I32) × (Option
+    solve_port.q32.Q32Error)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * n
+      let i2 ← i1 + i
+      let hii ← Slice.index_usize h i2
+      let (d1, err1) ←
+        if hii < 1#i64
+        then ok (d, some solve_port.q32.Q32Error.NotSpd)
+        else
+          do
+          let i3 ← lift (IScalar.hcast .U128 hii)
+          let o ← solve_port.q32.ilog2_pos i3
+          match o with
+          | none => ok (d, some solve_port.q32.Q32Error.NotSpd)
+          | some bl =>
+            let i4 ← lift (UScalar.hcast .I32 bl)
+            let i5 ← i4 - 32#i32
+            let i6 ← i5 >>> 1#i32
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I32) d i
+            let d2 := index_mut_back i6
+            ok (d2, err)
+      let i3 ← i + 1#usize
+      ok (cont (d1, err1, i3))
+    else ok (done (d, err))
+  else ok (done (d, err))
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop 1:
+    Source: '../../src/learn/solve/q32.rs', lines 482:8-493:9
+    Visibility: public -/
+@[rust_loop]
+def solve_port.q32.SpdQ.from_q32_loop1
+  (h : Slice Std.I64) (n : Std.Usize) (d : alloc.vec.Vec Std.I32)
+  (err : Option solve_port.q32.Q32Error) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I32) × (Option solve_port.q32.Q32Error))
+  := do
+  loop
+    (fun (d1, err1, i1) => solve_port.q32.SpdQ.from_q32_loop1.body h n d1 err1
+      i1)
+    (d, err, i)
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop body 2:
+    Source: '../../src/learn/solve/q32.rs', lines 500:8-508:9
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.q32.SpdQ.from_q32_loop2.body
+  (h : Slice Std.I64) (n : Std.Usize) (nn : Std.Usize)
+  (d : alloc.vec.Vec Std.I32) (hat : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.q32.Q32Error) (idx : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error)))
+  := do
+  if idx < nn
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← idx / n
+      let j ← idx % n
+      let i1 ← Slice.index_usize h idx
+      let i2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I32) d i
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I32) d j
+      let i4 ← i2 + i3
+      let r ← solve_port.q32.scale_q32 i1 i4
+      let (hat1, err1) ←
+        match r with
+        | core.result.Result.Ok x =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) hat idx
+          let hat2 := index_mut_back x
+          ok (hat2, err)
+        | core.result.Result.Err er => ok (hat, some er)
+      let idx1 ← idx + 1#usize
+      ok (cont (hat1, err1, idx1))
+    else ok (done (hat, err))
+  else ok (done (hat, err))
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop 2:
+    Source: '../../src/learn/solve/q32.rs', lines 500:8-508:9
+    Visibility: public -/
+@[rust_loop]
+def solve_port.q32.SpdQ.from_q32_loop2
+  (h : Slice Std.I64) (n : Std.Usize) (nn : Std.Usize)
+  (d : alloc.vec.Vec Std.I32) (hat : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.q32.Q32Error) (idx : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.q32.Q32Error))
+  := do
+  loop
+    (fun (hat1, err1, idx1) => solve_port.q32.SpdQ.from_q32_loop2.body h n nn d
+      hat1 err1 idx1)
+    (hat, err, idx)
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]:
+    Source: '../../src/learn/solve/q32.rs', lines 455:4-513:5
+    Visibility: public -/
+def solve_port.q32.SpdQ.from_q32
+  (h : Slice Std.I64) (n : Std.Usize) :
+  Result (core.result.Result solve_port.q32.SpdQ solve_port.q32.Q32Error)
+  := do
+  if n = 0#usize
+  then ok (core.result.Result.Err solve_port.q32.Q32Error.ShapeMismatch)
+  else
+    let o ← lift (Usize.checked_mul n n)
+    match o with
+    | none => ok (core.result.Result.Err solve_port.q32.Q32Error.ShapeMismatch)
+    | some v =>
+      let i := Slice.len h
+      if i != v
+      then ok (core.result.Result.Err solve_port.q32.Q32Error.ShapeMismatch)
+      else
+        let symmetric ← solve_port.q32.SpdQ.from_q32_loop0 h n v true 0#usize
+        if symmetric
+        then
+          let d ← alloc.vec.from_elem core.clone.CloneI32 0#i32 n
+          let (d1, err) ←
+            solve_port.q32.SpdQ.from_q32_loop1 h n d none 0#usize
+          match err with
+          | none =>
+            let hat ← alloc.vec.from_elem core.clone.CloneI64 0#i64 v
+            let (hat1, err1) ←
+              solve_port.q32.SpdQ.from_q32_loop2 h n v d1 hat none 0#usize
+            match err1 with
+            | none => ok (core.result.Result.Ok { hat := hat1, d := d1 })
+            | some er => ok (core.result.Result.Err er)
+          | some er => ok (core.result.Result.Err er)
+        else ok (core.result.Result.Err solve_port.q32.Q32Error.Asymmetric)
+
+/-- [apeiron_word::solve_port::q32::round_f16]:
+    Source: '../../src/learn/solve/q32.rs', lines 573:0-612:1
+    Visibility: public -/
+def solve_port.q32.round_f16
+  (x : solve_port.q32.Fx) :
+  Result (core.result.Result solve_port.q32.Fx solve_port.q32.Q32Error)
+  := do
+  if x.m = 0#i64
+  then ok (core.result.Result.Ok { m := 0#i64, e := 0#i32 })
+  else
+    let i ← lift (core.convert.num.FromI128I64.from x.m)
+    let i1 ← solve_port.q32.magnitude_i128 i
+    let o ← solve_port.q32.ilog2_pos i1
+    match o with
+    | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+    | some b =>
+      let i2 ← lift (UScalar.hcast .I32 b)
+      let big_e ← i2 + x.e
+      let q ← if big_e < (-14)#i32
+                then ok (-24)#i32
+                else big_e - 10#i32
+      let shift ← x.e - q
+      if shift >= 0#i32
+      then
+        let i3 ← lift (core.convert.num.FromI128I64.from x.m)
+        let r128 ← i3 <<< shift
+        if big_e >= 16#i32
+        then ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+        else
+          if big_e = 15#i32
+          then
+            let rm ← if r128 < 0#i128
+                       then -. r128
+                       else ok r128
+            if rm >= 2048#i128
+            then ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+            else
+              let o1 ← solve_port.q32.narrow_i64 r128
+              match o1 with
+              | none =>
+                ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+              | some v => ok (core.result.Result.Ok { m := v, e := q })
+          else
+            let o1 ← solve_port.q32.narrow_i64 r128
+            match o1 with
+            | none =>
+              ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+            | some v => ok (core.result.Result.Ok { m := v, e := q })
+      else
+        let s ← -. shift
+        if s > 126#i32
+        then ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+        else
+          let i3 ← lift (core.convert.num.FromI128I64.from x.m)
+          let i4 ← lift (IScalar.hcast .U32 s)
+          let o1 ← solve_port.q32.rshift_rne i3 i4
+          match o1 with
+          | none =>
+            ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+          | some v =>
+            if big_e >= 16#i32
+            then ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+            else
+              if big_e = 15#i32
+              then
+                let rm ← if v < 0#i128
+                           then -. v
+                           else ok v
+                if rm >= 2048#i128
+                then
+                  ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+                else
+                  let o2 ← solve_port.q32.narrow_i64 v
+                  match o2 with
+                  | none =>
+                    ok (core.result.Result.Err
+                      solve_port.q32.Q32Error.Overflow)
+                  | some v1 => ok (core.result.Result.Ok { m := v1, e := q })
+              else
+                let o2 ← solve_port.q32.narrow_i64 v
+                match o2 with
+                | none =>
+                  ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+                | some v1 => ok (core.result.Result.Ok { m := v1, e := q })
+
 /-- [apeiron_word::solve_port::syrk::MAX_O]
     Source: '../../src/learn/solve/syrk.rs', lines 42:0-42:29 -/
 @[global_simps, irreducible]
@@ -110996,5 +111681,64 @@ def solve_port.word_solve_top_eigh
   Result (core.result.Result solve_port.eig.TopEig solve_port.eig.EigError)
   := do
   solve_port.eig.top_eigh m n r threads
+
+/-- [apeiron_word::solve_port::word_solve_q32_ilog2_pos]:
+    Source: 'solve_port.rs', lines 92:0-94:1
+    Visibility: public -/
+def solve_port.word_solve_q32_ilog2_pos
+  (x : Std.U128) : Result (Option Std.U32) := do
+  solve_port.q32.ilog2_pos x
+
+/-- [apeiron_word::solve_port::word_solve_q32_rshift_rne]:
+    Source: 'solve_port.rs', lines 97:0-99:1
+    Visibility: public -/
+def solve_port.word_solve_q32_rshift_rne
+  (v : Std.I128) (s : Std.U32) : Result (Option Std.I128) := do
+  solve_port.q32.rshift_rne v s
+
+/-- [apeiron_word::solve_port::word_solve_q32_round_even]:
+    Source: 'solve_port.rs', lines 102:0-104:1
+    Visibility: public -/
+def solve_port.word_solve_q32_round_even
+  (v : Std.I128) :
+  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
+  := do
+  solve_port.q32.round_q32_even v
+
+/-- [apeiron_word::solve_port::word_solve_q32_fx_from_i128]:
+    Source: 'solve_port.rs', lines 107:0-109:1
+    Visibility: public -/
+def solve_port.word_solve_q32_fx_from_i128
+  (v : Std.I128) (e : Std.I32) :
+  Result (core.result.Result solve_port.q32.Fx solve_port.q32.Q32Error)
+  := do
+  solve_port.q32.Fx.from_i128 v e
+
+/-- [apeiron_word::solve_port::word_solve_q32_bfp_from_i128]:
+    Source: 'solve_port.rs', lines 112:0-114:1
+    Visibility: public -/
+def solve_port.word_solve_q32_bfp_from_i128
+  (v : Slice Std.I128) (e : Std.I32) :
+  Result (core.result.Result solve_port.q32.Bfp solve_port.q32.Q32Error)
+  := do
+  solve_port.q32.Bfp.from_i128 v e
+
+/-- [apeiron_word::solve_port::word_solve_q32_spd_from_q32]:
+    Source: 'solve_port.rs', lines 117:0-119:1
+    Visibility: public -/
+def solve_port.word_solve_q32_spd_from_q32
+  (h : Slice Std.I64) (n : Std.Usize) :
+  Result (core.result.Result solve_port.q32.SpdQ solve_port.q32.Q32Error)
+  := do
+  solve_port.q32.SpdQ.from_q32 h n
+
+/-- [apeiron_word::solve_port::word_solve_q32_round_f16]:
+    Source: 'solve_port.rs', lines 122:0-124:1
+    Visibility: public -/
+def solve_port.word_solve_q32_round_f16
+  (x : solve_port.q32.Fx) :
+  Result (core.result.Result solve_port.q32.Fx solve_port.q32.Q32Error)
+  := do
+  solve_port.q32.round_f16 x
 
 end apeiron_word
