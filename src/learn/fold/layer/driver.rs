@@ -1,51 +1,37 @@
 //! The per-layer driver of the production `fold_gqa` fold transfer: the four stage folds, the
 //! student-path propagation and the model loop.
 //!
-//! Port of the per-layer loop of `run_variant` in the read-only spec
-//! `~/lanes/port/spec/fold_transfer.py` (`:1479-1532`, `:1538-1690`, `:1692-2030`)
-//! and of the final-norm tail (`:2034-2040`). The production arm is the only one present: mode
-//! `fold_gqa`, the student-input path (`teacher_in = false`), `block` with `block_alpha = 1.0`,
+//! Port of the per-layer loop and final-norm tail of `run_variant`
+//! (`~/lanes/port/spec/fold_transfer.py:1479-1690`, `:1692-2040`). The production
+//! arm is the only one present: `fold_gqa`, the student-input path (`teacher_in = false`), `block`,
 //! `sink_gate`, `split_intra_inter`, `use_grow`, `q_mlp_trans`, `nb_arm`, `use_corr`, `use_resq`,
-//! `qronos_metric`, `bscale`, `e8_icm`. The `guided`, `yaqa*`, `drift_filter`, `rrr_mode`,
-//! `zellner`, `glu_comp`, `use_align`, `asym`, `skew`, `teacher_in`, `low_vram`/device-splitting and
-//! `PACK_SINK` branches are off and absent (no parameters, no stubs); the `SinkPlane` data lives in
-//! each [`TensorFit`].
+//! `qronos_metric`, `bscale`, `e8_icm`; the `guided`, `yaqa*`, `drift_filter`, `rrr_mode`,
+//! `zellner`, `glu_comp`, `use_align`, `asym`, `skew`, `teacher_in`, `low_vram` and `PACK_SINK`
+//! branches are off and absent (no parameters, no stubs).
 //!
-//! # The layer, in order
+//! One layer runs `qkv`, `o`, `ffn`, `down` (`STAGES`, `:49`): each accumulates the sink-weighted
+//! normal equations over the slabs ([`StageAccum`]), solves them ([`solve_stage`]) and fits every
+//! tensor ([`fit_tensor`]), writing `Lq[nm] = Wp` into the running student layer (`:1954`);
+//! [`sink_token_weights`] takes its median over one slab's positions (`:1592-1597`).
 //!
-//! One layer runs the four stages `qkv`, `o`, `ffn`, `down` (`STAGES`, `:49`). For each stage the
-//! driver accumulates the sink-weighted normal equations over the calibration slabs
-//! ([`StageAccum`]), solves them ([`solve_stage`]) and fits every tensor of the stage
-//! ([`fit_tensor`]), writing the quantised weight back into the running student layer `Lq` as the
-//! script does (`Lq[nm] = Wp`, `:1954`). The student path is threaded through the stages:
+//! # The carrier
 //!
-//! ```text
-//! hs_mid = hs + attn(Lq, rms(hs, ln1))·Lq.oᵀ            # after the `o` stage
-//! hs_out = hs_mid + silu(rms(hs_mid, ln2)·Lq.gateᵀ)·(…)·Lq.downᵀ   # after the `down` stage
-//! ht_next = teacher parts(ht).out                       # the next layer's teacher input
-//! ```
-//!
-//! so `hs_out` is exactly the per-sequence [`parts`] forward on the fitted `Lq` (including the
-//! updated `q`/`k`/`v` biases), which the gate's `hs == parts(&lq)` test pins.
-//!
-//! The attention of the `o` stage (`Pin_in`) and its teacher target `Y_ts` are per-sequence
-//! [`attn_a`] calls, looped over the slab's sequences ([`attn_batch`]); every other stage input is a
-//! whole-slab [`rms`]/[`linear`]/[`silu`] pass. The slab size matters: [`sink_token_weights`] takes
-//! its median over the slab's positions `>= 1`, so the slab population is built per slab
-//! (`:1592-1597`), never over the whole calibration set.
+//! Every computed value is a Q32.32 `i64` word, rounded once per step
+//! ([`crate::learn::solve::q32`]); leaving the range is [`DriverError::Grid`]. The `f64` arguments,
+//! returns and [`LayerWeights`] fields are the boundary, converted once per call; a kernel is one
+//! serial pass, and a stage's tensors are fitted serially because the pool dispatcher is not
+//! reentrant.
 //!
 //! # Grade
 //!
-//! `tested`: the gate's `cargo test` on the build path (`tests/learn_fold_driver.rs`). No extraction
-//! or refinement links this file to a Lean theorem, so nothing here is `proved`.
+//! `tested`: `tests/learn_fold_driver.rs`. No extraction or refinement links this file to a Lean
+//! theorem, so nothing here is `proved`.
 //!
 //! # Trust boundary
 //!
-//! The stage statistics and solve (`layer::stage`), the per-tensor assembly (`layer::tensor`), the
-//! `-resq` fold (`layer::resq`), the forward (`stats::parts`) and the norm fit (`fit::fnorm`) are
-//! other modules' contracts and are taken as given. Not covered: rustc/LLVM codegen, the fp32
-//! accumulation the reference uses, the model loader that produces the weight tensors, and the
-//! calibration set.
+//! `layer::stage`, `layer::tensor`, `layer::resq`, `stats::parts` and `fit::fnorm` are other
+//! modules' contracts, taken as given. Not covered: rustc/LLVM codegen, the reference's fp32
+//! accumulation, and the model loader and calibration set behind the inputs.
 
 #![allow(
     clippy::cast_precision_loss,
@@ -72,14 +58,18 @@ use crate::learn::fold::layer::resq::{resq_scale, ResqError, ResqInputs};
 use crate::learn::fold::layer::stage::{
     sink_token_weights, solve_stage, SolveParams, StageAccum, StageError,
 };
+use crate::learn::fold::layer::tensor::carrier::{
+    col_squares, eval, grids, ratio, ratio_words, reals, silu_grid, sum_i128, Elem,
+};
 use crate::learn::fold::layer::tensor::{
     fit_tensor, fold_row_scale, BiasStats, TensorBits, TensorError, TensorFit, TensorKind,
     TensorParams,
 };
 use crate::learn::fold::stats::hocapture::Kind;
 use crate::learn::fold::stats::parts::{
-    attn_a, linear, parts, rms, silu, LayerCfg, LayerF64, PartsError, RopeTables,
+    attn_a, linear, parts, rms, LayerCfg, LayerF64, PartsError, RopeTables,
 };
+use crate::learn::solve::q32::Q32Error;
 
 /// A refusal from the layer driver.
 #[derive(Clone, Debug, PartialEq)]
@@ -93,6 +83,9 @@ pub enum DriverError {
     TinySeq,
     /// An input entry (a weight, a hidden state or the `ln_next` source) is not finite.
     NonFinite,
+    /// A value reaches the Q32.32 grid bound `|x| < 2³¹`, or a checked `i128`/`i64` operation
+    /// leaves its range.
+    Grid,
     /// The layer forward refused (`stats::parts`).
     Parts(PartsError),
     /// The stage statistics or solve refused (`layer::stage`).
@@ -135,6 +128,15 @@ impl From<FnormError> for DriverError {
     }
 }
 
+impl From<Q32Error> for DriverError {
+    fn from(e: Q32Error) -> Self {
+        match e {
+            Q32Error::ShapeMismatch => Self::Shape,
+            _ => Self::Grid,
+        }
+    }
+}
+
 impl core::fmt::Display for DriverError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -142,6 +144,7 @@ impl core::fmt::Display for DriverError {
             Self::Geometry => write!(f, "invalid slab, sequence count or layer geometry"),
             Self::TinySeq => write!(f, "t < 2: no sink median population"),
             Self::NonFinite => write!(f, "an input entry is not finite"),
+            Self::Grid => write!(f, "a value or operation left the Q32.32 carrier's range"),
             Self::Parts(e) => write!(f, "the layer forward refused: {e:?}"),
             Self::Stage(e) => write!(f, "the stage statistics refused: {e:?}"),
             Self::Tensor(e) => write!(f, "the per-tensor assembly refused: {e}"),
@@ -207,11 +210,9 @@ impl LayerWeights {
 
 /// The driver's geometry, hyper-parameters and per-stage fit configuration.
 ///
-/// `quant_ridge`/`quant_damp` are the `qronos_metric` constants the stage ridges are scaled from:
-/// for a stage of input width `n`, `rg_q = quant_ridge·(n/896)` and `damp = quant_damp·(n/896)`
-/// (`fold_transfer.py:1692-1693`). `fit` carries the fixed production flags (`inner_iters` 3,
-/// `e8_beam` 4, `icm_ridge` 0.20, `iters` 1, `sweeps` 2); its `ridge`/`damp` are overwritten per
-/// stage from the two constants above.
+/// For a stage of input width `n`, `rg_q = quant_ridge·(n/896)` and `damp = quant_damp·(n/896)`
+/// (`fold_transfer.py:1692-1693`). `fit` carries the fixed flags (`inner_iters` 3, `e8_beam` 4,
+/// `icm_ridge` 0.20, `iters` 1, `sweeps` 2); its `ridge`/`damp` are overwritten per stage.
 #[derive(Clone, Copy, Debug)]
 pub struct DriverCfg {
     /// The layer geometry.
@@ -288,7 +289,7 @@ pub struct LayerResult {
 /// The resumable state of a model-level transfer run: the layers quantised so far, the teacher and
 /// student hidden states they leave, the bit sum and the per-layer fits.
 ///
-/// [`quantise_model`] is [`model_init`] + one [`model_step`] + the untouched-layer copy +
+/// [`quantise_model`] is [`model_init`] + [`model_step`] + the untouched-layer copy +
 /// [`model_finish`]; a checkpointed run is the same calls split across invocations. The checkpoint
 /// ([`crate::learn::fold::run::transfer::save`]) writes the weights, the hidden states and `bits`,
 /// not `fits`, so a loaded state carries one empty fit vector per finished layer.
@@ -476,15 +477,13 @@ fn add_bits(a: TensorBits, b: &TensorBits) -> TensorBits {
     }
 }
 
-/// `g_row = sq / mean(sq).clamp_min(1e-12)` (`fold_transfer.py:1706`, `:1710`): the per-row weight
-/// normalised to mean `1`; an all-zero input gives an all-zero vector (the `1e-12` clamp), never a
-/// NaN.
-///
-/// # Complexity
-/// Temporal and spatial `O(len)`. Derivation: one sum for the mean, one scale pass.
+/// `g_row = sq / mean(sq)` (`fold_transfer.py:1706`, `:1710`): the per-row weight normalised to mean
+/// `1`, floored at one grid quantum so an all-zero input gives zeros, never a NaN.
 ///
 /// # Errors
-/// [`DriverError::Shape`] if `sq` is empty; [`DriverError::NonFinite`] if an entry is not finite.
+/// [`DriverError::Shape`] if `v` is empty; [`DriverError::NonFinite`] on a non-finite entry;
+/// [`DriverError::Grid`] if an entry or an operation leaves the carrier's range. Temporal `O(len)`
+/// (one square pass, one `i128` sum, one divide, one ratio pass); spatial `O(len)`.
 pub fn g_row_from_vec(v: &[f64]) -> Result<Vec<f64>, DriverError> {
     if v.is_empty() {
         return Err(DriverError::Shape);
@@ -492,51 +491,44 @@ pub fn g_row_from_vec(v: &[f64]) -> Result<Vec<f64>, DriverError> {
     if !finite(v) {
         return Err(DriverError::NonFinite);
     }
-    let sq: Vec<f64> = v.iter().map(|x| x * x).collect();
-    Ok(normalize(sq))
-}
-
-/// The mean-`1` normalisation of a squared row weight.
-fn normalize(sq: Vec<f64>) -> Vec<f64> {
-    let mean = sq.iter().sum::<f64>() / sq.len() as f64;
-    let denom = mean.max(1e-12);
-    sq.into_iter().map(|x| x / denom).collect()
+    let q = grids(v)?;
+    let sq = eval(q.len(), Elem::Square(&q))?;
+    let len = i128::try_from(q.len()).map_err(|_| DriverError::Shape)?;
+    // `len` as a word, so the ratio is `Σ sq / len` (a mean) rather than `Σ sq / len·2³²`.
+    let mean = ratio(sum_i128(&sq)?, len << 32)?;
+    Ok(reals(&eval(sq.len(), Elem::Ratio(&sq, mean.max(1)))?))
 }
 
 /// `g_row` for the `gate`/`up` stage: the column sums of squares of the teacher `down`
-/// (`(Lt["down"] ** 2).sum(0)`, `:1705`), normalised to mean `1`.
-///
-/// `w` is row-major `[rows, cols]`; the result has length `cols`.
-///
-/// # Complexity
-/// Temporal `O(rows·cols)`; spatial `O(cols)`.
+/// (`(Lt["down"] ** 2).sum(0)`, `:1705`), normalised to mean `1`. `w` is row-major `[rows, cols]`;
+/// the result has length `cols`, the column sums exact in `i128`.
 ///
 /// # Errors
-/// [`DriverError::Shape`] if `w.len() != rows·cols` or `cols == 0`; [`DriverError::NonFinite`] if an
-/// entry is not finite.
+/// [`DriverError::Shape`] if `w.len() != rows·cols` or `cols == 0`; [`DriverError::NonFinite`] on a
+/// non-finite entry; [`DriverError::Grid`] if an entry, a sum or a division leaves the range.
+/// Temporal `O(rows·cols)`; spatial `O(cols)`.
 pub fn g_row_from_matrix(w: &[f64], rows: usize, cols: usize) -> Result<Vec<f64>, DriverError> {
-    if cols == 0 || w.len() != rows * cols {
+    let rc = rows.checked_mul(cols).ok_or(DriverError::Shape)?;
+    if cols == 0 || w.len() != rc {
         return Err(DriverError::Shape);
     }
     if !finite(w) {
         return Err(DriverError::NonFinite);
     }
-    let mut sq = vec![0.0_f64; cols];
-    for r in 0..rows {
-        for c in 0..cols {
-            let x = w[r * cols + c];
-            sq[c] += x * x;
-        }
+    let wq = grids(w)?;
+    let sums = col_squares(&wq, rows, cols)?;
+    let mut total = 0_i128;
+    for &s in &sums {
+        total = total.checked_add(s).ok_or(DriverError::Grid)?;
     }
-    Ok(normalize(sq))
+    let den = i128::try_from(cols).map_err(|_| DriverError::Grid)? << 32;
+    Ok(reals(&ratio_words(&sums, ratio(total, den)?.max(1))?))
 }
 
 /// The batched teacher forward: [`parts`] per sequence of the slab, concatenated (`:1533`). `h` is
-/// row-major `[seqs·t, hidden]`; the result fields are row-major `[seqs·t, width]`.
-///
-/// # Complexity
-/// Temporal `O(seqs · (t·(n_head·head_dim·hidden + inter·hidden) + t²·n_head·head_dim))` (one
-/// [`parts`] per sequence); spatial `O(seqs·t·(hidden + head widths + inter))`.
+/// row-major `[seqs·t, hidden]`; the result fields are row-major `[seqs·t, width]`. Temporal
+/// `O(seqs·t·(n_head·head_dim·hidden + inter·hidden) + seqs·t²·n_head·head_dim)`, one [`parts`] per
+/// sequence; spatial `O(seqs·t·(hidden + head widths + inter))`.
 ///
 /// # Errors
 /// As [`parts`], wrapped: [`DriverError::Shape`] on a slice or geometry mismatch, and the forward's
@@ -567,6 +559,7 @@ fn batch_parts(
         u: Vec::with_capacity(rows * inter),
         out: Vec::with_capacity(rows * hid),
     };
+    // The pool dispatch is inside `parts` (its GEMMs); a sequence here is one serial call.
     for s in 0..seqs {
         let hb = &h[s * t * hid..(s + 1) * t * hid];
         let p = parts(&cfg.layer, rope, &lt_f, hb, t)?;
@@ -582,10 +575,8 @@ fn batch_parts(
 }
 
 /// The batched attention: [`attn_a`] per sequence of the slab, concatenated (`:1567`, `:1613`).
-/// `q` is `[seqs·t, q_out]`, `k`/`v` `[seqs·t, kv_out]`; the result is `[seqs·t, q_out]`.
-///
-/// # Complexity
-/// Temporal `O(seqs·t²·n_head·head_dim)` (one [`attn_a`] per sequence); spatial `O(seqs·t·q_out)`.
+/// `q` is `[seqs·t, q_out]`, `k`/`v` `[seqs·t, kv_out]`; the result is `[seqs·t, q_out]`. Temporal
+/// `O(seqs·t²·n_head·head_dim)`; spatial `O(seqs·t·q_out)`.
 ///
 /// # Errors
 /// As [`attn_a`], wrapped (a shape or `RoPE`-length refusal).
@@ -604,34 +595,74 @@ fn attn_batch(
         return Err(DriverError::Shape);
     }
     let mut out = Vec::with_capacity(seqs * t * qo);
+    // Serial per sequence: the pool work is inside `attn_a`'s GEMMs.
     for s in 0..seqs {
-        let qs = &q[s * t * qo..(s + 1) * t * qo];
-        let ks = &k[s * t * kvo..(s + 1) * t * kvo];
-        let vs = &v[s * t * kvo..(s + 1) * t * kvo];
-        out.extend_from_slice(&attn_a(&cfg.layer, rope, qs, ks, vs, t)?);
+        let (lo, hi) = (s * t, (s + 1) * t);
+        out.extend_from_slice(&attn_a(
+            &cfg.layer,
+            rope,
+            &q[lo * qo..hi * qo],
+            &k[lo * kvo..hi * kvo],
+            &v[lo * kvo..hi * kvo],
+            t,
+        )?);
     }
     Ok(out)
 }
 
 /// `y[r, j] − b[j]` broadcast over the rows: the `q`/`k`/`v` target `Pt[nm] − Lt[nm + "b"]`
 /// (`:1630`).
-///
-/// # Complexity
-/// Temporal and spatial `O(rows·w)`. `O(1)` beyond the output.
-///
 /// # Errors
-/// [`DriverError::Shape`] if a length disagrees with `rows`/`w`.
+/// [`DriverError::Shape`] if a length disagrees with `rows`/`w`; [`DriverError::Grid`] from a
+/// conversion or a checked subtraction. Temporal `O(rows·w)`, spatial `O(rows·w)`.
 fn sub_bias(y: &[f64], b: &[f64], rows: usize, w: usize) -> Result<Vec<f64>, DriverError> {
-    if y.len() != rows * w || b.len() != w {
+    let rw = rows.checked_mul(w).ok_or(DriverError::Shape)?;
+    if w == 0 || y.len() != rw || b.len() != w {
         return Err(DriverError::Shape);
     }
-    let mut out = vec![0.0_f64; rows * w];
-    for r in 0..rows {
-        for j in 0..w {
-            out[r * w + j] = y[r * w + j] - b[j];
-        }
+    let e = Elem::SubBias(&grids(y)?, &grids(b)?, w);
+    Ok(reals(&eval(rw, e)?))
+}
+
+/// `(a − b) + (b − c)` on the carrier: the `o` stage's `(Pt.mid − Ht) + (Ht − Hs)` and the `down`
+/// stage's `(Pt.out − Pt.mid) + (Pt.mid − mid)` residual (`:1630`).
+/// # Errors
+/// [`DriverError::Shape`] on a length mismatch; [`DriverError::Grid`] from a conversion or a checked
+/// step. Temporal `O(len)`, spatial `O(len)`.
+fn tri_sub(a: &[f64], b: &[f64], c: &[f64]) -> Result<Vec<f64>, DriverError> {
+    if a.len() != b.len() || a.len() != c.len() {
+        return Err(DriverError::Shape);
     }
-    Ok(out)
+    let e = Elem::TriSub(&grids(a)?, &grids(b)?, &grids(c)?);
+    Ok(reals(&eval(a.len(), e)?))
+}
+
+/// `silu(g)·u` elementwise on the carrier: the `down` stage's gate/up product (`:1904`).
+/// [`crate::learn::fold::stats::parts::silu`] is evaluated here, then rounded once.
+/// # Errors
+/// [`DriverError::Shape`] on a length mismatch; [`DriverError::Grid`] from a conversion or the
+/// product. Temporal `O(len)`, spatial `O(len)`.
+fn silu_mul(g: &[f64], u: &[f64]) -> Result<Vec<f64>, DriverError> {
+    if g.len() != u.len() {
+        return Err(DriverError::Shape);
+    }
+    let (sq, uq) = (silu_grid(g)?, grids(u)?);
+    Ok(reals(&eval(g.len(), Elem::Mul(&sq, &uq))?))
+}
+
+/// `dst = base + add` on the carrier: the student-path accumulations `hs_mid = hs + a·Lq.oᵀ` and
+/// `hs = hs_mid + m·Lq.downᵀ` (`:1960-1967`), and the bias write `Lq[nm + "b"] = Lt[nm + "b"] + db`
+/// (`:1879-1881`).
+/// # Errors
+/// [`DriverError::Shape`] on a length mismatch; [`DriverError::Grid`] from a conversion or the
+/// checked sum. Temporal `O(dst.len())`, spatial `O(dst.len())`.
+fn add_into(dst: &mut [f64], base: &[f64], add: &[f64]) -> Result<(), DriverError> {
+    if dst.len() != base.len() || dst.len() != add.len() {
+        return Err(DriverError::Shape);
+    }
+    let (bq, aq) = (grids(base)?, grids(add)?);
+    dst.copy_from_slice(&reals(&eval(dst.len(), Elem::Add(&bq, &aq))?));
+    Ok(())
 }
 
 /// Write the fitted tensor into `lq`: `Lq[nm] = Wp`, and for `q`/`k`/`v` the bias
@@ -666,35 +697,23 @@ fn apply_fit(
     Ok(())
 }
 
-/// `dst[i] = base[i] + db[i]`.
+/// `dst[i] = base[i] + db[i]` on the carrier: the `Lq[nm + "b"]` write (`:1879-1881`).
+///
+/// # Errors
+/// [`DriverError::Shape`] if a bias is missing or a length disagrees; else as [`add_into`].
 fn set_bias(dst: &mut [f64], base: &[f64], db: Option<&[f64]>) -> Result<(), DriverError> {
-    let db = db.ok_or(DriverError::Shape)?;
-    if db.len() != dst.len() || base.len() != dst.len() {
-        return Err(DriverError::Shape);
-    }
-    for i in 0..dst.len() {
-        dst[i] = base[i] + db[i];
-    }
-    Ok(())
+    add_into(dst, base, db.ok_or(DriverError::Shape)?)
 }
 
 /// One stage of a layer: the slab Gram accumulation (`:1538-1648`), the `fold_gqa` solve
-/// (`:1652-1682`) and the per-tensor fit (`:1692-1957`), with the fitted weights written into `lq`
-/// as each tensor finishes.
-///
-/// `pt_cache` holds the teacher [`SlabParts`] per slab; `hs` is the layer's student input and
-/// `hs_mid` the post-attention student state (`hs_mid` feeds the `ffn`/`down` stage input, while the
-/// sink weights of every stage read `hs`).
-///
-/// # Complexity
-/// Temporal `O(Σ_slabs rows·(n² + n·Σ outs) + Σ_j (n³ + n²·outs_j))` for the Gram scatter and the
-/// `fold_gqa` solve, dominated by the seven [`fit_tensor`] calls (each `O(fold_fit + nb + corrector)`
-/// as documented); spatial `O(n² + Σ_j n·outs_j + Σ_slabs rows·n)`.
-///
+/// (`:1652-1682`) and the per-tensor fit (`:1692-1957`), writing each fit into `lq`. `hs_mid` feeds
+/// the `ffn`/`down` stage input; the sink weights of every stage read `hs`. Temporal
+/// `O(Σ_slabs rows·n² + Σ_j n³)`, dominated by the seven [`fit_tensor`] calls; spatial
+/// `O(n² + Σ_j n·outs_j + Σ_slabs rows·n)`.
 /// # Errors
 /// [`DriverError::Shape`]/[`DriverError::NonFinite`] on a length or finiteness mismatch, and every
-/// refusal of [`sink_token_weights`], [`StageAccum::add_slab`], [`solve_stage`], [`fit_tensor`] and
-/// [`resq_scale`]/[`fold_row_scale`].
+/// refusal of [`sink_token_weights`], [`StageAccum::add_slab`], [`solve_stage`], [`fit_tensor`],
+/// [`resq_scale`] and [`fold_row_scale`].
 fn run_stage(
     cfg: &DriverCfg,
     rope: &RopeTables,
@@ -751,10 +770,7 @@ fn run_stage(
                 let xf = rms(&mid, &lq.ln2, eps, rows, hid)?;
                 let g = linear(&xf, rows, hid, &lq.gate, None, inter)?;
                 let u = linear(&xf, rows, hid, &lq.up, None, inter)?;
-                let mut m = vec![0.0_f64; rows * inter];
-                for r in 0..rows * inter {
-                    m[r] = silu(g[r]) * u[r];
-                }
+                let m = silu_mul(&g, &u)?;
                 pin_mid = Some(mid);
                 pin_xf = Some(xf);
                 m
@@ -784,10 +800,7 @@ fn run_stage(
             ),
             StageId::O => {
                 let xa = pin_xa.as_deref().ok_or(DriverError::Shape)?;
-                let mut y = vec![0.0_f64; rows * hid];
-                for r in 0..rows * hid {
-                    y[r] = (pt.mid[r] - hts[r]) + (hts[r] - hss[r]);
-                }
+                let y = tri_sub(&pt.mid, hts, hss)?;
                 let qt = linear(xa, rows, hid, &lt.q, Some(&lt.qb), qo)?;
                 let kt = linear(xa, rows, hid, &lt.k, Some(&lt.kb), kvo)?;
                 let vt = linear(xa, rows, hid, &lt.v, Some(&lt.vb), kvo)?;
@@ -799,16 +812,10 @@ fn run_stage(
             StageId::Down => {
                 let xf = pin_xf.as_deref().ok_or(DriverError::Shape)?;
                 let mid = pin_mid.as_deref().ok_or(DriverError::Shape)?;
-                let mut y = vec![0.0_f64; rows * hid];
-                for r in 0..rows * hid {
-                    y[r] = (pt.out[r] - pt.mid[r]) + (pt.mid[r] - mid[r]);
-                }
+                let y = tri_sub(&pt.out, &pt.mid, mid)?;
                 let mg = linear(xf, rows, hid, &lt.gate, None, inter)?;
                 let mu = linear(xf, rows, hid, &lt.up, None, inter)?;
-                let mut m_ts = vec![0.0_f64; rows * inter];
-                for r in 0..rows * inter {
-                    m_ts[r] = silu(mg[r]) * mu[r];
-                }
+                let m_ts = silu_mul(&mg, &mu)?;
                 let y_ts = linear(&m_ts, rows, inter, &lt.down, None, hid)?;
                 (vec![y], vec![Some(y_ts)])
             }
@@ -967,23 +974,20 @@ fn check_layer(lt: &LayerWeights, cfg: &DriverCfg) -> Result<(), DriverError> {
     Ok(())
 }
 
-/// The layer driver: quantise `lt` against the teacher/student hidden states, propagate the student
-/// path and return the quantised layer, the seven fits, the bit budget and the teacher layer output.
+/// Quantise `lt` against the teacher/student hidden states, propagate the student path and return
+/// the quantised layer, the seven fits, the bit budget and the teacher layer output.
 ///
-/// `ht` and `hs` are row-major `[n_seq·t, hidden]`; `hs` is the layer's student input and is
-/// replaced by the student layer output. `ln_next` is the `down` stage's `g_row` source (the next
-/// layer's `ln1`, or the final norm weight for the last layer, `:1709`) and has length `hidden`.
-///
-/// # Complexity
-/// Temporal `O(Σ_slabs[t·parts] + Σ_stages[rows·(n² + n·Σ outs)] + Σ_7 fits)`: the teacher forward
-/// cache (§[`batch_parts`]), the stage Gram and solve (§[`run_stage`]), and the seven
-/// [`fit_tensor`] calls dominate. Spatial `O(n_seq·t·hidden + Σ_slabs rows·hidden + n²)`.
+/// `ht`/`hs` are row-major `[n_seq·t, hidden]`; `hs` is the student input and is replaced by the
+/// student layer output. `ln_next` (length `hidden`) is the `down` stage's `g_row` source: the next
+/// layer's `ln1`, or the final norm weight (`:1709`). Temporal `O(Σ_slabs t·parts + Σ_stages rows·n²
+/// + Σ_7 fits)`, dominated by the teacher forward cache, the stage Gram and solve and the seven
+/// [`fit_tensor`] calls; spatial `O(n_seq·t·hidden + Σ_slabs rows·hidden + n²)`.
 ///
 /// # Errors
-/// [`DriverError::Geometry`] for an invalid geometry or a zero `slab`;
-/// [`DriverError::TinySeq`] for `t < 2`; [`DriverError::Shape`] for a length or width mismatch;
-/// [`DriverError::NonFinite`] for a non-finite weight or hidden state; and every refusal of the
-/// stage, tensor, `-resq` and forward helpers.
+/// [`DriverError::Geometry`] for an invalid geometry or a zero `slab`; [`DriverError::TinySeq`] for
+/// `t < 2`; [`DriverError::Shape`] for a length or width mismatch; [`DriverError::NonFinite`] for a
+/// non-finite weight or hidden state; and every refusal of the stage, tensor, `-resq` and forward
+/// helpers.
 pub fn quantise_layer(
     cfg: &DriverCfg,
     rope: &RopeTables,
@@ -1057,9 +1061,12 @@ pub fn quantise_layer(
     )?;
     for (i, &(row0, rows, _)) in geom.iter().enumerate() {
         let add = linear(&s_o.slabs[i], rows, q_out(cfg), &lq.o, None, hid)?;
-        for k in 0..rows * hid {
-            hs_mid[row0 * hid + k] = hs_in[row0 * hid + k] + add[k];
-        }
+        let lo = row0 * hid;
+        add_into(
+            &mut hs_mid[lo..lo + rows * hid],
+            &hs_in[lo..lo + rows * hid],
+            &add,
+        )?;
     }
     bits = add_bits(bits, &sum_bits(&s_o.fits));
     fits.extend(s_o.fits);
@@ -1096,9 +1103,12 @@ pub fn quantise_layer(
     let mut hs_out = vec![0.0_f64; total];
     for (i, &(row0, rows, _)) in geom.iter().enumerate() {
         let add = linear(&s_down.slabs[i], rows, cfg.layer.inter, &lq.down, None, hid)?;
-        for k in 0..rows * hid {
-            hs_out[row0 * hid + k] = hs_mid[row0 * hid + k] + add[k];
-        }
+        let lo = row0 * hid;
+        add_into(
+            &mut hs_out[lo..lo + rows * hid],
+            &hs_mid[lo..lo + rows * hid],
+            &add,
+        )?;
     }
     bits = add_bits(bits, &sum_bits(&s_down.fits));
     fits.extend(s_down.fits);
@@ -1124,14 +1134,10 @@ fn sum_bits(fits: &[TensorFit]) -> TensorBits {
 /// The model driver: quantise the first `n_layers` layers, propagate the teacher and student hidden
 /// states, and fit the final RMSNorm gain (`fold_transfer.py:1514-1531`, `:2034-2040`).
 ///
-/// `h0` is the embedded calibration batch (`cfg.E[ids_cal]`, row-major `[n_seq·t, hidden]`);
-/// `embed` is the tied embedding `[vocab, hidden]`; `fnorm_w` is the teacher final norm weight
-/// (`g0`). Layers at index `>= n_layers` are copied unchanged. The final fit is
-/// `fnorm_fit(ht, hs, …, steps = 2, ridge = 0.10, lr = fnorm_lr, coh_prior = true)` (`:2037`).
-///
-/// # Complexity
-/// Temporal `O(Σ_{l < n_layers} quantise_layer + fnorm_fit)`; spatial `O(layers.len() · hidden² +
-/// n_seq·t·hidden)`.
+/// `h0` is `cfg.E[ids_cal]` (`[n_seq·t, hidden]`), `embed` the tied embedding `[vocab, hidden]`,
+/// `fnorm_w` the teacher final norm weight. Layers `>= n_layers` are copied unchanged; the final fit
+/// is `fnorm_fit(…, steps = 2, ridge = 0.10, lr = fnorm_lr, coh_prior = true)` (`:2037`). Temporal
+/// `O(Σ_{l < n_layers} quantise_layer + fnorm_fit)`; spatial `O(layers.len()·hidden² + n_seq·t·hidden)`.
 ///
 /// # Errors
 /// [`DriverError::Shape`] if `n_layers > layers.len()`, `h0` has the wrong length, or a layer/embed
@@ -1193,14 +1199,10 @@ pub fn model_init(h0: &[f64]) -> ModelState {
 /// Quantise the layers `st.next .. until` against the teacher slice `layers`, propagating the
 /// teacher and student hidden states through `st` exactly as the [`quantise_model`] loop does.
 ///
-/// `fnorm_w` is the final norm gain (the last layer's `down` `g_row` source). `st.next` must not
-/// exceed `until` and `until` must not exceed `layers.len()`, so a resumed state continues where its
-/// checkpoint left it and a one-shot run passes `until = n_layers`.
-///
-/// # Complexity
-/// Temporal `O(Σ_{l = next}^{until-1} quantise_layer + until − next)`; spatial `O(layers.len() ·
-/// hidden² + n_seq·t·hidden)` for the retained layers and hidden states, plus one layer's fit
-/// scratch. Derivation: the loop is the model loop's body, once per layer.
+/// `fnorm_w` is the final norm gain (the last layer's `down` `g_row` source); `until` must lie in
+/// `st.next ..= layers.len()`, so a resumed state continues where its checkpoint left it and a
+/// one-shot run passes `until = n_layers`. Temporal `O(Σ_{l = next}^{until-1} quantise_layer)`;
+/// spatial `O(layers.len()·hidden² + n_seq·t·hidden)` plus one layer's fit scratch.
 ///
 /// # Errors
 /// [`DriverError::Shape`] for `until > layers.len()`, `until < st.next`, a hidden-state length that
@@ -1246,18 +1248,13 @@ pub fn model_step(
     Ok(())
 }
 
-/// Finish a transfer: the final RMSNorm-gain fit over the state's teacher and student hidden
-/// states (`fnorm_fit(ht, hs, …, steps = 2, ridge = 0.10, lr = fnorm_lr, coh_prior = true)`,
+/// Finish a transfer: the final RMSNorm-gain fit over the state's hidden states
+/// (`fnorm_fit(…, steps = 2, ridge = 0.10, lr = fnorm_lr, coh_prior = true)`,
 /// `fold_transfer.py:2037`), returning the quantised layers, `fnorm`, the bit sum and the fits.
 ///
-/// `st.layers` must already hold one entry per model layer: the quantised prefix `0 .. st.next`
-/// from [`model_step`] and, from [`quantise_model`], the untouched tail copies (`st.next` is then
-/// the quantised count, below `st.layers.len()`).
-///
-/// # Complexity
-/// Temporal `O(fnorm_fit + layers.len() · hidden²)` (one final-norm fit over `n_seq·t` rows and
-/// `vocab` classes); spatial `O(vocab·hidden + n_seq·t·hidden)`, the state moved in, not copied.
-/// Derivation: a single fit call over the two hidden states.
+/// `st.layers` must hold one entry per model layer: the quantised prefix `0 .. st.next` from
+/// [`model_step`] and, from [`quantise_model`], the untouched tail copies. Temporal
+/// `O(fnorm_fit + layers.len()·hidden²)`; spatial `O(vocab·hidden + n_seq·t·hidden)`.
 ///
 /// # Errors
 /// [`DriverError::Shape`] for a hidden-state or embedding length that disagrees with the geometry,

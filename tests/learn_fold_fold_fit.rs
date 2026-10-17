@@ -222,12 +222,23 @@ fn learn_fold_fold_fit_wp_equals_plane_w_of_pack() {
     // the grid image of `compose` `(s·r)·c` taken from the *gridded* intermediate `s_dh`: the two
     // differ by (i) that one grid rounding, whose residue is scaled by `|rh·ch|` on the way out,
     // (ii) the `Wp` grid image itself, `½` quantum, and (iii) the association orders' `f64`
-    // error. Bound: `½q·(1 + |rh·ch|) + 16·eps·(1 + |w|)`.
+    // error, plus (iv) `plane_w`'s own grid work, the `learn_fold_icm` oracle bound
+    // `(√128·q·(1 + max|s·d|) + q)·max|r|·max|c|`.
+    // Bound: `½q·(1 + |rh·ch|) + 16·eps·(1 + |w|) + (iv)`.
     let g = n / GROUP;
+    let max_abs = |x: &[f64]| x.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+    let sd_max = (0..o * n)
+        .map(|k| (fit.pack.s_rot[k] * fit.pack.dh[k % n]).abs())
+        .fold(0.0_f64, f64::max);
+    let plane_tol = (128f64.sqrt() * Q32_QUANTUM * (1.0 + sd_max) + Q32_QUANTUM)
+        * max_abs(&fit.pack.rh)
+        * max_abs(&fit.pack.ch);
     let mut worst = 0.0_f64;
     for k in 0..o * n {
         let scale = fit.pack.rh[(k / n) * g + (k % n) / GROUP].abs() * fit.pack.ch[k % n].abs();
-        let tol = 0.5 * Q32_QUANTUM * (1.0 + scale) + 16.0 * f64::EPSILON * (1.0 + w[k].abs());
+        let tol = 0.5 * Q32_QUANTUM * (1.0 + scale)
+            + 16.0 * f64::EPSILON * (1.0 + w[k].abs())
+            + plane_tol;
         let err = (w[k] - fit.wp[k]).abs();
         worst = worst.max(err);
         assert!(

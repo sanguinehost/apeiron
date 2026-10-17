@@ -257,6 +257,48 @@ fn diag_sum(a: &[i64], n: usize) -> i128 {
     (0..n).map(|i| i128::from(a[i * n + i])).sum()
 }
 
+/// The exact per-column fill of a shifted panel `x` (`o × n`, already at the global panel shift):
+/// column `j` is shifted left by `e_j ≥ 0` so its own `max|x[·,j]| ∈ (2³⁴, 2³⁵]` raw. The Gram
+/// becomes `D·A·D` with `D = diag(2^e)` (power-of-two equilibration, van der Sluis 1969): a column
+/// orders of magnitude under the panel max keeps its square `x_j²` above the quantum, where the
+/// global shift alone rounds its diagonal to zero while its cross terms survive and the rounded `A`
+/// is indefinite. A column already at the panel max has `e_j = 0`; a zero column keeps `e_j = 0`.
+///
+/// # Complexity
+/// `O(o·n)` comparisons and shifts, `O(n)` words for `e`.
+fn fill_columns(x: &mut [i64], o: usize, n: usize) -> Result<Vec<i32>, StepsError> {
+    let mut e = vec![0_i32; n];
+    for (j, ej) in e.iter_mut().enumerate() {
+        let m = (0..o).fold(0u128, |m, q| m.max(u128::from(x[q * n + j].unsigned_abs())));
+        *ej = (-panel_shift_words(m)).max(0);
+        for q in 0..o {
+            x[q * n + j] = shift_word(x[q * n + j], -*ej)?;
+        }
+    }
+    Ok(e)
+}
+
+/// The mean of `diag(A)` for `A'' = D·A·D` read back through `D⁻²`: `O(n)` rounded shifts.
+fn filled_diag_mean(a: &[i64], e: &[i32], n: usize) -> Result<i128, StepsError> {
+    let mut acc = 0i128;
+    for (j, &ej) in e.iter().enumerate() {
+        acc += i128::from(shift_word(a[j * n + j], 2 * ej)?);
+    }
+    Ok(acc / n as i128)
+}
+
+/// Add `ridge·D²` to the diagonal of `A'' = D·A·D`: the ridge `ridge·I` of `A`, exact.
+/// `O(n)` checked shifts and adds, `O(1)` space.
+fn add_filled_ridge(a: &mut [i64], e: &[i32], n: usize, ridge: i64) -> Result<(), StepsError> {
+    for (j, &ej) in e.iter().enumerate() {
+        let d = &mut a[j * n + j];
+        *d = d
+            .checked_add(shift_word(ridge, -2 * ej)?)
+            .ok_or(StepsError::ShapeMismatch)?;
+    }
+    Ok(())
+}
+
 /// # Complexity
 /// The normalised `H₁₂₈/√128` transform of one 128-word chunk, in place: `448` add/sub and `128`
 /// rounded multiplies (`7` radix-2 stages of `64` butterflies); spatial `O(1)`.
@@ -327,21 +369,6 @@ fn fwht_grid(x: &mut [i64]) -> Result<(), StepsError> {
     }
 }
 
-/// The in-place 128-block transform, `f64` face; a buffer with a non-finite or out-of-range entry,
-/// or one whose transform leaves the grid, is left unchanged.
-///
-/// # Complexity
-/// Temporal: `O(x.len())` (see [`fwht_grid`]) plus two boundary maps. Spatial: `O(x.len())` words.
-pub(super) fn fwht_in_place(x: &mut [f64]) {
-    let Ok(mut g) = to_grid_vec(x) else {
-        return;
-    };
-    if fwht_grid(&mut g).is_err() {
-        return;
-    }
-    x.copy_from_slice(&read_back(&g));
-}
-
 /// The normalised 128-block Walsh–Hadamard transform of `x` (fresh buffer); its own inverse and
 /// orthonormal in exact arithmetic, a grid round trip returns `x` within the tests' stated bound.
 ///
@@ -381,16 +408,6 @@ impl<T: Copy + Send + Sync> ChunkTask<T> for TransposeTask<'_, T> {
 /// per [`had_gram`]. Spatial: `rows·cols` words.
 fn transpose_grid(m: &[i64], rows: usize, cols: usize) -> Vec<i64> {
     let mut t = vec![0i64; rows * cols];
-    if rows > 0 && cols > 0 {
-        chunks_mut_global(&mut t, cols, &TransposeTask { m, rows, cols });
-    }
-    t
-}
-
-/// # Complexity
-/// [`transpose_grid`]'s `f64` face (a pure copy): `O(rows·cols)` word copies and words of output.
-pub(super) fn transpose(m: &[f64], rows: usize, cols: usize) -> Vec<f64> {
-    let mut t = vec![0.0f64; rows * cols];
     if rows > 0 && cols > 0 {
         chunks_mut_global(&mut t, cols, &TransposeTask { m, rows, cols });
     }
@@ -646,23 +663,26 @@ pub fn c_step_wshl(
     let mut sh = group_scale(&s_g, &r_g, o, n, g)?;
     let k = panel_shift_words(max_mag(&sh));
     shift_in_place(&mut sh, k)?;
+    let e = fill_columns(&mut sh, o, n)?;
     // The row weight carries its own exact power-of-two shift; `1` is the raw unit.
     let gr_g = row_weight(g_row, o)?;
-    // A = hl ⊙ (Shᵀ diag(g_row) Sh) on the grid; nothing here is `f64`.
+    // A = hl ⊙ (Shᵀ diag(g_row) Sh) on the grid, column-filled to D·A·D; nothing here is `f64`.
     let mut a = wsyrk(&sh, Some(&gr_g), o, n).map_err(map_syrk)?;
     hadamard_into(&mut a, &hl_g).map_err(map_syrk)?;
-    // The ridge `eps·mean(diag A)` on the grid diagonal.
-    let mean = diag_sum(&a, n) / n as i128;
+    // The ridge `eps·mean(diag A)` on the grid diagonal, carried through `D²`.
+    let mean = filled_diag_mean(&a, &e, n)?;
     let mut ridge = ridge_word(mean)?;
     if mean > 0 && ridge == 0 {
         ridge = 1;
     }
-    add_ridge(&mut a, n, ridge)?;
-    // b = Σ_o (Ws·Hl)⊙Sh·g_row, built on the grid.
+    add_filled_ridge(&mut a, &e, n, ridge)?;
+    // b = D·Σ_o (Ws·Hl)⊙Sh·g_row, built on the grid.
     let b = rhs_grid(&w_g, &sh, &gr_g, o, n)?;
     let solved = chol_solve(&a, &b, n, 1).map_err(map_solve)?;
-    let mut out = solved.x;
-    shift_in_place(&mut out, k)?;
+    // x = D·y, then the global shift: one rounding per entry.
+    let out = (0..n)
+        .map(|j| shift_word(solved.x[j], k - e[j]))
+        .collect::<Result<Vec<i64>, StepsError>>()?;
     Ok(read_back(&out))
 }
 
@@ -867,18 +887,20 @@ pub fn d_step_wshl(
     let mut b_scaled = group_scale(&s_g, &r_g, o, n, g)?;
     let k = panel_shift_words(max_mag(&b_scaled));
     shift_in_place(&mut b_scaled, k)?;
+    let e = fill_columns(&mut b_scaled, o, n)?;
     let gr_g = row_weight(g_row, o)?;
     let mut a = wsyrk(&b_scaled, Some(&gr_g), o, n).map_err(map_syrk)?;
     hadamard_into(&mut a, &h_rot).map_err(map_syrk)?;
     // The ridge `eps·max(mean(diag A), eps·2⁻²ᵏ)`: the clamp is below one raw unit for every shift,
-    // so a non-positive mean still floors the ridge at one raw unit.
-    let mean = diag_sum(&a, n) / n as i128;
+    // so a non-positive mean still floors the ridge at one raw unit; carried through `D²`.
+    let mean = filled_diag_mean(&a, &e, n)?;
     let ridge = ridge_word(mean.max(0))?.max(1);
-    add_ridge(&mut a, n, ridge)?;
+    add_filled_ridge(&mut a, &e, n, ridge)?;
     let b = rhs_grid(&b_scaled, &g_rot, &gr_g, o, n)?;
     let solved = chol_solve(&a, &b, n, 1).map_err(map_solve)?;
-    let mut out = solved.x;
-    shift_in_place(&mut out, k)?;
+    let out = (0..n)
+        .map(|j| shift_word(solved.x[j], k - e[j]))
+        .collect::<Result<Vec<i64>, StepsError>>()?;
     Ok(read_back(&out))
 }
 

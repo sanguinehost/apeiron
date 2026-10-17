@@ -145,6 +145,25 @@ fn pair_j(ws: &[f64], p1: &Plane, p2: &Plane, hl: &[f64], o: usize, n: usize) ->
     objective(ws, &w, hl, o, n).expect("objective")
 }
 
+/// The derived bound on `|J(ws, w) − J(ws, w̃)|` when `w̃` is `w` summed on the `Q32.32` grid.
+///
+/// `∂J/∂W = 2·(Ws − W)·Hl`, and each summed entry carries at most one grid unit `U = 2⁻³²` of
+/// error, so `|ΔJ| ≤ 2·U·Σ|(Ws − W)·Hl|`; the factor `2` is absorbed into the full unit below.
+fn j_grid_bound(ws: &[f64], w: &[f64], hl: &[f64], o: usize, n: usize) -> f64 {
+    let u = 2f64.powi(-32);
+    let mut total = 0.0_f64;
+    for row in 0..o {
+        for i in 0..n {
+            let mut acc = 0.0;
+            for k in 0..n {
+                acc += (ws[row * n + k] - w[row * n + k]) * hl[k * n + i];
+            }
+            total += acc.abs();
+        }
+    }
+    u * total
+}
+
 /// The fixture: a random SPD metric, a target pair with a column-scale spread, `ws` its sum plus a
 /// small perturbation, and two input planes with random codes and unit column scales.
 struct Fixture {
@@ -231,11 +250,14 @@ fn learn_fold_nb_refine_lowers_j_and_keeps_a_round() {
     );
     assert_eq!(out.log.per_round.len(), out.log.rounds_kept);
     assert!(out.log.moves > 0, "a kept round must have moved codes");
-    // The log's j_nb is the objective of the returned pair, measured independently.
+    // The log's j_nb is the objective of the returned pair measured independently. The port sums
+    // the two weights on the `Q32.32` grid, so the two `J`s agree to `j_grid_bound`, not exactly.
     let j_ret = pair_j(&f.ws, &out.p1, &out.p2, &f.hl, f.o, f.n);
+    let sum = pair_w(&out.p1, &out.p2, f.o, f.n);
+    let bound = j_grid_bound(&f.ws, &sum, &f.hl, f.o, f.n);
     assert!(
-        (j_ret - out.log.j_nb).abs() <= 1e-9 * (1.0 + j_ret.abs()),
-        "log j_nb {} != measured {j_ret}",
+        (j_ret - out.log.j_nb).abs() <= bound,
+        "log j_nb {} != measured {j_ret} within {bound}",
         out.log.j_nb
     );
 }
@@ -361,9 +383,11 @@ fn learn_fold_nb_refine_rounds_zero_returns_the_input() {
     for k in 0..f.o * f.n {
         ws[k] += out.w2[k];
     }
-    assert_eq!(
-        out.log.j_seq,
-        objective(&f.ws, &ws, &f.hl, f.o, f.n).expect("J")
+    let bound = j_grid_bound(&f.ws, &ws, &f.hl, f.o, f.n);
+    assert!(
+        (out.log.j_seq - objective(&f.ws, &ws, &f.hl, f.o, f.n).expect("J")).abs() <= bound,
+        "j_seq {} is not the exact-sum objective within {bound}",
+        out.log.j_seq
     );
 }
 
@@ -374,28 +398,44 @@ fn learn_fold_nb_refine_weights_are_the_packs_compose() {
     assert!(out.log.rounds_kept >= 1, "fixture kept no round");
     // S_e = fwht128(S_rot ⊙ d) of the returned pack; its `compose` with the returned scales is the
     // returned weight — the same expressions the port evaluates when it keeps a round.
+    //
+    // The port evaluates `S_e` on the `Q32.32` grid: the `s ⊙ d` product is rounded once per entry
+    // (`≤ U/2`, plus `|s|·U/2` for `d`'s own boundary conversion, `U = 2⁻³²`), the normalised
+    // 128-block transform amplifies an input error by at most `√128` and rounds each output once,
+    // and `compose`'s two scale multiplies carry the result by `max|r|·max|c|`. Derived bound:
+    // `(√128·U·(1 + max|s·d|) + U)·max|r|·max|c|` — the grid quantum times the condition growth,
+    // with `U` a full unit so the two half-unit roundings are covered.
+    let u = 2f64.powi(-32);
     for (pack, w) in [(&out.p1, &out.w1), (&out.p2, &out.w2)] {
         let mut prod = vec![0.0_f64; f.o * f.n];
+        let mut sd_max = 0.0_f64;
         for row in 0..f.o {
             for col in 0..f.n {
-                prod[row * f.n + col] = pack.s[row * f.n + col] * pack.d[col];
+                let sd = pack.s[row * f.n + col] * pack.d[col];
+                sd_max = sd_max.max(sd.abs());
+                prod[row * f.n + col] = sd;
             }
         }
         let s_e = fwht128(&prod).expect("fwht128");
         let composed = compose(&s_e, &pack.r, &pack.c, f.o, f.n).expect("compose");
-        assert_eq!(composed.len(), w.len());
-        assert_eq!(
-            &composed, w,
-            "compose(S_e, r, c) != the returned plane weight"
+        let r_max = pack.r.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        let c_max = pack.c.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        let bound = (128f64.sqrt() * u * (1.0 + sd_max) + u) * r_max * c_max;
+        let mut worst = 0.0_f64;
+        for (a, b) in composed.iter().zip(w) {
+            worst = worst.max((a - b).abs());
+        }
+        assert!(
+            worst <= bound,
+            "compose(S_e, r, c) differs from the returned plane weight by {worst} > {bound}"
         );
     }
-    let mut sum = out.w1.clone();
-    for k in 0..f.o * f.n {
-        sum[k] += out.w2[k];
-    }
-    assert_eq!(
-        out.log.j_nb,
-        objective(&f.ws, &sum, &f.hl, f.o, f.n).expect("J")
+    let sum = pair_w(&out.p1, &out.p2, f.o, f.n);
+    let bound = j_grid_bound(&f.ws, &sum, &f.hl, f.o, f.n);
+    assert!(
+        (out.log.j_nb - objective(&f.ws, &sum, &f.hl, f.o, f.n).expect("J")).abs() <= bound,
+        "log j_nb {} is not the exact-sum objective within {bound}",
+        out.log.j_nb
     );
 }
 

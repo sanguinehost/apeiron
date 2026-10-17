@@ -42,6 +42,11 @@ const QMLP: usize = 16;
 const EPS: f64 = 1e-6;
 const THETA: f64 = 1e4;
 
+/// Half a Q32.32 grid quantum, `2⁻³³`: the largest round-to-nearest error of one carrier step.
+const GRID_HALF: f64 = 1.0 / 8_589_934_592.0;
+/// One grid quantum, `2⁻³² = 2·2⁻³³`: two round-to-nearest conversions of the same real.
+const GRID_QUANTUM: f64 = 1.0 / 4_294_967_296.0;
+
 /// Deterministic xorshift64 LCG.
 struct Lcg(u64);
 
@@ -228,7 +233,13 @@ fn a_layer_shapes_bias_and_norms() {
     let db = res.fits[0].db.as_ref().expect("q bias");
     let mut changed = false;
     for i in 0..qo {
-        assert!((lq.qb[i] - (lt.qb[i] + db[i])).abs() <= 1e-12);
+        // `Lq.qb` is `from_grid(grids(lt.qb) + grids(db))`: two round-to-nearest conversions on the
+        // 2⁻³² grid (each ≤ `2⁻³³`) and an exact word add, so the bound is `2·2⁻³³ = 2⁻³²`; the
+        // right-hand side's f64 add rounds once more, below `2⁻⁵²`.
+        assert!(
+            (lq.qb[i] - (lt.qb[i] + db[i])).abs() <= GRID_QUANTUM,
+            "qb at {i}"
+        );
         if db[i].abs() > 1e-9 {
             changed = true;
         }
@@ -341,15 +352,20 @@ fn c_bits_and_sign_count() {
     );
 }
 
-/// (d) the `g_row` helper: mean `1`, and the all-zero `1e-12` clamp.
+/// (d) the `g_row` helper: mean `1`, the all-zero clamp, and the matrix column form.
 #[test]
 fn d_g_row_helper() {
     let v = [1.0_f64, 2.0, 3.0, 4.0];
     let g = g_row_from_vec(&v).expect("g_row");
     let mean = g.iter().sum::<f64>() / g.len() as f64;
-    assert!((mean - 1.0).abs() <= 1e-12, "mean {mean}");
+    // The four squares and their sum are exact on the grid (`k²·2³²` fits `i64`), `30/4` is exact in
+    // one Q32 word, and each ratio rounds to nearest: `|Δ| ≤ 2⁻³³` per entry, and the mean of four
+    // such errors is at most one `2⁻³³`.
+    assert!((mean - 1.0).abs() <= GRID_HALF, "mean {mean}");
     for i in 0..v.len() {
-        assert!((g[i] - v[i] * v[i] / 7.5).abs() <= 1e-12);
+        // The oracle `v²/7.5` is itself one f64 division; the carrier's ratio adds one `2⁻³³`
+        // rounding, so the derived bound is `2·2⁻³³`.
+        assert!((g[i] - v[i] * v[i] / 7.5).abs() <= GRID_QUANTUM, "g at {i}");
     }
     // all-zero input: the clamp gives an all-zero vector, never NaN.
     let z = g_row_from_vec(&[0.0, 0.0, 0.0, 0.0]).expect("g_row zero");
@@ -362,16 +378,111 @@ fn d_g_row_helper() {
     let m = [1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0];
     let gm = g_row_from_matrix(&m, 2, 3).expect("g_row matrix");
     let mean_m = gm.iter().sum::<f64>() / gm.len() as f64;
-    assert!((mean_m - 1.0).abs() <= 1e-12);
+    assert!((mean_m - 1.0).abs() <= GRID_QUANTUM, "mean_m {mean_m}");
     let col: Vec<f64> = (0..3).map(|c| m[c] * m[c] + m[3 + c] * m[3 + c]).collect();
     let denom = col.iter().sum::<f64>() / 3.0;
     for c in 0..3 {
-        assert!((gm[c] - col[c] / denom).abs() <= 1e-12);
+        // Column sums of exact integer squares; the mean `91/3` rounds to one word, so the
+        // denominator's relative error is `2⁻³³/30.3`, and the ratio adds one `2⁻³³`.
+        assert!((gm[c] - col[c] / denom).abs() <= GRID_QUANTUM, "gm at {c}");
     }
     assert_eq!(
         g_row_from_matrix(&m, 2, 4),
         Err(DriverError::Shape),
         "a wrong matrix length must refuse"
+    );
+}
+
+/// The reference `g_row_from_vec` of the f64 implementation at `9f440192` (its `normalize` is
+/// `sq / mean(sq).max(1e-12)`), copied here as the oracle. It shares no code with the carrier.
+fn ref_g_row_from_vec(v: &[f64]) -> Vec<f64> {
+    let sq: Vec<f64> = v.iter().map(|x| x * x).collect();
+    ref_normalize(sq)
+}
+
+/// The reference `g_row_from_matrix` of the f64 implementation at `9f440192`.
+fn ref_g_row_from_matrix(w: &[f64], rows: usize, cols: usize) -> Vec<f64> {
+    let mut sq = vec![0.0_f64; cols];
+    for r in 0..rows {
+        for c in 0..cols {
+            let x = w[r * cols + c];
+            sq[c] += x * x;
+        }
+    }
+    ref_normalize(sq)
+}
+
+fn ref_normalize(sq: Vec<f64>) -> Vec<f64> {
+    let mean = sq.iter().sum::<f64>() / sq.len() as f64;
+    let denom = mean.max(1e-12);
+    sq.into_iter().map(|x| x / denom).collect()
+}
+
+/// The derived elementwise bound between the carrier's `g_row` and the f64 oracle on a fixed
+/// population, computed from that population's own magnitudes.
+///
+/// With `e = 2⁻³³` (half a grid quantum), `V = max|v|` the largest entry that is squared, `pop` the
+/// pre-normalisation population (the squares, or the column sums of squares) and `m` its mean:
+///  * `grids` rounds each input: `|δ| ≤ e`, so a square's word is off by `|Δ_s| ≤ (2V+1)e`; a
+///    population entry aggregates `per` of them, hence `per·|Δ_s|`;
+///  * the mean carries `|Δ_m| ≤ (2V+2)e` (the mean of `per·len` square errors);
+///  * the ratio `p̃/m̃` is off by at most `e + (per·|Δ_s| + max|p|·|Δ_m|/m)/m`.
+///
+/// The oracle's own accumulation adds `n·2⁻⁵³` at worst, below the printed value; the caller
+/// asserts the computed bound and prints the observed maximum.
+fn g_row_bound(pop: &[f64], vmax: f64, per: usize) -> f64 {
+    let e = 2.0_f64.powi(-33);
+    let m = pop.iter().sum::<f64>() / pop.len() as f64;
+    let pmax = pop.iter().fold(0.0_f64, |a, x| a.max(x.abs()));
+    let d_s = (2.0 * vmax + 1.0) * e;
+    let d_m = (2.0 * vmax + 2.0) * e;
+    e + (per as f64 * d_s + pmax * d_m / m.max(1e-12)) / m.max(1e-12)
+}
+
+/// (d2) the `g_row` oracle agreement on fixed LCG inputs, driver and matrix form, at the derived
+/// bound of [`g_row_bound`].
+#[test]
+fn d2_g_row_oracle_agreement() {
+    let mut rng = Lcg::new(0x5EED_0001);
+    let v: Vec<f64> = (0..HID).map(|_| gauss(&mut rng)).collect();
+    let vmax = v.iter().fold(0.0_f64, |a, x| a.max(x.abs()));
+    let sq: Vec<f64> = v.iter().map(|x| x * x).collect();
+    let bound = g_row_bound(&sq, vmax, 1);
+    let g = g_row_from_vec(&v).expect("g_row");
+    let want = ref_g_row_from_vec(&v);
+    let mut max = 0.0_f64;
+    for i in 0..v.len() {
+        max = max.max((g[i] - want[i]).abs());
+    }
+    assert!(
+        max <= bound,
+        "g_row max |carrier - oracle| {max:e} > {bound:e}"
+    );
+
+    // The matrix form, at the fixture's `[hidden, inter]` shape.
+    let mut rng = Lcg::new(0x5EED_0002);
+    let s = 1.0 / (HID as f64).sqrt();
+    let w: Vec<f64> = (0..HID * INTER).map(|_| s * gauss(&mut rng)).collect();
+    let mut col = vec![0.0_f64; INTER];
+    for r in 0..HID {
+        for c in 0..INTER {
+            col[c] += w[r * INTER + c] * w[r * INTER + c];
+        }
+    }
+    let wmax = w.iter().fold(0.0_f64, |a, x| a.max(x.abs()));
+    let bound_m = g_row_bound(&col, wmax, HID);
+    let gm = g_row_from_matrix(&w, HID, INTER).expect("g_row matrix");
+    let want_m = ref_g_row_from_matrix(&w, HID, INTER);
+    let mut max_m = 0.0_f64;
+    for c in 0..INTER {
+        max_m = max_m.max((gm[c] - want_m[c]).abs());
+    }
+    assert!(
+        max_m <= bound_m,
+        "g_row matrix max |carrier - oracle| {max_m:e} > {bound_m:e}"
+    );
+    eprintln!(
+        "(d2) g_row vec max {max:e} (bound {bound:e}), matrix max {max_m:e} (bound {bound_m:e})"
     );
 }
 
