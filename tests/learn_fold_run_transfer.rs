@@ -24,16 +24,23 @@ use std::fs;
 use std::time::Instant;
 
 use apeiron::engine::{Engine, KernelMode};
+use apeiron::learn::fold::finish::train::{assemble, Frozen};
+use apeiron::learn::fold::fit::corrector::Factors;
+use apeiron::learn::fold::fit::icm::{codebook, BLOCK};
+use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
+use apeiron::learn::fold::fit::steps::GROUP;
 use apeiron::learn::fold::layer::driver::{
-    layer_words, model_finish, model_init, model_step, quantise_model, DriverCfg, LayerWeights,
+    layer_words, model_finish, model_init, model_step, quantise_model, DriverCfg, ModelState,
 };
-use apeiron::learn::fold::run::convert::{teacher_from_grad, Teacher};
+use apeiron::learn::fold::layer::tensor::{SinkPlane, TensorBits, TensorFit, TensorKind};
+use apeiron::learn::fold::run::convert::{student_to_grad, teacher_from_grad, Teacher};
+use apeiron::learn::fold::run::finish::{finish_model, planes_from_fits, tunables_from_weights};
 use apeiron::learn::fold::run::npy::{chunks, read_npy_i4, split};
 use apeiron::learn::fold::run::transfer::{
     checkpoint_present, h0_from_chunks, load, save, write_student_gguf, TransferError,
 };
 use apeiron::learn::fold::stats::parts::{parts, LayerCfg, RopeTables};
-use apeiron::learn::grad::model::Weights;
+use apeiron::learn::grad::model::{Config, LayerWeights, Weights};
 use apeiron::learn::solve::q32::{to_grid, GRID_BOUND};
 use apeiron::sha256::sha256;
 
@@ -292,6 +299,365 @@ fn checkpoint_digest_refusal() {
     fs::remove_dir_all(&dir).expect("clean scratch");
 }
 
+/// The finisher fixture geometry (the tiny Qwen2 of `tests/learn_fold_run_finish.rs`): two layers,
+/// `n_embd` 128, `n_ff` 256, vocabulary 64, a 16-token batch.
+const FE: usize = 128;
+const FNH: usize = 2;
+const FNKV: usize = 1;
+const FHD: usize = 64;
+const FFF: usize = 256;
+const FV: usize = 64;
+const FL: usize = 2;
+const FT: usize = 16;
+const FEPS: i64 = 42_950;
+const FKINDS: usize = 7;
+
+fn finish_cfg() -> Config {
+    Config {
+        n_layer: FL,
+        n_head: FNH,
+        n_head_kv: FNKV,
+        n_embd: FE,
+        n_ff: FFF,
+        vocab: FV,
+        head_dim: FHD,
+        eps: FEPS,
+        rope_theta: THETA,
+    }
+}
+
+/// `(o_total, n)` of linear kind `k`, in `q, k, v, o, gate, up, down` order.
+fn finish_dims(k: usize) -> (usize, usize) {
+    match k {
+        0 => (FNH * FHD, FE),
+        1 | 2 => (FNKV * FHD, FE),
+        3 => (FE, FNH * FHD),
+        4 | 5 => (FFF, FE),
+        _ => (FE, FFF),
+    }
+}
+
+fn finish_kind(k: usize) -> TensorKind {
+    match k {
+        0 => TensorKind::Q,
+        1 => TensorKind::K,
+        2 => TensorKind::V,
+        3 => TensorKind::O,
+        4 => TensorKind::Gate,
+        5 => TensorKind::Up,
+        _ => TensorKind::Down,
+    }
+}
+
+/// The exact code field of a list of codebook indices, `o × n` row-major.
+fn code_field(idx: &[u8], o: usize, n: usize) -> Vec<i64> {
+    let cb = codebook();
+    let nb = n / BLOCK;
+    let mut s = vec![0_i64; o * n];
+    for oi in 0..o {
+        for m in 0..nb {
+            let j = idx[oi * nb + m] as usize;
+            for k in 0..BLOCK {
+                s[oi * n + m * BLOCK + k] = cb[j][k];
+            }
+        }
+    }
+    s
+}
+
+/// One stored pack at the quantizers' fixed points: `(s_rot, rh, ch, dh)`.
+fn pack_words(rng: &mut Lcg, o: usize, n: usize) -> (Vec<i64>, Vec<i64>, Vec<i64>, Vec<i64>) {
+    let idx: Vec<u8> = (0..o * (n / BLOCK))
+        .map(|_| u8::try_from(rng.next_u64() % 256).expect("codebook index"))
+        .collect();
+    let s = code_field(&idx, o, n);
+    let g = n / GROUP;
+    let r_raw: Vec<i64> = (0..o * g)
+        .map(|_| q(0.5 + 0.5 * rng.uniform(0.0, 1.0)))
+        .collect();
+    let rh = quant_r_hier(&r_raw, o, g).expect("row scales").rq;
+    let c_raw: Vec<i64> = (0..n)
+        .map(|_| q(0.1 + 0.1 * rng.uniform(0.0, 1.0)))
+        .collect();
+    let ch = quant_c_u8(&c_raw, 6).expect("column scales").0;
+    let d_raw: Vec<i64> = (0..n)
+        .map(|_| q(0.5 + 0.5 * rng.uniform(0.0, 1.0)))
+        .collect();
+    let dh = quant_c_u8(&d_raw, 5).expect("hadamard scales").0;
+    (s, rh, ch, dh)
+}
+
+/// The seven [`TensorFit`]s of one layer, in `q, k, v, o, gate, up, down` order: a pack plane per
+/// kind, a rows-less second plane for `gate`/`up` recovered from `top_rows`, a dense corrector (with
+/// the unread `Factors`) on `q`/`down`, the `q`/`k`/`v` bias delta and the per-fit `bits`. `wp` is
+/// empty: neither the checkpoint nor the finisher reads it.
+fn finish_fits(rng: &mut Lcg) -> Vec<TensorFit> {
+    let mut out = Vec::with_capacity(FKINDS);
+    for k in 0..FKINDS {
+        let (o, n) = finish_dims(k);
+        let (s_rot, rh, ch, dh) = pack_words(rng, o, n);
+        let mut planes = vec![SinkPlane {
+            s_rot,
+            rh,
+            ch,
+            dh,
+            rows: None,
+            dense: None,
+            factors: None,
+        }];
+        let mut top_rows = None;
+        if k == 4 || k == 5 {
+            let top: Vec<usize> = vec![1, 5, 9, 13];
+            let (s2, rh2, ch2, dh2) = pack_words(rng, top.len(), n);
+            planes.push(SinkPlane {
+                s_rot: s2,
+                rh: rh2,
+                ch: ch2,
+                dh: dh2,
+                rows: None,
+                dense: None,
+                factors: None,
+            });
+            top_rows = Some(top);
+        }
+        if k == 0 || k == 6 {
+            let dense: Vec<i64> = (0..o * n).map(|_| q(0.02 * gauss(rng))).collect();
+            planes.push(SinkPlane {
+                s_rot: Vec::new(),
+                rh: Vec::new(),
+                ch: Vec::new(),
+                dh: Vec::new(),
+                rows: None,
+                dense: Some(dense),
+                factors: Some(Factors {
+                    u: vec![q(0.1), q(0.2)],
+                    v: vec![q(0.3), q(0.4)],
+                }),
+            });
+        }
+        let db = if k < 3 {
+            Some((0..o).map(|_| q(0.05 * gauss(rng))).collect())
+        } else {
+            None
+        };
+        out.push(TensorFit {
+            kind: finish_kind(k),
+            wp: Vec::new(),
+            planes,
+            bits: TensorBits {
+                nsign: (k + 1) as u64,
+                nr: 100 + k as u64,
+                nc: 200 + k as u64,
+                nd: 300 + k as u64,
+                ncorr: 400 + k as u64,
+            },
+            nb: None,
+            top_rows,
+            db,
+        });
+    }
+    out
+}
+
+/// One student layer at the finisher's widths. The `q`/`k`/`v` biases are present because the
+/// checkpoint's layer format requires them; the round trip feeds the tunable build a bias-less copy
+/// so the fit's `db` (the field under test) supplies the bias base.
+fn finish_student(rng: &mut Lcg) -> LayerWeights {
+    let jitter =
+        |rng: &mut Lcg, n: usize| -> Vec<i64> { (0..n).map(|_| q(0.01 * gauss(rng))).collect() };
+    LayerWeights {
+        attn_norm: (0..FE)
+            .map(|_| q(0.8 + 0.2 * rng.uniform(0.0, 1.0)))
+            .collect(),
+        wq: jitter(rng, FNH * FHD * FE),
+        bq: Some(jitter(rng, FNH * FHD)),
+        wk: jitter(rng, FNKV * FHD * FE),
+        bk: Some(jitter(rng, FNKV * FHD)),
+        wv: jitter(rng, FNKV * FHD * FE),
+        bv: Some(jitter(rng, FNKV * FHD)),
+        wo: jitter(rng, FE * FNH * FHD),
+        ffn_norm: (0..FE)
+            .map(|_| q(0.8 + 0.2 * rng.uniform(0.0, 1.0)))
+            .collect(),
+        w_gate: jitter(rng, FFF * FE),
+        w_up: jitter(rng, FFF * FE),
+        w_down: jitter(rng, FE * FFF),
+    }
+}
+
+/// FNV-1a over a length-prefixed word buffer.
+fn fnv_buf(mut h: u64, v: &[i64]) -> u64 {
+    h = fnv1a(h, &u64::try_from(v.len()).expect("len").to_le_bytes());
+    for &w in v {
+        h = fnv1a(h, &w.to_le_bytes());
+    }
+    h
+}
+
+/// FNV-1a over every tensor of a [`Weights`], length-prefixed per buffer.
+fn weights_digest(w: &Weights) -> u64 {
+    let mut d: u64 = 0xcbf2_9ce4_8422_2325;
+    for (name, v) in [
+        ("token_embd", &w.token_embd),
+        ("output_norm", &w.output_norm),
+        ("lm_head", &w.lm_head),
+    ] {
+        d = fnv1a(d, name.as_bytes());
+        d = fnv_buf(d, v);
+    }
+    for (l, lw) in w.layers.iter().enumerate() {
+        d = fnv1a(d, &u64::try_from(l).expect("layer").to_le_bytes());
+        for (name, v) in [
+            ("attn_norm", &lw.attn_norm),
+            ("ffn_norm", &lw.ffn_norm),
+            ("wq", &lw.wq),
+            ("wk", &lw.wk),
+            ("wv", &lw.wv),
+            ("wo", &lw.wo),
+            ("w_gate", &lw.w_gate),
+            ("w_up", &lw.w_up),
+            ("w_down", &lw.w_down),
+        ] {
+            d = fnv1a(d, name.as_bytes());
+            d = fnv_buf(d, v);
+        }
+        for (name, b) in [("bq", &lw.bq), ("bk", &lw.bk), ("bv", &lw.bv)] {
+            d = fnv1a(d, name.as_bytes());
+            d = fnv1a(d, &[u8::from(b.is_some())]);
+            if let Some(v) = b {
+                d = fnv_buf(d, v);
+            }
+        }
+    }
+    d
+}
+
+/// The digest of the weights [`assemble`] builds from `fits`: the finisher's own path from a fit
+/// list to the student's tensors.
+fn assembled_digest(
+    cfg: &Config,
+    fits: &[Vec<TensorFit>],
+    layers: &[LayerWeights],
+    fnorm: &[i64],
+    emb: &[i64],
+    head: &[i64],
+) -> u64 {
+    let planes = planes_from_fits(cfg, fits).expect("planes");
+    let tun = tunables_from_weights(layers, fnorm, fits).expect("tunables");
+    let frozen = Frozen::new(emb, head);
+    let w = assemble(cfg, &planes, &tun, &frozen).expect("assemble");
+    weights_digest(&w)
+}
+
+/// [2a] fit round trip: `save` then `load` restores the fits so that the finisher assembles the same
+/// student `Weights` from the loaded fits as from the original ones.
+#[test]
+fn checkpoint_round_trips_fits() {
+    let t0 = Instant::now();
+    let cfg = finish_cfg();
+    let mut rng = Lcg::new(0xF17);
+    let fits: Vec<Vec<TensorFit>> = (0..FL).map(|_| finish_fits(&mut rng)).collect();
+    let layers: Vec<LayerWeights> = (0..FL).map(|_| finish_student(&mut rng)).collect();
+    // The tunable build sees no student bias, so the fit's `db` is the bias base.
+    let mut tun_layers = layers.clone();
+    for lw in &mut tun_layers {
+        lw.bq = None;
+        lw.bk = None;
+        lw.bv = None;
+    }
+    let fnorm: Vec<i64> = (0..FE)
+        .map(|_| q(0.8 + 0.2 * rng.uniform(0.0, 1.0)))
+        .collect();
+    let emb: Vec<i64> = (0..FV * FE).map(|_| q(0.1 * gauss(&mut rng))).collect();
+    let head: Vec<i64> = (0..FV * FE).map(|_| q(0.1 * gauss(&mut rng))).collect();
+    let ht = vec![q(0.1); FT * FE];
+    let hs = vec![q(-0.1); FT * FE];
+    let st = ModelState {
+        next: FL,
+        ht: ht.clone(),
+        hs: hs.clone(),
+        layers: layers.clone(),
+        bits: TensorBits::default(),
+        fits: fits.clone(),
+    };
+
+    let dir = scratch("fits");
+    save(&dir, &st).expect("save");
+    let back = load(&dir).expect("load");
+    assert_eq!(back.next, FL);
+    assert_eq!(back.ht, ht, "ht round trip");
+    assert_eq!(back.hs, hs, "hs round trip");
+    assert_eq!(back.bits, st.bits);
+    assert_eq!(back.fits.len(), FL);
+    let mut seen_factors = false;
+    for (got, want) in back.fits.iter().zip(&fits) {
+        assert_eq!(got.len(), want.len());
+        for (a, b) in got.iter().zip(want) {
+            seen_factors |= b.planes.iter().any(|p| p.factors.is_some());
+            assert_eq!(a.kind, b.kind, "fit kind");
+            assert_eq!(a.bits, b.bits, "fit bits");
+            assert_eq!(a.top_rows, b.top_rows, "top_rows");
+            assert_eq!(a.db, b.db, "db");
+            assert!(a.wp.is_empty(), "wp is not persisted");
+            assert!(a.nb.is_none(), "nb is not persisted");
+            assert_eq!(a.planes.len(), b.planes.len());
+            for (pa, pb) in a.planes.iter().zip(&b.planes) {
+                assert_eq!(pa.s_rot, pb.s_rot);
+                assert_eq!(pa.rh, pb.rh);
+                assert_eq!(pa.ch, pb.ch);
+                assert_eq!(pa.dh, pb.dh);
+                assert_eq!(pa.rows, pb.rows);
+                assert_eq!(pa.dense, pb.dense);
+                assert!(pa.factors.is_none(), "factors are not persisted");
+            }
+        }
+    }
+    assert!(seen_factors, "the fixture must carry a corrector's factors");
+
+    let want = assembled_digest(&cfg, &fits, &tun_layers, &fnorm, &emb, &head);
+    let got = assembled_digest(&cfg, &back.fits, &tun_layers, &fnorm, &emb, &head);
+    assert_eq!(got, want, "assembled weights digest");
+    println!(
+        "fits round-trip weights digest {want:#018x} in {:?}",
+        t0.elapsed()
+    );
+
+    fs::remove_dir_all(&dir).expect("clean scratch");
+}
+
+/// [2b] fits refusal: one flipped byte in `fits-0.bin` makes `load` refuse on the digest, and the
+/// restore loads the fits back.
+#[test]
+fn fits_digest_refusal() {
+    let (cfg, rope, layers, fnorm, h0, _, _) = model_fixture();
+    let dir = scratch("fits-digest");
+    let mut st = model_init(&h0);
+    model_step(&cfg, &rope, &layers, &fnorm, &mut st, 1).expect("layer 0");
+    save(&dir, &st).expect("save");
+
+    let path = format!("{dir}/fits-0.bin");
+    let mut bytes = fs::read(&path).expect("read fits");
+    bytes[0] ^= 0x40;
+    fs::write(&path, &bytes).expect("write fits");
+    match load(&dir).expect_err("a flipped fits byte must refuse") {
+        TransferError::Digest { file, .. } => assert_eq!(file, "fits-0.bin"),
+        other => panic!("expected a digest refusal, got {other:?}"),
+    }
+
+    bytes[0] ^= 0x40;
+    fs::write(&path, &bytes).expect("restore fits");
+    let back = load(&dir).expect("restored checkpoint");
+    assert_eq!(back.fits.len(), 1);
+    assert_eq!(back.fits[0].len(), st.fits[0].len());
+    for (a, b) in back.fits[0].iter().zip(&st.fits[0]) {
+        assert_eq!(a.kind, b.kind);
+        assert_eq!(a.planes.len(), b.planes.len());
+        assert_eq!(a.db, b.db);
+    }
+
+    fs::remove_dir_all(&dir).expect("clean scratch");
+}
+
 /// [3] `GGUF` identity (ignored, real model): rewrite the teacher's own weights through
 /// `write_student_gguf` and compare the 8-token logits and the file digest.
 #[test]
@@ -501,9 +867,32 @@ fn transfer_qwen05b() {
             q(0.15),
         )
         .expect("finish");
-        let student =
-            apeiron::learn::fold::run::convert::student_to_grad(&weights, &res.layers, &res.fnorm)
-                .expect("student weights");
+        // The finishing P-step: `APEIRON_FINISH_STEPS` > 0 runs `finish_model` on the driver path
+        // (the restored fits included) and writes the finished student; 0 (the default) writes the
+        // fitted student alone.
+        let steps: u64 = std::env::var("APEIRON_FINISH_STEPS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        let warmup: u64 = std::env::var("APEIRON_FINISH_WARMUP")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        let (student, source) = if steps > 0 {
+            let fin =
+                finish_model(&config, &res, &weights, &cal, steps, warmup).expect("finish_model");
+            eprintln!(
+                "[4] finish_model {steps} steps (warmup {warmup}): {} loss words, last {:?}",
+                fin.loss.len(),
+                fin.loss.last()
+            );
+            (fin.weights, "finished")
+        } else {
+            (
+                student_to_grad(&weights, &res.layers, &res.fnorm).expect("student weights"),
+                "fitted",
+            )
+        };
         let out = format!("{dir}/student-f16.gguf");
         write_student_gguf(MODEL, &student, &out).expect("write student gguf");
         let file = fs::read(&out).expect("read student");
@@ -522,7 +911,8 @@ fn transfer_qwen05b() {
             .sum();
         let bits = res.bits.nsign + res.bits.nr + res.bits.nc + res.bits.nd + res.bits.ncorr;
         eprintln!(
-            "[4] wrote {out}: {} sha256, {:.2} b/w ({} bits / {} linear weights), rss {:.2} GB",
+            "[4] wrote {out} ({source}): {} sha256, {:.2} b/w ({} bits / {} linear weights), \
+             rss {:.2} GB",
             hex(&sha256(&file)),
             bits as f64 / linear as f64,
             bits,
@@ -764,11 +1154,15 @@ fn witness_transfer(seed: u64) -> u64 {
 
 /// The recorded pre-migration digests of the transfer face, from the source at base `57d21789`.
 /// The checkpoint bytes and the gathered rows are word-identical: the format is unchanged.
+/// The recorded digests of the transfer face from base `57d21789`, folded in the recorded order. The
+/// `ht.bin`/`hs.bin` bytes are unchanged; the digest moved with the manifest's `v2`→`v3` magic, the
+/// format bump that adds the per-layer fits (this fixture saves `next = 0`, so no layer or fits
+/// file participates).
 #[test]
 fn recorded_checkpoint_digests_hold() {
     for (seed, want) in [
-        (0x7A11_0001u64, 0xb9ca_4c6b_c75a_b89cu64),
-        (0x7A11_0002, 0x8402_2f64_e1fd_5773),
+        (0x7A11_0001u64, 0xd133_827f_6162_b26fu64),
+        (0x7A11_0002, 0x6ae1_86b9_e88e_3270),
     ] {
         assert_eq!(witness_transfer(seed), want, "seed {seed:016x}");
     }
