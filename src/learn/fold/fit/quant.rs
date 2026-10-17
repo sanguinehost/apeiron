@@ -34,9 +34,7 @@
               a clamp or a construction bound (f16 endpoint < 2⁴⁹, grid level < 2⁶⁴)"
 )]
 
-use std::cmp::Ordering;
-
-use crate::learn::solve::q32::{round_f16, rshift_rne, Fx};
+use crate::learn::solve::q32::{div_rne_pos, round_f16, rshift_rne, Fx};
 
 /// The one-word grid span `2⁻³²`, the integer image of the f64 `1e-12` floor.
 const SPAN_MIN: i64 = 1;
@@ -69,17 +67,6 @@ pub enum QuantError {
 /// [`QuantError::LengthOverflow`] when the round leaves the binary16 finite range.
 pub fn f16r(w: i64) -> Result<i64, QuantError> {
     f16_word(w)
-}
-
-/// `num / den` rounded to nearest, ties to even, for `den > 0`: the truncated quotient plus
-/// `sign(r)` when `2|r| > den`, or when `2|r| = den` and the quotient is odd. Time `O(1)`.
-fn div_rne(num: i128, den: i128) -> i128 {
-    let (q, r) = (num / den, num % den);
-    q + match (2 * r.abs()).cmp(&den) {
-        Ordering::Greater => r.signum(),
-        Ordering::Equal if q % 2 != 0 => r.signum(),
-        _ => 0,
-    }
 }
 
 /// The `i128` value as a Q32.32 word, `LengthOverflow` when it leaves `i64`. Time `O(1)`.
@@ -119,7 +106,7 @@ fn min_max(words: &[i64]) -> (i64, i64) {
 
 /// The grid value of code `k` on `(lo, sp)`: `lo + (k / 15)·sp`. Time `O(1)`.
 fn decode_word(lo: i64, sp: i64, k: u8) -> i128 {
-    i128::from(lo) + div_rne(i128::from(k) * i128::from(sp), 15)
+    i128::from(lo) + div_rne_pos(i128::from(k) * i128::from(sp), 15)
 }
 
 /// [`decode_word`] on the stored row grid `(lo, sp)`: the level that [`quant_r_hier`] stores for
@@ -130,7 +117,7 @@ pub fn r_level(lo: i64, sp: i64, k: u8) -> Option<i64> {
 
 /// The 4-bit code of `x` on `(lo, sp)`, clamped to `0..=15`. Time `O(1)`.
 fn code(x: i128, lo: i64, sp: i64) -> i128 {
-    div_rne((x - i128::from(lo)) * 15, i128::from(sp)).clamp(0, 15)
+    div_rne_pos((x - i128::from(lo)) * 15, i128::from(sp)).clamp(0, 15)
 }
 
 /// Affine column-scale quantization: two `f16` scalars (32 bits) plus `bits`/column.
@@ -165,8 +152,8 @@ pub fn quant_c_u8(c: &[i64], bits: u32) -> Result<(Vec<i64>, u64), QuantError> {
     let mut out = vec![0_i64; c.len()];
     for (slot, &w) in out.iter_mut().zip(c) {
         let x = i128::from(w) - i128::from(c_min);
-        let q = div_rne(x * i128::from(levels), i128::from(span)).clamp(0, i128::from(levels));
-        let off = div_rne(q * i128::from(span), i128::from(levels));
+        let q = div_rne_pos(x * i128::from(levels), i128::from(span)).clamp(0, i128::from(levels));
+        let off = div_rne_pos(q * i128::from(span), i128::from(levels));
         *slot = to_word(i128::from(c_min) + off)?;
     }
     Ok((out, total))
@@ -247,7 +234,7 @@ fn quantile_05(values: &[i64]) -> i64 {
     let rem = idx % 20;
     let diff = i128::from(sorted[lo_i + 1]) - i128::from(sorted[lo_i]);
     // The blend stays between the two order statistics, so the narrowing is exact.
-    (i128::from(sorted[lo_i]) + div_rne(diff * rem, 20)) as i64
+    (i128::from(sorted[lo_i]) + div_rne_pos(diff * rem, 20)) as i64
 }
 
 /// Build the row-mean grid and spread levels for [`quant_r_hier`].
@@ -256,7 +243,7 @@ fn quantile_05(values: &[i64]) -> i64 {
 fn hier_header(r: &[i64], o: usize, g: usize) -> Result<HierHeader, QuantError> {
     let rm: Vec<i64> = r
         .chunks_exact(g)
-        .map(|row| div_rne(row.iter().map(|&x| i128::from(x)).sum(), g as i128) as i64)
+        .map(|row| div_rne_pos(row.iter().map(|&x| i128::from(x)).sum(), g as i128) as i64)
         .collect();
 
     let (mu_lo, mu_hi) = min_max(&rm);
@@ -268,13 +255,13 @@ fn hier_header(r: &[i64], o: usize, g: usize) -> Result<HierHeader, QuantError> 
     let mut dev = vec![0_i64; o];
     for (i, (u, slot)) in u6_base.iter_mut().zip(dev.iter_mut()).enumerate() {
         let mean = i128::from(rm[i]);
-        *u = div_rne((mean - i128::from(mu_min)) * 63, i128::from(mu_span)).clamp(0, 63) as u8;
+        *u = div_rne_pos((mean - i128::from(mu_min)) * 63, i128::from(mu_span)).clamp(0, 63) as u8;
         let mut mx: i128 = 0;
         for j in 0..g {
             mx = mx.max((i128::from(r[i * g + j]) - mean).abs());
         }
         let den = if mean.abs() > 1 { mean.abs() } else { 1 };
-        *slot = to_word(div_rne(mx << 32, den))?;
+        *slot = to_word(div_rne_pos(mx << 32, den))?;
     }
 
     let sp_min = f16_word(quantile_05(&dev).max(DEV_MIN))?;
@@ -282,7 +269,7 @@ fn hier_header(r: &[i64], o: usize, g: usize) -> Result<HierHeader, QuantError> 
     let span = i128::from(sp_max) - i128::from(sp_min);
     let mut sp_levels = [sp_min; 4];
     for (s, level) in sp_levels.iter_mut().enumerate().skip(1) {
-        *level = to_word(i128::from(sp_min) + div_rne(span * s as i128, 3))?;
+        *level = to_word(i128::from(sp_min) + div_rne_pos(span * s as i128, 3))?;
     }
 
     Ok(HierHeader {
@@ -318,7 +305,7 @@ fn row_err(r: &[i64], g: usize, i: usize, lo: i64, sp: i64) -> Result<i128, Quan
     let mut err: i128 = 0;
     for j in 0..g {
         let x = i128::from(r[i * g + j]);
-        let d = x - (i128::from(lo) + div_rne(code(x, lo, sp) * i128::from(sp), 15));
+        let d = x - (i128::from(lo) + div_rne_pos(code(x, lo, sp) * i128::from(sp), 15));
         err = err
             .checked_add(d.checked_mul(d).ok_or(QuantError::LengthOverflow)?)
             .ok_or(QuantError::LengthOverflow)?;
@@ -338,8 +325,9 @@ fn row_best(r: &[i64], g: usize, i: usize, h: &HierHeader) -> Result<RowBest, Qu
     };
     for &du in &[-1_i32, 0, 1] {
         let u6 = (i32::from(h.u6_base[i]) + du).clamp(0, 63);
-        let mu =
-            to_word(i128::from(h.mu_min) + div_rne(i128::from(u6) * i128::from(h.mu_span), 63))?;
+        let mu = to_word(
+            i128::from(h.mu_min) + div_rne_pos(i128::from(u6) * i128::from(h.mu_span), 63),
+        )?;
         for (sp_idx, &sp) in h.sp_levels.iter().enumerate() {
             let (lo, span) = grid(mu, sp)?;
             let err = row_err(r, g, i, lo, span)?;

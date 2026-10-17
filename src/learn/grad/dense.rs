@@ -34,6 +34,7 @@
 )]
 
 use crate::engine::{rms_norm_fixed, silu_fixed, ONE};
+use crate::learn::solve::q32::narrow;
 use crate::numeric::fixed_ln::fixed_sigmoid;
 use crate::numeric::fixed_rsqrt::fixed_rsqrt;
 
@@ -57,15 +58,6 @@ fn round32(v: i128) -> Option<i128> {
     match v.checked_add(1_i128 << 31) {
         Some(s) => Some(s >> 32),
         None => None,
-    }
-}
-
-/// `v` as `i64`, or `None` if it is outside `i64`.
-fn narrow(v: i128) -> Option<i64> {
-    if v > i64::MAX as i128 || v < i64::MIN as i128 {
-        None
-    } else {
-        Some(v as i64)
     }
 }
 

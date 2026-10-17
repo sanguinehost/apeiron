@@ -12,7 +12,7 @@
 //!
 //! # Reuse
 //!
-//! The rounding ([`super::syrk::round32`]), the `i64` narrowing ([`super::syrk::narrow`]) and the
+//! The rounding ([`super::syrk::round32`]), the `i64` narrowing ([`super::q32::narrow`]) and the
 //! magnitude-bound scan ([`super::syrk::within_bound`] over [`super::syrk::BOUND_BITS`]) are the
 //! `syrk` module's, promoted to `pub(super)` rather than copied, and [`MAX_K`] is derived from that
 //! same `BOUND_BITS`. The blocked shape is `syrk`'s too: a plain `fn` block body driven by the engine
@@ -65,7 +65,8 @@
               returns are already `#[must_use]`."
 )]
 
-use super::syrk::{narrow, round32, within_bound, BOUND_BITS};
+use super::q32::narrow;
+use super::syrk::{round32, within_bound, BOUND_BITS};
 use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
 use crate::engine::chart::task::ChunkTask;
 

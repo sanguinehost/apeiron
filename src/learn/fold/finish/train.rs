@@ -71,14 +71,14 @@
 )]
 
 use crate::learn::fold::finish::plane::{
-    div, div_ne, mul, narrow, CodedPlane, LatentGrad, PlaneError, ONE,
+    div, div_ne, mul, CodedPlane, LatentGrad, PlaneError, ONE,
 };
 use crate::learn::fold::fit::steps::GROUP;
 use crate::learn::grad::head::{kl_row, HeadError};
 use crate::learn::grad::model::{
     backward, forward, Config, Grads, LayerGrads, LayerWeights, ModelError, Weights,
 };
-use crate::learn::solve::q32::{from_grid, rshift_rne, to_grid, GRID_BOUND};
+use crate::learn::solve::q32::{from_grid, narrow, rshift_rne, to_grid, GRID_BOUND};
 use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_rsqrt::isqrt;
 use crate::numeric::fixed_trig::fixed_sin_cos;

@@ -61,7 +61,8 @@
 )]
 
 use super::gemm::{gemm_nn, GemmError};
-use super::syrk::{narrow, round32, within_bound};
+use super::q32::narrow;
+use super::syrk::{round32, within_bound};
 use crate::numeric::fixed_rsqrt::isqrt;
 
 /// The loop-safe form of `?` on a checked `Option`: yield `$o`'s value, or record

@@ -52,7 +52,7 @@
               widening into the exact accumulator domain"
 )]
 
-use crate::learn::solve::q32::{div_rne, from_grid, round_q32_even, to_grid, GRID_BOUND};
+use crate::learn::solve::q32::{div_rne, from_grid, narrow, round_q32_even, to_grid, GRID_BOUND};
 use crate::learn::solve::syrk::{wsyrk, SyrkError};
 use crate::numeric::fixed_ln::ONE;
 
@@ -70,11 +70,6 @@ pub enum LwError {
     /// An input is outside the `Q32.32` grid, a primitive bound was violated, or a quotient left
     /// the grid. The `f64` entry points refuse instead of saturating.
     OutOfRange,
-}
-
-/// `v` as `i64`, or [`LwError::OutOfRange`] when it leaves the grid.
-fn narrow(v: i128) -> Result<i64, LwError> {
-    i64::try_from(v).map_err(|_| LwError::OutOfRange)
 }
 
 /// One `f64` input as a `Q32.32` word; a value outside the grid is refused, never clamped.
@@ -115,7 +110,7 @@ fn off_of(h: &[i64], o: usize, n: usize) -> Result<i64, LwError> {
         .and_then(|v| v.checked_mul(v))
         .and_then(|v| v.checked_mul(1_i128 << 32))
         .ok_or(LwError::OutOfRange)?;
-    narrow(div_rne(total, n2).ok_or(LwError::OutOfRange)?)
+    narrow(div_rne(total, n2).ok_or(LwError::OutOfRange)?).ok_or(LwError::OutOfRange)
 }
 
 /// Schäfer–Strimmer (2005) intensity of the raw scatter `H` toward its diagonal, from the capture's
@@ -151,9 +146,10 @@ pub fn lw_intensity(
     }
     let nf = i128::try_from(n).map_err(|_| LwError::OutOfRange)?;
     let acc = i128::from(s4w) - q_sum - nf * i128::from(off);
-    let num = narrow(div_rne(acc, nf * (nf - 1)).ok_or(LwError::OutOfRange)?)?;
+    let num = narrow(div_rne(acc, nf * (nf - 1)).ok_or(LwError::OutOfRange)?)
+        .ok_or(LwError::OutOfRange)?;
     let lambda = div_rne(i128::from(num) << 32, i128::from(off))
-        .and_then(|v| i64::try_from(v).ok())
+        .and_then(narrow)
         .ok_or(LwError::OutOfRange)?;
     Ok((from_grid(num), from_grid(lambda.clamp(0, ONE))))
 }
@@ -234,9 +230,10 @@ pub fn lw_block_intensity(
     }
     let bf = i128::try_from(b).map_err(|_| LwError::OutOfRange)?;
     let acc = i128::from(pw) - bf * i128::from(off);
-    let num = narrow(div_rne(acc, bf * (bf - 1)).ok_or(LwError::OutOfRange)?)?;
+    let num = narrow(div_rne(acc, bf * (bf - 1)).ok_or(LwError::OutOfRange)?)
+        .ok_or(LwError::OutOfRange)?;
     let lambda = div_rne(i128::from(num) << 32, i128::from(off))
-        .and_then(|v| i64::try_from(v).ok())
+        .and_then(narrow)
         .ok_or(LwError::OutOfRange)?;
     Ok((from_grid(num), from_grid(lambda.clamp(0, ONE))))
 }
