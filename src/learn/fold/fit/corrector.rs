@@ -63,7 +63,7 @@ use crate::learn::fold::fit::eigh::{eigen_gram, gram_scale, lowrank_corrector_ex
 use crate::learn::fold::fit::quant::quant_c_u8;
 use crate::learn::fold::stats::parts::{panel, shift};
 use crate::learn::solve::chol::chol_solve;
-use crate::learn::solve::eig::top_eigh;
+use crate::learn::solve::eig::{top_eigh_report, EigError};
 use crate::learn::solve::gemm::gemm_nn;
 use crate::learn::solve::q32::{round_f16, Fx};
 use crate::learn::solve::syrk::wsyrk;
@@ -99,8 +99,21 @@ pub enum CorrectorError {
     /// An entry of `ΔW` or `Hl` lies outside the Q32.32 grid's real range `2³¹` (unreachable from
     /// a word input).
     NotRepresentable,
-    /// The underlying eigendecomposition did not converge within its sweep bound.
+    /// An [`EighError`] boundary refused: the underlying eigendecomposition did not converge.
     NotConverged,
+    /// The top-`rank` eigensolver [`top_eigh_report`] refused; the source cause is preserved.
+    /// When `cause` is [`EigError::NotConverged`], `iters` is the iteration count reached and
+    /// `residual_ratio` the final `residual / λ_max` as a raw Q32.32 word; both are `0` for every
+    /// other cause.
+    Eigensolver {
+        /// The eigensolver's own refusal.
+        cause: EigError,
+        /// Subspace iterations run, at the [`crate::learn::solve::eig::MAX_ITERS`] cap when the
+        /// cause is non-convergence.
+        iters: usize,
+        /// The final max column residual over `λ_max`, raw Q32.32.
+        residual_ratio: i64,
+    },
     /// The rank×rank ridge system `Uhᵀ Uh + 1e-6 I` was not positive-definite at some pivot (only
     /// reachable from a degenerate rounded `Uh`).
     NotPositiveDefinite,
@@ -192,9 +205,10 @@ fn scale_word(v: i64, e: i32) -> Result<i64, CorrectorError> {
 ///
 /// # Errors
 /// [`CorrectorError::ShapeMismatch`] for a wrong `ΔW`/`Hl` length,
-/// [`CorrectorError::RankOutOfRange`] for `rank > o`, [`CorrectorError::NotConverged`] for a
-/// [`top_eigh`] refusal or a scale shift that leaves `i64`, [`CorrectorError::Overflow`] on the
-/// eigenvalue sum.
+/// [`CorrectorError::RankOutOfRange`] for `rank > o`, [`CorrectorError::Eigensolver`] for a
+/// [`top_eigh_report`] refusal (the source [`EigError`], the iteration count and the final
+/// `residual / λ_max` ratio), [`CorrectorError::Overflow`] for a scale shift that leaves `i64` or
+/// the eigenvalue sum.
 ///
 /// # Complexity
 /// Time `O(o·n² + o²·n + o²·rank·iters)`; space `O(o·n + o² + o·rank)`.
@@ -229,7 +243,11 @@ pub fn eigen_parts(
         .iter()
         .map(|&x| scale_word(x, e))
         .collect::<Result<Vec<_>, _>>()?;
-    let top = top_eigh(&m_q, o, rank).map_err(|_| CorrectorError::NotConverged)?;
+    let top = top_eigh_report(&m_q, o, rank).map_err(|s| CorrectorError::Eigensolver {
+        cause: s.error,
+        iters: s.iters,
+        residual_ratio: s.residual_ratio,
+    })?;
     let mut sum: i128 = 0;
     for k in 0..rank {
         if top.evals[k] > 0 {
