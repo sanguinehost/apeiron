@@ -51,18 +51,38 @@
 //! The reference draws `s = torch.multinomial(probs, 1, generator=gen)[:, 0]` once per draw
 //! (`:1260`), row-major over the `N·T` positions, from the teacher's own softmax. `torch.multinomial`
 //! is not reproducible across builds and `rand` is not available on this path, so the draw is an
-//! inline xorshift64\* [`sample_targets`]: one uniform `u ∈ [0, 1)` per position from the seed, and
-//! the inverse-CDF walk over the same Q32.32 softmax row. **Deviation:** the target *distribution* is
-//! the reference's (the teacher softmax, `K` draws per token, identical draw order: draw-major, then
-//! token-major); the *stream* is not `torch`'s, and no cross-implementation agreement of the drawn
-//! index is claimed. The draw is deterministic in `(logits, K, seed)`.
+//! inline xorshift64\* [`sample_targets`]: one uniform Q32.32 word in `[0, ONE)` per position from the
+//! seed, and the inverse-CDF walk over the same Q32.32 softmax row. **Deviation:** the target
+//! *distribution* is the reference's (the teacher softmax, `K` draws per token, identical draw
+//! order: draw-major, then token-major); the *stream* is not `torch`'s, and no cross-implementation
+//! agreement of the drawn index is claimed. The draw is deterministic in `(logits, K, seed)`.
 //!
-//! # Accumulation precision, and what is not ported
+//! # Accumulation carrier and error
 //!
-//! The reference accumulates `HO` in `fp32` on the GPU and `S4`/`Q` in `fp64` (`:1209-1213`); here
-//! every accumulator is `f64` and the operands are the exact Q32.32 adjoints scaled by `2⁻³²`. That
-//! is a deliberate rounding deviation: `f64` strict superset of the reference's fp32 accumulator, and
-//! the capture is then a function of the tree alone.
+//! `HO` is Q32.32 `i64`, the taps' own carrier. The reference accumulates `HO` in `fp32` on the GPU
+//! and `S4`/`Q` in `fp64` (`:1209-1213`); here one term is `a = round_q32_even(w_t·g_ti)` — the exact
+//! `i128` product of two words, rounded once — and the entry accumulates `Σ_t a·g_tj` in exact
+//! `i128`, rounded once per entry, so an entry carries at most `t` half-quanta of intermediate
+//! rounding (`t·2⁻³³`) plus its own half quantum. The mean-diagonal finish divides `HO` in fixed
+//! point (`round(H·O·2³²/Σdiag)` words) and converts each word to `f64` once, at the [`KindStats`]
+//! boundary; the floor `1e-30` is sub-quantum, so only a zero diagonal is reachable and it has the
+//! zero quotient (a nonzero scatter whose mean diagonal underflows the grid refuses
+//! [`HocaptureError::Overflow`] rather than inventing a value).
+//!
+//! `S4` and `Q` are fourth powers of Q32.32 quantities, so their real magnitude reaches `2⁶⁴` times
+//! the grid's `|x| < 2³¹` bound and they are carried by [`Fx`] (`m·2^e`, `|m| < 2⁶²`) rather than by
+//! a Q32.32 word; the reference carries them in `fp64` for the same reason. Each [`accumulate_kind`]
+//! call forms the exact `i128` Q64.64 total over its tokens and rounds it once into the carrier
+//! (`Fx::from_i128(total, −64)`), and the per-call totals are added by [`fx_add`], so an accumulated
+//! `S4`/`Q` carries one 62-bit rounding per call plus one per addition — a relative `2⁻⁶¹` per step,
+//! nine orders below the `2⁻³²` rounding the same quantity inherits from its Q32.32 factors.
+//!
+//! The `HO` pass of [`accumulate_kind`] is the file's one matrix-sized pass (`t·O²/2` word ops per
+//! call) and runs on the engine pool through [`chunks_mut_global`]: each output entry is written by
+//! exactly one task and summed in ascending token order there, so results are schedule-independent.
+//! The weight, `Q` and `S4` passes are vector loops (one value per token or per coordinate) and stay
+//! serial, as do [`softmax_row`], [`sample_targets`] and [`logits_grad_ce`], whose row bodies a pool
+//! task must not re-dispatch (`chart::pool::Pool`).
 //!
 //! Not ported, and not stubbed: `A` and `B` (the first and second moments, `:1263-1285`),
 //! `max_dlogit` (the teacher-forward check, `:1246-1249`), the bit-reproducibility assertion
@@ -82,55 +102,44 @@
 //!
 //! # Trust boundary
 //!
-//! The taps are Q32.32 CPU values and the accumulators are `f64` CPU artifacts; nothing here is the
-//! quantiser's own accumulation and nothing here is measured. The backward chain, the softmax rule
-//! and the kernels are the contracts of `grad::model`, `grad::head` and `grad::dense`. Not covered:
-//! GPU `fp32` accumulation, `torch.multinomial`'s stream, the `A`/`B` moments, `ho_lb`, `ho_lw`, and
-//! any activation the [`Tape`] does not carry.
+//! The taps, the scatter and the intensity inputs are Q32.32 CPU words; nothing here is the
+//! quantiser's own accumulation and nothing here is measured. The thread pool is the concurrency
+//! boundary. The backward chain, the softmax rule and the kernels are the contracts of `grad::model`,
+//! `grad::head` and `grad::dense`. Not covered: GPU `fp32` accumulation, `torch.multinomial`'s
+//! stream, the `A`/`B` moments, `ho_lb`, `ho_lw`, and any activation the [`Tape`] does not carry.
 
 #![allow(
-    clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
     clippy::many_single_char_names,
     clippy::similar_names,
     clippy::too_many_arguments,
     clippy::too_many_lines,
     clippy::needless_range_loop,
-    reason = "the Q32.32 `i64` adjoints, the `u64` draw counter and the `u32` token ids are \
-              converted to `f64` at the accumulator boundary, where the value ranges are the \
-              activations' own; the single-letter names are the schedule's symbols (`t`, `e`, `o`, \
-              `s`, `g`, `w`), `g` names the output gradient and `w` the squared input norm; the \
-              backward is one linear composition with the tap widths and the layer loop passes them \
-              through"
+    reason = "the single-letter names are the schedule's symbols (`t`, `e`, `o`, `s`, `g`, `w`), `g` \
+              names the output gradient and `w` the squared input norm; the `u64 as i64` narrows a \
+              Q32.32 sampler word clamped below `ONE`; the backward is one linear composition \
+              with the tap widths and the layer loop passes them through"
 )]
 
-use crate::engine::fp::F64;
+use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
+use crate::engine::chart::task::ChunkTask;
 use crate::engine::{RopeTable, ONE};
 use crate::learn::grad::attn::{self, AttnError};
 use crate::learn::grad::dense::{self, DenseError};
 use crate::learn::grad::head;
 use crate::learn::grad::model::{Config, Grads, LayerGrads, ModelError, Tape, Weights};
+use crate::learn::solve::q32::{round_q32_even, rshift_rne, to_grid, Fx, GRID_BOUND};
 use crate::numeric::fixed_exp::fixed_exp;
-
-/// `2⁻³²`: the Q32.32 → `f64` scale. Division by a power of two is exact in binary floating point.
-const INV_ONE: f64 = 1.0 / 4_294_967_296.0;
 
 /// The diagonal the reference adds after the mean-diagonal normalisation (`fold_transfer.py:1323`).
 pub const DEFAULT_EPS: f64 = 0.01;
 
-/// The clamp the reference applies to the mean diagonal before dividing (`fold_transfer.py:1322`).
-const MEAN_DIAGONAL_FLOOR: f64 = 1e-30;
-
-/// Lower edge of the `fixed_exp` window, `-16·ONE`. A shifted logit below it has `p = 0`, the same
-/// rule [`head`] applies; the constant is that module's private `FLUSH`.
+/// Lower edge of the `fixed_exp` window, `-16·ONE`: a shifted logit below it has `p = 0`.
 const FLUSH: i128 = -16 * (1_i128 << 32);
 
 /// The kinds, in the reference's `KINDS` order (`fold_transfer.py:47-48`).
 pub const N_KINDS: usize = 7;
-
-/// `2⁵³`, the divisor that maps the 53 high bits of a xorshift64\* word to `[0, 1)`.
-const TWO53: f64 = 9_007_199_254_740_992.0;
 
 /// The seed used when the caller passes `0`, which is not a fixed point of xorshift64\*.
 const SEED_BIAS: u64 = 0x9E37_79B9_7F4A_7C15;
@@ -194,11 +203,7 @@ impl Kind {
     /// The linear's output width `O = chan[kind]` (`fold_transfer.py:1205`).
     ///
     /// # Errors
-    ///
     /// [`HocaptureError::Overflow`] when a width product leaves `usize`.
-    ///
-    /// # Complexity
-    /// `O(1)`.
     pub fn width(self, cfg: &Config) -> Result<usize, HocaptureError> {
         Ok(match self {
             Kind::Q | Kind::O => cfg.q_out().map_err(HocaptureError::Model)?,
@@ -212,11 +217,7 @@ impl Kind {
     /// `GQ_IN_OF` (`fold_transfer.py:1098`).
     ///
     /// # Errors
-    ///
     /// [`HocaptureError::Overflow`] when a width product leaves `usize`.
-    ///
-    /// # Complexity
-    /// `O(1)`.
     pub fn input_width(self, cfg: &Config) -> Result<usize, HocaptureError> {
         Ok(match self {
             Kind::Q | Kind::K | Kind::V | Kind::Gate | Kind::Up => cfg.n_embd,
@@ -227,9 +228,6 @@ impl Kind {
 
     /// The input row block of `layer` that weights this kind's update: `ln1_out` for q/k/v,
     /// `attn_out` for o, `ln2_out` for gate/up, `m` for down.
-    ///
-    /// # Complexity
-    /// `O(1)`.
     #[must_use]
     pub fn input(self, layer: &crate::learn::grad::model::LayerTape) -> &[i64] {
         match self {
@@ -237,6 +235,16 @@ impl Kind {
             Kind::O => &layer.attn_out,
             Kind::Gate | Kind::Up => &layer.ln2_out,
             Kind::Down => &layer.m,
+        }
+    }
+
+    /// The kind's output width from the accumulator's own fixed geometry.
+    fn width_at(self, cap: &Hocapture) -> usize {
+        match self {
+            Kind::Q | Kind::O => cap.q_out,
+            Kind::K | Kind::V => cap.kv_out,
+            Kind::Gate | Kind::Up => cap.n_ff,
+            Kind::Down => cap.n_embd,
         }
     }
 }
@@ -260,7 +268,8 @@ pub enum Stage {
 pub enum HocaptureError {
     /// A dimension, a buffer length or a token id disagrees with the geometry.
     Shape(String),
-    /// A width product left `usize`, or a sample counter left `u64`.
+    /// A width product left `usize`, a sample counter left `u64`, a checked product left `i128`, or a
+    /// rounded word left the grid.
     Overflow,
     /// The forward, the backward or a kernel refused.
     Model(ModelError),
@@ -293,9 +302,6 @@ fn shape(what: &str) -> HocaptureError {
 }
 
 /// `.len() == t · w` or [`HocaptureError::Shape`].
-///
-/// # Complexity
-/// `O(1)`.
 fn expect(t: usize, w: usize, len: usize, what: &str) -> Result<usize, HocaptureError> {
     match t.checked_mul(w) {
         Some(n) if n == len => Ok(n),
@@ -318,7 +324,7 @@ fn add_flat(a: &mut [i64], b: &[i64]) -> Result<(), HocaptureError> {
     Ok(())
 }
 
-/// The column sums of a `t × w` row-major buffer, checked.
+/// The checked column sums of a `t × w` row-major buffer.
 ///
 /// # Complexity
 /// `O(t·w)`.
@@ -335,10 +341,8 @@ fn col_sum(x: &[i64], t: usize, w: usize) -> Result<Vec<i64>, HocaptureError> {
     Ok(out)
 }
 
-/// `RMSNorm` backward over every row of a `t × w` buffer: `(dx, Σ_r dgamma_r)`.
-///
-/// The composition is `crate::learn::grad::model`'s private `rmsnorm_bwd_rows`, recomposed from the
-/// public [`dense::rmsnorm_bwd`] with the same checked accumulation order.
+/// `RMSNorm` backward over every row of a `t × w` buffer: `(dx, Σ_r dgamma_r)`, the composition
+/// `crate::learn::grad::model`'s private `rmsnorm_bwd_rows` performs.
 ///
 /// # Complexity
 /// `O(t·w)`; one [`dense::rmsnorm_bwd`] per row.
@@ -406,9 +410,6 @@ pub struct LayerTaps {
 
 impl LayerTaps {
     /// This layer's tap of `kind`.
-    ///
-    /// # Complexity
-    /// `O(1)`.
     #[must_use]
     pub fn get(&self, kind: Kind) -> &[i64] {
         match kind {
@@ -432,9 +433,6 @@ pub struct Taps {
 
 impl Taps {
     /// Layer `l`'s tap of `kind`, or `None` when the layer index is out of range.
-    ///
-    /// # Complexity
-    /// `O(1)`.
     #[must_use]
     pub fn get(&self, l: usize, kind: Kind) -> Option<&[i64]> {
         self.layers.get(l).map(|lt| lt.get(kind))
@@ -442,24 +440,19 @@ impl Taps {
 }
 
 /// The whole-model backward over `dlogits` (`t × vocab`), returning the same [`Grads`] as
-/// [`crate::learn::grad::model::backward`] **and** the seven per-layer output gradients that
-/// backward does not expose.
+/// [`crate::learn::grad::model::backward`] **and** the seven per-layer output gradients it does not
+/// expose.
 ///
 /// The chain, the kernel calls, the accumulation order and the single rounding per output are
 /// [`crate::learn::grad::model::backward`]'s (`src/learn/grad/model.rs:739-817`); the taps are read
-/// at the points the reference's `gq_capture` taps (`fold_transfer.py:1262`): `∂L/∂o = ∂L/∂h2` at the
-/// residual split `h2 = h + o`, `∂L/∂(q,k,v)` after each `RoPE` adjoint, `∂L/∂(gate,up)` out of
-/// `SwiGLU`, `∂L/∂(down output)` the incoming hidden gradient.
-///
-/// `dlogits` is the logit gradient of the loss the caller differentiates; for the sampled-label loss
-/// of [`accumulate_kind`] it is `p − onehot(s)`, the [`logits_grad_ce`] of the sampled targets.
+/// where the reference's `gq_capture` taps (`fold_transfer.py:1262`): `∂L/∂o` at the residual split
+/// `h2 = h + o`, `∂L/∂(q,k,v)` after each `RoPE` adjoint, `∂L/∂(gate,up)` out of `SwiGLU`,
+/// `∂L/∂(down output)` the incoming hidden gradient.
 ///
 /// # Errors
-///
 /// [`HocaptureError::Shape`] when the tape, `dlogits` or a buffer disagrees with the geometry;
 /// [`HocaptureError::Overflow`] on a checked add or a length product; and the
-/// [`HocaptureError::Model`] refusals of the kernels, as in
-/// [`crate::learn::grad::model::backward`].
+/// [`HocaptureError::Model`] refusals of the kernels.
 ///
 /// # Complexity
 /// Mirrors [`crate::learn::grad::model::backward`]: `O(t·(n_embd² + n_embd·n_ff) + n_head·t²·head_dim)`
@@ -480,8 +473,11 @@ pub fn backward_with_taps(
         return Err(shape("tape shape"));
     }
     expect(t, cfg.vocab, dlogits.len(), "dlogits")?;
-    let rope = RopeTable::new(F64::from_f64(cfg.rope_theta), cfg.head_dim)
-        .map_err(|err| HocaptureError::Model(ModelError::Attn(AttnError::Rope(err))))?;
+    let rope = RopeTable::new(
+        crate::engine::fp::F64::from_f64(cfg.rope_theta),
+        cfg.head_dim,
+    )
+    .map_err(|err| HocaptureError::Model(ModelError::Attn(AttnError::Rope(err))))?;
 
     let d_normed = dense::linear_bwd_input(dlogits, &w.lm_head, t, e, cfg.vocab)?;
     let lm_head = dense::linear_bwd_weight(dlogits, &tape.final_normed, t, e, cfg.vocab)?;
@@ -607,15 +603,10 @@ fn embedding_grad(
     Ok(out)
 }
 
-/// `n / d` rounded to nearest, ties away from zero; `d > 0`.
-///
-/// `head.rs`'s `round_div` is private; this is its rule.
-///
-/// # Complexity
-/// `O(1)`.
+/// `n / d` rounded to nearest, ties away from zero; `d > 0`. `q32` has no general divide-and-round,
+/// so this is the file's one such rule (it is `grad::head`'s private one).
 fn round_div(n: i128, d: i128) -> i128 {
-    let q = n / d;
-    let r = n % d;
+    let (q, r) = (n / d, n % d);
     let mag = if r < 0 { 0 - r } else { r };
     if 2 * mag >= d {
         if n >= 0 {
@@ -628,35 +619,51 @@ fn round_div(n: i128, d: i128) -> i128 {
     }
 }
 
-/// `x` narrowed to `i64`, or [`HocaptureError::Overflow`] when it leaves the range.
-///
-/// # Complexity
-/// `O(1)`.
+/// `x` narrowed to `i64`, or [`HocaptureError::Overflow`].
 fn to64(x: i128) -> Result<i64, HocaptureError> {
-    if x < i128::from(i64::MIN) || x > i128::from(i64::MAX) {
-        Err(HocaptureError::Overflow)
-    } else {
-        Ok(x as i64)
+    i64::try_from(x).map_err(|_| HocaptureError::Overflow)
+}
+
+/// `a + b` in the [`Fx`] carrier: the operand with the larger exponent is kept, the other is
+/// right-shifted by the exponent gap (round to nearest, ties to even) and the significands are added
+/// in `i128`, renormalised once by [`Fx::from_i128`]. A gap of 63 bits or more drops the smaller
+/// term, whose magnitude is then under the larger significand's last place.
+///
+/// # Errors
+/// [`HocaptureError::Overflow`] when a checked exponent difference, shift or add leaves its range
+/// (unreachable for accumulators built from Q32.32 products; kept for totality).
+fn fx_add(a: &Fx, b: &Fx) -> Result<Fx, HocaptureError> {
+    if a.m == 0 || b.m == 0 {
+        return Ok(if a.m == 0 { b.clone() } else { a.clone() });
     }
+    let (hi, lo) = if a.e >= b.e { (a, b) } else { (b, a) };
+    let gap = hi.e.checked_sub(lo.e).ok_or(HocaptureError::Overflow)?;
+    if gap > 62 {
+        return Ok(hi.clone());
+    }
+    let shift = u32::try_from(gap).map_err(|_| HocaptureError::Overflow)?;
+    let shifted = rshift_rne(i128::from(lo.m), shift).ok_or(HocaptureError::Overflow)?;
+    let sum = i128::from(hi.m)
+        .checked_add(shifted)
+        .ok_or(HocaptureError::Overflow)?;
+    Fx::from_i128(sum, hi.e).map_err(|_| HocaptureError::Overflow)
 }
 
 /// Softmax of one Q32.32 logit row, `pᵢ = round(eᵢ·ONE/S)`.
 ///
 /// The rule is [`head`]'s private `softmax_row` (`src/learn/grad/head.rs:279-304`): shift by the row
 /// maximum, `eᵢ = fixed_exp(uᵢ)` with `uᵢ < −16·ONE` flushed to `0`, `S = Σeᵢ`, one rounding per
-/// `pᵢ`. (The reference row also forms `L = fixed_ln(S)` for its `log p`; this port needs `p` only.)
-/// It is mirrored here over the same public [`fixed_exp`] because `head`'s function is private and
-/// this task does not own `head.rs`; the gate pins the two to the same values through `kl_row`
+/// `pᵢ`. It is mirrored here over the same public [`fixed_exp`] because `head`'s function is private
+/// and this task does not own `head.rs`; the gate pins the two through `kl_row`
 /// (`softmax_matches_head`).
 ///
 /// # Errors
-///
 /// [`HocaptureError::Shape`] for an empty row, or when [`fixed_exp`] refuses the shifted value
-/// (unreachable: every shifted value is `≤ 0` and the flush catches the window's lower edge);
-/// [`HocaptureError::Overflow`] when the weight sum or a probability leaves `i64`.
+/// (unreachable: every shifted value is `≤ 0`); [`HocaptureError::Overflow`] when a sum or a
+/// probability leaves `i64`.
 ///
 /// # Complexity
-/// `O(v)` comparisons, `v` [`fixed_exp`] calls and `v` `i128` divisions; `O(v)` words of output.
+/// `O(v)`: `v` comparisons, `v` [`fixed_exp`] calls and `v` `i128` divisions; `O(v)` words out.
 pub fn softmax_row(z: &[i64]) -> Result<Vec<i64>, HocaptureError> {
     let v = z.len();
     if v == 0 {
@@ -690,12 +697,10 @@ pub fn softmax_row(z: &[i64]) -> Result<Vec<i64>, HocaptureError> {
 /// The chunked head's `Σ_t log p_t` read at the sampled targets, negated: the sampled-label
 /// cross-entropy the taps differentiate, in Q32.32.
 ///
-/// This is `head::log_softmax_row` per row, summed in exact `i128` and rounded once. It is the loss
-/// whose central difference the gate compares a tap against, so the check does not go through
-/// [`softmax_row`]'s own rounding.
+/// This is `head::log_softmax_row` per row, summed in exact `i128` and rounded once, so the gate's
+/// central difference does not go through [`softmax_row`]'s own rounding.
 ///
 /// # Errors
-///
 /// [`HocaptureError::Shape`] when `logits.len() != t·vocab`, `targets.len() != t`, or a target is
 /// past the vocabulary; [`HocaptureError::Overflow`] on a checked sum or a narrowing.
 ///
@@ -724,16 +729,42 @@ pub fn cross_entropy_sum(
     to64(round_div(acc, 1))
 }
 
+/// `p_i − [i = s_r]` for row `r`.
+///
+/// # Errors
+/// `Shape` for a target past the vocabulary, `Overflow` from the narrowing.
+///
+/// # Complexity
+/// `O(vocab)`: one [`softmax_row`] and one write per entry.
+fn grad_row(
+    logits: &[i64],
+    targets: &[u32],
+    vocab: usize,
+    r: usize,
+) -> Result<Vec<i64>, HocaptureError> {
+    let target = *targets
+        .get(r)
+        .ok_or_else(|| shape("logits_grad_ce target"))?;
+    let id = usize::try_from(target).map_err(|_| HocaptureError::Overflow)?;
+    if id >= vocab {
+        return Err(shape("logits_grad_ce target >= vocab"));
+    }
+    let p = softmax_row(&logits[r * vocab..(r + 1) * vocab])?;
+    let mut out = p;
+    out[id] = out[id].checked_sub(ONE).ok_or(HocaptureError::Overflow)?;
+    Ok(out)
+}
+
 /// The logit gradient of the sampled-label loss `Σ_t CE(z_t, s_t)`: `out[t·vocab + i] = p_ti −
 /// [i = s_t]`, in Q32.32.
 ///
 /// # Errors
-///
 /// [`HocaptureError::Shape`] when `logits.len() != t·vocab`, `out.len() != t·vocab`, `targets.len()
 /// != t`, or a target is past the vocabulary.
 ///
 /// # Complexity
-/// `O(t·vocab)`; one [`softmax_row`] per row and one write per entry.
+/// Time `O(t·vocab)`, once per draw (`K` per capture): a per-token vector loop, not a matrix
+/// pass, so it stays serial and the Gram below takes the file's pool budget.
 pub fn logits_grad_ce(
     logits: &[i64],
     targets: &[u32],
@@ -743,32 +774,32 @@ pub fn logits_grad_ce(
     let t = targets.len();
     expect(t, vocab, logits.len(), "logits_grad_ce logits")?;
     expect(t, vocab, out.len(), "logits_grad_ce out")?;
+    if vocab == 0 || t == 0 {
+        return Err(shape("logits_grad_ce dimensions"));
+    }
     for r in 0..t {
-        let id = usize::try_from(targets[r]).map_err(|_| HocaptureError::Overflow)?;
-        if id >= vocab {
-            return Err(shape("logits_grad_ce target >= vocab"));
-        }
-        let p = softmax_row(&logits[r * vocab..(r + 1) * vocab])?;
-        let row = r * vocab;
-        for i in 0..vocab {
-            out[row + i] = p[i] - if i == id { ONE } else { 0 };
-        }
+        let row = grad_row(logits, targets, vocab, r)?;
+        out[r * vocab..(r + 1) * vocab].copy_from_slice(&row);
     }
     Ok(())
 }
 
-/// One xorshift64\* step, returning the uniform `u ∈ [0, 1)` of its 53 high bits.
+/// One xorshift64\* step, returning the uniform `u ∈ [0, ONE)` of its 53 high bits.
 ///
-/// # Complexity
-/// `O(1)`.
-fn xorshift64s(state: &mut u64) -> f64 {
+/// `u = (r mod 2⁵³)/2⁵³` in Q32.32 is `u·2³² = (r >> 32)` truncated; the +`2²⁰` before the shift
+/// rounds to nearest instead, and the clamp keeps the word strictly below `ONE` so the inverse-CDF
+/// walk can still pass a row whose probabilities sum to `ONE`.
+fn xorshift64s(state: &mut u64) -> i64 {
     let mut s = if *state == 0 { SEED_BIAS } else { *state };
     s ^= s >> 12;
     s ^= s << 25;
     s ^= s >> 27;
     *state = s;
     let r = s.wrapping_mul(0x2545_F491_4F6C_DD1D);
-    ((r >> 11) as f64) / TWO53
+    let word = ((r >> 11).wrapping_add(1 << 20)) >> 21;
+    let cap = (ONE as u64) - 1;
+    let w = if word > cap { cap } else { word };
+    w as i64
 }
 
 /// `K` sampled targets per token from the teacher softmax of `logits`, draw-major then token-major:
@@ -776,15 +807,16 @@ fn xorshift64s(state: &mut u64) -> f64 {
 ///
 /// The distribution is the reference's (`torch.multinomial(probs, 1)` per draw over the `N·T`
 /// rows, `fold_transfer.py:1260`); the stream is this file's inline xorshift64\* from `seed`. The
-/// inverse-CDF walk reads the same Q32.32 softmax row the loss gradient uses, and falls back to the
-/// last index with non-zero probability when the uniform lands past the row's rounding residue.
+/// inverse-CDF walk reads the same Q32.32 softmax row the loss gradient uses, in exact `i128`, and
+/// falls back to the last index with non-zero probability when the uniform lands past the row's
+/// rounding residue.
 ///
 /// # Errors
-///
 /// [`HocaptureError::Shape`] when `K == 0`, `vocab == 0`, `logits.len() != t·vocab`, or `t == 0`.
 ///
 /// # Complexity
-/// `O(K·t·vocab)`: one [`softmax_row`] per token plus one inverse-CDF walk per draw.
+/// Time `O(K·t·vocab)`: one [`softmax_row`] per token (a serial per-token loop) plus one
+/// inverse-CDF walk per draw; space `O(t·vocab)` softmax words plus `O(K·t)` output.
 pub fn sample_targets(
     logits: &[i64],
     t: usize,
@@ -796,22 +828,23 @@ pub fn sample_targets(
         return Err(shape("sample_targets dimensions"));
     }
     expect(t, vocab, logits.len(), "sample_targets logits")?;
-    let mut rows = Vec::with_capacity(t);
+    let mut rows = vec![0i64; t * vocab];
     for r in 0..t {
-        rows.push(softmax_row(&logits[r * vocab..(r + 1) * vocab])?);
+        let p = softmax_row(&logits[r * vocab..(r + 1) * vocab])?;
+        rows[r * vocab..(r + 1) * vocab].copy_from_slice(&p);
     }
     let mut state = if seed == 0 { SEED_BIAS } else { seed };
     let mut out = vec![0u32; k * t];
     for j in 0..k {
         for r in 0..t {
-            let p = &rows[r];
-            let draw = xorshift64s(&mut state) * (ONE as f64);
+            let p = &rows[r * vocab..(r + 1) * vocab];
+            let draw = i128::from(xorshift64s(&mut state));
             let mut cum: i128 = 0;
             let mut pick = p.len() - 1;
             let mut found = false;
             for (i, &pi) in p.iter().enumerate() {
                 cum += i128::from(pi);
-                if draw < cum as f64 {
+                if draw < cum {
                     pick = i;
                     found = true;
                     break;
@@ -832,14 +865,15 @@ pub fn sample_targets(
 
 /// One `(layer, kind)` raw accumulator: the scatter `Σ_t w_t g_t g_tᵀ` and the two Schäfer–Strimmer
 /// inputs of the same samples.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KindStats {
-    /// `Σ_t w_t g_t g_tᵀ`, row-major `O × O`, full and symmetric.
-    pub ho: Vec<f64>,
-    /// `Σ_t ‖s_t‖⁴` with `s_ti = √w_t·g_ti` (`fold_transfer.py:1282`).
-    pub s4: f64,
-    /// `Σ_t s_ti⁴` per output coordinate (`fold_transfer.py:1283`), `O` long.
-    pub q: Vec<f64>,
+    /// `Σ_t w_t g_t g_tᵀ`, row-major `O × O`, **upper triangle only**, Q32.32 words.
+    pub ho: Vec<i64>,
+    /// `Σ_t ‖s_t‖⁴` with `s_ti = √w_t·g_ti` (`fold_transfer.py:1282`), in the [`Fx`] carrier: a
+    /// fourth power leaves the Q32.32 grid on any real model.
+    pub s4: Fx,
+    /// `Σ_t s_ti⁴` per output coordinate (`fold_transfer.py:1283`), `O` long, the same carrier.
+    pub q: Vec<Fx>,
     /// `(token, draw)` pairs accumulated: the reference's `n = K·N·T` (`fold_transfer.py:1312`).
     pub samples: u64,
 }
@@ -848,24 +882,23 @@ impl KindStats {
     /// The zero accumulator of width `O`.
     ///
     /// # Errors
-    ///
     /// [`HocaptureError::Overflow`] when `O²` leaves `usize`.
     ///
     /// # Complexity
-    /// Time `O(O²)`; space `O(O²)` `f64` words for `ho` and `O` for `q`.
+    /// Time `O(O²)`; space `O(O²)` words for `ho` and `O` for `q`.
     pub fn zeros(o: usize) -> Result<KindStats, HocaptureError> {
         let o2 = o.checked_mul(o).ok_or(HocaptureError::Overflow)?;
         Ok(KindStats {
-            ho: vec![0.0; o2],
-            s4: 0.0,
-            q: vec![0.0; o],
+            ho: vec![0; o2],
+            s4: Fx { m: 0, e: 0 },
+            q: vec![Fx { m: 0, e: 0 }; o],
             samples: 0,
         })
     }
 }
 
 /// Every kind's raw accumulator for one layer.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LayerStats {
     /// Indexed by [`Kind::index`].
     pub kinds: [KindStats; N_KINDS],
@@ -873,30 +906,118 @@ pub struct LayerStats {
 
 impl LayerStats {
     /// The accumulator of `kind`.
-    ///
-    /// # Complexity
-    /// `O(1)`.
     #[must_use]
     pub fn kind(&self, kind: Kind) -> &KindStats {
         &self.kinds[kind.index()]
     }
 }
 
-/// Fold one token block of `(input, output-gradient)` pairs into `stats`: the rank-1 update
-/// `ho += Σ_t ‖x_t‖² g_t g_tᵀ` and the `S4`/`Q` recurrences, both `O(O²)`/`O(O)` per token.
+/// The squared input norm `‖x_t‖²` of one Q32.32 row, as one word: the exact `i128` sum of the
+/// squares, rounded once.
 ///
-/// `x` is the linear's input, `t × w` row-major in Q32.32; `g` is the loss's gradient with respect to
-/// the linear's output, `t × o` row-major in Q32.32. `w_t = ‖x_t‖²` in real units (`x/2³²` twice), and
-/// `s_ti = √w_t·g_ti` in real units, exactly the reference's `s2 = g²·w` (`fold_transfer.py:1281`).
+/// # Complexity
+/// `O(w)`; space `O(1)`.
+fn token_weight(x: &[i64]) -> Result<i64, HocaptureError> {
+    let mut acc: i128 = 0;
+    for &v in x {
+        let sq = i128::from(v)
+            .checked_mul(i128::from(v))
+            .ok_or(HocaptureError::Overflow)?;
+        acc = acc.checked_add(sq).ok_or(HocaptureError::Overflow)?;
+    }
+    round_q32_even(acc).map_err(|_| HocaptureError::Overflow)
+}
+
+/// `a_t = round(w_t·g_ti)` in Q32.32: the input-weighted output gradient that both `HO` and `s²`
+/// build on.
 ///
 /// # Errors
+/// [`HocaptureError::Overflow`] when the product leaves the grid.
+fn weighted_grad(w_t: i64, g_ti: i64) -> Result<i64, HocaptureError> {
+    round_q32_even(i128::from(w_t) * i128::from(g_ti)).map_err(|_| HocaptureError::Overflow)
+}
+
+/// The pool task of [`accumulate_kind`]'s `HO` pass: one band of upper-triangle output rows.
+struct HoRows<'a> {
+    weights: &'a [i64],
+    g: &'a [i64],
+    o: usize,
+    t: usize,
+    first: &'a FirstErr<usize, HocaptureError>,
+}
+
+impl ChunkTask<i64> for HoRows<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [i64]) {
+        let row0 = start / self.o;
+        let rows = piece.len() / self.o;
+        for i in 0..rows {
+            let row = &mut piece[i * self.o..(i + 1) * self.o];
+            if let Err(e) = ho_row(row, row0 + i, self.weights, self.g, self.t, self.o) {
+                self.first.record(row0 + i, e);
+                return;
+            }
+        }
+    }
+}
+
+/// `HO[gi][j] += Σ_t round(w_t·g_tgi)·g_tj` for `j ≥ gi`: exact `i128` per entry, rounded once,
+/// added into the row's upper triangle (the lower one stays zero for [`Hocapture::finish`]).
 ///
-/// [`HocaptureError::Shape`] when `x.len() != t·w`, `g.len() != t·o`, `o == 0`, or `stats` has the
-/// wrong `ho`/`q` widths; [`HocaptureError::Overflow`] when the sample counter leaves `u64`.
+/// # Errors
+/// [`HocaptureError::Overflow`] when an intermediate or the entry's round leaves its range.
+///
+/// # Complexity
+/// Time `O(t·(O − gi))` multiply-adds and `t` roundings (one per token, hoisted out of the `j`
+/// loop); space `O(O)` `i128` accumulators.
+fn ho_row(
+    row: &mut [i64],
+    gi: usize,
+    weights: &[i64],
+    g: &[i64],
+    t: usize,
+    o: usize,
+) -> Result<(), HocaptureError> {
+    let mut acc = vec![0i128; o];
+    for r in 0..t {
+        let gr = &g[r * o..(r + 1) * o];
+        let a = weighted_grad(weights[r], gr[gi])?;
+        for j in gi..o {
+            acc[j] = acc[j]
+                .checked_add(
+                    i128::from(a)
+                        .checked_mul(i128::from(gr[j]))
+                        .ok_or(HocaptureError::Overflow)?,
+                )
+                .ok_or(HocaptureError::Overflow)?;
+        }
+    }
+    for j in gi..o {
+        let v = round_q32_even(acc[j]).map_err(|_| HocaptureError::Overflow)?;
+        row[j] = row[j].checked_add(v).ok_or(HocaptureError::Overflow)?;
+    }
+    Ok(())
+}
+
+/// Fold one token block of `(input, output-gradient)` pairs into `stats`: the rank-1 update
+/// `ho += Σ_t ‖x_t‖² g_t g_tᵀ` and the `S4`/`Q` recurrences.
+///
+/// `x` is the linear's input, `t × w` row-major in Q32.32; `g` is the loss's gradient with respect to
+/// the linear's output, `t × o` row-major in Q32.32. `w_t = ‖x_t‖²` as one word, and
+/// `s_ti² = round(round(w_t·g_ti)·g_ti)`, exactly the reference's `s2 = g²·w`
+/// (`fold_transfer.py:1281`). `ho` gains the upper triangle only; [`Hocapture::finish`] mirrors it.
+///
+/// # Errors
+/// [`HocaptureError::Shape`] when `x.len() != t·w`, `g.len() != t·o`, `o == 0` or `w == 0`, or
+/// `stats` has the wrong `ho`/`q` widths; [`HocaptureError::Overflow`] when the sample counter
+/// leaves `u64`, an exact `i128` sum leaves its range, or a rounded `ho` word leaves the grid.
+/// (`s4`/`q` are carried in [`Fx`], so their fourth powers do not have to fit the grid.)
 ///
 /// # Complexity
 /// Time `O(t·(w + O²))`: one `w`-term norm and `O(O+1)/2` rank-1 multiply-adds plus `O` recurrence
-/// terms per token. Space `O(max(w, O))` `f64` scratch rows, no per-token allocation.
+/// terms per token. Unit cost `t·w + t·O²/2` word ops against `7·n_layer·K` calls per capture, so
+/// the `t·O²/2` `HO` pass (≥ `10⁶` word ops at any model width) is split by output row across
+/// [`width_global`] pool tasks; the `O(t)` weight, `Q` and `S4` passes are vector loops and serial.
+/// Space `O(t)` weights plus `O(O)` per task.
 pub fn accumulate_kind(
     stats: &mut KindStats,
     x: &[i64],
@@ -913,36 +1034,61 @@ pub fn accumulate_kind(
     if o.checked_mul(o) != Some(stats.ho.len()) || stats.q.len() != o {
         return Err(shape("accumulate_kind accumulator width"));
     }
-    let mut xf = vec![0.0f64; w];
-    let mut gf = vec![0.0f64; o];
-    let mut s2 = vec![0.0f64; o];
-    for r in 0..t {
-        for (d, v) in xf.iter_mut().zip(&x[r * w..r * w + w]) {
-            *d = *v as f64 * INV_ONE;
-        }
-        let wt: f64 = xf.iter().map(|v| v * v).sum();
-        for (d, v) in gf.iter_mut().zip(&g[r * o..r * o + o]) {
-            *d = *v as f64 * INV_ONE;
-        }
-        for i in 0..o {
-            s2[i] = wt * gf[i] * gf[i];
-        }
-        for i in 0..o {
-            let gi = wt * gf[i];
-            for j in i..o {
-                let v = gi * gf[j];
-                stats.ho[i * o + j] += v;
-                if i != j {
-                    stats.ho[j * o + i] += v;
-                }
-            }
-        }
-        let n2: f64 = s2.iter().sum();
-        stats.s4 += n2 * n2;
-        for i in 0..o {
-            stats.q[i] += s2[i] * s2[i];
-        }
+
+    // `w_t = ‖x_t‖²` per token.
+    let mut weights = vec![0i64; t];
+    for (r, slot) in weights.iter_mut().enumerate() {
+        *slot = token_weight(&x[r * w..(r + 1) * w])?;
     }
+
+    // `HO` upper-triangle rows on the pool.
+    let chunk_rows = o.div_ceil(width_global()).max(1);
+    let first: FirstErr<usize, HocaptureError> = FirstErr::new();
+    chunks_mut_global(
+        &mut stats.ho,
+        chunk_rows * o,
+        &HoRows {
+            weights: &weights,
+            g,
+            o,
+            t,
+            first: &first,
+        },
+    );
+    if let Some((_, e)) = first.take() {
+        return Err(e);
+    }
+
+    // `Q_i = Σ_t s_ti⁴` and `S4 = Σ_t (Σ_i s_ti²)²`, exact Q64.64 totals rounded once per call.
+    let mut q = vec![0i128; o];
+    let mut s4: i128 = 0;
+    for r in 0..t {
+        let gr = &g[r * o..(r + 1) * o];
+        let mut n2: i128 = 0;
+        for (i, &gi) in gr.iter().enumerate() {
+            let s2 = weighted_grad(weighted_grad(weights[r], gi)?, gi)?;
+            q[i] = q[i]
+                .checked_add(
+                    i128::from(s2)
+                        .checked_mul(i128::from(s2))
+                        .ok_or(HocaptureError::Overflow)?,
+                )
+                .ok_or(HocaptureError::Overflow)?;
+            n2 = n2
+                .checked_add(i128::from(s2))
+                .ok_or(HocaptureError::Overflow)?;
+        }
+        s4 = s4
+            .checked_add(n2.checked_mul(n2).ok_or(HocaptureError::Overflow)?)
+            .ok_or(HocaptureError::Overflow)?;
+    }
+    for (dst, v) in stats.q.iter_mut().zip(&q) {
+        let add = Fx::from_i128(*v, -64).map_err(|_| HocaptureError::Overflow)?;
+        *dst = fx_add(dst, &add)?;
+    }
+    let total = Fx::from_i128(s4, -64).map_err(|_| HocaptureError::Overflow)?;
+    stats.s4 = fx_add(&stats.s4, &total)?;
+
     let rows = u64::try_from(t).map_err(|_| HocaptureError::Overflow)?;
     stats.samples = stats
         .samples
@@ -953,21 +1099,16 @@ pub fn accumulate_kind(
 
 /// The output-side (YAQA Sketch A) capture: one raw accumulator per `(layer, kind)`, plus the fixed
 /// draw count and seed.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hocapture {
     /// Draws per token, the reference's `K`.
     k: usize,
     /// The sampler seed.
     seed: u64,
-    /// Residual width, fixed by [`Hocapture::new`].
     n_embd: usize,
-    /// `n_head·head_dim`, fixed by [`Hocapture::new`].
     q_out: usize,
-    /// `n_head_kv·head_dim`, fixed by [`Hocapture::new`].
     kv_out: usize,
-    /// Feed-forward width, fixed by [`Hocapture::new`].
     n_ff: usize,
-    /// Vocabulary, fixed by [`Hocapture::new`].
     vocab: usize,
     /// Per trunk layer, in forward order.
     layers: Vec<LayerStats>,
@@ -977,13 +1118,11 @@ impl Hocapture {
     /// The zero accumulator for `cfg`'s geometry, `k` draws per token and the sampler seed `seed`.
     ///
     /// # Errors
-    ///
     /// [`HocaptureError::Shape`] for `k == 0` or a zero model dimension;
     /// [`HocaptureError::Overflow`] when `q_out`, `kv_out` or a squared width leaves `usize`.
     ///
     /// # Complexity
-    /// Time `O(n_layer·(q_out² + kv_out² + n_ff² + n_embd²))`; the same in space, one
-    /// [`KindStats::zeros`] per `(layer, kind)`.
+    /// Time `O(n_layer·(q_out² + kv_out² + n_ff² + n_embd²))`; the same in space.
     pub fn new(cfg: &Config, k: usize, seed: u64) -> Result<Hocapture, HocaptureError> {
         cfg.checked().map_err(HocaptureError::Model)?;
         if k == 0 || cfg.n_layer == 0 {
@@ -1016,12 +1155,10 @@ impl Hocapture {
     /// [`Hocapture::seed`]) and folds them in.
     ///
     /// # Errors
-    ///
     /// As [`Hocapture::add_taps`], plus the forward's and the sampler's refusals.
     ///
     /// # Complexity
-    /// One forward, `K` backward passes and `O(K·t·Σ_kind(w_kind + O_kind²))` accumulation terms; as
-    /// [`crate::learn::grad::model::forward`] plus `K ×` [`backward_with_taps`].
+    /// One forward, `K` backward passes and `O(K·t·Σ_kind(w_kind + O_kind²))` accumulation terms.
     pub fn accumulate(
         &mut self,
         w: &Weights,
@@ -1038,11 +1175,10 @@ impl Hocapture {
     /// per draw, draw-major: `targets[j·t + i]` is draw `j`'s target at token `i`.
     ///
     /// # Errors
-    ///
     /// As [`Hocapture::add_taps`], plus the forward's refusals.
     ///
     /// # Complexity
-    /// One forward, `K` backward passes and the accumulation; as [`Hocapture::accumulate`].
+    /// As [`Hocapture::accumulate`].
     pub fn accumulate_with_targets(
         &mut self,
         w: &Weights,
@@ -1060,10 +1196,10 @@ impl Hocapture {
     ///
     /// One [`logits_grad_ce`] and one [`backward_with_taps`] per draw; the taps are folded by
     /// [`accumulate_kind`] against the tape's own input rows, so the weighting is the linear's real
-    /// input norm, not a copy of it.
+    /// input norm. The draw loop is serial because each iteration dispatches the engine pool and a
+    /// pool task must not dispatch the pool.
     ///
     /// # Errors
-    ///
     /// [`HocaptureError::Shape`] when `cfg` disagrees with the geometry [`Hocapture::new`] fixed,
     /// when `logits.len() != t·vocab`, when `targets.len() != k·t`, when a target is past the
     /// vocabulary, or when a tape buffer is not `t × width`; [`HocaptureError::Overflow`] on a
@@ -1119,46 +1255,40 @@ impl Hocapture {
     }
 
     /// Draws per token, the reference's `K`.
-    ///
-    /// # Complexity
-    /// `O(1)`.
     #[must_use]
     pub fn k(&self) -> usize {
         self.k
     }
 
     /// The sampler seed.
-    ///
-    /// # Complexity
-    /// `O(1)`.
     #[must_use]
     pub fn seed(&self) -> u64 {
         self.seed
     }
 
-    /// The raw accumulators, per layer: `ho = Σ_t w_t g_t g_tᵀ`, `s4`, `q`, `samples`.
-    ///
-    /// # Complexity
-    /// `O(1)`.
+    /// The raw accumulators, per layer: `ho = Σ_t w_t g_t g_tᵀ` (upper triangle, Q32.32 words),
+    /// `s4`, `q` (the [`Fx`] carrier) and the sample count.
     #[must_use]
     pub fn stats(&self) -> &[LayerStats] {
         &self.layers
     }
 
-    /// The normalised copy: per `(layer, kind)`, `ho / mean(diag(ho))` with the mean clamped up to
-    /// `1e-30`, then `eps` added to the diagonal — the reference's `x / x.diagonal().mean().clamp_min(1e-30)`
-    /// and `x.diagonal().add_(0.01)` (`fold_transfer.py:1322-1323`), with the caller supplying `eps`
-    /// ([`DEFAULT_EPS`] is the reference's `0.01`). `s4`, `q` and `samples` pass through unchanged, so
+    /// The normalised copy: per `(layer, kind)`, `ho / mean(diag(ho))` — the fixed-point ratio
+    /// `round(ho·O·2³²/Σdiag)` — then `eps` on the diagonal, the reference's
+    /// `x / x.diagonal().mean().clamp_min(1e-30)` and `x.diagonal().add_(0.01)`
+    /// (`fold_transfer.py:1322-1323`), with the caller supplying `eps` ([`DEFAULT_EPS`] is the
+    /// reference's `0.01`). The floor `1e-30` is below the grid's quantum, so a zero diagonal is the
+    /// only reachable branch and it yields zeros. `s4`, `q` and `samples` pass through unchanged, so
     /// `ho_lw` can still be formed on the raw scatter as the reference does.
     ///
     /// # Errors
-    ///
-    /// [`HocaptureError::Shape`] when a kind has accumulated no samples (a mean over no samples is
-    /// undefined, not zero).
+    /// [`HocaptureError::Shape`] when a kind has accumulated no samples; [`HocaptureError::Overflow`]
+    /// when `eps` leaves the grid or a scaled entry leaves `i64`.
     ///
     /// # Complexity
     /// `O(n_layer·Σ_kind O_kind²)` time, one `ho` copy per `(layer, kind)`.
     pub fn finish(&self, eps: f64) -> Result<Vec<LayerStats>, HocaptureError> {
+        let eps_word = to_grid(eps, GRID_BOUND).ok_or(HocaptureError::Overflow)?;
         let mut out = Vec::with_capacity(self.layers.len());
         for ls in &self.layers {
             let mut kinds: Vec<KindStats> = Vec::with_capacity(N_KINDS);
@@ -1168,26 +1298,37 @@ impl Hocapture {
                     return Err(shape("finish over zero samples"));
                 }
                 let o = kind.width_at(self);
-                let mut ho = ks.ho.clone();
-                let mut diag = 0.0f64;
+                let diag: i128 = (0..o)
+                    .filter_map(|i| ks.ho.get(i * o + i))
+                    .map(|&v| i128::from(v))
+                    .sum();
+                let num = i128::try_from(o)
+                    .ok()
+                    .and_then(|d| d.checked_shl(32))
+                    .ok_or(HocaptureError::Overflow)?;
+                let mut ho = vec![0i64; o * o];
                 for i in 0..o {
-                    diag += ho[i * o + i];
-                }
-                let mean = diag / o as f64;
-                let denom = if mean > MEAN_DIAGONAL_FLOOR {
-                    mean
-                } else {
-                    MEAN_DIAGONAL_FLOOR
-                };
-                for v in &mut ho {
-                    *v /= denom;
-                }
-                for i in 0..o {
-                    ho[i * o + i] += eps;
+                    for j in i..o {
+                        let w = if diag <= 0 {
+                            0
+                        } else {
+                            let raw = i128::from(ks.ho[i * o + j])
+                                .checked_mul(num)
+                                .ok_or(HocaptureError::Overflow)?;
+                            to64(round_div(raw, diag))?
+                        };
+                        let v = if i == j {
+                            w.checked_add(eps_word).ok_or(HocaptureError::Overflow)?
+                        } else {
+                            w
+                        };
+                        ho[i * o + j] = v;
+                        ho[j * o + i] = v;
+                    }
                 }
                 kinds.push(KindStats {
                     ho,
-                    s4: ks.s4,
+                    s4: ks.s4.clone(),
                     q: ks.q.clone(),
                     samples: ks.samples,
                 });
@@ -1196,20 +1337,5 @@ impl Hocapture {
             out.push(LayerStats { kinds });
         }
         Ok(out)
-    }
-}
-
-impl Kind {
-    /// The kind's output width from the accumulator's own fixed geometry.
-    ///
-    /// # Complexity
-    /// `O(1)`.
-    fn width_at(self, cap: &Hocapture) -> usize {
-        match self {
-            Kind::Q | Kind::O => cap.q_out,
-            Kind::K | Kind::V => cap.kv_out,
-            Kind::Gate | Kind::Up => cap.n_ff,
-            Kind::Down => cap.n_embd,
-        }
     }
 }

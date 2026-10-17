@@ -31,6 +31,7 @@ use apeiron::learn::fold::stats::hocapture::{
 use apeiron::learn::grad::head::kl_row;
 use apeiron::learn::grad::model::{backward, forward, Config, LayerTape, LayerWeights, Weights};
 use apeiron::learn::ridge::cholesky;
+use apeiron::learn::solve::q32::{from_grid, Fx};
 
 /// Residual width.
 const E: usize = 4;
@@ -165,12 +166,56 @@ fn naive_stats(x: &[i64], g: &[i64], t: usize, w: usize, o: usize) -> (Vec<f64>,
     (ho, s4, q)
 }
 
-/// Element-wise closeness of two equal-length f64 buffers.
-fn close(a: &[f64], b: &[f64], tol: f64) {
-    assert_eq!(a.len(), b.len(), "length {} != {}", a.len(), b.len());
-    for (i, (x, y)) in a.iter().zip(b).enumerate() {
-        assert!((x - y).abs() <= tol, "index {i}: {x} != {y} (tol {tol})");
+/// The `f64` view of Q32.32 words: the single conversion at the accumulator's boundary.
+fn reals(w: &[i64]) -> Vec<f64> {
+    w.iter().map(|&v| from_grid(v)).collect()
+}
+
+/// The symmetric mirror of the accumulator's upper-triangle-only `o × o` scatter, the form
+/// [`Hocapture::finish`] writes.
+fn mirror(upper: &[i64], o: usize) -> Vec<i64> {
+    let mut out = vec![0i64; o * o];
+    for i in 0..o {
+        for j in i..o {
+            out[i * o + j] = upper[i * o + j];
+            out[j * o + i] = upper[i * o + j];
+        }
     }
+    out
+}
+
+/// The `f64` view of an [`Fx`] accumulator: `m·2^e`, the carrier's own single conversion.
+fn from_fx(x: &Fx) -> f64 {
+    x.m as f64 * 2f64.powi(x.e)
+}
+
+/// `2⁻⁶¹`, the relative quantum of the [`Fx`] carrier's 62-bit significand.
+fn fx_quantum() -> f64 {
+    2f64.powi(-61)
+}
+
+/// `b` equals `k·a` to within `steps` carrier roundings: the relative bound the [`Fx`] accumulation
+/// carries (one 62-bit renormalisation per `from_i128` and one per addition).
+fn fx_scaled(a: &Fx, b: &Fx, k: f64, steps: f64) -> bool {
+    (from_fx(b) - k * from_fx(a)).abs() <= steps * fx_quantum() * from_fx(b).abs()
+}
+
+/// The per-term error bound of one `HO` entry `Σ_t round(round(w_t·g_i)·g_j)`: `w_t`'s own rounding
+/// is scaled by `|g_i g_j|`, `round(w·g_i)`'s by `|g_j|`, and the entry's by `1`, each at most half a
+/// grid quantum, so a term carries `0.5·quantum·(1 + gmax + gmax²)`.
+fn ho_term_bound(gmax: f64) -> f64 {
+    0.5 * quantum() * (1.0 + gmax + gmax * gmax)
+}
+
+/// The per-term error bound of one `s_ti² = round(round(w_t·g_ti)·g_ti)`: the same three roundings,
+/// with no entry rounding to absorb them, so `quantum·(1 + gmax + gmax²)`.
+fn s2_term_bound(gmax: f64) -> f64 {
+    quantum() * (1.0 + gmax + gmax * gmax)
+}
+
+/// `2⁻³²`, the grid quantum of the Q32.32 carriers the accumulator stores.
+fn quantum() -> f64 {
+    2f64.powi(-32)
 }
 
 /// Element-wise closeness with a tolerance relative to the larger magnitude: the test's own
@@ -205,15 +250,16 @@ fn ho_is_symmetric_psd_and_finishes_to_mean_diagonal_one() {
             assert_eq!(ks.ho.len(), o * o);
             assert_eq!(ks.q.len(), o);
             assert_eq!(ks.samples, u64::try_from(2 * tokens.len()).unwrap());
-            assert!(ks.s4 >= 0.0);
-            assert!(ks.q.iter().all(|&v| v >= 0.0));
+            assert!(ks.s4.m >= 0);
+            assert!(ks.q.iter().all(|v| v.m >= 0));
+            // The raw accumulator carries the upper triangle only; `finish` mirrors it.
             for i in 0..o {
-                for j in 0..o {
-                    assert_eq!(ks.ho[i * o + j], ks.ho[j * o + i], "asymmetric");
+                for j in 0..i {
+                    assert_eq!(ks.ho[i * o + j], 0, "raw lower triangle is not zero");
                 }
             }
             // PSD: `HO + 1e-9·I` is positive-definite, so `Cholesky` succeeds.
-            let mut a = ks.ho.clone();
+            let mut a = reals(&mirror(&ks.ho, o));
             for i in 0..o {
                 a[i * o + i] += 1e-9;
             }
@@ -237,17 +283,18 @@ fn ho_is_symmetric_psd_and_finishes_to_mean_diagonal_one() {
                     );
                 }
             }
-            let mut a = ks.ho.clone();
+            let mut a = reals(&ks.ho);
             for i in 0..o {
                 a[i * o + i] += 1e-9;
             }
             assert!(cholesky(&a, o).is_ok(), "{kind:?} finished HO is not PD");
             let mut diag = 0.0f64;
             for i in 0..o {
-                diag += ks.ho[i * o + i];
+                diag += from_grid(ks.ho[i * o + i]);
             }
+            // The finish rounds the fixed-point division and the `eps` word: one quantum each.
             assert!(
-                (diag / o as f64 - (1.0 + DEFAULT_EPS)).abs() < 1e-9,
+                (diag / o as f64 - (1.0 + DEFAULT_EPS)).abs() < 2.0 * quantum(),
                 "{kind:?} mean diagonal {}",
                 diag / o as f64
             );
@@ -257,7 +304,7 @@ fn ho_is_symmetric_psd_and_finishes_to_mean_diagonal_one() {
     for (a, b) in raw.iter().zip(&fin) {
         for kind in Kind::ALL {
             assert_eq!(a.kind(kind).s4, b.kind(kind).s4);
-            close(&a.kind(kind).q, &b.kind(kind).q, 0.0);
+            assert_eq!(a.kind(kind).q, b.kind(kind).q);
             assert_ne!(a.kind(kind).ho, b.kind(kind).ho);
         }
     }
@@ -336,9 +383,13 @@ fn down_tap_matches_finite_difference_and_outer_product() {
         let v = lt.m[i] as f64 / 4_294_967_296.0;
         wt += v * v;
     }
-    let gf: Vec<f64> = g.iter().map(|&v| v as f64 / 4_294_967_296.0).collect();
+    let gf: Vec<f64> = g.iter().map(|&v| from_grid(v)).collect();
     let outer: Vec<f64> = (0..E * E).map(|k| wt * gf[k / E] * gf[k % E]).collect();
-    close_rel(&ks.ho, &outer, 1e-15);
+    // One token and one draw: `HO_ij` is `round(round(w·g_i)·g_j)`, so `w`'s rounding is scaled by
+    // `|g_i g_j|`, the inner rounding by `|g_j|` and the entry's own by one, each at most half a
+    // quantum.
+    let gmax = gf.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+    close_rel(&reals(&mirror(&ks.ho, E)), &outer, ho_term_bound(gmax));
     assert_eq!(ks.samples, 1);
 }
 
@@ -368,12 +419,44 @@ fn ho_matches_the_independent_scatter_and_adds_across_calls() {
                 o,
             );
             let ks = cap.stats()[l].kind(kind);
-            close_rel(&ks.ho, &ho, 1e-12);
+            // `HO_ij = Σ_t round(round(w·g_i)·g_j)`: `w_t`'s rounding is scaled by `|g_i g_j|`, the
+            // inner rounding by `|g_j|` and the entry's own by `1`, each at most half a quantum.
+            let gmax = taps
+                .get(l, kind)
+                .unwrap()
+                .iter()
+                .fold(0.0f64, |m, &v| m.max(from_grid(v).abs()));
+            let t = tokens.len() as f64;
+            close_rel(&reals(&mirror(&ks.ho, o)), &ho, t * ho_term_bound(gmax));
+            // `s4 = Σ_t (Σ_i s_ti²)²` with `s_ti² = round(round(w·g_ti)·g_ti)`: the same three
+            // roundings give `|s_ti² − w·g_ti²| ≤ δ = (1 + gmax + gmax²)` half-quanta, so
+            // `|n2_t − N_t| ≤ q·δ` with `N_t = Σ_i w g_ti²` and `δs4 ≤ Σ_t (2·N_t + δ')·δ'` with
+            // `δ' = q·δ`. Cauchy–Schwarz on the non-negative `N_t` bounds `Σ_t N_t ≤ √(t·Σ_t N_t²)`;
+            // the `Fx` carrier adds one 62-bit renormalisation for the call's exact total and one for
+            // the fold, relative `2·2⁻⁶¹`.
+            let delta = o as f64 * s2_term_bound(gmax);
+            let s4_bound = 2.0 * (t * s4.abs()).sqrt() * delta
+                + t * delta * delta
+                + 2.0 * fx_quantum() * s4.abs();
             assert!(
-                (ks.s4 - s4).abs() <= 1e-12 * s4.abs().max(1.0),
-                "{kind:?} s4"
+                (from_fx(&ks.s4) - s4).abs() <= s4_bound,
+                "{kind:?} s4 {} vs {s4} (bound {s4_bound})",
+                from_fx(&ks.s4)
             );
-            close_rel(&ks.q, &q, 1e-12);
+            // The same derivation per coordinate, one rounding of `s_ti²` at a time:
+            // `δq_i ≤ 2·√(t·q_i)·δ + t·δ²` with `δ = (1 + gmax + gmax²)` half-quanta.
+            let dq = s2_term_bound(gmax);
+            for i in 0..o {
+                let q_bound = 2.0 * (t * q[i].abs()).sqrt() * dq
+                    + t * dq * dq
+                    + 2.0 * fx_quantum() * q[i].abs();
+                assert!(
+                    (from_fx(&ks.q[i]) - q[i]).abs() <= q_bound,
+                    "{kind:?} q[{i}] {} vs {} (bound {q_bound})",
+                    from_fx(&ks.q[i]),
+                    q[i]
+                );
+            }
         }
     }
 
@@ -388,11 +471,25 @@ fn ho_matches_the_independent_scatter_and_adds_across_calls() {
         for kind in Kind::ALL {
             let a = once.stats()[l].kind(kind);
             let b = twice.stats()[l].kind(kind);
-            let doubled: Vec<f64> = a.ho.iter().map(|v| 2.0 * v).collect();
-            close_rel(&doubled, &b.ho, 1e-15);
-            assert!((b.s4 - 2.0 * a.s4).abs() <= 1e-15 * a.s4.abs().max(1.0));
-            let qd: Vec<f64> = a.q.iter().map(|v| 2.0 * v).collect();
-            close_rel(&qd, &b.q, 1e-15);
+            // The accumulator is integral, so adding the same rounded terms twice is exactly `2×`;
+            // `s4`/`q` are renormalised once per call and once per fold in the `Fx` carrier, so their
+            // relation is `2×` to within those roundings.
+            let doubled: Vec<i64> = a.ho.iter().map(|v| 2 * v).collect();
+            assert_eq!(doubled, b.ho, "{kind:?} ho is not exactly doubled");
+            assert!(
+                fx_scaled(&a.s4, &b.s4, 2.0, 2.0),
+                "{kind:?} s4 {} is not twice {}",
+                from_fx(&b.s4),
+                from_fx(&a.s4)
+            );
+            for i in 0..a.q.len() {
+                assert!(
+                    fx_scaled(&a.q[i], &b.q[i], 2.0, 2.0),
+                    "{kind:?} q[{i}] {} is not twice {}",
+                    from_fx(&b.q[i]),
+                    from_fx(&a.q[i])
+                );
+            }
             assert_eq!(b.samples, 2 * a.samples);
         }
     }
@@ -415,14 +512,26 @@ fn input_scaling_scales_ho_by_the_squared_norm_ratio() {
     accumulate_kind(&mut dou, &scaled, &g, t, w, o).unwrap();
     assert_eq!(base.samples, u64::try_from(t).unwrap());
     for (a, b) in base.ho.iter().zip(&dou.ho) {
-        assert_eq!(*a * 4.0, *b, "HO must scale by 2²");
+        assert_eq!(*a * 4, *b, "HO must scale by 2²");
     }
-    assert_eq!(base.s4 * 16.0, dou.s4, "s4 must scale by 2⁴");
-    for (a, b) in base.q.iter().zip(&dou.q) {
-        assert_eq!(*a * 16.0, *b, "Q must scale by 2⁴");
+    // `s4`/`Q` scale by `2⁴`; the `Fx` carrier renormalises once per call, so the law holds to that
+    // one rounding.
+    assert!(
+        fx_scaled(&base.s4, &dou.s4, 16.0, 1.0),
+        "s4 {} must scale by 2⁴ from {}",
+        from_fx(&dou.s4),
+        from_fx(&base.s4)
+    );
+    for i in 0..base.q.len() {
+        assert!(
+            fx_scaled(&base.q[i], &dou.q[i], 16.0, 1.0),
+            "Q[{i}] {} must scale by 2⁴ from {}",
+            from_fx(&dou.q[i]),
+            from_fx(&base.q[i])
+        );
     }
     assert!(
-        base.ho.iter().any(|&v| v != 0.0),
+        base.ho.iter().any(|&v| v != 0),
         "the fixture is not vacuous"
     );
 }

@@ -18,10 +18,11 @@
 
 use apeiron::engine::{Engine, ONE};
 use apeiron::learn::fold::stats::heldout::{
-    held_out, held_out_kldbase_chunk, held_out_seq, BaseScore,
+    held_out, held_out_kldbase_chunk, held_out_seq, score_base_row, BaseScore,
 };
 use apeiron::learn::fold::stats::kldbase::KldBase;
 use apeiron::learn::grad::model::{forward, Config, LayerWeights, Weights};
+use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
 /// Embedding width, query heads, KV head width, feed-forward width, vocabulary, layers.
 const E: usize = 4;
@@ -114,8 +115,12 @@ fn real(z: &[i64]) -> Vec<f64> {
     z.iter().map(|&q| q as f64 / ONE as f64).collect()
 }
 
+/// Agreement of a migrated aggregate with its `f64` oracle, within the carrier's derived bound: a
+/// mean is one fixed-point division, at most half a grid quantum (`2⁻³³`) from the exact quotient,
+/// and a token-weighted recomposition of per-sequence means adds two more such divisions; `4·2⁻³³`
+/// covers the three roundings, with the `f64` products and sum far below their own quantum.
 fn close(got: f64, want: f64) -> bool {
-    (got - want).abs() <= 1e-12 * want.abs().max(1.0)
+    (got - want).abs() <= 4.0 * 2f64.powi(-33) * want.abs().max(1.0)
 }
 
 /// The independent reference: the mean forward `KL(teacher ‖ student)` in nats from the Q32.32
@@ -135,6 +140,42 @@ fn f64_kl_mean(teacher: &Weights, student: &Weights, cfg: &Config, toks: &[u32])
             .sum::<f64>();
     }
     total / t as f64
+}
+
+/// The pre-migration base-row scorer, verbatim in `f64` (`src/learn/fold/stats/heldout.rs` at base
+/// `9f440192`, the body of `heldout_kldbase_chunk`'s row loop): the row maximum `m`, the exponential
+/// sum `Σ exp(q − m)`, `lse = m/2³² + ln Σ`, the KL over entries with `log p > −16`, and the two NLL
+/// terms. Test-only `f64`; the migrated [`score_base_row`] is compared against it.
+fn ref_score_base_row(z: &[i64], lp: &[f64], target: usize) -> (f64, f64, f64) {
+    let inv = 1.0 / ONE as f64;
+    let m = z
+        .iter()
+        .map(|&q| q as f64)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let sum: f64 = z.iter().map(|&q| ((q as f64 - m) * inv).exp()).sum();
+    let lse = m * inv + sum.ln();
+    let mut kl = 0.0;
+    for (i, &q) in z.iter().enumerate() {
+        if lp[i] > -16.0 {
+            kl += lp[i].exp() * (lp[i] - (q as f64).mul_add(inv, -lse));
+        }
+    }
+    let nll_s = -((z[target] as f64).mul_add(inv, -lse));
+    (kl, nll_s, -lp[target])
+}
+
+/// The derived bound of [`score_base_row`] against [`ref_score_base_row`] on a `v`-wide row, in nats.
+///
+/// `fixed_exp`'s documented error is `1e-8·exp + 4·2⁻³²`, so `S = Σ exp(z − max)` carries a relative
+/// error `≤ 1e-8 + 4v·2⁻³²` (`S ≥ 1`: the maximum's own term), and `lse = max + ln S` adds
+/// `fixed_ln`'s `7·2⁻³²` and the addition's `2⁻³³`:
+/// `δ = 1e-8 + (4v + 7)·2⁻³² + 2⁻³³`. A KL term carries `p·(1e-8·|lp| + 2δ + 2⁻³³)` with `p ≤ 1` and
+/// `|lp| ≤ 20`, `v` terms add up, and the row's `round_q32_even` adds `2⁻³³`; the student NLL shares
+/// the `lse` error alone.
+fn row_tol(v: usize) -> f64 {
+    let q = 2f64.powi(-32);
+    let d_lse = 1e-8 + (4.0 * v as f64 + 7.0) * q + 0.5 * q;
+    v as f64 * (1e-8 * 20.0 + 2.0 * d_lse + 0.5 * q) + 0.5 * q
 }
 
 /// A white-box check that the fixture's logits are non-degenerate: the two models differ, so the
@@ -211,11 +252,61 @@ fn multi_sequence_mean_is_token_weighted() {
     let wn = |x: f64, y: f64| ((x * (a.tokens - 1) as f64) + (y * (b.tokens - 1) as f64)) / m;
     assert!(close(h.kl, w(a.kl, b.kl)), "kl {h:?}");
     assert!(close(h.tv, w(a.tv, b.tv)), "tv {h:?}");
-    assert!((h.top1 - w(a.top1, b.top1)).abs() <= 1e-12, "top1 {h:?}");
+    assert!(
+        (h.top1 - w(a.top1, b.top1)).abs() <= 4.0 * 2f64.powi(-33),
+        "top1 {h:?}"
+    );
     let ns = wn(a.nll_student, b.nll_student);
     let nt = wn(a.nll_teacher, b.nll_teacher);
     assert!(close(h.nll_student, ns), "nll_s");
     assert!(close(h.nll_teacher, nt), "nll_t");
+}
+
+/// The fixed-point base row agrees with its `f64` oracle ([`ref_score_base_row`]) within the derived
+/// [`row_tol`]; the base NLL is the stored word negated.
+#[test]
+fn base_row_matches_the_f64_oracle() {
+    let mut g = Lcg(0x5EED_5EED);
+    let v = V;
+    let z: Vec<i64> = (0..v)
+        .map(|_| ((g.next() >> 40) % 7) as i64 * (ONE >> 1) - 3 * ONE)
+        .collect();
+    let lp_word: Vec<i64> = (0..v)
+        .map(|_| {
+            let x = -0.05 - ((g.next() >> 40) % 199) as f64 / 10.0;
+            to_grid(x, GRID_BOUND).expect("base log p on the grid")
+        })
+        .collect();
+    let lp: Vec<f64> = lp_word.iter().map(|&w| from_grid(w)).collect();
+    let (target, base_argmax) = (3usize, Some(2usize));
+    let got = score_base_row(&z, &lp_word, target, base_argmax).expect("row");
+    let (kl, nll_s, nll_b) = ref_score_base_row(&z, &lp, target);
+    assert!(
+        (from_grid(got.kl) - kl).abs() <= row_tol(v),
+        "kl {} vs oracle {kl} (bound {})",
+        from_grid(got.kl),
+        row_tol(v)
+    );
+    let q = 2f64.powi(-32);
+    let d_lse = 1e-8 + (4.0 * v as f64 + 7.0) * q + 0.5 * q;
+    assert!(
+        (from_grid(got.nll_student) - nll_s).abs() <= 2.0 * d_lse + q,
+        "nll_student {} vs oracle {nll_s}",
+        from_grid(got.nll_student)
+    );
+    // The base side has no arithmetic: its NLL is the stored word, negated.
+    assert_eq!(from_grid(got.nll_base), nll_b, "nll_base");
+    let mut best = 0usize;
+    for i in 1..v {
+        if z[i] > z[best] {
+            best = i;
+        }
+    }
+    assert_eq!(got.top1, u64::from(Some(best) == base_argmax), "top1");
+    assert!(
+        kl > 0.0 && nll_s > 0.0,
+        "the fixture must be non-degenerate"
+    );
 }
 
 /// Refusals: empty inputs, a one-token sequence, and a token id at or past the vocabulary.
