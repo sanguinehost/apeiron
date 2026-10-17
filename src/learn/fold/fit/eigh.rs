@@ -1,243 +1,167 @@
-//! Symmetric eigendecomposition by cyclic Jacobi rotations, and the exact rank-`rank` corrector in
-//! the metric `Hl` — the `round_f16=False` path of `lowrank_corrector` in the removed one-bit fold
-//! transfer (`fold_transfer.py:560–583`, read-only spec outside this repository).
+//! Symmetric PSD eigendecomposition and the exact rank-`rank` corrector in the metric `Hl` — the
+//! `round_f16=False` path of `lowrank_corrector` in the removed one-bit fold transfer
+//! (`fold_transfer.py:560–583`, read-only spec outside this repository): `M = (ΔW·Hl)·ΔWᵀ`, the
+//! `rank` largest eigenpairs of `½(M + Mᵀ)`, `Corr = U·(Uᵀ ΔW)`, `top_sum = Σ_k max(λ_k, 0)`.
 //!
-//! The Python computes `M = (ΔW · Hl) · ΔWᵀ`, takes the `rank` largest eigenpairs of the symmetrised
-//! `½(M + Mᵀ)` by `torch.linalg.eigh`, and returns `Corr = U · (Uᵀ ΔW)` with `U` the top-`rank`
-//! eigenvectors (columns) plus `top_sum = Σ_k max(λ_k, 0)` over the top `rank` eigenvalues. The
-//! stored factors `U`, `V = Uᵀ ΔW` are plain `f64` so a later task can round them (the fp16 and u8
-//! variants of the same function), which is why the exact path returns them rather than `Corr` alone.
+//! Carrier: Q32.32 `i64`/`i128`; `f64` only at the `pub` boundaries, across one exact power-of-two
+//! scale and one `to_grid`/`from_grid` rounding per entry. [`top_eigh`] supplies the spectrum, the
+//! pooled `gemm` kernels the products, and the `O(n²)` symmetrisation is serial (≈10⁶ word
+//! operations at `o = 896`, about one pool dispatch's cost).
 //!
-//! # What is established
-//!
-//! The Jacobi rotation below carries one eigenpair at a time and the recurrence closes on the
-//! off-diagonal Frobenius norm reaching the tolerance; that arithmetic is `tested`
-//! (`tests/learn_fold_eigh.rs`), not `proved`. The trace-optimality of `Corr` — that
-//! `diag(ΔW − Corr) = (I − U Uᵀ) ΔW` minimises `tr(R · Hl · Rᵀ)` over rank-`rank` projections — is the
-//! classical Ky Fan / Eckart–Young result; the test compares it against 20 random rank-`rank`
-//! projections rather than reproving it.
-//!
-//! # Gram
-//!
-//! The two products `w1 = ΔW·Hl` and `M = w1·ΔWᵀ` exist once, in [`eigen_gram`], built on the
-//! Q32.32 [`gemm_nn_f64`]/[`gemm_nt_f64`] path and symmetrised; the corrector's `eigen_parts` is the only other consumer.
-//!
-//! # Deviations from the Python
-//!
-//! - `torch.linalg.eigh` is replaced by cyclic Jacobi in the exact corrector. The spec's matrix is
-//!   symmetric by construction and small (`o ≤ a few thousand` rows), so the `O(n³)`-per-sweep,
-//!   bounded-sweep Jacobi is a faithful and dependency-free stand-in; the eigenvalues are returned
-//!   ascending, as `torch.linalg.eigh` returns them. The rounded carriers instead consume the
-//!   top-`rank` [`top_eigh`](crate::learn::solve::eig::top_eigh) of the same Gram.
-//! - The Gram is formed in Q32.32 through [`eigen_gram`] rather than in scalar `f64`: each product
-//!   scales its operands by exact powers of two ([`gemm_nn_f64`]'s rule) and undoes them exactly.
-//!   One round-to-nearest per product entry replaces the Python's `f64` accumulation.
-//! - The Python's `rank == 0` (`evecs[:, -0:]` selects *all* columns) is refused as `RankOutOfRange`
-//!   only when `rank > o`; `rank == 0` returns the empty corrector (`Corr = 0`, empty `U`, `V`),
-//!   which is the reading the callers mean. No caller passes `rank == 0`.
-//! - `Hl` is not required symmetric: the eigendecomposition symmetrises `M` as `½(M + Mᵀ)`, exactly
-//!   as the Python does.
+//! Accepted domain: `a` is PSD — both callers pass a Gram matrix. A diagonal word below `-1`, or a
+//! spectrum below [`check_psd`]'s bound, is [`EighError::NotConverged`], never shifted. The
+//! recurrence, spectrum and corrector are `tested` (`tests/learn_fold_eigh.rs`), not `proved`;
+//! `Corr`'s trace-optimality is Ky Fan / Eckart–Young.
 
 #![allow(
-    clippy::cast_precision_loss,
     clippy::float_cmp,
     clippy::many_single_char_names,
     clippy::needless_range_loop,
     clippy::similar_names,
-    reason = "the Jacobi sweep, the Gram product and the `U V` accumulation index row-major `[r, c]` \
-              buffers by `o/n/i/j/k/l/p/q`, which reads against the spec's `DeltaW[i, j]` arithmetic, \
-              and name the rotation's `aip/aiq/vip/viq` pairs; `apq == 0.0` is the exact \
-              `torch` zero-skip test on a symmetrised entry; the tolerance is \
-              `f64::EPSILON · n · ‖A‖_F`, a deliberate lossy `usize as f64` of a dimension. The \
-              pedantic lints stay on for the rest of the crate."
+    reason = "the transfer's arithmetic indexes row-major `[r, c]` buffers by `i/j/k`; the pedantic \
+              lints stay on for the rest of the crate."
 )]
 
+use crate::learn::fold::fit::corrector::{eigen_parts, CorrectorError};
+use crate::learn::solve::eig::{top_eigh, EigError, TopEig};
 use crate::learn::solve::gemm::{gemm_nn_f64, gemm_nt_f64, GemmError};
-use crate::learn::solve::q32::fill_scale;
+use crate::learn::solve::q32::{
+    fill_scale, from_grid, rshift_rne, to_grid, GRID_BOUND, INPUT_BOUND,
+};
 
 /// A refusal from the symmetric eigendecomposition or the exact low-rank corrector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EighError {
     /// A slice length disagrees with the declared shape (`n·n`, or `o·n` for `ΔW`).
     ShapeMismatch,
-    /// The cyclic Jacobi sweep bound ([`MAX_SWEEPS`]) was exhausted before the off-diagonal norm
-    /// fell to the convergence tolerance.
+    /// The input left the accepted domain (not PSD, a non-finite or out-of-grid entry), or the
+    /// eigenstage missed its convergence test, or a checked step left range.
     NotConverged,
-    /// The requested `rank` exceeds the row count `o` of `ΔW`; the corrector cannot exceed the
-    /// ambient dimension.
+    /// The requested `rank` exceeds the row count `o` of `ΔW`.
     RankOutOfRange,
 }
 
-/// Cyclic Jacobi sweep bound. Jacobi's off-diagonal norm is reduced by at least a constant factor per
-/// sweep and converges quadratically near the solution, so `~10` sweeps reach machine precision for
-/// every tested `n`; `60` is a bounded ceiling that refuses a pathological input instead of looping.
-pub const MAX_SWEEPS: usize = 60;
+/// `2⁻²⁸`: the [`fill_scale`] fill `2³¹` divided down below [`top_eigh`]'s `2³⁶`-raw input bound.
+const FILL_DOWN: f64 = 1.0 / 268_435_456.0;
 
-/// Symmetric eigendecomposition of `a` (row-major `[n, n]`) by cyclic Jacobi rotations.
-///
-/// Returns `(eigenvalues, eigenvectors)` where the eigenvalues are ascending and `eigenvectors` is
-/// row-major `[n, n]` with column `k` the eigenvector for `eigenvalues[k]` (`Σ_i Q[i,k]²  = 1`,
-/// `Qᵀ Q = I`). `a` need not be symmetric on entry: `½(a + aᵀ)` is decomposed, matching the Python's
-/// `eigh(0.5 * (M + M.T))`.
-///
-/// # Complexity
-///
-/// Time `O(n³ · sweeps)`: one sweep visits the `n(n−1)/2` pairs and each Jacobi rotation updates
-/// `O(n)` matrix and eigenvector entries. Space `O(n²)` for the working copy, the eigenvector basis
-/// and the returned buffers. The off-diagonal norm (`O(n²)`) is recomputed once per sweep, a term
-/// dominated by the `O(n³)` sweep. Sweeps are bounded by [`MAX_SWEEPS`]; convergence is declared
-/// when the off-diagonal Frobenius norm falls to `f64::EPSILON · n · ‖½(a + aᵀ)‖_F`.
-///
-/// # Errors
-///
-/// [`EighError::ShapeMismatch`] if `a.len() != n·n`; [`EighError::NotConverged`] if the
-/// off-diagonal norm has not reached the tolerance within [`MAX_SWEEPS`] sweeps.
-pub fn eigh(a: &[f64], n: usize) -> Result<(Vec<f64>, Vec<f64>), EighError> {
-    if a.len() != n * n {
-        return Err(EighError::ShapeMismatch);
-    }
-    // Symmetrise: `m = ½(a + aᵀ)`.
-    let mut m = vec![0.0f64; n * n];
-    for i in 0..n {
-        for j in 0..n {
-            m[i * n + j] = 0.5 * (a[i * n + j] + a[j * n + i]);
-        }
-    }
-    // `v` accumulates the rotations; it starts as the identity (`v[i, i] = 1`).
-    let mut v = vec![0.0f64; n * n];
-    for i in 0..n {
-        v[i * n + i] = 1.0;
-    }
-    let frob = m.iter().map(|x| x * x).sum::<f64>().sqrt();
-    let tol = f64::EPSILON * (n as f64) * frob;
-    let mut converged = false;
-    for _ in 0..MAX_SWEEPS {
-        // Off-diagonal Frobenius norm of the current matrix: the convergence measure.
-        let mut off_sq = 0.0f64;
-        for i in 0..n {
-            for j in 0..n {
-                if i != j {
-                    off_sq += m[i * n + j] * m[i * n + j];
-                }
-            }
-        }
-        if off_sq.sqrt() <= tol {
-            converged = true;
-            break;
-        }
-        for p in 0..n {
-            for q in (p + 1)..n {
-                jacobi_rotate(&mut m, &mut v, n, p, q);
-            }
-        }
-    }
-    if !converged {
-        return Err(EighError::NotConverged);
-    }
-    let mut evals: Vec<f64> = (0..n).map(|i| m[i * n + i]).collect();
-    sort_ascending(&mut evals, &mut v, n);
-    Ok((evals, v))
-}
-
-/// One cyclic Jacobi rotation on the symmetric pair `(p, q)` of `m` (row-major `[n, n]`, full
-/// symmetric storage), applying the same rotation to the columns `p`, `q` of the basis `v`. The
-/// rotation is chosen to annihilate `m[p, q]`; `t = sign(θ)/(|θ| + √(θ²+1))`, `c = 1/√(t²+1)`,
-/// `s = t·c`, with `θ = (m[q,q] − m[p,p]) / (2·m[p,q])` (Numerical Recipes §11.1). `O(n)` time.
-fn jacobi_rotate(m: &mut [f64], v: &mut [f64], n: usize, p: usize, q: usize) {
-    let apq = m[p * n + q];
-    if apq == 0.0 {
-        return;
-    }
-    let app = m[p * n + p];
-    let aqq = m[q * n + q];
-    // θ = (a_qq − a_pp) / (2 a_pq); the sign is taken so |t| ≤ 1.
-    let theta = (aqq - app) / (2.0 * apq);
-    let t = if theta >= 0.0 {
-        1.0 / (theta + theta.hypot(1.0))
-    } else {
-        -1.0 / (-theta + theta.hypot(1.0))
-    };
-    let c = 1.0 / t.hypot(1.0);
-    let s = t * c;
-    // Diagonal and the annihilated entry.
-    m[p * n + p] = app - t * apq;
-    m[q * n + q] = aqq + t * apq;
-    m[p * n + q] = 0.0;
-    m[q * n + p] = 0.0;
-    // Off-diagonal rows/columns: the rotation on `(i, p)`, `(i, q)` for `i ∉ {p, q}`, mirrored.
-    for i in 0..n {
-        if i == p || i == q {
-            continue;
-        }
-        let aip = m[i * n + p];
-        let aiq = m[i * n + q];
-        let nip = c * aip - s * aiq;
-        let niq = s * aip + c * aiq;
-        m[i * n + p] = nip;
-        m[p * n + i] = nip;
-        m[i * n + q] = niq;
-        m[q * n + i] = niq;
-    }
-    // Eigenvector columns `p`, `q`.
-    for i in 0..n {
-        let vip = v[i * n + p];
-        let viq = v[i * n + q];
-        v[i * n + p] = c * vip - s * viq;
-        v[i * n + q] = s * vip + c * viq;
-    }
-}
-
-/// Sort `evals` ascending, carrying the matching columns of `v` (row-major `[n, n]`) through the same
-/// swaps. Insertion sort: deterministic, `O(n²)` time and `O(1)` extra space — the eigenvalue count
-/// `n` is a matrix dimension, not a batch size.
-fn sort_ascending(evals: &mut [f64], v: &mut [f64], n: usize) {
-    for i in 1..evals.len() {
-        let mut j = i;
-        while j > 0 && evals[j - 1] > evals[j] {
-            evals.swap(j - 1, j);
-            for r in 0..n {
-                v.swap(r * n + (j - 1), r * n + j);
-            }
-            j -= 1;
-        }
-    }
-}
-
-/// The exact power of two `s` with `max_mag·s ≤ 8` (half of `gemm`'s input bound `16`), from
-/// [`fill_scale`]'s fill of the top of the grid range divided down by `2²⁸`; `2⁻²⁸` when
-/// `max_mag ≤ 0`. Scaling a matrix by `s` keeps the most significant bits of its largest entry,
-/// and undoing it is an exact division on the eigenvalues.
-///
-/// # Complexity
-/// `O(1)`.
+/// The exact power of two `s` with `max_mag·s ≤ 8` (`2⁻²⁸` when `max_mag ≤ 0`), exact to undo.
 #[must_use]
 pub fn gram_scale(max_mag: f64) -> f64 {
-    fill_scale(max_mag) * (1.0 / 268_435_456.0)
+    fill_scale(max_mag) * FILL_DOWN
 }
 
-/// A [`GemmError`] from a product whose shape and contraction depth were already validated here:
-/// an entry the grid cannot hold or a result that leaves `f64` maps to [`EighError::NotConverged`].
+/// A [`GemmError`] from a product whose shape and depth were already validated here.
 fn gemm_err(_: GemmError) -> EighError {
     EighError::NotConverged
 }
 
-/// The `o × o` Gram `M = (ΔW·Hl)·ΔWᵀ` of `ΔW` (`o × n`) and `Hl` (`n × n`) through the shared
-/// Q32.32 products [`gemm_nn_f64`] and [`gemm_nt_f64`], symmetrised as `(m_ij + m_ji)/2` and
-/// returned in real units, row-major `[o, o]`.
-///
-/// The operand scaling and its exact undo are the products' (`gemm`'s `panel_shift` rule). `M` is
-/// symmetric only up to the one rounding per entry the `nt` dot products apply, so each pair is
-/// averaged: exactly symmetric, within one grid unit of either raw entry. `Hl` need not be
+/// A [`CorrectorError`] from [`eigen_parts`], whose shape and rank were already validated here.
+fn parts_err(e: CorrectorError) -> EighError {
+    match e {
+        CorrectorError::ShapeMismatch => EighError::ShapeMismatch,
+        CorrectorError::RankOutOfRange => EighError::RankOutOfRange,
+        _ => EighError::NotConverged,
+    }
+}
+
+/// An [`EigError`] whose shape and rank were already validated at this call site.
+fn eig_err(_: EigError) -> EighError {
+    EighError::NotConverged
+}
+
+/// `round(scale·(a_ij + a_ji)/2)` on the grid for a row-major `[n, n]` matrix: each transposed pair
+/// is rounded once and averaged with one round-to-nearest, ties to even, so the result is exactly
 /// symmetric.
 ///
-/// # Errors
-/// [`EighError::ShapeMismatch`] if `delta_w.len() != o·n` or `hl.len() != n·n`; otherwise the
-/// refusal of the underlying products ([`EighError::NotConverged`]).
+/// # Complexity
+/// `O(n²)` grid roundings (two per pair) serially: ≈10⁶ word operations at `n² ≤ 896²`, below the
+/// pool threshold; space `O(n²)`.
+fn symmetrise_to_grid(a: &[f64], n: usize, scale: f64, bound: f64) -> Result<Vec<i64>, EighError> {
+    let mut q = vec![0i64; n * n];
+    for i in 0..n {
+        for j in 0..=i {
+            let x = to_grid(a[i * n + j] * scale, bound).ok_or(EighError::NotConverged)?;
+            let y = to_grid(a[j * n + i] * scale, bound).ok_or(EighError::NotConverged)?;
+            let mean = rshift_rne(i128::from(x) + i128::from(y), 1)
+                .and_then(|m| i64::try_from(m).ok())
+                .ok_or(EighError::NotConverged)?;
+            q[i * n + j] = mean;
+            q[j * n + i] = mean;
+        }
+    }
+    Ok(q)
+}
+
+/// The domain's non-negativity test: each symmetrised entry is within one grid word of the exact
+/// scaled entry (an eigenvalue shift of at most `n` words), and [`top_eigh`] returns each
+/// eigenvalue within `√n·λ_max·2⁻²⁰`; a smallest word below `−n·(λ_max·2⁻²⁰ + 1)` is a negative
+/// eigenvalue outside the grid noise.
 ///
 /// # Complexity
-/// Time `O(o·n² + o²·n)` `i128` multiply-accumulates — the `ΔW·Hl` product `o·n·n` and the
-/// `w1·ΔWᵀ` product `o·o·n` — on the engine pool, plus `O(o·n + o²)` scaling and
-/// symmetrisation. Space `O(o·n + o²)` for the intermediate and the matrix.
+/// `O(1)`.
+fn check_psd(evals: &[i64], n: usize) -> Result<(), EighError> {
+    let n = i128::try_from(n).map_err(|_| EighError::NotConverged)?;
+    let lam_max = i128::from(evals[evals.len() - 1].max(0));
+    if i128::from(evals[0]) < -n * ((lam_max >> 20).max(1) + 1) {
+        return Err(EighError::NotConverged);
+    }
+    Ok(())
+}
+
+/// The `f64` read-back: `evals[k] = μ_k/(2³²·scale)` and the scale-free eigenvectors.
+/// # Complexity
+/// `O(n + n²)` conversions; `O(n²)` space.
+fn read_back(top: &TopEig, scale: f64) -> (Vec<f64>, Vec<f64>) {
+    let evals = top.evals.iter().map(|&mu| from_grid(mu) / scale).collect();
+    let evecs = top.evecs.iter().map(|&v| from_grid(v)).collect();
+    (evals, evecs)
+}
+
+/// Symmetric eigendecomposition of the PSD `a` (row-major `[n, n]`): eigenvalues ascending,
+/// `eigenvectors` row-major `[n, n]` with column `k` for `eigenvalues[k]` (`Qᵀ Q = I`,
+/// largest-magnitude entry positive). Only `½(a + aᵀ)` is decomposed, as the Python does.
+///
+/// # Complexity
+/// `O(MAX_ITERS·n³)` checked multiply-accumulates (`M·Q`, the Rayleigh quotient, the two rotation
+/// products and the integer Jacobi), pooled by row chunks; space `O(n²)`. `r = n` carries the full
+/// spectrum in the first Rayleigh–Ritz step.
+///
+/// # Errors
+/// [`EighError::ShapeMismatch`] on a length mismatch; [`EighError::NotConverged`] on a non-finite
+/// entry, an out-of-grid entry, a non-PSD spectrum, or the iteration bound.
+pub fn eigh(a: &[f64], n: usize) -> Result<(Vec<f64>, Vec<f64>), EighError> {
+    if a.len() != n * n {
+        return Err(EighError::ShapeMismatch);
+    }
+    if n == 0 {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    if a.iter().any(|x| !x.is_finite()) {
+        return Err(EighError::NotConverged);
+    }
+    let max_mag = a.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
+    let scale = gram_scale(max_mag);
+    let q = symmetrise_to_grid(a, n, scale, INPUT_BOUND)?;
+    // PSD implies a non-negative diagonal; a word below `-1` is outside the one-word bound.
+    if (0..n).any(|i| q[i * n + i] < -1) {
+        return Err(EighError::NotConverged);
+    }
+    let top = top_eigh(&q, n, n).map_err(eig_err)?;
+    check_psd(&top.evals, n)?;
+    Ok(read_back(&top, scale))
+}
+
+/// The `o × o` Gram `M = (ΔW·Hl)·ΔWᵀ` through [`gemm_nn_f64`] and [`gemm_nt_f64`], symmetrised as
+/// `(m_ij + m_ji)/2` on the grid and returned in real units, row-major `[o, o]`; `Hl` need not be
+/// symmetric.
+///
+/// # Complexity
+/// `O(o·n² + o²·n)` multiply-accumulates on the engine pool, the serial `O(o²)` symmetrisation and
+/// `O(o·n + o²)` boundary conversions; space `O(o·n + o²)`.
+///
+/// # Errors
+/// [`EighError::ShapeMismatch`] on a length mismatch; otherwise the products' refusal
+/// ([`EighError::NotConverged`]), including an out-of-grid entry.
 pub fn eigen_gram(delta_w: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec<f64>, EighError> {
     if delta_w.len() != o * n || hl.len() != n * n {
         return Err(EighError::ShapeMismatch);
@@ -246,54 +170,38 @@ pub fn eigen_gram(delta_w: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec
         return Ok(vec![0.0f64; o * o]);
     }
     let w1 = gemm_nn_f64(delta_w, hl, o, n, n).map_err(gemm_err)?;
-    let mut m = gemm_nt_f64(&w1, delta_w, o, n, o).map_err(gemm_err)?;
-    for i in 0..o {
-        for j in 0..i {
-            let avg = 0.5 * (m[i * o + j] + m[j * o + i]);
-            m[i * o + j] = avg;
-            m[j * o + i] = avg;
-        }
-    }
-    Ok(m)
+    let m = gemm_nt_f64(&w1, delta_w, o, n, o).map_err(gemm_err)?;
+    Ok(symmetrise_to_grid(&m, o, 1.0, GRID_BOUND)?
+        .into_iter()
+        .map(from_grid)
+        .collect())
 }
 
-/// The exact rank-`rank` corrector in the metric `Hl`: the stored factors and the corrected dense
-/// block `Corr = U·V`.
+/// The exact rank-`rank` corrector in the metric `Hl`: the stored factors and `Corr = U·V`.
 #[derive(Clone, Debug)]
 pub struct Corrector {
     /// The dense correction `U·V`, row-major `[o, n]`.
     pub corr: Vec<f64>,
-    /// `Σ_k max(λ_k, 0)` over the top `rank` eigenvalues of `M = (ΔW·Hl)·ΔWᵀ` — the first-order drop
-    /// in the quadratic objective the corrector attains.
+    /// `Σ_k max(λ_k, 0)` over the top `rank` eigenvalues — the first-order objective drop attained.
     pub top_sum: f64,
-    /// The top `rank` eigenvectors of `M`, row-major `[o, rank]`, column `k` the eigenvector for the
-    /// `(rank−k)`-th largest eigenvalue (ascending order, so column `rank−1` is the largest).
+    /// The top `rank` eigenvectors of `M`, row-major `[o, rank]`, ascending; column `rank−1` is
+    /// the largest.
     pub u: Vec<f64>,
     /// `V = Uᵀ·ΔW`, row-major `[rank, n]`, so `Corr = U·V`.
     pub v: Vec<f64>,
 }
 
-/// The exact rank-`rank` corrector of `ΔW` in the metric `Hl` — the `round_f16=False, u8_corr=False`
-/// branch of `lowrank_corrector`.
-///
-/// `ΔW` is row-major `[o, n]`, `Hl` row-major `[n, n]`. Returns `Corr = U·(Uᵀ ΔW)` where `U` holds
-/// the `rank` largest eigenvectors (columns) of `M = (ΔW·Hl)·ΔWᵀ`, its stored factors `U`, `V`, and
-/// `top_sum = Σ max(λ_k, 0)` over the top `rank` eigenvalues. `Corr = (I − U Uᵀ) ΔW` is the
-/// rank-`rank` projection residual of `ΔW` on the dominant eigenspace of `M`, and it minimises
-/// `tr(R·Hl·Rᵀ)` over rank-`rank` projections: the Ky Fan / Eckart–Young argument.
+/// The exact rank-`rank` corrector of `ΔW` in the metric `Hl` — the `round_f16=False,
+/// u8_corr=False` branch of `lowrank_corrector`: `Corr = U·(Uᵀ ΔW)` for the `rank` largest
+/// eigenvectors (columns) of `M`, the factors `U`, `V`, and `top_sum = Σ max(λ_k, 0)` over them.
+/// `Corr = (I − U Uᵀ) ΔW` minimises `tr(R·Hl·Rᵀ)` over rank-`rank` projections (Ky Fan /
+/// Eckart–Young).
 ///
 /// # Complexity
-///
-/// Time `O(o·n² + o²·n + o³·sweeps + rank·o·n)` — the [`eigen_gram`] products `O(o·n² + o²·n)`,
-/// the eigendecomposition `O(o³·sweeps)` ([`eigh`]), `V` `O(rank·o·n)` and `Corr`
-/// `O(o·n·rank)`. Space `O(o·n + o² + o·rank + rank·n)` for the products, the matrix, the basis
-/// and the returned buffers.
+/// `O(o·n² + o²·n + o²·rank·iters + rank·o·n)`; space `O(o·n + o² + o·rank + rank·n)`.
 ///
 /// # Errors
-///
-/// [`EighError::ShapeMismatch`] if `delta_w.len() != o·n` or `hl.len() != n·n`;
-/// [`EighError::RankOutOfRange`] if `rank > o`; otherwise the [`EighError`] of [`eigen_gram`] or
-/// the underlying [`eigh`].
+/// A length mismatch, `rank > o`, or the refusal of [`eigen_gram`] or [`top_eigh`].
 pub fn lowrank_corrector_exact(
     delta_w: &[f64],
     hl: &[f64],
@@ -315,46 +223,24 @@ pub fn lowrank_corrector_exact(
             v: Vec::new(),
         });
     }
-    // `M = (ΔW·Hl)·ΔWᵀ` (o × o) through the shared Q32.32 Gram; `eigh` symmetrises the small
-    // residual asymmetry as the Python does.
-    let m = eigen_gram(delta_w, hl, o, n)?;
-    let (evals, evecs) = eigh(&m, o)?;
-    // `U` = the `rank` largest eigenvectors: columns `o − rank .. o` of the ascending-order basis.
-    let mut u = vec![0.0f64; o * rank];
+    let (u, top_sum) = eigen_parts(delta_w, hl, o, n, rank).map_err(parts_err)?;
+    if n == 0 {
+        return Ok(Corrector {
+            corr: Vec::new(),
+            top_sum,
+            u,
+            v: Vec::new(),
+        });
+    }
+    // `V = Uᵀ·ΔW` (rank × n); `Corr = U·V` (o × n).
+    let mut ut = vec![0.0f64; rank * o];
     for i in 0..o {
         for k in 0..rank {
-            u[i * rank + k] = evecs[i * o + (o - rank + k)];
+            ut[k * o + i] = u[i * rank + k];
         }
     }
-    let mut top_sum = 0.0f64;
-    for k in 0..rank {
-        let lam = evals[o - rank + k];
-        if lam > 0.0 {
-            top_sum += lam;
-        }
-    }
-    // `V = Uᵀ · ΔW` (rank × n).
-    let mut v = vec![0.0f64; rank * n];
-    for k in 0..rank {
-        for j in 0..n {
-            let mut acc = 0.0f64;
-            for i in 0..o {
-                acc += u[i * rank + k] * delta_w[i * n + j];
-            }
-            v[k * n + j] = acc;
-        }
-    }
-    // `Corr = U · V` (o × n).
-    let mut corr = vec![0.0f64; o * n];
-    for i in 0..o {
-        for j in 0..n {
-            let mut acc = 0.0f64;
-            for k in 0..rank {
-                acc += u[i * rank + k] * v[k * n + j];
-            }
-            corr[i * n + j] = acc;
-        }
-    }
+    let v = gemm_nn_f64(&ut, delta_w, rank, o, n).map_err(gemm_err)?;
+    let corr = gemm_nn_f64(&u, &v, o, rank, n).map_err(gemm_err)?;
     Ok(Corrector {
         corr,
         top_sum,

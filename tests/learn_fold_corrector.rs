@@ -3,11 +3,14 @@
 //!
 //! Positive: [`Mode::Exact`] equals [`lowrank_corrector_exact`]; the fp16 correction stays within the
 //! half-ulp bound of the exact correction in the `Hl` metric (and no better than the exact optimum);
-//! the u8 factors lie on the 8-bit grid (re-quantizing is a fixed point) with the exact bit count;
-//! `Uh·Vh == Corr` bit-for-bit; a full-rank `rank = min(o, n)` recovers `ΔW` to each mode's
-//! precision. The rounded carriers' eigenstage ([`eigen_parts`] → [`eigen_gram`] + [`top_eigh`])
-//! matches the scalar `f64` loops plus [`eigh`] to `1e-6` relative on random `ΔW`/PSD `Hl` at three
-//! shapes. Boundary: the shape, rank, non-finite and out-of-grid refusals. Grade `tested`.
+//! the u8 factors lie on the 8-bit grid (re-quantizing an already stored factor moves it by at most
+//! one Q32.32 quantum) with the exact bit count; `Uh·Vh == Corr` to two Q32.32 quanta; a full-rank
+//! `rank = min(o, n)` recovers `ΔW` to each mode's precision. The agreement test compares the
+//! migrated Q32.32 pipeline against the pre-migration `f64` body copied in as [`ref_corrector`]
+//! within the bound derived there. The rounded carriers' eigenstage ([`eigen_parts`] →
+//! [`eigen_gram`] + [`top_eigh`]) matches the scalar `f64` loops plus [`eigh`] to `1e-6` relative on
+//! random `ΔW`/PSD `Hl` at three shapes. Boundary: the shape, rank, non-finite and out-of-grid
+//! refusals. Grade `tested`.
 
 #![allow(
     clippy::cast_precision_loss,
@@ -28,9 +31,14 @@ use std::time::Instant;
 
 use apeiron::learn::fold::fit::corrector::{eigen_parts, lowrank_corrector, CorrectorError, Mode};
 use apeiron::learn::fold::fit::eigh::{eigen_gram, eigh, gram_scale, lowrank_corrector_exact};
-use apeiron::learn::fold::fit::quant::quant_c_u8;
+use apeiron::learn::fold::fit::quant::{f16r, quant_c_u8};
 use apeiron::learn::solve::eig::top_eigh;
 use apeiron::learn::solve::q32::{from_grid, to_grid, INPUT_BOUND};
+
+/// One Q32.32 quantum, `2⁻³²`.
+const QUANTUM: f64 = 2.328_306_436_538_696_3e-10;
+/// Two quanta, `2⁻³¹`: the slack on a re-summed one-rounding product.
+const PRODUCT_TOL: f64 = 4.656_612_873_077_393e-10;
 
 /// Deterministic 64-bit LCG (Numerical Recipes constants), the tests' only randomness source.
 struct Lcg(u64);
@@ -193,33 +201,58 @@ fn u8_bits_and_grid() {
     let f = u8.factors.as_ref().expect("factors requested");
     assert_eq!(f.u.len(), O * rank);
     assert_eq!(f.v.len(), rank * N);
-    // Each column of Uh is on the 8-bit grid: re-quantizing it is a fixed point, bit-for-bit.
+    // Each column of Uh is on the 8-bit grid: re-quantizing the stored factor returns a value within
+    // one Q32.32 quantum `2⁻³²`. Derivation: the stored factor is the quantizer's own grid value
+    // rounded to the Q32.32 grid (`|δ| ≤ 2⁻³³`); the `(c_min, c_max)` header is `f16r` of the column
+    // endpoints, and `f16`'s quantum is at least `2⁻²⁴ ≫ 2⁻³³`, so the header and the step are
+    // unchanged and the stored point re-quantizes to its own grid value. The observed displacement
+    // is ≤ 0.4 quantum.
     for k in 0..rank {
         let col: Vec<f64> = (0..O).map(|i| f.u[i * rank + k]).collect();
         let (q, bits) = quant_c_u8(&col, 8).expect("column quantizes");
         assert_eq!(bits, 8 * O as u64 + 32, "column header bits");
         for i in 0..O {
-            assert_eq!(q[i], f.u[i * rank + k], "Uh[{i}, {k}] off the u8 grid");
+            let drift = (q[i] - f.u[i * rank + k]).abs();
+            assert!(
+                drift <= QUANTUM,
+                "Uh[{i}, {k}] moved {drift:e} off the u8 grid (one quantum is {QUANTUM:e})"
+            );
         }
     }
-    // Each row of Vh is on the 8-bit grid.
+    // Each row of Vh is on the 8-bit grid, to the same bound.
     for k in 0..rank {
         let row = &f.v[k * N..k * N + N];
         let (q, bits) = quant_c_u8(row, 8).expect("row quantizes");
         assert_eq!(bits, 8 * N as u64 + 32, "row header bits");
-        assert_eq!(q, row.to_vec(), "Vh row {k} off the u8 grid");
+        for j in 0..N {
+            let drift = (q[j] - row[j]).abs();
+            assert!(
+                drift <= QUANTUM,
+                "Vh[{k}, {j}] moved {drift:e} off the u8 grid (one quantum is {QUANTUM:e})"
+            );
+        }
     }
 }
 
 #[test]
-fn factors_product_bit_exact() {
+fn factors_product_within_two_quanta() {
     let rank = 3usize;
     let (dw, hl) = fixture(0x1234_5678_9ABC_DEF0, O, N);
+    // `Corr` is the exact `Σ_k Uh·Vh` rounded once to Q32.32, and `matmul` re-sums the same Q32
+    // factors in `f64`: the difference is one rounding (`2⁻³³`) plus the `f64` sum's own error
+    // (`rank ≤ 6` terms, relative `2⁻⁵³` of a sum whose terms are below `2²⁴`), so `2⁻³¹`
+    // (`PRODUCT_TOL`) is two quanta of slack. Before the Q32.32 migration the two were bit-identical
+    // by construction.
     for mode in [Mode::Exact, Mode::F16, Mode::U8] {
         let c = lowrank_corrector(&dw, &hl, O, N, rank, mode, true).expect("corrector");
         let f = c.factors.as_ref().expect("factors requested");
         let prod = matmul(&f.u, &f.v, O, rank, N);
-        assert_eq!(prod, c.corr, "Uh·Vh != Corr for {mode:?}");
+        for (i, (p, q)) in prod.iter().zip(&c.corr).enumerate() {
+            assert!(
+                (p - q).abs() <= PRODUCT_TOL,
+                "{mode:?}: Uh·Vh entry {i} = {p} vs Corr {q} beyond {PRODUCT_TOL:e}"
+            );
+        }
     }
 }
 
@@ -456,6 +489,172 @@ fn gemm_path_refusals() {
         Some(CorrectorError::NonFinite),
         "infinite ΔW entry not refused as NonFinite"
     );
+}
+
+// ---- the pre-migration `f64` body, copied verbatim as the agreement oracle -------------------
+
+/// The old `eigen_parts`: `eigen_gram` (real values) → [`gram_scale`] → [`top_eigh`].
+fn ref_eigen_parts(
+    delta_w: &[f64],
+    hl: &[f64],
+    o: usize,
+    n: usize,
+    rank: usize,
+) -> (Vec<f64>, f64) {
+    let m = eigen_gram(delta_w, hl, o, n).expect("eigen_gram");
+    let mmax = m.iter().fold(0.0f64, |a, &x| a.max(x.abs()));
+    if mmax <= 0.0 {
+        let mut u = vec![0.0f64; o * rank];
+        for i in 0..o {
+            for k in 0..rank {
+                if i == o - rank + k {
+                    u[i * rank + k] = 1.0;
+                }
+            }
+        }
+        return (u, 0.0);
+    }
+    let s_m = gram_scale(mmax);
+    let m_q: Vec<i64> = m
+        .iter()
+        .map(|&v| to_grid(v * s_m, INPUT_BOUND).expect("grid"))
+        .collect();
+    let top = top_eigh(&m_q, o, rank).expect("top_eigh");
+    let mut u = vec![0.0f64; o * rank];
+    for i in 0..o {
+        for k in 0..rank {
+            u[i * rank + k] = from_grid(top.evecs[i * rank + k]);
+        }
+    }
+    let mut top_sum = 0.0f64;
+    for k in 0..rank {
+        let lam = from_grid(top.evals[k]) / s_m;
+        if lam > 0.0 {
+            top_sum += lam;
+        }
+    }
+    (u, top_sum)
+}
+
+/// The old `ridge_solve`: the `f64` Gram, the `1e-6` ridge and the `f64` `solve_spd`.
+fn ref_ridge_solve(u: &[f64], delta_w: &[f64], o: usize, n: usize, rank: usize) -> Vec<f64> {
+    let mut a = vec![0.0f64; rank * rank];
+    for i in 0..rank {
+        for j in 0..rank {
+            let mut acc = 0.0f64;
+            for p in 0..o {
+                acc += u[p * rank + i] * u[p * rank + j];
+            }
+            a[i * rank + j] = acc;
+        }
+    }
+    for i in 0..rank {
+        a[i * rank + i] += 1e-6;
+    }
+    let mut b = vec![0.0f64; rank * n];
+    for k in 0..rank {
+        for j in 0..n {
+            let mut acc = 0.0f64;
+            for i in 0..o {
+                acc += u[i * rank + k] * delta_w[i * n + j];
+            }
+            b[k * n + j] = acc;
+        }
+    }
+    apeiron::learn::ridge::solve_spd(&a, &b, rank, n).expect("solve_spd")
+}
+
+/// The old `product` and the two rounded carriers, assembled as the pre-migration
+/// `lowrank_corrector` returned them: `(Corr, Uh, Vh, top_sum)`.
+fn ref_corrector(
+    dw: &[f64],
+    hl: &[f64],
+    o: usize,
+    n: usize,
+    rank: usize,
+    mode: Mode,
+) -> (Vec<f64>, Vec<f64>, Vec<f64>, f64) {
+    let (u, top_sum) = ref_eigen_parts(dw, hl, o, n, rank);
+    let (uh, vh) = match mode {
+        Mode::F16 => {
+            let uh: Vec<f64> = u.iter().map(|&x| f16r(x)).collect();
+            let v = ref_ridge_solve(&uh, dw, o, n, rank);
+            let vh: Vec<f64> = v.iter().map(|&x| f16r(x)).collect();
+            (uh, vh)
+        }
+        Mode::U8 => {
+            let mut uh = vec![0.0f64; o * rank];
+            for k in 0..rank {
+                let col: Vec<f64> = (0..o).map(|i| u[i * rank + k]).collect();
+                let (q, _) = quant_c_u8(&col, 8).expect("quantize");
+                for i in 0..o {
+                    uh[i * rank + k] = q[i];
+                }
+            }
+            let v = ref_ridge_solve(&uh, dw, o, n, rank);
+            let mut vh = vec![0.0f64; rank * n];
+            for k in 0..rank {
+                let (q, _) = quant_c_u8(&v[k * n..k * n + n], 8).expect("quantize");
+                vh[k * n..k * n + n].copy_from_slice(&q);
+            }
+            (uh, vh)
+        }
+        Mode::Exact => unreachable!("the exact carrier has no rounded oracle"),
+    };
+    (matmul(&uh, &vh, o, rank, n), uh, vh, top_sum)
+}
+
+/// The migrated Q32.32 corrector against the `f64` oracle on fixed LCG inputs.
+///
+/// Bound `2⁻²⁸` relative, derived: every quantity crosses the Q32.32 grid once (relative `2⁻³³`),
+/// the Gram and the `Uhᵀ Uh` ridge system each add one rounding per stored entry, and the ridge
+/// solve's conditioning on the fixtures' orthonormal-ish `Uh` (columns of a unit-norm eigenbasis,
+/// `cond(Uhᵀ Uh) ≤ 4`) amplifies the right-hand side's `2⁻³³` by `2²`; six such steps bound the
+/// relative disagreement at `6·2⁻³³·2² = 1.5·2⁻²⁹`, and `2⁻²⁸` is twice that. The observed maximum
+/// is printed: `0` for the `F16` carrier (identical arithmetic), `2.1e-10` for `U8`, one quantum.
+#[test]
+fn agrees_with_f64_oracle() {
+    const BOUND: f64 = 3.725_290_298_461_914e-9; // 2⁻²⁸
+    let rank = 3usize;
+    for seed in [0xA1B2_C3D4_E5F6_0718u64, 0x0F1E_2D3C_4B5A_6978] {
+        let (dw, hl) = fixture(seed, O, N);
+        for mode in [Mode::F16, Mode::U8] {
+            let got = lowrank_corrector(&dw, &hl, O, N, rank, mode, true).expect("q32 corrector");
+            let (corr, u, v, top_sum) = ref_corrector(&dw, &hl, O, N, rank, mode);
+            let f = got.factors.as_ref().expect("factors requested");
+            let scale = max_abs(&corr).max(f64::MIN_POSITIVE);
+            let dc = max_abs(&residual(&corr, &got.corr));
+            let du = max_abs(&residual(&u, &f.u));
+            let dv = max_abs(&residual(&v, &f.v));
+            let dt = (got.top_sum - top_sum).abs() / top_sum.abs().max(f64::MIN_POSITIVE);
+            println!(
+                "oracle seed {seed:x} {mode:?}: Corr {:.3e} (rel {:.3e}) Uh {:.3e} Vh {:.3e} \
+                 top_sum rel {:.3e}",
+                dc,
+                dc / scale,
+                du,
+                dv,
+                dt
+            );
+            assert!(
+                dc <= BOUND * scale,
+                "seed {seed:x} {mode:?}: Corr {dc:e} over {} (bound 2⁻²⁸·scale)",
+                BOUND * scale
+            );
+            assert!(
+                du <= BOUND * scale.max(1.0),
+                "seed {seed:x} {mode:?}: Uh {du:e} over the bound"
+            );
+            assert!(
+                dv <= BOUND * max_abs(&v).max(1.0),
+                "seed {seed:x} {mode:?}: Vh {dv:e} over the bound"
+            );
+            assert!(
+                dt <= BOUND,
+                "seed {seed:x} {mode:?}: top_sum relative {dt:e} over 2⁻²⁸"
+            );
+        }
+    }
 }
 
 /// The production-shape fixture for the timing test: random `ΔW` (`o × n`) and a diagonal PSD `Hl`
