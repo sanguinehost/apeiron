@@ -974,27 +974,57 @@ fn check_layer(lt: &LayerWeights, cfg: &DriverCfg) -> Result<(), DriverError> {
     Ok(())
 }
 
-/// Quantise `lt` against the teacher/student hidden states, propagate the student path and return
-/// the quantised layer, the seven fits, the bit budget and the teacher layer output.
+/// The number of stages in a layer: `qkv`, `o`, `ffn`, `down`.
+const STAGES: usize = 4;
+
+/// The stage order, indexed by [`LayerProgress::stage`].
+const STAGE_IDS: [StageId; STAGES] = [StageId::Qkv, StageId::O, StageId::Ffn, StageId::Down];
+
+/// The tensor count after `stage` completed stages (`qkv` 3, `o` 1, `ffn` 2, `down` 1).
+fn fit_count(stage: usize) -> usize {
+    *[0, 3, 4, 6, 7].get(stage).unwrap_or(&7)
+}
+
+/// The resumable state of one layer between stage boundaries: the partially quantised layer, its
+/// fits and bit sum, `stage` (completed stages, `1 ..= 3`) and the student mid state (`hs` is only
+/// replaced at the end of stage `down`; the teacher cache is recomputed on resume).
+#[derive(Clone, Debug)]
+pub struct LayerProgress {
+    /// Completed stages (`1 ..= 3`); the next call runs stage `stage`.
+    pub stage: usize,
+    /// The partially quantised layer.
+    pub lq: LayerWeights,
+    /// The fits of the completed stages.
+    pub fits: Vec<TensorFit>,
+    /// The bit budget of `fits`.
+    pub bits: TensorBits,
+    /// The student mid state `hs + a·Lq.oᵀ` after stage `o`, row-major `[n_seq·t, hidden]`; all
+    /// zeros after stage `qkv`.
+    pub hs_mid: Vec<i64>,
+}
+
+/// Quantise at most `max_stages` of `lt`'s remaining stages from `progress` (`None` starts at
+/// `qkv`), store the new state in `*progress` and return `Ok(None)` while stages remain; the last
+/// stage returns the one-shot [`quantise_layer`] result and clears it.
 ///
-/// `ht`/`hs` are row-major `[n_seq·t, hidden]` words; `hs` is the student input and is replaced by
-/// the student layer output. `ln_next` (length `hidden`) is the `down` stage's `g_row` source: the
-/// next layer's `ln1`, or the final norm weight (`:1709`). Temporal `O(Σ_slabs t·parts + Σ_stages
-/// rows·n² + Σ_7 fits)`, dominated by the teacher forward cache, the stage Gram and solve and the
-/// seven [`fit_tensor`] calls; spatial `O(n_seq·t·hidden + Σ_slabs rows·hidden + n²)`.
+/// `hs` carries the student input and is replaced only by the `down` stage. The teacher forward
+/// cache and `ht_next` are recomputed from `(cfg, rope, lt, ht)` on every call. Temporal
+/// `O(Σ_slabs t·parts + Σ_{stages run} rows·n² + Σ_{fits run} fit)`, dominated by that cache and
+/// the [`fit_tensor`] calls; spatial `O(n_seq·t·hidden + Σ_slabs rows·hidden + n²)`.
 ///
 /// # Errors
-/// [`DriverError::Geometry`] for an invalid geometry or a zero `slab`; [`DriverError::TinySeq`] for
-/// `t < 2`; [`DriverError::Shape`] for a length or width mismatch; [`DriverError::NonFinite`] for a
-/// non-finite `eps`/`theta`; and every refusal of the stage, tensor, `-resq` and forward helpers.
-pub fn quantise_layer(
+/// [`DriverError::Shape`] for a length mismatch or a `progress` whose `stage`, `fits` count or
+/// `hs_mid` length disagrees; and every refusal of [`quantise_layer`].
+pub fn quantise_layer_staged(
     cfg: &DriverCfg,
     rope: &RopeTables,
     lt: &LayerWeights,
     ln_next: &[i64],
     ht: &[i64],
     hs: &mut Vec<i64>,
-) -> Result<LayerResult, DriverError> {
+    progress: &mut Option<LayerProgress>,
+    max_stages: usize,
+) -> Result<Option<LayerResult>, DriverError> {
     validate(cfg)?;
     check_layer(lt, cfg)?;
     let hid = cfg.layer.hidden;
@@ -1006,6 +1036,23 @@ pub fn quantise_layer(
     }
     if ln_next.len() != hid {
         return Err(DriverError::Shape);
+    }
+
+    let start = match progress.as_ref() {
+        None => 0,
+        Some(p) => {
+            if p.stage == 0
+                || p.stage >= STAGES
+                || p.fits.len() != fit_count(p.stage)
+                || p.hs_mid.len() != total
+            {
+                return Err(DriverError::Shape);
+            }
+            p.stage
+        }
+    };
+    if max_stages == 0 {
+        return Ok(None);
     }
 
     // The teacher forward cache, one `keep_keys` slab per slab (`:1532-1535`), and the teacher layer
@@ -1020,100 +1067,92 @@ pub fn quantise_layer(
         pt_cache.push(p);
     }
 
-    let mut lq = lt.clone();
-    let mut hs_mid = vec![0_i64; total];
-    let mut fits: Vec<TensorFit> = Vec::with_capacity(7);
-    let mut bits = TensorBits::default();
+    let (mut lq, mut fits, mut bits, mut hs_mid) = match progress.take() {
+        None => (
+            lt.clone(),
+            Vec::new(),
+            TensorBits::default(),
+            vec![0_i64; total],
+        ),
+        Some(p) => (p.lq, p.fits, p.bits, p.hs_mid),
+    };
+    let end = start.saturating_add(max_stages).min(STAGES);
 
-    // Stage qkv: no student-path propagation.
-    let s_qkv = run_stage(
-        cfg,
-        rope,
-        lt,
-        &mut lq,
-        ln_next,
-        StageId::Qkv,
-        &pt_cache,
-        ht,
-        hs,
-        &hs_mid,
-    )?;
-    bits = add_bits(bits, &sum_bits(&s_qkv.fits));
-    fits.extend(s_qkv.fits);
-
-    // Stage o: fit `Lq.o`, then `hs_mid = hs + a·Lq.oᵀ` (`:1960-1965`).
-    let s_o = run_stage(
-        cfg,
-        rope,
-        lt,
-        &mut lq,
-        ln_next,
-        StageId::O,
-        &pt_cache,
-        ht,
-        hs,
-        &hs_mid,
-    )?;
-    for (i, &(row0, rows, _)) in geom.iter().enumerate() {
-        let add = linear(&s_o.slabs[i], rows, q_out(cfg), &lq.wo, None, hid)?;
-        let lo = row0 * hid;
-        let hi = lo + rows * hid;
-        hs_mid[lo..hi].copy_from_slice(&add_words(&hs[lo..hi], &add)?);
-    }
-    bits = add_bits(bits, &sum_bits(&s_o.fits));
-    fits.extend(s_o.fits);
-
-    // Stage ffn: fit `Lq.gate` then `Lq.up` (with the `-resq` fold), on `hs_mid`.
-    let s_ffn = run_stage(
-        cfg,
-        rope,
-        lt,
-        &mut lq,
-        ln_next,
-        StageId::Ffn,
-        &pt_cache,
-        ht,
-        hs,
-        &hs_mid,
-    )?;
-    bits = add_bits(bits, &sum_bits(&s_ffn.fits));
-    fits.extend(s_ffn.fits);
-
-    // Stage down: fit `Lq.down`, then `hs = hs_mid + m·Lq.downᵀ` (`:1966-1967`).
-    let s_down = run_stage(
-        cfg,
-        rope,
-        lt,
-        &mut lq,
-        ln_next,
-        StageId::Down,
-        &pt_cache,
-        ht,
-        hs,
-        &hs_mid,
-    )?;
-    for (i, &(row0, rows, _)) in geom.iter().enumerate() {
-        let add = linear(
-            &s_down.slabs[i],
-            rows,
-            cfg.layer.inter,
-            &lq.w_down,
-            None,
-            hid,
+    for stage in start..end {
+        let s = run_stage(
+            cfg,
+            rope,
+            lt,
+            &mut lq,
+            ln_next,
+            STAGE_IDS[stage],
+            &pt_cache,
+            ht,
+            hs,
+            &hs_mid,
         )?;
-        let lo = row0 * hid;
-        let hi = lo + rows * hid;
-        hs[lo..hi].copy_from_slice(&add_words(&hs_mid[lo..hi], &add)?);
+        bits = add_bits(bits, &sum_bits(&s.fits));
+        fits.extend(s.fits);
+        match stage {
+            // Stage o: `hs_mid = hs + a·Lq.oᵀ` (`:1960-1965`).
+            1 => {
+                for (i, &(row0, rows, _)) in geom.iter().enumerate() {
+                    let add = linear(&s.slabs[i], rows, q_out(cfg), &lq.wo, None, hid)?;
+                    let lo = row0 * hid;
+                    let hi = lo + rows * hid;
+                    hs_mid[lo..hi].copy_from_slice(&add_words(&hs[lo..hi], &add)?);
+                }
+            }
+            // Stage down: `hs = hs_mid + m·Lq.downᵀ` (`:1966-1967`).
+            3 => {
+                for (i, &(row0, rows, _)) in geom.iter().enumerate() {
+                    let add = linear(&s.slabs[i], rows, cfg.layer.inter, &lq.w_down, None, hid)?;
+                    let lo = row0 * hid;
+                    let hi = lo + rows * hid;
+                    hs[lo..hi].copy_from_slice(&add_words(&hs_mid[lo..hi], &add)?);
+                }
+            }
+            // `qkv` and `ffn` propagate nothing.
+            _ => {}
+        }
     }
-    bits = add_bits(bits, &sum_bits(&s_down.fits));
-    fits.extend(s_down.fits);
 
-    Ok(LayerResult {
+    if end < STAGES {
+        *progress = Some(LayerProgress {
+            stage: end,
+            lq,
+            fits,
+            bits,
+            hs_mid,
+        });
+        return Ok(None);
+    }
+    *progress = None;
+    Ok(Some(LayerResult {
         lq,
         fits,
         bits,
         ht_next,
-    })
+    }))
+}
+
+/// Quantise `lt` against the teacher/student hidden states and return the quantised layer, the seven
+/// fits, the bit budget and the teacher layer output: [`quantise_layer_staged`] with `max_stages =
+/// 4`. `ln_next` is the `down` stage's `g_row` source (the next layer's `ln1`, or the final norm
+/// weight).
+///
+/// # Errors
+/// Every refusal of [`quantise_layer_staged`].
+pub fn quantise_layer(
+    cfg: &DriverCfg,
+    rope: &RopeTables,
+    lt: &LayerWeights,
+    ln_next: &[i64],
+    ht: &[i64],
+    hs: &mut Vec<i64>,
+) -> Result<LayerResult, DriverError> {
+    quantise_layer_staged(cfg, rope, lt, ln_next, ht, hs, &mut None, STAGES)?
+        .ok_or(DriverError::Shape)
 }
 
 /// The bit budget summed over a slice of fits.

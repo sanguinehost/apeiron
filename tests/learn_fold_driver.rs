@@ -22,11 +22,11 @@
 use std::time::Instant;
 
 use apeiron::learn::fold::layer::driver::{
-    g_row_from_matrix, g_row_from_vec, layer_words, quantise_layer, quantise_model, DriverCfg,
-    DriverError, LayerWeights,
+    g_row_from_matrix, g_row_from_vec, layer_words, quantise_layer, quantise_layer_staged,
+    quantise_model, DriverCfg, DriverError, LayerProgress, LayerResult, LayerWeights,
 };
 use apeiron::learn::fold::layer::stage::sink_token_weights;
-use apeiron::learn::fold::layer::tensor::TensorKind;
+use apeiron::learn::fold::layer::tensor::{TensorBits, TensorKind};
 use apeiron::learn::fold::stats::parts::{parts, LayerCfg, RopeTables};
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
@@ -742,5 +742,184 @@ fn g_refusals() {
             &narrow, &rope64, &lt, &ln_next, &ht, &mut hs
         )),
         DriverError::Shape
+    );
+}
+
+/// FNV-1a 64 over a byte slice.
+fn fnv_bytes(h: &mut u64, bytes: &[u8]) {
+    for &b in bytes {
+        *h ^= u64::from(b);
+        *h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+}
+
+/// FNV-1a 64 over `Q32.32` words, little-endian.
+fn fnv_words(h: &mut u64, words: &[i64]) {
+    for w in words {
+        fnv_bytes(h, &w.to_le_bytes());
+    }
+}
+
+/// The `LayerResult` digest: `lq` words in field order, the seven fits' bit records, `ht_next`.
+fn result_digest(res: &LayerResult) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325_u64;
+    let lq = &res.lq;
+    for v in [
+        &lq.attn_norm,
+        &lq.wq,
+        &lq.wk,
+        &lq.wv,
+        &lq.wo,
+        &lq.ffn_norm,
+        &lq.w_gate,
+        &lq.w_up,
+        &lq.w_down,
+    ] {
+        fnv_words(&mut h, v);
+    }
+    for b in [&lq.bq, &lq.bk, &lq.bv] {
+        fnv_bytes(&mut h, &[u8::from(b.is_some())]);
+        if let Some(v) = b {
+            fnv_words(&mut h, v);
+        }
+    }
+    for f in &res.fits {
+        for n in [f.bits.nsign, f.bits.nr, f.bits.nc, f.bits.nd, f.bits.ncorr] {
+            fnv_bytes(&mut h, &n.to_le_bytes());
+        }
+    }
+    fnv_words(&mut h, &res.ht_next);
+    h
+}
+
+/// (h) the one-shot digests, recorded before the stage split and pinned here so the wrapper keeps
+/// reproducing them bit-for-bit.
+#[test]
+fn h_one_shot_digest() {
+    let want = [
+        (7_u64, 0x7219_6e64_09b9_7848_u64, 0x77ac_e2ba_69e5_117d_u64),
+        (11, 0x9415_2287_217d_18bf, 0xb476_185a_ceda_1b29),
+    ];
+    for &(seed, d_res, d_hs) in &want {
+        let (cfg, rope, lt, ht, hs_in, ln_next) = fixture(seed, SLAB);
+        let mut hs = hs_in.clone();
+        let res = quantise_layer(&cfg, &rope, &lt, &ln_next, &ht, &mut hs).expect("layer");
+        let mut hh = 0xcbf2_9ce4_8422_2325_u64;
+        fnv_words(&mut hh, &hs);
+        assert_eq!(
+            res.bits,
+            TensorBits {
+                nsign: 135_168,
+                nr: 13_440,
+                nc: 9_600,
+                nd: 8_064,
+                ncorr: 6_336,
+            },
+            "seed {seed}: accumulated bit budget moved"
+        );
+        assert_eq!(
+            result_digest(&res),
+            d_res,
+            "seed {seed}: result digest moved"
+        );
+        assert_eq!(hh, d_hs, "seed {seed}: hs digest moved");
+    }
+}
+
+/// (i) a stage split is bit-identical to the one-shot: four `max_stages = 1` calls, and a `3` then
+/// `1` call, give the same `LayerResult` and `hs` digests as one call.
+#[test]
+fn i_stage_resume_matches_one_shot() {
+    let (cfg, rope, lt, ht, hs_in, ln_next) = fixture(11, SLAB);
+
+    let mut hs1 = hs_in.clone();
+    let one = quantise_layer(&cfg, &rope, &lt, &ln_next, &ht, &mut hs1).expect("one shot");
+    let (d_res, d_hs) = (result_digest(&one), {
+        let mut h = 0xcbf2_9ce4_8422_2325_u64;
+        fnv_words(&mut h, &hs1);
+        h
+    });
+
+    // Four single-stage calls: `hs` is untouched until the last, and the progress chain is visible.
+    let mut hs2 = hs_in.clone();
+    let mut prog: Option<LayerProgress> = None;
+    let mut last = None;
+    for k in 1..=4 {
+        last = quantise_layer_staged(&cfg, &rope, &lt, &ln_next, &ht, &mut hs2, &mut prog, 1)
+            .expect("stage");
+        if k < 4 {
+            assert!(prog.is_some(), "stage {k} cleared its progress");
+            assert_eq!(prog.as_ref().map(|p| p.stage), Some(k), "stage {k}");
+            assert_eq!(hs2, hs_in, "stage {k} touched `hs`");
+        }
+    }
+    assert!(prog.is_none(), "the last stage left progress behind");
+    let four = last.expect("four-stage run returned no layer");
+    assert_eq!(result_digest(&four), d_res, "4x1 result digest");
+    let mut h4 = 0xcbf2_9ce4_8422_2325_u64;
+    fnv_words(&mut h4, &hs2);
+    assert_eq!(h4, d_hs, "4x1 hs digest");
+
+    // `max_stages = 3` then `1`.
+    let mut hs3 = hs_in.clone();
+    let mut prog: Option<LayerProgress> = None;
+    let mid = quantise_layer_staged(&cfg, &rope, &lt, &ln_next, &ht, &mut hs3, &mut prog, 3)
+        .expect("three stages");
+    assert!(mid.is_none(), "three stages completed the layer");
+    assert_eq!(prog.as_ref().map(|p| p.stage), Some(3));
+    assert_eq!(prog.as_ref().map(|p| p.fits.len()), Some(6));
+    let fin = quantise_layer_staged(&cfg, &rope, &lt, &ln_next, &ht, &mut hs3, &mut prog, 1)
+        .expect("last stage")
+        .expect("no layer");
+    assert!(prog.is_none());
+    assert_eq!(result_digest(&fin), d_res, "3+1 result digest");
+    let mut h3 = 0xcbf2_9ce4_8422_2325_u64;
+    fnv_words(&mut h3, &hs3);
+    assert_eq!(h3, d_hs, "3+1 hs digest");
+
+    // A progress whose stage, `fits` count or `hs_mid` length disagrees is refused.
+    let total = N_SEQ * T * HID;
+    let mut hs4 = hs_in.clone();
+    let mut bad = Some(LayerProgress {
+        stage: 1,
+        lq: lt.clone(),
+        fits: Vec::new(),
+        bits: TensorBits::default(),
+        hs_mid: vec![0; total],
+    });
+    assert_eq!(
+        unwrap_err(quantise_layer_staged(
+            &cfg, &rope, &lt, &ln_next, &ht, &mut hs4, &mut bad, 1
+        )),
+        DriverError::Shape,
+        "a stage-1 progress with no fits must refuse"
+    );
+    let mut bad = Some(LayerProgress {
+        stage: 4,
+        lq: lt.clone(),
+        fits: Vec::new(),
+        bits: TensorBits::default(),
+        hs_mid: vec![0; total],
+    });
+    assert_eq!(
+        unwrap_err(quantise_layer_staged(
+            &cfg, &rope, &lt, &ln_next, &ht, &mut hs4, &mut bad, 1
+        )),
+        DriverError::Shape,
+        "a completed layer must not resume"
+    );
+    let mut bad = Some(LayerProgress {
+        stage: 2,
+        lq: lt.clone(),
+        fits: one.fits.iter().take(4).cloned().collect(),
+        bits: TensorBits::default(),
+        hs_mid: vec![0; total - 1],
+    });
+    assert_eq!(
+        unwrap_err(quantise_layer_staged(
+            &cfg, &rope, &lt, &ln_next, &ht, &mut hs4, &mut bad, 1
+        )),
+        DriverError::Shape,
+        "a short hs_mid must refuse"
     );
 }
