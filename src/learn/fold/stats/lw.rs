@@ -11,9 +11,9 @@
 //!
 //! # Carrier
 //!
-//! Every value is a `Q32.32` word: the squares and dot products are exact `i128` accumulations and
-//! each reported scalar is rounded once ([`div_rne`], ties to even). The `f64` parameters and
-//! returned pairs are the cross-file boundary (`to_grid`/`from_grid`); no arithmetic runs in `f64`.
+//! Every value is a `Q32.32` word: the parameters, the returned scalars and the row-major stacks are
+//! `i64` words; the squares and dot products are exact `i128` accumulations and each reported
+//! scalar is rounded once ([`div_rne`], ties to even).
 //! With `H = Σ_t s_t s_tᵀ` the raw scatter, `S4 = Σ_t ‖s_t‖⁴`, `Q = Σ_t s_t⁴`, `M = H/n` and
 //! `off(X) = ‖X‖_F² − Σ_i X_ii²`:
 //!
@@ -36,23 +36,19 @@
 //! # Evidence grade
 //!
 //! `tested`: `tests/learn_fold_lw.rs` on the build path. No Lean refinement links this file. Trust
-//! boundary: the `Q32.32` arithmetic of the three functions on `&[f64]` inputs (the `f64` boundary
-//! is the grid map only); not the capture that produces `S4`, `Q`, `H` or the block stacks, nor any
-//! GPU/`torch` codegen.
+//! boundary: the `Q32.32` arithmetic of the three functions on `i64` word inputs; not the capture
+//! that produces `S4`, `Q`, `H` or the block stacks, nor any GPU/`torch` codegen.
 
 #![allow(
-    clippy::cast_possible_wrap,
-    clippy::cast_precision_loss,
     clippy::many_single_char_names,
     clippy::needless_range_loop,
     clippy::similar_names,
     reason = "the estimators index the row-major `[o, o]` scatter and the `[t, o]` blocks by \
               `i/j/a/b`, name the scalars `num`/`nf`/`off` and the intensity `lambda` as the \
-              reference does, and cast the sample/block counts `usize → i128`, a checked \
-              widening into the exact accumulator domain"
+              reference does"
 )]
 
-use crate::learn::solve::q32::{div_rne, from_grid, narrow, round_q32_even, to_grid, GRID_BOUND};
+use crate::learn::solve::q32::{div_rne, narrow, round_q32_even};
 use crate::learn::solve::syrk::{wsyrk, SyrkError};
 use crate::numeric::fixed_ln::ONE;
 
@@ -67,19 +63,10 @@ pub enum LwError {
     /// A sample count below the divisor's floor: [`lw_intensity`] divides by `n(n−1)` (needs `n ≥
     /// 2`), [`lw_block_intensity`] divides the scatter by `n` (needs `n ≥ 1`).
     TooFewSamples,
-    /// An input is outside the `Q32.32` grid, a primitive bound was violated, or a quotient left
-    /// the grid. The `f64` entry points refuse instead of saturating.
+    /// A primitive bound was violated or a quotient left the grid: a `wsyrk` input bound, an exact
+    /// sum past `i128`, or a rounded scalar outside `i64`. The estimators refuse instead of
+    /// saturating.
     OutOfRange,
-}
-
-/// One `f64` input as a `Q32.32` word; a value outside the grid is refused, never clamped.
-fn g(x: f64) -> Result<i64, LwError> {
-    to_grid(x, GRID_BOUND).ok_or(LwError::OutOfRange)
-}
-
-/// A whole `f64` slice as `Q32.32` words. `O(len)` time and space.
-fn grid(x: &[f64]) -> Result<Vec<i64>, LwError> {
-    x.iter().map(|&v| g(v)).collect()
 }
 
 /// [`SyrkError`] as a [`LwError`].
@@ -116,68 +103,68 @@ fn off_of(h: &[i64], o: usize, n: usize) -> Result<i64, LwError> {
 /// Schäfer–Strimmer (2005) intensity of the raw scatter `H` toward its diagonal, from the capture's
 /// own samples: `(num, λ)` with `num = Σ_{i≠j} Var̂(mean_t s_ti s_tj)` and `λ = clamp(num/off, 0,
 /// 1)` (`fold_transfer.py:1101–1121`). `s4 = Σ_t ‖s_t‖⁴`, `q = Σ_t s_t⁴` (length `o`), `h = Σ_t s_t
-/// s_tᵀ` (row-major `o·o`), `n` the sample count. Returns `(0, 0)` when `off(H/n) ≤ 0`.
+/// s_tᵀ` (row-major `o·o`), `n` the sample count, all `Q32.32` words; `λ` is clamped to `[0, ONE]`.
+/// Returns `(0, 0)` when `off(H/n) ≤ 0`.
 /// # Complexity
-/// Time `O(o²)` for `off`, one pass over `h`; space `O(o)` (`O(o²)` at the boundary call).
+/// Time `O(o²)` for `off`, one pass over `h`; space `O(1)` beyond the inputs.
 /// # Errors
 /// [`LwError::ShapeMismatch`] if `h.len() != o·o` or `q.len() != o`; [`LwError::TooFewSamples`] if
-/// `off > 0` and `n < 2`; [`LwError::OutOfRange`] when an input or a quotient leaves the grid.
+/// `off > 0` and `n < 2`; [`LwError::OutOfRange`] when a quotient or a rounded scalar leaves `i64`.
 pub fn lw_intensity(
-    s4: f64,
-    q: &[f64],
-    h: &[f64],
+    s4: i64,
+    q: &[i64],
+    h: &[i64],
     o: usize,
     n: usize,
-) -> Result<(f64, f64), LwError> {
+) -> Result<(i64, i64), LwError> {
     if h.len() != o * o || q.len() != o {
         return Err(LwError::ShapeMismatch);
     }
-    let (hw, qw, s4w) = (grid(h)?, grid(q)?, g(s4)?);
-    let off = off_of(&hw, o, n)?;
+    let off = off_of(h, o, n)?;
     if off <= 0 {
-        return Ok((0.0, 0.0));
+        return Ok((0, 0));
     }
     if n < 2 {
         return Err(LwError::TooFewSamples);
     }
     let mut q_sum: i128 = 0;
-    for &v in &qw {
+    for &v in q {
         q_sum += i128::from(v);
     }
     let nf = i128::try_from(n).map_err(|_| LwError::OutOfRange)?;
-    let acc = i128::from(s4w) - q_sum - nf * i128::from(off);
+    let acc = i128::from(s4) - q_sum - nf * i128::from(off);
     let num = narrow(div_rne(acc, nf * (nf - 1)).ok_or(LwError::OutOfRange)?)
         .ok_or(LwError::OutOfRange)?;
     let lambda = div_rne(i128::from(num) << 32, i128::from(off))
         .and_then(narrow)
         .ok_or(LwError::OutOfRange)?;
-    Ok((from_grid(num), from_grid(lambda.clamp(0, ONE))))
+    Ok((num, lambda.clamp(0, ONE)))
 }
 
 /// `off(H_b) = ‖H_b‖_F² − Σ_i (H_b)_ii²` of ONE block, with `H_b = Σ_k S_kᵀ S_k`
-/// (`fold_transfer.py:1123–1133`). `sk` holds the `K` label-draw stacks, each `t·o` row-major; `t`
-/// is `T`, `o` is `O`. The scatter is [`wsyrk`] on the stacked rows after the exact `2⁻ᵏ` shift
-/// into the primitive's `2³⁶` bound, with `2²ᵏ` undone on the Gram; the two Frobenius sums are
-/// exact `i128` squares rounded once.
+/// (`fold_transfer.py:1123–1133`). `sk` holds the `K` label-draw stacks, each `t·o` row-major
+/// `Q32.32` words; `t` is `T`, `o` is `O`. The scatter is [`wsyrk`] on the stacked rows after the
+/// exact `2⁻ᵏ` shift into the primitive's `2³⁶` bound, with `2²ᵏ` undone on the Gram; the two
+/// Frobenius sums are exact `i128` squares rounded once to a `Q32.32` word.
 /// # Complexity
 /// Time `O(K·T·o²)` pooled inside [`wsyrk`]; space `O(o² + K·T·o)` (the Python materialises the `(K
 /// T)²` Gram).
 /// # Errors
-/// [`LwError::ShapeMismatch`] if any block's length is not `t·o`; [`LwError::OutOfRange`] when an
-/// input or a rounded square leaves the grid.
-pub fn block_off(sk: &[&[f64]], t: usize, o: usize) -> Result<f64, LwError> {
+/// [`LwError::ShapeMismatch`] if any block's length is not `t·o`; [`LwError::OutOfRange`] when a
+/// primitive bound is violated or a rounded square leaves `i64`.
+pub fn block_off(sk: &[&[i64]], t: usize, o: usize) -> Result<i64, LwError> {
     for s in sk {
         if s.len() != t * o {
             return Err(LwError::ShapeMismatch);
         }
     }
     if o == 0 || t == 0 || sk.is_empty() {
-        return Ok(0.0);
+        return Ok(0);
     }
     let rows = t.checked_mul(sk.len()).ok_or(LwError::OutOfRange)?;
     let mut stacked = Vec::with_capacity(rows * o);
     for s in sk {
-        stacked.extend(grid(s)?);
+        stacked.extend_from_slice(s);
     }
     let (xs, k) = panel(&stacked).ok_or(LwError::OutOfRange)?;
     let mut h = wsyrk(&xs, None, rows, o).map_err(map_syrk)?;
@@ -192,48 +179,45 @@ pub fn block_off(sk: &[&[f64]], t: usize, o: usize) -> Result<f64, LwError> {
             }
         }
     }
-    Ok(from_grid(
-        round_q32_even(total - diag).map_err(|_| LwError::OutOfRange)?,
-    ))
+    round_q32_even(total - diag).map_err(|_| LwError::OutOfRange)
 }
 
 /// Batch-means (sequence-unit) intensity of the raw scatter `H` toward its diagonal, with the
 /// sequence as the sample unit (`fold_transfer.py:1135–1161`). `p = Σ_b off(H_b)/n_b²` accumulated
 /// by [`block_off`], `b` the block count `B`, `h = Σ_b H_b` the total scatter (row-major `o·o`),
-/// `n` the total sample count. Returns `(num, λ)` with `num = (P − B·off(H/n)) / (B(B−1))` and `λ =
-/// clamp(num/off(H/n), 0, 1)`; `B < 2` and `off(H/n) ≤ 0` return `(0, 0)`.
+/// `n` the total sample count, all `Q32.32` words. Returns `(num, λ)` with `num = (P − B·off(H/n)) /
+/// (B(B−1))` and `λ = clamp(num/off(H/n), 0, ONE)`; `B < 2` and `off(H/n) ≤ 0` return `(0, 0)`.
 /// # Complexity
-/// Time `O(o²)` for `off`, one pass over `h`; space `O(o²)` at the boundary call.
+/// Time `O(o²)` for `off`, one pass over `h`; space `O(1)` beyond the inputs.
 /// # Errors
 /// [`LwError::ShapeMismatch`] if `h.len() != o·o`; [`LwError::TooFewSamples`] if `B ≥ 2` and `n ==
-/// 0`; [`LwError::OutOfRange`] when an input or a quotient leaves the grid.
+/// 0`; [`LwError::OutOfRange`] when a quotient or a rounded scalar leaves `i64`.
 pub fn lw_block_intensity(
-    p: f64,
+    p: i64,
     b: usize,
-    h: &[f64],
+    h: &[i64],
     o: usize,
     n: usize,
-) -> Result<(f64, f64), LwError> {
+) -> Result<(i64, i64), LwError> {
     if h.len() != o * o {
         return Err(LwError::ShapeMismatch);
     }
     if b < 2 {
-        return Ok((0.0, 0.0));
+        return Ok((0, 0));
     }
     if n == 0 {
         return Err(LwError::TooFewSamples);
     }
-    let (pw, hw) = (g(p)?, grid(h)?);
-    let off = off_of(&hw, o, n)?;
+    let off = off_of(h, o, n)?;
     if off <= 0 {
-        return Ok((0.0, 0.0));
+        return Ok((0, 0));
     }
     let bf = i128::try_from(b).map_err(|_| LwError::OutOfRange)?;
-    let acc = i128::from(pw) - bf * i128::from(off);
+    let acc = i128::from(p) - bf * i128::from(off);
     let num = narrow(div_rne(acc, bf * (bf - 1)).ok_or(LwError::OutOfRange)?)
         .ok_or(LwError::OutOfRange)?;
     let lambda = div_rne(i128::from(num) << 32, i128::from(off))
         .and_then(narrow)
         .ok_or(LwError::OutOfRange)?;
-    Ok((from_grid(num), from_grid(lambda.clamp(0, ONE))))
+    Ok((num, lambda.clamp(0, ONE)))
 }
