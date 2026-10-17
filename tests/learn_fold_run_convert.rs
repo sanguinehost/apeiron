@@ -1,5 +1,5 @@
-//! Gate for `apeiron::learn::fold::run::convert`: the `Q32.32 ↔ f64` round trip, the forward
-//! agreement, and the typed refusals.
+//! Gate for `apeiron::learn::fold::run::convert`: the binary16/binary32 payload edges, the forward
+//! round trip, the recorded word digests, and the typed refusals.
 //!
 //! A tiny `Qwen2` is built by a fixed LCG (`hidden` 128, `n_head` 2, `head_dim` 64, `n_kv_head` 1,
 //! `inter` 128, `vocab` 32, `n_layer` 2) and run through both directions of the conversion. Every
@@ -17,8 +17,8 @@
 )]
 
 use apeiron::learn::fold::run::convert::{
-    decode_bf16, decode_f16, decode_f32, encode_f16, encode_f32, f64_to_q32, q32_to_f64,
-    student_to_grad, teacher_from_grad, ConvertError, Teacher,
+    decode_bf16, decode_f16, decode_f32, encode_f16, encode_f32, student_to_grad,
+    teacher_from_grad, ConvertError, Teacher,
 };
 use apeiron::learn::fold::run::transfer::{h0_from_chunks, TransferError};
 use apeiron::learn::grad::model::{self, Config, LayerWeights as GradLayer, Weights};
@@ -113,47 +113,20 @@ fn round_trip_is_exact_on_the_grid() {
     assert_eq!(teacher.n_layer, NLAYER);
     assert_eq!(teacher.fnorm.len(), HID);
     assert_eq!(teacher.embed.len(), VOCAB * HID);
+    // The one floating-point field this boundary still fills: `eps` is the `Q32.32` config word
+    // divided by `2^32`, exactly the pre-migration `cfg.eps as f64 / 4_294_967_296.0`.
+    assert_eq!(
+        teacher.layer_cfg.eps.to_bits(),
+        (4_295.0_f64 / 4_294_967_296.0).to_bits()
+    );
     let back = student_to_grad(&w, &teacher.layers, &teacher.fnorm).expect("convert to grad");
     assert_eq!(back, w, "the Q32.32 round trip must be exact");
 }
 
-/// (b) An `f64` off the grid rounds to the nearest `Q32.32` word, within `2^-33`.
-#[test]
-fn off_grid_rounds_to_nearest() {
-    let eps = 2f64.powi(-33);
-    let mut rng = Lcg::new(0xBEEF);
-    for _ in 0..2000 {
-        // A value with more than 32 fractional bits, in range.
-        let x = (rng.next_u64() >> 40) as f64 * 1e-6 - 1.0;
-        let q = f64_to_q32(x).expect("in range");
-        let back = q32_to_f64(q);
-        assert!(
-            (back - x).abs() <= eps,
-            "x={x} back={back} err={}",
-            (back - x).abs()
-        );
-    }
-}
-
-/// (b, through the loader) An off-grid `f32` decodes to the nearest `Q32.32` word within `2^-33`.
-#[test]
-fn off_grid_f32_rounds_within_half_ulp() {
-    let mut rng = Lcg::new(0xF00D);
-    let eps = 2f64.powi(-33);
-    for _ in 0..2000 {
-        let x = (rng.next_u64() >> 40) as f64 * 1e-6 - 1.0;
-        let raw = (x as f32).to_le_bytes();
-        let got = decode_f32(&raw).expect("in range");
-        let back = q32_to_f64(got[0]);
-        assert!(
-            (back - f64::from(x as f32)).abs() <= eps,
-            "x={x} back={back}"
-        );
-    }
-}
-
-/// (a) The loader's `f16`/`bf16`/`f32` decode is exactly `to_grid` of the decoded value: the word a
-/// weight tensor carries is the value the format holds, rounded once at `2^-32` half-even.
+/// (b, through the loader) An off-grid binary32 decodes to the nearest `Q32.32` word: exactly
+/// `to_grid` of the decoded value except at a tie, where the word is the even neighbour. The value
+/// is a 24-bit significand, so a tie is `e = 117` (`value·2^32` a half-integer) and the tie rule is
+/// asserted separately.
 #[test]
 fn decode_words_equal_to_grid_of_the_decoded_value() {
     let grid = |x: f64| to_grid(x, GRID_BOUND).expect("on grid");
@@ -167,20 +140,37 @@ fn decode_words_equal_to_grid_of_the_decoded_value() {
         assert_eq!(got, vec![grid(wide)], "bf16 {bits:#06x}");
     }
     let mut rng = Lcg::new(0x00DE_C0DE);
-    for _ in 0..2000 {
+    for _ in 0..20_000 {
         let x = (rng.next_u64() >> 40) as f64 * 1e-6 - 1.0;
         let x32 = x as f32;
         let got = decode_f32(&x32.to_le_bytes()).expect("f32");
+        let q = f64::from(x32) * 4_294_967_296.0;
+        if q.fract().abs() == 0.5 {
+            // The tie rule is `ties_round_to_even_at_the_grid_quantum`'s.
+            continue;
+        }
         assert_eq!(got, vec![grid(f64::from(x32))], "f32 {x32}");
     }
-    // A non-finite element and an out-of-range one are refused by name.
+    // Non-finite and out-of-range elements are refused by name, at the same edge.
     assert!(matches!(
         decode_bf16(&0x7f80u16.to_le_bytes()),
+        Err(ConvertError::NonFinite(_))
+    ));
+    assert!(matches!(
+        decode_f16(&0x7c00u16.to_le_bytes()),
+        Err(ConvertError::NonFinite(_))
+    ));
+    assert!(matches!(
+        decode_f32(&0x7fc0_0000u32.to_le_bytes()),
         Err(ConvertError::NonFinite(_))
     ));
     assert!(matches!(decode_f16(&[0u8; 3]), Err(ConvertError::Shape(_))));
     assert!(matches!(
         decode_f32(&3.0e9f32.to_bits().to_le_bytes()),
+        Err(ConvertError::Range(_))
+    ));
+    assert!(matches!(
+        decode_bf16(&(3.0e9f32.to_bits() >> 16).to_le_bytes()),
         Err(ConvertError::Range(_))
     ));
 }
@@ -227,44 +217,6 @@ fn wrong_length_is_refused() {
     }
 }
 
-/// (d) A non-finite value is refused with the value in the diagnostic.
-#[test]
-fn non_finite_is_refused() {
-    assert!(matches!(
-        f64_to_q32(f64::NAN),
-        Err(ConvertError::NonFinite(_))
-    ));
-    assert!(matches!(
-        f64_to_q32(f64::INFINITY),
-        Err(ConvertError::NonFinite(_))
-    ));
-    assert!(matches!(
-        f64_to_q32(f64::NEG_INFINITY),
-        Err(ConvertError::NonFinite(_))
-    ));
-}
-
-/// (d) A finite value past `2^31` is out of the `Q32.32` range and refused.
-#[test]
-fn out_of_range_is_refused() {
-    assert!(matches!(f64_to_q32(3.0e9), Err(ConvertError::Range(_))));
-    assert!(matches!(f64_to_q32(-3.0e9), Err(ConvertError::Range(_))));
-    assert!(matches!(
-        f64_to_q32(2_147_483_648.0),
-        Err(ConvertError::Range(_))
-    ));
-    assert!(matches!(
-        f64_to_q32(-2_147_483_648.0),
-        Err(ConvertError::Range(_))
-    ));
-    // The largest representable magnitude below `2^31` in `f64`: `2^31 − 2^-21` (a 53-bit
-    // significand) maps to `i64::MIN + 2048`, the last grid word.
-    assert_eq!(
-        f64_to_q32(-(2_147_483_648.0 - 2f64.powi(-21))).expect("in range"),
-        i64::MIN + 2048
-    );
-}
-
 /// (d) A student layer count that disagrees with the teacher is refused.
 #[test]
 fn layer_count_mismatch_is_refused() {
@@ -302,75 +254,128 @@ fn real_qwen05b_loads() {
     );
 }
 
-/// The pre-migration `f64_to_q32` body, copied: `round(x·2^32)` in `f64` (ties away from zero),
-/// `None` outside the admitted domain.
-fn ref_f64_to_q32(x: f64) -> Option<i64> {
-    if !x.is_finite() || x.abs() >= 2_147_483_648.0 {
-        return None;
-    }
-    let q = (x * 4_294_967_296.0).round();
-    if !q.is_finite() || q.abs() >= 9_223_372_036_854_775_808.0 {
-        return None;
-    }
-    Some(q as i64)
-}
-
-/// A random admissible value: an exact 53-bit significand `m/2^53 ∈ [0, 1)` times `2^e` with
-/// `e ∈ [-31, 31]`, so `|x| < 2^31` and both `x·2^32` and the sign change are exact.
-fn lcg_value(rng: &mut Lcg) -> f64 {
-    let m = (rng.next_u64() >> 11) as f64 * 2f64.powi(-53);
-    let e = (rng.next_u64() % 63) as i32 - 31;
-    let sign = if rng.next_u64() & 1 == 0 { 1.0 } else { -1.0 };
-    sign * m * 2f64.powi(e)
-}
-
-/// (a) The integer decode agrees with the copied `f64` oracle.
-///
-/// Bound: `x·2^32` is an exact power-of-two rescale (`|x| < 2^31`, so no significand bit moves), so
-/// the oracle is nearest with ties away from zero, while the integer body is nearest with ties to
-/// even. They agree on every non-tie; at an exact tie (`x·2^32` a half-integer) they differ by one
-/// quantum, `2^-32`, and each is exactly `2^-33` from `x`, so the value-level agreement bound is
-/// `|q32_to_f64(got) − x| <= 2^-33`.
-#[test]
-fn integer_decode_agrees_with_the_f64_oracle() {
-    let mut rng = Lcg::new(0x0DEC_0DE5);
-    let mut max_err = 0.0_f64;
-    let mut ties = 0usize;
-    for _ in 0..20_000 {
-        let x = lcg_value(&mut rng);
-        let got = f64_to_q32(x).expect("in range");
-        let want = ref_f64_to_q32(x).expect("oracle in range");
-        if (x * 4_294_967_296.0).fract().abs() == 0.5 {
-            // An exact tie between grid words `lo` and `lo + 1`: the oracle rounds away from zero,
-            // the integer body to the even neighbour; both are `2^-33` from `x`.
-            let lo = (x * 4_294_967_296.0).floor() as i64;
-            let even = if lo % 2 == 0 { lo } else { lo + 1 };
-            assert_eq!(got, even, "tie x={x}");
-            assert_eq!(want, if x > 0.0 { lo + 1 } else { lo }, "tie x={x}");
-            ties += 1;
-        } else {
-            assert_eq!(got, want, "x={x}");
-        }
-        max_err = max_err.max((q32_to_f64(got) - x).abs());
-        assert!(max_err <= 2f64.powi(-33), "x={x} got={got}");
-    }
-    println!(
-        "20000 values: max |q32_to_f64(f64_to_q32(x)) − x| = {max_err:.3e}, {ties} exact ties"
-    );
-}
-
-/// (a) An exact tie at the grid quantum rounds to the even word.
+/// (a) At a tie at the `2^-32` quantum the word is the even neighbour; the grid's top word is the
+/// largest finite binary32 below `2^31`, and `2^31` itself refuses.
 #[test]
 fn ties_round_to_even_at_the_grid_quantum() {
-    for h in [-9i64, -7, -5, -3, -1, 1, 3, 5, 7, 9] {
-        // `x·2^32 = h/2` with `h` odd: the two neighbours are `(h−1)/2` and `(h+1)/2`.
-        let x = h as f64 * 2f64.powi(-33);
-        let lo = (h - 1) / 2;
-        let even = if lo % 2 == 0 { lo } else { lo + 1 };
-        assert_eq!(f64_to_q32(x).expect("in range"), even, "h={h}");
-        assert_eq!(even % 2, 0, "h={h}");
-        let away = ref_f64_to_q32(x).expect("oracle in range");
-        assert_eq!(away, if h > 0 { lo + 1 } else { lo }, "h={h}");
+    for mant in [1u32, 3, 5, 0x7f_ffff] {
+        // `e = 117`: `value·2^32 = a/2` with `a = 2^23 + mant` odd, so the two neighbours are
+        // `a/2` and `a/2 + 1` and the even one wins.
+        let a = (1u32 << 23) | mant;
+        let lo = a / 2;
+        let even = if lo.is_multiple_of(2) { lo } else { lo + 1 };
+        let bits = (117u32 << 23) | mant;
+        assert_eq!(
+            decode_f32(&bits.to_le_bytes()).expect("f32"),
+            vec![i64::from(even)],
+            "mant {mant:#x}"
+        );
+        assert_eq!(
+            decode_f32(&(bits | 0x8000_0000).to_le_bytes()).expect("f32"),
+            vec![-i64::from(even)],
+            "mant {mant:#x} negative"
+        );
+        assert_eq!(even % 2, 0, "mant {mant:#x}");
+    }
+    // `(2^24 − 1)·2^7 = 2^31 − 2^7`: the largest finite binary32 below the bound.
+    let last = (157u32 << 23) | 0x7f_ffff;
+    assert_eq!(
+        decode_f32(&last.to_le_bytes()).expect("f32"),
+        vec![i64::MAX - ((1_i64 << 39) - 1)]
+    );
+    assert!(matches!(
+        decode_f32(&(158u32 << 23).to_le_bytes()),
+        Err(ConvertError::Range(_))
+    ));
+}
+
+/// FNV-1a 64 fold of `bytes` into `h`.
+fn fnv1a(mut h: u64, bytes: &[u8]) -> u64 {
+    for &b in bytes {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// FNV-1a 64 over the little-endian bytes of the words.
+fn fnv_words(v: &[i64]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &w in v {
+        h = fnv1a(h, &w.to_le_bytes());
+    }
+    h
+}
+
+/// The convert-side pre-migration digest: 65 536 binary16 patterns, 20 000 random binary32 and
+/// binary16 patterns, and 20 000 encoded words, folded in the recorded order.
+fn witness_convert(seed: u64) -> u64 {
+    let mut rng = Lcg::new(seed);
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    let fold = |h: u64, v: &[i64]| fnv1a(h, &fnv_words(v).to_le_bytes());
+    let mut f16_words = Vec::new();
+    for b in 0..=0xffffu32 {
+        let b = b as u16;
+        if let Ok(v) = decode_f16(&b.to_le_bytes()) {
+            f16_words.extend(v);
+        }
+    }
+    h = fnv1a(h, b"f16");
+    h = fnv1a(h, &(f16_words.len() as i64).to_le_bytes());
+    h = fold(h, &f16_words);
+    let mut f32_words = Vec::new();
+    let mut f32_refused = 0i64;
+    for _ in 0..20_000 {
+        let bits = (rng.next_u64() >> 32) as u32;
+        match decode_f32(&bits.to_le_bytes()) {
+            Ok(v) => f32_words.extend(v),
+            Err(_) => f32_refused += 1,
+        }
+    }
+    h = fnv1a(h, b"f32");
+    h = fnv1a(h, &(f32_words.len() as i64).to_le_bytes());
+    h = fold(h, &f32_words);
+    h = fnv1a(h, &f32_refused.to_le_bytes());
+    let mut bf_words = Vec::new();
+    for _ in 0..20_000 {
+        let bits = (rng.next_u64() >> 48) as u16;
+        if let Ok(v) = decode_bf16(&bits.to_le_bytes()) {
+            bf_words.extend(v);
+        }
+    }
+    h = fnv1a(h, b"bf16");
+    h = fnv1a(h, &(bf_words.len() as i64).to_le_bytes());
+    h = fold(h, &bf_words);
+    let words: Vec<i64> = (0..20_000).map(|_| rng.word() * 1_000_003).collect();
+    let enc32 = encode_f32(&words);
+    h = fnv1a(h, b"enc32");
+    h = fnv1a(
+        h,
+        &fnv_words(&[i64::try_from(enc32.len()).expect("len")]).to_le_bytes(),
+    );
+    h = fnv1a(h, &enc32);
+    h = fnv1a(h, b"enc16");
+    match encode_f16(&words) {
+        Ok(b) => {
+            h = fnv1a(h, &(b.len() as i64).to_le_bytes());
+            h = fnv1a(h, &b);
+        }
+        Err(_) => h = fnv1a(h, &(-1i64).to_le_bytes()),
+    }
+    h
+}
+
+/// The recorded pre-migration digests of the binary16/binary32 edges, from the source at base
+/// `57d21789` (whose binary32 decode widened to a 64-bit exponent-and-significand field and called
+/// the scalar converter this lane deleted). The integer decode reproduces them exactly on both
+/// seeds; a change to the rounding, the range bound or the payload order reddens this test.
+#[test]
+fn recorded_decode_and_encode_digests_hold() {
+    for (seed, want) in [
+        (0xC0FF_EE01u64, 0x5e29_aec3_81a8_ff10u64),
+        (0xC0FF_EE02, 0x3d3a_faa0_91fa_09cf),
+    ] {
+        assert_eq!(witness_convert(seed), want, "seed {seed:016x}");
     }
 }
 

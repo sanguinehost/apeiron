@@ -20,8 +20,8 @@
 //!
 //! The checkpoint keeps the driver's word [`ModelState`] as its format (`ht.bin`, `hs.bin`,
 //! `layer-<l>.bin`, eight bytes per `i64` word). That is a **format change**: the previous
-//! checkpoint stored `f64` values, so `MANIFEST_MAGIC` is `v2` and a `v1` manifest is refused
-//! rather than misread.
+//! checkpoint stored eight-byte IEEE-754 binary64 values, so `MANIFEST_MAGIC` is `v2` and a `v1`
+//! manifest is refused rather than misread.
 //!
 //! # Subsumption
 //!
@@ -71,7 +71,7 @@ use crate::sha256::sha256;
 const MANIFEST: &str = "manifest.txt";
 
 /// The manifest's first line: format identity and version. `v2` stores `i64` `Q32.32` words; `v1`
-/// stored `f64` values and is refused.
+/// stored eight-byte IEEE-754 binary64 values and is refused.
 const MANIFEST_MAGIC: &str = "apeiron-fold-transfer v2";
 
 /// The field count of one serialized [`LayerWeights`]: `attn_norm, ffn_norm, wq, bq, wk, bk, wv,
