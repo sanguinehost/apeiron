@@ -1,145 +1,174 @@
 //! The finishing stage's coded weight plane: the frozen `E8 ∪ O8` code field `S`, a frozen per-row
-//! scale grid `(lo, sp)` and the trainable log-multiplicative latents `(pa, pb, pd)`.
+//! scale grid `(lo, sp)` and the trainable log-multiplicative latents `(pa, pb, pd)`, ported from
+//! `spec/pv_finish.py:205-285` over the codebook of [`crate::learn::fold::fit::icm`]. A linear's
+//! weight is `compose(fwht128(S ⊙ d), r, c)`.
 //!
-//! Port of the production configuration of `spec/pv_finish.py:205-285` (the `Plane` class and
-//! `plane_weight`) and `add_plane` (331-345), over the refit primitives of
-//! [`crate::learn::fold::fit::steps`] (`compose`, `fwht128`) and the scale quantizers of
-//! [`crate::learn::fold::fit::quant`] and the `E8 ∪ O8` codebook of [`crate::learn::fold::fit::icm`].
-//! The one-bit arm stores one plane of a linear as
-//! `weight = compose(fwht128(S ⊙ d), r, c)`, where `S` is a field of 8-column blocks, each a row of
-//! the 256-row codebook.
+//! # Representation
 //!
-//! # What is ported
+//! Every stored value and intermediate is Q32.32 `i64`; products are `i128` Q64.64 rounded once
+//! ([`round_q32_even`], ties to even); a reduction accumulates in `i128` and rounds once. The `f64`
+//! boundary is the pack and [`encode`]. Against an `f64` evaluation the forward applies four
+//! roundings (the `S ⊙ d` product, the transform's scale, the two scale products) while the
+//! butterfly is exact addition, so `|w_q − w_ref| ≤ 8·2^-32·max(1, max|w_ref|)`; the `r` snap
+//! produces exactly [`crate::learn::fold::fit::quant::r_level`]'s integer level. Bases are
+//! canonicalised through the plane's own quantizers, so `qvals() == latents()` at zero offsets.
 //!
-//! Only the production configuration: the code field is **frozen** (no V-step, no straight-through
-//! code latents), the rotation is `fwht128` (not the learned `kan` reflection register), and the
-//! trainable subset is `r`, `c`, `d`. The `kan` rotation, the dense-corrector `corr` factors and the
-//! `norm` zero-bit tunables, the `regrid` re-fit, the `obs` Optimal-Brain-Surgeon gain and the
-//! `block-s` AQLM warm-up are out of scope and absent here.
+//! # Execution
 //!
-//! # Straight-through gradient
-//!
-//! [`CodedPlane::qvals`] returns the *forward* values of the three arm quantizers: `r` snapped to its
-//! frozen row grid `lo + round(clamp((r_l − lo)/sp·15, 0, 15))/15·sp`, and `c`/`d` through
-//! [`quant_c_u8`] at 6 and 5 bits. The quantizer Jacobian is the identity (straight-through), so the
-//! gradient the finishing step needs is the gradient of the **unquantized** forward
-//! `compose(fwht128(S ⊙ d_l), r_l, c_l)` on the latents `r_l = r0·exp(pa)`, `c_l = c0·exp(pb)`,
-//! `d_l = d0·exp(pd)`, which is what [`CodedPlane::backward`] returns and what
-//! [`CodedPlane::weight_unquantized`] evaluates. The two agree by construction whenever the
-//! quantizers are the identity at the evaluation point; `tests/learn_fold_plane.rs` checks the
-//! identity by central differences on a plane whose latents are exact quantizer fixed points.
+//! Pooled work is the whole-tensor forward and backward: the `o × n` scale, compose and
+//! Walsh–Hadamard passes ([`Pass`], `o·n·log2(128) ≥ 10^6` word ops at a fitted shape). Every
+//! per-row, per-group and per-element vector loop is a serial integer loop, including the
+//! construction-time codebook [`encode`] (`o·n·256` multiply-adds, run once per plane).
 //!
 //! # Partiality
 //!
-//! [`CodedPlane::from_pack`] and [`CodedPlane::set_offsets`] validate every shape and refuse a
-//! non-finite value with a [`PlaneError`]; `n` must be a positive multiple of [`GROUP`] (128).
-//! [`CodedPlane::backward`] and [`CodedPlane::add_into`] refuse a shape or an out-of-range output row.
-//! No method here panics on caller input.
+//! [`CodedPlane::from_pack`] and [`CodedPlane::set_offsets`] validate shape and finiteness with a
+//! [`PlaneError`]; `n` must be a positive multiple of [`GROUP`]. An allocator that returns a bare
+//! `Vec` signals a refusal with an empty vector, caught by the caller's length check. `encode`'s
+//! argmax keeps the reference's lowest-index tie rule.
 //!
-//! # Deviations from the Python
-//!
-//! - The forward runs in `f64` on the CPU, so the `encode` argmax and the `float32` tensor arithmetic
-//!   of `pv_finish.py` can differ in a near-tie; the tie rule (lowest index) is preserved.
-//! - `from_pack` returns a `Result` and refuses ragged slices and non-finite values, where the Python
-//!   broadcasts or raises inside torch.
-//!
-//! # Grade
-//!
-//! `tested` (`tests/learn_fold_plane.rs`); nothing here is extracted or refined to the canonical
-//! corpus, so no statement here is `proved`.
+//! Grade `tested` (`tests/learn_fold_plane.rs`); nothing here is extracted or refined.
 
 #![allow(
     clippy::many_single_char_names,
     clippy::similar_names,
     clippy::needless_range_loop,
-    clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
     clippy::must_use_candidate,
     clippy::suboptimal_flops,
-    clippy::float_cmp,
     clippy::too_many_arguments,
+    clippy::too_many_lines,
     clippy::doc_markdown,
-    reason = "the flat-slice kernels index row-major `[o, n]` buffers by `o/i/j/k/m/gg` and name the \
-              carriers `r0`/`c0`/`d0`, `pa`/`pb`/`pd` and `lo`/`sp` as the reference does; the `u8` \
-              code index cast is exact (`best < 256`); `encode`'s argmax and the exactness flag are \
-              the reference's exact `>`/`==` comparisons against the codebook."
+    clippy::unreadable_literal,
+    reason = "the kernels index row-major `[o, n]` buffers by `o/i/j/k/m/gg` and name the carriers \
+              `r0`/`c0`/`d0`, `pa`/`pb`/`pd`, `lo`/`sp`; the `u8` code index cast is exact \
+              (`best < 256`); every `i128 → i64` narrowing is checked by `narrow`."
 )]
 
-use crate::learn::fold::fit::icm::{codebook, BLOCK, CODE_LEN};
-use crate::learn::fold::fit::quant::{quant_c_u8, r_level};
-use crate::learn::fold::fit::steps::{compose, fwht128, GROUP};
+use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
+use crate::engine::chart::task::ChunkTask;
+use crate::learn::code::e8::codeword;
+use crate::learn::fold::fit::icm::{BLOCK, CODE_LEN};
+use crate::learn::fold::fit::steps::GROUP;
+use crate::learn::solve::q32::{round_f16, round_q32_even, rshift_rne, to_grid, Fx, GRID_BOUND};
+use crate::numeric::fixed_exp::fixed_exp;
+
+/// `ONE`, the Q32.32 unit: the word `1 << 32` denotes `1.0`.
+pub(crate) const ONE: i64 = 1 << 32;
+
+/// `round(2^32 / √128)`: the normalising scale of the 128-point Walsh–Hadamard transform.
+const INV_SQRT128_Q32: i64 = 379_625_062;
+
+/// `round(a·b / 2^32)`: the Q32.32 product, or `None` when it leaves `i64`. `O(1)`.
+pub(crate) fn mul(a: i64, b: i64) -> Option<i64> {
+    round_q32_even(i128::from(a) * i128::from(b)).ok()
+}
+
+/// `round(n / d)`, ties to even, or `None` when `d == 0` or the result leaves `i128`. `O(1)`.
+pub(crate) fn div_ne(n: i128, d: i128) -> Option<i128> {
+    if d == 0 {
+        return None;
+    }
+    let (q, r) = (n / d, n % d);
+    if r == 0 {
+        return Some(q);
+    }
+    let up = if r.abs().checked_mul(2)? > d.abs() || (r.abs() * 2 == d.abs() && q % 2 != 0) {
+        if (r < 0) == (d < 0) {
+            1
+        } else {
+            -1
+        }
+    } else {
+        0
+    };
+    q.checked_add(up)
+}
+
+/// `round(a / b)` as a Q32.32 word, or `None` when `b == 0` or the result leaves `i64`. `O(1)`.
+pub(crate) fn div(a: i64, b: i64) -> Option<i64> {
+    narrow(div_ne(i128::from(a) << 32, i128::from(b))?)
+}
+
+/// `v` as `i64`, or `None` when it is outside `i64`. `O(1)`.
+pub(crate) fn narrow(v: i128) -> Option<i64> {
+    i64::try_from(v).ok()
+}
+
+/// `round(x·2^32)` for a boundary value; `NotFinite`/`Range` otherwise. `O(1)`.
+fn q32(x: f64) -> Result<i64, PlaneError> {
+    if !x.is_finite() {
+        return Err(PlaneError::NotFinite);
+    }
+    to_grid(x, GRID_BOUND).ok_or(PlaneError::Range)
+}
+
+/// A row-major `f64` buffer converted once to Q32.32; as [`q32`] on a refusal. `O(len)`.
+fn q32_vec(x: &[f64]) -> Result<Vec<i64>, PlaneError> {
+    x.iter().map(|&v| q32(v)).collect()
+}
 
 /// A refusal from a [`CodedPlane`] constructor or method.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlaneError {
-    /// A slice length disagrees with the declared `o`/`n` shape, a `rows` list does not carry `o`
-    /// entries, or `n` is not a positive multiple of [`GROUP`].
+    /// A slice length disagrees with the declared shape, a `rows` list is not `o` long, or `n` is
+    /// not a positive multiple of [`GROUP`].
     Shape,
     /// An output row index in `rows` is not below the receiving weight's row count.
     RowOutOfRange,
-    /// A base value, a grid endpoint or an offset is not finite (`NaN` or `±∞`).
+    /// A base value, a grid endpoint or an offset is not finite.
     NotFinite,
+    /// A value leaves the Q32.32 grid (`|x| ≥ 2^31`), or a checked word left `i64`.
+    Range,
 }
 
-/// The latent offset gradients `(∂L/∂pa, ∂L/∂pb, ∂L/∂pd)` of [`CodedPlane::backward`].
-pub type LatentGrad = (Vec<f64>, Vec<f64>, Vec<f64>);
+/// The latent offset gradients `(∂L/∂pa, ∂L/∂pb, ∂L/∂pd)` of [`CodedPlane::backward`], in Q32.32.
+pub type LatentGrad = (Vec<i64>, Vec<i64>, Vec<i64>);
 
-/// One stored plane: a frozen code field (`idx` into the codebook, or `s_fix` when some block is not
-/// a codebook row), an optional output-row restriction `rows`, the frozen per-row scale grid
-/// `(lo, sp)`, the base values `(r0, c0, d0)` and the log-multiplicative latent offsets
-/// `(pa, pb, pd)`.
-///
-/// All latents start at `0`, so `latents()` reproduces the base values at construction. The fields
-/// are public state; construct through [`CodedPlane::from_pack`] and set offsets through
-/// [`CodedPlane::set_offsets`] so the shape and finiteness invariants hold.
+/// One stored plane, every field Q32.32: a frozen code field (`idx` into the codebook, or `s_fix`),
+/// an optional output-row restriction `rows`, the frozen grid `(lo, sp)`, the bases `(r0, c0, d0)`
+/// and the latent offsets `(pa, pb, pd)`; the latents start at `0`.
 #[derive(Clone, Debug)]
 pub struct CodedPlane {
-    /// Out rows of this plane (`=|rows|` when `rows` is set).
+    /// Out rows (`=|rows|` when `rows` is set).
     pub o: usize,
     /// In columns; a positive multiple of [`GROUP`].
     pub n: usize,
     /// Codebook row per 8-column block, row-major `[o, n / 8]`; empty when `s_fix` is set.
     pub idx: Vec<u8>,
-    /// The exact code field `[o, n]` when some block is not a codebook row; `None` when `idx` is used.
-    pub s_fix: Option<Vec<f64>>,
+    /// The exact code field `[o, n]` when some block is not a codebook row.
+    pub s_fix: Option<Vec<i64>>,
     /// Output rows of the receiving weight this plane writes, or `None` for every row.
     pub rows: Option<Vec<usize>>,
-    /// Per-row lower grid endpoint `lo` of the frozen `r` grid, length `o`.
-    pub lo: Vec<f64>,
-    /// Per-row grid width `sp` of the frozen `r` grid, length `o`.
-    pub sp: Vec<f64>,
-    /// Base group scale `r0`, row-major `[o, n / GROUP]`.
-    pub r0: Vec<f64>,
-    /// Base column scale `c0`, length `n`.
-    pub c0: Vec<f64>,
-    /// Base Hadamard column scale `d0`, length `n`.
-    pub d0: Vec<f64>,
-    /// Group-scale log offset `pa`, row-major `[o, n / GROUP]`.
-    pub pa: Vec<f64>,
-    /// Column-scale log offset `pb`, length `n`.
-    pub pb: Vec<f64>,
-    /// Hadamard column-scale log offset `pd`, length `n`.
-    pub pd: Vec<f64>,
+    /// Per-row lower endpoint of the frozen `r` grid, length `o`.
+    pub lo: Vec<i64>,
+    /// Per-row width of the frozen `r` grid, length `o`.
+    pub sp: Vec<i64>,
+    /// Base group scale, row-major `[o, n / GROUP]`.
+    pub r0: Vec<i64>,
+    /// Base column scale, length `n`.
+    pub c0: Vec<i64>,
+    /// Base Hadamard column scale, length `n`.
+    pub d0: Vec<i64>,
+    /// Group-scale log offset, row-major `[o, n / GROUP]`.
+    pub pa: Vec<i64>,
+    /// Column-scale log offset, length `n`.
+    pub pb: Vec<i64>,
+    /// Hadamard column-scale log offset, length `n`.
+    pub pd: Vec<i64>,
 }
 
 impl CodedPlane {
-    /// Build a plane from its stored pack: the rotated code field `s_rot` (`o × n`), the frozen
-    /// `r` grid `(lo, sp)` (`o` each), the scales `r` (`o × n/128`), `c` (`n`) and `d` (`n`), and an
-    /// optional output-row restriction `rows` (`o` entries). The code field is encoded to
-    /// [`CodedPlane::idx`] when every block equals its nearest codebook row, and kept verbatim in
-    /// [`CodedPlane::s_fix`] otherwise.
+    /// Build a plane from its pack: the rotated code field (`o × n`), the frozen `r` grid `(lo, sp)`,
+    /// the scales `r` (`o × n/128`), `c`, `d` and an optional row restriction `rows`, canonicalised
+    /// through the plane's own quantizers; the field becomes `idx` when every block equals its
+    /// nearest codebook row, else `s_fix`.
     ///
     /// # Errors
-    ///
-    /// [`PlaneError::Shape`] if `o == 0`, `n` is not a positive multiple of [`GROUP`], a slice length
-    /// disagrees with the declared shape, or `rows` is present with a length other than `o`;
-    /// [`PlaneError::NotFinite`] if any base value or grid endpoint is not finite.
-    ///
-    /// # Complexity
-    ///
-    /// Temporal: `O(o·n)` multiply-adds (the `o·(n/8)` blocks times the 256 codebook rows of
-    /// [`encode`], constant in the caller's dimensions) plus the finiteness scan. Spatial: `O(o·n)`
-    /// `f64` words for `s_fix` when the field is not exact, `O(o·n/8)` `u8` otherwise.
+    /// [`PlaneError::Shape`] on a shape or length disagreement; [`PlaneError::NotFinite`] on a
+    /// non-finite value; [`PlaneError::Range`] off the grid or from a quantizer. `O(o·n·CODE_LEN)`.
     pub fn from_pack(
         s_rot: &[f64],
         lo: &[f64],
@@ -157,58 +186,46 @@ impl CodedPlane {
         let on = o.checked_mul(n).ok_or(PlaneError::Shape)?;
         let g = n / GROUP;
         let og = o.checked_mul(g).ok_or(PlaneError::Shape)?;
-        if s_rot.len() != on
-            || lo.len() != o
-            || sp.len() != o
-            || r.len() != og
-            || c.len() != n
-            || d.len() != n
-        {
+        let lens = [s_rot.len(), lo.len(), sp.len(), r.len(), c.len(), d.len()];
+        if lens != [on, o, o, og, n, n] || rows.is_some_and(|rw| rw.len() != o) {
             return Err(PlaneError::Shape);
         }
-        if let Some(rw) = rows {
-            if rw.len() != o {
-                return Err(PlaneError::Shape);
-            }
-        }
-        for v in s_rot.iter().chain(lo).chain(sp).chain(r).chain(c).chain(d) {
-            if !v.is_finite() {
-                return Err(PlaneError::NotFinite);
-            }
-        }
-        let (idx_all, exact) = encode(s_rot, o, n)?;
+        let s_q = q32_vec(s_rot)?;
+        let (idx_all, exact) = encode_q32(&s_q, o, n)?;
         let (idx, s_fix) = if exact {
             (idx_all, None)
         } else {
-            (Vec::new(), Some(s_rot.to_vec()))
+            (Vec::new(), Some(s_q))
         };
-        Ok(Self {
+        let mut plane = Self {
             o,
             n,
             idx,
             s_fix,
             rows: rows.map(<[usize]>::to_vec),
-            lo: lo.to_vec(),
-            sp: sp.to_vec(),
-            r0: r.to_vec(),
-            c0: c.to_vec(),
-            d0: d.to_vec(),
-            pa: vec![0.0_f64; og],
-            pb: vec![0.0_f64; n],
-            pd: vec![0.0_f64; n],
-        })
+            lo: q32_vec(lo)?,
+            sp: q32_vec(sp)?,
+            r0: q32_vec(r)?,
+            c0: q32_vec(c)?,
+            d0: q32_vec(d)?,
+            pa: vec![0_i64; og],
+            pb: vec![0_i64; n],
+            pd: vec![0_i64; n],
+        };
+        let (r_q, c_q, d_q) = plane.qvals();
+        if r_q.len() != og || c_q.len() != n || d_q.len() != n {
+            return Err(PlaneError::Range);
+        }
+        plane.r0 = r_q;
+        plane.c0 = c_q;
+        plane.d0 = d_q;
+        Ok(plane)
     }
 
-    /// Overwrite the log offsets `(pa, pb, pd)` after validating their shapes and finiteness.
+    /// Overwrite the log offsets `(pa, pb, pd)`, each rounding once to Q32.32.
     ///
     /// # Errors
-    ///
-    /// [`PlaneError::Shape`] if the plane's own shape is degenerate or a slice length disagrees;
-    /// [`PlaneError::NotFinite`] if any offset is not finite.
-    ///
-    /// # Complexity
-    ///
-    /// Temporal: `O(o·n/128 + n)` compares and copies. Spatial: `O(1)` (in place).
+    /// As [`CodedPlane::from_pack`]. Serial `O(o·n/128 + n)`.
     pub fn set_offsets(&mut self, pa: &[f64], pb: &[f64], pd: &[f64]) -> Result<(), PlaneError> {
         if self.o == 0 || self.n == 0 || !self.n.is_multiple_of(GROUP) {
             return Err(PlaneError::Shape);
@@ -217,48 +234,36 @@ impl CodedPlane {
         if pa.len() != self.o * g || pb.len() != self.n || pd.len() != self.n {
             return Err(PlaneError::Shape);
         }
-        for v in pa.iter().chain(pb).chain(pd) {
-            if !v.is_finite() {
-                return Err(PlaneError::NotFinite);
-            }
-        }
-        self.pa.copy_from_slice(pa);
-        self.pb.copy_from_slice(pb);
-        self.pd.copy_from_slice(pd);
+        self.pa.copy_from_slice(&q32_vec(pa)?);
+        self.pb.copy_from_slice(&q32_vec(pb)?);
+        self.pd.copy_from_slice(&q32_vec(pd)?);
         Ok(())
     }
 
     /// The code field `S` (`o × n`, row-major): `s_fix` verbatim, else the codebook rows named by
-    /// `idx`.
-    ///
-    /// # Complexity
-    ///
-    /// Temporal: `O(o·n)` words copied. Spatial: `O(o·n)` `f64` words.
-    pub fn code_field(&self) -> Vec<f64> {
+    /// `idx`; empty on a shape disagreement. `O(o·n)`, serial.
+    pub fn code_field(&self) -> Vec<i64> {
         if let Some(s) = &self.s_fix {
             return s.clone();
         }
-        let cb = codebook();
         let nb = self.n / BLOCK;
-        let mut s = vec![0.0_f64; self.o * self.n];
-        for oi in 0..self.o {
+        if self.idx.len() != self.o * nb {
+            return Vec::new();
+        }
+        let cb = codebook_q32();
+        let mut s = vec![0_i64; self.o * self.n];
+        for (oi, row) in s.chunks_mut(self.n).enumerate() {
             for m in 0..nb {
-                let j = usize::from(self.idx.get(oi * nb + m).copied().unwrap_or(0));
-                let row = &cb[j];
-                for k in 0..BLOCK {
-                    s[oi * self.n + m * BLOCK + k] = row[k];
-                }
+                let src = &cb[usize::from(self.idx[oi * nb + m])];
+                row[m * BLOCK..(m + 1) * BLOCK].copy_from_slice(src);
             }
         }
         s
     }
 
-    /// The latents `(r_l, c_l, d_l) = (r0·exp(pa), c0·exp(pb), d0·exp(pd))`.
-    ///
-    /// # Complexity
-    ///
-    /// Temporal: `O(o·n/128 + n)` multiplies and `exp` calls. Spatial: `O(o·n/128 + n)` `f64` words.
-    pub fn latents(&self) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    /// The latents `(r0·exp(pa), c0·exp(pb), d0·exp(pd))`, Q32.32; empty on a refusal, serial
+    /// `O(o·n/128 + n)`.
+    pub fn latents(&self) -> (Vec<i64>, Vec<i64>, Vec<i64>) {
         (
             scale_exp(&self.r0, &self.pa),
             scale_exp(&self.c0, &self.pb),
@@ -266,68 +271,40 @@ impl CodedPlane {
         )
     }
 
-    /// The quantized forward values `(r_q, c_q, d_q)`: `r` snapped to its frozen row grid, `c`
-    /// through [`quant_c_u8`] at 6 bits and `d` through [`quant_c_u8`] at 5 bits.
-    ///
-    /// # Complexity
-    ///
-    /// Temporal: `O(o·n/128 + n)` (the two affine quantizers are one pass each). Spatial:
-    /// `O(o·n/128 + n)` `f64` words.
-    pub fn qvals(&self) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    /// The quantized forward values `(r_q, c_q, d_q)`: `r` snapped to its frozen row grid, `c` and
+    /// `d` through [`quant_c_q32`] at 6 and 5 bits; serial `O(o·n/128 + n)`.
+    pub fn qvals(&self) -> (Vec<i64>, Vec<i64>, Vec<i64>) {
         let (r_l, c_l, d_l) = self.latents();
         (
             snap_r(&r_l, &self.lo, &self.sp, self.o, self.n),
-            quant_affine(&c_l, 6),
-            quant_affine(&d_l, 5),
+            quant_c_q32(&c_l, 6),
+            quant_c_q32(&d_l, 5),
         )
     }
 
-    /// The plane's weight `compose(fwht128(S ⊙ d_q), r_q, c_q)`, row-major `o × n`. A zero-length
-    /// result signals an internal shape-invariant violation, which [`CodedPlane::from_pack`]
-    /// and [`CodedPlane::set_offsets`] make unreachable.
-    ///
-    /// # Complexity
-    ///
-    /// Temporal: `O(o·n·log2(GROUP))` additions for the Walsh–Hadamard transform plus `O(o·n)`
-    /// multiplies. Spatial: `O(o·n)` `f64` words.
-    pub fn weight(&self) -> Vec<f64> {
-        let s = self.code_field();
+    /// The plane's weight `compose(fwht128(S ⊙ d_q), r_q, c_q)`, row-major `o × n`; empty on a
+    /// shape violation. Temporal `O(o·n·log2(GROUP))`, the `o × n` passes pooled.
+    pub fn weight(&self) -> Vec<i64> {
         let (r_q, c_q, d_q) = self.qvals();
-        compose_plane(&s, &r_q, &c_q, &d_q, self.o, self.n)
+        compose_plane(&self.code_field(), &r_q, &c_q, &d_q, self.o, self.n)
     }
 
-    /// The unquantized forward `compose(fwht128(S ⊙ d_l), r_l, c_l)` on the latents; the
-    /// differentiable forward whose gradient (on the latents) is the straight-through gradient
-    /// [`CodedPlane::backward`] returns. A zero-length result as in [`CodedPlane::weight`].
-    ///
-    /// # Complexity
-    ///
-    /// Temporal and spatial as [`CodedPlane::weight`].
-    pub fn weight_unquantized(&self) -> Vec<f64> {
-        let s = self.code_field();
+    /// The unquantized forward `compose(fwht128(S ⊙ d_l), r_l, c_l)`, whose latent gradient is what
+    /// [`CodedPlane::backward`] returns; complexity as [`CodedPlane::weight`].
+    pub fn weight_unquantized(&self) -> Vec<i64> {
         let (r_l, c_l, d_l) = self.latents();
-        compose_plane(&s, &r_l, &c_l, &d_l, self.o, self.n)
+        compose_plane(&self.code_field(), &r_l, &c_l, &d_l, self.o, self.n)
     }
 
-    /// The straight-through gradient of `0.5·Σ (W ⊙ M)²`-style losses: given `grad_w = ∂L/∂W`
-    /// (`o × n`, or `o_total × n` when `rows` is set, of which only the plane's rows enter), return
-    /// `(∂L/∂pa, ∂L/∂pb, ∂L/∂pd)`.
-    ///
+    /// The straight-through gradient: given `grad_w = ∂L/∂W`, return `(∂L/∂pa, ∂L/∂pb, ∂L/∂pd)`.
     /// With `H = fwht128`, `X = H(S ⊙ d_q)` and `G` the plane's gradient rows:
     /// `dr[o,g] = Σ_{j∈g} G·c_q·X`, `dc[j] = Σ_o G·r_q·X`, `dY = H(G ⊙ r_q ⊙ c_q)`,
     /// `dd[j] = Σ_o S[o,j]·dY[o,j]`; then `∂pa = dr·r_l`, `∂pb = dc·c_l`, `∂pd = dd·d_l`.
     ///
     /// # Errors
-    ///
-    /// [`PlaneError::Shape`] if `grad_w` is not a whole number of `n`-long rows or disagrees with the
-    /// plane shape; [`PlaneError::RowOutOfRange`] if an entry of `rows` is at least the row count
-    /// implied by `grad_w`.
-    ///
-    /// # Complexity
-    ///
-    /// Temporal: `O(o·n·log2(GROUP))` (`X` and the `dY` transform) plus `O(o·n)` multiply-adds and
-    /// three reductions. Spatial: `O(o·n)` `f64` words (`X`, `dY` and the gathered gradient rows).
-    pub fn backward(&self, grad_w: &[f64]) -> Result<LatentGrad, PlaneError> {
+    /// [`PlaneError::Shape`] on a `grad_w` shape; [`PlaneError::RowOutOfRange`] for a `rows` entry
+    /// past `grad_w`; [`PlaneError::Range`] on a checked word; `O(o·n·log2(GROUP))`, pooled.
+    pub fn backward(&self, grad_w: &[i64]) -> Result<LatentGrad, PlaneError> {
         if self.o == 0 || self.n == 0 || !self.n.is_multiple_of(GROUP) {
             return Err(PlaneError::Shape);
         }
@@ -337,7 +314,7 @@ impl CodedPlane {
             return Err(PlaneError::Shape);
         }
         let o_total = grad_w.len() / self.n;
-        let mut gp = vec![0.0_f64; self.o * self.n];
+        let mut gp = vec![0_i64; self.o * self.n];
         match &self.rows {
             None => {
                 if o_total != self.o {
@@ -353,240 +330,420 @@ impl CodedPlane {
                     if rr >= o_total {
                         return Err(PlaneError::RowOutOfRange);
                     }
-                    for j in 0..self.n {
-                        gp[i * self.n + j] = grad_w[rr * self.n + j];
-                    }
+                    gp[i * self.n..(i + 1) * self.n]
+                        .copy_from_slice(&grad_w[rr * self.n..(rr + 1) * self.n]);
                 }
             }
         }
         let (r_l, c_l, d_l) = self.latents();
         let r_q = snap_r(&r_l, &self.lo, &self.sp, self.o, self.n);
-        let c_q = quant_affine(&c_l, 6);
-        let d_q = quant_affine(&d_l, 5);
+        let c_q = quant_c_q32(&c_l, 6);
+        let d_q = quant_c_q32(&d_l, 5);
         if r_q.len() != og || c_q.len() != self.n || d_q.len() != self.n {
-            return Err(PlaneError::Shape);
+            return Err(PlaneError::Range);
         }
         let s = self.code_field();
-        let Ok(x) = fwht128(&scale_by_cols(&s, &d_q, self.o, self.n)) else {
-            return Err(PlaneError::Shape);
-        };
-        let mut gy = vec![0.0_f64; self.o * self.n];
-        for k in 0..self.o * self.n {
-            gy[k] = gp[k] * x[k];
+        let x = fwht(&scale_by_cols(&s, &d_q, self.o, self.n));
+        if s.len() != self.o * self.n || x.len() != self.o * self.n {
+            return Err(PlaneError::Range);
         }
-        let mut dr = vec![0.0_f64; og];
-        for oi in 0..self.o {
-            for gg in 0..g {
-                let mut acc = 0.0_f64;
-                for j in gg * GROUP..(gg + 1) * GROUP {
-                    acc += gy[oi * self.n + j] * c_q[j];
-                }
-                dr[oi * g + gg] = acc;
-            }
+        let gy = pointwise(&gp, &x);
+        let dr = row_group_dots(&gy, &c_q, self.o, self.n, g)?;
+        let dc = dot_cols(&gy, &r_q, self.o, self.n, g, GROUP)?;
+        let dy = fwht(&rows_pass(&gp, &r_q, &c_q, self.o, self.n));
+        if dy.len() != self.o * self.n {
+            return Err(PlaneError::Range);
         }
-        let mut dc = vec![0.0_f64; self.n];
-        for oi in 0..self.o {
-            for j in 0..self.n {
-                dc[j] += gy[oi * self.n + j] * r_q[oi * g + j / GROUP];
-            }
-        }
-        let mut t = vec![0.0_f64; self.o * self.n];
-        for oi in 0..self.o {
-            for j in 0..self.n {
-                t[oi * self.n + j] = gp[oi * self.n + j] * r_q[oi * g + j / GROUP] * c_q[j];
-            }
-        }
-        let Ok(dy) = fwht128(&t) else {
-            return Err(PlaneError::Shape);
-        };
-        let mut dd = vec![0.0_f64; self.n];
-        for oi in 0..self.o {
-            for j in 0..self.n {
-                dd[j] += s[oi * self.n + j] * dy[oi * self.n + j];
-            }
-        }
-        let mut dpa = vec![0.0_f64; og];
-        for k in 0..og {
-            dpa[k] = dr[k] * r_l[k];
-        }
-        let mut dpb = vec![0.0_f64; self.n];
-        for j in 0..self.n {
-            dpb[j] = dc[j] * c_l[j];
-        }
-        let mut dpd = vec![0.0_f64; self.n];
-        for j in 0..self.n {
-            dpd[j] = dd[j] * d_l[j];
-        }
-        Ok((dpa, dpb, dpd))
+        let dd = dot_cols(&s, &dy, self.o, self.n, self.n, 1)?;
+        Ok((
+            pointwise(&dr, &r_l),
+            pointwise(&dc, &c_l),
+            pointwise(&dd, &d_l),
+        ))
     }
 
-    /// Sum the plane weight `plane_w` (`o × n`) into `w` (`o_total × n`): every row when `rows` is
-    /// `None`, else the rows in `rows`. The port of `add_plane`
-    /// (`spec/pv_finish.py:331-345`).
+    /// Sum the plane weight `plane_w` into `w` (`o_total × n`): every row when `rows` is `None`,
+    /// else the rows in `rows`, a repeated destination summing in index order.
     ///
     /// # Errors
-    ///
-    /// [`PlaneError::Shape`] if the plane's own shape is degenerate, `plane_w` is not `o × n`, or `w`
-    /// is not `o_total × n`; [`PlaneError::RowOutOfRange`] if an entry of `rows` is at least
-    /// `o_total`.
-    ///
-    /// # Complexity
-    ///
-    /// Temporal: `O(o·n)` adds (rows restricted: `O(|rows|·n)`). Spatial: `O(1)` (in place).
+    /// [`PlaneError::Shape`] on a shape mismatch; [`PlaneError::RowOutOfRange`] for a `rows` entry
+    /// past `o_total`; [`PlaneError::Range`] if a checked add leaves `i64`. Serial `O(o·n)`.
     pub fn add_into(
         &self,
-        w: &mut [f64],
-        plane_w: &[f64],
+        w: &mut [i64],
+        plane_w: &[i64],
         o_total: usize,
     ) -> Result<(), PlaneError> {
         if self.o == 0 || self.n == 0 {
             return Err(PlaneError::Shape);
         }
-        let on = self.o.checked_mul(self.n).ok_or(PlaneError::Shape)?;
-        let otn = o_total.checked_mul(self.n).ok_or(PlaneError::Shape)?;
-        if plane_w.len() != on || w.len() != otn {
+        if plane_w.len() != self.o.checked_mul(self.n).ok_or(PlaneError::Shape)?
+            || w.len() != o_total.checked_mul(self.n).ok_or(PlaneError::Shape)?
+        {
             return Err(PlaneError::Shape);
         }
         match &self.rows {
-            None => {
-                if o_total != self.o {
-                    return Err(PlaneError::Shape);
-                }
-                for (dst, &src) in w.iter_mut().zip(plane_w) {
-                    *dst += src;
-                }
+            None if o_total != self.o => return Err(PlaneError::Shape),
+            Some(rows) if rows.len() != self.o => return Err(PlaneError::Shape),
+            Some(rows) if rows.iter().any(|&r| r >= o_total) => {
+                return Err(PlaneError::RowOutOfRange)
             }
-            Some(rows) => {
-                if rows.len() != self.o {
-                    return Err(PlaneError::Shape);
-                }
-                for (i, &rr) in rows.iter().enumerate() {
-                    if rr >= o_total {
-                        return Err(PlaneError::RowOutOfRange);
-                    }
-                    for j in 0..self.n {
-                        w[rr * self.n + j] += plane_w[i * self.n + j];
-                    }
-                }
+            _ => {}
+        }
+        for i in 0..self.o {
+            let d = match &self.rows {
+                None => i,
+                Some(rows) => rows[i],
+            };
+            let src = &plane_w[i * self.n..(i + 1) * self.n];
+            let row = &mut w[d * self.n..(d + 1) * self.n];
+            for (a, b) in row.iter_mut().zip(src) {
+                *a = a.checked_add(*b).ok_or(PlaneError::Range)?;
             }
         }
         Ok(())
     }
 }
 
-/// Nearest codebook row per 8-column block of an `o × n` field `s`: for block `b` the index
-/// `argmax_j (2·⟨b, C_j⟩ − |C_j|²)`, carrying the lowest index on an exact tie (torch `argmax`
-/// semantics). The second value is the exactness flag: every block equals its chosen row bit for
-/// bit.
-///
-/// # Errors
-///
-/// [`PlaneError::Shape`] if `o == 0`, `n` is not a positive multiple of [`BLOCK`], or `s` is not
-/// `o·n`.
-///
-/// # Complexity
-///
-/// Temporal: `O(o·n)` multiply-adds — `o·(n/8)` blocks, each `CODE_LEN = 256` rows of [`BLOCK`] `= 8`
-/// terms. Spatial: `O(o·n/8)` `u8` words for the indices.
-pub fn encode(s: &[f64], o: usize, n: usize) -> Result<(Vec<u8>, bool), PlaneError> {
-    if o == 0 || n == 0 || !n.is_multiple_of(BLOCK) {
-        return Err(PlaneError::Shape);
-    }
-    if s.len() != o.checked_mul(n).ok_or(PlaneError::Shape)? {
-        return Err(PlaneError::Shape);
-    }
-    let cb = codebook();
-    let mut cn = [0.0_f64; CODE_LEN];
-    for j in 0..CODE_LEN {
-        let mut acc = 0.0_f64;
-        for k in 0..BLOCK {
-            acc += cb[j][k] * cb[j][k];
-        }
-        cn[j] = acc;
-    }
-    let nb = n / BLOCK;
-    let mut idx = vec![0_u8; o * nb];
-    let mut exact = true;
-    for oi in 0..o {
-        for m in 0..nb {
-            let b0 = oi * n + m * BLOCK;
-            let mut best = 0_usize;
-            let mut best_score = f64::NEG_INFINITY;
-            for j in 0..CODE_LEN {
-                let mut dot = 0.0_f64;
-                for k in 0..BLOCK {
-                    dot += s[b0 + k] * cb[j][k];
-                }
-                let score = 2.0 * dot - cn[j];
-                if score > best_score {
-                    best_score = score;
-                    best = j;
-                }
-            }
-            idx[oi * nb + m] = best as u8;
-            for k in 0..BLOCK {
-                if s[b0 + k] != cb[best][k] {
-                    exact = false;
-                }
-            }
-        }
-    }
-    Ok((idx, exact))
+/// One whole-tensor word pass: the module's pooled forward and backward work.
+enum Op<'a> {
+    /// `out[i] = x[i]·v[i mod n]` (a whole-tensor column scale).
+    Cols { x: &'a [i64], v: &'a [i64] },
+    /// `out[i] = x[i]·r[oi·g + j/GROUP]·c[j]` (the compose scale of an `o × n` tensor).
+    Rows {
+        x: &'a [i64],
+        r: &'a [i64],
+        c: &'a [i64],
+        n: usize,
+        g: usize,
+    },
+    /// The normalised 128-point Walsh–Hadamard transform of each 128-chunk, in place.
+    Fwht,
 }
 
-/// `base[i] · exp(off[i])`; the length is `min` of the two (both are the validated shape at every
-/// call site). `O(len)` time and space.
-fn scale_exp(base: &[f64], off: &[f64]) -> Vec<f64> {
-    base.iter().zip(off).map(|(&b, &p)| b * p.exp()).collect()
+/// [`Op`] over one contiguous element range; the first refused word is recorded.
+struct Pass<'a> {
+    op: Op<'a>,
+    bad: &'a FirstErr<usize, ()>,
 }
 
-/// `col[i] *= v[i]` over the rows of an `o × n` buffer. `O(o·n)` time, `O(o·n)` space.
-fn scale_by_cols(x: &[f64], v: &[f64], o: usize, n: usize) -> Vec<f64> {
-    let mut t = vec![0.0_f64; o * n];
-    for row in 0..o {
-        for col in 0..n {
-            t[row * n + col] = x[row * n + col] * v[col];
+impl ChunkTask<i64> for Pass<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [i64]) {
+        let fail = |i: usize| self.bad.record(i, ());
+        match &self.op {
+            Op::Cols { x, v } => {
+                for (k, d) in piece.iter_mut().enumerate() {
+                    let i = start + k;
+                    match mul(x[i], v[i % v.len()]) {
+                        Some(w) => *d = w,
+                        None => return fail(i),
+                    }
+                }
+            }
+            Op::Rows { x, r, c, n, g } => {
+                for (k, d) in piece.iter_mut().enumerate() {
+                    let i = start + k;
+                    match mul(x[i], r[(i / n) * g + (i % n) / GROUP]).and_then(|a| mul(a, c[i % n]))
+                    {
+                        Some(w) => *d = w,
+                        None => return fail(i),
+                    }
+                }
+            }
+            Op::Fwht => {
+                for (bi, chunk) in piece.chunks_mut(GROUP).enumerate() {
+                    let mut h = 1;
+                    while h < GROUP {
+                        let mut i = 0;
+                        while i < GROUP {
+                            for j in i..(i + h) {
+                                let (a, b) = (chunk[j], chunk[j + h]);
+                                match (a.checked_add(b), a.checked_sub(b)) {
+                                    (Some(s), Some(d)) => (chunk[j], chunk[j + h]) = (s, d),
+                                    _ => return fail(start + bi * GROUP + j),
+                                }
+                            }
+                            i += 2 * h;
+                        }
+                        h *= 2;
+                    }
+                    for (k, v) in chunk.iter_mut().enumerate() {
+                        match mul(*v, INV_SQRT128_Q32) {
+                            Some(s) => *v = s,
+                            None => return fail(start + bi * GROUP + k),
+                        }
+                    }
+                }
+            }
         }
+    }
+}
+
+/// Run `op` over `out`, one contiguous piece per participant; `false` on a refused word.
+fn apply(out: &mut [i64], chunk: usize, op: Op<'_>) -> bool {
+    let bad: FirstErr<usize, ()> = FirstErr::new();
+    chunks_mut_global(out, chunk.max(1), &Pass { op, bad: &bad });
+    bad.take().is_none()
+}
+
+/// `x[i]·v[i mod n]` over an `o × n` buffer; empty on a refusal. Temporal `O(o·n)`: `≥ 10^6` at a
+/// fitted shape, so pooled.
+fn scale_by_cols(x: &[i64], v: &[i64], o: usize, n: usize) -> Vec<i64> {
+    if n == 0 || v.len() != n || x.len() != o * n {
+        return Vec::new();
+    }
+    let mut t = vec![0_i64; x.len()];
+    let chunk = o.div_ceil(width_global()).max(1) * n;
+    if !apply(&mut t, chunk, Op::Cols { x, v }) {
+        return Vec::new();
     }
     t
 }
 
-/// `compose(fwht128(s ⊙ d), r, c)` over an `o × n` field; a zero-length result signals a shape
-/// refusal from a primitive, unreachable for validated shapes. `O(o·n·log2(GROUP))` time,
-/// `O(o·n)` space.
-fn compose_plane(s: &[f64], r: &[f64], c: &[f64], d: &[f64], o: usize, n: usize) -> Vec<f64> {
-    let Ok(y) = fwht128(&scale_by_cols(s, d, o, n)) else {
+/// `a[i]·b[i]` over equal-length buffers; empty on a refusal, pooled `O(len)`.
+fn pointwise(a: &[i64], b: &[i64]) -> Vec<i64> {
+    if a.len() != b.len() || a.is_empty() {
         return Vec::new();
-    };
-    compose(&y, r, c, o, n).unwrap_or_default()
+    }
+    let mut out = vec![0_i64; a.len()];
+    let chunk = a.len().div_ceil(width_global()).max(1);
+    if !apply(&mut out, chunk, Op::Cols { x: a, v: b }) {
+        return Vec::new();
+    }
+    out
 }
 
-/// The `r` snap of [`CodedPlane::qvals`]: [`r_level`] `lo[o] + (k/15)·sp[o]` on the Q32.32 grid with
-/// `k = round_ties_even(clamp((r_l − lo[o])/sp[o]·15, 0, 15))` per element of an `o × n/128` latent.
-///
-/// # Complexity
-///
-/// Temporal: `O(o·n/128)` rounds. Spatial: `O(o·n/128)` `f64` words.
-fn snap_r(r_l: &[f64], lo: &[f64], sp: &[f64], o: usize, n: usize) -> Vec<f64> {
+/// [`Op::Rows`] over an `o × n` buffer; empty on a length or word refusal. `O(o·n)` on the pool.
+fn rows_pass(x: &[i64], r: &[i64], c: &[i64], o: usize, n: usize) -> Vec<i64> {
     let g = n / GROUP;
-    let mut out = vec![0.0_f64; o * g];
-    for oi in 0..o {
-        for gg in 0..g {
-            let x = ((r_l[oi * g + gg] - lo[oi]) / sp[oi] * 15.0).clamp(0.0, 15.0);
-            let k = x.round_ties_even();
-            out[oi * g + gg] =
-                r_level(lo[oi], sp[oi], u8::try_from(k as i64).unwrap_or(0)).unwrap_or(f64::NAN);
+    if g == 0 || x.len() != o * n || r.len() != o * g || c.len() != n {
+        return Vec::new();
+    }
+    let mut w = vec![0_i64; o * n];
+    let chunk = o.div_ceil(width_global()).max(1) * n;
+    if !apply(&mut w, chunk, Op::Rows { x, r, c, n, g }) {
+        return Vec::new();
+    }
+    w
+}
+
+/// The normalised 128-point Walsh–Hadamard transform `H₁₂₈/√128` over every contiguous 128-chunk;
+/// the butterfly is exact `i64` addition, the scale multiplies with one rounding. Temporal
+/// `O(o·n·log2(GROUP))` (seven butterfly stages per chunk), pooled.
+fn fwht(x: &[i64]) -> Vec<i64> {
+    if x.is_empty() || !x.len().is_multiple_of(GROUP) {
+        return Vec::new();
+    }
+    let mut y = x.to_vec();
+    let blocks = y.len() / GROUP;
+    let chunk = blocks.div_ceil(width_global()).max(1) * GROUP;
+    if !apply(&mut y, chunk, Op::Fwht) {
+        return Vec::new();
+    }
+    y
+}
+
+/// `compose(fwht128(s ⊙ d), r, c)` over an `o × n` field; empty on a shape refusal. Temporal
+/// `O(o·n·log2(GROUP))`, the passes pooled.
+fn compose_plane(s: &[i64], r: &[i64], c: &[i64], d: &[i64], o: usize, n: usize) -> Vec<i64> {
+    let g = n / GROUP;
+    if g == 0 || s.len() != o * n || r.len() != o * g || c.len() != n {
+        return Vec::new();
+    }
+    let y = fwht(&scale_by_cols(s, d, o, n));
+    if y.len() != o * n {
+        return Vec::new();
+    }
+    rows_pass(&y, r, c, o, n)
+}
+
+/// `dr[o,gg] = round(Σ_{j∈gg} gy[o,j]·c_q[j] / 2^32)`, one `i128` dot per `(row, group)` rounded
+/// once, serial `O(o·n)`.
+///
+/// # Errors
+/// [`PlaneError::Shape`] on a length disagreement or `g == 0`; [`PlaneError::Range`] on a word.
+fn row_group_dots(
+    gy: &[i64],
+    c_q: &[i64],
+    o: usize,
+    n: usize,
+    g: usize,
+) -> Result<Vec<i64>, PlaneError> {
+    if g == 0 || c_q.len() != n || gy.len() != o * n {
+        return Err(PlaneError::Shape);
+    }
+    let mut dr = vec![0_i64; o * g];
+    for (e, d) in dr.iter_mut().enumerate() {
+        let (row, gg) = (e / g, e % g);
+        let mut acc = 0_i128;
+        for j in 0..GROUP {
+            acc += i128::from(gy[row * n + gg * GROUP + j]) * i128::from(c_q[gg * GROUP + j]);
+        }
+        *d = round_q32_even(acc).map_err(|_| PlaneError::Range)?;
+    }
+    Ok(dr)
+}
+
+/// The column reduction `out[j] = round(Σ_o a[o,j]·b[o, j/per] / 2^32)`, each column accumulated in
+/// `i128` and rounded once: the two column-scale gradients; serial `O(o·n)`.
+///
+/// # Errors
+/// [`PlaneError::Shape`] for `a.len() != o·n` or `b.len() != o·g`; [`PlaneError::Range`] on a word.
+fn dot_cols(
+    a: &[i64],
+    b: &[i64],
+    o: usize,
+    n: usize,
+    g: usize,
+    per: usize,
+) -> Result<Vec<i64>, PlaneError> {
+    if g == 0 || a.len() != o * n || b.len() != o * g {
+        return Err(PlaneError::Shape);
+    }
+    let mut out = vec![0_i64; n];
+    for (j, d) in out.iter_mut().enumerate() {
+        let mut acc = 0_i128;
+        for oi in 0..o {
+            acc += i128::from(a[oi * n + j]) * i128::from(b[oi * g + j / per]);
+        }
+        *d = round_q32_even(acc).map_err(|_| PlaneError::Range)?;
+    }
+    Ok(out)
+}
+
+/// The `r` snap of [`CodedPlane::qvals`]: [`crate::learn::fold::fit::quant::r_level`]'s own level for
+/// the code `k = round(clamp((r_l − lo)/sp·15, 0, 15))`, on the same grid endpoints. Empty on a
+/// shape refusal; serial `O(o·n/128)`.
+fn snap_r(r_l: &[i64], lo: &[i64], sp: &[i64], o: usize, n: usize) -> Vec<i64> {
+    let g = n / GROUP;
+    if g == 0 || r_l.len() != o * g || lo.len() != o || sp.len() != o {
+        return Vec::new();
+    }
+    let level = |i: usize| -> Option<i64> {
+        let oi = i / g;
+        let x = i128::from(r_l[i].checked_sub(lo[oi])?);
+        let k = div_ne(x * 15, i128::from(sp[oi]))?.clamp(0, 15);
+        lo[oi].checked_add(narrow(div_ne(k * i128::from(sp[oi]), 15)?)?)
+    };
+    let out: Option<Vec<i64>> = (0..o * g).map(level).collect();
+    out.unwrap_or_default()
+}
+
+/// Affine column-scale quantization in Q32.32: `c_min`/`c_max` rounded to binary16, a span floored
+/// at one grid unit, each element rounded to the nearest of `2^bits` grid points on `[c_min, c_max]`;
+/// a fixed point of the map. Empty for an empty slice, `bits` outside `{5, 6}` or a refusal; serial
+/// `O(n)`.
+fn quant_c_q32(x: &[i64], bits: u32) -> Vec<i64> {
+    if x.is_empty() || !(5..=6).contains(&bits) {
+        return Vec::new();
+    }
+    let mn = x.iter().copied().min().unwrap_or(0);
+    let mx = x.iter().copied().max().unwrap_or(0);
+    let (Some(c_min), Some(c_max)) = (f16_q32(mn), f16_q32(mx)) else {
+        return Vec::new();
+    };
+    let span = (i128::from(c_max) - i128::from(c_min)).max(1);
+    let levels: i128 = (1_i128 << bits) - 1;
+    let round = |v: i64| -> Option<i64> {
+        let t = div_ne((i128::from(v) - i128::from(c_min)) << 32, span)?;
+        let code = rshift_rne(t.clamp(0, i128::from(ONE)) * levels, 32)?;
+        c_min.checked_add(narrow(div_ne(code * span, levels)?)?)
+    };
+    let out: Option<Vec<i64>> = x.iter().copied().map(round).collect();
+    out.unwrap_or_default()
+}
+
+/// The IEEE-754 binary16 round-to-nearest-even of a Q32.32 word, as a Q32.32 word. `O(1)`.
+fn f16_q32(v: i64) -> Option<i64> {
+    let f = round_f16(Fx { m: v, e: -32 }).ok()?;
+    if f.m == 0 {
+        return Some(0);
+    }
+    let shift = f.e + 32;
+    let wide = if shift >= 0 {
+        i128::from(f.m) << u32::try_from(shift).ok().filter(|&s| s <= 96)?
+    } else {
+        rshift_rne(
+            i128::from(f.m),
+            u32::try_from(-shift).ok().filter(|&s| s <= 126)?,
+        )?
+    };
+    narrow(wide)
+}
+
+/// Nearest codebook row per 8-column block of an `o × n` field: for block `b` the index
+/// `argmax_j (2·⟨b, C_j⟩ − |C_j|²)`, lowest index on an exact tie (torch `argmax` semantics); the
+/// second value is the exactness flag.
+///
+/// # Errors
+/// [`PlaneError::Shape`] for `o == 0`, `n` not a multiple of [`BLOCK`], or a length disagreement;
+/// serial `O(o·n·CODE_LEN)` multiply-adds, construction-time only.
+pub fn encode(s: &[f64], o: usize, n: usize) -> Result<(Vec<u8>, bool), PlaneError> {
+    let on = o.checked_mul(n).ok_or(PlaneError::Shape)?;
+    if o == 0 || n == 0 || !n.is_multiple_of(BLOCK) || s.len() != on {
+        return Err(PlaneError::Shape);
+    }
+    encode_q32(&q32_vec(s)?, o, n)
+}
+
+/// [`encode`] over an already-converted Q32.32 field; as [`encode`].
+fn encode_q32(s: &[i64], o: usize, n: usize) -> Result<(Vec<u8>, bool), PlaneError> {
+    let on = o.checked_mul(n).ok_or(PlaneError::Shape)?;
+    if o == 0 || n == 0 || !n.is_multiple_of(BLOCK) || s.len() != on {
+        return Err(PlaneError::Shape);
+    }
+    let cb = codebook_q32();
+    // `|C_j|²` is a sum of eight squared Q32.32 words, up to `8·(2.83·2^32)² ≈ 2^69`; it stays
+    // `i128` because the score is compared, never stored as a word.
+    let mut cn = [0_i128; CODE_LEN];
+    for (j, slot) in cn.iter_mut().enumerate() {
+        *slot = (0..BLOCK)
+            .map(|k| i128::from(cb[j][k]) * i128::from(cb[j][k]))
+            .sum();
+    }
+    let nb = n / BLOCK;
+    let mut idx = vec![0_u8; o * nb];
+    let mut exact = true;
+    for (b, slot) in idx.iter_mut().enumerate() {
+        let b0 = (b / nb) * n + (b % nb) * BLOCK;
+        let (mut best, mut best_score) = (0_usize, i128::MIN);
+        for j in 0..CODE_LEN {
+            let dot: i128 = (0..BLOCK)
+                .map(|t| i128::from(s[b0 + t]) * i128::from(cb[j][t]))
+                .sum();
+            let score = 2 * dot - cn[j];
+            if score > best_score {
+                best_score = score;
+                best = j;
+            }
+        }
+        *slot = best as u8;
+        exact &= cb[best][..] == s[b0..b0 + BLOCK];
+    }
+    Ok((idx, exact))
+}
+
+/// `base[i] · exp(off[i])` over `min` of the two lengths; empty on an `exp` or word refusal.
+/// `O(len)` serial multiplies and `exp` calls (one entry per parameter); spatial `O(len)`.
+fn scale_exp(base: &[i64], off: &[i64]) -> Vec<i64> {
+    let len = base.len().min(off.len());
+    let mut out = Vec::with_capacity(len);
+    for i in 0..len {
+        match fixed_exp(off[i]).ok().and_then(|e| mul(base[i], e)) {
+            Some(v) => out.push(v),
+            None => return Vec::new(),
         }
     }
     out
 }
 
-/// [`quant_c_u8`] at a validated `bits ∈ {5, 6}` over a non-empty slice, where the only refusals
-/// (`Empty`, `BadBits`, `LengthOverflow`) are unreachable; a refusal yields an empty vector that a
-/// later shape check catches. `O(len)` time and space.
-fn quant_affine(x: &[f64], bits: u32) -> Vec<f64> {
-    match quant_c_u8(x, bits) {
-        Ok((v, _)) => v,
-        Err(_) => Vec::new(),
+/// The codebook as Q32.32 words: [`codeword`] carries them already; `O(CODE_LEN·BLOCK)` copies.
+fn codebook_q32() -> [[i64; BLOCK]; CODE_LEN] {
+    let mut out = [[0_i64; BLOCK]; CODE_LEN];
+    for (j, row) in out.iter_mut().enumerate() {
+        if let Ok(words) = codeword(j) {
+            *row = words;
+        }
     }
+    out
 }

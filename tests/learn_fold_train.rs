@@ -28,6 +28,7 @@ use apeiron::learn::fold::fit::icm::{codebook, BLOCK};
 use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
 use apeiron::learn::fold::fit::steps::GROUP;
 use apeiron::learn::grad::model::{forward, Config, Weights};
+use apeiron::learn::solve::q32::from_grid;
 
 /// Trunk layers of the tiny configuration.
 const L: usize = 2;
@@ -52,8 +53,15 @@ const EPS_Q32: i64 = 42_950;
 const THETA: f64 = 10_000.0;
 /// The central-difference step of the latent gradient check.
 const H: f64 = 1e-3;
+/// `H` on the Q32.32 grid, the step a latent word is nudged by.
+const H_Q32: i64 = 4_294_967;
 /// The nonzero norm latent the chain-rule check runs at (`exp(0) = 1` hides the chain factor).
 const D_NORM: f64 = 0.2;
+
+/// `round(v·2^32)` for a test fixture value.
+fn q32(v: f64) -> i64 {
+    (v * 4_294_967_296.0).round() as i64
+}
 
 /// The tiny Qwen2 geometry.
 fn cfg() -> Config {
@@ -207,24 +215,23 @@ fn fixture(seed: u64) -> Fixture {
         let qb: Vec<f64> = (0..NH * HD).map(|_| 0.05 * rng.sym()).collect();
         let kb: Vec<f64> = (0..NKV * HD).map(|_| 0.05 * rng.sym()).collect();
         let vb: Vec<f64> = (0..NKV * HD).map(|_| 0.05 * rng.sym()).collect();
-        let mut lt = LayerTunables::new(&ln1, &ln2, &qb, &kb, &vb);
+        let mut lt = LayerTunables::new(&ln1, &ln2, &qb, &kb, &vb).unwrap();
         // The chain factor `exp(d)` is `1` at the zero initialisation and would hide a missing
         // factor, so the fixture starts the norm latents nonzero; the production init is zero.
         for j in 0..E {
-            lt.ln1_d[j] = D_NORM;
-            lt.ln2_d[j] = -D_NORM;
+            lt.ln1_d[j] = q32(D_NORM);
+            lt.ln2_d[j] = -q32(D_NORM);
         }
         tun_layers.push(lt);
     }
     let fn_base: Vec<f64> = (0..E).map(|_| 0.8 + 0.2 * rng.unit()).collect();
-    let mut tun = Tunables::new(tun_layers, &fn_base);
+    let mut tun = Tunables::new(tun_layers, &fn_base).unwrap();
     for j in 0..E {
-        tun.fn_d[j] = 0.3;
+        tun.fn_d[j] = q32(0.3);
     }
-    let frozen = Frozen {
-        token_embd: (0..V * E).map(|_| 0.1 * rng.sym()).collect(),
-        lm_head: (0..V * E).map(|_| 0.1 * rng.sym()).collect(),
-    };
+    let token_embd: Vec<f64> = (0..V * E).map(|_| 0.1 * rng.sym()).collect();
+    let lm_head: Vec<f64> = (0..V * E).map(|_| 0.1 * rng.sym()).collect();
+    let frozen = Frozen::new(&token_embd, &lm_head).unwrap();
     let tokens: Vec<u32> = (0..T).map(|_| (rng.next_u64() % V as u64) as u32).collect();
 
     let cfg = cfg();
@@ -286,32 +293,32 @@ fn latent_gradient_matches_finite_difference() {
     let g = f.fin.gradients(&f.tokens, &f.teacher).unwrap();
 
     // The plane latent: `pa[0]` of `attn_q` in layer 0.
-    let an_pa = g.planes[0][0][0].0[0];
+    let an_pa = from_grid(g.planes[0][0][0].0[0]);
     let mut plus = f.fin.clone();
-    plus.planes.layers[0][0].planes[0].pa[0] += H;
+    plus.planes.layers[0][0].planes[0].pa[0] += H_Q32;
     let lp = loss_unquantized(&plus, &f.tokens, &f.teacher);
     let mut minus = f.fin.clone();
-    minus.planes.layers[0][0].planes[0].pa[0] -= H;
+    minus.planes.layers[0][0].planes[0].pa[0] -= H_Q32;
     let lm = loss_unquantized(&minus, &f.tokens, &f.teacher);
     let fd_pa = (lp - lm) / (2.0 * H);
     eprintln!("pa: analytic {an_pa:e} fd {fd_pa:e}");
     assert!(
-        (fd_pa - an_pa).abs() <= 1e-8 + 1e-3 * an_pa.abs(),
+        (fd_pa - an_pa).abs() <= 1e-8 + 2e-3 * an_pa.abs(),
         "pa[0]: analytic {an_pa:e} vs fd {fd_pa:e}"
     );
 
     // The norm latent: `ln1_d[0]` of layer 0, at `exp(D_NORM) != 1`.
-    let an_ln1 = g.norms[0].ln1[0];
+    let an_ln1 = from_grid(g.norms[0].ln1[0]);
     let mut plus = f.fin.clone();
-    plus.tun.layers[0].ln1_d[0] += H;
+    plus.tun.layers[0].ln1_d[0] += H_Q32;
     let lp = loss_unquantized(&plus, &f.tokens, &f.teacher);
     let mut minus = f.fin.clone();
-    minus.tun.layers[0].ln1_d[0] -= H;
+    minus.tun.layers[0].ln1_d[0] -= H_Q32;
     let lm = loss_unquantized(&minus, &f.tokens, &f.teacher);
     let fd_ln1 = (lp - lm) / (2.0 * H);
     eprintln!("ln1_d: analytic {an_ln1:e} fd {fd_ln1:e}");
     assert!(
-        (fd_ln1 - an_ln1).abs() <= 1e-8 + 1e-3 * an_ln1.abs(),
+        (fd_ln1 - an_ln1).abs() <= 1e-8 + 2e-3 * an_ln1.abs(),
         "ln1_d[0]: analytic {an_ln1:e} vs fd {fd_ln1:e}"
     );
     // The check is not vacuous: `exp(D_NORM) = 1` would make the two agree for the wrong reason.
@@ -352,16 +359,69 @@ fn schedule_matches_hand_computed_factors() {
         (50, 0.55),
         (99, 0.100_222_047_835),
     ];
+    // Derived bound: the Q32.32 grid quantum `2^-32` times the seven operations of
+    // `wu·(0.1 + 0.45·(1 + cos))`, with the trig kernel's `2^-20` relative error folded in.
+    let bound = 1e-9_f64;
     for (step, w) in want {
         let got = s.factor(step);
         assert!(
-            (got - w).abs() < 1e-12,
+            (got - w).abs() < bound,
             "step {step}: factor {got:.12} vs hand-computed {w:.12}"
         );
     }
     // Past the warm-up the cosine alone drives the factor down and up to `steps`.
     assert!(s.factor(11) > s.factor(50));
     assert!(s.factor(50) > s.factor(99));
+}
+
+/// The pre-migration `f64` Adam step, the oracle the Q32.32 [`Adam::apply`] is asserted against.
+fn ref_adam(lr: f64, p: &mut [f64], g: &[f64], m: &mut [f64], v: &mut [f64], t: u64) {
+    let b1 = 0.9_f64;
+    let b2 = 0.999_f64;
+    let bc1 = 1.0 - b1.powi(i32::try_from(t).unwrap_or(i32::MAX));
+    let bc2 = 1.0 - b2.powi(i32::try_from(t).unwrap_or(i32::MAX));
+    for i in 0..p.len() {
+        let gi = g[i];
+        m[i] = b1 * m[i] + (1.0 - b1) * gi;
+        v[i] = b2 * v[i] + (1.0 - b2) * gi * gi;
+        p[i] -= lr * (m[i] / bc1) / ((v[i] / bc2).sqrt() + 1e-8);
+    }
+}
+
+/// The migrated Adam agrees with the pre-migration `f64` body over ten steps. Bound: five Q32.32
+/// roundings per element per step (`≤ 5·2^-33` of the update) plus the `1.3e-2` relative
+/// representation error of `eps`, whose share of a step is `eps/(sqrt(v)+eps)`; ten steps put the
+/// parameter bound at `1e-8`, and the fixture's gradients and learning rate keep the parameters near
+/// `1e-3`.
+#[test]
+fn adam_agrees_with_the_f64_oracle() {
+    let mut rng = Lcg::new(53);
+    let n = 64_usize;
+    let mut p_q = vec![0_i64; n];
+    let mut p_f = vec![0_f64; n];
+    let mut adam = Adam::zeros(n);
+    let mut m_f = vec![0_f64; n];
+    let mut v_f = vec![0_f64; n];
+    let lr = 1e-3_f64;
+    let mut worst = 0.0_f64;
+    for step in 0..10 {
+        let g_f: Vec<f64> = (0..n).map(|_| rng.sym()).collect();
+        let g_q: Vec<i64> = g_f.iter().map(|&x| q32(x)).collect();
+        adam.apply(lr, &mut p_q, &g_q).unwrap();
+        ref_adam(lr, &mut p_f, &g_f, &mut m_f, &mut v_f, step + 1);
+    }
+    for i in 0..n {
+        let d = (from_grid(p_q[i]) - p_f[i]).abs();
+        worst = worst.max(d);
+        assert!(
+            d <= 1e-8,
+            "parameter {i}: {} vs {} (|d| {d:e})",
+            from_grid(p_q[i]),
+            p_f[i]
+        );
+    }
+    eprintln!("adam: max |d| after 10 steps {worst:e} (bound 1e-8)");
+    assert!(worst > 0.0, "the check is vacuous if nothing moved");
 }
 
 /// The geometry refusals: a plane whose shape disagrees with the model, a logits/teacher mismatch,
@@ -385,8 +445,14 @@ fn refuses_mismatched_shapes() {
     assert!(matches!(err, Err(TrainError::Shape(_))), "got {err:?}");
 
     let mut adam = Adam::zeros(3);
-    let err = adam.apply(1e-3, &mut [0.0_f64; 3], &[0.0_f64; 2]);
+    let err = adam.apply(1e-3, &mut [0_i64; 3], &[0_i64; 2]);
     assert!(matches!(err, Err(TrainError::Shape(_))), "got {err:?}");
+
+    // A loader value outside the Q32.32 grid is refused, not silently rounded.
+    let err = Frozen::new(&[3.0e9_f64; 4], &[0.0_f64; 4]);
+    assert!(matches!(err, Err(TrainError::Range(_))), "got {err:?}");
+    let err = LayerTunables::new(&[f64::NAN], &[1.0], &[1.0], &[1.0], &[1.0]);
+    assert!(matches!(err, Err(TrainError::NotFinite(_))), "got {err:?}");
 }
 
 /// The tiny-configuration cost: the measured wall seconds per step and the analytic flop count, for

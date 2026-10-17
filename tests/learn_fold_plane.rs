@@ -1,8 +1,15 @@
 //! `tests/learn_fold_plane.rs` — the finishing stage's coded weight plane: the `encode` index round
-//! trip and exactness flag, the frozen-code forward against the direct `compose(fwht128(S⊙d), r, c)`
-//! reference, the straight-through gradient of `backward` against central differences of the
-//! unquantized forward, the row-restricted `add_into` / `backward`, and the shape / finiteness
-//! refusals. Grade `tested`; nothing here is `proved`.
+//! trip and exactness flag, the frozen-code forward against the pre-migration `f64` oracle
+//! (`ref_forward`), the straight-through gradient against central differences of the Q32.32
+//! unquantized forward and against the `f64` oracle backward (`ref_backward`), the row-restricted
+//! `add_into` / `backward`, and the shape / finiteness refusals. Grade `tested`; nothing here is
+//! `proved`.
+//!
+//! The two `ref_*` bodies are the `f64` implementation this lane replaced, kept verbatim in
+//! structure as the oracle. They run on `f64` copies of the Q32.32 state (`from_grid`), so the
+//! comparison isolates the migration's arithmetic; each assertion carries the bound derived in
+//! `src/learn/fold/finish/plane.rs` (`8·2^-32` for the forward's four roundings) or `32·2^-32` for
+//! the backward's longer chains, scaled by the tensor's largest magnitude.
 
 #![allow(
     clippy::cast_precision_loss,
@@ -11,18 +18,22 @@
     clippy::many_single_char_names,
     clippy::similar_names,
     clippy::needless_range_loop,
+    clippy::too_many_arguments,
     clippy::too_many_lines,
+    clippy::unreadable_literal,
     reason = "the fixed-seed LCG maps its 53 high bits to an f64 and its low bits to an index; the \
               short `o/i/j/k/m` indices and the `r`/`c`/`d` carrier names are the reference \
-              arithmetic's vocabulary; the exact-equality assertions are the port's bit-for-bit \
-              contract (the forward and its reference call the same primitives); the refusal test \
-              enumerates every shape and finiteness arm in one body."
+              arithmetic's vocabulary; the `f64` oracle is the pre-migration body and its \
+              tolerance literals are the derived Q32.32 bounds; the refusal test enumerates every \
+              shape and finiteness arm in one body; the `ref_*` oracles take one parameter per \
+              plane field so they read as the pre-migration signatures they copy."
 )]
 
 use apeiron::learn::fold::finish::plane::{encode, CodedPlane, PlaneError};
 use apeiron::learn::fold::fit::icm::codebook;
 use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
 use apeiron::learn::fold::fit::steps::{compose, fwht128, GROUP};
+use apeiron::learn::solve::q32::from_grid;
 
 /// Out rows of the main fixtures.
 const O: usize = 4;
@@ -38,6 +49,8 @@ const NB: usize = N / BLOCK;
 const O_P: usize = 2;
 /// Central-difference step for the straight-through gradient check.
 const H: f64 = 1e-5;
+/// One Q32.32 unit.
+const Q: f64 = 1.0 / 4_294_967_296.0;
 
 /// Deterministic 64-bit linear congruential generator (fixed seed, no `rand` crate).
 struct Lcg(u64);
@@ -67,8 +80,7 @@ impl Lcg {
 }
 
 /// The quantized base pack of one plane: the `r` grid `(lo, sp)` and the quantized scales `r`, `c`,
-/// `d`. `r` is a fixed point of the row-grid snap and `c`/`d` of `quant_c_u8`, so a plane built from
-/// this pack has `qvals() == latents()` at zero offsets.
+/// `d`. `r` is a fixed point of the row-grid snap and `c`/`d` of `quant_c_u8`.
 struct Pack {
     lo: Vec<f64>,
     sp: Vec<f64>,
@@ -114,7 +126,7 @@ fn code_field(idx: &[u8], o: usize, n: usize) -> Vec<f64> {
     s
 }
 
-/// `s ⊙ d` over the rows of an `o × n` buffer.
+/// `s ⊙ d` over the rows of an `o × n` buffer (oracle).
 fn scale_cols(s: &[f64], d: &[f64], o: usize, n: usize) -> Vec<f64> {
     let mut t = vec![0.0_f64; o * n];
     for row in 0..o {
@@ -125,16 +137,121 @@ fn scale_cols(s: &[f64], d: &[f64], o: usize, n: usize) -> Vec<f64> {
     t
 }
 
-fn assert_bits(a: &[f64], b: &[f64]) {
+/// The pre-migration `f64` forward `compose(fwht128(S ⊙ d), r, c)` over the Q32.32 state read back
+/// as `f64`. The oracle the migrated [`CodedPlane::weight`] is asserted against.
+fn ref_forward(s: &[i64], r: &[i64], c: &[i64], d: &[i64], o: usize, n: usize) -> Vec<f64> {
+    let sf: Vec<f64> = s.iter().map(|&v| from_grid(v)).collect();
+    let rf: Vec<f64> = r.iter().map(|&v| from_grid(v)).collect();
+    let cf: Vec<f64> = c.iter().map(|&v| from_grid(v)).collect();
+    let df: Vec<f64> = d.iter().map(|&v| from_grid(v)).collect();
+    let y = fwht128(&scale_cols(&sf, &df, o, n)).unwrap();
+    compose(&y, &rf, &cf, o, n).unwrap()
+}
+
+/// The pre-migration `f64` backward at the same state: the documented `dr`/`dc`/`dY`/`dd` formulas
+/// with the quantized forward values.
+fn ref_backward(
+    s: &[i64],
+    r_l: &[i64],
+    c_l: &[i64],
+    d_l: &[i64],
+    lo: &[i64],
+    sp: &[i64],
+    grad_w: &[i64],
+    o: usize,
+    n: usize,
+) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let g = n / GROUP;
+    let sf: Vec<f64> = s.iter().map(|&v| from_grid(v)).collect();
+    let rl: Vec<f64> = r_l.iter().map(|&v| from_grid(v)).collect();
+    let cl: Vec<f64> = c_l.iter().map(|&v| from_grid(v)).collect();
+    let dl: Vec<f64> = d_l.iter().map(|&v| from_grid(v)).collect();
+    let lof: Vec<f64> = lo.iter().map(|&v| from_grid(v)).collect();
+    let spf: Vec<f64> = sp.iter().map(|&v| from_grid(v)).collect();
+    let gp: Vec<f64> = grad_w.iter().map(|&v| from_grid(v)).collect();
+    // The forward quantizers at the same state.
+    let mut rq = vec![0.0_f64; o * g];
+    for oi in 0..o {
+        for gg in 0..g {
+            let x = ((rl[oi * g + gg] - lof[oi]) / spf[oi] * 15.0).clamp(0.0, 15.0);
+            let k = x.round_ties_even();
+            rq[oi * g + gg] = lof[oi] + (k / 15.0) * spf[oi];
+        }
+    }
+    let cq = quant_c_u8(&cl, 6).unwrap().0;
+    let dq = quant_c_u8(&dl, 5).unwrap().0;
+    let x = fwht128(&scale_cols(&sf, &dq, o, n)).unwrap();
+    let mut gy = vec![0.0_f64; o * n];
+    for k in 0..o * n {
+        gy[k] = gp[k] * x[k];
+    }
+    let mut dr = vec![0.0_f64; o * g];
+    for oi in 0..o {
+        for gg in 0..g {
+            let mut acc = 0.0_f64;
+            for j in gg * GROUP..(gg + 1) * GROUP {
+                acc += gy[oi * n + j] * cq[j];
+            }
+            dr[oi * g + gg] = acc;
+        }
+    }
+    let mut dc = vec![0.0_f64; n];
+    for oi in 0..o {
+        for j in 0..n {
+            dc[j] += gy[oi * n + j] * rq[oi * g + j / GROUP];
+        }
+    }
+    let mut t = vec![0.0_f64; o * n];
+    for oi in 0..o {
+        for j in 0..n {
+            t[oi * n + j] = gp[oi * n + j] * rq[oi * g + j / GROUP] * cq[j];
+        }
+    }
+    let dy = fwht128(&t).unwrap();
+    let mut dd = vec![0.0_f64; n];
+    for oi in 0..o {
+        for j in 0..n {
+            dd[j] += sf[oi * n + j] * dy[oi * n + j];
+        }
+    }
+    let mut dpa = vec![0.0_f64; o * g];
+    for k in 0..o * g {
+        dpa[k] = dr[k] * rl[k];
+    }
+    let mut dpb = vec![0.0_f64; n];
+    for j in 0..n {
+        dpb[j] = dc[j] * cl[j];
+    }
+    let mut dpd = vec![0.0_f64; n];
+    for j in 0..n {
+        dpd[j] = dd[j] * dl[j];
+    }
+    (dpa, dpb, dpd)
+}
+
+/// Assert `|q − ref| ≤ ulps·2^-32·max(1, max|ref|)`, the derived Q32.32 bound.
+fn assert_close(q: &[i64], reference: &[f64], ulps: f64, name: &str) {
+    assert_eq!(q.len(), reference.len(), "{name}: length");
+    let scale = reference.iter().fold(1.0_f64, |m, &v| m.max(v.abs()));
+    let bound = ulps * Q * scale;
+    let mut worst = 0.0_f64;
+    for k in 0..q.len() {
+        let d = (from_grid(q[k]) - reference[k]).abs();
+        worst = worst.max(d);
+        assert!(
+            d <= bound,
+            "{name}[{k}]: {} vs {} (|d| {d:e} > bound {bound:e})",
+            from_grid(q[k]),
+            reference[k]
+        );
+    }
+    println!("{name}: max |d| {worst:e} <= bound {bound:e}");
+}
+
+fn assert_bits(a: &[i64], b: &[i64]) {
     assert_eq!(a.len(), b.len(), "length {} vs {}", a.len(), b.len());
     for k in 0..a.len() {
-        assert_eq!(
-            a[k].to_bits(),
-            b[k].to_bits(),
-            "word {k}: {} vs {}",
-            a[k],
-            b[k]
-        );
+        assert_eq!(a[k], b[k], "word {k}: {} vs {}", a[k], b[k]);
     }
 }
 
@@ -150,19 +267,19 @@ fn pick(len: usize, count: usize, rng: &mut Lcg) -> Vec<usize> {
     out
 }
 
-/// `0.5·Σ (W ⊙ M)²` on the unquantized forward.
+/// `0.5·Σ (W ⊙ M)²` on the unquantized Q32.32 forward.
 fn loss(plane: &CodedPlane, m: &[f64]) -> f64 {
     let w = plane.weight_unquantized();
     let mut acc = 0.0_f64;
     for (a, b) in w.iter().zip(m) {
-        let t = a * b;
+        let t = from_grid(*a) * b;
         acc += t * t;
     }
     0.5 * acc
 }
 
 /// Set the offsets to `base` with `delta` added to coordinate `t` of axis `which` (`0 = pa`,
-/// `1 = pb`, `2 = pd`).
+/// `1 = pb`, `2 = pd`). The offset boundary is `f64`; the plane converts once.
 fn apply(
     plane: &mut CodedPlane,
     base: (&[f64], &[f64], &[f64]),
@@ -198,18 +315,19 @@ fn central(
     (plus - minus) / (2.0 * H)
 }
 
-fn rel(fd: f64, an: f64, name: &str, idx: usize) {
+fn rel(fd: f64, an: i64, name: &str, idx: usize) {
+    let an = from_grid(an);
     let d = (fd - an).abs();
-    let scale = an.abs().max(1e-9);
+    let scale = an.abs().max(1e-6);
     assert!(
-        d / scale < 1e-6,
+        d / scale < 5e-3,
         "{name}[{idx}]: fd {fd:e} analytic {an:e} rel {:.3e}",
         d / scale
     );
 }
 
 #[test]
-fn from_pack_exact_field_reproduces_reference_bit_for_bit() {
+fn from_pack_exact_field_reproduces_reference_within_the_derived_bound() {
     let mut rng = Lcg::new(7);
     let idx = indices(&mut rng, O);
     let pack = build_pack(&mut rng, O);
@@ -223,18 +341,18 @@ fn from_pack_exact_field_reproduces_reference_bit_for_bit() {
         "an exact code field keeps idx, not s_fix"
     );
     assert_eq!(plane.idx, idx);
+    // The base scales are canonicalised through the plane's own quantizers, so the quantized and
+    // unquantized latents agree bit-for-bit at zero offsets.
     let (r_l, c_l, d_l) = plane.latents();
-    assert_bits(&r_l, &pack.r);
-    assert_bits(&c_l, &pack.c);
-    assert_bits(&d_l, &pack.d);
-    // The forward values are the pack's own already-quantized r, c, d at zero offsets.
     let (r_q, c_q, d_q) = plane.qvals();
-    assert_bits(&r_q, &pack.r);
-    assert_bits(&c_q, &pack.c);
-    assert_bits(&d_q, &pack.d);
-    let y = fwht128(&scale_cols(&s, &pack.d, O, N)).unwrap();
-    let reference = compose(&y, &pack.r, &pack.c, O, N).unwrap();
-    assert_bits(&plane.weight(), &reference);
+    assert_bits(&r_q, &r_l);
+    assert_bits(&c_q, &c_l);
+    assert_bits(&d_q, &d_l);
+    // The migrated forward against the pre-migration f64 body at the same Q32.32 state.
+    let reference = ref_forward(&plane.code_field(), &plane.r0, &plane.c0, &plane.d0, O, N);
+    assert_close(&plane.weight(), &reference, 8.0, "weight");
+    let u = ref_forward(&plane.code_field(), &plane.r0, &plane.c0, &plane.d0, O, N);
+    assert_close(&plane.weight_unquantized(), &u, 8.0, "weight_unquantized");
 }
 
 #[test]
@@ -250,11 +368,21 @@ fn backward_matches_finite_differences_of_the_unquantized_forward() {
     // A fixed quadratic field M; the loss gradient to W is W ⊙ M ⊙ M.
     let m: Vec<f64> = (0..O * N).map(|_| 0.5 + rng.unit()).collect();
     let w = plane.weight_unquantized();
-    let gvec: Vec<f64> = w.iter().zip(&m).map(|(a, b)| a * b * b).collect();
+    let gvec: Vec<i64> = w
+        .iter()
+        .zip(&m)
+        .map(|(a, b)| (from_grid(*a) * b * b * 4_294_967_296.0) as i64)
+        .collect();
     let (dpa, dpb, dpd) = plane.backward(&gvec).unwrap();
 
     let base = (plane.pa.clone(), plane.pb.clone(), plane.pd.clone());
-    let base_ref = (base.0.as_slice(), base.1.as_slice(), base.2.as_slice());
+    let to_f = |v: &[i64]| -> Vec<f64> { v.iter().map(|&x| from_grid(x)).collect() };
+    let base_f = (to_f(&base.0), to_f(&base.1), to_f(&base.2));
+    let base_ref = (
+        base_f.0.as_slice(),
+        base_f.1.as_slice(),
+        base_f.2.as_slice(),
+    );
     for &t in &pick(O * G, 6, &mut rng) {
         rel(central(&mut plane, base_ref, 0, t, &m), dpa[t], "pa", t);
     }
@@ -264,6 +392,42 @@ fn backward_matches_finite_differences_of_the_unquantized_forward() {
     for &t in &pick(N, 6, &mut rng) {
         rel(central(&mut plane, base_ref, 2, t, &m), dpd[t], "pd", t);
     }
+}
+
+#[test]
+fn backward_agrees_with_the_f64_oracle_within_the_derived_bound() {
+    let mut rng = Lcg::new(13);
+    let idx = indices(&mut rng, O);
+    let pack = build_pack(&mut rng, O);
+    let s = code_field(&idx, O, N);
+    let mut plane = CodedPlane::from_pack(
+        &s, &pack.lo, &pack.sp, &pack.r, &pack.c, &pack.d, None, O, N,
+    )
+    .unwrap();
+    // Nonzero offsets so the `exp` chain and the latent products are exercised.
+    let pa: Vec<f64> = (0..O * G).map(|_| 0.1 * (rng.unit() - 0.5)).collect();
+    let pb: Vec<f64> = (0..N).map(|_| 0.1 * (rng.unit() - 0.5)).collect();
+    let pd: Vec<f64> = (0..N).map(|_| 0.1 * (rng.unit() - 0.5)).collect();
+    plane.set_offsets(&pa, &pb, &pd).unwrap();
+    let gvec: Vec<i64> = (0..O * N)
+        .map(|_| (0.25 * (rng.unit() - 0.5) * 4_294_967_296.0) as i64)
+        .collect();
+    let (dpa, dpb, dpd) = plane.backward(&gvec).unwrap();
+    let (r_l, c_l, d_l) = plane.latents();
+    let (ra, rb, rd) = ref_backward(
+        &plane.code_field(),
+        &r_l,
+        &c_l,
+        &d_l,
+        &plane.lo,
+        &plane.sp,
+        &gvec,
+        O,
+        N,
+    );
+    assert_close(&dpa, &ra, 32.0, "dpa");
+    assert_close(&dpb, &rb, 32.0, "dpb");
+    assert_close(&dpd, &rd, 32.0, "dpd");
 }
 
 #[test]
@@ -294,9 +458,8 @@ fn encode_round_trips_indices_and_falls_back_to_s_fix() {
         plane.s_fix.is_some(),
         "an inexact field is carried in s_fix"
     );
-    let y = fwht128(&scale_cols(&s2, &pack.d, O, N)).unwrap();
-    let reference = compose(&y, &pack.r, &pack.c, O, N).unwrap();
-    assert_bits(&plane.weight(), &reference);
+    let reference = ref_forward(&plane.code_field(), &plane.r0, &plane.c0, &plane.d0, O, N);
+    assert_close(&plane.weight(), &reference, 8.0, "s_fix weight");
 }
 
 #[test]
@@ -323,18 +486,28 @@ fn rows_restrict_add_into_and_backward() {
     assert_eq!(pw.len(), o_p * N);
 
     let o_total = 4usize;
-    let mut w = vec![1.0_f64; o_total * N];
+    let mut w = vec![1_i64 << 32; o_total * N];
     plane.add_into(&mut w, &pw, o_total).unwrap();
     for j in 0..N {
-        assert_eq!(w[j], 1.0, "row 0 untouched");
-        assert_eq!(w[2 * N + j], 1.0, "row 2 untouched");
-        assert_eq!(w[N + j], 1.0 + pw[j], "row 1 receives plane row 0");
-        assert_eq!(w[3 * N + j], 1.0 + pw[N + j], "row 3 receives plane row 1");
+        assert_eq!(w[j], 1_i64 << 32, "row 0 untouched");
+        assert_eq!(w[2 * N + j], 1_i64 << 32, "row 2 untouched");
+        assert_eq!(
+            w[N + j],
+            (1_i64 << 32) + pw[j],
+            "row 1 receives plane row 0"
+        );
+        assert_eq!(
+            w[3 * N + j],
+            (1_i64 << 32) + pw[N + j],
+            "row 3 receives plane row 1"
+        );
     }
 
     // backward over the full 4-row gradient must gather rows 1 and 3 only.
-    let g_full: Vec<f64> = (0..o_total * N).map(|_| rng.unit() - 0.5).collect();
-    let mut g_part = vec![0.0_f64; o_p * N];
+    let g_full: Vec<i64> = (0..o_total * N)
+        .map(|_| ((rng.unit() - 0.5) * 4_294_967_296.0) as i64)
+        .collect();
+    let mut g_part = vec![0_i64; o_p * N];
     for j in 0..N {
         g_part[j] = g_full[N + j];
         g_part[N + j] = g_full[3 * N + j];
@@ -404,6 +577,14 @@ fn shape_and_finiteness_refusals() {
             .unwrap_err(),
         PlaneError::NotFinite
     );
+    // a value outside the Q32.32 grid is refused.
+    let mut c_wide = pack.c.clone();
+    c_wide[0] = 3.0e9;
+    assert_eq!(
+        CodedPlane::from_pack(&s, &pack.lo, &pack.sp, &pack.r, &c_wide, &pack.d, None, O, N)
+            .unwrap_err(),
+        PlaneError::Range
+    );
     // a non-finite offset is refused.
     let mut pa_bad = vec![0.0_f64; O * G];
     pa_bad[0] = f64::INFINITY;
@@ -421,13 +602,13 @@ fn shape_and_finiteness_refusals() {
     );
     // backward refuses a gradient that is not a whole number of rows.
     assert_eq!(
-        plane.backward(&[0.0_f64; O * N - 1]).unwrap_err(),
+        plane.backward(&[0_i64; O * N - 1]).unwrap_err(),
         PlaneError::Shape
     );
     // add_into refuses a receiving weight of the wrong shape.
     let pw = plane.weight();
     assert_eq!(
-        plane.add_into(&mut [0.0_f64; 2], &pw, O).unwrap_err(),
+        plane.add_into(&mut [0_i64; 2], &pw, O).unwrap_err(),
         PlaneError::Shape
     );
 
@@ -450,11 +631,11 @@ fn shape_and_finiteness_refusals() {
     .unwrap();
     let pwp = pp.weight();
     assert_eq!(
-        pp.add_into(&mut [0.0_f64; O_P * N], &pwp, O_P).unwrap_err(),
+        pp.add_into(&mut [0_i64; O_P * N], &pwp, O_P).unwrap_err(),
         PlaneError::RowOutOfRange
     );
     assert_eq!(
-        pp.backward(&[0.0_f64; O_P * N]).unwrap_err(),
+        pp.backward(&[0_i64; O_P * N]).unwrap_err(),
         PlaneError::RowOutOfRange
     );
 }
