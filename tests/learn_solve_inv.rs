@@ -32,7 +32,17 @@ use apeiron::engine::ONE;
 use apeiron::learn::fold::fit::gptq_e8::{feedback_u, GptqE8Error, UFac};
 use apeiron::learn::solve::chol::SolveError;
 use apeiron::learn::solve::inv::inv_factor_upper;
-use apeiron::learn::solve::q32::{fill_scale, from_grid, GRID_BOUND};
+use apeiron::learn::solve::q32::{fill_scale, from_grid, to_grid, GRID_BOUND};
+
+/// The Q32.32 word of `x`: `round(x·2³²)`. `O(1)`.
+fn word(x: f64) -> i64 {
+    to_grid(x, GRID_BOUND).expect("value inside the Q32.32 grid range")
+}
+
+/// The words of a real buffer, the boundary conversion the callers of the flipped API apply. `O(len)`.
+fn qw(x: &[f64]) -> Vec<i64> {
+    x.iter().map(|&v| word(v)).collect()
+}
 
 /// `2^32`, the Q32.32 scale factor.
 const SCALE: f64 = 4_294_967_296.0;
@@ -371,25 +381,18 @@ fn u_is_upper_triangular_with_a_positive_diagonal() {
 fn refusals_are_typed() {
     let (n, damp) = (64usize, 0.01);
     let h = spd_wide(0x1234_5678, n);
-    assert_eq!(feedback_u(&h, 0, damp), Err(GptqE8Error::ZeroDim));
-    assert_eq!(
-        feedback_u(&h[1..], n, damp),
-        Err(GptqE8Error::ShapeMismatch)
-    );
-    let mut nan = h.clone();
-    nan[3] = f64::NAN;
-    assert_eq!(feedback_u(&nan, n, damp), Err(GptqE8Error::NonFinite));
-    let mut inf = h.clone();
-    inf[n + 1] = f64::INFINITY;
-    assert_eq!(feedback_u(&inf, n, damp), Err(GptqE8Error::NonFinite));
+    let (hq, dq) = (qw(&h), word(damp));
+    assert_eq!(feedback_u(&hq, 0, dq), Err(GptqE8Error::ZeroDim));
+    assert_eq!(feedback_u(&hq[1..], n, dq), Err(GptqE8Error::ShapeMismatch));
+    // A non-finite Hessian has no Q32.32 word, so `NonFinite` is unreachable from `&[i64]`.
     // Every diagonal `-1`: `mean(diag) = -1`, so damping leaves a negative diagonal and the
     // equilibration refuses it.
-    let mut neg = vec![0.0f64; n * n];
+    let mut neg = vec![0i64; n * n];
     for i in 0..n {
-        neg[i * n + i] = -1.0;
+        neg[i * n + i] = -word(1.0);
     }
     assert_eq!(
-        feedback_u(&neg, n, damp),
+        feedback_u(&neg, n, dq),
         Err(GptqE8Error::NotPositiveDefinite)
     );
     // The primitive's own refusals.
@@ -417,7 +420,7 @@ fn feedback_u_agrees_with_the_old_f64_formula() {
     for &n in &[8usize, 64, 130] {
         let h = spd_wide(0xFEED_0000 ^ n as u64, n);
         for &damp in &[0.01f64, 0.0] {
-            let u = ufac_to_f64(&feedback_u(&h, n, damp).expect("SPD factor"));
+            let u = ufac_to_f64(&feedback_u(&qw(&h), n, word(damp)).expect("SPD factor"));
             let r = ref_feedback_u(&h, n, damp);
             let mut diff = 0.0f64;
             let mut mag = 0.0f64;
@@ -447,7 +450,7 @@ fn feedback_u_agrees_with_the_old_f64_formula() {
     for i in 1..n {
         h[i * n + i] = 1.0;
     }
-    let u = ufac_to_f64(&feedback_u(&h, n, 0.0).expect("SPD factor"));
+    let u = ufac_to_f64(&feedback_u(&qw(&h), n, 0).expect("SPD factor"));
     let r = ref_feedback_u(&h, n, 0.0);
     for i in 0..n {
         for j in 0..n {
@@ -461,7 +464,7 @@ fn feedback_u_agrees_with_the_old_f64_formula() {
     let mut bad = h.clone();
     bad[n + 1] = -1.0;
     assert_eq!(
-        feedback_u(&bad, n, 0.0),
+        feedback_u(&qw(&bad), n, 0),
         Err(GptqE8Error::NotPositiveDefinite)
     );
 }
@@ -576,7 +579,7 @@ fn timing_feedback_u() {
     let mut ts: Vec<f64> = Vec::new();
     for _ in 0..3 {
         let t0 = std::time::Instant::now();
-        let u = feedback_u(&h, n, 0.01).expect("SPD factor");
+        let u = feedback_u(&qw(&h), n, word(0.01)).expect("SPD factor");
         let dt = t0.elapsed().as_secs_f64();
         std::hint::black_box(u.hat[0]);
         ts.push(dt);

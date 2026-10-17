@@ -1,8 +1,8 @@
 //! The integer-carrier boundary of [`super::gptq_e8`]: the feedback factor [`UFac`], the act order
 //! [`block_order`], the group scale [`group_scale_int`], the triangular solve [`tri_upper_solve`],
-//! the whitened scale projection, the inter-group feedback, and the `f64` → integer conversions of
-//! the Hessian ([`h_words`]) and of the weight ([`w_to_rows`]). Everything downstream is exact
-//! integer arithmetic, damping included; `f64` remains only at the input boundary and [`fx_to_f64`].
+//! the whitened scale projection, the inter-group feedback, and the Q32.32 renormalisations of the
+//! Hessian ([`h_words`]) and of the weight ([`w_to_rows`]). Every pass is exact integer arithmetic,
+//! damping included; the boundary quantities are Q32.32 `i64` words, not reals.
 //!
 //! [`h_words`] and the whole-weight pass [`w_to_rows`] are matrix-sized and run on the engine pool;
 //! every other pass is a serial integer loop. The test module exercises the full-body passes
@@ -14,33 +14,18 @@
     clippy::needless_range_loop,
     clippy::cast_sign_loss,
     clippy::cast_possible_wrap,
-    clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
     reason = "the conversions index row-major [o, n] and [n, n] buffers and move between the \
-              Q32.32 words, their binary exponents and the f64 boundary views"
+              Q32.32 words and their binary exponents"
 )]
 
-use super::gptq_e8::{GptqE8Error, BLOCK, E8_SCALE_Q32, GROUP};
+use super::gptq_e8::{GptqE8Error, BLOCK, E8_SCALE, GROUP};
 use crate::engine::chart::pool::{for_chunks, for_chunks2, width_global};
 use crate::engine::chart::task::{Task1, Task2};
 use crate::learn::solve::chol::SolveError;
 use crate::learn::solve::inv::inv_factor_upper;
 use crate::learn::solve::q32::{ilog2_pos, round_q32_even, rshift_rne, Fx, Q32Error, SpdQ};
 use crate::numeric::fixed_rsqrt::isqrt;
-
-/// The exact signed-integer decomposition `x = m · 2^e` of a finite nonzero `f64`: `m` the 53-bit
-/// significand (with sign), `e` the binary exponent. `O(1)`.
-pub(super) fn f64_int_exp(x: f64) -> (i128, i32) {
-    let bits = x.to_bits();
-    let sign: i128 = if bits >> 63 == 0 { 1 } else { -1 };
-    let efield = ((bits >> 52) & 0x7ff) as i32;
-    let frac = i128::from(bits & 0x000f_ffff_ffff_ffff);
-    if efield == 0 {
-        (sign * frac, -1074)
-    } else {
-        (sign * ((1_i128 << 52) | frac), efield - 1023 - 52)
-    }
-}
 
 /// `|v|` as a `u128` (`i128::MIN` included).
 pub(super) fn mag_u128(v: i128) -> u128 {
@@ -56,119 +41,84 @@ pub(super) fn narrow_q(v: i128) -> Result<i64, GptqE8Error> {
     }
 }
 
-/// The even global exponent `g` that scales a positive magnitude `max_abs` into `[2^29, 2^31)`:
-/// `floor(log2 max_abs) − g ∈ {29, 30}` by that floor-log's parity. Even `g` keeps the half-exponent
-/// `g/2` an integer for the [`SpdQ`] fold; `0` for a zero or non-finite magnitude. `O(1)`.
-pub(super) fn even_g(max_abs: f64) -> i32 {
-    if !max_abs.is_finite() || max_abs <= 0.0 {
+/// The even global exponent `g` that scales a positive Q32.32 magnitude `max_abs` (a word) into
+/// `[2^29, 2^31)`: `floor(log2 (max_abs·2⁻³²)) − g ∈ {29, 30}` by that floor-log's parity. Even `g`
+/// keeps the half-exponent `g/2` an integer for the [`SpdQ`] fold; `0` for a zero magnitude. `O(1)`.
+pub(super) fn even_g(max_abs: u64) -> i32 {
+    if max_abs == 0 {
         return 0;
     }
-    let (m, e) = f64_int_exp(max_abs);
-    match ilog2_pos(mag_u128(m)) {
-        Some(b) => {
-            let l = e + b.cast_signed(); // floor(log2 max_abs)
-            (l - 29) & !1
-        }
-        None => 0,
-    }
+    let l = blen(i128::from(max_abs)) - 33; // floor(log2 (max_abs·2⁻³²))
+    (l - 29) & !1
 }
 
-/// The Q32.32 word `RNE(x · 2^k)` of a finite `x`, with one round-to-nearest (ties to even) on the
-/// significand: the exact Q64.64 integer via [`round_q32_even`] when `e + k ≥ 0`, else
-/// [`rshift_rne`].
-///
-/// # Errors
-///
-/// [`GptqE8Error::NonFinite`] on a NaN or an infinite, [`GptqE8Error::Overflow`] if the rounded word
-/// leaves `i64`.
-///
-/// # Complexity
-///
-/// `O(1)`.
-pub(super) fn rne_scaled_i64(x: f64, k: i32) -> Result<i64, GptqE8Error> {
-    if x == 0.0 {
-        return Ok(0);
-    }
-    if !x.is_finite() {
-        return Err(GptqE8Error::NonFinite);
-    }
-    let (m, e) = f64_int_exp(x);
-    let sh = e + k;
-    if sh >= 0 {
-        if sh > 62 {
-            return Err(GptqE8Error::Overflow);
-        }
-        let scale = 1_i128 << (sh + 32);
-        let vv = m.checked_mul(scale).ok_or(GptqE8Error::Overflow)?;
-        round_q32_even(vv).map_err(|_| GptqE8Error::Overflow)
-    } else {
-        match rshift_rne(m, (-sh).cast_unsigned()) {
-            Some(q) => narrow_q(q),
-            None => Err(GptqE8Error::Overflow),
-        }
-    }
-}
-
-/// Pool task context for [`to_words`]: the source, the scale exponent and the entries per task.
+/// Pool task context for [`to_words`]: the source words, the shift and the entries per task.
 struct WordsTask<'a> {
-    x: &'a [f64],
-    k: i32,
+    x: &'a [i64],
+    shift: i64,
     per: usize,
 }
 
 impl Task1<i64, GptqE8Error> for WordsTask<'_> {
-    /// The rounding of [`to_words`] over this task's entries.
+    /// The renormalisation of [`to_words`] over this task's entries.
     fn run(&self, t: usize, out: &mut [i64]) -> Result<(), GptqE8Error> {
         let lo = t * self.per;
         for (j, w) in out.iter_mut().enumerate() {
-            *w = rne_scaled_i64(self.x[lo + j], self.k)?;
+            *w = narrow_q(round_at(i128::from(self.x[lo + j]), self.shift)?)?;
         }
         Ok(())
     }
 }
 
-/// The Q32.32 words of `x · 2^-g` through [`rne_scaled_i64`], split across the pool by entry range;
-/// each entry reads only itself.
+/// The Q32.32 words `RNE(w · 2^-g)` of the words `x`, split across the pool by entry range; each
+/// entry reads only itself.
 ///
 /// # Errors
 ///
-/// [`GptqE8Error::NonFinite`] or [`GptqE8Error::Overflow`] from [`rne_scaled_i64`].
+/// [`GptqE8Error::Overflow`] from [`round_at`]/[`narrow_q`].
 ///
 /// # Complexity
 ///
 /// Time `O(len)`: `len` word ops per call, two calls per fit ([`h_words`] from [`feedback_u`] and
 /// from [`block_order`]); space `O(len)`.
-pub(super) fn to_words(x: &[f64], g: i32) -> Result<Vec<i64>, GptqE8Error> {
+pub(super) fn to_words(x: &[i64], g: i32) -> Result<Vec<i64>, GptqE8Error> {
     let mut out = vec![0i64; x.len()];
     let per = x.len().div_ceil(width_global()).max(1);
-    for_chunks(&mut out, per, &WordsTask { x, k: 32 - g, per })?;
+    let shift = -i64::from(g);
+    for_chunks(&mut out, per, &WordsTask { x, shift, per })?;
     Ok(out)
 }
 
 /// The Q32.32 words of the row-major `[n, n]` `h` at the even global exponent [`even_g`] of its
 /// largest entry, and that exponent: `h[i][j] = words[i·n + j] · 2^(g − 32)` up to the one rounding
-/// of each entry. The **only** conversion of the Hessian.
+/// of each entry to the word grid. The **only** renormalisation of the Hessian.
 ///
 /// # Errors
 ///
-/// [`GptqE8Error::NonFinite`] on a non-finite entry, [`GptqE8Error::Overflow`] from [`to_words`].
+/// [`GptqE8Error::Overflow`] from [`to_words`].
 ///
 /// # Complexity
 ///
 /// Time `O(len)` (one maximum scan, one pooled conversion pass), one call per fit; space `O(len)`.
-pub(super) fn h_words(h: &[f64]) -> Result<(Vec<i64>, i32), GptqE8Error> {
-    let mut max_abs = 0.0f64;
+pub(super) fn h_words(h: &[i64]) -> Result<(Vec<i64>, i32), GptqE8Error> {
+    let mut max_abs = 0u64;
     for &x in h {
-        if !x.is_finite() {
-            return Err(GptqE8Error::NonFinite);
-        }
-        let a = x.abs();
-        if a > max_abs {
-            max_abs = a;
-        }
+        max_abs = max_abs.max(x.unsigned_abs());
     }
     let g = even_g(max_abs);
     Ok((to_words(h, g)?, g))
+}
+
+/// `2^k` as a Q32.32 word: an exact left shift for `0 ≤ k ≤ 62`, `0` for `k < 0` (below the word
+/// grid), [`GptqE8Error::Overflow`] above `62`. `O(1)`.
+fn word_pow2(k: i32) -> Result<i64, GptqE8Error> {
+    if k < 0 {
+        Ok(0)
+    } else if k > 62 {
+        Err(GptqE8Error::Overflow)
+    } else {
+        Ok(1_i64 << k)
+    }
 }
 
 /// [`Q32Error`] as a [`GptqE8Error`]: an asymmetric input is reported as
@@ -210,23 +160,24 @@ pub struct UFac {
 /// The inverse feedback factor `U` (`UᵀU = H⁻¹`) of the damped Hessian
 /// `H = h + damp·mean(diag(h))·I`, a zero damped diagonal entry replaced by `1.0`.
 ///
-/// The damping is integer: [`h_words`] converts `h` once, the diagonal mean is an exact `i128` word
-/// sum divided once by `n`, and `damp`'s product with it is rounded once by [`round_q32_even`]. The
-/// damped `H` is mirrored from its lower triangle and equilibrated by [`SpdQ::from_q32`];
-/// [`inv_factor_upper`] returns `Uhat`, and with `d = spdq.d + g/2`, `U = Uhat·diag(2^-d)`.
+/// `h` is the row-major `[n, n]` Q32.32 Hessian and `damp` its Q32.32 damping coefficient. The
+/// damping is integer: [`h_words`] renormalises `h` once at its even global exponent `g`, the
+/// diagonal mean is an exact `i128` word sum divided once by `n`, and `damp`'s product with it is
+/// rounded once by [`round_q32_even`]. The damped `H` is mirrored from its lower triangle and
+/// equilibrated by [`SpdQ::from_q32`]; [`inv_factor_upper`] returns `Uhat`, and with
+/// `d = spdq.d + g/2`, `U = Uhat·diag(2^-d)`.
 ///
 /// # Errors
 ///
 /// [`GptqE8Error::ShapeMismatch`] if `h.len() != n·n`; [`GptqE8Error::ZeroDim`] if `n == 0`;
-/// [`GptqE8Error::NonFinite`] on a non-finite `h` or `damp`; [`GptqE8Error::NotPositiveDefinite`]
-/// on a non-positive damped diagonal or `Cholesky` pivot; [`GptqE8Error::Overflow`] on a checked
-/// `i128`/`i64` operation or a `damp` outside `|damp| < 2^31`.
+/// [`GptqE8Error::NotPositiveDefinite`] on a non-positive damped diagonal or `Cholesky` pivot;
+/// [`GptqE8Error::Overflow`] on a checked `i128`/`i64` operation.
 ///
 /// # Complexity
 ///
 /// Temporal `O(n³)` `i128` multiply-adds (factor `n³/3` plus inverse `n³/6`, damping and mirror
 /// `O(n²)`); spatial `O(n²)` words.
-pub fn feedback_u(h: &[f64], n: usize, damp: f64) -> Result<UFac, GptqE8Error> {
+pub fn feedback_u(h: &[i64], n: usize, damp: i64) -> Result<UFac, GptqE8Error> {
     if n == 0 {
         return Err(GptqE8Error::ZeroDim);
     }
@@ -242,10 +193,11 @@ pub fn feedback_u(h: &[f64], n: usize, damp: f64) -> Result<UFac, GptqE8Error> {
     }
     let nn = i128::try_from(n).map_err(|_| GptqE8Error::Overflow)?;
     let mean = div_rne_i128(sum, nn).ok_or(GptqE8Error::Overflow)?;
-    let damp_w = i128::from(rne_scaled_i64(damp, 32)?);
+    let damp_w = i128::from(damp);
     let dlt =
         round_q32_even(mean.checked_mul(damp_w).ok_or(GptqE8Error::Overflow)?).map_err(map_q32)?;
-    let one = rne_scaled_i64(1.0, 32 - g)?;
+    // `1.0` at the same `2^(g − 32)` scale as the renormalised words.
+    let one = word_pow2(32 - g)?;
     let mut sym = vec![0i64; n * n];
     for i in 0..n {
         for j in 0..n {
@@ -331,21 +283,9 @@ pub(super) fn tri_upper_solve(
     Ok(())
 }
 
-/// The exact power of two `2^e` as an `f64` (the exponent field), or `0.0`/`INFINITY` outside the
-/// finite range.
-pub(super) fn pow2i(e: i32) -> f64 {
-    if (-1022..=1023).contains(&e) {
-        2.0f64.powi(e)
-    } else if e < -1022 {
-        0.0
-    } else {
-        f64::INFINITY
-    }
-}
-
-/// Pool task context for [`w_to_rows`]: the `f64` weight, the row length and the rows per task.
+/// Pool task context for [`w_to_rows`]: the word weight, the row length and the rows per task.
 struct RowsTask<'a> {
-    w: &'a [f64],
+    w: &'a [i64],
     n: usize,
     per: usize,
 }
@@ -357,48 +297,41 @@ impl Task2<i64, i32, GptqE8Error> for RowsTask<'_> {
         for (r, er_slot) in e_row.iter_mut().enumerate() {
             let r0 = t * self.per + r;
             let row = &self.w[r0 * n..(r0 + 1) * n];
-            let mut max_abs = 0.0f64;
-            for &x in row {
-                if !x.is_finite() {
-                    return Err(GptqE8Error::NonFinite);
-                }
-                let a = x.abs();
-                if a > max_abs {
-                    max_abs = a;
-                }
+            let mut max_abs = 0u64;
+            for &v in row {
+                max_abs = max_abs.max(v.unsigned_abs());
             }
-            if max_abs == 0.0 {
+            if max_abs == 0 {
                 continue;
             }
-            let (m, e) = f64_int_exp(max_abs);
-            let bl = match ilog2_pos(mag_u128(m)) {
-                Some(b) => b + 1,
-                None => return Err(GptqE8Error::Overflow),
-            };
-            let l = e + bl.cast_signed() - 1;
-            let er = l - 34;
+            // `er = floor(log2 max|x|) − 34`; on the word grid `x = word·2⁻³²`, so the mantissa is
+            // `RNE(word·2^(35 − lw))` with `lw = ⌈log2(|word|+1)⌉`.
+            let lw = blen(i128::from(max_abs));
+            let er = lw - 67;
             *er_slot = er;
+            let shift = i64::from(35 - lw);
             for j in 0..n {
-                mant[r * n + j] = rne_scaled_i64(row[j], -er)?;
+                mant[r * n + j] = narrow_q(round_at(i128::from(row[j]), shift)?)?;
             }
         }
         Ok(())
     }
 }
 
-/// The per-row block floating point of the weight `w` (row-major `[o, n]`): mantissas `mant` and
-/// per-row exponents `e_row` with `max |mant[r]| ∈ [2^34, 2^35)` (all-zero row: zeros, `e = 0`), so
-/// `w[r][j] = mant[r·n+j]·2^e_row[r]` up to the rounding. The **only** conversion of the weight.
+/// The per-row block floating point of the word weight `w` (row-major `[o, n]`): mantissas `mant`
+/// and per-row exponents `e_row` with `max |mant[r]| ∈ [2^34, 2^35)` (all-zero row: zeros, `e = 0`),
+/// so `w[r][j] = mant[r·n+j]·2^e_row[r]` up to the rounding. The **only** renormalisation of the
+/// weight; one integer round-to-nearest per entry.
 ///
 /// # Errors
 ///
-/// [`GptqE8Error::NonFinite`], or [`GptqE8Error::Overflow`] if a mantissa leaves `i64`.
+/// [`GptqE8Error::Overflow`] if a mantissa leaves `i64`.
 ///
 /// # Complexity
 ///
 /// Time `O(o·n)`: `o·n` word ops per call, one call per fit; space `O(o·n)` plus `O(o)`.
 pub(super) fn w_to_rows(
-    w: &[f64],
+    w: &[i64],
     o: usize,
     n: usize,
 ) -> Result<(Vec<i64>, Vec<i32>), GptqE8Error> {
@@ -785,22 +718,36 @@ pub(super) fn div_shift_rne(v: i128, s: i64, d: i128) -> Result<i128, GptqE8Erro
     q.ok_or(GptqE8Error::Overflow)
 }
 
-/// `x + y` as an [`Fx`], aligned at the finer exponent with one [`Fx::from_i128`]. `O(1)`.
-fn fx_add(x: &Fx, y: &Fx) -> Result<Fx, GptqE8Error> {
+/// `x ± y` as an [`Fx`], aligned at the finer exponent with one [`Fx::from_i128`]. When the
+/// alignment shift of the coarser operand leaves `i128`, that operand dominates: the overflowing
+/// shift is at least `66` bits (the mantissas are `< 2^62`), so the finer operand is below
+/// `2^-65` of it, well under one unit in the last place of the 62-bit result, and the coarser
+/// operand is returned unchanged. `O(1)`.
+fn fx_combine(x: &Fx, y: &Fx, sub: bool) -> Result<Fx, GptqE8Error> {
     let e = x.e.min(y.e);
-    let a = shift_left_i128(i128::from(x.m), x.e - e).ok_or(GptqE8Error::Overflow)?;
-    let b = shift_left_i128(i128::from(y.m), y.e - e).ok_or(GptqE8Error::Overflow)?;
-    Fx::from_i128(a.checked_add(b).ok_or(GptqE8Error::Overflow)?, e)
-        .map_err(|_| GptqE8Error::Overflow)
+    let a = shift_left_i128(i128::from(x.m), x.e - e);
+    let b = shift_left_i128(i128::from(y.m), y.e - e);
+    let (a, b) = match (a, b) {
+        (Some(a), Some(b)) => (a, b),
+        (None, _) => return Ok(x.clone()),
+        (_, None) => return Ok(y.clone()),
+    };
+    let s = if sub {
+        a.checked_sub(b)
+    } else {
+        a.checked_add(b)
+    };
+    Fx::from_i128(s.ok_or(GptqE8Error::Overflow)?, e).map_err(|_| GptqE8Error::Overflow)
 }
 
-/// `x − y` as an [`Fx`], aligned at the finer exponent with one [`Fx::from_i128`]. `O(1)`.
+/// `x + y` as an [`Fx`]; see [`fx_combine`]. `O(1)`.
+fn fx_add(x: &Fx, y: &Fx) -> Result<Fx, GptqE8Error> {
+    fx_combine(x, y, false)
+}
+
+/// `x − y` as an [`Fx`]; see [`fx_combine`]. `O(1)`.
 fn fx_sub(x: &Fx, y: &Fx) -> Result<Fx, GptqE8Error> {
-    let e = x.e.min(y.e);
-    let a = shift_left_i128(i128::from(x.m), x.e - e).ok_or(GptqE8Error::Overflow)?;
-    let b = shift_left_i128(i128::from(y.m), y.e - e).ok_or(GptqE8Error::Overflow)?;
-    Fx::from_i128(a.checked_sub(b).ok_or(GptqE8Error::Overflow)?, e)
-        .map_err(|_| GptqE8Error::Overflow)
+    fx_combine(x, y, true)
 }
 
 /// `x < y` exactly for two positive [`Fx`], compared at the finer exponent with the magnitude class
@@ -861,29 +808,18 @@ pub(super) fn sum_sq_at(e: &[Fx], e0: i32) -> Result<i128, GptqE8Error> {
     Ok(acc)
 }
 
-/// The real value of an [`Fx`] as an `f64`: the significand rounds once to 53 bits (RNE) and the
-/// power of two is exact.
-pub(super) fn fx_to_f64(x: &Fx) -> f64 {
-    if x.m == 0 {
-        return 0.0;
-    }
-    let bits = match ilog2_pos(mag_u128(i128::from(x.m))) {
-        Some(b) => b + 1,
-        None => return 0.0,
-    };
-    let s = bits.saturating_sub(53);
-    let (m, e) = if s == 0 {
-        (x.m, x.e)
-    } else {
-        match rshift_rne(i128::from(x.m), s) {
-            Some(v) => (v as i64, x.e + s.cast_signed()),
-            None => (x.m, x.e),
-        }
-    };
-    // `|m| ≤ 2^53` here, so `m as f64` is exact and the product is exact (the exponent is in range
-    // for every scale this kernel produces; an out-of-range one is the `pow2i` 0/INFINITY edge).
-    debug_assert!(m.unsigned_abs() <= 1u64 << 53);
-    m as f64 * pow2i(e)
+/// `RNE(x·2³²)`: the Q32.32 word of the [`Fx`] value `x`, one round-to-nearest (ties to even) on
+/// the significand.
+///
+/// # Errors
+///
+/// [`GptqE8Error::Overflow`] if the rounded word leaves `i64`.
+///
+/// # Complexity
+///
+/// `O(1)`.
+pub(super) fn fx_to_word(x: &Fx) -> Result<i64, GptqE8Error> {
+    narrow_q(round_at(i128::from(x.m), i64::from(x.e) + 32)?)
 }
 
 /// `x < 2^k` for a positive-mantissa [`Fx`] (used by the group scale's lower clamp).
@@ -907,7 +843,7 @@ pub(super) const A_CLAMP: Fx = Fx { m: 1, e: -40 };
 
 /// The integer group scale `a = 0.828·w_rms` of the working row: `prec_j = 2^(2 d_j)/Uhat_jj²` are
 /// the inverse-variance weights, `w_rms² = Σ_j m_j²·prec_j / Σ_j prec_j` is an `i128` accumulation
-/// aligned to `2 d_j`, `sqrt` by [`isqrt`] and the `0.828` by [`E8_SCALE_Q32`]; the result's
+/// aligned to `2 d_j`, `sqrt` by [`isqrt`] and the `0.828` by [`E8_SCALE`]; the result's
 /// exponent carries `e_row`.
 ///
 /// # Errors
@@ -977,7 +913,7 @@ pub(super) fn group_scale_int(
         return Ok(A_CLAMP);
     }
     let s = isqrt(q);
-    let fxm = i128::from(E8_SCALE_Q32) * s;
+    let fxm = i128::from(E8_SCALE) * s;
     let fxe = e_row - shift2 / 2 - 32;
     let a = Fx::from_i128(fxm, fxe).map_err(|_| GptqE8Error::Overflow)?;
     if fx_below_pow2(&a, -40) {
@@ -993,12 +929,12 @@ pub(super) fn group_scale_int(
 ///
 /// # Errors
 ///
-/// [`GptqE8Error::NonFinite`] or [`GptqE8Error::Overflow`] from [`h_words`].
+/// [`GptqE8Error::Overflow`] from [`h_words`].
 ///
 /// # Complexity
 ///
 /// `O(n² + nb·log nb + ng·log ng)`; space `O(n² + nb + ng)`.
-pub(super) fn block_order(h: &[f64], n: usize) -> Result<(Vec<usize>, Vec<usize>), GptqE8Error> {
+pub(super) fn block_order(h: &[i64], n: usize) -> Result<(Vec<usize>, Vec<usize>), GptqE8Error> {
     let nb = n / BLOCK;
     let per_group = GROUP / BLOCK;
     let ng = n.div_ceil(GROUP);
@@ -1038,14 +974,15 @@ mod tests {
     #![allow(
         clippy::cast_possible_wrap,
         clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
         clippy::float_cmp,
-        reason = "the tests compare exact grid images and the LCG maps a shifted `u64` state to the \
-                  `i64` row words"
+        reason = "the tests compare exact grid images and the LCG maps a shifted `u64` state to an \
+                  `f64` in `[-1, 1)` and to the `i64` row words"
     )]
 
     use super::super::gptq_e8::{beam_pass, second_pass_wins, select_k, BLOCK};
     use super::{
-        feedback_u, fx_to_f64, group_scale_int, inter_group_feedback, tri_upper_solve, w_to_rows,
+        feedback_u, fx_to_word, group_scale_int, inter_group_feedback, tri_upper_solve, w_to_rows,
         Fx, UFac,
     };
 
@@ -1059,6 +996,13 @@ mod tests {
                     .wrapping_add(1_442_695_040_888_963_407);
                 (state >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0
             })
+            .collect()
+    }
+
+    /// `x` on the Q32.32 grid: `round(x·2³²)`, the words the shipped boundary takes.
+    fn words(x: &[f64]) -> Vec<i64> {
+        x.iter()
+            .map(|&v| (v * 4_294_967_296.0).round() as i64)
             .collect()
     }
 
@@ -1079,9 +1023,9 @@ mod tests {
         for i in 0..n {
             h[i * n + i] = 1.0;
         }
-        let ufac = feedback_u(&h, n, 0.01).expect("SPD factor");
+        let ufac = feedback_u(&words(&h), n, words(&[0.01])[0]).expect("SPD factor");
         let w = lcg(o * n, 0x9E37_79B9_7F4A_7C15);
-        let (mant, e_row) = w_to_rows(&w, o, n).expect("rows");
+        let (mant, e_row) = w_to_rows(&words(&w), o, n).expect("rows");
         let a: Vec<Fx> = (0..o)
             .map(|r| group_scale_int(&mant[r * n..(r + 1) * n], e_row[r], &ufac, 0).expect("scale"))
             .collect();
@@ -1141,7 +1085,7 @@ mod tests {
         }
         tri_upper_solve(&u, n, 0, n, &mut e).expect("solve");
         for (j, xj) in x.iter().enumerate() {
-            assert_eq!(fx_to_f64(&e[j]), *xj as f64, "x[{j}]");
+            assert_eq!(fx_to_word(&e[j]).expect("word"), *xj << 32, "x[{j}]");
         }
     }
 
@@ -1165,7 +1109,7 @@ mod tests {
                 h[j * n + i] = 1.0;
             }
         }
-        let ufac = feedback_u(&h, n, 0.01).expect("SPD factor");
+        let ufac = feedback_u(&words(&h), n, words(&[0.01])[0]).expect("SPD factor");
         let wm: Vec<i64> = lcg(o * n, 0x1234_5678_9ABC_DEF0)
             .iter()
             .map(|x| (x * 1_000_000_000.0) as i64)

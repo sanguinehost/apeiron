@@ -257,7 +257,9 @@ fn second_plane_never_worsens_j_on_k() {
 
     let f = fit(TensorKind::K, O, N, &ws, &hm, &p);
     let hl = metric(&hm, N, rg_q(N)).expect("metric");
-    let wp1 = fold_fit(&ws, &hm, O, N, None, &cfg(N)).expect("Wp1 fit").wp;
+    let wp1 = uw(&fold_fit(&qw(&ws), &qw(&hm), O, N, None, &cfg(N))
+        .expect("Wp1 fit")
+        .wp);
     let j_two = j_obj(&ws, &f.wp, &hl);
     let j_one = j_obj(&ws, &wp1, &hl);
     assert!(
@@ -278,7 +280,9 @@ fn corrector_acceptance_predicate_and_bits() {
         let f = fit(kind, O, N, &ws, &hm, &p);
 
         // Recompute the pre-corrector fit and the corrector independently.
-        let pre = fold_fit(&ws, &hm, O, N, None, &cfg(N)).expect("pre fit").wp;
+        let pre = uw(&fold_fit(&qw(&ws), &qw(&hm), O, N, None, &cfg(N))
+            .expect("pre fit")
+            .wp);
         let delta: Vec<f64> = ws.iter().zip(&pre).map(|(a, b)| a - b).collect();
         let corr = lowrank_corrector(&delta, &hl, O, N, rk, Mode::U8, true).expect("corrector");
         let j_new = j_obj(&ws, &add(&pre, &corr.corr), &hl);
@@ -326,7 +330,9 @@ fn down_corrector_rejected_still_counts_bits() {
     let f = fit_tensor(TensorKind::Down, &ws, &hm, O, N, None, &p, None).expect("fit");
     let applied = f.planes.iter().any(|pl| pl.dense.is_some());
 
-    let pre = fold_fit(&ws, &hm, O, N, None, &cfg(N)).expect("pre").wp;
+    let pre = uw(&fold_fit(&qw(&ws), &qw(&hm), O, N, None, &cfg(N))
+        .expect("pre")
+        .wp);
     let delta: Vec<f64> = ws.iter().zip(&pre).map(|(a, b)| a - b).collect();
     let corr = lowrank_corrector(&delta, &hl, O, N, 1, Mode::U8, true).expect("corrector");
     let j_new = j_obj(&ws, &add(&pre, &corr.corr), &hl);

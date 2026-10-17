@@ -286,9 +286,20 @@ fn t_a_transforms_metric_gptq() {
         gptq_flops(o, n),
         3,
         || {
-            gptq_e8(&ws_rot, &h_gram, O, N, fx.damp, true, true, 4)
+            from_grid(
+                gptq_e8(
+                    &q(&ws_rot),
+                    &q(&h_gram),
+                    O,
+                    N,
+                    q(&[fx.damp])[0],
+                    true,
+                    true,
+                    4,
+                )
                 .expect("gptq")
-                .scale[0]
+                .scale[0],
+            )
         },
     );
 }
@@ -361,11 +372,21 @@ fn t_d_corrector() {
     let hl = metric(&fx.h, N, fx.rg_q).expect("metric");
     let ws_rot = fwht128(&fx.ws).expect("fwht");
     let h_gram = unq(&had_gram(&q(&fx.h), N).expect("had_gram"));
-    let qe8 = gptq_e8(&ws_rot, &h_gram, O, N, fx.damp, true, true, 4).expect("gptq");
+    let qe8 = gptq_e8(
+        &q(&ws_rot),
+        &q(&h_gram),
+        O,
+        N,
+        q(&[fx.damp])[0],
+        true,
+        true,
+        4,
+    )
+    .expect("gptq");
     // The gptq candidate weight wq0 = compose(fwht128(s_rot), scale, ones); delta = ws − wq0.
-    let wq0_s = fwht128(&qe8.s).expect("fwht");
+    let wq0_s = fwht128(&unq(&qe8.s)).expect("fwht");
     let ones_c = vec![1.0_f64; N];
-    let wq0 = unq(&compose(&q(&wq0_s), &q(&qe8.scale), &q(&ones_c), O, N).expect("compose"));
+    let wq0 = unq(&compose(&q(&wq0_s), &q(&unq(&qe8.scale)), &q(&ones_c), O, N).expect("compose"));
     let delta: Vec<f64> = fx.ws.iter().zip(&wq0).map(|(a, b)| a - b).collect();
     drop(wq0);
     let (o, n) = (O as f64, N as f64);
@@ -387,10 +408,20 @@ fn t_e_eigh() {
     let hl = metric(&fx.h, N, fx.rg_q).expect("metric");
     let ws_rot = fwht128(&fx.ws).expect("fwht");
     let h_gram = unq(&had_gram(&q(&fx.h), N).expect("had_gram"));
-    let qe8 = gptq_e8(&ws_rot, &h_gram, O, N, fx.damp, true, true, 4).expect("gptq");
-    let wq0_s = fwht128(&qe8.s).expect("fwht");
+    let qe8 = gptq_e8(
+        &q(&ws_rot),
+        &q(&h_gram),
+        O,
+        N,
+        q(&[fx.damp])[0],
+        true,
+        true,
+        4,
+    )
+    .expect("gptq");
+    let wq0_s = fwht128(&unq(&qe8.s)).expect("fwht");
     let ones_c = vec![1.0_f64; N];
-    let wq0 = unq(&compose(&q(&wq0_s), &q(&qe8.scale), &q(&ones_c), O, N).expect("compose"));
+    let wq0 = unq(&compose(&q(&wq0_s), &q(&unq(&qe8.scale)), &q(&ones_c), O, N).expect("compose"));
     // w1 = ΔW·Hl (o×n), m = w1·ΔWᵀ (o×o), exactly as `eigen_parts` builds it.
     let mut w1 = vec![0.0_f64; O * N];
     for i in 0..O {
@@ -434,8 +465,9 @@ fn t_f_fold_fit() {
     );
     let flops = fold_fit_flops();
     phase("(8) WHOLE fold_fit(down: o=896,n=4864)", flops, 1, || {
-        let f = fold_fit(&fx.ws, &fx.h, O, N, Some(&fx.g_row), &fx.fit).expect("fold_fit");
-        f.wp[0]
+        let f =
+            fold_fit(&q(&fx.ws), &q(&fx.h), O, N, Some(&q(&fx.g_row)), &fx.fit).expect("fold_fit");
+        from_grid(f.wp[0])
     });
 }
 
@@ -459,20 +491,26 @@ const GATE_REF_TRACE: [f64; 2] = [23.846_899_540_239_9, 11.221_175_253_556_261];
 #[test]
 fn gate_small_fold_fit_objective() {
     let fx = fixture_dims(GATE_O, GATE_N, GATE_ROWS, &GATE_COLS);
-    let f = fold_fit(&fx.ws, &fx.h, GATE_O, GATE_N, Some(&fx.g_row), &fx.fit).expect("fold_fit");
-    eprintln!(
-        "GATE trace={:?} j_best={:e} tag={:?}",
-        f.trace, f.j_best, f.tag
-    );
+    let f = fold_fit(
+        &q(&fx.ws),
+        &q(&fx.h),
+        GATE_O,
+        GATE_N,
+        Some(&q(&fx.g_row)),
+        &fx.fit,
+    )
+    .expect("fold_fit");
+    let (trace, j_best) = (unq(&f.trace), from_grid(f.j_best));
+    eprintln!("GATE trace={trace:?} j_best={j_best:e} tag={:?}", f.tag);
     let tol = 1.0 + 2.0_f64.powi(-20);
-    assert_eq!(f.trace.len(), 2);
-    for (j, r) in f.trace.iter().zip(GATE_REF_TRACE) {
+    assert_eq!(trace.len(), 2);
+    for (j, r) in trace.iter().zip(GATE_REF_TRACE) {
         assert!(
             *j <= r * tol,
             "J {j:e} exceeds the f64 reference {r:e} by more than 2^-20"
         );
     }
-    assert!(f.j_best <= GATE_REF_TRACE[0].min(GATE_REF_TRACE[1]) * tol);
+    assert!(j_best <= GATE_REF_TRACE[0].min(GATE_REF_TRACE[1]) * tol);
     let g = GATE_N / 128;
     assert_eq!(f.bits_r, (4 * GATE_O * g + 8 * GATE_O + 64) as u64);
     assert_eq!(f.bits_c, (6 * GATE_N + 32) as u64);
@@ -529,27 +567,38 @@ fn t_h_fixture_receipt() {
         fnv_f64(&h_gram)
     );
     eprintln!("FIX ws_rot digest={:016x}", fnv_f64(&ws_rot));
-    let g = gptq_e8(&ws_rot, &h_gram, O, N, fx.damp, true, true, 4).expect("gptq");
+    let g = gptq_e8(
+        &q(&ws_rot),
+        &q(&h_gram),
+        O,
+        N,
+        q(&[fx.damp])[0],
+        true,
+        true,
+        4,
+    )
+    .expect("gptq");
     eprintln!(
         "FIX gptq_e8 idx[{}] digest={:016x} scale[{}] digest={:016x} s digest={:016x}",
         g.idx.len(),
         fnv_words(g.idx.iter().map(|&v| u64::from(v))),
         g.scale.len(),
-        fnv_f64(&g.scale),
-        fnv_f64(&g.s)
+        fnv_f64(&unq(&g.scale)),
+        fnv_f64(&unq(&g.s))
     );
-    let f = fold_fit(&fx.ws, &fx.h, O, N, Some(&fx.g_row), &fx.fit).expect("fold_fit");
+    let f = fold_fit(&q(&fx.ws), &q(&fx.h), O, N, Some(&q(&fx.g_row)), &fx.fit).expect("fold_fit");
+    let (trace, j_best) = (unq(&f.trace), from_grid(f.j_best));
     eprintln!(
-        "FIX fold_fit trace={:?} j_best={:e} tag={:?}",
-        f.trace, f.j_best, f.tag
+        "FIX fold_fit trace={trace:?} j_best={j_best:e} tag={:?}",
+        f.tag
     );
     eprintln!(
         "FIX fold_fit s_rot={:016x} rh={:016x} ch={:016x} dh={:016x} wp={:016x}",
-        fnv_f64(&f.pack.s_rot),
-        fnv_f64(&f.pack.rh),
-        fnv_f64(&f.pack.ch),
-        fnv_f64(&f.pack.dh),
-        fnv_f64(&f.wp)
+        fnv_f64(&unq(&f.pack.s_rot)),
+        fnv_f64(&unq(&f.pack.rh)),
+        fnv_f64(&unq(&f.pack.ch)),
+        fnv_f64(&unq(&f.pack.dh)),
+        fnv_f64(&unq(&f.wp))
     );
     eprintln!("FIX bits r={} c={} d={}", f.bits_r, f.bits_c, f.bits_d);
 }

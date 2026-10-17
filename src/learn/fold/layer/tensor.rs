@@ -356,12 +356,13 @@ fn topk_desc(mass: &[i128], k: usize) -> Result<Vec<usize>, TensorError> {
     Ok(idx)
 }
 
-/// Gather `rows` of a row-major `[o, n]` matrix into a dense `[rows.len(), n]` buffer. Temporal and
+/// Gather `rows` of a row-major `[o, n]` Q32.32 word matrix into a dense `[rows.len(), n]` word
+/// buffer; used to form the `q_mlp_trans` residual in words, with no `f64` crossing. Temporal and
 /// spatial `O(rows.len()·n)`.
 ///
 /// # Errors
 /// [`TensorError::ShapeMismatch`] on a row index out of range or a short matrix.
-fn gather_rows(m: &[f64], rows: &[usize], n: usize) -> Result<Vec<f64>, TensorError> {
+fn gather_rows(m: &[i64], rows: &[usize], n: usize) -> Result<Vec<i64>, TensorError> {
     if n == 0 || rows.iter().any(|&r| r >= m.len() / n) {
         return Err(TensorError::ShapeMismatch);
     }
@@ -403,14 +404,14 @@ fn plane_idx(s_rot: &[i64], rlen: usize, n: usize) -> Result<Vec<u16>, TensorErr
 /// # Errors
 /// [`TensorError::Icm`] from [`plane_idx`].
 fn pack_to_plane(pack: &PackOut, rlen: usize, n: usize) -> Result<Plane, TensorError> {
-    let s = grids(&pack.s_rot)?;
+    let s = pack.s_rot.clone();
     let idx = plane_idx(&s, rlen, n)?;
     Ok(Plane {
         s,
         idx,
-        r: grids(&pack.rh)?,
-        c: grids(&pack.ch)?,
-        d: grids(&pack.dh)?,
+        r: pack.rh.clone(),
+        c: pack.ch.clone(),
+        d: pack.dh.clone(),
     })
 }
 
@@ -436,10 +437,10 @@ fn plane_shape(p: &SinkPlane, rlen: usize, n: usize) -> bool {
 /// A full pack plane (rows `None`) of a `fold_fit` pack.
 fn pack_plane(pack: &PackOut) -> SinkPlane {
     plane_of(
-        pack.s_rot.clone(),
-        pack.rh.clone(),
-        pack.ch.clone(),
-        pack.dh.clone(),
+        reals(&pack.s_rot),
+        reals(&pack.rh),
+        reals(&pack.ch),
+        reals(&pack.dh),
     )
 }
 
@@ -666,10 +667,16 @@ pub fn fit_tensor(
     // evaluations below are word operations, while `fold_fit`, `nb_refine`, `lowrank_corrector` and
     // `bias_update` keep their declared `f64` boundaries.
     let wsq = grids(ws_nm)?;
+    let hmq = grids(hm)?;
+    let g_rowq: Option<Vec<i64>> = match g_row {
+        Some(g) => Some(grids(g)?),
+        None => None,
+    };
 
-    // Step 2: Wp1, the first full plane.
-    let f1 = fold_fit(ws_nm, hm, o, n, g_row, &cfg)?;
-    let wp1 = grids(&f1.wp)?;
+    // Step 2: Wp1, the first full plane; `fold_fit` takes and returns words, so the code plane is
+    // carried from here to the pack without a grid round trip.
+    let f1 = fold_fit(&wsq, &hmq, o, n, g_rowq.as_deref(), &cfg)?;
+    let wp1 = f1.wp.clone();
     let mut bits = TensorBits {
         nsign: on as u64,
         nr: f1.bits_r,
@@ -688,8 +695,8 @@ pub fn fit_tensor(
 
     if kind_two_plane {
         // Step 3: the second plane, the backfit candidate and the `-nb` pass.
-        let f2 = fold_fit(&reals(&sub_words(&wsq, &wp1)?), hm, o, n, g_row, &cfg)?;
-        let wp2 = grids(&f2.wp)?;
+        let f2 = fold_fit(&sub_words(&wsq, &wp1)?, &hmq, o, n, g_rowq.as_deref(), &cfg)?;
+        let wp2 = f2.wp.clone();
         let mut p1 = f1.pack.clone();
         let mut p2 = f2.pack.clone();
         let mut info2 = (f2.bits_r, f2.bits_c, f2.bits_d);
@@ -698,13 +705,20 @@ pub fn fit_tensor(
         // Only the accepted packs and the accepted Wp2 bits survive; the `-nb` pass re-derives the
         // weights from the packs, so the intermediate weight buffers are not kept.
         let j_cur = j_words(&wsq, &add_words(&wp1, &wp2)?, &hlq, o, n)?;
-        let f1b = fold_fit(&reals(&sub_words(&wsq, &wp2)?), hm, o, n, g_row, &cfg)?;
-        let wp1b = grids(&f1b.wp)?;
+        let f1b = fold_fit(&sub_words(&wsq, &wp2)?, &hmq, o, n, g_rowq.as_deref(), &cfg)?;
+        let wp1b = f1b.wp.clone();
         let j_1b = j_words(&wsq, &add_words(&wp1b, &wp2)?, &hlq, o, n)?;
         if j_1b < j_cur {
             p1 = f1b.pack.clone();
-            let f2b = fold_fit(&reals(&sub_words(&wsq, &wp1b)?), hm, o, n, g_row, &cfg)?;
-            let j_2b = j_words(&wsq, &add_words(&wp1b, &grids(&f2b.wp)?)?, &hlq, o, n)?;
+            let f2b = fold_fit(
+                &sub_words(&wsq, &wp1b)?,
+                &hmq,
+                o,
+                n,
+                g_rowq.as_deref(),
+                &cfg,
+            )?;
+            let j_2b = j_words(&wsq, &add_words(&wp1b, &f2b.wp)?, &hlq, o, n)?;
             if j_2b < j_1b {
                 p2 = f2b.pack.clone();
                 info2 = (f2b.bits_r, f2b.bits_c, f2b.bits_d);
@@ -757,13 +771,14 @@ pub fn fit_tensor(
         } else {
             let mass = row_mass(ws_nm, o, n)?;
             let top = topk_desc(&mass, k_rows)?;
-            let ws_top = gather_rows(ws_nm, &top, n)?;
-            let wp1_top = gather_rows(&f1.wp, &top, n)?;
-            let resid = sub_words(&grids(&ws_top)?, &grids(&wp1_top)?)?;
-            let g_top: Option<Vec<f64>> = g_row.map(|g| top.iter().map(|&i| g[i]).collect());
-            let f2 = fold_fit(&reals(&resid), hm, k_rows, n, g_top.as_deref(), &cfg)?;
+            let ws_top = gather_rows(&wsq, &top, n)?;
+            let wp1_top = gather_rows(&wp1, &top, n)?;
+            let resid = sub_words(&ws_top, &wp1_top)?;
+            let g_topq: Option<Vec<i64>> =
+                g_rowq.as_ref().map(|g| top.iter().map(|&i| g[i]).collect());
+            let f2 = fold_fit(&resid, &hmq, k_rows, n, g_topq.as_deref(), &cfg)?;
             wp = wp1.clone();
-            scatter_add(&mut wp, &grids(&f2.wp)?, &top, n)?;
+            scatter_add(&mut wp, &f2.wp, &top, n)?;
             planes = vec![pack_plane(&f1.pack), pack_plane(&f2.pack)];
             top_rows = Some(top.clone());
             // The rows plane carries a row list; record it on the second plane.
