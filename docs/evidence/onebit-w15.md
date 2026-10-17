@@ -1659,6 +1659,33 @@ Arm, bits (1.178061 b/w) and the before-finishing point (held-out 1.1637, top-1 
   K-angle rotation of the quantum epic generalises this fixed `H^⊗7`.
 - Board row for this run: `onebit-w18-literature-and-BpZokAJjBgG5iA9sXJKen4`.
 
+### Input basis versus variable rate at 1.18 b/w (`model`; `src/learn/fold/stats/basis.rs`)
+
+Question: once the coder may vary its rate per coefficient, does an input basis that concentrates the weight's energy
+beat the Hadamard that flattens it? Under GPTQ feedback the metric weights are the `LDLᵀ` pivots `d_j` of `QᵀHQ`, and
+`Π d_j = det H` for every orthogonal `Q` (test `b_pivot_product_is_basis_invariant`), so a basis acts only through the
+coefficient density. Reverse water-filling at `λ_ij = d_j σ²_ij`, 1.18 b/w all-in, side information counted (16 bits
+per row and column for the separable density, 8 per 16×16 tile, 8 per butterfly angle). Bases per 128-column block:
+`H` Hadamard, `I` identity, `J` Jacobi-adapted butterfly, `V` dense eigenbasis of `WᵀW` (side information not counted:
+an upper reference). Qwen2.5-0.5B, layers {2, 11, 20} × {q, k, v, o, gate, up, down}, Grams from 512 C4 tokens on the
+crate forward. Command `cargo test --release --locked --test learn_fold_basis basis_rate_qwen05b -- --ignored
+--nocapture`; per-tensor table `/home/socol/oc-tmp/escalation/Q-MAD1.live.log`.
+
+| density | `D_u(H)` fixed rate | `D_wf(H)` | `D_wf(I)` | `D_wf(J)` | `D_wf(V)` | oracle `H` / `J` |
+|---|---:|---:|---:|---:|---:|---:|
+| separable | 346.3 | 200.8 | 196.9 | 198.8 | 183.6 | 76.5 / 74.9 |
+| 16×16 tile | 348.4 | 212.1 | 211.6 | 215.2 | 195.4 | 76.5 / 74.9 |
+
+- Basis: `D_wf(H)/D_wf(J)` = 1.010 (separable) and 0.986 (tile); the identity matches the Hadamard to 2%. The dense
+  eigenbasis with free side information gains 8–9%. Concentrating the input basis does not move the distortion in this
+  model; the Madelung-split rotation is closed as a rate lever.
+- Rate: `D_u(H)/D_wf(H)` = 1.72 (separable) and 1.64 (tile), ≈ 0.39 and 0.36 b/w at `½ log₂` per halving of
+  distortion. The gain is the variable rate itself, in any of the four bases.
+- Oracle: per-coefficient variance is a further 2.6× (≈ 0.69 b/w), the per-coefficient term of the K-FAC section above.
+- Controls: Jacobi angle sign flipped → `d_adapted_butterfly_concentrates_a_planted_subspace` red; side bits dropped
+  → `a_water_filling_closed_form_and_side_bits` red; `d_j := M_jj` → `b_pivot_product_is_basis_invariant` red.
+- Not covered: the Gaussian rate model is not a coder; output-side rotations; held-out KL.
+
 ## Limit claims
 
 `tools/rooting/limit_check.py` refuses, in this file, `onebit-w13.md`, `docs/epics/ternary-hadamard.md` and the
