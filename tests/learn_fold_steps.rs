@@ -121,6 +121,13 @@ fn max_abs_diff(a: &[f64], b: &[f64]) -> f64 {
         .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()))
 }
 
+/// The `fwht128` round-trip bound, derived. Each pass rounds the input to a raw word (`≤2⁻³³`
+/// absolute) and each output entry once after the exact butterfly (`≤2⁻³³` of `|Hx|`); in the
+/// `2`-norm that is `‖e‖₂ ≤ 2⁻³³(‖x‖₂ + 2√n) ≈ 1.0e-8` at `n = O·N = 1024` and `|x| < 1`, and the
+/// orthonormal transform carries it to the second pass unchanged. The DC of the all-ones block is
+/// `128·c` with `c = round(2³²/√128)/2³²`, i.e. `√128 ± 128·2⁻³³ ≈ √128 ± 1.5e-8`; its other
+/// coefficients are exact zeros before the scaling, so they stay exactly `0`; the norm is preserved
+/// to `2‖x‖₂‖e‖₂` absolute, `≈1e-9` relative.
 #[test]
 fn fwht128_is_involution_and_norm_preserving() {
     let mut rng = Lcg::new(1);
@@ -129,17 +136,18 @@ fn fwht128_is_involution_and_norm_preserving() {
     let z = fwht128(&y).unwrap();
     assert_eq!(z.len(), x.len());
     let err = max_abs_diff(&x, &z);
-    assert!(err < 1e-12, "involution err {err}");
+    println!("fwht128 involution: max |x−z| {err:e}");
+    assert!(err < 2e-8, "involution err {err} above the 1e-8 grid bound");
     let nx: f64 = x.iter().map(|v| v * v).sum();
     let ny: f64 = y.iter().map(|v| v * v).sum();
-    assert!((nx - ny).abs() <= 1e-12 * nx, "norm {nx} vs {ny}");
+    assert!((nx - ny).abs() <= 1e-8 * nx, "norm {nx} vs {ny}");
     // One block, and the constant vector (equals its own DC coefficient times √128).
     let xb = sym_vec(&mut rng, GROUP);
     let zb = fwht128(&fwht128(&xb).unwrap()).unwrap();
-    assert!(max_abs_diff(&xb, &zb) < 1e-12, "block involution");
+    assert!(max_abs_diff(&xb, &zb) < 2e-8, "block involution");
     let ones = vec![1.0f64; GROUP];
     let yo = fwht128(&ones).unwrap();
-    assert!((yo[0] - (GROUP as f64).sqrt()).abs() < 1e-12);
+    assert!((yo[0] - (GROUP as f64).sqrt()).abs() < 1e-7);
     assert!(max_abs(&yo[1..]) < 1e-12);
 }
 
@@ -154,11 +162,13 @@ fn compose_shapes_and_objective() {
     for oo in 0..O {
         for i in 0..N {
             let want = s[oo * N + i] * r[oo * G + i / GROUP] * c[i];
-            assert!((w[oo * N + i] - want).abs() < 1e-15);
+            // Three operands each rounded to a raw word (`≤2⁻³³`) and two rounded products:
+            // `|err| ≤ 2⁻³³(1 + |s·r| + |s·r·c|) ≤ 5e-10` for `|s|,|r|,|c| < 1`.
+            assert!((w[oo * N + i] - want).abs() < 1e-9);
         }
     }
     let hl = spd_metric(&mut rng, N);
-    // J(W, W, Hl) = 0 and J is non-negative on a distinct pair.
+    // `J(W, W, Hl)` is the zero word difference, so exactly `0`; `J` is positive on a distinct pair.
     assert!(objective(&w, &w, &hl, O, N).unwrap().abs() < 1e-15);
     let other = sym_vec(&mut rng, O * N);
     assert!(objective(&w, &other, &hl, O, N).unwrap() > 0.0);
@@ -240,6 +250,48 @@ fn d_step_is_stationary_and_descends() {
         max_grad <= 1e-6 * j_ones,
         "max |dJ/dd_k| {max_grad} vs J_scale {j_ones}"
     );
+}
+
+/// The deleted `f64` 128-block transform: the butterfly per block and one `1/√128` factor per
+/// entry, no grid boundary. The oracle for [`old_d_step`], so that body carries no grid arithmetic.
+fn ref_fwht(x: &[f64]) -> Vec<f64> {
+    let mut y = x.to_vec();
+    for chunk in y.chunks_mut(GROUP) {
+        let mut h = 1;
+        while h < GROUP {
+            let mut i = 0;
+            while i < GROUP {
+                for j in i..i + h {
+                    let (a, b) = (chunk[j], chunk[j + h]);
+                    chunk[j] = a + b;
+                    chunk[j + h] = a - b;
+                }
+                i += 2 * h;
+            }
+            h *= 2;
+        }
+        for v in chunk.iter_mut() {
+            *v /= (GROUP as f64).sqrt();
+        }
+    }
+    y
+}
+
+/// The transpose of a row-major `rows × cols` `f64` matrix.
+fn ref_transpose(m: &[f64], rows: usize, cols: usize) -> Vec<f64> {
+    let mut t = vec![0.0f64; rows * cols];
+    for r in 0..rows {
+        for c in 0..cols {
+            t[c * rows + r] = m[r * cols + c];
+        }
+    }
+    t
+}
+
+/// The deleted `f64` `had_gram(H) = fwht128(fwht128(H).T).T`, no grid boundary.
+fn ref_had_gram(h: &[f64], n: usize) -> Vec<f64> {
+    let t = ref_transpose(&ref_fwht(h), n, n);
+    ref_transpose(&ref_fwht(&t), n, n)
 }
 
 /// The deleted `f64` `mul_metric` body, kept here as the reference: `Ws·Hl`, `O × n` row-major,
@@ -337,14 +389,14 @@ fn old_d_step(
             g_rot[oo * n + i] = wshl[oo * n + i] * c[i];
         }
     }
-    let g_rot = fwht128(&g_rot).unwrap();
+    let g_rot = ref_fwht(&g_rot);
     let mut hlc = vec![0.0f64; n * n];
     for i in 0..n {
         for j in 0..n {
             hlc[i * n + j] = hl[i * n + j] * c[i] * c[j];
         }
     }
-    let h_rot = had_gram(&hlc, n).unwrap();
+    let h_rot = ref_had_gram(&hlc, n);
     let mut b_scaled = vec![0.0f64; o * n];
     for oo in 0..o {
         for i in 0..n {
@@ -457,6 +509,13 @@ fn old_r_step(ws: &[f64], hl: &[f64], s: &[f64], c: &[f64], o: usize, n: usize) 
 /// inside the step (dropping the undo turns this case red; `1e2` is chosen over `1e3` because the
 /// grid quantum propagates to the solved output — `mul_metric_matches_old_f64_formula` states that
 /// bound at `1e3`).
+///
+/// The agreement bound, derived: every operand enters as a raw word rounded at half a unit
+/// (`2⁻³³` in the reals of its scaled space) and each product rounds once, so the relative input
+/// perturbation is `≈2⁻³²`; the solved system is `κ`-conditioned, and these fixtures'
+/// `spd_metric = AAᵀ/n + I` has eigenvalues in `[1, O(1)]` with `A = Hl ⊙ Gram` diagonally
+/// dominant, so the propagated relative error is `≲ n·2⁻³³·κ ≈ 1e-7` at `n ≤ 384`. The observed
+/// maximum is printed and stays below `5.4e-8`.
 #[test]
 fn c_step_matches_old_f64_formula() {
     let cases: [(usize, usize, bool, f64); 5] = [
@@ -536,10 +595,11 @@ fn c_step_refuses_non_finite_and_out_of_bound() {
 
 /// A `g_row` magnitude above the `wsyrk` input bound (`2³⁶` raw = `16`) is shifted into it by an
 /// exact power of two, as the panel is, instead of refused: `c_step` and `d_step` accept `18.475`,
-/// `1e3` and the former boundary `16.0`, and return the words of the same call with `g_row`
-/// prescaled by that power of two (`16` was the first value the unshifted boundary refused), bit
-/// for bit. Dropping the row-weight factor from the right-hand-side `weight` (or the `g_scale`
-/// clamp in `d_step`) turns this red at the shifted magnitudes.
+/// `1e3` and the former boundary `16.0`, and agree with the same call whose `g_row` is prescaled by
+/// that power of two (`16` was the first value the unshifted boundary refused). The two calls round
+/// `g`'s raw word independently, so they can differ by one unit (`2⁻³²` relative); on these systems
+/// that propagates to `≤1e-8` relative in the solution. Dropping the row-weight factor from the
+/// right-hand-side `weight` (or the `g_scale` clamp in `d_step`) turns this red.
 #[test]
 fn large_g_row_is_shifted_not_refused() {
     let mut rng = Lcg::new(0x6_9000_0001);
@@ -556,11 +616,15 @@ fn large_g_row_is_shifted_not_refused() {
         let gr_down: Vec<f64> = gr.iter().map(|&v| v / down).collect();
         let got = c_step(&ws, &hl, &s, &r, O, N, Some(&gr)).expect("shifted c_step");
         let want = c_step(&ws, &hl, &s, &r, O, N, Some(&gr_down)).expect("prescaled c_step");
-        assert_eq!(got, want, "c_step g_row {big} vs /{down}");
+        let rel = max_rel_diff(&got, &want);
+        println!("c_step g_row {big} vs /{down}: max rel {rel:e}");
+        assert!(rel <= 1e-8, "c_step g_row {big} vs /{down}: {rel:e}");
         let got_d = d_step(&ws, &hl, &s_rot, &r, &c, O, N, Some(&gr)).expect("shifted d_step");
         let want_d =
             d_step(&ws, &hl, &s_rot, &r, &c, O, N, Some(&gr_down)).expect("prescaled d_step");
-        assert_eq!(got_d, want_d, "d_step g_row {big} vs /{down}");
+        let rel_d = max_rel_diff(&got_d, &want_d);
+        println!("d_step g_row {big} vs /{down}: max rel {rel_d:e}");
+        assert!(rel_d <= 1e-8, "d_step g_row {big} vs /{down}: {rel_d:e}");
     }
 }
 
@@ -783,6 +847,10 @@ fn refusals_are_reached() {
 /// panel scaling is exercised (`k = 1`), still meeting `1e-7` after the scaling is undone, plus
 /// `(8,128)` with `|Ws| ≈ 1e2` so `mul_metric`'s operand scale rule and its exact undo are
 /// exercised inside the step (dropping the undo turns that case red).
+///
+/// The agreement bound is `c_step_matches_old_f64_formula`'s: the same `2⁻³²` input quantum and
+/// the same conditioning of `A = H_rot ⊙ Gram`, with the rotated metric adding one transform that
+/// is orthonormal up to `2⁻³³`; observed maximum below `5.4e-8`.
 ///
 /// Mutation control: dropping the `H_rot`/`hadamard_into` rotation factor in `d_step` (passing the
 /// weighted Gram as `A`) turns this test red at the first shape.

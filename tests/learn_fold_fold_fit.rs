@@ -187,13 +187,22 @@ fn learn_fold_fold_fit_wp_equals_plane_w_of_pack() {
         n,
     )
     .expect("plane_w");
-    // `plane_w` accumulates `(s·d → fwht → c) · r` and `compose` `(s · r) · c`: the same product in
-    // two association orders, equal to within a few ULP.
+    // Both sides transform the same `s·d` through the same grid `fwht128`, so `w = s̃·r·c` differs
+    // only in `compose`'s carrier work: `to_grid` rounds each of `s̃`, `r`, `c` (|δ| ≤ 2⁻³³) and
+    // `mul_word` rounds the two products (|ε| ≤ 2⁻³³), giving
+    //   |Δw| ≤ 2⁻³³·(1 + |c| + |s̃·c| + |s̃·r| + |r·c|)
+    // at the fixture's operand maxima; `plane_w`'s two `f64` associations add `2⁻⁵²·|w|` each,
+    // six orders below that term.
+    let mut rotated = fit.pack.s_rot.clone();
+    scale_columns(&mut rotated, o, n, &fit.pack.dh);
+    let s_dh = fwht128(&rotated).expect("fwht");
+    let max_abs = |x: &[f64]| x.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+    let (s_max, r_max, c_max) = (max_abs(&s_dh), max_abs(&fit.pack.rh), max_abs(&fit.pack.ch));
+    let tol = 2.0_f64.powi(-33) * (1.0 + c_max + s_max * c_max + s_max * r_max + r_max * c_max);
     for k in 0..o * n {
-        let tol = 8.0 * f64::EPSILON * (1.0 + w[k].abs());
         assert!(
             (w[k] - fit.wp[k]).abs() <= tol,
-            "wp != plane_w(pack) at {k}: {} != {}",
+            "wp != plane_w(pack) at {k}: {} != {} (tol {tol:e})",
             w[k],
             fit.wp[k]
         );
