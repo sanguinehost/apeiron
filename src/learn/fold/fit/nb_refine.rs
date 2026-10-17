@@ -29,7 +29,10 @@
 //! The two `J` evaluations and the round-acceptance test use [`steps::objective`], the script's
 //! `J(Ws, Wp, Hl)` (line 434), which is **unweighted**: `g_row` enters only the joint ICM block
 //! costs and the two `c_step`s, exactly as in `nb_refine`, which calls `J(Ws, W1 + W2, Hl)` with no
-//! `g_row`. [`JointStats`] reports the joint ICM's own row-weighted `J`.
+//! `g_row`. [`JointStats`] reports the joint ICM's own row-weighted `J`. Each round's `W1 + W2` is
+//! re-derived from the round's own packs by [`icm::plane_w`], the same determination the next call's
+//! entry `J` enumerates, so a kept round's `j_nb` is the returned pair's `J` and repeated runs are
+//! non-increasing exactly rather than up to the grid unit.
 //!
 //! # Partiality
 //!
@@ -59,10 +62,11 @@
 )]
 
 use crate::learn::fold::fit::icm::{
-    e8_joint_icm_2plane, plane_w, r_step2, IcmError, JointStats, Plane, PlaneRef, BLOCK,
+    bin_into, code_transform_q, e8_joint_icm_2plane, plane_w, r_step2, real_slice, to_q_slice,
+    BinOp, IcmError, JointStats, Plane, PlaneRef, BLOCK,
 };
 use crate::learn::fold::fit::quant::{quant_c_u8, quant_r_hier, QuantError};
-use crate::learn::fold::fit::steps::{c_step, compose, fwht128, objective, StepsError, GROUP};
+use crate::learn::fold::fit::steps::{c_step, compose, objective, StepsError, GROUP};
 
 /// Rows the joint ICM hands to its argmin loop at a time: the script's `row_chunk` default, `256`.
 ///
@@ -171,23 +175,42 @@ fn to_owned_plane(p: PlaneRef<'_>) -> Plane {
 /// (`s[o,i] * d[i]` first, then the block transform). `d` is the per-column Hadamard scale of length
 /// `n`, so it is repeated across the `o` rows of `s`.
 ///
+/// The product and the transform are the `Q32.32` [`code_transform_q`] on the engine pool; the two
+/// operands are converted once here (the `f64` pack boundary) and the result is read back once.
+///
 /// # Errors
-/// [`StepsError::ShapeMismatch`] if `s.len() != o·n`, `d.len() != n`, or `n` is not a multiple of
-/// [`GROUP`].
+/// [`NbError::Shape`] if `s.len() != o·n` or `d.len() != n`; [`NbError::Icm`] on a product outside
+/// the carrier or a width the transform refuses.
 ///
 /// # Complexity
-/// Temporal `O(o·n + o·n·log2(GROUP))` for the product and the transform; spatial `O(o·n)`.
-fn transformed_code(s: &[f64], d: &[f64], o: usize, n: usize) -> Result<Vec<f64>, StepsError> {
+/// Temporal `O(o·n + o·n·log2(GROUP))` grid operations; spatial `O(o·n)`.
+fn transformed_code(s: &[f64], d: &[f64], o: usize, n: usize) -> Result<Vec<f64>, NbError> {
     if s.len() != o * n || d.len() != n {
-        return Err(StepsError::ShapeMismatch);
+        return Err(NbError::Shape);
     }
-    let mut prod = vec![0.0_f64; o * n];
-    for row in 0..o {
-        for col in 0..n {
-            prod[row * n + col] = s[row * n + col] * d[col];
-        }
+    let sq = to_q_slice(s)?;
+    let dq = to_q_slice(d)?;
+    Ok(real_slice(&code_transform_q(&sq, &dq, o, n)?))
+}
+
+/// `a op b` elementwise on the `Q32.32` grid: both operands converted once at this `f64` boundary,
+/// the pass on the engine pool, the result read back once.
+///
+/// # Errors
+/// [`NbError::Shape`] on a length disagreement; [`NbError::Icm`] on a value outside the carrier or
+/// an `i64` overflow.
+///
+/// # Complexity
+/// Temporal `O(a.len())` checked adds on the pool; spatial `O(a.len())` for the two grid copies and
+/// the result.
+fn combine_q(a: &[f64], b: &[f64], op: BinOp) -> Result<Vec<f64>, NbError> {
+    if a.len() != b.len() {
+        return Err(NbError::Shape);
     }
-    fwht128(&prod)
+    let mut x = to_q_slice(a)?;
+    let y = to_q_slice(b)?;
+    bin_into(&mut x, &y, op)?;
+    Ok(real_slice(&x))
 }
 
 /// `true` when every entry is finite (no NaN, no infinity).
@@ -292,15 +315,11 @@ pub fn nb_refine(
 ) -> Result<NbRefined, NbError> {
     check_inputs(ws, hl, p1, p2, o, n, g_row, icm_ridge)?;
     let g = n / GROUP;
-    let on = o * n;
 
     // W1, W2 = plane_w(P1), plane_w(P2); j_seq = J(Ws, W1 + W2, Hl).
     let w1_start = plane_w(p1, o, n)?;
     let w2_start = plane_w(p2, o, n)?;
-    let mut wsum = w1_start.clone();
-    for k in 0..on {
-        wsum[k] += w2_start[k];
-    }
+    let wsum = combine_q(&w1_start, &w2_start, BinOp::Add)?;
     let j_seq = objective(ws, &wsum, hl, o, n)?;
 
     let mut cur1 = to_owned_plane(p1);
@@ -362,25 +381,33 @@ pub fn nb_refine(
         let rh2 = quant_r_hier(&r2, o, g)?.rq;
         // c1n = quant_c_u8(c_step(ws - compose(S2e, rh2, c2), hl, S1e, rh1), 6).0
         let other2 = compose(&s2e, &rh2, &na2.c, o, n)?;
-        let mut resid1 = ws.to_vec();
-        for k in 0..on {
-            resid1[k] -= other2[k];
-        }
+        let resid1 = combine_q(ws, &other2, BinOp::Sub)?;
         let c1_raw = c_step(&resid1, hl, &s1e, &rh1, o, n, g_row)?;
         let (c1n, _) = quant_c_u8(&c1_raw, C_BITS)?;
-        let w1n = compose(&s1e, &rh1, &c1n, o, n)?;
+        // The two round packs, and their weights re-derived from those packs through `plane_w`: the
+        // same determination the next call's entry `J` enumerates, so a kept round's logged `J` is
+        // the returned pair's own value and repeated runs are non-increasing exactly.
+        let np1 = Plane {
+            s: na1.s,
+            idx: na1.idx,
+            r: rh1,
+            c: c1n,
+            d: na1.d,
+        };
+        let w1n = plane_w(pref(&np1), o, n)?;
         // c2n = quant_c_u8(c_step(ws - W1n, hl, S2e, rh2), 6).0
-        let mut resid2 = ws.to_vec();
-        for k in 0..on {
-            resid2[k] -= w1n[k];
-        }
+        let resid2 = combine_q(ws, &w1n, BinOp::Sub)?;
         let c2_raw = c_step(&resid2, hl, &s2e, &rh2, o, n, g_row)?;
         let (c2n, _) = quant_c_u8(&c2_raw, C_BITS)?;
-        let w2n = compose(&s2e, &rh2, &c2n, o, n)?;
-        let mut wn = w1n.clone();
-        for k in 0..on {
-            wn[k] += w2n[k];
-        }
+        let np2 = Plane {
+            s: na2.s,
+            idx: na2.idx,
+            r: rh2,
+            c: c2n,
+            d: na2.d,
+        };
+        let w2n = plane_w(pref(&np2), o, n)?;
+        let wn = combine_q(&w1n, &w2n, BinOp::Add)?;
         let j_new = objective(ws, &wn, hl, o, n)?;
         // A round is kept only on a strict fall of the unweighted `J`: `keep` is the script's
         // `j_new < j_cur`, so a NaN `j_new` also ends the loop.
@@ -388,20 +415,8 @@ pub fn nb_refine(
         if !keep {
             break;
         }
-        cur1 = Plane {
-            s: na1.s,
-            idx: na1.idx,
-            r: rh1,
-            c: c1n,
-            d: na1.d,
-        };
-        cur2 = Plane {
-            s: na2.s,
-            idx: na2.idx,
-            r: rh2,
-            c: c2n,
-            d: na2.d,
-        };
+        cur1 = np1;
+        cur2 = np2;
         w1 = w1n;
         w2 = w2n;
         j_cur = j_new;

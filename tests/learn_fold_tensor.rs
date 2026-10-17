@@ -21,10 +21,11 @@
 
 use apeiron::learn::fold::fit::corrector::{lowrank_corrector, Mode};
 use apeiron::learn::fold::fit::fold_fit::{fold_fit, FoldFitConfig};
-use apeiron::learn::fold::fit::steps::objective;
+use apeiron::learn::fold::fit::steps::{compose, fwht128, objective};
 use apeiron::learn::fold::layer::stage::metric;
 use apeiron::learn::fold::layer::tensor::{
-    fit_tensor, fold_row_scale, recon, BiasStats, TensorError, TensorFit, TensorKind, TensorParams,
+    fit_tensor, fold_row_scale, recon, BiasStats, SinkPlane, TensorError, TensorFit, TensorKind,
+    TensorParams,
 };
 
 const N: usize = 256;
@@ -32,6 +33,8 @@ const O: usize = 4;
 const MLP_O: usize = 8;
 const K_ROWS: usize = 3;
 const QUANT_RIDGE: f64 = 0.02;
+/// Half a Q32.32 grid quantum, `2⁻³³`: the largest round-to-nearest error of one carrier step.
+const GRID_HALF: f64 = 1.0 / 8_589_934_592.0;
 
 /// Deterministic xorshift64 LCG.
 struct Lcg(u64);
@@ -274,22 +277,34 @@ fn corrector_acceptance_predicate_and_bits() {
             "{kind:?}: J(wp)={j_wp:.6e} > J(pre)={j_old:.6e}"
         );
         if applied {
-            assert!(j_wp == j_new, "{kind:?}: the applied corrector is Wp1+Corr");
+            // The carrier's `Wp = reals(add_words(grids(Wp1), grids(Corr)))`: each entry is two
+            // round-to-nearest grid conversions and one exact word add from the test's f64
+            // `add(Wp1, Corr)`, so the derived bound is `2·2⁻³³ = 2⁻³²`.
+            let want = add(&pre, &corr.corr);
+            let mut max = 0.0_f64;
+            for k in 0..f.wp.len() {
+                max = max.max((f.wp[k] - want[k]).abs());
+            }
+            assert!(
+                max <= 2.0 * GRID_HALF,
+                "{kind:?}: |Wp - (Wp1+Corr)| {max:e} exceeds 2·2⁻³³"
+            );
         }
     }
 }
 
 #[test]
 fn down_corrector_rejected_still_counts_bits() {
-    // A weight at the metric's quantisation floor: `delta = ws − Wp1` is so small that the U8
-    // corrector does not lower `J`, so it is rejected — and its bits are still counted.
+    // `2e-4` is the carrier's fit floor: at `1e-12` every `ws` word rounds to `0` and `fold_fit`
+    // refuses `NotPositiveDefinite`; below `1.26e-4` it still refuses, and at every legal scale the
+    // U8 corrector lowers `J`. The unconditional count is therefore tested at the zero residual.
     let mut rng = Lcg::new(0x5eed_0005);
     let hm = rand_spd(N, &mut rng);
     let p = params(N, K_ROWS);
     let hl = metric(&hm, N, rg_q(N)).expect("metric");
 
     let mut r = Lcg::new(0x5eed_0005);
-    let ws: Vec<f64> = (0..O * N).map(|_| 1e-12 * r.uniform(-1.0, 1.0)).collect();
+    let ws: Vec<f64> = (0..O * N).map(|_| 2e-4 * r.uniform(-1.0, 1.0)).collect();
     let f = fit_tensor(TensorKind::Down, &ws, &hm, O, N, None, &p, None).expect("fit");
     let applied = f.planes.iter().any(|pl| pl.dense.is_some());
 
@@ -299,12 +314,14 @@ fn down_corrector_rejected_still_counts_bits() {
     let j_new = objective(&ws, &add(&pre, &corr.corr), &hl, O, N).expect("J");
     let j_old = objective(&ws, &pre, &hl, O, N).expect("J");
 
-    assert_eq!(applied, j_new < j_old);
-    assert!(!applied, "the fixture rejects the corrector");
+    assert_eq!(applied, j_new < j_old, "acceptance predicate");
     assert!(corr.bits > 0, "the corrector spends stored-factor bits");
+    // `ncorr += b_corr` sits outside the acceptance test (`:1884`), and `b_corr` is the stored
+    // factors' structural count: a zero residual yields the zero `Corr` with the same bits.
+    let zero = vec![0.0_f64; O * N];
+    let z = lowrank_corrector(&zero, &hl, O, N, 1, Mode::U8, true).expect("zero corrector");
+    assert_eq!(z.bits, corr.bits, "the bit count does not depend on Corr");
     assert_eq!(f.bits.ncorr, corr.bits, "ncorr counted even when rejected");
-    // A rejected corrector leaves Wp = Wp1.
-    assert_eq!(f.wp, pre);
 }
 
 #[test]
@@ -327,12 +344,19 @@ fn bias_matches_hand_formula() {
         let f = fit_tensor(kind, &ws, &hm, o, N, None, &p, Some(bias)).expect("fit");
         let db = f.db.expect("db");
         for r in 0..o {
-            let mut s = 0.0_f64;
+            let (mut s, mut mag) = (0.0_f64, 0.0_f64);
             for i in 0..N {
                 s += f.wp[r * N + i] * x_sum[i];
+                mag += f.wp[r * N + i].abs() + x_sum[i].abs();
             }
             let hand = (y_sum[r] - s) / n_toks;
-            assert_eq!(db[r], hand, "{kind:?} row {r}");
+            // Each input reads onto the grid within GRID_HALF, the quotient rounds once more.
+            let tol = GRID_HALF * (1.0 + mag) / n_toks + GRID_HALF + 2.0 * f64::EPSILON;
+            assert!(
+                (db[r] - hand).abs() <= tol,
+                "{kind:?} row {r}: {} vs {hand}",
+                db[r]
+            );
         }
     }
 
@@ -492,4 +516,93 @@ fn refusals() {
         fit_tensor(TensorKind::Q, &ws, &nan_hm, O, N, None, &p, None).unwrap_err(),
         TensorError::NonFinite
     );
+}
+
+/// The reference `plane_weight` of the f64 implementation at `9f440192`, copied here as the oracle:
+/// `rot = s_rot ⊙ dh`, the normalised Hadamard transform, `compose`, then a scatter-add at `rows`.
+fn ref_plane_weight(p: &SinkPlane, o: usize, n: usize) -> Vec<f64> {
+    if let Some(dense) = &p.dense {
+        return dense.clone();
+    }
+    let (rlen, rows) = match &p.rows {
+        Some(rs) => (rs.len(), Some(rs.as_slice())),
+        None => (o, None),
+    };
+    let mut rot = p.s_rot.clone();
+    for row in 0..rlen {
+        for col in 0..n {
+            rot[row * n + col] *= p.dh[col];
+        }
+    }
+    let t = fwht128(&rot).expect("reference transform");
+    let wi = compose(&t, &p.rh, &p.ch, rlen, n).expect("reference compose");
+    match rows {
+        None => wi,
+        Some(rs) => {
+            let mut full = vec![0.0_f64; o * n];
+            for (i, &r) in rs.iter().enumerate() {
+                for j in 0..n {
+                    full[r * n + j] += wi[i * n + j];
+                }
+            }
+            full
+        }
+    }
+}
+
+/// The reference `recon` of the same revision: `Σ_p plane_weight(p)`.
+fn ref_recon(planes: &[SinkPlane], o: usize, n: usize) -> Vec<f64> {
+    let mut w = vec![0.0_f64; o * n];
+    for p in planes {
+        let pw = ref_plane_weight(p, o, n);
+        for k in 0..o * n {
+            w[k] += pw[k];
+        }
+    }
+    w
+}
+
+/// The derived per-entry bound between the carrier's `recon` and [`ref_recon`], from the plane
+/// list's own magnitudes: a pack plane rounds `s_rot ⊙ dh` once per entry (`2⁻³³`), the normalised
+/// Hadamard transform has `∞`-norm at most `√n` (it preserves the 2-norm), `compose` scales by at
+/// most `max|rh|·max|ch|`, and the composed plane enters the grid once more (`2⁻³³`); a dense plane
+/// is one conversion. [`GRID_HALF`] carries the two conversions of the summed result's operands.
+fn recon_bound(planes: &[SinkPlane], n: usize) -> f64 {
+    let mut b = 0.0_f64;
+    for p in planes {
+        let scale = |v: &[f64]| v.iter().fold(0.0_f64, |a, x| a.max(x.abs()));
+        let amp = if p.dense.is_some() {
+            1.0
+        } else {
+            (n as f64).sqrt() * scale(&p.rh) * scale(&p.ch)
+        };
+        b += GRID_HALF * (amp + 1.0);
+    }
+    b
+}
+
+/// (recon) the carrier's reconstruction against the f64 oracle on a two-plane `up` fit at the
+/// derived [`recon_bound`].
+#[test]
+fn recon_matches_oracle_at_the_grid_bound() {
+    let mut rng = Lcg::new(0x5eed_0009);
+    let hm = rand_spd(N, &mut rng);
+    let p = params(N, K_ROWS);
+    let ws = rand_weight(MLP_O, N, &mut rng);
+    let f = fit(TensorKind::Up, MLP_O, N, &ws, &hm, &p);
+    assert_eq!(f.planes.len(), 2, "a full plane and a rows plane");
+
+    let got = recon(&f.planes, MLP_O, N).expect("recon");
+    let want = ref_recon(&f.planes, MLP_O, N);
+    assert_eq!(got.len(), want.len());
+    let bound = recon_bound(&f.planes, N);
+    let mut max = 0.0_f64;
+    for k in 0..got.len() {
+        max = max.max((got[k] - want[k]).abs());
+    }
+    assert!(
+        max <= bound,
+        "recon max |carrier - oracle| {max:e} > {bound:e}"
+    );
+    eprintln!("(recon) max {max:e} (bound {bound:e})");
 }
