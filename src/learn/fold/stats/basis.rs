@@ -26,7 +26,8 @@
 //! # Carrier and the pool
 //!
 //! Every quantity is a `Q32.32` word: one `i128` accumulation and one rounding per entry, with the
-//! transcendentals from [`super::parts::fx`]. `B = W·Q` and the block Gram run on [`gemm_nn`] and
+//! transcendentals from [`crate::numeric`] — `fixed_ln`, `fixed_exp`, `fixed_sin_cos` and
+//! `fixed_atan2`. `B = W·Q` and the block Gram run on [`gemm_nn`] and
 //! [`wsyrk`], each operand brought inside the `2³⁶` bound by an exact `2⁻ᵏ` panel shift that cancels
 //! on the read-back. `M = Qᵀ·H·Q` is the one pooled task ([`MetricRows`]): `H` is unbounded, so its
 //! exact accumulation is the model's premise. Every vector-sized loop (energies, pivots,
@@ -78,10 +79,39 @@ use crate::learn::fold::fit::eigh::{eigh, EighError};
 use crate::learn::fold::fit::steps::fwht128;
 use crate::learn::solve::chol::{equilibrate, factor_scaled, SolveError};
 use crate::learn::solve::gemm::{gemm_nn, GemmError};
-use crate::learn::solve::q32::{from_grid, round_q32_even, to_grid, GRID_BOUND};
+use crate::learn::solve::q32::{
+    div_rne, from_grid, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
+};
 use crate::learn::solve::syrk::{wsyrk, SyrkError};
+use crate::numeric::fixed_exp::fixed_exp;
+use crate::numeric::fixed_ln::{fixed_ln, LN2_Q32, ONE};
+use crate::numeric::fixed_trig::{fixed_atan2, fixed_sin_cos};
 
-use super::parts::{fx, panel, shift, words_grid};
+use super::parts::{mul, narrow, panel, shift, words_grid};
+
+/// `log₂ x` for `x > 0`: the numeric `ln` kernel divided by `ln 2`, one rounding. `None` for
+/// `x <= 0`. `O(1)`.
+fn log2(x: i64) -> Option<i64> {
+    let l = fixed_ln(x).ok()?;
+    narrow(div_rne(i128::from(l) << 32, i128::from(LN2_Q32))?)
+}
+
+/// `2^t` for a `Q32.32` exponent `t`: `k = floor t` and `frac = t - k`, then the numeric `exp`
+/// kernel at `frac·ln 2` scaled by the exact `2^k` (a checked left shift, a rounded right one).
+/// `None` outside the kernel's window or off the grid. `O(1)`.
+fn exp2(t: i64) -> Option<i64> {
+    let k = t >> 32;
+    let y = mul(t - (k << 32), LN2_Q32)?;
+    let e = fixed_exp(y).ok()?;
+    if k >= 0 {
+        narrow(i128::from(e).checked_shl(u32::try_from(k).ok()?)?)
+    } else {
+        narrow(rshift_rne(
+            i128::from(e),
+            u32::try_from(k.unsigned_abs()).ok()?,
+        )?)
+    }
+}
 
 /// Side of one transform block. Every linear of the `Qwen2.5 0.5B` model has an input width that is
 /// a multiple of this, matching `fit::steps::fwht128`'s own block width.
@@ -236,8 +266,8 @@ pub fn damped_gram(h: &[f64], n: usize) -> Result<Vec<f64>, BasisError> {
     for i in 0..n {
         sum += i128::from(out[i * n + i]);
     }
-    let mean = fx::div_rne(sum, i128::try_from(n).map_err(|_| BasisError::Overflow)?)
-        .and_then(fx::narrow)
+    let mean = div_rne(sum, i128::try_from(n).map_err(|_| BasisError::Overflow)?)
+        .and_then(narrow)
         .ok_or(BasisError::Overflow)?;
     if mean <= 0 {
         return Err(BasisError::Shape(format!(
@@ -245,7 +275,7 @@ pub fn damped_gram(h: &[f64], n: usize) -> Result<Vec<f64>, BasisError> {
             from_grid(mean)
         )));
     }
-    let delta = fx::mul(DAMP_Q, mean).ok_or(BasisError::OutOfRange)?;
+    let delta = mul(DAMP_Q, mean).ok_or(BasisError::OutOfRange)?;
     for i in 0..n {
         out[i * n + i] = out[i * n + i]
             .checked_add(delta)
@@ -429,8 +459,8 @@ pub fn cholesky_pivots(m: &[f64], n: usize) -> Result<Vec<f64>, BasisError> {
     let l = factor_scaled(&hat, n).map_err(map_solve)?;
     let mut out = vec![0_i64; n];
     for j in 0..n {
-        let dl = fx::mul(d[j], l[j * n + j]).ok_or(BasisError::OutOfRange)?;
-        out[j] = fx::mul(dl, dl).ok_or(BasisError::OutOfRange)?;
+        let dl = mul(d[j], l[j * n + j]).ok_or(BasisError::OutOfRange)?;
+        out[j] = mul(dl, dl).ok_or(BasisError::OutOfRange)?;
     }
     Ok(words_grid(&out))
 }
@@ -470,11 +500,6 @@ pub fn column_energies(b: &[f64], o: usize, n: usize) -> Result<Vec<f64>, BasisE
     Ok(words_grid(&energy_words(&grid(b)?, o, n, 1)?))
 }
 
-/// `ln x` in `Q32.32` from the integer `log₂` and the `ln 2` constant. `O(1)`.
-fn ln_word(x: i64) -> Option<i64> {
-    fx::mul(fx::log2(x)?, fx::LN2)
-}
-
 /// `Σ_j ln c_j` over the positive column energies; a zero or negative energy is floored at the
 /// grid's least positive word `2⁻³²` so the sum stays finite and deterministic.
 /// # Complexity
@@ -486,9 +511,9 @@ pub fn sum_log_column_energies(c: &[f64]) -> f64 {
             Ok(w) if w > 0 => w,
             _ => 1,
         };
-        acc += i128::from(ln_word(word).unwrap_or(fx::LN2 * -32));
+        acc += i128::from(fixed_ln(word).unwrap_or(LN2_Q32 * -32));
     }
-    from_grid(fx::narrow(acc).unwrap_or(i64::MAX))
+    from_grid(narrow(acc).unwrap_or(i64::MAX))
 }
 
 /// The `128 × 128` Gram `W_blockᵀ·W_block` of one column block: [`wsyrk`] on the block panel with
@@ -514,24 +539,24 @@ fn rotate_gram(g: &mut [i64], a: usize, b: usize, c: i64, s: i64) -> Option<()> 
             continue;
         }
         let (gia, gib) = (g[r * j + a], g[r * j + b]);
-        let nia = fx::mul(c, gia)?.checked_add(fx::mul(s, gib)?)?;
-        let nib = fx::mul(-s, gia)?.checked_add(fx::mul(c, gib)?)?;
+        let nia = mul(c, gia)?.checked_add(mul(s, gib)?)?;
+        let nib = mul(-s, gia)?.checked_add(mul(c, gib)?)?;
         g[r * j + a] = nia;
         g[a * j + r] = nia;
         g[r * j + b] = nib;
         g[b * j + r] = nib;
     }
     let (gaa, gbb, gab) = (g[a * j + a], g[b * j + b], g[a * j + b]);
-    let (cc, ss, cs) = (fx::mul(c, c)?, fx::mul(s, s)?, fx::mul(c, s)?);
-    g[a * j + a] = fx::mul(cc, gaa)?
-        .checked_add(fx::mul(2 * cs, gab)?)?
-        .checked_add(fx::mul(ss, gbb)?)?;
-    g[b * j + b] = fx::mul(ss, gaa)?
-        .checked_sub(fx::mul(2 * cs, gab)?)?
-        .checked_add(fx::mul(cc, gbb)?)?;
-    let off = fx::mul(-cs, gaa)?
-        .checked_add(fx::mul(cc - ss, gab)?)?
-        .checked_add(fx::mul(cs, gbb)?)?;
+    let (cc, ss, cs) = (mul(c, c)?, mul(s, s)?, mul(c, s)?);
+    g[a * j + a] = mul(cc, gaa)?
+        .checked_add(mul(2 * cs, gab)?)?
+        .checked_add(mul(ss, gbb)?)?;
+    g[b * j + b] = mul(ss, gaa)?
+        .checked_sub(mul(2 * cs, gab)?)?
+        .checked_add(mul(cc, gbb)?)?;
+    let off = mul(-cs, gaa)?
+        .checked_add(mul(cc - ss, gab)?)?
+        .checked_add(mul(cs, gbb)?)?;
     g[a * j + b] = off;
     g[b * j + a] = off;
     Some(())
@@ -553,8 +578,8 @@ fn rotate_block(
     for r in off..off + GROUP {
         let base = r * n;
         let (qa, qb) = (q[base + ca], q[base + cb]);
-        let na = fx::mul(c, qa)?.checked_add(fx::mul(s, qb)?)?;
-        let nb = fx::mul(-s, qa)?.checked_add(fx::mul(c, qb)?)?;
+        let na = mul(c, qa)?.checked_add(mul(s, qb)?)?;
+        let nb = mul(-s, qa)?.checked_add(mul(c, qb)?)?;
         q[base + ca] = na;
         q[base + cb] = nb;
     }
@@ -595,12 +620,13 @@ fn sweep(
                         let x = g[a * GROUP + a]
                             .checked_sub(g[b * GROUP + b])
                             .ok_or(BasisError::OutOfRange)?;
-                        let ang = fx::atan2(y, x).ok_or(BasisError::OutOfRange)?;
-                        fx::narrow(i128::from(ang) >> 1).ok_or(BasisError::OutOfRange)?
+                        let ang = fixed_atan2(y, x).map_err(|_| BasisError::OutOfRange)?;
+                        narrow(i128::from(ang) >> 1).ok_or(BasisError::OutOfRange)?
                     }
                     AngleRule::Fixed(t) => grid1(t)?,
                 };
-                let (s, c) = fx::sin_cos(theta).ok_or(BasisError::OutOfRange)?;
+                let turn = fixed_sin_cos(theta).map_err(|_| BasisError::OutOfRange)?;
+                let (s, c) = (turn.sin, turn.cos);
                 rotate_gram(g, a, b, c, s).ok_or(BasisError::OutOfRange)?;
                 rotate_block(q, n, off, off + a, off + b, c, s).ok_or(BasisError::OutOfRange)?;
             }
@@ -616,9 +642,13 @@ fn sum_log_diag(g: &[i64]) -> Option<i64> {
     let mut acc: i128 = 0;
     for i in 0..GROUP {
         let v = g[i * GROUP + i];
-        acc += i128::from(if v > 0 { ln_word(v)? } else { fx::LN2 * -32 });
+        acc += i128::from(if v > 0 {
+            fixed_ln(v).ok()?
+        } else {
+            LN2_Q32 * -32
+        });
     }
-    fx::narrow(acc)
+    narrow(acc)
 }
 
 /// Shared body of [`butterfly_basis`] and [`butterfly_basis_fixed`], on words; `Q` starts at the
@@ -630,7 +660,7 @@ fn butterfly_words(w: &[i64], o: usize, n: usize, rule: AngleRule) -> Result<Vec
     let blocks = expect_blocks(n)?;
     let mut q = vec![0_i64; square(n, n)?];
     for i in 0..n {
-        q[i * n + i] = fx::ONE;
+        q[i * n + i] = ONE;
     }
     for blk in 0..blocks {
         let mut g = block_gram(w, o, n, blk)?;
@@ -641,7 +671,7 @@ fn butterfly_words(w: &[i64], o: usize, n: usize, rule: AngleRule) -> Result<Vec
                 sweep(&mut q, &mut g, n, blk * GROUP, rule)?;
                 let cur = sum_log_diag(&g).ok_or(BasisError::OutOfRange)?;
                 let drop = prev.checked_sub(cur).ok_or(BasisError::OutOfRange)?;
-                let scale = fx::mul(
+                let scale = mul(
                     SWEEP_TOL_Q,
                     prev.checked_abs().ok_or(BasisError::OutOfRange)?,
                 )
@@ -764,7 +794,7 @@ impl Density {
         match self {
             Density::Oracle => {
                 for (slot, &v) in out.iter_mut().zip(b) {
-                    *slot = fx::mul(v, v).ok_or(BasisError::OutOfRange)?;
+                    *slot = mul(v, v).ok_or(BasisError::OutOfRange)?;
                 }
             }
             Density::Separable => {
@@ -773,14 +803,14 @@ impl Density {
                 for &v in &r {
                     total += i128::from(v);
                 }
-                let m = fx::narrow(total).ok_or(BasisError::OutOfRange)?;
+                let m = narrow(total).ok_or(BasisError::OutOfRange)?;
                 for i in 0..o {
                     for j in 0..n {
                         out[i * n + j] = if m == 0 {
                             0
                         } else {
-                            fx::div_rne(i128::from(r[i]) * i128::from(c[j]), i128::from(m))
-                                .and_then(fx::narrow)
+                            div_rne(i128::from(r[i]) * i128::from(c[j]), i128::from(m))
+                                .and_then(narrow)
                                 .ok_or(BasisError::OutOfRange)?
                         };
                     }
@@ -801,8 +831,8 @@ impl Density {
                 let mut means = vec![0_i64; sums.len()];
                 for k in 0..sums.len() {
                     if counts[k] > 0 {
-                        means[k] = fx::narrow(
-                            fx::div_rne(sums[k], counts[k] << 32).ok_or(BasisError::OutOfRange)?,
+                        means[k] = narrow(
+                            div_rne(sums[k], counts[k] << 32).ok_or(BasisError::OutOfRange)?,
                         )
                         .ok_or(BasisError::OutOfRange)?;
                     }
@@ -847,7 +877,7 @@ fn distortion_words(lambda: &[i64], theta: i64) -> Result<i64, BasisError> {
     for &l in lambda {
         acc += i128::from(if l < theta { l } else { theta });
     }
-    fx::narrow(acc).ok_or(BasisError::OutOfRange)
+    narrow(acc).ok_or(BasisError::OutOfRange)
 }
 
 /// `R(θ) = Σ max(0, ½·log₂(λ/θ))` over words; `θ ≤ 0` gives an infinite rate when any `λ > 0`.
@@ -860,15 +890,15 @@ fn rate_words(lambda: &[i64], theta: i64) -> Result<i64, BasisError> {
             0
         });
     }
-    let t = fx::log2(theta).ok_or(BasisError::OutOfRange)?;
+    let t = log2(theta).ok_or(BasisError::OutOfRange)?;
     let mut acc: i128 = 0;
     for &l in lambda {
         if l > theta {
-            let li = fx::log2(l).ok_or(BasisError::OutOfRange)?;
+            let li = log2(l).ok_or(BasisError::OutOfRange)?;
             acc += i128::from(li.checked_sub(t).ok_or(BasisError::OutOfRange)?);
         }
     }
-    fx::narrow(acc >> 1).ok_or(BasisError::OutOfRange)
+    narrow(acc >> 1).ok_or(BasisError::OutOfRange)
 }
 
 /// The reverse water-filling solution with `R(θ) + side_bits = budget_bits`, on words. The
@@ -887,7 +917,7 @@ fn water_fill_words(lambda: &[i64], budget: i64, side: i64) -> Result<WaterFill,
             min_pos = l;
         }
         logs.push(if l > 0 {
-            fx::log2(l).ok_or(BasisError::OutOfRange)?
+            log2(l).ok_or(BasisError::OutOfRange)?
         } else {
             i64::MIN
         });
@@ -906,7 +936,7 @@ fn water_fill_words(lambda: &[i64], budget: i64, side: i64) -> Result<WaterFill,
     if target <= 0 {
         return Ok(WaterFill {
             theta: from_grid(max),
-            distortion: from_grid(fx::narrow(sum_lambda).unwrap_or(i64::MAX)),
+            distortion: from_grid(narrow(sum_lambda).unwrap_or(i64::MAX)),
             rate: 0.0,
         });
     }
@@ -918,15 +948,15 @@ fn water_fill_words(lambda: &[i64], budget: i64, side: i64) -> Result<WaterFill,
                 acc += i128::from(l.checked_sub(t)?);
             }
         }
-        fx::narrow(acc >> 1)
+        narrow(acc >> 1)
     };
-    let mut t_hi = fx::log2(max)
-        .and_then(|v| v.checked_add(fx::ONE))
+    let mut t_hi = log2(max)
+        .and_then(|v| v.checked_add(ONE))
         .ok_or(BasisError::OutOfRange)?;
-    let mut t_lo = fx::log2(min_pos)
-        .and_then(|v| v.checked_sub(fx::ONE))
+    let mut t_lo = log2(min_pos)
+        .and_then(|v| v.checked_sub(ONE))
         .ok_or(BasisError::OutOfRange)?;
-    let mut gap = fx::ONE;
+    let mut gap = ONE;
     for _ in 0..BISECTION_ITERS {
         if rate_at_t(t_lo).ok_or(BasisError::OutOfRange)? >= target {
             break;
@@ -937,7 +967,7 @@ fn water_fill_words(lambda: &[i64], budget: i64, side: i64) -> Result<WaterFill,
     let tol = RATE_TOL_Q.checked_mul(ncoef).ok_or(BasisError::Overflow)?;
     let mut t = t_hi;
     for _ in 0..BISECTION_ITERS {
-        t = fx::narrow(i128::midpoint(i128::from(t_lo), i128::from(t_hi)))
+        t = narrow(i128::midpoint(i128::from(t_lo), i128::from(t_hi)))
             .ok_or(BasisError::OutOfRange)?;
         let r = rate_at_t(t).ok_or(BasisError::OutOfRange)?;
         if r.checked_sub(target).ok_or(BasisError::OutOfRange)?.abs() <= tol {
@@ -949,7 +979,7 @@ fn water_fill_words(lambda: &[i64], budget: i64, side: i64) -> Result<WaterFill,
             t_hi = t;
         }
     }
-    let theta = fx::exp2(t).ok_or(BasisError::OutOfRange)?;
+    let theta = exp2(t).ok_or(BasisError::OutOfRange)?;
     Ok(WaterFill {
         theta: from_grid(theta),
         distortion: from_grid(distortion_words(lambda, theta)?),
@@ -998,16 +1028,16 @@ fn uniform_words(lambda: &[i64], budget: i64, side: i64) -> Result<i64, BasisErr
         return Ok(0);
     }
     let ncoef = i64::try_from(lambda.len()).map_err(|_| BasisError::Overflow)?;
-    let bits = fx::narrow(
-        fx::div_rne(
+    let bits = narrow(
+        div_rne(
             i128::from(budget.checked_sub(side).ok_or(BasisError::OutOfRange)?),
             i128::from(ncoef),
         )
         .ok_or(BasisError::OutOfRange)?,
     )
     .ok_or(BasisError::OutOfRange)?;
-    let factor = fx::exp2(bits.checked_mul(-2).ok_or(BasisError::OutOfRange)?)
-        .ok_or(BasisError::OutOfRange)?;
+    let factor =
+        exp2(bits.checked_mul(-2).ok_or(BasisError::OutOfRange)?).ok_or(BasisError::OutOfRange)?;
     let mut acc: i128 = 0;
     for &l in lambda {
         acc += i128::from(l) * i128::from(factor);
@@ -1084,7 +1114,7 @@ impl Coefficients {
         for i in 0..self.o {
             for j in 0..self.n {
                 lambda[i * self.n + j] =
-                    fx::mul(dw[j], sigma[i * self.n + j]).ok_or(BasisError::OutOfRange)?;
+                    mul(dw[j], sigma[i * self.n + j]).ok_or(BasisError::OutOfRange)?;
             }
         }
         let side = grid1(density.side_bits(self.o, self.n) + basis_side_bits)?;

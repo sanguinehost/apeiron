@@ -22,7 +22,10 @@
 //!
 //! Deviations: the reference (`torch.float64`, CUDA) contracts multiply-adds and evaluates
 //! `exp`/`cos`/`sin` in a device library, so this carrier agrees to the grid quantum times the
-//! operation's condition growth, not bit-for-bit; refusals are typed ([`PartsError`]).
+//! operation's condition growth, not bit-for-bit; refusals are typed ([`PartsError`]). The
+//! transcendentals are the `crate::numeric` kernels ([`fixed_ln`], [`fixed_exp`],
+//! [`fixed_sin_cos`]) and the root is the floored [`isqrt`]; their documented bounds set this
+//! module's agreement (`fixed_sin_cos` is within `16·2⁻³²` absolute).
 //!
 //! Grade `tested` (`tests/learn_fold_parts.rs`); no Lean refinement links this file. Trust boundary:
 //! the `Q32.32` arithmetic on `&[f64]` inputs and the `f64` grid map only, not the model loader, the
@@ -46,204 +49,62 @@ use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
 use crate::engine::chart::task::ChunkTask;
 use crate::learn::solve::gemm::{gemm_nt, GemmError};
 use crate::learn::solve::q32::{
-    from_grid, ilog2_pos, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
+    div_rne, from_grid, ilog2_pos, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
 };
+use crate::numeric::fixed_exp::fixed_exp;
+use crate::numeric::fixed_ln::{fixed_ln, ONE};
+use crate::numeric::fixed_rsqrt::isqrt;
+use crate::numeric::fixed_trig::{fixed_sin_cos, turn_to_radians};
 
-/// The integer `Q32.32` scalar kernel the `stats` lanes share: only the series `q32` does not
-/// carry. A real `x` is the word `round(x·2³²)`; products are exact `i128` and every reported word
-/// is rounded once by [`rshift_rne`] (ties to even). Each transcendental is an integer series whose
-/// truncation is stated at its definition.
-pub(crate) mod fx {
-    use super::{ilog2_pos, rshift_rne};
+/// `round(2*pi * 2^32)`, the rounded `2*pi` word the trig kernel carries privately; the kernel
+/// exports its turn entry ([`turn_to_radians`]) rather than the constant, so the radian angle is
+/// converted to a turn phase here before the series.
+const TWO_PI_Q32: i64 = 26_986_075_409;
 
-    /// `2³²`, the `Q32.32` scale; `ln 2`, `log₂ e`, `π`, `π/2` rounded; `π/2` in `Q64`.
-    pub(crate) const ONE: i64 = 1 << 32;
-    pub(crate) const LN2: i64 = 2_977_044_472;
-    const LOG2E: i64 = 6_196_328_019;
-    const PI: i64 = 13_493_037_705;
-    const HALF_PI: i64 = 6_746_518_852;
-    const HALF_PI_Q64: i128 = 28_976_077_832_308_490_240;
-    /// `(2n+1)!` and `(2n)!` for `n = 1..=6`.
-    const SIN_F: [i64; 6] = [6, 120, 5_040, 362_880, 39_916_800, 6_227_020_800];
-    const COS_F: [i64; 6] = [2, 24, 720, 40_320, 3_628_800, 479_001_600];
+/// `a*b` in `Q32.32`, rounded once by [`round_q32_even`] (ties to even); `None` off the grid.
+pub(crate) fn mul(a: i64, b: i64) -> Option<i64> {
+    round_q32_even(i128::from(a) * i128::from(b)).ok()
+}
 
-    /// `v` as `i64`, or `None` when it leaves the grid.
-    pub(crate) fn narrow(v: i128) -> Option<i64> {
-        i64::try_from(v).ok()
+/// `a/b` in `Q32.32`, rounded once by [`div_rne`]; `None` on a non-positive divisor or a quotient
+/// off the grid.
+fn div(a: i64, b: i64) -> Option<i64> {
+    div_rne(i128::from(a) << 32, i128::from(b)).and_then(narrow)
+}
+
+/// `v` as an `i64`, or `None` when it leaves the grid.
+pub(crate) fn narrow(v: i128) -> Option<i64> {
+    i64::try_from(v).ok()
+}
+
+/// `sqrt x` for `x >= 0`: the floored integer root of `x*2^32` from the numeric root kernel, at
+/// most one grid quantum below the true root. `None` for `x < 0`. `O(1)`.
+fn sqrt(x: i64) -> Option<i64> {
+    if x < 0 {
+        return None;
     }
+    narrow(isqrt(i128::from(x) << 32))
+}
 
-    /// `num/den` rounded to nearest, ties to even; `None` when `den == 0`. `O(1)`.
-    pub(crate) fn div_rne(num: i128, den: i128) -> Option<i128> {
-        if den == 0 || num % den == 0 {
-            return if den == 0 { None } else { Some(num / den) };
-        }
-        let (q, r) = (num / den, num % den);
-        let (twice, mag) = (r.checked_mul(2)?.abs(), den.abs());
-        let step = i128::from(twice > mag || (twice == mag && q % 2 != 0));
-        Some(if r > 0 { q + step } else { q - step })
+/// `e^x` with the top clamped at `e^21`; below the kernel's `-16` lower edge the value is flushed to
+/// zero, where `e^-16 < 2^-23` is below the grid quantum of the logistic it feeds.
+fn exp_sat(x: i64) -> Option<i64> {
+    let x = x.min(21 * ONE);
+    match fixed_exp(x) {
+        Ok(v) => Some(v),
+        Err(_) if x < -16 * ONE => Some(0),
+        Err(_) => None,
     }
+}
 
-    /// `a·b` in `Q32.32`, rounded once. `O(1)`.
-    pub(crate) fn mul(a: i64, b: i64) -> Option<i64> {
-        narrow(rshift_rne(i128::from(a) * i128::from(b), 32)?)
-    }
-
-    /// `a/b` in `Q32.32`, rounded once; `None` on a zero divisor or a quotient off the grid.
-    /// `O(1)`.
-    pub(crate) fn div(a: i64, b: i64) -> Option<i64> {
-        narrow(div_rne(i128::from(a) << 32, i128::from(b))?)
-    }
-
-    /// `floor(sqrt v)` by Newton descent from a power-of-two over-estimate: at most seven steps.
-    /// `O(1)`.
-    fn isqrt(v: u128) -> u128 {
-        let Some(b) = ilog2_pos(v) else { return 0 };
-        let mut x: u128 = 1_u128 << (b + 1).div_ceil(2);
-        loop {
-            let y = x.midpoint(v / x);
-            if y >= x {
-                return x;
-            }
-            x = y;
-        }
-    }
-
-    /// `sqrt x` for `x ≥ 0`: the exact integer root of `x·2³²`, truncated by one grid quantum.
-    /// `O(1)`.
-    pub(crate) fn sqrt(x: i64) -> Option<i64> {
-        if x < 0 {
-            return None;
-        }
-        narrow(i128::try_from(isqrt((x as u128) << 32)).ok()?)
-    }
-
-    /// `log₂ x` for `x > 0`: the exponent plus `ln(1+f)/ln 2` from the `atanh` series at `z =
-    /// f/(2+f) ≤ 1/3`, eleven terms, first omitted `2·z²¹/21 < 2⁻³⁵`. `O(1)`.
-    pub(crate) fn log2(x: i64) -> Option<i64> {
-        if x <= 0 {
-            return None;
-        }
-        let e = i64::from(ilog2_pos(x as u128)?);
-        let mant = if e >= 32 {
-            narrow(rshift_rne(i128::from(x), (e - 32) as u32)?)?
-        } else {
-            narrow(i128::from(x) << (32 - e))?
-        };
-        let whole = e.checked_sub(32)?;
-        let u = mant - ONE;
-        if u == 0 {
-            return whole.checked_mul(ONE);
-        }
-        let z = narrow(div_rne(i128::from(u) << 32, i128::from(2 * ONE + u))?)?;
-        let z2 = mul(z, z)?;
-        let (mut term, mut sum) = (z, z);
-        for k in 1..=10_i64 {
-            term = mul(term, z2)?;
-            sum = sum.checked_add(narrow(div_rne(i128::from(term), i128::from(2 * k + 1))?)?)?;
-        }
-        whole
-            .checked_mul(ONE)?
-            .checked_add(mul(sum.checked_mul(2)?, LOG2E)?)
-    }
-
-    /// `2^t`: an exact shift of the `e^y` series at `y = frac·ln 2 ∈ [0, ln 2)`, fourteen terms,
-    /// first omitted below `2⁻³⁹`. `O(1)`.
-    pub(crate) fn exp2(t: i64) -> Option<i64> {
-        let k = t >> 32;
-        let y = mul(t - (k << 32), LN2)?;
-        let (mut term, mut sum) = (ONE, ONE);
-        for n in 1..=14_i64 {
-            term = narrow(div_rne(i128::from(mul(term, y)?), i128::from(n))?)?;
-            sum = sum.checked_add(term)?;
-        }
-        if k >= 0 {
-            narrow(i128::from(sum).checked_shl(u32::try_from(k).ok()?)?)
-        } else {
-            narrow(rshift_rne(
-                i128::from(sum),
-                u32::try_from(k.unsigned_abs()).ok()?,
-            )?)
-        }
-    }
-
-    /// `eˣ`, saturating at `e²¹` (`x ≥ 21`); the saturation costs at most `e⁻²¹ < 8·10⁻¹⁰` of the
-    /// logistic it feeds. `O(1)`.
-    pub(crate) fn exp_sat(x: i64) -> Option<i64> {
-        exp2(mul(x.min(21_i64.checked_mul(ONE)?), LOG2E)?)
-    }
-
-    /// `(sin t, cos t)`: `t` reduced to `r ∈ [−π/4, π/4]` and a quadrant, then the two Taylor
-    /// series to `r¹³/13!` and `r¹²/12!` (first omitted `7·10⁻¹²` and `4·10⁻¹³`). `O(1)`.
-    pub(crate) fn sin_cos(t: i64) -> Option<(i64, i64)> {
-        let t64 = i128::from(t) << 32;
-        let k = div_rne(t64, HALF_PI_Q64)?;
-        let r = narrow(div_rne(t64 - k * HALF_PI_Q64, 1 << 32)?)?;
-        let r2 = mul(r, r)?;
-        let (mut p, mut q, mut s, mut c) = (r, r2, r, ONE);
-        for i in 0..6 {
-            p = mul(p, r2)?;
-            let ts = narrow(div_rne(i128::from(p), i128::from(SIN_F[i]))?)?;
-            let tc = narrow(div_rne(i128::from(q), i128::from(COS_F[i]))?)?;
-            if i % 2 == 0 {
-                s = s.checked_sub(ts)?;
-                c = c.checked_sub(tc)?;
-            } else {
-                s = s.checked_add(ts)?;
-                c = c.checked_add(tc)?;
-            }
-            q = mul(q, r2)?;
-        }
-        Some(match k.rem_euclid(4) {
-            0 => (s, c),
-            1 => (c, s.checked_neg()?),
-            2 => (s.checked_neg()?, c.checked_neg()?),
-            _ => (c.checked_neg()?, s),
-        })
-    }
-
-    /// `atan2(y, x)` on `(−π, π]`: `atan r` for `r ∈ [0, 1]` is reduced twice by `atan r =
-    /// 2·atan(r/(1 + √(1+r²)))` to `t ≤ tan(π/16)` and summed to `t¹⁹`. `O(1)`.
-    pub(crate) fn atan2(y: i64, x: i64) -> Option<i64> {
-        if x == 0 && y == 0 {
-            return Some(0);
-        }
-        let (ax, ay) = (x.checked_abs()?, y.checked_abs()?);
-        let (mut r, flip) = if ax >= ay {
-            (div(ay, ax)?, false)
-        } else {
-            (div(ax, ay)?, true)
-        };
-        for _ in 0..2 {
-            let s = sqrt(ONE.checked_add(mul(r, r)?)?)?;
-            r = div(r, ONE.checked_add(s)?)?;
-        }
-        let (r2, mut p, mut sum) = (mul(r, r)?, r, r);
-        for k in 1..=9_i64 {
-            p = mul(p, r2)?;
-            let term = narrow(div_rne(i128::from(p), i128::from(2 * k + 1))?)?;
-            sum = if k % 2 == 0 {
-                sum.checked_add(term)?
-            } else {
-                sum.checked_sub(term)?
-            };
-        }
-        let mut a = sum.checked_mul(4)?;
-        if flip {
-            a = HALF_PI.checked_sub(a)?;
-        }
-        if x < 0 {
-            a = PI.checked_sub(a)?;
-        }
-        if y < 0 {
-            a = a.checked_neg()?;
-        }
-        Some(a)
-    }
-
-    /// `min(1, max(0, x))` over grid words. `O(1)`.
-    pub(crate) fn clamp01(x: i64) -> i64 {
-        x.clamp(0, ONE)
-    }
+/// `(sin t, cos t)` from the numeric kernel at an angle `t` reduced modulo one turn, so every
+/// position reaches the total turn entry point inside the kernel's `+-4096` radian window. `O(1)`.
+fn sin_cos(t: i64) -> Option<(i64, i64)> {
+    let turns = narrow(div_rne(i128::from(t) << 32, i128::from(TWO_PI_Q32))?)?;
+    let phase = (turns as u64) << 32;
+    fixed_sin_cos(turn_to_radians(phase))
+        .ok()
+        .map(|v| (v.sin, v.cos))
 }
 
 /// The geometry of one `Qwen2` decoder layer.
@@ -353,28 +214,29 @@ impl RopeTables {
     /// Build the tables for `t_max` positions. `O(t_max·head_dim)` time and space.
     /// # Errors
     /// [`PartsError::Shape`] on an invalid geometry; [`PartsError::NonFinite`] for a non-finite
-    /// `eps`/`theta`; [`PartsError::OutOfRange`] for `theta` or an entry outside the grid.
+    /// `eps`/`theta`; [`PartsError::OutOfRange`] for a `theta` outside the numeric `exp` kernel's
+    /// `[e^-21, e^21]` window, or an entry outside the grid.
     pub fn new(cfg: &LayerCfg, t_max: usize) -> Result<Self, PartsError> {
         cfg.validate()?;
         let (hd, half) = (cfg.head_dim, cfg.head_dim / 2);
         let n = t_max.checked_mul(hd).ok_or(PartsError::Shape)?;
-        let log_theta = fx::log2(grid1(cfg.theta)?).ok_or(PartsError::OutOfRange)?;
+        let ln_theta = fixed_ln(grid1(cfg.theta)?).map_err(|_| PartsError::OutOfRange)?;
         let mut inv = vec![0_i64; half];
         for (i, slot) in inv.iter_mut().enumerate() {
-            // theta^(-2i/head_dim) = 2^(-(2i/head_dim)·log₂ theta)
+            // theta^(-2i/head_dim) = exp(-(2i/head_dim)·ln theta)
             let e = i128::from(2 * i as i64) << 32;
-            let frac = fx::div_rne(-e, i128::try_from(hd).map_err(|_| PartsError::Shape)?)
-                .and_then(fx::narrow)
+            let frac = div_rne(-e, i128::try_from(hd).map_err(|_| PartsError::Shape)?)
+                .and_then(narrow)
                 .ok_or(PartsError::OutOfRange)?;
-            *slot = fx::exp2(fx::mul(log_theta, frac).ok_or(PartsError::OutOfRange)?)
-                .ok_or(PartsError::OutOfRange)?;
+            *slot = fixed_exp(mul(ln_theta, frac).ok_or(PartsError::OutOfRange)?)
+                .map_err(|_| PartsError::OutOfRange)?;
         }
         let (mut cosq, mut sinq) = (vec![0_i64; n], vec![0_i64; n]);
         for p in 0..t_max {
             let pos = i64::try_from(p).map_err(|_| PartsError::Shape)? << 32;
             for j in 0..hd {
-                let emb = fx::mul(pos, inv[j % half]).ok_or(PartsError::OutOfRange)?;
-                let (s, c) = fx::sin_cos(emb).ok_or(PartsError::OutOfRange)?;
+                let emb = mul(pos, inv[j % half]).ok_or(PartsError::OutOfRange)?;
+                let (s, c) = sin_cos(emb).ok_or(PartsError::OutOfRange)?;
                 (cosq[p * hd + j], sinq[p * hd + j]) = (c, s);
             }
         }
@@ -468,9 +330,9 @@ pub(crate) fn shift(a: &mut [i64], k: i32) -> Option<()> {
     }
     for v in a {
         *v = if k > 0 {
-            fx::narrow(rshift_rne(i128::from(*v), u32::try_from(k).ok()?)?)?
+            narrow(rshift_rne(i128::from(*v), u32::try_from(k).ok()?)?)?
         } else {
-            fx::narrow(i128::from(*v).checked_shl(k.unsigned_abs())?)?
+            narrow(i128::from(*v).checked_shl(k.unsigned_abs())?)?
         };
     }
     Some(())
@@ -584,17 +446,17 @@ fn rms_words(
             ss += i128::from(v) * i128::from(v);
         }
         // mean = ss/(2³²·width) in Q32.32, one rounding, then + eps.
-        let mean = fx::div_rne(
+        let mean = div_rne(
             ss,
             i128::try_from(width).map_err(|_| PartsError::Shape)? << 32,
         )
-        .and_then(fx::narrow)
+        .and_then(narrow)
         .ok_or(PartsError::OutOfRange)?;
-        let denom = fx::sqrt(mean.checked_add(eps).ok_or(PartsError::OutOfRange)?)
-            .and_then(|s| fx::div(fx::ONE, s))
+        let denom = sqrt(mean.checked_add(eps).ok_or(PartsError::OutOfRange)?)
+            .and_then(|s| div(ONE, s))
             .ok_or(PartsError::OutOfRange)?;
         for (slot, (&v, &wj)) in out[r * width..][..width].iter_mut().zip(row.iter().zip(w)) {
-            *slot = fx::mul(wj, fx::mul(v, denom).ok_or(PartsError::OutOfRange)?)
+            *slot = mul(wj, mul(v, denom).ok_or(PartsError::OutOfRange)?)
                 .ok_or(PartsError::OutOfRange)?;
         }
     }
@@ -635,8 +497,8 @@ fn rope_apply(
                 } else {
                     src[base + d - half]
                 };
-                dst[base + d] = fx::mul(src[base + d], rope.cosq[cb + d])
-                    .and_then(|a| fx::mul(r, rope.sinq[cb + d]).and_then(|b| a.checked_add(b)))
+                dst[base + d] = mul(src[base + d], rope.cosq[cb + d])
+                    .and_then(|a| mul(r, rope.sinq[cb + d]).and_then(|b| a.checked_add(b)))
                     .ok_or(PartsError::OutOfRange)?;
             }
         }
@@ -673,7 +535,7 @@ impl AttnRows<'_> {
                 for d in 0..hd {
                     dot += i128::from(self.qr[qbase + d]) * i128::from(self.kr[kbase + d]);
                 }
-                *slot = fx::mul(round64(dot)?, self.scale).ok_or(PartsError::OutOfRange)?;
+                *slot = mul(round64(dot)?, self.scale).ok_or(PartsError::OutOfRange)?;
                 row_max = row_max.max(*slot);
             }
             acc.fill(0);
@@ -681,17 +543,17 @@ impl AttnRows<'_> {
             for j in 0..=i {
                 let e = scores[j]
                     .checked_sub(row_max)
-                    .and_then(fx::exp_sat)
+                    .and_then(exp_sat)
                     .ok_or(PartsError::OutOfRange)?;
                 denom = denom.checked_add(e).ok_or(PartsError::OutOfRange)?;
                 let vbase = j * nkv * hd + gbase;
                 for (a, &v) in acc.iter_mut().zip(&self.v[vbase..][..hd]) {
-                    let t = fx::mul(e, v).ok_or(PartsError::OutOfRange)?;
+                    let t = mul(e, v).ok_or(PartsError::OutOfRange)?;
                     *a = a.checked_add(t).ok_or(PartsError::OutOfRange)?;
                 }
             }
             for (o, &a) in out.iter_mut().zip(&acc) {
-                *o = fx::div(a, denom).ok_or(PartsError::OutOfRange)?;
+                *o = div(a, denom).ok_or(PartsError::OutOfRange)?;
             }
         }
         Ok(())
@@ -721,9 +583,9 @@ fn attn_words(
     if q.len() != qt || k.len() != kt || v.len() != kt {
         return Err(PartsError::Shape);
     }
-    let root = fx::sqrt(i64::try_from(hd).map_err(|_| PartsError::Shape)? << 32)
+    let root = sqrt(i64::try_from(hd).map_err(|_| PartsError::Shape)? << 32)
         .ok_or(PartsError::OutOfRange)?;
-    let scale = fx::div(fx::ONE, root).ok_or(PartsError::OutOfRange)?;
+    let scale = div(ONE, root).ok_or(PartsError::OutOfRange)?;
     let (mut qr, mut kr) = (vec![0_i64; qt], vec![0_i64; kt]);
     rope_apply(&mut qr, q, t, nh, hd, rope)?;
     rope_apply(&mut kr, k, t, nkv, hd, rope)?;
@@ -800,13 +662,13 @@ pub fn silu(g: f64) -> f64 {
 
 /// [`silu`] on one `Q32.32` word. `O(1)`.
 fn silu_word(g: i64) -> Option<i64> {
-    let den = fx::exp_sat(g.checked_neg()?)?.checked_add(fx::ONE)?;
-    fx::div(g, den)
+    let den = exp_sat(g.checked_neg()?)?.checked_add(ONE)?;
+    div(g, den)
 }
 
 /// `silu(g)·u` on words: one `exp`, one division and one product, each rounded once. `O(1)`.
 fn silu_mul(g: i64, u: i64) -> Option<i64> {
-    fx::mul(silu_word(g)?, u)
+    mul(silu_word(g)?, u)
 }
 
 /// One `Qwen2` decoder layer on a whole sequence (`parts`, lines 83-91) in `Q32.32`: the two
