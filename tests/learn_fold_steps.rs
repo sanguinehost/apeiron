@@ -27,10 +27,12 @@ use apeiron::learn::fold::fit::steps::{
     c_step, c_step_wshl, compose, d_step, d_step_wshl, fwht128, had_gram, mul_metric, objective,
     r_step, r_step_wshl, StepsError, GROUP,
 };
-use apeiron::learn::ridge::solve_spd;
 use apeiron::learn::solve::chol::chol_solve;
 use apeiron::learn::solve::q32;
 use apeiron::learn::solve::syrk::{hadamard_into, wsyrk};
+
+#[path = "support/ridge_oracle.rs"]
+mod ridge_oracle;
 
 /// Out rows of the fixtures.
 const O: usize = 4;
@@ -375,7 +377,7 @@ fn old_c_step(
         }
         rhs[i] = acc;
     }
-    solve_spd(&a, &rhs, n, 1).unwrap()
+    ridge_oracle::solve_spd(&a, &rhs, n, 1).unwrap()
 }
 
 /// The deleted `f64` `d_step` body, kept here as the reference: `G_rot = fwht128((Ws·Hl)⊙c)`,
@@ -447,7 +449,7 @@ fn old_d_step(
         }
         rhs[i] = acc;
     }
-    solve_spd(&a, &rhs, n, 1).unwrap()
+    ridge_oracle::solve_spd(&a, &rhs, n, 1).unwrap()
 }
 
 /// `max_i |new_i − old_i| / max(|old_i|, 1)`, the mixed absolute/relative agreement the `chol` test
@@ -509,7 +511,7 @@ fn old_r_step(ws: &[f64], hl: &[f64], s: &[f64], c: &[f64], o: usize, n: usize) 
         for gg in 0..g {
             m[gg * g + gg] += ridge;
         }
-        let sol = solve_spd(&m, &t, g, 1).unwrap();
+        let sol = ridge_oracle::solve_spd(&m, &t, g, 1).unwrap();
         for gg in 0..g {
             out[oo * g + gg] = sol[gg];
         }

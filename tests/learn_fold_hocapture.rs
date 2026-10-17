@@ -30,8 +30,10 @@ use apeiron::learn::fold::stats::hocapture::{
 };
 use apeiron::learn::grad::head::kl_row;
 use apeiron::learn::grad::model::{backward, forward, Config, LayerTape, LayerWeights, Weights};
-use apeiron::learn::ridge::cholesky;
 use apeiron::learn::solve::q32::{from_grid, Fx};
+
+#[path = "support/ridge_oracle.rs"]
+mod ridge_oracle;
 
 /// Residual width.
 const E: usize = 4;
@@ -264,7 +266,7 @@ fn ho_is_symmetric_psd_and_finishes_to_mean_diagonal_one() {
                 a[i * o + i] += 1e-9;
             }
             assert!(
-                cholesky(&a, o).is_ok(),
+                ridge_oracle::cholesky(&a, o).is_ok(),
                 "{kind:?} raw HO + 1e-9 I is not positive-definite at layer o={o}"
             );
         }
@@ -287,7 +289,10 @@ fn ho_is_symmetric_psd_and_finishes_to_mean_diagonal_one() {
             for i in 0..o {
                 a[i * o + i] += 1e-9;
             }
-            assert!(cholesky(&a, o).is_ok(), "{kind:?} finished HO is not PD");
+            assert!(
+                ridge_oracle::cholesky(&a, o).is_ok(),
+                "{kind:?} finished HO is not PD"
+            );
             let mut diag = 0.0f64;
             for i in 0..o {
                 diag += from_grid(ks.ho[i * o + i]);

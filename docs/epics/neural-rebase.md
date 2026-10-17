@@ -1302,7 +1302,7 @@ All six learning track mechanisms ((a) seal quantizer, (b) FoldAdapter, (c) ridg
 | Seal output distortion minimizes function distortion $\sum \tau_j r_j^2$ | proved | `MLPrimitivesBridge.output_error_is_function_distortion` (`proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:304`) |
 | FoldAdapter forward-only finetuning achieves target b/B | tested | `cargo test --release --locked --test learn_foldadapt` (removed; at 9f440192) |
 | FoldAdapter additive merge and unlearning commute | proved | `MLPrimitivesBridge.osFuse_is_add` (`proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean:174`), `osFuse_grouping_free` (`:182`), `MirasCountLM.forget_hebb` (`proof/corpus/Substrate/Algebra/Neural/MirasCountLM.lean:101`) |
-| Ridge fold streaming Gram accumulation and SPD solve reach optimum | tested | `cargo test --release --locked --test learn_ridge` |
+| Ridge fold streaming Gram accumulation and SPD solve reach optimum | retired: the f64 module and its test were removed after c11bb581; the SPD solve is `crate::learn::solve::chol::chol_solve` | `cargo test --release --locked --test learn_solve_chol` |
 | Ridge normal equations yield unique optimum | proved | `TrainingCollapse.ridgeHead_unique` (`proof/corpus/Substrate/Algebra/Neural/TrainingCollapse.lean:223`), `gram_stack` (`:245`) |
 | KN count-LM achieves $\le 2.205$ b/B | tested | `cargo test --release --locked --test learn_count` (removed; at 9f440192) |
 | Kneser–Ney distribution normalizes | proved | `KneserNey.kn_normalizes` (`proof/corpus/Substrate/Algebra/Neural/KneserNey.lean:98`), `MirasCountLM.countlm_is_exact_miras` (`proof/corpus/Substrate/Algebra/Neural/MirasCountLM.lean:138`) |
@@ -1550,7 +1550,7 @@ This specification covers six learning, finetuning, and quantization mechanisms 
      ```
 4. **Admissible domain:**
    - **Exact:** integer/fixed-point Gram accumulation $(X_1 \oplus X_2)^T (X_1 \oplus X_2) = X_1^T X_1 + X_2^T X_2$, feature dimension $d$, sample counts $n$, shard accumulation monoid morphism. Aeneas-extractable.
-   - **Float:** Cholesky decomposition $L L^T = U$, forward/backward substitution solving $U W = B$, regularization damping $\lambda > 0$. Tested in `tests/learn_ridge.rs`.
+   - **Float:** Cholesky decomposition $L L^T = U$, forward/backward substitution solving $U W = B$, regularization damping $\lambda > 0$. Tested in `tests/learn_ridge.rs` (removed after c11bb581).
    - **Representation relation:** Rust Gram buffer `[f64; d*d]` and normal equations mapped to Lean `drag X lam` and `ridgeHead X Y lam` in `TrainingCollapse.lean`.
 5. **Lineage search:**
    - Command: `rg -c "ridgeHead" /home/socol/Workspace/{sanguine,sanguine,fold,spinor-ttl,apeiron}`
@@ -1560,8 +1560,8 @@ This specification covers six learning, finetuning, and quantization mechanisms 
      - `fold`: 18 files (`modelfold/src/foldtrain.rs`, `modelfold/src/train.rs`, `modelfold/src/arch.rs`, `modelfold/tests/foldtrain.rs`, `bedrock/src/serve/ridge.rs`, etc.).
      - `apeiron`: 10 files (`docs/plan.md`, `docs/epics/neural-rebase.md`, `proof/corpus/Substrate/Algebra/Neural/TrainingCollapse.lean`, etc.).
 6. **Rust target:**
-   - Proposed module: `src/learn/ridge.rs`.
-   - Test file: `tests/learn_ridge.rs`.
+   - Proposed module: `src/learn/ridge.rs` (removed after c11bb581; `src/learn/solve/chol.rs`).
+   - Test file: `tests/learn_ridge.rs` (removed after c11bb581).
    - Gate: `cargo test --release --locked --test learn_ridge`.
    - Negative control (verbatim from `docs/plan.md`): drop λ in a copy: the unique-optimum test fails on a rank-deficient X.
    - Metric: Training wall-clock time to Adam optimum on $n=200\text{K}, d=512$: $\ge 16\times$ speedup over gradient descent baseline; residual MSE.
@@ -1737,7 +1737,7 @@ Reimplement and verify the six learning track mechanisms in this crate under `sr
 | W0 | `APEIRON-LEARN-W0-T2` | integrator | `tools/gpu/speed_guard.py` (removed; at 2f15d6a9) | `python3 tools/gpu/speed_guard.py` | Add sleep in decode loop in copy: gate fails by name |
 | W1 | `APEIRON-LEARN-W1-T1` | worker | `src/learn/seal.rs`, `tests/learn_seal.rs` | `cargo test --release --locked --test learn_seal` | Drop τ weighting in copy: calibrated-error ≤ uncalibrated-error fails |
 | W2 | `APEIRON-LEARN-W2-T1` | worker | `src/learn/foldadapt.rs` (removed; at 9f440192), `tests/learn_foldadapt.rs` (removed; at 9f440192) | `cargo test --release --locked --test learn_foldadapt` (removed; at 9f440192) | Weight each merge by position in copy: grouping-free test fails |
-| W3 | `APEIRON-LEARN-W3-T1` | worker | `src/learn/ridge.rs`, `tests/learn_ridge.rs` | `cargo test --release --locked --test learn_ridge` | Drop λ in copy: unique-optimum fails on rank-deficient X |
+| W3 | `APEIRON-LEARN-W3-T1` | worker | `src/learn/ridge.rs` (removed after c11bb581; `src/learn/solve/chol.rs`), `tests/learn_ridge.rs` (removed after c11bb581) | `cargo test --release --locked --test learn_ridge` | Drop λ in copy: unique-optimum fails on rank-deficient X |
 | W4 | `APEIRON-LEARN-W4-T1` | worker | `src/learn/countlm.rs` (removed; at 9f440192), `tests/learn_count.rs` (removed; at 9f440192) | `cargo test --release --locked --test learn_count` (removed; at 9f440192) | Drop the backoff term (keep the discount) in copy: normalisation test fails (mass < 1) |
 | W5 | `APEIRON-LEARN-W5-T1` | worker | `src/learn/gptq.rs` (removed; at 9f440192), `tests/learn_gptq.rs` (removed; at 9f440192) | `cargo test --release --locked --test learn_gptq` (removed; at 9f440192) | Zero error-feedback push in copy: output-error < naive-round fails |
 | W2 | `APEIRON-LEARN-W2-T2` | worker | `proof/extract/learn_merge.rs`, `proof/corpus/Learn/FoldMerge.lean`, `proof/corpus/AxiomAudit.lean` | `cd proof/corpus && lake build Learn.FoldMerge AxiomAudit` | Make the extracted merge non-commutative in copy: refinement to `osFuse_is_add` fails |
@@ -1781,7 +1781,7 @@ Reimplement and verify the six learning track mechanisms in this crate under `sr
 
 ##### APEIRON-LEARN-W3-T1 · Port and verify ridge fold streaming Gram and SPD solve (`LEARN-RIDGE`)
 - **Scope:** Port streaming Gram accumulation $X^T X$ and direct Cholesky SPD solve from `../fold/modelfold/src/foldtrain.rs`. Refines `TrainingCollapse.ridgeHead_unique` and `gram_stack`.
-- **Owned files:** `src/learn/ridge.rs`, `tests/learn_ridge.rs`
+- **Owned files:** `src/learn/ridge.rs` (removed after c11bb581; `src/learn/solve/chol.rs`), `tests/learn_ridge.rs` (removed after c11bb581)
 - **Depends on:** none (no GGUF output)
 - **Grade:** `tested`
 - **Gate:** `cargo test --release --locked --test learn_ridge`

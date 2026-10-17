@@ -903,6 +903,45 @@
         }
       ],
       "receipt": "docs/plan.md"
+    },
+    {
+      "id": "learn-ridge-f64-retirement",
+      "kind": "migration",
+      "note": "Board row quality-port-rust-port-of-DJrcWxwrX3Z3nODtWkOzxg. Lane INT-RIDGE-RETIRE: rg -n 'ridge::|learn::\\{[^}]*ridge' src finds no src consumer after the fit and resq solves moved to crate::learn::solve::chol::chol_solve; the seven tests that used solve_spd/cholesky as f64 oracles include tests/support/ridge_oracle.rs instead.",
+      "removed": [
+        "src/learn/ridge.rs",
+        "tests/learn_ridge.rs"
+      ],
+      "replacement": [
+        "src/learn/solve/chol.rs",
+        "tests/support/ridge_oracle.rs"
+      ],
+      "retained_obligation": "",
+      "consumers": [
+        "src/learn/mod.rs",
+        "src/learn/solve/chol.rs",
+        "tests/learn_solve_chol.rs",
+        "tests/learn_fold_capture.rs",
+        "tests/learn_fold_hocapture.rs",
+        "tests/learn_fold_corrector.rs",
+        "tests/learn_fold_steps.rs",
+        "tests/learn_fold_resq.rs",
+        "tests/learn_fold_stage.rs",
+        "docs/epics/neural-rebase.md",
+        "docs/epics/ternary-hadamard.md",
+        "docs/evidence/onebit-w15.md"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--check"
+          ]
+        }
+      ],
+      "receipt": "docs/plan.md"
     }
   ],
   "self_test": {

@@ -20,9 +20,6 @@ pub mod onebit_bits;
 /// `Numeric.SigmaDelta`.
 pub mod sigma_delta;
 
-/// Streaming Gram accumulation and direct SPD ridge solve: the closed-form linear head.
-pub mod ridge;
-
 /// Exact-integer Gram fold: `g += XᵀX` over a batch of `i8` rows, checked `i64`.
 pub mod gram;
 

@@ -84,8 +84,8 @@ pub struct Solved {
 /// block's rows pack into a few 64 B cache lines and the panel solve and trailing update stream a
 /// few cache lines per block column while the `O(n²)` working matrix dominates. Block width fixes
 /// only the memory traffic: the blocked form issues the same `O(n³/3)` contraction multiply-adds as
-/// a flat factor. Chosen in `64..=128`; `64` matches the crate's f64 blocked factor
-/// (`crate::learn::ridge::CHOLESKY_BLOCK`).
+/// a flat factor. Chosen in `64..=128`; `64` is the width the retired f64 blocked factor used,
+/// kept here as [`CHOL_BLOCK`].
 const CHOL_BLOCK: usize = 64;
 
 /// Round-to-nearest shift `(v + 2³¹) >> 32` of an `i128` Q64.64 value to Q32.32, or `None` if the
