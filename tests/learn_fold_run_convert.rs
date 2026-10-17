@@ -7,14 +7,20 @@
 
 #![allow(
     clippy::cast_possible_wrap,
+    clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
+    clippy::float_cmp,
     reason = "the inline LCG yields unsigned words and casts them into a small integer/float range; \
-              the wrap and the precision loss are the generator's, not a measured quantity"
+              the wrap and the precision loss are the generator's, not a measured quantity; the \
+              float comparisons test exact dyadic ties (`x·2^32` is exact, so its fraction is \
+              exactly `0.5` or not), not an approximate equality"
 )]
 
 use apeiron::learn::fold::run::convert::{
-    f64_to_q32, q32_to_f64, student_to_grad, teacher_from_grad, ConvertError, Teacher,
+    encode_f16, encode_f32, f64_to_q32, q32_to_f64, student_to_grad, teacher_from_grad,
+    ConvertError, Teacher,
 };
+use apeiron::learn::fold::run::transfer::{h0_from_chunks, TransferError};
 use apeiron::learn::grad::model::{self, Config, LayerWeights as GradLayer, Weights};
 
 const HID: usize = 128;
@@ -216,6 +222,20 @@ fn non_finite_is_refused() {
 fn out_of_range_is_refused() {
     assert!(matches!(f64_to_q32(3.0e9), Err(ConvertError::Range(_))));
     assert!(matches!(f64_to_q32(-3.0e9), Err(ConvertError::Range(_))));
+    assert!(matches!(
+        f64_to_q32(2_147_483_648.0),
+        Err(ConvertError::Range(_))
+    ));
+    assert!(matches!(
+        f64_to_q32(-2_147_483_648.0),
+        Err(ConvertError::Range(_))
+    ));
+    // The largest representable magnitude below `2^31` in `f64`: `2^31 − 2^-21` (a 53-bit
+    // significand) maps to `i64::MIN + 2048`, the last grid word.
+    assert_eq!(
+        f64_to_q32(-(2_147_483_648.0 - 2f64.powi(-21))).expect("in range"),
+        i64::MIN + 2048
+    );
     let w = build_weights(6);
     let c = cfg();
     let teacher = teacher_from_grad(&w, &c).expect("teacher");
@@ -262,4 +282,186 @@ fn real_qwen05b_loads() {
         teacher.vocab,
         teacher.n_layer
     );
+}
+
+/// The pre-migration `f64_to_q32` body, copied: `round(x·2^32)` in `f64` (ties away from zero),
+/// `None` outside the admitted domain.
+fn ref_f64_to_q32(x: f64) -> Option<i64> {
+    if !x.is_finite() || x.abs() >= 2_147_483_648.0 {
+        return None;
+    }
+    let q = (x * 4_294_967_296.0).round();
+    if !q.is_finite() || q.abs() >= 9_223_372_036_854_775_808.0 {
+        return None;
+    }
+    Some(q as i64)
+}
+
+/// A random admissible value: an exact 53-bit significand `m/2^53 ∈ [0, 1)` times `2^e` with
+/// `e ∈ [-31, 31]`, so `|x| < 2^31` and both `x·2^32` and the sign change are exact.
+fn lcg_value(rng: &mut Lcg) -> f64 {
+    let m = (rng.next_u64() >> 11) as f64 * 2f64.powi(-53);
+    let e = (rng.next_u64() % 63) as i32 - 31;
+    let sign = if rng.next_u64() & 1 == 0 { 1.0 } else { -1.0 };
+    sign * m * 2f64.powi(e)
+}
+
+/// (a) The integer decode agrees with the copied `f64` oracle.
+///
+/// Bound: `x·2^32` is an exact power-of-two rescale (`|x| < 2^31`, so no significand bit moves), so
+/// the oracle is nearest with ties away from zero, while the integer body is nearest with ties to
+/// even. They agree on every non-tie; at an exact tie (`x·2^32` a half-integer) they differ by one
+/// quantum, `2^-32`, and each is exactly `2^-33` from `x`, so the value-level agreement bound is
+/// `|q32_to_f64(got) − x| <= 2^-33`.
+#[test]
+fn integer_decode_agrees_with_the_f64_oracle() {
+    let mut rng = Lcg::new(0x0DEC_0DE5);
+    let mut max_err = 0.0_f64;
+    let mut ties = 0usize;
+    for _ in 0..20_000 {
+        let x = lcg_value(&mut rng);
+        let got = f64_to_q32(x).expect("in range");
+        let want = ref_f64_to_q32(x).expect("oracle in range");
+        if (x * 4_294_967_296.0).fract().abs() == 0.5 {
+            // An exact tie between grid words `lo` and `lo + 1`: the oracle rounds away from zero,
+            // the integer body to the even neighbour; both are `2^-33` from `x`.
+            let lo = (x * 4_294_967_296.0).floor() as i64;
+            let even = if lo % 2 == 0 { lo } else { lo + 1 };
+            assert_eq!(got, even, "tie x={x}");
+            assert_eq!(want, if x > 0.0 { lo + 1 } else { lo }, "tie x={x}");
+            ties += 1;
+        } else {
+            assert_eq!(got, want, "x={x}");
+        }
+        max_err = max_err.max((q32_to_f64(got) - x).abs());
+        assert!(max_err <= 2f64.powi(-33), "x={x} got={got}");
+    }
+    println!(
+        "20000 values: max |q32_to_f64(f64_to_q32(x)) − x| = {max_err:.3e}, {ties} exact ties"
+    );
+}
+
+/// (a) An exact tie at the grid quantum rounds to the even word.
+#[test]
+fn ties_round_to_even_at_the_grid_quantum() {
+    for h in [-9i64, -7, -5, -3, -1, 1, 3, 5, 7, 9] {
+        // `x·2^32 = h/2` with `h` odd: the two neighbours are `(h−1)/2` and `(h+1)/2`.
+        let x = h as f64 * 2f64.powi(-33);
+        let lo = (h - 1) / 2;
+        let even = if lo % 2 == 0 { lo } else { lo + 1 };
+        assert_eq!(f64_to_q32(x).expect("in range"), even, "h={h}");
+        assert_eq!(even % 2, 0, "h={h}");
+        let away = ref_f64_to_q32(x).expect("oracle in range");
+        assert_eq!(away, if h > 0 { lo + 1 } else { lo }, "h={h}");
+    }
+}
+
+/// (a) The gather copies the embedding rows in chunk order; a token past the vocabulary is refused.
+#[test]
+fn h0_gathers_the_embedding_rows() {
+    let w = build_weights(0xC4);
+    let teacher = teacher_from_grad(&w, &cfg()).expect("teacher");
+    let chunks = vec![vec![3u32, 0, 31], Vec::new(), vec![7u32]];
+    let got = h0_from_chunks(&teacher, &chunks).expect("h0");
+    let mut want = Vec::new();
+    for c in &chunks {
+        for &id in c {
+            let at = usize::try_from(id).expect("token id") * HID;
+            want.extend_from_slice(&teacher.embed[at..at + HID]);
+        }
+    }
+    assert_eq!(got, want);
+    match h0_from_chunks(&teacher, &[vec![u32::try_from(VOCAB).expect("fits")]]) {
+        Err(TransferError::Shape(m)) => assert!(m.contains("vocab"), "{m}"),
+        other => panic!("expected Shape, got {other:?}"),
+    }
+}
+
+/// (a) The F32 payload is the copied `f64` map's bytes: `(w/2^32)` as binary32.
+#[test]
+fn f32_payload_equals_the_f64_oracle() {
+    let mut words = vec![
+        0i64,
+        1,
+        -1,
+        1_i64 << 32,
+        -(1_i64 << 32),
+        i64::MAX,
+        i64::MIN,
+        123_456_789_012,
+        -987_654_321,
+    ];
+    let mut rng = Lcg::new(0x0F32);
+    for _ in 0..3000 {
+        words.push(rng.word() * 1_000_003);
+    }
+    let got = encode_f32(&words);
+    assert_eq!(got.len(), words.len() * 4);
+    for (i, &w) in words.iter().enumerate() {
+        let want = (w as f64 / 4_294_967_296.0) as f32;
+        assert_eq!(&got[i * 4..i * 4 + 4], want.to_le_bytes(), "word {w}");
+    }
+}
+
+/// Decode an IEEE-754 binary16 bit pattern to `f64` (the F16 encoder's oracle).
+fn half_to_f64(b: u16) -> f64 {
+    let sign = if b & 0x8000 == 0 { 1.0 } else { -1.0 };
+    let e = i32::from((b >> 10) & 0x1f);
+    let f = f64::from(b & 0x03ff);
+    if e == 0 {
+        sign * f * 2f64.powi(-24)
+    } else {
+        sign * (1.0 + f / 1024.0) * 2f64.powi(e - 15)
+    }
+}
+
+/// (a) The F16 payload is the nearest binary16 of each word: fixed values exactly, and on a random
+/// set within half an ulp of the value's own binade. A value reaching `2^16` is refused.
+#[test]
+fn f16_payload_is_the_nearest_binary16() {
+    for (word, bits) in [
+        (0i64, 0x0000u16),
+        (1_i64 << 32, 0x3c00),
+        (-(1_i64 << 32), 0xbc00),
+        (1_i64 << 31, 0x3800),
+        (1_i64 << 33, 0x4000),
+        (-(1_i64 << 33), 0xc000),
+        (384, 0x0002),
+        // `127.984375`: the rounded significand carries to the next binade, `128` exactly.
+        (549_688_705_024, 0x5800),
+    ] {
+        assert_eq!(
+            encode_f16(&[word]).expect("f16"),
+            bits.to_le_bytes(),
+            "word {word}"
+        );
+    }
+    assert!(matches!(
+        encode_f16(&[1_i64 << 48]),
+        Err(ConvertError::Range(_))
+    ));
+    let mut rng = Lcg::new(0x0F16);
+    let mut words = Vec::new();
+    for _ in 0..2000 {
+        // A real value `±mant · 2^e`, `mant ∈ [1, 2)` a 24-bit dyadic and `e ∈ [-13, 14]`, so
+        // `|value| ∈ [2^-13, 2^15)` is a normal binary16 and `value · 2^32` is an exact integer.
+        let mant = (rng.next_u64() >> 40) as f64 * 2f64.powi(-24) + 1.0;
+        let e = (rng.next_u64() % 28) as i32 - 13;
+        let sign = if rng.next_u64() & 1 == 0 { 1.0 } else { -1.0 };
+        words.push((sign * mant * 2f64.powi(e) * 4_294_967_296.0) as i64);
+    }
+    let bytes = encode_f16(&words).expect("f16");
+    assert_eq!(bytes.len(), words.len() * 2);
+    let mut worst = 0.0_f64;
+    for (i, &word) in words.iter().enumerate() {
+        let got = half_to_f64(u16::from_le_bytes([bytes[2 * i], bytes[2 * i + 1]]));
+        let real = word as f64 / 4_294_967_296.0;
+        let ulp = 2f64.powi(real.abs().log2().floor() as i32 - 10);
+        worst = worst.max((got - real).abs() / (ulp / 2.0));
+        assert!(
+            (got - real).abs() <= ulp / 2.0,
+            "word {word} real {real} got {got}"
+        );
+    }
+    println!("2000 binary16 roundings: worst error = {worst:.3} half-ulps");
 }

@@ -1,22 +1,20 @@
-//! The glue between the engine-loaded `Q32.32` model ([`crate::learn::grad::model::Weights`],
-//! [`crate::learn::grad::model::Config`]) and the `f64` fold driver
-//! ([`crate::learn::fold::layer::driver::LayerWeights`]), in both directions.
+//! The encoding boundary between the engine's `Q32.32` carrier
+//! ([`crate::learn::grad::model::Weights`]) and the `f64` fold driver
+//! ([`crate::learn::fold::layer::driver::LayerWeights`]), plus the `GGUF` scalar payloads the
+//! transfer run writes: a weight is an `i64` scaled by `2^-32`. [`teacher_from_grad`] lifts a loaded
+//! [`Weights`] into a [`Teacher`] the driver consumes, [`student_to_grad`] lowers the fitted `f64`
+//! layers back, and every elementwise pass over a whole tensor is the one [`Pass`] map split across
+//! the engine pool — one contiguous chunk per participant, bit-identical to the serial map.
 //!
-//! The driver runs the fold transfer in `f64` (`stats::parts`, `fold_transfer.py`); the forward and
-//! the gradient live in the engine's `Q32.32` carrier (`grad::model`), where a weight is an `i64`
-//! scaled by `2^-32`. [`teacher_from_grad`] lifts a loaded [`Weights`] into a [`Teacher`] the driver
-//! consumes; [`student_to_grad`] lowers the driver's fitted `f64` layers back into a [`Weights`]
-//! whose `Q32.32` forward is the engine's.
-//!
-//! The fixed-point scalar is
+//! The lowering quantizes by an integer decode of the `f64` bit pattern, never an `f64` multiply —
 //!
 //! ```text
 //! q32_to_f64(v) = v / 2^32                 # exact for |v| < 2^21
-//! f64_to_q32(x) = round(x · 2^32) : i64    # |x| < 2^31, finite, else refused
+//! f64_to_q32(x) = RNE(x · 2^32) : i64      # exact decode of (sign, exponent, significand)
 //! ```
 //!
-//! so `f64_to_q32(q32_to_f64(v)) == v` for every `Q32.32` word and `|f64_to_q32(x) as f64/2^32 - x|
-//! <= 2^-33` for any admissible `x` (round-to-nearest of one `f64` multiply-add).
+//! so `f64_to_q32(q32_to_f64(v)) == v` for every `Q32.32` word and `|f64_to_q32(x)/2^32 - x| <=
+//! 2^-33` for any admissible `x`; a tie at the grid quantum rounds to even.
 //!
 //! # Evidence grade
 //!
@@ -25,32 +23,34 @@
 //!
 //! # Trust boundary
 //!
-//! Covers the elementwise scalar conversion and the field map between the two representations. Not
-//! covered: the `GGUF` load ([`Weights::from_engine`], the engine's contract), the driver's fit
-//! arithmetic, and rustc/LLVM codegen. The `f64 → i64` cast sits behind the range check in
-//! [`f64_to_q32`]; no `unsafe` appears here.
+//! Not covered: the `GGUF` load ([`Weights::from_engine`], the engine's contract), the `GGUF` header
+//! write, the driver's fit arithmetic, and rustc/LLVM codegen. No `unsafe`, and no `f64` multiply
+//! or `f64` rounding on the computing path.
 
 #![allow(
-    clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
-    clippy::cast_lossless,
-    reason = "the `f64↔Q32.32` boundary: `q32_to_f64`'s `i64 as f64` is the documented scalar \
-              (exact for the admitted range `|v| < 2^21`) and `f64_to_q32`'s `f64 as i64` runs only \
-              after the finite and `|q| < 2^63` checks, so the truncation is unreachable"
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::many_single_char_names,
+    reason = "the `Q32.32 → f64` output boundary (`v as f64` is the documented exact scalar for \
+              `|v| < 2^21`), the bit decode's `m`/`e`/`k` significand-exponent-shift symbols, and \
+              narrowing casts bound-checked at the site (`e < 2^11`, a biased exponent in `1..=30`, \
+              a rounded significand below `2048`)"
 )]
 
+use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
+use crate::engine::chart::task::ChunkTask;
+use crate::engine::fp::F32;
 use crate::learn::fold::layer::driver::LayerWeights;
 use crate::learn::fold::stats::parts::LayerCfg;
 use crate::learn::grad::model::{Config, LayerWeights as GradLayerWeights, Weights};
+use crate::learn::solve::q32::{round_f16, rshift_rne, Fx};
 
 /// The `Q32.32` scale `2^32`.
 const SCALE: f64 = 4_294_967_296.0;
 
-/// `2^31`: the largest magnitude an admissible `f64` may carry (`|x| < 2^31` keeps `x·2^32 < 2^63`).
-const RANGE_BOUND: f64 = 2_147_483_648.0;
-
-/// `2^63`: the exclusive bound on the rounded `Q32.32` word, so `q as i64` is exact.
-const I64_BOUND: f64 = 9_223_372_036_854_775_808.0;
+/// The biased `f64` exponent of `2^31` (`1023 + 31`); `0x7ff` (`NaN`/infinity) is checked first.
+const EXP_2_31: u64 = 1054;
 
 /// A refusal from the engine-weights/fold-driver conversion.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,7 +59,8 @@ pub enum ConvertError {
     Shape(String),
     /// A `Q→f64` conversion needs a `Qwen2` attention bias the loaded model does not carry.
     MissingBias(String),
-    /// A finite `f64` is out of the `Q32.32` representable range (`|x| >= 2^31`).
+    /// A finite `f64` is out of the `Q32.32` range (`|x| >= 2^31`), or a `Q32.32` word has no
+    /// finite binary16 encoding.
     Range(String),
     /// A `f64` is `NaN` or infinite and cannot be quantized.
     NonFinite(String),
@@ -105,47 +106,199 @@ pub fn q32_to_f64(v: i64) -> f64 {
     v as f64 / SCALE
 }
 
-/// `round(x · 2^32)` as an `i64`, or a typed refusal.
+/// `RNE(x · 2^32)` as an `i64` by an integer decode of the `f64` bits: the exponent field bounds
+/// `|x| < 2^31`, `m` is the 53-bit significand shifted onto the `2^-32` grid (`x·2^32 = ±m·2^k`),
+/// and [`rshift_rne`] rounds a tie to the even word. No `f64` multiply or rounding runs here.
 ///
 /// # Errors
-///
-/// [`ConvertError::NonFinite`] for a `NaN`/infinite `x`; [`ConvertError::Range`] for a finite `x`
-/// with `|x| >= 2^31` (whose `Q32.32` word would leave `i64`).
+/// [`ConvertError::NonFinite`] for a `NaN`/infinite `x`; [`ConvertError::Range`] for `|x| >= 2^31`.
 ///
 /// # Complexity
 /// `O(1)`.
 pub fn f64_to_q32(x: f64) -> Result<i64, ConvertError> {
-    if !x.is_finite() {
-        return Err(ConvertError::NonFinite(format!("{x}")));
+    let bits = x.to_bits();
+    let e = (bits >> 52) & 0x7ff;
+    let refuse = || ConvertError::Range(format!("{x}"));
+    match e {
+        0x7ff => return Err(ConvertError::NonFinite(format!("{x}"))),
+        0 => return Ok(0), // subnormal: below the half quantum of the `2^-32` grid
+        EXP_2_31.. => return Err(refuse()),
+        _ => {}
     }
-    if x.abs() >= RANGE_BOUND {
-        return Err(ConvertError::Range(format!("{x}")));
-    }
-    let q = (x * SCALE).round();
-    if !q.is_finite() || q.abs() >= I64_BOUND {
-        return Err(ConvertError::Range(format!("{x}")));
-    }
-    Ok(q as i64)
+    let m = i128::from((bits & 0x000f_ffff_ffff_ffff) | (1 << 52));
+    let k = e as i32 - 1043;
+    // `x·2^32 = ±m·2^k`; the shift clamp is exact because `m <= 2^53` leaves a value below the
+    // half quantum whenever `k < -126`.
+    let mag = if k >= 0 {
+        m << k
+    } else {
+        rshift_rne(m, k.unsigned_abs().min(126)).ok_or_else(refuse)?
+    };
+    let y = i64::try_from(mag).map_err(|_| refuse())?;
+    Ok(if bits >> 63 == 0 { y } else { -y })
 }
 
-/// `q32_to_f64` over a whole tensor.
+/// The scalar encoding one pooled pass applies: `Real` = `Q32.32`→`f64`, `Grid` = `f64`→`Q32.32`
+/// (RNE, refusing out of domain), `F16`/`F32` = `Q32.32`→2/4-byte little-endian payload.
+#[derive(Clone, Copy)]
+enum Map {
+    Real,
+    Grid,
+    F16,
+    F32,
+}
+
+/// One elementwise whole-tensor pass, split across the engine pool: `q` is the `Q32.32` source for
+/// `Real`/`F16`/`F32`, `x` the `f64` source for `Grid`, `first` the lowest refused element's offset.
+/// One struct for all four encodings; the three `ChunkTask` impls are one per output type.
 ///
 /// # Complexity
-/// `O(n)` in the element count.
-#[must_use]
-fn q32_to_f64_slice(v: &[i64]) -> Vec<f64> {
-    v.iter().copied().map(q32_to_f64).collect()
+/// Time `O(n)` per call: one decode and one store per output element, ≈1–3 ns each against a few-µs
+/// dispatch. A dense tensor is 10^5–10^8 words = 0.1–100 ms per call, 20×–10^4× its dispatch; the ≤5
+/// norm/bias vectors per layer are ≤896 words, ≈3 µs lost each (≈0.4 ms per 24-layer run), so one
+/// pooled body serves both. Space `O(n)`.
+struct Pass<'a> {
+    map: Map,
+    q: &'a [i64],
+    x: &'a [f64],
+    first: &'a FirstErr<usize, ConvertError>,
 }
 
-/// [`f64_to_q32`] over a whole tensor, failing on the first refused element.
+impl ChunkTask<f64> for Pass<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [f64]) {
+        for (i, o) in piece.iter_mut().enumerate() {
+            *o = q32_to_f64(self.q[start + i]);
+        }
+    }
+}
+
+impl ChunkTask<i64> for Pass<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [i64]) {
+        for (i, o) in piece.iter_mut().enumerate() {
+            match f64_to_q32(self.x[start + i]) {
+                Ok(q) => *o = q,
+                Err(e) => return self.first.record(start + i, e),
+            }
+        }
+    }
+}
+
+impl ChunkTask<u8> for Pass<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [u8]) {
+        if matches!(self.map, Map::F16) {
+            for (i, slot) in piece.chunks_exact_mut(2).enumerate() {
+                match f16_pair(self.q[start / 2 + i]) {
+                    Ok(b) => slot.copy_from_slice(&b),
+                    Err(e) => return self.first.record(start / 2 + i, e),
+                }
+            }
+        } else {
+            for (i, slot) in piece.chunks_exact_mut(4).enumerate() {
+                let bits = F32::from_q32(self.q[start / 4 + i]).to_bits();
+                slot.copy_from_slice(&bits.to_le_bytes());
+            }
+        }
+    }
+}
+
+/// Dispatch one elementwise pass over `out` (`w` bytes per element).
 ///
 /// # Errors
-/// The first element's [`ConvertError::NonFinite`] or [`ConvertError::Range`].
+/// The lowest refused element's error; `Real` and `F32` cannot refuse.
+fn pass<T: Send>(
+    map: Map,
+    q: &[i64],
+    x: &[f64],
+    w: usize,
+    out: &mut [T],
+) -> Result<(), ConvertError>
+where
+    for<'a> Pass<'a>: ChunkTask<T>,
+{
+    if out.is_empty() {
+        return Ok(());
+    }
+    let first = FirstErr::new();
+    let per_task = w * (out.len() / w).div_ceil(width_global()).max(1);
+    let task = Pass {
+        map,
+        q,
+        x,
+        first: &first,
+    };
+    chunks_mut_global(out, per_task, &task);
+    match first.take() {
+        Some((_, e)) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// [`q32_to_f64`] over a whole tensor.
+#[must_use]
+fn q32_to_f64_slice(v: &[i64]) -> Vec<f64> {
+    let mut out = vec![0.0_f64; v.len()];
+    let _ = pass(Map::Real, v, &[], 8, &mut out);
+    out
+}
+
+/// [`f64_to_q32`] over a whole tensor, failing on the lowest refused element.
 ///
-/// # Complexity
-/// `O(n)` in the element count.
+/// # Errors
+/// [`ConvertError::NonFinite`] or [`ConvertError::Range`] from an element.
 fn f64_to_q32_slice(v: &[f64]) -> Result<Vec<i64>, ConvertError> {
-    v.iter().copied().map(f64_to_q32).collect()
+    let mut out = vec![0_i64; v.len()];
+    pass(Map::Grid, &[], v, 8, &mut out)?;
+    Ok(out)
+}
+
+/// The little-endian binary16 payload of a whole tensor, one RNE narrowing of the grid value per word.
+///
+/// # Errors
+/// [`ConvertError::Range`] for a rounded magnitude with no finite binary16 encoding.
+pub fn encode_f16(v: &[i64]) -> Result<Vec<u8>, ConvertError> {
+    let mut out = vec![0u8; v.len() * 2];
+    pass(Map::F16, v, &[], 2, &mut out)?;
+    Ok(out)
+}
+
+/// The little-endian binary32 payload of a whole tensor ([`F32::from_q32`]); no `f64` is formed.
+#[must_use]
+pub fn encode_f32(v: &[i64]) -> Vec<u8> {
+    let mut out = vec![0u8; v.len() * 4];
+    let _ = pass(Map::F32, v, &[], 4, &mut out);
+    out
+}
+
+/// The binary16 bit pattern of a rounded [`Fx`] `m · 2^e` ([`round_f16`]'s output): sign, biased
+/// exponent and 10-bit significand. A significand that rounded up to `2^11` is the next binade
+/// exactly and is renormalised, never refused.
+///
+/// # Errors
+/// [`ConvertError::Range`] for a rounded magnitude with no finite binary16 encoding.
+fn f16_bits(x: &Fx) -> Result<u16, ConvertError> {
+    let (mut a, mut e) = (x.m.unsigned_abs(), x.e);
+    if a == 2048 {
+        (a, e) = (1024, e + 1);
+    }
+    let sign = if x.m < 0 { 0x8000 } else { 0 };
+    // `round_f16` uses the subnormal quantum `q = -24` below `2^-14`, where `a < 1024`.
+    if a == 0 {
+        return Ok(sign);
+    }
+    if e == -24 && a < 1024 {
+        return Ok(sign | (a as u16));
+    }
+    if !((1024..2048).contains(&a) && (1..=30).contains(&(e + 25))) {
+        return Err(ConvertError::Range(format!("f16 {x:?}")));
+    }
+    Ok(sign | (((e + 25) as u16) << 10) | ((a - 1024) as u16))
+}
+
+/// The little-endian binary16 payload of one `Q32.32` word.
+fn f16_pair(word: i64) -> Result<[u8; 2], ConvertError> {
+    let r = Fx::from_i128(i128::from(word), -32).and_then(round_f16);
+    let refuse = |e| ConvertError::Range(format!("{word}: {e:?}"));
+    Ok(f16_bits(&r.map_err(refuse)?)?.to_le_bytes())
 }
 
 /// `a · b` or [`ConvertError::Shape`] when the product leaves `usize`.
@@ -156,33 +309,23 @@ fn area(a: usize, b: usize, what: &str) -> Result<usize, ConvertError> {
 
 /// `actual == expected` or [`ConvertError::Shape`].
 fn expect_len(actual: usize, expected: usize, what: &str) -> Result<(), ConvertError> {
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(ConvertError::Shape(format!(
-            "{what}: {actual} != {expected}"
-        )))
-    }
+    (actual == expected)
+        .then_some(())
+        .ok_or_else(|| ConvertError::Shape(format!("{what}: {actual} != {expected}")))
 }
 
 /// Lift the engine-loaded `Q32.32` [`Weights`] into the `f64` [`Teacher`] the fold driver consumes.
-///
-/// The `f64` layer geometry is built from `cfg` (`n_head_kv = cfg.n_head_kv`, `hidden = cfg.n_embd`,
-/// `inter = cfg.n_ff`, `eps = cfg.eps / 2^32`, `theta = cfg.rope_theta`); the per-layer field map is
-/// `ln1 = attn_norm`, `ln2 = ffn_norm`, `q = wq/qb`, `k = wk/kb`, `v = wv/vb`, `o = wo`,
-/// `gate = w_gate`, `up = w_up`, `down = w_down`. The three attention biases must be present, as
-/// `Qwen2` carries them and the driver requires them.
+/// The geometry comes from `cfg` (`eps = cfg.eps / 2^32`, `theta = cfg.rope_theta`) and the
+/// per-layer field map is one-to-one (`ln1 = attn_norm`, `ln2 = ffn_norm`, `q/k/v = wq/wk/wv` with
+/// their biases, `o = wo`, `gate/up/down = w_gate/w_up/w_down`).
 ///
 /// # Errors
-///
-/// [`ConvertError::MissingBias`] for a `bq`/`bk`/`bv` the model does not carry;
-/// [`ConvertError::Shape`] for a layer count or a tensor length that disagrees with `cfg`, or a
-/// `usize` product that leaves range.
+/// [`ConvertError::MissingBias`] for a missing attention bias; [`ConvertError::Shape`] for a layer
+/// count, tensor length or `usize` product that disagrees with `cfg`.
 ///
 /// # Complexity
-/// Time `O(n_layer·(n_embd² + n_embd·n_ff) + vocab·n_embd)` conversions (the whole weight set), each
-/// a divide by a power of two; space `O` of the same element count, one `f64` per `Q32.32` word.
-/// Derivation: one pass over each tensor's elements.
+/// Time `O(n)` over the whole weight set (`n_layer·(n_embd² + n_embd·n_ff) + vocab·n_embd`
+/// elements), one pooled pass per tensor; space `O(n)`, one `f64` per word.
 pub fn teacher_from_grad(w: &Weights, cfg: &Config) -> Result<Teacher, ConvertError> {
     let hidden = cfg.n_embd;
     let q_out = area(cfg.n_head, cfg.head_dim, "q_out")?;
@@ -208,45 +351,27 @@ pub fn teacher_from_grad(w: &Weights, cfg: &Config) -> Result<Teacher, ConvertEr
         theta: cfg.rope_theta,
     };
 
+    let q = area(q_out, hidden, "wq")?;
+    let kv = area(kv_out, hidden, "wk")?;
+    let wo = area(hidden, q_out, "wo")?;
+    let gate = area(inter, hidden, "w_gate")?;
+    let up = area(inter, hidden, "w_up")?;
+    let down = area(hidden, inter, "w_down")?;
     let mut layers: Vec<LayerWeights> = Vec::with_capacity(n_layer);
     for (l, lw) in w.layers.iter().enumerate() {
-        expect_len(lw.attn_norm.len(), hidden, &format!("blk.{l}.attn_norm"))?;
-        expect_len(
-            lw.wq.len(),
-            area(q_out, hidden, "wq")?,
-            &format!("blk.{l}.attn_q.weight"),
-        )?;
-        expect_len(
-            lw.wk.len(),
-            area(kv_out, hidden, "wk")?,
-            &format!("blk.{l}.attn_k.weight"),
-        )?;
-        expect_len(
-            lw.wv.len(),
-            area(kv_out, hidden, "wv")?,
-            &format!("blk.{l}.attn_v.weight"),
-        )?;
-        expect_len(
-            lw.wo.len(),
-            area(hidden, q_out, "wo")?,
-            &format!("blk.{l}.attn_output.weight"),
-        )?;
-        expect_len(lw.ffn_norm.len(), hidden, &format!("blk.{l}.ffn_norm"))?;
-        expect_len(
-            lw.w_gate.len(),
-            area(inter, hidden, "w_gate")?,
-            &format!("blk.{l}.ffn_gate.weight"),
-        )?;
-        expect_len(
-            lw.w_up.len(),
-            area(inter, hidden, "w_up")?,
-            &format!("blk.{l}.ffn_up.weight"),
-        )?;
-        expect_len(
-            lw.w_down.len(),
-            area(hidden, inter, "w_down")?,
-            &format!("blk.{l}.ffn_down.weight"),
-        )?;
+        for (got, want, name) in [
+            (lw.attn_norm.len(), hidden, "attn_norm"),
+            (lw.wq.len(), q, "attn_q.weight"),
+            (lw.wk.len(), kv, "attn_k.weight"),
+            (lw.wv.len(), kv, "attn_v.weight"),
+            (lw.wo.len(), wo, "attn_output.weight"),
+            (lw.ffn_norm.len(), hidden, "ffn_norm"),
+            (lw.w_gate.len(), gate, "ffn_gate.weight"),
+            (lw.w_up.len(), up, "ffn_up.weight"),
+            (lw.w_down.len(), down, "ffn_down.weight"),
+        ] {
+            expect_len(got, want, &format!("blk.{l}.{name}"))?;
+        }
         let bq = lw
             .bq
             .as_deref()
@@ -289,20 +414,16 @@ pub fn teacher_from_grad(w: &Weights, cfg: &Config) -> Result<Teacher, ConvertEr
 }
 
 /// Lower the driver's fitted `f64` layers and final-norm gain back into a `Q32.32` [`Weights`] whose
-/// forward is the engine's. The first `layers.len()` layers come from `layers` (with `Some` biases);
-/// `output_norm` comes from `fnorm`; `token_embd` and `lm_head` are cloned from `teacher`.
+/// forward is the engine's: the first `layers.len()` layers from `layers` (with `Some` biases),
+/// `output_norm` from `fnorm`, and `token_embd`/`lm_head` cloned from `teacher`.
 ///
 /// # Errors
-///
-/// [`ConvertError::Shape`] when `layers.len()` differs from `teacher.layers.len()`, when a `f64`
-/// tensor's length differs from the matching `teacher` tensor, or when `fnorm` does not match
-/// `teacher.output_norm`; [`ConvertError::NonFinite`] and [`ConvertError::Range`] from any
-/// out-of-domain `f64` element.
+/// [`ConvertError::Shape`] for a layer count or tensor length that disagrees with `teacher`;
+/// [`ConvertError::NonFinite`] and [`ConvertError::Range`] from an out-of-domain `f64` element.
 ///
 /// # Complexity
-/// Time `O(n_layer·(n_embd² + n_embd·n_ff) + n_embd)` conversions (the fitted layers and the final
-/// gain); space `O` of the same element count, one `Q32.32` word per `f64`. Derivation: one pass
-/// over each tensor's elements; `token_embd`/`lm_head` are cloned, not converted.
+/// Time `O(n)` over the fitted layers and the final gain, one pooled RNE pass per tensor; space
+/// `O(n)`, one `Q32.32` word per `f64`.
 pub fn student_to_grad(
     teacher: &Weights,
     layers: &[LayerWeights],
@@ -317,39 +438,19 @@ pub fn student_to_grad(
     }
     let mut out: Vec<GradLayerWeights> = Vec::with_capacity(layers.len());
     for (l, (lw, tl)) in layers.iter().zip(&teacher.layers).enumerate() {
-        expect_len(
-            lw.ln1.len(),
-            tl.attn_norm.len(),
-            &format!("blk.{l}.attn_norm"),
-        )?;
-        expect_len(
-            lw.ln2.len(),
-            tl.ffn_norm.len(),
-            &format!("blk.{l}.ffn_norm"),
-        )?;
-        expect_len(lw.q.len(), tl.wq.len(), &format!("blk.{l}.attn_q.weight"))?;
-        expect_len(lw.k.len(), tl.wk.len(), &format!("blk.{l}.attn_k.weight"))?;
-        expect_len(lw.v.len(), tl.wv.len(), &format!("blk.{l}.attn_v.weight"))?;
-        expect_len(
-            lw.o.len(),
-            tl.wo.len(),
-            &format!("blk.{l}.attn_output.weight"),
-        )?;
-        expect_len(
-            lw.gate.len(),
-            tl.w_gate.len(),
-            &format!("blk.{l}.ffn_gate.weight"),
-        )?;
-        expect_len(
-            lw.up.len(),
-            tl.w_up.len(),
-            &format!("blk.{l}.ffn_up.weight"),
-        )?;
-        expect_len(
-            lw.down.len(),
-            tl.w_down.len(),
-            &format!("blk.{l}.ffn_down.weight"),
-        )?;
+        for (got, want, name) in [
+            (lw.ln1.len(), tl.attn_norm.len(), "attn_norm"),
+            (lw.ln2.len(), tl.ffn_norm.len(), "ffn_norm"),
+            (lw.q.len(), tl.wq.len(), "attn_q.weight"),
+            (lw.k.len(), tl.wk.len(), "attn_k.weight"),
+            (lw.v.len(), tl.wv.len(), "attn_v.weight"),
+            (lw.o.len(), tl.wo.len(), "attn_output.weight"),
+            (lw.gate.len(), tl.w_gate.len(), "ffn_gate.weight"),
+            (lw.up.len(), tl.w_up.len(), "ffn_up.weight"),
+            (lw.down.len(), tl.w_down.len(), "ffn_down.weight"),
+        ] {
+            expect_len(got, want, &format!("blk.{l}.{name}"))?;
+        }
         let q_out = tl.bq.as_ref().map_or(lw.qb.len(), Vec::len);
         let kv_out = tl.bk.as_ref().map_or(lw.kb.len(), Vec::len);
         expect_len(lw.qb.len(), q_out, &format!("blk.{l}.attn_q.bias"))?;

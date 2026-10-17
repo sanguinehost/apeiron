@@ -14,10 +14,13 @@
 //!   valid.
 //! - [`write_student_gguf`] re-encodes the fitted `Q32.32` [`Weights`] into the teacher's own `GGUF`
 //!   directory: every tensor keeps its name, dimensions, `ggml` type and offset, so the directory
-//!   is byte-unchanged and only payloads move. F16 payloads are the single
-//!   [`round_f16`](crate::learn::solve::q32::round_f16) round-to-nearest-even narrowing of the
-//!   `Q32.32` value; F32 payloads are the exact value where the source is F32; any other source
-//!   type is refused, and a value outside the type's finite range is refused, never clamped.
+//!   is byte-unchanged and only payloads move. The payload is the
+//!   [`crate::learn::fold::run::convert`] scalar encoder for the tensor's type (binary16 RNE,
+//!   binary32 integer map), refusing a value outside that type's finite range and never clamping.
+//!
+//! The checkpoint keeps the driver's `f64` [`ModelState`] as its format (`ht.bin`, `hs.bin`,
+//! `layer-<l>.bin`, eight bytes per value); that boundary belongs to
+//! [`crate::learn::fold::layer::driver`] and is not a computation here.
 //!
 //! # Subsumption
 //!
@@ -40,21 +43,14 @@
 //! file's bytes, not the `h0` or the configuration that produced them.
 
 #![allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
     clippy::doc_markdown,
-    clippy::implicit_clone,
     clippy::many_single_char_names,
     clippy::needless_range_loop,
     clippy::similar_names,
     clippy::too_many_lines,
-    reason = "the `Q32.32` boundary maps one `i64` word to `f64`/`f32` by a power-of-two divide \
-              (the documented grid map), the F16 encoder narrows a range-checked significand to \
-              `u16` and a manifest length to `usize`, the layer split indexes a flat buffer by \
-              `row-major [out, in]` offsets as the driver does, and `l`/`n`/`o` are the driver's \
-              tensor-dimension names; the `ht`/`hs` and `*_len`/`*_sha` pairs are the two hidden \
-              states and their manifest fields, named after the files they describe"
+    reason = "`l`/`n`/`o` are the driver's tensor-dimension names, and the `ht`/`hs` and \
+              `*_len`/`*_sha` pairs are the two hidden states and their manifest fields, named \
+              after the files they describe"
 )]
 
 use std::fmt::Write as _;
@@ -65,10 +61,9 @@ use crate::format::gguf::{Gguf, GgufError};
 use crate::format::quant;
 use crate::learn::fold::layer::driver::{DriverError, LayerWeights, ModelState};
 use crate::learn::fold::layer::tensor::TensorBits;
-use crate::learn::fold::run::convert::{ConvertError, Teacher};
+use crate::learn::fold::run::convert::{encode_f16, encode_f32, ConvertError, Teacher};
 use crate::learn::gguf::write_file;
 use crate::learn::grad::model::Weights;
-use crate::learn::solve::q32::{from_grid, round_f16, Fx};
 use crate::sha256::sha256;
 
 /// The checkpoint manifest file name.
@@ -100,9 +95,7 @@ pub enum TransferError {
     },
     /// A length, tensor shape or file size disagrees with the declared geometry.
     Shape(String),
-    /// A `Q32.32` value is outside the target `GGML` type's finite range (F16 infinity).
-    Range(String),
-    /// The `Q32.32` rounding refused its carrier.
+    /// The `Q32.32` value has no finite binary16 encoding.
     F16(String),
     /// The teacher stores a tensor in a `ggml` type this writer does not re-encode.
     Type(u32),
@@ -141,8 +134,7 @@ impl core::fmt::Display for TransferError {
                 write!(f, "checkpoint digest: {file}: {got} != {want}")
             }
             Self::Shape(m) => write!(f, "shape: {m}"),
-            Self::Range(m) => write!(f, "out of the target type's range: {m}"),
-            Self::F16(m) => write!(f, "F16 rounding refused: {m}"),
+            Self::F16(m) => write!(f, "F16 encoding refused: {m}"),
             Self::Type(t) => write!(f, "ggml type {t} has no re-encoder here"),
             Self::Gguf(e) => write!(f, "teacher GGUF: {e}"),
             Self::Convert(e) => write!(f, "weights conversion: {e}"),
@@ -218,21 +210,24 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), TransferError> {
 /// over every token of every chunk, in chunk order (`ht = cfg.E[ids_cal.cpu()]`,
 /// `fold_transfer.py:1514`; the same gather is `:94`).
 ///
+/// A row copy, not a computed map: each output row is one `memcpy` of `hidden` `f64`s, so the pass
+/// is memory-bound and a pool dispatch costs about what the copy saves. It stays a serial checked
+/// copy; every token id is bounds-checked before its row is read.
+///
 /// # Complexity
-/// Time and space `O(n_tok·hidden)`: one checked gather and one copy per token.
+/// Time and space `O(n_tok·hidden)`: one checked copy of `hidden` words per token, two sequential
+/// passes over the token list.
 ///
 /// # Errors
-/// [`TransferError::Shape`] for a token id `>= teacher.vocab` or a length product that overflows.
+/// [`TransferError::Shape`] for a token id `>= teacher.vocab`, an embedding row past the table, or a
+/// length product that overflows.
 pub fn h0_from_chunks(teacher: &Teacher, chunks: &[Vec<u32>]) -> Result<Vec<f64>, TransferError> {
     let hid = teacher.layer_cfg.hidden;
-    let mut n_tok = 0usize;
-    for c in chunks {
-        n_tok = n_tok
-            .checked_add(c.len())
-            .ok_or_else(|| TransferError::Shape("token count".to_string()))?;
-    }
-    let len = area(n_tok, hid, "h0")?;
-    let mut out = Vec::with_capacity(len);
+    let n_tok = chunks
+        .iter()
+        .try_fold(0usize, |n, c| n.checked_add(c.len()));
+    let tok = n_tok.ok_or_else(|| TransferError::Shape("token count".to_string()))?;
+    let mut out = Vec::with_capacity(area(tok, hid, "h0")?);
     for c in chunks {
         for &id in c {
             let id = usize::try_from(id)
@@ -653,74 +648,14 @@ fn student_values<'a>(w: &'a Weights, name: &[u8]) -> Option<&'a [i64]> {
     }
 }
 
-/// The IEEE-754 binary16 encoding of a rounded [`Fx`] `m · 2^e` (`round_f16`'s output): the sign,
-/// the biased exponent and the 10-bit significand.
-///
-/// # Errors
-/// [`TransferError::Range`] when the rounded value has no finite binary16 encoding (the encoder's
-/// exponent field would be 0 with a normal significand, or 31).
-fn f16_bits(x: &Fx) -> Result<u16, TransferError> {
-    if x.m == 0 {
-        return Ok(0);
-    }
-    let sign: u16 = if x.m < 0 { 0x8000 } else { 0 };
-    let a = x.m.unsigned_abs();
-    // `round_f16` sets the subnormal quantum `q = -24` below `2^-14`; `a < 1024` there.
-    if x.e == -24 && a < 1024 {
-        return Ok(sign | u16::try_from(a).map_err(|_| TransferError::Range(format!("{x:?}")))?);
-    }
-    if !(1024..2048).contains(&a) {
-        return Err(TransferError::Range(format!("{x:?}")));
-    }
-    let exp = x.e + 25;
-    if !(1..=30).contains(&exp) {
-        return Err(TransferError::Range(format!("{x:?}")));
-    }
-    let mant = u16::try_from(a - 1024).map_err(|_| TransferError::Range(format!("{x:?}")))?;
-    Ok(sign
-        | (u16::try_from(exp).map_err(|_| TransferError::Range(format!("{x:?}")))? << 10)
-        | mant)
-}
-
-/// Encode `Q32.32` words as little-endian binary16, one round-to-nearest-even narrowing per value.
-///
-/// # Complexity
-/// Time `O(n)`; space `O(2n)` bytes.
-///
-/// # Errors
-/// [`TransferError::Range`] for a value whose rounded magnitude reaches `2^16` (F16 infinity);
-/// [`TransferError::F16`] for a carrier refusal.
-fn encode_f16(v: &[i64]) -> Result<Vec<u8>, TransferError> {
-    let mut out = Vec::with_capacity(v.len() * 2);
-    for &word in v {
-        let fx = Fx::from_i128(i128::from(word), -32)
-            .map_err(|e| TransferError::F16(format!("{word}: {e:?}")))?;
-        let r = round_f16(fx).map_err(|e| TransferError::F16(format!("{word}: {e:?}")))?;
-        out.extend_from_slice(&f16_bits(&r)?.to_le_bytes());
-    }
-    Ok(out)
-}
-
-/// Encode `Q32.32` words as little-endian binary32. The grid value `v/2^32` is exact where the
-/// source tensor was F32, so an F32 re-encode is a byte-faithful copy of the teacher payload.
-///
-/// # Complexity
-/// Time `O(n)`; space `O(4n)` bytes.
-fn encode_f32(v: &[i64]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(v.len() * 4);
-    for &word in v {
-        out.extend_from_slice(&(from_grid(word) as f32).to_le_bytes());
-    }
-    out
-}
-
 /// Re-encode `v` into the teacher's `ggml` type.
 ///
 /// # Errors
-/// [`TransferError::Type`] for a type other than F16 or F32; the encoder's own refusals.
+/// [`TransferError::Type`] for a type other than F16 or F32; [`TransferError::F16`] when a word has
+/// no finite binary16 encoding; [`TransferError::Convert`] for any other refusal.
 fn encode(ggml_type: u32, v: &[i64]) -> Result<Vec<u8>, TransferError> {
     match ggml_type {
-        quant::GGML_TYPE_F16 => encode_f16(v),
+        quant::GGML_TYPE_F16 => encode_f16(v).map_err(|e| TransferError::F16(e.to_string())),
         quant::GGML_TYPE_F32 => Ok(encode_f32(v)),
         other => Err(TransferError::Type(other)),
     }
@@ -728,22 +663,21 @@ fn encode(ggml_type: u32, v: &[i64]) -> Result<Vec<u8>, TransferError> {
 
 /// Write `student` as a `GGUF` under the teacher's directory at `teacher_path`, to `out_path`.
 ///
-/// The teacher header is parsed by [`Gguf::open`] (the reader's
-/// [`parse_header`](crate::format::gguf::parse_header)); every tensor keeps its name, dimensions,
-/// `ggml` type and offset, so the directory is unchanged. Each tensor the student carries is
-/// re-encoded from its `Q32.32` words ([`encode`]): F16 by one `round_f16` narrowing (RNE), F32 as
-/// the exact value. A tensor name the [`Weights`] struct does not carry copies the teacher payload
-/// byte-for-byte. Values outside the type's finite range are refused, never clamped.
+/// The teacher header is parsed by [`Gguf::open`]; every tensor keeps its name, dimensions, `ggml`
+/// type and offset, so the directory is unchanged. Each tensor the student carries is re-encoded
+/// from its `Q32.32` words ([`encode`]) — one pooled pass per tensor — and a tensor name the
+/// [`Weights`] struct does not carry copies the teacher payload byte-for-byte.
 ///
 /// # Complexity
-/// Time and space `O(file bytes)` = `O(2·W)` for an F16 teacher of `W` weights: one encode pass and
-/// one header pass; the whole data section is held once before the atomic write.
+/// Time and space `O(file bytes)` = `O(2·W)` for an F16 teacher of `W` weights: one pooled encode
+/// pass per tensor plus one header pass; the whole data section is held once before the atomic
+/// write.
 ///
 /// # Errors
 /// [`TransferError::Gguf`] on a teacher refusal; [`TransferError::Type`] for a source type other
 /// than F16/F32 or a tensor with no geometry; [`TransferError::Shape`] when a tensor's element
-/// count, payload size or offset disagrees with the student; [`TransferError::Range`] for an F16
-/// overflow; [`TransferError::Io`] on a write failure.
+/// count, payload size or offset disagrees with the student; [`TransferError::F16`] for a value
+/// outside binary16's finite range; [`TransferError::Io`] on a write failure.
 pub fn write_student_gguf(
     teacher_path: &str,
     student: &Weights,

@@ -37,6 +37,9 @@ const HIDDEN: usize = 8;
 const N: usize = 128;
 const SLAB_ROWS: usize = 24;
 
+/// Half a Q32.32 word in value, `2⁻³³`.
+const EPS: f64 = 1.164_153_215_230_957_2e-10;
+
 /// Deterministic xorshift64 PRNG, uniform in `[-1, 1)`.
 struct Rng(u64);
 
@@ -126,7 +129,21 @@ fn half_up_weight_optimum_near_two() {
     let wq_u: Vec<f64> = f.w_u0.iter().map(|v| 0.5 * v).collect();
     let sol = resq_solve(&inputs(&f, &slabs, &f.w_g0, &wq_u)).expect("shape ok");
 
-    // Undamped system: `GoP_u = G⊙P_mat`, `rhs_u = GoC·1`; `GoC = 2·GoP_u`, so `GoP_u·2 = rhs_u`.
+    // Undamped system: `GoP_u = G⊙P_mat`, `rhs_u = GoC·1`; `GoC = 2·GoP_u` in real arithmetic, so
+    // `GoP_u·2 = rhs_u`. On the grid the two sides come from exact `i128` contractions rounded once
+    // per entry; the only asymmetry is the projection word. `Wq_g == W_g0`, so `sq == sg` exactly and
+    // `p_q − p_0/2 = sg·(u_q − u_0/2) + O(ε)` with `u_q = round(u_0/2)`: `|u_q − u_0/2| ≤ 2ε` and
+    // `|sg| ≤ 21`, hence `δ = |p_q − p_0/2| ≤ 44ε` for `ε = 2⁻³³`. Writing `p_q = p_0/2 + e`,
+    // `2·P − C = P₀ᵀE + 2EᵀE` over the slab's `rows` rows, and `|G_ij| ≤ hidden`, `|p_0| ≤ 21·n`;
+    // so the residual is bounded by `inter·hidden·(rows·21·n·δ + 2·rows·δ²) + 2·inter·ε`. Derived,
+    // not measured: `≈ 8e-2` here, against the arithmetic identity, not the solver's precision (the
+    // oracle test below pins that at `2⁻²⁸`).
+    let delta = 44.0 * EPS;
+    let rows = 2.0 * SLAB_ROWS as f64;
+    let p0_max = 21.0 * N as f64;
+    let bound =
+        INTER as f64 * (HIDDEN as f64) * (rows * p0_max * delta + 2.0 * rows * delta * delta)
+            + 2.0 * INTER as f64 * EPS;
     let d = INTER;
     let mut residual = 0.0_f64;
     for i in 0..d {
@@ -138,7 +155,11 @@ fn half_up_weight_optimum_near_two() {
         let rhs_u = sol.rhs[i] - sol.lam;
         residual = residual.max((lhs - rhs_u).abs());
     }
-    assert!(residual < 1e-9, "undamped residual at s = 2: {residual}");
+    println!("half-up undamped residual at s = 2: {residual:.3e} (bound {bound:.3e})");
+    assert!(
+        residual <= bound,
+        "undamped residual at s = 2: {residual} > {bound}"
+    );
 
     for (i, &v) in sol.s_raw.iter().enumerate() {
         assert!((v - 2.0).abs() < 0.5, "row {i}: raw = {v}");
@@ -298,6 +319,14 @@ fn refusals() {
         ResqError::NonFinite
     );
 
+    // A finite entry at or beyond the Q32.32 grid's range 2³¹ is not representable.
+    let mut huge = f.w_g0.clone();
+    huge[5] = 1e30;
+    assert_eq!(
+        resq_scale(&inputs(&f, &slabs, &huge, &f.w_u0)).unwrap_err(),
+        ResqError::NotRepresentable
+    );
+
     // rescale_hier: shape and non-finite.
     let rh = vec![1.0_f64; INTER * 2];
     let s = vec![1.0_f64; INTER];
@@ -311,6 +340,12 @@ fn refusals() {
     assert_eq!(
         rescale_hier(&rh_nan, &s, INTER, 2).unwrap_err(),
         ResqError::NonFinite
+    );
+    let mut rh_huge = rh.clone();
+    rh_huge[1] = -3e12;
+    assert_eq!(
+        rescale_hier(&rh_huge, &s, INTER, 2).unwrap_err(),
+        ResqError::NotRepresentable
     );
 
     // rescale_hier_top: an out-of-range gathered row is refused.
@@ -331,4 +366,210 @@ fn assert_same_hier(a: &RHier, b: &RHier) {
     assert_eq!(a.r_lo, b.r_lo);
     assert_eq!(a.r_sp, b.r_sp);
     assert_eq!(a.rq, b.rq);
+}
+
+// ---- the pre-migration `f64` body, copied verbatim as the agreement oracle -------------------
+
+/// The pre-migration [`resq_solve`] body: the `f64` G/P/C loops, the `f64` ridge and the `f64`
+/// `ridge::solve_spd`.
+struct RefSolution {
+    gop: Vec<f64>,
+    rhs: Vec<f64>,
+    lam: f64,
+    s_raw: Vec<f64>,
+    s_clamped: Vec<f64>,
+}
+
+fn ref_resq_solve(inputs: &ResqInputs<'_>) -> RefSolution {
+    let ResqInputs {
+        x_slabs,
+        n,
+        w_g0,
+        w_u0,
+        wq_g,
+        wq_u,
+        w_down,
+        inter,
+        hidden,
+    } = *inputs;
+    let inter2 = inter * inter;
+    // G = W_downᵀ·W_down.
+    let mut g = vec![0.0_f64; inter2];
+    for h in 0..hidden {
+        for i in 0..inter {
+            let w_hi = w_down[h * inter + i];
+            for j in 0..inter {
+                g[i * inter + j] += w_hi * w_down[h * inter + j];
+            }
+        }
+    }
+    let mut p_mat = vec![0.0_f64; inter2];
+    let mut c_mat = vec![0.0_f64; inter2];
+    for slab in x_slabs {
+        let rows = slab.len() / n;
+        if rows == 0 {
+            continue;
+        }
+        let mut p0 = vec![0.0_f64; rows * inter];
+        let mut pq = vec![0.0_f64; rows * inter];
+        for r in 0..rows {
+            let xr = &slab[r * n..r * n + n];
+            for i in 0..inter {
+                let mut ag = 0.0_f64;
+                let mut au = 0.0_f64;
+                let mut agq = 0.0_f64;
+                let mut auq = 0.0_f64;
+                for j in 0..n {
+                    let x = xr[j];
+                    ag += x * w_g0[i * n + j];
+                    au += x * w_u0[i * n + j];
+                    agq += x * wq_g[i * n + j];
+                    auq += x * wq_u[i * n + j];
+                }
+                p0[r * inter + i] = ref_silu(ag) * au;
+                pq[r * inter + i] = ref_silu(agq) * auq;
+            }
+        }
+        for i in 0..inter {
+            for j in 0..inter {
+                let mut pp = 0.0_f64;
+                let mut pc = 0.0_f64;
+                for r in 0..rows {
+                    pp += pq[r * inter + i] * pq[r * inter + j];
+                    pc += pq[r * inter + i] * p0[r * inter + j];
+                }
+                p_mat[i * inter + j] += pp;
+                c_mat[i * inter + j] += pc;
+            }
+        }
+    }
+    let mut gop = vec![0.0_f64; inter2];
+    let mut rhs = vec![0.0_f64; inter];
+    for i in 0..inter {
+        for j in 0..inter {
+            gop[i * inter + j] = g[i * inter + j] * p_mat[i * inter + j];
+        }
+    }
+    let mut mean_diag = 0.0_f64;
+    for i in 0..inter {
+        mean_diag += gop[i * inter + i];
+    }
+    mean_diag /= inter as f64;
+    let lam = 0.05 * mean_diag.max(1e-12);
+    for i in 0..inter {
+        gop[i * inter + i] += lam;
+    }
+    for i in 0..inter {
+        let mut s = 0.0_f64;
+        for j in 0..inter {
+            s += g[i * inter + j] * c_mat[i * inter + j];
+        }
+        rhs[i] = s + lam;
+    }
+    let s_raw = apeiron::learn::ridge::solve_spd(&gop, &rhs, inter, 1).expect("solve_spd");
+    let s_clamped: Vec<f64> = s_raw.iter().map(|&v| v.clamp(0.5, 2.0)).collect();
+    RefSolution {
+        gop,
+        rhs,
+        lam,
+        s_raw,
+        s_clamped,
+    }
+}
+
+/// The pre-migration `silu`.
+fn ref_silu(x: f64) -> f64 {
+    x / (1.0 + (-x).exp())
+}
+
+/// The pre-migration [`rescale_hier`] body: the `f64` product then `quant_r_hier`.
+fn ref_rescale_hier(rh: &[f64], s: &[f64], o: usize, g: usize) -> RHier {
+    let mut scaled = vec![0.0_f64; o * g];
+    for i in 0..o {
+        let si = s[i];
+        for j in 0..g {
+            scaled[i * g + j] = rh[i * g + j] * si;
+        }
+    }
+    quant_r_hier(&scaled, o, g).expect("quant_r_hier")
+}
+
+/// `max |a[i] − b[i]|`.
+fn max_diff(a: &[f64], b: &[f64]) -> f64 {
+    a.iter()
+        .zip(b)
+        .fold(0.0_f64, |m, (x, y)| m.max((x - y).abs()))
+}
+
+/// `max |a[i]|`.
+fn max_abs(a: &[f64]) -> f64 {
+    a.iter().fold(0.0_f64, |m, &x| m.max(x.abs()))
+}
+
+/// The migrated Q32.32 `-resq` step against the `f64` oracle on the shared fixture.
+///
+/// Bounds `2⁻²⁸` relative for the system entries and the solution, derived: the inputs cross the
+/// Q32.32 grid once (relative `2⁻³³`), every `G`/`P_mat`/`C_mat`/`GoP` entry is rounded once more
+/// (`2⁻³³`), the Hadamard product once, and the `Cholesky` solve's exact-residual refinement leaves
+/// the solution within the system's condition times `2⁻³³`; nine such roundings at a measured
+/// condition below `2²` bound the disagreement at `2⁻²⁸`. The observed maxima are printed.
+#[test]
+fn agrees_with_f64_oracle() {
+    const BOUND: f64 = 3.725_290_298_461_914e-9; // 2⁻²⁸
+    let f = fixture(0x51ce_0009);
+    let slabs: [&[f64]; 2] = [&f.x0, &f.x1];
+    for (name, wq_g, wq_u) in [
+        ("teacher", f.w_g0.clone(), f.w_u0.clone()),
+        (
+            "half-up",
+            f.w_g0.clone(),
+            f.w_u0.iter().map(|v| 0.5 * v).collect(),
+        ),
+    ] {
+        let inputs = inputs(&f, &slabs, &wq_g, &wq_u);
+        let got = resq_solve(&inputs).expect("q32 solve");
+        let want = ref_resq_solve(&inputs);
+        let dg = max_diff(&got.gop, &want.gop);
+        let dr = max_diff(&got.rhs, &want.rhs);
+        let dl = (got.lam - want.lam).abs();
+        let ds = max_diff(&got.s_raw, &want.s_raw);
+        println!(
+            "{name}: gop {:.3e} rhs {:.3e} lam {:.3e} s_raw {:.3e} (scales {:.3e} / {:.3e})",
+            dg,
+            dr,
+            dl,
+            ds,
+            max_abs(&want.gop),
+            max_abs(&want.s_raw)
+        );
+        assert!(dg <= BOUND * max_abs(&want.gop), "{name}: gop {dg:e}");
+        assert!(dr <= BOUND * max_abs(&want.rhs), "{name}: rhs {dr:e}");
+        assert!(dl <= BOUND * want.lam, "{name}: lam {dl:e}");
+        assert!(
+            ds <= BOUND * max_abs(&want.s_raw).max(1.0),
+            "{name}: s {ds:e}"
+        );
+        for (a, b) in got.s_clamped.iter().zip(&want.s_clamped) {
+            assert!((a - b).abs() <= BOUND * 2.0, "{name}: clamped {a} vs {b}");
+        }
+    }
+    // The row-scale fold: the same grid product, so the fold matches the `f64` product's
+    // `quant_r_hier` on the fixture's O(1) entries (`s ≈ 1`, so the products differ by ≤ 2⁻³³ and
+    // the quantizer's `mu`/`sp` scan is unchanged).
+    let s = vec![1.0_f64; INTER];
+    let o = INTER;
+    let g = 3usize;
+    let mut rng = Rng::new(0x51ce_000a);
+    let rh: Vec<f64> = (0..o * g)
+        .map(|_| 0.1 + 0.9 * rng.next_f64().abs())
+        .collect();
+    let got = rescale_hier(&rh, &s, o, g).expect("shape ok");
+    let want = ref_rescale_hier(&rh, &s, o, g);
+    assert_eq!(got.bits, want.bits);
+    assert_eq!(got.k, want.k);
+    assert_eq!(got.u6, want.u6);
+    assert_eq!(got.sp_idx, want.sp_idx);
+    let dq = max_diff(&got.rq, &want.rq);
+    println!("rescale_hier: rq {dq:.3e}");
+    assert!(dq <= BOUND * max_abs(&want.rq).max(1.0), "rq {dq:e}");
 }

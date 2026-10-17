@@ -19,17 +19,29 @@
 //!   `lam = 0.05·max(mean(diag(GoP)), 1e-12)`; `GoP.diag += lam`, `rhs += lam`.
 //! - `s = solve(GoP, rhs)` (Cholesky), clamped to `[0.5, 2.0]`.
 //!
+//! # Q32.32 carrier
+//!
+//! Every value this step computes is a Q32.32 `i64` word. The weights cross the grid once at
+//! [`resq_solve`]'s entry; the four projections and the two Grams are the shared [`gemm_nt_f64`]
+//! Q32.32 products (grid in, exact power-of-two panel scale, grid out); each gate and up dot is
+//! re-gridded once; the gate is [`silu_fixed`], an elementwise product is [`round_q32_even`] of the
+//! exact `i128` product, the Hadamard is [`hadamard_into`], `rhs = GoC·1` is [`row_dot_fixed`], and
+//! the solve is [`chol_solve`]. The per-row multiplier fold is one integer product per stored entry;
+//! the only `f64` is the products' documented power-of-two scaling and grid crossing.
+//!
 //! The Hadamard product of two symmetric positive-semidefinite matrices (`G` is a Gram, `P_mat` is a
 //! Gram of the slab stack) is positive-semidefinite (Schur product theorem), so `GoP + lam·I` is
-//! positive-definite for `lam > 0`; [`resq_solve`] solves it with [`crate::learn::ridge::solve_spd`]
-//! and returns [`ResqError::NotPositiveDefinite`] if a `Cholesky` pivot is non-positive, with no
-//! fallback.
+//! positive-definite for `lam > 0`; [`resq_solve`] solves it with [`chol_solve`] and returns
+//! [`ResqError::NotPositiveDefinite`] if a `Cholesky` pivot is non-positive, with no fallback.
 //!
 //! # Partiality
 //!
 //! Every entry point refuses a shape that disagrees with the declared dims ([`ResqError::ShapeMismatch`]),
-//! a zero `inter`/`n`/`hidden` ([`ResqError::Empty`]) and a non-finite input ([`ResqError::NonFinite`]).
-//! No function here panics on caller input.
+//! a zero `inter`/`n`/`hidden` ([`ResqError::Empty`]), a non-finite input ([`ResqError::NonFinite`]),
+//! a finite entry at or beyond the grid's range `2³¹` ([`ResqError::NotRepresentable`]), and an
+//! integer operation that leaves its range ([`ResqError::Overflow`]). The `1e-12` floor of `lam` is
+//! below the carrier's quantum `2⁻³² ≈ 2.3e-10`, so it is the grid's zero: a zero diagonal means
+//! `lam == 0` and the solve's own positivity refusal. No function here panics on caller input.
 //!
 //! # Grade
 //!
@@ -40,20 +52,24 @@
     clippy::many_single_char_names,
     clippy::similar_names,
     clippy::needless_range_loop,
-    clippy::cast_precision_loss,
     clippy::doc_markdown,
-    clippy::suboptimal_flops,
     clippy::too_many_arguments,
     clippy::too_many_lines,
-    clippy::must_use_candidate,
     reason = "the kernels index the row-major `[rows, n]`/`[inter, inter]` buffers by `i/j/r` and \
-              name the carriers `W_g0`/`W_u0`/`Wq_g`/`Wq_u`/`Wg`/`P_mat`/`C_mat`/`GoP`/`GoC` as the \
-              reference does; the `inter as f64` cast is the mean's divisor after `inter > 0` is \
-              checked"
+              name the carriers `W_g0`/`W_u0`/`Wq_g`/`Wq_u`/`P_mat`/`C_mat`/`GoP`/`GoC` as the \
+              reference does"
 )]
 
+use crate::engine::row_dot_fixed;
+use crate::engine::silu_fixed;
 use crate::learn::fold::fit::quant::{quant_r_hier, QuantError, RHier};
-use crate::learn::ridge::solve_spd;
+use crate::learn::solve::chol::{chol_solve, SolveError};
+use crate::learn::solve::gemm::gemm_nt_f64;
+use crate::learn::solve::q32::{from_grid, round_q32_even, to_grid, GRID_BOUND};
+use crate::learn::solve::syrk::hadamard_into;
+
+/// `1.0` in raw Q32.32.
+const ONE: i64 = 1_i64 << 32;
 
 /// A refusal from the `-resq` row-scale step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,8 +80,12 @@ pub enum ResqError {
     ShapeMismatch,
     /// A non-finite entry in an input.
     NonFinite,
+    /// A finite entry at or beyond the Q32.32 grid's real range `2³¹` ([`GRID_BOUND`]).
+    NotRepresentable,
     /// The elementwise-Gram system had a non-positive `Cholesky` pivot.
     NotPositiveDefinite,
+    /// A checked integer accumulation, product or narrowing left its range.
+    Overflow,
     /// The hierarchical row-scale quantiser refused its input.
     Quant(QuantError),
 }
@@ -107,7 +127,7 @@ pub struct ResqInputs<'a> {
 ///
 /// `gop` is `G ⊙ P_mat` with `lam` added to its diagonal (row-major `[inter, inter]`); `rhs` is
 /// `GoC·1` with `lam` added; `s_raw` solves `gop·s = rhs`; `s_clamped` is `s_raw` clamped to
-/// `[0.5, 2.0]` (the value the production step applies).
+/// `[0.5, 2.0]` (the value the production step applies). Every field is a Q32.32 real.
 #[derive(Clone, Debug)]
 pub struct ResqSolution {
     /// `G ⊙ P_mat + lam·I`, row-major `[inter, inter]`.
@@ -122,36 +142,104 @@ pub struct ResqSolution {
     pub s_clamped: Vec<f64>,
 }
 
-/// The clamped per-row multiplier `s_sol` of the `-resq` step, length `inter`.
+/// `x` as Q32.32 words `round(x·2³²)`; `NonFinite` / `NotRepresentable` name the refusal.
+/// Time and space `O(len)`, one grid rounding per entry.
+fn to_words(x: &[f64]) -> Result<Vec<i64>, ResqError> {
+    x.iter()
+        .map(|&v| {
+            to_grid(v, GRID_BOUND).ok_or(if v.is_finite() {
+                ResqError::NotRepresentable
+            } else {
+                ResqError::NonFinite
+            })
+        })
+        .collect()
+}
+
+/// The Q32.32 words `x` as reals (exact). Time and space `O(len)`.
+fn to_real(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&v| from_grid(v)).collect()
+}
+
+/// `a` (row-major `[r, c]`) transposed to `[c, r]`. Time `O(r·c)` moves, space `O(r·c)`.
+fn transpose(a: &[f64], r: usize, c: usize) -> Vec<f64> {
+    let mut out = vec![0.0_f64; r * c];
+    for i in 0..r {
+        for j in 0..c {
+            out[j * r + i] = a[i * c + j];
+        }
+    }
+    out
+}
+
+/// The Q32.32 product `round(a·b)`: the exact `i128` product, one round-to-nearest shift. `O(1)`;
+/// `Overflow` when the rounded product leaves `i64`.
+fn mul_q32(a: i64, b: i64) -> Result<i64, ResqError> {
+    round_q32_even(i128::from(a) * i128::from(b)).map_err(|_| ResqError::Overflow)
+}
+
+/// `round(num / den)` (nearest, ties up) for a positive `den`, or `None` when the result leaves `i64`.
+/// `O(1)`.
+fn div_q32(num: i128, den: i64) -> Option<i64> {
+    let d = i128::from(den);
+    let n = if num >= 0 {
+        num.checked_add(d / 2)?
+    } else {
+        num.checked_sub(d / 2)?
+    };
+    i64::try_from(n / d).ok()
+}
+
+/// One slab's `P` rows: `silu(X·W_gᵀ) ⊙ (X·W_uᵀ)`, row-major `[rows, inter]` Q32.32.
 ///
 /// # Errors
-///
-/// As [`resq_solve`].
+/// `NotRepresentable` past `2³¹`; `Overflow` from a `SiLU` or product.
 ///
 /// # Complexity
+/// Time `O(rows·n·inter)` word ops in the two pooled `gemm` products plus `O(rows·inter)`
+/// elementwise, above the `10⁶` pool threshold at any production slab. Space `O(rows·inter)`.
+fn project(
+    slab: &[f64],
+    rows: usize,
+    n: usize,
+    inter: usize,
+    wg: &[i64],
+    wu: &[i64],
+) -> Result<Vec<i64>, ResqError> {
+    let (wg, wu) = (to_real(wg), to_real(wu));
+    let gate = gemm_nt_f64(slab, &wg, rows, n, inter).map_err(|_| ResqError::Overflow)?;
+    let up = gemm_nt_f64(slab, &wu, rows, n, inter).map_err(|_| ResqError::Overflow)?;
+    let mut out = Vec::with_capacity(rows * inter);
+    for k in 0..rows * inter {
+        let g = to_grid(gate[k], GRID_BOUND).ok_or(ResqError::NotRepresentable)?;
+        let u = to_grid(up[k], GRID_BOUND).ok_or(ResqError::NotRepresentable)?;
+        let s = silu_fixed(g).map_err(|_| ResqError::Overflow)?;
+        out.push(mul_q32(s, u)?);
+    }
+    Ok(out)
+}
+
+/// The clamped per-row multiplier `s_sol`, length `inter`.
 ///
-/// Temporal: `O(hidden·inter² + Σ_s rows_s·(n·inter + inter²) + inter³)` — the `inter³` is the
-/// `Cholesky` solve. The dominant term is the `P_mat`/`C_mat` accumulation, `2·rows·inter²` flops
-/// over all slabs. Spatial: `O(inter² + rows_max·inter)` f64 words.
+/// # Errors
+/// As [`resq_solve`].
 pub fn resq_scale(inputs: &ResqInputs<'_>) -> Result<Vec<f64>, ResqError> {
     Ok(resq_solve(inputs)?.s_clamped)
 }
 
-/// Build and solve the `-resq` elementwise-Gram ridge system.
+/// Build and solve the `-resq` elementwise-Gram ridge system on the Q32.32 grid.
 ///
 /// # Errors
-///
-/// [`ResqError::Empty`] if `inter`, `n` or `hidden` is zero; [`ResqError::ShapeMismatch`] if a
-/// weight length disagrees with `inter × n` / `hidden × inter` or a slab length is not a multiple of
-/// `n`; [`ResqError::NonFinite`] if any input entry is not finite;
-/// [`ResqError::NotPositiveDefinite`] if the `Cholesky` factor of `GoP + lam·I` hits a non-positive
-/// pivot.
+/// [`ResqError::Empty`] for a zero `inter`/`n`/`hidden`; [`ResqError::ShapeMismatch`] for a weight
+/// or slab length against the declared dims; [`ResqError::NonFinite`] / [`ResqError::NotRepresentable`]
+/// for an input entry outside the carrier; [`ResqError::NotPositiveDefinite`] if the `Cholesky`
+/// factor of `GoP + lam·I` hits a non-positive pivot; [`ResqError::Overflow`] on checked arithmetic.
 ///
 /// # Complexity
-///
-/// Temporal: `O(hidden·inter² + Σ_s rows_s·(n·inter + inter²) + inter³)`; dominant term
-/// `2·rows·inter²` flops (the `P_mat` and `C_mat` accumulations). Spatial:
-/// `O(inter² + rows_max·inter)` f64 words.
+/// Temporal: `O(hidden·inter² + Σ_s rows_s·(n·inter + inter²) + inter³)`, dominant term
+/// `2·rows·inter²` in the pooled `P_qᵀ·P_q`/`P_qᵀ·P_0` pair. The per-row loops (`rhs = GoC·1` at
+/// `inter²`, the row-scale fold at `o·g`) are serial: at or near `10⁶` word ops, cheaper than a
+/// dispatch. Spatial: `O(inter² + rows_max·inter)` Q32.32 words.
 pub fn resq_solve(inputs: &ResqInputs<'_>) -> Result<ResqSolution, ResqError> {
     let ResqInputs {
         x_slabs,
@@ -185,119 +273,109 @@ pub fn resq_solve(inputs: &ResqInputs<'_>) -> Result<ResqSolution, ResqError> {
         if slab.len() % n != 0 {
             return Err(ResqError::ShapeMismatch);
         }
-    }
-    let mut finite = all_finite(w_g0) && all_finite(w_u0) && all_finite(wq_g) && all_finite(wq_u);
-    finite &= all_finite(w_down);
-    for slab in x_slabs {
-        finite &= all_finite(slab);
-    }
-    if !finite {
-        return Err(ResqError::NonFinite);
-    }
-
-    // G = W_downᵀ·W_down, `inter × inter`.
-    let mut g = vec![0.0_f64; inter2];
-    for h in 0..hidden {
-        for i in 0..inter {
-            let w_hi = w_down[h * inter + i];
-            for j in 0..inter {
-                g[i * inter + j] += w_hi * w_down[h * inter + j];
-            }
+        if slab.iter().any(|v| !v.is_finite()) {
+            return Err(ResqError::NonFinite);
         }
     }
 
-    let mut p_mat = vec![0.0_f64; inter2];
-    let mut c_mat = vec![0.0_f64; inter2];
+    // The one `f64 → Q32.32` crossing of the weights.
+    let down = to_words(w_down)?;
+    let g0 = to_words(w_g0)?;
+    let u0 = to_words(w_u0)?;
+    let qg = to_words(wq_g)?;
+    let qu = to_words(wq_u)?;
+
+    // G = W_downᵀ·W_down: the shared pooled product on the transposed down panel.
+    let dt = transpose(&to_real(&down), hidden, inter);
+    let g =
+        to_words(&gemm_nt_f64(&dt, &dt, inter, hidden, inter).map_err(|_| ResqError::Overflow)?)?;
+
+    let mut p_mat = vec![0_i64; inter2];
+    let mut c_mat = vec![0_i64; inter2];
     for slab in x_slabs {
         let rows = slab.len() / n;
         if rows == 0 {
             continue;
         }
-        let mut p0 = vec![0.0_f64; rows * inter];
-        let mut pq = vec![0.0_f64; rows * inter];
-        for r in 0..rows {
-            let xr = &slab[r * n..r * n + n];
-            for i in 0..inter {
-                let mut ag = 0.0_f64;
-                let mut au = 0.0_f64;
-                let mut agq = 0.0_f64;
-                let mut auq = 0.0_f64;
-                for j in 0..n {
-                    let x = xr[j];
-                    ag += x * w_g0[i * n + j];
-                    au += x * w_u0[i * n + j];
-                    agq += x * wq_g[i * n + j];
-                    auq += x * wq_u[i * n + j];
-                }
-                p0[r * inter + i] = silu(ag) * au;
-                pq[r * inter + i] = silu(agq) * auq;
-            }
-        }
-        for i in 0..inter {
-            for j in 0..inter {
-                let mut pp = 0.0_f64;
-                let mut pc = 0.0_f64;
-                for r in 0..rows {
-                    pp += pq[r * inter + i] * pq[r * inter + j];
-                    pc += pq[r * inter + i] * p0[r * inter + j];
-                }
-                p_mat[i * inter + j] += pp;
-                c_mat[i * inter + j] += pc;
-            }
+        let p0 = project(slab, rows, n, inter, &g0, &u0)?;
+        let pq = project(slab, rows, n, inter, &qg, &qu)?;
+        let pqt = transpose(&to_real(&pq), rows, inter);
+        let p0t = transpose(&to_real(&p0), rows, inter);
+        // `P_qᵀ·P_q` and `P_qᵀ·P_0`: `inter × inter` over the slab's `rows`.
+        let pp = gemm_nt_f64(&pqt, &pqt, inter, rows, inter).map_err(|_| ResqError::Overflow)?;
+        let pc = gemm_nt_f64(&pqt, &p0t, inter, rows, inter).map_err(|_| ResqError::Overflow)?;
+        for idx in 0..inter2 {
+            let a = to_grid(pp[idx], GRID_BOUND).ok_or(ResqError::NotRepresentable)?;
+            let b = to_grid(pc[idx], GRID_BOUND).ok_or(ResqError::NotRepresentable)?;
+            p_mat[idx] = p_mat[idx].checked_add(a).ok_or(ResqError::Overflow)?;
+            c_mat[idx] = c_mat[idx].checked_add(b).ok_or(ResqError::Overflow)?;
         }
     }
 
-    // GoP = G ⊙ P_mat; rhs = (G ⊙ C_mat)·1; the ridge from the GoP diagonal.
-    let mut gop = vec![0.0_f64; inter2];
-    let mut rhs = vec![0.0_f64; inter];
+    // GoP = G ⊙ P_mat; GoC = G ⊙ C_mat; rhs = GoC·1; the ridge from the GoP diagonal.
+    let mut gop = g.clone();
+    hadamard_into(&mut gop, &p_mat).map_err(|_| ResqError::Overflow)?;
+    let mut goc = g;
+    hadamard_into(&mut goc, &c_mat).map_err(|_| ResqError::Overflow)?;
+    let ones = vec![ONE; inter];
+    let mut rhs = vec![0_i64; inter];
+    let mut diag_sum: i128 = 0;
     for i in 0..inter {
-        for j in 0..inter {
-            gop[i * inter + j] = g[i * inter + j] * p_mat[i * inter + j];
-        }
+        rhs[i] = row_dot_fixed(&goc[i * inter..(i + 1) * inter], &ones)
+            .map_err(|_| ResqError::Overflow)?;
+        diag_sum = diag_sum
+            .checked_add(i128::from(gop[i * inter + i]))
+            .ok_or(ResqError::Overflow)?;
     }
-    let mut mean_diag = 0.0_f64;
+    let mean = div_q32(
+        diag_sum,
+        i64::try_from(inter).map_err(|_| ResqError::Overflow)?,
+    )
+    .ok_or(ResqError::Overflow)?;
+    let lam = div_q32(i128::from(mean.max(0)), 20).ok_or(ResqError::Overflow)?;
     for i in 0..inter {
-        mean_diag += gop[i * inter + i];
-    }
-    mean_diag /= inter as f64;
-    let lam = 0.05 * mean_diag.max(1e-12);
-    for i in 0..inter {
-        gop[i * inter + i] += lam;
-    }
-    for i in 0..inter {
-        let mut s = 0.0_f64;
-        for j in 0..inter {
-            s += g[i * inter + j] * c_mat[i * inter + j];
-        }
-        rhs[i] = s + lam;
+        gop[i * inter + i] = gop[i * inter + i]
+            .checked_add(lam)
+            .ok_or(ResqError::Overflow)?;
+        rhs[i] = rhs[i].checked_add(lam).ok_or(ResqError::Overflow)?;
     }
 
-    let s_raw = solve_spd(&gop, &rhs, inter, 1).map_err(|_| ResqError::NotPositiveDefinite)?;
-    let s_clamped: Vec<f64> = s_raw.iter().map(|&v| v.clamp(0.5, 2.0)).collect();
+    let solved = chol_solve(&gop, &rhs, inter, 1).map_err(|e| match e {
+        SolveError::NotPositiveDefinite | SolveError::NonPositiveDiagonal => {
+            ResqError::NotPositiveDefinite
+        }
+        SolveError::Overflow => ResqError::Overflow,
+        SolveError::ShapeMismatch | SolveError::Empty => ResqError::ShapeMismatch,
+    })?;
+    let half = ONE / 2;
+    let twice = 2 * ONE;
     Ok(ResqSolution {
-        gop,
-        rhs,
-        lam,
-        s_raw,
-        s_clamped,
+        gop: to_real(&gop),
+        rhs: to_real(&rhs),
+        lam: from_grid(lam),
+        s_raw: to_real(&solved.x),
+        s_clamped: solved
+            .x
+            .iter()
+            .map(|&v| from_grid(v.clamp(half, twice)))
+            .collect(),
     })
 }
 
 /// Fold a per-row multiplier into a plane's stored hierarchical row scale: `rh = quant_r_hier(rh·s)`
-/// with `rh` row-major `[o, g]` and `s` length `o`.
+/// with `rh` row-major `[o, g]` and `s` length `o`, the product on the Q32.32 grid.
 ///
 /// This is the `-resq` replacement for `Wp *= s[:, None]`: the multiplier enters the row scale before
 /// the grid quantization, so it is absorbed into `quant_r_hier`'s bits.
 ///
 /// # Errors
-///
-/// [`ResqError::Empty`] if `o` or `g` is zero; [`ResqError::ShapeMismatch`] if `rh.len() != o·g` or
-/// `s.len() != o`; [`ResqError::NonFinite`] if any entry is not finite;
-/// [`ResqError::Quant`] if [`quant_r_hier`] refuses.
+/// [`ResqError::Empty`] for a zero `o`/`g`; [`ResqError::ShapeMismatch`] for a length against the
+/// declared shape; [`ResqError::NonFinite`] / [`ResqError::NotRepresentable`] for an input entry
+/// outside the carrier; [`ResqError::Quant`] if [`quant_r_hier`] refuses.
 ///
 /// # Complexity
-///
-/// Temporal: `O(o·g)` for the elementwise product plus `quant_r_hier`'s `O(o·g)`; spatial `O(o·g)`.
+/// Temporal: `O(o·g)` serial products plus `quant_r_hier`'s `O(o·g)` — one product per stored entry,
+/// which a pool dispatch does not repay; spatial `O(o·g)`.
 pub fn rescale_hier(rh: &[f64], s: &[f64], o: usize, g: usize) -> Result<RHier, ResqError> {
     if o == 0 || g == 0 {
         return Err(ResqError::Empty);
@@ -306,14 +384,12 @@ pub fn rescale_hier(rh: &[f64], s: &[f64], o: usize, g: usize) -> Result<RHier, 
     if rh.len() != n || s.len() != o {
         return Err(ResqError::ShapeMismatch);
     }
-    if !all_finite(rh) || !all_finite(s) {
-        return Err(ResqError::NonFinite);
-    }
+    let rhw = to_words(rh)?;
+    let sw = to_words(s)?;
     let mut scaled = vec![0.0_f64; n];
     for i in 0..o {
-        let si = s[i];
         for j in 0..g {
-            scaled[i * g + j] = rh[i * g + j] * si;
+            scaled[i * g + j] = from_grid(mul_q32(rhw[i * g + j], sw[i])?);
         }
     }
     Ok(quant_r_hier(&scaled, o, g)?)
@@ -324,14 +400,11 @@ pub fn rescale_hier(rh: &[f64], s: &[f64], o: usize, g: usize) -> Result<RHier, 
 /// partial plane's `[rows.len(), g]` scale.
 ///
 /// # Errors
-///
-/// [`ResqError::Empty`] if `rows` or `g` is zero; [`ResqError::ShapeMismatch`] if `rh.len() !=
-/// rows.len()·g` or a gathered index is out of range for `s`; [`ResqError::NonFinite`] if any entry
-/// is not finite; [`ResqError::Quant`] if [`quant_r_hier`] refuses.
+/// As [`rescale_hier`], with a gathered index out of range for `s` as [`ResqError::ShapeMismatch`].
 ///
 /// # Complexity
-///
-/// Temporal: `O(rows.len()·g)`; spatial `O(rows.len()·g)`.
+/// Temporal: `O(rows.len()·g)` serial products plus `quant_r_hier`'s `O(rows.len()·g)`; spatial
+/// `O(rows.len()·g)`.
 pub fn rescale_hier_top(
     rh: &[f64],
     s: &[f64],
@@ -346,25 +419,16 @@ pub fn rescale_hier_top(
     if rh.len() != n {
         return Err(ResqError::ShapeMismatch);
     }
-    if !all_finite(rh) || !all_finite(s) {
-        return Err(ResqError::NonFinite);
+    if rows.iter().any(|&r| r >= s.len()) {
+        return Err(ResqError::ShapeMismatch);
     }
+    let rhw = to_words(rh)?;
+    let sw = to_words(s)?;
     let mut scaled = vec![0.0_f64; n];
     for (i, &r) in rows.iter().enumerate() {
-        let si = *s.get(r).ok_or(ResqError::ShapeMismatch)?;
         for j in 0..g {
-            scaled[i * g + j] = rh[i * g + j] * si;
+            scaled[i * g + j] = from_grid(mul_q32(rhw[i * g + j], sw[r])?);
         }
     }
     Ok(quant_r_hier(&scaled, o, g)?)
-}
-
-/// `silu(x) = x·sigmoid(x) = x / (1 + e^{-x})`.
-fn silu(x: f64) -> f64 {
-    x / (1.0 + (-x).exp())
-}
-
-/// Whether every entry of `x` is finite.
-fn all_finite(x: &[f64]) -> bool {
-    x.iter().all(|v| v.is_finite())
 }
