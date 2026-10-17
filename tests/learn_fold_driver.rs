@@ -22,8 +22,8 @@
 use std::time::Instant;
 
 use apeiron::learn::fold::layer::driver::{
-    g_row_from_matrix, g_row_from_vec, quantise_layer, quantise_model, DriverCfg, DriverError,
-    LayerWeights,
+    g_row_from_matrix, g_row_from_vec, layer_words, quantise_layer, quantise_model, DriverCfg,
+    DriverError, LayerWeights,
 };
 use apeiron::learn::fold::layer::stage::sink_token_weights;
 use apeiron::learn::fold::layer::tensor::TensorKind;
@@ -137,23 +137,24 @@ fn make_layer(cfg: &LayerCfg, rng: &mut Lcg) -> LayerWeights {
     let kvo = cfg.n_kv_head * cfg.head_dim;
     let s = 1.0 / (cfg.hidden as f64).sqrt();
     LayerWeights {
-        ln1: rand_ln(cfg.hidden, rng),
-        ln2: rand_ln(cfg.hidden, rng),
-        q: rand_mat(qo, cfg.hidden, s, rng),
-        qb: rand_bias(qo, rng),
-        k: rand_mat(kvo, cfg.hidden, s, rng),
-        kb: rand_bias(kvo, rng),
-        v: rand_mat(kvo, cfg.hidden, s, rng),
-        vb: rand_bias(kvo, rng),
-        o: rand_mat(cfg.hidden, qo, s, rng),
-        gate: rand_mat(cfg.inter, cfg.hidden, s, rng),
-        up: rand_mat(cfg.inter, cfg.hidden, s, rng),
-        down: rand_mat(cfg.hidden, cfg.inter, s, rng),
+        attn_norm: qv(&rand_ln(cfg.hidden, rng)),
+        ffn_norm: qv(&rand_ln(cfg.hidden, rng)),
+        wq: qv(&rand_mat(qo, cfg.hidden, s, rng)),
+        bq: Some(qv(&rand_bias(qo, rng))),
+        wk: qv(&rand_mat(kvo, cfg.hidden, s, rng)),
+        bk: Some(qv(&rand_bias(kvo, rng))),
+        wv: qv(&rand_mat(kvo, cfg.hidden, s, rng)),
+        bv: Some(qv(&rand_bias(kvo, rng))),
+        wo: qv(&rand_mat(cfg.hidden, qo, s, rng)),
+        w_gate: qv(&rand_mat(cfg.inter, cfg.hidden, s, rng)),
+        w_up: qv(&rand_mat(cfg.inter, cfg.hidden, s, rng)),
+        w_down: qv(&rand_mat(cfg.hidden, cfg.inter, s, rng)),
     }
 }
 
-fn rand_hidden(rows: usize, hid: usize, scale: f64, rng: &mut Lcg) -> Vec<f64> {
-    (0..rows * hid).map(|_| scale * gauss(rng)).collect()
+/// A hidden state row-major `[rows, hid]` on the `Q32.32` grid.
+fn rand_hidden(rows: usize, hid: usize, scale: f64, rng: &mut Lcg) -> Vec<i64> {
+    (0..rows * hid).map(|_| q(scale * gauss(rng))).collect()
 }
 
 /// The fixture: driver config, `RoPE` tables, the teacher layer, the teacher/student hidden states
@@ -165,9 +166,9 @@ fn fixture(
     DriverCfg,
     RopeTables,
     LayerWeights,
-    Vec<f64>,
-    Vec<f64>,
-    Vec<f64>,
+    Vec<i64>,
+    Vec<i64>,
+    Vec<i64>,
 ) {
     let cfg = driver_cfg(slab);
     let rope = RopeTables::new(&cfg.layer, T).expect("rope tables");
@@ -175,7 +176,7 @@ fn fixture(
     let lt = make_layer(&cfg.layer, &mut rng);
     let ht = rand_hidden(N_SEQ * T, HID, 1.0, &mut rng);
     let hs = ht.clone();
-    let ln_next = rand_ln(HID, &mut rng);
+    let ln_next = qv(&rand_ln(HID, &mut rng));
     (cfg, rope, lt, ht, hs, ln_next)
 }
 
@@ -229,52 +230,46 @@ fn a_layer_shapes_bias_and_norms() {
     let qo = N_HEAD * HEAD_DIM;
     let kvo = N_KV * HEAD_DIM;
     let lq = &res.lq;
-    assert_eq!(lq.ln1.len(), hid);
-    assert_eq!(lq.ln2.len(), hid);
-    assert_eq!(lq.q.len(), qo * hid);
-    assert_eq!(lq.qb.len(), qo);
-    assert_eq!(lq.k.len(), kvo * hid);
-    assert_eq!(lq.kb.len(), kvo);
-    assert_eq!(lq.v.len(), kvo * hid);
-    assert_eq!(lq.vb.len(), kvo);
-    assert_eq!(lq.o.len(), hid * qo);
-    assert_eq!(lq.gate.len(), INTER * hid);
-    assert_eq!(lq.up.len(), INTER * hid);
-    assert_eq!(lq.down.len(), hid * INTER);
-    for s in [
-        &lq.ln1, &lq.ln2, &lq.q, &lq.qb, &lq.k, &lq.kb, &lq.v, &lq.vb, &lq.o, &lq.gate, &lq.up,
-        &lq.down,
-    ] {
-        assert!(all_finite(s), "a fitted tensor is not finite");
+    assert_eq!(lq.attn_norm.len(), hid);
+    assert_eq!(lq.ffn_norm.len(), hid);
+    assert_eq!(lq.wq.len(), qo * hid);
+    assert_eq!(lq.bq.as_ref().map(Vec::len), Some(qo));
+    assert_eq!(lq.wk.len(), kvo * hid);
+    assert_eq!(lq.bk.as_ref().map(Vec::len), Some(kvo));
+    assert_eq!(lq.wv.len(), kvo * hid);
+    assert_eq!(lq.bv.as_ref().map(Vec::len), Some(kvo));
+    assert_eq!(lq.wo.len(), hid * qo);
+    assert_eq!(lq.w_gate.len(), INTER * hid);
+    assert_eq!(lq.w_up.len(), INTER * hid);
+    assert_eq!(lq.w_down.len(), hid * INTER);
+    // The fits are still `f64` (`layer::tensor`'s boundary); every fitted value is finite.
+    for f in &res.fits {
+        assert!(all_finite(&f.wp), "a fitted tensor is not finite");
     }
 
     // `ln1`/`ln2` are not fitted: unchanged.
-    assert_eq!(lq.ln1, lt.ln1);
-    assert_eq!(lq.ln2, lt.ln2);
+    assert_eq!(lq.attn_norm, lt.attn_norm);
+    assert_eq!(lq.ffn_norm, lt.ffn_norm);
 
-    // `Lq.q = Wp` and `Lq.qb = Lt.qb + db`.
-    assert_eq!(lq.q, res.fits[0].wp);
+    // `Lq.wq = grids(Wp)` exactly, and `Lq.bq = Lt.bq + grids(db)` (one exact word add).
+    assert_eq!(lq.wq, qv(&res.fits[0].wp));
     let db = res.fits[0].db.as_ref().expect("q bias");
+    let ltb = lt.bq.as_ref().expect("teacher q bias");
+    let want_b: Vec<i64> = ltb.iter().zip(db).map(|(&b, &d)| b + q(d)).collect();
     let mut changed = false;
     for i in 0..qo {
-        // `Lq.qb` is `from_grid(grids(lt.qb) + grids(db))`: two round-to-nearest conversions on the
-        // 2⁻³² grid (each ≤ `2⁻³³`) and an exact word add, so the bound is `2·2⁻³³ = 2⁻³²`; the
-        // right-hand side's f64 add rounds once more, below `2⁻⁵²`.
-        assert!(
-            (lq.qb[i] - (lt.qb[i] + db[i])).abs() <= GRID_QUANTUM,
-            "qb at {i}"
-        );
+        assert_eq!(lq.bq.as_ref().expect("q bias")[i], want_b[i], "qb at {i}");
         if db[i].abs() > 1e-9 {
             changed = true;
         }
     }
     assert!(changed, "the q bias did not move");
-    assert_eq!(lq.k, res.fits[1].wp);
-    assert_eq!(lq.v, res.fits[2].wp);
-    assert_eq!(lq.o, res.fits[3].wp);
-    assert_eq!(lq.gate, res.fits[4].wp);
-    assert_eq!(lq.up, res.fits[5].wp);
-    assert_eq!(lq.down, res.fits[6].wp);
+    assert_eq!(lq.wk, qv(&res.fits[1].wp));
+    assert_eq!(lq.wv, qv(&res.fits[2].wp));
+    assert_eq!(lq.wo, qv(&res.fits[3].wp));
+    assert_eq!(lq.w_gate, qv(&res.fits[4].wp));
+    assert_eq!(lq.w_up, qv(&res.fits[5].wp));
+    assert_eq!(lq.w_down, qv(&res.fits[6].wp));
 
     eprintln!("(a) ok in {:?}", t0.elapsed());
 }
@@ -295,27 +290,27 @@ fn b_student_path_equals_forward() {
         let want = unq(&parts(
             &cfg.layer,
             &rope,
-            &res.lq.as_f64(),
-            &qv(&hs_in[row..row + seq_len]),
+            &layer_words(&res.lq).expect("lq words"),
+            &hs_in[row..row + seq_len],
             T,
         )
         .expect("forward")
         .out);
-        let got = &hs[row..row + seq_len];
-        let e = rel_err(got, &want);
+        let got = unq(&hs[row..row + seq_len]);
+        let e = rel_err(&got, &want);
         assert!(e <= 1e-9, "student seq {s}: rel {e:e}");
 
         let want_t = unq(&parts(
             &cfg.layer,
             &rope,
-            &lt.as_f64(),
-            &qv(&ht[row..row + seq_len]),
+            &layer_words(&lt).expect("teacher words"),
+            &ht[row..row + seq_len],
             T,
         )
         .expect("teacher forward")
         .out);
-        let got_t = &res.ht_next[row..row + seq_len];
-        let et = rel_err(got_t, &want_t);
+        let got_t = unq(&res.ht_next[row..row + seq_len]);
+        let et = rel_err(&got_t, &want_t);
         assert!(et <= 1e-9, "teacher seq {s}: rel {et:e}");
     }
 
@@ -323,7 +318,7 @@ fn b_student_path_equals_forward() {
     eprintln!(
         "(b) ok in {:?}; ||hs - ht_next||/||ht_next|| = {:.3e}",
         t0.elapsed(),
-        rel_err(&hs, &res.ht_next)
+        rel_err(&unq(&hs), &unq(&res.ht_next))
     );
 }
 
@@ -526,13 +521,19 @@ fn e_slab_size_matters() {
     // Scale one sequence's teacher and student input so its token norms are ~30x the others: the
     // per-slab median then keeps its weights at 1, while the whole-set median pulls them down.
     for k in (2 * T * HID)..(3 * T * HID) {
-        ht[k] *= 30.0;
+        ht[k] = q(from_grid(ht[k]) * 30.0);
     }
     let hs_in = hs_in
         .iter()
         .enumerate()
-        .map(|(k, v)| if k >= 2 * T * HID { v * 30.0 } else { *v })
-        .collect::<Vec<f64>>();
+        .map(|(k, &v)| {
+            if k >= 2 * T * HID {
+                q(from_grid(v) * 30.0)
+            } else {
+                v
+            }
+        })
+        .collect::<Vec<i64>>();
 
     let mut hs1 = hs_in.clone();
     let r1 = quantise_layer(&cfg1, &rope, &lt, &ln_next, &ht, &mut hs1).expect("slab 1");
@@ -549,12 +550,19 @@ fn e_slab_size_matters() {
         let row = s0 * T * HID;
         let hts = &ht[row..row + T * HID];
         let hss = &hs_in[row..row + T * HID];
-        let p = parts(&cfg3.layer, &rope, &lt.as_f64(), &qv(hts), T).expect("teacher");
+        let p = parts(
+            &cfg3.layer,
+            &rope,
+            &layer_words(&lt).expect("words"),
+            hts,
+            T,
+        )
+        .expect("teacher");
         let w = sink_token_weights(
-            &qv(hts),
+            hts,
             &p.mid,
             &p.out,
-            &qv(hss),
+            hss,
             None,
             1,
             T,
@@ -571,10 +579,10 @@ fn e_slab_size_matters() {
     // The same weights on the whole slab in one call (`seqs = N_SEQ`): the median is taken over
     // every sequence at once, so the scaled sequence's positions fall below the threshold.
     let w_all = sink_token_weights(
-        &qv(&ht),
+        &ht,
         &mid_all,
         &out_all,
-        &qv(&hs_in),
+        &hs_in,
         None,
         N_SEQ,
         T,
@@ -623,15 +631,15 @@ fn f_model_loop_and_final_norm() {
         make_layer(&cfg.layer, &mut rng),
     ];
     // A distinct final-norm gain pattern (alternating `0.5`/`2.0`), so its `g_row` differs from
-    // layer 1's `ln1` (`~1`).
-    let fnorm: Vec<f64> = (0..HID)
-        .map(|i| if i % 2 == 0 { 0.5 } else { 2.0 })
+    // layer 1's `attn_norm` (`~1`).
+    let fnorm: Vec<i64> = (0..HID)
+        .map(|i| q(if i % 2 == 0 { 0.5 } else { 2.0 }))
         .collect();
     let h0 = rand_hidden(N_SEQ * T, HID, 1.0, &mut rng);
     let vocab = 7;
     let embed = rand_hidden(vocab, HID, 0.5, &mut rng);
 
-    // n_layers = 1: layer 1 is copied unchanged, layer 0 uses layer 1's `ln1` for `down`.
+    // n_layers = 1: layer 1 is copied unchanged, layer 0 uses layer 1's `attn_norm` for `down`.
     let m1 = quantise_model(&cfg, &rope, &layers, &fnorm, &embed, vocab, &h0, 1, 0.15)
         .expect("model n1");
     assert_eq!(m1.layers.len(), 2);
@@ -639,11 +647,10 @@ fn f_model_loop_and_final_norm() {
     assert!(m1.fits[1].is_empty());
     assert_eq!(m1.fits[0].len(), 7);
     assert_eq!(m1.fnorm.len(), HID);
-    assert!(all_finite(&m1.fnorm), "the final norm is not finite");
 
-    // The `ln_next` source is read: `g_row` of layer 1's `ln1` differs from `g_row` of `fnorm`.
-    let g_l1 = unq(&g_row_from_vec(&qv(&layers[1].ln1)).expect("g ln1"));
-    let g_fn = unq(&g_row_from_vec(&qv(&fnorm)).expect("g fnorm"));
+    // The `ln_next` source is read: `g_row` of layer 1's `attn_norm` differs from `g_row` of `fnorm`.
+    let g_l1 = unq(&g_row_from_vec(&layers[1].attn_norm).expect("g ln1"));
+    let g_fn = unq(&g_row_from_vec(&fnorm).expect("g fnorm"));
     let gdiff = g_l1
         .iter()
         .zip(&g_fn)
@@ -652,32 +659,31 @@ fn f_model_loop_and_final_norm() {
     assert!(gdiff > 1e-6, "the two g_row sources are indistinguishable");
 
     // n_layers = 2: layer 1 now enters, and its `ln_next` is the final norm weight. Layer 0's
-    // `ln_next` is layer 1's `ln1` in both runs, so its `down` fit is the same.
+    // `ln_next` is layer 1's `attn_norm` in both runs, so its `down` fit is the same.
     let m2 = quantise_model(&cfg, &rope, &layers, &fnorm, &embed, vocab, &h0, 2, 0.15)
         .expect("model n2");
     assert_eq!(
-        m1.layers[0].down, m2.layers[0].down,
+        m1.layers[0].w_down, m2.layers[0].w_down,
         "layer 0 ln_next moved"
     );
     assert_eq!(m2.fits[1].len(), 7);
 
     // The source is read: a direct layer-0 call with `fnorm` gives a different `down` fit, so the
-    // driver's choice of `layers[1].ln1` (matched above) is observable.
+    // driver's choice of `layers[1].attn_norm` (matched above) is observable.
     let mut hs_w = h0.clone();
     let wrong =
         quantise_layer(&cfg, &rope, &layers[0], &fnorm, &h0, &mut hs_w).expect("direct fnorm");
     let ddiff = m1.layers[0]
-        .down
+        .w_down
         .iter()
-        .zip(&wrong.lq.down)
-        .map(|(a, b)| (a - b).abs())
+        .zip(&wrong.lq.w_down)
+        .map(|(a, b)| a.abs_diff(*b) as f64)
         .fold(0.0_f64, f64::max);
     assert!(
-        ddiff > 1e-12,
+        ddiff > 0.0,
         "the down fit is unchanged by the ln_next source; the fixture cannot see it"
     );
     assert_eq!(m2.fnorm.len(), HID);
-    assert!(all_finite(&m2.fnorm));
     eprintln!(
         "(f) ok in {:?}; fnorm[0..3] = {:?}",
         t0.elapsed(),
@@ -708,18 +714,29 @@ fn g_refusals() {
     );
 
     // wrong `hs` length.
-    let mut short = vec![0.0_f64; hs_in.len() - 1];
+    let mut short = vec![0_i64; hs_in.len() - 1];
     assert_eq!(
         unwrap_err(quantise_layer(&cfg, &rope, &lt, &ln_next, &ht, &mut short)),
         DriverError::Shape
     );
 
-    // non-finite weight.
-    let mut lt_nan = lt.clone();
-    lt_nan.q[3] = f64::NAN;
+    // a missing attention bias: the fold forward requires it.
+    let mut lt_nobias = lt.clone();
+    lt_nobias.bq = None;
     let mut hs = hs_in.clone();
     assert_eq!(
-        unwrap_err(quantise_layer(&cfg, &rope, &lt_nan, &ln_next, &ht, &mut hs)),
+        unwrap_err(quantise_layer(
+            &cfg, &rope, &lt_nobias, &ln_next, &ht, &mut hs
+        )),
+        DriverError::Shape
+    );
+
+    // a non-finite configuration scalar.
+    let mut bad = cfg;
+    bad.layer.eps = f64::NAN;
+    let mut hs = hs_in.clone();
+    assert_eq!(
+        unwrap_err(quantise_layer(&bad, &rope, &lt, &ln_next, &ht, &mut hs)),
         DriverError::NonFinite
     );
 
@@ -738,7 +755,7 @@ fn g_refusals() {
     narrow.layer.n_head = 1;
     narrow.layer.head_dim = 64;
     let rope64 = RopeTables::new(&narrow.layer, T).expect("rope");
-    let mut hs = vec![0.0_f64; N_SEQ * T * 64];
+    let mut hs = vec![0_i64; N_SEQ * T * 64];
     assert_eq!(
         unwrap_err(quantise_layer(
             &narrow, &rope64, &lt, &ln_next, &ht, &mut hs

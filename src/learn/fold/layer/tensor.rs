@@ -903,7 +903,6 @@ pub fn fold_row_scale(
 /// `f64` signatures the other modules still take. A refusal is a [`Q32Error`], mapped once at each
 /// caller. One pass is `o·n` words, at most ~10⁷, so every kernel here is serial.
 pub(crate) mod carrier {
-    use crate::learn::fold::stats::parts::silu;
     use crate::learn::solve::q32::{from_grid, round_q32_even, to_grid, Q32Error, GRID_BOUND};
 
     /// `a·b` as one rounded word.
@@ -971,13 +970,6 @@ pub(crate) mod carrier {
         x.iter().map(|&v| ratio(v, i128::from(den))).collect()
     }
 
-    /// `silu(g[k])` as Q32.32 words; temporal and spatial `O(g.len())`.
-    pub(crate) fn silu_grid(g: &[f64]) -> Result<Vec<i64>, Q32Error> {
-        g.iter()
-            .map(|&v| to_grid(silu(v), GRID_BOUND).ok_or(Q32Error::Overflow))
-            .collect()
-    }
-
     /// The elementwise kernels: `eval` writes `out[i]` from the context's words.
     #[derive(Clone, Copy)]
     pub(crate) enum Elem<'a> {
@@ -985,8 +977,6 @@ pub(crate) mod carrier {
         Add(&'a [i64], &'a [i64]),
         /// `(a − b) + (b − c)`.
         TriSub(&'a [i64], &'a [i64], &'a [i64]),
-        /// `a·b`, one rounding each.
-        Mul(&'a [i64], &'a [i64]),
         /// `a[i]·b[i mod w]`, a column scale broadcast over the rows.
         MulCol(&'a [i64], &'a [i64], usize),
         Square(&'a [i64]),
@@ -1003,7 +993,6 @@ pub(crate) mod carrier {
                 Elem::Sub(a, b) => a[i].checked_sub(b[i]).ok_or(Q32Error::Overflow),
                 Elem::Add(a, b) => a[i].checked_add(b[i]).ok_or(Q32Error::Overflow),
                 Elem::TriSub(a, b, c) => tri_sub(a[i], b[i], c[i]).ok_or(Q32Error::Overflow),
-                Elem::Mul(a, b) => mul(a[i], b[i]),
                 Elem::MulCol(a, b, w) => mul(a[i], b[i % w]),
                 Elem::Square(a) => mul(a[i], a[i]),
                 Elem::SubBias(a, b, w) => a[i].checked_sub(b[i % w]).ok_or(Q32Error::Overflow),

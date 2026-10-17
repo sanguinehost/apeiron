@@ -37,7 +37,7 @@
 )]
 
 use apeiron::learn::fold::stats::parts::{
-    attn_a, linear, parts, rms, silu, LayerCfg, LayerF64, PartsError, RopeTables,
+    attn_a, linear, parts, rms, silu, LayerCfg, LayerWords, PartsError, RopeTables,
 };
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
@@ -118,46 +118,46 @@ impl Lcg {
 
 /// The twelve weight tensors of one layer, owned so [`Weights::layer`] can borrow them.
 struct Weights {
-    ln1: Vec<f64>,
-    ln2: Vec<f64>,
-    q: Vec<f64>,
-    qb: Vec<f64>,
-    k: Vec<f64>,
-    kb: Vec<f64>,
-    v: Vec<f64>,
-    vb: Vec<f64>,
-    o: Vec<f64>,
-    gate: Vec<f64>,
-    up: Vec<f64>,
-    down: Vec<f64>,
+    ln1: Vec<i64>,
+    ln2: Vec<i64>,
+    q: Vec<i64>,
+    qb: Vec<i64>,
+    k: Vec<i64>,
+    kb: Vec<i64>,
+    v: Vec<i64>,
+    vb: Vec<i64>,
+    o: Vec<i64>,
+    gate: Vec<i64>,
+    up: Vec<i64>,
+    down: Vec<i64>,
 }
 
 impl Weights {
-    /// Deterministic weights for the geometry `cfg`.
+    /// Deterministic weights for the geometry `cfg`, each entry one `Q32.32` word.
     fn new(rng: &mut Lcg, cfg: &LayerCfg) -> Self {
         let hid = cfg.hidden;
         let qw = cfg.n_head * cfg.head_dim;
         let kw = cfg.n_kv_head * cfg.head_dim;
         let inter = cfg.inter;
         Self {
-            ln1: rng.vec(hid),
-            ln2: rng.vec(hid),
-            q: rng.vec(qw * hid),
-            qb: rng.vec(qw),
-            k: rng.vec(kw * hid),
-            kb: rng.vec(kw),
-            v: rng.vec(kw * hid),
-            vb: rng.vec(kw),
-            o: rng.vec(hid * qw),
-            gate: rng.vec(inter * hid),
-            up: rng.vec(inter * hid),
-            down: rng.vec(hid * inter),
+            ln1: qv(&rng.vec(hid)),
+            ln2: qv(&rng.vec(hid)),
+            q: qv(&rng.vec(qw * hid)),
+            qb: qv(&rng.vec(qw)),
+            k: qv(&rng.vec(kw * hid)),
+            kb: qv(&rng.vec(kw)),
+            v: qv(&rng.vec(kw * hid)),
+            vb: qv(&rng.vec(kw)),
+            o: qv(&rng.vec(hid * qw)),
+            gate: qv(&rng.vec(inter * hid)),
+            up: qv(&rng.vec(inter * hid)),
+            down: qv(&rng.vec(hid * inter)),
         }
     }
 
-    /// A borrowed [`LayerF64`] view of these weights.
-    fn layer(&self) -> LayerF64<'_> {
-        LayerF64 {
+    /// A borrowed [`LayerWords`] view of these weights.
+    fn layer(&self) -> LayerWords<'_> {
+        LayerWords {
             ln1: &self.ln1,
             ln2: &self.ln2,
             q: &self.q,
@@ -445,7 +445,7 @@ fn out_equals_mid_plus_m_down() {
         for c in 0..HID {
             let mut acc = 0.0f64;
             for k in 0..INTER {
-                acc += w.down[c * INTER + k] * m[r * INTER + k];
+                acc += from_grid(w.down[c * INTER + k]) * m[r * INTER + k];
             }
             expected[r * HID + c] += acc;
         }
@@ -538,12 +538,12 @@ fn refusals_are_typed() {
     };
     let rope_other = RopeTables::new(&other, TMAX).unwrap();
     assert_eq!(
-        attn_a(&cfg, &rope_other, &qv(&w.q), &qv(&w.k), &qv(&w.v), T).unwrap_err(),
+        attn_a(&cfg, &rope_other, &w.q, &w.k, &w.v, T).unwrap_err(),
         PartsError::Shape
     );
 
     // A truncated weight tensor is refused.
-    let broken = LayerF64 {
+    let broken = LayerWords {
         q: &w.q[1..],
         ..w.layer()
     };
