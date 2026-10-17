@@ -22,10 +22,10 @@
 //! Every private body works on the Q32.32 `i64` grid: the inputs cross once at the public entry
 //! ([`to_words`], `round(x·2³²)` with the range test) and the results once at the return
 //! (`from_grid`). The Gram `M` is the shared [`eigen_gram`] (two pooled Q32.32 products under one
-//! exact power-of-two panel scale), the eigenstage is [`top_eigh`], the ridge Gram and right-hand
-//! side are exact `i128` dot products rounded once per entry, the ridge solve is [`chol_solve`], the
-//! factor product `Corr = Uh·Vh` is the pooled [`gemm_nn_f64`], the `f16` round-trip is
-//! [`crate::learn::solve::q32::round_f16`], and the u8 quantizer is
+//! exact power-of-two panel scale), the eigenstage is [`top_eigh`], the ridge Gram is the pooled
+//! [`wsyrk`] and the right-hand side the pooled [`gemm_nn`] on the transposed `Uh`, the ridge solve
+//! is [`chol_solve`], the factor product `Corr = Uh·Vh` is the pooled [`gemm_nn`], the `f16`
+//! round-trip is [`crate::learn::solve::q32::round_f16`], and the u8 quantizer is
 //! [`crate::learn::fold::fit::quant::quant_c_u8`] — the same carriers the store uses. The only
 //! `f64` is those shared products' exact power-of-two scaling and grid crossing.
 //!
@@ -62,12 +62,12 @@
 
 use crate::learn::fold::fit::eigh::{eigen_gram, gram_scale, lowrank_corrector_exact, EighError};
 use crate::learn::fold::fit::quant::quant_c_u8;
+use crate::learn::fold::stats::parts::{panel, shift};
 use crate::learn::solve::chol::chol_solve;
 use crate::learn::solve::eig::top_eigh;
-use crate::learn::solve::gemm::gemm_nn_f64;
-use crate::learn::solve::q32::{
-    from_grid, round_f16, round_q32_even, to_grid, Fx, GRID_BOUND, INPUT_BOUND,
-};
+use crate::learn::solve::gemm::gemm_nn;
+use crate::learn::solve::q32::{from_grid, round_f16, to_grid, Fx, GRID_BOUND, INPUT_BOUND};
+use crate::learn::solve::syrk::wsyrk;
 
 /// The `1e-6` ridge added to the rank×rank Gram `Uhᵀ Uh` before the `V` solve, the Python's
 /// `torch.eye(rank) * 1e-6`, as the grid word `round(1e-6·2³²) = 4295` (`1.000013e-6`).
@@ -247,42 +247,19 @@ fn f16_word(v: i64) -> Result<i64, CorrectorError> {
     i64::try_from(w).map_err(|_| CorrectorError::Overflow)
 }
 
-/// `Σ_{t<len} a[a0 + t·as]·b[b0 + t·bs]` in exact `i128` (Q64.64), rounded once to Q32.32 — the
-/// strided products of the ridge system (`Uhᵀ Uh` and `Uhᵀ ΔW`).
-///
-/// # Errors
-/// [`CorrectorError::Overflow`] if the accumulation or the rounded entry leaves its range.
-///
-/// # Complexity
-/// `len` checked `i128` multiply-adds and `O(1)` space.
-fn dot_q32(
-    a: &[i64],
-    a0: usize,
-    a_stride: usize,
-    b: &[i64],
-    b0: usize,
-    b_stride: usize,
-    len: usize,
-) -> Result<i64, CorrectorError> {
-    let mut acc: i128 = 0;
-    for t in 0..len {
-        let prod = i128::from(a[a0 + t * a_stride]) * i128::from(b[b0 + t * b_stride]);
-        acc = acc.checked_add(prod).ok_or(CorrectorError::Overflow)?;
-    }
-    round_q32_even(acc).map_err(|_| CorrectorError::Overflow)
-}
-
 /// Solve the rank×rank ridge system `(Uhᵀ Uh + RIDGE_Q·I)·V = Uhᵀ ΔW` for `V`, row-major
-/// `[rank, n]` Q32.32, by [`chol_solve`].
+/// `[rank, n]` Q32.32: the Gram is the pooled [`wsyrk`], the right-hand side the pooled
+/// [`gemm_nn`] on the transposed `Uh` under one exact `2⁻ᵏ` panel (§ [`panel`]), and the solve is
+/// [`chol_solve`].
 ///
 /// # Errors
 /// [`CorrectorError::NotPositiveDefinite`] if the ridged Gram is singular at some pivot;
-/// [`CorrectorError::Overflow`] on a checked `i128` operation.
+/// [`CorrectorError::Overflow`] on a checked `i128` operation or a panel that leaves range.
 ///
 /// # Complexity
-/// Time `O(rank²·o + rank·o·n + rank³ + rank²·n)` serial integer work: `rank` is a stored-factor
-/// width, so the `rank·o·n` right-hand side stays below the pool threshold; space
-/// `O(rank² + rank·n)`.
+/// Time `O(rank²·o + rank·o·n + rank³ + rank²·n)`: the `rank·o·n` right-hand side (≈10⁶
+/// multiply-accumulates at `o = n = 896`, one call per corrector) is one pooled row-split, the
+/// rank×rank factor and the `rank²·n` substitution serial; space `O(o·rank + rank² + rank·n)`.
 fn ridge_solve(
     u: &[i64],
     delta_w: &[i64],
@@ -290,27 +267,19 @@ fn ridge_solve(
     n: usize,
     rank: usize,
 ) -> Result<Vec<i64>, CorrectorError> {
-    // A = Uhᵀ Uh + RIDGE_Q·I (rank × rank), one rounding per entry.
-    let mut a = vec![0_i64; rank * rank];
+    // A = Uhᵀ Uh + RIDGE_Q·I (rank × rank), one rounding per entry on the upper triangle, mirrored.
+    let mut a = wsyrk(u, None, o, rank).map_err(|_| CorrectorError::Overflow)?;
     for i in 0..rank {
-        for j in 0..=i {
-            let dot = dot_q32(u, i, rank, u, j, rank, o)?;
-            let w = if i == j {
-                dot.checked_add(RIDGE_Q).ok_or(CorrectorError::Overflow)?
-            } else {
-                dot
-            };
-            a[i * rank + j] = w;
-            a[j * rank + i] = w;
-        }
+        a[i * rank + i] = a[i * rank + i]
+            .checked_add(RIDGE_Q)
+            .ok_or(CorrectorError::Overflow)?;
     }
-    // B = Uhᵀ ΔW (rank × n), one rounding per entry.
-    let mut b = vec![0_i64; rank * n];
-    for k in 0..rank {
-        for j in 0..n {
-            b[k * n + j] = dot_q32(u, k, rank, delta_w, j, n, o)?;
-        }
-    }
+    // B = Uhᵀ ΔW (rank × n) through the pooled kernel on the transposed `Uh`, the exact panel
+    // shift undone once so `B` is the grid word.
+    let ut: Vec<i64> = (0..rank * o).map(|t| u[(t % o) * rank + t / o]).collect();
+    let (dw, kd) = panel(delta_w).ok_or(CorrectorError::Overflow)?;
+    let mut b = gemm_nn(&ut, &dw, rank, o, n).map_err(|_| CorrectorError::Overflow)?;
+    shift(&mut b, -kd).ok_or(CorrectorError::Overflow)?;
     Ok(chol_solve(&a, &b, rank, n)
         .map_err(|_| CorrectorError::NotPositiveDefinite)?
         .x)
@@ -416,8 +385,12 @@ pub fn lowrank_corrector(
     let corr = if n == 0 {
         Vec::new()
     } else {
-        gemm_nn_f64(&to_real(&uh), &to_real(&vh), o, rank, n)
-            .map_err(|_| CorrectorError::Overflow)?
+        // `Corr = Uh·Vh` on the pooled `gemm_nn` under one exact `2⁻ᵏ` panel, undone on read-back.
+        let (uh_p, ku) = panel(&uh).ok_or(CorrectorError::Overflow)?;
+        let (vh_p, kv) = panel(&vh).ok_or(CorrectorError::Overflow)?;
+        let c = gemm_nn(&uh_p, &vh_p, o, rank, n).map_err(|_| CorrectorError::Overflow)?;
+        let back = 2.0f64.powi(ku + kv);
+        c.iter().map(|&w| from_grid(w) * back).collect()
     };
     Ok(LowrankCorrector {
         corr,

@@ -33,7 +33,7 @@ use apeiron::learn::fold::fit::corrector::{eigen_parts, lowrank_corrector, Corre
 use apeiron::learn::fold::fit::eigh::{eigen_gram, eigh, gram_scale, lowrank_corrector_exact};
 use apeiron::learn::fold::fit::quant::{f16r, quant_c_u8};
 use apeiron::learn::solve::eig::top_eigh;
-use apeiron::learn::solve::q32::{from_grid, to_grid, INPUT_BOUND};
+use apeiron::learn::solve::q32::{from_grid, panel_shift, to_grid, INPUT_BOUND};
 
 /// One Q32.32 quantum, `2⁻³²`.
 const QUANTUM: f64 = 2.328_306_436_538_696_3e-10;
@@ -452,6 +452,51 @@ fn eigen_stage_matches_f64_reference() {
                     rel <= 1e-6,
                     "(o,n)=({o},{n}) rank={rank} k={k}: eigenvalue {have:e} vs {want:e} rel {rel:e}"
                 );
+            }
+        }
+    }
+}
+
+/// The Gram against the scalar `f64` oracle within the derived panel-rounding bound, exactly
+/// symmetric.
+#[test]
+fn eigen_gram_agrees_with_f64_oracle() {
+    let q = 2f64.powi(-32);
+    // One grid half-quantum in real units at a panel whose largest entry is `max`: the pooled
+    // kernels and [`panel`] shift by `2⁻ᵏ` with `k = panel_shift(max)`, so the step is `q·2ᵏ`.
+    let half = |max: f64| 0.5 * q * 2f64.powi(panel_shift(max));
+    for &(o, n) in &[(5usize, 7usize), (6, 10), (12, 12)] {
+        let (dw, hl) = fixture(0xC0FF_EE00_1234 ^ ((o * 31 + n) as u64), o, n);
+        let (dd, dh) = (max_abs(&dw), max_abs(&hl));
+        let w1 = matmul(&dw, &hl, o, n, n);
+        let dw1 = max_abs(&w1);
+        let m_ref = old_gram(&dw, &hl, o, n);
+        // Each operand crosses the grid once (≤ `half`), each product rounds once per entry, so the
+        // first product carries `ε₁ ≤ n(|Hl|·ε_d + |ΔW|·ε_h) + half(w1)` and the second sums it
+        // through `n` entries of `ΔW`: `|ΔM| ≤ half(M) + n(|w1|·ε_d + |ΔW|·ε₁)`. The factor two
+        // covers the pairwise accumulation counted at half-quanta.
+        let (ed, eh) = (half(dd), half(dh));
+        let e1 = (n as f64) * (dh * ed + dd * eh) + half(dw1);
+        let e = half(max_abs(&m_ref)) + (n as f64) * (dw1 * ed + dd * e1);
+        let m = eigen_gram(&dw, &hl, o, n).expect("eigen_gram");
+        let mut worst = 0.0f64;
+        for i in 0..o {
+            for j in 0..o {
+                worst = worst.max((m[i * o + j] - m_ref[i * o + j]).abs());
+            }
+        }
+        println!(
+            "(o,n)=({o},{n}) max |ΔM| {worst:e} over bound {:e}",
+            2.0 * e
+        );
+        assert!(
+            worst <= 2.0 * e,
+            "(o,n)=({o},{n}): {worst:e} over bound {:e}",
+            2.0 * e
+        );
+        for i in 0..o {
+            for j in 0..i {
+                assert_eq!(m[i * o + j], m[j * o + i], "Gram not exactly symmetric");
             }
         }
     }

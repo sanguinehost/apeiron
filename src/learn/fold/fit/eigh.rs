@@ -23,10 +23,11 @@
 )]
 
 use crate::learn::fold::fit::corrector::{eigen_parts, CorrectorError};
+use crate::learn::fold::stats::parts::panel;
 use crate::learn::solve::eig::{top_eigh, EigError, TopEig};
-use crate::learn::solve::gemm::{gemm_nn_f64, gemm_nt_f64, GemmError};
+use crate::learn::solve::gemm::{gemm_nn, gemm_nt, GemmError};
 use crate::learn::solve::q32::{
-    fill_scale, from_grid, rshift_rne, to_grid, GRID_BOUND, INPUT_BOUND,
+    fill_scale, from_grid, panel_shift, rshift_rne, to_grid, GRID_BOUND, INPUT_BOUND,
 };
 
 /// A refusal from the symmetric eigendecomposition or the exact low-rank corrector.
@@ -69,27 +70,40 @@ fn eig_err(_: EigError) -> EighError {
     EighError::NotConverged
 }
 
-/// `round(scale·(a_ij + a_ji)/2)` on the grid for a row-major `[n, n]` matrix: each transposed pair
-/// is rounded once and averaged with one round-to-nearest, ties to even, so the result is exactly
-/// symmetric.
+/// `x` as a Q32.32 panel and the exponent `k` of the exact `2⁻ᵏ` it was shifted by — the
+/// [`panel_shift`] bringing the largest entry under [`INPUT_BOUND`]; `NotConverged` on a
+/// non-finite entry.
 ///
 /// # Complexity
-/// `O(n²)` grid roundings (two per pair) serially: ≈10⁶ word operations at `n² ≤ 896²`, below the
-/// pool threshold; space `O(n²)`.
-fn symmetrise_to_grid(a: &[f64], n: usize, scale: f64, bound: f64) -> Result<Vec<i64>, EighError> {
-    let mut q = vec![0i64; n * n];
+/// `O(len)`: one magnitude scan, one shift and one rounding per entry.
+fn panel_f64(x: &[f64]) -> Result<(Vec<i64>, i32), EighError> {
+    let max = x.iter().fold(0.0f64, |m, &v| m.max(v.abs()));
+    let k = panel_shift(max);
+    let scale = 2.0f64.powi(-k);
+    let q = x
+        .iter()
+        .map(|&v| to_grid(v * scale, INPUT_BOUND))
+        .collect::<Option<Vec<i64>>>()
+        .ok_or(EighError::NotConverged)?;
+    Ok((q, k))
+}
+
+/// Replace each transposed pair of the row-major `[n, n]` word matrix `q` by
+/// `round((q_ij + q_ji)/2)`, ties to even, so `q` is exactly symmetric on the grid.
+///
+/// # Complexity
+/// `O(n²)` serial word operations (≈10⁶ at `n² ≤ 896²`, below the pool threshold); space `O(1)`.
+fn symmetrise(q: &mut [i64], n: usize) -> Result<(), EighError> {
     for i in 0..n {
         for j in 0..=i {
-            let x = to_grid(a[i * n + j] * scale, bound).ok_or(EighError::NotConverged)?;
-            let y = to_grid(a[j * n + i] * scale, bound).ok_or(EighError::NotConverged)?;
-            let mean = rshift_rne(i128::from(x) + i128::from(y), 1)
+            let mean = rshift_rne(i128::from(q[i * n + j]) + i128::from(q[j * n + i]), 1)
                 .and_then(|m| i64::try_from(m).ok())
                 .ok_or(EighError::NotConverged)?;
             q[i * n + j] = mean;
             q[j * n + i] = mean;
         }
     }
-    Ok(q)
+    Ok(())
 }
 
 /// The domain's non-negativity test: each symmetrised entry is within one grid word of the exact
@@ -141,7 +155,12 @@ pub fn eigh(a: &[f64], n: usize) -> Result<(Vec<f64>, Vec<f64>), EighError> {
     }
     let max_mag = a.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
     let scale = gram_scale(max_mag);
-    let q = symmetrise_to_grid(a, n, scale, INPUT_BOUND)?;
+    let mut q = a
+        .iter()
+        .map(|&v| to_grid(v * scale, INPUT_BOUND))
+        .collect::<Option<Vec<i64>>>()
+        .ok_or(EighError::NotConverged)?;
+    symmetrise(&mut q, n)?;
     // PSD implies a non-negative diagonal; a word below `-1` is outside the one-word bound.
     if (0..n).any(|i| q[i * n + i] < -1) {
         return Err(EighError::NotConverged);
@@ -151,17 +170,18 @@ pub fn eigh(a: &[f64], n: usize) -> Result<(Vec<f64>, Vec<f64>), EighError> {
     Ok(read_back(&top, scale))
 }
 
-/// The `o × o` Gram `M = (ΔW·Hl)·ΔWᵀ` through [`gemm_nn_f64`] and [`gemm_nt_f64`], symmetrised as
-/// `(m_ij + m_ji)/2` on the grid and returned in real units, row-major `[o, o]`; `Hl` need not be
-/// symmetric.
+/// The `o × o` Gram `M = (ΔW·Hl)·ΔWᵀ`: two pooled [`gemm_nn`]/[`gemm_nt`] products on Q32.32
+/// words, each operand panel shifted by an exact `2⁻ᵏ` ([`panel_f64`], [`panel`]) and the composed
+/// scale undone once on the read-back; the `O(o²)` symmetrisation is serial. Returned in real
+/// units, row-major `[o, o]`; `Hl` need not be symmetric.
 ///
 /// # Complexity
 /// `O(o·n² + o²·n)` multiply-accumulates on the engine pool, the serial `O(o²)` symmetrisation and
-/// `O(o·n + o²)` boundary conversions; space `O(o·n + o²)`.
+/// `O(o·n + o²)` panel shifts and conversions; space `O(o·n + o²)`.
 ///
 /// # Errors
-/// [`EighError::ShapeMismatch`] on a length mismatch; otherwise the products' refusal
-/// ([`EighError::NotConverged`]), including an out-of-grid entry.
+/// [`EighError::ShapeMismatch`] on a length mismatch; otherwise [`EighError::NotConverged`] for a
+/// non-finite entry or a product's refusal (an entry leaving the grid or the `i128` range).
 pub fn eigen_gram(delta_w: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec<f64>, EighError> {
     if delta_w.len() != o * n || hl.len() != n * n {
         return Err(EighError::ShapeMismatch);
@@ -169,12 +189,14 @@ pub fn eigen_gram(delta_w: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec
     if o == 0 || n == 0 {
         return Ok(vec![0.0f64; o * o]);
     }
-    let w1 = gemm_nn_f64(delta_w, hl, o, n, n).map_err(gemm_err)?;
-    let m = gemm_nt_f64(&w1, delta_w, o, n, o).map_err(gemm_err)?;
-    Ok(symmetrise_to_grid(&m, o, 1.0, GRID_BOUND)?
-        .into_iter()
-        .map(from_grid)
-        .collect())
+    let (dw, ka) = panel_f64(delta_w)?;
+    let (hlq, kb) = panel_f64(hl)?;
+    let (w1, k1) =
+        panel(&gemm_nn(&dw, &hlq, o, n, n).map_err(gemm_err)?).ok_or(EighError::NotConverged)?;
+    let mut m = gemm_nt(&w1, &dw, o, n, o).map_err(gemm_err)?;
+    symmetrise(&mut m, o)?;
+    let back = 2.0f64.powi(2 * ka + kb + k1);
+    Ok(m.into_iter().map(|w| from_grid(w) * back).collect())
 }
 
 /// The exact rank-`rank` corrector in the metric `Hl`: the stored factors and `Corr = U·V`.
@@ -232,19 +254,22 @@ pub fn lowrank_corrector_exact(
             v: Vec::new(),
         });
     }
-    // `V = Uᵀ·ΔW` (rank × n); `Corr = U·V` (o × n).
-    let mut ut = vec![0.0f64; rank * o];
-    for i in 0..o {
-        for k in 0..rank {
-            ut[k * o + i] = u[i * rank + k];
-        }
-    }
-    let v = gemm_nn_f64(&ut, delta_w, rank, o, n).map_err(gemm_err)?;
-    let corr = gemm_nn_f64(&u, &v, o, rank, n).map_err(gemm_err)?;
+    // `V = Uᵀ·ΔW` and `Corr = U·V` on the pooled word kernels; the `ΔW` panel's exact `2⁻ᵏ` is
+    // undone once on the read-back.
+    let uq: Vec<i64> = u
+        .iter()
+        .map(|&x| to_grid(x, GRID_BOUND).ok_or(EighError::NotConverged))
+        .collect::<Result<_, _>>()?;
+    let (dw, kd) = panel_f64(delta_w)?;
+    let ut: Vec<i64> = (0..rank * o).map(|t| uq[(t % o) * rank + t / o]).collect();
+    let (v, kv) =
+        panel(&gemm_nn(&ut, &dw, rank, o, n).map_err(gemm_err)?).ok_or(EighError::NotConverged)?;
+    let corr = gemm_nn(&uq, &v, o, rank, n).map_err(gemm_err)?;
+    let back = 2.0f64.powi(kd + kv);
     Ok(Corrector {
-        corr,
+        corr: corr.iter().map(|&w| from_grid(w) * back).collect(),
         top_sum,
         u,
-        v,
+        v: v.iter().map(|&w| from_grid(w) * back).collect(),
     })
 }
