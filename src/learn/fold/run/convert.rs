@@ -9,15 +9,16 @@
 //!
 //! The loader decodes an `f16`/`bf16`/`f32` payload to the same words once, round half-even
 //! ([`decode_f16`], [`decode_bf16`], [`decode_f32`]); the writer re-encodes words
-//! ([`encode_f16`], [`encode_f32`]). No `f64` buffer carries a weight on this path.
+//! ([`encode_f16`], [`encode_f32`]). Those five functions are the one named decode/encode edge for
+//! each payload type; no other body here reads or writes a binary16, binary32 or binary64 field.
 //!
-//! ```text
-//! q32_to_f64(v) = v / 2^32                 # exact for |v| < 2^21
-//! f64_to_q32(x) = RNE(x · 2^32) : i64      # exact decode of (sign, exponent, significand)
-//! ```
+//! A binary32 payload is a sign, a biased exponent and a 23-bit significand, and its word is
+//! `RNE(±(2^23 + m)·2^(e−118))`: an integer shift of the 24-bit significand, tie to the even word.
+//! A binary16 payload is an exact multiple of `2^-24`, so its decode is exact.
 //!
-//! so `f64_to_q32(q32_to_f64(v)) == v` for every `Q32.32` word and `|f64_to_q32(x)/2^32 - x| <=
-//! 2^-33` for any admissible `x`; a tie at the grid quantum rounds to even.
+//! The floating-point values this file still hands out are the `LayerCfg::eps` and `LayerCfg::theta`
+//! fields in [`teacher_from_grad`], a boundary into `stats/parts.rs` whose fields are not this lane's
+//! to flip.
 //!
 //! # Evidence grade
 //!
@@ -27,18 +28,16 @@
 //! # Trust boundary
 //!
 //! Not covered: the `GGUF` load ([`Weights::from_engine`], the engine's contract), the `GGUF` header
-//! write, the driver's fit arithmetic, and rustc/LLVM codegen. No `unsafe`, and no `f64` multiply
-//! or `f64` rounding on the computing path.
+//! write, the driver's fit arithmetic, and rustc/LLVM codegen. No `unsafe`; every weight value on
+//! this path is a `Q32.32` word.
 
 #![allow(
     clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
     clippy::cast_sign_loss,
     clippy::many_single_char_names,
-    reason = "the `Q32.32 → f64` scalar boundary (`v as f64` is the documented exact scalar for \
-              `|v| < 2^21`), the bit decode's `m`/`e`/`k` significand-exponent-shift symbols, and \
-              narrowing casts bound-checked at the site (`e < 2^11`, a biased exponent in `1..=30`, \
-              a rounded significand below `2048`)"
+    reason = "the bit decode's `m`/`e`/`k` significand-exponent-shift symbols, and narrowing casts \
+              bound-checked at the site (`e < 2^11`, a biased exponent in `1..=30`, a rounded \
+              significand below `2048`)"
 )]
 
 use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
@@ -47,25 +46,23 @@ use crate::engine::f16_to_fixed;
 use crate::engine::fp::F32;
 use crate::learn::fold::stats::parts::LayerCfg;
 use crate::learn::grad::model::{Config, LayerWeights, Weights};
-use crate::learn::solve::q32::{round_f16, rshift_rne, Fx};
+use crate::learn::solve::q32::{from_grid, round_f16, rshift_rne, Fx};
 
-/// The `Q32.32` scale `2^32`.
-const SCALE: f64 = 4_294_967_296.0;
-
-/// The biased `f64` exponent of `2^31` (`1023 + 31`); `0x7ff` (`NaN`/infinity) is checked first.
-const EXP_2_31: u64 = 1054;
+/// The biased binary32 exponent of `2^31` (`127 + 31`); `0xff` (`NaN`/infinity) is checked first,
+/// so `e >= EXP_2_31` is the `Q32.32` range refusal.
+const EXP_2_31: u32 = 158;
 
 /// A refusal from the engine-weights/fold-driver conversion.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConvertError {
     /// A tensor length disagrees with the geometry the other side declares.
     Shape(String),
-    /// A `Q→f64` conversion needs a `Qwen2` attention bias the loaded model does not carry.
+    /// A conversion needs a `Qwen2` attention bias the loaded model does not carry.
     MissingBias(String),
-    /// A finite `f64` is out of the `Q32.32` range (`|x| >= 2^31`), or a `Q32.32` word has no
-    /// finite binary16 encoding.
+    /// A payload element is at or past `2^31` in magnitude, or a `Q32.32` word has no finite
+    /// binary16 encoding.
     Range(String),
-    /// A `f64` is `NaN` or infinite and cannot be quantized.
+    /// A payload element is `NaN` or infinite and cannot be quantized.
     NonFinite(String),
 }
 
@@ -98,47 +95,6 @@ pub struct Teacher {
     pub vocab: usize,
     /// Trunk layer count.
     pub n_layer: usize,
-}
-
-/// `v / 2^32`, the `Q32.32` word as an `f64`. Exact for `|v| < 2^21`.
-///
-/// # Complexity
-/// `O(1)`.
-#[must_use]
-pub fn q32_to_f64(v: i64) -> f64 {
-    v as f64 / SCALE
-}
-
-/// `RNE(x · 2^32)` as an `i64` by an integer decode of the `f64` bits: the exponent field bounds
-/// `|x| < 2^31`, `m` is the 53-bit significand shifted onto the `2^-32` grid (`x·2^32 = ±m·2^k`),
-/// and [`rshift_rne`] rounds a tie to the even word. No `f64` multiply or rounding runs here.
-///
-/// # Errors
-/// [`ConvertError::NonFinite`] for a `NaN`/infinite `x`; [`ConvertError::Range`] for `|x| >= 2^31`.
-///
-/// # Complexity
-/// `O(1)`.
-pub fn f64_to_q32(x: f64) -> Result<i64, ConvertError> {
-    let bits = x.to_bits();
-    let e = (bits >> 52) & 0x7ff;
-    let refuse = || ConvertError::Range(format!("{x}"));
-    match e {
-        0x7ff => return Err(ConvertError::NonFinite(format!("{x}"))),
-        0 => return Ok(0), // subnormal: below the half quantum of the `2^-32` grid
-        EXP_2_31.. => return Err(refuse()),
-        _ => {}
-    }
-    let m = i128::from((bits & 0x000f_ffff_ffff_ffff) | (1 << 52));
-    let k = e as i32 - 1043;
-    // `x·2^32 = ±m·2^k`; the shift clamp is exact because `m <= 2^53` leaves a value below the
-    // half quantum whenever `k < -126`.
-    let mag = if k >= 0 {
-        m << k
-    } else {
-        rshift_rne(m, k.unsigned_abs().min(126)).ok_or_else(refuse)?
-    };
-    let y = i64::try_from(mag).map_err(|_| refuse())?;
-    Ok(if bits >> 63 == 0 { y } else { -y })
 }
 
 /// The scalar encoding one pooled pass applies: `F16`/`F32` = `Q32.32`→2/4-byte little-endian
@@ -213,7 +169,7 @@ pub fn encode_f16(v: &[i64]) -> Result<Vec<u8>, ConvertError> {
     Ok(out)
 }
 
-/// The little-endian binary32 payload of a whole tensor ([`F32::from_q32`]); no `f64` is formed.
+/// The little-endian binary32 payload of a whole tensor ([`F32::from_q32`]); no scalar conversion.
 #[must_use]
 pub fn encode_f32(v: &[i64]) -> Vec<u8> {
     let mut out = vec![0u8; v.len() * 4];
@@ -279,9 +235,9 @@ pub fn decode_f32(raw: &[u8]) -> Result<Vec<i64>, ConvertError> {
         .collect()
 }
 
-/// One `f32` bit pattern as a `Q32.32` word: an exact widening into the `f64` exponent-and-significand
-/// layout, then the integer half-even decode of [`f64_to_q32`]. Subnormals are below the half
-/// quantum and decode to zero; `Inf`/`NaN` refuse.
+/// One binary32 bit pattern as a `Q32.32` word: the 24-bit significand `2^23 + m` shifted onto the
+/// `2^-32` grid, `RNE(±(2^23 + m)·2^(e−118))`, a tie to the even word. Subnormals are below the
+/// half quantum and decode to zero; `Inf`/`NaN` and a magnitude at or past `2^31` refuse.
 fn f32_bits_to_q32(bits: u32) -> Result<i64, ConvertError> {
     let e = (bits >> 23) & 0xff;
     if e == 0xff {
@@ -290,10 +246,20 @@ fn f32_bits_to_q32(bits: u32) -> Result<i64, ConvertError> {
     if e == 0 {
         return Ok(0);
     }
-    let wide = (u64::from(bits >> 31) << 63)
-        | (u64::from(e + 896) << 52)
-        | (u64::from(bits & 0x007f_ffff) << 29);
-    f64_to_q32(f64::from_bits(wide))
+    let refuse = || ConvertError::Range(format!("f32 {bits:#010x}"));
+    if e >= EXP_2_31 {
+        return Err(refuse());
+    }
+    let m = i128::from((bits & 0x007f_ffff) | (1 << 23));
+    // `value·2^32 = ±m·2^k`; `e <= 157` bounds the shift so the word stays below `2^63`.
+    let k = i32::try_from(e).map_err(|_| refuse())? - 118;
+    let mag = if k >= 0 {
+        m << k
+    } else {
+        rshift_rne(m, k.unsigned_abs()).ok_or_else(refuse)?
+    };
+    let y = i64::try_from(mag).map_err(|_| refuse())?;
+    Ok(if bits >> 31 == 0 { y } else { -y })
 }
 
 /// The binary16 bit pattern of a rounded [`Fx`] `m · 2^e` ([`round_f16`]'s output): sign, biased
@@ -375,7 +341,7 @@ pub fn teacher_from_grad(w: &Weights, cfg: &Config) -> Result<Teacher, ConvertEr
         head_dim: cfg.head_dim,
         hidden,
         inter,
-        eps: cfg.eps as f64 / SCALE,
+        eps: from_grid(cfg.eps),
         theta: cfg.rope_theta,
     };
 

@@ -123,6 +123,98 @@ fn close(got: f64, want: f64) -> bool {
     (got - want).abs() <= 4.0 * 2f64.powi(-33) * want.abs().max(1.0)
 }
 
+/// FNV-1a 64 fold of `bytes` into `h`.
+fn fnv1a(mut h: u64, bytes: &[u8]) -> u64 {
+    for &b in bytes {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// The numerical-recipes LCG the recorded witness fixture was generated with: distinct from the
+/// file's, so the recorded digests are reproduced exactly.
+struct WitnessLcg(u64);
+
+impl WitnessLcg {
+    fn new(seed: u64) -> Self {
+        Self(seed ^ 0x9e37_79b9_7f4a_7c15)
+    }
+    fn next(&mut self) -> u64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        self.0
+    }
+    fn word(&mut self) -> i64 {
+        (self.next() >> 33) as i64 % 2001 - 1000
+    }
+}
+
+/// The recorded base-row digest: `v = 64`, `z` small words scaled by `ONE/256`, `lp` straddling the
+/// `−16` flush threshold, target `3` and base argmax `2`.
+fn witness_base_row(seed: u64) -> u64 {
+    let mut rng = WitnessLcg::new(seed);
+    let z: Vec<i64> = (0..64).map(|_| rng.word() * (ONE >> 8)).collect();
+    let lp: Vec<i64> = (0..64)
+        .map(|_| {
+            let x = -0.05 - ((rng.next() >> 40) % 199) as f64 / 10.0;
+            to_grid(x, GRID_BOUND).expect("base log p on the grid")
+        })
+        .collect();
+    let s = score_base_row(&z, &lp, 3, Some(2)).expect("row");
+    let mut h = fnv1a(0xcbf2_9ce4_8422_2325, b"row");
+    for w in [s.kl, s.nll_student, s.nll_base, s.top1 as i64] {
+        h = fnv1a(h, &w.to_le_bytes());
+    }
+    h
+}
+
+/// The recorded held-out aggregate digest: [`weights`]`(seed)`, a perturbed `lm_head`, and the five
+/// mean words over the `[1, 2, 3, 4, 5]` sequence.
+fn witness_heldout(seed: u64) -> u64 {
+    let teacher = weights(seed);
+    let mut student = teacher.clone();
+    for k in 0..E {
+        student.lm_head[k] += 3 * (ONE >> 2);
+    }
+    let toks: [u32; 5] = [1, 2, 3, 4, 5];
+    let hh = held_out_seq(&teacher, &student, &config(), &toks).expect("eval");
+    let tokens = i64::try_from(hh.tokens).expect("tokens");
+    let mut h = fnv1a(0xcbf2_9ce4_8422_2325, b"heldout");
+    for w in [
+        tokens,
+        hh.kl,
+        hh.tv,
+        hh.top1,
+        hh.nll_student,
+        hh.nll_teacher,
+    ] {
+        h = fnv1a(h, &w.to_le_bytes());
+    }
+    h
+}
+
+/// The recorded pre-migration digests of the held-out face, from the source at base `57d21789`.
+/// The word accumulators are unchanged by the migration; only the report struct's field type moved
+/// from a decimal to the exact word, so these digests must hold exactly.
+#[test]
+fn recorded_heldout_digests_hold() {
+    for (seed, want) in [
+        (0x0BA5_E001u64, 0xc408_a9ce_25fa_6911u64),
+        (0x0BA5_E002, 0x2933_5644_f070_f9ff),
+    ] {
+        assert_eq!(witness_base_row(seed), want, "base row seed {seed:016x}");
+    }
+    for (seed, want) in [
+        (0x5EED_0001u64, 0x04b1_ffdc_6145_1ee5u64),
+        (0x5EED_0002, 0x411a_4aa3_4db2_9db4),
+    ] {
+        assert_eq!(witness_heldout(seed), want, "held-out seed {seed:016x}");
+    }
+}
+
 /// The independent reference: the mean forward `KL(teacher ‖ student)` in nats from the Q32.32
 /// logits, computed in `f64`, one row at a time (`Σ_x p_t(x)·(ln p_t(x) − ln p_s(x)) / T`).
 fn f64_kl_mean(teacher: &Weights, student: &Weights, cfg: &Config, toks: &[u32]) -> f64 {
@@ -187,10 +279,10 @@ fn fixture_is_non_degenerate() {
     let student = weights(2);
     let toks: [u32; 4] = [1, 2, 3, 4];
     let h = held_out_seq(&teacher, &student, &cfg, &toks).expect("eval");
-    assert!(h.kl > 0.0, "distinct models must give positive KL");
-    assert!((0.0..=1.0).contains(&h.tv));
-    assert!((0.0..=1.0).contains(&h.top1));
-    assert!(h.nll_teacher > 0.0 && h.nll_student > 0.0);
+    assert!(h.kl > 0, "distinct models must give positive KL");
+    assert!((0..=ONE).contains(&h.tv), "tv is a fraction of ONE");
+    assert!((0..=ONE).contains(&h.top1), "top1 is a fraction of ONE");
+    assert!(h.nll_teacher > 0 && h.nll_student > 0);
 }
 
 /// Teacher equal to student: zero KL, zero TV, unit top-1, equal NLLs — exactly, not approximately.
@@ -203,7 +295,7 @@ fn identical_teacher_student_is_zero() {
     let seqs: [&[u32]; 2] = [&s1, &s2];
     let h = held_out(&w, &w, &cfg, &seqs).expect("eval");
     let want = (h.tokens, h.kl, h.tv, h.top1);
-    assert_eq!(want, (7, 0.0, 0.0, 1.0), "equal logits give 0 and 1");
+    assert_eq!(want, (7, 0, 0, ONE), "equal logits give 0 and 1");
     assert_eq!(h.nll_student, h.nll_teacher);
 }
 
@@ -220,14 +312,13 @@ fn perturbed_lm_head_matches_f64_softmax_kl() {
     }
     let toks: [u32; 5] = [1, 2, 3, 4, 5];
     let h = held_out_seq(&teacher, &student, &cfg, &toks).expect("eval");
-    assert!(h.kl > 0.0, "the perturbed student must give positive KL");
+    assert!(h.kl > 0, "the perturbed student must give positive KL");
     let want = f64_kl_mean(&teacher, &student, &cfg, &toks);
-    let rel = (h.kl - want).abs() / want.abs().max(1e-12);
+    let got = from_grid(h.kl);
+    let rel = (got - want).abs() / want.abs().max(1e-12);
     assert!(
         rel <= 1e-6,
-        "KL {:.12} vs f64 reference {:.12} (relative {rel:e})",
-        h.kl,
-        want
+        "KL {got:.12} vs f64 reference {want:.12} (relative {rel:e})"
     );
 }
 
@@ -248,18 +339,20 @@ fn multi_sequence_mean_is_token_weighted() {
 
     let n = (a.tokens + b.tokens) as f64;
     let m = ((a.tokens - 1) + (b.tokens - 1)) as f64;
-    let w = |x: f64, y: f64| (x * a.tokens as f64 + y * b.tokens as f64) / n;
-    let wn = |x: f64, y: f64| ((x * (a.tokens - 1) as f64) + (y * (b.tokens - 1) as f64)) / m;
-    assert!(close(h.kl, w(a.kl, b.kl)), "kl {h:?}");
-    assert!(close(h.tv, w(a.tv, b.tv)), "tv {h:?}");
+    let w = |x: i64, y: i64| (from_grid(x) * a.tokens as f64 + from_grid(y) * b.tokens as f64) / n;
+    let wn = |x: i64, y: i64| {
+        (from_grid(x) * (a.tokens - 1) as f64 + from_grid(y) * (b.tokens - 1) as f64) / m
+    };
+    assert!(close(from_grid(h.kl), w(a.kl, b.kl)), "kl {h:?}");
+    assert!(close(from_grid(h.tv), w(a.tv, b.tv)), "tv {h:?}");
     assert!(
-        (h.top1 - w(a.top1, b.top1)).abs() <= 4.0 * 2f64.powi(-33),
+        (from_grid(h.top1) - w(a.top1, b.top1)).abs() <= 4.0 * 2f64.powi(-33),
         "top1 {h:?}"
     );
     let ns = wn(a.nll_student, b.nll_student);
     let nt = wn(a.nll_teacher, b.nll_teacher);
-    assert!(close(h.nll_student, ns), "nll_s");
-    assert!(close(h.nll_teacher, nt), "nll_t");
+    assert!(close(from_grid(h.nll_student), ns), "nll_s");
+    assert!(close(from_grid(h.nll_teacher), nt), "nll_t");
 }
 
 /// The fixed-point base row agrees with its `f64` oracle ([`ref_score_base_row`]) within the derived
@@ -482,7 +575,7 @@ fn report_kld(
         q8.kld.len(),
         q4.kld.len()
     );
-    let mean = |f: fn(&BaseScore) -> f64| scores.iter().map(f).sum::<f64>() / nf;
+    let mean = |f: fn(&BaseScore) -> i64| scores.iter().map(|s| from_grid(f(s))).sum::<f64>() / nf;
     let (mean_kl, top, nll_s, nll_b) = (
         mean(|s| s.kl),
         mean(|s| s.top1),
@@ -498,15 +591,19 @@ fn report_kld(
     let (mut d_chunk, mut rmin, mut rmax) = (0.0f64, f64::INFINITY, f64::NEG_INFINITY);
     let mut ratios = Vec::with_capacity(n);
     for (i, s) in scores.iter().enumerate() {
-        d_chunk = d_chunk.max((s.kl - slice_mean(&q8.kld, skip + i, 1)).abs());
-        let r = s.kl / slice_mean(&q4.kld, skip + i, 1);
+        d_chunk = d_chunk.max((from_grid(s.kl) - slice_mean(&q8.kld, skip + i, 1)).abs());
+        let r = from_grid(s.kl) / slice_mean(&q4.kld, skip + i, 1);
         rmin = rmin.min(r);
         rmax = rmax.max(r);
         ratios.push(r);
     }
     let s_chunk = walls.iter().sum::<f64>() / nf;
     let s_max = walls.iter().fold(0.0f64, |a, &w| a.max(w));
-    let var = scores.iter().map(|s| (s.kl - mean_kl).powi(2)).sum::<f64>() / (nf - 1.0).max(1.0);
+    let var = scores
+        .iter()
+        .map(|s| (from_grid(s.kl) - mean_kl).powi(2))
+        .sum::<f64>()
+        / (nf - 1.0).max(1.0);
     println!(
         "{text}: chunks {skip}..{}, {} rows, {s_chunk:.3} s/chunk mean ({s_max:.3} max)",
         skip + n,

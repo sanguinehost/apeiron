@@ -17,9 +17,13 @@
 //! head's exact-`i128`, once-rounded value; rows are summed in checked `i128` and divided by the
 //! position count once, in fixed point, at [`Acc::finish`], so a mean is within half a grid quantum
 //! `2⁻³³` of the exact rational. `KL(p_t ‖ p_s)` is asymmetric, so [`kl_row`]'s argument order is
-//! semantic. The base-file path's `f64` `log p` (a `u16` code with an `f32` scale and minimum,
+//! semantic. The base-file path's `log p` (a `u16` code with a binary32 scale and minimum,
 //! [`crate::learn::fold::stats::kldbase`]) is an **input format**, converted to one grid word per
 //! entry at [`to_grid`] and scored in the same fixed point as the student.
+//!
+//! [`HeldOut`] and [`BaseScore`] carry those exact words: `kl`, `tv`, `nll_*` are nats per
+//! position and `top1` is a fraction of `ONE`, each one `Q32.32` `i64`. A caller that prints a
+//! decimal divides by `ONE` at its print line; no metric is rounded to a float here.
 //!
 //! [`HeldOutError`]: empty inputs, a sequence shorter than two tokens, a zero or mismatched
 //! vocabulary, a short logits or row block, a `forward`/engine refusal and a checked `i128`
@@ -35,9 +39,10 @@
 //!
 //! # Trust boundary
 //!
-//! The thread pool ([`chunks_mut_global`]) is the boundary of the row split; the `f64` in
-//! [`BaseScore`] and [`HeldOut`] is the caller-facing representation of finished words, and the base
-//! file's `f64` decode is an input format, not a computed value.
+//! The thread pool ([`chunks_mut_global`]) is the boundary of the row split. The base file's
+//! binary32 scale and minimum are the input format [`crate::learn::fold::stats::kldbase`] decodes,
+//! not a computed value; [`HeldOut`] and [`BaseScore`] carry exact `Q32.32` words, and a caller's
+//! decimal conversion is outside this file.
 
 #![allow(
     clippy::many_single_char_names,
@@ -52,7 +57,7 @@ use crate::engine::{Engine, KernelMode, ONE};
 use crate::learn::fold::stats::kldbase::KldChunk;
 use crate::learn::grad::head::{kl_row, log_softmax_row, tv_row, HeadError};
 use crate::learn::grad::model::{forward, Config, ModelError, Weights};
-use crate::learn::solve::q32::{from_grid, round_q32_even, to_grid, GRID_BOUND};
+use crate::learn::solve::q32::{round_q32_even, to_grid, GRID_BOUND};
 use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_ln::fixed_ln;
 
@@ -80,16 +85,17 @@ pub enum HeldOutError {
 pub struct BaseScore {
     /// Scored positions, `n_ctx − 1 − n_ctx/2`.
     pub tokens: u64,
-    /// Mean forward `KL(p_base ‖ p_student)` in nats per position, over base entries with
-    /// `log p > −16` exactly as the reference sums it.
-    pub kl: f64,
-    /// Fraction of scored positions whose student `argmax` equals the base row's `argmax`.
-    pub top1: f64,
-    /// Mean `−log p_student(next token)` in nats over the scored positions.
-    pub nll_student: f64,
-    /// Mean `−log p_base(next token)` in nats over the scored positions: `log` of llama.cpp's base
-    /// PPL column.
-    pub nll_base: f64,
+    /// Mean forward `KL(p_base ‖ p_student)` per position, in nats, as a `Q32.32` word
+    /// (`ONE = 2^32`), over base entries with `log p > −16` exactly as the reference sums it.
+    pub kl: i64,
+    /// Fraction of scored positions whose student `argmax` equals the base row's `argmax`, as a
+    /// `Q32.32` word (`ONE` is agreement on every position).
+    pub top1: i64,
+    /// Mean `−log p_student(next token)` over the scored positions, in nats, as a `Q32.32` word.
+    pub nll_student: i64,
+    /// Mean `−log p_base(next token)` over the scored positions, in nats, as a `Q32.32` word:
+    /// `log` of llama.cpp's base PPL column.
+    pub nll_base: i64,
 }
 
 /// The scored held-out quality of a student against a teacher.
@@ -97,22 +103,26 @@ pub struct BaseScore {
 pub struct HeldOut {
     /// Scored positions `Σ_i T_i`: the denominator of `kl`, `tv` and `top1`.
     pub tokens: u64,
-    /// Mean forward `KL(teacher ‖ student)` per position, in nats.
-    pub kl: f64,
-    /// Mean total variation `½Σ_x |p_teacher(x) − p_student(x)|` per position, in `[0, 1]`.
-    pub tv: f64,
-    /// Fraction of positions where the teacher and student `argmax` agree, in `[0, 1]`.
-    pub top1: f64,
-    /// Mean `−log p_student(next token)` in nats over the next-token positions (`T_i − 1` each).
-    pub nll_student: f64,
-    /// Mean `−log p_teacher(next token)` in nats, over the same positions as `nll_student`.
-    pub nll_teacher: f64,
+    /// Mean forward `KL(teacher ‖ student)` per position, in nats, as a `Q32.32` word.
+    pub kl: i64,
+    /// Mean total variation `½Σ_x |p_teacher(x) − p_student(x)|` per position, in `[0, ONE]`, as a
+    /// `Q32.32` word.
+    pub tv: i64,
+    /// Fraction of positions where the teacher and student `argmax` agree, in `[0, ONE]`, as a
+    /// `Q32.32` word.
+    pub top1: i64,
+    /// Mean `−log p_student(next token)` in nats over the next-token positions (`T_i − 1` each),
+    /// as a `Q32.32` word.
+    pub nll_student: i64,
+    /// Mean `−log p_teacher(next token)` in nats, over the same positions as `nll_student`, as a
+    /// `Q32.32` word.
+    pub nll_teacher: i64,
 }
 
 /// A shifted logit below `−16·ONE` has `p = 0`: the rule [`crate::learn::grad::head`] applies.
 const FLUSH: i128 = -16 * (1_i128 << 32);
 
-/// Exact Q32.32 accumulators over the scored positions; the division into the `f64` means happens
+/// Exact Q32.32 accumulators over the scored positions; the division into the mean words happens
 /// once, in [`Acc::finish`].
 #[derive(Debug, Clone, Copy, Default)]
 struct Acc {
@@ -350,8 +360,8 @@ impl Acc {
         self.score_logits(&lt, &ls, v, tokens)
     }
 
-    /// Divide the exact accumulators into the `f64` means, the one point of conversion. `Shape` when
-    /// no next-token position was scored.
+    /// Divide the exact accumulators into the fixed-point mean words: one rounding per mean. `Shape`
+    /// when no next-token position was scored.
     fn finish(self) -> Result<HeldOut, HeldOutError> {
         if self.tokens == 0 || self.pairs == 0 {
             return Err(HeldOutError::Shape("no scored positions".to_string()));
@@ -359,17 +369,17 @@ impl Acc {
         let one = i128::from(ONE);
         Ok(HeldOut {
             tokens: self.tokens,
-            kl: from_grid(mean_word(self.kl, self.tokens)?),
-            tv: from_grid(mean_word(self.tv, self.tokens)?),
-            top1: from_grid(mean_word(i128::from(self.top1) * one, self.tokens)?),
-            nll_student: from_grid(mean_word(
+            kl: mean_word(self.kl, self.tokens)?,
+            tv: mean_word(self.tv, self.tokens)?,
+            top1: mean_word(i128::from(self.top1) * one, self.tokens)?,
+            nll_student: mean_word(
                 self.nll_s.checked_neg().ok_or(HeldOutError::Overflow)?,
                 self.pairs,
-            )?),
-            nll_teacher: from_grid(mean_word(
+            )?,
+            nll_teacher: mean_word(
                 self.nll_t.checked_neg().ok_or(HeldOutError::Overflow)?,
                 self.pairs,
-            )?),
+            )?,
         })
     }
 }
@@ -589,15 +599,9 @@ pub fn held_out_kldbase_chunk(
     let n = u64::try_from(rows).map_err(|_| HeldOutError::Overflow)?;
     Ok(BaseScore {
         tokens: n,
-        kl: from_grid(mean_word(kl, n)?),
-        top1: from_grid(mean_word(i128::from(top1) * i128::from(ONE), n)?),
-        nll_student: from_grid(mean_word(
-            nll_s.checked_neg().ok_or(HeldOutError::Overflow)?,
-            n,
-        )?),
-        nll_base: from_grid(mean_word(
-            nll_b.checked_neg().ok_or(HeldOutError::Overflow)?,
-            n,
-        )?),
+        kl: mean_word(kl, n)?,
+        top1: mean_word(i128::from(top1) * i128::from(ONE), n)?,
+        nll_student: mean_word(nll_s.checked_neg().ok_or(HeldOutError::Overflow)?, n)?,
+        nll_base: mean_word(nll_b.checked_neg().ok_or(HeldOutError::Overflow)?, n)?,
     })
 }

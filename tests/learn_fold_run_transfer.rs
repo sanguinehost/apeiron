@@ -27,7 +27,7 @@ use apeiron::engine::{Engine, KernelMode};
 use apeiron::learn::fold::layer::driver::{
     layer_words, model_finish, model_init, model_step, quantise_model, DriverCfg, LayerWeights,
 };
-use apeiron::learn::fold::run::convert::teacher_from_grad;
+use apeiron::learn::fold::run::convert::{teacher_from_grad, Teacher};
 use apeiron::learn::fold::run::npy::{chunks, read_npy_i4, split};
 use apeiron::learn::fold::run::transfer::{
     checkpoint_present, h0_from_chunks, load, save, write_student_gguf, TransferError,
@@ -642,4 +642,134 @@ fn hex(d: &[u8; 32]) -> String {
         s.push(char::from_digit(u32::from(b & 0x0f), 16).unwrap_or('0'));
     }
     s
+}
+
+/// FNV-1a 64 fold of `bytes` into `h`.
+fn fnv1a(mut h: u64, bytes: &[u8]) -> u64 {
+    for &b in bytes {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// FNV-1a 64 over the little-endian bytes of the words.
+fn fnv_words(v: &[i64]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &w in v {
+        h = fnv1a(h, &w.to_le_bytes());
+    }
+    h
+}
+
+/// The numerical-recipes LCG the recorded checkpoint fixture was generated with.
+struct WitnessLcg(u64);
+
+impl WitnessLcg {
+    fn new(seed: u64) -> Self {
+        Self(seed ^ 0x9e37_79b9_7f4a_7c15)
+    }
+    fn next(&mut self) -> u64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        self.0
+    }
+    fn word(&mut self) -> i64 {
+        i64::try_from(self.next() >> 33).expect("31-bit") % 2001 - 1000
+    }
+    fn fill(&mut self, n: usize) -> Vec<i64> {
+        (0..n).map(|_| self.word()).collect()
+    }
+}
+
+/// The recorded fixture's geometry: `hidden` 32, one head of 8, `inter` 16, `vocab` 8, two layers.
+const WHID: usize = 32;
+const WQ: usize = 8;
+const WINTER: usize = 16;
+const WVOCAB: usize = 8;
+
+fn witness_config() -> apeiron::learn::grad::model::Config {
+    apeiron::learn::grad::model::Config {
+        n_layer: 2,
+        n_head: 1,
+        n_head_kv: 1,
+        n_embd: WHID,
+        n_ff: WINTER,
+        vocab: WVOCAB,
+        head_dim: 8,
+        eps: 4_295,
+        rope_theta: 10_000.0,
+    }
+}
+
+fn witness_teacher(seed: u64) -> Teacher {
+    let mut rng = WitnessLcg::new(seed);
+    let layer = |rng: &mut WitnessLcg| apeiron::learn::grad::model::LayerWeights {
+        attn_norm: rng.fill(WHID),
+        wq: rng.fill(WQ * WHID),
+        bq: Some(rng.fill(WQ)),
+        wk: rng.fill(WQ * WHID),
+        bk: Some(rng.fill(WQ)),
+        wv: rng.fill(WQ * WHID),
+        bv: Some(rng.fill(WQ)),
+        wo: rng.fill(WHID * WQ),
+        ffn_norm: rng.fill(WHID),
+        w_gate: rng.fill(WINTER * WHID),
+        w_up: rng.fill(WINTER * WHID),
+        w_down: rng.fill(WHID * WINTER),
+    };
+    let w = Weights {
+        layers: vec![layer(&mut rng), layer(&mut rng)],
+        output_norm: rng.fill(WHID),
+        token_embd: rng.fill(WVOCAB * WHID),
+        lm_head: rng.fill(WVOCAB * WHID),
+    };
+    teacher_from_grad(&w, &witness_config()).expect("witness teacher")
+}
+
+/// The recorded pre-migration digest: `h0_from_chunks`, the three checkpoint files, and the loaded
+/// `next`/`ht`/`hs` words, folded in the recorded order.
+fn witness_transfer(seed: u64) -> u64 {
+    let t = witness_teacher(seed);
+    let mut rng = WitnessLcg::new(seed ^ 0x5151);
+    let chunks: Vec<Vec<u32>> = (0..3)
+        .map(|_| {
+            (0..4)
+                .map(|_| u32::try_from(rng.next() % (WVOCAB as u64)).expect("token"))
+                .collect()
+        })
+        .collect();
+    let h0w = h0_from_chunks(&t, &chunks).expect("h0");
+    let st = model_init(&h0w);
+    let dir = scratch(&format!("witness-{seed:016x}"));
+    save(&dir, &st).expect("save");
+    let mut h = fnv1a(0xcbf2_9ce4_8422_2325, b"h0");
+    h = fnv1a(h, &i64::try_from(h0w.len()).expect("len").to_le_bytes());
+    h = fnv1a(h, &fnv_words(&h0w).to_le_bytes());
+    for name in ["ht.bin", "hs.bin", "manifest.txt"] {
+        let bytes = fs::read(format!("{dir}/{name}")).expect("read checkpoint");
+        h = fnv1a(h, &fnv1a(0, name.as_bytes()).to_le_bytes());
+        h = fnv1a(h, &bytes);
+    }
+    let back = load(&dir).expect("load");
+    h = fnv1a(h, b"load");
+    h = fnv1a(h, &i64::try_from(back.next).expect("next").to_le_bytes());
+    h = fnv1a(h, &fnv_words(&back.ht).to_le_bytes());
+    h = fnv1a(h, &fnv_words(&back.hs).to_le_bytes());
+    fs::remove_dir_all(&dir).expect("clean scratch");
+    h
+}
+
+/// The recorded pre-migration digests of the transfer face, from the source at base `57d21789`.
+/// The checkpoint bytes and the gathered rows are word-identical: the format is unchanged.
+#[test]
+fn recorded_checkpoint_digests_hold() {
+    for (seed, want) in [
+        (0x7A11_0001u64, 0xb9ca_4c6b_c75a_b89cu64),
+        (0x7A11_0002, 0x8402_2f64_e1fd_5773),
+    ] {
+        assert_eq!(witness_transfer(seed), want, "seed {seed:016x}");
+    }
 }
