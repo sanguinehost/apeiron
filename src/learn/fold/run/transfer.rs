@@ -8,10 +8,10 @@
 //!   gather is `h = cfg.E[ids.cpu()]` at `:94`): one token-embedding row per calibration token,
 //!   row-major `[n_seq·t, hidden]`.
 //! - [`save`]/[`load`] make the [`ModelState`] loop resumable: raw little-endian `i64` `Q32.32`
-//!   words per finished layer (`layer-<l>.bin`) and per hidden state (`ht.bin`, `hs.bin`), with a
-//!   text manifest naming each file's shape and SHA-256. A load refuses a digest or shape mismatch,
-//!   and every data file is written to a temporary name and renamed, so a killed run leaves the
-//!   previous checkpoint valid.
+//!   words per finished layer (`layer-<l>.bin`), per layer's finisher fits (`fits-<l>.bin`) and per
+//!   hidden state (`ht.bin`, `hs.bin`), with a text manifest naming each file's shape and SHA-256.
+//!   A load refuses a digest or shape mismatch, and every data file is written to a temporary name
+//!   and renamed, so a killed run leaves the previous checkpoint valid.
 //! - [`write_student_gguf`] re-encodes the fitted `Q32.32` [`Weights`] into the teacher's own `GGUF`
 //!   directory: every tensor keeps its name, dimensions, `ggml` type and offset, so the directory
 //!   is byte-unchanged and only payloads move. The payload is the
@@ -19,9 +19,10 @@
 //!   binary32 integer map), refusing a value outside that type's finite range and never clamping.
 //!
 //! The checkpoint keeps the driver's word [`ModelState`] as its format (`ht.bin`, `hs.bin`,
-//! `layer-<l>.bin`, eight bytes per `i64` word). That is a **format change**: the previous
-//! checkpoint stored eight-byte IEEE-754 binary64 values, so `MANIFEST_MAGIC` is `v2` and a `v1`
-//! manifest is refused rather than misread.
+//! `layer-<l>.bin`, `fits-<l>.bin`, eight bytes per `i64` word). That is a **format change**: `v1`
+//! stored eight-byte IEEE-754 binary64 values, `v2` stored `i64` words but omitted the fits, so a
+//! resumed run could not be finished; `MANIFEST_MAGIC` is `v3` and a `v1` or `v2` manifest is
+//! refused rather than misread.
 //!
 //! # Subsumption
 //!
@@ -40,7 +41,8 @@
 //! # Trust boundary
 //!
 //! Not covered: rustc/LLVM codegen, the engine's `GGUF` loader (taken as its own contract), the
-//! calibration corpus, and the `fits` the checkpoint deliberately omits. The checkpoint binds each
+//! calibration corpus, and the fit fields the finisher does not read (`wp`, `nb` and the
+//! corrector's stored `factors`), which the checkpoint does not carry. The checkpoint binds each
 //! file's bytes, not the `h0` or the configuration that produced them.
 
 #![allow(
@@ -61,7 +63,7 @@ use std::path::Path;
 use crate::format::gguf::{Gguf, GgufError};
 use crate::format::quant;
 use crate::learn::fold::layer::driver::{DriverError, LayerWeights, ModelState};
-use crate::learn::fold::layer::tensor::TensorBits;
+use crate::learn::fold::layer::tensor::{SinkPlane, TensorBits, TensorFit, TensorKind};
 use crate::learn::fold::run::convert::{encode_f16, encode_f32, ConvertError, Teacher};
 use crate::learn::gguf::write_file;
 use crate::learn::grad::model::Weights;
@@ -70,9 +72,10 @@ use crate::sha256::sha256;
 /// The checkpoint manifest file name.
 const MANIFEST: &str = "manifest.txt";
 
-/// The manifest's first line: format identity and version. `v2` stores `i64` `Q32.32` words; `v1`
-/// stored eight-byte IEEE-754 binary64 values and is refused.
-const MANIFEST_MAGIC: &str = "apeiron-fold-transfer v2";
+/// The manifest's first line: format identity and version. `v3` stores `i64` `Q32.32` words and
+/// the per-layer fits; `v1` stored eight-byte IEEE-754 binary64 values and `v2` omitted the fits,
+/// so both are refused.
+const MANIFEST_MAGIC: &str = "apeiron-fold-transfer v3";
 
 /// The field count of one serialized [`LayerWeights`]: `attn_norm, ffn_norm, wq, bq, wk, bk, wv,
 /// bv, wo, w_gate, w_up, w_down`.
@@ -208,6 +211,303 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), TransferError> {
     fs::rename(&tmp, path).map_err(|e| io_err(path, &e))
 }
 
+/// The persisted code of a [`TensorKind`], its position in the finisher's `q, k, v, o, gate, up,
+/// down` order. `O(1)`.
+fn kind_code(k: TensorKind) -> i64 {
+    match k {
+        TensorKind::Q => 0,
+        TensorKind::K => 1,
+        TensorKind::V => 2,
+        TensorKind::O => 3,
+        TensorKind::Gate => 4,
+        TensorKind::Up => 5,
+        TensorKind::Down => 6,
+    }
+}
+
+/// [`kind_code`] inverted; a code past `down` is refused. `O(1)`.
+///
+/// # Errors
+/// [`TransferError::Shape`] for a code outside `0 ..= 6`.
+fn kind_from_code(c: i64) -> Result<TensorKind, TransferError> {
+    Ok(match c {
+        0 => TensorKind::Q,
+        1 => TensorKind::K,
+        2 => TensorKind::V,
+        3 => TensorKind::O,
+        4 => TensorKind::Gate,
+        5 => TensorKind::Up,
+        6 => TensorKind::Down,
+        _ => return Err(TransferError::Shape(format!("fits: kind {c}"))),
+    })
+}
+
+/// Push a count or an index as one non-negative word. `O(1)`.
+///
+/// # Errors
+/// [`TransferError::Shape`] when the value has no `i64` representation.
+fn put_len(out: &mut Vec<i64>, n: usize, what: &str) -> Result<(), TransferError> {
+    out.push(i64::try_from(n).map_err(|_| TransferError::Shape(format!("fits {what}: {n}")))?);
+    Ok(())
+}
+
+/// Push a counted word vector: its length, then its words.
+///
+/// # Complexity
+/// Time and space `O(v.len())`; one push per word.
+fn put_words(out: &mut Vec<i64>, v: &[i64], what: &str) -> Result<(), TransferError> {
+    put_len(out, v.len(), what)?;
+    out.extend_from_slice(v);
+    Ok(())
+}
+
+/// Push a counted index list: its length, then each index as a word.
+///
+/// # Complexity
+/// Time and space `O(v.len())`; one checked conversion and one push per index.
+fn put_indices(out: &mut Vec<i64>, v: &[usize], what: &str) -> Result<(), TransferError> {
+    put_len(out, v.len(), what)?;
+    for &i in v {
+        out.push(i64::try_from(i).map_err(|_| TransferError::Shape(format!("fits {what}: {i}")))?);
+    }
+    Ok(())
+}
+
+/// The persisted word form of one layer's fits, in the manifest's `q, k, v, o, gate, up, down`
+/// order: the fit count, then per fit its [`kind_code`], its five `bits` fields, and per
+/// [`SinkPlane`] the `rows`/`dense` flags, `s_rot`, `rh`, `ch`, `dh`, the optional `rows` and the
+/// optional `dense`, then the optional `top_rows` and `db`.
+///
+/// [`crate::learn::fold::run::finish::planes_from_fits`] reads `kind`, `planes` (`s_rot`, `rh`,
+/// `ch`, `dh`, `rows`, `dense`) and `top_rows`;
+/// [`crate::learn::fold::run::finish::tunables_from_weights`] reads `kind` and `db`. Nothing reads
+/// `wp` (the planes rebuild it) or `nb`, so neither is written; `bits` is written because the
+/// checkpoint format names it. The corrector's `factors` is a
+/// [`crate::learn::fold::fit::corrector::Factors`] of Q32.32 words, **not** f64, but the finisher
+/// reads only the dense `corr` plane, so it is dropped: a fit whose corrector is dense-only loads
+/// with `factors = None` and `planes_from_fits` still assigns `Linear::extra = dense` (it never
+/// encodes that plane's codebook).
+///
+/// # Complexity
+/// Time and space `O(words)`: one push per stored word (the plane buffers plus one length per
+/// buffer and per index).
+///
+/// # Errors
+/// [`TransferError::Shape`] when a length or an index has no `i64` representation.
+fn fits_words(fits: &[TensorFit]) -> Result<Vec<i64>, TransferError> {
+    let mut out = Vec::new();
+    put_len(&mut out, fits.len(), "fit count")?;
+    for f in fits {
+        out.push(kind_code(f.kind));
+        for b in [f.bits.nsign, f.bits.nr, f.bits.nc, f.bits.nd, f.bits.ncorr] {
+            out.push(
+                i64::try_from(b).map_err(|_| TransferError::Shape(format!("fits bits: {b}")))?,
+            );
+        }
+        put_len(&mut out, f.planes.len(), "plane count")?;
+        for p in &f.planes {
+            out.push(i64::from(p.rows.is_some()) | (i64::from(p.dense.is_some()) << 1));
+            put_words(&mut out, &p.s_rot, "s_rot")?;
+            put_words(&mut out, &p.rh, "rh")?;
+            put_words(&mut out, &p.ch, "ch")?;
+            put_words(&mut out, &p.dh, "dh")?;
+            if let Some(rows) = &p.rows {
+                put_indices(&mut out, rows, "plane rows")?;
+            }
+            if let Some(dense) = &p.dense {
+                put_words(&mut out, dense, "dense")?;
+            }
+        }
+        match &f.top_rows {
+            None => out.push(0),
+            Some(rows) => {
+                out.push(1);
+                put_indices(&mut out, rows, "top rows")?;
+            }
+        }
+        match &f.db {
+            None => out.push(0),
+            Some(db) => {
+                out.push(1);
+                put_words(&mut out, db, "db")?;
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// A cursor over a persisted fits word list.
+struct FitWords<'a> {
+    w: &'a [i64],
+    at: usize,
+}
+
+impl FitWords<'_> {
+    /// One word. `O(1)`.
+    ///
+    /// # Errors
+    /// [`TransferError::Shape`] at the end of the list.
+    fn word(&mut self, what: &str) -> Result<i64, TransferError> {
+        let v = *self
+            .w
+            .get(self.at)
+            .ok_or_else(|| TransferError::Shape(format!("fits {what}: truncated")))?;
+        self.at += 1;
+        Ok(v)
+    }
+
+    /// One non-negative count. `O(1)`.
+    ///
+    /// # Errors
+    /// [`TransferError::Shape`] for a negative count.
+    fn len(&mut self, what: &str) -> Result<usize, TransferError> {
+        let v = self.word(what)?;
+        usize::try_from(v).map_err(|_| TransferError::Shape(format!("fits {what}: {v}")))
+    }
+
+    /// One counted word vector.
+    ///
+    /// # Complexity
+    /// Time and space `O(n)`: one slice copy after the bounds check.
+    ///
+    /// # Errors
+    /// [`TransferError::Shape`] on a negative or truncated count.
+    fn words(&mut self, what: &str) -> Result<Vec<i64>, TransferError> {
+        let n = self.len(what)?;
+        let end = self
+            .at
+            .checked_add(n)
+            .ok_or_else(|| TransferError::Shape(format!("fits {what}: length")))?;
+        let v = self
+            .w
+            .get(self.at..end)
+            .ok_or_else(|| TransferError::Shape(format!("fits {what}: truncated")))?
+            .to_vec();
+        self.at = end;
+        Ok(v)
+    }
+
+    /// One counted index list.
+    ///
+    /// # Complexity
+    /// Time and space `O(n)`.
+    ///
+    /// # Errors
+    /// [`TransferError::Shape`] on a negative or truncated count.
+    fn indices(&mut self, what: &str) -> Result<Vec<usize>, TransferError> {
+        let n = self.len(what)?;
+        let mut out = Vec::new();
+        for _ in 0..n {
+            let v = self.word(what)?;
+            out.push(
+                usize::try_from(v)
+                    .map_err(|_| TransferError::Shape(format!("fits {what}: {v}")))?,
+            );
+        }
+        Ok(out)
+    }
+
+    /// The `(rows, dense)` presence flags of a plane. `O(1)`.
+    ///
+    /// # Errors
+    /// [`TransferError::Shape`] for a flag outside `0 ..= 3`.
+    fn flags(&mut self, what: &str) -> Result<(bool, bool), TransferError> {
+        match self.word(what)? {
+            0 => Ok((false, false)),
+            1 => Ok((true, false)),
+            2 => Ok((false, true)),
+            3 => Ok((true, true)),
+            v => Err(TransferError::Shape(format!("fits {what}: flag {v}"))),
+        }
+    }
+}
+
+/// [`fits_words`] inverted: the [`TensorFit`] list a [`load`] returns. `wp` is empty (the finisher
+/// rebuilds it from the planes and never reads it), `nb` is `None` and `factors` is `None` (neither
+/// is read by the finisher); `kind`, `bits`, every plane buffer and the `rows`/`dense` planes,
+/// `top_rows` and `db` are restored.
+///
+/// # Complexity
+/// Time and space `O(words)`: one pass with one slice copy per stored buffer.
+///
+/// # Errors
+/// [`TransferError::Shape`] for a truncated list, a kind/flag outside its range, a negative
+/// length, or words left over after the declared fit count.
+fn fits_from_words(w: &[i64]) -> Result<Vec<TensorFit>, TransferError> {
+    let mut c = FitWords { w, at: 0 };
+    let n = c.len("fit count")?;
+    let mut fits = Vec::new();
+    for _ in 0..n {
+        let kind = kind_from_code(c.word("kind")?)?;
+        let mut bits = TensorBits::default();
+        for field in [
+            &mut bits.nsign,
+            &mut bits.nr,
+            &mut bits.nc,
+            &mut bits.nd,
+            &mut bits.ncorr,
+        ] {
+            let v = c.word("bits")?;
+            *field =
+                u64::try_from(v).map_err(|_| TransferError::Shape(format!("fits bits: {v}")))?;
+        }
+        let np = c.len("plane count")?;
+        let mut planes = Vec::new();
+        for _ in 0..np {
+            let (has_rows, has_dense) = c.flags("plane flags")?;
+            let s_rot = c.words("s_rot")?;
+            let rh = c.words("rh")?;
+            let ch = c.words("ch")?;
+            let dh = c.words("dh")?;
+            let rows = if has_rows {
+                Some(c.indices("rows")?)
+            } else {
+                None
+            };
+            let dense = if has_dense {
+                Some(c.words("dense")?)
+            } else {
+                None
+            };
+            planes.push(SinkPlane {
+                s_rot,
+                rh,
+                ch,
+                dh,
+                rows,
+                dense,
+                factors: None,
+            });
+        }
+        let top_rows = match c.word("top rows flag")? {
+            0 => None,
+            1 => Some(c.indices("top rows")?),
+            v => return Err(TransferError::Shape(format!("fits top rows: flag {v}"))),
+        };
+        let db = match c.word("db flag")? {
+            0 => None,
+            1 => Some(c.words("db")?),
+            v => return Err(TransferError::Shape(format!("fits db: flag {v}"))),
+        };
+        fits.push(TensorFit {
+            kind,
+            wp: Vec::new(),
+            planes,
+            bits,
+            nb: None,
+            top_rows,
+            db,
+        });
+    }
+    if c.at != w.len() {
+        return Err(TransferError::Shape(format!(
+            "fits: {} trailing words",
+            w.len() - c.at
+        )));
+    }
+    Ok(fits)
+}
+
 /// The token-embedding rows of the calibration chunks: `h0[row·hidden + j] = embed[id·hidden + j]`
 /// over every token of every chunk, in chunk order (`ht = cfg.E[ids_cal.cpu()]`,
 /// `fold_transfer.py:1514`; the same gather is `:94`).
@@ -317,17 +617,18 @@ fn layer_geometry(l: &LayerWeights) -> Result<(usize, usize, usize, usize), Tran
     Ok((hidden, q_out, kv_out, inter))
 }
 
-/// Write `st` as a checkpoint under `dir`: `ht.bin`, `hs.bin`, one `layer-<l>.bin` per finished
-/// layer, and `manifest.txt` last (each through [`write_atomic`]).
+/// Write `st` as a checkpoint under `dir`: `ht.bin`, `hs.bin`, one `layer-<l>.bin` and one
+/// `fits-<l>.bin` per finished layer, and `manifest.txt` last (each through [`write_atomic`]).
 ///
 /// The manifest records `next`, the layer geometry, the five `bits` fields, and every file's length
-/// and SHA-256; the per-layer `fits` are not written, because the student `GGUF` needs only the
-/// weights and `bits`. A state with `next == 0` writes the two hidden-state files and a manifest
-/// with no layer lines (the geometry is unknown until the first layer is quantised).
+/// and SHA-256; each layer's `fits` are written so a resumed run can be finished by
+/// [`crate::learn::fold::run::finish::finish_model`]. A state with `next == 0` writes the two
+/// hidden-state files and a manifest with no layer lines (the geometry is unknown until the first
+/// layer is quantised).
 ///
 /// # Complexity
-/// Time and space `O(bytes written)` = `O((next·(hidden² + hidden·inter) + n_seq·t·hidden)·8)`; the
-/// per-layer buffers are built one at a time.
+/// Time and space `O(bytes written)` = `O((next·(hidden² + hidden·inter + fits) + n_seq·t·hidden)·8)`;
+/// the per-layer buffers are built one at a time.
 ///
 /// # Errors
 /// [`TransferError::Shape`] when `next`, `layers` and `fits` disagree or a layer's vectors do not
@@ -395,6 +696,11 @@ pub fn save(dir: &str, st: &ModelState) -> Result<(), TransferError> {
                 bytes.len() / 8,
                 hex(&sha256(&bytes))
             );
+            let fw = fits_words(&st.fits[l])?;
+            let fbytes = word_bytes(&fw);
+            let fname = format!("fits-{l}.bin");
+            write_atomic(&dirp.join(&fname), &fbytes)?;
+            let _ = writeln!(manifest, "fits {l} {} {}", fw.len(), hex(&sha256(&fbytes)));
         }
     }
     write_atomic(&dirp.join(MANIFEST), manifest.as_bytes())
@@ -554,22 +860,25 @@ fn split_layer(
 }
 
 /// Read the checkpoint under `dir` back into a [`ModelState`] whose `next` is the manifest's, whose
-/// layers are the finished prefix, and whose `fits` are one empty vector per finished layer.
+/// layers are the finished prefix, and whose `fits` are the written per-layer fits (with `wp`,
+/// `nb` and `factors` absent, as [`fits_words`] records).
 ///
 /// # Complexity
-/// Time and space `O(bytes read)` = `O((next·(hidden² + hidden·inter) + n_seq·t·hidden)·8)`.
+/// Time and space `O(bytes read)` = `O((next·(hidden² + hidden·inter + fits) + n_seq·t·hidden)·8)`,
+/// plus one SHA-256 pass per file.
 ///
 /// # Errors
 /// [`TransferError::Io`] on a missing or unreadable file; [`TransferError::Manifest`] on a malformed
-/// manifest; [`TransferError::Shape`] on a length, layer count or geometry disagreement;
-/// [`TransferError::Digest`] on a file whose SHA-256 is not the manifest's.
+/// manifest (including a `v1`/`v2` magic); [`TransferError::Shape`] on a length, layer count,
+/// geometry or fits-word disagreement; [`TransferError::Digest`] on a file whose SHA-256 is not the
+/// manifest's.
 pub fn load(dir: &str) -> Result<ModelState, TransferError> {
     let dirp = Path::new(dir);
     let manifest_path = dirp.join(MANIFEST);
     let text = fs::read_to_string(&manifest_path).map_err(|e| io_err(&manifest_path, &e))?;
     let lines: Vec<&str> = text.lines().collect();
     let head = parse_head(&lines)?;
-    if lines.len() != 6 + head.next {
+    if lines.len() != 6 + 2 * head.next {
         return Err(TransferError::Manifest(format!(
             "{} lines for next {}",
             lines.len(),
@@ -597,8 +906,9 @@ pub fn load(dir: &str) -> Result<ModelState, TransferError> {
     }
 
     let mut layers: Vec<LayerWeights> = Vec::with_capacity(head.next);
+    let mut fits: Vec<Vec<TensorFit>> = Vec::with_capacity(head.next);
     for l in 0..head.next {
-        let t = tokens(lines[6 + l]);
+        let t = tokens(lines[6 + 2 * l]);
         if t.len() != 8 || t[0] != "layer" || num(t[1], "layer index")? != l {
             return Err(TransferError::Manifest(format!("layer line {l}")));
         }
@@ -620,6 +930,18 @@ pub fn load(dir: &str) -> Result<ModelState, TransferError> {
         let raw = read_checked(dirp, &name, bytes, Some(t[7]))?;
         let lens = layer_lens(hid, q_out, kv_out, inter)?;
         layers.push(split_layer(&raw, &lens, l)?);
+
+        let t = tokens(lines[7 + 2 * l]);
+        if t.len() != 4 || t[0] != "fits" || num(t[1], "fits index")? != l {
+            return Err(TransferError::Manifest(format!("fits line {l}")));
+        }
+        let n = num(t[2], "fits length")?;
+        let bytes = n
+            .checked_mul(8)
+            .ok_or_else(|| TransferError::Shape(format!("fits {l} byte count")))?;
+        let name = format!("fits-{l}.bin");
+        let raw = read_checked(dirp, &name, bytes, Some(t[3]))?;
+        fits.push(fits_from_words(&words_from_bytes(&raw)?)?);
     }
     Ok(ModelState {
         next: head.next,
@@ -627,7 +949,7 @@ pub fn load(dir: &str) -> Result<ModelState, TransferError> {
         hs,
         layers,
         bits: head.bits,
-        fits: vec![Vec::new(); head.next],
+        fits,
     })
 }
 
