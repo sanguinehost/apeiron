@@ -399,6 +399,13 @@ run_extract() {
         --start-from crate::solve_port::word_solve_chol_solve \
         --start-from crate::solve_port::word_solve_inv_factor_upper \
         --start-from crate::solve_port::word_solve_top_eigh \
+        --start-from crate::solve_port::word_solve_q32_ilog2_pos \
+        --start-from crate::solve_port::word_solve_q32_rshift_rne \
+        --start-from crate::solve_port::word_solve_q32_round_even \
+        --start-from crate::solve_port::word_solve_q32_fx_from_i128 \
+        --start-from crate::solve_port::word_solve_q32_bfp_from_i128 \
+        --start-from crate::solve_port::word_solve_q32_spd_from_q32 \
+        --start-from crate::solve_port::word_solve_q32_round_f16 \
         --start-from crate::word_engine_open \
         --start-from crate::word_engine_prefill_state \
         --start-from crate::word_engine_next_token_state \

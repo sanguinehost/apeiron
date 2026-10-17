@@ -119,6 +119,9 @@ lean_lib ApeironWordBridge where
     -- no-overflow arithmetic; `Gemm.lean` refines the bound scans and the refusal chain;
     -- `GemmWitness.lean` shows the accepted domain and each refusal arm are inhabited).
     `Learn.Solve.GemmSpec, `Learn.Solve.Gemm, `Learn.Solve.GemmWitness,
+    -- Extracted `solve_port.syrk` (`wsyrk`, `hadamard_into`) refusal chain and bound scans against the
+    -- `ℤ` model (`Learn/Solve/WsyrkSpec.lean`, `Wsyrk.lean`); `WsyrkWitness.lean` inhabits the domain and each refusal arm.
+    `Learn.Solve.WsyrkSpec, `Learn.Solve.Wsyrk, `Learn.Solve.WsyrkWitness,
     `AxiomAudit, `Joint.WordBridge,
     `Iota.Audit.Empty,
     `Iota.Syntax, `Iota.Decode,

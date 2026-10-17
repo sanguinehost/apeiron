@@ -85,6 +85,9 @@ import Learn.Grad.HeadSoftmax
 import Learn.Solve.GemmSpec
 import Learn.Solve.Gemm
 import Learn.Solve.GemmWitness
+import Learn.Solve.WsyrkSpec
+import Learn.Solve.Wsyrk
+import Learn.Solve.WsyrkWitness
 import Perf.BitsRefine
 import Numeric.Quantum.Register
 import Numeric.Quantum.RegisterRefinement
@@ -1754,3 +1757,136 @@ import Numeric.Quantum.Ledger.EllipticRebit
 #audit apeiron_word.witness_refuse_overflow_dims
 #audit apeiron_word.witness_refuse_shape
 #audit apeiron_word.witness_refuse_input_bound
+
+open Lean Elab Command in
+/-- Axioms of the `solve_port.syrk` extraction admitted in `proof/boundary-axioms.txt`: the std operation
+    `core.option.Option.map` (absent from the pinned Aeneas model) and the thread driver
+    `solve_port.syrk.block_rows_par` (opaque, `tested`). -/
+def auditSyrkBoundaryAxioms : Lean.NameSet :=
+  auditClosedAxioms |>.insert `apeiron_word.core.option.Option.map
+    |>.insert `apeiron_word.solve_port.syrk.block_rows_par
+
+open Lean Elab Command in
+/-- `#audit_boundary foo`: as `#audit`, but the cone may also contain exactly the two named
+    `solve_port.syrk` boundary axioms. Any other axiom, `sorryAx` included, is a build failure.
+    The headline's statement is free of them; the proof prints them because it unfolds the extracted
+    body that calls the boundary (`Learn/Solve/Wsyrk.lean`, "The rounders and the boundary"). -/
+elab "#audit_boundary " id:ident : command => do
+  let cs ← liftCoreM <| realizeGlobalConstWithInfos id
+  for c in cs do
+    let axioms ← liftTermElabM <| Lean.collectAxioms c
+    let bad := axioms.filter (fun a => !auditSyrkBoundaryAxioms.contains a)
+    if bad.isEmpty then
+      logInfo m!"'{c}' depends on axioms (boundary rows included): {axioms.toList}"
+    else
+      throwError m!"'{c}' depends on axioms outside the cone plus the syrk boundary: {bad.toList}"
+
+-- The extracted `solve_port.syrk` `wsyrk` / `hadamard_into` refusal chain and bound scans refine the `ℤ` model
+-- (`Learn/Solve/WsyrkSpec.lean`, `Wsyrk.lean`); `WsyrkWitness.lean` inhabits the domain and each refusal arm.
+#audit apeiron_word.rnd64_eq_div
+#audit apeiron_word.gsum_succ
+#audit apeiron_word.gsum_comm
+#audit apeiron_word.wref_none
+#audit apeiron_word.wref_some
+#audit apeiron_word.gRef_symm
+#audit apeiron_word.gramOut_length
+#audit apeiron_word.gramOut_getD
+#audit apeiron_word.listBound_le
+#audit apeiron_word.wfunBound_abs
+#audit apeiron_word.gsum_abs_le
+#audit apeiron_word.gsum_lt_126
+#audit apeiron_word.gsum_i128
+#audit apeiron_word.rnd64_add_i128
+#audit apeiron_word.rnd64_fits_i64
+#audit apeiron_word.gsum_domain
+#audit apeiron_word.hadStep_succ
+#audit apeiron_word.hadStep_length
+#audit apeiron_word.hadStep_getD_lt
+#audit apeiron_word.hadStep_getD_self
+#audit apeiron_word.syrk_bound_bits_val
+#audit apeiron_word.syrk_block_val
+#audit apeiron_word.syrk_shift32_toNat
+#audit apeiron_word.syrk_shift64_toNat
+#audit apeiron_word.u64_ofNat_val
+#audit apeiron_word.syrk_i64_natAbs_lt
+#audit apeiron_word.uabs_eq
+#audit apeiron_word.uabs_val
+#audit apeiron_word.boundLimit_val
+#audit apeiron_word.syrk_bound_limit
+#audit apeiron_word.syrk_shl63
+#audit apeiron_word.wsyrkAllBelowRef_congr
+#audit apeiron_word.all_below_loop_body_exec_cont
+#audit apeiron_word.all_below_loop_body_step
+#audit apeiron_word.all_below_loop_spec
+#audit apeiron_word.all_below_spec
+#audit apeiron_word.syrk_within_bound_true
+#audit apeiron_word.syrk_within_bound_false
+#audit apeiron_word.syrk_within_bound_spec
+#audit apeiron_word.syrk_usize_numBits_gt18
+#audit apeiron_word.syrk_max_o
+#audit_boundary apeiron_word.syrk_round32_spec
+#audit_boundary apeiron_word.syrk_round64_spec
+#audit apeiron_word.syrk_i64max_val
+#audit apeiron_word.syrk_i64min_val
+#audit apeiron_word.syrk_narrow_ok
+#audit apeiron_word.syrk_narrow_none_hi
+#audit apeiron_word.syrk_narrow_none_lo
+#audit apeiron_word.qvals_set
+#audit_boundary apeiron_word.syrk_hadamard_body_step
+#audit_boundary apeiron_word.syrk_hadamard_loop_spec
+#audit_boundary apeiron_word.word_hadamard_ok
+#audit_boundary apeiron_word.word_hadamard_refuses
+#audit apeiron_word.syrk_bne_len_x
+#audit_boundary apeiron_word.syrk_wsyrk_refuse_zeroN
+#audit_boundary apeiron_word.syrk_wsyrk_refuse_zeroO
+#audit_boundary apeiron_word.syrk_wsyrk_refuse_mulNN
+#audit_boundary apeiron_word.syrk_wsyrk_refuse_mulON
+#audit_boundary apeiron_word.syrk_wsyrk_refuse_len_x
+#audit_boundary apeiron_word.syrk_wsyrk_refuse_len_w
+#audit_boundary apeiron_word.syrk_wsyrk_refuse_maxO
+#audit_boundary apeiron_word.syrk_wsyrk_refuse_bound
+#audit_boundary apeiron_word.word_wsyrk_refuses
+#audit apeiron_word.wBigList_len
+#audit apeiron_word.wBigList_le
+#audit apeiron_word.w_nil_len
+#audit apeiron_word.w_one_len
+#audit apeiron_word.w_big_len_val
+#audit apeiron_word.w_big_ge18
+#audit apeiron_word.w_one_ne_zero
+#audit apeiron_word.w_two_ne_zero
+#audit apeiron_word.w_zero_ne_one
+#audit apeiron_word.w_max_ne_zero
+#audit apeiron_word.w_big_ne_zero
+#audit apeiron_word.w_pin_mul
+#audit apeiron_word.w_mul_one
+#audit apeiron_word.w_mul11
+#audit apeiron_word.w_mul22
+#audit apeiron_word.w_max_max_none
+#audit apeiron_word.w_max_two_none
+#audit apeiron_word.w_nil_len_ne_four
+#audit apeiron_word.w_nil_len_ne_one
+#audit apeiron_word.w_getd_one
+#audit apeiron_word.w_getd_wide
+#audit apeiron_word.w_i64max_val
+#audit apeiron_word.w_i64zero_val
+#audit apeiron_word.w_abs_zero
+#audit apeiron_word.w_abs_wide
+#audit apeiron_word.w_one_val_len
+#audit apeiron_word.w_wide_len
+#audit apeiron_word.w_wide_val_len
+#audit apeiron_word.w_one_bound
+#audit apeiron_word.w_wide_not_below
+#audit apeiron_word.w_wide_not_bound
+#audit apeiron_word.wsyrkDomain_witness
+#audit apeiron_word.within_bound_witness
+#audit apeiron_word.hadFit_witness
+#audit_boundary apeiron_word.wsyrk_refuse_zeroN_witness
+#audit_boundary apeiron_word.wsyrk_refuse_zeroO_witness
+#audit_boundary apeiron_word.wsyrk_refuse_mulNN_witness
+#audit_boundary apeiron_word.wsyrk_refuse_mulON_witness
+#audit_boundary apeiron_word.wsyrk_refuse_len_x_witness
+#audit_boundary apeiron_word.wsyrk_refuse_len_w_witness
+#audit_boundary apeiron_word.wsyrk_refuse_maxO_witness
+#audit_boundary apeiron_word.wsyrk_refuse_bound_witness
+#audit_boundary apeiron_word.wsyrk_refuses_witness
+#audit_boundary apeiron_word.hadamard_refuses_witness
