@@ -32,7 +32,9 @@ use apeiron::learn::fold::fit::corrector::{eigen_parts, lowrank_corrector, Corre
 use apeiron::learn::fold::fit::eigh::{eigen_gram, eigh, gram_scale, lowrank_corrector_exact};
 use apeiron::learn::fold::fit::quant::{f16r, quant_c_u8};
 use apeiron::learn::solve::eig::top_eigh;
-use apeiron::learn::solve::q32::{from_grid, panel_shift, to_grid, GRID_BOUND, INPUT_BOUND};
+use apeiron::learn::solve::q32::{
+    fill_scale, from_grid, panel_shift, rshift_rne, to_grid, GRID_BOUND, INPUT_BOUND,
+};
 
 #[path = "support/ridge_oracle.rs"]
 mod ridge_oracle;
@@ -180,20 +182,16 @@ fn exact_equals_reference() {
     let (dw, hl) = fixture(0x1111_2222_3333_4444, O, N);
     let (dwq, hlq) = (qv(&dw), qv(&hl));
     let mine = lowrank_corrector(&dwq, &hlq, O, N, rank, Mode::Exact, true).expect("exact");
-    // The `eigh` entry is `f64`; the words round-trip through `from_grid` exactly.
-    let reference = lowrank_corrector_exact(&uw(&dwq), &uw(&hlq), O, N, rank).expect("reference");
+    let reference = lowrank_corrector_exact(&dwq, &hlq, O, N, rank).expect("reference");
     assert_eq!(mine.bits, (16 * rank * (O + N)) as u64, "exact bit count");
-    assert_eq!(uw(&mine.corr), reference.corr, "Corr != reference Corr");
+    assert_eq!(mine.corr, reference.corr, "Corr != reference Corr");
     assert_eq!(
-        mine.top_sum,
-        q(reference.top_sum),
-        "top_sum {} != {}",
-        from_grid(mine.top_sum),
-        reference.top_sum
+        mine.top_sum, reference.top_sum,
+        "top_sum != reference top_sum"
     );
     let f = mine.factors.as_ref().expect("factors requested");
-    assert_eq!(uw(&f.u), reference.u, "Uh != reference U");
-    assert_eq!(uw(&f.v), reference.v, "Vh != reference V");
+    assert_eq!(f.u, reference.u, "Uh != reference U");
+    assert_eq!(f.v, reference.v, "Vh != reference V");
 }
 
 #[test]
@@ -429,6 +427,16 @@ fn gapped_fixture(seed: u64, o: usize, n: usize) -> (Vec<f64>, Vec<f64>) {
     (dw, hl)
 }
 
+/// `v·2⁻ᵏ` for a Q32.32 word, the module's exact `shift`.
+fn word_shift(v: i64, k: i32) -> i64 {
+    if k > 0 {
+        i64::try_from(rshift_rne(i128::from(v), u32::try_from(k).expect("k")).expect("range"))
+            .expect("i64")
+    } else {
+        i64::try_from(i128::from(v).checked_shl(k.unsigned_abs()).expect("range")).expect("i64")
+    }
+}
+
 /// The rounded carriers' eigenstage against the scalar `f64` loops plus [`eigh`]: eigenvalues to
 /// `1e-6` relative, the top-`rank` eigenvector subspace to `|cos| ≥ 1 − 1e-8`, and `Corr = U·(UᵀΔW)`
 /// to `1e-6` max-abs-relative.
@@ -445,8 +453,12 @@ fn eigen_stage_matches_f64_reference() {
             let v_ref = matmul(&transpose(&u_ref, o, rank), &dw, rank, o, n);
             let corr_ref = matmul(&u_ref, &v_ref, o, rank, n);
 
-            // Wired path: `eigen_parts` (gemm Gram + `top_eigh`).
-            let (u_new, top_sum_new) = eigen_parts(&dw, &hl, o, n, rank).expect("eigen_parts");
+            // Wired path: `eigen_parts` (word Gram + `top_eigh`).
+            let (dwq, hlq) = (qv(&dw), qv(&hl));
+            let (u_new_q, top_sum_new_q) =
+                eigen_parts(&dwq, &hlq, o, n, rank).expect("eigen_parts");
+            let u_new = uw(&u_new_q);
+            let top_sum_new = from_grid(top_sum_new_q);
             let rel = (top_sum_new - top_sum_ref).abs() / top_sum_ref.abs().max(1e-30);
             assert!(
                 rel <= 1e-6,
@@ -474,15 +486,12 @@ fn eigen_stage_matches_f64_reference() {
             );
 
             // The `top_eigh` stage directly: each returned eigenvalue against the reference.
-            let m = eigen_gram(&dw, &hl, o, n).expect("eigen_gram");
-            let sm = gram_scale(max_abs(&m));
-            let m_q: Vec<i64> = m
-                .iter()
-                .map(|&x| to_grid(x * sm, INPUT_BOUND).expect("grid"))
-                .collect();
+            let (m, km) = eigen_gram(&dwq, &hlq, o, n).expect("eigen_gram");
+            let e = gram_scale(&m);
+            let m_q: Vec<i64> = m.iter().map(|&x| word_shift(x, -e)).collect();
             let top = top_eigh(&m_q, o, rank).expect("top_eigh");
             for k in 0..rank {
-                let have = from_grid(top.evals[k]) / sm;
+                let have = from_grid(top.evals[k]) * 2f64.powi(km - e);
                 let want = evals_ref[o - rank + k];
                 let rel = (have - want).abs() / want.abs().max(1e-30);
                 assert!(
@@ -515,11 +524,13 @@ fn eigen_gram_agrees_with_f64_oracle() {
         let (ed, eh) = (half(dd), half(dh));
         let e1 = (n as f64) * (dh * ed + dd * eh) + half(dw1);
         let e = half(max_abs(&m_ref)) + (n as f64) * (dw1 * ed + dd * e1);
-        let m = eigen_gram(&dw, &hl, o, n).expect("eigen_gram");
+        let m = eigen_gram(&qv(&dw), &qv(&hl), o, n).expect("eigen_gram");
+        let (mw, km) = m;
+        let back = 2f64.powi(km);
         let mut worst = 0.0f64;
         for i in 0..o {
             for j in 0..o {
-                worst = worst.max((m[i * o + j] - m_ref[i * o + j]).abs());
+                worst = worst.max((from_grid(mw[i * o + j]) * back - m_ref[i * o + j]).abs());
             }
         }
         println!(
@@ -533,7 +544,7 @@ fn eigen_gram_agrees_with_f64_oracle() {
         );
         for i in 0..o {
             for j in 0..i {
-                assert_eq!(m[i * o + j], m[j * o + i], "Gram not exactly symmetric");
+                assert_eq!(mw[i * o + j], mw[j * o + i], "Gram not exactly symmetric");
             }
         }
     }
@@ -628,15 +639,17 @@ fn corrector_words_are_bit_identical_to_the_recorded_wrapper() {
 
 // ---- the pre-migration `f64` body, copied verbatim as the agreement oracle -------------------
 
-/// The old `eigen_parts`: `eigen_gram` (real values) → [`gram_scale`] → [`top_eigh`].
+/// The old `eigen_parts`: the pre-migration `eigen_gram` value read back to the reals, the old
+/// [`gram_scale`] (`fill_scale` fill `2³¹` times `2⁻²⁸`) and [`top_eigh`].
 fn ref_eigen_parts(
-    delta_w: &[f64],
-    hl: &[f64],
+    delta_w: &[i64],
+    hl: &[i64],
     o: usize,
     n: usize,
     rank: usize,
 ) -> (Vec<f64>, f64) {
-    let m = eigen_gram(delta_w, hl, o, n).expect("eigen_gram");
+    let (m, km) = eigen_gram(delta_w, hl, o, n).expect("eigen_gram");
+    let m: Vec<f64> = m.iter().map(|&w| from_grid(w) * 2f64.powi(km)).collect();
     let mmax = m.iter().fold(0.0f64, |a, &x| a.max(x.abs()));
     if mmax <= 0.0 {
         let mut u = vec![0.0f64; o * rank];
@@ -649,7 +662,7 @@ fn ref_eigen_parts(
         }
         return (u, 0.0);
     }
-    let s_m = gram_scale(mmax);
+    let s_m = fill_scale(mmax) * 2f64.powi(-28);
     let m_q: Vec<i64> = m
         .iter()
         .map(|&v| to_grid(v * s_m, INPUT_BOUND).expect("grid"))
@@ -672,7 +685,7 @@ fn ref_eigen_parts(
 }
 
 /// The old `ridge_solve`: the `f64` Gram, the `1e-6` ridge and the `f64` `solve_spd`.
-fn ref_ridge_solve(u: &[f64], delta_w: &[f64], o: usize, n: usize, rank: usize) -> Vec<f64> {
+fn ref_ridge_solve(u: &[f64], delta_w: &[i64], o: usize, n: usize, rank: usize) -> Vec<f64> {
     let mut a = vec![0.0f64; rank * rank];
     for i in 0..rank {
         for j in 0..rank {
@@ -691,7 +704,7 @@ fn ref_ridge_solve(u: &[f64], delta_w: &[f64], o: usize, n: usize, rank: usize) 
         for j in 0..n {
             let mut acc = 0.0f64;
             for i in 0..o {
-                acc += u[i * rank + k] * delta_w[i * n + j];
+                acc += u[i * rank + k] * from_grid(delta_w[i * n + j]);
             }
             b[k * n + j] = acc;
         }
@@ -702,8 +715,8 @@ fn ref_ridge_solve(u: &[f64], delta_w: &[f64], o: usize, n: usize, rank: usize) 
 /// The old `product` and the two rounded carriers, assembled as the pre-migration
 /// `lowrank_corrector` returned them: `(Corr, Uh, Vh, top_sum)`.
 fn ref_corrector(
-    dw: &[f64],
-    hl: &[f64],
+    dw: &[i64],
+    hl: &[i64],
     o: usize,
     n: usize,
     rank: usize,
@@ -764,7 +777,7 @@ fn agrees_with_f64_oracle() {
         for mode in [Mode::F16, Mode::U8] {
             let got = lowrank_corrector(&qv(&dw), &qv(&hl), O, N, rank, mode, true)
                 .expect("q32 corrector");
-            let (corr, u, v, top_sum) = ref_corrector(&dw, &hl, O, N, rank, mode);
+            let (corr, u, v, top_sum) = ref_corrector(&qv(&dw), &qv(&hl), O, N, rank, mode);
             let f = got.factors.as_ref().expect("factors requested");
             let scale = max_abs(&corr).max(f64::MIN_POSITIVE);
             let dc = max_abs(&residual(&corr, &uw(&got.corr)));
@@ -826,18 +839,16 @@ fn timing_fixture(o: usize, n: usize) -> (Vec<f64>, Vec<f64>) {
 fn timing_production_shape() {
     let (o, n) = (896usize, 4864usize);
     let (dw, hl) = timing_fixture(o, n);
+    let (dwq, hlq) = (qv(&dw), qv(&hl));
     let mut gram = [0.0f64; 3];
     let mut eig = [0.0f64; 3];
     let mut total = [0.0f64; 3];
     for run in 0..3 {
         let t0 = Instant::now();
-        let m = eigen_gram(&dw, &hl, o, n).expect("eigen_gram");
+        let (m, _km) = eigen_gram(&dwq, &hlq, o, n).expect("eigen_gram");
         gram[run] = t0.elapsed().as_secs_f64();
-        let sm = gram_scale(max_abs(&m));
-        let m_q: Vec<i64> = m
-            .iter()
-            .map(|&x| to_grid(x * sm, INPUT_BOUND).expect("grid"))
-            .collect();
+        let e = gram_scale(&m);
+        let m_q: Vec<i64> = m.iter().map(|&x| word_shift(x, -e)).collect();
         let t1 = Instant::now();
         let top = top_eigh(&m_q, o, 1).expect("top_eigh");
         eig[run] = t1.elapsed().as_secs_f64();

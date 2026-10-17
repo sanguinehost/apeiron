@@ -20,10 +20,9 @@
 //! # Q32.32 carrier
 //!
 //! Every body works on the Q32.32 `i64` grid: [`lowrank_corrector`] takes `ΔW` and `Hl` as words and
-//! returns `Corr`, `top_sum` and the stored factors as words; the only `f64` left is the
-//! [`crate::learn::fold::fit::eigh`] Gram/eigenstage boundary those words are handed to (that module
-//! still has an `f64` entry) and its read-back. The Gram `M` is the shared [`eigen_gram`] (two
-//! pooled Q32.32 products under one exact power-of-two panel scale), the eigenstage is [`top_eigh`],
+//! returns `Corr`, `top_sum` and the stored factors as words; no `f64` remains on this path. The
+//! Gram `M` is the shared [`eigen_gram`] (two pooled Q32.32 products under one exact power-of-two
+//! panel scale), the eigenstage is [`top_eigh`],
 //! the ridge Gram is the pooled [`wsyrk`] and the right-hand side the pooled [`gemm_nn`] on the
 //! transposed `Uh`, the ridge solve is [`chol_solve`], the factor product `Corr = Uh·Vh` is the
 //! pooled [`gemm_nn`], the `f16` round-trip is [`crate::learn::solve::q32::round_f16`], and the u8
@@ -37,8 +36,8 @@
 //! - `torch.linalg.solve` on the possibly-indefinite `Uhᵀ Uh + 1e-6 I` is replaced by the SPD
 //!   [`chol_solve`]; a non-positive pivot is [`CorrectorError::NotPositiveDefinite`], not a result.
 //! - The inputs are Q32.32 words, so a non-finite or off-grid `ΔW`/`Hl` entry cannot reach this
-//!   module; [`CorrectorError::NonFinite`]/[`CorrectorError::NotRepresentable`] remain only for the
-//!   `f64` read-back of [`crate::learn::fold::fit::eigh`].
+//!   module; [`CorrectorError::NonFinite`]/[`CorrectorError::NotRepresentable`] are unreachable
+//!   from a word input and retained only for the `f64` [`crate::learn::fold::fit::eigh`] boundary.
 //! - The ridge `1e-6` is the grid word `round(1e-6·2³²) = 4295`, i.e. `1.000013e-6`: the carrier
 //!   cannot hold a finer value, and the relative change of the ridge is `1.3e-5`.
 //! - `f16r(U)` rounds once from the exact integer significand ([`round_f16`]) instead of the
@@ -66,7 +65,7 @@ use crate::learn::fold::stats::parts::{panel, shift};
 use crate::learn::solve::chol::chol_solve;
 use crate::learn::solve::eig::top_eigh;
 use crate::learn::solve::gemm::gemm_nn;
-use crate::learn::solve::q32::{from_grid, round_f16, to_grid, Fx, GRID_BOUND, INPUT_BOUND};
+use crate::learn::solve::q32::{round_f16, Fx};
 use crate::learn::solve::syrk::wsyrk;
 
 /// The `1e-6` ridge added to the rank×rank Gram `Uhᵀ Uh` before the `V` solve, the Python's
@@ -95,10 +94,10 @@ pub enum CorrectorError {
     ShapeMismatch,
     /// The requested `rank` exceeds the row count `o` of `ΔW`.
     RankOutOfRange,
-    /// An entry of `ΔW` or `Hl` is not finite.
+    /// An entry of `ΔW` or `Hl` is not finite (unreachable from a word input).
     NonFinite,
-    /// A finite entry of `ΔW` or `Hl` lies at or beyond the Q32.32 grid's real range `2³¹`
-    /// ([`GRID_BOUND`]), so the carrier cannot represent it.
+    /// An entry of `ΔW` or `Hl` lies outside the Q32.32 grid's real range `2³¹` (unreachable from
+    /// a word input).
     NotRepresentable,
     /// The underlying eigendecomposition did not converge within its sweep bound.
     NotConverged,
@@ -143,33 +142,8 @@ pub struct LowrankCorrector {
     pub factors: Option<Factors>,
 }
 
-/// `x` as Q32.32 words `round(x·2³²)`; `NonFinite` / `NotRepresentable` name the refusal. Time and
-/// space `O(len)`, one grid rounding per entry.
-fn to_words(x: &[f64]) -> Result<Vec<i64>, CorrectorError> {
-    x.iter()
-        .map(|&v| {
-            to_grid(v, GRID_BOUND).ok_or(if v.is_finite() {
-                CorrectorError::NotRepresentable
-            } else {
-                CorrectorError::NonFinite
-            })
-        })
-        .collect()
-}
-
-/// The Q32.32 words `x` as reals (exact). Time and space `O(len)`.
-fn to_real(x: &[i64]) -> Vec<f64> {
-    x.iter().map(|&v| from_grid(v)).collect()
-}
-
-/// `x` as the Q32.32 word `round(x·2³²)`; `NotRepresentable` off the grid. `O(1)`.
-fn to_word(x: f64) -> Result<i64, CorrectorError> {
-    to_grid(x, GRID_BOUND).ok_or(CorrectorError::NotRepresentable)
-}
-
-/// `16·rank·(o + n)`: the stored-factor bit count of the [`Mode::Exact`] and [`Mode::F16`] carriers
-/// (`rank` basis vectors of `o` and `rank` rows of `n`, each a binary16 scalar). Saturating in
-/// `u64`. Time `O(1)`.
+/// `x` rounded to binary16 and back to Q32.32 ([`round_f16`] then one grid shift); `Overflow` at
+/// binary16's range (`2¹⁶`) or on a shift that leaves `i64`. `O(1)`.
 fn f16_bits(o: usize, n: usize, rank: usize) -> u64 {
     let per = 16u64.saturating_mul((o as u64).saturating_add(n as u64));
     (rank as u64).saturating_mul(per)
@@ -185,49 +159,76 @@ fn u8_bits(o: usize, n: usize, rank: usize) -> u64 {
     (rank as u64).saturating_mul(per)
 }
 
-/// The top-`rank` eigenvectors of `M = (ΔW·Hl)·ΔWᵀ` and `Σ_k max(λ_k, 0)` over them, as reals.
+/// `v·2^e` on the grid with the pre-flip `to_grid` rounding — nearest, ties away from zero — so
+/// the word scale reproduces the `f64` read-back path bit-for-bit; `Overflow` when the result
+/// leaves `i64` or the shift leaves `i128`. `O(1)`.
+fn scale_word(v: i64, e: i32) -> Result<i64, CorrectorError> {
+    if e >= 0 {
+        let s = u32::try_from(e).map_err(|_| CorrectorError::Overflow)?;
+        let w = i128::from(v)
+            .checked_shl(s)
+            .ok_or(CorrectorError::Overflow)?;
+        return i64::try_from(w).map_err(|_| CorrectorError::Overflow);
+    }
+    let s = u32::try_from(-e).map_err(|_| CorrectorError::Overflow)?;
+    if s > 126 {
+        return Err(CorrectorError::Overflow);
+    }
+    let (d, half) = (1_i128 << s, 1_i128 << (s - 1));
+    let x = i128::from(v);
+    let (q, r) = (x / d, x % d);
+    let mag = if r < 0 { -r } else { r };
+    let step = if mag < half { 0 } else { r.signum() };
+    i64::try_from(q + step).map_err(|_| CorrectorError::Overflow)
+}
+
+/// The top-`rank` eigenvectors of `M = (ΔW·Hl)·ΔWᵀ` and `Σ_k max(λ_k, 0)` over them, as Q32.32
+/// words.
 ///
-/// The Gram is [`eigen_gram`], scaled by the exact power of two [`gram_scale`] into [`top_eigh`]'s
-/// bound; the scale is undone exactly on the summed eigenvalue words. `U` is row-major `[o, rank]`,
-/// column `k` the eigenvector for the `(rank−k)`-th largest eigenvalue; `M = 0` returns the identity
-/// columns, the basis the full `eigh` gives the zero matrix.
+/// The Gram is [`eigen_gram`] on the input words, scaled by the exact power of two [`gram_scale`]
+/// into [`top_eigh`]'s bound; the scale is undone exactly on the summed eigenvalue words. `U` is
+/// row-major `[o, rank]`, column `k` the eigenvector for the `(rank−k)`-th largest eigenvalue;
+/// `M = 0` returns the identity columns, the basis the full `eigh` gives the zero matrix.
 ///
 /// # Errors
 /// [`CorrectorError::ShapeMismatch`] for a wrong `ΔW`/`Hl` length,
 /// [`CorrectorError::RankOutOfRange`] for `rank > o`, [`CorrectorError::NotConverged`] for a
-/// [`top_eigh`] refusal, [`CorrectorError::Overflow`] on the eigenvalue sum.
+/// [`top_eigh`] refusal or a scale shift that leaves `i64`, [`CorrectorError::Overflow`] on the
+/// eigenvalue sum.
 ///
 /// # Complexity
 /// Time `O(o·n² + o²·n + o²·rank·iters)`; space `O(o·n + o² + o·rank)`.
 pub fn eigen_parts(
-    delta_w: &[f64],
-    hl: &[f64],
+    delta_w: &[i64],
+    hl: &[i64],
     o: usize,
     n: usize,
     rank: usize,
-) -> Result<(Vec<f64>, f64), CorrectorError> {
+) -> Result<(Vec<i64>, i64), CorrectorError> {
     if rank > o {
         return Err(CorrectorError::RankOutOfRange);
     }
-    let m = eigen_gram(delta_w, hl, o, n)?;
-    let mmax = m.iter().fold(0.0_f64, |a, &x| a.max(x.abs()));
-    if mmax <= 0.0 {
+    let (m, km) = eigen_gram(delta_w, hl, o, n)?;
+    let max = m
+        .iter()
+        .fold(0u128, |a, &v| a.max(u128::from(v.unsigned_abs())));
+    if max == 0 {
         // `M = 0`: the full `eigh` of the zero matrix returns the identity basis; reproduce it.
-        let mut u = vec![0.0_f64; o * rank];
+        let mut u = vec![0i64; o * rank];
         for i in 0..o {
             for k in 0..rank {
                 if i == o - rank + k {
-                    u[i * rank + k] = 1.0;
+                    u[i * rank + k] = 1_i64 << 32;
                 }
             }
         }
-        return Ok((u, 0.0));
+        return Ok((u, 0));
     }
-    let s_m = gram_scale(mmax);
-    let mut m_q = Vec::with_capacity(m.len());
-    for &v in &m {
-        m_q.push(to_grid(v * s_m, INPUT_BOUND).ok_or(CorrectorError::NotConverged)?);
-    }
+    let e = gram_scale(&m);
+    let m_q = m
+        .iter()
+        .map(|&x| scale_word(x, e))
+        .collect::<Result<Vec<_>, _>>()?;
     let top = top_eigh(&m_q, o, rank).map_err(|_| CorrectorError::NotConverged)?;
     let mut sum: i128 = 0;
     for k in 0..rank {
@@ -238,7 +239,8 @@ pub fn eigen_parts(
         }
     }
     let ws = i64::try_from(sum).map_err(|_| CorrectorError::Overflow)?;
-    Ok((to_real(&top.evecs), from_grid(ws) / s_m))
+    // `μ = λ·2^{e−km}·2³²`, so the Q32.32 word of `λ` is `μ·2^{km−e}`.
+    Ok((top.evecs, scale_word(ws, km - e)?))
 }
 
 /// `x` rounded to binary16 and back to Q32.32 ([`round_f16`] then one grid shift); `Overflow` at
@@ -336,29 +338,17 @@ pub fn lowrank_corrector(
             }),
         });
     }
-    // The `eigh` entry is still `f64`; the words round-trip through `from_grid` exactly and the
-    // results are read back onto the same grid.
     if mode == Mode::Exact {
-        let c = lowrank_corrector_exact(&to_real(delta_w), &to_real(hl), o, n, rank)?;
-        let f = if factors {
-            Some(Factors {
-                u: to_words(&c.u)?,
-                v: to_words(&c.v)?,
-            })
-        } else {
-            None
-        };
+        let c = lowrank_corrector_exact(delta_w, hl, o, n, rank)?;
         return Ok(LowrankCorrector {
-            corr: to_words(&c.corr)?,
+            corr: c.corr,
             bits: f16_bits(o, n, rank),
-            top_sum: to_word(c.top_sum)?,
-            factors: f,
+            top_sum: c.top_sum,
+            factors: factors.then_some(Factors { u: c.u, v: c.v }),
         });
     }
 
-    let (u, top_sum) = eigen_parts(&to_real(delta_w), &to_real(hl), o, n, rank)?;
-    let uq = to_words(&u)?;
-    let top_sum = to_word(top_sum)?;
+    let (uq, top_sum) = eigen_parts(delta_w, hl, o, n, rank)?;
     let (uh, vh, bits) = match mode {
         Mode::F16 => {
             let uh: Vec<i64> = uq.iter().map(|&x| f16_word(x)).collect::<Result<_, _>>()?;

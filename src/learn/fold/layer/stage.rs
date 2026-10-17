@@ -46,7 +46,7 @@ use crate::engine::chart::task::ChunkTask;
 use crate::learn::fold::stats::hocapture::Kind;
 use crate::learn::solve::chol::{chol_solve, SolveError};
 use crate::learn::solve::q32::{
-    div_rne, fill_scale, from_grid, ilog2_pos, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
+    div_rne, ilog2_pos, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
 };
 use crate::numeric::fixed_rsqrt::isqrt;
 
@@ -127,7 +127,7 @@ fn word(x: f64) -> Result<i64, StageError> {
 
 /// `v` as an `i64`, or [`StageError::Overflow`] outside its range.
 fn narrow(v: i128) -> Result<i64, StageError> {
-    i64::try_from(v).map_err(|_| StageError::Overflow)
+    crate::learn::solve::q32::narrow(v).ok_or(StageError::Overflow)
 }
 
 /// `round(v / 2^s)` to nearest, ties to even, narrowed to `i64`.
@@ -172,11 +172,6 @@ pub(crate) fn width_n(x: f64) -> Result<usize, StageError> {
     usize::try_from(r as i64).map_err(|_| StageError::Shape)
 }
 
-/// The exponent `e` with `s == 2^e` for the exact power of two [`fill_scale`] returns.
-fn pow2_exp(s: f64) -> i32 {
-    ((s.to_bits() >> 52) & 0x7ff) as i32 - 1023
-}
-
 /// `v·2^e` narrowed to `i64`, or [`StageError::Overflow`] when the shift leaves the range.
 fn shift_word(v: i64, e: i32) -> Result<i64, StageError> {
     if e > 100 {
@@ -207,19 +202,16 @@ fn norm_at(a: &[i64], base: usize, width: usize) -> Result<i64, StageError> {
     narrow(isqrt(acc))
 }
 
-/// The largest `|entry|` of a slice, for the boundary fill scale.
-fn max_abs(a: &[f64]) -> f64 {
-    a.iter().fold(0.0f64, |m, &v| m.max(v.abs()))
+/// The largest `|entry|` of a slice: the raw word magnitude, or `0` for the zero slice. `O(len)`.
+fn max_word(x: &[i64]) -> u128 {
+    x.iter()
+        .fold(0u128, |m, &v| m.max(u128::from(v.unsigned_abs())))
 }
 
-/// `true` iff every entry is finite.
-fn finite(a: &[f64]) -> bool {
-    a.iter().all(|v| v.is_finite())
-}
-
-/// `src·s` on the grid, `s` an exact power of two (`1.0` at the unit boundary).
-fn scaled(src: &[f64], s: f64) -> Result<Vec<i64>, StageError> {
-    src.iter().map(|&v| word(v * s)).collect()
+/// The exact power-of-two exponent `e` with `max·2^e ≤ 2³¹−1 < max·2^(e+1)` — the raw-word twin of
+/// `q32::fill_scale` (`e = 62 − ⌊log₂ max⌋`, and `0` for the zero slice). `O(len)`.
+fn fill_exp(x: &[i64]) -> i32 {
+    ilog2_pos(max_word(x)).map_or(0, |b| 62 - b as i32)
 }
 
 /// `src` row-major `[rows, out]` as a `Q32.32` transpose `[out, rows]`, the same panel weighted
@@ -659,38 +651,40 @@ pub fn solve_stage(
 
 /// The ridge normal-equation solve `ridge_solve(H, C, ridge)` (`fold_transfer.py:426-428`):
 /// `Hr = H` with `diag(Hr) += ridge·mean(diag H)`, then `Hr·X = C`, returning `Xᵀ` (`[out, n]`);
-/// `h` is row-major `[n, n]`, `c` row-major `[n, out]`. The solve is the shared [`chol_solve`].
-/// `H` and `C` are each rounded with their own exact power-of-two unit from [`fill_scale`], so each
-/// fills `|v| < 2³¹`; the primitive's `X_q = (s_c/s_h)·X` is unscaled back by one exact shift.
+/// `h` is row-major `[n, n]`, `c` row-major `[n, out]`, `ridge` the Q32.32 word. The solve is the
+/// shared [`chol_solve`]. `H` and `C` are each shifted by their own exact power-of-two
+/// ([`fill_exp`]), so each fills `|v| < 2³¹`; the solution is unscaled back by one exact shift.
 /// # Complexity
 /// Time `O(n³ + n²·out)`; space `O(n² + n·out)`.
 /// # Errors
-/// [`StageError::Shape`] if a length disagrees with `n`/`out`, [`StageError::NonFinite`] on a
-/// NaN/∞ entry, [`StageError::NotPositiveDefinite`] if `Hr` is not positive-definite,
-/// [`StageError::Overflow`] on a boundary or primitive overflow.
+/// [`StageError::Shape`] if a length disagrees with `n`/`out`, [`StageError::NotPositiveDefinite`]
+/// if `Hr` is not positive-definite, [`StageError::Overflow`] on a boundary or primitive overflow.
 pub fn ridge_solve(
-    h: &[f64],
-    c: &[f64],
+    h: &[i64],
+    c: &[i64],
     n: usize,
     out: usize,
-    ridge: f64,
-) -> Result<Vec<f64>, StageError> {
+    ridge: i64,
+) -> Result<Vec<i64>, StageError> {
     if n == 0 || h.len() != n * n || c.len() != n * out {
         return Err(StageError::Shape);
     }
-    if !finite(h) || !finite(c) {
-        return Err(StageError::NonFinite);
-    }
-    let (s_h, s_c) = (fill_scale(max_abs(h)), fill_scale(max_abs(c)));
-    let hq = scaled(h, s_h)?;
-    let cq = scaled(c, s_c)?;
-    let ridge_q = param_q64(ridge)?;
+    let (e_h, e_c) = (fill_exp(h), fill_exp(c));
+    let hq = h
+        .iter()
+        .map(|&v| shift_word(v, e_h))
+        .collect::<Result<Vec<_>, _>>()?;
+    let cq = c
+        .iter()
+        .map(|&v| shift_word(v, e_c))
+        .collect::<Result<Vec<_>, _>>()?;
+    let ridge_q = i128::from(ridge) << 32;
     let solved = chol_solve(&ridged(&hq, n, ridge_q, None)?, &cq, n, out)?;
-    let e = pow2_exp(s_h) - pow2_exp(s_c);
+    let e = e_h - e_c;
     // `solved.x` is `[n, out]`; the returned `Xᵀ` is `[out, n]`.
-    let mut out_t = vec![0.0f64; out * n];
+    let mut out_t = vec![0i64; out * n];
     for (at, &v) in solved.x.iter().enumerate() {
-        out_t[(at % out) * n + at / out] = from_grid(shift_word(v, e)?);
+        out_t[(at % out) * n + at / out] = shift_word(v, e)?;
     }
     Ok(out_t)
 }

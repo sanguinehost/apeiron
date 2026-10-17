@@ -734,17 +734,20 @@ fn solve_satisfies_normal_equations() {
     let h = matmul(&transpose(&x, rows, n), &x, n, rows, n);
     let c = rand_mat(&mut lcg, n, out);
     let ridge = 0.045 * (n as f64 / 896.0);
-    let dw = ridge_solve(&h, &c, n, out, ridge).unwrap();
-    let mean = diag_mean(&h, n);
+    let (hw, cw, rw) = (qv(&h), qv(&c), q(ridge));
+    let dw = words(&ridge_solve(&hw, &cw, n, out, rw).unwrap());
+    let (hr, cr) = (words(&hw), words(&cw));
+    let mean = diag_mean(&hr, n);
+    let r = from_grid(rw);
     let mut residual = 0.0f64;
     for i in 0..n {
         for o in 0..out {
             let mut s = 0.0f64;
             for k in 0..n {
-                let hr = h[i * n + k] + if i == k { ridge * mean } else { 0.0 };
-                s += hr * dw[o * n + k];
+                let hv = hr[i * n + k] + if i == k { r * mean } else { 0.0 };
+                s += hv * dw[o * n + k];
             }
-            residual = residual.max((s - c[i * out + o]).abs());
+            residual = residual.max((s - cr[i * out + o]).abs());
         }
     }
     println!("normal equations residual: {residual:.3e}");
@@ -934,8 +937,9 @@ fn ridge_solve_matches_old_path_wide_diagonal() {
             let h = spd_wide_diag(&mut lcg, n);
             let c = rand_mat(&mut lcg, n, out);
             let ridge = 1e-8;
-            let new = ridge_solve(&h, &c, n, out, ridge).unwrap();
-            let old = old_ridge_solve(&h, &c, n, out, ridge);
+            let (hw, cw, rw) = (qv(&h), qv(&c), q(ridge));
+            let new = words(&ridge_solve(&hw, &cw, n, out, rw).unwrap());
+            let old = old_ridge_solve(&words(&hw), &words(&cw), n, out, from_grid(rw));
             let denom = max_abs(&old).max(1e-300);
             let rel = max_abs_diff(&new, &old) / denom;
             assert!(rel < 1e-7, "n={n} out={out} rel={rel}");
@@ -943,44 +947,37 @@ fn ridge_solve_matches_old_path_wide_diagonal() {
     }
 }
 
-/// (l') The boundary scaling is exercised both ways: identical solves for `H`/`C` scaled far below
-/// the Q32.32 input bound (`1e-6`) and far above it (`1e10`), where `fill_scale` scales up and down
-/// respectively. The solution is invariant under a common factor on both sides.
+/// (l') The boundary scaling is exercised both ways: identical solves for `H`/`C` words scaled by
+/// an exact `2⁻¹⁰` and `2¹⁰`, where `fill_exp` scales the words up and down respectively. The
+/// solution is invariant under a common factor on both sides.
 #[test]
 fn ridge_solve_matches_old_path_extreme_magnitudes() {
     let (n, out) = (17usize, 2usize);
     let mut lcg = Lcg::new(0x00c0_ffee);
     let h0 = spd_wide_diag(&mut lcg, n);
     let c0 = rand_mat(&mut lcg, n, out);
-    let ridge = 1e-8;
-    for &f in &[1e-6f64, 1e10f64] {
+    let rw = q(1e-8);
+    for &f in &[2f64.powi(-10), 2f64.powi(10)] {
         let h: Vec<f64> = h0.iter().map(|&v| v * f).collect();
         let c: Vec<f64> = c0.iter().map(|&v| v * f).collect();
-        let new = ridge_solve(&h, &c, n, out, ridge).unwrap();
-        let old = old_ridge_solve(&h, &c, n, out, ridge);
+        let (hw, cw) = (qv(&h), qv(&c));
+        let new = words(&ridge_solve(&hw, &cw, n, out, rw).unwrap());
+        let old = old_ridge_solve(&words(&hw), &words(&cw), n, out, from_grid(rw));
         let denom = max_abs(&old).max(1e-300);
         let rel = max_abs_diff(&new, &old) / denom;
         assert!(rel < 1e-7, "f={f} rel={rel}");
     }
 }
 
-/// (m) A non-SPD input and a non-finite input both return the refusal, with no panic.
+/// (m) A non-SPD input and a shape mismatch both return the refusal, with no panic.
 #[test]
 fn ridge_solve_refusals() {
     assert_eq!(
-        ridge_solve(&[1.0, 2.0, 2.0, 1.0], &[1.0, 1.0], 2, 1, 0.0),
+        ridge_solve(&qv(&[1.0, 2.0, 2.0, 1.0]), &qv(&[1.0, 0.0]), 2, 1, 0),
         Err(StageError::NotPositiveDefinite)
     );
     assert_eq!(
-        ridge_solve(&[f64::NAN, 0.0, 0.0, 1.0], &[1.0, 1.0], 2, 1, 0.1),
-        Err(StageError::NonFinite)
-    );
-    assert_eq!(
-        ridge_solve(&[1.0, 0.0, 0.0, 1.0], &[f64::INFINITY, 1.0], 2, 1, 0.1),
-        Err(StageError::NonFinite)
-    );
-    assert_eq!(
-        ridge_solve(&[1.0, 0.0, 0.0], &[1.0, 1.0], 2, 1, 0.1),
+        ridge_solve(&qv(&[1.0, 0.0, 0.0]), &qv(&[1.0, 1.0]), 2, 1, q(0.1)),
         Err(StageError::Shape)
     );
 }
@@ -1023,7 +1020,7 @@ fn refusals() {
         Err(StageError::MissingCts)
     );
     assert_eq!(
-        ridge_solve(&[0.0; 9], &[1.0; 3], 3, 1, 0.0),
+        ridge_solve(&[0i64; 9], &[ONE; 3], 3, 1, 0),
         Err(StageError::NotPositiveDefinite)
     );
     assert_eq!(metric(&[1_i64; 3], 3, q(0.1)), Err(StageError::Shape));
@@ -1052,10 +1049,11 @@ fn timing_ridge_solve_4864() {
     }
     let c = rand_mat(&mut lcg, n, out);
     let ridge = 0.03;
+    let (hw, cw, rw) = (qv(&h), qv(&c), q(ridge));
     let mut times = Vec::with_capacity(3);
     for _ in 0..3 {
         let t = Instant::now();
-        let _ = ridge_solve(&h, &c, n, out, ridge).unwrap();
+        let _ = ridge_solve(&hw, &cw, n, out, rw).unwrap();
         times.push(t.elapsed().as_secs_f64());
     }
     let mean = times.iter().sum::<f64>() / times.len() as f64;
@@ -1072,4 +1070,23 @@ fn timing_ridge_solve_4864() {
         mean < 580.0,
         "new path exceeded the wall-clock budget: {mean}"
     );
+}
+
+#[test]
+fn ridge_solve_words_are_bit_identical_to_the_recorded_wrapper() {
+    let want = [
+        0x8172_2f8c_752d_6759_u64,
+        0xc10f_d0e1_5170_58ea,
+        0x9b22_494f_c071_24a5,
+    ];
+    for (i, (n, out)) in [(17usize, 2usize), (7, 1), (64, 3)].into_iter().enumerate() {
+        let mut lcg = Lcg::new(0x1234_5678 ^ (n as u64) ^ (out as u64) << 8);
+        let h = spd_wide_diag(&mut lcg, n);
+        let c = rand_mat(&mut lcg, n, out);
+        let (hw, cw) = (qv(&h), qv(&c));
+        let got = ridge_solve(&hw, &cw, n, out, q(1e-8)).unwrap();
+        let mut d = 0xcbf2_9ce4_8422_2325u64;
+        fnv_words(&mut d, &got);
+        assert_eq!(d, want[i], "ridge_solve n={n} out={out} words");
+    }
 }

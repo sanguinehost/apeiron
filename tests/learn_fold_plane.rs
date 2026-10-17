@@ -131,7 +131,7 @@ fn code_field(idx: &[u8], o: usize, n: usize) -> Vec<f64> {
         for m in 0..nb {
             let j = idx[oi * nb + m] as usize;
             for k in 0..BLOCK {
-                s[oi * n + m * BLOCK + k] = cb[j][k];
+                s[oi * n + m * BLOCK + k] = from_grid(cb[j][k]);
             }
         }
     }

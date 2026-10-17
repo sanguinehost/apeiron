@@ -23,7 +23,8 @@
               crate's non-test code."
 )]
 
-use apeiron::learn::fold::fit::eigh::{eigh, gram_scale, lowrank_corrector_exact, EighError};
+use apeiron::learn::fold::fit::eigh::{eigh, lowrank_corrector_exact, EighError};
+use apeiron::learn::solve::q32::{fill_scale, from_grid, to_grid, GRID_BOUND};
 
 /// Deterministic 64-bit LCG (Numerical Recipes constants), the tests' only randomness source.
 struct Lcg(u64);
@@ -54,6 +55,21 @@ impl Lcg {
 
 fn max_abs(a: &[f64]) -> f64 {
     a.iter().fold(0.0f64, |m, &x| m.max(x.abs()))
+}
+
+/// `x` as a Q32.32 word (the boundary the word APIs take).
+fn q(x: f64) -> i64 {
+    to_grid(x, GRID_BOUND).expect("grid")
+}
+
+/// `x` as words.
+fn qv(x: &[f64]) -> Vec<i64> {
+    x.iter().map(|&v| q(v)).collect()
+}
+
+/// The `f64` view of a word buffer.
+fn uw(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&v| from_grid(v)).collect()
 }
 
 /// `a · b` for row-major `[r, k] · [k, c]`.
@@ -322,7 +338,7 @@ fn ref_corrector(dw: &[f64], hl: &[f64], o: usize, n: usize, rank: usize) -> (Ve
 /// `max_mag`: the boundary scale is the exact power of two `s` with `max_mag·s ≤ 8`, so one word is
 /// `2⁻³²/s` in real units.
 fn quantum(max_mag: f64) -> f64 {
-    2f64.powi(-32) / gram_scale(max_mag)
+    2f64.powi(-32) / (fill_scale(max_mag) * 2f64.powi(-28))
 }
 
 /// The derived eigenvalue bound of [`eigh`]: `top_eigh` stops at a column residual
@@ -530,9 +546,9 @@ fn rank_k_recovery() {
     // angle is at most `√o·2⁻²⁰·(λ_max/gap)` and the gap between the k-th eigenvalue and the zero
     // null space is the k-th eigenvalue itself, so 2·θ ≤ 2·√6·2⁻²⁰ ≈ 5e-6 of the `Hl`-scale, and
     // `1e-4·max|ΔW|` carries that with two orders of head-room.
-    let c = lowrank_corrector_exact(&dw, &hl, o, n, k).expect("rank = k < o");
+    let c = lowrank_corrector_exact(&qv(&dw), &qv(&hl), o, n, k).expect("rank = k < o");
     let err = max_abs(
-        &c.corr
+        &uw(&c.corr)
             .iter()
             .zip(&dw)
             .map(|(x, y)| x - y)
@@ -540,9 +556,9 @@ fn rank_k_recovery() {
     );
     assert!(err <= 1e-4 * scale, "rank = k recovery error {err:e}");
     // `rank > k`: the extra eigenspace is the null space of M; ΔW still lies in the span.
-    let c2 = lowrank_corrector_exact(&dw, &hl, o, n, k + 2).expect("rank = k+2 < o");
+    let c2 = lowrank_corrector_exact(&qv(&dw), &qv(&hl), o, n, k + 2).expect("rank = k+2 < o");
     let err2 = max_abs(
-        &c2.corr
+        &uw(&c2.corr)
             .iter()
             .zip(&dw)
             .map(|(x, y)| x - y)
@@ -557,8 +573,8 @@ fn optimality_vs_random_projections() {
     let mut rng = Lcg::new(0xABCD_EF01_2345_6789);
     let dw: Vec<f64> = (0..o * n).map(|_| rng.sym()).collect();
     let hl = random_spd(&mut rng, n);
-    let c = lowrank_corrector_exact(&dw, &hl, o, n, rank).expect("rank < o");
-    let r_ours: Vec<f64> = dw.iter().zip(&c.corr).map(|(x, y)| x - y).collect();
+    let c = lowrank_corrector_exact(&qv(&dw), &qv(&hl), o, n, rank).expect("rank < o");
+    let r_ours: Vec<f64> = dw.iter().zip(&uw(&c.corr)).map(|(x, y)| x - y).collect();
     let t_ours = trace_r_hl_rt(&r_ours, &hl, o, n);
     for trial in 0..20 {
         let p = random_orthonormal(&mut rng, o, rank);
@@ -577,30 +593,29 @@ fn top_sum_and_factors() {
     let mut rng = Lcg::new(0x5555_AAAA_5555_AAAA);
     let dw: Vec<f64> = (0..o * n).map(|_| rng.sym()).collect();
     let hl = random_spd(&mut rng, n);
-    let c = lowrank_corrector_exact(&dw, &hl, o, n, rank).expect("rank < o");
+    let c = lowrank_corrector_exact(&qv(&dw), &qv(&hl), o, n, rank).expect("rank < o");
     // Corr = U·V: both sides are Q32.32 products of the same grid values; the f64 reproduct differs
     // by at most one quantum per product entry and `rank` entries per output entry.
-    let uv = matmul(&c.u, &c.v, o, rank, n);
+    let uv = matmul(&uw(&c.u), &uw(&c.v), o, rank, n);
     let q = 2f64.powi(-32);
     let e = max_abs(
         &uv.iter()
-            .zip(&c.corr)
+            .zip(&uw(&c.corr))
             .map(|(x, y)| x - y)
             .collect::<Vec<f64>>(),
     );
     assert!(
-        e <= 4.0 * (rank as f64) * q * (1.0 + max_abs(&c.corr)),
+        e <= 4.0 * (rank as f64) * q * (1.0 + max_abs(&uw(&c.corr))),
         "Corr ≠ U·V by {e:e}"
     );
     // top_sum against the removed f64 path: the two spectra differ by the eigenvalue bound of the
     // Q32.32 eigenstage, which is at most `√o·λ_max·2⁻²⁰` relative to `top_sum ≤ rank·λ_max`.
     let (_, want) = ref_corrector(&dw, &hl, o, n, rank);
-    let rel = (c.top_sum - want).abs() / want.abs().max(1e-30);
+    let top = from_grid(c.top_sum);
+    let rel = (top - want).abs() / want.abs().max(1e-30);
     assert!(
         rel <= 1e-5,
-        "top_sum = {} != oracle top eigenvalues {} (rel {rel:e})",
-        c.top_sum,
-        want
+        "top_sum = {top} != oracle top eigenvalues {want} (rel {rel:e})"
     );
     assert!(
         c.u.len() == o * rank && c.v.len() == rank * n && c.corr.len() == o * n,
@@ -617,10 +632,10 @@ fn corrector_agrees_with_f64_oracle() {
     let mut rng = Lcg::new(0x7777_3333_1111_9999);
     let dw: Vec<f64> = (0..o * n).map(|_| rng.sym()).collect();
     let hl = random_spd(&mut rng, n);
-    let c = lowrank_corrector_exact(&dw, &hl, o, n, rank).expect("rank < o");
+    let c = lowrank_corrector_exact(&qv(&dw), &qv(&hl), o, n, rank).expect("rank < o");
     let (corr_ref, top_ref) = ref_corrector(&dw, &hl, o, n, rank);
     let e = max_abs(
-        &c.corr
+        &uw(&c.corr)
             .iter()
             .zip(&corr_ref)
             .map(|(x, y)| x - y)
@@ -634,34 +649,34 @@ fn corrector_agrees_with_f64_oracle() {
         "corr vs oracle error {e:e} over {:.1e}",
         1e-3 * scale
     );
-    let rel = (c.top_sum - top_ref).abs() / top_ref.abs().max(1e-30);
+    let rel = (from_grid(c.top_sum) - top_ref).abs() / top_ref.abs().max(1e-30);
     assert!(rel <= 1e-5, "top_sum vs oracle rel {rel:e}");
 }
 
 #[test]
 fn refusals() {
     let (o, n) = (4usize, 5usize);
-    let dw = vec![0.1f64; o * n];
-    let hl = vec![0.0f64; n * n];
+    let dw = qv(&vec![0.1f64; o * n]);
+    let hl = qv(&vec![0.0f64; n * n]);
     // rank > o.
     assert_eq!(
         lowrank_corrector_exact(&dw, &hl, o, n, o + 1).err(),
         Some(EighError::RankOutOfRange)
     );
     // non-square Hl: its length disagrees with n·n.
-    let hl_bad = vec![0.0f64; n * n - 1];
+    let hl_bad = vec![0i64; n * n - 1];
     assert_eq!(
         lowrank_corrector_exact(&dw, &hl_bad, o, n, 1).err(),
         Some(EighError::ShapeMismatch)
     );
     // ΔW length disagrees with o·n.
-    let dw_bad = vec![0.0f64; o * n + 1];
+    let dw_bad = vec![0i64; o * n + 1];
     assert_eq!(
         lowrank_corrector_exact(&dw_bad, &hl, o, n, 1).err(),
         Some(EighError::ShapeMismatch)
     );
     // eigh shape refusal.
-    assert_eq!(eigh(&dw, n).err(), Some(EighError::ShapeMismatch));
+    assert_eq!(eigh(&uw(&dw), n).err(), Some(EighError::ShapeMismatch));
     // A non-finite entry has no grid word.
     let mut nan = vec![0.0f64; n * n];
     nan[0] = f64::NAN;

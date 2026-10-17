@@ -43,7 +43,7 @@ use crate::engine::{fwht_fixed, HadamardError};
 use crate::learn::code::e8;
 use crate::learn::solve::chol::{chol_solve, SolveError};
 use crate::learn::solve::gemm::{gemm_nn, gemm_nt, GemmError};
-use crate::learn::solve::q32::{self, from_grid, ilog2_pos, rshift_rne, GRID_BOUND};
+use crate::learn::solve::q32::{self, ilog2_pos, rshift_rne};
 
 /// Columns per `E8 ∪ O8` block: the code dimension.
 pub const BLOCK: usize = 8;
@@ -109,11 +109,6 @@ pub struct JointStats {
     pub j_after: i64,
     /// Sum over blocks of the rows in which at least one plane's block code changed.
     pub moves: usize,
-}
-
-/// `round(x·2³²)` at the grid range bound, or [`IcmError::Overflow`] off it.
-fn to_q(x: f64) -> Result<i64, IcmError> {
-    q32::to_grid(x, GRID_BOUND).ok_or(IcmError::Overflow)
 }
 
 /// `round(v / 2^s)` as an `i64`, or [`IcmError::Overflow`] when the rounded value leaves `i64`.
@@ -448,11 +443,10 @@ fn into_plane(s: &[i64], idx: Vec<u16>, p: PlaneRef<'_>) -> Plane {
     }
 }
 
-/// The 256 `E8 ∪ O8` codewords as real values: `codeword(j)[k] / 2^32`. Constant size.
+/// The 256 `E8 ∪ O8` codewords as Q32.32 words `codeword(j)[k]`. Constant size.
 #[must_use]
-pub fn codebook() -> [[f64; BLOCK]; CODE_LEN] {
-    let cb = codebook_q();
-    core::array::from_fn(|j| core::array::from_fn(|k| from_grid(cb[j][k])))
+pub fn codebook() -> [[i64; BLOCK]; CODE_LEN] {
+    codebook_q()
 }
 
 /// Euclidean nearest codebook row of a grid 8-vector, first index on ties, via the codebook's own
@@ -473,11 +467,11 @@ pub fn nearest_index(code: &[i64; BLOCK]) -> Result<usize, IcmError> {
 /// [`IcmError::Shape`] if `hl.len() != n*n` or `n == 0`; [`IcmError::Overflow`] off the grid.
 /// # Complexity
 /// `O(n²)` time and space: one copy, then `n` diagonal adds.
-pub fn ridged_metric(hl: &[i64], n: usize, icm_ridge: f64) -> Result<Vec<i64>, IcmError> {
+pub fn ridged_metric(hl: &[i64], n: usize, icm_ridge: i64) -> Result<Vec<i64>, IcmError> {
     if n == 0 || hl.len() != n * n {
         return Err(IcmError::Shape);
     }
-    ridged_metric_q(hl, n, to_q(icm_ridge)?)
+    ridged_metric_q(hl, n, icm_ridge)
 }
 
 /// # Complexity
@@ -489,10 +483,10 @@ fn ridged_metric_q(hl: &[i64], n: usize, icm_ridge: i64) -> Result<Vec<i64>, Icm
         for i in 0..n {
             sum = qsum(sum, i128::from(hl[i * n + i]))?;
         }
-        let mean = narrow(div_round(sum, n as i128)?)?;
+        let mean = q32::narrow(div_round(sum, n as i128)?).ok_or(IcmError::Overflow)?;
         // `n / 896` on the grid, then `icm_ridge · (n/896) · mean`.
         let nq = i128::try_from(n).map_err(|_| IcmError::Overflow)? << 32;
-        let frac = narrow(div_round(nq, 896)?)?;
+        let frac = q32::narrow(div_round(nq, 896)?).ok_or(IcmError::Overflow)?;
         let add = mul_q(mul_q(icm_ridge, frac)?, mean)?;
         let add = if mean > 0 && add < 1 { ONE } else { add };
         for i in 0..n {
@@ -515,11 +509,6 @@ fn div_round(v: i128, d: i128) -> Result<i128, IcmError> {
         v.checked_sub(half).map(|x| x / d)
     }
     .ok_or(IcmError::Overflow)
-}
-
-/// `v` as `i64`, or [`IcmError::Overflow`] when it leaves the range.
-fn narrow(v: i128) -> Result<i64, IcmError> {
-    i64::try_from(v).map_err(|_| IcmError::Overflow)
 }
 
 /// `plane_w(P) = fwht128(s·d) · r_rep · c`, the plane's weight matrix, row-major `[o, n]`, on the
@@ -610,7 +599,7 @@ fn j_rows_q(
         };
         total = qsum(total, i128::from(j))?;
     }
-    narrow(total)
+    q32::narrow(total).ok_or(IcmError::Overflow)
 }
 
 /// One plane's iterated conditional modes: `sweeps` passes over the `n / 8` blocks, each replacing one
@@ -1174,11 +1163,11 @@ fn r_row_q(
     }
     let max = prod.iter().fold(0_u128, |m, v| m.max(v.unsigned_abs()));
     let k = ilog2_pos(max).map_or(0, |l| 66_u32.saturating_sub(l));
-    let fill = |v: i128| {
+    let fill = |v: i128| -> Result<i64, IcmError> {
         if k <= 32 {
             round_shift(v, 32 - k)
         } else {
-            narrow(qmul(v, 1_i128 << (k - 32))?)
+            q32::narrow(qmul(v, 1_i128 << (k - 32))?).ok_or(IcmError::Overflow)
         }
     };
     let pv = prod
@@ -1215,9 +1204,10 @@ fn r_row_q(
     for k in 0..two_g {
         mean = qsum(mean, i128::from(mmat[k * two_g + k]))?;
     }
-    let mean = narrow(div_round(mean, two_g as i128)?)?;
+    let mean = q32::narrow(div_round(mean, two_g as i128)?).ok_or(IcmError::Overflow)?;
     // `1e-12 · mean(diag)`, floored at one raw unit when a positive ridge would round to zero.
-    let add = narrow(div_round(i128::from(mean), 1_000_000_000_000)?)?;
+    let add =
+        q32::narrow(div_round(i128::from(mean), 1_000_000_000_000)?).ok_or(IcmError::Overflow)?;
     let add = if mean > 0 && add < 1 { 1 } else { add };
     for k in 0..two_g {
         mmat[k * two_g + k] = add_q(mmat[k * two_g + k], add)?;
