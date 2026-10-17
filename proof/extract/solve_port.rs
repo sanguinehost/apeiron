@@ -25,9 +25,8 @@ pub fn word_solve_gemm_nn(
     m: usize,
     k: usize,
     n: usize,
-    threads: usize,
 ) -> Result<Vec<i64>, gemm::GemmError> {
-    gemm::gemm_nn(a, b, m, k, n, threads)
+    gemm::gemm_nn(a, b, m, k, n)
 }
 
 /// The real `A·Bᵀ` body, rooted at the concrete Q32.32 `i64` word.
@@ -37,9 +36,8 @@ pub fn word_solve_gemm_nt(
     m: usize,
     k: usize,
     n: usize,
-    threads: usize,
 ) -> Result<Vec<i64>, gemm::GemmError> {
-    gemm::gemm_nt(a, b, m, k, n, threads)
+    gemm::gemm_nt(a, b, m, k, n)
 }
 
 /// The real weighted-Gram body `Xᵀ diag(w) X`, rooted at the concrete Q32.32 `i64` word.
@@ -48,9 +46,8 @@ pub fn word_solve_wsyrk(
     w: Option<&[i64]>,
     o: usize,
     n: usize,
-    threads: usize,
 ) -> Result<Vec<i64>, syrk::SyrkError> {
-    syrk::wsyrk(x, w, o, n, threads)
+    syrk::wsyrk(x, w, o, n)
 }
 
 /// The real elementwise Hadamard product body, rooted at the concrete Q32.32 `i64` word.
@@ -64,18 +61,16 @@ pub fn word_solve_chol_solve(
     b: &[i64],
     n: usize,
     k: usize,
-    threads: usize,
 ) -> Result<chol::Solved, chol::SolveError> {
-    chol::chol_solve(a, b, n, k, threads)
+    chol::chol_solve(a, b, n, k)
 }
 
 /// The real upper inverse-Cholesky factor body, rooted at the concrete Q32.32 `i64` word.
 pub fn word_solve_inv_factor_upper(
     h: &[i64],
     n: usize,
-    threads: usize,
 ) -> Result<Vec<i64>, chol::SolveError> {
-    inv::inv_factor_upper(h, n, threads)
+    inv::inv_factor_upper(h, n)
 }
 
 /// The real top-`r` symmetric eigen-subspace body, rooted at the concrete Q32.32 `i64` word.
@@ -83,9 +78,8 @@ pub fn word_solve_top_eigh(
     m: &[i64],
     n: usize,
     r: usize,
-    threads: usize,
 ) -> Result<eig::TopEig, eig::EigError> {
-    eig::top_eigh(m, n, r, threads)
+    eig::top_eigh(m, n, r)
 }
 
 /// The real floor-log2 body, rooted at the concrete `u128` word.

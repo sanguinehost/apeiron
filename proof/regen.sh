@@ -240,10 +240,10 @@ SERVING_OPAQUE=(
     --opaque 'crate::chart::ffn::swiglu_f32_avx2_8_into' # simd-twin: scalar swiglu_f32
     --opaque 'crate::mixer::delta_head_step_fast' # simd-intrinsic
     --opaque 'crate::par::matvec_rows_chunked' # thread
-    --opaque 'crate::solve_port::gemm::block_rows_par' # thread: std::thread::scope over disjoint row ranges, src/learn/solve/gemm.rs
-    --opaque 'crate::solve_port::syrk::block_rows_par' # thread: std::thread::scope over disjoint row ranges, src/learn/solve/syrk.rs
-    --opaque 'crate::solve_port::chol::trailing_update_par' # thread: std::thread::scope over disjoint row ranges, src/learn/solve/chol.rs
-    --opaque 'crate::solve_port::inv::invert_columns_par' # thread: std::thread::scope over disjoint column ranges, src/learn/solve/inv.rs
+    --opaque 'crate::solve_port::gemm::block_rows_pool' # thread: engine-pool dispatch over disjoint row ranges, src/learn/solve/gemm.rs
+    --opaque 'crate::solve_port::syrk::block_rows_pool' # thread: engine-pool dispatch over disjoint row ranges, src/learn/solve/syrk.rs
+    --opaque 'crate::solve_port::chol::trailing_update_pool' # thread: engine-pool dispatch over disjoint row ranges, src/learn/solve/chol.rs
+    --opaque 'crate::solve_port::inv::invert_columns_pool' # thread: engine-pool dispatch over disjoint column ranges, src/learn/solve/inv.rs
     --opaque 'crate::chart::pool' # thread: std::thread worker pool, dyn Fn jobs, transmute (every item)
     --opaque 'crate::step::prefill_block' # process-flag: APEIRON_PREFILL_COLS
     --opaque 'crate::step::bitplane_enabled' # process-flag: APEIRON_BITPLANE
