@@ -149,11 +149,6 @@ fn qmul(a: i128, b: i128) -> Result<i128, IcmError> {
     a.checked_mul(b).ok_or(IcmError::Overflow)
 }
 
-/// The exact `a·b·c` at Q96.96.
-fn triple(a: i64, b: i64, c: i64) -> Result<i128, IcmError> {
-    qmul(qmul(i128::from(a), i128::from(b))?, i128::from(c))
-}
-
 /// `Σ a[k]·b[k]` at Q64.64, exact; `O(len)` multiply-adds, `O(1)` space.
 fn dot64(a: &[i64], b: &[i64]) -> Result<i128, IcmError> {
     let mut acc: i128 = 0;
@@ -163,16 +158,17 @@ fn dot64(a: &[i64], b: &[i64]) -> Result<i128, IcmError> {
     Ok(acc)
 }
 
-/// The exact Q96.96 block cost `a²·q − 2·a·dot` (`dot` at Q64.64), compared unrounded.
-fn block_cost(a: i64, q: i64, dot: i128) -> Result<i128, IcmError> {
-    let t1 = qmul(i128::from(a) * i128::from(a), i128::from(q))?;
-    qsub(t1, qmul(qmul(i128::from(a), dot)?, 2)?)
+/// The exact Q96.96 block cost `a²·q − 2·a·dot` (`dot` at Q64.64), compared unrounded. `aa = a²`
+/// and `two_a = 2a` are the row scale's constant products, hoisted once per row-block; the value is
+/// `a·a·q − 2·a·dot` exactly, as before the hoist.
+fn block_cost(aa: i128, two_a: i128, q: i64, dot: i128) -> Result<i128, IcmError> {
+    qsub(qmul(aa, i128::from(q))?, qmul(two_a, dot)?)
 }
 
-/// The exact Q96.96 pair cost `2·a₁a₂·x + A + B`.
-fn pair_cost(a1: i64, a2: i64, x: i64, av: i128, bv: i128) -> Result<i128, IcmError> {
-    let a12 = qmul(i128::from(a1), i128::from(a2))?;
-    qsum(qsum(qmul(qmul(a12, 2)?, i128::from(x))?, av)?, bv)
+/// The exact Q96.96 pair cost `2·a₁a₂·x + A + B` with `two_a12 = 2·a₁a₂` hoisted once per
+/// row-block.
+fn pair_cost(two_a12: i128, x: i64, av: i128, bv: i128) -> Result<i128, IcmError> {
+    qsum(qsum(qmul(two_a12, i128::from(x))?, av)?, bv)
 }
 
 /// The exact left shift of a Q32.32 word by `s` bits: the undo of a panel scaling.
@@ -608,9 +604,9 @@ fn j_rows_q(
 /// # Errors
 /// [`IcmError::Shape`] on a slice length that disagrees with `o`/`n`; [`IcmError::Width`] if `n` is not a positive multiple of [`BLOCK`] `*` [`GROUP`]; [`IcmError::Overflow`] off the grid.
 /// # Complexity
-/// `sweeps · (n/8) · O · (CODE_LEN·BLOCK + BLOCK² + BLOCK·n)` checked multiply-adds over the `n/8`
-/// independent blocks of each row, plus `O(o·n²)` setup for `Ws@Hl` and the transforms; `O(n²)` for
-/// `H_rot`/`q_all` plus `O(o·n)`.
+/// `sweeps · (n/8) · O · (BLOCK² + CODE_LEN·(BLOCK+2) + [BLOCK·n] changed)` checked operations over
+/// the `n/8` independent blocks of each row, plus `O(o·n²)` setup for `Ws@Hl` and the transforms;
+/// `O(n²)` for `H_rot`/`q_all` plus `O(o·n)`.
 pub fn e8_icm_step(
     ws: &[i64],
     hl: &[i64],
@@ -731,8 +727,11 @@ impl Task3<i64, i64, u16, IcmError> for SweepTask<'_> {
 }
 
 /// # Complexity
-/// `sweeps · (n/8) · rows · (CODE_LEN·BLOCK + BLOCK² + 2·BLOCK·n)` checked multiply-adds: the residual
-/// update dominates, `2·BLOCK·n` over eight contiguous `H_rot` rows. `O(BLOCK)` extra space.
+/// `sweeps · (n/8) · rows · (BLOCK² + CODE_LEN·(BLOCK+2) + [BLOCK·n] changed)` checked operations: the
+/// residual update (`BLOCK·n` `i64·i64` products, one `a`-scaled rounding per column) dominates, and it
+/// runs only for a block whose code moved. The row scale `a` is factored out of both the offset and the
+/// residual products (exact: `a·Σ v = Σ a·v` in `i128`), so each product is the one-multiply
+/// `i64·i64 → i128` widening rather than an `i128·i128`. `O(BLOCK)` extra space.
 fn sweep_rows(
     cx: &SweepCtx<'_>,
     f_res: &mut [i64],
@@ -747,42 +746,50 @@ fn sweep_rows(
             let m = if sw % 2 == 0 { nb - 1 - step } else { step };
             let b0 = m * BLOCK;
             let hb = block_of_q(cx.h_rot, n, m);
+            let hs: [&[i64]; BLOCK] = core::array::from_fn(|k| &cx.h_rot[(b0 + k) * n..][..n]);
             for row in 0..rows {
                 let a = r[row * cx.g + b0 / GROUP];
+                let av = i128::from(a);
+                let (aa, two_a) = (av * av, av * 2);
                 let f_row = &mut f_res[row * n..(row + 1) * n];
                 let s_row = &mut s_cur[row * n..(row + 1) * n];
                 let mut f_m = [0_i64; BLOCK];
                 for k in 0..BLOCK {
                     let mut acc: i128 = 0;
                     for l in 0..BLOCK {
-                        acc = qsum(acc, triple(a, s_row[b0 + l], hb[l][k])?)?;
+                        acc = qsum(acc, i128::from(s_row[b0 + l]) * i128::from(hb[l][k]))?;
                     }
-                    f_m[k] = add_q(f_row[b0 + k], round_shift(acc, 64)?)?;
+                    f_m[k] = add_q(f_row[b0 + k], round_shift(qmul(av, acc)?, 64)?)?;
                 }
                 let (mut best, mut best_cost) = (0_usize, i128::MAX);
                 for j in 0..CODE_LEN {
-                    let cost = block_cost(a, cx.q_all[m * CODE_LEN + j], dot64(&f_m, &cx.cb[j])?)?;
+                    let cost = block_cost(
+                        aa,
+                        two_a,
+                        cx.q_all[m * CODE_LEN + j],
+                        dot64(&f_m, &cx.cb[j])?,
+                    )?;
                     if cost < best_cost {
                         best_cost = cost;
                         best = j;
                     }
                 }
-                let mut coef = [0_i128; BLOCK];
+                let mut diff = [0_i64; BLOCK];
+                let mut changed = false;
                 for k in 0..BLOCK {
-                    let diff = sub_q(cx.cb[best][k], s_row[b0 + k])?;
-                    coef[k] = i128::from(a) * i128::from(diff);
+                    diff[k] = sub_q(cx.cb[best][k], s_row[b0 + k])?;
+                    changed |= diff[k] != 0;
                     s_row[b0 + k] = cx.cb[best][k];
                 }
                 idx[row * nb + m] = best as u16;
-                for col in 0..n {
-                    let mut acc: i128 = 0;
-                    for k in 0..BLOCK {
-                        acc = qsum(
-                            acc,
-                            qmul(coef[k], i128::from(cx.h_rot[(b0 + k) * n + col]))?,
-                        )?;
+                if changed {
+                    for col in 0..n {
+                        let mut acc: i128 = 0;
+                        for k in 0..BLOCK {
+                            acc = qsum(acc, i128::from(diff[k]) * i128::from(hs[k][col]))?;
+                        }
+                        f_row[col] = sub_q(f_row[col], round_shift(qmul(av, acc)?, 64)?)?;
                     }
-                    f_row[col] = sub_q(f_row[col], round_shift(acc, 64)?)?;
                 }
             }
         }
@@ -798,9 +805,9 @@ fn sweep_rows(
 /// a positive multiple of [`BLOCK`] and [`GROUP`]; [`IcmError::ZeroChunk`] if `row_chunk == 0`;
 /// [`IcmError::BlockOutOfRange`] for a block index `>= n / BLOCK`; [`IcmError::Overflow`] off the grid.
 /// # Complexity
-/// `sweeps · (n/8) · O · (CODE_LEN² + 2·CODE_LEN·BLOCK + 2·BLOCK·n)` checked multiply-adds for the pair
-/// argmin and the two residual updates, plus `O(n²·log2(GROUP))` for the three `had_gram` passes and
-/// `(n/8)·CODE_LEN²·BLOCK` for `X`; rows split across the pool. `O(o·n)` for `s`, `F`, `G`, `B`,
+/// `sweeps · (n/8) · O · (4·CODE_LEN·BLOCK + 2·BLOCK² + CODE_LEN² + [2·BLOCK·n] changed)` checked
+/// operations for the pair argmin and the two residual updates, plus `O(n²·log2(GROUP))` for the three
+/// `had_gram` passes and `(n/8)·CODE_LEN²·BLOCK` for `X`; rows split across the pool. `O(o·n)` for `s`, `F`, `G`, `B`,
 /// `O(n²)` for `H11/H22/H12`, `(n/8)·CODE_LEN²` `i64` for `X`.
 #[allow(
     clippy::too_many_arguments,
@@ -977,8 +984,10 @@ impl ChunkTask<JointRow<'_>> for JointSweep<'_> {
 }
 
 /// # Complexity
-/// `sweeps · nb · (CODE_LEN² + 2·CODE_LEN·BLOCK + 2·BLOCK·n)` checked multiply-adds; `O(CODE_LEN)`
-/// space.
+/// `sweeps · nb · (4·CODE_LEN·BLOCK + 2·BLOCK² + CODE_LEN² + [2·BLOCK·n] changed)` checked operations;
+/// the pair search (one `i128` multiply per `(i₁, i₂)` with `2·a₁a₂` hoisted) dominates, the residual
+/// update (`2·BLOCK·n` `i64·i64` products) runs only for a block whose code moved, and both row scales
+/// are factored out of their products exactly as in [`sweep_rows`]. `O(CODE_LEN)` space.
 fn joint_row(cx: &JointSweep<'_>, row: &mut JointRow<'_>, rowno: usize) -> Result<usize, IcmError> {
     let (n, nb) = (cx.n, cx.nb);
     let mut moved = 0_usize;
@@ -998,28 +1007,46 @@ fn joint_row(cx: &JointSweep<'_>, row: &mut JointRow<'_>, rowno: usize) -> Resul
             );
             let xm = &cx.x_all[m * CODE_LEN * CODE_LEN..(m + 1) * CODE_LEN * CODE_LEN];
             let (a1, a2) = (cx.r1[rowno * cx.g + gidx], cx.r2[rowno * cx.g + gidx]);
+            let (av1, av2) = (i128::from(a1), i128::from(a2));
+            let (aa1, two_a1) = (av1 * av1, av1 * 2);
+            let (aa2, two_a2) = (av2 * av2, av2 * 2);
+            // `2·a₁a₂`, the pair search's constant factor; the refusal is the one `pair_cost` made.
+            let two_a12 = qmul(qmul(av1, av2)?, 2)?;
             let (mut f1m, mut f2m) = ([0_i64; BLOCK], [0_i64; BLOCK]);
             for k in 0..BLOCK {
-                let (mut acc1, mut acc2) = (0_i128, 0_i128);
+                let (mut d11, mut d12t, mut d22, mut d12) = (0_i128, 0_i128, 0_i128, 0_i128);
                 for l in 0..BLOCK {
                     let (s1o, s2o) = (row.s1[b0 + l], row.s2[b0 + l]);
-                    acc1 = qsum(acc1, triple(a1, s1o, hb11[l][k])?)?;
-                    acc1 = qsum(acc1, triple(a2, s2o, hb12[k][l])?)?;
-                    acc2 = qsum(acc2, triple(a2, s2o, hb22[l][k])?)?;
-                    acc2 = qsum(acc2, triple(a1, s1o, hb12[l][k])?)?;
+                    d11 = qsum(d11, i128::from(s1o) * i128::from(hb11[l][k]))?;
+                    d12t = qsum(d12t, i128::from(s2o) * i128::from(hb12[k][l]))?;
+                    d22 = qsum(d22, i128::from(s2o) * i128::from(hb22[l][k]))?;
+                    d12 = qsum(d12, i128::from(s1o) * i128::from(hb12[l][k]))?;
                 }
+                let acc1 = qsum(qmul(av1, d11)?, qmul(av2, d12t)?)?;
+                let acc2 = qsum(qmul(av2, d22)?, qmul(av1, d12)?)?;
                 f1m[k] = add_q(row.f1[b0 + k], round_shift(acc1, 64)?)?;
                 f2m[k] = add_q(row.f2[b0 + k], round_shift(acc2, 64)?)?;
             }
             let (mut av, mut bv) = ([0_i128; CODE_LEN], [0_i128; CODE_LEN]);
             for j in 0..CODE_LEN {
-                av[j] = block_cost(a1, cx.q1[m * CODE_LEN + j], dot64(&f1m, &cx.cb[j])?)?;
-                bv[j] = block_cost(a2, cx.q2[m * CODE_LEN + j], dot64(&f2m, &cx.cb[j])?)?;
+                av[j] = block_cost(
+                    aa1,
+                    two_a1,
+                    cx.q1[m * CODE_LEN + j],
+                    dot64(&f1m, &cx.cb[j])?,
+                )?;
+                bv[j] = block_cost(
+                    aa2,
+                    two_a2,
+                    cx.q2[m * CODE_LEN + j],
+                    dot64(&f2m, &cx.cb[j])?,
+                )?;
             }
             let (mut flat, mut best) = (0_usize, i128::MAX);
             for i1v in 0..CODE_LEN {
+                let (a_row, x_row) = (av[i1v], &xm[i1v * CODE_LEN..][..CODE_LEN]);
                 for i2v in 0..CODE_LEN {
-                    let t = pair_cost(a1, a2, xm[i1v * CODE_LEN + i2v], av[i1v], bv[i2v])?;
+                    let t = pair_cost(two_a12, x_row[i2v], a_row, bv[i2v])?;
                     if t < best {
                         best = t;
                         flat = i1v * CODE_LEN + i2v;
@@ -1027,14 +1054,12 @@ fn joint_row(cx: &JointSweep<'_>, row: &mut JointRow<'_>, rowno: usize) -> Resul
                 }
             }
             let (i1s, i2s) = (flat / CODE_LEN, flat % CODE_LEN);
-            let (mut e1, mut e2) = ([0_i128; BLOCK], [0_i128; BLOCK]);
+            let (mut n1, mut n2) = ([0_i64; BLOCK], [0_i64; BLOCK]);
             let mut changed = false;
             for k in 0..BLOCK {
-                let n1 = sub_q(cx.cb[i1s][k], row.s1[b0 + k])?;
-                let n2 = sub_q(cx.cb[i2s][k], row.s2[b0 + k])?;
-                e1[k] = i128::from(a1) * i128::from(n1);
-                e2[k] = i128::from(a2) * i128::from(n2);
-                changed |= n1 != 0 || n2 != 0;
+                n1[k] = sub_q(cx.cb[i1s][k], row.s1[b0 + k])?;
+                n2[k] = sub_q(cx.cb[i2s][k], row.s2[b0 + k])?;
+                changed |= n1[k] != 0 || n2[k] != 0;
                 row.s1[b0 + k] = cx.cb[i1s][k];
                 row.s2[b0 + k] = cx.cb[i2s][k];
             }
@@ -1043,16 +1068,23 @@ fn joint_row(cx: &JointSweep<'_>, row: &mut JointRow<'_>, rowno: usize) -> Resul
             }
             row.idx1[m] = i1s as u16;
             row.idx2[m] = i2s as u16;
+            if !changed {
+                continue;
+            }
+            let h11s: [&[i64]; BLOCK] = core::array::from_fn(|k| &cx.h11[(b0 + k) * n..][..n]);
+            let h22s: [&[i64]; BLOCK] = core::array::from_fn(|k| &cx.h22[(b0 + k) * n..][..n]);
+            let h12s: [&[i64]; BLOCK] = core::array::from_fn(|k| &cx.h12[(b0 + k) * n..][..n]);
             for col in 0..n {
-                let (mut u1, mut u2) = (0_i128, 0_i128);
+                let h12t = &cx.h12[col * n + b0..][..BLOCK];
+                let (mut d11, mut d12t, mut d22, mut d12) = (0_i128, 0_i128, 0_i128, 0_i128);
                 for k in 0..BLOCK {
-                    let h11v = i128::from(cx.h11[(b0 + k) * n + col]);
-                    let h22v = i128::from(cx.h22[(b0 + k) * n + col]);
-                    let h12a = i128::from(cx.h12[(b0 + k) * n + col]);
-                    let h12b = i128::from(cx.h12[col * n + (b0 + k)]);
-                    u1 = qsum(u1, qsum(qmul(e1[k], h11v)?, qmul(e2[k], h12b)?)?)?;
-                    u2 = qsum(u2, qsum(qmul(e2[k], h22v)?, qmul(e1[k], h12a)?)?)?;
+                    d11 = qsum(d11, i128::from(n1[k]) * i128::from(h11s[k][col]))?;
+                    d12t = qsum(d12t, i128::from(n2[k]) * i128::from(h12t[k]))?;
+                    d22 = qsum(d22, i128::from(n2[k]) * i128::from(h22s[k][col]))?;
+                    d12 = qsum(d12, i128::from(n1[k]) * i128::from(h12s[k][col]))?;
                 }
+                let u1 = qsum(qmul(av1, d11)?, qmul(av2, d12t)?)?;
+                let u2 = qsum(qmul(av2, d22)?, qmul(av1, d12)?)?;
                 row.f1[col] = sub_q(row.f1[col], round_shift(u1, 64)?)?;
                 row.f2[col] = sub_q(row.f2[col], round_shift(u2, 64)?)?;
             }
