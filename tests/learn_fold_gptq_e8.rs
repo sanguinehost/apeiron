@@ -24,8 +24,73 @@
 use apeiron::engine::ONE;
 use apeiron::learn::code::e8;
 use apeiron::learn::fold::fit::gptq_e8::{
-    feedback_u, gptq_e8, GptqE8, GptqE8Error, UFac, BLOCK, E8_SCALE, GROUP, MAX_BEAM,
+    feedback_u, gptq_e8, GptqE8Error, UFac, BLOCK, GROUP, MAX_BEAM,
 };
+use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
+
+/// The `0.828` codebook factor as the oracle's real literal: the kernel carries the word
+/// [`E8_SCALE`], which is `2.0e-11` below it (relative `2.5e-11`), inside every asserted tolerance.
+const E8_SCALE_F: f64 = 0.828;
+
+/// The Q32.32 word of `x`: `round(x·2³²)`. `O(1)`.
+fn word(x: f64) -> i64 {
+    to_grid(x, GRID_BOUND).expect("value inside the Q32.32 grid range")
+}
+
+/// The words of a real buffer: the boundary conversion the callers of the flipped API apply. `O(len)`.
+fn words(x: &[f64]) -> Vec<i64> {
+    x.iter().map(|&v| word(v)).collect()
+}
+
+/// The `f64` image of a word buffer: exact, `x = w·2⁻³²` and `|w| < 2^53` for every word here.
+/// `O(len)`.
+fn reals(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&v| from_grid(v)).collect()
+}
+
+#[derive(Debug, PartialEq)]
+struct Fit {
+    s: Vec<f64>,
+    idx: Vec<u16>,
+    scale: Vec<f64>,
+}
+
+/// [`gptq_e8`] on the Q32.32 boundary (`words` in, words out) read back as reals.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the wrapper mirrors the kernel's parameter list one for one"
+)]
+fn gptq(
+    w: &[f64],
+    h: &[f64],
+    o: usize,
+    n: usize,
+    damp: f64,
+    act_order: bool,
+    wscale: bool,
+    beam: usize,
+) -> Result<Fit, GptqE8Error> {
+    let r = gptq_e8(
+        &words(w),
+        &words(h),
+        o,
+        n,
+        word(damp),
+        act_order,
+        wscale,
+        beam,
+    )?;
+    Ok(Fit {
+        s: reals(&r.s),
+        idx: r.idx,
+        scale: reals(&r.scale),
+    })
+}
+
+/// [`feedback_u`] on the word boundary, read back through [`ufac_to_f64`] by the callers.
+fn factor(h: &[f64], n: usize, damp: f64) -> Result<UFac, GptqE8Error> {
+    feedback_u(&words(h), n, word(damp))
+}
 
 /// The `f64` view of a [`UFac`]: `U_ij = (hat_ij / 2^32)·2^-d_j` above the diagonal, `0` below.
 /// Mirrors the crate-private `gptq_e8::ufac_f64` the still-`f64` selection passes read.
@@ -150,7 +215,7 @@ fn group_scale(w: &[f64], prec: &[f64], g0: usize, g1: usize) -> f64 {
         num += x * x * prec[j - g0];
         den += prec[j - g0];
     }
-    (E8_SCALE * (num / den).max(1e-24).sqrt()).max(1e-12)
+    (E8_SCALE_F * (num / den).max(1e-24).sqrt()).max(1e-12)
 }
 
 /// Sum of squares.
@@ -273,7 +338,7 @@ fn argmin(c: &[f64; e8::CODEBOOK_LEN]) -> usize {
 /// feedback: the RTN-E8 baseline. The group scale follows the kernel's rule, so the only difference
 /// from `gptq_e8` is the error feedback.
 fn rtn_e8(w: &[f64], h: &[f64], o: usize, n: usize, damp: f64) -> Vec<f64> {
-    let u = ufac_to_f64(&feedback_u(h, n, damp).expect("SPD factor"));
+    let u = ufac_to_f64(&factor(h, n, damp).expect("SPD factor"));
     let ng = n.div_ceil(GROUP);
     let mut wq = vec![0.0f64; o * n];
     for r in 0..o {
@@ -308,7 +373,7 @@ fn rtn_e8(w: &[f64], h: &[f64], o: usize, n: usize, damp: f64) -> Vec<f64> {
 /// codeword in the original frame (`e8::nearest_scaled` on the Q32.32 image of the block), error
 /// still fed back through `U_sub`. The comparison baseline of the correlated-Hessian test.
 fn gptq_euclid(w: &[f64], h: &[f64], o: usize, n: usize, damp: f64) -> Vec<f64> {
-    let u = ufac_to_f64(&feedback_u(h, n, damp).expect("SPD factor"));
+    let u = ufac_to_f64(&factor(h, n, damp).expect("SPD factor"));
     let ng = n.div_ceil(GROUP);
     let mut wk = w.to_vec();
     let mut wq = vec![0.0f64; o * n];
@@ -502,7 +567,7 @@ fn act_order_perm(h: &[f64], n: usize) -> Vec<usize> {
 }
 
 /// Every returned code decodes to `s` before scaling, and the shapes are `o·n`, `o·n/8`.
-fn check_decode(r: &GptqE8, o: usize, n: usize, ctx: &str) {
+fn check_decode(r: &Fit, o: usize, n: usize, ctx: &str) {
     let nb = n / BLOCK;
     assert_eq!(r.s.len(), o * n, "{ctx}: s shape");
     assert_eq!(r.idx.len(), o * nb, "{ctx}: idx shape");
@@ -531,7 +596,7 @@ fn check_decode(r: &GptqE8, o: usize, n: usize, ctx: &str) {
 fn feedback_u_is_the_upper_inverse_factor() {
     let (n, damp) = (64usize, 0.01);
     let h = correlated_h(n, 0x51ED_0001);
-    let u = ufac_to_f64(&feedback_u(&h, n, damp).expect("SPD factor"));
+    let u = ufac_to_f64(&factor(&h, n, damp).expect("SPD factor"));
     assert_eq!(u.len(), n * n);
     let mean = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
     let mut hd = h.clone();
@@ -559,19 +624,13 @@ fn feedback_u_is_the_upper_inverse_factor() {
     // (the f64 path measured below 1e-9), so the bound is 5e-9.
     assert!(worst < 5e-9, "UᵀUH − I residual {worst}");
     // Refusals of the factor itself.
-    assert_eq!(feedback_u(&h, 0, damp), Err(GptqE8Error::ZeroDim));
-    assert_eq!(
-        feedback_u(&h[1..], n, damp),
-        Err(GptqE8Error::ShapeMismatch)
-    );
+    assert_eq!(factor(&h, 0, damp), Err(GptqE8Error::ZeroDim));
+    assert_eq!(factor(&h[1..], n, damp), Err(GptqE8Error::ShapeMismatch));
     let mut neg = vec![0.0f64; n * n];
     for i in 0..n {
         neg[i * n + i] = -1.0;
     }
-    assert_eq!(
-        feedback_u(&neg, n, damp),
-        Err(GptqE8Error::NotPositiveDefinite)
-    );
+    assert_eq!(factor(&neg, n, damp), Err(GptqE8Error::NotPositiveDefinite));
 }
 
 /// [`feedback_u`] against the live `f64` oracle [`ref_feedback_u`]: the upper factor's entries agree
@@ -595,7 +654,7 @@ fn feedback_u_agrees_with_the_f64_cholesky_oracle() {
         (256, 0x0F00_0003),
     ] {
         let h = correlated_h(n, seed);
-        let got = ufac_to_f64(&feedback_u(&h, n, damp).expect("SPD factor"));
+        let got = ufac_to_f64(&factor(&h, n, damp).expect("SPD factor"));
         let want = ref_feedback_u(&h, n, damp);
         for i in 0..n {
             for j in 0..i {
@@ -645,7 +704,7 @@ fn one_block(o: usize, damp: f64) -> OneBlock {
     for row in 0..o {
         w.extend_from_slice(&random_w(1, n, 0x0B10_BEEF ^ (0x1000 * (row as u64 + 1))));
     }
-    let u = ufac_to_f64(&feedback_u(&h, n, damp).expect("SPD factor"));
+    let u = ufac_to_f64(&factor(&h, n, damp).expect("SPD factor"));
     let mut prec = [0.0f64; BLOCK];
     for (j, p) in prec.iter_mut().enumerate() {
         let d = u[j * n + j];
@@ -673,7 +732,7 @@ fn block_selection_is_the_whitened_cvp_argmin() {
     let f = one_block(o, damp);
     for (beam, wscale) in [(1usize, false), (1, true), (2, false), (MAX_BEAM, false)] {
         let ctx = format!("oracle beam={beam} wscale={wscale}");
-        let r = gptq_e8(&f.w, &f.h, o, n, damp, false, wscale, beam).expect("gptq_e8");
+        let r = gptq(&f.w, &f.h, o, n, damp, false, wscale, beam).expect("gptq_e8");
         check_decode(&r, o, n, &ctx);
         for row in 0..o {
             let wr = &f.wc[row * n..(row + 1) * n];
@@ -752,14 +811,14 @@ fn identity_hessian_is_independent_nearest_per_block() {
     let (o, n, damp) = (3usize, 128usize, 0.01);
     let w = random_w(o, n, 0x1DEA_0001);
     let id = identity(n);
-    let r = gptq_e8(&w, &id, o, n, damp, false, false, 1).expect("gptq_e8");
+    let r = gptq(&w, &id, o, n, damp, false, false, 1).expect("gptq_e8");
     check_decode(&r, o, n, "identity");
     let wc = w_carrier(&w, o, n);
     // Independent reference: per 8-block nearest codeword under the independent `0.828·rms` scale.
     for row in 0..o {
         let wr = &wc[row * n..(row + 1) * n];
         let rms = (wr.iter().map(|x| x * x).sum::<f64>() / n as f64).sqrt();
-        let a_ref = (E8_SCALE * rms).max(1e-12);
+        let a_ref = (E8_SCALE_F * rms).max(1e-12);
         // The integer carrier uses `round(0.828·2^32)·2^-32`, which differs from `E8_SCALE` by
         // `2.5e-11` relative; the scale is therefore checked to `1e-9` (was `1e-12`).
         assert!(
@@ -830,7 +889,7 @@ fn whitened_selection_is_below_euclidean_selection() {
         let w = random_w(o, n, *seed);
         let h = correlated_h(n, *seed ^ 0x5A5A_5A5A);
         let wc = w_carrier(&w, o, n);
-        let r = gptq_e8(&w, &h, o, n, damp, false, false, 1).expect("gptq_e8");
+        let r = gptq(&w, &h, o, n, damp, false, false, 1).expect("gptq_e8");
         check_decode(&r, o, n, "correlated");
         let ng = n.div_ceil(GROUP);
         let mut wq_w = vec![0.0f64; o * n];
@@ -907,8 +966,8 @@ fn assert_act_order_round_trip(
             hp[i * n + j] = h[perm[i] * n + perm[j]];
         }
     }
-    let r_act = gptq_e8(w, h, o, n, damp, true, false, 1).expect("act_order");
-    let r_nat = gptq_e8(&wp, &hp, o, n, damp, false, false, 1).expect("natural");
+    let r_act = gptq(w, h, o, n, damp, true, false, 1).expect("act_order");
+    let r_nat = gptq(&wp, &hp, o, n, damp, false, false, 1).expect("natural");
     check_decode(&r_act, o, n, "act_order");
     let nb = n / BLOCK;
     let per_group = GROUP / BLOCK;
@@ -975,8 +1034,9 @@ fn act_order_round_trips_and_breaks_ties_by_ascending_index() {
 }
 
 /// Refusals: not a multiple of 8, non-SPD Hessian, non-positive damping, a beam width outside
-/// `1..=MAX_BEAM`, shape mismatches and non-finite input. The shape and non-SPD refusals hold at
-/// every beam width (`beam = 1` and `4`).
+/// `1..=MAX_BEAM` and shape mismatches. The shape and non-SPD refusals hold at every beam width
+/// (`beam = 1` and `4`). A non-finite weight or Hessian cannot reach this boundary: the words are
+/// signed integers, so the `NonFinite` arm is unreachable from a word input.
 #[test]
 fn refusals() {
     let (o, n, damp) = (2usize, 8usize, 0.01);
@@ -984,7 +1044,7 @@ fn refusals() {
     let id = identity(n);
     let bad_n = random_w(o, 12, 0x5EFA_0002);
     assert_eq!(
-        gptq_e8(&bad_n, &identity(12), o, 12, damp, false, false, 1),
+        gptq(&bad_n, &identity(12), o, 12, damp, false, false, 1),
         Err(GptqE8Error::BlockMisaligned)
     );
     let mut indef = id.clone();
@@ -992,50 +1052,39 @@ fn refusals() {
     indef[n] = 2.0;
     for beam in [1usize, 4] {
         assert_eq!(
-            gptq_e8(&w[1..], &id, o, n, damp, false, false, beam),
+            gptq(&w[1..], &id, o, n, damp, false, false, beam),
             Err(GptqE8Error::ShapeMismatch),
             "beam {beam}: a short weight buffer must be refused"
         );
         assert_eq!(
-            gptq_e8(&w, &indef, o, n, damp, false, false, beam),
+            gptq(&w, &indef, o, n, damp, false, false, beam),
             Err(GptqE8Error::NotPositiveDefinite),
             "beam {beam}: a non-SPD Hessian must be refused"
         );
     }
-    for bad in [0.0f64, -0.5, f64::NAN] {
+    for bad in [0.0f64, -0.5] {
         assert_eq!(
-            gptq_e8(&w, &id, o, n, bad, false, false, 1),
+            gptq(&w, &id, o, n, bad, false, false, 1),
             Err(GptqE8Error::InvalidDamping),
             "damping {bad} must be refused"
         );
     }
     for beam in [0usize, MAX_BEAM + 1] {
         assert_eq!(
-            gptq_e8(&w, &id, o, n, damp, false, false, beam),
+            gptq(&w, &id, o, n, damp, false, false, beam),
             Err(GptqE8Error::BeamOutOfRange),
             "beam {beam} must be refused"
         );
     }
     assert_eq!(
-        gptq_e8(&w, &id[1..], o, n, damp, false, false, 1),
+        gptq(&w, &id[1..], o, n, damp, false, false, 1),
         Err(GptqE8Error::ShapeMismatch)
     );
     assert_eq!(
-        gptq_e8(&w, &id, 0, n, damp, false, false, 1),
+        gptq(&w, &id, 0, n, damp, false, false, 1),
         Err(GptqE8Error::ZeroDim)
     );
-    let mut nan = w.clone();
-    nan[3] = f64::NAN;
-    assert_eq!(
-        gptq_e8(&nan, &id, o, n, damp, false, false, 1),
-        Err(GptqE8Error::NonFinite)
-    );
-    let mut inf = id.clone();
-    inf[9] = f64::INFINITY;
-    assert_eq!(
-        gptq_e8(&w, &inf, o, n, damp, false, false, 1),
-        Err(GptqE8Error::NonFinite)
-    );
+    // A non-finite weight or Hessian cannot reach this boundary: the words are signed integers.
 }
 
 /// `got` and `want` agree entrywise to a relative `1e-9` (the Q32.32 feedback factor's scales
@@ -1050,7 +1099,7 @@ fn scales_close(got: &[f64], want: &[f64]) -> bool {
 
 /// FNV-1a 64 over the result's exact bit patterns: `s`, then `scale`, each entry as its little-endian
 /// `to_bits()`, then every index as two little-endian bytes. No tolerance and no float comparison.
-fn bit_stream_hash(r: &GptqE8) -> u64 {
+fn bit_stream_hash(r: &Fit) -> u64 {
     hash_parts(&r.s, &r.scale, &r.idx)
 }
 
@@ -1096,7 +1145,7 @@ fn row_split_is_row_local_and_reproducible() {
     for (i, &(o, n, damp, act_order, wscale, beam, seed)) in FIXTURES.iter().enumerate() {
         let w = random_w(o, n, seed);
         let h = correlated_h(n, seed ^ 0x5A5A_5A5A);
-        let run = |w: &[f64]| gptq_e8(w, &h, o, n, damp, act_order, wscale, beam).expect("gptq_e8");
+        let run = |w: &[f64]| gptq(w, &h, o, n, damp, act_order, wscale, beam).expect("gptq_e8");
         let a = run(&w);
         check_decode(&a, o, n, "row split");
         assert_eq!(
@@ -1204,7 +1253,7 @@ fn beam_one_matches_the_pre_beam_result() {
     for (m, seed) in seeds.iter().enumerate() {
         let w = random_w(o, n, *seed);
         let h = correlated_h(n, *seed ^ 0x5A5A_5A5A);
-        let r = gptq_e8(&w, &h, o, n, damp, false, false, 1).expect("gptq_e8 beam 1");
+        let r = gptq(&w, &h, o, n, damp, false, false, 1).expect("gptq_e8 beam 1");
         check_decode(&r, o, n, "beam 1 golden");
         assert_eq!(
             r.idx.as_slice(),
@@ -1229,7 +1278,7 @@ fn wscale_projection_is_least_squares_at_every_beam() {
     let w = random_w(o, n, 0x5CA0_0001);
     let id = identity(n);
     for beam in [1usize, 2, 4, 8, MAX_BEAM] {
-        let r = gptq_e8(&w, &id, o, n, damp, false, true, beam).expect("gptq_e8 wscale");
+        let r = gptq(&w, &id, o, n, damp, false, true, beam).expect("gptq_e8 wscale");
         check_decode(&r, o, n, "wscale");
         for row in 0..o {
             let num: f64 = (0..n).map(|j| w[row * n + j] * r.s[row * n + j]).sum();
@@ -1316,7 +1365,7 @@ fn integer_pass_agrees_with_the_f64_oracle() {
         let w = random_w(o, n, seed);
         let h = correlated_h(n, seed ^ 0x5A5A_5A5A);
         let wc = w_carrier(&w, o, n);
-        let u = ufac_to_f64(&feedback_u(&h, n, damp).expect("SPD factor"));
+        let u = ufac_to_f64(&factor(&h, n, damp).expect("SPD factor"));
         let mut prec = vec![0.0f64; n];
         for j in 0..n {
             let d = u[j * n + j];
@@ -1330,7 +1379,7 @@ fn integer_pass_agrees_with_the_f64_oracle() {
         let mut idx_o = vec![0u16; o * gb];
         let mut e_o = vec![0.0f64; o * n];
         f64_group_pass(&u, n, &wc, &a, o, &mut idx_o, &mut e_o);
-        let r = gptq_e8(&w, &h, o, n, damp, false, false, 1).expect("gptq_e8");
+        let r = gptq(&w, &h, o, n, damp, false, false, 1).expect("gptq_e8");
         check_decode(&r, o, n, "oracle agreement");
         let mut diff = 0usize;
         for (i, (&io, &ii)) in idx_o.iter().zip(&r.idx).enumerate() {
@@ -1374,7 +1423,7 @@ fn zero_row_ties_take_the_smaller_code_index() {
     let (o, n, damp) = (1usize, 128usize, 0.01);
     let w = vec![0.0f64; o * n];
     let id = identity(n);
-    let r = gptq_e8(&w, &id, o, n, damp, false, false, 1).expect("gptq_e8");
+    let r = gptq(&w, &id, o, n, damp, false, false, 1).expect("gptq_e8");
     for (b, &idx) in r.idx.iter().enumerate() {
         assert_eq!(idx, 0, "block {b}: tie must take the smaller code index");
     }
@@ -1386,7 +1435,7 @@ fn zero_row_ties_take_the_smaller_code_index() {
 /// code is additionally checked to be a cost near-tie in the `f64` frame.
 #[test]
 fn integer_beam_agrees_with_the_f64_arm() {
-    // `gptq_e8(o=8, n=512, damp=0.01, act_order, wscale, beam=4)`, seed `0x1C1C_0001`.
+    // `gptq(o=8, n=512, damp=0.01, act_order, wscale, beam=4)`, seed `0x1C1C_0001`.
     const F1: [u16; 512] = [
         124, 179, 123, 196, 118, 180, 96, 142, 196, 13, 138, 6, 48, 67, 149, 97, 136, 141, 107,
         165, 45, 210, 78, 6, 143, 133, 218, 134, 13, 180, 2, 195, 109, 115, 22, 66, 158, 55, 68, 5,
@@ -1414,7 +1463,7 @@ fn integer_beam_agrees_with_the_f64_arm() {
         110, 229, 7, 94, 66, 24, 25, 92, 184, 12, 51, 43, 49, 108, 30, 61, 38, 52, 131, 102, 118,
         36, 15, 100, 80, 112, 47, 57, 179, 78, 91, 51, 40, 150, 10, 211, 203, 107, 42, 234, 0,
     ];
-    // `gptq_e8(o=4, n=256, damp=0.01, false, false, beam=8)`, seed `0x1C1C_0002`.
+    // `gptq(o=4, n=256, damp=0.01, false, false, beam=8)`, seed `0x1C1C_0002`.
     const F2: [u16; 128] = [
         100, 106, 60, 7, 55, 123, 203, 10, 184, 76, 100, 68, 205, 121, 42, 185, 249, 220, 47, 39,
         33, 98, 16, 31, 46, 21, 8, 83, 75, 110, 90, 42, 85, 230, 106, 81, 159, 45, 43, 116, 98, 44,
@@ -1431,7 +1480,7 @@ fn integer_beam_agrees_with_the_f64_arm() {
     for (ci, &(o, n, seed, act_order, wscale, beam, want)) in cases.iter().enumerate() {
         let w = random_w(o, n, seed);
         let h = correlated_h(n, seed ^ 0x5A5A_5A5A);
-        let r = gptq_e8(&w, &h, o, n, 0.01, act_order, wscale, beam).expect("gptq_e8");
+        let r = gptq(&w, &h, o, n, 0.01, act_order, wscale, beam).expect("gptq_e8");
         check_decode(&r, o, n, "f64-arm agreement");
         assert_eq!(r.idx.len(), want.len(), "case {ci}: code count");
         let mut diff = 0usize;

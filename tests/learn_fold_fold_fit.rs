@@ -26,7 +26,7 @@
 
 use apeiron::learn::code::e8::codeword;
 use apeiron::learn::fold::fit::fold_fit::{
-    fold_fit, FoldFit, FoldFitConfig, FoldFitError, FoldFitTag, PackOut, BLOCK, GROUP,
+    fold_fit, FoldFitConfig, FoldFitError, FoldFitTag, BLOCK, GROUP,
 };
 use apeiron::learn::fold::fit::gptq_e8::gptq_e8;
 use apeiron::learn::fold::fit::icm::{e8_icm_step, nearest_index, plane_w, PlaneRef};
@@ -97,10 +97,51 @@ fn fixed_inputs() -> (usize, usize, Vec<f64>, Vec<f64>) {
     (o, n, ws, h)
 }
 
-fn run() -> (usize, usize, Vec<f64>, Vec<f64>, FoldFit) {
+/// The pack read back as reals: the flipped [`PackOut`] is Q32.32 words, and every assertion below
+/// is the same exact-grid claim in the test's `f64` view (`from_grid` is exact for these words).
+struct PackF {
+    s_rot: Vec<f64>,
+    rh: Vec<f64>,
+    ch: Vec<f64>,
+    dh: Vec<f64>,
+}
+
+/// [`FoldFit`] read back as reals at the test boundary.
+struct FitF {
+    wp: Vec<f64>,
+    pack: PackF,
+    j_best: f64,
+    trace: Vec<f64>,
+    bits_r: u64,
+    bits_c: u64,
+    bits_d: u64,
+    tag: FoldFitTag,
+}
+
+/// The real view of the returned words, the boundary conversion the callers of the flipped API
+/// apply.
+fn fit_reals(fit: &apeiron::learn::fold::fit::fold_fit::FoldFit) -> FitF {
+    FitF {
+        wp: uw(&fit.wp),
+        pack: PackF {
+            s_rot: uw(&fit.pack.s_rot),
+            rh: uw(&fit.pack.rh),
+            ch: uw(&fit.pack.ch),
+            dh: uw(&fit.pack.dh),
+        },
+        j_best: from_grid(fit.j_best),
+        trace: uw(&fit.trace),
+        bits_r: fit.bits_r,
+        bits_c: fit.bits_c,
+        bits_d: fit.bits_d,
+        tag: fit.tag,
+    }
+}
+
+fn run() -> (usize, usize, Vec<f64>, Vec<f64>, FitF) {
     let (o, n, ws, h) = fixed_inputs();
-    let fit = fold_fit(&ws, &h, o, n, None, &production_cfg()).expect("production fit");
-    (o, n, ws, h, fit)
+    let fit = fold_fit(&qw(&ws), &qw(&h), o, n, None, &production_cfg()).expect("production fit");
+    (o, n, ws, h, fit_reals(&fit))
 }
 
 /// The `E8 ∪ O8` codeword `idx` as real values `codeword(idx)[k] / 2^32`.
@@ -361,26 +402,27 @@ fn learn_fold_fold_fit_refuses_bad_configuration_and_shapes() {
     let (o, n, ws, h) = fixed_inputs();
     let cfg = production_cfg();
     let bad_iters = FoldFitConfig { iters: 2, ..cfg };
+    let (wq, hq) = (qw(&ws), qw(&h));
     assert_eq!(
-        fold_fit(&ws, &h, o, n, None, &bad_iters).err(),
+        fold_fit(&wq, &hq, o, n, None, &bad_iters).err(),
         Some(FoldFitError::Unsupported)
     );
     assert_eq!(
-        fold_fit(&ws, &h, 0, n, None, &cfg).err(),
+        fold_fit(&wq, &hq, 0, n, None, &cfg).err(),
         Some(FoldFitError::ZeroDim)
     );
 
     // A short weight, Hessian or row weight is a shape refusal.
     assert_eq!(
-        fold_fit(&ws[1..], &h, o, n, None, &cfg).err(),
+        fold_fit(&wq[1..], &hq, o, n, None, &cfg).err(),
         Some(FoldFitError::ShapeMismatch)
     );
     assert_eq!(
-        fold_fit(&ws, &h[1..], o, n, None, &cfg).err(),
+        fold_fit(&wq, &hq[1..], o, n, None, &cfg).err(),
         Some(FoldFitError::ShapeMismatch)
     );
     assert_eq!(
-        fold_fit(&ws, &h, o, n, Some(&[1.0, 1.0]), &cfg).err(),
+        fold_fit(&wq, &hq, o, n, Some(&[1_i64, 1]), &cfg).err(),
         Some(FoldFitError::ShapeMismatch)
     );
 
@@ -388,8 +430,8 @@ fn learn_fold_fold_fit_refuses_bad_configuration_and_shapes() {
     let bad_n = 64_usize;
     assert_eq!(
         fold_fit(
-            &vec![0.0; o * bad_n],
-            &vec![0.0; bad_n * bad_n],
+            &vec![0_i64; o * bad_n],
+            &vec![0_i64; bad_n * bad_n],
             o,
             bad_n,
             None,
@@ -399,19 +441,8 @@ fn learn_fold_fold_fit_refuses_bad_configuration_and_shapes() {
         Some(FoldFitError::Width)
     );
 
-    // A non-finite weight or Hessian is refused.
-    let mut ws_nan = ws.clone();
-    ws_nan[7] = f64::NAN;
-    assert_eq!(
-        fold_fit(&ws_nan, &h, o, n, None, &cfg).err(),
-        Some(FoldFitError::NonFinite)
-    );
-    let mut h_inf = h.clone();
-    h_inf[3] = f64::INFINITY;
-    assert_eq!(
-        fold_fit(&ws, &h_inf, o, n, None, &cfg).err(),
-        Some(FoldFitError::NonFinite)
-    );
+    // A non-finite weight, Hessian or row weight has no Q32.32 word, so the word boundary refuses
+    // it before the fit: `NonFinite` is unreachable from a `&[i64]`.
 }
 
 #[test]
@@ -419,8 +450,9 @@ fn learn_fold_fold_fit_g_row_changes_the_result() {
     let (o, n, ws, h) = fixed_inputs();
     let cfg = production_cfg();
     let g_row: Vec<f64> = (0..o).map(|i| 0.3 + 0.4 * (i as f64)).collect();
-    let with = fold_fit(&ws, &h, o, n, Some(&g_row), &cfg).expect("g_row fit");
-    let without = fold_fit(&ws, &h, o, n, None, &cfg).expect("unweighted fit");
+    let (wq, hq, gq) = (qw(&ws), qw(&h), qw(&g_row));
+    let with = fit_reals(&fold_fit(&wq, &hq, o, n, Some(&gq), &cfg).expect("g_row fit"));
+    let without = fit_reals(&fold_fit(&wq, &hq, o, n, None, &cfg).expect("unweighted fit"));
 
     // Both run and give a finite objective.
     assert!(with.j_best.is_finite() && without.j_best.is_finite());
@@ -583,7 +615,7 @@ fn ref_fold_fit(
     n: usize,
     g_row: Option<&[f64]>,
     cfg: &FoldFitConfig,
-) -> Result<FoldFit, FoldFitError> {
+) -> Result<FitF, FoldFitError> {
     if cfg.iters != 1 {
         return Err(FoldFitError::Unsupported);
     }
@@ -623,9 +655,18 @@ fn ref_fold_fit(
     // Step 2: the `gptq_e8` candidate (lines 843–860).
     let ws_rot = fwht128(ws)?;
     let h_gram = uw(&had_gram(&qw(h), n)?);
-    let q = gptq_e8(&ws_rot, &h_gram, o, n, cfg.damp, true, true, cfg.e8_beam)?;
-    let s_rot0 = q.s;
-    let r0 = q.scale;
+    let q = gptq_e8(
+        &qw(&ws_rot),
+        &qw(&h_gram),
+        o,
+        n,
+        grid(cfg.damp),
+        true,
+        true,
+        cfg.e8_beam,
+    )?;
+    let s_rot0 = uw(&q.s);
+    let r0 = uw(&q.scale);
     let c0 = vec![1.0_f64; n];
     let d0 = vec![1.0_f64; n];
     let s0 = fwht128(&s_rot0)?;
@@ -915,9 +956,9 @@ fn ref_fold_fit(
         }
     }
 
-    Ok(FoldFit {
+    Ok(FitF {
         wp,
-        pack: PackOut {
+        pack: PackF {
             s_rot: pack_s_rot,
             rh: pack_rh,
             ch: pack_ch,
@@ -930,4 +971,64 @@ fn ref_fold_fit(
         bits_d,
         tag,
     })
+}
+
+/// FNV-1a 64 over the little-endian bytes of the weight words.
+fn fnv_words(v: &[i64]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &w in v {
+        for b in w.to_le_bytes() {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    h
+}
+
+/// The recording RNG: a 64-bit LCG (Numerical Recipes constants), uniform in `[lo, hi)` from the
+/// top 53 bits. Distinct from the file's `Lcg`, so the recorded fixture is reproduced exactly.
+struct WitnessLcg(u64);
+
+impl WitnessLcg {
+    fn uniform(&mut self, lo: f64, hi: f64) -> f64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        let u = (self.0 >> 11) as f64 / 9_007_199_254_740_992.0;
+        lo + (hi - lo) * u
+    }
+}
+
+/// The recorded `wp` word digests of the pre-flip `f64` boundary, one per seed: the fit at
+/// `o = 4`, `n = 256`, `H = Toeplitz(0.4)`, the production configuration, on the words
+/// `round(x·2³²)` of the same real fixture.
+const WITNESS_WP: [u64; 3] = [
+    0xb538_94be_bd5f_fc80,
+    0xcb7a_c296_067d_4b7a,
+    0xc493_8987_0d01_8f31,
+];
+
+/// The flip onto Q32.32 words moved no value: `fold_fit`'s `wp` words hash to the digests recorded
+/// through the declared-`f64` wrapper before the flip, on three fixtures. A digest that moves names
+/// the crossing that rounded: the weight or Hessian grid conversion, the `gptq_e8` scale, or a step
+/// boundary.
+#[test]
+fn fold_fit_words_are_bit_identical_to_the_recorded_f64_wrapper() {
+    let (o, n) = (4usize, 256usize);
+    let h = toeplitz(n, 0.4);
+    let hq = qw(&h);
+    for (i, seed) in [0x3D3D_0001u64, 0x3D3D_0002, 0x3D3D_0003]
+        .iter()
+        .enumerate()
+    {
+        let mut rng = WitnessLcg(*seed);
+        let w: Vec<f64> = (0..o * n).map(|_| rng.uniform(-1.0, 1.0)).collect();
+        let fit = fold_fit(&qw(&w), &hq, o, n, None, &production_cfg()).expect("fit");
+        assert_eq!(
+            fnv_words(&fit.wp),
+            WITNESS_WP[i],
+            "seed {seed:#x}: wp words moved from the recorded f64 wrapper"
+        );
+    }
 }

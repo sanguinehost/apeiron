@@ -13,6 +13,22 @@
 use apeiron::engine::ONE;
 use apeiron::learn::code::e8;
 use apeiron::learn::fold::fit::gptq_e8::{feedback_u, gptq_e8, GptqE8, UFac, BLOCK, GROUP};
+use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
+
+/// The Q32.32 word of `x`: `round(x·2³²)`. `O(1)`.
+fn word(x: f64) -> i64 {
+    to_grid(x, GRID_BOUND).expect("value inside the Q32.32 grid range")
+}
+
+/// The words of a real buffer, the boundary conversion the callers of the flipped API apply. `O(len)`.
+fn words(x: &[f64]) -> Vec<i64> {
+    x.iter().map(|&v| word(v)).collect()
+}
+
+/// The `f64` image of a word buffer: `x = w·2⁻³²`. `O(len)`.
+fn reals(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&v| from_grid(v)).collect()
+}
 
 /// The `f64` view of a [`UFac`]: `U_ij = (hat_ij / 2^32)·2^-d_j` above the diagonal, `0` below.
 fn ufac_to_f64(uf: &UFac) -> Vec<f64> {
@@ -78,7 +94,7 @@ fn correlated_h(n: usize, seed: u64) -> Vec<f64> {
 /// over every row and block, with the same intra- and inter-group feedback the kernel applies. This
 /// equals the kernel's `cum_err2` at the winning beam (`step_err2 = |Z_w − a·Z_c|²`).
 fn whitened_total_error(r: &GptqE8, w: &[f64], h: &[f64], o: usize, n: usize, damp: f64) -> f64 {
-    let u = ufac_to_f64(&feedback_u(h, n, damp).expect("SPD factor"));
+    let u = ufac_to_f64(&feedback_u(&words(h), n, word(damp)).expect("SPD factor"));
     let ng = n.div_ceil(GROUP);
     let nb = n / BLOCK;
     let mut wk = w.to_vec();
@@ -88,8 +104,9 @@ fn whitened_total_error(r: &GptqE8, w: &[f64], h: &[f64], o: usize, n: usize, da
         let g1 = (g0 + GROUP).min(n);
         let gs = g1 - g0;
         let mut err_all = vec![0.0f64; o * gs];
+        let scale = reals(&r.scale);
         for row in 0..o {
-            let a = r.scale[row * ng + gi];
+            let a = scale[row * ng + gi];
             let mut blk = 0;
             while blk < gs / BLOCK {
                 let b0 = blk * BLOCK;
@@ -164,7 +181,8 @@ fn beam_mean_objective_falls_below_beam_one() {
         let w = random_w(o, n, seed);
         let h = correlated_h(n, seed ^ 0x5A5A_5A5A);
         for (i, &beam) in beams.iter().enumerate() {
-            let r = gptq_e8(&w, &h, o, n, damp, false, false, beam).expect("gptq_e8");
+            let r = gptq_e8(&words(&w), &words(&h), o, n, word(damp), false, false, beam)
+                .expect("gptq_e8");
             mean[i] += whitened_total_error(&r, &w, &h, o, n, damp) / 5.0;
         }
     }

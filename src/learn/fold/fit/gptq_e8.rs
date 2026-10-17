@@ -58,7 +58,7 @@
 //!   `i128` accumulation and one round-to-nearest per stored entry); the captured `beam = 1` golden
 //!   scales move with it by `≈ 4e-11` relative. Measurements: `tests/learn_solve_inv.rs`.
 //!
-//! # Integer carrier (lanes `q-l1a`–`q-l1d`)
+//! # Integer carrier (lanes `q-l1a`–`q-l1d`, `int-gptq-w`)
 //!
 //! The selection is integer end to end. The feedback factor, the act order, the group scale, both
 //! block passes, the whitened scale projection, the second-pass choice and the inter-group feedback
@@ -69,11 +69,16 @@
 //! `project_scale_int` ([`tri_upper_solve`] then exact `i128` inner products, one division), the
 //! second-pass choice compares the two candidates' exact `i128` residual norms, and
 //! `inter_group_feedback` updates the integer working rows with one round-to-nearest per stored
-//! entry. The only `f64` inputs that cross into integers are the damped Hessian ([`h_to_spdq`],
-//! which L6 deletes when the caller hands an [`SpdQ`]) and the weight ([`w_to_rows`]); the `2^-g`
-//! global exponent `g` is even, so it is an exact scaling. The only `f64` outputs are the public
-//! [`GptqE8::s`] and [`GptqE8::scale`], converted once at the end; both are exact after the
-//! significand is rounded to the 53-bit `f64` precision.
+//! entry.
+//!
+//! # The boundary
+//!
+//! [`gptq_e8`] takes and returns Q32.32 `i64` words: `w`, `h` and `damp` are words in, and
+//! [`GptqE8::s`] / [`GptqE8::scale`] are words out (`s` exactly the codeword word, `scale` the
+//! word `RNE(a·2³²)`). Inside, the weight is renormalised once to its block floating point
+//! ([`w_to_rows`]) and the Hessian is renormed once at its even global exponent ([`h_words`]); the
+//! `2^-g` global exponent `g` is even, so it is an exact scaling. No `f64` value, input or output,
+//! crosses this boundary.
 
 #![allow(
     clippy::many_single_char_names,
@@ -87,7 +92,7 @@
 )]
 
 use super::gptq_e8_carrier::{
-    blen, block_order, div_shift_rne, fx_to_f64, group_scale_int, inter_group_feedback, min_exp,
+    blen, block_order, div_shift_rne, fx_to_word, group_scale_int, inter_group_feedback, min_exp,
     narrow_q, project_scale_int, project_scale_row, shift_left_i128, sum_sq_at, w_to_rows,
 };
 pub use super::gptq_e8_carrier::{feedback_u, UFac};
@@ -105,14 +110,12 @@ pub const GROUP: usize = 128;
 /// Columns per code index: one codebook row per 8 weights.
 pub const BLOCK: usize = 8;
 
-/// The codebook scale factor of `gptq_e8` (line 303): `a = 0.828 · w_rms`.
-pub const E8_SCALE: f64 = 0.828;
-
-/// The [`E8_SCALE`] factor as a Q32.32 word: `round(0.828 · 2^32)`. Derived from
-/// `0.828 · 4_294_967_296 = 3_556_232_921.088`, so the rounded literal is `3_556_232_921`; the
-/// product `E8_SCALE_Q32 · 2^-32` differs from `0.828` by `0.088·2^-32 ≈ 2.0e-11`. The integer
-/// group scale multiplies by this word, so the factor never re-enters `f64`.
-pub const E8_SCALE_Q32: i64 = 3_556_232_921;
+/// The codebook scale factor of `gptq_e8` (line 303): `a = 0.828 · w_rms`, as the Q32.32 word
+/// `RNE(0.828 · 2^32)`. `0.828 · 4_294_967_296 = 3_556_232_921.088`, so the rounded word is
+/// `3_556_232_921` and `E8_SCALE · 2^-32` differs from `0.828` by `0.088 · 2^-32 ≈ 2.0e-11`
+/// (relative `2.5e-11`). The integer group scale multiplies by this word; the factor never enters
+/// `f64`.
+pub const E8_SCALE: i64 = 3_556_232_921;
 
 /// The largest admitted beam width. `K = min(beam, B·256)` saturates at 256, and the production arm
 /// uses `beam = 4`; the ported domain is `1..=MAX_BEAM`.
@@ -162,13 +165,15 @@ impl std::error::Error for GptqE8Error {}
 /// The result of [`gptq_e8`]: the codeword values, the code indices, and the group scales.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GptqE8 {
-    /// Row-major `[o, n]` codeword values: exactly `codeword(idx)[k] / ONE` before scaling.
-    pub s: Vec<f64>,
+    /// Row-major `[o, n]` codeword words: exactly `codeword(idx)[k]` (the Q32.32 row) before
+    /// scaling.
+    pub s: Vec<i64>,
     /// Row-major `[o, n/8]` code index of the 8-block starting at column `8·b`, in the caller's
     /// column order (`act_order` reorders whole 8-blocks, never the columns inside one).
     pub idx: Vec<u16>,
-    /// Row-major `[o, ceil(n/GROUP)]` per-group scale `a`; the dequantised weight is `scale·s`.
-    pub scale: Vec<f64>,
+    /// Row-major `[o, ceil(n/GROUP)]` per-group scale word `RNE(a·2³²)`; the dequantised
+    /// weight is `scale·s` in Q64.64.
+    pub scale: Vec<i64>,
 }
 
 /// [`E8Error`] as a [`GptqE8Error`].
@@ -826,11 +831,12 @@ fn second_pass_pick(
 /// whitened residual pushed onto the later columns of the group and the group's residuals pushed
 /// onto the later groups through `U`.
 ///
-/// `w` is row-major `[o, n]`, `h` the symmetric `[n, n]` Hessian. `act_order` visits the groups and
-/// 8-blocks in descending Hessian-diagonal order and restores the caller's order in the output;
-/// `wscale` runs the whitened scale projection and its second pass after the block pass (two refined
-/// candidates, the smaller whitened residual row wins). The group scale is `a = 0.828·w_rms` in
-/// both settings (the Python line 303).
+/// `w` is row-major `[o, n]` Q32.32 words, `h` the symmetric `[n, n]` Q32.32 Hessian and `damp`
+/// their Q32.32 damping coefficient. `act_order` visits the groups and 8-blocks in descending
+/// Hessian-diagonal order and restores the caller's order in the output; `wscale` runs the whitened
+/// scale projection and its second pass after the block pass (two refined candidates, the smaller
+/// whitened residual row wins). The group scale is `a = 0.828·w_rms` in both settings (the Python
+/// line 303), on the [`E8_SCALE`] word.
 ///
 /// `beam = 1` is the single-path block pass; `beam in 2..=MAX_BEAM` runs the delayed-decision beam
 /// search (`beam_pass`), which under `wscale` also runs its second pass as a beam search and keeps
@@ -840,17 +846,16 @@ fn second_pass_pick(
 /// [`GptqE8Error::BeamOutOfRange`] if `beam == 0` or `beam > MAX_BEAM`;
 /// [`GptqE8Error::ZeroDim`] if `o == 0` or `n == 0`;
 /// [`GptqE8Error::ShapeMismatch`] if `w.len() != o·n` or `h.len() != n·n`;
-/// [`GptqE8Error::BlockMisaligned`] if `n % 8 != 0`; [`GptqE8Error::InvalidDamping`] if `damp <= 0`
-/// or `damp` is not finite; [`GptqE8Error::NonFinite`] on a non-finite weight or Hessian entry;
+/// [`GptqE8Error::BlockMisaligned`] if `n % 8 != 0`; [`GptqE8Error::InvalidDamping`] if `damp <= 0`;
 /// [`GptqE8Error::NotPositiveDefinite`] if the damped Hessian has a non-positive Cholesky pivot;
 /// [`GptqE8Error::Codebook`] from the exact code index decode.
 ///
 /// # Complexity
-/// - Temporal: `O(n³ + o·n³/8²·256·8·beam + o·n²·beam)` checked `i128` and `f64` multiply-adds —
-///   the factor `U` (`n³/3`), the `256·8` scan per 8-block per row (×`beam` for the candidate
-///   expansion), and the two feedback sweeps. Measure: multiply-adds. Derivation: `[n/8]` blocks ×
-///   `256` rows × `8` coordinates × `beam` beams, plus `Σ_j (n − j)` per row per sweep. At
-///   `beam = 1` this is the pre-beam cost.
+/// - Temporal: `O(n³ + o·n³/8²·256·8·beam + o·n²·beam)` checked `i128` multiply-adds — the factor
+///   `U` (`n³/3`), the `256·8` scan per 8-block per row (×`beam` for the candidate expansion), and
+///   the two feedback sweeps. Measure: multiply-adds. Derivation: `[n/8]` blocks × `256` rows ×
+///   `8` coordinates × `beam` beams, plus `Σ_j (n − j)` per row per sweep. At `beam = 1` this is
+///   the pre-beam cost.
 /// - Spatial: `O(n² + o·n·beam)` words — `U`, the working copy of `w`, and the per-group beam
 ///   buffers.
 ///
@@ -865,11 +870,11 @@ fn second_pass_pick(
     reason = "the dispatch fixes the eight-parameter signature (o, n, damp, act_order, wscale, beam)"
 )]
 pub fn gptq_e8(
-    w: &[f64],
-    h: &[f64],
+    w: &[i64],
+    h: &[i64],
     o: usize,
     n: usize,
-    damp: f64,
+    damp: i64,
     act_order: bool,
     wscale: bool,
     beam: usize,
@@ -886,11 +891,8 @@ pub fn gptq_e8(
     if !n.is_multiple_of(BLOCK) {
         return Err(GptqE8Error::BlockMisaligned);
     }
-    if !damp.is_finite() || damp <= 0.0 {
+    if damp <= 0 {
         return Err(GptqE8Error::InvalidDamping);
-    }
-    if w.iter().any(|x| !x.is_finite()) || h.iter().any(|x| !x.is_finite()) {
-        return Err(GptqE8Error::NonFinite);
     }
     let nb = n / BLOCK;
     let per_group = GROUP / BLOCK;
@@ -919,7 +921,7 @@ pub fn gptq_e8(
                     wk[r * n + c] = mant[r * n + perm_col[c]];
                 }
             }
-            let mut hp = vec![0.0f64; n * n];
+            let mut hp = vec![0i64; n * n];
             for i in 0..n {
                 let ri = perm_col[i];
                 for c in 0..n {
@@ -1070,9 +1072,12 @@ pub fn gptq_e8(
             (s, idx, scale)
         }
     };
-    // The only `f64` conversion of the run, on the output boundary: `s` is exact (`|m| ≤ 2^34`) and
-    // `scale` is rounded once to the 53-bit `f64` significand.
-    let s = s_fx.iter().map(fx_to_f64).collect();
-    let scale = scale_fx.iter().map(fx_to_f64).collect();
+    // The boundary's output words: `s` is the codeword word itself (`e = -32`) and `scale` is one
+    // round-to-nearest of the group scale's `Fx` to the Q32.32 grid.
+    let s = s_fx.iter().map(fx_to_word).collect::<Result<Vec<_>, _>>()?;
+    let scale = scale_fx
+        .iter()
+        .map(fx_to_word)
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(GptqE8 { s, idx, scale })
 }
