@@ -1,13 +1,22 @@
 //! `tests/learn_fold_stage.rs` — the per-stage sink-gated statistics and the `fold_gqa` split
 //! intra/inter ridge solve (`src/learn/fold/layer/stage.rs`).
 //!
-//! Positive: two slabs fold to the same accumulator as one concatenated slab; `Hm_w = Hm` under
-//! unit weights and `Hm_w = (Xw)ᵀ(Xw)` with the weight applied linearly; the even-count lower-median
-//! rule; the `> thresh·r_med` token weight; a solve with `Cs = H_solve·W0ᵀ` leaves `W0` unchanged;
-//! the solve satisfies the ridge normal equations; the sink clamp caps a row at `τ·‖W0_row‖`; the
-//! Q32.32 `ridge_solve` agrees with the old f64 `solve_spd` path to relative `1e-7` on a wide
-//! diagonal range (`1e-3..1e3`) and under `1e-6`/`1e10` scaling, which exercises the boundary
-//! fill both ways.
+//! Every migrated function is compared with the `f64` oracle it replaced (`ref_*` below, the
+//! reference loop without the grid) on fixed LCG inputs, inside a derived grid bound. The `Q32.32`
+//! quantum is `q = 2⁻³²`; a Gram entry rounds its inputs (≤ q/2 each) and its `rows`-term
+//! contraction once (≤ q/2), and the linear-weight pass adds one rounded product per entry, so the
+//! first-order error is `3·(rows+1)·q`; the tests assert `8·(rows+1)·q` (a factor of ~2.7 of
+//! headroom for the second-order term) and print the observed maximum. The solve propagates that
+//! error through `Cholesky`, whose amplification is `κ(H) = λmax/λmin`; for the fixtures
+//! (`rows ≥ 2n`, `|x| ≤ 1`, `w ∈ [0.45, 1.35]`) `κ(H) ≤ 4`, so the asserted bound is `64·q`.
+//!
+//! Positive: two slabs fold to the same accumulator as their concatenation (one word on the `i64`
+//! fields); `Hm_w = Hm` under unit weights (exactly, `w = 1` is a grid identity); `Hm_w = (Xw)ᵀ(Xw)`
+//! with the weight applied linearly; the even-count lower-median rule; the `> thresh·r_med` token
+//! weight; a solve with `Cs = Cts = H_solve·W0ᵀ` leaves `W0` unchanged; the solve satisfies the ridge
+//! normal equations; the sink clamp caps a row at `τ·‖W0_row‖`; `ridge_solve` agrees with the old
+//! `f64` `solve_spd` path to relative `1e-7` on a wide diagonal range (`1e-3..1e3`) and under
+//! `1e-6`/`1e10` scaling; `metric` and `bias_update` agree with their `f64` oracles.
 //! Refusals: shape mismatch, non-SPD, non-finite, empty median and missing `Cts`. Grade `tested`.
 
 #![allow(
@@ -27,6 +36,10 @@ use apeiron::learn::fold::layer::stage::{
 };
 use apeiron::learn::fold::stats::hocapture::Kind;
 use apeiron::learn::ridge::solve_spd;
+use apeiron::learn::solve::q32::from_grid;
+
+/// The `Q32.32` grid quantum, `2⁻³²`.
+const Q: f64 = 1.0 / 4_294_967_296.0;
 
 /// Deterministic 64-bit LCG (Numerical Recipes constants), the tests' only randomness source.
 struct Lcg(u64);
@@ -86,117 +99,429 @@ fn max_abs_diff(a: &[f64], b: &[f64]) -> f64 {
         .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()))
 }
 
-/// (a) Folding two slabs equals folding their concatenation, bitwise-close.
+/// The `f64` view of a `Q32.32` word buffer.
+fn words(a: &[i64]) -> Vec<f64> {
+    a.iter().map(|&v| from_grid(v)).collect()
+}
+
+/// `max |from_grid(word) − oracle|` and the largest oracle magnitude, for a printed receipt.
+fn grid_error(a: &[i64], b: &[f64]) -> (f64, f64) {
+    assert_eq!(a.len(), b.len());
+    let mut err = 0.0f64;
+    let mut mag = 0.0f64;
+    for (&w, &y) in a.iter().zip(b) {
+        err = err.max((from_grid(w) - y).abs());
+        mag = mag.max(y.abs());
+    }
+    (err, mag)
+}
+
+/// The largest `|entry|` of a slice.
+fn max_abs(a: &[f64]) -> f64 {
+    a.iter().fold(0.0f64, |m, &v| m.max(v.abs()))
+}
+
+// ---------------------------------------------------------------------------
+// The f64 oracles: the reference arithmetic, without the Q32.32 grid
+// ---------------------------------------------------------------------------
+
+/// The reference per-stage accumulator: the `fold_transfer.py:1541-1648` loop in `f64`.
+struct Ref {
+    n: usize,
+    outs: Vec<usize>,
+    with_ts: Vec<bool>,
+    hm: Vec<f64>,
+    hm_w: Vec<f64>,
+    cs: Vec<Vec<f64>>,
+    cts: Vec<Vec<f64>>,
+    x_sum: Vec<f64>,
+    y_sum: Vec<Vec<f64>>,
+    n_toks: f64,
+}
+
+impl Ref {
+    fn new(n: usize, outs: &[usize], with_ts: &[bool]) -> Self {
+        Self {
+            n,
+            outs: outs.to_vec(),
+            with_ts: with_ts.to_vec(),
+            hm: vec![0.0; n * n],
+            hm_w: vec![0.0; n * n],
+            cs: outs.iter().map(|&o| vec![0.0; n * o]).collect(),
+            cts: outs
+                .iter()
+                .zip(with_ts)
+                .map(|(&o, &ts)| if ts { vec![0.0; n * o] } else { Vec::new() })
+                .collect(),
+            x_sum: vec![0.0; n],
+            y_sum: outs.iter().map(|&o| vec![0.0; o]).collect(),
+            n_toks: 0.0,
+        }
+    }
+
+    /// `Σ XᵀX`, `Σ (Xw)ᵀ(Xw)`, the weighted cross-Grams and the unweighted sums, in `f64`.
+    fn add_slab(&mut self, x: &[f64], w: &[f64], ys: &[&[f64]], y_ts: &[Option<&[f64]>]) {
+        let rows = w.len();
+        let n = self.n;
+        for i in 0..n {
+            for j in 0..n {
+                let mut a = 0.0f64;
+                let mut b = 0.0f64;
+                for t in 0..rows {
+                    a += x[t * n + i] * x[t * n + j];
+                    b += (x[t * n + i] * w[t]) * (x[t * n + j] * w[t]);
+                }
+                self.hm[i * n + j] += a;
+                self.hm_w[i * n + j] += b;
+            }
+            self.x_sum[i] += (0..rows).map(|t| x[t * n + i]).sum::<f64>();
+        }
+        for j in 0..ys.len() {
+            let out = self.outs[j];
+            for i in 0..n {
+                for o in 0..out {
+                    let mut cs = 0.0f64;
+                    let mut cts = 0.0f64;
+                    for t in 0..rows {
+                        let xw = x[t * n + i] * w[t];
+                        cs += xw * (ys[j][t * out + o] * w[t]);
+                        if let Some(ts) = y_ts[j] {
+                            cts += xw * (ts[t * out + o] * w[t]);
+                        }
+                    }
+                    self.cs[j][i * out + o] += cs;
+                    if self.with_ts[j] {
+                        self.cts[j][i * out + o] += cts;
+                    }
+                }
+            }
+            for o in 0..out {
+                self.y_sum[j][o] += (0..rows).map(|t| ys[j][t * out + o]).sum::<f64>();
+            }
+        }
+        self.n_toks += rows as f64;
+    }
+}
+
+/// `Hr = H` with `diag += shift`, then `Hr·X = C`, returned as `Xᵀ` (`[out, n]`).
+fn solve_with(h: &[f64], c: &[f64], n: usize, out: usize, shift: f64) -> Vec<f64> {
+    let mut hr = h.to_vec();
+    for i in 0..n {
+        hr[i * n + i] += shift;
+    }
+    let x = solve_spd(&hr, c, n, out).unwrap();
+    let mut out_t = vec![0.0f64; out * n];
+    for i in 0..n {
+        for o in 0..out {
+            out_t[o * n + i] = x[i * out + o];
+        }
+    }
+    out_t
+}
+
+/// The mean of the diagonal, the ridge shift's scale.
+fn diag_mean(h: &[f64], n: usize) -> f64 {
+    (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64
+}
+
+/// The reference `solve_stage`: the `fold_transfer.py:1652-1682` split, in `f64`.
+fn ref_solve_stage(r: &Ref, w0: &[&[f64]], kinds: &[Kind], p: &SolveParams) -> Vec<Vec<f64>> {
+    let n = r.n;
+    let mut ws = Vec::new();
+    for j in 0..r.outs.len() {
+        let out = r.outs[j];
+        let mut c0 = vec![0.0f64; n * out];
+        for i in 0..n {
+            for o in 0..out {
+                c0[i * out + o] = (0..n).map(|t| r.hm_w[i * n + t] * w0[j][o * n + t]).sum();
+            }
+        }
+        let scale = n as f64 / p.n_ref;
+        let mean = diag_mean(&r.hm_w, n);
+        let mut ws_j = vec![0.0f64; out * n];
+        if matches!(kinds[j], Kind::O | Kind::Down) {
+            let d1: Vec<f64> = (0..n * out).map(|k| r.cts[j][k] - c0[k]).collect();
+            let d2: Vec<f64> = (0..n * out).map(|k| r.cs[j][k] - r.cts[j][k]).collect();
+            let intra = solve_with(&r.hm_w, &d1, n, out, p.ridge_intra * scale * mean);
+            let inter = solve_with(&r.hm_w, &d2, n, out, p.ridge_inter * scale * mean);
+            let mut dw = vec![0.0f64; out * n];
+            for o in 0..out {
+                for i in 0..n {
+                    dw[o * n + i] = intra[o * n + i] + p.inter_gamma * inter[o * n + i];
+                }
+                let rn = (0..n)
+                    .map(|i| dw[o * n + i] * dw[o * n + i])
+                    .sum::<f64>()
+                    .sqrt();
+                let w0rn = (0..n)
+                    .map(|i| w0[j][o * n + i] * w0[j][o * n + i])
+                    .sum::<f64>()
+                    .sqrt()
+                    .max(1e-6);
+                if rn > p.sink_tau * w0rn {
+                    let s = p.sink_tau * w0rn / rn;
+                    for i in 0..n {
+                        dw[o * n + i] *= s;
+                    }
+                }
+                for i in 0..n {
+                    ws_j[o * n + i] = w0[j][o * n + i] + dw[o * n + i];
+                }
+            }
+        } else {
+            let direct: Vec<f64> = (0..n * out).map(|k| r.cs[j][k] - c0[k]).collect();
+            let step = solve_with(&r.hm_w, &direct, n, out, p.ridge_w0_gqa * scale * mean);
+            for o in 0..out {
+                for i in 0..n {
+                    ws_j[o * n + i] = w0[j][o * n + i] + p.gin * step[o * n + i];
+                }
+            }
+        }
+        ws.push(ws_j);
+    }
+    ws
+}
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+/// Two slabs of the same geometry: `(x, w, ys, y_ts)` per slab.
+fn two_slab_fixture(
+    seed: u64,
+    n: usize,
+    outs: &[usize],
+    with_ts: &[bool],
+    rows: [usize; 2],
+    wscale: f64,
+) -> Vec<Slab> {
+    let mut lcg = Lcg::new(seed);
+    rows.iter()
+        .map(|&r| {
+            let x = rand_mat(&mut lcg, r, n);
+            let w: Vec<f64> = if wscale == 1.0 {
+                vec![1.0; r]
+            } else {
+                (0..r).map(|_| wscale * (0.5 + lcg.sym().abs())).collect()
+            };
+            let ys: Vec<Vec<f64>> = outs.iter().map(|&o| rand_mat(&mut lcg, r, o)).collect();
+            let y_ts: Vec<Option<Vec<f64>>> = outs
+                .iter()
+                .zip(with_ts)
+                .map(|(&o, &ts)| {
+                    if ts {
+                        Some(rand_mat(&mut lcg, r, o))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            (x, w, ys, y_ts)
+        })
+        .collect()
+}
+
+type Slab = (Vec<f64>, Vec<f64>, Vec<Vec<f64>>, Vec<Option<Vec<f64>>>);
+
+fn slab_refs(s: &Slab) -> (Vec<&[f64]>, Vec<Option<&[f64]>>) {
+    (
+        s.2.iter().map(Vec::as_slice).collect(),
+        s.3.iter().map(|o| o.as_deref()).collect(),
+    )
+}
+
+fn fold_accum(n: usize, outs: &[usize], with_ts: &[bool], slabs: &[Slab]) -> StageAccum {
+    let mut acc = StageAccum::new(n, outs, with_ts).unwrap();
+    for s in slabs {
+        let (ys, y_ts) = slab_refs(s);
+        acc.add_slab(&s.0, &s.1, &ys, &y_ts).unwrap();
+    }
+    acc
+}
+
+fn fold_ref(n: usize, outs: &[usize], with_ts: &[bool], slabs: &[Slab]) -> Ref {
+    let mut r = Ref::new(n, outs, with_ts);
+    for s in slabs {
+        let (ys, y_ts) = slab_refs(s);
+        r.add_slab(&s.0, &s.1, &ys, &y_ts);
+    }
+    r
+}
+
+// ---------------------------------------------------------------------------
+// Accumulator tests
+// ---------------------------------------------------------------------------
+
+/// (a) `add_slab` agrees with the `f64` oracle on every accumulated field.
+#[test]
+fn add_slab_matches_f64_oracle() {
+    let (n, outs, with_ts) = (4usize, [3usize, 2], [true, false]);
+    let slabs = two_slab_fixture(0x51ab_cd01, n, &outs, &with_ts, [5, 4], 0.9);
+    let acc = fold_accum(n, &outs, &with_ts, &slabs);
+    let r = fold_ref(n, &outs, &with_ts, &slabs);
+    let rows = 9.0f64;
+    // Contraction: `rows` terms of two rounded factors plus one final rounding, times the linear
+    // weight pass's extra rounding; `8·(rows+1)·q` is the asserted first-order bound with headroom.
+    let bound = 8.0 * (rows + 1.0) * Q;
+    let e_hm = max_abs_diff(&acc.hm, &r.hm);
+    let (e_hmw, m_hmw) = grid_error(&acc.hm_w, &r.hm_w);
+    let e_cs0 = grid_error(&acc.cs[0], &r.cs[0]).0;
+    let e_cs1 = grid_error(&acc.cs[1], &r.cs[1]).0;
+    let e_cts = grid_error(&acc.cts[0], &r.cts[0]).0;
+    let e_xs = max_abs_diff(&acc.x_sum, &r.x_sum);
+    let e_ys0 = max_abs_diff(&acc.y_sum[0], &r.y_sum[0]);
+    let e_ys1 = max_abs_diff(&acc.y_sum[1], &r.y_sum[1]);
+    println!(
+        "add_slab: hm={e_hm:.3e} hm_w={e_hmw:.3e} (|.|max {m_hmw:.3e}) cs=({e_cs0:.3e},{e_cs1:.3e}) \
+         cts={e_cts:.3e} x_sum={e_xs:.3e} y_sum=({e_ys0:.3e},{e_ys1:.3e}) bound={bound:.3e}"
+    );
+    assert!(e_hm <= bound, "hm {e_hm:e}");
+    assert!(e_hmw <= bound, "hm_w {e_hmw:e}");
+    assert!(e_cs0 <= bound && e_cs1 <= bound, "cs {e_cs0:e} {e_cs1:e}");
+    assert!(e_cts <= bound, "cts {e_cts:e}");
+    // A column sum rounds only at the slab boundary: one quantum per slab.
+    assert!(e_xs <= 2.0 * Q, "x_sum {e_xs:e}");
+    assert!(
+        e_ys0 <= 2.0 * Q && e_ys1 <= 2.0 * Q,
+        "y_sum {e_ys0:e} {e_ys1:e}"
+    );
+    assert_eq!(acc.n_toks, r.n_toks);
+}
+
+/// (b) Folding two slabs equals folding their concatenation: the `i64` accumulators differ by at
+/// most one rounding step (each slab rounds its own partial sum), the `f64` views by two, and the
+/// token count is exact.
 #[test]
 fn two_slabs_equal_concatenation() {
-    let n = 4;
-    let outs = [3usize, 2];
-    let with_ts = [true, false];
-    let (r1, r2) = (3usize, 2usize);
-    let mut lcg = Lcg::new(0x51ab_cd01);
-    let x1 = rand_mat(&mut lcg, r1, n);
-    let x2 = rand_mat(&mut lcg, r2, n);
-    let w1 = rand_mat(&mut lcg, r1, 1);
-    let w2 = rand_mat(&mut lcg, r2, 1);
-    let y1a = rand_mat(&mut lcg, r1, outs[0]);
-    let y2a = rand_mat(&mut lcg, r2, outs[0]);
-    let y1b = rand_mat(&mut lcg, r1, outs[1]);
-    let y2b = rand_mat(&mut lcg, r2, outs[1]);
-    let t1 = rand_mat(&mut lcg, r1, outs[0]);
-    let t2 = rand_mat(&mut lcg, r2, outs[0]);
-
-    let mut split = StageAccum::new(n, &outs, &with_ts).unwrap();
-    split
-        .add_slab(
-            &x1,
-            &w1,
-            &[y1a.as_slice(), y1b.as_slice()],
-            &[Some(t1.as_slice()), None],
-        )
-        .unwrap();
-    split
-        .add_slab(
-            &x2,
-            &w2,
-            &[y2a.as_slice(), y2b.as_slice()],
-            &[Some(t2.as_slice()), None],
-        )
-        .unwrap();
-
-    let x = [x1.as_slice(), x2.as_slice()].concat();
-    let w = [w1.as_slice(), w2.as_slice()].concat();
-    let ya = [y1a.as_slice(), y2a.as_slice()].concat();
-    let yb = [y1b.as_slice(), y2b.as_slice()].concat();
-    let ta = [t1.as_slice(), t2.as_slice()].concat();
-    let mut one = StageAccum::new(n, &outs, &with_ts).unwrap();
-    one.add_slab(
-        &x,
-        &w,
-        &[ya.as_slice(), yb.as_slice()],
-        &[Some(ta.as_slice()), None],
-    )
-    .unwrap();
-
-    assert!(max_abs_diff(&split.hm, &one.hm) < 1e-12);
-    assert!(max_abs_diff(&split.hm_w, &one.hm_w) < 1e-12);
-    assert!(max_abs_diff(&split.cs[0], &one.cs[0]) < 1e-12);
-    assert!(max_abs_diff(&split.cs[1], &one.cs[1]) < 1e-12);
-    assert!(max_abs_diff(&split.cts[0], &one.cts[0]) < 1e-12);
-    assert!(split.cts[1].is_empty() && one.cts[1].is_empty());
-    assert!(max_abs_diff(&split.x_sum, &one.x_sum) < 1e-12);
-    assert!(max_abs_diff(&split.y_sum[0], &one.y_sum[0]) < 1e-12);
-    assert!(max_abs_diff(&split.y_sum[1], &one.y_sum[1]) < 1e-12);
+    let (n, outs, with_ts) = (4usize, [3usize, 2], [true, false]);
+    let slabs = two_slab_fixture(0x51ab_cd01, n, &outs, &with_ts, [3, 2], 1.0);
+    let split = fold_accum(n, &outs, &with_ts, &slabs);
+    let mut x = Vec::new();
+    let mut w = Vec::new();
+    let mut ys = vec![Vec::new(); outs.len()];
+    let mut y_ts: Vec<Option<Vec<f64>>> = (0..outs.len()).map(|_| None).collect();
+    for s in &slabs {
+        x.extend_from_slice(&s.0);
+        w.extend_from_slice(&s.1);
+        for j in 0..outs.len() {
+            ys[j].extend_from_slice(&s.2[j]);
+            if let Some(src) = s.3[j].as_ref() {
+                y_ts[j].get_or_insert_with(Vec::new).extend_from_slice(src);
+            }
+        }
+    }
+    let one = fold_accum(n, &outs, &with_ts, &[(x, w, ys, y_ts)]);
+    let word_gap = |a: &[i64], b: &[i64]| -> i128 {
+        a.iter().zip(b).fold(0i128, |m, (&x, &y)| {
+            m.max((i128::from(x) - i128::from(y)).abs())
+        })
+    };
+    for (a, b) in [
+        (&split.hm_w, &one.hm_w),
+        (&split.cs[0], &one.cs[0]),
+        (&split.cs[1], &one.cs[1]),
+        (&split.cts[0], &one.cts[0]),
+    ] {
+        assert!(word_gap(a, b) <= 1, "word gap {}", word_gap(a, b));
+    }
+    assert!(max_abs_diff(&split.hm, &one.hm) <= 2.0 * Q);
+    assert!(max_abs_diff(&split.x_sum, &one.x_sum) <= 2.0 * Q);
+    assert!(max_abs_diff(&split.y_sum[0], &one.y_sum[0]) <= 2.0 * Q);
+    assert!(max_abs_diff(&split.y_sum[1], &one.y_sum[1]) <= 2.0 * Q);
     assert_eq!(split.n_toks, one.n_toks);
 }
 
-/// (b) With every `w_tok == 1`, `Hm_w` equals the unweighted `Hm`.
+/// (c) With every `w_tok == 1`, `Hm_w` equals the unweighted `Hm` exactly: `1.0` is a `Q32.32`
+/// identity and both entries round the same `i128` sum once.
 #[test]
 fn hm_w_equals_hm_under_unit_weights() {
-    let n = 5;
-    let outs = [2usize];
-    let with_ts = [false];
-    let rows = 6;
-    let mut lcg = Lcg::new(11);
-    let x = rand_mat(&mut lcg, rows, n);
-    let w = vec![1.0f64; rows];
-    let y = rand_mat(&mut lcg, rows, outs[0]);
-    let mut acc = StageAccum::new(n, &outs, &with_ts).unwrap();
-    acc.add_slab(&x, &w, &[y.as_slice()], &[None]).unwrap();
-    assert!(max_abs_diff(&acc.hm, &acc.hm_w) < 1e-12);
+    let (n, outs, with_ts) = (5usize, [2usize], [false]);
+    let slabs = two_slab_fixture(11, n, &outs, &with_ts, [6, 0], 1.0);
+    let acc = fold_accum(n, &outs, &with_ts, &slabs[..1]);
+    assert_eq!(words(&acc.hm_w), acc.hm);
 }
 
-/// (b') `Hm_w = (Xw)ᵀ(Xw)` with `Xw = X·w` applied linearly (not `√w`) — the mutation-sensitive
-/// check.
+/// (c') `Hm_w = (Xw)ᵀ(Xw)` with `Xw = X·w` applied linearly (not `√w`) — the oracle comparison
+/// plus a sensitivity guard that `√w` is far outside the bound.
 #[test]
 fn hm_w_applies_weights_linearly() {
-    let n = 5;
-    let outs = [2usize];
-    let with_ts = [false];
-    let rows = 7;
-    let mut lcg = Lcg::new(23);
-    let x = rand_mat(&mut lcg, rows, n);
-    let w: Vec<f64> = (0..rows).map(|r| 0.5 + (r as f64) * 0.75).collect();
-    let y = rand_mat(&mut lcg, rows, outs[0]);
-    let mut acc = StageAccum::new(n, &outs, &with_ts).unwrap();
-    acc.add_slab(&x, &w, &[y.as_slice()], &[None]).unwrap();
-    // Xw row r is X row r scaled by w[r].
-    let mut xw = x.clone();
-    for r in 0..rows {
-        for i in 0..n {
-            xw[r * n + i] *= w[r];
-        }
-    }
-    let expect = matmul(&transpose(&xw, rows, n), &xw, n, rows, n);
-    assert!(max_abs_diff(&acc.hm_w, &expect) < 1e-12);
-    // Guard the check's own sensitivity: with √w the matrix differs.
+    let (n, outs, with_ts) = (5usize, [2usize], [false]);
+    let slabs = two_slab_fixture(23, n, &outs, &with_ts, [7, 0], 0.9);
+    let (x, w) = (&slabs[0].0, &slabs[0].1);
+    let rows = w.len();
+    let acc = fold_accum(n, &outs, &with_ts, &slabs[..1]);
+    let expect = {
+        let mut r = Ref::new(n, &outs, &with_ts);
+        r.add_slab(x, w, &[&slabs[0].2[0]], &[None]);
+        r.hm_w
+    };
+    let (err, _) = grid_error(&acc.hm_w, &expect);
+    let bound = 8.0 * (rows + 1) as f64 * Q;
+    println!("hm_w linear: err={err:.3e} bound={bound:.3e}");
+    assert!(err <= bound, "hm_w {err:e}");
+    // Sensitivity: with √w the matrix differs by far more than the bound.
     let mut xs = x.clone();
-    for r in 0..rows {
+    for t in 0..rows {
         for i in 0..n {
-            xs[r * n + i] *= w[r].sqrt();
+            xs[t * n + i] *= w[t].sqrt();
         }
     }
     let sqrt_gram = matmul(&transpose(&xs, rows, n), &xs, n, rows, n);
-    assert!(max_abs_diff(&acc.hm_w, &sqrt_gram) > 1e-6);
+    assert!(max_abs_diff(&words(&acc.hm_w), &sqrt_gram) > 1e-6);
+}
+
+// ---------------------------------------------------------------------------
+// Sink-gate tests
+// ---------------------------------------------------------------------------
+
+/// The reference token weights: the `fold_transfer.py:1592-1597` rule in `f64`, same median rule.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "mirrors the ported signature so the oracle is called with the same arguments."
+)]
+fn ref_sink(
+    h_t: &[f64],
+    p_mid: &[f64],
+    p_out: &[f64],
+    h_s: &[f64],
+    p_in_mid: Option<&[f64]>,
+    seqs: usize,
+    t: usize,
+    width: usize,
+    thresh: f64,
+) -> Vec<f64> {
+    let rows = seqs * t;
+    let norm = |a: &[f64], r: usize| -> f64 {
+        (0..width)
+            .map(|i| a[r * width + i] * a[r * width + i])
+            .sum::<f64>()
+            .sqrt()
+    };
+    let r_t: Vec<f64> = (0..rows)
+        .map(|r| norm(h_t, r).max(norm(p_mid, r)).max(norm(p_out, r)))
+        .collect();
+    let mut med: Vec<f64> = Vec::new();
+    for s in 0..seqs {
+        for p in 1..t {
+            med.push(r_t[s * t + p]);
+        }
+    }
+    med.sort_by(f64::total_cmp);
+    let r_med = med[(med.len() - 1) / 2];
+    (0..rows)
+        .map(|r| {
+            let rs = match p_in_mid {
+                Some(p) => norm(h_s, r).max(norm(p, r)),
+                None => norm(h_s, r),
+            };
+            let r_tok = r_t[r].max(rs).max(1e-6);
+            if r_tok * 1.0 > thresh * r_med {
+                r_med / r_tok
+            } else {
+                1.0
+            }
+        })
+        .collect()
 }
 
 /// (c) The even-count median takes the lower middle element (sorted index `(k-1)/2`).
@@ -205,12 +530,14 @@ fn lower_median_on_even_count() {
     let h_t = [0.0f64, 1.0, 2.0, 3.0, 4.0];
     let zeros = [0.0f64; 5];
     let w = sink_token_weights(&h_t, &zeros, &zeros, &zeros, None, 1, 5, 1, 0.5).unwrap();
-    // r_t = positions {1,2,3,4}; lower median = 2; thresh·r_med = 1.
-    let expect = [1.0f64, 1.0, 1.0, 2.0 / 3.0, 0.5];
-    assert!(max_abs_diff(&w, &expect) < 1e-12);
+    let expect = ref_sink(&h_t, &zeros, &zeros, &zeros, None, 1, 5, 1, 0.5);
+    // `r_t` is exact on integers; the only rounding is the `2/3` quotient (one quantum).
+    let err = max_abs_diff(&w, &expect);
+    println!("lower_median: err={err:.3e} bound={:.3e}", 2.0 * Q);
+    assert!(err <= 2.0 * Q, "err {err:e}");
 }
 
-/// (d) A token with `r_tok > thresh·r_med` gets `r_med / r_tok`; the rest get `1`; `r_s` includes
+/// (d) A token with `r_tok > thresh·r_med` gets `r_med/r_tok`; the rest get `1`; `r_s` includes
 /// `p_in_mid` when given.
 #[test]
 fn token_weight_rule_and_mid_input() {
@@ -220,20 +547,121 @@ fn token_weight_rule_and_mid_input() {
     let h_s = [3.0f64, 0.0, 0.0];
     let p_in_mid = [0.0f64, 5.0, 0.0];
     let w = sink_token_weights(&h_t, &p_mid, &p_out, &h_s, Some(&p_in_mid), 1, 3, 1, 2.0).unwrap();
-    // r_t = {1,2,10}, r_s = {3,5,0}, r_tok = {3,5,10}; median over positions >=1 of r_t = 2;
-    // thresh·r_med = 4 -> {1, 0.4, 0.2}.
-    let expect = [1.0f64, 0.4, 0.2];
-    assert!(max_abs_diff(&w, &expect) < 1e-12);
+    let expect = ref_sink(&h_t, &p_mid, &p_out, &h_s, Some(&p_in_mid), 1, 3, 1, 2.0);
+    let err = max_abs_diff(&w, &expect);
+    println!("token_rule: err={err:.3e} bound={:.3e}", 2.0 * Q);
+    assert!(err <= 2.0 * Q, "err {err:e}");
+    assert!((w[0] - 1.0).abs() <= 2.0 * Q);
 }
 
-/// (e) With `Cs = Cts = H_solve·W0ᵀ` the split residuals vanish and `Ws == W0`.
+/// (e) The sink weights agree with the oracle on an LCG slab with a real width.
+#[test]
+fn sink_weights_match_f64_oracle() {
+    let (seqs, t, width) = (2usize, 4usize, 5usize);
+    let rows = seqs * t;
+    let mut lcg = Lcg::new(0x5e17);
+    let h_t = rand_mat(&mut lcg, rows, width);
+    let p_mid = rand_mat(&mut lcg, rows, width);
+    let p_out = rand_mat(&mut lcg, rows, width);
+    let h_s = rand_mat(&mut lcg, rows, width);
+    let p_in_mid = rand_mat(&mut lcg, rows, width);
+    let w = sink_token_weights(
+        &h_t,
+        &p_mid,
+        &p_out,
+        &h_s,
+        Some(&p_in_mid),
+        seqs,
+        t,
+        width,
+        1.0,
+    )
+    .unwrap();
+    let expect = ref_sink(
+        &h_t,
+        &p_mid,
+        &p_out,
+        &h_s,
+        Some(&p_in_mid),
+        seqs,
+        t,
+        width,
+        1.0,
+    );
+    // Each norm is `isqrt` of `width` rounded squares (≤ width·q/2 absolute in the squared sum,
+    // ≤ q/2 in the norm); the quotient adds one quantum. Four norms and one division bound it by
+    // `4·width·q`, asserted with a factor of two.
+    let bound = 8.0 * width as f64 * Q;
+    let err = max_abs_diff(&w, &expect);
+    println!("sink oracle: err={err:.3e} bound={bound:.3e}");
+    assert!(err <= bound, "err {err:e}");
+}
+
+// ---------------------------------------------------------------------------
+// Solve tests
+// ---------------------------------------------------------------------------
+
+/// The solve fixture: two outputs, one split (`O`, `ts`) and one direct (`Q`).
+struct SolveCase {
+    n: usize,
+    outs: [usize; 2],
+    with_ts: [bool; 2],
+    slabs: Vec<Slab>,
+    w0: [Vec<f64>; 2],
+}
+
+fn solve_fixture() -> SolveCase {
+    let (n, outs, with_ts) = (6usize, [2usize, 1], [true, false]);
+    let slabs = two_slab_fixture(0x5017, n, &outs, &with_ts, [10, 6], 0.9);
+    let mut lcg = Lcg::new(0x77a0);
+    let w0_o = rand_mat(&mut lcg, outs[0], n);
+    let w0_q = rand_mat(&mut lcg, outs[1], n);
+    SolveCase {
+        n,
+        outs,
+        with_ts,
+        slabs,
+        w0: [w0_o, w0_q],
+    }
+}
+
+/// (f) `solve_stage` agrees with the `f64` split solve within `64·q` (`κ(H) ≤ 4` on the fixture).
+#[test]
+fn solve_stage_matches_f64_oracle() {
+    let SolveCase {
+        n,
+        outs,
+        with_ts,
+        slabs,
+        w0,
+    } = solve_fixture();
+    let acc = fold_accum(n, &outs, &with_ts, &slabs);
+    let r = fold_ref(n, &outs, &with_ts, &slabs);
+    let kinds = [Kind::O, Kind::Q];
+    let p = SolveParams::default();
+    let got = solve_stage(&acc, &[w0[0].as_slice(), w0[1].as_slice()], &kinds, &p).unwrap();
+    let want = ref_solve_stage(&r, &[w0[0].as_slice(), w0[1].as_slice()], &kinds, &p);
+    let mut m = 0.0f64;
+    for j in 0..2 {
+        let e = max_abs_diff(&got[j], &want[j]);
+        println!("solve[{j}]: err={e:.3e} |w|max={:.3e}", max_abs(&want[j]));
+        m = m.max(e);
+    }
+    // `q` accumulates through the Gram (≤ 3(rows+1)q) and the Cholesky solve amplifies by κ(H);
+    // on this fixture (`rows ≥ 2n`, |x|≤1, w∈[0.45,1.35]) λmax/λmin(H) ≤ 4.
+    let bound = 64.0 * Q;
+    println!("solve_stage: max err={m:.3e} bound={bound:.3e}");
+    assert!(m <= bound, "solve err {m:e}");
+}
+
+/// (g) With `Cs = Cts = H_solve·W0ᵀ` the split residuals vanish and `Ws == W0` (up to the one
+/// rounding of `W0` onto the grid).
 #[test]
 fn solve_with_anchor_residual_is_identity() {
     let n = 4;
     let outs = [1usize];
     let with_ts = [true];
     let w0 = [0.5f64, -0.25, 0.1, 0.3];
-    // X = I so Hm_w = I; Y = X·W0ᵀ = W0ᵀ, and Y_ts = Y.
     let mut x = vec![0.0f64; n * n];
     for i in 0..n {
         x[i * n + i] = 1.0;
@@ -245,10 +673,14 @@ fn solve_with_anchor_residual_is_identity() {
         .unwrap();
     let params = SolveParams::default();
     let ws = solve_stage(&acc, &[w0.as_slice()], &[Kind::O], &params).unwrap();
-    assert!(max_abs_diff(&ws[0], &w0) < 1e-12);
+    // `W0` crosses onto the grid once (≤ q/2 per entry, `0.1` is not representable) and the
+    // residual solve adds at most one quantum of contention, so `8·q` bounds the difference.
+    let err = max_abs_diff(&ws[0], &w0);
+    println!("identity: err={err:.3e} bound={:.3e}", 8.0 * Q);
+    assert!(err <= 8.0 * Q, "err {err:e}");
 }
 
-/// (f) The solved `dW` satisfies the ridge normal equations
+/// (h) The solved `dW` satisfies the ridge normal equations
 /// `(H + ridge·mean(diag H)·I)·dWᵀ = C`.
 #[test]
 fn solve_satisfies_normal_equations() {
@@ -259,7 +691,7 @@ fn solve_satisfies_normal_equations() {
     let c = rand_mat(&mut lcg, n, out);
     let ridge = 0.045 * (n as f64 / 896.0);
     let dw = ridge_solve(&h, &c, n, out, ridge).unwrap();
-    let mean = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
+    let mean = diag_mean(&h, n);
     let mut residual = 0.0f64;
     for i in 0..n {
         for o in 0..out {
@@ -271,10 +703,11 @@ fn solve_satisfies_normal_equations() {
             residual = residual.max((s - c[i * out + o]).abs());
         }
     }
+    println!("normal equations residual: {residual:.3e}");
     assert!(residual < 1e-9, "residual {residual}");
 }
 
-/// (g) The sink clamp caps a `dW` row at `τ·max(‖W0_row‖, 1e-6)`.
+/// (i) The sink clamp caps a `dW` row at `τ·max(‖W0_row‖, 1e-6)`.
 #[test]
 fn sink_clamp_caps_row_ratio() {
     let n = 4;
@@ -285,8 +718,7 @@ fn sink_clamp_caps_row_ratio() {
     for i in 0..n {
         x[i * n + i] = 1.0;
     }
-    // Y_ts = X·W0ᵀ + Z with Z = [10,0,0,0] -> Cts - C0 = Z; Cs = Cts so C_inter = 0.
-    let y = [0.5f64 + 10.0, 0.0, 0.0, 0.0];
+    let y = [10.5f64, 0.0, 0.0, 0.0];
     let w = vec![1.0f64; n];
     let mut acc = StageAccum::new(n, &outs, &with_ts).unwrap();
     acc.add_slab(&x, &w, &[y.as_slice()], &[Some(y.as_slice())])
@@ -296,84 +728,57 @@ fn sink_clamp_caps_row_ratio() {
     let dw_row = [ws[0][0] - w0[0], ws[0][1], ws[0][2], ws[0][3]];
     let dw_rn = dw_row.iter().map(|v| v * v).sum::<f64>().sqrt();
     let w0_rn = w0.iter().map(|v| v * v).sum::<f64>().sqrt();
-    assert!(
-        (dw_rn - params.sink_tau * w0_rn).abs() < 1e-9,
-        "dw_rn {dw_rn}"
-    );
-    assert!((dw_rn / w0_rn - params.sink_tau).abs() < 1e-9);
+    let ratio = dw_rn / w0_rn;
+    println!("clamp ratio: {ratio:.9} tau={}", params.sink_tau);
+    // The cap is a quotient of two `isqrt` norms and one grid scale, so `τ` up to `8·q`.
+    assert!((ratio - params.sink_tau).abs() < 1e-7, "ratio {ratio}");
 }
 
-/// (h) Refusals: shape mismatch, empty median, non-SPD, non-finite and missing `Cts`.
+// ---------------------------------------------------------------------------
+// `metric`, `bias_update` and the `ridge_solve` oracle
+// ---------------------------------------------------------------------------
+
+/// (j) `metric` adds `ridge·mean(diag H)` to the diagonal, matching the `f64` expression.
 #[test]
-fn refusals() {
-    let z = [0.0f64; 4];
-    // shape mismatch: h_t too short for seqs=1, t=2, width=1.
-    assert_eq!(
-        sink_token_weights(&[1.0, 2.0], &[0.0], &z, &z, None, 1, 2, 1, 1.0),
-        Err(StageError::Shape)
-    );
-    // empty median: t < 2.
-    assert_eq!(
-        sink_token_weights(&[1.0], &[0.0], &[0.0], &[0.0], None, 1, 1, 1, 1.0),
-        Err(StageError::Empty)
-    );
-    // non-finite token input.
-    assert_eq!(
-        sink_token_weights(
-            &[f64::NAN, 1.0],
-            &[0.0, 0.0],
-            &[0.0, 0.0],
-            &[0.0, 0.0],
-            None,
-            1,
-            2,
-            1,
-            1.0
-        ),
-        Err(StageError::NonFinite)
-    );
-    // add_slab shape mismatch.
-    let mut acc = StageAccum::new(3, &[2], &[false]).unwrap();
-    assert_eq!(
-        acc.add_slab(&[1.0, 2.0], &[1.0], &[&[1.0, 2.0]], &[None]),
-        Err(StageError::Shape)
-    );
-    // add_slab non-finite.
-    assert_eq!(
-        acc.add_slab(&[f64::INFINITY; 3], &[1.0], &[&[1.0, 2.0]], &[None]),
-        Err(StageError::NonFinite)
-    );
-    // solve_stage shape mismatch (W0 length wrong).
-    let mut acc2 = StageAccum::new(3, &[2], &[false]).unwrap();
-    acc2.add_slab(&[1.0, 0.0, 0.0], &[1.0], &[&[1.0, 2.0]], &[None])
-        .unwrap();
-    let params = SolveParams::default();
-    assert_eq!(
-        solve_stage(&acc2, &[&[1.0, 2.0]], &[Kind::Q], &params),
-        Err(StageError::Shape)
-    );
-    // missing Cts: an `o` output accumulated with with_ts = false.
-    assert_eq!(
-        solve_stage(
-            &acc2,
-            &[&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]],
-            &[Kind::O],
-            &params
-        ),
-        Err(StageError::MissingCts)
-    );
-    // non-SPD: the zero matrix has a zero pivot.
-    assert_eq!(
-        ridge_solve(&[0.0; 9], &[1.0; 3], 3, 1, 0.0),
-        Err(StageError::NotPositiveDefinite)
-    );
-    // metric shape mismatch.
-    assert_eq!(metric(&[1.0; 3], 3, 0.1), Err(StageError::Shape));
-    // bias_update zero token count.
-    assert_eq!(
-        bias_update(&[1.0], &[1.0, 1.0, 1.0], &[1.0, 1.0, 1.0], 0.0),
-        Err(StageError::Empty)
-    );
+fn metric_matches_f64_oracle() {
+    let (n, rows) = (5usize, 9usize);
+    let mut lcg = Lcg::new(0x3e7);
+    let x = rand_mat(&mut lcg, rows, n);
+    let hm = matmul(&transpose(&x, rows, n), &x, n, rows, n);
+    let ridge = 0.25;
+    let got = metric(&hm, n, ridge).unwrap();
+    let mut want = hm.clone();
+    let shift = ridge * diag_mean(&hm, n);
+    for i in 0..n {
+        want[i * n + i] += shift;
+    }
+    // `H` and the shift each cross the grid once (≤ q/2 per entry), then the diagonal sum rounds.
+    let err = max_abs_diff(&got, &want);
+    println!("metric: err={err:.3e} bound={:.3e}", 4.0 * Q);
+    assert!(err <= 4.0 * Q, "metric err {err:e}");
+}
+
+/// (k) `bias_update = (y_sum − Wp·x_sum)/n_toks` matches the `f64` contraction.
+#[test]
+fn bias_update_matches_f64_oracle() {
+    let (n, out) = (7usize, 3usize);
+    let mut lcg = Lcg::new(0xb1a5);
+    let y_sum = rand_mat(&mut lcg, out, 1);
+    let x_sum = rand_mat(&mut lcg, n, 1);
+    let wp = rand_mat(&mut lcg, out, n);
+    let n_toks = 137.0f64;
+    let got = bias_update(&y_sum, &x_sum, &wp, n_toks).unwrap();
+    let want: Vec<f64> = (0..out)
+        .map(|o| {
+            let dot: f64 = (0..n).map(|i| wp[o * n + i] * x_sum[i]).sum();
+            (y_sum[o] - dot) / n_toks
+        })
+        .collect();
+    // `n` products of two rounded entries plus one rounding of the difference: `(n+1)·q`.
+    let err = max_abs_diff(&got, &want);
+    let bound = 2.0 * (n + 1) as f64 * Q;
+    println!("bias_update: err={err:.3e} bound={bound:.3e}");
+    assert!(err <= bound, "bias err {err:e}");
 }
 
 /// A deterministic strictly-diagonally-dominant SPD matrix with diagonals log-spread over
@@ -392,8 +797,6 @@ fn spd_wide_diag(lcg: &mut Lcg, n: usize) -> Vec<f64> {
     let dmin = diag.iter().copied().fold(f64::INFINITY, f64::min);
     let jitter = 0.25 * dmin / n as f64;
     let mut h = vec![0.0f64; n * n];
-    // Symmetric by construction: the `(i, j)` and `(j, i)` entries are the same draw, so the
-    // matrix is genuinely SPD (the previous version drew independent jitter and was not).
     for i in 0..n {
         for j in 0..=i {
             let v = if i == j { diag[i] } else { jitter * lcg.sym() };
@@ -404,25 +807,13 @@ fn spd_wide_diag(lcg: &mut Lcg, n: usize) -> Vec<f64> {
     h
 }
 
-/// The old f64 path: `Hr = H` with `diag += ridge·mean(diag H)`, then `ridge::solve_spd`, returned
-/// as `Xᵀ` (`[out, n]`). The independent reference `ridge_solve` is compared against.
+/// The old `f64` path: `Hr = H` with `diag += ridge·mean(diag H)`, then `ridge::solve_spd`,
+/// returned as `Xᵀ` (`[out, n]`). The independent reference `ridge_solve` is compared against.
 fn old_ridge_solve(h: &[f64], c: &[f64], n: usize, out: usize, ridge: f64) -> Vec<f64> {
-    let mean = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
-    let mut hr = h.to_vec();
-    for i in 0..n {
-        hr[i * n + i] += ridge * mean;
-    }
-    let x = solve_spd(&hr, c, n, out).unwrap();
-    let mut out_t = vec![0.0f64; out * n];
-    for i in 0..n {
-        for o in 0..out {
-            out_t[o * n + i] = x[i * out + o];
-        }
-    }
-    out_t
+    solve_with(h, c, n, out, ridge * diag_mean(h, n))
 }
 
-/// (i) The Q32.32 `ridge_solve` agrees with the old f64 `solve_spd` path to relative `1e-7` on a
+/// (l) The Q32.32 `ridge_solve` agrees with the old f64 `solve_spd` path to relative `1e-7` on a
 /// random symmetric SPD `H` with a wide diagonal range (`1e-3..1e3`), for `out ∈ {1, 3}`,
 /// `n ∈ {7, 64, 130}`.
 #[test]
@@ -435,15 +826,15 @@ fn ridge_solve_matches_old_path_wide_diagonal() {
             let ridge = 1e-8;
             let new = ridge_solve(&h, &c, n, out, ridge).unwrap();
             let old = old_ridge_solve(&h, &c, n, out, ridge);
-            let denom = old.iter().fold(0.0f64, |m, &v| m.max(v.abs())).max(1e-300);
+            let denom = max_abs(&old).max(1e-300);
             let rel = max_abs_diff(&new, &old) / denom;
             assert!(rel < 1e-7, "n={n} out={out} rel={rel}");
         }
     }
 }
 
-/// (i') The boundary scaling is exercised both ways: identical solves for `H`/`C` scaled far below
-/// the Q32.32 input bound (`1e-6`) and far above it (`1e10`), where `q32_fill` scales up and down
+/// (l') The boundary scaling is exercised both ways: identical solves for `H`/`C` scaled far below
+/// the Q32.32 input bound (`1e-6`) and far above it (`1e10`), where `fill_scale` scales up and down
 /// respectively. The solution is invariant under a common factor on both sides.
 #[test]
 fn ridge_solve_matches_old_path_extreme_magnitudes() {
@@ -457,38 +848,97 @@ fn ridge_solve_matches_old_path_extreme_magnitudes() {
         let c: Vec<f64> = c0.iter().map(|&v| v * f).collect();
         let new = ridge_solve(&h, &c, n, out, ridge).unwrap();
         let old = old_ridge_solve(&h, &c, n, out, ridge);
-        let denom = old.iter().fold(0.0f64, |m, &v| m.max(v.abs())).max(1e-300);
+        let denom = max_abs(&old).max(1e-300);
         let rel = max_abs_diff(&new, &old) / denom;
         assert!(rel < 1e-7, "f={f} rel={rel}");
     }
 }
 
-/// (ii) A non-SPD input and a non-finite input both return the refusal, with no panic.
+/// (m) A non-SPD input and a non-finite input both return the refusal, with no panic.
 #[test]
 fn ridge_solve_refusals() {
-    // Indefinite `[[1,2],[2,1]]` (eigenvalues -1 and 3): a non-positive Cholesky pivot.
     assert_eq!(
         ridge_solve(&[1.0, 2.0, 2.0, 1.0], &[1.0, 1.0], 2, 1, 0.0),
         Err(StageError::NotPositiveDefinite)
     );
-    // NaN in H.
     assert_eq!(
         ridge_solve(&[f64::NAN, 0.0, 0.0, 1.0], &[1.0, 1.0], 2, 1, 0.1),
         Err(StageError::NonFinite)
     );
-    // Infinite in C.
     assert_eq!(
         ridge_solve(&[1.0, 0.0, 0.0, 1.0], &[f64::INFINITY, 1.0], 2, 1, 0.1),
         Err(StageError::NonFinite)
     );
-    // Shape mismatch.
     assert_eq!(
         ridge_solve(&[1.0, 0.0, 0.0], &[1.0, 1.0], 2, 1, 0.1),
         Err(StageError::Shape)
     );
 }
 
-/// (iii) Timing receipt (release): the production down-stage size `n = 4864`, `out = 1`, three
+/// (n) Refusals: shape mismatch, empty median, non-SPD, non-finite and missing `Cts`.
+#[test]
+fn refusals() {
+    let z = [0.0f64; 4];
+    assert_eq!(
+        sink_token_weights(&[1.0, 2.0], &[0.0], &z, &z, None, 1, 2, 1, 1.0),
+        Err(StageError::Shape)
+    );
+    assert_eq!(
+        sink_token_weights(&[1.0], &[0.0], &[0.0], &[0.0], None, 1, 1, 1, 1.0),
+        Err(StageError::Empty)
+    );
+    assert_eq!(
+        sink_token_weights(
+            &[f64::NAN, 1.0],
+            &[0.0, 0.0],
+            &[0.0, 0.0],
+            &[0.0, 0.0],
+            None,
+            1,
+            2,
+            1,
+            1.0
+        ),
+        Err(StageError::NonFinite)
+    );
+    let mut acc = StageAccum::new(3, &[2], &[false]).unwrap();
+    assert_eq!(
+        acc.add_slab(&[1.0, 2.0], &[1.0], &[&[1.0, 2.0]], &[None]),
+        Err(StageError::Shape)
+    );
+    assert_eq!(
+        acc.add_slab(&[f64::INFINITY; 3], &[1.0], &[&[1.0, 2.0]], &[None]),
+        Err(StageError::NonFinite)
+    );
+    let mut acc2 = StageAccum::new(3, &[2], &[false]).unwrap();
+    acc2.add_slab(&[1.0, 0.0, 0.0], &[1.0], &[&[1.0, 2.0]], &[None])
+        .unwrap();
+    let params = SolveParams::default();
+    assert_eq!(
+        solve_stage(&acc2, &[&[1.0, 2.0]], &[Kind::Q], &params),
+        Err(StageError::Shape)
+    );
+    assert_eq!(
+        solve_stage(
+            &acc2,
+            &[&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]],
+            &[Kind::O],
+            &params
+        ),
+        Err(StageError::MissingCts)
+    );
+    assert_eq!(
+        ridge_solve(&[0.0; 9], &[1.0; 3], 3, 1, 0.0),
+        Err(StageError::NotPositiveDefinite)
+    );
+    assert_eq!(metric(&[1.0; 3], 3, 0.1), Err(StageError::Shape));
+    assert_eq!(
+        bias_update(&[1.0], &[1.0, 1.0, 1.0], &[1.0, 1.0, 1.0], 0.0),
+        Err(StageError::Empty)
+    );
+}
+
+/// (o) Timing receipt (release): the production down-stage size `n = 4864`, `out = 1`, three
 /// timed `ridge_solve` runs (the primitive's `SOLVE_THREADS = 8`) against one old-path
 /// `ridge::solve_spd` call. `#[ignore]`; run with `--release -- --ignored --nocapture`. Not a
 /// correctness gate.
@@ -516,13 +966,8 @@ fn timing_ridge_solve_4864() {
     let mean = times.iter().sum::<f64>() / times.len() as f64;
     let min = times.iter().copied().fold(f64::INFINITY, f64::min);
     let max = times.iter().copied().fold(0.0f64, f64::max);
-    let mean_diag = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
-    let mut hr = h.clone();
-    for i in 0..n {
-        hr[i * n + i] += ridge * mean_diag;
-    }
     let t = Instant::now();
-    let _ = solve_spd(&hr, &c, n, out).unwrap();
+    let _ = old_ridge_solve(&h, &c, n, out, ridge);
     let old = t.elapsed().as_secs_f64();
     println!(
         "ridge_solve n={n} out={out} threads=8: mean={mean:.3}s min={min:.3}s max={max:.3}s; \

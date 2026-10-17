@@ -1,62 +1,61 @@
-//! The per-stage statistics and the Tikhonov solve of the production `fold_gqa` fold-transfer arm.
+//! The per-stage statistics and the Tikhonov solve of the production `fold_gqa` fold-transfer arm,
+//! on the `Q32.32` `i64` grid.
 //!
-//! Port of the production configuration of `fold_transfer.py`'s per-stage statistics loop
-//! (`~/lanes/port/spec/fold_transfer.py:1538-1690`) and the two helpers it calls,
-//! [`ridge_solve`] (`:426-428`) and the metric shift (`:430-432`). The ported flags are the
-//! production arm's only: the student-input path (`teacher_in = false`), mode `fold_gqa`,
-//! `split_intra_inter = true`, `sink_gate = true`, `guided = false`, `block = true` with
-//! `block_alpha = 1.0`, `asym = false`. The teacher-output and R1–R5 paths of the script (`yaqa`,
-//! `rrr`, `zellner`, `gin3515`, the two-plane `icm` arms, `use_grow`/`use_res`/`use_align`/`use_skew`,
-//! `qmlp`/`mlp2p`, `-nb`, `-glu`) are out of scope; only the branch this arm executes is present.
+//! Port of `fold_transfer.py:1538-1690` (`~/lanes/port/spec/fold_transfer.py`) and
+//! its two helpers [`ridge_solve`] (`:426-428`) and [`metric`] (`:430-432`) at the production arm's
+//! flags only (`teacher_in = false`, `fold_gqa`, `split_intra_inter`, `sink_gate`,
+//! `block_alpha = 1.0`; the teacher-output and R1–R5 paths are out of scope). Item → reference:
+//! [`sink_token_weights`] `:1592-1597`; [`StageAccum::add_slab`] `:1541-1648`; [`solve_stage`]
+//! `:1652-1682`; [`SolveParams`] `pv_finish.py:75-84`; [`bias_update`] `:1880`.
 //!
-//! | item | reference |
-//! |---|---|
-//! | [`sink_token_weights`] | `fold_transfer.py:1592-1597` (`sink_gate` token weights) |
-//! | [`StageAccum::new`] / [`StageAccum::add_slab`] | `:1541-1648` (the slab gram loop) |
-//! | [`solve_stage`] | `:1652-1682` (the `fold_gqa` solve, `split_intra_inter`) |
-//! | [`SolveParams`] | `pv_finish.py:75-84` defaults (`a.*`) |
-//! | [`ridge_solve`] | `:426-428` |
-//! | [`metric`] | `:430-432` |
-//! | [`bias_update`] | `:1880` (`q`/`k`/`v` bias after quantisation) |
+//! # Carrier
+//! Every computed value is a `Q32.32` `i64` word (`v/2³²`): products are exact in `i128` (`Q64.64`),
+//! a contraction rounds **once** to `Q32.32` by [`round_q32_even`] (ties to even), a row norm is the
+//! floored `isqrt` of the exact squared sum, and a quotient is `round(num/den)` in `i128`. `Hm_w`
+//! applies the weight **linearly** (`:1598-1599`, not `√w`: the reference is the weighted least
+//! squares `Σ_t w_t |y_t − W x_t|²`); `ridge` stays `Q64.64` so `1e-8` keeps its precision.
 //!
-//! # What the port reproduces, and what it does not
+//! # Pool
+//! Only matrix-sized work is pooled, through `chunks_mut_global` and one `ChunkTask` ([`Dot`]): the
+//! `rows·n²` Gram, the `rows·n·out` cross-Gram and the `n²·out` matvec. Every other pass — a
+//! conversion, transpose, per-row norm or clamp, column sum, combine — is a serial integer loop: a
+//! dispatch costs about what a few instructions per entry save. `hm`, `x_sum`, `y_sum` and `n_toks`
+//! are the caller's `f64` view; `hm_w`, `cs` and `cts` stay `i64`.
 //!
-//! The accumulator is `f64`; the reference accumulates `fp32` (`dt = fp32`). `Hm = ΣᵀXᵀX` is the
-//! unweighted input Gram, `Hm_w = Σ Xwᵀ Xw` the sink-weighted one with `Xw = X·w` applied **linearly**
-//! (`:1598-1599`, not `√w` — the reference is a weighted least-squares `Σ_t w_t |y_t − W x_t|²`).
-//! `Cs[j] = Σ Xwᵀ(Y_j·w)`, `Cts[j] = Σ Xwᵀ(Y_ts_j·w)`, `x_sum = Σ X` unweighted and `y_sum[j] = Σ Y_j`
-//! unweighted (`:1610`, `:1646`). The `guided` first-moment weights `a_sl` (`:1587-1589`) are the
-//! production arm's absent branch and are not ported.
-//!
-//! # Evidence grade
-//!
-//! `tested`: the gate's `cargo test` on the build path (`tests/learn_fold_stage.rs`). No Lean
-//! refinement links this file and it is not on the extracted fragment, so nothing here is `proved`.
-//!
-//! # Trust boundary
-//!
-//! The layer forward (RMSNorm, attention, the SwiGLU product, the teacher taps `mid`/`out`/`in_mid`)
-//! is another lane's port; this module takes its outputs as plain row-major slices and makes no claim
-//! about them. Not covered: rustc/LLVM codegen, the fp32 accumulation the reference uses, and any
-//! activation the caller does not supply.
+//! # Evidence grade and trust boundary
+//! `tested`: `cargo test --test learn_fold_stage` compares every function with the `f64` oracle it
+//! replaced inside a derived grid bound; no Lean refinement links this file, so nothing is
+//! `proved`. Not covered: rustc/LLVM codegen, the reference's fp32 accumulation, the pool's thread
+//! boundary, and any activation the caller does not supply.
 
 #![allow(
+    clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
+    clippy::cast_possible_wrap,
     clippy::many_single_char_names,
     clippy::module_name_repetitions,
     clippy::needless_range_loop,
     clippy::similar_names,
-    clippy::suboptimal_flops,
-    reason = "the flat-slice kernels index row-major `[rows, n]` and `[n, out]` buffers by `i/j/k/o/\
-              r`, and convert `usize` counts to `f64`, reading closer to the reference \
-              `fold_transfer.py` arithmetic than enumerated iterators would; `StageAccum`/\
-              `StageError` in module `stage` repeat the module name by the brief's naming."
+    reason = "the flat-slice kernels index row-major `[rows, n]`/`[n, out]` buffers by `i/j/k/o/r/t`; \
+              `pow2_exp` narrows a masked 11-bit exponent field; `param_q64`'s cast follows a range \
+              check; `StageAccum`/`StageError` repeat the module name by the brief's naming."
 )]
 
+use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
+use crate::engine::chart::task::ChunkTask;
 use crate::learn::fold::stats::hocapture::Kind;
-use crate::learn::ridge::RidgeError;
 use crate::learn::solve::chol::{chol_solve, SolveError};
-use crate::learn::solve::q32::{fill_scale, from_grid, to_grid, GRID_BOUND};
+use crate::learn::solve::q32::{
+    fill_scale, from_grid, ilog2_pos, round_q32_even, rshift_rne, to_grid, GRID_BOUND,
+};
+use crate::numeric::fixed_rsqrt::isqrt;
+
+/// The `Q32.32` word of `1.0`.
+const ONE: i64 = 1 << 32;
+/// The reference row-norm floor `1e-6` as a `Q32.32` word (`round(1e-6·2³²)`).
+const MIN_ROW_NORM: i64 = 4_295;
+/// `2⁶⁴`, the scale that takes an `f64` parameter to `Q64.64`.
+const TWO_POW_64: f64 = 18_446_744_073_709_551_616.0;
 
 /// A refusal from a per-stage statistics or solve operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,31 +68,18 @@ pub enum StageError {
     NonFinite,
     /// The ridged matrix `H + ridge·mean(diag H)·I` was not positive-definite at a `Cholesky` pivot.
     NotPositiveDefinite,
-    /// A Q32.32 boundary conversion, or the primitive's checked `i128` arithmetic, left its range.
+    /// A boundary conversion, or the primitive's checked `i128` arithmetic, left its range.
     Overflow,
     /// A split intra/inter solve was requested for an output with no `Cts` accumulator.
     MissingCts,
 }
 
-impl From<RidgeError> for StageError {
-    fn from(e: RidgeError) -> Self {
-        match e {
-            RidgeError::NotPositiveDefinite => Self::NotPositiveDefinite,
-            RidgeError::ShapeMismatch | RidgeError::IndexOutOfRange => Self::Shape,
-        }
-    }
-}
-
 impl From<SolveError> for StageError {
     fn from(e: SolveError) -> Self {
         match e {
-            // A non-SPD refusal stays a refusal: a non-positive diagonal and a non-positive
-            // `Cholesky` pivot are both "the ridged matrix is not positive-definite".
             SolveError::NotPositiveDefinite | SolveError::NonPositiveDiagonal => {
                 Self::NotPositiveDefinite
             }
-            // `n == 0` is refused as `Shape` by `ridge_solve` before the primitive sees it; an
-            // empty primitive shape therefore maps with the other shape refusal.
             SolveError::ShapeMismatch | SolveError::Empty => Self::Shape,
             SolveError::Overflow => Self::Overflow,
         }
@@ -104,20 +90,19 @@ impl From<SolveError> for StageError {
 /// (`~/lanes/port/spec/pv_finish.py:75-84`, `arm_args`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SolveParams {
-    /// `a.ridge_intra = 0.045` (`pv_finish.py:80`): ridge of the intra-residual solve.
+    /// `a.ridge_intra = 0.045`: ridge of the intra-residual solve.
     pub ridge_intra: f64,
-    /// `a.ridge_inter = 0.025` (`pv_finish.py:80`): ridge of the inter-residual solve.
+    /// `a.ridge_inter = 0.025`: ridge of the inter-residual solve.
     pub ridge_inter: f64,
-    /// `a.inter_gamma = 1.0` (`pv_finish.py:80`): weight of `dW_inter` added to `dW_intra`.
+    /// `a.inter_gamma = 1.0`: weight of `dW_inter` added to `dW_intra`.
     pub inter_gamma: f64,
-    /// `a.ridge_w0_gqa = 0.03` (`pv_finish.py:79`): ridge of the direct solve for q/k/v/gate/up.
+    /// `a.ridge_w0_gqa = 0.03`: ridge of the direct solve for q/k/v/gate/up.
     pub ridge_w0_gqa: f64,
-    /// `a.inter_gamma_in` at the `-gin25` arm (`fold_transfer.py:1450`, `pv_finish.py:80`):
-    /// the step on `dW_inter` for the direct outputs. The production arm runs `gin25`, `0.25`.
+    /// `a.inter_gamma_in = 0.25` (the `-gin25` arm): step on `dW_inter` for the direct outputs.
     pub gin: f64,
-    /// `a.sink_tau = 1.5` (`pv_finish.py:81`): row-norm cap on `dW` relative to `W0`.
+    /// `a.sink_tau = 1.5`: row-norm cap on `dW` relative to `W0`.
     pub sink_tau: f64,
-    /// The width `896` the ridges are scaled by (`n / 896`, `fold_transfer.py:1670-1680`).
+    /// The width `896` the ridges are scaled by (`n / 896`).
     pub n_ref: f64,
 }
 
@@ -135,34 +120,263 @@ impl Default for SolveParams {
     }
 }
 
-/// `r_tok > thresh · r_med ? r_med / max(r_tok, 1e-6) : 1` for every token of the slab
-/// (`fold_transfer.py:1592-1597`).
-///
-/// Per token `r`: `r_t = max(‖h_t‖, ‖p_mid‖, ‖p_out‖)`, `r_s = max(‖h_s‖, ‖p_in_mid‖)` (the second
-/// term only when `p_in_mid` is given), `r_tok = max(r_t, r_s)`. `r_med` is the median of `r_t` over
-/// positions `>= 1` of every sequence in the slab; the reference `torch.median`
-/// (`fold_transfer.py:1596`) returns the **lower** middle element on an even count, so the sorted
-/// population's element at index `(k-1)/2` (integer division) is taken. All row norms are the L2
-/// norm over `width`.
-///
-/// Inputs are row-major `[seqs·t, width]`; `h_t` is the stage input, `p_mid`/`p_out` the teacher
-/// taps of `mid`/`out`, `h_s` the student input and `p_in_mid` the optional student `mid` input. The
-/// returned weights are length `seqs·t`.
-///
+/// `x` as a `Q32.32` word, or [`StageError::Overflow`] outside `|x| < 2³¹`.
+fn word(x: f64) -> Result<i64, StageError> {
+    to_grid(x, GRID_BOUND).ok_or(StageError::Overflow)
+}
+
+/// `v` as an `i64`, or [`StageError::Overflow`] outside its range.
+fn narrow(v: i128) -> Result<i64, StageError> {
+    i64::try_from(v).map_err(|_| StageError::Overflow)
+}
+
+/// `round(v / 2^s)` to nearest, ties to even, narrowed to `i64`.
+fn shift(v: i128, s: u32) -> Result<i64, StageError> {
+    narrow(rshift_rne(v, s).ok_or(StageError::Overflow)?)
+}
+
+/// A `Q64.64` accumulation rounded once to `Q32.32`.
+fn rnd(v: i128) -> Result<i64, StageError> {
+    round_q32_even(v).map_err(|_| StageError::Overflow)
+}
+
+/// `round(num/den)` to nearest, ties away from zero, for `den > 0`.
+fn div_round(num: i128, den: i128) -> Result<i128, StageError> {
+    if den <= 0 {
+        return Err(StageError::Shape);
+    }
+    let half = den / 2;
+    let adj = if num >= 0 {
+        num.checked_add(half)
+    } else {
+        num.checked_sub(half)
+    };
+    Ok(adj.ok_or(StageError::Overflow)? / den)
+}
+
+/// An `f64` parameter as `round(x·2⁶⁴)`: the exact power-of-two rescale keeps `1e-8`'s precision.
+fn param_q64(x: f64) -> Result<i128, StageError> {
+    let q = x * TWO_POW_64;
+    if !q.is_finite() || q.abs() >= 1.701_411_834_604_692_3e38 {
+        return Err(StageError::Overflow);
+    }
+    Ok(q.round() as i128)
+}
+
+/// The exponent `e` with `s == 2^e` for the exact power of two [`fill_scale`] returns.
+fn pow2_exp(s: f64) -> i32 {
+    ((s.to_bits() >> 52) & 0x7ff) as i32 - 1023
+}
+
+/// `v·2^e` narrowed to `i64`, or [`StageError::Overflow`] when the shift leaves the range.
+fn shift_word(v: i64, e: i32) -> Result<i64, StageError> {
+    if e > 100 {
+        return Err(StageError::Overflow);
+    }
+    if e >= 0 {
+        return narrow(i128::from(v) << e);
+    }
+    let k = u32::try_from(-e).map_err(|_| StageError::Overflow)?;
+    shift(i128::from(v), k)
+}
+
+/// The L2 norm of a `Q32.32` row: the floored `isqrt` of the exact `i128` squared sum.
+fn norm_row(row: &[i64]) -> Result<i64, StageError> {
+    let acc = row.iter().try_fold(0i128, |a, &v| {
+        a.checked_add(i128::from(v) * i128::from(v))
+            .ok_or(StageError::Overflow)
+    })?;
+    narrow(isqrt(acc))
+}
+
+/// The `Q32.32` L2 norm of the `f64` row `a[base..base + width]`, converted on the fly.
+fn norm_at(a: &[f64], base: usize, width: usize) -> Result<i64, StageError> {
+    let acc = (base..base + width).try_fold(0i128, |acc, k| {
+        let v = i128::from(word(a[k])?);
+        acc.checked_add(v * v).ok_or(StageError::Overflow)
+    })?;
+    narrow(isqrt(acc))
+}
+
+/// The largest `|entry|` of a slice, for the boundary fill scale.
+fn max_abs(a: &[f64]) -> f64 {
+    a.iter().fold(0.0f64, |m, &v| m.max(v.abs()))
+}
+
+/// `true` iff every entry is finite.
+fn finite(a: &[f64]) -> bool {
+    a.iter().all(|v| v.is_finite())
+}
+
+/// `src·s` on the grid, `s` an exact power of two (`1.0` at the unit boundary).
+fn scaled(src: &[f64], s: f64) -> Result<Vec<i64>, StageError> {
+    src.iter().map(|&v| word(v * s)).collect()
+}
+
+/// `src` on the grid at unit scale.
+fn words(src: &[f64]) -> Result<Vec<i64>, StageError> {
+    scaled(src, 1.0)
+}
+
+/// `src` row-major `[rows, out]` as a `Q32.32` transpose `[out, rows]`, the same panel weighted
+/// linearly by `w`, and the exact unweighted column sums.
+#[allow(
+    clippy::type_complexity,
+    reason = "the three panels are produced and consumed together by every caller."
+)]
+fn panels(
+    src: &[f64],
+    w: &[i64],
+    rows: usize,
+    out: usize,
+) -> Result<(Vec<i64>, Vec<i64>, Vec<i128>), StageError> {
+    let mut plain = vec![0i64; out * rows];
+    let mut weighted = vec![0i64; out * rows];
+    let mut col = vec![0i128; out];
+    for r in 0..rows {
+        for o in 0..out {
+            let v = word(src[r * out + o])?;
+            plain[o * rows + r] = v;
+            let c = col[o].checked_add(i128::from(v));
+            col[o] = c.ok_or(StageError::Overflow)?;
+            weighted[o * rows + r] = rnd(i128::from(v) * i128::from(w[r]))?;
+        }
+    }
+    Ok((plain, weighted, col))
+}
+
+/// The diagonal shift `ridge·(n/n_ref)·mean(diag h)` in `Q32.32`, for `h` in `Q32.32`: the mean is
+/// the rounded quotient of the exact diagonal sum, then one `Q64.64` × `Q32.32` product.
+fn diag_shift(h: &[i64], n: usize, ridge: f64, n_ref: Option<f64>) -> Result<i64, StageError> {
+    let sum = (0..n).try_fold(0i128, |a, i| {
+        a.checked_add(i128::from(h[i * n + i]))
+            .ok_or(StageError::Overflow)
+    })?;
+    let mean = div_round(sum, i128::from(n as i64))?;
+    let rate = match n_ref {
+        Some(nref) if nref.is_finite() && nref > 0.0 => ridge * n as f64 / nref,
+        Some(_) => return Err(StageError::Shape),
+        None => ridge,
+    };
+    let rate_q = param_q64(rate)?;
+    let d = rate_q.checked_mul(mean).ok_or(StageError::Overflow)?;
+    shift(d, 64)
+}
+
+/// `h` with [`diag_shift`] added to every diagonal entry.
+fn ridged(h: &[i64], n: usize, ridge: f64, n_ref: Option<f64>) -> Result<Vec<i64>, StageError> {
+    let mut hr = h.to_vec();
+    let s = diag_shift(h, n, ridge, n_ref)?;
+    for i in 0..n {
+        let at = i * n + i;
+        hr[at] = hr[at].checked_add(s).ok_or(StageError::Overflow)?;
+    }
+    Ok(hr)
+}
+
+/// The common right shift `k` that brings `h` and every `c` below `2⁶¹` raw, so `chol_solve`'s
+/// `a_ij << 64` products stay inside `i128`; a common factor on both sides leaves `X` unchanged.
+fn grid_shift(slices: &[&[i64]]) -> u32 {
+    let mx = slices
+        .iter()
+        .flat_map(|s| s.iter())
+        .fold(0u128, |m, &v| m.max(u128::from(v.unsigned_abs())));
+    ilog2_pos(mx).map_or(0, |bits| (bits + 1).saturating_sub(61))
+}
+
+/// `src / 2^k` on the grid.
+fn shift_words(src: &[i64], k: u32) -> Result<Vec<i64>, StageError> {
+    src.iter().map(|&v| shift(i128::from(v), k)).collect()
+}
+
+/// `a − b` entrywise on the grid.
+fn sub_words(a: &[i64], b: &[i64]) -> Result<Vec<i64>, StageError> {
+    let mut d = Vec::with_capacity(a.len());
+    for (&x, &y) in a.iter().zip(b) {
+        d.push(x.checked_sub(y).ok_or(StageError::Overflow)?);
+    }
+    Ok(d)
+}
+
+/// `dst[i·out + o] (=)+= Σ_t x[i·rows + t]·y[o·rows + t]`, one `Q64.64` sum per entry rounded once:
+/// the slab Gram (`replace`, `x = y`), the cross-Gram (`Cs`/`Cts`), the `H·W0ᵀ` matvec and the
+/// solve's `dW` step. Both operands are contiguous `[·, rows]` panels.
+struct Dot<'a> {
+    x: &'a [i64],
+    y: &'a [i64],
+    rows: usize,
+    out: usize,
+    replace: bool,
+    first: &'a FirstErr<usize, StageError>,
+}
+impl ChunkTask<i64> for Dot<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [i64]) {
+        let (out, rows) = (self.out, self.rows);
+        let lo = start / out;
+        for r in 0..piece.len() / out {
+            for o in 0..out {
+                let mut acc: i128 = 0;
+                for t in 0..rows {
+                    let p =
+                        i128::from(self.x[(lo + r) * rows + t]) * i128::from(self.y[o * rows + t]);
+                    acc = match acc.checked_add(p) {
+                        Some(s) => s,
+                        None => return self.first.record(start, StageError::Overflow),
+                    };
+                }
+                let at = r * out + o;
+                let base = if self.replace { 0 } else { piece[at] };
+                match rnd(acc).and_then(|w| base.checked_add(w).ok_or(StageError::Overflow)) {
+                    Ok(v) => piece[at] = v,
+                    Err(e) => return self.first.record(start, e),
+                }
+            }
+        }
+    }
+}
+
+/// `rows·n·out` `i128` multiply-adds per call, `≥ 10⁶` at the production shapes — the one pooled
+/// entry point, called once per Gram, per output per slab, and per solve residual.
+fn dot(
+    dst: &mut [i64],
+    x: &[i64],
+    y: &[i64],
+    rows: usize,
+    out: usize,
+    replace: bool,
+) -> Result<(), StageError> {
+    if dst.is_empty() {
+        return Ok(());
+    }
+    let first: FirstErr<usize, StageError> = FirstErr::new();
+    let task = Dot {
+        x,
+        y,
+        rows,
+        out,
+        replace,
+        first: &first,
+    };
+    // `~2·width` chunks over the output rows, so every participant gets a few.
+    let rows = dst.len() / out;
+    let chunk = rows.div_ceil(width_global().saturating_mul(2)).max(1) * out;
+    chunks_mut_global(dst, chunk, &task);
+    first.take().map_or(Ok(()), |(_, e)| Err(e))
+}
+
+/// `r_tok > thresh·r_med ? r_med/max(r_tok, 1e-6) : 1` per token (`fold_transfer.py:1592-1597`).
+/// `r_t = max(‖h_t‖, ‖p_mid‖, ‖p_out‖)`, `r_s = max(‖h_s‖, ‖p_in_mid‖)`, `r_tok = max(r_t, r_s)`;
+/// `r_med` is the median of `r_t` over positions `>= 1` of every sequence (`torch.median`'s lower
+/// middle element). Inputs are row-major `[seqs·t, width]`.
 /// # Complexity
-///
-/// Temporal `O(seqs·t·width + k·log k)` with `k = seqs·(t−1)` (the norms dominate; the sort is the
-/// median). Spatial `O(seqs·t + k)`.
-///
+/// Time `O(seqs·t·width + k·log k)`, `k = seqs·(t−1)`, serial; space `O(seqs·t + k)`.
 /// # Errors
-///
-/// [`StageError::Empty`] if `t < 2` (no median population); [`StageError::Shape`] if a slice length
-/// disagrees with `seqs·t·width`; [`StageError::NonFinite`] if any input entry is NaN or infinite.
+/// [`StageError::Empty`] for `t < 2`, [`StageError::Shape`] on a length mismatch,
+/// [`StageError::NonFinite`] on a NaN/∞ entry, [`StageError::Overflow`] on a checked step.
 #[allow(
     clippy::too_many_arguments,
-    reason = "the reference passes the three tapped tensors, the stage input, the optional mid \
-              input, the slab geometry and the threshold as separate arguments \
-              (`fold_transfer.py:1592-1597`); a struct would only relocate them."
+    reason = "the reference passes the tapped tensors, the stage input, the optional mid input, the \
+              geometry and the threshold separately (`fold_transfer.py:1592-1597`)."
 )]
 pub fn sink_token_weights(
     h_t: &[f64],
@@ -179,56 +393,42 @@ pub fn sink_token_weights(
     if rows == 0 || width == 0 || t < 2 {
         return Err(StageError::Empty);
     }
-    if h_t.len() != rows * width
-        || p_mid.len() != rows * width
-        || p_out.len() != rows * width
-        || h_s.len() != rows * width
-    {
+    let ins = [h_t, p_mid, p_out, h_s];
+    let bad = |s: &[f64]| s.len() != rows * width;
+    if ins.iter().any(|s| bad(s)) || p_in_mid.is_some_and(bad) {
         return Err(StageError::Shape);
     }
-    if let Some(p) = p_in_mid {
-        if p.len() != rows * width {
-            return Err(StageError::Shape);
-        }
-    }
-    if !(finite(h_t)
-        && finite(p_mid)
-        && finite(p_out)
-        && finite(h_s)
-        && p_in_mid.is_none_or(finite))
-    {
+    if !ins.iter().all(|s| finite(s)) || p_in_mid.is_some_and(|p| !finite(p)) {
         return Err(StageError::NonFinite);
     }
-    let mut r_t = vec![0.0f64; rows];
-    let mut r_tok = vec![0.0f64; rows];
+    let mut r_t = vec![0i64; rows];
     for r in 0..rows {
         let base = r * width;
-        let rt = norm(&h_t[base..base + width])
-            .max(norm(&p_mid[base..base + width]))
-            .max(norm(&p_out[base..base + width]));
-        let mut rs = norm(&h_s[base..base + width]);
-        if let Some(p) = p_in_mid {
-            rs = rs.max(norm(&p[base..base + width]));
-        }
-        r_t[r] = rt;
-        r_tok[r] = rt.max(rs);
+        r_t[r] = norm_at(h_t, base, width)?
+            .max(norm_at(p_mid, base, width)?)
+            .max(norm_at(p_out, base, width)?);
     }
-    // The median population: positions >= 1 of every sequence, `torch.median`'s lower middle.
-    let mut med: Vec<f64> = Vec::with_capacity(seqs * (t - 1));
-    for s in 0..seqs {
-        for p in 1..t {
-            med.push(r_t[s * t + p]);
-        }
-    }
+    // Positions >= 1 of every sequence; `torch.median`'s lower middle is `(k-1)/2`.
+    let mut med: Vec<i64> = (0..seqs)
+        .flat_map(|s| r_t[s * t + 1..(s + 1) * t].iter().copied())
+        .collect();
     if med.is_empty() {
         return Err(StageError::Empty);
     }
-    med.sort_by(f64::total_cmp);
+    med.sort_unstable();
     let r_med = med[(med.len() - 1) / 2];
+    let thresh_q = word(thresh)?;
     let mut w = vec![0.0f64; rows];
     for r in 0..rows {
-        w[r] = if r_tok[r] > thresh * r_med {
-            r_med / r_tok[r].max(1e-6)
+        let base = r * width;
+        let mut rs = norm_at(h_s, base, width)?;
+        if let Some(p) = p_in_mid {
+            rs = rs.max(norm_at(p, base, width)?);
+        }
+        let tok = r_t[r].max(rs).max(MIN_ROW_NORM);
+        let num = i128::from(r_med) << 32;
+        w[r] = if i128::from(tok) * i128::from(ONE) > i128::from(thresh_q) * i128::from(r_med) {
+            from_grid(narrow(div_round(num, i128::from(tok))?)?)
         } else {
             1.0
         };
@@ -237,7 +437,8 @@ pub fn sink_token_weights(
 }
 
 /// The per-stage normal-equation accumulator over slabs of a calibration set
-/// (`fold_transfer.py:1541-1648`).
+/// (`fold_transfer.py:1541-1648`). `hm_w`, `cs` and `cts` are `Q32.32` words; `hm`, `x_sum`,
+/// `y_sum` and `n_toks` are the caller's `f64` view, computed on the grid per slab.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StageAccum {
     /// Input width `n`.
@@ -246,52 +447,46 @@ pub struct StageAccum {
     pub outs: Vec<usize>,
     /// Whether output `j` carries a `Cts` accumulator (`split_intra_inter` on `o`/`down`).
     pub with_ts: Vec<bool>,
-    /// `Hm = Σ XᵀX`, row-major `[n, n]`, unweighted.
+    /// `Hm = Σ XᵀX`, row-major `[n, n]`, unweighted (caller's `f64` view).
     pub hm: Vec<f64>,
     /// `Hm_w = Σ XwᵀXw`, row-major `[n, n]`, `Xw = X·w` (linear weight).
-    pub hm_w: Vec<f64>,
+    pub hm_w: Vec<i64>,
     /// `Cs[j] = Σ Xwᵀ(Y_j·w)`, row-major `[n, outs[j]]`.
-    pub cs: Vec<Vec<f64>>,
-    /// `Cts[j] = Σ Xwᵀ(Y_ts_j·w)`, row-major `[n, outs[j]]`; empty when `with_ts[j]` is `false`.
-    pub cts: Vec<Vec<f64>>,
-    /// `x_sum = Σ X`, length `n`, unweighted.
+    pub cs: Vec<Vec<i64>>,
+    /// `Cts[j] = Σ Xwᵀ(Y_ts_j·w)`, row-major `[n, outs[j]]`; empty where `with_ts[j]` is `false`.
+    pub cts: Vec<Vec<i64>>,
+    /// `x_sum = Σ X`, length `n`, unweighted (caller's `f64` view).
     pub x_sum: Vec<f64>,
-    /// `y_sum[j] = Σ Y_j`, length `outs[j]`, unweighted.
+    /// `y_sum[j] = Σ Y_j`, length `outs[j]`, unweighted (caller's `f64` view).
     pub y_sum: Vec<Vec<f64>>,
-    /// The token count `Σ rows` folded in so far.
+    /// The token count `Σ rows` folded in so far (caller's `f64` view).
     pub n_toks: f64,
 }
 
 impl StageAccum {
-    /// A zeroed accumulator for input width `n` and the stage's output widths `outs`, with
-    /// `with_ts[j]` naming the outputs that carry a `Cts` (`o`/`down` under `split_intra_inter`).
-    ///
+    /// A zeroed accumulator for input width `n` and outputs `outs`; `with_ts[j]` names the outputs
+    /// that carry a `Cts` (`o`/`down` under `split_intra_inter`).
     /// # Complexity
-    ///
-    /// Temporal and spatial `O(n² + n·Σ outs)`.
-    ///
+    /// Time and space `O(n² + n·Σ outs)`.
     /// # Errors
-    ///
     /// [`StageError::Shape`] if `outs` and `with_ts` differ in length, or `n == 0`.
     pub fn new(n: usize, outs: &[usize], with_ts: &[bool]) -> Result<Self, StageError> {
         if n == 0 || outs.len() != with_ts.len() {
             return Err(StageError::Shape);
         }
-        let m = outs.len();
-        let mut cs = Vec::with_capacity(m);
-        let mut cts = Vec::with_capacity(m);
-        let mut y_sum = Vec::with_capacity(m);
-        for (&o, &ts) in outs.iter().zip(with_ts) {
-            cs.push(vec![0.0f64; n * o]);
-            cts.push(if ts { vec![0.0f64; n * o] } else { Vec::new() });
-            y_sum.push(vec![0.0f64; o]);
-        }
+        let cs = outs.iter().map(|&o| vec![0i64; n * o]).collect();
+        let cts = outs
+            .iter()
+            .zip(with_ts)
+            .map(|(&o, &ts)| if ts { vec![0i64; n * o] } else { Vec::new() })
+            .collect();
+        let y_sum = outs.iter().map(|&o| vec![0.0f64; o]).collect();
         Ok(Self {
             n,
             outs: outs.to_vec(),
             with_ts: with_ts.to_vec(),
             hm: vec![0.0f64; n * n],
-            hm_w: vec![0.0f64; n * n],
+            hm_w: vec![0i64; n * n],
             cs,
             cts,
             x_sum: vec![0.0f64; n],
@@ -300,21 +495,16 @@ impl StageAccum {
         })
     }
 
-    /// Fold one slab: `x` is row-major `[rows, n]`, `w_tok` length `rows`, `ys[j]` row-major
-    /// `[rows, outs[j]]` and `y_ts[j]` the `o`/`down` teacher-target block (`None` where
-    /// `with_ts[j]` is `false`). Accumulates `Hm`, `Hm_w`, `Cs`, `Cts`, `x_sum`, `y_sum` and the
-    /// token count as `fold_transfer.py:1590-1647`; the `rows` loop is the dominant cost.
-    ///
+    /// Fold one slab: `x` row-major `[rows, n]`, `w_tok` length `rows`, `ys[j]` row-major
+    /// `[rows, outs[j]]`, `y_ts[j]` the `o`/`down` target block (`None` where `with_ts[j]` is
+    /// `false`). Accumulates `Hm`, `Hm_w`, `Cs`, `Cts`, `x_sum`, `y_sum` and the token count
+    /// (`fold_transfer.py:1590-1647`) with every contraction an exact `i128` sum rounded once.
     /// # Complexity
-    ///
-    /// Temporal `O(rows·(n² + n·Σ outs))` — the `Hm`/`Hm_w` scatter alone is `O(rows·n²)` and is the
-    /// dominant term; spatial `O(1)` beyond the existing accumulators.
-    ///
+    /// Time `O(rows·(n² + n·Σ outs))` `i128` multiply-adds; the pooled Gram (`rows·n²`) dominates;
+    /// space `O(rows·(n + Σ outs) + n²)`.
     /// # Errors
-    ///
-    /// [`StageError::Shape`] if a slice length disagrees with the declared geometry (including a
-    /// missing `y_ts[j]` where `with_ts[j]` is `true`); [`StageError::NonFinite`] if any input entry
-    /// is NaN or infinite.
+    /// [`StageError::Shape`] on a length or geometry mismatch (including a missing `y_ts[j]`),
+    /// [`StageError::NonFinite`] on a NaN/∞ entry, [`StageError::Overflow`] on a checked step.
     pub fn add_slab(
         &mut self,
         x: &[f64],
@@ -325,85 +515,47 @@ impl StageAccum {
         let rows = w_tok.len();
         let n = self.n;
         let m = self.outs.len();
-        if x.len() != rows * n || ys.len() != m || y_ts.len() != m {
+        if x.len() != rows * n
+            || ys.len() != m
+            || y_ts.len() != m
+            || (0..m).any(|j| {
+                ys[j].len() != rows * self.outs[j]
+                    || (self.with_ts[j] && y_ts[j].is_none_or(|s| s.len() != rows * self.outs[j]))
+            })
+        {
             return Err(StageError::Shape);
         }
-        for j in 0..m {
-            if ys[j].len() != rows * self.outs[j] {
-                return Err(StageError::Shape);
-            }
-            if self.with_ts[j] && y_ts[j].is_none_or(|s| s.len() != rows * self.outs[j]) {
-                return Err(StageError::Shape);
-            }
-        }
-        if !finite(x) || !finite(w_tok) || ys.iter().any(|s| !finite(s)) {
+        if !finite(x)
+            || !finite(w_tok)
+            || ys.iter().any(|s| !finite(s))
+            || (0..m).any(|j| self.with_ts[j] && y_ts[j].is_some_and(|s| !finite(s)))
+        {
             return Err(StageError::NonFinite);
         }
-        for j in 0..m {
-            if self.with_ts[j] {
-                if let Some(s) = y_ts[j] {
-                    if !finite(s) {
-                        return Err(StageError::NonFinite);
-                    }
-                }
-            }
+        let wq = words(w_tok)?;
+        let (xt, xwt, xsum) = panels(x, &wq, rows, n)?;
+        let mut g = vec![0i64; n * n];
+        dot(&mut g, &xt, &xt, rows, n, true)?;
+        for (h, &v) in self.hm.iter_mut().zip(&g) {
+            *h += from_grid(v);
         }
-        // Hm = Σ XᵀX and Hm_w = Σ Xwᵀ Xw, Xw = X·w with the weight applied linearly.
-        for r in 0..rows {
-            let xrow = &x[r * n..r * n + n];
-            let w = w_tok[r];
-            for i in 0..n {
-                self.x_sum[i] += xrow[i];
-            }
-            for i in 0..n {
-                let xi = xrow[i];
-                let hmi = &mut self.hm[i * n..i * n + n];
-                let hmwi = &mut self.hm_w[i * n..i * n + n];
-                for j in 0..n {
-                    let (xm_i, xm_j) = (xi * w, xrow[j] * w);
-                    hmi[j] += xi * xrow[j];
-                    hmwi[j] += xm_i * xm_j;
-                }
-            }
+        dot(&mut g, &xwt, &xwt, rows, n, true)?;
+        for (h, &v) in self.hm_w.iter_mut().zip(&g) {
+            *h = h.checked_add(v).ok_or(StageError::Overflow)?;
         }
-        // Cs, Cts, y_sum.
+        for (s, &v) in self.x_sum.iter_mut().zip(&xsum) {
+            *s += from_grid(narrow(v)?);
+        }
         for j in 0..m {
             let out = self.outs[j];
-            let yrow_all = ys[j];
-            for r in 0..rows {
-                let xrow = &x[r * n..r * n + n];
-                let w = w_tok[r];
-                let yrow = &yrow_all[r * out..r * out + out];
-                for i in 0..n {
-                    let xwi = xrow[i] * w;
-                    let csi = &mut self.cs[j][i * out..i * out + out];
-                    for o in 0..out {
-                        csi[o] += xwi * (yrow[o] * w);
-                    }
-                }
+            let (_, ywt, ysum) = panels(ys[j], &wq, rows, out)?;
+            dot(&mut self.cs[j], &xwt, &ywt, rows, out, false)?;
+            for (s, &v) in self.y_sum[j].iter_mut().zip(&ysum) {
+                *s += from_grid(narrow(v)?);
             }
-            if self.with_ts[j] {
-                if let Some(yts) = y_ts[j] {
-                    for r in 0..rows {
-                        let xrow = &x[r * n..r * n + n];
-                        let w = w_tok[r];
-                        let yrow = &yts[r * out..r * out + out];
-                        for i in 0..n {
-                            let xwi = xrow[i] * w;
-                            let cti = &mut self.cts[j][i * out..i * out + out];
-                            for o in 0..out {
-                                cti[o] += xwi * (yrow[o] * w);
-                            }
-                        }
-                    }
-                }
-            }
-            for o in 0..out {
-                let mut s = 0.0f64;
-                for r in 0..rows {
-                    s += yrow_all[r * out + o];
-                }
-                self.y_sum[j][o] += s;
+            if let Some(yts) = y_ts[j].filter(|_| self.with_ts[j]) {
+                let twt = panels(yts, &wq, rows, out)?.1;
+                dot(&mut self.cts[j], &xwt, &twt, rows, out, false)?;
             }
         }
         self.n_toks += rows as f64;
@@ -411,25 +563,19 @@ impl StageAccum {
     }
 }
 
-/// The `fold_gqa` split intra/inter solve (`fold_transfer.py:1652-1682`) for one stage.
-///
-/// `H_solve = Hm_w`. For [`Kind::O`]/[`Kind::Down`] the residual against the anchor `W0` is split
-/// into `C_intra = Cts − H_solve·W0ᵀ` and `C_inter = Cs − Cts`, each solved with
-/// [`ridge_solve`] at `ridge_intra·(n/n_ref)` and `ridge_inter·(n/n_ref)`, combined as
-/// `dW = dW_intra + inter_gamma·dW_inter` and, under `sink_tau > 0`, row-capped at
-/// `sink_tau·max(‖W0_row‖, 1e-6)`. For the other kinds the direct residual `Cs − H_solve·W0ᵀ` is
-/// solved at `ridge_w0_gqa·(n/n_ref)` and stepped by `gin`. `Ws[j] = W0[j] + dW` (`[outs[j], n]`).
-///
+/// The `fold_gqa` split intra/inter solve (`fold_transfer.py:1652-1682`) for one stage:
+/// `H_solve = Hm_w`. For [`Kind::O`]/[`Kind::Down`] the residual against `W0` is split into
+/// `C_intra = Cts − H_solve·W0ᵀ` and `C_inter = Cs − Cts`, solved at `ridge_intra·(n/n_ref)` and
+/// `ridge_inter·(n/n_ref)`, combined as `dW = dW_intra + inter_gamma·dW_inter` and row-capped at
+/// `sink_tau·max(‖W0_row‖, 1e-6)` under `sink_tau > 0`. Other kinds solve the direct residual
+/// `Cs − H_solve·W0ᵀ` at `ridge_w0_gqa·(n/n_ref)` and step by `gin`.
 /// # Complexity
-///
-/// Temporal `O(Σ_j (n³ + n²·outs[j]))` — one `Cholesky`/solve per residual; spatial
-/// `O(n² + Σ_j n·outs[j])`.
-///
+/// Time `O(Σ_j (n³ + n²·outs[j]))` `i128` multiply-adds: one pooled `H·W0ᵀ`, one `Cholesky`
+/// (`n³/3`) and one or two triangular solves per residual; space `O(n² + Σ_j n·outs[j])`.
 /// # Errors
-///
-/// [`StageError::Shape`] if `w0`/`kinds` disagree with the accumulator's outputs or a `w0[j]` length
-/// is wrong; [`StageError::MissingCts`] if an `o`/`down` output has no `Cts`; and the solve's
-/// [`StageError::NotPositiveDefinite`].
+/// [`StageError::Shape`] on a `w0`/`kinds` mismatch, [`StageError::MissingCts`] for an `o`/`down`
+/// output with no `Cts`, [`StageError::NotPositiveDefinite`] from the solve,
+/// [`StageError::Overflow`] on a checked step.
 pub fn solve_stage(
     accum: &StageAccum,
     w0: &[&[f64]],
@@ -438,111 +584,83 @@ pub fn solve_stage(
 ) -> Result<Vec<Vec<f64>>, StageError> {
     let n = accum.n;
     let m = accum.outs.len();
-    if n == 0 || w0.len() != m || kinds.len() != m {
+    let bad = |j: usize| w0[j].len() != accum.outs[j] * n;
+    if n == 0 || w0.len() != m || kinds.len() != m || (0..m).any(bad) {
         return Err(StageError::Shape);
     }
-    for j in 0..m {
-        if w0[j].len() != accum.outs[j] * n {
-            return Err(StageError::Shape);
-        }
-    }
-    let h = &accum.hm_w;
-    let lam_scale = n as f64 / p.n_ref;
     let mut ws = Vec::with_capacity(m);
     for j in 0..m {
         let out = accum.outs[j];
-        let w0j = w0[j];
-        let c0 = matmul_h_wt(h, w0j, n, out);
-        match kinds[j] {
-            Kind::O | Kind::Down => {
-                if !accum.with_ts[j] {
-                    return Err(StageError::MissingCts);
-                }
-                let cts = &accum.cts[j];
-                let cs = &accum.cs[j];
-                let mut c_intra = vec![0.0f64; n * out];
-                let mut c_inter = vec![0.0f64; n * out];
-                for k in 0..n * out {
-                    c_intra[k] = cts[k] - c0[k];
-                    c_inter[k] = cs[k] - cts[k];
-                }
-                let d_intra = ridge_solve(h, &c_intra, n, out, p.ridge_intra * lam_scale)?;
-                let d_inter = ridge_solve(h, &c_inter, n, out, p.ridge_inter * lam_scale)?;
-                let mut dw = vec![0.0f64; out * n];
-                for k in 0..out * n {
-                    dw[k] = d_intra[k] + p.inter_gamma * d_inter[k];
-                }
-                if p.sink_tau > 0.0 {
-                    for o in 0..out {
-                        let row = &mut dw[o * n..o * n + n];
-                        let w0_row = &w0j[o * n..o * n + n];
-                        let w0_rn = norm(w0_row).max(1e-6);
-                        let dw_rn = norm(row).max(1e-6);
-                        if dw_rn > p.sink_tau * w0_rn {
-                            let scale = p.sink_tau * w0_rn / dw_rn;
-                            for v in row.iter_mut() {
-                                *v *= scale;
-                            }
+        let wq = words(w0[j])?;
+        let mut c0 = vec![0i64; n * out];
+        dot(&mut c0, &accum.hm_w, &wq, n, out, false)?;
+        let d = if matches!(kinds[j], Kind::O | Kind::Down) {
+            if !accum.with_ts[j] {
+                return Err(StageError::MissingCts);
+            }
+            let ci = sub_words(&accum.cts[j], &c0)?;
+            let cx = sub_words(&accum.cs[j], &accum.cts[j])?;
+            let k = grid_shift(&[&accum.hm_w, &ci, &cx]);
+            let hq = shift_words(&accum.hm_w, k)?;
+            let (ciq, cxq) = (shift_words(&ci, k)?, shift_words(&cx, k)?);
+            let d_intra = chol_solve(&ridged(&hq, n, p.ridge_intra, Some(p.n_ref))?, &ciq, n, out)?;
+            let d_inter = chol_solve(&ridged(&hq, n, p.ridge_inter, Some(p.n_ref))?, &cxq, n, out)?;
+            let gamma = word(p.inter_gamma)?;
+            let mut dw = vec![0i64; out * n];
+            for (at, (&d_in, &d_ix)) in d_intra.x.iter().zip(&d_inter.x).enumerate() {
+                let t = rnd(i128::from(gamma) * i128::from(d_ix))?;
+                dw[(at % out) * n + at / out] = d_in.checked_add(t).ok_or(StageError::Overflow)?;
+            }
+            if p.sink_tau > 0.0 {
+                let tau = word(p.sink_tau)?;
+                for o in 0..out {
+                    let row = o * n..o * n + n;
+                    let w0_rn = norm_row(&wq[row.clone()])?.max(MIN_ROW_NORM);
+                    let dw_rn = norm_row(&dw[row.clone()])?.max(MIN_ROW_NORM);
+                    if i128::from(dw_rn) * i128::from(ONE) > i128::from(tau) * i128::from(w0_rn) {
+                        let num = i128::from(tau) * i128::from(w0_rn);
+                        let s = narrow(div_round(num, i128::from(dw_rn))?)?;
+                        for v in &mut dw[row] {
+                            *v = rnd(i128::from(*v) * i128::from(s))?;
                         }
                     }
                 }
-                let mut wsj = vec![0.0f64; out * n];
-                for k in 0..out * n {
-                    wsj[k] = w0j[k] + dw[k];
-                }
-                ws.push(wsj);
             }
-            _ => {
-                let cs = &accum.cs[j];
-                let mut c_inter = vec![0.0f64; n * out];
-                for k in 0..n * out {
-                    c_inter[k] = cs[k] - c0[k];
-                }
-                let d_inter = ridge_solve(h, &c_inter, n, out, p.ridge_w0_gqa * lam_scale)?;
-                let mut wsj = vec![0.0f64; out * n];
-                for k in 0..out * n {
-                    wsj[k] = w0j[k] + p.gin * d_inter[k];
-                }
-                ws.push(wsj);
+            dw
+        } else {
+            let cx = sub_words(&accum.cs[j], &c0)?;
+            let k = grid_shift(&[&accum.hm_w, &cx]);
+            let hq = shift_words(&accum.hm_w, k)?;
+            let cxq = shift_words(&cx, k)?;
+            let hr = ridged(&hq, n, p.ridge_w0_gqa, Some(p.n_ref))?;
+            let d = chol_solve(&hr, &cxq, n, out)?;
+            let gin = word(p.gin)?;
+            let mut dw = vec![0i64; out * n];
+            for (at, &v) in d.x.iter().enumerate() {
+                dw[(at % out) * n + at / out] = rnd(i128::from(gin) * i128::from(v))?;
             }
+            dw
+        };
+        let mut wsj = vec![0.0f64; out * n];
+        for at in 0..out * n {
+            wsj[at] = from_grid(wq[at].checked_add(d[at]).ok_or(StageError::Overflow)?);
         }
+        ws.push(wsj);
     }
     Ok(ws)
 }
 
 /// The ridge normal-equation solve `ridge_solve(H, C, ridge)` (`fold_transfer.py:426-428`):
-/// `Hr = H` with `diag(Hr) += ridge·mean(diag H)`, then `Hr·X = C`, returning `Xᵀ` (shape
-/// `[out, n]`).
-///
-/// The solve is the shared primitive [`chol_solve`] in Q32.32 `i64` — diagonal-equilibrated blocked
-/// `Cholesky` with one exact-residual refinement step — not a second f64 path. The fold stays f64;
-/// the conversion is at this boundary only.
-///
-/// # Q32.32 boundary rule
-///
-/// `Hr` and `C` are each rounded to nearest Q32.32 with their own exact power-of-two unit,
-/// `unit_h = s_h·2³²` and `unit_c = s_c·2³²`, where [`fill_scale`] picks `s_h` from `max|Hr|` and
-/// `s_c` from `max|C|` so each magnitude fills the primitive's input range `|v| < 2³¹` (a
-/// magnitude that exceeds the bound is scaled down, one that is smaller is scaled up). The
-/// primitive solves `(s_h·Hr)·X_q = (s_c·C)`, so `X_q = (s_c/s_h)·X` and the solution is unscaled
-/// back to `X = (s_h/s_c)·X_q`; the common-factor case `s_h = s_c` leaves `X` invariant (the undo
-/// is the identity). Scaling both sides is what removes the reciprocal factor a one-sided scaling
-/// would leave on `X`, and filling both is what keeps `X_q` near the top of the Q32.32 range so `X`
-/// keeps its fixed-point precision. A NaN or infinite entry is refused rather than scaled; an entry
-/// whose scaled, rounded raw value leaves `i64` is [`StageError::Overflow`].
-///
-/// `h` is row-major `[n, n]`, `c` row-major `[n, out]`; the returned matrix is row-major `[out, n]`.
-///
+/// `Hr = H` with `diag(Hr) += ridge·mean(diag H)`, then `Hr·X = C`, returning `Xᵀ` (`[out, n]`);
+/// `h` is row-major `[n, n]`, `c` row-major `[n, out]`. The solve is the shared [`chol_solve`].
+/// `H` and `C` are each rounded with their own exact power-of-two unit from [`fill_scale`], so each
+/// fills `|v| < 2³¹`; the primitive's `X_q = (s_c/s_h)·X` is unscaled back by one exact shift.
 /// # Complexity
-///
-/// Temporal `O(n³ + n²·out)`; spatial `O(n² + n·out)`.
-///
+/// Time `O(n³ + n²·out)`; space `O(n² + n·out)`.
 /// # Errors
-///
-/// [`StageError::Shape`] if `h.len() != n²` or `c.len() != n·out`;
-/// [`StageError::NonFinite`] if `Hr` or `C` carries a NaN or infinite entry;
-/// [`StageError::Overflow`] on a boundary conversion or checked primitive overflow;
-/// [`StageError::NotPositiveDefinite`] if `Hr` is not positive-definite.
+/// [`StageError::Shape`] if a length disagrees with `n`/`out`, [`StageError::NonFinite`] on a
+/// NaN/∞ entry, [`StageError::NotPositiveDefinite`] if `Hr` is not positive-definite,
+/// [`StageError::Overflow`] on a boundary or primitive overflow.
 pub fn ridge_solve(
     h: &[f64],
     c: &[f64],
@@ -553,92 +671,57 @@ pub fn ridge_solve(
     if n == 0 || h.len() != n * n || c.len() != n * out {
         return Err(StageError::Shape);
     }
-    let mean = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
-    let mut hr = h.to_vec();
-    let add = ridge * mean;
-    for i in 0..n {
-        hr[i * n + i] += add;
-    }
-    if !finite(&hr) || !finite(c) {
+    if !finite(h) || !finite(c) {
         return Err(StageError::NonFinite);
     }
-    let max_h = hr.iter().fold(0.0f64, |m, &v| m.max(v.abs()));
-    let max_c = c.iter().fold(0.0f64, |m, &v| m.max(v.abs()));
-    let s_h = fill_scale(max_h);
-    let s_c = fill_scale(max_c);
-    // `v·s` is an exact power-of-two rescale, so `to_grid(v·s)` is `round(v·(s·2³²))`; `None` is a
-    // scaled value outside the grid (finiteness was checked above).
-    let fill = |v: f64, s: f64| to_grid(v * s, GRID_BOUND).ok_or(StageError::Overflow);
-    let mut hq = Vec::with_capacity(hr.len());
-    for &v in &hr {
-        hq.push(fill(v, s_h)?);
-    }
-    let mut cq = Vec::with_capacity(c.len());
-    for &v in c {
-        cq.push(fill(v, s_c)?);
-    }
-    // x = Hr⁻¹ C, row-major [n, out]; the reference returns xᵀ ([out, n]). The primitive solves the
-    // filled system `(s_h·Hr)·X_q = (s_c·C)`, so `X = (s_h/s_c)·X_q`.
-    let solved = chol_solve(&hq, &cq, n, out)?;
-    let unscale = s_h / s_c;
+    let (s_h, s_c) = (fill_scale(max_abs(h)), fill_scale(max_abs(c)));
+    let hq = scaled(h, s_h)?;
+    let cq = scaled(c, s_c)?;
+    let solved = chol_solve(&ridged(&hq, n, ridge, None)?, &cq, n, out)?;
+    let e = pow2_exp(s_h) - pow2_exp(s_c);
+    // `solved.x` is `[n, out]`; the returned `Xᵀ` is `[out, n]`.
     let mut out_t = vec![0.0f64; out * n];
-    for i in 0..n {
-        for o in 0..out {
-            out_t[o * n + i] = from_grid(solved.x[i * out + o]) * unscale;
-        }
+    for (at, &v) in solved.x.iter().enumerate() {
+        out_t[(at % out) * n + at / out] = from_grid(shift_word(v, e)?);
     }
     Ok(out_t)
 }
 
-/// The metric matrix `Hl = H` with `diag += ridge·mean(diag H)` (`fold_transfer.py:430-432`).
-///
-/// Distinct from [`crate::learn::fold::fit::icm::ridged_metric`], which additionally scales the shift
-/// by `n / 896`; here the shift is `ridge·mean(diag H)` alone.
-///
+/// The metric matrix `Hl = H` with `diag += ridge·mean(diag H)` (`fold_transfer.py:430-432`), added
+/// on the grid by [`diag_shift`]; unlike [`crate::learn::fold::fit::icm::ridged_metric`] the shift
+/// is not scaled by `n/896`.
 /// # Complexity
-///
-/// Temporal and spatial `O(n²)`.
-///
+/// Time and space `O(n²)`, serial.
 /// # Errors
-///
-/// [`StageError::Shape`] if `hm.len() != n²` or `n == 0`.
+/// [`StageError::Shape`] if `hm.len() != n²` or `n == 0`; [`StageError::Overflow`] on a checked
+/// step.
 pub fn metric(hm: &[f64], n: usize, ridge: f64) -> Result<Vec<f64>, StageError> {
     if n == 0 || hm.len() != n * n {
         return Err(StageError::Shape);
     }
-    let mut h = hm.to_vec();
-    let mean = (0..n).map(|i| hm[i * n + i]).sum::<f64>() / n as f64;
-    let add = ridge * mean;
-    for i in 0..n {
-        h[i * n + i] += add;
-    }
-    Ok(h)
+    let s = fill_scale(max_abs(hm));
+    let h = ridged(&scaled(hm, s)?, n, ridge, None)?;
+    let e = -pow2_exp(s);
+    h.iter().map(|&v| shift_word(v, e).map(from_grid)).collect()
 }
 
-/// The post-quantisation bias update `db = (y_sum − Wp·x_sum) / n_toks` (`fold_transfer.py:1880`),
-/// applied to `q`/`k`/`v` after the quantised weight `Wp` (`[out, n]`) is fixed.
-///
+/// The post-quantisation bias update `db = (y_sum − Wp·x_sum)/n_toks` (`fold_transfer.py:1880`) for
+/// the `q`/`k`/`v` biases after `Wp` (`[out, n]`) is fixed: the exact `i128` dot product subtracted
+/// from `y_sum·2³²` is `Q64.64`, divided by the `Q32.32` token count.
 /// # Complexity
-///
-/// Temporal `O(out·n)`; spatial `O(out)`.
-///
+/// Time and space `O(out·n)`, serial.
 /// # Errors
-///
-/// [`StageError::Shape`] if `wp.len() != out·n`, `x_sum`/`y_sum` are empty or `n_toks` is not
-/// finite; [`StageError::Empty`] if `n_toks == 0`; [`StageError::NonFinite`] if an input entry is NaN
-/// or infinite.
+/// [`StageError::Shape`] on a length mismatch or a non-finite `n_toks`, [`StageError::Empty`] for
+/// `n_toks == 0`, [`StageError::NonFinite`] on a NaN/∞ entry, [`StageError::Overflow`] on a
+/// checked step.
 pub fn bias_update(
     y_sum: &[f64],
     x_sum: &[f64],
     wp: &[f64],
     n_toks: f64,
 ) -> Result<Vec<f64>, StageError> {
-    let n = x_sum.len();
-    let out = y_sum.len();
-    if n == 0 || out == 0 || wp.len() != out * n {
-        return Err(StageError::Shape);
-    }
-    if !n_toks.is_finite() {
+    let (n, out) = (x_sum.len(), y_sum.len());
+    if n == 0 || out == 0 || wp.len() != out * n || !n_toks.is_finite() {
         return Err(StageError::Shape);
     }
     if !finite(x_sum) || !finite(y_sum) || !finite(wp) {
@@ -647,43 +730,17 @@ pub fn bias_update(
     if n_toks == 0.0 {
         return Err(StageError::Empty);
     }
+    let (ys, xs, wq) = (words(y_sum)?, words(x_sum)?, words(wp)?);
+    let toks = word(n_toks)?;
     let mut db = vec![0.0f64; out];
     for o in 0..out {
-        let row = &wp[o * n..o * n + n];
-        let mut s = 0.0f64;
-        for i in 0..n {
-            s += row[i] * x_sum[i];
+        let mut acc: i128 = 0;
+        for (&p, &q) in wq[o * n..(o + 1) * n].iter().zip(&xs) {
+            let t = i128::from(p) * i128::from(q);
+            acc = acc.checked_add(t).ok_or(StageError::Overflow)?;
         }
-        db[o] = (y_sum[o] - s) / n_toks;
+        let num = (i128::from(ys[o]) << 32) - acc;
+        db[o] = from_grid(narrow(div_round(num, i128::from(toks))?)?);
     }
     Ok(db)
-}
-
-/// `H · W0ᵀ` for `h` row-major `[n, n]` and `w0` row-major `[out, n]`; result row-major `[n, out]`.
-/// `O(n²·out)` time.
-fn matmul_h_wt(h: &[f64], w0: &[f64], n: usize, out: usize) -> Vec<f64> {
-    let mut c = vec![0.0f64; n * out];
-    for i in 0..n {
-        let hrow = &h[i * n..i * n + n];
-        let crow = &mut c[i * out..i * out + out];
-        for o in 0..out {
-            let wrow = &w0[o * n..o * n + n];
-            let mut acc = 0.0f64;
-            for k in 0..n {
-                acc += hrow[k] * wrow[k];
-            }
-            crow[o] = acc;
-        }
-    }
-    c
-}
-
-/// The L2 norm of a row.
-fn norm(row: &[f64]) -> f64 {
-    row.iter().map(|v| v * v).sum::<f64>().sqrt()
-}
-
-/// `true` iff every entry is finite.
-fn finite(a: &[f64]) -> bool {
-    a.iter().all(|v| v.is_finite())
 }
