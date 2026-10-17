@@ -54,12 +54,15 @@ use crate::learn::fold::fit::quant::QuantError;
 use crate::learn::fold::fit::steps::{compose, fwht_words, objective, StepsError};
 use crate::learn::fold::layer::resq::{rescale_hier, rescale_hier_top, ResqError};
 use crate::learn::fold::layer::stage::{bias_update, metric, StageError};
-use crate::learn::solve::q32::{Q32Error, GRID_SCALE};
+use crate::learn::solve::q32::{from_grid, Q32Error};
 
 /// `n/128`, the number of hierarchical row-scale groups.
 const fn groups(n: usize) -> usize {
     n / GROUP
 }
+
+/// `round(1e-6·2³²) = 4295`: the store check's relative tolerance as a Q32.32 word.
+const SINK_TOL: i64 = 4_295;
 
 /// Which linear of the transformer a per-tensor fit serves. The kind selects the second-plane and
 /// corrector arms of the script's `two_plane_nm`/`corr_targets`/`rk` dispatch.
@@ -206,8 +209,8 @@ pub enum TensorError {
     /// The stored planes do not recompose to `Wp`: neither bit-for-bit nor within
     /// `max|diff| / max|Wp| <= 1e-6`.
     SinkMismatch {
-        /// The observed `max|diff| / max|Wp|` (or `max|diff|` when `max|Wp| == 0`).
-        rel: f64,
+        /// The observed `max|diff| / max|Wp|` as a Q32.32 word (or `max|diff|` when `max|Wp| == 0`).
+        rel: i64,
     },
     /// [`fold_fit`] refused.
     Fit(FoldFitError),
@@ -243,7 +246,8 @@ impl core::fmt::Display for TensorError {
             Self::SinkMismatch { rel } => {
                 write!(
                     f,
-                    "the stored planes do not recompose to Wp (relative {rel:e})"
+                    "the stored planes do not recompose to Wp (relative {:e})",
+                    from_grid(*rel)
                 )
             }
             Self::Fit(e) => write!(f, "fold_fit refused: {e:?}"),
@@ -561,7 +565,7 @@ fn recon_words(planes: &[SinkPlane], o: usize, n: usize) -> Result<Vec<i64>, Ten
 /// temporal `O(o·n)`, spatial `O(1)`.
 fn sink_check(recon_wp: &[i64], wp: &[i64]) -> Result<(), TensorError> {
     if recon_wp.len() != wp.len() {
-        return Err(TensorError::SinkMismatch { rel: f64::INFINITY });
+        return Err(TensorError::SinkMismatch { rel: i64::MAX });
     }
     let (mut maxd, mut maxw) = (0_i128, 0_i128);
     for (&a, &b) in recon_wp.iter().zip(wp) {
@@ -570,11 +574,11 @@ fn sink_check(recon_wp: &[i64], wp: &[i64]) -> Result<(), TensorError> {
     }
     // The words' ratio is the reals' ratio (the common `2³²` scale cancels); equal buffers give 0.
     let rel = if maxw > 0 {
-        maxd as f64 / maxw as f64
+        carrier::ratio(maxd, maxw).map_err(|_| TensorError::Grid)?
     } else {
-        maxd as f64 / GRID_SCALE
+        i64::try_from(maxd).unwrap_or(i64::MAX)
     };
-    if rel <= 1e-6 {
+    if rel <= SINK_TOL {
         Ok(())
     } else {
         Err(TensorError::SinkMismatch { rel })
@@ -887,7 +891,7 @@ pub fn fold_row_scale(
 /// on this path. A refusal is a [`Q32Error`], mapped once at each caller. One pass is `o·n` words,
 /// at most ~10⁷, so every kernel here is serial.
 pub(crate) mod carrier {
-    use crate::learn::solve::q32::{round_q32_even, Q32Error};
+    use crate::learn::solve::q32::{div_rne_pos, narrow, round_q32_even, Q32Error};
 
     /// `a·b` as one rounded word.
     pub(crate) fn mul(a: i64, b: i64) -> Result<i64, Q32Error> {
@@ -895,24 +899,16 @@ pub(crate) mod carrier {
     }
 
     /// `round(num/den)` to nearest, ties to even; `None` on `den == 0` or a quotient outside `i64`.
-    /// `q32` carries no rounded division, so the one copy is here.
-    fn div_rne(num: i128, den: i128) -> Option<i64> {
-        let q = num.checked_div(den)?;
-        let r = num.checked_rem(den)?;
-        let dabs = den.checked_abs()?;
-        let mag2 = r.checked_abs()?.checked_mul(2)?;
-        let dir = if (r > 0) == (den > 0) { 1 } else { -1 };
-        let q = if mag2 > dabs || (mag2 == dabs && q % 2 != 0) {
-            q.checked_add(dir)?
-        } else {
-            q
-        };
-        i64::try_from(q).ok()
-    }
-
-    /// `num/den` as a Q32.32 word — the real ratio of two words — rounded once.
+    /// `q32` carries no rounded division with a checked shift, so the ratio is assembled here from
+    /// its sign-free positive-divisor kernel and its checked narrowing. Every caller's divisor is a
+    /// span floored at one grid quantum, so `den > 0` and `2|r| < 2·den` fit; the guard keeps the
+    /// premise explicit.
     pub(crate) fn ratio(num: i128, den: i128) -> Result<i64, Q32Error> {
-        div_rne(num.checked_shl(32).ok_or(Q32Error::Overflow)?, den).ok_or(Q32Error::Overflow)
+        if den <= 0 {
+            return Err(Q32Error::Overflow);
+        }
+        let shifted = num.checked_shl(32).ok_or(Q32Error::Overflow)?;
+        narrow(div_rne_pos(shifted, den)).ok_or(Q32Error::Overflow)
     }
 
     /// `Σ x`, exact in `i128`; `Overflow` if the sum leaves `i128`.

@@ -437,8 +437,7 @@ fn block_abs_sum(p: PlaneRef<'_>, row: usize, n: usize) -> f64 {
         .fold(0.0_f64, f64::max)
 }
 
-// The pre-change `f64` bodies, duplicated here as the oracles the migrated `Q32.32` bodies are measured
-// against (`icm.rs` at `9f440192`); each agreement bound is derived at its use site.
+// The pre-change `f64` bodies (`icm.rs` at `9f440192`) as oracles for the `Q32.32` bodies; bounds at use sites.
 
 /// The pre-change `f64` `plane_w`: `s·d`, the normalised 128-block Hadamard transform, `·c`, `·r`.
 ///
@@ -612,8 +611,7 @@ fn learn_fold_icm_agrees_with_the_f64_oracles() {
 
     // plane_w: one grid rounding per operand conversion and per multiply, the normalised transform
     // amplifying an input error by at most √128 and rounding each output once, then the `·c` and
-    // `·r` multiplies. Bound `(√128·u·(1 + max|s·d|) + u)·max|r|·max|c|`: the grid quantum times
-    // the operation's condition growth, `u` a full unit to cover the half-unit roundings.
+    // `·r` multiplies. Bound `(√128·u·(1 + max|s·d|) + u)·max|r|·max|c|`: grid quantum times condition growth.
     let got = unq(&plane_w(pref(&p), o, n).expect("plane_w"));
     let want = ref_plane_w(pref(&p), o, n);
     let (s_f, d_f, r_f, c_f) = (unq(&p.s), unq(&p.d), unq(&p.r), unq(&p.c));
@@ -1335,7 +1333,7 @@ fn learn_fold_icm_r_step2_satisfies_normal_equations() {
 fn learn_fold_icm_icm_ridge_metric_is_non_increasing() {
     let (o, n) = (4_usize, 256);
     let hl = q(&toeplitz(n, 0.4));
-    let hr = ridged_metric(&hl, n, 0.2).expect("ridged");
+    let hr = ridged_metric(&hl, n, qw(0.2)).expect("ridged");
     assert!(
         (0..n).all(|i| hr[i * n + i] > hl[i * n + i]),
         "the ridge must raise the diagonal"
@@ -1468,4 +1466,35 @@ fn learn_fold_icm_refuses_ragged_shapes() {
         .err(),
         Some(IcmError::BlockOutOfRange)
     );
+}
+
+/// FNV-1a over words' little-endian bytes.
+fn fnv_words_witness(d: &mut u64, xs: &[i64]) {
+    for &v in xs {
+        for b in v.to_le_bytes() {
+            *d ^= u64::from(b);
+            *d = d.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+}
+
+#[test]
+fn icm_codebook_and_ridged_metric_words_are_bit_identical() {
+    let mut d = 0xcbf2_9ce4_8422_2325u64;
+    for row in apeiron::learn::fold::fit::icm::codebook() {
+        fnv_words_witness(&mut d, &row);
+    }
+    assert_eq!(d, 0x524d_86c7_718a_f205, "codebook words");
+    for (i, n) in [16usize, 96, 256].into_iter().enumerate() {
+        let hl = q(&toeplitz(n, 0.4));
+        let hr = ridged_metric(&hl, n, qw(0.2)).expect("ridged");
+        let mut d = 0xcbf2_9ce4_8422_2325u64;
+        fnv_words_witness(&mut d, &hr);
+        let want = [
+            0x7c67_529c_127d_c831_u64,
+            0x863e_fd85_e6d4_d7f9,
+            0xdc39_4603_3d89_2771,
+        ][i];
+        assert_eq!(d, want, "ridged_metric n={n} words");
+    }
 }

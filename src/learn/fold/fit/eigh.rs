@@ -27,7 +27,7 @@ use crate::learn::fold::stats::parts::panel;
 use crate::learn::solve::eig::{top_eigh, EigError, TopEig};
 use crate::learn::solve::gemm::{gemm_nn, gemm_nt, GemmError};
 use crate::learn::solve::q32::{
-    fill_scale, from_grid, panel_shift, rshift_rne, to_grid, GRID_BOUND, INPUT_BOUND,
+    fill_scale, from_grid, ilog2_pos, rshift_rne, to_grid, INPUT_BOUND,
 };
 
 /// A refusal from the symmetric eigendecomposition or the exact low-rank corrector.
@@ -45,10 +45,15 @@ pub enum EighError {
 /// `2⁻²⁸`: the [`fill_scale`] fill `2³¹` divided down below [`top_eigh`]'s `2³⁶`-raw input bound.
 const FILL_DOWN: f64 = 1.0 / 268_435_456.0;
 
-/// The exact power of two `s` with `max_mag·s ≤ 8` (`2⁻²⁸` when `max_mag ≤ 0`), exact to undo.
+/// The exact power-of-two exponent `e` with the word maximum `max·2^e ∈ (2³⁴, 2³⁵]` — the total
+/// shift [`eigen_parts`] applies to the raw Gram words before [`top_eigh`] (`34 − ⌊log₂ max⌋` and
+/// `0` for the zero matrix, which [`eigen_parts`] special-cases). `O(len)`.
 #[must_use]
-pub fn gram_scale(max_mag: f64) -> f64 {
-    fill_scale(max_mag) * FILL_DOWN
+pub fn gram_scale(m: &[i64]) -> i32 {
+    let max = m
+        .iter()
+        .fold(0u128, |a, &v| a.max(u128::from(v.unsigned_abs())));
+    ilog2_pos(max).map_or(0, |b| 34 - b.cast_signed())
 }
 
 /// A [`GemmError`] from a product whose shape and depth were already validated here.
@@ -70,22 +75,64 @@ fn eig_err(_: EigError) -> EighError {
     EighError::NotConverged
 }
 
+/// `v·2⁻ᵏ` (`k ≥ 0`) rounded to nearest with ties away from zero — the rounding `to_grid` applied
+/// to the pre-flip `f64` operands, so the panel words match the old entry bit-for-bit; `None` when
+/// the result leaves `i64`. `O(1)`.
+fn rshift_away(v: i64, k: u32) -> Option<i64> {
+    if k == 0 {
+        return Some(v);
+    }
+    if k > 126 {
+        return None;
+    }
+    let (d, half) = (1_i128 << k, 1_i128 << (k - 1));
+    let x = i128::from(v);
+    let (q, r) = (x / d, x % d);
+    let mag = if r < 0 { -r } else { r };
+    let step = if mag >= half { r.signum() } else { 0 };
+    i64::try_from(q + step).ok()
+}
+
+/// `v·2^e` on the grid with the same half-away rounding; `None` when it leaves `i64`. `O(1)`.
+fn scale_away(v: i64, e: i32) -> Option<i64> {
+    if e >= 0 {
+        let w = i128::from(v).checked_shl(u32::try_from(e).ok()?)?;
+        return i64::try_from(w).ok();
+    }
+    rshift_away(v, u32::try_from(-e).ok()?)
+}
+
 /// `x` as a Q32.32 panel and the exponent `k` of the exact `2⁻ᵏ` it was shifted by — the
-/// [`panel_shift`] bringing the largest entry under [`INPUT_BOUND`]; `NotConverged` on a
-/// non-finite entry.
+/// [`panel_shift`](crate::learn::solve::q32::panel_shift) bringing the largest entry under the
+/// primitive's input bound, on the words directly; `None` when a shift leaves `i64`.
 ///
 /// # Complexity
-/// `O(len)`: one magnitude scan, one shift and one rounding per entry.
-fn panel_f64(x: &[f64]) -> Result<(Vec<i64>, i32), EighError> {
-    let max = x.iter().fold(0.0f64, |m, &v| m.max(v.abs()));
-    let k = panel_shift(max);
-    let scale = 2.0f64.powi(-k);
+/// `O(len)`: one magnitude scan, one shift per entry.
+fn panel_words(x: &[i64]) -> Option<(Vec<i64>, i32)> {
+    let max = x
+        .iter()
+        .fold(0u128, |a, &v| a.max(u128::from(v.unsigned_abs())));
+    let k = match ilog2_pos(max) {
+        Some(b) if max > 1u128 << 35 => {
+            if max == 1u128 << b {
+                b.cast_signed() - 35
+            } else {
+                b.cast_signed() + 1 - 35
+            }
+        }
+        _ => 0,
+    };
     let q = x
         .iter()
-        .map(|&v| to_grid(v * scale, INPUT_BOUND))
-        .collect::<Option<Vec<i64>>>()
-        .ok_or(EighError::NotConverged)?;
-    Ok((q, k))
+        .map(|&v| {
+            if k >= 0 {
+                rshift_away(v, u32::try_from(k).ok()?)
+            } else {
+                i64::try_from(i128::from(v).checked_shl(k.unsigned_abs())?).ok()
+            }
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some((q, k))
 }
 
 /// Replace each transposed pair of the row-major `[n, n]` word matrix `q` by
@@ -122,7 +169,8 @@ fn check_psd(evals: &[i64], n: usize) -> Result<(), EighError> {
     Ok(())
 }
 
-/// The `f64` read-back: `evals[k] = μ_k/(2³²·scale)` and the scale-free eigenvectors.
+/// The `f64` read-back of [`eigh`]'s retained boundary: `evals[k] = μ_k/(2³²·scale)` and the
+/// scale-free eigenvectors.
 /// # Complexity
 /// `O(n + n²)` conversions; `O(n²)` space.
 fn read_back(top: &TopEig, scale: f64) -> (Vec<f64>, Vec<f64>) {
@@ -154,7 +202,7 @@ pub fn eigh(a: &[f64], n: usize) -> Result<(Vec<f64>, Vec<f64>), EighError> {
         return Err(EighError::NotConverged);
     }
     let max_mag = a.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
-    let scale = gram_scale(max_mag);
+    let scale = fill_scale(max_mag) * FILL_DOWN;
     let mut q = a
         .iter()
         .map(|&v| to_grid(v * scale, INPUT_BOUND))
@@ -171,53 +219,59 @@ pub fn eigh(a: &[f64], n: usize) -> Result<(Vec<f64>, Vec<f64>), EighError> {
 }
 
 /// The `o × o` Gram `M = (ΔW·Hl)·ΔWᵀ`: two pooled [`gemm_nn`]/[`gemm_nt`] products on Q32.32
-/// words, each operand panel shifted by an exact `2⁻ᵏ` ([`panel_f64`], [`panel`]) and the composed
-/// scale undone once on the read-back; the `O(o²)` symmetrisation is serial. Returned in real
-/// units, row-major `[o, o]`; `Hl` need not be symmetric.
+/// words, each operand panel shifted by an exact `2⁻ᵏ` ([`panel_words`], [`panel`]) and the
+/// composed scale returned as the exponent `K` of the exact `2^K` undo (`M_real·2³² = w·2^K`); the
+/// `O(o²)` symmetrisation is serial. `Hl` need not be symmetric.
 ///
 /// # Complexity
 /// `O(o·n² + o²·n)` multiply-accumulates on the engine pool, the serial `O(o²)` symmetrisation and
-/// `O(o·n + o²)` panel shifts and conversions; space `O(o·n + o²)`.
+/// `O(o·n + o²)` panel shifts; space `O(o·n + o²)`.
 ///
 /// # Errors
 /// [`EighError::ShapeMismatch`] on a length mismatch; otherwise [`EighError::NotConverged`] for a
-/// non-finite entry or a product's refusal (an entry leaving the grid or the `i128` range).
-pub fn eigen_gram(delta_w: &[f64], hl: &[f64], o: usize, n: usize) -> Result<Vec<f64>, EighError> {
+/// product's refusal or a shift that leaves `i64`.
+pub fn eigen_gram(
+    delta_w: &[i64],
+    hl: &[i64],
+    o: usize,
+    n: usize,
+) -> Result<(Vec<i64>, i32), EighError> {
     if delta_w.len() != o * n || hl.len() != n * n {
         return Err(EighError::ShapeMismatch);
     }
     if o == 0 || n == 0 {
-        return Ok(vec![0.0f64; o * o]);
+        return Ok((vec![0i64; o * o], 0));
     }
-    let (dw, ka) = panel_f64(delta_w)?;
-    let (hlq, kb) = panel_f64(hl)?;
+    let (dw, ka) = panel_words(delta_w).ok_or(EighError::NotConverged)?;
+    let (hlq, kb) = panel_words(hl).ok_or(EighError::NotConverged)?;
     let (w1, k1) =
         panel(&gemm_nn(&dw, &hlq, o, n, n).map_err(gemm_err)?).ok_or(EighError::NotConverged)?;
     let mut m = gemm_nt(&w1, &dw, o, n, o).map_err(gemm_err)?;
     symmetrise(&mut m, o)?;
-    let back = 2.0f64.powi(2 * ka + kb + k1);
-    Ok(m.into_iter().map(|w| from_grid(w) * back).collect())
+    Ok((m, 2 * ka + kb + k1))
 }
 
-/// The exact rank-`rank` corrector in the metric `Hl`: the stored factors and `Corr = U·V`.
+/// The exact rank-`rank` corrector in the metric `Hl`: the stored factors and `Corr = U·V`, all
+/// Q32.32 words.
 #[derive(Clone, Debug)]
 pub struct Corrector {
-    /// The dense correction `U·V`, row-major `[o, n]`.
-    pub corr: Vec<f64>,
-    /// `Σ_k max(λ_k, 0)` over the top `rank` eigenvalues — the first-order objective drop attained.
-    pub top_sum: f64,
+    /// The dense correction `U·V`, row-major `[o, n]`, Q32.32 words.
+    pub corr: Vec<i64>,
+    /// `Σ_k max(λ_k, 0)` over the top `rank` eigenvalues — the first-order objective drop attained,
+    /// as a Q32.32 word.
+    pub top_sum: i64,
     /// The top `rank` eigenvectors of `M`, row-major `[o, rank]`, ascending; column `rank−1` is
-    /// the largest.
-    pub u: Vec<f64>,
-    /// `V = Uᵀ·ΔW`, row-major `[rank, n]`, so `Corr = U·V`.
-    pub v: Vec<f64>,
+    /// the largest, as Q32.32 words.
+    pub u: Vec<i64>,
+    /// `V = Uᵀ·ΔW`, row-major `[rank, n]`, so `Corr = U·V`, as Q32.32 words.
+    pub v: Vec<i64>,
 }
 
 /// The exact rank-`rank` corrector of `ΔW` in the metric `Hl` — the `round_f16=False,
 /// u8_corr=False` branch of `lowrank_corrector`: `Corr = U·(Uᵀ ΔW)` for the `rank` largest
 /// eigenvectors (columns) of `M`, the factors `U`, `V`, and `top_sum = Σ max(λ_k, 0)` over them.
 /// `Corr = (I − U Uᵀ) ΔW` minimises `tr(R·Hl·Rᵀ)` over rank-`rank` projections (Ky Fan /
-/// Eckart–Young).
+/// Eckart–Young). `ΔW` and `Hl` are Q32.32 words; every returned buffer is a word.
 ///
 /// # Complexity
 /// `O(o·n² + o²·n + o²·rank·iters + rank·o·n)`; space `O(o·n + o² + o·rank + rank·n)`.
@@ -225,8 +279,8 @@ pub struct Corrector {
 /// # Errors
 /// A length mismatch, `rank > o`, or the refusal of [`eigen_gram`] or [`top_eigh`].
 pub fn lowrank_corrector_exact(
-    delta_w: &[f64],
-    hl: &[f64],
+    delta_w: &[i64],
+    hl: &[i64],
     o: usize,
     n: usize,
     rank: usize,
@@ -239,8 +293,8 @@ pub fn lowrank_corrector_exact(
     }
     if rank == 0 {
         return Ok(Corrector {
-            corr: vec![0.0f64; o * n],
-            top_sum: 0.0,
+            corr: vec![0i64; o * n],
+            top_sum: 0,
             u: Vec::new(),
             v: Vec::new(),
         });
@@ -254,22 +308,23 @@ pub fn lowrank_corrector_exact(
             v: Vec::new(),
         });
     }
-    // `V = Uᵀ·ΔW` and `Corr = U·V` on the pooled word kernels; the `ΔW` panel's exact `2⁻ᵏ` is
-    // undone once on the read-back.
-    let uq: Vec<i64> = u
-        .iter()
-        .map(|&x| to_grid(x, GRID_BOUND).ok_or(EighError::NotConverged))
-        .collect::<Result<_, _>>()?;
-    let (dw, kd) = panel_f64(delta_w)?;
-    let ut: Vec<i64> = (0..rank * o).map(|t| uq[(t % o) * rank + t / o]).collect();
+    // `V = Uᵀ·ΔW` and `Corr = U·V` on the pooled word kernels; the panels' exact `2⁻ᵏ` is undone
+    // once per output word.
+    let (dw, kd) = panel_words(delta_w).ok_or(EighError::NotConverged)?;
+    let ut: Vec<i64> = (0..rank * o).map(|t| u[(t % o) * rank + t / o]).collect();
     let (v, kv) =
         panel(&gemm_nn(&ut, &dw, rank, o, n).map_err(gemm_err)?).ok_or(EighError::NotConverged)?;
-    let corr = gemm_nn(&uq, &v, o, rank, n).map_err(gemm_err)?;
-    let back = 2.0f64.powi(kd + kv);
+    let corr = gemm_nn(&u, &v, o, rank, n).map_err(gemm_err)?;
+    let back = kd + kv;
+    let scaled = |x: &[i64]| -> Result<Vec<i64>, EighError> {
+        x.iter()
+            .map(|&v| scale_away(v, back).ok_or(EighError::NotConverged))
+            .collect()
+    };
     Ok(Corrector {
-        corr: corr.iter().map(|&w| from_grid(w) * back).collect(),
+        corr: scaled(&corr)?,
         top_sum,
         u,
-        v: v.iter().map(|&w| from_grid(w) * back).collect(),
+        v: scaled(&v)?,
     })
 }

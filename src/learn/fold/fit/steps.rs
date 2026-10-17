@@ -71,11 +71,6 @@ fn to_grid(x: f64) -> Result<i64, StepsError> {
     q32::to_grid(x, GRID_BOUND).ok_or(StepsError::ShapeMismatch)
 }
 
-/// `v` as `i64`, or the shape refusal when it is outside `i64`.
-fn narrow(v: i128) -> Result<i64, StepsError> {
-    i64::try_from(v).map_err(|_| StepsError::ShapeMismatch)
-}
-
 /// `a·b` for two words: the exact `i128` product rounded once to `Q32.32`.
 fn mul_word(a: i64, b: i64) -> Result<i64, StepsError> {
     q32::round_q32_even(i128::from(a) * i128::from(b)).map_err(|_| StepsError::ShapeMismatch)
@@ -90,11 +85,11 @@ fn round_q64(v: i128) -> Result<i64, StepsError> {
 fn shift_word(v: i64, k: i32) -> Result<i64, StepsError> {
     match k.signum() {
         1 => match rshift_rne(i128::from(v), k as u32) {
-            Some(x) => narrow(x),
+            Some(x) => q32::narrow(x).ok_or(StepsError::ShapeMismatch),
             None => Err(StepsError::ShapeMismatch),
         },
         -1 => match i128::from(v).checked_shl((-k) as u32) {
-            Some(x) => narrow(x),
+            Some(x) => q32::narrow(x).ok_or(StepsError::ShapeMismatch),
             None => Err(StepsError::ShapeMismatch),
         },
         _ => Ok(v),
@@ -119,7 +114,7 @@ fn ridge_word(mean: i128) -> Result<i64, StepsError> {
         .checked_mul(i128::from(EPS_Q))
         .ok_or(StepsError::ShapeMismatch)?;
     match rshift_rne(scaled, 62) {
-        Some(v) => narrow(v),
+        Some(v) => q32::narrow(v).ok_or(StepsError::ShapeMismatch),
         None => Err(StepsError::ShapeMismatch),
     }
 }
