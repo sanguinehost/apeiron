@@ -144,7 +144,7 @@ fn metric(h: &[f64], n: usize, ridge: f64) -> Vec<f64> {
 /// `J(Ws, Wp, Hl)` of a returned `Wp`.
 fn wp_objective(ws: &[f64], h: &[f64], o: usize, n: usize, wp: &[f64]) -> f64 {
     let hl = metric(h, n, production_cfg().ridge);
-    objective(ws, wp, &hl, o, n).expect("objective")
+    from_grid(objective(&qw(ws), &qw(wp), &qw(&hl), o, n).expect("objective"))
 }
 
 /// A value on the Q32.32 grid: `round(x·2³²)` exists and is within the grid range.
@@ -155,6 +155,16 @@ fn grid(x: f64) -> i64 {
 /// The grid image of a value as the `f64` it denotes: `from_grid(to_grid(x))`.
 fn from_grid_word(x: f64) -> f64 {
     from_grid(grid(x))
+}
+
+/// A fixture as the `Q32.32` words the migrated steps consume.
+fn qw(x: &[f64]) -> Vec<i64> {
+    x.iter().map(|&v| grid(v)).collect()
+}
+
+/// A word slice read back through the grid map, the migrated boundary's read-out.
+fn uw(x: &[i64]) -> Vec<f64> {
+    x.iter().copied().map(from_grid).collect()
 }
 
 /// A value is on the affine `bits`-grid `[f16r(min), f16r(max)]` with `2^bits − 1` levels — the
@@ -186,7 +196,8 @@ fn learn_fold_fold_fit_pack_recomposes_to_wp_bitwise() {
         .into_iter()
         .map(from_grid_word)
         .collect();
-    let recomposed = compose(&s_dh, &fit.pack.rh, &fit.pack.ch, o, n).expect("compose");
+    let recomposed =
+        uw(&compose(&qw(&s_dh), &qw(&fit.pack.rh), &qw(&fit.pack.ch), o, n).expect("compose"));
     assert_eq!(recomposed.len(), o * n);
     // The pack is stored on the Q32.32 grid, so the recomposition check is word for word in that
     // domain: the same carrier operations run on both sides, so no tolerance is applied and the
@@ -206,18 +217,24 @@ fn learn_fold_fold_fit_pack_recomposes_to_wp_bitwise() {
 fn learn_fold_fold_fit_wp_equals_plane_w_of_pack() {
     let (o, n, _ws, _h, fit) = run();
     let idx = vec![0_u16; o * (n / BLOCK)];
-    let w = plane_w(
+    let (s_q, r_q, c_q, d_q) = (
+        qw(&fit.pack.s_rot),
+        qw(&fit.pack.rh),
+        qw(&fit.pack.ch),
+        qw(&fit.pack.dh),
+    );
+    let w = uw(&plane_w(
         PlaneRef {
-            s: &fit.pack.s_rot,
+            s: &s_q,
             idx: &idx,
-            r: &fit.pack.rh,
-            c: &fit.pack.ch,
-            d: &fit.pack.dh,
+            r: &r_q,
+            c: &c_q,
+            d: &d_q,
         },
         o,
         n,
     )
-    .expect("plane_w");
+    .expect("plane_w"));
     // `plane_w` accumulates `(s·d → fwht → c) · r` in `f64` from the stored pack, while `Wp` is
     // the grid image of `compose` `(s·r)·c` taken from the *gridded* intermediate `s_dh`: the two
     // differ by (i) that one grid rounding, whose residue is scaled by `|rh·ch|` on the way out,
@@ -321,16 +338,16 @@ fn learn_fold_fold_fit_pack_carriers_are_in_stored_format() {
     // flip.
     for row in 0..o {
         for m in 0..nb {
-            let mut block = [0.0_f64; BLOCK];
+            let mut block = [0_i64; BLOCK];
             for k in 0..BLOCK {
-                block[k] = fit.pack.s_rot[row * n + m * BLOCK + k];
+                block[k] = grid(fit.pack.s_rot[row * n + m * BLOCK + k]);
             }
             let idx = nearest_index(&block).expect("nearest");
             let cb = codebook_row(idx);
             for k in 0..BLOCK {
                 assert_eq!(
                     cb[k].to_bits(),
-                    block[k].to_bits(),
+                    from_grid(block[k]).to_bits(),
                     "row {row} block {m} coord {k} is not codeword {idx}"
                 );
             }
@@ -594,24 +611,25 @@ fn ref_fold_fit(
 
     let g = n / GROUP;
     let nb = n / BLOCK;
+    let g_word = g_row.map(qw);
     let hl = ref_metric(h, n, cfg.ridge);
     // One metric product `Ws·Hl` for the whole fit: every `c`/`r`/`d` step below reuses it, so the
     // redundant per-step `mul_metric` calls collapse to one. Same refusal path as the first step's
     // internal product.
-    let wshl = mul_metric(ws, &hl, o, n)?;
+    let wshl = uw(&mul_metric(&qw(ws), &qw(&hl), o, n)?);
     let idx_zero = vec![0_u16; o * nb];
 
     // Step 2: the `gptq_e8` candidate (lines 843–860).
     let ws_rot = fwht128(ws)?;
-    let h_gram = had_gram(h, n)?;
+    let h_gram = uw(&had_gram(&qw(h), n)?);
     let q = gptq_e8(&ws_rot, &h_gram, o, n, cfg.damp, true, true, cfg.e8_beam)?;
     let s_rot0 = q.s;
     let r0 = q.scale;
     let c0 = vec![1.0_f64; n];
     let d0 = vec![1.0_f64; n];
     let s0 = fwht128(&s_rot0)?;
-    let wq0 = compose(&s0, &r0, &c0, o, n)?;
-    let j0 = objective(ws, &wq0, &hl, o, n)?;
+    let wq0 = uw(&compose(&qw(&s0), &qw(&r0), &qw(&c0), o, n)?);
+    let j0 = from_grid(objective(&qw(ws), &qw(&wq0), &qw(&hl), o, n)?);
 
     let mut cands: Vec<RefCand> = vec![RefCand {
         j: j0,
@@ -631,7 +649,16 @@ fn ref_fold_fit(
     let mut c_cur = cands[0].c.clone();
     let mut d_cur = cands[0].d.clone();
     for _ in 0..cfg.inner_iters {
-        c_cur = c_step_wshl(ws, &hl, &wshl, &s_cur, &r_cur, o, n, g_row)?;
+        c_cur = uw(&c_step_wshl(
+            &qw(ws),
+            &qw(&hl),
+            &qw(&wshl),
+            &qw(&s_cur),
+            &qw(&r_cur),
+            o,
+            n,
+            g_word.as_deref(),
+        )?);
         let smean = c_cur.iter().map(|x| x.abs()).sum::<f64>() / n as f64;
         for v in &mut c_cur {
             *v /= smean;
@@ -639,9 +666,27 @@ fn ref_fold_fit(
         for v in &mut r_cur {
             *v *= smean;
         }
-        r_cur = r_step_wshl(ws, &hl, &wshl, &s_cur, &c_cur, o, n)?;
+        r_cur = uw(&r_step_wshl(
+            &qw(ws),
+            &qw(&hl),
+            &qw(&wshl),
+            &qw(&s_cur),
+            &qw(&c_cur),
+            o,
+            n,
+        )?);
 
-        let d_new = d_step_wshl(ws, &hl, &wshl, &s_rot, &r_cur, &c_cur, o, n, g_row)?;
+        let d_new = uw(&d_step_wshl(
+            &qw(ws),
+            &qw(&hl),
+            &qw(&wshl),
+            &qw(&s_rot),
+            &qw(&r_cur),
+            &qw(&c_cur),
+            o,
+            n,
+            g_word.as_deref(),
+        )?);
         let sign = ref_parity_signs(&d_new, n);
         ref_scale_columns(&mut s_rot, o, n, &sign);
         let mut group_max = vec![0.0_f64; g];
@@ -664,22 +709,34 @@ fn ref_fold_fit(
             }
         }
 
+        let s_rot_q = qw(&s_rot);
+        let r_cur_q = qw(&r_cur);
+        let c_cur_q = qw(&c_cur);
+        let d_cur_q = qw(&d_cur);
         let plane = PlaneRef {
-            s: &s_rot,
+            s: &s_rot_q,
             idx: &idx_zero,
-            r: &r_cur,
-            c: &c_cur,
-            d: &d_cur,
+            r: &r_cur_q,
+            c: &c_cur_q,
+            d: &d_cur_q,
         };
-        let refined = e8_icm_step(ws, &hl, plane, o, n, cfg.sweeps, cfg.icm_ridge)?;
-        s_rot = refined.s;
+        let refined = e8_icm_step(&qw(ws), &qw(&hl), plane, o, n, cfg.sweeps, cfg.icm_ridge)?;
+        s_rot = uw(&refined.s);
         let mut rotated = s_rot.clone();
         ref_scale_columns(&mut rotated, o, n, &d_cur);
         s_cur = fwht128(&rotated)?;
-        r_cur = r_step_wshl(ws, &hl, &wshl, &s_cur, &c_cur, o, n)?;
+        r_cur = uw(&r_step_wshl(
+            &qw(ws),
+            &qw(&hl),
+            &qw(&wshl),
+            &qw(&s_cur),
+            &qw(&c_cur),
+            o,
+            n,
+        )?);
     }
-    let wq1 = compose(&s_cur, &r_cur, &c_cur, o, n)?;
-    let j1 = objective(ws, &wq1, &hl, o, n)?;
+    let wq1 = uw(&compose(&qw(&s_cur), &qw(&r_cur), &qw(&c_cur), o, n)?);
+    let j1 = from_grid(objective(&qw(ws), &qw(&wq1), &qw(&hl), o, n)?);
     cands.push(RefCand {
         j: j1,
         tag: FoldFitTag::Refit0,
@@ -708,13 +765,34 @@ fn ref_fold_fit(
     let mut rotated = s_rot_best.clone();
     ref_scale_columns(&mut rotated, o, n, &dh);
     let s_dh = fwht128(&rotated)?;
-    let rh_hier = quant_r_hier(&r_step_wshl(ws, &hl, &wshl, &s_dh, &c_best, o, n)?, o, g)?;
+    let rh_hier = quant_r_hier(
+        &uw(&r_step_wshl(
+            &qw(ws),
+            &qw(&hl),
+            &qw(&wshl),
+            &qw(&s_dh),
+            &qw(&c_best),
+            o,
+            n,
+        )?),
+        o,
+        g,
+    )?;
     let bits_r = rh_hier.bits;
     let rh = rh_hier.rq;
-    let c_ref = c_step_wshl(ws, &hl, &wshl, &s_dh, &rh, o, n, g_row)?;
+    let c_ref = uw(&c_step_wshl(
+        &qw(ws),
+        &qw(&hl),
+        &qw(&wshl),
+        &qw(&s_dh),
+        &qw(&rh),
+        o,
+        n,
+        g_word.as_deref(),
+    )?);
     let (ch, bits_c) = quant_c_u8(&c_ref, 6)?;
-    let mut wp = compose(&s_dh, &rh, &ch, o, n)?;
-    let mut j_wp = objective(ws, &wp, &hl, o, n)?;
+    let mut wp = uw(&compose(&qw(&s_dh), &qw(&rh), &qw(&ch), o, n)?);
+    let mut j_wp = from_grid(objective(&qw(ws), &qw(&wp), &qw(&hl), o, n)?);
     let mut pack_s_rot = s_rot_best.clone();
     let mut pack_rh = rh;
     let mut pack_ch = ch;
@@ -722,26 +800,52 @@ fn ref_fold_fit(
     let mut s_rot_cur = s_rot_best;
 
     // The `e8_icm` re-quantisation candidate (lines 942–950).
+    let pack_s_rot_q = qw(&pack_s_rot);
+    let pack_rh_q = qw(&pack_rh);
+    let pack_ch_q = qw(&pack_ch);
+    let pack_dh_q = qw(&pack_dh);
     let plane = PlaneRef {
-        s: &pack_s_rot,
+        s: &pack_s_rot_q,
         idx: &idx_zero,
-        r: &pack_rh,
-        c: &pack_ch,
-        d: &pack_dh,
+        r: &pack_rh_q,
+        c: &pack_ch_q,
+        d: &pack_dh_q,
     };
-    let s_rot_q = e8_icm_step(ws, &hl, plane, o, n, cfg.sweeps, cfg.icm_ridge)?.s;
+    let s_rot_q = uw(&e8_icm_step(&qw(ws), &qw(&hl), plane, o, n, cfg.sweeps, cfg.icm_ridge)?.s);
     {
         let mut rotated = s_rot_q.clone();
         ref_scale_columns(&mut rotated, o, n, &pack_dh);
         let s_dh_q = fwht128(&rotated)?;
-        let rh_q = quant_r_hier(&r_step_wshl(ws, &hl, &wshl, &s_dh_q, &pack_ch, o, n)?, o, g)?.rq;
+        let rh_q = quant_r_hier(
+            &uw(&r_step_wshl(
+                &qw(ws),
+                &qw(&hl),
+                &qw(&wshl),
+                &qw(&s_dh_q),
+                &qw(&pack_ch),
+                o,
+                n,
+            )?),
+            o,
+            g,
+        )?
+        .rq;
         let ch_q = quant_c_u8(
-            &c_step_wshl(ws, &hl, &wshl, &s_dh_q, &rh_q, o, n, g_row)?,
+            &uw(&c_step_wshl(
+                &qw(ws),
+                &qw(&hl),
+                &qw(&wshl),
+                &qw(&s_dh_q),
+                &qw(&rh_q),
+                o,
+                n,
+                g_word.as_deref(),
+            )?),
             6,
         )?
         .0;
-        let wp_q = compose(&s_dh_q, &rh_q, &ch_q, o, n)?;
-        let j_q = objective(ws, &wp_q, &hl, o, n)?;
+        let wp_q = uw(&compose(&qw(&s_dh_q), &qw(&rh_q), &qw(&ch_q), o, n)?);
+        let j_q = from_grid(objective(&qw(ws), &qw(&wp_q), &qw(&hl), o, n)?);
         if j_q < j_wp {
             j_wp = j_q;
             wp = wp_q;
@@ -755,11 +859,32 @@ fn ref_fold_fit(
     // The un-`d` fallback candidate (lines 960–967).
     {
         let s_1 = fwht128(&s_rot_cur)?;
-        let r_1 = r_step_wshl(ws, &hl, &wshl, &s_1, &c_best, o, n)?;
+        let r_1 = uw(&r_step_wshl(
+            &qw(ws),
+            &qw(&hl),
+            &qw(&wshl),
+            &qw(&s_1),
+            &qw(&c_best),
+            o,
+            n,
+        )?);
         let rh_1 = quant_r_hier(&r_1, o, g)?.rq;
-        let ch_1 = quant_c_u8(&c_step_wshl(ws, &hl, &wshl, &s_1, &rh_1, o, n, g_row)?, 6)?.0;
-        let wp_1 = compose(&s_1, &rh_1, &ch_1, o, n)?;
-        if objective(ws, &wp_1, &hl, o, n)? < j_wp {
+        let ch_1 = quant_c_u8(
+            &uw(&c_step_wshl(
+                &qw(ws),
+                &qw(&hl),
+                &qw(&wshl),
+                &qw(&s_1),
+                &qw(&rh_1),
+                o,
+                n,
+                g_word.as_deref(),
+            )?),
+            6,
+        )?
+        .0;
+        let wp_1 = uw(&compose(&qw(&s_1), &qw(&rh_1), &qw(&ch_1), o, n)?);
+        if from_grid(objective(&qw(ws), &qw(&wp_1), &qw(&hl), o, n)?) < j_wp {
             wp = wp_1;
             pack_s_rot = s_rot_cur;
             pack_rh = rh_1;
@@ -771,7 +896,13 @@ fn ref_fold_fit(
     // The winning pack must recompose to `Wp` exactly (the Python's `assert`, line 968).
     let mut rotated = pack_s_rot.clone();
     ref_scale_columns(&mut rotated, o, n, &pack_dh);
-    let recomposed = compose(&fwht128(&rotated)?, &pack_rh, &pack_ch, o, n)?;
+    let recomposed = uw(&compose(
+        &qw(&fwht128(&rotated)?),
+        &qw(&pack_rh),
+        &qw(&pack_ch),
+        o,
+        n,
+    )?);
     for k in 0..o * n {
         if recomposed[k].to_bits() != wp[k].to_bits() {
             return Err(FoldFitError::PackMismatch);

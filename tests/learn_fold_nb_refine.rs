@@ -26,6 +26,7 @@ use apeiron::learn::fold::fit::nb_refine::{
 };
 use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
 use apeiron::learn::fold::fit::steps::{compose, fwht128, objective};
+use apeiron::learn::solve::q32::{from_grid, round_q32_even, to_grid, GRID_BOUND};
 
 /// Deterministic xorshift64 LCG.
 struct Lcg(u64);
@@ -55,19 +56,26 @@ const BLOCK: usize = 8;
 const GROUP: usize = 128;
 const CODE_LEN: usize = 256;
 
-/// The 256 codewords in real values: `codeword(j)[k] / 2^32`, the same table the module builds.
-fn codebook() -> Vec<[f64; BLOCK]> {
-    let one = (1_i64 << 32) as f64;
+/// The 256 codewords as `Q32.32` words, the table the module builds.
+fn codebook() -> Vec<[i64; BLOCK]> {
     (0..CODE_LEN)
-        .map(|j| {
-            let row = codeword(j).expect("row in range");
-            let mut out = [0.0_f64; BLOCK];
-            for k in 0..BLOCK {
-                out[k] = row[k] as f64 / one;
-            }
-            out
-        })
+        .map(|j| codeword(j).expect("row in range"))
         .collect()
+}
+
+/// A value on the `Q32.32` grid: `round(x·2³²)` exists and is within the grid range.
+fn q1(x: f64) -> i64 {
+    to_grid(x, GRID_BOUND).expect("value inside the Q32.32 grid range")
+}
+
+/// A fixture as the `Q32.32` words the migrated step consumes.
+fn qw(x: &[f64]) -> Vec<i64> {
+    x.iter().copied().map(q1).collect()
+}
+
+/// A word slice read back through the grid map, the migrated boundary's read-out.
+fn uw(x: &[i64]) -> Vec<f64> {
+    x.iter().copied().map(from_grid).collect()
 }
 
 fn pref(p: &Plane) -> PlaneRef<'_> {
@@ -105,11 +113,11 @@ fn rand_spd(n: usize, rng: &mut Lcg) -> Vec<f64> {
 
 /// A plane with random codebook rows, random group scales in `[0.5, 1.5)` and the given column
 /// scale; `d` is one.
-fn rand_plane(o: usize, n: usize, c: &[f64], rng: &mut Lcg) -> Plane {
+fn rand_plane(o: usize, n: usize, c: &[i64], rng: &mut Lcg) -> Plane {
     let nb = n / BLOCK;
     let g = n / GROUP;
     let cb = codebook();
-    let mut s = vec![0.0_f64; o * n];
+    let mut s = vec![0_i64; o * n];
     let mut idx = vec![0_u16; o * nb];
     for row in 0..o {
         for m in 0..nb {
@@ -123,16 +131,16 @@ fn rand_plane(o: usize, n: usize, c: &[f64], rng: &mut Lcg) -> Plane {
     Plane {
         s,
         idx,
-        r: (0..o * g).map(|_| rng.uniform(0.5, 1.5)).collect(),
+        r: (0..o * g).map(|_| q1(rng.uniform(0.5, 1.5))).collect(),
         c: c.to_vec(),
-        d: vec![1.0; n],
+        d: vec![1_i64 << 32; n],
     }
 }
 
-/// The two-plane weight `plane_w(p1) + plane_w(p2)`.
+/// The two-plane weight `plane_w(p1) + plane_w(p2)`, read back through the grid map.
 fn pair_w(p1: &Plane, p2: &Plane, o: usize, n: usize) -> Vec<f64> {
-    let mut w = plane_w(pref(p1), o, n).expect("plane_w");
-    let w2 = plane_w(pref(p2), o, n).expect("plane_w");
+    let mut w = uw(&plane_w(pref(p1), o, n).expect("plane_w"));
+    let w2 = uw(&plane_w(pref(p2), o, n).expect("plane_w"));
     for k in 0..o * n {
         w[k] += w2[k];
     }
@@ -142,7 +150,7 @@ fn pair_w(p1: &Plane, p2: &Plane, o: usize, n: usize) -> Vec<f64> {
 /// `J(ws, w1 + w2, hl)`, the unweighted script objective.
 fn pair_j(ws: &[f64], p1: &Plane, p2: &Plane, hl: &[f64], o: usize, n: usize) -> f64 {
     let w = pair_w(p1, p2, o, n);
-    objective(ws, &w, hl, o, n).expect("objective")
+    from_grid(objective(&qw(ws), &qw(&w), &qw(hl), o, n).expect("objective"))
 }
 
 /// The derived bound on `|J(ws, w) − J(ws, w̃)|` when `w̃` is `w` summed on the `Q32.32` grid.
@@ -179,14 +187,14 @@ impl Fixture {
     fn new(seed: u64, o: usize, n: usize) -> Self {
         let mut rng = Lcg::new(seed);
         let hl = rand_spd(n, &mut rng);
-        let ct: Vec<f64> = (0..n).map(|_| rng.uniform(0.5, 1.5)).collect();
+        let ct: Vec<i64> = (0..n).map(|_| q1(rng.uniform(0.5, 1.5))).collect();
         let truth1 = rand_plane(o, n, &ct, &mut rng);
         let truth2 = rand_plane(o, n, &ct, &mut rng);
         let mut ws = pair_w(&truth1, &truth2, o, n);
         for v in &mut ws {
             *v += 0.1 * rng.uniform(-1.0, 1.0);
         }
-        let ones = vec![1.0_f64; n];
+        let ones = vec![1_i64 << 32; n];
         let p1 = rand_plane(o, n, &ones, &mut rng);
         let p2 = rand_plane(o, n, &ones, &mut rng);
         Self {
@@ -309,21 +317,21 @@ fn learn_fold_nb_refine_output_stays_in_the_stored_formats() {
     let g = f.n / GROUP;
     for p in [&out.p1, &out.p2] {
         // The column scale is a `6`-bit `quant_c_u8` value: re-quantising it is the identity.
-        let (cq, _) = quant_c_u8(&p.c, C_BITS).expect("quant_c_u8");
+        let (cq, _) = quant_c_u8(&uw(&p.c), C_BITS).expect("quant_c_u8");
         assert_eq!(cq.len(), p.c.len());
         for i in 0..p.c.len() {
-            assert_eq!(cq[i], p.c[i], "c[{i}] is not on the {C_BITS}-bit grid");
+            assert_eq!(q1(cq[i]), p.c[i], "c[{i}] is not on the {C_BITS}-bit grid");
         }
         // The returned row scale is a valid quantiser input. The quantiser is *not* idempotent on
         // its own output in general (a second pass rebuilds the row-mean grid from the decoded
         // values, so it can shift the per-row grid), which is why the format bound below is stated
         // on the values themselves, not on a second pass.
-        assert!(quant_r_hier(&p.r, f.o, g).is_ok());
+        assert!(quant_r_hier(&uw(&p.r), f.o, g).is_ok());
         // The row scale stays in the stored format: every row's entries are a subset of one equally
         // spaced grid of at most 16 points, `r_lo + (k / 15)·r_sp` with `k` an integer in `0..=15`
         // (4-bit codes), so the row writes no value finer than the format carries.
         for row in 0..f.o {
-            let mut vals: Vec<f64> = (0..g).map(|j| p.r[row * g + j]).collect();
+            let mut vals: Vec<f64> = (0..g).map(|j| from_grid(p.r[row * g + j])).collect();
             vals.sort_by(f64::total_cmp);
             vals.dedup();
             assert!(
@@ -377,15 +385,18 @@ fn learn_fold_nb_refine_rounds_zero_returns_the_input() {
         assert_eq!(got.c, want.c);
         assert_eq!(got.d, want.d);
     }
-    assert_eq!(out.w1, plane_w(pref(&f.p1), f.o, f.n).expect("w1"));
-    assert_eq!(out.w2, plane_w(pref(&f.p2), f.o, f.n).expect("w2"));
+    assert_eq!(out.w1, uw(&plane_w(pref(&f.p1), f.o, f.n).expect("w1")));
+    assert_eq!(out.w2, uw(&plane_w(pref(&f.p2), f.o, f.n).expect("w2")));
     let mut ws = out.w1.clone();
     for k in 0..f.o * f.n {
         ws[k] += out.w2[k];
     }
     let bound = j_grid_bound(&f.ws, &ws, &f.hl, f.o, f.n);
     assert!(
-        (out.log.j_seq - objective(&f.ws, &ws, &f.hl, f.o, f.n).expect("J")).abs() <= bound,
+        (out.log.j_seq
+            - from_grid(objective(&qw(&f.ws), &qw(&ws), &qw(&f.hl), f.o, f.n).expect("J")))
+        .abs()
+            <= bound,
         "j_seq {} is not the exact-sum objective within {bound}",
         out.log.j_seq
     );
@@ -411,15 +422,25 @@ fn learn_fold_nb_refine_weights_are_the_packs_compose() {
         let mut sd_max = 0.0_f64;
         for row in 0..f.o {
             for col in 0..f.n {
-                let sd = pack.s[row * f.n + col] * pack.d[col];
+                // The port's `s ⊙ d` product: one `Q32.32` round-to-even per entry.
+                let sd = from_grid(
+                    round_q32_even(i128::from(pack.s[row * f.n + col]) * i128::from(pack.d[col]))
+                        .expect("product on the grid"),
+                );
                 sd_max = sd_max.max(sd.abs());
                 prod[row * f.n + col] = sd;
             }
         }
         let s_e = fwht128(&prod).expect("fwht128");
-        let composed = compose(&s_e, &pack.r, &pack.c, f.o, f.n).expect("compose");
-        let r_max = pack.r.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-        let c_max = pack.c.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        let composed = uw(&compose(&qw(&s_e), &pack.r, &pack.c, f.o, f.n).expect("compose"));
+        let r_max = pack
+            .r
+            .iter()
+            .fold(0.0_f64, |m, &v| m.max(from_grid(v).abs()));
+        let c_max = pack
+            .c
+            .iter()
+            .fold(0.0_f64, |m, &v| m.max(from_grid(v).abs()));
         let bound = (128f64.sqrt() * u * (1.0 + sd_max) + u) * r_max * c_max;
         let mut worst = 0.0_f64;
         for (a, b) in composed.iter().zip(w) {
@@ -433,7 +454,10 @@ fn learn_fold_nb_refine_weights_are_the_packs_compose() {
     let sum = pair_w(&out.p1, &out.p2, f.o, f.n);
     let bound = j_grid_bound(&f.ws, &sum, &f.hl, f.o, f.n);
     assert!(
-        (out.log.j_nb - objective(&f.ws, &sum, &f.hl, f.o, f.n).expect("J")).abs() <= bound,
+        (out.log.j_nb
+            - from_grid(objective(&qw(&f.ws), &qw(&sum), &qw(&f.hl), f.o, f.n).expect("J")))
+        .abs()
+            <= bound,
         "log j_nb {} is not the exact-sum objective within {bound}",
         out.log.j_nb
     );
@@ -524,11 +548,11 @@ fn learn_fold_nb_refine_refuses_bad_shapes_widths_and_non_finite() {
     let ws2 = vec![0.0_f64; f.o * n2];
     let hl2 = vec![0.0_f64; n2 * n2];
     let p2 = Plane {
-        s: vec![0.0_f64; f.o * n2],
+        s: vec![0_i64; f.o * n2],
         idx: vec![0_u16; f.o * (n2 / BLOCK)],
-        r: vec![0.0_f64; f.o * (n2 / GROUP)],
-        c: vec![0.0_f64; n2],
-        d: vec![0.0_f64; n2],
+        r: vec![0_i64; f.o * (n2 / GROUP)],
+        c: vec![0_i64; n2],
+        d: vec![0_i64; n2],
     };
     assert_eq!(
         nb_refine(&ws2, &hl2, pref(&p2), pref(&p2), f.o, n2, None, 0.0, 2, 2).err(),
@@ -559,29 +583,35 @@ fn learn_fold_nb_refine_refuses_bad_shapes_widths_and_non_finite() {
         good(&f.ws, &hl_nan, &f.p1, &f.p2).err(),
         Some(NbError::NotFinite)
     );
+    // A pack scale outside the `i64` product range is refused. The word-domain `Plane` cannot carry
+    // a NaN or an infinity, so the pack-scale refusal exercised here is an off-grid product: `r`
+    // overflows inside `plane_w`'s group scaling, `c` survives `plane_w` and overflows in the entry
+    // `J`, so the refusal is stated as the class (a step or ICM refusal), not one variant.
     let bad_r = Plane {
         r: {
             let mut r = f.p1.r.clone();
-            r[0] = f64::NAN;
+            r[0] = i64::MAX;
             r
         },
         ..f.p1.clone()
     };
-    assert_eq!(
-        good(&f.ws, &f.hl, &bad_r, &f.p2).err(),
-        Some(NbError::NotFinite)
+    let err = good(&f.ws, &f.hl, &bad_r, &f.p2).unwrap_err();
+    assert!(
+        matches!(err, NbError::Icm(_) | NbError::Steps(_)),
+        "an off-grid group scale must be refused, got {err:?}"
     );
     let bad_c = Plane {
         c: {
             let mut c = f.p2.c.clone();
-            c[1] = f64::NEG_INFINITY;
+            c[1] = i64::MAX;
             c
         },
         ..f.p2.clone()
     };
-    assert_eq!(
-        good(&f.ws, &f.hl, &f.p1, &bad_c).err(),
-        Some(NbError::NotFinite)
+    let err = good(&f.ws, &f.hl, &f.p1, &bad_c).unwrap_err();
+    assert!(
+        matches!(err, NbError::Icm(_) | NbError::Steps(_)),
+        "an off-grid column scale must be refused, got {err:?}"
     );
     assert_eq!(
         nb_refine(

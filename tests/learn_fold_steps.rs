@@ -121,6 +121,18 @@ fn max_abs_diff(a: &[f64], b: &[f64]) -> f64 {
         .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()))
 }
 
+/// A fixture as the `Q32.32` words the steps consume: `round(x·2³²)` at the grid's own range.
+fn q(x: &[f64]) -> Vec<i64> {
+    x.iter()
+        .map(|&v| q32::to_grid(v, q32::GRID_BOUND).expect("fixture inside the grid"))
+        .collect()
+}
+
+/// A word slice read back to the reals, for the `f64` oracles and bounds.
+fn unq(x: &[i64]) -> Vec<f64> {
+    x.iter().copied().map(q32::from_grid).collect()
+}
+
 /// The `fwht128` round-trip bound, derived. Each pass rounds the input to a raw word (`≤2⁻³³`
 /// absolute) and each output entry once after the exact butterfly (`≤2⁻³³` of `|Hx|`); in the
 /// `2`-norm that is `‖e‖₂ ≤ 2⁻³³(‖x‖₂ + 2√n) ≈ 1.0e-8` at `n = O·N = 1024` and `|x| < 1`, and the
@@ -157,21 +169,22 @@ fn compose_shapes_and_objective() {
     let s = sign_vec(&mut rng, O * N);
     let r = pos_vec(&mut rng, O * G);
     let c = pos_vec(&mut rng, N);
-    let w = compose(&s, &r, &c, O, N).unwrap();
+    let w = compose(&q(&s), &q(&r), &q(&c), O, N).unwrap();
     assert_eq!(w.len(), O * N);
+    let wf = unq(&w);
     for oo in 0..O {
         for i in 0..N {
             let want = s[oo * N + i] * r[oo * G + i / GROUP] * c[i];
             // Three operands each rounded to a raw word (`≤2⁻³³`) and two rounded products:
             // `|err| ≤ 2⁻³³(1 + |s·r| + |s·r·c|) ≤ 5e-10` for `|s|,|r|,|c| < 1`.
-            assert!((w[oo * N + i] - want).abs() < 1e-9);
+            assert!((wf[oo * N + i] - want).abs() < 1e-9);
         }
     }
-    let hl = spd_metric(&mut rng, N);
+    let hlq = q(&spd_metric(&mut rng, N));
     // `J(W, W, Hl)` is the zero word difference, so exactly `0`; `J` is positive on a distinct pair.
-    assert!(objective(&w, &w, &hl, O, N).unwrap().abs() < 1e-15);
-    let other = sym_vec(&mut rng, O * N);
-    assert!(objective(&w, &other, &hl, O, N).unwrap() > 0.0);
+    assert_eq!(objective(&w, &w, &hlq, O, N).unwrap(), 0);
+    let other = q(&sym_vec(&mut rng, O * N));
+    assert!(objective(&w, &other, &hlq, O, N).unwrap() > 0);
 }
 
 #[test]
@@ -181,16 +194,16 @@ fn c_step_recovers_c0() {
     let r = pos_vec(&mut rng, O * G);
     let c0 = pos_vec(&mut rng, N);
     let hl = spd_metric(&mut rng, N);
-    let ws = compose(&s, &r, &c0, O, N).unwrap();
-    let c = c_step(&ws, &hl, &s, &r, O, N, None).unwrap();
+    let ws = compose(&q(&s), &q(&r), &q(&c0), O, N).unwrap();
+    let c = c_step(&ws, &q(&hl), &q(&s), &q(&r), O, N, None).unwrap();
     // The un-ridged normal system has c0 as its exact solution; the 1e-12·mean(diag) ridge moves the
     // result off c0 by λ·(A+λI)⁻¹c0, far below this bound.
-    let err = max_abs_diff(&c, &c0);
+    let err = max_abs_diff(&unq(&c), &c0);
     assert!(err <= 1e-6 * (1.0 + max_abs(&c0)), "c recovery err {err}");
     // An all-ones row weight is the unweighted step.
-    let ones = vec![1.0f64; O];
-    let c_w = c_step(&ws, &hl, &s, &r, O, N, Some(&ones)).unwrap();
-    assert!(max_abs_diff(&c, &c_w) < 1e-12);
+    let ones = q(&[1.0f64; O]);
+    let c_w = c_step(&ws, &q(&hl), &q(&s), &q(&r), O, N, Some(&ones)).unwrap();
+    assert_eq!(c, c_w);
 }
 
 #[test]
@@ -200,10 +213,10 @@ fn r_step_recovers_r0() {
     let c = pos_vec(&mut rng, N);
     let r0 = pos_vec(&mut rng, O * G);
     let hl = spd_metric(&mut rng, N);
-    let ws = compose(&s, &r0, &c, O, N).unwrap();
-    let r = r_step(&ws, &hl, &s, &c, O, N).unwrap();
+    let ws = compose(&q(&s), &q(&r0), &q(&c), O, N).unwrap();
+    let r = r_step(&ws, &q(&hl), &q(&s), &q(&c), O, N).unwrap();
     assert_eq!(r.len(), O * G);
-    let err = max_abs_diff(&r, &r0);
+    let err = max_abs_diff(&unq(&r), &r0);
     assert!(err <= 1e-6 * (1.0 + max_abs(&r0)), "r recovery err {err}");
 }
 
@@ -217,7 +230,7 @@ fn recon_d(s_rot: &[f64], r: &[f64], c: &[f64], d: &[f64]) -> Vec<f64> {
         }
     }
     let t = fwht128(&scaled).unwrap();
-    compose(&t, r, c, O, N).unwrap()
+    unq(&compose(&q(&t), &q(r), &q(c), O, N).unwrap())
 }
 
 #[test]
@@ -228,9 +241,13 @@ fn d_step_is_stationary_and_descends() {
     let s_rot = sign_vec(&mut rng, O * N);
     let r = pos_vec(&mut rng, O * G);
     let c = pos_vec(&mut rng, N);
-    let d = d_step(&ws, &hl, &s_rot, &r, &c, O, N, None).unwrap();
+    let d = unq(&d_step(&q(&ws), &q(&hl), &q(&s_rot), &q(&r), &q(&c), O, N, None).unwrap());
     assert_eq!(d.len(), N);
-    let j_at = |dd: &[f64]| objective(&ws, &recon_d(&s_rot, &r, &c, dd), &hl, O, N).unwrap();
+    let ws_q = q(&ws);
+    let hl_q = q(&hl);
+    let j_at = |dd: &[f64]| {
+        q32::from_grid(objective(&ws_q, &q(&recon_d(&s_rot, &r, &c, dd)), &hl_q, O, N).unwrap())
+    };
     let j_ones = j_at(&vec![1.0f64; N]);
     let j_d = j_at(&d);
     assert!(j_d <= j_ones, "descent {j_d} vs {j_ones}");
@@ -538,7 +555,7 @@ fn c_step_matches_old_f64_formula() {
         let hl = spd_metric(&mut rng, n);
         let ws: Vec<f64> = (0..o * n).map(|_| ws_mag * rng.sym()).collect();
         let gr = pos_vec(&mut rng, o);
-        let new = c_step(&ws, &hl, &s, &r, o, n, Some(&gr)).unwrap();
+        let new = unq(&c_step(&q(&ws), &q(&hl), &q(&s), &q(&r), o, n, Some(&q(&gr))).unwrap());
         let old = old_c_step(&ws, &hl, &s, &r, o, n, Some(&gr));
         let rel = max_rel_diff(&new, &old);
         println!("c_step vs old f64 ({o},{n}) big_r={big_r} |Ws|~{ws_mag:e}: max rel {rel:e}");
@@ -549,46 +566,30 @@ fn c_step_matches_old_f64_formula() {
     }
 }
 
-/// (c) A non-finite input and an out-of-bound input return the step's error, no panic: a `NaN`
-/// metric entry, an infinite weight, a non-finite row weight (the row weight itself is shifted into
-/// the input bound, so only finiteness refuses), and a weight large enough that the right-hand side
-/// leaves the grid `i64` range.
+/// (c) A word whose product leaves the grid `i64` range returns the step's error, no panic. The
+/// boundary's non-finite and out-of-grid refusal is `fold_fit::words_in`'s: `c_step` receives
+/// `Q32.32` words, so a `NaN`/`Inf`/`1e30` fixture is refused before it reaches here.
 #[test]
-fn c_step_refuses_non_finite_and_out_of_bound() {
+fn c_step_refuses_overflow_and_shape() {
     let mut rng = Lcg::new(12);
-    let s = sign_vec(&mut rng, O * N);
-    let r = pos_vec(&mut rng, O * G);
-    let hl = spd_metric(&mut rng, N);
-    let ws = sym_vec(&mut rng, O * N);
-    let nan_hl = {
-        let mut h = hl.clone();
-        h[5] = f64::NAN;
-        h
-    };
-    assert_eq!(
-        c_step(&ws, &nan_hl, &s, &r, O, N, None).unwrap_err(),
-        StepsError::ShapeMismatch
-    );
-    let inf_ws = {
-        let mut w = ws.clone();
-        w[3] = f64::INFINITY;
-        w
-    };
-    assert_eq!(
-        c_step(&inf_ws, &hl, &s, &r, O, N, None).unwrap_err(),
-        StepsError::ShapeMismatch
-    );
-    // A non-finite row weight.
-    let mut gr_bad = pos_vec(&mut rng, O);
-    gr_bad[O - 1] = f64::INFINITY;
-    assert_eq!(
-        c_step(&ws, &hl, &s, &r, O, N, Some(&gr_bad)).unwrap_err(),
-        StepsError::ShapeMismatch
-    );
-    // A weight whose product leaves the grid `i64` range.
-    let big_ws = vec![1.0e30f64; O * N];
+    let s = q(&sign_vec(&mut rng, O * N));
+    let r = q(&pos_vec(&mut rng, O * G));
+    let hl = q(&spd_metric(&mut rng, N));
+    let ws = q(&sym_vec(&mut rng, O * N));
+    // A word at the `i64` ceiling: the metric product's undo shift leaves the grid.
+    let big_ws = vec![i64::MAX; O * N];
     assert_eq!(
         c_step(&big_ws, &hl, &s, &r, O, N, None).unwrap_err(),
+        StepsError::ShapeMismatch
+    );
+    let big_hl = vec![i64::MAX; N * N];
+    assert_eq!(
+        c_step(&ws, &big_hl, &s, &r, O, N, None).unwrap_err(),
+        StepsError::ShapeMismatch
+    );
+    // A row weight one element short of `O`.
+    assert_eq!(
+        c_step(&ws, &hl, &s, &r, O, N, Some(&s[..O - 1])).unwrap_err(),
         StepsError::ShapeMismatch
     );
 }
@@ -603,25 +604,28 @@ fn c_step_refuses_non_finite_and_out_of_bound() {
 #[test]
 fn large_g_row_is_shifted_not_refused() {
     let mut rng = Lcg::new(0x6_9000_0001);
-    let s = sign_vec(&mut rng, O * N);
-    let s_rot = sign_vec(&mut rng, O * N);
-    let r = pos_vec(&mut rng, O * G);
-    let c = pos_vec(&mut rng, N);
-    let hl = spd_metric(&mut rng, N);
-    let ws = sym_vec(&mut rng, O * N);
+    let s = q(&sign_vec(&mut rng, O * N));
+    let s_rot = q(&sign_vec(&mut rng, O * N));
+    let r = q(&pos_vec(&mut rng, O * G));
+    let c = q(&pos_vec(&mut rng, N));
+    let hl = q(&spd_metric(&mut rng, N));
+    let ws = q(&sym_vec(&mut rng, O * N));
     let base = pos_vec(&mut rng, O);
     for (big, down) in [(18.475f64, 4.0f64), (1.0e3, 128.0), (16.0, 2.0)] {
         let mut gr = base.clone();
         gr[0] = big;
         let gr_down: Vec<f64> = gr.iter().map(|&v| v / down).collect();
-        let got = c_step(&ws, &hl, &s, &r, O, N, Some(&gr)).expect("shifted c_step");
-        let want = c_step(&ws, &hl, &s, &r, O, N, Some(&gr_down)).expect("prescaled c_step");
+        let got = unq(&c_step(&ws, &hl, &s, &r, O, N, Some(&q(&gr))).expect("shifted c_step"));
+        let want =
+            unq(&c_step(&ws, &hl, &s, &r, O, N, Some(&q(&gr_down))).expect("prescaled c_step"));
         let rel = max_rel_diff(&got, &want);
         println!("c_step g_row {big} vs /{down}: max rel {rel:e}");
         assert!(rel <= 1e-8, "c_step g_row {big} vs /{down}: {rel:e}");
-        let got_d = d_step(&ws, &hl, &s_rot, &r, &c, O, N, Some(&gr)).expect("shifted d_step");
+        let got_d =
+            unq(&d_step(&ws, &hl, &s_rot, &r, &c, O, N, Some(&q(&gr))).expect("shifted d_step"));
         let want_d =
-            d_step(&ws, &hl, &s_rot, &r, &c, O, N, Some(&gr_down)).expect("prescaled d_step");
+            unq(&d_step(&ws, &hl, &s_rot, &r, &c, O, N, Some(&q(&gr_down)))
+                .expect("prescaled d_step"));
         let rel_d = max_rel_diff(&got_d, &want_d);
         println!("d_step g_row {big} vs /{down}: max rel {rel_d:e}");
         assert!(rel_d <= 1e-8, "d_step g_row {big} vs /{down}: {rel_d:e}");
@@ -674,7 +678,7 @@ fn timing_c_step_production_shape() {
     let mut times: Vec<f64> = Vec::with_capacity(runs);
     for _ in 0..runs {
         let t0 = std::time::Instant::now();
-        let c = c_step(&ws, &hl, &s, &r, o, n, Some(&gr)).expect("c_step");
+        let c = c_step(&q(&ws), &q(&hl), &q(&s), &q(&r), o, n, Some(&q(&gr))).expect("c_step");
         let dt = t0.elapsed().as_secs_f64();
         std::hint::black_box(c);
         times.push(dt);
@@ -713,7 +717,7 @@ fn c_step_stages(
         }
     }
     let t0 = std::time::Instant::now();
-    let wshl = mul_metric(ws, hl, o, n).expect("mul_metric");
+    let wshl = mul_metric(&q(ws), &q(hl), o, n).expect("mul_metric");
     let staged_mul = t0.elapsed().as_secs_f64();
     let k = q32::panel_shift(max_abs(&b_sh));
     if k != 0 {
@@ -758,7 +762,7 @@ fn c_step_stages(
     for i in 0..n {
         let mut acc = 0.0f64;
         for oo in 0..o {
-            acc += wshl[oo * n + i] * b_sh[oo * n + i] * gr[oo];
+            acc += q32::from_grid(wshl[oo * n + i]) * b_sh[oo * n + i] * gr[oo];
         }
         rhs[i] = acc;
     }
@@ -781,7 +785,7 @@ fn refusals_are_reached() {
         StepsError::ShapeMismatch
     );
     assert_eq!(
-        had_gram(&vec![0.0f64; 200 * 200], 200).unwrap_err(),
+        had_gram(&vec![0i64; 200 * 200], 200).unwrap_err(),
         StepsError::ShapeMismatch
     );
     assert_eq!(
@@ -802,11 +806,11 @@ fn refusals_are_reached() {
     );
 
     let mut rng = Lcg::new(9);
-    let s = sign_vec(&mut rng, O * N);
-    let r = pos_vec(&mut rng, O * G);
-    let c = pos_vec(&mut rng, N);
-    let ws = sym_vec(&mut rng, O * N);
-    let hl = spd_metric(&mut rng, N);
+    let s = q(&sign_vec(&mut rng, O * N));
+    let r = q(&pos_vec(&mut rng, O * G));
+    let c = q(&pos_vec(&mut rng, N));
+    let ws = q(&sym_vec(&mut rng, O * N));
+    let hl = q(&spd_metric(&mut rng, N));
     // Length mismatches.
     assert_eq!(
         c_step(&ws[1..], &hl, &s, &r, O, N, None).unwrap_err(),
@@ -817,7 +821,7 @@ fn refusals_are_reached() {
         StepsError::ShapeMismatch
     );
     assert_eq!(
-        d_step(&ws, &hl, &s, &r, &c, O, N, Some(&[1.0, 1.0, 1.0][..])).unwrap_err(),
+        d_step(&ws, &hl, &s, &r, &c, O, N, Some(&[1i64, 1, 1][..])).unwrap_err(),
         StepsError::ShapeMismatch
     );
     assert_eq!(
@@ -830,11 +834,12 @@ fn refusals_are_reached() {
     );
     // A non-SPD metric: the last diagonal entry is negative, so `A = hl ⊙ Gram` is indefinite and the
     // Cholesky pivot refuses.
-    let mut hl_bad = vec![0.0f64; N * N];
+    let mut hl_bad = vec![0i64; N * N];
+    let unit = q(&[1.0])[0];
     for i in 0..N {
-        hl_bad[i * N + i] = 1.0;
+        hl_bad[i * N + i] = unit;
     }
-    hl_bad[(N - 1) * N + (N - 1)] = -1.0;
+    hl_bad[(N - 1) * N + (N - 1)] = -unit;
     assert_eq!(
         c_step(&ws, &hl_bad, &s, &r, O, N, None).unwrap_err(),
         StepsError::NotPositiveDefinite
@@ -877,7 +882,17 @@ fn d_step_matches_old_f64_formula() {
         };
         let c = pos_vec(&mut rng, n);
         let gr = pos_vec(&mut rng, o);
-        let new = d_step(&ws, &hl, &s_rot, &r, &c, o, n, Some(&gr)).unwrap();
+        let new = unq(&d_step(
+            &q(&ws),
+            &q(&hl),
+            &q(&s_rot),
+            &q(&r),
+            &q(&c),
+            o,
+            n,
+            Some(&q(&gr)),
+        )
+        .unwrap());
         let old = old_d_step(&ws, &hl, &s_rot, &r, &c, o, n, Some(&gr));
         let rel = max_rel_diff(&new, &old);
         println!("d_step vs old f64 ({o},{n}) big_r={big_r} |Ws|~{ws_mag:e}: max rel {rel:e}");
@@ -909,7 +924,7 @@ fn r_step_matches_old_f64_formula() {
         let c = pos_vec(&mut rng, n);
         let hl = spd_metric(&mut rng, n);
         let ws: Vec<f64> = (0..o * n).map(|_| ws_mag * rng.sym()).collect();
-        let new = r_step(&ws, &hl, &s, &c, o, n).unwrap();
+        let new = unq(&r_step(&q(&ws), &q(&hl), &q(&s), &q(&c), o, n).unwrap());
         let old = old_r_step(&ws, &hl, &s, &c, o, n);
         let rel = max_rel_diff(&new, &old);
         println!("r_step vs old f64 ({o},{n}) |Ws|~{ws_mag:e}: max rel {rel:e}");
@@ -967,7 +982,7 @@ fn mul_metric_matches_old_f64_formula() {
                 .map(|oo| ws[oo * n..oo * n + n].iter().map(|v| v.abs()).sum::<f64>())
                 .fold(0.0f64, f64::max);
             let bound = 2f64.powi(-33) * (2f64.powi(k) * col_mass + 2f64.powi(k_hl) * row_mass);
-            let new = mul_metric(&ws, &hl, o, n).unwrap();
+            let new = unq(&mul_metric(&q(&ws), &q(&hl), o, n).unwrap());
             let old = old_mul_metric(&ws, &hl, o, n);
             assert_eq!(new.len(), o * n);
             let diff = max_abs_diff(&new, &old);
@@ -992,52 +1007,15 @@ fn mul_metric_matches_old_f64_formula() {
     }
 }
 
-/// (c) `mul_metric` refuses a non-finite, an out-of-bound and an unrepresentable input with
-/// [`StepsError::ShapeMismatch`] and does not panic: a `NaN` and an infinite `Ws` entry, the same in
-/// `Hl`, a length that disagrees with the declared shape in either operand, and a pair whose exact
-/// undo power of two leaves `f64`. A zero row count is the empty product and stays `Ok`.
+/// (c) `mul_metric` refuses a shape that disagrees with the declared `O × n` / `n × n` with
+/// [`StepsError::ShapeMismatch`] and does not panic. The boundary's non-finite and out-of-grid
+/// refusal is `fold_fit::words_in`'s: `mul_metric` receives `Q32.32` words. A zero row count is the
+/// empty product and stays `Ok`.
 #[test]
-fn mul_metric_refuses_non_finite_and_out_of_bound() {
+fn mul_metric_refuses_shape() {
     let mut rng = Lcg::new(0x6d_1efe);
-    let ws = sym_vec(&mut rng, O * N);
-    let hl = spd_metric(&mut rng, N);
-    let nan_ws = {
-        let mut w = ws.clone();
-        w[3] = f64::NAN;
-        w
-    };
-    assert_eq!(
-        mul_metric(&nan_ws, &hl, O, N).unwrap_err(),
-        StepsError::ShapeMismatch
-    );
-    let inf_ws = {
-        let mut w = ws.clone();
-        w[3] = f64::INFINITY;
-        w
-    };
-    assert_eq!(
-        mul_metric(&inf_ws, &hl, O, N).unwrap_err(),
-        StepsError::ShapeMismatch
-    );
-    let nan_hl = {
-        let mut h = hl.clone();
-        h[5] = f64::NAN;
-        h
-    };
-    assert_eq!(
-        mul_metric(&ws, &nan_hl, O, N).unwrap_err(),
-        StepsError::ShapeMismatch
-    );
-    let inf_hl = {
-        let mut h = hl.clone();
-        h[5] = f64::INFINITY;
-        h
-    };
-    assert_eq!(
-        mul_metric(&ws, &inf_hl, O, N).unwrap_err(),
-        StepsError::ShapeMismatch
-    );
-    // Shapes that disagree with the declared `O × n` / `n × n`.
+    let ws = q(&sym_vec(&mut rng, O * N));
+    let hl = q(&spd_metric(&mut rng, N));
     assert_eq!(
         mul_metric(&ws[1..], &hl, O, N).unwrap_err(),
         StepsError::ShapeMismatch
@@ -1046,67 +1024,36 @@ fn mul_metric_refuses_non_finite_and_out_of_bound() {
         mul_metric(&ws, &hl[1..], O, N).unwrap_err(),
         StepsError::ShapeMismatch
     );
-    // A magnitude pair whose exact undo power of two leaves `f64` (`1e308·1e308` in reals).
-    let huge = vec![1.0e308f64; O * N];
-    let huge_hl = vec![1.0e308f64; N * N];
     assert_eq!(
-        mul_metric(&huge, &huge_hl, O, N).unwrap_err(),
+        mul_metric(&ws, &hl, O + 1, N).unwrap_err(),
         StepsError::ShapeMismatch
     );
     // Zero out rows: the empty product, as the deleted loop returned it.
     assert!(mul_metric(&[], &hl, 0, N).unwrap().is_empty());
 }
 
-/// (c) A non-finite or out-of-bound input to `d_step` returns the step's error, no panic: a `NaN`
-/// metric entry, an infinite `Ws`, a `NaN` rotated sign entry, a non-finite row weight (the row
-/// weight itself is shifted into the input bound, so only finiteness refuses), and a `Ws` large
-/// enough that the right-hand side leaves the grid `i64` range.
+/// (c) A shape that disagrees with `d_step`'s declared geometry returns
+/// [`StepsError::ShapeMismatch`], no panic. The boundary's non-finite and out-of-grid refusal is
+/// `fold_fit::words_in`'s: `d_step` receives `Q32.32` words.
 #[test]
-fn d_step_refuses_non_finite_and_out_of_bound() {
+fn d_step_refuses_shape() {
     let mut rng = Lcg::new(13);
-    let ws = sym_vec(&mut rng, O * N);
-    let hl = spd_metric(&mut rng, N);
-    let s_rot = sign_vec(&mut rng, O * N);
-    let r = pos_vec(&mut rng, O * G);
-    let c = pos_vec(&mut rng, N);
-    let nan_hl = {
-        let mut h = hl.clone();
-        h[5] = f64::NAN;
-        h
-    };
+    let ws = q(&sym_vec(&mut rng, O * N));
+    let hl = q(&spd_metric(&mut rng, N));
+    let s_rot = q(&sign_vec(&mut rng, O * N));
+    let r = q(&pos_vec(&mut rng, O * G));
+    let c = q(&pos_vec(&mut rng, N));
     assert_eq!(
-        d_step(&ws, &nan_hl, &s_rot, &r, &c, O, N, None).unwrap_err(),
+        d_step(&ws, &hl, &s_rot[1..], &r, &c, O, N, None).unwrap_err(),
         StepsError::ShapeMismatch
     );
-    let inf_ws = {
-        let mut w = ws.clone();
-        w[3] = f64::INFINITY;
-        w
-    };
     assert_eq!(
-        d_step(&inf_ws, &hl, &s_rot, &r, &c, O, N, None).unwrap_err(),
+        d_step(&ws, &hl[1..], &s_rot, &r, &c, O, N, None).unwrap_err(),
         StepsError::ShapeMismatch
     );
-    let nan_s = {
-        let mut s = s_rot.clone();
-        s[7] = f64::NAN;
-        s
-    };
+    // A row weight one element short of `O`.
     assert_eq!(
-        d_step(&ws, &hl, &nan_s, &r, &c, O, N, None).unwrap_err(),
-        StepsError::ShapeMismatch
-    );
-    // A non-finite row weight.
-    let mut gr_bad = pos_vec(&mut rng, O);
-    gr_bad[O - 1] = f64::INFINITY;
-    assert_eq!(
-        d_step(&ws, &hl, &s_rot, &r, &c, O, N, Some(&gr_bad)).unwrap_err(),
-        StepsError::ShapeMismatch
-    );
-    // A `Ws` whose right-hand side leaves the grid `i64` range.
-    let big_ws = vec![1.0e30f64; O * N];
-    assert_eq!(
-        d_step(&big_ws, &hl, &s_rot, &r, &c, O, N, None).unwrap_err(),
+        d_step(&ws, &hl, &s_rot, &r, &c, O, N, Some(&s_rot[..O - 1])).unwrap_err(),
         StepsError::ShapeMismatch
     );
 }
@@ -1157,7 +1104,17 @@ fn timing_d_step_production_shape() {
     let mut times: Vec<f64> = Vec::with_capacity(runs);
     for _ in 0..runs {
         let t0 = std::time::Instant::now();
-        let d = d_step(&ws, &hl, &s_rot, &r, &c, o, n, Some(&gr)).expect("d_step");
+        let d = d_step(
+            &q(&ws),
+            &q(&hl),
+            &q(&s_rot),
+            &q(&r),
+            &q(&c),
+            o,
+            n,
+            Some(&q(&gr)),
+        )
+        .expect("d_step");
         let dt = t0.elapsed().as_secs_f64();
         std::hint::black_box(d);
         times.push(dt);
@@ -1208,12 +1165,12 @@ fn d_step_stages(
 ) -> [f64; 6] {
     let g = n / GROUP;
     let t0 = std::time::Instant::now();
-    let wshl = mul_metric(ws, hl, o, n).expect("mul_metric");
+    let wshl = mul_metric(&q(ws), &q(hl), o, n).expect("mul_metric");
     let staged_mul = t0.elapsed().as_secs_f64();
     let mut g_rot = vec![0.0f64; o * n];
     for oo in 0..o {
         for i in 0..n {
-            g_rot[oo * n + i] = wshl[oo * n + i] * c[i];
+            g_rot[oo * n + i] = q32::from_grid(wshl[oo * n + i]) * c[i];
         }
     }
     let g_rot = fwht128(&g_rot).expect("G_rot");
@@ -1224,7 +1181,7 @@ fn d_step_stages(
             hlc[i * n + j] = hl[i * n + j] * c[i] * c[j];
         }
     }
-    let h_rot = had_gram(&hlc, n).expect("H_rot");
+    let h_rot = unq(&had_gram(&q(&hlc), n).expect("H_rot"));
     let hrot = t0.elapsed().as_secs_f64();
     let mut b_scaled = vec![0.0f64; o * n];
     for oo in 0..o {
@@ -1292,74 +1249,41 @@ fn d_step_stages(
 }
 
 /// (b) The `_wshl` variants with a caller-supplied `wshl = mul_metric(ws, hl, o, n)` return the
-/// same vectors as the wrapper steps that form the product internally, element for element under
-/// `f64::to_bits`: `c_step_wshl` against `c_step` with `None` and with a row weight, `r_step_wshl`
-/// against `r_step`, and `d_step_wshl` against `d_step` with `None` and with a row weight.
+/// same vectors as the wrapper steps that form the product internally, element for element:
+/// `c_step_wshl` against `c_step` with `None` and with a row weight, `r_step_wshl` against
+/// `r_step`, and `d_step_wshl` against `d_step` with `None` and with a row weight.
 ///
 /// Mutation control: an off-by-one read in `r_step_wshl` (`wshl[oo·n + idx + 1]`) turns this test
 /// (and `r_step_matches_old_f64_formula`) red.
 #[test]
 fn wshl_variants_are_bit_identical_to_wrappers() {
     let mut rng = Lcg::new(0x7750_0001);
-    let s = sign_vec(&mut rng, O * N);
-    let s_rot = sign_vec(&mut rng, O * N);
-    let r = pos_vec(&mut rng, O * G);
-    let c = pos_vec(&mut rng, N);
-    let hl = spd_metric(&mut rng, N);
-    let ws = sym_vec(&mut rng, O * N);
-    let gr = pos_vec(&mut rng, O);
+    let s = q(&sign_vec(&mut rng, O * N));
+    let s_rot = q(&sign_vec(&mut rng, O * N));
+    let r = q(&pos_vec(&mut rng, O * G));
+    let c = q(&pos_vec(&mut rng, N));
+    let hl = q(&spd_metric(&mut rng, N));
+    let ws = q(&sym_vec(&mut rng, O * N));
+    let gr = q(&pos_vec(&mut rng, O));
     let wshl = mul_metric(&ws, &hl, O, N).unwrap();
 
     let c_ref = c_step(&ws, &hl, &s, &r, O, N, None).unwrap();
     let c_new = c_step_wshl(&ws, &hl, &wshl, &s, &r, O, N, None).unwrap();
-    assert_eq!(c_ref.len(), c_new.len());
-    for k in 0..c_ref.len() {
-        assert_eq!(
-            c_ref[k].to_bits(),
-            c_new[k].to_bits(),
-            "c_step_wshl[{k}] differs from c_step"
-        );
-    }
+    assert_eq!(c_ref, c_new, "c_step_wshl differs from c_step");
     let c_w_ref = c_step(&ws, &hl, &s, &r, O, N, Some(&gr)).unwrap();
     let c_w_new = c_step_wshl(&ws, &hl, &wshl, &s, &r, O, N, Some(&gr)).unwrap();
-    for k in 0..c_w_ref.len() {
-        assert_eq!(
-            c_w_ref[k].to_bits(),
-            c_w_new[k].to_bits(),
-            "c_step_wshl(weights)[{k}] differs from c_step"
-        );
-    }
+    assert_eq!(c_w_ref, c_w_new, "weighted c_step_wshl differs from c_step");
 
     let r_ref = r_step(&ws, &hl, &s, &c, O, N).unwrap();
     let r_new = r_step_wshl(&ws, &hl, &wshl, &s, &c, O, N).unwrap();
-    assert_eq!(r_ref.len(), r_new.len());
-    for k in 0..r_ref.len() {
-        assert_eq!(
-            r_ref[k].to_bits(),
-            r_new[k].to_bits(),
-            "r_step_wshl[{k}] differs from r_step"
-        );
-    }
+    assert_eq!(r_ref, r_new, "r_step_wshl differs from r_step");
 
     let d_ref = d_step(&ws, &hl, &s_rot, &r, &c, O, N, None).unwrap();
     let d_new = d_step_wshl(&ws, &hl, &wshl, &s_rot, &r, &c, O, N, None).unwrap();
-    assert_eq!(d_ref.len(), d_new.len());
-    for k in 0..d_ref.len() {
-        assert_eq!(
-            d_ref[k].to_bits(),
-            d_new[k].to_bits(),
-            "d_step_wshl[{k}] differs from d_step"
-        );
-    }
+    assert_eq!(d_ref, d_new, "d_step_wshl differs from d_step");
     let d_w_ref = d_step(&ws, &hl, &s_rot, &r, &c, O, N, Some(&gr)).unwrap();
     let d_w_new = d_step_wshl(&ws, &hl, &wshl, &s_rot, &r, &c, O, N, Some(&gr)).unwrap();
-    for k in 0..d_w_ref.len() {
-        assert_eq!(
-            d_w_ref[k].to_bits(),
-            d_w_new[k].to_bits(),
-            "d_step_wshl(weights)[{k}] differs from d_step"
-        );
-    }
+    assert_eq!(d_w_ref, d_w_new, "weighted d_step_wshl differs from d_step");
 }
 
 /// (b) Each `_wshl` variant refuses a product one element short of `o·n` with
@@ -1367,12 +1291,12 @@ fn wshl_variants_are_bit_identical_to_wrappers() {
 #[test]
 fn wshl_variants_refuse_a_short_product() {
     let mut rng = Lcg::new(0x7750_0002);
-    let s = sign_vec(&mut rng, O * N);
-    let s_rot = sign_vec(&mut rng, O * N);
-    let r = pos_vec(&mut rng, O * G);
-    let c = pos_vec(&mut rng, N);
-    let hl = spd_metric(&mut rng, N);
-    let ws = sym_vec(&mut rng, O * N);
+    let s = q(&sign_vec(&mut rng, O * N));
+    let s_rot = q(&sign_vec(&mut rng, O * N));
+    let r = q(&pos_vec(&mut rng, O * G));
+    let c = q(&pos_vec(&mut rng, N));
+    let hl = q(&spd_metric(&mut rng, N));
+    let ws = q(&sym_vec(&mut rng, O * N));
     let wshl = mul_metric(&ws, &hl, O, N).unwrap();
     let short = &wshl[..wshl.len() - 1];
     assert_eq!(short.len(), O * N - 1);

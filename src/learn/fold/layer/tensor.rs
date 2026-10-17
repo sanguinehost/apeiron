@@ -51,10 +51,10 @@ use crate::learn::fold::fit::fold_fit::{fold_fit, FoldFitConfig, FoldFitError, P
 use crate::learn::fold::fit::icm::{nearest_index, IcmError, Plane, PlaneRef, BLOCK};
 use crate::learn::fold::fit::nb_refine::{nb_refine, NbError, NbLog};
 use crate::learn::fold::fit::quant::QuantError;
-use crate::learn::fold::fit::steps::{compose, fwht128, objective, StepsError};
+use crate::learn::fold::fit::steps::{compose, fwht_words, objective, StepsError};
 use crate::learn::fold::layer::resq::{rescale_hier, rescale_hier_top, ResqError};
 use crate::learn::fold::layer::stage::{bias_update, metric, StageError};
-use crate::learn::solve::q32::{Q32Error, GRID_SCALE};
+use crate::learn::solve::q32::{from_grid, Q32Error, GRID_SCALE};
 
 /// `n/128`, the number of hierarchical row-scale groups.
 const fn groups(n: usize) -> usize {
@@ -380,13 +380,13 @@ fn gather_rows(m: &[f64], rows: &[usize], n: usize) -> Result<Vec<f64>, TensorEr
 ///
 /// # Errors
 /// [`TensorError::Icm`] if a block's values leave the codebook's admitted range.
-fn plane_idx(s_rot: &[f64], rlen: usize, n: usize) -> Result<Vec<u16>, TensorError> {
+fn plane_idx(s_rot: &[i64], rlen: usize, n: usize) -> Result<Vec<u16>, TensorError> {
     let nb = n / BLOCK;
     if s_rot.len() != rlen * n {
         return Err(TensorError::PlaneShape);
     }
     let mut idx = Vec::with_capacity(rlen * nb);
-    let mut code = [0.0_f64; BLOCK];
+    let mut code = [0_i64; BLOCK];
     for row in 0..rlen {
         for m in 0..nb {
             let base = row * n + m * BLOCK;
@@ -403,13 +403,14 @@ fn plane_idx(s_rot: &[f64], rlen: usize, n: usize) -> Result<Vec<u16>, TensorErr
 /// # Errors
 /// [`TensorError::Icm`] from [`plane_idx`].
 fn pack_to_plane(pack: &PackOut, rlen: usize, n: usize) -> Result<Plane, TensorError> {
-    let idx = plane_idx(&pack.s_rot, rlen, n)?;
+    let s = grids(&pack.s_rot)?;
+    let idx = plane_idx(&s, rlen, n)?;
     Ok(Plane {
-        s: pack.s_rot.clone(),
+        s,
         idx,
-        r: pack.rh.clone(),
-        c: pack.ch.clone(),
-        d: pack.dh.clone(),
+        r: grids(&pack.rh)?,
+        c: grids(&pack.ch)?,
+        d: grids(&pack.dh)?,
     })
 }
 
@@ -444,7 +445,7 @@ fn pack_plane(pack: &PackOut) -> SinkPlane {
 
 /// A pack plane from an owned [`Plane`] (the `-nb` output).
 fn owned_plane(p: &Plane) -> SinkPlane {
-    plane_of(p.s.clone(), p.r.clone(), p.c.clone(), p.d.clone())
+    plane_of(reals(&p.s), reals(&p.r), reals(&p.c), reals(&p.d))
 }
 
 /// The full `[o, n]` weight of one sink plane: a dense plane is itself; a pack plane is
@@ -477,12 +478,12 @@ fn plane_weight(p: &SinkPlane, o: usize, n: usize) -> Result<Vec<i64>, TensorErr
     if p.s_rot.len() != rlen * n || p.rh.len() != rlen * g || p.ch.len() != n || p.dh.len() != n {
         return Err(TensorError::PlaneShape);
     }
-    // rot = s_rot ⊙ dh (repeated down the rows), one rounding per entry on the carrier.
+    // rot = s_rot ⊙ dh (repeated down the rows), one rounding per entry on the carrier; the
+    // transform and the composition are the word forms, so no real is read back between them.
     let sq = grids(&p.s_rot)?;
-    let rot = eval(sq.len(), Elem::MulCol(&sq, &grids(&p.dh)?, n))?;
-    let t = fwht128(&reals(&rot))?;
-    let wi = compose(&t, &p.rh, &p.ch, rlen, n)?;
-    let wq = grids(&wi)?;
+    let mut rot = eval(sq.len(), Elem::MulCol(&sq, &grids(&p.dh)?, n))?;
+    fwht_words(&mut rot)?;
+    let wq = compose(&rot, &grids(&p.rh)?, &grids(&p.ch)?, rlen, n)?;
     match rows {
         None => Ok(wq),
         Some(rs) => {
@@ -585,10 +586,10 @@ fn sink_check(recon_wp: &[i64], wp: &[i64]) -> Result<(), TensorError> {
     }
 }
 
-/// `J(Ws, W, Hl)` (unweighted, the script's `J`) at a carrier weight: the words' reals, one
-/// boundary read.
-fn j_words(ws: &[f64], w: &[i64], hl: &[f64], o: usize, n: usize) -> Result<f64, TensorError> {
-    Ok(objective(ws, &reals(w), hl, o, n)?)
+/// `J(Ws, W, Hl)` (unweighted, the script's `J`) on the carrier, read once to `f64` for the
+/// caller's comparison.
+fn j_words(ws: &[i64], w: &[i64], hl: &[i64], o: usize, n: usize) -> Result<f64, TensorError> {
+    Ok(from_grid(objective(ws, w, hl, o, n)?))
 }
 
 /// The per-tensor assembly after the stage solve.
@@ -652,16 +653,18 @@ pub fn fit_tensor(
         }
     }
 
-    // Hl_m = metric(Hm, rg_q); fold_fit's internal metric uses the same rg_q.
+    // Hl_m = metric(Hm, rg_q); fold_fit's internal metric uses the same rg_q. `hlq` is the one
+    // read-in to the carrier for the `J` evaluations below.
     let hl = metric(hm, n, params.rg_q)?;
+    let hlq = grids(&hl)?;
     let cfg = FoldFitConfig {
         ridge: params.rg_q,
         ..params.fit
     };
 
-    // The stage weight enters the carrier once; the residuals, plane sums and row scatter below are
-    // word operations, while `fold_fit`, `nb_refine`, `lowrank_corrector`, `objective` and
-    // `bias_update` keep their `f64` signatures.
+    // The stage weight enters the carrier once; the residuals, plane sums, plane weights and `J`
+    // evaluations below are word operations, while `fold_fit`, `nb_refine`, `lowrank_corrector` and
+    // `bias_update` keep their declared `f64` boundaries.
     let wsq = grids(ws_nm)?;
 
     // Step 2: Wp1, the first full plane.
@@ -694,14 +697,14 @@ pub fn fit_tensor(
         // backfit_2plane: Wp1_b against the frozen Wp2, then Wp2_b against the (possibly new) Wp1.
         // Only the accepted packs and the accepted Wp2 bits survive; the `-nb` pass re-derives the
         // weights from the packs, so the intermediate weight buffers are not kept.
-        let j_cur = j_words(ws_nm, &add_words(&wp1, &wp2)?, &hl, o, n)?;
+        let j_cur = j_words(&wsq, &add_words(&wp1, &wp2)?, &hlq, o, n)?;
         let f1b = fold_fit(&reals(&sub_words(&wsq, &wp2)?), hm, o, n, g_row, &cfg)?;
         let wp1b = grids(&f1b.wp)?;
-        let j_1b = j_words(ws_nm, &add_words(&wp1b, &wp2)?, &hl, o, n)?;
+        let j_1b = j_words(&wsq, &add_words(&wp1b, &wp2)?, &hlq, o, n)?;
         if j_1b < j_cur {
             p1 = f1b.pack.clone();
             let f2b = fold_fit(&reals(&sub_words(&wsq, &wp1b)?), hm, o, n, g_row, &cfg)?;
-            let j_2b = j_words(ws_nm, &add_words(&wp1b, &grids(&f2b.wp)?)?, &hl, o, n)?;
+            let j_2b = j_words(&wsq, &add_words(&wp1b, &grids(&f2b.wp)?)?, &hlq, o, n)?;
             if j_2b < j_1b {
                 p2 = f2b.pack.clone();
                 info2 = (f2b.bits_r, f2b.bits_c, f2b.bits_d);
@@ -785,8 +788,8 @@ pub fn fit_tensor(
         // The corrector's stored-factor bits are spent whether or not it is applied (`:1884`).
         bits.ncorr += corr.bits;
         let cand = add_words(&wp, &grids(&corr.corr)?)?;
-        let j_new = j_words(ws_nm, &cand, &hl, o, n)?;
-        let j_old = j_words(ws_nm, &wp, &hl, o, n)?;
+        let j_new = j_words(&wsq, &cand, &hlq, o, n)?;
+        let j_old = j_words(&wsq, &wp, &hlq, o, n)?;
         if j_new < j_old {
             wp = cand;
             planes.push(SinkPlane {

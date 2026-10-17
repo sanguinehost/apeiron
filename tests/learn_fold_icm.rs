@@ -23,6 +23,7 @@ use apeiron::learn::fold::fit::icm::{
     e8_icm_step, e8_joint_icm_2plane, j_rows, matmul, nearest_index, plane_w, r_step2,
     ridged_metric, IcmError, JointStats, Plane, PlaneRef,
 };
+use apeiron::learn::solve::q32;
 
 /// Deterministic xorshift64 LCG.
 struct Lcg(u64);
@@ -46,14 +47,22 @@ const BLOCK: usize = 8;
 const GROUP: usize = 128;
 const CODE_LEN: usize = 256;
 
-/// The 256 codewords in real values: `codeword(j)[k] / 2^32`, the same table the module builds.
-fn codebook() -> Vec<[f64; BLOCK]> {
-    let one = (1_i64 << 32) as f64;
+/// A fixture as the `Q32.32` words the module consumes: `round(x·2³²)` at the grid range.
+fn q(x: &[f64]) -> Vec<i64> {
+    x.iter()
+        .map(|&v| q32::to_grid(v, q32::GRID_BOUND).expect("fixture inside the grid"))
+        .collect()
+}
+
+/// A word slice read back to the reals, for the `f64` oracles and bounds.
+fn unq(x: &[i64]) -> Vec<f64> {
+    x.iter().copied().map(q32::from_grid).collect()
+}
+
+/// The 256 codewords as the `Q32.32` words the module stores.
+fn codebook() -> Vec<[i64; BLOCK]> {
     (0..CODE_LEN)
-        .map(|j| {
-            let row = codeword(j).expect("row in range");
-            std::array::from_fn(|k| row[k] as f64 / one)
-        })
+        .map(|j| codeword(j).expect("row in range"))
         .collect()
 }
 
@@ -84,7 +93,7 @@ fn rand_plane(o: usize, n: usize, rng: &mut Lcg) -> Plane {
     let nb = n / BLOCK;
     let g = n / GROUP;
     let cb = codebook();
-    let mut s = vec![0.0_f64; o * n];
+    let mut s = vec![0_i64; o * n];
     let mut idx = vec![0_u16; o * nb];
     for row in 0..o {
         for m in 0..nb {
@@ -97,9 +106,11 @@ fn rand_plane(o: usize, n: usize, rng: &mut Lcg) -> Plane {
     Plane {
         s,
         idx,
-        r: (0..o * g).map(|_| rng.uniform(0.5, 1.5)).collect(),
-        c: vec![1.0; n],
-        d: vec![1.0; n],
+        r: q(&(0..o * g)
+            .map(|_| rng.uniform(0.5, 1.5))
+            .collect::<Vec<f64>>()),
+        c: vec![1_i64 << 32; n],
+        d: vec![1_i64 << 32; n],
     }
 }
 
@@ -121,15 +132,15 @@ enum Arm {
 /// The arm's own: `O(o·n² + sweeps·o·(n/8)·CODE_LEN·…)`; spatial `O(o·n)`.
 fn run_arm(
     arm: Arm,
-    ws: &[f64],
-    hl: &[f64],
+    ws: &[i64],
+    hl: &[i64],
     p1: &Plane,
     p2: &Plane,
     o: usize,
     n: usize,
     sweeps: usize,
     ridge: f64,
-    hj: &[f64],
+    hj: &[i64],
 ) -> (Plane, Plane, f64, Option<JointStats>) {
     match arm {
         Arm::Step => {
@@ -147,13 +158,13 @@ fn run_arm(
 
 /// The seeded instance of one arm at `o × n`: two planes and the target. The `Step` arm draws only
 /// one plane, so the draw order per arm is the one its own test used.
-fn arm_case(arm: Arm, o: usize, n: usize, seed: u64) -> (Vec<f64>, Vec<f64>, Plane, Plane) {
+fn arm_case(arm: Arm, o: usize, n: usize, seed: u64) -> (Vec<i64>, Vec<i64>, Plane, Plane) {
     let mut rng = Lcg(seed ^ (o as u64));
-    let hl = toeplitz(n, 0.4);
+    let hl = q(&toeplitz(n, 0.4));
     let p1 = rand_plane(o, n, &mut rng);
     let (p2, ws) = match arm {
-        Arm::Step => (p1.clone(), rand_mat(o, n, &mut rng)),
-        Arm::Joint => (rand_plane(o, n, &mut rng), rand_mat(o, n, &mut rng)),
+        Arm::Step => (p1.clone(), q(&rand_mat(o, n, &mut rng))),
+        Arm::Joint => (rand_plane(o, n, &mut rng), q(&rand_mat(o, n, &mut rng))),
     };
     (ws, hl, p1, p2)
 }
@@ -164,29 +175,29 @@ fn tol(j: f64) -> f64 {
 }
 
 /// `plane_w(p1) + plane_w(p2)`: the weight of a two-plane sum.
-fn pair_w(p1: &Plane, p2: &Plane, o: usize, n: usize) -> Vec<f64> {
+fn pair_w(p1: &Plane, p2: &Plane, o: usize, n: usize) -> Vec<i64> {
     let mut w = plane_w(pref(p1), o, n).expect("plane shape");
     let w2 = plane_w(pref(p2), o, n).expect("plane shape");
     w.iter_mut().zip(&w2).for_each(|(a, b)| *a += *b);
     w
 }
 
-/// `J` of one plane against `ws` in metric `hl`.
-fn plane_j(ws: &[f64], p: &Plane, hl: &[f64], o: usize, n: usize) -> f64 {
+/// `J` of one plane against `ws` in metric `hl`, as the grid word read back.
+fn plane_j(ws: &[i64], p: &Plane, hl: &[i64], o: usize, n: usize) -> f64 {
     let w = plane_w(pref(p), o, n).expect("plane shape");
-    j_rows(ws, &w, hl, o, n, None).expect("j shape")
+    q32::from_grid(j_rows(ws, &w, hl, o, n, None).expect("j shape"))
 }
 
-/// `J` of a two-plane sum against `ws` in metric `hl`.
-fn pair_j(ws: &[f64], p1: &Plane, p2: &Plane, hl: &[f64], o: usize, n: usize) -> f64 {
-    j_rows(ws, &pair_w(p1, p2, o, n), hl, o, n, None).expect("j shape")
+/// `J` of a two-plane sum against `ws` in metric `hl`, as the grid word read back.
+fn pair_j(ws: &[i64], p1: &Plane, p2: &Plane, hl: &[i64], o: usize, n: usize) -> f64 {
+    q32::from_grid(j_rows(ws, &pair_w(p1, p2, o, n), hl, o, n, None).expect("j shape"))
 }
 
 /// The two-plane arm with the options every test but the refusal and block-subset cases uses:
 /// `g_row = None`, `row_chunk = 256`, all blocks.
 fn joint(
-    ws: &[f64],
-    hl: &[f64],
+    ws: &[i64],
+    hl: &[i64],
     p1: PlaneRef<'_>,
     p2: PlaneRef<'_>,
     o: usize,
@@ -199,12 +210,12 @@ fn joint(
 
 /// The seeded decision-safety instance `(o, n)`: metric `hl` (`rho = 0.37`), two planes with
 /// random group scales and random real `c`, `d` in `[0.5, 1.5)`, and the target `ws`.
-fn seeded_case(o: usize, n: usize, seed: u64) -> (Vec<f64>, Vec<f64>, Plane, Plane) {
+fn seeded_case(o: usize, n: usize, seed: u64) -> (Vec<i64>, Vec<i64>, Plane, Plane) {
     let mut rng = Lcg(seed);
-    let hl = toeplitz(n, 0.37);
+    let hl = q(&toeplitz(n, 0.37));
     let p1 = rand_plane(o, n, &mut rng);
     let p2 = rand_plane(o, n, &mut rng);
-    let ws = rand_mat(o, n, &mut rng);
+    let ws = q(&rand_mat(o, n, &mut rng));
     (
         ws,
         hl,
@@ -215,15 +226,15 @@ fn seeded_case(o: usize, n: usize, seed: u64) -> (Vec<f64>, Vec<f64>, Plane, Pla
 
 /// The same plane with random real column and Hadamard scales in `[0.5, 1.5)`.
 fn scaled_plane(mut p: Plane, n: usize, rng: &mut Lcg) -> Plane {
-    p.c = (0..n).map(|_| rng.uniform(0.5, 1.5)).collect();
-    p.d = (0..n).map(|_| rng.uniform(0.5, 1.5)).collect();
+    p.c = q(&(0..n).map(|_| rng.uniform(0.5, 1.5)).collect::<Vec<f64>>());
+    p.d = q(&(0..n).map(|_| rng.uniform(0.5, 1.5)).collect::<Vec<f64>>());
     p
 }
 
 /// A plane reconstructed from `idx` and the pass-through `r`, `c`, `d` of `base`.
 fn plane_from_idx(idx: &[u8], base: &Plane, o: usize, n: usize) -> Plane {
     let cb = codebook();
-    let mut s = vec![0.0_f64; o * n];
+    let mut s = vec![0_i64; o * n];
     for row in 0..o {
         for m in 0..n / BLOCK {
             let at = row * n + m * BLOCK;
@@ -382,11 +393,12 @@ fn row_normal_system(
 ) -> (Vec<f64>, Vec<f64>) {
     let g = n / GROUP;
     let two_g = 2 * g;
+    let (s1, c1, s2, c2) = (unq(p1.s), unq(p1.c), unq(p2.s), unq(p2.c));
     let pv = |a_: usize, j: usize| -> f64 {
         if a_ < g {
-            p1.s[row * n + a_ * GROUP + j] * p1.c[a_ * GROUP + j]
+            s1[row * n + a_ * GROUP + j] * c1[a_ * GROUP + j]
         } else {
-            p2.s[row * n + (a_ - g) * GROUP + j] * p2.c[(a_ - g) * GROUP + j]
+            s2[row * n + (a_ - g) * GROUP + j] * c2[(a_ - g) * GROUP + j]
         }
     };
     let mut mmat = vec![0.0_f64; two_g * two_g];
@@ -410,10 +422,11 @@ fn row_normal_system(
 }
 /// `max_b Σ_j |P_bj|` over one row of `p`: the amplification of that row's inner rounding.
 fn block_abs_sum(p: PlaneRef<'_>, row: usize, n: usize) -> f64 {
+    let (s, c) = (unq(p.s), unq(p.c));
     (0..n / GROUP)
         .map(|b| {
             (0..GROUP).fold(0.0_f64, |m, j| {
-                m + (p.s[row * n + b * GROUP + j] * p.c[b * GROUP + j]).abs()
+                m + (s[row * n + b * GROUP + j] * c[b * GROUP + j]).abs()
             })
         })
         .fold(0.0_f64, f64::max)
@@ -428,9 +441,10 @@ fn block_abs_sum(p: PlaneRef<'_>, row: usize, n: usize) -> f64 {
 /// Temporal `O(o·n·log2(GROUP))`; spatial `O(o·n)`.
 fn ref_plane_w(p: PlaneRef<'_>, o: usize, n: usize) -> Vec<f64> {
     let g = n / GROUP;
-    let mut t = p.s.to_vec();
+    let (c, d, r) = (unq(p.c), unq(p.d), unq(p.r));
+    let mut t = unq(p.s);
     for k in 0..o * n {
-        t[k] *= p.d[k % n];
+        t[k] *= d[k % n];
     }
     for chunk in t.chunks_mut(GROUP) {
         let mut h = 1;
@@ -450,10 +464,10 @@ fn ref_plane_w(p: PlaneRef<'_>, o: usize, n: usize) -> Vec<f64> {
         }
     }
     for k in 0..o * n {
-        t[k] *= p.c[k % n];
+        t[k] *= c[k % n];
     }
     for k in 0..o * n {
-        t[k] *= p.r[k / n * g + (k % n) / GROUP];
+        t[k] *= r[k / n * g + (k % n) / GROUP];
     }
     t
 }
@@ -528,12 +542,13 @@ fn ref_r_step2(
     let mut r1_out = vec![0.0_f64; o * g];
     let mut r2_out = vec![0.0_f64; o * g];
     let mut kvec = vec![0.0_f64; g * GROUP];
+    let (s1, c1, s2, c2) = (unq(p1.s), unq(p1.c), unq(p2.s), unq(p2.c));
     for row in 0..o {
         let pv = |a_: usize, j: usize| -> f64 {
             if a_ < g {
-                p1.s[row * n + a_ * GROUP + j] * p1.c[a_ * GROUP + j]
+                s1[row * n + a_ * GROUP + j] * c1[a_ * GROUP + j]
             } else {
-                p2.s[row * n + (a_ - g) * GROUP + j] * p2.c[(a_ - g) * GROUP + j]
+                s2[row * n + (a_ - g) * GROUP + j] * c2[(a_ - g) * GROUP + j]
             }
         };
         let mut mmat = vec![0.0_f64; two_g * two_g];
@@ -594,10 +609,11 @@ fn learn_fold_icm_agrees_with_the_f64_oracles() {
     // amplifying an input error by at most √128 and rounding each output once, then the `·c` and
     // `·r` multiplies. Bound `(√128·u·(1 + max|s·d|) + u)·max|r|·max|c|`: the grid quantum times
     // the operation's condition growth, `u` a full unit to cover the half-unit roundings.
-    let got = plane_w(pref(&p), o, n).expect("plane_w");
+    let got = unq(&plane_w(pref(&p), o, n).expect("plane_w"));
     let want = ref_plane_w(pref(&p), o, n);
-    let sd_max = (0..o * n).fold(0.0_f64, |m, k| m.max((p.s[k] * p.d[k % n]).abs()));
-    let wbound = (128f64.sqrt() * u * (1.0 + sd_max) + u) * max_abs(&p.r) * max_abs(&p.c);
+    let (s_f, d_f, r_f, c_f) = (unq(&p.s), unq(&p.d), unq(&p.r), unq(&p.c));
+    let sd_max = (0..o * n).fold(0.0_f64, |m, k| m.max((s_f[k] * d_f[k % n]).abs()));
+    let wbound = (128f64.sqrt() * u * (1.0 + sd_max) + u) * max_abs(&r_f) * max_abs(&c_f);
     let worst = (0..o * n).fold(0.0_f64, |m, k| m.max((got[k] - want[k]).abs()));
     assert!(
         worst <= wbound,
@@ -627,7 +643,7 @@ fn learn_fold_icm_agrees_with_the_f64_oracles() {
         )
     });
     let jbound = u * (psum + (n as f64) * dmax * pe + 1.0);
-    let got_j = j_rows(&ws, &want, &hl, o, n, None).expect("j_rows");
+    let got_j = q32::from_grid(j_rows(&q(&ws), &q(&want), &q(&hl), o, n, None).expect("j_rows"));
     let want_j = ref_j_rows(&ws, &want, &hl, o, n, None);
     let jworst = (got_j - want_j).abs();
     assert!(
@@ -639,7 +655,8 @@ fn learn_fold_icm_agrees_with_the_f64_oracles() {
     // r_step2: `x` solves the grid system `(M̃ + ρI)x = t̃`; against the oracle's exact `x*`,
     // `|x − x*|∞ ≤ ‖M⁻¹‖∞·(ε_M·Σ|x*| + ε_t + ρ·Σ|x*|) + u/2`, `ε_M = u(1 + max_b Σ_j|P_bj|)`
     // (the inner `kvec` rounding amplified by `P_b`), `ε_t = u`, `ρ = 1e-12·mean(diag M)`.
-    let (r1, r2) = r_step2(&ws, &hl, pref(&p), pref(&p2), o, n).expect("r_step2");
+    let (r1, r2) = r_step2(&q(&ws), &q(&hl), pref(&p), pref(&p2), o, n).expect("r_step2");
+    let (r1, r2) = (unq(&r1), unq(&r2));
     let (q1, q2) = ref_r_step2(&ws, &hl, pref(&p), pref(&p2), o, n);
     let g = n / GROUP;
     let two_g = 2 * g;
@@ -696,9 +713,9 @@ fn learn_fold_icm_transform_is_self_inverse_on_the_grid() {
     let unit = Plane {
         s: rand_plane(o, n, &mut rng).s,
         idx: vec![0_u16; o * n / BLOCK],
-        r: vec![1.0; o * g],
-        c: vec![1.0; n],
-        d: vec![1.0; n],
+        r: vec![1_i64 << 32; o * g],
+        c: vec![1_i64 << 32; n],
+        d: vec![1_i64 << 32; n],
     };
     let once = plane_w(pref(&unit), o, n).expect("first transform");
     let twice_p = Plane {
@@ -708,10 +725,12 @@ fn learn_fold_icm_transform_is_self_inverse_on_the_grid() {
     let twice = plane_w(pref(&twice_p), o, n).expect("second transform");
     let u = 2f64.powi(-32);
     let eps = 0.497 / 2f64.powi(32);
-    let sd = max_abs(&unit.s).max(max_abs(&unit.d));
+    let sd = max_abs(&unq(&unit.s)).max(max_abs(&unq(&unit.d)));
     let root = 128f64.sqrt();
     let bound = sd * eps * (128f64 + root) + 0.5 * u * (1.0 + root);
-    let worst = (0..o * n).fold(0.0_f64, |m, k| m.max((twice[k] - unit.s[k]).abs()));
+    let src = unq(&unit.s);
+    let out = unq(&twice);
+    let worst = (0..o * n).fold(0.0_f64, |m, k| m.max((out[k] - src[k]).abs()));
     assert!(
         worst <= bound,
         "two transforms differ from the identity by {worst} > derived bound {bound}"
@@ -814,10 +833,11 @@ fn learn_fold_icm_matmul_matches_the_f64_products() {
         (32, 512, 0x51CE_0002),
     ] {
         let (ws, hl, p1, _p2) = seeded_case(o, n, seed);
-        for scale in [1.0_f64, 1.0e4, 1.0e9] {
-            let a: Vec<f64> = ws.iter().map(|v| v * scale).collect();
-            let b: Vec<f64> = hl.iter().map(|v| v * scale).collect();
-            let got = matmul(&a, &b, o, n, n).expect("matmul");
+        let (ws_f, hl_f) = (unq(&ws), unq(&hl));
+        for scale in [1.0_f64, 1.0e2, 1.0e3] {
+            let a: Vec<f64> = ws_f.iter().map(|v| v * scale).collect();
+            let b: Vec<f64> = hl_f.iter().map(|v| v * scale).collect();
+            let got = unq(&matmul(&q(&a), &q(&b), o, n, n).expect("matmul"));
             let want = old_matmul(&a, &b, o, n, n);
             let bound = product_tolerance(n, max_abs(&a), max_abs(&b));
             let worst = (0..o * n).fold(0.0_f64, |m, i| m.max((got[i] - want[i]).abs()));
@@ -828,17 +848,18 @@ fn learn_fold_icm_matmul_matches_the_f64_products() {
         }
         // A plane block, the second operand shape the step uses.
         let b = {
-            let mut x = p1.s.clone();
+            let (s_f, r_f) = (unq(&p1.s), unq(&p1.r));
+            let mut x = s_f;
             for row in 0..o {
                 for col in 0..n {
-                    x[row * n + col] *= p1.r[row * (n / GROUP) + col / GROUP];
+                    x[row * n + col] *= r_f[row * (n / GROUP) + col / GROUP];
                 }
             }
             x
         };
-        let got = matmul(&b, &hl, o, n, n).expect("matmul");
-        let want = old_matmul(&b, &hl, o, n, n);
-        let bound = product_tolerance(n, max_abs(&b), max_abs(&hl));
+        let got = unq(&matmul(&q(&b), &hl, o, n, n).expect("matmul"));
+        let want = old_matmul(&b, &hl_f, o, n, n);
+        let bound = product_tolerance(n, max_abs(&b), max_abs(&hl_f));
         let worst = (0..o * n).fold(0.0_f64, |m, i| m.max((got[i] - want[i]).abs()));
         assert!(
             worst <= bound,
@@ -923,7 +944,7 @@ fn learn_fold_icm_decision_safety_r_step2_is_no_worse_than_the_pre_change_fit() 
     ] {
         let (ws, hl, p1, p2) = seeded_case(o, n, seed);
         let (r1, r2) = r_step2(&ws, &hl, pref(&p1), pref(&p2), o, n).expect("r_step2");
-        let fitted = |r1: Vec<f64>, r2: Vec<f64>| {
+        let fitted = |r1: Vec<i64>, r2: Vec<i64>| {
             let mut a = p1.clone();
             a.r = r1;
             let mut b = p2.clone();
@@ -931,7 +952,7 @@ fn learn_fold_icm_decision_safety_r_step2_is_no_worse_than_the_pre_change_fit() 
             pair_j(&ws, &a, &b, &hl, o, n)
         };
         let j_after = fitted(r1.clone(), r2.clone());
-        let j_before = fitted(r1b.to_vec(), r2b.to_vec());
+        let j_before = fitted(q(r1b), q(r2b));
         assert!(
             j_after <= j_before + 1e-9 * (1.0 + j_before.abs()),
             "{o}x{n} r_step2: fitted J rose {j_before} -> {j_after}"
@@ -940,29 +961,25 @@ fn learn_fold_icm_decision_safety_r_step2_is_no_worse_than_the_pre_change_fit() 
 }
 
 #[test]
-fn learn_fold_icm_refuses_non_finite_and_unrepresentable_products() {
+fn learn_fold_icm_refuses_unrepresentable_products_and_shapes() {
     // Shape and empty-dimension refusals are the module's shape refusal.
     let (sh, ov) = (Some(IcmError::Shape), Some(IcmError::Overflow));
     assert_eq!(matmul(&[], &[], 0, 1, 1).err(), sh);
-    assert_eq!(matmul(&[1.0], &[1.0], 1, 1, 0).err(), sh);
-    assert_eq!(matmul(&[1.0], &[1.0; 4], 1, 1, 2).err(), sh);
-    assert_eq!(matmul(&[1.0; 2], &[1.0], 2, 2, 1).err(), sh);
-    // A non-finite entry is refused, not propagated.
-    assert_eq!(matmul(&[f64::NAN], &[1.0], 1, 1, 1).err(), ov);
-    assert_eq!(matmul(&[1.0], &[f64::NEG_INFINITY], 1, 1, 1).err(), ov);
+    assert_eq!(matmul(&[1i64], &[1i64], 1, 1, 0).err(), sh);
+    assert_eq!(matmul(&[1i64], &[1i64; 4], 1, 1, 2).err(), sh);
+    assert_eq!(matmul(&[1i64; 2], &[1i64], 2, 2, 1).err(), sh);
     // A representable product of operands far above the `gemm_nn` input bound is accepted and the
     // exact power-of-two scaling is undone: `10⁴ · 2·10⁴ = 2·10⁸` round-trips through the grid.
-    let big = matmul(&[1.0e4], &[2.0e4], 1, 1, 1).expect("representable");
-    assert_eq!(big, vec![2.0e8]);
-    // An unrepresentably large product leaves `f64` after the exact undo: refused, no panic.
-    assert_eq!(matmul(&[1.0e300], &[1.0e300], 1, 1, 1).err(), ov);
-    assert_eq!(matmul(&[1.0e200; 4], &[1.0e200], 4, 1, 1).err(), ov);
-    // The same refusal through a public step: a non-finite `ws` entry is an error, not a panic.
+    let big = matmul(&q(&[1.0e4]), &q(&[2.0e4]), 1, 1, 1).expect("representable");
+    assert_eq!(unq(&big), vec![2.0e8]);
+    // An unrepresentably large product leaves the `i64` grid after the exact undo: refused, no panic.
+    assert_eq!(matmul(&[i64::MAX], &[i64::MAX], 1, 1, 1).err(), ov);
+    assert_eq!(matmul(&[i64::MAX; 4], &[i64::MAX], 4, 1, 1).err(), ov);
+    // The same refusal through a public step: an overflowing `ws` is an error, not a panic.
     let (o, n) = (4_usize, 256);
-    let hl = toeplitz(n, 0.4);
+    let hl = q(&toeplitz(n, 0.4));
     let p = rand_plane(o, n, &mut Lcg(17));
-    let mut ws = rand_mat(o, n, &mut Lcg(19));
-    ws[3] = f64::INFINITY;
+    let ws = vec![i64::MAX; o * n];
     assert_eq!(e8_icm_step(&ws, &hl, pref(&p), o, n, 1, 0.0).err(), ov);
     assert_eq!(
         e8_joint_icm_2plane(&ws, &hl, pref(&p), pref(&p), o, n, 1, 0.0, None, 256, None).err(),
@@ -986,6 +1003,7 @@ fn learn_fold_icm_timing_at_the_fold_shape() {
     let hl = toeplitz(n, 0.37);
     let p = rand_plane(o, n, &mut rng);
     let ws = rand_mat(o, n, &mut rng);
+    let (ws_q, hl_q) = (q(&ws), q(&hl));
 
     let t = Instant::now();
     let old = old_matmul(&ws, &hl, o, n, n);
@@ -994,7 +1012,7 @@ fn learn_fold_icm_timing_at_the_fold_shape() {
     let mut share = Vec::new();
     for _ in 0..3 {
         let t = Instant::now();
-        let new = matmul(&ws, &hl, o, n, n).expect("matmul");
+        let new = unq(&matmul(&ws_q, &hl_q, o, n, n).expect("matmul"));
         share.push(t.elapsed().as_secs_f64());
         assert!(new.iter().all(|v| v.is_finite()) && old.iter().all(|v| v.is_finite()));
         let tol = product_tolerance(n, max_abs(&ws), max_abs(&hl));
@@ -1005,7 +1023,7 @@ fn learn_fold_icm_timing_at_the_fold_shape() {
     let mut runs = Vec::new();
     for _ in 0..3 {
         let t = Instant::now();
-        let out = e8_icm_step(&ws, &hl, pref(&p), o, n, 1, 0.0).expect("step");
+        let out = e8_icm_step(&ws_q, &hl_q, pref(&p), o, n, 1, 0.0).expect("step");
         runs.push(t.elapsed().as_secs_f64());
         assert!(out.idx.iter().all(|&v| u16::from(v as u8) == v));
     }
@@ -1077,17 +1095,17 @@ fn learn_fold_icm_g_row_weights_the_reported_j() {
     let p2 = rand_plane(o, n, &mut rng);
     let ws = rand_mat(o, n, &mut rng);
     let g_row: Vec<f64> = (0..o).map(|_| rng.uniform(0.25, 2.0)).collect();
-    let unweighted = pair_j(&ws, &p1, &p2, &hl, o, n);
+    let unweighted = pair_j(&q(&ws), &p1, &p2, &q(&hl), o, n);
     let (_q1, _q2, st) = e8_joint_icm_2plane(
-        &ws,
-        &hl,
+        &q(&ws),
+        &q(&hl),
         pref(&p1),
         pref(&p2),
         o,
         n,
         0,
         0.0,
-        Some(&g_row),
+        Some(&q(&g_row)),
         256,
         None,
     )
@@ -1095,7 +1113,7 @@ fn learn_fold_icm_g_row_weights_the_reported_j() {
     // With sweeps = 0 nothing moves, so j_before = j_after = the weighted sum of the row norms.
     assert_eq!(st.j_after, st.j_before);
     assert_eq!(st.moves, 0);
-    let expect = ref_j_rows(&ws, &pair_w(&p1, &p2, o, n), &hl, o, n, Some(&g_row));
+    let expect = ref_j_rows(&ws, &unq(&pair_w(&p1, &p2, o, n)), &hl, o, n, Some(&g_row));
     assert!((st.j_before - expect).abs() <= tol(expect));
     assert!(st.j_before > 0.0 && unweighted > 0.0);
 }
@@ -1120,7 +1138,7 @@ fn learn_fold_icm_recovers_a_representable_target() {
     // order, so the last block is repaired first and every later block sees the exact state.
     for arm in [Arm::Step, Arm::Joint] {
         let (o, n) = (6_usize, 256);
-        let hl = toeplitz(n, 0.4);
+        let hl = q(&toeplitz(n, 0.4));
         let mut rng = Lcg(if arm == Arm::Step { 7 } else { 13 });
         let truth1 = rand_plane(o, n, &mut rng);
         let truth2 = rand_plane(o, n, &mut rng);
@@ -1167,11 +1185,12 @@ fn learn_fold_icm_block_argmin_is_exact() {
         let init = rand_plane(o, n, &mut rng);
         let ws = rand_mat(o, n, &mut rng);
         let m = n / BLOCK - 1;
-        let out = e8_icm_step(&ws, &hl, pref(&init), o, n, 1, 0.0).expect("step");
+        let out = e8_icm_step(&q(&ws), &q(&hl), pref(&init), o, n, 1, 0.0).expect("step");
+        let (wsq, hlq) = (q(&ws), q(&hl));
         let mut best = usize::MAX;
         let mut best_j = f64::INFINITY;
         for j in 0..CODE_LEN {
-            let jj = plane_j(&ws, &set_code(&init, m, j), &hl, o, n);
+            let jj = plane_j(&wsq, &set_code(&init, m, j), &hlq, o, n);
             if jj < best_j {
                 best_j = jj;
                 best = j;
@@ -1182,7 +1201,7 @@ fn learn_fold_icm_block_argmin_is_exact() {
             "row 0 block {m}: chose {} not the brute-force argmin {best}",
             out.idx[m]
         );
-        let j_out = plane_j(&ws, &out, &hl, o, n);
+        let j_out = plane_j(&wsq, &out, &hlq, o, n);
         assert!(
             j_out <= best_j + tol(best_j),
             "J {j_out} above the brute-force block minimum {best_j}"
@@ -1199,8 +1218,8 @@ fn learn_fold_icm_block_argmin_is_exact() {
         let ws = rand_mat(o, n, &mut rng);
         let m = 5_usize;
         let (out1, out2, st) = e8_joint_icm_2plane(
-            &ws,
-            &hl,
+            &q(&ws),
+            &q(&hl),
             pref(&p1),
             pref(&p2),
             o,
@@ -1212,6 +1231,7 @@ fn learn_fold_icm_block_argmin_is_exact() {
             Some(&[m]),
         )
         .expect("joint");
+        let (wsq, hlq) = (q(&ws), q(&hl));
         let mut best = (0_usize, 0_usize);
         let mut best_j = f64::INFINITY;
         for i1 in 0..CODE_LEN {
@@ -1222,7 +1242,7 @@ fn learn_fold_icm_block_argmin_is_exact() {
                 for k in 0..o * n {
                     w[k] += w2[k];
                 }
-                let jj = j_rows(&ws, &w, &hl, o, n, None).expect("j");
+                let jj = q32::from_grid(j_rows(&wsq, &w, &hlq, o, n, None).expect("j"));
                 if jj < best_j {
                     best_j = jj;
                     best = (i1, i2);
@@ -1251,11 +1271,11 @@ fn learn_fold_icm_r_step2_satisfies_normal_equations() {
     let p1 = rand_plane(o, n, &mut rng);
     let p2 = rand_plane(o, n, &mut rng);
     let ws = rand_mat(o, n, &mut rng);
-    let (r1, r2) = r_step2(&ws, &hl, pref(&p1), pref(&p2), o, n).expect("r_step2");
+    let (r1, r2) = r_step2(&q(&ws), &q(&hl), pref(&p1), pref(&p2), o, n).expect("r_step2");
     let g = n / GROUP;
     assert_eq!(r1.len(), o * g);
     assert_eq!(r2.len(), o * g);
-    let wh = matmul(&ws, &hl, o, n, n).expect("wh");
+    let wh = unq(&matmul(&q(&ws), &q(&hl), o, n, n).expect("wh"));
     // The `wh` above is the product the body under test uses (the shared Q32.32 `matmul`).
     //
     // Derivation of the bound. The body solves `(M + ρI)x = t` on the `Q32.32` grid, `U = 2⁻³²`.
@@ -1277,8 +1297,8 @@ fn learn_fold_icm_r_step2_satisfies_normal_equations() {
     for row in 0..o {
         let mut x = vec![0.0_f64; two_g];
         for k in 0..g {
-            x[k] = r1[row * g + k];
-            x[g + k] = r2[row * g + k];
+            x[k] = q32::from_grid(r1[row * g + k]);
+            x[g + k] = q32::from_grid(r2[row * g + k]);
         }
         xsum_max = xsum_max.max(x.iter().fold(0.0_f64, |m, v| m + v.abs()));
         pabs_max = pabs_max
@@ -1307,7 +1327,7 @@ fn learn_fold_icm_r_step2_satisfies_normal_equations() {
 #[test]
 fn learn_fold_icm_icm_ridge_metric_is_non_increasing() {
     let (o, n) = (4_usize, 256);
-    let hl = toeplitz(n, 0.4);
+    let hl = q(&toeplitz(n, 0.4));
     let hr = ridged_metric(&hl, n, 0.2).expect("ridged");
     assert!(
         (0..n).all(|i| hr[i * n + i] > hl[i * n + i]),
@@ -1315,7 +1335,7 @@ fn learn_fold_icm_icm_ridge_metric_is_non_increasing() {
     );
     let mut rng = Lcg(41);
     let p0 = rand_plane(o, n, &mut rng);
-    let ws = rand_mat(o, n, &mut rng);
+    let ws = q(&rand_mat(o, n, &mut rng));
     let mut prev = plane_j(&ws, &p0, &hr, o, n);
     for sweeps in 1..=2 {
         let (_, _, j, _) = run_arm(Arm::Step, &ws, &hl, &p0, &p0, o, n, sweeps, 0.2, &hr);
@@ -1334,11 +1354,11 @@ fn learn_fold_icm_icm_ridge_metric_is_non_increasing() {
 #[test]
 fn learn_fold_icm_row_chunk_does_not_change_the_result() {
     let (o, n) = (8_usize, 256);
-    let hl = toeplitz(n, 0.4);
+    let hl = q(&toeplitz(n, 0.4));
     let mut rng = Lcg(53);
     let p1 = rand_plane(o, n, &mut rng);
     let p2 = rand_plane(o, n, &mut rng);
-    let ws = rand_mat(o, n, &mut rng);
+    let ws = q(&rand_mat(o, n, &mut rng));
     let (a1, a2, ast) =
         e8_joint_icm_2plane(&ws, &hl, pref(&p1), pref(&p2), o, n, 2, 0.0, None, 1, None)
             .expect("chunk 1");
@@ -1361,18 +1381,18 @@ fn learn_fold_icm_nearest_index_matches_the_codebook_rule() {
 #[test]
 fn learn_fold_icm_refuses_ragged_shapes() {
     let (o, n) = (2_usize, 256);
-    let hl = toeplitz(n, 0.4);
+    let hl = q(&toeplitz(n, 0.4));
     let p = rand_plane(o, n, &mut Lcg(3));
-    let ws = rand_mat(o, n, &mut Lcg(5));
+    let ws = q(&rand_mat(o, n, &mut Lcg(5)));
     let good = plane_w(pref(&p), o, n).expect("plane_w");
     assert_eq!(good.len(), o * n);
     let sh = Some(IcmError::Shape);
     let step_err =
-        |pp: PlaneRef<'_>, ws: &[f64], hl: &[f64]| e8_icm_step(ws, hl, pp, o, n, 1, 0.0).err();
+        |pp: PlaneRef<'_>, ws: &[i64], hl: &[i64]| e8_icm_step(ws, hl, pp, o, n, 1, 0.0).err();
     let joint_err = |pp: PlaneRef<'_>| {
         e8_joint_icm_2plane(&ws, &hl, pp, pref(&p), o, n, 1, 0.0, None, 256, None).err()
     };
-    let r_err = |pp: PlaneRef<'_>, hl: &[f64]| r_step2(&ws, hl, pp, pref(&p), o, n).err();
+    let r_err = |pp: PlaneRef<'_>, hl: &[i64]| r_step2(&ws, hl, pp, pref(&p), o, n).err();
     // A short `ws`, `hl`, or any plane slice is a shape refusal.
     assert_eq!(step_err(pref(&p), &ws[1..], &hl), sh);
     assert_eq!(step_err(pref(&p), &ws, &hl[1..]), sh);
@@ -1402,17 +1422,17 @@ fn learn_fold_icm_refuses_ragged_shapes() {
     };
     assert_eq!(step_err(d1, &ws, &hl), sh);
     assert_eq!(r_err(pref(&p), &hl[1..]), sh);
-    assert_eq!(j_rows(&ws, &good, &hl, o, n, Some(&[1.0])).err(), sh);
+    assert_eq!(j_rows(&ws, &good, &hl, o, n, Some(&[1i64])).err(), sh);
     // `n` must be a positive multiple of BLOCK and GROUP.
     let bad_n = 64_usize;
     let q = Plane {
-        s: vec![0.0; o * bad_n],
+        s: vec![0_i64; o * bad_n],
         idx: vec![0; o * (bad_n / BLOCK)],
         r: Vec::new(),
-        c: vec![1.0; bad_n],
-        d: vec![1.0; bad_n],
+        c: vec![1_i64 << 32; bad_n],
+        d: vec![1_i64 << 32; bad_n],
     };
-    let (bad_ws, bad_hl) = (vec![0.0; o * bad_n], vec![0.0; bad_n * bad_n]);
+    let (bad_ws, bad_hl) = (vec![0_i64; o * bad_n], vec![0_i64; bad_n * bad_n]);
     let wd = Some(IcmError::Width);
     assert_eq!(
         e8_icm_step(&bad_ws, &bad_hl, pref(&q), o, bad_n, 1, 0.0).err(),

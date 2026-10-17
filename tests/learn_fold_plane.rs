@@ -33,7 +33,7 @@ use apeiron::learn::fold::finish::plane::{encode, CodedPlane, PlaneError};
 use apeiron::learn::fold::fit::icm::codebook;
 use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
 use apeiron::learn::fold::fit::steps::{compose, fwht128, GROUP};
-use apeiron::learn::solve::q32::from_grid;
+use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
 /// Out rows of the main fixtures.
 const O: usize = 4;
@@ -141,11 +141,14 @@ fn scale_cols(s: &[f64], d: &[f64], o: usize, n: usize) -> Vec<f64> {
 /// as `f64`. The oracle the migrated [`CodedPlane::weight`] is asserted against.
 fn ref_forward(s: &[i64], r: &[i64], c: &[i64], d: &[i64], o: usize, n: usize) -> Vec<f64> {
     let sf: Vec<f64> = s.iter().map(|&v| from_grid(v)).collect();
-    let rf: Vec<f64> = r.iter().map(|&v| from_grid(v)).collect();
-    let cf: Vec<f64> = c.iter().map(|&v| from_grid(v)).collect();
     let df: Vec<f64> = d.iter().map(|&v| from_grid(v)).collect();
     let y = fwht128(&scale_cols(&sf, &df, o, n)).unwrap();
-    compose(&y, &rf, &cf, o, n).unwrap()
+    let yq: Vec<i64> = y.iter().map(|&v| to_grid(v, GRID_BOUND).unwrap()).collect();
+    compose(&yq, r, c, o, n)
+        .unwrap()
+        .into_iter()
+        .map(from_grid)
+        .collect()
 }
 
 /// The pre-migration `f64` backward at the same state: the documented `dr`/`dc`/`dY`/`dd` formulas

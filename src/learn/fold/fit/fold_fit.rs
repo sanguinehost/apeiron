@@ -20,14 +20,16 @@
 //!    re-quantisation candidate and the un-`d` fallback, keeps the smallest `J`, and returns the
 //!    pack `(S_rot, rh, ch, dh)` whose recomposition equals `Wp` word for word.
 //!
-//! # Carrier and the wave-1 boundary
+//! # Carrier and the boundary
 //!
-//! Every quantity here is a Q32.32 `i64` word `round(x·2³²)`; products are `i128` rounded once by
-//! [`round_q32_even`]. The step helpers ([`c_step_wshl`], [`r_step_wshl`], [`d_step_wshl`],
-//! [`compose`], [`objective`], [`fwht128`], [`had_gram`], [`mul_metric`], [`e8_icm_step`],
-//! [`gptq_e8`], [`quant_c_u8`], [`quant_r_hier`]) still take and return `f64` in this wave; the
-//! `*_q` wrappers below convert each argument with [`from_grid`]/[`to_grid`] once, so no `f64`
-//! arithmetic runs here and the array copies are the boundary, not a computation.
+//! Every quantity between [`fold_fit`]'s `f64` arguments and its `f64` result fields is a Q32.32
+//! `i64` word `round(x·2³²)`; products are `i128` rounded once by [`round_q32_even`]. The step
+//! helpers ([`c_step_wshl`], [`r_step_wshl`], [`d_step_wshl`], [`compose`], [`objective`],
+//! [`fwht_words`], [`had_gram`], [`mul_metric`], [`e8_icm_step`]) take and return words: `ws`, `h`
+//! and `g_row` convert once at entry ([`words_in`]) and the [`FoldFit`] output fields once at exit
+//! ([`to_reals`]). The only other `f64` crossings are the two callers that still declare reals,
+//! [`gptq_e8`] (a declared outer entry) and the quantisers; each is converted at its call, not per
+//! step.
 //!
 //! # Complexity and the pool
 //!
@@ -72,7 +74,7 @@ use crate::learn::fold::fit::gptq_e8::{gptq_e8, GptqE8Error};
 use crate::learn::fold::fit::icm::{e8_icm_step, IcmError, PlaneRef};
 use crate::learn::fold::fit::quant::{quant_c_u8, quant_r_hier, QuantError};
 use crate::learn::fold::fit::steps::{
-    c_step_wshl, compose, d_step_wshl, fwht128, had_gram, mul_metric, objective, r_step_wshl,
+    c_step_wshl, compose, d_step_wshl, fwht_words, had_gram, mul_metric, objective, r_step_wshl,
     StepsError,
 };
 use crate::learn::solve::q32::{from_grid, round_q32_even, to_grid, GRID_BOUND};
@@ -269,13 +271,13 @@ struct Candidate {
     d: Vec<i64>,
 }
 
-/// The fit's shared carriers and shape: the converted inputs, the hoisted `Ws·Hl` product, their
-/// `f64` images (the step helpers' boundary) and the dims every step takes.
+/// The fit's shared carriers and shape: the converted inputs, the hoisted `Ws·Hl` product and the
+/// dims every step takes.
 struct Fit<'a> {
-    ws_r: &'a [f64],
-    hl_r: &'a [f64],
-    wshl_r: &'a [f64],
-    gr_r: Option<&'a [f64]>,
+    wsq: &'a [i64],
+    hlq: &'a [i64],
+    wshlq: &'a [i64],
+    grq: Option<&'a [i64]>,
     o: usize,
     n: usize,
     g: usize,
@@ -310,96 +312,37 @@ fn div_int(num: i128, den: i128) -> Option<i64> {
 }
 
 /// `a·b` as a Q32.32 word, one rounding to nearest, ties to even. `O(1)`.
-fn mul_q(a: i64, b: i64) -> Result<i64, FoldFitError> {
+fn mul_word(a: i64, b: i64) -> Result<i64, FoldFitError> {
     round_q32_even(i128::from(a) * i128::from(b)).map_err(|_| FoldFitError::Overflow)
 }
 
 /// `a/b` as a Q32.32 word, one rounding to nearest, ties to even. `O(1)`.
-fn div_q(a: i64, b: i64) -> Result<i64, FoldFitError> {
+fn div_word(a: i64, b: i64) -> Result<i64, FoldFitError> {
     div_int(i128::from(a) << 32, i128::from(b)).ok_or(FoldFitError::Overflow)
 }
 
-/// The `f64` image of a word buffer: one boundary conversion per entry, `O(len)`.
-fn real(x: &[i64]) -> Vec<f64> {
+/// A word buffer's `f64` image: one read per entry at a declared-`f64` call or at the output
+/// boundary, `O(len)`.
+fn to_reals(x: &[i64]) -> Vec<f64> {
     x.iter().map(|&w| from_grid(w)).collect()
 }
 
-/// A helper's `f64` result as words; a non-finite or out-of-grid value is
-/// [`FoldFitError::Overflow`], `O(len)`.
-fn words(x: &[f64]) -> Result<Vec<i64>, FoldFitError> {
+/// An input `&[f64]` as words: a non-finite entry is [`FoldFitError::NonFinite`], a finite entry
+/// outside the grid range [`FoldFitError::Overflow`]. Used once per `fold_fit` entry and once per
+/// declared-`f64` callee result. `O(len)`.
+fn words_in(x: &[f64]) -> Result<Vec<i64>, FoldFitError> {
+    if x.iter().any(|v| !v.is_finite()) {
+        return Err(FoldFitError::NonFinite);
+    }
     x.iter()
         .map(|&v| to_grid(v, GRID_BOUND).ok_or(FoldFitError::Overflow))
         .collect()
 }
 
-/// An input `&[f64]` as words: a non-finite entry is [`FoldFitError::NonFinite`], a finite entry
-/// outside the grid range [`FoldFitError::Overflow`]. `O(len)`.
-fn words_in(x: &[f64]) -> Result<Vec<i64>, FoldFitError> {
-    if x.iter().any(|v| !v.is_finite()) {
-        return Err(FoldFitError::NonFinite);
-    }
-    words(x)
-}
-
-/// [`fwht128`] on words: one boundary copy in, one out. `O(len·log len)`.
-fn fwht_q(x: &[i64]) -> Result<Vec<i64>, FoldFitError> {
-    words(&fwht128(&real(x))?)
-}
-
-/// [`compose`] on words. The helper's `O(o·n)` product plus the boundary copies.
-fn compose_q(f: &Fit, s: &[i64], r: &[i64], c: &[i64]) -> Result<Vec<i64>, FoldFitError> {
-    words(&compose(&real(s), &real(r), &real(c), f.o, f.n)?)
-}
-
-/// [`objective`] on words: the scalar `J` as a word. The helper's `O(o·n)` product.
-fn objective_q(f: &Fit, wp: &[i64]) -> Result<i64, FoldFitError> {
-    let j = objective(f.ws_r, &real(wp), f.hl_r, f.o, f.n)?;
-    if !j.is_finite() {
-        return Err(FoldFitError::Overflow);
-    }
-    to_grid(j, GRID_BOUND).ok_or(FoldFitError::Overflow)
-}
-
-/// [`c_step_wshl`] on words; the boundary copies are `O(o·n + n²)`.
-fn c_step_q(f: &Fit, s: &[i64], r: &[i64]) -> Result<Vec<i64>, FoldFitError> {
-    let (sr, rr) = (real(s), real(r));
-    words(&c_step_wshl(
-        f.ws_r, f.hl_r, f.wshl_r, &sr, &rr, f.o, f.n, f.gr_r,
-    )?)
-}
-
-/// [`r_step_wshl`] on words; the boundary copies are `O(o·n + n²)`.
-fn r_step_q(f: &Fit, s: &[i64], c: &[i64]) -> Result<Vec<i64>, FoldFitError> {
-    let (sr, cr) = (real(s), real(c));
-    words(&r_step_wshl(f.ws_r, f.hl_r, f.wshl_r, &sr, &cr, f.o, f.n)?)
-}
-
-/// [`d_step_wshl`] on words; the boundary copies are `O(o·n + n²)`.
-fn d_step_q(f: &Fit, s: &[i64], r: &[i64], c: &[i64]) -> Result<Vec<i64>, FoldFitError> {
-    let (sr, rr, cr) = (real(s), real(r), real(c));
-    words(&d_step_wshl(
-        f.ws_r, f.hl_r, f.wshl_r, &sr, &rr, &cr, f.o, f.n, f.gr_r,
-    )?)
-}
-
-/// [`e8_icm_step`]'s refined `s` plane on words; the boundary copies are `O(o·n + n²)`.
-fn icm_q(
-    f: &Fit,
-    s: &[i64],
-    idx: &[u16],
-    r: &[i64],
-    c: &[i64],
-    d: &[i64],
-) -> Result<Vec<i64>, FoldFitError> {
-    let (sr, rr, cr, dr) = (real(s), real(r), real(c), real(d));
-    let plane = PlaneRef {
-        s: &sr,
-        idx,
-        r: &rr,
-        c: &cr,
-        d: &dr,
-    };
-    words(&e8_icm_step(f.ws_r, f.hl_r, plane, f.o, f.n, f.sweeps, f.ridge)?.s)
+/// The 128-block transform of an owned word buffer; the engine's [`fwht_words`] in place. `O(len)`.
+fn rotate(mut x: Vec<i64>) -> Result<Vec<i64>, FoldFitError> {
+    fwht_words(&mut x)?;
+    Ok(x)
 }
 
 /// `metric(H, ridge) = H` with `ridge · mean(diag(H))` added to the diagonal (line 431), in words:
@@ -413,7 +356,7 @@ fn metric(h: &[i64], n: usize, ridge: i64) -> Result<Vec<i64>, FoldFitError> {
             .checked_add(i128::from(h[i * n + i]))
             .ok_or(FoldFitError::Overflow)?;
     }
-    let add = mul_q(
+    let add = mul_word(
         ridge,
         div_int(sum, n as i128).ok_or(FoldFitError::Overflow)?,
     )?;
@@ -433,7 +376,7 @@ fn metric(h: &[i64], n: usize, ridge: i64) -> Result<Vec<i64>, FoldFitError> {
 fn scale_columns(x: &mut [i64], o: usize, n: usize, v: &[i64]) -> Result<(), FoldFitError> {
     for row in 0..o {
         for k in 0..n {
-            x[row * n + k] = mul_q(x[row * n + k], v[k])?;
+            x[row * n + k] = mul_word(x[row * n + k], v[k])?;
         }
     }
     Ok(())
@@ -481,7 +424,7 @@ fn group_norm(d: &[i64], sign: &[i64], n: usize) -> Result<(Vec<i64>, Vec<i64>),
         let b0 = gi * GROUP;
         let mut mx = 0_u64;
         for k in 0..GROUP {
-            dn[b0 + k] = mul_q(d[b0 + k], sign[b0 + k])?;
+            dn[b0 + k] = mul_word(d[b0 + k], sign[b0 + k])?;
             let a = dn[b0 + k].unsigned_abs();
             if a > mx {
                 mx = a;
@@ -489,7 +432,7 @@ fn group_norm(d: &[i64], sign: &[i64], n: usize) -> Result<(Vec<i64>, Vec<i64>),
         }
         let mx = i64::try_from(mx).unwrap_or(i64::MAX).max(EPS_W);
         for k in 0..GROUP {
-            dn[b0 + k] = div_q(dn[b0 + k], mx)?;
+            dn[b0 + k] = div_word(dn[b0 + k], mx)?;
         }
         gmax[gi] = mx;
     }
@@ -502,7 +445,7 @@ fn scale_group_columns(r: &mut [i64], o: usize, g: usize, v: &[i64]) -> Result<(
     for row in 0..o {
         for k in 0..g {
             let i = row * g + k;
-            r[i] = mul_q(r[i], v[k])?;
+            r[i] = mul_word(r[i], v[k])?;
         }
     }
     Ok(())
@@ -512,7 +455,7 @@ fn scale_group_columns(r: &mut [i64], o: usize, g: usize, v: &[i64]) -> Result<(
 /// `len = n` columns per refit iteration, the same order as a dispatch's fixed cost; serial.
 fn scale_inv(x: &mut [i64], d: i64) -> Result<(), FoldFitError> {
     for w in x.iter_mut() {
-        *w = div_q(*w, d)?;
+        *w = div_word(*w, d)?;
     }
     Ok(())
 }
@@ -531,18 +474,18 @@ struct Refit {
 /// The `bscale and had` arm's `fwht → r_step → quant_r_hier → c_step → quant_c_u8 → compose →
 /// objective` sequence for one `(s_rot, c, dh)`. Time `O(o·n·log n + o·n²)` (one `fwht` and two
 /// `O(o·n²)` steps), space `O(o·n)`.
-fn pack_q(f: &Fit, s_rot: &[i64], c: &[i64], dh: &[i64]) -> Result<Refit, FoldFitError> {
+fn pack_words(f: &Fit, s_rot: &[i64], c: &[i64], dh: &[i64]) -> Result<Refit, FoldFitError> {
     let mut rotated = s_rot.to_vec();
     scale_columns(&mut rotated, f.o, f.n, dh)?;
-    let s_dh = fwht_q(&rotated)?;
-    let r = r_step_q(f, &s_dh, c)?;
-    let hier = quant_r_hier(&real(&r), f.o, f.g)?;
-    let rh = words(&hier.rq)?;
-    let c_ref = c_step_q(f, &s_dh, &rh)?;
-    let (ch, bits_c) = quant_c_u8(&real(&c_ref), 6)?;
-    let ch = words(&ch)?;
-    let wp = compose_q(f, &s_dh, &rh, &ch)?;
-    let j = objective_q(f, &wp)?;
+    let s_dh = rotate(rotated)?;
+    let r = r_step_wshl(f.wsq, f.hlq, f.wshlq, &s_dh, c, f.o, f.n)?;
+    let hier = quant_r_hier(&to_reals(&r), f.o, f.g)?;
+    let rh = words_in(&hier.rq)?;
+    let c_ref = c_step_wshl(f.wsq, f.hlq, f.wshlq, &s_dh, &rh, f.o, f.n, f.grq)?;
+    let (ch, bits_c) = quant_c_u8(&to_reals(&c_ref), 6)?;
+    let ch = words_in(&ch)?;
+    let wp = compose(&s_dh, &rh, &ch, f.o, f.n)?;
+    let j = objective(f.wsq, &wp, f.hlq, f.o, f.n)?;
     Ok(Refit {
         wp,
         rh,
@@ -610,7 +553,7 @@ pub fn fold_fit(
         }
     }
 
-    // The wave-1 input boundary: every `f64` argument becomes a word once, here.
+    // The input boundary: every `f64` argument becomes a word once, here.
     let wsq = words_in(ws)?;
     let hq = words_in(h)?;
     let grq = match g_row {
@@ -620,18 +563,14 @@ pub fn fold_fit(
     let ridge_q = to_grid(cfg.ridge, GRID_BOUND).ok_or(FoldFitError::Overflow)?;
     let g = n / GROUP;
     let nb = n / BLOCK;
-    let hl_q = metric(&hq, n, ridge_q)?;
+    let hlq = metric(&hq, n, ridge_q)?;
     // One metric product `Ws·Hl` for the whole fit: every `c`/`r`/`d` step reuses it.
-    let ws_r = real(&wsq);
-    let hl_r = real(&hl_q);
-    let wshl_q = words(&mul_metric(&ws_r, &hl_r, o, n)?)?;
-    let wshl_r = real(&wshl_q);
-    let gr_r = grq.as_ref().map(|gr| real(gr));
+    let wshlq = mul_metric(&wsq, &hlq, o, n)?;
     let f = Fit {
-        ws_r: &ws_r,
-        hl_r: &hl_r,
-        wshl_r: &wshl_r,
-        gr_r: gr_r.as_deref(),
+        wsq: &wsq,
+        hlq: &hlq,
+        wshlq: &wshlq,
+        grq: grq.as_deref(),
         o,
         n,
         g,
@@ -640,12 +579,13 @@ pub fn fold_fit(
     };
     let idx_zero = vec![0_u16; o * nb];
 
-    // Step 2: the `gptq_e8` candidate (lines 843–860).
-    let ws_rot_q = fwht_q(&wsq)?;
-    let h_gram_q = words(&had_gram(&hl_r, n)?)?;
+    // Step 2: the `gptq_e8` candidate (lines 843–860). `gptq_e8` declares reals at its own entry
+    // and exit; that is the one declared-`f64` callee in the alternation.
+    let ws_rot_q = rotate(wsq.clone())?;
+    let h_gram_q = had_gram(&hlq, n)?;
     let q = gptq_e8(
-        &real(&ws_rot_q),
-        &real(&h_gram_q),
+        &to_reals(&ws_rot_q),
+        &to_reals(&h_gram_q),
         o,
         n,
         cfg.damp,
@@ -653,13 +593,13 @@ pub fn fold_fit(
         true,
         cfg.e8_beam,
     )?;
-    let s_rot0 = words(&q.s)?;
-    let r0 = words(&q.scale)?;
+    let s_rot0 = words_in(&q.s)?;
+    let r0 = words_in(&q.scale)?;
     let c0 = vec![ONE; n];
     let d0 = vec![ONE; n];
-    let s0 = fwht_q(&s_rot0)?;
-    let wq0 = compose_q(&f, &s0, &r0, &c0)?;
-    let j0 = objective_q(&f, &wq0)?;
+    let s0 = rotate(s_rot0.clone())?;
+    let wq0 = compose(&s0, &r0, &c0, o, n)?;
+    let j0 = objective(f.wsq, &wq0, f.hlq, o, n)?;
 
     let mut cands: Vec<Candidate> = vec![Candidate {
         j: j0,
@@ -674,12 +614,12 @@ pub fn fold_fit(
     // Step 3: the single refit pass (`iters = 1`, lines 862–889), on owned copies of the
     // `gptq` candidate's plane.
     let mut s_rot = cands[0].s_rot.clone();
-    let mut s_cur = fwht_q(&s_rot)?;
+    let mut s_cur = rotate(s_rot.clone())?;
     let mut r_cur = cands[0].r.clone();
     let mut c_cur = cands[0].c.clone();
     let mut d_cur = cands[0].d.clone();
     for _ in 0..cfg.inner_iters {
-        c_cur = c_step_q(&f, &s_cur, &r_cur)?;
+        c_cur = c_step_wshl(f.wsq, f.hlq, f.wshlq, &s_cur, &r_cur, o, n, f.grq)?;
         let mut sum: i128 = 0;
         for w in &c_cur {
             sum = sum
@@ -693,23 +633,30 @@ pub fn fold_fit(
         scale_inv(&mut c_cur, s_mean)?;
         let s_vec = vec![s_mean; g];
         scale_group_columns(&mut r_cur, o, g, &s_vec)?;
-        r_cur = r_step_q(&f, &s_cur, &c_cur)?;
+        r_cur = r_step_wshl(f.wsq, f.hlq, f.wshlq, &s_cur, &c_cur, o, n)?;
 
-        let d_new = d_step_q(&f, &s_rot, &r_cur, &c_cur)?;
+        let d_new = d_step_wshl(f.wsq, f.hlq, f.wshlq, &s_rot, &r_cur, &c_cur, o, n, f.grq)?;
         let sign = parity_signs(&d_new, n);
         scale_columns(&mut s_rot, o, n, &sign)?;
         let (d_next, gmax) = group_norm(&d_new, &sign, n)?;
         d_cur = d_next;
         scale_group_columns(&mut r_cur, o, g, &gmax)?;
 
-        s_rot = icm_q(&f, &s_rot, &idx_zero, &r_cur, &c_cur, &d_cur)?;
+        let plane = PlaneRef {
+            s: &s_rot,
+            idx: &idx_zero,
+            r: &r_cur,
+            c: &c_cur,
+            d: &d_cur,
+        };
+        s_rot = e8_icm_step(f.wsq, f.hlq, plane, o, n, f.sweeps, f.ridge)?.s;
         let mut rotated = s_rot.clone();
         scale_columns(&mut rotated, o, n, &d_cur)?;
-        s_cur = fwht_q(&rotated)?;
-        r_cur = r_step_q(&f, &s_cur, &c_cur)?;
+        s_cur = rotate(rotated)?;
+        r_cur = r_step_wshl(f.wsq, f.hlq, f.wshlq, &s_cur, &c_cur, o, n)?;
     }
-    let wq1 = compose_q(&f, &s_cur, &r_cur, &c_cur)?;
-    let j1 = objective_q(&f, &wq1)?;
+    let wq1 = compose(&s_cur, &r_cur, &c_cur, o, n)?;
+    let j1 = objective(f.wsq, &wq1, f.hlq, o, n)?;
     cands.push(Candidate {
         j: j1,
         tag: FoldFitTag::Refit0,
@@ -736,10 +683,10 @@ pub fn fold_fit(
     // The `bscale and had` arm (lines 932–968): quantise the winning `d` to 5 bits, refit `r` and
     // `c` against the re-materialised `S_dh`, then the `e8_icm` re-quantisation and un-`d`
     // candidates.
-    let (dh, bits_d) = quant_c_u8(&real(&d_best), 5)?;
-    let dh = words(&dh)?;
+    let (dh, bits_d) = quant_c_u8(&to_reals(&d_best), 5)?;
+    let dh = words_in(&dh)?;
     let ones = vec![ONE; n];
-    let first = pack_q(&f, &s_rot_best, &c_best, &dh)?;
+    let first = pack_words(&f, &s_rot_best, &c_best, &dh)?;
     let (bits_r, bits_c) = (first.bits_r, first.bits_c);
     let mut wp = first.wp;
     let mut j_wp = first.j;
@@ -749,8 +696,15 @@ pub fn fold_fit(
     let mut pack_dh = dh;
     let mut s_rot_cur = s_rot_best;
 
-    let s_rot_q = icm_q(&f, &pack_s_rot, &idx_zero, &pack_rh, &pack_ch, &pack_dh)?;
-    let again = pack_q(&f, &s_rot_q, &pack_ch, &pack_dh)?;
+    let plane = PlaneRef {
+        s: &pack_s_rot,
+        idx: &idx_zero,
+        r: &pack_rh,
+        c: &pack_ch,
+        d: &pack_dh,
+    };
+    let s_rot_q = e8_icm_step(f.wsq, f.hlq, plane, o, n, f.sweeps, f.ridge)?.s;
+    let again = pack_words(&f, &s_rot_q, &pack_ch, &pack_dh)?;
     if again.j < j_wp {
         j_wp = again.j;
         wp = again.wp;
@@ -760,7 +714,7 @@ pub fn fold_fit(
         pack_ch = again.ch;
     }
 
-    let fall = pack_q(&f, &s_rot_cur, &c_best, &ones)?;
+    let fall = pack_words(&f, &s_rot_cur, &c_best, &ones)?;
     if fall.j < j_wp {
         wp = fall.wp;
         pack_s_rot = s_rot_cur;
@@ -772,18 +726,18 @@ pub fn fold_fit(
     // The winning pack must recompose to `Wp` exactly (the Python's `assert`, line 968).
     let mut rotated = pack_s_rot.clone();
     scale_columns(&mut rotated, o, n, &pack_dh)?;
-    let recomposed = compose_q(&f, &fwht_q(&rotated)?, &pack_rh, &pack_ch)?;
+    let recomposed = compose(&rotate(rotated)?, &pack_rh, &pack_ch, o, n)?;
     if recomposed.iter().zip(&wp).any(|(a, b)| a != b) {
         return Err(FoldFitError::PackMismatch);
     }
 
     Ok(FoldFit {
-        wp: real(&wp),
+        wp: to_reals(&wp),
         pack: PackOut {
-            s_rot: real(&pack_s_rot),
-            rh: real(&pack_rh),
-            ch: real(&pack_ch),
-            dh: real(&pack_dh),
+            s_rot: to_reals(&pack_s_rot),
+            rh: to_reals(&pack_rh),
+            ch: to_reals(&pack_ch),
+            dh: to_reals(&pack_dh),
         },
         j_best: from_grid(j_best),
         trace: trace.iter().map(|&j| from_grid(j)).collect(),

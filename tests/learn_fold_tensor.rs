@@ -27,6 +27,7 @@ use apeiron::learn::fold::layer::tensor::{
     fit_tensor, fold_row_scale, recon, BiasStats, SinkPlane, TensorError, TensorFit, TensorKind,
     TensorParams,
 };
+use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
 const N: usize = 256;
 const O: usize = 4;
@@ -63,6 +64,23 @@ impl Lcg {
 /// `rg_q = quant_ridge · (n/896)`.
 fn rg_q(n: usize) -> f64 {
     QUANT_RIDGE * (n as f64 / 896.0)
+}
+
+/// A fixture as the `Q32.32` words the migrated steps consume.
+fn qw(x: &[f64]) -> Vec<i64> {
+    x.iter()
+        .map(|&v| to_grid(v, GRID_BOUND).expect("value inside the Q32.32 grid range"))
+        .collect()
+}
+
+/// A word slice read back through the grid map, the migrated boundary's read-out.
+fn uw(x: &[i64]) -> Vec<f64> {
+    x.iter().copied().map(from_grid).collect()
+}
+
+/// `J(Ws, Wp, Hl)` of an `f64` fixture pair, read back through the grid map.
+fn j_obj(ws: &[f64], wp: &[f64], hl: &[f64]) -> f64 {
+    from_grid(objective(&qw(ws), &qw(wp), &qw(hl), O, N).expect("J"))
 }
 
 /// The production `FoldFitConfig` (`inner_iters` 3, `e8_beam` 4, `icm_ridge` 0.20, `iters` 1).
@@ -240,8 +258,8 @@ fn second_plane_never_worsens_j_on_k() {
     let f = fit(TensorKind::K, O, N, &ws, &hm, &p);
     let hl = metric(&hm, N, rg_q(N)).expect("metric");
     let wp1 = fold_fit(&ws, &hm, O, N, None, &cfg(N)).expect("Wp1 fit").wp;
-    let j_two = objective(&ws, &f.wp, &hl, O, N).expect("J");
-    let j_one = objective(&ws, &wp1, &hl, O, N).expect("J");
+    let j_two = j_obj(&ws, &f.wp, &hl);
+    let j_one = j_obj(&ws, &wp1, &hl);
     assert!(
         j_two <= j_one,
         "second plane + nb worsened J: J(wp)={j_two:.6e} J(Wp1)={j_one:.6e}"
@@ -263,15 +281,15 @@ fn corrector_acceptance_predicate_and_bits() {
         let pre = fold_fit(&ws, &hm, O, N, None, &cfg(N)).expect("pre fit").wp;
         let delta: Vec<f64> = ws.iter().zip(&pre).map(|(a, b)| a - b).collect();
         let corr = lowrank_corrector(&delta, &hl, O, N, rk, Mode::U8, true).expect("corrector");
-        let j_new = objective(&ws, &add(&pre, &corr.corr), &hl, O, N).expect("J");
-        let j_old = objective(&ws, &pre, &hl, O, N).expect("J");
+        let j_new = j_obj(&ws, &add(&pre, &corr.corr), &hl);
+        let j_old = j_obj(&ws, &pre, &hl);
         let applied = f.planes.iter().any(|pl| pl.dense.is_some());
 
         assert_eq!(applied, j_new < j_old, "{kind:?}: acceptance predicate");
         // The corrector bits are counted whether or not it is applied.
         assert_eq!(f.bits.ncorr, corr.bits, "{kind:?}: ncorr");
         // The applied corrector never raises J.
-        let j_wp = objective(&ws, &f.wp, &hl, O, N).expect("J");
+        let j_wp = j_obj(&ws, &f.wp, &hl);
         assert!(
             j_wp <= j_old,
             "{kind:?}: J(wp)={j_wp:.6e} > J(pre)={j_old:.6e}"
@@ -311,8 +329,8 @@ fn down_corrector_rejected_still_counts_bits() {
     let pre = fold_fit(&ws, &hm, O, N, None, &cfg(N)).expect("pre").wp;
     let delta: Vec<f64> = ws.iter().zip(&pre).map(|(a, b)| a - b).collect();
     let corr = lowrank_corrector(&delta, &hl, O, N, 1, Mode::U8, true).expect("corrector");
-    let j_new = objective(&ws, &add(&pre, &corr.corr), &hl, O, N).expect("J");
-    let j_old = objective(&ws, &pre, &hl, O, N).expect("J");
+    let j_new = j_obj(&ws, &add(&pre, &corr.corr), &hl);
+    let j_old = j_obj(&ws, &pre, &hl);
 
     assert_eq!(applied, j_new < j_old, "acceptance predicate");
     assert!(corr.bits > 0, "the corrector spends stored-factor bits");
@@ -535,7 +553,7 @@ fn ref_plane_weight(p: &SinkPlane, o: usize, n: usize) -> Vec<f64> {
         }
     }
     let t = fwht128(&rot).expect("reference transform");
-    let wi = compose(&t, &p.rh, &p.ch, rlen, n).expect("reference compose");
+    let wi = uw(&compose(&qw(&t), &qw(&p.rh), &qw(&p.ch), rlen, n).expect("reference compose"));
     match rows {
         None => wi,
         Some(rs) => {
