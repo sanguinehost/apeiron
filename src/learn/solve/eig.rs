@@ -35,7 +35,9 @@
 //! ([`RESIDUAL_SHIFT`]) or [`MAX_ITERS`] iterations. The residual is re-checked on the *returned*
 //! (orthonormalised, sign-fixed-to-be) columns through a fresh [`gemm_nn`] image before the result
 //! is handed back, so the returned object is what was verified. Non-convergence is
-//! [`EigError::NotConverged`] carrying the last residual, never a silently wrong answer.
+//! [`EigError::NotConverged`] carrying the last residual, never a silently wrong answer;
+//! [`top_eigh_report`] additionally returns the iterations run and the final `residual / λ_max`
+//! ratio for the callers that must name the shortfall.
 //!
 //! # Accepted domain
 //!
@@ -150,6 +152,30 @@ pub struct TopEig {
     pub evecs: Vec<i64>,
     /// The subspace iterations run.
     pub iters: usize,
+}
+
+/// The refusal of [`top_eigh_report`]: the [`EigError`] a [`top_eigh`] caller sees, plus the state
+/// of the last sweep when that error is [`EigError::NotConverged`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EigStall {
+    /// The source refusal.
+    pub error: EigError,
+    /// Subspace iterations run; `0` unless `error` is [`EigError::NotConverged`].
+    pub iters: usize,
+    /// The final `residual / λ_max` as a raw Q32.32 word; `0` unless `error` is
+    /// [`EigError::NotConverged`] (`λ_max ≤ 0` also reports `0`).
+    pub residual_ratio: i64,
+}
+
+impl EigStall {
+    /// A refusal with no sweep state (every cause but non-convergence). `O(1)`.
+    const fn bare(error: EigError) -> Self {
+        Self {
+            error,
+            iters: 0,
+            residual_ratio: 0,
+        }
+    }
 }
 
 /// Lift a checked `Option` to [`EigError::Overflow`].
@@ -724,6 +750,8 @@ enum Ritz {
         q: Vec<i64>,
         /// This step's max column residual `‖M v_k − λ_k v_k‖∞` over the kept columns, raw Q32.32.
         est: i64,
+        /// This step's largest Ritz value `λ_max`, raw Q32.32: the residual's stop-test scale.
+        lambda_max: i64,
     },
     /// The stop test passed and the returned columns were confirmed on a fresh exact image.
     Done(TopEig),
@@ -779,6 +807,7 @@ fn ritz_step(
     Ok(Ritz::Continue {
         q: orthonormalise(&yv, n, s)?,
         est,
+        lambda_max: vals[s - 1],
     })
 }
 
@@ -809,36 +838,65 @@ fn ritz_step(
 /// [`RESIDUAL_SHIFT`] (up to the initial coefficients and the rounding floor), the linear
 /// convergence rate of subspace iteration with the gap the `p` oversampling columns carry.
 pub fn top_eigh(m: &[i64], n: usize, r: usize) -> Result<TopEig, EigError> {
+    top_eigh_report(m, n, r).map_err(|s| s.error)
+}
+
+/// `residual / λ_max` as a raw Q32.32 word, `0` when `λ_max ≤ 0`, saturating at [`i64::MAX`].
+/// `O(1)`.
+fn residual_ratio(residual: i64, lambda_max: i64) -> i64 {
+    if lambda_max <= 0 {
+        return 0;
+    }
+    let r = (i128::from(residual) << 32) / i128::from(lambda_max);
+    i64::try_from(r).unwrap_or(i64::MAX)
+}
+
+/// The body of [`top_eigh`], preserving the last sweep's state on a refusal. [`top_eigh`] drops
+/// that state; a caller that must name a non-convergence calls this.
+///
+/// # Errors
+/// Every [`EigError`] [`top_eigh`] documents. When the cause is [`EigError::NotConverged`] the
+/// returned [`EigStall`] also carries the iterations run and the final `residual / λ_max` ratio.
+///
+/// # Complexity
+/// As [`top_eigh`].
+pub(crate) fn top_eigh_report(m: &[i64], n: usize, r: usize) -> Result<TopEig, EigStall> {
     if n == 0 {
-        return Err(EigError::Empty);
+        return Err(EigStall::bare(EigError::Empty));
     }
     if r == 0 {
-        return Err(EigError::RankZero);
+        return Err(EigStall::bare(EigError::RankZero));
     }
     if r > n {
-        return Err(EigError::RankOutOfRange);
+        return Err(EigStall::bare(EigError::RankOutOfRange));
     }
-    let nn = ov(n.checked_mul(n))?;
+    let nn = ov(n.checked_mul(n)).map_err(EigStall::bare)?;
     if m.len() != nn {
-        return Err(EigError::ShapeMismatch);
+        return Err(EigStall::bare(EigError::ShapeMismatch));
     }
     if !within_bound(m, None) {
-        return Err(EigError::InputBound);
+        return Err(EigStall::bare(EigError::InputBound));
     }
     if !is_symmetric(m, n) {
-        return Err(EigError::NotSymmetric);
+        return Err(EigStall::bare(EigError::NotSymmetric));
     }
     let s = r + OVERSAMPLE.min(n - r);
-    let mut q = orthonormalise(&start_basis(n, s), n, s)?;
+    let mut q = orthonormalise(&start_basis(n, s), n, s).map_err(EigStall::bare)?;
     let mut last: i64 = i64::MAX;
+    let mut last_lambda: i64 = 0;
     let mut err: Option<EigError> = None;
     let mut done: Option<TopEig> = None;
     let mut iters = 1usize;
     while iters <= MAX_ITERS && err.is_none() && done.is_none() {
         match ritz_step(m, &q, n, r, s, iters) {
-            Ok(Ritz::Continue { q: next, est }) => {
+            Ok(Ritz::Continue {
+                q: next,
+                est,
+                lambda_max,
+            }) => {
                 q = next;
                 last = est;
+                last_lambda = lambda_max;
             }
             Ok(Ritz::Done(eig)) => done = Some(eig),
             Err(e) => err = Some(e),
@@ -846,10 +904,14 @@ pub fn top_eigh(m: &[i64], n: usize, r: usize) -> Result<TopEig, EigError> {
         iters += 1;
     }
     if let Some(e) = err {
-        return Err(e);
+        return Err(EigStall::bare(e));
     }
     if let Some(eig) = done {
         return Ok(eig);
     }
-    Err(EigError::NotConverged { residual: last })
+    Err(EigStall {
+        error: EigError::NotConverged { residual: last },
+        iters: MAX_ITERS,
+        residual_ratio: residual_ratio(last, last_lambda),
+    })
 }

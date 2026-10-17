@@ -31,7 +31,7 @@ use std::time::Instant;
 use apeiron::learn::fold::fit::corrector::{eigen_parts, lowrank_corrector, CorrectorError, Mode};
 use apeiron::learn::fold::fit::eigh::{eigen_gram, eigh, gram_scale, lowrank_corrector_exact};
 use apeiron::learn::fold::fit::quant::{f16r, quant_c_u8};
-use apeiron::learn::solve::eig::top_eigh;
+use apeiron::learn::solve::eig::{top_eigh, EigError, MAX_ITERS};
 use apeiron::learn::solve::q32::{
     fill_scale, from_grid, panel_shift, rshift_rne, to_grid, GRID_BOUND, INPUT_BOUND,
 };
@@ -346,6 +346,44 @@ fn refusals() {
     assert!(empty.corr.iter().all(|&x| x == 0));
     let f = empty.factors.as_ref().expect("factors requested");
     assert!(f.u.is_empty() && f.v.is_empty());
+}
+
+#[test]
+fn flat_tail_names_the_non_convergence() {
+    // `M = diag(1, 0.995, …, 0.96, 0.955, 1/128, …)` at `o = n = 16`; `rank = 1` gives `s = 9`,
+    // so the oversampled gap is `λ_10/λ_1 = 0.955` and `0.955^60 ≈ 6.5e-2` cannot reach the
+    // `2⁻²⁰` stop test. `ΔW = diag(√λ)` and `Hl = I` realise it as `(ΔW·Hl)·ΔWᵀ`.
+    let n = 16usize;
+    let s = 9usize;
+    let one = 1_i64 << 32;
+    let mut dw = vec![0_i64; n * n];
+    let mut hl = vec![0_i64; n * n];
+    for k in 0..n {
+        let lam = if k < s {
+            1.0 - 0.005 * (k as f64)
+        } else {
+            1.0 / 128.0
+        };
+        let lam = if k == s { 0.955 } else { lam };
+        dw[k * n + k] = q(lam.sqrt());
+        hl[k * n + k] = one;
+    }
+    match eigen_parts(&dw, &hl, n, n, 1) {
+        Err(CorrectorError::Eigensolver {
+            cause: EigError::NotConverged { residual },
+            iters,
+            residual_ratio,
+        }) => {
+            assert_eq!(iters, MAX_ITERS, "the cap is the iteration count reached");
+            assert!(residual > 0, "residual {residual} must name the shortfall");
+            // The stop test is `residual <= λ_max·2⁻²⁰`; a ratio above that bound is why it failed.
+            assert!(
+                residual_ratio > 1 << 12,
+                "residual ratio {residual_ratio} not above the 2⁻²⁰ threshold word"
+            );
+        }
+        other => panic!("expected a named non-convergence, got {other:?}"),
+    }
 }
 
 /// `M = (ΔW·Hl)·ΔWᵀ` by the scalar `f64` triple loops the gemm path replaces, row-major `[o, o]`.
