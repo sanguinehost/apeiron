@@ -21,8 +21,8 @@
 
 use apeiron::learn::fold::finish::plane::CodedPlane;
 use apeiron::learn::fold::finish::train::{
-    assemble, assemble_unquantized, kl_mean, Adam, Finisher, Frozen, LayerTunables, Linear, Planes,
-    Schedule, TrainError, Tunables, N_KINDS,
+    assemble, assemble_unquantized, kl_mean, Adam, Finisher, Frozen, Gradients, LayerTunables,
+    Linear, Planes, Schedule, TrainError, Tunables, N_KINDS,
 };
 use apeiron::learn::fold::fit::icm::{codebook, BLOCK};
 use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
@@ -35,11 +35,6 @@ fn words(x: &[f64]) -> Vec<i64> {
     x.iter()
         .map(|&v| to_grid(v, GRID_BOUND).expect("fixture on the grid"))
         .collect()
-}
-
-/// The word grid as reals, the test's own read-back for its f64 arithmetic.
-fn reals(x: &[i64]) -> Vec<f64> {
-    x.iter().map(|&w| from_grid(w)).collect()
 }
 
 /// Trunk layers of the tiny configuration.
@@ -128,16 +123,16 @@ impl Lcg {
     }
 }
 
-/// The exact code field from a list of codebook indices, `o × n` row-major.
-fn code_field(idx: &[u8], o: usize, n: usize) -> Vec<f64> {
+/// The exact code field from a list of codebook indices, `o × n` row-major, as Q32.32 words.
+fn code_field(idx: &[u8], o: usize, n: usize) -> Vec<i64> {
     let cb = codebook();
     let nb = n / BLOCK;
-    let mut s = vec![0.0_f64; o * n];
+    let mut s = vec![0_i64; o * n];
     for oi in 0..o {
         for m in 0..nb {
             let j = idx[oi * nb + m] as usize;
             for k in 0..BLOCK {
-                s[oi * n + m * BLOCK + k] = from_grid(cb[j][k]);
+                s[oi * n + m * BLOCK + k] = cb[j][k];
             }
         }
     }
@@ -158,18 +153,8 @@ fn make_plane(rng: &mut Lcg, o: usize, n: usize) -> CodedPlane {
     let c0 = quant_c_u8(&words(&c_raw), 6).unwrap().0;
     let d_raw: Vec<f64> = (0..n).map(|_| 0.5 + 0.5 * rng.unit()).collect();
     let d0 = quant_c_u8(&words(&d_raw), 5).unwrap().0;
-    let plane = CodedPlane::from_pack(
-        &s,
-        &reals(&rh.r_lo),
-        &reals(&rh.r_sp),
-        &reals(&rh.rq),
-        &reals(&c0),
-        &reals(&d0),
-        None,
-        o,
-        n,
-    )
-    .unwrap();
+    let plane =
+        CodedPlane::from_pack(&s, &rh.r_lo, &rh.r_sp, &rh.rq, &c0, &d0, None, o, n).unwrap();
     assert!(plane.s_fix.is_none(), "an exact field keeps idx");
     plane
 }
@@ -224,7 +209,7 @@ fn fixture(seed: u64) -> Fixture {
             lin.planes.push(make_plane(&mut rng, o, n));
             if k == 0 || k == 6 {
                 // The accepted dense corrector term the Python carries on `q` and `down`.
-                lin.extra = Some((0..o * n).map(|_| 0.02 * rng.sym()).collect());
+                lin.extra = Some((0..o * n).map(|_| q32(0.02 * rng.sym())).collect());
             }
             row.push(lin);
         }
@@ -232,12 +217,12 @@ fn fixture(seed: u64) -> Fixture {
     }
     let mut tun_layers: Vec<LayerTunables> = Vec::with_capacity(L);
     for _ in 0..L {
-        let ln1: Vec<f64> = (0..E).map(|_| 0.8 + 0.2 * rng.unit()).collect();
-        let ln2: Vec<f64> = (0..E).map(|_| 0.8 + 0.2 * rng.unit()).collect();
-        let qb: Vec<f64> = (0..NH * HD).map(|_| 0.05 * rng.sym()).collect();
-        let kb: Vec<f64> = (0..NKV * HD).map(|_| 0.05 * rng.sym()).collect();
-        let vb: Vec<f64> = (0..NKV * HD).map(|_| 0.05 * rng.sym()).collect();
-        let mut lt = LayerTunables::new(&ln1, &ln2, &qb, &kb, &vb).unwrap();
+        let ln1: Vec<i64> = (0..E).map(|_| q32(0.8 + 0.2 * rng.unit())).collect();
+        let ln2: Vec<i64> = (0..E).map(|_| q32(0.8 + 0.2 * rng.unit())).collect();
+        let qb: Vec<i64> = (0..NH * HD).map(|_| q32(0.05 * rng.sym())).collect();
+        let kb: Vec<i64> = (0..NKV * HD).map(|_| q32(0.05 * rng.sym())).collect();
+        let vb: Vec<i64> = (0..NKV * HD).map(|_| q32(0.05 * rng.sym())).collect();
+        let mut lt = LayerTunables::new(&ln1, &ln2, &qb, &kb, &vb);
         // The chain factor `exp(d)` is `1` at the zero initialisation and would hide a missing
         // factor, so the fixture starts the norm latents nonzero; the production init is zero.
         for j in 0..E {
@@ -246,14 +231,14 @@ fn fixture(seed: u64) -> Fixture {
         }
         tun_layers.push(lt);
     }
-    let fn_base: Vec<f64> = (0..E).map(|_| 0.8 + 0.2 * rng.unit()).collect();
-    let mut tun = Tunables::new(tun_layers, &fn_base).unwrap();
+    let fn_base: Vec<i64> = (0..E).map(|_| q32(0.8 + 0.2 * rng.unit())).collect();
+    let mut tun = Tunables::new(tun_layers, &fn_base);
     for j in 0..E {
         tun.fn_d[j] = q32(0.3);
     }
-    let token_embd: Vec<f64> = (0..V * E).map(|_| 0.1 * rng.sym()).collect();
-    let lm_head: Vec<f64> = (0..V * E).map(|_| 0.1 * rng.sym()).collect();
-    let frozen = Frozen::new(&token_embd, &lm_head).unwrap();
+    let token_embd: Vec<i64> = (0..V * E).map(|_| q32(0.1 * rng.sym())).collect();
+    let lm_head: Vec<i64> = (0..V * E).map(|_| q32(0.1 * rng.sym())).collect();
+    let frozen = Frozen::new(&token_embd, &lm_head);
     let tokens: Vec<u32> = (0..T).map(|_| (rng.next_u64() % V as u64) as u32).collect();
 
     let cfg = cfg();
@@ -271,9 +256,9 @@ fn fixture(seed: u64) -> Fixture {
     }
 }
 
-/// The batch mean KL over the differentiable (unquantized-weight) forward: the f64 loss the latent
-/// gradient is the exact gradient of.
-fn loss_unquantized(fin: &Finisher, tokens: &[u32], teacher: &[i64]) -> f64 {
+/// The batch mean KL word over the differentiable (unquantized-weight) forward: the Q32.32 loss the
+/// latent gradient is the exact gradient of.
+fn loss_unquantized(fin: &Finisher, tokens: &[u32], teacher: &[i64]) -> i64 {
     let w = assemble_unquantized(&fin.cfg, &fin.planes, &fin.tun, &fin.frozen).unwrap();
     let (logits, _) = forward(&w, &fin.cfg, tokens).unwrap();
     kl_mean(&fin.cfg, &logits, teacher).unwrap().0
@@ -288,6 +273,217 @@ fn codes(fin: &Finisher) -> Vec<Vec<Vec<u8>>> {
         .collect()
 }
 
+/// FNV-1a over a word's eight little-endian bytes, the recorded-witness hash.
+fn fnv_word(d: &mut u64, v: i64) {
+    for b in v.to_le_bytes() {
+        *d ^= u64::from(b);
+        *d = d.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+}
+
+/// FNV-1a over a buffer, length-prefixed so a truncation moves the digest.
+fn fnv_buf(d: &mut u64, xs: &[i64]) {
+    fnv_word(d, i64::try_from(xs.len()).unwrap_or(i64::MAX));
+    for &v in xs {
+        fnv_word(d, v);
+    }
+}
+
+const FNV0: u64 = 0xcbf2_9ce4_8422_2325;
+
+/// Every weight word of a whole-model [`Weights`], plus the settled norms and biases.
+fn fnv_weights(d: &mut u64, w: &Weights) {
+    for lw in &w.layers {
+        fnv_buf(d, &lw.attn_norm);
+        fnv_buf(d, &lw.ffn_norm);
+        for v in [
+            &lw.wq, &lw.wk, &lw.wv, &lw.wo, &lw.w_gate, &lw.w_up, &lw.w_down,
+        ] {
+            fnv_buf(d, v);
+        }
+        for b in [&lw.bq, &lw.bk, &lw.bv] {
+            fnv_buf(d, b.as_deref().unwrap_or(&[]));
+        }
+    }
+    fnv_buf(d, &w.output_norm);
+    fnv_buf(d, &w.token_embd);
+    fnv_buf(d, &w.lm_head);
+}
+
+/// Every frozen base, latent and resolved tunable of the finisher, and the frozen tensors.
+fn fnv_finisher(d: &mut u64, fin: &Finisher) {
+    for row in &fin.planes.layers {
+        for lin in row {
+            for p in &lin.planes {
+                for v in [&p.r0, &p.c0, &p.d0, &p.pa, &p.pb, &p.pd] {
+                    fnv_buf(d, v);
+                }
+            }
+            if let Some(e) = &lin.extra {
+                fnv_buf(d, e);
+            }
+        }
+    }
+    for lt in &fin.tun.layers {
+        for v in [
+            &lt.ln1, &lt.ln1_d, &lt.ln2, &lt.ln2_d, &lt.qb, &lt.qb_d, &lt.kb, &lt.kb_d, &lt.vb,
+            &lt.vb_d,
+        ] {
+            fnv_buf(d, v);
+        }
+        for which in 0..3 {
+            fnv_word(d, lt.bias_scale(which));
+        }
+        let t = lt.tuned();
+        for v in [&t.ln1, &t.ln2, &t.qb, &t.kb, &t.vb] {
+            fnv_buf(d, v);
+        }
+    }
+    for v in [&fin.tun.fn_base, &fin.tun.fn_d] {
+        fnv_buf(d, v);
+    }
+    fnv_buf(d, &fin.tun.output_norm());
+    fnv_buf(d, &fin.frozen.token_embd);
+    fnv_buf(d, &fin.frozen.lm_head);
+}
+
+/// Every latent gradient of a [`Gradients`].
+fn fnv_grads(d: &mut u64, g: &Gradients) {
+    for layer in &g.planes {
+        for kind in layer {
+            for (a, b, c) in kind {
+                fnv_buf(d, a);
+                fnv_buf(d, b);
+                fnv_buf(d, c);
+            }
+        }
+    }
+    for n in &g.norms {
+        for v in [&n.ln1, &n.ln2, &n.qb, &n.kb, &n.vb] {
+            fnv_buf(d, v);
+        }
+    }
+    fnv_buf(d, &g.fn_d);
+}
+
+/// The recorded word digests of every train entry point on two seeds: the assembled whole-model
+/// weights, every resolved tunable, the schedule, `kl_mean`, `loss`, `gradients`, `Adam::apply`
+/// and twenty `step`s.
+#[test]
+fn recorded_train_digests() {
+    let names = [
+        "assemble",
+        "assemble_unquantized",
+        "tunables",
+        "factor",
+        "kl_mean",
+        "loss",
+        "gradients",
+        "adam",
+        "steps",
+    ];
+    for seed in [1_u64, 2] {
+        // Recorded on the pre-migration f64 boundary; the words API reproduces them exactly.
+        let want: [u64; 9] = if seed == 1 {
+            [
+                0xaeaa_3d79_9ef4_5e12,
+                0xaeaa_3d79_9ef4_5e12,
+                0x4a20_4ff2_f857_a988,
+                0x2609_62a5_4062_e4e0,
+                0x2c6b_6668_f0ea_420f,
+                0xe38b_665e_a900_bc94,
+                0x01b2_63d5_bc44_2587,
+                0x5c83_e96b_cfe6_2406,
+                0x7c4f_f32b_8714_b65b,
+            ]
+        } else {
+            [
+                0xd810_6de9_81a7_b516,
+                0xd810_6de9_81a7_b516,
+                0x929e_aeec_1120_5212,
+                0x2609_62a5_4062_e4e0,
+                0x17d6_3f8e_039c_2c23,
+                0x7d05_e155_a069_ef74,
+                0xa298_bd0c_a7fa_1656,
+                0xf448_5d34_a3d7_5749,
+                0xb66b_2cd5_605a_9227,
+            ]
+        };
+        let mut got = [0_u64; 9];
+        let f = fixture(seed);
+
+        let mut d = FNV0;
+        fnv_weights(
+            &mut d,
+            &assemble(&f.fin.cfg, &f.fin.planes, &f.fin.tun, &f.fin.frozen).unwrap(),
+        );
+        got[0] = d;
+
+        let mut d = FNV0;
+        fnv_weights(
+            &mut d,
+            &assemble_unquantized(&f.fin.cfg, &f.fin.planes, &f.fin.tun, &f.fin.frozen).unwrap(),
+        );
+        got[1] = d;
+
+        let mut d = FNV0;
+        fnv_finisher(&mut d, &f.fin);
+        got[2] = d;
+
+        let mut d = FNV0;
+        for step in 0..=100 {
+            fnv_word(&mut d, f.fin.schedule.factor(step));
+        }
+        got[3] = d;
+
+        let w = assemble_unquantized(&f.fin.cfg, &f.fin.planes, &f.fin.tun, &f.fin.frozen).unwrap();
+        let (logits, _) = forward(&w, &f.fin.cfg, &f.tokens).unwrap();
+        let (mean, dz) = kl_mean(&f.fin.cfg, &logits, &f.teacher).unwrap();
+        let mut d = FNV0;
+        fnv_word(&mut d, mean);
+        fnv_buf(&mut d, &dz);
+        got[4] = d;
+
+        let mut d = FNV0;
+        fnv_word(&mut d, f.fin.loss(&f.tokens, &f.teacher).unwrap());
+        got[5] = d;
+
+        let g = f.fin.gradients(&f.tokens, &f.teacher).unwrap();
+        let mut d = FNV0;
+        fnv_word(&mut d, g.mean_kl);
+        fnv_grads(&mut d, &g);
+        got[6] = d;
+
+        // `Adam::apply` on a fixed vector, five steps at the latent learning rate.
+        let mut rng = Lcg::new(seed ^ 0xa5);
+        let n = 64_usize;
+        let mut p = vec![0_i64; n];
+        let mut adam = Adam::zeros(n);
+        for _ in 0..5 {
+            let gq: Vec<i64> = (0..n).map(|_| q32(rng.sym())).collect();
+            adam.apply(q32(1e-3), &mut p, &gq).unwrap();
+        }
+        let mut d = FNV0;
+        fnv_buf(&mut d, &p);
+        got[7] = d;
+
+        // Twenty steps: the moved state and every returned mean KL.
+        let mut fin = f.fin.clone();
+        let mut kls = Vec::new();
+        for _ in 0..20 {
+            kls.push(fin.step(&f.tokens, &f.teacher).unwrap());
+        }
+        let mut d = FNV0;
+        fnv_finisher(&mut d, &fin);
+        fnv_buf(&mut d, &kls);
+        got[8] = d;
+
+        for (i, name) in names.iter().enumerate() {
+            assert_eq!(got[i], want[i], "seed {seed} {name} word digest");
+        }
+    }
+}
+
 /// (a) The KL on the fixed batch falls over 20 steps: the assembled latents and tunables are on
 /// the path the whole-model forward reads, and the mapped gradient has the descent sign.
 #[test]
@@ -299,10 +495,17 @@ fn training_lowers_the_kl_on_a_fixed_batch() {
         last = f.fin.step(&f.tokens, &f.teacher).unwrap();
     }
     let kl20 = f.fin.loss(&f.tokens, &f.teacher).unwrap();
-    eprintln!("kl0 {kl0:.6} kl20 {kl20:.6} last-step {last:.6}");
+    eprintln!(
+        "kl0 {:.6} kl20 {:.6} last-step {:.6}",
+        from_grid(kl0),
+        from_grid(kl20),
+        from_grid(last)
+    );
     assert!(
         kl20 < kl0,
-        "the KL did not fall: step 0 {kl0:.6}, step 20 {kl20:.6}"
+        "the KL did not fall: step 0 {:.6}, step 20 {:.6}",
+        from_grid(kl0),
+        from_grid(kl20)
     );
 }
 
@@ -318,10 +521,10 @@ fn latent_gradient_matches_finite_difference() {
     let an_pa = from_grid(g.planes[0][0][0].0[0]);
     let mut plus = f.fin.clone();
     plus.planes.layers[0][0].planes[0].pa[0] += H_Q32;
-    let lp = loss_unquantized(&plus, &f.tokens, &f.teacher);
+    let lp = from_grid(loss_unquantized(&plus, &f.tokens, &f.teacher));
     let mut minus = f.fin.clone();
     minus.planes.layers[0][0].planes[0].pa[0] -= H_Q32;
-    let lm = loss_unquantized(&minus, &f.tokens, &f.teacher);
+    let lm = from_grid(loss_unquantized(&minus, &f.tokens, &f.teacher));
     let fd_pa = (lp - lm) / (2.0 * H);
     eprintln!("pa: analytic {an_pa:e} fd {fd_pa:e}");
     assert!(
@@ -333,10 +536,10 @@ fn latent_gradient_matches_finite_difference() {
     let an_ln1 = from_grid(g.norms[0].ln1[0]);
     let mut plus = f.fin.clone();
     plus.tun.layers[0].ln1_d[0] += H_Q32;
-    let lp = loss_unquantized(&plus, &f.tokens, &f.teacher);
+    let lp = from_grid(loss_unquantized(&plus, &f.tokens, &f.teacher));
     let mut minus = f.fin.clone();
     minus.tun.layers[0].ln1_d[0] -= H_Q32;
-    let lm = loss_unquantized(&minus, &f.tokens, &f.teacher);
+    let lm = from_grid(loss_unquantized(&minus, &f.tokens, &f.teacher));
     let fd_ln1 = (lp - lm) / (2.0 * H);
     eprintln!("ln1_d: analytic {an_ln1:e} fd {fd_ln1:e}");
     assert!(
@@ -385,7 +588,7 @@ fn schedule_matches_hand_computed_factors() {
     // `wu·(0.1 + 0.45·(1 + cos))`, with the trig kernel's `2^-20` relative error folded in.
     let bound = 1e-9_f64;
     for (step, w) in want {
-        let got = s.factor(step);
+        let got = from_grid(s.factor(step));
         assert!(
             (got - w).abs() < bound,
             "step {step}: factor {got:.12} vs hand-computed {w:.12}"
@@ -429,7 +632,7 @@ fn adam_agrees_with_the_f64_oracle() {
     for step in 0..10 {
         let g_f: Vec<f64> = (0..n).map(|_| rng.sym()).collect();
         let g_q: Vec<i64> = g_f.iter().map(|&x| q32(x)).collect();
-        adam.apply(lr, &mut p_q, &g_q).unwrap();
+        adam.apply(q32(lr), &mut p_q, &g_q).unwrap();
         ref_adam(lr, &mut p_f, &g_f, &mut m_f, &mut v_f, step + 1);
     }
     for i in 0..n {
@@ -447,7 +650,9 @@ fn adam_agrees_with_the_f64_oracle() {
 }
 
 /// The geometry refusals: a plane whose shape disagrees with the model, a logits/teacher mismatch,
-/// and an Adam width mismatch.
+/// and an Adam width mismatch. The loader's non-finite and off-grid decode refusal is not here: the
+/// frozen tensors arrive as words from [`apeiron::learn::fold::run::convert`], whose own gate
+/// (`tests/learn_fold_run_convert.rs`) covers that arm.
 #[test]
 fn refuses_mismatched_shapes() {
     let f = fixture(4);
@@ -467,14 +672,8 @@ fn refuses_mismatched_shapes() {
     assert!(matches!(err, Err(TrainError::Shape(_))), "got {err:?}");
 
     let mut adam = Adam::zeros(3);
-    let err = adam.apply(1e-3, &mut [0_i64; 3], &[0_i64; 2]);
+    let err = adam.apply(q32(1e-3), &mut [0_i64; 3], &[0_i64; 2]);
     assert!(matches!(err, Err(TrainError::Shape(_))), "got {err:?}");
-
-    // A loader value outside the Q32.32 grid is refused, not silently rounded.
-    let err = Frozen::new(&[3.0e9_f64; 4], &[0.0_f64; 4]);
-    assert!(matches!(err, Err(TrainError::Range(_))), "got {err:?}");
-    let err = LayerTunables::new(&[f64::NAN], &[1.0], &[1.0], &[1.0], &[1.0]);
-    assert!(matches!(err, Err(TrainError::NotFinite(_))), "got {err:?}");
 }
 
 /// The tiny-configuration cost: the measured wall seconds per step and the analytic flop count, for
