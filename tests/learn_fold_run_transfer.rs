@@ -226,7 +226,7 @@ fn assert_layer_bits(got: &LayerWeights, want: &LayerWeights, l: usize) {
 fn resume_equivalence() {
     let t0 = Instant::now();
     let (cfg, rope, layers, fnorm, h0, embed, vocab) = model_fixture();
-    let lr = 0.15;
+    let lr = q(0.15);
 
     let one = quantise_model(&cfg, &rope, &layers, &fnorm, &embed, vocab, &h0, 3, lr)
         .expect("one-shot model");
@@ -498,7 +498,7 @@ fn transfer_qwen05b() {
             &teacher.fnorm,
             &teacher.embed,
             teacher.vocab,
-            0.15,
+            q(0.15),
         )
         .expect("finish");
         let student =

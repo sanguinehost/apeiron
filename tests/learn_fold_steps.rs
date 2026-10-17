@@ -568,9 +568,9 @@ fn c_step_matches_old_f64_formula() {
     }
 }
 
-/// (c) A word whose product leaves the grid `i64` range returns the step's error, no panic. The
-/// boundary's non-finite and out-of-grid refusal is `fold_fit::words_in`'s: `c_step` receives
-/// `Q32.32` words, so a `NaN`/`Inf`/`1e30` fixture is refused before it reaches here.
+/// (c) A word whose product leaves the grid `i64` range returns the step's error, no panic.
+/// `c_step` receives `Q32.32` words, so a `NaN`/`Inf`/`1e30` fixture has no representation and
+/// no non-finite arm exists.
 #[test]
 fn c_step_refuses_overflow_and_shape() {
     let mut rng = Lcg::new(12);
@@ -1010,9 +1010,8 @@ fn mul_metric_matches_old_f64_formula() {
 }
 
 /// (c) `mul_metric` refuses a shape that disagrees with the declared `O × n` / `n × n` with
-/// [`StepsError::ShapeMismatch`] and does not panic. The boundary's non-finite and out-of-grid
-/// refusal is `fold_fit::words_in`'s: `mul_metric` receives `Q32.32` words. A zero row count is the
-/// empty product and stays `Ok`.
+/// [`StepsError::ShapeMismatch`] and does not panic. `mul_metric` receives `Q32.32` words, so a
+/// non-finite fixture has no representation. A zero row count is the empty product and stays `Ok`.
 #[test]
 fn mul_metric_refuses_shape() {
     let mut rng = Lcg::new(0x6d_1efe);
@@ -1035,8 +1034,8 @@ fn mul_metric_refuses_shape() {
 }
 
 /// (c) A shape that disagrees with `d_step`'s declared geometry returns
-/// [`StepsError::ShapeMismatch`], no panic. The boundary's non-finite and out-of-grid refusal is
-/// `fold_fit::words_in`'s: `d_step` receives `Q32.32` words.
+/// [`StepsError::ShapeMismatch`], no panic. `d_step` receives `Q32.32` words, so a non-finite
+/// fixture has no representation.
 #[test]
 fn d_step_refuses_shape() {
     let mut rng = Lcg::new(13);

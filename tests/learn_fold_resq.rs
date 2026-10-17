@@ -85,30 +85,35 @@ impl Rng {
 }
 
 struct Fixture {
-    x0: Vec<f64>,
-    x1: Vec<f64>,
-    w_g0: Vec<f64>,
-    w_u0: Vec<f64>,
-    w_down: Vec<f64>,
+    x0: Vec<i64>,
+    x1: Vec<i64>,
+    w_g0: Vec<i64>,
+    w_u0: Vec<i64>,
+    w_down: Vec<i64>,
 }
 
 fn fixture(seed: u64) -> Fixture {
     let mut rng = Rng::new(seed);
     Fixture {
-        x0: rng.matrix(SLAB_ROWS, N),
-        x1: rng.matrix(SLAB_ROWS, N),
-        w_g0: rng.matrix(INTER, N),
-        w_u0: rng.matrix(INTER, N),
-        w_down: rng.matrix(HIDDEN, INTER),
+        x0: words(&rng.matrix(SLAB_ROWS, N)),
+        x1: words(&rng.matrix(SLAB_ROWS, N)),
+        w_g0: words(&rng.matrix(INTER, N)),
+        w_u0: words(&rng.matrix(INTER, N)),
+        w_down: words(&rng.matrix(HIDDEN, INTER)),
     }
+}
+
+/// `k·x` on the grid: one rounding per entry, the test's f64 fixture scaled then read in.
+fn scale(x: &[i64], k: f64) -> Vec<i64> {
+    x.iter().map(|&w| words(&[k * from_grid(w)])[0]).collect()
 }
 
 /// Build inputs with the given student weights.
 fn inputs<'a>(
     f: &'a Fixture,
-    slabs: &'a [&'a [f64]],
-    wq_g: &'a [f64],
-    wq_u: &'a [f64],
+    slabs: &'a [&'a [i64]],
+    wq_g: &'a [i64],
+    wq_u: &'a [i64],
 ) -> ResqInputs<'a> {
     ResqInputs {
         x_slabs: slabs,
@@ -128,11 +133,11 @@ fn inputs<'a>(
 #[test]
 fn teacher_equals_student_gives_unit() {
     let f = fixture(0x51ce_0001);
-    let slabs: [&[f64]; 2] = [&f.x0, &f.x1];
+    let slabs: [&[i64]; 2] = [&f.x0, &f.x1];
     let s = resq_scale(&inputs(&f, &slabs, &f.w_g0, &f.w_u0)).expect("shape ok");
     assert_eq!(s.len(), INTER);
     for (i, &v) in s.iter().enumerate() {
-        assert!((v - 1.0).abs() < 1e-6, "row {i}: s = {v}");
+        assert!((from_grid(v) - 1.0).abs() < 1e-6, "row {i}: s = {v}");
     }
 }
 
@@ -142,9 +147,14 @@ fn teacher_equals_student_gives_unit() {
 #[test]
 fn half_up_weight_optimum_near_two() {
     let f = fixture(0x51ce_0002);
-    let slabs: [&[f64]; 2] = [&f.x0, &f.x1];
-    let wq_u: Vec<f64> = f.w_u0.iter().map(|v| 0.5 * v).collect();
+    let slabs: [&[i64]; 2] = [&f.x0, &f.x1];
+    let wq_u = scale(&f.w_u0, 0.5);
     let sol = resq_solve(&inputs(&f, &slabs, &f.w_g0, &wq_u)).expect("shape ok");
+    let gop = reals(&sol.gop);
+    let rhs = reals(&sol.rhs);
+    let lam = from_grid(sol.lam);
+    let s_raw = reals(&sol.s_raw);
+    let s_clamped = reals(&sol.s_clamped);
 
     // Undamped system: `GoP_u = G⊙P_mat`, `rhs_u = GoC·1`; `GoC = 2·GoP_u` in real arithmetic, so
     // `GoP_u·2 = rhs_u`. On the grid the two sides come from exact `i128` contractions rounded once
@@ -166,10 +176,10 @@ fn half_up_weight_optimum_near_two() {
     for i in 0..d {
         let mut lhs = 0.0_f64;
         for j in 0..d {
-            let diag = if i == j { sol.lam } else { 0.0 };
-            lhs += (sol.gop[i * d + j] - diag) * 2.0;
+            let diag = if i == j { lam } else { 0.0 };
+            lhs += (gop[i * d + j] - diag) * 2.0;
         }
-        let rhs_u = sol.rhs[i] - sol.lam;
+        let rhs_u = rhs[i] - lam;
         residual = residual.max((lhs - rhs_u).abs());
     }
     println!("half-up undamped residual at s = 2: {residual:.3e} (bound {bound:.3e})");
@@ -178,10 +188,10 @@ fn half_up_weight_optimum_near_two() {
         "undamped residual at s = 2: {residual} > {bound}"
     );
 
-    for (i, &v) in sol.s_raw.iter().enumerate() {
+    for (i, &v) in s_raw.iter().enumerate() {
         assert!((v - 2.0).abs() < 0.5, "row {i}: raw = {v}");
     }
-    for (i, &v) in sol.s_clamped.iter().enumerate() {
+    for (i, &v) in s_clamped.iter().enumerate() {
         assert!((0.5..=2.0).contains(&v), "row {i}: clamped = {v}");
     }
 }
@@ -191,12 +201,13 @@ fn half_up_weight_optimum_near_two() {
 #[test]
 fn clamp_bound_respected() {
     let f = fixture(0x51ce_0003);
-    let slabs: [&[f64]; 2] = [&f.x0, &f.x1];
+    let slabs: [&[i64]; 2] = [&f.x0, &f.x1];
     // A large down scale drives the raw optimum well past 2.0, so the upper clamp binds.
-    let wq_u: Vec<f64> = f.w_u0.iter().map(|v| 0.1 * v).collect();
+    let wq_u = scale(&f.w_u0, 0.1);
     let sol = resq_solve(&inputs(&f, &slabs, &f.w_g0, &wq_u)).expect("shape ok");
     let mut upper_binds = false;
     for (&raw, &cl) in sol.s_raw.iter().zip(sol.s_clamped.iter()) {
+        let (raw, cl) = (from_grid(raw), from_grid(cl));
         assert_eq!(cl, raw.clamp(0.5, 2.0));
         assert!((0.5..=2.0).contains(&cl));
         if raw > 2.0 {
@@ -213,17 +224,18 @@ fn clamp_bound_respected() {
 #[test]
 fn normal_equations_hold() {
     let f = fixture(0x51ce_0004);
-    let slabs: [&[f64]; 2] = [&f.x0, &f.x1];
+    let slabs: [&[i64]; 2] = [&f.x0, &f.x1];
     let sol = resq_solve(&inputs(&f, &slabs, &f.w_g0, &f.w_u0)).expect("shape ok");
+    let (gop, rhs, s_raw) = (reals(&sol.gop), reals(&sol.rhs), reals(&sol.s_raw));
     for i in 0..INTER {
         let mut lhs = 0.0_f64;
         for j in 0..INTER {
-            lhs += sol.gop[i * INTER + j] * sol.s_raw[j];
+            lhs += gop[i * INTER + j] * s_raw[j];
         }
         assert!(
-            (lhs - sol.rhs[i]).abs() < 1e-9,
+            (lhs - rhs[i]).abs() < 1e-9,
             "row {i}: residual = {}",
-            lhs - sol.rhs[i]
+            lhs - rhs[i]
         );
     }
 }
@@ -232,20 +244,19 @@ fn normal_equations_hold() {
 #[test]
 fn slab_split_invariance() {
     let f = fixture(0x51ce_0005);
-    let split: [&[f64]; 2] = [&f.x0, &f.x1];
+    let split: [&[i64]; 2] = [&f.x0, &f.x1];
     let mut whole = Vec::with_capacity(2 * SLAB_ROWS * N);
     whole.extend_from_slice(&f.x0);
     whole.extend_from_slice(&f.x1);
-    let one: [&[f64]; 1] = [&whole];
+    let one: [&[i64]; 1] = [&whole];
 
     let s_split = resq_scale(&inputs(&f, &split, &f.w_g0, &f.w_u0)).expect("shape ok");
     let s_one = resq_scale(&inputs(&f, &one, &f.w_g0, &f.w_u0)).expect("shape ok");
     for i in 0..INTER {
-        assert!(
-            (s_split[i] - s_one[i]).abs() < 1e-9,
+        assert_eq!(
+            s_split[i], s_one[i],
             "row {i}: {} vs {}",
-            s_split[i],
-            s_one[i]
+            s_split[i], s_one[i]
         );
     }
 }
@@ -255,40 +266,40 @@ fn slab_split_invariance() {
 #[test]
 fn rescale_hier_folds_into_row_scale() {
     let f = fixture(0x51ce_0006);
-    let slabs: [&[f64]; 2] = [&f.x0, &f.x1];
+    let slabs: [&[i64]; 2] = [&f.x0, &f.x1];
     let s = resq_scale(&inputs(&f, &slabs, &f.w_g0, &f.w_u0)).expect("shape ok");
 
     // Full plane: rh is [o, g] with g = 3.
     let o = INTER;
     let g = 3;
     let mut rng = Rng::new(0x51ce_0007);
-    let rh: Vec<f64> = (0..o * g)
-        .map(|_| 0.1 + 0.9 * rng.next_f64().abs())
+    let rh: Vec<i64> = (0..o * g)
+        .map(|_| words(&[0.1 + 0.9 * rng.next_f64().abs()])[0])
         .collect();
     let folded = rescale_hier(&rh, &s, o, g).expect("shape ok");
-    let mut product = vec![0.0_f64; o * g];
+    let mut product = vec![0_i64; o * g];
     for i in 0..o {
         for j in 0..g {
-            product[i * g + j] = rh[i * g + j] * s[i];
+            product[i * g + j] = scale(&[rh[i * g + j]], from_grid(s[i]))[0];
         }
     }
-    let direct = quant_r_hier(&words(&product), o, g).expect("shape ok");
+    let direct = quant_r_hier(&product, o, g).expect("shape ok");
     assert_same_hier(&folded, &direct);
 
     // Partial (`pk2_top`) plane: same s gathered at the plane's global rows.
     let rows: [usize; 4] = [0, 3, 7, 15];
     let og = rows.len();
-    let rh2: Vec<f64> = (0..og * g)
-        .map(|_| 0.1 + 0.9 * rng.next_f64().abs())
+    let rh2: Vec<i64> = (0..og * g)
+        .map(|_| words(&[0.1 + 0.9 * rng.next_f64().abs()])[0])
         .collect();
     let folded2 = rescale_hier_top(&rh2, &s, &rows, g).expect("shape ok");
-    let mut product2 = vec![0.0_f64; og * g];
+    let mut product2 = vec![0_i64; og * g];
     for (i, &r) in rows.iter().enumerate() {
         for j in 0..g {
-            product2[i * g + j] = rh2[i * g + j] * s[r];
+            product2[i * g + j] = scale(&[rh2[i * g + j]], from_grid(s[r]))[0];
         }
     }
-    let direct2 = quant_r_hier(&words(&product2), og, g).expect("shape ok");
+    let direct2 = quant_r_hier(&product2, og, g).expect("shape ok");
     assert_same_hier(&folded2, &direct2);
 }
 
@@ -297,18 +308,18 @@ fn rescale_hier_folds_into_row_scale() {
 #[test]
 fn refusals() {
     let f = fixture(0x51ce_0008);
-    let slabs: [&[f64]; 2] = [&f.x0, &f.x1];
+    let slabs: [&[i64]; 2] = [&f.x0, &f.x1];
 
     // Wrong student weight length.
-    let short = vec![0.0_f64; INTER * N - 1];
+    let short = vec![0_i64; INTER * N - 1];
     assert_eq!(
         resq_scale(&inputs(&f, &slabs, &short, &f.w_u0)).unwrap_err(),
         ResqError::ShapeMismatch
     );
 
     // A slab whose length is not a multiple of n.
-    let ragged = vec![0.0_f64; SLAB_ROWS * N + 5];
-    let bad: [&[f64]; 1] = [&ragged];
+    let ragged = vec![0_i64; SLAB_ROWS * N + 5];
+    let bad: [&[i64]; 1] = [&ragged];
     assert_eq!(
         resq_scale(&inputs(&f, &bad, &f.w_g0, &f.w_u0)).unwrap_err(),
         ResqError::ShapeMismatch
@@ -328,45 +339,20 @@ fn refusals() {
     };
     assert_eq!(resq_scale(&empty).unwrap_err(), ResqError::Empty);
 
-    // Non-finite teacher weight.
-    let mut nan_u0 = f.w_u0.clone();
-    nan_u0[3] = f64::NAN;
-    assert_eq!(
-        resq_scale(&inputs(&f, &slabs, &f.w_g0, &nan_u0)).unwrap_err(),
-        ResqError::NonFinite
-    );
+    // A non-finite or out-of-range value has no Q32.32 word, so `ResqError` admits no finiteness
+    // or representability arm: every `i64` is a value of the carrier.
 
-    // A finite entry at or beyond the Q32.32 grid's range 2³¹ is not representable.
-    let mut huge = f.w_g0.clone();
-    huge[5] = 1e30;
-    assert_eq!(
-        resq_scale(&inputs(&f, &slabs, &huge, &f.w_u0)).unwrap_err(),
-        ResqError::NotRepresentable
-    );
-
-    // rescale_hier: shape and non-finite.
-    let rh = vec![1.0_f64; INTER * 2];
-    let s = vec![1.0_f64; INTER];
+    // rescale_hier: shape and empty.
+    let rh = vec![1_i64; INTER * 2];
+    let s = vec![1_i64 << 32; INTER];
     assert_eq!(
         rescale_hier(&rh, &s[..INTER - 1], INTER, 2).unwrap_err(),
         ResqError::ShapeMismatch
     );
     assert_eq!(rescale_hier(&[], &[], 0, 2).unwrap_err(), ResqError::Empty);
-    let mut rh_nan = rh.clone();
-    rh_nan[0] = f64::INFINITY;
-    assert_eq!(
-        rescale_hier(&rh_nan, &s, INTER, 2).unwrap_err(),
-        ResqError::NonFinite
-    );
-    let mut rh_huge = rh.clone();
-    rh_huge[1] = -3e12;
-    assert_eq!(
-        rescale_hier(&rh_huge, &s, INTER, 2).unwrap_err(),
-        ResqError::NotRepresentable
-    );
 
     // rescale_hier_top: an out-of-range gathered row is refused.
-    let rh2 = vec![1.0_f64; 2 * 2];
+    let rh2 = vec![1_i64 << 32; 2 * 2];
     let rows: [usize; 2] = [0, INTER + 5];
     assert_eq!(
         rescale_hier_top(&rh2, &s, &rows, 2).unwrap_err(),
@@ -398,17 +384,14 @@ struct RefSolution {
 }
 
 fn ref_resq_solve(inputs: &ResqInputs<'_>) -> RefSolution {
-    let ResqInputs {
-        x_slabs,
-        n,
-        w_g0,
-        w_u0,
-        wq_g,
-        wq_u,
-        w_down,
-        inter,
-        hidden,
-    } = *inputs;
+    let slabs_f: Vec<Vec<f64>> = inputs.x_slabs.iter().map(|s| reals(s)).collect();
+    let x_slabs: Vec<&[f64]> = slabs_f.iter().map(Vec::as_slice).collect();
+    let (n, inter, hidden) = (inputs.n, inputs.inter, inputs.hidden);
+    let w_g0 = reals(inputs.w_g0);
+    let w_u0 = reals(inputs.w_u0);
+    let wq_g = reals(inputs.wq_g);
+    let wq_u = reals(inputs.wq_u);
+    let w_down = reals(inputs.w_down);
     let inter2 = inter * inter;
     // G = W_downᵀ·W_down.
     let mut g = vec![0.0_f64; inter2];
@@ -500,7 +483,8 @@ fn ref_silu(x: f64) -> f64 {
 }
 
 /// The pre-migration [`rescale_hier`] body: the `f64` product then `quant_r_hier`.
-fn ref_rescale_hier(rh: &[f64], s: &[f64], o: usize, g: usize) -> RHier {
+fn ref_rescale_hier(rh: &[i64], s: &[i64], o: usize, g: usize) -> RHier {
+    let (rh, s) = (reals(rh), reals(s));
     let mut scaled = vec![0.0_f64; o * g];
     for i in 0..o {
         let si = s[i];
@@ -536,22 +520,18 @@ fn max_abs(a: &[f64]) -> f64 {
 fn agrees_with_f64_oracle() {
     const BOUND: f64 = 3.725_290_298_461_914e-9; // 2⁻²⁸
     let f = fixture(0x51ce_0009);
-    let slabs: [&[f64]; 2] = [&f.x0, &f.x1];
+    let slabs: [&[i64]; 2] = [&f.x0, &f.x1];
     for (name, wq_g, wq_u) in [
         ("teacher", f.w_g0.clone(), f.w_u0.clone()),
-        (
-            "half-up",
-            f.w_g0.clone(),
-            f.w_u0.iter().map(|v| 0.5 * v).collect(),
-        ),
+        ("half-up", f.w_g0.clone(), scale(&f.w_u0, 0.5)),
     ] {
         let inputs = inputs(&f, &slabs, &wq_g, &wq_u);
         let got = resq_solve(&inputs).expect("q32 solve");
         let want = ref_resq_solve(&inputs);
-        let dg = max_diff(&got.gop, &want.gop);
-        let dr = max_diff(&got.rhs, &want.rhs);
-        let dl = (got.lam - want.lam).abs();
-        let ds = max_diff(&got.s_raw, &want.s_raw);
+        let dg = max_diff(&reals(&got.gop), &want.gop);
+        let dr = max_diff(&reals(&got.rhs), &want.rhs);
+        let dl = (from_grid(got.lam) - want.lam).abs();
+        let ds = max_diff(&reals(&got.s_raw), &want.s_raw);
         println!(
             "{name}: gop {:.3e} rhs {:.3e} lam {:.3e} s_raw {:.3e} (scales {:.3e} / {:.3e})",
             dg,
@@ -568,19 +548,20 @@ fn agrees_with_f64_oracle() {
             ds <= BOUND * max_abs(&want.s_raw).max(1.0),
             "{name}: s {ds:e}"
         );
-        for (a, b) in got.s_clamped.iter().zip(&want.s_clamped) {
+        for (&a, b) in got.s_clamped.iter().zip(&want.s_clamped) {
+            let a = from_grid(a);
             assert!((a - b).abs() <= BOUND * 2.0, "{name}: clamped {a} vs {b}");
         }
     }
     // The row-scale fold: the same grid product, so the fold matches the `f64` product's
     // `quant_r_hier` on the fixture's O(1) entries (`s ≈ 1`, so the products differ by ≤ 2⁻³³ and
     // the quantizer's `mu`/`sp` scan is unchanged).
-    let s = vec![1.0_f64; INTER];
+    let s = vec![1_i64 << 32; INTER];
     let o = INTER;
     let g = 3usize;
     let mut rng = Rng::new(0x51ce_000a);
-    let rh: Vec<f64> = (0..o * g)
-        .map(|_| 0.1 + 0.9 * rng.next_f64().abs())
+    let rh: Vec<i64> = (0..o * g)
+        .map(|_| words(&[0.1 + 0.9 * rng.next_f64().abs()])[0])
         .collect();
     let got = rescale_hier(&rh, &s, o, g).expect("shape ok");
     let want = ref_rescale_hier(&rh, &s, o, g);

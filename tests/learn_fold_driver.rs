@@ -199,10 +199,6 @@ fn rel_err(a: &[f64], b: &[f64]) -> f64 {
     (num / den.max(1e-300)).sqrt()
 }
 
-fn all_finite(x: &[f64]) -> bool {
-    x.iter().all(|v| v.is_finite())
-}
-
 /// (a) one layer: seven shape-correct finite tensors, the fit order, the bias update, the untouched
 /// norms.
 #[test]
@@ -242,34 +238,29 @@ fn a_layer_shapes_bias_and_norms() {
     assert_eq!(lq.w_gate.len(), INTER * hid);
     assert_eq!(lq.w_up.len(), INTER * hid);
     assert_eq!(lq.w_down.len(), hid * INTER);
-    // The fits are still `f64` (`layer::tensor`'s boundary); every fitted value is finite.
-    for f in &res.fits {
-        assert!(all_finite(&f.wp), "a fitted tensor is not finite");
-    }
-
     // `ln1`/`ln2` are not fitted: unchanged.
     assert_eq!(lq.attn_norm, lt.attn_norm);
     assert_eq!(lq.ffn_norm, lt.ffn_norm);
 
-    // `Lq.wq = grids(Wp)` exactly, and `Lq.bq = Lt.bq + grids(db)` (one exact word add).
-    assert_eq!(lq.wq, qv(&res.fits[0].wp));
+    // `Lq.wq = Wp` exactly, and `Lq.bq = Lt.bq + db` (one exact word add).
+    assert_eq!(lq.wq, res.fits[0].wp);
     let db = res.fits[0].db.as_ref().expect("q bias");
     let ltb = lt.bq.as_ref().expect("teacher q bias");
-    let want_b: Vec<i64> = ltb.iter().zip(db).map(|(&b, &d)| b + q(d)).collect();
+    let want_b: Vec<i64> = ltb.iter().zip(db).map(|(&b, &d)| b + d).collect();
     let mut changed = false;
     for i in 0..qo {
         assert_eq!(lq.bq.as_ref().expect("q bias")[i], want_b[i], "qb at {i}");
-        if db[i].abs() > 1e-9 {
+        if db[i].abs() > q(1e-9) {
             changed = true;
         }
     }
     assert!(changed, "the q bias did not move");
-    assert_eq!(lq.wk, qv(&res.fits[1].wp));
-    assert_eq!(lq.wv, qv(&res.fits[2].wp));
-    assert_eq!(lq.wo, qv(&res.fits[3].wp));
-    assert_eq!(lq.w_gate, qv(&res.fits[4].wp));
-    assert_eq!(lq.w_up, qv(&res.fits[5].wp));
-    assert_eq!(lq.w_down, qv(&res.fits[6].wp));
+    assert_eq!(lq.wk, res.fits[1].wp);
+    assert_eq!(lq.wv, res.fits[2].wp);
+    assert_eq!(lq.wo, res.fits[3].wp);
+    assert_eq!(lq.w_gate, res.fits[4].wp);
+    assert_eq!(lq.w_up, res.fits[5].wp);
+    assert_eq!(lq.w_down, res.fits[6].wp);
 
     eprintln!("(a) ok in {:?}", t0.elapsed());
 }
@@ -558,18 +549,8 @@ fn e_slab_size_matters() {
             T,
         )
         .expect("teacher");
-        let w = sink_token_weights(
-            hts,
-            &p.mid,
-            &p.out,
-            hss,
-            None,
-            1,
-            T,
-            HID,
-            q(cfg3.sink_thresh),
-        )
-        .expect("weights");
+        let w = sink_token_weights(hts, &p.mid, &p.out, hss, None, 1, T, HID, cfg3.sink_thresh)
+            .expect("weights");
         sink_counts.push(w.iter().filter(|x| **x < ONE).count());
         mid_all.extend_from_slice(&p.mid);
         out_all.extend_from_slice(&p.out);
@@ -587,7 +568,7 @@ fn e_slab_size_matters() {
         N_SEQ,
         T,
         HID,
-        q(cfg3.sink_thresh),
+        cfg3.sink_thresh,
     )
     .expect("weights");
     let total_all = w_all.iter().filter(|x| **x < ONE).count();
@@ -599,7 +580,7 @@ fn e_slab_size_matters() {
         .map(|(a, b)| {
             a.wp.iter()
                 .zip(&b.wp)
-                .map(|(x, y)| (x - y).abs())
+                .map(|(&x, &y)| (from_grid(x) - from_grid(y)).abs())
                 .fold(0.0_f64, f64::max)
         })
         .fold(0.0_f64, f64::max);
@@ -640,7 +621,7 @@ fn f_model_loop_and_final_norm() {
     let embed = rand_hidden(vocab, HID, 0.5, &mut rng);
 
     // n_layers = 1: layer 1 is copied unchanged, layer 0 uses layer 1's `attn_norm` for `down`.
-    let m1 = quantise_model(&cfg, &rope, &layers, &fnorm, &embed, vocab, &h0, 1, 0.15)
+    let m1 = quantise_model(&cfg, &rope, &layers, &fnorm, &embed, vocab, &h0, 1, q(0.15))
         .expect("model n1");
     assert_eq!(m1.layers.len(), 2);
     assert_eq!(m1.layers[1], layers[1], "layer >= n_layers must be copied");
@@ -660,7 +641,7 @@ fn f_model_loop_and_final_norm() {
 
     // n_layers = 2: layer 1 now enters, and its `ln_next` is the final norm weight. Layer 0's
     // `ln_next` is layer 1's `attn_norm` in both runs, so its `down` fit is the same.
-    let m2 = quantise_model(&cfg, &rope, &layers, &fnorm, &embed, vocab, &h0, 2, 0.15)
+    let m2 = quantise_model(&cfg, &rope, &layers, &fnorm, &embed, vocab, &h0, 2, q(0.15))
         .expect("model n2");
     assert_eq!(
         m1.layers[0].w_down, m2.layers[0].w_down,

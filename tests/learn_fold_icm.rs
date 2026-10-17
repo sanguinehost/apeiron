@@ -144,7 +144,16 @@ fn run_arm(
 ) -> (Plane, Plane, f64, Option<JointStats>) {
     match arm {
         Arm::Step => {
-            let out = e8_icm_step(ws, hl, pref(p1), o, n, sweeps, ridge).expect("step");
+            let out = e8_icm_step(
+                ws,
+                hl,
+                pref(p1),
+                o,
+                n,
+                sweeps,
+                q32::to_grid(ridge, q32::GRID_BOUND).expect("ridge inside the grid"),
+            )
+            .expect("step");
             let j = plane_j(ws, &out, hj, o, n);
             (out, p2.clone(), j, None)
         }
@@ -892,7 +901,7 @@ fn learn_fold_icm_decision_safety_matches_the_pre_change_planes() {
     ] {
         let (ws, hl, p1, p2) = seeded_case(o, n, seed);
         let base = unhex(hstep);
-        let out = e8_icm_step(&ws, &hl, pref(&p1), o, n, 3, 0.0).expect("step");
+        let out = e8_icm_step(&ws, &hl, pref(&p1), o, n, 3, 0).expect("step");
         assert_eq!(out.idx.len(), base.len(), "plane {o}x{n} size");
         let diffs = idx_diffs(&out.idx, &base);
         let j_after = plane_j(&ws, &out, &hl, o, n);
@@ -980,7 +989,7 @@ fn learn_fold_icm_refuses_unrepresentable_products_and_shapes() {
     let hl = q(&toeplitz(n, 0.4));
     let p = rand_plane(o, n, &mut Lcg(17));
     let ws = vec![i64::MAX; o * n];
-    assert_eq!(e8_icm_step(&ws, &hl, pref(&p), o, n, 1, 0.0).err(), ov);
+    assert_eq!(e8_icm_step(&ws, &hl, pref(&p), o, n, 1, 0).err(), ov);
     assert_eq!(
         e8_joint_icm_2plane(&ws, &hl, pref(&p), pref(&p), o, n, 1, 0.0, None, 256, None).err(),
         ov
@@ -1023,7 +1032,7 @@ fn learn_fold_icm_timing_at_the_fold_shape() {
     let mut runs = Vec::new();
     for _ in 0..3 {
         let t = Instant::now();
-        let out = e8_icm_step(&ws_q, &hl_q, pref(&p), o, n, 1, 0.0).expect("step");
+        let out = e8_icm_step(&ws_q, &hl_q, pref(&p), o, n, 1, 0).expect("step");
         runs.push(t.elapsed().as_secs_f64());
         assert!(out.idx.iter().all(|&v| u16::from(v as u8) == v));
     }
@@ -1185,7 +1194,7 @@ fn learn_fold_icm_block_argmin_is_exact() {
         let init = rand_plane(o, n, &mut rng);
         let ws = rand_mat(o, n, &mut rng);
         let m = n / BLOCK - 1;
-        let out = e8_icm_step(&q(&ws), &q(&hl), pref(&init), o, n, 1, 0.0).expect("step");
+        let out = e8_icm_step(&q(&ws), &q(&hl), pref(&init), o, n, 1, 0).expect("step");
         let (wsq, hlq) = (q(&ws), q(&hl));
         let mut best = usize::MAX;
         let mut best_j = f64::INFINITY;
@@ -1388,7 +1397,7 @@ fn learn_fold_icm_refuses_ragged_shapes() {
     assert_eq!(good.len(), o * n);
     let sh = Some(IcmError::Shape);
     let step_err =
-        |pp: PlaneRef<'_>, ws: &[i64], hl: &[i64]| e8_icm_step(ws, hl, pp, o, n, 1, 0.0).err();
+        |pp: PlaneRef<'_>, ws: &[i64], hl: &[i64]| e8_icm_step(ws, hl, pp, o, n, 1, 0).err();
     let joint_err = |pp: PlaneRef<'_>| {
         e8_joint_icm_2plane(&ws, &hl, pp, pref(&p), o, n, 1, 0.0, None, 256, None).err()
     };
@@ -1435,7 +1444,7 @@ fn learn_fold_icm_refuses_ragged_shapes() {
     let (bad_ws, bad_hl) = (vec![0_i64; o * bad_n], vec![0_i64; bad_n * bad_n]);
     let wd = Some(IcmError::Width);
     assert_eq!(
-        e8_icm_step(&bad_ws, &bad_hl, pref(&q), o, bad_n, 1, 0.0).err(),
+        e8_icm_step(&bad_ws, &bad_hl, pref(&q), o, bad_n, 1, 0).err(),
         wd
     );
     assert_eq!(plane_w(pref(&q), o, bad_n).err(), wd);

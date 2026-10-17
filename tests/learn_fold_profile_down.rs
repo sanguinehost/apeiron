@@ -99,8 +99,8 @@ struct Fx {
     ws: Vec<f64>,
     h: Vec<f64>,
     g_row: Vec<f64>,
-    rg_q: f64,
-    damp: f64,
+    rg_q: i64,
+    damp: i64,
     fit: FoldFitConfig,
 }
 
@@ -171,15 +171,15 @@ fn fixture_dims(o: usize, n: usize, rows: usize, cols: &[usize]) -> Fx {
     for v in &mut g_row {
         *v /= gmean;
     }
-    let rg_q = QUANT_RIDGE * (n as f64 / N_REF);
-    let damp = QUANT_DAMP * (n as f64 / N_REF);
+    let rg_q = to_grid(QUANT_RIDGE * (n as f64 / N_REF), GRID_BOUND).expect("rg_q grid");
+    let damp = to_grid(QUANT_DAMP * (n as f64 / N_REF), GRID_BOUND).expect("damp grid");
     let fit = FoldFitConfig {
         iters: 1,
         ridge: rg_q,
         damp,
         inner_iters: 3,
         e8_beam: 4,
-        icm_ridge: 0.20,
+        icm_ridge: 858_993_459,
         sweeps: 2,
     };
     Fx {
@@ -255,7 +255,7 @@ fn sign_plane(ws: &[f64]) -> Vec<i64> {
 
 /// `hl = metric(H, rg_q)` and the flat `ones` the closed-form steps hold, as words.
 fn metric_and_ones(fx: &Fx) -> (Vec<i64>, Vec<i64>) {
-    let hl = metric(&fx.h, N, fx.rg_q).expect("metric");
+    let hl = metric(&fx.h, N, from_grid(fx.rg_q)).expect("metric");
     (q(&hl), q(&vec![1.0_f64; N]))
 }
 
@@ -277,7 +277,7 @@ fn t_a_transforms_metric_gptq() {
         || from_grid(had_gram(&hq, N).expect("had_gram")[N]),
     );
     phase("(2) metric(H, rg_q) [n=4864]", n * n, 3, || {
-        metric(&fx.h, N, fx.rg_q).expect("metric")[0]
+        metric(&fx.h, N, from_grid(fx.rg_q)).expect("metric")[0]
     });
     let ws_rot = fwht128(&fx.ws).expect("fwht");
     let h_gram = unq(&had_gram(&q(&fx.h), N).expect("had_gram"));
@@ -287,18 +287,9 @@ fn t_a_transforms_metric_gptq() {
         3,
         || {
             from_grid(
-                gptq_e8(
-                    &q(&ws_rot),
-                    &q(&h_gram),
-                    O,
-                    N,
-                    q(&[fx.damp])[0],
-                    true,
-                    true,
-                    4,
-                )
-                .expect("gptq")
-                .scale[0],
+                gptq_e8(&q(&ws_rot), &q(&h_gram), O, N, fx.damp, true, true, 4)
+                    .expect("gptq")
+                    .scale[0],
             )
         },
     );
@@ -327,7 +318,13 @@ fn t_b_icm_step() {
         "(4) e8_icm_step(o=896,n=4864,sweeps=2)",
         icm_flops(O as f64, N as f64, 2.0),
         3,
-        || from_grid(e8_icm_step(&wsq, &hl, p, O, N, 2, 0.20).expect("icm").s[0]),
+        || {
+            from_grid(
+                e8_icm_step(&wsq, &hl, p, O, N, 2, 858_993_459)
+                    .expect("icm")
+                    .s[0],
+            )
+        },
     );
 }
 
@@ -369,20 +366,10 @@ fn t_c_steps_crd() {
 fn t_d_corrector() {
     let fx = fixture();
     header();
-    let hl = metric(&fx.h, N, fx.rg_q).expect("metric");
+    let hl = metric(&fx.h, N, from_grid(fx.rg_q)).expect("metric");
     let ws_rot = fwht128(&fx.ws).expect("fwht");
     let h_gram = unq(&had_gram(&q(&fx.h), N).expect("had_gram"));
-    let qe8 = gptq_e8(
-        &q(&ws_rot),
-        &q(&h_gram),
-        O,
-        N,
-        q(&[fx.damp])[0],
-        true,
-        true,
-        4,
-    )
-    .expect("gptq");
+    let qe8 = gptq_e8(&q(&ws_rot), &q(&h_gram), O, N, fx.damp, true, true, 4).expect("gptq");
     // The gptq candidate weight wq0 = compose(fwht128(s_rot), scale, ones); delta = ws − wq0.
     let wq0_s = fwht128(&unq(&qe8.s)).expect("fwht");
     let ones_c = vec![1.0_f64; N];
@@ -405,20 +392,10 @@ fn t_d_corrector() {
 fn t_e_eigh() {
     let fx = fixture();
     header();
-    let hl = metric(&fx.h, N, fx.rg_q).expect("metric");
+    let hl = metric(&fx.h, N, from_grid(fx.rg_q)).expect("metric");
     let ws_rot = fwht128(&fx.ws).expect("fwht");
     let h_gram = unq(&had_gram(&q(&fx.h), N).expect("had_gram"));
-    let qe8 = gptq_e8(
-        &q(&ws_rot),
-        &q(&h_gram),
-        O,
-        N,
-        q(&[fx.damp])[0],
-        true,
-        true,
-        4,
-    )
-    .expect("gptq");
+    let qe8 = gptq_e8(&q(&ws_rot), &q(&h_gram), O, N, fx.damp, true, true, 4).expect("gptq");
     let wq0_s = fwht128(&unq(&qe8.s)).expect("fwht");
     let ones_c = vec![1.0_f64; N];
     let wq0 = unq(&compose(&q(&wq0_s), &q(&unq(&qe8.scale)), &q(&ones_c), O, N).expect("compose"));
@@ -567,17 +544,7 @@ fn t_h_fixture_receipt() {
         fnv_f64(&h_gram)
     );
     eprintln!("FIX ws_rot digest={:016x}", fnv_f64(&ws_rot));
-    let g = gptq_e8(
-        &q(&ws_rot),
-        &q(&h_gram),
-        O,
-        N,
-        q(&[fx.damp])[0],
-        true,
-        true,
-        4,
-    )
-    .expect("gptq");
+    let g = gptq_e8(&q(&ws_rot), &q(&h_gram), O, N, fx.damp, true, true, 4).expect("gptq");
     eprintln!(
         "FIX gptq_e8 idx[{}] digest={:016x} scale[{}] digest={:016x} s digest={:016x}",
         g.idx.len(),
@@ -614,11 +581,11 @@ fn t_g_fit_tensor() {
     phase("(9) WHOLE fit_tensor(Down: o=896,n=4864)", flops, 1, || {
         let t = fit_tensor(
             TensorKind::Down,
-            &fx.ws,
-            &fx.h,
+            &q(&fx.ws),
+            &q(&fx.h),
             O,
             N,
-            Some(&fx.g_row),
+            Some(&q(&fx.g_row)),
             &p,
             None,
         )
@@ -629,7 +596,7 @@ fn t_g_fit_tensor() {
             t.bits.nsign,
             t.bits.ncorr
         );
-        t.wp[0]
+        from_grid(t.wp[0])
     });
 }
 

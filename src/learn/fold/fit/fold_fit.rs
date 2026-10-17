@@ -26,10 +26,9 @@
 //! `round(x·2³²)`; products are `i128` rounded once by [`round_q32_even`]. The step helpers
 //! ([`c_step_wshl`], [`r_step_wshl`], [`d_step_wshl`], [`compose`], [`objective`], [`fwht_words`],
 //! [`had_gram`], [`mul_metric`], [`e8_icm_step`]) take and return words, and so do [`fold_fit`]'s
-//! `ws`, `h` and `g_row` inputs and its [`FoldFit`]/[`PackOut`] outputs: the code plane is carried as
-//! words from [`gptq_e8`] through the alternation with no grid round trip. [`FoldFitConfig`]'s
-//! scalar hyper-parameters are reals for the callers that own the configuration (`driver.rs`), so
-//! each is converted once at entry; nothing else in this file reads an `f64`.
+//! `ws`, `h` and `g_row` inputs, its [`FoldFit`]/[`PackOut`] outputs and [`FoldFitConfig`]'s
+//! `ridge`/`damp`/`icm_ridge`: the code plane is carried as words from [`gptq_e8`] through the
+//! alternation with no grid round trip, and nothing in this file reads an `f64`.
 //!
 //! # Complexity and the pool
 //!
@@ -77,7 +76,7 @@ use crate::learn::fold::fit::steps::{
     c_step_wshl, compose, d_step_wshl, fwht_words, had_gram, mul_metric, objective, r_step_wshl,
     StepsError,
 };
-use crate::learn::solve::q32::{round_q32_even, to_grid, GRID_BOUND};
+use crate::learn::solve::q32::round_q32_even;
 
 /// Columns per `r` group scale: the Python `GROUP`.
 pub const GROUP: usize = 128;
@@ -192,16 +191,16 @@ impl From<GptqE8Error> for FoldFitError {
 pub struct FoldFitConfig {
     /// Outer iterations of the alternation (line 863). Only `1` is ported.
     pub iters: usize,
-    /// Metric ridge of `metric(H, ridge)`: `ridge · mean(diag(H))` on the diagonal.
-    pub ridge: f64,
-    /// Damping passed to [`gptq_e8`] (the Python `damp`).
-    pub damp: f64,
+    /// Metric ridge of `metric(H, ridge)`: `ridge · mean(diag(H))` on the diagonal, Q32.32.
+    pub ridge: i64,
+    /// Damping passed to [`gptq_e8`] (the Python `damp`), Q32.32.
+    pub damp: i64,
     /// Inner refit passes per outer iteration (line 864; the production call site uses `3`).
     pub inner_iters: usize,
     /// Beam width passed to [`gptq_e8`] (the production call site uses `4`).
     pub e8_beam: usize,
-    /// `icm_ridge` of [`e8_icm_step`] (`icm_ridge · (n/896) · mean(diag(H))`, line 590).
-    pub icm_ridge: f64,
+    /// `icm_ridge` of [`e8_icm_step`] (`icm_ridge · (n/896) · mean(diag(H))`, line 590), Q32.32.
+    pub icm_ridge: i64,
     /// `sweeps` of each [`e8_icm_step`] call (the production call site uses `2`).
     pub sweeps: usize,
 }
@@ -284,8 +283,8 @@ struct Fit<'a> {
     g: usize,
     /// `e8_icm_step` sweeps.
     sweeps: usize,
-    /// `e8_icm_step` ridge.
-    ridge: f64,
+    /// `e8_icm_step` ridge, Q32.32.
+    ridge: i64,
 }
 
 /// `round(num / den)` to nearest, ties to even; `None` when `den == 0` or the quotient leaves
@@ -483,9 +482,9 @@ fn pack_words(f: &Fit, s_rot: &[i64], c: &[i64], dh: &[i64]) -> Result<Refit, Fo
 ///
 /// `ws` is the pristine weight, row-major `[o, n]` Q32.32 words; `h` the calibration Gram, row-major
 /// `[n, n]` words; `g_row` the optional row weight (length `o`), words. `n` must be a positive
-/// multiple of [`GROUP`], `iters` must be `1`. The arguments and the returned struct are words:
-/// the code plane never leaves the carrier. [`FoldFitConfig`]'s `ridge`/`damp` are converted once
-/// here, at entry; its `icm_ridge` is handed on as the [`e8_icm_step`] boundary declares it.
+/// multiple of [`GROUP`], `iters` must be `1`. The arguments, the returned struct and
+/// [`FoldFitConfig`]'s `ridge`/`damp`/`icm_ridge` are words: the code plane never leaves the
+/// carrier.
 ///
 /// # Errors
 ///
@@ -535,9 +534,8 @@ pub fn fold_fit(
         }
     }
 
-    // The configuration's two reals, converted once; every quantity after this line is a word.
-    let ridge_q = to_grid(cfg.ridge, GRID_BOUND).ok_or(FoldFitError::Overflow)?;
-    let damp_q = to_grid(cfg.damp, GRID_BOUND).ok_or(FoldFitError::Overflow)?;
+    let ridge_q = cfg.ridge;
+    let damp_q = cfg.damp;
     let g = n / GROUP;
     let nb = n / BLOCK;
     let hlq = metric(h, n, ridge_q)?;
