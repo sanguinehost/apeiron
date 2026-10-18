@@ -945,7 +945,9 @@ mod ecdsa {
         a == &[0, 0, 0, 0]
     }
     fn ge5(a: &[u64; 5], m: &[u64; 5]) -> bool {
-        for i in (0..5).rev() {
+        let mut i = 5;
+        while i > 0 {
+            i -= 1;
             if a[i] != m[i] {
                 return a[i] > m[i];
             }
@@ -966,7 +968,9 @@ mod ecdsa {
         }
     }
     fn ge4(a: &U, m: &U) -> bool {
-        for i in (0..4).rev() {
+        let mut i = 4;
+        while i > 0 {
+            i -= 1;
             if a[i] != m[i] {
                 return a[i] > m[i];
             }
@@ -998,7 +1002,9 @@ mod ecdsa {
     fn mod_gen(x: &[u64; 8], m: &U) -> U {
         let m5 = [m[0], m[1], m[2], m[3], 0];
         let mut rem = [0u64; 5];
-        for i in (0..512).rev() {
+        let mut i = 512;
+        while i > 0 {
+            i -= 1;
             let bit = (x[i / 64] >> (i % 64)) & 1;
             let mut c = bit;
             for l in rem.iter_mut() {
@@ -1174,7 +1180,9 @@ mod ecdsa {
     }
     fn jscalar(k: &U, p: &Jac) -> Jac {
         let mut r = jinf();
-        for i in (0..256).rev() {
+        let mut i = 256;
+        while i > 0 {
+            i -= 1;
             r = jdouble(&r);
             if (k[i / 64] >> (i % 64)) & 1 == 1 {
                 r = jadd(&r, p);
@@ -3036,7 +3044,9 @@ pub mod secp256k1 {
         a == &[0, 0, 0, 0]
     }
     fn ge5(a: &[u64; 5], m: &[u64; 5]) -> bool {
-        for i in (0..5).rev() {
+        let mut i = 5;
+        while i > 0 {
+            i -= 1;
             if a[i] != m[i] {
                 return a[i] > m[i];
             }
@@ -3057,7 +3067,9 @@ pub mod secp256k1 {
         }
     }
     fn ge4(a: &U, m: &U) -> bool {
-        for i in (0..4).rev() {
+        let mut i = 4;
+        while i > 0 {
+            i -= 1;
             if a[i] != m[i] {
                 return a[i] > m[i];
             }
@@ -3086,7 +3098,9 @@ pub mod secp256k1 {
     fn mod_gen(x: &[u64; 8], m: &U) -> U {
         let m5 = [m[0], m[1], m[2], m[3], 0];
         let mut rem = [0u64; 5];
-        for i in (0..512).rev() {
+        let mut i = 512;
+        while i > 0 {
+            i -= 1;
             let bit = (x[i / 64] >> (i % 64)) & 1;
             let mut c = bit;
             for l in rem.iter_mut() {
@@ -3170,7 +3184,9 @@ pub mod secp256k1 {
     fn shr1(a: &U) -> U {
         let mut r = *a;
         let mut c = 0u64;
-        for i in (0..4).rev() {
+        let mut i = 4;
+        while i > 0 {
+            i -= 1;
             let nv = (r[i] >> 1) | (c << 63);
             c = r[i] & 1;
             r[i] = nv;
@@ -3269,7 +3285,9 @@ pub mod secp256k1 {
     }
     fn jscalar(k: &U, p: &Jac) -> Jac {
         let mut r = jinf();
-        for i in (0..256).rev() {
+        let mut i = 256;
+        while i > 0 {
+            i -= 1;
             r = jdouble(&r);
             if (k[i / 64] >> (i % 64)) & 1 == 1 {
                 r = jadd(&r, p);
@@ -4618,7 +4636,9 @@ pub mod p384 {
         a == &[0u64; 6]
     }
     fn ge7(a: &[u64; 7], m: &[u64; 7]) -> bool {
-        for i in (0..7).rev() {
+        let mut i = 7;
+        while i > 0 {
+            i -= 1;
             if a[i] != m[i] {
                 return a[i] > m[i];
             }
@@ -4639,7 +4659,9 @@ pub mod p384 {
         }
     }
     fn ge6(a: &U, m: &U) -> bool {
-        for i in (0..6).rev() {
+        let mut i = 6;
+        while i > 0 {
+            i -= 1;
             if a[i] != m[i] {
                 return a[i] > m[i];
             }
@@ -4669,7 +4691,9 @@ pub mod p384 {
     fn mod_gen(x: &[u64; 12], m: &U) -> U {
         let m7 = [m[0], m[1], m[2], m[3], m[4], m[5], 0];
         let mut rem = [0u64; 7];
-        for i in (0..768).rev() {
+        let mut i = 768;
+        while i > 0 {
+            i -= 1;
             let bit = (x[i / 64] >> (i % 64)) & 1;
             let mut c = bit;
             for l in rem.iter_mut() {
@@ -4844,7 +4868,9 @@ pub mod p384 {
     }
     fn jscalar(k: &U, p: &Jac) -> Jac {
         let mut r = jinf();
-        for i in (0..384).rev() {
+        let mut i = 384;
+        while i > 0 {
+            i -= 1;
             r = jdouble(&r);
             if (k[i / 64] >> (i % 64)) & 1 == 1 {
                 r = jadd(&r, p);
@@ -5281,13 +5307,16 @@ pub mod rsa {
         r
     }
     fn bn_trim(a: &mut Bn) {
-        while a.len() > 1 && *a.last().unwrap() == 0 {
+        // `a[a.len() - 1]`, not `Slice::last`: the fragment has no model for the latter.
+        while a.len() > 1 && a[a.len() - 1] == 0 {
             a.pop();
         }
     }
     fn bn_cmp(a: &Bn, b: &Bn) -> Ordering {
         let m = a.len().max(b.len());
-        for i in (0..m).rev() {
+        let mut i = m;
+        while i > 0 {
+            i -= 1;
             let (av, bv) = (*a.get(i).unwrap_or(&0), *b.get(i).unwrap_or(&0));
             if av != bv {
                 return av.cmp(&bv);
@@ -5296,7 +5325,11 @@ pub mod rsa {
         Ordering::Equal
     }
     fn bn_ge(a: &Bn, b: &Bn) -> bool {
-        bn_cmp(a, b) != Ordering::Less
+        // `match`, not `!= Ordering::Less`: the fragment has no model for `Ordering`'s `PartialEq`.
+        match bn_cmp(a, b) {
+            Ordering::Less => false,
+            _ => true,
+        }
     }
     fn bn_mul(a: &Bn, b: &Bn) -> Bn {
         let mut r = vec![0u64; a.len() + b.len()];
@@ -5336,7 +5369,9 @@ pub mod rsa {
     fn bn_mod(x: &Bn, m: &Bn) -> Bn {
         let mut rem = vec![0u64; m.len() + 1];
         let nbits = x.len() * 64;
-        for i in (0..nbits).rev() {
+        let mut i = nbits;
+        while i > 0 {
+            i -= 1;
             let bit = (x[i / 64] >> (i % 64)) & 1;
             let mut c = bit;
             for l in rem.iter_mut() {
@@ -5592,7 +5627,9 @@ pub mod rsa {
     fn bn_shr1(a: &Bn) -> Bn {
         let mut r = vec![0u64; a.len()];
         let mut carry = 0u64;
-        for i in (0..a.len()).rev() {
+        let mut i = a.len();
+        while i > 0 {
+            i -= 1;
             r[i] = (a[i] >> 1) | (carry << 63);
             carry = a[i] & 1;
         }
@@ -5611,7 +5648,9 @@ pub mod rsa {
         let mut rem = vec![0u64; m.len() + 1];
         let mut quot = vec![0u64; x.len()];
         let nbits = x.len() * 64;
-        for i in (0..nbits).rev() {
+        let mut i = nbits;
+        while i > 0 {
+            i -= 1;
             let bit = (x[i / 64] >> (i % 64)) & 1;
             let mut c = bit;
             for l in rem.iter_mut() {
@@ -6931,8 +6970,13 @@ pub fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
     } else {
         k[..key.len()].copy_from_slice(key);
     }
-    let ipad: [u8; 64] = core::array::from_fn(|i| k[i] ^ 0x36);
-    let opad: [u8; 64] = core::array::from_fn(|i| k[i] ^ 0x5c);
+    // Index loop, not `core::array::from_fn`: the fragment has no model for it.
+    let mut ipad = [0u8; 64];
+    let mut opad = [0u8; 64];
+    for i in 0..64 {
+        ipad[i] = k[i] ^ 0x36;
+        opad[i] = k[i] ^ 0x5c;
+    }
     let mut inner = Sha256::new();
     inner.update(&ipad);
     inner.update(msg);
@@ -7289,8 +7333,13 @@ pub fn hmac_sha512(key: &[u8], msg: &[u8]) -> [u8; 64] {
     } else {
         k[..key.len()].copy_from_slice(key);
     }
-    let ipad: [u8; 128] = core::array::from_fn(|i| k[i] ^ 0x36);
-    let opad: [u8; 128] = core::array::from_fn(|i| k[i] ^ 0x5c);
+    // Index loop, not `core::array::from_fn`: the fragment has no model for it.
+    let mut ipad = [0u8; 128];
+    let mut opad = [0u8; 128];
+    for i in 0..128 {
+        ipad[i] = k[i] ^ 0x36;
+        opad[i] = k[i] ^ 0x5c;
+    }
     let mut inner = Sha512::new();
     inner.update(&ipad);
     inner.update(msg);
@@ -7308,8 +7357,13 @@ pub fn hmac_sha384(key: &[u8], msg: &[u8]) -> [u8; 48] {
     } else {
         k[..key.len()].copy_from_slice(key);
     }
-    let ipad: [u8; 128] = core::array::from_fn(|i| k[i] ^ 0x36);
-    let opad: [u8; 128] = core::array::from_fn(|i| k[i] ^ 0x5c);
+    // Index loop, not `core::array::from_fn`: the fragment has no model for it.
+    let mut ipad = [0u8; 128];
+    let mut opad = [0u8; 128];
+    for i in 0..128 {
+        ipad[i] = k[i] ^ 0x36;
+        opad[i] = k[i] ^ 0x5c;
+    }
     let mut inner = Sha512::new_384();
     inner.update(&ipad);
     inner.update(msg);
@@ -7438,9 +7492,14 @@ fn pad64_le(msg: &[u8]) -> Vec<u8> {
 /// MD5 = the same fold, the RFC 1321 round + little-endian convention. Bit-identical to RFC 1321.
 pub fn md5(msg: &[u8]) -> [u8; 16] {
     let m = pad64_le(msg);
-    let h = m
-        .chunks_exact(64)
-        .fold(MD5_INIT, |acc, blk| compress_md5(acc, blk));
+    // Index loop, not `chunks_exact(..).fold(..)`: the extraction fragment has no model for
+    // `Iterator::fold` over the chunk adapter (`proof/extract/crypto_port.rs`).
+    let mut h = MD5_INIT;
+    let mut i = 0usize;
+    while i < m.len() {
+        h = compress_md5(h, &m[i..i + 64]);
+        i += 64;
+    }
     let mut o = [0u8; 16];
     for i in 0..4 {
         o[i * 4..i * 4 + 4].copy_from_slice(&h[i].to_le_bytes());

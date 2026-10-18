@@ -1467,32 +1467,28 @@ pub fn word_onebit_index_bits(c: &onebit_bits::Cfg) -> Option<u64> {
     onebit_bits::index_bits(c)
 }
 
-// The one-bit backward passes (`src/learn/grad/{dense,attn,head}.rs`) and the E8 codebook
-// (`src/learn/code/e8.rs`), reached through `learn_port.rs`.
+// The one-bit backward passes and the E8 codebook (`src/learn/{grad,code}`).
 #[path = "learn_port.rs"]
 pub mod learn_port;
-// The Q32.32 linear-algebra primitives (`src/learn/solve/`), reached through `solve_port.rs`.
+// The Q32.32 linear-algebra primitives (`src/learn/solve/`).
 #[path = "solve_port.rs"]
 pub mod solve_port;
-// The map body (`src/map/hashtrinity/`), already rooted at `crate::hashtrinity`; this file adds
-// only the monomorphic `word_*` roots, so no body is translated twice.
+// The hashtrinity map body; monomorphic `word_*` roots only.
 #[path = "hashtrinity_port.rs"]
 pub mod hashtrinity_port;
-// The GGUF writer and the serial solve/Gram cores (`src/learn/{gguf,gram,grad/model}`).
 #[path = "grad_solve_port.rs"]
 pub mod grad_solve_port;
-// The fold statistics and the closed-form weight-fit steps (`src/learn/fold/{stats,fit}/`).
 #[path = "fold_port.rs"]
 pub mod fold_port;
-// The format import/encode roots (`src/format/{packing,bpe}.rs`).
 #[path = "format_port.rs"]
 pub mod format_port;
-// The map coordinate roots (`src/map/coord*`).
 #[path = "coord_port.rs"]
 pub mod coord_port;
-// The closed-form weight-fit roots beyond `fold_port.rs`: steps, the E8 quantiser, the fold fit,
-// `nb_refine` and the RMSNorm-gain fit.
+// The closed-form weight-fit roots beyond `fold_port.rs`.
 #[path = "fit_port.rs"]
 pub mod fit_port;
+// The hashtrinity crypto roots (`src/map/hashtrinity/crypto.rs`).
+#[path = "crypto_port.rs"]
+pub mod crypto_port;
 /// Mirror of `crate::learn` for this extraction unit, carried in `fold_port.rs`.
 pub use fold_port::learn;

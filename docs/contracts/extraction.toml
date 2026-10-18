@@ -595,7 +595,9 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/hashtrinity/crypto.rs"
-unextracted = 454
+path = "src/map/hashtrinity/crypto.rs"
+unextracted = 425
+unextracted = 425
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
