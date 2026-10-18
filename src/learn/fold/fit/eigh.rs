@@ -14,12 +14,19 @@
 //! `Corr`'s trace-optimality is Ky Fan / Eckart–Young.
 
 #![allow(
+    clippy::cast_lossless,
+    clippy::cast_sign_loss,
     clippy::float_cmp,
+    clippy::manual_let_else,
     clippy::many_single_char_names,
     clippy::needless_range_loop,
     clippy::similar_names,
-    reason = "the transfer's arithmetic indexes row-major `[r, c]` buffers by `i/j/k`; the pedantic \
-              lints stay on for the rest of the crate."
+    reason = "the transfer's arithmetic indexes row-major `[r, c]` buffers by `i/j/k`; the `as` \
+              casts are the extraction's own forms, since the fallible conversion from `usize` is an unmodeled \
+              external and each signed-to-unsigned shift amount is guarded non-negative before the \
+              cast; the `match` on `ilog2_pos` stays in place of `let .. else` because the pinned \
+              extraction fragment models the `match` and not the `let .. else` desugaring; the \
+              pedantic lints stay on for the rest of the crate."
 )]
 
 use crate::learn::fold::fit::corrector::{eigen_parts, CorrectorError};
@@ -46,19 +53,21 @@ pub enum EighError {
 /// matrix. `O(1)`.
 fn input_scale(max: u128) -> i32 {
     const BOUND: u128 = (1u128 << 35) - 16;
-    let Some(bits) = ilog2_pos(max) else {
-        return 0;
+    let bits = match ilog2_pos(max) {
+        Some(b) => b,
+        None => return 0,
     };
     let mut e = 34 - bits.cast_signed();
     loop {
+        // `u32` shift amounts lower to the model's wrapping shift; an `i32` amount selects
+        // `Shl<i32>`, whose `checked_shl` the model does not define.
         let fits = if e >= 0 {
-            u32::try_from(e)
-                .ok()
-                .and_then(|k| max.checked_shl(k))
-                .is_some_and(|v| v <= BOUND)
+            let scaled = if e >= 128 { 0 } else { max << (e as u32) };
+            scaled <= BOUND
         } else {
-            let k = u32::try_from(-e).unwrap_or(u32::MAX);
-            max.checked_shr(k).is_some_and(|v| v <= BOUND)
+            let k = 0i32 - e;
+            let scaled = if k >= 128 { 0 } else { max >> (k as u32) };
+            scaled <= BOUND
         };
         if fits {
             return e;
@@ -72,10 +81,22 @@ fn input_scale(max: u128) -> i32 {
 /// `0` for the zero matrix, which [`eigen_parts`] special-cases). `O(len)`.
 #[must_use]
 pub fn gram_scale(m: &[i64]) -> i32 {
-    let max = m
-        .iter()
-        .fold(0u128, |a, &v| a.max(u128::from(v.unsigned_abs())));
-    ilog2_pos(max).map_or(0, |b| 34 - b.cast_signed())
+    let mut max: u128 = 0;
+    for &v in m {
+        let a = abs_word(v);
+        if a > max {
+            max = a;
+        }
+    }
+    match ilog2_pos(max) {
+        Some(b) => 34 - b.cast_signed(),
+        None => 0,
+    }
+}
+
+/// `|v|` as `u128`, total on `i64` including `i64::MIN`.
+fn abs_word(v: i64) -> u128 {
+    v.unsigned_abs() as u128
 }
 
 /// A [`GemmError`] from a product whose shape and depth were already validated here.
@@ -111,17 +132,31 @@ fn rshift_away(v: i64, k: u32) -> Option<i64> {
     let x = i128::from(v);
     let (q, r) = (x / d, x % d);
     let mag = if r < 0 { -r } else { r };
-    let step = if mag >= half { r.signum() } else { 0 };
+    let step = if mag < half {
+        0
+    } else if r > 0 {
+        1
+    } else if r < 0 {
+        -1
+    } else {
+        0
+    };
     i64::try_from(q + step).ok()
 }
 
 /// `v·2^e` on the grid with the same half-away rounding; `None` when it leaves `i64`. `O(1)`.
 fn scale_away(v: i64, e: i32) -> Option<i64> {
     if e >= 0 {
-        let w = i128::from(v).checked_shl(u32::try_from(e).ok()?)?;
+        if e >= 127 {
+            return None;
+        }
+        let w = i128::from(v).checked_mul(1_i128 << (e as u32))?;
         return i64::try_from(w).ok();
     }
-    rshift_away(v, u32::try_from(-e).ok()?)
+    if e <= -127 {
+        return None;
+    }
+    rshift_away(v, (0 - e) as u32)
 }
 
 /// `x` as a Q32.32 panel and the exponent `k` of the exact `2⁻ᵏ` it was shifted by — the
@@ -131,9 +166,13 @@ fn scale_away(v: i64, e: i32) -> Option<i64> {
 /// # Complexity
 /// `O(len)`: one magnitude scan, one shift per entry.
 fn panel_words(x: &[i64]) -> Option<(Vec<i64>, i32)> {
-    let max = x
-        .iter()
-        .fold(0u128, |a, &v| a.max(u128::from(v.unsigned_abs())));
+    let mut max: u128 = 0;
+    for &v in x {
+        let a = abs_word(v);
+        if a > max {
+            max = a;
+        }
+    }
     let k = match ilog2_pos(max) {
         Some(b) if max > 1u128 << 35 => {
             if max == 1u128 << b {
@@ -144,17 +183,34 @@ fn panel_words(x: &[i64]) -> Option<(Vec<i64>, i32)> {
         }
         _ => 0,
     };
-    let q = x
-        .iter()
-        .map(|&v| {
-            if k >= 0 {
-                rshift_away(v, u32::try_from(k).ok()?)
+    let mut q = Vec::with_capacity(x.len());
+    let mut ok = true;
+    for &v in x {
+        if ok {
+            let scaled = if k >= 0 {
+                rshift_away(v, k as u32)
             } else {
-                i64::try_from(i128::from(v).checked_shl(k.unsigned_abs())?).ok()
+                let sh = 0 - k;
+                if sh >= 127 {
+                    None
+                } else {
+                    match i128::from(v).checked_mul(1_i128 << sh) {
+                        Some(w) => i64::try_from(w).ok(),
+                        None => None,
+                    }
+                }
+            };
+            match scaled {
+                Some(w) => q.push(w),
+                None => ok = false,
             }
-        })
-        .collect::<Option<Vec<_>>>()?;
-    Some((q, k))
+        }
+    }
+    if ok {
+        Some((q, k))
+    } else {
+        None
+    }
 }
 
 /// Replace each transposed pair of the row-major `[n, n]` word matrix `q` by
@@ -163,16 +219,27 @@ fn panel_words(x: &[i64]) -> Option<(Vec<i64>, i32)> {
 /// # Complexity
 /// `O(n²)` serial word operations (≈10⁶ at `n² ≤ 896²`, below the pool threshold); space `O(1)`.
 fn symmetrise(q: &mut [i64], n: usize) -> Result<(), EighError> {
+    let mut ok = true;
     for i in 0..n {
         for j in 0..=i {
-            let mean = rshift_rne(i128::from(q[i * n + j]) + i128::from(q[j * n + i]), 1)
-                .and_then(|m| i64::try_from(m).ok())
-                .ok_or(EighError::NotConverged)?;
-            q[i * n + j] = mean;
-            q[j * n + i] = mean;
+            if ok {
+                match rshift_rne(i128::from(q[i * n + j]) + i128::from(q[j * n + i]), 1)
+                    .and_then(|m| i64::try_from(m).ok())
+                {
+                    Some(mean) => {
+                        q[i * n + j] = mean;
+                        q[j * n + i] = mean;
+                    }
+                    None => ok = false,
+                }
+            }
         }
     }
-    Ok(())
+    if ok {
+        Ok(())
+    } else {
+        Err(EighError::NotConverged)
+    }
 }
 
 /// The domain's non-negativity test: each symmetrised entry is within one grid word of the exact
@@ -183,7 +250,7 @@ fn symmetrise(q: &mut [i64], n: usize) -> Result<(), EighError> {
 /// # Complexity
 /// `O(1)`.
 fn check_psd(evals: &[i64], n: usize) -> Result<(), EighError> {
-    let n = i128::try_from(n).map_err(|_| EighError::NotConverged)?;
+    let n = n as i128;
     let lam_max = i128::from(evals[evals.len() - 1].max(0));
     if i128::from(evals[0]) < -n * ((lam_max >> 20).max(1) + 1) {
         return Err(EighError::NotConverged);
@@ -212,29 +279,56 @@ pub fn eigh(a: &[i64], n: usize) -> Result<(Vec<i64>, Vec<i64>), EighError> {
     if n == 0 {
         return Ok((Vec::new(), Vec::new()));
     }
-    let max = a
-        .iter()
-        .fold(0u128, |m, &v| m.max(u128::from(v.unsigned_abs())));
+    let mut max: u128 = 0;
+    for &v in a {
+        let m = abs_word(v);
+        if m > max {
+            max = m;
+        }
+    }
     let e = input_scale(max);
-    let mut q = a
-        .iter()
-        .map(|&v| scale_away(v, e))
-        .collect::<Option<Vec<i64>>>()
-        .ok_or(EighError::NotConverged)?;
+    let mut q = Vec::with_capacity(a.len());
+    let mut ok = true;
+    for &v in a {
+        if ok {
+            match scale_away(v, e) {
+                Some(w) => q.push(w),
+                None => ok = false,
+            }
+        }
+    }
+    if !ok {
+        return Err(EighError::NotConverged);
+    }
     symmetrise(&mut q, n)?;
     // PSD implies a non-negative diagonal; a word below `-1` is outside the one-word bound.
-    if (0..n).any(|i| q[i * n + i] < -1) {
+    let mut negative = false;
+    for i in 0..n {
+        if q[i * n + i] < -1 {
+            negative = true;
+        }
+    }
+    if negative {
         return Err(EighError::NotConverged);
     }
     let TopEig { evals, evecs, .. } = top_eigh(&q, n, n).map_err(eig_err)?;
     check_psd(&evals, n)?;
     // `μ·2⁻ᵉ` is the eigenvalue word in the input's own units; one rounding, ties away from zero,
     // as the deleted `to_grid` read-back applied.
-    let evals = evals
-        .iter()
-        .map(|&mu| scale_away(mu, -e))
-        .collect::<Option<Vec<i64>>>()
-        .ok_or(EighError::NotConverged)?;
+    let mut evals_out = Vec::with_capacity(evals.len());
+    let mut ok = true;
+    for &mu in &evals {
+        if ok {
+            match scale_away(mu, 0 - e) {
+                Some(w) => evals_out.push(w),
+                None => ok = false,
+            }
+        }
+    }
+    if !ok {
+        return Err(EighError::NotConverged);
+    }
+    let evals = evals_out;
     Ok((evals, evecs))
 }
 
@@ -331,20 +425,41 @@ pub fn lowrank_corrector_exact(
     // `V = Uᵀ·ΔW` and `Corr = U·V` on the pooled word kernels; the panels' exact `2⁻ᵏ` is undone
     // once per output word.
     let (dw, kd) = panel_words(delta_w).ok_or(EighError::NotConverged)?;
-    let ut: Vec<i64> = (0..rank * o).map(|t| u[(t % o) * rank + t / o]).collect();
+    let mut ut = Vec::with_capacity(rank * o);
+    for t in 0..rank * o {
+        ut.push(u[(t % o) * rank + t / o]);
+    }
     let (v, kv) =
         panel(&gemm_nn(&ut, &dw, rank, o, n).map_err(gemm_err)?).ok_or(EighError::NotConverged)?;
     let corr = gemm_nn(&u, &v, o, rank, n).map_err(gemm_err)?;
     let back = kd + kv;
-    let scaled = |x: &[i64]| -> Result<Vec<i64>, EighError> {
-        x.iter()
-            .map(|&v| scale_away(v, back).ok_or(EighError::NotConverged))
-            .collect()
-    };
+    let corr = scale_all(&corr, back)?;
+    let v = scale_all(&v, back)?;
     Ok(Corrector {
-        corr: scaled(&corr)?,
+        corr,
         top_sum,
         u,
-        v: scaled(&v)?,
+        v,
     })
+}
+
+/// Undo the panel shift `back` on every word of `xs`.
+///
+/// Flag form: the extraction fragment has no `?` inside a loop. `O(len)` time and space.
+fn scale_all(xs: &[i64], back: i32) -> Result<Vec<i64>, EighError> {
+    let mut out = Vec::with_capacity(xs.len());
+    let mut ok = true;
+    for &x in xs {
+        if ok {
+            match scale_away(x, back) {
+                Some(v) => out.push(v),
+                None => ok = false,
+            }
+        }
+    }
+    if ok {
+        Ok(out)
+    } else {
+        Err(EighError::NotConverged)
+    }
 }

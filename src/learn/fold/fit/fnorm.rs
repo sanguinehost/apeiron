@@ -148,17 +148,39 @@ fn rms_row(
     out: &mut [i64],
 ) -> Result<(), FnormError> {
     let mut sq: i128 = 0;
+    let mut ok = true;
     for j in 0..hid {
-        let x = i128::from(h[base + j]);
-        sq = sq.checked_add(x * x).ok_or(FnormError::Overflow)?;
+        if ok {
+            let x = i128::from(h[base + j]);
+            match x.checked_mul(x) {
+                Some(xx) => match sq.checked_add(xx) {
+                    Some(v) => sq = v,
+                    None => ok = false,
+                },
+                None => ok = false,
+            }
+        }
+    }
+    if !ok {
+        return Err(FnormError::Overflow);
     }
     let mean = div_int(sq, (hid as i128) << 32).ok_or(FnormError::Overflow)?;
     let m = mean.checked_add(eps).ok_or(FnormError::Overflow)?;
     let inv = div_int(1_i128 << 64, i128::from(sqrt_q(m)?)).ok_or(FnormError::Overflow)?;
+    let mut ok = true;
     for j in 0..hid {
-        out[j] = mul_q(h[base + j], inv)?;
+        if ok {
+            match mul_q(h[base + j], inv) {
+                Ok(v) => out[j] = v,
+                Err(_) => ok = false,
+            }
+        }
     }
-    Ok(())
+    if ok {
+        Ok(())
+    } else {
+        Err(FnormError::Overflow)
+    }
 }
 
 /// Fit the final RMSNorm gain `g` by damped Newton-Fisher descent on the readout KL.

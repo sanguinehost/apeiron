@@ -88,17 +88,24 @@ fn mul_word(a: i64, b: i64) -> Result<i64, StepsError> {
 }
 
 /// `v·2⁻ᵏ`: a round-to-nearest shift for `k > 0`, an exact checked left shift for `k < 0`.
+#[allow(
+    clippy::comparison_chain,
+    reason = "a `match` on `k.cmp(&0)` would put `i32::cmp` and `Ordering` in the extracted body; \
+              the three-arm chain is the extracted form"
+)]
 fn shift_word(v: i64, k: i32) -> Result<i64, StepsError> {
-    match k.signum() {
-        1 => match rshift_rne(i128::from(v), k as u32) {
+    if k > 0 {
+        match rshift_rne(i128::from(v), k as u32) {
             Some(x) => q32::narrow(x).ok_or(StepsError::ShapeMismatch),
             None => Err(StepsError::ShapeMismatch),
-        },
-        -1 => match i128::from(v).checked_shl((-k) as u32) {
-            Some(x) => q32::narrow(x).ok_or(StepsError::ShapeMismatch),
-            None => Err(StepsError::ShapeMismatch),
-        },
-        _ => Ok(v),
+        }
+    } else if k < 0 {
+        if k <= -128 {
+            return Err(StepsError::ShapeMismatch);
+        }
+        q32::narrow(i128::from(v) << ((-k) as u32)).ok_or(StepsError::ShapeMismatch)
+    } else {
+        Ok(v)
     }
 }
 
@@ -250,14 +257,28 @@ fn diag_sum(a: &[i64], n: usize) -> i128 {
 /// `O(o·n)` comparisons and shifts, `O(n)` words for `e`.
 fn fill_columns(x: &mut [i64], o: usize, n: usize) -> Result<Vec<i32>, StepsError> {
     let mut e = vec![0_i32; n];
-    for (j, ej) in e.iter_mut().enumerate() {
-        let m = (0..o).fold(0u128, |m, q| m.max(u128::from(x[q * n + j].unsigned_abs())));
-        *ej = (-panel_shift_words(m)).max(0);
-        for q in 0..o {
-            x[q * n + j] = shift_word(x[q * n + j], -*ej)?;
+    let mut ok = true;
+    for j in 0..n {
+        if ok {
+            let mut m: u128 = 0;
+            for q in 0..o {
+                m = m.max(u128::from(x[q * n + j].unsigned_abs()));
+            }
+            let ej = (-panel_shift_words(m)).max(0);
+            e[j] = ej;
+            for q in 0..o {
+                match shift_word(x[q * n + j], -ej) {
+                    Ok(v) => x[q * n + j] = v,
+                    Err(_) => ok = false,
+                }
+            }
         }
     }
-    Ok(e)
+    if ok {
+        Ok(e)
+    } else {
+        Err(StepsError::ShapeMismatch)
+    }
 }
 
 /// The mean of `diag(A)` for `A'' = D·A·D` read back through `D⁻²`: `O(n)` rounded shifts.
@@ -368,12 +389,22 @@ pub fn had_gram(h: &[i64], n: usize) -> Result<Vec<i64>, StepsError> {
 /// `B[o,i] = s[o,i]·r[o, i/128]`: `O(o·n)` rounded multiplies, `O(o·n)` words of output.
 fn group_scale(s: &[i64], r: &[i64], o: usize, n: usize, g: usize) -> Result<Vec<i64>, StepsError> {
     let mut b = vec![0i64; o * n];
+    let mut ok = true;
     for oo in 0..o {
         for i in 0..n {
-            b[oo * n + i] = mul_word(s[oo * n + i], r[oo * g + i / GROUP])?;
+            if ok {
+                match mul_word(s[oo * n + i], r[oo * g + i / GROUP]) {
+                    Ok(v) => b[oo * n + i] = v,
+                    Err(_) => ok = false,
+                }
+            }
         }
     }
-    Ok(b)
+    if ok {
+        Ok(b)
+    } else {
+        Err(StepsError::ShapeMismatch)
+    }
 }
 
 /// # Complexity
@@ -428,12 +459,25 @@ fn col_scale(x: &[i64], c: &[i64], n: usize) -> Result<Vec<i64>, StepsError> {
 /// `hl ⊙ c cᵀ`, one rounding per factor: `O(n²)` rounded multiplies, `O(n²)` words of output.
 fn metric_scale(hl: &[i64], c: &[i64], n: usize) -> Result<Vec<i64>, StepsError> {
     let mut out = vec![0i64; n * n];
+    let mut ok = true;
     for i in 0..n {
         for j in 0..n {
-            out[i * n + j] = mul_word(mul_word(hl[i * n + j], c[i])?, c[j])?;
+            if ok {
+                match mul_word(hl[i * n + j], c[i]) {
+                    Ok(a) => match mul_word(a, c[j]) {
+                        Ok(v) => out[i * n + j] = v,
+                        Err(_) => ok = false,
+                    },
+                    Err(_) => ok = false,
+                }
+            }
         }
     }
-    Ok(out)
+    if ok {
+        Ok(out)
+    } else {
+        Err(StepsError::ShapeMismatch)
+    }
 }
 
 /// `A = Shᵀ diag(w) Sh` on the limb kernel: `Sh` is transposed once into an `n × o` panel whose
@@ -472,10 +516,19 @@ fn weighted_gram(sh: &[i64], w: &[i64], o: usize, n: usize) -> Result<Vec<i64>, 
 fn rhs_grid(x: &[i64], y: &[i64], w: &[i64], o: usize, n: usize) -> Result<Vec<i64>, StepsError> {
     // z[o,i] = round(x·y): the elementwise word product, transposed so each column `i` is a row.
     let mut z = vec![0i64; o * n];
+    let mut ok = true;
     for oo in 0..o {
         for i in 0..n {
-            z[oo * n + i] = mul_word(x[oo * n + i], y[oo * n + i])?;
+            if ok {
+                match mul_word(x[oo * n + i], y[oo * n + i]) {
+                    Ok(v) => z[oo * n + i] = v,
+                    Err(_) => ok = false,
+                }
+            }
         }
+    }
+    if !ok {
+        return Err(StepsError::ShapeMismatch);
     }
     let zt = transpose_grid(&z, n, o);
     limb::gemv_q32(w, &zt, n, o, LIMBS).map_err(map_limb)
@@ -493,8 +546,8 @@ fn t_rows(p: &[i64], wshl: &[i64], o: usize, n: usize) -> Result<Vec<i64>, Steps
 /// multiply-adds on the kernel, `O(o·g)` `i128` accumulators.
 fn m_band(band: &mut [i128], kg: &[i64], p: &[i64]) -> Result<(), StepsError> {
     let y = limb::rowdot_q32(kg, p, band.len(), GROUP, LIMBS).map_err(map_limb)?;
-    for (acc, &v) in band.iter_mut().zip(y.iter()) {
-        *acc += i128::from(v);
+    for i in 0..band.len() {
+        band[i] += i128::from(y[i]);
     }
     Ok(())
 }
@@ -683,30 +736,55 @@ pub fn r_step_wshl(
     let mut ms = vec![0i128; g * o * g];
     let mut panel = vec![0i64; o * GROUP];
     let mut gg = 0;
+    let mut ok = true;
     while gg < g {
-        for oo in 0..o {
-            panel[oo * GROUP..(oo + 1) * GROUP]
-                .copy_from_slice(&p[oo * n + gg * GROUP..oo * n + (gg + 1) * GROUP]);
+        if ok {
+            for oo in 0..o {
+                panel[oo * GROUP..(oo + 1) * GROUP]
+                    .copy_from_slice(&p[oo * n + gg * GROUP..oo * n + (gg + 1) * GROUP]);
+            }
+            let block_t = transpose_grid(&hl_s[gg * GROUP * n..(gg + 1) * GROUP * n], n, GROUP);
+            match limb::gemm_q32(&panel, o, &block_t, n, GROUP, LIMBS) {
+                Ok(kg) => match m_band(&mut ms[gg * o * g..(gg + 1) * o * g], &kg, &p) {
+                    Ok(()) => {}
+                    Err(_) => ok = false,
+                },
+                Err(_) => ok = false,
+            }
         }
-        let block_t = transpose_grid(&hl_s[gg * GROUP * n..(gg + 1) * GROUP * n], n, GROUP);
-        let kg = limb::gemm_q32(&panel, o, &block_t, n, GROUP, LIMBS).map_err(map_limb)?;
-        m_band(&mut ms[gg * o * g..(gg + 1) * o * g], &kg, &p)?;
         gg += 1;
+    }
+    if !ok {
+        return Err(StepsError::ShapeMismatch);
     }
     // The per-row solves: the driver is serial (see the complexity note), the factor is pooled.
     let mut out = vec![0i64; o * g];
     let mut m = vec![0i64; g * g];
+    let mut err: Option<StepsError> = None;
     for oo in 0..o {
-        for r0 in 0..g {
-            for c0 in 0..g {
-                m[r0 * g + c0] =
-                    q32::narrow(ms[(r0 * o + oo) * g + c0]).ok_or(StepsError::ShapeMismatch)?;
+        if err.is_none() {
+            for r0 in 0..g {
+                for c0 in 0..g {
+                    match q32::narrow(ms[(r0 * o + oo) * g + c0]) {
+                        Some(v) => m[r0 * g + c0] = v,
+                        None => err = Some(StepsError::ShapeMismatch),
+                    }
+                }
+            }
+            match ridge_word(diag_sum(&m, g) / g as i128) {
+                Ok(ridge) => match add_ridge(&mut m, g, ridge) {
+                    Ok(()) => match chol_solve(&m, &t[oo * g..(oo + 1) * g], g, 1) {
+                        Ok(solved) => out[oo * g..(oo + 1) * g].copy_from_slice(&solved.x),
+                        Err(e) => err = Some(map_solve(e)),
+                    },
+                    Err(e) => err = Some(e),
+                },
+                Err(e) => err = Some(e),
             }
         }
-        let ridge = ridge_word(diag_sum(&m, g) / g as i128)?;
-        add_ridge(&mut m, g, ridge)?;
-        let solved = chol_solve(&m, &t[oo * g..(oo + 1) * g], g, 1).map_err(map_solve)?;
-        out[oo * g..(oo + 1) * g].copy_from_slice(&solved.x);
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     shift_in_place(&mut out, kp + kh)?;
     Ok(out)

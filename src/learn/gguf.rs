@@ -16,6 +16,19 @@
 //! padding length is computed with checked arithmetic and refused with [`GgufError`] on overflow.
 //! No length is truncated and no arithmetic panics on caller input.
 
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::collapsible_match,
+    clippy::manual_range_contains,
+    clippy::single_match,
+    reason = "the writer's integer payloads are range-checked against their declared type's bounds \
+              and then cast, the form the pinned extraction fragment accepts (`try_from` is \
+              modeled only for the wide-to-word casts); the range tests are written out because \
+              `RangeInclusive::contains` is an unmodeled external; the metadata sweeps destructure \
+              one `GVal` arm at a time"
+)]
+
 use crate::format::gguf::{GVal, GgufError, GgufHeader, DEFAULT_ALIGNMENT, GGUF_MAGIC};
 
 /// Bytes of the `general.alignment` key and its length; matched in a dedicated pass so the

@@ -136,8 +136,9 @@ pub mod engine {
     /// re-export block, which this mirror reproduces because the mirrored submodules reach it by
     /// absolute `crate::engine::` paths rather than `super::`).
     pub use super::{
-        argmax_fixed, f16_to_fixed, f32_to_fixed, ffn_fixed, matvec_fixed, row_dot_fixed,
-        rms_norm_fixed, silu_fixed, top_p_fixed, FfnError, NormError, ProjWeights,
+        argmax_fixed, f16_to_fixed, f32_to_fixed, ffn_fixed, fwht_fixed, matvec_fixed,
+        row_dot_fixed, rms_norm_fixed, silu_fixed, top_p_fixed, FfnError, HadamardError,
+        NormError, ProjWeights,
     };
     pub use super::loader::{AffineGeom, AffineVectors, Engine, MixerKind, TensorEntry};
     pub use super::step::{DecodeState, KernelMode, MtpState, SpecStats, StepError, StepResult};
@@ -1477,11 +1478,11 @@ pub mod hashtrinity_port;
 #[path = "grad_solve_port.rs"]
 pub mod grad_solve_port;
 
-/// Mirror of `crate::learn::solve` for this extraction unit: `src/learn/grad/dense.rs` names
-/// `crate::learn::solve::q32::narrow`, which resolves to the `solve_port` copy of `q32`.
-pub mod learn {
-    /// The real `learn::solve` modules, re-exported at their crate paths.
-    pub mod solve {
-        pub use crate::solve_port::q32;
-    }
-}
+// The fold statistics and the closed-form weight-fit steps (`src/learn/fold/{stats,fit}/`),
+// reached through `fold_port.rs`.
+#[path = "fold_port.rs"]
+pub mod fold_port;
+
+/// Mirror of `crate::learn` for this extraction unit, carried in `fold_port.rs` so this file
+/// stays under the tree's line limit.
+pub use fold_port::learn;
