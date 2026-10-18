@@ -14,15 +14,26 @@
 //! - `d_step`: `H_rot = had_gram(Hl ⊙ c cᵀ)`, `G_rot = fwht128((Ws·Hl) ⊙ c)`,
 //!   `A[i,j] = H_rot[i,j]·(Bᵀ diag(g) B)[i,j]` with `B = S_rot⊙r_rep`.
 //! # The `Q32.32` carrier and the pool
-//! Every operand, intermediate and result is a `Q32.32` `i64` word (`v/2³²` is the real): a product
-//! of two words is exact in `i128`, rounded once by
+//! Every operand, intermediate and result is a `Q32.32` `i64` word (`v/2³²` is the real). Every
+//! **contraction** — each matrix product, Gram, batched dot and row energy — runs on the engine
+//! kernel through [`limb`] at [`LIMBS`] = 3 block-float limbs per operand (`gemm_q32`, `gemv_q32`,
+//! `rowdot_q32`); the elementwise word products (`mul_word`, `hadamard_into`, the row and column
+//! scales) stay exact `Q32.32` and round once via
 //! [`crate::learn::solve::q32::round_q32_even`]. There is no floating-point operation on the
 //! computing path: the module's boundary is words in and words out. Pool dispatch is reserved for
-//! matrix-sized work:
-//! [`wsyrk`], [`hadamard_into`], [`chol_solve`] and [`gemm_nn`] pool in their own drivers (a nested
-//! dispatch would deadlock), and the `n × n` transpose ([`transpose_grid`]) runs on the pool; the
-//! 128-block transform is the engine's [`crate::engine::fwht_fixed`]; every per-row, per-column and
-//! per-entry loop is serial.
+//! matrix-sized work: [`limb::gemm_q32`], [`hadamard_into`], [`chol_solve`] and
+//! [`crate::engine::fwht_fixed`] inside [`fwht_words`] pool in their own drivers (a nested
+//! dispatch would deadlock), and the transposes ([`transpose_grid`]) run on the pool; every
+//! per-row, per-column and per-entry loop is serial.
+//!
+//! # Accuracy, stated
+//! The limb expansion is a 21-bit balanced-digit mantissa per 32-word block under one power-of-two
+//! block scale, so a contraction entry carries a relative truncation of about `2⁻¹⁶` of the
+//! block's `2^{Ea+Eb}` word instead of the exact body's `2⁻³²` grid quantum. Measured against the
+//! pre-port exact body on this module's fixtures (`tests/learn_fold_steps.rs`, R5): `1.65e-5` on
+//! `c_step`'s solution, `2.61e-5` on `d_step`'s, `9.48e-7` on `r_step`'s, `2.07e-6` on the
+//! recovered `r`, `1.60e-5` on the recovered `c`. The bound itself is `tested`, not `proved`
+//! (`src/engine/kern/limb.rs`).
 //!
 //! # Partiality and trust boundary
 //! A shape disagreement, `n` not a multiple of 128 and a checked overflow are refused with
@@ -46,33 +57,34 @@
 
 use crate::engine::chart::pool::chunks_mut_global;
 use crate::engine::chart::task::ChunkTask;
+use crate::engine::kern::limb::{self, LimbError};
 use crate::engine::{fwht_fixed, HadamardError};
 use crate::learn::solve::chol::{chol_solve, SolveError};
-use crate::learn::solve::gemm::{gemm_nn, GemmError};
 use crate::learn::solve::q32::{self, ilog2_pos, rshift_rne};
-use crate::learn::solve::syrk::{hadamard_into, wsyrk, SyrkError};
+use crate::learn::solve::syrk::{hadamard_into, SyrkError};
 
 /// Hadamard block width: one normalised `H₁₂₈/√128` block per 128 columns.
 pub const GROUP: usize = 128;
 
-/// Exponent a shifted panel is filled to: `max|v| ∈ (2³⁴, 2³⁵]` raw, one bit below `wsyrk`'s
-/// bound `2³⁶`, whether that is a down-shift or an up-shift.
+/// Exponent a shifted panel is filled to: `max|v| ∈ (2³⁴, 2³⁵]` raw, one bit below the historical
+/// `2³⁶` operand bound, whether that is a down-shift or an up-shift.
 const BOUND_BITS: u32 = 35;
 /// `1.0` as a raw word: the unit row weight.
 const UNIT_RAW: i64 = 1_i64 << 32;
 /// `round(1e-12·2⁶²)`: the ridge coefficient in fixed point one scale coarser than `Q32.32`.
 const EPS_Q: i64 = 4_611_686;
+/// Block-float limbs per operand for every product routed through [`limb`] (the fp32 mantissa).
+const LIMBS: u32 = 3;
+
+fn map_limb(_: LimbError) -> StepsError {
+    StepsError::ShapeMismatch
+}
 
 // Grid scalar ops, `O(1)` each.
 
 /// `a·b` for two words: the exact `i128` product rounded once to `Q32.32`.
 fn mul_word(a: i64, b: i64) -> Result<i64, StepsError> {
     q32::round_q32_even(i128::from(a) * i128::from(b)).map_err(|_| StepsError::ShapeMismatch)
-}
-
-/// A `Q64.64` accumulator rounded once to a `Q32.32` word.
-fn round_q64(v: i128) -> Result<i64, StepsError> {
-    q32::round_q32_even(v).map_err(|_| StepsError::ShapeMismatch)
 }
 
 /// `v·2⁻ᵏ`: a round-to-nearest shift for `k > 0`, an exact checked left shift for `k < 0`.
@@ -149,16 +161,6 @@ fn map_syrk(e: SyrkError) -> StepsError {
     }
 }
 
-/// [`GemmError`] as a [`StepsError`]: every arm is the domain refusal.
-fn map_gemm(e: GemmError) -> StepsError {
-    match e {
-        GemmError::ZeroDim
-        | GemmError::ShapeMismatch
-        | GemmError::InputBound
-        | GemmError::Overflow => StepsError::ShapeMismatch,
-    }
-}
-
 /// [`SolveError`] as a [`StepsError`]: a pivot or equilibration refusal is non-SPD, the rest shape.
 fn map_solve(e: SolveError) -> StepsError {
     match e {
@@ -172,11 +174,12 @@ fn map_solve(e: SolveError) -> StepsError {
 }
 
 /// The row weight on the grid: `None` is the unit weight `1` in raw words, `Some` is brought by
-/// the exact `2⁻ᵏ` shift into the `wsyrk` bound. The shift cancels between `A` and `b`.
-/// The shift is down-only: a weight at or below the unit weight keeps its raw words, so the
-/// all-ones weight is `UNIT_RAW` in both arms and `Some(&[1; o])` is the unweighted step bit for
-/// bit. A tiny weight therefore multiplies an already-resolved Gram, where the panel fill is what
-/// keeps the square; up-shifting it would only change the relative size of the ridge floor.
+/// the exact `2⁻ᵏ` shift to the same `2³⁵` magnitude the panels are filled to. The shift cancels
+/// between `A` and `b`, so the solution is unchanged. The shift is down-only: a weight at or below
+/// the unit weight keeps its raw words, so the all-ones weight is `UNIT_RAW` in both arms and
+/// `Some(&[1; o])` is the unweighted step bit for bit. A tiny weight therefore multiplies an
+/// already-resolved Gram, where the panel fill is what keeps the square; up-shifting it would only
+/// change the relative size of the ridge floor.
 ///
 /// # Complexity
 /// `O(o)` shifts, `O(o)` words.
@@ -228,21 +231,6 @@ fn shift_copy(x: &[i64], k: i32) -> Result<Vec<i64>, StepsError> {
     let mut y = x.to_vec();
     shift_in_place(&mut y, k)?;
     Ok(y)
-}
-
-/// `Σ a[i]·b[i]` in `Q64.64`, exact except for the checked-overflow refusal.
-///
-/// # Complexity
-/// `O(len)` checked multiplies and adds, `O(1)` extra space.
-fn dot_grid(a: &[i64], b: &[i64]) -> Result<i128, StepsError> {
-    let mut acc = 0i128;
-    for i in 0..a.len() {
-        let p = i128::from(a[i])
-            .checked_mul(i128::from(b[i]))
-            .ok_or(StepsError::ShapeMismatch)?;
-        acc = acc.checked_add(p).ok_or(StepsError::ShapeMismatch)?;
-    }
-    Ok(acc)
 }
 
 /// # Complexity
@@ -332,9 +320,12 @@ impl<T: Copy + Send + Sync> ChunkTask<T> for TransposeTask<'_, T> {
 }
 
 /// # Complexity
-/// Transpose of a row-major `rows × cols` matrix, one output row per pool task: `rows·cols` copies
-/// per call, pooled; an `n × n` transpose at production `n = 4864` is `2.4·10^7` copies, two calls
-/// per [`had_gram`]. Spatial: `rows·cols` words.
+/// Transpose of a row-major `cols × rows` matrix into `rows × cols`, one output row per pool task:
+/// `rows·cols` copies per call, pooled; an `n × n` transpose at production `n = 4864` is `2.4·10^7`
+/// copies, two calls per [`had_gram`]. Spatial: `rows·cols` words.
+///
+/// The two arguments name the *output* shape (`t[r·cols + c] = m[c·rows + r]`); a square call is
+/// its own inverse, a rectangular one needs the source's shape swapped.
 fn transpose_grid(m: &[i64], rows: usize, cols: usize) -> Vec<i64> {
     let mut t = vec![0i64; rows * cols];
     if rows > 0 && cols > 0 {
@@ -445,59 +436,65 @@ fn metric_scale(hl: &[i64], c: &[i64], n: usize) -> Result<Vec<i64>, StepsError>
     Ok(out)
 }
 
+/// `A = Shᵀ diag(w) Sh` on the limb kernel: `Sh` is transposed once into an `n × o` panel whose
+/// rows are the output's Gram rows, the weight scales that transpose by columns (the elementwise
+/// word product, D5), and one [`limb::gemm_q32`] carries the `o`-term contraction.
+///
+/// The exact Gram is symmetric; the kernel's two operand planes take their block exponent per row,
+/// so the two halves of the product can differ by a rounding when the weight is not the unit. The
+/// upper triangle is therefore the result and the lower is its mirror, `O(n²)` copies.
+///
+/// # Errors
+/// [`StepsError::ShapeMismatch`] from the length check or a kernel refusal (`Range`, `Shape`).
+///
 /// # Complexity
-/// `b[i] = Σ_o x[o,i]·y[o,i]·w[o]`, each `x·y` rounded once: `O(o·n)` multiplies, `O(n)` words.
+/// Temporal `O(o·n)` transposes and column scales plus `O(o·n²)` word multiply-adds on the kernel
+/// (pooled inside [`limb::gemm_q32`]); spatial `O(o·n)` for the two panels and `O(n²)` output.
+fn weighted_gram(sh: &[i64], w: &[i64], o: usize, n: usize) -> Result<Vec<i64>, StepsError> {
+    let sh_t = transpose_grid(sh, n, o);
+    let w_t = col_scale(&sh_t, w, o)?;
+    let mut a = limb::gemm_q32(&w_t, n, &sh_t, n, o, LIMBS).map_err(map_limb)?;
+    let mut i = 0usize;
+    while i < n {
+        let mut j = i + 1;
+        while j < n {
+            a[j * n + i] = a[i * n + j];
+            j += 1;
+        }
+        i += 1;
+    }
+    Ok(a)
+}
+
+/// # Complexity
+/// `b[i] = Σ_o x[o,i]·y[o,i]·w[o]`, each `x·y` rounded once: `O(o·n)` multiplies, `O(n)` words;
+/// the `o`-term sum is one [`limb::gemv_q32`] over the transposed product.
 fn rhs_grid(x: &[i64], y: &[i64], w: &[i64], o: usize, n: usize) -> Result<Vec<i64>, StepsError> {
-    let mut out = vec![0i64; n];
-    for i in 0..n {
-        let mut acc = 0i128;
-        for oo in 0..o {
-            let p = mul_word(x[oo * n + i], y[oo * n + i])?;
-            acc = i128::from(p)
-                .checked_mul(i128::from(w[oo]))
-                .and_then(|v| acc.checked_add(v))
-                .ok_or(StepsError::ShapeMismatch)?;
-        }
-        out[i] = round_q64(acc)?;
-    }
-    Ok(out)
-}
-
-/// # Complexity
-/// `t[o,g] = Σ_k p[o,g·128+k]·wshl[o,g·128+k]`: `O(o·n)` checked multiplies, `O(o·G)` words.
-fn t_rows(p: &[i64], wshl: &[i64], o: usize, n: usize, g: usize) -> Result<Vec<i64>, StepsError> {
-    let mut t = vec![0i64; o * g];
+    // z[o,i] = round(x·y): the elementwise word product, transposed so each column `i` is a row.
+    let mut z = vec![0i64; o * n];
     for oo in 0..o {
-        for gg in 0..g {
-            let mut acc = 0i128;
-            for k in 0..GROUP {
-                let idx = oo * n + gg * GROUP + k;
-                acc = i128::from(p[idx])
-                    .checked_mul(i128::from(wshl[idx]))
-                    .and_then(|v| acc.checked_add(v))
-                    .ok_or(StepsError::ShapeMismatch)?;
-            }
-            t[oo * g + gg] = round_q64(acc)?;
+        for i in 0..n {
+            z[oo * n + i] = mul_word(x[oo * n + i], y[oo * n + i])?;
         }
     }
-    Ok(t)
+    let zt = transpose_grid(&z, n, o);
+    limb::gemv_q32(w, &zt, n, o, LIMBS).map_err(map_limb)
 }
 
 /// # Complexity
-/// Accumulate one group's `kg·p` into the `[gg][o][gg2]` bands: `O(o·n)` checked multiply-adds.
-fn m_band(band: &mut [i128], kg: &[i64], p: &[i64], n: usize, g: usize) -> Result<(), StepsError> {
-    for oo in 0..band.len() / g {
-        for gg2 in 0..g {
-            let mut acc = band[oo * g + gg2];
-            for k in 0..GROUP {
-                let idx = oo * n + gg2 * GROUP + k;
-                acc = i128::from(kg[idx])
-                    .checked_mul(i128::from(p[idx]))
-                    .and_then(|v| acc.checked_add(v))
-                    .ok_or(StepsError::ShapeMismatch)?;
-            }
-            band[oo * g + gg2] = acc;
-        }
+/// One [`limb::rowdot_q32`] over `o·g` row pairs of [`GROUP`] words: `O(o·n)` word
+/// multiply-adds on the kernel, `O(o·n)` limb bytes.
+fn t_rows(p: &[i64], wshl: &[i64], o: usize, n: usize) -> Result<Vec<i64>, StepsError> {
+    limb::rowdot_q32(p, wshl, o * n / GROUP, GROUP, LIMBS).map_err(map_limb)
+}
+
+/// # Complexity
+/// One [`limb::rowdot_q32`] per group band over `o·g` row pairs of [`GROUP`] words: `O(o·n)` word
+/// multiply-adds on the kernel, `O(o·g)` `i128` accumulators.
+fn m_band(band: &mut [i128], kg: &[i64], p: &[i64]) -> Result<(), StepsError> {
+    let y = limb::rowdot_q32(kg, p, band.len(), GROUP, LIMBS).map_err(map_limb)?;
+    for (acc, &v) in band.iter_mut().zip(y.iter()) {
+        *acc += i128::from(v);
     }
     Ok(())
 }
@@ -551,10 +548,11 @@ pub fn c_step(
 /// [`StepsError::NotPositiveDefinite`] if the reduced `A` is not SPD.
 ///
 /// # Complexity
-/// Temporal: one `wsyrk` at `O(O·n²/2)` checked multiply-accumulates, one `hadamard_into` at `O(n²)`,
-/// one `rhs_grid` at `O(O·n)`, one `chol_solve` at `O(n³/3 + n²)`, `O(O·n²)` for the `Sh` scan. The
-/// four primitives pool inside their own drivers; the drivers here stay serial (a nested dispatch
-/// would deadlock). Spatial: `O(n²)` for `A` and `O(O·n)` for `Sh`/`b`.
+/// Temporal: one [`weighted_gram`] at `O(o·n²)` word multiply-adds on the kernel, one
+/// `hadamard_into` at `O(n²)`, one `rhs_grid` at `O(O·n)`, one `chol_solve` at `O(n³/3 + n²)`,
+/// `O(O·n²)` for the `Sh` scan and the transposes. The pooled primitives dispatch inside their own
+/// drivers; the drivers here stay serial (a nested dispatch would deadlock). Spatial: `O(n²)` for
+/// `A` and `O(O·n)` for `Sh`/`b` and the two transposed panels.
 pub fn c_step_wshl(
     ws: &[i64],
     hl: &[i64],
@@ -580,15 +578,15 @@ pub fn c_step_wshl(
     if g_row.is_some_and(|gr| gr.len() != o) {
         return Err(StepsError::ShapeMismatch);
     }
-    // Sh = S⊙r_rep on the grid, then the exact `2⁻ᵏ` panel shift into the `wsyrk` bound.
+    // Sh = S⊙r_rep on the grid, then the exact `2⁻ᵏ` panel shift into the `2³⁵` fill range.
     let mut sh = group_scale(s, r, o, n, g)?;
     let k = panel_shift_words(max_mag(&sh));
     shift_in_place(&mut sh, k)?;
     let e = fill_columns(&mut sh, o, n)?;
     // The row weight carries its own exact power-of-two shift; `1` is the raw unit.
     let gr_g = row_weight(g_row, o)?;
-    // A = hl ⊙ (Shᵀ diag(g_row) Sh) on the grid, column-filled to D·A·D; nothing here is `f64`.
-    let mut a = wsyrk(&sh, Some(&gr_g), o, n).map_err(map_syrk)?;
+    // A = hl ⊙ (Shᵀ diag(g_row) Sh) on the kernel, column-filled to D·A·D; nothing here is `f64`.
+    let mut a = weighted_gram(&sh, &gr_g, o, n)?;
     // A production Gram (`2^46` words at `o = 4864`) times the production metric (`2^53`) needs a
     // 67-bit product word, five above `i64`; the exact `2^-s` rescale of the whole system below
     // keeps the solution and leaves a fit whose product already fits (`s = 0`) bit for bit.
@@ -645,7 +643,7 @@ pub fn r_step(
 /// [`StepsError::NotPositiveDefinite`] if a reduced `M[o]` is not SPD.
 ///
 /// # Complexity
-/// Temporal: `G` `gemm_nn` calls at `m = O`, `k = 128`, `n = n` (`O(O·n²)` in all, pooled), the
+/// Temporal: `G` `limb::gemm_q32` calls at `m = O`, `k = 128`, `n = n` (`O(O·n²)` in all, pooled), the
 /// `t`/`M` accumulations at `O(O·n)`, and `O(O·G³)` for the per-row solves (`chol_solve` pools the
 /// factor; its driver is serial here). Spatial: `O(O·n)` words for `P` and the panel, `O(O·G²)`
 /// `i128` for the systems and `O(O·G)` output.
@@ -680,8 +678,8 @@ pub fn r_step_wshl(
     shift_in_place(&mut p, kp)?;
     let kh = panel_shift_words(max_mag(hl));
     let hl_s = shift_copy(hl, kh)?;
-    let t = t_rows(&p, wshl, o, n, g)?;
-    // M per out row in `Q64.64`: `ms[gg][o][gg2]`, so a group band is contiguous across rows.
+    let t = t_rows(&p, wshl, o, n)?;
+    // M per out row in `Q32.32`: `ms[gg][o][gg2]`, so a group band is contiguous across rows.
     let mut ms = vec![0i128; g * o * g];
     let mut panel = vec![0i64; o * GROUP];
     let mut gg = 0;
@@ -690,15 +688,9 @@ pub fn r_step_wshl(
             panel[oo * GROUP..(oo + 1) * GROUP]
                 .copy_from_slice(&p[oo * n + gg * GROUP..oo * n + (gg + 1) * GROUP]);
         }
-        let kg = gemm_nn(
-            &panel,
-            &hl_s[gg * GROUP * n..(gg + 1) * GROUP * n],
-            o,
-            GROUP,
-            n,
-        )
-        .map_err(map_gemm)?;
-        m_band(&mut ms[gg * o * g..(gg + 1) * o * g], &kg, &p, n, g)?;
+        let block_t = transpose_grid(&hl_s[gg * GROUP * n..(gg + 1) * GROUP * n], n, GROUP);
+        let kg = limb::gemm_q32(&panel, o, &block_t, n, GROUP, LIMBS).map_err(map_limb)?;
+        m_band(&mut ms[gg * o * g..(gg + 1) * o * g], &kg, &p)?;
         gg += 1;
     }
     // The per-row solves: the driver is serial (see the complexity note), the factor is pooled.
@@ -707,7 +699,8 @@ pub fn r_step_wshl(
     for oo in 0..o {
         for r0 in 0..g {
             for c0 in 0..g {
-                m[r0 * g + c0] = round_q64(ms[(r0 * o + oo) * g + c0])?;
+                m[r0 * g + c0] =
+                    q32::narrow(ms[(r0 * o + oo) * g + c0]).ok_or(StepsError::ShapeMismatch)?;
             }
         }
         let ridge = ridge_word(diag_sum(&m, g) / g as i128)?;
@@ -767,7 +760,8 @@ pub fn d_step(
 ///
 /// # Complexity
 /// Temporal: `O(O·n·log 128)` for `G_rot`'s transform (pooled) and `O(n²·log 128)` for `H_rot`
-/// (pooled), `wsyrk` at `O(O·n²/2)` and `hadamard_into` at `O(n²)` (pooled), `rhs_grid` at
+/// (pooled), one [`weighted_gram`] at `O(o·n²)` on the kernel and `hadamard_into` at `O(n²)`
+/// (pooled), `rhs_grid` at
 /// `O(O·n)`, `chol_solve` at `O(n³/3 + n²)` (pooled); spatial `O(n²)` for `H_rot`/`A`.
 pub fn d_step_wshl(
     ws: &[i64],
@@ -806,7 +800,7 @@ pub fn d_step_wshl(
     shift_in_place(&mut b_scaled, k)?;
     let e = fill_columns(&mut b_scaled, o, n)?;
     let gr_g = row_weight(g_row, o)?;
-    let mut a = wsyrk(&b_scaled, Some(&gr_g), o, n).map_err(map_syrk)?;
+    let mut a = weighted_gram(&b_scaled, &gr_g, o, n)?;
     // The same `2^-s` rescale as [`c_step_wshl`]: `Bᵀ diag(g) B` reaches `2^46` and `H_rot`
     // `2^53` at production, a 67-bit product word.
     let s = product_shift(max_mag(&a), max_mag(&h_rot));
@@ -826,20 +820,22 @@ pub fn d_step_wshl(
 }
 
 /// `C[m,n] = A[m,k]·B[k,n]` for word operands: one exact power-of-two shift per operand into the
-/// [`gemm_nn`] input bound, the grid product, the exact undo.
+/// [`limb::gemm_q32`] input bound, the grid product, the exact undo.
 ///
 /// # Errors
-/// As [`gemm_nn`] for the shape, plus an undo shift or a rounded entry leaving `i64`.
+/// As [`limb::gemm_q32`] for the shape, plus an undo shift or a rounded entry leaving `i64`.
 ///
 /// # Complexity
-/// Temporal: `m·k·n` `i128` multiply-accumulates in [`gemm_nn`] plus `O(m·k + k·n + m·n)` shift
-/// bookkeeping; the product pools inside `gemm_nn`, the shifts serial. Space: `O(m·n)`.
+/// Temporal: `m·k·n` word multiply-adds on the kernel in [`limb::gemm_q32`] plus
+/// `O(m·k + k·n + m·n)` shift and transpose bookkeeping; the product pools inside
+/// [`limb::gemm_q32`], the shifts and the `B` transpose are serial. Space: `O(m·n)`.
 fn metric_grid(a: &[i64], b: &[i64], o: usize, n: usize) -> Result<Vec<i64>, StepsError> {
     let ka = panel_shift_words(max_mag(a));
     let kb = panel_shift_words(max_mag(b));
     let as_ = shift_copy(a, ka)?;
     let bs = shift_copy(b, kb)?;
-    let mut out = gemm_nn(&as_, &bs, o, n, n).map_err(map_gemm)?;
+    let bt = transpose_grid(&bs, n, n);
+    let mut out = limb::gemm_q32(&as_, o, &bt, n, n, LIMBS).map_err(map_limb)?;
     shift_in_place(&mut out, -(ka + kb))?;
     Ok(out)
 }
@@ -853,7 +849,7 @@ fn metric_grid(a: &[i64], b: &[i64], o: usize, n: usize) -> Result<Vec<i64>, Ste
 ///
 /// # Complexity
 /// Temporal: [`metric_grid`] at `m = O`, `k = n`, `n = n` (`O(O·n²)` multiply-adds, pooled inside
-/// `gemm_nn`), then `O(O·n)` for the subtraction and dot; spatial `O(O·n)` words.
+/// `limb::gemm_q32`), then `O(O·n)` for the subtraction and dot; spatial `O(O·n)` words.
 pub fn objective(
     ws: &[i64],
     wp: &[i64],
@@ -872,18 +868,19 @@ pub fn objective(
         return Ok(0);
     }
     let y = metric_grid(&d, hl, o, n)?;
-    // The dot is `Q64.64`; one rounding to the `Q32.32` word.
-    round_q64(dot_grid(&d, &y)?)
+    // One row against the flat `o·n` vector on the kernel: `y[0] = Σ d·y`, one rounding per word.
+    let dot = limb::gemv_q32(&d, &y, 1, o * n, LIMBS).map_err(map_limb)?;
+    Ok(dot[0])
 }
 
-/// `Ws·Hl` through [`gemm_nn`], with [`metric_grid`]'s operand shift and exact undo.
+/// `Ws·Hl` through [`limb::gemm_q32`], with [`metric_grid`]'s operand shift and exact undo.
 ///
 /// # Errors
 /// [`StepsError::ShapeMismatch`] on a length, grid-range or product refusal. Never a panic.
 ///
 /// # Complexity
-/// As [`gemm_nn`] at `m = O`, `k = n`, `n = n` (`O(O·n²)` multiply-accumulates), pooled inside
-/// `gemm_nn`; one call per step. Spatial `O(O·n)` words.
+/// As [`limb::gemm_q32`] at `m = O`, `k = n`, `n = n` (`O(O·n²)` multiply-accumulates), pooled inside
+/// `limb::gemm_q32`; one call per step. Spatial `O(O·n)` words.
 pub fn mul_metric(ws: &[i64], hl: &[i64], o: usize, n: usize) -> Result<Vec<i64>, StepsError> {
     if ws.len() != o * n || hl.len() != n * n {
         return Err(StepsError::ShapeMismatch);
