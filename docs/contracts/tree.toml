@@ -396,6 +396,11 @@ row = "STRUCT-SPLIT"
 
 [[debt]]
 rule = "max_lines"
+path = "src/learn/grad/attn.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
 path = "proof/corpus/AxiomAudit.lean"
 row = "STRUCT-SPLIT"
 
