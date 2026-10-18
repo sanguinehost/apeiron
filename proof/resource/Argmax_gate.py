@@ -2,8 +2,8 @@
 """Extract and check the real fixed-point argmax source in a bounded private build.
 
 O(B) source/tool/log bytes; external compilation is timed, not assigned constant cost.
-The temporary manifest wires the real `src/numeric/fixed_exp.rs`, `src/engine/value.rs` and
-`src/engine/sampler.rs` modules by `#[path]`, plus the two `pub const` lines quoted verbatim out of
+The temporary manifest wires the real `src/numeric/fixed_exp.rs`, `src/engine/num/value.rs` and
+`src/engine/ops/sampler.rs` modules by `#[path]`, plus the two `pub const` lines quoted verbatim out of
 `src/engine/mod.rs`; the only new code is the typed forwarding wrapper that calls the real
 `argmax_fixed` body. No substitute algorithm is extracted.
 """
@@ -69,7 +69,7 @@ pub mod value;
 pub mod sampler;
 
 /// Typed forwarding wrapper: it fixes the logit and index types and calls the real
-/// `src/engine/sampler.rs` `argmax_fixed` body. It restates no formula.
+/// `src/engine/ops/sampler.rs` `argmax_fixed` body. It restates no formula.
 pub fn word_argmax_fixed(logits: &[i64]) -> Result<u32, sampler::SamplerError> {{
     sampler::argmax_fixed(logits)
 }}
@@ -114,7 +114,7 @@ def extract(source, label):
     # not model; any other axiom/sorry stays for the fail-closed scan below (proof/regen.sh does
     # exactly this, with the same repository-owned allowlist).
     run(['python3',str(ROOT/'proof/strip-modeled-axioms.py'),str(generated)],project,label+'-strip')
-    generated.write_text(generated.read_text().replace(str(source), 'src/engine/sampler.rs'))
+    generated.write_text(generated.read_text().replace(str(source), 'src/engine/ops/sampler.rs'))
     if re.search(r'\b(axiom|sorry|admit)\b', generated.read_text()):
         raise RuntimeError('ARGMAX_UNMODELED_SOURCE')
     return generated
@@ -134,7 +134,7 @@ def prepare_lean():
 
 def main():
     args=argparse.ArgumentParser();args.add_argument('--prepare',action='store_true');args.add_argument('--check',action='store_true');args.add_argument('--controls',action='store_true');a=args.parse_args()
-    source=ROOT/'src/engine/sampler.rs'
+    source=ROOT/'src/engine/ops/sampler.rs'
     run(['rustc','--version'],ROOT,'rustc-version')
     run(['cargo','--version'],ROOT,'cargo-version')
     run(['lean','--version'],ROOT,'lean-version')
@@ -172,6 +172,6 @@ if __name__=='__main__':
     try:
         main();status=0
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/engine/mod.rs',ROOT/'src/engine/sampler.rs',ROOT/'src/engine/value.rs',ROOT/'src/numeric/fixed_exp.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/Argmax_gate.py',ROOT/'proof/resource/ArgmaxSource.lean',ROOT/'proof/resource/ArgmaxResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/engine/mod.rs',ROOT/'src/engine/ops/sampler.rs',ROOT/'src/engine/num/value.rs',ROOT/'src/numeric/fixed_exp.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/Argmax_gate.py',ROOT/'proof/resource/ArgmaxSource.lean',ROOT/'proof/resource/ArgmaxResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
         (OUT/(SCRATCH.name+'-receipt.json')).write_text(json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=540,argv=[sys.executable,*sys.argv],lane=LANE,memory_max='12G',swap_max=0,threads=1,scratch=str(SCRATCH),deadline=os.environ.get('ARGMAX_DEADLINE'),records=RECORDS,sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, compiler, IO/process/dependencies; scalar comparison-count/resource claim excludes GPU/hardware timing'),indent=2)+'\n')
         shutil.rmtree(SCRATCH,ignore_errors=True)

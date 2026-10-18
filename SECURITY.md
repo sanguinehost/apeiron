@@ -28,9 +28,9 @@ In scope:
 - **GGUF input.** The GGUF reader (`src/format/`) and `Engine::open` (`src/engine/`) take untrusted
   model files. A crash, hang, unbounded allocation or out-of-bounds access from a crafted file is a
   vulnerability. Both are fuzzed (`fuzz/`).
-- **`unsafe` code** in `src/engine/`, `src/gpu/`, `src/hashtrinity/` and `src/table/`. Undefined
+- **`unsafe` code** in `src/engine/`, `src/gpu/`, `src/map/hashtrinity/` and `src/map/table/`. Undefined
   behaviour reachable from safe public API is a vulnerability.
-- **The hash tables** (`src/table.rs`, `src/hashtrinity/`): a key set that drives a lookup or insert
+- **The hash tables** (`src/map/table.rs`, `src/map/hashtrinity/`): a key set that drives a lookup or insert
   into unbounded probing or allocation is a vulnerability.
 
 Stated limits, reported as known rather than as vulnerabilities:

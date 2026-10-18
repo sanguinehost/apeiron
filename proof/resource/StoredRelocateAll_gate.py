@@ -3,7 +3,7 @@
 
 The shared `proof/extract/lib.rs` unit does not compile on its own, so this gate writes a narrow
 typed forwarding wrapper that pulls the real `src/{scalar,cell,coord,table}.rs` by `#[path]` (and
-with them the real `src/coord/` and `src/table/` children) and calls the real
+with them the real `src/map/coord/` and `src/map/table/` children) and calls the real
 `Table::relocate_all` body through `crate::word_stored_relocate_all`, the same root
 `proof/extract/lib.rs:566-576` declares and `proof/regen.sh:171` names. No substitute algorithm is
 extracted; the proof file is checked against a fresh extraction of that wrapper.
@@ -36,10 +36,10 @@ SCRATCH_ROOT = Path(tempfile.gettempdir()) / 'storedrelocateall-resource'
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=SCRATCH_ROOT))
 
-# The real source closure the wrapper compiles. `src/table.rs` declares `#[path = "table/..."]`
+# The real source closure the wrapper compiles. `src/map/table.rs` declares `#[path = "table/..."]`
 # children and `include!`s `table/{state,locator,prepared}.rs`, and it imports `crate::cell::Sigma`
 # and `crate::coord::{address,locator}`, so the wrapper also wires the real `src/{scalar,cell,coord}.rs`
-# and the real `src/coord/` children. `src/table/tests.rs` is `#[cfg(test)]` and is compiled by the
+# and the real `src/map/coord/` children. `src/map/table/tests.rs` is `#[cfg(test)]` and is compiled by the
 # `cargo test` step only. The mutant control copies this closure into a scratch directory and mutates
 # the copied `table.rs`, never the working tree.
 CLOSURE = ['scalar.rs', 'cell.rs', 'coord.rs', 'table.rs', 'coord', 'table']
@@ -84,7 +84,7 @@ pub mod coord;
 pub mod table;
 
 /// Crate-root alias of the face token the real `src/lib.rs` re-exports as `pub use cell::Sigma`;
-/// the real `#[cfg(test)]` modules in `src/table/{{partition,probe}}.rs` import `crate::Sigma`.
+/// the real `#[cfg(test)]` modules in `src/map/table/{{partition,probe}}.rs` import `crate::Sigma`.
 pub use cell::Sigma;
 
 /// The carried-key word instance the real `src/lib.rs` declares.
@@ -181,7 +181,7 @@ def main():
     if 'STORED_RELOCATE_ALL_KERNEL_OK' not in text:raise RuntimeError('STORED_RELOCATE_ALL_AUDIT_MISSING')
     if a.controls:
         # Real-source mutation: the traversal's cursor advance, `entry_at += 1;` at
-        # src/table.rs:1025, becomes `entry_at += 2;`. Every relocation step then advances by two,
+        # src/map/table.rs:1025, becomes `entry_at += 2;`. Every relocation step then advances by two,
         # which the closed-form work count (`relocate_all_total_work`, `root_total_work`) and the
         # reachable success witness read off the extracted body must see. A count that does not see
         # it has no weight. The copy is in scratch; the working tree is never edited.
@@ -210,6 +210,6 @@ if __name__=='__main__':
     try:
         main();status=0
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/table.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/coord.rs',ROOT/'proof/native/LoopTrace.lean',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/StoredRelocateAll_gate.py',ROOT/'proof/resource/StoredRelocateAllSource.lean',ROOT/'proof/resource/StoredRelocateAllResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/map/table.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/map/coord.rs',ROOT/'proof/native/LoopTrace.lean',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/StoredRelocateAll_gate.py',ROOT/'proof/resource/StoredRelocateAllSource.lean',ROOT/'proof/resource/StoredRelocateAllResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
         (OUT/(SCRATCH.name+'-receipt.json')).write_text(json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=540,argv=[sys.executable,*sys.argv],lane=LANE,memory_max='12G',swap_max=0,threads=1,scratch=str(SCRATCH),deadline=os.environ.get('STORED_RELOCATE_ALL_DEADLINE'),records=RECORDS,sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, compiler, IO/process/dependencies; the work measure counts planned entries moved and machine-word payload copies in the extracted body under the pinned Aeneas model, not cycles, allocation bytes or GPU time; the reservation adapter, the checked-plan premise and the commit step are outside this root'),indent=2)+'\n')
         shutil.rmtree(SCRATCH,ignore_errors=True)

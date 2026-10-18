@@ -2,8 +2,8 @@
 """Extract and check the real per-entry relocation core in a bounded private build.
 
 The forwarding wrapper is narrow: it declares only `scalar`, `cell`, `coord` and `table` by
-`#[path]`, so the extracted closure is the real `src/table.rs` `Table::relocate_entry` with its
-`src/table/*` children. The shared `proof/extract` unit is not used, because it does not
+`#[path]`, so the extracted closure is the real `src/map/table.rs` `Table::relocate_entry` with its
+`src/map/table/*` children. The shared `proof/extract` unit is not used, because it does not
 currently compile. The `#[path]` roots are the production sources; no substitute algorithm.
 
 O(B) source/tool/log bytes; external compilation is timed, not assigned constant cost.
@@ -225,9 +225,9 @@ if __name__ == '__main__':
         source_paths = [TOOLS / 'target/aeneas/charon-driver', TOOLS / 'target/aeneas/charon',
                         TOOLS / 'target/aeneas/aeneas', TOOLS / 'target/aeneas-model/lean/lean-toolchain',
                         TOOLS / 'proof/dispatch/lean-toolchain', TOOLS / 'proof/dispatch/lake-manifest.json',
-                        TOOLS / 'proof/strip-modeled-axioms.py', ROOT / 'src/table.rs',
-                        ROOT / 'src/table/state.rs', ROOT / 'src/table/locator.rs',
-                        ROOT / 'src/table/probe.rs', ROOT / 'proof/resource/RelocateEntry_gate.py',
+                        TOOLS / 'proof/strip-modeled-axioms.py', ROOT / 'src/map/table.rs',
+                        ROOT / 'src/map/table/state.rs', ROOT / 'src/map/table/locator.rs',
+                        ROOT / 'src/map/table/probe.rs', ROOT / 'proof/resource/RelocateEntry_gate.py',
                         ROOT / 'proof/resource/RelocateEntrySource.lean',
                         ROOT / 'proof/resource/RelocateEntryResource.lean']
         (LOGS / (SCRATCH.name + '-receipt.json')).write_text(json.dumps(dict(

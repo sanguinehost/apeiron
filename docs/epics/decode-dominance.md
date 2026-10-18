@@ -224,7 +224,7 @@ reduction. Turns are one: a frequency stored as a `u64` fraction of a turn makes
 | task | files (owner) | gate | control | grade |
 |---|---|---|---|---|
 | L9-T1 | `proof/corpus/Numeric/Rope/Turns.lean` (new) | `lake build Numeric.Rope.Turns` | break the lift (`< 2^63` → `≤ 2^63`), or mutate a witness | proved (spec) |
-| L9-T2 | `src/numeric/fixed_trig.rs`, `src/engine/rope.rs`, `src/engine/tests.rs` | `cargo test`; extraction in a copy exits 0 | drop the `mod 2^64` mask, or the rounding bias | tested |
+| L9-T2 | `src/numeric/fixed_trig.rs`, `src/engine/ops/rope.rs`, `src/engine/tests.rs` | `cargo test`; extraction in a copy exits 0 | drop the `mod 2^64` mask, or the rounding bias | tested |
 | L9-T3 | `proof/ApeironWord.lean` (regen), the RoPE refinement modules | `proof/regen.sh --check`, `lake build` of the RoPE modules | per module | proved (Rust link) |
 
 The wave barrier is the whole set, plus re-baselined ids for both models and a decode past position 4096.

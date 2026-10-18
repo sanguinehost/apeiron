@@ -1,7 +1,7 @@
 # RFC 0001: Core Architecture, Evidence Standards, and Fold Sunset
 
 **Status:** Published for review 2026-09-11 as GitHub [`Ptyktos/fold#15`](https://github.com/Ptyktos/fold/issues/15) (short form), with this document as the full draft. Canonical GitLab publication on `twn/RnD/fold` (project 211) awaits explicit Lucas approval and has not occurred.  
-**Scope of the verified claim:** the proven Apeiron slice is `Cell<i64>::mul` and `norm_form` refined against `Apeiron.Trichotomy.AnyRing`. The container (`src/map.rs`, `src/table.rs`; unsafe SIMD) is **not** in the Aeneas fragment. This RFC proposes a verified **primitive**, not a verified substrate.  
+**Scope of the verified claim:** the proven Apeiron slice is `Cell<i64>::mul` and `norm_form` refined against `Apeiron.Trichotomy.AnyRing`. The container (`src/map.rs`, `src/map/table.rs`; unsafe SIMD) is **not** in the Aeneas fragment. This RFC proposes a verified **primitive**, not a verified substrate.  
 **Target:** `twn/RnD/fold` issue; GitHub mirror `Ptyktos/fold#15`.  
 **Sponsor:** Lucas Rose-Winters. **Reviewer:** Clay Townsend (`@ctown`).
 

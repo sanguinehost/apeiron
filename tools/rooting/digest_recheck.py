@@ -483,7 +483,7 @@ ALL = [
 #   rows[]     the census holds one row per *operation*, and several operations
 #              are implemented in the same file — `current-api-new`,
 #              `current-api-get`, `current-api-insert_with`, `reg1-remove` and
-#              eight more all cite `src/table.rs`. A repeated `source_path`
+#              eight more all cite `src/map/table.rs`. A repeated `source_path`
 #              there is the census's shape, not a defect, so refusing it would
 #              refuse the registry as it is legitimately written.
 #
@@ -894,7 +894,7 @@ def _materialize_outside_surface(base: Path) -> None:
 
     ``docs/evidence/ledger.jsonl`` indexes the evidence surface, and an artefact
     registry in ``docs/contracts/`` indexes the tree it names. A row that names
-    ``src/table.rs`` — outside both surfaces — is still digest-checked against
+    ``src/map/table.rs`` — outside both surfaces — is still digest-checked against
     the bytes on disk and is *accepted* when it matches; it is counted as
     ``outside``, never skipped and never refused for its location. Refusing a
     correct row for being out of surface would make the gate a coverage claim it
@@ -910,7 +910,7 @@ def _materialize_outside_surface(base: Path) -> None:
             {
                 "id": "outside",
                 "kind": "figure",
-                "path": "src/table.rs",
+                "path": "src/map/table.rs",
                 "bytes": len(blob),
                 "sha256": digest,
                 "summary": "a row naming a path outside the evidence surface",
@@ -922,9 +922,9 @@ def _materialize_outside_surface(base: Path) -> None:
     (base / "docs" / "contracts").mkdir(parents=True, exist_ok=True)
     (base / "docs" / "contracts" / "artifacts.toml").write_text(
         "[[artifact]]\n"
-        f'id       = "src/table.rs"\n'
+        f'id       = "src/map/table.rs"\n'
         'kind     = "rust"\n'
-        'path     = "src/table.rs"\n'
+        'path     = "src/map/table.rs"\n'
         f'sha256   = "{digest}"\n'
         'gate     = "true"\n'
         'control  = ""\n'
@@ -1012,16 +1012,16 @@ def _accept_fixtures() -> list[str]:
             "schema": "apeiron.reg1.coverage.v2",
             "sources": [
                 {
-                    "path": "src/table.rs",
+                    "path": "src/map/table.rs",
                     "sha256": digest,
                     "pin_sha256": "",
                     "pin_status": "unpinned",
                 }
             ],
             "rows": [
-                {"id": "current-api-new", "source_path": "src/table.rs", "source_sha256": digest},
-                {"id": "current-api-get", "source_path": "src/table.rs", "source_sha256": digest},
-                {"id": "reg1-remove", "source_path": "src/table.rs", "source_sha256": digest},
+                {"id": "current-api-new", "source_path": "src/map/table.rs", "source_sha256": digest},
+                {"id": "current-api-get", "source_path": "src/map/table.rs", "source_sha256": digest},
+                {"id": "reg1-remove", "source_path": "src/map/table.rs", "source_sha256": digest},
             ],
         }
         (base / "coverage.json").write_text(json.dumps(coverage, indent=2, sort_keys=True))

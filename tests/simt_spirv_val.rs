@@ -4,9 +4,9 @@
 //! runner is a skip, never a silent pass). Gate 2 — running on the metal — is `examples/simt_check.rs` (removed; at 2f15d6a9)
 //! and `examples/simt_gemv.rs` (removed; at 2f15d6a9).
 //!
-//! Faithful port of fold `modelfold/tests/simt.rs`, adapted to `apeiron::simt`.
+//! Faithful port of fold `modelfold/tests/simt.rs`, adapted to `apeiron::gpu::simt`.
 
-use apeiron::simt::{gemv_bytes, gemv_dp4a_bytes, rmsnorm_bytes, spv_bytes, Carrier, Op};
+use apeiron::gpu::simt::{gemv_bytes, gemv_dp4a_bytes, rmsnorm_bytes, spv_bytes, Carrier, Op};
 use std::io::Write;
 use std::process::Command;
 

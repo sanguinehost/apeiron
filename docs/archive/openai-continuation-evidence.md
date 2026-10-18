@@ -64,7 +64,7 @@ to `/home/socol/Workspace/penglai/target/aeneas`; no installed-tool mutation is 
   creates a cycle through `Refinement`; composition needs an acyclic task boundary.
 - Size gate: `src/proofs.rs` 1508 lines (reported twice by the checker),
   `examples/reg1/acceptance.rs` 1799, `Slang/Generated/Table.lean` 14414,
-  `src/table.rs` 1678, `tools/slang/export.py` 2299, `tools/slang/spec_check.py` 1562;
+  `src/map/table.rs` 1678, `tools/slang/export.py` 2299, `tools/slang/spec_check.py` 1562;
   `Slang/Source` has 14 immediate source files and `tests` has 15. No cap is waived.
 
 Whole-state insertion composition, allocator simulation, performance acceptance and the full
@@ -82,7 +82,7 @@ The lead assigns that one proof-body repair to the same extraction owner before 
 
 ## Accepted insertion-locator fixture
 
-Changed `src/table/probe.rs` only inside `cfg(kani)` and appended
+Changed `src/map/table/probe.rs` only inside `cfg(kani)` and appended
 [`../evidence/kani-table-harness-audit.md`](../evidence/kani-table-harness-audit.md). The focused command
 `cargo kani -Z unstable-options --harness spill_locate_classifies_a_fixed_initialized_region
 --harness-timeout 120s` exits 0: 803 checks, 23 unreachable, 7.423595 seconds.

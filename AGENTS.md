@@ -39,6 +39,33 @@ gates. None of those apply here. Do not import its commands, its `R1`–`R5` reg
 ontology, or its `law`/`spec` block semantics. Adopt only the lifecycle, the wave/task discipline and
 the writing rules below.
 
+## 0a · Layout
+
+One tree per concern. A new file goes into the tree that owns its concern; a second tree for the
+same concern MUST NOT be created. No directory holds more than 12 source files and no source file
+exceeds 1500 lines; an exception is a `[[debt]]` row naming its plan row.
+
+| path | holds |
+|---|---|
+| `src/lib.rs`, `src/{cell,carrier,exchange,scalar,attn_cut,kepler}.rs` | the crate root: `Cell<R>` over `R[x]/(x²−σ)`, the carrier, the exchange impulse, the scalar dial |
+| `src/map/` | every `K -> V` map and its key addressing: `table/` (the growable flat/spill `Table`), `hashtrinity/` (the subsumed incumbent, private; `freq.rs` is its public face), `count.rs`, `coord/` (`Coord` addressing per face), `fold.rs`, `pepper.rs`, `keystore.rs`, `merge.rs` |
+| `src/crypto/` | AES-128, ChaCha20-Poly1305, SHA-3/SHAKE (`keccak.rs`), SHA-256; unaudited. The hashtrinity crypto (`src/map/hashtrinity/crypto.rs`) stays with its incumbent |
+| `src/engine/` | the CPU model engine: `loader`, `step`, `attn`, `mixer`, `chart/` (the quantised chart path and the pool), `kern/` (the integer kernel, §0), `ops/` (per-token operators: norm, RoPE, FFN, MoE, matvec, LM head, sampler), `num/` (Q32.32 value path, binary32, dequantizers) |
+| `src/gpu/` | the one GPU tree: `runtime.rs`, `vulkan.rs`, `decode.rs` (feature `gpu`), `simt/` (SPIR-V kernel builders), `nn/` (network kernels; `nn/attn/` attention), `spirv/` (the fragment checker and shaders) |
+| `src/learn/` | training, quantisation and model conversion; reaches the kernel only through `src/engine/kern/limb.rs` (§0 K2) |
+| `src/format/` | file formats: GGUF, BPE, packing, quant blocks |
+| `src/numeric/` | fixed-point `exp`, `ln`, `rsqrt`, trig and the register |
+| `src/policy/` | decision policy primitives |
+| `proof/extract/` | the Charon/Aeneas translation unit: real sources by `#[path]` as flat root modules, with `pub use` mirrors of the real parents (`map`, `engine::{num,ops}`) so Lean names do not move with files |
+| `proof/corpus/` | Rust representation theorems and the bridge; `proof/canonical/` the canonical corpus |
+| `tests/`, `examples/` | integration tests and profiles |
+| `tools/` | gates (`tools/gate`, `tools/rooting/`) and frozen inventory |
+| `docs/` | `direction.md`, `plan.md`, `epics/`, `evidence/`, `contracts/` |
+
+**Enforcer:** `docs/contracts/tree.toml` declares every directory and its role; `tools/gate
+structure` reddens on a file in a directory no entry admits, a directory over `max_dir_files`, a
+file over `max_lines`, and a debt whose violation no longer holds.
+
 ## 1 · Reading order
 
 Read the file, not a summary of it, not an agent's report on it, not memory. A citation names a path
@@ -73,6 +100,7 @@ Prose that names no enforcer is not acceptance (§4, obligation 11).
 | rule | enforcing artefact | command |
 |---|---|---|
 | §1 a citation names a path that resolves; §5 a grade maps to a named artefact | [`tools/check-claims.py`](tools/check-claims.py) | `python3 tools/check-claims.py` (`--self-test`: 11/11 controls) |
+| §0a the layout: every directory declared with its role, ≤12 source files per directory, ≤1500 lines per file, debts named | [`docs/contracts/tree.toml`](docs/contracts/tree.toml), [`tools/gate`](tools/gate) | `cargo run -q --manifest-path tools/gate/Cargo.toml -- structure --check` |
 | §1 the reading order — every stage document resolves and is referenced in this file; a dispatch pins their sha256 | [`tools/rooting/read_gate.py`](tools/rooting/read_gate.py) | `python3 tools/rooting/read_gate.py --check` (`--self-test`: 3 rejection fixtures; `--controls`) |
 | §2 epic intent/spec/plan; §3 task ≤3 files with one gate and one control; §8 the per-function cost comment; a retired route not presented as active | [`tools/rooting/check.py`](tools/rooting/check.py) | `python3 tools/rooting/check.py --check` (`--self-test`: 30 reject / 23 accept) |
 | §4 obligations 1, 3, 5 — real-source extraction and the closed axiom cone | [`proof/regen.sh`](proof/regen.sh), [`proof/corpus/AxiomAudit.lean`](proof/corpus/AxiomAudit.lean) | `proof/regen.sh --check`; `cd proof/corpus && lake build` |
@@ -233,9 +261,9 @@ Order dispatch by contribution to the goal and by difficulty, never by dispatcha
   optimization but a tax — name the base and its measured ratio first. **Enforcer: the
   dispatch-admission `subsume` field (MISSING until built; until then this rule is review-enforced
   only and is recorded as such, not as acceptance).** Worked example: the empirically best counting
-  structure is `../fold/hashtrinity` at rev `4cc14471`, ported to `src/hashtrinity/`; it is
+  structure is `../fold/hashtrinity` at rev `4cc14471`, ported to `src/map/hashtrinity/`; it is
   subsumed and proved, not re-derived. `fold/hashtrinity` itself is deprecated: its table is rebased
-  onto the `R[x]/(x²−σ)` basis here, and the generic `Table` (`src/table.rs`) is the inferior
+  onto the `R[x]/(x²−σ)` basis here, and the generic `Table` (`src/map/table.rs`) is the inferior
   primitive, removed once the executed body is verified (`docs/plan.md`, `APEIRON-RETIRE-GENERIC`).
 
 - **The incumbent's evidence is pinned, not regenerated.** Read `../fold/hashtrinity` at the G1
@@ -717,5 +745,5 @@ evidence within budget on named source/tool identities, and retains exclusions a
 | Addressing proposals outran their rate: a hidden-state lattice cache (≤8.7% coverage), whole-key attention addresses (occupancy = t, α = 1.00 at layers ≥6) and suffix tables on human text (36–71% precision) were proposed as O(1)/O(log t) mechanisms; each addressed a contextual activation whose rate at quality-preserving precision exceeds log₂ t | `docs/evidence/quotient-cache-probe.md`; `docs/evidence/address-attention-probe.md`; `docs/evidence/resonance-ladder.md` | Hoisting, tables and codebooks pay only through collisions. Before proposing one, state the addressed object's source (fixed weights, token-id function, exact prefix, or contextual activation), estimate its rate R(D) at the required distortion against log₂ of the population, and measure distinct-count growth on a sample. Contextual activations at quality-preserving precision are unique; do not claim sublinear cost from addressing them. | Occupancy and growth-exponent columns in the probe receipts. | A pre-build rate check in every addressing task prompt. |
 | Lean toolchain mixed in the shared corpus cache: `lake -d proof/corpus build …` from the repository root (no root `lean-toolchain`) selected the nightly toolchain and began rebuilding dependency oleans with it | [receipt](docs/evidence/lean-toolchain-mixing-incident.md); nightly trace `/tmp/opencode/scan-locator-check.log`; recovery `/tmp/opencode/scan-locator-recover.log` | Run Lean as `cd proof/corpus && lake build …`; never `lake -d` from a directory without the package's `lean-toolchain` | Recovery rerun under the pinned v4.31.0 rebuilt the affected dependencies; the trace line names `leanprover--lean4---v4.31.0` | Toolchain-identity preflight for every Lean invocation |
 | tmpfs exhaustion stalled a Lean lane: the 32G `/tmp` tmpfs fell to ~285M free mid-slice (29G used, led by finished 18G copy trees `spike-locate` and `verify-w5t15` plus stale wave/control copies) | `/tmp/opencode` `du` output; `APEIRON-INT-TRANSCENDENTAL-W1-T2C` report; `df -h /tmp` | Disposable copies live outside the tmpfs: scratch and control copies under `/home/socol/oc-tmp`, only named receipts and logs under `/tmp/opencode`; prune a finished slice's copy at its receipt, preserving cited small files | Lead cleanup reclaimed ~26G while keeping every `*.log`; the stalled worker switched `TMPDIR=/home/socol/oc-tmp` | A tmpfs-headroom check before dispatch and a per-slice prune step in the integration checklist |
-| Cross-worktree target sharing poisoned timed builds: live-tree runs of `spill_read_probe` measured the ported scratch code at 2.02–2.04 ns/key and "passed" while the same sources measure 9.26–9.48 ns/key after a forced rebuild; the porting task's `CARGO_TARGET_DIR` pointed at the live tree, so `target/` held a sibling worktree's objects, and its cached warnings named `src/table.rs:84` against the live line 97; an early read-stats direction claim came from the same contaminated set | `/tmp/opencode/w4a-fix-run.log`, `/tmp/opencode/w4a-clean-uninstr2.log`, `/tmp/opencode/w4a-clean-instr2.log`; apeiron `715592c` | A timed or acceptance run binds to a source identity: force a rebuild (`touch src/lib.rs`) or use a private target directory, and check cached warnings' line numbers against the tree before quoting a figure | The harness header records the rule and the clean builds; the baseline was re-run after a forced rebuild | An enforcement that refuses a timing claim whose target was shared with another worktree |
+| Cross-worktree target sharing poisoned timed builds: live-tree runs of `spill_read_probe` measured the ported scratch code at 2.02–2.04 ns/key and "passed" while the same sources measure 9.26–9.48 ns/key after a forced rebuild; the porting task's `CARGO_TARGET_DIR` pointed at the live tree, so `target/` held a sibling worktree's objects, and its cached warnings named `src/map/table.rs:84` against the live line 97; an early read-stats direction claim came from the same contaminated set | `/tmp/opencode/w4a-fix-run.log`, `/tmp/opencode/w4a-clean-uninstr2.log`, `/tmp/opencode/w4a-clean-instr2.log`; apeiron `715592c` | A timed or acceptance run binds to a source identity: force a rebuild (`touch src/lib.rs`) or use a private target directory, and check cached warnings' line numbers against the tree before quoting a figure | The harness header records the rule and the clean builds; the baseline was re-run after a forced rebuild | An enforcement that refuses a timing claim whose target was shared with another worktree |
 | The quantisation programme ran in Python: the one-bit transfer, finishing, Fisher and speculative-acceptance results were computed by torch scripts under `tools/onebit/`, so none of them is on the crate's build path or reachable by extraction, and Lean theorems were written over their receipts as if they bound the implementation | apeiron `776d7a63`, `684a1dd1`; `tools/onebit/pv_finish.py` | §4 obligation 1, executing language: model computation is Rust or SPIR-V on the build path; Python receipts are historical observations of the script | `.githooks/pre-commit` step 0 refuses an added `.py` and any staged Python importing a numeric or model library | The Rust port of the one-bit transfer and finishing under `src/learn/`, re-measured on the crate; until then every `tools/onebit/` figure is graded as an observation of the script |

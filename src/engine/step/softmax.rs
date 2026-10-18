@@ -86,7 +86,7 @@ impl Engine {
         kv: &mut KvState,
         qkv: &[Vec<Vec<i64>>],
         eps: i64,
-        table: &crate::engine::rope::RopeTable,
+        table: &crate::engine::ops::rope::RopeTable,
         parallel_heads: bool,
     ) -> Result<Vec<Vec<i64>>, StepError> {
         let k = qkv[0].len();
@@ -150,7 +150,7 @@ impl Engine {
         qkv: &[Vec<Vec<i64>>],
         c: usize,
         eps: i64,
-        table: &crate::engine::rope::RopeTable,
+        table: &crate::engine::ops::rope::RopeTable,
         parallel_heads: bool,
     ) -> Result<Vec<i64>, StepError> {
         let cfg = &self.config;
@@ -255,7 +255,7 @@ impl Engine {
     fn softmax_qk_rope(
         vectors: &DecodeVectors,
         layer: usize,
-        table: &crate::engine::rope::RopeTable,
+        table: &crate::engine::ops::rope::RopeTable,
         query: &mut [i64],
         key: &mut [i64],
         hd: usize,
@@ -357,7 +357,7 @@ impl Engine {
         kv: &mut KvState,
         qkv: &[Vec<Vec<i64>>],
         eps: i64,
-        table: &crate::engine::rope::RopeTable,
+        table: &crate::engine::ops::rope::RopeTable,
     ) -> Result<Vec<Vec<i64>>, StepError> {
         let cfg = &self.config;
         let (n_head, hd) = (cfg.n_head, cfg.head_dim);
@@ -567,7 +567,7 @@ struct PrepColCtx<'a> {
     dims: [usize; 5],
     gated: bool,
     eps: i64,
-    table: &'a crate::engine::rope::RopeTable,
+    table: &'a crate::engine::ops::rope::RopeTable,
 }
 
 impl HeadTask<i64, StepError> for PrepColCtx<'_> {
@@ -603,7 +603,7 @@ fn prep_column(
     dims: [usize; 5],
     gated: bool,
     eps: i64,
-    table: &crate::engine::rope::RopeTable,
+    table: &crate::engine::ops::rope::RopeTable,
 ) -> Result<(), StepError> {
     let [n_head, hd, q_out, kv_out, pos0] = dims;
     let (mut query, mut key, value) = Engine::softmax_bias_add(qkv, vectors, layer, c)?;

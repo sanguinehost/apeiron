@@ -218,7 +218,7 @@ This is **not proved** either way. The defensible statement is narrow:
 - **Linear algebra / training.** `src/foldtrain.rs` `solve_spd` (`:458`),
   `cholesky` (`:499`), `chol_solve` (`:544`), `FoldTrainer::fold/merge`
   (`:296–311`) are `Vec`/`f64`.
-- **GPU / SIMT.** `src/simt/*`, `src/simt_nn/*` emit SPIR-V `Vec<u32>`
+- **GPU / SIMT.** `src/gpu/simt/*`, `src/gpu/nn/*` emit SPIR-V `Vec<u32>`
   (`simt/gemv.rs:27`, `simt_nn/norm.rs:18`); `src/gpu/vulkan.rs` dlopens Vulkan.
   No attributed table call in those files; the device side is raw buffers.
 - **Production `std` containers in `src/`** (`models-bypass.tsv`): documented

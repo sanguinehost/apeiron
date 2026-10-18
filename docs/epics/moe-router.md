@@ -2,7 +2,7 @@
 
 - **Owner:** lead (Claude track)
 - **Source revision:** `74c037b`; working tree dirty
-- **Status:** W1 complete (T1 tested: `src/engine/moe.rs`, 8 tests; T2 proved: `Nous/Model/TopKRouter.lean` — `topkSel_spec`, `topkSel_perm_invariant`, `softmax_topk_renorm(_max)`, `topk_monotone_softmax`, registered). W2 extraction done at the lead barrier: `word_route_topk`, `word_gate_weights` extracted; W3-T1 proved (`Numeric/MoeRouter.lean`: `route_topk_spec` — extracted `route_topk` = `topkSel` exactly, same order; `best_unchosen_spec`; refusals; registered; control: higher-index tie-break → red); W3-T2 proved (`Nous/Model/MoeStage.lean`: `moe_not_continuous`, `moe_lipschitz_on_stable`, `margin_stable`).
+- **Status:** W1 complete (T1 tested: `src/engine/ops/moe.rs`, 8 tests; T2 proved: `Nous/Model/TopKRouter.lean` — `topkSel_spec`, `topkSel_perm_invariant`, `softmax_topk_renorm(_max)`, `topk_monotone_softmax`, registered). W2 extraction done at the lead barrier: `word_route_topk`, `word_gate_weights` extracted; W3-T1 proved (`Numeric/MoeRouter.lean`: `route_topk_spec` — extracted `route_topk` = `topkSel` exactly, same order; `best_unchosen_spec`; refusals; registered; control: higher-index tie-break → red); W3-T2 proved (`Nous/Model/MoeStage.lean`: `moe_not_continuous`, `moe_lipschitz_on_stable`, `margin_stable`).
 - **Epic ID:** `APEIRON-MOE`
 - **Parent:** Track A of [`frontier-consumer`](frontier-consumer.md)
 
@@ -51,7 +51,7 @@ at inference; expert parallelism across devices.
 
 | item | value |
 |---|---|
-| operations | `route_topk(logits: &[i64], k) -> Result<Vec<u32>>`; `gate_weights(logits, sel, renorm) -> Result<Vec<i64>>`; `moe_ffn_fixed(router, experts, shared, k, renorm, x) -> Result<Vec<i64>>` in `src/engine/moe.rs` |
+| operations | `route_topk(logits: &[i64], k) -> Result<Vec<u32>>`; `gate_weights(logits, sel, renorm) -> Result<Vec<i64>>`; `moe_ffn_fixed(router, experts, shared, k, renorm, x) -> Result<Vec<i64>>` in `src/engine/ops/moe.rs` |
 | selection | stable: sort by (logit desc, index asc), take k |
 | weights | renorm: `softmax` over the selected via the existing max-shifted fixed `exp` (as in `attn_head`); no renorm: full softmax at the selected indices |
 | combination | checked Q32.32 multiply-accumulate of the expert outputs |
@@ -66,7 +66,7 @@ router tensors (tested).
 
 | wave | task | files | gate | control |
 |---|---|---|---|---|
-| W1 | T1 Rust router, weights and combination, with tests against a float reference | `src/engine/moe.rs` (new), `src/engine/mod.rs` (one `mod` line) | `cargo test … moe` | tie-break by higher index → the stable-selection test red |
+| W1 | T1 Rust router, weights and combination, with tests against a float reference | `src/engine/ops/moe.rs` (new), `src/engine/mod.rs` (one `mod` line) | `cargo test … moe` | tie-break by higher index → the stable-selection test red |
 | W1 | T2 pure Lean: top-k specification and the renormalized-softmax identity | `proof/corpus/Nous/Model/TopKRouter.lean` (new) | `lake build Nous.Model.TopKRouter` | drop the tie-break → order-independence red |
 | W2 | T1 extraction of `route_topk`/`gate_weights` (lead lane) | `proof/extract/lib.rs`, `proof/regen.sh` | `regen.sh --check` | — |
 | W3 | T1 refinement: extracted `route_topk` = the Lean top-k spec | `Numeric/MoeRouter.lean` | module gate | as W1-T2 |

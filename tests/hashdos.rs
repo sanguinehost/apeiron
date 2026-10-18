@@ -18,10 +18,10 @@
     clippy::many_single_char_names
 )]
 
-use apeiron::freq::{Table, PROBE_CAP};
+use apeiron::map::freq::{Table, PROBE_CAP};
 
 const PHI: u64 = 0x9E37_79B9_7F4A_7C15;
-const LINEAR_G: u32 = 8; // src/hashtrinity/mod.rs
+const LINEAR_G: u32 = 8; // src/map/hashtrinity/mod.rs
 
 /// `PHI⁻¹ mod 2⁶⁴` (Newton iteration; `PHI` is odd ⇒ a unit). Lets a test name the product
 /// `k·PHI` exactly, so it can aim a key at a chosen home slot.

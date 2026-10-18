@@ -42,8 +42,8 @@ and `Apeiron.Table.build`. Two layouts have been related to it.
 | layout | status |
 |---|---|
 | fixed-shard `Table<K, V, H, N>`: one home shard, a `ShardFull` refusal, no probing | proved; revision-bound historical evidence, not a proof of the current layout |
-| generic growable `apeiron::Table` (`src/table.rs`) | retires once the executed body is verified; no new work targets it |
-| executed `freq::Table` (`src/hashtrinity/`) | the refinement target; the extraction roots are the `word_hashtrinity_*` and `word_coordmap_*` wrappers; refinement to the canonical map is open |
+| generic growable `apeiron::Table` (`src/map/table.rs`) | retires once the executed body is verified; no new work targets it |
+| executed `freq::Table` (`src/map/hashtrinity/`) | the refinement target; the extraction roots are the `word_hashtrinity_*` and `word_coordmap_*` wrappers; refinement to the canonical map is open |
 
 The executed body is the target because the measured winner is the working artifact. Proving the
 slower generic table would certify a loss. The refinement is stated against the body that runs and

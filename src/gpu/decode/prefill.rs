@@ -29,11 +29,11 @@
 
 use super::state::{LayerCfg, LayerW};
 use super::*;
-use crate::simt::gemv_dp4a_batch_rt_bytes;
-use crate::simt_nn::{
+use crate::gpu::nn::{
     attn_prefill_coopmat_bytes, coopmat_gemm_bytes, coopmat_gemm_chart_bytes, coopmat_gemm_groups,
     coopmat_gemm_split_bytes, coopmat_gemm_swiglu_bytes, ATTN_COOP_ROWS, TILE_BM, TILE_BN, TILE_KB,
 };
+use crate::gpu::simt::gemv_dp4a_batch_rt_bytes;
 
 /// Largest batch tile any node picks; activation scratch is padded to a multiple of it so every
 /// node's `ceil(n/bt)*bt` rows stay inside zeroed memory (fold `PREFILL_BT_MAX`). It is the
@@ -965,7 +965,7 @@ impl PrefillStack {
 #[cfg(test)]
 mod tests {
     use crate::gpu::decode::chart_bytes;
-    use crate::simt::Carrier;
+    use crate::gpu::simt::Carrier;
 
     /// **The tile's byte figure counts BOTH planes of a two-plane chart.** `prefill_tile` picks the
     /// 32-token tile once the chart exceeds 32 MB; under `k/pack` that threshold was crossed late for

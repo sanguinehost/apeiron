@@ -64,7 +64,7 @@ def wordSha256dStrength (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) :=
 ```
 
 The window is a binding requirement, not a shape guess: the wrapper calls the real
-`src/sha256.rs` `sha256d`, which applies the real `sha256::sha256` twice, and the extracted
+`src/crypto/sha256.rs` `sha256d`, which applies the real `sha256::sha256` twice, and the extracted
 body of `word_sha256` is the single call `sha256.sha256 msg`
 (`proof/ApeironWord.lean:24896`, body line 24897). The inner digest must reach the outer application as
 `Array.to_slice inner`. If the emitted conversion differs, restate `wordSha256dStrength` at the

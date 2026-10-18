@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Check the row-dot replacement admission in a bounded private build.
 
-The admission proposes one change to `src/engine/matvec.rs`: in `row_dot_fixed`'s loop, replace
+The admission proposes one change to `src/engine/ops/matvec.rs`: in `row_dot_fixed`'s loop, replace
 `match a.checked_mul(b) { … }` by `let prod = a * b; match acc.checked_add(prod) { … }`, keeping the
 checked addition and every refusal. This gate
 
-1. refuses to run unless `src/engine/matvec.rs` still contains the production `match a.checked_mul(b)`
+1. refuses to run unless `src/engine/ops/matvec.rs` still contains the production `match a.checked_mul(b)`
    exactly once, so the change is not in production and the admitted baseline is the frozen one;
 2. extracts the proposed body with the pinned Charon/Aeneas from a throwaway copy of that source,
    carrying the one-line change and nothing else, and compares the result byte for byte with
@@ -49,7 +49,7 @@ ROOT = Path(__file__).resolve().parents[2]
 GATE = Path(__file__).resolve()
 MODULE = ROOT / 'proof/resource/RowDotAdmission.lean'
 PROPOSED = ROOT / 'proof/resource/RowDotProposedSource.lean'
-PRODUCTION = ROOT / 'src/engine/matvec.rs'
+PRODUCTION = ROOT / 'src/engine/ops/matvec.rs'
 ROW_DOT_SOURCE = ROOT / 'proof/resource/RowDotSource.lean'
 ROW_DOT_RESOURCE = ROOT / 'proof/resource/RowDotResource.lean'
 COST_ALGEBRA = ROOT / 'proof/resource/CostAlgebra.lean'
@@ -181,7 +181,7 @@ pub mod matvec;
 pub use error::EngineError;
 
 /// Typed forwarding wrapper: it fixes the slice and result types and calls the real
-/// `src/engine/matvec.rs` `row_dot_fixed` body. It restates no formula.
+/// `src/engine/ops/matvec.rs` `row_dot_fixed` body. It restates no formula.
 pub fn row_dot_forward(w_row: &[i64], x: &[i64]) -> Result<i64, engine::matvec::MatvecError> {{
     engine::matvec::row_dot_fixed(w_row, x)
 }}
@@ -271,7 +271,7 @@ def extract_proposed(label):
     run(['python3', str(ROOT / 'proof/strip-modeled-axioms.py'), str(generated)], project,
         label + '-strip')
     generated.write_text(generated.read_text().replace(str(ROOT) + '/', '').replace(str(mutant),
-                                                                                  'src/engine/matvec.rs'))
+                                                                                  'src/engine/ops/matvec.rs'))
     text = generated.read_text()
     if re.search(r'\b(axiom|sorry|admit)\b', text):
         raise RuntimeError('ROW_DOT_ADMISSION_UNMODELED_SOURCE')
@@ -621,7 +621,7 @@ if __name__ == '__main__':
             trust='Lean kernel and toolchain, the Lake package, Charon/Aeneas and IO/process handling. '
                   'The claim is about source-level checked-arithmetic counts of the two extracted '
                   'bodies: no hardware speed, machine code, instruction count, latency, bandwidth, '
-                  'cache behaviour or codegen cost follows from it. `src/engine/matvec.rs` is '
+                  'cache behaviour or codegen cost follows from it. `src/engine/ops/matvec.rs` is '
                   'unchanged; the proposed body is not in production.',
         ), indent=2) + '\n')
         shutil.rmtree(SCRATCH, ignore_errors=True)

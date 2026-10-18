@@ -8,7 +8,7 @@
     "apeiron_git": "9a805439640ff63b5a2028aeb887f50e31cf6351",
     "song_git": "47869e76f982cfa3085a8618a82b80463e22ef46",
     "sources": {
-      "src/table.rs": "f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3",
+      "src/map/table.rs": "f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3",
       "song/src/table/table.slang": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d",
       "proof/corpus/TableRefinement.lean": "fcf322ccb1c743097105514bfef422c03ee9d58ee690512a9cf0d3760b1a9100",
       "../sanguine/proof/Apeiron/Table/Basic.lean": "e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9"
@@ -38,10 +38,10 @@
       "rust": {
         "layout": "Table<K, V, H, N> holds default: V, home: H, and shards: [Option<[Option<(K, V)>; N]>; 256]: 256 inline shards, each an optional array of at most N key/value slots. Storage never allocates; N defaults to 16.",
         "entry_points": [
-          {"symbol": "Table", "file": "src/table.rs", "lang": "rust", "role": "fixed-shard inline table type"},
-          {"symbol": "new", "file": "src/table.rs", "lang": "rust", "role": "constructor; all shards None, default stored"},
-          {"symbol": "WordHome", "file": "src/table.rs", "lang": "rust", "role": "placement by i64 bit pattern"},
-          {"symbol": "Home", "file": "src/table.rs", "lang": "rust", "role": "placement trait"}
+          {"symbol": "Table", "file": "src/map/table.rs", "lang": "rust", "role": "fixed-shard inline table type"},
+          {"symbol": "new", "file": "src/map/table.rs", "lang": "rust", "role": "constructor; all shards None, default stored"},
+          {"symbol": "WordHome", "file": "src/map/table.rs", "lang": "rust", "role": "placement by i64 bit pattern"},
+          {"symbol": "Home", "file": "src/map/table.rs", "lang": "rust", "role": "placement trait"}
         ],
         "identity": "Placement is home(key) mod 256 (shard_index); identity is full-key equality in find_slots (stored == key). Shard truncation selects a shard and never replaces full-key identity.",
         "merge": "This subprofile selects the replacement merge merge(new, old) = new, realized by a Merge<V> instance. WordMerge (wrapping add) is the R1 merge and is excluded here.",
@@ -68,7 +68,7 @@
       "admission": {
         "rust": {
           "predicate": "insert_with refuses with StorageError::ShardFull exactly when the key is absent and its home shard has no vacant slot; N = 0 refuses every write; reads are total. Refusal invokes neither clone nor merge and changes no field.",
-          "source": "src/table.rs"
+          "source": "src/map/table.rs"
         },
         "song": {
           "predicate": "tableInsertWith refuses with TABLE_EMPTY = -1 when tableCapacityOk(cap) is 0, when key is TABLE_EMPTY, when the merge code is outside MERGE_SET..MERGE_ACC, or when tableFindSlotGo exhausts cap probes. tableGet and tableFind refuse a missing key with -1.",
@@ -108,9 +108,9 @@
       "rust": {
         "layout": "get computes the home shard, scans it with full-key equality, and returns the stored override or &self.default on a miss.",
         "entry_points": [
-          {"symbol": "get", "file": "src/table.rs", "lang": "rust", "role": "total read with stored default"},
-          {"symbol": "find", "file": "src/table.rs", "lang": "rust", "role": "shard lookup"},
-          {"symbol": "find_slots", "file": "src/table.rs", "lang": "rust", "role": "full-key scan of one shard"}
+          {"symbol": "get", "file": "src/map/table.rs", "lang": "rust", "role": "total read with stored default"},
+          {"symbol": "find", "file": "src/map/table.rs", "lang": "rust", "role": "shard lookup"},
+          {"symbol": "find_slots", "file": "src/map/table.rs", "lang": "rust", "role": "full-key scan of one shard"}
         ],
         "identity": "find_slots compares the full stored key; a collision that shares the home residue is not the read key.",
         "merge": "Read does not merge.",
@@ -133,7 +133,7 @@
       "admission": {
         "rust": {
           "predicate": "get is total for every key. No admission predicate guards a read.",
-          "source": "src/table.rs"
+          "source": "src/map/table.rs"
         },
         "song": {
           "predicate": "tableGet returns TABLE_EMPTY = -1 for a missing key and for the reserved key -1. A -1 raw return is overloaded and is not a status.",
@@ -175,9 +175,9 @@
       "rust": {
         "layout": "insert_with locates the key in its home shard, replaces the stored value for a present key, or installs the merged value at the first vacant slot for an absent key.",
         "entry_points": [
-          {"symbol": "insert_with", "file": "src/table.rs", "lang": "rust", "role": "merge-write with refusal"},
-          {"symbol": "Merge", "file": "src/table.rs", "lang": "rust", "role": "value combination trait; the replacement instance is selected"},
-          {"symbol": "WordMerge", "file": "src/table.rs", "lang": "rust", "role": "wrapping-add merge, excluded from this subprofile"}
+          {"symbol": "insert_with", "file": "src/map/table.rs", "lang": "rust", "role": "merge-write with refusal"},
+          {"symbol": "Merge", "file": "src/map/table.rs", "lang": "rust", "role": "value combination trait; the replacement instance is selected"},
+          {"symbol": "WordMerge", "file": "src/map/table.rs", "lang": "rust", "role": "wrapping-add merge, excluded from this subprofile"}
         ],
         "identity": "The write updates only the slot whose full key equals the argument; a same-residue collision is a different key.",
         "merge": "Replacement: merge(value, old) = value. WordMerge and any wrapping addition are excluded from the matched merge of this subprofile.",
@@ -200,7 +200,7 @@
       "admission": {
         "rust": {
           "predicate": "The replacement Merge admits every (i64, i64). Admission is inherited from insert_with: a present key always admits; an absent key admits iff its home shard has a vacant slot.",
-          "source": "src/table.rs"
+          "source": "src/map/table.rs"
         },
         "song": {
           "predicate": "tableInsertWith with MERGE_MAP admits only when tableCapacityOk(cap) is nonzero, key is not TABLE_EMPTY, merge is in MERGE_SET..MERGE_ACC, and tableFindSlotGo returns a slot. A full probe sequence refuses with -1.",
@@ -240,8 +240,8 @@
       "rust": {
         "layout": "A refusal returns StorageError::ShardFull and the table value is unchanged.",
         "entry_points": [
-          {"symbol": "insert_with", "file": "src/table.rs", "lang": "rust", "role": "merge-write with refusal"},
-          {"symbol": "StorageError", "file": "src/table.rs", "lang": "rust", "role": "ShardFull refusal type"}
+          {"symbol": "insert_with", "file": "src/map/table.rs", "lang": "rust", "role": "merge-write with refusal"},
+          {"symbol": "StorageError", "file": "src/map/table.rs", "lang": "rust", "role": "ShardFull refusal type"}
         ],
         "identity": "A refusal is for an absent key only; a present key in a full shard updates rather than refuses.",
         "merge": "Refusal invokes neither clone nor merge.",
@@ -263,7 +263,7 @@
       "admission": {
         "rust": {
           "predicate": "insert_with refuses exactly on an absent key whose home shard is full; the refusal post-state equals the pre-state. N = 0 refuses every write.",
-          "source": "src/table.rs"
+          "source": "src/map/table.rs"
         },
         "song": {
           "predicate": "tableInsertWith refuses with -1 on invalid capacity, reserved key, out-of-range merge code, or probe exhaustion; the refusal post-state is unchanged for the refused call but retains the caller's earlier writes.",
@@ -303,8 +303,8 @@
       "rust": {
         "layout": "Cost is counted on the inline fixed-shard table: at most N full-key search inspections, then up to N vacancy inspections.",
         "entry_points": [
-          {"symbol": "find_slots", "file": "src/table.rs", "lang": "rust", "role": "bounded full-key search"},
-          {"symbol": "shard_index", "file": "src/table.rs", "lang": "rust", "role": "home residue computation"}
+          {"symbol": "find_slots", "file": "src/map/table.rs", "lang": "rust", "role": "bounded full-key search"},
+          {"symbol": "shard_index", "file": "src/map/table.rs", "lang": "rust", "role": "home residue computation"}
         ],
         "identity": "The search bound is N full-key comparisons per shard.",
         "merge": "The replacement merge is constant work; the excluded WordMerge would add one wrapping addition per successful insert.",
@@ -326,7 +326,7 @@
       "admission": {
         "rust": {
           "predicate": "The bound is part of admission only through the N-slot shard capacity; it does not admit or refuse independently of insert_with.",
-          "source": "src/table.rs"
+          "source": "src/map/table.rs"
         },
         "song": {
           "predicate": "The bound is part of admission only through tableCapacityOk(cap) and the cap-probe exhaustion; backing and extent are separate obligations.",
@@ -374,8 +374,8 @@
       "rust": {
         "layout": "build constructs a fresh table and folds insert_with over kvs in order.",
         "entry_points": [
-          {"symbol": "build", "file": "src/table.rs", "lang": "rust", "role": "transactional ordered build"},
-          {"symbol": "insert_with", "file": "src/table.rs", "lang": "rust", "role": "per-pair write"}
+          {"symbol": "build", "file": "src/map/table.rs", "lang": "rust", "role": "transactional ordered build"},
+          {"symbol": "insert_with", "file": "src/map/table.rs", "lang": "rust", "role": "per-pair write"}
         ],
         "identity": "The built table is the per-key replacement fold; the last value at a key wins.",
         "merge": "Replacement merge; WordMerge is excluded.",
@@ -397,7 +397,7 @@
       "admission": {
         "rust": {
           "predicate": "build admits a stream iff every prefix insertion is admitted; the first refusal makes the whole build Err.",
-          "source": "src/table.rs"
+          "source": "src/map/table.rs"
         },
         "song": {
           "predicate": "There is no build admission predicate; each tableInsertWith call is admitted independently.",

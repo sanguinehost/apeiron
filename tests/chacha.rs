@@ -3,7 +3,7 @@
     reason = "`ChaCha20` and `Poly1305` are the specification's names for the algorithms, so prose \
               is not backticked around them"
 )]
-//! RFC 8439 known-answer tests for the ChaCha20 / Poly1305 / AEAD port in `apeiron::chacha`.
+//! RFC 8439 known-answer tests for the ChaCha20 / Poly1305 / AEAD port in `apeiron::crypto::chacha`.
 //!
 //! The vectors are the RFC's own: the section 2.3.2 keystream block, the section 2.4.2 ChaCha20
 //! ciphertext, the section 2.5.2 Poly1305 tag, and the section 2.8.2 AEAD ciphertext and tag. Each
@@ -13,7 +13,7 @@
 
 use std::fmt::Write as _;
 
-use apeiron::chacha::{
+use apeiron::crypto::chacha::{
     chacha20_block, chacha20_xor, chacha20poly1305_decrypt, chacha20poly1305_encrypt, poly1305_mac,
     Error, KEY_LEN, NONCE_LEN,
 };

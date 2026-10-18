@@ -144,7 +144,7 @@ Backend paths below are relative to `/home/socol/Workspace/apeiron/target/aeneas
 | Local legacy-WP consumers | `Growable/{Identity,Scan,Search}.lean`, `Joint/TableInstance.lean`, `TableRefinement/{Callback,PhysicalBuildGeneric}.lean`, and `TableRefinement{,Admission,AdmissionGeneric,Build,BuildGeneric,Generic,Physical,PhysicalBuild,ReachablePrefixExactN}.lean` under `proof/corpus/` |
 | Adapter relation consumers | `Growable/Resources.lean`: `resourceAdapter_refusal_stutter`, stored/regen reachable-publication witnesses; four matching audit entries in `AxiomAudit.lean` plus publication headlines |
 | Actual extracted vector calls | `proof/ApeironWord.lean`: 23 `push`, 5 `resize`, 15 `deref_mut`, 2 `extend_from_slice`, 5 `try_reserve`, 3 `try_reserve_exact`, 7 `capacity`, 2 `clear`, 3 `truncate`, 1 clone; source-text occurrences, not execution counts |
-| Actual Rust reservation/initialization | `src/table/{resources,state,locator}.rs`, `src/table.rs`, `src/coord/locator_core.rs`; generated reserve/observe/materialize/prepare bodies already exist |
+| Actual Rust reservation/initialization | `src/map/table/{resources,state,locator}.rs`, `src/map/table.rs`, `src/map/coord/locator_core.rs`; generated reserve/observe/materialize/prepare bodies already exist |
 
 A source import-graph scan found reverse closures of 149 modules from `Primitives`, 143 from `WP`, and 41 from `Vec`. Direct effect/eliminator search found exactly the three backend files above. These inventories are source findings, not compiler acceptance or an assertion that every transitive module needs edits. Freeze them per patch and build the backend/corpus gates; do not silently broaden one task across consumers.
 
@@ -239,13 +239,13 @@ operation and its joint witnesses retain grade `model`.
 
 ### Production boundary
 
-Production `src/table/resources.rs::try_reserve_exact` calls
+Production `src/map/table/resources.rs::try_reserve_exact` calls
 `Vec::try_reserve_exact` and maps its error to `StorageError::AllocationFailed`. On success,
 production later observes real capacities and publishes a prepared envelope. On error,
 `publish_prepared` exposes `PreparedResult::Refused(error)` without a plan, storage, receipt or held
 carrier.
 
-`src/table/tests.rs::selected_resident_reservation_failure_leaves_table_unchanged` supplies
+`src/map/table/tests.rs::selected_resident_reservation_failure_leaves_table_unchanged` supplies
 `usize::MAX / 256` to the flat reservation path and observes an error while a separately constructed
 table retains its inserted value. This is useful refusal-path test evidence, but it does not
 distinguish allocator exhaustion from `Vec` capacity or layout rejection: the production wrapper
@@ -307,7 +307,7 @@ not known sound.
 
 The source-injection alternative has a stronger executable Rust control but an unknown propagation
 surface. Reservation occurs in table storage and locator paths, including direct `Vec::try_reserve`
-calls outside `src/table/resources.rs`. A single wrapper edit would not establish whole-adapter
+calls outside `src/map/table/resources.rs`. A single wrapper edit would not establish whole-adapter
 refusal or no-effect behavior.
 
 ### Bounded downstream decomposition

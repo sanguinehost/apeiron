@@ -39,14 +39,14 @@ Rules:
 ### [FAIL-1] Item 2 — load-sized serial counting build (`APEIRON-BATCH-BUILD`, Sol item 2)
 
 ```text
-ATTEMPTED:   a load-sized serial counting build inside the generic Table. examples/reg1 + src/table.rs.
+ATTEMPTED:   a load-sized serial counting build inside the generic Table. examples/reg1 + src/map/table.rs.
 HYPOTHESIS:  the serial counting pairs are slow because the build over-provisions; a load-sized build
              reduces provisioning and therefore the ratio.
 MEASURED:    spatial pairs 3.35 -> 4.26 and 3.40 -> 4.42 (REGRESSED); hashtrinity_table flat.
 OUTCOME:     regression
 WHY:         it changed provisioning *inside* the generic Table; the spatial pair's charged cost is
              per-key work, not provisioning. The build is on a branch the ratio does not charge.
-BASE:        the generic Table (`src/table.rs`).
+BASE:        the generic Table (`src/map/table.rs`).
 MODEL-GAP:   "apeiron is slow because of provisioning/locator overhead." False: directory assembly is
              already excluded from selected timing (examples/reg1/adapters/spatial.rs:688-694).
 DISPOSITION: reverted (f89b18b history); Sol item 2 closed experiment.
@@ -71,7 +71,7 @@ EVIDENCE:    escalation receipts (item-2 revert decision); docs/plan.md.
 ### [FAIL-3] `APEIRON-COUNT-W2-T1` — the from-scratch counting container
 
 ```text
-ATTEMPTED:   a single-region open-addressed coordinate-keyed container (`src/table/count.rs`, 881
+ATTEMPTED:   a single-region open-addressed coordinate-keyed container (`src/map/count.rs`, 881
              lines) + codec `CountKeyCodec`/`U32CoordWord` + module declaration. Gate
              `cargo test --locked --lib table::count::tests::`.
 HYPOTHESIS:  a purpose-built single-region container without the locator or the 256-region directory
@@ -81,7 +81,7 @@ MEASURED:    gate green (10 tests). Both rejecting mutations observed red then r
 OUTCOME:     abandoned-before-measure
 WHY:         (a) off the measured path: examples/reg1/adapters/spatial.rs:674-681 calls neither
              `Table::sum_parallel` nor `Table::get_each_at`, so editing either cannot move a
-             registered ratio; (b) `admit_coord` (`src/table/count.rs:159-163`) rejects every value
+             registered ratio; (b) `admit_coord` (`src/map/count.rs:159-163`) rejects every value
              above `u32::MAX`, while the registered spatial population packs three 21-bit fields
              (`spatial.rs:522-529`, max `0x7ffffc001a1fffd9`) -> the container cannot admit the
              population at all.
@@ -97,7 +97,7 @@ EVIDENCE:    /home/socol/oc-tmp/count-w2t1.diff; /home/socol/oc-tmp/escalation/{
 ### [FAIL-4] `W2-T1b` and its `DOMAIN` / `FULLWIDTH` splits
 
 ```text
-ATTEMPTED:   wire the container's counting build into `src/table/parallel.rs` and
+ATTEMPTED:   wire the container's counting build into `src/map/table/parallel.rs` and
              `examples/reg1/adapters/spatial.rs:674-681`; then the domain-compatibility gate and the
              full-width representation.
 HYPOTHESIS:  integration of the container into the timed path moves `hashtrinity_count_par` and
@@ -174,7 +174,7 @@ EVIDENCE:    /home/socol/oc-tmp/escalation/META-ANALYSIS.md; the five-run campai
 
 ```text
 ATTEMPTED:   name the largest removable differential as the excluded per-key locator registry
-             (`src/table/locator.rs:961-984` reached at `src/table/parallel.rs:658`), on the claim
+             (`src/map/table/locator.rs:961-984` reached at `src/map/table/parallel.rs:658`), on the claim
              that it was a large part of the ratio.
 HYPOTHESIS:  a cost that dominates *absolute* elapsed time dominates the *ratio*.
 MEASURED:    the 44e6/312e6/268e6 triple is `spatial/n1000000`, whose CHARGED ratio is 2.398 (vs

@@ -1,5 +1,5 @@
 // A faithful port of fold's `modelfold::gpu` (the dlopen Vulkan runtime + dispatch). See the same
-// reason at `crate::simt`.
+// reason at `crate::gpu::simt`.
 #![allow(
     clippy::all,
     clippy::pedantic,
@@ -14,7 +14,7 @@
 //!
 //! Two halves, matching the CPU side (`Coord` + `KeyStore` + `Merge` → one `Table`): the runtime
 //! ([`runtime`]) is the device and its dispatch loop; the ops are the `_bytes` builders in
-//! [`crate::simt`] (GEMM, reduction, elementwise, the sparse-attention knot), re-exported
+//! [`crate::gpu::simt`] (GEMM, reduction, elementwise, the sparse-attention knot), re-exported
 //! here so `gpu::gemv_dp4a_bytes` reads as one namespace. Sovereign — the whole stack bottoms out
 //! in [`vulkan::Vk`], a hand-rolled dlopen of `libvulkan.so.1`, zero crates. Behind the `gpu`
 //! feature; the kernel builders themselves stay always-on in `simt`.
@@ -30,13 +30,18 @@
 //! gpu.run(&[Dispatch { pipe, dset: ds, groups: (m.div_ceil(256), segs) }]);
 //! ```
 
+pub mod nn;
+pub mod simt;
+pub mod spirv;
+
+#[cfg(feature = "gpu")]
 pub mod decode;
+#[cfg(feature = "gpu")]
 pub mod runtime;
+#[cfg(feature = "gpu")]
 pub mod vulkan;
 
+#[cfg(feature = "gpu")]
 pub use runtime::{Buffer, DescriptorSet, Dispatch, Gpu, Pipeline};
+#[cfg(feature = "gpu")]
 pub use vulkan::*;
-
-// The op builder families — the kernels the runtime dispatches. Re-exported under the one gpu
-// namespace so a consumer needs only `use apeiron::gpu::*`.
-pub use crate::simt;

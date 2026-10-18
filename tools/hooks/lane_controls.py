@@ -265,7 +265,7 @@ def link_round_trip_case() -> tuple[bool, str]:
     projected = project_commit(
         row_id="row-0001",
         lane="row",
-        paths=["src/table.rs"],
+        paths=["src/map/table.rs"],
         message="board: row-0001",
         tree=identity,
         root=None,
@@ -281,7 +281,7 @@ def link_round_trip_case() -> tuple[bool, str]:
     mutated = project_commit(
         row_id="row-0002",
         lane="row",
-        paths=["src/table.rs"],
+        paths=["src/map/table.rs"],
         message="board: row-0002",
         tree=identity,
         root=None,
@@ -385,9 +385,9 @@ def table_columns_after(text: str, heading: str, name: str = r"[a-z][a-z0-9_]*")
 
 
 # The three commit shapes the rule distinguishes.
-CODE_STAGED = ["src/table.rs"]
+CODE_STAGED = ["src/map/table.rs"]
 DOCS_STAGED = ["docs/plan.md", "tools/hooks/README.md", ".githooks/commit-msg"]
-MIXED_STAGED = ["src/table.rs", "docs/plan.md"]
+MIXED_STAGED = ["src/map/table.rs", "docs/plan.md"]
 MANIFEST_STAGED = ["Cargo.toml"]
 
 

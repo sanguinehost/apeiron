@@ -10,8 +10,8 @@ the seeded control re-run red. Extraction is `proof/ApeironWord.lean` `72a8b7d4�
 
 | wave | row | grade | evidence |
 |---|---|---|---|
-| W1 | six dequant arms (Q1_0, Q2_0, PQ2_0, TQ2_0, TQ1_0, PTQ1_0) against fork-layout vectors | tested | `src/engine/dequant_lowbit.rs` tests; `cargo test` 403 passed |
-| W1 | `fwht_fixed` against naive Sylvester for k ≤ 10 | tested | `src/engine/hadamard.rs` tests |
+| W1 | six dequant arms (Q1_0, Q2_0, PQ2_0, TQ2_0, TQ1_0, PTQ1_0) against fork-layout vectors | tested | `src/engine/num/dequant_lowbit.rs` tests; `cargo test` 403 passed |
+| W1 | `fwht_fixed` against naive Sylvester for k ≤ 10 | tested | `src/engine/ops/hadamard.rs` tests |
 | W2 | extraction of the arms and `word_fwht_fixed` | proved (identity) | `regen.sh --check` exit 0 |
 | W3 | row laws and dispatch, all six types | proved | `Numeric/DequantQ1Q2(Block)`, `DequantTQ2_0`, `DequantTQ1_0(Row)`, `DequantPTQ1_0` |
 | W3 | refusals (short payload, non-finite scale), all six types | proved | `Numeric/DequantLowBitRefusals` |
@@ -43,7 +43,7 @@ The algebraic reading below is proved by the W3 Sylvester row; it is no longer `
 
 ### Problem
 
-`dequant_row_fixed` (`src/engine/dequant.rs:86`) reads F16, Q8_0, Q5_0, Q2_K, Q3_K, Q4_K and Q6_K
+`dequant_row_fixed` (`src/engine/num/dequant.rs:86`) reads F16, Q8_0, Q5_0, Q2_K, Q3_K, Q4_K and Q6_K
 only. The low-bit formats that put 8B–27B models on consumer devices are absent:
 
 - binary `Q1_0` (type 41);
@@ -155,7 +155,7 @@ reference (it is a comparison target, not evidence), or GPU paths.
 
 ### Scope and admissible domain
 
-#### Dequant arms (`src/engine/dequant.rs`, dispatched by `dequant_row_fixed`)
+#### Dequant arms (`src/engine/num/dequant.rs`, dispatched by `dequant_row_fixed`)
 
 Common to all six arms: `d` is the block's little-endian f16 scale, decoded exactly to Q32.32 by
 `f16_to_fixed`. `n_elems` need not be a multiple of the block size; the last block is partial, as
@@ -190,7 +190,7 @@ extracts it.
 `|value| ≤ |d| ≤ 65504·2^32 < 2^49`, so no product overflows `i64`. The arms need no overflow
 refusal; the proofs record this as a bound, not a hypothesis.
 
-#### Rotation (`src/engine/hadamard.rs`, new)
+#### Rotation (`src/engine/ops/hadamard.rs`, new)
 
 | Item | Value |
 |---|---|
@@ -218,7 +218,7 @@ folded; the matmul path applies `fwht_fixed` to the activation before them.
 
 | Layer | Symbol | Path |
 |---|---|---|
-| Production Rust | `dequant_<t>_row`, `fwht_fixed` | `src/engine/dequant.rs`, `src/engine/hadamard.rs` |
+| Production Rust | `dequant_<t>_row`, `fwht_fixed` | `src/engine/num/dequant.rs`, `src/engine/ops/hadamard.rs` |
 | Extraction wrapper | `word_fwht_fixed` (the dequant arms are reached through the existing `dequant_row_fixed` root) | `proof/extract/lib.rs` |
 | Extracted body | `dequant.dequant_<t>_row`, `hadamard.fwht_fixed` | `proof/ApeironWord.lean` (generated) |
 | Canonical definition | `dequantVals`; `sylvesterH k : Matrix (Fin 2^k) (Fin 2^k) ℤ`; `channelPair` | `proof/corpus/Numeric/Dequant/Refinement.lean`; new `Numeric/Hadamard/Sylvester.lean`; `Nous/Model/Decomposition.lean` |
@@ -315,8 +315,8 @@ before the quiet-host session.
 
 | Wave | Task | Files | Owner | Gate | Negative control |
 |---|---|---|---|---|---|
-| W1 | T1 dequant arms | `src/format/quant.rs`, `src/engine/dequant.rs`, `src/engine/tests.rs` | worker | `cargo test --workspace --all-features --locked engine::` | swap two trit stages → fork-vector test red |
-| W1 | T2 FWHT kernel | `src/engine/hadamard.rs` (new), `src/engine/mod.rs` | worker | `cargo test --workspace --all-features --locked hadamard` | drop the sign multiply → naive-Sylvester test red |
+| W1 | T1 dequant arms | `src/format/quant.rs`, `src/engine/num/dequant.rs`, `src/engine/tests.rs` | worker | `cargo test --workspace --all-features --locked engine::` | swap two trit stages → fork-vector test red |
+| W1 | T2 FWHT kernel | `src/engine/ops/hadamard.rs` (new), `src/engine/mod.rs` | worker | `cargo test --workspace --all-features --locked hadamard` | drop the sign multiply → naive-Sylvester test red |
 | W2 | T1 extraction | `proof/extract/lib.rs`, `proof/ApeironWord.lean` (generated) | lead | `proof/regen.sh` then `proof/regen.sh --check` | none (identity gate); `regen.sh` audits `axiom`/`sorry` |
 | W3 | T1 `Q1_0` row law | `proof/corpus/Numeric/DequantQ1_0.lean` | worker | `lake build Numeric.DequantQ1_0` | `bit ? −d : d` → red |
 | W3 | T2 `Q2_0` + `PQ2_0` | `Numeric/DequantQ2_0.lean` | worker | `lake build Numeric.DequantQ2_0` | `code − 2` → red |
@@ -326,7 +326,7 @@ before the quiet-host session.
 | W3 | T6 FWHT refinement | `Numeric/Hadamard/Refinement.lean` | worker | `lake build Numeric.Hadamard.Refinement` | `c` for `k+1` → `fwht_fixed_refines` red |
 | W3 | T7 refusal equalities | `Numeric/Dequant/LowBitRefusals.lean` | worker | `lake build Numeric.Dequant.LowBitRefusals` | wrong variant → red |
 | W4 | T1 loader metadata | `src/engine/loader.rs`, `src/engine/tests.rs` | worker | `cargo test … loader` | accept `sign_mode = "bogus"` → refusal test red |
-| W4 | T2 folded matmul path | `src/engine/matvec.rs` or `step.rs` | worker | `cargo test … hadamard_fold` | skip the transform → parity test red |
+| W4 | T2 folded matmul path | `src/engine/ops/matvec.rs` or `step.rs` | worker | `cargo test … hadamard_fold` | skip the transform → parity test red |
 | W4 | T3 rotation stage | `Nous/Model/RotationStage.lean` | worker | `lake build Nous.Model.RotationStage` | `L := 1` in the ℓ∞ norm (true constant `√n`) → red |
 | W5 | T1 parity + throughput | none (measurement) | lead, quiet host | named command; machine; tokens/s and top-1 agreement vs fork | fork run without the transform must disagree |
 
@@ -463,7 +463,7 @@ that reads it.
 
 1. Every exact row stays exact. The sign-plane decomposition reproduces the code matrix bit for bit.
 2. Calibration and evaluation Grams are disjoint text. A number is reported on held-out data only.
-3. No inference receipt regresses; Part II touches no `src/gpu`, `src/simt*` or `src/spirv` file.
+3. No inference receipt regresses; Part II touches no `src/gpu`, `src/gpu/simt*` or `src/gpu/spirv` file.
 
 ### Non-goals
 
@@ -894,7 +894,7 @@ Hardest first. A wave's Rust tasks run in parallel on disjoint files; extraction
 | 2 | Qwen2 Q32.32 schedule (GGUF via `learn/gguf.rs`), stage capture, whole-model backward | `src/learn/grad/model.rs` (819 lines), `src/learn/grad/model/tests.rs` | `cargo test --release --locked --lib learn::grad::model`: gate A, `forward` logits equal `Engine::step_logits` bit for bit on a 2-layer synthetic `qwen2` slice (E 8, 2 heads, 1 KV head, FF 16, V 16, 4 tokens, nonzero bias), run in a child process under `APEIRON_F32_CARRIER=0` because the engine's carrier is a process-wide `OnceLock` defaulting to f32 (`src/engine/mixer.rs:306`); gate B, central differences on KL agree with the backward for every parameter class within `2^14` at amplitude `2^26`; `learn::grad` 34 passed, full lib 543 passed; landed, grade `tested`; the refinement covers the engine's Q32 path, not its f32 default; unmodelled: partial rotary, MoE, the affine mixer, q/k norm, the output gate; board `onebit-exact-one-bit-and-FubKIC3prjKrgnryWWxrF1` | drop the attention residual into `dh2` → gate B red; drop the k bias → gate A red; byte-identical restore green |
 | 3 | transfer: ICM, r/c/d grids, corrector, sink, fnorm, grow, resq, qmlp, nb | `src/learn/transfer/` (≤ 12 files, each ≤ 1,500 lines), `examples/onebit_transfer.rs` | 0.5B held-out KL, 3 runs | `--dscale 2` mutant moves KL |
 | 4 | finishing: P-step Adam with STE, V-step over E₈, TV objective | `src/learn/finish/` | 0.5B acceptance, 3 runs | as W3 |
-| 5 | SPIR-V matmuls for W3–W4 | `src/simt_nn/` | equality with the CPU body | as T1 |
+| 5 | SPIR-V matmuls for W3–W4 | `src/gpu/nn/` | equality with the CPU body | as T1 |
 | 6+ | remaining probes, `tools/hattn/`, `tools/qwen35/reference.py` (removed; at 2f15d6a9); each `.py` deleted on landing (`retire_check.py`) | per script | per script | per script |
 | 7 | gate scripts over 1,500 lines: `tools/check-kepler.py` 3,686, `tools/gpu/q8_occupancy.py` (removed; at 2f15d6a9) 1,733, `tools/board/checkpoint.py` 1,527 | the Rust gate driver `tools/gate` (AGENTS.md §1a, MISSING), one module per check, each ≤ 1,500 lines | the ported check's verdict equals the script's on the same tree | each check's existing seeded-defect control red |
 

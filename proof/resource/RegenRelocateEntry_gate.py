@@ -3,7 +3,7 @@
 
 The shared `proof/extract/lib.rs` unit does not compile, so this gate never reads it: it writes a
 narrow forwarding `#[path]` wrapper that names the real `src/scalar.rs`, `src/cell.rs`,
-`src/coord.rs` and `src/table.rs` (with its textual `include!` of `src/table/{state,locator,
+`src/map/coord.rs` and `src/map/table.rs` (with its textual `include!` of `src/map/table/{state,locator,
 prepared}.rs`) and calls the real `Table::relocate_entry` through the regenerating `i64` carrier.
 Charon extracts `crate::relocate_entry`; the Aeneas Lean backend writes
 `proof/resource/RegenRelocateEntrySource.lean`. `RegenRelocateEntryResource.lean` is then built in
@@ -176,7 +176,7 @@ def main():
     run(['rustc', '--version'], ROOT, 'rustc-version')
     run(['cargo', '--version'], ROOT, 'cargo-version')
     run(['lean', '--version'], ROOT, 'lean-version')
-    generated, fresh = extract(TOOLS / 'src/table.rs', 'fresh')
+    generated, fresh = extract(TOOLS / 'src/map/table.rs', 'fresh')
     dest = ROOT / 'proof/resource/RegenRelocateEntrySource.lean'
     if args.prepare:
         shutil.copyfile(generated, dest); print('REGEN_RELOCATE_ENTRY_EXTRACTION_READY'); return
@@ -190,7 +190,7 @@ def main():
     if 'REGEN_RELOCATE_ENTRY_KERNEL_OK' not in text:
         raise RuntimeError('REGEN_RELOCATE_ENTRY_AUDIT_MISSING')
     if args.controls:
-        original = (TOOLS / 'src/table.rs').read_text()
+        original = (TOOLS / 'src/map/table.rs').read_text()
         if original.count(MUTATION_NEEDLE) != 1:
             raise RuntimeError('REGEN_RELOCATE_ENTRY_CONTROL_TARGET_MISSING')
         mutant_dir = SCRATCH / 'mutant/src'
@@ -209,7 +209,7 @@ def main():
                                                'forbidden axioms'])):
             raise RuntimeError('REGEN_RELOCATE_ENTRY_CONTROL_NOT_ATTRIBUTABLE\n' + text[-1800:])
         print('REGEN_RELOCATE_ENTRY_REAL_SOURCE_CONTROL_RED')
-        _, restored = extract(TOOLS / 'src/table.rs', 'restored')
+        _, restored = extract(TOOLS / 'src/map/table.rs', 'restored')
         # Source-location comments differ for disposable absolute source paths; compare the rest.
         strip = lambda s: re.sub(r'/\*.*?\*/|/--.*?-/', '', s, flags=re.S)
         if strip(restored) != strip(dest.read_text()):
@@ -228,7 +228,7 @@ if __name__ == '__main__':
         paths = [TOOLS / 'target/aeneas/charon', TOOLS / 'target/aeneas/aeneas',
                  TOOLS / 'target/aeneas-model/lean/lean-toolchain',
                  TOOLS / 'proof/dispatch/lean-toolchain', TOOLS / 'proof/dispatch/lake-manifest.json',
-                 TOOLS / 'src/table.rs', ROOT / 'proof/resource/RegenRelocateEntry_gate.py',
+                 TOOLS / 'src/map/table.rs', ROOT / 'proof/resource/RegenRelocateEntry_gate.py',
                  ROOT / 'proof/resource/RegenRelocateEntrySource.lean',
                  ROOT / 'proof/resource/RegenRelocateEntryResource.lean']
         (OUT / (SCRATCH.name + '-receipt.json')).write_text(json.dumps(
@@ -238,7 +238,7 @@ if __name__ == '__main__':
                  deadline=os.environ.get('REGEN_RELOCATE_ENTRY_DEADLINE'), records=RECORDS,
                  sha256={str(x): digest(x) for x in paths if x.is_file()},
                  mutation=dict(needle=MUTATION_NEEDLE, replacement=MUTATION_REPLACEMENT,
-                               file='src/table.rs'),
+                               file='src/map/table.rs'),
                  trust='Aeneas/Charon, the Lean kernel and linter, cargo/rustc, IO/process and '
                        'dependency artifacts; the resource claim excludes GPU/hardware timing, the '
                        'unextracted relocate_all traversal, and the prepared-resource adapter'),

@@ -293,7 +293,7 @@ impl Engine {
             return Ok(out);
         };
         let idx = li.at(part, layer)?;
-        let budget = crate::engine::par::row_chunk_budget(n_out);
+        let budget = crate::engine::ops::par::row_chunk_budget(n_out);
         if xs.len() > 1 && self.hadamard().is_none() {
             let (ggml_type, at) = self.payload_at(idx, n_out, n_in, Sched::Resident)?;
             if ggml_type == quant::GGML_TYPE_Q8_0 {
@@ -356,7 +356,7 @@ impl Engine {
                     outs,
                     n_in,
                     &xs[0],
-                    crate::engine::par::row_chunk_budget(outs[0]),
+                    crate::engine::ops::par::row_chunk_budget(outs[0]),
                 )?;
                 let mut out = Vec::with_capacity(got.len());
                 let mut j = 0usize;

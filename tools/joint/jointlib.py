@@ -127,7 +127,7 @@ IOTA_DECL = [
 # a brace member is a single identifier or a ``Type::method`` pair. The frozen
 # profiles use the qualified self type ``<i64 as Ring>``, qualified brace
 # members (``src/cell.rs::{Cell::mul, ...}``) and a qualified brace group
-# (``src/table.rs::Table::{new, ...}``), so those forms are admitted. Every
+# (``src/map/table.rs::Table::{new, ...}``), so those forms are admitted. Every
 # other form is malformed and rejected, never truncated or split: an extra
 # ``::`` segment, a trailing ``.member``, a generic outside the self-type
 # position, a brace member that is not a single identifier or a ``Type::method``

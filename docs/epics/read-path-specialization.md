@@ -71,7 +71,7 @@ cargo run --release --locked --example reg1 -- --check performance --profile ful
 | Claim | Grade | Evidence |
 |---|---|---|
 | Direct, spill, absent and unequal-`Sigma` reads retain exact values for both carriers. | tested target | `cargo test --locked --lib --test table` |
-| Summary-negative reads perform no vacancy scan; summary-positive late hits remain visible. | tested target | Focused real-path trace tests and red/restore mutations in `src/table.rs`/`src/table/state.rs`. |
+| Summary-negative reads perform no vacancy scan; summary-positive late hits remain visible. | tested target | Focused real-path trace tests and red/restore mutations in `src/map/table.rs`/`src/map/table/state.rs`. |
 | The generated Stored/Regen read bodies denote canonical `Apeiron.Table.get`. | proved target | Bounded `lake build Growable.Scan Growable.Search AxiomAudit` after `proof/regen.sh --check`. |
 | The focused micro schedules change in the intended direction. | measured target | `cargo run --release --locked --example micro_spill -- --controls`, same machine/input/sample protocol before and after. |
 | Every affected REG-1 pair satisfies the existing per-pair decision. | measured target | Strict full-profile command; interval maximum must be `<= 1.0`. |
@@ -133,7 +133,7 @@ composite `DirectCover`. The specialization changes read control flow, not this 
 
 | Layer | Symbol | Path |
 |---|---|---|
-| Production Rust | `Table::{get_at,get}` and the shared read-only spill match helper | `src/table.rs`, `src/table/state.rs` |
+| Production Rust | `Table::{get_at,get}` and the shared read-only spill match helper | `src/map/table.rs`, `src/map/table/state.rs` |
 | Monomorphic wrappers | Stored/Regen public-read wrappers that only call the production body | `proof/extract/lib.rs` |
 | Extracted bodies | Stored/Regen wrappers, `table.Table.get_at`, resident flat indexing, summary query, fingerprint scan and read-only spill matching | `proof/ApeironWord.lean` (generated) |
 | Physical relation | `RepR`, `DirectCover`, occupancy/summary fields | `proof/corpus/Growable/Representation.lean` |
@@ -333,7 +333,7 @@ theorem.
 
 ### Serialized implementation dispatch
 
-1. **Flash source edit.** Own `src/table.rs` and `src/table/state.rs`: replace `spill_read` with the
+1. **Flash source edit.** Own `src/map/table.rs` and `src/map/table/state.rs`: replace `spill_read` with the
    exact accumulator body above; replace `get_prepared_shard`'s `Option::map` with `Some`/`None`
    matching; and replace `Flat::index` with the guarded, checked explicit form above. Make no change
    to `get_at`, insertion locate or tests. Gate: `cargo test --locked --lib --test table`. Control in
@@ -413,7 +413,7 @@ Kani retirement supersedes older model-checker requirements; see [the retirement
 SCOPE:      production read specialization, real-source extraction, bridge repair and matched read measurement; complete when every child gate/control is green and strict affected pairs are recorded without weakening G1
 REGISTER:   state/refinement/test/measurement; excludes layout, cached summary state, second containers, spatial scatter and W7 composition
 CORPUS:     Apeiron/Table/Basic.lean `get`, `get_insertWith_self`, `get_insertWith_ne` (proved); Growable/Search.lean `SearchDecisionCorrect` and Stored/Regen apply-get headlines at their current conditional scopes
-REFERENCE:  /home/socol/Workspace/apeiron/src/table.rs and src/table/state.rs read from the supplied checkout; mechanism derived from docs/direction.md `Serial read specialization and stable parallel scatter`
+REFERENCE:  /home/socol/Workspace/apeiron/src/table.rs and src/map/table/state.rs read from the supplied checkout; mechanism derived from docs/direction.md `Serial read specialization and stable parallel scatter`
 GATE:       focused commands below; strict REG-1 baseline is red at pass=421 fail=1029, and no task may convert that observed red to acceptance by reducing coverage
 GRADE:      lifecycle documents are anchor; implementation targets tested, bridge targets proved, runtime targets measured
 ```
@@ -453,7 +453,7 @@ decomposed by [the next bounded plan](read-proof.md).
 | Wave | Task | Files | Owner | Gate | Rejecting control |
 |---|---|---|---|---|---|
 | W0 | `APEIRON-PERF-READ-W0-T1` micro observability and frozen-source baseline | `examples/micro_spill.rs` | Flash | `cargo run --release --locked --example micro_spill -- --controls` | Corrupt one expected readback digest in a throwaway copy; the gate fails before timing, then restored gate passes. |
-| W1 | `APEIRON-PERF-READ-W1-T1` production read specialization | `src/table.rs`, `src/table/state.rs`, `tests/table.rs` | Flash | `cargo test --locked --lib --test table` | In a throwaway copy, stop a summary-positive match scan at the first vacancy; the late-hit test fails, then restored gate passes. |
+| W1 | `APEIRON-PERF-READ-W1-T1` production read specialization | `src/map/table.rs`, `src/map/table/state.rs`, `tests/table.rs` | Flash | `cargo test --locked --lib --test table` | In a throwaway copy, stop a summary-positive match scan at the first vacancy; the late-hit test fails, then restored gate passes. |
 | W2 | `APEIRON-PERF-READ-W2-T1` real-read extraction | `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean` | Flash | `proof/regen.sh --check` | In a throwaway copy, mutate one generated read exclusion branch; freshness fails, then restored gate passes. This is not the later semantic proof control. |
 | W3 | `APEIRON-PERF-READ-W3-T1` summary/representation bridge repair | `proof/corpus/Growable/Scan.lean`, `proof/corpus/Growable/Representation.lean`, `proof/corpus/AxiomAudit.lean` | Sol | bounded `lake build Growable.Scan Growable.Representation AxiomAudit` in `proof/corpus/` | Remove recordedness from one live spill witness; the representation/summary headline fails, then restored build passes. |
 | W4 | `APEIRON-PERF-READ-W4-T1` read/search bridge repair | `proof/corpus/Growable/Search.lean`, `proof/corpus/AxiomAudit.lean` | Sol | bounded `lake build Growable.Search AxiomAudit` in `proof/corpus/` | In a throwaway generated copy, let summary miss imply global absence without direct exclusion; the read theorem fails, then restored build passes. |
@@ -474,7 +474,7 @@ diagnostic result. No source or proof edit may overlap these waves.
   corresponding resident hit/miss schedules, independent expected readback digests, raw sample
   output and fail-closed `--controls`; run the baseline before any timed source edit.
 - **Files:** `examples/micro_spill.rs`
-- **Depends on:** none; run after the current frozen-source owner releases `src/table.rs`
+- **Depends on:** none; run after the current frozen-source owner releases `src/map/table.rs`
 - **Grade:** measured baseline plus tested harness controls
 - **Gate:**
 
@@ -493,7 +493,7 @@ cargo run --release --locked --example micro_spill -- --controls
 - **Scope:** Inline resident address/index/classification/read application; route occupied non-matches
   to spill; add one read-only spill match path with summary-miss absence and complete
   summary-positive match coverage; leave insertion `SearchDecision`/first-fit/growth unchanged.
-- **Files:** `src/table.rs`, `src/table/state.rs`, `tests/table.rs`
+- **Files:** `src/map/table.rs`, `src/map/table/state.rs`, `tests/table.rs`
 - **Depends on:** W0 and completion of the active frozen-source Sol owner
 - **Grade:** tested target
 - **Gate:**
@@ -768,17 +768,17 @@ sliced in compile order. It is one representation change to one type — `Region
 `summary` and its payload tuple becomes `SpillSlot` — so **no intermediate state compiles**: the
 three source tasks are serialized in the order below, share one gate, and the wave barrier carries
 the compile. Each task still owns at most three files, one arc, one gate and one control.
-`src/table/scan.rs` is **not** in the set: the tag bitmap and the group descent are retired from the
+`src/map/table/scan.rs` is **not** in the set: the tag bitmap and the group descent are retired from the
 probe path, and all five production callers they had — three `scan::match_tag` and two
-`scan::match_empty` — are inside `src/table/probe.rs`. After the port those two helpers are reached
-only by their own unit tests in `src/table/scan.rs`, so retiring them was the separate task
+`scan::match_empty` — are inside `src/map/table/probe.rs`. After the port those two helpers are reached
+only by their own unit tests in `src/map/table/scan.rs`, so retiring them was the separate task
 `c3b0d63` under section 10, not part of the port; the module and its helpers are deleted.
 
 | task | files | change | gate | control |
 |---|---|---|---|---|
-| `APEIRON-E6-W2-T1` region representation and bounded probe | `src/table/state.rs`, `src/table/probe.rs` | `SpillSlot` carries marker, `Sigma`, held carrier and payload in one array; `bound()`, `home()`, `markers()`, `live()`; `spill_locate`, `spill_locate_held` and `spill_read` walk one bounded linear cycle over the capacity; summary, tag array and group descent retired; the read counters renamed to the absence/step vocabulary | `cargo test --locked --lib --test table` | in a throwaway copy stop the read cycle one step early; the finite late-hit fixture fails on a wrong default, restore green |
-| `APEIRON-E6-W2-T2` production callers | `src/table.rs`, `src/table/prepared.rs`, `src/table/resources.rs` | `get_at`, `apply_get`, relocation and rebuild read the named slot fields; `grow_spill` sizes the successor from the region `live` count on a `Grow` signal; `observe_receipt` records one `slots` bound; `RegionReservation` drops `tags`/`payloads`/`summary` | `cargo test --locked --lib --test table` | in a throwaway copy size the successor from `slots.len()` instead of `live`; the growth fixture fails, restore green |
-| `APEIRON-E6-W2-T3` remaining consumers and fixtures | `src/table/locator.rs`, `src/table/parallel.rs`, `src/table/tests.rs` | `locations`, `payload_at` and the region load count read `slot.live()`; publication-order and geometry fixtures move to the marker protocol; the finite probe fixtures cover fingerprint collisions, `Grow` and a late hit | `cargo test --locked --lib --test table`; graded by `cargo run --release --example spill_read_probe` | in a throwaway copy write the nonzero marker before the payload; the publication-order test fails, restore green |
+| `APEIRON-E6-W2-T1` region representation and bounded probe | `src/map/table/state.rs`, `src/map/table/probe.rs` | `SpillSlot` carries marker, `Sigma`, held carrier and payload in one array; `bound()`, `home()`, `markers()`, `live()`; `spill_locate`, `spill_locate_held` and `spill_read` walk one bounded linear cycle over the capacity; summary, tag array and group descent retired; the read counters renamed to the absence/step vocabulary | `cargo test --locked --lib --test table` | in a throwaway copy stop the read cycle one step early; the finite late-hit fixture fails on a wrong default, restore green |
+| `APEIRON-E6-W2-T2` production callers | `src/map/table.rs`, `src/map/table/prepared.rs`, `src/map/table/resources.rs` | `get_at`, `apply_get`, relocation and rebuild read the named slot fields; `grow_spill` sizes the successor from the region `live` count on a `Grow` signal; `observe_receipt` records one `slots` bound; `RegionReservation` drops `tags`/`payloads`/`summary` | `cargo test --locked --lib --test table` | in a throwaway copy size the successor from `slots.len()` instead of `live`; the growth fixture fails, restore green |
+| `APEIRON-E6-W2-T3` remaining consumers and fixtures | `src/map/table/locator.rs`, `src/map/table/parallel.rs`, `src/map/table/tests.rs` | `locations`, `payload_at` and the region load count read `slot.live()`; publication-order and geometry fixtures move to the marker protocol; the finite probe fixtures cover fingerprint collisions, `Grow` and a late hit | `cargo test --locked --lib --test table`; graded by `cargo run --release --example spill_read_probe` | in a throwaway copy write the nonzero marker before the payload; the publication-order test fails, restore green |
 | `APEIRON-E6-W3-T1` probe-bound replacement | `proof/corpus/Growable/Scan.lean`, `proof/corpus/Growable/Representation.lean`, `proof/corpus/AxiomAudit/Core.lean` | the constructor establishes the placement invariant, insert and relocate preserve it, `SpillProbeBoundAbsentSound` derives absence from a completed cycle, and the summary fields leave `RepR`/`ReservedRepR` | bounded `cd proof/corpus && lake build Growable.Scan Growable.Representation AxiomAudit` | in a throwaway copy drop the constructor's power-of-two obligation from the placement headline; it fails, restore green |
 | `APEIRON-E6-W3-T2a` retire the definition and the bridge | `proof/corpus/Growable/Representation.lean`, `proof/corpus/Growable/Classifier.lean`, `proof/corpus/Growable/Search.lean` | remove `SpillSummaryMissSound`, `summaryMissSound_of_repR` and the non-found sum's use of it, after T1 is green | bounded `cd proof/corpus && lake build Growable.Representation Growable.Classifier Growable.Search` | in a throwaway copy keep the retirement and weaken the read absence certificate to a per-slot statement; the search headline fails, restore green |
 | `APEIRON-E6-W3-T2b` retire the read-loop use and the audit entry | `proof/corpus/Growable/ReadLoop.lean`, `proof/corpus/Growable/Read.lean`, `proof/corpus/AxiomAudit/Core.lean` | the read loop derives absence from the completed cycle; `AxiomAudit` lists the replacement and drops the retired `#audit` | bounded `cd proof/corpus && lake build Growable.ReadLoop Growable.Read AxiomAudit` | in a throwaway copy delete the completed-cycle premise from the read-loop absence conjunct; the headline fails semantically, restore green |

@@ -2,7 +2,7 @@
 """Extract and check the real pending-insertion commit core in a bounded private build.
 
 O(B) source/tool/log bytes; external compilation is timed, not assigned constant cost. The temporary
-manifest wires the real `src/table.rs` by `#[path]`, which pulls the real `src/table/{state,locator,
+manifest wires the real `src/map/table.rs` by `#[path]`, which pulls the real `src/map/table/{state,locator,
 prepared,...}.rs`; the only new code is the typed forwarding wrapper that calls the real
 `Table::apply_pending_and_commit` body. No substitute algorithm is extracted, and the shared
 `proof/extract/lib.rs` is not used: it does not currently compile, so this gate builds its own
@@ -36,14 +36,14 @@ SCRATCH_ROOT = Path(tempfile.gettempdir()) / 'applypending-resource'
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=SCRATCH_ROOT))
 
-# The real source closure the wrapper compiles. `src/table.rs` declares its children textually and
+# The real source closure the wrapper compiles. `src/map/table.rs` declares its children textually and
 # imports `crate::cell::Sigma` and `crate::coord::{address,locator}`, so the wrapper also wires the
-# real `src/{scalar,cell,coord}.rs` and the real `src/coord/` and `src/table/` directories.
-# `src/table/tests.rs` is `#[cfg(test)]` and is compiled by the `cargo test` step only.
+# real `src/{scalar,cell,coord}.rs` and the real `src/map/coord/` and `src/map/table/` directories.
+# `src/map/table/tests.rs` is `#[cfg(test)]` and is compiled by the `cargo test` step only.
 CLOSURE = ['scalar.rs', 'cell.rs', 'coord.rs', 'table.rs']
 COPY_DIRS = ['coord', 'table']
 # The mutation target: the Found/flat arm's single merge of the pending value into the located slot.
-# `Merge::merge` is new-first (`src/table.rs:133-136`), so reversing its two arguments turns the
+# `Merge::merge` is new-first (`src/map/table.rs:133-136`), so reversing its two arguments turns the
 # found update into a new-dropping, old-keeping overwrite, which is exactly what the merge/settle
 # transition theorems below forbid. Same byte length, so source line numbers do not move.
 MUTATION = ('reserved.resident.slots[index].value = merge.merge(value, old);',
@@ -84,7 +84,7 @@ pub mod coord;
 pub mod table;
 
 /// Crate-root alias of the face token the real `src/lib.rs` re-exports as `pub use cell::{{Sigma}}`;
-/// the real `#[cfg(test)]` modules in `src/table/{{partition,probe}}.rs` import `crate::Sigma`.
+/// the real `#[cfg(test)]` modules in `src/map/table/{{partition,probe}}.rs` import `crate::Sigma`.
 pub use cell::Sigma;
 
 /// The carried-key word table instance used to reach the real table bodies, exactly the alias at
@@ -94,7 +94,7 @@ pub type WordStoredTable =
 
 /// Typed forwarding wrapper for the real pending-insertion and commit core. It fixes the seven
 /// argument types of `proof/extract/lib.rs:600-618` and calls the real
-/// `Table::apply_pending_and_commit` body (`src/table.rs:1063-1121`) through the same inherent
+/// `Table::apply_pending_and_commit` body (`src/map/table.rs:1063-1121`) through the same inherent
 /// method the production caller uses. It restates no match arm, no merge and no field write, and
 /// the shared `proof/extract/lib.rs` is not pulled in.
 pub fn word_stored_apply_pending_and_commit(
@@ -153,7 +153,7 @@ def extract(source_root, label):
     # The model's own definitions replace the stubs the pinned Aeneas emits for externals it does
     # not model; any other axiom/sorry stays for the fail-closed scan below.
     run(['python3',str(ROOT/'proof/strip-modeled-axioms.py'),str(generated)],project,label+'-strip')
-    generated.write_text(generated.read_text().replace(str(source_root/'table.rs'), 'src/table.rs'))
+    generated.write_text(generated.read_text().replace(str(source_root/'table.rs'), 'src/map/table.rs'))
     if re.search(r'\b(axiom|sorry|admit)\b', generated.read_text()):
         raise RuntimeError('APPLY_PENDING_UNMODELED_SOURCE')
     return generated
@@ -188,7 +188,7 @@ def main():
     code,text=run(['lake','build','ApplyPendingResource'],p,'fresh-proof')
     if 'APPLY_PENDING_KERNEL_OK' not in text:raise RuntimeError('APPLY_PENDING_AUDIT_MISSING')
     if a.controls:
-        # Real-source mutation: `Merge::merge` is new-first (`src/table.rs:133-136`), and the
+        # Real-source mutation: `Merge::merge` is new-first (`src/map/table.rs:133-136`), and the
         # Found/flat arm merges the pending value into the located slot. Reversing those two
         # arguments makes the found update drop the pending value, which the per-arm merge/settle
         # equations (`found_flat_settle`, `settle_merges_new_first` and the closed-form work count)
@@ -216,6 +216,6 @@ if __name__=='__main__':
     try:
         main();status=0
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/table.rs',ROOT/'src/table/state.rs',ROOT/'src/table/prepared.rs',ROOT/'src/table/locator.rs',ROOT/'src/table/keyrep.rs',ROOT/'src/table/partition.rs',ROOT/'src/table/probe.rs',ROOT/'src/table/parallel.rs',ROOT/'src/table/tests.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/coord.rs',ROOT/'src/coord/address.rs',ROOT/'src/coord/locator.rs',ROOT/'src/coord/locator_core.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/ApplyPending_gate.py',ROOT/'proof/resource/ApplyPendingSource.lean',ROOT/'proof/resource/ApplyPendingResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/map/table.rs',ROOT/'src/map/table/state.rs',ROOT/'src/map/table/prepared.rs',ROOT/'src/map/table/locator.rs',ROOT/'src/map/table/keyrep.rs',ROOT/'src/map/table/partition.rs',ROOT/'src/map/table/probe.rs',ROOT/'src/map/table/parallel.rs',ROOT/'src/map/table/tests.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/map/coord.rs',ROOT/'src/map/coord/address.rs',ROOT/'src/map/coord/locator.rs',ROOT/'src/map/coord/locator_core.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/ApplyPending_gate.py',ROOT/'proof/resource/ApplyPendingSource.lean',ROOT/'proof/resource/ApplyPendingResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
         (OUT/(SCRATCH.name+'-receipt.json')).write_text(json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=540,argv=[sys.executable,*sys.argv],lane=LANE,memory_max='12G',swap_max=0,threads=1,scratch=str(SCRATCH),deadline=os.environ.get('APPLY_PENDING_DEADLINE'),records=RECORDS,sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, compiler, IO/process/dependencies; the work measure counts merges, payload copies and slot writes issued by the extracted pending core itself under the Aeneas model, not cycles or GPU time; the transitively reached bodies (recycle_unused_staged_path, publish_for_held, Region.publish_live, alloc.vec.Vec index/index_mut), the unextracted probe walk, the reservation adapter and the canonical-corpus correspondence are outside this root'),indent=2)+'\n')
         shutil.rmtree(SCRATCH,ignore_errors=True)

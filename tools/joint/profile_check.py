@@ -87,7 +87,7 @@ EXPECTED_APEIRON_REVISION = "9a805439640ff63b5a2028aeb887f50e31cf6351"
 EXPECTED_SONG_REVISION = "47869e76f982cfa3085a8618a82b80463e22ef46"
 REQUIRED_SOURCE_FILES = {
     "src/scalar.rs": "9199e955304cb3d54fe973ac5881f219d4c6f71b4be001a0d32a6fb16ffde92e",
-    "src/table.rs": "f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3",
+    "src/map/table.rs": "f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3",
     "song/src/table/table.slang": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d",
 }
 
@@ -807,7 +807,7 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
     mutated = copy.deepcopy(data)
     mutated["unmatched_blockers"][0]["counterpart"] = (
         mutated["unmatched_blockers"][0]["counterpart"]
-        + " src/table.rs::WordHome::merge"
+        + " src/map/table.rs::WordHome::merge"
     )
     add(
         "reject a qualified method bound to the wrong Rust implementation in a "
@@ -821,16 +821,16 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
     for label, reference in (
         (
             "reject a reference with an extra '::' segment",
-            "src/table.rs::Table::new::get",
+            "src/map/table.rs::Table::new::get",
         ),
         (
             "reject a brace member that is not a single identifier or a "
             "Type::method pair",
-            "src/table.rs::{Table::new::get}",
+            "src/map/table.rs::{Table::new::get}",
         ),
         (
             "reject a generic-qualified method bound to the wrong implementation",
-            "src/table.rs::<WordHome as Merge<i64>>::merge",
+            "src/map/table.rs::<WordHome as Merge<i64>>::merge",
         ),
         (
             "reject a generic-qualified method whose trait does not exist",
@@ -838,16 +838,16 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
         ),
         (
             "reject a method attributed to a generic type parameter",
-            "src/table.rs::F::home",
+            "src/map/table.rs::F::home",
         ),
         (
             "reject a bare symbol that is only an impl-header generic parameter",
-            "src/table.rs::F",
+            "src/map/table.rs::F",
         ),
         (
             "reject a bare symbol that is only an impl-header bound, not a "
             "declaration",
-            "src/table.rs::Fn",
+            "src/map/table.rs::Fn",
         ),
         (
             "reject a reference with a trailing member access",

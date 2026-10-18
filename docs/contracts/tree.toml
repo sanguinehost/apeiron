@@ -67,14 +67,14 @@ holds = "the crate root and its top-level modules"
 files = ["*.rs"]
 
 [[dir]]
-path = "src/coord"
-holds = "Coord addressing per face"
+path = "src/crypto"
+holds = "the unaudited cryptographic primitives: AES-128, ChaCha20-Poly1305, SHA-3/SHAKE, SHA-256"
 recursive = true
 files = ["*.rs"]
 
 [[dir]]
 path = "src/engine"
-holds = "the model engine: loader, step, attention, mixer, kernels"
+holds = "the model engine: loader, step, attention, mixer, kernels; ops/ the per-token operators, num/ the fixed-point value path"
 recursive = true
 files = ["*.rs"]
 
@@ -86,30 +86,30 @@ files = ["*.rs"]
 
 [[dir]]
 path = "src/gpu"
-holds = "the GPU stack (DEL-GPU-ONE collapses gpu, simt and simt_nn to one)"
+holds = "the one GPU tree: Vulkan runtime and decode (feature gpu), kernel builders, SPIR-V checker"
 recursive = true
 files = ["*.rs"]
 
 [[dir]]
-path = "src/simt"
-holds = "SIMT stack, pending DEL-GPU-ONE"
+path = "src/gpu/simt"
+holds = "SIMT kernel builders: the 12-op alphabet to SPIR-V, GEMV folds; DEL-GPU-ONE prunes"
 recursive = true
 files = ["*.rs"]
 
 [[dir]]
-path = "src/simt_nn"
-holds = "SIMT network layers, pending DEL-GPU-ONE"
+path = "src/gpu/nn"
+holds = "network kernels (norm, RoPE, SwiGLU, argmax); attn/ the attention kernels; DEL-GPU-ONE prunes"
 recursive = true
 files = ["*.rs"]
 
 [[dir]]
-path = "src/spirv"
-holds = "SPIR-V compute shaders; each has a Rust consumer"
+path = "src/gpu/spirv"
+holds = "the SPIR-V fragment checker and compute shaders; each shader has a Rust consumer"
 recursive = true
 files = ["*.comp", "*.rs", "*.spv"]
 
 [[dir]]
-path = "src/hashtrinity"
+path = "src/map/hashtrinity"
 holds = "the hash and counting primitives ported from fold/hashtrinity, and crypto (icarus target)"
 recursive = true
 files = ["*.rs"]
@@ -133,8 +133,8 @@ recursive = true
 files = ["*.rs"]
 
 [[dir]]
-path = "src/table"
-holds = "the growable flat/spill table"
+path = "src/map"
+holds = "every K -> V map and its key addressing: table, count, coord, fold, freq, merge, pepper, keystore"
 recursive = true
 files = ["*.rs"]
 
@@ -491,7 +491,7 @@ row = "DEL-RESOURCE"
 
 [[debt]]
 rule = "max_lines"
-path = "src/coord/locator_core.rs"
+path = "src/map/coord/locator_core.rs"
 row = "STRUCT-SPLIT"
 
 [[debt]]
@@ -546,52 +546,52 @@ row = "DEL-GPU-ONE"
 
 [[debt]]
 rule = "max_lines"
-path = "src/hashtrinity/crypto.rs"
+path = "src/map/hashtrinity/crypto.rs"
 row = "STRUCT-SPLIT"
 
 [[debt]]
 rule = "max_lines"
-path = "src/hashtrinity/freq.rs"
+path = "src/map/hashtrinity/freq.rs"
 row = "STRUCT-SPLIT"
 
 [[debt]]
 rule = "max_lines"
-path = "src/hashtrinity/tregex.rs"
+path = "src/map/hashtrinity/tregex.rs"
 row = "STRUCT-SPLIT"
 
 [[debt]]
 rule = "max_lines"
-path = "src/simt/dp4a.rs"
+path = "src/gpu/simt/dp4a.rs"
 row = "DEL-GPU-ONE"
 
 [[debt]]
 rule = "max_lines"
-path = "src/simt/gemv.rs"
+path = "src/gpu/simt/gemv.rs"
 row = "DEL-GPU-ONE"
 
 [[debt]]
 rule = "max_lines"
-path = "src/simt_nn/sparse.rs"
+path = "src/gpu/nn/attn/sparse.rs"
 row = "DEL-GPU-ONE"
 
 [[debt]]
 rule = "max_lines"
-path = "src/simt/superblock.rs"
+path = "src/gpu/simt/superblock.rs"
 row = "DEL-GPU-ONE"
 
 [[debt]]
 rule = "max_lines"
-path = "src/table/locator.rs"
+path = "src/map/table/locator.rs"
 row = "STRUCT-SPLIT"
 
 [[debt]]
 rule = "max_lines"
-path = "src/table.rs"
+path = "src/map/table.rs"
 row = "STRUCT-SPLIT"
 
 [[debt]]
 rule = "max_lines"
-path = "src/table/tests.rs"
+path = "src/map/table/tests.rs"
 row = "STRUCT-SPLIT"
 
 [[debt]]
@@ -653,26 +653,6 @@ row = "STRUCT-SPLIT"
 rule = "max_dir_files"
 path = "proof/resource"
 row = "DEL-RESOURCE"
-
-[[debt]]
-rule = "max_dir_files"
-path = "src"
-row = "STRUCT-SPLIT"
-
-[[debt]]
-rule = "max_dir_files"
-path = "src/engine"
-row = "STRUCT-SPLIT"
-
-[[debt]]
-rule = "max_dir_files"
-path = "src/simt_nn"
-row = "DEL-GPU-ONE"
-
-[[debt]]
-rule = "max_dir_files"
-path = "src/table"
-row = "STRUCT-SPLIT"
 
 [[debt]]
 rule = "max_dir_files"

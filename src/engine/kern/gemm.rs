@@ -36,7 +36,7 @@ use crate::engine::chart::task::{BandTask, IndexTask, Task4};
 use crate::engine::chart::{ActMagnitude, QuantAct};
 use crate::engine::loader::PayloadRef;
 use crate::engine::mixer::{carrier_from_env, Carrier};
-use crate::engine::value::round_shift_32;
+use crate::engine::num::value::round_shift_32;
 use crate::engine::{silu_fixed, FfnError};
 use crate::format::quant::{GGML_TYPE_Q8_0, Q8_0_BLOCK_BYTES};
 

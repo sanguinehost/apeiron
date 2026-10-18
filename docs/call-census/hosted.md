@@ -186,7 +186,7 @@ The copy is divergent and was excluded from counts via `--skip hashtrinity`:
 | `src/lib.rs` | `f8c8fd12…` | `7db27c2c…` |
 | `Cargo.toml` | `f78f9383…` | `74b376cc…` |
 | `src/codec.rs` | present | **absent** |
-| `src/crypto.rs` | present | **absent** |
+| `src/crypto/keccak.rs` | present | **absent** |
 | `src/*.rs` | 25 files | 13 files |
 
 ## 9. Duplicated primitive functions (validated exact usage)

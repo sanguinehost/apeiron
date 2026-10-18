@@ -23,10 +23,10 @@ pub use super::error::EngineError;
 use super::error::{
     TensorKey, PART_SSM_A, PART_SSM_CONV1D, PART_SSM_DT_BIAS, PART_SSM_NORM, PART_TOKEN_EMBD,
 };
-use super::f32_convert::dequant_f32_row;
-use super::fp::F64;
 use super::kern::lut::Pq2Lut;
-use super::value::round_shift_32;
+use crate::engine::num::f32_convert::dequant_f32_row;
+use crate::engine::num::fp::F64;
+use crate::engine::num::value::round_shift_32;
 
 #[path = "loader/hadamard.rs"]
 mod hadamard;
@@ -354,7 +354,7 @@ pub(crate) fn qk_norm_heads(
     let mut err: Option<super::StepError> = None;
     while h < heads && err.is_none() {
         let base = h * hd;
-        match super::norm::rms_norm_fixed(&x[base..base + hd], eps) {
+        match crate::engine::ops::norm::rms_norm_fixed(&x[base..base + hd], eps) {
             Err(e) => err = Some(super::StepError::from(e)),
             Ok(normed) => {
                 let mut i = 0usize;

@@ -10,7 +10,7 @@
 //! - **Hyperbolic (the key is discarded).** The address is a discard. Injectivity is not merely unnecessary, it is
 //!   unavailable: two words do not fit in one.
 
-use apeiron::coord::{i21, mix, Coord, Packed, PHI};
+use apeiron::map::coord::{i21, mix, Coord, Packed, PHI};
 use std::collections::HashSet;
 
 /// The bijection round-trips, over the whole of a representative slice.

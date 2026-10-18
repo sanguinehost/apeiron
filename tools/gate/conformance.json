@@ -41,7 +41,7 @@
       "mutation": [
         {
           "control": "merge-argument-order",
-          "file": "src/table.rs",
+          "file": "src/map/table.rs",
           "needle": "reserved.resident.slots[index].value = merge.merge(value, old);",
           "replacement": "reserved.resident.slots[index].value = merge.merge(old, value);",
           "occurrences": 1,
@@ -113,7 +113,7 @@
       "mutation": [
         {
           "control": "scan-cursor-advance",
-          "file": "src/engine/sampler.rs",
+          "file": "src/engine/ops/sampler.rs",
           "needle": "        if logits[i] > logits[best] {\n            best = i;\n        }\n        i += 1;",
           "replacement": "        if logits[i] > logits[best] {\n            best = i;\n        }\n        i += 2;",
           "occurrences": 1,
@@ -190,7 +190,7 @@
       "mutation": [
         {
           "control": "required-length-guard",
-          "file": "src/table/resources.rs",
+          "file": "src/map/table/resources.rs",
           "needle": "required_len <= observed_capacity",
           "replacement": "required_len < observed_capacity",
           "occurrences": 1,
@@ -250,7 +250,7 @@
       "mutation": [
         {
           "control": "word-count-guard",
-          "file": "src/spirv/check.rs",
+          "file": "src/gpu/spirv/check.rs",
           "needle": "if word_count == 0 {",
           "replacement": "if word_count == 1 {",
           "occurrences": 1,
@@ -310,7 +310,7 @@
       "mutation": [
         {
           "control": "first-xor-shift",
-          "file": "src/coord.rs",
+          "file": "src/map/coord.rs",
           "needle": "h ^= h >> 30;",
           "replacement": "h ^= h >> 29;",
           "occurrences": 1,
@@ -368,7 +368,7 @@
       "mutation": [
         {
           "control": "identity-half",
-          "file": "src/coord.rs",
+          "file": "src/map/coord.rs",
           "needle": "id: lo,",
           "replacement": "id: hi,",
           "occurrences": 1,
@@ -419,7 +419,7 @@
       "mutation": [
         {
           "control": "placement-fold-rotate",
-          "file": "src/coord.rs",
+          "file": "src/map/coord.rs",
           "needle": "place: hi.rotate_left(32) ^ lo,",
           "replacement": "place: hi ^ lo,",
           "occurrences": 1,
@@ -499,7 +499,7 @@
       "mutation": [
         {
           "control": "spread-step-rotate",
-          "file": "src/coord.rs",
+          "file": "src/map/coord.rs",
           "needle": "hi.rotate_left(32) ^ lo",
           "replacement": "hi.rotate_left(31) ^ lo",
           "occurrences": 1,
@@ -571,7 +571,7 @@
       "mutation": [
         {
           "control": "extra-wrapping-mul",
-          "file": "src/coord.rs",
+          "file": "src/map/coord.rs",
           "needle": "id.wrapping_mul(PHI_INV)",
           "replacement": "id.wrapping_mul(PHI_INV).wrapping_mul(2)",
           "occurrences": 1,
@@ -867,7 +867,7 @@
       "mutation": [
         {
           "control": "lane-advance",
-          "file": "src/engine/hadamard.rs",
+          "file": "src/engine/ops/hadamard.rs",
           "needle": "lane += 1;",
           "replacement": "lane += 2;",
           "occurrences": 1,
@@ -998,7 +998,7 @@
       "mutation": [
         {
           "control": "codec-key-source",
-          "file": "src/table/keyrep.rs",
+          "file": "src/map/table/keyrep.rs",
           "needle": "    let id = coord::spread(key.cast_unsigned()).id;\n    let _ = address;\n    id\n",
           "replacement": "    let id = coord::spread(key.cast_unsigned()).place;\n    let _ = address;\n    id\n",
           "occurrences": 1,
@@ -1053,7 +1053,7 @@
       "mutation": [
         {
           "control": "double-unspread",
-          "file": "src/table/keyrep.rs",
+          "file": "src/map/table/keyrep.rs",
           "needle": "coord::unspread(identity).cast_signed()",
           "replacement": "coord::unspread(coord::unspread(identity)).cast_signed()",
           "occurrences": 1,
@@ -1161,7 +1161,7 @@
       "mutation": [
         {
           "control": "output-cursor-advance",
-          "file": "src/engine/matvec.rs",
+          "file": "src/engine/ops/matvec.rs",
           "needle": "o += 1;",
           "replacement": "o += 2;",
           "occurrences": 1,
@@ -1201,7 +1201,7 @@
       "mutation": [
         {
           "control": "accumulator-loop-guard",
-          "file": "src/engine/matvec.rs",
+          "file": "src/engine/ops/matvec.rs",
           "needle": "while i < w_row.len() && acc_ok {",
           "replacement": "while i < w_row.len() && acc_ok && false {",
           "occurrences": 1,
@@ -1379,7 +1379,7 @@
       "mutation": [
         {
           "control": "storage-error-payload",
-          "file": "src/table/resources.rs",
+          "file": "src/map/table/resources.rs",
           "needle": "Err(error) => PreparedResult::Refused(error),",
           "replacement": "Err(_error) => PreparedResult::Refused(StorageError::AllocationFailed),",
           "occurrences": 1,
@@ -1570,7 +1570,7 @@
       "mutation": [
         {
           "control": "traversal-cursor-advance",
-          "file": "src/table.rs",
+          "file": "src/map/table.rs",
           "needle": "entry_at += 1;",
           "replacement": "entry_at += 2;",
           "occurrences": 1,
@@ -1610,7 +1610,7 @@
       "mutation": [
         {
           "control": "slot-liveness-flag",
-          "file": "src/table.rs",
+          "file": "src/map/table.rs",
           "needle": "reserved.resident.slots[index] = FlatSlot {\n                live: true,",
           "replacement": "reserved.resident.slots[index] = FlatSlot {\n                live: false,",
           "occurrences": 1,
@@ -1671,7 +1671,7 @@
       "mutation": [
         {
           "control": "slot-liveness-and-sigma",
-          "file": "src/table.rs",
+          "file": "src/map/table.rs",
           "needle": "            reserved.resident.slots[index] = FlatSlot {\n                live: true,\n                sigma: entry_sigma,\n",
           "replacement": "            reserved.resident.slots[index] = FlatSlot {\n                live: false,\n                sigma: entry_sigma,\n",
           "occurrences": 1,
@@ -1724,7 +1724,7 @@
       "mutation": [
         {
           "control": "normalisation-loop-advance",
-          "file": "src/engine/norm.rs",
+          "file": "src/engine/ops/norm.rs",
           "needle": "i += 1;",
           "replacement": "i += 2;",
           "occurrences": 2,
@@ -1786,7 +1786,7 @@
       "mutation": [
         {
           "control": "head-rotate-pair-advance",
-          "file": "src/engine/rope.rs",
+          "file": "src/engine/ops/rope.rs",
           "needle": "j += 1;\n        }\n        if !ok {",
           "replacement": "j += 2;\n        }\n        if !ok {",
           "occurrences": 1,
@@ -1834,7 +1834,7 @@
       "mutation": [
         {
           "control": "selection-pass-cursor",
-          "file": "src/engine/moe.rs",
+          "file": "src/engine/ops/moe.rs",
           "needle": "        pass += 1;",
           "replacement": "        pass += 2;",
           "occurrences": 1,
@@ -1982,8 +1982,8 @@
       "flock_wait_s": 530,
       "lane": "/tmp/opencode/apeiron-lane.lock",
       "extraction_substitution": {
-        "file": "src/engine/matvec.rs",
-        "note": "NEEDLE/REPLACEMENT: the proposed widening-mul body extracted into proof/resource/RowDotProposedSource.lean; src/engine/matvec.rs itself is unchanged by this gate (receipt `trust` field).",
+        "file": "src/engine/ops/matvec.rs",
+        "note": "NEEDLE/REPLACEMENT: the proposed widening-mul body extracted into proof/resource/RowDotProposedSource.lean; src/engine/ops/matvec.rs itself is unchanged by this gate (receipt `trust` field).",
         "needle": "        match a.checked_mul(b) {\n            Some(prod) => match acc.checked_add(prod) {\n                Some(total) => acc = total,\n                None => acc_ok = false,\n            },\n            None => acc_ok = false,\n        }\n",
         "replacement": "        let prod = a * b;\n        match acc.checked_add(prod) {\n            Some(total) => acc = total,\n            None => acc_ok = false,\n        }\n",
         "occurrences": 1
@@ -2009,7 +2009,7 @@
       "mutation": [
         {
           "control": "loop-cursor-advance",
-          "file": "src/engine/matvec.rs",
+          "file": "src/engine/ops/matvec.rs",
           "needle": "i += 1;",
           "replacement": "i += 2;",
           "occurrences": 1,
@@ -2070,7 +2070,7 @@
       "mutation": [
         {
           "control": "bin-position-advance",
-          "file": "src/table/partition.rs",
+          "file": "src/map/table/partition.rs",
           "needle": "                }\n                at += 1;\n            }\n            worker += 1;",
           "replacement": "                }\n                at += 2;\n            }\n            worker += 1;",
           "occurrences": 1,
@@ -2142,7 +2142,7 @@
       "mutation": [
         {
           "control": "denominator-guard",
-          "file": "src/engine/silu.rs",
+          "file": "src/engine/ops/silu.rs",
           "needle": "if den <= 0 {",
           "replacement": "if den < 0 {",
           "occurrences": 1,
@@ -2203,7 +2203,7 @@
       "mutation": [
         {
           "control": "stored-traversal-cursor-advance",
-          "file": "src/table.rs",
+          "file": "src/map/table.rs",
           "needle": "            entry_at += 1;",
           "replacement": "            entry_at += 2;",
           "occurrences": 1,
@@ -2432,7 +2432,7 @@
       }
     ],
     "attribution": {
-      "Capacity": "CAPACITY_EXTRACTION_DRIFT: the gate extracts the real src/table.rs, modified and uncommitted in this tree, so the extraction no longer equals the committed proof/resource/CapacitySource.lean",
+      "Capacity": "CAPACITY_EXTRACTION_DRIFT: the gate extracts the real src/map/table.rs, modified and uncommitted in this tree, so the extraction no longer equals the committed proof/resource/CapacitySource.lean",
       "RegenRelocateEntry": "REGEN_RELOCATE_ENTRY_EXTRACTION_DRIFT: same cause; MODULES includes table.rs",
       "LmHead": "LmHeadResource.dot_body_visit: forbidden axioms [sorryAx] -- a sorry in the committed proof/resource/LmHeadResource.lean, the open APEIRON-E3-W1 item"
     },

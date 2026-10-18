@@ -30,7 +30,7 @@
     "song_revision": "47869e76f982cfa3085a8618a82b80463e22ef46",
     "files": [
       {"path": "src/scalar.rs", "sha256": "9199e955304cb3d54fe973ac5881f219d4c6f71b4be001a0d32a6fb16ffde92e"},
-      {"path": "src/table.rs", "sha256": "f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3"},
+      {"path": "src/map/table.rs", "sha256": "f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3"},
       {"path": "song/src/table/table.slang", "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"}
     ]
   },
@@ -62,7 +62,7 @@
       },
       "entry_points": {
         "rust": [
-          {"symbol": "WordMerge::merge", "file": "src/table.rs", "lang": "rust", "role": "concrete Merge<i64> wrapping-add method"},
+          {"symbol": "WordMerge::merge", "file": "src/map/table.rs", "lang": "rust", "role": "concrete Merge<i64> wrapping-add method"},
           {"symbol": "<i64 as Ring>::add", "file": "src/scalar.rs", "lang": "rust", "role": "wrapping i64 ring-addition instance method"}
         ],
         "song": [
@@ -77,7 +77,7 @@
       "admission": {
         "rust": {
           "predicate": "The merge admits every (i64, i64); i64 as Ring add is total wrapping. There is no merge-level refusal; admission is inherited from the table write (insert_with).",
-          "source": "src/table.rs, src/scalar.rs"
+          "source": "src/map/table.rs, src/scalar.rs"
         },
         "song": {
           "predicate": "mergeAcc admits every pair. The inline addition in tableInsertWith executes only for an existing key with merge = MERGE_ACC, after capacity, key, merge-code and slot checks succeed. mergeAcc's law givens require 0 <= left, right <= COORD_CEILING; the inline arm carries no such guard.",
@@ -112,7 +112,7 @@
         "artifacts": [
           {"name": "apeiron_word.denote_wrapping_add", "module": "Denotation.lean", "root": "bridge"}
         ],
-        "rejecting_control": "Change the Rust merge body from new.wrapping_add(old) to new.wrapping_sub(old) in a throwaway copy of src/table.rs, re-extract, and proof/regen.sh --check fails on the generated-body diff; restoring passes. This is an extraction-drift control; the semantic Song refinement remains the open obligation."
+        "rejecting_control": "Change the Rust merge body from new.wrapping_add(old) to new.wrapping_sub(old) in a throwaway copy of src/map/table.rs, re-extract, and proof/regen.sh --check fails on the generated-body diff; restoring passes. This is an extraction-drift control; the semantic Song refinement remains the open obligation."
       }
     },
     {
@@ -135,9 +135,9 @@
       },
       "entry_points": {
         "rust": [
-          {"symbol": "Table::new", "file": "src/table.rs", "lang": "rust", "role": "constructor"},
-          {"symbol": "Table::get", "file": "src/table.rs", "lang": "rust", "role": "total read with stored default"},
-          {"symbol": "Table::insert_with", "file": "src/table.rs", "lang": "rust", "role": "merge-write with refusal"}
+          {"symbol": "Table::new", "file": "src/map/table.rs", "lang": "rust", "role": "constructor"},
+          {"symbol": "Table::get", "file": "src/map/table.rs", "lang": "rust", "role": "total read with stored default"},
+          {"symbol": "Table::insert_with", "file": "src/map/table.rs", "lang": "rust", "role": "merge-write with refusal"}
         ],
         "song": [
           {"symbol": "tableInit", "file": "song/src/table/table.slang", "lang": "iota", "role": "initialize slots to TABLE_EMPTY"},
@@ -162,7 +162,7 @@
       "admission": {
         "rust": {
           "predicate": "Rust N = 0 is a supported zero-capacity configuration, not an unsupported input; writes return ShardFull. Full-capacity refusal requires an absent key. Existing keys can still update in a full Rust shard. Every explicit refusal occurs before any slot write and changes no field; earlier successful calls in a sequence remain visible.",
-          "source": "src/table.rs"
+          "source": "src/map/table.rs"
         },
         "song": {
           "predicate": "On valid memory, Song tableInit returns 0 after initialization and returns -1 without writes for invalid capacity. tableFind returns a slot index or -1; tableGet returns the stored value or -1. Reads do not write. Every explicit tableInsertWith refusal occurs before slot writes and leaves the table unchanged; earlier successful calls in a sequence remain visible. Invalid memory/address extent and stack exhaustion have no checked refusal encoding in this profile.",
@@ -246,10 +246,10 @@
     },
     {
       "id": "B6",
-      "counterpart": "Rust src/table.rs::Table::build is transactional (Result<Self, StorageError>, no partial table); Song has only per-insert tableInsertWith plus tableInit and no transactional build.",
+      "counterpart": "Rust src/map/table.rs::Table::build is transactional (Result<Self, StorageError>, no partial table); Song has only per-insert tableInsertWith plus tableInit and no transactional build.",
       "reason": "Song has no transactional build. Rust returns Err without exposing its locally constructed partial table; this is not an empty-table return. A separate composition task must specify Song's externally observable success and refusal post-state. A success-only restricted-domain result does not discharge B6's refusal/resource obligation.",
       "canonical_theorem": {"name": "Apeiron.Table.get_build_acc", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
-      "rust_entry": {"symbol": "Table::build", "file": "src/table.rs", "lang": "rust"},
+      "rust_entry": {"symbol": "Table::build", "file": "src/map/table.rs", "lang": "rust"},
       "status": "blocker"
     }
   ],

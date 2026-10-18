@@ -24,9 +24,9 @@ use apeiron::format::bpe::Bpe;
 use apeiron::format::gguf::Gguf;
 use apeiron::gpu::decode::GpuDecode;
 use apeiron::gpu::decode::{make_step_named, rec_step, GpuCtx};
+use apeiron::gpu::nn::{attn_prefill_coopmat_bytes, quantize_batch_bytes};
+use apeiron::gpu::simt::Carrier;
 use apeiron::gpu::vulkan::*;
-use apeiron::simt::Carrier;
-use apeiron::simt_nn::{attn_prefill_coopmat_bytes, quantize_batch_bytes};
 
 const MODEL: &str = "models/gguf/qwen05b-Q4_K_M.gguf";
 const TOKENIZER: &str = "models/qwen2.5-0.5b/tokenizer.json";

@@ -2,7 +2,7 @@
 //!
 //! # Contract
 //! Evaluates the per-head affine recurrence and causal convolution in IEEE 754 binary32 arithmetic
-//! on [`F32`] (a binary32 bit pattern, `crate::engine::fp`):
+//! on [`F32`] (a binary32 bit pattern, `crate::engine::num::fp`):
 //! - State matrix $S_t \in \mathbb{R}^{dk \times w}$, initialized to $+0.0\text{f32}$.
 //! - Recurrence: $S_t = \text{decay} \cdot S_{t-1} + k_t d_t^T$, where $d_t = \beta_t (v_t - S_{t-1}^T k_t)$.
 //! - Readout: $o_t = S_t^T q_t = S_{t-1}^T q_t + d_t (k_t^T q_t)$, written directly into caller slice `o: &mut [F32]`.
@@ -38,8 +38,8 @@
     reason = "mathematical formulas and LaTeX notation in doc comments"
 )]
 
-use crate::engine::fp::F32;
-use crate::engine::norm::NormError;
+use crate::engine::num::fp::F32;
+use crate::engine::ops::norm::NormError;
 use crate::engine::step::StepError;
 
 #[cfg(target_arch = "x86_64")]
@@ -247,7 +247,7 @@ pub(crate) fn delta_step_f32_avx2(
     beta: F32,
 ) {
     #[cfg(target_arch = "x86_64")]
-    if v.len().is_multiple_of(8) && v.len() <= 128 && crate::engine::fp::prim::cpu_avx2_fma() {
+    if v.len().is_multiple_of(8) && v.len() <= 128 && crate::engine::num::fp::prim::cpu_avx2_fma() {
         return unsafe { delta_step_f32_avx2_inner(s, o, q, k, v, decay, beta) };
     }
     delta_step_f32_scalar(s, o, q, k, v, decay, beta);
@@ -604,7 +604,7 @@ pub(crate) unsafe fn l2_norm_sum_sq_avx2_inner(x: &[F32]) -> F32 {
 #[inline]
 pub(crate) fn l2_norm_sum_sq_avx2(x: &[F32]) -> F32 {
     #[cfg(target_arch = "x86_64")]
-    if crate::engine::fp::prim::cpu_avx2_fma() {
+    if crate::engine::num::fp::prim::cpu_avx2_fma() {
         return unsafe { l2_norm_sum_sq_avx2_inner(x) };
     }
     l2_norm_sum_sq_scalar(x)
@@ -678,7 +678,7 @@ pub(crate) fn l2_normalize_f32_in_place(
     scale_multiplier: F32,
 ) -> Result<(), StepError> {
     #[cfg(target_arch = "x86_64")]
-    if crate::engine::fp::prim::cpu_avx2_fma() {
+    if crate::engine::num::fp::prim::cpu_avx2_fma() {
         return unsafe { l2_normalize_f32_in_place_avx2_inner(x, eps, scale_multiplier) };
     }
     l2_normalize_f32_in_place_scalar(x, eps, scale_multiplier)
@@ -814,7 +814,7 @@ pub(crate) fn stage2_gated_norm_f32(
     dst: &mut [i64],
 ) -> Result<(), StepError> {
     #[cfg(target_arch = "x86_64")]
-    if crate::engine::fp::prim::cpu_avx2_fma() {
+    if crate::engine::num::fp::prim::cpu_avx2_fma() {
         return unsafe { stage2_gated_norm_f32_avx2_inner(o, z, ssm_norm, eps, dst) };
     }
     stage2_gated_norm_f32_scalar(o, z, ssm_norm, eps, dst)

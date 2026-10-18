@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Extract and check the real SPIR-V DP4A fragment checker in a bounded private build.
 
-The extraction unit is its own narrow forwarding wrapper over `src/spirv/mod.rs` alone: the shared
-`proof/extract/lib.rs` does not currently compile, so this gate never reads it. `src/spirv/check.rs`
-imports only the standard library, so the real closure is `src/spirv/mod.rs` -> `src/spirv/check.rs`
+The extraction unit is its own narrow forwarding wrapper over `src/gpu/spirv/mod.rs` alone: the shared
+`proof/extract/lib.rs` does not currently compile, so this gate never reads it. `src/gpu/spirv/check.rs`
+imports only the standard library, so the real closure is `src/gpu/spirv/mod.rs` -> `src/gpu/spirv/check.rs`
 with no crate mirror. The only new code is the typed forwarding wrapper, byte-identical in effect to
 `proof/extract/lib.rs`'s `word_check_fragment`; it restates no formula.
 
@@ -58,16 +58,16 @@ def run(argv, cwd, label, require=True):
         raise RuntimeError(f'{label}_REJECT {p.returncode}\n{text[-3500:]}')
     return p.returncode,text
 
-# The real source closure the wrapper compiles. `src/spirv/mod.rs` declares `pub mod check;`, so the
-# `#[path]`-declared `spirv` module resolves `check` against the real `src/spirv/` directory and pulls
-# the real `src/spirv/check.rs`; the checker body imports only the standard library, so no other
+# The real source closure the wrapper compiles. `src/gpu/spirv/mod.rs` declares `pub mod check;`, so the
+# `#[path]`-declared `spirv` module resolves `check` against the real `src/gpu/spirv/` directory and pulls
+# the real `src/gpu/spirv/check.rs`; the checker body imports only the standard library, so no other
 # mirror is needed. Only `mod` varies with the control copy; the wrapper is byte-identical to
 # `proof/extract/lib.rs` lines 956-967.
 LIB_TEMPLATE = '''#[path = {mod}]
 pub mod spirv;
 
 /// Typed forwarding wrapper: it fixes the slice and result element types and calls the real
-/// `src/spirv/check.rs` `check_fragment` body, the same call `proof/extract/lib.rs`
+/// `src/gpu/spirv/check.rs` `check_fragment` body, the same call `proof/extract/lib.rs`
 /// `word_check_fragment` makes. It restates no formula.
 pub fn word_check_fragment(words: &[u32]) -> Result<(), spirv::check::CheckError> {{
     spirv::check_fragment(words)
@@ -96,8 +96,8 @@ def extract(source, label):
     # exactly this, with the same repository-owned allowlist).
     run(['python3',str(ROOT/'proof/strip-modeled-axioms.py'),str(generated)],project,label+'-strip')
     generated.write_text(generated.read_text()
-        .replace(str(source), 'src/spirv/mod.rs')
-        .replace(str(ROOT/'src/spirv/check.rs'), 'src/spirv/check.rs'))
+        .replace(str(source), 'src/gpu/spirv/mod.rs')
+        .replace(str(ROOT/'src/gpu/spirv/check.rs'), 'src/gpu/spirv/check.rs'))
     if re.search(r'\b(axiom|sorry|admit)\b', generated.read_text()):
         raise RuntimeError('CHECK_FRAGMENT_UNMODELED_SOURCE')
     return generated
@@ -117,7 +117,7 @@ def prepare_lean():
 
 def main():
     args=argparse.ArgumentParser();args.add_argument('--prepare',action='store_true');args.add_argument('--check',action='store_true');args.add_argument('--controls',action='store_true');a=args.parse_args()
-    source=ROOT/'src/spirv/mod.rs'
+    source=ROOT/'src/gpu/spirv/mod.rs'
     run(['rustc','--version'],ROOT,'rustc-version')
     run(['cargo','--version'],ROOT,'cargo-version')
     run(['lean','--version'],ROOT,'lean-version')
@@ -133,12 +133,12 @@ def main():
     if 'CHECK_FRAGMENT_KERNEL_OK' not in text:raise RuntimeError('CHECK_FRAGMENT_AUDIT_MISSING')
     if a.controls:
         # REAL-SOURCE mutation: the D1 zero-`WordCount` guard of the actual scan loop. The mutated
-        # tree is a scratch mirror of `src/spirv/` (real `mod.rs`, mutated `check.rs`), so the
+        # tree is a scratch mirror of `src/gpu/spirv/` (real `mod.rs`, mutated `check.rs`), so the
         # `#[path]` wiring and the module layout are the production ones.
-        original=(ROOT/'src/spirv/check.rs').read_text();needle='if word_count == 0 {'
+        original=(ROOT/'src/gpu/spirv/check.rs').read_text();needle='if word_count == 0 {'
         if original.count(needle)!=1:raise RuntimeError('CHECK_FRAGMENT_CONTROL_TARGET_MISSING')
         mirror=SCRATCH/'spirv-mutant';mirror.mkdir()
-        shutil.copyfile(ROOT/'src/spirv/mod.rs',mirror/'mod.rs')
+        shutil.copyfile(ROOT/'src/gpu/spirv/mod.rs',mirror/'mod.rs')
         mutant=mirror/'check.rs';mutant.write_text(original.replace(needle,'if word_count == 1 {'))
         freshmut=extract(mirror/'mod.rs','mutant');shutil.copyfile(freshmut,p/'CheckFragmentSource.lean')
         code,text=run(['lake','build','CheckFragmentResource'],p,'mutant-proof',require=False)
@@ -158,6 +158,6 @@ if __name__=='__main__':
     try:
         main();status=0
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/spirv/mod.rs',ROOT/'src/spirv/check.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/CheckFragment_gate.py',ROOT/'proof/resource/CheckFragmentSource.lean',ROOT/'proof/resource/CheckFragmentResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/gpu/spirv/mod.rs',ROOT/'src/gpu/spirv/check.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/CheckFragment_gate.py',ROOT/'proof/resource/CheckFragmentSource.lean',ROOT/'proof/resource/CheckFragmentResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
         (OUT/(SCRATCH.name+'-receipt.json')).write_text(json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=BUDGET,argv=[sys.executable,*sys.argv],lane=LANE,memory_max='12G',swap_max=0,threads=1,scratch=str(SCRATCH),deadline=os.environ.get('CHECK_FRAGMENT_DEADLINE'),records=RECORDS,sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, compiler, IO/process/dependencies; the work measure counts scan iterations and instruction words under named premises and excludes GPU/hardware timing'),indent=2)+'\n')
         shutil.rmtree(SCRATCH,ignore_errors=True)

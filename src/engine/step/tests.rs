@@ -503,7 +503,7 @@ fn step_logits_is_bit_identical_to_the_sequential_reference() {
     // exercises the scoped-thread branch rather than the single-chunk fast path.
     if std::thread::available_parallelism().map_or(1, std::num::NonZero::get) >= 2 {
         assert!(
-            crate::engine::par::row_chunk_budget(F_FF) >= 2,
+            crate::engine::ops::par::row_chunk_budget(F_FF) >= 2,
             "the fixture must exercise the chunked path"
         );
     }

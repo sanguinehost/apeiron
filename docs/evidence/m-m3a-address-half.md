@@ -7,7 +7,7 @@ Rows: `APEIRON-M-M3a` (`apeiron-m-m3a-land-the-m-Clps3Wt72UJCDxUGLcOlOe`), `APEI
 **`src/lib.rs`** — restore `#[cfg(feature = "gpu")] pub mod gpu;` (dropped by merge `920f87c`).
 Gate: `cargo build --locked --features gpu` exit 0, `Finished dev profile … in 6.43s`.
 
-**`src/table.rs`, `src/table/state.rs`, `src/table/tests.rs`** — M-M3a's **address half only**: a shared
+**`src/map/table.rs`, `src/map/table/state.rs`, `src/map/table/tests.rs`** — M-M3a's **address half only**: a shared
 `flat_index(lane_bits, lanes, lane, shard)`, `Flat::lane_bits`, `Flat::index` as shift+add, and
 `Flat::reserve` refusing a non-power-of-two lane count, with the bijection + refusal tests. The
 in-slot word fusion is **not** taken (measured +3 insns / +8 B/slot; refuted).

@@ -66,7 +66,7 @@ cooperative-matrix lane stays read-only until it is met.
 |---|---|---|
 | Ownership correction, APEIRON-GPU-PREFILL-W2-T0 | lead: this document, resource-guided-evolution.md, artifacts/gpu-prefill/native-boundary-review.md | 60s document/domain check; missing native ownership or admission boundary rejects; Sol review |
 | Actual CPU fixtures, APEIRON-GPU-PREFILL-W2-T1 | Sol: src/engine/kern/gemm.rs test-only module hook, src/engine/kern/native_gpu_probe.rs | 480s focused cargo test --lib engine::kern::gemm::native_gpu_probe::native_q8_prefill_fixture -- --ignored --exact; producer writes agreed binary; missing output path rejects |
-| Native baseline, APEIRON-GPU-PREFILL-W2-T2 | Luna: src/spirv/q8_tile.comp, tools/gpu/q8_driver.c, tools/gpu/q8_gate.py | 540s whole gate compile/validate/actual CPU fixtures/device parity; negate real dot update makes red; restoration green |
+| Native baseline, APEIRON-GPU-PREFILL-W2-T2 | Luna: src/gpu/spirv/q8_tile.comp, tools/gpu/q8_driver.c, tools/gpu/q8_gate.py | 540s whole gate compile/validate/actual CPU fixtures/device parity; negate real dot update makes red; restoration green |
 | Native source refinement | lead selects <=3 actual extraction/model/refinement paths after closure inspection | gate-first; real conversion and integer-dot source links, canonical RingCell attribution, axiom/mutation controls |
 | Cost and production admission | separately scoped registry/cost tasks, independent verdict | joint reachable witness, universal observation/refusal preservation, strict registered improvement; production positive/red/restore |
 | Serving and matched GPU prefill | admitted worker and lead measurement | native serving integration and exact continuation; five quiet paired rounds against matched llama.cpp GPU |
@@ -334,7 +334,7 @@ artifacts/gpu-prefill/native-prerequisites-acceptance.json.
 
 ## Wave 5: measured native baseline, matched comparator, source-cost and cooperative-matrix analysis
 
-Source base `b832673`. Live state re-read before dispatch: `src/spirv/q8_tile.comp`,
+Source base `b832673`. Live state re-read before dispatch: `src/gpu/spirv/q8_tile.comp`,
 `tools/gpu/q8_driver.c`, `tools/gpu/q8_gate.py` (removed; at 2f15d6a9), `tools/gpu/quantizer_gate.py` (removed; at 2f15d6a9) and
 `proof/native/` are clean at `b832673`; `tools/dispatch/` is untracked in this checkout (its
 `admit.py`, `run`, `contracts.json`, `main.rs` are live but not committed). Fixture identities

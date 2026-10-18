@@ -279,7 +279,7 @@ if [ "$PF_RC" -ne 0 ]; then
     exit "$PF_RC"
 fi
 
-echo "source:    src/table.rs sha256 $(sha256sum "$REPO_DIR/src/table.rs" | awk '{print $1}')"
+echo "source:    src/map/table.rs sha256 $(sha256sum "$REPO_DIR/src/map/table.rs" | awk '{print $1}')"
 GEN_SHA_BEFORE=$(sha256sum "$GEN" | awk '{print $1}')
 echo "baseline:  proof/ApeironWord.lean sha256 $GEN_SHA_BEFORE"
 echo
@@ -329,7 +329,7 @@ echo
 
 # ---- baseline probe -------------------------------------------------------------
 # The unmutated copy decides whether the freshness step can be attributed at all. A stale
-# baseline is a SKIP, not a FAIL: a concurrent source lane can move `src/table.rs` ahead of the
+# baseline is a SKIP, not a FAIL: a concurrent source lane can move `src/map/table.rs` ahead of the
 # committed `ApeironWord.lean`, and no mutation check can then attribute its own red.
 run_locked "$T_EXTRACT" "$RUN" "$RUN/proof/regen.sh" --check > "$RUN/baseline.log" 2>&1
 BASE_RC=$?

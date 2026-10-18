@@ -29,8 +29,8 @@ SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=OUT))
 # crate; the mutation control edits only the copy, never the working tree.
 SOURCES = [
     'src/format/quant.rs', 'src/format/gguf.rs',
-    'src/engine/f32_convert.rs', 'src/engine/value.rs', 'src/engine/error.rs',
-    'src/engine/dequant.rs', 'src/engine/dequant_lowbit.rs', 'src/engine/matvec.rs',
+    'src/engine/num/f32_convert.rs', 'src/engine/num/value.rs', 'src/engine/error.rs',
+    'src/engine/num/dequant.rs', 'src/engine/num/dequant_lowbit.rs', 'src/engine/ops/matvec.rs',
 ]
 
 # The generated declarations this gate requires, and the ones it compares against the corpus.
@@ -52,15 +52,15 @@ pub mod format {
     pub use super::{gguf, quant};
 }
 
-#[path = "../../src/engine/f32_convert.rs"]
+#[path = "../../src/engine/num/f32_convert.rs"]
 pub mod f32_convert;
-#[path = "../../src/engine/value.rs"]
+#[path = "../../src/engine/num/value.rs"]
 pub mod value;
 #[path = "../../src/engine/error.rs"]
 pub mod error;
-#[path = "../../src/engine/dequant.rs"]
+#[path = "../../src/engine/num/dequant.rs"]
 pub mod dequant;
-#[path = "../../src/engine/matvec.rs"]
+#[path = "../../src/engine/ops/matvec.rs"]
 pub mod matvec;
 
 /// Mirror of `crate::engine` for the extraction unit.
@@ -276,13 +276,13 @@ def main():
     print('MATVEC_KERNEL_OK')
     if a.controls:
         # Mutation control on the real source: one copy edited, in a throwaway tree.
-        original = (ROOT/'src/engine/matvec.rs').read_text()
+        original = (ROOT/'src/engine/ops/matvec.rs').read_text()
         needle = 'while i < w_row.len() && acc_ok {'
         if original.count(needle) != 1:
             raise RuntimeError('MATVEC_CONTROL_TARGET_MISSING')
         mutant_root = SCRATCH/'mutant'
         make_root(mutant_root)
-        mutant = mutant_root/'src/engine/matvec.rs'
+        mutant = mutant_root/'src/engine/ops/matvec.rs'
         mutant.write_text(original.replace(
             needle, 'while i < w_row.len() && acc_ok && false {'))
         freshmut = extract('mutant', mutant_root, source_override=mutant)
@@ -315,8 +315,8 @@ if __name__ == '__main__':
     finally:
         source_paths = [TOOLS/'target/aeneas/charon-driver', TOOLS/'target/aeneas-model/lean/lean-toolchain',
                         TOOLS/'proof/dispatch/lean-toolchain', ROOT/'proof/ApeironWord.lean',
-                        ROOT/'src/engine/matvec.rs', ROOT/'src/engine/dequant.rs',
-                        ROOT/'src/engine/value.rs', ROOT/'src/engine/error.rs',
+                        ROOT/'src/engine/ops/matvec.rs', ROOT/'src/engine/num/dequant.rs',
+                        ROOT/'src/engine/num/value.rs', ROOT/'src/engine/error.rs',
                         ROOT/'src/format/quant.rs', ROOT/'src/format/gguf.rs',
                         ROOT/'proof/resource/Matvec_gate.py', ROOT/'proof/resource/MatvecSource.lean',
                         ROOT/'proof/resource/MatvecResource.lean', TOOLS/'target/aeneas/charon',

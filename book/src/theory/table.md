@@ -2,8 +2,8 @@
 
 `apeiron::freq::Table<K, V>` is the executed table: a flat array of 64-bit coordinates, a parallel
 array of values, and a capped probe with a deterministic overflow tree. It is the port of the
-`hashtrinity` table at the revision recorded in `src/freq.rs`, and it is the body the benchmarks and
-the refinement target. `apeiron::Table` (`src/table.rs`) is the generic growable table specified by the corpus
+`hashtrinity` table at the revision recorded in `src/map/freq.rs`, and it is the body the benchmarks and
+the refinement target. `apeiron::Table` (`src/map/table.rs`) is the generic growable table specified by the corpus
 (`Apeiron.Table.HMap`, `Apeiron.Table.get`, `Apeiron.Table.insertWith`, `Apeiron.Table.build`); it is slated for removal once the executed body is
 verified, and this chapter does not describe it further.
 

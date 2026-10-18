@@ -211,7 +211,7 @@ const LANES: usize = 8;
 /// `mul_q32(a, s)` for a sigmoid word `s`.
 #[inline(always)]
 fn gate_product(a: i64, s: i64) -> Result<i64, StepError> {
-    crate::engine::value::mul_q32(a, s).ok_or(StepError::Overflow)
+    crate::engine::num::value::mul_q32(a, s).ok_or(StepError::Overflow)
 }
 
 /// Widest rotary half (`rot / 2`) [`rotate_pair_prefixes`] holds on the stack.
@@ -324,7 +324,7 @@ pub(crate) fn rotate_pair_prefixes(
 )]
 mod tests {
     use super::*;
-    use crate::engine::fp::F64;
+    use crate::engine::num::fp::F64;
     use crate::numeric::fixed_ln::fixed_sigmoid;
     use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
@@ -425,7 +425,7 @@ mod tests {
         time("oracle", &|a| {
             for i in 0..n {
                 let g = fixed_sigmoid(gate[i]).unwrap();
-                a[i] = crate::engine::value::mul_q32(a[i], g).unwrap();
+                a[i] = crate::engine::num::value::mul_q32(a[i], g).unwrap();
             }
         });
         time("twin", &|a| sigmoid_gate(a, &gate).unwrap());
@@ -444,7 +444,7 @@ mod tests {
         let mut want = att0.clone();
         for i in 0..n {
             let g = fixed_sigmoid(gate[i]).unwrap();
-            want[i] = crate::engine::value::mul_q32(want[i], g).unwrap();
+            want[i] = crate::engine::num::value::mul_q32(want[i], g).unwrap();
         }
         let mut got = att0.clone();
         sigmoid_gate(&mut got, &gate).unwrap();
@@ -457,7 +457,7 @@ mod tests {
         let g = vec![i64::MAX, i64::MAX, i64::MIN, 0];
         let mut w = ext.clone();
         for i in 0..4 {
-            w[i] = crate::engine::value::mul_q32(w[i], fixed_sigmoid(g[i]).unwrap()).unwrap();
+            w[i] = crate::engine::num::value::mul_q32(w[i], fixed_sigmoid(g[i]).unwrap()).unwrap();
         }
         sigmoid_gate(&mut ext, &g).unwrap();
         assert_eq!(ext, w);
@@ -765,7 +765,7 @@ mod tests {
         let mut want_att = sample_att.clone();
         for i in 0..sample_att.len() {
             let g = fixed_sigmoid(sample_gate[i]).unwrap();
-            want_att[i] = crate::engine::value::mul_q32(want_att[i], g).unwrap();
+            want_att[i] = crate::engine::num::value::mul_q32(want_att[i], g).unwrap();
         }
 
         let mut got_att = sample_att.clone();

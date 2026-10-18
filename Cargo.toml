@@ -37,7 +37,7 @@ injection = []
 apeiron-derive = { path = "derive", version = "0.1.0", optional = true }
 
 # The `hashtrinity` git dependency (the REG-1 incumbent) is removed. The count face's executed body
-# is the in-tree port (`src/hashtrinity/`, re-exported through `src/freq.rs`); the external crate was
+# is the in-tree port (`src/map/hashtrinity/`, re-exported through `src/map/freq.rs`); the external crate was
 # the comparison baseline and nothing under `src/` imports it.
 
 # Thread affinity for the Q8Act worker pool (`src/engine/chart/pool.rs`).
@@ -48,7 +48,7 @@ libc = "0.2"
 # The REG-1 comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, rayon, rustc-hash,
 # twox-hash, wyhash, ahash, fnv), the harness-only `libc` (its consumer `examples/support/counter.rs`
 # is gone) and the `hashtrinity` baseline are removed with the comparison harness. `blake3`/`sha2`
-# are the reference oracles for the crypto module's tests (`src/hashtrinity/crypto.rs`) and the
+# are the reference oracles for the crypto module's tests (`src/map/hashtrinity/crypto.rs`) and the
 # bench/example digests.
 blake3 = "=1.8.7"
 sha2 = "=0.10.9"

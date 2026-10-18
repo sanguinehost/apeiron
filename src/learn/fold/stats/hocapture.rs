@@ -475,7 +475,7 @@ pub fn backward_with_taps(
     }
     expect(t, cfg.vocab, dlogits.len(), "dlogits")?;
     let rope = RopeTable::new(
-        crate::engine::fp::F64::from_f64(cfg.rope_theta),
+        crate::engine::num::fp::F64::from_f64(cfg.rope_theta),
         cfg.head_dim,
     )
     .map_err(|err| HocaptureError::Model(ModelError::Attn(AttnError::Rope(err))))?;

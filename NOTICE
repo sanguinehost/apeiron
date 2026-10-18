@@ -9,7 +9,7 @@ of the Licensor.
 
 Third-party code
 ----------------
-No third-party code is vendored. The module `src/hashtrinity/` is a port, by the
+No third-party code is vendored. The module `src/map/hashtrinity/` is a port, by the
 author, of the author's own `hashtrinity` crate, relicensed here under the terms
 of this repository. The revision `4cc14471` named in source comments is the commit of the author's
 unpublished `fold` repository that the port started from; it does not resolve in this repository.
@@ -27,7 +27,7 @@ portions.
   src/format/mod.rs            GGUF container and ggml block unpacking
   src/format/quant.rs          ggml quant block geometry and dequantization
                                (ggml/src/ggml-quants.c)
-  src/engine/dequant_lowbit.rs Q1_0, Q2_0, PQ2_0, TQ1_0, TQ2_0, PTQ1_0 block
+  src/engine/num/dequant_lowbit.rs Q1_0, Q2_0, PQ2_0, TQ1_0, TQ2_0, PTQ1_0 block
                                layouts (PrismML fork ggml-common.h, ggml-quants.c)
   src/gpu/decode/pack.rs       Q4 nibble spread (ggml-cuda/vecdotq.cuh)
   src/learn/gguf.rs            GGUF v3 writer (gguf-py/gguf/gguf_writer.py)

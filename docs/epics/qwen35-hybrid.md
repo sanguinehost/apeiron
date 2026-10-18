@@ -77,7 +77,7 @@ the scalar oracle until an extraction refinement lands. Float reference and llam
   `x < 0`, `sigmoid(x) = 1/(1 + e^{−x})`, each with an error bound in units of `2^-32` stated and tested.
 - **Partial RoPE.** Dims `0..64` of each 256-dim head rotate with the pairing llama.cpp uses for this rope type
   (Q35-T0 records it: NeoX halves `(i, i+32)` or adjacent pairs); dims `64..256` pass through. Angles come from the
-  turn ring (`src/engine/rope.rs`), θ_j = 10⁷^(−2j/64).
+  turn ring (`src/engine/ops/rope.rs`), θ_j = 10⁷^(−2j/64).
 - **Failure semantics.** Missing tensor, wrong shape, unsupported type → `EngineError`; arithmetic range → typed
   step error.
 

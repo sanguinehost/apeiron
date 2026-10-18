@@ -54,7 +54,7 @@ def extract(source, label):
     project.mkdir()
     (project/'Cargo.toml').write_text('[package]\nname="rms_norm_source"\nversion="0.0.0"\nedition="2021"\n[lib]\npath="lib.rs"\n[workspace]\n')
     (project/'lib.rs').write_text(
-        '#[path = '+json.dumps(str(TOOLS/'src/engine/value.rs'))+']\npub mod value;\n'
+        '#[path = '+json.dumps(str(TOOLS/'src/engine/num/value.rs'))+']\npub mod value;\n'
         '#[path = '+json.dumps(str(TOOLS/'src/numeric/fixed_rsqrt.rs'))+']\npub mod fixed_rsqrt;\n'
         'pub mod numeric { pub use super::fixed_rsqrt; }\n'
         'pub const FIXED_FRAC_BITS: u32 = 32;\n'
@@ -70,7 +70,7 @@ def extract(source, label):
     run([str(TOOLS/'target/aeneas/aeneas'),'-backend','lean','-dest',str(project),'-warnings-as-errors',
          '-no-progress-bar','-all-computable',str(llbc)],project,label+'-aeneas')
     generated=project/'RmsNormSource.lean'
-    generated.write_text(generated.read_text().replace(str(source), 'src/engine/norm.rs'))
+    generated.write_text(generated.read_text().replace(str(source), 'src/engine/ops/norm.rs'))
     if re.search(r'\b(axiom|sorry|admit)\b', generated.read_text()):
         raise RuntimeError('RMS_NORM_UNMODELED_SOURCE')
     return generated
@@ -90,7 +90,7 @@ def prepare_lean():
 
 def main():
     args=argparse.ArgumentParser();args.add_argument('--prepare',action='store_true');args.add_argument('--check',action='store_true');args.add_argument('--controls',action='store_true');a=args.parse_args()
-    source=ROOT/'src/engine/norm.rs'
+    source=ROOT/'src/engine/ops/norm.rs'
     run(['rustc','--version'],ROOT,'rustc-version')
     run(['cargo','--version'],ROOT,'cargo-version')
     run(['lean','--version'],ROOT,'lean-version')
@@ -127,6 +127,6 @@ if __name__=='__main__':
     try:
         main();status=0
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/engine/norm.rs',ROOT/'src/engine/value.rs',ROOT/'src/numeric/fixed_rsqrt.rs',ROOT/'proof/resource/RmsNorm_gate.py',ROOT/'proof/resource/RmsNormSource.lean',ROOT/'proof/resource/RmsNormResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/engine/ops/norm.rs',ROOT/'src/engine/num/value.rs',ROOT/'src/numeric/fixed_rsqrt.rs',ROOT/'proof/resource/RmsNorm_gate.py',ROOT/'proof/resource/RmsNormSource.lean',ROOT/'proof/resource/RmsNormResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
         (OUT/(SCRATCH.name+'-receipt.json')).write_text(json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=540,argv=[sys.executable,*sys.argv],lane='/tmp/opencode/apeiron-lane.lock',memory_max='12G',swap_max=0,threads=1,deadline=os.environ.get('RMS_NORM_DEADLINE'),records=RECORDS,sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, compiler, IO/process/dependencies; scalar source/resource claim excludes GPU/hardware timing'),indent=2)+'\n')
         shutil.rmtree(SCRATCH)

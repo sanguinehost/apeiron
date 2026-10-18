@@ -206,9 +206,9 @@ class DescriptionTests(unittest.TestCase):
         self.assertEqual(board.flatten_description(""), "")
 
     def test_labelled_gate_field_is_a_gate(self) -> None:
-        text = "Fix the table.\nSource: `src/table.rs`.\nGate: `cargo test --workspace`.\n"
+        text = "Fix the table.\nSource: `src/map/table.rs`.\nGate: `cargo test --workspace`.\n"
         self.assertEqual(board.gates_of(text), ["cargo test --workspace"])
-        self.assertEqual(board.paths_of(text), ["src/table.rs"])
+        self.assertEqual(board.paths_of(text), ["src/map/table.rs"])
 
     def test_unlabelled_backticked_invocation_is_a_gate(self) -> None:
         self.assertEqual(
@@ -253,9 +253,9 @@ class DescriptionTests(unittest.TestCase):
         self.assertEqual(board.paths_of("see `tools/rooting/check.py`"), ["tools/rooting/check.py"])
 
     def test_paths_are_collected_from_backticks_and_labels(self) -> None:
-        text = "Source: `docs/plan.md` §Status; `src/table.rs`; `proof/ApeironWord.lean`."
+        text = "Source: `docs/plan.md` §Status; `src/map/table.rs`; `proof/ApeironWord.lean`."
         self.assertEqual(
-            board.paths_of(text), ["docs/plan.md", "src/table.rs", "proof/ApeironWord.lean"]
+            board.paths_of(text), ["docs/plan.md", "src/map/table.rs", "proof/ApeironWord.lean"]
         )
 
     def test_repo_root_file_is_a_source_path(self) -> None:

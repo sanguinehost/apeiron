@@ -66,11 +66,11 @@
 //! - `prefill_with_cache`: resumes from prefix `m` (saving `m` steps of `O(n_layer · ...)` compute),
 //!   then steps the remaining `n - m` tokens. Overall speedup is proportional to `m / n`.
 
-use crate::coord::locator::ExactIdentity;
 use crate::engine::attn::KvState;
 use crate::engine::loader::Engine;
 use crate::engine::step::{StepError, StepResult};
-use crate::freq::{Coord, Table};
+use crate::map::coord::locator::ExactIdentity;
+use crate::map::freq::{Coord, Table};
 
 /// Default block boundary step in tokens.
 pub const DEFAULT_BLOCK_SIZE: usize = 16;
@@ -136,7 +136,7 @@ impl ExactIdentity for PrefixKey {
         self.0
     }
 
-    fn reserve_retain(&self) -> Result<(), crate::coord::locator::Refusal> {
+    fn reserve_retain(&self) -> Result<(), crate::map::coord::locator::Refusal> {
         Ok(())
     }
 

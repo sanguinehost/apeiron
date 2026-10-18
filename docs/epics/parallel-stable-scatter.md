@@ -65,7 +65,7 @@ cargo run --release --locked --example reg1 -- --check performance --profile ful
 
 | Claim | Grade | Evidence |
 |---|---|---|
-| Parallel and serial `Parts` have byte-identical indexes and `ends` across empty, skewed, repeated-key and worker-count cases. | tested target | Focused unit tests in `src/table/partition.rs`. |
+| Parallel and serial `Parts` have byte-identical indexes and `ends` across empty, skewed, repeated-key and worker-count cases. | tested target | Focused unit tests in `src/map/table/partition.rs`. |
 | Parallel build is logically identical to serial build for non-commutative merge across worker counts and preserves query callback order. | tested target | `cargo test --locked --test parallel`. |
 | Injected final reservation failure starts no worker, invokes no hold/clone/merge/relocation and returns no table. | tested target | Existing F3 seam plus `tests/parallel/main.rs` refusal control. |
 | Temporary scatter storage is bounded by `O(n + 256p)` words. | anchor, then inspected/tested | One private index slot per input plus fixed shard metadata per input chunk; no key/value copy. |
@@ -206,10 +206,10 @@ This constructor contract does not replace, weaken, remove or debug-gate it.
 
 | Layer | Symbol | Path and consequence |
 |---|---|---|
-| Serial reference | `Parts::of`, `partition_chunk` | `src/table/partition.rs`; exact output reference retained |
-| Parallel scatter | allocation-free chunk scatter and stable assembly helpers | `src/table/partition.rs`; production-called by `src/table/parallel.rs` |
-| Executor | `Table::{build_at_parallel,build_parallel}` | `src/table/parallel.rs`; `thread::scope` remains unextracted |
-| Runtime guard | `Parts::is_intact` | `src/table/partition.rs`; tested only and deliberately absent from extraction |
+| Serial reference | `Parts::of`, `partition_chunk` | `src/map/table/partition.rs`; exact output reference retained |
+| Parallel scatter | allocation-free chunk scatter and stable assembly helpers | `src/map/table/partition.rs`; production-called by `src/map/table/parallel.rs` |
+| Executor | `Table::{build_at_parallel,build_parallel}` | `src/map/table/parallel.rs`; `thread::scope` remains unextracted |
+| Runtime guard | `Parts::is_intact` | `src/map/table/partition.rs`; tested only and deliberately absent from extraction |
 | Physical schedule obligation | `GrowableSchedule.partition_preserves_key_streams` | implementation-specific theorem remains open |
 | Canonical authority | `Apeiron.Table.build_eq_of_key_streams_eq` | pinned `Apeiron/Table/Basic.lean:167-174`; already proved at its canonical scope |
 
@@ -307,7 +307,7 @@ Kani retirement supersedes older model-checker requirements; see [the retirement
 SCOPE:      stable scatter source/test work and matched spatial measurement; complete when focused gates/controls pass and every strict spatial pair is recorded without weakening G1
 REGISTER:   state/test/measurement with an open refinement consequence; excludes layout, routing, kernels, grouped reduction, validator removal, proof implementation and W7 composition
 CORPUS:     Apeiron/Table/Basic.lean `build_eq_of_key_streams_eq` (proved canonical authority); GrowableSchedule.partition_preserves_key_streams remains open
-REFERENCE:  /home/socol/Workspace/apeiron/src/table/partition.rs, src/table/parallel.rs, tests/parallel/main.rs and examples/micro_spatial.rs read from the supplied checkout
+REFERENCE:  /home/socol/Workspace/apeiron/src/table/partition.rs, src/map/table/parallel.rs, tests/parallel/main.rs and examples/micro_spatial.rs read from the supplied checkout
 GATE:       focused commands below; strict full-profile spatial baseline is red and no task may reduce pairs, incumbents, controls or the interval ceiling
 GRADE:      lifecycle documents anchor; source targets tested; runtime targets measured; scatter refinement open
 ```
@@ -343,8 +343,8 @@ swap, timeout and thread rules. They are integration barriers, not scatter-proof
 | Wave | Task | Files | Owner | Gate | Rejecting control |
 |---|---|---|---|---|---|
 | W0 | `APEIRON-PERF-SCATTER-W0-T1` freeze micro baseline | no edit; read `examples/micro_spatial.rs` | Flash | `cargo run --release --locked --example micro_spatial -- --controls` | Corrupt one expected build/probe digest in a throwaway copy; the gate rejects before timing, then restored gate passes. |
-| W1 | `APEIRON-PERF-SCATTER-W1-T1` stable chunk scatter primitives | `src/table/partition.rs` | Flash | `cargo test --locked --lib table::partition::tests` | Reverse two adjacent chunk runs for one shard; exact serial equality or integrity test fails, then restored gate passes. |
-| W2 | `APEIRON-PERF-SCATTER-W2-T1` reserve-all parallel integration | `src/table/parallel.rs`, `tests/parallel/main.rs` | Flash | `cargo test --locked --test parallel` | Select completion order or start scatter before final-shard reservation; non-commutative equivalence or zero-effect refusal fails, then restored gate passes. |
+| W1 | `APEIRON-PERF-SCATTER-W1-T1` stable chunk scatter primitives | `src/map/table/partition.rs` | Flash | `cargo test --locked --lib table::partition::tests` | Reverse two adjacent chunk runs for one shard; exact serial equality or integrity test fails, then restored gate passes. |
+| W2 | `APEIRON-PERF-SCATTER-W2-T1` reserve-all parallel integration | `src/map/table/parallel.rs`, `tests/parallel/main.rs` | Flash | `cargo test --locked --test parallel` | Select completion order or start scatter before final-shard reservation; non-commutative equivalence or zero-effect refusal fails, then restored gate passes. |
 | W3 | `APEIRON-PERF-SCATTER-W3-T1` focused post-change spatial measurement | no edit; read `examples/micro_spatial.rs` | Flash | `cargo run --release --locked --example micro_spatial -- --controls` | Rerun W0's digest corruption against the byte-identical harness; reject, restore, pass. |
 | W4 | `APEIRON-PERF-SCATTER-W4-T1` strict all-spatial-pair result | no edit; read existing `examples/reg1/` | Flash | strict full-profile command below | Every built-in workload/oracle/incumbent/selected-path/interval/single-failing-pair control must reject; any surviving control rejects the campaign. |
 
@@ -379,7 +379,7 @@ cargo run --release --locked --example micro_spatial -- --controls
 - **Scope:** Add checked chunk planning, pre-sized private-buffer scatter and disjoint initialized
   destination assembly helpers. Concatenate shard runs by input-chunk number and expose exact
   `Parts`/loads to the executor. Keep `Parts::of`, `partition_chunk` and `is_intact` unchanged.
-- **Files:** `src/table/partition.rs`
+- **Files:** `src/map/table/partition.rs`
 - **Depends on:** W0
 - **Grade:** tested target; no extraction/proof claim
 - **Gate:**
@@ -401,7 +401,7 @@ cargo test --locked --lib table::partition::tests
   scratch, destination, result and table-shard storage before the first scope. Retain
   `Parts::is_intact`, unchanged loads/LPT bins, per-shard kernels, joins, query-order readback and
   serial fallback.
-- **Files:** `src/table/parallel.rs`, `tests/parallel/main.rs`
+- **Files:** `src/map/table/parallel.rs`, `tests/parallel/main.rs`
 - **Depends on:** W1
 - **Grade:** tested target
 - **Gate:**

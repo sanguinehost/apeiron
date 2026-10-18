@@ -425,8 +425,8 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   module and the wrapper; `proof/regen.sh`
   `6bbc33ac71b53687b6c80a543b2a4d78dd452018aa206e304197314f49b8e156` adds the source-digest entry
   and the `--start-from` root (undeclared fourth file, reviewed and accepted: additive registration
-  only, audit logic untouched; it also completes the digest list with `src/table/prepared.rs`, which
-  `src/table.rs:215` `include!`s). `proof/corpus/Numeric/Engine/Exp.lean`
+  only, audit logic untouched; it also completes the digest list with `src/map/table/prepared.rs`, which
+  `src/map/table.rs:215` `include!`s). `proof/corpus/Numeric/Engine/Exp.lean`
   `13995ed598e785f043daeb547905afcb1696c4adf9ae78fab4f4b6427c415c5e` (98 lines) defines `q32`,
   `toReal`, `toReal128`, `window`, `epsExp`, `fixed_exp_refuses` and `fixed_exp_refines` (combined
   bound `2^-20·exp + 4/2^32`; the module doc records why the pure relative bound is false at the
@@ -1577,7 +1577,7 @@ Owners are the intended lanes; the lead assigns at dispatch. Shared caches (`pro
   `EmptyRow`/`OutOfRange` refusals). Gates: cargo trio + probe exit 0; 17 engine tests. Control: Q2_K
   slope mutation red; restore green. Residual: `F32` rows refused, `eps_fixed` conversion is a
   row-0/load concern, rows 3–8 pending (`W4-T3` RoPE running).
-- `APEIRON-GPU-SPV-W2-T3` (deepseek-flash, ~10 min of a 20/30 box — inside): `src/spirv/check.rs`
+- `APEIRON-GPU-SPV-W2-T3` (deepseek-flash, ~10 min of a 20/30 box — inside): `src/gpu/spirv/check.rs`
   `05cd1a70…` drops 196/197 — `SERVED_OPCODES: [u32; 42]`, the mechanically derived served set; the
   676 captured words contain exactly 42 distinct opcodes and neither 196 nor 197, verified before the
   edit. Gates: focused 6/6, workspace green, clippy green on the shared tree; control (`194 → 196`

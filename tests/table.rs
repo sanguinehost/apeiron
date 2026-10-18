@@ -1,13 +1,13 @@
-use apeiron::coord::address::{
+use apeiron::map::coord::address::{
     EllipticPacking, FaceCoord, FaceHome, FaceResidueCapability, ParabolicDual, Residue, H3_40,
 };
-use apeiron::coord::{spread, Packed};
-use apeiron::table::keyrep::{I64WordCodec, KeyRep, Regen, Stored};
-use apeiron::table::{
+use apeiron::map::coord::{spread, Packed};
+use apeiron::map::table::keyrep::{I64WordCodec, KeyRep, Regen, Stored};
+use apeiron::map::table::{
     AffineFoldStep, AffineMixStep, AffineStep, Home, Reduce, SearchClass, SearchLocation,
     TableAddress, WordHome,
 };
-use apeiron::{merge, table::ReplacementMerge, Cell, Sigma, Table};
+use apeiron::{map::merge, map::table::ReplacementMerge, Cell, Sigma, Table};
 
 /// The all-face semantic capability for a word key: `Faces = Sigma`, with the exact `Packed` word.
 ///
@@ -811,7 +811,7 @@ fn search_decision_reports_exhaustion_without_an_index() {
 
 /// The spill region capacity this crate's sizing rule reserves for `load` live entries.
 ///
-/// `src/table/state.rs`'s `slots_for` reserves the least power of two at or above twice the live load
+/// `src/map/table/state.rs`'s `slots_for` reserves the least power of two at or above twice the live load
 /// and at or above twice the group width; `Table::grow_spill` then takes the double of a full region,
 /// so the same geometric doubling continues above `2 * N`. The geometry is written down here rather
 /// than read back from the table, and its two documented invariants are asserted by the caller, so a
@@ -1762,18 +1762,18 @@ fn mixed_cell_table() -> Table<i64, Cell<i64>, WordHome, 16> {
 /// `Home::address` and `Home::home` of `WordHome` -- the placement adapter, an input to admission
 /// -- and the layout rules, transcribed here from the admission path:
 ///
-///   * `src/table.rs:799` `flat_index_for`: the resident slot of a direct word is
+///   * `src/map/table.rs:799` `flat_index_for`: the resident slot of a direct word is
 ///     `(word & 255) * lanes + (word >> 8)`.
-///   * `src/table.rs:1198` `insert_with_reserved`: a key whose `word >> 8` is not below `lanes`
+///   * `src/map/table.rs:1198` `insert_with_reserved`: a key whose `word >> 8` is not below `lanes`
 ///     widens `lanes` to the least power of two that admits it, and
-///     `src/table.rs:458` `selected_lanes` refuses a width over the byte budget
+///     `src/map/table.rs:458` `selected_lanes` refuses a width over the byte budget
 ///     `256 * 1024 / (256 * 32) = 32` lanes. So `lanes` is `32` at most, and every key with
 ///     `word >= 8192` is routed to spill instead of widening it.
-///   * `src/table.rs:352` `shard`: a spilled key is routed on `word & 255`.
-///   * `src/table.rs:394` `slots_for`: the first entry of a region reserves the least power of two
+///   * `src/map/table.rs:352` `shard`: a spilled key is routed on `word & 255`.
+///   * `src/map/table.rs:394` `slots_for`: the first entry of a region reserves the least power of two
 ///     at or above `max(2 * n, 2 * load) = max(32, 2) = 32` slots, and the fixture's regions hold at
 ///     most three keys, so no bounded probe cycle completes and `grow_spill` never doubles the
-///     capacity: it stays `32`, and `Region::home` (`src/table/state.rs:181`) takes the top
+///     capacity: it stays `32`, and `Region::home` (`src/map/table/state.rs:181`) takes the top
 ///     `log2 32 = 5` bits of `coord * PHI` whenever `coord = place >> 8` is not itself an index
 ///     below the capacity. Every fixture spill key's coord exceeds `32`, so each lands on its own
 ///     home slot and the linear probe walk does not displace it. The agreement with
@@ -1826,7 +1826,7 @@ fn derived_storage_order() -> Vec<i64> {
             let index = usize::try_from(if coord < u64::try_from(REGION_SLOTS).expect("32 fits") {
                 coord
             } else {
-                coord.wrapping_mul(apeiron::coord::PHI) >> (64 - REGION_BITS)
+                coord.wrapping_mul(apeiron::map::coord::PHI) >> (64 - REGION_BITS)
             })
             .expect("a region index fits a usize");
             ranked.push((true, shard_of, index, key));
@@ -1975,7 +1975,7 @@ fn encircle_reduce_all_is_the_fold_of_the_hand_derived_storage_order() {
     // The control for the order: at the non-commutative witness the mirror-image order is a
     // different accumulator, so the assertion above can fail if the traversal direction moves.
     // (`AffineFoldStep` cannot carry this control: its steps are all `<1, v>`, so `compose` on
-    // them is addition of injections and the fold is commutative -- `src/table/reduce.rs`.)
+    // them is addition of injections and the fold is commutative -- `src/map/table/reduce.rs`.)
     let backward_steps: Vec<AffineStep<i64>> = backward
         .iter()
         .map(|value| mixing.residual(value))
@@ -1993,7 +1993,7 @@ fn encircle_reduce_all_is_the_fold_of_the_hand_derived_storage_order() {
 /// This is the `(A, B)` fold `tests/coord_is_injective.rs` measures at 49% on a signed grid,
 /// reduced to its deterministic core. It exists so the exact compare is the **only** thing that can
 /// separate two distinct keys: `spill_read` gates the full `(Sigma, K)` compare behind a coordinate
-/// match (`src/table/probe.rs:279`), so under a collision-free home the compare is provably
+/// match (`src/map/table/probe.rs:279`), so under a collision-free home the compare is provably
 /// redundant (`CoordinateReadout.exact_read_is_read`) and no test could observe its removal.
 #[derive(Clone, Copy)]
 struct CollidingHome;
@@ -2090,7 +2090,7 @@ fn get_exact_at_rejects_the_neighbour_under_a_shared_coordinate() {
 ///
 /// Both halves of the read are covered, because they are two distinct compares and either can be
 /// dropped independently: [`CollidingHome`] has no `direct_word`, so its read is the spill compare
-/// at `src/table/state.rs:369`, and [`DirectHome`] certifies a direct word, so its read is the
+/// at `src/map/table/state.rs:369`, and [`DirectHome`] certifies a direct word, so its read is the
 /// resident compare in `resident_exact`. Dropping the spill compare reds the first block and
 /// dropping the resident face conjunct reds the second.
 #[test]

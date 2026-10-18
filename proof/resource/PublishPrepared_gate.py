@@ -2,8 +2,8 @@
 """Extract and check the real prepared-publication step in a bounded private build.
 
 O(B) source/tool/log bytes; external compilation is timed, not assigned constant cost. The
-temporary manifest wires the real `src/table.rs` by `#[path]`, which pulls the real
-`src/table/resources.rs` (and `src/table/{state,prepared,locator,...}.rs` through its `include!`
+temporary manifest wires the real `src/map/table.rs` by `#[path]`, which pulls the real
+`src/map/table/resources.rs` (and `src/map/table/{state,prepared,locator,...}.rs` through its `include!`
 closure); the only new code is the typed forwarding wrapper that calls the real
 `publish_prepared` body. No substitute algorithm is extracted.
 
@@ -35,10 +35,10 @@ SCRATCH_ROOT = Path(tempfile.gettempdir()) / 'publishprepared-resource'
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=SCRATCH_ROOT))
 
-# The real source closure the wrapper compiles. `src/table.rs` declares `#[path = "table/..."]`
+# The real source closure the wrapper compiles. `src/map/table.rs` declares `#[path = "table/..."]`
 # children and `include!`s `table/{state,locator,prepared}.rs`, and it imports `crate::cell::Sigma`
 # and `crate::coord::{address,locator}`, so the wrapper also wires the real `src/{scalar,cell,coord}.rs`
-# and the real `src/coord/` children. `src/table/tests.rs` is `#[cfg(test)]` and is compiled by the
+# and the real `src/map/coord/` children. `src/map/table/tests.rs` is `#[cfg(test)]` and is compiled by the
 # `cargo test` step only. The mutant control copies this closure into a scratch directory and mutates
 # the copied `table/resources.rs`, never the working tree.
 CLOSURE = ['scalar.rs', 'cell.rs', 'coord.rs', 'table.rs', 'coord', 'table']
@@ -85,11 +85,11 @@ pub mod coord;
 pub mod table;
 
 /// Crate-root alias of the face token the real `src/lib.rs` re-exports as `pub use cell::{{Sigma}}`;
-/// the real `#[cfg(test)]` modules in `src/table/{{partition,probe}}.rs` import `crate::Sigma`.
+/// the real `#[cfg(test)]` modules in `src/map/table/{{partition,probe}}.rs` import `crate::Sigma`.
 pub use cell::Sigma;
 
 /// Typed forwarding wrapper: it fixes the stored-carrier and value types at the concrete `i64`
-/// word and calls the real `src/table/resources.rs` `publish_prepared` body. It restates no
+/// word and calls the real `src/map/table/resources.rs` `publish_prepared` body. It restates no
 /// match arm, no constructor and no error mapping.
 pub type StoredWordEnvelope =
     table::resources::PreparedEnvelope<table::keyrep::Stored<i64>, i64>;
@@ -208,6 +208,6 @@ if __name__=='__main__':
     try:
         main();status=0
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/table.rs',ROOT/'src/table/resources.rs',ROOT/'src/table/state.rs',ROOT/'src/table/prepared.rs',ROOT/'src/table/locator.rs',ROOT/'src/table/keyrep.rs',ROOT/'src/table/partition.rs',ROOT/'src/table/probe.rs',ROOT/'src/table/parallel.rs',ROOT/'src/table/tests.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/coord.rs',ROOT/'src/coord/address.rs',ROOT/'src/coord/locator.rs',ROOT/'src/coord/locator_core.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/PublishPrepared_gate.py',ROOT/'proof/resource/PublishPreparedSource.lean',ROOT/'proof/resource/PublishPreparedResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/map/table.rs',ROOT/'src/map/table/resources.rs',ROOT/'src/map/table/state.rs',ROOT/'src/map/table/prepared.rs',ROOT/'src/map/table/locator.rs',ROOT/'src/map/table/keyrep.rs',ROOT/'src/map/table/partition.rs',ROOT/'src/map/table/probe.rs',ROOT/'src/map/table/parallel.rs',ROOT/'src/map/table/tests.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/map/coord.rs',ROOT/'src/map/coord/address.rs',ROOT/'src/map/coord/locator.rs',ROOT/'src/map/coord/locator_core.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/PublishPrepared_gate.py',ROOT/'proof/resource/PublishPreparedSource.lean',ROOT/'proof/resource/PublishPreparedResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
         (OUT/(SCRATCH.name+'-receipt.json')).write_text(json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=540,argv=[sys.executable,*sys.argv],lane=LANE,memory_max='12G',swap_max=0,threads=1,scratch=str(SCRATCH),deadline=os.environ.get('PUBLISH_PREPARED_DEADLINE'),records=RECORDS,sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, compiler, IO/process/dependencies; the work measure counts value moves, machine-word comparisons and heap allocations in the extracted body under the Aeneas model, not cycles or GPU time; the reservation adapter that produces the envelope, the plan and receipt well-formedness predicates, and the relocation/commit cores that consume PreparedResult are outside this root'),indent=2)+'\n')
         shutil.rmtree(SCRATCH,ignore_errors=True)

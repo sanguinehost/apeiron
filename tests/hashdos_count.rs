@@ -22,7 +22,7 @@
     clippy::many_single_char_names
 )]
 
-use apeiron::freq::{FreqMap, PROBE_CAP};
+use apeiron::map::freq::{FreqMap, PROBE_CAP};
 use std::collections::HashMap;
 
 const PHI: u64 = 0x9E37_79B9_7F4A_7C15;

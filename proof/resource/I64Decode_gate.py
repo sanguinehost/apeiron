@@ -3,12 +3,12 @@
 
 O(B) source/tool/log bytes; external compilation is timed, not assigned constant cost. The
 temporary manifest is a typed forwarding wrapper over the real `#[path]` closure
-(`src/{scalar,cell,coord,table}.rs` plus their `src/coord/` and `src/table/` children); the only
+(`src/{scalar,cell,coord,table}.rs` plus their `src/map/coord/` and `src/map/table/` children); the only
 new code is that wrapper, which fixes the two argument types and calls the real
-`src/table/keyrep.rs` `I64WordCodec::decode` body. No substitute algorithm is extracted.
+`src/map/table/keyrep.rs` `I64WordCodec::decode` body. No substitute algorithm is extracted.
 
 The shared `proof/extract/lib.rs` unit is NOT used: it no longer compiles, and this gate's root is
-`crate::word_i64_codec_decode` alone. `src/table/keyrep.rs` names `crate::table::{Home,
+`crate::word_i64_codec_decode` alone. `src/map/table/keyrep.rs` names `crate::table::{Home,
 TableAddress, WordHome}`, `crate::coord::address::*`, `crate::coord::locator::ExactIdentity` and
 `crate::cell::Sigma` in its trait bounds, so the wrapper wires the real module closure that
 provides them instead of shims: a shim would fabricate the admitted domain this proof is about.
@@ -42,9 +42,9 @@ SCRATCH_ROOT = Path(tempfile.gettempdir()) / 'i64decode-resource'
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=SCRATCH_ROOT))
 
-# The real source closure the wrapper compiles. `src/table.rs` declares `#[path = "table/..."]`
-# children, and both `src/coord.rs` and `src/table.rs` name `crate::cell::Sigma`, so the wrapper
-# also wires the real `src/{scalar,cell,coord}.rs` and the real `src/coord/` children. The
+# The real source closure the wrapper compiles. `src/map/table.rs` declares `#[path = "table/..."]`
+# children, and both `src/map/coord.rs` and `src/map/table.rs` name `crate::cell::Sigma`, so the wrapper
+# also wires the real `src/{scalar,cell,coord}.rs` and the real `src/map/coord/` children. The
 # `#[cfg(test)]` modules are compiled by the `cargo test` step only.
 COPY_FILES = ['scalar.rs', 'cell.rs', 'coord.rs', 'table.rs']
 COPY_DIRS = ['coord', 'table']
@@ -89,11 +89,11 @@ pub mod coord;
 pub mod table;
 
 /// Crate-root alias of the face token the real `src/lib.rs` re-exports; the real
-/// `#[cfg(test)]` modules in `src/table/` import `crate::Sigma`.
+/// `#[cfg(test)]` modules in `src/map/table/` import `crate::Sigma`.
 pub use cell::Sigma;
 
 /// Typed forwarding wrapper: it fixes the two argument types and calls the real
-/// `src/table/keyrep.rs` `I64WordCodec::decode` body through the real `ExactCodec` instance for
+/// `src/map/table/keyrep.rs` `I64WordCodec::decode` body through the real `ExactCodec` instance for
 /// `WordHome`. It restates no arithmetic.
 pub fn word_i64_codec_decode(sigma: cell::Sigma, identity: u64) -> i64 {{
     <table::keyrep::I64WordCodec as table::keyrep::ExactCodec<i64, table::WordHome>>::decode(
@@ -137,7 +137,7 @@ def extract(source_root, label):
     # The model's own definitions replace the stubs the pinned Aeneas emits for externals it does
     # not model; any other axiom/sorry stays for the fail-closed scan below.
     run(['python3',str(ROOT/'proof/strip-modeled-axioms.py'),str(generated)],project,label+'-strip')
-    generated.write_text(generated.read_text().replace(str(source_root/'table/keyrep.rs'), 'src/table/keyrep.rs'))
+    generated.write_text(generated.read_text().replace(str(source_root/'table/keyrep.rs'), 'src/map/table/keyrep.rs'))
     if re.search(r'\b(axiom|sorry|admit)\b', generated.read_text()):
         raise RuntimeError('I64_DECODE_UNMODELED_SOURCE')
     return generated
@@ -200,6 +200,6 @@ if __name__=='__main__':
     try:
         main();status=0
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/table.rs',ROOT/'src/table/keyrep.rs',ROOT/'src/table/state.rs',ROOT/'src/table/prepared.rs',ROOT/'src/table/locator.rs',ROOT/'src/table/partition.rs',ROOT/'src/table/probe.rs',ROOT/'src/table/parallel.rs',ROOT/'src/table/resources.rs',ROOT/'src/table/tests.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/coord.rs',ROOT/'src/coord/address.rs',ROOT/'src/coord/locator.rs',ROOT/'src/coord/locator_core.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/I64Decode_gate.py',ROOT/'proof/resource/I64DecodeSource.lean',ROOT/'proof/resource/I64DecodeResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/map/table.rs',ROOT/'src/map/table/keyrep.rs',ROOT/'src/map/table/state.rs',ROOT/'src/map/table/prepared.rs',ROOT/'src/map/table/locator.rs',ROOT/'src/map/table/partition.rs',ROOT/'src/map/table/probe.rs',ROOT/'src/map/table/parallel.rs',ROOT/'src/map/table/resources.rs',ROOT/'src/map/table/tests.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/map/coord.rs',ROOT/'src/map/coord/address.rs',ROOT/'src/map/coord/locator.rs',ROOT/'src/map/coord/locator_core.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/I64Decode_gate.py',ROOT/'proof/resource/I64DecodeSource.lean',ROOT/'proof/resource/I64DecodeResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
         (OUT/(SCRATCH.name+'-receipt.json')).write_text(json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=540,argv=[sys.executable,*sys.argv],lane=LANE,memory_max='12G',swap_max=0,threads=1,scratch=str(SCRATCH),deadline=os.environ.get('I64_DECODE_DEADLINE'),records=RECORDS,sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, compiler, IO/process/dependencies; the work measure counts 64-bit machine-word multiplications, word reads and heap allocations in the extracted body under the Aeneas model, not cycles or GPU time; the encode direction, the surrounding Table lookups, and the canonical-corpus correspondence for this codec are outside this root'),indent=2)+'\n')
         shutil.rmtree(SCRATCH,ignore_errors=True)

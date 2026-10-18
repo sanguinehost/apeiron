@@ -514,7 +514,7 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
     )
 
     mutated = copy.deepcopy(data)
-    mutated["corpus"]["sources"]["src/table.rs"] = "0" * 64
+    mutated["corpus"]["sources"]["src/map/table.rs"] = "0" * 64
     cases.append(
         ("class 2: change a recorded source digest", mutated, spec_text)
     )
@@ -700,7 +700,7 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
     # ``WordMerge``, not ``WordHome``, so the trailing method is rejected.
     mutated = copy.deepcopy(data)
     mutated["rows"][0]["rust"]["layout"] = (
-        mutated["rows"][0]["rust"]["layout"] + " src/table.rs::WordHome::merge"
+        mutated["rows"][0]["rust"]["layout"] + " src/map/table.rs::WordHome::merge"
     )
     cases.append(
         (
@@ -716,17 +716,17 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
     for label, reference in (
         (
             "class 7: reject a reference with an extra '::' segment",
-            "src/table.rs::Table::new::get",
+            "src/map/table.rs::Table::new::get",
         ),
         (
             "class 7: reject a brace member that is not a single identifier "
             "or a Type::method pair",
-            "src/table.rs::{Table::new::get}",
+            "src/map/table.rs::{Table::new::get}",
         ),
         (
             "class 7: reject a generic-qualified method bound to the wrong "
             "implementation",
-            "src/table.rs::<WordHome as Merge<i64>>::merge",
+            "src/map/table.rs::<WordHome as Merge<i64>>::merge",
         ),
         (
             "class 7: reject a generic-qualified method whose trait does not exist",
@@ -734,17 +734,17 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
         ),
         (
             "class 7: reject a method attributed to a generic type parameter",
-            "src/table.rs::F::home",
+            "src/map/table.rs::F::home",
         ),
         (
             "class 7: reject a bare symbol that is only an impl-header generic "
             "parameter",
-            "src/table.rs::F",
+            "src/map/table.rs::F",
         ),
         (
             "class 7: reject a bare symbol that is only an impl-header bound, "
             "not a declaration",
-            "src/table.rs::Fn",
+            "src/map/table.rs::Fn",
         ),
         (
             "class 7: reject a reference with a trailing member access",

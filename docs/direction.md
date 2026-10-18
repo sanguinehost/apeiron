@@ -45,9 +45,9 @@ architecture requirement, not a claim that the complete connecting theorem alrea
 
 Apeiron evolves from hashtrinity; `fold/hashtrinity` is the predecessor. The basis is
 `R[x]/(x^2 - sigma)`, `Cell<R>` with explicit `Sigma`, and face-correct `Coord` addressing.
-The selected map and count arms execute the ported hashtrinity table (`src/hashtrinity/`,
+The selected map and count arms execute the ported hashtrinity table (`src/map/hashtrinity/`,
 rev `4cc14471`, reached as `apeiron::freq`); that body is the refinement target, rebased onto this
-basis (`docs/plan.md`). The generic growable [src/table.rs](../src/table.rs) — a flat
+basis (`docs/plan.md`). The generic growable [src/map/table.rs](../src/map/table.rs) — a flat
 certified-coordinate resident area plus grouped spill regions, keyed by `(Sigma,K)`, with
 `Stored`/`Regen` carriers — is removed once the executed body is verified (`APEIRON-RETIRE-GENERIC`).
 `SizeOverflow` and `AllocationFailed` are resource outcomes; `ShardFull` is compatibility-only.
@@ -279,7 +279,7 @@ Other failing classes: `direct-index-resident` 0/40, `offset-beyond-direct` 1/39
 absent-miss 20.4682x"; "growth-insert remains about 1.5x") is SUPERSEDED — both headline claims fail
 to hold on this source — and its absolute ns/op is not cross-receipt comparable. Ratios and the
 pass/fail census are the evidence; intervals are within-run only. The extraction (`ApeironWord.lean`)
-is NOT regenerated against `a2866eb`: `src/table.rs` and `src/table/locator.rs` drift until
+is NOT regenerated against `a2866eb`: `src/map/table.rs` and `src/map/table/locator.rs` drift until
 `proof/regen.sh`, blocked on the patched translator (`AENEAS-TOOLCHAIN-BUILD`); the committed
 extraction therefore still refines `654c6f2`, not this tip. G1 remains **OPEN**.
 <!-- APEIRON-STRATEGY-DECISION-T3-STATUS END -->

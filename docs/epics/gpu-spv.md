@@ -496,7 +496,7 @@ barrier unless the lead schedules otherwise. Owners are intended lanes; the lead
 | W0 | W0-T1 docs draft + W0-T2 continuity addendum (landed; digests `7e056f4b…`/`5393c34b…`/`c2c904af…`, intent/spec/plan) | `docs/epics/gpu-spv.md`, `docs/epics/gpu-spv.md`, `docs/epics/gpu-spv.md` | deepseek-flash | path-resolution check over every cited path | n/a — documents |
 | W1 | canonical-face fragment types + denotation + face-parameterized `sdot_denote` + layout verdict + opcode re-derivation | `proof/corpus/Spirv/Fragment.lean`, `proof/corpus/Spirv/Semantics.lean` | xiaomi-pro (gemini lane down) | `lake build Spirv.Fragment Spirv.Semantics` | swap the byte-order rule → `sdot_denote` unsolved; wrong-σ witness (`r = 1` for `σ = -1`) → face/layout verdict red |
 | W2 | decoder soundness | `proof/corpus/Spirv/Decode.lean` | gemini-flash | `lake build Spirv.Decode` | corrupt a `WordCount`/result-id in a fixture → `decode_sound` red |
-| W2 | Rust checker body + emitter run | `src/spirv/mod.rs`, `src/spirv/check.rs`, `tests/gpu_spv_check.rs` | deepseek-flash | `cargo test --workspace --all-features --locked` | byte flip in the emitted words → test red |
+| W2 | Rust checker body + emitter run | `src/gpu/spirv/mod.rs`, `src/gpu/spirv/check.rs`, `tests/gpu_spv_check.rs` | deepseek-flash | `cargo test --workspace --all-features --locked` | byte flip in the emitted words → test red |
 | W3 | checker refinement | `proof/corpus/Spirv/Check.lean`, `proof/extract/lib.rs` | gemini-flash | `proof/regen.sh --check`; `lake build Spirv.Check` | mutate the checker body → `checkFragment_sound` red |
 | W3 | GPU refinement + in-bounds | `proof/corpus/Spirv/Dp4a.lean` | gemini-flash | `lake build Spirv.Dp4a` | remove the row guard → in-bounds obligation unsolved; flip one fixed-point scale constant → refinement red |
 | W4 | barrier + phase-2 admission | `proof/corpus/AxiomAudit.lean` (lead) | lead | barrier commands above | n/a — barrier |
@@ -572,7 +572,7 @@ GRADE:      proved for the face-parameterized sdot_denote and the byte-order lem
   served-shape fixtures; the Rust test is the completeness seam), `bound` is checked nonzero only, and
   D3 covers the named `OpSUDot` obligation; `W2-T2` (Rust checker + captured-words test) is in flight.
 - **`APEIRON-GPU-SPV-W2-T2` receipt** (deepseek-flash, ~17 min of a 30/45 box — inside): the Rust
-  checker lands (`src/spirv/mod.rs` `3e9e255f…`; `src/spirv/check.rs` `2fac3308…`, 652 lines;
+  checker lands (`src/gpu/spirv/mod.rs` `3e9e255f…`; `src/gpu/spirv/check.rs` `2fac3308…`, 652 lines;
   `tests/gpu_spv_check.rs` `befaf444…`, 778 lines): `check_fragment(&[u32]) -> Result<(), CheckError>`
   (pure, 16 typed refusals) over header/D1/D2/D3/D4 and the served set; the captured stream is
   generated from the emitter (`gemv_dp4a_module_dyn(4096, 14336, 256, 8, Q4, dyn_sx)`, 676 words,
@@ -624,7 +624,7 @@ GRADE:      tested; the module bytes carry their fold revision and sha256
 ```
 
 - **Scope:** the real Rust checker body (the epic's executing path) and the concrete emitter run.
-- **Files:** `src/spirv/mod.rs`, `src/spirv/check.rs`, `tests/gpu_spv_check.rs`
+- **Files:** `src/gpu/spirv/mod.rs`, `src/gpu/spirv/check.rs`, `tests/gpu_spv_check.rs`
 - **Depends on:** none (the checker is independent of the Lean fragment)
 - **Grade:** tested
 - **Gate:** `cargo test --workspace --all-features --locked`

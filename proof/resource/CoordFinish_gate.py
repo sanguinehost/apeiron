@@ -2,11 +2,11 @@
 """Extract and check the real coordinate `finish` body in a bounded private build.
 
 O(B) source/tool/log bytes; external compilation is timed, not assigned constant cost. The
-temporary manifest wires the real `src/coord.rs` by `#[path]`, which pulls the real
-`src/coord/{address,locator}.rs`; those pull `crate::cell`, `crate::coord` and `crate::table`, so
-the wrapper also wires the real `src/{scalar,cell,table}.rs` and the real `src/table/` children.
+temporary manifest wires the real `src/map/coord.rs` by `#[path]`, which pulls the real
+`src/map/coord/{address,locator}.rs`; those pull `crate::cell`, `crate::coord` and `crate::table`, so
+the wrapper also wires the real `src/{scalar,cell,table}.rs` and the real `src/map/table/` children.
 The only new code is the typed forwarding wrapper that calls the real `coord::finish` body of
-`src/coord.rs:158-164`. No substitute algorithm is extracted. The shared `proof/extract/lib.rs`
+`src/map/coord.rs:158-164`. No substitute algorithm is extracted. The shared `proof/extract/lib.rs`
 is not used: it is not required to compile here and this root is proved from its own narrow
 closure.
 
@@ -38,15 +38,15 @@ SCRATCH_ROOT = Path(tempfile.gettempdir()) / 'coord-finish-resource'
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=SCRATCH_ROOT))
 
-# The real source closure the wrapper compiles. `src/coord.rs` declares `#[path = "coord/..."]`
-# children; `src/coord/address.rs` imports `crate::cell::Sigma` and `crate::coord::{spread,Packed}`,
-# `src/coord/locator.rs` imports `crate::cell::Sigma`, `crate::coord::address` and
-# `crate::table::{keyrep,TableAddress,WordHome}`, and `src/table.rs` imports `crate::cell` and
+# The real source closure the wrapper compiles. `src/map/coord.rs` declares `#[path = "coord/..."]`
+# children; `src/map/coord/address.rs` imports `crate::cell::Sigma` and `crate::coord::{spread,Packed}`,
+# `src/map/coord/locator.rs` imports `crate::cell::Sigma`, `crate::coord::address` and
+# `crate::table::{keyrep,TableAddress,WordHome}`, and `src/map/table.rs` imports `crate::cell` and
 # `crate::coord`. The mutant control copies this closure into a scratch directory and mutates the
 # copied `coord.rs`, never the working tree.
 COPY_FILES = ['scalar.rs', 'cell.rs', 'coord.rs', 'table.rs']
 COPY_DIRS = ['coord', 'table']
-# The mutation target: the first xor-shift of the real body, `src/coord.rs:159`. The mutant shifts
+# The mutation target: the first xor-shift of the real body, `src/map/coord.rs:159`. The mutant shifts
 # by 29 instead of 30, so the three-shift chain, the counted work and the concrete constant
 # witness of the closed form must all go red while the body stays a well-formed `u64` finalizer.
 MUTATION = ('h ^= h >> 30;', 'h ^= h >> 29;')
@@ -86,11 +86,11 @@ pub mod coord;
 pub mod table;
 
 /// Crate-root alias of the face token the real `src/lib.rs` re-exports as `pub use cell::{{Sigma}}`;
-/// the real `#[cfg(test)]` modules in `src/table/{{partition,probe}}.rs` import `crate::Sigma`.
+/// the real `#[cfg(test)]` modules in `src/map/table/{{partition,probe}}.rs` import `crate::Sigma`.
 pub use cell::Sigma;
 
 /// Typed forwarding wrapper: it fixes the `u64` argument type and calls the real
-/// `src/coord.rs:158-164` `coord::finish` body. It restates no xor-shift and no multiply; the
+/// `src/map/coord.rs:158-164` `coord::finish` body. It restates no xor-shift and no multiply; the
 /// same body is reached by the shared `proof/extract/lib.rs:491-493` wrapper named
 /// `word_coord_finish`.
 pub fn word_coord_finish(h: u64) -> u64 {{
@@ -132,7 +132,7 @@ def extract(source_root, label):
     # The model's own definitions replace the stubs the pinned Aeneas emits for externals it does
     # not model; any other axiom/sorry stays for the fail-closed scan below.
     run(['python3',str(ROOT/'proof/strip-modeled-axioms.py'),str(generated)],project,label+'-strip')
-    generated.write_text(generated.read_text().replace(str(source_root/'coord.rs'), 'src/coord.rs'))
+    generated.write_text(generated.read_text().replace(str(source_root/'coord.rs'), 'src/map/coord.rs'))
     if re.search(r'\b(axiom|sorry|admit)\b', generated.read_text()):
         raise RuntimeError('COORD_FINISH_UNMODELED_SOURCE')
     return generated
@@ -198,7 +198,7 @@ if __name__=='__main__':
     try:
         main();status=0
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/coord.rs',ROOT/'src/coord/address.rs',ROOT/'src/coord/locator.rs',ROOT/'src/coord/locator_core.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/table.rs',ROOT/'src/table/state.rs',ROOT/'src/table/locator.rs',ROOT/'src/table/prepared.rs',ROOT/'src/table/keyrep.rs',ROOT/'src/table/partition.rs',ROOT/'src/table/probe.rs',ROOT/'src/table/resources.rs',ROOT/'src/table/parallel.rs',ROOT/'src/table/tests.rs',ROOT/'proof/extract/lib.rs',ROOT/'proof/regen.sh',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/CoordFinish_gate.py',ROOT/'proof/resource/CoordFinishSource.lean',ROOT/'proof/resource/CoordFinishResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/map/coord.rs',ROOT/'src/map/coord/address.rs',ROOT/'src/map/coord/locator.rs',ROOT/'src/map/coord/locator_core.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/map/table.rs',ROOT/'src/map/table/state.rs',ROOT/'src/map/table/locator.rs',ROOT/'src/map/table/prepared.rs',ROOT/'src/map/table/keyrep.rs',ROOT/'src/map/table/partition.rs',ROOT/'src/map/table/probe.rs',ROOT/'src/map/table/resources.rs',ROOT/'src/map/table/parallel.rs',ROOT/'src/map/table/tests.rs',ROOT/'proof/extract/lib.rs',ROOT/'proof/regen.sh',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/CoordFinish_gate.py',ROOT/'proof/resource/CoordFinishSource.lean',ROOT/'proof/resource/CoordFinishResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
         receipt=json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=540,argv=[sys.executable,*sys.argv],lane=LANE,memory_max='12G',swap_max=0,threads=1,scratch=str(SCRATCH),deadline=os.environ.get('COORD_FINISH_DEADLINE'),records=RECORDS,sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, compiler, IO/process/dependencies; the work measure counts U64 shifts, xors and wrapping multiplies in the extracted body under the Aeneas model, not cycles, allocation totals or GPU time; the avalanche claim, the spread/unspread identities, the table key codec and the shared proof/extract/lib.rs unit are outside this root'),indent=2)+'\n'
         # The named receipt goes under /tmp/opencode; a full tmpfs must not lose the evidence.
         for directory in (OUT,SCRATCH_ROOT):

@@ -26,7 +26,7 @@ upstream = [{ rev = "llama", path = "ggml/src/ggml-quants.c" }, { rev = "llama",
 containment = 0.038
 
 [[ported]]
-file = "src/engine/dequant_lowbit.rs"
+file = "src/engine/num/dequant_lowbit.rs"
 upstream = [{ rev = "prism", path = "ggml/src/ggml-common.h" }, { rev = "prism", path = "ggml/src/ggml-quants.c" }]
 containment = 0.015
 
@@ -52,7 +52,7 @@ containment = 0.104
 
 # Every file matching one of these globs must match an `[[origin]]` glob.
 [coverage]
-globs = ["fuzz/seeds/*/*", "src/spirv/*.spv", "src/spirv/*.comp", "examples/gpu_dump_spirv/*", "fold-abi/*.md"]
+globs = ["fuzz/seeds/*/*", "src/gpu/spirv/*.spv", "src/gpu/spirv/*.comp", "examples/gpu_dump_spirv/*", "fold-abi/*.md"]
 
 # GGUF fuzz seeds: byte strings built for this repository. No upstream reproducer file is copied.
 [[origin]]
@@ -73,11 +73,11 @@ text = "Copies of the gguf_header seeds of the same name."
 
 # SPIR-V binaries: byte-identical `glslc` output of the GLSL beside them (`check-provenance.py --recompile`).
 [[origin]]
-glob = "src/spirv/*.comp"
+glob = "src/gpu/spirv/*.comp"
 text = "GLSL source written for this repository."
 
 [[origin]]
-glob = "src/spirv/*.spv"
+glob = "src/gpu/spirv/*.spv"
 text = "glslc output of the same-named .comp."
 glslc = ["--target-env=vulkan1.1", "--target-spv=spv1.3", "-O", "-fshader-stage=compute"]
 

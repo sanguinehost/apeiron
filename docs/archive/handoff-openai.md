@@ -435,7 +435,7 @@ open). `ffn.rs` `28e82ddb…` (133), `attn.rs` `b3366c40…` (381), `tests.rs` `
 (the saturation forced back to the refusal) red. The row-6/softmax descriptions in `mod.rs` were
 corrected to the saturating contract (`c41aac34…`, 232). `APEIRON-ALGEBRA-G3-SILU` rooted `silu_fixed` for
 extraction (the refinement carries the saturation bounds): the real body moved to the leaf
-`src/engine/silu.rs` (92; `ffn.rs` delegates, 115), the extract unit mirrors the module tree, and the
+`src/engine/ops/silu.rs` (92; `ffn.rs` delegates, 115), the extract unit mirrors the module tree, and the
 root is live — `proof/ApeironWord.lean` is `5a8f4082…` (14907 lines), regen and `--check` exit 0 (1708
 jobs), `SOURCE_FILES` now carries `engine/{mod,value,silu,ffn}.rs` (the `mod.rs` digest closes the
 mirrored-`ONE` drift). `Numeric.EngineSiluRefinement` (`976b5399…`, 237; gate 2450 jobs, control red)
@@ -649,7 +649,7 @@ gate exit 0, 2973 jobs; both controls red and restored): the served opcode set r
 face `σ = +1`** (`sdot_split_ringMul`, `sdot_split_realized`, root witness checked), with
 cross-channel accumulation a named emitter migration item and the 2-adic caveat retained; `W2-T1`
 (decoder) **closed** (`Spirv/Decode.lean` `905f5710…`, 558 lines: D1–D4 + `decode_sound`, gate exit 0
-2967 jobs, controls red+restored, audited `65e949c7…`); the Rust checker **landed** (`src/spirv/check.rs`
+2967 jobs, controls red+restored, audited `65e949c7…`); the Rust checker **landed** (`src/gpu/spirv/check.rs`
 `2fac3308…`, 676 generated emitter words, 42 served opcodes exercised, controls red+restored) and
 surfaced two reconciliation items — the served set is 42 not 44, and `Inst.uses` is over-strict on
 SPIR-V forward references — being aligned by `W3-T19`/`W2-T3`. The spike report was lost in the reboot;

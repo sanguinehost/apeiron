@@ -251,7 +251,7 @@ def main():
     # literal here; `PINS` content itself is fixed below, so this cannot be relaxed from either side.
     selected['AENEAS_TRANSLATOR_SHA256']=re.search(r'^AENEAS_TRANSLATOR_SHA256=(\w+)$',s,re.M).group(1)
     if selected!={'AENEAS_COMMIT':'505b6ca35217e7be5c96c3e2f8045edfbdf47291','AENEAS_TREE':'af23d5d9d866050c2158700cedab07501443bcdd','CHARON_COMMIT':'b104e24fea7d721b71e6c39fd70f26ff20bc0980','CHARON_TREE':'784a177101bbfd956047ac2ee1b7335d4c057b7b','AENEAS_TRANSLATOR_SHA256':'84f9c1d2e54d866ffc1b0c41091a47cc4ae189cc8671e9f1a3991c5b2610fcd1'}:raise RuntimeError('STEP_PIN_DRIFT')
-    for p in [pins,*ROOT.joinpath('proof/native').glob('StepRefinement.lean'),ROOT/'proof/native/step_gate.py',ROOT/'proof/native/step_compat.patch',*ROOT.joinpath('proof/patches').glob('*.patch'),MAIN/'src/lib.rs',MAIN/'src/engine/kern/gemm.rs',MAIN/'src/engine/chart/mod.rs',MAIN/'src/engine/kern/pow2.rs',MAIN/'src/engine/value.rs']:bind(p)
+    for p in [pins,*ROOT.joinpath('proof/native').glob('StepRefinement.lean'),ROOT/'proof/native/step_gate.py',ROOT/'proof/native/step_compat.patch',*ROOT.joinpath('proof/patches').glob('*.patch'),MAIN/'src/lib.rs',MAIN/'src/engine/kern/gemm.rs',MAIN/'src/engine/chart/mod.rs',MAIN/'src/engine/kern/pow2.rs',MAIN/'src/engine/num/value.rs']:bind(p)
     a=WORK/'aeneas';c=WORK/'charon'
     archive(os.environ['AENEAS_SRC'],selected['AENEAS_COMMIT'],selected['AENEAS_TREE'],a,'aeneas')
     archive(os.environ['CHARON_SRC'],selected['CHARON_COMMIT'],selected['CHARON_TREE'],c,'charon')

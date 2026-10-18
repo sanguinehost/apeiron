@@ -13,7 +13,7 @@ Kani remains retired. No commit/push. Source baseline is HEAD
 SCOPE: docs/epics/open-areas.md, docs/kernel-boundary.md, docs/plan.md.
 REGISTER: dispatch ownership and evidence-reference repair.
 CORPUS: Growable proofs; generated apply_insert/plan_rebuild; partition tests.
-REFERENCE: /home/socol/Workspace/apeiron/proof/ApeironWord.lean; src/table/partition.rs.
+REFERENCE: /home/socol/Workspace/apeiron/proof/ApeironWord.lean; src/map/table/partition.rs.
 GATE: claim checker, diff check, focused partition tests; baseline claim checker exit1 with five findings.
 GRADE: planning and corrected attribution; no new semantic proof.
 ```
@@ -50,7 +50,7 @@ outputs may change. Lead integrates reviewed outputs and removes each completed 
 | Storage/scatter follow-ons | Retain existing source/ordering/refusal contracts; production edits sequence behind factoring and affected proof/source gates |
 
 The seven baseline failures are acceptance.rs1799, Slang/Generated/Table.lean14414,
-src/table.rs1678, export.py2299, spec_check.py1562, Slang/Source14 immediate files and tests15.
+src/map/table.rs1678, export.py2299, spec_check.py1562, Slang/Source14 immediate files and tests15.
 Exact checker output: `target/open-areas/assurance-baseline.log`. The missing empty benches directory
 in isolated copies is setup, not an eighth source breach.
 

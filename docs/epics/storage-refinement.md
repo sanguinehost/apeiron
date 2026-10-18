@@ -66,7 +66,7 @@ sh -c 'cargo test --workspace --all-features --locked && proof/regen.sh --check 
    extent the merge returns `StorageError::AllocationFailed` before its payload effect rather than
    allocating after a commit. That refusal is the invariant's reachable witness, so removing the
    reserve is observable rather than unobservable — the negative control is
-   `batch_reservation_admits_a_fresh_insert_and_its_absence_refuses_one` in `src/table/locator.rs`.
+   `batch_reservation_admits_a_fresh_insert_and_its_absence_refuses_one` in `src/map/table/locator.rs`.
 
    Directory content is not maintained on the merge path. A reverse link admitted by the merge path
    carries `UNRESOLVED_IDENTITY_NODE`, and `check_storage_coverage` issues no certificate over an
@@ -116,7 +116,7 @@ refinement.
 
 > **Record status.** The two-container content below (`SafeTable<K, V, N>`, `Map<K, V>`, the
 > fixed-capacity-four reference) records retired source. The executing representation is the growable
-> flat/spill `Table<K, V, H, N, R>` in `src/table.rs`, with `Stored` and `Regen` carrier faces. The
+> flat/spill `Table<K, V, H, N, R>` in `src/map/table.rs`, with `Stored` and `Regen` carrier faces. The
 > fixed-shard `Table<K, V, H, N>` and its proofs are revision-bound historical evidence. Face/key
 > semantics, layer separation and cost boundaries are stated here; historical rows remain labelled.
 
@@ -184,7 +184,7 @@ transport and the ratified resource/refusal contract are in the
 [local boundary](../kernel-boundary.md#resourcerefusal-contract-for-the-growable-table); the dispatch
 order is in the [plan](storage-refinement.md).
 
-**First cut rejected.** The first growable `Table` at `src/table.rs` sha256
+**First cut rejected.** The first growable `Table` at `src/map/table.rs` sha256
 `c34ddf17ef2ed7a81fd4b3e16447479b55d737af8f5253b99dd397414d9b1dc1` is rejected as the production
 result and reworked in place. The bounded fixed-shard table is not restored and the benchmark-only
 candidate `examples/reg1/candidate.rs` is not promoted; one growable representation is kept. The
@@ -569,7 +569,7 @@ pending held carrier and table default, replaces no reserved vector and performs
 its checked capacity. The extracted relocation/apply core performs no reserve, resize, push or
 initialization.
 
-This is not the current source order. `src/table.rs:1180-1187` still calls `R::hold`,
+This is not the current source order. `src/map/table.rs:1180-1187` still calls `R::hold`,
 `Flat::initialize` and every `Region::initialize` inside `Table::apply_prepared_rebuild`; meanwhile
 `reserve_rebuild` returns capacity-reserved storage. The source lane must move those operations into
 the adapter after `reserve_rebuild` has completed all reservations, carry `pending_held` forward, and
@@ -650,7 +650,7 @@ pub(crate) fn relocate_entry(
 )
 ```
 
-`src/table.rs` factors this function as `Table::relocate_entry`, and
+`src/map/table.rs` factors this function as `Table::relocate_entry`, and
 `Table::apply_prepared_rebuild` calls it from its relocation loop.
 Called by that production loop, under `entry_at < plan.entries.len()`, it clones the selected live
 source payload from either the old resident area or old spill region. For a planned flat destination it writes one live
@@ -665,7 +665,7 @@ The supplied throwaway result is: rooting the whole current `apply_prepared_rebu
 `505b6ca-dirty` with `Could not find: type_var_id: 0/2` at the generic `Region::initialize` loop;
 removing that loop makes the core translate; and a scratch `relocate_entry` specialized only at
 `Stored<i64>` exits 0 with no generated `sorry` or `axiom`. That scratch result predates the landed
-production factor (`src/table.rs:1046-1084`) and does not establish `Regen<I64WordCodec>` acceptance. `plan_rebuild`,
+production factor (`src/map/table.rs:1046-1084`) and does not establish `Regen<I64WordCodec>` acceptance. `plan_rebuild`,
 `reserve_rebuild`, `try_reserve*`, the rebuild decision loop, pending-insertion decision, commit
 executor and allocating public methods remain unextracted. The contract and boundary decision are
 `anchor`; the supplied single-carrier extraction result is `tested` tool evidence, not semantic proof.
@@ -846,9 +846,9 @@ stays conditional on the unproved `ResourceAdapterSimulates` premise.
 Both composites are now production-factored functions and production-called by
 `Table::apply_prepared_rebuild`; neither is yet a standalone extraction root:
 
-| Contract notation | Real `src/table.rs` body denoted | Extraction status and smallest missing artifact |
+| Contract notation | Real `src/map/table.rs` body denoted | Extraction status and smallest missing artifact |
 |---|---|---|
-| `relocateAll(relocate_entry,t,p,r)` | `Table::relocate_all(&mut self, plan: &RebuildPlan, reserved: &mut RebuildReserved<R, V>)` (`src/table.rs`), the production-factored traversal of `plan.entries` that calls the production-factored `Table::relocate_entry` once per entry; its flat/spill writes move one checked-plan entry. `Table::apply_prepared_rebuild` calls it after payload materialization. | Production-factored and production-called. Both monomorphic `relocate_all` roots are in the landed `proof/ApeironWord.lean` sha256 `c8de66e3b760c45b8dd12aa4eaa74841c4cb9b7eb2656af5d4999bb9e5548fe2`, fresh for `src/table.rs` sha256 `2a60a19dae103fbd6981824c11ca7b436ef344071cd979905746c9ec531d5856`. The per-entry roots remain present and their four flat/spill headlines remain proved. The missing semantic artifact is the fold/composition theorem over the per-entry calls. |
+| `relocateAll(relocate_entry,t,p,r)` | `Table::relocate_all(&mut self, plan: &RebuildPlan, reserved: &mut RebuildReserved<R, V>)` (`src/map/table.rs`), the production-factored traversal of `plan.entries` that calls the production-factored `Table::relocate_entry` once per entry; its flat/spill writes move one checked-plan entry. `Table::apply_prepared_rebuild` calls it after payload materialization. | Production-factored and production-called. Both monomorphic `relocate_all` roots are in the landed `proof/ApeironWord.lean` sha256 `c8de66e3b760c45b8dd12aa4eaa74841c4cb9b7eb2656af5d4999bb9e5548fe2`, fresh for `src/map/table.rs` sha256 `2a60a19dae103fbd6981824c11ca7b436ef344071cd979905746c9ec531d5856`. The per-entry roots remain present and their four flat/spill headlines remain proved. The missing semantic artifact is the fold/composition theorem over the per-entry calls. |
 | `applyPendingAndCommit(rebuilt,decision,f,q,v)` | Production source signature: `Table::apply_pending_and_commit<F: Merge<V>>(&mut self, reserved: RebuildReserved<R,V>, decision: SearchDecision, merge: &F, sigma: Sigma, value: V, held: R, address: &TableAddress)`. `Table::apply_prepared_rebuild` computes `decision` after `relocate_all` through the production rebuilt-state decision loop, then calls this real body. The body matches only the supplied well-formed class/location, merges or inserts once, updates `len` only on vacancy, and commits `reserved`. | **Option (b), implemented at grade `anchor`.** `locate_rebuilt` returns the value-only `SearchDecision` and the private `enum Site` is removed; `locate_rebuilt` and `Flat::index` remain in the unextracted `apply_prepared_rebuild` orchestration. The stored/regen wrappers taking `SearchDecision` are present and rooted in the landed `proof/ApeironWord.lean` sha256 `c8de66e3b760c45b8dd12aa4eaa74841c4cb9b7eb2656af5d4999bb9e5548fe2` (audit clean, `proof/` `lake build` 1708 jobs). The wrappers that root the old body are rejected because `usize::try_from(...).ok()?` reaches four external axioms. |
 
 These bindings do not treat line slices as extracted functions. `relocate_entry` is called by
@@ -859,13 +859,13 @@ production-factored extraction phase; the fold/composition theorem over the trav
 
 Reconciliation (`APEIRON-EXTRACT-REP-RELOCATION-CONTRACT-T3`; implementation status recorded by
 `APEIRON-EXTRACT-REP-RELOCATION-RECORD-T4` and `APEIRON-EXTRACT-REP-RELOCATION-RECORD-T5`): the status
-above is bound to current `src/table.rs`; no premise, gate, grade or requirement changes. The current
+above is bound to current `src/map/table.rs`; no premise, gate, grade or requirement changes. The current
 source still runs payload initialization in `Table::apply_prepared_rebuild`, before relocation. The
 joint handoff decision above requires the next source slice to move it after reserve-all into the
 unextracted adapter and pass the held carrier through the published envelope.
 Strict extraction acceptance for both carriers (`Stored<i64>` and `Regen<I64WordCodec>`) was recorded
 at the per-entry checkpoint above; that checkpoint is superseded by the current source revision. On
-current `src/table.rs` sha256
+current `src/map/table.rs` sha256
 `2a60a19dae103fbd6981824c11ca7b436ef344071cd979905746c9ec531d5856`, the traversal, pending insertion
 and commit are production-factored as `Table::relocate_all` and `Table::apply_pending_and_commit`.
 Option (b) is implemented in source: `locate_rebuilt` returns `SearchDecision`, the private
@@ -909,7 +909,7 @@ certificate in `RebuildPlanCorrect`. `word_stored_apply_pending_and_commit` and
 `word_regen_apply_pending_and_commit` add a `SearchDecision` argument, remove their `key` argument,
 and call this real production body; their existing `proof/regen.sh` root names remain unchanged.
 They are accepted only after the strict generated audit is clean. This source change is implemented
-on `src/table.rs` sha256
+on `src/map/table.rs` sha256
 `2a60a19dae103fbd6981824c11ca7b436ef344071cd979905746c9ec531d5856`: `locate_rebuilt` returns
 `SearchDecision`, the private `enum Site` is removed, and `locate_rebuilt`/`Flat::index` remain in the
 unextracted `apply_prepared_rebuild` orchestration. The two wrappers are present and rooted in the
@@ -966,7 +966,7 @@ the real extracted commit call explicit. Its canonical target remains
 `axiom`; no external axiom is admitted. The dirty generated artifact has sha256
 `eedf281fbc82a5ff8efb9366f1a5659c229a24eb4fc4310494751b76efae64c5`. The pre-task
 `58d0ba3e871cd75ae84d5cae7d7966242d3309b1a14ec1b032a26cdd5606e64b` checkpoint was uncommitted and
-is unrecoverable. On the current `src/table.rs` sha256
+is unrecoverable. On the current `src/map/table.rs` sha256
 `2a60a19dae103fbd6981824c11ca7b436ef344071cd979905746c9ec531d5856`, option (b) removes the
 `locate_rebuilt`/`Flat::index` path from the commit root: the two `apply_pending_and_commit` roots are
 present in the landed `proof/ApeironWord.lean` sha256
@@ -1117,7 +1117,7 @@ preservation skeleton, the commit-equation headline and `GrowableRebuild.rebuild
 `Table<i64,i64,WordHome,16,Stored<i64>>` and
 `Table<i64,i64,WordHome,16,Regen<I64WordCodec>>`. Each takes the real table, `&RebuildPlan`, a
 materialized `RebuildReserved<carrier,i64>` and `entry_at`, calls the real `relocate_entry`, and
-returns the table and reserved storage. The production source is `src/table.rs` sha256
+returns the table and reserved storage. The production source is `src/map/table.rs` sha256
 `2a60a19dae103fbd6981824c11ca7b436ef344071cd979905746c9ec531d5856`, where option (b) is implemented
 and the traversal, pending insertion and commit are production-factored as `Table::relocate_all` and
 `Table::apply_pending_and_commit`. The landed `proof/ApeironWord.lean` sha256
@@ -1215,7 +1215,7 @@ revision recorded below, the bounded Kani harness
 `#[kani::unwind(257)]`. The attribute sets one global bound for every loop, so the bound is not the
 two-lane scan width: `spill_locate` calls `scan::match_tag`/`scan::match_empty` at the per-group
 width `n = N = 1`, at most two iterations. The floor is `Table::new`'s fixed construction loop over
-`SHARDS = 256` (`src/table/partition.rs`), which every table constructor runs, plus one for the
+`SHARDS = 256` (`src/map/table/partition.rs`), which every table constructor runs, plus one for the
 unwinding assertion.
 
 **Per-loop bound experiment (`APEIRON-PERF-KANI-T1`), result `tested`.** CBMC 6.8.0 supports
@@ -1232,8 +1232,8 @@ explosion dominated by slice-index panic paths (`core::slice::index::slice_index
 (`kani::mem::cbmc::same_allocation`, `ToISize::to_isize`), not loop-bound inflation. `--cbmc-args` is
 an unstable Kani option and the loop IDs are mangled and change with monomorphisation, so
 `--unwindset` is not stable enough to record as the acceptance gate. The reduced-shard real
-constructor that would remove the 256-lane floor requires changing `src/table/partition.rs`
-(`SHARDS`), `Table::new` and the hard-coded `& 255` in `src/table.rs::shard`, which are outside this
+constructor that would remove the 256-lane floor requires changing `src/map/table/partition.rs`
+(`SHARDS`), `Table::new` and the hard-coded `& 255` in `src/map/table.rs::shard`, which are outside this
 task's scope; it is returned as a Sol escalation request. The harness therefore stays `tested` /
 bounded evidence and no mutation control could be run against it, because it does not terminate under
 any in-scope bound. The exhaustive runtime oracle
@@ -1263,7 +1263,7 @@ Song-side licence, not an import into Apeiron's theorem or axiom cone.
 
 **Spike evidence, grade `tested` (supplied; not rerun here).** Aeneas `505b6ca-dirty` with Charon
 `0.1.254` fails `Could not match the contexts` at `Table::plan_rebuild`
-(`src/table.rs:678:16-680:17`). A minimal generic `FlatSlot<T>` borrowed in a loop reproduces the
+(`src/map/table.rs:678:16-680:17`). A minimal generic `FlatSlot<T>` borrowed in a loop reproduces the
 failure when an inner `;x.live` guard is followed by a branch on a computed `Option`/enum
 classification from `T::address_held`; the scalar-guard form passes. Straight-line `Option`/`if let`,
 `while` with an accumulated `Option`, and `usize` cast variants pass. `-loops-to-rec`,
@@ -1304,7 +1304,7 @@ loops are not supported yet`. The validator's complete `&self` access pattern is
 tool's translatable subset; another source rewrite has no evidenced terminating target.
 
 The observed red gate is `proof/regen.sh --check` from the repository root: exit 2 at
-`src/table/partition.rs:98:25-100:44`, before Lean emission. Charon `0.1.254` succeeds; Aeneas is
+`src/map/table/partition.rs:98:25-100:44`, before Lean emission. Charon `0.1.254` succeeds; Aeneas is
 `505b6ca-dirty`. No option-(a) candidate is accepted, so there is no candidate generated-Lean result.
 
 `Parts::is_intact` remains the production fail-closed runtime validator with this exact tested
@@ -1532,8 +1532,8 @@ tree.
 | Order / owner | Files (at most three) | Single gate | Rejecting control |
 |---|---|---|---|
 | Flash F1 | `proof/extract/lib.rs`, `proof/regen.sh`, generated `proof/ApeironWord.lean` | `proof/regen.sh --check` from repository root after one successful regeneration; extraction audit and the package build must exit 0 | In a throwaway copy, restore the removed validator wrapper and selector: Aeneas must reproduce the context-match failure; discard it and rerun the retargeted gate green. |
-| Flash F2 | `src/table.rs`, `src/table/resources.rs` | `cargo test --locked --lib table` | Independently omit a live-write `summary_set` and omit the summary capacity bound; the actual-path recordedness and injected summary-reservation-refusal tests must fail, then pass restored. |
-| Flash F3 | `src/table/parallel.rs`, `tests/parallel/main.rs` | `cargo test --locked --test parallel` | Move one shard reservation behind worker start in a throwaway copy; injected final-shard refusal with counted hold/clone/merge must fail the zero-effects assertion, then pass restored. A deterministic reservation-failure seam is **MISSING** and must be added by this gate-first task before the ordering claim can close. |
+| Flash F2 | `src/map/table.rs`, `src/map/table/resources.rs` | `cargo test --locked --lib table` | Independently omit a live-write `summary_set` and omit the summary capacity bound; the actual-path recordedness and injected summary-reservation-refusal tests must fail, then pass restored. |
+| Flash F3 | `src/map/table/parallel.rs`, `tests/parallel/main.rs` | `cargo test --locked --test parallel` | Move one shard reservation behind worker start in a throwaway copy; injected final-shard refusal with counted hold/clone/merge must fail the zero-effects assertion, then pass restored. A deterministic reservation-failure seam is **MISSING** and must be added by this gate-first task before the ordering claim can close. |
 | Flash F4 | `proof/ApeironWord.lean` | `proof/regen.sh --check` | Mutate one generated summary bit index or fingerprint shift; freshness must reject. This is a freshness control only; the semantic controls below remain required. No allocator or reserve-all root is added. |
 | Sol S1 | `proof/corpus/Growable/Scan.lean`, `proof/corpus/AxiomAudit.lean` | bounded `lake build Growable.Scan AxiomAudit` in `proof/corpus/` | Mutate tag shift or one `match_tag` lane equation; the exactness headline must fail. |
 | Sol S2 | `proof/corpus/Growable/Representation.lean`, `proof/corpus/AxiomAudit.lean` | bounded `lake build Growable.Representation AxiomAudit` | Remove recordedness/fingerprint from one live spill witness; a `RepR` constructor or projection must fail. |
@@ -1560,7 +1560,7 @@ leave the authorized source repair unused. Adding either declaration to an accep
 rejected: it would enlarge the generated trust boundary and would not prove correspondence to the
 Rust implementation.
 
-The minimal source repair is confined to `src/table.rs`:
+The minimal source repair is confined to `src/map/table.rs`:
 
 ```rust
 fn summary_trailing_zeros(mut value: usize) -> u32 {
@@ -1631,7 +1631,7 @@ helper equation alone.
 
 The four-file repair is two serialized tasks because a task owns at most three files:
 
-1. **Primitive source repair:** own `src/table.rs`; add `summary_trailing_zeros`, the replacements and
+1. **Primitive source repair:** own `src/map/table.rs`; add `summary_trailing_zeros`, the replacements and
    same-file equivalence test above. Single gate: `cargo test --locked --lib table`. In a throwaway
    copy, change the helper's zero count by one; the equivalence test must fail, then the restored gate
    must pass.
@@ -1904,25 +1904,25 @@ subsequence, for **every** merge; `build_gauge_invariance` (`:191`) licenses per
 `f` is commutative and associative, and `build_gauge_invariance_mul` (`:224`) instantiates the
 algebra's own `mul σ`.
 
-The historical `CountTable` (`71942db:src/table.rs:91`, `3a95bb5:src/table.rs:103`) computes
+The historical `CountTable` (`71942db:src/map/table.rs:91`, `3a95bb5:src/map/table.rs:103`) computes
 `get a = |{i · addresses[i] = a}|`, which is exactly `build (fun new old => new + old) 0
-(addresses.map (·, 1))` under the additive `i64` merge with default `0` (`src/merge.rs:110`). Its
+(addresses.map (·, 1))` under the additive `i64` merge with default `0` (`src/map/merge.rs:110`). Its
 shard-and-chunk schedule is `build_eq_of_key_streams_eq`: chunking is contiguous and regrouping is
 by key, so each key's value subsequence is preserved and no commutativity is used. Region sizing,
 the window descent and the tag line are placement, not semantics. The historical header's citation
 is therefore correct, and the performant parallel structure is an instance of the canonical build.
 
-The load-bearing premise is identity: the slot stores the *identity* word (`3a95bb5:src/table.rs:726`)
+The load-bearing premise is identity: the slot stores the *identity* word (`3a95bb5:src/map/table.rs:726`)
 so slot equality equals key equality; `finish`/`spread` must be injective. That premise is asserted at
 grade tested/bounded — `tests/the_counts_are_exact.rs` and the Kani lemmas cited at
-`71942db:src/table.rs:36` — not `proved` in Lean.
+`71942db:src/map/table.rs:36` — not `proved` in Lean.
 
-Divergence: the current `Table` (`src/table.rs:6,74`) is a *bounded* 256xN fixed inline-shard
+Divergence: the current `Table` (`src/map/table.rs:6,74`) is a *bounded* 256xN fixed inline-shard
 structure with `ShardFull`, total at most `256·N` keys (N=16 -> 4096). It neither holds the historical
 1M-key workload nor shares the growable, load-sized structure. The general performant form
 (`map`/`Map`) was deleted at `00a3629`; `CountTable` at `dde9d58`. No checked Lean refinement exists
 for the counting/growable structure, for `spread`/`finish` injectivity, or for `locate` termination
-(`region_slots_for`, `group_at` at `3a95bb5:src/table.rs:780,791` are exposed "for proof" but unproved
+(`region_slots_for`, `group_at` at `3a95bb5:src/map/table.rs:780,791` are exposed "for proof" but unproved
 here); `proof/corpus/TableRefinement*.lean` refines the bounded fixed-shard Table only, and
 `src/lib.rs:10` states that refinement pending.
 
@@ -1972,7 +1972,7 @@ worst cell is now spill present-hit (~30.9x, ~24.7 ns/op). No speed recovery is 
 Extraction feasibility (spike, Charon `0.1.254` / Aeneas `505b6ca-dirty`): the `coord.spread`/`finish`
 body translates to Lean with no `axiom`/`sorry` — the identity-word arithmetic is extractable, so a
 proved descendant is reachable for that premise. Unsupported as written: `std::thread::scope` (HRTB
-lifetime constraint in `scoped.rs`), `return` inside nested loops in `locate` (`71942db:src/table.rs`
+lifetime constraint in `scoped.rs`), `return` inside nested loops in `locate` (`71942db:src/map/table.rs`
 709-738), and the `Held::Ref<'a>` GAT (`3a95bb5:src/map.rs:394`); `Vec` allocation/push translates.
 Identity injectivity is not derivable from the extracted model (Aeneas/Std has no odd-multiply lemma):
 it needs a hand-proved `ZMod 2^64`/`BitVec` odd-multiply injectivity theorem plus a refinement link
@@ -2063,7 +2063,7 @@ not license discarding keys. Fixed capacity is an explicit resource restriction,
 statement of `HMap` or an alternative table outside the executing path.
 
 Three serialized owned slices, IDs `APEIRON-TABLE-W8-T1` through `T3`, owner Astra:
-`src/table.rs`, `src/merge.rs`, `tests/table.rs` (R, build/test);
+`src/map/table.rs`, `src/map/merge.rs`, `tests/table.rs` (R, build/test);
 `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean` (E, regeneration);
 the two governing documents (no build lane). They share the authorized representation commit.
 
@@ -2141,7 +2141,7 @@ source uses a single const-repeat per construction, an isolated array search loo
 `table` identifier shadowing the generated namespace. `proof/regen.sh` strips backend-emitted
 trailing blanks identically during regeneration and freshness checks; it does not rewrite Lean.
 
-Control: `python3 /tmp/opencode/control-fixed-table.py` compiles throwaway `src/table.rs` copies
+Control: `python3 /tmp/opencode/control-fixed-table.py` compiles throwaway `src/map/table.rs` copies
 with `rustc --edition=2021 --test`, then runs them. Baseline 0, replace both fresh-write merges
 with `let merged = value;` 101, restored 0. Verbatim failing assertion: `left: 3`, `right: 13` in
 `full_shard_refuses_unchanged_but_existing_key_still_updates`. This is a Rust test control, not a
@@ -2157,8 +2157,8 @@ Aeneas reports `aeneas 505b6ca-dirty`. Existing const-repeat patches, not an unm
 
 | Artifact | SHA-256 |
 |---|---|
-| `src/table.rs` | `f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3` |
-| `src/merge.rs` | `7d4ce7656b38da200ba9c5265eca972e7cc475f133ae03efb6a1fa24c728c498` |
+| `src/map/table.rs` | `f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3` |
+| `src/map/merge.rs` | `7d4ce7656b38da200ba9c5265eca972e7cc475f133ae03efb6a1fa24c728c498` |
 | `tests/table.rs` | `177ff01a04bc731f2ff7ffe6a6e1845e156bfdd3a29de95dcbfd3ef5d7f1a207` |
 | `proof/extract/lib.rs` | `a2ecf3b1a01ca4b77fc575ff21254c0f1f3fe1e7fdc83532b110c996ab051f4e` |
 | `proof/regen.sh` | `1625b0147f458f709fd46f7504a0e41258d0660b79fd60fee00f7086e783dc2d` |
@@ -2218,7 +2218,7 @@ Mutate the throwaway generated `insert_with_loop0.body` vacant branch to store `
 `wrapping_add value default`; `insert_with_loop0_vacant_body_exact` fails at
 `TableRefinement.lean:1240:69`. Restore builds green (3358 jobs). Every new headline `#audit`s inside
 `{propext, Classical.choice, Quot.sound}`; no forbidden token. Source, generated file and pins
-unchanged: `src/table.rs` `83597ecf...`, `proof/ApeironWord.lean` `958b1ab5...`.
+unchanged: `src/map/table.rs` `83597ecf...`, `proof/ApeironWord.lean` `958b1ab5...`.
 `TableRefinement.lean` `fcf322ccb1c743097105514bfef422c03ee9d58ee690512a9cf0d3760b1a9100` (587 lines),
 `TableRefinementGeneric.lean` `5db832f56256a22efcd0455dcba73f6e6fdb03d4a953c37f9d4d19481f306720` (1319
 lines), `TableRefinementBuild.lean` `7a8121d7ad7c1e64459f24e3dc09418837b8ccf6366a583bb21ba122daccbbbb`
@@ -2424,7 +2424,7 @@ The old intent/spec documents below describe retired source, not the replacement
 
 The boundary change is three serial owned slices: `APEIRON-TABLE-W0-T1` owns these two documents;
 `APEIRON-TABLE-W0-T2` deletes `src/map.rs`, `src/safe_table.rs`, `src/set.rs`;
-`APEIRON-TABLE-W0-T3` owns `src/table.rs`, `src/lib.rs`, `src/merge.rs`. Astra owns all three for this
+`APEIRON-TABLE-W0-T3` owns `src/map/table.rs`, `src/lib.rs`, `src/map/merge.rs`. Astra owns all three for this
 explicit lead-assigned deletion. Only the last slice takes lane R. They share one authorized
 boundary commit, not a claim of implementation completion.
 
@@ -2435,7 +2435,7 @@ CORPUS:     Apeiron.Table "get_build_acc", "build_eq_of_key_streams_eq",
             "build_gauge_invariance"; Adjacency and Home, native grade proved
 REFERENCE:  /home/socol/Workspace/sanguine/proof/Apeiron/Table/{Basic,Adjacency,Home}.lean
 GATE:       root: cargo check --lib --locked baseline 0; cargo test --doc --locked after deletion
-            101: E0599, Table::new missing at src/merge.rs:47; git diff --check 0
+            101: E0599, Table::new missing at src/map/merge.rs:47; git diff --check 0
 GRADE:      anchor; declaration only, no methods or executing container; no new proof/measurement
 ```
 
@@ -2464,8 +2464,8 @@ The bridge currently resolves `d9aefc93522e2109bc96158526de6dbd52477276`.
 | Source | SHA-256 at boundary edit |
 |---|---|
 | `src/lib.rs` | `56c0ce5d9fcf14a7075e286cc7710461dc2b986aaf3cecea91844b6b5c15c7a7` |
-| `src/table.rs` | `18c9ce400f8fb8f872e6c9cfe370d4f0415081589833d58f0668240c3feea72f` |
-| `src/merge.rs` | `f1a056ad3d19c460ff49ec565ad1e22d06ac77ac08da3d24efdff48dc63d1874` |
+| `src/map/table.rs` | `18c9ce400f8fb8f872e6c9cfe370d4f0415081589833d58f0668240c3feea72f` |
+| `src/map/merge.rs` | `f1a056ad3d19c460ff49ec565ad1e22d06ac77ac08da3d24efdff48dc63d1874` |
 | corpus `Table/Basic.lean` | `e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9` |
 | corpus `Table/Adjacency.lean` | `5593d39db83213694ef51b9cb4d73686b9e2b5e8b548a2840e61b5a94d382732` |
 | corpus `Table/Home.lean` | `bab40ae04d1bd19cde8c97e09eb2453652cbddf253969ebad03ac582cf5d599b` |
@@ -2506,7 +2506,7 @@ required artifacts, not already existing tests or proofs.
 
 | Wave | Owned artifacts / obligation | Owner; lane | One focused gate | One rejecting control |
 |---|---|---|---|---|
-| 1 | `src/table.rs`, `src/merge.rs`: implement the declared constructor/get/insert_with/build, initialized growable shards and fallible resources; expand executable doctests for nonzero default, collisions and directional merges | Terra; R | `cargo test --doc --locked` (root) | First insertion bypasses `f v d` in a throwaway real body; nonidentity-default fixture must fail. |
+| 1 | `src/map/table.rs`, `src/map/merge.rs`: implement the declared constructor/get/insert_with/build, initialized growable shards and fallible resources; expand executable doctests for nonzero default, collisions and directional merges | Terra; R | `cargo test --doc --locked` (root) | First insertion bypasses `f v d` in a throwaway real body; nonidentity-default fixture must fail. |
 | 2 | `tests/safe_table.rs` renamed to `tests/table.rs`: replace the two-container trace with single-table default/write/build tests, growth, exact error witnesses and replace/append order fixtures | Flash; R | `cargo test --locked --test table` (root) | Compare only home addresses instead of full keys in a throwaway real body; collision fixture must fail. |
 | 3 | `proof/corpus/lakefile.lean`, `proof/corpus/lake-manifest.json`: pin the read gen2 revision, check Basic/Adjacency/Home on the bridge toolchain | Sol; B | `lake build Apeiron.Table.Basic Apeiron.Table.Adjacency Apeiron.Table.Home` (cwd `proof/corpus`; preparation: `lake update apeiron`) | Nonexistent corpus revision in a throwaway package must fail resolution, never fall back to sibling source. |
 | 4 | `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean`: replace `word_safe_table4_*` roots with actual Table constructor/get/insert_with/build roots, no capacity bound; include executing routing/growth and concrete merge instances | Sol; E | `proof/regen.sh --check` (root; first regenerate with `proof/regen.sh`) | Mutate the real default-read branch; unchanged generated output must fail freshness. |
@@ -2778,7 +2778,7 @@ Baseline source SHA-256 (bridge build only; extraction freshness not rerun):
 | Path | SHA-256 |
 |---|---|
 | `src/map.rs` | `4226acc5282ce7626eefb955dff55ce3023d6e5e80167fd536bec982d86c1961` |
-| `src/table.rs` | `5f6a62cb47a791162c0173f41d62342f7a0981c650ceed004e8cf0c83f0b9b9d` |
+| `src/map/table.rs` | `5f6a62cb47a791162c0173f41d62342f7a0981c650ceed004e8cf0c83f0b9b9d` |
 | `src/safe_table.rs` | `c09c5419456d355b2856064479114cf1c575db5016d9787078c0645a663a0479` |
 | `proof/extract/lib.rs` | `e5a86d5add7d83a4c9b72dba045dd25cf6e9aa8924442cdc88faa23ae7a79fc8` |
 | `proof/ApeironWord.lean` | `e509d24e634e457895baa49fda6bec6264e1e149f96594e00a7c703093ec8391` |
@@ -2807,7 +2807,7 @@ source/generated digests, actual patched tool binaries and resolved Lean/Mathlib
 | 5 | `proof/storage-controls.py`, this plan: durable S6 proof-control runner and record; **MISSING runner** | Flash; E+B | `python3 proof/storage-controls.py` | Independently mutate generated search hit, fresh write/old return, removal, constructor len, full payload/state, and force refusal on free/present keys. Each unchanged bridge build must fail semantically, not merely fail freshness; restored copies pass. Runner must reject a surviving mutation and missing tools. |
 | 6 | `tests/safe_table.rs`, this plan: I64/capacity-four common-domain traces, compare all mappings/old values; separate fifth-key refusal; retain generic tests | Flash; R | `cargo test --locked --test safe_table` | In a throwaway `src/map.rs`, replace the displaced-value return with `None`; unchanged trace must fail. Safe full-refusal test must not call the unbounded Map insert as if it could refuse. |
 | 7 | `proof/corpus/OptimizedTableRelation.lean`, `proof/corpus/AxiomAudit.lean`, `proof/corpus/lakefile.lean`: formal logical projection/common-domain relation, joint witnesses and capacity mismatch counterexample; **MISSING module** | Sol; B | `lake build` (cwd `proof/corpus`) | Mutate the logical projection to drop a live entry; unchanged witnessed lookup/size correspondence fails. Grade is proved mathematics about layouts, only model/anchor for actual Map. No assumed Map transition theorem. |
-| 8 | `src/table.rs`, `src/table/scan.rs`, `tests/both_tag_paths_agree.rs`: move the existing scanner unchanged to a shared module; preserve exports and target selection; **MISSING module** | Flash; R | `cargo test --locked --test both_tag_paths_agree` | Corrupt one returned lane bit in the executing scanner; unchanged scalar oracle fails. Fix fixtures to include actual EMPTY/TOMB, one-live and one-free lines. No algorithm or performance claim. |
+| 8 | `src/map/table.rs`, `src/map/table/scan.rs`, `tests/both_tag_paths_agree.rs`: move the existing scanner unchanged to a shared module; preserve exports and target selection; **MISSING module** | Flash; R | `cargo test --locked --test both_tag_paths_agree` | Corrupt one returned lane bit in the executing scanner; unchanged scalar oracle fails. Fix fixtures to include actual EMPTY/TOMB, one-live and one-free lines. No algorithm or performance claim. |
 | 9 | `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean`: extract actual shared SWAR match/free bodies only | Flash; E | `proof/regen.sh --check` | Mutate a real SWAR mask constant; unchanged generated artifact must fail freshness. Unsupported calls/axioms stop the task, not trigger a proof-only scalar rewrite. |
 | 10 | `proof/corpus/ScanRefinement.lean`, `proof/corpus/AxiomAudit.lean`, `proof/corpus/lakefile.lean`: exact masks for all 16 lanes/all byte values; **MISSING module** | Sol; B | `lake build` (cwd `proof/corpus`) | Mutate generated gather or free polarity; unchanged exact-mask theorem fails; restored copy passes. This proves SWAR only, not SSE2 dispatch or Map. |
 | 11 | `docs/epics/storage-refinement.md`, this plan: gate-first design for the actual scalar probe/transition core and heap adapter, constructor/preservation/refusal obligations | Astra owner, Sol read-only verdict; no build lane | `git diff --check` | Requirement review must reject a proposal that assumes the desired heap simulation, omits unwind, equates full with OOM, or selects a proof-only path. Semantic acceptance command **MISSING** until the memory semantics/tool route is selected; this row cannot close optimized refinement. |
@@ -2909,7 +2909,7 @@ edit. Each task owns at most three files and keeps `cargo test`, `cargo clippy` 
 green plus its focused gate; the wave closes only when extraction, refinement, Kani, the REG-1
 harness and the shared gates pass on the integrated identity. An intermediate proof failure is not
 an accepted wave result. Reason: changing the representation simultaneously changes admission
-(`src/table.rs` positive-`N` `ShardFull`), the extracted array representation
+(`src/map/table.rs` positive-`N` `ShardFull`), the extracted array representation
 (`proof/ApeironWord.lean`), the bounded-admission refinements, `src/proofs.rs` Kani predicates and
 the REG-1 workloads/oracles.
 
@@ -2936,7 +2936,7 @@ exact remaining proof/task inventory is no longer blocked on the resource decisi
 Owner Astra; recorded by the rework contract; base
 `c450c222905c050f793a23332708c230c658f82c`. Documentation only; gate `git diff --check` and
 `python3 tools/check-assurance.py --check`. This order supersedes the "Revised dispatch order
-prefix" above. The first growable `Table` at `src/table.rs` sha256
+prefix" above. The first growable `Table` at `src/map/table.rs` sha256
 `c34ddf17ef2ed7a81fd4b3e16447479b55d737af8f5253b99dd397414d9b1dc1` is rejected; its measured red
 and defect list are in the
 [local boundary](../kernel-boundary.md#reworked-growable-representation-astra-decision-first-cut-rejected).
@@ -3011,9 +3011,9 @@ family is distinct production work, not evidence supplied by serial recovery. RE
 | `APEIRON-PERF-REWORK-W1-T1` | `examples/reg1/strata.rs`, `examples/reg1/matrix.rs`, `examples/reg1/matrix.json` | Focused registration tests; re-register refusal/resource cells and archive the old fixed-shard receipts. Control: the old `ShardFull` digest rejects. |
 | `APEIRON-PERF-REWORK-W2-T1` | `examples/reg1/performance.rs`, `examples/reg1/strata.rs`, `examples/reg1/main.rs` | Strict performance-acceptance mode: a per-cell failure makes the command exit nonzero. Control: a valid report with one failing cell exits nonzero. |
 | `APEIRON-PERF-REWORK-W3-T1` | new `docs/evidence/` receipt | Capture the unchanged first-cut before-receipt under `docs/evidence/` before rework. |
-| `APEIRON-PERF-REWORK-W4-T1` | `src/table.rs`, new `src/table/scan.rs`, `tests/table.rs` | Geometry, exact SWAR, bounded first-fit, non-optional slots. |
-| `APEIRON-PERF-REWORK-W5-T1` | `src/table.rs`, `tests/table.rs` | Direct candidate/directory and transactional relocation. |
-| `APEIRON-PERF-REWORK-W6-T1` | `src/table.rs`, `tests/table.rs` | Implement `TableAddress`, `Home::address`, full `(Sigma,K)` identity/build input and direct-word routing; test unequal-`Sigma`/equal-`K` separation and placement-only `None`. Consumer migrations are separate at-most-three-file tasks. |
+| `APEIRON-PERF-REWORK-W4-T1` | `src/map/table.rs`, new `src/map/table/scan.rs`, `tests/table.rs` | Geometry, exact SWAR, bounded first-fit, non-optional slots. |
+| `APEIRON-PERF-REWORK-W5-T1` | `src/map/table.rs`, `tests/table.rs` | Direct candidate/directory and transactional relocation. |
+| `APEIRON-PERF-REWORK-W6-T1` | `src/map/table.rs`, `tests/table.rs` | Implement `TableAddress`, `Home::address`, full `(Sigma,K)` identity/build input and direct-word routing; test unequal-`Sigma`/equal-`K` separation and placement-only `None`. Consumer migrations are separate at-most-three-file tasks. |
 | `APEIRON-PERF-REWORK-W7-T1` | `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean` | Root the real address, search, relocation and sequential build bodies and regenerate. |
 | `APEIRON-PERF-REWORK-W8-T1` | `proof/corpus` bridge theorems (serialized) | `GrowableGeometry`, `GrowableDirectory`, `GrowableScan`, including the seven-bit mask and direct routing. |
 | `APEIRON-PERF-REWORK-W9-T1` | `proof/corpus` bridge theorems plus `AxiomAudit.lean` (serialized) | `GrowableSearch`, `GrowableRefinement`, audited under `{propext, Classical.choice, Quot.sound}`. |
@@ -3043,12 +3043,12 @@ the contract is in the
 | Wave | Obligation |
 |---|---|
 | `W1` | Projection-free carrier on both faces: `Stored<K>{key}`, `Regen<C>{identity,codec}` with manual `Clone`, `FlatSlot<R,V>` and spill `(Sigma,R,V)`, no `R::Held`; preserve `Table<…,Stored<K>>` and `Table<…,Regen<I64WordCodec>>`. |
-| `W2` | Digest fix: `proof/regen.sh` drops the deleted `src/table/resident.rs` from the hashed source list. |
+| `W2` | Digest fix: `proof/regen.sh` drops the deleted `src/map/table/resident.rs` from the hashed source list. |
 | `W3` | Resource interface decision: keep planning, reservation and allocation unextracted; allocating public methods stay unrooted until a checked allocator primitive/tool model exists. Decision recorded by `APEIRON-EXTRACT-REP-W5-T1`. |
 | `W4` | Prepared resource adapter in production: `Prepared { plan, storage, outcome } | Refused(StorageError)`; checked-plan, reserve-all, then apply/commit; pending insertion inside the transaction; refusal stutters. This remains unextracted. |
 | `W5`–`W10` | Prepared-spill extraction checkpoint: `proof/ApeironWord.lean` sha256 `faa257a8720c71ee7a08497621ddecd40495cf3729ee10c56f18119f5778113a` contains the real spill-only roots. It does not contain composite `Table::locate`, `Site` or `DirectCover`; no composite-search refinement follows. |
 | `W11` | Search boundary decision, `APEIRON-EXTRACT-REP-W11-T2`: keep the probe-order decision unextracted under `PinnedJoinBoundary`; root the real straight-line apply under `SearchDecisionCorrect`. Contract grade `anchor`; supplied context-join evidence `tested`. |
-| `W12` | **Next bounded task:** factor the production search in `src/table.rs` into a decision returning `(Found|Vacant|Exhausted, Flat(i)|Spill(shard,i)|NoIndex)` and a straight-line read/insert apply; keep direct, seven-window and mandatory-sweep order unchanged. Add focused cases in `tests/table.rs`. Gate and a late-hit/sweep mutation control must be assigned in the source task. |
+| `W12` | **Next bounded task:** factor the production search in `src/map/table.rs` into a decision returning `(Found|Vacant|Exhausted, Flat(i)|Spill(shard,i)|NoIndex)` and a straight-line read/insert apply; keep direct, seven-window and mandatory-sweep order unchanged. Add focused cases in `tests/table.rs`. Gate and a late-hit/sweep mutation control must be assigned in the source task. |
 | `W13` | Root both carrier specializations of the real apply in `proof/extract/lib.rs`, add only those roots to `proof/regen.sh`, and regenerate `proof/ApeironWord.lean`. Gate `proof/regen.sh --check`; control mutates an apply branch in a throwaway generated copy. |
 | `W14` | Prove `GrowableSearch` over the extracted apply under `SearchDecisionCorrect`, with `search_decision_simulates` targeting total-by-default `Apeiron.Table.get`, `get_insertWith_self` and `get_insertWith_ne`; register the headline and rejecting control under the closed cone. |
 | `W15`–`W17` | Prove, in order, `GrowableRelocation`, `GrowableRefinement` and `GrowableWitnesses`, each carrying `SearchDecisionCorrect`, `RepR` and `PreparedResources` and each with its own rejecting control. |
@@ -3082,12 +3082,12 @@ twin only; no Song declaration enters the Apeiron Rust/canonical cone.
 
 **Prerequisites and open gates.**
 
-- `W2` removed the deleted `src/table/resident.rs` digest path. The current generated artifact remains
+- `W2` removed the deleted `src/map/table/resident.rs` digest path. The current generated artifact remains
   bound to the live source list and is spill-only.
 - `proof/corpus/lakefile.lean` still lists the fixed-shard and joint consumers; a separate archival
   manifest is required before a full corpus build.
 - Supplied spike evidence, grade `tested`: Aeneas `505b6ca-dirty` / Charon `0.1.254` fails
-  `Could not match the contexts` at `Table::plan_rebuild` (`src/table.rs:678:16-680:17`). The generic
+  `Could not match the contexts` at `Table::plan_rebuild` (`src/map/table.rs:678:16-680:17`). The generic
   borrowed-carrier/live-guard/computed-classification shape reproduces; scalar and tested
   straight-line/accumulated-`Option`/cast variants pass; `-loops-to-rec`, `-loops-no-rec` and
   `-strict-joins` do not remove it. Classification is pinned Aeneas limitation (b), not allocator
@@ -3107,7 +3107,7 @@ and REG-1/G1 remains **OPEN**.
 
 REVIEW5 is the **selected counting-face architecture**: one single-region, coordinate-keyed,
 open-addressed counting container with no locator. The generic growable flat/spill
-`Table<K, V, H, N, R>` (`src/table.rs:237-268`) is **retained unchanged** as the map face. This
+`Table<K, V, H, N, R>` (`src/map/table.rs:237-268`) is **retained unchanged** as the map face. This
 contract supersedes the T3 clause "not an exemption or a second container" at
 `docs/direction.md:522` and the "a new container" non-goal at `docs/direction.md:631-632`
 **for the counting face only**; no other
@@ -3129,11 +3129,11 @@ The canonical object is unchanged:
 ### Intent
 
 **Problem.** The counting face cannot reach the owner's target ratio because the resident-coordinate
-admission and the addressing decision are separate losses. `Flat::index` (`src/table/state.rs:492`)
+admission and the addressing decision are separate losses. `Flat::index` (`src/map/table/state.rs:492`)
 admits only a `u32` resident coordinate, and `examples/reg1/adapters/native_strata.rs:93-98`
 certifies residency only when the whole coordinate word fits `u32`, so a key whose coordinate is
 outside that domain is spilled while the resident area, 256 spill regions and the locator are still
-allocated (`src/table.rs:237-268`). `Table::shard` (`src/table/state.rs:366-370`) routes on
+allocated (`src/map/table.rs:237-268`). `Table::shard` (`src/map/table/state.rs:366-370`) routes on
 `direct_word` when present and on `place` otherwise, so changing one home adapter cannot force a
 single region. HashDOS resistance is a separate obligation and concentrating keys supplies none of it.
 
@@ -3170,13 +3170,13 @@ operations are exactly: construction, `get`, new-first `insertWith` at one coord
 
 **Production consumers, measured.** No counting container and no production call site reaching one
 exists. `rg -ni "counting|count_par|get_each|CountMap|CountingTable|FreqMap" src/` returns only
-`Table::get_each` / `get_each_at` (`src/table/geteach.rs:115,87`) and the parallel batch and build
-(`src/table/parallel.rs:482,497,793,811,930`); `rg -n "fn n\b|fn n_at|fn n_parallel" src/` returns no
+`Table::get_each` / `get_each_at` (`src/map/table/geteach.rs:115,87`) and the parallel batch and build
+(`src/map/table/parallel.rs:482,497,793,811,930`); `rg -n "fn n\b|fn n_at|fn n_parallel" src/` returns no
 match, so the generic `Table` has no counting surface to redirect.
 `examples/reg1/adapters/native_strata.rs` is under `examples/`, included by
 `examples/reg1/strata.rs:94-95`, and is a harness key/home adapter: its `address` (`:93-98`,
 `:141-146`) certifies `direct_word: u32::try_from(key.tag).ok()` and refuses nothing.
-`src/table/state.rs` is the generic `Table`'s private state — the representation this contract replaces
+`src/map/table/state.rs` is the generic `Table`'s private state — the representation this contract replaces
 on the counting face, not a consumer of it.
 
 The **minimum production path that becomes the consumer** is the coordinate→count aggregate that
@@ -3184,11 +3184,11 @@ already has a production form in `src/` and no other:
 
 | production call site | operation | incumbent arm it must match |
 |---|---|---|
-| `Table::sum_parallel`, `src/table/parallel.rs:979-983` | grouped reduction over default-face probes | `hashtrinity::FreqMap::count_par` + `get_each`, `examples/reg1/acceptance.rs:491-492` |
-| `Table::get_each_at`, `src/table/geteach.rs:87-109` | ordered batched read at one face | `hashtrinity::FreqMap::get_each`, `examples/reg1/acceptance.rs:501-502` |
+| `Table::sum_parallel`, `src/map/table/parallel.rs:979-983` | grouped reduction over default-face probes | `hashtrinity::FreqMap::count_par` + `get_each`, `examples/reg1/acceptance.rs:491-492` |
+| `Table::get_each_at`, `src/map/table/geteach.rs:87-109` | ordered batched read at one face | `hashtrinity::FreqMap::get_each`, `examples/reg1/acceptance.rs:501-502` |
 
 `sum_parallel` is the binding one and the reason is structural rather than convenient: at
-`src/table/parallel.rs:958-962` it clones every query key into a `Vec<((Sigma, K), ())>` before
+`src/map/table/parallel.rs:958-962` it clones every query key into a `Vec<((Sigma, K), ())>` before
 probing, so the generic `Table` pays a retained-`K` widening per query to reach a plain `i64`. The
 counting container replaces that widening with the packed `(Sigma, u32)` word of clause 2 and retains
 no key, which is the per-query identity loss clause 2 forbids on the map face.
@@ -3196,7 +3196,7 @@ no key, which is the per-query identity loss clause 2 forbids on the map face.
 measurement harness, not a production consumer, and cannot discharge this clause alone.
 
 **2. Admitted coordinate domain, identity and `Sigma` separation.** The admitted domain is the
-packed `u32` coordinate word, the same domain `Flat::index` (`src/table/state.rs:492`) and
+packed `u32` coordinate word, the same domain `Flat::index` (`src/map/table/state.rs:492`) and
 `examples/reg1/adapters/native_strata.rs:93-98` already certify; a coordinate outside it is refused,
 not truncated or wrapped. The logical key is exactly `(Sigma, coordinate)`: equality compares both
 components, reads and writes receive `Sigma`, and for distinct `Sigma` at one coordinate an update
@@ -3208,7 +3208,7 @@ word. Where a key is reconstructed rather than carried, the reconstruction uses 
 inverse and never `Addr.place`.
 
 **Frozen codec: `CountKeyCodec`, instance `U32CoordWord`.** A sealed trait with exactly one admitted
-instance, in the shape of `ExactCodec` / `I64WordCodec` (`src/table/keyrep.rs:182,281`), so no
+instance, in the shape of `ExactCodec` / `I64WordCodec` (`src/map/table/keyrep.rs:182,281`), so no
 unreviewed instance can be selected. Three operations, no others:
 
 | operation | definition | role |
@@ -3225,7 +3225,7 @@ stored words, none reused. The injectivity obligation is therefore
 `encode(s1, c1) = encode(s2, c2) ⟹ s1 = s2 ∧ c1 = c2`, and the law is
 `decode(s, encode(s, c)) = c` for every `s` and every `c < 2^32`. `decode` is total on that image; the
 container must never present a face-mismatched word to it, because identity is the `matches` equality
-first — the order `FlatSlot` identity already uses at `src/table.rs:65`, `flat.live && flat.sigma ==
+first — the order `FlatSlot` identity already uses at `src/map/table.rs:65`, `flat.live && flat.sigma ==
 sigma && R::matches(sigma, &flat.held, key, address)`. This is what discharges "two admitted keys may
 never share a stored word": the stored word carries the face, so `(s, c)` and `(s', c)` differ for
 `s ≠ s'` at one coordinate and one placement.
@@ -3235,8 +3235,8 @@ never share a stored word": the stored word carries the face, so `(s, c)` and `(
 | value | admitted | why |
 |---|---|---|
 | `0` | yes | `encode(Elliptic, 0) = 0`, so a stored word of `0` is a **live** coordinate and never a vacancy marker; occupancy is the tag, per clause 1 |
-| `2^31` | yes | the top bit of the `u32` coordinate word: `word >> SHARD_BITS` is `2^23` (`src/table/state.rs:493`) and an `i32` reading of the word changes sign here |
-| `2^32 - 1` | yes | the admitted-domain edge. `Flat::index` takes a `u32` (`src/table/state.rs:492`) and `u32::try_from` accepts it |
+| `2^31` | yes | the top bit of the `u32` coordinate word: `word >> SHARD_BITS` is `2^23` (`src/map/table/state.rs:493`) and an `i32` reading of the word changes sign here |
+| `2^32 - 1` | yes | the admitted-domain edge. `Flat::index` takes a `u32` (`src/map/table/state.rs:492`) and `u32::try_from` accepts it |
 | `2^32` | **no — the first refused coordinate** | the first `u64` tag `u32::try_from(key.tag).ok()` rejects (`examples/reg1/adapters/native_strata.rs:96,144`), so `direct_word = None` and the key routes to spill today. The counting container refuses it: no truncation to `0`, no wrap to `2^32 - 1` |
 
 Bits 34–63 of a stored word lie outside the image of `encode` for every admitted key, so no word above
@@ -3286,26 +3286,26 @@ Checked rather than wrapping, for three stated reasons.
 
 1. Ratified option (b) admits exactly `StorageError::SizeOverflow` for a checked layout and
    `StorageError::AllocationFailed` for a failed reservation
-   (`docs/kernel-boundary.md:333-352`, variants at `src/table.rs:99-106`). A wrap is neither, and a
+   (`docs/kernel-boundary.md:333-352`, variants at `src/map/table.rs:99-106`). A wrap is neither, and a
    silently wrong count is the silent domain reduction obligation 2 forbids.
 2. `checked_add` returns an `Option`, the refusal shape the existing sizing path already uses —
-   `checked_mul` → `SizeOverflow` (`src/table/state.rs:414,420,423`) and `try_reserve_exact` →
-   `AllocationFailed` (`src/table/state.rs:515`) — so the transaction point does not move.
+   `checked_mul` → `SizeOverflow` (`src/map/table/state.rs:414,420,423`) and `try_reserve_exact` →
+   `AllocationFailed` (`src/map/table/state.rs:515`) — so the transaction point does not move.
 3. The behaviour being replaced is profile-dependent, not an overflow contract. `sum_parallel`
-   reduces with `Iterator::sum()` over `i64` (`src/table/parallel.rs:980-982`), and that operator wraps
+   reduces with `Iterator::sum()` over `i64` (`src/map/table/parallel.rs:980-982`), and that operator wraps
    silently in release and aborts in debug: `rustc -O` on `[i64::MAX, 1]` printed
    `sum=-9223372036854775808` and exited 0, and the same source without `-O` panicked `attempt to add
    with overflow` and exited 101, on `rustc 1.97.0-nightly (17584a181 2026-04-13)` with no
    `[profile]` override in `Cargo.toml`. A wrap is a wrong count and a panic is not a refusal; the
    deferred `sum_parallel` overflow task (`docs/roadmap.md:394`, `docs/kernel-boundary.md:80`) needs a
-   contract, and this is it for the counting face. The `wrapping_mul` at `src/table/state.rs:379` (a
-   tag fingerprint) and the `saturating_add` chain at `src/table/geteach.rs:167-174` (a
+   contract, and this is it for the counting face. The `wrapping_mul` at `src/map/table/state.rs:379` (a
+   tag fingerprint) and the `saturating_add` chain at `src/map/table/geteach.rs:167-174` (a
    non-authoritative footprint estimate) are neither sizing arithmetic nor a count and license
    nothing here.
 
 The refusal type is `CountRefusal { SizeOverflow, AllocationFailed, CountOverflow }`, a total 1:1
 widening of `StorageError` by `CountOverflow`. It lives in the counting module so `APEIRON-COUNT-W2-T1`
-touches at most three files and `src/table.rs` is not edited for an error variant. The default is a
+touches at most three files and `src/map/table.rs` is not edited for an error variant. The default is a
 parameter, matching `Apeiron.Table.build`'s own default argument
 (`build f d kvs = kvs.foldl (insertWith …) (fun _ => d)`,
 `/home/socol/Workspace/sanguine/proof/Apeiron/Table/Basic.lean:121-122`), frozen here at `0`:
@@ -3420,7 +3420,7 @@ REG1_TARGET_RATIO=half cargo run --release --locked --example reg1 -- --check pe
 | `APEIRON-COUNT-W1-T1` | `docs/epics/storage-refinement.md`, `tools/check-claims.py` | `python3 tools/check-claims.py` and `python3 tools/rooting/read_gate.py --check`, repository root (60 s each) | Citation to a nonexistent path inside this contract, added under a `tested` sentence: exit 1 naming `docs/epics/storage-refinement.md` and the line; removed: exit 0. **Coverage established**, scoped: `COVERED_SECTIONS` in `tools/check-claims.py` scans the `## Coordinate-keyed counting-container contract` heading of this file to the next heading of the same or higher level, reports file line numbers, and exits 2 if that heading is absent, so a renamed section is a refusal and not a silent pass. Two coverage residuals stay **open**: whole-file coverage of this epic, because the 35 pre-existing claims above this contract are superseded records and redden the gate at 48 findings re-measured with 37 graded claims whole-file against 2 in this section; and markdown link destinations, which are not citations to this gate. | REVIEW5 selection |
 | `APEIRON-COUNT-W1-T2` | `examples/reg1/matrix.rs`, `examples/reg1/correctness.rs`, `examples/reg1/strata.rs` | the strict full-profile command above, bounded below 600 s per run with repetitions and spread reported | Seeded wrong-output cells; every one of the six `digest_fail` cells must go red then green on restore | exact failing cells reproduced |
 | `APEIRON-COUNT-W1-T3` | `docs/kernel-boundary.md`, `docs/direction.md`, `docs/README.md` | `python3 tools/check-claims.py` and `python3 tools/rooting/check.py --check` (60 s each) | `python3 tools/rooting/check.py --self-test` rejection fixtures must reject | `APEIRON-COUNT-W1-T1` |
-| `APEIRON-COUNT-W2-T1` | the counting module `src/table/count.rs`, its `include!` line in `src/table.rs`, and the one production consumer `Table::sum_parallel` in `src/table/parallel.rs` | `cargo test --locked --lib table::count::tests::` (300 s) — the container's own cells, run on the build path, filtered as `docs/kernel-boundary.md:76` filters `table::partition::tests::partition_integrity_` — plus `cargo clippy --workspace --all-features --all-targets --locked -- -D warnings` and `cargo fmt --all -- --check` (§6, 300 s each) | In a disposable copy under `/home/socol/oc-tmp`, never the working tree. (i) **Coordinate-identity mutation:** replace `CountKeyCodec::encode` with `u64::from(coord)`, dropping the face half; require `cargo test --locked --lib table::count::tests::` red with `sigma_separation_update_leaves_the_other_face_unchanged` and `counting_words_are_injective_across_faces` failing; restore, require green. (ii) **Sentinel alias:** write the vacant marker as the stored word `0`, which is `encode(Elliptic, 0)`; require `zero_word_is_a_live_coordinate_not_a_vacancy` red. The oracle is the independent full-key map over `(Sigma, u32)` in the container's `full_key_oracle_agrees_with_the_counting_container` cell — not the container's own readback and not a hash. A mutation that has never been observed red leaves this control **MISSING** and the row open. | clause 1 consumers and clause 2 codec frozen; clause 5 overflow policy, count carrier and default frozen |
+| `APEIRON-COUNT-W2-T1` | the counting module `src/map/count.rs`, its `include!` line in `src/map/table.rs`, and the one production consumer `Table::sum_parallel` in `src/map/table/parallel.rs` | `cargo test --locked --lib table::count::tests::` (300 s) — the container's own cells, run on the build path, filtered as `docs/kernel-boundary.md:76` filters `table::partition::tests::partition_integrity_` — plus `cargo clippy --workspace --all-features --all-targets --locked -- -D warnings` and `cargo fmt --all -- --check` (§6, 300 s each) | In a disposable copy under `/home/socol/oc-tmp`, never the working tree. (i) **Coordinate-identity mutation:** replace `CountKeyCodec::encode` with `u64::from(coord)`, dropping the face half; require `cargo test --locked --lib table::count::tests::` red with `sigma_separation_update_leaves_the_other_face_unchanged` and `counting_words_are_injective_across_faces` failing; restore, require green. (ii) **Sentinel alias:** write the vacant marker as the stored word `0`, which is `encode(Elliptic, 0)`; require `zero_word_is_a_live_coordinate_not_a_vacancy` red. The oracle is the independent full-key map over `(Sigma, u32)` in the container's `full_key_oracle_agrees_with_the_counting_container` cell — not the container's own readback and not a hash. A mutation that has never been observed red leaves this control **MISSING** and the row open. | clause 1 consumers and clause 2 codec frozen; clause 5 overflow policy, count carrier and default frozen |
 | `APEIRON-COUNT-W2-T2` | `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean` | `proof/regen.sh --check` (570 s) | Generated-body mutation in a throwaway copy, red then restored green | `APEIRON-COUNT-W2-T1` |
 | `APEIRON-COUNT-W2-T3` | `proof/corpus/Counting/*.lean` and `proof/corpus/AxiomAudit.lean` | `cd proof/corpus && lake build` under `systemd-run --user --scope -p MemoryMax=<cap> -p MemorySwapMax=0`, `LEAN_NUM_THREADS=1`, `timeout 570`, `flock /tmp/opencode/apeiron-lane.lock` | Codec/identity mutation reddens the named headline; restored source green | `APEIRON-COUNT-W2-T2` |
 | `APEIRON-COUNT-W3-T1` | the parallel executor and readback bodies (≤3 files) | the strict full-profile command with `--controls`, bounded below 600 s per run | Achievable-worker and query-order readback mutations red then green | `APEIRON-COUNT-W2-T1` |

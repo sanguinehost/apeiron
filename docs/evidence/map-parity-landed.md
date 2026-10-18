@@ -9,7 +9,7 @@ Related: `apeiron-map-register-the-GWgtrZKctFxA8re9qryHse` (APEIRON-MAP-REGISTER
 
 The **selected map arm executes the subsumed incumbent body**. `examples/reg1/adapters/selected_map.rs`
 (new) constructs and measures `apeiron::hashtrinity::Table` for the map face; the vendor tree
-`src/hashtrinity/**` (36 files) is the subsumed artifact; `Cargo.toml` puts it on the build path.
+`src/map/hashtrinity/**` (36 files) is the subsumed artifact; `Cargo.toml` puts it on the build path.
 
 Registration is **truthful**, which is what makes this a measurement and not a diagnostic
 (Sol, `PARITY-CELL-CLOSE`):
@@ -54,6 +54,6 @@ The six-campaign measurement recorded by the MAP-PARITY lane on the same wire:
   spread; a paired campaign is required before parity is claimed for those two faces.
 - `examples/reg1/adapters/insert_charge.rs` is a stray instrument from a cancelled lane with **0
   references**; it is deliberately **not** included.
-- A lane wrote to the live tree during this work; the foreign `src/table.rs` patch
+- A lane wrote to the live tree during this work; the foreign `src/map/table.rs` patch
   (MAP-WORST-CELL's, which regresses the headline 32 -> 30) is preserved at
   `/home/socol/oc-tmp/land-parity/FOREIGN-insert-cost.patch` and is **not** included.

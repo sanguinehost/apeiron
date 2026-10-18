@@ -2,8 +2,8 @@
 """Extract and check the real scalar capacity comparison in a bounded private build.
 
 O(B) source/tool/log bytes; external compilation is timed, not assigned constant cost. The
-temporary manifest wires the real `src/table.rs` by `#[path]`, which pulls the real
-`src/table/resources.rs`; the only new code is the typed forwarding wrapper that calls the real
+temporary manifest wires the real `src/map/table.rs` by `#[path]`, which pulls the real
+`src/map/table/resources.rs`; the only new code is the typed forwarding wrapper that calls the real
 `capacity_bound_holds` body. No substitute algorithm is extracted.
 
   proof/resource/Capacity_gate.py --prepare   regenerate proof/resource/CapacitySource.lean
@@ -35,10 +35,10 @@ SCRATCH_ROOT = Path(tempfile.gettempdir()) / 'capacity-resource'
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=SCRATCH_ROOT))
 
-# The real source closure the wrapper compiles. `src/table.rs` declares `#[path = "table/..."]`
+# The real source closure the wrapper compiles. `src/map/table.rs` declares `#[path = "table/..."]`
 # children and `include!`s `table/{state,locator,prepared}.rs`, and it imports `crate::cell::Sigma`
 # and `crate::coord::{address,locator}`, so the wrapper also wires the real `src/{scalar,cell,coord}.rs`
-# and the real `src/coord/` children. `src/table/tests.rs` is `#[cfg(test)]` and is compiled by the
+# and the real `src/map/coord/` children. `src/map/table/tests.rs` is `#[cfg(test)]` and is compiled by the
 # `cargo test` step only. The mutant control copies this closure into a scratch directory and mutates
 # the copied `table/resources.rs`, never the working tree.
 CLOSURE = ['scalar.rs', 'cell.rs', 'coord.rs', 'table.rs', 'coord', 'table']
@@ -84,11 +84,11 @@ pub mod coord;
 pub mod table;
 
 /// Crate-root alias of the face token the real `src/lib.rs` re-exports as `pub use cell::{{Sigma}}`;
-/// the real `#[cfg(test)]` modules in `src/table/{{partition,probe}}.rs` import `crate::Sigma`.
+/// the real `#[cfg(test)]` modules in `src/map/table/{{partition,probe}}.rs` import `crate::Sigma`.
 pub use cell::Sigma;
 
 /// Typed forwarding wrapper: it fixes the two `usize` argument types and calls the real
-/// `src/table/resources.rs` `capacity_bound_holds` body. It restates no comparison.
+/// `src/map/table/resources.rs` `capacity_bound_holds` body. It restates no comparison.
 pub fn word_capacity_bound_holds(required_len: usize, observed_capacity: usize) -> bool {{
     table::resources::capacity_bound_holds(required_len, observed_capacity)
 }}
@@ -128,7 +128,7 @@ def extract(source_root, label):
     # The model's own definitions replace the stubs the pinned Aeneas emits for externals it does
     # not model; any other axiom/sorry stays for the fail-closed scan below.
     run(['python3',str(ROOT/'proof/strip-modeled-axioms.py'),str(generated)],project,label+'-strip')
-    generated.write_text(generated.read_text().replace(str(source_root/'table/resources.rs'), 'src/table/resources.rs'))
+    generated.write_text(generated.read_text().replace(str(source_root/'table/resources.rs'), 'src/map/table/resources.rs'))
     if re.search(r'\b(axiom|sorry|admit)\b', generated.read_text()):
         raise RuntimeError('CAPACITY_UNMODELED_SOURCE')
     return generated
@@ -191,6 +191,6 @@ if __name__=='__main__':
     try:
         main();status=0
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/table.rs',ROOT/'src/table/resources.rs',ROOT/'src/table/state.rs',ROOT/'src/table/prepared.rs',ROOT/'src/table/locator.rs',ROOT/'src/table/keyrep.rs',ROOT/'src/table/partition.rs',ROOT/'src/table/probe.rs',ROOT/'src/table/parallel.rs',ROOT/'src/table/tests.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/coord.rs',ROOT/'src/coord/address.rs',ROOT/'src/coord/locator.rs',ROOT/'src/coord/locator_core.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/Capacity_gate.py',ROOT/'proof/resource/CapacitySource.lean',ROOT/'proof/resource/CapacityResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/map/table.rs',ROOT/'src/map/table/resources.rs',ROOT/'src/map/table/state.rs',ROOT/'src/map/table/prepared.rs',ROOT/'src/map/table/locator.rs',ROOT/'src/map/table/keyrep.rs',ROOT/'src/map/table/partition.rs',ROOT/'src/map/table/probe.rs',ROOT/'src/map/table/parallel.rs',ROOT/'src/map/table/tests.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/map/coord.rs',ROOT/'src/map/coord/address.rs',ROOT/'src/map/coord/locator.rs',ROOT/'src/map/coord/locator_core.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/Capacity_gate.py',ROOT/'proof/resource/CapacitySource.lean',ROOT/'proof/resource/CapacityResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
         (OUT/(SCRATCH.name+'-receipt.json')).write_text(json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=540,argv=[sys.executable,*sys.argv],lane=LANE,memory_max='12G',swap_max=0,threads=1,scratch=str(SCRATCH),deadline=os.environ.get('CAPACITY_DEADLINE'),records=RECORDS,sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, compiler, IO/process/dependencies; the work measure counts Usize comparisons and heap allocations in the extracted body under the Aeneas model, not cycles or GPU time; the reservation adapter, the capacity_bound assertion and the eight-fold receipt conjunction are outside this root'),indent=2)+'\n')
         shutil.rmtree(SCRATCH,ignore_errors=True)

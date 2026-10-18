@@ -1,23 +1,25 @@
 //! W4-F0 locator tests: per-face residue indexing, the shared exact-identity path, coverage,
 //! refusal and the reserve-before-retain ordering.
 //!
-//! These exercise the standalone `src/coord/locator.rs` bodies. They do not migrate a table read,
+//! These exercise the standalone `src/map/coord/locator.rs` bodies. They do not migrate a table read,
 //! write, carrier or storage path.
 
 #[cfg(feature = "injection")]
 use std::cell::Cell;
 
-use apeiron::coord::address::{face_index_policy, FaceIndexPolicy, ParabolicDual, Residue, H3_40};
+use apeiron::map::coord::address::{
+    face_index_policy, FaceIndexPolicy, ParabolicDual, Residue, H3_40,
+};
 #[cfg(feature = "injection")]
-use apeiron::coord::locator::reservation_failure;
-use apeiron::coord::locator::{
+use apeiron::map::coord::locator::reservation_failure;
+use apeiron::map::coord::locator::{
     coefficient_bits, residue_digits, Absence, ExactIdentity, FaceIndex, Inserted, Locator, Lookup,
     Refusal,
 };
-use apeiron::table::keyrep::{ExactCodec, I64WordCodec};
+use apeiron::map::table::keyrep::{ExactCodec, I64WordCodec};
 #[cfg(feature = "injection")]
-use apeiron::table::Table;
-use apeiron::table::{TableAddress, WordHome};
+use apeiron::map::table::Table;
+use apeiron::map::table::{TableAddress, WordHome};
 use apeiron::Sigma;
 
 fn profile() -> H3_40 {

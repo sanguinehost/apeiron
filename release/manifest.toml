@@ -192,7 +192,7 @@ docs_allow = []
 public_docs = ["README.md", "CONTRIBUTING.md", "SECURITY.md", "proof/README.md", "book/src/"]
 dangling_ignore = ["release/", "target/"]
 # Paths whose abbreviated commit ids are rewritten to the ids of the cut's history.
-remap = ["README.md", "proof/README.md", "bench/", "book/src/", "src/freq.rs", "src/hashtrinity/mod.rs"]
+remap = ["README.md", "proof/README.md", "bench/", "book/src/", "src/map/freq.rs", "src/map/hashtrinity/mod.rs"]
 # Files that must exist in the cut (the substitutions and the public surface).
 present = [
   "README.md", "LICENSE", "NOTICE", "SECURITY.md", "CONTRIBUTING.md", "AGENTS.md",

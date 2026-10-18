@@ -54,8 +54,8 @@ transactional equivalent and is a composition obligation (B6), not a matched pri
 
 | Row | Canonical object | Rust entry | Song entry | Status |
 |---|---|---|---|---|
-| R1 | merge `f` of `Apeiron.Table.HMap`; addition observation | `src/table.rs::WordMerge::merge`, `src/scalar.rs::<i64 as Ring>::add` | `table/table.slang::mergeAcc`, `tableInsertWith` | selected-open |
-| R2 | `Apeiron.Table.HMap` with `get`, `insertWith`, `build` | `src/table.rs::Table::{new,get,insert_with}` | `table/table.slang::{tableInit,tableFind,tableGet,tableInsertWith}` | selected-open |
+| R1 | merge `f` of `Apeiron.Table.HMap`; addition observation | `src/map/table.rs::WordMerge::merge`, `src/scalar.rs::<i64 as Ring>::add` | `table/table.slang::mergeAcc`, `tableInsertWith` | selected-open |
+| R2 | `Apeiron.Table.HMap` with `get`, `insertWith`, `build` | `src/map/table.rs::Table::{new,get,insert_with}` | `table/table.slang::{tableInit,tableFind,tableGet,tableInsertWith}` | selected-open |
 
 Canonical authority for R2 is `Apeiron/Table/Basic.lean` (`HMap`, `get`, `insertWith`, `build`,
 `get_insertWith_self`, `get_insertWith_ne`, `get_build_acc`, `build_gauge_invariance`).
@@ -72,7 +72,7 @@ Exact scalar type: Rust `i64` as the wrapping `Z/2^64` (`i64 as Ring` add = `i64
 theorems are `Apeiron.Table.get_build_acc`, `Apeiron.Table.build_gauge_invariance`,
 `Apeiron.Table.get_insertWith_self`, `Apeiron.Table.get_insertWith_ne`.
 
-**2 · Entry points and source identity.** Rust: `src/table.rs::WordMerge::merge` (the concrete
+**2 · Entry points and source identity.** Rust: `src/map/table.rs::WordMerge::merge` (the concrete
 `Merge<i64>` wrapping-add method) and `src/scalar.rs::<i64 as Ring>::add` (the wrapping `i64`
 addition instance method). Song: `song/src/table/table.slang::mergeAcc` (pure accumulator merge with
 the in-tree laws `mergeacc_comm`/`mergeacc_assoc`) and `tableInsertWith` (whose `MERGE_ACC` arm
@@ -114,7 +114,7 @@ addition, but the extracted `WordMerge` has no dedicated bridge theorem, so the 
 source-connected only through that denotation. Song: `mergeacc_comm` and `mergeacc_assoc` are
 in-tree Song laws, not canonical Lean; no checked Song-to-Lean refinement exists. The joint
 refinement is OPEN. Rejecting control: change `new.wrapping_add(old)` to `new.wrapping_sub(old)` in a
-throwaway copy of `src/table.rs`, re-extract, and `proof/regen.sh --check` fails on the
+throwaway copy of `src/map/table.rs`, re-extract, and `proof/regen.sh --check` fails on the
 generated-body diff; restoring passes. This is an extraction-drift control; the semantic Song
 refinement remains the open obligation.
 
@@ -129,7 +129,7 @@ theorems: `Apeiron.Table.get_insertWith_self`, `Apeiron.Table.get_insertWith_ne`
 `Apeiron.Table.get_build_acc`, `Apeiron.Table.build_gauge_invariance`,
 `Apeiron.Table.merge_is_the_only_freedom`, `Apeiron.Table.build_eq_of_key_streams_eq`.
 
-**2 · Entry points and source identity.** Rust `src/table.rs::Table::{new,get,insert_with}`.
+**2 · Entry points and source identity.** Rust `src/map/table.rs::Table::{new,get,insert_with}`.
 `Table::build` and canonical build theorems are composition context only, tracked under B6. Song
 `song/src/table/table.slang`: `tableInit`, `tableInitGo`, `tableCapacityOk`, `tableFind`,
 `tableFindSlotGo`, `tableLookupSlotGo`, `tableGet`, `tableInsertWith`, `tableSpread`, `tableSlotKey`,
@@ -230,7 +230,7 @@ assumed, and the checker requires every one of them to be present.
 | B3 | Rust `src/exchange.rs::{exchange_impulse,elastic_exchange,accept_derived_impulse}`; Song side NONE. | No Song executing primitive performs the equal-mass exchange or the checked-claim acceptance. | blocker |
 | B4 | Song `song/src/prover/ring/prover0.slang::{verdict,normalize,pass,structEq}`; Rust side NONE. | There is no executing Rust evaluator for the canonical `Apeiron.Combinator` semantics. | blocker |
 | B5 | Song `song/src/prover/cone/certcheck.slang::{main,ccBatch,ccRun}`; Rust side NONE. | No Rust decider. `certcheck` must refine `Apeiron.Decider.checkCert`/`checkCert_sound`. | blocker |
-| B6 | Rust `src/table.rs::Table::build` is transactional; Song has only per-insert `tableInsertWith` plus `tableInit`. | Song has no transactional `build`. Rust returns `Err` without exposing its locally constructed partial table; this is not an empty-table return. A separate composition task must specify Song's externally observable success and refusal post-state. A success-only restricted-domain result does not discharge B6's refusal/resource obligation. | blocker |
+| B6 | Rust `src/map/table.rs::Table::build` is transactional; Song has only per-insert `tableInsertWith` plus `tableInit`. | Song has no transactional `build`. Rust returns `Err` without exposing its locally constructed partial table; this is not an empty-table return. A separate composition task must specify Song's externally observable success and refusal post-state. A success-only restricted-domain result does not discharge B6's refusal/resource obligation. | blocker |
 
 ## Hazards
 

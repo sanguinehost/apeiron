@@ -96,19 +96,19 @@ fn is_skipped(attrs: &[syn::Attribute]) -> syn::Result<bool> {
 ///   `impl Coord for (A, B, C)` does.
 fn fold_over(exprs: &[Ts], pepper: &Ts) -> Ts {
     match exprs {
-        [] => quote! { ::apeiron::coord::PHI },
-        [one] => quote! { ::apeiron::coord::Coord::coord_with(#one, #pepper) },
+        [] => quote! { ::apeiron::map::coord::PHI },
+        [one] => quote! { ::apeiron::map::coord::Coord::coord_with(#one, #pepper) },
         [first, rest @ ..] => {
-            let mut acc = quote! { ::apeiron::coord::Coord::coord_with(#first, #pepper) };
+            let mut acc = quote! { ::apeiron::map::coord::Coord::coord_with(#first, #pepper) };
             for e in rest {
                 acc = quote! {
-                    ::apeiron::coord::mix(
+                    ::apeiron::map::coord::mix(
                         #acc,
-                        ::apeiron::coord::Coord::coord_with(#e, #pepper),
+                        ::apeiron::map::coord::Coord::coord_with(#e, #pepper),
                     )
                 };
             }
-            quote! { ::apeiron::coord::finish(#acc) }
+            quote! { ::apeiron::map::coord::finish(#acc) }
         }
     }
 }
@@ -166,7 +166,8 @@ fn coord_body(input: &DeriveInput) -> syn::Result<Ts> {
                 let vname = &variant.ident;
                 // The variant index seeds the fold, so two variants carrying equal payloads --
                 // `A(7)` and `B(7)` -- do not share an address.
-                let seed = quote! { ::apeiron::coord::mix(#i as u64, ::apeiron::coord::PHI) };
+                let seed =
+                    quote! { ::apeiron::map::coord::mix(#i as u64, ::apeiron::map::coord::PHI) };
                 let (pat, exprs) = match &variant.fields {
                     Fields::Unit => (quote! { Self::#vname }, Vec::new()),
                     Fields::Unnamed(unnamed) => {
@@ -201,13 +202,13 @@ fn coord_body(input: &DeriveInput) -> syn::Result<Ts> {
                 let mut acc = seed;
                 for e in &exprs {
                     acc = quote! {
-                        ::apeiron::coord::mix(
+                        ::apeiron::map::coord::mix(
                             #acc,
-                            ::apeiron::coord::Coord::coord_with(#e, #pepper),
+                            ::apeiron::map::coord::Coord::coord_with(#e, #pepper),
                         )
                     };
                 }
-                arms.push(quote! { #pat => ::apeiron::coord::finish(#acc) });
+                arms.push(quote! { #pat => ::apeiron::map::coord::finish(#acc) });
             }
             if arms.is_empty() {
                 // An uninhabited enum has no values, so `coord` can never be called -- but the impl
@@ -237,8 +238,8 @@ fn coord_body(input: &DeriveInput) -> syn::Result<Ts> {
         quote! { #where_clause }
     } else {
         match where_clause {
-            Some(w) => quote! { #w #(#bounds: ::apeiron::coord::Coord,)* },
-            None => quote! { where #(#bounds: ::apeiron::coord::Coord,)* },
+            Some(w) => quote! { #w #(#bounds: ::apeiron::map::coord::Coord,)* },
+            None => quote! { where #(#bounds: ::apeiron::map::coord::Coord,)* },
         }
     };
 
@@ -262,7 +263,7 @@ fn coord_body(input: &DeriveInput) -> syn::Result<Ts> {
     } else {
         let mut acc = quote! { true };
         for t in &bounds {
-            acc = quote! { #acc && <#t as ::apeiron::coord::Coord>::SPREAD };
+            acc = quote! { #acc && <#t as ::apeiron::map::coord::Coord>::SPREAD };
         }
         acc
     };
@@ -281,19 +282,19 @@ fn coord_body(input: &DeriveInput) -> syn::Result<Ts> {
     } else {
         let mut acc = quote! { true };
         for t in &bounds {
-            acc = quote! { #acc && <#t as ::apeiron::coord::Coord>::CHEAP_EQ };
+            acc = quote! { #acc && <#t as ::apeiron::map::coord::Coord>::CHEAP_EQ };
         }
         acc
     };
 
     Ok(quote! {
         #[automatically_derived]
-        impl #impl_generics ::apeiron::coord::Coord for #name #ty_generics #where_clause {
+        impl #impl_generics ::apeiron::map::coord::Coord for #name #ty_generics #where_clause {
             const SPREAD: bool = #spread;
             const CHEAP_EQ: bool = #cheap_eq;
             #[inline]
             fn coord(&self) -> u64 {
-                <Self as ::apeiron::coord::Coord>::coord_with(self, 0)
+                <Self as ::apeiron::map::coord::Coord>::coord_with(self, 0)
             }
             #[inline]
             fn coord_with(&self, #pepper: u64) -> u64 {
@@ -343,20 +344,20 @@ fn packed_body(input: &DeriveInput) -> syn::Result<Ts> {
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let where_clause = match where_clause {
-        Some(w) => quote! { #w #field_ty: ::apeiron::coord::Packed, },
-        None => quote! { where #field_ty: ::apeiron::coord::Packed, },
+        Some(w) => quote! { #w #field_ty: ::apeiron::map::coord::Packed, },
+        None => quote! { where #field_ty: ::apeiron::map::coord::Packed, },
     };
 
     Ok(quote! {
         #[automatically_derived]
-        impl #impl_generics ::apeiron::coord::Packed for #name #ty_generics #where_clause {
+        impl #impl_generics ::apeiron::map::coord::Packed for #name #ty_generics #where_clause {
             #[inline]
             fn packed(&self) -> u64 {
-                ::apeiron::coord::Packed::packed(#read)
+                ::apeiron::map::coord::Packed::packed(#read)
             }
             #[inline]
             fn unpack(__c: u64) -> Self {
-                let __v = <#field_ty as ::apeiron::coord::Packed>::unpack(__c);
+                let __v = <#field_ty as ::apeiron::map::coord::Packed>::unpack(__c);
                 #build
             }
         }

@@ -319,7 +319,7 @@ The checker resolves and verifies these pins; a drift in any revision or digest 
 
 | Source | sha256 |
 |---|---|
-| `src/table.rs` | `f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3` |
+| `src/map/table.rs` | `f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3` |
 | `song/src/table/table.slang` | `bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d` |
 | `proof/corpus/TableRefinement.lean` | `fcf322ccb1c743097105514bfef422c03ee9d58ee690512a9cf0d3760b1a9100` |
 | `../sanguine/proof/Apeiron/Table/Basic.lean` | `e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9` |

@@ -757,17 +757,17 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
     for label, reference in (
         (
             "class 7: reject a reference with an extra '::' segment",
-            "src/table.rs::Table::new::get",
+            "src/map/table.rs::Table::new::get",
         ),
         (
             "class 7: reject a brace member that is not a single identifier "
             "or a Type::method pair",
-            "src/table.rs::{Table::new::get}",
+            "src/map/table.rs::{Table::new::get}",
         ),
         (
             "class 7: reject a generic-qualified method bound to the wrong "
             "implementation",
-            "src/table.rs::<WordHome as Merge<i64>>::merge",
+            "src/map/table.rs::<WordHome as Merge<i64>>::merge",
         ),
         (
             "class 7: reject a generic-qualified method whose trait does not exist",
@@ -775,7 +775,7 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
         ),
         (
             "class 7: reject a method attributed to a generic type parameter",
-            "src/table.rs::F::home",
+            "src/map/table.rs::F::home",
         ),
         (
             "class 7: reject a reference with a trailing member access",

@@ -44,7 +44,7 @@ from pathlib import Path
 
 # Declared performance source paths. A staged path under any of these is a perf
 # change and carries the formalisation obligation.
-PERF_PREFIXES = ("src/simt_nn/", "src/gpu/", "src/spirv/", "src/gpu/decode/")
+PERF_PREFIXES = ("src/gpu/",)
 
 
 def _load_check_claims():
@@ -259,7 +259,7 @@ def _write(path, text):
 
 
 def build_repo(path):
-    _write(path / "src" / "simt_nn" / "norm.rs", "// norm\n")
+    _write(path / "src" / "gpu" / "nn" / "norm.rs", "// norm\n")
     _write(path / "docs" / "evidence" / "perf-predictions.md", BASE_PERF_TABLE)
     _write(path / "docs" / "evidence" / "perf-open-allowlist.txt", "# base\n")
     _write(path / "proof" / "corpus" / "Perf" / "Moves.lean", BASE_PERF_LEAN)
@@ -277,7 +277,7 @@ def _stage(repo):
 
 
 def _touch_perf(repo, text="pub fn perf_change() {}\n"):
-    with (repo / "src" / "simt_nn" / "norm.rs").open("a", encoding="utf-8") as handle:
+    with (repo / "src" / "gpu" / "nn" / "norm.rs").open("a", encoding="utf-8") as handle:
         handle.write(text)
 
 

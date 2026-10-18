@@ -55,12 +55,12 @@ states.
 
 | # | Improvement | File | Licensing law (grade) | Improvement grade |
 |---|---|---|---|---|
-| 1 | RoPE orbit generation from `ρ(1)` by the group law (`rhoMul` / rotor squaring) instead of one `fixed_sin_cos` per position | `src/engine/rope.rs` | `rotor_compose` proved (`proof/corpus/Substrate/Algebra/Neural/AttentionSpinor.lean`); `fixed_sin_cos_refines_proved` proved (`proof/corpus/Numeric/Rope/Part4.lean`) | anchor — the Q32.32 orbit is not an exact homomorphism (rounding) |
-| 2 | RoPE table hoist through the position index, removing the `n_layers·(n_head+n_head_kv)` recompute | `src/engine/rope.rs`, `src/engine/step.rs` | the angle depends only on `(pos, j)` (`src/engine/rope.rs`, `src/engine/step.rs`); no in-repo theorem states cached = recomputed | anchor |
-| 3 | Fuse `SiLU` into the gate-projection epilogue | `src/engine/ffn.rs`, `src/engine/silu.rs` | `silu_gate_eq_channelWeight`, `siluReal_eq_mul_channelWeight` proved (`proof/corpus/Nous/Model/SiluChannel.lean`); `silu_window_refines` proved (`proof/corpus/Numeric/Engine/Silu.lean`) | anchor |
-| 4 | Linearise the FFN fold to additive natural (log-channel) coordinates | `src/engine/ffn.rs` | `channel_diagonal_fold` proved (`proof/corpus/Nous/Model/Decomposition.lean`); `siluCell_normForm` proved (`proof/corpus/Nous/Model/SiluChannel.lean`) | anchor |
+| 1 | RoPE orbit generation from `ρ(1)` by the group law (`rhoMul` / rotor squaring) instead of one `fixed_sin_cos` per position | `src/engine/ops/rope.rs` | `rotor_compose` proved (`proof/corpus/Substrate/Algebra/Neural/AttentionSpinor.lean`); `fixed_sin_cos_refines_proved` proved (`proof/corpus/Numeric/Rope/Part4.lean`) | anchor — the Q32.32 orbit is not an exact homomorphism (rounding) |
+| 2 | RoPE table hoist through the position index, removing the `n_layers·(n_head+n_head_kv)` recompute | `src/engine/ops/rope.rs`, `src/engine/step.rs` | the angle depends only on `(pos, j)` (`src/engine/ops/rope.rs`, `src/engine/step.rs`); no in-repo theorem states cached = recomputed | anchor |
+| 3 | Fuse `SiLU` into the gate-projection epilogue | `src/engine/ops/ffn.rs`, `src/engine/ops/silu.rs` | `silu_gate_eq_channelWeight`, `siluReal_eq_mul_channelWeight` proved (`proof/corpus/Nous/Model/SiluChannel.lean`); `silu_window_refines` proved (`proof/corpus/Numeric/Engine/Silu.lean`) | anchor |
+| 4 | Linearise the FFN fold to additive natural (log-channel) coordinates | `src/engine/ops/ffn.rs` | `channel_diagonal_fold` proved (`proof/corpus/Nous/Model/Decomposition.lean`); `siluCell_normForm` proved (`proof/corpus/Nous/Model/SiluChannel.lean`) | anchor |
 | 5 | Keep attention on the `O(1)`-state LSE monoid instead of the `O(T)` score/weight tables | `src/engine/attn.rs` | `softmax_attention_is_online_spinor` proved (`proof/corpus/Substrate/Algebra/Neural/AttentionSpinor.lean`) | proved (the law) / anchor (the executing rewrite) |
-| 6 | Vectorise the projection loop | `src/engine/matvec.rs` | `ringMul_assoc` through `token_step_fold` proved (`proof/corpus/Nous/Model/State.lean`) | anchor |
+| 6 | Vectorise the projection loop | `src/engine/ops/matvec.rs` | `ringMul_assoc` through `token_step_fold` proved (`proof/corpus/Nous/Model/State.lean`) | anchor |
 | 7 | Evaluate `exp` once per fundamental domain of the `ln2·ℤ` cocycle and reuse it | `src/numeric/fixed_exp.rs` | `fixed_exp_refines_proved` proved (`proof/corpus/Numeric/Engine/Exp/Part4.lean`) | proved (present body) / anchor (reuse scheme) |
 
 ## 1 · RoPE: one-parameter subgroup, covering section, diagonal quotient
@@ -102,7 +102,7 @@ statement on the executing face is an **anchor**.
 2. **Table hoist.** The rotation operator `R(θ(pos, j))` depends only on `(pos, j)`, i.e. it is constant
    on the head and layer fibers. The current path does not exploit this: `src/engine/step.rs` calls
    `rotate_one` for `query` and for `key` inside the `while layer < n_layer` loop, and
-   `RopeTable::rotate_head` (`src/engine/rope.rs`) evaluates `fixed_sin_cos(pos · freqs[j])` once per
+   `RopeTable::rotate_head` (`src/engine/ops/rope.rs`) evaluates `fixed_sin_cos(pos · freqs[j])` once per
    `(head, j)` pair. The same `(pos, j)` pair is therefore recomputed
    `n_layers · (n_head + n_head_kv)` times per token. Caching the `(pos, j) → (cos, sin)` pair once per
    position and indexing it removes that factor. Grade **anchor**: the equality of the cached and
@@ -141,7 +141,7 @@ a proved statement: no in-repo theorem names the moment map. Attribution: Boltzm
 The `β → ∞` limit of `softmax(β·s)` is the tropical (max-plus) boundary, and the `β = 1` / large-score
 regime is the ReLU-like switch. The native code already realises the finite-`β` boundary explicitly:
 `src/engine/attn.rs` subtracts the exact maximum (`shifted = score − mx`) and saturates the numerator to
-`0` below `-16·ONE`; `src/engine/silu.rs` saturates at `v ≤ -21·ONE → 0` and `v ≥ 16·ONE → v`. The
+`0` below `-16·ONE`; `src/engine/ops/silu.rs` saturates at `v ≤ -21·ONE → 0` and `v ≥ 16·ONE → v`. The
 saturation arms are proved as `word_silu_fixed_high`, `word_silu_fixed_low` and `silu_window_refines`
 (`proof/corpus/Numeric/Engine/Silu.lean`). The tropical-limit reading itself is an **anchor**:
 no in-repo theorem takes `β → ∞`.
@@ -175,13 +175,13 @@ branch was cancelled by the owner, and this document makes no benchmark, ratio o
 
 | Operation | Native | Ours (proposed) | Temporal | Spatial | Asymptotic in `d`, `T` | Number's basis |
 |---|---|---|---|---|---|---|
-| RoPE pair rotation | `fixed_sin_cos` per rotary pair: range reduction + degree-8 Horner, then 4 `i128` mults + 2 round-shifts (`src/engine/rope.rs`) | table read + 4 `i128` mults + 2 round-shifts | `O(H·d)` per token | `O(1)` per pair | `O(d)` both | inferred |
+| RoPE pair rotation | `fixed_sin_cos` per rotary pair: range reduction + degree-8 Horner, then 4 `i128` mults + 2 round-shifts (`src/engine/ops/rope.rs`) | table read + 4 `i128` mults + 2 round-shifts | `O(H·d)` per token | `O(1)` per pair | `O(d)` both | inferred |
 | RoPE per-position section | one `fixed_sin_cos` per `(pos, j)`; recomputed `L·H` times per token | `(pos, j)` pair cached once; `O(1)` `rhoMul` per step, `O(log pos)` by squaring | removes factor `L·H` | `O(d)` table per position | `O(d)` both | inferred |
-| SiLU activation | `silu_fixed` per `n_ff` row: one `fixed_exp` + one rounded division each (`src/engine/silu.rs`) | unchanged count; fused into the gate epilogue | `O(n_ff)` | `O(n_ff)` materialised → fused | `O(n_ff)` both | inferred |
-| FFN block | gate matvec + up matvec + activation + down matvec (`src/engine/ffn.rs`) | fused gate/activation epilogue | `O(n_ff·n_embd)` | `O(n_ff)` scratch | equal | inferred |
+| SiLU activation | `silu_fixed` per `n_ff` row: one `fixed_exp` + one rounded division each (`src/engine/ops/silu.rs`) | unchanged count; fused into the gate epilogue | `O(n_ff)` | `O(n_ff)` materialised → fused | `O(n_ff)` both | inferred |
+| FFN block | gate matvec + up matvec + activation + down matvec (`src/engine/ops/ffn.rs`) | fused gate/activation epilogue | `O(n_ff·n_embd)` | `O(n_ff)` scratch | equal | inferred |
 | Causal softmax attention | two score/exps passes + weights pass + output pass; scratch `scores`, `exps`, `weights` (`src/engine/attn.rs`) | one `(m, den, num)` pass; state `num` vector + 2 scalars | `O(T·d)` | `O(T)` → `O(d)` | temporal `O(T·d)` both; spatial `O(T)` vs `O(d)` | inferred |
 | `exp` | range reduce + degree-7 Horner on `|r| ≤ ln2/2` (`src/numeric/fixed_exp.rs`) | reuse `exp(r)` for shared `r` | `O(1)` per call | `O(1)` | `O(1)` both | inferred |
-| Projection | scalar `matvec_fixed` per output row (`src/engine/matvec.rs`) | vectorised rows | `O(n_out·n_in)` | `O(1)` extra | equal | inferred |
+| Projection | scalar `matvec_fixed` per output row (`src/engine/ops/matvec.rs`) | vectorised rows | `O(n_out·n_in)` | `O(1)` extra | equal | inferred |
 
 Asymptotic order in `d` and `T` is unchanged by every improvement; what changes is the constant factor
 (transcendental implementation, table caching, the recompute factor `L·H`) and the attention scratch
@@ -194,7 +194,7 @@ claimed.
 Each task names the file it touches and the law that licenses it. These are candidate tasks; none is
 started by this document, and each is a ≤3-file, one-gate task when opened.
 
-1. **RoPE table hoist and orbit generation.** Files `src/engine/rope.rs` (a per-position
+1. **RoPE table hoist and orbit generation.** Files `src/engine/ops/rope.rs` (a per-position
    `(cos, sin)` index, an orbit step, or both) and `src/engine/step.rs` (hoist the `rotate_one` calls
    out of the layer loop / index the cached section). License: `rotor_compose`, `rotor_isometry`
    (proved, `proof/corpus/Substrate/Algebra/Neural/AttentionSpinor.lean`) for the group law;
@@ -203,7 +203,7 @@ started by this document, and each is a ≤3-file, one-gate task when opened.
    body. Gate: `cargo test --workspace --all-features --locked`; `cd proof/corpus && lake build
    Numeric.EngineRopeRefinement AxiomAudit`. Control: perturb a frequency → the rotation test and the
    refinement bound are red. Grade: proved for the ℝ group law, anchor for the executing orbit.
-2. **Fuse `SiLU` into the gate-projection epilogue.** Files `src/engine/ffn.rs` and `src/engine/silu.rs`
+2. **Fuse `SiLU` into the gate-projection epilogue.** Files `src/engine/ops/ffn.rs` and `src/engine/ops/silu.rs`
    (apply the activation to each gate row as the projection writes it, instead of materialising
    `gate_vec`). License: `silu_gate_eq_channelWeight`, `siluReal_eq_mul_channelWeight` (proved,
    `proof/corpus/Nous/Model/SiluChannel.lean`); `silu_window_refines` (proved,
@@ -211,7 +211,7 @@ started by this document, and each is a ≤3-file, one-gate task when opened.
    `proof/corpus/Nous/Model/Decomposition.lean`) for the diagonal reading. Gate: `cargo test
    --workspace --all-features --locked`; `cd proof/corpus && lake build Numeric.Engine.Silu
    AxiomAudit`. Control: perturb the epilogue rounding → the in-window refinement is red. Grade: anchor.
-3. **Vectorise the projection loop.** File `src/engine/matvec.rs`. License: `ringMul_assoc` through
+3. **Vectorise the projection loop.** File `src/engine/ops/matvec.rs`. License: `ringMul_assoc` through
    `token_step_fold` (proved, `proof/corpus/Nous/Model/State.lean`) fixes the reassociation the vector
    reduction performs; `word_mul_denote` fixes the per-word product. Gate: `cargo test --workspace
    --all-features --locked`; `cd proof/corpus && lake build Numeric.Engine.Dot AxiomAudit`

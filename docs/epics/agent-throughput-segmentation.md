@@ -78,7 +78,7 @@ Apeiron, after Wave 0 splits:
 - `C1` classifier decision fields (`Growable/Classifier/*.lean`, per field group)
 - `A4` row 8 per branch (`Growable/Apply/FoundFlat.lean`, `FoundSpill.lean`, `VacantFlat.lean`,
   `VacantSpill.lean`, `Exhausted.lean`) — 5 writers once the interface is frozen
-- `G1` Rust performance cells (`src/table/*`, one phase per lane) — measurement lane only on a quiet
+- `G1` Rust performance cells (`src/map/table/*`, one phase per lane) — measurement lane only on a quiet
   machine
 - `SEC` security transport (`Security/*`)
 - `ALLOC` allocator (blocked on contract)

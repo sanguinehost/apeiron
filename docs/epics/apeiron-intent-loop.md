@@ -26,7 +26,7 @@ evidence.
 ## Collected returns and what they unblock
 
 - **Extraction-root repair.** The root resolves (`52cb47b`: `dequant_f32_row` moved into
-  `src/engine/f32_convert.rs`, byte-identical; the extraction crate compiles) and the digest list
+  `src/engine/num/f32_convert.rs`, byte-identical; the extraction crate compiles) and the digest list
   covers all 38 `#[path]` targets (`6084cca`). What remains is the E0514 sysroot mismatch, so
   `proof/regen.sh --check` and the admission launcher's freshness gate are still blocked.
   **Transition 4 is blocked on that freshness gate for any production contract.**

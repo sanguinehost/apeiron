@@ -19,7 +19,7 @@ Merged epic record: `intent/assurance-factoring.md`, `spec/assurance-factoring.m
 |---|---:|---|
 | `examples/reg1/acceptance.rs` | 1,799 lines | Reporting and registry tests become child modules. |
 | `proof/corpus/Slang/Generated/Table.lean` | 14,414 lines | Dependency-ordered declaration shards behind the existing import root. |
-| `src/table.rs` | 1,678 lines | Existing free prepared-region functions become a textual include. |
+| `src/map/table.rs` | 1,678 lines | Existing free prepared-region functions become a textual include. |
 | `tools/slang/export.py` | 2,299 lines | Separate pure decoder and structural witness emitter. |
 | `tools/slang/spec_check.py` | 1,562 lines | Separate frozen requirement data and fixtures. |
 | `proof/corpus/Slang/Source/` | 14 files | Group byte/lexing audit modules in `Source/Audit/`. |
@@ -84,11 +84,11 @@ records final proof checks and remaining programme obligations.
 | Spec checker | Same constants, fixtures, validators and complete mutation set | Same positive/negative exits and diagnostics |
 | Integration tests | Same Cargo target names, test names and assertions | Same test failure conditions |
 
-No new precondition or reduced input domain is permitted. This is source organization, not a change to `Apeiron.Table.{HMap,get,insertWith,build}`. `proof/extract/lib.rs` includes `src/table.rs`; `proof/regen.sh` has an explicit source digest list. Add every production include to that list before accepting its extraction.
+No new precondition or reduced input domain is permitted. This is source organization, not a change to `Apeiron.Table.{HMap,get,insertWith,build}`. `proof/extract/lib.rs` includes `src/map/table.rs`; `proof/regen.sh` has an explicit source digest list. Add every production include to that list before accepting its extraction.
 
 ### Rust boundaries
 
-`src/table/prepared.rs` contains the existing free functions from `reserve_plan_regions` through `build_prepared_shard`, including their comments, and is included textually at their old location. The observed span begins with the documentation following `include!("table/locator.rs")` and ends before the `Table` documentation. Do not split method `impl` blocks or create another implementation. This removes about 200 lines; require the resulting root to be at most 1,500. Existing nine immediate files become ten. Future additions need fresh count checks; the small root margin is not a waiver.
+`src/map/table/prepared.rs` contains the existing free functions from `reserve_plan_regions` through `build_prepared_shard`, including their comments, and is included textually at their old location. The observed span begins with the documentation following `include!("table/locator.rs")` and ends before the `Table` documentation. Do not split method `impl` blocks or create another implementation. This removes about 200 lines; require the resulting root to be at most 1,500. Existing nine immediate files become ten. Future additions need fresh count checks; the small root margin is not a waiver.
 
 `examples/reg1/acceptance/report.rs` contains `print_registration` through `print_ratio_summary`, including `print_pair_table`, `print_row`, `interval_text` and `print_headline`. Retain parent-facing exports and use `pub(super)` only where needed. `acceptance/registry_tests.rs` contains the existing test module body. Parent tests keep their existing module name. Parent declarations and control functions remain in place; explicit `adapters/serial.rs` routing is unchanged. About 460 lines leave the parent; no new file appears directly in `examples/reg1/`.
 
@@ -195,7 +195,7 @@ Every row owns at most three paths, including deleted source paths. Owner names 
 | Task ID | Owner | Owned paths | Dependency / change | One gate |
 |---|---|---|---|---|
 | `APEIRON-SIZE-W2-T1` | REG-1 worker | `examples/reg1/acceptance.rs`; `examples/reg1/acceptance/report.rs`; `examples/reg1/acceptance/registry_tests.rs` | Move reporting/tests as specified; wait for existing REG-1 owner | `cargo test --locked --example reg1` |
-| `APEIRON-SIZE-W2-T2` | table worker | `src/table.rs`; `src/table/prepared.rs`; `proof/regen.sh` | Wait for active frozen-source Sol owner; include free bodies and extend digest list | `cargo test --workspace --all-features --locked` |
+| `APEIRON-SIZE-W2-T2` | table worker | `src/map/table.rs`; `src/map/table/prepared.rs`; `proof/regen.sh` | Wait for active frozen-source Sol owner; include free bodies and extend digest list | `cargo test --workspace --all-features --locked` |
 | `APEIRON-SIZE-W2-T3` | test-address worker | `tests/native_address.rs`; `tests/native_address/main.rs` | Preserve target and body | `cargo test --locked --test native_address` |
 | `APEIRON-SIZE-W2-T4` | test-locator worker | `tests/native_locator.rs`; `tests/native_locator/main.rs` | Preserve target and body | `cargo test --locked --test native_locator` |
 | `APEIRON-SIZE-W2-T5` | test-parallel worker | `tests/parallel.rs`; `tests/parallel/main.rs` | Preserve target and body | `cargo test --locked --test parallel` |

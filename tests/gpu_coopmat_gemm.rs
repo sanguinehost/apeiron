@@ -29,12 +29,12 @@ use apeiron::gpu::decode::pack::{
 use apeiron::gpu::decode::prefill::prefill_tile;
 use apeiron::gpu::decode::state::dequant_rows;
 use apeiron::gpu::decode::{local_wg, make_step_named, rec_step, GpuCtx, Step};
-use apeiron::gpu::vulkan::*;
-use apeiron::simt::{gemv_dp4a_batch_rt_bytes, Carrier};
-use apeiron::simt_nn::{
+use apeiron::gpu::nn::{
     coopmat_gemm_bytes, coopmat_gemm_groups, coopmat_gemm_split_bytes, splitk_reduce_bytes,
     GLSLC_ARGS, REDUCE_GX, TILE_BN,
 };
+use apeiron::gpu::simt::{gemv_dp4a_batch_rt_bytes, Carrier};
+use apeiron::gpu::vulkan::*;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -190,7 +190,7 @@ unsafe fn out_buf(vk: &Vk, bytes: usize) -> Handle {
 /// The committed SPIR-V is what `glslc` makes of the committed GLSL.
 #[test]
 fn coopmat_spirv_is_the_glsl() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/spirv");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gpu/spirv");
     let out = std::env::temp_dir().join(format!("coopmat_gemm_{}.spv", std::process::id()));
     let st = std::process::Command::new("glslc")
         .args(GLSLC_ARGS)
@@ -205,7 +205,7 @@ fn coopmat_spirv_is_the_glsl() {
     let committed = std::fs::read(dir.join("coopmat_gemm.spv")).expect("committed spv");
     assert!(
         fresh == committed,
-        "src/spirv/coopmat_gemm.spv is stale: recompile with glslc {GLSLC_ARGS:?}"
+        "src/gpu/spirv/coopmat_gemm.spv is stale: recompile with glslc {GLSLC_ARGS:?}"
     );
 }
 

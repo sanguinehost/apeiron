@@ -55,9 +55,9 @@ file. No Kani command is authorized. Parent integrates reviewed owned files and 
 
 | Task | Owner | Owned files | Gate/control |
 |---|---|---|---|
-| APEIRON-KRET-W1-T1 | Sol source | src/lib.rs, src/proofs.rs, src/table/probe.rs | Focused ordinary probe unit tests; real sweep truncation rejects late-hit assertion in disposable copy, restore passes |
+| APEIRON-KRET-W1-T1 | Sol source | src/lib.rs, src/proofs.rs, src/map/table/probe.rs | Focused ordinary probe unit tests; real sweep truncation rejects late-hit assertion in disposable copy, restore passes |
 | APEIRON-KRET-W1-T2 | Sol evidence | examples/reg1/coverage.rs, examples/reg1/coverage.json, tools/check-assurance.py | Existing coverage gate/controls after Kani dimension retirement; preserve non-Kani rejecting controls and exact source/refinement grades |
-| APEIRON-KRET-W2-T1 | Sol extraction | src/table/partition.rs, src/coord/locator.rs, proof/ApeironWord.lean | Remove alternate cfg geometry/comment, regenerate/check under bounded lane; unchanged production geometry and full bridge |
+| APEIRON-KRET-W2-T1 | Sol extraction | src/map/table/partition.rs, src/map/coord/locator.rs, proof/ApeironWord.lean | Remove alternate cfg geometry/comment, regenerate/check under bounded lane; unchanged production geometry and full bridge |
 | APEIRON-KRET-W0-T1 | Lead documentation exception | AGENTS.md, docs/direction.md, docs/kernel-boundary.md | Diff check; explicit retirement supersedes older plan references, unchanged mathematical obligations |
 | APEIRON-KRET-W2-T2 | Lead documentation exception | docs/plan.md, docs/archive/handoff-openai.md, README.md | Diff check; current gate commands contain no Kani invocation |
 

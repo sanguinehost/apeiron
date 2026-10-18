@@ -40,7 +40,7 @@ and scheduling changes only.
 ### Intent
 
 The W1 levers are exhausted. Resident weights and row threads went from 1.6 to about 10 tok/s. The
-fused block-wise dot (`src/engine/fused.rs`) removed per-element dequantization and measured
+fused block-wise dot (`src/engine/ops/fused.rs`) removed per-element dequantization and measured
 little. The remaining cost is the per-element `i128` multiply of a small code by a Q32.32
 activation.
 
@@ -91,6 +91,6 @@ instruction, so tok/s ≈ bandwidth ÷ bytes per token.
 |---|---|---|---|
 | T6 `quant`, and portable `matvec_q8act` for the `fused.rs` set (Q2_K, Q3_K, Q4_K, Q5_0, Q6_K, Q8_0) with the fallback; AVX2 i32 group cores ported from `fold` `rowdot.rs` behind `is_x86_feature_detected!` | `src/engine/chart/mod.rs`, `src/engine/chart/x86.rs` (new), one `mod chart;` line in `src/engine/mod.rs` | `cargo test --workspace --all-features --locked chart`: `matvec_q8act == matvec_fixed(·, quant(x))` bit for bit on every family, on random, extreme (±127, maximal codes) and ragged-tail inputs, with AVX2 on and forced off | swap the two nibble planes in the AVX2 Q4_K core → red |
 | T7 Lean: `quant` spec (range `[−127,127]`, `|x − x̂| ≤ S/2`, idempotence on the grid) and the factoring identity | `proof/corpus/Numeric/Matvec/ChartDot.lean` (new) | `lake build Numeric.Matvec.ChartDot` | drop the `/2` in the bound → red |
-| T8 `KernelMode` through `par`/`ffn`/`step` (row-chunked `matvec_q8act`) | `src/engine/par.rs`, `src/engine/step.rs`, `src/engine/ffn.rs` | `cargo test`; E1 lm-eval slice still 40/40 under `Q8Act`; greedy-id diff vs `Exact` reported | route `Q8Act` through a zeroed scale → the parity test red |
+| T8 `KernelMode` through `par`/`ffn`/`step` (row-chunked `matvec_q8act`) | `src/engine/ops/par.rs`, `src/engine/step.rs`, `src/engine/ops/ffn.rs` | `cargo test`; E1 lm-eval slice still 40/40 under `Q8Act`; greedy-id diff vs `Exact` reported | route `Q8Act` through a zeroed scale → the parity test red |
 | T9 quiet-host measurement: tok/s and achieved GB/s vs measured host read bandwidth, `Exact` vs `Q8Act` vs llama.cpp on the same GGUF | none | receipt under `docs/evidence/` | a single-threaded `Q8Act` build must register slower |
-| T10 GPU execution: port the `fold` emitter (`modelfold/src/simt/dp4a.rs`, `gemv_dp4a_module_dyn`) and its raw-FFI Vulkan runtime (`modelfold/src/gpu/{vulkan,runtime}.rs`, no `ash` dependency) into a new `src/gpu/`. The emitted words pass `src/spirv/check.rs` before dispatch, and the per-32 `S_b` of `quant` is the kernel's dynamic activation scale. The proof side is already the [`gpu-spv`](gpu-spv.md) epic (`Spirv/Dp4a.lean`: `gpu_dp4a_word_refines_cpu_word`). | own wave, after T8 | GPU `matvec_q8act` == CPU `matvec_q8act` bit for bit on every family | drop the row guard → the `Spirv.Check` gate refuses |
+| T10 GPU execution: port the `fold` emitter (`modelfold/src/simt/dp4a.rs`, `gemv_dp4a_module_dyn`) and its raw-FFI Vulkan runtime (`modelfold/src/gpu/{vulkan,runtime}.rs`, no `ash` dependency) into a new `src/gpu/`. The emitted words pass `src/gpu/spirv/check.rs` before dispatch, and the per-32 `S_b` of `quant` is the kernel's dynamic activation scale. The proof side is already the [`gpu-spv`](gpu-spv.md) epic (`Spirv/Dp4a.lean`: `gpu_dp4a_word_refines_cpu_word`). | own wave, after T8 | GPU `matvec_q8act` == CPU `matvec_q8act` bit for bit on every family | drop the row guard → the `Spirv.Check` gate refuses |

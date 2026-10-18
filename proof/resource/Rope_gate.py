@@ -2,7 +2,7 @@
 """Extract and check the real RoPE rotation source in a bounded private build.
 
 O(B) source/tool/log bytes; external compilation is timed, not assigned constant cost.
-The temporary manifest wires the real `src/engine/rope.rs`, `src/engine/value.rs` and
+The temporary manifest wires the real `src/engine/ops/rope.rs`, `src/engine/num/value.rs` and
 `src/numeric/fixed_trig.rs` modules by `#[path]`; the only new code is the typed forwarding
 wrapper that calls the real `rope_rotate_fixed` body. No substitute algorithm is extracted.
 """
@@ -76,7 +76,7 @@ pub mod fixed_trig;
 pub mod rope;
 
 /// Typed forwarding wrapper: it fixes the vector, position and table types and calls the real
-/// `src/engine/rope.rs` `rope_rotate_fixed` body. It restates no formula.
+/// `src/engine/ops/rope.rs` `rope_rotate_fixed` body. It restates no formula.
 pub fn rope_rotate_forward(
     q: &mut [i64],
     k: &mut [i64],
@@ -119,9 +119,9 @@ def extract(source, label):
     # Charon records `Source:` against the working directory; pin the three real files to their
     # repository-relative paths so the committed Lean file is tool- and machine-independent.
     text=generated.read_text()
-    for rel in ('src/engine/rope.rs','src/engine/value.rs','src/numeric/fixed_trig.rs'):
+    for rel in ('src/engine/ops/rope.rs','src/engine/num/value.rs','src/numeric/fixed_trig.rs'):
         text=text.replace(str(ROOT/rel), rel)
-    generated.write_text(text.replace(str(source), 'src/engine/rope.rs'))
+    generated.write_text(text.replace(str(source), 'src/engine/ops/rope.rs'))
     if re.search(r'\b(axiom|sorry|admit)\b', generated.read_text()):
         raise RuntimeError('ROPE_UNMODELED_SOURCE')
     return generated
@@ -141,7 +141,7 @@ def prepare_lean():
 
 def main():
     args=argparse.ArgumentParser();args.add_argument('--prepare',action='store_true');args.add_argument('--check',action='store_true');args.add_argument('--controls',action='store_true');a=args.parse_args()
-    source=ROOT/'src/engine/rope.rs'
+    source=ROOT/'src/engine/ops/rope.rs'
     run(['rustc','--version'],ROOT,'rustc-version')
     run(['cargo','--version'],ROOT,'cargo-version')
     run(['lean','--version'],ROOT,'lean-version')
@@ -184,6 +184,6 @@ if __name__=='__main__':
     try:
         main();status=0
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/engine/rope.rs',ROOT/'src/engine/value.rs',ROOT/'src/numeric/fixed_trig.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/Rope_gate.py',ROOT/'proof/resource/RopeSource.lean',ROOT/'proof/resource/RopeResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/engine/ops/rope.rs',ROOT/'src/engine/num/value.rs',ROOT/'src/numeric/fixed_trig.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/Rope_gate.py',ROOT/'proof/resource/RopeSource.lean',ROOT/'proof/resource/RopeResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
         (OUT/(SCRATCH.name+'-receipt.json')).write_text(json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=540,argv=[sys.executable,*sys.argv],lane='/tmp/opencode/apeiron-lane-2.lock',memory_max='12G',swap_max=0,threads=1,scratch=str(SCRATCH),deadline=os.environ.get('ROPE_DEADLINE'),records=RECORDS,sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, compiler, IO/process/dependencies; the work measure counts loop iterations and fixed_sin_cos evaluations under named premises, not cycles, wall-clock or GPU time'),indent=2)+'\n')
         shutil.rmtree(SCRATCH,ignore_errors=True)

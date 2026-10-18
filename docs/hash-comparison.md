@@ -59,7 +59,7 @@ Source alignment note: the corrected `README.md` and `kernel-boundary.md` now na
 growable flat/spill `Table` (a flat certified-coordinate resident area plus grouped spill regions,
 keyed by `(Sigma, K)` with `Stored`/`Regen` carriers) and record the fixed-shard `Table` (one home
 shard, `ShardFull` refusal, `N = 0` refusal, no probing) as revision-bound historical evidence
-[S1][S5][S9]. `src/table.rs` is that growable, key-partitioned representation with a finite
+[S1][S5][S9]. `src/map/table.rs` is that growable, key-partitioned representation with a finite
 first-fit probe and checked sizing/reservation; `ShardFull` is retained as a compatibility variant
 the growable table does not return. The divergence this note previously recorded is resolved in the
 local boundary; `docs/epics/storage-refinement.md` still carries stale fixed-shard-as-executing rows
@@ -163,11 +163,11 @@ Local apEIRON:
 - [S2] `Cargo.toml` and `Cargo.lock`: `license = "Apache-2.0"`; pins foldhash 0.1.5, hashbrown 0.15.5,
   rustc-hash 2.1.3, criterion 0.5.1; hashtrinity git rev
   `4cc14471ae24f3f204fb0b0e91736ef75c909358`.
-- [S3] `src/fold.rs`.
-- [S4] `src/coord.rs`.
-- [S5] `src/table.rs`, `src/table/scan.rs`.
-- [S6] `src/pepper.rs`.
-- [S7] `src/table/probe.rs` ordinary finite read/locator regression tests; symbolic Kani harnesses
+- [S3] `src/map/fold.rs`.
+- [S4] `src/map/coord.rs`.
+- [S5] `src/map/table.rs`, `src/map/table/scan.rs`.
+- [S6] `src/map/pepper.rs`.
+- [S7] `src/map/table/probe.rs` ordinary finite read/locator regression tests; symbolic Kani harnesses
   were retired under `docs/epics/kani-retirement.md`.
 - [S8] `docs/direction.md`, section "Required R0 acceptance: G1 / REG-1".
 - [S9] `docs/kernel-boundary.md`.

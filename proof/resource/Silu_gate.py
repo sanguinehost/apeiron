@@ -2,8 +2,8 @@
 """Extract and check the real fixed-point SiLU source in a bounded private build.
 
 O(B) source/tool/log bytes; external compilation is timed, not assigned constant cost.
-The temporary manifest wires the real `src/numeric/fixed_exp.rs`, `src/engine/value.rs` and
-`src/engine/silu.rs` modules by `#[path]`; the only new code is the typed forwarding wrapper
+The temporary manifest wires the real `src/numeric/fixed_exp.rs`, `src/engine/num/value.rs` and
+`src/engine/ops/silu.rs` modules by `#[path]`; the only new code is the typed forwarding wrapper
 `word_silu_fixed` that calls the real `silu_fixed` body. No substitute algorithm is extracted.
 
 Usage:
@@ -56,7 +56,7 @@ def run(argv, cwd, label, require=True):
         raise RuntimeError(f'{label}_REJECT {p.returncode}\n{text[-3500:]}')
     return p.returncode,text
 
-# The real source closure the wrapper compiles: `src/engine/silu.rs` imports
+# The real source closure the wrapper compiles: `src/engine/ops/silu.rs` imports
 # `crate::engine::value::div_round_nearest`, `crate::engine::ONE` and
 # `crate::numeric::fixed_exp::fixed_exp`. Modules are declared at the crate root (a `#[path]`
 # inside an inline module resolves against a virtual directory) with `numeric`/`engine` mirrors,
@@ -81,7 +81,7 @@ pub mod silu;
 
 /// Typed forwarding wrapper, the extraction root of `proof/regen.sh` (`--start-from
 /// crate::word_silu_fixed`): it fixes the argument and result types and calls the real
-/// `src/engine/silu.rs` `silu_fixed` body. It restates no formula.
+/// `src/engine/ops/silu.rs` `silu_fixed` body. It restates no formula.
 pub fn word_silu_fixed(v: i64) -> Result<i64, engine::silu::SiluError> {{
     engine::silu::silu_fixed(v)
 }}
@@ -116,10 +116,10 @@ def extract(source, label):
     # not model; any other axiom/sorry stays for the fail-closed scan below (proof/regen.sh does
     # exactly this, with the same repository-owned allowlist).
     run(['python3',str(ROOT/'proof/strip-modeled-axioms.py'),str(generated)],project,label+'-strip')
-    text = generated.read_text().replace(str(source), 'src/engine/silu.rs')
+    text = generated.read_text().replace(str(source), 'src/engine/ops/silu.rs')
     # The remaining real modules are named by their repository-relative path, so the committed
     # extraction does not carry this checkout's absolute prefix.
-    for rel in ('src/numeric/fixed_exp.rs','src/engine/value.rs'):
+    for rel in ('src/numeric/fixed_exp.rs','src/engine/num/value.rs'):
         text = text.replace(str(ROOT/rel), rel)
     generated.write_text(text)
     if re.search(r'\b(axiom|sorry|admit)\b', generated.read_text()):
@@ -147,7 +147,7 @@ def prepare_lean():
 
 def main():
     args=argparse.ArgumentParser();args.add_argument('--prepare',action='store_true');args.add_argument('--check',action='store_true');args.add_argument('--controls',action='store_true');a=args.parse_args()
-    source=ROOT/'src/engine/silu.rs'
+    source=ROOT/'src/engine/ops/silu.rs'
     run(['rustc','--version'],ROOT,'rustc-version')
     run(['cargo','--version'],ROOT,'cargo-version')
     run(['lean','--version'],ROOT,'lean-version')
@@ -193,6 +193,6 @@ if __name__=='__main__':
     try:
         main();status=0
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/engine/silu.rs',ROOT/'src/engine/value.rs',ROOT/'src/numeric/fixed_exp.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/Silu_gate.py',ROOT/'proof/resource/SiluSource.lean',ROOT/'proof/resource/SiluResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/engine/ops/silu.rs',ROOT/'src/engine/num/value.rs',ROOT/'src/numeric/fixed_exp.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/Silu_gate.py',ROOT/'proof/resource/SiluSource.lean',ROOT/'proof/resource/SiluResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
         (OUT/(SCRATCH.name+'-receipt.json')).write_text(json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=540,argv=[sys.executable,*sys.argv],lane=LANE,memory_max='12G',swap_max=0,threads=1,scratch=str(SCRATCH),deadline=os.environ.get('SILU_DEADLINE'),records=RECORDS,sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, compiler, IO/process/dependencies; the scalar guard-chain operation count excludes GPU/hardware timing'),indent=2)+'\n')
         shutil.rmtree(SCRATCH,ignore_errors=True)

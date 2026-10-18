@@ -1,16 +1,16 @@
 //! The additive W1 address contract: face-tagged values and their laws.
 //!
-//! These tests exercise the library bodies in `src/coord/address.rs`. They do not migrate a table
+//! These tests exercise the library bodies in `src/map/coord/address.rs`. They do not migrate a table
 //! read, write, carrier or storage path; the old `WordHome`/`TableAddress` fixture is checked
 //! unchanged at the end.
 
-use apeiron::coord::address::{
+use apeiron::map::coord::address::{
     AddressValue, EllipticPacking, FaceCoord, FaceDomain, FaceHome, FaceResidueCapability,
     FaceTableAddress, LocatorSigma, ParabolicDual, Residue, WordFaceHome, H3_40,
 };
-use apeiron::coord::locator::{ExactIdentity, Refusal};
-use apeiron::coord::{spread, Packed};
-use apeiron::table::{Home, WordHome};
+use apeiron::map::coord::locator::{ExactIdentity, Refusal};
+use apeiron::map::coord::{spread, Packed};
+use apeiron::map::table::{Home, WordHome};
 use apeiron::Sigma;
 
 fn profile() -> H3_40 {

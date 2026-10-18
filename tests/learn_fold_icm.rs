@@ -700,7 +700,7 @@ fn learn_fold_icm_agrees_with_the_f64_oracles() {
 /// `plane_w` passes with unit scales return the grid input.
 ///
 /// The bound is derived from the two normalisations. One pass is `round(y·C/2³²)` with
-/// `C = 379625062` and `|C − 2^28.5| = 0.497` (`src/engine/hadamard.rs`'s `C` table), so its error is
+/// `C = 379625062` and `|C − 2^28.5| = 0.497` (`src/engine/ops/hadamard.rs`'s `C` table), so its error is
 /// `≤ |out|·ε + u/2` with `ε = 0.497/2³²`; the transform's ∞-norm is `√GROUP`, so two passes give
 /// `|out − in| ≤ sd·ε·(GROUP + √GROUP) + (u/2)(1 + √GROUP)`, `sd = max |s·d|` the input magnitude and
 /// `u = 2⁻³²` the grid quantum. `s` is a codebook plane (±2), so `sd = max |s|` and the unit `r`, `c`,

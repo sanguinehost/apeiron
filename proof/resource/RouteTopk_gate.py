@@ -59,7 +59,7 @@ def run(argv, cwd, label, require=True):
         raise RuntimeError(f'{label}_REJECT {p.returncode}\n{text[-3500:]}')
     return p.returncode,text
 
-# The real source closure the wrapper compiles: `src/engine/moe.rs` imports
+# The real source closure the wrapper compiles: `src/engine/ops/moe.rs` imports
 # `super::{ffn,matvec,value,ONE}` and `crate::numeric::fixed_exp::fixed_exp`; `ffn.rs` imports
 # `super::{matvec,par,value}`; `par.rs` imports `super::{fused,MatvecError}`; `fused.rs` imports
 # `super::{dequant,matvec,value}`; `matvec.rs` imports `crate::format::quant` and
@@ -114,7 +114,7 @@ pub use error::EngineError;
 pub use matvec::{{MatvecError, matvec_fixed}};
 
 /// Typed forwarding wrapper: it fixes the slice, width and result types and calls the real
-/// `src/engine/moe.rs` `route_topk` body, exactly as `proof/extract/lib.rs`
+/// `src/engine/ops/moe.rs` `route_topk` body, exactly as `proof/extract/lib.rs`
 /// `word_route_topk` does. It restates no formula.
 pub fn word_route_topk(
     logits: &[i64],
@@ -156,7 +156,7 @@ def extract(source, label):
     # not model; any other axiom/sorry stays for the fail-closed scan below (proof/regen.sh does
     # exactly this, with the same repository-owned allowlist).
     run(['python3',str(ROOT/'proof/strip-modeled-axioms.py'),str(generated)],project,label+'-strip')
-    generated.write_text(generated.read_text().replace(str(source), 'src/engine/moe.rs'))
+    generated.write_text(generated.read_text().replace(str(source), 'src/engine/ops/moe.rs'))
     if re.search(r'\b(axiom|sorry|admit)\b', generated.read_text()):
         raise RuntimeError('ROUTE_TOPK_UNMODELED_SOURCE')
     return generated
@@ -176,7 +176,7 @@ def prepare_lean():
 
 def main():
     args=argparse.ArgumentParser();args.add_argument('--prepare',action='store_true');args.add_argument('--check',action='store_true');args.add_argument('--controls',action='store_true');a=args.parse_args()
-    source=ROOT/'src/engine/moe.rs'
+    source=ROOT/'src/engine/ops/moe.rs'
     run(['rustc','--version'],ROOT,'rustc-version')
     run(['cargo','--version'],ROOT,'cargo-version')
     run(['lean','--version'],ROOT,'lean-version')
@@ -192,7 +192,7 @@ def main():
     if 'ROUTE_TOPK_KERNEL_OK' not in text:raise RuntimeError('ROUTE_TOPK_AUDIT_MISSING')
     if a.controls:
         # Real-source mutation: the selection loop's scan cursor advance, `pass += 1;` at
-        # src/engine/moe.rs:245, becomes `pass += 2;`. A resource claim about the k passes and
+        # src/engine/ops/moe.rs:245, becomes `pass += 2;`. A resource claim about the k passes and
         # their E-long scans must see it; a scan-count claim that does not see it has no weight.
         original=source.read_text();needle='        pass += 1;'
         if original.count(needle)!=1:raise RuntimeError('ROUTE_TOPK_CONTROL_TARGET_MISSING')
@@ -215,6 +215,6 @@ if __name__=='__main__':
     try:
         main();status=0
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/engine/moe.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/RouteTopk_gate.py',ROOT/'proof/resource/RouteTopkSource.lean',ROOT/'proof/resource/RouteTopkResource.lean',ROOT/'proof/native/LoopTrace.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/engine/ops/moe.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/RouteTopk_gate.py',ROOT/'proof/resource/RouteTopkSource.lean',ROOT/'proof/resource/RouteTopkResource.lean',ROOT/'proof/native/LoopTrace.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
         (OUT/(SCRATCH.name+'-receipt.json')).write_text(json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=540,argv=[sys.executable,*sys.argv],lane=LANE,memory_max='12G',swap_max=0,threads=1,scratch=str(SCRATCH),deadline=os.environ.get('ROUTE_TOPK_DEADLINE'),records=RECORDS,sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, compiler, IO/process/dependencies; scalar comparison/scan-count claim excludes GPU/hardware timing'),indent=2)+'\n')
         shutil.rmtree(SCRATCH,ignore_errors=True)

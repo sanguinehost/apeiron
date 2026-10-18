@@ -2,7 +2,7 @@
 """Extract and check the real `word_coord_place` / `coord::spread` bodies in a bounded private build.
 
 O(B) source/tool/log bytes; external compilation is timed, not assigned constant cost.
-The narrow forwarding wrapper calls the real `src/coord.rs` through `#[path]`; the shared
+The narrow forwarding wrapper calls the real `src/map/coord.rs` through `#[path]`; the shared
 `proof/extract/lib.rs` unit is not used and not touched.
 """
 from pathlib import Path
@@ -21,13 +21,13 @@ RECORDS = []
 OUT = Path('/tmp/opencode/coordplace-resource')
 OUT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=OUT))
-# The real modules the extracted bodies reach. `src/coord.rs` pulls `src/coord/address.rs`,
-# `src/coord/locator.rs` and `src/coord/locator_core.rs` through its own `#[path]` attributes, so
+# The real modules the extracted bodies reach. `src/map/coord.rs` pulls `src/map/coord/address.rs`,
+# `src/map/coord/locator.rs` and `src/map/coord/locator_core.rs` through its own `#[path]` attributes, so
 # they are the transitive dependency set of the target root and are digested with it.
-SOURCES = [ROOT/'src/coord.rs', ROOT/'src/cell.rs', ROOT/'src/scalar.rs', ROOT/'src/table.rs']
-DEPENDS = SOURCES + [ROOT/'src/coord/address.rs', ROOT/'src/coord/locator.rs',
-                     ROOT/'src/coord/locator_core.rs']
-# `src/table.rs` reaches its own `#[path]` children, so the mutant tree needs their real content
+SOURCES = [ROOT/'src/map/coord.rs', ROOT/'src/cell.rs', ROOT/'src/scalar.rs', ROOT/'src/map/table.rs']
+DEPENDS = SOURCES + [ROOT/'src/map/coord/address.rs', ROOT/'src/map/coord/locator.rs',
+                     ROOT/'src/map/coord/locator_core.rs']
+# `src/map/table.rs` reaches its own `#[path]` children, so the mutant tree needs their real content
 # too; they are digested so the receipt names every source the extraction read.
 TABLE_CHILDREN = [q for q in sorted((ROOT/'src/table').glob('*.rs'))]
 
@@ -62,7 +62,7 @@ def wrapper(dirpath, sources):
     entry points are the real `proof/extract/lib.rs` bodies over the real `coord::Addr`.
 
     The two `pub use` lines are the crate-root re-exports `src/lib.rs:33` and the `coord::locator`
-    constants `src/coord/locator.rs` re-exports; the real files read `crate::Sigma`,
+    constants `src/map/coord/locator.rs` re-exports; the real files read `crate::Sigma`,
     `crate::LEVELS` and `crate::MAX_LEVELS` through them. No module body is restated. The shared
     `proof/extract/lib.rs` unit is deliberately not included: it does not compile against the
     current source, and this gate must not inherit that drift."""
@@ -156,12 +156,12 @@ def main():
     if a.controls:
         # Real-source mutation: drop the rotate the real body performs on the product's high half,
         # so the extracted placement fold is `hi ^ lo` where the proof states `rotl32 hi ^ lo`. The
-        # change is in the real `src/coord.rs` body, not in a copy of the extracted term.
-        original = (ROOT/'src/coord.rs').read_text()
+        # change is in the real `src/map/coord.rs` body, not in a copy of the extracted term.
+        original = (ROOT/'src/map/coord.rs').read_text()
         needle = 'place: hi.rotate_left(32) ^ lo,'
         if original.count(needle) != 1:
             raise RuntimeError('COORD_PLACE_CONTROL_TARGET_MISSING')
-        # The mutant tree keeps the real layout, so `src/coord.rs`'s own `#[path]` children resolve
+        # The mutant tree keeps the real layout, so `src/map/coord.rs`'s own `#[path]` children resolve
         # and only the one body differs from the real source.
         mutant_dir = SCRATCH/'mutant-src'
         # The real layout, so every `#[path]` child of every real module resolves; only the one

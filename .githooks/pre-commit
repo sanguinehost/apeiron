@@ -42,8 +42,8 @@
 #
 # Step 5 is the perf cost-model gate (owner, 2026-10-08): it must not be possible
 # to land a performance improvement without formalising, in the cost model, how and
-# why it works. A staged path under `src/simt_nn/`, `src/gpu/`, `src/spirv/` or
-# `src/gpu/decode/` must carry, in the same commit, a new P-row in
+# why it works. A staged path under `src/gpu/` (the one GPU tree)
+# must carry, in the same commit, a new P-row in
 # `docs/evidence/perf-predictions.md` whose Lean cell names a dotted declaration
 # that resolves under `proof/corpus/Perf/` and is added or changed in the staged
 # diff under that directory. The gate is `tools/hooks/perf_gate_controls.py`,

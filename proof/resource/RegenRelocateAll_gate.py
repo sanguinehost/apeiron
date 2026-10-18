@@ -2,8 +2,8 @@
 """Extract and check the real relocation traversal in a bounded private build.
 
 O(B) source/tool/log bytes; external compilation is timed, not assigned constant cost. The
-temporary manifest wires the real `src/table.rs` by `#[path]`, which pulls the real
-`src/table/{state,locator,prepared,keyrep,probe,partition,scan,parallel}.rs`; the only new code is
+temporary manifest wires the real `src/map/table.rs` by `#[path]`, which pulls the real
+`src/map/table/{state,locator,prepared,keyrep,probe,partition,scan,parallel}.rs`; the only new code is
 the typed forwarding wrapper that calls the real `Table::relocate_all` body. No substitute
 algorithm is extracted, and the shared `proof/extract/lib.rs` is not used: it does not currently
 compile, so this gate builds its own crate root and reaches the same real body through the same
@@ -41,10 +41,10 @@ SCRATCH_ROOT = Path(tempfile.gettempdir()) / 'regen-relocate-all-resource'
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=SCRATCH_ROOT))
 
-# The real source closure the wrapper compiles. `src/table.rs` declares its children textually and
+# The real source closure the wrapper compiles. `src/map/table.rs` declares its children textually and
 # imports `crate::cell::Sigma` and `crate::coord::{address,locator}`, so the wrapper also wires the
-# real `src/{scalar,cell,coord}.rs` and the real `src/coord/` and `src/table/` directories.
-# `src/table/tests.rs` is `#[cfg(test)]` and is compiled by the `cargo test` step only.
+# real `src/{scalar,cell,coord}.rs` and the real `src/map/coord/` and `src/map/table/` directories.
+# `src/map/table/tests.rs` is `#[cfg(test)]` and is compiled by the `cargo test` step only.
 CLOSURE = ['scalar.rs', 'cell.rs', 'coord.rs', 'table.rs']
 COPY_DIRS = ['coord', 'table']
 # The mutation target: the traversal's single index advance. `entry_at += 1` is the whole work
@@ -89,7 +89,7 @@ pub mod coord;
 pub mod table;
 
 /// Crate-root alias of the face token the real `src/lib.rs` re-exports as `pub use cell::{{Sigma}}`;
-/// the real `#[cfg(test)]` modules in `src/table/{{partition,probe}}.rs` import `crate::Sigma`.
+/// the real `#[cfg(test)]` modules in `src/map/table/{{partition,probe}}.rs` import `crate::Sigma`.
 pub use cell::Sigma;
 
 /// The elliptic word table instance the real `proof/extract/lib.rs:138-139` names, so the wrapper
@@ -99,7 +99,7 @@ pub type WordRegenTable = table::Table<i64, i64, table::WordHome, 16,
 
 /// Typed forwarding wrapper for the real relocation traversal, fixing the three argument types of
 /// `proof/extract/lib.rs:581-591` and calling the real `Table::relocate_all` body
-/// (`src/table.rs:1017-1027`) through the same inherent method the production caller uses. It
+/// (`src/map/table.rs:1017-1027`) through the same inherent method the production caller uses. It
 /// restates no guard, no loop and no per-entry write, and the shared `proof/extract/lib.rs` is not
 /// pulled in.
 pub fn word_regen_relocate_all(
@@ -149,7 +149,7 @@ def extract(source_root, label):
     # The model's own definitions replace the stubs the pinned Aeneas emits for externals it does
     # not model; any other axiom/sorry stays for the fail-closed scan below.
     run(['python3',str(ROOT/'proof/strip-modeled-axioms.py'),str(generated)],project,label+'-strip')
-    generated.write_text(generated.read_text().replace(str(source_root/'table.rs'), 'src/table.rs'))
+    generated.write_text(generated.read_text().replace(str(source_root/'table.rs'), 'src/map/table.rs'))
     if re.search(r'\b(axiom|sorry|admit)\b', generated.read_text()):
         raise RuntimeError('REGEN_RELOCATE_ALL_UNMODELED_SOURCE')
     return generated
@@ -237,6 +237,6 @@ if __name__=='__main__':
         status=e.code if isinstance(e.code,int) else 1
         raise
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/table.rs',ROOT/'src/table/state.rs',ROOT/'src/table/prepared.rs',ROOT/'src/table/locator.rs',ROOT/'src/table/keyrep.rs',ROOT/'src/table/partition.rs',ROOT/'src/table/probe.rs',ROOT/'src/table/parallel.rs',ROOT/'src/table/tests.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/coord.rs',ROOT/'src/coord/address.rs',ROOT/'src/coord/locator.rs',ROOT/'src/coord/locator_core.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/RegenRelocateAll_gate.py',ROOT/'proof/resource/RegenRelocateAllSource.lean',ROOT/'proof/resource/RegenRelocateAllResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/map/table.rs',ROOT/'src/map/table/state.rs',ROOT/'src/map/table/prepared.rs',ROOT/'src/map/table/locator.rs',ROOT/'src/map/table/keyrep.rs',ROOT/'src/map/table/partition.rs',ROOT/'src/map/table/probe.rs',ROOT/'src/map/table/parallel.rs',ROOT/'src/map/table/tests.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/map/coord.rs',ROOT/'src/map/coord/address.rs',ROOT/'src/map/coord/locator.rs',ROOT/'src/map/coord/locator_core.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/RegenRelocateAll_gate.py',ROOT/'proof/resource/RegenRelocateAllSource.lean',ROOT/'proof/resource/RegenRelocateAllResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
         (OUT/(SCRATCH.name+'-receipt.json')).write_text(json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=540,argv=[sys.executable,*sys.argv],lane=LANE,memory_max='12G',swap_max=0,threads=1,scratch=str(SCRATCH),deadline=os.environ.get('REGEN_RELOCATE_ALL_DEADLINE'),records=RECORDS,proof_artifact=str(PROOF_ARTIFACT),proof_artifact_present=PROOF_ARTIFACT.is_file(),open_obligation=None if PROOF_ARTIFACT.is_file() else 'RegenRelocateAllResource.lean absent from the tree and from every git ref; the Table::relocate_all refinement (kernel marker REGEN_RELOCATE_ALL_KERNEL_OK) is unproven',sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, compiler, IO/process/dependencies; the work measure counts planned entries visited and relocation steps of the extracted traversal itself under the Aeneas model, not cycles or GPU time; the transitively reached bodies (Table::relocate_entry, TableLocator.retarget_held, spill_locate_held, Region.publish_live, alloc.vec.Vec index), the plan builder, the reservation adapter, the pending merge and the canonical-corpus correspondence are outside this root'),indent=2)+'\n')
         shutil.rmtree(SCRATCH,ignore_errors=True)

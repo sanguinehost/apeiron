@@ -29,7 +29,7 @@ discharge the universal read/search links, `SearchDecisionCorrect`, the allocato
 now uses checked summary reservation/receipts and `publish_live`'s payload → summary → tag order;
 T2's earlier source-discrepancy list describes its old snapshot, not acceptance of all resource paths.
 
-**Source-level cost facts, not cycle bounds.** In `src/table.rs`, `get_at` calls
+**Source-level cost facts, not cycle bounds.** In `src/map/table.rs`, `get_at` calls
 `search_decision_at` → `search_decision` → `apply_get`. Flat match/empty returns without reading
 `shards`; occupied non-match must fall back. `spill_locate` selects one region. With valid geometry,
 `g = slots.len()/N`, a summary-positive absent query executes exactly `7 + g` group iterations,
@@ -76,7 +76,7 @@ constructor-output relation in Sol's verdict. New scratch storage/copy cost must
 The output-construction work is O(n + 256p), auxiliary O(n + 256p) words for n indexes and p chunks;
 chunk scatter and final concatenation each visit each index once. No p-fold speedup follows.
 
-The partition validator in `src/table/partition.rs` is tested by
+The partition validator in `src/map/table/partition.rs` is tested by
 `cargo test --locked --lib table::partition::tests::partition_integrity_`, not an extracted constructor proof. Its removal, debug-only
 replacement or producer-set flag is not authorized. Borrowed grouped readback or worker-local
 `sum_parallel` reduction is a separate effect/order/overflow task; the ordered REG-1 digest and
@@ -135,7 +135,7 @@ classification is made.
 
 ## The historical fixed-shard representation
 
-The executing **map-face** representation is the growable flat/spill `Table` in `src/table.rs`: one
+The executing **map-face** representation is the growable flat/spill `Table` in `src/map/table.rs`: one
 `Table` with two concrete storage faces (`Stored<K>`, `Regen<C>`), a flat certified-coordinate
 resident area and grouped spill regions, keyed by `(Sigma, K)`. "One `Table`" is the whole statement
 for the generic key/value face and is superseded **for the counting face only** by the
@@ -146,12 +146,12 @@ the [extraction-shaped representation boundary](#extraction-shaped-representatio
 below. The fixed-shard paragraphs here describe the earlier extracted layout; its proofs remain
 revision-bound historical evidence, not proofs of the executing layout.
 
-The historical type `apeiron::Table<K, V, H, const N: usize = 16>` was defined in `src/table.rs`; no
+The historical type `apeiron::Table<K, V, H, const N: usize = 16>` was defined in `src/map/table.rs`; no
 aliases or wrapper containers. `src/map.rs`, `src/safe_table.rs` and `src/set.rs` are deleted,
 including `Map`,
 `Words`, `Exposed`, `ExposedWords`, `SafeTable`, `TableFull`, `Set`, `WordSet`, `ExposedSet` and the
 map entry/iterator/storage-policy types. The former `CountTable`, regions, scanner and worker code
-are removed from `src/table.rs`, not retained under a second name. Algebra modules remain. The
+are removed from `src/map/table.rs`, not retained under a second name. Algebra modules remain. The
 counting face is a distinct production type, not an alias, a wrapper or this `Table` renamed, and the
 removed `CountTable` is not its predecessor: it is specified by the
 [counting-container contract](epics/storage-refinement.md#coordinate-keyed-counting-container-contract)
@@ -302,7 +302,7 @@ proved, but that does not prove thread memory semantics, panic propagation or li
 Owner Astra; recorded by `APEIRON-PERF-RESTORE-W4-T1`; documentation only, no source, proof or
 measurement claim. This section replaces the fixed-shard production decomposition as the selected
 migration boundary. The fixed-shard `Table<K,V,H,N>` above is revision-bound historical evidence;
-the growable flat/spill `Table` executes in `src/table.rs`. The growable extraction, refinement and
+the growable flat/spill `Table` executes in `src/map/table.rs`. The growable extraction, refinement and
 measurement integration wave remains open on an integrated source/tool identity.
 
 **Selected representation.** One growable, key-partitioned `Table`, generic over `V` and merge `f`,
@@ -319,7 +319,7 @@ edit. Each task owns at most three files and keeps `cargo test`, `cargo clippy` 
 green plus its focused gate; the wave closes only when extraction, refinement, the REG-1
 harness and the shared gates pass on the integrated identity. An intermediate proof failure is not
 an accepted wave result. Reason: changing the representation simultaneously changes admission
-(`src/table.rs` positive-`N` `ShardFull`), the extracted array representation
+(`src/map/table.rs` positive-`N` `ShardFull`), the extracted array representation
 (`proof/ApeironWord.lean`), the bounded-admission refinements, Rust regression tests and
 the REG-1 workloads/oracles.
 
@@ -395,12 +395,12 @@ reservation-failure controls; update REG-1 refusal/resource rows to test
 Owner Astra; recorded by the rework contract; documentation only, no source, proof or measurement
 claim. This section supersedes the **Selected representation** and probe wording above where they
 differ; the fixed-shard representation is revision-bound historical evidence and the growable
-flat/spill `Table` executes in `src/table.rs`; its integration wave remains open on an integrated
+flat/spill `Table` executes in `src/map/table.rs`; its integration wave remains open on an integrated
 source/tool identity. The contract itself is
 in the [spec](epics/storage-refinement.md#revised-production-contract-reworked-growable-key-partitioned-table);
 the dispatch order is in the [plan](epics/storage-refinement.md#rework-dispatch-order).
 
-**First cut rejected.** The first growable `Table` at `src/table.rs` sha256
+**First cut rejected.** The first growable `Table` at `src/map/table.rs` sha256
 `c34ddf17ef2ed7a81fd4b3e16447479b55d737af8f5253b99dd397414d9b1dc1` is rejected as the production
 result and reworked in place. The bounded fixed-shard `Table<K,V,H,N>` is not restored as production
 and the benchmark-only candidate `examples/reg1/candidate.rs` (removed in `c9a2d0c`) is not promoted. One growable
@@ -549,9 +549,9 @@ public methods.
 
 Owner Sol; recorded by `APEIRON-EXTRACT-REP-W5-T1`; documentation only. The supplied spike is a
 historical extraction diagnostic, not current acceptance. Its executable spike gate is MISSING. Aeneas `505b6ca-dirty` / Charon `0.1.254` reports
-`Could not match the contexts` at `Table::plan_rebuild` (`src/table.rs:678:16-680:17`). The minimal
+`Could not match the contexts` at `Table::plan_rebuild` (`src/map/table.rs:678:16-680:17`). The minimal
 reproducer requires a generic borrowed carrier in a loop, an inner live-field guard and a branch on a
-computed `Option`/enum classification from the carrier address method in `src/table/keyrep.rs`;
+computed `Option`/enum classification from the carrier address method in `src/map/table/keyrep.rs`;
 the supplied log reports scalar-guard, straight-line, accumulated-option and cast variants passing. Loop translation and strict-join flags do not remove it.
 The historical `PinnedJoinBoundary` classified this as an Aeneas context-join limitation. Current
 `proof/ApeironWord.lean` contains `table.Table.plan_rebuild`, so this diagnostic is not a current
@@ -683,7 +683,7 @@ required. The Rust/canonical closed cone and separate Iota empty cone are unchan
 
 **Blocker and precedent.** The supplied Flash blocker is corroborated by
 `/tmp/opencode/reloc-repro/aeneas.log`: whole-body extraction reports `Could not find: type_var_id`
-at the region-initialization loop (`src/table.rs:1055-1058` in the read source).
+at the region-initialization loop (`src/map/table.rs:1055-1058` in the read source).
 `/tmp/opencode/reloc-repro/aeneas4.log` reports generation for the scratch entry root, with an
 external-definition warning; it is not the strict `proof/regen.sh` gate. The scratch helper still
 calls `spill_locate_held`, and its wrapper specializes only `Stored`. Inventory transitive callees
@@ -714,7 +714,7 @@ This specifies the missing resource handoff, not acceptance of `rebuild_preserve
 
 **Verdict: approve the adapter move; extract the handoff, not the allocator.** Keep carrier-as-type,
 the shared production relocation/apply bodies, both carrier roots and the decision/apply split.
-`src/table.rs:1180-1187` still holds/materializes payloads inside `apply_prepared_rebuild`;
+`src/map/table.rs:1180-1187` still holds/materializes payloads inside `apply_prepared_rebuild`;
 `reserve_rebuild` returns only capacity-reserved staging storage. This does not yet implement the
 adapter-owned-initialization clause in `docs/epics/storage-refinement.md:393-412`. Move that phase
 after successful reserve-all into the unextracted adapter, including the pending `R::hold`, and pass
@@ -826,7 +826,7 @@ REG-1/G1 and all full-barrier requirements remain **OPEN** and unchanged.
 
 Owner Astra; task `APEIRON-EXTRACT-REP-RESOURCE-BOUNDARY-T3`; grade `anchor`, docs only.
 This records the boundary for Sol's concurrent contract/proof task, not its acceptance. Earlier
-absence/initialization-placement notes describe their checkpoints: the read `src/table.rs` now calls
+absence/initialization-placement notes describe their checkpoints: the read `src/map/table.rs` now calls
 `prepare_rebuild` → `prepare_from_plan` → reserve-all → `materialize_rebuild` (including
 `observe_receipt`, hold and initialization) → `publish_prepared`; production consumes the envelope.
 `proof/corpus/Growable/Resources.lean` defines `PreparedResources_R` and `RebuildPlanCorrect_R`
@@ -929,7 +929,7 @@ post-relocation storage and decision consumed by the rooted commit, for each car
 
 **Length and callback limits are not runtime measurements.** The source pending commit merges
 `value` with the old/default value and performs unchecked `self.len += 1` on its two vacant branches
-(`src/table.rs`, `apply_pending_and_commit`); ordinary `apply_insert` does likewise. Conditional
+(`src/map/table.rs`, `apply_pending_and_commit`); ordinary `apply_insert` does likewise. Conditional
 no-overflow of the extracted addition proves neither public reachability of the strict bound nor
 the behavior outside it. Rust checked sizing of individual allocations does not by itself prove that
 bound, and no new `SizeOverflow` branch is asserted here. Similarly, the generated word callback is
@@ -1046,7 +1046,7 @@ wrapper that restates a formula, and no existing proof admits it.
 
 **Representation.** One single region of open-addressed slots holding the coordinate word, `Sigma`
 and the count, with tags as the sole occupancy authority, a growth policy, and no locator and no
-256-region directory. The generic growable `Table<K, V, H, N, R>` in `src/table.rs` is retained
+256-region directory. The generic growable `Table<K, V, H, N, R>` in `src/map/table.rs` is retained
 unchanged as the map face. It is production code with real counting consumers, not a reference or
 test-only structure.
 

@@ -62,11 +62,11 @@ def run(argv, cwd, label, require=True):
         raise RuntimeError(f'{label}_REJECT {p.returncode}\n{text[-3500:]}')
     return p.returncode,text
 
-# The real source closure the wrapper compiles. `src/table.rs` pulls `src/table/keyrep.rs` by
-# `#[path]`, which is the module under test; `src/table.rs` itself reads `crate::cell::Sigma` and
+# The real source closure the wrapper compiles. `src/map/table.rs` pulls `src/map/table/keyrep.rs` by
+# `#[path]`, which is the module under test; `src/map/table.rs` itself reads `crate::cell::Sigma` and
 # `crate::coord::{address,locator}`, so the real `src/{scalar,cell,coord,table}.rs` are declared
 # at the temporary crate root exactly as `proof/extract/lib.rs` declares them. The mutant control
-# copies the whole `src/table/` tree and `src/table.rs` into scratch and mutates the copied
+# copies the whole `src/map/table/` tree and `src/map/table.rs` into scratch and mutates the copied
 # `keyrep.rs`, never the working tree.
 LIB_TEMPLATE = '''#[path = {scalar}]
 pub mod scalar;
@@ -76,11 +76,11 @@ pub mod cell;
 pub mod coord;
 #[path = {table}]
 pub mod table;
-/// The real `src/table.rs` test modules read `crate::Sigma`; the alias names the same item.
+/// The real `src/map/table.rs` test modules read `crate::Sigma`; the alias names the same item.
 pub use cell::Sigma;
 
 /// Typed forwarding wrapper: it fixes the face, key and address types and calls the real
-/// `src/table/keyrep.rs` `I64WordCodec::encode` body through the real `WordHome`. It restates no
+/// `src/map/table/keyrep.rs` `I64WordCodec::encode` body through the real `WordHome`. It restates no
 /// formula. This is the body `proof/extract/lib.rs` `word_i64_codec_encode` names.
 pub fn word_i64_codec_encode(sigma: cell::Sigma, key: i64) -> u64 {{
     let home = table::WordHome;
@@ -90,7 +90,7 @@ pub fn word_i64_codec_encode(sigma: cell::Sigma, key: i64) -> u64 {{
     )
 }}
 
-/// Typed forwarding wrapper: it calls the real `src/table/keyrep.rs` `I64WordCodec::decode` body
+/// Typed forwarding wrapper: it calls the real `src/map/table/keyrep.rs` `I64WordCodec::decode` body
 /// through the real `WordHome`. It restates no formula. This is the body
 /// `proof/extract/lib.rs` `word_i64_codec_decode` names.
 pub fn word_i64_codec_decode(sigma: cell::Sigma, identity: u64) -> i64 {{
@@ -128,7 +128,7 @@ def extract(src, label):
     (project/'Cargo.toml').write_text('[package]\nname="i64_codec_source"\nversion="0.0.0"\nedition="2021"\n[lib]\npath="lib.rs"\n[workspace]\n')
     (project/'lib.rs').write_text(lib_source(src))
     run(['cargo','generate-lockfile','--offline'], project,label+'-lock')
-    # The real `src/table.rs` test modules run here, so the mutated copy must still compile and
+    # The real `src/map/table.rs` test modules run here, so the mutated copy must still compile and
     # the real suite result is recorded. The control asserts its own Rust-level red below.
     code, rtext = run(['cargo','test','--locked','--offline','--lib','--target-dir',str(SCRATCH/'rust-target')],
                       project,label+'-rust-tests', require=(label != 'mutant'))
@@ -206,7 +206,7 @@ def main():
     if 'I64_CODEC_KERNEL_OK' not in text:
         raise RuntimeError('I64_CODEC_AUDIT_MISSING')
     if a.controls:
-        # Real-source mutation: `address_identity` in `src/table/keyrep.rs:307` recomputes
+        # Real-source mutation: `address_identity` in `src/map/table/keyrep.rs:307` recomputes
         # `spread(key.cast_unsigned()).id`, the same value `encode` already holds, so the body's
         # `debug_assert_eq!` guard is a tautology. Mutating it to return the *placement* half
         # instead makes the guard compare two different words, which must turn
@@ -223,7 +223,7 @@ def main():
             original.replace(needle, needle.replace('let id = coord::spread(key.cast_unsigned()).id;',
                 'let id = coord::spread(key.cast_unsigned()).place;')))
         freshmut = extract(mutant,'mutant')
-        # Second, independent rejection: the mutated copy also fails the real `src/table.rs` test
+        # Second, independent rejection: the mutated copy also fails the real `src/map/table.rs` test
         # suite, at the mutated `keyrep.rs:288` `debug_assert_eq!`. The Rust-level red and the
         # Lean-level red below are two distinct consumers of the same seeded defect.
         mutant_rust = [r for r in RECORDS if r['label'] == 'mutant-rust-tests']
@@ -259,11 +259,11 @@ if __name__ == '__main__':
     finally:
         source_paths = [TOOLS/'target/aeneas/charon-driver', TOOLS/'target/aeneas-model/lean/lean-toolchain',
             TOOLS/'proof/dispatch/lean-toolchain', ROOT/'src/scalar.rs', ROOT/'src/cell.rs',
-            ROOT/'src/coord.rs', ROOT/'src/table.rs', ROOT/'src/table/keyrep.rs',
-            ROOT/'src/table/state.rs', ROOT/'src/table/locator.rs', ROOT/'src/table/prepared.rs',
-            ROOT/'src/table/probe.rs', ROOT/'src/table/resources.rs',
-            ROOT/'src/table/parallel.rs', ROOT/'src/table/partition.rs', ROOT/'src/coord/address.rs',
-            ROOT/'src/coord/locator.rs', ROOT/'src/coord/locator_core.rs',
+            ROOT/'src/map/coord.rs', ROOT/'src/map/table.rs', ROOT/'src/map/table/keyrep.rs',
+            ROOT/'src/map/table/state.rs', ROOT/'src/map/table/locator.rs', ROOT/'src/map/table/prepared.rs',
+            ROOT/'src/map/table/probe.rs', ROOT/'src/map/table/resources.rs',
+            ROOT/'src/map/table/parallel.rs', ROOT/'src/map/table/partition.rs', ROOT/'src/map/coord/address.rs',
+            ROOT/'src/map/coord/locator.rs', ROOT/'src/map/coord/locator_core.rs',
             ROOT/'proof/strip-modeled-axioms.py', ROOT/'proof/resource/I64Codec_gate.py',
             ROOT/'proof/resource/I64CodecSource.lean', ROOT/'proof/resource/I64CodecResource.lean',
             TOOLS/'target/aeneas/charon', TOOLS/'target/aeneas/aeneas',

@@ -23,7 +23,7 @@
 use crate::engine::chart::task::Task1;
 use crate::engine::chart::{matvec_q8act, ActMagnitude, QuantAct};
 use crate::engine::f16_to_fixed;
-use crate::engine::value::round_shift_32;
+use crate::engine::num::value::round_shift_32;
 use crate::engine::MatvecError;
 use crate::format::quant::{
     GGML_TYPE_Q5_0, GGML_TYPE_Q8_0, Q5_0_BLOCK_BYTES, Q5_0_QK, Q8_0_BLOCK_BYTES, Q8_0_QK,
@@ -321,7 +321,7 @@ fn pooled_q8_0(raw: &[u8], n_out: usize, geom: Geom, qs: &[QuantAct]) -> Option<
     let k = qs.len();
     let mut inter = vec![0i64; n_out.checked_mul(k)?];
     let rows_per = n_out
-        .div_ceil(crate::engine::par::row_chunk_budget(n_out))
+        .div_ceil(crate::engine::ops::par::row_chunk_budget(n_out))
         .max(1);
     let rows_ctx = PooledRowsCtx {
         raw,

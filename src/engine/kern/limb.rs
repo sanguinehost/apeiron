@@ -780,7 +780,7 @@ pub(crate) fn bound_ulps(n: usize, limbs: u32, max_a: u64, max_b: u64) -> i128 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::value::round_shift_32;
+    use crate::engine::num::value::round_shift_32;
 
     /// xorshift64*: the seeded generator the tests use (no `rand` dependency).
     fn step(state: &mut u64) -> u64 {

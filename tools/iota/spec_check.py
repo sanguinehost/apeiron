@@ -440,7 +440,7 @@ def check_sources(inputs: Inputs) -> None:
         if name not in inputs.sources:
             fail(f"source missing: song/{name}")
 
-    table = decode_source("src/table/table.slang", inputs.sources["src/table/table.slang"])
+    table = decode_source("src/map/table/table.slang", inputs.sources["src/map/table/table.slang"])
     std = decode_source("src/kernel/std.slang", inputs.sources["src/kernel/std.slang"])
     cell = decode_source("src/kernel/mem/cell.slang", inputs.sources["src/kernel/mem/cell.slang"])
     if 'use "src/kernel/mem/cell.slang"' not in table:
@@ -987,11 +987,11 @@ def controls(inputs: Inputs) -> list[Mutation]:
             ("change corpus revision", sub_spec(CORPUS_REV, "1" * 40)),
             ("change corpus dependency revision", lambda i: replace(i, corpus_rev="1" * 40)),
             ("mutate pinned canonical module byte", lambda i: replace(i, corpus=i.corpus + "\n")),
-            ("remove table import", source_sub("src/table/table.slang", 'use "src/kernel/mem/cell.slang"', 'use "missing.slang"')),
+            ("remove table import", source_sub("src/map/table/table.slang", 'use "src/kernel/mem/cell.slang"', 'use "missing.slang"')),
             ("remove std import", source_sub("src/kernel/mem/cell.slang", 'use "src/kernel/std.slang"', 'use "missing.slang"')),
             ("change COORD_CEILING", source_sub("src/kernel/std.slang", "COORD_CEILING = 8796093022208", "COORD_CEILING = 7")),
-            ("remove selected function", source_sub("src/table/table.slang", "tableGet(base, cap, key) {", "tableGone(base, cap, key) {")),
-            ("remove selected constant", source_sub("src/table/table.slang", "TABLE_PHI =", "TABLE_GONE =")),
+            ("remove selected function", source_sub("src/map/table/table.slang", "tableGet(base, cap, key) {", "tableGone(base, cap, key) {")),
+            ("remove selected constant", source_sub("src/map/table/table.slang", "TABLE_PHI =", "TABLE_GONE =")),
             ("remove canonical theorem", lambda i: replace(i, corpus=i.corpus.replace("theorem get_insertWith_ne", "theorem gone", 1))),
             ("remove canonical namespace", lambda i: replace(i, corpus=i.corpus.replace("namespace Table", "namespace Gone", 1))),
             ("remove W21 gate", sub_plan("`python3 tools/iota/spec_check.py --self-test`", "MISSING")),
@@ -1113,7 +1113,7 @@ def hardening_controls(inputs: Inputs) -> list[Mutation]:
             sub_plan("`Apeiron.Table.insertWith`", "`Apeiron.Table.bogus`"),
         )
     )
-    cases.append(("crlf source bytes retain old digest", source_crlf("src/table/table.slang")))
+    cases.append(("crlf source bytes retain old digest", source_crlf("src/map/table/table.slang")))
 
     cases.append(
         (
@@ -1131,7 +1131,7 @@ def hardening_controls(inputs: Inputs) -> list[Mutation]:
             source_sub(
                 "src/kernel/std.slang",
                 "COORD_CEILING",
-                'use "src/table/table.slang"\nCOORD_CEILING',
+                'use "src/map/table/table.slang"\nCOORD_CEILING',
             ),
         )
     )

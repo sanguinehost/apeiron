@@ -5,7 +5,7 @@ The shared `proof/extract/lib.rs` unit does not compile the current tree, so thi
 compiles it. Its own scratch manifest wires the real
 `src/{format/{quant,gguf},engine/{value,f32_convert,error,dequant,matvec,lm_head}}.rs` modules by
 `#[path]`; the only new Rust code is the typed forwarding wrapper that calls the real
-`src/engine/lm_head.rs` `lm_head_fixed` body. No substitute algorithm is extracted.
+`src/engine/ops/lm_head.rs` `lm_head_fixed` body. No substitute algorithm is extracted.
 
 The row-level claim this gate accepts is conditional: `row_body_visit_of_dot_ok` carries the premise
 `hdot` that the row's dot computation returns `ok`, and its two last arms enumerate the
@@ -69,7 +69,7 @@ pub use error::EngineError;
 pub use matvec::MatvecError;
 
 /// Typed forwarding wrapper: it fixes the quant id, payload, geometry and result types and calls
-/// the real `src/engine/lm_head.rs` `lm_head_fixed` body. It restates no formula.
+/// the real `src/engine/ops/lm_head.rs` `lm_head_fixed` body. It restates no formula.
 pub fn lm_head_forward(
     ggml_type: u32,
     raw: &[u8],
@@ -184,7 +184,7 @@ def extract(source, label):
     for rel in ['format/quant.rs','format/gguf.rs','engine/value.rs','engine/f32_convert.rs',
                 'engine/error.rs','engine/dequant.rs','engine/lm_head.rs']:
         text = text.replace(str(ROOT/'src'/rel), 'src/'+rel)
-    text = text.replace(str(source), 'src/engine/matvec.rs')
+    text = text.replace(str(source), 'src/engine/ops/matvec.rs')
     generated.write_text(text)
     if re.search(r'\b(axiom|sorry|admit)\b', generated.read_text()):
         raise RuntimeError('LM_HEAD_UNMODELED_SOURCE')
@@ -210,7 +210,7 @@ def main():
     args.add_argument('--check', action='store_true')
     args.add_argument('--controls', action='store_true')
     a = args.parse_args()
-    source = ROOT/'src/engine/matvec.rs'
+    source = ROOT/'src/engine/ops/matvec.rs'
     run(['rustc','--version'],ROOT,'rustc-version')
     run(['cargo','--version'],ROOT,'cargo-version')
     run(['lean','--version'],ROOT,'lean-version')
@@ -256,7 +256,7 @@ def main():
             raise RuntimeError('LM_HEAD_PROOF_RESTORE_DRIFT')
         run(['lake','build','LmHeadResource'], p, 'restored-proof')
         print('LM_HEAD_PROOF_CONTROLS_RESTORED')
-        # The row-loop advance in the real composed projection `src/engine/matvec.rs`. The extracted
+        # The row-loop advance in the real composed projection `src/engine/ops/matvec.rs`. The extracted
         # root is the LM head, whose row loop is this loop; the control makes the row count per row
         # of work wrong and must turn the resource measure red.
         original = source.read_text(); needle = 'o += 1;'
@@ -285,7 +285,7 @@ if __name__ == '__main__':
         main(); status = 0
     finally:
         source_paths = [TOOLS/'target/aeneas/charon-driver', TOOLS/'target/aeneas-model/lean/lean-toolchain',
-            TOOLS/'proof/dispatch/lean-toolchain', ROOT/'src/engine/matvec.rs', ROOT/'src/engine/lm_head.rs',
+            TOOLS/'proof/dispatch/lean-toolchain', ROOT/'src/engine/ops/matvec.rs', ROOT/'src/engine/ops/lm_head.rs',
             ROOT/'proof/strip-modeled-axioms.py', ROOT/'proof/resource/LmHead_gate.py',
             ROOT/'proof/resource/LmHeadSource.lean', ROOT/'proof/resource/LmHeadResource.lean',
             TOOLS/'target/aeneas/charon', TOOLS/'target/aeneas/aeneas', TOOLS/'proof/dispatch/lake-manifest.json']

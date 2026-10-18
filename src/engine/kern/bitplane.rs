@@ -56,7 +56,7 @@ use std::sync::Arc;
 
 use crate::engine::chart::QuantAct;
 use crate::engine::f16_to_fixed;
-use crate::engine::value::round_shift_32;
+use crate::engine::num::value::round_shift_32;
 use crate::format::quant::{GGML_TYPE_Q8_0, Q8_0_BLOCK_BYTES, Q8_0_QK};
 
 /// Nibble bytes per block and plane.
@@ -331,7 +331,7 @@ impl BitplaneHead {
 
         let per = self
             .rows
-            .div_ceil(crate::engine::par::row_chunk_budget(self.rows))
+            .div_ceil(crate::engine::ops::par::row_chunk_budget(self.rows))
             .max(1);
         let tasks = self.rows.div_ceil(per);
         // One slot per chunk, written by that chunk's single task; the calling thread merges the

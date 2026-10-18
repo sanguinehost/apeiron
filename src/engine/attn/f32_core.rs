@@ -42,10 +42,10 @@
 use std::arch::x86_64::*;
 
 use crate::engine::attn::AttnError;
-use crate::engine::fp::F32;
 #[cfg(target_arch = "x86_64")]
 use crate::engine::mixer::f32_carrier::exp_f32_avx2;
 use crate::engine::mixer::f32_carrier::exp_f32_scalar;
+use crate::engine::num::fp::F32;
 
 /// Native binary32 view of an [`F32`] for the AVX2 inners, which keep `f32` intrinsic bodies.
 #[inline(always)]
@@ -626,7 +626,7 @@ pub fn attn_core_f32_strided(
     }
 
     #[cfg(target_arch = "x86_64")]
-    if head_dim.is_multiple_of(8) && crate::engine::fp::prim::cpu_avx2_fma() {
+    if head_dim.is_multiple_of(8) && crate::engine::num::fp::prim::cpu_avx2_fma() {
         // SAFETY: `cpu_avx2_fma` checked AVX2 and FMA support on this processor.
         return unsafe {
             attn_core_f32_strided_avx2_inner(

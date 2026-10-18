@@ -47,7 +47,7 @@
 )]
 
 use super::iq1s_grid::KGRID_1BIT_2048;
-use crate::simt::f16_from_f32;
+use crate::gpu::simt::f16_from_f32;
 
 /// Weights per super-block.
 pub const QK_K: usize = 256;

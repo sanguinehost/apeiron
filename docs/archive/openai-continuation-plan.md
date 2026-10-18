@@ -63,7 +63,7 @@ then remove the task worktree and branch. No unrelated branch is removed.
 | Task / owner | Worktree / branch | Owned files | Gate and control |
 |---|---|---|---|
 | `APEIRON-HANDOFF-W2-T1` / Sol extraction | `worktree-agent-APEIRON-HANDOFF-W2-T1`, `codex/handoff-extraction` | `proof/ApeironWord.lean`, `proof/corpus/Growable/Geometry.lean` | Completion: bounded full bridge `lake build`; prerequisites regeneration/freshness. Generated drift must reject freshness; generated shard-bits 8→7 must reject the unchanged direct-shard theorem; restored pass |
-| `APEIRON-HANDOFF-W2-T2` / Sol Kani | `worktree-agent-APEIRON-HANDOFF-W2-T2`, `codex/handoff-kani-fixtures` | `src/table/probe.rs`, `docs/evidence/kani-table-harness-audit.md` | `cargo kani -Z unstable-options --harness spill_locate_classifies_a_fixed_initialized_region --harness-timeout 120s`; truncate real locator sweep in disposable copy, require late-hit assertion failure, restored pass |
+| `APEIRON-HANDOFF-W2-T2` / Sol Kani | `worktree-agent-APEIRON-HANDOFF-W2-T2`, `codex/handoff-kani-fixtures` | `src/map/table/probe.rs`, `docs/evidence/kani-table-harness-audit.md` | `cargo kani -Z unstable-options --harness spill_locate_classifies_a_fixed_initialized_region --harness-timeout 120s`; truncate real locator sweep in disposable copy, require late-hit assertion failure, restored pass |
 | `APEIRON-HANDOFF-W3-T1` / Sol summary | `worktree-agent-APEIRON-HANDOFF-W3-T1`, `codex/handoff-summary-link` | `proof/corpus/Growable/Scan.lean`, `proof/corpus/AxiomAudit.lean` | Bounded `lake build Growable.Scan AxiomAudit`; generated summary-set OR-to-AND mutation must refute recordedness, restored pass |
 
 `APEIRON-HANDOFF-W3-T2` / Sol attribution: lead authorizes task-only branch

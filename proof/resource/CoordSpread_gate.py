@@ -2,8 +2,8 @@
 """Extract and check the real `coord::spread` source in a bounded private build.
 
 O(B) source/tool/log bytes; external compilation is timed, not assigned constant cost.
-The temporary manifest wires the real `src/coord.rs` by `#[path]` -- which pulls the real
-`src/coord/{address,locator,locator_core}.rs` -- together with the real `src/{scalar,cell,table}.rs`
+The temporary manifest wires the real `src/map/coord.rs` by `#[path]` -- which pulls the real
+`src/map/coord/{address,locator,locator_core}.rs` -- together with the real `src/{scalar,cell,table}.rs`
 that closure needs; the only new code is the typed forwarding wrapper
 `word_coord_spread(x: u64) -> coord::Addr`, which calls the real `coord::spread` body. The shared
 `proof/extract/lib.rs` unit is deliberately NOT used: it does not currently compile, and this gate
@@ -41,11 +41,11 @@ SCRATCH_ROOT = Path(tempfile.gettempdir()) / 'coordspread-resource'
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='source-', dir=SCRATCH_ROOT))
 
-# The real source closure the forwarding wrapper compiles. `src/coord.rs` declares
+# The real source closure the forwarding wrapper compiles. `src/map/coord.rs` declares
 # `#[path = "coord/address.rs"] pub mod address` and `#[path = "coord/locator.rs"] pub mod locator`,
-# and `src/coord/locator.rs` declares `#[path = "locator_core.rs"]`; `src/coord/address.rs` and
-# `src/coord/locator{,_core}.rs` import `crate::cell::Sigma` and `crate::table::{keyrep,TableAddress,
-# WordHome}`, so the wrapper also wires the real `src/{scalar,cell,table}.rs` and the real `src/table/`
+# and `src/map/coord/locator.rs` declares `#[path = "locator_core.rs"]`; `src/map/coord/address.rs` and
+# `src/map/coord/locator{,_core}.rs` import `crate::cell::Sigma` and `crate::table::{keyrep,TableAddress,
+# WordHome}`, so the wrapper also wires the real `src/{scalar,cell,table}.rs` and the real `src/map/table/`
 # children. `#[cfg(test)]` modules are compiled by the `cargo test` step only. The mutant control
 # copies this closure into a scratch directory and mutates the copied `coord.rs`; the working tree is
 # never edited.
@@ -90,10 +90,10 @@ pub mod coord;
 pub mod table;
 
 /// Crate-root alias the real `src/lib.rs` re-exports; the real `#[cfg(test)]` modules in
-/// `src/table/{{partition,probe}}.rs` import `crate::Sigma`.
+/// `src/map/table/{{partition,probe}}.rs` import `crate::Sigma`.
 pub use cell::Sigma;
 
-/// Typed forwarding wrapper: it fixes the `u64` argument type and calls the real `src/coord.rs`
+/// Typed forwarding wrapper: it fixes the `u64` argument type and calls the real `src/map/coord.rs`
 /// `spread` body, returning the real `coord::Addr`. It restates no arithmetic: no widening
 /// multiply, no truncation, no rotate and no xor appears here.
 pub fn word_coord_spread(x: u64) -> coord::Addr {{
@@ -135,7 +135,7 @@ def extract(source_root, label):
     # The model's own definitions replace the stubs the pinned Aeneas emits for externals it does
     # not model; any other axiom/sorry stays for the fail-closed scan below.
     run(['python3',str(ROOT/'proof/strip-modeled-axioms.py'),str(generated)],project,label+'-strip')
-    generated.write_text(generated.read_text().replace(str(source_root/'coord.rs'), 'src/coord.rs'))
+    generated.write_text(generated.read_text().replace(str(source_root/'coord.rs'), 'src/map/coord.rs'))
     if re.search(r'\b(axiom|sorry|admit)\b', generated.read_text()):
         raise RuntimeError('COORD_SPREAD_UNMODELED_SOURCE')
     return generated
@@ -198,6 +198,6 @@ if __name__=='__main__':
     try:
         main();status=0
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/coord.rs',ROOT/'src/coord/address.rs',ROOT/'src/coord/locator.rs',ROOT/'src/coord/locator_core.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/table.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/CoordSpread_gate.py',ROOT/'proof/resource/CoordSpreadSource.lean',ROOT/'proof/resource/CoordSpreadResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/map/coord.rs',ROOT/'src/map/coord/address.rs',ROOT/'src/map/coord/locator.rs',ROOT/'src/map/coord/locator_core.rs',ROOT/'src/cell.rs',ROOT/'src/scalar.rs',ROOT/'src/map/table.rs',ROOT/'proof/strip-modeled-axioms.py',ROOT/'proof/resource/CoordSpread_gate.py',ROOT/'proof/resource/CoordSpreadSource.lean',ROOT/'proof/resource/CoordSpreadResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']
         (OUT/(SCRATCH.name+'-receipt.json')).write_text(json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=540,argv=[sys.executable,*sys.argv],lane=LANE,memory_max='12G',swap_max=0,threads=1,scratch=str(SCRATCH),deadline=os.environ.get('COORD_SPREAD_DEADLINE'),records=RECORDS,sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, compiler, IO/process/dependencies; the work measure counts primitive word operations of the extracted body under named premises, never cycles, wall-clock or GPU time; `coord::finish`, `coord::unspread`, the injective-odd check, the probe-rate table and the `Addr` field consumers are outside this root'),indent=2)+'\n')
         shutil.rmtree(SCRATCH,ignore_errors=True)

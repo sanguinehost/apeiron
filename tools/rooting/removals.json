@@ -27,16 +27,16 @@
     {
       "id": "kani-harness-retirement",
       "kind": "retirement",
-      "note": "User-directed retirement of Kani (AGENTS.md section 6). src/proofs.rs and its src/lib.rs wiring are deleted and the alternate geometry is out of src/table/partition.rs; receipt kani-retirement.",
+      "note": "User-directed retirement of Kani (AGENTS.md section 6). src/proofs.rs and its src/lib.rs wiring are deleted and the alternate geometry is out of src/map/table/partition.rs; receipt kani-retirement.",
       "removed": [
         "src/proofs.rs"
       ],
       "replacement": [],
-      "retained_obligation": "The symbolic population is not replaced: src/table/probe.rs retains five ordinary concrete regressions, which are grade tested, not the retired population. Universal read-path links in Growable/{Scan,Representation,Search}.lean, SearchDecisionCorrect and the allocator adapter stay open; retiring Kani closes none of them (docs/evidence/kani-retirement.md).",
+      "retained_obligation": "The symbolic population is not replaced: src/map/table/probe.rs retains five ordinary concrete regressions, which are grade tested, not the retired population. Universal read-path links in Growable/{Scan,Representation,Search}.lean, SearchDecisionCorrect and the allocator adapter stay open; retiring Kani closes none of them (docs/evidence/kani-retirement.md).",
       "consumers": [
         "src/lib.rs",
-        "src/table/partition.rs",
-        "src/table/probe.rs",
+        "src/map/table/partition.rs",
+        "src/map/table/probe.rs",
         "docs/evidence/kani-retirement.md"
       ],
       "reachability": [
@@ -145,14 +145,14 @@
     {
       "id": "spill-group-descent-scanner-retirement",
       "kind": "retirement",
-      "note": "The SwissTable group-descent scanner src/table/scan.rs (sha256 ec633507...) is retired, not migrated: the flat open-addressed spill port replaced its five production callers (three scan::match_tag, two scan::match_empty, all in src/table/probe.rs) with a bounded linear cycle whose tag == 0 test is the vacancy test, so the module is reached only by its own unit tests. cargo clippy --release --example spill_read_probe -- -D warnings named all eleven of its items never used, each in that file and nowhere else. Receipt: docs/evidence/spill-group-descent-retirement.md.",
+      "note": "The SwissTable group-descent scanner src/map/table/scan.rs (sha256 ec633507...) is retired, not migrated: the flat open-addressed spill port replaced its five production callers (three scan::match_tag, two scan::match_empty, all in src/map/table/probe.rs) with a bounded linear cycle whose tag == 0 test is the vacancy test, so the module is reached only by its own unit tests. cargo clippy --release --example spill_read_probe -- -D warnings named all eleven of its items never used, each in that file and nowhere else. Receipt: docs/evidence/spill-group-descent-retirement.md.",
       "removed": [
-        "src/table/scan.rs"
+        "src/map/table/scan.rs"
       ],
       "replacement": [],
       "retained_obligation": "The extracted definitions of the removed scanner still live in proof/resource/StoredRelocateAllSource.lean and reach the generated Lean through proof/ApeironWord.lean; that is regeneration output and is discharged by the extraction re-link APEIRON-E6-W3-T3 in docs/plan.md, not by this removal. proof/README.md and docs/ keep the pre-port digests as the historical record.",
       "consumers": [
-        "src/table.rs",
+        "src/map/table.rs",
         "proof/regen.sh",
         "proof/resource/Capacity_gate.py",
         "proof/resource/Schedule_gate.py",
@@ -517,34 +517,34 @@
     {
       "id": "hashtrinity-vendor-purge",
       "kind": "retirement",
-      "note": "Owner direction (2026-10-06): fold/hashtrinity is deprecated, its table is rebased onto the R[x]/(x^2-sigma) basis, and vendored src/hashtrinity modules no retained consumer reaches are deleted (docs/plan.md, APEIRON-VENDOR-PURGE). The kept set is the table core (mod.rs, algebra, freq, par, face, seed, dense, ctrl_proto), src/freq.rs's re-exports, the extraction sources proof/regen.sh --check binds (hex, base64, secret sit in that SOURCE_FILES list and so stay), and the webfold rebase names tregex/codec/crypto. Deleted: 18 files, 22559 lines.",
+      "note": "Owner direction (2026-10-06): fold/hashtrinity is deprecated, its table is rebased onto the R[x]/(x^2-sigma) basis, and vendored src/map/hashtrinity modules no retained consumer reaches are deleted (docs/plan.md, APEIRON-VENDOR-PURGE). The kept set is the table core (mod.rs, algebra, freq, par, face, seed, dense, ctrl_proto), src/map/freq.rs's re-exports, the extraction sources proof/regen.sh --check binds (hex, base64, secret sit in that SOURCE_FILES list and so stay), and the webfold rebase names tregex/codec/crypto. Deleted: 18 files, 22559 lines.",
       "removed": [
-        "src/hashtrinity/base32.rs",
-        "src/hashtrinity/bitflags.rs",
-        "src/hashtrinity/bin/swalk.rs",
-        "src/hashtrinity/bin/syncfold.rs",
-        "src/hashtrinity/error.rs",
-        "src/hashtrinity/itertools.rs",
-        "src/hashtrinity/openapi.rs",
-        "src/hashtrinity/proc_masq.rs",
-        "src/hashtrinity/reactor/iouring_driver.rs",
-        "src/hashtrinity/reactor/mod.rs",
-        "src/hashtrinity/runtime.rs",
-        "src/hashtrinity/rustls.rs",
-        "src/hashtrinity/sync.rs",
-        "src/hashtrinity/sync/main.rs",
-        "src/hashtrinity/sync/tls.rs",
-        "src/hashtrinity/sync/tls/rsa_kat.rs",
-        "src/hashtrinity/validate.rs",
-        "src/hashtrinity/webauthn.rs",
-        "src/hashtrinity/dense.rs",
-        "src/hashtrinity/ctrl_proto.rs",
-        "src/hashtrinity/secret.rs"
+        "src/map/hashtrinity/base32.rs",
+        "src/map/hashtrinity/bitflags.rs",
+        "src/map/hashtrinity/bin/swalk.rs",
+        "src/map/hashtrinity/bin/syncfold.rs",
+        "src/map/hashtrinity/error.rs",
+        "src/map/hashtrinity/itertools.rs",
+        "src/map/hashtrinity/openapi.rs",
+        "src/map/hashtrinity/proc_masq.rs",
+        "src/map/hashtrinity/reactor/iouring_driver.rs",
+        "src/map/hashtrinity/reactor/mod.rs",
+        "src/map/hashtrinity/runtime.rs",
+        "src/map/hashtrinity/rustls.rs",
+        "src/map/hashtrinity/sync.rs",
+        "src/map/hashtrinity/sync/main.rs",
+        "src/map/hashtrinity/sync/tls.rs",
+        "src/map/hashtrinity/sync/tls/rsa_kat.rs",
+        "src/map/hashtrinity/validate.rs",
+        "src/map/hashtrinity/webauthn.rs",
+        "src/map/hashtrinity/dense.rs",
+        "src/map/hashtrinity/ctrl_proto.rs",
+        "src/map/hashtrinity/secret.rs"
       ],
       "replacement": [],
-      "retained_obligation": "Webfold's rebase (REBASE-ONTO-APEIRON) still needs Table, CoordMap, Coord, tregex, codec and crypto; those stay in src/hashtrinity/. The removed modules are not replaced: no consumer in this tree reaches them, and the external fold/hashtrinity git dependency remains absent from Cargo.toml.",
+      "retained_obligation": "Webfold's rebase (REBASE-ONTO-APEIRON) still needs Table, CoordMap, Coord, tregex, codec and crypto; those stay in src/map/hashtrinity/. The removed modules are not replaced: no consumer in this tree reaches them, and the external fold/hashtrinity git dependency remains absent from Cargo.toml.",
       "consumers": [
-        "src/freq.rs",
+        "src/map/freq.rs",
         "proof/extract/lib.rs",
         "Cargo.toml",
         "proof/regen.sh"
@@ -575,19 +575,19 @@
       "kind": "retirement",
       "note": "Owner direction (2026-10-09): codec is not used and leaves the tree. It was compiled only under the never-enabled ht-codec cfg; its one in-tree reference, hex::to_term/from_term under the never-enabled ht-syntax cfg, had no caller. The ht-* check-cfg block in Cargo.toml goes with it, since no ht-* cfg remains. Fold is not a requirements source (docs/direction.md, Ownership), so webfold's import of hashtrinity::codec from its external crate does not retain it here. crypto stays: it is unfinished and is the port target of the icarus crypto rooting (docs/epics/icarus-sha256-rooting.md).",
       "removed": [
-        "src/hashtrinity/codec.rs",
-        "src/hashtrinity/codec/syntax/rdf.rs",
-        "src/hashtrinity/codec/syntax/surfaces.rs",
-        "src/hashtrinity/codec/syntax/tests.rs",
-        "src/hashtrinity/codec/syntax/yaml.rs"
+        "src/map/hashtrinity/codec.rs",
+        "src/map/hashtrinity/codec/syntax/rdf.rs",
+        "src/map/hashtrinity/codec/syntax/surfaces.rs",
+        "src/map/hashtrinity/codec/syntax/tests.rs",
+        "src/map/hashtrinity/codec/syntax/yaml.rs"
       ],
       "replacement": [],
       "retained_obligation": "None in this tree: no compiled path reached codec. Webfold imports hashtrinity::codec::syntax from the external Ptyktos/hashtrinity crate (rev 2c36b995); that dependency is webfold's and is unchanged.",
       "consumers": [
-        "src/hashtrinity/mod.rs",
-        "src/hashtrinity/hex.rs",
+        "src/map/hashtrinity/mod.rs",
+        "src/map/hashtrinity/hex.rs",
         "Cargo.toml",
-        "src/freq.rs"
+        "src/map/freq.rs"
       ],
       "reachability": [
         {
@@ -703,7 +703,7 @@
         "docs/evidence/pub-verify-cpu.md",
         "docs/plan.md",
         "src/learn/iq1s.rs",
-        "src/simt/mod.rs",
+        "src/gpu/simt/mod.rs",
         "tests/simt_spirv_val.rs"
       ],
       "reachability": [
@@ -775,7 +775,7 @@
         "tools/qwen35/reference.py"
       ],
       "replacement": [],
-      "retained_obligation": "Open: the one-bit transfer and finishing reopen only as a Rust port under src/learn (QUALITY-118). tools/dispatch/contracts.json and int8-coopmat-spirv.proposal.json still name the removed q8 and coopmat gate scripts; their keep-or-retire decision is open for the owner together with src/spirv q8_tile.comp and int8_coopmat_q8.comp. The plan rows INF-DECODE-MEASURE and INF-RESIDENT-PREFILL name the removed llama_cmp_gate.py and need a Rust gate.",
+      "retained_obligation": "Open: the one-bit transfer and finishing reopen only as a Rust port under src/learn (QUALITY-118). tools/dispatch/contracts.json and int8-coopmat-spirv.proposal.json still name the removed q8 and coopmat gate scripts; their keep-or-retire decision is open for the owner together with src/gpu/spirv q8_tile.comp and int8_coopmat_q8.comp. The plan rows INF-DECODE-MEASURE and INF-RESIDENT-PREFILL name the removed llama_cmp_gate.py and need a Rust gate.",
       "consumers": [
         "docs/epics/frontier-consumer.md",
         "docs/epics/gpu-prefill.md",
@@ -836,14 +836,14 @@
     {
       "id": "spirv-shader-contract-retirement",
       "kind": "retirement",
-      "note": "Board row del-shaders-delete-q8-and-CqDPH1fg1QV8HKYUBHbTkP. Owner decision (2026-10-15, answer 2): \"If not used for our actual inference, training or finetuning, drop them\". No Rust code dispatches src/spirv/q8_tile.comp or src/spirv/int8_coopmat_q8.comp (rg over src/). Their admission contracts, the contract Lean modules, the shader-dot model and gate, the proposals, the author scripts and the SPIR-V identity files go with them; tools/dispatch/contracts.json is empty and the shader self-test leg of tools/dispatch/self_test.rs is deleted (it already named tools/gpu/q8_admission_gate.py, absent from the tree).",
+      "note": "Board row del-shaders-delete-q8-and-CqDPH1fg1QV8HKYUBHbTkP. Owner decision (2026-10-15, answer 2): \"If not used for our actual inference, training or finetuning, drop them\". No Rust code dispatches src/gpu/spirv/q8_tile.comp or src/gpu/spirv/int8_coopmat_q8.comp (rg over src/). Their admission contracts, the contract Lean modules, the shader-dot model and gate, the proposals, the author scripts and the SPIR-V identity files go with them; tools/dispatch/contracts.json is empty and the shader self-test leg of tools/dispatch/self_test.rs is deleted (it already named tools/gpu/q8_admission_gate.py, absent from the tree).",
       "removed": [
         "proof/dispatch/contracts/Int8CoopmatSpirv.lean",
         "proof/dispatch/contracts/Q8TileSpirv.lean",
         "proof/native/ShaderDot.lean",
         "proof/native/shader_dot_gate.py",
-        "src/spirv/int8_coopmat_q8.comp",
-        "src/spirv/q8_tile.comp",
+        "src/gpu/spirv/int8_coopmat_q8.comp",
+        "src/gpu/spirv/q8_tile.comp",
         "tools/dispatch/author_coopmat_contract.py",
         "tools/dispatch/author_q8_contract.py",
         "tools/dispatch/int8-coopmat-spirv.proposal.json",
@@ -952,7 +952,7 @@
         "docs/contracts/slab-retirement.md": "# Synthetic authorizing document\n\nStands in for a governing document named as a receipt path.\n",
         "docs/evidence/ledger.jsonl": "{\"id\": \"slab-retirement\", \"kind\": \"receipt\", \"path\": \"docs/evidence/slab-retirement.md\", \"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\", \"bytes\": 1, \"summary\": \"Synthetic ledger row: the fixture receipt id resolves here.\"}\n",
         "proof/lane.md": "# Synthetic lane directory\n\nPresent so a clean fixture cwd resolves.\n",
-        "src/table/probe.rs": "// production probe body, retained after the harness deletion\n",
+        "src/map/table/probe.rs": "// production probe body, retained after the harness deletion\n",
         "tools/slab/probe_gate.py": "#!/usr/bin/env python3\n\"\"\"Synthetic reachability gate for the self-test tree.\"\"\"\nimport sys\n\n\ndef main():\n    return 0\n\n\nif __name__ == '__main__':\n    sys.exit(main())\n"
       }
     },
@@ -965,9 +965,9 @@
           "tools/slab/probe_harness.rs"
         ],
         "replacement": [],
-        "retained_obligation": "The concrete regression in src/table/probe.rs is grade tested, not the retired symbolic population; the read-path links stay open.",
+        "retained_obligation": "The concrete regression in src/map/table/probe.rs is grade tested, not the retired symbolic population; the read-path links stay open.",
         "consumers": [
-          "src/table/probe.rs",
+          "src/map/table/probe.rs",
           "tools/slab/probe_gate.py"
         ],
         "reachability": [
@@ -1051,7 +1051,7 @@
         "drop": [],
         "set": {
           "consumers": [
-            "src/table/absent_probe.rs"
+            "src/map/table/absent_probe.rs"
           ]
         },
         "action": "none",

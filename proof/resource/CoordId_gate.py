@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Extract and check the real identity-word projection in a bounded private build.
 
-The extraction root is a narrow `#[path]` wrapper over the production `src/coord.rs`, its real
+The extraction root is a narrow `#[path]` wrapper over the production `src/map/coord.rs`, its real
 `scalar`/`cell`/`table` closure and two forwarding functions; the shared `proof/extract/lib.rs`
 unit is never used. O(B) source/tool/log bytes; external compilation is timed, not assigned
 constant cost. Temporary manifests/wrappers call the production `#[path]` body; no substitute
@@ -27,11 +27,11 @@ OUT.mkdir(parents=True, exist_ok=True)
 SCRATCH_ROOT = Path(tempfile.gettempdir()) / 'coordid-resource'
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 SCRATCH = Path(tempfile.mkdtemp(prefix='coordid-', dir=SCRATCH_ROOT))
-# The real `src/coord.rs` closure: the identity word lives in `Addr`, declared in `src/coord.rs`,
+# The real `src/map/coord.rs` closure: the identity word lives in `Addr`, declared in `src/map/coord.rs`,
 # and its production constructor `spread` is in the same file. `scalar`, `cell` and `table` are the
-# modules `src/coord.rs` resolves `crate::` paths through.
-CLOSURE = ['src/scalar.rs', 'src/cell.rs', 'src/table.rs', 'src/coord.rs']
-RELATIVE = ['src/scalar.rs', 'src/cell.rs', 'src/table.rs', 'src/coord.rs']
+# modules `src/map/coord.rs` resolves `crate::` paths through.
+CLOSURE = ['src/scalar.rs', 'src/cell.rs', 'src/map/table.rs', 'src/map/coord.rs']
+RELATIVE = ['src/scalar.rs', 'src/cell.rs', 'src/map/table.rs', 'src/map/coord.rs']
 WRAPPER = """
 // Forwarding roots for the extraction. Each module is the production `#[path]` source; the two
 // functions below name the real bodies and add no arithmetic of their own.
@@ -117,7 +117,7 @@ def prepare_lean():
 
 def main():
     args=argparse.ArgumentParser();args.add_argument('--prepare',action='store_true');args.add_argument('--check',action='store_true');args.add_argument('--controls',action='store_true');a=args.parse_args()
-    source=ROOT/'src/coord.rs'
+    source=ROOT/'src/map/coord.rs'
     for r in RELATIVE:
         if not (ROOT/r).is_file(): raise RuntimeError('COORD_ID_CLOSURE_MISSING '+r)
     run(['rustc','--version'],ROOT,'rustc-version')
@@ -134,18 +134,18 @@ def main():
     code,text=run(['lake','build','CoordIdResource'],p,'fresh-proof')
     if 'COORD_ID_KERNEL_OK' not in text:raise RuntimeError('COORD_ID_AUDIT_MISSING')
     if a.controls:
-        mutant=mutant_source();original=(mutant/'src/coord.rs').read_text()
+        mutant=mutant_source();original=(mutant/'src/map/coord.rs').read_text()
         needle='id: lo,'
         if original.count(needle)!=1:raise RuntimeError('COORD_ID_CONTROL_TARGET_MISSING')
         # The real defect this control injects: wire the identity word to the high half of the
         # widening product, so `word_coord_id` returns the placement-side read instead of `x * PHI`.
-        (mutant/'src/coord.rs').write_text(original.replace(needle,'id: hi,'))
+        (mutant/'src/map/coord.rs').write_text(original.replace(needle,'id: hi,'))
         freshmut=extract(mutant,'mutant');shutil.copyfile(freshmut,p/'CoordIdSource.lean')
         code,text=run(['lake','build','CoordIdResource'],p,'mutant-proof',require=False)
         if code!=1 or 'CoordIdResource.lean:' not in text or not any(x in text for x in ['unsolved goals','type mismatch','forbidden axioms','Tactic']):
             raise RuntimeError('COORD_ID_CONTROL_NOT_ATTRIBUTABLE '+text[-1800:])
         print('COORD_ID_REAL_SOURCE_CONTROL_RED')
-        (mutant/'src/coord.rs').write_text(original);restored=extract(mutant,'restored')
+        (mutant/'src/map/coord.rs').write_text(original);restored=extract(mutant,'restored')
         # Source-location comments differ for disposable absolute source paths; compare executable text.
         strip=lambda s: re.sub(r'/\*.*?\*/|/--.*?-/', '',s,flags=re.S)
         if strip(restored.read_text())!=strip(dest.read_text()):raise RuntimeError('COORD_ID_RESTORE_BODY_DRIFT')
@@ -158,6 +158,6 @@ if __name__=='__main__':
     try:
         main();status=0
     finally:
-        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/coord.rs',ROOT/'proof/resource/CoordId_gate.py',ROOT/'proof/resource/CoordIdSource.lean',ROOT/'proof/resource/CoordIdResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']+[ROOT/r for r in RELATIVE]
+        source_paths=[TOOLS/'target/aeneas/charon-driver',TOOLS/'target/aeneas-model/lean/lean-toolchain',TOOLS/'proof/dispatch/lean-toolchain',ROOT/'src/map/coord.rs',ROOT/'proof/resource/CoordId_gate.py',ROOT/'proof/resource/CoordIdSource.lean',ROOT/'proof/resource/CoordIdResource.lean',TOOLS/'target/aeneas/charon',TOOLS/'target/aeneas/aeneas',TOOLS/'proof/dispatch/lake-manifest.json']+[ROOT/r for r in RELATIVE]
         (OUT/(SCRATCH.name+'-receipt.json')).write_text(json.dumps(dict(exit=status,seconds=time.monotonic()-START,budget=540,argv=[sys.executable,*sys.argv],lane=LANE,memory_max='12G',swap_max=0,threads=1,deadline=os.environ.get('COORD_ID_DEADLINE'),records=RECORDS,sha256={str(p):digest(p) for p in source_paths if p.is_file()},trust='Aeneas/Charon, rustc/cargo, the lean build of the aeneas model, and IO/process/dependencies; the scalar resource claim covers no hardware timing, no GPU/SPIR-V and no canonical ring correspondence'),indent=2)+'\n')
         shutil.rmtree(SCRATCH,ignore_errors=True)

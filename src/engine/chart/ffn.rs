@@ -5,27 +5,27 @@
 //! chunks run on scoped threads, concatenated in row order; it is the Q8-activation twin of
 //! `par::matvec_rows_chunked`. [`projections_q8act`] generalizes its gate/up fusion to `n`
 //! projections over one `quant_act(x)` and one pool dispatch, taking either the chart row core or a
-//! [`Pq2Lut`] so the `PQ2_0` LUT can share the activation. [`ffn_q8act`] is [`ffn_fixed`](crate::engine::ffn::ffn_fixed)'s arithmetic with
+//! [`Pq2Lut`] so the `PQ2_0` LUT can share the activation. [`ffn_q8act`] is [`ffn_fixed`](crate::engine::ops::ffn::ffn_fixed)'s arithmetic with
 //! each projection replaced by `matvec_q8act` over `quant_act` of its input; the gate and up
 //! projections share one `quant_act` of `x`. The `Exact` path in `ffn.rs` and `par.rs` is not
 //! touched.
 
-use crate::engine::fp::F32;
 #[cfg(target_arch = "x86_64")]
 use crate::engine::mixer::f32_carrier::silu_f32_avx2;
 use crate::engine::mixer::f32_carrier::{q32_to_f32, silu_f32_scalar};
 use crate::engine::mixer::{carrier_from_env, Carrier};
+use crate::engine::num::fp::F32;
 use crate::format::quant;
 
-use super::super::ffn::{silu_fixed, FfnError, ProjWeights};
-use super::super::matvec::MatvecError;
-use super::super::par::row_chunk_budget;
-use super::super::value::round_shift_32;
 use super::super::EngineError;
 use super::{matvec_q8act, q8act_plan, q8act_rows, quant_act, Q8ActPlan, QuantAct};
 use crate::engine::chart::task::{ChunkTask, HeadTask, IndexTask, Task1, VecTask};
 use crate::engine::kern::lut::{Pq2Lut, PreparedLut};
 use crate::engine::loader::PayloadRef;
+use crate::engine::num::value::round_shift_32;
+use crate::engine::ops::ffn::{silu_fixed, FfnError, ProjWeights};
+use crate::engine::ops::matvec::MatvecError;
+use crate::engine::ops::par::row_chunk_budget;
 
 #[cfg(test)]
 thread_local! {
@@ -648,7 +648,7 @@ fn q8act_chunk_task(
 /// [`Pool`] and concatenated in row order; `q` is the already-quantized activation, so a
 /// caller projecting several weight matrices with one `x` pays one `quant_act`.
 ///
-/// The split is [`crate::engine::par::matvec_rows_chunked`]'s: `n_out / chunks` rows per chunk with
+/// The split is [`crate::engine::ops::par::matvec_rows_chunked`]'s: `n_out / chunks` rows per chunk with
 /// the first `n_out % chunks` chunks one row longer, so any `chunks` covers every row once. The
 /// byte stride is [`quant::block_geom`]'s. `chunks <= 1` is exactly one [`matvec_q8act`] call over
 /// the whole payload; when `ggml_type` has no block geometry the chunked split is not formed and
@@ -1319,7 +1319,7 @@ where
 /// arithmetic with each projection replaced by `matvec_q8act` on `quant_act(its input)`.
 ///
 /// `gate`/`up` share one `quant_act(x)`; the elementwise `round(silu(gate_i)·up_i / 2^32)` pass is
-/// [`ffn_fixed`](crate::engine::ffn::ffn_fixed)'s, and the down projection is `matvec_q8act` on
+/// [`ffn_fixed`](crate::engine::ops::ffn::ffn_fixed)'s, and the down projection is `matvec_q8act` on
 /// `quant_act(h)`. The gate is the `SiLU` argument and the `up` row the multiplier, as in
 /// `ffn_fixed`. Each projection splits its rows by [`row_chunk_budget`], so the block uses the
 /// machine's parallelism as `ffn_fixed`'s does.
@@ -1786,7 +1786,7 @@ mod tests {
     )]
 
     use super::*;
-    use crate::engine::matvec::matvec_fixed;
+    use crate::engine::ops::matvec::matvec_fixed;
     use crate::engine::ONE;
     use crate::format::quant::{GGML_TYPE_F16, GGML_TYPE_Q8_0};
 

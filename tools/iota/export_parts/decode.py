@@ -46,7 +46,7 @@ _SELECTED_FUNCTION_NAMES = [
 ]
 
 _STEM_PATHS = {
-    "src/table/table.slang": "table",
+    "src/map/table/table.slang": "table",
     "src/kernel/mem/cell.slang": "cell",
     "src/kernel/std.slang": "std",
 }

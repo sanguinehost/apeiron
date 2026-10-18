@@ -119,6 +119,6 @@ refuses keys too wide to fit).
 | statement | grade | artifact |
 |---|---|---|
 | integer coordinates are injective and invert | tested | the doctests above and `tests/hashdos.rs`, run by `cargo test --test hashdos --locked` |
-| the executed fold on pairs is XOR | read from source | `src/hashtrinity/algebra.rs`, `impl Coord for (A, B)` |
+| the executed fold on pairs is XOR | read from source | `src/map/hashtrinity/algebra.rs`, `impl Coord for (A, B)` |
 | counts above | tested | the doctests above, run by `cargo test --test hashdos --locked` and `mdbook test book` |
 | the readout from the full coordinate is exact | proved in the corpus | `readout_beats_compare_by_construction` in `proof/corpus/Closures/Engineering/CoordinateReadout.lean` |

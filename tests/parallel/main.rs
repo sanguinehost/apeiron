@@ -8,14 +8,14 @@
 
 #![cfg_attr(not(feature = "injection"), allow(dead_code))]
 
-use apeiron::coord::address::{
+use apeiron::map::coord::address::{
     EllipticPacking, FaceCoord, FaceHome, FaceResidueCapability, LocatorSigma, ParabolicDual,
     Residue, H3_40,
 };
-use apeiron::coord::locator::{ExactIdentity, Refusal};
-use apeiron::coord::{spread, Packed};
-use apeiron::table::keyrep::{I64WordCodec, KeyRep, Regen};
-use apeiron::table::{Home, Table, TableAddress};
+use apeiron::map::coord::locator::{ExactIdentity, Refusal};
+use apeiron::map::coord::{spread, Packed};
+use apeiron::map::table::keyrep::{I64WordCodec, KeyRep, Regen};
+use apeiron::map::table::{Home, Table, TableAddress};
 use apeiron::{Sigma, StorageError};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -612,7 +612,7 @@ fn assert_same_counting_map(reference: &CountingTable, parallel: &CountingTable)
 /// returns `Err`, no key is held, no payload or default is cloned, no merge runs, and the committed
 /// table is unchanged. With the seam cleared the build succeeds and equals the serial result.
 ///
-/// The seam is the inherent `apeiron::table::parallel::reservation_failure` arm. It names shard
+/// The seam is the inherent `apeiron::map::table::parallel::reservation_failure` arm. It names shard
 /// 255, the last shard the serial reserve-all reaches with load, so shards 0..254 are reserved
 /// before the injected failure. Zero key clones also excludes relocation: relocation clones a held
 /// carrier and a payload, and `build_at_parallel` invokes no relocation entry point.
@@ -660,11 +660,11 @@ fn injected_final_shard_reservation_refusal_has_zero_cross_worker_effects() {
         "shard {FINAL_SHARD} must carry load"
     );
 
-    apeiron::table::parallel::reservation_failure::arm(
+    apeiron::map::table::parallel::reservation_failure::arm(
         usize::try_from(FINAL_SHARD).expect("shard fits usize"),
     );
     let refused = CountingTable::build_at_parallel(&merge, default(-1), &input, CountingHome, 8);
-    apeiron::table::parallel::reservation_failure::disarm();
+    apeiron::map::table::parallel::reservation_failure::disarm();
 
     assert!(
         matches!(refused, Err(StorageError::AllocationFailed)),
@@ -731,11 +731,11 @@ fn reserve_all_precedes_every_scatter_worker() {
     holds.store(0, Ordering::SeqCst);
     clones.store(0, Ordering::SeqCst);
 
-    apeiron::table::parallel::reservation_failure::arm(
+    apeiron::map::table::parallel::reservation_failure::arm(
         usize::try_from(FINAL_SHARD).expect("shard fits usize"),
     );
     let refused = AddressTable::build_at_parallel(&merge, default_value, &input, home, 8);
-    apeiron::table::parallel::reservation_failure::disarm();
+    apeiron::map::table::parallel::reservation_failure::disarm();
 
     assert!(
         matches!(refused, Err(StorageError::AllocationFailed)),
@@ -826,7 +826,7 @@ where
 
 #[test]
 fn parallel_build_covers_the_assembled_table_on_both_carriers() {
-    mixed_face_parallel_coverage::<apeiron::table::keyrep::Stored<i64>>("stored");
+    mixed_face_parallel_coverage::<apeiron::map::table::keyrep::Stored<i64>>("stored");
     mixed_face_parallel_coverage::<Regen<I64WordCodec>>("regen");
 }
 
@@ -916,7 +916,7 @@ fn injected_late_locator_edge_refusal_has_zero_cross_worker_effects() {
     merges.store(0, Ordering::SeqCst);
     calls.store(0, Ordering::SeqCst);
 
-    apeiron::coord::locator::reservation_failure::arm_late_edge(Refusal::AllocationFailed);
+    apeiron::map::coord::locator::reservation_failure::arm_late_edge(Refusal::AllocationFailed);
     let refused = AddressTable::build_at_parallel(
         &merge,
         default(-1),
@@ -926,7 +926,7 @@ fn injected_late_locator_edge_refusal_has_zero_cross_worker_effects() {
         },
         8,
     );
-    apeiron::coord::locator::reservation_failure::disarm();
+    apeiron::map::coord::locator::reservation_failure::disarm();
 
     let refused_merges = merges.load(Ordering::SeqCst);
     // The cold link runs after the fill workers join, so every worker callback and every `address`
@@ -1036,7 +1036,7 @@ fn injected_recording_buffer_reservation_has_zero_cross_worker_effects() {
         "shard {FINAL_SHARD} must carry load"
     );
 
-    apeiron::table::parallel::reservation_failure::arm_records(
+    apeiron::map::table::parallel::reservation_failure::arm_records(
         usize::try_from(FINAL_SHARD).expect("shard fits usize"),
     );
     let refused = AddressTable::build_at_parallel(
@@ -1048,7 +1048,7 @@ fn injected_recording_buffer_reservation_has_zero_cross_worker_effects() {
         },
         8,
     );
-    apeiron::table::parallel::reservation_failure::disarm();
+    apeiron::map::table::parallel::reservation_failure::disarm();
 
     assert!(
         matches!(refused, Err(StorageError::AllocationFailed)),
@@ -1137,7 +1137,7 @@ fn injected_worker_buffer_reservation_has_zero_cross_worker_effects() {
     merges.store(0, Ordering::SeqCst);
     calls.store(0, Ordering::SeqCst);
 
-    apeiron::table::parallel::reservation_failure::arm_output(0);
+    apeiron::map::table::parallel::reservation_failure::arm_output(0);
     let refused = AddressTable::build_at_parallel(
         &merge,
         default(-1),
@@ -1147,7 +1147,7 @@ fn injected_worker_buffer_reservation_has_zero_cross_worker_effects() {
         },
         8,
     );
-    apeiron::table::parallel::reservation_failure::disarm();
+    apeiron::map::table::parallel::reservation_failure::disarm();
 
     assert!(
         matches!(refused, Err(StorageError::AllocationFailed)),
@@ -1200,7 +1200,7 @@ fn injected_worker_buffer_reservation_has_zero_cross_worker_effects() {
 // ---------------------------------------------------------------------------------------------
 
 #[cfg(feature = "injection")]
-use apeiron::table::parallel::reservation_failure::{arm_finalize, disarm, FinalizeArm};
+use apeiron::map::table::parallel::reservation_failure::{arm_finalize, disarm, FinalizeArm};
 
 /// A small parallel input for the finalize-arm witnesses: 5,000 entries sit above the 4,096-entry
 /// crossover, so `build_parallel` takes the scoped path and reaches

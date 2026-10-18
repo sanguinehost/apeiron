@@ -30,7 +30,7 @@ lane dispatched against the wrong one measures a phantom and wastes its slot.
 |---|---|---|
 | `proof/ApeironWord.lean` | `aaa69bedf5f799d9…`: `ResidentIndex` 0, `index_at` 0, `FaceIndex` 0, `flatIndex` 0; carries `table.Flat.index` | `90191cba8281e7e1…` in `/home/socol/oc-tmp/hyp-geom/` |
 | `proof/corpus/Growable/Geometry.lean` | `627ab73df9cd8812…` = HEAD | `012bdb66…` (per-face), scratch only |
-| `src/table/state.rs` | `fn index` at `:426`; no `index_at` | — |
+| `src/map/table/state.rs` | `fn index` at `:426`; no `index_at` | — |
 
 - **Line A (live, active):** the `SpillSlot` corpus migration (`APEIRON-W3-T2*`), HT-FUSE-W1's
   measured read win, and the extraction route.
@@ -87,7 +87,7 @@ quoted. Nothing currently compares the candidate to its own registered rows — 
 | fresh insert | **111** | **836** (7.5×) |
 
 Ranked: **1)** fuse {liveness, identity, hit}, drop per-slot σ and key compare — `APEIRON-HT-FUSE-W1`
-running; **2)** `reserve_locator_batch(1)` + `record_admitted_link` (`src/table.rs:1316`, `:1356`), no
+running; **2)** `reserve_locator_batch(1)` + `record_admitted_link` (`src/map/table.rs:1316`, `:1356`), no
 incumbent counterpart; **3)** per-insert `u32::try_from` + σ plumbing.
 
 Incumbent identity: G1 compares to `4cc14471`, not fold HEAD `d497161`; `freq/face/par/dense/algebra`
@@ -95,9 +95,9 @@ are byte-identical, `lib.rs` differs by 2 lines.
 
 ## 4 · Landed today (lead merges, uncommitted)
 
-- **apeiron:** density hoist (`src/table.rs` `+=` extraction-clean, `state.rs`, `tests.rs`,
+- **apeiron:** density hoist (`src/map/table.rs` `+=` extraction-clean, `state.rs`, `tests.rs`,
   `proof/ApeironWord.lean`) — `regen.sh --check` fresh; gate fixes (`tests/table.rs` oracle,
-  `src/table/locator.rs` injection test); acceptance instrument + **fair timed region**
+  `src/map/table/locator.rs` injection test); acceptance instrument + **fair timed region**
   (`examples/reg1/{acceptance.rs,adapters/spatial.rs,acceptance/registry_tests.rs}`), spatial worst
   36.55× → ~5.3×; corpus `Growable/{Scan,Relocation,Search,Representation,Refinement,Resources,ReadState}`
   **modified in the working tree — uncommitted and still red** until their lanes land (only `Identity`

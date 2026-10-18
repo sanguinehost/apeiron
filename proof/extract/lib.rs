@@ -2,8 +2,8 @@
 //!
 //! This is a development-only translation unit, not a crate in the Apeiron workspace.
 //! Charon drives rustc over this single file; the modules it pulls in by `#[path]` are the
-//! real `src/scalar.rs`, `src/cell.rs`, `src/exchange.rs`, `src/carrier.rs`, `src/table.rs`,
-//! `src/coord.rs` and `src/numeric/{fixed_exp,fixed_rsqrt,fixed_trig}.rs`, so the extracted
+//! real `src/scalar.rs`, `src/cell.rs`, `src/exchange.rs`, `src/carrier.rs`, `src/map/table.rs`,
+//! `src/map/coord.rs` and `src/numeric/{fixed_exp,fixed_rsqrt,fixed_trig}.rs`, so the extracted
 //! definitions track the source the
 //! library builds. The wrappers
 //! below exist only to give Charon concrete, monomorphic roots and to call the real methods; they do
@@ -15,7 +15,7 @@
 pub mod carrier;
 #[path = "../../src/cell.rs"]
 pub mod cell;
-#[path = "../../src/coord.rs"]
+#[path = "../../src/map/coord.rs"]
 pub mod coord;
 #[path = "../../src/exchange.rs"]
 pub mod exchange;
@@ -33,7 +33,7 @@ pub mod register;
 
 /// Mirror of `crate::numeric` for the extraction unit: the real `src/engine/{silu,norm}.rs` import
 /// `crate::numeric::fixed_exp::fixed_exp` and `crate::numeric::fixed_rsqrt::{fixed_rsqrt,RsqrtError}`,
-/// and `src/engine/rope.rs` imports `crate::numeric::fixed_trig::fixed_sin_cos`, so the three
+/// and `src/engine/ops/rope.rs` imports `crate::numeric::fixed_trig::fixed_sin_cos`, so the three
 /// `numeric::*` aliases name the modules above.
 pub mod numeric {
     pub use super::{fixed_exp, fixed_ln, fixed_rsqrt, fixed_trig, register};
@@ -41,43 +41,49 @@ pub mod numeric {
 
 /// Mirror of `crate::format` for the extraction unit: the real `src/engine/error.rs` imports
 /// `crate::format::gguf::GgufError` and `crate::format::quant::QuantError`, and
-/// `src/engine/dequant.rs` and `src/engine/matvec.rs` import `crate::format::quant`, so these
+/// `src/engine/num/dequant.rs` and `src/engine/ops/matvec.rs` import `crate::format::quant`, so these
 /// aliases name the crate-root modules declared below.
 pub mod format {
     pub use super::{gguf, packing, quant};
 }
 
-#[path = "../../src/engine/value.rs"]
+/// Mirror of the real `src/map/` parent over the crate-root modules, so the absolute
+/// `crate::map::{coord,table,hashtrinity}` paths in the mirrored files resolve.
+pub mod map {
+    pub use super::{coord, hashtrinity, table};
+}
+
+#[path = "../../src/engine/num/value.rs"]
 pub mod value;
-#[path = "../../src/engine/silu.rs"]
+#[path = "../../src/engine/ops/silu.rs"]
 pub mod silu;
-#[path = "../../src/engine/norm.rs"]
+#[path = "../../src/engine/ops/norm.rs"]
 pub mod norm;
-#[path = "../../src/engine/rope.rs"]
+#[path = "../../src/engine/ops/rope.rs"]
 pub mod rope;
 #[path = "../../src/engine/error.rs"]
 pub mod error;
-#[path = "../../src/engine/f32_convert.rs"]
+#[path = "../../src/engine/num/f32_convert.rs"]
 pub mod f32_convert;
-#[path = "../../src/engine/fp.rs"]
+#[path = "../../src/engine/num/fp.rs"]
 pub mod fp;
-#[path = "../../src/engine/dequant.rs"]
+#[path = "../../src/engine/num/dequant.rs"]
 pub mod dequant;
-#[path = "../../src/engine/matvec.rs"]
+#[path = "../../src/engine/ops/matvec.rs"]
 pub mod matvec;
 #[path = "../../src/engine/attn.rs"]
 pub mod attn;
 #[path = "../../src/engine/mixer.rs"]
 pub mod mixer;
-#[path = "../../src/engine/lm_head.rs"]
+#[path = "../../src/engine/ops/lm_head.rs"]
 pub mod lm_head;
-#[path = "../../src/engine/sampler.rs"]
+#[path = "../../src/engine/ops/sampler.rs"]
 pub mod sampler;
-#[path = "../../src/engine/hadamard.rs"]
+#[path = "../../src/engine/ops/hadamard.rs"]
 pub mod hadamard;
-#[path = "../../src/engine/ffn.rs"]
+#[path = "../../src/engine/ops/ffn.rs"]
 pub mod ffn;
-#[path = "../../src/engine/moe.rs"]
+#[path = "../../src/engine/ops/moe.rs"]
 pub mod moe;
 #[path = "../../src/engine/kern/pow2.rs"]
 pub mod pow2;
@@ -100,6 +106,16 @@ pub mod engine {
         moe, norm, par, rope, sampler, silu, step, trace, value,
     };
     pub use super::rope::{RopeError, RopeTable};
+
+    /// The real `src/engine/num/` and `src/engine/ops/` parents, mirrored over the crate-root
+    /// modules so the absolute `crate::engine::{num,ops}::*` paths in the mirrored files resolve.
+    pub mod num {
+        pub use crate::{dequant, f32_convert, fp, value};
+    }
+    /// See [`num`].
+    pub mod ops {
+        pub use crate::{ffn, fused, hadamard, lm_head, matvec, moe, norm, par, rope, sampler};
+    }
 
     /// The engine refusal type at its real `crate::engine::EngineError` path.
     pub use super::error::EngineError;
@@ -147,7 +163,7 @@ pub mod packing;
 pub mod quant;
 #[path = "../../src/scalar.rs"]
 pub mod scalar;
-#[path = "../../src/table.rs"]
+#[path = "../../src/map/table.rs"]
 pub mod table;
 
 /// The carried-key word instance used to probe the executing table bodies.
@@ -505,14 +521,14 @@ pub fn word_schedule_is_complete(
 
 /// `coord::finish`, the splitmix64 finalizer, rooted at the concrete `u64` word.
 ///
-/// This calls the real `src/coord.rs` body; it does not restate the xor-shift chain.
+/// This calls the real `src/map/coord.rs` body; it does not restate the xor-shift chain.
 pub fn word_coord_finish(h: u64) -> u64 {
     coord::finish(h)
 }
 
 /// `coord::spread`, the one-widening-multiply address split, rooted at the concrete `u64` word.
 ///
-/// This calls the real `src/coord.rs` body; it does not restate the widening multiply or the
+/// This calls the real `src/map/coord.rs` body; it does not restate the widening multiply or the
 /// rotate/xor that folds the two halves.
 pub fn word_coord_spread(x: u64) -> coord::Addr {
     coord::spread(x)
@@ -728,7 +744,7 @@ pub fn word_pow2_finish(acc: i64, s: u32) -> Option<i64> {
 
 /// The real fixed-point `SiLU` body, rooted at the concrete Q32.32 `i64` word.
 ///
-/// This calls the real `src/engine/silu.rs` body, which `crate::engine::silu_fixed` also delegates
+/// This calls the real `src/engine/ops/silu.rs` body, which `crate::engine::silu_fixed` also delegates
 /// to; it does not restate the two saturation branches, the `fixed_exp` call or the
 /// round-to-nearest division. The wrapper only fixes the argument and result types.
 pub fn word_silu_fixed(v: i64) -> Result<i64, engine::silu::SiluError> {
@@ -737,7 +753,7 @@ pub fn word_silu_fixed(v: i64) -> Result<i64, engine::silu::SiluError> {
 
 /// The real fixed-point `RMSNorm` body, rooted at the concrete Q32.32 `i64` word.
 ///
-/// This calls the real `src/engine/norm.rs` body, which `crate::engine::rms_norm_fixed` also
+/// This calls the real `src/engine/ops/norm.rs` body, which `crate::engine::rms_norm_fixed` also
 /// re-exports; it does not restate the `i128` sum of squares, the round-to-nearest mean, the
 /// `eps_fixed` addend, the `fixed_rsqrt` call or the value-path epilogue. The wrapper only fixes
 /// the row and epsilon types.
@@ -750,7 +766,7 @@ pub fn word_rms_norm_fixed(
 
 /// The real per-token `RoPE` rotation body, rooted at the concrete Q32.32 `i64` word.
 ///
-/// This calls the real `src/engine/rope.rs` body, which `crate::engine::rope_rotate_fixed` also
+/// This calls the real `src/engine/ops/rope.rs` body, which `crate::engine::rope_rotate_fixed` also
 /// re-exports; it does not restate the checked angle product, the `fixed_sin_cos` pair or the
 /// round-to-nearest epilogue. The wrapper only fixes the vector, position and table types.
 pub fn word_rope_rotate_fixed(
@@ -832,7 +848,7 @@ pub fn word_packing_decode_block(
 
 /// The real MoE top-k selection, rooted at the concrete Q32.32 `i64` router logits.
 ///
-/// This calls the real `src/engine/moe.rs` body (k passes of a max scan, lower index on ties); the
+/// This calls the real `src/engine/ops/moe.rs` body (k passes of a max scan, lower index on ties); the
 /// wrapper only fixes the slice and result types.
 pub fn word_route_topk(logits: &[i64], k: usize) -> Result<Vec<u32>, engine::moe::MoeError> {
     engine::moe::route_topk(logits, k)
@@ -840,7 +856,7 @@ pub fn word_route_topk(logits: &[i64], k: usize) -> Result<Vec<u32>, engine::moe
 
 /// The real MoE gate weights over the selected experts, rooted at the concrete Q32.32 `i64` words.
 ///
-/// This calls the real `src/engine/moe.rs` body (max-shifted fixed `exp`, checked total, rounded
+/// This calls the real `src/engine/ops/moe.rs` body (max-shifted fixed `exp`, checked total, rounded
 /// division); the wrapper only fixes the slice and result types.
 pub fn word_gate_weights(
     logits: &[i64],
@@ -852,7 +868,7 @@ pub fn word_gate_weights(
 
 /// The real exact-integer Walsh–Hadamard rotation, rooted at the concrete Q32.32 `i64` word.
 ///
-/// This calls the real `src/engine/hadamard.rs` body (sign multiply, `k` checked butterfly stages,
+/// This calls the real `src/engine/ops/hadamard.rs` body (sign multiply, `k` checked butterfly stages,
 /// one normalization by the `C[k]` table); the wrapper only fixes the slice and result types.
 pub fn word_fwht_fixed(
     x: &mut [i64],
@@ -878,7 +894,7 @@ pub fn word_stage_mul(
 
 /// The real fixed-point projection kernel, rooted at the concrete Q32.32 `i64` word.
 ///
-/// This calls the real `src/engine/matvec.rs` body, which dequantizes one weight row at a time with
+/// This calls the real `src/engine/ops/matvec.rs` body, which dequantizes one weight row at a time with
 /// the real `dequant_row_fixed` and reduces it with the real `row_dot_fixed`; the wrapper only
 /// fixes the payload, shape and result types. It does not restate the row stride, the dequantizer
 /// dispatch or the `i128` dot and its `>> 32` epilogue.
@@ -894,7 +910,7 @@ pub fn word_matvec_fixed(
 
 /// The real row-dot helper of the projection kernel, rooted at the concrete Q32.32 `i64` word.
 ///
-/// This calls the real `src/engine/matvec.rs` body; it does not restate the checked `i128`
+/// This calls the real `src/engine/ops/matvec.rs` body; it does not restate the checked `i128`
 /// multiply-add accumulation or the single round-to-nearest `>> 32` epilogue. The wrapper only
 /// fixes the weight-row and activation types.
 pub fn word_row_dot_fixed(w_row: &[i64], x: &[i64]) -> Result<i64, engine::matvec::MatvecError> {
@@ -903,7 +919,7 @@ pub fn word_row_dot_fixed(w_row: &[i64], x: &[i64]) -> Result<i64, engine::matve
 
 /// The real LM-head application, rooted at the concrete Q32.32 `i64` word.
 ///
-/// This calls the real `src/engine/lm_head.rs` `lm_head_fixed` body, which
+/// This calls the real `src/engine/ops/lm_head.rs` `lm_head_fixed` body, which
 /// `crate::engine::Engine::lm_head_fixed` also delegates to after its checked tensor read; it does
 /// not restate the activation-width guard, the quant-family check or the `vocab`-row projection
 /// with its single `>> 32` epilogue. It composes the rooted [`engine::matvec::matvec_fixed`], so
@@ -1022,7 +1038,7 @@ pub fn word_attn_head(
 
 /// The real greedy `argmax_fixed` sampler, rooted at the concrete Q32.32 `i64` word.
 ///
-/// This calls the real `src/engine/sampler.rs` body; it does not restate the strict-`>` tie rule or
+/// This calls the real `src/engine/ops/sampler.rs` body; it does not restate the strict-`>` tie rule or
 /// the index-range refusal. The wrapper only fixes the logit type.
 pub fn word_argmax_fixed(logits: &[i64]) -> Result<u32, sampler::SamplerError> {
     sampler::argmax_fixed(logits)
@@ -1030,23 +1046,23 @@ pub fn word_argmax_fixed(logits: &[i64]) -> Result<u32, sampler::SamplerError> {
 
 /// The real integer nucleus filter `top_p_fixed`, rooted at the concrete Q32.32 `i64` word.
 ///
-/// This calls the real `src/engine/sampler.rs` body; it does not restate the maximum shift, the
+/// This calls the real `src/engine/ops/sampler.rs` body; it does not restate the maximum shift, the
 /// `fixed_exp` window, the checked `i128` total, the round-to-nearest probabilities, the descending
 /// order or the cumulative prefix rule. The wrapper only fixes the logit and threshold types.
 pub fn word_top_p_fixed(logits: &[i64], p: i64) -> Result<Vec<u32>, sampler::SamplerError> {
     sampler::top_p_fixed(logits, p)
 }
 
-/// Mirror of `crate::spirv` for the extraction unit: the real `src/spirv/mod.rs` declares
+/// Mirror of `crate::gpu::spirv` for the extraction unit: the real `src/gpu/spirv/mod.rs` declares
 /// `pub mod check;`, so the `#[path]`-declared `spirv` module resolves `check` against the real
-/// `src/spirv/` directory and pulls the real `src/spirv/check.rs`. The checker body itself imports
+/// `src/gpu/spirv/` directory and pulls the real `src/gpu/spirv/check.rs`. The checker body itself imports
 /// only the standard library, so no other mirror is needed.
-#[path = "../../src/spirv/mod.rs"]
+#[path = "../../src/gpu/spirv/mod.rs"]
 pub mod spirv;
 
 /// The real SPIR-V DP4A fragment checker, rooted at the concrete `&[u32]` word slice.
 ///
-/// This calls the real `src/spirv/check.rs` `check_fragment` body; it does not restate the header,
+/// This calls the real `src/gpu/spirv/check.rs` `check_fragment` body; it does not restate the header,
 /// D1-D4, storage, decoration or `OpSUDot` obligations. The wrapper only fixes the slice element
 /// type (the emitted words are `u32`), so Charon translates the production checker rather than a
 /// copy.
@@ -1079,12 +1095,12 @@ pub fn word_policy_decide(
     policy::decide(rules, atoms, facts, known, action, want)
 }
 
-/// Row-chunked projection helpers the real `src/engine/ffn.rs` imports (`super::par`) and their
+/// Row-chunked projection helpers the real `src/engine/ops/ffn.rs` imports (`super::par`) and their
 /// fused block-wise dot (`super::fused`). Neither is an extraction root; they are declared last so
 /// no extracted item's source span moves.
-#[path = "../../src/engine/fused.rs"]
+#[path = "../../src/engine/ops/fused.rs"]
 pub mod fused;
-#[path = "../../src/engine/par.rs"]
+#[path = "../../src/engine/ops/par.rs"]
 pub mod par;
 
 /// Mirrors of the `src/engine/mixer.rs` closure: mixer reads `super::{chart, step, value}`,
@@ -1125,17 +1141,17 @@ pub use step::{DecodeState, KernelMode, MtpState, SpecStats, StepError, StepResu
 pub use value::fixed_vector_checksum;
 
 /// FIPS-202 hash construction, declared last so no earlier extracted item's source span moves.
-/// `src/crypto.rs` imports only `core`, so no mirror above is needed.
-#[path = "../../src/crypto.rs"]
+/// `src/crypto/keccak.rs` imports only `core`, so no mirror above is needed.
+#[path = "../../src/crypto/keccak.rs"]
 pub mod crypto;
 
-/// FIPS 180-4 SHA-256. `src/sha256.rs` imports only `core`, so no mirror above is needed.
-#[path = "../../src/sha256.rs"]
+/// FIPS 180-4 SHA-256. `src/crypto/sha256.rs` imports only `core`, so no mirror above is needed.
+#[path = "../../src/crypto/sha256.rs"]
 pub mod sha256;
 
 /// `crypto::keccak_f1600`, the Keccak-f[1600] permutation, at the fixed 25-lane state.
 ///
-/// This calls the real `src/crypto.rs` body; the wrapper fixes nothing beyond naming the state
+/// This calls the real `src/crypto/keccak.rs` body; the wrapper fixes nothing beyond naming the state
 /// type, which is already concrete. It does not restate the theta/rho/pi/chi/iota steps.
 pub fn word_keccakf(state: &mut [u64; 25]) {
     crypto::keccak_f1600(state)
@@ -1155,7 +1171,7 @@ pub fn word_sha3_512(msg: &[u8]) -> [u8; 64] {
 
 /// `sha256::sha256`, the real FIPS 180-4 SHA-256 body at the concrete `&[u8]`/`[u8; 32]` types.
 ///
-/// This calls the real `src/sha256.rs` body; the wrapper fixes the slice and array types and does
+/// This calls the real `src/crypto/sha256.rs` body; the wrapper fixes the slice and array types and does
 /// not restate the padding, the message schedule or the compression rounds.
 pub fn word_sha256(msg: &[u8]) -> [u8; 32] {
     sha256::sha256(msg)
@@ -1163,21 +1179,21 @@ pub fn word_sha256(msg: &[u8]) -> [u8; 32] {
 
 /// `sha256::sha256d`, the double SHA-256 composition, at the concrete `&[u8]`/`[u8; 32]` types.
 ///
-/// This calls the real `src/sha256.rs` `sha256d` body, which applies the real [`sha256::sha256`]
+/// This calls the real `src/crypto/sha256.rs` `sha256d` body, which applies the real [`sha256::sha256`]
 /// twice; the wrapper fixes the slice and array types and does not restate the composition.
 pub fn word_sha256d(msg: &[u8]) -> [u8; 32] {
     sha256::sha256d(msg)
 }
 
-/// RFC 8439. `src/chacha.rs` imports only `core`, so no mirror above is needed. Declared last so
+/// RFC 8439. `src/crypto/chacha.rs` imports only `core`, so no mirror above is needed. Declared last so
 /// no earlier extracted item's source span moves.
-#[path = "../../src/chacha.rs"]
+#[path = "../../src/crypto/chacha.rs"]
 pub mod chacha;
 
 /// `chacha::chacha20poly1305_encrypt`, the RFC 8439 section 2.8.1 AEAD seal, at the concrete
 /// `&[u8; 32]` key, `&[u8; 12]` nonce and `&[u8]` aad/plaintext types.
 ///
-/// This calls the real `src/chacha.rs` body; the wrapper fixes the slice and array types and does
+/// This calls the real `src/crypto/chacha.rs` body; the wrapper fixes the slice and array types and does
 /// not restate the one-time-key derivation, the keystream xor, the MAC-input padding or the tag
 /// append. The body is total (infallible, returning `Vec<u8>`), so this root has no `Result`.
 pub fn word_chacha20poly1305_encrypt(
@@ -1192,7 +1208,7 @@ pub fn word_chacha20poly1305_encrypt(
 /// `chacha::chacha20poly1305_decrypt`, the RFC 8439 section 2.8.2 AEAD open, at the same concrete
 /// key/nonce types.
 ///
-/// This calls the real `src/chacha.rs` body; the wrapper fixes the types and does not restate the
+/// This calls the real `src/crypto/chacha.rs` body; the wrapper fixes the types and does not restate the
 /// short-ciphertext refusal, the constant-time tag comparison or the keystream xor. It is the only
 /// partial entry point: it yields `Ok(Vec<u8>)` or `Err(chacha::Error)`.
 pub fn word_chacha20poly1305_decrypt(
@@ -1204,15 +1220,15 @@ pub fn word_chacha20poly1305_decrypt(
     chacha::chacha20poly1305_decrypt(key, nonce, aad, ciphertext_and_tag)
 }
 
-/// FIPS 197. `src/aes.rs` imports only `core`, so no mirror above is needed. Declared after
+/// FIPS 197. `src/crypto/aes.rs` imports only `core`, so no mirror above is needed. Declared after
 /// `chacha` so no earlier extracted item's source span moves.
-#[path = "../../src/aes.rs"]
+#[path = "../../src/crypto/aes.rs"]
 pub mod aes;
 
 /// `aes::aes128_encrypt_block`, the FIPS 197 section 6.1 cipher, at the concrete `&[u8; 16]` key
 /// and block types.
 ///
-/// This calls the real `src/aes.rs` body; the wrapper fixes nothing beyond naming the array types,
+/// This calls the real `src/crypto/aes.rs` body; the wrapper fixes nothing beyond naming the array types,
 /// which are already concrete. It does not restate the key expansion, SubBytes, ShiftRows,
 /// MixColumns or AddRoundKey steps.
 pub fn word_aes128_encrypt_block(
@@ -1225,7 +1241,7 @@ pub fn word_aes128_encrypt_block(
 /// `aes::aes128_decrypt_block`, the FIPS 197 section 6.2 equivalent inverse cipher, at the same
 /// concrete key and block types.
 ///
-/// This calls the real `src/aes.rs` body and does not restate InvShiftRows, InvSubBytes,
+/// This calls the real `src/crypto/aes.rs` body and does not restate InvShiftRows, InvSubBytes,
 /// InvMixColumns or the round-key order. The body is total (infallible, returning `[u8; 16]`), so
 /// this root has no `Result`.
 pub fn word_aes128_decrypt_block(
@@ -1250,7 +1266,7 @@ pub fn word_shake256(msg: &[u8], out: &mut [u8]) {
 
 // ── The selected map face: the ported incumbent, reached by `#[path]` ───────────────────────────
 //
-// `src/hashtrinity/` is the executed body of the registered selected map arm
+// `src/map/hashtrinity/` is the executed body of the registered selected map arm
 // (`examples/reg1/adapters/selected_map.rs`), so it is reached here by `#[path]` — the extracted
 // object and the executed object are the same source. The wrappers below fix only the key type
 // (`u64`, which `hashtrinity/algebra.rs` implements `Coord` for) and the table's default key store;
@@ -1269,7 +1285,7 @@ pub fn word_shake256(msg: &[u8], out: &mut [u8]) {
 //
 // The module is declared last, as `crypto`/`sha256`/`chacha`/`aes` are, so no earlier extracted
 // item's source span moves.
-#[path = "../../src/hashtrinity/mod.rs"]
+#[path = "../../src/map/hashtrinity/mod.rs"]
 pub mod hashtrinity;
 
 /// Real `hashtrinity::Table::<u64, i64>::new` — the stored-key constructor (`with_bits(3)`).

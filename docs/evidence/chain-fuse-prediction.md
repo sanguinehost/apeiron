@@ -9,7 +9,7 @@ norm2 of all 24 layers and the final norm (Q8 carrier, dpw 1): 23+24+1 = 48 disp
 `rms0_1` is one dispatch, 6.8 us. Same per-call cost; the 392 vs 7 is a count of 48 vs 1, not an anomaly.
 
 ## Lever 1 (A): swiglu + quant_{dff} -> one node `swiglu_quant`
-New module in `src/simt_nn/batch.rs`: one workgroup per position reads `gu` (gate, up), computes `a = (g / (1 + exp(-g))) * u` (same op
+New module in `src/gpu/nn/batch.rs`: one workgroup per position reads `gu` (gate, up), computes `a = (g / (1 + exp(-g))) * u` (same op
 sequence as `swiglu_batch_module`), stores `a` to workgroup shared (with a +1 float pad per 32 so the per-block quantize walk, stride 32 floats, is
 not a 32-way bank conflict), barrier, then the existing `quantize_at` body reads shared. The f32 `a` is bit-identical because it passes through
 shared memory (no fmul->fadd contraction into the quantizer's `sum += v`). `acts_buf` and `swiglu_batch_module` are deleted.
@@ -30,6 +30,6 @@ Same +1-per-32 pad. Bit-identical (layout only). 48 dispatches.
 Lever B (kv_seed into rope; kv_seed 94.8 us = 4.0 us/call, launch-bound; model saving 70 us [30, 95]) needs `prefill_glue.rs` as a 4th file (the module is deleted)
 and a second `spirv_storage_race.rs` list edit; it is the next task, not this one.
 
-Declared files: `src/simt_nn/batch.rs`, `src/gpu/decode/prefill.rs`, `tests/spirv_storage_race.rs`.
+Declared files: `src/gpu/nn/batch.rs`, `src/gpu/decode/prefill.rs`, `tests/spirv_storage_race.rs`.
 Bandwidth reference: RTX 5080, 256-bit GDDR7 at 30 Gbps (nvidia-smi max memory clock 15001 MHz, x2) = 960 GB/s (spec, not a copy-kernel measurement);
 L2 64 MB (spec). Nodes above 0.96 TB/s are served from L2, not DRAM.

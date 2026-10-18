@@ -22,12 +22,12 @@ use apeiron::format::quant::GGML_TYPE_Q4_K;
 use apeiron::gpu::decode::pack::{pack_proj_f32, pack_q4_k_raw, Proj};
 use apeiron::gpu::decode::state::dequant_rows;
 use apeiron::gpu::decode::{local_wg, make_step_named, rec_step, GpuCtx, Step};
-use apeiron::gpu::vulkan::*;
-use apeiron::simt::Carrier;
-use apeiron::simt_nn::{
+use apeiron::gpu::nn::{
     coopmat_gemm_bytes, coopmat_gemm_groups, coopmat_gemm_split_bytes, splitk_reduce_bytes,
     REDUCE_GX,
 };
+use apeiron::gpu::simt::Carrier;
+use apeiron::gpu::vulkan::*;
 use std::sync::Mutex;
 
 static VK_LOAD_LOCK: Mutex<()> = Mutex::new(());

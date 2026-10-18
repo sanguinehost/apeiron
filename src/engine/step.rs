@@ -13,7 +13,6 @@ use crate::format::quant;
 
 use super::chart::ffn::{projections_q8act, FfnScratch, ProjSource, ProjSpec};
 use super::chart::task::HeadTask;
-use super::dequant::dequant_row_fixed;
 use super::error::{
     TensorKey, N_BLK_PARTS, N_LAYER_PARTS, PART_OUTPUT, TENSOR_PART_BYTES, TENSOR_PART_LEN,
 };
@@ -22,12 +21,14 @@ use super::kern::lut::q8act_projection;
 use super::kern::lut::LUT_ROW_ALIGN;
 use super::loader::{opt_slice, HadamardMeta, PayloadRef};
 use super::mixer::AffineState;
-use super::value::round_shift_32;
 use super::{
-    argmax_fixed, fixed_vector_checksum, fwht_fixed, lm_head, rms_norm_fixed, AttnError, Engine,
+    argmax_fixed, fixed_vector_checksum, fwht_fixed, rms_norm_fixed, AttnError, Engine,
     EngineError, F32Error, FfnError, HadamardError, KvState, LmHeadError, MatvecError, MixerKind,
     NormError, RopeError, RopeTable, SamplerError, TensorEntry,
 };
+use crate::engine::num::dequant::dequant_row_fixed;
+use crate::engine::num::value::round_shift_32;
+use crate::engine::ops::lm_head;
 
 // Unchunked kernel: test-only `Sched::Sequential`; executing `Sched::Resident` is `par::matvec_rows_chunked`.
 #[cfg(test)]
@@ -1028,8 +1029,8 @@ impl Engine {
             up,
             down,
             n_ff,
-            super::par::row_chunk_budget(n_ff),
-            super::par::row_chunk_budget(n_embd),
+            crate::engine::ops::par::row_chunk_budget(n_ff),
+            crate::engine::ops::par::row_chunk_budget(n_embd),
             scratch,
         )
         .map_err(StepError::Ffn)
@@ -1103,8 +1104,8 @@ impl Engine {
             ffn_spec(ws[1].0, ws[1].1, idxs[1], n_ff),
             ffn_spec(ws[2].0, ws[2].1, idxs[2], n_embd),
             n_ff,
-            super::par::row_chunk_budget(n_ff),
-            super::par::row_chunk_budget(n_embd),
+            crate::engine::ops::par::row_chunk_budget(n_ff),
+            crate::engine::ops::par::row_chunk_budget(n_embd),
         )
     }
 
@@ -1281,11 +1282,11 @@ impl Engine {
             (Sched::Resident, KernelMode::Exact) => {
                 // One row chunk is exactly `lm_head_fixed`'s unchunked body; keep that leaf on
                 // the executing path for the single-chunk case and chunk only when it pays.
-                let budget = super::par::row_chunk_budget(vocab);
+                let budget = crate::engine::ops::par::row_chunk_budget(vocab);
                 if budget <= 1 {
                     lm_head::lm_head_fixed(t.ggml_type, raw, vocab, n_embd, x)
                 } else {
-                    match super::par::matvec_rows_chunked(
+                    match crate::engine::ops::par::matvec_rows_chunked(
                         t.ggml_type,
                         raw,
                         vocab,
@@ -1305,7 +1306,7 @@ impl Engine {
                 vocab,
                 n_embd,
                 x,
-                super::par::row_chunk_budget(vocab),
+                crate::engine::ops::par::row_chunk_budget(vocab),
             ) {
                 Ok(v) => Ok(v),
                 Err(e) => Err(LmHeadError::Matvec(e)),
@@ -1336,7 +1337,7 @@ impl Engine {
     /// This is the row-2 load-time float boundary for the norm addend. A negative, non-finite or
     /// out-of-`i64` epsilon refuses with [`StepError::BadConfig`].
     fn eps_fixed(&self) -> Result<i64, StepError> {
-        match crate::engine::fp::prim::eps_q32(self.config.rms_eps) {
+        match crate::engine::num::fp::prim::eps_q32(self.config.rms_eps) {
             Some(q) => Ok(q),
             None => Err(StepError::BadConfig(String::from("rms_eps"))),
         }
@@ -1402,13 +1403,13 @@ impl Engine {
         let folded = folded_activation(self.hadamard(), key, x)?;
         let activation: &[i64] = opt_slice(&folded).unwrap_or(x);
         let out = match (sched, mode) {
-            (Sched::Resident, KernelMode::Exact) => super::par::matvec_rows_chunked(
+            (Sched::Resident, KernelMode::Exact) => crate::engine::ops::par::matvec_rows_chunked(
                 ggml_type,
                 &self.resident()[at.off..at.off + at.len],
                 n_out,
                 n_in,
                 activation,
-                super::par::row_chunk_budget(n_out),
+                crate::engine::ops::par::row_chunk_budget(n_out),
             ),
             (Sched::Resident, KernelMode::Q8Act) => self.proj_q8act_quantified(
                 idx,
@@ -1417,7 +1418,7 @@ impl Engine {
                 n_out,
                 n_in,
                 activation,
-                super::par::row_chunk_budget(n_out),
+                crate::engine::ops::par::row_chunk_budget(n_out),
             ),
             #[cfg(test)]
             (Sched::Sequential, KernelMode::Exact) => matvec_fixed(
@@ -1492,7 +1493,7 @@ impl Engine {
             n_in,
             x,
             &specs,
-            super::par::row_chunk_budget(outs[0]),
+            crate::engine::ops::par::row_chunk_budget(outs[0]),
         )?;
         let mut out = out;
         assert!(out.len() == 3, "three projections");

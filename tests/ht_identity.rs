@@ -6,10 +6,10 @@
 //! whose `Coord::coord` is not injective, a coordinate match must be confirmed against the stored
 //! key, so two distinct keys with equal coordinates are two entries.
 //!
-//! `apeiron` re-exports only the `Stored`-key `Table` publicly (`apeiron::freq::Table`), so both
+//! `apeiron` re-exports only the `Stored`-key `Table` publicly (`apeiron::map::freq::Table`), so both
 //! cases exercise the full-key-confirmation path.
 
-use apeiron::freq::{Coord, Table};
+use apeiron::map::freq::{Coord, Table};
 use std::collections::HashMap;
 
 /// A key whose coordinate is deliberately non-injective: `2` and `3` both map to `1`. `Eq` compares

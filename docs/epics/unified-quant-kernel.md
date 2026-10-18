@@ -12,10 +12,10 @@ Merged epic record: intent, spec and plan in one file (see `docs/README.md`). Su
 
 ### Problem
 
-Quantisation level is reimplemented per carrier. `Carrier` (`src/simt/mod.rs:507`) is one enum with one
+Quantisation level is reimplemented per carrier. `Carrier` (`src/gpu/simt/mod.rs:507`) is one enum with one
 affine decode `w = d·q + m` per 32-block, yet the executing bodies branch on it in 11+ files
-(`src/engine/{mixer,attn,kern/gemm,chart/ffn}`, `src/simt/{gemv,dp4a,superblock}`, `src/gpu/decode/{pack,state,prefill}`,
-`src/simt_nn/{spec,attn_dp4a}`), and `src/spirv/` carries three GEMM sources
+(`src/engine/{mixer,attn,kern/gemm,chart/ffn}`, `src/gpu/simt/{gemv,dp4a,superblock}`, `src/gpu/decode/{pack,state,prefill}`,
+`src/gpu/nn/{spec,attn_dp4a}`), and `src/gpu/spirv/` carries three GEMM sources
 (`coopmat_gemm.comp`, `int8_coopmat_q8.comp`, `q8_tile.comp`). `tests/gpu_prefill_match.rs` has Q4 and Q8 arms only.
 A new level costs a new kernel, a new test arm and a new proof obligation.
 
@@ -70,7 +70,7 @@ python3 tools/rooting/retire_check.py --check
 
 ### Non-goals
 
-- New quantisation formats (K-quant superblock layouts beyond what `src/simt/superblock.rs` already carries; open question below).
+- New quantisation formats (K-quant superblock layouts beyond what `src/gpu/simt/superblock.rs` already carries; open question below).
 - Speed targets beyond not regressing; the 2.0× llama.cpp bar stays the programme's, not this epic's.
 - Model-architecture changes, KV-cache quantisation, activation quantisation formats.
 - Any claim about rustc/LLVM, the Vulkan driver or GPU hardware.
@@ -127,7 +127,7 @@ As in the intent. Spec constants (`OpSpecConstant`) are resolved by the driver a
 
 ### Open questions
 
-- Spec-constant specialisation vs one emitted module per `b` from one generator (`src/spirv/check.rs` already validates emitted modules): W2 picks by what the SPIR-V checker and the semantics model can already express.
+- Spec-constant specialisation vs one emitted module per `b` from one generator (`src/gpu/spirv/check.rs` already validates emitted modules): W2 picks by what the SPIR-V checker and the semantics model can already express.
 
 ## Plan — Unified carrier
 
@@ -141,10 +141,10 @@ See the intent's completion command. A wave closes when every task gate is green
 |---|---|---|---|---|---|
 | W0 | INF-CARRIERS: measure the prefill gains per carrier and model (running); inventory every per-carrier site | `docs/evidence/unified-carrier-inventory.md` | Sonnet lane | `rg`-based inventory script exit 0; table complete | a site removed from the list makes the count check red |
 | W1 | `b`-indexed decode and split lemma over `Spirv/Semantics.lean` | `proof/corpus/Spirv/Carrier.lean`, `proof/corpus/AxiomAudit.lean` | proof lane | `cd proof/corpus && lake build` | change the mask width: lemma red |
-| W2 | one `b`-parameterised GEMV (DP4A) body; `Dispatch.dpw = 8/b` proved | `src/simt/dp4a.rs`, `proof/extract/lib.rs`, `proof/corpus/Spirv/Dp4a.lean` | proof lane | `proof/regen.sh --check`; corpus build; `cargo test --lib simt` | `dpw` off by one: access-chain bound red |
+| W2 | one `b`-parameterised GEMV (DP4A) body; `Dispatch.dpw = 8/b` proved | `src/gpu/simt/dp4a.rs`, `proof/extract/lib.rs`, `proof/corpus/Spirv/Dp4a.lean` | proof lane | `proof/regen.sh --check`; corpus build; `cargo test --lib simt` | `dpw` off by one: access-chain bound red |
 | W2c | CPU chart face: the four `q8act_*_row_fast` kernels collapse into one decoder-parameterised accumulator (task `APEIRON-QUANT-UNIFY-W1-T1`, dispatched; record below) | `src/engine/chart/{mod,x86,portable}.rs` | worker lane | `cargo test --locked --lib engine::chart` byte-identical | one codec scale or min mutated: parity red |
-| W3 | one `b`-parameterised prefill GEMM replacing `q8_tile.comp`, `int8_coopmat_q8.comp`, `coopmat_gemm.comp` Q4/Q8 arms; Q2 instance as the thesis test | `src/spirv/coopmat_gemm.comp`, `src/gpu/decode/prefill.rs`, `tests/gpu_prefill_match.rs` | worker lane | `gpu_prefill_match` all arms; `gpu_ppl` ×3; paired pp512 | shift/mask broken: first-token mismatch |
-| W4 | F16/F32 as `b = 16/32` or a named exception, by measurement | `src/simt/gemv.rs`, `src/gpu/decode/pack.rs` | worker lane | paired table, all cells | wrong unpack: PPL red |
+| W3 | one `b`-parameterised prefill GEMM replacing `q8_tile.comp`, `int8_coopmat_q8.comp`, `coopmat_gemm.comp` Q4/Q8 arms; Q2 instance as the thesis test | `src/gpu/spirv/coopmat_gemm.comp`, `src/gpu/decode/prefill.rs`, `tests/gpu_prefill_match.rs` | worker lane | `gpu_prefill_match` all arms; `gpu_ppl` ×3; paired pp512 | shift/mask broken: first-token mismatch |
+| W4 | F16/F32 as `b = 16/32` or a named exception, by measurement | `src/gpu/simt/gemv.rs`, `src/gpu/decode/pack.rs` | worker lane | paired table, all cells | wrong unpack: PPL red |
 | W5 | delete per-carrier copies; per-carrier line and source counts before and after | per `retire_check` | lead | `python3 tools/rooting/retire_check.py --check` | removal with a live consumer: refused |
 
 W2 and W3 touch disjoint files. W1 gates both. W0 gates the plan rank of W3 and W4.
@@ -198,7 +198,7 @@ made by this epic; a measured Q4_K improvement is a separate optimization claim 
 | Decode | per-family block decoder yields groups; AVX2 lane primitives (`x86::dot32_ptr`, `q5_0_dot32_ptr`, `q4_k_block_dots`, `q4_k_window_dot_ptr`, `q6_k_half_dots`) are retained, not restated |
 | Value identity | every output byte-identical to the current fast rows and to `matvec_fixed`; the existing family parity tests are the oracle |
 | Fallback | non-finite weight scale, non-fused family, bound failure and non-multiple widths keep routing to `matvec_fixed`; the refusal/fallback contract is unchanged |
-| Extraction | `chart` is outside the extracted fragment (`src/engine/dequant.rs` and `src/engine/matvec.rs` are the extracted roots); `dequant.rs` must not change |
+| Extraction | `chart` is outside the extracted fragment (`src/engine/num/dequant.rs` and `src/engine/ops/matvec.rs` are the extracted roots); `dequant.rs` must not change |
 | Complexity | `O(n_in)` time, `O(1)` extra space per row, unchanged |
 
 ### Plan

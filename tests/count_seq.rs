@@ -4,7 +4,7 @@
 
 #![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
 
-use apeiron::freq::FreqMap;
+use apeiron::map::freq::FreqMap;
 use std::collections::HashMap;
 
 type F = FreqMap<u64, i64>;
