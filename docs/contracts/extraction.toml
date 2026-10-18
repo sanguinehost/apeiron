@@ -445,7 +445,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/layer/stage.rs"
-unextracted = 32
+unextracted = 29
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -615,7 +615,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/hashtrinity/algebra.rs"
-unextracted = 70
+unextracted = 68
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -635,7 +635,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/hashtrinity/freq.rs"
-unextracted = 45
+unextracted = 35
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -645,12 +645,12 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/hashtrinity/mod.rs"
-unextracted = 24
+unextracted = 19
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/hashtrinity/overflow.rs"
-unextracted = 24
+unextracted = 21
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -660,7 +660,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/hashtrinity/seed.rs"
-unextracted = 18
+unextracted = 10
 row = "EXTRACT-COVERAGE"
 
 [[debt]]

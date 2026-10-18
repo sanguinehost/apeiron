@@ -1464,6 +1464,10 @@ pub mod learn_port;
 // The Q32.32 linear-algebra primitives (`src/learn/solve/`), reached through `solve_port.rs`.
 #[path = "solve_port.rs"]
 pub mod solve_port;
+// The map body (`src/map/hashtrinity/`), already rooted at `crate::hashtrinity`; this file adds
+// only the monomorphic `word_*` roots, so no body is translated twice.
+#[path = "hashtrinity_port.rs"]
+pub mod hashtrinity_port;
 
 /// Mirror of `crate::learn::solve` for this extraction unit: `src/learn/grad/dense.rs` names
 /// `crate::learn::solve::q32::narrow`, which resolves to the `solve_port` copy of `q32`.

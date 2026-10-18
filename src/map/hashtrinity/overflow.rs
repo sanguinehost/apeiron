@@ -903,13 +903,19 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// `height ≤ 2·log2(len + 1) + 1`.
     #[doc(hidden)]
     pub fn overflow_height(&self) -> u32 {
-        self.overflow.as_ref().map_or(0, Overflow::height)
+        match &self.overflow {
+            Some(o) => o.height(),
+            None => 0,
+        }
     }
 
     /// The number of keys held in the overflow tree. Diagnostic.
     #[doc(hidden)]
     pub fn overflow_len(&self) -> usize {
-        self.overflow.as_ref().map_or(0, Overflow::len)
+        match &self.overflow {
+            Some(o) => o.len(),
+            None => 0,
+        }
     }
 
     /// The number of `TOMB` slots not yet reclaimed. Only a rebuild lowers it (every `remove` adds

@@ -1242,7 +1242,13 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
 
     /// The number of live keys: primary slots, side entries and overflow entries.
     pub fn len(&self) -> usize {
-        self.len + self.side.coords.len() + self.overflow.as_ref().map_or(0, Overflow::len)
+        // A `match`, not `Option::map_or(Overflow::len)`: a `fn` item argument is an arrow type,
+        // which the extraction's first-order boundary does not carry.
+        let overflow_len = match &self.overflow {
+            Some(o) => o.len(),
+            None => 0,
+        };
+        self.len + self.side.coords.len() + overflow_len
     }
     /// Whether the table holds no keys.
     pub fn is_empty(&self) -> bool {
