@@ -233,6 +233,12 @@ $EXTRACT_DIR/format_port.rs
 $EXTRACT_DIR/coord_port.rs
 $EXTRACT_DIR/fit_port.rs
 $EXTRACT_DIR/crypto_port.rs
+$EXTRACT_DIR/fold_finish_port.rs
+$REPO_DIR/src/learn/fold/finish/mod.rs
+$REPO_DIR/src/learn/fold/finish/plane.rs
+$REPO_DIR/src/learn/fold/finish/train.rs
+$REPO_DIR/src/learn/fold/run/convert.rs
+$REPO_DIR/src/learn/fold/run/transfer.rs
 $REPO_DIR/src/map/hashtrinity/side.rs
 $REPO_DIR/src/map/hashtrinity/overflow.rs
 $EXTRACT_DIR/Cargo.toml
@@ -481,6 +487,26 @@ run_extract() {
         --start-from crate::crypto_port::word_crypto_ecdsa_p384_verify \
         --start-from crate::crypto_port::word_crypto_rsa_pkcs1_sha256_verify \
         --start-from crate::crypto_port::word_crypto_bech32_convert_bits \
+        --start-from crate::fold_finish_port::word_finish_train_linear_new \
+        --start-from crate::fold_finish_port::word_finish_train_planes_new \
+        --start-from crate::fold_finish_port::word_finish_train_planes_linear \
+        --start-from crate::fold_finish_port::word_finish_train_planes_linear_mut \
+        --start-from crate::fold_finish_port::word_finish_train_layer_tunables_new \
+        --start-from crate::fold_finish_port::word_finish_train_layer_tunables_bias_scale \
+        --start-from crate::fold_finish_port::word_finish_train_layer_tunables_tuned \
+        --start-from crate::fold_finish_port::word_finish_train_tunables_new \
+        --start-from crate::fold_finish_port::word_finish_train_tunables_output_norm \
+        --start-from crate::fold_finish_port::word_finish_train_frozen_new \
+        --start-from crate::fold_finish_port::word_finish_train_schedule_new \
+        --start-from crate::fold_finish_port::word_finish_train_schedule_factor \
+        --start-from crate::fold_finish_port::word_finish_train_adam_zeros \
+        --start-from crate::fold_finish_port::word_finish_train_adam_len \
+        --start-from crate::fold_finish_port::word_finish_train_adam_is_empty \
+        --start-from crate::fold_finish_port::word_finish_train_adam_apply \
+        --start-from crate::fold_finish_port::word_finish_train_kl_mean \
+        --start-from crate::fold_finish_port::word_run_convert_decode_f16 \
+        --start-from crate::fold_finish_port::word_run_convert_decode_bf16 \
+        --start-from crate::fold_finish_port::word_run_convert_decode_f32 \
         --start-from crate::coord_port::word_identity_node_iter_next \
         --start-from crate::word_silu_fixed \
         --start-from crate::word_rms_norm_fixed \
