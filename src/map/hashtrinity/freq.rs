@@ -828,6 +828,7 @@ impl<V> FreqLine<V> {
     /// [`probe_limit`](Self::probe_limit)); `0` for a reserved frequency (resolved in the side
     /// store). Diagnostic — not part of the stable surface.
     fn probe_examinations(&self, f: u64) -> u32 {
+        let mut result = 0u32;
         if is_sentinel(f) {
             return 0;
         }
@@ -836,26 +837,37 @@ impl<V> FreqLine<V> {
         let limit = self.probe_limit();
         let mut g = self.home_group(p);
         let mut j = 0u32;
-        loop {
+        // One carried flag and one exit after the loop: a `return` inside the inner `while` is a
+        // continue-to-outer-loop shape the extraction refuses.
+        let mut done = false;
+        while !done {
             let base = g * GROUP;
             let mut matches = self.match_tag(g, tag);
             while matches != 0 {
                 let i = base + matches.trailing_zeros() as usize;
                 // SAFETY: base + lane < ctrl.len() = slots.len().
                 if unsafe { self.slots.get_unchecked(i).0 } == f {
-                    return j + 1;
+                    result = j + 1;
+                    done = true;
                 }
                 matches &= matches - 1;
             }
-            if self.match_empty(g) != 0 {
-                return j + 1;
+            if done {
+                // The tag walk already resolved this probe.
+            } else if self.match_empty(g) != 0 {
+                result = j + 1;
+                done = true;
+            } else {
+                j += 1;
+                if j >= limit {
+                    result = j;
+                    done = true;
+                } else {
+                    g = self.descend_group(p, j);
+                }
             }
-            j += 1;
-            if j >= limit {
-                return j;
-            }
-            g = self.descend_group(p, j);
         }
+        result
     }
 
     #[inline]

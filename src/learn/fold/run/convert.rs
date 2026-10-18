@@ -39,6 +39,14 @@
               bound-checked at the site (`e < 2^11`, a biased exponent in `1..=30`, a rounded \
               significand below `2048`)"
 )]
+#![allow(
+    clippy::cast_possible_wrap,
+    clippy::manual_let_else,
+    clippy::manual_range_contains,
+    reason = "the extraction fragment takes the single-exit match form and the site-guarded \
+              `u32` exponent cast; let-else and `Range::contains` rewrites change the MIR the \
+              pinned translator accepts"
+)]
 
 use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
 use crate::engine::chart::task::ChunkTask;

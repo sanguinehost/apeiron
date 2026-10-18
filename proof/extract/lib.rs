@@ -1493,5 +1493,8 @@ pub mod fold_finish_port;
 // The per-layer fold transfer (`src/learn/fold/layer/`).
 #[path = "ports/fold_layer_port.rs"]
 pub mod fold_layer_port;
+// The table's scoped-parallel scheduling and reservation seams (`src/map/table/parallel.rs`).
+#[path = "ports/table_port.rs"]
+pub mod table_port;
 /// Mirror of `crate::learn` for this extraction unit, carried in `fold_port.rs`.
 pub use fold_port::learn;

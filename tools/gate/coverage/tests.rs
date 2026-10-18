@@ -230,3 +230,12 @@ fn child_modules_resolve_with_paths_and_skip_tests() {
     );
     assert_eq!(normalise(Path::new("src/map/../a/./b.rs")), "src/a/b.rs");
 }
+
+#[test]
+fn textual_includes_splice_into_the_including_module() {
+    let inc = parse_includes(
+        "pub mod keyrep;\ninclude!(\"table/state.rs\");\ninclude!(\"table/locator.rs\");\nfn f() {}\n",
+    );
+    assert_eq!(inc, ["table/state.rs", "table/locator.rs"]);
+    assert_eq!(parse_includes("// include!(\"nope.rs\")\n"), Vec::<String>::new());
+}

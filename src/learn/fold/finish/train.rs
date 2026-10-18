@@ -72,6 +72,14 @@
               `narrow`; `gradients`/`apply`/`assemble` are each one linear composition over the \
               seven kinds."
 )]
+#![allow(
+    clippy::manual_let_else,
+    clippy::manual_unwrap_or,
+    clippy::manual_unwrap_or_default,
+    clippy::single_match,
+    reason = "the extraction fragment takes the single-exit match form; let-else, `if let` and \
+              combinator rewrites change the MIR the pinned translator accepts"
+)]
 
 use crate::learn::fold::finish::plane::{
     div, div_ne, mul, CodedPlane, LatentGrad, PlaneError, ONE,

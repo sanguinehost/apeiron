@@ -240,6 +240,7 @@ $REPO_DIR/src/learn/fold/finish/train.rs
 $REPO_DIR/src/learn/fold/run/convert.rs
 $REPO_DIR/src/learn/fold/run/transfer.rs
 $EXTRACT_DIR/ports/fold_layer_port.rs
+$EXTRACT_DIR/ports/table_port.rs
 $REPO_DIR/src/learn/fold/layer/mod.rs
 $REPO_DIR/src/learn/fold/layer/driver.rs
 $REPO_DIR/src/learn/fold/layer/tensor.rs
@@ -542,6 +543,14 @@ run_extract() {
         --start-from crate::hashtrinity_port::word_tregex_match_range \
         --start-from crate::hashtrinity_port::word_tregex_is_word \
         --start-from crate::hashtrinity_port::word_tregex_match_segs \
+        --start-from crate::table_port::word_table_parallel_phase_absorb \
+        --start-from crate::table_port::word_table_parallel_phase_total \
+        --start-from crate::table_port::word_table_parallel_reserve_handle_table \
+        --start-from crate::table_port::word_table_parallel_reserve_all_shards \
+        --start-from crate::table_port::word_table_parallel_reserve_placement_records \
+        --start-from crate::table_port::word_table_parallel_schedule_bins_with_regions \
+        --start-from crate::table_port::word_table_parallel_reserve_worker_outcomes \
+        --start-from crate::table_port::word_table_parallel_distribute_regions \
         --start-from crate::word_silu_fixed \
         --start-from crate::word_rms_norm_fixed \
         --start-from crate::word_rope_rotate_fixed \
@@ -665,6 +674,20 @@ run_extract() {
         --start-from crate::hashtrinity_port::word_freq_capacity \
         --start-from crate::hashtrinity_port::word_freq_overflow_len \
         --start-from crate::hashtrinity_port::word_freq_overflow_height \
+        --start-from crate::hashtrinity_port::word_alg_species \
+        --start-from crate::hashtrinity_port::word_alg_keep \
+        --start-from crate::hashtrinity_port::word_alg_set \
+        --start-from crate::hashtrinity_port::word_alg_merge_count \
+        --start-from crate::hashtrinity_port::word_alg_merge_link \
+        --start-from crate::hashtrinity_port::word_alg_put \
+        --start-from crate::hashtrinity_port::word_alg_has \
+        --start-from crate::hashtrinity_port::word_alg_table_count \
+        --start-from crate::hashtrinity_port::word_alg_fold \
+        --start-from crate::hashtrinity_port::word_freq_stream_with_capacity \
+        --start-from crate::hashtrinity_port::word_freq_insert_with \
+        --start-from crate::hashtrinity_port::word_freq_insert \
+        --start-from crate::hashtrinity_port::word_freq_longest_probe \
+        --start-from crate::hashtrinity_port::word_freq_primary_examinations \
         --start-from crate::fold_port::word_stats_budget_bytes_ceil \
         --start-from crate::fold_port::word_stats_budget_max_body_bpw \
         --start-from crate::fold_port::word_stats_lw_intensity \

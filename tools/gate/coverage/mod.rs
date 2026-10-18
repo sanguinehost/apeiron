@@ -531,6 +531,16 @@ fn load(root: &Path) -> Result<Inputs, String> {
                 queue.push((cp, cm));
             }
         }
+        // `include!("table/locator.rs")` splices the items into the including module, so the
+        // included file's definitions carry `<m>.<fn>` names, not a child module's.
+        for inc in parse_includes(&text) {
+            let dir = Path::new(&p).parent().unwrap_or(Path::new(""));
+            let ip = normalise(&dir.join(inc));
+            if root.join(&ip).is_file() && !modmap.contains_key(&ip) {
+                modmap.insert(ip.clone(), m.clone());
+                queue.push((ip, m.clone()));
+            }
+        }
     }
 
     let mut files = Vec::new();
@@ -715,6 +725,20 @@ pub(crate) fn parse_child_mods(text: &str) -> Vec<(Option<String>, String, bool)
             }
             path = None;
             test = false;
+        }
+    }
+    out
+}
+
+/// The textual includes that splice another file's items into this module.
+pub(crate) fn parse_includes(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let l = line.trim();
+        if let Some(rest) = l.strip_prefix("include!(\"") {
+            if let Some(e) = rest.find('"') {
+                out.push(rest[..e].to_string());
+            }
         }
     }
     out

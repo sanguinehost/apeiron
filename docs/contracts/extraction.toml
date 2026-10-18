@@ -585,7 +585,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/hashtrinity/algebra.rs"
-unextracted = 56
+unextracted = 49
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -605,7 +605,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/hashtrinity/freq.rs"
-unextracted = 35
+unextracted = 29
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -670,7 +670,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/table/getexact.rs"
-unextracted = 3
+unextracted = 1
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -680,12 +680,12 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/table/locator.rs"
-unextracted = 41
+unextracted = 11
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/table/parallel.rs"
-unextracted = 32
+unextracted = 24
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -695,7 +695,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/table/prepared.rs"
-unextracted = 9
+unextracted = 1
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -710,7 +710,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/table/state.rs"
-unextracted = 24
+unextracted = 0
 row = "EXTRACT-COVERAGE"
 
 [[debt]]

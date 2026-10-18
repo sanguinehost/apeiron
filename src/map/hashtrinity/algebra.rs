@@ -803,7 +803,12 @@ impl<K: Eq + Coord, V: Monoid + Clone, KS: KeyStore<K>> Table<K, V, KS> {
     /// `k`'s value, or the monoid identity if absent (a total read — never `None`).
     #[inline]
     pub fn fold(&self, k: &K) -> V {
-        self.get(k).cloned().unwrap_or_else(V::identity)
+        // A `match`, not `unwrap_or_else(V::identity)`: a `fn` item argument is an arrow type,
+        // which the extraction's first-order boundary does not carry.
+        match self.get(k) {
+            Some(v) => v.clone(),
+            None => V::identity(),
+        }
     }
 }
 
