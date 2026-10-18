@@ -459,9 +459,26 @@ fn load(root: &Path) -> Result<Inputs, String> {
     paths.sort();
 
     let mut modmap: BTreeMap<String, String> = BTreeMap::new();
-    for ex in ["lib.rs", "solve_port.rs", "learn_port.rs"] {
+    // Every extraction unit: a port file's `#[path]` modules are the real source files, and the
+    // generated defs carry the port's namespace (`grad_solve_port.gguf.write_header`).
+    for ex in [
+        "lib.rs",
+        "solve_port.rs",
+        "learn_port.rs",
+        "grad_solve_port.rs",
+        "hashtrinity_port.rs",
+        "map_table_port.rs",
+    ] {
         let prefix = ex.strip_suffix(".rs").filter(|_| ex != "lib.rs");
-        for (p, m) in parse_path_mods(&rd(&format!("proof/extract/{ex}"))?) {
+        // A port file that this revision does not carry contributes no modules; `lib.rs` is always
+        // present and fails the read like every other required input.
+        let Ok(text) = rd(&format!("proof/extract/{ex}")) else {
+            if ex == "lib.rs" {
+                return Err(format!("cannot read proof/extract/{ex}"));
+            }
+            continue;
+        };
+        for (p, m) in parse_path_mods(&text) {
             let m = match prefix {
                 Some(pre) => format!("{pre}.{m}"),
                 None => m,

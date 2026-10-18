@@ -514,28 +514,18 @@ unextracted = 25
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
-path = "src/learn/gguf.rs"
-unextracted = 6
-row = "EXTRACT-COVERAGE"
-
-[[debt]]
 path = "src/learn/grad/attn.rs"
 unextracted = 6
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/grad/model.rs"
-unextracted = 20
-row = "EXTRACT-COVERAGE"
-
-[[debt]]
-path = "src/learn/grad/model/tests.rs"
-unextracted = 19
+unextracted = 5
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/gram.rs"
-unextracted = 4
+unextracted = 2
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -546,11 +536,6 @@ row = "EXTRACT-COVERAGE"
 [[debt]]
 path = "src/learn/iq1s.rs"
 unextracted = 6
-row = "EXTRACT-COVERAGE"
-
-[[debt]]
-path = "src/learn/onebit_bits.rs"
-unextracted = 1
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -575,7 +560,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/solve/q32.rs"
-unextracted = 7
+unextracted = 5
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
