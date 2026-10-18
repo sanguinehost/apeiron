@@ -1,0 +1,16 @@
+# Code owners (CONTRIBUTING.md, "Enforcement"). Each security surface has its own entry, so a
+# subsystem maintainer can be named on one path without rights elsewhere. Later lines win.
+*                   @paperboygold
+/src/format/        @paperboygold
+/src/engine/        @paperboygold
+/src/gpu/           @paperboygold
+/src/map/           @paperboygold
+/src/crypto/        @paperboygold
+/proof/             @paperboygold
+/.github/           @paperboygold
+/.mailmap           @paperboygold
+/AGENTS.md          @paperboygold
+/CONTRIBUTING.md    @paperboygold
+/SECURITY.md        @paperboygold
+/LICENSE            @paperboygold
+/NOTICE             @paperboygold
